@@ -2975,7 +2975,8 @@ intra-doc 링크로 가리키고 있었다.
 한다. 어떤 빌드 입력이라도 작업 트리와 다른 이미지는 답을 내면 안 된다.
 
 **소유자/게이트.** `run-oracle.sh`의 스탬프 비교. 그 값은
-`src-digest.sh:oracle_src_digest`가 만들고, `Dockerfile`이 이미지 안에
+`src-digest.sh:oracle_stamp`이 만들고(2026-08-04 이전에는 파일만 해싱하는
+`oracle_src_digest`, 지금은 `oracle_file_digest`), `Dockerfile`이 이미지 안에
 찍고, `build.sh`가 태그로 쓴다.
 
 **우회 경로 전수.**
