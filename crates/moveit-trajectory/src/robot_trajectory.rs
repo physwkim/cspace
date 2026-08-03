@@ -369,7 +369,9 @@ impl<'m> RobotTrajectory<'m> {
     /// `reverse`.
     ///
     /// See the module-level "Deviations from upstream" note: this does not
-    /// invert velocity, since this port's `RobotState` carries none.
+    /// invert velocity, even though `RobotState` now carries it — nothing in
+    /// this crate's current scope needs `reverse()` on a velocity-populated
+    /// trajectory.
     pub fn reverse(&mut self) -> &mut Self {
         let reversed: VecDeque<_> = self.waypoints.drain(..).rev().collect();
         self.waypoints = reversed;
