@@ -60,6 +60,22 @@ pub trait StateSpace {
     fn sample_near<R: Rng>(&self, rng: &mut R, center: &Self::State, radius: f64) -> Self::State;
 }
 
+/// One sample from the standard normal distribution, via the Box-Muller
+/// transform.
+///
+/// Box-Muller produces two independent standard normals from two uniforms;
+/// only the cosine branch is used here since callers draw one coordinate at
+/// a time, so this costs one extra uniform draw beyond the theoretical
+/// minimum. That is irrelevant next to what it replaces (see
+/// [`RealVectorSpace::sample_near`]'s doc comment): the cost here is `O(1)`
+/// regardless of the space's dimension, where the rejection-sampling
+/// alternative was exponential in it.
+fn standard_normal<R: Rng>(rng: &mut R) -> f64 {
+    let u1: f64 = rng.random_range(f64::MIN_POSITIVE..1.0);
+    let u2: f64 = rng.random_range(0.0..1.0);
+    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+}
+
 /// Plain bounded `R^n` with the Euclidean metric: `distance` is the L2 norm
 /// of the difference, `interpolate` is a linear blend.
 ///
@@ -158,25 +174,26 @@ impl StateSpace for RealVectorSpace {
         }
 
         let dim = self.dimension();
-        // Uniform direction on the unit sphere, by rejection sampling in the
-        // unit box and normalizing: sampling directly on the sphere from
-        // per-axis uniform angles would bias toward the poles in dimension
-        // >= 3, but a uniformly-distributed point *within* the unit ball,
-        // once normalized to unit length, is uniformly distributed *on* the
-        // sphere by symmetry (the box and the ball it circumscribes are both
-        // invariant under coordinate permutation and sign flip, so no
-        // direction is favored). Points landing outside the ball, or at the
-        // origin (a zero-length vector has no direction), are rejected and
-        // redrawn.
-        let mut direction: Vec<f64>;
-        loop {
-            let candidate: Vec<f64> = (0..dim).map(|_| rng.random_range(-1.0..=1.0)).collect();
-            let norm_sq: f64 = candidate.iter().map(|v| v * v).sum();
-            if norm_sq > 1e-18 && norm_sq <= 1.0 {
-                direction = candidate;
-                break;
-            }
-        }
+        // Uniform direction on the unit sphere: independent standard-normal
+        // coordinates are spherically symmetric (their joint density
+        // depends only on the vector's norm, since the exponent in the
+        // product of Gaussian densities is `-(x_1^2 + ... + x_dim^2) / 2`),
+        // so normalizing such a vector to unit length gives a direction
+        // uniform on the sphere exactly. This costs exactly `dim` draws of
+        // `standard_normal` and no rejection.
+        //
+        // An earlier version of this method instead rejection-sampled in
+        // the unit box (draw uniformly in `[-1, 1]^dim`, keep only points
+        // inside the unit ball, normalize). That is also exactly uniform on
+        // the sphere, but its acceptance probability is the ball-to-box
+        // volume ratio, which collapses exponentially as `dim` grows: about
+        // 1 in 27 draws at `dim = 7`, 1 in 86,000 at `dim = 15`. This
+        // crate's planning groups reach 14-15 DOF
+        // (`fixtures/dual_arm_panda.urdf`, PR2's `arms_and_torso`), where
+        // that made `sample_near` cost tens to hundreds of milliseconds per
+        // call — see `sample_near_completes_at_planning_relevant_dimension`
+        // below, which is the regression test for this.
+        let mut direction: Vec<f64> = (0..dim).map(|_| standard_normal(rng)).collect();
         let norm = direction.iter().map(|v| v * v).sum::<f64>().sqrt();
         for v in &mut direction {
             *v /= norm;
@@ -351,5 +368,27 @@ mod tests {
             "expected about {expected:.3} of samples within half the radius \
              (uniform over the ball's volume), got {observed:.3}"
         );
+    }
+
+    /// Regression test for the rejection-sampling version of `sample_near`:
+    /// its acceptance probability collapses exponentially with dimension
+    /// (about 1 in 86,000 draws at `dim = 15`), so at the 14-15 DOF
+    /// planning groups this crate targets (`fixtures/dual_arm_panda.urdf`
+    /// is 14 DOF, PR2's `arms_and_torso` group is 15) it would make this
+    /// test take on the order of minutes to hours instead of milliseconds.
+    /// No wall-clock assertion here on purpose (see `Termination`'s doc
+    /// comment for why a duration comparison is the wrong tool for this):
+    /// the signal is that a `standard_normal`-based `sample_near` finishes
+    /// a normal test run at all, and a rejection-based one does not.
+    #[test]
+    fn sample_near_completes_at_planning_relevant_dimension() {
+        let bounds: Vec<(f64, f64)> = (0..15).map(|_| (-100.0, 100.0)).collect();
+        let s = RealVectorSpace::new(bounds).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(5);
+        let center = vec![0.0; 15];
+        for _ in 0..5000 {
+            let sample = s.sample_near(&mut rng, &center, 1.0);
+            assert!(s.distance(&center, &sample) <= 1.0 + 1e-9);
+        }
     }
 }
