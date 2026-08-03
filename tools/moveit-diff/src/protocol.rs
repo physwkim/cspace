@@ -876,6 +876,25 @@ pub struct ConstraintsResult {
 /// per-triangle-MTD underestimate §56.4 already flags as a general risk
 /// (not proven, only not yet ruled out for this pair family) is unmeasured.
 /// Diagnostic only, handed to p3-acm alongside the histogram itself.
+///
+/// Round 11 also settled whether the robot side's 2/3000 (0.067%) is a
+/// genuine tail or an undersampled reading of the self side's ~2% rate: at
+/// 30000 cases (same seed/fixture, 10x), self same-pair divergence is
+/// 532/30000 (1.77%) and robot is 14/30000 (0.047%) -- both rates held
+/// within a factor of 1.4 of their 3000-case values instead of converging
+/// toward each other, and the ~38x gap (30000-case ratio) matches the
+/// 3000-case sample's ~31x. If the robot side were really drawing from the
+/// same ~2% population, 30000 cases would read roughly 600 hits, not 14 --
+/// so this is a real rate difference intrinsic to the pair populations, not
+/// sampling noise, exactly the alternative PORTING-PLAN.md §67.2 raised
+/// (both sides share `accumulate_distance`, `parry.rs:1109`/`:1125` calling
+/// `:902`, per p3-acm). The 30000-case pair composition is consistent with
+/// the 3000-case read too: self is 440/532 (82.7%) bellow/torso plateau
+/// plus 92/532 (17.3%) spread over all eight `base_link`/caster-wheel
+/// pairs now (7-16 each, roughly even -- every caster wheel eventually
+/// shows up, not just the five seen at 3000 cases); robot's 14 are all
+/// `floor`/`*_gripper_*_finger_tip_link`, split 5/4/3/2 across the four
+/// fingers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DistancePair {
     /// `DistanceResultsData::link_names[0]`.
