@@ -381,8 +381,8 @@ const TOLERANCE: f64 = 1e-4;
 /// `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact` and
 /// `pr2_case_7552_depth_disagreement_ranks_a_different_pair` each hand-roll
 /// for their one mesh-shaped link of interest: `base_bellow_link` (see
-/// `pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced`, below) is a
-/// `<box>`,
+/// `pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates`,
+/// below) is a `<box>`,
 /// not a mesh, and a Mesh-only bound would silently read as a 0m radius --
 /// falsely making any nonzero depth for that pair look impossible instead of
 /// plausible.
