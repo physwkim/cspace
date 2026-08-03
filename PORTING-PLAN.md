@@ -1251,10 +1251,10 @@ id 3 = 264점). 이어서 `Arc::downgrade(shape)`를 `Weak::new()`로 바꾼
 `moveit_core/kinematic_constraints/kinematic_constraint.{hpp,cpp}`를
 이식했다: `JointConstraint`, `PositionConstraint`, `OrientationConstraint`,
 `VisibilityConstraint`(2라운드에서 완전 이식, §12.5), `KinematicConstraintSet`,
-`ConstraintEvaluationResult`. `utils.{hpp,cpp}`는 이식하지 않는다 — 거기
-함수 전부가 `moveit_msgs::msg::Constraints`나 `rclcpp::Node`를 인자로
-받거나 반환해서, D1에 따라 이 크레이트가 아니라 `moveit-ros`/
-`moveit-planning`의 몫이다. `moveit-scene`은 이번 라운드 범위 밖이다
+`ConstraintEvaluationResult`. `utils.{hpp,cpp}`는 이식하지 않는다 — 이번
+크레이트가 아니라 `moveit-ros`/`moveit-planning`의 몫이라는 판단은
+그대로지만, 실제로 함수 전부가 `moveit_msgs`/`rclcpp::Node`에 묶여 있는
+것은 아니다; 함수별 근거는 §12.7. `moveit-scene`은 이번 라운드 범위 밖이다
 (충돌 검사 백엔드가 아직 trait뿐이라 §11.5의 `moveit-collision`을
 막고 있다) — `VisibilityConstraint`의 원뿔-충돌 검사는 그럼에도 완전히
 끝났다, §12.5에서 보듯 `PlanningScene`이 아예 필요 없었기 때문이다.
@@ -1459,3 +1459,52 @@ panda seed 1로 300 케이스를 재실행했더니 `visibility_cone` 42건 전�
 2건이 아니라 panda·fanuc·dual_arm_panda·pr2 4건, 합계 8,804건 100%
 일치로 채워졌다.
 
+
+### 12.7 `kinematic_constraints/utils.{hpp,cpp}` 함수별 분류 — 이식 안 함, 목록만 (2라운드)
+
+과제 지시대로 이식하지 않는다. `moveit/kinematic_constraints/utils.hpp`가
+선언하는 15개 함수(오버로드 포함)와 `utils.cpp`가 그 뒤에 숨긴
+비공개 헬퍼 6개를 함수 단위로 분류했다. 기준: 시그니처에 `moveit_msgs`/
+`rclcpp::Node`가 있어도 그게 알맹이(연산 자체)에 꼭 필요하지 않고 그냥
+데이터를 담는 그릇이면 `portable`, ROS 파라미터 서버/노드/토픽 자체가
+알맹이면 `moveit-ros`.
+
+**공개 함수 (utils.hpp), 15개:**
+
+| 함수 | 분류 | 근거 |
+|---|---|---|
+| `mergeConstraints(Constraints&, Constraints&)` | portable | 관절 제약의 구간 겹침 + 가중평균 병합은 진짜 산술이다; `moveit_msgs` 타입은 벡터-오브-구조체 그릇일 뿐, `RCLCPP_ERROR`는 실패 경로 로깅으로 부수적이다. |
+| `countIndividualConstraints(Constraints&)` | portable | 벡터 길이 합, 사소하지만 msg 비의존적. 다만 우리 `KinematicConstraintSet`은 이미 `Vec<Constraint>` 하나라 이식할 실익이 거의 없다. |
+| `constructGoalConstraints(state, jmg, below, above)` | portable | `state.copyJointGroupPositions` + `jmg->getVariableNames()`로 활성 관절마다 `JointConstraint` 하나씩 만든다 — msg는 출력 그릇일 뿐. |
+| `constructGoalConstraints(state, jmg, tolerance)` | portable | 위 함수로 위임하는 얇은 오버로드. |
+| `updateJointConstraints(Constraints&, state, jmg)` | portable | jmg의 활성 관절 이름에 있으면 갱신, 없으면 실패 — 순수 로직, frame/header 없음. |
+| `constructGoalConstraints(link, PoseStamped, tol_pos, tol_angle)` (구 region) | portable | pose → 구 영역 `PositionConstraint` + rotation-vector `OrientationConstraint` 변환이 알맹이다. `header.frame_id`는 유지할 값(우리 쪽도 이미 평문 `&str` frame_id를 받는다), `header.stamp`(ROS 시각)는 이 함수도 그냥 통과시킬 뿐 아무 데도 안 쓰여서 이식 시 버릴 항목. |
+| `constructGoalConstraints(link, PoseStamped, Vec<f64> tol_pos, Vec<f64> tol_angle)` (박스 영역) | portable | 위와 동일한 근거. |
+| `updatePoseConstraint(Constraints&, link, PoseStamped&)` | portable | position/orientation 갱신 두 함수로 위임하는 얇은 변환. |
+| `constructGoalConstraints(link, QuaternionStamped, tolerance)` | portable | orientation-only 버전, 근거는 pose 버전과 동일. |
+| `updateOrientationConstraint(Constraints&, link, QuaternionStamped&)` | portable | 이름으로 찾아 갱신, `frame_id` 빈 값이면 실패(`RCLCPP_ERROR`는 부수적, `Result::Err`로 대체 가능). |
+| `constructGoalConstraints(link, Point ref, PointStamped goal, tolerance)` | portable | 구 영역 `PositionConstraint` 하나 조립 — 필드 대입뿐. |
+| `constructGoalConstraints(link, PointStamped goal, tolerance)` | portable | 위 함수로 위임(`reference_point = 0`). |
+| `updatePositionConstraint(Constraints&, link, PointStamped&)` | portable | `updateOrientationConstraint`와 같은 모양. |
+| `constructConstraints(rclcpp::Node::SharedPtr&, param, Constraints&)` | **moveit-ros** | 알맹이 자체가 `node->get_parameter`/`has_parameter`/`list_parameters` — ROS 파라미터 서버 읽기이지 기하/산술이 아니다. |
+| `resolveConstraintFrames(state, Constraints&)` | portable (단, 현재 moveit-rs에서 사실상 no-op) | 알맹이는 `getGlobalLinkTransform(robot_link).inverse() * transform`과 쿼터니언 합성 — 진짜 Eigen 기하 연산, `tf2::toMsg`/`fromMsg`는 형식 변환이라 부수적. **다만** 이 함수가 하는 일 전부가 "`link_name`이 부착 물체(attached body)/서브프레임을 가리킬 때 로봇 링크로 되돌린다"는 것인데, `moveit-state`의 `frame_transform`(§ 아래 참고)은 문서 주석에 그대로 적혀 있듯 attached body/subframe 폴백을 지원하지 않는다(`crates/moveit-state/src/state.rs:872-878`, "Upstream's further fallback to attached bodies and their subframes is out of scope for this task"). 즉 이 함수를 지금 이식해도 `robot_link->getName() == c.link_name`가 항상 참이 되어 버려 실질적으로 항상 `Ok(true)`만 반환하는 퇴화 함수가 된다 — attached body 지원이 먼저 들어와야 의미가 생긴다. |
+
+**비공개 헬퍼 (utils.cpp, 익명 네임스페이스), 6개 — 전부 `moveit-ros`:**
+`constructPoseStamped`, `constructConstraint`(Joint/Position/Orientation/
+Visibility 4개 오버로드), `collectConstraints`. 여섯 다 `rclcpp::Node::SharedPtr`의
+`get_parameter`/`has_parameter`/`list_parameters`를 직접 부른다 — 공개
+함수 `constructConstraints` 하나를 위한 내부 구현이고, 독자적으로
+이식할 이유가 없다.
+
+**분류 결과가 애초 예상과 다르다는 점을 그대로 적는다.** 과제 지시문은
+"기하 헬퍼 몇 개 정도가 portable 쪽에 떨어질 것"이라고 예상했지만,
+실측 결과는 반대다 — 15개 공개 함수 중 13개가 `portable`이고
+`moveit-ros`는 `constructConstraints` 하나(+ 그걸 지탱하는 비공개
+헬퍼 6개)뿐이다. 이유: 이 파일의 함수 대부분은 `moveit_msgs::msg::Constraints`를
+그저 출력 그릇으로만 쓸 뿐 ROS 노드/파라미터 서버/토픽 자체에 의존하지
+않는다 — 우리 크레이트는 애초에 이 메시지 타입 자체를 갖지 않고
+`JointConstraint`/`PositionConstraint`/... 같은 순수 Rust 값을 직접
+만들므로, 이 함수들의 "산술/조립 로직"은 msg 대신 우리 타입을 만들도록
+그대로 옮겨질 수 있다. ROS에 진짜로 묶인 건 파라미터 서버를 읽는
+`constructConstraints` 계열뿐이다. 이번 라운드는 이 목록만 남기고
+포팅하지 않는다 — 지시대로.
