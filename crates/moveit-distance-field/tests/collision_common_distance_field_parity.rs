@@ -17,23 +17,34 @@
 //! This is the central verification ask for this task: the posed sphere
 //! centres and radii `BodyDecomposition::from_shapes` +
 //! `PosedBodySphereDecomposition` produce for a real robot link
-//! (`base_bellow_link`, PR2's only link with a single non-mesh (`<box>`)
-//! collision shape at an identity origin -- panda/fanuc's own collision
-//! geometry is mesh-only, and `build_pr2_model` below builds with
-//! [`moveit_model::MeshSearchPaths::none`] the same way
-//! `collision_env_distance_field_parity.rs` does for pr2 (see that file's
-//! module doc for why: pr2's meshes are vendored under the gitignored
-//! `third_party/moveit_resources/pr2_description/` checkout but not yet
-//! copied into this workspace's committed `fixtures/meshes/` the way
-//! panda's and fanuc's are, and this test does not wire the latter two's
-//! mesh paths in either, so no robot here has any mesh-derived shape) across
-//! a group state, built the same way upstream's
+//! (`base_bellow_link`) across a group state, built the same way upstream's
 //! `addLinkBodyDecompositions` does but composed here entirely from
 //! primitives this port already has (`BodyDecomposition::from_shapes`,
 //! `PosedBodySphereDecomposition`, `RobotState::global_link_transform`) --
 //! see `collision_common_distance_field.rs`'s module doc for why the actual
 //! `DistanceFieldCacheEntry`/`addLinkBodyDecompositions` machinery is not
 //! ported this round.
+//!
+//! ## Why this link, and why no mesh search paths
+//!
+//! `base_bellow_link` is one of PR2's four links carrying a single `<box>`
+//! collision shape at an identity origin -- the others being
+//! `head_plate_frame` and the two `*_gripper_motor_accelerometer_link`s.
+//! Any of the four would serve, and 17 of PR2's links carry non-mesh
+//! collision geometry in total, so nothing in this test rests on the link
+//! being unique. Panda's and fanuc's own collision geometry is mesh-only,
+//! which is why the fixture is a PR2 link at all.
+//!
+//! `build_pr2_model` below passes [`moveit_model::MeshSearchPaths::none`]
+//! deliberately: this test's subject is a primitive shape, so mesh loading
+//! cannot change its result, and passing no search paths keeps it from
+//! depending on the mesh pipeline at all. That is a choice, not a
+//! workaround -- PR2's 18 collision meshes have been committed under
+//! `fixtures/meshes/` since `2db5d10`, and `verify-fixture-provenance.sh`
+//! checks them against the vendor source. The assert in
+//! [`link_body_decomposition_matches_the_oracle`] is what keeps the choice
+//! honest: point the fixture at a mesh-only link and it fails loudly,
+//! rather than silently decomposing an empty shape list.
 //!
 //! The fixture's 8 cases are 6 states drawn by the oracle's own
 //! `random_states` op (mimic- and bounds-consistent, matching
