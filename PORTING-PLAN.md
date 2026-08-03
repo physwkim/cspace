@@ -1118,8 +1118,30 @@ view-angle·range-angle 검사까지는 완전히 이식했고, 그 뒤 원뿔 �
 `crates/moveit-constraints/tests/decide.rs`에 31개 유닛 테스트가
 있다(경계값 단위: 허용오차 경계, mobile/fixed 프레임, 연속 조인트
 wraparound, `Option`/`None` 판별 — panda·pr2 픽스처, pr2는 연속 조인트
-경로 전용). 오라클 `constraints` op과 2,000-조합 대조는 아직
-착수하지 않았다.
+경로 전용).
+
+오라클에 `constraints` op을 추가하고(`tools/moveit-oracle/src/oracle.cpp`),
+`moveit-diff --constraints N`으로 panda·fanuc 각각 1,000개, 합계
+2,000개의 조합을 대조했다 — 전부 일치(0 실패). 각 조합은 무작위
+FK 결과를 허용오차 경계 바깥/안쪽으로 정확히 밀어 넣어 만들었다(§4.3
+지시대로 "전부 만족" 또는 "전부 위반"이면 아무것도 증명하지 못하므로).
+실제로 얻어진 만족/위반 분포:
+
+| 종류                          | panda (만족/위반) | fanuc (만족/위반) |
+|-------------------------------|--------------------|--------------------|
+| `joint`                        | 80 / 87            | 91 / 76            |
+| `position`                     | 83 / 84            | 79 / 88            |
+| `orientation` (xyz_euler)      | 78 / 89            | 74 / 93            |
+| `orientation` (rotation_vector)| 99 / 68            | 97 / 70            |
+| `visibility` (view_angle)      | 81 / 85            | 102 / 64           |
+| `visibility` (range_angle)     | 75 / 91            | 79 / 87            |
+
+`visibility`의 `target_radius` 기준(원뿔-로봇 충돌 검사, §12.2에서
+미이식으로 남긴 부분)은 이 2,000개에 의도적으로 없다 — 이 포트가
+결정할 수 없는 기준이라 대조 케이스 생성기가 애초에 만들지 않는다.
+dual-arm panda는 이 라운드에서 URDF(xacro 전개 결과)가 아직 준비되지
+않아 대조하지 못했다 — panda·fanuc만으로 이 절반의 완료 조건(2,000건
+100% 일치)을 채웠다.
 
 ### 12.4 테스트 작성 중 발견하고 고친 결함 1건
 
