@@ -15,7 +15,7 @@ use std::fs;
 
 use moveit_constraints::{
     Constraint, JointConstraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
-    select_default_sampler,
+    SubgroupSolver, select_default_sampler,
 };
 use moveit_geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
 use moveit_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
@@ -122,7 +122,11 @@ fn unresolvable_subgroup_name_is_an_error() {
         "panda_arm_hand",
         &[],
         None,
-        vec![("no_such_subgroup".to_string(), solver)],
+        vec![SubgroupSolver {
+            group_name: "no_such_subgroup".to_string(),
+            solver,
+            subgroup_solvers: vec![],
+        }],
         1,
     );
     match result {
@@ -481,7 +485,11 @@ fn subgroup_recursion_wraps_the_winning_subgroup_candidate_in_a_union_named_for_
         "panda_arm_hand",
         &constraints,
         None,
-        vec![("hand".to_string(), hand_solver)],
+        vec![SubgroupSolver {
+            group_name: "hand".to_string(),
+            solver: hand_solver,
+            subgroup_solvers: vec![],
+        }],
         1,
     )
     .unwrap()
@@ -497,5 +505,93 @@ fn subgroup_recursion_wraps_the_winning_subgroup_candidate_in_a_union_named_for_
         "panda_arm_hand",
         "the subgroup candidate must come back wrapped in a union named for panda_arm_hand, \
          not leak through still named for its subgroup"
+    );
+}
+
+#[test]
+fn subgroup_recursion_two_levels_deep_resolves_through_both_levels() {
+    // None of panda/fanuc/dual-arm panda nests a group two subgroup-levels
+    // deep with a solver at the bottom (see this crate's
+    // constraint_sampler_manager module doc comment), so this builds a
+    // synthetic `top` -> subgroup `mid` -> subgroup `leaf` hierarchy on
+    // panda's own links via `SrdfModel::parse_str`, no fixture file added.
+    // `leaf` is a real chain (`panda_link6` -> `panda_link8`, covering
+    // revolute joint7 and the fixed joint8) so it can carry a real IK
+    // candidate; `mid` and `top` contribute no links of their own, only the
+    // nested subgroup.
+    let urdf_path = fixture_path("panda.urdf");
+    let urdf_xml = fs::read_to_string(&urdf_path).expect("read panda.urdf");
+    let urdf = urdf_rs::read_file(&urdf_path).expect("parse panda.urdf");
+    // Mirrors panda.srdf's own virtual_joint: without it "world" isn't a
+    // resolvable frame, and IkConstraintSampler::new's base_frame check
+    // (ik_sampler.rs) rejects every candidate before the tip-frame check
+    // this test actually means to exercise ever runs.
+    let srdf_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<robot name="panda">
+  <virtual_joint child_link="panda_link0" name="virtual_joint" parent_frame="world" type="floating"/>
+  <group name="leaf">
+    <chain base_link="panda_link6" tip_link="panda_link8"/>
+  </group>
+  <group name="mid">
+    <group name="leaf"/>
+  </group>
+  <group name="top">
+    <group name="mid"/>
+  </group>
+</robot>"#;
+    let srdf = SrdfModel::parse_str(srdf_xml).expect("parse synthetic top/mid/leaf SRDF");
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("build model with synthetic top/mid/leaf groups");
+
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Sphere(Sphere::new(0.1).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    let constraints = vec![Constraint::Position(pc)];
+
+    // `mid`'s own direct solver's tip frame deliberately does not match
+    // `panda_link8`, so Step B at the `mid` level cannot satisfy the
+    // constraint by itself — only recursing one level further, into `leaf`,
+    // can. If Step C dropped `mid`'s own nested `subgroup_solvers` (the bug
+    // the `SubgroupSolver` tree replaces, see this crate's
+    // constraint_sampler_manager module doc comment), `mid` would have
+    // nothing left to recurse into, `mid` would return `None`, and so would
+    // `top`.
+    let mid_solver: Box<dyn KinematicsSolver> = Box::new(FakeTip::new("panda_link0"));
+    let leaf_solver: Box<dyn KinematicsSolver> = Box::new(FakeTip::new("panda_link8"));
+
+    let sampler = select_default_sampler(
+        &model,
+        "top",
+        &constraints,
+        None,
+        vec![SubgroupSolver {
+            group_name: "mid".to_string(),
+            solver: mid_solver,
+            subgroup_solvers: vec![SubgroupSolver {
+                group_name: "leaf".to_string(),
+                solver: leaf_solver,
+                subgroup_solvers: vec![],
+            }],
+        }],
+        1,
+    )
+    .unwrap()
+    .expect("depth-2 recursion (top -> mid -> leaf) must resolve the position constraint");
+
+    assert_eq!(
+        sampler.joint_model_group().name(),
+        "top",
+        "the depth-2 candidate must come back wrapped for the outermost group, top"
     );
 }

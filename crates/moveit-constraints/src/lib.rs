@@ -267,7 +267,7 @@ mod set;
 pub mod utils;
 mod visibility;
 
-pub use constraint_sampler_manager::select_default_sampler;
+pub use constraint_sampler_manager::{SubgroupSolver, select_default_sampler};
 pub use ik_sampler::{IkConstraintSampler, IkConstraintSamplerAdapter, IkSamplingPose};
 pub use joint::JointConstraint;
 pub use orientation::{OrientationConstraint, OrientationTolerance};
