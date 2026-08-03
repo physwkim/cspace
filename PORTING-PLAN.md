@@ -8535,3 +8535,105 @@ collision_distance_field_types.rs:1263  §97.3 → §92 (전수 재고)
 **읽지 않은 절 번호를 인용하지 마라.** 아직 쓰이지 않은 절을 가리켜야
 하면 번호 대신 내용을 적고, 번호는 다음 라운드 브리프가 알려 준
 뒤에 넣어라.
+
+## 100. p1-joints 라운드 13 머지 — 두 경계가 물기 시작했다
+
+4커밋(`1eabb2b`, `5430616`, `79d8b03`, `2c712e0`), `moveit-kinematics`·
+`moveit-state`(테스트만)·`tools/moveit-diff`, 테스트 +6.
+
+### 100.1 두 게이트 다 문다
+
+§93.1에서 `>`를 `>=`로 바꿔도 31/31이 통과한다고 적었다. 머지된
+트리에서 다시 쟀다:
+
+```
+pose   gate > -> >=   33 tests: 32 passed, 1 failed
+                      ik_cache::tests::pose_gate_rejects_exactly_at_the_threshold_and_inserts_one_ulp_past_it
+config gate > -> >=   33 tests: 32 passed, 1 failed
+                      ik_cache::tests::config_gate_rejects_exactly_at_the_threshold_and_inserts_one_ulp_past_it
+```
+
+두 경계 다 문다. 담당이 두 게이트를 서로 다른 방식으로 만든 것도
+근거가 있다 — pose 쪽은 `pose_distance`가 `.norm()`(sqrt)을 통과해
+ULP 간격이 보존되지 않으므로 **임계값 쪽을** 1 ULP 밀었고, config
+쪽은 `config_distance2`에 제곱근이 없으므로 **입력 쪽을** 밀었다.
+`cart_to_jnt.rs:313`의 형태를 그대로 쓰라고 했는데 그대로 쓰면 안 되는
+이유를 찾아 낸 것이다.
+
+### 100.2 `IK_DEGENERATE_EPS`에 측정된 근거가 붙었다
+
+상류에 대응 개념이 없다는 것(`kdl_kinematics_plugin.cpp`에
+`degenerate` 0건)을 확인하고, 이 도구의 선택임을 명시한 뒤 2952건의
+성공한 `panda_arm` 해에 대해 케이스별 elementwise max-`|solved − seed|`를
+뽑았다. **최솟값 `3.414642e-01`, `1e-6`보다 5.5자리 위다.**
+
+건강한 sweep에서는 이 카운터가 절대 오르지 않는다는 뜻이고, 그것이
+의도다 — 이 상수가 잡으려는 것은 "반복하지 않고 시드를 그대로
+돌려주는 솔버"이지 정상 수렴이 아니다. 상수가 `1e-6`~`1e-2` 어디에
+있어도 같은 헤드룸이라는 것까지 적었다.
+
+중복돼 있던 인라인 검사를 `is_degenerate_from_seed`로 뽑아내고 테스트
+4개를 붙였다. 무는지 내가 다시 쟀다:
+
+```
+IK_DEGENERATE_EPS 1e-6 -> 1e2    21 tests: 19 passed, 2 failed
+  is_degenerate_from_seed_tests::the_smallest_measured_real_movement_does_not_read_as_degenerate
+  is_degenerate_from_seed_tests::one_joint_moving_past_the_threshold_is_enough_to_disqualify_the_whole_solution
+```
+
+담당이 보고한 "4개 중 2개가 잡는다"와 정확히 같다. 이전에는 0개였다.
+
+### 100.3 `invariants.rs` 4건 — 둘은 진짜 노이즈, 둘은 비트 동일
+
+§85.3대로 상수 하나씩 이분했다.
+
+```
+sin() 사이트   1e-12 통과 / 1e-15 실패, 실제 차 ~2.22e-14
+cos() 사이트   1e-12 통과 / 1e-15 실패, 실제 차 ~3.22e-14
+transform      1e-12 · 1e-15 · 0.0 전부 통과 — 비트 동일
+norm_sqr_after 1e-12 · 1e-15 · 0.0 전부 통과 — 비트 동일
+```
+
+앞 둘은 진짜 반올림 노이즈이고 `1e-9`가 4.5자리 위다. 상수를 바꾸지
+않은 판단이 맞다.
+
+**뒤 둘은 다르다.** 비트 동일인데 `epsilon = 1e-9`로 남아 있다. 같은
+라운드에 p3-distance-field는 똑같은 상황(`sphere.radius`가 `0.2`와 비트
+동일)에서 `assert_eq!`로 바꿨다(`94708cb`, §99.4). **한 라운드 안에서
+두 패널이 같은 상황을 다르게 처리했다.** 비트 동일이 근거로 적힌
+사이트는 `assert_eq!`가 맞다 — 그래야 그 정확성에 기대고 있다는
+사실이 코드에 드러나고, 나중에 누가 허용치를 만질 여지가 없다.
+다음 라운드에 바꾼다.
+
+담당이 `transform` 사이트가 비트 동일인 **이유**까지 짚은 것은
+좋다(`harmonize_positions`가 링크 변환을 dirty로 표시하지 않으므로
+`update()`가 캐시된 값을 그대로 돌려준다). 이 입력의 우연이 아니라
+구조적이다.
+
+### 100.4 커버리지 36건은 내가 확인하지 못했다
+
+`ik_cache.hpp`가 따로 없다는 것은 확인했다 — `moveit2` 체크아웃에
+`cached_ik_kinematics_plugin.hpp` 하나뿐이다. 11/36에서 25건이 전부
+이유를 갖는다는 것도 목록으로 적혔다.
+
+**36을 재현하지 못했다.** 내 계수기는 `public:` 블록 안에서 `(`가 있는
+선언 줄을 세어 41을 내는데, 그중 7건이 다음 줄로 이어진 시그니처의
+연속 줄, 4건이 doc 주석 본문, 3건이 인라인 본문 안이다. 빼면 27이
+되고 36이 되지 않는다. **36이 틀렸다는 뜻이 아니라 내가 못 셌다는
+뜻이다.**
+
+§96.5에서 p3-distance-field에 요구하고 §99.3에서 받은 것과 같은 것을
+요구한다 — **세는 기준을 한 줄로 적어라.** 생성자·소멸자, `= delete`
+선언, `Options`/`Pose`의 public 데이터 멤버, 여러 줄에 걸친
+시그니처를 각각 어떻게 세는지. 기준이 적혀 있으면 다음 라운드에
+대조할 수 있다.
+
+### 100.5 두 머지 후 실측
+
+§99와 이 절의 두 브랜치를 연달아 머지한 트리에서 쟀다:
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1081/1081**
+(1073 + 2 + 6, 대사 일치), `cargo test --doc --workspace` 통과,
+`check-*.sh` 3건 OK, `verify-fixture-provenance.sh` OK,
+`verify-continuous-reseed-wrap.sh` OK, `verify-fixture-replay.sh`
+**30/30 identical**.
