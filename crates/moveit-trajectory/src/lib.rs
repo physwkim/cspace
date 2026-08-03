@@ -36,6 +36,194 @@
 //!   free functions — the convenience entry points that wrap
 //!   [`time_optimal_trajectory_generation`]/[`ruckig_smoothing`]. See that
 //!   module's doc comment for which of the five are ported.
+//!
+//! # Symbol audit: every public symbol under `trajectory_processing/include/`
+//!
+//! Re-run by re-reading the headers fresh, not by inferring from what is
+//! already ported. `ruckig_traj_smoothing.h`, `time_optimal_trajectory_generation.h`,
+//! `time_parameterization.h` and `trajectory_tools.h` are all deprecated
+//! auto-generated forwarding shims to the `.hpp` of the same stem (`#pragma
+//! message(".h header is obsolete...")`, then one `#include`); no independent
+//! content, so only the four `.hpp` files carry real symbols. `ported as
+//! <symbol>` gives the Rust name; `D-decision excludes it` names the
+//! decision; `unported` gives the reason it is not (yet, or ever) ported.
+//!
+//! `MOVEIT_CLASS_FORWARD(TimeParameterization)`/
+//! `MOVEIT_CLASS_FORWARD(TimeOptimalTrajectoryGeneration)` — both unported:
+//! the macro expands to `*Ptr`/`*ConstPtr` `std::shared_ptr` typedefs: this
+//! port has no shared-ownership handle to name for either type.
+//!
+//! ## `time_parameterization.hpp`
+//!
+//! - `TimeParameterization` (abstract base, 3 pure-virtual `computeTimeStamps`
+//!   overloads + defaulted special members) — not ported; see this crate's
+//!   own "Not ported: `TimeParameterization`" doc section on
+//!   [`time_optimal_trajectory_generation`] for the full reasoning (one
+//!   implementor, zero polymorphic call sites anywhere upstream, and the
+//!   third overload is D1-blocked regardless).
+//!
+//! ## `time_optimal_trajectory_generation.hpp`
+//!
+//! - `DEFAULT_PATH_TOLERANCE` (constant) — ported as [`DEFAULT_PATH_TOLERANCE`].
+//! - `LimitType` (enum), `LIMIT_TYPES` (map) — D-decision excludes both: their
+//!   only upstream use is formatting the `velocity_`/`acceleration_` prefix
+//!   in `verifyScalingFactor`'s `RCLCPP_WARN` message
+//!   (`time_optimal_trajectory_generation.cpp:1290-1310`), and this crate
+//!   carries no `RCLCPP_WARN` calls at all (see
+//!   [`time_optimal_trajectory_generation`]'s "Out of scope" note) —
+//!   [`time_optimal_trajectory_generation`]'s private `verify_scaling_factor`
+//!   is ported without a `LimitType` parameter because it has nothing left
+//!   to do with one.
+//! - `PathSegment` (abstract base: `getLength`/`position_`/`getConfig`/
+//!   `getTangent`/`getCurvature`/`getSwitchingPoints`/`clone`, pure virtual
+//!   except `getLength`) — collapsed into the closed sum type
+//!   `path_segment::PathSegment` (a `Linear`/`Circular` [`Clone`]-derived
+//!   enum, not virtual dispatch; `pub(crate)`, hence plain code text rather
+//!   than a doc link here); see that module's own doc comment for why.
+//!   `getLength`/`position_`/`getConfig`/`getTangent`/`getCurvature`/
+//!   `getSwitchingPoints` ported as `PathSegment::length`/`position`/
+//!   `config`/`tangent`/`curvature`/`switching_points`, all `pub(crate)` —
+//!   see the module doc's note that nothing in it is reachable from outside
+//!   the crate upstream either. `clone` (virtual) is subsumed by the derived
+//!   [`Clone`] impl. `LinearPathSegment`/`CircularPathSegment` are not
+//!   declared in this header at all (`.cpp`-only,
+//!   `time_optimal_trajectory_generation.cpp`) — ported as
+//!   `path_segment::circular::Circular`/`path_segment::linear::Linear` (both
+//!   private modules, undocumented in this audit's header-symbol scope
+//!   since they carry no header declaration to audit against).
+//! - `Path` (class) — ported as [`Path`]:
+//!   - `create` (static, `std::optional<Path>`) — ported as [`Path::create`]
+//!     (`Result<Self>`, per this round's task instruction to keep failure a
+//!     value rather than a panic).
+//!   - Copy constructor — subsumed by `#[derive(Clone)]` on [`Path`] (a
+//!     consequence of `path_segment::PathSegment` being a plain enum instead
+//!     of a `Vec<Box<dyn Trait>>`, which needs no hand-written deep copy).
+//!   - `getLength`/`getConfig`/`getTangent`/`getCurvature` — ported as
+//!     [`Path::length`]/[`Path::config`]/[`Path::tangent`]/[`Path::curvature`].
+//!   - `getNextSwitchingPoint`/`getSwitchingPoints` — ported as
+//!     `Path::next_switching_point`/`Path::switching_points`, both
+//!     `pub(crate)` rather than `pub`: [`crate::trajectory::Trajectory::create`]
+//!     is the only caller anywhere in this crate, same as upstream (only
+//!     `Trajectory::getNextSwitchingPoint` calls the `Path` equivalent), so
+//!     nothing needs the wider surface — narrower than upstream's fully
+//!     public method, not a gap.
+//!   - Default constructor (private upstream, "use `create` instead") — no
+//!     Rust equivalent exists either; [`Path::create`] is [`Path`]'s only
+//!     constructor.
+//!   - `getPathSegment` (private) — ported as the private
+//!     `Path::segment_at`-equivalent lookup inlined at each of the four
+//!     public methods' call sites in `path.rs`, rather than kept as one
+//!     separate function; behaviourally identical, no upstream call site
+//!     outside those same four methods to preserve a shared name for.
+//! - `Trajectory` (class) — ported as [`Trajectory`]:
+//!   - `create` (static, `std::optional<Trajectory>`) — ported as
+//!     [`Trajectory::create`] (`Result<Self>`, same optional-to-Result
+//!     mapping as [`Path::create`]).
+//!   - `getDuration`/`getPosition`/`getVelocity`/`getAcceleration` — ported
+//!     as [`Trajectory::duration`]/[`Trajectory::position`]/
+//!     [`Trajectory::velocity`]/[`Trajectory::acceleration`].
+//!   - Private constructor, `TrajectoryStep` (nested struct) — ported as
+//!     `trajectory.rs`'s own private `TrajectoryStep`.
+//!   - `getNextSwitchingPoint`/`getNextAccelerationSwitchingPoint`/
+//!     `getNextVelocitySwitchingPoint`/`integrateForward`/`integrateBackward`/
+//!     `getMinMaxPathAcceleration`/`getMinMaxPhaseSlope`/
+//!     `getAccelerationMaxPathVelocity`/`getVelocityMaxPathVelocity`/
+//!     `getAccelerationMaxPathVelocityDeriv`/`getVelocityMaxPathVelocityDeriv`
+//!     — ported as `trajectory.rs`'s private `next_switching_point`/
+//!     `next_acceleration_switching_point`/`next_velocity_switching_point`/
+//!     `integrate_forward`/`integrate_backward`/`min_max_path_acceleration`/
+//!     `min_max_phase_slope`/`acceleration_max_path_velocity`/
+//!     `velocity_max_path_velocity`/`acceleration_max_path_velocity_deriv`/
+//!     `velocity_max_path_velocity_deriv` — the numerics transcribed as-is
+//!     per this round's task instruction, not rewritten.
+//!   - `getTrajectorySegment` (with its `cached_time_`/
+//!     `cached_trajectory_segment_` forward-scan cache) — ported as the
+//!     private `Trajectory::segment_index`, *without* the cache: see
+//!     `segment_index`'s own doc comment for why dropping it is behaviour
+//!     preserving (`partition_point` over a list already sorted by
+//!     construction finds the identical index the cache's linear scan would
+//!     have).
+//! - `TimeOptimalTrajectoryGeneration` (class) — the constructor and three
+//!   `computeTimeStamps` overloads ported as free functions in
+//!   [`time_optimal_trajectory_generation`]; see that module's own "Not
+//!   ported: `TimeParameterization`" and "Out of scope" doc sections for
+//!   the third (`moveit_msgs::msg::JointLimits`) overload's D1 exclusion,
+//!   and "Deviations from upstream" for every behavioural transcription
+//!   choice below:
+//!   - Constructor (`path_tolerance`/`resample_dt`/`min_angle_change`,
+//!     defaulted) — ported as [`time_optimal_trajectory_generation::TotgOptions`].
+//!   - `computeTimeStamps` (scaling-only) — ported as
+//!     [`time_optimal_trajectory_generation::compute_time_stamps`].
+//!   - `computeTimeStamps` (`velocity_limits`/`acceleration_limits` maps) —
+//!     ported as
+//!     [`time_optimal_trajectory_generation::compute_time_stamps_with_limits`].
+//!   - `computeTimeStamps` (`std::vector<moveit_msgs::msg::JointLimits>`) —
+//!     D-decision excludes it: D1, thin wrapper around the overload above.
+//!   - `doTimeParameterizationCalculations` (private) — ported as
+//!     [`time_optimal_trajectory_generation`]'s private
+//!     `do_time_parameterization_calculations`.
+//!   - `hasMixedJointTypes` (private) — ported as the `pub` standalone
+//!     [`time_optimal_trajectory_generation::has_mixed_joint_types`]; wider
+//!     visibility than upstream's private method, deliberately: see that
+//!     module's "Deviations from upstream" note on why (not called from
+//!     `do_time_parameterization_calculations` here, same as upstream only
+//!     ever using it for a dropped `RCLCPP_WARN`, but exposed for a caller
+//!     — or a test — that wants the diagnostic directly).
+//!   - `verifyScalingFactor` (private) — ported as
+//!     [`time_optimal_trajectory_generation`]'s private `verify_scaling_factor`
+//!     (no `LimitType` parameter; see that enum's entry above).
+//! - `totgComputeTimeStamps` (free function, num-waypoints resampling) —
+//!   ported as
+//!   [`time_optimal_trajectory_generation::totg_compute_time_stamps`]; see
+//!   that function's own doc comment for the one upstream call-ordering bug
+//!   (a discarded first-call failure) this port does not reproduce.
+//!
+//! ## `trajectory_tools.hpp`
+//!
+//! See [`trajectory_tools`]'s own module doc for the full citation of each;
+//! summarized here for audit completeness:
+//!
+//! - `isTrajectoryEmpty` — D-decision excludes it: D1 (`moveit_msgs::msg::
+//!   RobotTrajectory` parameter).
+//! - `trajectoryWaypointCount` — D-decision excludes it: D1, same reason.
+//! - `applyTOTGTimeParameterization` — ported as
+//!   [`trajectory_tools::apply_totg_time_parameterization`].
+//! - `applyRuckigSmoothing` — ported as
+//!   [`trajectory_tools::apply_ruckig_smoothing`].
+//! - `createTrajectoryMessage` — D-decision excludes it: D1 (`trajectory_msgs::
+//!   msg::JointTrajectory` return type; no ROS type in its parameters, but
+//!   D1 excludes a signature for appearing on either side, not just as
+//!   input).
+//!
+//! ## `ruckig_traj_smoothing.hpp`
+//!
+//! See [`ruckig_smoothing`]'s own module doc for the full citation of each;
+//! summarized here for audit completeness:
+//!
+//! - `applySmoothing` (scaling-only) — ported as
+//!   [`ruckig_smoothing::apply_smoothing`].
+//! - `applySmoothing` (`velocity_limits`/`acceleration_limits`/`jerk_limits`
+//!   maps) — ported as [`ruckig_smoothing::apply_smoothing_with_limits`].
+//! - `applySmoothing` (`std::vector<moveit_msgs::msg::JointLimits>`) —
+//!   D-decision excludes it: D1, thin wrapper around the overload above.
+//! - `validateGroup` (private) — ported as [`ruckig_smoothing`]'s private
+//!   `validate_group`.
+//! - `getRobotModelBounds` (private) — ported as [`ruckig_smoothing`]'s
+//!   private `set_robot_model_bounds`; see that module's "Deviations from
+//!   upstream" note on why it is infallible here where upstream declares it
+//!   `[[nodiscard]] bool`.
+//! - `getNextRuckigInput` (private) — ported as [`ruckig_smoothing`]'s
+//!   private `get_next_ruckig_input`.
+//! - `initializeRuckigState` (private) — ported as [`ruckig_smoothing`]'s
+//!   private `initialize_ruckig_state`.
+//! - `runRuckig` (private) — ported as [`ruckig_smoothing`]'s private
+//!   `run_ruckig`.
+//! - `extendTrajectoryDuration` (private) — ported as [`ruckig_smoothing`]'s
+//!   private `extend_trajectory_duration`; see that module's own "Deviations
+//!   from upstream" note on the header/`.cpp` doc-comment mismatch this port
+//!   resolved by following the `.cpp` definition.
+//! - `checkOvershoot` (private) — ported as [`ruckig_smoothing`]'s private
+//!   `check_overshoot`.
 
 mod numeric;
 mod path;
