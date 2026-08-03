@@ -56,6 +56,16 @@ pub struct PathValidity {
 /// (`initialize`, the `CollisionDetector` struct, the process-*Add/Remove/Move
 /// helpers, data fields) are implementation detail, not audited here.
 ///
+/// Re-walked symbol-by-symbol this round against the current
+/// `planning_scene.hpp`: 59 audit bullets below, every one already landing
+/// in one of the four buckets above — zero `unported, in scope` gaps
+/// survived the walk. What the walk did find were three stale overload
+/// tallies inherited from round 6's original audit
+/// (`checkCollision`, `getCollidingLinks`, `getCollidingPairs` — corrected
+/// in place below, each against a fresh count of the header) and one
+/// undocumented overload collapse (`getTransforms`, below) — this crate's
+/// coverage was already complete, the doc's bookkeeping was not.
+///
 /// ## Construction, identity, parent/child
 ///
 /// - `PlanningScene(RobotModel, World)` / `PlanningScene(urdf, srdf, World)`
@@ -94,7 +104,18 @@ pub struct PathValidity {
 ///   present since this workspace's first commits) -- an earlier revision
 ///   of this doc claimed no such crate existed anywhere in this workspace;
 ///   that claim was wrong, and this round found and corrected it rather
-///   than building a second, duplicate implementation here.
+///   than building a second, duplicate implementation here. Upstream
+///   actually declares three overloads here, not two: `getTransforms()
+///   const` (`:184`), a non-const `getTransforms()` (`:197`, `.cpp:671`)
+///   whose only addition is `getCurrentStateNonConst().update()` before
+///   delegating to the const form, and `getTransformsNonConst()` (`:200`).
+///   The middle one collapses into [`PlanningScene::transforms`] here, not
+///   a second `&mut self` method: its state-refresh exists so a caller
+///   holding the polymorphic `SceneTransforms&` gets fresh link/attached-
+///   body transforms before querying it, and `moveit_geometry::Transforms`
+///   as returned here never reads robot-state link transforms at all (see
+///   [`PlanningScene::frame_transform`]'s tier split) -- so there is
+///   nothing for a state refresh to keep fresh.
 ///   `setTransform(const Eigen::Isometry3d&, const std::string&)` (the
 ///   message-free overload -- `transforms.hpp:113`) and
 ///   `setAllTransforms`/`getAllTransforms` are ported as
@@ -150,7 +171,7 @@ pub struct PathValidity {
 /// - `isStateColliding` (current-state and explicit-state overloads) —
 ///   ported as [`PlanningScene::is_state_colliding`] (see its own doc); the
 ///   `moveit_msgs::msg::RobotState` overload — D1.
-/// - `checkCollision` (7 overloads) — ported as
+/// - `checkCollision` (6 overloads, not 7 — recounted this round) — ported as
 ///   [`PlanningScene::check_collision`]; the explicit-different-ACM
 ///   overloads are not ported — a caller wanting a one-off ACM already has
 ///   `env.check_collision(request, &posed, &attached, Some(&other_acm))`
@@ -165,10 +186,11 @@ pub struct PathValidity {
 ///   an addition, not a port: upstream's `checkCollision` family has no
 ///   robot-vs-world-only entry point at the `PlanningScene` level (see its
 ///   own doc).
-/// - `getCollidingLinks` (5 overloads) — ported as
-///   [`PlanningScene::colliding_links`]; explicit-ACM overloads not ported,
-///   same reasoning.
-/// - `getCollidingPairs` (5 overloads, one with `group_name`) — ported as
+/// - `getCollidingLinks` (6 overloads, not 5 — recounted this round) —
+///   ported as [`PlanningScene::colliding_links`]; explicit-ACM overloads
+///   not ported, same reasoning.
+/// - `getCollidingPairs` (6 overloads, not 5, four with `group_name` not
+///   one — recounted this round) — ported as
 ///   [`PlanningScene::colliding_pairs`] (`group_name` dropped — see its own
 ///   doc, `ParryCollisionEnv` never reads it); explicit-ACM overloads not
 ///   ported, same reasoning.
@@ -184,28 +206,38 @@ pub struct PathValidity {
 /// ## Message round-tripping (D1 except the first entry: this is a
 /// ROS-independent core crate)
 ///
-/// - `saveGeometryToStream`/`loadGeometryFromStream` — unported, not
-///   structurally D1: read in full (`planning_scene.cpp:1043-1085` writer,
-///   `:1087-1215` reader), the writer's only per-object color payload is
-///   four raw floats
-///   (`out << c.r << ' ' << c.g << ' ' << c.b << ' ' << c.a`,
-///   `planning_scene.cpp:1068`, literal `"0 0 0 0"` at `:1071` when unset)
-///   and the reader parses four floats back (`:1163-1164`) — no
-///   `std_msgs::msg::ColorRGBA` (de)serialization ever touches the stream.
-///   This crate's own `hasObjectColor`/`getObjectColor` family being D1
-///   (below) reflects this port's choice to type color storage with the ROS
-///   message, not something the `.scene` format itself needs — a plain
-///   RGBA struct would round-trip identically. The real reason it stays
-///   unported: no D1-scope consumer has asked for `.scene` file interop
-///   (searched `PORTING-PLAN.md`, every crate, `tools/` — nothing beyond
-///   this bullet). Its shape payload also delegates to
-///   `shapes::saveAsText`/`constructShapeFromText`
-///   (`planning_scene.cpp:1062`/`:1152`), which `moveit-geometry`'s own
-///   audit defers with the falsifier "closes when a consumer names this
-///   exact format as the one it needs" (`moveit_geometry::shapes` module
-///   doc) — this crate is that format's one candidate consumer and has not
-///   named it, so both halves stay open on the same unmet falsifier, not
-///   two deferrals each waiting on the other.
+/// - `saveGeometryToStream`/`loadGeometryFromStream` — **distinct, decided,
+///   not deferred**: round 7/8 (§59.4) left this open on "no consumer has
+///   asked for `.scene` file interop", the same unmet-falsifier shape
+///   `moveit-geometry`'s `shapes::saveAsText`/`constructShapeFromText`
+///   deferral mirrors (`planning_scene.cpp:1062`/`:1152` is this format's
+///   shape payload). A falsifier only two panels can satisfy by each
+///   waiting on the other's silence never closes on its own, so this round
+///   answers the real question instead: does this port intend to support
+///   loading a user-authored scene file, or round-tripping a scene through
+///   disk, at all? No. Every real upstream caller of this pair (searched
+///   with `rg loadGeometryFromStream saveGeometryToStream` across the whole
+///   `moveit2` tree) is `moveit_ros` tooling wrapped around a live ROS node,
+///   not a plain file utility: `move_group`'s
+///   `{load,save}_geometry_to_file_service_capability.cpp` (ROS service
+///   handlers), `warehouse/{import_from_text,save_as_text}.cpp` (database
+///   import/export against a running warehouse node), the RViz Motion
+///   Planning panel's Scene tab, and `planning_components_tools/
+///   publish_scene_from_text.cpp` — which reads a `.scene` file only to
+///   `rclcpp::Node::make_shared` a node and publish it as a
+///   `moveit_msgs::msg::PlanningScene`, not to do anything with the geometry
+///   itself outside ROS. `moveit_py`'s binding is the same shape one layer
+///   removed (`moveit_py` is its own out-of-scope rewrite, `PORTING-PLAN.md`
+///   §4.7). The read/write functions themselves are ROS-free — `istream`/
+///   `ostream`, no `moveit_msgs` — but every reason anything upstream has to
+///   call them is ROS-coupled, and `moveit-ros` (the one crate that could
+///   ever carry ROS-coupled tooling, `PORTING-PLAN.md` §0/§4.7) has no crate
+///   yet and no plan naming this workflow. This is a positive scope
+///   statement, not an absence of demand: `.scene` file interop is out of
+///   scope because every real reason to want it is out of scope, the same
+///   way `getObjectColor`'s `std_msgs::msg::ColorRGBA` typing was a storage
+///   choice and not this format's real gate (§59.4 already established that
+///   half). Both deferrals fall together on this answer.
 /// - `getPlanningSceneDiffMsg`/`getPlanningSceneMsg` (2 overloads) — D1
 ///   (`moveit_msgs::msg::PlanningScene`, `moveit_msgs::msg::PlanningSceneComponents`).
 /// - `getCollisionObjectMsg`/`getCollisionObjectMsgs` — D1
@@ -979,26 +1011,42 @@ impl<'m> PlanningScene<'m> {
     /// doc used to justify is now redundant and removed.
     ///
     /// # `SceneTransforms::isFixedFrame`'s leading-`/` and object-frame
-    /// delegation: not ported, and here is the falsifier
+    /// delegation: not ported, and here is why it still does not fire
     ///
     /// Upstream `SceneTransforms` also overrides `isFixedFrame`
     /// (`planning_scene.cpp:123-135`) to strip a leading `/` and consult
     /// `knowsObjectFrame` before falling back to the base class. That
     /// override exists so that code holding a bare `moveit::core::
     /// Transforms&` -- not knowing it is actually scene-backed -- still
-    /// gets scene-aware answers. Searching all of `moveit_core` for
-    /// `isFixedFrame` callers (`rg isFixedFrame`) finds exactly one:
-    /// `kinematic_constraints/kinematic_constraint.cpp` (`:382`, `:622`,
-    /// `:848`, `:861`), always as `tf.isFixedFrame(header.frame_id)` where
-    /// `header.frame_id` comes off a ROS message and `tf` is the
-    /// `Transforms&` `configure()` was handed. That crate is unported here
-    /// (D1-adjacent per the round-7 crate-consumer table: "`configure(msg,
-    /// tf)` only") and nothing else in `moveit_core` calls `isFixedFrame`
-    /// polymorphically. With zero reachable callers in this workspace, a
-    /// `PlanningScene`-side override of [`moveit_geometry::Transforms`]'s
-    /// `can_transform` would be speculative code with no caller to
-    /// exercise it -- so it stays unported until `kinematic_constraints`
-    /// (or an equivalent consumer) lands and actually needs it.
+    /// gets scene-aware answers. All of `moveit_core`'s `isFixedFrame`
+    /// callers (`rg isFixedFrame`) are the four sites in
+    /// `kinematic_constraint.cpp` (`:382`, `:622`, `:848`, `:861`, inside
+    /// `PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint::
+    /// configure`), always `tf.isFixedFrame(header.frame_id)` deciding
+    /// whether a constraint's reference frame is resolved once now (fixed)
+    /// or re-resolved through robot state on every `decide()` (mobile).
+    ///
+    /// Round 7 called that crate wholesale-unported; it is not, as of this
+    /// round -- `moveit-constraints::{PositionConstraint, OrientationConstraint,
+    /// VisibilityConstraint}` all exist and each reproduces this exact
+    /// fixed/mobile split (`position::resolve_frame`,
+    /// `orientation.rs:209`, `visibility.rs:79`), each keyed on
+    /// `tf.can_transform(frame_id)` -- the base-class half of `isFixedFrame`
+    /// this crate's [`moveit_geometry::Transforms`] already carries. So the
+    /// falsifier's premise updates, but its answer does not flip: `rg -n
+    /// "PositionConstraint::new|OrientationConstraint::new|VisibilityConstraint::new"
+    /// crates` outside `moveit-constraints` itself matches only its own
+    /// tests -- no call site anywhere in this workspace threads a
+    /// [`PlanningScene`]-derived [`moveit_geometry::Transforms`] into any of
+    /// the three constructors, so the world-object half of `isFixedFrame`
+    /// (the part [`PlanningScene::transforms`] deliberately does not carry --
+    /// see that method's own non-recursion doc) has no live caller to
+    /// diverge from upstream on yet. What would have to land for it to fire:
+    /// a bridge from a live [`PlanningScene`] into one of those three
+    /// `configure`-equivalents, passing a `Transforms` whose map includes
+    /// this scene's world-object frames -- not `self.transforms()` as-is,
+    /// which only carries the fixed-frame map by design. Until such a bridge
+    /// exists, an override here would still be code with no caller.
     pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
         let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
         self.current_state().knows_frame_transform(frame_id)
