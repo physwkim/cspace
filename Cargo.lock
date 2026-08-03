@@ -273,6 +273,7 @@ dependencies = [
 name = "moveit-diff"
 version = "0.1.0"
 dependencies = [
+ "moveit-collision",
  "moveit-constraints",
  "moveit-error",
  "moveit-geometry",

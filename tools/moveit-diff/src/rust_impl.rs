@@ -9,6 +9,9 @@
 
 use std::collections::BTreeMap;
 
+use moveit_collision::{
+    AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, ParryCollisionEnv,
+};
 use moveit_constraints::{
     Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
     OrientationTolerance, PositionConstraint, SensorSpec, TargetSpec, VisibilityConstraint,
@@ -23,8 +26,8 @@ use moveit_state::RobotState;
 use nalgebra::{Matrix3, Quaternion, Translation3};
 
 use crate::protocol::{
-    ConstraintResult, ConstraintsResult, ConstraintsSpec, FkResult, JacobianResult, JointDetail,
-    Mimic, ModelInfo, OrientationToleranceSpec, ShapeSpec,
+    CollisionCheckResult, ConstraintResult, ConstraintsResult, ConstraintsSpec, FkResult,
+    JacobianResult, JointDetail, Mimic, ModelInfo, OrientationToleranceSpec, ShapeSpec,
 };
 
 /// Row-major 4x4, matching the oracle's `toRowMajor4x4`. `pub(crate)`: also
@@ -332,4 +335,45 @@ pub fn constraints(
         .collect();
 
     Ok(ConstraintsResult { results })
+}
+
+/// Self- and robot-collision, plus signed self/robot distance, at
+/// `joint_values` layered on top of the model's default positions,
+/// reset-then-apply the same way [`fk`] does. Matches the oracle's own
+/// `collision()`: default [`CollisionRequest`]s for the boolean checks, and
+/// `enable_signed_distance = true` with `acm` set for both distance queries.
+/// Contact/nearest-point coordinates are not read here -- PORTING-PLAN.md
+/// §4.5 excludes them from Phase 3's completion condition.
+pub fn collision(
+    model: &RobotModel,
+    env: &ParryCollisionEnv,
+    acm: &AllowedCollisionMatrix,
+    joint_values: &BTreeMap<String, f64>,
+) -> Result<CollisionCheckResult, String> {
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, &value) in joint_values {
+        state
+            .set_variable_position(name, value)
+            .map_err(|e| format!("setting {name}: {e}"))?;
+    }
+    let posed = state.update();
+
+    let self_result = env.check_self_collision(&CollisionRequest::default(), &posed, Some(acm));
+    let robot_result = env.check_robot_collision(&CollisionRequest::default(), &posed, Some(acm));
+
+    let distance_request = DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(acm),
+        ..DistanceRequest::default()
+    };
+    let self_distance = env.distance_self(&distance_request, &posed);
+    let robot_distance = env.distance_robot(&distance_request, &posed);
+
+    Ok(CollisionCheckResult {
+        self_collision: self_result.collision,
+        self_distance: self_distance.minimum_distance.distance,
+        robot_collision: robot_result.collision,
+        robot_distance: robot_distance.minimum_distance.distance,
+    })
 }

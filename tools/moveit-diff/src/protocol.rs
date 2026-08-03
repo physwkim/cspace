@@ -139,6 +139,23 @@ pub enum Op {
         /// The constraints to build and evaluate.
         constraints: ConstraintsSpec,
     },
+    /// Ground truth for `moveit-collision::ParryCollisionEnv`
+    /// (PORTING-PLAN.md §5's Phase 3 completion condition):
+    /// `CollisionEnvFCL::checkSelfCollision`/`checkRobotCollision`/
+    /// `distanceSelf`/`distanceRobot` at `joint_values`, filtered through the
+    /// SRDF-derived `AllowedCollisionMatrix` (the same construction
+    /// [`Op::Acm`] dumps — built fresh from the loaded SRDF on the oracle
+    /// side, and independently via `AllowedCollisionMatrix::from_srdf` on the
+    /// runner side, rather than sent over the wire, since `acm_parity.rs`
+    /// already differentially tests that the two constructions agree).
+    Collision {
+        /// Joint name to position. Joints omitted keep their default value.
+        joint_values: BTreeMap<String, f64>,
+        /// World objects `checkRobotCollision`/`distanceRobot` check the
+        /// robot against, built with real shapes (unlike [`Op::World`]'s
+        /// dummy spheres, which only exercise pose composition).
+        objects: Vec<CollisionObjectSpec>,
+    },
 }
 
 /// The constraints to build for one [`Op::Constraints`] request, grouped by
@@ -277,6 +294,20 @@ pub struct VisibilityConstraintSpec {
     pub weight: f64,
 }
 
+/// One world object for [`Op::Collision`]: a real shape at a pose, unlike
+/// [`WorldObjectSpec`]'s dummy sphere (that op tests pose composition only;
+/// this one needs actual geometry for a non-trivial collision/distance
+/// answer).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollisionObjectSpec {
+    /// The object's id.
+    pub id: String,
+    /// The object's pose, row-major 4x4.
+    pub pose: [f64; 16],
+    /// The object's collision shape.
+    pub shape: ShapeSpec,
+}
+
 /// A shape for [`Op::ShapePoints`] -- the four variants
 /// `bodies::createEmptyBodyFromShapeType` has a case for (`Cone`/`Plane`/
 /// `OcTree` fall through to a null body upstream and have no `ShapeSpec`
@@ -384,6 +415,8 @@ pub enum OracleResult {
     ShapePoints(ShapePointsResult),
     /// Answer to [`Op::Constraints`].
     Constraints(ConstraintsResult),
+    /// Answer to [`Op::Collision`].
+    Collision(CollisionCheckResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -656,4 +689,25 @@ pub struct ConstraintsResult {
     /// joint/position/orientation/visibility order (matching
     /// `KinematicConstraintSet::add`'s own internal call order).
     pub results: Vec<ConstraintResult>,
+}
+
+/// Answer to [`Op::Collision`].
+///
+/// Contact/nearest-point coordinates are deliberately absent: PORTING-PLAN.md
+/// §4.5 records their exclusion from Phase 3's completion condition as a
+/// verification limit, not an oversight — see `crates/moveit-collision/src/parry.rs`'s
+/// module doc, deviations 4 and 6, for why a coordinate-level comparison
+/// would not be meaningful here even if it were attempted.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CollisionCheckResult {
+    /// `CollisionEnvFCL::checkSelfCollision`'s `CollisionResult::collision`.
+    pub self_collision: bool,
+    /// `CollisionEnvFCL::distanceSelf`'s `DistanceResult::minimum_distance.distance`,
+    /// signed (`enable_signed_distance = true`).
+    pub self_distance: f64,
+    /// `CollisionEnvFCL::checkRobotCollision`'s `CollisionResult::collision`.
+    pub robot_collision: bool,
+    /// `CollisionEnvFCL::distanceRobot`'s `DistanceResult::minimum_distance.distance`,
+    /// signed (`enable_signed_distance = true`).
+    pub robot_distance: f64,
 }

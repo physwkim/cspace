@@ -155,8 +155,23 @@ use crate::world::{Object, World};
 /// is never clamped, only the query's own prediction argument.
 const EFFECTIVELY_UNBOUNDED: f64 = 1.0e6;
 
+/// Clamps a logical threshold down to a prediction margin `parry` will
+/// accept. Upstream's threshold is a *signed* value under
+/// [`DistanceRequest::enable_signed_distance`] and
+/// [`DistanceRequestType::Global`]'s running `minimum_distance` accumulator
+/// (see [`accumulate_distance`]): once one penetrating pair has been found,
+/// every later pair's threshold argument is that penetration's negative
+/// depth, not a search radius. `parry3d_f64::bounding_volume::Aabb::loosened`
+/// panics on a negative margin ("The loosening margin must be
+/// non-negative"), so the lower bound must be clamped here too, not only the
+/// upper one -- a negative margin is otherwise reachable the first time a
+/// deeply-penetrating pair updates the accumulator before every pair has been
+/// visited. Clamping to `0.0` (rather than leaving the query out entirely)
+/// still finds any pair at least as penetrating, matching
+/// [`accumulate_collision`]'s own prediction-`0.0` convention for a
+/// touching-or-penetrating-only query.
 fn bounded_prediction(threshold: f64) -> f64 {
-    threshold.min(EFFECTIVELY_UNBOUNDED)
+    threshold.clamp(0.0, EFFECTIVELY_UNBOUNDED)
 }
 
 /// The fixed rotation that maps `parry3d_f64`'s y-aligned `Cylinder`/`Cone`
@@ -1063,6 +1078,38 @@ mod tests {
 
         assert!(result.collision);
         assert_relative_eq!(result.minimum_distance.distance, -0.5, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn distance_self_does_not_panic_when_an_earlier_pair_deeply_penetrates() {
+        // p, q, r all identically posed: three mutually, deeply overlapping
+        // pairs. `DistanceRequestType::Global` (the default) folds every
+        // pair's threshold into the running `minimum_distance`, so whichever
+        // pair is visited first drives it deeply negative; every later pair
+        // must still be queryable rather than handed that negative value as
+        // `parry`'s prediction margin (`bounded_prediction` used to pass it
+        // through unclamped on the low end, and `parry` panics on a negative
+        // margin).
+        let model = build_model(&["p", "q", "r"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::identity()),
+                ("r", Isometry3::identity()),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            ..DistanceRequest::default()
+        };
+
+        let result = env.distance_self(&request, &posed);
+
+        assert!(result.collision);
+        assert_relative_eq!(result.minimum_distance.distance, -1.0, epsilon = 1e-9);
     }
 
     #[test]
