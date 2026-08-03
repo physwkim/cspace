@@ -495,6 +495,8 @@ public:
       return octreeInWorld(request);
     if (op == "ruckig")
       return ruckig(request);
+    if (op == "body_query")
+      return bodyQuery(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -2085,6 +2087,100 @@ private:
     return json{ { "shape_pose", toRowMajor4x4(shape_pose) },
                   { "global_pose", toRowMajor4x4(global_pose) },
                   { "queries", queries_out } };
+  }
+
+  /// Ground truth for `bodies::Body`'s posed algorithms --
+  /// `containsPoint`/`intersectsRay`/`computeBoundingBox`/
+  /// `computeBoundingSphere`/`computeBoundingCylinder` -- which
+  /// `moveit-geometry`'s `Body` enum ported some rounds ago but which, until
+  /// now, only `tests/probe_parity.rs`'s standalone `libgeometric_shapes.so`
+  /// probe exercised, never the oracle's own JSON-line protocol. Builds a
+  /// `bodies::Body` exactly the way `shapePoints` above does
+  /// (`createEmptyBodyFromShapeType` + `setDimensionsDirty` +
+  /// `setScaleDirty`/`setPaddingDirty` + `setPoseDirty` +
+  /// `updateInternalData`, the batch form, so scale/padding/pose are all
+  /// applied before the one `updateInternalData()` call rather than
+  /// recomputing internal state after each setter). `request["points"]`
+  /// is answered with `containsPoint`; `request["rays"]` (each an
+  /// `origin`/`dir`/optional `count`, `count` omitted or `0` meaning
+  /// upstream's "unlimited") is answered with `intersectsRay`'s real
+  /// `intersections` out-param, not just its boolean return, so a caller can
+  /// check hit points and hit *count* -- the exact contract a fixture that
+  /// "skips rays and reports success" would never catch, because it would
+  /// never look past a bare boolean.
+  json bodyQuery(const json& request) const
+  {
+    const json& shape_json = request.at("shape");
+    const std::string type = shape_json.at("type").get<std::string>();
+    const Eigen::Isometry3d pose = fromRowMajor4x4(request.at("pose"));
+    const double scale = request.value("scale", 1.0);
+    const double padding = request.value("padding", 0.0);
+
+    std::shared_ptr<shapes::Shape> shape = parseShape(type, shape_json);
+
+    bodies::Body* body = bodies::createEmptyBodyFromShapeType(shape->type);
+    body->setDimensionsDirty(shape.get());
+    body->setScaleDirty(scale);
+    body->setPaddingDirty(padding);
+    body->setPoseDirty(pose);
+    body->updateInternalData();
+
+    json contains_out = json::array();
+    for (const auto& p : request.value("points", json::array()))
+    {
+      const auto pt = p.get<std::array<double, 3>>();
+      contains_out.push_back(body->containsPoint(pt[0], pt[1], pt[2]));
+    }
+
+    json rays_out = json::array();
+    for (const auto& r : request.value("rays", json::array()))
+    {
+      const auto o = r.at("origin").get<std::array<double, 3>>();
+      auto d = r.at("dir").get<std::array<double, 3>>();
+      const unsigned int count = r.value("count", 0u);
+
+      const Eigen::Vector3d origin(o[0], o[1], o[2]);
+      Eigen::Vector3d dir(d[0], d[1], d[2]);
+      dir.normalize();
+
+      EigenSTL::vector_Vector3d intersections;
+      const bool hit = body->intersectsRay(origin, dir, &intersections, count);
+
+      json pts = json::array();
+      for (const Eigen::Vector3d& ip : intersections)
+        pts.push_back(json::array({ ip.x(), ip.y(), ip.z() }));
+      rays_out.push_back(json{ { "hit", hit }, { "points", pts } });
+    }
+
+    bodies::BoundingSphere bsphere;
+    body->computeBoundingSphere(bsphere);
+    bodies::BoundingCylinder bcyl;
+    body->computeBoundingCylinder(bcyl);
+    bodies::AABB aabb;
+    body->computeBoundingBox(aabb);
+    bodies::OBB obb;
+    body->computeBoundingBox(obb);
+    const double volume = body->computeVolume();
+    delete body;
+
+    return json{
+      { "contains", contains_out },
+      { "rays", rays_out },
+      { "volume", volume },
+      { "bsphere",
+        { { "center", json::array({ bsphere.center.x(), bsphere.center.y(), bsphere.center.z() }) },
+          { "radius", bsphere.radius } } },
+      { "bcyl",
+        { { "radius", bcyl.radius },
+          { "length", bcyl.length },
+          { "origin", json::array({ bcyl.pose.translation().x(), bcyl.pose.translation().y(),
+                                     bcyl.pose.translation().z() }) } } },
+      { "aabb", { { "min", json::array({ aabb.min().x(), aabb.min().y(), aabb.min().z() }) },
+                  { "max", json::array({ aabb.max().x(), aabb.max().y(), aabb.max().z() }) } } },
+      { "obb", { { "extents", json::array({ obb.getExtents().x(), obb.getExtents().y(), obb.getExtents().z() }) },
+                 { "origin", json::array({ obb.getPose().translation().x(), obb.getPose().translation().y(),
+                                            obb.getPose().translation().z() }) } } },
+    };
   }
 
   moveit::core::RobotModelPtr model_;
