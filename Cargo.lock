@@ -397,7 +397,13 @@ dependencies = [
 name = "moveit-planners-sbp"
 version = "0.1.0"
 dependencies = [
+ "linkme",
+ "moveit-collision",
+ "moveit-constraints",
+ "moveit-error",
+ "moveit-geometry",
  "moveit-model",
+ "moveit-scene",
  "moveit-srdf",
  "moveit-state",
  "rand",
