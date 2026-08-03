@@ -446,7 +446,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 other => return Err(format!("expected collision, got {other:?}")),
             };
             let (verdict, dev) =
-                compare_collision(cfg, &rust_model, fixture, &joint_values, &expected);
+                compare_collision(cfg, &rust_model, fixture, joint_values, &expected);
             if dev.is_finite() {
                 max_distance_dev = max_distance_dev.max(dev);
             }
