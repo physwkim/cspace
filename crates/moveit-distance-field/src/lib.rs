@@ -22,17 +22,19 @@
 //! # Scope
 //!
 //! This crate ports `moveit_core/distance_field` in full, plus
-//! `moveit_core/collision_distance_field`'s body-decomposition and
-//! cache-entry-construction machinery: `collision_distance_field_types` (no
-//! `RobotModel` dependency), `collision_common_distance_field`'s
-//! `RobotState`/`RobotModel`-dependent half plus its
-//! [`DistanceFieldCacheEntry`] struct, and `collision_env_distance_field`'s
-//! construction-only slice (`addLinkBodyDecompositions`,
-//! `generateDistanceFieldCacheEntry`). The collision *checker* itself
-//! (`CollisionEnvDistanceField::checkCollision` and friends) belongs to a
-//! later phase, blocked in part on dependency gaps this crate's own module
-//! docs record; see `PORTING-PLAN.md` §3 and `collision_env_distance_field.rs`'s
-//! own module doc comment for specifics.
+//! `moveit_core/collision_distance_field`'s body-decomposition,
+//! cache-entry-construction, and per-group-state machinery:
+//! `collision_distance_field_types` (no `RobotModel` dependency),
+//! `collision_common_distance_field`'s `RobotState`/`RobotModel`-dependent
+//! half plus its [`DistanceFieldCacheEntry`]/[`GroupStateRepresentation`]
+//! structs, and `collision_env_distance_field`'s construction/query slice
+//! (`addLinkBodyDecompositions`, `generateDistanceFieldCacheEntry`,
+//! `getDistanceFieldCacheEntry`, `getGroupStateRepresentation`,
+//! `updateGroupStateRepresentationState`). The collision *checker* itself
+//! (`CollisionEnvDistanceField::checkCollision` and friends, plus its own
+//! persistent cache-owner role -- `generateCollisionCheckingStructures`)
+//! belongs to a later phase; see `PORTING-PLAN.md` §3 and
+//! `collision_env_distance_field.rs`'s own module doc comment for specifics.
 //!
 //! - [`VoxelGrid`] — the generic dense grid, with the world↔cell coordinate
 //!   conversion whose rounding convention is load-bearing (see its `impl`
@@ -57,13 +59,21 @@
 //!   [`generate_distance_field_cache_entry`]'s own doc comment for what it
 //!   builds.
 //! - [`compare_cache_entry_to_state`] / [`compare_cache_entry_to_allowed_collision_matrix`]
-//!   — decide whether a [`DistanceFieldCacheEntry`] is still valid for a new
-//!   `RobotState`/`AllowedCollisionMatrix`; see
-//!   `collision_env_distance_field`'s module doc for what is still deferred
-//!   around them.
+//!   / [`get_distance_field_cache_entry`] — decide whether a
+//!   [`DistanceFieldCacheEntry`] is still valid for a new `RobotState`/
+//!   `AllowedCollisionMatrix`; see `collision_env_distance_field`'s module
+//!   doc for what is still deferred around them.
 //! - [`DistanceFieldCacheEntry`] — the group-, ACM-, and robot-state-specific
 //!   cache entry [`generate_distance_field_cache_entry`] populates; see its
 //!   own doc comment for what upstream field it deliberately leaves unset.
+//! - [`GroupStateRepresentation`] / [`group_state_representation`] /
+//!   [`update_group_state_representation_state`] — the per-group posed
+//!   sphere-decomposition-plus-distance-field bundle a collision check
+//!   queries against; see [`group_state_representation`]'s own doc comment
+//!   for the uninitialized-gradient defect it preserves (more defined, not
+//!   less) from upstream's fresh-build path.
+//! - [`AttachedBodySnapshot`] — closes a real cache-invalidation gap in
+//!   [`compare_cache_entry_to_state`]; see its own doc comment.
 //!
 //! See [`DistanceField`]'s doc comment for what upstream's abstract base
 //! class carries that is deliberately *not* ported here, and why.
@@ -77,8 +87,8 @@ mod propagation;
 mod voxel_grid;
 
 pub use collision_common_distance_field::{
-    DistanceFieldCacheEntry, collision_object_point_decomposition,
-    get_body_decomposition_cache_entry,
+    AttachedBodySnapshot, DistanceFieldCacheEntry, GroupStateRepresentation,
+    collision_object_point_decomposition, get_body_decomposition_cache_entry,
 };
 pub use collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
@@ -90,7 +100,8 @@ pub use collision_distance_field_types::{
 pub use collision_env_distance_field::{
     DistanceFieldConfig, add_link_body_decompositions,
     compare_cache_entry_to_allowed_collision_matrix, compare_cache_entry_to_state,
-    generate_distance_field_cache_entry,
+    generate_distance_field_cache_entry, get_distance_field_cache_entry,
+    group_state_representation, update_group_state_representation_state,
 };
 pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};

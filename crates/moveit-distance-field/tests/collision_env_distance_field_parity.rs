@@ -86,7 +86,7 @@ use serde::Deserialize;
 use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale};
 use moveit_distance_field::{
     DistanceField, DistanceFieldConfig, GridGeometry, add_link_body_decompositions,
-    generate_distance_field_cache_entry,
+    generate_distance_field_cache_entry, group_state_representation,
 };
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
@@ -443,6 +443,7 @@ fn generate_distance_field_cache_entry_matches_the_oracle() {
             acm_arg,
             &link_body_decompositions,
             Some(oracle_default_distance_field_config()),
+            &[],
         )
         .unwrap_or_else(|e| {
             panic!(
@@ -584,6 +585,314 @@ fn generate_distance_field_cache_entry_matches_the_oracle() {
                 "distance at {point:?} (group {}): expected >= {expected_distance} \
                  (subset-obstacle-set property), got {actual_distance}",
                 request.group
+            );
+        }
+    }
+}
+
+// --- group_state_representation ---
+
+#[derive(Deserialize)]
+struct GsrRequest {
+    group: String,
+    #[serde(default)]
+    joint_values: HashMap<String, f64>,
+    use_acm: bool,
+}
+
+#[derive(Deserialize)]
+struct GsrGradient {
+    closest_distance: f64,
+    collision: bool,
+    types: Vec<i32>,
+    distances: Vec<f64>,
+    sphere_radii: Vec<f64>,
+    joint_name: String,
+    // `sphere_locations_count` deliberately not deserialized: not
+    // oracle-comparable at all, see this test's own doc comment on
+    // `group_state_representation_matches_the_oracle`.
+}
+
+#[derive(Deserialize)]
+struct GsrLink {
+    link_name: String,
+    has_link_decomposition: bool,
+    #[serde(default)]
+    bounding_sphere_center: Vec<f64>,
+    #[serde(default)]
+    bounding_sphere_radius: f64,
+    #[serde(default)]
+    collision_points_count: usize,
+    #[serde(default)]
+    field_pose: Vec<f64>,
+    gradient: Option<GsrGradient>,
+}
+
+#[derive(Deserialize)]
+struct GsrResult {
+    links: Vec<GsrLink>,
+}
+
+#[derive(Deserialize)]
+struct GsrResponseEntry {
+    result: GsrResult,
+}
+
+/// See `oracle.cpp`'s own doc comment on its `groupStateRepresentation` op
+/// (`tools/moveit-oracle/src/oracle.cpp`) for the full explanation this test
+/// relies on: that op does not isolate `getGroupStateRepresentation`'s
+/// *fresh* branch the way [`group_state_representation`] ports it --
+/// `CollisionEnvDistanceField(model_)`'s constructor eagerly pre-builds a
+/// `GroupStateRepresentation` per group at construction time, so every
+/// query the oracle answers actually takes upstream's **pregenerated**
+/// reuse branch instead. Two fields are consequently excluded or
+/// precondition-checked rather than compared outright:
+///
+/// - `sphere_locations_count` is not deserialized at all: the pregenerated
+///   branch always populates `sphere_locations`, the fresh branch this port
+///   implements never does (see [`group_state_representation`]'s own doc
+///   comment) -- there is no value on this port's side to compare it
+///   against.
+/// - `closest_distance`/`collision`/`types`/`distances` are only meaningful
+///   to compare when the oracle's own `checkCollision` pipeline found
+///   nothing for that link (`collision: false`): construction alone (this
+///   port's scope) can never set them to anything but their fresh defaults,
+///   while the oracle's full pipeline can mutate them in place after
+///   construction. This test asserts `collision: false` as an explicit
+///   precondition per link before trusting the comparison, rather than
+///   assume every fixture case happens to avoid it silently.
+#[test]
+fn group_state_representation_matches_the_oracle() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+    let (link_body_decomposition_vector, _) = &link_body_decompositions;
+
+    let requests: Vec<GsrRequest> =
+        serde_json::from_str(&read_fixture("group_state_representation_request.json"))
+            .expect("parse group_state_representation_request.json");
+    let responses: Vec<GsrResponseEntry> =
+        serde_json::from_str(&read_fixture("group_state_representation_response.json"))
+            .expect("parse group_state_representation_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert!(!requests.is_empty(), "fixture must carry at least one case");
+
+    let unsupported_mesh_links: std::collections::HashSet<&str> = model
+        .diagnostics()
+        .iter()
+        .filter_map(|d| match d {
+            moveit_model::Diagnostic::UnsupportedLinkGeometry {
+                link, kind: "mesh", ..
+            } => Some(link.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected_links = &response.result.links;
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values for {}: {e}", request.group));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+        let dfce = generate_distance_field_cache_entry(
+            &request.group,
+            &posed,
+            acm_arg,
+            &link_body_decompositions,
+            None,
+            &[],
+        )
+        .unwrap_or_else(|e| {
+            panic!(
+                "generate_distance_field_cache_entry({}): {e}",
+                request.group
+            )
+        });
+
+        let gsr = group_state_representation(
+            &dfce,
+            &posed,
+            link_body_decomposition_vector,
+            0.02,
+            0.25,
+            false,
+        )
+        .unwrap_or_else(|e| panic!("group_state_representation({}): {e}", request.group));
+
+        assert_eq!(
+            gsr.link_body_decompositions.len(),
+            expected_links.len(),
+            "link count (group {})",
+            request.group
+        );
+
+        for (i, expected_link) in expected_links.iter().enumerate() {
+            let mesh_affected = unsupported_mesh_links.contains(expected_link.link_name.as_str());
+            let actual_has_geometry = dfce.link_has_geometry[i];
+
+            if mesh_affected {
+                assert!(
+                    !actual_has_geometry && expected_link.has_link_decomposition,
+                    "{} (group {}): expected the documented mesh-gap divergence \
+                     (ours=false, oracle=true)",
+                    expected_link.link_name,
+                    request.group
+                );
+                assert!(gsr.link_body_decompositions[i].is_none());
+                assert!(gsr.link_distance_fields[i].is_none());
+                continue;
+            }
+
+            assert_eq!(
+                actual_has_geometry, expected_link.has_link_decomposition,
+                "has_link_decomposition[{i}] ({}, group {})",
+                expected_link.link_name, request.group
+            );
+            if !actual_has_geometry {
+                assert!(gsr.link_body_decompositions[i].is_none());
+                continue;
+            }
+
+            let link_bd = gsr.link_body_decompositions[i]
+                .as_ref()
+                .expect("has_link_decomposition implies Some");
+            let field = gsr.link_distance_fields[i]
+                .as_ref()
+                .expect("has_link_decomposition implies Some");
+
+            let center = link_bd.bounding_sphere_center();
+            assert_relative_eq!(
+                center.x,
+                expected_link.bounding_sphere_center[0],
+                epsilon = TOL
+            );
+            assert_relative_eq!(
+                center.y,
+                expected_link.bounding_sphere_center[1],
+                epsilon = TOL
+            );
+            assert_relative_eq!(
+                center.z,
+                expected_link.bounding_sphere_center[2],
+                epsilon = TOL
+            );
+            assert_relative_eq!(
+                link_bd.bounding_sphere_radius(),
+                expected_link.bounding_sphere_radius,
+                epsilon = TOL
+            );
+            assert_eq!(
+                link_bd.collision_points().len(),
+                expected_link.collision_points_count,
+                "collision_points_count ({}, group {})",
+                expected_link.link_name,
+                request.group
+            );
+
+            let pose = field.pose();
+            assert_relative_eq!(
+                pose.translation.x,
+                expected_link.field_pose[0],
+                epsilon = TOL
+            );
+            assert_relative_eq!(
+                pose.translation.y,
+                expected_link.field_pose[1],
+                epsilon = TOL
+            );
+            assert_relative_eq!(
+                pose.translation.z,
+                expected_link.field_pose[2],
+                epsilon = TOL
+            );
+            // `q` and `-q` represent the identical rotation (the unit
+            // quaternion double cover), and each side's FK computation is
+            // free to land on either sign -- compare whichever sign of the
+            // oracle's quaternion is closer, not the raw components.
+            let expected_quat = [
+                expected_link.field_pose[3],
+                expected_link.field_pose[4],
+                expected_link.field_pose[5],
+                expected_link.field_pose[6],
+            ];
+            let actual_quat = [
+                pose.rotation.w,
+                pose.rotation.i,
+                pose.rotation.j,
+                pose.rotation.k,
+            ];
+            let same_sign_error: f64 = actual_quat
+                .iter()
+                .zip(expected_quat)
+                .map(|(a, e)| (a - e).powi(2))
+                .sum();
+            let flipped_sign_error: f64 = actual_quat
+                .iter()
+                .zip(expected_quat)
+                .map(|(a, e)| (a + e).powi(2))
+                .sum();
+            assert!(
+                same_sign_error.min(flipped_sign_error) < TOL * TOL,
+                "field_pose rotation ({}, group {}): expected {expected_quat:?} (up to sign), \
+                 got {actual_quat:?}",
+                expected_link.link_name,
+                request.group
+            );
+
+            let expected_gradient = expected_link
+                .gradient
+                .as_ref()
+                .expect("has_link_decomposition implies a gradient entry");
+            assert_eq!(
+                gsr.gradients[i].sphere_radii, expected_gradient.sphere_radii,
+                "sphere_radii ({}, group {})",
+                expected_link.link_name, request.group
+            );
+            assert_eq!(
+                gsr.gradients[i].joint_name, expected_gradient.joint_name,
+                "joint_name ({}, group {})",
+                expected_link.link_name, request.group
+            );
+
+            // See this test's own doc comment: only comparable when the
+            // oracle's post-construction collision pipeline found nothing
+            // for this link.
+            assert!(
+                !expected_gradient.collision,
+                "{} (group {}): fixture must be a no-collision case for this \
+                 test's construction-only comparison to be valid -- if this \
+                 now fails, either re-derive the fixture at a joint \
+                 configuration with no detected collision, or extend this \
+                 test to only compare closest_distance/types/distances when \
+                 collision is false per-link",
+                expected_link.link_name, request.group
+            );
+            assert_eq!(
+                gsr.gradients[i].closest_distance, expected_gradient.closest_distance,
+                "closest_distance ({}, group {})",
+                expected_link.link_name, request.group
+            );
+            assert!(!gsr.gradients[i].collision);
+            let expected_types: Vec<i32> =
+                gsr.gradients[i].types.iter().map(|t| *t as i32).collect();
+            assert_eq!(
+                expected_types, expected_gradient.types,
+                "types ({}, group {})",
+                expected_link.link_name, request.group
+            );
+            assert_eq!(
+                gsr.gradients[i].distances, expected_gradient.distances,
+                "distances ({}, group {})",
+                expected_link.link_name, request.group
             );
         }
     }
