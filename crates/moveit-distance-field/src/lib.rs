@@ -22,15 +22,17 @@
 //! # Scope
 //!
 //! This crate ports `moveit_core/distance_field` in full, plus
-//! `moveit_core/collision_distance_field`'s body-decomposition machinery:
-//! `collision_distance_field_types` (no `RobotModel` dependency),
-//! `collision_common_distance_field`'s `RobotState`/`RobotModel`-dependent
-//! half, and `collision_env_distance_field`'s construction-only slice
-//! (`addLinkBodyDecompositions`). The collision *checker* itself
+//! `moveit_core/collision_distance_field`'s body-decomposition and
+//! cache-entry-construction machinery: `collision_distance_field_types` (no
+//! `RobotModel` dependency), `collision_common_distance_field`'s
+//! `RobotState`/`RobotModel`-dependent half plus its
+//! [`DistanceFieldCacheEntry`] struct, and `collision_env_distance_field`'s
+//! construction-only slice (`addLinkBodyDecompositions`,
+//! `generateDistanceFieldCacheEntry`). The collision *checker* itself
 //! (`CollisionEnvDistanceField::checkCollision` and friends) belongs to a
 //! later phase, blocked in part on dependency gaps this crate's own module
-//! docs record; see `PORTING-PLAN.md` §3 and [`add_link_body_decompositions`]'s
-//! own doc comment for specifics.
+//! docs record; see `PORTING-PLAN.md` §3 and `collision_env_distance_field.rs`'s
+//! own module doc comment for specifics.
 //!
 //! - [`VoxelGrid`] — the generic dense grid, with the world↔cell coordinate
 //!   conversion whose rounding convention is load-bearing (see its `impl`
@@ -48,9 +50,15 @@
 //!   — the `RobotState`/`RobotModel`-dependent slice of
 //!   `collision_common_distance_field`; see that function's own doc comment
 //!   for what is deferred and why.
-//! - [`add_link_body_decompositions`] — `collision_env_distance_field`'s
-//!   construction-only slice; see its own doc comment for the two real
-//!   dependency gaps that block the rest of that file.
+//! - [`add_link_body_decompositions`] / [`generate_distance_field_cache_entry`] /
+//!   [`DistanceFieldConfig`] — `collision_env_distance_field`'s
+//!   construction-only slice; see [`add_link_body_decompositions`]'s doc
+//!   comment for the remaining dependency gap and
+//!   [`generate_distance_field_cache_entry`]'s own doc comment for what it
+//!   builds.
+//! - [`DistanceFieldCacheEntry`] — the group-, ACM-, and robot-state-specific
+//!   cache entry [`generate_distance_field_cache_entry`] populates; see its
+//!   own doc comment for what upstream field it deliberately leaves unset.
 //!
 //! See [`DistanceField`]'s doc comment for what upstream's abstract base
 //! class carries that is deliberately *not* ported here, and why.
@@ -64,7 +72,8 @@ mod propagation;
 mod voxel_grid;
 
 pub use collision_common_distance_field::{
-    collision_object_point_decomposition, get_body_decomposition_cache_entry,
+    DistanceFieldCacheEntry, collision_object_point_decomposition,
+    get_body_decomposition_cache_entry,
 };
 pub use collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
@@ -73,7 +82,9 @@ pub use collision_distance_field_types::{
     determine_collision_spheres, do_bounding_spheres_intersect, get_collision_sphere_collision,
     get_collision_sphere_collisions, get_collision_sphere_gradients,
 };
-pub use collision_env_distance_field::add_link_body_decompositions;
+pub use collision_env_distance_field::{
+    DistanceFieldConfig, add_link_body_decompositions, generate_distance_field_cache_entry,
+};
 pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};
 pub use propagation::{NearestCell, PropDistanceFieldVoxel, PropagationDistanceField};
