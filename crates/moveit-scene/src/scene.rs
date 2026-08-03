@@ -1136,6 +1136,31 @@ impl<'m> PlanningScene<'m> {
         self.world_diff = None;
         self.parent = None;
     }
+
+    /// Reset a diff scene back to a fresh diff against its parent's
+    /// *current* state: any locally materialized `robot_state`/`acm`/
+    /// `attached_bodies` are discarded and re-inherited, `world` reclones
+    /// the parent's, and `world_diff` starts empty again. A no-op if this
+    /// scene has no parent (upstream: `if (!parent_) return;`). Upstream
+    /// `clearDiffs`, scoped to the fields this port carries — see
+    /// [`PlanningScene::decouple_parent`]'s doc for which upstream fields
+    /// that already excludes.
+    ///
+    /// The counterpart to [`PlanningScene::decouple_parent`]: that method
+    /// freezes everything inherited in place and severs the parent link;
+    /// this keeps the parent link and un-freezes everything back to it, so
+    /// a diff scene that diverged while used for read-only planning can be
+    /// handed back for reuse without `parent.diff()`-ing a brand new one.
+    pub fn clear_diffs(&mut self) {
+        let Some(parent) = self.parent.clone() else {
+            return;
+        };
+        self.world = parent.world.clone();
+        self.world_diff = Some(WorldDiff::new());
+        self.robot_state = Layered::Inherited;
+        self.acm = Layered::Inherited;
+        self.attached_bodies = parent.attached_bodies.clone();
+    }
 }
 
 #[cfg(test)]
@@ -1543,6 +1568,54 @@ mod tests {
             Isometry3::translation(2.0, 0.0, 0.0)
         );
         assert!(child.knows_frame_transform("crate"));
+    }
+
+    #[test]
+    fn clear_diffs_on_a_root_scene_is_a_no_op() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+
+        root.clear_diffs();
+
+        assert_eq!(root.world().object_ids(), vec!["box".to_owned()]);
+    }
+
+    #[test]
+    fn clear_diffs_resets_a_diverged_child_to_a_fresh_diff_against_the_parent() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("floor", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.add_shape("box", cuboid_shape(), Isometry3::translation(1.0, 0.0, 0.0));
+        assert!(child.remove_object("floor"));
+        child
+            .allowed_collision_matrix_mut()
+            .set_entry("a", "b", true);
+        child
+            .attach_new(
+                "held",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        child.clear_diffs();
+
+        assert!(child.parent().is_some());
+        assert_eq!(child.world().object_ids(), vec!["floor".to_owned()]);
+        assert!(child.attached_bodies().next().is_none());
+        assert!(child.allowed_collision_matrix().entry("a", "b").is_none());
+        let diff = child
+            .world_diff
+            .as_ref()
+            .expect("child scene must track a diff");
+        assert!(diff.is_empty());
     }
 
     // ---- frames: the five-tier ladder ----------------------------------------
