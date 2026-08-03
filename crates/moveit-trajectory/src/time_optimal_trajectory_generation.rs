@@ -30,6 +30,50 @@
 //!   `ruckig_smoothing`'s precedent). Every upstream `RCLCPP_ERROR` +
 //!   `return false` site still returns [`Error`] here.
 //!
+//! # Known gap: the scaling-only overload has no reachable test path
+//!
+//! [`compute_time_stamps`] (the scaling-only overload) cannot succeed
+//! against any fixture in this workspace, real or synthetic, and cannot
+//! be made to today. Three separate claims, only the first of which is
+//! `moveit-model`'s:
+//!
+//! 1. `moveit-model`'s URDF loader never sets `acceleration_bounded`.
+//!    `crates/moveit-model/src/joint/urdf.rs`'s `joint_bounds_from_urdf`
+//!    (the sole 1-DOF-joint bounds constructor) reads only `joint.limit.
+//!    velocity`; nothing in that crate ever touches `max_acceleration`/
+//!    `acceleration_bounded`, which stay at `VariableBounds::default`'s
+//!    `false`. This matches upstream exactly: `jointBoundsFromURDF` in
+//!    `moveit_core/robot_model/src/robot_model.cpp` likewise never reads
+//!    an acceleration limit from a URDF `<limit>` element, because URDF's
+//!    schema has no such field. Not a defect, not this crate's.
+//! 2. Checked whether that gap is actually closed by any *programmatic*
+//!    route bypassing URDF entirely, rather than assumed: it is not,
+//!    today. `JointModel::set_variable_bounds_from_limits` (`model.rs`,
+//!    public) could do it, but nothing hands out a `&mut JointModel` to
+//!    reach it — `RobotModel`'s entire public surface after construction
+//!    is `&self`-only (`joint_model`/`joint_model_at`/`joint_models`,
+//!    `robot_model.rs`), and `from_urdf_and_srdf` is its only public
+//!    constructor. Upstream has exactly the missing piece: `RobotModel::
+//!    getJointModel(const std::string&)` has a non-`const` overload
+//!    returning `JointModel*` (`moveit_core/robot_model/include/moveit/
+//!    robot_model/robot_model.hpp:146`), which is what upstream's own
+//!    `joint_limits.yaml` loaders use to call `JointModel::
+//!    setVariableBounds` post-construction (`joint_model.hpp:356/359`) —
+//!    URDF and `joint_limits.yaml` are two different bound sources
+//!    upstream, merged after model load, not one one-shot constructor
+//!    call. **The one thing `moveit-model` would need to add for this
+//!    overload to become end-to-end testable:** a single mutable
+//!    accessor, `RobotModel::joint_model_mut(&mut self, name: &str) ->
+//!    Result<&mut JointModel>`, mirroring the existing `joint_model` and
+//!    upstream's non-`const` `getJointModel` overload. Nothing else is
+//!    missing — `set_variable_bounds_from_limits` is already public and
+//!    already sufficient once that accessor exists.
+//! 3. It does *not* follow from (1)+(2) that the overload is untestable
+//!    in principle — only that it is untestable *today*, pending the one
+//!    accessor named above. Reported to `moveit-model`'s owner rather
+//!    than added here, since `crates/moveit-model/` is out of this
+//!    crate's ownership.
+//!
 //! # Deviations from upstream
 //!
 //! - **No default constructor parameters, no class.** Upstream's

@@ -19,7 +19,9 @@
 //! overload (`compute_time_stamps`) is not exercised here: this port's
 //! `moveit-model` URDF loader never sets `acceleration_bounded`, so that
 //! overload fails validation against every fixture in this workspace
-//! before it can reach any numeric comparison (see this round's report).
+//! before it can reach any numeric comparison — see
+//! `time_optimal_trajectory_generation.rs`'s "Known gap" doc section for
+//! the full analysis and the precise API this crate is waiting on.
 //! Custom limits bypass that gap entirely, matching upstream's own
 //! `setAccelerationLimits` test workaround.
 //!
