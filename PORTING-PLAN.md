@@ -5862,3 +5862,50 @@ convex primitive(`floor`는 `Cuboid`) 대 메시의 침투 깊이 계산 차이�
 `cargo nextest run --workspace` **961/961**, clippy `-D warnings` 0건,
 `check-*.sh` 3건 OK, 출처 검사 OK(새 `moveit-collision/pr2.urdf`는
 `identical`), 재생 **25/25 identical**.
+
+## 64. pr2 메시 18개가 대조됐다 — §43/§53/§56이 기대던 가정이 닫혔다 (2026-08-04)
+
+p3-shapes 라운드 10(`f11ad3a`, `96eb7b7`). 브랜치 베이스가 `0aa9b7c`라
+그쪽 보고의 944/944·재생 22/22는 낡은 숫자다. 보고는 "Three commits"라고
+적었지만 브랜치에는 2개다.
+
+### 64.1 §57.2가 지목한 load-bearing 가정
+
+§57.2가 남긴 것: `mesh_parity.json`에 pr2 항목이 0건인데 pr2 collision
+STL은 18개 존재하고, §43/§53/§56의 모든 결론이 그 정점들 위에 서 있다.
+이제 36건(panda/fanuc 18 + pr2 18) 전부가 오라클 `mesh` op으로 캡처돼
+있고 전부 일치한다. pr2의 STL은 writer 헤더가 다르다(`VCG` 대 panda/fanuc의
+`Export`)는데도 정점 집합이 비트 단위로 같다.
+
+직접 확인한 것 셋:
+
+- 픽스처가 진짜 오라클 캡처인지 — `base_v0/base_L.stl`을 살아 있는
+  오라클에 직접 다시 요청했고 `triangle_count` 96 / `vertex_count` 50 /
+  정점 리스트가 픽스처와 완전히 같다.
+- 테스트가 자기 자신을 재지 않는지 — `mesh_parity.rs:143-148`은 디스크의
+  STL 바이트를 읽어 이 포트의 `mesh_from_bytes`를 돌리고 그 결과를
+  오라클 캡처와 대조한다. 진짜 differential이다.
+- **호스트의 STL과 이미지 안의 STL이 같은 파일인지** — 이 대조가 의미를
+  가지려면 필요한 전제인데, `verify-fixture-provenance.sh:100-103`이
+  `shopt -s globstar` 아래 `fixtures/meshes/**/*.stl`를 이미 돌고 있고
+  실행하면 정확히 35줄이 나온다. 새 메시가 들어와도 표를 고칠 필요 없이
+  자동으로 검사된다. 별도로 `base_L.stl`의 sha256을 호스트와 이미지에서
+  각각 재서 같은 것도 확인했다(`a85863d0...`).
+
+`VERTEX_EPS`는 `1e-6`이고 좌표 크기는 0.1~0.6 m이므로 상대 오차 ~1e-5 —
+STL이 f32로 저장된다는 점(상대 정밀도 ~1e-7)에 비해 느슨하지 않다.
+
+### 64.2 `bodies::Body`의 "Phase 3 collision으로 미룸"은 낡은 문장이었다
+
+`96eb7b7`이 현재 트리에 대고 다시 유도했다. `bodies::Body`는 라운드 3에
+이미 포팅됐고, Phase 3 소비자로 지목됐던 `moveit-collision`은 이 모듈을
+아예 쓰지 않는다 — 자기 모듈 문서에서 이름을 대고 거절하며
+`ParryCollisionEnv`를 `parry3d-f64` 도형 위에 직접 세운다. 실제 현재
+호출자는 `moveit-constraints`의 `PositionConstraint`(`Body::from_shape`/
+`contains_point`)와 `moveit-distance-field`(`compute_bounding_sphere`/
+`compute_bounding_cylinder`/`contains_point`)이다.
+
+### 64.3 머지 후 실측
+
+`cargo nextest run --workspace` **961/961**, clippy `-D warnings` 0건,
+`check-*.sh` 3건 OK, 출처 검사 OK(메시 35건 포함), 재생 **25/25 identical**.
