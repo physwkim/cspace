@@ -158,6 +158,20 @@
 //!    colliding pair's own reported depth ever exceeds twice its own bounding
 //!    radius, catching a future regression toward panda-worst-case-style
 //!    impossible numbers even though exact magnitude parity is not required.
+//!
+//!    What looked like three of this backend's own frozen self-distance
+//!    constants across that 10,000-case sweep are actually two pair
+//!    *families*, not three distinct geometric coincidences:
+//!    `base_link`/each of the eight `*_caster_*_wheel_link`s collapses to one
+//!    value within `3.98e-14` because each wheel is rotationally symmetric
+//!    about its own roll axis, so the wheel-roll joint cannot move the
+//!    closest point — eight geometrically distinct pairs masquerading as one
+//!    constant; and `base_bellow_link`/`torso_lift_link` is not a true
+//!    constant at all, only this deviation's own plateau, spanning `5.536e-3`
+//!    across 177 sampled states before the ramp above takes over. So the
+//!    apparent "three frozen constants" were this same deviation showing up
+//!    twice, once via rotational symmetry and once via the plateau half of
+//!    `min(candidate_x, candidate_z(t))` — not three separate phenomena.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and
