@@ -50,22 +50,69 @@ pub struct PathValidity {
 /// ACM, the current state, attached bodies (see [`AttachedBody`]'s module
 /// doc for why they live here rather than on [`RobotState`]), the
 /// parent/child diff relationship ([`PlanningScene::diff`],
-/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`]), and
-/// state/path validity ([`PlanningScene::is_state_valid`],
+/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`],
+/// [`PlanningScene::clear_diffs`]), and state/path validity
+/// ([`PlanningScene::is_state_colliding`],
+/// [`PlanningScene::is_state_valid`],
 /// [`PlanningScene::is_state_constrained`],
 /// [`PlanningScene::is_path_valid`] — see their own docs for the dropped
 /// `moveit_msgs` overloads and feasibility predicate).
 ///
-/// Deferred, not ported: anything that round-trips a `moveit_msgs` type
-/// (`getPlanningSceneMsg`/`setPlanningSceneDiffMsg`/
-/// `processCollisionObjectMsg`/octomap handling — D1, this is a
-/// ROS-independent core crate), `scene_transforms_`/`getTransforms`
-/// (upstream's separate named-frame lookup layer; no `Transforms`/
-/// `SceneTransforms` exists in this port yet), object colors/types
-/// (`object_colors_`/`object_types_`, cosmetic bookkeeping with no
-/// collision-relevant behavior) and cost sources (`getCollisionEnv`/...
-/// never surface `CollisionRequest::cost` from a `PlanningScene` entry
-/// point upstream either).
+/// Deferred, not ported:
+///
+/// - Anything that round-trips a `moveit_msgs` type
+///   (`getPlanningSceneMsg`/`setPlanningSceneDiffMsg`/
+///   `processCollisionObjectMsg`/octomap handling, `getCurrentStateUpdated`'s
+///   `moveit_msgs::RobotState` overload — D1, this is a ROS-independent core
+///   crate).
+/// - `scene_transforms_`/`getTransforms` (upstream's separate named-frame
+///   lookup layer; no `Transforms`/`SceneTransforms` exists in this port
+///   yet).
+/// - The object-color family (`getObjectColor`/`setObjectColor`/
+///   `hasObjectColor`/`removeObjectColor`/`getKnownObjectColors`/
+///   `getOriginalObjectColor`) — D1, carries `std_msgs::msg::ColorRGBA`.
+/// - The object-type family (`getObjectType`/`setObjectType`/
+///   `hasObjectType`/`removeObjectType`/`getKnownObjectTypes`) — D1, carries
+///   `object_recognition_msgs::msg::ObjectType`.
+/// - `saveGeometryToStream`/`loadGeometryFromStream` — a bespoke `.scene`
+///   text format whose per-shape records call the D1-excluded
+///   `getObjectColor`, written to interoperate with RViz's scene-file UI
+///   (no renderer in D1 scope).
+/// - `printKnownObjects` — `std::ostream` debug formatting with no
+///   algorithmic content; everything it prints is already public via
+///   [`PlanningScene::world`]'s `object_ids` and
+///   [`PlanningScene::attached_bodies`].
+/// - `checkCollisionUnpadded`/`allocateCollisionDetector` — both exist
+///   upstream to manage a *second*, unpadded `CollisionEnv` instance; D4's
+///   redesign (see "Collision checking" below) already replaced that
+///   dual-env-per-plugin machinery with the caller owning one concrete `E`,
+///   so this type carries no `collision_detector_` field for either method
+///   to act on.
+/// - `setAttachedBodyUpdateCallback` — a plain-Rust-representable callback
+///   hook (unlike `moveit_msgs::Constraints`, no message type forces its
+///   exclusion), but nothing in this port's reach ever registers one — the
+///   same "no caller reaches the branch that would need it" reasoning
+///   [`PlanningScene::is_state_valid`]'s own doc gives for the dropped
+///   `StateFeasibilityFn`.
+/// - `setCollisionObjectUpdateCallback` — same reasoning, and additionally
+///   structurally obsoleted: [`moveit_collision::World`] replaced upstream's
+///   `addObserver`/`ObserverCallbackFn` registration with every mutator
+///   returning `Option<Notification>` directly, so there is no observer
+///   slot left to wire a callback into.
+/// - `getCostSources` (all four overloads) — blocked, not merely deferred.
+///   Every Rust-side type this needs already exists in `moveit-collision`
+///   ([`moveit_collision::CostSource`],
+///   [`moveit_collision::CollisionResult::cost_sources`],
+///   [`moveit_collision::remove_cost_sources`],
+///   [`moveit_collision::remove_overlapping`]), but
+///   `moveit_collision::ParryCollisionEnv`'s collision callback hardcodes
+///   `cost_sources: None` regardless of [`CollisionRequest::cost`] —
+///   contradicting `CollisionResult::cost_sources`'s own doc ("present
+///   exactly when `CollisionRequest::cost` was set"). Upstream's actual
+///   source is `fcl::CollisionResultd::getCostSources()`, an FCL-internal
+///   BVH-subdivision algorithm with no `parry3d-f64` equivalent to call —
+///   producing one is new backend work belonging in `moveit-collision`, not
+///   something this crate can work around by itself.
 ///
 /// # Collision checking
 ///

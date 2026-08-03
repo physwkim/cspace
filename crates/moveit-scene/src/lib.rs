@@ -16,12 +16,13 @@
 //! [`WorldDiff`] (a change record over a [`moveit_collision::World`]) and
 //! [`PlanningScene`] (the world/ACM/attached-bodies/current-state bundle,
 //! plus [`PlanningScene::diff`]/[`PlanningScene::push_diffs`]/
-//! [`PlanningScene::decouple_parent`]). `moveit_constraints` — kinematic
-//! constraint types and `PlanningScene::isStateConstrained` — is out of
-//! scope for this crate; see [`PlanningScene`]'s own doc for the rest of
-//! what upstream `planning_scene.cpp` carries that this crate does not yet
-//! port (message round-tripping, named-frame transforms, collision-check
-//! passthroughs).
+//! [`PlanningScene::decouple_parent`]/[`PlanningScene::clear_diffs`], and
+//! state/path validity built on `moveit_constraints`'s
+//! [`moveit_constraints::KinematicConstraintSet`] — see
+//! [`PlanningScene::is_state_valid`]). See [`PlanningScene`]'s own doc for
+//! the rest of what upstream `planning_scene.cpp` carries that this crate
+//! does not yet port (message round-tripping, named-frame transforms,
+//! object colors/types, cost sources).
 //!
 //! See [`PlanningScene`]'s doc for the parent/child design — deliberately
 //! reasoned through rather than transcribed from upstream's
