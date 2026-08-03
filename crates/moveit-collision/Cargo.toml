@@ -1,6 +1,6 @@
 [package]
 name = "moveit-collision"
-description = "RobotModel-independent parts of moveit_core/collision_detection: AllowedCollisionMatrix and the collision request/result types"
+description = "RobotModel-independent parts of moveit_core/collision_detection: AllowedCollisionMatrix, the collision request/result types, and the World object container"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,10 +9,12 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+moveit-error.workspace = true
 moveit-geometry.workspace = true
 moveit-srdf.workspace = true
 
 [dev-dependencies]
+approx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
