@@ -127,7 +127,19 @@
 //!   port's unbounded sentinel is `f64::INFINITY`/`f64::NEG_INFINITY` — see
 //!   `JointModel::new_planar`'s own doc comment — *not* upstream's literal
 //!   `DBL_MAX`, which this port's planar constructor never produces; using
-//!   `DBL_MAX` here would silently never match and always fall through) or
+//!   `DBL_MAX` here would silently never match and always fall through —
+//!   measured, not just argued: swapping the `x`/`y` sentinel comparisons
+//!   for `-f64::MAX`/`f64::MAX` and rerunning this crate's tests
+//!   (`--no-fail-fast`) leaves 13/14 passing and fails exactly
+//!   `planar_xy_infinite_bounds_still_skip_despite_finite_theta` with
+//!   `left: NaN, right: 0.7768698398515702` — not merely a wrong penalty
+//!   but `NaN`, because the skip no longer fires, `PlanarJoint::distance`
+//!   is evaluated against an `x`/`y` bound of `f64::INFINITY`/
+//!   `f64::NEG_INFINITY` on each side (`(0.0 - f64::INFINITY).powi(2)` is
+//!   `f64::INFINITY`, so `lower_bound_distance`/`upper_bound_distance` are
+//!   each `f64::INFINITY`), and the per-joint term becomes
+//!   `f64::INFINITY * f64::INFINITY / f64::INFINITY.powi(2)` —
+//!   `∞ / ∞`, IEEE 754's textbook indeterminate form) or
 //!   its `theta` bound is the default full range, checked against
 //!   `std::f64::consts::PI` exactly as upstream checks against `M_PI` — this
 //!   one is a literal, not a sentinel translation, since `new_planar`'s own
@@ -528,13 +540,17 @@ mod tests {
     /// `RobotModel::joint_model_mut`/`JointModel::set_variable_bounds`
     /// (`world_joint/theta` alone), while `x`/`y` are left at
     /// `PlanarJoint`'s default `±INFINITY`. The joint must still be
-    /// skipped, on the `x`/`y` check alone -- confirmed empirically: if the
-    /// `f64::NEG_INFINITY`/`f64::INFINITY` comparisons in
-    /// `joint_limits_penalty` are swapped for a different sentinel (e.g.
-    /// upstream's literal, finite `-DBL_MAX`/`DBL_MAX`, which this port's
+    /// skipped, on the `x`/`y` check alone -- measured this round, not just
+    /// argued: swapping the `f64::NEG_INFINITY`/`f64::INFINITY` comparisons
+    /// in `joint_limits_penalty` for `-f64::MAX`/`f64::MAX` (upstream's
+    /// literal, finite `-DBL_MAX`/`DBL_MAX`, which this port's
     /// `new_planar` never actually produces -- see this module's own doc
-    /// comment), every other test in this file still passes (the `theta`
-    /// check in `planar_joint_with_default_bounds_is_skipped_...` covers
+    /// comment) and rerunning `--no-fail-fast` gives 14 tests: 13 passed, 1
+    /// failed -- this test, and only this test, with `left: NaN, right:
+    /// 0.7768698398515702` (see the module doc's own note on this same
+    /// perturbation for why the failure is `NaN` and not merely a wrong
+    /// finite value). Every other test in this file still passes (the
+    /// `theta` check in `planar_joint_with_default_bounds_is_skipped_...` covers
     /// for it), and only this test catches the regression.
     #[test]
     fn planar_xy_infinite_bounds_still_skip_despite_finite_theta() {
