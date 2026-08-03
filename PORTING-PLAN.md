@@ -3540,3 +3540,57 @@ reseed_active[k] = ik_rng_.uniformReal(std::max(joint_min[full_i], seed_active[k
 이는 상류 `jointBoundsFromURDF`도 마찬가지다 — URDF에 가속도 필드가 없고
 실제 MoveIt 설정은 별도 `joint_limits.yaml`에서 가져오는데 이 워크스페이스는
 그것을 로드하지 않는다. `moveit-model` 소유이므로 보고만 하고 넘긴다.
+
+## 31. `p3-shapes` 6라운드 병합 — 그리고 내 브리핑이 틀렸다 (2026-08-04)
+
+`0a257ed`. `nextest --workspace` **883/883**.
+
+### 31.1 `OctreeCache` 성장 경계
+
+§29에서 닫은 것은 정확성 절반이었고, 나머지 절반(엔트리가 영원히 쌓임)을
+워커가 닫았다: `get_or_compute`가 매 호출 앞에서
+`weak.strong_count() == 0`인 엔트리를 전부 걷어낸다. 캡도 타이머도 아니라
+**참조 카운트 자체**를 신호로 쓴 것이 옳다 —
+`World::remove_object`/`clear_objects`가 마지막 `Arc`를 떨어뜨리는 것이 이
+캐시에서 "그 트리는 사라졌다"의 정의이고, 그 외에 알려 줄 것이 없다.
+조회 대상 엔트리가 걷히는 일은 없다(호출자가 그 `Arc`를 들고 있으므로
+`strong_count() >= 1`).
+
+### 31.2 테스트가 자기 헬퍼를 측정하고 있었다
+
+`octree_cache_prunes_an_entry_once_nothing_holds_its_tree`는
+**`get_or_compute`의 prune을 지워도 통과했다.** 직접 지워서 확인했다.
+원인은 `len()`이었다 — 세기 전에 스스로 `retain`을 돌렸으므로, 대상 코드가
+prune을 하든 말든 걷힌 개수를 보고했다.
+
+작성자의 독코멘트가 이미 그 모호함을 알고 있었다: "(after pruning would
+happen, not before)". 헬퍼가 둘 중 어느 쪽인지 괄호로 설명해야 한다면
+설명을 붙일 게 아니라 하나의 뜻만 갖게 해야 한다. `len()`을 순수 관찰자로
+바꿔(`39cff17`) 원시 맵 크기를 죽은 엔트리 포함해 돌려주게 했다 — 성장
+경계 테스트가 잡아야 하는 사실이 정확히 "아무도 못 쓰는 엔트리가 여전히
+맵을 차지한다"이기 때문이다. 이제 prune을 지우면 이 테스트는 실패한다.
+
+일반 규칙으로 승격: **테스트를 쓴 뒤 그 테스트가 검사하는 것을 지워
+보고 실패하는지 확인한다.** 실패하는 것을 본 적 없는 테스트는 무언가를
+검사한다는 것이 아직 증명되지 않았다. §29의 회귀 테스트도 같은 방식으로
+확인했다.
+
+### 31.3 내 6라운드 브리핑의 1번 항목은 근거가 없었다
+
+`bodies::Body`의 `containsPoint`/`intersectsRay`/posed `boundingBox`를
+"이 크레이트의 마지막 미이식 조각"이라고 썼는데, 워커가 되돌아보지 않고
+멈춰서 물었다. 확인해 보니 워커가 옳았다 —
+`crates/moveit-geometry/src/bodies.rs`는 3775줄이고 모든 서브클래스에
+해당 함수들이 있으며, 모듈 독은 "The posed, algorithmic half of
+`geometric_shapes`"로 시작하고, 브리핑이 요구한 경계 테스트가 이미 전부
+있고, 커밋 체인이 이번 세션 5라운드 병합보다 앞선다.
+
+출처는 워커 자신의 5라운드 UNFIXED 한 줄("deferred to Phase 3 collision
+per PORTING-PLAN, untouched this round")이었고, 나는 그것을 트리와
+대조하지 않고 브리핑으로 옮겼다. 바로 그 직전 라운드에
+`p3-distance-field`에게 "물려받은 blocker 목록을 그대로 상속하지 말고 다시
+읽어라"라고 요구해 놓고 같은 실수를 했다. 두 가지가 남는다 — 브리핑의
+전제도 보고서에 요구하는 것과 같은 검증을 받아야 하고, "untouched this
+round"라고 적힌 UNFIXED는 그 일이 남아 있다는 증거가 아니다.
+
+3700줄을 다시 유도하는 대신 멈추고 물은 것이 옳았고 비용은 0이었다.
