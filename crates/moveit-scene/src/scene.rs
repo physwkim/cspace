@@ -336,15 +336,49 @@ pub struct PathValidity {
 ///   ([`moveit_collision::CostSource`],
 ///   [`moveit_collision::CollisionResult::cost_sources`],
 ///   [`moveit_collision::remove_cost_sources`],
-///   [`moveit_collision::remove_overlapping`]), but
-///   `moveit_collision::ParryCollisionEnv`'s collision callback hardcodes
-///   `cost_sources: None` regardless of [`CollisionRequest::cost`] —
-///   contradicting `CollisionResult::cost_sources`'s own doc ("present
-///   exactly when `CollisionRequest::cost` was set"). Upstream's actual
-///   source is `fcl::CollisionResultd::getCostSources()`, an FCL-internal
-///   BVH-subdivision algorithm with no `parry3d-f64` equivalent to call —
-///   producing one is new backend work belonging in `moveit-collision`, not
-///   something this crate can work around by itself.
+///   [`moveit_collision::remove_overlapping`], and `CostSource`'s `Ord`
+///   already reproduces `fcl::CostSource::operator<`'s tie-break chain
+///   exactly), but `moveit_collision::ParryCollisionEnv`'s collision
+///   callback hardcodes `cost_sources: None` regardless of
+///   [`CollisionRequest::cost`] — contradicting `CollisionResult::cost_sources`'s
+///   own doc ("present exactly when `CollisionRequest::cost` was set").
+///
+///   Traced this round (`collision_detection_fcl/collision_common.hpp`'s
+///   `fcl2costsource`, and FCL's own `narrowphase/cost_source-inl.h` +
+///   `detail/traversal/collision/*_traversal_node-inl.h`, read from the
+///   image's vendored `/usr/include/fcl`): a `CostSource` is `{ aabb_min,
+///   aabb_max, cost: cost_density }`, `cost_density` is a per-`CollisionGeometry`
+///   field FCL defaults to `1.0` and **no code anywhere in `moveit2` ever
+///   sets to anything else** (`rg cost_density moveit_core` finds only the
+///   read side) -- so in every collision check this workspace's oracle can
+///   produce, `cost_density` is the constant `1.0`, and the entire feature
+///   reduces to "the AABB(s) of what collided, ranked by volume". The two
+///   shape kinds split cleanly:
+///   - **Non-mesh pairs**: upstream's source is `aabb1.overlap(aabb2)` --
+///     the *intersection* of each shape's own world-space AABB, from
+///     `computeBV` (`shape_collision_traversal_node-inl.h:114-120`). This
+///     is a small fill-in, not new backend work: at the exact site that
+///     hardcodes `cost_sources: None` (`parry.rs`, the `checkCollision`
+///     callback), `a_shape`/`b_shape`/`a_pose`/`b_pose` are already in
+///     scope, and `parry3d_f64::shape::Shape::compute_aabb` is the same
+///     call `parry3d-f64` already uses for broad-phase -- no new geometry
+///     algorithm, just wiring already-available data into the already-built
+///     `CostSource`/`CollisionResult::cost_sources` machinery above.
+///   - **Mesh pairs**: upstream's source is a *different* AABB per
+///     colliding *triangle-leaf pair* inside FCL's BVH traversal
+///     (`mesh_collision_traversal_node-inl.h`), many small AABBs per shape
+///     pair, not one. `parry3d_f64::query::contact` -- the single
+///     closest-point call this backend's whole pipeline is built on (see
+///     this crate's own module doc on `ParryCollisionEnv`) -- returns one
+///     `Contact` per pair and exposes no per-triangle-leaf overlap
+///     enumeration; matching this bit-for-bit needs `parry3d-f64`'s
+///     lower-level BVH/`Qbvh` traversal API, which nothing in
+///     `moveit-collision` calls today. This half is the genuine backend
+///     limitation.
+///
+///   So the fix splits: p3-acm can close the non-mesh case now with data
+///   already at the call site; the mesh case needs a real new
+///   `parry3d-f64` integration, not a fill-in.
 /// - `printKnownObjects` — distinct: `std::ostream` debug formatting with
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
