@@ -22,24 +22,24 @@ use crate::sampling::{sample_ball_radius_fraction, sample_unit_vector};
 /// The trait exists so this crate is not Euclidean-by-assumption:
 /// `distance` and `interpolate` are per-space operations rather than a fixed
 /// formula, which is what lets a space compose a wraparound revolute joint
-/// (shortest arc, not linear difference, see `So2Space`) or an SO(3)
-/// orientation (geodesic, not linear blend, see `Se3Space`) without changing
-/// anything in [`crate::nn`] or [`crate::rrt_connect`] — both are written
-/// only against this trait.
+/// (shortest arc, not linear difference, see [`crate::so2::So2Space`]) or an
+/// SO(3) orientation (geodesic, not linear blend, see
+/// [`crate::se3::Se3Space`]) without changing anything in [`crate::nn`] or
+/// [`crate::rrt_connect`] — both are written only against this trait.
 ///
 /// # Object safety
 ///
 /// Every method here takes `&mut dyn Rng` rather than a generic `<R: Rng>`
 /// parameter, which costs one dynamic dispatch per random draw but is what
-/// makes `StateSpace` itself object-safe: `CompoundSpace` holds a
-/// heterogeneous list of subspaces (a revolute joint next to a floating
-/// joint next to a prismatic one) behind `Box<dyn StateSpace<State = _>>`,
-/// which is only expressible at all if the trait has no generic methods to
-/// put in a vtable. An earlier version of this trait used `<R: Rng>` and had
-/// to be changed for exactly this reason — see
-/// `crates/moveit-planners-sbp`'s commit history for the record of that
-/// change and why it was necessary rather than a `CompoundSpace`-only
-/// workaround.
+/// makes `StateSpace` itself object-safe: [`crate::compound::CompoundSpace`]
+/// holds a heterogeneous list of subspaces (a revolute joint next to a
+/// floating joint next to a prismatic one) behind
+/// `Box<dyn StateSpace<State = _>>`, which is only expressible at all if the
+/// trait has no generic methods to put in a vtable. An earlier version of
+/// this trait used `<R: Rng>` and had to be changed for exactly this reason
+/// — see `crates/moveit-planners-sbp`'s commit history for the record of
+/// that change and why it was necessary rather than a
+/// `CompoundSpace`-only workaround.
 pub trait StateSpace {
     /// A single point in the space.
     type State: Clone;
@@ -79,12 +79,13 @@ pub trait StateSpace {
 /// Plain bounded `R^n` with the Euclidean metric: `distance` is the L2 norm
 /// of the difference, `interpolate` is a linear blend.
 ///
-/// This is the one concrete [`StateSpace`] this crate ships for Phase 7's
-/// initial scope — no wraparound, no orientation, just axis-aligned box
-/// bounds. Compound spaces (a revolute joint with wraparound, SO(3) for a
-/// floating joint's orientation, a product space combining several joints)
-/// are future work layered on the same trait; nothing here assumes they
-/// will look like this one.
+/// The simplest [`StateSpace`] this crate ships — no wraparound, no
+/// orientation, just axis-aligned box bounds. A revolute joint's wraparound
+/// is [`crate::so2::So2Space`], `SO(3)` for a floating joint's orientation
+/// is part of [`crate::se3::Se3Space`], and a product space combining
+/// several joints of any of these kinds is [`crate::compound::CompoundSpace`];
+/// nothing here assumes `RealVectorSpace` is the only space that will ever
+/// exist.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RealVectorSpace {
     bounds: Vec<(f64, f64)>,

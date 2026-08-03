@@ -361,6 +361,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compound::{CompoundSpace, CompoundValue};
+    use crate::se3::{Se3Space, Se3State};
+    use crate::so2::So2Space;
     use crate::space::RealVectorSpace;
     use crate::validity::DiscreteMotionValidator;
     use rand::SeedableRng;
@@ -598,5 +601,116 @@ mod tests {
             .expect("gap must be findable");
 
         assert_ne!(path_1, path_2);
+    }
+
+    /// End-to-end on [`Se3Space`], not just [`RealVectorSpace`]: this is
+    /// the case that exercises `interpolate`'s slerp and `distance`'s
+    /// weighted translation-plus-rotation metric inside the planner's own
+    /// tree-growth and nearest-neighbour code, not just in `se3`'s own
+    /// property tests.
+    #[test]
+    fn runs_end_to_end_on_se3_space() {
+        let space = Se3Space::new([(-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)], 1.0).unwrap();
+        let always_valid = |_: &Se3State| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let start = Se3State {
+            translation: [-3.0, 0.0, 0.0],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        let goal = Se3State {
+            translation: [3.0, 0.0, 0.0],
+            rotation: [0.0, 1.0, 0.0, 0.0],
+        };
+
+        let path = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            &mut rng(20),
+            &params(),
+        )
+        .expect("open SE(3) space must be solvable");
+
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
+        assert!(path.len() >= 2);
+        for pair in path.windows(2) {
+            assert!(
+                mv.is_motion_valid(&space, &pair[0], &pair[1]),
+                "invalid segment {:?} -> {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    /// End-to-end on a [`CompoundSpace`] mixing a `RealVectorSpace`
+    /// subspace (prismatic-like joints), a `So2Space` subspace (a
+    /// continuous joint) and an `Se3Space` subspace (a floating joint) --
+    /// the case the whole exercise was for: a `JointModelGroup` mixing
+    /// joint types is exactly this, and nothing in `nn` or `rrt_connect`
+    /// needed to change to support it, only `StateSpace` needed to become
+    /// object-safe (see `space`'s "Object safety" doc section).
+    #[test]
+    fn runs_end_to_end_on_compound_space() {
+        let space = CompoundSpace::new(vec![
+            (
+                CompoundSpace::real_vector(
+                    RealVectorSpace::new(vec![(-5.0, 5.0), (-5.0, 5.0)]).unwrap(),
+                ),
+                1.0,
+            ),
+            (CompoundSpace::so2(So2Space::new()), 1.0),
+            (
+                CompoundSpace::se3(
+                    Se3Space::new([(-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)], 1.0).unwrap(),
+                ),
+                0.5,
+            ),
+        ])
+        .unwrap();
+        let always_valid = |_: &Vec<CompoundValue>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let start = vec![
+            CompoundValue::RealVector(vec![-3.0, -3.0]),
+            CompoundValue::So2(3.0),
+            CompoundValue::Se3(Se3State {
+                translation: [-3.0, 0.0, 0.0],
+                rotation: [1.0, 0.0, 0.0, 0.0],
+            }),
+        ];
+        let goal = vec![
+            CompoundValue::RealVector(vec![3.0, 3.0]),
+            CompoundValue::So2(-3.0),
+            CompoundValue::Se3(Se3State {
+                translation: [3.0, 0.0, 0.0],
+                rotation: [0.0, 1.0, 0.0, 0.0],
+            }),
+        ];
+
+        let path = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            &mut rng(21),
+            &params(),
+        )
+        .expect("open compound space must be solvable");
+
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
+        assert!(path.len() >= 2);
+        for pair in path.windows(2) {
+            assert!(
+                mv.is_motion_valid(&space, &pair[0], &pair[1]),
+                "invalid segment {:?} -> {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
     }
 }

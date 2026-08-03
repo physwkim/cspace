@@ -57,6 +57,30 @@ pub(crate) fn sample_ball_radius_fraction(rng: &mut dyn Rng, dim: usize) -> f64 
     u.powf(1.0 / dim as f64)
 }
 
+/// `n` nonnegative fractions summing to `1.0`, drawn uniformly from the
+/// `(n - 1)`-simplex -- e.g. [`crate::compound::CompoundSpace::sample_near`]
+/// splitting a radius budget fairly across a heterogeneous set of subspaces.
+///
+/// `n` independent `Exponential(1)` draws (`-ln(uniform)`), normalized to
+/// sum to `1`, is a standard construction for a uniform (`Dirichlet(1, ...,
+/// 1)`) draw from the simplex: the `Gamma(1, 1)` distribution is exactly
+/// `Exponential(1)`, and normalizing independent Gamma draws with a common
+/// shape parameter is the standard Gamma-to-Dirichlet construction.
+///
+/// # Panics
+/// If `n == 0`.
+pub(crate) fn sample_simplex(rng: &mut dyn Rng, n: usize) -> Vec<f64> {
+    assert!(n > 0, "sample_simplex needs n > 0, got 0");
+    let draws: Vec<f64> = (0..n)
+        .map(|_| {
+            let u: f64 = rng.random_range(f64::MIN_POSITIVE..1.0);
+            -u.ln()
+        })
+        .collect();
+    let sum: f64 = draws.iter().sum();
+    draws.into_iter().map(|d| d / sum).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,6 +106,28 @@ mod tests {
             for _ in 0..2000 {
                 let f = sample_ball_radius_fraction(&mut rng, dim);
                 assert!((0.0..1.0).contains(&f), "dim {dim}: fraction {f}");
+            }
+        }
+    }
+
+    #[test]
+    fn simplex_fractions_are_nonnegative_and_sum_to_one() {
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        for n in [1usize, 2, 5, 10] {
+            for _ in 0..2000 {
+                let fractions = sample_simplex(&mut rng, n);
+                assert_eq!(fractions.len(), n);
+                let sum: f64 = fractions.iter().sum();
+                assert!(
+                    (sum - 1.0).abs() < 1e-9,
+                    "n {n}: fractions {fractions:?} sum to {sum}"
+                );
+                for &f in &fractions {
+                    assert!(
+                        (0.0..=1.0).contains(&f),
+                        "n {n}: fraction {f} out of [0, 1]"
+                    );
+                }
             }
         }
     }

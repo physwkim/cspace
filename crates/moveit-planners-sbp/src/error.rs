@@ -39,4 +39,19 @@ pub enum SbpError {
         /// The offending weight.
         value: f64,
     },
+
+    /// A [`crate::compound::CompoundSpace`] was built with no subspaces.
+    #[error("a compound state space needs at least one subspace, got 0")]
+    NoSubspaces,
+
+    /// A [`crate::compound::CompoundSpace`] subspace's weight was negative
+    /// or non-finite.
+    #[error("invalid weight {value} for subspace {index}: must be finite and non-negative")]
+    InvalidSubspaceWeight {
+        /// Which subspace (in the order passed to
+        /// [`crate::compound::CompoundSpace::new`]) had the bad weight.
+        index: usize,
+        /// The offending weight.
+        value: f64,
+    },
 }

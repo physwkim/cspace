@@ -15,14 +15,18 @@
 //!
 //! This is the abstract foundation plus one planner, deliberately without a
 //! dependency on `moveit-model` or `moveit-state`: everything here compiles
-//! and is tested standalone against [`RealVectorSpace`], a plain bounded
-//! `R^n`. Compound spaces matching MoveIt's actual joint types (a revolute
-//! joint's wraparound, a floating joint's `SO(3)` orientation, a
-//! `JointModelGroup`'s product space) are future work layered on
-//! [`StateSpace`]; nothing in this crate assumes `RealVectorSpace` is the
-//! only space that will ever exist.
+//! and is tested standalone against four [`StateSpace`] implementations
+//! covering MoveIt's actual joint types: [`RealVectorSpace`] (plain bounded
+//! `R^n` — prismatic and bounded revolute joints), [`so2::So2Space`] (a
+//! continuous joint's wraparound), [`se3::Se3Space`] (a floating joint's
+//! `R^3 x SO(3)`), and [`compound::CompoundSpace`] (a `JointModelGroup`'s
+//! heterogeneous product of any of the above, weighted).
 //!
 //! - [`space`] — the [`StateSpace`] trait and [`RealVectorSpace`].
+//! - [`so2`] — [`so2::So2Space`], a wraparound revolute joint.
+//! - [`se3`] — [`se3::Se3Space`], a floating joint.
+//! - [`compound`] — [`compound::CompoundSpace`], a weighted product of
+//!   subspaces of any of the above kinds.
 //! - [`validity`] — [`StateValidityChecker`] and [`MotionValidator`], kept
 //!   separate on purpose (see [`validity`]'s doc comment).
 //! - [`nn`] — [`Gnat`], the nearest-neighbour index.
@@ -44,6 +48,7 @@
 //! See each module's `tests` for the specific claims and the crate's commit
 //! history / report for which parts of this design are least certain.
 
+pub mod compound;
 mod error;
 pub mod nn;
 mod rrt_connect;
@@ -55,6 +60,7 @@ pub mod space;
 mod test_support;
 pub mod validity;
 
+pub use compound::{CompoundSpace, CompoundValue};
 pub use error::SbpError;
 pub use nn::Gnat;
 pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
