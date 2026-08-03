@@ -49,12 +49,25 @@
 //!
 //! `panda_arm` is a 7-DOF chain, so `jacobian.cols() == 7 >= 6` for every
 //! state: `manipulability_index`'s `columns < 6` branch (the SVD-product
-//! path, as opposed to `sqrt(det(J J^T))`) is **not exercised by this
-//! fixture**. No group in any committed fixture (`panda_arm` 7, fanuc
-//! `manipulator` 6, pr2 arm groups 7) has fewer than 6 active-joint
-//! variables, so that branch has no oracle coverage at all right now —
-//! flagged here rather than silently assumed correct; see this round's
-//! report.
+//! path, as opposed to `sqrt(det(J J^T))`) is not exercised by this
+//! fixture. That branch is pinned instead by
+//! `panda_arm_5dof_kinematics_metrics_matches_the_oracle`, against a second
+//! group (`panda_arm_5dof`, `panda_link0` to `panda_link5`, 5 active
+//! joints) that exists only in the crate-local, deliberately-divergent
+//! `crates/moveit-metrics/tests/fixtures/panda.srdf` (see that file's
+//! trailing comment, and `tools/ci/verify-fixture-provenance.sh`'s
+//! `DIVERGENT` table entry for it) — no committed *upstream* fixture
+//! (`panda_arm` 7, fanuc `manipulator` 6, pr2 arm groups 7) has fewer than
+//! 6 active-joint variables. Regenerate that response fixture with:
+//! ```text
+//! R=/home/stevek/work/moveit-rs/.caucus/worktrees/5REEQZSC40-p1-fixtures-920dace3-1
+//! python3 -c "import json; print(json.dumps(json.load(open('$R/crates/moveit-metrics/tests/fixtures/panda_arm_5dof_kinematics_metrics_request.json'))))" \
+//!   | sg docker -c "$R/tools/moveit-oracle/run-oracle.sh --urdf $R/fixtures/panda.urdf --srdf $R/crates/moveit-metrics/tests/fixtures/panda.srdf" \
+//!   | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2, sort_keys=True))"
+//! ```
+//! (same protocol note as above: the request must go in as compact,
+//! newline-delimited JSON; note the SRDF path is the crate-local divergent
+//! copy, not `fixtures/panda.srdf`).
 
 use std::fs;
 
@@ -98,8 +111,8 @@ fn fixture_path(file_name: &str) -> String {
     )
 }
 
-fn load_response() -> ResponseResult {
-    let path = fixture_path("panda_kinematics_metrics_response.json");
+fn load_response(file_name: &str) -> ResponseResult {
+    let path = fixture_path(file_name);
     let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let response: OracleResponse =
         serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"));
@@ -113,6 +126,22 @@ fn build_model() -> RobotModel {
         fs::read_to_string(urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(srdf_path).expect("fixture SRDF must parse");
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
+}
+
+/// `panda.srdf` here is the crate-local, deliberately-divergent copy (see
+/// its trailing comment): it adds a `panda_arm_5dof` group that no
+/// upstream panda SRDF group provides, needed to exercise
+/// `manipulability_index`/`manipulability`'s `columns < 6` branch.
+/// `panda.urdf` is still the shared, unmodified root fixture.
+fn build_model_with_5dof_group() -> RobotModel {
+    let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.urdf");
+    let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/panda.srdf");
+    let urdf_xml =
+        fs::read_to_string(urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+    let urdf = urdf_rs::read_file(urdf_path).expect("fixture URDF must parse");
+    let srdf = SrdfModel::parse_file(srdf_path).expect("divergent fixture SRDF must parse");
     RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
         .expect("fixture model must build")
 }
@@ -229,13 +258,13 @@ fn sorted_ellipsoid(eigenvalues: [f64; 3], eigenvectors: [f64; 9]) -> ([f64; 3],
     (out_values, out_vectors)
 }
 
-#[test]
-fn panda_kinematics_metrics_matches_the_oracle() {
-    let model = build_model();
-    let response = load_response();
-    assert_eq!(response.group, "panda_arm");
-
-    let mut metrics = KinematicsMetrics::new(&model);
+/// Shared body for both parity tests: replays every state in `response`
+/// through `model` via [`KinematicsMetrics`] and asserts all four metrics
+/// against the oracle's recorded values. `response.group` names the group
+/// to query, so this works unchanged for `panda_arm` (`columns >= 6`) and
+/// `panda_arm_5dof` (`columns < 6`).
+fn assert_matches_oracle(model: &RobotModel, response: &ResponseResult) {
+    let mut metrics = KinematicsMetrics::new(model);
     metrics.set_penalty_multiplier(response.penalty_multiplier);
 
     for (case_index, case) in response.states.iter().enumerate() {
@@ -252,7 +281,7 @@ fn panda_kinematics_metrics_matches_the_oracle() {
             );
         }
 
-        let mut state = RobotState::new(&model);
+        let mut state = RobotState::new(model);
         state.set_to_default_values();
         for (name, &value) in &case.joint_values {
             state
@@ -262,7 +291,7 @@ fn panda_kinematics_metrics_matches_the_oracle() {
         let posed = state.update();
 
         let index_full = metrics
-            .manipulability_index(&posed, "panda_arm", false)
+            .manipulability_index(&posed, &response.group, false)
             .unwrap_or_else(|e| panic!("case {case_index}: manipulability_index(false): {e}"));
         assert_relative_eq!(
             index_full,
@@ -272,7 +301,7 @@ fn panda_kinematics_metrics_matches_the_oracle() {
         );
 
         let index_translation = metrics
-            .manipulability_index(&posed, "panda_arm", true)
+            .manipulability_index(&posed, &response.group, true)
             .unwrap_or_else(|e| panic!("case {case_index}: manipulability_index(true): {e}"));
         assert_relative_eq!(
             index_translation,
@@ -282,7 +311,7 @@ fn panda_kinematics_metrics_matches_the_oracle() {
         );
 
         let manipulability_full = metrics
-            .manipulability(&posed, "panda_arm", false)
+            .manipulability(&posed, &response.group, false)
             .unwrap_or_else(|e| panic!("case {case_index}: manipulability(false): {e}"));
         assert_relative_eq!(
             manipulability_full,
@@ -292,7 +321,7 @@ fn panda_kinematics_metrics_matches_the_oracle() {
         );
 
         let manipulability_translation = metrics
-            .manipulability(&posed, "panda_arm", true)
+            .manipulability(&posed, &response.group, true)
             .unwrap_or_else(|e| panic!("case {case_index}: manipulability(true): {e}"));
         assert_relative_eq!(
             manipulability_translation,
@@ -302,7 +331,7 @@ fn panda_kinematics_metrics_matches_the_oracle() {
         );
 
         let (eigenvalues, eigenvectors) = metrics
-            .manipulability_ellipsoid(&posed, "panda_arm")
+            .manipulability_ellipsoid(&posed, &response.group)
             .unwrap_or_else(|e| panic!("case {case_index}: manipulability_ellipsoid: {e}"));
         let mut actual_vectors = [0.0; 9];
         for r in 0..3 {
@@ -336,4 +365,24 @@ fn panda_kinematics_metrics_matches_the_oracle() {
             );
         }
     }
+}
+
+#[test]
+fn panda_kinematics_metrics_matches_the_oracle() {
+    let model = build_model();
+    let response = load_response("panda_kinematics_metrics_response.json");
+    assert_eq!(response.group, "panda_arm");
+    assert_matches_oracle(&model, &response);
+}
+
+/// Pins `manipulability_index`/`manipulability`'s `columns < 6` branch
+/// (P4, round 13 brief): `panda_arm_5dof` has 5 active joints, so
+/// `jacobian.cols() == 5 < 6` for every state, forcing the SVD-product
+/// path that `panda_arm` (7 DOF) never exercises.
+#[test]
+fn panda_arm_5dof_kinematics_metrics_matches_the_oracle() {
+    let model = build_model_with_5dof_group();
+    let response = load_response("panda_arm_5dof_kinematics_metrics_response.json");
+    assert_eq!(response.group, "panda_arm_5dof");
+    assert_matches_oracle(&model, &response);
 }
