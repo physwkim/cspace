@@ -57,7 +57,11 @@
 
 use std::collections::BTreeMap;
 
-use crate::common::{CollisionRequest, CollisionResult, DistanceRequest, DistanceResult};
+use moveit_error::Result;
+
+use crate::common::{
+    CollisionRequest, CollisionResult, ContactData, DistanceRequest, DistanceResult,
+};
 use crate::matrix::AllowedCollisionMatrix;
 
 /// The virtual interface of upstream `collision_detection::CollisionEnv`: what
@@ -122,13 +126,23 @@ pub trait CollisionEnv<State> {
     /// `checkRobotCollision` (two-state overloads): check the world for
     /// collision along the continuous path from `state1` to `state2`.
     /// Self-collisions are not checked.
+    ///
+    /// # Errors
+    ///
+    /// Upstream's own FCL backend does not implement this either —
+    /// `CollisionEnvFCL::checkRobotCollision(req, res, state1, state2[, acm])`
+    /// logs an error and returns with `res` untouched, which is
+    /// indistinguishable, at the call site, from "checked; found nothing." A
+    /// backend that cannot do continuous collision checking faithfully
+    /// returns `Err` here instead of that silent no-op, so a caller cannot
+    /// mistake "not implemented" for "clear."
     fn check_robot_collision_continuous(
         &self,
         request: &CollisionRequest,
         state1: &State,
         state2: &State,
         acm: Option<&AllowedCollisionMatrix>,
-    ) -> CollisionResult;
+    ) -> Result<CollisionResult>;
 
     /// `distanceSelf(req, res, state)`: the distance to self-collision at
     /// `state`.
@@ -149,13 +163,28 @@ pub trait CollisionEnv<State> {
     /// [`ContactData::pair_count`](crate::common::ContactData::pair_count).
     ///
     /// Upstream passes one `CollisionResult&` by reference into both calls
-    /// and lets each backend accumulate into it in place. This port's
+    /// and lets each backend accumulate into it in place, so the robot-check
+    /// callback can see how many contacts the self-check callback already
+    /// put in `res.contacts` and stop once their combined total reaches
+    /// `req.max_contacts` (`collisionCallback`'s own `res_->contact_count`
+    /// accounting, in `collision_common.cpp`). This port's
     /// [`check_self_collision`](CollisionEnv::check_self_collision) and
     /// [`check_robot_collision`](CollisionEnv::check_robot_collision) each
     /// return their own owned [`CollisionResult`] instead (this crate's
-    /// structured-return idiom — see `world`'s module docs), so this default
-    /// implementation folds the second into the first via
-    /// [`CollisionResult::merge`].
+    /// structured-return idiom — see `world`'s module docs), so the robot
+    /// check cannot see the self check's contacts by itself
+    /// (PORTING-PLAN.md §10.5). This default implementation closes that gap
+    /// by passing the *remaining* budget into the second call explicitly:
+    /// `request.max_contacts` less however many contacts
+    /// [`check_self_collision`](CollisionEnv::check_self_collision) already
+    /// found ([`ContactData::count`](crate::common::ContactData::count), the
+    /// total contact count upstream's `contact_count` tracks — not
+    /// [`ContactData::pair_count`](crate::common::ContactData::pair_count),
+    /// which is a different quantity the entry guard below reads for a
+    /// different reason), then folds the second result into the first via
+    /// [`CollisionResult::merge`]. A backend that also enforces
+    /// `max_contacts` against its own request cannot then store more than
+    /// `request.max_contacts` contacts in total across both calls.
     fn check_collision(
         &self,
         request: &CollisionRequest,
@@ -168,7 +197,12 @@ pub trait CollisionEnv<State> {
             .as_ref()
             .is_some_and(|c| c.pair_count() < request.max_contacts);
         if !result.collision || contacts_have_room {
-            result.merge(self.check_robot_collision(request, state, acm));
+            let already_found = result.contacts.as_ref().map_or(0, ContactData::count);
+            let remaining_request = CollisionRequest {
+                max_contacts: request.max_contacts.saturating_sub(already_found),
+                ..request.clone()
+            };
+            result.merge(self.check_robot_collision(&remaining_request, state, acm));
         }
         result
     }
@@ -381,14 +415,20 @@ impl LinkPaddingScale {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{CollisionDistance, ContactData};
+    use crate::common::CollisionDistance;
+    use std::cell::Cell;
     use std::collections::BTreeMap;
 
     struct FakeRobotState;
 
+    #[derive(Default)]
     struct StubEnv {
         self_result: CollisionResult,
         robot_result: CollisionResult,
+        /// `max_contacts` of the request [`CollisionEnv::check_robot_collision`]
+        /// was actually called with, for tests that check what budget
+        /// [`CollisionEnv::check_collision`]'s default merge passed down.
+        robot_seen_max_contacts: Cell<usize>,
     }
 
     impl CollisionEnv<FakeRobotState> for StubEnv {
@@ -403,10 +443,11 @@ mod tests {
 
         fn check_robot_collision(
             &self,
-            _request: &CollisionRequest,
+            request: &CollisionRequest,
             _state: &FakeRobotState,
             _acm: Option<&AllowedCollisionMatrix>,
         ) -> CollisionResult {
+            self.robot_seen_max_contacts.set(request.max_contacts);
             self.robot_result.clone()
         }
 
@@ -416,7 +457,7 @@ mod tests {
             _state1: &FakeRobotState,
             _state2: &FakeRobotState,
             _acm: Option<&AllowedCollisionMatrix>,
-        ) -> CollisionResult {
+        ) -> Result<CollisionResult> {
             unimplemented!("not exercised by these tests")
         }
 
@@ -459,6 +500,7 @@ mod tests {
                 contacts: Some(contact_data(("c", "d"), 1)),
                 ..Default::default()
             },
+            ..Default::default()
         };
         let request = CollisionRequest {
             contacts: true,
@@ -479,6 +521,7 @@ mod tests {
                 contacts: Some(contact_data(("c", "d"), 1)),
                 ..Default::default()
             },
+            ..Default::default()
         };
         let request = CollisionRequest {
             contacts: true,
@@ -508,6 +551,7 @@ mod tests {
                 contacts: Some(contact_data(("c", "d"), 1)),
                 ..Default::default()
             },
+            ..Default::default()
         };
         let request = CollisionRequest {
             contacts: true,
@@ -531,6 +575,7 @@ mod tests {
                 contacts: Some(contact_data(("c", "d"), 1)),
                 ..Default::default()
             },
+            ..Default::default()
         };
         let request = CollisionRequest {
             contacts: true,
@@ -539,6 +584,33 @@ mod tests {
         };
         let result = env.check_collision(&request, &FakeRobotState, None);
         assert_eq!(result.contacts.unwrap().count(), 2);
+    }
+
+    #[test]
+    fn check_collision_passes_the_remaining_contact_budget_not_the_full_one() {
+        // Self-collision already found one pair holding three contacts.
+        // Upstream's shared `res_->contact_count` would already read 3 by the
+        // time the robot check ran; this port must derive the same number
+        // from the returned self-collision result and pass max_contacts - 3,
+        // not the unmodified request (which would let the merged total
+        // exceed max_contacts) and not max_contacts - pair_count (1), which
+        // this test's 3-contacts-in-one-pair shape is built to tell apart
+        // from the correct, count()-based subtraction.
+        let env = StubEnv {
+            self_result: CollisionResult {
+                collision: true,
+                contacts: Some(contact_data(("a", "b"), 3)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 5,
+            ..Default::default()
+        };
+        env.check_collision(&request, &FakeRobotState, None);
+        assert_eq!(env.robot_seen_max_contacts.get(), 2);
     }
 
     #[test]

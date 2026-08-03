@@ -785,19 +785,27 @@ seed를 바꿔(424242) 4로봇 8,004건을 독립 재현해 동일하게 0건 �
   `check_collision`의 여유 판정이 pair 수가 아니라 contact 총수를 보던 것,
   `LinkPaddingScale`의 "tracked"가 맵 두 개로 갈라져 있던 것.
 
-### 10.5 parry 백엔드가 닫아야 할 `max_contacts`
+### 10.5 parry 백엔드가 닫은 `max_contacts`
 
 `CollisionEnv`의 메서드는 각자 소유한 `CollisionResult`를 반환하고
 `check_collision`이 둘을 병합한다. 업스트림은 `CollisionResult&` 하나를
 두 호출에 함께 넘기므로, robot 검사 콜백이 이미 쌓인 self 검사의
 contact 수를 보고 `max_contacts`에서 멈춘다. 반환-소유 방식에서는 robot
 검사가 self 검사의 결과를 볼 수 없어, 병합 결과가 `max_contacts`를
-넘을 수 있다.
+넘을 수 있었다.
 
-`check_collision`의 진입 판정은 업스트림과 일치하지만 (pair 수 대조,
-`db31a4c`), 백엔드 내부의 누적 상한은 아직 아무도 강제하지 않는다.
-구체 백엔드(parry)를 붙일 때 닫아야 한다 — 남은 예산을 요청과 함께
-백엔드에 넘기는 형태가 유력하다. 지금은 백엔드가 없어 관측되지 않는다.
+`check_collision`의 진입 판정은 업스트림과 일치했지만 (pair 수 대조,
+`db31a4c`), 백엔드 내부의 누적 상한은 아무도 강제하지 않았다. `env.rs`의
+`check_collision` 기본 구현이 이제 닫는다: `check_self_collision`이 이미
+채운 contact 총수를 `ContactData::count`로 구하고 (`pair_count`가 아니다 —
+한 쌍에 여러 contact가 쌓일 수 있으므로 다른 값이다), `max_contacts`에서
+그만큼을 뺀 나머지 예산만 담은 `CollisionRequest`를 만들어
+`check_robot_collision`에 넘긴 뒤 결과를 병합한다. 회귀 테스트
+`check_collision_passes_the_remaining_contact_budget_not_the_full_one`이
+pair 하나에 contact 세 개가 쌓인 모양으로 이 뺄셈이 `count()` 기반인지
+(`pair_count()` 기반이면 오답이 나오도록) 못박는다. 이 경로를 처음으로
+실제로 태우는 구체 백엔드는 `moveit_collision::ParryCollisionEnv`
+(`parry.rs`)이다.
 - `moveit-distance-field` — 오라클 `distance_field` op. 이 크레이트는
   현재 C++을 읽고 쓴 단위 테스트만 있고 Phase 3 완료 조건인 `1e-4`
   대조가 없다.
