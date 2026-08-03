@@ -235,18 +235,75 @@
 //!   cached `(pose, solution)` pair (`IKCache::getBestApproximateIKSolution`,
 //!   a GNAT nearest-neighbor search over past solutions,
 //!   `detail/NearestNeighborsGNAT.hpp`) before delegating to the wrapped
-//!   solver, then caches the new pair on success
-//!   (`IKCache::updateCache`/`confirmCache`). Cache persistence
-//!   (`ik_cache.cpp`) is plain `std::filesystem` file I/O, not a ROS
-//!   resource lookup. This is algorithmic, not ROS-bound, and
-//!   `PORTING-PLAN.md` §4.4 already lists `cached_ik` alongside `kdl`,
-//!   `srv`, `ikfast` as one of the four `KinematicsSolver` trait
-//!   implementors the plugin-registry decision (D4) anticipated. No task
-//!   this crate has received has asked for a warm-started/cached solver
-//!   variant, so nothing here builds one — but the honest reason is
-//!   "unimplemented, in scope," not "not requested," since those read
-//!   identically in six months and only one is a decision that closes the
-//!   gap.
+//!   solver, then caches the new pair on success (`IKCache::updateCache`,
+//!   which both accepts-if-different-enough and persists — there is no
+//!   separate confirm step). Cache persistence (`ik_cache.cpp`) is plain
+//!   `std::filesystem` file I/O, not a ROS resource lookup. This is
+//!   algorithmic, not ROS-bound, and `PORTING-PLAN.md` §4.4 already lists
+//!   `cached_ik` alongside `kdl`, `srv`, `ikfast` as one of the four
+//!   `KinematicsSolver` trait implementors the plugin-registry decision (D4)
+//!   anticipated. No task this crate has received has asked for a
+//!   warm-started/cached solver variant, so nothing here builds one — but
+//!   the honest reason is "unimplemented, in scope," not "not requested,"
+//!   since those read identically in six months and only one is a decision
+//!   that closes the gap.
+//!
+//!   **Scope, if a future task asks for it** (not implemented this round —
+//!   this is the estimate the decision needs, not the code):
+//!
+//!   1. *One trait method, not the crate's `KinematicsBase` surface.* This
+//!      crate's [`KinematicsSolver`] already collapsed upstream's five
+//!      `searchPositionIK`/`getPositionIK` overloads into
+//!      [`KinematicsSolver::solve_with_options`] (`# Deviations`, item 1
+//!      on that trait). A wrapper only needs to intercept that one method —
+//!      substitute the cache's nearest-seed lookup for the caller's `seed`
+//!      argument, delegate to the wrapped solver, insert `(target,
+//!      solution)` into the cache on `Some`. `group_name`/`joint_names`/
+//!      `base_frame`/`tip_frame` delegate unchanged; there is no
+//!      `initialize` to wrap since [`KinematicsSolver`] has no such method
+//!      (construction already happens once, in
+//!      [`SolverRegistration::construct`]).
+//!   2. *Linear scan is honest at these sizes; a GNAT tree is not
+//!      proportionate.* Upstream's own default `max_cache_size` is 5000
+//!      (`cached_ik_kinematics_parameters.yaml`); every shipped example
+//!      config (`config/kdl_cached.yaml`, `trac_cached.yaml`,
+//!      `ur5_cached.yaml`) raises it to 10000. A linear scan over at most
+//!      10k entries of a cheap position+quaternion distance metric is
+//!      microseconds, not a bottleneck this wrapper exists to avoid.
+//!      `detail/NearestNeighborsGNAT.hpp` is 755 lines implementing a
+//!      general-purpose metric tree — porting it to shave a scan that is
+//!      already fast at the sizes MoveIt itself configures would be a
+//!      second, disproportionately larger project bolted onto this one.
+//!   3. *On-disk format is a local choice, not a port target.* `ik_cache.cpp`'s
+//!      `saveCache`/`initializeCache` read and write a raw, unversioned
+//!      `memcpy` of `tf2Scalar`/`double` fields with no endianness handling,
+//!      keyed into the filename by robot/group/frame name plus the cache
+//!      size and distance thresholds. Nothing outside this one C++ class
+//!      ever reads that file. A Rust port has no compatibility obligation
+//!      to that byte layout and should pick its own serialization (e.g.
+//!      `serde`), same as every other local-choice deviation this crate
+//!      already documents.
+//!   4. *Registration needs one function per wrapped solver, not one
+//!      generic entry.* [`SolverRegistration::construct`] is a bare `fn`
+//!      pointer (`fn(&RobotModel, &str, &SolverParams) ->
+//!      Result<Box<dyn KinematicsSolver>>`), not a closure, so a single
+//!      generic `CachedIkSolver<S>` cannot itself appear once in
+//!      [`KINEMATICS_SOLVERS`] parameterized by which solver it wraps —
+//!      upstream hit the identical shape problem and answered it with one
+//!      `.cpp` file per instantiation (`cached_kdl_kinematics_plugin.cpp`,
+//!      `cached_ur_kinematics_plugin.cpp`). The Rust equivalent is one
+//!      `construct` function per solver this crate ships that should get a
+//!      cached variant (today: `newton_raphson`, `lma` — two functions, not
+//!      N).
+//!
+//!   Put together: an `IKCache` (pose-distance metric, `Vec<(Pose,
+//!   Vec<f64>)>`, linear-scan nearest, min-distance insert gate) plus a
+//!   `CachedIkSolver` wrapper implementing [`KinematicsSolver`] by
+//!   delegation is on the order of this crate's smaller existing modules —
+//!   no ROS, no GNAT port required. That makes it a next-round-sized task,
+//!   not a workspace decision; the workspace-level question, if any, is
+//!   only whether a cached variant of `newton_raphson`/`lma` is something a
+//!   consumer actually wants.
 
 mod cart_to_jnt;
 mod chain;
