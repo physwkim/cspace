@@ -1472,3 +1472,64 @@ gitignore된 외부 체크아웃이라 새 클론과 CI에 없다). 사본이 �
 음성 대조 3건으로 확인했다 — 픽스처 드리프트(exit 1, `DRIFTED`),
 매핑 없는 새 픽스처(exit 1, `UNMAPPED`), 벤더 트리 부재(exit 1).
 셋 다 원복 후 exit 0. 스윕에 배선한 뒤 200케이스로 재실행 — 통과.
+
+### 13.4 Phase 3 완료 조건이 미충족인 진짜 이유 — `<mesh>` 충돌 형상 미로딩
+
+`f7050c5` 병합. 커밋 셋: `4dc5556`(`bounded_prediction` 하한 0 클램프),
+`aed57e6`(오라클+diff `collision` op), `aea0098`(커밋된 충돌 패리티
+회귀 테스트).
+
+**Phase 3의 100% 일치 완료 조건은 충족되지 않았고, 원인이 특정됐다.**
+`crates/moveit-model/src/link_model.rs`의 이탈 4 — `<mesh>` 충돌 형상을
+아예 로드하지 않는다. 워커 보고를 그대로 받지 않고 네 URDF의
+`<collision>` 블록을 전부 파싱해 확인했다:
+
+| 로봇 | collision 블록 | mesh | box | cylinder | sphere |
+|---|---|---|---|---|---|
+| panda | 11 | **11** | 0 | 0 | 0 |
+| fanuc | 7 | **7** | 0 | 0 | 0 |
+| dual_arm_panda | 22 | **22** | 0 | 0 | 0 |
+| pr2 | 59 | 37 | 8 | 10 | 4 |
+
+panda·fanuc·dual_arm_panda는 충돌 형상이 100% 메시다. 따라서 이 셋에
+대해 Rust 쪽은 충돌할 형상 자체가 없다. 관측된 불일치는 panda
+10,000/10,000(self 1,266 + robot 8,734), pr2 9,999/10,000(self) +
+robot 1건이다. **fanuc의 10,000/10,000 일치는 패리티의 증거가 아니다** —
+이 바닥 장면이 양쪽 모두에서 fanuc 충돌을 만들지 않을 뿐이다. 워커가
+이 구분을 스스로 적어 보낸 것은 정확했다.
+
+**`link_model.rs`가 이유로 댄 전제 중 절반이 이제 틀렸다.** "메시 로더가
+있어도 CI에는 도움이 안 된다 — 실제 메시 파일이 새 클론에 없으므로"
+라고 적혀 있는데, 앞 절반(CI에 없다)은 맞지만 뒤 절반은 멈출 이유가
+되지 않는다. `third_party/moveit_resources`에 메시 파일 143개가 있고
+여기에는 이 URDF들이 참조하는 충돌 STL이 전부 포함된다(panda 136K,
+fanuc 352K, pr2). **네 로봇의 충돌 경로 메시는 전부 STL이다** — DAE는
+시각화 경로에만 나오고 그쪽은 범위 밖이다. §13.3의 픽스처 출처 검사와
+같은 구조다: 평범한 CI 러너에서는 못 돌지만 벤더 트리를 이미 요구하는
+스윕 경로에서는 돈다.
+
+다음 라운드 과제로 지정했다(STL 로더 → `package://` 해석 →
+`LinkModel` 배선 → 스윕 재실행). 100% 도달을 요구하지 않았다 — 메시를
+실제로 로드한 상태의 불일치 수치와 남은 것의 원인 규명이 산출물이다.
+
+**고쳐진 결함 1건.** `ParryCollisionEnv::bounded_prediction`이
+`Aabb::loosened`에 음수 마진을 넘겨 패닉했다("The loosening margin must
+be non-negative") — `DistanceRequestType::Global`의 누적기가 앞선 관통
+쌍에서 음수가 되면 언제든 도달한다. 즉 `enable_signed_distance: true`와
+기본 요청 타입으로 실제 충돌 형상이 존재하기만 하면 되는 조건이고,
+새 `collision` op의 경로가 정확히 그것이다. 하한을 `0.0`으로 클램프해
+고쳤고, 클램프를 되돌리면 동일하게 패닉하는 것까지 워커가 확인했다.
+
+**미해결.** pr2 case 7552의 고립된 `robot_collision` 불일치(오라클
+collision=true/distance=-0.0249 대 rust collision=false/
+distance=+0.0044)는 원인 미규명이다. 원시 형상 케이스라 메시 로딩으로
+설명되지 않는다 — box에서 0을 가로지르는 부호 반전은 두 쪽이 점이 면의
+어느 편에 있는지를 두고 불일치한다는 뜻이다. 다음 라운드에 함께 넘겼다.
+
+**병합 중 도입된 결함 1건.** `compare_collision` 호출부의 불필요한
+차용 — `joint_values`가 `main`에서는 `&BTreeMap`, 워커 브랜치에서는
+소유값이었고 병합이 브랜치 쪽 호출 모양을 남겼다. 양쪽 브랜치가 각각
+clippy를 통과했으므로 병합 후 게이트에서만 잡히는 종류다. 충돌은 여섯
+파일에서 났고 `protocol.rs`·`main.rs`·`rust_impl.rs`는 양쪽이 같은 지점에
+서로 다른 항목을 추가한 것이라 기계적 "양쪽 유지"가 통하지 않았다 —
+`use` 목록 병합과 enum·struct 경계 재구성을 손으로 했다.
