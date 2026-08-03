@@ -1578,3 +1578,47 @@ brief, confirmed against upstream"으로 문서화되어 있으며 경계 테스
 다음 라운드 픽스처는 pr2 원시 형상 위에 짓도록 지정했다 — §13.4의
 메시 공백이 닫히기 전까지 panda/fanuc의 일치는 패리티의 증거가
 아니기 때문이다.
+
+### 13.6 `collision_env_distance_field` 구성 슬라이스 — `add_link_body_decompositions`
+
+`6a7aadc` 병합. 커밋 셋: `63d2041`(오라클
+`link_models_with_collision_geometry` op), `4370a7e`(구현),
+`49b9f27`(픽스처 + 패리티 테스트). 병합 후 721/721 통과, 오라클
+재빌드 `24deb10eefb11348`.
+
+**워커가 자기 테스트가 틀렸음을 인정하고 불변식으로 다시 썼다.** 첫 초안은
+오라클의 링크 집합과 바이트 단위 동일성을 주장했다가 실패했다 — 오라클은
+실제 메시 파일을 링크하므로 메시만 가진 PR2 링크들을 충돌 형상 보유로
+보고하는데, `moveit-model`은 §13.4의 이탈 4에 따라 메시를 로드하지
+않는다. 이는 `moveit-model` 결함이 아니라 잘못된 테스트였다. 다시 쓴
+테스트가 주장하는 것은 **우리 집합 == 오라클 집합 − `Diagnostic::
+UnsupportedLinkGeometry { kind: "mesh" }`가 기록된 링크**, 즉 모든
+불일치가 설명되고 조용히 넘어가는 것이 없다는 불변식이다.
+
+검증했다. 새 픽스처를 재빌드한 오라클에 다시 흘려 바이트 동일 확인(54
+링크). 테스트가 자명하게 참이 되어버리는 형태인지도 확인했다 — 세 개의
+서로 다른 주장(`!unsupported_mesh_links.is_empty()` 가드, 제외 후 동등성,
+"오라클에만 있는 링크는 전부 진단으로 설명된다" 루프)으로 되어 있다.
+`xml.etree`로 독립 파싱한 결과 제외 집합은 37, 표현되는 집합은 17로
+자명하지 않다.
+
+**남은 의존성 공백(우회하지 않고 보고됨).** 가장 큰 것은
+`JointModelGroup::getUpdatedLinkModelNames()`와 `-WithGeometry` 변형의
+부재다. `DistanceFieldCacheEntry`, `generateDistanceFieldCacheEntry`,
+`getDistanceFieldCacheEntry`, `generateCollisionCheckingStructures`,
+`getGroupStateRepresentation`, `compareCacheEntryTo*`,
+`updateGroupStateRepresentationState`와 두 struct 정의를 막는다.
+
+상류 구성을 직접 확인했다(`joint_model_group.cpp:255-278`) — 체인 순회가
+아니라 **합집합**이다. `joint_roots_`를 돌며 각각의
+`getDescendantLinkModels()`를 합치고 `OrderLinksByIndex()`로 정렬한다.
+워커가 "`chain_root`는 단일 루트만 다루는데 일반
+`JointModelGroup`은 여러 개일 수 있다"고 한 것은 `chain_root`에 대해서는
+맞지만, 상류는 여기서 공통 루트를 쓰지 않는다 — `common_root_`는 몇 줄
+위에서 다른 목적으로 계산된다. 따라서 풀어야 할 다중 루트 문제는 없다.
+다음 라운드 과제로 넘겼다.
+
+`moveit-state`의 비공개 `descendant_links_of_joint`는 상류가
+`JointModel::getDescendantLinkModels`로 두는 것이므로 `moveit-model`이
+소유해야 한다. 다음 라운드에서 `moveit-model`에 넣고 state 쪽 중복을
+위임으로 바꾸도록 지정했다 — 같은 사실에 집을 두 채 두지 않기 위해서다.
