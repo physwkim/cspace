@@ -21,21 +21,26 @@ use std::collections::{BTreeMap, HashMap};
 ///
 /// # Deviation from upstream: narrower than `JointModelGroup`
 ///
-/// Upstream's type also carries `joint_roots_`/`common_root_` (this group's
-/// own cached common-root joint, for `RobotState` FK optimisation),
+/// Upstream's type also carries `common_root_` (this group's own cached
+/// common-root joint, for `RobotState` FK optimisation),
 /// `updated_link_model_*` (which links move when this group's state
 /// changes) and the kinematics solver plumbing (`group_kinematics_`). None
-/// of those are read by this phase's done-criteria (link/joint counts,
-/// group composition, joint limits, mimic relationships); they belong to
-/// `moveit-state` (Phase 2) and `moveit-kinematics` (Phase 4) respectively.
-/// `PORTING-PLAN.md` Phase 1 scopes this crate to "JointModelGroup, 서브그룹,
-/// KinematicChain 해석" (subgroups, kinematic-chain resolution) — both of
-/// which this type does carry: [`JointModelGroup::subgroup_names`], the
-/// `<chain>` element expansion in `RobotModel`'s group construction, and
-/// [`JointModelGroup::is_chain`] itself. (The end-effector fields
-/// (`end_effector_name_`, `end_effector_parent_`,
-/// `attached_end_effector_names_`) and SRDF `<group_state>` support
-/// (`default_states_`) *are* carried — see
+/// of those are read by this crate's own done-criteria; `common_root_`
+/// belongs to `moveit-state` (Phase 2, and even there only as a general
+/// two-joint query, not a per-group cache — see below),
+/// `updated_link_model_*` to `moveit-distance-field` (Phase 3, which is
+/// where it is actually needed — see `moveit-distance-field`'s own
+/// `collision_env_distance_field` module doc), and the solver plumbing to
+/// `moveit-kinematics` (Phase 4). `PORTING-PLAN.md` Phase 1 scopes this
+/// crate to "JointModelGroup, 서브그룹, KinematicChain 해석" (subgroups,
+/// kinematic-chain resolution) — both of which this type does carry:
+/// [`JointModelGroup::subgroup_names`], the `<chain>` element expansion in
+/// `RobotModel`'s group construction, and [`JointModelGroup::is_chain`]
+/// itself. `joint_roots_` (`joint_roots`) *is* now carried too — see
+/// [`JointModelGroup::joint_roots`]'s own doc comment for why it was added
+/// ahead of the others. (The end-effector fields (`end_effector_name_`,
+/// `end_effector_parent_`, `attached_end_effector_names_`) and SRDF
+/// `<group_state>` support (`default_states_`) *are* carried — see
 /// [`JointModelGroup::is_end_effector`] and
 /// [`JointModelGroup::default_state_names`] respectively. The general
 /// two-joint common-root query *is* carried too, just on `RobotModel` rather
@@ -60,6 +65,7 @@ pub struct JointModelGroup {
     pub(crate) default_state_names: Vec<String>,
     pub(crate) default_states: HashMap<String, BTreeMap<String, f64>>,
     pub(crate) is_chain: bool,
+    pub(crate) joint_roots: Vec<usize>,
 }
 
 /// The group and link a [`JointModelGroup`] end effector is attached to.
@@ -273,5 +279,25 @@ impl JointModelGroup {
     /// available until the whole tree exists.
     pub(crate) fn set_is_chain(&mut self, is_chain: bool) {
         self.is_chain = is_chain;
+    }
+
+    /// `getJointRoots`, as indices: the active joints in this group whose
+    /// ancestor chain never passes back through another active, non-mimic
+    /// member of the group -- the root(s) of its (possibly several)
+    /// distinct kinematic subtrees. A group need not have exactly one: PR2's
+    /// `arms` group has two, one per arm, which is exactly why
+    /// [`JointModelGroup::is_chain`] requires `joint_roots().len() == 1`
+    /// rather than assuming it.
+    pub fn joint_roots(&self) -> &[usize] {
+        &self.joint_roots
+    }
+
+    /// `setJointRoots`. Not upstream-named (upstream sets `joint_roots_`
+    /// directly in the constructor); this port computes it in a separate
+    /// pass over the fully-built [`crate::robot_model::RobotModel`] instead,
+    /// for the same reason as [`JointModelGroup::set_is_chain`] (the
+    /// ancestor walk it needs isn't available until the whole tree exists).
+    pub(crate) fn set_joint_roots(&mut self, joint_roots: Vec<usize>) {
+        self.joint_roots = joint_roots;
     }
 }

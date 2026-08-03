@@ -59,22 +59,24 @@ struct JointNode {
 ///    comment, [`RobotModel::get_end_effector`] and
 ///    [`JointModelGroup::default_state_names`] respectively for what each
 ///    does and does not cover.)
-/// 3. **No `is_single_dof_`, no per-group `common_root_`/`joint_roots_`/
-///    `updated_link_model_*`, and no precomputed `common_joint_roots_`
-///    table.** [`RobotModel::get_common_root`] and
-///    [`JointModelGroup::is_chain`](crate::JointModelGroup::is_chain) *are*
-///    carried — `moveit-state`'s `RobotState` dirty-subtree tracking needs
-///    `getCommonRoot` to answer exactly what upstream's own does, not a
-///    textbook LCA (`PORTING-PLAN.md` §8.2; see
+/// 3. **No `is_single_dof_`, no per-group `common_root_`, and no
+///    precomputed `common_joint_roots_` table.**
+///    [`RobotModel::get_common_root`],
+///    [`JointModelGroup::is_chain`](crate::JointModelGroup::is_chain) and
+///    [`JointModelGroup::joint_roots`](crate::JointModelGroup::joint_roots)
+///    *are* carried — `moveit-state`'s `RobotState` dirty-subtree tracking
+///    needs `getCommonRoot` to answer exactly what upstream's own does, not
+///    a textbook LCA (`PORTING-PLAN.md` §8.2; see
 ///    [`RobotModel::get_common_root`]'s doc comment for a real upstream
-///    quirk this reproduces on purpose) — but
+///    quirk this reproduces on purpose), and `moveit-distance-field` needs
+///    `joint_roots_` to compute `getUpdatedLinkModelNames` — but
 ///    [`RobotModel::get_common_root`] walks each joint's ancestor chain to
 ///    equal depth and then upward in lockstep (O(depth)) rather than
 ///    answering from upstream's precomputed `n`×`n` table (O(1)); nothing
-///    in this port's scope calls it often enough to need the table. The
-///    per-group fields remain unported: they only cache a *specific* pair
-///    of general queries (this group's own common root, which links move)
-///    that nothing in this phase's done-criteria reads.
+///    in this port's scope calls it often enough to need the table.
+///    `common_root_` (the per-group *cache* of one specific pair of
+///    `get_common_root`'s answer, not the general query itself) remains
+///    unported: nothing in this phase's done-criteria reads it.
 /// 4. **No `getVariableRandomPositions`.** `PORTING-PLAN.md` §7.3: the C++
 ///    oracle owns randomness for differential testing; this port never
 ///    needs to generate a random state itself.
@@ -229,7 +231,7 @@ impl RobotModel {
             end_effector_group_names,
             diagnostics: building.diagnostics,
         };
-        model.compute_group_chains();
+        model.compute_group_topology();
         Ok(model)
     }
 
@@ -472,6 +474,63 @@ impl RobotModel {
         }
     }
 
+    /// `JointModel::getDescendantLinkModels`, computed here rather than on
+    /// [`crate::joint::JointModel`] for the same reason
+    /// [`RobotModel::get_common_root`] lives here and not on `JointModel`:
+    /// this port's `JointModel` deliberately excludes tree bookkeeping (see
+    /// that type's doc comment) -- `RobotModel` is the "later phase" it
+    /// defers to.
+    ///
+    /// Every link reachable from `joint_index`'s own child link, by
+    /// repeatedly following either a link's child joints or a joint's mimic
+    /// followers (upstream's `computeDescendantsHelper` recurses into both
+    /// `LinkModel::getChildJointModels` and `JointModel::getMimicRequests`),
+    /// including `joint_index`'s own child link.
+    ///
+    /// Returned as a [`BTreeSet`], sorted by link index -- the same order
+    /// `OrderLinksByIndex` gives upstream's own `updated_link_model_vector_`
+    /// (a `std::set`-deduplicated union of several of these, explicitly
+    /// `std::sort`ed afterwards). Upstream's *own*
+    /// `descendant_link_models_` is DFS-insertion-ordered instead, but
+    /// nothing in this port ever needs that raw order: every caller
+    /// ([`JointModelGroup`]'s `updated_link_*` construction) re-sorts by
+    /// index immediately after unioning several of these together, so
+    /// sorting once, here, gives byte-identical results more simply.
+    pub fn descendant_link_indices(&self, joint_index: usize) -> BTreeSet<usize> {
+        let mut seen_joints = BTreeSet::new();
+        let mut links = BTreeSet::new();
+        let mut stack = vec![joint_index];
+        while let Some(current) = stack.pop() {
+            if !seen_joints.insert(current) {
+                continue;
+            }
+            let child_link = self.joints[current].child_link_index;
+            links.insert(child_link);
+            let link = &self.links[child_link];
+            stack.extend(link.child_joint_indices().iter().copied());
+            stack.extend(self.joints_mimicking(current));
+        }
+        links
+    }
+
+    /// `JointModel::getMimicRequests`: every joint whose own `mimic_` points
+    /// at `joint_index`. Upstream stores this reverse mapping directly on
+    /// `JointModel` (`addMimicRequest`, populated once during
+    /// `RobotModel::buildMimic`); this port's `JointModel` carries no tree
+    /// state (see its doc comment), so it is recovered here instead by
+    /// scanning -- cheap enough since [`RobotModel::descendant_link_indices`]
+    /// only calls it once per joint on its own traversal stack, not in a hot
+    /// loop.
+    fn joints_mimicking(&self, joint_index: usize) -> impl Iterator<Item = usize> + '_ {
+        let name = self.joint_names[joint_index].as_str();
+        self.joints.iter().enumerate().filter_map(move |(i, node)| {
+            node.model
+                .mimic()
+                .is_some_and(|m| m.joint_name == name)
+                .then_some(i)
+        })
+    }
+
     /// `getJointModelGroupNames`, alphabetically (matches upstream's
     /// `std::map<std::string, JointModelGroup*>` iteration order).
     pub fn joint_model_group_names(&self) -> impl Iterator<Item = &str> {
@@ -536,26 +595,48 @@ impl RobotModel {
         &self.diagnostics
     }
 
-    /// Sets [`JointModelGroup::is_chain`] on every group. Run once, after
-    /// every other field of `self` (in particular `joints`/`links`, which
-    /// the ancestor walks below need) is already in place.
+    /// Sets [`JointModelGroup::joint_roots`] and, from the same roots list,
+    /// [`JointModelGroup::is_chain`] on every group. Run once, after every
+    /// other field of `self` (in particular `joints`/`links`, which the
+    /// ancestor walks below need) is already in place.
     ///
     /// Collects into an owned `Vec` first rather than mutating `self.groups`
-    /// while iterating it: `group_is_chain` needs `&self` (the ancestor
-    /// walks), which the borrow checker won't allow interleaved with a
-    /// `&mut` borrow of `self.groups` from the same `self`.
-    fn compute_group_chains(&mut self) {
-        let is_chain: Vec<(String, bool)> = self
+    /// while iterating it: `group_joint_roots`/`group_is_chain` need `&self`
+    /// (the ancestor walks), which the borrow checker won't allow
+    /// interleaved with a `&mut` borrow of `self.groups` from the same
+    /// `self`.
+    fn compute_group_topology(&mut self) {
+        let topology: Vec<(String, Vec<usize>, bool)> = self
             .groups
             .iter()
-            .map(|(name, group)| (name.clone(), self.group_is_chain(group)))
+            .map(|(name, group)| {
+                let roots = self.group_joint_roots(group);
+                let chain = self.group_is_chain(group, &roots);
+                (name.clone(), roots, chain)
+            })
             .collect();
-        for (name, chain) in is_chain {
-            self.groups
+        for (name, roots, chain) in topology {
+            let group = self
+                .groups
                 .get_mut(&name)
-                .expect("name came from self.groups.iter()")
-                .set_is_chain(chain);
+                .expect("name came from self.groups.iter()");
+            group.set_joint_roots(roots);
+            group.set_is_chain(chain);
         }
+    }
+
+    /// `JointModelGroup`'s own `joint_roots_`: every active joint in `group`
+    /// whose ancestor chain never passes through another active, non-mimic
+    /// member of `group` (`includesParent`, ported as
+    /// [`RobotModel::ancestor_is_group_member`]) — the roots of the group's
+    /// (possibly several) distinct kinematic subtrees.
+    fn group_joint_roots(&self, group: &JointModelGroup) -> Vec<usize> {
+        group
+            .active_joint_indices()
+            .iter()
+            .copied()
+            .filter(|&joint_index| !self.ancestor_is_group_member(joint_index, group))
+            .collect()
     }
 
     /// Upstream's `JointModelGroup` constructor: `is_chain_` is true iff the
@@ -563,18 +644,15 @@ impl RobotModel {
     /// least one active joint, and — walking the group's own joints in
     /// depth-first order, from the last to the first — each is directly
     /// preceded by the one before it (`jointPrecedes`, skipping any run of
-    /// fixed joints in between).
-    fn group_is_chain(&self, group: &JointModelGroup) -> bool {
+    /// fixed joints in between). `roots` is `group`'s own
+    /// [`RobotModel::group_joint_roots`] result, passed in rather than
+    /// recomputed, since [`RobotModel::compute_group_topology`] already has
+    /// it on hand for both facts.
+    fn group_is_chain(&self, group: &JointModelGroup, roots: &[usize]) -> bool {
         if group.active_joint_indices().is_empty() {
             return false;
         }
-
-        let root_count = group
-            .active_joint_indices()
-            .iter()
-            .filter(|&&joint_index| !self.ancestor_is_group_member(joint_index, group))
-            .count();
-        if root_count != 1 {
+        if roots.len() != 1 {
             return false;
         }
 
@@ -1230,6 +1308,7 @@ impl<'a> Building<'a> {
             default_state_names: Vec::new(),
             default_states: HashMap::new(),
             is_chain: false,
+            joint_roots: Vec::new(),
         }
     }
 
@@ -2512,6 +2591,110 @@ mod tests {
             model.joint_names()[model.get_common_root(idx("branch_a"), idx("branch_b"))],
             "planar_root",
             "direct siblings under trunk resolve to the global root, not stem"
+        );
+    }
+
+    /// The same tree as `is_chain_false_for_two_independently_rooted_joints`
+    /// (`j2`/`j3` are siblings under `mid`, neither an ancestor of the
+    /// other), but asserting `joint_roots()` itself rather than the
+    /// `is_chain` boolean it feeds: both must be listed, in the group's own
+    /// active-joint order.
+    #[test]
+    fn joint_roots_lists_every_root_of_a_multi_rooted_group() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="tip_a"/>
+                <link name="tip_b"/>
+                {j1}
+                {j2}
+                {j3}
+            </robot>"#,
+            j1 = revolute_joint("j1", "base", "mid", ""),
+            j2 = revolute_joint("j2", "mid", "tip_a", ""),
+            j3 = revolute_joint("j3", "mid", "tip_b", ""),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            <group name="branch_tips">
+                <joint name="j2"/>
+                <joint name="j3"/>
+            </group>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        let idx = |name: &str| -> usize {
+            model
+                .joint_names()
+                .iter()
+                .position(|n| n == name)
+                .unwrap_or_else(|| panic!("no joint named '{name}'"))
+        };
+
+        let group = model.joint_model_group("branch_tips").unwrap();
+        assert_eq!(group.joint_roots(), [idx("j2"), idx("j3")]);
+    }
+
+    /// Upstream's `computeDescendantsHelper` recurses into a joint's mimic
+    /// followers as well as its own child joints
+    /// (`JointModel::getMimicRequests`): when `j2` moves, `j3` (which mimics
+    /// it) moves too, so `j3`'s own subtree counts as a descendant of `j2`
+    /// even though `j3` is not itself a descendant *joint* of `j2` in the
+    /// tree — they are siblings, both parented at `mid`.
+    #[test]
+    fn descendant_link_indices_follows_mimic_followers() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="tip_a"/>
+                <link name="tip_b"/>
+                {j1}
+                {j2}
+                {j3}
+            </robot>"#,
+            j1 = revolute_joint("j1", "base", "mid", ""),
+            j2 = revolute_joint("j2", "mid", "tip_a", ""),
+            j3 = revolute_joint(
+                "j3",
+                "mid",
+                "tip_b",
+                r#"<mimic joint="j2" multiplier="1.0" offset="0.0"/>"#,
+            ),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        let idx = |name: &str| -> usize {
+            model
+                .joint_names()
+                .iter()
+                .position(|n| n == name)
+                .unwrap_or_else(|| panic!("no joint named '{name}'"))
+        };
+        let link_idx = |name: &str| -> usize {
+            model
+                .link_names()
+                .iter()
+                .position(|n| n == name)
+                .unwrap_or_else(|| panic!("no link named '{name}'"))
+        };
+
+        assert_eq!(
+            model.descendant_link_indices(idx("j2")),
+            [link_idx("tip_a"), link_idx("tip_b")].into_iter().collect(),
+            "j2's own child plus j3's, since j3 mimics j2"
+        );
+
+        assert_eq!(
+            model.descendant_link_indices(idx("j1")),
+            [link_idx("mid"), link_idx("tip_a"), link_idx("tip_b")]
+                .into_iter()
+                .collect(),
+            "everything below j1 either way, mimic-follower or not"
         );
     }
 }
