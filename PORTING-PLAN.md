@@ -4851,6 +4851,46 @@ p3-distance-field가 쓰는 곳은 Sphere-only 바디에 대한
 붙였고(`0343920`), `ConvexMesh` 삼각분할 유보가 실질적으로 외형 문제임을
 증명했다(`db7afde`).
 
+그 자기 정정 중 하나는 커밋 전에 잡혔다. 워커가 처음 "`BodyVector`는
+어디에도 호출자가 없다"고 썼다가 `rg`를 돌려
+`collision_distance_field_types.hpp:293`을 찾았고, 근거를 더 좁고 확인된
+것("얇은 루프이고 `Vec<Body>`로 조합 가능")으로 바꾼 뒤 커밋했다.
+쓴 문장을 검사한 것이지 검사한 것을 쓴 것이 아니다.
+
+### 49.3 출처 확인은 **부분적**이다 — 다운로드 URL이 없다
+
+병합 후 도착한 보고서가 명시한 한계이고, §49.1이 이것을 적지 않았으므로
+여기 적는다. **인용 가능한 `wget`/`curl` 명령이 이 세션에도 이전
+라운드에도 기록돼 있지 않다.** 타르볼이 GitHub 태그 아카이브의 *모양*을
+갖고 있다는 것(`.git` 없음, `package.xml` 2.3.3, 파일 mtime 일치)은
+정황이지 증명이 아니고, 워커도 "the shape of a GitHub tag-archive, not
+proof of one"이라고 썼다.
+
+그래서 결론이 타르볼 텍스트에 기대지 않도록 층위를 옮긴 것이 §49.1의
+내용이다 — `.so`가 이번 라운드 오라클 이미지
+(`ros-rolling-geometric-shapes 2.3.3-1noble.20260113.113114`) 안의 것과
+바이트 동일하고, 부정 사실은 `objdump -d`로 확인했다. 즉 **`.so`가
+ground truth이고 타르볼은 보조**다. 이 구분이 없으면 §49.1을
+"출처가 확정됐다"로 읽게 되는데, 확정된 것은 바이너리 쪽이다.
+
+### 49.4 세 UNFIXED의 처분
+
+- **`bodies::Body`** — 거짓이므로 삭제. `contains_point`/`intersects_ray`/
+  `compute_bounding_*`가 이미 완비돼 있고 `rg` 11 hit이 라운드 5보다
+  앞선다. 내가 세 라운드 연속으로 틀린 브리핑을 보낸 항목이고
+  (§31.3, §39.3), 이번에 워커가 닫았다.
+- **`Shape::OcTree`** — 직접 확인했다. `parry3d-f64 0.30`에 `Voxels`가
+  있고(`shape/voxels/voxels.rs`), 생성자가
+  `Voxels::new(voxel_size: Vector, &coords)`로 **형상 전체에 균일한
+  voxel 크기 하나**를 받는다(`:509`, `:516`). 따라서 가지치기된
+  가변-깊이 리프는 여전히 부풀어 오른다는 워커의 판단이 성립한다.
+  falsifier도 정확하다: 노드별 크기를 받는 parry 생성자가 생기면 이
+  결론이 뒤집힌다.
+- **`ConvexMesh::triangles()`** — `compute_volume`(발산 정리)과
+  `contains_point`(평면 중복 제거, 기존 테스트가 이미 증명)는 위상
+  불변이고, `ray_intersections`만 실제로 민감하되 광선이 공면 패치의
+  공유 모서리에 정확히 닿는 측도-0 경우에 한한다.
+
 ## 50. `p1-fixtures` 6라운드 병합 — `PlanningScene` 심볼 감사 (2026-08-04)
 
 `5fea01f`. 6라운드 3개 항목 중 1·2번이 들어왔다(`aaf5cca`, `c43e9dd`).
