@@ -5326,3 +5326,82 @@ EPA 잡음이 아니다. 워커가 든 "상수를 유지하지 못한다"는 근
   일어나지 않았음을 보이지만, 일반적으로 일어나지 않는다는 뜻은 아니다.
 - §53.3이 찾은 world object 쪽 불일치(`l_gripper_r_finger_link`/`floor`,
   포트가 **더 깊게** 답함)는 이 설명으로 덮이지 않는다. 방향이 반대다.
+
+## 57. §40이 닫혔다 — 22/22. 그리고 pr2 메시는 한 번도 대조된 적이 없다 (2026-08-04)
+
+p3-shapes 라운드 9 (`6d00c96`, `4893317`, `dec3626`), 병합 `2e0a60d`.
+`nextest --workspace` **944/944**.
+
+### 57.1 22/22
+
+마지막 네 픽스처(`moveit-geometry`의 `body_query`/`octree_in_world`/
+`octree_shape_query`, `moveit-octomap`의 `octomap`)가 공유 매니페스트로
+들어왔다. 현재 stamp `c5e7d2936755ea44`로 직접 돌렸다:
+
+```
+3  moveit-collision        identical
+9  moveit-distance-field   identical
+3  moveit-geometry         identical
+1  moveit-octomap          identical
+1  moveit-scene            identical
+5  moveit-trajectory       identical
+```
+
+**22/22.** §40이 물은 것 — 커밋된 응답들이 지금의 오라클에서 여전히 나오는가
+— 에 워크스페이스 전체가 답했다. 재생 스크립트는 하나이고(§48.2의 수렴),
+크레이트마다 매니페스트가 하나다. 일곱 패널이 각자 스크립트를 쓰던 상태에서
+여기까지 왔다.
+
+### 57.2 falsifier를 평가했고, 불발했다
+
+`saveAsText`/`constructShapeFromText` 유예의 falsifier("이 형식을 필요로 한다고
+말한 소유자가 아직 없다")를 말로 재확인하지 않고 실제로 검색했다. 워크스페이스
+안에서 두 함수(및 snake_case 형태)를 부르는 곳은 자기 모듈 문서뿐이고,
+`oracle.cpp`에도 해당 op이 없다. 명령과 결과를 `shapes.rs` 모듈 문서에 적었다.
+유예는 유지된다.
+
+다만 이 답은 p1-fixtures와 **묶여 있다**. 상류 소비자는 워크스페이스 밖에
+있다 — `planning_scene.cpp:1062`가 `shapes::saveAsText`를,
+`:1152`가 `shapes::constructShapeFromText`를 부른다. p1-fixtures가 그
+`saveGeometryToStream`/`loadGeometryFromStream`을 "distinct"로 분류한 근거
+(`getObjectColor`가 D1)가 §52 브리핑에서 무너졌으므로, 그쪽 답이 바뀌면
+이 유예의 falsifier가 발화한다. 두 패널이 서로를 가리키며 같은 유예를
+열어 두는 상태를 피하려고 양쪽에 같은 질문을 보냈다.
+
+### 57.3 octree는 §43에서 배제된다 — 구조적으로
+
+`check_self_collision`/`distance_self`는 `robot_bodies`만 만들고
+`world_bodies`를 만들지 않는다. `compound_from_octree`/`OctreeCache`는
+`world_bodies`를 통하거나 링크/부착 도형 자체가 `Shape::OcTree`일 때만
+닿는데, URDF로 적재된 PR2 모델은 후자를 만들 수 없다. 따라서 self-collision
+거리 불일치에 octree 변환은 관여할 수 없다. 런타임 관찰이 아니라 도달
+가능성 논증이라 §43의 어떤 상태에서도 성립한다.
+
+### 57.4 그 대신 나온 것 — pr2 메시는 한 번도 Assimp와 대조된 적이 없다
+
+`mesh_parity.json`을 직접 세었다:
+
+```
+entries: 18   panda 11, fanuc 7, pr2 0
+fixtures/meshes/pr2_description/**/*.stl: 18개
+```
+
+이 픽스처는 `vertices`를 통째로 들고 있어 비트 단위 대조를 한다 — panda와
+fanuc에 대해서만. **pr2의 collision STL 18개는 하나도 대조되지 않았다.**
+pr2 STL은 `VCG` 헤더(VCGLib 익스포터), panda는 `Export` 헤더로, 같은 바이너리
+STL이라도 나온 도구가 다르다.
+
+이게 왜 지금 중요한가: §43·§53·§56의 pr2 결론 전부가 이 포트가 파싱한 pr2
+메시 정점 위에 서 있다. 정점이 Assimp와 다르면 침투깊이 논의 자체가 다른
+기하에 대한 것이 된다. §56이 x-면 접촉과 z-ramp의 최소로 설명한 구조도,
+§53.3이 남긴 world object 쪽 반대 방향 불일치도 마찬가지다.
+
+p3-shapes는 §43에 대해 "octree는 아니고, 지목할 수 있는 것은 메시 파싱
+커버리지 구멍"이라고 답했다. 배제 논증보다 이쪽이 이번 라운드의 산출물이다.
+
+### 57.5 워커 보고의 사실오류 하나
+
+보고에 `verify-scene-fixture-replay.sh`가 "아직 존재하며 삭제 지시가
+이행되지 않았다"고 적혀 있다. main에는 없다 — p1-fixtures가 `ae85866`에서
+지웠고 `2d0bdeb`으로 병합됐다. 워커의 베이스가 그 병합 이전이었다.
+스스로 지우지 않고 올린 판단은 옳았다(자기 소유가 아니다).
