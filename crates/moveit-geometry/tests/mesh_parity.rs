@@ -14,13 +14,26 @@
 //!
 //! `tests/fixtures/mesh_parity.json` is the oracle's own response, captured
 //! verbatim (one entry per request/response pair, not hand-transcribed) for
-//! every panda and fanuc collision STL, plus one case (`link0.stl` again,
-//! non-uniform `scale`) that exercises `createMeshFromResource`'s scale
-//! argument specifically. The STL bytes each case parses come from
+//! every panda, fanuc, and pr2 collision STL, plus one case (`link0.stl`
+//! again, non-uniform `scale`) that exercises `createMeshFromResource`'s
+//! scale argument specifically. The STL bytes each case parses come from
 //! `fixtures/meshes/<package>/...` -- the repo-root fixture tree copied from
 //! `third_party/moveit_resources` (see `tools/ci/verify-fixture-provenance.sh`),
 //! not from `third_party/` directly, so this test runs under a plain
 //! `cargo nextest run --workspace` with no vendored checkout required.
+//!
+//! pr2's 18 collision meshes were added a round after panda's and fanuc's,
+//! specifically because nothing had ever checked them: `Shape::extents`/
+//! `bounding_sphere` conclusions this crate's own doc cites for pr2 (and the
+//! self-collision/penetration-depth arguments `moveit-collision` builds on
+//! top of them) all rest on the vertex positions this port parses out of
+//! those 18 files, and panda/fanuc passing here says nothing about whether
+//! pr2's STLs -- which carry a different STL-writer header (`VCG`, i.e.
+//! VCGLib, versus panda/fanuc's `Export`) -- exercise the same merge/order/
+//! degenerate-triangle behavior. They do not diverge: all 18 pass the same
+//! vertex-set/count check below, captured via the oracle's `mesh` op exactly
+//! as panda's and fanuc's were (see this change's commit body for the exact
+//! resource list and how the fixture was captured).
 //!
 //! Not in `tests/fixtures/oracle-models.json`, deliberately:
 //! `tools/ci/verify-fixture-replay.sh` replays a `<stem>_request.json`/
@@ -83,7 +96,7 @@ fn load_cases() -> Vec<Case> {
 /// Deliberately a small fixed map local to this test, not a general
 /// `package://` resolver -- that resolver (mapping arbitrary package names
 /// to arbitrary search paths) is `moveit-model`'s concern once `<mesh>`
-/// loading is wired into `LinkModel`; this test only needs the two packages
+/// loading is wired into `LinkModel`; this test only needs the three packages
 /// its own fixture actually references.
 fn resolve_resource(resource: &str) -> std::path::PathBuf {
     const PREFIX: &str = "package://";
@@ -96,6 +109,7 @@ fn resolve_resource(resource: &str) -> std::path::PathBuf {
     let package_dir = match package {
         "moveit_resources_panda_description" => "panda_description",
         "moveit_resources_fanuc_description" => "fanuc_description",
+        "moveit_resources_pr2_description" => "pr2_description",
         other => panic!("resource {resource:?}: no fixture mapping for package {other:?}"),
     };
     [
@@ -120,7 +134,7 @@ fn vertex_key(v: Vector3<f64>) -> [i64; 3] {
 }
 
 #[test]
-fn mesh_from_bytes_matches_the_oracle_for_every_panda_and_fanuc_collision_stl() {
+fn mesh_from_bytes_matches_the_oracle_for_every_panda_fanuc_and_pr2_collision_stl() {
     let cases = load_cases();
     assert!(!cases.is_empty(), "mesh_parity.json fixture is empty");
 
