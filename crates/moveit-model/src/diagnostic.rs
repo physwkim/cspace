@@ -102,11 +102,28 @@ pub enum Diagnostic {
     /// [`crate::link_model::LinkModel`]'s doc comment, deviation 4. The
     /// element is skipped: this link ends up with fewer
     /// [`crate::link_model::LinkModel::shapes`] than upstream.
+    ///
+    /// `kind == "capsule"` always has `detail: None` — a `<capsule>`
+    /// element is unsupported for one fixed reason (it is a urdf-rs
+    /// extension upstream's own URDF parser does not recognise at all).
+    /// `kind == "mesh"` always has `detail: Some(reason)`: unlike upstream's
+    /// single `createMeshFromResource` call (any format Assimp
+    /// understands, resolved through the real ROS package index),
+    /// [`crate::robot_model::RobotModel::from_urdf_and_srdf`] can fail a
+    /// `<mesh>` element for several distinct reasons -- its `package://`
+    /// URI not resolving against the given
+    /// [`crate::MeshSearchPaths`], an unsupported file extension (this port
+    /// loads STL only), or a malformed STL file -- and `reason` names which
+    /// one, since "residual gap with a named cause" is the whole point of
+    /// still reporting mesh failures as a diagnostic rather than a hard
+    /// [`moveit_error::Error`].
     UnsupportedLinkGeometry {
         /// The link the `<collision>` element belongs to.
         link: String,
         /// `"mesh"` or `"capsule"`.
         kind: &'static str,
+        /// Why, for `kind == "mesh"`; always `None` for `kind == "capsule"`.
+        detail: Option<String>,
     },
 }
 
@@ -152,10 +169,16 @@ impl fmt::Display for Diagnostic {
                 f,
                 "unable to parse property {property:?} on joint {joint:?} as a number: {value:?}"
             ),
-            Self::UnsupportedLinkGeometry { link, kind } => write!(
-                f,
-                "link {link:?} has a {kind} <collision> element, which this port cannot build a shape for; skipped"
-            ),
+            Self::UnsupportedLinkGeometry { link, kind, detail } => {
+                write!(
+                    f,
+                    "link {link:?} has a {kind} <collision> element, which this port cannot build a shape for; skipped"
+                )?;
+                if let Some(detail) = detail {
+                    write!(f, " ({detail})")?;
+                }
+                Ok(())
+            }
         }
     }
 }

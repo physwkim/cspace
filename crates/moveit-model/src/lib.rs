@@ -30,9 +30,11 @@ mod diagnostic;
 pub mod joint;
 mod joint_model_group;
 mod link_model;
+mod mesh_search_paths;
 mod robot_model;
 
 pub use diagnostic::Diagnostic;
 pub use joint_model_group::{EndEffectorParent, JointModelGroup};
 pub use link_model::{LinkModel, LinkShape};
+pub use mesh_search_paths::MeshSearchPaths;
 pub use robot_model::RobotModel;

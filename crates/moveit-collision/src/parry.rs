@@ -854,7 +854,7 @@ mod tests {
 
     use approx::assert_relative_eq;
     use moveit_geometry::{Cuboid, OcTree, Plane, Shape, Sphere};
-    use moveit_model::RobotModel;
+    use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
     use moveit_state::RobotState;
 
@@ -974,7 +974,7 @@ mod tests {
             format!(r#"<robot name="test"><link name="base"/>{links_and_joints}</robot>"#);
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
         let srdf = SrdfModel::parse_str(FIXED_BASE_SRDF).expect("test SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
             .expect("test fixture model must build")
     }
 

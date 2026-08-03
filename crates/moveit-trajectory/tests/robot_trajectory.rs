@@ -19,7 +19,7 @@
 
 use std::fs;
 
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use moveit_trajectory::RobotTrajectory;
@@ -39,7 +39,8 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
 }
 
 fn panda() -> RobotModel {

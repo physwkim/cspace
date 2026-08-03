@@ -8,8 +8,8 @@
 
 use std::f64::consts::PI;
 
-use moveit_model::RobotModel;
 use moveit_model::joint::{JointKind, VariableBounds};
+use moveit_model::RobotModel;
 use moveit_state::RobotState;
 use rand::Rng;
 
@@ -343,6 +343,7 @@ impl StateSpace for JointModelGroupSpace {
 mod tests {
     use std::fs;
 
+    use moveit_model::MeshSearchPaths;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -395,7 +396,8 @@ mod tests {
             fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
         let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
         let srdf = moveit_srdf::SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("fixture model must build")
     }
 
     #[test]
@@ -553,7 +555,7 @@ mod tests {
             let urdf = urdf_rs::read_from_string(urdf_xml).expect("synthetic URDF must parse");
             let srdf =
                 moveit_srdf::SrdfModel::parse_str(srdf_xml).expect("synthetic SRDF must parse");
-            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf)
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("synthetic model must build")
         }
 

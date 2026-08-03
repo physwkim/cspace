@@ -82,19 +82,33 @@ fn is_identity(transform: &Isometry3) -> bool {
 ///    phase's done-criteria read; only `centered_bounding_box_offset_` is
 ///    carried, because `JointModelGroup`/`RobotModel` construction is not
 ///    where any of the other three are consumed.
-/// 4. **`<mesh>` collision/visual geometry is not loaded.** Upstream calls
+/// 4. **`<mesh>` collision geometry loads STL only, and only through an
+///    explicit search-path list.** Upstream calls
 ///    `shapes::createMeshFromResource`, which resolves a `package://` URI
-///    and parses the mesh file (STL/DAE/OBJ) off disk. This port has no
-///    mesh-file loader — nor would one help in CI, since the actual mesh
-///    files live under `third_party/`, which `.gitignore` excludes from a
-///    fresh clone. A `<mesh>` (or `<capsule>`, which upstream's URDF loader
-///    doesn't itself recognise) collision/visual element is skipped with a
-///    [`crate::diagnostic::Diagnostic::UnsupportedLinkGeometry`], the same
-///    way upstream itself skips a shape `constructShape` fails to build
-///    (`if (s) shapes.push_back(s);`), just for a broader set of reasons.
-///    Every panda/fanuc link's collision geometry is exactly one `<mesh>`,
-///    so both fixtures build with empty `shapes` on this port; pr2 mixes
-///    `<mesh>` and `<box>`, so its box-collision links are covered.
+///    against the live ROS ament index and parses any Assimp-supported mesh
+///    format (STL, DAE, OBJ, ...) off disk. This port has no ROS
+///    environment to query and no DAE/OBJ parser — only
+///    [`moveit_geometry::stl`]'s STL loader — so
+///    [`crate::robot_model::RobotModel::from_urdf_and_srdf`] takes an
+///    explicit [`crate::MeshSearchPaths`] instead of an ament index, and a
+///    `<mesh>` element resolving to anything other than a well-formed STL
+///    file is skipped with a
+///    [`crate::diagnostic::Diagnostic::UnsupportedLinkGeometry`] naming why
+///    (unresolved `package://` URI, unsupported extension, or a malformed
+///    STL) — the same way upstream itself skips a shape `constructShape`
+///    fails to build (`if (s) shapes.push_back(s);`), just for a broader,
+///    named set of reasons. A caller not exercising collision geometry
+///    passes [`crate::MeshSearchPaths::none`], under which every `<mesh>`
+///    element is skipped this way, matching this port's behaviour before
+///    mesh loading existed at all. `<capsule>` (a urdf-rs extension
+///    upstream's own URDF parser doesn't itself recognise) is always
+///    skipped the same way, with no search path able to change that.
+///
+///    Visual-mesh geometry is never loaded regardless — only its filename,
+///    origin and scale are kept (see [`LinkModel::visual_mesh_filename`]/
+///    [`LinkModel::visual_mesh_origin`]/[`LinkModel::visual_mesh_scale`]),
+///    since nothing this phase's done-criteria read (collision checking,
+///    kinematics) consumes a link's rendered appearance.
 /// 5. **Carries mass and rotational inertia — upstream's own `LinkModel`
 ///    does not.** `moveit::core::LinkModel` has no such field at all;
 ///    `dynamics_solver::DynamicsSolver` gets this data by bypassing

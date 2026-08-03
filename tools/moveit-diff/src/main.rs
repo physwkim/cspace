@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale, ParryCollisionEnv, World};
 use moveit_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
@@ -358,7 +358,7 @@ fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
         urdf_rs::read_file(&cfg.urdf).map_err(|e| format!("parsing URDF {}: {e}", cfg.urdf))?;
     let srdf =
         SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
         .map_err(|e| format!("building RobotModel: {e}"))
 }
 
