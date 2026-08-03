@@ -36,22 +36,38 @@
 //! penetrating, re-runs `fcl::collide` (up to 200 contacts) and takes the
 //! *maximum* penetration depth found; this backend's single
 //! `parry3d_f64::query::contact` call returns exactly one (not necessarily
-//! the deepest) contact for the whole pair. For two convex primitives that
+//! the same) contact for the whole pair. For two convex primitives that
 //! never differ -- there is only one contact to find -- but for a mesh
-//! overlapping another shape across many triangles, FCL's 200-sample search
-//! routinely finds a deeper local penetration than this backend's single EPA
-//! result, and the two numbers do not converge under any tolerance.
+//! overlapping another shape across many triangles, the two independent EPA
+//! implementations (`parry3d_f64`'s and FCL/libccd's) are not guaranteed to
+//! settle on the same local penetration, and the two numbers do not converge
+//! under any tolerance.
 //!
-//! Confirmed at two scales: `fanuc_collision.json`'s two self-colliding
-//! cases (mesh vs. mesh) -- case 1 (`link_1`/`link_4`): oracle `self_distance
-//! = -0.01624`, this backend `-0.00561`; case 2 (`link_1`/`link_5`): oracle
-//! `-0.07129`, this backend `-0.02322` -- and, larger still, a live
-//! `tools/moveit-diff --collision` sweep of `panda_arm` (mesh vs. the
-//! floor's `<box>`): `robot_distance` disagreed by roughly `1.7`-`1.9` on
-//! every case where a link actually penetrated the floor (e.g. oracle
-//! `-1.896`, this backend `-0.149`), while every *non*-penetrating case (the
-//! two fanuc cases above, and every panda case with `robot_collision:
-//! false`) agrees to `~1e-9`-`~1e-16`. [`assert_full_parity_matches_oracle`]
+//! Confirmed at three scales, and not always by the same mechanism. Two of
+//! `fanuc_collision.json`'s self-colliding cases (mesh vs. mesh) -- case 1
+//! (`link_1`/`link_4`): oracle `self_distance = -0.01624`, this backend
+//! `-0.00561`; case 2 (`link_1`/`link_5`): oracle `-0.07129`, this backend
+//! `-0.02322` -- and a live `tools/moveit-diff --collision` sweep of
+//! `panda_arm` (mesh vs. the floor's `<box>`) both disagree on a *shared*
+//! pair's depth, oracle deeper each time (e.g. oracle `-1.896`, this backend
+//! `-0.149` on one panda case). [`pr2_case_7552_depth_disagreement_ranks_a_different_pair`]
+//! is a third case, and the mechanism there is one level up: pr2's case 7552
+//! has *several* simultaneously-interpenetrating mesh pairs on both the self
+//! and robot side, each with its own independently-computed depth, and this
+//! backend and the oracle each rank a *different* pair as globally deepest
+//! (self: oracle picks `l_gripper_r_finger_link`/`l_gripper_palm_link` at
+//! `-0.03027`, this backend picks `base_bellow_link`/`torso_lift_link` at
+//! `-0.05293`; robot: oracle picks `r_gripper_l_finger_link`/`floor` at
+//! `-0.02488`, this backend picks `r_gripper_l_finger_tip_link`/`floor` at
+//! `-0.05094`). Isolating each side's own pick shows *why*: this backend's
+//! own answer for the oracle's self pick is `-0.00188`, far shallower than
+//! its own `-0.05293` winner, so it never had a chance to win; its own answer
+//! for the oracle's robot pick is `-0.02833`, close to the oracle's `-0.02488`
+//! for that same pair, so the robot-side disagreement is almost entirely
+//! about *which finger link* wins, not about the winning depth. Every
+//! *non*-penetrating case (every fanuc/panda/pr2 case with `robot_collision:
+//! false`) still agrees to `~1e-9`-`~1e-16`, since there only one contact
+//! exists for either algorithm to find. [`assert_full_parity_matches_oracle`]
 //! therefore asserts full distance-magnitude parity only when the oracle
 //! reports no collision on that side; when it reports a collision, only the
 //! sign (`<= TOLERANCE`) is asserted, matching what the boolean
@@ -71,12 +87,30 @@
 //! meter) for a `2.8`-unit penetration depth to be physically possible
 //! against it at all. For *this* case, the oracle's own FCL/libccd
 //! penetration-depth computation is the one producing an impossible number,
-//! not this backend missing a deeper real contact. Whether that also
+//! not this backend missing a deeper real contact -- a distinct,
+//! upstream-side numerical failure mode (deep, arbitrarily-rotated
+//! interpenetration defeating libccd's EPA), not an instance of deviation 6
+//! at all. Deviation 6 itself is confirmed instead by
+//! [`pr2_case_7552_depth_disagreement_ranks_a_different_pair`]: `|d|`s two
+//! orders of magnitude smaller (`~0.02`-`0.03`), well inside the relevant
+//! links' own bounding radii, consistent with independent EPA implementations
+//! disagreeing on the deepest point among several genuinely-overlapping mesh
+//! pairs -- and, when several such disagreements are close in magnitude,
+//! disagreeing on *which pair* is deepest at all -- rather than either one
+//! hallucinating an impossible number. That pair-ranking instability is
+//! distinct from the visibility_cone `max_contacts: 1` traversal-order
+//! tie-break (round-8 §38.3): that one picks a first-found pair out of a
+//! *truncated, non-exhaustive* contact query, where this backend's
+//! `distance_self`/`distance_robot` never truncate (deviation 7) -- every
+//! pair here really was compared, so the ranking disagreement reflects real,
+//! if unstable, per-pair depth disagreement rather than which pair a
+//! budget-limited search happened to visit first. Whether deviation 6 also
 //! explains the sweep's other ~9,500 distance-only disagreements is not
 //! claimed -- each would need its own such check -- so this narrows
-//! deviation 6 from "the explanation" to "an explanation that holds for at
-//! least the interpenetrating regime's boundary cases, and demonstrably
-//! fails to explain its own worst outlier."
+//! deviation 6 from "the explanation" to "an explanation confirmed for
+//! modest-magnitude interpenetration (same pair or a close competitor), and
+//! demonstrably not the cause of the sweep's own worst (and geometrically
+//! impossible) outlier."
 //!
 //! # pr2's mesh gap was a fixture gap, not a feature gap
 //!
@@ -434,5 +468,265 @@ fn panda_worst_sweep_deviation_is_not_a_missed_deeper_contact() {
         "oracle's robot_distance {ORACLE_ROBOT_DISTANCE} does not exceed twice panda_link0's own \
          bounding radius {bounding_radius} -- this test's premise (that value is geometrically \
          impossible for this pair) no longer holds"
+    );
+}
+
+/// Round-8 §38: case 7552 of the same seed-1, 10,000-case pr2 sweep the
+/// module doc's "confirmed at three scales" paragraph cites -- the case that
+/// motivated adding the oracle's `self_distance_pair`/`robot_distance_pair`
+/// (`tools/moveit-oracle/src/oracle.cpp`'s `distancePairToJson`) in the first
+/// place, because before that addition there was no way to name which pair
+/// either backend's reported distance was even about.
+///
+/// The obvious hypothesis -- "the two sides agree on which pair is closest
+/// and disagree only on how deep" -- is not what this case shows once the
+/// pair is actually named. Both `self_distance` and `robot_distance` here
+/// have *several* simultaneously-interpenetrating candidate pairs (see
+/// `self_contacts`/`robot_contacts` in a live `collision` op response for
+/// this state), each with its own independently-computed depth, and this
+/// backend and the oracle each independently rank a *different* pair as the
+/// global deepest:
+///
+/// - self: oracle ranks (`l_gripper_r_finger_link`, `l_gripper_palm_link`)
+///   deepest at `-0.03027`; this backend ranks (`base_bellow_link`,
+///   `torso_lift_link`) deepest at `-0.05293`. Isolating the oracle's own
+///   pair (via an ACM that skips every other pair) gets this backend's
+///   answer for *that specific pair*: `-0.00188` -- nowhere near its own
+///   `-0.05293` worst, which is why it does not win here even though the
+///   oracle picked it.
+/// - robot: oracle ranks (`r_gripper_l_finger_link`, `floor`) deepest at
+///   `-0.02488`; this backend ranks (`r_gripper_l_finger_tip_link`, `floor`)
+///   deepest at `-0.05094`. Isolating the oracle's own pair gets `-0.02833`
+///   here -- close to the oracle's `-0.02488` for that same pair (`|d| =
+///   0.0035`) -- so the robot-side disagreement is almost entirely about
+///   *which finger link* wins, not about the winning depth.
+///
+/// Both pairs in both queries are mesh-involving (`torso_lift_link`,
+/// `r_gripper_l_finger_tip_link`, and the oracle's own picks, are all
+/// meshes; see the `collision` op's `shape_kinds_1`/`shape_kinds_2`), so this
+/// is deviation 6's mechanism (independent EPA implementations settling on
+/// different local penetrations for an overlapping mesh pair), not a
+/// different cause: when several such disagreements are close in magnitude,
+/// a small per-pair difference is enough to flip which pair either side
+/// reports as globally deepest. That is distinct from the visibility_cone
+/// `max_contacts: 1` traversal-order tie-break (round-8 §38.3): that one
+/// picks a first-found pair out of a *truncated, non-exhaustive* contact
+/// query; `distance_self`/`distance_robot` never truncate (deviation 7), so
+/// every pair here really was compared and the ranking is a real, if
+/// unstable, disagreement about depth -- not an artifact of which pair a
+/// budget-limited search happened to visit first.
+///
+/// None of these numbers are implausible the way panda's worst case was:
+/// the bounding-radius check below confirms both backends' answers for the
+/// robot-side pairs sit comfortably inside the relevant link's own bounding
+/// radius, unlike panda's geometrically-impossible `-2.806`.
+#[test]
+fn pr2_case_7552_depth_disagreement_ranks_a_different_pair() {
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    // Case 7552 of the seed-1, 10,000-case `tools/moveit-diff --collision`
+    // sweep against pr2. Re-derived, not guessed: the oracle's
+    // `random_states` RNG draws states strictly in sequence, so requesting
+    // `count: 7553` with the same `seed: 1` reproduces states 0..=7552
+    // identically to the original 10,000-case run, and `states[7552]` was
+    // read directly off that response.
+    let joint_values: BTreeMap<String, f64> = [
+        ("bl_caster_l_wheel_joint", -2.7530578545158697),
+        ("bl_caster_r_wheel_joint", -0.6541500350832292),
+        ("bl_caster_rotation_joint", -2.1071702944321746),
+        ("br_caster_l_wheel_joint", -0.25144364721432044),
+        ("br_caster_r_wheel_joint", 0.5714552888465483),
+        ("br_caster_rotation_joint", 1.3459924924128535),
+        ("fl_caster_l_wheel_joint", 1.6282587322204458),
+        ("fl_caster_r_wheel_joint", -2.9044549042163976),
+        ("fl_caster_rotation_joint", -0.028935971013624773),
+        ("fr_caster_l_wheel_joint", 2.1960366795023853),
+        ("fr_caster_r_wheel_joint", 1.4276562617623512),
+        ("fr_caster_rotation_joint", -2.103756317620623),
+        ("head_pan_joint", -2.7273416063464246),
+        ("head_tilt_joint", 0.5973734346006577),
+        ("l_elbow_flex_joint", -0.700751763412077),
+        ("l_forearm_roll_joint", -0.9278961829433645),
+        ("l_gripper_joint", 0.03171822756156325),
+        ("l_gripper_l_finger_joint", 0.3815533448671922),
+        ("l_gripper_l_finger_tip_joint", 0.3815533448671922),
+        ("l_gripper_motor_screw_joint", -1.999628958401011),
+        ("l_gripper_motor_slider_joint", 0.022971630422398442),
+        ("l_gripper_r_finger_joint", 0.3815533448671922),
+        ("l_gripper_r_finger_tip_joint", 0.3815533448671922),
+        ("l_shoulder_lift_joint", 1.1877857735458996),
+        ("l_shoulder_pan_joint", 0.4511944509654834),
+        ("l_upper_arm_roll_joint", 1.2894796210341157),
+        ("l_wrist_flex_joint", -0.11099946156609808),
+        ("l_wrist_roll_joint", -3.134788791301619),
+        ("laser_tilt_mount_joint", 0.5776462211810098),
+        ("r_elbow_flex_joint", -0.4505700076777255),
+        ("r_forearm_roll_joint", 1.7475075968314533),
+        ("r_gripper_joint", 0.0027053921837359666),
+        ("r_gripper_l_finger_joint", 0.14602129764202984),
+        ("r_gripper_l_finger_tip_joint", 0.14602129764202984),
+        ("r_gripper_motor_screw_joint", 2.4001195725111915),
+        ("r_gripper_motor_slider_joint", -0.027126504015177494),
+        ("r_gripper_r_finger_joint", 0.14602129764202984),
+        ("r_gripper_r_finger_tip_joint", 0.14602129764202984),
+        ("r_shoulder_lift_joint", 1.0406979827467353),
+        ("r_shoulder_pan_joint", -0.06264072843631086),
+        ("r_upper_arm_roll_joint", -3.3010135852731763),
+        ("r_wrist_flex_joint", -0.15365014139097188),
+        ("r_wrist_roll_joint", 0.07053784872167457),
+        ("torso_lift_joint", 0.017635104052722454),
+        ("torso_lift_motor_screw_joint", -2.209226948701471),
+        ("world_joint/theta", 1.9908529625827018),
+        ("world_joint/x", 0.0),
+        ("world_joint/y", 0.0),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect();
+
+    // The oracle's `collision` op answer for exactly this state, against
+    // this same floor object -- read from the sweep log and the oracle's
+    // `self_distance_pair`/`robot_distance_pair` fields, not recomputed.
+    const ORACLE_SELF_DISTANCE: f64 = -3.027_029_289_561_778e-2;
+    const ORACLE_SELF_PAIR_RUST_DISTANCE: f64 = -1.880_864_788_888_060_7e-3;
+    const ORACLE_ROBOT_DISTANCE: f64 = -2.487_585_155_291_470_5e-2;
+    const ORACLE_ROBOT_PAIR_RUST_DISTANCE: f64 = -2.832_776_408_849_211_5e-2;
+
+    let mut state = build_state(&model, &joint_values);
+    let posed = state.update();
+    let request = DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(&acm),
+        ..DistanceRequest::default()
+    };
+
+    // Skip every pair by default, then explicitly force just one back in --
+    // isolates a single named pair's own distance out of the exhaustive
+    // (deviation 7) minimum-distance search.
+    let isolate_self_pair = |a: &str, b: &str| -> AllowedCollisionMatrix {
+        let mut isolated = AllowedCollisionMatrix::new();
+        for link in model.link_models() {
+            isolated.set_default_entry(link.name(), true);
+        }
+        isolated.set_entry(a, b, false);
+        isolated
+    };
+    let isolate_robot_pair = |target: &str| -> AllowedCollisionMatrix {
+        let mut isolated = AllowedCollisionMatrix::new();
+        for link in model.link_models() {
+            if link.name() != target {
+                isolated.set_default_entry(link.name(), true);
+            }
+        }
+        isolated
+    };
+
+    let self_distance = env.distance_self(&request, &posed, &[]);
+    assert_eq!(
+        self_distance.minimum_distance.link_names,
+        ["base_bellow_link".to_owned(), "torso_lift_link".to_owned()],
+        "expected this backend's own worst self-collision pair for this case"
+    );
+    assert!(
+        (self_distance.minimum_distance.distance - ORACLE_SELF_DISTANCE).abs() > 1e-3,
+        "self_distance {} no longer disagrees with the oracle {ORACLE_SELF_DISTANCE} -- this \
+         test's premise (a confirmed, still-open disagreement) no longer holds",
+        self_distance.minimum_distance.distance
+    );
+    let oracle_self_pair_acm = isolate_self_pair("l_gripper_r_finger_link", "l_gripper_palm_link");
+    let oracle_self_pair_req = DistanceRequest {
+        acm: Some(&oracle_self_pair_acm),
+        ..request
+    };
+    let oracle_self_pair_distance = env.distance_self(&oracle_self_pair_req, &posed, &[]);
+    assert!(
+        (oracle_self_pair_distance.minimum_distance.distance - ORACLE_SELF_PAIR_RUST_DISTANCE)
+            .abs()
+            < 1e-9,
+        "this backend's own answer for the oracle's self pair moved from {} to {}",
+        ORACLE_SELF_PAIR_RUST_DISTANCE,
+        oracle_self_pair_distance.minimum_distance.distance
+    );
+    assert!(
+        oracle_self_pair_distance.minimum_distance.distance
+            > self_distance.minimum_distance.distance,
+        "expected the oracle's own self pair ({}) to be shallower than this backend's own worst \
+         self pair ({}) -- that gap is *why* this backend does not rank the oracle's pair first",
+        oracle_self_pair_distance.minimum_distance.distance,
+        self_distance.minimum_distance.distance
+    );
+
+    let robot_distance = env.distance_robot(&request, &posed, &[]);
+    assert_eq!(
+        robot_distance.minimum_distance.link_names,
+        ["r_gripper_l_finger_tip_link".to_owned(), "floor".to_owned()],
+        "expected this backend's own worst robot-collision pair for this case"
+    );
+    assert!(
+        (robot_distance.minimum_distance.distance - ORACLE_ROBOT_DISTANCE).abs() > 1e-3,
+        "robot_distance {} no longer disagrees with the oracle {ORACLE_ROBOT_DISTANCE} -- this \
+         test's premise (a confirmed, still-open disagreement) no longer holds",
+        robot_distance.minimum_distance.distance
+    );
+    let oracle_robot_pair_acm = isolate_robot_pair("r_gripper_l_finger_link");
+    let oracle_robot_pair_req = DistanceRequest {
+        acm: Some(&oracle_robot_pair_acm),
+        ..request
+    };
+    let oracle_robot_pair_distance = env.distance_robot(&oracle_robot_pair_req, &posed, &[]);
+    assert!(
+        (oracle_robot_pair_distance.minimum_distance.distance - ORACLE_ROBOT_PAIR_RUST_DISTANCE)
+            .abs()
+            < 1e-9,
+        "this backend's own answer for the oracle's robot pair moved from {} to {}",
+        ORACLE_ROBOT_PAIR_RUST_DISTANCE,
+        oracle_robot_pair_distance.minimum_distance.distance
+    );
+    assert!(
+        (oracle_robot_pair_distance.minimum_distance.distance - ORACLE_ROBOT_DISTANCE).abs() < 5e-3,
+        "expected this backend's answer for the oracle's own robot pair ({}) to sit close to the \
+         oracle's ({ORACLE_ROBOT_DISTANCE}) -- unlike the self-side pair, the robot-side \
+         disagreement is mostly about which pair wins, not the winning depth",
+        oracle_robot_pair_distance.minimum_distance.distance
+    );
+
+    // Bounding radius from each pair's own local origin, the same
+    // impossibility yardstick `panda_worst_sweep_deviation_is_not_a_missed_
+    // deeper_contact` uses -- here to show the *opposite*: both sides'
+    // numbers are comfortably plausible, not that either is impossible.
+    let bounding_radius = |link_name: &str| -> f64 {
+        let link = model
+            .link_model(link_name)
+            .unwrap_or_else(|e| panic!("pr2 has {link_name}: {e}"));
+        link.shapes()
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                Shape::Mesh(mesh) => mesh
+                    .vertices
+                    .iter()
+                    .map(|v| {
+                        (shape.origin_transform * nalgebra::Point3::from(*v))
+                            .coords
+                            .norm()
+                    })
+                    .fold(None::<f64>, |acc, d| Some(acc.map_or(d, |a| a.max(d)))),
+                _ => None,
+            })
+            .fold(0.0_f64, f64::max)
+    };
+    // Twice the bounding radius, matching
+    // `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`'s own
+    // yardstick: a rigid body cannot overlap anything by more than its own
+    // diameter, in any orientation, at any pose.
+    let r_gripper_l_finger_tip_radius = bounding_radius("r_gripper_l_finger_tip_link");
+    assert!(
+        ORACLE_ROBOT_DISTANCE.abs() < 2.0 * r_gripper_l_finger_tip_radius
+            && robot_distance.minimum_distance.distance.abs() < 2.0 * r_gripper_l_finger_tip_radius,
+        "expected both robot_distance numbers ({}, {ORACLE_ROBOT_DISTANCE}) to sit inside twice \
+         r_gripper_l_finger_tip_link's own bounding radius {r_gripper_l_finger_tip_radius} -- \
+         unlike panda's worst case, neither should be a physically impossible penetration depth",
+        robot_distance.minimum_distance.distance
     );
 }

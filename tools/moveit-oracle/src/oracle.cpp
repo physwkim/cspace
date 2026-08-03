@@ -215,6 +215,24 @@ std::string shapeTypeName(shapes::ShapeType type)
   throw std::runtime_error("unknown shapes::ShapeType");
 }
 
+/// Matches `collision_detection::BodyTypes::Type`'s three variants -- this
+/// oracle's own naming for the `body_type_1`/`body_type_2` fields the
+/// `collision` op's `self_contacts`/`robot_contacts` entries carry, same
+/// convention as `shapeTypeName` above.
+std::string bodyTypeName(collision_detection::BodyType type)
+{
+  switch (type)
+  {
+    case collision_detection::BodyTypes::ROBOT_LINK:
+      return "robot_link";
+    case collision_detection::BodyTypes::ROBOT_ATTACHED:
+      return "robot_attached";
+    case collision_detection::BodyTypes::WORLD_OBJECT:
+      return "world_object";
+  }
+  throw std::runtime_error("unknown collision_detection::BodyType");
+}
+
 /// Builds the `shapes::Shape` named by `request["shape"]["type"]` --
 /// `"sphere"`, `"box"`, `"cylinder"` or `"mesh"`, the four `bodies::` has a
 /// case for. Shared by `shapePoints` and `collisionDistanceFieldTypes`,
@@ -1493,17 +1511,35 @@ private:
   /// already relative to the link frame directly -- see `protocol.rs`'s
   /// `AttachedBodySpec` doc.
   ///
-  /// Both `CollisionRequest`s are default-constructed (`contacts = false`):
-  /// only the boolean `collision` flag from each call is reported, and
-  /// [`Contact`] coordinates are excluded from comparison per §4.5's recorded
-  /// verification limit -- see `crates/moveit-collision/tests/collision_parity.rs`
-  /// and `tools/moveit-diff`'s own collision comparison for why. Both
+  /// Both `CollisionRequest`s now set `contacts = true` (round-8 item 1):
+  /// `self_contacts`/`robot_contacts` in the response name every contacting
+  /// pair's body names, `BodyType`s and each side's shape kinds
+  /// (`contactsToJson`/`shapeKindsFor` below), so a boolean-agreeing,
+  /// depth-differing case can be diagnosed on first sight instead of by
+  /// re-deriving the sweep's seed after the fact -- the gap round 7's item 2
+  /// (pr2 case 7552) hit and could not close from the boolean/depth pair
+  /// alone. [`Contact`] coordinates (`pos`/`normal`/`nearest_points`/
+  /// `percent_interpolation`) stay excluded from the rust/oracle comparison
+  /// per §4.5's recorded verification limit -- see
+  /// `crates/moveit-collision/tests/collision_parity.rs` and
+  /// `tools/moveit-diff`'s own collision comparison for why; only the pair's
+  /// identity and depth are diagnostic additions here, not a widening of
+  /// what parity asserts equal. `max_contacts` is raised from the
+  /// default-constructed `1` so more than one simultaneously-contacting pair
+  /// is nameable, not just the first the backend happens to visit;
+  /// `max_contacts_per_pair` stays at its default `1` since only one
+  /// representative contact per pair is needed to name it. Both
   /// `DistanceRequest`s set `enable_signed_distance = true`: a request that
   /// left it `false` could never surface deviation 6 (this port's
   /// single-`query::contact()`-call signed distance versus FCL's `distance`
   /// then, only for a penetrating pair, a second up-to-200-contact `collide`
   /// pass taking the deepest penetration) at all, since an unsigned distance
   /// is clamped to `>= 0` on both sides regardless of that deviation.
+  /// `self_distance_pair`/`robot_distance_pair` (`distancePairToJson` below)
+  /// name the pair behind `self_distance`/`robot_distance` directly from
+  /// `DistanceResultsData::link_names`/`body_types` -- pr2 case 7552 is a
+  /// `*_distance` disagreement, not a `*_collision` one, so this field, not
+  /// `contactsToJson`'s, is what actually names its pair.
   json collision(const json& request)
   {
     applyJointValues(request);
@@ -1552,10 +1588,14 @@ private:
     collision_detection::CollisionEnvFCL env(model_, world);
 
     collision_detection::CollisionRequest self_req;
+    self_req.contacts = true;
+    self_req.max_contacts = 100;
     collision_detection::CollisionResult self_res;
     env.checkSelfCollision(self_req, self_res, *state_, acm);
 
     collision_detection::CollisionRequest robot_req;
+    robot_req.contacts = true;
+    robot_req.max_contacts = 100;
     collision_detection::CollisionResult robot_res;
     env.checkRobotCollision(robot_req, robot_res, *state_, acm);
 
@@ -1574,8 +1614,104 @@ private:
     return json{
       { "self_collision", self_res.collision },
       { "self_distance", self_dres.minimum_distance.distance },
+      { "self_distance_pair", distancePairToJson(self_dres.minimum_distance, *world) },
+      { "self_contacts", contactsToJson(self_res.contacts, *world) },
       { "robot_collision", robot_res.collision },
       { "robot_distance", robot_dres.minimum_distance.distance },
+      { "robot_distance_pair", distancePairToJson(robot_dres.minimum_distance, *world) },
+      { "robot_contacts", contactsToJson(robot_res.contacts, *world) },
+    };
+  }
+
+  /// Shape kinds for one `collision`-op contact-report body -- reuses
+  /// `shapeTypeName`, the same naming `link_details[].shape_types` (see
+  /// `linkDetails` above) already uses, so a `robot_link` entry here reads
+  /// identically to that op's own `shape_types`. `BodyTypes::ROBOT_ATTACHED`
+  /// looks up `*state_` (attached bodies are per-request, applied in
+  /// `collision()` before either check runs) rather than `model_`, since an
+  /// attached body has no `LinkModel`.
+  json shapeKindsFor(collision_detection::BodyType type, const std::string& name,
+                      const collision_detection::World& world) const
+  {
+    json kinds = json::array();
+    switch (type)
+    {
+      case collision_detection::BodyTypes::ROBOT_LINK:
+        for (const shapes::ShapeConstPtr& shape : model_->getLinkModel(name)->getShapes())
+          kinds.push_back(shapeTypeName(shape->type));
+        break;
+      case collision_detection::BodyTypes::ROBOT_ATTACHED:
+        for (const shapes::ShapeConstPtr& shape : state_->getAttachedBody(name)->getShapes())
+          kinds.push_back(shapeTypeName(shape->type));
+        break;
+      case collision_detection::BodyTypes::WORLD_OBJECT:
+        for (const shapes::ShapeConstPtr& shape : world.getObject(name)->shapes_)
+          kinds.push_back(shapeTypeName(shape->type));
+        break;
+    }
+    return kinds;
+  }
+
+  /// One entry per contacting pair in a `CollisionResult::ContactMap` --
+  /// body names, `BodyType`s (`bodyTypeName`) and each side's shape kinds
+  /// (`shapeKindsFor`), plus the representative contact's `depth`. Added for
+  /// round-8 item 1: a case whose booleans agree and only its depth differs
+  /// (deviation 6's species, or pr2 case 7552 before this round) previously
+  /// could not be traced to a link pair after the fact at all. Deliberately
+  /// excludes `pos`/`normal`/`nearest_points`/`percent_interpolation` -- see
+  /// `collision()`'s own doc comment for why those stay outside the parity
+  /// comparison. `max_contacts_per_pair` is left at its default `1`
+  /// (`collision()` only raises `max_contacts`), so `contact_list` always
+  /// holds exactly one entry per pair here; guarding on `empty()` rather
+  /// than assuming that stays true if a future caller changes the request.
+  json contactsToJson(const collision_detection::CollisionResult::ContactMap& contacts,
+                       const collision_detection::World& world) const
+  {
+    json out = json::array();
+    for (const auto& entry : contacts)
+    {
+      const std::vector<collision_detection::Contact>& contact_list = entry.second;
+      if (contact_list.empty())
+        continue;
+      const collision_detection::Contact& c = contact_list.front();
+      out.push_back(json{
+        { "body_name_1", c.body_name_1 },
+        { "body_type_1", bodyTypeName(c.body_type_1) },
+        { "shape_kinds_1", shapeKindsFor(c.body_type_1, c.body_name_1, world) },
+        { "body_name_2", c.body_name_2 },
+        { "body_type_2", bodyTypeName(c.body_type_2) },
+        { "shape_kinds_2", shapeKindsFor(c.body_type_2, c.body_name_2, world) },
+        { "depth", c.depth },
+      });
+    }
+    return out;
+  }
+
+  /// Names the pair behind a `distanceSelf`/`distanceRobot` scalar directly
+  /// from `DistanceResultsData::link_names`/`body_types` -- unlike
+  /// `contactsToJson`, this needs no `CollisionRequest`-side inference at
+  /// all, since upstream's distance query already carries the pair that
+  /// produced `minimum_distance` on the very struct that carries the
+  /// number. Added for round-8 item 1 alongside `contactsToJson`: pr2 case
+  /// 7552 (`collision_parity.rs`) is a `self_distance`/`robot_distance`
+  /// disagreement, not a `self_collision`/`robot_collision` one, so this is
+  /// the field that actually answers it, rather than the contacts side.
+  /// `link_names[0]`/`[1]` are empty together
+  /// (`DistanceResultsData::clear()`) when nothing was ever found -- e.g. no
+  /// other body exists to measure against -- so `null` is returned rather
+  /// than looking up an empty name.
+  json distancePairToJson(const collision_detection::DistanceResultsData& d,
+                           const collision_detection::World& world) const
+  {
+    if (d.link_names[0].empty() || d.link_names[1].empty())
+      return nullptr;
+    return json{
+      { "body_name_1", d.link_names[0] },
+      { "body_type_1", bodyTypeName(d.body_types[0]) },
+      { "shape_kinds_1", shapeKindsFor(d.body_types[0], d.link_names[0], world) },
+      { "body_name_2", d.link_names[1] },
+      { "body_type_2", bodyTypeName(d.body_types[1]) },
+      { "shape_kinds_2", shapeKindsFor(d.body_types[1], d.link_names[1], world) },
     };
   }
 
