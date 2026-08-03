@@ -16,9 +16,13 @@ nalgebra.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+moveit-model.workspace = true
+moveit-srdf.workspace = true
+moveit-state.workspace = true
 nalgebra.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+urdf-rs.workspace = true
 
 [lints]
 workspace = true
