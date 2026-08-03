@@ -581,6 +581,8 @@ public:
       return bodyQuery(request);
     if (op == "totg")
       return totg(request);
+    if (op == "totg_path")
+      return totgPath(request);
     if (op == "acceleration_filter")
       return accelerationFilter(request);
     if (op == "ruckig_filter")
@@ -3321,6 +3323,104 @@ private:
     }
 
     return json{ { "ok", true }, { "duration", trajectory->getDuration() }, { "samples", samples } };
+  }
+
+  /// Ground truth for the *geometry* half of TOTG, separated from `totg`'s
+  /// time-parameterisation half: builds only the `Path` and dumps what it
+  /// exposes, with no `Trajectory` and therefore no integration, no time
+  /// step, and no velocity/acceleration limits in play. A divergence that
+  /// shows up here is in the path construction; one that shows up in `totg`
+  /// but not here is in the integration.
+  ///
+  /// This is deliberately *not* the per-`CircularPathSegment` dump of
+  /// `start_dot_end`/`angle`/`radius`/`center`/`x`/`y` that would be the
+  /// direct analogue of this port's own internals. `CircularPathSegment` is
+  /// declared inside `time_optimal_trajectory_generation.cpp` (line 103), not
+  /// in the installed header, and `Path::getPathSegment` is `private`, so
+  /// neither the type nor the per-segment handle is nameable from outside the
+  /// translation unit -- unlike `DistanceField::getOcTreePoints`, which is
+  /// merely `protected` and so was reachable by deriving (see `octreePoints`).
+  /// Reaching those fields would mean patching upstream, which would make the
+  /// oracle stop being a record of unmodified upstream behaviour.
+  ///
+  /// The public surface still pins the same geometry, indirectly but at full
+  /// precision:
+  ///
+  /// - `getSwitchingPoints` returns every segment boundary as an arc length,
+  ///   so the *lengths* of the three circular blends and of the straight runs
+  ///   between them are differences of adjacent entries. A blend's arc length
+  ///   is `angle * radius`.
+  /// - `getCurvature(s)` inside a circular segment is the inward normal
+  ///   scaled by `1/radius` (`CircularPathSegment::getCurvature` returns
+  ///   `-(x*cos + y*sin)/radius` with `x`,`y` unit and orthogonal), so
+  ///   `radius = 1 / ||getCurvature(s)||` recovers the radius directly, and
+  ///   `angle` then follows from the arc length. Inside a linear segment the
+  ///   curvature is the zero vector.
+  /// - `getConfig(s)`/`getTangent(s)` at the two ends of a blend pin where the
+  ///   blend starts and leaves, which with the radius pins the centre up to
+  ///   the sign convention.
+  ///
+  /// So `angle`, `radius`, and the blend endpoints are all recoverable from
+  /// this response; only `center`, `x`, and `y` as stored are not, and those
+  /// are a basis choice rather than an observable of the path.
+  ///
+  /// A case gives "waypoints" and "max_deviation" (same meaning and same
+  /// reader as `totgCase`). Sampling is by explicit arc length:
+  /// "sample_arc_lengths" is taken verbatim, and "sample_count", if present
+  /// and greater than one, adds a uniform grid of that many points over
+  /// `[0, length]` inclusive. Explicit arc lengths are the useful ones here --
+  /// a uniform grid will generally straddle a switching point rather than
+  /// land inside a blend, and it is the samples *strictly inside* one blend
+  /// that carry its radius.
+  json totgPath(const json& request) const
+  {
+    json cases_out = json::array();
+    for (const json& c : request.at("cases"))
+      cases_out.push_back(totgPathCase(c));
+    return json{ { "cases", cases_out } };
+  }
+
+  json totgPathCase(const json& c) const
+  {
+    std::vector<Eigen::VectorXd> waypoints;
+    for (const json& wp : c.at("waypoints"))
+      waypoints.push_back(totgReadVector(wp));
+    const double max_deviation = c.at("max_deviation").get<double>();
+
+    std::optional<trajectory_processing::Path> path =
+        trajectory_processing::Path::create(waypoints, max_deviation);
+    if (!path)
+      return json{ { "ok", false }, { "stage", "path_create" } };
+
+    const double length = path->getLength();
+
+    json switching_out = json::array();
+    for (const std::pair<double, bool>& sp : path->getSwitchingPoints())
+      switching_out.push_back(json{ { "s", sp.first }, { "discontinuity", sp.second } });
+
+    std::vector<double> arc_lengths;
+    if (c.contains("sample_arc_lengths"))
+      for (const json& s_json : c.at("sample_arc_lengths"))
+        arc_lengths.push_back(s_json.get<double>());
+    const std::size_t sample_count = c.value("sample_count", std::size_t{ 0 });
+    for (std::size_t i = 0; i < sample_count && sample_count > 1; ++i)
+      arc_lengths.push_back(length * static_cast<double>(i) / static_cast<double>(sample_count - 1));
+
+    json samples = json::array();
+    for (const double s : arc_lengths)
+    {
+      const Eigen::VectorXd curvature = path->getCurvature(s);
+      samples.push_back(json{ { "s", s },
+                              { "config", totgWriteVector(path->getConfig(s)) },
+                              { "tangent", totgWriteVector(path->getTangent(s)) },
+                              { "curvature", totgWriteVector(curvature) },
+                              { "curvature_norm", curvature.norm() } });
+    }
+
+    return json{ { "ok", true },
+                 { "length", length },
+                 { "switching_points", switching_out },
+                 { "samples", samples } };
   }
 
   /// Ground truth for the `moveit-smoothing` `AccelerationLimitedPlugin` port
