@@ -63,6 +63,13 @@ use moveit_geometry::bodies::Body;
 use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
 
+/// Kind: a structurally-safe grid-bucket size, not a measured-margin
+/// tolerance like this crate's other parity files' `TOL`/`DISTANCE_TOL`/
+/// `RADIUS_TOL` constants. Those are sized just above a bisected failure
+/// point, so shrinking one toward that point is what re-opens a gate;
+/// `POINT_EPS` has no such floor to re-litigate -- coarser is always the
+/// safe direction here (see below), so there is nothing to bisect down to.
+///
 /// Grid the coordinates onto this spacing before comparing, so the pose's
 /// quaternion round-trip (see the module docs) does not read as a
 /// disagreement. Well below the coarsest resolution used here (0.05) and
