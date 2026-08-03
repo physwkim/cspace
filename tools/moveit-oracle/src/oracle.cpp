@@ -926,15 +926,19 @@ private:
   /// timeout))` retries until wall-clock time runs out, which is not
   /// reproducible and not comparable to a fixed budget. This mirrors
   /// `moveit_kinematics::SolverParams::max_restarts`'s own identical
-  /// deviation on the Rust side, using the same numeric value
-  /// (`kMaxRestarts`) so the two sides' success rates are a fair comparison
-  /// rather than one side simply being given more attempts.
+  /// deviation on the Rust side. The retry count itself comes from the
+  /// request (`Op::Ik::max_restarts`), not a fixed constant -- round 2 of
+  /// the IK success-rate investigation needs to run both sides with
+  /// restarts disabled (`max_restarts = 0`) to isolate whether a gap is
+  /// restart-RNG divergence (the oracle's own reseed draws come from
+  /// `ik_rng_`, a boost mt19937 stream, independent of the Rust side's
+  /// `ChaCha8Rng`) or a real algorithmic difference.
   json ik(const json& request)
   {
     constexpr unsigned int kMaxSolverIterations = 500;   // SolverParams::max_solver_iterations default
     constexpr double kEpsilon = 0.00001;                 // SolverParams::epsilon default
     constexpr double kSvdThreshold = 0.001;               // SolverParams::svd_threshold default
-    constexpr unsigned int kMaxRestarts = 20;             // SolverParams::max_restarts default
+    const unsigned int max_restarts = request.at("max_restarts").get<unsigned int>();
 
     const std::string group_name = request.at("group").get<std::string>();
     const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
@@ -1119,7 +1123,7 @@ private:
 
     KDL::JntArray q_out(mimic_joints.size());
     bool success = cartToJnt(buildQFull(seed_active), q_out);
-    for (unsigned int attempt = 0; attempt < kMaxRestarts && !success; ++attempt)
+    for (unsigned int attempt = 0; attempt < max_restarts && !success; ++attempt)
     {
       std::vector<double> reseed_active(active_joint_names.size());
       for (std::size_t k = 0; k < active_joint_names.size(); ++k)

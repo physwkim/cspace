@@ -184,6 +184,18 @@ pub enum Op {
         joint_values: BTreeMap<String, f64>,
         /// Whether to run position-only IK.
         position_only: bool,
+        /// `moveit_kinematics::SolverParams::max_restarts` on this side,
+        /// `kMaxRestarts` on the oracle side. Sent explicitly, not defaulted
+        /// on either side, because it is the knob the round-2 investigation
+        /// into moveit-rs's IK success-rate gap needs to isolate: at `0`,
+        /// both sides run exactly one deterministic attempt from the
+        /// identical bounds-midpoint seed, with no randomness anywhere on
+        /// either side, so a surviving gap cannot be restart-RNG divergence
+        /// (the oracle draws restart reseeds from `random_numbers::
+        /// RandomNumberGenerator`, a boost mt19937 stream; this side from
+        /// `ChaCha8Rng` -- two independent streams whose per-case outcomes
+        /// were never comparable at `max_restarts > 0`).
+        max_restarts: u32,
     },
 }
 
