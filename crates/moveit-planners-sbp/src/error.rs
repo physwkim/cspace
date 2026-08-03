@@ -3,15 +3,20 @@
 
 //! Error type for this crate's boundary inputs.
 //!
-//! Scoped narrowly on purpose: the only fallible *construction* in this
-//! crate's Phase 7 scope is [`crate::space::RealVectorSpace::new`], whose
-//! bounds could plausibly come from external input (a robot description,
-//! eventually). [`crate::rrt_connect::RrtConnectParams`] is validated by
-//! `assert!` instead — passing it a negative step size is a programming
-//! error, not external input, so panicking immediately with a clear message
-//! is preferable to plumbing a `Result` through the planner's success path.
+//! Scoped narrowly on purpose: the fallible *constructions* in this crate
+//! are [`crate::space::RealVectorSpace::new`] and its callers (bounds that
+//! could plausibly come from external input, a robot description in
+//! particular) and, since the `RobotModel` bridge landed,
+//! [`crate::joint_model_group_space::JointModelGroupSpace::new`], whose
+//! group name is a caller-supplied string looked up against a
+//! [`moveit_model::RobotModel`] built at runtime.
+//! [`crate::rrt_connect::RrtConnectParams`] is validated by `assert!`
+//! instead — passing it a negative step size is a programming error, not
+//! external input, so panicking immediately with a clear message is
+//! preferable to plumbing a `Result` through the planner's success path.
 
-/// An error constructing a Phase 7 planning type from caller-supplied data.
+/// An error constructing a planning type in this crate from caller-supplied
+/// data.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum SbpError {
@@ -53,5 +58,13 @@ pub enum SbpError {
         index: usize,
         /// The offending weight.
         value: f64,
+    },
+
+    /// [`crate::joint_model_group_space::JointModelGroupSpace::new`] was
+    /// given a group name the [`moveit_model::RobotModel`] does not have.
+    #[error("unknown joint model group '{name}'")]
+    UnknownGroup {
+        /// The group name that was not found.
+        name: String,
     },
 }

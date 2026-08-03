@@ -11,9 +11,13 @@ authors.workspace = true
 [dependencies]
 thiserror.workspace = true
 rand.workspace = true
+moveit-model.workspace = true
+moveit-state.workspace = true
 
 [dev-dependencies]
 rand_chacha.workspace = true
+moveit-srdf.workspace = true
+urdf-rs.workspace = true
 
 [lints]
 workspace = true
