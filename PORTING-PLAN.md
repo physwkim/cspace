@@ -689,3 +689,68 @@ CI는 이 저장소에 git remote가 없어 한 번도 실행된 적이 없다. 
 `git archive HEAD | tar -x -C $(mktemp -d)` 로 뽑은 트리에서
 `.github/workflows/ci.yml`의 `run:` 스텝 7개를 순서대로 돌려
 전부 통과함을 확인했다.
+
+---
+
+## 10. 1차 병렬 라운드 병합 (2026-08-03)
+
+§9.3이 나열한 여섯 갈래 중 넷이 main에 들어왔다. 현재 크레이트 아홉,
+Rust 19,686 LOC, `cargo nextest run --workspace` 351/351.
+
+| 크레이트 | 내용 | 검증 근거 |
+| --- | --- | --- |
+| `moveit-geometry` | `geometric_shapes` 도형 계층 | 컨테이너 C++ 프로브 (§9.1) |
+| `moveit-collision` | ACM, `World` | 오라클 `acm`·`world` op |
+| `moveit-distance-field` | VoxelGrid, PropagationDistanceField | 단위 테스트만 — 오라클 대조 미실시 |
+| `moveit-planners-sbp` | StateSpace, GNAT, RRT-Connect | 불변식 (§9.3) |
+| `moveit-trajectory` | TOTG | upstream gtest 벡터 |
+| `moveit-smoothing` | Butterworth | upstream 단위 벡터 |
+
+`moveit-geometry`의 `bodies::`와 `moveit-state`의 `RobotState`/FK는 아직
+작업 중이다.
+
+### 10.1 병합 전 게이트에서 되돌린 것
+
+워커 보고만으로 병합한 것은 없다. 세 건은 보고가 통과라고 적었는데
+독립 확인에서 어긋났다.
+
+- `sample_near`가 n-ball 대신 이를 감싸는 상자를 뽑고 있었고, 이를 고친
+  1차 수정은 단위 상자 안 rejection sampling이라 채택률이 `V_n/2^n`으로
+  떨어졌다. 실측: 차원 7에서 83.6 µs, 12에서 12,915.8 µs, 14에서
+  154,737.8 µs/샘플. `fixtures/dual_arm_panda.urdf`가 14-DOF,
+  PR2 `arms_and_torso`가 15-DOF이므로 가정이 아니라 실제 차원이다.
+  Box-Muller로 교체한 최종본을 다시 실측해 6.85(7) → 25.10(30) µs,
+  차원에 선형임을 확인했다. 워커가 보고한 "모든 차원에서 0.5–0.6 µs
+  평탄"은 재현되지 않는다 — O(n) 알고리즘이 평탄할 수 없다.
+- `rrt_connect`가 `Instant::now()`를 무조건 읽어, 시드 재현성 테스트가
+  한가한 기계에서만 성립했다. 워커는 이를 "설계 불확실성"으로 적었으나
+  우회된 근본 원인이다. `Termination::{Iterations,Deadline,Both}`로
+  갈라, deadline이 없는 경로에는 읽을 시계 자체가 없게 했다.
+- `f64::from_bits(0x3fe9_21fb_5444_1d52)`가 `approx_constant` 린트를
+  피하려고 들어와 있었고, 이를 정당화하는 주석은 그 값이 π/4의 최근접
+  f64이며 1 ULP 차이라고 적었다. 실측 4,550 ULP. 값 36개 전부를 JSON
+  픽스처로 옮기고 upstream `.cpp`의 `<<` 블록과 순서대로 대조했다.
+
+### 10.2 다음 게이트 — `cargo doc`
+
+`[workspace.lints.rust] warnings = "deny"`는 rustdoc 린트까지 deny로
+올리므로, 공개 문서가 비공개 항목을 `[`...`]`로 가리키면 하드 에러다.
+CI에 `cargo doc` 스텝이 없어 이것이 8곳까지 쌓였다 —
+`moveit-geometry` 1, `moveit-model` 7. 두 크레이트 담당에게 돌려보냈고,
+비는 즉시 `cargo doc --workspace --no-deps`를 CI 스텝으로 추가한다.
+
+### 10.3 지금 병렬로 도는 작업
+
+- `moveit-collision` — `CollisionRequest`/`CollisionResult`/`CollisionEnv`
+  trait. 요청 플래그와 결과 필드의 짝을 bool + 값 병렬 필드로 재현하지
+  않고, 요청하지 않은 필드가 표현 불가능하도록 한다 (§4.1의 재적용).
+- `moveit-distance-field` — 오라클 `distance_field` op. 이 크레이트는
+  현재 C++을 읽고 쓴 단위 테스트만 있고 Phase 3 완료 조건인 `1e-4`
+  대조가 없다.
+- `moveit-planners-sbp` — `So2Space`/`Se3Space`/`CompoundSpace`.
+  `StateSpace` trait 모양이 wraparound와 SO(3)를 감당하는지는 지금까지
+  주석의 주장이었지 검증된 적이 없다. 감당하지 못하면 trait을 고친다.
+- `moveit-smoothing` — §4.6이 Phase 6 착수 시점으로 미룬 ruckig 크레이트
+  채택 결정. 결정과 근거를 §4.6에 되써넣는다.
+- `moveit-geometry` — `bodies::`
+- `moveit-state` — `RobotState`, FK
