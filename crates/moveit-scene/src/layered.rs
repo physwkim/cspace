@@ -10,9 +10,10 @@
 ///
 /// # Deviation from upstream
 ///
-/// Upstream stores each of `robot_state_`, `acm_` (and others this port does
-/// not carry yet, e.g. `scene_transforms_`) as `std::optional<T>`, and
-/// duplicates the same ternary at every accessor: `field_.has_value() ?
+/// Upstream stores each of `robot_state_`, `acm_`, `scene_transforms_` (and
+/// others this port does not carry, e.g. `object_colors_`/`object_types_`)
+/// as `std::optional<T>`, and duplicates the same ternary at every accessor:
+/// `field_.has_value() ?
 /// field_.value() : parent_->getField()`. That is the "implicit value plus a
 /// flag, re-derived ad hoc at every read site" shape this project treats as
 /// a defect source elsewhere: nothing stops one accessor's ternary from
