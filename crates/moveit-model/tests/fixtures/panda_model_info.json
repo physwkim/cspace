@@ -2,6 +2,30 @@
   "id": 0,
   "ok": true,
   "result": {
+    "group_end_effectors": {
+      "hand": {
+        "attached_end_effector_names": [],
+        "end_effector_name": "hand",
+        "end_effector_parent": {
+          "group": "panda_arm",
+          "link": "panda_link8"
+        }
+      },
+      "panda_arm": {
+        "attached_end_effector_names": [
+          "hand"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "panda_arm_hand": {
+        "attached_end_effector_names": [
+          "hand"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      }
+    },
     "groups": {
       "hand": [
         "panda_hand_joint",

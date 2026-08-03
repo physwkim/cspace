@@ -213,6 +213,7 @@ private:
     out["groups"] = groups;
 
     out["link_details"] = linkDetails();
+    out["group_end_effectors"] = groupEndEffectors();
 
     return out;
   }
@@ -257,6 +258,40 @@ private:
       }
 
       out.push_back(l);
+    }
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `JointModelGroup` end-effector fields
+  /// (`is_end_effector`/`end_effector_name`/`end_effector_parent`/
+  /// `attached_end_effector_names`), keyed by group name. `end_effector_name`
+  /// is `null` for a group that is not an end effector
+  /// (`!group->isEndEffector()`); `end_effector_parent` is `null` under the
+  /// same condition -- `getEndEffectorParentGroup()` returns a `("", "")`
+  /// pair upstream never assigns to a non-end-effector group, which this
+  /// tells apart from the WARN case of a resolved end effector with no
+  /// identifiable parent GROUP (empty `group`, non-empty `link`, since
+  /// `parent_link_` always comes from a required SRDF attribute).
+  json groupEndEffectors() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+    {
+      json g;
+      g["end_effector_name"] = group->isEndEffector() ? json(group->getEndEffectorName()) : json(nullptr);
+      g["attached_end_effector_names"] = group->getAttachedEndEffectorNames();
+
+      const std::pair<std::string, std::string>& parent = group->getEndEffectorParentGroup();
+      if (parent.first.empty() && parent.second.empty())
+      {
+        g["end_effector_parent"] = nullptr;
+      }
+      else
+      {
+        g["end_effector_parent"] = json{ { "group", parent.first.empty() ? json(nullptr) : json(parent.first) },
+                                          { "link", parent.second } };
+      }
+      out[group->getName()] = g;
     }
     return out;
   }

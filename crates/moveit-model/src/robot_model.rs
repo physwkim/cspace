@@ -18,6 +18,8 @@ use roxmltree::Document;
 
 use crate::diagnostic::Diagnostic;
 use crate::joint::{JointModel, JointType, PlanarMotionModel, joint_model_from_urdf};
+#[cfg(test)]
+use crate::joint_model_group::EndEffectorParent;
 use crate::joint_model_group::JointModelGroup;
 use crate::link_model::{LinkModel, LinkShape};
 
@@ -49,14 +51,15 @@ struct JointNode {
 ///
 /// 1. **Cross-references are indices, not pointers**, for the same reason as
 ///    [`LinkModel`]: no raw pointers into a sibling `Vec`.
-/// 2. **No group states, end effectors, or kinematics solver plumbing.**
-///    Upstream's `RobotModel` also carries `default_states_`/
-///    `buildGroupStates`, `end_effectors_`, and `group_kinematics_`.
-///    `PORTING-PLAN.md` puts kinematics solvers in `moveit-kinematics`, a
-///    later phase; SRDF `<group_state>` and `<end_effector>` elements are
-///    read by `moveit-srdf` but not consumed here, for the same reason.
-///    (Each link's own collision/visual geometry *is* carried — see
-///    [`LinkModel`]'s doc comment for what that does and does not cover.)
+/// 2. **No group states or kinematics solver plumbing.** Upstream's
+///    `RobotModel` also carries `default_states_`/`buildGroupStates` and
+///    `group_kinematics_`. `PORTING-PLAN.md` puts kinematics solvers in
+///    `moveit-kinematics`, a later phase; SRDF `<group_state>` is read by
+///    `moveit-srdf` but not consumed here, for the same reason. (Each
+///    link's own collision/visual geometry, and end-effector resolution,
+///    *are* carried — see [`LinkModel`]'s doc comment and
+///    [`RobotModel::get_end_effector`] respectively for what that does and
+///    does not cover.)
 /// 3. **No `common_root_`/`joint_roots_`/`is_chain_`/`is_single_dof_` on
 ///    groups, and no `computeDescendants`/`computeCommonRoots` on the
 ///    model.** These exist upstream purely to accelerate `RobotState`
@@ -96,6 +99,7 @@ pub struct RobotModel {
     variable_index: HashMap<String, usize>,
     active_joint_indices: Vec<usize>,
     groups: BTreeMap<String, JointModelGroup>,
+    end_effector_group_names: HashMap<String, String>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -195,6 +199,7 @@ impl RobotModel {
             compute_variable_layout(&building.joints);
         let mut groups = building.build_groups();
         compute_subgroups(&mut groups);
+        let end_effector_group_names = build_end_effectors(&mut groups, srdf.end_effectors());
 
         Ok(Self {
             name: urdf.name.clone(),
@@ -210,6 +215,7 @@ impl RobotModel {
             variable_index,
             active_joint_indices,
             groups,
+            end_effector_group_names,
             diagnostics: building.diagnostics,
         })
     }
@@ -360,6 +366,42 @@ impl RobotModel {
     /// `hasJointModelGroup`
     pub fn has_joint_model_group(&self, name: &str) -> bool {
         self.groups.contains_key(name)
+    }
+
+    /// `hasEndEffector`: whether `name` is a known end effector's own name
+    /// (an SRDF `<end_effector name="...">`, not a group name).
+    pub fn has_end_effector(&self, name: &str) -> bool {
+        self.end_effector_group_names.contains_key(name)
+    }
+
+    /// `getEndEffector`: the group backing the end effector named `name`,
+    /// falling back to treating `name` as a group name if that group is
+    /// itself an end effector.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is neither a known end-effector name
+    /// nor the name of a group for which
+    /// [`JointModelGroup::is_end_effector`] is true.
+    pub fn get_end_effector(&self, name: &str) -> Result<&JointModelGroup> {
+        if let Some(group_name) = self.end_effector_group_names.get(name) {
+            return Ok(self
+                .groups
+                .get(group_name)
+                .expect("end_effector_group_names must reference a real group"));
+        }
+        self.groups
+            .get(name)
+            .filter(|group| group.is_end_effector())
+            .ok_or_else(|| Error::unknown_name("end effector", name))
+    }
+
+    /// `getEndEffectors`: every group that is an end effector. Upstream
+    /// sorts `end_effectors_` explicitly (`OrderGroupsByName`) after building
+    /// it; here `groups` is already a [`BTreeMap`], so iterating it in group-
+    /// name order comes for free.
+    pub fn end_effectors(&self) -> impl Iterator<Item = &JointModelGroup> {
+        self.groups.values().filter(|group| group.is_end_effector())
     }
 
     /// Everything [`RobotModel::from_urdf_and_srdf`] dropped or repaired
@@ -925,6 +967,9 @@ impl<'a> Building<'a> {
             link_indices,
             link_names,
             subgroup_names: Vec::new(),
+            end_effector_name: None,
+            end_effector_parent: None,
+            attached_end_effector_names: Vec::new(),
         }
     }
 
@@ -1047,6 +1092,97 @@ fn compute_subgroups(groups: &mut BTreeMap<String, JointModelGroup>) {
             group.subgroup_names = subgroup_names;
         }
     }
+}
+
+/// Upstream `RobotModel::buildGroupsInfoEndEffectors`. Iterates groups (and,
+/// for each, candidate parent groups) in alphabetical order, matching
+/// upstream's `std::map<std::string, JointModelGroup*>` iteration order; the
+/// SRDF's own end-effector list is walked in the document order
+/// [`moveit_srdf::SrdfModel::end_effectors`] returns, matching upstream's
+/// `std::vector`. Returns a map from each wired end effector's own name to
+/// the name of the group it marks, matching `end_effectors_map_`.
+///
+/// # Deviation from upstream
+///
+/// Upstream reports three failures through its logger and otherwise falls
+/// through to its non-error behaviour rather than stopping: an
+/// `eef.parent_group_` naming a real group that does not contain the parent
+/// link, one naming the end effector's own group, and (a `RCLCPP_WARN`, not
+/// an error) no parent group being identifiable at all
+/// (`possible_parent_groups` empty with no usable explicit parent either) —
+/// in every case resolution proceeds exactly as if no `parent_group` had
+/// been given. None of the four fixtures' `<end_effector>` elements reaches
+/// the last case, or gives an invalid `parent_group` for the first two to
+/// matter: panda's `parent_group` is explicit and valid; pr2's two eefs
+/// carry no `parent_group` attribute at all and each always has at least
+/// one candidate; fanuc has no `<end_effector>`; dual_arm_panda's two are
+/// both dropped by `moveit-srdf` before reaching this function
+/// (`Diagnostic::UnknownGroup`, since their `component_group`s don't name
+/// real groups). This port therefore adds no `Diagnostic` for the silent
+/// fallback, matching the precedent [`RobotModel`]'s doc comment sets in
+/// deviation 6.
+fn build_end_effectors(
+    groups: &mut BTreeMap<String, JointModelGroup>,
+    eefs: &[moveit_srdf::EndEffector],
+) -> HashMap<String, String> {
+    let group_names: Vec<String> = groups.keys().cloned().collect();
+    // Owned rather than borrowed from `groups`, so `groups.get_mut` below is
+    // not blocked by a live immutable borrow of the whole map.
+    let joint_counts: HashMap<String, usize> = groups
+        .iter()
+        .map(|(name, group)| (name.clone(), group.joint_indices().len()))
+        .collect();
+    let link_membership: HashMap<String, HashSet<String>> = groups
+        .iter()
+        .map(|(name, group)| (name.clone(), group.link_names().iter().cloned().collect()))
+        .collect();
+
+    let mut end_effector_group_names = HashMap::new();
+
+    for group_name in &group_names {
+        for eef in eefs {
+            if eef.component_group != *group_name {
+                continue;
+            }
+
+            let mut possible_parent_groups: Vec<String> = Vec::new();
+            for other_name in &group_names {
+                if other_name == group_name {
+                    continue;
+                }
+                if link_membership[other_name].contains(&eef.parent_link) {
+                    groups
+                        .get_mut(other_name)
+                        .expect("other_name came from groups.keys()")
+                        .attach_end_effector(eef.name.clone());
+                    possible_parent_groups.push(other_name.clone());
+                }
+            }
+
+            let explicit_parent = eef.parent_group.as_ref().filter(|parent_group| {
+                *parent_group != group_name
+                    && link_membership
+                        .get(parent_group.as_str())
+                        .is_some_and(|links| links.contains(&eef.parent_link))
+            });
+
+            let parent_group_name = explicit_parent.cloned().or_else(|| {
+                possible_parent_groups
+                    .iter()
+                    .min_by_key(|name| joint_counts[name.as_str()])
+                    .cloned()
+            });
+
+            let group = groups
+                .get_mut(group_name)
+                .expect("group_name came from groups.keys()");
+            group.set_end_effector_name(eef.name.clone());
+            group.set_end_effector_parent(parent_group_name, eef.parent_link.clone());
+            end_effector_group_names.insert(eef.name.clone(), group_name.clone());
+        }
+    }
+
+    end_effector_group_names
 }
 
 #[cfg(test)]
@@ -1550,5 +1686,197 @@ mod tests {
             model.link_model("base").unwrap().visual_mesh_filename(),
             None
         );
+    }
+
+    /// A four-joint chain (`j1`..`j4`, the last fixed) plus a branch off
+    /// `base` (`j5`), shaped so an end effector's `parent_link` (`link2`)
+    /// has exactly two candidate parent groups of different sizes (`arm`:
+    /// `j1`,`j2`; `full_arm`: `j1`,`j2`,`j3`) and one group that shares
+    /// neither the link nor the eef's own name (`other`: `j5`).
+    fn end_effector_test_urdf() -> &'static str {
+        r#"<robot name="test">
+            <link name="base"/>
+            <link name="link1"/>
+            <link name="link2"/>
+            <link name="link3"/>
+            <link name="hand_link"/>
+            <link name="other_link"/>
+            <joint name="j1" type="revolute">
+                <parent link="base"/><child link="link1"/><axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+            <joint name="j2" type="revolute">
+                <parent link="link1"/><child link="link2"/><axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+            <joint name="j3" type="revolute">
+                <parent link="link2"/><child link="link3"/><axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+            <joint name="j4" type="fixed">
+                <parent link="link3"/><child link="hand_link"/>
+            </joint>
+            <joint name="j5" type="fixed">
+                <parent link="base"/><child link="other_link"/>
+            </joint>
+        </robot>"#
+    }
+
+    /// `end_effector_element` is embedded verbatim as a child of `<robot>`,
+    /// alongside `arm` (`j1`,`j2`), `full_arm` (`j1`,`j2`,`j3`), `hand`
+    /// (`j4`) and `other` (`j5`) groups.
+    fn end_effector_test_srdf(end_effector_element: &str) -> String {
+        format!(
+            r#"<robot name="test">
+                <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+                <group name="arm"><joint name="j1"/><joint name="j2"/></group>
+                <group name="full_arm"><joint name="j1"/><joint name="j2"/><joint name="j3"/></group>
+                <group name="hand"><joint name="j4"/></group>
+                <group name="other"><joint name="j5"/></group>
+                {end_effector_element}
+            </robot>"#
+        )
+    }
+
+    #[test]
+    fn end_effector_wires_name_and_falls_back_to_fewest_joints_parent() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="link2" group="hand"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        let hand = model.joint_model_group("hand").unwrap();
+        assert!(hand.is_end_effector());
+        assert_eq!(hand.end_effector_name(), "grasper");
+        assert_eq!(
+            hand.end_effector_parent(),
+            Some(&EndEffectorParent {
+                group: Some("arm".to_string()),
+                link: "link2".to_string(),
+            })
+        );
+
+        assert_eq!(
+            model
+                .joint_model_group("arm")
+                .unwrap()
+                .attached_end_effector_names(),
+            ["grasper"]
+        );
+        assert_eq!(
+            model
+                .joint_model_group("full_arm")
+                .unwrap()
+                .attached_end_effector_names(),
+            ["grasper"]
+        );
+        assert!(
+            model
+                .joint_model_group("other")
+                .unwrap()
+                .attached_end_effector_names()
+                .is_empty()
+        );
+
+        assert_eq!(model.get_end_effector("grasper").unwrap().name(), "hand");
+        // `hasEndEffector`/`getEndEffector` are asymmetric upstream: only
+        // `getEndEffector` falls back to treating the argument as a group
+        // name.
+        assert!(model.has_end_effector("grasper"));
+        assert!(!model.has_end_effector("hand"));
+        assert_eq!(model.get_end_effector("hand").unwrap().name(), "hand");
+        assert!(model.get_end_effector("arm").is_err());
+
+        let names: Vec<&str> = model.end_effectors().map(JointModelGroup::name).collect();
+        assert_eq!(names, ["hand"]);
+    }
+
+    #[test]
+    fn end_effector_prefers_explicit_valid_parent_group_over_fewest_joints_fallback() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="link2" group="hand" parent_group="full_arm"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        assert_eq!(
+            model
+                .joint_model_group("hand")
+                .unwrap()
+                .end_effector_parent(),
+            Some(&EndEffectorParent {
+                group: Some("full_arm".to_string()),
+                link: "link2".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn end_effector_explicit_parent_naming_its_own_group_is_ignored() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="link2" group="hand" parent_group="hand"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        assert_eq!(
+            model
+                .joint_model_group("hand")
+                .unwrap()
+                .end_effector_parent(),
+            Some(&EndEffectorParent {
+                group: Some("arm".to_string()),
+                link: "link2".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn end_effector_explicit_parent_lacking_the_link_is_ignored() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="link2" group="hand" parent_group="other"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        assert_eq!(
+            model
+                .joint_model_group("hand")
+                .unwrap()
+                .end_effector_parent(),
+            Some(&EndEffectorParent {
+                group: Some("arm".to_string()),
+                link: "link2".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn end_effector_with_no_candidate_parent_group_has_no_group_but_keeps_the_link() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="hand_link" group="hand"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        assert_eq!(
+            model
+                .joint_model_group("hand")
+                .unwrap()
+                .end_effector_parent(),
+            Some(&EndEffectorParent {
+                group: None,
+                link: "hand_link".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn non_end_effector_group_reports_false_and_empty_defaults() {
+        let srdf = end_effector_test_srdf("");
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        assert!(!arm.is_end_effector());
+        assert_eq!(arm.end_effector_name(), "");
+        assert_eq!(arm.end_effector_parent(), None);
+        assert!(arm.attached_end_effector_names().is_empty());
+        assert_eq!(model.end_effectors().count(), 0);
     }
 }

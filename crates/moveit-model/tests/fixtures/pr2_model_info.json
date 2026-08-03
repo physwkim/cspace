@@ -2,6 +2,67 @@
   "id": 0,
   "ok": true,
   "result": {
+    "group_end_effectors": {
+      "arms": {
+        "attached_end_effector_names": [
+          "l_end_effector",
+          "r_end_effector"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "arms_and_torso": {
+        "attached_end_effector_names": [
+          "l_end_effector",
+          "r_end_effector"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "base": {
+        "attached_end_effector_names": [],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "l_end_effector": {
+        "attached_end_effector_names": [],
+        "end_effector_name": "l_end_effector",
+        "end_effector_parent": {
+          "group": "left_arm",
+          "link": "l_wrist_roll_link"
+        }
+      },
+      "left_arm": {
+        "attached_end_effector_names": [
+          "l_end_effector"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "r_end_effector": {
+        "attached_end_effector_names": [],
+        "end_effector_name": "r_end_effector",
+        "end_effector_parent": {
+          "group": "right_arm",
+          "link": "r_wrist_roll_link"
+        }
+      },
+      "right_arm": {
+        "attached_end_effector_names": [
+          "r_end_effector"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "whole_body": {
+        "attached_end_effector_names": [
+          "l_end_effector",
+          "r_end_effector"
+        ],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      }
+    },
     "groups": {
       "arms": [
         "l_shoulder_pan_joint",

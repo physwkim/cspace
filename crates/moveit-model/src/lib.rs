@@ -33,6 +33,6 @@ mod link_model;
 mod robot_model;
 
 pub use diagnostic::Diagnostic;
-pub use joint_model_group::JointModelGroup;
+pub use joint_model_group::{EndEffectorParent, JointModelGroup};
 pub use link_model::{LinkModel, LinkShape};
 pub use robot_model::RobotModel;

@@ -2,6 +2,13 @@
   "id": 0,
   "ok": true,
   "result": {
+    "group_end_effectors": {
+      "manipulator": {
+        "attached_end_effector_names": [],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      }
+    },
     "groups": {
       "manipulator": [
         "joint_1",

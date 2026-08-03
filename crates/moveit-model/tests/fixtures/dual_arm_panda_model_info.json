@@ -2,6 +2,18 @@
   "id": 0,
   "ok": true,
   "result": {
+    "group_end_effectors": {
+      "left_panda_arm": {
+        "attached_end_effector_names": [],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      },
+      "right_panda_arm": {
+        "attached_end_effector_names": [],
+        "end_effector_name": null,
+        "end_effector_parent": null
+      }
+    },
     "groups": {
       "left_panda_arm": [
         "left_panda_joint1",

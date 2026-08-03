@@ -37,6 +37,24 @@ struct OracleModelInfo {
     joint_details: Vec<OracleJointDetail>,
     #[serde(default)]
     link_details: Vec<OracleLinkDetail>,
+    #[serde(default)]
+    group_end_effectors: std::collections::BTreeMap<String, OracleGroupEndEffector>,
+}
+
+/// Ground truth for `JointModelGroup`'s end-effector fields
+/// (`is_end_effector`/`end_effector_name`/`end_effector_parent`/
+/// `attached_end_effector_names`), keyed by group name.
+#[derive(Deserialize)]
+struct OracleGroupEndEffector {
+    end_effector_name: Option<String>,
+    attached_end_effector_names: Vec<String>,
+    end_effector_parent: Option<OracleEndEffectorParent>,
+}
+
+#[derive(Deserialize)]
+struct OracleEndEffectorParent {
+    group: Option<String>,
+    link: String,
 }
 
 /// Only the field this test needs from the oracle's per-joint `model_info`
@@ -264,6 +282,57 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             expected_joints.as_slice(),
             "joint list of group '{name}'"
         );
+    }
+
+    for (name, expected_eef) in &expected.group_end_effectors {
+        let group = model
+            .joint_model_group(name)
+            .unwrap_or_else(|_| panic!("missing group '{name}'"));
+
+        assert_eq!(
+            group.is_end_effector(),
+            expected_eef.end_effector_name.is_some(),
+            "is_end_effector for group '{name}'"
+        );
+        assert_eq!(
+            (!group.end_effector_name().is_empty()).then(|| group.end_effector_name().to_string()),
+            expected_eef.end_effector_name,
+            "end_effector_name for group '{name}'"
+        );
+        assert_eq!(
+            group.attached_end_effector_names(),
+            expected_eef.attached_end_effector_names.as_slice(),
+            "attached_end_effector_names for group '{name}'"
+        );
+
+        match (
+            &expected_eef.end_effector_parent,
+            group.end_effector_parent(),
+        ) {
+            (None, None) => {}
+            (Some(expected_parent), Some(actual_parent)) => {
+                assert_eq!(
+                    actual_parent.group, expected_parent.group,
+                    "end_effector_parent group for group '{name}'"
+                );
+                assert_eq!(
+                    actual_parent.link, expected_parent.link,
+                    "end_effector_parent link for group '{name}'"
+                );
+            }
+            (expected_parent, actual_parent) => panic!(
+                "end_effector_parent presence mismatch for group '{name}': oracle {expected_parent:?} vs model {actual_parent:?}"
+            ),
+        }
+    }
+}
+
+impl std::fmt::Debug for OracleEndEffectorParent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OracleEndEffectorParent")
+            .field("group", &self.group)
+            .field("link", &self.link)
+            .finish()
     }
 }
 

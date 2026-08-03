@@ -23,18 +23,19 @@
 /// subtree roots, for `RobotState` FK optimisation), `updated_link_model_*`
 /// (which links move when this group's state changes), `is_chain_`/
 /// `is_single_dof_` (convenience flags derived from the joint set),
-/// `default_states_` (SRDF `<group_state>`), the end-effector fields
-/// (`end_effector_name_`, `end_effector_parent_`,
-/// `attached_end_effector_names_`) and the kinematics solver plumbing
-/// (`group_kinematics_`). None of those are read by this phase's
+/// `default_states_` (SRDF `<group_state>`) and the kinematics solver
+/// plumbing (`group_kinematics_`). None of those are read by this phase's
 /// done-criteria (link/joint counts, group composition, joint limits, mimic
 /// relationships); they belong to `moveit-state` (Phase 2), the SRDF
-/// end-effector/group-state elements (deferred alongside them), and
-/// `moveit-kinematics` (Phase 4) respectively. `PORTING-PLAN.md` Phase 1
-/// scopes this crate to "JointModelGroup, 서브그룹, KinematicChain 해석"
-/// (subgroups, kinematic-chain resolution) — both of which this type does
-/// carry: [`JointModelGroup::subgroup_names`] and the `<chain>`
-/// element expansion in `RobotModel`'s group construction.
+/// group-state element (deferred alongside them), and `moveit-kinematics`
+/// (Phase 4) respectively. `PORTING-PLAN.md` Phase 1 scopes this crate to
+/// "JointModelGroup, 서브그룹, KinematicChain 해석" (subgroups,
+/// kinematic-chain resolution) — both of which this type does carry:
+/// [`JointModelGroup::subgroup_names`] and the `<chain>` element expansion in
+/// `RobotModel`'s group construction. (The end-effector fields
+/// (`end_effector_name_`, `end_effector_parent_`,
+/// `attached_end_effector_names_`) *are* carried — see
+/// [`JointModelGroup::is_end_effector`].)
 #[derive(Debug, Clone, PartialEq)]
 pub struct JointModelGroup {
     pub(crate) name: String,
@@ -48,6 +49,34 @@ pub struct JointModelGroup {
     pub(crate) link_indices: Vec<usize>,
     pub(crate) link_names: Vec<String>,
     pub(crate) subgroup_names: Vec<String>,
+    pub(crate) end_effector_name: Option<String>,
+    pub(crate) end_effector_parent: Option<EndEffectorParent>,
+    pub(crate) attached_end_effector_names: Vec<String>,
+}
+
+/// The group and link a [`JointModelGroup`] end effector is attached to.
+/// Upstream `end_effector_parent_`, a `std::pair<std::string, std::string>`
+/// defaulted to `("", "")` and mutated in place by `setEndEffectorParent`.
+///
+/// # Deviation from upstream
+///
+/// This only exists at all once [`JointModelGroup::set_end_effector_parent`]
+/// has actually run — which upstream does exactly once per group that *is* an
+/// end effector (see `RobotModel::buildGroupsInfoEndEffectors`) — so
+/// [`JointModelGroup::end_effector_parent`] returns [`None`] for a
+/// non-end-effector group rather than upstream's meaningless default pair.
+/// [`group`](EndEffectorParent::group) is itself [`None`] when no parent
+/// group could be identified, replacing upstream's `""` sentinel (the same
+/// substitution `moveit_srdf::EndEffector::parent_group` already makes).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndEffectorParent {
+    /// The group the end effector is attached to, if one could be
+    /// identified.
+    pub group: Option<String>,
+    /// The link the end effector is attached to. Always present — this is
+    /// the SRDF `<end_effector parent_link="...">` attribute, not something
+    /// resolution can fail to produce.
+    pub link: String,
 }
 
 impl JointModelGroup {
@@ -124,5 +153,54 @@ impl JointModelGroup {
     /// `isSubgroup`
     pub fn is_subgroup(&self, group: &str) -> bool {
         self.subgroup_names.iter().any(|n| n == group)
+    }
+
+    /// `isEndEffector`: `!end_effector_name_.empty()`.
+    pub fn is_end_effector(&self) -> bool {
+        self.end_effector_name.is_some()
+    }
+
+    /// `getEndEffectorName`. Empty string if this group is not an end
+    /// effector, matching upstream's `end_effector_name_`'s own default.
+    pub fn end_effector_name(&self) -> &str {
+        self.end_effector_name.as_deref().unwrap_or("")
+    }
+
+    /// `setEndEffectorName`.
+    pub(crate) fn set_end_effector_name(&mut self, name: impl Into<String>) {
+        self.end_effector_name = Some(name.into());
+    }
+
+    /// `getEndEffectorParentGroup`: the group and link this end effector is
+    /// attached to, if this group is an end effector and a parent was ever
+    /// set. See [`EndEffectorParent`]'s doc comment for how this differs
+    /// from upstream's always-present default pair.
+    pub fn end_effector_parent(&self) -> Option<&EndEffectorParent> {
+        self.end_effector_parent.as_ref()
+    }
+
+    /// `setEndEffectorParent`.
+    pub(crate) fn set_end_effector_parent(
+        &mut self,
+        group: Option<String>,
+        link: impl Into<String>,
+    ) {
+        self.end_effector_parent = Some(EndEffectorParent {
+            group,
+            link: link.into(),
+        });
+    }
+
+    /// `getAttachedEndEffectorNames`: the names of end-effector groups
+    /// attached to (parented at a link within) this group.
+    pub fn attached_end_effector_names(&self) -> &[String] {
+        &self.attached_end_effector_names
+    }
+
+    /// `attachEndEffector`: record `eef_name` as attached to this group.
+    /// Upstream does an unconditional `push_back` with no dedup; this port
+    /// matches that.
+    pub(crate) fn attach_end_effector(&mut self, eef_name: impl Into<String>) {
+        self.attached_end_effector_names.push(eef_name.into());
     }
 }
