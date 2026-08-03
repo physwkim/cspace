@@ -378,14 +378,33 @@ impl PosedDistanceField {
     ///   not in the free function.
     ///
     /// Both guards are dead on every path this port's
-    /// [`DistanceField::distance_gradient`] can produce: it always reports
-    /// gradient `(0, 0, 0)` exactly when `!in_bounds` (see
-    /// `distance_field.cpp`'s `getDistanceGradient`, which zeroes the
-    /// out-parameters before returning on the out-of-bounds path -- this
-    /// port's [`DistanceField::distance_gradient`] mirrors that), so
-    /// `grad.norm() > 0` and `grad.norm() > EPSILON` are both always false
-    /// regardless of which threshold is used. Kept for structural parity
-    /// with upstream, not because either branch is reachable.
+    /// [`DistanceField::distance_gradient`] can produce, and this is not
+    /// specific to this port: upstream's `DistanceField::getDistanceGradient`
+    /// (`distance_field.cpp:73-97`) is declared **non-virtual**
+    /// (`distance_field.hpp:313`) and writes `gradient_x = gradient_y =
+    /// gradient_z = 0.0` on every out-of-bounds return, before any derived
+    /// class gets a say -- no override anywhere in this call path could make
+    /// `!in_bounds && grad.norm() > threshold` true, for any `threshold >=
+    /// 0`, regardless of which of the two thresholds above is used. This
+    /// port's [`DistanceField::distance_gradient`] mirrors the same
+    /// zero-on-out-of-bounds contract as a default trait method every
+    /// implementer inherits (see its own doc comment), so the guard is dead
+    /// here for the matching reason.
+    ///
+    /// This also means the "uninitialized `grad`" half of the free
+    /// function's `Eigen::Vector3d grad;` (versus this method's `grad(0, 0,
+    /// 0)`) is not a live divergence either: both paths write all three
+    /// components before the norm is read, so there is no
+    /// read-of-uninitialized-memory upstream behaviour left unreproduced.
+    ///
+    /// **Decision**: kept ported rather than special-cased away. Both
+    /// guards stay in this method and in [`get_collision_sphere_gradients`]/
+    /// [`get_collision_sphere_collision`]/[`get_collision_sphere_collisions`]
+    /// below (which have the identical guard, see each one's own doc) for
+    /// structural parity with upstream and because the branch is harmless
+    /// dead code, not because it is under test -- no fixture in this crate
+    /// exercises it, and none can, so it must not be read as verified
+    /// behaviour.
     pub fn get_collision_sphere_gradients(
         &self,
         sphere_list: &[CollisionSphere],
@@ -506,7 +525,9 @@ pub fn determine_collision_spheres(
 /// [`PosedDistanceField`]. See
 /// [`PosedDistanceField::get_collision_sphere_gradients`]'s "Deviation from
 /// upstream" doc for the two places these two overloads disagree, preserved
-/// here rather than unified.
+/// here rather than unified, and its "Decision" section for why the
+/// `!in_bounds && grad.norm() > EPSILON` guard below is ported despite being
+/// unreachable through [`DistanceField::distance_gradient`].
 pub fn get_collision_sphere_gradients(
     distance_field: &dyn DistanceField,
     sphere_list: &[CollisionSphere],
@@ -562,6 +583,11 @@ pub fn get_collision_sphere_gradients(
 
 /// Upstream free function `getCollisionSphereCollision` (the boolean-only
 /// overload).
+///
+/// Carries the same `!in_bounds && grad.norm() > 0` early-return guard as
+/// [`PosedDistanceField::get_collision_sphere_gradients`] -- see that
+/// method's "Decision" doc section for why it is ported despite being
+/// unreachable through [`DistanceField::distance_gradient`].
 pub fn get_collision_sphere_collision(
     distance_field: &dyn DistanceField,
     sphere_list: &[CollisionSphere],
@@ -588,6 +614,11 @@ pub fn get_collision_sphere_collision(
 /// `num_coll == 0` upstream means "report on the first collision, without
 /// collecting anything" -- ported as-is via the same early return, not
 /// treated as "collect indefinitely" or "never report".
+///
+/// Carries the same `!in_bounds && grad.norm() > 0` early-return guard as
+/// [`PosedDistanceField::get_collision_sphere_gradients`] -- see that
+/// method's "Decision" doc section for why it is ported despite being
+/// unreachable through [`DistanceField::distance_gradient`].
 pub fn get_collision_sphere_collisions(
     distance_field: &dyn DistanceField,
     sphere_list: &[CollisionSphere],

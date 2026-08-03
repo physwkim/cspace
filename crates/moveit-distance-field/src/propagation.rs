@@ -201,6 +201,25 @@ impl PropagationDistanceField {
     /// arguments bundled into `geometry` — see [`GridGeometry`]'s doc
     /// comment for why.
     ///
+    /// `propagate_negative_distances` is a genuinely threaded parameter
+    /// here, not a value this crate's oracle fixtures merely happen to
+    /// pin: `rg -n "propagate_negative"` over this file shows it gating the
+    /// same two call sites, line for line, that upstream's `propagate_negative_`
+    /// gates in `addNewObstacleVoxels`/`removeObstacleVoxels`
+    /// (`propagation_distance_field.cpp:226,240,251,312,333,384`) — the
+    /// negative-seeding loop inside `add_new_obstacle_voxels`/
+    /// `remove_obstacle_voxels`, and the trailing `propagate_negative()`
+    /// call in each. When `false`, `negative_distance_square` is written
+    /// only by [`PropagationDistanceField::reset`] (unconditionally, on
+    /// both sides — upstream's own `reset()` never checks the flag either)
+    /// and never touched again, so [`DistanceField::distance`]/
+    /// [`DistanceField::distance_cell`]'s subtraction of
+    /// `sqrt_table[negative_distance_square]` degenerates to subtracting
+    /// `sqrt_table[0] == 0.0`, giving every obstacle cell distance `0.0`
+    /// exactly as upstream's own doc for this mode
+    /// ("if false, no propagation occurs, and all obstacle cells will be
+    /// assigned zero distance") promises.
+    ///
     /// # Errors
     ///
     /// See this type's "Deviations from upstream" doc section.

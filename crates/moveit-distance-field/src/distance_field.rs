@@ -104,6 +104,17 @@ pub struct DistanceGradient {
 ///   `boost::iostreams`. No workspace dependency provides that, and nothing
 ///   in the ported test suite exercises it beyond a round-trip already
 ///   covered by the add/rebuild-equivalence tests, so it is left unported.
+/// - `getOcTreePoints` (protected) has no caller left once `addOcTreeToField`
+///   is unported above — upstream's only caller of it.
+/// - `setPoint` (protected) has no caller left once the marker methods above
+///   are unported — upstream's only caller of it is `getProjectionPlanes`.
+/// - The base class constructor and destructor have no Rust counterpart:
+///   this trait carries no state of its own. The seven size/origin/
+///   resolution constructor arguments upstream's base class stores become
+///   [`crate::GridGeometry`] plus `max_distance`/`propagate_negative_distances`
+///   on [`crate::PropagationDistanceField`], the implementer that actually
+///   owns them; Rust's ownership model needs no destructor for what a trait
+///   itself never allocates.
 pub trait DistanceField {
     /// Upstream `DistanceField::getSizeX`.
     fn size_x(&self) -> f64;
