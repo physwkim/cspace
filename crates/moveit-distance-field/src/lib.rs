@@ -281,12 +281,34 @@
 //!   `generateDistanceFieldCacheEntry`'s
 //!   `dfce->pregenerated_group_state_representation_ = it->second`, and that
 //!   field is read only by `getGroupStateRepresentation`'s "already
-//!   pregenerated" branch — see [`group_state_representation`]'s own doc
-//!   comment, "Deviations from upstream", for the proof that branch cannot
-//!   be reached: [`DistanceFieldCacheEntry`] in this port has no such field
-//!   at all, since there is no `initialize`-equivalent constructor in this
-//!   crate's scope to populate it from, so every `DistanceFieldCacheEntry`
-//!   this port builds takes the fresh-build branch, unconditionally.
+//!   pregenerated" branch. The unreachability is a *type-level* guarantee
+//!   here, not a call-graph argument that a new caller could invalidate:
+//!   [`DistanceFieldCacheEntry`] has no `pregenerated_group_state_representation`
+//!   field at all (see its field list below), and this port's
+//!   [`group_state_representation`] has no corresponding early-return branch
+//!   to read one — there is nothing to reach regardless of which function
+//!   constructs the entry.
+//!
+//!   Re-derived against
+//!   [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
+//!   (added in a later round, after this reasoning was first written): it is
+//!   a *new caller* of the *same* [`generate_distance_field_cache_entry`]
+//!   this note already accounts for, layering cache-reuse
+//!   (`get_distance_field_cache_entry`) around it — it does not construct a
+//!   `DistanceFieldCacheEntry` any other way, and does not touch
+//!   `group_state_representation`'s branching. It does not change this
+//!   conclusion.
+//!
+//!   **Falsifier** — this becomes reachable only if *all three* land
+//!   together: (1) [`DistanceFieldCacheEntry`] gains a
+//!   `pregenerated_group_state_representation` field; (2) some construction
+//!   path populates it *before* first use — this crate's scope has no
+//!   `initialize()`-equivalent eager per-group precomputation step to do
+//!   that from (the `planning_scene_`/checker-construction state below is
+//!   unported for the same reason); and (3) [`group_state_representation`]
+//!   gains an early-return branch that reads it. Adding only (1) is inert
+//!   (an unread field); adding only (3) cannot compile against today's
+//!   [`DistanceFieldCacheEntry`] (the field it would read does not exist).
 //! - `planning_scene_` — unported; `PlanningScene`-dependent, checker-level
 //!   construction state (built once in `initialize()`, used only to source
 //!   a default-empty `AllowedCollisionMatrix` for the pregeneration loop
