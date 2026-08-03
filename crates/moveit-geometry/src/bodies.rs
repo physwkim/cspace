@@ -256,9 +256,32 @@
 //! `intersectsRay`/indexed `getBody`, entirely composable from a plain
 //! `Vec<Body>` and the per-body methods this crate already exposes
 //! ([`Body::contains_point`], [`Body::intersects_ray`]) — there is no
-//! algorithm here beyond the loop itself. Whether `moveit-distance-field`
-//! needs a dedicated wrapper type or can compose it inline from `Vec<Body>`
-//! is that crate's call against its own actual usage, not a gap in this one.
+//! algorithm here beyond the loop itself.
+//!
+//! **Decided (round 11): a wrapper buys nothing concrete, checked against
+//! `moveit-distance-field`'s actual usage rather than left as that crate's
+//! call.** `moveit-distance-field`'s only composition of `Vec<Body>` is
+//! `BodyDecomposition::from_shapes` (`collision_distance_field_types.rs:711-721`),
+//! which builds the vector by a plain `Vec::with_capacity` + `push` loop, and
+//! every consumer of the resulting field is whole-vector iteration or
+//! indexed access, never `BodyVector`'s first-hit query:
+//! `collision_distance_field_types.rs:726`'s `for body in &bodies` runs to
+//! completion three times over (collision spheres, internal points via
+//! [`Body::contains_point`], bounding spheres via
+//! `Body::compute_bounding_sphere`), and `BodyDecomposition::body`/
+//! `bodies_count` (`:781-786`) are a bounds-checked index and a length, not a
+//! search. Upstream `BodyVector::containsPoint`/`intersectsRay` return on the
+//! *first* body that matches; nothing in this workspace ever needs that
+//! short-circuit — every call site needs the full set. A wrapper here would
+//! duplicate `Vec<Body>` plus re-derive the loops
+//! `BodyDecomposition::from_shapes` already writes directly, for a query
+//! shape (first-hit) that has no caller. `moveit-distance-field`'s own doc
+//! independently reaches the same conclusion for the sibling
+//! `BodyDecompositionVector` (`lib.rs:155-160`: phantom upstream type,
+//! forward-declared and never defined, so "unported" there is not even a
+//! design choice) — the pattern in that crate is plain `Vec`/`&[T]`
+//! throughout, with no vector-wrapper type anywhere in its `Body`/
+//! `BodyDecomposition` handling.
 //!
 //! # Design: enum, not a trait-object hierarchy (D4)
 //!
