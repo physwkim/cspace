@@ -87,7 +87,7 @@ pub struct PlanningRequest {
     /// upstream's `path_constraints`. `None` means unconstrained.
     pub path_constraints: Option<KinematicConstraintSet>,
     /// [`crate::validity::DiscreteMotionValidator`]'s bisection resolution,
-    /// in the group's own [`StateSpace::distance`] units.
+    /// in the group's own [`crate::space::StateSpace::distance`] units.
     pub resolution: f64,
     /// Seeds this query's RNG — see [`crate::rrt_connect::rrt_connect`]'s
     /// determinism guarantee under [`crate::rrt_connect::Termination::Iterations`].

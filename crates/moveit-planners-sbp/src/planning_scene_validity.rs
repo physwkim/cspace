@@ -55,18 +55,24 @@ use crate::validity::StateValidityChecker;
 /// forward-kinematics work [`PlanningScene::is_state_valid`]'s
 /// `RobotState::update` performs the first time this sample's transforms
 /// are actually read. Measured by this module's own `measured_call_cost`
-/// test on the panda fixture (`panda_arm`, 7 DoF, an empty world, no
-/// constraints, `cargo nextest` debug profile, 10,000 calls): **~88
-/// µs/call** (~11.4k calls/second on one core) for the whole write-and-check
-/// round trip this type performs — this is a total, not a breakdown; no
-/// profiling was done to say how much of it is the `Vec<f64>` clone versus
-/// FK versus collision. A single `Termination::Iterations(20_000)`
-/// RRT-Connect query is therefore ~1.8s of validity checking alone in this
-/// unoptimized profile; a release build would be faster, not measured here.
-/// That is slow enough to be worth watching if planning latency becomes a
-/// complaint, but no pooling scheme is built against it yet — a pooling
-/// scheme would need its own measurement showing it actually removes enough
-/// of this ~88 µs to matter, and nothing here has taken that measurement.
+/// test on the panda fixture (`panda_arm`, 7 DoF, real mesh-loaded
+/// collision geometry via `fixture_mesh_search_paths`, empty world, no
+/// constraints, `cargo nextest` debug profile, 50 calls): **~8-15
+/// ms/call** — three orders of magnitude past an early no-mesh-geometry
+/// measurement this doc comment previously (wrongly) cited, because that
+/// measurement's scene had no collision shapes loaded at all (see this
+/// module's own tests' history for that correction). This is a total, not
+/// a breakdown — no profiling was done to say how much is the `Vec<f64>`
+/// clone versus FK versus the real self-collision mesh checks
+/// [`moveit_collision::ParryCollisionEnv`] now actually performs. A single
+/// `Termination::Iterations(20_000)` RRT-Connect query against real panda
+/// geometry is therefore on the order of *minutes* of validity checking
+/// alone in this unoptimized debug profile; a release build would be
+/// faster, not measured here. That is slow enough to be a real planning-
+/// latency concern for real-geometry queries specifically, but no pooling
+/// scheme is built against it yet — pooling would not address mesh
+/// collision cost at all (it only avoids the `Vec<f64>` clone, a small
+/// fraction of this total), and nothing here has measured what would.
 pub struct PlanningSceneValidityChecker<'a, 'm, E> {
     scene: RefCell<&'a mut PlanningScene<'m>>,
     env: &'a E,
@@ -131,7 +137,8 @@ mod tests {
 
     use moveit_collision::{LinkPaddingScale, ParryCollisionEnv};
     use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
-    use moveit_geometry::{Cuboid, Isometry3, Shape};
+    use moveit_geometry::Shape;
+    use moveit_geometry::shapes::Sphere;
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_scene::PlanningScene;
     use moveit_srdf::SrdfModel;
@@ -142,98 +149,118 @@ mod tests {
     use crate::joint_model_group_space::JointModelGroupSpace;
     use crate::space::StateSpace;
 
+    /// The `moveit_resources_panda_description` package committed under
+    /// `fixtures/meshes/` (see `tools/ci/verify-fixture-provenance.sh` and
+    /// `moveit-collision`'s `collision_parity` integration test, which
+    /// established this exact pattern) — lets [`load_panda`] resolve
+    /// panda's real `<mesh>` collision geometry instead of skipping it.
+    fn fixture_mesh_search_paths() -> MeshSearchPaths {
+        let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+        MeshSearchPaths::new([(
+            "moveit_resources_panda_description",
+            format!("{meshes_root}/panda_description"),
+        )])
+    }
+
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
         let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
         let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
         let model =
-            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
                 .expect("fixture model must build");
         (model, srdf)
     }
 
-    /// A synthetic floating body carrying a real (primitive, not mesh)
-    /// collision shape. panda's own `<collision>` geometry is mesh-based,
-    /// and every fixture load in this workspace uses
-    /// [`MeshSearchPaths::none`] (the meshes are not vendored into the
-    /// repo — see `moveit-distance-field`'s
-    /// `collision_env_distance_field` module doc), so panda's links never
-    /// carry a loaded collision shape in a test. A collision-behaviour
-    /// test needs geometry that is actually there, hence this synthetic
-    /// model rather than a fixture — the same reason
-    /// [`JointModelGroupSpace`]'s own tests give its `floating_joint`
-    /// submodule a synthetic model instead of reusing a fixture.
-    fn synthetic_floating_model() -> (RobotModel, SrdfModel) {
-        let urdf_xml = r#"<?xml version="1.0"?>
-<robot name="floating_test">
-  <link name="world"/>
-  <link name="body">
-    <collision>
-      <geometry><box size="0.2 0.2 0.2"/></geometry>
-    </collision>
-  </link>
-  <joint name="body_joint" type="floating">
-    <parent link="world"/>
-    <child link="body"/>
-  </joint>
-</robot>
-"#;
-        let srdf_xml = r#"<?xml version="1.0"?>
-<robot name="floating_test">
-  <group name="body_group">
-    <joint name="body_joint"/>
-  </group>
-</robot>
-"#;
-        let urdf = urdf_rs::read_from_string(urdf_xml).expect("synthetic URDF must parse");
-        let srdf = SrdfModel::parse_str(srdf_xml).expect("synthetic SRDF must parse");
-        let model =
-            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
-                .expect("synthetic model must build");
-        (model, srdf)
+    /// panda.srdf's own `"ready"` named `<group_state>` for `panda_arm`
+    /// (`panda_joint2 = -0.785`, `panda_joint4 = -2.356`,
+    /// `panda_joint6 = 1.571`, `panda_joint7 = 0.785`, the rest 0) — unlike
+    /// the all-default (every joint 0) state, which is a genuinely
+    /// self-colliding configuration for panda's real collision meshes (the
+    /// oracle-verified `panda_collision.json` fixture's `joint_values: {}`
+    /// case records `self_collision: true`), `"ready"` is moveit's own
+    /// designed non-self-colliding demo pose, so it isolates
+    /// environment-collision behaviour from self-collision.
+    fn ready_state(model: &RobotModel) -> moveit_state::RobotState<'_> {
+        let mut state = moveit_state::RobotState::new(model);
+        state.set_to_default_values();
+        for (name, value) in [
+            ("panda_joint1", 0.0),
+            ("panda_joint2", -0.785),
+            ("panda_joint3", 0.0),
+            ("panda_joint4", -2.356),
+            ("panda_joint5", 0.0),
+            ("panda_joint6", 1.571),
+            ("panda_joint7", 0.785),
+        ] {
+            state.set_variable_position(name, value).unwrap();
+        }
+        state
+    }
+
+    /// A world containing a sphere at `panda_link4`'s FK pose for
+    /// [`ready_state`], offset by `offset` — a sphere big enough that
+    /// `offset = identity` collides with panda_link4's own real,
+    /// mesh-loaded collision geometry (via [`fixture_mesh_search_paths`]),
+    /// while a large `offset` places it nowhere near the robot.
+    fn world_with_obstacle_at_ready_link4_pose(
+        model: &RobotModel,
+        offset: moveit_geometry::Isometry3,
+    ) -> moveit_collision::World {
+        let mut state = ready_state(model);
+        let pose = offset * state.update().global_link_transform("panda_link4").unwrap();
+        let mut world = moveit_collision::World::new();
+        world.add_shape(
+            "blocker",
+            std::sync::Arc::new(Shape::Sphere(Sphere::new(0.3).unwrap())),
+            pose,
+        );
+        world
     }
 
     #[test]
     fn a_colliding_sample_is_rejected_and_a_clear_one_is_accepted() {
-        let (model, srdf) = synthetic_floating_model();
-        let space = JointModelGroupSpace::new(&model, "body_group").unwrap();
-        let mut scene = PlanningScene::new(&model, &srdf);
-        scene.add_shape(
-            "obstacle",
-            std::sync::Arc::new(Shape::Cuboid(Cuboid::new(0.2, 0.2, 0.2).unwrap())),
-            Isometry3::identity(),
-        );
-        let env = ParryCollisionEnv::new(scene.world().clone(), LinkPaddingScale::default());
+        let (model, srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let ready = space.read_robot_state(&ready_state(&model));
 
-        let checker = PlanningSceneValidityChecker::new(
-            &mut scene,
-            &env,
+        // "ready" must collide with a sphere centered on its own
+        // panda_link4 pose.
+        let mut colliding_scene = PlanningScene::new(&model, &srdf);
+        let colliding_world =
+            world_with_obstacle_at_ready_link4_pose(&model, moveit_geometry::Isometry3::identity());
+        let colliding_env = ParryCollisionEnv::new(colliding_world, LinkPaddingScale::default());
+        let colliding_checker = PlanningSceneValidityChecker::new(
+            &mut colliding_scene,
+            &colliding_env,
             moveit_collision::CollisionRequest::default(),
             None,
             &space,
         );
-
-        // The floating joint defaults to identity, coincident with the
-        // world-frame obstacle: the two 0.2m boxes must overlap.
-        let mut origin_state = moveit_state::RobotState::new(&model);
-        origin_state.set_to_default_values();
-        let origin = space.read_robot_state(&origin_state);
         assert!(
-            !checker.is_valid(&origin),
-            "a body coincident with the obstacle must collide"
+            !colliding_checker.is_valid(&ready),
+            "\"ready\" must collide with a sphere centered on its own panda_link4 pose"
         );
 
-        // Translating the body 5m away clears a pair of 0.2m boxes.
-        let mut far_state = moveit_state::RobotState::new(&model);
-        far_state.set_to_default_values();
-        far_state
-            .set_joint_transform("body_joint", &Isometry3::translation(5.0, 0.0, 0.0))
-            .unwrap();
-        let far = space.read_robot_state(&far_state);
+        // The same "ready" state, with the same sphere translated 10m away,
+        // must be collision-free.
+        let mut clear_scene = PlanningScene::new(&model, &srdf);
+        let clear_world = world_with_obstacle_at_ready_link4_pose(
+            &model,
+            moveit_geometry::Isometry3::translation(10.0, 0.0, 0.0),
+        );
+        let clear_env = ParryCollisionEnv::new(clear_world, LinkPaddingScale::default());
+        let clear_checker = PlanningSceneValidityChecker::new(
+            &mut clear_scene,
+            &clear_env,
+            moveit_collision::CollisionRequest::default(),
+            None,
+            &space,
+        );
         assert!(
-            checker.is_valid(&far),
-            "a body 5m from the obstacle must be collision-free"
+            clear_checker.is_valid(&ready),
+            "the same state must be collision-free once the obstacle is moved 10m away"
         );
     }
 
@@ -258,15 +285,16 @@ mod tests {
             &space,
         );
 
-        let mut zero = moveit_state::RobotState::new(&model);
-        zero.set_to_default_values();
+        // "ready" (not the all-default, all-zero state -- see
+        // `ready_state`'s doc comment for why that self-collides with
+        // panda's real collision meshes) already has `panda_joint1 == 0.0`.
+        let ready = ready_state(&model);
         assert!(
-            checker.is_valid(&space.read_robot_state(&zero)),
+            checker.is_valid(&space.read_robot_state(&ready)),
             "panda_joint1 == 0.0 must satisfy a constraint centered on 0.0"
         );
 
-        let mut far = moveit_state::RobotState::new(&model);
-        far.set_to_default_values();
+        let mut far = ready_state(&model);
         far.set_variable_position("panda_joint1", 1.0).unwrap();
         assert!(
             !checker.is_valid(&space.read_robot_state(&far)),
@@ -295,19 +323,21 @@ mod tests {
         );
 
         let mut rng = ChaCha8Rng::seed_from_u64(0);
-        let samples: Vec<_> = (0..10_000)
-            .map(|_| space.sample_uniform(&mut rng))
-            .collect();
+        let samples: Vec<_> = (0..50).map(|_| space.sample_uniform(&mut rng)).collect();
 
-        let start = Instant::now();
+        let mut durations = Vec::with_capacity(samples.len());
         for sample in &samples {
+            let start = Instant::now();
             std::hint::black_box(checker.is_valid(sample));
+            durations.push(start.elapsed());
         }
-        let elapsed = start.elapsed();
+        let total: std::time::Duration = durations.iter().sum();
         println!(
-            "PlanningSceneValidityChecker::is_valid: {:?}/call over {} calls (panda_arm, empty world, no constraints)",
-            elapsed / samples.len() as u32,
-            samples.len()
+            "PlanningSceneValidityChecker::is_valid: mean {:?}/call, min {:?}, max {:?}, over {} calls (panda_arm, empty world, no constraints)",
+            total / durations.len() as u32,
+            durations.iter().min().unwrap(),
+            durations.iter().max().unwrap(),
+            durations.len()
         );
     }
 }
