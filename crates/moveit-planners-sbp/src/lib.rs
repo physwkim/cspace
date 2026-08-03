@@ -13,20 +13,26 @@
 //!
 //! # Scope
 //!
-//! This is the abstract foundation plus one planner, deliberately without a
-//! dependency on `moveit-model` or `moveit-state`: everything here compiles
-//! and is tested standalone against four [`StateSpace`] implementations
-//! covering MoveIt's actual joint types: [`RealVectorSpace`] (plain bounded
-//! `R^n` — prismatic and bounded revolute joints), [`so2::So2Space`] (a
-//! continuous joint's wraparound), [`se3::Se3Space`] (a floating joint's
-//! `R^3 x SO(3)`), and [`compound::CompoundSpace`] (a `JointModelGroup`'s
-//! heterogeneous product of any of the above, weighted).
+//! This is the abstract foundation plus one planner, built against four
+//! [`StateSpace`] implementations covering MoveIt's actual joint types:
+//! [`RealVectorSpace`] (plain bounded `R^n` — prismatic and bounded revolute
+//! joints), [`so2::So2Space`] (a continuous joint's wraparound),
+//! [`se3::Se3Space`] (a floating joint's `R^3 x SO(3)`), and
+//! [`compound::CompoundSpace`] (a `JointModelGroup`'s heterogeneous product
+//! of any of the above, weighted). All four were first tested standalone
+//! with no dependency on `moveit-model` or `moveit-state`;
+//! [`joint_model_group_space::JointModelGroupSpace`] is the bridge from an
+//! actual `RobotModel`/`JointModelGroup` to a [`StateSpace`], and is what
+//! brings those two crates in as dependencies.
 //!
 //! - [`space`] — the [`StateSpace`] trait and [`RealVectorSpace`].
 //! - [`so2`] — [`so2::So2Space`], a wraparound revolute joint.
 //! - [`se3`] — [`se3::Se3Space`], a floating joint.
 //! - [`compound`] — [`compound::CompoundSpace`], a weighted product of
 //!   subspaces of any of the above kinds.
+//! - [`joint_model_group_space`] —
+//!   [`joint_model_group_space::JointModelGroupSpace`], a `RobotModel` joint
+//!   model group as a [`StateSpace`].
 //! - [`validity`] — [`StateValidityChecker`] and [`MotionValidator`], kept
 //!   separate on purpose (see [`validity`]'s doc comment).
 //! - [`nn`] — [`Gnat`], the nearest-neighbour index.
@@ -50,6 +56,7 @@
 
 pub mod compound;
 mod error;
+pub mod joint_model_group_space;
 pub mod nn;
 mod rrt_connect;
 mod sampling;
@@ -62,6 +69,7 @@ pub mod validity;
 
 pub use compound::{CompoundSpace, CompoundValue};
 pub use error::SbpError;
+pub use joint_model_group_space::JointModelGroupSpace;
 pub use nn::Gnat;
 pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
 pub use se3::{Se3Space, Se3State};

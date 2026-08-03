@@ -307,9 +307,13 @@ dependencies = [
 name = "moveit-planners-sbp"
 version = "0.1.0"
 dependencies = [
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
  "rand",
  "rand_chacha",
  "thiserror 2.0.19",
+ "urdf-rs",
 ]
 
 [[package]]
