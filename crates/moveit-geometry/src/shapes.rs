@@ -167,22 +167,25 @@
 //!   native octree collision geometry that operates directly on an
 //!   arbitrary-resolution, arbitrary-depth `octomap::OcTree`, including
 //!   pruned (coarse) leaves, at whatever depth `prune()` left them.
-//!   `moveit-collision`'s `parry3d-f64` backend (`crates/moveit-collision/src/parry.rs`,
-//!   `convert_shape`, deviation 10) has no such counterpart to convert into:
-//!   `parry3d-f64` 0.30.0's closest shape, `parry3d_f64::shape::Voxels`, is a
-//!   **uniform-resolution** sparse voxel grid (one fixed `voxel_size` for
-//!   every filled cell in the shape) — it has no notion of a coarser leaf.
-//!   Feeding it from an [`OcTree`] therefore means enumerating every occupied
-//!   [`moveit_octomap::Leaf`] via [`moveit_octomap::OcTree::leaves`] and, for
-//!   any leaf coarser than the tree's own finest resolution (i.e. anywhere
-//!   `prune()` collapsed uniform siblings — exactly the mechanism real sensor
-//!   maps rely on to stay small), expanding that one leaf back into up to
-//!   `8^k` finest-resolution unit cells (`k` = depth deficit) to satisfy
-//!   `Voxels`' single-resolution constraint. A large collapsed region (a
-//!   cleared floor, an unmapped wall) is the case pruning exists to shrink,
-//!   and is exactly the case this expansion re-inflates back to its
-//!   pre-pruned cell count — the real cost of using `Voxels` here, not a
-//!   theoretical one.
+//!   `moveit-collision`'s `parry3d-f64` backend
+//!   (`crates/moveit-collision/src/parry.rs`, `convert_shape`) has no
+//!   FCL-`OcTreed`-shaped counterpart to convert into: `parry3d-f64` 0.30.0's
+//!   closest shape, `parry3d_f64::shape::Voxels`, is a **uniform-resolution**
+//!   sparse voxel grid (one fixed `voxel_size` for every filled cell) with no
+//!   notion of a coarser leaf, and feeding it from a pruned [`OcTree`] would
+//!   mean re-inflating every collapsed leaf back into up to `8^k`
+//!   finest-resolution cells (`k` = depth deficit) — undoing the exact
+//!   space saving `prune()` exists to provide. [`crate::compound_from_octree`]
+//!   (this crate's `octree_collision` module) takes the other option instead:
+//!   one `parry3d_f64::shape::Cuboid` per occupied leaf, sized to that leaf's
+//!   own (possibly coarse) extent, collected into one
+//!   `parry3d_f64::shape::Compound` — no uniform-resolution constraint, so a
+//!   pruned coarse leaf costs one `Cuboid`, not `8^k` of them.
+//!   `moveit-collision`'s `ParryCollisionEnv::convert_shape` calls it,
+//!   memoized per-tree by an `OctreeCache` (see that module's doc) so the
+//!   `Compound` is not rebuilt on every collision/distance query, and the
+//!   wired path is oracle-verified against a real `CollisionEnvFCL` in
+//!   `crates/moveit-collision/tests/octree_world_collision_parity.rs`.
 //! - **`collision_env_distance_field`'s treatment**
 //!   (`collision_env_distance_field.cpp`, `~line 1753`) only ever reads: it
 //!   builds `PosedBodyPointDecomposition(octree)` directly from the

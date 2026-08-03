@@ -261,6 +261,7 @@ dependencies = [
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
+ "moveit-octomap",
  "moveit-srdf",
  "moveit-state",
  "nalgebra",
