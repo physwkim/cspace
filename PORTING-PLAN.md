@@ -6156,3 +6156,50 @@ D4로 제외돼 있다. 여기서 `JointModelGroup`에 `group_kinematics_`를
 
 `cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
+
+## 69. 세 유예가 전부 근거를 갖고 닫혔다 (2026-08-04)
+
+p3-shapes 라운드 11(`11c0c8a`, `6260306`, `bf348ae`). 베이스 `8705eab`.
+커밋 3개, finding 3개 — 이번 라운드-세트에서 한 finding 당 한 커밋을
+정확히 지킨 유일한 패널이다.
+
+### 69.1 `Voxels` 갭은 죽어 있던 갭이었다
+
+세 라운드 동안 "left open, not re-verified"로 실려 다니던 항목이다.
+담당이 `voxels.rs`의 `pub fn` 18개를 전부 확인해 uniform-`voxel_size`
+제약이 그대로임을 재확인한 뒤, 진짜 발견을 붙였다: **이 워크스페이스에
+`Voxels`를 쓰는 코드가 없다.** 직접 확인했다 — `rg -n "Voxels::(new|from)"
+crates`의 히트는 `shapes.rs:318`의 doc 주석 한 줄뿐이고, 나머지 히트는
+전부 `addNewObstacleVoxels` 같은 부분 문자열이거나 주석이다. 실제로 쓰는
+`compound_from_octree` 경로에는 그 제약이 없고 leaf 0~216에서 오라클
+검증돼 있다.
+
+falsifier 없는 "open"은 잊어버린 것과 구별되지 않는다 — 이 항목은
+잊어버린 것이 아니라 애초에 살아 있는 결함이 아니었다.
+
+### 69.2 `probe-parity`는 좌초하지 않았다
+
+내가 라운드 11 브리프에서 "§9.1이 찾은 두 불일치의 픽스처가 브랜치
+`probe-parity`(`dbf50a7`)에 있고 main에 못 들어왔다면 그것이 다른 두
+항목보다 우선한다"고 걸어 둔 건이다. 좌초가 아니다:
+
+- `0032889`(`moveit-geometry: probe bodies:: against the shipped
+  libgeometric_shapes`)가 main의 조상이다.
+- `probe_parity.rs`가 main의 테스트 트리에 있다.
+- 후속 수정 넷도 main에 있다 — `aa80496`, `16cf87b`, `10b1909`,
+  `db7afde`.
+
+`dbf50a7`은 그 작업의 고아 중복본이다. §9.1의 `ConvexMesh::ray_intersections`
+/ `OBB::extend_approx` 두 건은 이미 닫혀 있었다.
+
+### 69.3 `BodyVector`는 라우팅이 아니라 결정으로 닫혔다
+
+`BodyDecomposition::from_shapes`가 만든 `Vec<Body>`의 소비 지점
+(`collision_distance_field_types.rs:711-786`)이 전부 전체 순회 아니면
+인덱스 접근이고, `BodyVector`의 first-hit 질의를 쓰는 곳이 없다. 래퍼가
+사는 것이 없다.
+
+### 69.4 머지 후 실측
+
+`cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
