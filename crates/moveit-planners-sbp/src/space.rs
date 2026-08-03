@@ -50,8 +50,13 @@ pub trait StateSpace {
     /// Draws a state uniformly at random from this space's bounds.
     fn sample_uniform<R: Rng>(&self, rng: &mut R) -> Self::State;
 
-    /// Draws a state uniformly at random within `radius` of `center`
-    /// (clipped to this space's bounds).
+    /// Draws a state uniformly at random from the ball of `radius` around
+    /// `center` under [`distance`](StateSpace::distance) (clipped to this
+    /// space's bounds) — not merely *within* `radius`, but distributed
+    /// uniformly over the ball's volume, so a caller sampling many draws
+    /// gets a sample that thins out from the centre the way a uniform
+    /// distribution over a disc or sphere actually does, not one
+    /// artificially concentrated toward the ball's corners or shell.
     fn sample_near<R: Rng>(&self, rng: &mut R, center: &Self::State, radius: f64) -> Self::State;
 }
 
@@ -146,19 +151,54 @@ impl StateSpace for RealVectorSpace {
 
     fn sample_near<R: Rng>(&self, rng: &mut R, center: &Vec<f64>, radius: f64) -> Vec<f64> {
         debug_assert_eq!(center.len(), self.dimension());
-        center
+        if radius <= 0.0 {
+            let mut state = center.clone();
+            self.enforce_bounds(&mut state);
+            return state;
+        }
+
+        let dim = self.dimension();
+        // Uniform direction on the unit sphere, by rejection sampling in the
+        // unit box and normalizing: sampling directly on the sphere from
+        // per-axis uniform angles would bias toward the poles in dimension
+        // >= 3, but a uniformly-distributed point *within* the unit ball,
+        // once normalized to unit length, is uniformly distributed *on* the
+        // sphere by symmetry (the box and the ball it circumscribes are both
+        // invariant under coordinate permutation and sign flip, so no
+        // direction is favored). Points landing outside the ball, or at the
+        // origin (a zero-length vector has no direction), are rejected and
+        // redrawn.
+        let mut direction: Vec<f64>;
+        loop {
+            let candidate: Vec<f64> = (0..dim).map(|_| rng.random_range(-1.0..=1.0)).collect();
+            let norm_sq: f64 = candidate.iter().map(|v| v * v).sum();
+            if norm_sq > 1e-18 && norm_sq <= 1.0 {
+                direction = candidate;
+                break;
+            }
+        }
+        let norm = direction.iter().map(|v| v * v).sum::<f64>().sqrt();
+        for v in &mut direction {
+            *v /= norm;
+        }
+
+        // A radius uniform *within the ball's volume* (rather than a radius
+        // uniform in [0, radius], which would concentrate samples near the
+        // centre) is `radius * u^(1/dim)` for `u` uniform in [0, 1): the
+        // volume enclosed within radius `r` scales as `r^dim`, so this is
+        // exactly the inverse-CDF transform that makes the enclosed volume,
+        // and therefore the sample, uniform. See e.g. Barthe et al., "A
+        // Probabilistic Approach to the Geometry of the l^n_p-Ball" (2005).
+        let u: f64 = rng.random_range(0.0..1.0);
+        let r = radius * u.powf(1.0 / dim as f64);
+
+        let mut state: Vec<f64> = center
             .iter()
-            .zip(&self.bounds)
-            .map(|(&c, &(min, max))| {
-                let lo = (c - radius).max(min);
-                let hi = (c + radius).min(max);
-                if lo >= hi {
-                    c.clamp(min, max)
-                } else {
-                    rng.random_range(lo..=hi)
-                }
-            })
-            .collect()
+            .zip(&direction)
+            .map(|(c, d)| c + d * r)
+            .collect();
+        self.enforce_bounds(&mut state);
+        state
     }
 }
 
@@ -258,16 +298,58 @@ mod tests {
     }
 
     #[test]
-    fn sample_near_stays_in_bounds_and_within_radius_or_clamped() {
+    fn sample_near_stays_within_the_ball_and_in_bounds() {
         let s = space();
         let mut rng = ChaCha8Rng::seed_from_u64(2);
         let center = vec![0.0, 5.0];
-        for _ in 0..1000 {
-            let sample = s.sample_near(&mut rng, &center, 0.1);
+        let radius = 0.5;
+        for _ in 0..2000 {
+            let sample = s.sample_near(&mut rng, &center, radius);
             assert!(s.satisfies_bounds(&sample));
-            for (c, v) in center.iter().zip(&sample) {
-                assert!((c - v).abs() <= 0.1 + 1e-12);
-            }
+            assert!(
+                s.distance(&center, &sample) <= radius + 1e-9,
+                "sample {sample:?} is farther than radius {radius} from center {center:?}"
+            );
         }
+    }
+
+    #[test]
+    fn sample_near_zero_radius_returns_clamped_center() {
+        let s = space();
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        assert_eq!(
+            s.sample_near(&mut rng, &vec![0.0, 5.0], 0.0),
+            vec![0.0, 5.0]
+        );
+    }
+
+    /// The property a box-shaped `sample_near` gets wrong: a distribution
+    /// uniform over an n-ball's *volume* puts a fraction `(1/2)^n` of its
+    /// mass within half the radius, since enclosed volume scales as `r^n`.
+    /// A box has no such property (its mass is not even confined to the
+    /// ball at all — its corners lie outside it), so this is the property
+    /// that distinguishes the two implementations, not merely "stays within
+    /// radius".
+    #[test]
+    fn sample_near_is_uniform_over_the_ball_volume() {
+        let s =
+            RealVectorSpace::new(vec![(-100.0, 100.0), (-100.0, 100.0), (-100.0, 100.0)]).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(4);
+        let center = vec![0.0, 0.0, 0.0];
+        let radius = 10.0;
+        let n = 20_000;
+        let within_half = (0..n)
+            .filter(|_| {
+                let sample = s.sample_near(&mut rng, &center, radius);
+                s.distance(&center, &sample) <= radius / 2.0
+            })
+            .count();
+        let observed = within_half as f64 / n as f64;
+        let expected = 0.5_f64.powi(3); // (1/2)^dim, dim == 3
+        assert!(
+            (observed - expected).abs() < 0.02,
+            "expected about {expected:.3} of samples within half the radius \
+             (uniform over the ball's volume), got {observed:.3}"
+        );
     }
 }
