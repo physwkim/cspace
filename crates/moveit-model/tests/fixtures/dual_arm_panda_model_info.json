@@ -1,1 +1,434 @@
-{"id":0,"ok":true,"result":{"groups":{"left_panda_arm":["left_panda_joint1","left_panda_joint2","left_panda_joint3","left_panda_joint4","left_panda_joint5","left_panda_joint6","left_panda_joint7","left_panda_joint8"],"right_panda_arm":["right_panda_joint1","right_panda_joint2","right_panda_joint3","right_panda_joint4","right_panda_joint5","right_panda_joint6","right_panda_joint7","right_panda_joint8"]},"joint_details":[{"bounds":[],"name":"ASSUMED_FIXED_ROOT_JOINT","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"left_base_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.8973,2.8973]],"name":"left_panda_joint1","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint1"]},{"bounds":[[-1.7628,1.7628]],"name":"left_panda_joint2","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint2"]},{"bounds":[[-2.8973,2.8973]],"name":"left_panda_joint3","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint3"]},{"bounds":[[-3.0718,0.0175]],"name":"left_panda_joint4","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint4"]},{"bounds":[[-2.8973,2.8973]],"name":"left_panda_joint5","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint5"]},{"bounds":[[-0.0175,3.7525]],"name":"left_panda_joint6","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint6"]},{"bounds":[[-2.8973,2.8973]],"name":"left_panda_joint7","position_bounded":[true],"type_name":"Revolute","variable_names":["left_panda_joint7"]},{"bounds":[],"name":"left_panda_joint8","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"left_panda_hand_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[0.0,0.04]],"name":"left_panda_finger_joint1","position_bounded":[true],"type_name":"Prismatic","variable_names":["left_panda_finger_joint1"]},{"bounds":[[0.0,0.04]],"mimic":{"joint":"left_panda_finger_joint1","multiplier":1.0,"offset":0.0},"name":"left_panda_finger_joint2","position_bounded":[true],"type_name":"Prismatic","variable_names":["left_panda_finger_joint2"]},{"bounds":[],"name":"right_base_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.8973,2.8973]],"name":"right_panda_joint1","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint1"]},{"bounds":[[-1.7628,1.7628]],"name":"right_panda_joint2","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint2"]},{"bounds":[[-2.8973,2.8973]],"name":"right_panda_joint3","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint3"]},{"bounds":[[-3.0718,0.0175]],"name":"right_panda_joint4","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint4"]},{"bounds":[[-2.8973,2.8973]],"name":"right_panda_joint5","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint5"]},{"bounds":[[-0.0175,3.7525]],"name":"right_panda_joint6","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint6"]},{"bounds":[[-2.8973,2.8973]],"name":"right_panda_joint7","position_bounded":[true],"type_name":"Revolute","variable_names":["right_panda_joint7"]},{"bounds":[],"name":"right_panda_joint8","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"right_panda_hand_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[0.0,0.04]],"name":"right_panda_finger_joint1","position_bounded":[true],"type_name":"Prismatic","variable_names":["right_panda_finger_joint1"]},{"bounds":[[0.0,0.04]],"mimic":{"joint":"right_panda_finger_joint1","multiplier":1.0,"offset":0.0},"name":"right_panda_finger_joint2","position_bounded":[true],"type_name":"Prismatic","variable_names":["right_panda_finger_joint2"]}],"joints":["ASSUMED_FIXED_ROOT_JOINT","left_base_joint","left_panda_joint1","left_panda_joint2","left_panda_joint3","left_panda_joint4","left_panda_joint5","left_panda_joint6","left_panda_joint7","left_panda_joint8","left_panda_hand_joint","left_panda_finger_joint1","left_panda_finger_joint2","right_base_joint","right_panda_joint1","right_panda_joint2","right_panda_joint3","right_panda_joint4","right_panda_joint5","right_panda_joint6","right_panda_joint7","right_panda_joint8","right_panda_hand_joint","right_panda_finger_joint1","right_panda_finger_joint2"],"links":["world","left_panda_link0","left_panda_link1","left_panda_link2","left_panda_link3","left_panda_link4","left_panda_link5","left_panda_link6","left_panda_link7","left_panda_link8","left_panda_hand","left_panda_leftfinger","left_panda_rightfinger","right_panda_link0","right_panda_link1","right_panda_link2","right_panda_link3","right_panda_link4","right_panda_link5","right_panda_link6","right_panda_link7","right_panda_link8","right_panda_hand","right_panda_leftfinger","right_panda_rightfinger"],"model_frame":"world","name":"panda","root_link":"world"}}
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "groups": {
+      "left_panda_arm": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7",
+        "left_panda_joint8"
+      ],
+      "right_panda_arm": [
+        "right_panda_joint1",
+        "right_panda_joint2",
+        "right_panda_joint3",
+        "right_panda_joint4",
+        "right_panda_joint5",
+        "right_panda_joint6",
+        "right_panda_joint7",
+        "right_panda_joint8"
+      ]
+    },
+    "joint_details": [
+      {
+        "bounds": [],
+        "name": "ASSUMED_FIXED_ROOT_JOINT",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "left_base_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "left_panda_joint1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -1.7628,
+            1.7628
+          ]
+        ],
+        "name": "left_panda_joint2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint2"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "left_panda_joint3",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint3"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.0718,
+            0.0175
+          ]
+        ],
+        "name": "left_panda_joint4",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint4"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "left_panda_joint5",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint5"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.0175,
+            3.7525
+          ]
+        ],
+        "name": "left_panda_joint6",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint6"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "left_panda_joint7",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "left_panda_joint7"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "left_panda_joint8",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "left_panda_hand_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.04
+          ]
+        ],
+        "name": "left_panda_finger_joint1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "left_panda_finger_joint1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.04
+          ]
+        ],
+        "mimic": {
+          "joint": "left_panda_finger_joint1",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "left_panda_finger_joint2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "left_panda_finger_joint2"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "right_base_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "right_panda_joint1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -1.7628,
+            1.7628
+          ]
+        ],
+        "name": "right_panda_joint2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint2"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "right_panda_joint3",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint3"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.0718,
+            0.0175
+          ]
+        ],
+        "name": "right_panda_joint4",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint4"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "right_panda_joint5",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint5"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.0175,
+            3.7525
+          ]
+        ],
+        "name": "right_panda_joint6",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint6"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "right_panda_joint7",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "right_panda_joint7"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "right_panda_joint8",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "right_panda_hand_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.04
+          ]
+        ],
+        "name": "right_panda_finger_joint1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "right_panda_finger_joint1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.04
+          ]
+        ],
+        "mimic": {
+          "joint": "right_panda_finger_joint1",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "right_panda_finger_joint2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "right_panda_finger_joint2"
+        ]
+      }
+    ],
+    "joints": [
+      "ASSUMED_FIXED_ROOT_JOINT",
+      "left_base_joint",
+      "left_panda_joint1",
+      "left_panda_joint2",
+      "left_panda_joint3",
+      "left_panda_joint4",
+      "left_panda_joint5",
+      "left_panda_joint6",
+      "left_panda_joint7",
+      "left_panda_joint8",
+      "left_panda_hand_joint",
+      "left_panda_finger_joint1",
+      "left_panda_finger_joint2",
+      "right_base_joint",
+      "right_panda_joint1",
+      "right_panda_joint2",
+      "right_panda_joint3",
+      "right_panda_joint4",
+      "right_panda_joint5",
+      "right_panda_joint6",
+      "right_panda_joint7",
+      "right_panda_joint8",
+      "right_panda_hand_joint",
+      "right_panda_finger_joint1",
+      "right_panda_finger_joint2"
+    ],
+    "links": [
+      "world",
+      "left_panda_link0",
+      "left_panda_link1",
+      "left_panda_link2",
+      "left_panda_link3",
+      "left_panda_link4",
+      "left_panda_link5",
+      "left_panda_link6",
+      "left_panda_link7",
+      "left_panda_link8",
+      "left_panda_hand",
+      "left_panda_leftfinger",
+      "left_panda_rightfinger",
+      "right_panda_link0",
+      "right_panda_link1",
+      "right_panda_link2",
+      "right_panda_link3",
+      "right_panda_link4",
+      "right_panda_link5",
+      "right_panda_link6",
+      "right_panda_link7",
+      "right_panda_link8",
+      "right_panda_hand",
+      "right_panda_leftfinger",
+      "right_panda_rightfinger"
+    ],
+    "model_frame": "world",
+    "name": "panda",
+    "root_link": "world"
+  }
+}

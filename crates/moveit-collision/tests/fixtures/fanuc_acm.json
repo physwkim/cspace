@@ -1,68 +1,68 @@
 {
-    "id": 1,
-    "ok": true,
-    "result": {
-        "defaults": {},
-        "entries": [
-            {
-                "link1": "base_link",
-                "link2": "link_1",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "base_link",
-                "link2": "link_2",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_1",
-                "link2": "link_2",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_1",
-                "link2": "link_3",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_2",
-                "link2": "link_3",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_3",
-                "link2": "link_4",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_3",
-                "link2": "link_5",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_3",
-                "link2": "link_6",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_4",
-                "link2": "link_5",
-                "type": "ALWAYS"
-            },
-            {
-                "link1": "link_5",
-                "link2": "link_6",
-                "type": "ALWAYS"
-            }
-        ],
-        "names": [
-            "base_link",
-            "link_1",
-            "link_2",
-            "link_3",
-            "link_4",
-            "link_5",
-            "link_6"
-        ]
-    }
+  "id": 1,
+  "ok": true,
+  "result": {
+    "defaults": {},
+    "entries": [
+      {
+        "link1": "base_link",
+        "link2": "link_1",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "base_link",
+        "link2": "link_2",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_1",
+        "link2": "link_2",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_1",
+        "link2": "link_3",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_2",
+        "link2": "link_3",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_3",
+        "link2": "link_4",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_3",
+        "link2": "link_5",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_3",
+        "link2": "link_6",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_4",
+        "link2": "link_5",
+        "type": "ALWAYS"
+      },
+      {
+        "link1": "link_5",
+        "link2": "link_6",
+        "type": "ALWAYS"
+      }
+    ],
+    "names": [
+      "base_link",
+      "link_1",
+      "link_2",
+      "link_3",
+      "link_4",
+      "link_5",
+      "link_6"
+    ]
+  }
 }

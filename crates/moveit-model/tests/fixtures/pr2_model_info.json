@@ -1,1 +1,1442 @@
-{"id":0,"ok":true,"result":{"groups":{"arms":["l_shoulder_pan_joint","l_shoulder_lift_joint","l_upper_arm_roll_joint","l_upper_arm_joint","l_elbow_flex_joint","l_forearm_roll_joint","l_forearm_joint","l_wrist_flex_joint","l_wrist_roll_joint","r_shoulder_pan_joint","r_shoulder_lift_joint","r_upper_arm_roll_joint","r_upper_arm_joint","r_elbow_flex_joint","r_forearm_roll_joint","r_forearm_joint","r_wrist_flex_joint","r_wrist_roll_joint"],"arms_and_torso":["torso_lift_joint","l_shoulder_pan_joint","l_shoulder_lift_joint","l_upper_arm_roll_joint","l_upper_arm_joint","l_elbow_flex_joint","l_forearm_roll_joint","l_forearm_joint","l_wrist_flex_joint","l_wrist_roll_joint","r_shoulder_pan_joint","r_shoulder_lift_joint","r_upper_arm_roll_joint","r_upper_arm_joint","r_elbow_flex_joint","r_forearm_roll_joint","r_forearm_joint","r_wrist_flex_joint","r_wrist_roll_joint"],"base":["world_joint"],"l_end_effector":["l_gripper_palm_joint","l_gripper_l_finger_joint","l_gripper_l_finger_tip_joint","l_gripper_led_joint","l_gripper_motor_accelerometer_joint","l_gripper_motor_slider_joint","l_gripper_motor_screw_joint","l_gripper_r_finger_joint","l_gripper_r_finger_tip_joint","l_gripper_joint","l_gripper_tool_joint"],"left_arm":["l_shoulder_pan_joint","l_shoulder_lift_joint","l_upper_arm_roll_joint","l_upper_arm_joint","l_elbow_flex_joint","l_forearm_roll_joint","l_forearm_joint","l_wrist_flex_joint","l_wrist_roll_joint"],"r_end_effector":["r_gripper_palm_joint","r_gripper_l_finger_joint","r_gripper_l_finger_tip_joint","r_gripper_led_joint","r_gripper_motor_accelerometer_joint","r_gripper_motor_slider_joint","r_gripper_motor_screw_joint","r_gripper_r_finger_joint","r_gripper_r_finger_tip_joint","r_gripper_joint","r_gripper_tool_joint"],"right_arm":["r_shoulder_pan_joint","r_shoulder_lift_joint","r_upper_arm_roll_joint","r_upper_arm_joint","r_elbow_flex_joint","r_forearm_roll_joint","r_forearm_joint","r_wrist_flex_joint","r_wrist_roll_joint"],"whole_body":["world_joint","torso_lift_joint","l_shoulder_pan_joint","l_shoulder_lift_joint","l_upper_arm_roll_joint","l_upper_arm_joint","l_elbow_flex_joint","l_forearm_roll_joint","l_forearm_joint","l_wrist_flex_joint","l_wrist_roll_joint","r_shoulder_pan_joint","r_shoulder_lift_joint","r_upper_arm_roll_joint","r_upper_arm_joint","r_elbow_flex_joint","r_forearm_roll_joint","r_forearm_joint","r_wrist_flex_joint","r_wrist_roll_joint"]},"joint_details":[{"bounds":[[null,null],[null,null],[-3.141592653589793,3.141592653589793]],"name":"world_joint","position_bounded":[true,true,false],"type_name":"Planar","variable_names":["world_joint/x","world_joint/y","world_joint/theta"]},{"bounds":[],"name":"base_footprint_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"base_bellow_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"base_laser_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"bl_caster_rotation_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["bl_caster_rotation_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"bl_caster_l_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["bl_caster_l_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"bl_caster_r_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["bl_caster_r_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"br_caster_rotation_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["br_caster_rotation_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"br_caster_l_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["br_caster_l_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"br_caster_r_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["br_caster_r_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"fl_caster_rotation_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["fl_caster_rotation_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"fl_caster_l_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["fl_caster_l_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"fl_caster_r_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["fl_caster_r_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"fr_caster_rotation_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["fr_caster_rotation_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"fr_caster_l_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["fr_caster_l_wheel_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"fr_caster_r_wheel_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["fr_caster_r_wheel_joint"]},{"bounds":[[0.0115,0.325]],"name":"torso_lift_joint","position_bounded":[true],"type_name":"Prismatic","variable_names":["torso_lift_joint"]},{"bounds":[[-2.857,2.857]],"name":"head_pan_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["head_pan_joint"]},{"bounds":[[-0.3712,1.29626]],"name":"head_tilt_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["head_tilt_joint"]},{"bounds":[],"name":"head_plate_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_kinect_ir_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_kinect_ir_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_kinect_rgb_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_kinect_rgb_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_prosilica_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"head_mount_prosilica_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"projector_wg6802418_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"projector_wg6802418_child_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"sensor_mount_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"double_stereo_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"narrow_stereo_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"narrow_stereo_l_stereo_camera_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"narrow_stereo_l_stereo_camera_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"narrow_stereo_r_stereo_camera_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"narrow_stereo_r_stereo_camera_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"narrow_stereo_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"wide_stereo_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"wide_stereo_l_stereo_camera_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"wide_stereo_l_stereo_camera_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"wide_stereo_r_stereo_camera_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"wide_stereo_r_stereo_camera_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"wide_stereo_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"high_def_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"high_def_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"imu_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-0.564601836603,2.1353981634]],"name":"l_shoulder_pan_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_shoulder_pan_joint"]},{"bounds":[[-0.3536,1.2963]],"name":"l_shoulder_lift_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_shoulder_lift_joint"]},{"bounds":[[-0.65,3.75]],"name":"l_upper_arm_roll_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_upper_arm_roll_joint"]},{"bounds":[],"name":"l_upper_arm_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.1213,-0.15]],"name":"l_elbow_flex_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_elbow_flex_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"l_forearm_roll_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["l_forearm_roll_joint"]},{"bounds":[],"name":"l_forearm_cam_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"l_forearm_cam_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"l_forearm_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.0,-0.1]],"name":"l_wrist_flex_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_wrist_flex_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"l_wrist_roll_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["l_wrist_roll_joint"]},{"bounds":[],"name":"l_gripper_palm_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[0.0,0.548]],"name":"l_gripper_l_finger_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_gripper_l_finger_joint"]},{"bounds":[[0.0,0.548]],"mimic":{"joint":"l_gripper_l_finger_joint","multiplier":1.0,"offset":0.0},"name":"l_gripper_l_finger_tip_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_gripper_l_finger_tip_joint"]},{"bounds":[],"name":"l_gripper_led_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"l_gripper_motor_accelerometer_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-0.1,0.1]],"name":"l_gripper_motor_slider_joint","position_bounded":[true],"type_name":"Prismatic","variable_names":["l_gripper_motor_slider_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"l_gripper_motor_screw_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["l_gripper_motor_screw_joint"]},{"bounds":[[0.0,0.548]],"mimic":{"joint":"l_gripper_l_finger_joint","multiplier":1.0,"offset":0.0},"name":"l_gripper_r_finger_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_gripper_r_finger_joint"]},{"bounds":[[0.0,0.548]],"mimic":{"joint":"l_gripper_l_finger_joint","multiplier":1.0,"offset":0.0},"name":"l_gripper_r_finger_tip_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["l_gripper_r_finger_tip_joint"]},{"bounds":[[0.0,0.088]],"name":"l_gripper_joint","position_bounded":[true],"type_name":"Prismatic","variable_names":["l_gripper_joint"]},{"bounds":[],"name":"l_gripper_tool_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"l_torso_lift_side_plate_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-0.7354,1.43353]],"name":"laser_tilt_mount_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["laser_tilt_mount_joint"]},{"bounds":[],"name":"laser_tilt_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.1353981634,0.564601836603]],"name":"r_shoulder_pan_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_shoulder_pan_joint"]},{"bounds":[[-0.3536,1.2963]],"name":"r_shoulder_lift_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_shoulder_lift_joint"]},{"bounds":[[-3.75,0.65]],"name":"r_upper_arm_roll_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_upper_arm_roll_joint"]},{"bounds":[],"name":"r_upper_arm_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.1213,-0.15]],"name":"r_elbow_flex_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_elbow_flex_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"r_forearm_roll_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["r_forearm_roll_joint"]},{"bounds":[],"name":"r_forearm_cam_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"r_forearm_cam_optical_frame_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"r_forearm_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-2.0,-0.1]],"name":"r_wrist_flex_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_wrist_flex_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"r_wrist_roll_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["r_wrist_roll_joint"]},{"bounds":[],"name":"r_gripper_palm_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[0.0,0.548]],"name":"r_gripper_l_finger_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_gripper_l_finger_joint"]},{"bounds":[[0.0,0.548]],"mimic":{"joint":"r_gripper_l_finger_joint","multiplier":1.0,"offset":0.0},"name":"r_gripper_l_finger_tip_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_gripper_l_finger_tip_joint"]},{"bounds":[],"name":"r_gripper_led_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"r_gripper_motor_accelerometer_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-0.1,0.1]],"name":"r_gripper_motor_slider_joint","position_bounded":[true],"type_name":"Prismatic","variable_names":["r_gripper_motor_slider_joint"]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"r_gripper_motor_screw_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["r_gripper_motor_screw_joint"]},{"bounds":[[0.0,0.548]],"mimic":{"joint":"r_gripper_l_finger_joint","multiplier":1.0,"offset":0.0},"name":"r_gripper_r_finger_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_gripper_r_finger_joint"]},{"bounds":[[0.0,0.548]],"mimic":{"joint":"r_gripper_l_finger_joint","multiplier":1.0,"offset":0.0},"name":"r_gripper_r_finger_tip_joint","position_bounded":[true],"type_name":"Revolute","variable_names":["r_gripper_r_finger_tip_joint"]},{"bounds":[[0.0,0.088]],"name":"r_gripper_joint","position_bounded":[true],"type_name":"Prismatic","variable_names":["r_gripper_joint"]},{"bounds":[],"name":"r_gripper_tool_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[],"name":"r_torso_lift_side_plate_joint","position_bounded":[],"type_name":"Fixed","variable_names":[]},{"bounds":[[-3.141592653589793,3.141592653589793]],"name":"torso_lift_motor_screw_joint","position_bounded":[false],"type_name":"Revolute","variable_names":["torso_lift_motor_screw_joint"]}],"joints":["world_joint","base_footprint_joint","base_bellow_joint","base_laser_joint","bl_caster_rotation_joint","bl_caster_l_wheel_joint","bl_caster_r_wheel_joint","br_caster_rotation_joint","br_caster_l_wheel_joint","br_caster_r_wheel_joint","fl_caster_rotation_joint","fl_caster_l_wheel_joint","fl_caster_r_wheel_joint","fr_caster_rotation_joint","fr_caster_l_wheel_joint","fr_caster_r_wheel_joint","torso_lift_joint","head_pan_joint","head_tilt_joint","head_plate_frame_joint","head_mount_joint","head_mount_kinect_ir_joint","head_mount_kinect_ir_optical_frame_joint","head_mount_kinect_rgb_joint","head_mount_kinect_rgb_optical_frame_joint","head_mount_prosilica_joint","head_mount_prosilica_optical_frame_joint","projector_wg6802418_frame_joint","projector_wg6802418_child_frame_joint","sensor_mount_frame_joint","double_stereo_frame_joint","narrow_stereo_frame_joint","narrow_stereo_l_stereo_camera_frame_joint","narrow_stereo_l_stereo_camera_optical_frame_joint","narrow_stereo_r_stereo_camera_frame_joint","narrow_stereo_r_stereo_camera_optical_frame_joint","narrow_stereo_optical_frame_joint","wide_stereo_frame_joint","wide_stereo_l_stereo_camera_frame_joint","wide_stereo_l_stereo_camera_optical_frame_joint","wide_stereo_r_stereo_camera_frame_joint","wide_stereo_r_stereo_camera_optical_frame_joint","wide_stereo_optical_frame_joint","high_def_frame_joint","high_def_optical_frame_joint","imu_joint","l_shoulder_pan_joint","l_shoulder_lift_joint","l_upper_arm_roll_joint","l_upper_arm_joint","l_elbow_flex_joint","l_forearm_roll_joint","l_forearm_cam_frame_joint","l_forearm_cam_optical_frame_joint","l_forearm_joint","l_wrist_flex_joint","l_wrist_roll_joint","l_gripper_palm_joint","l_gripper_l_finger_joint","l_gripper_l_finger_tip_joint","l_gripper_led_joint","l_gripper_motor_accelerometer_joint","l_gripper_motor_slider_joint","l_gripper_motor_screw_joint","l_gripper_r_finger_joint","l_gripper_r_finger_tip_joint","l_gripper_joint","l_gripper_tool_joint","l_torso_lift_side_plate_joint","laser_tilt_mount_joint","laser_tilt_joint","r_shoulder_pan_joint","r_shoulder_lift_joint","r_upper_arm_roll_joint","r_upper_arm_joint","r_elbow_flex_joint","r_forearm_roll_joint","r_forearm_cam_frame_joint","r_forearm_cam_optical_frame_joint","r_forearm_joint","r_wrist_flex_joint","r_wrist_roll_joint","r_gripper_palm_joint","r_gripper_l_finger_joint","r_gripper_l_finger_tip_joint","r_gripper_led_joint","r_gripper_motor_accelerometer_joint","r_gripper_motor_slider_joint","r_gripper_motor_screw_joint","r_gripper_r_finger_joint","r_gripper_r_finger_tip_joint","r_gripper_joint","r_gripper_tool_joint","r_torso_lift_side_plate_joint","torso_lift_motor_screw_joint"],"links":["base_footprint","base_link","base_bellow_link","base_laser_link","bl_caster_rotation_link","bl_caster_l_wheel_link","bl_caster_r_wheel_link","br_caster_rotation_link","br_caster_l_wheel_link","br_caster_r_wheel_link","fl_caster_rotation_link","fl_caster_l_wheel_link","fl_caster_r_wheel_link","fr_caster_rotation_link","fr_caster_l_wheel_link","fr_caster_r_wheel_link","torso_lift_link","head_pan_link","head_tilt_link","head_plate_frame","head_mount_link","head_mount_kinect_ir_link","head_mount_kinect_ir_optical_frame","head_mount_kinect_rgb_link","head_mount_kinect_rgb_optical_frame","head_mount_prosilica_link","head_mount_prosilica_optical_frame","projector_wg6802418_frame","projector_wg6802418_child_frame","sensor_mount_link","double_stereo_link","narrow_stereo_link","narrow_stereo_l_stereo_camera_frame","narrow_stereo_l_stereo_camera_optical_frame","narrow_stereo_r_stereo_camera_frame","narrow_stereo_r_stereo_camera_optical_frame","narrow_stereo_optical_frame","wide_stereo_link","wide_stereo_l_stereo_camera_frame","wide_stereo_l_stereo_camera_optical_frame","wide_stereo_r_stereo_camera_frame","wide_stereo_r_stereo_camera_optical_frame","wide_stereo_optical_frame","high_def_frame","high_def_optical_frame","imu_link","l_shoulder_pan_link","l_shoulder_lift_link","l_upper_arm_roll_link","l_upper_arm_link","l_elbow_flex_link","l_forearm_roll_link","l_forearm_cam_frame","l_forearm_cam_optical_frame","l_forearm_link","l_wrist_flex_link","l_wrist_roll_link","l_gripper_palm_link","l_gripper_l_finger_link","l_gripper_l_finger_tip_link","l_gripper_led_frame","l_gripper_motor_accelerometer_link","l_gripper_motor_slider_link","l_gripper_motor_screw_link","l_gripper_r_finger_link","l_gripper_r_finger_tip_link","l_gripper_l_finger_tip_frame","l_gripper_tool_frame","l_torso_lift_side_plate_link","laser_tilt_mount_link","laser_tilt_link","r_shoulder_pan_link","r_shoulder_lift_link","r_upper_arm_roll_link","r_upper_arm_link","r_elbow_flex_link","r_forearm_roll_link","r_forearm_cam_frame","r_forearm_cam_optical_frame","r_forearm_link","r_wrist_flex_link","r_wrist_roll_link","r_gripper_palm_link","r_gripper_l_finger_link","r_gripper_l_finger_tip_link","r_gripper_led_frame","r_gripper_motor_accelerometer_link","r_gripper_motor_slider_link","r_gripper_motor_screw_link","r_gripper_r_finger_link","r_gripper_r_finger_tip_link","r_gripper_l_finger_tip_frame","r_gripper_tool_frame","r_torso_lift_side_plate_link","torso_lift_motor_screw_link"],"model_frame":"odom_combined","name":"pr2","root_link":"base_footprint"}}
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "groups": {
+      "arms": [
+        "l_shoulder_pan_joint",
+        "l_shoulder_lift_joint",
+        "l_upper_arm_roll_joint",
+        "l_upper_arm_joint",
+        "l_elbow_flex_joint",
+        "l_forearm_roll_joint",
+        "l_forearm_joint",
+        "l_wrist_flex_joint",
+        "l_wrist_roll_joint",
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_upper_arm_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_forearm_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "arms_and_torso": [
+        "torso_lift_joint",
+        "l_shoulder_pan_joint",
+        "l_shoulder_lift_joint",
+        "l_upper_arm_roll_joint",
+        "l_upper_arm_joint",
+        "l_elbow_flex_joint",
+        "l_forearm_roll_joint",
+        "l_forearm_joint",
+        "l_wrist_flex_joint",
+        "l_wrist_roll_joint",
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_upper_arm_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_forearm_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "base": [
+        "world_joint"
+      ],
+      "l_end_effector": [
+        "l_gripper_palm_joint",
+        "l_gripper_l_finger_joint",
+        "l_gripper_l_finger_tip_joint",
+        "l_gripper_led_joint",
+        "l_gripper_motor_accelerometer_joint",
+        "l_gripper_motor_slider_joint",
+        "l_gripper_motor_screw_joint",
+        "l_gripper_r_finger_joint",
+        "l_gripper_r_finger_tip_joint",
+        "l_gripper_joint",
+        "l_gripper_tool_joint"
+      ],
+      "left_arm": [
+        "l_shoulder_pan_joint",
+        "l_shoulder_lift_joint",
+        "l_upper_arm_roll_joint",
+        "l_upper_arm_joint",
+        "l_elbow_flex_joint",
+        "l_forearm_roll_joint",
+        "l_forearm_joint",
+        "l_wrist_flex_joint",
+        "l_wrist_roll_joint"
+      ],
+      "r_end_effector": [
+        "r_gripper_palm_joint",
+        "r_gripper_l_finger_joint",
+        "r_gripper_l_finger_tip_joint",
+        "r_gripper_led_joint",
+        "r_gripper_motor_accelerometer_joint",
+        "r_gripper_motor_slider_joint",
+        "r_gripper_motor_screw_joint",
+        "r_gripper_r_finger_joint",
+        "r_gripper_r_finger_tip_joint",
+        "r_gripper_joint",
+        "r_gripper_tool_joint"
+      ],
+      "right_arm": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_upper_arm_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_forearm_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "whole_body": [
+        "world_joint",
+        "torso_lift_joint",
+        "l_shoulder_pan_joint",
+        "l_shoulder_lift_joint",
+        "l_upper_arm_roll_joint",
+        "l_upper_arm_joint",
+        "l_elbow_flex_joint",
+        "l_forearm_roll_joint",
+        "l_forearm_joint",
+        "l_wrist_flex_joint",
+        "l_wrist_roll_joint",
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_upper_arm_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_forearm_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ]
+    },
+    "joint_details": [
+      {
+        "bounds": [
+          [
+            null,
+            null
+          ],
+          [
+            null,
+            null
+          ],
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "world_joint",
+        "position_bounded": [
+          true,
+          true,
+          false
+        ],
+        "type_name": "Planar",
+        "variable_names": [
+          "world_joint/x",
+          "world_joint/y",
+          "world_joint/theta"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "base_footprint_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "base_bellow_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "base_laser_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "bl_caster_rotation_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "bl_caster_rotation_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "bl_caster_l_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "bl_caster_l_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "bl_caster_r_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "bl_caster_r_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "br_caster_rotation_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "br_caster_rotation_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "br_caster_l_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "br_caster_l_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "br_caster_r_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "br_caster_r_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "fl_caster_rotation_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "fl_caster_rotation_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "fl_caster_l_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "fl_caster_l_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "fl_caster_r_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "fl_caster_r_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "fr_caster_rotation_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "fr_caster_rotation_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "fr_caster_l_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "fr_caster_l_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "fr_caster_r_wheel_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "fr_caster_r_wheel_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0115,
+            0.325
+          ]
+        ],
+        "name": "torso_lift_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "torso_lift_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.857,
+            2.857
+          ]
+        ],
+        "name": "head_pan_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "head_pan_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.3712,
+            1.29626
+          ]
+        ],
+        "name": "head_tilt_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "head_tilt_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "head_plate_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_kinect_ir_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_kinect_ir_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_kinect_rgb_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_kinect_rgb_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_prosilica_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "head_mount_prosilica_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "projector_wg6802418_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "projector_wg6802418_child_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "sensor_mount_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "double_stereo_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "narrow_stereo_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "narrow_stereo_l_stereo_camera_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "narrow_stereo_l_stereo_camera_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "narrow_stereo_r_stereo_camera_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "narrow_stereo_r_stereo_camera_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "narrow_stereo_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "wide_stereo_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "wide_stereo_l_stereo_camera_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "wide_stereo_l_stereo_camera_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "wide_stereo_r_stereo_camera_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "wide_stereo_r_stereo_camera_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "wide_stereo_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "high_def_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "high_def_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "imu_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -0.564601836603,
+            2.1353981634
+          ]
+        ],
+        "name": "l_shoulder_pan_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_shoulder_pan_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.3536,
+            1.2963
+          ]
+        ],
+        "name": "l_shoulder_lift_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_shoulder_lift_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.65,
+            3.75
+          ]
+        ],
+        "name": "l_upper_arm_roll_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_upper_arm_roll_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "l_upper_arm_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.1213,
+            -0.15
+          ]
+        ],
+        "name": "l_elbow_flex_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_elbow_flex_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "l_forearm_roll_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_forearm_roll_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "l_forearm_cam_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "l_forearm_cam_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "l_forearm_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.0,
+            -0.1
+          ]
+        ],
+        "name": "l_wrist_flex_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_wrist_flex_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "l_wrist_roll_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_wrist_roll_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "l_gripper_palm_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "name": "l_gripper_l_finger_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_gripper_l_finger_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "mimic": {
+          "joint": "l_gripper_l_finger_joint",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "l_gripper_l_finger_tip_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_gripper_l_finger_tip_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "l_gripper_led_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "l_gripper_motor_accelerometer_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -0.1,
+            0.1
+          ]
+        ],
+        "name": "l_gripper_motor_slider_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "l_gripper_motor_slider_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "l_gripper_motor_screw_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_gripper_motor_screw_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "mimic": {
+          "joint": "l_gripper_l_finger_joint",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "l_gripper_r_finger_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_gripper_r_finger_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "mimic": {
+          "joint": "l_gripper_l_finger_joint",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "l_gripper_r_finger_tip_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "l_gripper_r_finger_tip_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.088
+          ]
+        ],
+        "name": "l_gripper_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "l_gripper_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "l_gripper_tool_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "l_torso_lift_side_plate_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -0.7354,
+            1.43353
+          ]
+        ],
+        "name": "laser_tilt_mount_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "laser_tilt_mount_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "laser_tilt_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.1353981634,
+            0.564601836603
+          ]
+        ],
+        "name": "r_shoulder_pan_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_shoulder_pan_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.3536,
+            1.2963
+          ]
+        ],
+        "name": "r_shoulder_lift_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_shoulder_lift_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.75,
+            0.65
+          ]
+        ],
+        "name": "r_upper_arm_roll_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_upper_arm_roll_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "r_upper_arm_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.1213,
+            -0.15
+          ]
+        ],
+        "name": "r_elbow_flex_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_elbow_flex_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "r_forearm_roll_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_forearm_roll_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "r_forearm_cam_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "r_forearm_cam_optical_frame_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "r_forearm_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -2.0,
+            -0.1
+          ]
+        ],
+        "name": "r_wrist_flex_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_wrist_flex_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "r_wrist_roll_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_wrist_roll_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "r_gripper_palm_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "name": "r_gripper_l_finger_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_gripper_l_finger_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "mimic": {
+          "joint": "r_gripper_l_finger_joint",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "r_gripper_l_finger_tip_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_gripper_l_finger_tip_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "r_gripper_led_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "r_gripper_motor_accelerometer_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -0.1,
+            0.1
+          ]
+        ],
+        "name": "r_gripper_motor_slider_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "r_gripper_motor_slider_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "r_gripper_motor_screw_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_gripper_motor_screw_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "mimic": {
+          "joint": "r_gripper_l_finger_joint",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "r_gripper_r_finger_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_gripper_r_finger_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.548
+          ]
+        ],
+        "mimic": {
+          "joint": "r_gripper_l_finger_joint",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "r_gripper_r_finger_tip_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "r_gripper_r_finger_tip_joint"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.088
+          ]
+        ],
+        "name": "r_gripper_joint",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "r_gripper_joint"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "r_gripper_tool_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "r_torso_lift_side_plate_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -3.141592653589793,
+            3.141592653589793
+          ]
+        ],
+        "name": "torso_lift_motor_screw_joint",
+        "position_bounded": [
+          false
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "torso_lift_motor_screw_joint"
+        ]
+      }
+    ],
+    "joints": [
+      "world_joint",
+      "base_footprint_joint",
+      "base_bellow_joint",
+      "base_laser_joint",
+      "bl_caster_rotation_joint",
+      "bl_caster_l_wheel_joint",
+      "bl_caster_r_wheel_joint",
+      "br_caster_rotation_joint",
+      "br_caster_l_wheel_joint",
+      "br_caster_r_wheel_joint",
+      "fl_caster_rotation_joint",
+      "fl_caster_l_wheel_joint",
+      "fl_caster_r_wheel_joint",
+      "fr_caster_rotation_joint",
+      "fr_caster_l_wheel_joint",
+      "fr_caster_r_wheel_joint",
+      "torso_lift_joint",
+      "head_pan_joint",
+      "head_tilt_joint",
+      "head_plate_frame_joint",
+      "head_mount_joint",
+      "head_mount_kinect_ir_joint",
+      "head_mount_kinect_ir_optical_frame_joint",
+      "head_mount_kinect_rgb_joint",
+      "head_mount_kinect_rgb_optical_frame_joint",
+      "head_mount_prosilica_joint",
+      "head_mount_prosilica_optical_frame_joint",
+      "projector_wg6802418_frame_joint",
+      "projector_wg6802418_child_frame_joint",
+      "sensor_mount_frame_joint",
+      "double_stereo_frame_joint",
+      "narrow_stereo_frame_joint",
+      "narrow_stereo_l_stereo_camera_frame_joint",
+      "narrow_stereo_l_stereo_camera_optical_frame_joint",
+      "narrow_stereo_r_stereo_camera_frame_joint",
+      "narrow_stereo_r_stereo_camera_optical_frame_joint",
+      "narrow_stereo_optical_frame_joint",
+      "wide_stereo_frame_joint",
+      "wide_stereo_l_stereo_camera_frame_joint",
+      "wide_stereo_l_stereo_camera_optical_frame_joint",
+      "wide_stereo_r_stereo_camera_frame_joint",
+      "wide_stereo_r_stereo_camera_optical_frame_joint",
+      "wide_stereo_optical_frame_joint",
+      "high_def_frame_joint",
+      "high_def_optical_frame_joint",
+      "imu_joint",
+      "l_shoulder_pan_joint",
+      "l_shoulder_lift_joint",
+      "l_upper_arm_roll_joint",
+      "l_upper_arm_joint",
+      "l_elbow_flex_joint",
+      "l_forearm_roll_joint",
+      "l_forearm_cam_frame_joint",
+      "l_forearm_cam_optical_frame_joint",
+      "l_forearm_joint",
+      "l_wrist_flex_joint",
+      "l_wrist_roll_joint",
+      "l_gripper_palm_joint",
+      "l_gripper_l_finger_joint",
+      "l_gripper_l_finger_tip_joint",
+      "l_gripper_led_joint",
+      "l_gripper_motor_accelerometer_joint",
+      "l_gripper_motor_slider_joint",
+      "l_gripper_motor_screw_joint",
+      "l_gripper_r_finger_joint",
+      "l_gripper_r_finger_tip_joint",
+      "l_gripper_joint",
+      "l_gripper_tool_joint",
+      "l_torso_lift_side_plate_joint",
+      "laser_tilt_mount_joint",
+      "laser_tilt_joint",
+      "r_shoulder_pan_joint",
+      "r_shoulder_lift_joint",
+      "r_upper_arm_roll_joint",
+      "r_upper_arm_joint",
+      "r_elbow_flex_joint",
+      "r_forearm_roll_joint",
+      "r_forearm_cam_frame_joint",
+      "r_forearm_cam_optical_frame_joint",
+      "r_forearm_joint",
+      "r_wrist_flex_joint",
+      "r_wrist_roll_joint",
+      "r_gripper_palm_joint",
+      "r_gripper_l_finger_joint",
+      "r_gripper_l_finger_tip_joint",
+      "r_gripper_led_joint",
+      "r_gripper_motor_accelerometer_joint",
+      "r_gripper_motor_slider_joint",
+      "r_gripper_motor_screw_joint",
+      "r_gripper_r_finger_joint",
+      "r_gripper_r_finger_tip_joint",
+      "r_gripper_joint",
+      "r_gripper_tool_joint",
+      "r_torso_lift_side_plate_joint",
+      "torso_lift_motor_screw_joint"
+    ],
+    "links": [
+      "base_footprint",
+      "base_link",
+      "base_bellow_link",
+      "base_laser_link",
+      "bl_caster_rotation_link",
+      "bl_caster_l_wheel_link",
+      "bl_caster_r_wheel_link",
+      "br_caster_rotation_link",
+      "br_caster_l_wheel_link",
+      "br_caster_r_wheel_link",
+      "fl_caster_rotation_link",
+      "fl_caster_l_wheel_link",
+      "fl_caster_r_wheel_link",
+      "fr_caster_rotation_link",
+      "fr_caster_l_wheel_link",
+      "fr_caster_r_wheel_link",
+      "torso_lift_link",
+      "head_pan_link",
+      "head_tilt_link",
+      "head_plate_frame",
+      "head_mount_link",
+      "head_mount_kinect_ir_link",
+      "head_mount_kinect_ir_optical_frame",
+      "head_mount_kinect_rgb_link",
+      "head_mount_kinect_rgb_optical_frame",
+      "head_mount_prosilica_link",
+      "head_mount_prosilica_optical_frame",
+      "projector_wg6802418_frame",
+      "projector_wg6802418_child_frame",
+      "sensor_mount_link",
+      "double_stereo_link",
+      "narrow_stereo_link",
+      "narrow_stereo_l_stereo_camera_frame",
+      "narrow_stereo_l_stereo_camera_optical_frame",
+      "narrow_stereo_r_stereo_camera_frame",
+      "narrow_stereo_r_stereo_camera_optical_frame",
+      "narrow_stereo_optical_frame",
+      "wide_stereo_link",
+      "wide_stereo_l_stereo_camera_frame",
+      "wide_stereo_l_stereo_camera_optical_frame",
+      "wide_stereo_r_stereo_camera_frame",
+      "wide_stereo_r_stereo_camera_optical_frame",
+      "wide_stereo_optical_frame",
+      "high_def_frame",
+      "high_def_optical_frame",
+      "imu_link",
+      "l_shoulder_pan_link",
+      "l_shoulder_lift_link",
+      "l_upper_arm_roll_link",
+      "l_upper_arm_link",
+      "l_elbow_flex_link",
+      "l_forearm_roll_link",
+      "l_forearm_cam_frame",
+      "l_forearm_cam_optical_frame",
+      "l_forearm_link",
+      "l_wrist_flex_link",
+      "l_wrist_roll_link",
+      "l_gripper_palm_link",
+      "l_gripper_l_finger_link",
+      "l_gripper_l_finger_tip_link",
+      "l_gripper_led_frame",
+      "l_gripper_motor_accelerometer_link",
+      "l_gripper_motor_slider_link",
+      "l_gripper_motor_screw_link",
+      "l_gripper_r_finger_link",
+      "l_gripper_r_finger_tip_link",
+      "l_gripper_l_finger_tip_frame",
+      "l_gripper_tool_frame",
+      "l_torso_lift_side_plate_link",
+      "laser_tilt_mount_link",
+      "laser_tilt_link",
+      "r_shoulder_pan_link",
+      "r_shoulder_lift_link",
+      "r_upper_arm_roll_link",
+      "r_upper_arm_link",
+      "r_elbow_flex_link",
+      "r_forearm_roll_link",
+      "r_forearm_cam_frame",
+      "r_forearm_cam_optical_frame",
+      "r_forearm_link",
+      "r_wrist_flex_link",
+      "r_wrist_roll_link",
+      "r_gripper_palm_link",
+      "r_gripper_l_finger_link",
+      "r_gripper_l_finger_tip_link",
+      "r_gripper_led_frame",
+      "r_gripper_motor_accelerometer_link",
+      "r_gripper_motor_slider_link",
+      "r_gripper_motor_screw_link",
+      "r_gripper_r_finger_link",
+      "r_gripper_r_finger_tip_link",
+      "r_gripper_l_finger_tip_frame",
+      "r_gripper_tool_frame",
+      "r_torso_lift_side_plate_link",
+      "torso_lift_motor_screw_link"
+    ],
+    "model_frame": "odom_combined",
+    "name": "pr2",
+    "root_link": "base_footprint"
+  }
+}
