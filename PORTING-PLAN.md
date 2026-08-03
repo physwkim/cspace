@@ -7528,3 +7528,94 @@ p1-robotmodel     0건   (대신 손수 쓴 비교 43곳, 라운드 11)
 p1-joints         0건   (손수 쓴 비교 3곳)
 p3-acm            나머지 — 아직 발주 안 함
 ```
+
+## 89. §85가 닫혔다, 그리고 `from_octree`가 착지했다 (2026-08-04)
+
+p3-distance-field 라운드 14 머지(`be10d78`, `458063f`, `41227a7`).
+베이스 `aac08af`, main에 머지. **1048 → 1050**.
+
+### 89.1 두 무는 지점을 내가 다시 쟀다 — 둘 다 재현된다
+
+§85.1이 뒤집은 판정을 담당이 상수군별로 다시 재고 고쳤다. 내 재측정:
+
+```
+ULP_TOL (네 개의 함정 사이트, epsilon = 0.0)
+  1.9e-16   3/3 통과
+  1.85e-16  1 fail
+  1.8e-16   1 fail
+  1e-16     1 fail
+  0.0       1 fail
+
+RESOLUTION (세 개의 진짜 게이트 사이트)
+  0.02    통과
+  0.0136  통과
+  0.0135  1 fail
+  0.01    1 fail
+```
+
+담당이 적은 두 값 — 함정 사이트 바닥 `1.850371707708594e-16`, 게이트
+사이트 바닥 `~0.0135530` — 이 그대로 나온다. **§85가 닫혔다.**
+
+**다만 헤드룸을 짚어 둔다.** 함정 사이트에 넣은 `ULP_TOL = f64::EPSILON`
+(2.22e-16)은 바닥 1.8504e-16의 **1.2배**다. 자릿수가 아니라 20% 여유다.
+ULP 수준 허용오차로는 타당한 선택이지만, 부동소수 평가 순서가 바뀌면
+바로 깨지는 마진이라는 뜻이다 — §88.3의 `bodies.rs`(상수 1e-13, 바닥
+1e-16–1e-15, 헤드룸 2–3자리)와는 성격이 다르다. 이 파일이 앞으로
+실패하면 회귀가 아니라 마진 문제일 수 있다.
+
+### 89.2 `from_octree`의 상류 근거를 직접 읽었다
+
+`collision_distance_field_types.cpp:355-365`:
+
+```cpp
+PosedBodyPointDecomposition::PosedBodyPointDecomposition(
+    const std::shared_ptr<const octomap::OcTree>& octree)
+  : body_decomposition_()
+{
+  int num_nodes = octree->getNumLeafNodes();
+  posed_collision_points_.reserve(num_nodes);
+  for (octomap::OcTree::tree_iterator tree_iter = octree->begin_tree();
+       tree_iter != octree->end_tree(); ++tree_iter)
+    posed_collision_points_.push_back(
+        Eigen::Vector3d(tree_iter.getX(), tree_iter.getY(), tree_iter.getZ()));
+}
+```
+
+담당의 독해가 맞다 — 점유 필터도, 리프 필터도 없이 **모든 노드**의
+좌표를 담는다. `reserve(getNumLeafNodes())`는 힌트일 뿐이고, 실제로는
+내부 노드까지 넣으므로 상류 스스로 과소 예약을 하고 있다. Rust 쪽은
+`tree_nodes().map(|n| n.coordinate().coords).collect()`로 같은 것을 한다.
+
+**필터가 진짜 없다는 것이 재어진다.** `-p moveit-distance-field`(74건)
+`--no-fail-fast`:
+
+```
+.filter(|node| node.is_leaf())      1 fail
+.filter(|node| node.is_occupied())  1 fail
+무변경 (대조)                        74/74 통과
+```
+
+점 개수 검증도 자기 참조가 아니다 — `OcTree::num_nodes()`
+(`tree.rs:316`)는 이터레이터가 아니라 별도의 재귀 카운트다(§73에서 이미
+`calcNumNodes`이지 `size()`가 아님을 확인했다).
+
+`addOcTreeToField`는 별개이고 여전히 미이식이라는 구분도 맞다 —
+`distance_field.cpp:219-291`은 바운딩박스 리프 순회, 점유 필터,
+해상도 이하 세분까지 하는 더 복잡한 알고리즘이다.
+
+### 89.3 브리프 지시 하나를 담당이 거절했고, 그 판단이 맞다
+
+브리프에 "오라클로 핀해라"라고 썼는데 담당은 `oracle.cpp`를 건드리지
+않았다 — 이번 라운드에 `tools/` 소유가 자기가 아니라는 이유다. 그
+판단이 옳다. 대신 비자기참조 단위 테스트 두 건으로 덮었고 위에서 내가
+확인했듯 실제로 재고 있다. **오라클 커버리지가 필요하면 `tools/` 소유자를
+거쳐야 한다** — 이 라운드 세트에서 `oracle.cpp`를 만진 것은 p3-shapes
+라운드 13(`tree_walk`)뿐이다.
+
+### 89.4 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1050/1050**(1048 + 2),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
+`7cc8a73408a83c92` 유지.
