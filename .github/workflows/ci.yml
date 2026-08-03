@@ -38,6 +38,8 @@ jobs:
         run: ./tools/ci/check-dep-direction.sh
       - name: fixture format
         run: ./tools/ci/check-fixture-format.sh
+      - name: no lint suppression
+        run: ./tools/ci/check-no-lint-suppression.sh
 
   # The differential harness needs the C++ oracle image, which takes long enough
   # to build that it is not run on every push. `workflow_dispatch` and the
