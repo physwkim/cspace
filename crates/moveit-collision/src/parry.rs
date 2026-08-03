@@ -16,18 +16,29 @@
 //! A [`CollisionEnv`] backend for `moveit_state::RobotState`, built on
 //! `parry3d-f64`.
 //!
-//! # Design: one shape per named body
+//! # Design: one globally-posed part per shape
 //!
-//! Upstream builds one FCL `CollisionObject` per link
-//! (`constructFCLObjectRobot`, combining every `LinkModel::shapes()` entry
-//! into one FCL geometry) and one per world object
-//! (`constructFCLObjectWorld`, same combination over `Object::shapes()`).
-//! [`PosedBody`] reproduces that: a link's or object's several shapes become
-//! one `parry` shape, posed once ([`combine_parts`]: a lone shape as itself,
-//! two or more wrapped in a `parry3d_f64::shape::Compound`). A collision or
-//! distance check between two bodies is therefore always exactly one `parry`
-//! query, matching the one-`CollisionObject`-pair-per-callback-invocation
-//! shape of upstream's design, whatever the shape count on either side.
+//! Upstream's `FCLObject` holds `std::vector<FCLCollisionObjectPtr>
+//! collision_objects_` — one FCL `CollisionObject` **per shape**, each
+//! carrying that shape's own global pose. `constructFCLObjectWorld` pushes
+//! one per `Object::shapes_[i]` at `global_shape_poses_[i]`;
+//! `constructFCLObjectRobot` pushes one per robot geometry at
+//! `getCollisionBodyTransform(link, shape_index)`; and both
+//! `checkRobotCollisionHelper` and `distanceRobotHelper` loop over that
+//! vector, invoking the broadphase once per collision object. Nothing is
+//! combined anywhere.
+//!
+//! [`PosedBody`] reproduces exactly that: [`PosedBody::parts`] is one
+//! `(global pose, shape)` per shape, and a body-vs-body check is the cross
+//! product of the two bodies' parts.
+//!
+//! Combining a body's shapes into a single `parry` shape instead would be
+//! both a deviation and unsound: `parry` treats
+//! [`parry3d_f64::shape::TriMesh`] as a composite shape, and
+//! `Compound::new` panics (`"Nested composite shapes are not allowed"`) as
+//! soon as one part is a mesh — which [`World::add_shapes_to_object`] makes
+//! reachable from public API for any scene object carrying a mesh alongside
+//! anything else.
 //!
 //! # Deviations from upstream
 //!
@@ -56,14 +67,15 @@
 //!    either field, so this backend always applies whatever
 //!    [`LinkPaddingScale`] it was constructed with, matching the real FCL
 //!    backend.
-//! 4. **At most one [`Contact`] per body pair.** `parry3d_f64::query::contact`
-//!    returns a single closest/deepest point for a whole shape pair —
-//!    including a [`Compound`] pair, however many sub-shapes either side has
-//!    — where FCL's narrow phase can report several contact points for one
-//!    object pair (e.g. mesh-mesh, or a box corner against a face).
-//!    [`CollisionRequest::max_contacts_per_pair`] is still applied (see
-//!    [`accumulate_collision`]) but can never bind above `1` for this
-//!    backend.
+//! 4. **At most one [`Contact`] per *part* pair.**
+//!    `parry3d_f64::query::contact` returns a single closest/deepest point
+//!    per shape pair, where FCL's narrow phase can report several contact
+//!    points for one object pair (e.g. mesh-mesh, or a box corner against a
+//!    face). A body pair therefore yields at most `a.parts.len() *
+//!    b.parts.len()` contacts here, against upstream's unbounded-per-pair
+//!    narrow phase. [`CollisionRequest::max_contacts_per_pair`] is applied
+//!    (see [`accumulate_collision`]) and does bind whenever either body
+//!    carries several shapes.
 //! 5. **Always a full contact query, never FCL's cheap boolean-only path.**
 //!    `collisionCallback`'s `NEVER`/no-entry branch runs a cheap,
 //!    contact-data-free `fcl::collide` once the storage budget
@@ -133,7 +145,7 @@ use moveit_state::Posed;
 use parry3d_f64::math::{Pose, Vector as ParryVector};
 use parry3d_f64::query::{self, Contact as ParryContact};
 use parry3d_f64::shape::{
-    Ball, Compound, Cone as ParryCone, Cuboid as ParryCuboid, Cylinder as ParryCylinder, HalfSpace,
+    Ball, Cone as ParryCone, Cuboid as ParryCuboid, Cylinder as ParryCylinder, HalfSpace,
     SharedShape, TriMesh,
 };
 
@@ -267,43 +279,37 @@ fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
     shape
 }
 
-/// One named, posed collision body — a robot link or a world object — with
-/// every one of its shapes combined into a single `parry` shape, matching
-/// upstream's one-`CollisionObject`-per-body design. See the module doc and
-/// [`combine_parts`] for why that single shape is a bare [`SharedShape`]
-/// rather than always a [`Compound`].
+/// One named collision body — a robot link or a world object — as the list
+/// of globally-posed shapes upstream's `FCLObject::collision_objects_` holds
+/// for it. See the module doc.
 struct PosedBody {
     name: String,
     body_type: BodyType,
-    shape: SharedShape,
-    pose: Pose,
+    /// One `(global pose, shape)` per shape, upstream's
+    /// `global_shape_poses_[i]` / `getCollisionBodyTransform(link, i)`.
+    /// Never empty: [`pose_parts`] returns `None` rather than build a body
+    /// with nothing to check.
+    parts: Vec<(Pose, SharedShape)>,
 }
 
-/// Fold one body's posed shape parts (each already relative to the body's own
-/// pose) into the single `(SharedShape, Pose)` a [`PosedBody`] holds. `None`
-/// if `parts` is empty.
-///
-/// A single part is returned as-is, with its relative pose composed directly
-/// into `pose`, rather than always wrapped in a [`Compound`] of one: `parry`
-/// treats [`parry3d_f64::shape::TriMesh`] itself as a composite shape (its
-/// own `as_composite_shape` returns `Some`), and `Compound::new` panics
-/// (`"Nested composite shapes are not allowed"`) if any of its parts is
-/// composite — so wrapping a lone [`Shape::Mesh`] part in a `Compound` (e.g.
-/// [`crate::VisibilityConstraint`]'s visibility cone, the first caller to put
-/// a `Shape::Mesh` in a [`World`] object; [`LinkModel::shapes`] can never
-/// contain one, see [`scaled_padded_shape`]'s doc) would panic. Two or more
-/// parts still go through `Compound` as before; a body with several shapes
-/// where more than one is a mesh remains unsupported (would still panic) —
-/// no caller in this crate constructs that today.
-fn combine_parts(parts: Vec<(Pose, SharedShape)>, pose: Isometry3) -> Option<(SharedShape, Pose)> {
-    match parts.len() {
-        0 => None,
-        1 => {
-            let (part_pose, shape) = parts.into_iter().next().expect("len checked above");
-            Some((shape, to_pose(pose) * part_pose))
-        }
-        _ => Some((SharedShape::new(Compound::new(parts)), to_pose(pose))),
+/// Compose each shape part's body-relative pose with the body's own `pose`,
+/// yielding the global poses [`PosedBody::parts`] stores. `None` if `parts`
+/// is empty, so a body with no convertible geometry is dropped rather than
+/// carried as an empty one.
+fn pose_parts(
+    parts: Vec<(Pose, SharedShape)>,
+    pose: Isometry3,
+) -> Option<Vec<(Pose, SharedShape)>> {
+    if parts.is_empty() {
+        return None;
     }
+    let body_pose = to_pose(pose);
+    Some(
+        parts
+            .into_iter()
+            .map(|(part_pose, shape)| (body_pose * part_pose, shape))
+            .collect(),
+    )
 }
 
 /// One robot link's [`PosedBody`], scaled and padded per `padding_scale`.
@@ -327,12 +333,10 @@ fn link_body(
             Some((to_pose(link_shape.origin_transform * extra), parry_shape))
         })
         .collect();
-    let (shape, pose) = combine_parts(parts, pose)?;
     Some(PosedBody {
         name: link.name().to_owned(),
         body_type: BodyType::RobotLink,
-        shape,
-        pose,
+        parts: pose_parts(parts, pose)?,
     })
 }
 
@@ -347,12 +351,10 @@ fn object_body(id: &str, object: &Object) -> Option<PosedBody> {
             Some((to_pose(entry.pose() * extra), parry_shape))
         })
         .collect();
-    let (shape, pose) = combine_parts(parts, object.pose())?;
     Some(PosedBody {
         name: id.to_owned(),
         body_type: BodyType::WorldObject,
-        shape,
-        pose,
+        parts: pose_parts(parts, object.pose())?,
     })
 }
 
@@ -388,6 +390,28 @@ fn cross_pairs<'a>(
     b: &'a [PosedBody],
 ) -> impl Iterator<Item = (&'a PosedBody, &'a PosedBody)> {
     a.iter().flat_map(move |x| b.iter().map(move |y| (x, y)))
+}
+
+/// Every `(pose, shape)` combination of two bodies' parts — the cross product
+/// upstream gets for free by registering each body's collision objects
+/// individually with the broadphase manager (`FCLObject::registerTo`) and
+/// then calling `collide`/`distance` once per collision object.
+fn part_pairs<'a>(
+    a: &'a PosedBody,
+    b: &'a PosedBody,
+) -> impl Iterator<
+    Item = (
+        &'a Pose,
+        &'a dyn parry3d_f64::shape::Shape,
+        &'a Pose,
+        &'a dyn parry3d_f64::shape::Shape,
+    ),
+> {
+    a.parts.iter().flat_map(move |(a_pose, a_shape)| {
+        b.parts
+            .iter()
+            .map(move |(b_pose, b_shape)| (a_pose, a_shape.as_ref(), b_pose, b_shape.as_ref()))
+    })
 }
 
 /// `fcl2contact`, adapted from `parry3d_f64::query::Contact`'s fields:
@@ -456,26 +480,26 @@ fn accumulate_collision<'a>(
         if matches!(allowed, Some(AllowedCollision::Always)) {
             continue;
         }
-        let Ok(Some(contact)) =
-            query::contact(&a.pose, a.shape.as_ref(), &b.pose, b.shape.as_ref(), 0.0)
-        else {
-            continue;
-        };
-        let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
-        let is_collision = match allowed {
-            Some(AllowedCollision::Conditional(predicate)) => !predicate(&mut c),
-            Some(AllowedCollision::Never) | None => true,
-            Some(AllowedCollision::Always) => unreachable!("filtered out above"),
-        };
-        if !is_collision {
-            continue;
-        }
-        collision = true;
-        if request.contacts && stored_total < request.max_contacts {
-            let bucket = by_pair.entry((a.name.clone(), b.name.clone())).or_default();
-            if bucket.len() < request.max_contacts_per_pair {
-                bucket.push(c);
-                stored_total += 1;
+        for (a_pose, a_shape, b_pose, b_shape) in part_pairs(a, b) {
+            let Ok(Some(contact)) = query::contact(a_pose, a_shape, b_pose, b_shape, 0.0) else {
+                continue;
+            };
+            let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
+            let is_collision = match allowed {
+                Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
+                Some(AllowedCollision::Never) | None => true,
+                Some(AllowedCollision::Always) => unreachable!("filtered out above"),
+            };
+            if !is_collision {
+                continue;
+            }
+            collision = true;
+            if request.contacts && stored_total < request.max_contacts {
+                let bucket = by_pair.entry((a.name.clone(), b.name.clone())).or_default();
+                if bucket.len() < request.max_contacts_per_pair {
+                    bucket.push(c);
+                    stored_total += 1;
+                }
             }
         }
     }
@@ -509,76 +533,82 @@ fn accumulate_distance<'a>(
             continue;
         }
         let key = (a.name.clone(), b.name.clone());
-        let threshold = match request.request_type {
-            DistanceRequestType::Global => result.minimum_distance.distance,
-            DistanceRequestType::Limited => {
-                if result
+        // Per *part* pair, not per body pair: each of upstream's collision
+        // objects reaches `distanceCallback` as its own invocation, which
+        // re-reads the running `minimum_distance`/`distances` state to pick
+        // its threshold. Recomputing inside the loop is what reproduces that.
+        for (a_pose, a_shape, b_pose, b_shape) in part_pairs(a, b) {
+            let threshold = match request.request_type {
+                DistanceRequestType::Global => result.minimum_distance.distance,
+                DistanceRequestType::Limited => {
+                    if result
+                        .distances
+                        .get(&key)
+                        .is_some_and(|existing| existing.len() >= request.max_contacts_per_body)
+                    {
+                        continue;
+                    }
+                    request.distance_threshold
+                }
+                DistanceRequestType::Single => result
                     .distances
                     .get(&key)
-                    .is_some_and(|existing| existing.len() >= request.max_contacts_per_body)
-                {
-                    continue;
-                }
-                request.distance_threshold
+                    .map_or(request.distance_threshold, |existing| existing[0].distance),
+                DistanceRequestType::All => request.distance_threshold,
+            };
+            let Ok(Some(contact)) = query::contact(
+                a_pose,
+                a_shape,
+                b_pose,
+                b_shape,
+                bounded_prediction(threshold),
+            ) else {
+                continue;
+            };
+            if contact.dist >= threshold {
+                continue;
             }
-            DistanceRequestType::Single => result
-                .distances
-                .get(&key)
-                .map_or(request.distance_threshold, |existing| existing[0].distance),
-            DistanceRequestType::All => request.distance_threshold,
-        };
-        let Ok(Some(contact)) = query::contact(
-            &a.pose,
-            a.shape.as_ref(),
-            &b.pose,
-            b.shape.as_ref(),
-            bounded_prediction(threshold),
-        ) else {
-            continue;
-        };
-        if contact.dist >= threshold {
-            continue;
-        }
-        let distance_value = if request.enable_signed_distance {
-            contact.dist
-        } else {
-            contact.dist.max(0.0)
-        };
-        let mut data = DistanceResultsData {
-            distance: distance_value,
-            nearest_points: [Vector3::zeros(); 2],
-            link_names: [a.name.clone(), b.name.clone()],
-            body_types: [a.body_type, b.body_type],
-            normal: Vector3::zeros(),
-        };
-        if request.enable_nearest_points {
-            if distance_value <= 0.0 {
-                let p = from_parry_vector(contact.point1);
-                data.nearest_points = [p, p];
+            let distance_value = if request.enable_signed_distance {
+                contact.dist
             } else {
-                let p1 = from_parry_vector(contact.point1);
-                let p2 = from_parry_vector(contact.point2);
-                data.normal = (p2 - p1).normalize();
-                data.nearest_points = [p1, p2];
+                contact.dist.max(0.0)
+            };
+            let mut data = DistanceResultsData {
+                distance: distance_value,
+                nearest_points: [Vector3::zeros(); 2],
+                link_names: [a.name.clone(), b.name.clone()],
+                body_types: [a.body_type, b.body_type],
+                normal: Vector3::zeros(),
+            };
+            if request.enable_nearest_points {
+                if distance_value <= 0.0 {
+                    let p = from_parry_vector(contact.point1);
+                    data.nearest_points = [p, p];
+                } else {
+                    let p1 = from_parry_vector(contact.point1);
+                    let p2 = from_parry_vector(contact.point2);
+                    data.normal = (p2 - p1).normalize();
+                    data.nearest_points = [p1, p2];
+                }
             }
-        }
-        if data.distance < result.minimum_distance.distance {
-            result.minimum_distance = data.clone();
-        }
-        if data.distance <= 0.0 {
-            result.collision = true;
-        }
-        match request.request_type {
-            DistanceRequestType::Global => {}
-            DistanceRequestType::All | DistanceRequestType::Limited => {
-                result.distances.entry(key).or_default().push(data);
+            if data.distance < result.minimum_distance.distance {
+                result.minimum_distance = data.clone();
             }
-            DistanceRequestType::Single => {
-                let bucket = result.distances.entry(key).or_default();
-                if bucket.is_empty() {
-                    bucket.push(data);
-                } else if data.distance < bucket[0].distance {
-                    bucket[0] = data;
+            if data.distance <= 0.0 {
+                result.collision = true;
+            }
+            match request.request_type {
+                DistanceRequestType::Global => {}
+                DistanceRequestType::All | DistanceRequestType::Limited => {
+                    result.distances.entry(key.clone()).or_default().push(data);
+                }
+                DistanceRequestType::Single => {
+                    let bucket = result.distances.entry(key.clone()).or_default();
+                    if bucket.is_empty() {
+                        bucket.push(data);
+                    } else if data.distance < bucket[0].distance {
+                        bucket[0] = data;
+                    }
                 }
             }
         }
