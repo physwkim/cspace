@@ -56,6 +56,93 @@
 //!     `jointLimitAccelerationScalingFactor` (free function) is ported as
 //!     a private helper of the same name's-worth of behavior in
 //!     `acceleration_filter.rs`.
+//!
+//! # Completion condition
+//!
+//! This section is a check, not a claim: it names exactly what "done" means
+//! for this crate's current scope, so plan and code can be compared directly
+//! instead of re-diverging silently (the pattern `moveit-distance-field`'s
+//! own "Completion condition" section established, after PORTING-PLAN.md
+//! §65/§71 caught a plan claim nobody could verify against the code).
+//!
+//! **Headers, fully audited (read in full against the pinned SHA, not
+//! inferred from what is already ported):**
+//!
+//! - `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/{butterworth_filter,smoothing_base_class,ruckig_filter,acceleration_filter}.hpp`
+//!   plus their four `.h` deprecated-forwarding-shim siblings — see the
+//!   "Symbol audit: every `online_signal_smoothing/src/` file" section above
+//!   for the per-symbol table (headers and `.cpp` files audited together
+//!   there, since every class this package declares is declared in its
+//!   header and defined in the matching `.cpp`, unlike
+//!   `moveit-trajectory`'s `time_optimal_trajectory_generation.cpp`, which
+//!   has two classes with no header declaration at all).
+//!
+//! Every symbol in all four files is classified above as ported (with its
+//! Rust name), D-decision-excluded (with the decision), or unported (with
+//! the specific reason) — there is no symbol from any of the four left
+//! unclassified.
+//!
+//! **Fixtures, and what they cover:**
+//!
+//! - `tests/ruckig_filter_parity.rs` — the oracle's `ruckig_filter` op
+//!   against [`ruckig_filter::RuckigFilter`]'s `initialize`/`do_smoothing`/
+//!   `reset`.
+//! - `tests/acceleration_filter_parity.rs` — the oracle's
+//!   `acceleration_filter` op against
+//!   [`acceleration_filter::AccelerationLimitedFilter`]'s `initialize`/
+//!   `do_smoothing`/`reset`, real ground truth rather than the closed-form
+//!   derivation alone (see `acceleration_filter.rs`'s own module doc on why
+//!   that distinction matters here specifically).
+//! - [`ruckig_filter`]'s own `#[cfg(test)]` module — boundary tests with no
+//!   oracle op to compare against: `joint_vel_accel_jerk_bounds` rejecting a
+//!   group missing acceleration or jerk limits, a typed error (not a silent
+//!   last-variable-wins) for a multi-DOF active joint, mismatched-length
+//!   rejection for both `do_smoothing` and `reset`, and a first-tick-from-rest
+//!   case exercising the streaming `Synchronization::Phase` state machine
+//!   directly.
+//! - [`acceleration_filter`]'s own `#[cfg(test)]` module — the QP
+//!   feasible-interval boundary cases no oracle fixture reaches: an empty
+//!   feasible-velocity intersection falling back to decelerate-toward-rest,
+//!   a single-point intersection forcing `alpha = 1.0`, a tiny offset
+//!   holding at the last commanded value, plus the same
+//!   `joint_acceleration_bounds` and typed-error coverage
+//!   `ruckig_filter.rs`'s tests give their own bound function.
+//! - [`ButterworthFilter`]'s own `#[cfg(test)]` module, in `butterworth.rs`
+//!   — both upstream `SMOOTHING_PLUGINS` gtest cases
+//!   (`FilterConverge`/`FilterReset`), plus boundary tests for every
+//!   constructor rejection (`coeff < 1.0`, a feedback term landing within
+//!   [`EPSILON`] of zero from either side, an infinite feedback or scale
+//!   term) and the documented NaN-coefficient passthrough.
+//!
+//! Both oracle-backed fixtures are registered in
+//! `tests/fixtures/oracle-models.json` (`acceleration_filter`,
+//! `ruckig_filter`, each naming the URDF/SRDF pair its request/response JSON
+//! was captured against), and both keys there match a real `op == "..."`
+//! branch in `tools/moveit-oracle/src/oracle.cpp`.
+//!
+//! **What is still missing, and why it is not a gap in the above:** every
+//! item is already named individually in the symbol-audit section above
+//! with its own reason; this is the roll-up. `ButterworthFilterPlugin`,
+//! `RuckigFilterPlugin`, `AccelerationLimitedPlugin`, and
+//! `SmoothingBaseClass` itself are all D-decision-excluded for the same two
+//! reasons, stated once here rather than per class: each `initialize` takes
+//! an `rclcpp::Node::SharedPtr` in its signature (D1), and each class exists
+//! specifically to be `pluginlib`-loadable (`PLUGINLIB_EXPORT_CLASS`), which
+//! D4 replaces workspace-wide with a compile-time trait + `linkme` registry
+//! rather than a runtime plugin interface — so even a Rust-native common
+//! trait over the three filters would not mirror this shape. Every
+//! `*Filter`/`*LimitedFilter` type these plugins wrap is fully ported (see
+//! above); nothing behind a plugin boundary is missing, only the boundary
+//! itself, deliberately.
+//!
+//! This crate's completion condition, stated as a check rather than a
+//! claim: every symbol in all four audited files is classified above; every
+//! classified-as-ported symbol has either an oracle-driven fixture or a
+//! boundary/unit test with a documented reason no oracle op covers it; and
+//! every classified-as-unported symbol names the specific D-decision — not
+//! "not yet" on its own. If a future symbol or fixture cannot be placed in
+//! one of those buckets, this section is stale and needs re-auditing before
+//! the plan is updated to match it.
 
 /// A `Synchronization::Phase` Ruckig streaming filter — see the module doc's
 /// `ruckig_filter.cpp` entry.

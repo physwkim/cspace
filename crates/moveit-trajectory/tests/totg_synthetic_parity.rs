@@ -39,7 +39,32 @@
 //!
 //! # Tolerance
 //!
-//! Same numerics as `totg_robot_trajectory_parity.rs`; `TOL` matches.
+//! `assert_relative_eq!` without an explicit `max_relative` silently gets
+//! `f64::EPSILON` (~2.22e-16), so bisecting `epsilon` alone can plateau
+//! before a real biting point (PORTING-PLAN.md §78.1/§79). The old `TOL`
+//! was an unqualified `1e-6`. All four comparison groups
+//! (`duration_from_previous`, `positions`, `velocities`, `accelerations`)
+//! share this one constant across two groups' worth of cases
+//! (`planar_group`, `mixed_group`), so bisecting the whole test as one
+//! block risks a live gate in one group masking a dead one in another
+//! (PORTING-PLAN.md's correction to §79's method, citing
+//! `distance-field/tests/upstream_parity.rs`: 4 of 7 bundled assertions
+//! there only bit 12 orders below the named epsilon once re-bisected per
+//! group). Verified per group from the start with a non-panicking
+//! max-diff sweep (temporarily printing every group's largest
+//! `|actual - expected|` across every case/waypoint/joint instead of
+//! asserting): `duration_from_previous` maxes at `1.39e-17`, `positions`
+//! at `4.44e-16` (`planar_group` case 1, waypoint 3, `theta`),
+//! `velocities` at `2.22e-16`, `accelerations` at `4.44e-16`
+//! (`planar_group` case 1, waypoint 20, `theta`) -- all four groups are
+//! genuinely nonzero, so none collapses to `assert_eq!`. `TOL` is now
+//! `1e-12`, pinned as `max_relative` on every call below (coupling both
+//! branches to the same constant), ~3.35 orders of magnitude of headroom
+//! over the loosest groups (`positions`/`accelerations`). Confirmed still
+//! discriminating: multiplying `do_time_parameterization_calculations`'s
+//! `position[j]` writeback by `1.0001` fails the fixture (same
+//! perturbation `totg_robot_trajectory_parity.rs` uses, since both files
+//! exercise the same writeback loop).
 
 use std::collections::HashMap;
 use std::fs;
@@ -55,7 +80,7 @@ use moveit_trajectory::time_optimal_trajectory_generation::{
     TotgOptions, compute_time_stamps_with_limits, has_mixed_joint_types,
 };
 
-const TOL: f64 = 1e-6;
+const TOL: f64 = 1e-12;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -217,7 +242,8 @@ fn totg_synthetic_matches_the_oracle() {
                 assert_relative_eq!(
                     trajectory.way_point_duration_from_previous(waypoint_idx),
                     expected.durations_from_previous[waypoint_idx],
-                    epsilon = TOL
+                    epsilon = TOL,
+                    max_relative = TOL
                 );
 
                 let waypoint = trajectory.way_point(waypoint_idx).unwrap_or_else(|e| {
@@ -235,7 +261,8 @@ fn totg_synthetic_matches_the_oracle() {
                             request.group
                         )),
                         expected_position,
-                        epsilon = TOL
+                        epsilon = TOL,
+                        max_relative = TOL
                     );
                 }
                 for (name, &expected_velocity) in &expected_waypoint.velocities {
@@ -245,7 +272,8 @@ fn totg_synthetic_matches_the_oracle() {
                             request.group
                         )),
                         expected_velocity,
-                        epsilon = TOL
+                        epsilon = TOL,
+                        max_relative = TOL
                     );
                 }
                 for (name, &expected_acceleration) in &expected_waypoint.accelerations {
@@ -255,7 +283,8 @@ fn totg_synthetic_matches_the_oracle() {
                             request.group
                         )),
                         expected_acceleration,
-                        epsilon = TOL
+                        epsilon = TOL,
+                        max_relative = TOL
                     );
                 }
             }

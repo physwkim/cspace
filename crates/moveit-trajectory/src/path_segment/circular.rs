@@ -171,11 +171,31 @@ mod tests {
         let (segment, length) = Circular::new(&start, &intersection, &end, 10.0);
         // radius = distance / tan(pi/4) = distance (angle between the
         // direction vectors is pi/2, since they're perpendicular).
-        assert_relative_eq!(length, segment.radius * (PI / 2.0), epsilon = 1e-9);
+        //
+        // # Tolerance
+        //
+        // Measured per assertion via a temporary `eprintln!` diff sweep
+        // before converting from `assert_relative_eq!`
+        // (PORTING-PLAN.md §78.1/§79): `length` and `stop[1]` are
+        // bit-exact (`0e0`), converted to `assert_eq!`. `begin[0]` has a
+        // genuine 1-ULP floor (`2.220446049250313e-16`, exactly
+        // `f64::EPSILON`) from `x`'s own `normalize()` not landing
+        // `begin[0]` on `-segment.radius` bit-for-bit; kept as
+        // `assert_relative_eq!` with `max_relative` pinned explicitly to
+        // `f64::EPSILON` (making the previously-implicit default
+        // explicit without loosening it) -- safe here since the compared
+        // magnitude is ~1.0, far below where `epsilon = 1e-9` would ever
+        // need the relative branch's help.
+        assert_eq!(length, segment.radius * (PI / 2.0));
         let begin = segment.config(0.0);
         let stop = segment.config(length);
-        assert_relative_eq!(begin[0], -segment.radius, epsilon = 1e-9);
-        assert_relative_eq!(stop[1], segment.radius, epsilon = 1e-9);
+        assert_relative_eq!(
+            begin[0],
+            -segment.radius,
+            epsilon = 1e-9,
+            max_relative = f64::EPSILON
+        );
+        assert_eq!(stop[1], segment.radius);
     }
 
     #[test]

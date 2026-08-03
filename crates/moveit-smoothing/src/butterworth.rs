@@ -117,8 +117,6 @@ impl ButterworthFilter {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     /// Upstream `TEST(SMOOTHING_PLUGINS, FilterConverge)`.
@@ -211,6 +209,11 @@ mod tests {
     fn reset_then_filter_same_value_holds_steady() {
         let mut lpf = ButterworthFilter::new(4.0).unwrap();
         lpf.reset(-3.0);
-        assert_relative_eq!(lpf.filter(-3.0), -3.0, epsilon = 1e-12);
+        // Bit-exact for this input: measured `0e0` via a temporary
+        // `eprintln!` diff sweep before converting from
+        // `assert_relative_eq!` per PORTING-PLAN.md §78.1/§79. Not exact
+        // by a general argument (`scale_term = 0.2` isn't exactly
+        // representable) -- confirmed by measurement, not derivation.
+        assert_eq!(lpf.filter(-3.0), -3.0);
     }
 }

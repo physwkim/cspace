@@ -27,6 +27,41 @@
 //! *close to* that point — see `acceleration_filter.rs`'s module doc for the
 //! full derivation and the measured magnitude `DEGENERATE_CASE_TOL` is set
 //! from.
+//!
+//! Both `assert_relative_eq!` calls now pin `max_relative = tol`: left
+//! unspecified it silently defaults to `f64::EPSILON` (~2.22e-16)
+//! regardless of `epsilon`, so bisecting `epsilon` alone can plateau before
+//! a real biting point once `max(|a|, |b|)` is large enough for that
+//! implicit relative branch to cover the diff on its own (PORTING-PLAN.md
+//! §78.1/§79). Bisecting the coupled `TOL`: `1.2e-15` and above pass,
+//! `1.1e-15` and below fail (first divergence is `positions[idx]` in case 0,
+//! `0.9999999999999998` vs `1.0000000000000009`, diff ~1.1e-15 — this was
+//! never actually masked by the implicit relative branch, which for
+//! `max(|a|,|b|) ≈ 1.0` would only cover ~2.22e-16). `TOL` is `1e-11`, ~4
+//! orders of magnitude of headroom over that floor.
+//!
+//! `positions` and `velocities` share this one `tol`, so a bisection that
+//! only watches the first `assert_relative_eq!` failure could report the
+//! loosest group's floor and never notice a tighter group behind it
+//! (PORTING-PLAN.md's correction to §79's method, citing
+//! `distance-field/tests/upstream_parity.rs`: 4 of 7 bundled assertions
+//! there only bit 12 orders below the named epsilon once re-bisected per
+//! group). Re-verified with a non-panicking max-diff sweep across every
+//! case/step/joint: `positions` and `velocities` both max at exactly
+//! `1.11e-15` for the non-degenerate cases (case 0's `positions[idx]`
+//! error propagates straight into `velocities` through `do_smoothing`'s
+//! `(p - last_p) / dt`), and both max at exactly `8.29e-4` for case 2 --
+//! consistent with a single shared floor per group of cases, not one group
+//! masking a tighter other.
+//!
+//! `DEGENERATE_CASE_TOL` was independently confirmed to still bite at its
+//! documented measured value (fails at `8e-4`, passes at `2e-3`) — it was
+//! never at risk of the `max_relative` trap since it is derived from an
+//! actually-observed diff, not guessed. Perturbing the `alpha`-blend
+//! writeback in
+//! `AccelerationLimitedFilter::do_smoothing` (`*p = alpha * last_p + (1.0 -
+//! alpha) * *p`) by a `1.0001` factor makes this fixture fail, confirming
+//! the assertions still discriminate.
 
 use std::collections::HashMap;
 use std::fs;
@@ -38,7 +73,7 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_smoothing::acceleration_filter::{AccelerationLimitedFilter, joint_acceleration_bounds};
 use moveit_srdf::SrdfModel;
 
-const TOL: f64 = 1e-9;
+const TOL: f64 = 1e-11;
 
 /// Measured, not guessed: `acceleration_filter_response.json`'s third case
 /// puts `osqp`'s answer `0.0008294991991130152` away from this port's exact
@@ -221,7 +256,12 @@ fn acceleration_filter_matches_the_oracle() {
                     .unwrap_or_else(|| {
                         panic!("case {case_index} step {step_index}: unknown joint {name}")
                     });
-                assert_relative_eq!(positions[idx], expected_position, epsilon = tol);
+                assert_relative_eq!(
+                    positions[idx],
+                    expected_position,
+                    epsilon = tol,
+                    max_relative = tol
+                );
             }
             for (name, &expected_velocity) in &expected_step.velocities {
                 let idx = joint_names
@@ -230,7 +270,12 @@ fn acceleration_filter_matches_the_oracle() {
                     .unwrap_or_else(|| {
                         panic!("case {case_index} step {step_index}: unknown joint {name}")
                     });
-                assert_relative_eq!(velocities[idx], expected_velocity, epsilon = tol);
+                assert_relative_eq!(
+                    velocities[idx],
+                    expected_velocity,
+                    epsilon = tol,
+                    max_relative = tol
+                );
             }
         }
     }

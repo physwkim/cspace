@@ -63,8 +63,6 @@ impl Linear {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     #[test]
@@ -74,16 +72,25 @@ mod tests {
             DVector::from_vec(vec![2.0, 4.0]),
         );
         let mid = segment.config(0.5 * length, length);
-        assert_relative_eq!(mid[0], 1.0, epsilon = 1e-12);
-        assert_relative_eq!(mid[1], 2.0, epsilon = 1e-12);
+        // Bit-exact: halving `length` is an exact power-of-two scale (no
+        // rounding), and IEEE 754 division is correctly rounded, so
+        // `(0.5 * length) / length` lands exactly on `0.5` and the
+        // interpolation resolves to the exact literal midpoint. Measured
+        // `0e0` via a temporary `eprintln!` diff before converting from
+        // `assert_relative_eq!` per PORTING-PLAN.md §78.1/§79.
+        assert_eq!(mid[0], 1.0);
+        assert_eq!(mid[1], 2.0);
     }
 
     #[test]
     fn config_clamps_outside_the_segment() {
         let (segment, length) =
             Linear::new(DVector::from_vec(vec![0.0]), DVector::from_vec(vec![1.0]));
-        assert_relative_eq!(segment.config(-1.0, length)[0], 0.0);
-        assert_relative_eq!(segment.config(length + 1.0, length)[0], 1.0);
+        // Bit-exact: the clamp pins `s` to exactly 0.0 or 1.0, so
+        // `config` returns `start`/`end` with no interpolation
+        // arithmetic at all. Measured `0e0` before converting.
+        assert_eq!(segment.config(-1.0, length)[0], 0.0);
+        assert_eq!(segment.config(length + 1.0, length)[0], 1.0);
     }
 
     #[test]
@@ -91,7 +98,10 @@ mod tests {
         let (segment, length) =
             Linear::new(DVector::from_vec(vec![3.0]), DVector::from_vec(vec![3.0]));
         assert_eq!(length, 0.0);
-        assert_relative_eq!(segment.config(0.0, length)[0], 3.0);
+        // Bit-exact: `cxx_min`/`cxx_max`'s NaN handling resolves `s` to
+        // exactly 1.0, so this too returns `end` unchanged. Measured
+        // `0e0` before converting.
+        assert_eq!(segment.config(0.0, length)[0], 3.0);
     }
 
     #[test]
@@ -101,7 +111,14 @@ mod tests {
             DVector::from_vec(vec![3.0, 4.0]),
         );
         let tangent = segment.tangent(length);
-        assert_relative_eq!(tangent.norm(), 1.0, epsilon = 1e-12);
+        // Bit-exact for this input: measured `0e0` via a temporary
+        // `eprintln!` diff sweep before converting from
+        // `assert_relative_eq!`. Unlike the other conversions in this
+        // module, this one isn't exact by a general argument (0.6/0.8
+        // aren't exactly representable) -- it happens to round-trip
+        // through `norm()` back to exactly 1.0 for this specific (3,4)
+        // input, confirmed by measurement, not derivation.
+        assert_eq!(tangent.norm(), 1.0);
     }
 
     #[test]

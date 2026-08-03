@@ -59,8 +59,42 @@
 //! algorithm as upstream's C++ `ruckig`, not a binding to it -- its
 //! block/step-2 root-finding does not walk identical floating-point
 //! operations in identical order, so exact bit-parity is not expected.
-//! `TOL` is set from what this fixture actually produces, matching
-//! `ruckig_parity.rs`'s own precedent for the same crate pairing.
+//!
+//! `assert_relative_eq!` without an explicit `max_relative` silently gets
+//! `f64::EPSILON` (~2.22e-16) for it, so bisecting `epsilon` alone can never
+//! reach a real biting point once `max(|a|, |b|)` is large enough for that
+//! implicit relative branch to cover the diff on its own (PORTING-PLAN.md
+//! §78.1/§79). Every call below pins `max_relative = TOL` so the same
+//! constant gates both branches. Bisecting that coupled constant on this
+//! fixture: `1e-15` through `2.3e-16` pass, `2.2e-16` and below fail (the
+//! first divergence is `accelerations[idx]` in the 15-tick moving-target
+//! case, e.g. `0.28633902198848005` vs `0.2863390219884798`, diff ~2.5e-16 --
+//! larger than the ~6.4e-17 the implicit relative branch alone would have
+//! given it, so this assertion was never actually masked, just far looser
+//! than it needed to be).
+//!
+//! `positions`/`velocities`/`accelerations` share this one `TOL`, so a
+//! bisection that only watches the first `assert_relative_eq!` failure
+//! could report the loosest group's floor and never notice a tighter group
+//! hiding behind it (PORTING-PLAN.md's correction to §79's method, citing
+//! `distance-field/tests/upstream_parity.rs`: 4 of 7 bundled assertions
+//! there only bit 12 orders below the named epsilon once re-bisected per
+//! group). Re-verified with a non-panicking max-diff sweep across every
+//! case/step/joint instead of asserting: `positions` maxes at `5.55e-17`,
+//! `velocities` at `1.11e-16`, `accelerations` at `2.22e-16` -- the
+//! `accelerations` group above (`~2.5e-16`) genuinely is the tightest of
+//! the three, so the first-failure bisection was not masking a tighter
+//! group.
+//!
+//! `TOL` is `1e-12`, giving ~3.6 orders of magnitude of headroom over the
+//! measured floor -- matching the headroom `distance-field` settled on in
+//! PORTING-PLAN.md §78.2 for the same independent-reimplementation
+//! situation. That the diffs bottom out at the f64 ULP floor rather than
+//! growing with trajectory length is itself evidence `rsruckig`'s
+//! root-finding agrees with the oracle's `ruckig` to within rounding, not
+//! that this assertion has lost discriminating power; the
+//! deletion/perturbation testing in "What each case discriminates" above is
+//! what establishes that it still does.
 
 use std::collections::HashMap;
 use std::fs;
@@ -73,7 +107,7 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_smoothing::ruckig_filter::{RuckigFilter, joint_vel_accel_jerk_bounds};
 use moveit_srdf::SrdfModel;
 
-const TOL: f64 = 1e-9;
+const TOL: f64 = 1e-12;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -276,16 +310,23 @@ fn ruckig_filter_matches_the_oracle() {
             }
 
             for (idx, name) in joint_names.iter().enumerate() {
-                assert_relative_eq!(positions[idx], expected_step.positions[name], epsilon = TOL);
+                assert_relative_eq!(
+                    positions[idx],
+                    expected_step.positions[name],
+                    epsilon = TOL,
+                    max_relative = TOL
+                );
                 assert_relative_eq!(
                     velocities[idx],
                     expected_step.velocities[name],
-                    epsilon = TOL
+                    epsilon = TOL,
+                    max_relative = TOL
                 );
                 assert_relative_eq!(
                     accelerations[idx],
                     expected_step.accelerations[name],
-                    epsilon = TOL
+                    epsilon = TOL,
+                    max_relative = TOL
                 );
             }
         }

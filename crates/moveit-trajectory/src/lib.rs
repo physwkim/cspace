@@ -225,6 +225,133 @@
 //! - `checkOvershoot` (private) — ported as [`ruckig_smoothing`]'s private
 //!   `check_overshoot`.
 //!
+//! # Completion condition
+//!
+//! This section is a check, not a claim: it names exactly what "done" means
+//! for this crate's current scope, so plan and code can be compared directly
+//! instead of re-diverging silently (the pattern `moveit-distance-field`'s
+//! own "Completion condition" section established, after PORTING-PLAN.md
+//! §65/§71 caught a plan claim nobody could verify against the code).
+//!
+//! **Headers, fully audited (read in full against the pinned SHA, not
+//! inferred from what is already ported):**
+//!
+//! - `moveit_core/trajectory_processing/include/moveit/trajectory_processing/{time_parameterization,time_optimal_trajectory_generation,trajectory_tools,ruckig_traj_smoothing}.hpp`
+//!   plus their four `.h` deprecated-forwarding-shim siblings (no independent
+//!   content) — see the "Symbol audit: every public symbol under
+//!   `trajectory_processing/include/`" section above for the per-symbol
+//!   table.
+//! - `moveit_core/robot_trajectory/include/moveit/robot_trajectory/robot_trajectory.hpp`
+//!   plus its `.h` shim — see the "Symbol audit: `robot_trajectory.hpp`"
+//!   section below for its per-symbol table.
+//!
+//! Every symbol in both headers is classified in those two sections as
+//! ported (with its Rust name), D-decision-excluded (with the decision), or
+//! unported (with the specific reason) — there is no symbol from either
+//! header left unclassified.
+//!
+//! **Fixtures, and what they cover:**
+//!
+//! - `tests/totg_parity.rs` — the oracle's `totg` op, core-only branch (no
+//!   top-level `"group"` key): [`Path`]/[`Trajectory`] end to end, one case
+//!   per invariant boundary (below the two-waypoint minimum, duplicate
+//!   consecutive waypoints, a zero-length path, a velocity-saturating
+//!   straight line, `upstream_test2`'s general case).
+//! - `tests/totg_robot_trajectory_parity.rs` — the same `totg` op's
+//!   group-driven branch (`compute_time_stamps_with_limits`, the
+//!   `RobotTrajectory` adapter) against a real `panda_arm` trajectory.
+//! - `tests/totg_robot_trajectory_scaling_only_parity.rs` — the scaling-only
+//!   overload ([`time_optimal_trajectory_generation::compute_time_stamps`]),
+//!   closing the gap [`time_optimal_trajectory_generation`]'s own "Closed
+//!   gap" doc section describes.
+//! - `tests/totg_synthetic_parity.rs` — the `totg_synthetic` model fixture:
+//!   a multi-DOF `planar` joint group and a mixed prismatic/revolute group,
+//!   covering `active_joint_variables`'s per-joint expansion and
+//!   [`time_optimal_trajectory_generation::has_mixed_joint_types`] against
+//!   more than the trivial single-variable case.
+//! - `tests/large_accel.rs` — upstream `testLargeAccel`
+//!   (`test_time_optimal_trajectory_generation.cpp`), against
+//!   upstream's own fixture data extracted verbatim into
+//!   `tests/fixtures/large_accel_waypoints.json` (see that file's own module
+//!   doc for why JSON rather than retyped literals).
+//! - [`trajectory`]'s and [`path`](path_segment)'s own `#[cfg(test)]`
+//!   modules — every case `test_time_optimal_trajectory_generation.cpp`'s
+//!   gtest suite carries for [`Path`]/[`Trajectory`]
+//!   (`upstream_test1`/`upstream_test2`/`upstream_test3`/
+//!   `upstream_test_single_dof_discontinuity`/`upstream_test_custom_limits`
+//!   and friends), plus invariant-boundary cases the suite does not carry
+//!   (two waypoints, three collinear waypoints, duplicate consecutive
+//!   waypoints, `max_deviation` of `0.0`, a limit vector containing a zero,
+//!   zero total path length).
+//! - `tests/ruckig_parity.rs` — the oracle's `ruckig` op against
+//!   [`ruckig_smoothing::apply_smoothing`]/
+//!   [`ruckig_smoothing::apply_smoothing_with_limits`].
+//! - `tests/ruckig_smoothing.rs` — every upstream `RuckigTests` case
+//!   (`test_ruckig_traj_smoothing.cpp`), plus boundary tests for
+//!   `apply_smoothing`/`apply_smoothing_with_limits`'s own invariants
+//!   (missing group, empty/single-waypoint trajectories, duplicate
+//!   waypoints).
+//! - `tests/robot_trajectory.rs` — every `test_robot_trajectory.cpp` case
+//!   except the four named in that file's own header comment
+//!   (`RobotTrajectoryShallowCopy`, needing `shared_ptr` waypoint aliasing
+//!   this port deliberately does not have; `ChainEdits`/`DoubleReverse`,
+//!   adapted to drop the `*RobotTrajectoryMsg` steps, D1;
+//!   `MultiDofTrajectoryToJointStates`/`SetMultiDofTrajectory`, D1), plus
+//!   boundary tests for the `duration_from_previous[0] == 0.0` invariant and
+//!   typed-error index access.
+//! - [`robot_trajectory`]'s and [`time_optimal_trajectory_generation`]'s own
+//!   `#[cfg(test)]` modules, and `tests/trajectory_tools.rs`'s wrapper
+//!   `#[cfg(test)]` module — unit/boundary tests for behaviour with no
+//!   oracle op to compare against: typed-error index access, mimic-joint
+//!   dimension-mismatch rejection, `has_mixed_joint_types` on a group with
+//!   no mixed types, and (`trajectory_tools.rs`) that each convenience
+//!   wrapper forwards its arguments to the function it wraps identically to
+//!   calling that function directly.
+//!
+//! Every oracle-backed fixture above is registered in
+//! `tests/fixtures/oracle-models.json` (`ruckig`, `totg`,
+//! `totg_robot_trajectory`, `totg_robot_trajectory_scaling_only`,
+//! `totg_synthetic`, each naming the URDF/SRDF pair its request/response
+//! JSON was captured against), and every key there matches a real
+//! `op == "..."` (or, for the three `totg_*` variants, a `"group"`-key
+//! branch inside the single `op == "totg"` dispatch) in
+//! `tools/moveit-oracle/src/oracle.cpp`.
+//!
+//! **What is still missing, and why it is not a gap in the above:** every
+//! item is already named individually in the two symbol-audit sections
+//! (above and below) with its own reason; this is the roll-up.
+//! `TimeParameterization` is unported because it has exactly one upstream
+//! implementor and zero polymorphic call sites — see
+//! [`time_optimal_trajectory_generation`]'s own "Not ported:
+//! `TimeParameterization`" doc section. Every `moveit_msgs`/
+//! `trajectory_msgs`-typed overload or return value (the third
+//! `computeTimeStamps` overload, `trajectory_tools`'s `isTrajectoryEmpty`/
+//! `trajectoryWaypointCount`/`createTrajectoryMessage`, `ruckig_traj_smoothing`'s
+//! third `applySmoothing` overload, and `robot_trajectory`'s
+//! `getRobotTrajectoryMsg`/three `setRobotTrajectoryMsg` overloads/
+//! `toJointTrajectory`) is D1-excluded and belongs in the optional
+//! `moveit-ros` crate instead, not this one. `LimitType`/`LIMIT_TYPES` and
+//! the hand-rolled `RobotTrajectory::Iterator` are D-decision-excluded for
+//! reasons specific to each (an `RCLCPP_WARN`-only use this crate has no
+//! logging channel for; an idiomatic-iterator replacement respectively) —
+//! see their own symbol-audit entries. `RobotTrajectory::print`/
+//! `operator<<` is the one item with no D-decision or missing-dependency
+//! reason: it stays unported simply because no round has asked for it yet
+//! (see `robot_trajectory.rs`'s "Out of scope" note) — a real, checkable gap
+//! if a future task needs it, not a "not yet" placeholder with nothing to
+//! act on.
+//!
+//! This crate's completion condition, stated as a check rather than a
+//! claim: every symbol in both audited headers is classified above; every
+//! classified-as-ported symbol has either an upstream-gtest-derived fixture,
+//! an oracle-driven fixture, or a boundary/unit test with a documented
+//! reason no oracle op covers it; and every classified-as-unported symbol
+//! names the specific missing dependency, D-decision, or (for `print`/
+//! `operator<<` alone) the concrete "nobody has asked for it" reason — not
+//! "not yet" on its own. If a future symbol or fixture cannot be placed in
+//! one of those buckets, this section is stale and needs re-auditing before
+//! the plan is updated to match it.
+//!
 //! # Symbol audit: `robot_trajectory.hpp`
 //!
 //! Re-run by re-reading the header fresh, not by inferring from what is

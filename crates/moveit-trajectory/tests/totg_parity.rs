@@ -46,16 +46,43 @@
 //! same switching-point search, transcribed instruction-for-instruction
 //! from upstream (see `trajectory.rs`'s module doc comment) -- unlike
 //! `ruckig_parity.rs`'s independent reimplementation, this is close to a
-//! line-for-line port, so tight agreement is expected. `TOL` is set from
-//! what this fixture actually produces: the observed case 5 (the longest,
-//! most-integrated case) position/velocity/acceleration diffs are all
-//! below `2e-9` in absolute terms against magnitudes up to ~1900, i.e.
-//! relative diffs on the order of `1e-12`; `1e-6` is used as `epsilon` to
-//! leave headroom without masking a real disagreement, matching
-//! `ruckig_parity.rs`'s existing convention of an absolute `epsilon` rather
-//! than a relative bound (several expected values, e.g. case 2's terminal
-//! velocity `3.19e-17`, are legitimately near zero, where a relative bound
-//! is meaningless).
+//! line-for-line port, so tight agreement is expected. Comparisons here
+//! don't go through `assert_relative_eq!` at all (this file's one grep hit
+//! for that name, in `assert_matches_nullable`'s own doc comment below, is
+//! prose, not an invocation) -- `assert_matches_nullable` is a hand-rolled
+//! single-branch absolute `diff <= tol` check, so the implicit
+//! `max_relative == f64::EPSILON` masking trap PORTING-PLAN.md §78.1/§79
+//! describes cannot occur here structurally: there is no second branch to
+//! silently take over.
+//!
+//! What *can* still happen with one shared constant across quantities of
+//! different natural noise floors is the mirror problem: a constant sized
+//! to clear the loosest floor is far looser than it needs to be for the
+//! others, diluting their power to catch a real regression. Measured with
+//! a non-panicking max-diff sweep (temporarily printing each quantity's
+//! largest `|actual - expected|` across every case/sample/index instead of
+//! asserting): `duration` maxes at `8.89e-9` (case 4, not case 5 as an
+//! earlier draft of this doc claimed, and looser than that draft's claimed
+//! `2e-9` bound), while `position`/`velocity`/`acceleration` max at
+//! `2.27e-13`, `2.22e-16`, `1.78e-15` respectively -- duration's floor is
+//! about 4 orders of magnitude looser than the others', because it comes
+//! out of the iterative switching-point/time-step integration
+//! (`trajectory.rs`'s `Trajectory::create`) rather than a direct
+//! coordinate read. A single `TOL` sized for duration would leave
+//! position/velocity/acceleration a real regression could hide inside; a
+//! single `TOL` sized for them would spuriously fail on duration's honest
+//! noise. Split: `TOL = 1e-9` covers position/velocity/acceleration with
+//! ~3.6 orders of headroom over `2.27e-13`; `DURATION_TOL = 2e-5` covers
+//! duration with ~3.35 orders of headroom over `8.89e-9`. Both still
+//! absolute, not relative -- several expected values (e.g. case 2's
+//! terminal velocity `3.19e-17`) are legitimately near zero, where a
+//! relative bound is meaningless, matching `ruckig_parity.rs`'s original
+//! convention. Confirmed both constants still discriminate: multiplying
+//! `Trajectory::duration`'s returned `time` by `1.0001` fails case 1's
+//! duration comparison (diff `~3e-4`, far past `DURATION_TOL`), and
+//! multiplying `Trajectory::position`'s returned config by `1.0000001`
+//! fails case 1 sample 1's `position[0]` comparison (diff `~2.9e-8`, far
+//! past `TOL`).
 
 use std::fs;
 
@@ -64,7 +91,13 @@ use serde::Deserialize;
 
 use moveit_trajectory::{Path, Trajectory};
 
-const TOL: f64 = 1e-6;
+const TOL: f64 = 1e-9;
+
+/// `duration` comes out of `Trajectory::create`'s iterative switching-point
+/// search, whose accumulated floating-point noise floor is measurably
+/// looser than a direct position/velocity/acceleration coordinate read --
+/// see this module's "Tolerance" doc section.
+const DURATION_TOL: f64 = 2e-5;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -126,12 +159,12 @@ struct TotgResponseEntry {
 /// i.e. the C++ side observed a NaN, so `actual` must be NaN too rather
 /// than compared numerically (NaN vs NaN would fail `assert_relative_eq!`
 /// even though it is exactly the agreement being asserted).
-fn assert_matches_nullable(actual: f64, expected: Option<f64>, context: &str) {
+fn assert_matches_nullable(actual: f64, expected: Option<f64>, tol: f64, context: &str) {
     match expected {
         Some(expected) => {
             let diff = (actual - expected).abs();
             assert!(
-                diff <= TOL,
+                diff <= tol,
                 "{context}: actual={actual}, expected={expected}, abs diff={diff}"
             );
         }
@@ -202,6 +235,7 @@ fn totg_matches_the_oracle() {
         assert_matches_nullable(
             trajectory.duration(),
             expected.duration,
+            DURATION_TOL,
             &format!("case {case_index}: duration"),
         );
 
@@ -227,16 +261,19 @@ fn totg_matches_the_oracle() {
                 assert_matches_nullable(
                     position[i],
                     expected_sample.position[i],
+                    TOL,
                     &format!("case {case_index} sample {sample_idx}: position[{i}]"),
                 );
                 assert_matches_nullable(
                     velocity[i],
                     expected_sample.velocity[i],
+                    TOL,
                     &format!("case {case_index} sample {sample_idx}: velocity[{i}]"),
                 );
                 assert_matches_nullable(
                     acceleration[i],
                     expected_sample.acceleration[i],
+                    TOL,
                     &format!("case {case_index} sample {sample_idx}: acceleration[{i}]"),
                 );
             }

@@ -852,6 +852,23 @@ mod tests {
     }
 
     /// Upstream `TEST(time_optimal_trajectory_generation, test1)`.
+    ///
+    /// # Tolerance
+    ///
+    /// Upstream checks `getDuration()` and every `getPosition()` component
+    /// with `EXPECT_DOUBLE_EQ` (near bit-exact, ~4 ULP) -- not
+    /// `EXPECT_NEAR` with a loose epsilon. An earlier round of this port
+    /// substituted a norm-of-difference `assert_relative_eq!` with
+    /// `epsilon = 1e-6`/`1e-9` for the duration/position checks, which is
+    /// both looser than upstream's actual tolerance and a different (weaker)
+    /// invariant: a norm bound only constrains the aggregate error, not each
+    /// component (PORTING-PLAN.md §78.1/§79's "transcribe the numerics
+    /// rather than rewriting them into something cleaner" -- this had been
+    /// rewritten). A `to_bits()`-based ULP measurement found this port's
+    /// `duration()`/`position()` are bit-identical to upstream's own
+    /// `EXPECT_DOUBLE_EQ` literals for this case (0 ULP), so both are now
+    /// `assert_eq!`, per-component for position, matching upstream's actual
+    /// test shape.
     #[test]
     fn upstream_test1() {
         let waypoints = [
@@ -864,13 +881,17 @@ mod tests {
         let path = Path::create(&waypoints, 100.0).unwrap();
         let trajectory = Trajectory::create(path, &max_velocity, &max_acceleration, 10.0).unwrap();
 
-        assert_relative_eq!(trajectory.duration(), 40.080_256_821_829_85, epsilon = 1e-6);
+        assert_eq!(trajectory.duration(), 40.080_256_821_829_85);
 
         let start = trajectory.position(0.0);
-        assert_relative_eq!((start - &waypoints[0]).norm(), 0.0, epsilon = 1e-9);
+        for i in 0..4 {
+            assert_eq!(start[i], waypoints[0][i]);
+        }
 
         let end = trajectory.position(trajectory.duration());
-        assert_relative_eq!((end - &waypoints[1]).norm(), 0.0, epsilon = 1e-6);
+        for i in 0..4 {
+            assert_eq!(end[i], waypoints[1][i]);
+        }
 
         assert_relative_eq!(trajectory.velocity(0.0)[0], 0.0, epsilon = 0.1);
         assert_relative_eq!(
@@ -881,6 +902,35 @@ mod tests {
     }
 
     /// Upstream `TEST(time_optimal_trajectory_generation, test2)`.
+    ///
+    /// # Tolerance
+    ///
+    /// Same `EXPECT_DOUBLE_EQ` fidelity issue as [`upstream_test1`] (see its
+    /// doc comment): position start/end are bit-identical to upstream (0
+    /// ULP) and are now per-component `assert_eq!`. `duration()` is the one
+    /// exception in this whole file -- unlike `test1`/`test3`, it is
+    /// genuinely *not* bit-exact against upstream's literal: measured diff
+    /// `8.893e-9` (`1922.14184275348748` actual vs `1922.1418427445944`
+    /// expected), the same ~4-order-of-magnitude floor
+    /// `totg_robot_trajectory_parity.rs`'s duration group and
+    /// `totg_parity.rs`'s case-4 duration measured independently against
+    /// the oracle, so this is this port's genuine numeric behaviour on this
+    /// waypoint set, not noise from this specific test. `epsilon = 1e-6`
+    /// (~2 orders of headroom over the measured floor) predates this round
+    /// and was already tight enough to have caught a masked
+    /// `max_relative`-only pass. `max_relative` is pinned to `f64::EPSILON`
+    /// explicitly -- i.e. the same value it would silently default to --
+    /// rather than to `epsilon` the way the sibling parity files in this
+    /// sweep pin it: those files' compared magnitudes stay near `1`, so
+    /// `max_relative = epsilon` barely changes the effective bound, but
+    /// `duration` here is `~1922`, and pinning `max_relative = 1e-6` would
+    /// widen the *effective* tolerance to `1e-6 * 1922 ≈ 1.9e-3` -- roughly
+    /// 1900x looser than `epsilon` alone, discovered live by perturbing
+    /// this test with a `+1e-5` offset and watching it keep passing instead
+    /// of failing. At `f64::EPSILON`, the relative branch contributes at
+    /// most `f64::EPSILON * 1922 ≈ 4.3e-13` -- six orders below `epsilon`
+    /// -- so it is provably inert here, matching the pre-existing
+    /// (undocumented) behaviour without the magnitude trap.
     #[test]
     fn upstream_test2() {
         let waypoints = [
@@ -899,18 +949,20 @@ mod tests {
         assert_relative_eq!(
             trajectory.duration(),
             1_922.141_842_744_594_4,
-            epsilon = 1e-6
+            epsilon = 1e-6,
+            max_relative = f64::EPSILON
         );
 
         let start = trajectory.position(0.0);
-        assert_relative_eq!((start - &waypoints[0]).norm(), 0.0, epsilon = 1e-9);
+        for i in 0..4 {
+            assert_eq!(start[i], waypoints[0][i]);
+        }
 
         let end = trajectory.position(trajectory.duration());
-        assert_relative_eq!(
-            (end - waypoints.last().unwrap()).norm(),
-            0.0,
-            epsilon = 1e-6
-        );
+        let last_waypoint = waypoints.last().unwrap();
+        for i in 0..4 {
+            assert_eq!(end[i], last_waypoint[i]);
+        }
 
         assert_relative_eq!(trajectory.velocity(0.0)[0], 0.0, epsilon = 0.1);
         assert_relative_eq!(
@@ -924,6 +976,15 @@ mod tests {
     /// to `test1`/`test2` except it exercises upstream's default
     /// `time_step = 0.001` (this port has no default-argument equivalent, so
     /// the literal is spelled out instead).
+    ///
+    /// # Tolerance
+    ///
+    /// Same `EXPECT_DOUBLE_EQ` fidelity issue as [`upstream_test1`] (see its
+    /// doc comment); unlike [`upstream_test2`], `duration()` here is also
+    /// bit-identical to upstream (0 ULP against `1919.5597888812974`) --
+    /// the smaller `time_step` apparently avoids whatever accumulates
+    /// `test2`'s `8.893e-9` divergence. Both duration and position are now
+    /// `assert_eq!`.
     #[test]
     fn upstream_test3() {
         let waypoints = [
@@ -939,21 +1000,18 @@ mod tests {
         let path = Path::create(&waypoints, 100.0).unwrap();
         let trajectory = Trajectory::create(path, &max_velocity, &max_acceleration, 0.001).unwrap();
 
-        assert_relative_eq!(
-            trajectory.duration(),
-            1_919.559_788_881_297_4,
-            epsilon = 1e-6
-        );
+        assert_eq!(trajectory.duration(), 1_919.559_788_881_297_4);
 
         let start = trajectory.position(0.0);
-        assert_relative_eq!((start - &waypoints[0]).norm(), 0.0, epsilon = 1e-9);
+        for i in 0..4 {
+            assert_eq!(start[i], waypoints[0][i]);
+        }
 
         let end = trajectory.position(trajectory.duration());
-        assert_relative_eq!(
-            (end - waypoints.last().unwrap()).norm(),
-            0.0,
-            epsilon = 1e-6
-        );
+        let last_waypoint = waypoints.last().unwrap();
+        for i in 0..4 {
+            assert_eq!(end[i], last_waypoint[i]);
+        }
 
         assert_relative_eq!(trajectory.velocity(0.0)[0], 0.0, epsilon = 0.1);
         assert_relative_eq!(
@@ -1003,6 +1061,17 @@ mod tests {
     }
 
     /// Upstream `TEST(time_optimal_trajectory_generation, testSingleDofDiscontinuity)`.
+    ///
+    /// # Tolerance
+    ///
+    /// `getPosition(0.0)[0]` is upstream's one `EXPECT_DOUBLE_EQ` in this
+    /// test (everything else here is `EXPECT_NEAR` with an upstream-chosen
+    /// literal epsilon, already faithfully transcribed with matching
+    /// values). Measured bit-identical to upstream (0 ULP against
+    /// `start_position`), so it is now `assert_eq!` rather than the
+    /// `assert_relative_eq!(..., epsilon = 1e-9)` an earlier round
+    /// substituted -- see [`upstream_test1`]'s doc comment for the same
+    /// fidelity issue found across this file.
     #[test]
     fn upstream_test_single_dof_discontinuity() {
         let start_position = 1.881_943;
@@ -1017,7 +1086,7 @@ mod tests {
         let traj_duration = trajectory.duration();
         assert_relative_eq!(traj_duration, 0.320_681, epsilon = 1e-3);
 
-        assert_relative_eq!(trajectory.position(0.0)[0], start_position, epsilon = 1e-9);
+        assert_eq!(trajectory.position(0.0)[0], start_position);
         assert_relative_eq!(trajectory.velocity(0.0)[0], 0.0, epsilon = 0.1);
         assert_relative_eq!(trajectory.velocity(traj_duration)[0], 0.0, epsilon = 0.1);
 
