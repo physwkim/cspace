@@ -118,8 +118,14 @@ pub trait KinematicsSolver {
     ///
     /// # Panics
     ///
-    /// If `seed.len()` does not equal
-    /// [`KinematicsSolver::joint_names`]`().len()`.
+    /// If `seed.len()`, or `options.consistency_limits`' length when it is
+    /// [`Some`], does not equal
+    /// [`KinematicsSolver::joint_names`]`().len()`. Upstream rejects a
+    /// mis-sized `consistency_limits` with `NO_IK_SOLUTION`
+    /// (`kdl_kinematics_plugin.cpp:329`); this port treats it as the caller
+    /// error it is, the same way it already treats a mis-sized `seed`,
+    /// rather than reporting it through the same [`None`] a genuine
+    /// no-solution uses.
     fn solve_with_options(
         &mut self,
         seed: &[f64],

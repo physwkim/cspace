@@ -108,11 +108,6 @@ impl KinematicsSolver for NewtonRaphsonSolver {
         target: &Isometry3,
         options: &mut SolveOptions,
     ) -> Option<Vec<f64>> {
-        assert_eq!(
-            seed.len(),
-            self.chain.reduced_dimension(),
-            "seed must have one entry per active joint"
-        );
         let svd_threshold = self.params.svd_threshold;
         let pinv = |s: f64, smax: f64| {
             if s > svd_threshold * smax {

@@ -305,6 +305,15 @@ fn satisfies_consistency(seed: &[f64], solution: &[f64], consistency_limits: &[f
 /// # Deviation from upstream
 ///
 /// No wall-clock `timeout` — see [`SolverParams::max_restarts`].
+///
+/// # Panics
+///
+/// If `seed` or `options.consistency_limits` does not have exactly one entry
+/// per active joint. Both are validated here, at the one point every solver
+/// funnels through, rather than in each `solve_with_options`: a per-solver
+/// guard has to be remembered once per solver *and* once per new
+/// [`SolveOptions`] field, which is how `consistency_limits` arrived with no
+/// length check at all while `seed` had two identical ones.
 pub(crate) fn search_position_ik(
     ctx: &SolveContext,
     state: &mut RobotState,
@@ -314,6 +323,22 @@ pub(crate) fn search_position_ik(
     rng: &mut impl Rng,
     options: &mut SolveOptions,
 ) -> Option<Vec<f64>> {
+    assert_eq!(
+        seed.len(),
+        ctx.chain.reduced_dimension(),
+        "seed must have one entry per active joint"
+    );
+    // Upstream rejects a mis-sized `consistency_limits` outright
+    // (`kdl_kinematics_plugin.cpp:329`, `NO_IK_SOLUTION`). Without this,
+    // `satisfies_consistency`'s `zip` would silently stop at the shorter of
+    // the two and accept a solution on the strength of a partial check.
+    if let Some(limits) = options.consistency_limits {
+        assert_eq!(
+            limits.len(),
+            ctx.chain.reduced_dimension(),
+            "consistency_limits must have one entry per active joint"
+        );
+    }
     for attempt in 0..=ctx.params.max_restarts {
         let attempt_seed = if attempt == 0 {
             seed.to_vec()
@@ -479,6 +504,63 @@ mod tests {
         assert!(
             solution.is_some(),
             "seed is already the exact target config, so attempt 0 must converge at the seed"
+        );
+    }
+
+    /// The other boundary of `consistency_limits`: its *length*. One entry
+    /// short is what `satisfies_consistency`'s `zip` would have swallowed,
+    /// accepting a solution whose last active joint was never checked.
+    #[test]
+    #[should_panic(expected = "consistency_limits must have one entry per active joint")]
+    fn consistency_limits_one_entry_short_panics() {
+        let fixture = Fixture::panda_arm();
+        let ctx = fixture.ctx();
+        let (seed, _) = fixture.midpoint_and_bumped(0.3);
+        let target = fk_of(&fixture.chain, &fixture.model, &seed);
+        let pinv = truncated_pinv(fixture.params.svd_threshold);
+
+        let short = vec![10.0; seed.len() - 1];
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut options = SolveOptions {
+            consistency_limits: Some(&short),
+            solution_callback: None,
+        };
+        search_position_ik(
+            &ctx,
+            &mut state,
+            &seed,
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
+        );
+    }
+
+    /// The `seed`-length guard still fires now that it lives here rather
+    /// than in each solver's `solve_with_options`.
+    #[test]
+    #[should_panic(expected = "seed must have one entry per active joint")]
+    fn seed_one_entry_short_panics() {
+        let fixture = Fixture::panda_arm();
+        let ctx = fixture.ctx();
+        let (seed, _) = fixture.midpoint_and_bumped(0.3);
+        let target = fk_of(&fixture.chain, &fixture.model, &seed);
+        let pinv = truncated_pinv(fixture.params.svd_threshold);
+
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut options = SolveOptions::default();
+        search_position_ik(
+            &ctx,
+            &mut state,
+            &seed[..seed.len() - 1],
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
         );
     }
 

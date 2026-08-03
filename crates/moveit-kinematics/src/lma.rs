@@ -97,11 +97,6 @@ impl KinematicsSolver for LevenbergMarquardtSolver {
         target: &Isometry3,
         options: &mut SolveOptions,
     ) -> Option<Vec<f64>> {
-        assert_eq!(
-            seed.len(),
-            self.chain.reduced_dimension(),
-            "seed must have one entry per active joint"
-        );
         let lambda = self.params.lma_lambda;
         let pinv = |s: f64, _smax: f64| s / (s * s + lambda * lambda);
         // See `NewtonRaphsonSolver::solve`'s comment on this same call: a
