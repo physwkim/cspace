@@ -195,7 +195,7 @@
 //! member, not by trusting the classification bullets above at face value —
 //! this is the independent count that checks they add up.
 //!
-//! **Counting criteria (PORTING-PLAN.md §97.2), stated so a re-count can be
+//! **Counting criteria (PORTING-PLAN.md §96.5), stated so a re-count can be
 //! checked against the same rule rather than re-derived from scratch:**
 //! constructors and the destructor are *not* counted (upstream's own
 //! per-class "N/A" bullets above call those out separately, and a

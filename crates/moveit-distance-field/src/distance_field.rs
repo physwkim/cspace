@@ -64,7 +64,7 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// handles by producing an immediately-empty iterator rather than an error.
 ///
 /// **The subdivision loop's `<=` upper bound does not reliably include the
-/// last face** (PORTING-PLAN.md §97.1) — faithfully so, upstream's own
+/// last face** (PORTING-PLAN.md §96.3) — faithfully so, upstream's own
 /// `for (double x = ...; x <= ...; x += resolution_)` has the identical
 /// susceptibility. `ceil(leaf.size() / resolution)` only guarantees the
 /// swept interval is a multiple of `resolution` in exact arithmetic; it
@@ -84,7 +84,7 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// language construct on both sides, but compiler-level reassociation
 /// (FMA contraction, `-ffast-math`-class flags) could in principle diverge
 /// from Rust's strict left-to-right `+=`; confirming this needs an oracle
-/// op this crate cannot add on its own (see PORTING-PLAN.md §97.1's
+/// op this crate cannot add on its own (see PORTING-PLAN.md §96.3's
 /// oracle-extension request).
 fn octree_points(
     bbx_min: Vector3<f64>,
