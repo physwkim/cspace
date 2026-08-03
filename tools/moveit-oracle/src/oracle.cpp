@@ -25,6 +25,7 @@
 #include <geometric_shapes/bodies.h>
 #include <geometric_shapes/shapes.h>
 #include <nlohmann/json.hpp>
+#include <octomap/octomap.h>
 
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
@@ -172,6 +173,8 @@ public:
       return shapePoints(request);
     if (op == "common_root")
       return commonRoot(request);
+    if (op == "octomap")
+      return octomapOp(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -770,6 +773,111 @@ private:
       points_out.push_back(json::array({ p.x(), p.y(), p.z() }));
 
     return json{ { "points", points_out } };
+  }
+
+  /// Ground truth for moveit-octomap's port of octomap 1.9.7 (see
+  /// crates/moveit-octomap/src/*.rs's provenance comments): builds a
+  /// throwaway `octomap::OcTree` local to this call (ignoring model_/state_,
+  /// same pattern as shapePoints above), replays a request-described
+  /// sequence of updates, and reports whatever the request asks to query
+  /// afterward. Deliberately generic rather than one C++ method per
+  /// scenario -- the scenario itself (repeated hits to the clamp, a miss
+  /// sequence, a to-be-pruned cube of siblings, a ray leaving the tree) is
+  /// constructed entirely on the Rust test side from these primitives.
+  json octomapOp(const json& request) const
+  {
+    const double resolution = request.at("resolution").get<double>();
+    octomap::OcTree tree(resolution);
+
+    for (const auto& action : request.at("actions"))
+    {
+      const std::string type = action.at("type").get<std::string>();
+      const bool lazy_eval = action.value("lazy_eval", false);
+      if (type == "update_point")
+      {
+        const auto p = action.at("point").get<std::array<double, 3>>();
+        tree.updateNode(octomap::point3d(p[0], p[1], p[2]), action.at("occupied").get<bool>(), lazy_eval);
+      }
+      else if (type == "update_key")
+      {
+        const auto k = action.at("key").get<std::array<int, 3>>();
+        const octomap::OcTreeKey key(static_cast<octomap::key_type>(k[0]), static_cast<octomap::key_type>(k[1]),
+                                     static_cast<octomap::key_type>(k[2]));
+        tree.updateNode(key, action.at("occupied").get<bool>(), lazy_eval);
+      }
+      else if (type == "insert_ray")
+      {
+        const auto o = action.at("origin").get<std::array<double, 3>>();
+        const auto e = action.at("end").get<std::array<double, 3>>();
+        const double max_range = action.value("max_range", -1.0);
+        tree.insertRay(octomap::point3d(o[0], o[1], o[2]), octomap::point3d(e[0], e[1], e[2]), max_range, lazy_eval);
+      }
+      else if (type == "prune")
+      {
+        tree.prune();
+      }
+      else if (type == "update_inner_occupancy")
+      {
+        tree.updateInnerOccupancy();
+      }
+      else
+      {
+        throw std::runtime_error("octomap: unsupported action type " + type);
+      }
+    }
+
+    json results = json::array();
+    for (const auto& query : request.at("queries"))
+    {
+      const std::string type = query.at("type").get<std::string>();
+      if (type == "occupancy")
+      {
+        const auto p = query.at("point").get<std::array<double, 3>>();
+        const octomap::OcTreeNode* node = tree.search(p[0], p[1], p[2]);
+        if (node == nullptr)
+          results.push_back(json{ { "mapped", false } });
+        else
+          results.push_back(
+              json{ { "mapped", true }, { "log_odds", node->getLogOdds() }, { "occupancy", node->getOccupancy() } });
+      }
+      else if (type == "occupancy_by_key")
+      {
+        // Symmetric to the "update_key" action: queries by OcTreeKey
+        // directly, so a caller comparing pruned/collapsed nodes does not
+        // have to re-derive a float coordinate that round-trips through
+        // coordToKeyChecked back to the same key.
+        const auto k = query.at("key").get<std::array<int, 3>>();
+        const octomap::OcTreeKey key(static_cast<octomap::key_type>(k[0]), static_cast<octomap::key_type>(k[1]),
+                                     static_cast<octomap::key_type>(k[2]));
+        const octomap::OcTreeNode* node = tree.search(key);
+        if (node == nullptr)
+          results.push_back(json{ { "mapped", false } });
+        else
+          results.push_back(
+              json{ { "mapped", true }, { "log_odds", node->getLogOdds() }, { "occupancy", node->getOccupancy() } });
+      }
+      else if (type == "ray_keys")
+      {
+        const auto o = query.at("origin").get<std::array<double, 3>>();
+        const auto e = query.at("end").get<std::array<double, 3>>();
+        octomap::KeyRay ray;
+        const bool ok = tree.computeRayKeys(octomap::point3d(o[0], o[1], o[2]), octomap::point3d(e[0], e[1], e[2]), ray);
+        json keys = json::array();
+        for (const octomap::OcTreeKey& k : ray)
+          keys.push_back(json::array({ k[0], k[1], k[2] }));
+        results.push_back(json{ { "ok", ok }, { "keys", keys } });
+      }
+      else if (type == "node_count")
+      {
+        results.push_back(json{ { "count", static_cast<std::uint64_t>(tree.calcNumNodes()) } });
+      }
+      else
+      {
+        throw std::runtime_error("octomap: unsupported query type " + type);
+      }
+    }
+
+    return json{ { "results", results } };
   }
 
   moveit::core::RobotModelPtr model_;

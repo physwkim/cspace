@@ -14,6 +14,7 @@ find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(random_numbers REQUIRED)
 find_package(geometric_shapes REQUIRED)
+find_package(octomap REQUIRED)
 
 add_executable(moveit_oracle src/oracle.cpp)
 
@@ -33,7 +34,10 @@ target_link_libraries(moveit_oracle
     nlohmann_json::nlohmann_json
     geometric_shapes::geometric_shapes
     ${random_numbers_LIBRARIES}
+    ${OCTOMAP_LIBRARIES}
 )
-target_include_directories(moveit_oracle PRIVATE ${random_numbers_INCLUDE_DIRS})
+# octomap ships old-style CMake variables (OCTOMAP_INCLUDE_DIRS/LIBRARIES),
+# not an imported target, per its own octomap-config.cmake.
+target_include_directories(moveit_oracle PRIVATE ${random_numbers_INCLUDE_DIRS} ${OCTOMAP_INCLUDE_DIRS})
 
 install(TARGETS moveit_oracle RUNTIME DESTINATION bin)
