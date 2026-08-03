@@ -57,26 +57,28 @@
 //! a silently-wrong path exercised by anything this phase's done-criteria
 //! checks.
 //!
-//! # `used`'s cross-link tie-break is unreachable through this port's own API
+//! # No cross-link tie-break: `used` can hold at most one link, by construction
 //!
 //! Upstream's `IKConstraintSampler::configure` accepts a constrained link
 //! that is either the solver's own tip frame or *fixed-jointed* to it
 //! (`default_constraint_samplers.cpp`, the `fixed_links` walk around each
-//! `getLinkModel()` check) — so `used_l` can legitimately collect more than
-//! one link key from a single solver, and `selectDefaultSampler`'s final
-//! `if (v < msv)` loop is how it picks one. [`crate::IkConstraintSampler`]
-//! ports none of that fixed-link bridging (see its own doc comment) and
-//! requires the constrained link to equal `solver.tip_frame()` exactly.
-//! Since [`collect_ik_candidates`] shares one solver (one fixed tip frame)
-//! across every candidate it builds, every successful candidate is keyed by
-//! that same tip frame — `used` can hold at most one entry in this port,
-//! never more. [`smallest_across_links`] is still written to match
-//! upstream's own multi-key reduction faithfully (a direct transcription,
-//! not dead weight to delete) so it needs no revisiting if fixed-link
-//! bridging is ever added; today its `>1`-key branch is simply never taken,
-//! which is why no test in this crate exercises it — the per-link tie-break
-//! in [`insert_or_replace_on_tie`] (reachable: several pairings can name the
-//! *same* link) is what the tests cover instead.
+//! `getLinkModel()` check), so `used_l` there is a `std::map` that can
+//! legitimately collect more than one link key from a single solver, with a
+//! final `if (v < msv)` reduction loop (`constraint_sampler_manager.cpp:303`;
+//! strict `<`, so a tie keeps `used_l`'s first — alphabetically-earliest —
+//! entry) picking one winner. [`crate::IkConstraintSampler`] ports none of
+//! that fixed-link bridging (see its own doc comment) and requires the
+//! constrained link to equal `solver.tip_frame()` exactly. Since
+//! [`collect_ik_candidate`] shares one solver (one fixed tip frame) across
+//! every candidate it builds, every successful candidate names that same
+//! tip frame — there is structurally never more than one link to choose
+//! among. [`collect_ik_candidate`] returns `Option<(String,
+//! IkConstraintSamplerAdapter)>` rather than a map precisely so that stays
+//! true by construction: a >1-link reduction has no state to operate on, so
+//! there is no runtime branch to leave untested or to get its tie direction
+//! wrong. If fixed-link bridging is ever added to [`crate::IkConstraintSampler`],
+//! this is the type to widen back into a map with a real reduction, at
+//! which point upstream's own tie direction (above) is what to match.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -206,9 +208,9 @@ fn select_default_sampler_inner(
     // Step B: this group's own IK solver, if any.
     if let Some(solver) = solver {
         let shared: Rc<RefCell<Box<dyn KinematicsSolver>>> = Rc::new(RefCell::new(solver));
-        let used =
-            collect_ik_candidates(model, group, positions, orientations, &shared, max_attempts);
-        if let Some(winner) = smallest_across_links(used) {
+        if let Some((_, winner)) =
+            collect_ik_candidate(model, group, positions, orientations, &shared, max_attempts)
+        {
             if samplers.is_empty() {
                 return Ok(Some(Box::new(winner)));
             }
@@ -301,23 +303,22 @@ fn joint_coverage_is_full(group: &JointModelGroup, joints: &[&JointConstraint]) 
 }
 
 /// The position×orientation pairing loop, then the lone-position and
-/// lone-orientation loops, each skipping links already claimed by a full
+/// lone-orientation loops, each skipping the link already claimed by a full
 /// pose match — `IKConstraintSampler::configure`/`getSamplingVolume` via
-/// [`IkConstraintSamplerAdapter`]. Returns one candidate per link that
-/// matched at least one constraint, keyed by link name (a `BTreeMap` to
-/// match upstream's own `std::map<std::string, IKConstraintSamplerPtr>`
-/// iteration order, which the cross-link tie-break in
-/// [`smallest_across_links`] depends on).
-fn collect_ik_candidates(
+/// [`IkConstraintSamplerAdapter`]. `solver` names one fixed tip frame, so
+/// every candidate [`IkConstraintSamplerAdapter::new`] can build here names
+/// that same link (see this module's doc comment) — the return type is
+/// `Option`, not a map, so a second, different-link entry has no state to
+/// be written into.
+fn collect_ik_candidate(
     model: &RobotModel,
     group: &JointModelGroup,
     positions: &[&PositionConstraint],
     orientations: &[&OrientationConstraint],
     solver: &Rc<RefCell<Box<dyn KinematicsSolver>>>,
     max_attempts: u32,
-) -> std::collections::BTreeMap<String, IkConstraintSamplerAdapter> {
-    let mut used: std::collections::BTreeMap<String, IkConstraintSamplerAdapter> =
-        std::collections::BTreeMap::new();
+) -> Option<(String, IkConstraintSamplerAdapter)> {
+    let mut used: Option<(String, IkConstraintSamplerAdapter)> = None;
 
     for pc in positions {
         for oc in orientations {
@@ -340,12 +341,12 @@ fn collect_ik_candidates(
         }
     }
 
-    // Links already claimed by a full pose match: the lone-position and
-    // lone-orientation loops below must not overwrite them.
-    let claimed_by_full_pose: BTreeSet<String> = used.keys().cloned().collect();
+    // The link already claimed by a full pose match, if any: the
+    // lone-position and lone-orientation loops below must not overwrite it.
+    let claimed_by_full_pose: Option<String> = used.as_ref().map(|(link, _)| link.clone());
 
     for pc in positions {
-        if claimed_by_full_pose.contains(pc.link_name()) {
+        if claimed_by_full_pose.as_deref() == Some(pc.link_name()) {
             continue;
         }
         let sampling_pose = IkSamplingPose {
@@ -364,7 +365,7 @@ fn collect_ik_candidates(
     }
 
     for oc in orientations {
-        if claimed_by_full_pose.contains(oc.link_name()) {
+        if claimed_by_full_pose.as_deref() == Some(oc.link_name()) {
             continue;
         }
         let sampling_pose = IkSamplingPose {
@@ -388,32 +389,19 @@ fn collect_ik_candidates(
 /// Per-link insertion: upstream's `if (used_l[link]->getSamplingVolume() <
 /// iks->getSamplingVolume()) use = false;` keeps the existing entry only
 /// when it is *strictly smaller* than the new candidate — on a tie, the new
-/// (later-considered) candidate wins.
+/// (later-considered) candidate wins. `link` is always `used`'s existing key
+/// when `used` is already `Some` (see this module's doc comment on why a
+/// second, different link never reaches this function), so this only ever
+/// compares two candidates for the same link, never decides between links.
 fn insert_or_replace_on_tie(
-    used: &mut std::collections::BTreeMap<String, IkConstraintSamplerAdapter>,
+    used: &mut Option<(String, IkConstraintSamplerAdapter)>,
     link: String,
     candidate: IkConstraintSamplerAdapter,
 ) {
     let keep_existing = used
-        .get(&link)
-        .is_some_and(|existing| existing.sampling_volume() < candidate.sampling_volume());
+        .as_ref()
+        .is_some_and(|(_, existing)| existing.sampling_volume() < candidate.sampling_volume());
     if !keep_existing {
-        used.insert(link, candidate);
+        *used = Some((link, candidate));
     }
-}
-
-/// The cross-link reduction: if more than one link ended up with a
-/// candidate, only the single smallest-volume one survives — a group has
-/// one IK solver, so at most one link's pose can actually be IK-sampled at
-/// once. Upstream's `if (v < msv) { iks = it->second; msv = v; }` is a
-/// strict comparison, so on a tie the *first* (alphabetically-earliest
-/// link name, since `used_l` is a `std::map`) candidate wins — the reverse
-/// tie direction from [`insert_or_replace_on_tie`] above.
-fn smallest_across_links(
-    used: std::collections::BTreeMap<String, IkConstraintSamplerAdapter>,
-) -> Option<IkConstraintSamplerAdapter> {
-    used.into_values().fold(None, |best, candidate| match best {
-        Some(b) if b.sampling_volume() <= candidate.sampling_volume() => Some(b),
-        _ => Some(candidate),
-    })
 }
