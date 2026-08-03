@@ -14,6 +14,7 @@ moveit-collision.workspace = true
 moveit-constraints.workspace = true
 moveit-error.workspace = true
 moveit-geometry.workspace = true
+moveit-kinematics.workspace = true
 moveit-model.workspace = true
 moveit-srdf.workspace = true
 moveit-state.workspace = true

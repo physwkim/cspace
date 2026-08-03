@@ -21,8 +21,9 @@ use moveit_geometry::{
     Cuboid, Cylinder, Isometry3, Mesh, Rotation3, Shape, Sphere, Transforms, UnitQuaternion,
     Vector3,
 };
+use moveit_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolverParams};
 use moveit_model::RobotModel;
-use moveit_state::RobotState;
+use moveit_state::{Posed, RobotState};
 use nalgebra::{Matrix3, Quaternion, Translation3};
 
 use crate::protocol::{
@@ -375,5 +376,132 @@ pub fn collision(
         self_distance: self_distance.minimum_distance.distance,
         robot_collision: robot_result.collision,
         robot_distance: robot_distance.minimum_distance.distance,
+    })
+}
+
+/// `group`'s tip link pose expressed in `group`'s own base-link frame --
+/// `root_pose_world.inverse() * tip_pose_world` -- the frame
+/// [`moveit_kinematics::KinematicsSolver::solve`] takes its target in.
+/// Rebuilt here from only public `RobotModel`/`Posed` API, exactly matching
+/// `tests/ik_fk_roundtrip.rs`'s own `chain_relative_pose` helper in
+/// `crates/moveit-kinematics`, since `moveit_kinematics::chain::ChainInfo`
+/// is private to that crate.
+fn chain_relative_pose(
+    model: &RobotModel,
+    group_name: &str,
+    posed: &Posed,
+) -> Result<Isometry3, String> {
+    let group = model
+        .joint_model_group(group_name)
+        .map_err(|e| format!("group {group_name}: {e}"))?;
+    let tip_name = group
+        .link_names()
+        .last()
+        .ok_or_else(|| format!("group {group_name} has no links"))?;
+    let tip_pose_world = posed
+        .global_link_transform(tip_name)
+        .map_err(|e| format!("link {tip_name}: {e}"))?;
+
+    let root_joint = group.joint_indices()[0];
+    let root_link = model
+        .link_models()
+        .iter()
+        .find(|l| l.parent_joint_index() == root_joint)
+        .and_then(|l| l.parent_link_index());
+
+    Ok(match root_link {
+        Some(root_link) => {
+            let root_pose_world = posed.global_link_transform_at(root_link);
+            root_pose_world.inverse() * tip_pose_world
+        }
+        None => tip_pose_world,
+    })
+}
+
+/// Everything one [`crate::protocol::Op::Ik`] case needs on the moveit-rs
+/// side: whether `NewtonRaphsonSolver` converged, the seed it started from
+/// (so the caller can flag a degenerate "returned its seed" pass), and --
+/// when it converged -- how far `FK(solution)` lands from the target pose
+/// it was asked to reach.
+pub struct IkOutcome {
+    /// [`moveit_kinematics::KinematicsSolver::joint_names`] order.
+    pub joint_names: Vec<String>,
+    /// The deterministic, bounds-midpoint seed this side computed -- see
+    /// [`crate::protocol::Op::Ik`]'s doc comment for why this never needs
+    /// to cross the wire.
+    pub seed: Vec<f64>,
+    /// The solved joint values, [`IkOutcome::joint_names`] order. `None`
+    /// when the solver did not converge.
+    pub solution: Option<Vec<f64>>,
+    /// `(FK(solution)`'s translation error, rotation error)` against the
+    /// target pose, present only when [`IkOutcome::solution`] is.
+    pub errors: Option<(f64, f64)>,
+}
+
+/// Drives `NewtonRaphsonSolver` -- the direct port of upstream's own (only)
+/// solver, `ChainIkSolverVelMimicSVD` -- over a target pose built from
+/// `joint_values` the same way [`fk`] builds one, restricted to `group`'s
+/// own chain-relative frame. See [`crate::protocol::Op::Ik`]'s doc comment
+/// for the full rationale.
+pub fn ik(
+    model: &RobotModel,
+    group: &str,
+    joint_values: &BTreeMap<String, f64>,
+    position_only: bool,
+) -> Result<IkOutcome, String> {
+    let params = SolverParams {
+        position_only,
+        ..Default::default()
+    };
+    let mut solver = NewtonRaphsonSolver::new(model, group, &params)
+        .map_err(|e| format!("constructing NewtonRaphsonSolver for {group}: {e}"))?;
+    let joint_names = solver.joint_names().to_vec();
+
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, &value) in joint_values {
+        state
+            .set_variable_position(name, value)
+            .map_err(|e| format!("setting {name}: {e}"))?;
+    }
+    let posed = state.update();
+    let target = chain_relative_pose(model, group, &posed)?;
+
+    let seed: Vec<f64> = joint_names
+        .iter()
+        .map(|name| {
+            let bounds = &model
+                .joint_model(name)
+                .expect("solver's own joint name is a real model joint")
+                .variable_bounds()[0];
+            (bounds.min_position + bounds.max_position) / 2.0
+        })
+        .collect();
+
+    let solution = solver.solve(&seed, &target);
+    let errors = match &solution {
+        Some(sol) => {
+            let mut solved_state = RobotState::new(model);
+            solved_state.set_to_default_values();
+            for (name, &value) in joint_names.iter().zip(sol) {
+                solved_state
+                    .set_variable_position(name, value)
+                    .map_err(|e| format!("setting solved {name}: {e}"))?;
+            }
+            let solved_posed = solved_state.update();
+            let solved_pose = chain_relative_pose(model, group, &solved_posed)?;
+            let translation_error =
+                (solved_pose.translation.vector - target.translation.vector).norm();
+            let rotation_error = (target.rotation.inverse() * solved_pose.rotation).angle();
+            Some((translation_error, rotation_error))
+        }
+        None => None,
+    };
+
+    Ok(IkOutcome {
+        joint_names,
+        seed,
+        solution,
+        errors,
     })
 }

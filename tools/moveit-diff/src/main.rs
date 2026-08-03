@@ -29,9 +29,9 @@ use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
-    ConstraintsSpec, FkResult, JacobianResult, JointConstraintSpec, ModelInfo, Op, OracleResult,
-    OrientationConstraintSpec, OrientationToleranceSpec, PositionConstraintSpec, Request, Response,
-    ShapeSpec, VisibilityConstraintSpec,
+    ConstraintsSpec, FkResult, IkResult, JacobianResult, JointConstraintSpec, ModelInfo, Op,
+    OracleResult, OrientationConstraintSpec, OrientationToleranceSpec, PositionConstraintSpec,
+    Request, Response, ShapeSpec, VisibilityConstraintSpec,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -58,6 +58,27 @@ struct Config {
     /// existing `fk`-only invocations are unaffected.
     collision: bool,
     tol_distance: f64,
+    /// Also run the `ik` op against every `fk` case, using `group` (this
+    /// flag is meaningless without `--group`). Success is a statistic, not
+    /// a per-case verdict -- see `run`'s ik block -- but a converged
+    /// solution's own FK is still checked to `tol_ik`, which IS a per-case
+    /// correctness verdict.
+    ///
+    /// `tol_ik` must stay looser than `SolverParams::default().epsilon`
+    /// (`1e-5`): `rust_impl::ik` always solves with that default, matching
+    /// the oracle's own `kEpsilon` for a fair success-rate comparison, and
+    /// `CartToJnt`'s convergence check accepts any step whose twist norm is
+    /// `<= epsilon` -- so a converged solution's FK error can legitimately
+    /// land anywhere in `(0, epsilon]`, not just near `0`. A 5,000-case
+    /// panda_arm sweep measured this directly: with `tol_ik = 1e-6`, 2930
+    /// cases "failed" with translation errors between `7e-6` and `9.9e-6`,
+    /// none above `epsilon`'s `1e-5` bound -- expected epsilon-bounded
+    /// slack, not a solver defect. `tol_ik` only catches a real correctness
+    /// bug (branch-wrong solution, sign error, etc.) once it is set above
+    /// that bound.
+    ik: bool,
+    tol_ik: f64,
+    ik_position_only: bool,
     oracle: Vec<String>,
 }
 
@@ -74,6 +95,12 @@ impl Config {
         let mut tol_constraints = 1e-9;
         let mut collision = false;
         let mut tol_distance = 1e-4;
+        let mut ik = false;
+        // See `Config::tol_ik`'s own doc comment: this must stay looser than
+        // `SolverParams::default().epsilon` (1e-5), which is what actually
+        // bounds a converged solution's FK error.
+        let mut tol_ik = 2e-5;
+        let mut ik_position_only = false;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -122,6 +149,13 @@ impl Config {
                         .parse()
                         .map_err(|e| format!("--tol-distance: {e}"))?
                 }
+                "--ik" => ik = true,
+                "--tol-ik" => {
+                    tol_ik = want("--tol-ik")?
+                        .parse()
+                        .map_err(|e| format!("--tol-ik: {e}"))?
+                }
+                "--ik-position-only" => ik_position_only = true,
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -146,6 +180,9 @@ impl Config {
             tol_constraints,
             collision,
             tol_distance,
+            ik,
+            tol_ik,
+            ik_position_only,
             oracle,
         })
     }
@@ -250,6 +287,7 @@ fn main() {
             eprintln!("                   [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]");
             eprintln!("                   [--constraints N] [--tol-constraints EPS]");
             eprintln!("                   [--collision] [--tol-distance EPS]");
+            eprintln!("                   [--ik] [--tol-ik EPS] [--ik-position-only]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
@@ -356,6 +394,9 @@ fn build_collision_fixture(cfg: &Config) -> Result<CollisionFixture, String> {
 }
 
 fn run(cfg: &Config) -> Result<usize, String> {
+    if cfg.ik && cfg.group.is_none() {
+        return Err("--ik requires --group".to_owned());
+    }
     let mut oracle = Oracle::spawn(cfg)?;
     let rust_model = build_rust_model(cfg)?;
 
@@ -407,6 +448,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     // rather than re-asking the oracle for the same fk it already answered.
     let mut fks: Vec<FkResult> = Vec::with_capacity(states.len());
     let mut max_distance_dev = 0.0f64;
+    let mut ik_stats = IkStats::default();
 
     for (case, joint_values) in states.iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
@@ -452,6 +494,28 @@ fn run(cfg: &Config) -> Result<usize, String> {
             }
             verdicts.push((format!("collision[{case}]"), verdict));
         }
+
+        if cfg.ik {
+            // Validated once in `run` before the loop starts.
+            let group = cfg.group.as_ref().expect("--ik requires --group");
+            let expected = match oracle.ask(Op::Ik {
+                group: group.clone(),
+                joint_values: joint_values.clone(),
+                position_only: cfg.ik_position_only,
+            })? {
+                OracleResult::Ik(r) => r,
+                other => return Err(format!("expected ik, got {other:?}")),
+            };
+            let verdict = compare_ik(
+                cfg,
+                &rust_model,
+                group,
+                &joint_values,
+                &expected,
+                &mut ik_stats,
+            );
+            verdicts.push((format!("ik[{case}]"), verdict));
+        }
     }
 
     if cfg.group.is_some() {
@@ -463,6 +527,32 @@ fn run(cfg: &Config) -> Result<usize, String> {
 
     if cfg.constraints > 0 {
         run_constraint_cases(cfg, &mut oracle, &rust_model, &states, &fks, &mut verdicts)?;
+    }
+    if cfg.ik {
+        println!(
+            "\n--- ik summary ({}) ---",
+            cfg.group.as_deref().unwrap_or("")
+        );
+        println!(
+            "oracle success rate: {}/{} ({:.1}%)",
+            ik_stats.oracle_success,
+            ik_stats.total,
+            100.0 * ik_stats.oracle_success as f64 / ik_stats.total.max(1) as f64
+        );
+        println!(
+            "rust   success rate: {}/{} ({:.1}%)",
+            ik_stats.rust_success,
+            ik_stats.total,
+            100.0 * ik_stats.rust_success as f64 / ik_stats.total.max(1) as f64
+        );
+        println!(
+            "rust   degenerate (solution == seed): {}/{}",
+            ik_stats.rust_degenerate, ik_stats.rust_success
+        );
+        println!(
+            "oracle degenerate (solution == seed): {}/{}",
+            ik_stats.oracle_degenerate, ik_stats.oracle_success
+        );
     }
 
     report(&verdicts)
@@ -938,6 +1028,97 @@ fn compare_collision(
         );
     }
     (Verdict::Pass, max_dev)
+}
+
+/// Accumulated across every `ik[case]` in a run -- Phase 4's own completion
+/// condition is a rate over many cases, not a per-case verdict (see
+/// `Op::Ik`'s doc comment), so these counts are tallied alongside, not
+/// instead of, `compare_ik`'s per-case correctness verdict.
+#[derive(Default)]
+struct IkStats {
+    total: usize,
+    oracle_success: usize,
+    rust_success: usize,
+    /// A converged solution within this of the seed, elementwise max-norm --
+    /// catches a solver that "succeeds" by returning its seed unmoved.
+    rust_degenerate: usize,
+    oracle_degenerate: usize,
+}
+
+/// How close counts as "did not move from the seed" for the degenerate
+/// check -- far looser than `tol_ik`, since this is about catching a solver
+/// that took no real step at all, not measuring numerical precision.
+const IK_DEGENERATE_EPS: f64 = 1e-6;
+
+/// Compares one `ik[case]`. Per-case failure is reserved for what upstream
+/// itself would call a bug: a converged solution whose own FK misses the
+/// target by more than `cfg.tol_ik`. A side simply not converging is not a
+/// failure -- that is the success-rate statistic `stats` accumulates
+/// instead, reported once at the end of the run, as numbers rather than a
+/// verdict (see `Op::Ik`'s doc comment).
+fn compare_ik(
+    cfg: &Config,
+    rust_model: &RobotModel,
+    group: &str,
+    joint_values: &BTreeMap<String, f64>,
+    expected: &IkResult,
+    stats: &mut IkStats,
+) -> Verdict {
+    stats.total += 1;
+
+    let outcome = match rust_impl::ik(rust_model, group, joint_values, cfg.ik_position_only) {
+        Ok(o) => o,
+        Err(e) => return Verdict::Fail(e),
+    };
+
+    if expected.success {
+        stats.oracle_success += 1;
+        if let Some(solution) = &expected.solution {
+            let degenerate =
+                outcome
+                    .joint_names
+                    .iter()
+                    .zip(&outcome.seed)
+                    .all(|(name, &seed_value)| {
+                        solution
+                            .get(name)
+                            .is_some_and(|&v| (v - seed_value).abs() < IK_DEGENERATE_EPS)
+                    });
+            if degenerate {
+                stats.oracle_degenerate += 1;
+            }
+        }
+    }
+
+    let Some(solution) = &outcome.solution else {
+        return Verdict::Pass;
+    };
+    stats.rust_success += 1;
+
+    let degenerate = solution
+        .iter()
+        .zip(&outcome.seed)
+        .all(|(&v, &s)| (v - s).abs() < IK_DEGENERATE_EPS);
+    if degenerate {
+        stats.rust_degenerate += 1;
+    }
+
+    let (translation_error, rotation_error) = outcome
+        .errors
+        .expect("IkOutcome::errors is Some whenever IkOutcome::solution is");
+    if translation_error.is_nan() || translation_error > cfg.tol_ik {
+        return Verdict::Fail(format!(
+            "rust converged but FK(solution) translation error {translation_error:e} > {:e}",
+            cfg.tol_ik
+        ));
+    }
+    if rotation_error.is_nan() || rotation_error > cfg.tol_ik {
+        return Verdict::Fail(format!(
+            "rust converged but FK(solution) rotation error {rotation_error:e} rad > {:e}",
+            cfg.tol_ik
+        ));
+    }
+    Verdict::Pass
 }
 
 /// Print per-case lines and the summary. Returns the failure count.

@@ -156,6 +156,35 @@ pub enum Op {
         /// dummy spheres, which only exercise pose composition).
         objects: Vec<CollisionObjectSpec>,
     },
+    /// IK success-rate comparison for `group` (Phase 4's completion
+    /// condition -- see `PORTING-PLAN.md`). Both sides solve independently:
+    /// the oracle via a hand-transcribed `KDLKinematicsPlugin::searchPositionIK`
+    /// over the real, vendored `ChainIkSolverVelMimicSVD` (see
+    /// `tools/moveit-oracle/src/oracle.cpp`'s `ik()`), this side's own
+    /// `moveit_kinematics::NewtonRaphsonSolver` -- the direct port of that
+    /// same upstream solver, not `LevenbergMarquardtSolver`, which has no
+    /// upstream counterpart to compare a success rate against.
+    ///
+    /// No target pose or seed crosses the wire. `joint_values` is a full
+    /// model configuration (same shape as [`Op::Fk`]/[`Op::Jacobian`]) drawn
+    /// from [`Op::RandomStates`], so it is reachable by construction; each
+    /// side runs its own forward kinematics on `group`'s own chain to get
+    /// the target pose in the chain's base-link frame. The seed is likewise
+    /// computed independently on each side, deterministically, as each
+    /// active joint's own `(min + max) / 2` -- safe to do without agreeing
+    /// over the wire because [`Op::ModelInfo`]'s `JointDetail::bounds`
+    /// already has to agree between the two sides for the model_info
+    /// comparison to pass, continuous joints included (see that field's doc
+    /// comment on the finite `[-pi, pi]` convention).
+    Ik {
+        /// Joint model group name; must be a chain group.
+        group: String,
+        /// Full joint values defining the reachable target pose (see
+        /// [`Op::Fk`]'s `joint_values`).
+        joint_values: BTreeMap<String, f64>,
+        /// Whether to run position-only IK.
+        position_only: bool,
+    },
 }
 
 /// The constraints to build for one [`Op::Constraints`] request, grouped by
@@ -417,6 +446,8 @@ pub enum OracleResult {
     Constraints(ConstraintsResult),
     /// Answer to [`Op::Collision`].
     Collision(CollisionCheckResult),
+    /// Answer to [`Op::Ik`].
+    Ik(IkResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -710,4 +741,17 @@ pub struct CollisionCheckResult {
     /// `CollisionEnvFCL::distanceRobot`'s `DistanceResult::minimum_distance.distance`,
     /// signed (`enable_signed_distance = true`).
     pub robot_distance: f64,
+}
+
+/// Answer to [`Op::Ik`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IkResult {
+    /// Whether `searchPositionIK`-equivalent found a solution within this
+    /// side's own iteration/restart budget.
+    pub success: bool,
+    /// The solved joint values, one entry per `group`'s active (non-mimic)
+    /// joint, keyed by name so the two sides never need to agree on a
+    /// vector order over the wire. Present only when `success`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solution: Option<BTreeMap<String, f64>>,
 }

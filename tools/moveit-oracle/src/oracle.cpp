@@ -15,6 +15,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -51,6 +52,13 @@
 #include <moveit_msgs/msg/position_constraint.hpp>
 #include <moveit_msgs/msg/visibility_constraint.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
+
+// The `ik` op's solver: KDL::ChainIkSolverVelMimicSVD, vendored verbatim (see
+// that header's own comment for why) plus kdl_parser to build a KDL::Chain
+// straight from the same urdf::ModelInterface this oracle already parses.
+#include <kdl/chainfksolverpos_recursive.hpp>
+#include <kdl_parser/kdl_parser.hpp>
+#include "third_party/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.hpp"
 
 using json = nlohmann::json;
 
@@ -156,6 +164,18 @@ shape_msgs::msg::SolidPrimitive solidPrimitiveFromJson(const json& shape_json)
   return primitive;
 }
 
+/// `Eigen::Isometry3d` -> `KDL::Frame`, for the `ik` op's target pose --
+/// `tf2_kdl::fromMsg` is not available here (this oracle links no ROS
+/// message/tf2 packages), so this goes straight from the isometry instead of
+/// via a `geometry_msgs::msg::Pose` the way `KDLKinematicsPlugin::
+/// searchPositionIK` does.
+KDL::Frame toKdlFrame(const Eigen::Isometry3d& t)
+{
+  const Eigen::Quaterniond q(t.rotation());
+  const Eigen::Vector3d& p = t.translation();
+  return { KDL::Rotation::Quaternion(q.x(), q.y(), q.z(), q.w()), KDL::Vector(p.x(), p.y(), p.z()) };
+}
+
 /// Matches the `kind` strings `moveit_model::Diagnostic::UnsupportedLinkGeometry`
 /// and the `link_details[].shape_types` wire field use — this oracle's own
 /// naming, not upstream's (`shapes::Shape` has no built-in name accessor;
@@ -227,6 +247,33 @@ std::shared_ptr<shapes::Shape> parseShape(const std::string& type, const json& s
     return mesh;
   }
   throw std::runtime_error("unsupported shape type " + type);
+}
+
+/// `KDLKinematicsPlugin::clipToJointLimits`, transcribed directly (see
+/// `Oracle::ik`'s own doc comment for why this is hand-transcribed rather
+/// than vendored): per full-space DOF, clamp `q_delta[i]` so `q[i] +
+/// q_delta[i]` cannot leave `[joint_min[i], joint_max[i]]`, and down-weight
+/// the clipped DOF's *master* column (`weighting[mimic_joints[i].map_index]
+/// = 0.01`) for the solver's next call. `weighting` is reset to all-`1.0` on
+/// every call, matching upstream's own `weighting.setOnes()` as this
+/// function's first statement.
+void clipToJointLimits(const std::vector<double>& joint_min, const std::vector<double>& joint_max,
+                       const std::vector<kdl_kinematics_plugin::JointMimic>& mimic_joints, const KDL::JntArray& q,
+                       KDL::JntArray& q_delta, Eigen::ArrayXd& weighting)
+{
+  weighting.setOnes();
+  for (std::size_t i = 0; i < q.rows(); ++i)
+  {
+    const double delta_max = joint_max[i] - q(i);
+    const double delta_min = joint_min[i] - q(i);
+    if (q_delta(i) > delta_max)
+      q_delta(i) = delta_max;
+    else if (q_delta(i) < delta_min)
+      q_delta(i) = delta_min;
+    else
+      continue;
+    weighting[mimic_joints[i].map_index] = 0.01;
+  }
 }
 
 /// Matches AllowedCollisionType's variant names in protocol.rs.
@@ -383,18 +430,23 @@ public:
     const std::string urdf_xml = readFile(urdf_path);
     const std::string srdf_xml = readFile(srdf_path);
 
-    urdf::ModelInterfaceSharedPtr urdf_model = urdf::parseURDF(urdf_xml);
-    if (!urdf_model)
+    urdf_model_ = urdf::parseURDF(urdf_xml);
+    if (!urdf_model_)
       throw std::runtime_error("failed to parse URDF at " + urdf_path);
 
     auto srdf_model = std::make_shared<srdf::Model>();
-    if (!srdf_model->initString(*urdf_model, srdf_xml))
+    if (!srdf_model->initString(*urdf_model_, srdf_xml))
       throw std::runtime_error("failed to parse SRDF at " + srdf_path);
 
-    model_ = std::make_shared<moveit::core::RobotModel>(urdf_model, srdf_model);
+    model_ = std::make_shared<moveit::core::RobotModel>(urdf_model_, srdf_model);
     state_ = std::make_unique<moveit::core::RobotState>(model_);
     state_->setToDefaultValues();
     state_->update();
+
+    // For the `ik` op: one KDL::Tree built once, `getChain`-sliced per
+    // request into whatever group's own base/tip the request names.
+    if (!kdl_parser::treeFromUrdfModel(*urdf_model_, kdl_tree_))
+      throw std::runtime_error("failed to build a KDL::Tree from the URDF at " + urdf_path);
   }
 
   json handle(const json& request)
@@ -434,6 +486,8 @@ public:
       return constraints(request);
     if (op == "octomap")
       return octomapOp(request);
+    if (op == "ik")
+      return ik(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -851,6 +905,236 @@ private:
   collision_detection::AllowedCollisionMatrix buildAcm() const
   {
     return collision_detection::AllowedCollisionMatrix(*model_->getSRDF());
+  }
+
+  /// Ground truth for the `ik` op (Phase 4's completion condition -- see
+  /// `PORTING-PLAN.md` and `tools/moveit-diff/src/protocol.rs`'s `Op::Ik`
+  /// doc comment): `KDLKinematicsPlugin::searchPositionIK`/`CartToJnt`/
+  /// `clipToJointLimits`, hand-transcribed here rather than vendored --
+  /// unlike `ChainIkSolverVelMimicSVD`, `KDLKinematicsPlugin` itself is
+  /// soaked in `rclcpp::Node`/`moveit_ros_planning` (see
+  /// `chainiksolver_vel_mimic_svd.hpp`'s own vendoring note) -- reading the
+  /// real `KDL::ChainIkSolverVelMimicSVD` at every step, so this is genuine
+  /// upstream ground truth for the numerically hardest part (the mimic-aware
+  /// SVD fold), not a second copy of this port's own algorithm.
+  ///
+  /// # Deviation from upstream: fixed retry count, not a wall-clock timeout
+  ///
+  /// `searchPositionIK`'s `do { ... } while (!timedOut(start_time,
+  /// timeout))` retries until wall-clock time runs out, which is not
+  /// reproducible and not comparable to a fixed budget. This mirrors
+  /// `moveit_kinematics::SolverParams::max_restarts`'s own identical
+  /// deviation on the Rust side, using the same numeric value
+  /// (`kMaxRestarts`) so the two sides' success rates are a fair comparison
+  /// rather than one side simply being given more attempts.
+  json ik(const json& request)
+  {
+    constexpr unsigned int kMaxSolverIterations = 500;   // SolverParams::max_solver_iterations default
+    constexpr double kEpsilon = 0.00001;                 // SolverParams::epsilon default
+    constexpr double kSvdThreshold = 0.001;               // SolverParams::svd_threshold default
+    constexpr unsigned int kMaxRestarts = 20;             // SolverParams::max_restarts default
+
+    const std::string group_name = request.at("group").get<std::string>();
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (!group)
+      throw std::runtime_error("unknown group: " + group_name);
+    if (!group->isChain())
+      throw std::runtime_error("group '" + group_name + "' is not a chain; only chain groups are supported");
+    if (!group->isSingleDOFJoints())
+      throw std::runtime_error("group '" + group_name + "' includes joints that have more than 1 DOF");
+
+    const bool position_only = request.at("position_only").get<bool>();
+
+    // Target pose: FK at `joint_values`, expressed in this chain's own
+    // base-link frame -- the frame KDL::Chain's implicit base is (matches
+    // `moveit_kinematics::chain::ChainInfo::root_pose_world`).
+    applyJointValues(request);
+    const moveit::core::LinkModel* tip_link = group->getLinkModels().back();
+    const moveit::core::LinkModel* root_link = group->getLinkModels().front()->getParentLinkModel();
+    if (!root_link)
+      throw std::runtime_error("group '" + group_name + "' starts at the model root; ik() does not support that");
+
+    const Eigen::Isometry3d tip_pose_world = state_->getGlobalLinkTransform(tip_link);
+    const Eigen::Isometry3d root_pose_world = state_->getGlobalLinkTransform(root_link);
+    const Eigen::Isometry3d target = root_pose_world.inverse() * tip_pose_world;
+    const KDL::Frame pose_desired = toKdlFrame(target);
+
+    KDL::Chain kdl_chain;
+    if (!kdl_tree_.getChain(root_link->getName(), tip_link->getName(), kdl_chain))
+      throw std::runtime_error("could not extract a KDL chain from '" + root_link->getName() + "' to '" +
+                                tip_link->getName() + "'");
+
+    // Mimic joints: `KDLKinematicsPlugin::initialize`'s own two-pass build
+    // (walk the chain segments once, recording every active joint's own
+    // `map_index` in encounter order; a second pass then resolves each
+    // mimic's `map_index` from its master's), transcribed faithfully
+    // including upstream's own silent-drop behaviour for an in-chain mimic
+    // whose master is outside the group -- none of this port's `--ik`
+    // fixtures (`panda_arm`, `manipulator`, `left_panda_arm`, `right_arm`)
+    // have a mimic joint on the arm chain at all, so that upstream edge
+    // case is never reached here.
+    std::vector<kdl_kinematics_plugin::JointMimic> mimic_joints;
+    std::vector<std::string> active_joint_names;
+    std::vector<std::size_t> active_full_index;
+    unsigned int joint_counter = 0;
+    for (unsigned int i = 0; i < kdl_chain.getNrOfSegments(); ++i)
+    {
+      const moveit::core::JointModel* jm = model_->getJointModel(kdl_chain.segments[i].getJoint().getName());
+
+      if (jm->getMimic() == nullptr && jm->getVariableCount() > 0)
+      {
+        kdl_kinematics_plugin::JointMimic mimic_joint;
+        mimic_joint.reset(joint_counter);
+        mimic_joint.joint_name = jm->getName();
+        mimic_joint.active = true;
+        mimic_joints.push_back(mimic_joint);
+        active_joint_names.push_back(jm->getName());
+        active_full_index.push_back(mimic_joints.size() - 1);
+        ++joint_counter;
+        continue;
+      }
+      if (group->hasJointModel(jm->getName()) && jm->getMimic() && group->hasJointModel(jm->getMimic()->getName()))
+      {
+        kdl_kinematics_plugin::JointMimic mimic_joint;
+        mimic_joint.joint_name = jm->getName();
+        mimic_joint.offset = jm->getMimicOffset();
+        mimic_joint.multiplier = jm->getMimicFactor();
+        mimic_joints.push_back(mimic_joint);
+      }
+    }
+    for (kdl_kinematics_plugin::JointMimic& mimic_joint : mimic_joints)
+    {
+      if (mimic_joint.active)
+        continue;
+      const moveit::core::JointModel* master = model_->getJointModel(mimic_joint.joint_name)->getMimic();
+      for (const kdl_kinematics_plugin::JointMimic& other : mimic_joints)
+      {
+        if (other.joint_name == master->getName())
+          mimic_joint.map_index = other.map_index;
+      }
+    }
+
+    std::vector<double> joint_min(mimic_joints.size());
+    std::vector<double> joint_max(mimic_joints.size());
+    for (std::size_t i = 0; i < mimic_joints.size(); ++i)
+    {
+      const moveit::core::VariableBounds& b = model_->getJointModel(mimic_joints[i].joint_name)->getVariableBounds()[0];
+      joint_min[i] = b.min_position_;
+      joint_max[i] = b.max_position_;
+    }
+
+    // Deterministic, bounds-midpoint seed -- see `Op::Ik`'s doc comment for
+    // why this never needs to cross the wire, and `buildQFull` for how a
+    // reduced-space (active-joint-only) seed becomes the full-space
+    // `KDL::JntArray` this solver actually iterates on (a mimic's own
+    // full-space entry is its master's value transformed by
+    // `multiplier`/`offset`, matching `moveit_state::RobotState`'s own
+    // mimic derivation the Rust side relies on via `set_variable_position`).
+    auto buildQFull = [&](const std::vector<double>& active_values) {
+      KDL::JntArray q_full(mimic_joints.size());
+      for (std::size_t i = 0; i < mimic_joints.size(); ++i)
+      {
+        const double master_value = active_values[mimic_joints[i].map_index];
+        q_full(i) =
+            mimic_joints[i].active ? master_value : mimic_joints[i].multiplier * master_value + mimic_joints[i].offset;
+      }
+      return q_full;
+    };
+
+    std::vector<double> seed_active(active_joint_names.size());
+    for (std::size_t k = 0; k < active_joint_names.size(); ++k)
+      seed_active[k] = (joint_min[active_full_index[k]] + joint_max[active_full_index[k]]) / 2.0;
+
+    KDL::ChainIkSolverVelMimicSVD ik_solver_vel(kdl_chain, mimic_joints, position_only, kSvdThreshold);
+    KDL::ChainFkSolverPos_recursive fk_solver(kdl_chain);
+
+    Eigen::Matrix<double, 6, 1> cartesian_weights;
+    cartesian_weights.topRows<3>().setConstant(1.0);
+    cartesian_weights.bottomRows<3>().setConstant(position_only ? 0.0 : 1.0);
+    const Eigen::VectorXd joint_weights = Eigen::VectorXd::Constant(active_joint_names.size(), 1.0);
+
+    // `KDLKinematicsPlugin::CartToJnt`, transcribed directly.
+    auto cartToJnt = [&](const KDL::JntArray& q_init, KDL::JntArray& q_out) {
+      double last_delta_twist_norm = std::numeric_limits<double>::max();
+      double step_size = 1.0;
+      KDL::Frame f;
+      KDL::Twist delta_twist;
+      KDL::JntArray delta_q(q_init.rows());
+      KDL::JntArray q_backup(q_init.rows());
+      Eigen::ArrayXd extra_joint_weights(joint_weights.rows());
+      extra_joint_weights.setOnes();
+
+      q_out = q_init;
+      bool success = false;
+      for (unsigned int iter = 0; iter < kMaxSolverIterations; ++iter)
+      {
+        fk_solver.JntToCart(q_out, f);
+        delta_twist = KDL::diff(f, pose_desired);
+
+        const double position_error = delta_twist.vel.Norm();
+        const double orientation_error = ik_solver_vel.isPositionOnly() ? 0.0 : delta_twist.rot.Norm();
+        const double delta_twist_norm = std::max(position_error, orientation_error);
+        if (delta_twist_norm <= kEpsilon)
+        {
+          success = true;
+          break;
+        }
+
+        if (delta_twist_norm >= last_delta_twist_norm)
+        {
+          const double old_step_size = step_size;
+          step_size *= std::min(0.2, last_delta_twist_norm / delta_twist_norm);
+          KDL::Multiply(delta_q, step_size / old_step_size, delta_q);
+          q_out = q_backup;
+        }
+        else
+        {
+          q_backup = q_out;
+          step_size = 1.0;
+          last_delta_twist_norm = delta_twist_norm;
+          ik_solver_vel.CartToJnt(q_out, delta_twist, delta_q, extra_joint_weights * joint_weights.array(),
+                                  cartesian_weights);
+        }
+
+        clipToJointLimits(joint_min, joint_max, mimic_joints, q_out, delta_q, extra_joint_weights);
+
+        const double delta_q_norm = delta_q.data.lpNorm<1>();
+        if (delta_q_norm < kEpsilon)
+        {
+          if (step_size < kEpsilon)
+            break;
+          last_delta_twist_norm = std::numeric_limits<double>::max();
+          delta_q.data.setRandom();
+          delta_q.data *= std::min(0.1, delta_twist_norm);
+          clipToJointLimits(joint_min, joint_max, mimic_joints, q_out, delta_q, extra_joint_weights);
+          extra_joint_weights.setOnes();
+        }
+
+        KDL::Add(q_out, delta_q, q_out);
+      }
+      return success;
+    };
+
+    KDL::JntArray q_out(mimic_joints.size());
+    bool success = cartToJnt(buildQFull(seed_active), q_out);
+    for (unsigned int attempt = 0; attempt < kMaxRestarts && !success; ++attempt)
+    {
+      std::vector<double> reseed_active(active_joint_names.size());
+      for (std::size_t k = 0; k < active_joint_names.size(); ++k)
+      {
+        reseed_active[k] =
+            ik_rng_.uniformReal(joint_min[active_full_index[k]], joint_max[active_full_index[k]]);
+      }
+      success = cartToJnt(buildQFull(reseed_active), q_out);
+    }
+
+    if (!success)
+      return json{ { "success", false } };
+
+    json solution = json::object();
+    for (std::size_t k = 0; k < active_joint_names.size(); ++k)
+      solution[active_joint_names[k]] = q_out(active_full_index[k]);
+    return json{ { "success", true }, { "solution", solution } };
   }
 
   /// Ground truth for the `moveit-collision` differential test: builds an
@@ -1606,6 +1890,17 @@ private:
 
   moveit::core::RobotModelPtr model_;
   std::unique_ptr<moveit::core::RobotState> state_;
+
+  // For the `ik` op only.
+  urdf::ModelInterfaceSharedPtr urdf_model_;
+  KDL::Tree kdl_tree_;
+  // Reseed draws between `ik` restart attempts (see `ik()`'s own doc
+  // comment). Fixed-seeded for a reproducible oracle run; Phase 4's
+  // completion condition never compares a solution's exact value, only
+  // whether one was found and whether FK(solution) lands on target, so
+  // this need not (and structurally cannot, since it is a wholly separate
+  // RNG stream) match moveit-kinematics's own reseed draws.
+  random_numbers::RandomNumberGenerator ik_rng_{ 42 };
 };
 
 }  // namespace
