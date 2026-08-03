@@ -48,7 +48,7 @@
 // - **Bounds extraction sidesteps upstream's per-*joint* (not per-*variable*)
 //   index-advance bug by construction, and shares
 //   `ruckig_filter::joint_vel_accel_jerk_bounds`'s single-DOF-joint
-//   assumption.** Upstream's own `initialize()` walks
+//   contract.** Upstream's own `initialize()` walks
 //   `getActiveJointModelsBounds()` (one entry per active *joint*) and, for
 //   each, an inner loop over that joint's own *variables* -- but advances its
 //   flat write index once per outer (joint) iteration, not once per inner
@@ -61,9 +61,26 @@
 //   -- which has no way to represent a multi-variable joint at all, so there
 //   is no index to misadvance. This is not a fix applied to upstream's loop;
 //   it is a different, narrower data representation that the bug's
-//   precondition cannot occur in. Every fixture this port is checked against
-//   uses `panda_arm`, whose joints are all single-DOF, so this narrowing is
-//   untested against a multi-DOF joint either way.
+//   precondition cannot occur in.
+//
+//   This port's contract is **single-DOF active joints only**, and that is
+//   now an intentional, checked precondition rather than an accidental
+//   byproduct of the name lookup: [`joint_acceleration_bounds`] rejects a
+//   multi-variable active joint with a dedicated [`Error`] naming the joint
+//   and its variable count, before attempting `variable_bounds_for`, rather
+//   than relying on that lookup to fail with a generic "unknown name" once
+//   it discovers no variable is named identically to the joint (which it
+//   always does for a multi-variable joint --
+//   [`moveit_model::joint::JointModel::new_multi_variable`] names every
+//   variable `"{joint_name}/{local_name}"`, never the bare joint name).
+//   Extending this to a real per-variable multi-DOF bound is not attempted:
+//   upstream's own multi-DOF behaviour here is the index-advance bug above,
+//   not a real algorithm this port could transcribe, and there is no
+//   fixture robot in this workspace with a multi-DOF active joint whose
+//   correct per-variable bound behaviour could be derived independently.
+//   `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`
+//   (this module's tests, below) exercises the contract against a
+//   synthetic planar joint.
 // - **`do_smoothing`'s length check reads `velocities.len()`, not
 //   `positions.len()`, transcribed as upstream's own quirk.** Upstream names
 //   its check variable `num_positions` but assigns it from
@@ -133,6 +150,13 @@ pub fn joint_acceleration_bounds(
 
     for name in group.active_joint_names() {
         let joint = model.joint_model(name)?;
+        if joint.variable_names().len() != 1 {
+            return Err(Error::other(format!(
+                "AccelerationLimitedPlugin only supports single-DOF active joints: {name} has \
+                 {} variables",
+                joint.variable_names().len()
+            )));
+        }
         let bound = joint.variable_bounds_for(joint.name())?;
 
         if !bound.acceleration_bounded {
@@ -442,6 +466,53 @@ mod tests {
         assert_eq!(min.len(), 7);
         assert!(min.iter().all(|&m| m == -2.0));
         assert!(max.iter().all(|&m| m == 2.0));
+    }
+
+    /// The single-DOF-active-joint contract (module doc's "Deviations from
+    /// upstream" note): a group whose active joint has more than one
+    /// variable is a dedicated [`Error`], not a lookup that happens to fail
+    /// with "unknown name", and not upstream's silent last-variable-wins.
+    ///
+    /// Reuses `moveit-trajectory`'s own `totg_synthetic.{urdf,srdf}` (also
+    /// this worker's crate) rather than adding a new fixture file here: a
+    /// new synthetic fixture needs registering in
+    /// `tools/ci/verify-fixture-provenance.sh`'s `SYNTHETIC` allowlist, which
+    /// lives outside this crate's ownership, and `totg_synthetic` already
+    /// defines exactly what this test needs (`planar_group`, a single
+    /// `planar_joint`, 3 variables) for the identical reason
+    /// (`totg_robot_trajectory_parity.rs`'s own mimic/multi-DOF coverage
+    /// gap).
+    #[test]
+    fn multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins() {
+        let urdf_path = format!(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moveit-trajectory/tests/fixtures/{}"
+            ),
+            "totg_synthetic.urdf"
+        );
+        let srdf_path = format!(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../moveit-trajectory/tests/fixtures/{}"
+            ),
+            "totg_synthetic.srdf"
+        );
+        let urdf_xml =
+            fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+        let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("fixture model must build");
+        let group = model.joint_model_group("planar_group").unwrap();
+
+        let err = joint_acceleration_bounds(&model, group).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("planar_joint") && message.contains('3'),
+            "expected the error to name the joint and its variable count: {message}"
+        );
     }
 
     #[test]
