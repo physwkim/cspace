@@ -293,51 +293,107 @@
 //!   `cached_solver.rs`, one per solver this crate ships
 //!   (`newton_raphson`, `lma`).
 //!
-//!   **`public:` member coverage, by count.** There is no separate
+//!   **`public:` member coverage, by name.** There is no separate
 //!   `ik_cache.hpp` — `IKCache`'s declaration (only its `.cpp` is
 //!   `ik_cache.cpp`) lives inside `cached_ik_kinematics_plugin.hpp`
 //!   alongside `IKCacheMap`, `CachedIKKinematicsPlugin`, and
 //!   `CachedMultiTipIKKinematicsPlugin`. That one header has four `public:`
-//!   blocks, 36 member declarations total (`rg -n "^public:" -A0` finds the
-//!   4 blocks; every line between one and the next `private:`/`protected:`/
-//!   closing brace was read and classified by hand, not sampled):
+//!   blocks. A prior version of this audit gave "36" without stating how it
+//!   counted, and a reviewer re-deriving it by counting `(` on declaration
+//!   lines inside each `public:` block got 41, then 27 after subtracting
+//!   continuation lines/doc comments/an inline body — neither matched, and
+//!   neither count could be checked against the other without knowing what
+//!   each one meant by "one member". This version states that first:
 //!
-//!   | class | public members | ported | not ported |
+//!   - Constructors and destructors **count**, including `~IKCache()`,
+//!     even though Rust's ownership model gives them no direct counterpart
+//!     — they are still real public declarations a reader of the header
+//!     sees.
+//!   - `= delete`d declarations (`IKCache(const IKCache&) = delete;`)
+//!     **count**, same reason.
+//!   - `Options`'s and `Pose`'s public data members (`max_cache_size`,
+//!     `position`, ...) **count individually** — the struct itself is not
+//!     one line item with its fields folded in.
+//!   - A signature that wraps across multiple source lines **counts once**
+//!     — one function, however its parameter list is line-wrapped.
+//!   - Doc comments and an inline method body (`initialize`'s, the one
+//!     `public:` member defined in-header rather than declared) are not
+//!     declarations and are not counted.
+//!
+//!   By that count, the four `public:` blocks hold 44 members total:
+//!
+//!   | class | members | ported | not ported |
 //!   |---|---|---|---|
-//!   | `IKCache` | 12 | 5 | 7 |
+//!   | `IKCache` | 20 | 8 | 12 |
 //!   | `IKCacheMap` | 6 | 0 | 6 |
 //!   | `CachedIKKinematicsPlugin` | 12 | 6 | 6 |
 //!   | `CachedMultiTipIKKinematicsPlugin` | 6 | 0 | 6 |
-//!   | **total** | **36** | **11** | **25** |
+//!   | **total** | **44** | **14** | **30** |
 //!
-//!   `IKCache`'s 5 ported: the ctor (→ `IkCache::new`), `Options` (→
-//!   `IkCacheOptions`, 3 of its 4 fields — `cached_ik_path` is the
-//!   excluded one), `Pose::distance` (→ `ik_cache::pose_distance`, a free
-//!   function since no `Pose` type is exposed), single-tip
-//!   `getBestApproximateIKSolution` (→ `IkCache::nearest`), single-tip
-//!   `updateCache` (→ `IkCache::update`). Its 7 not ported: `~IKCache`/the
-//!   deleted copy ctor (Rust ownership makes both moot, not a gap), the
-//!   `IKEntry` alias and both multi-tip overloads of
-//!   `getBestApproximateIKSolution`/`updateCache` (multi-tip, out of
-//!   scope per `KinematicsSolver`'s own `# Deviations`), `initializeCache`
-//!   (disk persistence, item 2 above), `verifyCache` (debug-only, takes a
-//!   live `KDLKinematicsPlugin&` to re-run FK against — nothing in this
-//!   port constructs one standalone to call it against).
+//!   `IKCache`'s 20, by name:
 //!
-//!   `IKCacheMap`'s 6 and `CachedMultiTipIKKinematicsPlugin`'s 6: entirely
-//!   multi-tip, entirely out of scope, same reason both times.
+//!   - `Options::Options()` — ported, as [`IkCacheOptions`]'s `Default` impl
+//!   - `Options::max_cache_size` — ported, same name
+//!   - `Options::min_pose_distance` — ported, same name
+//!   - `Options::min_joint_config_distance` — ported, renamed
+//!     [`IkCacheOptions::min_config_distance`]
+//!   - `Options::cached_ik_path` — not ported (disk persistence, item 2
+//!     above)
+//!   - `Pose::Pose() = default` — not ported; no public `Pose` type exists
+//!     here (position/orientation go through [`moveit_geometry::Isometry3`]
+//!     directly)
+//!   - `Pose::Pose(const geometry_msgs::msg::Pose&)` — not ported; no ROS
+//!     message types are ported at all ("Do not port the ROS surface")
+//!   - `Pose::position` — not ported; folded into `Isometry3::translation`,
+//!     an existing type, not re-declared here
+//!   - `Pose::orientation` — not ported; folded into `Isometry3::rotation`
+//!   - `Pose::distance` — ported, as `ik_cache::pose_distance`, a free
+//!     function rather than a method since there is no `Pose` type to hang
+//!     it on
+//!   - `IKCache::IKEntry` (the multi-tip `pair<vector<Pose>, vector<double>>`
+//!     alias) — not ported (multi-tip, out of scope)
+//!   - `IKCache::IKCache()` — ported, as `IkCache::new`
+//!   - `IKCache::~IKCache()` — not ported; Rust `Drop` needs no user
+//!     declaration
+//!   - `IKCache::IKCache(const IKCache&) = delete` — not ported; Rust types
+//!     are non-`Copy` by default, so there is no equivalent declaration to
+//!     make
+//!   - `getBestApproximateIKSolution(const Pose&) const` — ported, as
+//!     `IkCache::nearest`
+//!   - `getBestApproximateIKSolution(const vector<Pose>&) const` — not
+//!     ported (multi-tip)
+//!   - `initializeCache(...)` — not ported (disk persistence)
+//!   - `updateCache(const IKEntry&, const Pose&, const vector<double>&)
+//!     const` — ported, as `IkCache::update`
+//!   - `updateCache(const IKEntry&, const vector<Pose>&, const
+//!     vector<double>&) const` — not ported (multi-tip)
+//!   - `verifyCache(kdl_kinematics_plugin::KDLKinematicsPlugin&) const` —
+//!     not ported (debug-only; takes a live `KDLKinematicsPlugin&` to
+//!     re-run FK against, and nothing in this port constructs one
+//!     standalone to call it against)
 //!
-//!   `CachedIKKinematicsPlugin`'s 6 ported: the ctor (→
-//!   `CachedIkSolver::new`), `getPositionIK`, and all four
-//!   `searchPositionIK` overloads (→ [`KinematicsSolver::solve_with_options`]
-//!   via [`CachedIkSolver`], the six-collapses-to-one fold explained
-//!   above). Its 6 not ported: `~CachedIKKinematicsPlugin` (moot), `initialize`
-//!   (no Rust-side counterpart, explained above), and the four `using`
-//!   aliases (`Pose`, `IKEntry`, `IKCallbackFn`, `KinematicsQueryOptions`)
-//!   — none has a standalone Rust type, since [`SolveOptions`] already
-//!   folds what `KinematicsQueryOptions` plus the solution-callback
-//!   parameter carry, and no public `Pose`/`IKEntry` type exists here for
-//!   the first two aliases to name.
+//!   `IKCacheMap`'s 6 (`IKEntry`/`Pose` aliases, ctor, dtor,
+//!   `getBestApproximateIKSolution`, `updateCache`) and
+//!   `CachedMultiTipIKKinematicsPlugin`'s 6 (`Pose`/`IKEntry`/
+//!   `IKCallbackFn`/`KinematicsQueryOptions` aliases, `initialize`,
+//!   `searchPositionIK`): entirely multi-tip, entirely out of scope, same
+//!   reason every time — neither block has a single ported member.
+//!
+//!   `CachedIKKinematicsPlugin`'s 12, by name:
+//!
+//!   - `Pose`, `IKEntry`, `IKCallbackFn`, `KinematicsQueryOptions` (4
+//!     `using` aliases) — none ported; no standalone Rust type exists for
+//!     the first two (see `IKCache` above), and [`SolveOptions`] already
+//!     folds what `KinematicsQueryOptions` plus the solution-callback
+//!     parameter carry, so there is nothing for the other two to alias
+//!   - `CachedIKKinematicsPlugin()` — ported, as `CachedIkSolver::new`
+//!   - `~CachedIKKinematicsPlugin()` — not ported; moot, as above
+//!   - `initialize(...)` — not ported; no Rust-side counterpart, explained
+//!     above
+//!   - `getPositionIK(...)` and all four `searchPositionIK(...)` overloads
+//!     (5 total) — ported, folded into
+//!     [`KinematicsSolver::solve_with_options`] via [`CachedIkSolver`], the
+//!     six-collapses-to-one fold explained above
 
 mod cached_solver;
 mod cart_to_jnt;

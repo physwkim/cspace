@@ -1628,6 +1628,25 @@ struct IkStats {
     rust_success: usize,
     /// A converged solution within this of the seed, elementwise max-norm --
     /// catches a solver that "succeeds" by returning its seed unmoved.
+    ///
+    /// Confirmed reading `0` on a real 300-case `panda_arm` sweep
+    /// (`--group panda_arm --ik --cases 300 --seed 1`, 297 rust successes,
+    /// 294 oracle successes): `--stats-json` reported
+    /// `"rust_degenerate": 0, "oracle_degenerate": 0`. Expected, given
+    /// [`IK_DEGENERATE_EPS`]'s own measured basis -- every real convergence
+    /// observed there left `1e-6` at least `5.5` decades of headroom, so a
+    /// normal sweep should never trip this counter. That this field can
+    /// still register non-zero on a real (not stubbed) solve is pinned by
+    /// `degenerate_counter_reachability_tests::
+    /// a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved`: a
+    /// case whose target pose already equals `FK(seed)` converges on
+    /// `cart_to_jnt`'s very first iteration, before `q_full` is perturbed,
+    /// so the returned solution is the seed's own values read straight
+    /// back. `rust_impl::IkSolver` is a concrete struct, not a trait object
+    /// (`compare_ik` takes `&mut rust_impl::IkSolver<'_>` by name), so there
+    /// is no seam to substitute a stub solver without adding a test-only
+    /// abstraction the tool does not otherwise have -- this
+    /// already-real path made that seam unnecessary.
     rust_degenerate: usize,
     oracle_degenerate: usize,
     /// McNemar's `b`: oracle solved this case, rust did not. Marginal totals
@@ -2014,6 +2033,81 @@ mod is_degenerate_from_seed_tests {
         let seed = [0.0];
         let solution = [IK_DEGENERATE_EPS];
         assert!(!is_degenerate_from_seed(&solution, &seed));
+    }
+}
+
+/// Whether `stats.rust_degenerate`/`stats.oracle_degenerate` can ever read
+/// non-zero outside of a hand-built unit input: a real sweep's own solver is
+/// `rust_impl::IkSolver`, a concrete struct hard-wired to
+/// `NewtonRaphsonSolver` (`rust_impl.rs:487`), not a trait object --
+/// `compare_ik` takes `&mut rust_impl::IkSolver<'_>` by concrete type, so
+/// there is no seam to substitute a stub "returns its seed unmoved" solver
+/// without adding a test-only abstraction that does not otherwise exist.
+///
+/// A stub is unnecessary, though: `cart_to_jnt`'s own convergence check
+/// (`cart_to_jnt.rs:181`, `delta_twist_norm <= params.epsilon`) can pass on
+/// attempt 0's very first iteration, before `q_full` is perturbed at all --
+/// if the case's target pose is already exactly `FK(seed)`, the returned
+/// solution is read straight back from the seed's own values
+/// (`cart_to_jnt.rs:182-192`), bit-for-bit unmodified. That is a real,
+/// unmodified solver path, reachable by choosing the case itself rather
+/// than the solver.
+#[cfg(test)]
+mod degenerate_counter_reachability_tests {
+    use super::*;
+
+    /// Builds panda_arm's `IkSolver` (bounds-midpoint seed, computed the
+    /// same way `IkSolver::new` computes it -- `rust_impl.rs:512-521`) and
+    /// hands `solve_case` a case whose `joint_values` are that same
+    /// bounds-midpoint configuration by name, so `chain_relative_pose`
+    /// computes the identical target the solver's own seed already sits at.
+    /// panda_arm has no mimic joints, so `chain_joint_names` (every
+    /// single-DOF joint, active and mimic) and the solver's own reduced
+    /// active-joint set name exactly the same joints.
+    ///
+    /// Reads `moveit-kinematics/tests/fixtures/panda.urdf`/`.srdf` directly
+    /// rather than duplicating them into this crate's own fixtures.
+    #[test]
+    fn a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved() {
+        let fixtures_dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../crates/moveit-kinematics/tests/fixtures"
+        );
+        let urdf_path = format!("{fixtures_dir}/panda.urdf");
+        let srdf_path = format!("{fixtures_dir}/panda.srdf");
+        let urdf_xml =
+            std::fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read panda.urdf: {e}"));
+        let urdf =
+            urdf_rs::read_file(&urdf_path).unwrap_or_else(|e| panic!("parse panda.urdf: {e}"));
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("parse panda.srdf");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("build panda RobotModel");
+
+        let mut solver =
+            rust_impl::IkSolver::new(&model, "panda_arm", false, 0).expect("construct IkSolver");
+
+        let joint_values: BTreeMap<String, f64> = solver
+            .chain_joint_names()
+            .into_iter()
+            .map(|name| {
+                let bounds = &model
+                    .joint_model(&name)
+                    .expect("chain_joint_names names a real model joint")
+                    .variable_bounds()[0];
+                (name, (bounds.min_position + bounds.max_position) / 2.0)
+            })
+            .collect();
+
+        let outcome = solver
+            .solve_case(&joint_values, &BTreeMap::new())
+            .expect("solve_case");
+        let solution = outcome
+            .solution
+            .expect("target already at the seed's own pose must converge on attempt 0");
+
+        assert_eq!(solution, outcome.seed);
+        assert!(is_degenerate_from_seed(&solution, &outcome.seed));
     }
 }
 

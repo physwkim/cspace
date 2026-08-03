@@ -151,13 +151,15 @@ fn harmonize_positions_rewraps_without_changing_the_transform() {
         .global_link_transform("bl_caster_rotation_link")
         .unwrap();
     // Bisected per-constant (§85.3) down through 1e-12, 1e-15, and 0.0: all
-    // pass, `before`/`after` are bit-for-bit identical. Not a coincidence of
-    // this input -- this doc comment's own opening paragraph is the reason:
-    // harmonizing never marks link transforms dirty, so `update()` after
-    // `harmonize_positions()` returns the same cached transform rather than
-    // recomputing one through sin/cos of the rewrapped angle. `epsilon =
-    // 1e-9` has effectively infinite headroom; no change needed.
-    assert_relative_eq!(before, after, epsilon = 1e-9);
+    // passed at `assert_relative_eq!`, `before`/`after` bit-for-bit
+    // identical. Not a coincidence of this input -- this doc comment's own
+    // opening paragraph is the reason: harmonizing never marks link
+    // transforms dirty, so `update()` after `harmonize_positions()` returns
+    // the same cached transform rather than recomputing one through sin/cos
+    // of the rewrapped angle. `assert_eq!` says so directly, rather than
+    // leaving a `1e-9` epsilon for someone to later read as "close enough"
+    // and loosen.
+    assert_eq!(before, after);
 }
 
 // ---- Mimic vs independent --------------------------------------------------
@@ -317,10 +319,13 @@ fn enforce_bounds_renormalizes_a_quaternion_broken_by_independent_writes() {
         })
         .sum();
     // Bisected per-constant (§85.3) down through 1e-12, 1e-15, and 0.0: all
-    // pass -- `norm_sqr_after` prints as exactly `1.0`, bit-for-bit, for this
-    // input (`(2.0, 3.0, 0.0, 1.0)` renormalized). `epsilon = 1e-9` has
-    // effectively infinite headroom here too; no change needed.
-    assert_relative_eq!(norm_sqr_after, 1.0, epsilon = 1e-9);
+    // passed at `assert_relative_eq!` -- `norm_sqr_after` is exactly `1.0`,
+    // bit-for-bit, for this measured input (`(2.0, 3.0, 0.0, 1.0)`
+    // renormalized). Unlike the transform site above, this is not claimed
+    // structural for every possible input, only measured exact for this
+    // one; `assert_eq!` records what was actually measured rather than
+    // leaving an epsilon that reads as "approximately".
+    assert_eq!(norm_sqr_after, 1.0);
 }
 
 // ---- PR2 planar joint: mixed bounded/unbounded within one joint -----------
