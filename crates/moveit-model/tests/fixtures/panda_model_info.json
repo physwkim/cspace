@@ -26,6 +26,11 @@
         "end_effector_parent": null
       }
     },
+    "group_is_chain": {
+      "hand": false,
+      "panda_arm": true,
+      "panda_arm_hand": false
+    },
     "group_states": {
       "hand": {
         "close": {

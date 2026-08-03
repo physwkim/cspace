@@ -170,6 +170,8 @@ public:
       return distanceField(request);
     if (op == "shape_points")
       return shapePoints(request);
+    if (op == "common_root")
+      return commonRoot(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -223,6 +225,7 @@ private:
     out["link_details"] = linkDetails();
     out["group_end_effectors"] = groupEndEffectors();
     out["group_states"] = groupStates();
+    out["group_is_chain"] = groupIsChain();
 
     return out;
   }
@@ -324,6 +327,40 @@ private:
       }
       if (!states.empty())
         out[group->getName()] = states;
+    }
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `JointModelGroup::is_chain`, keyed by
+  /// group name.
+  json groupIsChain() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+      out[group->getName()] = group->isChain();
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `RobotModel::get_common_root`:
+  /// `{"pairs": [["joint_a", "joint_b"], ...]}` -> the named common-root
+  /// joint for each pair, in request order.
+  json commonRoot(const json& request) const
+  {
+    json out = json::array();
+    for (const json& pair : request.at("pairs"))
+    {
+      const std::string a_name = pair.at(0).get<std::string>();
+      const std::string b_name = pair.at(1).get<std::string>();
+      if (!model_->hasJointModel(a_name))
+        throw std::runtime_error("unknown joint: " + a_name);
+      if (!model_->hasJointModel(b_name))
+        throw std::runtime_error("unknown joint: " + b_name);
+      const moveit::core::JointModel* a = model_->getJointModel(a_name);
+      const moveit::core::JointModel* b = model_->getJointModel(b_name);
+      const moveit::core::JointModel* common = model_->getCommonRoot(a, b);
+      out.push_back(json{ { "a", a_name },
+                           { "b", b_name },
+                           { "common_root", common ? json(common->getName()) : json(nullptr) } });
     }
     return out;
   }

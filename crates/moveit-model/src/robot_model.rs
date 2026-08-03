@@ -59,11 +59,22 @@ struct JointNode {
 ///    comment, [`RobotModel::get_end_effector`] and
 ///    [`JointModelGroup::default_state_names`] respectively for what each
 ///    does and does not cover.)
-/// 3. **No `common_root_`/`joint_roots_`/`is_chain_`/`is_single_dof_` on
-///    groups, and no `computeDescendants`/`computeCommonRoots` on the
-///    model.** These exist upstream purely to accelerate `RobotState`
-///    forward kinematics (a later phase); the FK algorithm itself does not
-///    need them to be *correct*, only fast.
+/// 3. **No `is_single_dof_`, no per-group `common_root_`/`joint_roots_`/
+///    `updated_link_model_*`, and no precomputed `common_joint_roots_`
+///    table.** [`RobotModel::get_common_root`] and
+///    [`JointModelGroup::is_chain`](crate::JointModelGroup::is_chain) *are*
+///    carried — `moveit-state`'s `RobotState` dirty-subtree tracking needs
+///    `getCommonRoot` to answer exactly what upstream's own does, not a
+///    textbook LCA (`PORTING-PLAN.md` §8.2; see
+///    [`RobotModel::get_common_root`]'s doc comment for a real upstream
+///    quirk this reproduces on purpose) — but
+///    [`RobotModel::get_common_root`] walks each joint's ancestor chain to
+///    equal depth and then upward in lockstep (O(depth)) rather than
+///    answering from upstream's precomputed `n`×`n` table (O(1)); nothing
+///    in this port's scope calls it often enough to need the table. The
+///    per-group fields remain unported: they only cache a *specific* pair
+///    of general queries (this group's own common root, which links move)
+///    that nothing in this phase's done-criteria reads.
 /// 4. **No `getVariableRandomPositions`.** `PORTING-PLAN.md` §7.3: the C++
 ///    oracle owns randomness for differential testing; this port never
 ///    needs to generate a random state itself.
@@ -201,7 +212,7 @@ impl RobotModel {
         let end_effector_group_names = build_end_effectors(&mut groups, srdf.end_effectors());
         building.build_group_states(&mut groups);
 
-        Ok(Self {
+        let mut model = Self {
             name: urdf.name.clone(),
             model_frame,
             root_link_index: 0,
@@ -217,7 +228,9 @@ impl RobotModel {
             groups,
             end_effector_group_names,
             diagnostics: building.diagnostics,
-        })
+        };
+        model.compute_group_chains();
+        Ok(model)
     }
 
     /// `getName`
@@ -346,6 +359,119 @@ impl RobotModel {
             .map(|link_index| self.links[link_index].parent_joint_index())
     }
 
+    /// `getCommonRoot`: `a` itself if `a == b`; the ancestor, if one of `a`/
+    /// `b` is an ancestor of the other; otherwise upstream's actual answer
+    /// for two joints that diverge below some ancestor — which, as detailed
+    /// below, is *not* always their deepest common ancestor.
+    ///
+    /// # Deviation from upstream: reproduces a real upstream quirk, not a
+    /// textbook LCA
+    ///
+    /// `RobotModel::computeCommonRootsHelper` (`robot_model.cpp`) precomputes
+    /// `common_joint_roots_` by, at every link, pairing up that link's direct
+    /// child joints `(ch[i], ch[j])` and writing the pairing joint as the
+    /// common root for every element of `ch[i]->getDescendantJointModels()`
+    /// crossed with every element of `ch[j]->getDescendantJointModels()`.
+    /// `getDescendantJointModels()` excludes the joint itself
+    /// (`computeDescendantsHelper` only inserts a joint into an *ancestor's*
+    /// descendant set, never its own) — so the pairing loop never actually
+    /// writes an entry for `(ch[i], ch[j])` itself, only for descendants
+    /// *of* `ch[i]`/`ch[j]`. When `a` and `b` are themselves direct sibling
+    /// joints (both immediate children of the same link, e.g. two joints
+    /// both parented at `torso_lift_link`), no entry is ever written for
+    /// that pair, and the zero-initialised table default —
+    /// `joint_model_vector_[0]`, the model's global root joint — is what
+    /// upstream actually returns. Any deeper divergence (either side a
+    /// proper descendant, not the immediate child, of the branching link)
+    /// *is* covered by the pairing loop and returns the true common
+    /// ancestor.
+    ///
+    /// This was found empirically against the real oracle on PR2 — the
+    /// exact case the porting task calls out ("PR2, whose two arms branch
+    /// from `torso_lift_link`"): `getCommonRoot(l_shoulder_pan_joint,
+    /// r_shoulder_pan_joint)` (both direct children of `torso_lift_link`)
+    /// returns `world_joint`, not `torso_lift_joint`, and the same pattern
+    /// reproduces for other direct-sibling pairs (`fl_caster_rotation_joint`
+    /// / `fr_caster_rotation_joint`, both direct children of `base_link`).
+    /// A pair where one side is a deeper descendant (e.g.
+    /// `fl_caster_rotation_joint` / `l_shoulder_pan_joint`) correctly
+    /// returns their true common ancestor (`base_footprint_joint`). Since
+    /// `moveit-state`'s dirty-subtree tracking already depends on matching
+    /// upstream's actual (over-conservative, in the sibling case) marking —
+    /// not a "more correct" LCA that would under-mark upstream's own
+    /// behaviour — this reproduces the quirk rather than fixing it.
+    ///
+    /// Upstream answers in O(1) from that precomputed table; this walks
+    /// each joint's ancestor chain to equal depth and then upward in
+    /// lockstep instead (O(depth), not O(1)) — see [`RobotModel`]'s doc
+    /// comment, deviation 3, for why — tracking, at the final convergence
+    /// step, whether the two joints about to be found equal are themselves
+    /// the original `a`/`b` (the direct-sibling case) or deeper descendants
+    /// (the normal case).
+    ///
+    /// Takes plain joint indices, not upstream's possibly-null pointers:
+    /// upstream's `getCommonRoot(nullptr, b)` returning `b` (and vice versa)
+    /// exists only because C++ pointers can be null. A caller here tracking
+    /// "no joint yet" represents that as `Option<usize>` at its own call
+    /// site instead (see `moveit-state`'s `mark_dirty`), so this method
+    /// never needs to.
+    pub fn get_common_root(&self, a: usize, b: usize) -> usize {
+        let depth = |mut joint_index: usize| -> usize {
+            let mut depth = 0;
+            while let Some(parent) = self.parent_joint_index(joint_index) {
+                joint_index = parent;
+                depth += 1;
+            }
+            depth
+        };
+
+        let (mut a_walk, mut b_walk) = (a, b);
+        let (mut depth_a, mut depth_b) = (depth(a), depth(b));
+        while depth_a > depth_b {
+            a_walk = self
+                .parent_joint_index(a_walk)
+                .expect("depth_a > depth_b implies a_walk is not yet the root");
+            depth_a -= 1;
+        }
+        while depth_b > depth_a {
+            b_walk = self
+                .parent_joint_index(b_walk)
+                .expect("depth_b > depth_a implies b_walk is not yet the root");
+            depth_b -= 1;
+        }
+        if a_walk == b_walk {
+            // `a == b`, or one is an ancestor of the other: upstream's
+            // second table-fill pass sets these correctly regardless of the
+            // sibling quirk above, so the true ancestor is always right
+            // here.
+            return a_walk;
+        }
+        loop {
+            let parent_a = self
+                .parent_joint_index(a_walk)
+                .expect("a_walk and b_walk differ, so a global root above them exists");
+            let parent_b = self
+                .parent_joint_index(b_walk)
+                .expect("a_walk and b_walk differ, so a global root above them exists");
+            if parent_a == parent_b {
+                if a_walk == a && b_walk == b {
+                    // `a` and `b` are themselves direct siblings under
+                    // `parent_a` — the case upstream's table never writes.
+                    // Its default (the global root) survives; find it by
+                    // continuing the same walk to the top.
+                    let mut root = parent_a;
+                    while let Some(parent) = self.parent_joint_index(root) {
+                        root = parent;
+                    }
+                    return root;
+                }
+                return parent_a;
+            }
+            a_walk = parent_a;
+            b_walk = parent_b;
+        }
+    }
+
     /// `getJointModelGroupNames`, alphabetically (matches upstream's
     /// `std::map<std::string, JointModelGroup*>` iteration order).
     pub fn joint_model_group_names(&self) -> impl Iterator<Item = &str> {
@@ -408,6 +534,113 @@ impl RobotModel {
     /// while building this model.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    /// Sets [`JointModelGroup::is_chain`] on every group. Run once, after
+    /// every other field of `self` (in particular `joints`/`links`, which
+    /// the ancestor walks below need) is already in place.
+    ///
+    /// Collects into an owned `Vec` first rather than mutating `self.groups`
+    /// while iterating it: `group_is_chain` needs `&self` (the ancestor
+    /// walks), which the borrow checker won't allow interleaved with a
+    /// `&mut` borrow of `self.groups` from the same `self`.
+    fn compute_group_chains(&mut self) {
+        let is_chain: Vec<(String, bool)> = self
+            .groups
+            .iter()
+            .map(|(name, group)| (name.clone(), self.group_is_chain(group)))
+            .collect();
+        for (name, chain) in is_chain {
+            self.groups
+                .get_mut(&name)
+                .expect("name came from self.groups.iter()")
+                .set_is_chain(chain);
+        }
+    }
+
+    /// Upstream's `JointModelGroup` constructor: `is_chain_` is true iff the
+    /// group has exactly one joint root (`joint_roots_.size() == 1`), has at
+    /// least one active joint, and — walking the group's own joints in
+    /// depth-first order, from the last to the first — each is directly
+    /// preceded by the one before it (`jointPrecedes`, skipping any run of
+    /// fixed joints in between).
+    fn group_is_chain(&self, group: &JointModelGroup) -> bool {
+        if group.active_joint_indices().is_empty() {
+            return false;
+        }
+
+        let root_count = group
+            .active_joint_indices()
+            .iter()
+            .filter(|&&joint_index| !self.ancestor_is_group_member(joint_index, group))
+            .count();
+        if root_count != 1 {
+            return false;
+        }
+
+        let joints = group.joint_indices();
+        (1..joints.len())
+            .rev()
+            .all(|k| self.joint_precedes(joints[k], joints[k - 1]))
+    }
+
+    /// `includesParent`: whether `joint_index`'s ancestor chain — in the
+    /// full model, not just `group` — passes through another active,
+    /// non-mimic joint that is also a member of `group`, either directly or
+    /// (for a mimic ancestor) via the joint it mimics.
+    ///
+    /// The mimic branch is not the full recursion upstream's C++ writes:
+    /// `resolve_mimic` already collapses mimic-of-a-mimic chains to a
+    /// fixpoint before any group is built, so the mimicked joint reached
+    /// here is always itself non-mimic, and checking its own ancestors once
+    /// (the recursive call) is everything upstream's version could ever
+    /// find beyond the direct check.
+    fn ancestor_is_group_member(&self, joint_index: usize, group: &JointModelGroup) -> bool {
+        let mut current = joint_index;
+        while let Some(parent) = self.parent_joint_index(current) {
+            let parent_model = self.joint_model_at(parent);
+            if group.has_joint_model(&self.joint_names[parent])
+                && !parent_model.variable_names().is_empty()
+                && parent_model.mimic().is_none()
+            {
+                return true;
+            }
+            if let Some(mimic) = parent_model.mimic() {
+                if let Some(&mimicked_index) = self.joint_index_by_name.get(&mimic.joint_name) {
+                    let mimicked_model = self.joint_model_at(mimicked_index);
+                    let mimicked_is_direct_member = group.has_joint_model(&mimic.joint_name)
+                        && !mimicked_model.variable_names().is_empty()
+                        && mimicked_model.mimic().is_none();
+                    if mimicked_is_direct_member
+                        || self.ancestor_is_group_member(mimicked_index, group)
+                    {
+                        return true;
+                    }
+                }
+            }
+            current = parent;
+        }
+        false
+    }
+
+    /// `jointPrecedes`: whether `a` sits immediately below `b` in the
+    /// kinematic chain, tolerating any run of fixed joints in between.
+    fn joint_precedes(&self, a: usize, b: usize) -> bool {
+        let Some(mut p) = self.parent_joint_index(a) else {
+            return false;
+        };
+        loop {
+            if p == b {
+                return true;
+            }
+            if self.joint_model_at(p).joint_type() != JointType::Fixed {
+                return false;
+            }
+            match self.parent_joint_index(p) {
+                Some(next) => p = next,
+                None => return false,
+            }
+        }
     }
 }
 
@@ -972,6 +1205,7 @@ impl<'a> Building<'a> {
             attached_end_effector_names: Vec::new(),
             default_state_names: Vec::new(),
             default_states: HashMap::new(),
+            is_chain: false,
         }
     }
 
@@ -2087,5 +2321,173 @@ mod tests {
         let arm = model.joint_model_group("arm").unwrap();
         assert!(arm.default_state_names().is_empty());
         assert!(arm.variable_default_positions("anything").is_none());
+    }
+
+    /// `jointPrecedes` skips over any run of *unlisted* fixed joints between
+    /// two group members — the group here names only `j1`/`j2`, not the
+    /// `mid_fixed` joint sitting between them, so `is_chain` must still see
+    /// `j2` as directly preceded by `j1`.
+    #[test]
+    fn is_chain_true_across_an_unlisted_fixed_joint() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="mid2"/>
+                <link name="tip"/>
+                {j1}
+                <joint name="mid_fixed" type="fixed">
+                    <parent link="mid"/><child link="mid2"/>
+                </joint>
+                {j2}
+            </robot>"#,
+            j1 = revolute_joint("j1", "base", "mid", ""),
+            j2 = revolute_joint("j2", "mid2", "tip", ""),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            <group name="arm">
+                <joint name="j1"/>
+                <joint name="j2"/>
+            </group>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        assert!(model.joint_model_group("arm").unwrap().is_chain());
+    }
+
+    /// A single active joint with two children that are *both* group
+    /// members has exactly one root (`j1`), so the root-count condition
+    /// alone would call this a chain — but `joint_indices`' depth-first
+    /// order can't have every consecutive pair satisfy `jointPrecedes`
+    /// when two of them are siblings, so `is_chain` must still be false.
+    #[test]
+    fn is_chain_false_for_a_branch_with_a_single_root() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="tip_a"/>
+                <link name="tip_b"/>
+                {j1}
+                {j2}
+                {j3}
+            </robot>"#,
+            j1 = revolute_joint("j1", "base", "mid", ""),
+            j2 = revolute_joint("j2", "mid", "tip_a", ""),
+            j3 = revolute_joint("j3", "mid", "tip_b", ""),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            <group name="branch">
+                <joint name="j1"/>
+                <joint name="j2"/>
+                <joint name="j3"/>
+            </group>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        assert!(!model.joint_model_group("branch").unwrap().is_chain());
+    }
+
+    /// A group whose active joints have two *distinct* roots (neither `j2`
+    /// nor `j3` has an ancestor inside the group) is the more direct
+    /// `root_count != 1` boundary, as opposed to
+    /// `is_chain_false_for_a_branch_with_a_single_root`'s single-root-but-
+    /// unordered case above.
+    #[test]
+    fn is_chain_false_for_two_independently_rooted_joints() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="tip_a"/>
+                <link name="tip_b"/>
+                {j1}
+                {j2}
+                {j3}
+            </robot>"#,
+            j1 = revolute_joint("j1", "base", "mid", ""),
+            j2 = revolute_joint("j2", "mid", "tip_a", ""),
+            j3 = revolute_joint("j3", "mid", "tip_b", ""),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            <group name="branch_tips">
+                <joint name="j2"/>
+                <joint name="j3"/>
+            </group>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        assert!(!model.joint_model_group("branch_tips").unwrap().is_chain());
+    }
+
+    /// `RobotModel::get_common_root` on a minimal synthetic tree with a
+    /// planar virtual root joint, covering every invariant boundary the
+    /// porting task calls out: same joint, ancestor in each direction, and
+    /// — the case a textbook LCA gets wrong — two joints that are
+    /// themselves direct siblings (`branch_a`/`branch_b`, both parented at
+    /// `trunk`). Per upstream's actual `computeCommonRootsHelper` (see
+    /// `get_common_root`'s doc comment), that pair's common root is the
+    /// *global* root joint (`planar_root`), not `stem` (`trunk`'s creating
+    /// joint and their true nearest common ancestor) — this is the "pair
+    /// spanning the planar joint at the root" case, realized here because
+    /// PR2's own real topology turns out not to branch until below its
+    /// (fixed, not planar) virtual joint.
+    #[test]
+    fn get_common_root_covers_same_ancestor_and_sibling_quirk_boundaries() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="root"/>
+                <link name="trunk"/>
+                <link name="tip_a"/>
+                <link name="tip_b"/>
+                {stem}
+                {branch_a}
+                {branch_b}
+            </robot>"#,
+            stem = revolute_joint("stem", "root", "trunk", ""),
+            branch_a = revolute_joint("branch_a", "trunk", "tip_a", ""),
+            branch_b = revolute_joint("branch_b", "trunk", "tip_b", ""),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="planar_root" type="planar" parent_frame="odom" child_link="root"/>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        let idx = |name: &str| -> usize {
+            model
+                .joint_names()
+                .iter()
+                .position(|n| n == name)
+                .unwrap_or_else(|| panic!("no joint named '{name}'"))
+        };
+
+        assert_eq!(
+            model.joint_names()[model.get_common_root(idx("branch_a"), idx("branch_a"))],
+            "branch_a",
+            "same joint"
+        );
+        assert_eq!(
+            model.joint_names()[model.get_common_root(idx("stem"), idx("branch_a"))],
+            "stem",
+            "ancestor first"
+        );
+        assert_eq!(
+            model.joint_names()[model.get_common_root(idx("branch_a"), idx("stem"))],
+            "stem",
+            "ancestor second"
+        );
+        assert_eq!(
+            model.joint_names()[model.get_common_root(idx("planar_root"), idx("branch_b"))],
+            "planar_root",
+            "pair spanning the planar root joint"
+        );
+        assert_eq!(
+            model.joint_names()[model.get_common_root(idx("branch_a"), idx("branch_b"))],
+            "planar_root",
+            "direct siblings under trunk resolve to the global root, not stem"
+        );
     }
 }

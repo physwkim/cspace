@@ -1,0 +1,51 @@
+{
+  "id": 0,
+  "ok": true,
+  "result": [
+    {
+      "a": "l_shoulder_pan_joint",
+      "b": "l_shoulder_pan_joint",
+      "common_root": "l_shoulder_pan_joint"
+    },
+    {
+      "a": "torso_lift_joint",
+      "b": "l_shoulder_pan_joint",
+      "common_root": "torso_lift_joint"
+    },
+    {
+      "a": "l_shoulder_pan_joint",
+      "b": "torso_lift_joint",
+      "common_root": "torso_lift_joint"
+    },
+    {
+      "a": "world_joint",
+      "b": "l_shoulder_pan_joint",
+      "common_root": "world_joint"
+    },
+    {
+      "a": "l_shoulder_pan_joint",
+      "b": "r_shoulder_pan_joint",
+      "common_root": "world_joint"
+    },
+    {
+      "a": "fl_caster_rotation_joint",
+      "b": "fr_caster_rotation_joint",
+      "common_root": "world_joint"
+    },
+    {
+      "a": "fl_caster_rotation_joint",
+      "b": "l_shoulder_pan_joint",
+      "common_root": "base_footprint_joint"
+    },
+    {
+      "a": "r_shoulder_pan_joint",
+      "b": "r_shoulder_lift_joint",
+      "common_root": "r_shoulder_pan_joint"
+    },
+    {
+      "a": "base_bellow_joint",
+      "b": "torso_lift_joint",
+      "common_root": "world_joint"
+    }
+  ]
+}

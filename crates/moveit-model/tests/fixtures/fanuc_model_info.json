@@ -9,6 +9,9 @@
         "end_effector_parent": null
       }
     },
+    "group_is_chain": {
+      "manipulator": true
+    },
     "group_states": {
       "manipulator": {
         "all-zeros": {

@@ -21,22 +21,26 @@ use std::collections::{BTreeMap, HashMap};
 ///
 /// # Deviation from upstream: narrower than `JointModelGroup`
 ///
-/// Upstream's type also carries `joint_roots_`/`common_root_` (kinematic
-/// subtree roots, for `RobotState` FK optimisation), `updated_link_model_*`
-/// (which links move when this group's state changes) and the kinematics
-/// solver plumbing (`group_kinematics_`). None of those are read by this
-/// phase's done-criteria (link/joint counts, group composition, joint
-/// limits, mimic relationships); they belong to `moveit-state` (Phase 2) and
-/// `moveit-kinematics` (Phase 4) respectively. `PORTING-PLAN.md` Phase 1
-/// scopes this crate to "JointModelGroup, 서브그룹, KinematicChain 해석"
-/// (subgroups, kinematic-chain resolution) — both of which this type does
-/// carry: [`JointModelGroup::subgroup_names`] and the `<chain>` element
-/// expansion in `RobotModel`'s group construction. (The end-effector fields
+/// Upstream's type also carries `joint_roots_`/`common_root_` (this group's
+/// own cached common-root joint, for `RobotState` FK optimisation),
+/// `updated_link_model_*` (which links move when this group's state
+/// changes) and the kinematics solver plumbing (`group_kinematics_`). None
+/// of those are read by this phase's done-criteria (link/joint counts,
+/// group composition, joint limits, mimic relationships); they belong to
+/// `moveit-state` (Phase 2) and `moveit-kinematics` (Phase 4) respectively.
+/// `PORTING-PLAN.md` Phase 1 scopes this crate to "JointModelGroup, 서브그룹,
+/// KinematicChain 해석" (subgroups, kinematic-chain resolution) — both of
+/// which this type does carry: [`JointModelGroup::subgroup_names`], the
+/// `<chain>` element expansion in `RobotModel`'s group construction, and
+/// [`JointModelGroup::is_chain`] itself. (The end-effector fields
 /// (`end_effector_name_`, `end_effector_parent_`,
 /// `attached_end_effector_names_`) and SRDF `<group_state>` support
 /// (`default_states_`) *are* carried — see
 /// [`JointModelGroup::is_end_effector`] and
-/// [`JointModelGroup::default_state_names`] respectively.)
+/// [`JointModelGroup::default_state_names`] respectively. The general
+/// two-joint common-root query *is* carried too, just on `RobotModel` rather
+/// than cached per-group — see
+/// [`RobotModel::get_common_root`](crate::robot_model::RobotModel::get_common_root).)
 #[derive(Debug, Clone, PartialEq)]
 pub struct JointModelGroup {
     pub(crate) name: String,
@@ -55,6 +59,7 @@ pub struct JointModelGroup {
     pub(crate) attached_end_effector_names: Vec<String>,
     pub(crate) default_state_names: Vec<String>,
     pub(crate) default_states: HashMap<String, BTreeMap<String, f64>>,
+    pub(crate) is_chain: bool,
 }
 
 /// The group and link a [`JointModelGroup`] end effector is attached to.
@@ -245,5 +250,28 @@ impl JointModelGroup {
     pub(crate) fn add_default_state(&mut self, name: String, state: BTreeMap<String, f64>) {
         self.default_state_names.push(name.clone());
         self.default_states.insert(name, state);
+    }
+
+    /// `isChain`: whether this group's active joints form a single
+    /// unbranched kinematic chain — exactly one joint in the group has no
+    /// ancestor also in the group (`joint_roots_.size() == 1`), the group
+    /// has at least one active joint, and every joint in the group's own
+    /// depth-first order is directly preceded by the next (skipping over
+    /// any run of fixed joints in between, upstream's `jointPrecedes`).
+    /// `panda`'s `hand` group is a real oracle-verified example of the
+    /// negative case: its two finger joints are siblings under
+    /// `panda_hand_joint`, not a chain, even though every joint it contains
+    /// is otherwise perfectly ordinary.
+    pub fn is_chain(&self) -> bool {
+        self.is_chain
+    }
+
+    /// `setIsChain`. Not upstream-named (upstream sets `is_chain_` directly
+    /// in the constructor); this port computes it in a separate pass over
+    /// the fully-built [`crate::robot_model::RobotModel`] instead, since the
+    /// ancestor walk it needs (`RobotModel::parent_joint_index`) isn't
+    /// available until the whole tree exists.
+    pub(crate) fn set_is_chain(&mut self, is_chain: bool) {
+        self.is_chain = is_chain;
     }
 }
