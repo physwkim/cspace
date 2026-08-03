@@ -335,27 +335,19 @@ fn oracle_default_distance_field_config() -> DistanceFieldConfig {
     }
 }
 
-/// The fixture's `joint_values` are not empty, despite every case wanting
-/// the model's *default* state: `torso_lift_joint`, `l/r_elbow_flex_joint`,
-/// and `l/r_wrist_flex_joint` all have a `<safety_controller>` element in
-/// `pr2.urdf` whose `soft_lower_limit`/`soft_upper_limit` excludes zero, and
-/// upstream's `RobotState::setToDefaultValues()` reads those *soft* bounds
-/// (not the `<limit>` hard bounds) to compute a 0-excluded joint's default as
-/// their midpoint -- e.g. `torso_lift_joint`'s soft bounds `(0.0115, 0.325)`
-/// default to `0.16825`, not `0.0`. This port's default-state computation
-/// (`RobotState::new`, in `moveit-state`) does not read `<safety_controller>`
-/// at all and defaults every joint to `0.0` regardless of bounds -- a real,
-/// upstream-observed gap, but in a crate this task does not own this round
-/// (`moveit-state`/`moveit-model`; see the top-level task's scope). Rather
-/// than depend on that unrelated default-value computation matching the
-/// oracle's, every fixture request pins these five variables to the exact
-/// value upstream's own default already computes for them (confirmed via a
-/// direct oracle diff: feeding these values back to `applyJointValues`,
-/// which runs `setToDefaultValues()` then overlays `joint_values`, is a
-/// byte-for-byte no-op against the oracle's own default-state response) --
-/// so both sides start from the identical state, and this test exercises
-/// only `generateDistanceFieldCacheEntry`'s own logic, not default-value
-/// computation.
+/// [`RobotState::set_to_default_values`] is called before the fixture's
+/// `joint_values` are applied, mirroring the oracle's `applyJointValues`,
+/// which runs `setToDefaultValues()` and then overlays. It is not optional
+/// on pr2: `torso_lift_joint`, `l/r_elbow_flex_joint` and
+/// `l/r_wrist_flex_joint` carry a `<safety_controller>` whose soft bounds
+/// exclude zero, so upstream defaults them to the soft-bound midpoint
+/// (`torso_lift_joint`: `(0.0115, 0.325)` -> `0.16825`), and
+/// [`RobotState::new`] alone leaves every variable at raw `0.0`. This port
+/// computes the same five defaults --
+/// `moveit_model`'s URDF joint-bounds builder prefers `<safety_controller>`
+/// soft limits and narrows them by `<limit>` only where the hard bound is
+/// tighter, exactly as `robot_model.cpp`'s `jointBoundsFromURDF` does -- so
+/// the two sides agree here and nothing needs pinning to make them.
 #[test]
 fn generate_distance_field_cache_entry_matches_the_oracle() {
     let model = build_pr2_model();
@@ -401,6 +393,7 @@ fn generate_distance_field_cache_entry_matches_the_oracle() {
         let expected = &response.result;
 
         let mut state = RobotState::new(&model);
+        state.set_to_default_values();
         state
             .set_variable_positions_by_name(&request.joint_values)
             .unwrap_or_else(|e| panic!("set joint values for {}: {e}", request.group));

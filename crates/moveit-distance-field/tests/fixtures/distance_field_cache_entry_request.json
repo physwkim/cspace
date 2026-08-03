@@ -14,13 +14,7 @@
     ],
     "group": "right_arm",
     "id": 1,
-    "joint_values": {
-      "l_elbow_flex_joint": -1.13565,
-      "l_wrist_flex_joint": -1.05,
-      "r_elbow_flex_joint": -1.13565,
-      "r_wrist_flex_joint": -1.05,
-      "torso_lift_joint": 0.16825
-    },
+    "joint_values": {},
     "op": "distance_field_cache_entry",
     "use_acm": true
   },
@@ -39,13 +33,7 @@
     ],
     "group": "right_arm",
     "id": 2,
-    "joint_values": {
-      "l_elbow_flex_joint": -1.13565,
-      "l_wrist_flex_joint": -1.05,
-      "r_elbow_flex_joint": -1.13565,
-      "r_wrist_flex_joint": -1.05,
-      "torso_lift_joint": 0.16825
-    },
+    "joint_values": {},
     "op": "distance_field_cache_entry",
     "use_acm": false
   },
@@ -64,13 +52,7 @@
     ],
     "group": "l_end_effector",
     "id": 3,
-    "joint_values": {
-      "l_elbow_flex_joint": -1.13565,
-      "l_wrist_flex_joint": -1.05,
-      "r_elbow_flex_joint": -1.13565,
-      "r_wrist_flex_joint": -1.05,
-      "torso_lift_joint": 0.16825
-    },
+    "joint_values": {},
     "op": "distance_field_cache_entry",
     "use_acm": true
   }
