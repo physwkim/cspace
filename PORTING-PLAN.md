@@ -1116,3 +1116,41 @@ byte-for-byte 보존하고 false positive 방향(d < 1)을 회귀 테스트로 �
 묶어 근본에서 없앴다 — 인자 개수는 증상이고, 실제 문제는 `f64` 하나를 사이에
 둔 `bool` 두 개라 호출부에서 뒤바꿔도 컴파일된다는 점이었다. 파리티 테스트가
 이미 `/* subtract_radii = */` 주석으로 방향을 잡고 있었던 것이 그 증거다.
+
+### 11.9 parry 백엔드 착수, §10.5 종결
+
+`ParryCollisionEnv`가 `moveit-collision`에 들어왔다(`parry.rs`, 테스트
+30건). `check_self_collision` / `check_robot_collision` / `distance_self` /
+`distance_robot`를 구현하고, `check_robot_collision_continuous`는 타입
+에러를 돌려준다 — upstream `CollisionEnvFCL`은 이 경우 로그만 찍고 `res`를
+건드리지 않은 채 돌아가는데, 호출부에서 그것은 "검사했고 아무것도 없음"과
+구분되지 않는다. FCL 백엔드와의 이탈 11건을 각각 upstream 소스 위치와 함께
+문서화했다.
+
+§10.5는 닫혔다(§10.5 본문 갱신). 갈라질 수 있었던 지점이 갈라지지 않았다는
+점이 중요하다 — 진입 판정은 `pair_count()`를 쓰고(upstream `checkCollision`이
+`res.contacts.size()`를 읽으므로) 예산 뺄셈은 `count()`를 쓴다(`collisionCallback`이
+`res_->contact_count`를 추적하므로). 서로 다른 두 양이 각자의 upstream
+대응물에 맞춰져 있고, `pair_count()` 기반이었다면 실패하도록 회귀 테스트가
+짜여 있다.
+
+여기에 경계 하나를 추가로 못박았다(`6411598`). §10.5 수정은
+`saturating_sub` 때문에 `max_contacts: 0`을 robot 검사가 **실제로 받는**
+값으로 만든다 — 그 전에는 어떤 백엔드에도 도달하지 않던 값이다.
+`accumulate_collision`은 이미 옳게 처리하고 있었지만(`collision = true`가
+저장 가드보다 먼저) 그것을 고정하는 테스트가 없었고, 둘을 뭉갠 백엔드는
+겹친 쌍에 대해 "깨끗함"을 보고하게 되며 호출부는 그것을 진짜 깨끗한 경우와
+구별할 수 없다. **수정이 어떤 경계값을 새로 도달 가능하게 만들면, 코드가
+이미 그 값을 옳게 다루더라도 그 경계에는 테스트가 필요하다.**
+
+### 11.10 Phase 3 완료 조건은 아직 미충족
+
+`ParryCollisionEnv`의 정확성은 현재 전적으로 합성 불변식 테스트에 의존한다.
+FCL 대비 이탈이 11건 문서화되어 있다는 것은, 합성 테스트로는 "그 11건이
+차이의 전부인지"를 알 수 없다는 뜻이다. §5 Phase 3의 완료 조건(10,000 상태 ×
+3로봇 `collision: bool` 100% 일치, `distance` 1e-4)에는 오라클 `collision`
+op이 필요하고 아직 없다. p3-acm에 배정했다.
+
+특히 이탈 6(단일 `contact` 호출의 signed distance 대 FCL의 최대 200개 contact
+중 최댓값)이 관통 쌍에서 `1e-4`를 깨뜨릴 가능성이 가장 높다. 깨진다면 그것은
+백엔드에 대한 실제 발견이지 허용오차를 늘릴 사유가 아니다.
