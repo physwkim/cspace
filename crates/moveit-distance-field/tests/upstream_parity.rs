@@ -13,12 +13,19 @@
 //!
 //! Deliberately **not** ported, with reasons:
 //!
-//! - `TestOcTree` — needs `DistanceField::addOcTreeToField`, still unported
-//!   (a separate, more involved algorithm than
-//!   [`moveit_distance_field::PosedBodyPointDecomposition::from_octree`],
-//!   which this crate does now port — see
-//!   [`moveit_distance_field::DistanceField`]'s "Deviations from upstream"
-//!   for why `addOcTreeToField` itself remains unstarted).
+//! - `TestOcTree` — [`moveit_distance_field::DistanceField::add_octree_to_field`]
+//!   itself is now ported (PORTING-PLAN.md §90.2), but this test also
+//!   exercises two things that are not: the octree-and-bounding-box-taking
+//!   `PropagationDistanceField` constructor overload
+//!   (`propagation_distance_field.hpp`, a separate item from
+//!   `addOcTreeToField` — see
+//!   [`moveit_distance_field::PropagationDistanceField`]'s "Deviations from
+//!   upstream"), and `addShapeToField`'s dispatch to `addOcTreeToField` for
+//!   a `shapes::OCTREE`-typed shape (this port's
+//!   [`moveit_distance_field::DistanceField::add_shape_to_field`] returns
+//!   [`moveit_error::Error::Construct`] for [`moveit_geometry::Shape::OcTree`]
+//!   rather than dispatching — see that method's own "Deviations from
+//!   upstream").
 //! - `TestPerformance` — a benchmark (timing printed to stdout), not a
 //!   correctness assertion.
 //! - The file-I/O half of `TestReadWrite` (`writeToStream`/`readFromStream`

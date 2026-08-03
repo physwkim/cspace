@@ -10,7 +10,8 @@
 use moveit_error::{Error, Result};
 use moveit_geometry::bodies::Body;
 use moveit_geometry::{Isometry3, Shape};
-use nalgebra::Vector3;
+use moveit_octomap::OcTree;
+use nalgebra::{Point3, Vector3};
 
 use crate::find_internal_points::{ConvexBody, find_internal_points_convex};
 
@@ -46,6 +47,58 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
     Ok(body)
 }
 
+/// Upstream `DistanceField::getOcTreePoints` (protected — no caller outside
+/// [`DistanceField::add_octree_to_field`], so this stays a private free
+/// function rather than a trait method).
+///
+/// `bbx_min`/`bbx_max` are `grid_to_world(0, 0, 0)` and
+/// `grid_to_world(num_cells_x, num_cells_y, num_cells_z)` — the latter one
+/// cell past the last valid index, matching upstream's own
+/// `gridToWorld(num_x, num_y, num_z, ...)` call, a pure extrapolation
+/// [`crate::VoxelGrid::grid_to_world`] computes with no bounds check, same
+/// as upstream's `VoxelGrid::gridToWorld`.
+///
+/// `None` from [`OcTree::leaves_in_bbx`] (the field's own grid extent is
+/// outside the octree's representable coordinate range) yields zero points,
+/// matching upstream's `coordToKeyChecked` failure case, which upstream
+/// handles by producing an immediately-empty iterator rather than an error.
+fn octree_points(
+    bbx_min: Vector3<f64>,
+    bbx_max: Vector3<f64>,
+    resolution: f64,
+    octree: &OcTree,
+) -> Vec<Vector3<f64>> {
+    let mut points = Vec::new();
+    let Some(leaves) = octree.leaves_in_bbx(Point3::from(bbx_min), Point3::from(bbx_max)) else {
+        return points;
+    };
+    for leaf in leaves {
+        if !leaf.is_occupied() {
+            continue;
+        }
+        let coord = leaf.coordinate();
+        if leaf.size() <= resolution {
+            points.push(Vector3::new(coord.x, coord.y, coord.z));
+            continue;
+        }
+        let ceil_val = (leaf.size() / resolution).ceil() * resolution / 2.0;
+        let mut x = coord.x - ceil_val;
+        while x <= coord.x + ceil_val {
+            let mut y = coord.y - ceil_val;
+            while y <= coord.y + ceil_val {
+                let mut z = coord.z - ceil_val;
+                while z <= coord.z + ceil_val {
+                    points.push(Vector3::new(x, y, z));
+                    z += resolution;
+                }
+                y += resolution;
+            }
+            x += resolution;
+        }
+    }
+    points
+}
+
 /// Distance and gradient at a queried world point. Return value of
 /// [`DistanceField::distance_gradient`], upstream
 /// `DistanceField::getDistanceGradient`'s out-parameters.
@@ -78,31 +131,30 @@ pub struct DistanceGradient {
 /// RViz marker-generating methods (`getIsoSurfaceMarkers`,
 /// `getGradientMarkers`, `getPlaneMarkers`, `getProjectionPlanes`).
 ///
-/// [`DistanceField::add_shape_to_field`], [`DistanceField::remove_shape_from_field`]
-/// and [`DistanceField::move_shape_in_field`] *are* ported, as default trait
-/// methods built from the required methods above plus
-/// [`crate::find_internal_points_convex`] — matching upstream's own
-/// placement of `getShapePoints`/`addShapeToField`/`moveShapeInField` as
-/// non-virtual methods on the `DistanceField` base class. They accept
-/// exactly the shape variants [`moveit_geometry::bodies::Body::from_shape`]
-/// supports (`Sphere`/`Cylinder`/`Cuboid`/`Mesh`), returning
+/// [`DistanceField::add_shape_to_field`], [`DistanceField::remove_shape_from_field`],
+/// [`DistanceField::move_shape_in_field`] and [`DistanceField::add_octree_to_field`]
+/// *are* ported, as default trait methods built from the required methods
+/// above plus [`crate::find_internal_points_convex`]/`octree_points` —
+/// matching upstream's own placement of
+/// `getShapePoints`/`addShapeToField`/`moveShapeInField`/`addOcTreeToField`
+/// as non-virtual methods on the `DistanceField` base class. The shape
+/// methods accept exactly the shape variants
+/// [`moveit_geometry::bodies::Body::from_shape`] supports
+/// (`Sphere`/`Cylinder`/`Cuboid`/`Mesh`), returning
 /// [`moveit_error::Error::Construct`] for [`Shape::Cone`], [`Shape::Plane`]
 /// and [`Shape::OcTree`] rather than upstream's null-deref on those —
 /// matching upstream's own `createEmptyBodyFromShapeType`, which has no
-/// case for them.
+/// case for them. [`DistanceField::add_octree_to_field`] takes a
+/// [`moveit_octomap::OcTree`] directly instead, against the
+/// `moveit-octomap` dependency added for
+/// [`crate::PosedBodyPointDecomposition::from_octree`] — a different,
+/// simpler point-collection algorithm from that method (see its own doc):
+/// occupied leaves only, bounding-box-clipped to this field's own grid
+/// extent, oversized leaves subdivided to `resolution` spacing rather than
+/// every tree node unfiltered.
 ///
 /// The rest is not ported:
 ///
-/// - `addOcTreeToField` is a separate, more involved algorithm from
-///   [`crate::PosedBodyPointDecomposition::from_octree`] (which this crate
-///   now ports, against a `moveit-octomap` dependency added for it):
-///   upstream's `getOcTreePoints` walks a bounding-box-limited leaf iterator
-///   (`begin_leafs_bbx`/`end_leafs_bbx`, clipped to this field's own grid
-///   extent), filters to occupied leaves only, and subdivides any leaf
-///   larger than `resolution_` into a sub-grid of points at `resolution_`
-///   spacing rather than using the leaf's own center. Having the dependency
-///   no longer blocks this method; porting it is unstarted work this round
-///   did not undertake, not an availability gap.
 /// - The marker methods build `visualization_msgs::msg::Marker` /
 ///   `MarkerArray` for RViz. `PORTING-PLAN.md` D1 keeps every crate outside
 ///   the optional `moveit-ros` free of ROS message types; there is nothing
@@ -111,8 +163,11 @@ pub struct DistanceGradient {
 ///   `boost::iostreams`. No workspace dependency provides that, and nothing
 ///   in the ported test suite exercises it beyond a round-trip already
 ///   covered by the add/rebuild-equivalence tests, so it is left unported.
-/// - `getOcTreePoints` (protected) has no caller left once `addOcTreeToField`
-///   is unported above — upstream's only caller of it.
+/// - The octree-and-bounding-box-taking `PropagationDistanceField`
+///   constructor overload (`propagation_distance_field.hpp`) is a separate
+///   item from `addOcTreeToField` — see
+///   [`crate::PropagationDistanceField`]'s "Deviations from upstream" — and
+///   stays unported.
 /// - `setPoint` (protected) has no caller left once the marker methods above
 ///   are unported — upstream's only caller of it is `getProjectionPlanes`.
 /// - The base class constructor and destructor have no Rust counterpart:
@@ -284,5 +339,154 @@ pub trait DistanceField {
 
         self.update_points_in_field(&old_points, &new_points);
         Ok(())
+    }
+
+    /// Upstream `DistanceField::addOcTreeToField`: every occupied leaf of
+    /// `octree` that overlaps this field's own grid extent becomes one or
+    /// more obstacle points, via `octree_points`. A leaf no larger than
+    /// [`DistanceField::resolution`] contributes its own center; a larger
+    /// leaf is subdivided into a sub-grid of points at `resolution` spacing
+    /// covering the leaf's full extent, rather than collapsing it to one
+    /// point — so a coarse octree still yields obstacle density comparable
+    /// to a fine one at this field's resolution.
+    fn add_octree_to_field(&mut self, octree: &OcTree) {
+        let bbx_min = self.grid_to_world(0, 0, 0);
+        let bbx_max =
+            self.grid_to_world(self.num_cells_x(), self.num_cells_y(), self.num_cells_z());
+        let points = octree_points(bbx_min, bbx_max, self.resolution(), octree);
+        self.add_points_to_field(&points);
+    }
+}
+
+/// The first three tests below each pin one piece of [`octree_points`]'s
+/// behavior (occupancy filter, subdivision, bounding-box clip) and were each
+/// checked against a mutation that removes exactly that piece: dropping the
+/// occupancy check made `octree_points_excludes_unoccupied_leaves` fail
+/// (`2` points instead of `1`); collapsing subdivision to a single center
+/// point made `octree_points_subdivides_a_leaf_larger_than_resolution` fail
+/// (`1` instead of `64`); replacing the bbox-clipped iterator with an
+/// unfiltered one made `octree_points_excludes_leaves_outside_the_bounding_box`
+/// fail (`2` instead of `1`) while leaving the fourth test
+/// (`add_octree_to_field_wires_the_fields_own_extent_through`) passing --
+/// confirming that test alone would not have caught a missing bbox clip,
+/// since [`crate::propagation::PropagationDistanceField::add_points_to_field`]'s
+/// own out-of-grid check silently absorbs the difference at that level. Each
+/// mutation was reverted after confirming.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::propagation::PropagationDistanceField;
+    use crate::voxel_grid::GridGeometry;
+
+    const RESOLUTION: f64 = 0.1;
+    const BBX_MIN: Vector3<f64> = Vector3::new(0.0, 0.0, 0.0);
+    const BBX_MAX: Vector3<f64> = Vector3::new(1.0, 1.0, 1.0);
+
+    fn field() -> PropagationDistanceField {
+        let geometry = GridGeometry::new(
+            Vector3::new(1.0, 1.0, 1.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            RESOLUTION,
+        )
+        .unwrap();
+        PropagationDistanceField::new(geometry, 0.3, false).unwrap()
+    }
+
+    /// Pin for the occupancy filter in [`octree_points`]: an explicitly-free
+    /// leaf (`update_node(_, false, _)`) must not contribute a point, only
+    /// the occupied one does. Both leaves are sized to match `RESOLUTION`
+    /// exactly, so neither triggers subdivision — isolates the occupancy
+    /// check from the subdivision behavior covered separately below.
+    #[test]
+    fn octree_points_excludes_unoccupied_leaves() {
+        let mut tree = OcTree::new(RESOLUTION);
+        tree.update_node(Point3::new(0.35, 0.35, 0.35), true, false);
+        tree.update_node(Point3::new(0.75, 0.75, 0.75), false, false);
+
+        let points = octree_points(BBX_MIN, BBX_MAX, RESOLUTION, &tree);
+
+        assert_eq!(points.len(), 1, "the free leaf must not contribute a point");
+    }
+
+    /// Pin for the subdivision step in [`octree_points`]: a leaf larger than
+    /// `RESOLUTION` must contribute more than one point (its full extent
+    /// sub-sampled at `RESOLUTION` spacing), not just its own center. Reads
+    /// the octree's own leaf back rather than assuming octomap's exact
+    /// rounding of the inserted point, so the expected count is derived from
+    /// what the tree actually built.
+    #[test]
+    fn octree_points_subdivides_a_leaf_larger_than_resolution() {
+        let octree_resolution = 0.3;
+        let mut tree = OcTree::new(octree_resolution);
+        tree.update_node(Point3::new(0.5, 0.5, 0.5), true, false);
+
+        let leaf = tree.leaves().next().expect("one leaf was inserted");
+        assert!(
+            leaf.size() > RESOLUTION,
+            "test setup must produce a leaf larger than the field resolution \
+             for this to actually exercise subdivision, got size {}",
+            leaf.size()
+        );
+        let half_width = (leaf.size() / RESOLUTION).ceil() * RESOLUTION / 2.0;
+        let steps_per_axis = ((2.0 * half_width) / RESOLUTION).round() as usize + 1;
+        let expected_points = steps_per_axis.pow(3);
+        assert!(
+            expected_points > 1,
+            "test setup must predict more than one point for this pin to mean anything"
+        );
+
+        let points = octree_points(BBX_MIN, BBX_MAX, RESOLUTION, &tree);
+
+        assert_eq!(points.len(), expected_points);
+    }
+
+    /// Pin for the bounding-box clip in [`octree_points`]: an occupied leaf
+    /// entirely outside `[bbx_min, bbx_max]` must not contribute a point,
+    /// even though it is occupied. Checked at the `octree_points` level
+    /// specifically (not through [`DistanceField::add_octree_to_field`]),
+    /// since [`crate::propagation::PropagationDistanceField::add_points_to_field`]
+    /// has its own redundant out-of-grid check that would mask a missing
+    /// bbox clip here.
+    #[test]
+    fn octree_points_excludes_leaves_outside_the_bounding_box() {
+        let mut tree = OcTree::new(RESOLUTION);
+        tree.update_node(Point3::new(5.0, 5.0, 5.0), true, false);
+        tree.update_node(Point3::new(0.35, 0.35, 0.35), true, false);
+
+        let points = octree_points(BBX_MIN, BBX_MAX, RESOLUTION, &tree);
+
+        assert_eq!(
+            points.len(),
+            1,
+            "the out-of-bbox leaf must not contribute a point"
+        );
+    }
+
+    /// [`DistanceField::add_octree_to_field`] must actually wire the field's
+    /// own grid extent and resolution through to [`octree_points`] — the
+    /// three tests above cover `octree_points` in isolation with
+    /// hand-supplied bounds, this confirms the trait method computes and
+    /// passes the right ones. An out-of-bbox occupied leaf combined with an
+    /// in-bbox one must leave exactly one obstacle cell in the field.
+    #[test]
+    fn add_octree_to_field_wires_the_fields_own_extent_through() {
+        let mut df = field();
+        let mut tree = OcTree::new(RESOLUTION);
+        tree.update_node(Point3::new(5.0, 5.0, 5.0), true, false);
+        tree.update_node(Point3::new(0.35, 0.35, 0.35), true, false);
+
+        df.add_octree_to_field(&tree);
+
+        let mut occupied = 0;
+        for x in 0..df.num_cells_x() {
+            for y in 0..df.num_cells_y() {
+                for z in 0..df.num_cells_z() {
+                    if df.cell(x, y, z).distance_square == 0 {
+                        occupied += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(occupied, 1);
     }
 }
