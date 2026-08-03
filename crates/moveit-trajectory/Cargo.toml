@@ -1,6 +1,6 @@
 [package]
 name = "moveit-trajectory"
-description = "Model-independent numeric core of time-optimal trajectory generation, ported from moveit_core/trajectory_processing"
+description = "Time-optimal trajectory generation and robot_trajectory::RobotTrajectory, ported from moveit_core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,12 +10,16 @@ authors.workspace = true
 
 [dependencies]
 moveit-error.workspace = true
+moveit-model.workspace = true
+moveit-state.workspace = true
 nalgebra.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+moveit-srdf.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+urdf-rs.workspace = true
 
 [lints]
 workspace = true
