@@ -134,8 +134,42 @@
 //!     leaving `res` untouched; this backend has no swept/conservative-
 //!     advancement query wired up, and returns an explicit error rather than
 //!     an approximation that would misreport a real path collision as clear.
+//!
+//! # Attached-body geometry
+//!
+//! `attached_body_body` builds one [`PosedBody`] per
+//! [`AttachedBodyGeometry`], scaled/padded by its *attached link's*
+//! [`LinkPaddingScale`] entry (matching upstream's `getAttachedBodyObjects`,
+//! which scales/pads by `getLinkScale(ab->getAttachedLinkName())` — not a
+//! padding of the attached body's own, which does not exist) and posed at
+//! `link_pose * shape_pose` for each shape. [`robot_bodies`] appends these
+//! after every robot link, so they participate in every one of self-
+//! collision, robot-vs-world collision and both distance queries exactly
+//! where upstream's own `constructFCLObjectRobot` puts them (module doc,
+//! above).
+//!
+//! [`accumulate_collision`]/[`accumulate_distance`] additionally reproduce
+//! `collisionCallback`/`distanceCallback`'s touch-links special-casing
+//! (`collision_common.cpp`), evaluated *after* the ACM lookup but *before*
+//! any geometry query, and able to force a pair "always allowed" regardless
+//! of what the ACM said (even `Never`, even no entry at all):
+//!
+//! - a [`BodyType::RobotLink`]/[`BodyType::RobotAttached`] pair where the
+//!   attached body's `touch_links` names the link — both callbacks;
+//! - two [`BodyType::RobotAttached`] bodies on the *same* attached link, or
+//!   where either's `touch_links` names the other's id — `collisionCallback`
+//!   only; verified absent from `distanceCallback` by reading it in full
+//!   (`collision_common.cpp:471-560`), so [`accumulate_distance`] does not
+//!   apply this rule.
+//!
+//! "Same object" pairs (upstream's `cd1->sameObject(*cd2)`, the first check
+//! in both callbacks) need no code here: [`self_pairs`]/[`cross_pairs`]
+//! never produce `(x, x)`, and every [`PosedBody`] is already one body's
+//! *entire* geometry combined into a single [`Compound`] (this module's own
+//! design, above), so there is no second, distinct `PosedBody` sharing an
+//! identity with the first for that check to ever need to catch.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape, Vector3};
@@ -150,8 +184,8 @@ use parry3d_f64::shape::{
 };
 
 use crate::common::{
-    BodyType, CollisionRequest, CollisionResult, Contact, ContactData, DistanceRequest,
-    DistanceRequestType, DistanceResult, DistanceResultsData,
+    AttachedBodyGeometry, BodyType, CollisionRequest, CollisionResult, Contact, ContactData,
+    DistanceRequest, DistanceRequestType, DistanceResult, DistanceResultsData,
 };
 use crate::env::{CollisionEnv, LinkPaddingScale};
 use crate::matrix::{AllowedCollision, AllowedCollisionMatrix};
@@ -279,9 +313,9 @@ fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
     shape
 }
 
-/// One named collision body — a robot link or a world object — as the list
-/// of globally-posed shapes upstream's `FCLObject::collision_objects_` holds
-/// for it. See the module doc.
+/// One named collision body — a robot link, an attached body, or a world
+/// object — as the list of globally-posed shapes upstream's
+/// `FCLObject::collision_objects_` holds for it. See the module doc.
 struct PosedBody {
     name: String,
     body_type: BodyType,
@@ -290,6 +324,15 @@ struct PosedBody {
     /// Never empty: [`pose_parts`] returns `None` rather than build a body
     /// with nothing to check.
     parts: Vec<(Pose, SharedShape)>,
+    /// The link this body is rigidly attached to. `Some` only for
+    /// [`BodyType::RobotAttached`] — needed by the touch-links same-link
+    /// rule (module doc, "Attached-body geometry").
+    attached_link: Option<String>,
+    /// Links/attached-body ids this body is allowed to touch without that
+    /// counting as a collision. Empty for [`BodyType::RobotLink`]/
+    /// [`BodyType::WorldObject`], which upstream's touch-links rule never
+    /// reads from that side of a pair.
+    touch_links: BTreeSet<String>,
 }
 
 /// Compose each shape part's body-relative pose with the body's own `pose`,
@@ -337,6 +380,39 @@ fn link_body(
         name: link.name().to_owned(),
         body_type: BodyType::RobotLink,
         parts: pose_parts(parts, pose)?,
+        attached_link: None,
+        touch_links: BTreeSet::new(),
+    })
+}
+
+/// One attached body's [`PosedBody`] (module doc, "Attached-body
+/// geometry"), scaled and padded by its *attached link's* entry in
+/// `padding_scale` — matching upstream's `getAttachedBodyObjects`, which
+/// scales/pads by the attached link's own padding, not a padding of the
+/// attached body. `None` if the body has no (convertible) shapes.
+fn attached_body_body(
+    geometry: &AttachedBodyGeometry<'_>,
+    link_pose: Isometry3,
+    padding_scale: &LinkPaddingScale,
+) -> Option<PosedBody> {
+    let scale = padding_scale.link_scale(geometry.link_name);
+    let padding = padding_scale.link_padding(geometry.link_name);
+    let parts: Vec<(Pose, SharedShape)> = geometry
+        .shapes
+        .iter()
+        .zip(geometry.shape_poses)
+        .filter_map(|(shape, shape_pose)| {
+            let scaled = scaled_padded_shape(shape, scale, padding);
+            let (parry_shape, extra) = convert_shape(&scaled)?;
+            Some((to_pose(*shape_pose * extra), parry_shape))
+        })
+        .collect();
+    Some(PosedBody {
+        name: geometry.id.to_owned(),
+        body_type: BodyType::RobotAttached,
+        parts: pose_parts(parts, link_pose)?,
+        attached_link: Some(geometry.link_name.to_owned()),
+        touch_links: geometry.touch_links.clone(),
     })
 }
 
@@ -355,19 +431,32 @@ fn object_body(id: &str, object: &Object) -> Option<PosedBody> {
         name: id.to_owned(),
         body_type: BodyType::WorldObject,
         parts: pose_parts(parts, object.pose())?,
+        attached_link: None,
+        touch_links: BTreeSet::new(),
     })
 }
 
-fn robot_bodies(state: &Posed<'_, '_>, padding_scale: &LinkPaddingScale) -> Vec<PosedBody> {
-    state
-        .model()
-        .link_models()
-        .iter()
-        .filter_map(|link| {
-            let pose = state.global_link_transform_at(link.link_index());
-            link_body(link, pose, padding_scale)
-        })
-        .collect()
+fn robot_bodies(
+    state: &Posed<'_, '_>,
+    attached_bodies: &[AttachedBodyGeometry<'_>],
+    padding_scale: &LinkPaddingScale,
+) -> Vec<PosedBody> {
+    let links = state.model().link_models().iter().filter_map(|link| {
+        let pose = state.global_link_transform_at(link.link_index());
+        link_body(link, pose, padding_scale)
+    });
+    // `global_link_transform` only fails for a link name absent from
+    // `state`'s own model; a caller building `AttachedBodyGeometry` from a
+    // `PlanningScene` over the same `RobotModel` an attach already validated
+    // (`PlanningScene::attach`/`attach_new` both reject an unknown link name
+    // up front) cannot hit this. Skipping rather than panicking here treats
+    // a mismatched caller the same way an unconvertible shape is already
+    // treated above: dropped, not fatal.
+    let attached = attached_bodies.iter().filter_map(|geometry| {
+        let link_pose = state.global_link_transform(geometry.link_name).ok()?;
+        attached_body_body(geometry, link_pose, padding_scale)
+    });
+    links.chain(attached).collect()
 }
 
 fn world_bodies(world: &World) -> Vec<PosedBody> {
@@ -449,10 +538,41 @@ fn to_contact(
     }
 }
 
+/// The `ROBOT_LINK`/`ROBOT_ATTACHED` half of `collisionCallback`'s/
+/// `distanceCallback`'s touch-links rule (module doc, "Attached-body
+/// geometry"): true if one side is a link the other side's attached body is
+/// allowed to touch.
+fn link_touches_attached(a: &PosedBody, b: &PosedBody) -> bool {
+    match (a.body_type, b.body_type) {
+        (BodyType::RobotLink, BodyType::RobotAttached) => b.touch_links.contains(&a.name),
+        (BodyType::RobotAttached, BodyType::RobotLink) => a.touch_links.contains(&b.name),
+        _ => false,
+    }
+}
+
+/// The `ROBOT_ATTACHED`/`ROBOT_ATTACHED` half of `collisionCallback`'s
+/// touch-links rule — `collisionCallback` only, see the module doc for why
+/// [`accumulate_distance`] does not call this: two attached bodies on the
+/// same link never collide; two on different links may still be allowed via
+/// either one's `touch_links` naming the other's id.
+fn attached_pair_allowed(a: &PosedBody, b: &PosedBody) -> bool {
+    if a.body_type != BodyType::RobotAttached || b.body_type != BodyType::RobotAttached {
+        return false;
+    }
+    if a.attached_link == b.attached_link {
+        return true;
+    }
+    a.touch_links.contains(&b.name) || b.touch_links.contains(&a.name)
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
-/// 4 and 5), folded over every candidate pair:
+/// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
-/// - [`AllowedCollision::Always`]: skip the pair, no query at all.
+/// - [`AllowedCollision::Always`], or the touch-links rule
+///   ([`link_touches_attached`]/[`attached_pair_allowed`]): skip the pair, no
+///   query at all. The touch-links rule is independent of `acm` and checked
+///   after it — it can override any other ACM outcome, including `Never` or
+///   no entry, matching upstream's own evaluation order.
 /// - Real contact found (`parry3d_f64::query::contact`, prediction `0.0`,
 ///   so only touching/penetrating pairs yield `Some`) and
 ///   [`AllowedCollision::Conditional`]: the predicate decides — rejected
@@ -478,6 +598,9 @@ fn accumulate_collision<'a>(
     for (a, b) in pairs {
         let allowed = acm.and_then(|m| m.allowed_collision(&a.name, &b.name));
         if matches!(allowed, Some(AllowedCollision::Always)) {
+            continue;
+        }
+        if link_touches_attached(a, b) || attached_pair_allowed(a, b) {
             continue;
         }
         for (a_pose, a_shape, b_pose, b_shape) in part_pairs(a, b) {
@@ -512,12 +635,16 @@ fn accumulate_collision<'a>(
 }
 
 /// `distanceCallback`'s per-pair algorithm (see the module doc, deviations 6
-/// and 7): [`AllowedCollision::Always`] skips the pair (upstream:
-/// `always_allow_collision`, the *only* ACM outcome the distance callback
-/// checks — `Never`/`Conditional` are not special-cased for a distance
-/// query); otherwise the pair's distance is computed and folded into
-/// `minimum_distance` and (for every [`DistanceRequestType`] but `Global`)
-/// `distances`, per upstream's exact accumulation rule for that type.
+/// and 7, and "Attached-body geometry"): [`AllowedCollision::Always`] or the
+/// [`link_touches_attached`] touch-links rule skips the pair (upstream:
+/// `always_allow_collision`, which the distance callback only ever sets from
+/// `AllowedCollision::Always` or that one touch-links rule — `Never`/
+/// `Conditional` are not special-cased for a distance query, and neither is
+/// the attached-attached same-link rule [`accumulate_collision`] applies:
+/// verified absent from `distanceCallback` by reading it in full); otherwise
+/// the pair's distance is computed and folded into `minimum_distance` and
+/// (for every [`DistanceRequestType`] but `Global`) `distances`, per
+/// upstream's exact accumulation rule for that type.
 fn accumulate_distance<'a>(
     pairs: impl Iterator<Item = (&'a PosedBody, &'a PosedBody)>,
     request: &DistanceRequest<'_>,
@@ -530,6 +657,9 @@ fn accumulate_distance<'a>(
                 Some(AllowedCollision::Always)
             )
         {
+            continue;
+        }
+        if link_touches_attached(a, b) {
             continue;
         }
         let key = (a.name.clone(), b.name.clone());
@@ -661,9 +791,10 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         &self,
         request: &CollisionRequest,
         state: &Posed<'s, 'm>,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult {
-        let bodies = robot_bodies(state, &self.padding_scale);
+        let bodies = robot_bodies(state, attached_bodies, &self.padding_scale);
         accumulate_collision(self_pairs(&bodies), request, acm)
     }
 
@@ -671,9 +802,10 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         &self,
         request: &CollisionRequest,
         state: &Posed<'s, 'm>,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult {
-        let robot = robot_bodies(state, &self.padding_scale);
+        let robot = robot_bodies(state, attached_bodies, &self.padding_scale);
         let world = world_bodies(&self.world);
         accumulate_collision(cross_pairs(&robot, &world), request, acm)
     }
@@ -683,6 +815,7 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         _request: &CollisionRequest,
         _state1: &Posed<'s, 'm>,
         _state2: &Posed<'s, 'm>,
+        _attached_bodies: &[AttachedBodyGeometry<'_>],
         _acm: Option<&AllowedCollisionMatrix>,
     ) -> Result<CollisionResult> {
         Err(Error::other(
@@ -697,8 +830,9 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         &self,
         request: &DistanceRequest<'_>,
         state: &Posed<'s, 'm>,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> DistanceResult {
-        let bodies = robot_bodies(state, &self.padding_scale);
+        let bodies = robot_bodies(state, attached_bodies, &self.padding_scale);
         accumulate_distance(self_pairs(&bodies), request)
     }
 
@@ -706,8 +840,9 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         &self,
         request: &DistanceRequest<'_>,
         state: &Posed<'s, 'm>,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> DistanceResult {
-        let robot = robot_bodies(state, &self.padding_scale);
+        let robot = robot_bodies(state, attached_bodies, &self.padding_scale);
         let world = world_bodies(&self.world);
         accumulate_distance(cross_pairs(&robot, &world), request)
     }
@@ -869,7 +1004,7 @@ mod tests {
         let posed = state.update();
         let env = ParryCollisionEnv::default();
 
-        let result = env.check_self_collision(&CollisionRequest::default(), &posed, None);
+        let result = env.check_self_collision(&CollisionRequest::default(), &posed, &[], None);
 
         assert!(result.collision);
     }
@@ -887,7 +1022,7 @@ mod tests {
         let posed = state.update();
         let env = ParryCollisionEnv::default();
 
-        let result = env.check_self_collision(&CollisionRequest::default(), &posed, None);
+        let result = env.check_self_collision(&CollisionRequest::default(), &posed, &[], None);
 
         assert!(!result.collision);
     }
@@ -907,7 +1042,8 @@ mod tests {
         let mut acm = AllowedCollisionMatrix::new();
         acm.set_entry("p", "q", true);
 
-        let result = env.check_self_collision(&CollisionRequest::default(), &posed, Some(&acm));
+        let result =
+            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
 
         assert!(!result.collision);
     }
@@ -927,7 +1063,8 @@ mod tests {
         let mut acm = AllowedCollisionMatrix::new();
         acm.set_conditional_entry("p", "q", Arc::new(|_: &mut Contact| true));
 
-        let result = env.check_self_collision(&CollisionRequest::default(), &posed, Some(&acm));
+        let result =
+            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
 
         assert!(!result.collision);
     }
@@ -947,7 +1084,8 @@ mod tests {
         let mut acm = AllowedCollisionMatrix::new();
         acm.set_conditional_entry("p", "q", Arc::new(|_: &mut Contact| false));
 
-        let result = env.check_self_collision(&CollisionRequest::default(), &posed, Some(&acm));
+        let result =
+            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
 
         assert!(result.collision);
     }
@@ -968,7 +1106,8 @@ mod tests {
         acm.set_entry("p", "q", true);
         acm.remove_entry("p", "q");
 
-        let result = env.check_self_collision(&CollisionRequest::default(), &posed, Some(&acm));
+        let result =
+            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
 
         assert!(result.collision);
     }
@@ -994,7 +1133,7 @@ mod tests {
             ..CollisionRequest::default()
         };
 
-        let result = env.check_self_collision(&request, &posed, None);
+        let result = env.check_self_collision(&request, &posed, &[], None);
 
         assert!(result.collision);
         let stored: usize = result.contacts.expect("contacts requested").count();
@@ -1024,7 +1163,7 @@ mod tests {
             ..CollisionRequest::default()
         };
 
-        let result = env.check_self_collision(&request, &posed, None);
+        let result = env.check_self_collision(&request, &posed, &[], None);
 
         assert!(
             result.collision,
@@ -1050,7 +1189,7 @@ mod tests {
         );
         let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 
-        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, None);
+        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
 
         assert!(result.collision);
     }
@@ -1068,7 +1207,7 @@ mod tests {
         );
         let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 
-        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, None);
+        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
 
         assert!(!result.collision);
     }
@@ -1086,7 +1225,7 @@ mod tests {
         let posed = state.update();
         let env = ParryCollisionEnv::default();
 
-        let result = env.distance_self(&DistanceRequest::default(), &posed);
+        let result = env.distance_self(&DistanceRequest::default(), &posed, &[]);
 
         assert!(!result.collision);
         assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
@@ -1109,7 +1248,7 @@ mod tests {
             ..DistanceRequest::default()
         };
 
-        let result = env.distance_self(&request, &posed);
+        let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
         assert_relative_eq!(result.minimum_distance.distance, 0.0, epsilon = 1e-9);
@@ -1132,7 +1271,7 @@ mod tests {
             ..DistanceRequest::default()
         };
 
-        let result = env.distance_self(&request, &posed);
+        let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
         assert_relative_eq!(result.minimum_distance.distance, -0.5, epsilon = 1e-9);
@@ -1164,7 +1303,7 @@ mod tests {
             ..DistanceRequest::default()
         };
 
-        let result = env.distance_self(&request, &posed);
+        let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
         assert_relative_eq!(result.minimum_distance.distance, -1.0, epsilon = 1e-9);
@@ -1189,7 +1328,7 @@ mod tests {
             ..DistanceRequest::default()
         };
 
-        let result = env.distance_self(&request, &posed);
+        let result = env.distance_self(&request, &posed, &[]);
 
         assert!(!result.collision);
         assert_eq!(result.minimum_distance.distance, f64::MAX);
@@ -1218,7 +1357,7 @@ mod tests {
             ..DistanceRequest::default()
         };
 
-        let result = env.distance_self(&request, &posed);
+        let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
         assert_relative_eq!(result.minimum_distance.distance, -0.5, epsilon = 1e-9);
@@ -1237,7 +1376,7 @@ mod tests {
         );
         let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 
-        let result = env.distance_robot(&DistanceRequest::default(), &posed);
+        let result = env.distance_robot(&DistanceRequest::default(), &posed, &[]);
 
         assert!(!result.collision);
         assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
@@ -1257,9 +1396,289 @@ mod tests {
             &CollisionRequest::default(),
             &posed1,
             &posed2,
+            &[],
             None,
         );
 
         assert!(result.is_err());
+    }
+
+    // Attached-body geometry: module doc, "Attached-body geometry".
+
+    #[test]
+    fn check_robot_collision_detects_overlap_via_attached_body_geometry() {
+        // `p` itself sits well clear of the obstacle; only geometry reached
+        // through an attached body's `shape_poses` overlaps it -- this is the
+        // gap `robot_bodies` iterating only `link_models()` used to leave.
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::translation(3.0, 0.0, 0.0),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let without_attached =
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
+        assert!(
+            !without_attached.collision,
+            "p's own geometry must not reach the obstacle"
+        );
+
+        let shapes = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let shape_poses = vec![Isometry3::translation(2.8, 0.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let with_attached =
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[attached], None);
+        assert!(
+            with_attached.collision,
+            "attached body geometry must be checked against the world too"
+        );
+    }
+
+    #[test]
+    fn distance_robot_reports_the_gap_to_a_world_object_via_attached_body_geometry() {
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::translation(5.0, 0.0, 0.0),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let shapes = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let shape_poses = vec![Isometry3::translation(3.0, 0.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let result = env.distance_robot(&DistanceRequest::default(), &posed, &[attached]);
+
+        assert!(!result.collision);
+        assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn check_self_collision_two_attached_bodies_on_the_same_link_never_collide() {
+        // `p` itself sits clear of both attached bodies; `a`/`b` are attached
+        // to the same link and placed at the identical pose, so only the
+        // same-attached-link touch-links rule (module doc) can be why this
+        // reports clear.
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+
+        let shapes_a = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let poses_a = vec![Isometry3::translation(5.0, 0.0, 0.0)];
+        let touch_a = BTreeSet::new();
+        let a = AttachedBodyGeometry {
+            id: "a",
+            link_name: "p",
+            shapes: &shapes_a,
+            shape_poses: &poses_a,
+            touch_links: &touch_a,
+        };
+        let shapes_b = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let poses_b = vec![Isometry3::translation(5.0, 0.0, 0.0)];
+        let touch_b = BTreeSet::new();
+        let b = AttachedBodyGeometry {
+            id: "b",
+            link_name: "p",
+            shapes: &shapes_b,
+            shape_poses: &poses_b,
+            touch_links: &touch_b,
+        };
+
+        let result = env.check_self_collision(&CollisionRequest::default(), &posed, &[a, b], None);
+
+        assert!(
+            !result.collision,
+            "two attached bodies on the same link must never collide with each other"
+        );
+    }
+
+    #[test]
+    fn distance_self_two_attached_bodies_on_the_same_link_still_reports_penetration() {
+        // The mirror of the test above, over `distance_self`: `collisionCallback`'s
+        // same-attached-link rule is verified absent from `distanceCallback`
+        // (module doc), so this pair must NOT be skipped here, unlike
+        // `check_self_collision` on identical geometry.
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+
+        let shapes_a = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let poses_a = vec![Isometry3::translation(5.0, 0.0, 0.0)];
+        let touch_a = BTreeSet::new();
+        let a = AttachedBodyGeometry {
+            id: "a",
+            link_name: "p",
+            shapes: &shapes_a,
+            shape_poses: &poses_a,
+            touch_links: &touch_a,
+        };
+        let shapes_b = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let poses_b = vec![Isometry3::translation(5.0, 0.0, 0.0)];
+        let touch_b = BTreeSet::new();
+        let b = AttachedBodyGeometry {
+            id: "b",
+            link_name: "p",
+            shapes: &shapes_b,
+            shape_poses: &poses_b,
+            touch_links: &touch_b,
+        };
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            ..DistanceRequest::default()
+        };
+
+        let result = env.distance_self(&request, &posed, &[a, b]);
+
+        assert!(result.collision);
+        assert_relative_eq!(result.minimum_distance.distance, -1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn check_self_collision_touch_links_allows_a_link_and_an_attached_body_to_overlap() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(5.0, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let shapes = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let shape_poses = vec![Isometry3::translation(5.0, 0.0, 0.0)];
+
+        let no_touch = BTreeSet::new();
+        let without_touch_links = AttachedBodyGeometry {
+            id: "pad",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &no_touch,
+        };
+        let baseline = env.check_self_collision(
+            &CollisionRequest::default(),
+            &posed,
+            &[without_touch_links],
+            None,
+        );
+        assert!(
+            baseline.collision,
+            "the attached body's geometry must actually overlap q for this test to prove anything"
+        );
+
+        let mut touch = BTreeSet::new();
+        touch.insert("q".to_string());
+        let with_touch_links = AttachedBodyGeometry {
+            id: "pad",
+            link_name: "p",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch,
+        };
+        let result = env.check_self_collision(
+            &CollisionRequest::default(),
+            &posed,
+            &[with_touch_links],
+            None,
+        );
+        assert!(
+            !result.collision,
+            "an attached body's touch_links must allow overlap with the link it names"
+        );
+    }
+
+    #[test]
+    fn check_self_collision_touch_links_allows_two_attached_bodies_on_different_links_to_overlap() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.0, 5.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+
+        let shapes_a = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let poses_a = vec![Isometry3::translation(10.0, 0.0, 0.0)];
+        let shapes_b = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let poses_b = vec![Isometry3::translation(10.0, -5.0, 0.0)];
+
+        let no_touch = BTreeSet::new();
+        let baseline_a = AttachedBodyGeometry {
+            id: "body_a",
+            link_name: "p",
+            shapes: &shapes_a,
+            shape_poses: &poses_a,
+            touch_links: &no_touch,
+        };
+        let baseline_b = AttachedBodyGeometry {
+            id: "body_b",
+            link_name: "q",
+            shapes: &shapes_b,
+            shape_poses: &poses_b,
+            touch_links: &no_touch,
+        };
+        let baseline = env.check_self_collision(
+            &CollisionRequest::default(),
+            &posed,
+            &[baseline_a, baseline_b],
+            None,
+        );
+        assert!(
+            baseline.collision,
+            "body_a and body_b must actually overlap for this test to prove anything"
+        );
+
+        let mut touch_a = BTreeSet::new();
+        touch_a.insert("body_b".to_string());
+        let a = AttachedBodyGeometry {
+            id: "body_a",
+            link_name: "p",
+            shapes: &shapes_a,
+            shape_poses: &poses_a,
+            touch_links: &touch_a,
+        };
+        let b = AttachedBodyGeometry {
+            id: "body_b",
+            link_name: "q",
+            shapes: &shapes_b,
+            shape_poses: &poses_b,
+            touch_links: &no_touch,
+        };
+        let result = env.check_self_collision(&CollisionRequest::default(), &posed, &[a, b], None);
+        assert!(
+            !result.collision,
+            "one attached body naming the other in touch_links must allow their overlap, \
+             regardless of which side names which"
+        );
     }
 }

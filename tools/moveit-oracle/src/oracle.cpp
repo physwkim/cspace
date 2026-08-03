@@ -1203,6 +1203,21 @@ private:
   /// collision check needs the actual geometry to produce a non-trivial
   /// `robot_collision`/`robot_distance` answer.
   ///
+  /// `request["attached_bodies"]` (optional, defaults to none) is applied to
+  /// `*state_` via `attachBody` before any check runs, ground truth for
+  /// `moveit_scene::AttachedBody`/`moveit_collision::AttachedBodyGeometry`.
+  /// `state_` is a long-lived member reused across requests, so previously
+  /// attached bodies are cleared first -- `applyJointValues`'s
+  /// `setToDefaultValues()` resets joint positions but, verified by reading
+  /// `RobotState::setToDefaultValues()`, never touches attached-body state,
+  /// so a stale attachment from an earlier request would otherwise leak into
+  /// this one. `attachBody`'s own `pose` parameter (the transform from the
+  /// link to the attached body's own frame, upstream's separate level
+  /// between the link and its shapes) is always identity here, matching
+  /// `moveit_scene::AttachedBody`'s one-level design where `shape_poses` are
+  /// already relative to the link frame directly -- see `protocol.rs`'s
+  /// `AttachedBodySpec` doc.
+  ///
   /// Both `CollisionRequest`s are default-constructed (`contacts = false`):
   /// only the boolean `collision` flag from each call is reported, and
   /// [`Contact`] coordinates are excluded from comparison per §4.5's recorded
@@ -1217,6 +1232,34 @@ private:
   json collision(const json& request)
   {
     applyJointValues(request);
+
+    state_->clearAttachedBodies();
+    for (const auto& attached_json : request.value("attached_bodies", json::array()))
+    {
+      const std::string id = attached_json.at("id").get<std::string>();
+      const std::string link_name = attached_json.at("link_name").get<std::string>();
+      const auto& shapes_json = attached_json.at("shapes");
+      const auto& shape_poses_json = attached_json.at("shape_poses");
+      std::vector<shapes::ShapeConstPtr> shapes;
+      EigenSTL::vector_Isometry3d shape_poses;
+      for (std::size_t i = 0; i < shapes_json.size(); ++i)
+      {
+        const json& shape_json = shapes_json.at(i);
+        const std::string shape_type = shape_json.at("type").get<std::string>();
+        shapes.push_back(parseShape(shape_type, shape_json));
+        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
+      }
+      std::set<std::string> touch_links;
+      if (attached_json.contains("touch_links"))
+      {
+        for (const auto& link_json : attached_json.at("touch_links"))
+        {
+          touch_links.insert(link_json.get<std::string>());
+        }
+      }
+      state_->attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links, link_name);
+    }
+    state_->update();
 
     collision_detection::AllowedCollisionMatrix acm = buildAcm();
 

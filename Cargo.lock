@@ -414,6 +414,8 @@ dependencies = [
  "moveit-model",
  "moveit-srdf",
  "moveit-state",
+ "serde",
+ "serde_json",
  "urdf-rs",
 ]
 

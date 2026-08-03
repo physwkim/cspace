@@ -76,7 +76,7 @@ fn collides_with_object_at(shapes: &[Arc<Shape>], translation: f64) -> bool {
     let mut state = RobotState::new(&model);
     state.set_to_default_values();
     let posed = state.update();
-    env.check_robot_collision(&CollisionRequest::default(), &posed, None)
+    env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None)
         .collision
 }
 
@@ -152,7 +152,7 @@ fn only_the_second_part_collides() {
     state.set_to_default_values();
     let posed = state.update();
     assert!(
-        env.check_robot_collision(&CollisionRequest::default(), &posed, None)
+        env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None)
             .collision
     );
 }

@@ -175,13 +175,13 @@ fn assert_full_parity_matches_oracle(model: &RobotModel, fixture_name: &str, srd
         let posed = state.update();
 
         let self_result =
-            env.check_self_collision(&CollisionRequest::default(), &posed, Some(&acm));
+            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
         assert_eq!(
             self_result.collision, case.self_collision,
             "{fixture_name} case {case_index}: self_collision"
         );
         let robot_result =
-            env.check_robot_collision(&CollisionRequest::default(), &posed, Some(&acm));
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
         assert_eq!(
             robot_result.collision, case.robot_collision,
             "{fixture_name} case {case_index}: robot_collision"
@@ -192,14 +192,14 @@ fn assert_full_parity_matches_oracle(model: &RobotModel, fixture_name: &str, srd
             acm: Some(&acm),
             ..DistanceRequest::default()
         };
-        let self_distance = env.distance_self(&distance_request, &posed);
+        let self_distance = env.distance_self(&distance_request, &posed, &[]);
         assert!(
             (self_distance.minimum_distance.distance - case.self_distance).abs() < TOLERANCE,
             "{fixture_name} case {case_index}: self_distance {} != {} (oracle)",
             self_distance.minimum_distance.distance,
             case.self_distance
         );
-        let robot_distance = env.distance_robot(&distance_request, &posed);
+        let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
         assert!(
             (robot_distance.minimum_distance.distance - case.robot_distance).abs() < TOLERANCE,
             "{fixture_name} case {case_index}: robot_distance {} != {} (oracle)",
@@ -220,7 +220,7 @@ fn assert_robot_collision_matches_oracle(model: &RobotModel, fixture_name: &str,
         let posed = state.update();
 
         let robot_result =
-            env.check_robot_collision(&CollisionRequest::default(), &posed, Some(&acm));
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
         assert_eq!(
             robot_result.collision, case.robot_collision,
             "{fixture_name} case {case_index}: robot_collision"
@@ -231,7 +231,7 @@ fn assert_robot_collision_matches_oracle(model: &RobotModel, fixture_name: &str,
             acm: Some(&acm),
             ..DistanceRequest::default()
         };
-        let robot_distance = env.distance_robot(&distance_request, &posed);
+        let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
         assert!(
             (robot_distance.minimum_distance.distance - case.robot_distance).abs() < TOLERANCE,
             "{fixture_name} case {case_index}: robot_distance {} != {} (oracle)",

@@ -6,11 +6,11 @@
 //   moveit_core/collision_detection/include/moveit/collision_detection/collision_common.hpp
 //   moveit_core/collision_detection/src/collision_common.cpp
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
-use moveit_geometry::Vector3;
+use moveit_geometry::{Isometry3, Shape, Vector3};
 
 /// Upstream `collision_detection::BodyTypes::Type` (aliased there as `BodyType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -22,6 +22,45 @@ pub enum BodyType {
     RobotAttached,
     /// A body in the environment.
     WorldObject,
+}
+
+/// Attached-body geometry for one [`crate::CollisionEnv`] call.
+///
+/// Upstream `CollisionEnvFCL::constructFCLObjectRobot` gets attached bodies
+/// off the state itself (`state.getAttachedBodies(ab)`) and feeds them into
+/// every one of `checkSelfCollision`/`checkRobotCollision`/`distanceSelf`/
+/// `distanceRobot` alongside the per-link geometry — see
+/// [`crate::CollisionEnv`]'s own doc for why this crate's `State` cannot
+/// carry that yet, and why every [`crate::CollisionEnv`] method takes a
+/// slice of these explicitly instead. Every field borrows rather than owns,
+/// so a caller building the slice per call (in practice
+/// `moveit_scene::PlanningScene`, converting its own `AttachedBody` records)
+/// pays no allocation to do it.
+#[derive(Debug, Clone, Copy)]
+pub struct AttachedBodyGeometry<'a> {
+    /// This body's id. Upstream `AttachedBody::getName()` — what an ACM
+    /// lookup and [`Contact::body_name_1`]/[`Contact::body_name_2`] read for
+    /// an attached body (`CollisionGeometryData::getID()`'s
+    /// `ROBOT_ATTACHED` branch returns `ptr.ab->getName()`, not the link
+    /// name).
+    pub id: &'a str,
+    /// The link this body is rigidly attached to. Upstream
+    /// `AttachedBody::getAttachedLinkName()`. Also the link whose
+    /// [`crate::LinkPaddingScale`] entry applies to this body's shapes —
+    /// upstream's own `getAttachedBodyObjects` scales/pads by
+    /// `getLinkScale`/`getLinkPadding` of the attached link, not a padding
+    /// of the attached body's own.
+    pub link_name: &'a str,
+    /// This body's shapes.
+    pub shapes: &'a [Arc<Shape>],
+    /// Each shape's pose relative to [`AttachedBodyGeometry::link_name`]'s
+    /// own frame — one level, not upstream's `pose_`-then-`shape_poses_`
+    /// two (see `moveit_scene::AttachedBody`'s own doc for why the owning
+    /// crate stores it this way).
+    pub shape_poses: &'a [Isometry3],
+    /// Links this body is allowed to touch without that counting as a
+    /// collision. Upstream `AttachedBody::getTouchLinks()`.
+    pub touch_links: &'a BTreeSet<String>,
 }
 
 /// One point of contact between two bodies.

@@ -401,7 +401,7 @@ impl VisibilityConstraint {
             max_contacts: 1,
             ..Default::default()
         };
-        let result = env.check_robot_collision(&request, state, Some(&acm));
+        let result = env.check_robot_collision(&request, state, &[], Some(&acm));
 
         let depth = result
             .contacts

@@ -542,6 +542,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
             let expected = match oracle.ask(Op::Collision {
                 joint_values: joint_values.clone(),
                 objects: fixture.wire_objects.clone(),
+                attached_bodies: Vec::new(),
             })? {
                 OracleResult::Collision(c) => c,
                 other => return Err(format!("expected collision, got {other:?}")),
