@@ -277,6 +277,34 @@
 //!    this port's own (internally consistent) answers, plus the bracket/
 //!    parity check proving each one, instead of the fixture's values for
 //!    those three rays.
+//! 8. **`ConvexMesh::ray_intersections` disagrees with the shipped `.so` on
+//!    `ray[1]` for an unrelated reason: anchor-choice non-uniqueness, not
+//!    the deviation-7 sign bug.** Both sides report the same, topologically
+//!    consistent 2-hit count on `ray[1]` (unlike deviation 7's three rays),
+//!    but at genuinely different positions. `ConvexMesh::recompute`
+//!    applies scale and padding radially, per vertex, from the mesh center
+//!    (`updateInternalData` upstream), so under non-zero padding a
+//!    triangle's 3 padded vertices are in general no longer coplanar; each
+//!    triangle's plane offset is then only well-defined relative to
+//!    whichever of its 3 vertices is used to compute it, and that choice is
+//!    an artifact of the convex hull library's internal vertex-enumeration
+//!    order for that facet, not a geometric property of the face. Deviation
+//!    2 already documents that this port's hull comes from `parry3d-f64`'s
+//!    quickhull rather than upstream's qhull; the two libraries pick
+//!    different anchor vertices for the face `ray[1]` grazes, and hand
+//!    verification against the shipped binary's own qhull-ordered vertex
+//!    data confirmed the two anchors give measurably different offsets
+//!    (this port's anchor: ≈ -0.0433; qhull's own anchor for the identical
+//!    face: ≈ -0.0405) — a real difference in which real number is correct
+//!    under an anchor-dependent construction, not floating-point noise.
+//!    Nothing about this is fixable within this port without matching
+//!    qhull's own facet vertex order exactly, which deviation 2 already
+//!    declined to depend on. `tests/probe_parity.rs`'s
+//!    `convex_mesh_ray1_anchor_choice_deviation` asserts the hit count and
+//!    the bracket invariant against the fixture's `containsPoint`, plus
+//!    this port's own regression-pinned positions — not the fixture's
+//!    exact positions, which have no more claim to being "correct" than
+//!    this port's under an anchor-dependent formula.
 
 use moveit_error::{Error, Result};
 

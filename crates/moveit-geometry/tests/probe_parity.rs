@@ -40,6 +40,11 @@
 //! (internally consistent) answers for them instead, with the topological
 //! proof that the fixture's values for those rays cannot be right.
 //!
+//! `ray[1]` disagrees too, but for an unrelated reason (`bodies.rs`'s module
+//! docs, deviation 8): an anchor-choice non-uniqueness from deviation 2's
+//! hull library swap, not the deviation-7 sign bug. See
+//! `convex_mesh_ray1_anchor_choice_deviation` below.
+//!
 //! To regenerate: see `tools/ci/` and the compile recipe in
 //! `PORTING-PLAN.md` §9.1.
 
@@ -286,6 +291,13 @@ fn cuboid_matches_libgeometric_shapes() {
 /// three rays are upstream's bug, not ground truth to match. See
 /// `convex_mesh_sign_bug_upstream_defect` below for the assertions this
 /// port keeps in their place.
+///
+/// `convexmesh.ray[1]` is excluded for a distinct reason, `bodies.rs`'s
+/// documented deviation 8: both sides report a self-consistent 2 hits, but
+/// at genuinely different positions, because padding under this ray's
+/// grazing face is anchor-dependent and this port's hull library picks a
+/// different anchor vertex than upstream's qhull. See
+/// `convex_mesh_ray1_anchor_choice_deviation` below.
 #[test]
 fn convex_mesh_matches_libgeometric_shapes() {
     let f = fixture();
@@ -293,7 +305,7 @@ fn convex_mesh_matches_libgeometric_shapes() {
     body.set_pose(probe_pose());
     body.set_scale(1.15).unwrap();
     body.set_padding(0.01).unwrap();
-    check_body!(f, "convexmesh", body, skip_rays: [0, 2, 4]);
+    check_body!(f, "convexmesh", body, skip_rays: [0, 1, 2, 4]);
 }
 
 /// The upstream sign-convention defect behind deviation 7, pinned against
@@ -378,6 +390,46 @@ fn convex_mesh_sign_bug_upstream_defect() {
     assert_close(hits[0].x, 0.3596564673983505, "convexmesh.ray[4].pt[0].x");
     assert_close(hits[0].y, -0.6254294157520618, "convexmesh.ray[4].pt[0].y");
     assert_close(hits[0].z, 1.2148386997418248, "convexmesh.ray[4].pt[0].z");
+}
+
+/// The anchor-choice non-uniqueness behind deviation 8. `ray[1]` grazes a
+/// face whose 3 padded vertices are no longer coplanar (padding is applied
+/// radially, per-vertex, from the mesh center), so the face's plane offset
+/// is only well-defined relative to whichever vertex the hull library
+/// picked as that triangle's first vertex. This port's hull
+/// (`parry3d-f64`'s quickhull, deviation 2) and upstream's qhull enumerate
+/// that face's vertices in different orders, so the two offsets are
+/// genuinely different real numbers (hand-verified: this port's anchor
+/// gives an offset of about -0.0433, qhull's own anchor for the same face
+/// gives about -0.0405) — not a floating-point rounding difference, and
+/// not the deviation-7 sign bug: both sides report the same, topologically
+/// consistent 2-hit count here, satisfying the same bracket check as
+/// deviation 7's rays, just at different exact positions. There is no
+/// binary-ground-truth position to pin against, so this test pins the
+/// count and bracket invariants plus this port's own regression values.
+#[test]
+fn convex_mesh_ray1_anchor_choice_deviation() {
+    let f = fixture();
+    let mut body = ConvexMesh::new(&tetrahedron()).unwrap();
+    body.set_pose(probe_pose());
+    body.set_scale(1.15).unwrap();
+    body.set_padding(0.01).unwrap();
+
+    assert!(
+        expect_usize(&f, "convexmesh.contains[0]") == 1,
+        "sanity: the bracket check needs the fixture's own containsPoint(origin) to be true"
+    );
+    let origin_point = probe_points()[0];
+
+    let (origin, dir) = probe_rays()[1];
+    let hits = body.ray_intersections(&origin, &dir.normalize(), Some(2));
+    assert_eq!(hits.len(), 2, "convexmesh.ray[1] (see deviation 8)");
+    assert!(
+        hits[0].x < origin_point.x && origin_point.x < hits[1].x,
+        "convexmesh.ray[1]: hits should bracket the confirmed-interior probe origin point"
+    );
+    assert_close(hits[0].x, 0.23761786855289202, "convexmesh.ray[1].pt[0].x");
+    assert_close(hits[1].x, 0.928150045194891, "convexmesh.ray[1].pt[1].x");
 }
 
 /// `OBB::overlaps`/`contains`/`extend_approx` is the corner of this layer
