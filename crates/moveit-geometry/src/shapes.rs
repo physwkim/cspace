@@ -311,20 +311,39 @@
 //!   just asserting the structural difference (round 7 item 2; no divergence
 //!   at any count tested).
 //!
-//!   **Falsifier for this gap (round 8, re-verified against the pinned
-//!   `parry3d-f64 = "0.30.0"` in `Cargo.lock`):** the item closes when
-//!   `parry3d-f64` ships a shape that accepts *per-node* size, not one
-//!   uniform `voxel_size` for the whole shape. Checked
-//!   `Voxels::new` in
-//!   `~/.cargo/registry/src/index.crates.io-*/parry3d-f64-0.30.0/src/shape/voxels/voxels.rs:574` —
-//!   `pub fn new(voxel_size: Vector, grid_coordinates: &[IVector]) -> Self`,
-//!   one `voxel_size` for every cell — so it still cannot take a pruned,
-//!   variable-depth [`moveit_octomap::OcTree`] leaf directly, for the same
-//!   re-inflation reason given above. `rg -n 'pub fn new' .../voxels.rs`
+//!   **Not a live correctness gap — no consumer can observe it (round 11).**
+//!   `parry3d_f64::shape::Voxels` is never actually used anywhere in this
+//!   workspace: [`crate::compound_from_octree`] is the *only* `Shape::OcTree`
+//!   conversion path `moveit-collision`'s `parry.rs` calls, and it has no
+//!   uniform-size constraint (one [`Cuboid`](parry3d_f64::shape::Cuboid) per
+//!   occupied leaf, sized to that leaf's own extent). So the gap this section
+//!   describes is "`Voxels` cannot be *adopted* as an alternative
+//!   representation", not "the shipped representation disagrees with
+//!   upstream" — the latter is what
+//!   `octree_leaf_count_scaling_parity.rs`/`octree_world_collision_parity.rs`
+//!   (`moveit-collision`) already rule out at leaf counts 0–216, oracle-
+//!   verified. `octree_shape_query`/`octree_in_world` (this crate's own
+//!   oracle ops) are the capture path that would surface a divergence if one
+//!   existed; nothing in three rounds of using them has.
+//!
+//!   **Falsifier (round 8, re-verified round 11 against the still-pinned
+//!   `parry3d-f64 = "0.30.0"` in `Cargo.lock` — unchanged since round 8):**
+//!   the item closes when `parry3d-f64` ships a shape that accepts *per-node*
+//!   size, not one uniform `voxel_size` for the whole shape. Re-read the
+//!   vendored source directly this round, not just `Voxels::new`: every
+//!   `pub fn` in
+//!   `~/.cargo/registry/src/index.crates.io-*/parry3d-f64-0.30.0/src/shape/voxels/voxels.rs`
+//!   (18 methods) checked for a second constructor — `Voxels::new`
+//!   (`:574`, `pub fn new(voxel_size: Vector, grid_coordinates: &[IVector])
+//!   -> Self`) and `Voxels::from_points` (`:675`, same single `voxel_size`
+//!   parameter, delegates to `new`) are the only two, and `voxel_size` is a
+//!   single struct field (`:509`), not a per-cell array. Still cannot take a
+//!   pruned, variable-depth [`moveit_octomap::OcTree`] leaf directly, for the
+//!   same re-inflation reason given above. `rg -n 'pub fn new' .../voxels.rs`
 //!   returning a signature with a per-node size parameter (or a new
 //!   `parry3d_f64::shape` module implementing a sparse/hierarchical volume)
 //!   would close it; a version bump alone does not, unless that signature
-//!   changed.
+//!   changed. It has not fired.
 //! - **`collision_env_distance_field`'s treatment**
 //!   (`collision_env_distance_field.cpp`, `~line 1753`) only ever reads: it
 //!   builds `PosedBodyPointDecomposition(octree)` directly from the

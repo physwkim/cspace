@@ -153,6 +153,25 @@
 //!   outside `moveit-geometry` yet (checked by `rg` for each method name
 //!   across `crates/*/src`, excluding this file and `shapes.rs`).
 //!
+//!   Checked (round 11) whether "no caller" understates
+//!   [`ConvexMesh::intersects_ray`] specifically, since §9.1's probe already
+//!   found [`ConvexMesh::ray_intersections`] disagreeing with the C++ oracle
+//!   under scale+padding (deviations 7 and 8, documented on
+//!   [`ConvexMesh::ray_intersections`] itself). It does not: `intersects_ray`
+//!   is a one-line wrapper, `!self.ray_intersections(origin, dir,
+//!   None).is_empty()`, so it is not a *different*, unverified surface —
+//!   `probe_parity.rs` calling `ray_intersections` directly already exercises
+//!   the exact code `intersects_ray` runs. Also checked whether that probe
+//!   work itself ever landed: branch `probe-parity`'s tip and commit
+//!   `dbf50a7` both name a "probe bodies:: against the shipped
+//!   libgeometric_shapes" change, but neither is an ancestor of `HEAD`
+//!   (`git merge-base --is-ancestor dbf50a7 HEAD` fails). `git diff dbf50a7
+//!   0032889 -- crates/moveit-geometry/tests/probe_parity.rs` is empty —
+//!   `dbf50a7` is a byte-identical orphaned duplicate of `0032889`, which
+//!   *is* an ancestor of `HEAD` and was extended by four follow-up commits
+//!   already on `main` (`10b1909`, `16cf87b`, `aa80496`, `9ca1dd3`). Nothing
+//!   is stranded.
+//!
 //! So "deferred to Phase 3 collision" is not a live UNFIXED condition: the
 //! condition it named (moveit-collision existing) was met and then the
 //! premise under it turned out false (moveit-collision does not need this
@@ -256,9 +275,32 @@
 //! `intersectsRay`/indexed `getBody`, entirely composable from a plain
 //! `Vec<Body>` and the per-body methods this crate already exposes
 //! ([`Body::contains_point`], [`Body::intersects_ray`]) — there is no
-//! algorithm here beyond the loop itself. Whether `moveit-distance-field`
-//! needs a dedicated wrapper type or can compose it inline from `Vec<Body>`
-//! is that crate's call against its own actual usage, not a gap in this one.
+//! algorithm here beyond the loop itself.
+//!
+//! **Decided (round 11): a wrapper buys nothing concrete, checked against
+//! `moveit-distance-field`'s actual usage rather than left as that crate's
+//! call.** `moveit-distance-field`'s only composition of `Vec<Body>` is
+//! `BodyDecomposition::from_shapes` (`collision_distance_field_types.rs:711-721`),
+//! which builds the vector by a plain `Vec::with_capacity` + `push` loop, and
+//! every consumer of the resulting field is whole-vector iteration or
+//! indexed access, never `BodyVector`'s first-hit query:
+//! `collision_distance_field_types.rs:726`'s `for body in &bodies` runs to
+//! completion three times over (collision spheres, internal points via
+//! [`Body::contains_point`], bounding spheres via
+//! `Body::compute_bounding_sphere`), and `BodyDecomposition::body`/
+//! `bodies_count` (`:781-786`) are a bounds-checked index and a length, not a
+//! search. Upstream `BodyVector::containsPoint`/`intersectsRay` return on the
+//! *first* body that matches; nothing in this workspace ever needs that
+//! short-circuit — every call site needs the full set. A wrapper here would
+//! duplicate `Vec<Body>` plus re-derive the loops
+//! `BodyDecomposition::from_shapes` already writes directly, for a query
+//! shape (first-hit) that has no caller. `moveit-distance-field`'s own doc
+//! independently reaches the same conclusion for the sibling
+//! `BodyDecompositionVector` (`lib.rs:155-160`: phantom upstream type,
+//! forward-declared and never defined, so "unported" there is not even a
+//! design choice) — the pattern in that crate is plain `Vec`/`&[T]`
+//! throughout, with no vector-wrapper type anywhere in its `Body`/
+//! `BodyDecomposition` handling.
 //!
 //! # Design: enum, not a trait-object hierarchy (D4)
 //!
