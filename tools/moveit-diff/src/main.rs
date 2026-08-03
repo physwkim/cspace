@@ -1380,16 +1380,28 @@ fn quat_from_row_major(m: &[f64; 16]) -> UnitQuaternion {
 /// `*_same_pair_and_value_diverges` (pair matched, value still exceeded
 /// tolerance) are tracked and reported separately instead of one combined
 /// "also exceeded tol" count that used to fold both species together.
-#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+/// PORTING-PLAN.md §67.2 found 62/3000 self-side same-pair divergences and
+/// left their pair composition unsplit: how much is the known
+/// `base_bellow_link`/`torso_lift_link` plateau (§56, §63.2) versus an
+/// unexplained remainder is exactly the number that decides whether §56's
+/// ranking-only account still covers the self side. Keyed by
+/// [`pair_key`] (order-independent, matching [`distance_pair_matches`]) so
+/// one physical pair cannot appear as two histogram entries depending on
+/// which side named `body_name_1` first.
+type PairHistogram = BTreeMap<String, usize>;
+
+#[derive(Debug, Default, Clone, serde::Serialize)]
 struct DistancePairStats {
     self_total: usize,
     self_pair_disagrees: usize,
     self_pair_flip_and_value_diverges: usize,
     self_same_pair_and_value_diverges: usize,
+    self_same_pair_histogram: PairHistogram,
     robot_total: usize,
     robot_pair_disagrees: usize,
     robot_pair_flip_and_value_diverges: usize,
     robot_same_pair_and_value_diverges: usize,
+    robot_same_pair_histogram: PairHistogram,
 }
 
 impl DistancePairStats {
@@ -1434,6 +1446,18 @@ impl DistancePairStats {
 /// every such case as a disagreement even when the named pair is identical.
 /// `None` on both sides (upstream's `DistanceResultsData::clear()` state,
 /// never overwritten) counts as agreement.
+/// Canonical, order-independent key for a matched [`DistancePair`], e.g.
+/// `"base_bellow_link/torso_lift_link"`. Must agree with
+/// [`distance_pair_matches`]'s order-independence -- both sides can name
+/// `body_name_1`/`body_name_2` in either order (see that function's own doc
+/// comment) -- or a single physical pair would split across two histogram
+/// entries depending only on which side happened to report first.
+fn pair_key(pair: &DistancePair) -> String {
+    let mut names = [pair.body_name_1.as_str(), pair.body_name_2.as_str()];
+    names.sort_unstable();
+    format!("{}/{}", names[0], names[1])
+}
+
 fn distance_pair_matches(a: &Option<DistancePair>, b: &Option<DistancePair>) -> bool {
     match (a, b) {
         (None, None) => true,
@@ -1522,6 +1546,15 @@ fn compare_collision(
     if distance_pair_matches(&expected.self_distance_pair, &actual.self_distance_pair) {
         if self_dev.is_nan() || self_dev > cfg.tol_distance {
             pair_stats.self_same_pair_and_value_diverges += 1;
+            // The pair matched, so either side's name identifies the same
+            // physical pair; `actual` is used only because it is always
+            // present when `expected` is (never the reverse in practice).
+            if let Some(pair) = &actual.self_distance_pair {
+                *pair_stats
+                    .self_same_pair_histogram
+                    .entry(pair_key(pair))
+                    .or_insert(0) += 1;
+            }
         }
     } else {
         pair_stats.self_pair_disagrees += 1;
@@ -1533,6 +1566,12 @@ fn compare_collision(
     if distance_pair_matches(&expected.robot_distance_pair, &actual.robot_distance_pair) {
         if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
             pair_stats.robot_same_pair_and_value_diverges += 1;
+            if let Some(pair) = &actual.robot_distance_pair {
+                *pair_stats
+                    .robot_same_pair_histogram
+                    .entry(pair_key(pair))
+                    .or_insert(0) += 1;
+            }
         }
     } else {
         pair_stats.robot_pair_disagrees += 1;
@@ -1885,5 +1924,115 @@ mod paired_divergence_tests {
         }
         let (b, c) = (17, 12);
         assert!(b + c < MINIMUM_USABLE_B_PLUS_C);
+    }
+}
+
+#[cfg(test)]
+mod distance_pair_tests {
+    use super::*;
+
+    /// Each body carries its own `(name, type)` pair -- `pair_key`/
+    /// `distance_pair_matches` compare `(name, type)` tuples, not names
+    /// alone, so a helper that swapped only names while leaving
+    /// `body_type_1`/`body_type_2` fixed to their old positions would build
+    /// a self-contradictory `DistancePair` (a body that is simultaneously
+    /// `robot_link` at one position and `world_object` at the other)
+    /// instead of a genuinely reordered one.
+    fn pair(name1: &str, type1: &str, name2: &str, type2: &str) -> DistancePair {
+        DistancePair {
+            body_name_1: name1.to_owned(),
+            body_type_1: type1.to_owned(),
+            body_name_2: name2.to_owned(),
+            body_type_2: type2.to_owned(),
+        }
+    }
+
+    const BELLOW: (&str, &str) = ("base_bellow_link", "robot_link");
+    const TORSO: (&str, &str) = ("torso_lift_link", "robot_link");
+
+    /// The boundary [`pair_key`] exists to close: the same physical pair
+    /// named in opposite `body_name_1`/`body_name_2` order must hash to one
+    /// histogram entry, not two.
+    #[test]
+    fn pair_key_is_order_independent() {
+        assert_eq!(
+            pair_key(&pair(BELLOW.0, BELLOW.1, TORSO.0, TORSO.1)),
+            pair_key(&pair(TORSO.0, TORSO.1, BELLOW.0, BELLOW.1))
+        );
+    }
+
+    /// Two genuinely different pairs must not collide onto the same key.
+    #[test]
+    fn pair_key_distinguishes_different_pairs() {
+        assert_ne!(
+            pair_key(&pair(BELLOW.0, BELLOW.1, TORSO.0, TORSO.1)),
+            pair_key(&pair(
+                "base_link",
+                "robot_link",
+                "fl_caster_l_wheel_link",
+                "robot_link"
+            ))
+        );
+    }
+
+    /// `distance_pair_matches`'s own order-independence -- the property
+    /// [`pair_key`] must stay consistent with, or a same-pair case could be
+    /// tallied under `*_same_pair_and_value_diverges` yet land in the
+    /// histogram under two different keys depending on which side is `a`.
+    #[test]
+    fn distance_pair_matches_ignores_body_order() {
+        let forward = pair(BELLOW.0, BELLOW.1, TORSO.0, TORSO.1);
+        let reversed = pair(TORSO.0, TORSO.1, BELLOW.0, BELLOW.1);
+        assert!(distance_pair_matches(
+            &Some(forward.clone()),
+            &Some(forward)
+        ));
+        assert!(distance_pair_matches(
+            &Some(pair(BELLOW.0, BELLOW.1, TORSO.0, TORSO.1)),
+            &Some(reversed)
+        ));
+    }
+
+    #[test]
+    fn distance_pair_matches_rejects_a_different_pair() {
+        assert!(!distance_pair_matches(
+            &Some(pair(BELLOW.0, BELLOW.1, TORSO.0, TORSO.1)),
+            &Some(pair(
+                "base_link",
+                "robot_link",
+                "fl_caster_l_wheel_link",
+                "robot_link"
+            ))
+        ));
+    }
+
+    /// Same names, but the wrong body carries `world_object`: this must NOT
+    /// match, even though every name lines up -- type is part of body
+    /// identity, not a spectator field.
+    #[test]
+    fn distance_pair_matches_rejects_type_only_mismatch() {
+        let robot_vs_world = pair(BELLOW.0, "robot_link", TORSO.0, "world_object");
+        let both_robot = pair(BELLOW.0, "robot_link", TORSO.0, "robot_link");
+        assert!(!distance_pair_matches(
+            &Some(robot_vs_world),
+            &Some(both_robot)
+        ));
+    }
+
+    /// Upstream's `DistanceResultsData::clear()` state on both sides (no
+    /// other body existed to measure against) is agreement, not a mismatch.
+    #[test]
+    fn distance_pair_matches_treats_both_none_as_agreement() {
+        assert!(distance_pair_matches(&None, &None));
+    }
+
+    /// One side reporting a pair and the other reporting none can never be a
+    /// tie -- this is the `_ => false` arm `(None, None)`/`(Some, Some)`
+    /// leave uncovered.
+    #[test]
+    fn distance_pair_matches_rejects_one_sided_none() {
+        let p = Some(pair(BELLOW.0, BELLOW.1, TORSO.0, TORSO.1));
+        assert!(!distance_pair_matches(&p, &None));
+        assert!(!distance_pair_matches(&None, &p));
     }
 }

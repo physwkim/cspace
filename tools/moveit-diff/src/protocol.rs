@@ -859,6 +859,23 @@ pub struct ConstraintsResult {
 /// gripper-vs-floor species the direction is consistent. See
 /// PORTING-PLAN.md §53.3 and this round's report for the full case list.
 /// Diagnostic only.
+///
+/// PORTING-PLAN.md §67.2 found a same-pair-and-value-diverges species on the
+/// self side too -- 62/3000, unlike the robot side's 2/3000, a case where
+/// both sides pick the identical pair and only the scalar disagrees, so no
+/// ranking bug (§56) can be the cause. Round 11 broke the 62 down by pair
+/// identity (same seed/fixture, via `--stats-json`'s
+/// `distance_pairs.self_same_pair_histogram`): 52/62 are
+/// `base_bellow_link`/`torso_lift_link`, the already-explained §56 plateau
+/// (`min(0.052928909, ramp(t))`, this port correct). The remaining 10/62
+/// split across five distinct `base_link`/`*_caster_*_wheel_link` pairs
+/// (1, 1, 1, 3, 4 occurrences) -- new, and *not* explained by §56's
+/// min-of-two-candidates mechanism, which was derived specifically for the
+/// bellow/torso pair's two competing contact directions and says nothing
+/// about a caster wheel's geometry. Whether it is the same TriMesh
+/// per-triangle-MTD underestimate §56.4 already flags as a general risk
+/// (not proven, only not yet ruled out for this pair family) is unmeasured.
+/// Diagnostic only, handed to p3-acm alongside the histogram itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DistancePair {
     /// `DistanceResultsData::link_names[0]`.
