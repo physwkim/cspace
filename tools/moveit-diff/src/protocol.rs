@@ -829,6 +829,28 @@ pub struct ConstraintsResult {
 /// near-static pairs and apparently never gets to weigh the gripper pairs
 /// against them. Diagnostic only, handed to p3-acm (who own
 /// `moveit-collision`) rather than fixed here.
+///
+/// Round 9 extended this to `robot_distance` (robot vs. world object) and
+/// to whether a pair disagreement is even a defect: at 3000 cases (same
+/// seed/fixture), `self` pairs disagree on 2935/3000 (97.8%), *all* of
+/// which also exceed `cfg.tol_distance` -- the self side is essentially
+/// always wrong on pr2. `robot` pairs disagree far more often (2647/3000,
+/// 88.2%) but almost all are benign ties: pr2's eight caster wheels are
+/// equidistant from `floor`, so any of them is a correct nearest-body
+/// answer and the scalar still agrees to `~1e-12`. Only 9/3000 (0.30%)
+/// robot-side disagreements also exceed tolerance, and all nine involve a
+/// gripper finger against `floor`: 7 are pair-ranking flips (this port
+/// picks a `*_finger_tip_link`, the oracle picks the adjacent
+/// `*_finger_link`/`*_gripper_palm_link`), 2 are same-pair depth-only
+/// disagreements (`collision[422]`, `collision[2996]`, both sides name
+/// `*_finger_tip_link`/`floor` but disagree on the distance). All 9 of 9
+/// have this port's answer *deeper* (more negative) than the oracle's --
+/// one-directional within this species, unlike the self-collision example
+/// above (this port shallower) -- so §43's "port answers shallower" framing
+/// does not generalize across species even though within the
+/// gripper-vs-floor species the direction is consistent. See
+/// PORTING-PLAN.md §53.3 and this round's report for the full case list.
+/// Diagnostic only.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DistancePair {
     /// `DistanceResultsData::link_names[0]`.
