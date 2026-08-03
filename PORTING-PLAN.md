@@ -706,6 +706,9 @@ g++ -O0 -o /tmp/x /w/x.cpp $INC -L/opt/ros/rolling/lib -lgeometric_shapes
 3. 삼각형 정점 인덱스가 범위를 벗어나면 upstream은 검사 없이 읽는다.
    `Mesh::new`가 거부한다.
 
+§9.3이 넘긴 프로브 두 건은 §11.5에서 종결됐고, 그 과정에서 `bodies.rs`
+이탈 7·8이 추가됐다.
+
 ### 9.3 지금 병렬로 도는 작업
 
 - `moveit-collision` — ACM과 collision_common, 오라클 `acm` op 포함
@@ -987,3 +990,55 @@ robot.xml`과 **바이트 단위로 동일**하고, 그 상류 파일 자체가
 따라서 pr2 ACM이 얇은 것은 상류에 충실한 결과이지 이식 누락이 아니다.
 ACM 커버리지는 `dual_arm_panda`(68쌍, 22링크)가 담당한다 — §10.6. 이
 항목은 미해결이 아니라 종결로 옮긴다.
+
+### 11.5 `bodies::` C++ 프로브 — 두 건 종결, 이탈 2건 추가
+
+§9.3이 남겨둔 `ConvexMesh::ray_intersections`와 `OBB::extend_approx` 두
+불일치가 닫혔다. 프로브 픽스처(`bodies_probe.json`)와 테스트 8건이
+`probe-parity` 브랜치에서 `main`으로 들어왔으므로 §9.3의 "브랜치에 있고
+담당에게 넘겼다"는 서술은 더 이상 유효하지 않다.
+
+두 건의 판정이 서로 반대라는 점이 핵심이다.
+
+**`OBB::extend_approx` — upstream이 옳고 이식이 틀렸다.** 이식본은 "같은
+방향을 공유하는 가장 타이트한 박스"라는 임의의 근사를 쓰고 있었다. FCL
+0.7.0의 실제 `operator+`(`merge_largedist` / `merge_smalldist` /
+`eigen_old` / `getCovariance` / `getExtentAndCenter`)를 오라클 컨테이너의
+`libfcl-dev` 인라인 헤더에서 읽어 그대로 이식했다. 새 `obb2.*` 픽스처
+키가 그때까지 한 번도 타지 않던 `merge_largedist` 분기를 강제하며, 두
+분기 모두 `.so`와 `1e-12`에서 일치한다.
+
+**`ConvexMesh::ray_intersections` — upstream이 틀렸고 이식을 유지한다.**
+`bodies.cpp`의 `isPointInsidePlanes`와 `intersectsRay`가 같은 padded-plane
+오프셋을 반대 부호로 다시 계산한다(바이트 단위 확인). 프로브에서 그때까지
+건너뛰던 광선을 켜자 ray[0] 하나가 아니라 ray[2]·ray[4]도 같은 결함임이
+드러났다 — 각각 픽스처 자신의 `containsPoint` 값만으로 위상/패리티
+논증으로 증명했다. `bodies.rs` 이탈 7(광선 1건 → 3건으로 확장).
+
+**추가로 드러난 것 — ray[1]은 어느 쪽도 틀리지 않았다.** 양쪽 다 자기
+기준으로 일관된 2개 교점을 보고하는데 위치가 다르다. padding이 0이 아니면
+스치는 면의 정점 3개가 공면이 아니게 되고, 그때 평면 오프셋이 anchor 선택에
+의존한다. 이 이식의 `parry3d-f64` quickhull과 upstream의 qhull이 그 면에서
+다른 anchor를 고른다(수기 확인: 약 -0.0433 대 -0.0405 — 부동소수점 잡음이
+아닌 실제 차이). `bodies.rs` 이탈 8. 테스트는 픽스처의 정확한 위치가 아니라
+개수·구간 불변식과 이 이식 자신의 회귀값을 건다.
+
+교훈은 §11.2와 같은 모양이다. 프로브는 처음부터 5개 케이스를 갖고 있었지만
+광선 일부를 건너뛰고 있었고, 건너뛴 것을 켜자 "고립된 1건"이 3건이었다.
+**검사를 작성했다는 것과 그 검사가 실제로 돌았다는 것은 별개다.**
+
+### 11.6 `RobotTrajectory` 이식 (Phase 6 선행)
+
+`moveit_trajectory::RobotTrajectory`가 들어왔다(테스트 28건). §4.6이
+`rsruckig` 배선의 선행 조건으로 지목했던 블로커가 해소됐다.
+
+이식하지 않은 것과 그 이유:
+
+- `RobotTrajectoryShallowCopy` — `shared_ptr` waypoint 에일리어싱을
+  검사하는데, 이 이식에는 그 에일리어싱이 의도적으로 없다.
+- `getRobotTrajectoryMsg` / `setRobotTrajectoryMsg` / `toJointTrajectory`
+  — D1에 따라 `moveit-ros` 영역. 이에 의존하는 upstream 테스트 2건
+  (`MultiDofTrajectoryToJointStates`, `SetMultiDofTrajectory`)도 함께 보류.
+- `print` / `operator<<` — `moveit-state`가 아직 속도·가속도를 싣지 않는다.
+
+`RuckigSmoothing`과 오라클 `ruckig` op은 아직 시작하지 않았다.
