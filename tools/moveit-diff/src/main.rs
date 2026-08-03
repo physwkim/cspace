@@ -1311,33 +1311,59 @@ fn quat_from_row_major(m: &[f64; 16]) -> UnitQuaternion {
 /// tolerance -- gives p3-acm the denominator their pair-ranking-flip
 /// diagnosis (PORTING-PLAN.md §53.3) needs, without changing what makes a
 /// case pass or fail.
-#[derive(Debug, Default, Clone, Copy)]
+///
+/// PORTING-PLAN.md §60.2 found a second, distinct species this struct did
+/// not separate out: a case can exceed `cfg.tol_distance` with the pair
+/// *agreeing* on both sides -- no ranking involved at all, just a magnitude
+/// disagreement on the one pair both sides already picked. A pair flip and
+/// a same-pair magnitude disagreement have different causes (a ranking bug
+/// cannot explain a case where both sides ranked identically), so
+/// `*_pair_flip_and_value_diverges` (subset of `*_pair_disagrees`) and
+/// `*_same_pair_and_value_diverges` (pair matched, value still exceeded
+/// tolerance) are tracked and reported separately instead of one combined
+/// "also exceeded tol" count that used to fold both species together.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
 struct DistancePairStats {
     self_total: usize,
     self_pair_disagrees: usize,
-    self_pair_disagrees_and_value_diverges: usize,
+    self_pair_flip_and_value_diverges: usize,
+    self_same_pair_and_value_diverges: usize,
     robot_total: usize,
     robot_pair_disagrees: usize,
-    robot_pair_disagrees_and_value_diverges: usize,
+    robot_pair_flip_and_value_diverges: usize,
+    robot_same_pair_and_value_diverges: usize,
 }
 
 impl DistancePairStats {
     /// `"ranking flipped in N of M, of which K also moved the value past
-    /// tol"`, once for `self_distance` and once for `robot_distance`.
+    /// tol"` plus the same-pair-only divergence count, once for
+    /// `self_distance` and once for `robot_distance`.
     fn report(&self) {
         println!(
-            "self  pair disagreement: {}/{} ({:.1}%), of which {} also exceeded tol",
+            "self  pair disagreement: {}/{} ({:.1}%), of which {} also exceeded tol (pair-flip)",
             self.self_pair_disagrees,
             self.self_total,
             100.0 * self.self_pair_disagrees as f64 / self.self_total.max(1) as f64,
-            self.self_pair_disagrees_and_value_diverges
+            self.self_pair_flip_and_value_diverges
         );
         println!(
-            "robot pair disagreement: {}/{} ({:.1}%), of which {} also exceeded tol",
+            "self  same-pair value divergence: {}/{} ({:.1}%)",
+            self.self_same_pair_and_value_diverges,
+            self.self_total,
+            100.0 * self.self_same_pair_and_value_diverges as f64 / self.self_total.max(1) as f64,
+        );
+        println!(
+            "robot pair disagreement: {}/{} ({:.1}%), of which {} also exceeded tol (pair-flip)",
             self.robot_pair_disagrees,
             self.robot_total,
             100.0 * self.robot_pair_disagrees as f64 / self.robot_total.max(1) as f64,
-            self.robot_pair_disagrees_and_value_diverges
+            self.robot_pair_flip_and_value_diverges
+        );
+        println!(
+            "robot same-pair value divergence: {}/{} ({:.1}%)",
+            self.robot_same_pair_and_value_diverges,
+            self.robot_total,
+            100.0 * self.robot_same_pair_and_value_diverges as f64 / self.robot_total.max(1) as f64,
         );
     }
 }
@@ -1435,17 +1461,25 @@ fn compare_collision(
     };
 
     pair_stats.self_total += 1;
-    if !distance_pair_matches(&expected.self_distance_pair, &actual.self_distance_pair) {
+    if distance_pair_matches(&expected.self_distance_pair, &actual.self_distance_pair) {
+        if self_dev.is_nan() || self_dev > cfg.tol_distance {
+            pair_stats.self_same_pair_and_value_diverges += 1;
+        }
+    } else {
         pair_stats.self_pair_disagrees += 1;
         if self_dev.is_nan() || self_dev > cfg.tol_distance {
-            pair_stats.self_pair_disagrees_and_value_diverges += 1;
+            pair_stats.self_pair_flip_and_value_diverges += 1;
         }
     }
     pair_stats.robot_total += 1;
-    if !distance_pair_matches(&expected.robot_distance_pair, &actual.robot_distance_pair) {
+    if distance_pair_matches(&expected.robot_distance_pair, &actual.robot_distance_pair) {
+        if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
+            pair_stats.robot_same_pair_and_value_diverges += 1;
+        }
+    } else {
         pair_stats.robot_pair_disagrees += 1;
         if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
-            pair_stats.robot_pair_disagrees_and_value_diverges += 1;
+            pair_stats.robot_pair_flip_and_value_diverges += 1;
         }
     }
 
