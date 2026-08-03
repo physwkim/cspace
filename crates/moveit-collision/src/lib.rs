@@ -27,8 +27,9 @@ mod matrix;
 mod world;
 
 pub use common::{
-    BodyType, CollisionRequest, CollisionResult, Contact, CostSource, DistanceMap, DistanceRequest,
-    DistanceRequestType, DistanceResult, DistanceResultsData, IsDoneFn,
+    BodyType, CollisionDistance, CollisionRequest, CollisionResult, Contact, ContactData,
+    CostSource, DistanceMap, DistanceRequest, DistanceRequestType, DistanceResult,
+    DistanceResultsData, IsDoneFn,
 };
 pub use matrix::{AllowedCollision, AllowedCollisionMatrix, AllowedCollisionType, DecideContactFn};
 pub use world::{Action, MoveObjectOutcome, Notification, Object, ShapeEntry, World};
