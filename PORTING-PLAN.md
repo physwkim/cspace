@@ -4750,3 +4750,64 @@ pr2 URDF에서 직접 확인한 것(팔·그리퍼 충돌 링크 13개 중 10개
 보고서가 "Four commits this round"라고 적고 셋(`d616c1f`, `1fa9778`,
 `100ce0a`)을 나열했다. 브랜치에도 셋이다. 고칠 것은 없고, 자기 보고의
 숫자를 세지 않은 사례로만 적어 둔다.
+
+## 48. §40이 닫히기 시작했다 — 그리고 내가 형식을 지정하지 않은 대가 (2026-08-04)
+
+`5fea01f`(p1-fixtures), `7383978`(p3-distance-field). `nextest --workspace`
+**941/941**.
+
+### 48.1 병합된 오라클이 커밋된 응답과 일치한다는 첫 증거
+
+§40이 지적한 구멍은 "Rust 대 커밋된 응답"만 검사되고 "현재 오라클 대
+커밋된 응답"은 아무도 검사하지 않는다는 것이었다. `oracle.cpp`는 이번
+주에만 세 번 움직였다. p3-distance-field의
+`tools/ci/verify-fixture-replay.sh`를 직접 돌렸다:
+
+```
+identical    moveit-distance-field/collision_distance_field_types
+identical    moveit-distance-field/collision_object_point_decomposition
+identical    moveit-distance-field/distance_field
+identical    moveit-distance-field/distance_field_cache_entry
+identical    moveit-distance-field/distance_field_negative
+identical    moveit-distance-field/group_state_representation
+identical    moveit-distance-field/link_body_decomposition
+identical    moveit-distance-field/link_models_with_collision_geometry
+identical    moveit-distance-field/shape_points
+```
+
+**21건 중 9건이 실제로 재생돼 바이트 단위로 일치한다.** 나머지 12건은
+아직 미검증이다. p1-fixtures의 panda frame-transform 쌍도 PASS를 직접
+확인했다.
+
+### 48.2 "형식은 소유자가 정한다"가 잘못된 지시였다
+
+두 패널이 몇 분 간격으로 끝냈고 서로 다른 기제를 냈다:
+
+- p3-distance-field — 크레이트별 매니페스트
+  `crates/<crate>/tests/fixtures/oracle-models.json` +
+  `tools/ci/verify-fixture-replay.sh`. 이 스크립트는
+  `crates/*/tests/fixtures/oracle-models.json`를 **글롭**하므로 이미
+  워크스페이스 전체에 대해 일반적이다.
+- p1-fixtures — 요청 JSON 안의 `"model"` 필드 +
+  `tools/ci/verify-scene-fixture-replay.sh`. 한 크레이트에 하드코딩되고
+  요청→응답 대응표가 스크립트 안에 있다.
+
+둘 다 조건("재생 정보가 테스트 소스가 아니라 픽스처와 함께")을 만족하고
+둘 다 동작한다. 그런데 이대로 두면 남은 다섯 패널이 스크립트를 다섯 개
+더 쓰고, 일반적인 이름은 이미 첫 번째가 가져갔다. 공유 디렉터리에
+"형식은 자유"라고 쓴 것이 결함이다 — 소유권이 크레이트 단위인데 산출물이
+`tools/ci/` 공용이었다.
+
+`note-fixture-replay-convergence.md`로 일곱 패널 전부에 수렴 지시를
+보냈다: **`verify-fixture-replay.sh` 하나를 쓰고 매니페스트만 추가한다.**
+p1-fixtures는 자기 스크립트를 지우고 매니페스트로 옮긴다.
+
+### 48.3 무시 목록에는 근거가 붙어 있다
+
+매니페스트의 `ignore_result_fields_by_id`가 유일한 탈출구다.
+p3-distance-field가 쓰는 곳은 Sphere-only 바디에 대한
+`relative_cylinder_pose` 한 곳이고, 근거가 C++ 쪽이 그 경로에서 필드를
+초기화하지 않아 **연속 재생 두 번이 서로 다른 값을 낸다**는 것이다 —
+맞출 고정값이 존재하지 않으므로 비교에서 빼는 것이 맞고, 커밋된 스냅숏
+하나를 정답으로 삼는 쪽이 오히려 거짓이다. 근거 없는 무시 목록은 드리프트가
+숨는 자리이므로, 수렴 지시에 "근거를 매니페스트에 적을 것"을 넣었다.
