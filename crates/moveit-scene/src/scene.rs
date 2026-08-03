@@ -138,8 +138,10 @@ pub struct PathValidity {
 /// - `knowsFrameTransform` (id-only, and explicit-state) — ported as
 ///   [`PlanningScene::knows_frame_transform`]; same collapse
 ///   (`planning_scene.cpp:2056`/`:2061`); see that method's doc for the
-///   `SceneTransforms::isFixedFrame` override this port does not reproduce,
-///   and why.
+///   `SceneTransforms::isFixedFrame` override, and
+///   [`PlanningScene::transforms_with_world_objects`] (no upstream
+///   equivalent -- an addition, not a port) for the value that reproduces
+///   it for `moveit-constraints`'s callers.
 ///
 /// ## World, collision detector, ACM
 ///
@@ -657,6 +659,79 @@ impl<'m> PlanningScene<'m> {
         self.transforms().target_frame()
     }
 
+    /// A one-time [`moveit_geometry::Transforms`] snapshot: this scene's own
+    /// [`PlanningScene::transforms`] map, plus an entry for every current
+    /// world object and object subframe. The value a caller building a
+    /// constraint against this scene (`moveit_constraints::PositionConstraint::new`
+    /// and its `Orientation`/`Visibility` siblings) should pass in place of
+    /// [`PlanningScene::transforms`] alone -- see that method's doc for why
+    /// the plain map is not enough on its own.
+    ///
+    /// # Why a snapshot, not a live view
+    ///
+    /// Upstream's `SceneTransforms::isFixedFrame` (`planning_scene.cpp:123`)
+    /// overrides the base class to also answer `true` for a world object or
+    /// object subframe (leading `/` stripped), via
+    /// `knowsObjectFrame -> getWorld()->knowsTransform`. That override is
+    /// reachable because `kinematic_constraint.cpp`'s four
+    /// `configure(msg, tf)` sites receive `tf` as a plain `Transforms&` that
+    /// is *actually* a `SceneTransforms&` underneath, so `tf.isFixedFrame(...)`
+    /// dispatches polymorphically to the override.
+    ///
+    /// [`moveit_geometry::Transforms`] has no such polymorphism -- it is one
+    /// concrete, non-virtual type everywhere in this workspace, and
+    /// `moveit-constraints`'s ported `PositionConstraint`/`OrientationConstraint`/
+    /// `VisibilityConstraint` all key their fixed/mobile split on its
+    /// [`moveit_geometry::Transforms::can_transform`], which -- being the
+    /// same non-virtual method upstream's *base* `Transforms::isFixedFrame`
+    /// is (see [`PlanningScene::knows_frame_transform`]'s doc) -- can only
+    /// agree with the *scene-backed* override if the value handed to it
+    /// already contains every name that override would say yes to. Hence a
+    /// value, not a reference: this clones [`PlanningScene::transforms`]'s
+    /// map and folds in [`World::iter`]'s current object and subframe poses
+    /// once, at call time -- matching upstream's own timing, since
+    /// `PositionConstraint::configure` (`resolve_frame`'s upstream sibling)
+    /// resolves Fixed-vs-Mobile once, at construction, not on every
+    /// `decide()` (see `moveit-constraints::position::resolve_frame`'s doc).
+    /// A later change to this scene's world does not retroactively change
+    /// what an already-taken snapshot answers, which is the same staleness
+    /// upstream itself accepts by resolving once.
+    ///
+    /// Each object/subframe name is stored twice, bare and `/`-prefixed:
+    /// `isFixedFrame` checks the *unstripped* string against the base map
+    /// first and only strips a leading `/` for the object check
+    /// (`planning_scene.cpp:127-134`), so `isFixedFrame("obj")` and
+    /// `isFixedFrame("/obj")` are both `true` for a world object `obj`.
+    /// [`moveit_geometry::Transforms::can_transform`] is one flat map
+    /// lookup on the literal string it is given -- it cannot strip
+    /// anything itself -- so matching both call shapes needs both keys
+    /// present.
+    ///
+    /// Robot-state link and attached-body names are deliberately excluded:
+    /// `SceneTransforms::isFixedFrame` does not consult them either --
+    /// `knowsObjectFrame` only ever calls `getWorld()->knowsTransform`, never
+    /// `getCurrentState()`. (`SceneTransforms::canTransform`, a different
+    /// override nothing in `kinematic_constraint.cpp` calls, does reach the
+    /// robot state via `scene_->knowsFrameTransform` -- the two overrides are
+    /// not the same set upstream either, so folding robot-state frames in
+    /// here would over-match, not under-match.)
+    pub fn transforms_with_world_objects(&self) -> Transforms {
+        let mut snapshot = self.transforms().clone();
+        let insert = |snapshot: &mut Transforms, name: &str, pose: Isometry3| {
+            let _ = snapshot.set_transform(pose, name);
+            let _ = snapshot.set_transform(pose, format!("/{name}"));
+        };
+        for (id, object) in self.world.iter() {
+            insert(&mut snapshot, id, object.pose());
+            for name in object.subframe_names() {
+                if let Some(pose) = object.global_subframe_pose(name) {
+                    insert(&mut snapshot, &format!("{id}/{name}"), pose);
+                }
+            }
+        }
+        snapshot
+    }
+
     // ---- world ------------------------------------------------------------
 
     /// The world this scene sees. Upstream `getWorld`.
@@ -1060,27 +1135,27 @@ impl<'m> PlanningScene<'m> {
     /// whether a constraint's reference frame is resolved once now (fixed)
     /// or re-resolved through robot state on every `decide()` (mobile).
     ///
-    /// Round 7 called that crate wholesale-unported; it is not, as of this
-    /// round -- `moveit-constraints::{PositionConstraint, OrientationConstraint,
+    /// Round 7 called that crate wholesale-unported; it is not, as of round 9
+    /// -- `moveit-constraints::{PositionConstraint, OrientationConstraint,
     /// VisibilityConstraint}` all exist and each reproduces this exact
     /// fixed/mobile split (`position::resolve_frame`,
     /// `orientation.rs:209`, `visibility.rs:79`), each keyed on
     /// `tf.can_transform(frame_id)` -- the base-class half of `isFixedFrame`
     /// this crate's [`moveit_geometry::Transforms`] already carries. So the
-    /// falsifier's premise updates, but its answer does not flip: `rg -n
-    /// "PositionConstraint::new|OrientationConstraint::new|VisibilityConstraint::new"
-    /// crates` outside `moveit-constraints` itself matches only its own
-    /// tests -- no call site anywhere in this workspace threads a
+    /// falsifier's premise updated, but as of round 9 its answer had not
+    /// flipped: no call site anywhere in this workspace threaded a
     /// [`PlanningScene`]-derived [`moveit_geometry::Transforms`] into any of
     /// the three constructors, so the world-object half of `isFixedFrame`
-    /// (the part [`PlanningScene::transforms`] deliberately does not carry --
-    /// see that method's own non-recursion doc) has no live caller to
-    /// diverge from upstream on yet. What would have to land for it to fire:
-    /// a bridge from a live [`PlanningScene`] into one of those three
-    /// `configure`-equivalents, passing a `Transforms` whose map includes
-    /// this scene's world-object frames -- not `self.transforms()` as-is,
-    /// which only carries the fixed-frame map by design. Until such a bridge
-    /// exists, an override here would still be code with no caller.
+    /// had no live caller to diverge from upstream on.
+    ///
+    /// This round builds that side: [`PlanningScene::transforms_with_world_objects`]
+    /// is the value to hand `PositionConstraint::new`/etc instead of
+    /// [`PlanningScene::transforms`] -- see its own doc for why a snapshot
+    /// value, not `self.transforms()` as-is, is what closes the gap. The
+    /// falsifier now fires the moment `moveit-constraints`'s constructors are
+    /// called with it in place of a bare `self.transforms()`; that wiring is
+    /// `moveit-constraints`'s own call sites, not this crate's, so it stays
+    /// on this list until that lands.
     pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
         let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
         self.current_state().knows_frame_transform(frame_id)
@@ -2334,6 +2409,72 @@ mod tests {
         let scene = PlanningScene::new(&model, &srdf());
         assert_eq!(scene.planning_frame(), model.model_frame());
         assert_eq!(scene.planning_frame(), "base");
+    }
+
+    #[test]
+    fn transforms_with_world_objects_matches_transforms_when_the_world_is_empty() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .transforms_mut()
+            .set_transform(Isometry3::translation(5.0, 0.0, 0.0), "map")
+            .unwrap();
+
+        assert_eq!(scene.transforms_with_world_objects(), *scene.transforms());
+    }
+
+    #[test]
+    fn transforms_with_world_objects_answers_can_transform_for_a_bare_and_slash_prefixed_object_id()
+    {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("crate", cuboid_shape(), Isometry3::identity());
+        scene.move_object("crate", Isometry3::translation(2.0, 0.0, 0.0));
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        assert!(snapshot.can_transform("crate"));
+        assert!(snapshot.can_transform("/crate"));
+        assert_eq!(
+            *snapshot.transform("crate").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            *snapshot.transform("/crate").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn transforms_with_world_objects_answers_can_transform_for_a_bare_and_slash_prefixed_subframe()
+    {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("crate", cuboid_shape(), Isometry3::identity());
+        scene.move_object("crate", Isometry3::translation(2.0, 0.0, 0.0));
+        let mut subframes = BTreeMap::new();
+        subframes.insert("lid".to_owned(), Isometry3::translation(0.0, 0.0, 0.1));
+        scene.world.set_subframes_of_object("crate", subframes);
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        assert!(snapshot.can_transform("crate/lid"));
+        assert!(snapshot.can_transform("/crate/lid"));
+        assert_eq!(
+            *snapshot.transform("crate/lid").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.1)
+        );
+    }
+
+    #[test]
+    fn transforms_with_world_objects_leaves_a_name_resolving_in_no_tier_unknown() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("crate", cuboid_shape(), Isometry3::identity());
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        assert!(!snapshot.can_transform("nothing"));
     }
 
     // ---- collision checking -----------------------------------------------
