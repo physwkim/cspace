@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "joint_values": {},
+      "robot_collision": true,
+      "robot_distance": -9.930136612989092e-16,
+      "self_collision": false,
+      "self_distance": 0.041090199016704756
+    },
+    {
+      "joint_values": {
+        "joint_1": -0.7439537492860109,
+        "joint_2": 2.064320337921381,
+        "joint_3": 3.9850494908890686,
+        "joint_4": 2.0521739486604926,
+        "joint_5": -2.56689376514405,
+        "joint_6": 1.1275731226988137
+      },
+      "robot_collision": true,
+      "robot_distance": -9.930136612989092e-16,
+      "self_collision": true,
+      "self_distance": -0.01623924295200732
+    },
+    {
+      "joint_values": {
+        "joint_1": -2.5778027045447383,
+        "joint_2": -1.3324553596787154,
+        "joint_3": 4.390532596458215,
+        "joint_4": 2.3300147576909516,
+        "joint_5": 3.0953211982641373,
+        "joint_6": 4.383497942239047
+      },
+      "robot_collision": true,
+      "robot_distance": -9.930136612989092e-16,
+      "self_collision": true,
+      "self_distance": -0.07128790048178055
+    },
+    {
+      "joint_values": {
+        "joint_1": 1.9940751124732201,
+        "joint_2": -0.3666335789207369,
+        "joint_3": 1.5825635199574752,
+        "joint_4": -3.177516843103804,
+        "joint_5": -0.9335661147069185,
+        "joint_6": -4.128974722009152
+      },
+      "robot_collision": true,
+      "robot_distance": -9.930136612989092e-16,
+      "self_collision": false,
+      "self_distance": 0.04073743590925379
+    }
+  ]
+}

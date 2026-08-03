@@ -373,13 +373,16 @@ impl ChainInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use moveit_model::MeshSearchPaths;
     use moveit_srdf::SrdfModel;
+
+    use super::*;
 
     fn build_model_from_str(urdf_xml: &str, srdf_xml: &str) -> RobotModel {
         let urdf = urdf_rs::read_from_string(urdf_xml).expect("inline URDF must parse");
         let srdf = SrdfModel::parse_str(srdf_xml).expect("inline SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf).expect("inline model must build")
+        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("inline model must build")
     }
 
     /// `arms` combines `left`/`right` as two independent one-joint chains:

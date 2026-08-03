@@ -8,8 +8,8 @@
 
 use std::f64::consts::PI;
 
-use moveit_model::joint::{JointKind, VariableBounds};
 use moveit_model::RobotModel;
+use moveit_model::joint::{JointKind, VariableBounds};
 use moveit_state::RobotState;
 use rand::Rng;
 

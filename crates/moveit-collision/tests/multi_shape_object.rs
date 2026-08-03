@@ -21,7 +21,7 @@ use moveit_collision::{
 };
 use moveit_geometry::Isometry3;
 use moveit_geometry::shapes::{Mesh, Shape, Sphere};
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
@@ -59,7 +59,8 @@ fn robot() -> RobotModel {
     let urdf_xml = std::fs::read_to_string(urdf_path).expect("fixture URDF must read");
     let urdf = urdf_rs::read_file(urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(srdf_path).expect("fixture SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
 }
 
 /// `true` if the robot at its default state collides with a world object built

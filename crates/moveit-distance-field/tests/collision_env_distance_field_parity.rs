@@ -39,7 +39,7 @@ use serde::Deserialize;
 
 use moveit_collision::LinkPaddingScale;
 use moveit_distance_field::add_link_body_decompositions;
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 
 const TOL: f64 = 1e-4;
@@ -63,7 +63,8 @@ fn build_pr2_model() -> RobotModel {
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("pr2.urdf must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("pr2 model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("pr2 model must build")
 }
 
 // --- link_models_with_collision_geometry ---
@@ -121,9 +122,9 @@ fn link_models_with_collision_geometry_matches_the_oracle_modulo_the_documented_
         .diagnostics()
         .iter()
         .filter_map(|d| match d {
-            moveit_model::Diagnostic::UnsupportedLinkGeometry { link, kind: "mesh" } => {
-                Some(link.as_str())
-            }
+            moveit_model::Diagnostic::UnsupportedLinkGeometry {
+                link, kind: "mesh", ..
+            } => Some(link.as_str()),
             _ => None,
         })
         .collect();

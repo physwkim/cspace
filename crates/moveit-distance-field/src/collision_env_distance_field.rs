@@ -206,6 +206,8 @@ pub fn add_link_body_decompositions(
 
 #[cfg(test)]
 mod tests {
+    use moveit_model::MeshSearchPaths;
+
     use super::*;
 
     fn pr2_model() -> RobotModel {
@@ -215,7 +217,8 @@ mod tests {
             std::fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
         let urdf = urdf_rs::read_file(&urdf_path).expect("pr2.urdf must parse");
         let srdf = moveit_srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("pr2 model must build")
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("pr2 model must build")
     }
 
     #[test]

@@ -2042,7 +2042,7 @@ mod tests {
         let urdf = link_with_geometry_urdf(
             r#"<collision><geometry><mesh filename="package://not_a_real_package/foo.stl"/></geometry></collision>"#,
         );
-        let mesh_search_paths = MeshSearchPaths::new([dir]);
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
         let model =
             build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
 
@@ -2063,12 +2063,11 @@ mod tests {
     #[test]
     fn mesh_collision_resolving_to_a_non_stl_file_is_skipped_with_a_diagnostic() {
         let dir = mesh_test_dir();
-        std::fs::create_dir_all(dir.join("panda_description")).unwrap();
-        std::fs::write(dir.join("panda_description/link0.dae"), b"<collada/>").unwrap();
+        std::fs::write(dir.join("link0.dae"), b"<collada/>").unwrap();
         let urdf = link_with_geometry_urdf(
             r#"<collision><geometry><mesh filename="package://panda_description/link0.dae"/></geometry></collision>"#,
         );
-        let mesh_search_paths = MeshSearchPaths::new([dir]);
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
         let model =
             build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
 
@@ -2089,12 +2088,11 @@ mod tests {
     #[test]
     fn mesh_collision_with_malformed_stl_bytes_is_skipped_with_a_diagnostic() {
         let dir = mesh_test_dir();
-        std::fs::create_dir_all(dir.join("panda_description")).unwrap();
-        std::fs::write(dir.join("panda_description/broken.stl"), b"not an stl file").unwrap();
+        std::fs::write(dir.join("broken.stl"), b"not an stl file").unwrap();
         let urdf = link_with_geometry_urdf(
             r#"<collision><geometry><mesh filename="package://panda_description/broken.stl"/></geometry></collision>"#,
         );
-        let mesh_search_paths = MeshSearchPaths::new([dir]);
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
         let model =
             build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
 
@@ -2115,16 +2113,11 @@ mod tests {
     #[test]
     fn mesh_collision_resolving_to_a_valid_stl_file_builds_a_mesh_shape() {
         let dir = mesh_test_dir();
-        std::fs::create_dir_all(dir.join("panda_description")).unwrap();
-        std::fs::write(
-            dir.join("panda_description/triangle.stl"),
-            synthetic_binary_stl(),
-        )
-        .unwrap();
+        std::fs::write(dir.join("triangle.stl"), synthetic_binary_stl()).unwrap();
         let urdf = link_with_geometry_urdf(
             r#"<collision><geometry><mesh filename="package://panda_description/triangle.stl"/></geometry></collision>"#,
         );
-        let mesh_search_paths = MeshSearchPaths::new([dir]);
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
         let model =
             build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
 

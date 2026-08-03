@@ -33,8 +33,16 @@
 //!
 //! then `extractMeshData` walks the scene graph applying each node's
 //! transform and `scale`, and `createMeshFromVertices(vertices, triangles)` —
-//! the two-`Vec` overload — copies that data into a `shapes::Mesh` verbatim,
-//! with **no further deduplication**.
+//! the two-`Vec` overload — copies that data into a `shapes::Mesh` verbatim
+//! (**no further deduplication**) and then unconditionally calls
+//! `mesh->computeTriangleNormals(); mesh->computeVertexNormals();` before
+//! returning it (geometric_shapes 2.3.3's `mesh_operations.cpp`, read from a
+//! source checkout, since the ROS `rolling` install this port's oracle uses
+//! ships only the compiled `.so` and headers — see below). [`mesh_from_bytes`]
+//! does the same: every mesh it returns already has both normals populated,
+//! matching that every downstream consumer (this port's collision backend
+//! calls [`crate::shapes::Mesh::scale_and_padd`] on a robot link's own
+//! shape) can rely on them being present without computing them itself.
 //!
 //! So the per-vertex merge a `<mesh>` collision file goes through is
 //! `aiProcess_JoinIdenticalVertices`, run *inside* Assimp during
@@ -140,6 +148,15 @@ pub fn mesh_from_bytes(bytes: &[u8], scale: Vector3) -> Result<Mesh> {
     }
     let mut mesh = Mesh::new(vertices, triangle_indices)?;
     mesh.merge_vertices(0.0);
+    // `createMeshFromVertices(vertices, triangles)` -- the overload the real
+    // `extractMeshData`/`createMeshFromResource` call chain uses -- computes
+    // both unconditionally before returning, every time, not lazily on first
+    // use (geometric_shapes 2.3.3's `mesh_operations.cpp`, `createMeshFromVertices`).
+    // Without this, any later [`Mesh::scale_and_padd`] call (a collision
+    // backend applying link padding) would hit the `vertex_normals: None`
+    // error path unconditionally, since nothing else in this load path ever
+    // populates it.
+    mesh.compute_vertex_normals();
     Ok(mesh)
 }
 

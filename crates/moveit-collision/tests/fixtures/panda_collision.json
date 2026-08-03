@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "joint_values": {},
+      "robot_collision": true,
+      "robot_distance": -3.249277506256476e-05,
+      "self_collision": true,
+      "self_distance": -0.013108740184351743
+    },
+    {
+      "joint_values": {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095,
+        "virtual_joint/rot_w": 0.5400837142876804,
+        "virtual_joint/rot_x": -0.6805038764534659,
+        "virtual_joint/rot_y": 0.3941807287882676,
+        "virtual_joint/rot_z": -0.29974257079197053,
+        "virtual_joint/trans_x": 0.0,
+        "virtual_joint/trans_y": 0.0,
+        "virtual_joint/trans_z": 0.0
+      },
+      "robot_collision": true,
+      "robot_distance": -1.990419717271163,
+      "self_collision": false,
+      "self_distance": 0.020629137395591676
+    },
+    {
+      "joint_values": {
+        "panda_finger_joint1": 0.03446968329139054,
+        "panda_finger_joint2": 0.03446968329139054,
+        "panda_joint1": 0.6337150416445918,
+        "panda_joint2": -1.6922437133001162,
+        "panda_joint3": -0.8171664967191408,
+        "panda_joint4": -2.5427265612024583,
+        "panda_joint5": 2.598781028909562,
+        "panda_joint6": 3.599760135319084,
+        "panda_joint7": 0.2488332477015911,
+        "virtual_joint/rot_w": -0.14986464897881283,
+        "virtual_joint/rot_x": -0.3541262019071732,
+        "virtual_joint/rot_y": 0.15996880910729805,
+        "virtual_joint/rot_z": 0.9091453130396978,
+        "virtual_joint/trans_x": 0.0,
+        "virtual_joint/trans_y": 0.0,
+        "virtual_joint/trans_z": 0.0
+      },
+      "robot_collision": true,
+      "robot_distance": -0.05325854870816257,
+      "self_collision": false,
+      "self_distance": 0.021762002985830985
+    },
+    {
+      "joint_values": {
+        "panda_finger_joint1": 0.021921889893710612,
+        "panda_finger_joint2": 0.021921889893710612,
+        "panda_joint1": 2.4529827598519627,
+        "panda_joint2": -0.01825031994413595,
+        "panda_joint3": 2.4706437800952235,
+        "panda_joint4": -2.400111019276455,
+        "panda_joint5": 1.897848892555246,
+        "panda_joint6": 3.6720189062156714,
+        "panda_joint7": -0.17904357385016034,
+        "virtual_joint/rot_w": -0.4499782677942966,
+        "virtual_joint/rot_x": -0.43028243712964104,
+        "virtual_joint/rot_y": 0.7109068873246062,
+        "virtual_joint/rot_z": -0.32709017161183607,
+        "virtual_joint/trans_x": 0.0,
+        "virtual_joint/trans_y": 0.0,
+        "virtual_joint/trans_z": 0.0
+      },
+      "robot_collision": true,
+      "robot_distance": -1.964311858018307,
+      "self_collision": false,
+      "self_distance": 0.02199874865792732
+    }
+  ]
+}
