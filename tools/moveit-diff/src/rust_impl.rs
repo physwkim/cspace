@@ -9,11 +9,11 @@
 
 use std::collections::BTreeMap;
 
-use moveit_geometry::Isometry3;
+use moveit_geometry::{Isometry3, Vector3};
 use moveit_model::RobotModel;
 use moveit_state::RobotState;
 
-use crate::protocol::{FkResult, JointDetail, Mimic, ModelInfo};
+use crate::protocol::{FkResult, JacobianResult, JointDetail, Mimic, ModelInfo};
 
 /// Row-major 4x4, matching the oracle's `toRowMajor4x4`.
 fn to_row_major_4x4(transform: &Isometry3) -> [f64; 16] {
@@ -104,4 +104,35 @@ pub fn fk(model: &RobotModel, joint_values: &BTreeMap<String, f64>) -> Result<Fk
         link_transforms.insert(link_name.clone(), to_row_major_4x4(&transform));
     }
     Ok(FkResult { link_transforms })
+}
+
+/// The geometric Jacobian of `group`'s last link at `joint_values` layered
+/// on top of the model's default positions, reset-then-apply the same way
+/// [`fk`] does. Matches the oracle's own `jacobian()`: a zero reference
+/// point, `group->getLinkModels().back()` as the link.
+pub fn jacobian(
+    model: &RobotModel,
+    group: &str,
+    joint_values: &BTreeMap<String, f64>,
+) -> Result<JacobianResult, String> {
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, &value) in joint_values {
+        state
+            .set_variable_position(name, value)
+            .map_err(|e| format!("setting {name}: {e}"))?;
+    }
+    let posed = state.update();
+
+    let m = posed
+        .jacobian(group, &Vector3::zeros())
+        .map_err(|e| format!("group {group}: {e}"))?;
+    let (rows, cols) = m.shape();
+    let mut data = Vec::with_capacity(rows * cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            data.push(m[(r, c)]);
+        }
+    }
+    Ok(JacobianResult { rows, cols, data })
 }

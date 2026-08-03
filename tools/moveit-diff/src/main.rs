@@ -23,7 +23,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
-use protocol::{FkResult, ModelInfo, Op, OracleResult, Request, Response};
+use protocol::{FkResult, JacobianResult, ModelInfo, Op, OracleResult, Request, Response};
 
 /// How the runner was configured.
 struct Config {
@@ -32,6 +32,11 @@ struct Config {
     cases: usize,
     seed: i32,
     tol_fk: f64,
+    /// Joint model group to also run the `jacobian` op against, alongside
+    /// every `fk` case. `None` skips Jacobian comparison entirely, keeping
+    /// existing `fk`-only invocations unchanged.
+    group: Option<String>,
+    tol_jacobian: f64,
     oracle: Vec<String>,
 }
 
@@ -42,6 +47,8 @@ impl Config {
         let mut cases = 1_000usize;
         let mut seed = 0i32;
         let mut tol_fk = 1e-9;
+        let mut group = None;
+        let mut tol_jacobian = 1e-7;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -68,6 +75,12 @@ impl Config {
                         .parse()
                         .map_err(|e| format!("--tol-fk: {e}"))?
                 }
+                "--group" => group = Some(want("--group")?),
+                "--tol-jacobian" => {
+                    tol_jacobian = want("--tol-jacobian")?
+                        .parse()
+                        .map_err(|e| format!("--tol-jacobian: {e}"))?
+                }
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -86,6 +99,8 @@ impl Config {
             cases,
             seed,
             tol_fk,
+            group,
+            tol_jacobian,
             oracle,
         })
     }
@@ -187,7 +202,8 @@ fn main() {
         Err(e) => {
             eprintln!("moveit-diff: {e}");
             eprintln!("usage: moveit-diff --urdf <path> --srdf <path> [--cases N] [--seed S]");
-            eprintln!("                   [--tol-fk EPS] [--oracle <cmd> [args...]]");
+            eprintln!("                   [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]");
+            eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
     };
@@ -254,6 +270,8 @@ fn run(cfg: &Config) -> Result<usize, String> {
         ));
     }
 
+    let mut max_jacobian_dev = 0.0f64;
+
     for (case, joint_values) in states.into_iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
             joint_values: joint_values.clone(),
@@ -266,6 +284,26 @@ fn run(cfg: &Config) -> Result<usize, String> {
             format!("fk[{case}]"),
             compare_fk(cfg, &rust_model, &joint_values, &expected),
         ));
+
+        if let Some(group) = &cfg.group {
+            let expected = match oracle.ask(Op::Jacobian {
+                group: group.clone(),
+                joint_values: joint_values.clone(),
+            })? {
+                OracleResult::Jacobian(j) => j,
+                other => return Err(format!("expected jacobian, got {other:?}")),
+            };
+            let (verdict, dev) =
+                compare_jacobian(cfg, &rust_model, group, &joint_values, &expected);
+            if dev.is_finite() {
+                max_jacobian_dev = max_jacobian_dev.max(dev);
+            }
+            verdicts.push((format!("jacobian[{case}]"), verdict));
+        }
+    }
+
+    if cfg.group.is_some() {
+        println!("worst jacobian deviation: {max_jacobian_dev:.3e}");
     }
 
     report(&verdicts)
@@ -315,6 +353,59 @@ fn compare_fk(
         }
     }
     Verdict::Pass
+}
+
+/// Compares a `jacobian` case, returning both the verdict and the worst
+/// elementwise deviation observed (even on a pass) so the caller can track
+/// the true worst case across every case in the run, not just the failures
+/// -- "passes" is not what this task's parity run reports, the number is.
+/// `f64::NAN` when the two sides disagree on shape or Rust errored, since
+/// no elementwise deviation exists to report in that case.
+fn compare_jacobian(
+    cfg: &Config,
+    rust_model: &RobotModel,
+    group: &str,
+    joint_values: &BTreeMap<String, f64>,
+    expected: &JacobianResult,
+) -> (Verdict, f64) {
+    let actual = match rust_impl::jacobian(rust_model, group, joint_values) {
+        Ok(a) => a,
+        Err(e) => return (Verdict::Fail(e), f64::NAN),
+    };
+    if actual.rows != expected.rows || actual.cols != expected.cols {
+        return (
+            Verdict::Fail(format!(
+                "shape mismatch: rust {}x{} vs oracle {}x{}",
+                actual.rows, actual.cols, expected.rows, expected.cols
+            )),
+            f64::NAN,
+        );
+    }
+
+    let mut max_dev = 0.0f64;
+    let mut max_at = 0usize;
+    for (i, (&w, &g)) in expected.data.iter().zip(&actual.data).enumerate() {
+        let d = (w - g).abs();
+        // NaN must win over any finite max so a NaN entry cannot hide
+        // behind an earlier, smaller finite deviation.
+        if d.is_nan() || d > max_dev {
+            max_dev = d;
+            max_at = i;
+        }
+    }
+
+    if max_dev.is_nan() || max_dev > cfg.tol_jacobian {
+        let w = expected.data[max_at];
+        let g = actual.data[max_at];
+        return (
+            Verdict::Fail(format!(
+                "entry {max_at}: oracle {w:.17e} vs rust {g:.17e} (|d|={max_dev:.3e} > {:.3e})",
+                cfg.tol_jacobian
+            )),
+            max_dev,
+        );
+    }
+    (Verdict::Pass, max_dev)
 }
 
 /// Print per-case lines and the summary. Returns the failure count.
