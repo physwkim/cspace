@@ -79,6 +79,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// actually flat. The pointer tree is the structurally necessary
 /// representation for the semantics this crate's callers need, not an
 /// arbitrary upstream-fidelity choice.
+#[derive(Debug)]
 pub struct OcTree {
     root: Option<Box<Node>>,
     resolution: f64,
