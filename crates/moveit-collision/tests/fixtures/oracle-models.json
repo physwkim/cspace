@@ -11,6 +11,10 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "pr2_world_object_same_pair": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "world": {
     "srdf": "octree_world_robot.srdf",
     "urdf": "octree_world_robot.urdf"

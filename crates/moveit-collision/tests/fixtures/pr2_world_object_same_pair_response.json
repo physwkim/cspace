@@ -1,0 +1,1508 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "robot_collision": true,
+      "robot_contacts": [
+        {
+          "body_name_1": "l_gripper_l_finger_tip_link",
+          "body_name_2": "floor",
+          "body_type_1": "robot_link",
+          "body_type_2": "world_object",
+          "depth": 0.003953186043274735,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        }
+      ],
+      "robot_distance": -0.011273780235548127,
+      "robot_distance_pair": {
+        "body_name_1": "l_gripper_l_finger_tip_link",
+        "body_name_2": "floor",
+        "body_type_1": "robot_link",
+        "body_type_2": "world_object",
+        "shape_kinds_1": [
+          "mesh"
+        ],
+        "shape_kinds_2": [
+          "box"
+        ]
+      },
+      "self_collision": true,
+      "self_contacts": [
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "base_bellow_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006175076961517312,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "torso_lift_link",
+          "body_name_2": "base_bellow_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.01955191273162549,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "bl_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.08547965704151841,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "bl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.12369417510298313,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "bl_caster_rotation_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.1236275131225586,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "br_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0027464874874222876,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "br_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.07677321550602995,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "br_caster_rotation_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.08311988060897785,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fl_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.09465853996105546,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.029721056396598104,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "fl_caster_rotation_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.12362751312255858,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fr_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.06477294294394167,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fr_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0014567569556020762,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "fr_caster_rotation_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.10356289095878601,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_forearm_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.009442749726366148,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.00014379393865206896,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_palm_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003665731410225803,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_r_finger_tip_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.018725819410545692,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "torso_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007472681999206532,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_palm_link",
+          "body_name_2": "fl_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003950914449714863,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_r_finger_link",
+          "body_name_2": "fl_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.009979480222519972,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_forearm_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.017140381792526138,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0013291174892592161,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_tip_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0025761875171145406,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_palm_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.011862076083891521,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_wrist_flex_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0020200169915782972,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "l_wrist_roll_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.016132141105775814,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "fl_caster_rotation_link",
+          "body_name_2": "l_forearm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.010232023403625529,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_link",
+          "body_name_2": "fl_caster_rotation_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007530152774442063,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_palm_link",
+          "body_name_2": "fl_caster_rotation_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.057805045892663706,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "fl_caster_rotation_link",
+          "body_name_2": "l_gripper_r_finger_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.02958021126153819,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_r_finger_tip_link",
+          "body_name_2": "fl_caster_rotation_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.010075848969112964,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "fl_caster_rotation_link",
+          "body_name_2": "l_wrist_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0009485106302398981,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_wrist_roll_link",
+          "body_name_2": "fl_caster_rotation_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007025820755219413,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "head_tilt_link",
+          "body_name_2": "head_mount_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": -4.1964322807823515e-05,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "sphere"
+          ]
+        },
+        {
+          "body_name_1": "head_pan_link",
+          "body_name_2": "head_plate_frame",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003138898322257302,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "head_pan_link",
+          "body_name_2": "head_tilt_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0011421643255841996,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "head_tilt_link",
+          "body_name_2": "head_plate_frame",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 8.823669049837571e-05,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "l_forearm_roll_link",
+          "body_name_2": "l_elbow_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.00069486943255756,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_elbow_flex_link",
+          "body_name_2": "l_upper_arm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0005772881400105262,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_forearm_link",
+          "body_name_2": "l_forearm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003905080258846269,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_link",
+          "body_name_2": "l_gripper_l_finger_tip_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0021310535763241073,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_link",
+          "body_name_2": "l_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006834792778943173,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_palm_link",
+          "body_name_2": "l_gripper_r_finger_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.010582892596685212,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_palm_link",
+          "body_name_2": "l_wrist_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 1.3447621255782694e-07,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_r_finger_tip_link",
+          "body_name_2": "l_gripper_r_finger_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.002131053576323159,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_shoulder_lift_link",
+          "body_name_2": "l_shoulder_pan_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.00628183188093788,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_upper_arm_roll_link",
+          "body_name_2": "l_shoulder_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0021305247614796102,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_upper_arm_link",
+          "body_name_2": "l_upper_arm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007192492485046401,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_wrist_roll_link",
+          "body_name_2": "l_wrist_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0029555892417405354,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "laser_tilt_mount_link",
+          "body_name_2": "torso_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.04032642614716485,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_forearm_roll_link",
+          "body_name_2": "r_elbow_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0006796130714041004,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_elbow_flex_link",
+          "body_name_2": "r_upper_arm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0007927104212750724,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_forearm_link",
+          "body_name_2": "r_forearm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003905080258846255,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_l_finger_link",
+          "body_name_2": "r_gripper_l_finger_tip_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0006916756262788926,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_l_finger_link",
+          "body_name_2": "r_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006836717727404885,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_l_finger_tip_link",
+          "body_name_2": "r_gripper_r_finger_tip_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.00014080285308014362,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_r_finger_link",
+          "body_name_2": "r_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0030980935453338004,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_palm_link",
+          "body_name_2": "r_wrist_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 1.3447621257170472e-07,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_r_finger_link",
+          "body_name_2": "r_gripper_r_finger_tip_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0006916756262788787,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_upper_arm_roll_link",
+          "body_name_2": "r_shoulder_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 6.141587640606794e-05,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_upper_arm_link",
+          "body_name_2": "r_shoulder_pan_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.010455948504616376,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_upper_arm_link",
+          "body_name_2": "r_upper_arm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007192492485046387,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_wrist_flex_link",
+          "body_name_2": "r_wrist_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0030731120635671925,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "self_distance": -0.008695781734314609,
+      "self_distance_pair": {
+        "body_name_1": "l_gripper_l_finger_link",
+        "body_name_2": "l_gripper_l_finger_tip_link",
+        "body_type_1": "robot_link",
+        "body_type_2": "robot_link",
+        "shape_kinds_1": [
+          "mesh"
+        ],
+        "shape_kinds_2": [
+          "mesh"
+        ]
+      }
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "robot_collision": true,
+      "robot_contacts": [
+        {
+          "body_name_1": "l_gripper_r_finger_tip_link",
+          "body_name_2": "floor",
+          "body_type_1": "robot_link",
+          "body_type_2": "world_object",
+          "depth": 0.000945452939151355,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        }
+      ],
+      "robot_distance": -0.009943015839479059,
+      "robot_distance_pair": {
+        "body_name_1": "l_gripper_r_finger_tip_link",
+        "body_name_2": "floor",
+        "body_type_1": "robot_link",
+        "body_type_2": "world_object",
+        "shape_kinds_1": [
+          "mesh"
+        ],
+        "shape_kinds_2": [
+          "box"
+        ]
+      },
+      "self_collision": true,
+      "self_contacts": [
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "base_bellow_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006175076961517312,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "torso_lift_link",
+          "body_name_2": "base_bellow_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.019551912731625497,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "bl_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.12108753278277556,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "bl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0627069534171751,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "bl_caster_rotation_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.1236275131225586,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "br_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.04708724195024589,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "br_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0351353636264693,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "br_caster_rotation_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.07066790440203127,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fl_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.046874534727371416,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fl_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.017911680498407544,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "fl_caster_rotation_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.1236275131225586,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fr_caster_l_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.010412507761266404,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "fr_caster_r_wheel_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.016113114075527624,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "cylinder"
+          ]
+        },
+        {
+          "body_name_1": "fr_caster_rotation_link",
+          "body_name_2": "base_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.10356289095878601,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "base_link",
+          "body_name_2": "torso_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007472681999206532,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "head_tilt_link",
+          "body_name_2": "head_mount_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": -4.1964322807839995e-05,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "sphere"
+          ]
+        },
+        {
+          "body_name_1": "head_pan_link",
+          "body_name_2": "head_plate_frame",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.002760862526532251,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "head_pan_link",
+          "body_name_2": "head_tilt_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0044573601766575155,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "head_tilt_link",
+          "body_name_2": "head_plate_frame",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 8.823669049848233e-05,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "box"
+          ]
+        },
+        {
+          "body_name_1": "l_elbow_flex_link",
+          "body_name_2": "l_forearm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.000677914474201638,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_upper_arm_link",
+          "body_name_2": "l_elbow_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0007587953480483606,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_forearm_link",
+          "body_name_2": "l_forearm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003905080258846283,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_tip_link",
+          "body_name_2": "l_gripper_l_finger_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0015481112532621994,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_l_finger_link",
+          "body_name_2": "l_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006835587787692499,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_r_finger_link",
+          "body_name_2": "l_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.010581797710276264,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_wrist_roll_link",
+          "body_name_2": "l_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 1.3447621256823528e-07,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_gripper_r_finger_tip_link",
+          "body_name_2": "l_gripper_r_finger_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0015481112532615415,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_shoulder_pan_link",
+          "body_name_2": "l_shoulder_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006282310532614438,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_upper_arm_roll_link",
+          "body_name_2": "l_shoulder_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 7.188410686034818e-05,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_upper_arm_link",
+          "body_name_2": "l_upper_arm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007192492485046387,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "l_wrist_roll_link",
+          "body_name_2": "l_wrist_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0029945302414938237,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "torso_lift_link",
+          "body_name_2": "laser_tilt_mount_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.03622873770192217,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_forearm_roll_link",
+          "body_name_2": "r_elbow_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0006952409145807859,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_elbow_flex_link",
+          "body_name_2": "r_upper_arm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0005549427918687989,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_forearm_link",
+          "body_name_2": "r_forearm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.003905080258846255,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_l_finger_tip_link",
+          "body_name_2": "r_gripper_l_finger_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0012289847519389163,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_l_finger_link",
+          "body_name_2": "r_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.006836186904669965,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_r_finger_link",
+          "body_name_2": "r_gripper_palm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007242725707082995,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_palm_link",
+          "body_name_2": "r_wrist_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 1.344762125543575e-07,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_gripper_r_finger_link",
+          "body_name_2": "r_gripper_r_finger_tip_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0012289847519389024,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_upper_arm_roll_link",
+          "body_name_2": "r_shoulder_lift_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.002130050410914075,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_shoulder_pan_link",
+          "body_name_2": "r_upper_arm_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.002867881562266812,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_upper_arm_link",
+          "body_name_2": "r_upper_arm_roll_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.007192492485046401,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        },
+        {
+          "body_name_1": "r_wrist_roll_link",
+          "body_name_2": "r_wrist_flex_link",
+          "body_type_1": "robot_link",
+          "body_type_2": "robot_link",
+          "depth": 0.0030773078910530417,
+          "shape_kinds_1": [
+            "mesh"
+          ],
+          "shape_kinds_2": [
+            "mesh"
+          ]
+        }
+      ],
+      "self_distance": -0.008626211225558438,
+      "self_distance_pair": {
+        "body_name_1": "l_gripper_r_finger_tip_link",
+        "body_name_2": "l_gripper_r_finger_link",
+        "body_type_1": "robot_link",
+        "body_type_2": "robot_link",
+        "shape_kinds_1": [
+          "mesh"
+        ],
+        "shape_kinds_2": [
+          "mesh"
+        ]
+      }
+    }
+  }
+]

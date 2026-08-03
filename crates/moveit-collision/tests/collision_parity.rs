@@ -1270,3 +1270,200 @@ fn pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates() {
         }
     }
 }
+
+/// One `robot_distance`/`robot_distance_pair` case from
+/// `pr2_world_object_same_pair_{request,response}.json` -- the two states
+/// (seed 20260804, `right_arm`, `--collision`, case indices 422 and 2996 of
+/// the 3000-case sweep PORTING-PLAN.md §60 recorded) where p1-joints' sweep
+/// and this port agree on *which* pair is the world-object argmin
+/// (`l_gripper_{l,r}_finger_tip_link`/`floor`) but disagree on its
+/// magnitude, assigning the disagreement to p3-acm since §56's
+/// min-of-two-candidates ranking mechanism has nothing to say when both
+/// sides already pick the same pair.
+struct WorldSamePairOraclePoint {
+    joint_values: BTreeMap<String, f64>,
+    oracle_distance: f64,
+    link_name: String,
+}
+
+fn load_world_same_pair_oracle_points() -> Vec<WorldSamePairOraclePoint> {
+    #[derive(Deserialize)]
+    struct RequestCase {
+        id: u64,
+        joint_values: BTreeMap<String, f64>,
+    }
+    #[derive(Deserialize)]
+    struct DistancePair {
+        body_name_1: String,
+        body_name_2: String,
+    }
+    #[derive(Deserialize)]
+    struct ResultCase {
+        robot_distance: f64,
+        robot_distance_pair: DistancePair,
+    }
+    #[derive(Deserialize)]
+    struct ResponseCase {
+        id: u64,
+        result: ResultCase,
+    }
+
+    let requests: Vec<RequestCase> = {
+        let path = fixture_path("pr2_world_object_same_pair_request.json");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    };
+    let responses: Vec<ResponseCase> = {
+        let path = fixture_path("pr2_world_object_same_pair_response.json");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    };
+    let responses_by_id: BTreeMap<u64, &ResponseCase> =
+        responses.iter().map(|r| (r.id, r)).collect();
+
+    requests
+        .iter()
+        .map(|req| {
+            let response = responses_by_id
+                .get(&req.id)
+                .unwrap_or_else(|| panic!("no response for request id {}", req.id));
+            let pair = &response.result.robot_distance_pair;
+            let (world_side, robot_side) = if pair.body_name_2 == "floor" {
+                (pair.body_name_2.as_str(), pair.body_name_1.as_str())
+            } else {
+                (pair.body_name_1.as_str(), pair.body_name_2.as_str())
+            };
+            assert_eq!(
+                world_side, "floor",
+                "request id {}: fixture is meant to capture a robot-link/floor pair",
+                req.id
+            );
+            WorldSamePairOraclePoint {
+                joint_values: req.joint_values.clone(),
+                oracle_distance: response.result.robot_distance,
+                link_name: robot_side.to_owned(),
+            }
+        })
+        .collect()
+}
+
+/// The most-negative global z among `link_name`'s own mesh vertices at
+/// `posed`'s pose. `floor_env`'s box has its top face at `z = 0` and spans
+/// `x, y in [-2, 2]` -- far larger than any pr2 fingertip mesh -- so a
+/// vertex under that footprint at `z = -d` can only be moved clear of the
+/// box by a translation of at least `d`, straight up: sideways requires
+/// crossing to the footprint edge (>1.5m here) and down requires crossing
+/// the box's full 0.1m thickness, both far more expensive. `-d` is
+/// therefore an independent, non-collision-pipeline lower bound on the true
+/// minimum translation distance for that vertex.
+fn deepest_vertex_under_floor(
+    model: &RobotModel,
+    posed: &moveit_state::Posed<'_, '_>,
+    link_name: &str,
+) -> f64 {
+    let link = model
+        .link_model(link_name)
+        .unwrap_or_else(|e| panic!("{link_name}: {e}"));
+    let shape = &link.shapes()[0];
+    let Shape::Mesh(mesh) = &shape.shape else {
+        panic!("{link_name} shape[0] is not a mesh");
+    };
+    let global = posed
+        .global_link_transform(link_name)
+        .unwrap_or_else(|e| panic!("{link_name}: {e}"))
+        * shape.origin_transform;
+    let (min_z, min_x, min_y) =
+        mesh.vertices
+            .iter()
+            .fold((f64::INFINITY, 0.0, 0.0), |(min_z, min_x, min_y), v| {
+                let p = global.transform_point(&nalgebra::Point3::from(*v));
+                if p.z < min_z {
+                    (p.z, p.x, p.y)
+                } else {
+                    (min_z, min_x, min_y)
+                }
+            });
+    assert!(
+        min_x.abs() < 1.9 && min_y.abs() < 1.9,
+        "{link_name}'s deepest vertex ({min_x}, {min_y}, {min_z}) is not safely inside floor_env's \
+         4x4 footprint -- the straight-up-is-cheapest argument this bound relies on no longer holds"
+    );
+    -min_z
+}
+
+/// Round 11 item 1 (PORTING-PLAN.md §60): p1-joints' seed-20260804
+/// `right_arm --collision` sweep found two cases where this backend and the
+/// oracle already agree on the argmin world-object pair
+/// (`l_gripper_{l,r}_finger_tip_link`/`floor`) but disagree on its depth --
+/// this backend deeper both times (case 422: oracle -0.011274 vs this
+/// backend -0.015686; case 2996: oracle -0.009943 vs this backend
+/// -0.012375). Penetration depth is the *minimum* translation distance, so
+/// a deeper answer is only legitimate if the shallower one does not
+/// correspond to any real separating direction.
+///
+/// `deepest_vertex_under_floor` answers that independently of both
+/// backends' collision pipelines: it is a raw mesh-vertex measurement, not
+/// a re-run of either's distance query. For both cases it reproduces this
+/// backend's own reported magnitude to `TOLERANCE`, and the vertex it finds
+/// sits well inside the floor's 4x4 footprint (asserted above), where
+/// straight up is the only cheap escape (see that function's doc). So the
+/// oracle's shallower number does not correspond to an achievable
+/// separating translation here -- `distanceRobot`'s own re-collide-and-
+/// take-max-depth search (see `parry.rs`'s deviation-6 doc) still misses
+/// this mesh's true deepest point. That is deviation-6's mechanism (FCL's
+/// non-convex penetration depth is an approximation, not exact EPA) landing
+/// on a *magnitude* disagreement for a pair both sides already rank as the
+/// argmin, rather than the *pair-ranking* disagreement deviation-6's other
+/// instances show -- which is exactly why `DistancePairStats`' pair-name
+/// comparison (agreement on names) did not flag these two. Not a defect in
+/// `parry.rs`: the deeper number is the one backed by a real mesh vertex.
+#[test]
+fn pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction() {
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    for point in load_world_same_pair_oracle_points() {
+        let mut state = build_state(&model, &point.joint_values);
+        let posed = state.update();
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let distance = env.distance_robot(&request, &posed, &[]);
+
+        assert!(
+            distance
+                .minimum_distance
+                .link_names
+                .contains(&point.link_name)
+                && distance
+                    .minimum_distance
+                    .link_names
+                    .contains(&"floor".to_owned()),
+            "{}: oracle's argmin pair is {}/floor, this backend's is {:?} -- expected agreement \
+             on the pair, disagreement only on depth",
+            point.link_name,
+            point.link_name,
+            distance.minimum_distance.link_names
+        );
+        assert!(
+            distance.minimum_distance.distance < point.oracle_distance,
+            "{}: this backend's {} is not deeper than oracle's {} -- the case this test exists \
+             to characterize has flipped direction",
+            point.link_name,
+            distance.minimum_distance.distance,
+            point.oracle_distance
+        );
+
+        let vertex_mtd = deepest_vertex_under_floor(&model, &posed, &point.link_name);
+        assert!(
+            (vertex_mtd - (-distance.minimum_distance.distance)).abs() < TOLERANCE,
+            "{}: independent straight-up vertex bound {vertex_mtd} != this backend's own {} -- \
+             this backend's deeper number no longer matches a real mesh vertex",
+            point.link_name,
+            -distance.minimum_distance.distance
+        );
+    }
+}
