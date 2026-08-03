@@ -6366,3 +6366,91 @@ MTD가 된다.
 이로써 §43에서 시작한 pr2 거리 불일치 계열에서 **world 쪽은 전부
 설명됐다** — 7건은 순위 flip(§56의 메커니즘), 2건은 이 포트가 맞고
 오라클이 얕다. 남은 것은 self 쪽 same-pair 62건(§67.2)이다.
+
+## 73. `moveit-octomap`의 첫 심볼 감사와 §68 결함 계열의 음성 확인 (2026-08-04)
+
+p3-shapes 라운드 12(`1aa52b3`, `1eafc3b`, `2a02a46`). 베이스 `7335e34`,
+main `85d1a14`에 머지. 세 건 모두 문서 변경이라 테스트 수는 그대로다.
+
+### 73.1 `moveit-octomap`은 이제껏 심볼 대조를 한 번도 받지 않았다
+
+`moveit-geometry`의 `shapes.rs`/`bodies.rs`는 라운드마다 상류 헤더와
+심볼 단위로 맞춰 왔지만 `moveit-octomap`은 그 대상이 아니었다. 이번에
+오라클 컨테이너의 `liboctomap-dev 1.9.7`을 뜯어 7개 헤더에 대해
+40개 심볼 그룹을 4분류했다 — ported 22, unported-in-scope 3,
+architecturally distinct 15.
+
+distinct 15건 중 네 개를 상류에서 직접 확인했다. `getMetricMin`/
+`getMetricMax`/`getMetricSize`, `insertPointCloud`, `enableChangeDetection`,
+`castRay`/`getNormals` — `moveit_core` 전체에서 호출자 0건이다. 확률
+공간 게터의 유일한 `moveit_core` 호출자가 Bullet 백엔드라는 주장도
+맞다: `bullet_utils.cpp:210`의 `getOccupancyThres()` 한 곳이다(내 첫
+`rg`가 `ProbHit`만 봐서 0건으로 나왔는데, 이름을 넓히니 나온다).
+
+### 73.2 `tree_iterator`에 처음으로 이름 있는 소비자가 붙었다
+
+`collision_distance_field_types.cpp:355`의
+`PosedBodyPointDecomposition(const shared_ptr<const octomap::OcTree>&)`
+생성자가 `begin_tree()`/`end_tree()`만으로 구현돼 있다 — 확인했다.
+그리고 Rust 쪽 `collision_distance_field_types.rs:929`의 같은 타입은
+`BodyDecomposition` 계열 생성자 두 개만 포팅돼 있고 octree 생성자는
+없다.
+
+즉 §13의 "standalone octree는 있으나 collision 경로에 아직 물리지
+않았다"는 위험이 추상적 진술이 아니라 **상류 한 지점과 그에 대응하는
+Rust 쪽 결손 한 지점**으로 특정됐다. 두 크레이트에 걸친 항목이므로
+p3-shapes와 p3-distance-field 양쪽 라운드 13에 넣는다.
+
+### 73.3 `num_nodes`는 `size()`가 아니다
+
+`tree.rs:300`의 `num_nodes`는 재귀 순회다 — 상류 `calcNumNodes()`
+(`OcTreeBaseImpl.h:269`)에 대응하고, O(1) 카운터 `size()`
+(`OcTreeBaseImpl.h:241`, `return tree_size;`)는 어떤 이름으로도 포팅되지
+않았다. 헤더 두 줄을 컨테이너에서 직접 읽어 확인했다. `tree_size`는
+이 워크스페이스에 없다(`iter.rs:221`의 `size()`는 leaf 한 변 길이라
+무관하다).
+
+### 73.4 §68 계열 점검: 네 개 모두 이미 외부에 고정돼 있다
+
+"일률적으로 2배 큰 반지름은 이 크레이트의 모든 포함 관계 테스트를
+통과한다"는 §68의 결함 계열을 `compute_bounding_sphere`/
+`compute_bounding_cylinder`/`compute_volume`/`OBB::extend_approx`에
+적용한 결과는 음성이다 — 넷 다 이미 고정돼 있다.
+
+담당의 주장을 읽는 대신 구현을 흔들어 확인했다. 각 메서드의 반환값에
+`1.000001`을 곱하고(구체 타입 4개 impl 전부, enum dispatch 제외)
+`-p moveit-geometry --no-fail-fast`를 돌렸다:
+
+- `compute_bounding_sphere` ×1.000001 → 5건 실패. probe_parity의
+  sphere/cylinder/cuboid/convex_mesh 네 개 전부 + `body_query_parity`
+- `compute_bounding_cylinder` ×1.000001 → 같은 5건
+- `compute_volume` ×1.000001 → 8건 실패. 위 5건 + 해석적 단위 테스트
+  3건(`sphere_volume_matches_four_thirds_pi_r_cubed` 등)
+- `OBB::extend_approx`의 `half_extents` ×1.000001 → 3건 실패.
+  `obb_predicates_match_libgeometric_shapes`,
+  `obb_extend_approx_merge_largedist_matches_libgeometric_shapes`,
+  `obb_extend_approx_noop_when_self_contains_other`
+
+고정의 출처가 외부라는 것도 확인했다: `bodies_probe.json`은 오라클
+이미지 안 `libgeometric_shapes.so.2.3.3`에 링크한 C++ 프로브의 `%.17g`
+stdout이고(§9.1의 바이너리 프로브 경로), `body_query_parity`는 오라클의
+`body_query` op이라 경로가 완전히 다르다. `check_body!` 매크로는 네
+body 타입 전부에 대해 volume/bsphere/bcyl을 무조건 단언한다 —
+`skip_rays`는 ray만 건너뛴다.
+
+`ConvexMesh`가 특히 중요하다. 손으로 계산할 닫힌 형태가 없어서
+자기 일관성 외에는 검증 수단이 없는 타입인데, 실제 `.so`가 그 역할을
+한다.
+
+### 73.5 `.scene` 텍스트 포맷은 양쪽이 닫혔다
+
+`saveAsText`/`constructShapeFromText`의 유일한 근거였던 falsifier가
+p1-fixtures의 `86f102c`(§70)로 소멸했다 — `.scene` 파일 상호운용이
+`moveit-scene` 쪽에서 명시적 out-of-scope 결정이 됐으므로 이쪽 절반도
+"미포팅"이 아니라 "결정"이다. 포팅 레시피는 문서에 남겼다.
+
+### 73.6 머지 후 실측
+
+`cargo nextest run --workspace` **982/982**, `cargo test --doc --workspace`
+통과, clippy `--workspace --all-targets -D warnings` 0건, `fmt --check`
+통과, `check-*.sh` 3건 OK, 재생 **26/26 identical**.
