@@ -71,6 +71,25 @@ pub struct PathValidity {
 /// had never had a bullet — added below, immediately after the two real
 /// constructors.
 ///
+/// A sibling panel's `setGroupStateValidityCallback` finding (PORTING-PLAN.md's
+/// record of that round: a symbol read from the header as a
+/// "sampler-side diagnostic" setter turned out, on reading the upstream
+/// `.cpp`, to gate IK solution acceptance via `IKCallbackFn`) prompted a
+/// re-check this round of every `distinct`/`unported`/`blocked` bullet
+/// below that had been judged from `planning_scene.hpp`'s signature alone,
+/// without a `planning_scene.cpp` citation backing it:
+/// `getCollisionDetectorName`, the `getCollisionEnv`/`getCollisionEnvUnpadded`
+/// family, `checkCollisionUnpadded`, `distanceToCollisionUnpadded`,
+/// `setAttachedBodyUpdateCallback`, `setCollisionObjectUpdateCallback`,
+/// `printKnownObjects`, and `allocateCollisionDetector` — each now carries
+/// its own upstream-`.cpp` citation and verdict inline, below. None
+/// reclassify: every branch a "distinct" symbol here participates in
+/// either lives inside machinery D4 already replaced wholesale (the
+/// collision-detector-plugin family) or is a `void`-returning notification
+/// callback structurally incapable of gating a decision the way a
+/// `bool`-returning one can — the distinguishing fact
+/// `setGroupStateValidityCallback`'s own re-classification turned on.
+///
 /// Counting convention (so a future round can mechanically reproduce this
 /// number): one bullet per raw `public:` declaration, with same-named
 /// overloads folded into a single bullet carrying an explicit `(N
@@ -172,7 +191,17 @@ pub struct PathValidity {
 ///
 /// - `getCollisionDetectorName` — distinct: names the active
 ///   `CollisionDetectorAllocator` plugin; D4 has no plugin registry to name
-///   (see `allocateCollisionDetector` below).
+///   (see `allocateCollisionDetector` below). Previously judged from the
+///   header signature alone; checked against `planning_scene.cpp` this
+///   round. Its only use in that file *is* a branch condition
+///   (`planning_scene.cpp:291`/`:304`, inside `getCollisionEnv(name)`/
+///   `getCollisionEnvUnpadded(name)`: `if (collision_detector_name !=
+///   getCollisionDetectorName())` logs an error and falls back to the
+///   active env) — but that branch lives entirely inside the
+///   already-D4-obsoleted name-lookup overloads below, which this port
+///   cannot reach a mismatch for (there is only ever one collision
+///   backend), so the branch it gates is unreachable by construction here,
+///   not merely unexercised by choice.
 /// - `getWorld`/`getWorldNonConst` — ported as [`PlanningScene::world`]
 ///   (const); mutation goes through typed methods
 ///   ([`PlanningScene::add_shape`]/[`PlanningScene::move_object`]/
@@ -182,7 +211,15 @@ pub struct PathValidity {
 ///   `getCollisionEnvUnpadded(name)`/`getCollisionEnvNonConst` — distinct:
 ///   the padded/unpadded dual-`CollisionEnv`-per-plugin machinery; D4's
 ///   redesign replaced it with the caller supplying one concrete `E` per
-///   call (see "Collision checking" below).
+///   call (see "Collision checking" below). Previously judged from the
+///   header signature alone; checked against `planning_scene.cpp` this
+///   round (`allocateCollisionDetector`, `:255-286`, and the name-lookup
+///   branches at `:288-311` cited under `getCollisionDetectorName` above):
+///   what these decide is *which allocator-constructed `CollisionEnv`
+///   pointer* a caller gets back, a decision D4 already made once and
+///   permanently by giving every `PlanningScene` exactly one
+///   `E: CollisionEnv` supplied by the caller — there is no second backend
+///   this branch could ever route to here.
 /// - `getAllowedCollisionMatrix`/`getAllowedCollisionMatrixNonConst`/
 ///   `setAllowedCollisionMatrix` — ported as
 ///   [`PlanningScene::allowed_collision_matrix`]/
@@ -205,7 +242,10 @@ pub struct PathValidity {
 ///   directly.
 /// - `checkCollisionUnpadded` (6 overloads, upstream `[[deprecated]]`) —
 ///   distinct: the same padded/unpadded dual-env machinery as
-///   `getCollisionEnvUnpadded` above; D4 obsoletes it.
+///   `getCollisionEnvUnpadded` above; D4 obsoletes it. Same
+///   `getCollisionEnvUnpadded()` route already checked against
+///   `planning_scene.cpp` under `getCollisionEnv` above — no separate
+///   branch of its own.
 /// - `checkSelfCollision` (6 overloads) — ported as
 ///   [`PlanningScene::check_self_collision`]; explicit-ACM overloads not
 ///   ported, same reasoning as `checkCollision`.
@@ -228,7 +268,12 @@ pub struct PathValidity {
 ///   [`PlanningScene::distance_to_collision`] (see its own doc);
 ///   explicit-ACM overloads not ported, same reasoning as `checkCollision`.
 /// - `distanceToCollisionUnpadded` (4 overloads) — distinct: same
-///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it.
+///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it
+///   (`planning_scene.cpp:461-509`: each overload only forwards to
+///   `getCollisionEnvUnpadded()->distanceRobot(...)`, no branch of its own
+///   beyond the const/non-const `updateCollisionBodyTransforms()` forward
+///   already reproduced by `PlanningScene::distance_to_collision`'s own
+///   `&mut`/`&` split).
 ///
 /// ## Message round-tripping (D1 except the first entry: this is a
 /// ROS-independent core crate)
@@ -301,12 +346,24 @@ pub struct PathValidity {
 ///   but nothing in this port's reach ever registers one — the same "no
 ///   caller reaches the branch that would need it" reasoning
 ///   [`PlanningScene::is_state_valid`]'s own doc gives for the dropped
-///   `StateFeasibilityFn` (see "Feasibility predicates" below).
+///   `StateFeasibilityFn` (see "Feasibility predicates" below). Previously
+///   backed only by that analogy, not a direct read; checked this round
+///   against `attached_body.hpp:52` and every invocation site in
+///   `planning_scene.cpp` (`:630`, `:643`, `:1229`, `:1270`, `:1554`).
+///   `AttachedBodyCallback` is `void(AttachedBody*, bool)` — a `void`
+///   return, structurally incapable of gating anything the way
+///   p1-robotmodel's `setGroupStateValidityCallback` finding did (§105.1:
+///   that callback's `bool` return is fed straight into `IKCallbackFn` as
+///   an accept/reject decision). This one is a pure notification hook by
+///   its type, not merely by absence of a registered caller.
 /// - `setCollisionObjectUpdateCallback` — same reasoning, and additionally
 ///   structurally obsoleted: [`moveit_collision::World`] replaced upstream's
 ///   `addObserver`/`ObserverCallbackFn` registration with every mutator
 ///   returning `Option<Notification>` directly, so there is no observer
-///   slot left to wire a callback into.
+///   slot left to wire a callback into. Same check applied: `world.hpp:304`
+///   declares `ObserverCallbackFn` as `void(const ObjectConstPtr&, Action)`
+///   — again `void`-returning, confirmed at its call sites
+///   (`planning_scene.cpp:220`, `:326`, `:650`, `:655`).
 ///
 /// ## Object colors and types
 ///
@@ -449,12 +506,22 @@ pub struct PathValidity {
 /// - `printKnownObjects` — distinct: `std::ostream` debug formatting with
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
-///   [`PlanningScene::attached_bodies`].
+///   [`PlanningScene::attached_bodies`]. Previously judged from the header
+///   signature alone; its body (`planning_scene.cpp:2512-2531`) is exactly
+///   that — two loops over `getWorld()->getObjectIds()` and
+///   `getCurrentState().getAttachedBodies(...)` writing `<<` to `out`, no
+///   conditional whose outcome differs from what those two accessors
+///   already return.
 /// - `allocateCollisionDetector` — distinct: registers a
 ///   `CollisionDetectorAllocator` plugin; D4's redesign already replaced
 ///   that dual-env-per-plugin machinery with the caller owning one concrete
 ///   `E`, so this type carries no `collision_detector_` field for it to act
-///   on.
+///   on. Previously judged from the header signature alone; checked its
+///   body (`planning_scene.cpp:255-286`) this round — the only branch
+///   inside it (`if (parent_detector)`, copy-construct vs. build-fresh) is
+///   the same clone/fresh-construct split
+///   [`PlanningScene::cloned`]/[`PlanningScene::new`] already reproduce at
+///   the type level, not a decision this port drops.
 ///
 /// # Collision checking
 ///
