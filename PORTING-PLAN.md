@@ -7424,3 +7424,107 @@ moveit-diff --urdf .../pr2.urdf --srdf .../pr2.srdf --group right_arm \
 담당이 보고한 977/977·재생 25/25·스탬프 `746870de2ddd3ca6`는 베이스
 `231e17b` 기준 값이다 — 그 뒤로 머지가 여러 건 들어갔고 스탬프는 두 번
 움직였다.
+
+## 88. §79의 최대 노출 98건이 닫혔다 — 92건은 아무것도 재지 않았다 (2026-08-04)
+
+p3-shapes 라운드 14 머지(`d43fab0`, `befd1df`, `2aba583`, `e68557a`,
+`7031639`). 베이스 `4b13c99`, main에 머지. 테스트 수 **1048/1048** 변동
+없음(단언 강화만).
+
+### 88.1 결과
+
+워크스페이스에서 가장 큰 두 노출이 이 크레이트 것이었다. 처분:
+
+```
+shapes.rs            45/45  →  전부 assert_eq! (비트 일치)
+octree_collision.rs   6/6   →  전부 assert_eq! (비트 일치)
+bodies.rs            47     →  41건 assert_eq!,
+                                6건 epsilon = 1e-13, max_relative = 0.0
+                              ────
+합계                  98     →  92건이 아무것도 재고 있지 않았다
+```
+
+`shapes.rs`의 45건 중 7건은 `epsilon = 1e-12`를 **명시**하고 있었는데도
+비트 일치였다. 상수를 적어 놓았다는 것이 그 상수가 무언가를 잰다는
+뜻이 아니다.
+
+### 88.2 §85.3의 지침이 그 자리에서 두 번 값을 했다
+
+라운드 진행 중에 "이분은 파일 단위가 아니라 단언 단위로"를 보냈고,
+담당이 `bodies.rs`를 **단언별로** 이분해 살아 있는 허용오차가 죽은
+단언을 가리는 경우를 정확히 두 번 잡았다:
+
+- `sphere_ray_origin_inside_moved_sphere` — `+1.6` 교점은 비트 일치인데
+  `-0.6` 교점은 아니다
+- `merge_bounding_spheres_two_spheres` — 반지름은 비트 일치인데
+  `center.x`는 아니다
+
+파일 단위로 이분했다면 두 파일 다 "실패하니 함정 아님"으로 끝났을
+것이다. §85.1에서 p3-distance-field가 정확히 그렇게 틀렸다.
+
+### 88.3 남긴 여섯 건의 무는 지점을 내가 다시 쟀다
+
+`epsilon = 1e-13`을 함께 움직여 `-p moveit-geometry`(141건)를
+`--no-fail-fast`로:
+
+```
+1e-13 (현재)  141/141 통과
+1e-15         141/141 통과
+1e-16         4 fail
+0.0           4 fail
+```
+
+무는 지점이 `1e-16`–`1e-15`, 상수가 `1e-13`이므로 **헤드룸 2–3자리**다.
+`max_relative = 0.0`이 명시돼 있어 §79 함정 경로도 막혀 있다.
+
+### 88.4 exactness 전환이 실제로 조였다는 증거
+
+전환이 단언을 강화했는지 직접 확인했다. `Sphere::compute_volume`
+(`shapes.rs:491`)에 상대 오차를 곱해 넣었다:
+
+```
+× 1.0000000000001    (1e-13)  1 fail
+× 1.000000000000001  (1e-15)  1 fail
+```
+
+전환 전 `epsilon = 1e-12`였다면 둘 다 통과했을 크기다. **전환은 문서
+정리가 아니라 검출력의 실제 증가다.**
+
+### 88.5 §81.2의 두 정정이 반영됐다
+
+`d43fab0`이 `bodies.rs`의 `intersects_ray`(미포팅이 아니라 외부 소비자
+없음)와 `sample_point_inside`(미래형이 아니라 `ik_sampler.rs:254`가 이미
+호출) 문구를 고쳤다. 낡은 문서 주장이 §81.2·§82.3·§85.4에 이어 이번
+라운드 세트에서 네 번째로 정정된 사례다.
+
+### 88.6 새 격차 하나가 드러났다
+
+`AbstractOccupancyOcTree`의 확률공간 setter 다섯(`setOccupancyThres`,
+`setProbHit`, `setProbMiss`, `setClampingThresMin`, `setClampingThresMax`)이
+`moveit-octomap`에 없어서 `occ_prob_thres_log`와 그 형제들이 `OcTree`
+수명 내내 상류 기본값에 고정된다. `moveit2` 안에 호출자가 0건이므로
+당장의 결함은 아니지만, 구조상 "설정 가능"인 것이 실제로는 상수인
+상태다. `7031639`가 호출 지점에 그 사실을 적었다. 기본값 자체는
+`bbed614`에서 이미 오라클로 핀돼 있다.
+
+### 88.7 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1048/1048**,
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
+`7cc8a73408a83c92` 유지.
+
+담당이 보고한 1017/1017은 베이스 `4b13c99` 기준 값이다.
+
+### 88.8 §79 스윕 현황
+
+```
+p3-shapes        98/98  닫힘 (이 절)
+p6-totg          61건   라운드 11 진행 중
+p3-distance-field 7건   4건이 함정 확인, 라운드 14에서 수정 중 (§85)
+p1-fixtures       1건   이미 max_relative 있음 — 해당 없음
+p1-robotmodel     0건   (대신 손수 쓴 비교 43곳, 라운드 11)
+p1-joints         0건   (손수 쓴 비교 3곳)
+p3-acm            나머지 — 아직 발주 안 함
+```
