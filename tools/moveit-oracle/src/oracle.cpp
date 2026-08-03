@@ -28,6 +28,7 @@
 
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
+#include <moveit/collision_detection_fcl/collision_env_fcl.hpp>
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
@@ -209,6 +210,8 @@ public:
       return randomStates(request);
     if (op == "acm")
       return acm();
+    if (op == "collision")
+      return collision(request);
     if (op == "world")
       return world(request);
     if (op == "distance_field")
@@ -506,6 +509,16 @@ private:
                  { "data", data } };
   }
 
+  /// The `AllowedCollisionMatrix` `PlanningScene` itself builds: straight from
+  /// the loaded SRDF's `disable_collisions`/`enable_collisions`/
+  /// `disable_default_collisions`. Shared by `acm()` (which dumps it) and
+  /// `collision()` (which filters both `CollisionEnvFCL` checks with it), so
+  /// the two never risk building it two different ways.
+  collision_detection::AllowedCollisionMatrix buildAcm() const
+  {
+    return collision_detection::AllowedCollisionMatrix(*model_->getSRDF());
+  }
+
   /// Ground truth for the `moveit-collision` differential test: builds an
   /// `AllowedCollisionMatrix` the same way `PlanningScene` does, from the
   /// loaded SRDF's `disable_collisions`/`enable_collisions`/
@@ -515,7 +528,7 @@ private:
   /// the predicate overload.
   json acm() const
   {
-    collision_detection::AllowedCollisionMatrix matrix(*model_->getSRDF());
+    collision_detection::AllowedCollisionMatrix matrix = buildAcm();
 
     std::vector<std::string> names;
     matrix.getAllEntryNames(names);
@@ -544,6 +557,77 @@ private:
     }
 
     return json{ { "names", names }, { "entries", entries }, { "defaults", defaults } };
+  }
+
+  /// Ground truth for `moveit-collision::ParryCollisionEnv` (PORTING-PLAN.md
+  /// §5's Phase 3 completion condition): `CollisionEnvFCL::checkSelfCollision`,
+  /// `checkRobotCollision`, `distanceSelf` and `distanceRobot` at the request's
+  /// joint values, filtered through the same SRDF-derived ACM `acm()` dumps
+  /// (`buildAcm()` — one construction, not two independently-typed ones).
+  ///
+  /// `request["objects"]` builds a `collision_detection::World` of real
+  /// shapes (`parseShape`, the same parser `shapePoints`/
+  /// `collisionDistanceFieldTypes` use) rather than `world()`'s dummy
+  /// spheres: `world()` exists to test pose composition only, but a
+  /// collision check needs the actual geometry to produce a non-trivial
+  /// `robot_collision`/`robot_distance` answer.
+  ///
+  /// Both `CollisionRequest`s are default-constructed (`contacts = false`):
+  /// only the boolean `collision` flag from each call is reported, and
+  /// [`Contact`] coordinates are excluded from comparison per §4.5's recorded
+  /// verification limit -- see `crates/moveit-collision/tests/collision_parity.rs`
+  /// and `tools/moveit-diff`'s own collision comparison for why. Both
+  /// `DistanceRequest`s set `enable_signed_distance = true`: a request that
+  /// left it `false` could never surface deviation 6 (this port's
+  /// single-`query::contact()`-call signed distance versus FCL's `distance`
+  /// then, only for a penetrating pair, a second up-to-200-contact `collide`
+  /// pass taking the deepest penetration) at all, since an unsigned distance
+  /// is clamped to `>= 0` on both sides regardless of that deviation.
+  json collision(const json& request)
+  {
+    applyJointValues(request);
+
+    collision_detection::AllowedCollisionMatrix acm = buildAcm();
+
+    auto world = std::make_shared<collision_detection::World>();
+    for (const auto& object_json : request.at("objects"))
+    {
+      const std::string id = object_json.at("id").get<std::string>();
+      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+      const json& shape_json = object_json.at("shape");
+      const std::string shape_type = shape_json.at("type").get<std::string>();
+      std::shared_ptr<shapes::Shape> shape = parseShape(shape_type, shape_json);
+      world->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
+    }
+
+    collision_detection::CollisionEnvFCL env(model_, world);
+
+    collision_detection::CollisionRequest self_req;
+    collision_detection::CollisionResult self_res;
+    env.checkSelfCollision(self_req, self_res, *state_, acm);
+
+    collision_detection::CollisionRequest robot_req;
+    collision_detection::CollisionResult robot_res;
+    env.checkRobotCollision(robot_req, robot_res, *state_, acm);
+
+    collision_detection::DistanceRequest self_dreq;
+    self_dreq.enable_signed_distance = true;
+    self_dreq.acm = &acm;
+    collision_detection::DistanceResult self_dres;
+    env.distanceSelf(self_dreq, self_dres, *state_);
+
+    collision_detection::DistanceRequest robot_dreq;
+    robot_dreq.enable_signed_distance = true;
+    robot_dreq.acm = &acm;
+    collision_detection::DistanceResult robot_dres;
+    env.distanceRobot(robot_dreq, robot_dres, *state_);
+
+    return json{
+      { "self_collision", self_res.collision },
+      { "self_distance", self_dres.minimum_distance.distance },
+      { "robot_collision", robot_res.collision },
+      { "robot_distance", robot_dres.minimum_distance.distance },
+    };
   }
 
   /// Ground truth for the `moveit-collision` World port. Builds a

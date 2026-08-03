@@ -10,6 +10,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+moveit-collision.workspace = true
 moveit-error.workspace = true
 moveit-geometry.workspace = true
 moveit-model.workspace = true

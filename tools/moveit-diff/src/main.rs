@@ -9,7 +9,8 @@
 //!
 //! ```text
 //! moveit-diff --urdf <path> --srdf <path> [--cases N] [--seed S]
-//!             [--tol-fk EPS] [--oracle <cmd> [args...]]
+//!             [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]
+//!             [--collision] [--tol-distance EPS] [--oracle <cmd> [args...]]
 //! ```
 //!
 //! Exit status is 0 only when every case passed.
@@ -20,10 +21,16 @@ mod rust_impl;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Arc;
 
+use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
-use protocol::{FkResult, JacobianResult, ModelInfo, Op, OracleResult, Request, Response};
+use protocol::{
+    CollisionCheckResult, CollisionObjectSpec, FkResult, JacobianResult, ModelInfo, Op,
+    OracleResult, Request, Response, ShapeSpec,
+};
 
 /// How the runner was configured.
 struct Config {
@@ -37,6 +44,11 @@ struct Config {
     /// existing `fk`-only invocations unchanged.
     group: Option<String>,
     tol_jacobian: f64,
+    /// Whether to also run the `collision` op against a fixed collision
+    /// scene, alongside every `fk` case. Off by default, mirroring `group`:
+    /// existing `fk`-only invocations are unaffected.
+    collision: bool,
+    tol_distance: f64,
     oracle: Vec<String>,
 }
 
@@ -49,6 +61,8 @@ impl Config {
         let mut tol_fk = 1e-9;
         let mut group = None;
         let mut tol_jacobian = 1e-7;
+        let mut collision = false;
+        let mut tol_distance = 1e-4;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -81,6 +95,12 @@ impl Config {
                         .parse()
                         .map_err(|e| format!("--tol-jacobian: {e}"))?
                 }
+                "--collision" => collision = true,
+                "--tol-distance" => {
+                    tol_distance = want("--tol-distance")?
+                        .parse()
+                        .map_err(|e| format!("--tol-distance: {e}"))?
+                }
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -101,6 +121,8 @@ impl Config {
             tol_fk,
             group,
             tol_jacobian,
+            collision,
+            tol_distance,
             oracle,
         })
     }
@@ -203,6 +225,7 @@ fn main() {
             eprintln!("moveit-diff: {e}");
             eprintln!("usage: moveit-diff --urdf <path> --srdf <path> [--cases N] [--seed S]");
             eprintln!("                   [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]");
+            eprintln!("                   [--collision] [--tol-distance EPS]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
@@ -230,6 +253,84 @@ fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
         .map_err(|e| format!("building RobotModel: {e}"))
 }
 
+/// The fixed collision scene both sides check the robot against: a single
+/// scale-invariant floor box just below `z = 0`, sized to be robot-agnostic
+/// across panda/fanuc/pr2's very different reach envelopes (unlike a
+/// fixed-radius sphere, which would need per-robot tuning).
+///
+/// Built once as `(id, shape, pose)` triples and converted into both the
+/// wire [`CollisionObjectSpec`]s and the local [`World`] from that single
+/// list, so a disagreement can never come from the two sides being handed
+/// different geometry.
+fn collision_scene() -> Vec<(String, Arc<Shape>, Isometry3)> {
+    vec![(
+        "floor".to_owned(),
+        Arc::new(Shape::Cuboid(
+            Cuboid::new(4.0, 4.0, 0.1).expect("4x4x0.1 are valid, positive cuboid dimensions"),
+        )),
+        Isometry3::translation(0.0, 0.0, -0.05),
+    )]
+}
+
+/// The wire [`ShapeSpec`] for a [`Shape`] built by [`collision_scene`].
+/// Covers only the variants [`collision_scene`] can produce -- not a general
+/// `Shape` -> `ShapeSpec` converter, since [`ShapeSpec`] itself has no
+/// `Cone`/`Plane`/`OcTree` variant to convert into (see its own doc comment).
+fn shape_to_wire(shape: &Shape) -> Result<ShapeSpec, String> {
+    match shape {
+        Shape::Sphere(s) => Ok(ShapeSpec::Sphere { radius: s.radius }),
+        Shape::Cuboid(b) => Ok(ShapeSpec::Box { size: b.size }),
+        Shape::Cylinder(c) => Ok(ShapeSpec::Cylinder {
+            radius: c.radius,
+            length: c.length,
+        }),
+        Shape::Mesh(m) => Ok(ShapeSpec::Mesh {
+            vertices: m.vertices.iter().map(|v| [v.x, v.y, v.z]).collect(),
+            triangles: m.triangles.clone(),
+        }),
+        other => Err(format!(
+            "collision scene shape {other:?} has no ShapeSpec wire form"
+        )),
+    }
+}
+
+/// Everything the `collision` op comparison needs, built once: the local
+/// [`ParryCollisionEnv`] (holding the [`collision_scene`] world objects), the
+/// [`AllowedCollisionMatrix`] built independently from the same SRDF the
+/// oracle loaded (proven to agree with the oracle's own
+/// `AllowedCollisionMatrix(*model_->getSRDF())` construction by
+/// `crates/moveit-collision/tests/acm_parity.rs`, so it need not be sent over
+/// the wire), and the wire form of the scene to send with every request.
+struct CollisionFixture {
+    env: ParryCollisionEnv,
+    acm: AllowedCollisionMatrix,
+    wire_objects: Vec<CollisionObjectSpec>,
+}
+
+fn build_collision_fixture(cfg: &Config) -> Result<CollisionFixture, String> {
+    let srdf =
+        SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let scene = collision_scene();
+    let mut world = World::new();
+    let mut wire_objects = Vec::with_capacity(scene.len());
+    for (id, shape, pose) in &scene {
+        world.add_shape(id, shape.clone(), *pose);
+        wire_objects.push(CollisionObjectSpec {
+            id: id.clone(),
+            pose: rust_impl::to_row_major_4x4(pose),
+            shape: shape_to_wire(shape)?,
+        });
+    }
+
+    Ok(CollisionFixture {
+        env: ParryCollisionEnv::new(world, LinkPaddingScale::default()),
+        acm,
+        wire_objects,
+    })
+}
+
 fn run(cfg: &Config) -> Result<usize, String> {
     let mut oracle = Oracle::spawn(cfg)?;
     let rust_model = build_rust_model(cfg)?;
@@ -247,6 +348,12 @@ fn run(cfg: &Config) -> Result<usize, String> {
         model.joints.len(),
         model.groups.len()
     );
+
+    let collision_fixture = if cfg.collision {
+        Some(build_collision_fixture(cfg)?)
+    } else {
+        None
+    };
 
     let mut verdicts: Vec<(String, Verdict)> = Vec::new();
 
@@ -271,6 +378,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
 
     let mut max_jacobian_dev = 0.0f64;
+    let mut max_distance_dev = 0.0f64;
 
     for (case, joint_values) in states.into_iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
@@ -300,10 +408,29 @@ fn run(cfg: &Config) -> Result<usize, String> {
             }
             verdicts.push((format!("jacobian[{case}]"), verdict));
         }
+
+        if let Some(fixture) = &collision_fixture {
+            let expected = match oracle.ask(Op::Collision {
+                joint_values: joint_values.clone(),
+                objects: fixture.wire_objects.clone(),
+            })? {
+                OracleResult::Collision(c) => c,
+                other => return Err(format!("expected collision, got {other:?}")),
+            };
+            let (verdict, dev) =
+                compare_collision(cfg, &rust_model, fixture, &joint_values, &expected);
+            if dev.is_finite() {
+                max_distance_dev = max_distance_dev.max(dev);
+            }
+            verdicts.push((format!("collision[{case}]"), verdict));
+        }
     }
 
     if cfg.group.is_some() {
         println!("worst jacobian deviation: {max_jacobian_dev:.3e}");
+    }
+    if cfg.collision {
+        println!("worst distance deviation: {max_distance_dev:.3e}");
     }
 
     report(&verdicts)
@@ -401,6 +528,83 @@ fn compare_jacobian(
             Verdict::Fail(format!(
                 "entry {max_at}: oracle {w:.17e} vs rust {g:.17e} (|d|={max_dev:.3e} > {:.3e})",
                 cfg.tol_jacobian
+            )),
+            max_dev,
+        );
+    }
+    (Verdict::Pass, max_dev)
+}
+
+/// Compares a `collision` case: `self_collision`/`robot_collision` exactly,
+/// `self_distance`/`robot_distance` at `cfg.tol_distance`. Contact/nearest-
+/// point coordinates are never compared -- PORTING-PLAN.md §4.5 records that
+/// exclusion as Phase 3's recorded verification limit, not an oversight; the
+/// two sides' contact geometry differs by construction (module doc,
+/// `crates/moveit-collision/src/parry.rs`, deviations 4 and 6) in ways that
+/// would never converge under any tolerance.
+///
+/// Returns both the verdict and the worst of the two distance deviations
+/// (even on a pass), mirroring [`compare_jacobian`]'s reporting: the number
+/// this task's parity run reports is the worst deviation across every case,
+/// not just the failures. `f64::NAN` when a boolean disagrees or Rust
+/// errored, since no distance deviation is meaningful to report then.
+fn compare_collision(
+    cfg: &Config,
+    rust_model: &RobotModel,
+    fixture: &CollisionFixture,
+    joint_values: &BTreeMap<String, f64>,
+    expected: &CollisionCheckResult,
+) -> (Verdict, f64) {
+    let actual = match rust_impl::collision(rust_model, &fixture.env, &fixture.acm, joint_values) {
+        Ok(a) => a,
+        Err(e) => return (Verdict::Fail(e), f64::NAN),
+    };
+
+    if actual.self_collision != expected.self_collision {
+        return (
+            Verdict::Fail(format!(
+                "self_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
+                expected.self_collision,
+                expected.self_distance,
+                actual.self_collision,
+                actual.self_distance
+            )),
+            f64::NAN,
+        );
+    }
+    if actual.robot_collision != expected.robot_collision {
+        return (
+            Verdict::Fail(format!(
+                "robot_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
+                expected.robot_collision,
+                expected.robot_distance,
+                actual.robot_collision,
+                actual.robot_distance
+            )),
+            f64::NAN,
+        );
+    }
+
+    let self_dev = (expected.self_distance - actual.self_distance).abs();
+    let robot_dev = (expected.robot_distance - actual.robot_distance).abs();
+    // NaN must win over any finite max so a NaN deviation cannot hide behind
+    // an earlier, smaller finite one.
+    let max_dev = if self_dev.is_nan() || robot_dev.is_nan() {
+        f64::NAN
+    } else {
+        self_dev.max(robot_dev)
+    };
+
+    if max_dev.is_nan() || max_dev > cfg.tol_distance {
+        return (
+            Verdict::Fail(format!(
+                "distance differs: self oracle {:.17e} vs rust {:.17e} (|d|={self_dev:.3e}), \
+                 robot oracle {:.17e} vs rust {:.17e} (|d|={robot_dev:.3e}), tol {:.3e}",
+                expected.self_distance,
+                actual.self_distance,
+                expected.robot_distance,
+                actual.robot_distance,
+                cfg.tol_distance
             )),
             max_dev,
         );
