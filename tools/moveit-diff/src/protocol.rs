@@ -807,7 +807,7 @@ pub struct ConstraintsResult {
 /// cases (`--seed 20260804`, `fixtures/pr2.urdf`/`.srdf`): every
 /// `self_distance` "distance differs" failure traces to just two pairs on
 /// this side, not three unrelated ones. `base_bellow_link`/`torso_lift_link`
-/// produces both `-5.29289090633392e-2` (170/300, the dominant plateau) and
+/// produces both `-5.29289090633392e-2` (177/300, the dominant plateau) and
 /// `-4.91695723318727e-2` (once, case 18) plus a dozen more nearby-but-
 /// distinct values — the pair drifts in a narrow band (~-0.047 to -0.053) as
 /// `torso_lift_joint` moves, rather than sitting at one frozen number. The
@@ -817,11 +817,19 @@ pub struct ConstraintsResult {
 /// mesh is rotationally symmetric about its own roll axis, so the wheel-roll
 /// continuous joint's rotation cannot change the closest-point distance to
 /// `base_link` at all, and float noise is all that's left to tell the eight
-/// apart. (An earlier count of this same run reported `340/600`/`246/600`;
-/// that denominator was doubled by counting both a case's inline `FAIL`
-/// line and the run's own end-of-log `Nx (first: ...)` aggregate line for
-/// it -- the true counts, filtered to `FAIL` lines only, are the `/300`
-/// ones above; see PORTING-PLAN.md §53.2.) The oracle's own minimum on the
+/// apart. (Two earlier counts of this same run were both wrong, and not for
+/// the same reason: `340/600`/`246/600` doubled the denominator by counting
+/// both a case's inline `FAIL` line and the run's own end-of-log `Nx
+/// (first: ...)` aggregate line for it (PORTING-PLAN.md §53.2); the fix
+/// that followed still landed on `170/300`. That script no longer exists to
+/// inspect, but round 10's re-derivation hit an analogous bug before
+/// correcting it: a naive `vs rust [...]` match against the *whole*
+/// "distance differs" message double-counts, since the message names a rust
+/// pair twice -- once for `self_distance`, once for `robot_distance` -- and
+/// gave a `189`/`299` split that does not even sum to 300. Scoping the match
+/// to the text before `, robot oracle` is what gives the `177/300` above,
+/// confirmed against PORTING-PLAN.md §60.3's independent reproduction of
+/// the same run.) The oracle's own minimum on the
 /// same cases is a different pair almost every time (mostly
 /// `*_gripper_*_finger*` pairs at `-1e-2`..`-1e-1`) -- consistent with
 /// p3-acm's case-7552 finding that this is a pair-ranking flip, not a
