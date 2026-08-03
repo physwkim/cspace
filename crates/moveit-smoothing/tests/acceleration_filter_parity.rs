@@ -1,0 +1,237 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
+//! Parity test against the moveit2 C++ oracle's `acceleration_filter` op,
+//! covering `acceleration_filter.rs`.
+//!
+//! The fixture's 6 cases are the boundary set `acceleration_filter.rs`'s own
+//! unit tests already hand-derive independently: unconstrained (no bound
+//! binds, two chained steps), a single bound binding alone on two different
+//! joint indices, the interval intersection collapsing to a single point,
+//! the interval intersection going empty (fallback branch), and a
+//! below-`COMMAND_DIFFERENCE_THRESHOLD` hold. This file is the numeric
+//! cross-check those hand-derivations cannot be on their own: it runs the
+//! same six cases through both `AccelerationLimitedFilter::do_smoothing` and
+//! the real `online_signal_smoothing::AccelerationLimitedPlugin::doSmoothing`
+//! (via the oracle's `acceleration_filter` op, which loads the real plugin
+//! through `pluginlib` and solves the real QP through `osqp` — see that op's
+//! own comment in `tools/moveit-oracle/src/oracle.cpp`).
+//!
+//! # Tolerance
+//!
+//! Every case except the third uses `TOL`, matching `osqp`'s exact
+//! convergence away from a degenerate constraint. The third case
+//! deliberately gives one joint a zero-width acceleration interval, which
+//! forces this port's exact closed-form optimum to `alpha == 1.0` while
+//! `osqp`'s own default `eps_abs`/`eps_rel` stop its iterative solve only
+//! *close to* that point — see `acceleration_filter.rs`'s module doc for the
+//! full derivation and the measured magnitude `DEGENERATE_CASE_TOL` is set
+//! from.
+
+use std::collections::HashMap;
+use std::fs;
+
+use approx::assert_relative_eq;
+use serde::Deserialize;
+
+use moveit_model::{MeshSearchPaths, RobotModel};
+use moveit_smoothing::acceleration_filter::{AccelerationLimitedFilter, joint_acceleration_bounds};
+use moveit_srdf::SrdfModel;
+
+const TOL: f64 = 1e-9;
+
+/// Measured, not guessed: `acceleration_filter_response.json`'s third case
+/// puts `osqp`'s answer `0.0008294991991130152` away from this port's exact
+/// `0.0` — see `acceleration_filter.rs`'s module doc.
+const DEGENERATE_CASE_TOL: f64 = 2e-3;
+
+fn fixture_path(file_name: &str) -> String {
+    format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        file_name
+    )
+}
+
+fn read_fixture(file_name: &str) -> String {
+    let path = fixture_path(file_name);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
+}
+
+fn panda() -> RobotModel {
+    let urdf_path = fixture_path("panda.urdf");
+    let srdf_path = fixture_path("panda.srdf");
+    let urdf_xml =
+        fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+    let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+    let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
+}
+
+fn set_acceleration_bounds(model: &mut RobotModel, bounds: &HashMap<String, f64>) {
+    for (name, &max_acceleration) in bounds {
+        let joint = model
+            .joint_model_mut(name)
+            .unwrap_or_else(|e| panic!("joint_model_mut({name}): {e}"));
+        let mut limits = joint.variable_bounds_msg();
+        for limit in &mut limits {
+            limit.has_acceleration_limits = true;
+            limit.max_acceleration = max_acceleration;
+        }
+        joint.set_variable_bounds_from_limits(&limits);
+    }
+}
+
+#[derive(Deserialize)]
+struct Command {
+    positions: HashMap<String, f64>,
+    velocities: HashMap<String, f64>,
+}
+
+#[derive(Deserialize)]
+struct Reset {
+    positions: HashMap<String, f64>,
+    velocities: HashMap<String, f64>,
+}
+
+#[derive(Deserialize)]
+struct RequestCase {
+    group: String,
+    update_period: f64,
+    acceleration_bounds: HashMap<String, f64>,
+    reset: Reset,
+    commands: Vec<Command>,
+}
+
+#[derive(Deserialize)]
+struct Request {
+    cases: Vec<RequestCase>,
+}
+
+#[derive(Deserialize)]
+struct Step {
+    ok: bool,
+    positions: HashMap<String, f64>,
+    velocities: HashMap<String, f64>,
+}
+
+#[derive(Deserialize)]
+struct ResultCase {
+    initialize_ok: bool,
+    reset_ok: bool,
+    steps: Vec<Step>,
+}
+
+#[derive(Deserialize)]
+struct RequestResult {
+    cases: Vec<ResultCase>,
+}
+
+#[derive(Deserialize)]
+struct ResponseEntry {
+    result: RequestResult,
+}
+
+#[test]
+fn acceleration_filter_matches_the_oracle() {
+    let requests: Vec<Request> =
+        serde_json::from_str(&read_fixture("acceleration_filter_request.json"))
+            .expect("parse acceleration_filter_request.json");
+    let responses: Vec<ResponseEntry> =
+        serde_json::from_str(&read_fixture("acceleration_filter_response.json"))
+            .expect("parse acceleration_filter_response.json");
+    assert_eq!(requests.len(), responses.len());
+    let request = &requests[0];
+    let response = &responses[0];
+    assert_eq!(request.cases.len(), response.result.cases.len());
+
+    for (case_index, (case, expected)) in
+        request.cases.iter().zip(&response.result.cases).enumerate()
+    {
+        let mut model = panda();
+        set_acceleration_bounds(&mut model, &case.acceleration_bounds);
+        let group = model
+            .joint_model_group(&case.group)
+            .unwrap_or_else(|e| panic!("case {case_index}: joint_model_group: {e}"));
+        let (min_acceleration_limits, max_acceleration_limits) =
+            joint_acceleration_bounds(&model, group)
+                .unwrap_or_else(|e| panic!("case {case_index}: joint_acceleration_bounds: {e}"));
+        let joint_names = group.active_joint_names().to_vec();
+
+        let mut filter = AccelerationLimitedFilter::new(
+            &min_acceleration_limits,
+            &max_acceleration_limits,
+            case.update_period,
+        );
+        assert!(
+            expected.initialize_ok,
+            "case {case_index}: expected initialize_ok"
+        );
+
+        let named = |values: &HashMap<String, f64>| -> Vec<f64> {
+            joint_names
+                .iter()
+                .map(|name| {
+                    *values
+                        .get(name)
+                        .unwrap_or_else(|| panic!("case {case_index}: missing {name}"))
+                })
+                .collect()
+        };
+
+        let reset_positions = named(&case.reset.positions);
+        let reset_velocities = named(&case.reset.velocities);
+        let reset_result = filter.reset(&reset_positions, &reset_velocities);
+        assert_eq!(
+            reset_result.is_ok(),
+            expected.reset_ok,
+            "case {case_index}: reset ok mismatch ({reset_result:?})"
+        );
+
+        assert_eq!(
+            case.commands.len(),
+            expected.steps.len(),
+            "case {case_index}: step count mismatch"
+        );
+
+        for (step_index, (command, expected_step)) in
+            case.commands.iter().zip(&expected.steps).enumerate()
+        {
+            let mut positions = named(&command.positions);
+            let mut velocities = named(&command.velocities);
+            let result = filter.do_smoothing(&mut positions, &mut velocities);
+            assert_eq!(
+                result.is_ok(),
+                expected_step.ok,
+                "case {case_index} step {step_index}: do_smoothing ok mismatch ({result:?})"
+            );
+            if !expected_step.ok {
+                continue;
+            }
+
+            let tol = if case_index == 2 {
+                DEGENERATE_CASE_TOL
+            } else {
+                TOL
+            };
+            for (name, &expected_position) in &expected_step.positions {
+                let idx = joint_names
+                    .iter()
+                    .position(|n| n == name)
+                    .unwrap_or_else(|| {
+                        panic!("case {case_index} step {step_index}: unknown joint {name}")
+                    });
+                assert_relative_eq!(positions[idx], expected_position, epsilon = tol);
+            }
+            for (name, &expected_velocity) in &expected_step.velocities {
+                let idx = joint_names
+                    .iter()
+                    .position(|n| n == name)
+                    .unwrap_or_else(|| {
+                        panic!("case {case_index} step {step_index}: unknown joint {name}")
+                    });
+                assert_relative_eq!(velocities[idx], expected_velocity, epsilon = tol);
+            }
+        }
+    }
+}
