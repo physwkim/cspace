@@ -11,14 +11,11 @@ use nalgebra::Vector3;
 /// The minimal shape interface [`find_internal_points_convex`] needs.
 ///
 /// Upstream takes a `const bodies::Body&` from `geometric_shapes` directly.
-/// That type (and the shape hierarchy behind it) is not part of this
-/// workspace — `moveit-geometry` carries `Transforms` only as of this
-/// writing (see [`crate::DistanceField`]'s doc comment for the full
-/// rationale) — so this port narrows the dependency to exactly the two
-/// operations `findInternalPointsConvex` actually calls on a body:
-/// `computeBoundingSphere` and `containsPoint`. Whichever crate eventually
-/// owns a shape hierarchy can adopt this function by implementing
-/// `ConvexBody` for its body type; convex correctness is the caller's
+/// This port narrows the dependency to exactly the two operations
+/// `findInternalPointsConvex` actually calls on a body: `computeBoundingSphere`
+/// and `containsPoint` — implemented for [`moveit_geometry::bodies::Body`] in
+/// [`crate::DistanceField`]'s module (see that module for which shape
+/// variants are supported). Convex correctness is the caller's
 /// responsibility, as upstream documents ("If the body is not convex then
 /// its convex hull is used").
 pub trait ConvexBody {

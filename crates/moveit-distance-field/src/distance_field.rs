@@ -7,12 +7,44 @@
 //   moveit_core/distance_field/include/moveit/distance_field/distance_field.hpp
 //   moveit_core/distance_field/src/distance_field.cpp
 
-use moveit_error::Result;
+use moveit_error::{Error, Result};
+use moveit_geometry::bodies::Body;
 use moveit_geometry::{Isometry3, Shape};
 use nalgebra::Vector3;
 
-use crate::find_internal_points::find_internal_points_convex;
-use crate::posed_shape::PosedShape;
+use crate::find_internal_points::{ConvexBody, find_internal_points_convex};
+
+/// Upstream `bodies::Body::computeBoundingSphere`/`containsPoint`, dispatched
+/// per body kind by [`Body`] itself.
+impl ConvexBody for Body {
+    fn bounding_sphere(&self) -> (Vector3<f64>, f64) {
+        let sphere = self.compute_bounding_sphere();
+        (sphere.center, sphere.radius)
+    }
+
+    fn contains_point(&self, point: &Vector3<f64>) -> bool {
+        Body::contains_point(self, point)
+    }
+}
+
+/// Build the posed [`Body`] for `shape`, at identity scale and zero padding
+/// — matching `distance_field.cpp`'s `getShapePoints`/`addShapeToField`/
+/// `moveShapeInField`, none of which ever call `setScale`/`setPadding` on
+/// the body they construct.
+///
+/// # Errors
+///
+/// [`Error::Construct`] for shape kinds with no `bodies::` counterpart —
+/// see [`DistanceField`]'s "Deviations from upstream".
+fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
+    let mut body = Body::from_shape(shape)?.ok_or_else(|| {
+        Error::construct(format!(
+            "distance field shapes must be Sphere, Cylinder, Cuboid, or Mesh, got {shape:?}"
+        ))
+    })?;
+    body.set_pose(*pose);
+    Ok(body)
+}
 
 /// Distance and gradient at a queried world point. Return value of
 /// [`DistanceField::distance_gradient`], upstream
@@ -52,10 +84,12 @@ pub struct DistanceGradient {
 /// [`crate::find_internal_points_convex`] — matching upstream's own
 /// placement of `getShapePoints`/`addShapeToField`/`moveShapeInField` as
 /// non-virtual methods on the `DistanceField` base class. They accept
-/// exactly the shape variants the crate-private `posed_shape` module
-/// supports (`Sphere`/`Cylinder`/`Cuboid` — see that module's doc for why),
-/// returning [`moveit_error::Error::Construct`] for the rest rather than
-/// upstream's null-deref on an unsupported shape type.
+/// exactly the shape variants [`moveit_geometry::bodies::Body::from_shape`]
+/// supports (`Sphere`/`Cylinder`/`Cuboid`/`Mesh`), returning
+/// [`moveit_error::Error::Construct`] for [`Shape::Cone`], [`Shape::Plane`]
+/// and [`Shape::OcTree`] rather than upstream's null-deref on those —
+/// matching upstream's own `createEmptyBodyFromShapeType`, which has no
+/// case for them.
 ///
 /// The rest is not ported:
 ///
@@ -186,9 +220,9 @@ pub trait DistanceField {
     /// See this trait's "Deviations from upstream" for the shape variants
     /// this supports.
     fn add_shape_to_field(&mut self, shape: &Shape, pose: &Isometry3) -> Result<()> {
-        let posed = PosedShape::new(shape, pose)?;
+        let body = posed_body(shape, pose)?;
         let mut points = Vec::new();
-        find_internal_points_convex(&posed, self.resolution(), &mut points);
+        find_internal_points_convex(&body, self.resolution(), &mut points);
         self.add_points_to_field(&points);
         Ok(())
     }
@@ -200,9 +234,9 @@ pub trait DistanceField {
     /// See this trait's "Deviations from upstream" for the shape variants
     /// this supports.
     fn remove_shape_from_field(&mut self, shape: &Shape, pose: &Isometry3) -> Result<()> {
-        let posed = PosedShape::new(shape, pose)?;
+        let body = posed_body(shape, pose)?;
         let mut points = Vec::new();
-        find_internal_points_convex(&posed, self.resolution(), &mut points);
+        find_internal_points_convex(&body, self.resolution(), &mut points);
         self.remove_points_from_field(&points);
         Ok(())
     }
@@ -222,13 +256,13 @@ pub trait DistanceField {
         old_pose: &Isometry3,
         new_pose: &Isometry3,
     ) -> Result<()> {
-        let old_posed = PosedShape::new(shape, old_pose)?;
+        let old_body = posed_body(shape, old_pose)?;
         let mut old_points = Vec::new();
-        find_internal_points_convex(&old_posed, self.resolution(), &mut old_points);
+        find_internal_points_convex(&old_body, self.resolution(), &mut old_points);
 
-        let new_posed = PosedShape::new(shape, new_pose)?;
+        let new_body = posed_body(shape, new_pose)?;
         let mut new_points = Vec::new();
-        find_internal_points_convex(&new_posed, self.resolution(), &mut new_points);
+        find_internal_points_convex(&new_body, self.resolution(), &mut new_points);
 
         self.update_points_in_field(&old_points, &new_points);
         Ok(())
