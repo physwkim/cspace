@@ -11,6 +11,9 @@
 //! deserialized fixture, rather than hand-transcribed Rust literals, means a
 //! transcription typo can't make this test assert the wrong thing and a
 //! future oracle change shows up as a fixture diff instead of silent drift.
+//! The oracle-response JSON lives next to this test in `tests/fixtures/`; the
+//! URDFs themselves live at the repo-root `fixtures/`, the one home for
+//! committed robot descriptions.
 //!
 //! `virtual_joint` (panda, Floating) and `FixedBase` (fanuc, Fixed) come from
 //! each robot's SRDF `<virtual_joint>` element, not from the URDF; SRDF
@@ -169,7 +172,7 @@ fn oracle_type_count(expected: &[OracleJointDetail], type_name: &str) -> usize {
 fn panda_joint_layer_matches_the_oracle() {
     let mut joints = joints_by_name(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/panda.urdf"
+        "/../../fixtures/panda.urdf"
     ));
     joints.insert(
         "virtual_joint".to_string(),
@@ -212,7 +215,7 @@ fn panda_joint_layer_matches_the_oracle() {
 fn fanuc_joint_layer_matches_the_oracle() {
     let mut joints = joints_by_name(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/fanuc.urdf"
+        "/../../fixtures/fanuc.urdf"
     ));
     joints.insert("FixedBase".to_string(), JointModel::new_fixed("FixedBase"));
 

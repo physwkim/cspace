@@ -11,10 +11,12 @@
 //! instructions — panda's `hand` group names one joint and three links, and
 //! the oracle reports three joints for it).
 //!
-//! `tests/fixtures/{panda,fanuc}.srdf` are byte-identical copies of
-//! `crates/moveit-srdf/tests/fixtures/{panda,fanuc}.srdf`, which are in turn
-//! byte-identical to `third_party/moveit_resources/*_moveit_config/config/*.srdf`
-//! — verified against a live oracle re-query, not assumed.
+//! The robot descriptions themselves — `fixtures/{panda,fanuc}.{urdf,srdf}` —
+//! live at the repo-root `fixtures/`, the one home for every committed robot
+//! description; only the oracle-response JSON these tests assert against
+//! lives locally in `tests/fixtures/`. The SRDFs are byte-identical to
+//! `third_party/moveit_resources/*_moveit_config/config/*.srdf` — verified
+//! against a live oracle re-query, not assumed.
 
 use std::fs;
 
@@ -51,11 +53,11 @@ fn load_fixture(file_name: &str) -> OracleModelInfo {
 
 fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
     let urdf_path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/{}"),
         urdf_file
     );
     let srdf_path = format!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/{}"),
         srdf_file
     );
     let urdf_xml =

@@ -8,7 +8,7 @@
 //! the same library the differential oracle in `tools/moveit-oracle` uses — and
 //! transcribed here. Nothing is asserted from what the SRDF text looks like.
 //!
-//! `tests/fixtures/*.srdf` are byte-for-byte copies of, respectively:
+//! The repo-root `fixtures/*.srdf` are byte-for-byte copies of, respectively:
 //!
 //! - `third_party/moveit_resources/panda_moveit_config/config/panda.srdf`
 //! - `third_party/moveit_resources/fanuc_moveit_config/config/fanuc.srdf`
@@ -16,7 +16,9 @@
 //!
 //! They are copied rather than read from `third_party/` because that directory
 //! is an external checkout that `.gitignore` excludes, so it is absent from a
-//! fresh clone and from CI.
+//! fresh clone and from CI. `fixtures/` at the repo root is the one home for
+//! every committed robot description; per-crate `tests/fixtures/` directories
+//! hold only oracle-response JSON, not URDF/SRDF text.
 
 use std::collections::BTreeMap;
 
@@ -24,9 +26,9 @@ use moveit_srdf::{
     Chain, CollisionPair, Diagnostic, EndEffector, Group, SrdfModel, VirtualJoint, VirtualJointType,
 };
 
-const PANDA: &str = include_str!("fixtures/panda.srdf");
-const FANUC: &str = include_str!("fixtures/fanuc.srdf");
-const DUAL_ARM_PANDA: &str = include_str!("fixtures/dual_arm_panda.srdf");
+const PANDA: &str = include_str!("../../../fixtures/panda.srdf");
+const FANUC: &str = include_str!("../../../fixtures/fanuc.srdf");
+const DUAL_ARM_PANDA: &str = include_str!("../../../fixtures/dual_arm_panda.srdf");
 
 fn names(v: &[String]) -> Vec<&str> {
     v.iter().map(String::as_str).collect()
