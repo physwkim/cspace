@@ -1,0 +1,18 @@
+{
+    "id": 1,
+    "ok": true,
+    "result": {
+        "defaults": {},
+        "entries": [
+            {
+                "link1": "r_shoulder_lift_link",
+                "link2": "r_shoulder_pan_link",
+                "type": "ALWAYS"
+            }
+        ],
+        "names": [
+            "r_shoulder_lift_link",
+            "r_shoulder_pan_link"
+        ]
+    }
+}

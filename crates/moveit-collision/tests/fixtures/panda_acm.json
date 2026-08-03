@@ -1,0 +1,192 @@
+{
+    "id": 1,
+    "ok": true,
+    "result": {
+        "defaults": {},
+        "entries": [
+            {
+                "link1": "panda_hand",
+                "link2": "panda_leftfinger",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_hand",
+                "link2": "panda_link3",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_hand",
+                "link2": "panda_link4",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_hand",
+                "link2": "panda_link6",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_hand",
+                "link2": "panda_link7",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_hand",
+                "link2": "panda_rightfinger",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_leftfinger",
+                "link2": "panda_link3",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_leftfinger",
+                "link2": "panda_link4",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_leftfinger",
+                "link2": "panda_link6",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_leftfinger",
+                "link2": "panda_link7",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_leftfinger",
+                "link2": "panda_rightfinger",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link0",
+                "link2": "panda_link1",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link0",
+                "link2": "panda_link2",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link0",
+                "link2": "panda_link3",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link0",
+                "link2": "panda_link4",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link1",
+                "link2": "panda_link2",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link1",
+                "link2": "panda_link3",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link1",
+                "link2": "panda_link4",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link2",
+                "link2": "panda_link3",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link2",
+                "link2": "panda_link4",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link2",
+                "link2": "panda_link6",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link3",
+                "link2": "panda_link4",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link3",
+                "link2": "panda_link5",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link3",
+                "link2": "panda_link6",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link3",
+                "link2": "panda_link7",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link3",
+                "link2": "panda_rightfinger",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link4",
+                "link2": "panda_link5",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link4",
+                "link2": "panda_link6",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link4",
+                "link2": "panda_link7",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link4",
+                "link2": "panda_rightfinger",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link5",
+                "link2": "panda_link6",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link6",
+                "link2": "panda_link7",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link6",
+                "link2": "panda_rightfinger",
+                "type": "ALWAYS"
+            },
+            {
+                "link1": "panda_link7",
+                "link2": "panda_rightfinger",
+                "type": "ALWAYS"
+            }
+        ],
+        "names": [
+            "panda_hand",
+            "panda_leftfinger",
+            "panda_link0",
+            "panda_link1",
+            "panda_link2",
+            "panda_link3",
+            "panda_link4",
+            "panda_link5",
+            "panda_link6",
+            "panda_link7",
+            "panda_rightfinger"
+        ]
+    }
+}
