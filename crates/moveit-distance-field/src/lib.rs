@@ -211,14 +211,22 @@
 //! together with an explicit `max_relative` still finds no binding point
 //! above `0.0` — drop the tolerance entirely and use `assert_eq!` instead,
 //! as `oracle_parity.rs` and `collision_sphere_free_functions_parity.rs` do
-//! (see the "Exactness" section of `oracle_parity.rs`'s own module doc). A
-//! call site is *not* automatically defective for lacking `max_relative`:
-//! `upstream_parity.rs`'s 7 calls use upstream's own literal `EXPECT_NEAR`
-//! values (`0.0001`, `0.1`), which stay 12+ orders of magnitude above any
-//! magnitude this file's 1x1x1 meter grid can produce, so the implicit term
-//! can never dominate there — checked by bisecting all 7 to `0.0` together,
-//! which fails immediately, confirming the named epsilon is what is
-//! actually gating those assertions, not `approx`'s default.
+//! (see the "Exactness" section of `oracle_parity.rs`'s own module doc).
+//!
+//! **Bisect by constant, not by file (PORTING-PLAN.md §85.3).** A call site
+//! is not automatically defective for lacking `max_relative` — but checking
+//! that by lowering every `assert_relative_eq!` in a file to `epsilon = 0.0`
+//! as one group is unreliable in the *other* direction: one still-passing
+//! real gate is indistinguishable, at the group level, from "nothing in this
+//! group is trap-caught". `upstream_parity.rs`'s own first pass made exactly
+//! this mistake — bisecting its 7 calls together showed a pass-then-fail at
+//! `0.0`, read as "the named epsilons dominate", when 4 of the 7 were in
+//! fact trap-caught and only the remaining 3 (a different named constant)
+//! were the real gate (see that file's own module doc for the corrected
+//! measurement). Bisect per constant, or per constant-group sharing one
+//! name, not per file — and when a lowered group fails, confirm by name
+//! which assertion actually tripped, since a file can mix a real gate with
+//! trapped ones behind the same `epsilon = 0.0` run.
 //!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
