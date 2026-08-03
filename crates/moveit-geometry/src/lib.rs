@@ -15,11 +15,13 @@
 
 pub mod bodies;
 pub mod shapes;
+pub mod stl;
 mod transforms;
 
 pub use shapes::{
     BoundingSphere, Cone, Cuboid, Cylinder, Mesh, OcTree, Plane, Shape, ShapeType, Sphere,
 };
+pub use stl::mesh_from_bytes;
 pub use transforms::Transforms;
 
 /// Rigid-body transform. Replaces upstream `Eigen::Isometry3d`.

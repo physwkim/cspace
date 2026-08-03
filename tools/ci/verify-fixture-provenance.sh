@@ -51,27 +51,24 @@ declare -A GENERATED=(
 
 status=0
 
-# Driven off the filesystem, not off the table: a fixture added without a
-# mapping must fail rather than silently escape the check. That is the whole
-# difference between a rule and a list of the files someone remembered.
-shopt -s nullglob
-for fixture in fixtures/*.urdf fixtures/*.srdf; do
+check_fixture() {  # <fixture path> <vendored source path>
+  local fixture="$1" source_path="$2"
+
   if [[ -n "${GENERATED[$fixture]:-}" ]]; then
     echo "generated  $fixture -- ${GENERATED[$fixture]}"
-    continue
+    return
   fi
 
-  source_path="${SOURCE_OF[$fixture]:-}"
   if [[ -z "$source_path" ]]; then
     echo "UNMAPPED   $fixture has no vendored source and is not listed as generated" >&2
     status=1
-    continue
+    return
   fi
 
   if [[ ! -f "$source_path" ]]; then
     echo "MISSING    $source_path (source of $fixture) is not in the vendored tree" >&2
     status=1
-    continue
+    return
   fi
 
   if cmp -s "$fixture" "$source_path"; then
@@ -81,6 +78,27 @@ for fixture in fixtures/*.urdf fixtures/*.srdf; do
     diff "$fixture" "$source_path" | head -10 >&2
     status=1
   fi
+}
+
+# Driven off the filesystem, not off the table: a fixture added without a
+# mapping must fail rather than silently escape the check. That is the whole
+# difference between a rule and a list of the files someone remembered.
+shopt -s nullglob
+for fixture in fixtures/*.urdf fixtures/*.srdf; do
+  check_fixture "$fixture" "${SOURCE_OF[$fixture]:-}"
+done
+
+# Collision meshes under fixtures/meshes/<package>/... mirror
+# $VENDOR/<package>/... path-for-path (that is how they were copied in), so
+# unlike the urdf/srdf table above -- where pr2's two files are both named
+# `robot.xml` upstream and a derived mapping would collide -- the vendored
+# path here is mechanically the fixture path with the leading
+# `fixtures/meshes/` swapped for `$VENDOR/`. Still driven off the filesystem,
+# not a table: a new file under fixtures/meshes/ is checked automatically,
+# with no mapping entry to remember to add.
+shopt -s globstar
+for fixture in fixtures/meshes/**/*.stl; do
+  check_fixture "$fixture" "$VENDOR/${fixture#fixtures/meshes/}"
 done
 
 if [[ $status -ne 0 ]]; then

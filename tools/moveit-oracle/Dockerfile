@@ -6,21 +6,26 @@
 # planners, moveit_ros and the setup assistant would cost most of the build
 # time for code the oracle never calls. Later phases widen this list.
 #
+# `moveit_resources_fanuc_description` is listed explicitly alongside
+# `moveit_core`: colcon's `--packages-up-to` only builds a package's actual
+# dependency closure, and `moveit_core` does not depend on any of the
+# `moveit_resources` description packages, so none of them would be built (and
+# none would be on `AMENT_PREFIX_PATH`, so `package://` resolution would fail
+# for all of them) if left to dependency inference alone.
+# `moveit_resources_panda_description` and `moveit_resources_pr2_description`
+# already build anyway, transitively -- panda's own `moveit_resources`
+# metapackage or a colcon workspace scan pulls those two in as siblings under
+# `/ws/src`, verified by `ls /ws/install` on a built image -- but the same is
+# not true of fanuc's, which is why it needs to be named here for the `mesh`
+# op's fanuc parity coverage (see `oracle.cpp`'s `meshOp`) to resolve
+# `package://moveit_resources_fanuc_description/...` at all.
+#
 # Layer 2 (stage `oracle`): the oracle binary itself, rebuilt on every source
 # change without re-running the moveit_core build.
 
 ARG ROS_DISTRO=rolling
 FROM moveit/moveit2:${ROS_DISTRO}-ci AS moveit
 
-# `moveit_resources_fanuc_description` is named explicitly because nothing
-# pulls it in: `--packages-up-to moveit_core` builds the panda and pr2
-# description packages only because moveit_core test-depends on them, and
-# fanuc is not among those. Without it, every `package://
-# moveit_resources_fanuc_description/...` mesh in fixtures/fanuc.urdf fails
-# to resolve inside the container, RobotModel logs "No geometry is
-# associated to any robot links", and the oracle answers every fanuc
-# collision query against a robot with no collision geometry at all -- a
-# fixture captured that way agrees with anything.
 ARG MOVEIT2_PACKAGES="moveit_core moveit_resources_fanuc_description"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

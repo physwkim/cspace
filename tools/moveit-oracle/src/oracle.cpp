@@ -25,6 +25,7 @@
 #include <Eigen/Geometry>
 #include <geometric_shapes/body_operations.h>
 #include <geometric_shapes/bodies.h>
+#include <geometric_shapes/mesh_operations.h>
 #include <geometric_shapes/shapes.h>
 #include <nlohmann/json.hpp>
 #include <octomap/octomap.h>
@@ -473,6 +474,8 @@ public:
       return distanceField(request);
     if (op == "shape_points")
       return shapePoints(request);
+    if (op == "mesh")
+      return meshOp(request);
     if (op == "common_root")
       return commonRoot(request);
     if (op == "collision_distance_field_types")
@@ -1536,6 +1539,37 @@ private:
       points_out.push_back(json::array({ p.x(), p.y(), p.z() }));
 
     return json{ { "points", points_out } };
+  }
+
+  /// Ground truth for the `moveit-geometry` STL loader
+  /// (`crates/moveit-geometry/src/stl.rs`). Calls
+  /// `shapes::createMeshFromResource` exactly as `RobotModel::constructShape`
+  /// does for a URDF `<mesh>` element -- real Assimp, real
+  /// `aiProcess_JoinIdenticalVertices` merging, real `package://` resolution
+  /// against this image's colcon-built `moveit_resources` workspace -- so a
+  /// resource path and scale go in and the vertex/triangle counts and
+  /// vertex positions Assimp actually produced come out, with no
+  /// `RobotModel` construction involved on either side of this op.
+  json meshOp(const json& request) const
+  {
+    const std::string resource = request.at("resource").get<std::string>();
+    const auto scale_json = request.at("scale").get<std::array<double, 3>>();
+    const Eigen::Vector3d scale(scale_json[0], scale_json[1], scale_json[2]);
+
+    std::unique_ptr<shapes::Mesh> mesh(shapes::createMeshFromResource(resource, scale));
+    if (!mesh)
+      throw std::runtime_error("failed to load mesh resource " + resource);
+
+    json vertices_out = json::array();
+    for (unsigned int i = 0; i < mesh->vertex_count; ++i)
+    {
+      vertices_out.push_back(json::array({ mesh->vertices[3 * i], mesh->vertices[3 * i + 1],
+                                            mesh->vertices[3 * i + 2] }));
+    }
+
+    return json{ { "vertex_count", mesh->vertex_count },
+                 { "triangle_count", mesh->triangle_count },
+                 { "vertices", vertices_out } };
   }
 
   /// Ground truth for `collision_distance_field_types.{hpp,cpp}`: the two
