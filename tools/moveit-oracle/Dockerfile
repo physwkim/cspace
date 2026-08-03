@@ -54,15 +54,18 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && cmake --build /ws/oracle-build --parallel \
     && cmake --install /ws/oracle-build --prefix /usr/local
 
-# Stamp the oracle sources this image was built from. run-oracle.sh compares
-# it against the working tree and refuses to answer from a stale image: a new
+# Stamp the sources this image was built from. run-oracle.sh compares it
+# against the working tree and refuses to answer from a stale image: a new
 # op fails loudly ("unsupported op"), but a *changed* op does not -- it would
 # quietly answer from old code, and a fixture captured that way looks exactly
 # like a good one.
-RUN cd /ws/oracle-src \
-    && find . -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name 'CMakeLists.txt' \) \
-       -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 \
-       > /usr/local/share/oracle-src.sha256
+#
+# The digest comes from src-digest.sh rather than a copy of its find
+# expression: the stamp written here and the value run-oracle.sh checks it
+# against have to be the same function, or a widened file set on one side
+# reads as a stale image on the other.
+RUN source /ws/oracle-src/src-digest.sh \
+    && oracle_src_digest /ws/oracle-src > /usr/local/share/oracle-src.sha256
 
 COPY moveit-oracle/entrypoint.sh /usr/local/bin/entrypoint.sh
 
