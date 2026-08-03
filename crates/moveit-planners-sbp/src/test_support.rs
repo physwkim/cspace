@@ -17,10 +17,11 @@ use crate::space::StateSpace;
 /// distance(a, b)`) over `pairs` random `(a, b, c, t)` draws from
 /// `random_state`.
 ///
-/// `tolerance` is the floating-point slack for the triangle inequality and
-/// the interpolation-distance check; a space whose `interpolate` is not
-/// exactly affine in `distance` (a rotation's slerp, for instance) may need
-/// a looser tolerance than `RealVectorSpace`'s exact linear blend.
+/// `tolerance` is the floating-point slack for the symmetry, triangle and
+/// interpolation-distance checks; a space whose `interpolate` is not exactly
+/// affine in `distance` (a rotation's slerp, for instance) may need a looser
+/// tolerance than `RealVectorSpace`'s exact linear blend. Identity is
+/// asserted exactly and takes no slack from it.
 pub(crate) fn assert_metric_and_interpolation_axioms<S: StateSpace>(
     space: &S,
     rng: &mut dyn Rng,
@@ -35,10 +36,17 @@ pub(crate) fn assert_metric_and_interpolation_axioms<S: StateSpace>(
         let b = random_state(rng);
         let c = random_state(rng);
 
-        let d_aa = space.distance(&a, &a);
-        assert!(
-            d_aa.abs() < tolerance,
-            "distance(a, a) = {d_aa}, expected 0, a = {a:?}"
+        // Exactly zero, deliberately not within `tolerance`: identity is the
+        // one axiom with no reason to be approximate, and every space here
+        // can hold it by construction. `tolerance` exists for the triangle
+        // inequality and for interpolation that is not exactly affine in
+        // distance (slerp); folding identity into that same slack is what
+        // let `Se3Space` ship a `2 * acos(|dot|)` rotation distance whose
+        // `distance(a, a)` was 6.7e-8.
+        assert_eq!(
+            space.distance(&a, &a),
+            0.0,
+            "distance(a, a) is not zero, a = {a:?}"
         );
 
         let d_ab = space.distance(&a, &b);

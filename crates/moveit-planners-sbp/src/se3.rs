@@ -43,17 +43,35 @@ fn exp_map(axis: &[f64], angle: f64) -> Quat {
     [half.cos(), axis[0] * s, axis[1] * s, axis[2] * s]
 }
 
-/// Angle in `[0, PI]` between the rotations `a` and `b`: `2 * acos(|a . b|)`.
+/// Angle in `[0, PI]` between the rotations `a` and `b`.
 ///
 /// `a` and `b` are unit quaternions, and a quaternion and its negation
 /// represent the same rotation (the double cover of `SO(3)` by the unit
-/// sphere `S^3`). Taking `abs()` of the dot product before `acos` is what
-/// makes `rotation_distance(a, b) == rotation_distance(a, -b)` hold for
-/// every `a` and `b` by construction, rather than by a sign check at each
-/// call site: `-b` has dot product `-1` times `b`'s, and `abs()` erases
-/// exactly that sign.
+/// sphere `S^3`), so the near representative is chosen first and
+/// `rotation_distance(a, b) == rotation_distance(a, -b)` holds for every
+/// `a` and `b` by construction rather than by a sign check at each call
+/// site.
+///
+/// The angle itself is `2 * atan2(|a - b|, |a + b|)`, not the textbook
+/// `2 * acos(a . b)`. Both are exact in real arithmetic; only the first is
+/// accurate in floating point near zero, which is the case a metric cannot
+/// afford to get wrong. `acos` has an infinite derivative at `1.0`, so a
+/// dot product one ULP below it — already as good as normalizing a
+/// quaternion can get — yields an angle around `1e-8` rather than `0`, and
+/// `distance(a, a)` stops being zero. `atan2` reads the same angle off a
+/// chord length that is itself small there, and loses nothing:
+/// `distance(a, a)` is exactly `0.0`.
 fn rotation_distance(a: &Quat, b: &Quat) -> f64 {
-    2.0 * quat_dot(a, b).abs().min(1.0).acos()
+    // The near representative: with a positive dot product, `a - b` is the
+    // short chord and `a + b` the long one.
+    let near = if quat_dot(a, b) < 0.0 {
+        [-b[0], -b[1], -b[2], -b[3]]
+    } else {
+        *b
+    };
+    let chord =
+        |f: fn(f64, f64) -> f64| (0..4).map(|i| f(a[i], near[i]).powi(2)).sum::<f64>().sqrt();
+    2.0 * chord(|x, y| x - y).atan2(chord(|x, y| x + y))
 }
 
 /// Spherical linear interpolation, taking the shorter of the two arcs a
@@ -118,9 +136,9 @@ pub struct Se3State {
 ///
 /// Orientation is a unit quaternion. `SO(3)` is double-covered by the unit
 /// quaternions (`q` and `-q` are the same rotation), so this module's
-/// private `rotation_distance` takes `abs()` of the quaternion dot product:
-/// that makes `distance(a, b) == distance(a, b_negated)` hold
-/// unconditionally, not via a sign check duplicated at every call site.
+/// private `rotation_distance` picks the near representative of the pair
+/// before measuring: that makes `distance(a, b) == distance(a, b_negated)`
+/// hold unconditionally, not via a sign check duplicated at every call site.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Se3Space {
     translation: RealVectorSpace,
@@ -321,16 +339,15 @@ mod tests {
 
     #[test]
     fn rotation_distance_between_identical_rotations_is_zero() {
-        // Tolerance 1e-6, not 1e-9: acos's derivative diverges at its
-        // domain edge (1.0), so a dot product one ULP below 1.0 -- already
-        // as good as floating-point normalization gets -- can produce an
-        // angle on the order of 1e-8, not 1e-9. See `rotation_distance`'s
-        // doc comment; this is the same acos this test exercises.
+        // Exactly zero, not "within some epsilon": `rotation_distance`'s
+        // atan2 form reads a small angle off a small chord, so there is no
+        // precision floor to leave room for. An earlier `2 * acos(|dot|)`
+        // needed 1e-6 here.
         let s = space();
         let mut rng = ChaCha8Rng::seed_from_u64(2);
         for _ in 0..500 {
             let a = s.sample_uniform(&mut rng);
-            assert!(s.distance(&a, &a).abs() < 1e-6);
+            assert_eq!(s.distance(&a, &a), 0.0);
         }
     }
 
