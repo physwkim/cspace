@@ -33,5 +33,5 @@ mod scene;
 mod world_diff;
 
 pub use attached_body::AttachedBody;
-pub use scene::PlanningScene;
+pub use scene::{PathValidity, PlanningScene};
 pub use world_diff::WorldDiff;
