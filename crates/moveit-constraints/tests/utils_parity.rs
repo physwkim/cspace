@@ -1,0 +1,703 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
+//! Parity test against the moveit2 C++ oracle's `constraints` op for
+//! `crate::utils`'s construction functions, plus pure-Rust boundary tests for
+//! the update/merge functions the oracle has no direct endpoint for.
+//!
+//! Ground truth for every `oracle_*` test is the oracle's own response,
+//! captured verbatim into `tests/fixtures/panda_constraints.json` by sending
+//! the equivalent `constraints` request (same `joint_values`, same
+//! constraint parameters this file builds through `moveit_constraints::utils`)
+//! at `moveit-rs/oracle:5188956fc433d046`. This doubles as the first oracle
+//! parity check for [`moveit_constraints::Constraint::decide`] itself
+//! (`decide.rs`'s own module doc notes that check did not exist before the
+//! oracle gained a `constraints` op), since every construction function here
+//! is exercised only through `decide()`'s output, never by asserting on the
+//! constructed value directly.
+
+use std::fs;
+
+use serde::Deserialize;
+
+use moveit_error::Error;
+use moveit_geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
+use moveit_model::RobotModel;
+use moveit_srdf::SrdfModel;
+use moveit_state::RobotState;
+
+use moveit_constraints::utils::{
+    construct_goal_joint_constraints, construct_goal_orientation_constraints,
+    construct_goal_pose_constraints, construct_goal_pose_constraints_box,
+    construct_goal_position_constraints, count_individual_constraints, merge_constraints,
+    update_joint_constraints, update_orientation_constraint, update_pose_constraint,
+    update_position_constraint,
+};
+use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet, PositionConstraint};
+
+const TOLERANCE: f64 = 1e-6;
+
+fn fixture_path(file_name: &str) -> String {
+    format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        file_name
+    )
+}
+
+fn panda_model() -> RobotModel {
+    let urdf_path = fixture_path("panda.urdf");
+    let srdf_path = fixture_path("panda.srdf");
+    let urdf_xml = fs::read_to_string(&urdf_path).expect("read panda.urdf");
+    let urdf = urdf_rs::read_file(&urdf_path).expect("parse panda.urdf");
+    let srdf = SrdfModel::parse_file(&srdf_path).expect("parse panda.srdf");
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("build panda model")
+}
+
+fn tf(model: &RobotModel) -> Transforms {
+    Transforms::new(model.model_frame()).expect("model_frame is always a valid target frame")
+}
+
+/// Builds a state with every named variable set explicitly (no reliance on
+/// `set_to_default_values`'s specific numbers, so every joint value in this
+/// file is a literal both sides were sent).
+fn state_with<'m>(model: &'m RobotModel, values: &[(&str, f64)]) -> RobotState<'m> {
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, value) in values {
+        state
+            .set_variable_position(name, *value)
+            .unwrap_or_else(|e| panic!("setting {name}: {e}"));
+    }
+    state
+}
+
+const PANDA_JOINTS: [&str; 7] = [
+    "panda_joint1",
+    "panda_joint2",
+    "panda_joint3",
+    "panda_joint4",
+    "panda_joint5",
+    "panda_joint6",
+    "panda_joint7",
+];
+
+fn s0() -> [(&'static str, f64); 7] {
+    PANDA_JOINTS.map(|n| (n, 0.0))
+}
+
+fn s1() -> [(&'static str, f64); 7] {
+    PANDA_JOINTS.map(|n| (n, 0.05))
+}
+
+fn s2() -> [(&'static str, f64); 7] {
+    PANDA_JOINTS.map(|n| (n, 0.5))
+}
+
+const SB: [(&str, f64); 2] = [("panda_joint2", -0.3), ("panda_joint4", -1.0)];
+
+#[derive(Deserialize)]
+struct ExpectedResult {
+    satisfied: bool,
+    distance: f64,
+}
+
+#[derive(Deserialize)]
+struct ExpectedCase {
+    id: u32,
+    results: Vec<ExpectedResult>,
+}
+
+#[derive(Deserialize)]
+struct ConstraintsFixture {
+    cases: Vec<ExpectedCase>,
+}
+
+fn expected(id: u32) -> Vec<ExpectedResult> {
+    let raw = fs::read_to_string(fixture_path("panda_constraints.json"))
+        .expect("read panda_constraints.json");
+    let fixture: ConstraintsFixture =
+        serde_json::from_str(&raw).expect("parse panda_constraints.json");
+    fixture
+        .cases
+        .into_iter()
+        .find(|c| c.id == id)
+        .unwrap_or_else(|| panic!("no fixture case with id {id}"))
+        .results
+}
+
+fn assert_matches_oracle(actual: &[moveit_constraints::ConstraintEvaluationResult], id: u32) {
+    let expected = expected(id);
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "case {id}: constraint count mismatch"
+    );
+    for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            a.satisfied, e.satisfied,
+            "case {id} result {i}: satisfied mismatch"
+        );
+        assert!(
+            (a.distance - e.distance).abs() < TOLERANCE,
+            "case {id} result {i}: distance {} vs oracle {}",
+            a.distance,
+            e.distance
+        );
+    }
+}
+
+fn goal_point_pose() -> Isometry3 {
+    let mut pose = Isometry3::identity();
+    pose.translation.vector = Vector3::new(0.4, 0.0, 0.6);
+    pose
+}
+
+mod oracle_construct_goal_joint_constraints {
+    use super::*;
+
+    #[test]
+    fn satisfied_at_goal() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        let goal = construct_goal_joint_constraints(&model, &posed, "panda_arm", 0.1, 0.1).unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 1);
+    }
+
+    #[test]
+    fn satisfied_within_tolerance() {
+        let model = panda_model();
+        let mut state_goal = state_with(&model, &s0());
+        let goal =
+            construct_goal_joint_constraints(&model, &state_goal.update(), "panda_arm", 0.1, 0.1)
+                .unwrap();
+
+        let mut state_probe = state_with(&model, &s1());
+        let posed_probe = state_probe.update();
+        assert_matches_oracle(&goal.decide_each(&posed_probe), 2);
+    }
+
+    #[test]
+    fn violated_outside_tolerance() {
+        let model = panda_model();
+        let mut state_goal = state_with(&model, &s0());
+        let goal =
+            construct_goal_joint_constraints(&model, &state_goal.update(), "panda_arm", 0.1, 0.1)
+                .unwrap();
+
+        let mut state_probe = state_with(&model, &s2());
+        let posed_probe = state_probe.update();
+        assert_matches_oracle(&goal.decide_each(&posed_probe), 3);
+    }
+
+    #[test]
+    fn unknown_group_is_error() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        let err = construct_goal_joint_constraints(&model, &posed, "no_such_group", 0.1, 0.1)
+            .unwrap_err();
+        assert!(matches!(err, Error::UnknownName { .. }));
+    }
+}
+
+mod oracle_update_joint_constraints {
+    use super::*;
+
+    /// Re-targets a goal built at `s0()` onto `s1()`'s position and checks
+    /// the result decides identically to a goal the oracle was asked to
+    /// evaluate directly at `s1()`'s position (fixture case 4) -- this is
+    /// exactly what "update" is supposed to guarantee.
+    #[test]
+    fn retargets_to_new_state() {
+        let model = panda_model();
+        let mut goal = construct_goal_joint_constraints(
+            &model,
+            &state_with(&model, &s0()).update(),
+            "panda_arm",
+            0.1,
+            0.1,
+        )
+        .unwrap();
+
+        let mut state_new = state_with(&model, &s1());
+        let posed_new = state_new.update();
+        let updated = update_joint_constraints(&mut goal, &model, &posed_new, "panda_arm").unwrap();
+        assert!(updated);
+
+        assert_matches_oracle(&goal.decide_each(&posed_new), 4);
+    }
+
+    /// A constraint for a joint that is not active in the target group stops
+    /// the update and reports `false`, but does not undo constraints already
+    /// updated earlier in the same call -- upstream's early-return loop
+    /// (`utils.cpp:172-192`), reproduced here.
+    #[test]
+    fn stops_at_first_inactive_joint_without_undoing_earlier_updates() {
+        let model = panda_model();
+        let mut set = KinematicConstraintSet::new();
+        set.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, 1.0).unwrap(),
+        ));
+        set.push(Constraint::Joint(
+            // Active in "hand", not in "panda_arm".
+            JointConstraint::new(&model, "panda_finger_joint1", 0.0, 0.1, 0.1, 1.0).unwrap(),
+        ));
+
+        let mut state = state_with(&model, &[("panda_joint1", 0.3)]);
+        let posed = state.update();
+        let updated = update_joint_constraints(&mut set, &model, &posed, "panda_arm").unwrap();
+        assert!(!updated);
+
+        let Constraint::Joint(first) = &set.constraints()[0] else {
+            panic!("expected a joint constraint");
+        };
+        assert!((first.desired_joint_position() - 0.3).abs() < TOLERANCE);
+
+        let Constraint::Joint(second) = &set.constraints()[1] else {
+            panic!("expected a joint constraint");
+        };
+        assert!((second.desired_joint_position() - 0.0).abs() < TOLERANCE);
+    }
+}
+
+mod oracle_update_pose_constraint {
+    use super::*;
+
+    /// A goal built at the identity pose, then re-targeted onto
+    /// `goal_point_pose()`, must decide identically to a goal
+    /// [`construct_goal_pose_constraints`] built at `goal_point_pose()`
+    /// directly (fixture case 5) -- exactly what "update" guarantees.
+    #[test]
+    fn retargets_both_position_and_orientation() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut goal = construct_goal_pose_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            Isometry3::identity(),
+            0.05,
+            0.3,
+        )
+        .unwrap();
+
+        let updated = update_pose_constraint(
+            &mut goal,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            goal_point_pose(),
+        )
+        .unwrap();
+        assert!(updated);
+
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        assert_matches_oracle(&goal.decide_each(&posed), 5);
+    }
+
+    /// If no position constraint names the link, `update_pose_constraint`
+    /// must report `false` *and* never attempt the orientation update --
+    /// upstream's `&&` short-circuit (`utils.cpp:271-272`), reproduced by
+    /// this port's own `&&` expression. Checked by giving the (never
+    /// updated) orientation constraint a target far from a pose whose
+    /// position half cannot be found, and confirming `decide()` still sees
+    /// the *original* target, not the one this call was asked to apply.
+    #[test]
+    fn position_not_found_skips_orientation_update() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut goal = construct_goal_orientation_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            UnitQuaternion::identity(),
+            0.3,
+        )
+        .unwrap();
+
+        let mut new_pose = Isometry3::identity();
+        new_pose.rotation = UnitQuaternion::from_axis_angle(
+            &nalgebra::Vector3::z_axis(),
+            std::f64::consts::FRAC_PI_2,
+        );
+        let updated = update_pose_constraint(
+            &mut goal,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            new_pose,
+        )
+        .unwrap();
+        assert!(!updated);
+
+        // Same state and fixture as `oracle_construct_goal_orientation_
+        // constraints::far_from_goal` (case 9): if the orientation target had
+        // actually been overwritten to `new_pose`'s 90-degree rotation, this
+        // would no longer match that fixture's distance.
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        assert_matches_oracle(&goal.decide_each(&posed), 9);
+    }
+}
+
+mod oracle_construct_goal_pose_constraints {
+    use super::*;
+
+    #[test]
+    fn far_from_goal() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        let goal = construct_goal_pose_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            goal_point_pose(),
+            0.05,
+            0.3,
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 5);
+    }
+
+    #[test]
+    fn far_from_goal_perturbed_state() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &SB);
+        let posed = state.update();
+
+        let goal = construct_goal_pose_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            goal_point_pose(),
+            0.05,
+            0.3,
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 6);
+    }
+}
+
+mod oracle_construct_goal_pose_constraints_box {
+    use super::*;
+
+    #[test]
+    fn far_from_goal() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        let goal = construct_goal_pose_constraints_box(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            goal_point_pose(),
+            [0.1, 0.1, 0.1],
+            [0.2, 0.2, 0.4],
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 7);
+    }
+
+    #[test]
+    fn far_from_goal_perturbed_state() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &SB);
+        let posed = state.update();
+
+        let goal = construct_goal_pose_constraints_box(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            goal_point_pose(),
+            [0.1, 0.1, 0.1],
+            [0.2, 0.2, 0.4],
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 8);
+    }
+}
+
+mod oracle_construct_goal_orientation_constraints {
+    use super::*;
+
+    /// Confirms the quaternion-only overload's parameterization default:
+    /// [`construct_goal_orientation_constraints`]'s doc comment explains why
+    /// it must be `XyzEuler`, not `RotationVector` like the pose overload --
+    /// this is the case that would fail if that were wrong, since the two
+    /// parameterizations decompose the same 180-degree rotation error
+    /// differently (see `far_from_goal_perturbed_state` for the pose
+    /// overload's `RotationVector` distance at the same state, fixture case
+    /// 8, which numerically differs from this case's fixture 10).
+    #[test]
+    fn far_from_goal() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        let goal = construct_goal_orientation_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            UnitQuaternion::identity(),
+            0.3,
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 9);
+    }
+
+    #[test]
+    fn far_from_goal_perturbed_state() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &SB);
+        let posed = state.update();
+
+        let goal = construct_goal_orientation_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            UnitQuaternion::identity(),
+            0.3,
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 10);
+    }
+}
+
+mod oracle_construct_goal_position_constraints {
+    use super::*;
+
+    fn reference_point() -> Vector3 {
+        Vector3::new(0.01, 0.02, 0.03)
+    }
+
+    #[test]
+    fn far_from_goal() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        let goal = construct_goal_position_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            reference_point(),
+            "world",
+            Vector3::new(0.4, 0.0, 0.6),
+            0.05,
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 11);
+    }
+
+    #[test]
+    fn far_from_goal_perturbed_state() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut state = state_with(&model, &SB);
+        let posed = state.update();
+
+        let goal = construct_goal_position_constraints(
+            &model,
+            &transforms,
+            "panda_link8",
+            reference_point(),
+            "world",
+            Vector3::new(0.4, 0.0, 0.6),
+            0.05,
+        )
+        .unwrap();
+        assert_matches_oracle(&goal.decide_each(&posed), 12);
+    }
+}
+
+mod update_orientation_constraint_boundary {
+    use super::*;
+
+    #[test]
+    fn not_found_returns_false() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut set = KinematicConstraintSet::new();
+        let updated = update_orientation_constraint(
+            &mut set,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            UnitQuaternion::identity(),
+        )
+        .unwrap();
+        assert!(!updated);
+        assert!(set.is_empty());
+    }
+}
+
+mod update_position_constraint_boundary {
+    use super::*;
+
+    #[test]
+    fn not_found_returns_false() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let mut set = KinematicConstraintSet::new();
+        let updated = update_position_constraint(
+            &mut set,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+        )
+        .unwrap();
+        assert!(!updated);
+        assert!(set.is_empty());
+    }
+
+    /// A constraint with more than one region has no single
+    /// `primitive_poses[0]` to update unambiguously -- see
+    /// [`PositionConstraint::with_updated_position`]'s doc comment for why
+    /// this port reports the whole update as an error instead of silently
+    /// updating just the first region.
+    #[test]
+    fn multi_region_constraint_is_error() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let sphere_at = |x: f64| {
+            let mut pose = Isometry3::identity();
+            pose.translation.vector = Vector3::new(x, 0.0, 0.0);
+            (Shape::Sphere(Sphere::new(0.05).unwrap()), pose)
+        };
+        let pc = PositionConstraint::new(
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[sphere_at(0.0), sphere_at(1.0)],
+            1.0,
+        )
+        .unwrap();
+        let mut set = KinematicConstraintSet::new();
+        set.push(Constraint::Position(pc));
+
+        let err = update_position_constraint(
+            &mut set,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::Other { .. }));
+    }
+}
+
+mod merge_constraints_boundary {
+    use super::*;
+
+    fn joint_set(
+        model: &RobotModel,
+        position: f64,
+        tolerance: f64,
+        weight: f64,
+    ) -> KinematicConstraintSet {
+        let mut set = KinematicConstraintSet::new();
+        set.push(Constraint::Joint(
+            JointConstraint::new(
+                model,
+                "panda_joint1",
+                position,
+                tolerance,
+                tolerance,
+                weight,
+            )
+            .unwrap(),
+        ));
+        set
+    }
+
+    /// `low = max(-0.2, -0.1) = -0.1`, `high = min(0.2, 0.3) = 0.2`,
+    /// `position = clamp((0*1 + 0.1*1) / 2, -0.1, 0.2) = 0.05`, matching
+    /// `mergeConstraints`'s formula (`utils.cpp:83-98`) by hand.
+    #[test]
+    fn overlapping_windows_merge_to_the_intersection() {
+        let model = panda_model();
+        let first = joint_set(&model, 0.0, 0.2, 1.0);
+        let second = joint_set(&model, 0.1, 0.2, 1.0);
+        let merged = merge_constraints(&first, &second);
+
+        assert_eq!(merged.len(), 1);
+        let Constraint::Joint(m) = &merged.constraints()[0] else {
+            panic!("expected a joint constraint");
+        };
+        assert!((m.desired_joint_position() - 0.05).abs() < TOLERANCE);
+        assert!((m.joint_tolerance_above() - 0.15).abs() < TOLERANCE);
+        assert!((m.joint_tolerance_below() - 0.15).abs() < TOLERANCE);
+        assert!((m.weight() - 1.0).abs() < TOLERANCE);
+    }
+
+    /// `low = max(-0.05, 0.95) = 0.95`, `high = min(0.05, 1.05) = 0.05`,
+    /// `low > high`: upstream discards the pair with an error log; this port
+    /// drops it from the merged set instead.
+    #[test]
+    fn non_overlapping_windows_are_dropped() {
+        let model = panda_model();
+        let first = joint_set(&model, 0.0, 0.05, 1.0);
+        let second = joint_set(&model, 1.0, 0.05, 1.0);
+        let merged = merge_constraints(&first, &second);
+        assert!(merged.is_empty());
+    }
+
+    #[test]
+    fn constraint_present_in_only_one_side_is_kept() {
+        let model = panda_model();
+        let mut first = KinematicConstraintSet::new();
+        first.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, 1.0).unwrap(),
+        ));
+        let mut second = KinematicConstraintSet::new();
+        second.push(Constraint::Joint(
+            JointConstraint::new(&model, "panda_joint2", 0.0, 0.1, 0.1, 1.0).unwrap(),
+        ));
+
+        let merged = merge_constraints(&first, &second);
+        assert_eq!(merged.len(), 2);
+
+        let merged_again = merge_constraints(&second, &first);
+        assert_eq!(merged_again.len(), 2);
+    }
+}
+
+#[test]
+fn count_individual_constraints_is_len() {
+    let model = panda_model();
+    let mut set = KinematicConstraintSet::new();
+    assert_eq!(count_individual_constraints(&set), 0);
+    set.push(Constraint::Joint(
+        JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, 1.0).unwrap(),
+    ));
+    assert_eq!(count_individual_constraints(&set), 1);
+}

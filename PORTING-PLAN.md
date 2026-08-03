@@ -2546,3 +2546,95 @@ visibility.rs`)의 판정 로직은 정확하고, 이번 커밋으로 고칠 것
 `compare_constraints`가 이 깊이 불일치를 여전히 `FAIL`로 찍는 것도
 의도적으로 그대로 뒀다 — pass 기준을 바꾸는 건 이 조사 범위보다 큰
 결정이라 판단해 이번 라운드에서 손대지 않았다.
+
+---
+
+## 21. `kinematic_constraints/utils.{hpp,cpp}` 중 이식 가능한 11개 이식 (3라운드, 2026-08-03)
+
+라운드 2의 §12.7 표에서 "portable"로 분류했던 함수 13개(§20 기준
+최신 라인 번호로는 `utils.hpp`의 선언 15개 중) 가운데, ROS 파라미터
+읽기가 본질인 `constructConstraints`(및 그 비공개 헬퍼 6개, `moveit-ros`
+소관)를 제외한 **11개**를 `crates/moveit-constraints/src/utils.rs`에
+이식했다: `merge_constraints`, `count_individual_constraints`,
+`construct_goal_joint_constraints`, `update_joint_constraints`,
+`construct_goal_pose_constraints`(구체·상자 두 오버로드),
+`update_pose_constraint`, `construct_goal_orientation_constraints`,
+`update_orientation_constraint`, `construct_goal_position_constraints`,
+`update_position_constraint`. `moveit_msgs::msg::Constraints`는 이
+크레이트 자신의 `KinematicConstraintSet`/`JointConstraint`/
+`PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint`로
+치환했다.
+
+### 21.1 `resolveConstraintFrames`는 그대로 둔다
+
+§12.7 표(원본 라인 1699 부근)의 기존 메모가 여전히 유효함을
+`crates/moveit-state/src/state.rs:1150-1156`을 다시 읽어 확인했다:
+`Posed::frame_transform`의 문서 주석이 지금도 "attached bodies are
+not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
+연결한 것은 맞지만 그건 `CollisionEnv`의 `AttachedBodyGeometry`
+경로뿐이다 — `RobotState`/`Posed` 위에 `getAttachedBodies()`나
+서브프레임을 이름으로 찾는 API는 아직 없다. `resolveConstraintFrames`가
+필요로 하는 것은 정확히 그 API(`link_name`이 부착체/서브프레임을
+가리킬 때 로봇 링크 이름으로 되돌리는 조회)이므로, 이번 라운드에서
+이식해도 `frame_transform`이 항상 링크 이름만 성공시키는 한
+"`c.link_name`이 이미 로봇 링크다"가 항상 참인 퇴화 함수가 된다.
+**`p1-fixtures`(`AttachedBody`/서브프레임 소유자)가 `RobotState`
+레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할 것.**
+
+### 21.2 설계: "재구성"이지 "제자리 수정"이 아니다
+
+상류는 `moveit_msgs::msg::JointConstraint` 등을 필드 단위로
+직접 수정한다(`jc.position = ...`). 이 포트의 제약 타입들은 생성 시점에
+`RobotModel`을 상대로 검증/정규화(`normalize_angle`, 경계 clamp,
+프레임 해석)를 이미 끝낸 불변 값이라 필드를 노출하지 않는다 — 그래서
+`update_joint_constraints`/`update_orientation_constraint`/
+`update_position_constraint`는 모두 "기존 값을 읽어 새 `::new()`를
+호출해 통째로 교체"하는 형태다. `JointConstraint::merged`(private,
+`crate::joint`)와 `PositionConstraint::with_updated_position`(private,
+`crate::position`)이 바로 그 재구성 헬퍼다.
+
+### 21.3 재확인 후 뒤집은 설계 가정 3건
+
+작성 초안(이전 세션 압축 요약에 남아 있던 설계)을 이번 세션에서
+업스트림 원문을 다시 읽고 3곳 고쳤다:
+
+1. **`update_joint_constraints`의 이름 매칭.** 초안은
+   `local_variable_name`을 잘라낸 이름으로 활성 조인트 목록과
+   비교하려 했다. `utils.cpp:172-192`를 다시 읽으니 상류는 잘라내지
+   않은 **전체** `joint_name` 문자열(`"joint/local"` 포함)로 비교한다
+   — 멀티 DOF 조인트 제약에 대한 진짜 상류 한계이지 버그가 아니다.
+   그대로 재현했고(`jc.joint_variable_name()`으로 비교),
+   `joint.rs`의 `joint_name()`(스트립 버전) 게터는 필요 없어 삭제했다.
+2. **`update_pose_constraint`의 단락 평가.** 초안은 위치/방향 갱신
+   결과를 각각 `let`에 담은 뒤 `&&`로 합치려 했는데 이러면 상류의
+   단락 평가(`utils.cpp:271-272`, 위치 갱신이 실패하면 방향 갱신
+   호출 자체를 건너뜀)가 재현되지 않는다. `Ok(update_position_constraint(...)?
+   && update_orientation_constraint(...)?)` 한 식으로 고쳐 Rust의
+   `&&` 단락 평가에 맡겼고, 전용 테스트
+   (`position_not_found_skips_orientation_update`)로 확인했다.
+3. **쿼터니언 전용 `construct_goal_orientation_constraints`의
+   파라미터화.** 초안은 포즈 오버로드와 같은 `RotationVector`를
+   가정했다. `utils.cpp:275-290`을 다시 읽으니 이 오버로드는
+   `ocm.parameterization`을 아예 설정하지 않는다 — 메시지 필드
+   기본값 `0 = XYZ_EULER_ANGLES`가 그대로 남는다. `XyzEuler`로
+   고쳤고, 동일 상태(`SB`)에서 두 파라미터화가 실제로 다른 값을
+   내는 것(케이스 8: RotationVector, distance 4.028...; 케이스 10:
+   XyzEuler, distance 3.8415...)을 오라클로 확인하는 테스트를 추가했다.
+
+### 21.4 오라클 검증
+
+`crates/moveit-constraints/tests/fixtures/panda_constraints.json`(신규,
+케이스 12개, `moveit-rs/oracle:5188956fc433d046`에서 캡처)을
+`crates/moveit-constraints/tests/utils_parity.rs`(신규, 23 테스트)가
+역직렬화해 검증한다. 이 크레이트의 기존 관례(`collision_parity.rs`
+등)를 따라 오라클을 테스트 시점에 라이브로 호출하지 않고 커밋된
+픽스처를 읽는다. 생성된 값을 직접 단언하는 대신 오라클의
+`constraints` op(`decide()`가 진짜로 계산하는 값과 동일한 프로토콜)로
+검증해 "구성 결과"가 아니라 "구성된 제약을 평가한 결과"를 비교한다 —
+`decide()`를 통과시키는 쪽이 구성값 직접 단언보다 강한 검증이다.
+panda_arm(체인, 전부 1-DOF 회전 조인트)을 픽스처 그룹으로 골랐다 —
+멀티 DOF 조인트가 없어 §21.3-1의 이름 매칭 예외 상황을 주 테스트
+경로에 끌어들이지 않는다. `merge_constraints`/
+`update_orientation_constraint`/`update_position_constraint`의 경계
+케이스(윈도우 비중첩, 미발견 링크, 다중 영역 오류)는 오라클 없이
+순수 단위 테스트로 커버했다.

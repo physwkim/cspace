@@ -13,15 +13,11 @@
 //! # Scope
 //!
 //! This crate ports `kinematic_constraints/kinematic_constraint.{hpp,cpp}` —
-//! the four constraint types and their `decide()`/construction logic.
-//! `kinematic_constraints/utils.{hpp,cpp}` is **not** ported: every function
-//! there (`constructGoalConstraints`, `mergeConstraints`,
-//! `constructConstraints` from YAML, `resolveConstraintFrames`, ...) takes or
-//! returns a `moveit_msgs::msg::Constraints`/`geometry_msgs` value, or an
-//! `rclcpp::Node`. Per `PORTING-PLAN.md` D1/D2 this core crate references no
-//! ROS type at all, so those helpers have no home here — they are
-//! `moveit-ros`/`moveit-planning` convenience wrappers around the types this
-//! crate defines, not part of the constraint model itself.
+//! the four constraint types and their `decide()`/construction logic — and,
+//! in [`utils`], the 11 functions of `kinematic_constraints/utils.{hpp,cpp}`
+//! that build or update a [`KinematicConstraintSet`] from plain geometric
+//! arguments rather than from ROS parameters. See that module's doc comment
+//! for exactly what is and is not ported from `utils.{hpp,cpp}` and why.
 //!
 //! `equal()`, `print()`, `clear()` and `getMarkers()` are also not ported:
 //! none of them are exercised by `decide()`, which is this phase's
@@ -57,6 +53,7 @@ mod joint;
 mod orientation;
 mod position;
 mod set;
+pub mod utils;
 mod visibility;
 
 pub use joint::JointConstraint;

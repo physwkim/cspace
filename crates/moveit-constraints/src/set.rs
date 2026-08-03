@@ -66,6 +66,18 @@ impl KinematicConstraintSet {
         &self.constraints
     }
 
+    /// Mutable access to the same members, in the same order. Used by
+    /// `crate::utils`'s `updateXConstraint` family, which finds an existing
+    /// constraint by link/joint name and replaces it in place — upstream's
+    /// equivalent mutates one field of a stored `moveit_msgs` value; this
+    /// crate's constraint types have no such mutable form to patch (see this
+    /// crate's introducing doc comment on why `new()` replaces `configure()`),
+    /// so "update" here means "replace the matching entry with a freshly
+    /// reconstructed one".
+    pub fn constraints_mut(&mut self) -> &mut [Constraint] {
+        &mut self.constraints
+    }
+
     /// `empty`
     pub fn is_empty(&self) -> bool {
         self.constraints.is_empty()

@@ -81,6 +81,40 @@ enum ReferenceFrame {
     },
 }
 
+/// Resolves `frame_id` to a fixed or mobile [`ReferenceFrame`] for `regions`,
+/// exactly as [`PositionConstraint::new`] does — factored out so
+/// [`PositionConstraint::with_updated_position`] (built for
+/// `crate::utils::update_position_constraint`) can re-resolve a new frame
+/// without duplicating the fixed/mobile decision.
+fn resolve_frame(
+    model: &RobotModel,
+    tf: &Transforms,
+    frame_id: &str,
+    mut regions: Vec<ConstraintRegion>,
+) -> Result<ReferenceFrame> {
+    if tf.can_transform(frame_id) {
+        for region in &mut regions {
+            region.pose = tf.transform_pose(frame_id, &region.pose)?;
+        }
+        Ok(ReferenceFrame::Fixed {
+            frame: tf.target_frame().to_string(),
+            regions,
+        })
+    } else {
+        // A mobile frame is resolved fresh on every `decide()` call via
+        // `Posed::frame_transform`, which only ever names a link or the
+        // model frame — checked now so `decide()` never has to handle a
+        // frame that cannot resolve.
+        if !model.has_link_model(frame_id) && frame_id != model.model_frame() {
+            return Err(Error::unknown_name("frame", frame_id));
+        }
+        Ok(ReferenceFrame::Mobile {
+            frame: frame_id.to_string(),
+            regions,
+        })
+    }
+}
+
 /// Constrains a link's position (with an optional local offset) to lie
 /// within one or more [`ConstraintRegion`]s.
 ///
@@ -152,27 +186,7 @@ impl PositionConstraint {
             regions.push(ConstraintRegion { body, pose: *pose });
         }
 
-        let frame = if tf.can_transform(frame_id) {
-            for region in &mut regions {
-                region.pose = tf.transform_pose(frame_id, &region.pose)?;
-            }
-            ReferenceFrame::Fixed {
-                frame: tf.target_frame().to_string(),
-                regions,
-            }
-        } else {
-            // A mobile frame is resolved fresh on every `decide()` call via
-            // `Posed::frame_transform`, which only ever names a link or the
-            // model frame — checked now so `decide()` never has to handle a
-            // frame that cannot resolve.
-            if !model.has_link_model(frame_id) && frame_id != model.model_frame() {
-                return Err(Error::unknown_name("frame", frame_id));
-            }
-            ReferenceFrame::Mobile {
-                frame: frame_id.to_string(),
-                regions,
-            }
-        };
+        let frame = resolve_frame(model, tf, frame_id, regions)?;
 
         Ok(Self {
             link_index: link.link_index(),
@@ -223,6 +237,57 @@ impl PositionConstraint {
                 regions
             }
         }
+    }
+
+    /// Not an upstream accessor: needed by
+    /// `crate::utils::update_position_constraint`, which reconstructs a
+    /// `PositionConstraint` from an existing one's fields rather than
+    /// mutating a stored `moveit_msgs` field in place (see this crate's
+    /// introducing doc comment on why `new()` replaces `configure()`).
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    /// `updatePositionConstraint`'s core: a new constraint with the same
+    /// link, offset, weight and single region's shape/orientation, but that
+    /// region re-centered at `position` and re-resolved against `frame_id`
+    /// (which — matching upstream's `constraint.header = goal_point.header`
+    /// — may differ from this constraint's current reference frame).
+    ///
+    /// `Ok(None)` when this constraint has other than exactly one region:
+    /// upstream's update only ever touches `primitive_poses.at(0)`, which
+    /// would leave any further region's numeric pose stale under a changed
+    /// frame_id — a pre-existing upstream wart no caller in `utils.cpp`
+    /// actually exercises, since every `constructGoalConstraints` overload
+    /// builds exactly one region. Rather than reproduce that latent
+    /// inconsistency, this port supports only the case every real caller
+    /// produces and reports the rest as "not updatable" instead of silently
+    /// leaving other regions wrong.
+    pub(crate) fn with_updated_position(
+        &self,
+        model: &RobotModel,
+        tf: &Transforms,
+        frame_id: &str,
+        position: Vector3,
+    ) -> Result<Option<Self>> {
+        let regions = self.constraint_regions();
+        if regions.len() != 1 {
+            return Ok(None);
+        }
+        let mut pose = regions[0].pose;
+        pose.translation.vector = position;
+        let region = ConstraintRegion {
+            body: regions[0].body.clone(),
+            pose,
+        };
+        let frame = resolve_frame(model, tf, frame_id, vec![region])?;
+        Ok(Some(Self {
+            link_index: self.link_index,
+            link_name: self.link_name.clone(),
+            offset: self.offset,
+            frame,
+            weight: self.weight,
+        }))
     }
 
     /// `PositionConstraint::decide`.
