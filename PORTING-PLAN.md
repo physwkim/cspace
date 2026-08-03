@@ -6903,3 +6903,70 @@ moveit-diff --urdf .../pr2.urdf --srdf .../pr2.srdf \
 --workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
 재생 **29/29 identical**.
+
+## 81. `tree_walk` 핀은 실측으로 셋을 구분한다 — 그리고 보고서 두 줄이 틀렸다 (2026-08-04)
+
+p3-shapes 라운드 13 머지(`457ea0f`, `84c396c`, `b7caa43`). 베이스
+`f1c14ef`, main `fb061c5`.
+
+### 81.1 핀이 무엇을 재는지 직접 흔들어 봤다
+
+§74.3/§77.2/§79의 계열 검사를 이번에도 적용했다. `tree_walk` 핀은
+자기 일관성이 아니라 오라클의 `nodes` 배열에 대해 순서까지 포함해
+필드별로 단언한다 — 개수, 그 다음 노드마다 `x`/`y`/`z`(< 1e-9),
+`size`(< 1e-9), `depth`, `is_leaf`, `log_odds`(< `LOG_ODDS_EPS`),
+`occupancy`(< `OCCUPANCY_EPS`).
+
+셋을 각각 흔들어 `-p moveit-octomap`(27건)을 `--no-fail-fast`로 돌렸다:
+
+```
+자식 push 순서 뒤집기 (self.stack[before..].reverse())   1 fail
+TreeNode::size() × 1.000001                              1 fail
+TreeNode::is_leaf() 부정 (!has_children → has_children)  1 fail
+```
+
+세 번 다 정확히 한 건씩 떨어진다. **이번 라운드의 핀은 §79가 세는
+쪽이 아니라 재는 쪽이다.**
+
+### 81.2 보고서 두 줄이 트리와 어긋난다
+
+**(a) `Body::intersects_ray`는 "unported"가 아니다.** UNFIXED 줄은
+"stays unported ... decided, not deferred"라고 적었지만
+`crates/moveit-geometry/src/bodies.rs`에 구현이 다섯 군데 있다 —
+1614, 1975, 2327, 2874, 그리고 3166(enum dispatch). 파일 전체에
+`todo!`/`unimplemented!`는 0건이다.
+
+```rust
+pub fn intersects_ray(&self, origin: &Vector3, dir: &Vector3) -> bool {
+    !self.ray_intersections(origin, dir, Some(1)).is_empty()
+}
+```
+
+없는 것은 구현이 아니라 **외부 호출자**뿐이다. UNFIXED 문구를 그대로
+고쳐야 한다: 미포팅이 아니라 "포팅되었으나 크레이트 밖 소비자가 없다".
+
+**(b) `sample_point_inside`의 소비자는 이미 있다.** 문서는 "once
+ported"라고 미래형으로 적었지만 `crates/moveit-constraints/src/ik_sampler.rs:254`
+가 main에서 이미 부른다:
+
+```rust
+body.sample_point_inside(max_attempts, &mut |lo, hi| rng.random_range(lo..hi))
+```
+
+p1-robotmodel 라운드 9가 넣었고, 그 머지는 이 패널의 베이스 `f1c14ef`
+**뒤**에 들어갔다. 즉 보고서가 도착한 시점에 이미 낡은 주장이었다 —
+브랜치가 베이스에서 볼 수 없는 사실을 머지하는 쪽만 볼 수 있는,
+반복해서 나오는 실패 모드다.
+
+### 81.3 머지 후 실측
+
+`cargo nextest run --workspace` **1017/1017**(변동 없음 — `tree_walk`
+단언이 `octomap_parity.rs`의 기존 `#[test]` 하나 안으로 들어갔고
+fixture 두 개도 새 파일이 아니라 기존 파일에 106/427줄 추가다),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**.
+
+`oracle.cpp`가 바뀌었으므로(+24줄, `tree_walk` 질의) 스탬프를 다시
+계산하고 이미지를 새로 빌드했다: **`7cc8a73408a83c92`**. 패널이 보고한
+`081ed34b1019d990`은 자기 브랜치 트리의 값이고, 머지 후 값이 아니다.
