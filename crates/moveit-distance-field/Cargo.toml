@@ -1,0 +1,20 @@
+[package]
+name = "moveit-distance-field"
+description = "Voxel distance field for moveit-rs, ported from moveit_core/distance_field"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+moveit-error.workspace = true
+nalgebra.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+nalgebra.workspace = true
+
+[lints]
+workspace = true

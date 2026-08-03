@@ -1,0 +1,326 @@
+// Copyright (c) 2009, Willow Garage, Inc.
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   moveit_core/distance_field/include/moveit/distance_field/voxel_grid.hpp
+
+use moveit_error::{Error, Result};
+use nalgebra::Vector3;
+
+/// Which axis a [`VoxelGrid`] query or dimension refers to.
+///
+/// Upstream `distance_field::Dimension` (`DIM_X`/`DIM_Y`/`DIM_Z`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dimension {
+    /// `DIM_X`
+    X = 0,
+    /// `DIM_Y`
+    Y = 1,
+    /// `DIM_Z`
+    Z = 2,
+}
+
+/// A dense, axis-aligned 3D grid of `T`, addressable by either integer cell
+/// index or world coordinate.
+///
+/// Upstream `distance_field::VoxelGrid<T>`.
+///
+/// # Deviations from upstream
+///
+/// - Upstream's default constructor plus `resize()` exists so a `VoxelGrid`
+///   can be built before its size is known; nothing in this crate's only
+///   consumer ([`crate::PropagationDistanceField`]) ever does that, so this
+///   port carries only the sized constructor ([`VoxelGrid::new`]) and drops
+///   `resize`/the default constructor as unused surface.
+/// - Upstream's constructor allocates `new T[n]` and leaves every cell
+///   default-constructed (for `PropDistanceFieldVoxel`, explicitly
+///   *uninitialized* — see that type's doc comment); the sole real caller
+///   ([`crate::PropagationDistanceField::new`]) immediately overwrites every
+///   cell via `reset()` regardless. Safe Rust has no uninitialized-memory
+///   escape hatch without `unsafe` (forbidden workspace-wide), so this port
+///   fills every cell with `default_object.clone()` at construction. This is
+///   unobservable given the immediate-`reset()` calling convention every
+///   known caller follows.
+/// - `getCell`/`setCell` document "corruption and/or SEGFAULTS" for
+///   out-of-bounds indices; this port panics instead (Rust's `Vec` indexing
+///   already does this — no `unsafe` is used to intentionally skip the
+///   bounds check).
+#[derive(Debug, Clone)]
+pub struct VoxelGrid<T> {
+    data: Vec<T>,
+    default_object: T,
+    size: [f64; 3],
+    resolution: f64,
+    oo_resolution: f64,
+    origin: [f64; 3],
+    origin_minus: [f64; 3],
+    num_cells: [i32; 3],
+    stride1: i32,
+    stride2: i32,
+}
+
+impl<T: Clone> VoxelGrid<T> {
+    /// Upstream `VoxelGrid::VoxelGrid(size_x, size_y, size_z, resolution,
+    /// origin_x, origin_y, origin_z, default_object)`.
+    ///
+    /// # Errors
+    ///
+    /// Upstream performs no validation here at all: a non-positive
+    /// `resolution` divides silently into `oo_resolution_ = 1.0 /
+    /// resolution_`, producing infinite or NaN cell counts. This port fails
+    /// fast instead of building a corrupt grid.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        size_x: f64,
+        size_y: f64,
+        size_z: f64,
+        resolution: f64,
+        origin_x: f64,
+        origin_y: f64,
+        origin_z: f64,
+        default_object: T,
+    ) -> Result<Self> {
+        if !(resolution.is_finite() && resolution > 0.0) {
+            return Err(Error::construct(format!(
+                "resolution must be finite and positive, got {resolution}"
+            )));
+        }
+        for (name, size) in [("size_x", size_x), ("size_y", size_y), ("size_z", size_z)] {
+            if !(size.is_finite() && size >= 0.0) {
+                return Err(Error::construct(format!(
+                    "{name} must be finite and non-negative, got {size}"
+                )));
+            }
+        }
+
+        let oo_resolution = 1.0 / resolution;
+        let size = [size_x, size_y, size_z];
+        let origin = [origin_x, origin_y, origin_z];
+        let origin_minus = [
+            origin_x - 0.5 * resolution,
+            origin_y - 0.5 * resolution,
+            origin_z - 0.5 * resolution,
+        ];
+        // Matches upstream exactly: truncating multiplication, not the
+        // rounded `getCellFromLocation` formula.
+        let num_cells = [
+            (size[0] * oo_resolution) as i32,
+            (size[1] * oo_resolution) as i32,
+            (size[2] * oo_resolution) as i32,
+        ];
+        let num_cells_total = (num_cells[0] as i64) * (num_cells[1] as i64) * (num_cells[2] as i64);
+        let stride1 = num_cells[1] * num_cells[2];
+        let stride2 = num_cells[2];
+
+        Ok(Self {
+            data: vec![default_object.clone(); num_cells_total.max(0) as usize],
+            default_object,
+            size,
+            resolution,
+            oo_resolution,
+            origin,
+            origin_minus,
+            num_cells,
+            stride1,
+            stride2,
+        })
+    }
+
+    /// Upstream `VoxelGrid::reset`: sets every cell to `initial`.
+    pub fn reset(&mut self, initial: T) {
+        self.data.fill(initial);
+    }
+
+    /// Upstream `VoxelGrid::getSize`.
+    pub fn size(&self, dim: Dimension) -> f64 {
+        self.size[dim as usize]
+    }
+
+    /// Upstream `VoxelGrid::getResolution`.
+    pub fn resolution(&self) -> f64 {
+        self.resolution
+    }
+
+    /// Upstream `VoxelGrid::getOrigin`.
+    pub fn origin(&self, dim: Dimension) -> f64 {
+        self.origin[dim as usize]
+    }
+
+    /// Upstream `VoxelGrid::getNumCells`.
+    pub fn num_cells(&self, dim: Dimension) -> i32 {
+        self.num_cells[dim as usize]
+    }
+
+    /// Upstream `VoxelGrid::isCellValid(int,int,int)`.
+    pub fn is_cell_valid(&self, x: i32, y: i32, z: i32) -> bool {
+        x >= 0
+            && x < self.num_cells[0]
+            && y >= 0
+            && y < self.num_cells[1]
+            && z >= 0
+            && z < self.num_cells[2]
+    }
+
+    /// Upstream `VoxelGrid::isCellValid(Dimension,int)`.
+    pub fn is_cell_valid_dim(&self, dim: Dimension, cell: i32) -> bool {
+        cell >= 0 && cell < self.num_cells[dim as usize]
+    }
+
+    fn index(&self, x: i32, y: i32, z: i32) -> usize {
+        (x * self.stride1 + y * self.stride2 + z) as usize
+    }
+
+    /// Upstream `VoxelGrid::getCell(int,int,int) const`. Panics (in place of
+    /// upstream's documented "corruption and/or SEGFAULTS") if the cell is
+    /// invalid.
+    pub fn get_cell(&self, x: i32, y: i32, z: i32) -> &T {
+        &self.data[self.index(x, y, z)]
+    }
+
+    /// Mutable counterpart of [`VoxelGrid::get_cell`]. Upstream
+    /// `VoxelGrid::getCell(int,int,int)` (non-const overload).
+    pub fn get_cell_mut(&mut self, x: i32, y: i32, z: i32) -> &mut T {
+        let idx = self.index(x, y, z);
+        &mut self.data[idx]
+    }
+
+    /// Upstream `VoxelGrid::setCell`.
+    pub fn set_cell(&mut self, x: i32, y: i32, z: i32, value: T) {
+        let idx = self.index(x, y, z);
+        self.data[idx] = value;
+    }
+
+    /// Upstream `VoxelGrid::operator()(double,double,double)`: returns the
+    /// default object for an out-of-bounds world location instead of
+    /// panicking.
+    pub fn get(&self, x: f64, y: f64, z: f64) -> &T {
+        let cx = self.cell_from_location(Dimension::X, x);
+        let cy = self.cell_from_location(Dimension::Y, y);
+        let cz = self.cell_from_location(Dimension::Z, z);
+        if !self.is_cell_valid(cx, cy, cz) {
+            return &self.default_object;
+        }
+        self.get_cell(cx, cy, cz)
+    }
+
+    /// Upstream `VoxelGrid::getCellFromLocation`.
+    ///
+    /// This is the rounding convention that matters at cell boundaries: it
+    /// is *not* a plain `floor((loc - origin) / resolution)`. Upstream
+    /// documents it as `floor((loc - origin) / resolution + 0.5)` — the
+    /// nearest-cell-center rounding — implemented via a pre-shifted origin
+    /// (`origin_minus = origin - 0.5 * resolution`) for speed. Both forms are
+    /// algebraically identical; this port keeps upstream's pre-shifted-origin
+    /// form rather than the documented formula so the two can never drift.
+    pub fn cell_from_location(&self, dim: Dimension, loc: f64) -> i32 {
+        ((loc - self.origin_minus[dim as usize]) * self.oo_resolution).floor() as i32
+    }
+
+    /// Upstream `VoxelGrid::getLocationFromCell`: the world-space center of
+    /// cell `cell` along `dim`.
+    pub fn location_from_cell(&self, dim: Dimension, cell: i32) -> f64 {
+        self.origin[dim as usize] + self.resolution * f64::from(cell)
+    }
+
+    /// Upstream `VoxelGrid::gridToWorld(int,int,int,...)`.
+    pub fn grid_to_world(&self, x: i32, y: i32, z: i32) -> Vector3<f64> {
+        Vector3::new(
+            self.location_from_cell(Dimension::X, x),
+            self.location_from_cell(Dimension::Y, y),
+            self.location_from_cell(Dimension::Z, z),
+        )
+    }
+
+    /// Upstream `VoxelGrid::worldToGrid`. Returns the computed indices
+    /// alongside whether they are valid, matching upstream's "the returned
+    /// indices will be computed even if they are invalid" contract.
+    pub fn world_to_grid(&self, world: &Vector3<f64>) -> (bool, i32, i32, i32) {
+        let x = self.cell_from_location(Dimension::X, world.x);
+        let y = self.cell_from_location(Dimension::Y, world.y);
+        let z = self.cell_from_location(Dimension::Z, world.z);
+        (self.is_cell_valid(x, y, z), x, y, z)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dimensions_match_upstream_test_read_write() {
+        let vg = VoxelGrid::new(0.02, 0.02, 0.02, 0.01, 0.0, 0.0, 0.0, -100).unwrap();
+        assert_eq!(vg.num_cells(Dimension::X), 2);
+        assert_eq!(vg.num_cells(Dimension::Y), 2);
+        assert_eq!(vg.num_cells(Dimension::Z), 2);
+    }
+
+    #[test]
+    fn reset_then_set_round_trips_every_cell() {
+        let mut vg = VoxelGrid::new(0.02, 0.02, 0.02, 0.01, 0.0, 0.0, 0.0, -100).unwrap();
+        vg.reset(0);
+        for x in 0..2 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    assert_eq!(*vg.get_cell(x, y, z), 0);
+                }
+            }
+        }
+        let mut i = 0;
+        for x in 0..2 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    vg.set_cell(x, y, z, i);
+                    i += 1;
+                }
+            }
+        }
+        i = 0;
+        for x in 0..2 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    assert_eq!(*vg.get_cell(x, y, z), i);
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_non_positive_resolution() {
+        assert!(VoxelGrid::new(1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0).is_err());
+        assert!(VoxelGrid::new(1.0, 1.0, 1.0, -0.1, 0.0, 0.0, 0.0, 0).is_err());
+    }
+
+    #[test]
+    fn cell_from_location_rounds_to_nearest_cell_center() {
+        // resolution 1.0, origin 0.0: cell k covers world [k-0.5, k+0.5).
+        let vg = VoxelGrid::new(10.0, 10.0, 10.0, 1.0, 0.0, 0.0, 0.0, 0).unwrap();
+        assert_eq!(vg.cell_from_location(Dimension::X, 0.0), 0);
+        assert_eq!(vg.cell_from_location(Dimension::X, 0.49), 0);
+        // exactly on the upper boundary rounds up to the next cell: floor
+        // matches upstream bit-for-bit since both use the same expression.
+        assert_eq!(vg.cell_from_location(Dimension::X, 0.5), 1);
+        assert_eq!(vg.cell_from_location(Dimension::X, -0.5), 0);
+        assert_eq!(vg.cell_from_location(Dimension::X, -0.51), -1);
+    }
+
+    #[test]
+    fn world_to_grid_reports_invalid_outside_the_grid_but_still_computes_indices() {
+        let vg = VoxelGrid::new(1.0, 1.0, 1.0, 0.1, 0.0, 0.0, 0.0, 0).unwrap();
+        let (valid, x, y, z) = vg.world_to_grid(&Vector3::new(1000.0, 1000.0, 1000.0));
+        assert!(!valid);
+        assert!(x > 0 && y > 0 && z > 0);
+    }
+
+    #[test]
+    fn grid_to_world_round_trips_cell_centers() {
+        let vg = VoxelGrid::new(1.0, 1.0, 1.0, 0.1, 0.0, 0.0, 0.0, 0).unwrap();
+        for cell in [0, 3, 9] {
+            let world = vg.grid_to_world(cell, cell, cell);
+            let (valid, x, y, z) = vg.world_to_grid(&world);
+            assert!(valid);
+            assert_eq!((x, y, z), (cell, cell, cell));
+        }
+    }
+}

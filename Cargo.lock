@@ -111,6 +111,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-distance-field"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+ "nalgebra",
+]
+
+[[package]]
 name = "moveit-error"
 version = "0.1.0"
 dependencies = [
