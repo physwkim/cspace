@@ -446,6 +446,43 @@ fn set_variable_velocities_replaces_the_whole_array() {
     assert!(state.velocities().iter().all(|&v| v == 0.5));
 }
 
+/// `invertVelocity` negates every velocity in place without disturbing
+/// `has_velocities` or acceleration -- see `RobotState::invert_velocity`'s
+/// doc comment on why acceleration is untouched even though this exists for
+/// `RobotTrajectory::reverse`'s sake.
+#[test]
+fn invert_velocity_negates_every_velocity_and_leaves_acceleration_alone() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_variable_velocity("panda_joint1", 1.5).unwrap();
+    state.set_variable_velocity("panda_joint2", -2.0).unwrap();
+    state
+        .set_variable_acceleration("panda_joint1", 3.0)
+        .unwrap();
+
+    state.invert_velocity();
+
+    assert!(state.has_velocities());
+    assert_eq!(state.variable_velocity("panda_joint1").unwrap(), -1.5);
+    assert_eq!(state.variable_velocity("panda_joint2").unwrap(), 2.0);
+    assert_eq!(state.variable_acceleration("panda_joint1").unwrap(), 3.0);
+}
+
+/// The boundary `invert_velocity`'s `has_velocity` guard exists for: a
+/// freshly constructed state has never had velocity set, and inverting it
+/// must stay a no-op rather than materializing an all-`-0.0` velocity array
+/// and flipping `has_velocities` to `true`.
+#[test]
+fn invert_velocity_on_a_state_with_no_velocity_set_is_a_no_op() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+
+    state.invert_velocity();
+
+    assert!(!state.has_velocities());
+    assert!(state.velocities().iter().all(|&v| v == 0.0));
+}
+
 /// The invariant this task exists to close: upstream aliases acceleration
 /// and effort onto one buffer, so setting one clobbers the other
 /// (`hasAccelerations() == true` implies `hasEffort() == false`, always).

@@ -34,12 +34,6 @@
 //!   was made when `moveit-state` was ported, not here), so `#[derive(Clone)]`
 //!   on [`RobotTrajectory`] always deep-copies — there is no cheaper aliasing
 //!   mode to preserve, and no `deepcopy: bool` parameter.
-//! - **`reverse()` does not invert velocity.** Upstream's `reverse()` calls
-//!   `RobotState::invertVelocity()` on every waypoint. [`RobotState`] now
-//!   carries velocity, but nothing in this crate's current scope calls
-//!   `reverse()` on a velocity-populated trajectory (`RuckigSmoothing` does
-//!   not call it), so `invertVelocity` was not ported either; see this
-//!   crate's `UNFIXED` report.
 //! - **Unknown group names are a typed error, not a silent whole-robot
 //!   fallback.** Upstream's `RobotTrajectory(robot_model, group: string)`
 //!   constructor calls `robot_model->getJointModelGroup(group)`, which logs
@@ -368,13 +362,18 @@ impl<'m> RobotTrajectory<'m> {
 
     /// `reverse`.
     ///
-    /// See the module-level "Deviations from upstream" note: this does not
-    /// invert velocity, even though `RobotState` now carries it — nothing in
-    /// this crate's current scope needs `reverse()` on a velocity-populated
-    /// trajectory.
+    /// Inverts every waypoint's velocity (via `RobotState::invert_velocity`,
+    /// a no-op where no velocity was ever set) as it swaps waypoint order,
+    /// matching upstream's `waypoint->invertVelocity()` call. Acceleration
+    /// is deliberately left untouched: upstream's `invertVelocity` only
+    /// negates velocity, not acceleration, despite the method living inside
+    /// `reverse()` — see `RobotState::invert_velocity`'s doc comment.
     pub fn reverse(&mut self) -> &mut Self {
         let reversed: VecDeque<_> = self.waypoints.drain(..).rev().collect();
         self.waypoints = reversed;
+        for waypoint in &mut self.waypoints {
+            waypoint.invert_velocity();
+        }
 
         if let Some(&first) = self.duration_from_previous.front() {
             self.duration_from_previous.push_back(first);
