@@ -2602,11 +2602,28 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 `distance_field_cache_entry`)은 병합 후 이미지로 전부 다시 재생해
 커밋본과 동일함을 확인했다.
 
-### 20.5 새 UNFIXED: `RobotState::new`가 `<safety_controller>`를 읽지 않는다
+### 20.5 `<safety_controller>` 격차는 존재하지 않는다 (보고 반증됨)
 
-`p3-distance-field`가 보고한 실제 파리티 격차다. PR2의
-`torso_lift_joint`, `l/r_elbow_flex_joint`, `l/r_wrist_flex_joint`는 하드
-리밋이 0을 포함하지 않아 상류 `setToDefaultValues()`가 소프트 바운드
-중점을 기본값으로 쓰는데, 이 포트는 `0.0`을 쓴다. 워커는 해당 픽스처에서
-그 5개 관절을 상류 기본값으로 명시 고정해 우회했고(오라클 대비 no-op임을
-직접 확인), 근본 원인은 `moveit-state`/`moveit-model`에 남아 있다.
+`p3-distance-field`는 이 포트가 URDF `<safety_controller>` 소프트 리밋을
+읽지 않아 PR2의 `torso_lift_joint`, `l/r_elbow_flex_joint`,
+`l/r_wrist_flex_joint` 기본값이 `0.0`으로 남는다고 UNFIXED에 올렸고,
+픽스처에서 그 5개를 상류 기본값으로 명시 고정해 우회했다. 측정으로
+반증했다.
+
+`moveit-model/src/joint/urdf.rs:121-135`는 `robot_model.cpp:894-908`의
+`jointBoundsFromURDF`와 같이 `<safety_controller>` 소프트 리밋을 우선
+쓰고 `<limit>`이 더 좁은 쪽만 좁힌다. 스크래치 프로브로
+`RobotState::set_to_default_values()`를 PR2에 돌리면 정확히
+`torso_lift_joint = 0.16825`, `l/r_elbow_flex_joint = -1.13565`,
+`l/r_wrist_flex_joint = -1.05` — 워커가 상류 전용이라고 적은 바로 그
+값들이고, PR2에서 0이 아닌 기본값은 이 5개가 전부다.
+
+관측의 실제 원인은 테스트가 `RobotState::new(&model)`만 부르고
+`set_to_default_values()`를 부르지 않은 것이다. 오라클의
+`applyJointValues`는 `setToDefaultValues()` 후 덮어쓰기이므로 포트 쪽도
+같아야 한다. `61d5e63`에서 테스트에 `set_to_default_values()`를 넣고
+픽스처의 5개 고정을 제거했다 — 응답 픽스처는 바뀌지 않았다.
+
+같은 크레이트의 `collision_common_distance_field_parity.rs:312`도
+`RobotState::new`로 시작하지만 헬퍼 `apply_joint_values`가 이미
+`set_to_default_values()`를 부르므로 같은 결함이 아니다.
