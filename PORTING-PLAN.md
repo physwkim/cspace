@@ -3300,3 +3300,66 @@ UNFIXED에 "`PlanningScene::distance_to_collision`이 상류의
 링크를 검사한다. 따라서 이 항목은 잘못된 답을 내는 격차가 아니라
 **그룹 한정 거리 질의라는 기능 자체의 부재**다. UNFIXED에서 그렇게
 다시 쓴다 — 사라진 것이 아니라 성격이 바뀐 것이다.
+
+## 29. `p3-shapes` 5라운드 병합 — 그리고 되살아난 캐시 키 결함 (2026-08-04)
+
+`6529444`로 병합. `Shape::OcTree`가 `convert_shape`를 통해 실제로
+연결됐고(`ca9929b`), 오라클 `octree_in_world` op에 `request["robot"]`이
+추가되어 이 경로를 `compound_from_octree` 단위 테스트가 아니라 진짜
+`CollisionEnvFCL` 대비 `CollisionEnv` 수준에서 검증한다(`1ea1be8`).
+
+보고를 옮기지 않고 직접 확인했다: 병합 트리에서 오라클을 다시 빌드하고
+(`684a3e8a15dbbf89`) 커밋된 `octree_world_collision_request.json` 5건을
+재생해 `octree_world_collision_response.json`과 대조 — **5/5 바이트
+동일**.
+
+### 29.1 `OctreeCache`가 주소를 신원으로 착각한다
+
+`parry.rs`의 새 `OctreeCache`는 `Arc::as_ptr(tree) as usize`를 키로
+쓰면서 그 주소를 붙들어두는 것을 아무것도 갖고 있지 않았다. 캐시 값은
+`Option<SharedShape>`뿐이라 옥트리 할당에 대한 참조가 없다. 마지막
+`Arc`가 드롭되면 블록이 해제되고, 할당자는 그 주소를 다음 옥트리에
+그대로 내줄 수 있다.
+
+가정이 아니다. 임시 프로브로 재현했다 — 빈 트리를 변환해 `None`을
+캐시하고, 드롭하고, 점유 리프가 있는 트리를 새로 할당했더니
+**첫 시도에서** 같은 주소(`0x71f208000d40`)를 받았고 점유 트리가 빈
+트리의 `None`을 돌려받았다. 즉 장애물이 충돌 검사에서 조용히 사라진다.
+오류도, 빠진 shape도 없고, 그냥 답이 틀린다.
+
+보고서는 캐시 비축출(non-eviction)을 "동작으로 관찰되지 않는다"고
+분류했는데, 그 근거("옥트리를 제자리에서 교체하는 `World` API가 없다")는
+*교체*를 다루지 실제 위험인 *해제 후 주소 재사용*을 다루지 않는다.
+`World::remove_object`/`clear_objects`는 이미 존재한다.
+
+앵커 감사(`rg -n 'as_ptr\('`, `rg -n 'ptr_eq'`)로 같은 결함 계열 두 곳을
+셌다:
+
+- `crates/moveit-collision/src/parry.rs:374` — 같은 결함, 이번에 수정.
+- `crates/moveit-distance-field/src/collision_common_distance_field.rs:305`
+  — **이미 같은 버그를 맞고 같은 방식으로 고쳐져 있었다.** 그 파일의
+  회귀 테스트 doc(`:440` 부근)이 구(球)와 상자가 연달아 할당·해제되며
+  같은 주소에 앉아 상자가 구의 분해를 받아간 사례를 기록해 두었다.
+- `ptr_eq` 사용처 5곳은 별개다 — 살아 있는 `Arc` 둘을 비교할 뿐,
+  죽은 주소를 신원으로 쓰지 않는다.
+
+구조적 수정은 선례를 그대로 따랐다: 값 옆에 `Weak<moveit_octomap::OcTree>`
+를 저장한다. `Weak`는 절대 `upgrade`되지 않고, 오직 제어 블록을 살려
+주소가 재사용될 수 없게 만드는 용도다(`Arc`가 아니라 `Weak`인 이유는
+트리 본체까지 붙들지 않기 위해서다). 그리고 `get_or_compute`의 시그니처를
+`usize`에서 `&Arc<_>`로 바꿔 **키와 그 핀이 서로 다른 트리에서 나올 수
+있는 경로 자체를 없앴다** — 호출자가 주소만 건네고 그 주소를 유효하게
+유지하는 것은 건네지 않는 형태가 타입 수준에서 불가능해진다.
+
+`moveit-collision`이 `Weak<moveit_octomap::OcTree>`를 이름 붙일 수 있어야
+해서 `moveit-octomap`을 dev-dependency에서 일반 dependency로 올렸다.
+이미 의존하는 `moveit-geometry`가 그 크레이트에 의존하므로 그래프에
+새 간선은 없다.
+
+회귀 테스트 `octree_cache_survives_shape_churn`은 빈/점유 트리를 번갈아
+200회 만들고 드롭하며, 매 결과를 그 트리가 독립적으로 변환되어야 하는
+값과 대조한다. 핀을 제거하면(`Weak::new()`로 바꿔 확인) 이 테스트는
+실패한다 — 장식이 아니라 하중을 받는다.
+
+병합 후 전체 게이트: fmt·clippy(`--workspace --all-targets -D warnings`)
+·nextest **867/867**·doctest·`cargo doc`·`check-*.sh` 3종 모두 통과.
