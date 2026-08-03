@@ -29,9 +29,10 @@
 //! to just one of them. This version measures distance to every child's
 //! pivot before applying the covering-radius bound, so it prunes less at
 //! query time than the full construction. That is a performance gap, not a
-//! correctness one: the covering-radius bound below is exact (see
-//! [`Node::search`]'s doc comment), so `nearest` always agrees with a
-//! brute-force scan — the property this module's tests check directly.
+//! correctness one: the covering-radius bound in `Node::search`'s doc
+//! comment (a private implementation detail, not part of this crate's
+//! public API) is exact, so `nearest` always agrees with a brute-force
+//! scan — the property this module's tests check directly.
 
 use crate::space::StateSpace;
 

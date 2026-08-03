@@ -45,10 +45,10 @@
 //! history / report for which parts of this design are least certain.
 
 mod error;
-mod nn;
+pub mod nn;
 mod rrt_connect;
-mod space;
-mod validity;
+pub mod space;
+pub mod validity;
 
 pub use error::SbpError;
 pub use nn::Gnat;
