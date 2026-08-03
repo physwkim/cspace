@@ -6970,3 +6970,66 @@ fixture 두 개도 새 파일이 아니라 기존 파일에 106/427줄 추가다
 `oracle.cpp`가 바뀌었으므로(+24줄, `tree_walk` 질의) 스탬프를 다시
 계산하고 이미지를 새로 빌드했다: **`7cc8a73408a83c92`**. 패널이 보고한
 `081ed34b1019d990`은 자기 브랜치 트리의 값이고, 머지 후 값이 아니다.
+
+## 82. §74.3이 닫혔다 — `do_smoothing`의 여섯 줄이 전부 물린다 (2026-08-04)
+
+p6-totg 라운드 10 머지(`953af03`, `cd2ab61`, `02e171a`). 베이스
+`252354d`, main에 머지. **1017 → 1019**.
+
+### 82.1 여섯 갈래 삭제 시험을 내가 다시 돌렸다
+
+§74.3에서 `ruckig_filter` fixture가 `target_velocity`를 재지 않는다고
+적었다. 담당이 fixture를 3케이스에서 6케이스로 늘렸다(25틱 고정 타깃
+수렴, 15틱 이동 타깃, 저크 상한 0 케이스 추가). `do_smoothing`의 모든
+관측 가능한 줄을 하나씩 지우고 `-p moveit-smoothing`(31건)을
+`--no-fail-fast`로 돌린 결과:
+
+```
+target_velocity = 0.0                       1 fail
+pass_to_input 호출 삭제                     1 fail
+RuckigResult 조기 반환 분기 무력화(&& false) 1 fail
+positions 라이트백 삭제                     2 fail
+velocities 라이트백 삭제                    2 fail
+accelerations 라이트백 삭제                 1 fail
+```
+
+여섯 갈래 전부 최소 한 건을 떨어뜨린다. **§74.3의 미핀 항목이 닫혔다.**
+
+(조기 반환 분기는 블록을 통째로 지우면 컴파일이 깨져서 조건에
+`&& false`를 붙이는 쪽으로 바꿔 측정했다. 삭제가 컴파일되지 않는다는
+사실 자체는 핀의 증거가 아니므로 반드시 컴파일되는 무력화로 다시
+재야 한다.)
+
+### 82.2 단일 DOF 좁히기가 계약이 됐다
+
+`acceleration_filter.rs:153`과 `ruckig_filter.rs:138`이
+`joint.variable_names().len() != 1`을 명시적으로 검사하고 전용 오류로
+거절한다 — 전에는 뒤따르는 이름 조회가 우연히 실패해 주는 것에
+기대고 있었다. 두 파일 모두 검사를 `if false`로 무력화하면 각각 정확히
+한 건이 떨어진다. 우연이 아니라 계약이다.
+
+### 82.3 브리프의 전제가 틀렸고, 담당이 맞다
+
+`TimeOptimalTrajectoryGeneration`의 `RobotTrajectory` 어댑터를 내가
+미포팅으로 적어 보냈는데 이미 포팅되어 있다 —
+`compute_time_stamps`/`compute_time_stamps_with_limits` 양쪽,
+`totg_compute_time_stamps`, `has_mixed_joint_types`, 그리고
+`totg_robot_trajectory`/`totg_robot_trajectory_scaling_only` fixture
+쌍까지 트리에 있다. 실제 결함은 `trajectory.rs`의 모듈 문서가 아직
+"out of scope"라고 주장하고 있던 것뿐이고 그게 고쳐졌다(`953af03`).
+
+**§81.2와 같은 계열이다** — 이 라운드 세트에서 낡은 문서 주장이 두 건
+연속으로 나왔다. §65가 말한 "아무도 검사하지 않는 주장은 조용히
+낡는다"가 계획 문서만이 아니라 크레이트 모듈 문서에도 그대로 적용된다.
+"미포팅"이라고 쓰기 전에 `rg -n '<symbol>' crates/` 한 번이 규칙이다 —
+내 브리프도 그걸 지켰어야 했다.
+
+### 82.4 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1019/1019**(1017 + 2),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. `oracle.cpp`는 그대로라
+스탬프는 `7cc8a73408a83c92` 유지.
+
+담당이 보고한 997/997과 28/28은 자기 베이스 `252354d` 기준 값이다.
