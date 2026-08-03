@@ -425,6 +425,8 @@ public:
       return collisionObjectPointDecomposition(request);
     if (op == "link_body_decomposition")
       return linkBodyDecomposition(request);
+    if (op == "link_models_with_collision_geometry")
+      return linkModelsWithCollisionGeometry();
     if (op == "constraints")
       return constraints(request);
     if (op == "octomap")
@@ -1342,6 +1344,26 @@ private:
               { "radius", body_decomp->getRelativeBoundingSphere().radius } } },
       { "cases", cases_out }
     };
+  }
+
+  /// Ground truth for `addLinkBodyDecompositions`' robot-wide link
+  /// selection: `RobotModel::getLinkModelsWithCollisionGeometry()`'s names,
+  /// in that method's own order (construction order -- the same order
+  /// `getLinkModelNames()` in `model_info` reports, just filtered to links
+  /// with `!getShapes().empty()`). Per-link `BodyDecomposition` geometry
+  /// itself is already ground-truthed by the `link_body_decomposition` op
+  /// (its `padding: 0.0` fixture case matches
+  /// `LinkPaddingScale::link_padding`'s untracked-link default exactly, so
+  /// that response's `collision_spheres`/`relative_bounding_sphere` double
+  /// as ground truth for `addLinkBodyDecompositions`' per-link construction
+  /// too) -- this op only needs to cover the link *set*, not re-dump every
+  /// link's geometry.
+  json linkModelsWithCollisionGeometry() const
+  {
+    json names = json::array();
+    for (const moveit::core::LinkModel* link : model_->getLinkModelsWithCollisionGeometry())
+      names.push_back(link->getName());
+    return json{ { "links", names } };
   }
 
   /// Ground truth for the `moveit-constraints` `KinematicConstraintSet` port.
