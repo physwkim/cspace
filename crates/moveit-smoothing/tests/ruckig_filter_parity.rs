@@ -9,11 +9,49 @@
 //! update` streaming path), only unit tests checking bound compliance and
 //! qualitative direction.
 //!
-//! The fixture's 3 cases: an `initialize` failure (one active joint given a
+//! The fixture's 6 cases: an `initialize` failure (one active joint given a
 //! `velocity_bounds`/`acceleration_bounds` but no `jerk_bounds` entry), a
 //! 5-tick streaming trajectory from rest toward a fixed target (exercising
-//! `doSmoothing`'s internal `pass_to_input` state threading across calls),
-//! and a single tick already at the target (zero displacement).
+//! `doSmoothing`'s internal `pass_to_input` state threading across calls), a
+//! single tick already at the target (zero displacement), a 25-tick
+//! streaming trajectory toward a fixed target long enough to reach and
+//! settle at it, a 15-tick streaming trajectory toward a continuously
+//! moving target (the commanded position changes every tick), and a single
+//! tick with `panda_joint1`'s `jerk_bounds` set to `0.0` (triggering a
+//! `rsruckig::RuckigResult` outside `{Working, Finished,
+//! ErrorSynchronizationCalculation}`).
+//!
+//! # What each case discriminates
+//!
+//! Verified by deletion/perturbation testing (temporarily breaking one
+//! computation in `RuckigFilter::do_smoothing`/`reset`, confirming this
+//! fixture then fails, and reverting):
+//!
+//! - `pass_to_input` under `have_initial_output`, and both `do_smoothing`'s
+//!   and `reset`'s three-line output writebacks, are all already killed by
+//!   the original 3-case fixture (case 1, the 5-tick streaming case).
+//! - The `target_velocity` extrapolation
+//!   (`target_velocity[i] = current_velocity[i] + current_acceleration[i] *
+//!   delta_time`) was **not** killed by the original 3-case fixture at any
+//!   perturbation (`×1.000001`, `×2.0`, `×0.0`, or `= 0.0`) — case 1's only
+//!   multi-step case never left the opening jerk ramp. The fixed-target
+//!   25-tick case (index 3) and the moving-target 15-tick case (index 4)
+//!   both now kill `target_velocity = 0.0`: index 3 first diverges at step
+//!   5 (`panda_joint1` position off by ~4.7e-7), index 4 at step 4 (~4.7e-8),
+//!   both growing every subsequent step as the wrong extrapolated velocity
+//!   compounds.
+//! - The `RuckigResult` early-return branch (`if !matches!(result, Working |
+//!   Finished | ErrorSynchronizationCalculation) { return Ok(()); }`) was
+//!   unreachable through the original 3-case fixture — none of those cases
+//!   ever produce a `RuckigResult` outside that set. The zero-jerk-bound
+//!   case (index 5) does: `getVelAccelJerkBounds`/[`joint_vel_accel_jerk_bounds`]
+//!   only checks that a bound is *present*, not that it is positive, so a
+//!   `jerk_bounds` entry of `0.0` on a joint with a real displacement to
+//!   cover reaches `Ruckig::update` and returns an error variant outside the
+//!   allowed set. Deleting the branch (always falling through to the
+//!   writeback loop) makes `positions[0]` come back `0.0` (the never-written
+//!   `OutputParameter::new` default) instead of the fixture's expected
+//!   `0.3` (the commanded target, left untouched by the early return).
 //!
 //! # Tolerance
 //!

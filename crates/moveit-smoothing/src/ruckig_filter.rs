@@ -79,6 +79,16 @@
 //   `ruckig` — its root-finding does not walk identical floating-point
 //   operations in identical order, so the parity test's tolerance is set
 //   from what the fixture actually produces, not assumed to be exact.
+//   **The fixture's discriminating power is checked, not assumed**: every
+//   non-trivial computation in `do_smoothing`/`reset` has been confirmed, by
+//   temporarily deleting or perturbing it and re-running the parity test, to
+//   actually change the fixture's outcome when broken — see
+//   `ruckig_filter_parity.rs`'s own module doc for which case kills which
+//   computation, including the `target_velocity` extrapolation (needed a
+//   fixed-target-to-settling and a moving-target case; the original 3 cases
+//   never left the opening jerk ramp) and the `RuckigResult` early-return
+//   branch (needed a zero-jerk-bound case; none of the original 3 ever
+//   produced a `RuckigResult` outside the branch's allowed set).
 
 use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};
