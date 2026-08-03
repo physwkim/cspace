@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "collision": false,
+      "distance": 16.577687752661223,
+      "num_contacts": 0
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "collision": true,
+      "distance": -0.09999999999999998,
+      "num_contacts": 8
+    }
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "result": {
+      "collision": true,
+      "distance": -5.551115123125783e-17,
+      "num_contacts": 4
+    }
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "result": {
+      "collision": false,
+      "distance": 1.7976931348623157e+308,
+      "num_contacts": 0
+    }
+  }
+]

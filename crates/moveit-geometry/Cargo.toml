@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+glamx.workspace = true
 moveit-error.workspace = true
 moveit-octomap.workspace = true
 nalgebra.workspace = true

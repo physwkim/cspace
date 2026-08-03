@@ -14,9 +14,11 @@
 //! [`bodies`] module docs for scope and provenance).
 
 pub mod bodies;
+mod octree_collision;
 pub mod shapes;
 mod transforms;
 
+pub use octree_collision::compound_from_octree;
 pub use shapes::{
     BoundingSphere, Cone, Cuboid, Cylinder, Mesh, OcTree, Plane, Shape, ShapeType, Sphere,
 };

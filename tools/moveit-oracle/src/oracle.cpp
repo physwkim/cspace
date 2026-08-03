@@ -495,6 +495,8 @@ public:
       return ik(request);
     if (op == "octree_in_world")
       return octreeInWorld(request);
+    if (op == "octree_shape_query")
+      return octreeShapeQuery(request);
     if (op == "ruckig")
       return ruckig(request);
     if (op == "body_query")
@@ -2204,6 +2206,81 @@ private:
     return json{ { "shape_pose", toRowMajor4x4(shape_pose) },
                   { "global_pose", toRowMajor4x4(global_pose) },
                   { "queries", queries_out } };
+  }
+
+  /// Ground truth for an actual octree-vs-shape collision/distance query --
+  /// `octreeInWorld` above only checks point occupancy through pose
+  /// composition, it never runs a real query against a second shape. This is
+  /// what PORTING-PLAN.md's octree decision (search that file for "결정
+  /// 완료" -- the leaf-`Cuboid` `parry3d_f64::shape::Compound`
+  /// approximation of `shapes::OcTree`) needs to be checked against: does
+  /// the `Compound` agree with what FCL's own `fcl::OcTreed` narrow-phase
+  /// actually reports for the same octree and the same query shape.
+  ///
+  /// Builds an `octomap::OcTree` from `request["actions"]` (the same
+  /// `applyOctomapActions` vocabulary `octomapOp`/`octreeInWorld` use),
+  /// wraps it as `shapes::OcTree` and the request's `shape` (any type
+  /// `parseShape` supports) as a second `World::Object`, each posed
+  /// independently (`octree_pose`, `shape_pose`). `World::Object::shapes_`
+  /// and `getGlobalShapeTransforms` are the same fields `octreeInWorld` and
+  /// the `world` op already rely on.
+  ///
+  /// Deliberately does not go through `CollisionEnvFCL`/`RobotState`/ACM:
+  /// that machinery answers "does the robot collide with the world", not
+  /// "do these two arbitrary objects collide", and an octree is not a robot
+  /// link. Instead this builds the two `fcl::CollisionObjectd`s directly --
+  /// `collision_detection::createCollisionGeometry(shape, World::Object*)`
+  /// is the same public conversion `CollisionEnvFCL` itself calls internally
+  /// (see moveit2's `collision_common.cpp`), so this is not a shortcut
+  /// around FCL, just around the robot-centric wrapper -- and queries them
+  /// with FCL's own free functions, `fcl::collide`/`fcl::distance`, exactly
+  /// as `collision_common.cpp`'s own collision/distance callbacks do.
+  json octreeShapeQuery(const json& request) const
+  {
+    const double resolution = request.at("resolution").get<double>();
+    auto tree = std::make_shared<octomap::OcTree>(resolution);
+    applyOctomapActions(*tree, request.at("actions"));
+    auto octree_shape = std::make_shared<shapes::OcTree>(tree);
+    const Eigen::Isometry3d octree_pose = fromRowMajor4x4(request.at("octree_pose"));
+
+    const json& shape_json = request.at("shape");
+    std::shared_ptr<shapes::Shape> query_shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+    const Eigen::Isometry3d shape_pose = fromRowMajor4x4(request.at("shape_pose"));
+
+    auto world = std::make_shared<collision_detection::World>();
+    world->addToObject("octree", octree_pose, { octree_shape }, { Eigen::Isometry3d::Identity() });
+    world->addToObject("query", shape_pose, { query_shape }, { Eigen::Isometry3d::Identity() });
+
+    collision_detection::World::ObjectConstPtr octree_obj = world->getObject("octree");
+    collision_detection::World::ObjectConstPtr query_obj = world->getObject("query");
+
+    collision_detection::FCLGeometryConstPtr octree_geom =
+        collision_detection::createCollisionGeometry(octree_obj->shapes_[0], octree_obj.get());
+    collision_detection::FCLGeometryConstPtr query_geom =
+        collision_detection::createCollisionGeometry(query_obj->shapes_[0], query_obj.get());
+
+    const Eigen::Isometry3d& octree_global = world->getGlobalShapeTransforms("octree").at(0);
+    const Eigen::Isometry3d& query_global = world->getGlobalShapeTransforms("query").at(0);
+
+    fcl::CollisionObjectd fcl_octree(octree_geom->collision_geometry_, octree_global);
+    fcl::CollisionObjectd fcl_query(query_geom->collision_geometry_, query_global);
+
+    fcl::CollisionRequestd creq;
+    creq.enable_contact = true;
+    creq.num_max_contacts = 200;
+    fcl::CollisionResultd cres;
+    const std::size_t num_contacts = fcl::collide(&fcl_octree, &fcl_query, creq, cres);
+
+    fcl::DistanceRequestd dreq;
+    dreq.enable_signed_distance = true;
+    fcl::DistanceResultd dres;
+    fcl::distance(&fcl_octree, &fcl_query, dreq, dres);
+
+    return json{
+      { "collision", num_contacts > 0 },
+      { "num_contacts", static_cast<std::uint64_t>(num_contacts) },
+      { "distance", dres.min_distance },
+    };
   }
 
   /// Ground truth for `bodies::Body`'s posed algorithms --

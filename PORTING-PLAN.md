@@ -469,6 +469,62 @@ D3의 순서를 이 도형 하나 때문에 뒤집는 선택이므로, 1/2번이
 조사 판단대로 정확도 정책이라 채택하지 않는다. 4번(FCL FFI)은 D3를
 뒤집으므로 1·2번이 모두 막힌 뒤의 최후 수단으로 남긴다.
 
+**2번 구현 완료 (2026-08-03), 실측 결과.** `moveit-geometry::compound_from_octree`
+— 점유 리프마다 자기 깊이 크기의 `Cuboid` 하나, `Compound::new`로 조립.
+비점유(free/unknown) 리프는 도형을 만들지 않는다. `octomap`의
+`isNodeOccupied`와 같은 술어([`Leaf::is_occupied`])로 걸러서, FCL 자신의
+옥트리 순회가 보는 점유 판정과 어긋나지 않게 했다.
+
+`tools/moveit-oracle`에 `octree_shape_query` op를 새로 추가해 검증했다 —
+`collision_detection::createCollisionGeometry(shape, World::Object*)`로
+`fcl::CollisionObjectd` 둘(옥트리 하나, 질의 도형 하나)을 직접 만들어
+`fcl::collide`/`fcl::distance`를 그대로 호출한다(`CollisionEnvFCL`/
+`RobotState`/ACM을 거치지 않음 — 로봇 대 월드가 아니라 임의 도형 대 임의
+도형 질의라 그 계층이 맞지 않는다). 과제가 요구한 네 경계 — 굵은 자유
+리프 내부, 굵은/가는 리프 경계에 걸침, 리프 면에 정확히 접촉, 가지치기로
+사라진 서브트리 — 를 각각 오라클로 캡처해 `Compound` 결과와
+`parry3d_f64::query::contact`로 비교했고, 넷 다 오라클과 일치한다
+(`crates/moveit-geometry/tests/octree_shape_query_parity.rs`). 네 번째
+경계는 실측 중 실제 버그를 하나 드러냈다 — 점유 표시 1회 후 미표시(free)
+1회는 log-odds가 `0.847 - 0.405 = 0.442`로 여전히 점유 임계값(0) 위에
+남아 지워지지 않는다(확률적 필터링, 버그 아님); 서브트리를 실제로
+비우려면 미표시를 3회(`0.847 - 3×0.405 = -0.368`) 반복해야 한다 — 이
+경계가 아니었으면 드러나지 않았을 옥트리 자체의 성질이다.
+
+**`Compound` 갱신 API: 부분/증분 갱신 없음, 확정.** parry3d-f64 0.30.0
+벤더 소스의 `Compound` 공개 API 전체(`new`, `decompose_trimesh`,
+`shapes()`, `local_aabb()`, `local_bounding_sphere()`, `aabbs()`,
+`bvh() -> &Bvh`)를 읽었다 — 값을 바꾸는 메서드가 `new` 하나뿐이다.
+센서 갱신마다 옥트리가 바뀌면 `Compound` 전체를 다시 만드는 것 외에
+경로가 없다.
+
+**`Compound::new` 재구성 시간 실측.** round 3의 방 장면 생성기는 커밋되지
+않은 스크래치 코드였다(`git log`로 확인 — round 3 커밋 두 개
+(`164457e`, `fbca268`)는 PORTING-PLAN.md만 바꿨다). §4.8의 산문 명세
+(4×4×2.4m 방, 벽/바닥/천장, 0.6m 탁자, 나머지 내부를 최고해상도까지 자유
+공간으로 채운 뒤 prune)를 그대로 재구현해
+`crates/moveit-geometry/examples/octree_compound_bench.rs`로 커밋했다 —
+round 3의 리프 수(46,978 / 305,989)와 정확히 일치하지는 않지만
+(0.05 m: 총 리프 60,205개, 점유 27,324개 / 0.02 m: 총 리프 401,893개,
+점유 177,488개), 같은 자릿수라 명세를 충실히 재현한 것으로 판단한다.
+`Compound::new` 자체만(리프→`Cuboid` 매핑은 타이머 밖) 10회 평균:
+
+| 해상도 | 점유 리프(= `Cuboid`) 수 | `Compound::new` 평균 |
+|---|---|---|
+| 0.05 m | 27,324 | 13.3 ms |
+| 0.02 m | 177,488 | 130.4 ms |
+
+리프 수가 6.5배 늘 때 시간도 거의 그만큼(9.8배) 늘어 — 대체로 리프 수에
+선형이다. 흔한 depth-camera 갱신 주기(10–30 Hz, 33–100 ms 예산) 대비:
+0.05 m는 13.3 ms로 여유가 있지만, 0.02 m는 130.4 ms로 **재구성 하나만으로
+10 Hz 예산(100 ms)을 이미 넘는다** — 질의 자체는 아직 시작도 안 한
+시점이다. 즉 1번(손수 짠 깊이 적응형 `parry` 도형)은 조밀한 장면을
+낮은 해상도(0.02 m 근방)로 자주 갱신해야 하는 사용 패턴에서는 근거를
+얻는다; 방 규모/0.05 m급 성기게 갱신되는 지도에서는 2번의 전체 재구성이
+실시간 예산 안에 들어와 1번이 필요 없다. 사용 패턴이 어느 쪽인지는 이
+포트 혼자 정할 수 없다 — Phase 3 충돌/Phase 5 씬이 실제로 어떤 갱신
+주기·해상도로 옥트리를 쓰는지가 나온 뒤 재논의한다.
+
 ### 4.9 IK 재탐색의 타임아웃 시맨틱 — 벽시계 타임아웃 없음 (결정 완료)
 
 **upstream이 실제로 하는 일.** `kdl_kinematics_plugin.cpp:369-409`의
