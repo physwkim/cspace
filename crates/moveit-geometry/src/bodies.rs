@@ -551,6 +551,59 @@
 //!    this port's own regression-pinned positions — not the fixture's
 //!    exact positions, which have no more claim to being "correct" than
 //!    this port's under an anchor-dependent formula.
+//!
+//! # Bounding-volume methods, checked against an external reference (round 12)
+//!
+//! The defect class this audit checks for: a bounding volume that is
+//! uniformly wrong in a way self-consistency tests cannot catch — a sphere
+//! radius twice too large still "contains every vertex" and "grows
+//! monotonically" and passes every containment/overlap test built from the
+//! method's own output. The one thing that catches it is a value computed
+//! by a *different* implementation. For every method named for this round
+//! ([`Sphere::compute_bounding_sphere`]/[`Cylinder::compute_bounding_sphere`]/
+//! [`Cuboid::compute_bounding_sphere`]/[`ConvexMesh::compute_bounding_sphere`],
+//! the four types' `compute_bounding_cylinder`, `compute_volume`, and
+//! [`OBB::extend_approx`]), that different implementation already exists and
+//! is already wired in:
+//!
+//! - **`tests/probe_parity.rs`**: `bodies_probe.json` is the `%.17g` stdout
+//!   of a standalone C++ program linked directly against the real,
+//!   installed `libgeometric_shapes.so.2.3.3` (PORTING-PLAN.md §9.1) — not
+//!   a value this port computed and echoed back, and not upstream's own
+//!   gtest literals either (those live in `test/*.cpp`, never compiled into
+//!   the `.so`). The `check_body!` macro applies `compute_volume`,
+//!   `compute_bounding_sphere`, `compute_bounding_cylinder`,
+//!   `compute_bounding_aabb`, and `compute_bounding_obb` identically to all
+//!   four body types (`sphere_matches_libgeometric_shapes`,
+//!   `cylinder_matches_libgeometric_shapes`, `box_matches_libgeometric_shapes`,
+//!   `convex_mesh_matches_libgeometric_shapes`) at a pose that is both
+//!   translated and rotated, under nonzero scale and padding — every one of
+//!   the six methods this round names is covered for every body type,
+//!   including [`ConvexMesh`], which has no simple closed-form value to
+//!   check by hand and so has no ground truth *other* than a second,
+//!   independent implementation. [`OBB::extend_approx`]'s two branches are
+//!   both separately pinned: `obb_predicates_match_libgeometric_shapes`
+//!   forces the `merge_smalldist` branch, and
+//!   `obb_extend_approx_merge_largedist_matches_libgeometric_shapes` forces
+//!   `merge_largedist` (see deviation 3 above for why the fixture needed a
+//!   second, far-apart OBB pair to reach that branch at all).
+//! - **The oracle's `body_query` op** (`tools/moveit-oracle/src/oracle.cpp`,
+//!   `bodyQuery`) independently corroborates three of the four body types —
+//!   sphere, cylinder, box (`tests/fixtures/body_query_{request,response}.json`,
+//!   4 cases: 2 sphere, 1 cylinder, 1 box; no mesh case) — computed by
+//!   `bodies::createEmptyBodyFromShapeType`/`computeBoundingSphere`/
+//!   `computeBoundingCylinder`/`computeVolume` running inside the oracle
+//!   container against the *same* shipped library the standalone probe
+//!   links, but through a completely different harness (the oracle's JSON
+//!   request/response protocol, `body_posed_algorithms_match_the_oracle` in
+//!   `tests/body_query_parity.rs`) — a second source, not a duplicate of
+//!   the first.
+//!
+//! Conclusion: nothing named this round needs pinning: every one of
+//! `compute_bounding_sphere`, `compute_bounding_cylinder`, `compute_volume`,
+//! and `OBB::extend_approx` is already checked against a value this port
+//! did not itself compute, for every body type this crate has, by two
+//! independently-harnessed routes to the same real upstream binary.
 
 use moveit_error::{Error, Result};
 
