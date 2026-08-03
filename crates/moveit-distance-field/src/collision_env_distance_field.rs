@@ -106,16 +106,31 @@
 //! it as a blocker.
 //!
 //! That local filter cannot reach byte-exact parity with the live oracle on
-//! `pr2.urdf`, and this is expected rather than a bug: `moveit-model`
-//! deliberately never loads `<mesh>` collision geometry (its `LinkModel`
-//! doc comment, deviation 4), while the oracle links against the real mesh
-//! files and so reports every mesh-only-collision link (`base_link`, the
-//! caster rotation links, `torso_lift_link`, every arm link, ...) as having
-//! collision geometry. The parity test below checks the weaker, still
-//! load-bearing property this port can actually satisfy: the computed set
-//! equals the oracle's set minus exactly the links `moveit-model` recorded
-//! a `Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. }` for -- i.e.
-//! every disagreement is accounted for, none is silent.
+//! `pr2.urdf` as tested here, but this is a missing *fixture copy*, not a
+//! missing *feature* or an open correctness question: `moveit-model` now
+//! loads STL `<mesh>` collision geometry given an explicit
+//! [`moveit_model::MeshSearchPaths`] (its `LinkModel` doc comment, deviation
+//! 4), and pr2's 18 `<collision>` mesh files are themselves vendored --
+//! present under the gitignored `third_party/moveit_resources/pr2_description/`
+//! checkout -- but not yet copied into this workspace's committed
+//! `fixtures/meshes/` the way panda's and fanuc's are -- see
+//! `moveit-collision`'s `collision_parity.rs`, whose `fixture_mesh_search_paths`
+//! documents the identical gap for its own pr2 case. The test below builds
+//! its model with [`moveit_model::MeshSearchPaths::none`] accordingly, so
+//! every pr2 `<mesh>` element is still skipped with a
+//! `Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. }`, and the oracle
+//! (linked against the real mesh files) still reports every mesh-only-collision
+//! link (`base_link`, the caster rotation links, `torso_lift_link`, every arm
+//! link, ...) as having collision geometry where this port does not. The
+//! parity test checks the weaker, still load-bearing property this port can
+//! actually satisfy without that fixture copy: the computed set equals the
+//! oracle's set minus exactly the links `moveit-model` recorded that
+//! diagnostic for -- i.e. every disagreement is accounted for, none is
+//! silent. Pointing this test's model at `third_party/` directly (a probe,
+//! not committed) confirmed the stronger property already holds: with real
+//! meshes loaded, the computed set matches the oracle's byte-for-byte, no
+//! diagnostics. Once `fixtures/meshes/pr2_description/` lands, this test
+//! should be re-derived to assert that byte-exact equality directly.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
