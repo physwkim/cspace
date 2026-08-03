@@ -1161,9 +1161,15 @@ pair 하나에 contact 세 개가 쌓인 모양으로 이 뺄셈이 `count()` �
 (`pair_count()` 기반이면 오답이 나오도록) 못박는다. 이 경로를 처음으로
 실제로 태우는 구체 백엔드는 `moveit_collision::ParryCollisionEnv`
 (`parry.rs`)이다.
-- `moveit-distance-field` — 오라클 `distance_field` op. 이 크레이트는
-  현재 C++을 읽고 쓴 단위 테스트만 있고 Phase 3 완료 조건인 `1e-4`
-  대조가 없다.
+- `moveit-distance-field` — 오라클 `distance_field` op. **닫혔다(§65).**
+  "C++을 읽고 쓴 단위 테스트만 있다"는 이제 사실이 아니다: 재생 대상
+  25건 중 10건이 이 크레이트의 오라클 픽스처이고
+  (`distance_field`, `distance_field_negative`, `distance_field_cache_entry`,
+  `collision_distance_field_types`, `collision_sphere_free_functions`,
+  `collision_object_point_decomposition`, `link_body_decomposition`,
+  `link_models_with_collision_geometry`, `group_state_representation`,
+  `shape_points`), 대조 tolerance는 Phase 3 완료 조건 그대로 `1e-4`다
+  (`collision_common_distance_field_parity.rs:84` 외 4곳).
 - `moveit-planners-sbp` — `So2Space`/`Se3Space`/`CompoundSpace`.
   `StateSpace` trait 모양이 wraparound와 SO(3)를 감당하는지는 §61에서
   경계값으로 검증됐다 — trait 모양은 그대로 두어도 되고, 대신 구현 쪽에서
@@ -5909,3 +5915,50 @@ STL이 f32로 저장된다는 점(상대 정밀도 ~1e-7)에 비해 느슨하지
 
 `cargo nextest run --workspace` **961/961**, clippy `-D warnings` 0건,
 `check-*.sh` 3건 OK, 출처 검사 OK(메시 35건 포함), 재생 **25/25 identical**.
+
+## 65. distance-field의 Phase 3 완료 조건은 이미 충족돼 있었다 (2026-08-04)
+
+p3-distance-field 라운드 10(`003f8b2`, `8b992f2`, `59767b9`). 브랜치
+베이스가 `3f7183e`라 그쪽 보고의 945/945·재생 23/23은 낡은 숫자다.
+
+### 65.1 §58의 도달 불가 가드가 문서로 못박혔다
+
+`003f8b2`가 §58이 세운 결론 — `!in_bounds && grad.norm() > threshold`는
+어떤 `threshold >= 0`에 대해서도 참이 될 수 없다 — 를 코드 옆에 적었고,
+그 근거를 내가 상류에서 다시 확인했다:
+
+- `distance_field.hpp:313`의 `getDistanceGradient` 선언에 `virtual`이
+  없다. 파생 클래스가 가로챌 수 없다.
+- `distance_field.cpp`의 out-of-bounds 반환 경로가 `gradient_x`/`_y`/`_z`를
+  전부 `0.0`으로 쓰고 `in_bounds = false`로 돌아간다.
+
+처분도 옳다: **포팅한 채로 두되 검증된 동작으로 읽히지 않게 명시**한다.
+이 크레이트의 어떤 픽스처도 이 분기를 태우지 않고, 태울 수도 없다.
+
+부수적으로 "초기화되지 않은 `grad`" divergence도 살아 있는 차이가 아님이
+같이 닫혔다 — 두 경로 모두 norm을 읽기 전에 세 성분을 다 쓴다.
+
+### 65.2 상류 헤더 감사에서 나온 두 건
+
+`8b992f2`의 두 주장을 각각 상류에서 확인했다:
+
+- `data_ptrs_`는 상류 자신에게서 죽어 있다. `rg -n data_ptrs_
+  moveit_core/distance_field/`의 히트가 정확히 1건이고 그것이
+  `voxel_grid.hpp:288`의 선언이다.
+- `propagate_negative_`는 픽스처에 고정된 값이 아니라 진짜로 흐른다.
+  `propagation_distance_field.cpp`의 게이트 지점이 정확히 226, 240, 251,
+  312, 333, 384행이고, 이 포트의 `propagate_negative_distances`가 같은
+  두 함수(`add_new_obstacle_voxels`/`remove_obstacle_voxels`)에서 같은
+  자리를 막는다.
+
+### 65.3 계획서의 낡은 줄
+
+이 문서가 `moveit-distance-field`에 대해 "현재 C++을 읽고 쓴 단위
+테스트만 있고 Phase 3 완료 조건인 `1e-4` 대조가 없다"고 적고 있었다.
+사실이 아니다 — 재생 25건 중 **10건**이 이 크레이트의 오라클 픽스처이고,
+parity 테스트의 `TOL`은 다섯 파일에서 정확히 `1e-4`다. 줄을 고쳤다.
+
+### 65.4 머지 후 실측
+
+`cargo nextest run --workspace` **961/961**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
