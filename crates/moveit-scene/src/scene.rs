@@ -57,19 +57,44 @@ pub struct PathValidity {
 /// helpers, data fields) are implementation detail, not audited here.
 ///
 /// Re-walked symbol-by-symbol this round against the current
-/// `planning_scene.hpp`: 59 audit bullets below, every one already landing
-/// in one of the four buckets above — zero `unported, in scope` gaps
-/// survived the walk. What the walk did find were three stale overload
-/// tallies inherited from round 6's original audit
-/// (`checkCollision`, `getCollidingLinks`, `getCollidingPairs` — corrected
-/// in place below, each against a fresh count of the header) and one
-/// undocumented overload collapse (`getTransforms`, below) — this crate's
-/// coverage was already complete, the doc's bookkeeping was not.
+/// `planning_scene.hpp` (`public:` block, its current lines 93-926):
+/// 60 audit bullets below, every one already landing in one of the four
+/// buckets above — zero `unported, in scope` gaps survived the walk. Every
+/// overload count already recorded here (`checkCollision`/`checkSelfCollision`/
+/// `getCollidingLinks`/`getCollidingPairs` at 6 each, `distanceToCollision`/
+/// `distanceToCollisionUnpadded`/`isStateConstrained`/`getCostSources` at 4
+/// each, `isStateValid` at 5, `isPathValid` at 8) was reverified against a
+/// fresh `grep -c` of the header and still holds. The one thing the walk
+/// found this round: the deleted copy constructor and copy-assignment
+/// operator (`PlanningScene(const PlanningScene&) = delete` /
+/// `operator=(const PlanningScene&) = delete`, both textually `public:`)
+/// had never had a bullet — added below, immediately after the two real
+/// constructors.
+///
+/// Counting convention (so a future round can mechanically reproduce this
+/// number): one bullet per raw `public:` declaration, with same-named
+/// overloads folded into a single bullet carrying an explicit `(N
+/// overloads)` count; a multi-line signature counts once, at its first
+/// line; the destructor and the two `= delete`d copy special members each
+/// get their own bullet (the deleted pair share one, since both express
+/// the same "not copyable" idiom); an inline-body accessor (e.g.
+/// `getName()`'s `{ return name_; }`) counts identically to a
+/// declaration-only member — definition location doesn't matter, `public:`
+/// visibility does; `using`/`typedef` aliases declared at namespace scope
+/// above the class (`StateFeasibilityFn`, `MotionFeasibilityFn`,
+/// `ObjectColorMap`, `ObjectTypeMap`) are types referenced by member
+/// signatures, not members themselves, and are not counted.
 ///
 /// ## Construction, identity, parent/child
 ///
 /// - `PlanningScene(RobotModel, World)` / `PlanningScene(urdf, srdf, World)`
 ///   — ported as [`PlanningScene::new`]/[`PlanningScene::with_world`].
+/// - `PlanningScene(const PlanningScene&) = delete`, `operator=(const
+///   PlanningScene&) = delete` — not portable symbols: Rust structs are
+///   neither `Copy` nor `Clone` unless derived, so implicit copy
+///   construction and copy assignment are already absent by default: this
+///   type derives neither, so both are already unavailable without any
+///   explicit deletion to port.
 /// - `OCTOMAP_NS`, `DEFAULT_SCENE_NAME` — D1 (octomap/message-round-trip
 ///   naming constants, unused without message handling).
 /// - `~PlanningScene` — not a portable symbol; nothing here needs a
