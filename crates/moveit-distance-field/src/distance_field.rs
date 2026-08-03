@@ -93,10 +93,16 @@ pub struct DistanceGradient {
 ///
 /// The rest is not ported:
 ///
-/// - `addOcTreeToField` needs an `octomap::OcTree` equivalent. `moveit-octomap`
-///   now ports one, but this crate has no dependency on it; wiring that up
-///   and building this method is a scope decision this crate does not make
-///   unilaterally, not an availability gap.
+/// - `addOcTreeToField` is a separate, more involved algorithm from
+///   [`crate::PosedBodyPointDecomposition::from_octree`] (which this crate
+///   now ports, against a `moveit-octomap` dependency added for it):
+///   upstream's `getOcTreePoints` walks a bounding-box-limited leaf iterator
+///   (`begin_leafs_bbx`/`end_leafs_bbx`, clipped to this field's own grid
+///   extent), filters to occupied leaves only, and subdivides any leaf
+///   larger than `resolution_` into a sub-grid of points at `resolution_`
+///   spacing rather than using the leaf's own center. Having the dependency
+///   no longer blocks this method; porting it is unstarted work this round
+///   did not undertake, not an availability gap.
 /// - The marker methods build `visualization_msgs::msg::Marker` /
 ///   `MarkerArray` for RViz. `PORTING-PLAN.md` D1 keeps every crate outside
 ///   the optional `moveit-ros` free of ROS message types; there is nothing

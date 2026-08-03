@@ -13,6 +13,7 @@ moveit-collision.workspace = true
 moveit-error.workspace = true
 moveit-geometry.workspace = true
 moveit-model.workspace = true
+moveit-octomap.workspace = true
 moveit-state.workspace = true
 nalgebra.workspace = true
 

@@ -13,10 +13,12 @@
 //!
 //! Deliberately **not** ported, with reasons:
 //!
-//! - `TestOcTree` — needs `DistanceField::addOcTreeToField`, which is
-//!   unported; `moveit-octomap` now ports an `octomap::OcTree` equivalent,
-//!   but this crate has no dependency on it (see
-//!   [`moveit_distance_field::DistanceField`]'s "Deviations from upstream").
+//! - `TestOcTree` — needs `DistanceField::addOcTreeToField`, still unported
+//!   (a separate, more involved algorithm than
+//!   [`moveit_distance_field::PosedBodyPointDecomposition::from_octree`],
+//!   which this crate does now port — see
+//!   [`moveit_distance_field::DistanceField`]'s "Deviations from upstream"
+//!   for why `addOcTreeToField` itself remains unstarted).
 //! - `TestPerformance` — a benchmark (timing printed to stdout), not a
 //!   correctness assertion.
 //! - The file-I/O half of `TestReadWrite` (`writeToStream`/`readFromStream`

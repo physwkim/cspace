@@ -22,14 +22,6 @@
 //!
 //! Not ported from this pair of files:
 //!
-//! - `PosedBodyPointDecomposition`'s `octomap::OcTree` constructor: an
-//!   `octomap::OcTree` equivalent is now ported, in `moveit-octomap`, but
-//!   this crate has no dependency on that crate -- the same reasoning
-//!   [`DistanceField`]'s module doc already applies to `addOcTreeToField`.
-//!   (`PORTING-PLAN.md`'s original gap analysis flagged `octomap` itself as
-//!   not mature enough for a from-scratch implementation; `moveit-octomap`'s
-//!   existence means that gap has since closed elsewhere in the workspace,
-//!   even though this crate has not picked up the dependency.)
 //! - `getCollisionSphereMarkers`, `getProximityGradientMarkers`,
 //!   `getCollisionMarkers`: build `visualization_msgs::msg::MarkerArray` for
 //!   RViz. PORTING-PLAN.md D1 keeps ROS message types out of every crate but
@@ -76,6 +68,7 @@ use std::sync::Arc;
 use moveit_error::{Error, Result};
 use moveit_geometry::bodies::{Body, merge_bounding_spheres};
 use moveit_geometry::{BoundingSphere, Isometry3, Shape};
+use moveit_octomap::OcTree;
 use nalgebra::{Point3, Vector3};
 
 use crate::distance_field::{DistanceField, DistanceGradient};
@@ -928,9 +921,10 @@ impl PosedBodySphereDecomposition {
 /// A [`BodyDecomposition`]'s interior sample points, posed into a reference
 /// frame. Upstream `collision_detection::PosedBodyPointDecomposition`.
 pub struct PosedBodyPointDecomposition {
-    /// `None` only for a decomposition built from an octree upstream (not
-    /// ported -- see this module's doc); every constructor this port
-    /// carries sets this to `Some`.
+    /// `None` only for a decomposition built by [`PosedBodyPointDecomposition::from_octree`],
+    /// matching upstream's own octree constructor, which leaves
+    /// `body_decomposition_` default-constructed (null). Every other
+    /// constructor sets this to `Some`.
     body_decomposition: Option<Arc<BodyDecomposition>>,
     posed_collision_points: Vec<Vector3<f64>>,
 }
@@ -958,6 +952,40 @@ impl PosedBodyPointDecomposition {
         this
     }
 
+    /// Upstream `PosedBodyPointDecomposition(const std::shared_ptr<const
+    /// octomap::OcTree>&)`.
+    ///
+    /// # Deviation from upstream
+    ///
+    /// Upstream's loop (`collision_distance_field_types.cpp:355-365`) walks
+    /// the octree's full-tree iterator (`begin_tree()`/`end_tree()`) and
+    /// pushes every visited node's coordinate with no `isNodeOccupied`
+    /// filter anywhere in the body -- inner nodes and leaves alike, occupied
+    /// and free alike, each contributing one point at whatever depth (and
+    /// therefore whatever cube size) it was collapsed to. This is not a
+    /// filter this port drops: the upstream source genuinely has none, so a
+    /// decomposition built this way is one point per tree node, not one
+    /// point per occupied leaf. [`OcTree::tree_nodes`] is the exact
+    /// equivalent of that same full-tree iterator (see its own doc comment),
+    /// so this port reproduces the same node set faithfully rather than
+    /// narrowing it to occupied leaves.
+    ///
+    /// Upstream also sizes its `reserve()` call from `getNumLeafNodes()`,
+    /// smaller than the inner-plus-leaf count the loop actually pushes --
+    /// an upstream capacity-estimate quirk with no effect on the resulting
+    /// point set, not reproduced here since `Vec::collect` needs no
+    /// pre-sized reserve.
+    pub fn from_octree(octree: &OcTree) -> Self {
+        let posed_collision_points = octree
+            .tree_nodes()
+            .map(|node| node.coordinate().coords)
+            .collect();
+        Self {
+            body_decomposition: None,
+            posed_collision_points,
+        }
+    }
+
     /// Upstream `PosedBodyPointDecomposition::getCollisionPoints`.
     pub fn collision_points(&self) -> &[Vector3<f64>] {
         &self.posed_collision_points
@@ -965,7 +993,7 @@ impl PosedBodyPointDecomposition {
 
     /// Upstream `PosedBodyPointDecomposition::updatePose`. A no-op when this
     /// decomposition has no [`BodyDecomposition`] to re-derive points from
-    /// (would only happen for the unported octree constructor upstream),
+    /// (true only for [`PosedBodyPointDecomposition::from_octree`]),
     /// matching upstream's `if (body_decomposition_)` guard.
     pub fn update_pose(&mut self, trans: Isometry3) {
         if let Some(bd) = &self.body_decomposition {
@@ -1408,5 +1436,47 @@ mod tests {
              distance ({}) is compared against the unsquared radius sum ({radius_sum})",
             true_distance * true_distance
         );
+    }
+
+    /// `PosedBodyPointDecomposition::from_octree` must walk every node
+    /// [`OcTree::tree_nodes`] yields exactly once, with no occupancy or
+    /// leaf-vs-inner filtering (see that method's own "Deviation from
+    /// upstream" doc). Checked against [`OcTree::num_nodes`] -- an
+    /// independently recursive count, not a re-derivation of the same
+    /// iterator -- so a filtering or duplication bug in `from_octree` would
+    /// show up as a mismatched count even though both numbers ultimately
+    /// walk the same tree.
+    #[test]
+    fn from_octree_collects_every_tree_node_with_no_filtering() {
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
+        tree.update_node(Point3::new(-3.0, 2.0, -1.0), false, false);
+        assert!(
+            tree.num_nodes() > 1,
+            "test tree must branch past the root for this check to mean anything"
+        );
+
+        let decomposition = PosedBodyPointDecomposition::from_octree(&tree);
+
+        assert!(
+            decomposition.body_decomposition.is_none(),
+            "the octree constructor leaves body_decomposition_ null, matching upstream"
+        );
+        assert_eq!(decomposition.collision_points().len(), tree.num_nodes());
+    }
+
+    /// `update_pose` must be a no-op on a [`PosedBodyPointDecomposition`]
+    /// built by `from_octree`, matching upstream's `if (body_decomposition_)`
+    /// guard -- there is no [`BodyDecomposition`] to re-derive points from.
+    #[test]
+    fn from_octree_update_pose_is_a_no_op() {
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
+
+        let mut decomposition = PosedBodyPointDecomposition::from_octree(&tree);
+        let before = decomposition.collision_points().to_vec();
+        decomposition.update_pose(Isometry3::translation(1.0, 2.0, 3.0));
+
+        assert_eq!(decomposition.collision_points(), before.as_slice());
     }
 }

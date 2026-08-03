@@ -168,10 +168,11 @@
 //! are unported because a bare `moveit_state::State` structurally cannot see
 //! attached bodies (they live on `moveit_scene::PlanningScene`, which this
 //! crate does not depend on — see `moveit-state`'s `State::frame_transform`
-//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is
-//! unported because this crate has no dependency on `moveit-octomap` — that
-//! crate now ports an `octomap::OcTree` equivalent, but nothing in this
-//! crate's own dependency graph reaches it. Nothing above depends on
+//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is now
+//! ported, as [`PosedBodyPointDecomposition::from_octree`], against a
+//! `moveit-octomap` dependency this crate added for it — see that method's
+//! own doc comment for the faithfully-reproduced upstream behaviour
+//! (every tree node, not just occupied leaves). Nothing above depends on
 //! ROS message types, a renderer, or `World` in a way this crate's
 //! `DistanceFieldCollisionCache`/link-decomposition scope does not already
 //! account for.
@@ -315,13 +316,14 @@
 //! - `PosedBodySphereDecomposition` (class) — ported as
 //!   [`PosedBodySphereDecomposition`].
 //! - `PosedBodyPointDecomposition` (class, 3 constructor overloads) — ported
-//!   for 2 of 3: `PosedBodyPointDecomposition(body_decomposition)`/
-//!   `PosedBodyPointDecomposition(body_decomposition, pose)` as
-//!   [`PosedBodyPointDecomposition::new`]/[`PosedBodyPointDecomposition::with_pose`].
-//!   The third, `PosedBodyPointDecomposition(const std::shared_ptr<const
-//!   octomap::OcTree>&)`, is unported: `moveit-octomap` now ports an
-//!   `octomap::OcTree` equivalent, but this crate has no dependency on it,
-//!   so there is no input type in this crate's own scope to build it from.
+//!   for all 3: `PosedBodyPointDecomposition(body_decomposition)`/
+//!   `PosedBodyPointDecomposition(body_decomposition, pose)`/
+//!   `PosedBodyPointDecomposition(const std::shared_ptr<const
+//!   octomap::OcTree>&)` as [`PosedBodyPointDecomposition::new`]/
+//!   [`PosedBodyPointDecomposition::with_pose`]/
+//!   [`PosedBodyPointDecomposition::from_octree`] — the last against a
+//!   `moveit-octomap` dependency added for it; see that method's own doc
+//!   comment for the faithfully-reproduced upstream behaviour.
 //! - `PosedBodySphereDecompositionVector` (class) — ported as
 //!   [`PosedBodySphereDecompositionVector`] (`getSize`/
 //!   `getPosedBodySphereDecomposition` as
