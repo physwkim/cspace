@@ -26,6 +26,7 @@
 
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
+#include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
@@ -162,6 +163,8 @@ public:
       return acm();
     if (op == "world")
       return world(request);
+    if (op == "distance_field")
+      return distanceField(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -537,6 +540,116 @@ private:
     }
 
     return json{ { "objects", objects_out }, { "queries", queries_out } };
+  }
+
+  /// Ground truth for the `moveit-distance-field` `PropagationDistanceField`
+  /// port. Builds a field straight from `geometry`/`max_distance`/
+  /// `propagate_negative` -- no `RobotModel` involved, `distance_field` has
+  /// none either -- adds `occupied_cells` (explicit integer grid coordinates,
+  /// converted to world points via `gridToWorld` so the obstacle set the
+  /// field actually stores is exactly the requested cells with no separate
+  /// shape-sampling path to drift from it), then for every cell in `queries`
+  /// dumps `getDistance` (both the world-point and, when the cell is
+  /// in-grid, the cell-indexed overload), `getDistanceGradient`, and, when
+  /// the cell is in-grid, `getNearestCell`.
+  ///
+  /// `getDistance(int,int,int)` and `getNearestCell` are documented upstream
+  /// as needing a valid cell "or corruption occurs" -- they are only called
+  /// for `in_grid` cells, matching the same guard `PropagationDistanceField`
+  /// callers elsewhere in this port already apply. `getDistance(double,...)`
+  /// and `getDistanceGradient` handle an out-of-grid world point themselves
+  /// (`VoxelGrid::operator()` / the `gx < 1 || ...` bounds check), so those
+  /// two are safe to call unconditionally and are dumped for every query.
+  ///
+  /// `nearest.voxel_present` deliberately does not dump the neighbor voxel's
+  /// own fields: for a query that reaches `getNearestCell`'s
+  /// `PropDistanceFieldVoxel::UNINITIALIZED` (`-1,-1,-1`) sentinel path --
+  /// a cell farther than `max_distance` from every obstacle, never visited
+  /// by propagation -- upstream reads `voxel_grid_->getCell(-1, -1, -1)`
+  /// unguarded and returns that address as a non-null pointer (see
+  /// `propagation.rs`'s `nearest_cell` deviation doc). The pointer itself is
+  /// well-defined to *form* (pure address arithmetic on `T* data_`, never
+  /// dereferenced here or by upstream's own `ncell == cell` comparison); only
+  /// reading through it would be memory-unsafe, so this dump reports
+  /// presence/absence and never a field of the pointee. That non-null result
+  /// for an unvisited cell -- not a crash -- is the empirical evidence this
+  /// fixture exists to capture: it is what upstream actually returns where
+  /// this crate's `nearest_cell` instead reports `voxel: None`.
+  json distanceField(const json& request) const
+  {
+    const json& geom = request.at("geometry");
+    const auto size = geom.at("size").get<std::array<double, 3>>();
+    const auto origin = geom.at("origin").get<std::array<double, 3>>();
+    const double resolution = geom.at("resolution").get<double>();
+    const double max_distance = request.at("max_distance").get<double>();
+    const bool propagate_negative = request.at("propagate_negative").get<bool>();
+
+    distance_field::PropagationDistanceField field(size[0], size[1], size[2], resolution, origin[0], origin[1],
+                                                    origin[2], max_distance, propagate_negative);
+
+    EigenSTL::vector_Vector3d occupied_points;
+    for (const auto& cell_json : request.at("occupied_cells"))
+    {
+      const auto cell = cell_json.get<std::array<int, 3>>();
+      double wx = NAN;
+      double wy = NAN;
+      double wz = NAN;
+      field.gridToWorld(cell[0], cell[1], cell[2], wx, wy, wz);
+      occupied_points.emplace_back(wx, wy, wz);
+    }
+    field.addPointsToField(occupied_points);
+
+    json queries_out = json::array();
+    for (const auto& query_json : request.at("queries"))
+    {
+      const auto cell = query_json.get<std::array<int, 3>>();
+      const int x = cell[0];
+      const int y = cell[1];
+      const int z = cell[2];
+      const bool in_grid = field.isCellValid(x, y, z);
+
+      double wx = NAN;
+      double wy = NAN;
+      double wz = NAN;
+      field.gridToWorld(x, y, z, wx, wy, wz);
+
+      double gradient_x = NAN;
+      double gradient_y = NAN;
+      double gradient_z = NAN;
+      bool in_bounds = false;
+      const double gradient_distance = field.getDistanceGradient(wx, wy, wz, gradient_x, gradient_y, gradient_z, in_bounds);
+
+      json entry;
+      entry["cell"] = json::array({ x, y, z });
+      entry["in_grid"] = in_grid;
+      entry["world"] = json::array({ wx, wy, wz });
+      entry["distance_world"] = field.getDistance(wx, wy, wz);
+      entry["gradient"] = json{ { "distance", gradient_distance },
+                                 { "gradient", json::array({ gradient_x, gradient_y, gradient_z }) },
+                                 { "in_bounds", in_bounds } };
+
+      if (in_grid)
+      {
+        entry["distance_cell"] = field.getDistance(x, y, z);
+
+        double nearest_distance = NAN;
+        Eigen::Vector3i nearest_pos;
+        const distance_field::PropDistanceFieldVoxel* nearest =
+            field.getNearestCell(x, y, z, nearest_distance, nearest_pos);
+        entry["nearest"] = json{ { "distance", nearest_distance },
+                                  { "position", json::array({ nearest_pos.x(), nearest_pos.y(), nearest_pos.z() }) },
+                                  { "voxel_present", nearest != nullptr } };
+      }
+      else
+      {
+        entry["distance_cell"] = nullptr;
+        entry["nearest"] = nullptr;
+      }
+
+      queries_out.push_back(entry);
+    }
+
+    return json{ { "queries", queries_out } };
   }
 
   moveit::core::RobotModelPtr model_;

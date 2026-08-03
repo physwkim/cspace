@@ -81,6 +81,40 @@ pub enum Op {
         #[serde(default)]
         queries: Vec<String>,
     },
+    /// Ground truth for the `moveit-distance-field` `PropagationDistanceField`
+    /// port. Builds a field directly from `geometry`/`max_distance`/
+    /// `propagate_negative` -- no `RobotModel` involved, `distance_field` has
+    /// none either -- adds `occupied_cells` (explicit integer grid
+    /// coordinates, not shapes: `moveit-geometry`'s `bodies` port is not
+    /// merged yet), then dumps `getDistance`, `getDistanceGradient` and
+    /// `getNearestCell` for every cell in `queries`.
+    DistanceField {
+        /// Size, origin and resolution of the grid.
+        geometry: DistanceFieldGeometry,
+        /// `PropagationDistanceField`'s `max_distance` constructor argument.
+        max_distance: f64,
+        /// Whether the field also propagates distances inward from
+        /// unoccupied cells.
+        propagate_negative: bool,
+        /// Cells to seed as obstacles before any query, as integer grid
+        /// coordinates.
+        occupied_cells: Vec<[i32; 3]>,
+        /// Cells to query, as integer grid coordinates. Coordinates outside
+        /// `[0, num_cells)` on any axis are valid input -- the response's
+        /// `in_grid` reports whether a given query landed inside the grid.
+        queries: Vec<[i32; 3]>,
+    },
+}
+
+/// Size, origin and resolution of the grid built by [`Op::DistanceField`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DistanceFieldGeometry {
+    /// World-space extent along x, y, z.
+    pub size: [f64; 3],
+    /// World-space location of cell `(0, 0, 0)`'s corner.
+    pub origin: [f64; 3],
+    /// The edge length of one (cubic) cell.
+    pub resolution: f64,
 }
 
 /// One object to build in [`Op::World`].
@@ -135,6 +169,8 @@ pub enum OracleResult {
     Acm(AcmResult),
     /// Answer to [`Op::World`].
     World(WorldResult),
+    /// Answer to [`Op::DistanceField`].
+    DistanceField(DistanceFieldResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -311,4 +347,73 @@ pub struct WorldQueryResult {
     /// field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transform: Option<[f64; 16]>,
+}
+
+/// Answer to [`Op::DistanceField`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DistanceFieldResult {
+    /// One answer per cell in [`Op::DistanceField`]'s `queries`, in request
+    /// order.
+    pub queries: Vec<DistanceFieldQueryResult>,
+}
+
+/// Answer to one cell in [`Op::DistanceField`]'s `queries`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DistanceFieldQueryResult {
+    /// The queried cell, echoed back.
+    pub cell: [i32; 3],
+    /// `PropagationDistanceField::isCellValid(x, y, z)`.
+    pub in_grid: bool,
+    /// `gridToWorld(x, y, z)` -- computed for every query regardless of
+    /// `in_grid`, matching upstream's own unconditional arithmetic.
+    pub world: [f64; 3],
+    /// `getDistance(double, double, double)` at [`Self::world`]. Safe to call
+    /// for any world point, in or out of the grid.
+    pub distance_world: f64,
+    /// `getDistance(int, int, int)` at [`Self::cell`]. `None` when
+    /// `!in_grid`: upstream documents this overload as needing a valid cell
+    /// "or corruption occurs".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distance_cell: Option<f64>,
+    /// `getDistanceGradient` at [`Self::world`]. Handles an out-of-grid point
+    /// itself (`in_bounds: false`, zero gradient), so this is always present.
+    pub gradient: DistanceFieldGradient,
+    /// `getNearestCell(x, y, z, ...)` at [`Self::cell`]. `None` when
+    /// `!in_grid`, for the same reason as [`Self::distance_cell`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nearest: Option<DistanceFieldNearest>,
+}
+
+/// `getDistanceGradient`'s result, dumped in a [`DistanceFieldQueryResult`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DistanceFieldGradient {
+    /// The distance value returned alongside the gradient.
+    pub distance: f64,
+    /// The gradient vector. Zero when `!in_bounds`.
+    pub gradient: [f64; 3],
+    /// `false` within one cell of the grid boundary, where a gradient needs
+    /// padding this query cannot have.
+    pub in_bounds: bool,
+}
+
+/// `getNearestCell`'s result, dumped in a [`DistanceFieldQueryResult`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DistanceFieldNearest {
+    /// Signed distance: negative inside an obstacle, positive outside, zero
+    /// when unknown.
+    pub distance: f64,
+    /// The nearest cell's position.
+    pub position: [i32; 3],
+    /// Whether upstream's `getNearestCell` returned a non-null pointer.
+    ///
+    /// Deliberately not the neighbor voxel's own fields: for a query that
+    /// reaches the `PropDistanceFieldVoxel::UNINITIALIZED` (`-1, -1, -1`)
+    /// sentinel path -- a cell farther than `max_distance` from every
+    /// obstacle, never visited by propagation -- upstream reads
+    /// `voxel_grid_->getCell(-1, -1, -1)` unguarded and returns that address
+    /// as non-null, which is well-defined to *form* but memory-unsafe to
+    /// dereference. `true` here for such a query is the documented upstream
+    /// defect this crate's own `nearest_cell` closes by returning `None`
+    /// instead -- see `propagation.rs`'s deviation doc.
+    pub voxel_present: bool,
 }
