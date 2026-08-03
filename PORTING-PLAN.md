@@ -181,7 +181,10 @@ C++ `robot_state.h`는 `dirty_link_transforms_`, `dirty_collision_body_transform
 
 **대가:** 읽기 API가 `&self`에서 `&mut self`로 바뀐다. C++ API 형태와
 어긋나며, 동시 읽기가 필요한 지점에서 호출자가 `update_link_transforms()`를
-먼저 부르는 패턴으로 바뀐다. **사인오프 필요.**
+먼저 부르는 패턴으로 바뀐다.
+
+**결정 (2026-08-03) — sum type은 채택, `&mut self` 읽기는 채택하지 않는다.**
+§8.2를 따른다.
 
 ### 4.2 `k` 크레이트 미채택 사유
 
@@ -204,6 +207,8 @@ OrientationConstraint / VisibilityConstraint)와 `RobotState`,
 `Option`이 없어 `bool has_x` + `x` 쌍으로 선택성을 표현하는데(§4.1과 같은
 이중 의미 문제), Rust 타입에서는 `Option<T>`와 enum으로 표현한다. 변환
 손실은 `moveit-ros`의 `TryFrom`이 명시적 에러로 보고한다.
+
+**결정 (2026-08-03) — 위 설계 원칙 그대로 채택.** §8.3을 따른다.
 
 ### 4.4 컴파일타임 플러그인 레지스트리 (D4)
 
@@ -470,9 +475,9 @@ fanuc(9 links, 9 joints, 1 group)로도 51/51 동일하게 동작.
 
 ### 7.5 다음 단계 — Phase 1 착수 전 사인오프 2건
 
-§4.1 `RobotState` dirty-flag → sum type (읽기 API가 `&self` → `&mut self`),
-§4.3 순수 Rust 제약 타입. 둘 다 Phase 1 이후에 뒤집으면 전 크레이트의 타입
-시그니처가 바뀐다.
+§4.1 `RobotState` dirty-flag → sum type, §4.3 순수 Rust 제약 타입. 둘 다
+Phase 1 이후에 뒤집으면 전 크레이트의 타입 시그니처가 바뀐다.
+**해소됨 (2026-08-03): §8.2, §8.3 참조.**
 
 ## 8. Phase 1 — 진행 중 (2026-08-03)
 
@@ -500,10 +505,57 @@ fanuc(9 links, 9 joints, 1 group)로도 51/51 동일하게 동작.
 revolute joint가 `[0, 0]`으로 잠긴다 — panda와 fanuc은 모든 관절이 명시적
 non-zero limit을 가져 드러나지 않을 뿐이다.
 
-### 8.2 픽스처 현황
+### 8.2 §4.1 결정 — dirty 상태는 sum type, 읽기는 빌림 검사기가 지킨다
+
+§4.1의 제안 중 sum type은 채택하고, "읽기 API를 `&mut self`로 바꾼다"는
+대가는 **치르지 않는다**. 그 대가는 필요 없다.
+
+상류를 다시 읽고 확인한 사실 하나가 설계를 바꾼다: `dirty_link_transforms_`는
+bool이 아니라 `const JointModel*`이고, 더럽혀진 여러 서브트리의 **공통
+조상**을 담는다 (`robot_state.hpp:1682`, `RobotModel::getCommonRoot`). 즉
+lazy 갱신은 "나중에 전부 다시 계산"이 아니라 "최소 서브트리만 다시 계산"이다.
+플래너가 한 그룹의 관절만 반복해서 세팅하는 경로가 정확히 이 최적화를 쓴다.
+게으름을 없애고 매번 전체 트리를 갱신하는 설계는 그 핫패스에서 성능 퇴행이다.
+
+따라서 상태는 이렇게 나눈다:
+
+- `RobotState` — 변수 위치 + `dirty: Option<JointIndex>` (더러운 서브트리의
+  공통 루트). 모든 변경은 여기서 일어나고 변환은 건드리지 않는다.
+- `RobotState::update(&mut self) -> &Posed<'_>` — 더러운 서브트리만 다시
+  계산하고 `dirty`를 비운 뒤, 변환 읽기를 `&self`로 노출하는 뷰를 돌려준다.
+
+이러면 "변환을 읽을 수 있다 ⟺ dirty가 아니다"가 **빌림 검사기로** 성립한다.
+`&Posed<'_>`가 `self`를 불변으로 재빌림하므로 뷰를 쥔 동안 변경이 불가능하고,
+소비자 쪽에 `if dirty` 런타임 분기가 아예 없다. 읽기는 `&self`로 남고,
+`Sync`도 유지된다 — 상류가 `const_cast`/`mutable`로 우회하던 지점이다.
+
+값의 의미가 플래그에 따라 달라지는 이중 의미는 사라진다: `Posed`가 존재한다는
+사실 자체가 변환이 현재 위치에 대응한다는 증거다.
+
+**FK 차등 테스트에 미치는 영향 없음** — 두 설계 모두 같은 수를 낸다.
+
+### 8.3 §4.3 결정 — `Option`/enum 채택
+
+§4.3의 설계 원칙을 그대로 채택한다. D1이 코어 크레이트에서 ROS 타입을
+금지하므로 `bool has_x` + `x` 쌍을 그대로 옮길 이유가 애초에 없고, 옮기면
+§4.1이 지적한 것과 같은 이중 의미를 새 코드에 심는 꼴이 된다. `moveit_msgs`
+왕복 변환은 `moveit-ros`의 `TryFrom`에만 두고, 변환 손실은 조용히 넘기지 말고
+명시적 에러로 보고한다.
+
+### 8.4 픽스처 현황
 
 `third_party/moveit_resources`에 prbt는 없다 (§7.4의 서술은 틀렸다).
-쓸 수 있는 것은 panda, fanuc, dual-arm panda(`panda.urdf.xacro`라 확장
-필요), pr2(`urdf/robot.xml` + `srdf/robot.xml`, 확장 불필요)다. pr2는
-continuous joint와 mimic 관계를 가져 panda/fanuc이 덮지 못하는 영역을
-덮는다.
+커밋된 로봇 기술 파일은 저장소 루트 `fixtures/` 한 곳에 둔다 —
+`third_party/`는 gitignore라 fresh clone과 CI에 존재하지 않기 때문이다.
+크레이트 안에 흩어진 사본(`crates/moveit-srdf/tests/fixtures/`,
+`crates/moveit-model/tests/fixtures/`)을 이쪽으로 접는 작업은 아직 절반만
+끝났다.
+
+쓸 수 있는 것은 panda, fanuc, dual-arm panda(xacro 전개본이
+`fixtures/dual_arm_panda.urdf`로 커밋됨), pr2다. pr2는 오라클로 확인한
+바로 95 links / 95 joints / 8 groups, Revolute 40·Fixed 49·Prismatic 5·
+Planar 1, mimic 6개, 그리고 `position_bounded=false`인 continuous revolute
+19개를 갖는다. planar 가상 조인트 `world_joint`의 변수는 `x`/`y`/`theta`이고
+`theta`만 무경계다 — `PlanarJoint`와 `normalize_angle`은 panda·fanuc에
+planar 조인트가 없어 지금까지 오라클 대조를 받지 못했고, pr2가 그 경로를
+연다.
