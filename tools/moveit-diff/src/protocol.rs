@@ -807,22 +807,27 @@ pub struct ConstraintsResult {
 /// cases (`--seed 20260804`, `fixtures/pr2.urdf`/`.srdf`): every
 /// `self_distance` "distance differs" failure traces to just two pairs on
 /// this side, not three unrelated ones. `base_bellow_link`/`torso_lift_link`
-/// produces both `-5.29289090633392e-2` (340/600, the dominant plateau) and
+/// produces both `-5.29289090633392e-2` (170/300, the dominant plateau) and
 /// `-4.91695723318727e-2` (once, case 18) plus a dozen more nearby-but-
 /// distinct values — the pair drifts in a narrow band (~-0.047 to -0.053) as
 /// `torso_lift_joint` moves, rather than sitting at one frozen number. The
-/// remaining 246/600 are eight *different* pairs — `base_link` against each
+/// remaining 123/300 are eight *different* pairs — `base_link` against each
 /// of the eight `*_caster_*_wheel_link`s — that collapse onto the same
-/// `-4.65920000000832e-2` to ~11 significant digits: each caster wheel's
+/// `-4.65920000000832e-2` to ~13 significant digits: each caster wheel's
 /// mesh is rotationally symmetric about its own roll axis, so the wheel-roll
 /// continuous joint's rotation cannot change the closest-point distance to
 /// `base_link` at all, and float noise is all that's left to tell the eight
-/// apart. The oracle's own minimum on the same cases is a different pair
-/// almost every time (mostly `*_gripper_*_finger*` pairs at `-1e-2`..`-1e-1`)
-/// -- consistent with p3-acm's case-7552 finding that this is a pair-ranking
-/// flip, not a same-pair depth drift: this port's self-distance search finds
-/// these two near-static pairs and apparently never gets to weigh the
-/// gripper pairs against them. Diagnostic only, handed to p3-acm (who own
+/// apart. (An earlier count of this same run reported `340/600`/`246/600`;
+/// that denominator was doubled by counting both a case's inline `FAIL`
+/// line and the run's own end-of-log `Nx (first: ...)` aggregate line for
+/// it -- the true counts, filtered to `FAIL` lines only, are the `/300`
+/// ones above; see PORTING-PLAN.md §53.2.) The oracle's own minimum on the
+/// same cases is a different pair almost every time (mostly
+/// `*_gripper_*_finger*` pairs at `-1e-2`..`-1e-1`) -- consistent with
+/// p3-acm's case-7552 finding that this is a pair-ranking flip, not a
+/// same-pair depth drift: this port's self-distance search finds these two
+/// near-static pairs and apparently never gets to weigh the gripper pairs
+/// against them. Diagnostic only, handed to p3-acm (who own
 /// `moveit-collision`) rather than fixed here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DistancePair {
