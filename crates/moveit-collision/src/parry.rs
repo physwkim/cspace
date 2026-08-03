@@ -165,7 +165,7 @@
 //! identity with the first for that check to ever need to catch.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape, Vector3, compound_from_octree};
@@ -248,6 +248,21 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 /// for a 0.02m leaf size over a room-scale scene, PORTING-PLAN.md §4.8 — on
 /// every single query against it, not once per octree update.
 ///
+/// Each entry carries a [`Weak`] to the tree it was keyed on, purely to keep
+/// that heap block alive. An address is only a valid identity while the
+/// allocation behind it exists: with nothing pinning it, dropping the last
+/// `Arc` to an octree frees the block, and the allocator is free to hand the
+/// same address to the next, unrelated octree — which then reads the first
+/// tree's cached conversion. That is not hypothetical here; on this
+/// allocator a freed tree's address was reused by the very next allocation,
+/// so a non-empty tree silently received an empty one's cached `None` and
+/// dropped out of collision checking altogether. `moveit-distance-field`'s
+/// `get_body_decomposition_cache_entry` hit the same defect and fixed it the
+/// same way; see this file's `octree_cache_survives_shape_churn`. The `Weak`
+/// is never upgraded — the `HashMap` key stays the bare address, and holding
+/// a `Weak` rather than an `Arc` keeps the pinned block to the control word
+/// instead of the whole tree.
+///
 /// Entries are never evicted: nothing in this crate's current API replaces a
 /// [`World`] object's octree in place, so the only way an `Arc` pointer
 /// present in this cache stops being reachable from a live [`World`] is the
@@ -264,7 +279,11 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 /// rebuilding the tree), a clone that still points at the same octree `Arc`
 /// still benefits from a cache hit here.
 #[derive(Clone, Default)]
-struct OctreeCache(Arc<Mutex<HashMap<usize, Option<SharedShape>>>>);
+struct OctreeCache(Arc<Mutex<HashMap<usize, OctreeCacheEntry>>>);
+
+/// The pin plus the cached conversion. The [`Weak`] is dead weight by design
+/// — see [`OctreeCache`] for why it has to exist anyway.
+type OctreeCacheEntry = (Weak<moveit_octomap::OcTree>, Option<SharedShape>);
 
 impl std::fmt::Debug for OctreeCache {
     /// `SharedShape` (`Arc<dyn parry3d_f64::shape::Shape>`) has no `Debug`
@@ -279,20 +298,26 @@ impl std::fmt::Debug for OctreeCache {
 }
 
 impl OctreeCache {
-    /// Returns the cached conversion for `key`, or computes it with `build`
-    /// and stores the result (`Some` or `None`) so a later call with the
-    /// same `key` never re-invokes `build`.
+    /// Returns the cached conversion for `tree`, or computes it with `build`
+    /// and stores the result (`Some` or `None`) so a later call for the same
+    /// tree never re-invokes `build`.
+    ///
+    /// Takes the `Arc` rather than a caller-computed address so the key and
+    /// the [`Weak`] that pins it cannot be derived from two different trees:
+    /// there is no signature here that lets a caller pass an address without
+    /// also handing over the thing that keeps it valid.
     fn get_or_compute(
         &self,
-        key: usize,
+        tree: &Arc<moveit_octomap::OcTree>,
         build: impl FnOnce() -> Option<SharedShape>,
     ) -> Option<SharedShape> {
+        let key = Arc::as_ptr(tree) as *const () as usize;
         let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(cached) = cache.get(&key) {
+        if let Some((_, cached)) = cache.get(&key) {
             return cached.clone();
         }
         let value = build();
-        cache.insert(key, value.clone());
+        cache.insert(key, (Arc::downgrade(tree), value.clone()));
         value
     }
 }
@@ -371,9 +396,8 @@ fn convert_shape(shape: &Shape, octree_cache: &OctreeCache) -> Option<(SharedSha
         }
         Shape::OcTree(o) => {
             let tree = o.octree.as_ref()?;
-            let key = Arc::as_ptr(tree) as *const () as usize;
             octree_cache
-                .get_or_compute(key, || compound_from_octree(tree).map(SharedShape::new))
+                .get_or_compute(tree, || compound_from_octree(tree).map(SharedShape::new))
                 .map(|shape| (shape, Isometry3::identity()))
         }
     }
@@ -1027,6 +1051,54 @@ mod tests {
         assert!(convert_shape(&shape, &OctreeCache::default()).is_none());
     }
 
+    /// Regression test for a defect this port introduced: [`OctreeCache`]
+    /// keyed on a bare `Arc::as_ptr(tree) as usize` with nothing pinning that
+    /// address. Dropping the last `Arc` to an octree freed the block, and the
+    /// allocator handed the same address straight back to the next octree --
+    /// on this allocator, on the very first attempt -- so a tree with an
+    /// occupied leaf received an empty tree's cached `None` and vanished from
+    /// collision checking entirely. That is a silent false negative: no
+    /// error, no missing shape, just an obstacle that stops being an
+    /// obstacle.
+    ///
+    /// The churn below is deliberately the shape that triggered it -- build,
+    /// convert, drop, repeat -- alternating empty and occupied trees so a
+    /// stale hit lands on a differing answer rather than a matching one.
+    /// Every result is checked against what that tree must convert to
+    /// independently, so the test fails on a mixed-up entry whether or not
+    /// this particular run happens to reuse an address.
+    #[test]
+    fn octree_cache_survives_shape_churn() {
+        let cache = OctreeCache::default();
+
+        for i in 0..200 {
+            let occupied = i % 2 == 0;
+            let mut t = moveit_octomap::OcTree::new(0.1);
+            if occupied {
+                t.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+            }
+            let shape = Shape::OcTree(OcTree::from_tree(Arc::new(t)));
+            let got = convert_shape(&shape, &cache);
+
+            assert_eq!(
+                got.is_some(),
+                occupied,
+                "iteration {i}: a tree with occupied={occupied} got the wrong cached conversion"
+            );
+            if let Some((parry_shape, _)) = got {
+                assert_eq!(
+                    parry_shape
+                        .as_compound()
+                        .expect("an occupied tree converts to a Compound")
+                        .shapes()
+                        .len(),
+                    1,
+                    "iteration {i}: wrong leaf count, i.e. another tree's Compound"
+                );
+            }
+        }
+    }
+
     #[test]
     fn convert_shape_octree_with_an_occupied_leaf_converts_to_a_compound() {
         let mut tree = moveit_octomap::OcTree::new(0.1);
@@ -1087,14 +1159,15 @@ mod tests {
     #[test]
     fn octree_cache_get_or_compute_invokes_build_only_once_per_key() {
         let cache = OctreeCache::default();
+        let tree = Arc::new(moveit_octomap::OcTree::new(0.1));
         let calls = std::cell::Cell::new(0);
         let build = || {
             calls.set(calls.get() + 1);
             Some(SharedShape::new(Ball::new(1.0)))
         };
 
-        assert!(cache.get_or_compute(42, build).is_some());
-        assert!(cache.get_or_compute(42, build).is_some());
+        assert!(cache.get_or_compute(&tree, build).is_some());
+        assert!(cache.get_or_compute(&tree, build).is_some());
 
         assert_eq!(
             calls.get(),
