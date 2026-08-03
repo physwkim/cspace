@@ -1392,14 +1392,21 @@ fn paired_divergence_z(oracle_only: usize, rust_only: usize) -> f64 {
 /// A round-5 `p1-joints` regression is why this exists: the oracle's own IK
 /// reseed loop sampled full-range regardless of `consistency_limits`, so
 /// under a tight limit almost every reseed landed too far from the seed to
-/// pass its own consistency check even when it converged -- `b`/`c` around
-/// 15-92 per fixture, `z` between 5.9 and 7.1. After fixing that reseed to
-/// match `searchPositionIK`'s own near-by-when-limited branch
+/// pass its own consistency check even when it converged. Three of the four
+/// fixtures showed it clearly (panda `b=15, c=69` -> `z=5.89`; fanuc
+/// `b=18, c=92` -> `z=7.06`; dual_arm_panda `b=20, c=67` -> `z=5.04`); pr2
+/// (`b=8, c=18` -> `z=1.96`) had too few total disagreements at 500 cases to
+/// clear a `3.0` bar even with the bug present, since its baseline success
+/// rate was high enough (99.6-99.8%) that few cases ever needed a reseed at
+/// all -- a real limitation of this statistic at low `b + c`, not evidence
+/// pr2 was unaffected. After fixing that reseed to match
+/// `searchPositionIK`'s own near-by-when-limited branch
 /// (`kdl_kinematics_plugin.cpp:373-382`), the same four fixtures gave `z`
-/// between `0.0` and `1.12` at the same seed. `3.0` sits comfortably above
-/// that noise band and comfortably below the pre-fix values, so a genuine
-/// recurrence of this class of bug cannot be reported as agreement again by
-/// a report that only reads success-rate lines or `failed: 0`.
+/// between `0.0` and `1.21` at the same seed. `3.0` sits comfortably above
+/// the three clear pre-fix values and comfortably above every post-fix one,
+/// so a genuine recurrence of this class of bug on a fixture with enough
+/// disagreements to measure cannot be reported as agreement again by a
+/// report that only reads success-rate lines or `failed: 0`.
 const PAIRED_DIVERGENCE_Z_THRESHOLD: f64 = 3.0;
 
 /// How close counts as "did not move from the seed" for the degenerate
@@ -1531,7 +1538,10 @@ mod paired_divergence_tests {
     /// The threshold's own boundary: the round-5 post-fix measurements
     /// (panda 31/36, fanuc 32/32, dual_arm_panda 35/45, pr2 17/12) all land
     /// under `PAIRED_DIVERGENCE_Z_THRESHOLD`; the round-5 pre-fix ones
-    /// (panda 15/69, fanuc 18/92) both land over it.
+    /// (panda 15/69, fanuc 18/92, dual_arm_panda 20/67) all land over it.
+    /// pr2's pre-fix pair (8/18) is deliberately not asserted here -- it did
+    /// not clear the threshold either (see `PAIRED_DIVERGENCE_Z_THRESHOLD`'s
+    /// doc comment on why a low `b + c` limits this statistic's power).
     #[test]
     fn measured_noise_stays_under_threshold_measured_bug_clears_it() {
         for (b, c) in [(31, 36), (32, 32), (35, 45), (17, 12)] {
@@ -1541,7 +1551,7 @@ mod paired_divergence_tests {
                 "b={b}, c={c}: z={z} should be noise (<= threshold)"
             );
         }
-        for (b, c) in [(15, 69), (18, 92)] {
+        for (b, c) in [(15, 69), (18, 92), (20, 67)] {
             let z = paired_divergence_z(b, c);
             assert!(
                 z > PAIRED_DIVERGENCE_Z_THRESHOLD,
