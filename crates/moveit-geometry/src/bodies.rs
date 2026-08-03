@@ -63,6 +63,29 @@
 // `contain`/`overlap`. [`OBB::extend_approx`]'s general-merge branch,
 // which the same probe caught disagreeing with the binary, is now a
 // literal port of `operator+`/`merge_largedist`/`merge_smalldist` instead.
+//
+// Round 8 re-verification: the cached source tree this file (and the round-8
+// symbol audit below) reads from is a tarball matching the shipped package
+// exactly by content (`geometric_shapes-2.3.3/` prefix, file mtimes
+// `2025-06-06 20:41`, matching `CHANGELOG.rst`'s own `2.3.3 (2025-06-06)`
+// entry — consistent with GitHub's per-tag source archive, not a hand-edited
+// tree), and the cached `libgeometric_shapes.so.2.3.3` copy checked against
+// it is byte-identical (`sha256sum`, `547881ff...`) to the one inside this
+// round's freshly rebuilt oracle image, so the check below applies to the
+// current tree. Re-ran shapes.rs's own string-table method for two files its
+// original six-literal check did not cover, since this round's audit draws
+// conclusions from both: `body_operations.cpp`'s "Creating body from shape:
+// Unknown shape type %d" and `shape_operations.cpp`'s "Unable to save shape
+// of type %d" / "Unknown shape type: '%s'" each appear in `strings
+// libgeometric_shapes.so.2.3.3` exactly once. For the one round-8 finding
+// that depends on a *negative* fact (`ConvexMesh::computeScaledVerticesFromPlaneProjections`
+// is never called, module docs below) — a fact no string literal can prove
+// — went one level past a source grep: `objdump -d`'d the shipped `.so`
+// directly and confirmed zero `call` instructions anywhere in the library
+// target that function's address, including inside
+// `bodies::ConvexMesh::updateInternalData()`'s own disassembly. That holds
+// regardless of whether the source tarball is letter-perfect, since it reads
+// the compiled binary's actual call graph, not the tarball's text.
 
 //! The posed, algorithmic half of `geometric_shapes`: `bodies::Body` and its
 //! four concrete kinds, plus the bounding-volume types they return. Upstream
