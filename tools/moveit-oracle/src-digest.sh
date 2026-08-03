@@ -41,7 +41,13 @@
 # stale image that rebuilding cannot fix.
 set -euo pipefail
 
-oracle_src_digest() {  # <tools/moveit-oracle dir>
+# Files only -- deliberately NOT the tag input. `oracle_stamp` is. Two
+# functions that both return a hex digest, only one of which names a real
+# image, is the same footgun shape as the bypasses above: passing this one
+# to `oracle_image_tag` yields a tag that has never been built, and the
+# failure reads as a stale image. The name is the guard; there is no way to
+# make it a type here.
+oracle_file_digest() {  # <tools/moveit-oracle dir>
   cd "$1" && find . -type f -print0 |
     LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
 }
@@ -85,7 +91,7 @@ oracle_build_inputs() {
 # What build.sh tags with, the Dockerfile stamps, and run-oracle.sh checks:
 # the file digest and the resolved build inputs, together.
 #
-# `oracle_src_digest` covers everything under this directory. This adds the
+# `oracle_file_digest` covers everything under this directory. This adds the
 # inputs that are not files, closing the three bypasses that used to be
 # documented as known gaps: a hand-passed `--build-arg MOVEIT2_PACKAGES`, an
 # env-overridden `MOVEIT2_SHA` (build.sh's pin check compares the env value
@@ -96,7 +102,7 @@ oracle_build_inputs() {
 # run-oracle.sh's `<missing or unstamped>` branch rejects it. That is relied
 # on deliberately here: the stamp is written only in the `oracle` stage.
 oracle_stamp() {  # <tools/moveit-oracle dir>
-  { oracle_src_digest "$1"; oracle_build_inputs; } | sha256sum | cut -d' ' -f1
+  { oracle_file_digest "$1"; oracle_build_inputs; } | sha256sum | cut -d' ' -f1
 }
 
 # The tag carries the stamp so that two worktrees with different oracle
