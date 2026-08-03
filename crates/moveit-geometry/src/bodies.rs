@@ -43,16 +43,26 @@
 // in the 2.3.3 tree — `bodies::`'s coverage is split across the five files
 // above instead. This comment records that discrepancy so it is not lost.
 //
-// FCL source-availability gap: `bodies::OBB` is a PIMPL wrapping FCL's
+// FCL provenance: `bodies::OBB` is a PIMPL wrapping FCL's
 // `fcl::OBB<double>` (`obb.cpp` `#include <fcl/math/bv/OBB.h>`). FCL is a
-// separate upstream package from `geometric_shapes`; it is not vendored
-// anywhere on this machine, not in the oracle container's
-// `geometric_shapes` source tree, and fetching+verifying FCL's own source
-// was out of the time this port had. `OBB::contains`/`overlaps`/
-// `extendApprox`'s fallback merge are therefore this port's own
-// implementations of the documented behavior (see the module docs on
-// [`OBB`]), not literal ports — this is called out explicitly rather than
-// silently presented as a port of code that was never read.
+// separate upstream package from `geometric_shapes`, but it ships as its
+// own Debian package (`libfcl-dev`) installed in the same oracle
+// container, at version 0.7.0 (`/usr/lib/x86_64-linux-gnu/libfcl.so.0.7.0`,
+// matching what `libgeometric_shapes.so` itself links against) — and
+// because `fcl::OBB<S>` is a template class, its member functions are
+// defined inline in headers, not a `.cpp`: `operator+`/`operator+=`,
+// `merge_largedist`, `merge_smalldist` and `computeVertices` were read in
+// full from `/usr/include/fcl/math/bv/OBB-inl.h`; `eigen_old`,
+// `getCovariance` and `getExtentAndCenter` (the point-cloud, `ts ==
+// nullptr` branches, the only ones FCL's OBB merge ever calls) from
+// `/usr/include/fcl/math/geometry-inl.h`. [`OBB::contains_point`] and
+// [`OBB::overlaps`] remain this port's own implementations of the
+// documented behavior (see the module docs on [`OBB`]) — the probe in
+// `tests/probe_parity.rs` confirms both already agree with the shipped
+// binary, so there was no reason to displace them with FCL's own
+// `contain`/`overlap`. [`OBB::extend_approx`]'s general-merge branch,
+// which the same probe caught disagreeing with the binary, is now a
+// literal port of `operator+`/`merge_largedist`/`merge_smalldist` instead.
 
 //! The posed, algorithmic half of `geometric_shapes`: `bodies::Body` and its
 //! four concrete kinds, plus the bounding-volume types they return. Upstream
@@ -163,29 +173,32 @@
 //!    `getTriangles`/`getVertices`/`getScaledVertices`/`getPlanes` — they
 //!    were not in the requested scope, and dropping the plane-merge maps
 //!    means this port's plane count does not match upstream's 1:1 anyway.
-//! 3. **`bodies::OBB`'s FCL-backed methods are this port's own
-//!    implementation, not a literal port.** See the provenance comment
-//!    above. [`OBB::contains_point`] is the one unambiguous case (inverse-
-//!    transform the point into the box's local frame, compare against the
-//!    half-extents componentwise — there is only one reasonable meaning for
-//!    "an oriented box contains a point"). [`OBB::overlaps`] implements the
-//!    standard 15-axis separating-axis test for two oriented boxes (3 face
-//!    normals of each box, plus the 9 pairwise cross products — Gottschalk
-//!    et al. 1996; Ericson, *Real-Time Collision Detection* §4.4.1), a
-//!    textbook algorithm independent of FCL's implementation.
-//!    [`OBB::extend_approx`]'s two shortcut cases (this box has zero
-//!    extent; one box wholly contains the other) are ported byte-for-byte
-//!    from `obb.cpp`, which spells them out before delegating the general
-//!    case to FCL's `OBB::operator+=`. For that general case (neither box
-//!    contains the other), this port computes the tightest box that shares
-//!    this box's orientation and enclosses both boxes' vertices — a
-//!    different, and generally less tight, approximation than FCL's, but a
-//!    valid enclosing OBB. `test_bounding_box.cpp`'s `OBBApprox1` is the
-//!    only upstream test that reaches this branch, and it asserts only
-//!    loose sanity bounds (`EXPECT_GE`/`EXPECT_LE` on extent and
-//!    translation ranges, plus `contains`/`overlaps` on the inputs) rather
-//!    than exact literals — this port's implementation satisfies all of
-//!    them (verified in this module's tests, transcribed from that test).
+//! 3. **`bodies::OBB`'s `contains_point`/`overlaps` are this port's own
+//!    implementation, not a literal port; `extend_approx`'s general-merge
+//!    case is.** See the provenance comment above. [`OBB::contains_point`]
+//!    is the one unambiguous case (inverse-transform the point into the
+//!    box's local frame, compare against the half-extents componentwise —
+//!    there is only one reasonable meaning for "an oriented box contains a
+//!    point"). [`OBB::overlaps`] implements the standard 15-axis
+//!    separating-axis test for two oriented boxes (3 face normals of each
+//!    box, plus the 9 pairwise cross products — Gottschalk et al. 1996;
+//!    Ericson, *Real-Time Collision Detection* §4.4.1), a textbook
+//!    algorithm independent of FCL's implementation; a binary-ground-truth
+//!    probe (`tests/probe_parity.rs`) confirms both agree with the shipped
+//!    `.so` exactly. [`OBB::extend_approx`]'s two shortcut cases (this box
+//!    has zero extent; one box wholly contains the other) are ported
+//!    byte-for-byte from `obb.cpp`, which spells them out before
+//!    delegating the general case to FCL's `OBB::operator+=`; that general
+//!    case is now a literal port of `OBB-inl.h`'s `operator+`, dispatching
+//!    on the two boxes' center distance to `merge_largedist` (PCA-fit over
+//!    both boxes' 16 vertices projected perpendicular to the
+//!    center-to-center axis; needs `geometry-inl.h`'s `eigen_old` classical
+//!    Jacobi eigendecomposition, `getCovariance` and `getExtentAndCenter`)
+//!    or `merge_smalldist` (hemisphere-corrected quaternion-average
+//!    orientation, arithmetic-mean center, then componentwise min/max of
+//!    both boxes' vertices projected onto the merged axes). A probe
+//!    (`tests/probe_parity.rs`) pins this against the shipped binary for
+//!    both branches.
 //! 4. **`samplePointInside` takes a caller-supplied uniform-sampler closure,
 //!    not a `random_numbers::RandomNumberGenerator`.** That type has no Rust
 //!    port (PORTING-PLAN.md records no mature substitute was pulled in for
@@ -597,27 +610,297 @@ impl OBB {
             return;
         }
 
-        // Neither box contains the other: build the tightest box sharing
-        // this box's orientation that encloses both boxes' vertices — see
-        // the module docs, deviation 3.
-        let inv = self.pose.inverse();
-        let mut local_min = Vector3::from_element(f64::INFINITY);
-        let mut local_max = Vector3::from_element(f64::NEG_INFINITY);
-        for v in self
-            .compute_vertices()
-            .into_iter()
-            .chain(other.compute_vertices())
-        {
-            let local = transform_point(&inv, &v);
-            local_min = local_min.inf(&local);
-            local_max = local_max.sup(&local);
-        }
-        let local_center = (local_min + local_max) * 0.5;
-        let new_extents = local_max - local_min;
-        let new_pose =
-            self.pose * Isometry3::translation(local_center.x, local_center.y, local_center.z);
-        self.set_pose_and_extents(new_pose, new_extents);
+        // Neither box contains the other: this is FCL's `OBB::operator+=`
+        // (`obb.cpp`'s `extendApprox` calls `*this->obb_ += *box.obb_`) —
+        // ported literally from `OBB-inl.h`'s `operator+`, which dispatches
+        // on how far apart the two boxes' centers are. See the module
+        // docs, deviation 3, and the provenance comment at the top of this
+        // file for where the FCL source came from.
+        let max_extent = self
+            .half_extents
+            .x
+            .max(self.half_extents.y)
+            .max(self.half_extents.z);
+        let other_max_extent = other
+            .half_extents
+            .x
+            .max(other.half_extents.y)
+            .max(other.half_extents.z);
+        let center_diff = self.pose.translation.vector - other.pose.translation.vector;
+        *self = if center_diff.norm() > 2.0 * (max_extent + other_max_extent) {
+            merge_largedist(self, other)
+        } else {
+            merge_smalldist(self, other)
+        };
     }
+}
+
+/// FCL's `OBB::operator+`, `center_diff.norm() <= 2*(max_extent +
+/// max_extent2)` branch: arithmetic-mean center, hemisphere-corrected
+/// quaternion-average orientation, then the componentwise min/max of both
+/// boxes' vertices projected onto the merged axes. `OBB-inl.h`'s
+/// `merge_smalldist`; the only caller is [`OBB::extend_approx`].
+fn merge_smalldist(a: &OBB, b: &OBB) -> OBB {
+    let center = (a.pose.translation.vector + b.pose.translation.vector) * 0.5;
+
+    let q0 = a.pose.rotation;
+    let q1 = b.pose.rotation;
+    let q1_coords = if q0.coords.dot(&q1.coords) < 0.0 {
+        -q1.coords
+    } else {
+        q1.coords
+    };
+    let merged_rotation = nalgebra::UnitQuaternion::from_quaternion(
+        nalgebra::Quaternion::from_vector(q0.coords + q1_coords),
+    );
+    let axis = merged_rotation.to_rotation_matrix();
+    let axis_cols = [
+        axis.matrix().column(0).into_owned(),
+        axis.matrix().column(1).into_owned(),
+        axis.matrix().column(2).into_owned(),
+    ];
+
+    let mut pmin = Vector3::from_element(f64::MAX);
+    let mut pmax = Vector3::from_element(-f64::MAX);
+    for obb in [a, b] {
+        for v in obb.compute_vertices() {
+            let diff = v - center;
+            for (j, axis_j) in axis_cols.iter().enumerate() {
+                let dot = diff.dot(axis_j);
+                if dot > pmax[j] {
+                    pmax[j] = dot;
+                }
+                if dot < pmin[j] {
+                    pmin[j] = dot;
+                }
+            }
+        }
+    }
+
+    let mut new_center = center;
+    let mut new_half_extents = Vector3::zeros();
+    for (j, axis_j) in axis_cols.iter().enumerate() {
+        new_center += axis_j * (0.5 * (pmax[j] + pmin[j]));
+        new_half_extents[j] = 0.5 * (pmax[j] - pmin[j]);
+    }
+
+    OBB {
+        pose: Isometry3::from_parts(new_center.into(), merged_rotation),
+        half_extents: new_half_extents,
+    }
+}
+
+/// FCL's `OBB::operator+`, `center_diff.norm() > 2*(max_extent +
+/// max_extent2)` branch: a PCA-fit box over both boxes' 16 vertices
+/// projected onto the plane perpendicular to the center-to-center axis.
+/// `OBB-inl.h`'s `merge_largedist`; the only caller is
+/// [`OBB::extend_approx`].
+fn merge_largedist(a: &OBB, b: &OBB) -> OBB {
+    let vertices: Vec<Vector3> = a
+        .compute_vertices()
+        .into_iter()
+        .chain(b.compute_vertices())
+        .collect();
+
+    let axis0 = (a.pose.translation.vector - b.pose.translation.vector).normalize();
+    let projected: Vec<Vector3> = vertices.iter().map(|v| v - axis0 * v.dot(&axis0)).collect();
+
+    let cov = fcl_covariance(&projected);
+    let (eigenvalues, eigenvectors) = fcl_eigen_old(&cov);
+    let (_min, mid, max) = min_mid_max(&eigenvalues);
+
+    let axis = nalgebra::Matrix3::from_columns(&[axis0, eigenvectors[max], eigenvectors[mid]]);
+    let (center, half_extents) = fcl_extent_and_center(&vertices, &axis);
+    let rotation = nalgebra::UnitQuaternion::from_rotation_matrix(
+        &nalgebra::Rotation3::from_matrix_unchecked(axis),
+    );
+
+    OBB {
+        pose: Isometry3::from_parts(center.into(), rotation),
+        half_extents,
+    }
+}
+
+/// The `min`/`mid`/`max` eigenvalue-index selection shared by
+/// [`merge_largedist`] and FCL's own `axisFromEigen`. `geometry-inl.h`.
+fn min_mid_max(s: &Vector3) -> (usize, usize, usize) {
+    let (mut min, mut max);
+    if s[0] > s[1] {
+        max = 0;
+        min = 1;
+    } else {
+        min = 0;
+        max = 1;
+    }
+    let mid;
+    if s[2] < s[min] {
+        mid = min;
+        min = 2;
+    } else if s[2] > s[max] {
+        mid = max;
+        max = 2;
+    } else {
+        mid = 2;
+    }
+    (min, mid, max)
+}
+
+/// FCL's `getCovariance` (`geometry-inl.h`), specialized to the
+/// point-cloud, single-frame case (`ts == nullptr`, `ps2 == nullptr`,
+/// `indices == nullptr`) — the only case [`merge_largedist`] ever calls it
+/// with.
+fn fcl_covariance(points: &[Vector3]) -> nalgebra::Matrix3<f64> {
+    let mut s1 = Vector3::zeros();
+    let (mut s2_00, mut s2_11, mut s2_22, mut s2_01, mut s2_02, mut s2_12) =
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    for p in points {
+        s1 += p;
+        s2_00 += p.x * p.x;
+        s2_11 += p.y * p.y;
+        s2_22 += p.z * p.z;
+        s2_01 += p.x * p.y;
+        s2_02 += p.x * p.z;
+        s2_12 += p.y * p.z;
+    }
+    let n_points = points.len() as f64;
+    let m00 = s2_00 - s1.x * s1.x / n_points;
+    let m11 = s2_11 - s1.y * s1.y / n_points;
+    let m22 = s2_22 - s1.z * s1.z / n_points;
+    let m01 = s2_01 - s1.x * s1.y / n_points;
+    let m12 = s2_12 - s1.y * s1.z / n_points;
+    let m02 = s2_02 - s1.x * s1.z / n_points;
+    nalgebra::Matrix3::new(m00, m01, m02, m01, m11, m12, m02, m12, m22)
+}
+
+/// FCL's `getExtentAndCenter` (`geometry-inl.h`), specialized to the
+/// point-cloud, single-frame case — the only case [`merge_largedist`]
+/// ever calls it with.
+fn fcl_extent_and_center(points: &[Vector3], axis: &nalgebra::Matrix3<f64>) -> (Vector3, Vector3) {
+    let mut min_coord = Vector3::from_element(f64::MAX);
+    let mut max_coord = Vector3::from_element(-f64::MAX);
+    for p in points {
+        let proj = Vector3::new(
+            axis.column(0).dot(p),
+            axis.column(1).dot(p),
+            axis.column(2).dot(p),
+        );
+        for j in 0..3 {
+            if proj[j] > max_coord[j] {
+                max_coord[j] = proj[j];
+            }
+            if proj[j] < min_coord[j] {
+                min_coord[j] = proj[j];
+            }
+        }
+    }
+    let o = (max_coord + min_coord) * 0.5;
+    let center = axis * o;
+    let extent = (max_coord - min_coord) * 0.5;
+    (center, extent)
+}
+
+/// FCL's `eigen_old` (`geometry-inl.h`): a fixed 50-sweep classical Jacobi
+/// eigenvalue algorithm for a symmetric 3x3 matrix. Returns the
+/// eigenvalues and, for each, its eigenvector (`eigenvectors[k]`
+/// corresponds to `eigenvalues[k]`) — [`merge_largedist`] is the only
+/// caller.
+fn fcl_eigen_old(m: &nalgebra::Matrix3<f64>) -> (Vector3, [Vector3; 3]) {
+    fn assemble(d: [f64; 3], v: [[f64; 3]; 3]) -> (Vector3, [Vector3; 3]) {
+        let eigenvectors = [
+            Vector3::new(v[0][0], v[1][0], v[2][0]),
+            Vector3::new(v[0][1], v[1][1], v[2][1]),
+            Vector3::new(v[0][2], v[1][2], v[2][2]),
+        ];
+        (Vector3::new(d[0], d[1], d[2]), eigenvectors)
+    }
+
+    let mut r = *m;
+    let mut v = [[0.0_f64; 3]; 3];
+    for (i, row) in v.iter_mut().enumerate() {
+        row[i] = 1.0;
+    }
+    let mut b = [0.0_f64; 3];
+    let mut d = [0.0_f64; 3];
+    let mut z = [0.0_f64; 3];
+    for ip in 0..3 {
+        b[ip] = r[(ip, ip)];
+        d[ip] = r[(ip, ip)];
+    }
+
+    for sweep in 0..50 {
+        let mut sm = 0.0;
+        for ip in 0..3 {
+            for iq in (ip + 1)..3 {
+                sm += r[(ip, iq)].abs();
+            }
+        }
+        if sm == 0.0 {
+            return assemble(d, v);
+        }
+
+        let tresh = if sweep < 3 { 0.2 * sm / 9.0 } else { 0.0 };
+
+        for ip in 0..3 {
+            for iq in (ip + 1)..3 {
+                let g = 100.0 * r[(ip, iq)].abs();
+                if sweep > 3 && d[ip].abs() + g == d[ip].abs() && d[iq].abs() + g == d[iq].abs() {
+                    r[(ip, iq)] = 0.0;
+                    continue;
+                }
+                if r[(ip, iq)].abs() <= tresh {
+                    continue;
+                }
+                let h = d[iq] - d[ip];
+                let t = if h.abs() + g == h.abs() {
+                    r[(ip, iq)] / h
+                } else {
+                    let theta = 0.5 * h / r[(ip, iq)];
+                    let t = 1.0 / (theta.abs() + (1.0 + theta * theta).sqrt());
+                    if theta < 0.0 { -t } else { t }
+                };
+                let c = 1.0 / (1.0 + t * t).sqrt();
+                let s = t * c;
+                let tau = s / (1.0 + c);
+                let h = t * r[(ip, iq)];
+                z[ip] -= h;
+                z[iq] += h;
+                d[ip] -= h;
+                d[iq] += h;
+                r[(ip, iq)] = 0.0;
+                for j in 0..ip {
+                    let g = r[(j, ip)];
+                    let h = r[(j, iq)];
+                    r[(j, ip)] = g - s * (h + g * tau);
+                    r[(j, iq)] = h + s * (g - h * tau);
+                }
+                for j in (ip + 1)..iq {
+                    let g = r[(ip, j)];
+                    let h = r[(j, iq)];
+                    r[(ip, j)] = g - s * (h + g * tau);
+                    r[(j, iq)] = h + s * (g - h * tau);
+                }
+                for j in (iq + 1)..3 {
+                    let g = r[(ip, j)];
+                    let h = r[(iq, j)];
+                    r[(ip, j)] = g - s * (h + g * tau);
+                    r[(iq, j)] = h + s * (g - h * tau);
+                }
+                for row in &mut v {
+                    let g = row[ip];
+                    let h = row[iq];
+                    row[ip] = g - s * (h + g * tau);
+                    row[iq] = h + s * (g - h * tau);
+                }
+            }
+        }
+        for ip in 0..3 {
+            b[ip] += z[ip];
+            d[ip] = b[ip];
+            z[ip] = 0.0;
+        }
+    }
+
+    assemble(d, v)
 }
 
 /// Merge several bounding spheres into one that contains them all. Upstream

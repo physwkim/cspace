@@ -23,6 +23,14 @@
 //! had — `Isometry3 * Vector3` dropping translation — so an identity-posed
 //! fixture would assert nothing about the fix.
 //!
+//! `obb_predicates_match_libgeometric_shapes`'s pair is close enough
+//! together that `OBB::extend_approx`'s general case only ever exercised
+//! FCL's `merge_smalldist` branch; the `obb2.*` fixture keys and
+//! `obb_extend_approx_merge_largedist_matches_libgeometric_shapes` below add
+//! a far-apart pair that forces the previously-untested `merge_largedist`
+//! branch, needed to close the disagreement documented in `bodies.rs`'s
+//! module docs, deviation 3.
+//!
 //! To regenerate: see `tools/ci/` and the compile recipe in
 //! `PORTING-PLAN.md` §9.1.
 
@@ -343,5 +351,40 @@ fn obb_predicates_match_libgeometric_shapes() {
         merged.pose().translation.vector,
         expect_vec3(&f, "obb.merged.origin"),
         "obb.merged.origin",
+    );
+}
+
+/// `obb_predicates_match_libgeometric_shapes`'s pair is close enough
+/// together that `OBB::extend_approx`'s general case only ever exercises
+/// FCL's `merge_smalldist` branch (`center_diff.norm() ≈ 0.866 < 2*(0.5 +
+/// 0.6) = 2.2`) — `merge_largedist`'s PCA fit (`getCovariance` +
+/// `eigen_old` Jacobi + `getExtentAndCenter`) had no binary ground truth at
+/// all until this case was added. This pair's centers are 4 units apart
+/// against half-extent maxima of 0.5 each (`4 > 2*(0.5+0.5) = 2`), forcing
+/// the large-distance branch.
+#[test]
+fn obb_extend_approx_merge_largedist_matches_libgeometric_shapes() {
+    let f = fixture();
+    let mut a = OBB::new(Isometry3::identity(), Vector3::new(1.0, 1.0, 1.0));
+
+    let axis = nalgebra::Unit::new_normalize(Vector3::new(0.0, 1.0, 1.0));
+    let c = OBB::new(
+        Isometry3::from_parts(
+            Translation3::new(4.0, 0.3, -0.2),
+            UnitQuaternion::from_axis_angle(&axis, 1.1),
+        ),
+        Vector3::new(0.6, 0.8, 1.0),
+    );
+
+    a.extend_approx(&c);
+    assert_vec_close(
+        a.extents(),
+        expect_vec3(&f, "obb2.merged.extents"),
+        "obb2.merged.extents",
+    );
+    assert_vec_close(
+        a.pose().translation.vector,
+        expect_vec3(&f, "obb2.merged.origin"),
+        "obb2.merged.origin",
     );
 }
