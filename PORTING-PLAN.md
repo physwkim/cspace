@@ -240,10 +240,73 @@ FCL과 Bullet 백엔드 2개(3,037 + 4,278 LOC)를 `parry3d-f64` 백엔드 1개�
 
 ### 4.6 저크 제한 스무딩
 
-`rsruckig 3.0.0`(Ruckig의 Rust 이식)과 `ferromotion-ruckig 0.50.0`
-(Community S-curve 이식)이 있다. Phase 6 착수 시 두 크레이트를 상류
-`moveit_core/online_signal_smoothing/ruckig_filter.cpp`의 테스트 벡터로
-평가하고 채택 여부를 결정한다. 둘 다 미달이면 자체 구현(~1,500 LOC).
+상류에 저크 제한 궤적 생성이 필요한 지점이 둘 있고, 둘 다 외부 `ruckig`
+C++ 라이브러리를 감싸기만 할 뿐 OTG(Online Trajectory Generation) 알고리즘
+자체는 moveit_core 안에 없다:
+
+- `moveit_core/online_signal_smoothing/ruckig_filter.cpp` (`RuckigFilter`,
+  `SmoothingBaseClass`) — ROS/pluginlib에 결합된 스트리밍 필터
+  (`moveit-smoothing`의 `lib.rs` deferral 참고).
+- `moveit_core/trajectory_processing/ruckig_traj_smoothing.cpp`
+  (`RuckigSmoothing`) — 이미 시간 매개변수화된
+  `robot_trajectory::RobotTrajectory`에 대해 한 번 실행하는 스무딩 패스.
+
+`ruckig_traj_smoothing.cpp`/`.hpp`를 전문 읽었다. 실제로 하는 일: 연속된
+웨이포인트 쌍마다 현재 웨이포인트의 위치/속도/가속도와 다음 웨이포인트의
+목표 위치/속도/가속도로 `ruckig::InputParameter`를 구성하고(속도/가속도
+한계는 `RobotModel::getVariableBounds`에서 가져오거나 호출자가 넘긴
+맵에서 가져오며, 한계가 정의되지 않은 관절은 5 rad/s / 10 rad/s² /
+1000 rad/s³ 기본값으로 대체), `ruckig::Ruckig::calculate()`를 호출한 뒤
+그 결과 duration을 `RobotTrajectory::setWayPointDurationFromPrevious`로
+되써 넣는다. Ruckig는 각도 랩어라운드를 다루지 못하므로 먼저
+`trajectory.unwind()`로 연속 관절을 풀어준다. 실패하거나(옵션으로) 오버슈트가
+감지되면 — 10ms 간격으로 샘플링해 위치 오차의 부호가 `overshoot_threshold`를
+넘겨 뒤집히는지로 판정 — 해당 세그먼트의 duration을 1.1배로 늘리고 캐시해둔
+깊은 복사본으로 전체 궤적을 리셋한 뒤 웨이포인트 루프를 처음부터 다시 돈다.
+최대 50배까지 늘리며, 그래도 안 되면 실패를 보고한다. TOTG와 달리 경계
+상태가 정지 상태일 필요가 없다: `initializeRuckigState`는 첫 웨이포인트의
+실제(0이 아닐 수 있는) 속도/가속도로 Ruckig를 시드한다.
+
+핵심은 **이 파일 안에 OTG 알고리즘이 전혀 없다**는 점이다. 모든 함수가
+`RobotTrajectory&`, `RobotState`, `JointModelGroup*` 중 하나를 받는다 —
+파일 전체가 한계값 조회와 `RobotTrajectory` 변형 글루 코드이고, 실제
+저크 제한 스텝 생성기는 외부 `ruckig` C++ 라이브러리 안에 있지 moveit_core
+안에 있지 않다. TOTG의 `Path`/`Trajectory`(상류 스스로 RobotModel 의존성
+없이 구현해 두어서 `moveit-trajectory`가 모델 독립 수치 코어를 그대로
+추출할 수 있었던 것)와 달리, `ruckig_traj_smoothing.cpp` 안에는 추출할
+동등한 코어가 없다.
+
+Rust 크레이트 확인(crates.io, 직접 조회):
+
+- `rsruckig` (github.com/petrikosk/rsruckig, 홈페이지 ruckig.com) — 순수
+  Rust, 의존성은 `arrayvec`/`num-traits`/`thiserror`뿐 (`-sys` 크레이트도
+  C/C++ 링크 단계도 없음 — D1/D3의 순수 Rust 우선 원칙을 만족). 2023-12-01
+  부터 공개, 3.0.0까지 22개 버전, 누적 다운로드 68,326 / 최근 16,217.
+  실제로 쓰이고 있는 재구현이지 FFI 바인딩이 아니다.
+- `ferromotion-ruckig` (github.com/dcharlot-physicalai-bmi/ferromotion) —
+  역시 순수 Rust, 의존성 0개. 공개일 2026-07-12(조회 시점 기준 3주 전),
+  그 사이 이미 50개 버전을 릴리스했고 다운로드는 973(전부 "최근" — 실사용
+  기반이 없음). 릴리스 빈도와 낯선 홈페이지(`physicalai-bmi.org`)만으로도
+  아직 검증되지 않았다고 보기에 충분하다 — 둘 중 실적이 있는 쪽은
+  `rsruckig`뿐이다.
+
+**결정: 보류(defer).** 두 지점 모두. 이유는 크레이트 문제가 아니다 —
+`rsruckig`는 사용 가능한 순수 Rust, non-`-sys` 후보이고 D3을 만족한다.
+막고 있는 것은 **`robot_trajectory::RobotTrajectory`가 아직 Rust로
+포팅되지 않았다**는 사실이다. `RuckigSmoothing`의 공개/비공개 메서드
+전부가 그 타입을 다룬다(`getWayPointCount`, `getWayPointPtr`,
+`setWayPointDurationFromPrevious`, `unwind`, 깊은 복사 생성) — 그리고
+`moveit-trajectory`의 이번 단계 범위는 의도적으로 `RobotTrajectory`/
+`RobotModel` 의존성이 전혀 없는 수치 코어로 한정돼 있다(이 문서의 크레이트
+지도에서 `moveit-trajectory` = `robot_trajectory` + `trajectory_processing`
+인 것과, `TimeOptimalTrajectoryGeneration`을 같은 이유로 제외한 것을
+참고). `RobotState`(위치/속도/가속도 접근자)와 `VariableBounds`
+(`jerk_bounded_`/`max_jerk_` 포함)는 이미 포팅돼 있으므로(`moveit-state`,
+`moveit-model`), `RobotTrajectory`가 들어온 뒤에는 `RuckigSmoothing`의
+오케스트레이션 뒤에 `rsruckig`를 연결하는 일은 처음부터 수치 알고리즘을
+포팅하는 게 아니라 감싸기(wrap)만 하면 된다 — 이후 테스트 벡터 평가에서
+`ferromotion-ruckig`을 선호할 구체적 근거가 나오지 않는 한 `rsruckig`를
+쓴다.
 
 ### 4.7 명시적 범위 밖 — 영구히 C++로 남는 것
 
