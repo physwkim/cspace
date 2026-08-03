@@ -1203,3 +1203,43 @@ dual_arm_panda는 0이 아니다(그쪽은 어긋난 0이 인덱스 범위 밖�
 관절 실효(effort) 한계가 `moveit-model`에 없는 것은 공백이 아니다 —
 upstream `moveit::core::VariableBounds`에도 effort 필드가 없고,
 `DynamicsSolver`는 질량·관성과 마찬가지로 raw URDF에서 직접 읽는다.
+
+### 11.12 `collision_common_distance_field` 절반 이식 — 캐시 ABA 결함
+
+`c773c80` 병합. 커밋 넷: `8f7ede7`(`collision_common_distance_field`의
+`RobotModel` 비의존 절반), `a77f468`(오라클 op
+`collision_object_point_decomposition`, `link_body_decomposition`),
+`165858c`(캐시 수정), `e77dedd`(패리티 테스트와 픽스처).
+
+**이번 라운드에서 나온 결함은 upstream 패리티 산물이 아니라 이 이식
+자체의 설계 결함이었다.** `get_body_decomposition_cache_entry`가
+`Arc::as_ptr(shape) as usize` — 맨 주소값 — 만을 키로 쓰면서 그 주소를
+붙잡아 두는 것이 아무것도 없었다. 어떤 shape의 마지막 `Arc`가 떨어지면
+할당자는 그 주소를 다음 `Arc<Shape>`에 그대로 재사용할 수 있고, 그러면
+새 shape의 조회가 이전 shape의 `BodyDecomposition`을 조용히 돌려준다.
+upstream에는 이 위험이 없다 — `std::weak_ptr`를 `std::map` 키로 두면
+pointee가 파괴된 뒤에도 그 **control block** 할당이 맵 엔트리 수명만큼
+살아 있어, 뒤따르는 무관한 `shared_ptr`의 control block이 같은 주소에
+앉을 수 없다.
+
+수정은 엔트리마다 `Weak<Shape>`를 값과 함께 저장하는 것이다. Rust는
+strong·weak 카운트가 **둘 다** 0이 되어야 `ArcInner`를 해제하므로,
+`Weak` 하나를 쥐고 있으면 `T`가 제자리에서 드롭된 뒤에도 할당(따라서
+주소)이 유지된다. 이 캐시는 축출하지 않으므로(upstream 자신의 미구현
+`// TODO - clean cache`와 같다) 한 번 캐시된 주소는 프로세스가 끝날
+때까지 고정된다. `Weak`는 조회 때 upgrade되지 않는다 — 오직 할당을
+고정하는 용도다.
+
+**독립 검증.** 오라클을 새 다이제스트(`46ff0fa82d650830`)로 재빌드한 뒤
+커밋된 요청 픽스처 3건을 실행 오라클에 다시 흘려보내 응답이
+바이트 단위로 동일함을 확인했다(id 1 = 1021점, id 2 = 315점,
+id 3 = 264점). 이어서 `Arc::downgrade(shape)`를 `Weak::new()`로 바꾼
+음성 대조를 돌려 보고된 실패가 정확히 재현되는 것을 확인했다 —
+`collision_object_point_decomposition_matches_the_oracle`의 id 2가
+315 대신 **1021**, 즉 구(sphere) 픽스처의 점 개수를 그대로 받았다.
+회귀 테스트 `cache_entry_survives_the_original_arc_shape_being_dropped`도
+같이 실패했다(반지름 0.07에 대해 7 대신 19). 원복 후 38/38 통과.
+
+`collision_common_distance_field`의 나머지 절반
+(`DistanceFieldCacheEntry`, `addLinkBodyDecompositions`)은 `RobotModel`에
+의존하므로 이번 라운드 범위 밖이다.
