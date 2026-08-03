@@ -1860,3 +1860,107 @@ epsilon 아래였다 — 솔버 결함이 아니라 측정 도구의 기준선�
 `main.rs:513` 한 곳뿐임을 확인하고 고쳤다 — 나머지 열 곳은 이미 맨
 이름으로 넘기고 있었다. 양쪽 브랜치가 각각 clippy를 통과하므로 병합 후
 전체 게이트에서만 잡히는 종류다.
+
+---
+
+## 15. `--collision` 스윕은 4개 픽스처 중 3개에서 전부 실패한다 (2026-08-03)
+
+### 15.1 기록이 실제보다 좋게 남아 있었다
+
+§13.4는 mesh 미로딩을 "Phase 3 완료 조건 미달의 진짜 이유"로 적었고,
+충돌 스윕의 불일치는 "pr2 case 7552 한 건"으로 남아 있었다. p1-robotmodel
+2라운드를 병합한 뒤 `--collision` 스윕을 직접 돌려보니 실제 상태는 그보다
+훨씬 나쁘다. 2,000 케이스 × 4 픽스처:
+
+| 픽스처 | 통과 | 실패 | 실패 항목 |
+|---|---|---|---|
+| panda | 0/2000 | **2000** | `robot_collision` |
+| fanuc | 2000/2000 | 0 | — (아래 15.3) |
+| dual_arm_panda | 0/2000 | **2000** | `robot_collision` |
+| pr2 | 0/2000 | **2000** | `self_collision` |
+
+`--collision` 플래그를 도입한 커밋(`f7050c5`)에서 같은 프로브를 돌려도
+pr2는 똑같이 실패한다. 오늘 병합 중 어느 것의 회귀도 아니고, 이번 라운드의
+`PosedBody` 변경 때문도 아니다(§15.4). 도입 시점부터 이랬다.
+
+### 15.2 원인은 하나 — rust가 링크의 대부분을 보지 못한다
+
+오라클의 `link_models_with_collision_geometry`와 rust `LinkModel::shapes()`
+를 픽스처별로 세어 맞춰봤다:
+
+| 픽스처 | 오라클 | rust |
+|---|---|---|
+| panda | 11 | **0** |
+| fanuc | 0 | 0 |
+| dual_arm_panda | 22 | **0** |
+| pr2 | 54 | **17** |
+
+panda/dual_arm_panda는 rust 쪽 충돌 형상이 하나도 없다 — 그래서
+`distance`가 `f64::MAX`(`1.797…e308`)로 찍히고, 오라클은 바닥 박스에
+1.9 m 파묻힌 로봇을 본다. pr2의 17개는 §13.4가 센 프리미티브 링크
+17개(박스 5 · 실린더 8 · 구 4)와 정확히 일치하고, mesh 링크 37개가 통째로
+빠져 있다. pr2의 rust 자기충돌 거리가 설정과 무관하게 `0.029`로 고정인
+것이 그 결과다 — 남은 17개가 대부분 고정 프레임 위에 있다.
+
+`link_model.rs` deviation 4(=`<mesh>` 미로딩) 하나가 이 표 전체를 설명한다.
+
+### 15.3 fanuc의 4001/4001 통과는 거짓 통과다
+
+오라클의 fanuc 충돌 링크 수가 **0**이다. 컨테이너 안에서 fanuc의
+`package://` mesh가 풀리지 않아 상류도 형상을 하나도 싣지 못한다. 즉
+fanuc `--collision`은 빈 것과 빈 것을 비교해 2,000건 전부 통과로 찍힌다.
+커버리지처럼 읽히지만 커버리지가 아니다 — `verify-fixture-provenance.sh`를
+CI 경로가 아니라 스윕 경로에 둔 것과 같은 이유로(§13.3), 이 통과는
+믿을 근거가 못 된다. mesh 로딩이 들어오면 fanuc은 오라클 쪽 형상 부재부터
+따로 풀어야 한다.
+
+### 15.4 `PosedBody`를 상류 모양으로 되돌렸다 — 패치가 아니라 구조
+
+`a3bf407`이 고친 것은 결함 가족의 절반이다. 한 형상짜리 몸체는
+`Compound`를 우회하게 됐지만, **두 개 이상**이면 여전히
+`Compound::new`로 들어가고 parry는 `TriMesh`를 합성 형상으로 보므로
+`"Nested composite shapes are not allowed"`로 패닉한다. 그 커밋의 주석은
+"이 크레이트 안의 어떤 호출자도 그렇게 만들지 않는다"고 적었는데, 크레이트
+*밖*에서는 `World::add_shapes_to_object`가 공개 API로 열려 있다 — mesh와
+프리미티브를 같이 담은 씬 오브젝트는 특수한 경우가 아니라 보통 경우다.
+공개 API만으로 패닉을 재현했다.
+
+상류를 다시 읽으니 애초에 합치는 코드가 없다. `FCLObject`는
+`std::vector<FCLCollisionObjectPtr> collision_objects_`를 들고,
+`constructFCLObjectWorld`는 `Object::shapes_[i]`마다
+`global_shape_poses_[i]`로 하나씩,`constructFCLObjectRobot`은 로봇 형상마다
+`getCollisionBodyTransform(link, shape_index)`로 하나씩 push한다
+(`collision_env_fcl.cpp:198-245`). `checkRobotCollisionHelper`와
+`distanceRobotHelper`는 그 벡터를 순회하며 브로드페이즈를 형상마다 부른다
+(`:337-338`, `:378-379`). 즉 "몸체당 형상 하나"라는 전제 자체가 이 포트의
+이탈이었고, 그 이탈이 `Compound` 의존을, `Compound` 의존이 mesh 금지를
+낳았다.
+
+`PosedBody::parts`를 `Vec<(전역 pose, 형상)>`으로 바꿔 상류 모양을
+복원했다. 몸체 대 몸체 검사는 두 파트 목록의 곱집합이고, `Compound`는
+크레이트에서 완전히 사라졌다 — 런타임 검사로 막은 게 아니라 만들 수 없게
+했다. 거리 쪽 임계값 계산도 파트 쌍마다 다시 하도록 옮겼다: 상류에서는
+각 collision object가 `distanceCallback`을 따로 호출하며 그때까지의
+`minimum_distance`/`distances`를 다시 읽는다.
+
+**경계별 테스트**(`tests/multi_shape_object.rs`): 형상 개수(1 대 2+) ×
+mesh 포함 여부의 격자, 각 칸에 충돌/비충돌 쌍을 둔 6건. 네거티브 컨트롤로
+옛 `Compound` 접기를 되살리면 정확히 mesh를 포함한 다중 형상 3칸만
+`"Nested composite shapes are not allowed"`로 죽고 나머지 3칸은 통과한다 —
+테스트가 실제로 이 결함을 잡고 있음을 확인했다.
+
+픽스처 어느 것도 형상 2개짜리 링크나 오브젝트를 갖지 않으므로 회귀는
+없어야 하고, 실제로 pr2 200케이스 스윕의 385개 판정 줄이 변경 전후
+바이트 단위로 동일하다.
+
+이 테스트는 panda가 아니라 pr2를 쓴다. panda/fanuc/dual_arm_panda는
+rust 쪽 충돌 형상이 0개라(§15.2) "충돌한다"는 단언이 성립할 수 없다.
+
+### 15.5 `moveit-diff --cases 0`이 패닉했다
+
+`run_constraint_cases`가 `case % states.len()`으로 상태 풀을 순환하는데,
+`--cases`가 그 풀의 크기를 겸한다. `--cases 0 --constraints N`은 0으로
+나눠 패닉한다. fk/jacobian/collision/ik 루프도 같은 풀을 읽으므로
+`--cases 0`과 함께 주면 아무것도 비교하지 않고 조용히 통과로 보고한다 —
+같은 결함 가족이다. `Config::parse`에서 거부하도록 했다. 구성이 만들어지는
+유일한 지점에서 막으면 아래 소비자들은 가드 없이 인덱싱해도 된다.
