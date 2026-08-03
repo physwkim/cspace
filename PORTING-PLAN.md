@@ -2697,6 +2697,16 @@ phase 3 시작부터 열려 있던 `<mesh>` collision geometry 미로딩이 닫�
   `moveit-distance-field`의 pr2 테스트들은 단정문이 메시 격차에 맞춰
   좁혀져 있어, 그 좁힘이 이제 불필요하거나 다른 모양이어야 한다.
 
+  **pr2 메시 가용성 — 측정 완료.** `fixtures/pr2.urdf`가 참조하는
+  `<collision>` 메시는 서로 다른 18개이고 **전부 `.stl`**, 전부
+  `third_party/moveit_resources/pr2_description/urdf/meshes/`에 있다
+  (누락 0건, 합계 0.59 MiB — 기존 `fixtures/meshes` 트리 488K와 같은
+  규모). 다만 저장소 루트 `fixtures/meshes/`에는 아직 복사되지 않았고,
+  거기엔 `fanuc_description`과 `panda_description`만 있다. pr2의
+  `<visual>` 메시 20개는 `.dae`라 범위 밖이다. 즉 막고 있는 것은 기능이
+  아니라 **픽스처 복사 한 건**이고, `verify-fixture-provenance.sh`의
+  매핑 항목도 함께 필요하다 — `p3-acm` 소유.
+
 ---
 
 ## 22. `visibility_cone`의 "위반" 분기를 오라클과 실제로 맞춘다 — 그리고 그 대가 (3라운드, 2026-08-03)
