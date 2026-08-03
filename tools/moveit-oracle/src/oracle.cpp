@@ -28,6 +28,7 @@
 
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
+#include <moveit/collision_distance_field/collision_common_distance_field.hpp>
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
@@ -219,6 +220,10 @@ public:
       return commonRoot(request);
     if (op == "collision_distance_field_types")
       return collisionDistanceFieldTypes(request);
+    if (op == "collision_object_point_decomposition")
+      return collisionObjectPointDecomposition(request);
+    if (op == "link_body_decomposition")
+      return linkBodyDecomposition(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -902,6 +907,114 @@ private:
                                        { "gradients", grads_out } };
 
     return out;
+  }
+
+  /// Ground truth for `collision_common_distance_field.{hpp,cpp}`'s
+  /// `getCollisionObjectPointDecomposition`: builds a one-object `World`
+  /// exactly as the `world` op does, then dumps the flattened, posed
+  /// interior points `getCollisionObjectPointDecomposition` produces --
+  /// which routes through the same identity-keyed
+  /// `getBodyDecompositionCacheEntry` this port's
+  /// `collision_object_point_decomposition` also calls.
+  json collisionObjectPointDecomposition(const json& request) const
+  {
+    const double resolution = request.at("resolution").get<double>();
+    const json& object_json = request.at("object");
+    const std::string id = object_json.at("id").get<std::string>();
+    const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+
+    std::vector<shapes::ShapeConstPtr> shape_ptrs;
+    EigenSTL::vector_Isometry3d shape_poses;
+    const json& shapes_json = object_json.at("shapes");
+    const json& shape_poses_json = object_json.at("shape_poses");
+    for (std::size_t i = 0; i < shapes_json.size(); ++i)
+    {
+      const json& shape_json = shapes_json[i];
+      shape_ptrs.push_back(parseShape(shape_json.at("type").get<std::string>(), shape_json));
+      shape_poses.push_back(fromRowMajor4x4(shape_poses_json[i]));
+    }
+
+    collision_detection::World w;
+    w.addToObject(id, pose, shape_ptrs, shape_poses);
+
+    collision_detection::PosedBodyPointDecompositionVectorPtr decomp =
+        collision_detection::getCollisionObjectPointDecomposition(*w.getObject(id), resolution);
+
+    json points_out = json::array();
+    for (const Eigen::Vector3d& p : decomp->getCollisionPoints())
+      points_out.push_back(json::array({ p.x(), p.y(), p.z() }));
+
+    return json{ { "points", points_out } };
+  }
+
+  /// Ground truth for the central verification ask on this task: the posed
+  /// sphere centres and radii `BodyDecomposition::from_shapes` +
+  /// `PosedBodySphereDecomposition` should produce for a real robot link
+  /// across a group state, built the same way upstream's (unported, out of
+  /// scope this round) `addLinkBodyDecompositions` does --
+  /// `BodyDecomposition(link->getShapes(), link->getCollisionOriginTransforms(),
+  /// resolution, padding)` -- built once, then re-posed via
+  /// `RobotState::getGlobalLinkTransform` per case. `request["cases"]`
+  /// carries whole joint-value maps (not just this link's own joint) so the
+  /// same request shape as `fk`/`jacobian` can encode "the same state
+  /// queried twice" (two identical cases) and "one joint moves by less than
+  /// the field resolution" (two cases differing by a sub-resolution delta
+  /// on the joint that moves this link) without any special-casing here --
+  /// those are properties of what the *runner* puts in `cases`, not this op.
+  json linkBodyDecomposition(const json& request)
+  {
+    const std::string link_name = request.at("link").get<std::string>();
+    const double resolution = request.at("resolution").get<double>();
+    const double padding = request.at("padding").get<double>();
+
+    if (!model_->hasLinkModel(link_name))
+      throw std::runtime_error("unknown link: " + link_name);
+    const moveit::core::LinkModel* link = model_->getLinkModel(link_name);
+
+    collision_detection::BodyDecompositionConstPtr body_decomp =
+        std::make_shared<const collision_detection::BodyDecomposition>(
+            link->getShapes(), link->getCollisionOriginTransforms(), resolution, padding);
+
+    json unposed_spheres = json::array();
+    for (const collision_detection::CollisionSphere& cs : body_decomp->getCollisionSpheres())
+    {
+      unposed_spheres.push_back(
+          json{ { "relative_vec", json::array({ cs.relative_vec_.x(), cs.relative_vec_.y(), cs.relative_vec_.z() }) },
+                { "radius", cs.radius_ } });
+    }
+
+    json cases_out = json::array();
+    for (const auto& case_json : request.at("cases"))
+    {
+      applyJointValues(json{ { "joint_values", case_json.at("joint_values") } });
+
+      const Eigen::Isometry3d link_transform = state_->getGlobalLinkTransform(link_name);
+
+      collision_detection::PosedBodySphereDecomposition posed(body_decomp);
+      posed.updatePose(link_transform);
+
+      json sphere_centers = json::array();
+      for (const Eigen::Vector3d& c : posed.getSphereCenters())
+        sphere_centers.push_back(json::array({ c.x(), c.y(), c.z() }));
+
+      cases_out.push_back(json{ { "link_transform", toRowMajor4x4(link_transform) },
+                                 { "sphere_centers", sphere_centers },
+                                 { "bounding_sphere_center",
+                                   json::array({ posed.getBoundingSphereCenter().x(),
+                                                  posed.getBoundingSphereCenter().y(),
+                                                  posed.getBoundingSphereCenter().z() }) },
+                                 { "bounding_sphere_radius", posed.getBoundingSphereRadius() } });
+    }
+
+    return json{
+      { "collision_spheres", unposed_spheres },
+      { "relative_bounding_sphere",
+        json{ { "center", json::array({ body_decomp->getRelativeBoundingSphere().center.x(),
+                                         body_decomp->getRelativeBoundingSphere().center.y(),
+                                         body_decomp->getRelativeBoundingSphere().center.z() }) },
+              { "radius", body_decomp->getRelativeBoundingSphere().radius } } },
+      { "cases", cases_out }
+    };
   }
 
   moveit::core::RobotModelPtr model_;
