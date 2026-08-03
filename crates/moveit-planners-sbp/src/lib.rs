@@ -60,6 +60,91 @@
 //! passage is checked to fail rather than hang or return an invalid path.
 //! See each module's `tests` for the specific claims and the crate's commit
 //! history / report for which parts of this design are least certain.
+//!
+//! # Round 6 symbol audit
+//!
+//! This crate has two upstream relationships, not one, and they get audited
+//! separately:
+//!
+//! - The state-space/algorithm modules ([`space`], [`so2`], [`se3`],
+//!   [`compound`], [`nn`], [`rrt_connect`]) have **no upstream C++ file at
+//!   all** (D3, see the top-of-file comment) — there is no OMPL header in
+//!   this workspace to audit them against, so they are out of scope for a
+//!   symbol-closure audit by construction, not by omission.
+//! - [`registry`]'s [`registry::PlannerManager`]/[`registry::PlanningContext`]
+//!   *do* have an upstream counterpart —
+//!   `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp`
+//!   — read directly for this audit. Every symbol below:
+//!
+//! ## `PlannerConfigurationSettings` / `PlannerConfigurationMap`
+//!
+//! - Both -> unported: a stringly-typed `HashMap<String, String>` plugin
+//!   config bag for a runtime plugin-loading boundary this crate doesn't
+//!   have (D4: [`registry::PLANNER_MANAGERS`] is a compile-time registry).
+//!   [`registry::PlanningRequest::params`]/[`registry::PlanningRequest::resolution`]
+//!   are concretely-typed fields instead — see `registry`'s own doc comment,
+//!   "Planner-specific tuning" paragraph.
+//!
+//! ## `PlanningContext`
+//!
+//! - `ctor(name, group)` -> unported: no persistent named/grouped identity
+//!   object; `registry`'s private `RrtConnectContext` borrows exactly what
+//!   `solve()` needs and nothing more.
+//! - `getGroupName()`/`getName()` -> unported: the group name already lives
+//!   on the [`registry::PlanningRequest`] the caller holds; no second
+//!   accessor is needed since this port keeps no separate identity struct.
+//! - `getPlanningScene()`/`getMotionPlanRequest()` -> unported: the caller
+//!   already owns the `&mut PlanningScene` and [`registry::PlanningRequest`]
+//!   it passed to [`registry::PlannerManager::get_planning_context`]; nothing
+//!   needs them handed back.
+//! - `setPlanningScene()`/`setMotionPlanRequest()` -> unported: every
+//!   [`registry::PlanningContext`] here is single-use, built fresh per
+//!   `solve()` — see [`registry::PlanningContext`]'s own "Deviation from
+//!   upstream: no `terminate`/`clear`" doc section, which this shares the
+//!   same reasoning with.
+//! - `solve(MotionPlanResponse&)` and `solve(MotionPlanDetailedResponse&)`
+//!   -> collapsed and ported as one [`registry::PlanningContext::solve`]
+//!   returning `Result<`[`registry::PlanningResponse`]`, `[`registry::PlanError`]`>`;
+//!   no detailed-response variant exists because nothing in this workspace
+//!   consumes upstream's extra per-stage timing/trajectory detail.
+//! - `terminate()`/`clear()` -> unported — see [`registry::PlanningContext`]'s
+//!   own "Deviation from upstream" doc: no concurrency model here for
+//!   cross-thread cancellation, and no context reuse to clear.
+//!
+//! ## `PlannerManager`
+//!
+//! - `initialize(model, node, parameter_namespace)` -> unported: no
+//!   `rclcpp::Node`/ROS parameter namespace exists anywhere in this
+//!   workspace (D1/D2); [`registry::RrtConnectManager`] needs no
+//!   initialization step (`#[derive(Default)]`, a unit struct).
+//! - `getDescription()` -> unported: no caller needs a human-readable
+//!   description string; [`registry::PlannerManager::name`] (below) already
+//!   identifies the manager uniquely for the registry lookup.
+//! - `getPlanningAlgorithms(algs)` -> unported: this crate registers one
+//!   algorithm per [`registry::PlannerManager`] impl (1:1, not 1:many like
+//!   upstream's plugin-hosts-multiple-algorithms model), so there is no
+//!   "algorithm names within one manager" list to enumerate;
+//!   [`registry::PLANNER_MANAGERS`] itself is the cross-manager list.
+//! - `getPlanningContext(scene, req, error_code)` -> ported as
+//!   [`registry::PlannerManager::get_planning_context`], collapsed: the
+//!   `moveit_msgs::msg::MoveItErrorCodes` out-parameter becomes the ordinary
+//!   `Result<_, `[`registry::PlanError`]`>` return.
+//! - `getPlanningContext(scene, req)` (the error-code-ignoring overload) ->
+//!   unported: Rust already makes ignoring a `Result` an explicit
+//!   `.unwrap()`/`let _ =` at the call site; no second overload is needed to
+//!   spell that.
+//! - `canServiceRequest(req)` -> unported: `get_planning_context` itself is
+//!   the only admission check (it fails with e.g. `SbpError::UnknownGroup`);
+//!   no separate dry-run query exists to ask "would you accept this" without
+//!   also building the context.
+//! - `setPlannerConfigurations(pcs)`/`getPlannerConfigurations()` -> unported:
+//!   no `PlannerConfigurationMap` exists here (see above).
+//! - `terminate()` (non-virtual, base-class async-cancel) -> unported, same
+//!   reasoning as `PlanningContext::terminate()` above.
+//! - Not upstream: [`registry::PlannerManager::name`] — new API this port's
+//!   registry lookup needs (matches `moveit_kinematics::registry`'s
+//!   `SolverRegistration` D4 precedent, per `registry.rs`'s own top-of-file
+//!   comment).
 
 pub mod compound;
 mod error;
