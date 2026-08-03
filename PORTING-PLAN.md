@@ -5575,3 +5575,80 @@ p3-shapes의 `saveAsText`/`constructShapeFromText` 유예와 **같은** 조건�
 `moveit-scene`이 그 형식의 유일한 후보 소비자이면서 아직 요구하지 않았다.
 서로를 가리키며 열려 있던 두 유예가 하나의 미충족 수요 조건으로 합쳐졌다.
 §57.2가 걱정한 상태가 해소됐다.
+
+## 60. world object 쪽 9건 — 그중 2건은 쌍이 같다 (2026-08-04)
+
+p1-joints 라운드 9 (`eef7194`, `bc091c3`, `94a3f88`, `81ed055`, `01bea65`),
+병합 `80080b7`. `nextest --workspace` **945/945**.
+
+### 60.1 계기가 자기가 아는 것을 말하기 시작했다
+
+§53.3에서 지적한 것 — 쌍 불일치는 스칼라가 이미 어긋난 줄에서만 보였다 —
+이 `DistancePairStats`로 닫혔다. 쌍 disagreement를 FAIL과 **분리해서** 세고
+보고하며, 동률 flip은 실패로 만들지 않는다(동률에는 유일한 정답이 없으므로
+실패시키면 sweep이 무의미해진다).
+
+3000 케이스를 직접 재현했다(seed 20260804, right_arm, `--collision`):
+
+```
+self  pair disagreement: 2935/3000 (97.8%), of which 2935 also exceeded tol
+robot pair disagreement: 2647/3000 (88.2%), of which 7 also exceeded tol
+```
+
+워커 보고와 자릿수까지 같다. 이제 p3-acm이 "ranking이 얼마나 자주
+뒤집히는가"의 분모를 갖는다.
+
+### 60.2 robot 쪽 9/3000 — 그런데 보고가 한 갈래를 뭉갰다
+
+허용오차를 넘는 robot-distance는 **9/3000 (0.30%)**. 워커 수치가 맞다
+(요약줄의 7은 "쌍도 다른" 부분집합이고, 쌍이 같은 2건이 더 있다).
+
+전부 gripper 계열 대 `floor`이고, **9건 모두 포트가 더 깊다**. 여기까지는
+보고와 같다. 갈라지는 지점:
+
+```
+same-pair? oracle       rust         pair
+False      -1.175e-02   -3.310e-02   l_gripper_r_finger_link  → _tip_link
+False      -1.280e-02   -4.247e-02   l_gripper_l_finger_link  → l_gripper_r_finger_tip_link
+False      -8.736e-03   -3.358e-02   r_gripper_l_finger_link  → _tip_link
+False      -2.688e-02   -5.066e-02   r_gripper_l_finger_link  → _tip_link
+False      -9.176e-03   -3.528e-02   r_gripper_l_finger_link  → _tip_link
+False      -2.028e-02   -6.324e-02   r_gripper_palm_link      → r_gripper_l_finger_tip_link
+False      -2.056e-02   -4.354e-02   l_gripper_l_finger_link  → _tip_link
+True       -1.127e-02   -1.569e-02   l_gripper_l_finger_tip_link / floor
+True       -9.943e-03   -1.237e-02   l_gripper_r_finger_tip_link / floor
+```
+
+**7건은 쌍 flip, 2건은 같은 쌍에서 크기가 다르다.** 보고는 9건을 한 덩어리로
+"gripper-finger-vs-floor"라 적었는데, 두 종류다. 그리고 같은-쌍 2건이
+`|d|` 2.4e-3–4.4e-3으로 flip 7건(2.1e-2–4.3e-2)보다 한 자릿수 작다.
+
+이게 왜 중요한가: §56이 세운 기제 — 포트가 두 후보의 **최소**를 취하므로
+맞고, 그래서 self 쪽에서 오라클보다 **얕다** — 는 여기서 방향이 반대다.
+게다가 같은-쌍 2건에는 ranking이 아예 개입하지 않는다. 볼록 primitive
+(`floor`는 Cuboid)와 메시 하나 사이의 순수한 침투깊이 불일치다. §56의
+설명으로 덮이지 않는다. p3-acm 몫.
+
+### 60.3 워커가 자기 실수의 원인을 찾았다 — 다만 고친 수가 또 안 맞는다
+
+§53.2에서 지적한 `340/600`/`246/600` 분모 배증의 원인을 스스로 찾았다:
+python 로그 파서가 같은 케이스에 대해 인라인 `FAIL` 줄과 실행 말미의 집계
+줄을 **둘 다** 셌다. 원인 규명이 맞다 — 나도 3000건 파싱에서 같은 이중
+계수를 만났다(18로 나왔고 실제는 9였다).
+
+그런데 고친 값 `170/300`은 내 측정과 다르다. 내 300건 재현은
+**177/300**(bellow) + **123/300**(caster) = 300으로 정확히 닫힌다. 워커의
+`170 + 123 = 293`은 자기 총계 300과도 맞지 않는다. caster 쪽은 일치하므로
+파싱 잔여 오차로 보인다. 라운드 10에 되돌렸다.
+
+### 60.4 남은 셋
+
+- `KinematicsBase` 감사를 공개 인터페이스 전체로 닫았다. 진짜 갭은
+  `setValues` 하나(소비자 없음, `KDLKinematicsPlugin`이 부르지 않음).
+  내가 브리핑에 나열한 미분류 후보 목록은 대부분 이미 분류돼 있었다 —
+  추측 목록을 주면 워커가 그것을 확인하러 가는 비용이 든다.
+- 형제 플러그인 셋에 처분이 붙었다: `srv_kinematics_plugin` 배제(ROS 서비스
+  클라이언트), `ikfast_kinematics_plugin` 미포팅(이식할 알고리즘 없음,
+  codegen 템플릿), `cached_ik_kinematics_plugin` **미포팅이되 진짜 범위 내
+  갭** — §4.4가 D4 trait 주석에서 이것을 명시적으로 이름 부른다. "요청되지
+  않음"이 아니라 근거 있는 처분이다.
