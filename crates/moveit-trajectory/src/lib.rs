@@ -32,6 +32,10 @@
 //!   TimeOptimalTrajectoryGeneration` — the `robot_trajectory::RobotTrajectory`
 //!   adapter around [`Path`]/[`Trajectory`] (header line 193 on). See that
 //!   module's doc comment for what it does not port.
+//! - [`trajectory_tools`], upstream's `trajectory_processing::trajectory_tools`
+//!   free functions — the convenience entry points that wrap
+//!   [`time_optimal_trajectory_generation`]/[`ruckig_smoothing`]. See that
+//!   module's doc comment for which of the five are ported.
 
 mod numeric;
 mod path;
@@ -40,6 +44,7 @@ pub mod robot_trajectory;
 pub mod ruckig_smoothing;
 pub mod time_optimal_trajectory_generation;
 pub mod trajectory;
+pub mod trajectory_tools;
 
 pub use path::{DEFAULT_PATH_TOLERANCE, Path};
 pub use robot_trajectory::RobotTrajectory;

@@ -74,6 +74,10 @@
 //!    than added here, since `crates/moveit-model/` is out of this
 //!    crate's ownership.
 //!
+//! [`crate::trajectory_tools::apply_totg_time_parameterization`] wraps this
+//! same overload and inherits the identical gap; see that module's doc
+//! comment.
+//!
 //! # Deviations from upstream
 //!
 //! - **No default constructor parameters, no class.** Upstream's
