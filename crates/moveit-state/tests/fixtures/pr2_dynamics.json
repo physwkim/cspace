@@ -1,0 +1,552 @@
+{
+  "cases": [
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.2,
+        "r_forearm_roll_joint": -0.25,
+        "r_shoulder_lift_joint": 0.1,
+        "r_shoulder_pan_joint": -0.05,
+        "r_upper_arm_roll_joint": -0.15000000000000002,
+        "r_wrist_flex_joint": 0.30000000000000004,
+        "r_wrist_roll_joint": -0.35000000000000003
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -1.1965599156336628,
+        "r_forearm_roll_joint": 0.3018897585544864,
+        "r_shoulder_lift_joint": 1.0117256752540125,
+        "r_shoulder_pan_joint": -1.5483524740996453,
+        "r_upper_arm_roll_joint": 0.5560698109678928,
+        "r_wrist_flex_joint": -0.29070980090182275,
+        "r_wrist_roll_joint": -0.4558320911448348
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": -0.4,
+        "r_forearm_roll_joint": 0.5,
+        "r_shoulder_lift_joint": -0.2,
+        "r_shoulder_pan_joint": 0.1,
+        "r_upper_arm_roll_joint": 0.30000000000000004,
+        "r_wrist_flex_joint": -0.6000000000000001,
+        "r_wrist_roll_joint": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 3,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "random_0",
+      "payload": 1.0,
+      "payload_torques": [
+        -1.5987211554602255e-15,
+        -18.43042536229743,
+        -1.4004280367126953,
+        -3.8994335659504644,
+        0.12746067328159238,
+        0.005654736678571245,
+        0.0
+      ],
+      "torques": [
+        -0.014441351480100968,
+        -22.901645662863363,
+        -2.1980545298595207,
+        -6.83503454517655,
+        0.11134771441584612,
+        0.010720470282511031,
+        -0.00754713827839633
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.2,
+        "r_forearm_roll_joint": -0.25,
+        "r_shoulder_lift_joint": 0.1,
+        "r_shoulder_pan_joint": -0.05,
+        "r_upper_arm_roll_joint": -0.15000000000000002,
+        "r_wrist_flex_joint": 0.30000000000000004,
+        "r_wrist_roll_joint": -0.35000000000000003
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -1.723031390455831,
+        "r_forearm_roll_joint": 2.9655589267470583,
+        "r_shoulder_lift_joint": -0.143852199042961,
+        "r_shoulder_pan_joint": -0.2798591520480369,
+        "r_upper_arm_roll_joint": 0.45674043456092495,
+        "r_wrist_flex_joint": -1.4355121958069503,
+        "r_wrist_roll_joint": -1.3511100709748274
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": -0.4,
+        "r_forearm_roll_joint": 0.5,
+        "r_shoulder_lift_joint": -0.2,
+        "r_shoulder_pan_joint": 0.1,
+        "r_upper_arm_roll_joint": 0.30000000000000004,
+        "r_wrist_flex_joint": -0.6000000000000001,
+        "r_wrist_roll_joint": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 1,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "random_1",
+      "payload": 1.0,
+      "payload_torques": [
+        -5.4178883601707636e-15,
+        -28.822402763078212,
+        -2.543735102193705,
+        1.1273992436644849,
+        -0.11596405266198567,
+        -0.009171243885856589,
+        0.0
+      ],
+      "torques": [
+        -0.03917511124455212,
+        -31.57181613099285,
+        -3.896462446802227,
+        2.053456214185563,
+        -0.12394411965498962,
+        -0.010814655951337501,
+        -0.011220983650491786
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.2,
+        "r_forearm_roll_joint": -0.25,
+        "r_shoulder_lift_joint": 0.1,
+        "r_shoulder_pan_joint": -0.05,
+        "r_upper_arm_roll_joint": -0.15000000000000002,
+        "r_wrist_flex_joint": 0.30000000000000004,
+        "r_wrist_roll_joint": -0.35000000000000003
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -0.21077625588616344,
+        "r_forearm_roll_joint": -2.1521744763284216,
+        "r_shoulder_lift_joint": -0.002089087506826015,
+        "r_shoulder_pan_joint": -1.4677392106359541,
+        "r_upper_arm_roll_joint": -0.7678208637982604,
+        "r_wrist_flex_joint": -1.9799136588582769,
+        "r_wrist_roll_joint": 1.1917563385779566
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": -0.4,
+        "r_forearm_roll_joint": 0.5,
+        "r_shoulder_lift_joint": -0.2,
+        "r_shoulder_pan_joint": 0.1,
+        "r_upper_arm_roll_joint": 0.30000000000000004,
+        "r_wrist_flex_joint": -0.6000000000000001,
+        "r_wrist_roll_joint": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 1,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "random_2",
+      "payload": 1.0,
+      "payload_torques": [
+        -1.6590027962504195e-15,
+        -34.06595988145025,
+        -0.3071862394830084,
+        -2.8628917390575217,
+        -0.04483069854833225,
+        0.006592884995703049,
+        0.0
+      ],
+      "torques": [
+        -0.3151329033691079,
+        -40.83590607897942,
+        0.14093641458047562,
+        -4.9900058869636155,
+        -0.05489768334435912,
+        0.0020015052250841243,
+        -0.005005843254044191
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.2,
+        "r_forearm_roll_joint": -0.25,
+        "r_shoulder_lift_joint": 0.1,
+        "r_shoulder_pan_joint": -0.05,
+        "r_upper_arm_roll_joint": -0.15000000000000002,
+        "r_wrist_flex_joint": 0.30000000000000004,
+        "r_wrist_roll_joint": -0.35000000000000003
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -1.137730095798662,
+        "r_forearm_roll_joint": 2.101304427420983,
+        "r_shoulder_lift_joint": 0.5039555386522087,
+        "r_shoulder_pan_joint": -0.4275944519865593,
+        "r_upper_arm_roll_joint": -1.6299005771987138,
+        "r_wrist_flex_joint": -0.6927932491526008,
+        "r_wrist_roll_joint": -0.13443992005372785
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": -0.4,
+        "r_forearm_roll_joint": 0.5,
+        "r_shoulder_lift_joint": -0.2,
+        "r_shoulder_pan_joint": 0.1,
+        "r_upper_arm_roll_joint": 0.30000000000000004,
+        "r_wrist_flex_joint": -0.6000000000000001,
+        "r_wrist_roll_joint": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 1,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "random_3",
+      "payload": 1.0,
+      "payload_torques": [
+        -1.1990408665951691e-15,
+        -27.76289670716507,
+        3.1936814069647914,
+        -1.6559755973416466,
+        0.19030741062434114,
+        0.004760700194917389,
+        0.0
+      ],
+      "torques": [
+        -0.17274937109798297,
+        -32.06023785991429,
+        5.607045063746645,
+        -2.950821432510945,
+        0.17919908366800724,
+        0.012744509232333417,
+        -0.006262792464623681
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.2,
+        "r_forearm_roll_joint": -0.25,
+        "r_shoulder_lift_joint": 0.1,
+        "r_shoulder_pan_joint": -0.05,
+        "r_upper_arm_roll_joint": -0.15000000000000002,
+        "r_wrist_flex_joint": 0.30000000000000004,
+        "r_wrist_roll_joint": -0.35000000000000003
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -1.548834118213621,
+        "r_forearm_roll_joint": 2.864335424804758,
+        "r_shoulder_lift_joint": 0.9083314413317015,
+        "r_shoulder_pan_joint": -0.9391894818366868,
+        "r_upper_arm_roll_joint": -0.21077362569048974,
+        "r_wrist_flex_joint": -1.2444356009829791,
+        "r_wrist_roll_joint": 1.2494722911133316
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": -0.4,
+        "r_forearm_roll_joint": 0.5,
+        "r_shoulder_lift_joint": -0.2,
+        "r_shoulder_pan_joint": 0.1,
+        "r_upper_arm_roll_joint": 0.30000000000000004,
+        "r_wrist_flex_joint": -0.6000000000000001,
+        "r_wrist_roll_joint": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 3,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "random_4",
+      "payload": 1.0,
+      "payload_torques": [
+        9.547918011776346e-16,
+        -21.145680662535202,
+        -0.010822974645096961,
+        -3.239619524926853,
+        0.08593401542202271,
+        -0.005159469424240391,
+        0.0
+      ],
+      "torques": [
+        -0.0155518311051643,
+        -25.718469650076926,
+        0.3582880190094595,
+        -5.711973919435512,
+        0.07943194067383148,
+        -0.005361912208905012,
+        -0.010719880147857616
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.0,
+        "r_forearm_roll_joint": 0.0,
+        "r_shoulder_lift_joint": 0.0,
+        "r_shoulder_pan_joint": 0.0,
+        "r_upper_arm_roll_joint": 0.0,
+        "r_wrist_flex_joint": 0.0,
+        "r_wrist_roll_joint": 0.0
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -1.1965599156336628,
+        "r_forearm_roll_joint": 0.3018897585544864,
+        "r_shoulder_lift_joint": 1.0117256752540125,
+        "r_shoulder_pan_joint": -1.5483524740996453,
+        "r_upper_arm_roll_joint": 0.5560698109678928,
+        "r_wrist_flex_joint": -0.29070980090182275,
+        "r_wrist_roll_joint": -0.4558320911448348
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": 0.0,
+        "r_forearm_roll_joint": 0.0,
+        "r_shoulder_lift_joint": 0.0,
+        "r_shoulder_pan_joint": 0.0,
+        "r_upper_arm_roll_joint": 0.0,
+        "r_wrist_flex_joint": 0.0,
+        "r_wrist_roll_joint": 0.0
+      },
+      "max_payload": {
+        "joint_saturated": 3,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "gravity_compensation",
+      "payload": 0.0,
+      "payload_torques": [
+        -7.993605777301127e-16,
+        -23.232712152374614,
+        -2.221042321861543,
+        -6.902814449251988,
+        0.12746067328159238,
+        0.005654736678571245,
+        0.0
+      ],
+      "torques": [
+        -7.993605777301127e-16,
+        -23.232712152374614,
+        -2.221042321861543,
+        -6.902814449251988,
+        0.12746067328159238,
+        0.005654736678571245,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "joint_accelerations": {
+        "r_elbow_flex_joint": 0.0,
+        "r_forearm_roll_joint": 0.0,
+        "r_shoulder_lift_joint": 0.0,
+        "r_shoulder_pan_joint": 0.0,
+        "r_upper_arm_roll_joint": 0.0,
+        "r_wrist_flex_joint": 0.0,
+        "r_wrist_roll_joint": 0.0
+      },
+      "joint_names": [
+        "r_shoulder_pan_joint",
+        "r_shoulder_lift_joint",
+        "r_upper_arm_roll_joint",
+        "r_elbow_flex_joint",
+        "r_forearm_roll_joint",
+        "r_wrist_flex_joint",
+        "r_wrist_roll_joint"
+      ],
+      "joint_values": {
+        "r_elbow_flex_joint": -1.1965599156336628,
+        "r_forearm_roll_joint": 0.3018897585544864,
+        "r_shoulder_lift_joint": 1.0117256752540125,
+        "r_shoulder_pan_joint": -1.5483524740996453,
+        "r_upper_arm_roll_joint": 0.5560698109678928,
+        "r_wrist_flex_joint": -0.29070980090182275,
+        "r_wrist_roll_joint": -0.4558320911448348
+      },
+      "joint_velocities": {
+        "r_elbow_flex_joint": 0.0,
+        "r_forearm_roll_joint": 0.0,
+        "r_shoulder_lift_joint": 0.0,
+        "r_shoulder_pan_joint": 0.0,
+        "r_upper_arm_roll_joint": 0.0,
+        "r_wrist_flex_joint": 0.0,
+        "r_wrist_roll_joint": 0.0
+      },
+      "max_payload": {
+        "joint_saturated": 3,
+        "payload": 0.0
+      },
+      "max_torques": [
+        30.0,
+        30.0,
+        30.0,
+        0.0,
+        30.0,
+        30.0,
+        0.0,
+        10.0,
+        10.0
+      ],
+      "name": "zero_gravity",
+      "payload": 0.0,
+      "payload_torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "group": "right_arm",
+  "robot": "pr2"
+}

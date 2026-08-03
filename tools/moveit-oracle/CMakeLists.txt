@@ -28,6 +28,7 @@ target_link_libraries(moveit_oracle
     moveit_core::moveit_collision_detection
     moveit_core::moveit_distance_field
     moveit_core::moveit_collision_distance_field
+    moveit_core::moveit_dynamics_solver
     urdfdom::urdf_parser
     srdfdom::srdfdom
     Eigen3::Eigen

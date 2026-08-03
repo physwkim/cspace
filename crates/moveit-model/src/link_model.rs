@@ -8,6 +8,7 @@
 //   moveit_core/robot_model/src/link_model.cpp
 
 use moveit_geometry::{Isometry3, Shape, Vector3};
+use nalgebra::Matrix3;
 
 use crate::aabb::Aabb;
 
@@ -94,6 +95,17 @@ fn is_identity(transform: &Isometry3) -> bool {
 ///    Every panda/fanuc link's collision geometry is exactly one `<mesh>`,
 ///    so both fixtures build with empty `shapes` on this port; pr2 mixes
 ///    `<mesh>` and `<box>`, so its box-collision links are covered.
+/// 5. **Carries mass and rotational inertia — upstream's own `LinkModel`
+///    does not.** `moveit::core::LinkModel` has no such field at all;
+///    `dynamics_solver::DynamicsSolver` gets this data by bypassing
+///    `RobotModel` entirely and re-parsing the raw URDF a second time via
+///    `kdl_parser`. This port's dynamics solver (`moveit-state`) instead
+///    reads it from here, so it needs only a `RobotModel` handle — the same
+///    reasoning `dynamics_solver.rs`'s doc comment applies to threading
+///    URDF `<limit effort="...">` onto [`crate::joint::JointModel`]. [`mass`](LinkModel::mass)
+///    is `0.0` and [`inertia`](LinkModel::inertia)'s tensor is all-zero for a
+///    link with no `<inertial>` element (`urdf_rs::Inertial::default()`),
+///    matching a `<inertial>`-less URDF link being physically massless.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkModel {
     name: String,
@@ -107,6 +119,9 @@ pub struct LinkModel {
     visual_mesh_filename: Option<String>,
     visual_mesh_origin: Isometry3,
     visual_mesh_scale: Vector3,
+    mass: f64,
+    center_of_mass: Vector3,
+    inertia: Matrix3<f64>,
 }
 
 impl LinkModel {
@@ -129,6 +144,9 @@ impl LinkModel {
             visual_mesh_filename: None,
             visual_mesh_origin: Isometry3::identity(),
             visual_mesh_scale: Vector3::new(1.0, 1.0, 1.0),
+            mass: 0.0,
+            center_of_mass: Vector3::zeros(),
+            inertia: Matrix3::zeros(),
         }
     }
 
@@ -159,6 +177,24 @@ impl LinkModel {
         }
         self.centered_bounding_box_offset = aabb.center();
         self.shapes = shapes;
+    }
+
+    /// Not an upstream method — see [`LinkModel`]'s doc comment, deviation
+    /// 5. Sets this link's mass, the center of mass (relative to this
+    /// link's own origin, in this link's own frame), and the rotational
+    /// inertia tensor about the center of mass, also in this link's own
+    /// frame axes (i.e. already rotated out of whatever frame a URDF
+    /// `<inertial><origin rpy="...">` expressed it in — the caller's job,
+    /// since only it has the raw URDF `Inertial` element to rotate from).
+    pub(crate) fn set_inertial(
+        &mut self,
+        mass: f64,
+        center_of_mass: Vector3,
+        inertia: Matrix3<f64>,
+    ) {
+        self.mass = mass;
+        self.center_of_mass = center_of_mass;
+        self.inertia = inertia;
     }
 
     /// `setVisualMesh`.
@@ -240,5 +276,29 @@ impl LinkModel {
     /// is [`None`].
     pub fn visual_mesh_scale(&self) -> Vector3 {
         self.visual_mesh_scale
+    }
+
+    /// This link's mass, from its URDF `<inertial><mass>`. `0.0` if the
+    /// link has no `<inertial>` element. See [`LinkModel`]'s doc comment,
+    /// deviation 5, for why upstream's own `LinkModel` has no equivalent.
+    pub fn mass(&self) -> f64 {
+        self.mass
+    }
+
+    /// The center of mass, relative to this link's own origin and expressed
+    /// in this link's own frame axes (URDF `<inertial><origin xyz="...">`,
+    /// unrotated — a translation only needs no frame conversion). Zero if
+    /// the link has no `<inertial>` element.
+    pub fn center_of_mass(&self) -> Vector3 {
+        self.center_of_mass
+    }
+
+    /// The rotational inertia tensor about [`LinkModel::center_of_mass`],
+    /// expressed in this link's own frame axes — already rotated out of the
+    /// `<inertial><origin rpy="...">` frame URDF itself expresses
+    /// `<inertia ixx="..." .../>` in. All-zero if the link has no
+    /// `<inertial>` element.
+    pub fn inertia(&self) -> &Matrix3<f64> {
+        &self.inertia
     }
 }

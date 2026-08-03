@@ -6,25 +6,30 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp
 //   moveit_core/robot_state/src/robot_state.cpp
+//   moveit_core/dynamics_solver/include/moveit/dynamics_solver/dynamics_solver.hpp
+//   moveit_core/dynamics_solver/src/dynamics_solver.cpp
 
-//! `RobotState` and forward kinematics for moveit-rs.
+//! `RobotState`, forward kinematics and inverse dynamics for moveit-rs.
 //!
 //! # Scope
 //!
 //! This crate ports variable storage, the position setters (all
 //! `setVariablePositions`/`setJointPositions` overloads), mimic-joint
 //! propagation on every write path, bounds (`enforceBounds`/
-//! `satisfiesBounds`/`harmonizePositions`), default/random positions, and
+//! `satisfiesBounds`/`harmonizePositions`), default/random positions,
 //! forward kinematics (`updateLinkTransforms`, `getGlobalLinkTransform`,
-//! `getJointTransform`, `getFrameTransform`, `knowsFrameTransform`).
+//! `getJointTransform`, `getFrameTransform`, `knowsFrameTransform`), and
+//! inverse dynamics ([`DynamicsSolver`], see the `dynamics` module's doc
+//! comment for its own scope and deviations).
 //!
-//! Deferred, out of scope for this task: the Jacobian, `setFromIK`/
-//! `setFromDiffIK`, attached bodies, `interpolate`, distance metrics,
-//! `computeAABB`, anything touching `moveit_msgs`, and velocity/
-//! acceleration/effort tracking. See the `state` module's doc comments for the
-//! per-method deviations, and this crate's test report for what remains
-//! `UNFIXED`.
+//! Deferred, out of scope for this task: `setFromIK`/`setFromDiffIK`,
+//! attached bodies, `interpolate`, distance metrics, `computeAABB`,
+//! anything touching `moveit_msgs`, and velocity/acceleration/effort
+//! tracking. See the `state` module's doc comments for the per-method
+//! deviations, and this crate's test report for what remains `UNFIXED`.
 
+mod dynamics;
 mod state;
 
+pub use dynamics::{DynamicsSolver, MaxPayload};
 pub use state::{JointIndex, Posed, RobotState};

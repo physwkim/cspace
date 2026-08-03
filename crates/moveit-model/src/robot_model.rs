@@ -868,6 +868,30 @@ impl<'a> Building<'a> {
         }
         self.links[link_index].set_geometry(shapes);
 
+        let inertial = &urdf_link.inertial;
+        let inertial_origin = isometry_from_urdf_pose(&inertial.origin);
+        let center_of_mass = inertial_origin.translation.vector;
+        let ixx = inertial.inertia.ixx;
+        let ixy = inertial.inertia.ixy;
+        let ixz = inertial.inertia.ixz;
+        let iyy = inertial.inertia.iyy;
+        let iyz = inertial.inertia.iyz;
+        let izz = inertial.inertia.izz;
+        #[rustfmt::skip]
+        let inertia_in_inertial_frame = nalgebra::Matrix3::new(
+            ixx, ixy, ixz,
+            ixy, iyy, iyz,
+            ixz, iyz, izz,
+        );
+        let rotation = inertial_origin.rotation.to_rotation_matrix();
+        let inertia_in_link_frame =
+            rotation.matrix() * inertia_in_inertial_frame * rotation.matrix().transpose();
+        self.links[link_index].set_inertial(
+            inertial.mass.value,
+            center_of_mass,
+            inertia_in_link_frame,
+        );
+
         let visual_mesh = urdf_link
             .visual
             .first()

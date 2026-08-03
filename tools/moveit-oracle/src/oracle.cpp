@@ -31,6 +31,7 @@
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
+#include <moveit/dynamics_solver/dynamics_solver.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
@@ -219,6 +220,8 @@ public:
       return commonRoot(request);
     if (op == "collision_distance_field_types")
       return collisionDistanceFieldTypes(request);
+    if (op == "dynamics")
+      return dynamics(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -409,6 +412,128 @@ private:
                            { "b", b_name },
                            { "common_root", common ? json(common->getName()) : json(nullptr) } });
     }
+    return out;
+  }
+
+  /// Ground truth for `dynamics_solver::DynamicsSolver`, MoveIt's KDL-backed
+  /// recursive Newton-Euler inverse dynamics wrapper. `ChainIdSolver_RNE`'s
+  /// own `.cpp` is not present anywhere local to this repo -- only its
+  /// compiled `.so` and the header declaration -- so there is nothing to
+  /// port against yet; this endpoint drives the real, compiled solver
+  /// directly, so the numbers are authoritative ground truth regardless of
+  /// where a future Rust port's own implementation comes from.
+  ///
+  /// `group` must be a chain with no mimic joint and a joint root with a
+  /// parent link -- the same three preconditions `DynamicsSolver`'s own
+  /// constructor checks, logging and leaving `getGroup() == nullptr` on
+  /// failure rather than throwing. Reproduced here so a request that fails
+  /// one throws a specific error instead of this method dereferencing a
+  /// null group three lines later.
+  ///
+  /// `joint_values`/`joint_velocities`/`joint_accelerations` are keyed by
+  /// joint name (not variable name): every joint `DynamicsSolver` accepts is
+  /// 1-DOF by construction (`getActiveJointModelNames()`, the same order
+  /// `getTorques`'s own doc comment specifies), so a joint name is
+  /// unambiguous here the way it would not be for a planar or floating
+  /// joint. External wrenches are always zero: nothing in this crate's
+  /// verification plan needs them, and `getMaxPayload`/`getPayloadTorques`
+  /// exercise the one non-zero wrench upstream ever applies (a payload at
+  /// the tip) internally.
+  ///
+  /// `max_payload.payload` can come back JSON `null` for a zero-gravity
+  /// request: `getMaxPayload` divides by `gravity_` unconditionally, and
+  /// nlohmann's `dump()` already turns the resulting non-finite double into
+  /// `null` the same way `finiteOrNull` does elsewhere in this file -- this
+  /// is upstream's own 0/0 for that input, not a bug this wrapper
+  /// introduces, so it is captured rather than special-cased away.
+  ///
+  /// `max_torques` is `solver.getMaxTorques()` verbatim, indexed by
+  /// `getJointModelNames()` (fixed joints included, appended as `0.0`), NOT
+  /// by `joint_names`/`torques`/`payload_torques`'s active-only index space
+  /// -- upstream's own constructor builds it over the former but
+  /// `getMaxPayload`'s saturation check reads it with the latter's indices.
+  /// For a chain with a fixed joint strictly before its last active joint
+  /// (pr2's `right_arm`, `r_upper_arm_joint` before `r_elbow_flex_joint`)
+  /// this makes `getMaxPayload` compare one joint's real gravity torque
+  /// against a *different* (fixed, always-`0.0`-limit) joint's slot, which
+  /// is why this endpoint's captured `pr2_dynamics.json` payload is always
+  /// `0.0` -- a real upstream defect this ground truth preserves as-is
+  /// rather than working around, since a future port needs to know it is
+  /// there to decide whether to replicate or deliberately diverge from it.
+  json dynamics(const json& request) const
+  {
+    const std::string group_name = request.at("group").get<std::string>();
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (!group)
+      throw std::runtime_error("unknown group: " + group_name);
+    if (!group->isChain())
+      throw std::runtime_error("group '" + group_name + "' is not a chain");
+    if (!group->getMimicJointModels().empty())
+      throw std::runtime_error("group '" + group_name + "' has a mimic joint");
+    if (group->getJointRoots().empty() || !group->getJointRoots()[0]->getParentLinkModel())
+      throw std::runtime_error("group '" + group_name + "' has no parent link");
+
+    const auto gravity_arr = request.at("gravity").get<std::array<double, 3>>();
+    geometry_msgs::msg::Vector3 gravity;
+    gravity.x = gravity_arr[0];
+    gravity.y = gravity_arr[1];
+    gravity.z = gravity_arr[2];
+
+    dynamics_solver::DynamicsSolver solver(model_, group_name, gravity);
+    if (!solver.getGroup())
+      throw std::runtime_error("DynamicsSolver failed to initialize for group '" + group_name + "'");
+
+    const std::vector<std::string> joint_names = group->getActiveJointModelNames();
+    const std::size_t n = joint_names.size();
+
+    auto readPerJoint = [&](const char* field) {
+      const json& values = request.at(field);
+      std::vector<double> out(n);
+      for (std::size_t i = 0; i < n; ++i)
+      {
+        if (!values.contains(joint_names[i]))
+          throw std::runtime_error(std::string(field) + " missing joint " + joint_names[i]);
+        out[i] = values.at(joint_names[i]).get<double>();
+      }
+      return out;
+    };
+
+    const std::vector<double> angles = readPerJoint("joint_values");
+    const std::vector<double> velocities = readPerJoint("joint_velocities");
+    const std::vector<double> accelerations = readPerJoint("joint_accelerations");
+    const double payload = request.at("payload").get<double>();
+
+    // group->getLinkModels() is exactly the KDL chain's segment set: both
+    // walk the same joint list from base to tip (moveit_core's
+    // JointModelGroup constructor builds link_model_vector_ as one entry per
+    // joint in the group, fixed joints included; DynamicsSolver's kdl_chain_
+    // is `tree.getChain(base_name_, tip_name_)` over that identical base/tip
+    // pair), so this is the wrench vector size getTorques expects without
+    // reaching into DynamicsSolver's private num_segments_.
+    const std::vector<geometry_msgs::msg::Wrench> zero_wrenches(group->getLinkModels().size());
+
+    std::vector<double> torques(n, 0.0);
+    if (!solver.getTorques(angles, velocities, accelerations, zero_wrenches, torques))
+      throw std::runtime_error("getTorques failed for group '" + group_name + "'");
+
+    json out;
+    out["joint_names"] = joint_names;
+    out["torques"] = torques;
+    out["max_torques"] = solver.getMaxTorques();
+
+    double max_payload = 0.0;
+    unsigned int joint_saturated = 0;
+    if (solver.getMaxPayload(angles, max_payload, joint_saturated))
+      out["max_payload"] = json{ { "payload", max_payload }, { "joint_saturated", joint_saturated } };
+    else
+      out["max_payload"] = nullptr;
+
+    std::vector<double> payload_torques(n, 0.0);
+    if (solver.getPayloadTorques(angles, payload, payload_torques))
+      out["payload_torques"] = payload_torques;
+    else
+      out["payload_torques"] = nullptr;
+
     return out;
   }
 

@@ -1,0 +1,545 @@
+{
+  "cases": [
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": -0.05,
+        "left_panda_joint2": 0.1,
+        "left_panda_joint3": -0.15000000000000002,
+        "left_panda_joint4": 0.2,
+        "left_panda_joint5": -0.25,
+        "left_panda_joint6": 0.30000000000000004,
+        "left_panda_joint7": -0.35000000000000003
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": -0.6864513368810061,
+        "left_panda_joint2": 1.1759981154531238,
+        "left_panda_joint3": 2.4300305522459094,
+        "left_panda_joint4": -0.569479157160595,
+        "left_panda_joint5": -2.2468463159371166,
+        "left_panda_joint6": 2.2059514866699463,
+        "left_panda_joint7": -2.378556616521487
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.1,
+        "left_panda_joint2": -0.2,
+        "left_panda_joint3": 0.30000000000000004,
+        "left_panda_joint4": -0.4,
+        "left_panda_joint5": 0.5,
+        "left_panda_joint6": -0.6000000000000001,
+        "left_panda_joint7": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 5,
+        "payload": 10.280539172681475
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "random_0",
+      "payload": 1.0,
+      "payload_torques": [
+        -5.592581449289393e-16,
+        6.601252993469006,
+        -1.8053809555440947,
+        2.652326959502827,
+        0.02651703300913962,
+        -1.167253954139648,
+        0.0
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": -0.05,
+        "left_panda_joint2": 0.1,
+        "left_panda_joint3": -0.15000000000000002,
+        "left_panda_joint4": 0.2,
+        "left_panda_joint5": -0.25,
+        "left_panda_joint6": 0.30000000000000004,
+        "left_panda_joint7": -0.35000000000000003
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": -0.8171664967191408,
+        "left_panda_joint2": -1.1590058343881742,
+        "left_panda_joint3": 2.598781028909562,
+        "left_panda_joint4": -0.10766160847712314,
+        "left_panda_joint5": 0.2488332477015911,
+        "left_panda_joint6": 3.231267650213558,
+        "left_panda_joint7": -1.1040542827351485
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.1,
+        "left_panda_joint2": -0.2,
+        "left_panda_joint3": 0.30000000000000004,
+        "left_panda_joint4": -0.4,
+        "left_panda_joint5": 0.5,
+        "left_panda_joint6": -0.6000000000000001,
+        "left_panda_joint7": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 1,
+        "payload": 12.187942525359261
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "random_1",
+      "payload": 1.0,
+      "payload_torques": [
+        1.4073736549354498e-16,
+        -7.138202351954027,
+        -0.007669418602730349,
+        -3.354011507749443,
+        -0.24424014423117227,
+        -0.5861086996432211,
+        0.0
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": -0.05,
+        "left_panda_joint2": 0.1,
+        "left_panda_joint3": -0.15000000000000002,
+        "left_panda_joint4": 0.2,
+        "left_panda_joint5": -0.25,
+        "left_panda_joint6": 0.30000000000000004,
+        "left_panda_joint7": -0.35000000000000003
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": 0.278414579452388,
+        "left_panda_joint2": 1.4089229083897545,
+        "left_panda_joint3": -0.42038623822373333,
+        "left_panda_joint4": -1.3161020276875468,
+        "left_panda_joint5": -1.9147018196567427,
+        "left_panda_joint6": 3.642294921989087,
+        "left_panda_joint7": -1.3085605387793389
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.1,
+        "left_panda_joint2": -0.2,
+        "left_panda_joint3": 0.30000000000000004,
+        "left_panda_joint4": -0.4,
+        "left_panda_joint5": 0.5,
+        "left_panda_joint6": -0.6000000000000001,
+        "left_panda_joint7": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 5,
+        "payload": 15.169807836120414
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "random_2",
+      "payload": 1.0,
+      "payload_torques": [
+        -8.537889178947103e-17,
+        5.280322438193596,
+        0.8829301277626265,
+        -1.9559250664837797,
+        -0.2834479926114182,
+        -0.7910449578291381,
+        -4.8587277137962105e-29
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": -0.05,
+        "left_panda_joint2": 0.1,
+        "left_panda_joint3": -0.15000000000000002,
+        "left_panda_joint4": 0.2,
+        "left_panda_joint5": -0.25,
+        "left_panda_joint6": 0.30000000000000004,
+        "left_panda_joint7": -0.35000000000000003
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": 2.740855701477732,
+        "left_panda_joint2": -1.6266919065618888,
+        "left_panda_joint3": -2.700317980742035,
+        "left_panda_joint4": -3.024017954543419,
+        "left_panda_joint5": 1.288665801278222,
+        "left_panda_joint6": 2.504479220774956,
+        "left_panda_joint7": -2.0616043387643064
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.1,
+        "left_panda_joint2": -0.2,
+        "left_panda_joint3": 0.30000000000000004,
+        "left_panda_joint4": -0.4,
+        "left_panda_joint5": 0.5,
+        "left_panda_joint6": -0.6000000000000001,
+        "left_panda_joint7": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 5,
+        "payload": 13.427950386545929
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "random_3",
+      "payload": 1.0,
+      "payload_torques": [
+        4.895140758382905e-16,
+        2.003240239676656,
+        -0.8921120987598998,
+        4.586081937782265,
+        -0.05202914506788549,
+        0.8936583510185845,
+        1.6777847569249136e-28
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": -0.05,
+        "left_panda_joint2": 0.1,
+        "left_panda_joint3": -0.15000000000000002,
+        "left_panda_joint4": 0.2,
+        "left_panda_joint5": -0.25,
+        "left_panda_joint6": 0.30000000000000004,
+        "left_panda_joint7": -0.35000000000000003
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": -1.750176573526906,
+        "left_panda_joint2": 0.9242480208545922,
+        "left_panda_joint3": 2.0129802413993985,
+        "left_panda_joint4": -2.549060941803432,
+        "left_panda_joint5": 1.084961613025237,
+        "left_panda_joint6": 0.4617709919437766,
+        "left_panda_joint7": 2.6427859368424396
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.1,
+        "left_panda_joint2": -0.2,
+        "left_panda_joint3": 0.30000000000000004,
+        "left_panda_joint4": -0.4,
+        "left_panda_joint5": 0.5,
+        "left_panda_joint6": -0.6000000000000001,
+        "left_panda_joint7": 0.7000000000000001
+      },
+      "max_payload": {
+        "joint_saturated": 4,
+        "payload": 10.931502420645112
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "random_4",
+      "payload": 1.0,
+      "payload_torques": [
+        -6.977859894940078e-16,
+        -0.8673329274211143,
+        -1.6408566508544542,
+        -2.0617179194205835,
+        -1.0977448056304622,
+        0.18984631873062358,
+        0.0
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": 0.0,
+        "left_panda_joint2": 0.0,
+        "left_panda_joint3": 0.0,
+        "left_panda_joint4": 0.0,
+        "left_panda_joint5": 0.0,
+        "left_panda_joint6": 0.0,
+        "left_panda_joint7": 0.0
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": -0.6864513368810061,
+        "left_panda_joint2": 1.1759981154531238,
+        "left_panda_joint3": 2.4300305522459094,
+        "left_panda_joint4": -0.569479157160595,
+        "left_panda_joint5": -2.2468463159371166,
+        "left_panda_joint6": 2.2059514866699463,
+        "left_panda_joint7": -2.378556616521487
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.0,
+        "left_panda_joint2": 0.0,
+        "left_panda_joint3": 0.0,
+        "left_panda_joint4": 0.0,
+        "left_panda_joint5": 0.0,
+        "left_panda_joint6": 0.0,
+        "left_panda_joint7": 0.0
+      },
+      "max_payload": {
+        "joint_saturated": 5,
+        "payload": 10.280539172681475
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "gravity_compensation",
+      "payload": 0.0,
+      "payload_torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "gravity": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "joint_accelerations": {
+        "left_panda_joint1": 0.0,
+        "left_panda_joint2": 0.0,
+        "left_panda_joint3": 0.0,
+        "left_panda_joint4": 0.0,
+        "left_panda_joint5": 0.0,
+        "left_panda_joint6": 0.0,
+        "left_panda_joint7": 0.0
+      },
+      "joint_names": [
+        "left_panda_joint1",
+        "left_panda_joint2",
+        "left_panda_joint3",
+        "left_panda_joint4",
+        "left_panda_joint5",
+        "left_panda_joint6",
+        "left_panda_joint7"
+      ],
+      "joint_values": {
+        "left_panda_joint1": -0.6864513368810061,
+        "left_panda_joint2": 1.1759981154531238,
+        "left_panda_joint3": 2.4300305522459094,
+        "left_panda_joint4": -0.569479157160595,
+        "left_panda_joint5": -2.2468463159371166,
+        "left_panda_joint6": 2.2059514866699463,
+        "left_panda_joint7": -2.378556616521487
+      },
+      "joint_velocities": {
+        "left_panda_joint1": 0.0,
+        "left_panda_joint2": 0.0,
+        "left_panda_joint3": 0.0,
+        "left_panda_joint4": 0.0,
+        "left_panda_joint5": 0.0,
+        "left_panda_joint6": 0.0,
+        "left_panda_joint7": 0.0
+      },
+      "max_payload": {
+        "joint_saturated": 5,
+        "payload": null
+      },
+      "max_torques": [
+        87.0,
+        87.0,
+        87.0,
+        87.0,
+        12.0,
+        12.0,
+        12.0,
+        0.0
+      ],
+      "name": "zero_gravity",
+      "payload": 0.0,
+      "payload_torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "torques": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "group": "left_panda_arm",
+  "robot": "dual_arm_panda"
+}
