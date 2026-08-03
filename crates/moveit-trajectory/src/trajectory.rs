@@ -10,9 +10,11 @@
 //! [`crate::Path`].
 //!
 //! `TimeOptimalTrajectoryGeneration` (the `robot_trajectory::RobotTrajectory`
-//! adapter, header line 193 on) is out of scope for this crate — see
-//! `PORTING-PLAN.md`. Everything below it that only touches `Path`/`Eigen::VectorXd`
-//! is in scope and ported here. The module is `pub` only so this note and
+//! adapter, header line 193 on) is **ported**, in
+//! [`crate::time_optimal_trajectory_generation`] — this note previously said
+//! it was out of scope, which stopped being true once that module landed;
+//! see that module's own doc comment for what it covers and what it
+//! deliberately does not. This module is `pub` only so this note and
 //! [`Trajectory`]'s own doc comment are reachable from `crate::trajectory`
 //! links elsewhere in the crate; every other item in it stays private or
 //! `pub(crate)`.
