@@ -6732,3 +6732,67 @@ RNG가 들어간다고 고정이 불가능한 것은 아니다. seed를 고정�
 --workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK(새 의존 간선 포함), 출처 검사 통과,
 재생 **29/29 identical**.
+
+## 78. §71.2가 닫혔다 — 이제 허용오차가 실제로 물린다 (2026-08-04)
+
+p3-distance-field 라운드 12(`047808e`, `78b9635`, `7d65688`, `760301b`).
+베이스 `d4b9b2b`, main `b0520ce`에 머지. 테스트 수는 그대로 **1010**.
+
+### 78.1 원인은 `max_relative`였다
+
+§71.2에서 다섯 상수를 `1e-15`로 낮춰도 72건이 전부 통과했던 이유가
+밝혀졌다. `assert_relative_eq!(a, b, epsilon = TOL)`은 `max_relative`를
+주지 않으면 `f64::EPSILON`(~2.22e-16)을 쓰는데, 비교 대상 크기가 1에
+비해 작으면 그 기본값이 명시한 상수를 눌러 버린다. 상수를 아무리
+낮춰도 통과하니 이분법이 `0.0`까지 내려간다 — 내가 잰 것도, 담당이
+처음에 잰 `1.12e-13`도 같은 함정의 양쪽 면이다.
+
+세 파일의 모든 `assert_relative_eq!`에 `max_relative = TOL`을 명시로
+넘긴 뒤 다시 이분했다.
+
+### 78.2 다시 재봤다
+
+내가 직접 확인한 값(세 파일의 `TOL`과 `RADIUS_TOL`을 함께 움직임):
+
+```
+1e-15 → 72/72 통과
+1e-16 → 3건 실패
+1e-17 → 4건 실패
+```
+
+1e-16에서 실패하는 셋은 파일마다 정확히 하나씩이다:
+`collision_distance_field_types_match_the_oracle`,
+`collision_object_point_decomposition_matches_the_oracle`,
+`group_state_representation_matches_the_oracle`.
+
+담당이 라운드 중간에 스스로 고친 주장 — `collision_common`이 무는 곳은
+`link_body_decomposition`이 아니라 `collision_object_point_decomposition`
+이라는 것 — 이 그대로 재현된다.
+
+`RADIUS_TOL`만 `1e-18`로 내리면 `group_state_representation_matches_the_oracle`
+하나가 실패한다. 바닥이 `1e-18`과 `1e-17` 사이라는 주장도 맞다.
+
+현재 상수는 `1e-12`이고 무는 지점이 `1e-16`~`1e-15`이므로 **여유가 3~4
+자리**다. §71.2의 "최소 6자리 헐겁다"는 닫혔다.
+
+### 78.3 이분해도 안 걸리는 두 파일은 상수를 없앴다
+
+`oracle_parity.rs`와 `collision_sphere_free_functions_parity.rs`는 `0.0`까지
+내려도 실패가 없어서 `assert_eq!`로 바꿨다. 아무것도 위반할 수 없는
+허용오차는 gate가 아니라는 판단이고, 맞다.
+
+그 exactness 단언이 무엇을 재는지도 확인했다. 자유 함수
+`get_collision_sphere_gradients`(`:567`)의 `closest_distance` 대입에
+`×1.0000000000001`(상대 1e-13)을 넣으니
+`collision_sphere_free_functions_match_the_oracle`이 실패한다.
+같은 크기의 교란을 메서드 쪽(`:443`)에 넣으면 통과하는데, 그 파일의
+`TOL`이 `1e-12`이라 1e-13은 허용 범위 안이기 때문이다 — `×1.0000000001`
+(상대 1e-10)로 키우면 `collision_distance_field_types_match_the_oracle`이
+실패한다. **두 오버로드 다 고정돼 있다.**
+
+### 78.4 머지 후 실측
+
+`cargo nextest run --workspace` **1010/1010**, `cargo test --doc
+--workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
+재생 **29/29 identical**.
