@@ -308,6 +308,22 @@ Rust 크레이트 확인(crates.io, 직접 조회):
 `ferromotion-ruckig`을 선호할 구체적 근거가 나오지 않는 한 `rsruckig`를
 쓴다.
 
+**갱신 (2026-08-04, §62) — 결정: 완료(done).** 위 "보류"는 두 지점 모두
+해소됐고, 막고 있던 이유는 최종적으로 틀렸다.
+
+- `RuckigSmoothing` → `moveit-trajectory::ruckig_smoothing`. `ruckig_parity.rs`가
+  `rsruckig::Ruckig::calculate`(offline 경로)를 오라클과 대조한다.
+  `RobotTrajectory` 가용성 블로커는 그 타입이 포팅되면서 해소됐다.
+- `RuckigFilterPlugin` → `moveit-smoothing::ruckig_filter::RuckigFilter`
+  (`fa5572e`). 여기서 실제 블로커는 `RobotTrajectory` 미포팅이 **아니라**
+  ROS(`rclcpp::Node`) 결합이었다 — `doSmoothing`/`reset`/
+  `getVelAccelJerkBounds`는 `Eigen::VectorXd`만 다루고 `RobotTrajectory`에
+  의존한 적이 없다. `ButterworthFilterPlugin`→`ButterworthFilter`와 같은
+  방식으로 ROS-free 코어를 뽑아 해소했다. **오라클 근거 없음(disclosed):**
+  `rsruckig::Ruckig::update`의 스트리밍 API를 감싸지만 이 경로를 검증하는
+  오라클 op는 없다 — `moveit-smoothing/src/lib.rs` 참고.
+- 크레이트 선택(`rsruckig`)은 처음부터 문제가 아니었다.
+
 ### 4.7 명시적 범위 밖 — 영구히 C++로 남는 것
 
 - `moveit_setup_assistant` (27,714) — Qt5/rviz 위젯
@@ -1154,7 +1170,8 @@ pair 하나에 contact 세 개가 쌓인 모양으로 이 뺄셈이 `count()` �
   버그가 하나 나와 고쳤다(`Se3Space::rotation_distance`가 참각의 절반을
   돌려주고 있었다, `9b04950`).
 - `moveit-smoothing` — §4.6이 Phase 6 착수 시점으로 미룬 ruckig 크레이트
-  채택 결정. 결정과 근거를 §4.6에 되써넣는다.
+  채택 결정. §4.6에 되써넣었다(§62): 두 지점 모두 완료, `RuckigFilter`
+  쪽만 오라클 근거 없음이 disclosed gap으로 남는다.
 - `moveit-geometry` — `bodies::`가 main에 들어왔으나, §9.1이 이 패키지의
   검증 경로로 못박은 C++ 프로브를 거치지 않았다(담당은 upstream gtest
   리터럴로 대체했다고 보고). 프로브를 직접 만들어 돌린 결과 두 건이
@@ -5721,3 +5738,72 @@ ROS 방향이지 이 방향이 아니다.
 `panda_constraints_response.json`으로 재생 대상에 들어왔다. 재생
 **24/24 identical**(§58의 23 + 이 한 건). §40의 "요청을 잃어버린
 픽스처" 계열이 이 크레이트에서도 닫혔다.
+
+## 62. 웨이포인트가 정착되지 않은 채 저장되고 있었다 (2026-08-04)
+
+p6-totg 라운드 8(`fa5572e`, `d764e3f`, `73e7414`, `178b0d8`, `b670e28`).
+브랜치 베이스가 `05296b7`로 여러 머지 뒤처져 있었고, 그래서 그쪽 보고의
+951/951·재생 15/15·스탬프 `c5e7d29`는 전부 낡은 숫자다. 머지 후 현재
+main에서 다시 잰 값이 아래 §62.4다.
+
+### 62.1 `state->update()` 누락 — 아무도 지목하지 않은 진짜 갭
+
+`robot_trajectory.hpp:200`/`:213`/`:226`이 웨이포인트를 저장하기 **전에**
+`state->update()`를 부른다. 이 포트의 `add_suffix_way_point`/
+`add_prefix_way_point`/`insert_way_point`에는 그 호출이 없었다.
+`RobotState`가 `PartialEq`를 관절 위치가 아니라 캐시된 변환과
+dirty-subtree 장부까지 포함해 파생하므로, 정착되지 않은 웨이포인트는 같은
+논리적 상태를 정착된 경로로 저장한 것과 같지 않게 비교된다.
+
+내가 상류 세 줄을 직접 읽어 확인했고, 회귀 테스트가 정말로 이 수정에
+달려 있는지도 확인했다 — `state.update()` 세 자리를 지우고 돌리면
+`add_suffix_way_point_settles_the_stored_waypoint`,
+`add_prefix_way_point_settles_the_stored_waypoint`,
+`insert_way_point_settles_the_stored_waypoint` 셋이 정확히 실패한다
+(98건 중 95 pass / 3 fail). 삭제해도 통과하는 테스트가 아니다.
+
+감사 중에 스스로 찾은 것이지 브리프가 지목한 것이 아니다.
+
+### 62.2 `dynamics_solver` 처분이 틀렸다 — 이미 포팅돼 있다
+
+같은 라운드가 `time_optimal_trajectory_generation.rs`에
+"`dynamics_solver`: unported gap"과 "**no ground truth to verify it
+against**: no oracle op exists for a `dynamics_solver`-shaped computation"을
+써 넣었다. 두 주장 모두 사실이 아니다:
+
+- `oracle.cpp`에 `dynamics` op가 이 라운드 이전부터 있다(`:541`), 캡처
+  스크립트도 `tools/moveit-oracle/capture-dynamics-fixtures.py`로 있다.
+- `moveit_state::dynamics::DynamicsSolver`(`crates/moveit-state/src/dynamics.rs`)가
+  RNE 재귀를 직접 써서 포팅돼 있고 — `torques`/`max_torques`/`max_payload`/
+  `payload_torques` — `dynamics_parity.rs`가 panda·fanuc·dual_arm_panda·pr2
+  네 로봇의 `*_dynamics.json`으로 오라클과 대조한다.
+
+`1757b75`에서 그 블록을 고쳤다. 살아남는 참인 부분은 더 좁다: 이 클래스는
+정방향 토크 질문에 답할 뿐 `getMaxAcceleration` 모양의 메서드가 상류에도
+여기에도 없으므로, 여전히 `acceleration_bounds`의 공급원은 아니다.
+
+원인 하나는 내 브리프다 — 라운드 8 브리프가 "`dynamics_solver`
+disposition"을 요구하면서 미포팅을 전제로 문장을 썼다. 담당 크레이트
+밖이라 못 봤다는 것은 이유가 되지 않는다(`rg -l dynamics.json` 한 번이면
+나온다). 하지만 전제를 심은 쪽이 먼저다.
+
+### 62.3 `acceleration_filter` — 오라클 op으로 간다 (결정)
+
+`AccelerationLimitedPlugin`의 QP가 1-D 구간 교집합으로 닫힌 형태로
+환원된다는 것은 이 포트 자신의 유도이고, 검증 경로가 없다. §9.1과 §43이
+반복해서 대가를 치른 것이 정확히 이 형태 — "우리가 유도했으니 맞다" —
+이므로 닫힌 형태 단위 테스트만으로 승인하지 않는다.
+
+**오라클 op을 추가한다.** 오라클 이미지의 third_party에 `osqp`,
+`pluginlib`, `rclcpp`, `generate_parameter_library`가 이미 들어 있으므로
+`moveit_acceleration_filter` 링크는 재료가 갖춰져 있다. `initialize()`가
+`rclcpp::Node`를 요구하는 것은 `rclcpp::init` 뒤 노드를 만들어 파라미터를
+직접 세우면 되고, ROS 그래프 실행을 요구하지 않는다. 링크가 실제로
+데몬을 요구하는 것으로 드러나면 그 구체적 블로커를 보고하고, 그때 유도
+공개(disclosed)와 함께 닫힌 형태 테스트로 후퇴한다.
+
+### 62.4 머지 후 실측
+
+`cargo nextest run --workspace` **961/961**, `cargo test --doc --workspace`
+통과, clippy `-D warnings` 0건, `check-*.sh` 3건 전부 OK, 재생
+**24/24 identical**. §4.6의 "보류"는 이 라운드로 완료 처리했다.
