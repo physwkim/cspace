@@ -14,7 +14,7 @@
 //! [`bodies`] module docs for scope and provenance).
 
 pub mod bodies;
-mod shapes;
+pub mod shapes;
 mod transforms;
 
 pub use shapes::{

@@ -67,10 +67,13 @@
 //! [`Cylinder`], [`Cuboid`] (upstream `bodies::Box`, renamed for the same
 //! reason as [`crate::Cuboid`]) and [`ConvexMesh`] — along with
 //! `setPose`/`setDimensions`/`setScale`/`setPadding`, `containsPoint`,
-//! `intersectsRay`, `computeVolume`, `computeBoundingSphere`,
-//! `computeBoundingCylinder`, `samplePointInside`, [`AABB`], [`OBB`], and the
-//! free functions `mergeBoundingSpheres`/`computeBoundingSphere(vector)`
-//! (here [`merge_bounding_spheres`]/[`compute_bounding_sphere`]).
+//! `intersectsRay`, `computeVolume`, `computeBoundingSphere` (here
+//! [`Body::compute_bounding_sphere`]), `computeBoundingCylinder`,
+//! `samplePointInside`, [`AABB`], [`OBB`], and the free function
+//! `mergeBoundingSpheres` (here [`merge_bounding_spheres`]). The free
+//! function `computeBoundingSphere(vector<Body*>)` (`body_operations.h`)
+//! has no dedicated port — a caller composes it from
+//! [`Body::compute_bounding_sphere`] and [`merge_bounding_spheres`] directly.
 //! `mergeBoundingBoxes`/`mergeBoundingBoxesApprox` (here
 //! [`merge_bounding_boxes`]/[`merge_bounding_boxes_approx`]) are included too
 //! — they are one-line loops over [`AABB::extend_aabb`]/[`OBB::extend_approx`]
