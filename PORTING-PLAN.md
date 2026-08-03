@@ -7843,3 +7843,82 @@ fixtures/panda.srdf:49 virtual_joint type="floating"
 
 담당이 보고한 1030/1030은 베이스 `2a2c5af` 기준 값이고, 재생 29 → 30도
 그 기준에서 센 것이다.
+
+## 92. `assert_relative_eq!` 전수 재고 — 남은 소유자별 분포
+
+§91.2가 나온 뒤 워크스페이스 전체를 다시 셌다. `rg -c`의 줄 세기는
+여러 줄에 걸친 호출을 놓치므로 괄호 매칭으로 호출 하나하나의 인자를
+읽어 분류했다.
+
+**첫 집계는 틀렸다.** 괄호 매칭만 하고 주석을 걸러내지 않아
+`//!`/`///` 안에서 매크로 이름을 **언급만** 한 줄까지 호출로 셌다.
+`moveit-distance-field`가 14건으로, `moveit-geometry`가 7건으로 부풀어
+있었다. 주석 꼬리를 잘라내고 다시 세면 각각 4건이다. §83.3·§73.1과
+같은 집계 오염이고, 이번에는 범위를 좁혀서가 아니라 **주석을 코드로
+세어서** 생겼다. 세 번째다.
+
+main `44d2bfe` 기준, p6-totg의 미머지 17커밋은 **반영되지 않은 값**:
+
+```
+총 183건 = max_relative 명시 60 / epsilon만 108 / 둘 다 없음 15
+```
+
+`epsilon`만 있는 108건에는 기본 `max_relative = f64::EPSILON`이 항상
+켜져 있고, 둘 다 없는 15건은 양쪽 다 `f64::EPSILON`이라 사실상 정확
+비교다 — 이 15건은 가장 엄격한 형태이지 구멍이 아니다. 구멍은 **상수를
+비교값의 크기와 무관하게 고른 곳**이고, 두 방향 다 이 세션에서
+실측됐다:
+
+- 크기가 큰 쪽 — `max_relative`가 조용히 넓어진다(§85·§88·§89)
+- 크기가 작은 쪽 — 절대 `epsilon` 바닥이 `max_relative`를 덮는다
+  (§91.2, 허용폭이 3.4% 상대까지 벌어졌다)
+
+`max_relative`가 없는 사이트를 소유자별로 추리면(`epsilon만 + 둘 다
+없음`):
+
+```
+p3-acm            51건
+  moveit-collision/src/parry.rs                        18 + 4
+  moveit-model/src/joint/planar.rs                     10
+  moveit-model/src/joint/revolute.rs                    6 + 3
+  moveit-model/src/joint/floating.rs                    4
+  moveit-model/src/joint/model.rs                       2 + 1
+  moveit-model/src/joint/prismatic.rs                   1 + 2
+p6-totg           57건 (미머지 17커밋이 대부분을 이미 건드렸다)
+  moveit-trajectory/src/trajectory.rs                  21
+  moveit-trajectory/src/path.rs                         6
+  moveit-trajectory/src/path_segment/linear.rs          3 + 3
+  moveit-trajectory/tests/*_parity.rs                  16
+  moveit-trajectory/src/path_segment/circular.rs        3
+  moveit-trajectory/src/trajectory_tools.rs             2
+  moveit-smoothing/tests/*_parity.rs                    5
+  moveit-smoothing/src/butterworth.rs                   1
+p3-distance-field  4건
+  tests/upstream_parity.rs                              3
+  src/collision_distance_field_types.rs                     1
+p3-shapes          4건
+  moveit-geometry/src/transforms.rs                     3
+  moveit-geometry/src/stl.rs                                1
+무소유             4건
+  moveit-state/tests/invariants.rs                      4
+```
+
+세 가지를 바로잡는다:
+
+- p3-acm 몫은 **52건이 아니라 51건**이다.
+  `moveit-collision/tests/world_parity.rs`의 1건은 이미
+  `max_relative`가 붙어 있다.
+- §88은 `moveit-geometry`를 "92/98 전환"으로 닫았지만 `bodies.rs`
+  바깥에 **4건이 남아 있다** — `transforms.rs` 3, `stl.rs` 1. 그
+  전수에 들어가지 않은 파일들이다.
+- `upstream_parity.rs`의 7건 중 `max_relative`가 붙은 것은 4건이고
+  나머지 3건은 `epsilon = RESOLUTION`(0.1)이다. 이 3건은 구멍이
+  **아니다** — 상류 `EXPECT_NEAR`의 값을 그대로 옮긴 것이고 파일
+  주석이 그렇게 적고 있다. 크기 대비로는 §91.2와 같은 모양(값이 ~1인데
+  바닥이 0.1)이지만, 그것이 상류의 선택이므로 이 포트가 임의로 조이면
+  충실성을 잃는다. 그 크레이트에서 실제로 남은 것은
+  `src/collision_distance_field_types.rs`의 1건이다.
+
+`moveit-state/tests/invariants.rs`의 4건은 소유자가 없는 크레이트에
+있다. 지금은 어느 패널도 이 파일을 자기 것으로 열지 않는다 — 다음
+라운드에서 배정한다.
