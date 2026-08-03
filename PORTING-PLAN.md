@@ -7033,3 +7033,67 @@ accelerations 라이트백 삭제                 1 fail
 스탬프는 `7cc8a73408a83c92` 유지.
 
 담당이 보고한 997/997과 28/28은 자기 베이스 `252354d` 기준 값이다.
+
+## 83. `/`-선행 객체 id 경계가 세 규칙으로 닫혔다 (2026-08-04)
+
+p1-fixtures 라운드 11 머지(`bf11a20`, `6e1c8ea`, `08ab3c7`). 베이스
+`cd13b7f`, main에 머지. **1019 → 1023**.
+
+### 83.1 세 규칙 전부 물린다
+
+§75.2에서 `transforms_with_world_objects`가 `/obj`를 과매칭한다고
+적었다. 담당이 `world.cpp:142-164`를 직접 읽고 세 규칙으로 나눠 고쳤다.
+각각 무력화하고 `-p moveit-scene`(68건)을 `--no-fail-fast`로 돌린 결과:
+
+```
+`/`-선행 이름의 bare insert 가드 되돌리기       1 fail
+`/`-접두 insert 삭제                            3 fail
+객체 id 우선 가드 무력화(has_object → false)    1 fail
+```
+
+세 규칙 다 재고 있다.
+
+### 83.2 상류 근거를 내가 직접 읽었다
+
+`World::knowsTransform`(`world.cpp:142`)은 정확 객체 id를
+`objects_.find(name)`로 먼저 조회해 `:148`에서 반환하고, 서브프레임
+루프는 `:152`에서야 시작한다. 담당이 인용한 "`:145`가 `:150`보다 먼저"는
+맞다. 그리고 그 루프는 접두가 맞는 **첫** 객체에서 곧바로 `return`하므로
+(`:156-160`, 계속 스캔하지 않는다) 중첩 `/` 이름의 모호한 경우는
+`std::map` 순회 순서에 의존한다 — 담당이 "모델링하지 않음"으로 남긴
+범위 제한도 상류 코드와 일치한다.
+
+### 83.3 완료 조건의 숫자를 전부 재현했다
+
+`08ab3c7`이 `lib.rs`에 넣은 완료 조건은 숫자마다 재현 명령을 붙였다.
+전부 돌려 봤다:
+
+```
+rg -c '^/// - `' crates/moveit-scene/src/scene.rs      59   (선언과 일치)
+같은 명령을 47-434행으로 제한                          59   (일치)
+rg -n '^fn .*matches_the_oracle' .../tests/*.rs         3   (이름 3건 모두 일치)
+scene.rs:2642 = "// ---- collision checking ----"           (일치)
+```
+
+"zero unported, in scope" 주장도 내가 따로 검증했다.
+`planning_scene.hpp`에서 `public:` 구간의 멤버 선언 이름 **62개**를
+뽑아 47-434행 감사 블록 본문과 대조했더니 **누락 0**이다. (62 대 59는
+불일치가 아니라 한 불릿이 여러 심볼을 묶은 경우다 —
+`:157`이 `getCollisionEnvUnpadded(name)`/`getCollisionEnvNonConst`를,
+`:289`가 `setObjectColor`/`removeObjectColor`/`getKnownObjectColors`를
+한 줄에 묶는다.)
+
+**내 첫 대조는 틀렸다.** `^/// - \`` 로 시작하는 줄만 모아서 비교하는
+바람에 여러 줄로 이어지는 불릿의 꼬리가 잘렸고, 위 여섯 심볼이 누락으로
+잡혔다. 블록 전체 본문으로 다시 돌려서 0이 나왔다. §73.1과 같은 실수다 —
+**대조 검사에서는 검색 범위를 좁힌 쪽이 항상 거짓 양성을 낸다.**
+
+### 83.4 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1023/1023**(1019 + 4),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
+`7cc8a73408a83c92` 유지.
+
+담당이 보고한 1003/1003과 28/28은 베이스 `cd13b7f` 기준 값이다.
