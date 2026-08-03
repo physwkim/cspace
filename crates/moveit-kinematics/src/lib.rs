@@ -65,9 +65,13 @@
 //! # Symbol coverage audit
 //!
 //! Every method `kdl_kinematics_plugin.cpp`/`.hpp` and
-//! `chainiksolver_vel_mimic_svd.cpp`/`.hpp` define or override, plus every
-//! `KinematicsBase` method they actually exercise. `ported as` names the
-//! Rust item; `excluded` cites the `PORTING-PLAN.md` decision.
+//! `chainiksolver_vel_mimic_svd.cpp`/`.hpp` define or override, plus **every**
+//! public `KinematicsBase` symbol in `kinematics_base.hpp` — not only the
+//! ones `KDLKinematicsPlugin` happens to exercise; round 9 closed that
+//! narrower boundary after finding it left `setValues` unclassified (see the
+//! `KinematicsBase` list below). `ported as` names the Rust item; `excluded`
+//! cites the `PORTING-PLAN.md` decision; `not ported` names the concretely
+//! absent caller.
 //!
 //! `kdl_kinematics_plugin.{hpp,cpp}`:
 //!
@@ -153,10 +157,20 @@
 //!
 //! `KinematicsBase` (the interface `KDLKinematicsPlugin` actually
 //! overrides — see the two lists above for those methods' Rust homes).
-//! Every other `KinematicsBase` virtual is **not ported**, because
-//! `KDLKinematicsPlugin` never overrides it and this port has no other
-//! caller for it either:
+//! Every other public `KinematicsBase` symbol is **not ported**, because
+//! `KDLKinematicsPlugin` never overrides or calls it and this port has no
+//! other caller for it either:
 //!
+//! - `setValues` — the alternative to `initialize` for "non-chain IK
+//!   solvers" (upstream's own doc comment): a plain field-assignment setter
+//!   (`robot_description_`/`group_name_`/`base_frame_`/`tip_frames_`, then
+//!   `setSearchDiscretization`) with a base-class body, for a plugin that
+//!   builds its model from `robot_description_` directly instead of a
+//!   pre-parsed `RobotModel`. `KDLKinematicsPlugin` is chain-based and is
+//!   never constructed through it — confirmed by grep, zero references to
+//!   `setValues` anywhere under `kdl_kinematics_plugin.{hpp,cpp}` — so
+//!   `initialize` (ported, see above) is this crate's only construction
+//!   path and `setValues` has no consumer.
 //! - `getGroupName`/`getBaseFrame`/`getTipFrame` — the surviving,
 //!   single-tip shape of these is [`KinematicsSolver::group_name`],
 //!   [`KinematicsSolver::base_frame`], [`KinematicsSolver::tip_frame`].
