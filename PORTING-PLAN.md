@@ -2872,3 +2872,69 @@ panda_arm(체인, 전부 1-DOF 회전 조인트)을 픽스처 그룹으로 골�
 `update_orientation_constraint`/`update_position_constraint`의 경계
 케이스(윈도우 비중첩, 미발견 링크, 다중 영역 오류)는 오라클 없이
 순수 단위 테스트로 커버했다.
+
+## 24. `p1-fixtures` / `p1-robotmodel` 4차 병합 (2026-08-03)
+
+`a1b2b5a`(메시 로더) 위에 두 브랜치를 연달아 병합했다. 최종 `3a4a9c3`,
+`nextest --workspace` **845/845**.
+
+### 24.1 `p1-fixtures` — `PlanningScene::frame_transform` 사다리
+
+상류 `planning_scene.cpp:2036`의 3단 사다리를 이식했다: 모델 프레임/링크
+→ 부착체 id/서브프레임 → 월드 객체 id/서브프레임. `AttachedBody`가
+서브프레임을 갖게 됐고, `body/sub` 이름 규칙이 들어왔다. 오라클에
+`frame_transform` op이 생겼고, 실제 `planning_scene::PlanningScene`을
+구동한다.
+
+**워커가 자기 1차 구현의 버그를 오라클로 잡았다.** panda(floating virtual
+joint, `model_frame != root link`)에서 부착체도 월드 객체도 없는데
+`knowsFrameTransform("world")`가 상류에서 `true`다. `RobotState`도
+`World`도 그 답을 설명하지 못한다. 실제 기전은 TF 계층이 자기 target
+frame을 자명하게 안다는 것이다 — 상류 소스를 직접 확인했다:
+`transforms.cpp:66`의 `Transforms` 생성자가
+`transforms_map_[target_frame_] = Identity()`를 심고,
+`planning_scene.cpp:2070`의 3단째가
+`getTransforms().Transforms::canTransform(frame_id)`인데 그건
+`transforms_map_.find(...) != end()`(`transforms.cpp:136`)일 뿐이다.
+D1에는 TF 계층이 없으므로 `knows_frame_transform`에서
+`frame_id == model_frame`을 직접 특수 처리해 관측 가능한 계약을 맞췄다
+(`2b110da`).
+
+픽스처 질의 9개는 양쪽 분기를 다 친다: `a`와 `a/b`가 **둘 다 월드
+객체**라서 `a/b`는 `a`의 서브프레임이 아니라 객체 id로 풀려야 하고
+(`true`), `a/b/c`와 `nothing`은 어느 단에서도 안 풀린다(둘 다 `false`).
+
+병합 트리용 오라클(`2a32b1a8cf876af4`)로 재생 — 커밋된 응답과 **바이트
+동일**.
+
+### 24.2 `p1-robotmodel` — `kinematic_constraints/utils` 11개
+
+`constructConstraints`와 그 private 헬퍼 6개는 ROS 파라미터를 읽는
+관심사라 `moveit-ros` 몫으로 남긴다. 이 결정은 유지한다.
+
+`cargo doc`이 `rustdoc::private_intra_doc_links` 4건으로 실패했던 것을
+`allow`가 아니라 소스에서 고쳤다 — public 문서 주석이 `pub(crate)` 항목을
+intra-doc 링크로 가리키고 있었다.
+
+### 24.3 두 워커의 UNFIXED가 서로를 풀었다
+
+`p1-robotmodel`은 `resolveConstraintFrames`를 "이름 기반 부착체/서브프레임
+조회가 없다"는 이유로 미뤘고(§23.1), `p1-fixtures`는 같은 라운드에 정확히
+그 조회를 내놨다 — 다만 `RobotState`가 아니라 `PlanningScene` 레벨로.
+§23.1에 정정을 덧붙였고 4라운드 과제로 넘겼다.
+
+같은 방향의 두 번째 사례: `p1-robotmodel`의 `visibility_cone` 잔여
+불일치 119/2,201건은 근본 원인이 "`moveit-collision`에 메시 지오메트리가
+없다"인데, 그 격차가 §21에서 닫혔다. 스윕 재실행을 4라운드 과제로 넘겼다
+— 숫자가 0으로 떨어지면 근본 원인 지목이 맞은 것이고, 아니면 그 지목이
+틀린 것이다. 어느 쪽이든 새 숫자를 보고하도록 지시했다.
+
+### 24.4 병합이 고쳐야 했던 것
+
+- `PORTING-PLAN.md` 섹션 번호 충돌: `p1-robotmodel`이 §20/§21을 썼는데
+  `main`에 이미 둘 다 있었다. 그쪽을 §22/§23으로 재번호했고 내부
+  상호참조 1건(`§21.3-1` → `§23.3-1`)을 고쳤다.
+- `from_urdf_and_srdf` 호출부 2곳이 메시 로더 이전 3인자 시그니처로
+  남아 있었다: `moveit-constraints/tests/utils_parity.rs:53`,
+  `moveit-scene/tests/frame_transform_parity.rs:130`. 둘 다
+  `&MeshSearchPaths::none()`을 넘기도록 고쳤다.
