@@ -32,7 +32,19 @@ if [[ "$have" != "$want" ]]; then
   exit 1
 fi
 
+# Caucus worktrees keep `third_party/` (gitignored fixture data: moveit_msgs,
+# moveit_resources, orocos_kinematics_dynamics) as a symlink into the shared
+# checkout at the session root, to avoid every worktree cloning it separately.
+# A bind mount of $REPO_ROOT does not follow that symlink to its target, so
+# the target needs its own mount whenever it resolves outside $REPO_ROOT.
+THIRD_PARTY_REAL="$(readlink -f "$REPO_ROOT/third_party" 2>/dev/null || true)"
+extra_mounts=()
+if [[ -n "$THIRD_PARTY_REAL" && "$THIRD_PARTY_REAL" != "$REPO_ROOT/third_party" ]]; then
+  extra_mounts=(-v "$THIRD_PARTY_REAL:$THIRD_PARTY_REAL:ro")
+fi
+
 exec docker run --rm -i \
   -v "$REPO_ROOT:$REPO_ROOT:ro" \
   -v "$MOVEIT2_SRC:$MOVEIT2_SRC:ro" \
+  "${extra_mounts[@]}" \
   "$IMAGE" "$@"
