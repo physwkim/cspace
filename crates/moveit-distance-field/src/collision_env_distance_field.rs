@@ -157,16 +157,21 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use moveit_collision::{AllowedCollisionMatrix, AllowedCollisionType, LinkPaddingScale};
+use moveit_collision::{
+    AllowedCollisionMatrix, AllowedCollisionType, AttachedBodyGeometry, LinkPaddingScale,
+};
 use moveit_error::Result;
 use moveit_geometry::Isometry3;
 use moveit_model::RobotModel;
 use moveit_state::Posed;
 use nalgebra::Vector3;
 
-use crate::collision_common_distance_field::DistanceFieldCacheEntry;
+use crate::collision_common_distance_field::{
+    AttachedBodySnapshot, DistanceFieldCacheEntry, GroupStateRepresentation,
+};
 use crate::collision_distance_field_types::{
-    BodyDecomposition, CollisionSphere, PosedBodyPointDecomposition,
+    BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
+    PosedBodySphereDecomposition, PosedDistanceField,
 };
 use crate::{DistanceField, GridGeometry, PropagationDistanceField};
 
@@ -314,6 +319,15 @@ pub struct DistanceFieldConfig {
 ///   it guards against `getUpdatedLinkModels()` not containing a name from
 ///   `link_names_`, which -- per the same-sorted-vector fact above -- cannot
 ///   happen.
+/// - **`attached_bodies` is a new field with no upstream member behind it.**
+///   Upstream re-derives its own attached-body comparison in
+///   `compareCacheEntryToState` on demand from `dfce->state_->getAttachedBodies()`,
+///   which needs no capture step here (`state_` is a full `RobotStatePtr`
+///   snapshot upstream). This port's [`DistanceFieldCacheEntry::state`]
+///   cannot answer that query at all -- see [`AttachedBodySnapshot`]'s doc
+///   comment -- so `attached_bodies` captures an owned snapshot of `state`'s
+///   attached bodies at generation time instead, from the `attached_bodies`
+///   parameter below.
 ///
 /// # Errors
 ///
@@ -326,6 +340,7 @@ pub fn generate_distance_field_cache_entry<'m>(
     acm: Option<&AllowedCollisionMatrix>,
     link_body_decompositions: &LinkBodyDecompositions,
     generate_distance_field: Option<DistanceFieldConfig>,
+    attached_bodies: &[AttachedBodyGeometry<'_>],
 ) -> Result<DistanceFieldCacheEntry<'m>> {
     let model = state.model();
     let group = model.joint_model_group(group_name)?;
@@ -425,6 +440,10 @@ pub fn generate_distance_field_cache_entry<'m>(
         link_state_indices,
         attached_body_names: Vec::new(),
         attached_body_link_state_indices: Vec::new(),
+        attached_bodies: attached_bodies
+            .iter()
+            .map(AttachedBodySnapshot::from_geometry)
+            .collect(),
         self_collision_enabled,
         intra_group_collision_enabled,
     })
@@ -453,28 +472,36 @@ const STATE_CHECK_EPSILON: f64 = 0.001;
 /// `collision_common_distance_field.rs`'s "`compareCacheEntryToState`'s
 /// cache-key semantics" doc section for what this actually checks and why.
 ///
-/// # Deviation from upstream
-///
 /// Upstream also compares `dfce->state_->getAttachedBodies()` against
 /// `state.getAttachedBodies()` (count, then name/touch-links/shapes per
-/// body, in order), invalidating the cache on any difference. This port
-/// omits that comparison: see this module's doc comment for why
-/// `moveit_state::RobotState` has no attached bodies to fetch here at all
-/// (unlike upstream's `RobotState`, this port's does not own that concept),
-/// so every `RobotState` reachable from this function has vacuously zero
-/// attached bodies on both sides, and a comparison that can only ever agree
-/// is omitted rather than encoded as a check with one possible outcome.
+/// body, in order), invalidating the cache on any difference --
+/// `current_attached_bodies` plays that role here, compared against
+/// [`DistanceFieldCacheEntry::attached_bodies`] (see [`AttachedBodySnapshot`]'s
+/// doc comment for why this port needed a real signature change, not a
+/// documented deviation, to close this).
 pub fn compare_cache_entry_to_state(
     dfce: &DistanceFieldCacheEntry<'_>,
     state: &Posed<'_, '_>,
+    current_attached_bodies: &[AttachedBodyGeometry<'_>],
 ) -> bool {
     let new_state_values = state.positions();
     if dfce.state_values.len() != new_state_values.len() {
         return false;
     }
-    dfce.state_check_indices
+    if !dfce
+        .state_check_indices
         .iter()
         .all(|&i| (dfce.state_values[i] - new_state_values[i]).abs() <= STATE_CHECK_EPSILON)
+    {
+        return false;
+    }
+    if dfce.attached_bodies.len() != current_attached_bodies.len() {
+        return false;
+    }
+    dfce.attached_bodies
+        .iter()
+        .zip(current_attached_bodies)
+        .all(|(snapshot, current)| snapshot.matches(current))
 }
 
 /// Upstream `CollisionEnvDistanceField::compareCacheEntryToAllowedCollisionMatrix`.
@@ -490,8 +517,11 @@ pub fn compare_cache_entry_to_state(
 /// `attached_bodies` -- but never reads it again afterward in this function
 /// (`collision_env_distance_field.cpp:1322-1369`: assigned once, never
 /// used). This port omits the equivalent fetch rather than port a call with
-/// no observable effect; see [`compare_cache_entry_to_state`]'s doc comment
-/// for why `moveit_state::RobotState` has nothing to fetch here regardless.
+/// no observable effect: unlike [`compare_cache_entry_to_state`] (whose
+/// attached-body comparison is real, hence takes `current_attached_bodies`
+/// -- see [`AttachedBodySnapshot`]'s doc comment), this function's own
+/// upstream attached-body fetch has nothing reading it, so there is no
+/// signature to change here.
 pub fn compare_cache_entry_to_allowed_collision_matrix(
     dfce: &DistanceFieldCacheEntry<'_>,
     acm: &AllowedCollisionMatrix,
@@ -518,6 +548,236 @@ pub fn compare_cache_entry_to_allowed_collision_matrix(
         }
     }
     true
+}
+
+/// Upstream `CollisionEnvDistanceField::getDistanceFieldCacheEntry`. A pure
+/// decision function: reads no persistent state and writes none, so unlike
+/// upstream's method (a `const` method that still reads
+/// `distance_field_cache_entry_`, a member this crate's not-yet-designed
+/// cache-owner type would hold -- see this module's doc comment) this port
+/// takes the candidate entry directly as `current` rather than reading it off
+/// `self`.
+///
+/// `None` ("regenerate") when `current` is `None`, names a different group
+/// than `group_name`, [`compare_cache_entry_to_state`] rejects `state`/
+/// `current_attached_bodies`, or -- when `acm` is `Some` --
+/// [`compare_cache_entry_to_allowed_collision_matrix`] rejects it.
+/// `Some(current)` (unchanged) otherwise, matching upstream's `return cur;`
+/// on every accepting path.
+pub fn get_distance_field_cache_entry<'e, 'm>(
+    current: Option<&'e DistanceFieldCacheEntry<'m>>,
+    group_name: &str,
+    state: &Posed<'_, '_>,
+    acm: Option<&AllowedCollisionMatrix>,
+    current_attached_bodies: &[AttachedBodyGeometry<'_>],
+) -> Option<&'e DistanceFieldCacheEntry<'m>> {
+    let cur = current?;
+    if group_name != cur.group_name {
+        return None;
+    }
+    if !compare_cache_entry_to_state(cur, state, current_attached_bodies) {
+        return None;
+    }
+    if let Some(acm) = acm {
+        if !compare_cache_entry_to_allowed_collision_matrix(cur, acm) {
+            return None;
+        }
+    }
+    Some(cur)
+}
+
+/// Upstream `CollisionEnvDistanceField::getGroupStateRepresentation`'s
+/// fresh-build branch only (`!dfce->pregenerated_group_state_representation_`
+/// -- see this function's "Deviations from upstream" for why the other
+/// branch cannot be reached here). Builds one
+/// [`PosedBodySphereDecomposition`]/[`PosedDistanceField`] pair per
+/// geometry-bearing link in `dfce.link_names`, posed at `state`'s current
+/// global transform for that link, plus a [`GradientInfo`] slot sized to
+/// that link's own sphere count.
+///
+/// Upstream reads `resolution_`/`max_propogation_distance_`/
+/// `use_signed_distance_field_` off `CollisionEnvDistanceField`'s own
+/// construction-time state (not ported; see this module's doc comment), so
+/// this port takes them as explicit parameters instead.
+/// `link_body_decomposition_vector` plays the same role for
+/// `getPosedLinkBodySphereDecomposition`'s own
+/// `link_body_decomposition_vector_.at(ind)` lookup (that helper is a
+/// one-line `PosedBodySphereDecomposition::new` wrapper -- see this module's
+/// doc comment on why it stays inlined rather than becoming its own
+/// function).
+///
+/// # Deviations from upstream
+///
+/// - **The "pregenerated" branch is not ported, because it is provably
+///   unreachable here.** Upstream populates
+///   `dfce->pregenerated_group_state_representation_` in exactly one place,
+///   `CollisionEnvDistanceField::initialize` (its constructor path,
+///   `collision_env_distance_field.cpp:126-156`): for every joint group, it
+///   builds a `DistanceFieldCacheEntry` and immediately calls this same
+///   function to populate `pregenerated_group_state_representation_map_`,
+///   which a *later* `generateDistanceFieldCacheEntry` call then copies onto
+///   the field this branch checks. `DistanceFieldCacheEntry` in this port
+///   (see its own doc comment) has no such field at all -- there is no
+///   `initialize`-equivalent constructor in this crate's scope to populate
+///   it from, so every `DistanceFieldCacheEntry` this port can build takes
+///   the fresh-build branch, unconditionally.
+/// - **Attached bodies are always skipped**, same reasoning as this module's
+///   own `build_non_group_distance_field`: this workspace has no `AttachedBody`
+///   reachable from a bare `RobotState`. Upstream's own trailing
+///   attached-body loop (`collision_env_distance_field.cpp:1229-` onward) is
+///   accordingly not ported; `dfce.attached_body_names` is always empty (see
+///   [`DistanceFieldCacheEntry`]'s "Deviations from upstream"), so that loop
+///   would iterate zero times regardless.
+/// - **`gradients[i].gradients` is seeded with `Vector3::zeros()`, not left
+///   uninitialized.** Upstream's fresh-build branch writes
+///   `gradients_[i].gradients.resize(n)` with no fill argument --
+///   `std::vector<Eigen::Vector3d>::resize` default-constructs each new
+///   element, and unlike `std::vector<double>` (whose `resize` zero-fills),
+///   `Eigen::Vector3d` has no default initializer, so every element is
+///   genuinely uninitialized memory. (Confirmed against this crate's own
+///   `group_state_representation` oracle fixture: every `distances[i]` reads
+///   back as `DBL_MAX`, matching the sibling `resize(n, DBL_MAX)` call one
+///   line above it, but the oracle op does not -- cannot -- serialize
+///   `gradients_[i]` itself, since there is no defined value to serialize.)
+///   Compare [`update_group_state_representation_state`], whose equivalent
+///   reset uses `.assign(n, Eigen::Vector3d(0, 0, 0))` -- a real,
+///   deterministic zero-fill -- so only this *fresh-build* path has the
+///   defect, not the *update* path. Same defect class as
+///   [`BodyDecomposition`]'s own `relative_cylinder_pose_`-for-Sphere case
+///   (see that type's doc comment): this port seeds `Vector3::zeros()`
+///   deterministically rather than reproduce nondeterministic garbage, which
+///   is *more* defined than upstream, not less, and therefore not "fixed" to
+///   match -- there is no defined upstream value to match.
+///
+/// # Errors
+///
+/// [`moveit_error::Error::UnknownName`] if `state`'s model has no link named
+/// by some entry of `dfce.link_names` (propagated from
+/// [`Posed::global_link_transform`]). See [`PosedDistanceField::new`] for
+/// errors building a link's own distance field.
+pub fn group_state_representation<'a, 'm>(
+    dfce: &'a DistanceFieldCacheEntry<'m>,
+    state: &Posed<'_, 'm>,
+    link_body_decomposition_vector: &[Arc<BodyDecomposition>],
+    resolution: f64,
+    max_propagation_distance: f64,
+    use_signed_distance_field: bool,
+) -> Result<GroupStateRepresentation<'a, 'm>> {
+    let mut link_body_decompositions = Vec::with_capacity(dfce.link_names.len());
+    let mut link_distance_fields = Vec::with_capacity(dfce.link_names.len());
+    let mut gradients = Vec::with_capacity(dfce.link_names.len());
+
+    for (i, link_name) in dfce.link_names.iter().enumerate() {
+        if !dfce.link_has_geometry[i] {
+            link_body_decompositions.push(None);
+            link_distance_fields.push(None);
+            gradients.push(GradientInfo::default());
+            continue;
+        }
+
+        let mut link_bd = PosedBodySphereDecomposition::new(Arc::clone(
+            &link_body_decomposition_vector[dfce.link_body_indices[i]],
+        ));
+
+        let diameter = 2.0 * link_bd.bounding_sphere_radius();
+        let link_size = Vector3::new(diameter, diameter, diameter);
+        let link_origin = link_bd.bounding_sphere_center() - 0.5 * link_size;
+
+        let mut field = PosedDistanceField::new(
+            link_size,
+            link_origin,
+            resolution,
+            max_propagation_distance,
+            use_signed_distance_field,
+        )?;
+        field
+            .field_mut()
+            .add_points_to_field(link_bd.collision_points());
+
+        let transform = state.global_link_transform(link_name)?;
+        link_bd.update_pose(transform);
+        field.update_pose(transform);
+
+        let sphere_count = link_bd.collision_spheres().len();
+        let joint_index = state.model().link_model(link_name)?.parent_joint_index();
+        gradients.push(GradientInfo {
+            types: vec![CollisionType::None; sphere_count],
+            distances: vec![f64::MAX; sphere_count],
+            gradients: vec![Vector3::zeros(); sphere_count],
+            sphere_radii: link_bd.sphere_radii().to_vec(),
+            joint_name: state.model().joint_model_at(joint_index).name().to_string(),
+            ..GradientInfo::default()
+        });
+        link_body_decompositions.push(Some(link_bd));
+        link_distance_fields.push(Some(field));
+    }
+
+    Ok(GroupStateRepresentation {
+        dfce,
+        link_body_decompositions,
+        attached_body_decompositions: Vec::new(),
+        link_distance_fields,
+        gradients,
+    })
+}
+
+/// Upstream `CollisionEnvDistanceField::updateGroupStateRepresentationState`'s
+/// link loop only. Re-poses every geometry-bearing link's decomposition and
+/// distance field to `state`'s current global transform, and resets that
+/// link's [`GradientInfo`] slot to a fresh, unset state sized to its own
+/// sphere count.
+///
+/// # Deviation from upstream
+///
+/// Upstream's trailing attached-body loop is not ported: `gsr.dfce.attached_body_names`
+/// is always empty (see [`DistanceFieldCacheEntry`]'s "Deviations from
+/// upstream"), so that loop would iterate zero times regardless -- same
+/// reasoning as [`group_state_representation`]'s own attached-body
+/// deviation.
+///
+/// Unlike [`group_state_representation`]'s fresh-build path, this reset
+/// *is* upstream-deterministic: `gradients_[i].gradients.assign(n,
+/// Eigen::Vector3d(0.0, 0.0, 0.0))` is a real zero-fill, not a bare `resize`,
+/// so `Vector3::zeros()` here matches upstream's actual value rather than
+/// substituting for an undefined one.
+///
+/// # Errors
+///
+/// [`moveit_error::Error::UnknownName`] if `state`'s model has no link named
+/// by some entry of `gsr.dfce.link_names` (propagated from
+/// [`Posed::global_link_transform`]).
+pub fn update_group_state_representation_state(
+    state: &Posed<'_, '_>,
+    gsr: &mut GroupStateRepresentation<'_, '_>,
+) -> Result<()> {
+    for (i, link_name) in gsr.dfce.link_names.iter().enumerate() {
+        if !gsr.dfce.link_has_geometry[i] {
+            continue;
+        }
+        let transform = state.global_link_transform(link_name)?;
+
+        let link_bd = gsr.link_body_decompositions[i]
+            .as_mut()
+            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+        link_bd.update_pose(transform);
+        let field = gsr.link_distance_fields[i]
+            .as_mut()
+            .expect("link_has_geometry[i] implies link_distance_fields[i] is Some");
+        field.update_pose(transform);
+
+        let sphere_count = link_bd.collision_spheres().len();
+        gsr.gradients[i] = GradientInfo {
+            closest_distance: f64::MAX,
+            collision: false,
+            types: vec![CollisionType::None; sphere_count],
+            distances: vec![f64::MAX; sphere_count],
+            gradients: vec![Vector3::zeros(); sphere_count],
+            sphere_radii: gsr.gradients[i].sphere_radii.clone(),
+            joint_name: gsr.gradients[i].joint_name.clone(),
+            sphere_locations: link_bd.sphere_centers().to_vec(),
+        };
+    }
+    Ok(())
 }
 
 /// The `generate_distance_field: true` branch of upstream
@@ -564,6 +824,9 @@ fn build_non_group_distance_field<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use moveit_geometry::{Shape, Sphere};
     use moveit_model::MeshSearchPaths;
 
     use super::*;
@@ -690,6 +953,7 @@ mod tests {
             Some(&acm),
             &link_body_decompositions,
             None,
+            &[],
         )
         .unwrap()
     }
@@ -707,7 +971,7 @@ mod tests {
         let posed = state.update();
 
         assert!(
-            compare_cache_entry_to_state(&dfce, &posed),
+            compare_cache_entry_to_state(&dfce, &posed, &[]),
             "moving {in_group_var} (in-group) must not invalidate the cache entry"
         );
     }
@@ -725,7 +989,7 @@ mod tests {
         let posed = state.update();
 
         assert!(
-            !compare_cache_entry_to_state(&dfce, &posed),
+            !compare_cache_entry_to_state(&dfce, &posed, &[]),
             "moving {out_of_group_var} (out-of-group) by 1.0 rad must invalidate the cache entry"
         );
     }
@@ -749,7 +1013,7 @@ mod tests {
         let posed = state.update();
 
         assert!(
-            compare_cache_entry_to_state(&dfce, &posed),
+            compare_cache_entry_to_state(&dfce, &posed, &[]),
             "moving {out_of_group_var} by half of EPSILON must not invalidate the cache entry"
         );
     }
@@ -785,7 +1049,7 @@ mod tests {
         let other_posed = other_state.update();
 
         assert!(
-            !compare_cache_entry_to_state(&dfce, &other_posed),
+            !compare_cache_entry_to_state(&dfce, &other_posed, &[]),
             "a state with a different variable count must invalidate the cache entry"
         );
     }
@@ -883,6 +1147,7 @@ mod tests {
             Some(&acm),
             &link_body_decompositions,
             None,
+            &[],
         )
         .unwrap();
 
@@ -930,5 +1195,398 @@ mod tests {
         assert!(!compare_cache_entry_to_allowed_collision_matrix(
             &dfce, &acm
         ));
+    }
+
+    // --- get_distance_field_cache_entry ---
+
+    #[test]
+    fn get_distance_field_cache_entry_returns_none_when_current_is_none() {
+        let model = pr2_model();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(get_distance_field_cache_entry(None, "right_arm", &posed, None, &[]).is_none());
+    }
+
+    #[test]
+    fn get_distance_field_cache_entry_returns_none_on_group_name_mismatch() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            get_distance_field_cache_entry(Some(&dfce), "left_arm", &posed, None, &[]).is_none(),
+            "a different group name must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn get_distance_field_cache_entry_returns_none_when_the_state_check_fails() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let (_in_group_var, out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        state.set_variable_position(&out_of_group_var, 1.0).unwrap();
+        let posed = state.update();
+
+        assert!(
+            get_distance_field_cache_entry(Some(&dfce), "right_arm", &posed, None, &[]).is_none(),
+            "an out-of-group joint moved past epsilon must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn get_distance_field_cache_entry_returns_none_when_the_acm_check_fails() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let link = dfce
+            .link_names
+            .iter()
+            .zip(&dfce.link_has_geometry)
+            .find(|&(_, &has_geometry)| has_geometry)
+            .map(|(name, _)| name.clone())
+            .expect("right_arm must have at least one geometry-bearing link");
+        let mut acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
+        acm.set_entry(&link, &link, true);
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            get_distance_field_cache_entry(Some(&dfce), "right_arm", &posed, Some(&acm), &[])
+                .is_none(),
+            "an acm that disables {link}'s self-collision must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn get_distance_field_cache_entry_accepts_with_no_acm_check() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let result = get_distance_field_cache_entry(Some(&dfce), "right_arm", &posed, None, &[]);
+        assert!(
+            matches!(result, Some(entry) if std::ptr::eq(entry, &dfce)),
+            "acm: None must skip the acm check and still accept an otherwise-agreeing state"
+        );
+    }
+
+    #[test]
+    fn get_distance_field_cache_entry_returns_the_entry_when_everything_agrees() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let result =
+            get_distance_field_cache_entry(Some(&dfce), "right_arm", &posed, Some(&acm), &[]);
+        assert!(
+            matches!(result, Some(entry) if std::ptr::eq(entry, &dfce)),
+            "an agreeing state and acm must return the same cache entry unchanged"
+        );
+    }
+
+    // --- compare_cache_entry_to_state: attached-body comparison ---
+
+    fn sample_shape() -> Arc<Shape> {
+        Arc::new(Shape::Sphere(Sphere::new(0.1).unwrap()))
+    }
+
+    fn right_arm_cache_entry_with_attached<'m>(
+        model: &'m RobotModel,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
+    ) -> DistanceFieldCacheEntry<'m> {
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(model, 0.05, &padding, None).unwrap();
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(model);
+        state.set_to_default_values();
+        let posed = state.update();
+        generate_distance_field_cache_entry(
+            "right_arm",
+            &posed,
+            Some(&acm),
+            &link_body_decompositions,
+            None,
+            attached_bodies,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_accepts_an_identical_attached_body() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            compare_cache_entry_to_state(&dfce, &posed, &[attached]),
+            "an unchanged attached-body slice must not invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_rejects_an_attached_body_count_mismatch() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            !compare_cache_entry_to_state(&dfce, &posed, &[]),
+            "a different attached-body count must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_rejects_an_attached_body_id_mismatch() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let generating = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[generating]);
+        let renamed = AttachedBodyGeometry {
+            id: "a_different_id",
+            ..generating
+        };
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            !compare_cache_entry_to_state(&dfce, &posed, &[renamed]),
+            "a different attached-body id must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_rejects_an_attached_body_touch_links_mismatch() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let no_touch_links = BTreeSet::new();
+        let generating = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &no_touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[generating]);
+
+        let mut new_touch_links = BTreeSet::new();
+        new_touch_links.insert("r_gripper_palm_link".to_string());
+        let retouched = AttachedBodyGeometry {
+            touch_links: &new_touch_links,
+            ..generating
+        };
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            !compare_cache_entry_to_state(&dfce, &posed, &[retouched]),
+            "a different attached-body touch-links set must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_rejects_an_attached_body_shape_identity_mismatch() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let generating = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[generating]);
+
+        // Same shape value, a distinct `Arc` allocation: the comparison is
+        // pointer identity (`Arc::ptr_eq`, see `AttachedBodySnapshot::matches`'s
+        // doc comment), not value equality, so this must still invalidate.
+        let different_shapes = vec![sample_shape()];
+        let different_arc = AttachedBodyGeometry {
+            shapes: &different_shapes,
+            ..generating
+        };
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        assert!(
+            !compare_cache_entry_to_state(&dfce, &posed, &[different_arc]),
+            "an equal-valued but distinct Arc<Shape> must still invalidate the cache entry"
+        );
+    }
+
+    // --- group_state_representation / update_group_state_representation_state ---
+
+    #[test]
+    fn update_group_state_representation_state_skips_links_without_geometry() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        assert!(
+            dfce.link_has_geometry.iter().any(|&has| !has),
+            "test precondition: right_arm's updated-link set must include at least one link \
+             without geometry (pr2.urdf's mesh gap under MeshSearchPaths::none, per this \
+             module's doc comment)"
+        );
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let mut gsr = group_state_representation(
+            &dfce,
+            &posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+        )
+        .unwrap();
+
+        update_group_state_representation_state(&posed, &mut gsr).unwrap();
+
+        for (i, &has_geometry) in dfce.link_has_geometry.iter().enumerate() {
+            if !has_geometry {
+                assert!(
+                    gsr.link_body_decompositions[i].is_none(),
+                    "link {} has no geometry but got a decomposition after update",
+                    dfce.link_names[i]
+                );
+                assert!(
+                    gsr.link_distance_fields[i].is_none(),
+                    "link {} has no geometry but got a distance field after update",
+                    dfce.link_names[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn update_group_state_representation_state_agrees_with_a_fresh_rebuild_at_the_same_pose() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let (in_group_var, _out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let default_posed = state.update();
+
+        let mut gsr = group_state_representation(
+            &dfce,
+            &default_posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+        )
+        .unwrap();
+
+        // Move an in-group joint away, then update back to the exact same
+        // (default) pose the group_state_representation above was already
+        // built at -- an update-to-and-fro must land on the same sphere
+        // centers a fresh build at that pose computes, since `update_pose`
+        // recomputes every sphere center from the link-relative geometry on
+        // each call rather than accumulating a delta (see
+        // `PosedBodySphereDecomposition::update_pose`).
+        let mut moved = moveit_state::RobotState::new(&model);
+        moved.set_to_default_values();
+        moved.set_variable_position(&in_group_var, 0.3).unwrap();
+        let moved_posed = moved.update();
+        update_group_state_representation_state(&moved_posed, &mut gsr).unwrap();
+        update_group_state_representation_state(&default_posed, &mut gsr).unwrap();
+
+        let rebuilt = group_state_representation(
+            &dfce,
+            &default_posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+        )
+        .unwrap();
+
+        for i in 0..dfce.link_names.len() {
+            match (
+                &gsr.link_body_decompositions[i],
+                &rebuilt.link_body_decompositions[i],
+            ) {
+                (Some(updated), Some(fresh)) => {
+                    assert_eq!(
+                        updated.sphere_centers(),
+                        fresh.sphere_centers(),
+                        "link {} disagreed between update-to-and-fro and a fresh rebuild",
+                        dfce.link_names[i]
+                    );
+                }
+                (None, None) => {}
+                _ => panic!(
+                    "link {} disagreed on whether it has geometry between update and rebuild",
+                    dfce.link_names[i]
+                ),
+            }
+        }
     }
 }

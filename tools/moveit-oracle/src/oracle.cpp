@@ -489,6 +489,8 @@ public:
       return collisionDistanceFieldTypes(request);
     if (op == "distance_field_cache_entry")
       return distanceFieldCacheEntry(request);
+    if (op == "group_state_representation")
+      return groupStateRepresentation(request);
     if (op == "dynamics")
       return dynamics(request);
     if (op == "collision_object_point_decomposition")
@@ -2039,6 +2041,159 @@ private:
     out["distance_queries"] = distance_queries_out;
 
     return out;
+  }
+
+  /// Ground truth for `moveit-distance-field`'s `group_state_representation`
+  /// (upstream `CollisionEnvDistanceField::getGroupStateRepresentation`, a
+  /// `protected` method) and, indirectly, `get_distance_field_cache_entry`
+  /// (upstream `getDistanceFieldCacheEntry`). Driven through a public path
+  /// similar to the `distance_field_cache_entry` op's (see that op's own
+  /// doc comment), but `checkCollision` rather than `checkSelfCollision`:
+  /// only `checkCollision`/`checkRobotCollision`/`getCollisionGradients`/
+  /// `getAllCollisions` write `last_gsr_` (`collision_env_distance_field.cpp`,
+  /// grepped to confirm -- `checkSelfCollision` never does), so
+  /// `getLastGroupStateRepresentation()` would return null after
+  /// `checkSelfCollision` alone. `checkCollision` ->
+  /// `generateCollisionCheckingStructures` -> `getGroupStateRepresentation`,
+  /// with the built `GroupStateRepresentation` read back via the public
+  /// `getLastGroupStateRepresentation()`.
+  ///
+  /// # This op does *not* isolate `getGroupStateRepresentation`'s "fresh"
+  /// branch the way `moveit-distance-field`'s `group_state_representation`
+  /// implements it -- read this before trusting a field-by-field diff
+  ///
+  /// `CollisionEnvDistanceField(model_)`'s constructor runs `initialize()`,
+  /// which -- for *every* joint model group, eagerly, once, at construction
+  /// -- builds a fresh `GroupStateRepresentation` and stores it in
+  /// `pregenerated_group_state_representation_map_`
+  /// (`collision_env_distance_field.cpp:126-156`). Every later
+  /// `generateDistanceFieldCacheEntry` call (this op's included, since
+  /// `distance_field_cache_entry_` starts null so `getDistanceFieldCacheEntry`
+  /// always misses) copies that pointer onto the new `dfce`
+  /// (`dfce->pregenerated_group_state_representation_ = it->second;`,
+  /// `collision_env_distance_field.cpp:869`), so `getGroupStateRepresentation`
+  /// here always takes the **pregenerated** `else` branch, not the fresh one
+  /// `moveit-distance-field`'s `group_state_representation` ports (that
+  /// function's own doc comment explains why the pregenerated branch is
+  /// unreachable *for this port*, specifically -- this port never builds the
+  /// map behind it -- not that upstream's own runtime never reaches it; this
+  /// op is the concrete case where it does). Two consequences for comparing
+  /// this op's output against that Rust function's result:
+  ///
+  /// - The pregenerated branch's `else` clause additionally sets
+  ///   `gradients_[i].sphere_locations = link_body_decompositions_[i]->getSphereCenters()`
+  ///   (`collision_env_distance_field.cpp:1224`) after re-posing to the
+  ///   current state -- the fresh branch never touches `sphere_locations` at
+  ///   all. So `sphere_locations_count` below is always the link's sphere
+  ///   count here, never `0`, while `group_state_representation`'s Rust port
+  ///   always leaves it empty. Not comparable field-by-field; see the parity
+  ///   test's own doc comment for how it handles this.
+  /// - `checkCollision` runs the full self/intra-group/environment collision
+  ///   pipeline *after* `getGroupStateRepresentation` returns, and that
+  ///   pipeline can mutate `closest_distance`/`collision`/`types`/`distances`
+  ///   in place for any sphere actually found in collision -- construction
+  ///   alone (what the Rust port's own scope covers) never does. Every
+  ///   fixture case this op currently drives happens to report `collision:
+  ///   false` on every link (nothing overlaps at these joint configurations),
+  ///   so those four fields still equal what a from-scratch construction
+  ///   would report for this op's committed fixtures specifically -- but
+  ///   that is a property of the chosen joint values, not a guarantee this
+  ///   op's contract makes in general.
+  ///
+  /// Every per-link field `getGroupStateRepresentation` writes
+  /// deterministically (on *either* branch) is dumped: `has_link_decomposition`
+  /// (was `link_body_decompositions_[i]` built at all), the posed bounding
+  /// sphere/collision spheres/collision points, the posed distance field's
+  /// pose, and every `GradientInfo` field *except* `gradients` -- the fresh
+  /// branch's per-link block resizes that vector with no fill value
+  /// (`gradients_[i].gradients.resize(count)`, no second argument), which
+  /// value-initializes each new `Eigen::Vector3d` via its no-op default
+  /// constructor, i.e. leaves it holding whatever bytes were already at that
+  /// heap address -- genuinely indeterminate, not a reproducible zero or NaN
+  /// (confirmed the same way `collision_distance_field_types_parity.rs`'s
+  /// `relative_cylinder_pose` exclusion was: unrelated runs of this exact op
+  /// returned different garbage floats for it), and the pregenerated branch's
+  /// copy carries that same indeterminate snapshot forward from whichever
+  /// state `initialize()` built it at. There is no defined upstream value
+  /// here to dump or compare against, so it is omitted rather than captured
+  /// misleadingly.
+  json groupStateRepresentation(const json& request)
+  {
+    applyJointValues(request);
+
+    const std::string group_name = request.at("group").get<std::string>();
+    if (!model_->hasJointModelGroup(group_name))
+      throw std::runtime_error("unknown group: " + group_name);
+
+    const bool use_acm = request.value("use_acm", true);
+    collision_detection::AllowedCollisionMatrix acm = buildAcm();
+
+    collision_detection::CollisionEnvDistanceField env(model_);
+
+    collision_detection::CollisionRequest req;
+    req.group_name = group_name;
+    collision_detection::CollisionResult res;
+    if (use_acm)
+      env.checkCollision(req, res, *state_, acm);
+    else
+      env.checkCollision(req, res, *state_);
+
+    collision_detection::GroupStateRepresentationConstPtr gsr = env.getLastGroupStateRepresentation();
+    if (!gsr)
+      throw std::runtime_error("no GroupStateRepresentation produced for group " + group_name);
+
+    json links_out = json::array();
+    for (std::size_t i = 0; i < gsr->dfce_->link_names_.size(); ++i)
+    {
+      json link_out;
+      link_out["link_name"] = gsr->dfce_->link_names_[i];
+      const collision_detection::PosedBodySphereDecompositionPtr& bd = gsr->link_body_decompositions_[i];
+      link_out["has_link_decomposition"] = static_cast<bool>(bd);
+      if (bd)
+      {
+        link_out["bounding_sphere_center"] = json::array(
+            { bd->getBoundingSphereCenter().x(), bd->getBoundingSphereCenter().y(), bd->getBoundingSphereCenter().z() });
+        link_out["bounding_sphere_radius"] = bd->getBoundingSphereRadius();
+
+        json sphere_centers_out = json::array();
+        for (const Eigen::Vector3d& c : bd->getSphereCenters())
+          sphere_centers_out.push_back(json::array({ c.x(), c.y(), c.z() }));
+        link_out["sphere_centers"] = sphere_centers_out;
+        link_out["sphere_radii"] = bd->getSphereRadii();
+
+        // Not the full point set: `BodyDecomposition::from_shapes`'s interior
+        // sampling is independently oracle-verified elsewhere
+        // (`collision_distance_field_types_parity.rs`,
+        // `link_body_decomposition_parity.rs`), and every link's point count
+        // here can run into the thousands -- dumping all of them would bloat
+        // this fixture by orders of magnitude for no additional coverage.
+        // The count alone still catches a wrong link's points being wired in
+        // (`add_points_to_field` called with the wrong decomposition).
+        link_out["collision_points_count"] = bd->getCollisionPoints().size();
+
+        const collision_detection::PosedDistanceField& field = *gsr->link_distance_fields_[i];
+        const Eigen::Isometry3d& pose = field.getPose();
+        link_out["field_pose"] = json::array({ pose.translation().x(), pose.translation().y(),
+                                               pose.translation().z(), Eigen::Quaterniond(pose.linear()).w(),
+                                               Eigen::Quaterniond(pose.linear()).x(), Eigen::Quaterniond(pose.linear()).y(),
+                                               Eigen::Quaterniond(pose.linear()).z() });
+
+        const collision_detection::GradientInfo& g = gsr->gradients_[i];
+        json types_out = json::array();
+        for (collision_detection::CollisionType t : g.types)
+          types_out.push_back(static_cast<int>(t));
+        link_out["gradient"] = json{ { "closest_distance", g.closest_distance },
+                                      { "collision", g.collision },
+                                      { "types", types_out },
+                                      { "distances", g.distances },
+                                      { "sphere_radii", g.sphere_radii },
+                                      { "joint_name", g.joint_name },
+                                      { "sphere_locations_count", g.sphere_locations.size() } };
+      }
+      links_out.push_back(link_out);
+    }
+
+    return json{ { "group_name", group_name }, { "links", links_out } };
   }
 
   /// Ground truth for `collision_common_distance_field.{hpp,cpp}`'s
