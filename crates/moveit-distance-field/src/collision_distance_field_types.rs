@@ -1203,7 +1203,6 @@ pub fn do_bounding_spheres_intersect(
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
     use nalgebra::{Translation3, UnitQuaternion};
 
     use super::*;
@@ -1260,7 +1259,21 @@ mod tests {
         // num_points = ceil(1.0 / (0.2 / 2.0)) = 10, loop i in 1..9 -> 8 spheres.
         assert_eq!(spheres.len(), 8);
         for sphere in &spheres {
-            assert_relative_eq!(sphere.radius, 0.2);
+            // `assert_eq!`, not `assert_relative_eq!` (PORTING-PLAN.md
+            // §97.3, workspace-wide `max_relative` audit): `sphere.radius`
+            // is `cyl.radius`, itself `Cylinder::radius_scaled = radius *
+            // scale + padding` with `scale = 1.0` (`Cylinder::new`'s
+            // default, untouched here) and `padding = 0.0` (this test's own
+            // `set_padding(0.0)` above) -- both operations are exact in
+            // `f64` (`x * 1.0` and `x + 0.0` round to `x`), so the compared
+            // value is bit-identical to the `0.2` literal, not merely close
+            // to it. `assert_relative_eq!`'s implicit default tolerance
+            // (`max_relative = f64::EPSILON` when omitted, the same trap
+            // `lib.rs`'s crate-level "max_relative trap" doc section
+            // describes) would have silently covered a real regression here
+            // just as easily as it covers nothing; `assert_eq!` makes the
+            // exactness the comparison actually relies on explicit.
+            assert_eq!(sphere.radius, 0.2);
         }
         assert_eq!(
             relative_transform,
