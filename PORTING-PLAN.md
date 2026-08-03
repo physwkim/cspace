@@ -8228,3 +8228,105 @@ size_x_; }` 형태의 인라인 본문 접근자에서 깊이 추적이 끊겨 �
 `7b8463d6943edaac` 유지(오라클을 건드리지 않았다).
 
 담당이 보고한 1054/1054와 29/29는 베이스 `87f2209` 기준 값이다.
+
+## 97. p1-robotmodel 라운드 12 머지 — 검사 가능한 완료 조건과 검사할 수 없는 한 줄
+
+문서만 바뀐 라운드다. 3커밋, 테스트 수 변동 없음(1073/1073).
+
+### 97.1 세 숫자는 명령까지 그대로 재현된다
+
+담당이 완료 조건에 적어 둔 명령을 **그대로 실행**했다:
+
+```
+rg -c '^//! - `' crates/moveit-constraints/src/lib.rs            → 61   일치
+rg -c '^mod oracle_' .../tests/utils_parity.rs                   →  7   일치
+sed -n '176,555p' .../utils_parity.rs | rg -c '#\[test\]'        → 16   일치
+cargo nextest run -p moveit-constraints --no-fail-fast           → 89   일치
+```
+
+담당이 초안에서 자기 오류 셋(75→61, `^fn oracle_`→`mod oracle_`,
+`solve()` 오버로드를 미이식으로 잘못 적은 것)을 잡아냈다고 보고한 것과
+맞는다. **이번 라운드 세트에서 완료 조건의 숫자가 명령까지 전부 맞은
+첫 사례다.**
+
+### 97.2 그런데 `utils.rs:64`의 명령은 돌아가지 않는다
+
+`daee0dd`는 `transforms_with_world_objects`의 프로덕션 호출자가 0건임을
+`rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`로
+확인했다고 적었고, 그 명령이 `utils.rs:64`에 그대로 들어갔다.
+
+**그 명령은 0건이 아니라 28줄을 낸다.** `--glob '!*/tests/*'`는
+통합 테스트 디렉터리만 제외하고, `#[cfg(test)]` 모듈은 `src/` 안에
+있기 때문이다(`scene.rs:2507-2637`, `planning_scene_validity.rs:374-419`).
+
+내가 `#[cfg(test)]` 시작 줄을 기준으로 다시 분류했다:
+
+```
+CODE  crates/moveit-scene/src/scene.rs:791: pub fn transforms_with_world_objects(...)
+```
+
+**코드 히트는 정의 하나뿐이다. 결론(프로덕션 호출자 0건)은 맞다.**
+틀린 것은 근거로 적어 둔 명령이다. 검사 가능한 완료 조건의 요점은
+독자가 돌려 볼 수 있다는 것인데, 돌리면 28줄이 나와 문서가 틀린 것처럼
+보인다. 명령을 고치거나, 기대 출력을 함께 적어야 한다.
+
+### 97.3 상류 호출자 판정 — 결론은 맞고 근거는 더 강한 것이 있었다
+
+담당은 "`constructGoalConstraints`의 실제 호출자 5곳이 전부
+`moveit_ros`에 있고 D1 범위 밖"이라고 적었다. 세어 보면 다르다 —
+정의/헤더/CHANGELOG를 뺀 참조가 **15개 파일 43줄**이고, 패키지별로는:
+
+```
+moveit_planners  7 파일   ← moveit_ros보다 많다
+moveit_ros       5 파일
+moveit_core      2 파일
+moveit_py        1 파일
+```
+
+`moveit_planners/ompl`과 `pilz_industrial_motion_planner`는 플래너이지
+ROS 배선이 아니므로 "전부 moveit_ros"라는 근거로는 닫히지 않는다.
+
+**그러나 판정 자체는 맞고, 담당이 쓰지 않은 더 강한 근거가 있다.**
+헤더의 `constructGoalConstraints` 오버로드 **7개 중 어느 것도
+`PlanningScene`이나 `Transforms`를 받지 않는다**(`utils.hpp:83`, `:99`,
+`:129`, `:148`, `:176`, `:205`, `:222`). 따라서 어느 패키지의 어느
+호출자도 이 함수를 **통해** 씬과 목표 제약 생성을 짝지을 수 없다.
+패키지 위치와 무관한 구조적 근거다. 호출자 위치를 세는 대신 시그니처를
+읽었으면 한 번에 닫혔다.
+
+### 97.4 하드코딩된 오라클 태그 다섯 — 셋은 정당하고 하나는 결함이다
+
+**Anchor:** `rg -n 'oracle:[0-9a-f]{16}' crates/`
+**Sites:**
+
+```
+moveit-constraints/src/lib.rs:78                    oracle:5188956fc433d046
+moveit-constraints/tests/utils_parity.rs:12         oracle:5188956fc433d046
+moveit-collision/tests/octree_world_collision_parity.rs:31  oracle:6192b2fbe3931089
+moveit-geometry/tests/octree_shape_query_parity.rs:17       oracle:ec3982c6057ad64f
+moveit-geometry/src/stl.rs:60                       oracle:1717af5da743934c
+```
+
+넷 다 현재 스탬프(`7b8463d6943edaac`)가 아니고, 이 머신의 이미지 목록에도
+없다.
+
+**같은 결함(고칠 것) — 1건:** `moveit-constraints/src/lib.rs:78`.
+**검사 가능한 완료 조건 안에** 재현 불가능한 식별자가 들어 있다. 완료
+조건의 다른 숫자는 전부 돌아가는데(§97.1) 이 하나만 돌아가지 않는다.
+
+**다른 것(그대로 둔다) — 4건:** 나머지는 "이 fixture는 이 이미지에서
+캡처됐다"는 **이력 기록**이다(`captured against`). 이력은 낡는 것이
+정상이고, fixture의 현재 재현성은 `verify-fixture-provenance.sh`가
+현재 이미지로 매 라운드 검사한다. `stl.rs:60`은 "그 이미지 안에 assimp
+소스가 없더라"는 관찰이라 재확인 경로가 사라졌지만 재현 지시가 아니다.
+
+파일 소유자가 셋으로 갈리므로(p1-robotmodel / p3-acm / p3-shapes) 내가
+고치지 않는다. 해당 소유자 브리프에 한 줄씩 넣는다.
+
+### 97.5 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1073/1073**(문서만 바뀌어
+변동 없음), `cargo test --doc --workspace` 통과, clippy `--workspace
+--all-targets -D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK.
+
+담당이 보고한 1052/1052와 29/29는 베이스 `7d8d40a` 기준 값이다.
