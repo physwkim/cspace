@@ -580,6 +580,73 @@ fn reverse_on_an_empty_trajectory_is_a_no_op() {
     assert!(trajectory.is_empty());
 }
 
+// ---- Boundary tests: reverse()'s velocity inversion -------------------
+
+#[test]
+fn reverse_inverts_velocity_on_every_waypoint_that_has_one() {
+    let model = panda();
+    let mut trajectory = init_test_trajectory(&model);
+
+    let mut velocities = Vec::with_capacity(trajectory.way_point_count());
+    for i in 0..trajectory.way_point_count() {
+        let waypoint = trajectory.way_point_mut(i).unwrap();
+        let v = i as f64 + 1.0;
+        waypoint.set_variable_velocity("panda_joint1", v).unwrap();
+        velocities.push(v);
+    }
+
+    trajectory.reverse();
+
+    // reverse() swaps waypoint order too, so the waypoint that was at `i`
+    // is now at `way_point_count() - 1 - i`, carrying its own (now negated)
+    // velocity with it.
+    for (i, &original_velocity) in velocities.iter().enumerate() {
+        let new_index = trajectory.way_point_count() - 1 - i;
+        assert_eq!(
+            trajectory
+                .way_point(new_index)
+                .unwrap()
+                .variable_velocity("panda_joint1")
+                .unwrap(),
+            -original_velocity
+        );
+    }
+}
+
+#[test]
+fn reverse_leaves_velocity_unset_when_no_waypoint_ever_had_one() {
+    let model = panda();
+    let mut trajectory = init_test_trajectory(&model);
+
+    trajectory.reverse();
+
+    for i in 0..trajectory.way_point_count() {
+        assert!(!trajectory.way_point(i).unwrap().has_velocities());
+    }
+}
+
+#[test]
+fn reverse_inverts_velocity_on_a_single_waypoint_trajectory() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    state.set_variable_velocity("panda_joint1", 0.5).unwrap();
+
+    let mut trajectory = RobotTrajectory::new(&model);
+    trajectory.add_suffix_way_point(state, 0.0).unwrap();
+
+    trajectory.reverse();
+
+    assert_eq!(
+        trajectory
+            .way_point(0)
+            .unwrap()
+            .variable_velocity("panda_joint1")
+            .unwrap(),
+        -0.5
+    );
+}
+
 // ---- Boundary tests: out-of-range index access -----------------------
 
 #[test]

@@ -395,6 +395,19 @@ impl<'m> RobotState<'m> {
         self.has_velocity = true;
     }
 
+    /// `invertVelocity`: negate every velocity in place, a no-op when no
+    /// velocity has been set. Upstream's `invertVelocity` negates only
+    /// velocity, not acceleration, despite what a "reversing a trajectory"
+    /// intuition might suggest — this port transcribes that as-is rather
+    /// than also negating acceleration.
+    pub fn invert_velocity(&mut self) {
+        if self.has_velocity {
+            for value in &mut self.velocity {
+                *value *= -1.0;
+            }
+        }
+    }
+
     /// `getVariableAcceleration(const std::string&)`
     ///
     /// # Errors
