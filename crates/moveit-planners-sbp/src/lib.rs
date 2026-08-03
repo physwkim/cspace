@@ -48,11 +48,15 @@ mod error;
 pub mod nn;
 mod rrt_connect;
 mod sampling;
+pub mod so2;
 pub mod space;
+#[cfg(test)]
+mod test_support;
 pub mod validity;
 
 pub use error::SbpError;
 pub use nn::Gnat;
 pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
+pub use so2::So2Space;
 pub use space::{RealVectorSpace, StateSpace};
 pub use validity::{DiscreteMotionValidator, MotionValidator, StateValidityChecker};

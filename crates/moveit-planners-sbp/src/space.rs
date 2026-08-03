@@ -196,6 +196,7 @@ impl StateSpace for RealVectorSpace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::assert_metric_and_interpolation_axioms;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -364,5 +365,18 @@ mod tests {
             let sample = s.sample_near(&mut rng, &center, 1.0);
             assert!(s.distance(&center, &sample) <= 1.0 + 1e-9);
         }
+    }
+
+    #[test]
+    fn metric_and_interpolation_axioms_hold() {
+        let s = space();
+        let mut rng = ChaCha8Rng::seed_from_u64(6);
+        assert_metric_and_interpolation_axioms(
+            &s,
+            &mut rng,
+            |rng| s.sample_uniform(rng),
+            2000,
+            1e-9,
+        );
     }
 }
