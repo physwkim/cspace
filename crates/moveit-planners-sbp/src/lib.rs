@@ -108,6 +108,11 @@
 //! defined in `test_support.rs`, not six independent reimplementations of
 //! the same check.
 //!
+//! Round 14: `rg -c 'assert_relative_eq!' crates/moveit-planners-sbp/` is
+//! **0** — this crate has no site using that macro at all, so there is
+//! nothing here to bisect for a default-`max_relative`-masking regression
+//! the way other crates in this workspace round needed to.
+//!
 //! # Round 6 symbol audit
 //!
 //! This crate has two upstream relationships, not one, and they get audited
