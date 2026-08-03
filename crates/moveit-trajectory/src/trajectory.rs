@@ -931,87 +931,14 @@ mod tests {
         );
     }
 
-    /// Upstream `TEST(time_optimal_trajectory_generation, testLargeAccel)`.
-    #[test]
-    fn upstream_test_large_accel() {
-        let path_tolerance = 0.1;
-        let resample_dt = 0.1;
-        let waypoints = [
-            v(&[
-                1.611_305_628_107_634,
-                -0.214_001_633_892_354_27,
-                -1.974_502_599_739_185,
-                9.965_361_869_035_405e-12,
-                -1.381_091_687_742_962_4,
-                1.529_390_283_804_146_7,
-            ]),
-            v(&[
-                1.608_801_618_797_659_7,
-                -0.217_928_624_709_339_24,
-                -1.975_862_879_974_295_2,
-                0.000_104_240_173_032_177_38,
-                -1.383_569_051_533_575_5,
-                1.527_997_285_326_981_6,
-            ]),
-            v(&[
-                1.588_769_544_317_867,
-                -0.249_344_551_245_219_23,
-                -1.986_745_121_855_178_2,
-                0.000_938_161_477_566_700_8,
-                -1.403_387_961_858_481_2,
-                1.516_853_297_509_660_7,
-            ]),
-            v(&[
-                1.164_741_239_381_528_2,
-                -0.914_340_185_644_023_8,
-                -2.217_094_633_749_85,
-                0.018_590_164_397_622_583,
-                -1.822_904_121_267_353,
-                1.280_963_286_758_327_8,
-            ]),
-        ];
-        let max_velocity = v(&[
-            0.895_353_906_273,
-            0.895_353_906_273,
-            0.795_870_138_909_3,
-            0.920_224_848_114,
-            0.820_741_080_750_3,
-            1.392_772_743_091_5,
-        ]);
-        let max_acceleration = v(&[
-            0.826_734_908_837_999_9,
-            // Upstream's literal here (0.78539816339699997) is, bit for
-            // bit, the nearest f64 to pi/4 — a coincidence of this test's
-            // fixture data, not an intentional use of the constant.
-            // Spelled via `f64::from_bits` instead of the equivalent float
-            // literal `0.785_398_163_397` so clippy's `approx_constant`
-            // lint (which would otherwise ask for `FRAC_PI_4`, a *different*
-            // f64 value one ULP off from upstream's literal) doesn't apply,
-            // while keeping the exact upstream bit pattern.
-            f64::from_bits(0x3fe9_21fb_5444_1d52),
-            0.608_835_785_577,
-            3.207_475_943_231_999_7,
-            1.439_896_632_894,
-            4.729_279_263_468,
-        ]);
-
-        let path = Path::create(&waypoints, path_tolerance).unwrap();
-        let trajectory = Trajectory::create(path, &max_velocity, &max_acceleration, 0.001).unwrap();
-
-        let sample_count = (trajectory.duration() / resample_dt).ceil() as u64;
-        for sample in 0..=sample_count {
-            let t = cxx_min(trajectory.duration(), sample as f64 * resample_dt);
-            let acceleration = trajectory.acceleration(t);
-            assert_eq!(acceleration.len(), 6);
-            for i in 0..6 {
-                assert!(
-                    acceleration[i].abs() < 100.0,
-                    "sample {sample}, joint {i}: {}",
-                    acceleration[i]
-                );
-            }
-        }
-    }
+    // Upstream `TEST(time_optimal_trajectory_generation, testLargeAccel)` is
+    // ported as `tests/large_accel.rs`, not here: its fixture data is
+    // upstream's own test literals at full `f64` precision, and one of them
+    // is (coincidentally — see the fixture's `source` field and that test
+    // file's doc comment) 4550 ULPs from `FRAC_PI_4`, close enough that
+    // `clippy::approx_constant` fires on the literal. Loading the data from
+    // a committed JSON fixture removes the literal clippy was matching
+    // entirely, rather than disguising it from the lint.
 
     /// Upstream `TEST(time_optimal_trajectory_generation, AccelerationLimitIsRespected)`.
     #[test]
