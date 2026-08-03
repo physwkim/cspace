@@ -23,6 +23,14 @@
 //! (`a`/`a/b` — see `world.rs`'s module docs, deviation 8) as observed from
 //! the real, unmodified upstream methods rather than re-derived from this
 //! crate's own reading of them.
+//!
+//! `tests/fixtures/oracle-models.json`'s `"world"` entry names
+//! `octree_world_robot.{urdf,srdf}` for `tools/ci/verify-fixture-replay.sh`
+//! to replay this fixture against — an arbitrary but already-present choice,
+//! not a dependency: the oracle binary always requires a `--urdf`/`--srdf`
+//! pair to start (`Oracle`'s constructor parses one unconditionally, before
+//! any op is read), but the `world` op itself never touches the model this
+//! module doc already establishes has no bearing on `World`.
 
 use std::collections::BTreeMap;
 use std::fs;
