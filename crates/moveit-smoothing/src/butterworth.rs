@@ -12,12 +12,16 @@
 use moveit_error::{Error, Result};
 
 /// `feedback_term_` magnitudes below this make the filter's feedback path
-/// numerically indistinguishable from zero. Matches upstream's
+/// numerically indistinguishable from zero, and [`ButterworthFilter::new`]
+/// rejects the coefficient that produced it. Matches upstream's
 /// anonymous-namespace `EPSILON` in `butterworth_filter.cpp` — a value local
-/// to this file, unrelated to (and 1000x tighter than) any other epsilon in
+/// to that file, unrelated to (and 1000x tighter than) any other epsilon in
 /// this workspace, so it is kept as its own constant rather than reused from
-/// elsewhere.
-const EPSILON: f64 = 1e-9;
+/// elsewhere. Public (unlike upstream's anonymous-namespace constant)
+/// because it is part of [`ButterworthFilter::new`]'s documented contract: a
+/// caller choosing `low_pass_filter_coeff` needs to know how close to `1.0`
+/// is too close.
+pub const EPSILON: f64 = 1e-9;
 
 /// A first-order Butterworth low-pass filter (upstream `ButterworthFilter`).
 ///

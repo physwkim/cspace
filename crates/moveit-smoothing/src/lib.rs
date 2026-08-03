@@ -39,4 +39,4 @@
 
 mod butterworth;
 
-pub use butterworth::ButterworthFilter;
+pub use butterworth::{ButterworthFilter, EPSILON};

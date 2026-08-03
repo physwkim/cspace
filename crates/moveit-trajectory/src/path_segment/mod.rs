@@ -6,14 +6,16 @@
 //   moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_optimal_trajectory_generation.hpp (class PathSegment)
 //   moveit_core/trajectory_processing/src/time_optimal_trajectory_generation.cpp (LinearPathSegment, CircularPathSegment)
 
-//! [`PathSegment`] and its two concrete kinds.
+//! `PathSegment` and its two concrete kinds.
 //!
-//! Nothing in this module is public outside the crate: upstream's `Path`
-//! keeps `path_segments_` private (`std::list<std::unique_ptr<PathSegment>>`)
+//! Nothing declared in this module is accessible outside the crate: upstream's
+//! `Path` keeps `path_segments_` private (`std::list<std::unique_ptr<PathSegment>>`)
 //! and its own public API (`getConfig`/`getTangent`/`getCurvature`) never
 //! hands a caller a `PathSegment`. `LinearPathSegment`/`CircularPathSegment`
 //! aren't even declared in the header — they're defined in the `.cpp` file,
-//! making them `Path::create`'s implementation detail twice over.
+//! making them `Path::create`'s implementation detail twice over. The module
+//! itself is `pub` only so this explanation is reachable from `Path`'s own
+//! docs; every item in it stays `pub(crate)`.
 
 mod circular;
 mod linear;

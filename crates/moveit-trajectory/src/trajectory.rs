@@ -5,11 +5,17 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_optimal_trajectory_generation.hpp (class Trajectory)
 //   moveit_core/trajectory_processing/src/time_optimal_trajectory_generation.cpp (Trajectory:: methods)
-//
-// `TimeOptimalTrajectoryGeneration` (the `robot_trajectory::RobotTrajectory`
-// adapter, header line 193 on) is out of scope for this crate — see
-// `PORTING-PLAN.md`. Everything below it that only touches `Path`/`Eigen::VectorXd`
-// is in scope and ported here.
+
+//! `Trajectory`: the time-optimal path-velocity profile built from a
+//! [`crate::Path`].
+//!
+//! `TimeOptimalTrajectoryGeneration` (the `robot_trajectory::RobotTrajectory`
+//! adapter, header line 193 on) is out of scope for this crate — see
+//! `PORTING-PLAN.md`. Everything below it that only touches `Path`/`Eigen::VectorXd`
+//! is in scope and ported here. The module is `pub` only so this note and
+//! [`Trajectory`]'s own doc comment are reachable from `crate::trajectory`
+//! links elsewhere in the crate; every other item in it stays private or
+//! `pub(crate)`.
 
 use nalgebra::DVector;
 
@@ -75,7 +81,7 @@ impl TrajectoryStep {
 ///   cache in `getTrajectorySegment` that speeds up repeated
 ///   monotonically-increasing time queries. Every value it can produce is
 ///   also produced by a fresh binary search (`trajectory` is sorted by
-///   `time`, see [`Trajectory::segment_index`]), so dropping it changes
+///   `time`, see `Trajectory::segment_index`), so dropping it changes
 ///   nothing observable; keeping it would mean smuggling interior
 ///   mutability into a query method for a benefit this crate does not
 ///   (yet) need to preserve.
@@ -205,12 +211,12 @@ impl Trajectory {
     ///
     /// [`Trajectory::position`]/[`Trajectory::velocity`] re-derive their
     /// local time step as `time - previous.time` before evaluating the
-    /// quadratic — see [`Trajectory::sample`]. This method does **not**:
+    /// quadratic — see `Trajectory::sample`. This method does **not**:
     /// it evaluates the segment's constant acceleration using the *full*
     /// segment span `current.time - previous.time` throughout, exactly as
     /// upstream does. That is not an oversight — `trajectory` is built by
-    /// fixed-acceleration Euler steps (see [`Trajectory::integrate_forward`]/
-    /// [`Trajectory::integrate_backward`]), so acceleration is constant
+    /// fixed-acceleration Euler steps (see `Trajectory::integrate_forward`/
+    /// `Trajectory::integrate_backward`), so acceleration is constant
     /// *within* a segment; querying `path_pos`/`path_vel` at the segment's
     /// own end point (rather than at `time`) and differencing the tangent
     /// there is upstream's way of reading off that constant, and it would

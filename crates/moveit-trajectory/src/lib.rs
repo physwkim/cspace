@@ -24,8 +24,8 @@
 
 mod numeric;
 mod path;
-mod path_segment;
-mod trajectory;
+pub mod path_segment;
+pub mod trajectory;
 
 pub use path::{DEFAULT_PATH_TOLERANCE, Path};
 pub use trajectory::Trajectory;

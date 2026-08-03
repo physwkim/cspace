@@ -27,8 +27,9 @@ pub const DEFAULT_PATH_TOLERANCE: f64 = 0.1;
 /// Upstream `trajectory_processing::Path`. `path_segments_` is a
 /// `std::list<std::unique_ptr<PathSegment>>` there (needed because
 /// `PathSegment` is a polymorphic base); here it is `Vec<PathSegment>`,
-/// since [`PathSegment`] is a closed sum type with no indirection to own —
-/// see that type's doc comment. Because of that, this port also drops
+/// since `PathSegment` (crate-private — see the [`crate::path_segment`]
+/// module doc comment) is a closed sum type with no indirection to own.
+/// Because of that, this port also drops
 /// upstream's hand-written copy constructor (`Path::Path(const Path&)`,
 /// which deep-clones every segment via virtual `clone()`): [`Clone`] on a
 /// plain `Vec<PathSegment>` already does the equivalent deep copy.
