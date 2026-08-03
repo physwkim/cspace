@@ -263,15 +263,19 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 /// a `Weak` rather than an `Arc` keeps the pinned block to the control word
 /// instead of the whole tree.
 ///
-/// Entries are never evicted: nothing in this crate's current API replaces a
-/// [`World`] object's octree in place, so the only way an `Arc` pointer
-/// present in this cache stops being reachable from a live [`World`] is the
-/// caller building a *new* [`World`]/[`ParryCollisionEnv`] (fresh, empty
-/// cache) rather than mutating an existing one's octree object repeatedly.
-/// A future caller that does repeatedly rebuild-and-replace one `World`
-/// object's octree (e.g. per sensor scan) would accumulate one entry per
-/// scan here; that is a real characteristic to know about, not a bug fixed
-/// by an eviction policy this crate's current callers never exercise.
+/// An entry is pruned the moment nothing holds its tree anymore: every
+/// [`Self::get_or_compute`] call first drops every entry whose [`Weak`] has
+/// gone dead (`strong_count() == 0`), before doing anything else. That count
+/// is the actual fact this cache needs — not a size cap or a timer standing
+/// in for it — because [`World::remove_object`]/[`World::clear_objects`]
+/// dropping the last [`Arc`] to an octree *is* what "this tree is gone" means
+/// here; nothing else needs telling. A caller that rebuilds-and-replaces one
+/// `World` object's octree every sensor scan therefore holds at most one
+/// stale entry at a time (the just-replaced tree, until the very next
+/// [`CollisionEnv`](crate::CollisionEnv) call prunes it), not one accumulated
+/// per scan. The entry [`Self::get_or_compute`] is about to look up can never
+/// be the one pruned: its caller is holding the `Arc` being queried, so that
+/// entry's `strong_count()` is at least 1 at the moment of the prune.
 ///
 /// Shared, not reset, across [`ParryCollisionEnv::clone`] — matching
 /// [`Shape::OcTree`]'s own shallow-clone semantics (cloning a [`World`] that
@@ -306,6 +310,11 @@ impl OctreeCache {
     /// the [`Weak`] that pins it cannot be derived from two different trees:
     /// there is no signature here that lets a caller pass an address without
     /// also handing over the thing that keeps it valid.
+    ///
+    /// Prunes every dead entry first (see [`OctreeCache`]'s own doc for why
+    /// `strong_count() == 0` is the right — and only needed — signal), so a
+    /// tree no longer reachable from any live [`World`] does not hold its
+    /// cache slot past the next call.
     fn get_or_compute(
         &self,
         tree: &Arc<moveit_octomap::OcTree>,
@@ -313,12 +322,24 @@ impl OctreeCache {
     ) -> Option<SharedShape> {
         let key = Arc::as_ptr(tree) as *const () as usize;
         let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        cache.retain(|_, (weak, _)| weak.strong_count() > 0);
         if let Some((_, cached)) = cache.get(&key) {
             return cached.clone();
         }
         let value = build();
         cache.insert(key, (Arc::downgrade(tree), value.clone()));
         value
+    }
+
+    /// The number of trees this cache currently holds a conversion for
+    /// (after pruning would happen, not before — see [`Self::get_or_compute`]).
+    /// Used by [`std::fmt::Debug`] and by this module's own growth-bound
+    /// tests; not exposed outside `parry.rs`.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        cache.retain(|_, (weak, _)| weak.strong_count() > 0);
+        cache.len()
     }
 }
 
@@ -1173,6 +1194,35 @@ mod tests {
             calls.get(),
             1,
             "the second call for the same key must hit the cache"
+        );
+    }
+
+    /// The growth-bound half of the cache-key fix (`8d5f4ee`): a `Weak`-only
+    /// pin stops the address-reuse defect, but by itself would grow one entry
+    /// per octree ever converted, forever -- exactly the sensor-driven
+    /// rebuild-and-replace pattern this port is being built for. Dropping the
+    /// last `Arc` to a tree (simulating `World::remove_object` discarding it)
+    /// must free that entry by the *next* `get_or_compute` call, without
+    /// [`OctreeCache`] ever being told to do so explicitly.
+    #[test]
+    fn octree_cache_prunes_an_entry_once_nothing_holds_its_tree() {
+        let cache = OctreeCache::default();
+
+        {
+            let tree = Arc::new(moveit_octomap::OcTree::new(0.1));
+            assert!(cache.get_or_compute(&tree, || None).is_none());
+            assert_eq!(cache.len(), 1);
+        }
+        // `tree` just went out of scope: nothing holds that octree anymore,
+        // matching a World object's octree being removed/replaced.
+
+        let other = Arc::new(moveit_octomap::OcTree::new(0.1));
+        assert!(cache.get_or_compute(&other, || None).is_none());
+
+        assert_eq!(
+            cache.len(),
+            1,
+            "the dead tree's entry must be pruned, not accumulated alongside the live one"
         );
     }
 
