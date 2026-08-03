@@ -1154,3 +1154,52 @@ op이 필요하고 아직 없다. p3-acm에 배정했다.
 특히 이탈 6(단일 `contact` 호출의 signed distance 대 FCL의 최대 200개 contact
 중 최댓값)이 관통 쌍에서 `1e-4`를 깨뜨릴 가능성이 가장 높다. 깨진다면 그것은
 백엔드에 대한 실제 발견이지 허용오차를 늘릴 사유가 아니다.
+
+### 11.11 `dynamics_solver` 이식 — Phase 2 마지막 항목
+
+`moveit-state::DynamicsSolver`가 들어왔다. RNE 재귀는 §11.7에서 확보한
+`orocos_kdl` v1.5.1 소스에서 이식했고, `LinkModel`이 이제 질량과 회전
+관성을 싣는다(`<inertial><origin rpy>` 프레임에서 링크 프레임 축으로 회전).
+오라클 `dynamics` op과 로봇 4종 픽스처로 검증한다. 허용오차는 `1e-9` —
+담당이 RNE의 누적 반올림을 예상해 `1e-6`에서 시작했다가 실측이 `1e-9`도
+통과하자 근거 없는 여유를 두지 않으려고 다시 조였다.
+
+**검증 한계 — 이것이 이 라운드의 핵심 사실이다.** `fixtures/{panda,fanuc,
+dual_arm_panda}.urdf`에는 `<inertial>` 요소가 **하나도 없다**(각각 0개,
+pr2만 78개). KDL에게 이 세 로봇의 모든 바디는 질량 0이므로, 속도·가속도가
+0이 아닌 케이스를 포함해 `torques`가 **전부 정확히 0**으로 나온다. 실제
+ground truth이긴 하나 알고리즘이 옳다는 증거는 아니고, 질량 없는 체인에서
+쓰레기 값을 내지 않는다는 증거일 뿐이다.
+
+다만 담당 보고보다 상황이 조금 낫다는 점을 확인했다. `payload_torques`는
+로봇 4종 **모두**에서 0이 아니다(nonzero 20~30건, 최대 7.1~34.1) — tip
+페이로드가 링크가 질량 없어도 재귀에 전파할 질량 하나를 준다. 정리하면:
+**다물체 관성을 실제로 시험하는 것은 pr2뿐이고, 나머지 셋은 단일 tip
+질량으로 재귀를 시험한다.** moveit_resources에 관성을 가진 다른 로봇이
+없으므로 이는 픽스처를 늘려 메울 수 있는 구멍이 아니다.
+
+**upstream `getMaxPayload` 인덱싱 결함 — 재현, 수정 아님.** 기전을 upstream
+소스에서 직접 확인했다. `num_joints_`는 `kdl_chain_.getNrOfJoints()`(base→tip
+체인의 비고정 조인트 수)에서 오는데, `max_torques_`는
+`joint_model_group_->getJointModelNames()`(고정 조인트를 포함한 SRDF 그룹
+순서)로 만들어진다. 두 리스트의 길이부터 다르다 — panda 8 대 7, pr2 9 대 7,
+fanuc 7 대 6. 따라서 `max_torques_[i]`는 `torques[i]`와 **다른 조인트**의
+한계값이다. 마지막 활성 조인트보다 앞에 고정 조인트가 있으면 어긋남이
+루프 안으로 들어오고, `fabs(zero_torques[i]) >= max_torques_[i]`가 `0.0`
+한계값에 대해 항상 참이 되어 `payload = 0.0`으로 즉시 반환한다. 관측과
+일치한다 — fanuc과 pr2는 `max_payload`가 전부 0, panda와
+dual_arm_panda는 0이 아니다(그쪽은 어긋난 0이 인덱스 범위 밖에 있다).
+
+이식은 이 동작을 재현한다. 유일한 ground truth가 결함 있는 동작을 담고
+있고, "고친" 버전을 대조할 대상이 없기 때문이다. `DynamicsSolver::new`가
+`max_torques`를 명시적 인자로 받는 것은 upstream 생성자와 같은 모양이며,
+호출자가 `joint_indices` 대신 `active_joint_indices`로 만들면 결함을
+비껴간다 — 이식은 그 선택을 강제하지 않는다.
+
+`kdl_parser`는 소스가 로컬에 없다(호스트·이미지 모두 컴파일된 `.so`뿐).
+`X[i]`/`S[i]`는 §11.7에서 확보한 KDL 자체 소스(`frames.inl`, `segment.cpp`,
+`joint.cpp`, `rigidbodyinertia.cpp`)에서 다시 유도했다.
+
+관절 실효(effort) 한계가 `moveit-model`에 없는 것은 공백이 아니다 —
+upstream `moveit::core::VariableBounds`에도 effort 필드가 없고,
+`DynamicsSolver`는 질량·관성과 마찬가지로 raw URDF에서 직접 읽는다.
