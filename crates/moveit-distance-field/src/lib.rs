@@ -109,8 +109,11 @@
 //! **Fixtures, and what they cover:**
 //!
 //! - `tests/upstream_parity.rs` — every case upstream's own
-//!   `test_distance_field.cpp` gtest suite carries, minus `TestOcTree`
-//!   (needs the unported `DistanceField::addOcTreeToField`) and
+//!   `test_distance_field.cpp` gtest suite carries, minus `TestOcTree` (needs
+//!   two other still-unported items — the octree-and-bounding-box-taking
+//!   `PropagationDistanceField` constructor overload and
+//!   `addShapeToField`'s `shapes::OCTREE` dispatch, not
+//!   [`DistanceField::add_octree_to_field`] itself, which is now ported) and
 //!   `TestPerformance` (a benchmark, not an assertion) — see that file's own
 //!   module doc for the two exclusions' reasoning.
 //! - `tests/boundaries.rs` — invariant-boundary cases upstream's suite does
@@ -186,6 +189,42 @@
 //! missing dependency or later-phase boundary, not "not yet". If a future
 //! symbol or fixture cannot be placed in one of those buckets, this section
 //! is stale and needs re-auditing before the plan is updated to match it.
+//!
+//! **Numeric coverage audit (PORTING-PLAN.md §90.3).** Derived by re-reading
+//! both upstream headers directly and counting every `public:`-section
+//! member, not by trusting the classification bullets above at face value —
+//! this is the independent count that checks they add up.
+//!
+//! `distance_field.hpp` (`DistanceField`, abstract base): 32 public methods
+//! — 26 ported, 2 unported (`writeToStream`/`readFromStream`), 4 D-excluded
+//! (the 4 marker methods). 2 protected methods — 1 ported (`getOcTreePoints`
+//! as the private `octree_points`), 1 unported (`setPoint`). 8 protected
+//! fields — 7 ported as implementer state, 1 deliberately unported
+//! (`inv_twice_resolution_`; see [`DistanceField::distance_gradient`]'s own
+//! doc).
+//!
+//! `collision_distance_field_types.hpp` (11 top-level types, `grep -n
+//! "^class \|^struct \|^enum "` against the pinned tree): `CollisionType`
+//! (enum, 0 members), `CollisionSphere` (1 ctor), `GradientInfo` (1 ctor +
+//! `clear`), `PosedDistanceField` (1 ctor + 4 methods), `BodyDecomposition`
+//! (2 ctors + 7 methods), `PosedBodySphereDecomposition` (1 ctor + 7
+//! methods), `PosedBodyPointDecomposition` (3 ctors + 2 methods — the octree
+//! constructor is the one item this round newly ported, as
+//! [`PosedBodyPointDecomposition::from_octree`]),
+//! `PosedBodySphereDecompositionVector` (1 ctor + 7 methods),
+//! `PosedBodyPointDecompositionVector` (1 ctor + 5 methods), `ProximityInfo`
+//! (fields only, 0 methods), `BodyDecompositionVector` (forward-declared at
+//! line 226, never defined in this header — 0 members to port, confirmed by
+//! reading the full 536-line file). 44 public class/struct members total
+//! across the 8 types that have any, all 44 ported — cross-checked
+//! name-for-name against `collision_distance_field_types.rs`'s `pub fn`
+//! list (`grep -n "pub fn "`). Plus 5 namespace-level free functions
+//! (`determineCollisionSpheres`, `getCollisionSphereGradients`,
+//! `getCollisionSphereCollision` ×2 overloads mapped to 2 distinct Rust
+//! names since Rust has no overloading, `doBoundingSpheresIntersect`), all 5
+//! ported, plus 3 D-excluded (`getCollisionSphereMarkers`/
+//! `getProximityGradientMarkers`/`getCollisionMarkers`, D1). Zero unported
+//! symbols in this header.
 //!
 //! ## The `max_relative` trap (PORTING-PLAN.md §79)
 //!
@@ -564,9 +603,13 @@
 //!   separate Rust name — its one job, converting a shape+pose into
 //!   obstacle points, is inlined as this crate's private `posed_body` plus
 //!   [`find_internal_points_convex`], called from all three).
-//! - `addOcTreeToField` — unported; see [`DistanceField`]'s own doc.
-//! - `getOcTreePoints` (protected) — unported: upstream's only caller is
-//!   `addOcTreeToField`, itself unported above.
+//! - `addOcTreeToField` — ported as the default trait method
+//!   [`DistanceField::add_octree_to_field`]; see that method's own doc for
+//!   the occupancy-filter/subdivision algorithm and its mutation-verified
+//!   pins.
+//! - `getOcTreePoints` (protected) — ported as the private free function
+//!   `octree_points`, upstream's only caller
+//!   ([`DistanceField::add_octree_to_field`]) above.
 //! - `getDistance(double,double,double)`/`getDistance(int,int,int)`/
 //!   `isCellValid`/`getXNumCells`/`getYNumCells`/`getZNumCells`/
 //!   `gridToWorld`/`worldToGrid`/`getUninitializedDistance` (pure virtual)
