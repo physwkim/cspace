@@ -99,7 +99,11 @@ impl KinematicsSolver for LevenbergMarquardtSolver {
         );
         let lambda = self.params.lma_lambda;
         let pinv = |s: f64, _smax: f64| s / (s * s + lambda * lambda);
+        // See `NewtonRaphsonSolver::solve`'s comment on this same call: a
+        // bare `RobotState::new` leaves any non-chain variable (e.g. a
+        // floating virtual joint's quaternion) at raw `0.0`, not identity.
         let mut state = RobotState::new(&self.model);
+        state.set_to_default_values();
         let ctx = SolveContext {
             chain: &self.chain,
             params: &self.params,

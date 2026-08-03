@@ -116,7 +116,18 @@ impl KinematicsSolver for NewtonRaphsonSolver {
                 0.0
             }
         };
+        // `RobotState::new` alone leaves every model variable at raw `0.0`
+        // (see that method's doc comment) -- valid for `chain`'s own joints,
+        // which `cart_to_jnt` overwrites every iteration, but not
+        // necessarily for a variable outside the chain: a floating virtual
+        // joint's quaternion at `(0, 0, 0, 0)` is not a unit rotation, and
+        // every downstream global link transform is degenerate until it is.
+        // `set_to_default_values` gives every non-chain variable a real
+        // default (identity for a floating joint) before the loop starts;
+        // `apply_full` never touches a variable outside `chain`, so this one
+        // call keeps them valid for the whole solve.
         let mut state = RobotState::new(&self.model);
+        state.set_to_default_values();
         let ctx = SolveContext {
             chain: &self.chain,
             params: &self.params,
