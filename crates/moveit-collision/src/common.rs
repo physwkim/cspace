@@ -429,6 +429,16 @@ impl ContactData {
         self.by_pair.values().map(Vec::len).sum()
     }
 
+    /// `contacts.size()`: the number of *pairs* in contact, which is not
+    /// [`count`](Self::count) — a single pair can hold up to
+    /// `max_contacts_per_pair` contacts. Upstream keeps the two as separate
+    /// members (`contacts` and `contact_count`) and its `checkCollision`
+    /// guard reads this one, so the distinction is load-bearing and not just
+    /// a naming choice.
+    pub fn pair_count(&self) -> usize {
+        self.by_pair.len()
+    }
+
     /// Combine contacts found for disjoint parts of the same request
     /// (self-collision and robot-collision) into one set.
     fn merge(&mut self, other: Self) {

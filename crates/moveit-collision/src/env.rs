@@ -143,6 +143,11 @@ pub trait CollisionEnv<State> {
     /// still room for more (`request.max_contacts`) — upstream's exact guard
     /// in `CollisionEnv::checkCollision`.
     ///
+    /// "Room for more" counts *pairs*, not contacts: upstream compares
+    /// `res.contacts.size()` against `max_contacts`, and a pair can hold
+    /// several contacts. See
+    /// [`ContactData::pair_count`](crate::common::ContactData::pair_count).
+    ///
     /// Upstream passes one `CollisionResult&` by reference into both calls
     /// and lets each backend accumulate into it in place. This port's
     /// [`check_self_collision`](CollisionEnv::check_self_collision) and
@@ -161,7 +166,7 @@ pub trait CollisionEnv<State> {
         let contacts_have_room = result
             .contacts
             .as_ref()
-            .is_some_and(|c| c.count() < request.max_contacts);
+            .is_some_and(|c| c.pair_count() < request.max_contacts);
         if !result.collision || contacts_have_room {
             result.merge(self.check_robot_collision(request, state, acm));
         }
@@ -457,6 +462,34 @@ mod tests {
         let result = env.check_collision(&request, &FakeRobotState, None);
         assert!(result.collision);
         assert_eq!(result.contacts.unwrap().count(), 1);
+    }
+
+    #[test]
+    fn check_collision_measures_room_in_pairs_not_in_contacts() {
+        // One pair holding three contacts, against max_contacts 2. Upstream
+        // compares contacts.size() -- one pair -- so there is room and the
+        // robot check runs; comparing the three contacts instead would skip
+        // it. Every other test here puts one contact per pair, where the two
+        // counts coincide and cannot tell the guards apart.
+        let env = StubEnv {
+            self_result: CollisionResult {
+                collision: true,
+                contacts: Some(contact_data(("a", "b"), 3)),
+                ..Default::default()
+            },
+            robot_result: CollisionResult {
+                collision: true,
+                contacts: Some(contact_data(("c", "d"), 1)),
+                ..Default::default()
+            },
+        };
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 2,
+            ..Default::default()
+        };
+        let result = env.check_collision(&request, &FakeRobotState, None);
+        assert_eq!(result.contacts.unwrap().pair_count(), 2);
     }
 
     #[test]
