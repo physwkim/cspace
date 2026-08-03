@@ -22,25 +22,27 @@ use std::collections::{BTreeMap, HashMap};
 /// # Deviation from upstream: narrower than `JointModelGroup`
 ///
 /// Upstream's type also carries `common_root_` (this group's own cached
-/// common-root joint, for `RobotState` FK optimisation),
-/// `updated_link_model_*` (which links move when this group's state
-/// changes) and the kinematics solver plumbing (`group_kinematics_`). None
-/// of those are read by this crate's own done-criteria; `common_root_`
-/// belongs to `moveit-state` (Phase 2, and even there only as a general
-/// two-joint query, not a per-group cache — see below),
-/// `updated_link_model_*` to `moveit-distance-field` (Phase 3, which is
-/// where it is actually needed — see `moveit-distance-field`'s own
-/// `collision_env_distance_field` module doc), and the solver plumbing to
-/// `moveit-kinematics` (Phase 4). `PORTING-PLAN.md` Phase 1 scopes this
-/// crate to "JointModelGroup, 서브그룹, KinematicChain 해석" (subgroups,
-/// kinematic-chain resolution) — both of which this type does carry:
-/// [`JointModelGroup::subgroup_names`], the `<chain>` element expansion in
-/// `RobotModel`'s group construction, and [`JointModelGroup::is_chain`]
-/// itself. `joint_roots_` (`joint_roots`) *is* now carried too — see
-/// [`JointModelGroup::joint_roots`]'s own doc comment for why it was added
-/// ahead of the others. (The end-effector fields (`end_effector_name_`,
-/// `end_effector_parent_`, `attached_end_effector_names_`) and SRDF
-/// `<group_state>` support (`default_states_`) *are* carried — see
+/// common-root joint, for `RobotState` FK optimisation) and the kinematics
+/// solver plumbing (`group_kinematics_`). Neither is read by this crate's
+/// own done-criteria; `common_root_` belongs to `moveit-state` (Phase 2, and
+/// even there only as a general two-joint query, not a per-group cache — see
+/// below), and the solver plumbing to `moveit-kinematics` (Phase 4).
+/// `PORTING-PLAN.md` Phase 1 scopes this crate to "JointModelGroup, 서브그룹,
+/// KinematicChain 해석" (subgroups, kinematic-chain resolution) — both of
+/// which this type does carry: [`JointModelGroup::subgroup_names`], the
+/// `<chain>` element expansion in `RobotModel`'s group construction, and
+/// [`JointModelGroup::is_chain`] itself. `joint_roots_` (`joint_roots`) and
+/// `updated_link_model_*` (`updated_link_names`/
+/// `updated_link_with_geometry_names` and their `_indices` counterparts,
+/// which links move when this group's state changes) *are* now carried too
+/// — `moveit-distance-field` (Phase 3) is where they are actually needed,
+/// see `moveit-distance-field`'s own `collision_env_distance_field` module
+/// doc — computed the same way as `is_chain`, in a pass over the
+/// fully-built [`crate::robot_model::RobotModel`] rather than in a
+/// constructor, since both need the whole tree in place first. (The
+/// end-effector fields (`end_effector_name_`, `end_effector_parent_`,
+/// `attached_end_effector_names_`) and SRDF `<group_state>` support
+/// (`default_states_`) *are* carried — see
 /// [`JointModelGroup::is_end_effector`] and
 /// [`JointModelGroup::default_state_names`] respectively. The general
 /// two-joint common-root query *is* carried too, just on `RobotModel` rather
@@ -66,6 +68,10 @@ pub struct JointModelGroup {
     pub(crate) default_states: HashMap<String, BTreeMap<String, f64>>,
     pub(crate) is_chain: bool,
     pub(crate) joint_roots: Vec<usize>,
+    pub(crate) updated_link_indices: Vec<usize>,
+    pub(crate) updated_link_names: Vec<String>,
+    pub(crate) updated_link_with_geometry_indices: Vec<usize>,
+    pub(crate) updated_link_with_geometry_names: Vec<String>,
 }
 
 /// The group and link a [`JointModelGroup`] end effector is attached to.
@@ -299,5 +305,50 @@ impl JointModelGroup {
     /// ancestor walk it needs isn't available until the whole tree exists).
     pub(crate) fn set_joint_roots(&mut self, joint_roots: Vec<usize>) {
         self.joint_roots = joint_roots;
+    }
+
+    /// `getUpdatedLinkModels`, as indices: every link that moves when this
+    /// group's state changes — the union, over each of
+    /// [`JointModelGroup::joint_roots`], of
+    /// [`crate::robot_model::RobotModel::descendant_link_indices`], in index
+    /// order (upstream's `OrderLinksByIndex` sort of `updated_link_model_set_`).
+    pub fn updated_link_indices(&self) -> &[usize] {
+        &self.updated_link_indices
+    }
+
+    /// `getUpdatedLinkModelNames`.
+    pub fn updated_link_names(&self) -> &[String] {
+        &self.updated_link_names
+    }
+
+    /// `getUpdatedLinkModelsWithGeometry`, as indices:
+    /// [`JointModelGroup::updated_link_indices`] filtered to links with at
+    /// least one collision shape (`!getShapes().empty()`).
+    pub fn updated_link_with_geometry_indices(&self) -> &[usize] {
+        &self.updated_link_with_geometry_indices
+    }
+
+    /// `getUpdatedLinkModelsWithGeometryNames`.
+    pub fn updated_link_with_geometry_names(&self) -> &[String] {
+        &self.updated_link_with_geometry_names
+    }
+
+    /// `setUpdatedLinkModels`. Not upstream-named (upstream computes these in
+    /// the constructor); this port computes them in a separate pass over the
+    /// fully-built [`crate::robot_model::RobotModel`], same as
+    /// [`JointModelGroup::set_joint_roots`] and for the same reason: the
+    /// per-joint descendant-link data these depend on isn't available until
+    /// the whole tree exists.
+    pub(crate) fn set_updated_links(
+        &mut self,
+        indices: Vec<usize>,
+        names: Vec<String>,
+        with_geometry_indices: Vec<usize>,
+        with_geometry_names: Vec<String>,
+    ) {
+        self.updated_link_indices = indices;
+        self.updated_link_names = names;
+        self.updated_link_with_geometry_indices = with_geometry_indices;
+        self.updated_link_with_geometry_names = with_geometry_names;
     }
 }

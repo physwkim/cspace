@@ -115,6 +115,16 @@ pub struct RobotModel {
     diagnostics: Vec<Diagnostic>,
 }
 
+/// One group's worth of [`RobotModel::compute_group_topology`] output,
+/// carried from its read-only collection pass to its `&mut` write-back pass.
+struct GroupTopology {
+    group_name: String,
+    joint_roots: Vec<usize>,
+    is_chain: bool,
+    updated_link_indices: Vec<usize>,
+    updated_link_with_geometry_indices: Vec<usize>,
+}
+
 impl RobotModel {
     /// Build a model from a URDF and its matching SRDF.
     ///
@@ -595,34 +605,77 @@ impl RobotModel {
         &self.diagnostics
     }
 
-    /// Sets [`JointModelGroup::joint_roots`] and, from the same roots list,
-    /// [`JointModelGroup::is_chain`] on every group. Run once, after every
-    /// other field of `self` (in particular `joints`/`links`, which the
-    /// ancestor walks below need) is already in place.
+    /// Sets [`JointModelGroup::joint_roots`], [`JointModelGroup::is_chain`]
+    /// and the `updated_link_*` family on every group, all from the same
+    /// `roots` list. Run once, after every other field of `self` (in
+    /// particular `joints`/`links`, which the ancestor walks below need) is
+    /// already in place.
     ///
     /// Collects into an owned `Vec` first rather than mutating `self.groups`
-    /// while iterating it: `group_joint_roots`/`group_is_chain` need `&self`
-    /// (the ancestor walks), which the borrow checker won't allow
-    /// interleaved with a `&mut` borrow of `self.groups` from the same
-    /// `self`.
+    /// while iterating it: `group_joint_roots`/`group_is_chain`/
+    /// `group_updated_links` need `&self` (the ancestor and descendant
+    /// walks), which the borrow checker won't allow interleaved with a
+    /// `&mut` borrow of `self.groups` from the same `self`.
     fn compute_group_topology(&mut self) {
-        let topology: Vec<(String, Vec<usize>, bool)> = self
+        let topology: Vec<GroupTopology> = self
             .groups
             .iter()
             .map(|(name, group)| {
-                let roots = self.group_joint_roots(group);
-                let chain = self.group_is_chain(group, &roots);
-                (name.clone(), roots, chain)
+                let joint_roots = self.group_joint_roots(group);
+                let is_chain = self.group_is_chain(group, &joint_roots);
+                let (updated_link_indices, updated_link_with_geometry_indices) =
+                    self.group_updated_links(&joint_roots);
+                GroupTopology {
+                    group_name: name.clone(),
+                    joint_roots,
+                    is_chain,
+                    updated_link_indices,
+                    updated_link_with_geometry_indices,
+                }
             })
             .collect();
-        for (name, roots, chain) in topology {
+        for entry in topology {
+            let updated_names: Vec<String> = entry
+                .updated_link_indices
+                .iter()
+                .map(|&i| self.link_names[i].clone())
+                .collect();
+            let updated_with_geometry_names: Vec<String> = entry
+                .updated_link_with_geometry_indices
+                .iter()
+                .map(|&i| self.link_names[i].clone())
+                .collect();
             let group = self
                 .groups
-                .get_mut(&name)
-                .expect("name came from self.groups.iter()");
-            group.set_joint_roots(roots);
-            group.set_is_chain(chain);
+                .get_mut(&entry.group_name)
+                .expect("group_name came from self.groups.iter()");
+            group.set_joint_roots(entry.joint_roots);
+            group.set_is_chain(entry.is_chain);
+            group.set_updated_links(
+                entry.updated_link_indices,
+                updated_names,
+                entry.updated_link_with_geometry_indices,
+                updated_with_geometry_names,
+            );
         }
+    }
+
+    /// `updated_link_model_set_`/`updated_link_model_with_geometry_set_`,
+    /// as indices, both already in `OrderLinksByIndex` order: the union,
+    /// over `roots`, of [`RobotModel::descendant_link_indices`], with the
+    /// with-geometry variant filtered to links with at least one collision
+    /// shape (`!getShapes().empty()`).
+    fn group_updated_links(&self, roots: &[usize]) -> (Vec<usize>, Vec<usize>) {
+        let updated: BTreeSet<usize> = roots
+            .iter()
+            .flat_map(|&root| self.descendant_link_indices(root))
+            .collect();
+        let with_geometry: Vec<usize> = updated
+            .iter()
+            .copied()
+            .filter(|&i| !self.links[i].shapes().is_empty())
+            .collect();
+        (updated.into_iter().collect(), with_geometry)
     }
 
     /// `JointModelGroup`'s own `joint_roots_`: every active joint in `group`
@@ -1309,6 +1362,10 @@ impl<'a> Building<'a> {
             default_states: HashMap::new(),
             is_chain: false,
             joint_roots: Vec::new(),
+            updated_link_indices: Vec::new(),
+            updated_link_names: Vec::new(),
+            updated_link_with_geometry_indices: Vec::new(),
+            updated_link_with_geometry_names: Vec::new(),
         }
     }
 
@@ -2696,5 +2753,39 @@ mod tests {
                 .collect(),
             "everything below j1 either way, mimic-follower or not"
         );
+    }
+
+    /// `updated_link_names` is the plain union of descendant links below the
+    /// group's joint root(s); `updated_link_with_geometry_names` is that
+    /// same set filtered to links carrying a collision shape. `mid` (no
+    /// `<collision>` element) exercises the filter actually dropping
+    /// something, not just passing an already-filtered set through.
+    #[test]
+    fn updated_link_names_filters_to_geometry_bearing_links() {
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="tip">
+                    <collision><geometry><box size="1 1 1"/></geometry></collision>
+                </link>
+                {j1}
+                {j2}
+            </robot>"#,
+            j1 = revolute_joint("j1", "base", "mid", ""),
+            j2 = revolute_joint("j2", "mid", "tip", ""),
+        );
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            <group name="arm">
+                <joint name="j1"/>
+                <joint name="j2"/>
+            </group>
+        </robot>"#;
+        let model = build(&urdf, srdf).expect("builds");
+
+        let group = model.joint_model_group("arm").unwrap();
+        assert_eq!(group.updated_link_names(), ["mid", "tip"]);
+        assert_eq!(group.updated_link_with_geometry_names(), ["tip"]);
     }
 }
