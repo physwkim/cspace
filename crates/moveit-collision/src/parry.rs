@@ -172,6 +172,28 @@
 //!    apparent "three frozen constants" were this same deviation showing up
 //!    twice, once via rotational symmetry and once via the plateau half of
 //!    `min(candidate_x, candidate_z(t))` — not three separate phenomena.
+//!
+//!    The robot-vs-world side shows the same deviation too, in the opposite
+//!    direction: of 300 random pr2 states, `robot_distance` disagrees with
+//!    the oracle on 276, and one — `l_gripper_r_finger_link`/`floor` (oracle)
+//!    versus `l_gripper_r_finger_tip_link`/`floor` (this backend) — exceeds
+//!    tolerance with this backend *deeper*, the opposite of the shallower
+//!    plateau above, so the min-of-two-candidates mechanism does not itself
+//!    explain that case. It is not a different code path producing it,
+//!    though: [`distance_self`]/[`distance_robot`] both call the same
+//!    [`accumulate_distance`] over the same per-part [`query::contact`] call
+//!    and threshold logic, differing only in which [`PosedBody`] list supplies
+//!    the pairs ([`self_pairs`] permutes one robot body list against itself;
+//!    [`cross_pairs`] takes the robot list against [`world_bodies`]'s). The
+//!    one structural asymmetry between the two sides — world objects are
+//!    never padded or scaled (deviation 2, above) — does not apply to this
+//!    case either, since `floor` carries no padding on either side of that
+//!    comparison by construction. So this is the same independent-EPA,
+//!    different-local-feature disagreement deviation 6 already documents,
+//!    landing on a different link and a different sign purely because each
+//!    pair's own EPA disagreement is independent of every other pair's —
+//!    consistent with, not contradicting, deviation 6's own "not
+//!    systematically one-sided" reading.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and
