@@ -6677,3 +6677,58 @@ FCL 헤더를 오라클 이미지에서 직접 읽었다. 그런 추정치는 FC
 --workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과, reseed-wrap 통과,
 재생 **29/29 identical**.
+
+## 77. `IkConstraintSampler`가 들어왔는데 `sample_pose`의 수식은 아무것도 고정돼 있지 않다 (2026-08-04)
+
+p1-robotmodel 라운드 9(`df35ac1`, `97e7683`). 베이스 `85d1a14`,
+main `71ed03e`에 머지. **1000 → 1010**.
+
+### 77.1 이식 자체는 상류와 맞다
+
+`default_constraint_samplers.cpp`와 줄 단위로 대조했다.
+`getSamplingVolume`(:332-353), `getLinkName`(:355-360),
+`samplePose`(:441-556) 전부 구조가 같다 — 영역 선택의
+`(i + k) % b.size()` 순환, `2.0 * (u01 - 0.5) * (tol - eps)` 세 각,
+XYZ_EULER와 ROTATION_VECTOR 두 분기, mobile frame 회전, 마지막의
+link offset 차감 순서까지.
+
+D4 결정대로 solver는 인자로 받고, bijection 배열 대신 이름으로
+읽고 쓴다. `moveit-constraints -> moveit-kinematics` 의존 간선이
+생겼고 `check-dep-direction.sh`는 통과한다.
+
+### 77.2 그런데 새 테스트 8건은 그 수식을 재지 않는다
+
+`sample_pose`의 자명하지 않은 줄을 하나씩 흔들어 `-p moveit-constraints`
+75건을 돌렸다.
+
+```
+sampling_volume의 x*y*z  → ×1.000001   → 1건 실패  (고정돼 있음)
+pos -= quat * link_offset → pos +=      → 75/75 통과
+quat = frame_rot * quat   → quat * frame_rot → 75/75 통과
+desired_rotation_matrix_in_ref_frame().transpose() → transpose 제거 → 75/75 통과
+X*Y*Z (오일러 합성)      → Z*Y*X       → 75/75 통과
+```
+
+즉 고정된 것은 `sampling_volume` 하나뿐이고, **`sample_pose`가 실제로
+계산하는 자세 수식 네 줄은 전부 부호·순서를 뒤집어도 통과한다.**
+`link_offset`은 `tests/ik_sampler.rs` 어디에서도 설정되지 않는다
+(`decide.rs:284`에만 있고 그건 `PositionConstraint`의 판정 경로다).
+
+새로 들어온 8건은 sampling-volume 경계 3건, position-only, orientation-only,
+max-attempts 소진, seed/solution 이름 왕복, `NewtonRaphsonSolver` 통합
+1건 — 전부 배관과 경계이고 자세 수식이 아니다. §68이 `moveit-planners-sbp`에서
+쓸어낸 것과 같은 계열이다: 일률적으로 틀린 값이 모든 자기 일관성
+검사를 통과한다.
+
+RNG가 들어간다고 고정이 불가능한 것은 아니다. seed를 고정하면
+`sample_pose`는 결정적 함수이고, 위 네 개의 교란은 전부 서로 다른
+자세를 낸다 — 각각을 구별하는 케이스를 하나씩 쓰면 된다(서로 다른 세
+축 공차, 항등이 아닌 desired rotation, 교환되지 않는 frame 회전,
+0이 아닌 link offset). 라운드 10.
+
+### 77.3 머지 후 실측
+
+`cargo nextest run --workspace` **1010/1010**(1000 + 10), `cargo test --doc
+--workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK(새 의존 간선 포함), 출처 검사 통과,
+재생 **29/29 identical**.
