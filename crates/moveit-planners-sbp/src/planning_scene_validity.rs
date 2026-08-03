@@ -349,19 +349,27 @@ mod tests {
         );
     }
 
-    /// The constructor-side half of `PlanningScene::transforms_with_world_objects`'s
-    /// own doc comment: `moveit-constraints` cannot depend on `moveit-scene`
+    /// This is a proof, not a wiring: it demonstrates the constructor-side
+    /// half of `PlanningScene::transforms_with_world_objects`'s own doc
+    /// comment on the one `PositionConstraint::new` call this test builds
+    /// itself, but there is no production call site to wire yet. Every
+    /// production path that builds a `Transforms` for a goal constraint
+    /// (e.g. `construct_goal_pose_constraints` in `moveit-constraints`)
+    /// takes `tf: &Transforms` from its own caller rather than deriving it
+    /// from a `PlanningScene`; nothing in this workspace yet builds goal
+    /// constraints directly from a `PlanningScene`. `moveit-constraints`
+    /// cannot depend on `moveit-scene` itself
     /// (`tools/ci/check-dep-direction.sh` would reject the cycle -- collision
-    /// checking already flows `moveit-scene -> moveit-constraints`), so the
-    /// call site that threads a `PlanningScene`-derived
-    /// [`moveit_geometry::Transforms`] into
+    /// checking already flows `moveit-scene -> moveit-constraints`), so
+    /// when that production path exists, its call site threading a
+    /// `PlanningScene`-derived [`moveit_geometry::Transforms`] into
     /// [`moveit_constraints::PositionConstraint::new`] has to live here, in
-    /// this crate, the one place that depends on both. `scene.transforms()`
-    /// alone must fail to resolve a world-object reference frame (upstream's
-    /// base, non-scene-aware `Transforms::isFixedFrame` half); only
+    /// this crate, the one place that depends on both. Until then, this
+    /// test is the only evidence in the tree that `scene.transforms()`
+    /// alone fails to resolve a world-object reference frame (upstream's
+    /// base, non-scene-aware `Transforms::isFixedFrame` half) while
     /// `scene.transforms_with_world_objects()` reaches the scene-aware
-    /// object-frame half `SceneTransforms::isFixedFrame` overrides in, and
-    /// only that call resolves the constraint `Fixed` instead of erroring.
+    /// object-frame half `SceneTransforms::isFixedFrame` overrides in.
     #[test]
     fn a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects()
      {
