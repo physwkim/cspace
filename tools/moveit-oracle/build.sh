@@ -32,6 +32,9 @@ fi
 # Same filesystem as the repo so the export is a plain local write.
 CTX="$(mktemp -d "$REPO_ROOT/.oracle-ctx.XXXXXX")"
 trap 'rm -rf "$CTX"' EXIT
+# Ctrl-C during the (long) build would otherwise kill the shell without
+# running the EXIT trap; exiting from the INT handler routes it through.
+trap 'exit 130' INT
 
 export_tree() {  # <src repo> <dest name>
   mkdir -p "$CTX/$2"
@@ -47,4 +50,9 @@ echo "context: $(du -sh "$CTX" | cut -f1)"
 # No pipe here: piping docker build into tail/tee masks its exit status behind
 # the last stage of the pipeline, which turns a failed build into a silent
 # success for any caller that checks $?.
-exec docker build ${TARGET:+--target "$TARGET"} -t "$IMAGE" -f "$CTX/moveit-oracle/Dockerfile" "$CTX"
+#
+# Not `exec` either: exec replaces this shell, so the EXIT trap above never
+# runs and $CTX -- a full moveit2 + moveit_resources export, ~100 MB each --
+# is left behind by every build, successful ones included. `set -e` already
+# propagates a failed build's status without exec's help.
+docker build ${TARGET:+--target "$TARGET"} -t "$IMAGE" -f "$CTX/moveit-oracle/Dockerfile" "$CTX"
