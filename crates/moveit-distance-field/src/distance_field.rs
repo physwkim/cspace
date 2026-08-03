@@ -515,18 +515,17 @@ mod tests {
     }
 
     /// Pin for the subdivision loop's `<=` termination boundary
-    /// (PORTING-PLAN.md §97.1), not a taste check of `<=` vs `<`. Both
-    /// upstream (`distance_field.cpp:268-278`, `for (double x = ...; x <=
-    /// ...; x += resolution_)`) and this port accumulate the loop variable
-    /// by repeated floating-point addition, then compare against a
-    /// separately-computed `end = coord + ceil_val`. `ceil(size /
-    /// resolution)` guarantees the interval width is a multiple of
-    /// `resolution` only in exact real-number arithmetic; it says nothing
-    /// about whether `k` repeated `+= resolution` additions from `start`
-    /// reproduce `end` bit-for-bit, because `start`/`end` are each computed
-    /// with one rounding step while the accumulated value carries the
-    /// compounded rounding of every addition along the way. Whichever side
-    /// rounds up costs the comparison the last face.
+    /// (PORTING-PLAN.md §96.3). Both upstream (`distance_field.cpp:268-278`,
+    /// `for (double x = ...; x <= ...; x += resolution_)`) and this port
+    /// accumulate the loop variable by repeated floating-point addition,
+    /// then compare against a separately-computed `end = coord + ceil_val`.
+    /// `ceil(size / resolution)` guarantees the interval width is a
+    /// multiple of `resolution` only in exact real-number arithmetic; it
+    /// says nothing about whether `k` repeated `+= resolution` additions
+    /// from `start` reproduce `end` bit-for-bit, because `start`/`end` are
+    /// each computed with one rounding step while the accumulated value
+    /// carries the compounded rounding of every addition along the way.
+    /// Whichever side rounds up costs the comparison the last face.
     ///
     /// Measured directly (not assumed): sweeping realistic
     /// `(field_resolution, octree_resolution, insert_point)` combinations
@@ -542,6 +541,18 @@ mod tests {
     /// The companion test below pins an odd-`k` case where only one axis
     /// drops, showing the outcome is per-axis and value-specific, not a
     /// function of `k`'s parity.
+    ///
+    /// **This test and its companion below do not distinguish `<=` from
+    /// `<`.** Both pick inputs where the accumulated last iterate already
+    /// lands strictly past `end`, so `<=` and `<` agree and either
+    /// operator reproduces the same (dropped) count -- flipping the
+    /// operator here would not fail either test. That is a real gap: it
+    /// means neither test is evidence the loop actually uses `<=` rather
+    /// than `<`, only evidence of what the accumulation does at these
+    /// particular inputs.
+    /// [`octree_points_subdivision_le_boundary_keeps_the_last_face_that_lt_would_drop`]
+    /// below closes it, with a power-of-two-resolution input chosen so the
+    /// accumulation is exact and `<=`/`<` genuinely disagree.
     #[test]
     fn octree_points_subdivision_drops_the_last_face_for_an_even_k_boundary() {
         let field_resolution = 0.01;
@@ -602,6 +613,47 @@ mod tests {
             180,
             "observed floating-point boundary behavior -- x drops to 5 points, \
              y and z each keep 6 (see this test's own doc)"
+        );
+    }
+
+    /// The operator pin the two tests above cannot provide (PORTING-PLAN.md
+    /// §96.3): an input where `octree_resolution`/`field_resolution` are
+    /// both exact powers of two, so `start`/`end`/every accumulated step
+    /// are all exactly representable in `f64` and the loop's last iterate
+    /// lands exactly on `end` rather than past it. At that point `<=` and
+    /// `<` genuinely disagree: `octree_resolution = 0.125`, `field_resolution
+    /// = 0.0625` gives `k = ceil(0.125 / 0.0625) = 2` per axis, so `<=`
+    /// must visit 3 positions per axis (`3^3 = 27` points, both faces
+    /// included) while `<` visits only 2 (`2^3 = 8`, the last face
+    /// dropped). Flipping the loop's `<=` to `<` locally and re-running
+    /// confirmed exactly this: 27 with `<=`, 8 with `<`. This is also the
+    /// numeric confirmation, for a case picked to be exact rather than
+    /// accumulation-dependent, that the loop's intent really is `ceil(size
+    /// / resolution) + 1` points per axis, both ends included -- the same
+    /// intent the two tests above show does not always survive the
+    /// accumulation.
+    #[test]
+    fn octree_points_subdivision_le_boundary_keeps_the_last_face_that_lt_would_drop() {
+        let field_resolution = 0.0625;
+        let mut tree = OcTree::new(0.125);
+        tree.update_node(Point3::new(0.3125, 0.3125, 0.3125), true, false);
+        let leaf = tree.leaves().next().expect("one leaf was inserted");
+        assert_eq!(
+            leaf.size(),
+            0.125,
+            "test setup must produce a leaf exactly matching octree_resolution \
+             for k = ceil(size / resolution) = 2 to hold"
+        );
+
+        let bbx_min = Vector3::new(-10.0, -10.0, -10.0);
+        let bbx_max = Vector3::new(10.0, 10.0, 10.0);
+        let points = octree_points(bbx_min, bbx_max, field_resolution, &tree);
+
+        assert_eq!(
+            points.len(),
+            27,
+            "power-of-two resolutions make the accumulation exact -- 3 points \
+             per axis (both ends included), not 2 (see this test's own doc)"
         );
     }
 }
