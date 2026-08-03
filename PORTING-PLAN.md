@@ -739,7 +739,26 @@ CI에 `cargo doc` 스텝이 없어 이것이 8곳까지 쌓였다 —
 `moveit-geometry` 1, `moveit-model` 7. 두 크레이트 담당에게 돌려보냈고,
 비는 즉시 `cargo doc --workspace --no-deps`를 CI 스텝으로 추가한다.
 
-### 10.3 지금 병렬로 도는 작업
+### 10.3 Phase 2 — FK 완료 조건 충족, 야코비안 미착수
+
+`moveit-state`가 §8.2 설계대로 들어왔다. `RobotState::update(&mut self)`가
+`Posed<'_>`를 돌려주고 변환 읽기는 그 뷰에만 있으므로, 갱신 없이 변환을
+읽는 코드는 컴파일되지 않는다 — 관례가 아니라 빌림 검사기가 지킨다.
+
+Phase 2의 FK 조건은 "임의 관절값 10,000세트 × 3로봇의 모든 링크 FK가
+오라클과 `1e-9` 이내 일치"였다. 워커가 4로봇 40,004건으로 통과 보고했고,
+seed를 바꿔(424242) 4로봇 8,004건을 독립 재현해 동일하게 0건 불일치를
+확인했다. 다만 두 실행 모두 기록이 산문뿐이라
+`tools/ci/run-oracle-sweep.sh`로 명령화했다. 커밋된 회귀 테스트인
+`crates/moveit-state/tests/fk_parity.rs`는 로봇당 4건만 담으므로 포팅이
+아주 깨지는 것은 잡아도 아무도 캡처하지 않은 자세에서만 어긋나는
+드리프트는 잡지 못한다 — 그 간극을 메우는 것이 이 스크립트이고, docker가
+필요해 `cargo nextest`에는 들어갈 수 없다.
+
+같은 단계의 야코비안(6×N, `1e-7`)과 보간·거리 메트릭은 아직 착수 전이다.
+`setFromIK`/`setFromDiffIK`, 부착 바디, 속도·가속도·토크 추적도 마찬가지.
+
+### 10.4 지금 병렬로 도는 작업
 
 - `moveit-collision` — `CollisionRequest`/`CollisionResult`/`CollisionEnv`
   trait. 요청 플래그와 결과 필드의 짝을 bool + 값 병렬 필드로 재현하지
@@ -753,4 +772,3 @@ CI에 `cargo doc` 스텝이 없어 이것이 8곳까지 쌓였다 —
 - `moveit-smoothing` — §4.6이 Phase 6 착수 시점으로 미룬 ruckig 크레이트
   채택 결정. 결정과 근거를 §4.6에 되써넣는다.
 - `moveit-geometry` — `bodies::`
-- `moveit-state` — `RobotState`, FK
