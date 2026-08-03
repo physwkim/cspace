@@ -168,10 +168,11 @@
 //! are unported because a bare `moveit_state::State` structurally cannot see
 //! attached bodies (they live on `moveit_scene::PlanningScene`, which this
 //! crate does not depend on — see `moveit-state`'s `State::frame_transform`
-//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is
-//! unported because this crate has no dependency on `moveit-octomap` — that
-//! crate now ports an `octomap::OcTree` equivalent, but nothing in this
-//! crate's own dependency graph reaches it. Nothing above depends on
+//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is now
+//! ported, as [`PosedBodyPointDecomposition::from_octree`], against a
+//! `moveit-octomap` dependency this crate added for it — see that method's
+//! own doc comment for the faithfully-reproduced upstream behaviour
+//! (every tree node, not just occupied leaves). Nothing above depends on
 //! ROS message types, a renderer, or `World` in a way this crate's
 //! `DistanceFieldCollisionCache`/link-decomposition scope does not already
 //! account for.
@@ -211,14 +212,22 @@
 //! together with an explicit `max_relative` still finds no binding point
 //! above `0.0` — drop the tolerance entirely and use `assert_eq!` instead,
 //! as `oracle_parity.rs` and `collision_sphere_free_functions_parity.rs` do
-//! (see the "Exactness" section of `oracle_parity.rs`'s own module doc). A
-//! call site is *not* automatically defective for lacking `max_relative`:
-//! `upstream_parity.rs`'s 7 calls use upstream's own literal `EXPECT_NEAR`
-//! values (`0.0001`, `0.1`), which stay 12+ orders of magnitude above any
-//! magnitude this file's 1x1x1 meter grid can produce, so the implicit term
-//! can never dominate there — checked by bisecting all 7 to `0.0` together,
-//! which fails immediately, confirming the named epsilon is what is
-//! actually gating those assertions, not `approx`'s default.
+//! (see the "Exactness" section of `oracle_parity.rs`'s own module doc).
+//!
+//! **Bisect by constant, not by file (PORTING-PLAN.md §85.3).** A call site
+//! is not automatically defective for lacking `max_relative` — but checking
+//! that by lowering every `assert_relative_eq!` in a file to `epsilon = 0.0`
+//! as one group is unreliable in the *other* direction: one still-passing
+//! real gate is indistinguishable, at the group level, from "nothing in this
+//! group is trap-caught". `upstream_parity.rs`'s own first pass made exactly
+//! this mistake — bisecting its 7 calls together showed a pass-then-fail at
+//! `0.0`, read as "the named epsilons dominate", when 4 of the 7 were in
+//! fact trap-caught and only the remaining 3 (a different named constant)
+//! were the real gate (see that file's own module doc for the corrected
+//! measurement). Bisect per constant, or per constant-group sharing one
+//! name, not per file — and when a lowered group fails, confirm by name
+//! which assertion actually tripped, since a file can mix a real gate with
+//! trapped ones behind the same `epsilon = 0.0` run.
 //!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
@@ -307,13 +316,14 @@
 //! - `PosedBodySphereDecomposition` (class) — ported as
 //!   [`PosedBodySphereDecomposition`].
 //! - `PosedBodyPointDecomposition` (class, 3 constructor overloads) — ported
-//!   for 2 of 3: `PosedBodyPointDecomposition(body_decomposition)`/
-//!   `PosedBodyPointDecomposition(body_decomposition, pose)` as
-//!   [`PosedBodyPointDecomposition::new`]/[`PosedBodyPointDecomposition::with_pose`].
-//!   The third, `PosedBodyPointDecomposition(const std::shared_ptr<const
-//!   octomap::OcTree>&)`, is unported: `moveit-octomap` now ports an
-//!   `octomap::OcTree` equivalent, but this crate has no dependency on it,
-//!   so there is no input type in this crate's own scope to build it from.
+//!   for all 3: `PosedBodyPointDecomposition(body_decomposition)`/
+//!   `PosedBodyPointDecomposition(body_decomposition, pose)`/
+//!   `PosedBodyPointDecomposition(const std::shared_ptr<const
+//!   octomap::OcTree>&)` as [`PosedBodyPointDecomposition::new`]/
+//!   [`PosedBodyPointDecomposition::with_pose`]/
+//!   [`PosedBodyPointDecomposition::from_octree`] — the last against a
+//!   `moveit-octomap` dependency added for it; see that method's own doc
+//!   comment for the faithfully-reproduced upstream behaviour.
 //! - `PosedBodySphereDecompositionVector` (class) — ported as
 //!   [`PosedBodySphereDecompositionVector`] (`getSize`/
 //!   `getPosedBodySphereDecomposition` as
