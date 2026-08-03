@@ -654,3 +654,38 @@ g++ -O0 -o /tmp/x /w/x.cpp $INC -L/opt/ros/rolling/lib -lgeometric_shapes
   검증은 대조가 아니라 불변식이다: 반환된 경로의 모든 인접 쌍이
   `MotionValidator`를 통과할 것, 같은 시드는 같은 경로를 낼 것,
   최근접 이웃 질의가 brute-force와 일치할 것.
+
+### 9.4 검증 게이트 추가 2건
+
+CI 스텝이 `fmt` / `clippy -D warnings` / `nextest` / doctests /
+`check-dep-direction.sh` 다섯이었는데, 그 다섯을 모두 통과하면서도 통과
+사실이 거짓인 경우가 두 번 나왔다. 각각을 스크립트로 닫았다.
+
+**`tools/ci/check-no-lint-suppression.sh`** — `crates/`와 `tools/` 어디에도
+`#[allow(...)]` / `#[expect(...)]`를 두지 않는다. `clippy -D warnings`는
+`#[allow]`을 얹은 코드와 애초에 경고가 없는 코드를 구분하지 않으므로,
+한 번 들어간 억제는 이후 어떤 실행으로도 다시 드러나지 않는다. 실제로 두
+번 모두 억제된 린트가 진짜 결함을 덮고 있었다 — 오라클 픽스처로 갔어야 할
+전사 상수 하나, 그리고 `size_x/y/z`와 `origin_x/y/z`가 타입상 서로 구별되지
+않는 8인자 `VoxelGrid::new` 하나. `expect`는 "쓰이지 않으면 경고하는
+`allow`"이므로 같이 막는다. 예외 통로는 두지 않았다. 린트 자체가 이
+코드베이스에 맞지 않는다면 `[workspace.lints]`에서 한 번, 이유를 적어
+끄는 것이 옳다.
+
+**`tools/ci/check-fixture-format.sh`** — 커밋된 오라클 응답 JSON은
+2-space indent, 정렬된 키, 끝 개행. 픽스처를 커밋하는 이유가 "오라클이
+바뀌면 diff로 드러나게" 하는 것인데 `pr2`와 `dual_arm_panda` 캡처가 각각
+21 KB·5 KB 단일 행으로 들어와 그 목적이 무너져 있었다. indent 폭도
+`moveit-model` 2 / `moveit-collision` 4로 갈려 있었다. 두 파일만 고치는
+대신 전 크레이트 균일 규칙으로 못박았다 — 경계마다 다른 규칙은 다음
+캡처가 어느 쪽을 따라야 하는지를 다시 묻게 만든다.
+
+두 스크립트 모두 `git ls-files`가 아니라 파일시스템 glob으로 파일을
+찾는다. 첫 판은 `git ls-files`를 썼고, `git archive` 익스포트에 대해
+"not a git repository"로 1을 냈다 — 오라클 이미지가 빌드 컨텍스트를
+만드는 방식이 정확히 그 익스포트다.
+
+CI는 이 저장소에 git remote가 없어 한 번도 실행된 적이 없다. 대신
+`git archive HEAD | tar -x -C $(mktemp -d)` 로 뽑은 트리에서
+`.github/workflows/ci.yml`의 `run:` 스텝 7개를 순서대로 돌려
+전부 통과함을 확인했다.
