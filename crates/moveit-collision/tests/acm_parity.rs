@@ -4,9 +4,9 @@
 //! Parity test against the moveit2 C++ oracle's `acm` op.
 //!
 //! Ground truth is the oracle's own response, captured verbatim into
-//! `tests/fixtures/{panda,fanuc,pr2}_acm.json` by querying
+//! `tests/fixtures/{panda,fanuc,dual_arm_panda,pr2}_acm.json` by querying
 //! `tools/moveit-oracle` (built at the pinned SHA in `PORTING-PLAN.md`) with
-//! `fixtures/{panda,fanuc,pr2}.{urdf,srdf}`. Comparing against a deserialized
+//! `fixtures/{panda,fanuc,dual_arm_panda,pr2}.{urdf,srdf}`. Comparing against a deserialized
 //! fixture, rather than hand-transcribed Rust literals, means a transcription
 //! typo can't make this test assert the wrong thing and a future oracle
 //! change shows up as a fixture diff instead of silent drift — the same
@@ -142,6 +142,25 @@ fn fanuc_matches_oracle() {
         expected.entries.len(),
         10,
         "fanuc ground truth is 10 disable_collisions entries"
+    );
+    assert_matches_oracle(&matrix, &expected);
+}
+
+#[test]
+fn dual_arm_panda_matches_oracle() {
+    // The largest fixture: 68 entries over 22 links, exactly panda's 34
+    // twice. Every pair is intra-arm -- there is no `left_panda_*` against
+    // `right_panda_*` entry -- so the matrix is two disjoint blocks over two
+    // link-name prefixes, which is the property no single-arm SRDF here can
+    // test: a `from_srdf` that let entries leak across the prefixes, or that
+    // collapsed the two blocks into one, still passes panda and fanuc.
+    let srdf = load_srdf("dual_arm_panda.srdf");
+    let matrix = AllowedCollisionMatrix::from_srdf(&srdf);
+    let expected = load_fixture("dual_arm_panda_acm.json");
+    assert_eq!(
+        expected.entries.len(),
+        68,
+        "dual_arm_panda ground truth is 68 disable_collisions entries"
     );
     assert_matches_oracle(&matrix, &expected);
 }
