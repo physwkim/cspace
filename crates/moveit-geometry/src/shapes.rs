@@ -372,6 +372,55 @@
 //!   this crate's own [`OcTree`]/[`crate::Isometry3`] and
 //!   [`moveit_octomap::OcTree`]'s existing point-query API — nothing further
 //!   is needed from this crate for either backend to build on.
+//!
+//! ## Transfer boundary, symbol by symbol (round 15, item 2)
+//!
+//! `moveit-octomap`'s own module docs used to describe `Shape::OcTree` as
+//! "already stubbed, deliberately deferred to Phase 3/5 collision" — stale,
+//! fixed this round (see that crate's `lib.rs`). Re-checked against the tree
+//! as it stands after the round-15 rebase, not assumed:
+//!
+//! - **`Shape::OcTree` (this crate's data layer) → `moveit-collision`.**
+//!   Already receiving, nothing further owed: `crates/moveit-collision/src/
+//!   parry.rs`'s `ParryCollisionEnv::convert_shape` calls
+//!   [`crate::compound_from_octree`] directly (see "Who consumes
+//!   `Shape::OcTree`" above for the full path and its oracle coverage).
+//!   `Cargo.toml` already carries `moveit-octomap.workspace = true` for
+//!   this.
+//! - **`moveit_octomap::OcTree`'s raw leaf payload → `moveit-distance-field`,
+//!   *not yet* receiving.** `collision_env_distance_field.cpp`'s
+//!   `PosedBodyPointDecomposition(shared_ptr<const octomap::OcTree>)`
+//!   constructor is still unported there (`crates/moveit-distance-field/src/
+//!   lib.rs`'s own module docs list it, under `PosedBodyPointDecomposition`,
+//!   as the one of three constructor overloads not yet done); confirmed by
+//!   `Cargo.toml` too — `moveit-distance-field` names no `moveit-octomap`
+//!   dependency at all, unlike `moveit-collision`'s. What it needs to
+//!   receive this: add that workspace dependency, then implement the
+//!   constructor over [`moveit_octomap::OcTree::leaves`] filtered by
+//!   [`moveit_octomap::Leaf::is_occupied`] (see "Who consumes
+//!   `Shape::OcTree`" above for the exact field mapping). Nothing on this
+//!   crate's or `moveit-octomap`'s side blocks that — the API this
+//!   constructor needs already exists and is public.
+//! - **`bodies::` posed-body algorithms (`containsPoint`/`intersectsRay`/
+//!   the bounding-volume methods) → stay in `moveit-geometry`, not
+//!   transferred anywhere.** The original task brief for this crate assumed
+//!   these belonged with Phase 3 collision; they do not, and re-checking
+//!   this round confirms that is still true: `moveit-collision`'s `lib.rs`/
+//!   `world.rs` still explicitly declines the `bodies::` posed-geometry
+//!   layer as out of scope for `World`, and its `ParryCollisionEnv` backend
+//!   still builds directly on `parry3d-f64` shapes from `Shape`, never
+//!   from [`crate::bodies::Body`]. The real consumers remain
+//!   `moveit-constraints` and `moveit-distance-field`, already receiving —
+//!   see `bodies.rs`'s own "Who actually calls this" section for the
+//!   method-by-method breakdown, which this confirmation does not
+//!   duplicate.
+//! - **[`crate::bodies::Body::intersects_ray`] → stays in `moveit-geometry`,
+//!   still no consumer.** `bodies.rs` already documents this (round 13-14)
+//!   with its reopening condition — `moveit-collision`'s `ParryCollisionEnv`/
+//!   `PosedBody` path needing a body-level ray test, or `BodyVector` getting
+//!   a real caller. Re-checked this round: neither has happened
+//!   (`ParryCollisionEnv` still does not reference `bodies::Body` at all,
+//!   confirmed above). No change from round 14's decision.
 
 use std::fmt;
 use std::sync::Arc;

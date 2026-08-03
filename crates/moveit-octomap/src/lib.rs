@@ -66,10 +66,15 @@
 //!   and key-set bookkeeping using the lower-level primitives this crate
 //!   does port (`compute_ray_keys`, `compute_update`, `update_node`).
 //! - **`bodies::Body`-style posed-body algorithms are not in this crate's
-//!   scope at all** -- that is `moveit-geometry`'s `shapes::OcTree` variant
-//!   (already stubbed, deliberately deferred to Phase 3/5 collision) and is
-//!   the future consumer of this crate's [`OcTree`], not something this
-//!   crate implements itself.
+//!   scope at all.** Stale as of round 15: this bullet used to say
+//!   `moveit-geometry`'s `shapes::OcTree` was still a stub deferred to
+//!   Phase 3 collision; it is not -- `shapes::OcTree` has been fully ported
+//!   since round 3, and there is no `bodies::`-level posed counterpart for
+//!   an octree upstream at all (`bodies::createBodyFromShape` returns
+//!   `nullptr` for `shapes::OCTREE`; this crate's own `Body::from_shape`
+//!   matches that with `Shape::OcTree => None`, see `bodies.rs`). See
+//!   `moveit-geometry`'s `shapes.rs`, "Who consumes `Shape::OcTree`" for the
+//!   actual, current transfer boundary and consumer-by-consumer status.
 //!
 //! # Symbol-by-symbol audit against upstream's public surface (round 12)
 //!
