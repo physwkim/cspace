@@ -76,10 +76,17 @@
 //!
 //! # Tolerance
 //!
-//! `1e-4`, matching `collision_distance_field_types_parity.rs`'s `TOL` --
-//! see that file's module doc for why a uniform epsilon is correct here
-//! (every value compared is a direct, deterministic floating point read on
-//! both sides, not an unordered point cloud).
+//! A uniform epsilon is correct here for the same reason as in
+//! `collision_distance_field_types_parity.rs`'s module doc: every value
+//! compared is a direct, deterministic floating point read on both sides,
+//! not an unordered point cloud. The value, `1e-9`, is measured: every
+//! quantity this test compares is a raw [`PropagationDistanceField`]
+//! wavefront result with no mesh-decomposition step upstream on either
+//! side, and temporary instrumentation over every fixture case found them
+//! bit-exact between this port and the oracle (`max_abs = 0.0`, `max_rel =
+//! 0.0`) -- the same result `oracle_parity.rs`'s `DISTANCE_TOL` measured for
+//! the same class of computation. This file used to pin `1e-4`, matching a
+//! neighbouring file rather than anything measured here.
 
 use std::fs;
 
@@ -93,8 +100,8 @@ use moveit_distance_field::{
 };
 use nalgebra::Vector3;
 
-/// `1e-4` -- see the module doc's "Tolerance" section.
-const TOL: f64 = 1e-4;
+/// `1e-9`, measured -- see the module doc's "Tolerance" section.
+const TOL: f64 = 1e-9;
 
 #[derive(Deserialize)]
 struct RequestGeometry {
