@@ -17,7 +17,7 @@ use moveit_state::RobotState;
 use crate::cart_to_jnt::{SolveContext, search_position_ik};
 use crate::chain::ChainInfo;
 use crate::params::SolverParams;
-use crate::registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolverRegistration};
+use crate::registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolveOptions, SolverRegistration};
 
 /// Ports `ChainIkSolverVelMimicSVD` as upstream actually ships it: the
 /// singular-value pseudo-inverse is *truncated*, not damped — a singular
@@ -102,7 +102,12 @@ impl KinematicsSolver for NewtonRaphsonSolver {
         self.chain.solver_joint_names()
     }
 
-    fn solve(&mut self, seed: &[f64], target: &Isometry3) -> Option<Vec<f64>> {
+    fn solve_with_options(
+        &mut self,
+        seed: &[f64],
+        target: &Isometry3,
+        options: &mut SolveOptions,
+    ) -> Option<Vec<f64>> {
         assert_eq!(
             seed.len(),
             self.chain.reduced_dimension(),
@@ -133,7 +138,15 @@ impl KinematicsSolver for NewtonRaphsonSolver {
             params: &self.params,
             joint_weights: &self.joint_weights,
         };
-        search_position_ik(&ctx, &mut state, seed, target, &pinv, &mut self.rng)
+        search_position_ik(
+            &ctx,
+            &mut state,
+            seed,
+            target,
+            &pinv,
+            &mut self.rng,
+            options,
+        )
     }
 }
 
