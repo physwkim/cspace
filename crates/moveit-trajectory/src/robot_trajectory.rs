@@ -15,12 +15,6 @@
 //!   and the free function `toJointTrajectory` — `moveit_msgs`/
 //!   `trajectory_msgs` conversions, out of scope per `PORTING-PLAN.md` D1;
 //!   they belong in the optional `moveit-ros` crate.
-//! - `RobotTrajectory::print` and `operator<<` — upstream's per-waypoint
-//!   dump includes velocity and acceleration columns. [`RobotState`] now
-//!   carries both (added for `RuckigSmoothing`'s sake), so the original
-//!   reason this was deferred no longer holds; it stays unported simply
-//!   because this task never asked for it. `#[derive(Debug)]` gives a
-//!   structural dump instead.
 //! - The hand-rolled `RobotTrajectory::Iterator` class — [`RobotTrajectory::iter`]
 //!   is the idiomatic Rust replacement for the `begin()`/`end()` pair it
 //!   existed to support.
@@ -68,6 +62,16 @@
 //!   empty. [`RobotTrajectory::state_at_duration_from_start`] returns
 //!   `Option<RobotState<'m>>` instead, since a caller here does not need to
 //!   pre-construct a scratch state to receive it.
+//! - **`Display` has no `variable_indexes` override parameter.** Upstream's
+//!   `print(std::ostream&, std::vector<int> variable_indexes = {})` lets a
+//!   caller pass an explicit column subset; `std::fmt::Display::fmt`'s
+//!   signature is fixed by the trait, so there is nowhere to thread that
+//!   argument through. The `Display` impl always takes upstream's *default*
+//!   branch (`variable_indexes.empty()`): the group's own variables if a
+//!   group is set, else every model variable (see the private
+//!   `print_variable_names` helper below). Upstream's actual per-line column
+//!   order is waypoint index, time, position, velocity (if present),
+//!   acceleration (if present), effort (if present); this matches it.
 
 use std::collections::VecDeque;
 use std::f64::consts::PI;
@@ -507,6 +511,19 @@ impl<'m> RobotTrajectory<'m> {
         }
     }
 
+    /// The variable name list `print`'s `Display` impl walks per waypoint:
+    /// upstream's `variable_indexes.empty()` default-resolution branch of
+    /// `getVariableIndexList()` (the group's own variables if a group is
+    /// set, else every model variable, `std::iota`'d over
+    /// `getVariableCount()`), expressed as names rather than indices since
+    /// [`RobotState`]'s own accessors are name-keyed here.
+    fn print_variable_names(&self) -> &'m [String] {
+        match self.group {
+            Some(group) => group.variable_names(),
+            None => self.robot_model.variable_names(),
+        }
+    }
+
     /// `findWayPointIndicesForDurationAfterStart`. Returns
     /// `(before, after, blend)`; see upstream's doc comment for the edge
     /// cases (empty trajectory, negative duration, duration past the total,
@@ -638,6 +655,94 @@ impl<'m> RobotTrajectory<'m> {
     }
 }
 
+/// `print` / `operator<<`. Always takes upstream's default
+/// `variable_indexes.empty()` branch — see the module-level "Deviations from
+/// upstream" note on why `Display::fmt`'s fixed signature has no room for an
+/// explicit column-subset override.
+///
+/// Column order per waypoint line matches upstream exactly: index, time,
+/// position, then velocity/acceleration/effort, each only if the waypoint's
+/// [`RobotState`] carries it (`has_velocities`/`has_accelerations`/
+/// `has_effort`). Byte-identical output is not required (no fixture compares
+/// against it), so this uses Rust's own `{:width.precision}` formatting
+/// rather than reproducing `std::ios`'s persistent `std::fixed <<
+/// std::setprecision(3)` stream-flag state and its end-of-function
+/// flag/precision restore — `Display::fmt` has no ambient stream state to
+/// leak into, so there is nothing to restore.
+impl std::fmt::Display for RobotTrajectory<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.waypoints.is_empty() {
+            return write!(f, "Empty trajectory.");
+        }
+
+        writeln!(
+            f,
+            "Trajectory has {} points over {:.3} seconds",
+            self.waypoints.len(),
+            self.duration()
+        )?;
+
+        let names = self.print_variable_names();
+
+        for (index, waypoint) in self.waypoints.iter().enumerate() {
+            write!(
+                f,
+                "  waypoint {:>3} time {:>5.3} pos ",
+                index,
+                self.way_point_duration_from_start(index)
+            )?;
+            for name in names {
+                write!(
+                    f,
+                    "{:>6.3} ",
+                    waypoint
+                        .variable_position(name)
+                        .expect("name from this trajectory's own robot model/group")
+                )?;
+            }
+            if waypoint.has_velocities() {
+                write!(f, "vel ")?;
+                for name in names {
+                    write!(
+                        f,
+                        "{:>6.3} ",
+                        waypoint
+                            .variable_velocity(name)
+                            .expect("name from this trajectory's own robot model/group")
+                    )?;
+                }
+            }
+            if waypoint.has_accelerations() {
+                write!(f, "acc ")?;
+                for name in names {
+                    write!(
+                        f,
+                        "{:>6.3} ",
+                        waypoint
+                            .variable_acceleration(name)
+                            .expect("name from this trajectory's own robot model/group")
+                    )?;
+                }
+            }
+            if waypoint.has_effort() {
+                write!(f, "eff ")?;
+                for name in names {
+                    write!(
+                        f,
+                        "{:>6.3} ",
+                        waypoint
+                            .variable_effort(name)
+                            .expect("name from this trajectory's own robot model/group")
+                    )?;
+                }
+            }
+            writeln!(f)?;
+        }
+
+        Ok(())
+    }
+}
+
 /// `pathLength`: the sum of consecutive-waypoint distances (an L1 norm over
 /// active joints).
 #[must_use]
@@ -685,5 +790,109 @@ pub fn waypoint_density(trajectory: &RobotTrajectory<'_>) -> Option<f64> {
         Some(trajectory.waypoints.len() as f64 / length)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use std::fs;
+
+    use moveit_model::MeshSearchPaths;
+    use moveit_srdf::SrdfModel;
+    use moveit_state::RobotState;
+
+    use super::*;
+
+    fn panda() -> RobotModel {
+        let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.urdf");
+        let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.srdf");
+        let urdf_xml = fs::read_to_string(urdf_path).unwrap_or_else(|e| panic!("{urdf_path}: {e}"));
+        let urdf = urdf_rs::read_file(urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(srdf_path).expect("fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("fixture model must build")
+    }
+
+    #[test]
+    fn empty_trajectory_prints_the_upstream_placeholder() {
+        let model = panda();
+        let trajectory = RobotTrajectory::new(&model);
+        assert_eq!(trajectory.to_string(), "Empty trajectory.");
+    }
+
+    #[test]
+    fn position_only_waypoints_omit_the_conditional_columns_and_use_the_group_variables() {
+        let model = panda();
+        let mut trajectory =
+            RobotTrajectory::for_group_name(&model, "panda_arm").expect("panda_arm group exists");
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        trajectory
+            .add_suffix_way_point(state, 0.0)
+            .expect("add waypoint");
+
+        let printed = trajectory.to_string();
+        assert!(printed.starts_with("Trajectory has 1 points over 0.000 seconds\n"));
+        assert!(printed.contains("  waypoint   0 time 0.000 pos "));
+        // No velocity/acceleration/effort was ever set on the waypoint, so
+        // none of the three conditional columns should appear.
+        assert!(!printed.contains("vel "));
+        assert!(!printed.contains("acc "));
+        assert!(!printed.contains("eff "));
+
+        // Group is set, so the printed columns are `panda_arm`'s own
+        // variables, not the whole model's.
+        for name in trajectory.group().unwrap().variable_names() {
+            assert!(
+                printed.contains(&format!("{:>6.3} ", state_value_for(&trajectory, 0, name))),
+                "printed output missing column for {name}: {printed}"
+            );
+        }
+    }
+
+    fn state_value_for(trajectory: &RobotTrajectory<'_>, index: usize, name: &str) -> f64 {
+        trajectory
+            .way_point(index)
+            .expect("waypoint exists")
+            .variable_position(name)
+            .expect("variable exists")
+    }
+
+    #[test]
+    fn velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them() {
+        let model = panda();
+        let mut trajectory = RobotTrajectory::new(&model);
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let variable_count = model.variable_count();
+        state.set_variable_velocities(&vec![0.1; variable_count]);
+        state.set_variable_accelerations(&vec![0.2; variable_count]);
+        state.set_variable_efforts(&vec![0.3; variable_count]);
+        trajectory
+            .add_suffix_way_point(state, 0.0)
+            .expect("add waypoint");
+
+        let printed = trajectory.to_string();
+        assert!(printed.contains(" pos "));
+        assert!(printed.contains(" vel "));
+        assert!(printed.contains(" acc "));
+        assert!(printed.contains(" eff "));
+
+        // No group set: falls back to every model variable, matching
+        // upstream's `variable_indexes.resize(getVariableCount())` branch.
+        // Isolate the velocity segment (between "vel " and "acc ") before
+        // counting `0.100`s, since the position segment's own default
+        // values could otherwise coincidentally contain the same text.
+        let vel_segment = printed
+            .split("vel ")
+            .nth(1)
+            .expect("vel column present")
+            .split("acc ")
+            .next()
+            .expect("acc column present");
+        assert_eq!(
+            vel_segment.matches("0.100").count(),
+            model.variable_names().len()
+        );
     }
 }
