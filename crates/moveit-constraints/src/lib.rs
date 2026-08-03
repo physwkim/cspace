@@ -5,10 +5,21 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/kinematic_constraints/include/moveit/kinematic_constraints/kinematic_constraint.hpp
 //   moveit_core/kinematic_constraints/src/kinematic_constraint.cpp
+//   moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler.hpp
+//   moveit_core/constraint_samplers/include/moveit/constraint_samplers/default_constraint_samplers.hpp
+//   moveit_core/constraint_samplers/src/default_constraint_samplers.cpp
+//   moveit_core/constraint_samplers/include/moveit/constraint_samplers/union_constraint_sampler.hpp
+//   moveit_core/constraint_samplers/src/union_constraint_sampler.cpp
 
 //! Kinematic constraints and their `decide()` — [`JointConstraint`],
 //! [`PositionConstraint`], [`OrientationConstraint`], [`VisibilityConstraint`]
-//! and the aggregate [`KinematicConstraintSet`].
+//! and the aggregate [`KinematicConstraintSet`] — plus, in `sampler`, two
+//! `constraint_samplers` that sample states satisfying a constraint rather
+//! than just evaluating one: [`ConstraintSampler`], [`JointConstraintSampler`]
+//! and [`UnionConstraintSampler`]. See `sampler`'s own doc comment for
+//! scope (no `IKConstraintSampler` yet — it needs a new dependency edge,
+//! see this crate's introducing report) and its deviations from upstream's
+//! base class shape.
 //!
 //! # Scope
 //!
@@ -243,6 +254,7 @@
 mod joint;
 mod orientation;
 mod position;
+mod sampler;
 mod set;
 pub mod utils;
 mod visibility;
@@ -250,6 +262,7 @@ mod visibility;
 pub use joint::JointConstraint;
 pub use orientation::{OrientationConstraint, OrientationTolerance};
 pub use position::{ConstraintRegion, PositionConstraint};
+pub use sampler::{ConstraintSampler, JointConstraintSampler, UnionConstraintSampler};
 pub use set::{Constraint, KinematicConstraintSet};
 pub use visibility::{
     SensorSpec, SensorViewDirection, TargetSpec, VisibilityConstraint, VisibilityCriteria,

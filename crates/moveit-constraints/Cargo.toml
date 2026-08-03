@@ -15,11 +15,11 @@ moveit-geometry.workspace = true
 moveit-model.workspace = true
 moveit-state.workspace = true
 nalgebra.workspace = true
+rand.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true
