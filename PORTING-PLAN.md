@@ -1359,3 +1359,83 @@ self.offset`을 그대로 썼다 — `self.offset: Vector3`. upstream의
 `FramedPose::resolve`, 뷰/레인지 각도의 방향 벡터)은 각각
 Isometry×Isometry 합성이거나 진짜 방향 벡터라 이 결함에 해당하지
 않는다 — `rg`로 크레이트 전체를 확인했다.
+
+---
+
+## 13. `moveit-octomap` 착수 — §1.3 "핵심 공백 3개" 중 하나 해소 (2026-08-03)
+
+`23867d6` 병합. 커밋 셋: `bbed614`(octomap 1.9.7 점유 옥트리 이식),
+`519fe37`(오라클 `octomap` op), `c43b78d`(경계 시나리오 4건 패리티 테스트).
+
+§1.2 표가 `bye_octomap_rs` 0.1.1을 **성숙도 미달**로 판정하고 §1.3이
+"자체 구현 검토"로 남겼던 항목이다. §7 위험표의 "+3주" 항목이기도 하다.
+직접 이식 쪽으로 결론냈다. 테스트 27건(`tree.rs` 14, `node.rs` 8,
+`key.rs` 4, 패리티 1).
+
+이식하지 않고 남긴 것: `AbstractOcTree` 레지스트리, `ColorOcTree` /
+`CountingOcTree`, 변경 감지, `setNodeValue`, `insertPointCloud` /
+`computeDiscreteUpdate`, `tree_iterator`. 이 중 `insertPointCloud`는
+깊이 카메라 포인트가 옥트리가 되는 경로이므로, 충돌 경로 배선을 하는
+다음 라운드에서 보류 가능 여부를 다시 판단한다.
+
+**§6.3 위험은 아직 열려 있다.** 독립형 옥트리가 들어온 것이지
+`shapes::OcTree`가 충돌 월드에 연결된 것이 아니다 — MoveIt이 센서 유래
+장애물을 표현하는 실제 경로가 그것이다. 다음 라운드 과제로 지정했다.
+
+### 13.1 워커 보고의 독립 검증
+
+이번 라운드도 보고를 그대로 받지 않고 다시 확인했다.
+
+`p3-shapes`가 자기 워크트리에서 `tools/moveit-oracle/build.sh`를 돌리지
+못했다고 보고했다 — `third_party/`의 gitignore된 벤더 트리가 워크트리에
+없어서 "moveit" 스테이지가 실패한다. 대신 "oracle" 스테이지만 재현하는
+스크래치 Dockerfile을 썼고, 이미지에 찍힌
+`/usr/local/share/oracle-src.sha256`가 현재 트리의 다이제스트와 일치함을
+근거로 댔다. 병합 후 실제 `build.sh`를 돌렸다 — `find_package(octomap)`과
+`${OCTOMAP_LIBRARIES}`가 들어간 채로 정상 빌드됐다
+(`moveit-rs/oracle:3ec0f5ca75dec908`). 대체는 타당했고 이탈은 종결.
+
+커밋된 `octomap` 요청 픽스처 5건을 그 새 오라클에 다시 흘려보내 응답이
+전부 바이트 단위로 동일함을 확인했다.
+
+`p1-robotmodel`의 중심 주장(제약 2,000조합 100% 일치)도 새 오라클에
+대해 다시 돌렸다 — panda 2001/2001, fanuc 2001/2001, 실패 0.
+`44a84e4`의 `run-oracle.sh` 심볼릭 링크 마운트 수정은 실재하며 이제 모든
+워커가 혜택을 본다(caucus 워크트리는 `third_party/`를 세션 루트 체크아웃
+심볼릭 링크로 들고 있어서, 이 수정 전에는 `third_party` 상대 경로로 준
+`--urdf`/`--srdf`가 컨테이너 안에서 전부 실패했다).
+
+병합 충돌은 네 파일(`Cargo.toml`, `PORTING-PLAN.md`,
+`tools/moveit-oracle/src/oracle.cpp`, `tools/moveit-oracle/CMakeLists.txt`)
+에서 났고 전부 같은 모양이었다 — 두 브랜치가 같은 줄에 각자 항목을
+추가한 것. 모두 양쪽을 살렸다. 오라클 op은 이제 15개다: `model_info`,
+`fk`, `jacobian`, `random_states`, `acm`, `world`, `distance_field`,
+`shape_points`, `common_root`, `collision_distance_field_types`,
+`dynamics`, `collision_object_point_decomposition`,
+`link_body_decomposition`, `constraints`, `octomap`.
+
+병합 후 전체 게이트: `cargo nextest run --workspace` 686/686 통과,
+`tools/ci/check-*.sh` 3건 전부 통과, 스윕 100,005건 실패 0
+(최악 야코비안 편차 4.441e-16 ~ 2.554e-15).
+
+### 13.2 `RuckigSmoothing` 블로커 — `RobotState`에 속도·가속도가 없다
+
+`p6-totg`가 §4.6의 블로커를 다시 지목했다. `RobotTrajectory`가 들어와
+해소된 줄 알았으나, 실제 막는 것은 `moveit_state::RobotState`에
+웨이포인트별 속도·가속도 저장이 없다는 점이다.
+`initializeRuckigState`, `getNextRuckigInput`, `extendTrajectoryDuration`
+— Ruckig 동작의 본체인 이 셋이 전부 그 값을 읽고 쓴다.
+`rsruckig` 3.0.0과 `VariableBounds`(속도·가속도·저크 한계 보유)는
+문제가 아님을 워커가 각각 확인했다.
+
+**결정: `RobotState`를 확장한다.** 모듈 지역 병렬 배열로 우회하는
+선택지는 같은 사실에 집을 두 채 주는 것이라 기각했다 — 이후 모든 소비자
+(`RobotTrajectory::print`, TOTG, IK 속도 시드)가 어느 쪽을 읽을지 알아야
+한다. `state.rs`의 "속도·가속도 없음" 주석은 영구 설계 결정이 아니라 그
+과제의 범위 표기이며, §11.6이 이미 같은 부재를 열린 블로커로 적어 두었다.
+현재 `crates/moveit-state/`에 커밋 중인 다른 워커 브랜치가 없음을 여섯 개
+전부 확인했다.
+
+상류의 `acceleration_`/`effort_` 버퍼 에일리어싱은 이식하지 않는다 —
+관측 가능한 유일한 결과가 한쪽을 쓰면 다른 쪽이 조용히 덮인다는 것이라,
+이 계획이 반복해서 제거해 온 이중 의미 결함이다.
