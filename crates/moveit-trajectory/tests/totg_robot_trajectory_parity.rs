@@ -55,12 +55,32 @@
 //! before a real biting point (PORTING-PLAN.md §78.1/§79) -- and it did
 //! here: the old unqualified `TOL` passed all the way to `0.0`. Every call
 //! below now pins `max_relative = TOL`, coupling both branches to the same
-//! constant. Bisecting that: `2.5e-16` and above pass, `2e-16` and below
-//! fail (first divergence is `duration_from_previous`, e.g.
-//! `-1.0781250000000013` vs `-1.078125000000001`, diff ~3e-16, right at the
-//! f64 ULP floor for values of this magnitude -- not the "bit-for-bit"
-//! `totg_parity.rs` was believed to establish). `TOL` is `1e-12`, ~3.6
-//! orders of magnitude of headroom. Confirmed still discriminating:
+//! constant. A whole-test bisection found `2.5e-16` and above pass, `2e-16`
+//! and below fail, first stopping (fail-fast, at the earliest failing
+//! assertion in loop order) on a `positions` comparison, e.g.
+//! `-1.0781250000000013` vs `-1.078125000000001`, diff ~2.3e-16 -- an
+//! earlier draft of this doc mislabeled that pair as
+//! `duration_from_previous` from the magnitude alone; it is a joint
+//! position (durations in this fixture are all < 1s, never ~1.08).
+//!
+//! All four comparison groups (`duration_from_previous`, `positions`,
+//! `velocities`, `accelerations`) share this one `TOL`, so a bisection that
+//! only watches the first fail-fast failure can report the wrong group as
+//! tightest and never notice a looser (or tighter) one hiding behind it
+//! (PORTING-PLAN.md's correction to §79's method, citing
+//! `distance-field/tests/upstream_parity.rs`: 4 of 7 bundled assertions
+//! there only bit 12 orders below the named epsilon once re-bisected per
+//! group). Re-verified per group with a non-panicking max-diff sweep
+//! (temporarily printing every group's largest `|actual - expected|`
+//! across every case/waypoint/joint instead of asserting, so fail-fast
+//! can't hide one group's true floor behind another's): `duration_from_previous`
+//! maxes at `1.39e-17`, `positions` at `4.44e-16` (case 0, waypoint 5,
+//! `panda_joint2` -- the true tightest group, not `duration_from_previous`
+//! as the whole-test bisection's first failure suggested), `velocities` at
+//! `2.78e-17`, `accelerations` at `2.22e-16` (`= f64::EPSILON` exactly) --
+//! all four groups are genuinely nonzero, so none collapses to
+//! `assert_eq!`. `TOL` is `1e-12`, ~3.35 orders of magnitude of headroom
+//! over the loosest group (`positions`). Confirmed still discriminating:
 //! multiplying `do_time_parameterization_calculations`'s
 //! `position[j]` writeback by `1.0001` fails the fixture.
 
