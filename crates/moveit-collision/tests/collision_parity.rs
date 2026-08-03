@@ -386,6 +386,20 @@ const TOLERANCE: f64 = 1e-4;
 /// not a mesh, and a Mesh-only bound would silently read as a 0m radius --
 /// falsely making any nonzero depth for that pair look impossible instead of
 /// plausible.
+///
+/// For a robot-link/[`World`]-object pair this bound is one-sided by
+/// construction: the world side always resolves to `None` (it is never a
+/// `link_name` `model.link_model` can find), so `assert_plausible_depth`'s
+/// `min_by` has only the robot link's own radius to work with, and the
+/// bound degenerates to "twice this one link's own radius" regardless of
+/// how large or small the world object is. For
+/// `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction`'s
+/// two cases that bound is `2 * 0.0346m ~= 0.069m` -- comfortably above
+/// both the oracle's ~0.010-0.011m and this backend's ~0.012-0.016m, so it
+/// cannot distinguish between them. `assert_plausible_depth` was never the
+/// mechanism that would have caught that disagreement; only an independent
+/// measurement against the actual world geometry (`deepest_vertex_under_floor`)
+/// can.
 fn link_bounding_radius(model: &RobotModel, link_name: &str) -> Option<f64> {
     let link = model.link_model(link_name).ok()?;
     link.shapes().iter().try_fold(0.0_f64, |acc, link_shape| {
