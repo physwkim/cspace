@@ -6454,3 +6454,70 @@ p1-fixtures의 `86f102c`(§70)로 소멸했다 — `.scene` 파일 상호운용�
 `cargo nextest run --workspace` **982/982**, `cargo test --doc --workspace`
 통과, clippy `--workspace --all-targets -D warnings` 0건, `fmt --check`
 통과, `check-*.sh` 3건 OK, 재생 **26/26 identical**.
+
+## 74. `AccelerationLimitedFilter`가 들어왔고, ruckig 스트리밍 fixture는 재는 게 없다 (2026-08-04)
+
+p6-totg 라운드 9(`eef9370`, `ec9a539`, `c62603a`, `56c5afa`). 베이스
+`7eabb53`, main `f1c14ef`에 머지. `oracle.cpp`가 바뀌어 스탬프가
+`746870de2ddd3ca6` → **`fe75d0c58eb61962`**로 옮겨갔고 이미지를 다시
+빌드했다.
+
+### 74.1 상류의 인덱스 버그는 실재하고, 이 포트는 그 전제를 없앴다
+
+`acceleration_filter.rs`의 deviation 노트가 주장하는 상류 버그를
+직접 확인했다. `acceleration_filter.cpp:189-207`에서 바깥 루프는
+`getActiveJointModelsBounds()`(관절당 한 항목), 안쪽 루프는 그 관절의
+변수들인데 `ind++`가 **206행, 안쪽 루프가 닫힌 뒤**에 있다. 변수가 둘
+이상인 관절은 마지막 변수의 값만 남기고 다음 관절 슬롯으로 넘어가지
+않는다.
+
+`joint_acceleration_bounds`는 관절 이름으로 한 관절당 한 bound를 읽으므로
+다변수 관절을 표현할 방법 자체가 없다 — 버그를 고친 게 아니라 버그의
+전제가 성립하지 않는 좁은 표현이다. 다만 fixture가 전부 `panda_arm`
+(전 관절 단일 DOF)이라 이 좁힘은 어느 쪽으로도 검증되지 않는다.
+
+같은 파일의 나머지 두 주장도 상류에서 확인했다: `doSmoothing`의 세 번째
+인자는 `Eigen::VectorXd& /* unused */`(:310)이고,
+`const size_t num_positions = velocities.size();`(:312)도 그대로다.
+
+### 74.2 `acceleration_filter` 오라클 op는 구별력이 있다
+
+`do_smoothing`의 혼합식 `*p = alpha * last_p + (1.0 - alpha) * *p`에
+`1.000001`을 곱해서 돌렸다 → **5건 실패**, 그중
+`acceleration_filter_matches_the_oracle` 포함. 오라클 대조가 실제로
+물린다.
+
+### 74.3 `ruckig_filter` 오라클 op는 `target_velocity`를 전혀 재지 않는다
+
+같은 시험을 `RuckigFilter::do_smoothing`에 했더니 결과가 다르다.
+
+```
+target_velocity = current_velocity + 1.000001 * current_acceleration * dt  → 29/29 통과
+target_velocity = current_velocity + 2.0      * current_acceleration * dt  → 29/29 통과
+target_velocity = current_velocity + 0.0      * current_acceleration * dt  → 29/29 통과
+target_velocity = 0.0                                                       → 29/29 통과
+```
+
+`target_velocity`를 전 관절 0으로 지워도 `ruckig_filter_matches_the_oracle`
+(`TOL = 1e-9`, 스텝마다 위치·속도·가속도 전부 단언)을 포함해 한 건도
+실패하지 않는다. 이 줄은 `do_smoothing`에서 위치 통과 외의 유일한 계산인데
+새 fixture가 재는 것이 없다.
+
+원인은 fixture의 형상이다. 케이스 1이 유일한 다중 스텝(5 커맨드)인데
+목표가 0.3rad, jerk/accel/vel 한계가 전부 1.0, 주기 0.1s다. 0.5초 뒤에도
+가속도는 0.5, 위치는 0.02 언저리 — 프로파일이 아직 초기 jerk 상승
+구간이라 "목표 속도로 도착하도록 감속"하는 국면에 들어가지 않는다.
+그 국면에서만 `target_velocity`가 출력에 영향을 준다.
+
+이 포트의 줄 자체는 상류와 정확히 같다(`ruckig_filter.cpp:103-104`, 그리고
+`Ruckig`가 `params_.update_period`로 생성되므로 `delta_time`으로 바꿔 쓴
+것도 같은 값이다). 결함은 포트가 아니라 fixture의 구별력이다. 라운드 10
+1번 항목.
+
+### 74.4 머지 후 실측
+
+`cargo nextest run --workspace` **995/995**(982 + 13), `cargo test --doc
+--workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과, reseed-wrap 통과,
+재생 **28/28 identical**(새 `moveit-smoothing/acceleration_filter`,
+`moveit-smoothing/ruckig_filter` 포함).
