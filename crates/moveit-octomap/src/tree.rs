@@ -174,6 +174,22 @@ impl OcTree {
     /// `occ_prob_thres_log` is also exactly `0.0` -- confirmed against the
     /// real binary, not assumed (see `Self::DEFAULT_OCCUPANCY_THRES`'s
     /// doc comment).
+    ///
+    /// **Threshold source (round 14, item 2):** `occ_prob_thres_log` is
+    /// per-instance configuration state, matching upstream
+    /// `AbstractOccupancyOcTree`'s own `occ_prob_thres_log_` member
+    /// variable -- not a bare constant baked into this comparison. In
+    /// practice, though, it is *always* `Self::DEFAULT_OCCUPANCY_THRES`
+    /// today: upstream's own setter, `setOccupancyThres(double prob)`
+    /// (`AbstractOccupancyOcTree.h:188`), is one of the probability-space
+    /// sensor-model setters this port does not carry (see the module
+    /// docs' "probability-space (non-log) sensor-model getters and
+    /// setters" note) -- confirmed against that header in the oracle
+    /// container, not assumed. `DEFAULT_OCCUPANCY_THRES` itself is
+    /// already pinned against the real `liboctomap.so.1.9.7` (this
+    /// crate's own initial port, see that constant's doc comment and its
+    /// introducing commit), so nothing further needs oracle work unless a
+    /// future consumer needs `set_occupancy_thres` ported.
     pub fn is_node_occupied_log_odds(&self, log_odds: f32) -> bool {
         log_odds >= self.occ_prob_thres_log
     }

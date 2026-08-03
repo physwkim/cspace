@@ -1407,9 +1407,24 @@ impl Shape {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
+
+    // Round 14's §79 sweep: all 45 of this file's `assert_relative_eq!`
+    // calls converted to `assert_eq!` below, none left approximate.
+    // `assert_relative_eq!` with neither `epsilon` nor `max_relative` given
+    // defaults both to `f64::EPSILON`; the 7 remaining calls gave an
+    // explicit `epsilon = 1e-12` but no `max_relative`. Every one was
+    // bisected to a literal `epsilon = 0.0, max_relative = 0.0` (confirmed,
+    // not assumed) and still passed, then reconfirmed passing as
+    // `assert_eq!` here. Two reasons cover all 45: (1) most compare a
+    // scale/padd/volume result built from small, exactly-representable
+    // literals (halves, quarters, small integers) against a hand-computed
+    // literal of the same arithmetic, with no rounding step for the two
+    // sides to disagree on; (2) the handful involving `PI`,
+    // cross-product/`normalize`, or `1.0/3.0_f64.sqrt()` still land
+    // bit-exact for these specific inputs -- axis-aligned cross products,
+    // `2.0 * 2.0`-style power-of-two products, and additions of exact
+    // sign-symmetric pairs -- each says why at its own call site.
 
     // --- Construction: zero and negative dimensions ---
 
@@ -1488,8 +1503,8 @@ mod tests {
         b.scale_and_padd_axes(1.5, 1.5, 0.25, 0.25).unwrap();
         assert_eq!(a, b);
         // radius: 2*1.5+0.25 = 3.25; length: 4*1.5 + 2*0.25 = 6.5
-        assert_relative_eq!(a.radius, 3.25);
-        assert_relative_eq!(a.length, 6.5);
+        assert_eq!(a.radius, 3.25);
+        assert_eq!(a.length, 6.5);
     }
 
     #[test]
@@ -1521,35 +1536,36 @@ mod tests {
     #[test]
     fn sphere_volume() {
         let s = Sphere::new(1.0).unwrap();
-        assert_relative_eq!(
-            s.compute_volume(),
-            4.0 / 3.0 * std::f64::consts::PI,
-            epsilon = 1e-12
-        );
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `compute_volume` multiplies radius = 1.0
+        // by itself twice (no-ops) then by `4.0 / 3.0 * PI`, matching this
+        // literal's own operand order and grouping exactly.
+        assert_eq!(s.compute_volume(), 4.0 / 3.0 * std::f64::consts::PI);
     }
 
     #[test]
     fn degenerate_cylinder_volume_is_zero() {
         // Zero length: a disc, zero volume.
-        assert_relative_eq!(Cylinder::new(1.0, 0.0).unwrap().compute_volume(), 0.0);
+        assert_eq!(Cylinder::new(1.0, 0.0).unwrap().compute_volume(), 0.0);
         // Zero radius: a line, zero volume.
-        assert_relative_eq!(Cylinder::new(0.0, 1.0).unwrap().compute_volume(), 0.0);
+        assert_eq!(Cylinder::new(0.0, 1.0).unwrap().compute_volume(), 0.0);
     }
 
     #[test]
     fn cylinder_volume_matches_pi_r2_h() {
         let c = Cylinder::new(2.0, 3.0).unwrap();
-        assert_relative_eq!(
-            c.compute_volume(),
-            std::f64::consts::PI * 4.0 * 3.0,
-            epsilon = 1e-12
-        );
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `compute_volume` is `PI * radius *
+        // radius * length` = `PI * 2.0 * 2.0 * 3.0`; `2.0 * 2.0` is an exact
+        // power-of-two multiply, so the running product matches this
+        // literal's `PI * 4.0 * 3.0` bit for bit.
+        assert_eq!(c.compute_volume(), std::f64::consts::PI * 4.0 * 3.0);
     }
 
     #[test]
     fn cuboid_volume() {
         let b = Cuboid::new(2.0, 3.0, 4.0).unwrap();
-        assert_relative_eq!(b.compute_volume(), 24.0);
+        assert_eq!(b.compute_volume(), 24.0);
     }
 
     #[test]
@@ -1591,8 +1607,8 @@ mod tests {
         // centered on the base.
         let short = Cone::new(10.0, 1.0).unwrap();
         let bs = short.bounding_sphere();
-        assert_relative_eq!(bs.radius, 10.0);
-        assert_relative_eq!(bs.center.z, -0.5);
+        assert_eq!(bs.radius, 10.0);
+        assert_eq!(bs.center.z, -0.5);
     }
 
     #[test]
@@ -1601,7 +1617,7 @@ mod tests {
         assert_eq!(s.extents(), Vector3::new(4.0, 4.0, 4.0));
         let bs = s.bounding_sphere();
         assert_eq!(bs.center, Vector3::zeros());
-        assert_relative_eq!(bs.radius, 2.0);
+        assert_eq!(bs.radius, 2.0);
     }
 
     // --- Mesh: zero triangles, degenerate triangles, missing normals ---
@@ -1691,10 +1707,14 @@ mod tests {
         ];
         let mut mesh = Mesh::new(vertices, vec![[0, 1, 2]]).unwrap();
         mesh.compute_triangle_normals();
-        assert_relative_eq!(
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `(1,0,0) x (0,1,0) = (0,0,1)` exactly (each
+        // component is a sum of exact products of 0.0/1.0), and its norm is
+        // exactly 1.0, so normalizing is a no-op divide-by-one -- no `sqrt`
+        // rounding for this specific right-triangle input.
+        assert_eq!(
             mesh.triangle_normals.unwrap()[0],
-            Vector3::new(0.0, 0.0, 1.0),
-            epsilon = 1e-12
+            Vector3::new(0.0, 0.0, 1.0)
         );
     }
 
@@ -1712,7 +1732,12 @@ mod tests {
         let vertex_normals = mesh.vertex_normals.unwrap();
         assert_eq!(vertex_normals.len(), 3);
         for n in vertex_normals {
-            assert_relative_eq!(n, Vector3::new(0.0, 0.0, 1.0), epsilon = 1e-12);
+            // Bit-exact (round 14, §79): bisected to epsilon = 0.0,
+            // max_relative = 0.0 and still passed. Single-triangle mesh, so
+            // each vertex normal is that one triangle's normal with no
+            // averaging across triangles -- same (0,0,1)-exact reasoning as
+            // `compute_triangle_normal_matches_right_hand_rule` above.
+            assert_eq!(n, Vector3::new(0.0, 0.0, 1.0));
         }
     }
 
@@ -1831,13 +1856,13 @@ mod tests {
         assert_eq!(sphere2.radius, sphere.radius);
 
         sphere2.scale(2.0).unwrap();
-        assert_relative_eq!(sphere2.radius, 2.0);
+        assert_eq!(sphere2.radius, 2.0);
 
         sphere2.padd(1.0).unwrap();
-        assert_relative_eq!(sphere2.radius, 3.0);
+        assert_eq!(sphere2.radius, 3.0);
 
         sphere2.scale_and_padd(2.0, 1.0).unwrap();
-        assert_relative_eq!(sphere2.radius, 7.0);
+        assert_eq!(sphere2.radius, 7.0);
     }
 
     #[test]
@@ -1845,28 +1870,28 @@ mod tests {
         let mut c = Cylinder::new(1.0, 2.0).unwrap();
 
         c.scale(2.0).unwrap();
-        assert_relative_eq!(c.radius, 2.0);
-        assert_relative_eq!(c.length, 4.0);
+        assert_eq!(c.radius, 2.0);
+        assert_eq!(c.length, 4.0);
 
         c.padd(1.0).unwrap();
-        assert_relative_eq!(c.radius, 3.0);
-        assert_relative_eq!(c.length, 6.0);
+        assert_eq!(c.radius, 3.0);
+        assert_eq!(c.length, 6.0);
 
         c.scale_and_padd(2.0, 1.0).unwrap();
-        assert_relative_eq!(c.radius, 7.0);
-        assert_relative_eq!(c.length, 14.0);
+        assert_eq!(c.radius, 7.0);
+        assert_eq!(c.length, 14.0);
 
         c.scale_and_padd_axes(1.0, 3.0, 1.0, 3.0).unwrap();
-        assert_relative_eq!(c.radius, 8.0);
-        assert_relative_eq!(c.length, 48.0);
+        assert_eq!(c.radius, 8.0);
+        assert_eq!(c.length, 48.0);
 
         c.scale_axes(2.0, 1.5).unwrap();
-        assert_relative_eq!(c.radius, 16.0);
-        assert_relative_eq!(c.length, 72.0);
+        assert_eq!(c.radius, 16.0);
+        assert_eq!(c.length, 72.0);
 
         c.padd_axes(2.0, 3.0).unwrap();
-        assert_relative_eq!(c.radius, 18.0);
-        assert_relative_eq!(c.length, 78.0);
+        assert_eq!(c.radius, 18.0);
+        assert_eq!(c.length, 78.0);
     }
 
     #[test]
@@ -1876,36 +1901,36 @@ mod tests {
         let mut c = Cone::new(1.0, 2.0).unwrap();
 
         c.scale(2.0).unwrap();
-        assert_relative_eq!(c.radius, 2.0);
-        assert_relative_eq!(c.length, 4.0);
+        assert_eq!(c.radius, 2.0);
+        assert_eq!(c.length, 4.0);
 
         c.padd(1.0).unwrap();
-        assert_relative_eq!(c.radius, 3.0);
-        assert_relative_eq!(c.length, 6.0);
+        assert_eq!(c.radius, 3.0);
+        assert_eq!(c.length, 6.0);
 
         c.scale_and_padd(2.0, 1.0).unwrap();
-        assert_relative_eq!(c.radius, 7.0);
-        assert_relative_eq!(c.length, 14.0);
+        assert_eq!(c.radius, 7.0);
+        assert_eq!(c.length, 14.0);
 
         c.scale_and_padd_axes(1.0, 3.0, 1.0, 3.0).unwrap();
-        assert_relative_eq!(c.radius, 8.0);
-        assert_relative_eq!(c.length, 48.0);
+        assert_eq!(c.radius, 8.0);
+        assert_eq!(c.length, 48.0);
 
         c.scale_axes(2.0, 1.5).unwrap();
-        assert_relative_eq!(c.radius, 16.0);
-        assert_relative_eq!(c.length, 72.0);
+        assert_eq!(c.radius, 16.0);
+        assert_eq!(c.length, 72.0);
 
         c.padd_axes(2.0, 3.0).unwrap();
-        assert_relative_eq!(c.radius, 18.0);
-        assert_relative_eq!(c.length, 78.0);
+        assert_eq!(c.radius, 18.0);
+        assert_eq!(c.length, 78.0);
     }
 
     #[test]
     fn ground_truth_cuboid_scale_and_padd() {
         fn assert_size(size: [f64; 3], expected: [f64; 3]) {
-            assert_relative_eq!(size[0], expected[0]);
-            assert_relative_eq!(size[1], expected[1]);
-            assert_relative_eq!(size[2], expected[2]);
+            assert_eq!(size[0], expected[0]);
+            assert_eq!(size[1], expected[1]);
+            assert_eq!(size[2], expected[2]);
         }
 
         let mut b = Cuboid::new(1.0, 2.0, 3.0).unwrap();
@@ -1957,24 +1982,39 @@ mod tests {
         let mut mesh = Mesh::new(corners.to_vec(), vec![]).unwrap();
         mesh.vertex_normals = Some(corners.iter().map(|v| v.normalize()).collect());
 
+        // Bit-exact throughout (round 14, §79): all three loops below
+        // bisected to epsilon = 0.0, max_relative = 0.0 and still passed.
+        // The 8 corners are symmetric about the origin in ±1.0 per axis, so
+        // the centroid `scale_and_padd_axes` computes sums to exactly 0.0
+        // (each addition either combines equal magnitudes with opposite
+        // sign, which IEEE 754 gives back exactly, or doubles a value,
+        // which is an exact power-of-two multiply) -- so `d = v - centroid`
+        // is `v` itself, unrounded. `c * 2.0` is then an exact power-of-two
+        // scale, matching this loop's own `c * 2.0` literal bit for bit.
         mesh.scale(2.0).unwrap();
         for (v, c) in mesh.vertices.iter().zip(&corners) {
-            assert_relative_eq!(*v, c * 2.0, epsilon = 1e-12);
+            assert_eq!(*v, c * 2.0);
         }
 
         // For a right-angled corner, the vertex normal points away equally
         // from the three sides, so padding of 1.0 moves each vertex by
-        // 1.0 total, split equally (1/sqrt(3)) across x, y, z.
+        // 1.0 total, split equally (1/sqrt(3)) across x, y, z. Per corner
+        // component, `v.x = 2.0*c.x + vn.x` where `vn.x = normalize(c).x`
+        // is exactly `c.x * (1.0 / 3.0_f64.sqrt())` (a single sign flip,
+        // exact, off the same `sqrt(3.0)` every corner shares) -- so this
+        // is `±2.0 ± (1.0/sqrt(3))`, which IEEE 754 addition/negation gives
+        // back identically to `c * (2.0 + 1.0/3.0_f64.sqrt())` regardless
+        // of which term is negated.
         mesh.padd(1.0).unwrap();
         let pos = 2.0 + 1.0 / 3.0_f64.sqrt();
         for (v, c) in mesh.vertices.iter().zip(&corners) {
-            assert_relative_eq!(*v, c * pos, epsilon = 1e-12);
+            assert_eq!(*v, c * pos);
         }
 
         mesh.scale_and_padd(2.0, 1.0).unwrap();
         let pos2 = pos * 2.0 + 1.0 / 3.0_f64.sqrt();
         for (v, c) in mesh.vertices.iter().zip(&corners) {
-            assert_relative_eq!(*v, c * pos2, epsilon = 1e-12);
+            assert_eq!(*v, c * pos2);
         }
     }
 }

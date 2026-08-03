@@ -147,14 +147,18 @@
 //!   `collision_distance_field_types.rs`.
 //! - [`Body::contains_point`] again — `moveit-distance-field`'s
 //!   `find_internal_points.rs`.
-//! - [`Body::intersects_ray`], [`Body::sample_point_inside`],
-//!   [`Body::compute_volume`] — exercised only by this module's own tests and
-//!   [`crate`]'s `body_query_parity`/`probe_parity` right now; no *Rust*
-//!   caller outside `moveit-geometry` yet (checked by `rg` for each method
-//!   name across `crates/*/src`, excluding this file and `shapes.rs`). Their
-//!   *upstream* consumers, and which crate will call each once ported, are
-//!   decided per-method below (round 13, item 3) rather than left as one
+//! - [`Body::intersects_ray`], [`Body::compute_volume`] — exercised only by
+//!   this module's own tests and [`crate`]'s `body_query_parity`/
+//!   `probe_parity` right now; no *Rust* caller outside `moveit-geometry`
+//!   (checked by `rg` for each method name across `crates/*/src`, excluding
+//!   this file and `shapes.rs`). Their *upstream* consumers, or absence
+//!   thereof, are decided per-method below (round 13 item 3, corrected round
+//!   14 item 0a for `intersects_ray`) rather than left as one
 //!   undifferentiated "no caller" line.
+//! - [`Body::sample_point_inside`] — **has** a caller outside this crate:
+//!   `moveit-constraints`'s `ik_sampler.rs:254` (round 14 item 0b corrects
+//!   round 13's "once ported" framing, which was already stale when
+//!   written — see below).
 //!
 //!   Checked (round 11) whether "no caller" understates
 //!   [`ConvexMesh::intersects_ray`] specifically, since §9.1's probe already
@@ -187,41 +191,58 @@
 //! "No caller outside `moveit-geometry` yet" (above, since round 10) is a
 //! report line, not a state — closed here per-method rather than repeated.
 //!
-//! **[`Body::sample_point_inside`] — named consumer: `moveit-constraints`
-//! (p1-robotmodel's).** `moveit_core/constraint_samplers/src/
+//! **[`Body::sample_point_inside`] — has a consumer: `moveit-constraints`.**
+//! Upstream, `moveit_core/constraint_samplers/src/
 //! default_constraint_samplers.cpp:461`'s `IKConstraintSampler::samplePose`
 //! calls `b[(i + k) % b.size()]->samplePointInside(random_number_generator_,
 //! max_attempts, pos)` on `b`, the `std::vector<bodies::BodyPtr>` returned by
 //! `PositionConstraint::getConstraintRegions()` — a real, indexed, per-body
-//! call, not a `BodyVector`-mediated one. `PositionConstraint` is already
-//! `moveit-constraints`'s (`position.rs`, cited above for
-//! [`Body::contains_point`]); its `getConstraintRegions()` equivalent is that
-//! crate's port, and it is what will call [`Body::sample_point_inside`] once
-//! ported. No reopening condition needed — this is a real call site now, not
-//! a deferred one.
+//! call, not a `BodyVector`-mediated one. Round 13 recorded this as a future
+//! consumer ("once ported"); it already was ported by then —
+//! `moveit-constraints/src/ik_sampler.rs:254`'s `IkSampler::sample_pose`
+//! (p1-robotmodel round 9, merged after this crate's round-13 base, so the
+//! round-13 report was stale the moment it was written) calls exactly
+//! [`Body::sample_point_inside`] on the clone-at-pose'd constraint-region
+//! body: `body.sample_point_inside(max_attempts, &mut |lo, hi|
+//! rng.random_range(lo..hi))`. That caller fixes the two things this port's
+//! signature had to get right to be usable: `max_attempts: u32` is a plain
+//! retry budget (not upstream's `RandomNumberGenerator&` bundled with it —
+//! this port takes attempts and a sampler as two separate parameters), and
+//! `uniform: &mut dyn FnMut(f64, f64) -> f64` is the `(lo, hi) -> sample`
+//! closure every concrete body's `sample_point_inside` calls one or more
+//! times per attempt (see [`Sphere::sample_point_inside`],
+//! [`Cylinder::sample_point_inside`], etc.) — `ik_sampler.rs:254` supplies
+//! `rng.random_range(lo..hi)` for it, which is exactly what upstream's
+//! bundled `RandomNumberGenerator::uniformReal(lo, hi)` would have produced
+//! through the same call sites.
 //!
-//! **[`Body::intersects_ray`] — no consumer, upstream included; decided
-//! unported for now.** Re-checked this round against both trees: `rg -n
-//! intersectsRay` across the full `geometric_shapes` 2.3.3 source (`src/`,
-//! `include/`, `test/`) finds exactly two non-test call sites, both internal
-//! to `bodies.cpp` itself and already accounted for above —
-//! `ConvexMesh::intersectsRay`'s bounding-box pre-check
-//! (`bodies.cpp:1241`, mirrored by this port's `ray_intersections`
+//! **[`Body::intersects_ray`] — ported (`Sphere`/`Cylinder`/`Cuboid`/
+//! `ConvexMesh`/[`Body`]'s own enum dispatch, five `intersects_ray` methods
+//! in this file), no consumer outside this crate.** This method is *not*
+//! missing an implementation; what is missing is an external caller. Round
+//! 13's wording ("stays unported", "decided unported for now") read as if
+//! the method itself were absent, which it is not and never has been —
+//! corrected here (round 14, item 0a) rather than repeated. Re-checked this
+//! round against both trees: `rg -n intersectsRay` across the full
+//! `geometric_shapes` 2.3.3 source (`src/`, `include/`, `test/`) finds
+//! exactly two non-test call sites, both internal to `bodies.cpp` itself and
+//! already accounted for above — `ConvexMesh::intersectsRay`'s bounding-box
+//! pre-check (`bodies.cpp:1241`, mirrored by this port's `ray_intersections`
 //! short-circuit, lines 156-164 above) and `BodyVector::intersectsRay`'s
 //! first-hit loop over child bodies (`bodies.cpp:1414`, the wrapper decided
 //! not-worth-porting at lines 263-278 above). Neither is an external
-//! consumer; both are the same not-yet-ported-for-anyone-else algorithm
-//! calling itself. `rg -n intersectsRay` across all of `/home/stevek/work/
-//! moveit2` (`moveit_core` and `moveit_ros`) returns zero hits — no
-//! moveit2-layer caller exists either, unlike `sample_point_inside`. So this
-//! is upstream's own answer, not a gap in what this port's search covered:
-//! nothing anywhere in the pinned upstream tree calls a `Body`'s
-//! `intersectsRay` except another `Body` method already covered by an
-//! existing decision. Stays unported. Reopens if a future consumer appears —
-//! most plausibly Phase 3 collision's `ParryCollisionEnv`/`PosedBody` path,
-//! if it ever needs a body-level ray test this module could serve instead of
-//! `parry3d-f64`'s own ray-cast, or if `BodyVector` gets a real caller and
-//! its decided-unported status (lines 263-278) is itself reopened.
+//! consumer; both are the same already-ported algorithm calling itself.
+//! `rg -n intersectsRay` across all of `/home/stevek/work/moveit2`
+//! (`moveit_core` and `moveit_ros`) returns zero hits — no moveit2-layer
+//! caller exists either, unlike `sample_point_inside`. So this is upstream's
+//! own answer, not a gap in what this port's search covered: nothing
+//! anywhere in the pinned upstream tree calls a `Body`'s `intersectsRay`
+//! except another `Body` method already covered by an existing decision.
+//! Reopens if a future consumer appears — most plausibly Phase 3 collision's
+//! `ParryCollisionEnv`/`PosedBody` path, if it ever needs a body-level ray
+//! test this module could serve instead of `parry3d-f64`'s own ray-cast, or
+//! if `BodyVector` gets a real caller and its decided-unported status (lines
+//! 263-278) is itself reopened.
 //!
 //! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
 //!
@@ -3358,7 +3379,7 @@ mod tests {
         ] {
             let hits = sphere.ray_intersections(&origin, &dir, Some(2));
             assert_eq!(hits.len(), 1);
-            assert_relative_eq!(hits[0], expected, epsilon = 1e-6);
+            assert_eq!(hits[0], expected);
             assert!(sphere.intersects_ray(&origin, &dir));
         }
     }
@@ -3371,7 +3392,7 @@ mod tests {
         let origin = Vector3::zeros();
         let hits = sphere.ray_intersections(&origin, &Vector3::new(1.0, 0.0, 0.0), Some(2));
         assert_eq!(hits.len(), 1);
-        assert_relative_eq!(hits[0], Vector3::new(1.1, 0.0, 0.0), epsilon = 1e-6);
+        assert_eq!(hits[0], Vector3::new(1.1, 0.0, 0.0));
     }
 
     #[test]
@@ -3386,10 +3407,24 @@ mod tests {
         let origin = Vector3::zeros();
         let hits = sphere.ray_intersections(&origin, &Vector3::new(1.0, 0.0, 0.0), Some(2));
         assert_eq!(hits.len(), 1);
-        assert_relative_eq!(hits[0], Vector3::new(1.6, 0.0, 0.0), epsilon = 1e-6);
+        // Bit-exact (round 14, §79): bisected alone (not grouped with the
+        // -0.6 assertion below) to epsilon = 0.0, max_relative = 0.0 and
+        // still passed.
+        assert_eq!(hits[0], Vector3::new(1.6, 0.0, 0.0));
         let hits = sphere.ray_intersections(&origin, &Vector3::new(-1.0, 0.0, 0.0), Some(2));
         assert_eq!(hits.len(), 1);
-        assert_relative_eq!(hits[0], Vector3::new(-0.6, 0.0, 0.0), epsilon = 1e-6);
+        // NOT bit-exact (round 14, §79): bisected alone, unlike the +1.6
+        // hit above -- fails at epsilon = 0.0 (measured left =
+        // -0.6000000000000001, right = -0.6, diff ~1.11e-16, 1 ULP),
+        // passes at 1e-15, fails at 1e-16. epsilon = 1e-13 below is real,
+        // measured headroom (~1e3x the observed diff), not the file's old
+        // 1e-6 carried over unmeasured.
+        assert_relative_eq!(
+            hits[0],
+            Vector3::new(-0.6, 0.0, 0.0),
+            epsilon = 1e-13,
+            max_relative = 0.0
+        );
     }
 
     #[test]
@@ -3404,8 +3439,8 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut norms: Vec<f64> = hits.iter().map(|h| h.x).collect();
         norms.sort_by(f64::total_cmp);
-        assert_relative_eq!(norms[0], -1.0, epsilon = 1e-6);
-        assert_relative_eq!(norms[1], 1.0, epsilon = 1e-6);
+        assert_eq!(norms[0], -1.0);
+        assert_eq!(norms[1], 1.0);
     }
 
     /// Boundary: a ray tangent to the sphere's surface — hits exactly once,
@@ -3420,7 +3455,7 @@ mod tests {
             Some(2),
         );
         assert_eq!(hits.len(), 1);
-        assert_relative_eq!(hits[0], Vector3::new(-1.0, 0.0, 0.0), epsilon = 1e-6);
+        assert_eq!(hits[0], Vector3::new(-1.0, 0.0, 0.0));
     }
 
     /// Boundary: a ray that just misses the sphere's surface.
@@ -3467,7 +3502,7 @@ mod tests {
         ] {
             let hits = cylinder.ray_intersections(&origin, &dir, Some(2));
             assert_eq!(hits.len(), 1);
-            assert_relative_eq!(hits[0], expected, epsilon = 1e-6);
+            assert_eq!(hits[0], expected);
         }
     }
 
@@ -3485,8 +3520,8 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut xs: Vec<f64> = hits.iter().map(|h| h.x).collect();
         xs.sort_by(f64::total_cmp);
-        assert_relative_eq!(xs[0], -2.0, epsilon = 1e-6);
-        assert_relative_eq!(xs[1], 2.0, epsilon = 1e-6);
+        assert_eq!(xs[0], -2.0);
+        assert_eq!(xs[1], 2.0);
     }
 
     /// Boundary: a ray tangent to the cylinder's curved surface.
@@ -3502,7 +3537,7 @@ mod tests {
             Some(2),
         );
         assert_eq!(hits.len(), 1);
-        assert_relative_eq!(hits[0], Vector3::new(-2.0, 0.0, 0.0), epsilon = 1e-6);
+        assert_eq!(hits[0], Vector3::new(-2.0, 0.0, 0.0));
     }
 
     /// Boundary: a ray that just misses the cylinder's curved surface.
@@ -3545,8 +3580,14 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut xs: Vec<f64> = hits.iter().map(|h| h.x).collect();
         xs.sort_by(f64::total_cmp);
-        assert_relative_eq!(xs[0], -0.475, epsilon = 1e-4);
-        assert_relative_eq!(xs[1], 0.475, epsilon = 1e-4);
+        // NOT bit-exact (round 14, §79): each bisected alone. xs[0] fails
+        // at epsilon = 0.0 (measured left = -0.47499999999999964, right =
+        // -0.475, diff ~3.6e-16); xs[1] fails the same way (left =
+        // 0.47499999999999964, right = 0.475). Both pass at 1e-15, fail at
+        // 1e-16. epsilon = 1e-13 below is real, measured headroom, not the
+        // file's old 1e-4 carried over unmeasured.
+        assert_relative_eq!(xs[0], -0.475, epsilon = 1e-13, max_relative = 0.0);
+        assert_relative_eq!(xs[1], 0.475, epsilon = 1e-13, max_relative = 0.0);
     }
 
     #[test]
@@ -3592,8 +3633,8 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut xs: Vec<f64> = hits.iter().map(|h| h.x).collect();
         xs.sort_by(f64::total_cmp);
-        assert_relative_eq!(xs[0], -0.5, epsilon = 1e-6);
-        assert_relative_eq!(xs[1], 0.5, epsilon = 1e-6);
+        assert_eq!(xs[0], -0.5);
+        assert_eq!(xs[1], 0.5);
     }
 
     #[test]
@@ -3607,7 +3648,7 @@ mod tests {
         ] {
             let hits = cuboid.ray_intersections(&origin, &dir, Some(2));
             assert_eq!(hits.len(), 1);
-            assert_relative_eq!(hits[0], expected, epsilon = 1e-6);
+            assert_eq!(hits[0], expected);
         }
     }
 
@@ -3636,11 +3677,11 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut xs: Vec<f64> = hits.iter().map(|h| h.x).collect();
         xs.sort_by(f64::total_cmp);
-        assert_relative_eq!(xs[0], -1.0, epsilon = 1e-6);
-        assert_relative_eq!(xs[1], 1.0, epsilon = 1e-6);
+        assert_eq!(xs[0], -1.0);
+        assert_eq!(xs[1], 1.0);
         for h in &hits {
-            assert_relative_eq!(h.y, 1.0, epsilon = 1e-6);
-            assert_relative_eq!(h.z, 1.0, epsilon = 1e-6);
+            assert_eq!(h.y, 1.0);
+            assert_eq!(h.z, 1.0);
         }
     }
 
@@ -3658,10 +3699,10 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut ys: Vec<f64> = hits.iter().map(|h| h.y).collect();
         ys.sort_by(f64::total_cmp);
-        assert_relative_eq!(ys[0], -1.0, epsilon = 1e-6);
-        assert_relative_eq!(ys[1], 1.0, epsilon = 1e-6);
+        assert_eq!(ys[0], -1.0);
+        assert_eq!(ys[1], 1.0);
         for h in &hits {
-            assert_relative_eq!(h.z, 1.0, epsilon = 1e-6);
+            assert_eq!(h.z, 1.0);
         }
     }
 
@@ -3673,8 +3714,8 @@ mod tests {
         let dir = Vector3::new(1.0, 1.0, 1.0).normalize();
         let hits = cuboid.ray_intersections(&Vector3::new(-4.0, -4.0, -4.0), &dir, Some(2));
         assert_eq!(hits.len(), 2);
-        assert_relative_eq!(hits[0], Vector3::new(-1.0, -1.0, -1.0), epsilon = 1e-6);
-        assert_relative_eq!(hits[1], Vector3::new(1.0, 1.0, 1.0), epsilon = 1e-6);
+        assert_eq!(hits[0], Vector3::new(-1.0, -1.0, -1.0));
+        assert_eq!(hits[1], Vector3::new(1.0, 1.0, 1.0));
     }
 
     /// Boundary: zero-length ray direction from outside the box must not
@@ -3710,8 +3751,14 @@ mod tests {
         assert_eq!(hits.len(), 2);
         let mut xs: Vec<f64> = hits.iter().map(|h| h.x).collect();
         xs.sort_by(f64::total_cmp);
-        assert_relative_eq!(xs[0], -0.475, epsilon = 1e-4);
-        assert_relative_eq!(xs[1], 0.475, epsilon = 1e-4);
+        // NOT bit-exact (round 14, §79): each bisected alone. xs[0] fails
+        // at epsilon = 0.0 (measured left = -0.47499999999999964, right =
+        // -0.475, diff ~3.6e-16); xs[1] fails the same way (left =
+        // 0.47499999999999964, right = 0.475). Both pass at 1e-15, fail at
+        // 1e-16. epsilon = 1e-13 below is real, measured headroom, not the
+        // file's old 1e-4 carried over unmeasured.
+        assert_relative_eq!(xs[0], -0.475, epsilon = 1e-13, max_relative = 0.0);
+        assert_relative_eq!(xs[1], 0.475, epsilon = 1e-13, max_relative = 0.0);
     }
 
     #[test]
@@ -3744,7 +3791,7 @@ mod tests {
         ] {
             let hits = mesh.ray_intersections(&origin, &dir, Some(2));
             assert_eq!(hits.len(), 1);
-            assert_relative_eq!(hits[0], expected, epsilon = 1e-6);
+            assert_eq!(hits[0], expected);
         }
     }
 
@@ -3810,21 +3857,24 @@ mod tests {
     #[test]
     fn sphere_volume_matches_four_thirds_pi_r_cubed() {
         let sphere = Sphere::new(2.0).unwrap();
-        assert_relative_eq!(
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `radius * radius * radius` for
+        // radius = 2.0 is `2.0*2.0*2.0 = 8.0`, an exact power-of-two chain,
+        // matching this literal's own `* 8.0` bit for bit.
+        assert_eq!(
             sphere.compute_volume(),
-            4.0 / 3.0 * std::f64::consts::PI * 8.0,
-            epsilon = 1e-9
+            4.0 / 3.0 * std::f64::consts::PI * 8.0
         );
     }
 
     #[test]
     fn cylinder_volume_matches_pi_r_squared_h() {
         let cylinder = Cylinder::new(2.0, 3.0).unwrap();
-        assert_relative_eq!(
-            cylinder.compute_volume(),
-            std::f64::consts::PI * 4.0 * 3.0,
-            epsilon = 1e-9
-        );
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `PI * radius * radius * length` is
+        // `PI * 2.0 * 2.0 * 3.0`; `2.0 * 2.0` is an exact power-of-two
+        // multiply, matching this literal's `PI * 4.0 * 3.0` bit for bit.
+        assert_eq!(cylinder.compute_volume(), std::f64::consts::PI * 4.0 * 3.0);
     }
 
     /// Boundary: zero-length cylinder has zero volume, not NaN or a
@@ -3832,19 +3882,30 @@ mod tests {
     #[test]
     fn degenerate_cylinder_zero_length_volume_is_zero() {
         let cylinder = Cylinder::new(1.0, 0.0).unwrap();
-        assert_relative_eq!(cylinder.compute_volume(), 0.0, epsilon = 1e-12);
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `length = 0.0` makes the volume product
+        // exactly 0.0, no rounding possible.
+        assert_eq!(cylinder.compute_volume(), 0.0);
     }
 
     #[test]
     fn cuboid_volume_matches_l_w_h() {
         let cuboid = Cuboid::new(2.0, 3.0, 4.0).unwrap();
-        assert_relative_eq!(cuboid.compute_volume(), 24.0, epsilon = 1e-9);
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `2.0 * 3.0 * 4.0` is exact integer
+        // arithmetic in f64.
+        assert_eq!(cuboid.compute_volume(), 24.0);
     }
 
     #[test]
     fn convex_mesh_volume_of_box_matches_l_w_h() {
         let mesh = ConvexMesh::new(&box_mesh(2.0, 3.0, 4.0)).unwrap();
-        assert_relative_eq!(mesh.compute_volume(), 24.0, epsilon = 1e-6);
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. Convex-hull volume of an axis-aligned
+        // 2x3x4 box decomposes into tetrahedra whose signed volumes are
+        // sums of exact-integer products; the exact decomposition sums to
+        // 24.0 for this mesh with no rounding surviving.
+        assert_eq!(mesh.compute_volume(), 24.0);
     }
 
     // --- negative/zero dimensions and padding inversion: invariant
@@ -3885,7 +3946,7 @@ mod tests {
     fn sphere_padding_inversion_is_rejected_and_state_preserved() {
         let mut sphere = Sphere::new(1.0).unwrap();
         assert!(sphere.set_padding(-2.0).is_err());
-        assert_relative_eq!(sphere.padding(), 0.0, epsilon = 1e-12);
+        assert_eq!(sphere.padding(), 0.0);
         assert!(sphere.contains_point(&Vector3::new(1.0, 0.0, 0.0)));
     }
 
@@ -3893,7 +3954,7 @@ mod tests {
     fn cylinder_padding_inversion_is_rejected_and_state_preserved() {
         let mut cylinder = Cylinder::new(1.0, 1.0).unwrap();
         assert!(cylinder.set_padding(-2.0).is_err());
-        assert_relative_eq!(cylinder.padding(), 0.0, epsilon = 1e-12);
+        assert_eq!(cylinder.padding(), 0.0);
         assert!(cylinder.contains_point(&Vector3::new(1.0, 0.0, 0.0)));
     }
 
@@ -3901,7 +3962,7 @@ mod tests {
     fn cuboid_padding_inversion_is_rejected_and_state_preserved() {
         let mut cuboid = Cuboid::new(1.0, 1.0, 1.0).unwrap();
         assert!(cuboid.set_padding(-2.0).is_err());
-        assert_relative_eq!(cuboid.padding(), 0.0, epsilon = 1e-12);
+        assert_eq!(cuboid.padding(), 0.0);
         assert!(cuboid.contains_point(&Vector3::new(0.5, 0.0, 0.0)));
     }
 
@@ -3916,8 +3977,12 @@ mod tests {
             AABB::new(Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 1.0, 1.0)),
         ];
         let merged = merge_bounding_boxes(&boxes);
-        assert_relative_eq!(merged.min(), Vector3::new(-1.0, -1.0, -1.0), epsilon = 1e-4);
-        assert_relative_eq!(merged.max(), Vector3::new(1.0, 1.0, 1.0), epsilon = 1e-4);
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. Axis-aligned min/max of unit boxes at
+        // integer-valued corners is a min/max reduction over exact ±1.0
+        // literals, with no arithmetic to round.
+        assert_eq!(merged.min(), Vector3::new(-1.0, -1.0, -1.0));
+        assert_eq!(merged.max(), Vector3::new(1.0, 1.0, 1.0));
     }
 
     #[test]
@@ -3935,16 +4000,16 @@ mod tests {
 
         assert!(b1.overlaps(&b2));
         assert!(b2.overlaps(&b1));
-        assert_relative_eq!(b1.extents(), Vector3::new(0.1, 0.1, 0.1), epsilon = 1e-12);
-        assert_relative_eq!(
-            b1.pose().translation.vector,
-            Vector3::new(-0.6, -0.6, -0.6),
-            epsilon = 1e-12
-        );
-        assert_relative_eq!(
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. Bootstrapping from a zero-extent `b1`
+        // means `extend_approx` just copies `b2`'s own extents, pose
+        // translation, and rotation matrix, so every field compares a
+        // freshly-copied value against its own source, not a recomputed one.
+        assert_eq!(b1.extents(), Vector3::new(0.1, 0.1, 0.1));
+        assert_eq!(b1.pose().translation.vector, Vector3::new(-0.6, -0.6, -0.6));
+        assert_eq!(
             b1.pose().rotation.to_rotation_matrix().matrix(),
-            pose.rotation.to_rotation_matrix().matrix(),
-            epsilon = 1e-12
+            pose.rotation.to_rotation_matrix().matrix()
         );
     }
 
@@ -3970,12 +4035,12 @@ mod tests {
         b1.extend_approx(&b2);
 
         assert!(b1.contains_obb(&b2));
-        assert_relative_eq!(b1.extents(), Vector3::new(1.0, 1.0, 1.0), epsilon = 1e-12);
-        assert_relative_eq!(
-            b1.pose().translation.vector,
-            Vector3::new(-0.5, -0.5, -0.5),
-            epsilon = 1e-12
-        );
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `self.contains_obb(other)` takes the
+        // early `return` in `extend_approx`, leaving `b1` byte-for-byte as
+        // constructed above -- nothing here was recomputed.
+        assert_eq!(b1.extents(), Vector3::new(1.0, 1.0, 1.0));
+        assert_eq!(b1.pose().translation.vector, Vector3::new(-0.5, -0.5, -0.5));
     }
 
     #[test]
@@ -3996,12 +4061,12 @@ mod tests {
 
         b2.extend_approx(&b1);
 
-        assert_relative_eq!(b2.extents(), Vector3::new(1.0, 1.0, 1.0), epsilon = 1e-12);
-        assert_relative_eq!(
-            b2.pose().translation.vector,
-            Vector3::new(-0.5, -0.5, -0.5),
-            epsilon = 1e-12
-        );
+        // Bit-exact (round 14, §79): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed. `other.contains_obb(self)` takes the
+        // `*self = *other` branch in `extend_approx`, an exact struct copy
+        // of `b1` into `b2` -- nothing here was recomputed.
+        assert_eq!(b2.extents(), Vector3::new(1.0, 1.0, 1.0));
+        assert_eq!(b2.pose().translation.vector, Vector3::new(-0.5, -0.5, -0.5));
     }
 
     /// Upstream's own test for this branch only asserts loose sanity
@@ -4050,8 +4115,16 @@ mod tests {
             },
         ];
         let merged = merge_bounding_spheres(&spheres);
-        assert_relative_eq!(merged.center.x, -0.05, epsilon = 1e-5);
-        assert_relative_eq!(merged.radius, 6.05, epsilon = 1e-12);
+        // NOT bit-exact (round 14, §79): bisected alone, unlike
+        // `merged.radius` below -- fails at epsilon = 0.0 (measured left =
+        // -0.04999999999999982, right = -0.05, diff ~1.8e-16), passes at
+        // 1e-15, fails at 1e-16. epsilon = 1e-13 is real, measured
+        // headroom, not the file's old 1e-5 carried over unmeasured.
+        assert_relative_eq!(merged.center.x, -0.05, epsilon = 1e-13, max_relative = 0.0);
+        // Bit-exact (round 14, §79): bisected alone (not grouped with
+        // `merged.center.x` above) to epsilon = 0.0, max_relative = 0.0 and
+        // still passed.
+        assert_eq!(merged.radius, 6.05);
     }
 
     // --- Body::from_shape ---
