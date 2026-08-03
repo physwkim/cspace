@@ -78,14 +78,20 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// parity or any other predictable property. See this module's
 /// `octree_points_subdivision_drops_the_last_face_for_an_even_k_boundary`/
 /// `octree_points_subdivision_boundary_outcome_is_per_axis_not_per_k` tests
-/// for two concrete, deterministic instances. Whether upstream's C++
-/// produces the identical per-instance count for the same inputs is
-/// unverified — floating-point accumulation order is the same source
-/// language construct on both sides, but compiler-level reassociation
-/// (FMA contraction, `-ffast-math`-class flags) could in principle diverge
-/// from Rust's strict left-to-right `+=`; confirming this needs an oracle
-/// op this crate cannot add on its own (see PORTING-PLAN.md §96.3's
-/// oracle-extension request).
+/// for two concrete, deterministic instances, plus a third power-of-two
+/// case in `octree_points_subdivision_le_boundary_keeps_the_last_face_that_lt_would_drop`.
+/// Whether upstream's C++ produces the identical per-instance count *and*
+/// emission order for the same inputs was an open cross-language question
+/// — floating-point accumulation order is the same source-language
+/// construct on both sides, but compiler-level reassociation (FMA
+/// contraction, `-ffast-math`-class flags) could in principle diverge from
+/// Rust's strict left-to-right `+=`. It no longer is: PORTING-PLAN.md
+/// §102's `octree_points` oracle op ran all three cases against the real
+/// `moveit2` C++ and every point matched, bit-for-bit and in emission
+/// order, not just the count (`octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases`,
+/// backed by `tests/fixtures/octree_points_request.json`/`_response.json`).
+/// The 39% last-face-drop rate is a property of the loop both
+/// implementations run, not a divergence this port introduced.
 fn octree_points(
     bbx_min: Vector3<f64>,
     bbx_max: Vector3<f64>,
@@ -398,6 +404,8 @@ pub trait DistanceField {
 /// mutation was reverted after confirming.
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use super::*;
     use crate::propagation::PropagationDistanceField;
     use crate::voxel_grid::GridGeometry;
@@ -655,5 +663,226 @@ mod tests {
             "power-of-two resolutions make the accumulation exact -- 3 points \
              per axis (both ends included), not 2 (see this test's own doc)"
         );
+    }
+
+    /// `serde_json` 1.0.151's direct `f64`-typed deserialization (whether
+    /// into a bare `f64` field, a `[f64; N]` array, `serde_json::Value`, or
+    /// a tuple struct) is not correctly rounded for some 17-significant-digit
+    /// literals -- confirmed directly:
+    /// `serde_json::from_str::<[f64; 3]>("[0,0,10.049999999999999]")`
+    /// yields the `f64` for `10.05`, a different, wrong neighbor. This
+    /// crate's fixtures compare floating-point coordinates bit-exactly, so
+    /// a silently mis-rounded expected value is exactly the false result
+    /// that discipline exists to catch. The fix is to never let
+    /// `serde_json` parse these literals into a float itself: deserialize
+    /// the source text verbatim via `serde_json::value::RawValue` (this
+    /// crate's `raw_value` feature, see `Cargo.toml`) and hand it to
+    /// Rust's own correctly-rounded `str::parse::<f64>` -- confirmed
+    /// against both `str::parse::<f64>` directly and Python's `json`
+    /// module. (`arbitrary_precision` also fixes `serde_json::Value`'s
+    /// rounding, but was rejected: it breaks `#[serde(tag = "...")]`
+    /// internally-tagged enum deserialization crate-wide, which broke
+    /// `tests/shape_points_parity.rs`'s `ShapeSpec` and
+    /// `tests/collision_distance_field_types_parity.rs`'s equivalent.)
+    /// Every float-bearing field in these fixture structs therefore goes
+    /// through [`de_f64`]/[`de_f64_3`]/[`de_f64_3_vec`] rather than
+    /// deriving `Deserialize` directly on `f64`/`[f64; 3]`/`Vec<[f64; 3]>`.
+    fn de_f64<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<f64, D::Error> {
+        let raw = <Box<serde_json::value::RawValue>>::deserialize(deserializer)?;
+        raw.get()
+            .parse()
+            .map_err(|_| serde::de::Error::custom("expected a JSON number"))
+    }
+
+    fn de_f64_3<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<[f64; 3], D::Error> {
+        let raw: [Box<serde_json::value::RawValue>; 3] = Deserialize::deserialize(deserializer)?;
+        let mut out = [0.0; 3];
+        for (slot, value) in out.iter_mut().zip(raw.iter()) {
+            *slot = value
+                .get()
+                .parse()
+                .map_err(|_| serde::de::Error::custom("expected a JSON number"))?;
+        }
+        Ok(out)
+    }
+
+    fn de_f64_3_vec<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Vec<[f64; 3]>, D::Error> {
+        let raw: Vec<[Box<serde_json::value::RawValue>; 3]> =
+            Deserialize::deserialize(deserializer)?;
+        raw.iter()
+            .map(|triple| {
+                let mut out = [0.0; 3];
+                for (slot, value) in out.iter_mut().zip(triple.iter()) {
+                    *slot = value
+                        .get()
+                        .parse()
+                        .map_err(|_| serde::de::Error::custom("expected a JSON number"))?;
+                }
+                Ok(out)
+            })
+            .collect()
+    }
+
+    #[derive(Deserialize)]
+    struct OracleGeometry {
+        #[serde(deserialize_with = "de_f64_3")]
+        size: [f64; 3],
+        #[serde(deserialize_with = "de_f64_3")]
+        origin: [f64; 3],
+        #[serde(deserialize_with = "de_f64")]
+        resolution: f64,
+    }
+
+    #[derive(Deserialize)]
+    struct OracleAction {
+        #[serde(rename = "type")]
+        action_type: String,
+        #[serde(deserialize_with = "de_f64_3")]
+        point: [f64; 3],
+        occupied: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct OracleRequest {
+        id: u64,
+        geometry: OracleGeometry,
+        #[serde(deserialize_with = "de_f64")]
+        octree_resolution: f64,
+        actions: Vec<OracleAction>,
+    }
+
+    #[derive(Deserialize)]
+    struct OracleLeaf {
+        #[serde(deserialize_with = "de_f64_3")]
+        coordinate: [f64; 3],
+        #[serde(deserialize_with = "de_f64")]
+        size: f64,
+        occupied: bool,
+    }
+
+    #[derive(Deserialize)]
+    struct OracleResult {
+        count: usize,
+        leaves: Vec<OracleLeaf>,
+        #[serde(deserialize_with = "de_f64_3_vec")]
+        points: Vec<[f64; 3]>,
+    }
+
+    #[derive(Deserialize)]
+    struct OracleResponse {
+        id: u64,
+        ok: bool,
+        result: OracleResult,
+    }
+
+    fn load_fixture<T: for<'de> Deserialize<'de>>(name: &str) -> T {
+        let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+        let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    }
+
+    /// Closes the cross-language gap [`octree_points`]'s own doc used to
+    /// flag as unverified: whether upstream's C++ produces the identical
+    /// per-instance point count and emission order for the same inputs, or
+    /// whether compiler-level FMA contraction makes its accumulated `x
+    /// += resolution_` diverge from Rust's strict left-to-right `+=`.
+    /// `tests/fixtures/octree_points_request.json`/`_response.json` capture
+    /// the real `moveit2` C++ oracle's answer (via its new `octree_points`
+    /// op, PORTING-PLAN.md §102) for the three deterministic cases this
+    /// module already pins by count alone: the even-`k` boundary
+    /// (`octree_points_subdivision_drops_the_last_face_for_an_even_k_boundary`),
+    /// the odd-`k`/per-axis boundary
+    /// (`octree_points_subdivision_boundary_outcome_is_per_axis_not_per_k`),
+    /// and the power-of-two `<=` pin
+    /// (`octree_points_subdivision_le_boundary_keeps_the_last_face_that_lt_would_drop`).
+    /// Every point is compared bit-for-bit, in emission order, not just the
+    /// count -- upstream and this port agreeing on "1000 points" says
+    /// nothing about whether they are the *same* 1000 points; a grid
+    /// shifted by one cell would pass a count-only check and fail this one.
+    /// **Result: all three cases match upstream exactly, count and every
+    /// coordinate** (PORTING-PLAN.md §102.2) -- the 39% last-face-drop rate
+    /// this module measured is a property of the loop upstream and this
+    /// port both implement, not a divergence this port introduced.
+    #[test]
+    fn octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases() {
+        let requests: Vec<OracleRequest> = load_fixture("octree_points_request.json");
+        let responses: Vec<OracleResponse> = load_fixture("octree_points_response.json");
+        assert_eq!(
+            requests.len(),
+            3,
+            "fixture must cover all three pinned cases"
+        );
+        assert_eq!(requests.len(), responses.len());
+
+        for (request, response) in requests.iter().zip(&responses) {
+            assert_eq!(
+                request.id, response.id,
+                "request/response fixtures must stay paired by id"
+            );
+            assert!(response.ok, "id {}: oracle reported failure", request.id);
+            assert_eq!(
+                request.actions.len(),
+                1,
+                "id {}: this test only builds a single-leaf octree",
+                request.id
+            );
+            let action = &request.actions[0];
+            assert_eq!(action.action_type, "update_point");
+
+            let mut tree = OcTree::new(request.octree_resolution);
+            tree.update_node(Point3::from(action.point), action.occupied, false);
+
+            let bbx_min = Vector3::from(request.geometry.origin);
+            let bbx_max = bbx_min + Vector3::from(request.geometry.size);
+            let points = octree_points(bbx_min, bbx_max, request.geometry.resolution, &tree);
+
+            assert_eq!(
+                points.len(),
+                response.result.count,
+                "id {}: point count",
+                request.id
+            );
+            let actual: Vec<[f64; 3]> = points.iter().map(|p| [p.x, p.y, p.z]).collect();
+            assert_eq!(
+                actual, response.result.points,
+                "id {}: emission order and coordinates must match the oracle exactly, \
+                 not just the count",
+                request.id
+            );
+
+            assert_eq!(
+                response.result.leaves.len(),
+                1,
+                "id {}: fixture must contain exactly the one leaf this test built",
+                request.id
+            );
+            let leaf = tree.leaves().next().expect("one leaf was inserted");
+            let expected_leaf = &response.result.leaves[0];
+            assert_eq!(
+                leaf.size(),
+                expected_leaf.size,
+                "id {}: leaf size",
+                request.id
+            );
+            assert_eq!(
+                leaf.is_occupied(),
+                expected_leaf.occupied,
+                "id {}: leaf occupancy",
+                request.id
+            );
+            let coord = leaf.coordinate();
+            assert_eq!(
+                [coord.x, coord.y, coord.z],
+                expected_leaf.coordinate,
+                "id {}: leaf coordinate",
+                request.id
+            );
+        }
     }
 }
