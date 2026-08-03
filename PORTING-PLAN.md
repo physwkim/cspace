@@ -2872,3 +2872,110 @@ panda_arm(체인, 전부 1-DOF 회전 조인트)을 픽스처 그룹으로 골�
 `update_orientation_constraint`/`update_position_constraint`의 경계
 케이스(윈도우 비중첩, 미발견 링크, 다중 영역 오류)는 오라클 없이
 순수 단위 테스트로 커버했다.
+
+---
+
+## 24. `resolveConstraintFrames` 이식 — 그리고 구성 시점 검증이 만든 API 형태 변경 (4라운드, 2026-08-04)
+
+§23.1이 남겨둔 차단 사유(`RobotState`/`Posed`에 부착체/서브프레임을
+이름으로 찾는 API가 없음)는 같은 병합 라운드에서 `p1-fixtures`가
+`PlanningScene` 레벨(`scene.rs:583`, `:641`)로 해소했다 — `RobotState`
+레벨이 아니라. 이번 라운드에서 이 함수를 실제로 이식했다.
+
+### 24.1 의존 방향 — 클로저를 택했다
+
+상류는 `const RobotState&`를 받아 부착체/서브프레임도 스스로 해석한다.
+이 포트는 부착체를 `PlanningScene`에 두기로 했으므로(`AttachedBody`
+모듈 문서) 동등한 조회는 그쪽에 있다. `&PlanningScene`을 직접 받으면
+`moveit-constraints`가 `moveit-scene`에 의존하게 되는데, 상류
+`planning_scene`이 `kinematic_constraints`에 의존하는 방향(목표
+제약 검사 등)과 반대다 — `tools/ci/check-dep-direction.sh`는 ROS
+의존만 검사해 이 역전은 잡지 못하지만, `PORTING-PLAN.md` §3의 크레이트
+레이아웃(`moveit-scene`이 `moveit-constraints`보다 앞선다는 암묵적
+순서는 없지만, 상류 자체의 실제 의존 방향이 근거다)과 upstream 자체의
+`planning_scene.cpp`가 `kinematic_constraints`를 include하는 사실이
+근거다. 그래서 "부착체/서브프레임 이름 하나를 로봇 링크+상대
+포즈로 바꿔달라"는 조회 하나만 클로저 파라미터로 받는다 — 씬이 있는
+호출자는 `PlanningScene::attached_frame` 위에 얇은 래퍼를 씌워
+넘기고, 부착체가 전혀 없는 호출자는 `|_| None`을 넘긴다.
+
+### 24.2 왜 `&mut KinematicConstraintSet`이 아니라 구성 이전 단계인가 — 재설계 사유
+
+원래 계획(3라운드 인계 노트)은 다른 `update_*` 함수들과 같은 모양,
+즉 `&mut KinematicConstraintSet`을 받아 이미 만들어진 제약을 훑고
+`link_name`을 다시 쓰는 함수였다. 작성 도중 상류
+`PositionConstraint::configure`(`kinematic_constraint.cpp:365`)를 다시
+읽다가 발견한 사실: 상류 자신도 `pc.link_name`이 이미 실제 로봇
+링크여야만 `configure()`가 성공한다(`link_model_ = robot_model_->
+getLinkModel(pc.link_name); if (nullptr) return false`) —
+이 크레이트의 `PositionConstraint::new`/`OrientationConstraint::new`가
+`model.link_model(link_name)?`으로 강제하는 것과 정확히 같다.
+
+즉 상류에서도 부착체/서브프레임 이름을 가진 제약은 **`configure()`가
+실행되기 전, 아직 원시 `moveit_msgs::msg::Constraints` 메시지인
+동안만** 존재할 수 있다 — `resolveConstraintFrames`의 유일한 실제
+호출부(`moveit_ros/planning/planning_request_adapter_plugins/src/
+resolve_constraint_frames.cpp`, `moveit-ros` 전용 플래닝 요청
+어댑터)가 `MotionPlanRequest`의 원시 `path_constraints`/
+`goal_constraints`를 `KinematicConstraintSet::add()`보다 먼저
+고쳐 쓰는 것도 그래서다.
+
+이 포트는 "원시 메시지 → 검증된 객체" 2단계 파이프라인을 1단계로
+합쳤다(`utils.rs` 모듈 문서의 "update reconstructs, not mutates" —
+`PositionConstraint::new`가 즉시 검증한다). 그 결과
+`PositionConstraint`/`OrientationConstraint`는 만들어진 이후로 절대
+미해석 `link_name`을 담을 수 없다 — `&mut KinematicConstraintSet`을
+훑는 모양으로 지었다면 재타겟 분기가 **원리적으로 실행될 수 없는**
+함수가 됐을 것이다. 이는 3라운드에서 이미 한 번 거부했던 "퇴화한
+no-op"과 같은 결함이고, 이번엔 만들고 나서가 아니라 만들기 전에
+`rg`형 재확인(상류 소스를 직접 다시 읽음)으로 잡았다.
+
+**해결:** 구성 이전 단계에 두 함수를 이식했다 —
+`resolve_position_constraint_frame`(link_name + point offset →
+resolved link_name + adjusted offset)와
+`resolve_orientation_constraint_frame`(link_name + orientation +
+tolerance → resolved link_name + adjusted orientation). 호출자는
+`PositionConstraint::new`/`OrientationConstraint::new`를 부르기
+직전에 이 함수들을 불러, 결과를 그대로 그 생성자에 넘긴다 — 상류에서
+`resolveConstraintFrames`가 항상 `configure()` 바로 앞에서 실행되던
+자리와 정확히 대응한다.
+
+### 24.3 오프셋/방향 변환 유도
+
+공통 헬퍼 `resolve_frame_to_link`가 상류 `RobotState::getFrameInfo`의
+세 단계 중 이 크레이트가 스스로 풀 수 있는 두 개(모델 프레임 →
+루트 링크, 평범한 링크 이름 → 자기 자신)를 처리하고, 나머지 하나
+(부착체/서브프레임)는 클로저에 위임한다. 반환값은 상류의
+`robot_link_to_link_name = getGlobalLinkTransform(robot_link).
+inverse() * transform`과 정확히 같은 의미(`link_name`의 프레임을
+`robot_link`의 프레임으로 바꾸는 변환)이고, 위치 쪽은 이를 그대로
+점(offset)에 적용, 방향 쪽은 그 회전 성분의 역(`link_name_to_
+robot_link = transform.linear()^T * getGlobalLinkTransform(robot_link).
+linear()`과 대수적으로 동치임을 손으로 유도해 확인)을 쿼터니언에
+합성한다.
+
+### 24.4 테스트 — 오라클 엔드포인트가 없다
+
+`resolveConstraintFrames`의 유일한 상류 호출부가 `moveit-ros`
+어댑터라 오라클에 대응하는 op가 없다. `crates/moveit-constraints/
+tests/utils_parity.rs`에 `resolve_constraint_frame_boundary` 모듈(6
+테스트, 손으로 계산한 기대값)로 커버했다:
+
+- **핵심 케이스** — `"gripper_tool"`이라는, 모델에 실재하지 않는
+  이름을 클로저만으로 `"panda_link8"` + 평행이동 (1,2,3)으로 해석하게
+  하고, offset (0.1,0,0)이 (1.1,2,3)으로 바뀌는 것을 확인했다(위치)와,
+  90도 Z축 회전 클로저에 대해 identity 방향이 그 역회전으로 바뀌는
+  것을 확인했다(방향) — 라운드 3에서 거부했던 no-op이 되지
+  않았음을 직접 증명하는 케이스.
+- 이미 실제 링크 이름이면 링크/오프셋/방향이 그대로인 케이스.
+- 모델 프레임 → 루트 링크(현재 상태의 `global_link_transform`으로
+  독립 검산).
+- 어디에도 해석되지 않는 이름 → `Ok(None)`.
+- `XyzEuler` 톨러런스로 실제 프레임 변경(부착 서브프레임)을 재타겟하려
+  하면 `Error::Other` — 상류의 `utils.cpp:661-664` 거부와 동일.
+
+### 24.5 남는 것
+
+`update_joint_constraints`의 `local_variable_name` 미제거 이름 비교
+한계(§23.3-1)는 이 함수와 무관 — `resolveConstraintFrames`는
+위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다.
