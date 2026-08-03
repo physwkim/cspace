@@ -869,6 +869,11 @@ mod tests {
     /// `EXPECT_DOUBLE_EQ` literals for this case (0 ULP), so both are now
     /// `assert_eq!`, per-component for position, matching upstream's actual
     /// test shape.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 108/109) -- excluded
+    /// from round 12's `trajectory.rs` epsilon bisection per
+    /// PORTING-PLAN.md's round-12 report.
     #[test]
     fn upstream_test1() {
         let waypoints = [
@@ -1023,6 +1028,11 @@ mod tests {
     /// round adds is that the `8.893e-9` floor is specific to
     /// `CircularPathSegment` geometry, not a generic property of
     /// `Trajectory::create`'s iteration.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 156/157) -- excluded
+    /// from round 12's `trajectory.rs` epsilon bisection per
+    /// PORTING-PLAN.md's round-12 report, same as [`upstream_test1`]'s.
     #[test]
     fn upstream_test2() {
         let waypoints = [
@@ -1077,6 +1087,11 @@ mod tests {
     /// the smaller `time_step` apparently avoids whatever accumulates
     /// `test2`'s `8.893e-9` divergence. Both duration and position are now
     /// `assert_eq!`.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 204/205) -- excluded
+    /// from round 12's `trajectory.rs` epsilon bisection per
+    /// PORTING-PLAN.md's round-12 report, same as [`upstream_test1`]'s.
     #[test]
     fn upstream_test3() {
         let waypoints = [
@@ -1164,6 +1179,27 @@ mod tests {
     /// `assert_relative_eq!(..., epsilon = 1e-9)` an earlier round
     /// substituted -- see [`upstream_test1`]'s doc comment for the same
     /// fidelity issue found across this file.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 594/595) -- excluded
+    /// from this round's bisection per PORTING-PLAN.md's round-12 report.
+    /// The other two `EXPECT_NEAR` sites, both `1e-3` in upstream (duration
+    /// line 589, acceleration lines 604/608), were bisected this round
+    /// (`1e-6 → 1e-9 → 1e-12 → 1e-15 → 0.0`, `--no-fail-fast`, one constant
+    /// at a time) rather than assumed identical just because the *value*
+    /// matches upstream's literal:
+    ///
+    /// - `traj_duration` vs `0.320_681`: fails at `epsilon = 1e-6`
+    ///   (`0.3204013114849768` actual, diff `2.8e-4`) -- upstream's own
+    ///   `1e-3` is already the tightest step in the ladder that passes, kept
+    ///   as-is (not tightened; this measurement corroborates upstream's
+    ///   choice rather than just inheriting it unverified).
+    /// - the two acceleration checks (`±max_acceleration[0]`, magnitude
+    ///   `28.0`): pass at `epsilon = 1e-9`, fail at `1e-12`
+    ///   (`27.999999999998224` actual vs `28.0`, diff `1.78e-12`) --
+    ///   tightened from upstream's `1e-3` to `1e-9` (~2.75 orders of
+    ///   headroom over the measured floor), since this port's own precision
+    ///   here is far tighter than upstream's chosen bound.
     #[test]
     fn upstream_test_single_dof_discontinuity() {
         let start_position = 1.881_943;
@@ -1189,13 +1225,13 @@ mod tests {
                 assert_relative_eq!(
                     trajectory.acceleration(time)[0],
                     max_acceleration[0],
-                    epsilon = 1e-3
+                    epsilon = 1e-9
                 );
             } else if time > t_switch {
                 assert_relative_eq!(
                     trajectory.acceleration(time)[0],
                     -max_acceleration[0],
-                    epsilon = 1e-3
+                    epsilon = 1e-9
                 );
             }
             time += 0.01;
