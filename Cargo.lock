@@ -329,6 +329,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-scene"
+version = "0.1.0"
+dependencies = [
+ "moveit-collision",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
+ "urdf-rs",
+]
+
+[[package]]
 name = "moveit-smoothing"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,23 @@
+[package]
+name = "moveit-scene"
+description = "PlanningScene for moveit-rs: world, attached bodies, ACM and current RobotState, ported from moveit_core/planning_scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+moveit-collision.workspace = true
+moveit-error.workspace = true
+moveit-geometry.workspace = true
+moveit-model.workspace = true
+moveit-srdf.workspace = true
+moveit-state.workspace = true
+
+[dev-dependencies]
+urdf-rs.workspace = true
+
+[lints]
+workspace = true
