@@ -1042,3 +1042,97 @@ ACM 커버리지는 `dual_arm_panda`(68쌍, 22링크)가 담당한다 — §10.6
 - `print` / `operator<<` — `moveit-state`가 아직 속도·가속도를 싣지 않는다.
 
 `RuckigSmoothing`과 오라클 `ruckig` op은 아직 시작하지 않았다.
+
+---
+
+## 12. Phase 5 (제약 절반) — `moveit-constraints` 착수 (2026-08-03)
+
+`moveit_core/kinematic_constraints/kinematic_constraint.{hpp,cpp}`를
+이식했다: `JointConstraint`, `PositionConstraint`, `OrientationConstraint`,
+`VisibilityConstraint`(부분), `KinematicConstraintSet`,
+`ConstraintEvaluationResult`. `utils.{hpp,cpp}`는 이식하지 않는다 — 거기
+함수 전부가 `moveit_msgs::msg::Constraints`나 `rclcpp::Node`를 인자로
+받거나 반환해서, D1에 따라 이 크레이트가 아니라 `moveit-ros`/
+`moveit-planning`의 몫이다. `moveit-scene`은 이번 라운드 범위 밖이다
+(충돌 검사 백엔드가 아직 trait뿐이라 §11.5의 `moveit-collision`을
+막고 있다).
+
+### 12.1 §4.3 매핑 결정 3건 — 어떤 필드가 `Option`/enum이 됐는가
+
+**`PositionConstraint`.** upstream은 `constraint_region_`을
+`std::vector<bodies::BodyPtr>` 하나로 이미 들고 있지만,
+`moveit_msgs::msg::PositionConstraint`는 이걸 `primitives`/`meshes`
+(도형 종류별로 나뉜 벡터 2개)와 `primitive_poses`/`mesh_poses`(길이가
+각각 맞아야 하는 자매 벡터 2개)로 표현한다. 포팅한 `ConstraintRegion {
+body: Body, pose: Isometry3 }` 하나가 이 넷을 대신한다 — `Body`
+자체가 이미 sum type이라(`moveit_geometry::bodies::Body`, §9.1) 도형
+종류별 벡터가 따로 있을 이유가 없다. `moveit-ros::TryFrom`이 만들 때
+잃는 것: 길이가 어긋난 `primitives`/`primitive_poses` 쌍을 upstream처럼
+자르고 경고만 남기는 대신 에러로 보고해야 한다.
+
+**`OrientationConstraint`.** `moveit_msgs::msg::OrientationConstraint`는
+`absolute_x/y/z_axis_tolerance` 세 실수와 `parameterization`
+(`XYZ_EULER_ANGLES`/`ROTATION_VECTOR`) 태그를 따로 든다 — 태그가 그 세
+실수의 *의미*를 바꾼다(오일러 각 성분인지 로드리게스 벡터 성분인지).
+`OrientationTolerance` enum(`XyzEuler { x, y, z }` /
+`RotationVector { x, y, z }`) 하나로 접었다. `moveit-ros::TryFrom`이
+잃는 것: `parameterization`에 위 두 값 밖의 정수가 들어오면 upstream처럼
+조용히 `XYZ_EULER_ANGLES`로 떨어지는 대신 에러가 나야 한다.
+
+**`VisibilityConstraint`.** `moveit_msgs::msg::VisibilityConstraint`의
+`target_radius`/`max_view_angle`/`max_range_angle` 세 필드 모두
+`0.0`으로 "이 기준을 안 본다"를 표현한다(`configure()`의
+`enabled()`가 셋 다 `> eps`로 검사). 과제 지시문은 뒤 둘만 이름을
+댔지만 `target_radius`도 형태가 같은 결함이라 셋 다
+`Option<f64>`로 바꿨다 — 하나만 고치면 나머지 하나가 다음 라운드에
+같은 모양으로 다시 발견될 뿐이다. `VisibilityConstraint::new`가
+`Some(0.0)`(또는 `EPSILON` 이하 값)도 `None`으로 정규화해서, "있음"과
+"활성"이 항상 같은 뜻이 되게 한다.
+
+세 타입 모두 공통으로: `configure(msg, tf)`에 대응하는 것이 없다 — D1이
+이 크레이트에 `moveit_msgs` 타입을 두는 것 자체를 막으므로 옮길
+`configure()`가 아예 없고, 각 타입의 `new()`가 순수 Rust 인자를 받는다.
+프레임이 고정인지 모바일인지 결정하는 upstream의 `bool mobile_frame_` +
+그 옆의 pose/rotation 필드 하나라는 조합(같은 필드가 플래그에 따라
+"이미 변환된 값"과 "매 `decide()`마다 다시 변환해야 하는 값"을 오간다,
+§4.1과 같은 이중 의미)도 세 타입 모두에서 나타나서, `ReferenceFrame`/
+`OrientationTarget`/`FramedPose` 세 개의 `Fixed { .. } | Mobile { .. }`
+enum으로 각각 고쳤다 — payload가 그 의미를 정의하는 variant 안에서만
+존재하게.
+
+### 12.2 `VisibilityConstraint`는 부분 이식이다
+
+upstream `decide()`는 view-angle·range-angle 검사를 통과하면 센서-타겟
+사이에 원뿔 메시를 만들어 `collision_detection::CollisionEnvFCL`로
+로봇과 충돌 검사한다. `moveit-collision::CollisionEnv`는 아직 trait만
+있고 구현체가 없다(§9.3, §11.4). `VisibilityConstraint::decide_geometry`는
+view-angle·range-angle 검사까지는 완전히 이식했고, 그 뒤 원뿔 검사가
+필요한 지점에서 `satisfied`를 지어내는 대신
+`VisibilityDecision::NeedsConeCollisionCheck`를 반환한다.
+`KinematicConstraintSet::decide`는 이걸 삼키지 않고
+`Err(UndecidedConstraint)`로 전파한다 — 이 상황을 "만족"으로 보고하는
+쪽이 이 설계 전체가 막으려는 조용한 오답이기 때문이다.
+
+### 12.3 오라클 대조
+
+`crates/moveit-constraints/tests/decide.rs`에 31개 유닛 테스트가
+있다(경계값 단위: 허용오차 경계, mobile/fixed 프레임, 연속 조인트
+wraparound, `Option`/`None` 판별 — panda·pr2 픽스처, pr2는 연속 조인트
+경로 전용). 오라클 `constraints` op과 2,000-조합 대조는 아직
+착수하지 않았다.
+
+### 12.4 테스트 작성 중 발견하고 고친 결함 1건
+
+`PositionConstraint::decide`가 `state.global_link_transform_at(...) *
+self.offset`을 그대로 썼다 — `self.offset: Vector3`. upstream의
+`Eigen::Isometry3d * Eigen::Vector3d`는 벡터를 점으로 취급해 회전과
+평행이동을 모두 적용하는데, `nalgebra::Isometry3: Mul<Vector3>`는
+벡터 시맨틱(회전만, 평행이동 없음)이라 오프셋이 0이 아니어도 링크
+원점이 그대로 원점 근처로 계산됐다. `moveit_geometry::bodies`가 이미
+똑같은 결함 모양에 대해 비공개 `transform_point` 헬퍼를 두고 있다
+(`(pose * nalgebra::Point3::from(*point)).coords`) — 같은 수정을
+적용했다. 유닛 테스트 3건이 고치기 전엔 실패했고 고친 뒤 통과한다.
+크레이트 안의 다른 모든 `Isometry3` 곱셈(`region.pose` 재배치,
+`FramedPose::resolve`, 뷰/레인지 각도의 방향 벡터)은 각각
+Isometry×Isometry 합성이거나 진짜 방향 벡터라 이 결함에 해당하지
+않는다 — `rg`로 크레이트 전체를 확인했다.
