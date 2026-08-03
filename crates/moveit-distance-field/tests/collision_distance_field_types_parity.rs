@@ -36,18 +36,28 @@
 //! computation on both sides, not an unordered point cloud that needs set
 //! comparison.
 //!
-//! The value itself, `1e-9`, is measured, not copied: this file used to pin
-//! `1e-4` matching `oracle_parity.rs`'s `DISTANCE_TOL` (PORTING-PLAN.md §5
-//! Phase 3's stated distance tolerance), but that number was never checked
-//! against what this test actually observes. Temporary instrumentation over
-//! every fixture case found every bucket -- sphere positions/radii, bounding
-//! sphere, cylinder pose, `distance_gradient`, `get_collision_sphere_gradients`
-//! -- agrees with the oracle to within `6.63e-14` relative / `2.22e-16`
-//! absolute at worst (mesh-decomposition float non-associativity and a few
-//! ULPs of wavefront-propagation noise, nothing structural). `1e-4` was
-//! roughly ten orders of magnitude looser than that; `1e-9` keeps four
-//! orders of margin above the worst measurement while still catching a real
-//! regression the old value would have silently passed.
+//! This is a measured-margin tolerance, not an exactness assertion: unlike
+//! `oracle_parity.rs`, this file's values pass through mesh-decomposition
+//! geometry, which is not bit-exact between the two implementations.
+//! Bisecting `TOL` directly against every `assert_relative_eq!` call in this
+//! file (not a separate instrumentation harness) found `1e-16` fails --
+//! `actual.gradient.x = 0.466025403784439` vs
+//! `expected.gradient[0] = 0.4660254037844388` -- while `3e-16` and `1e-15`
+//! both pass; the binding point sits between `1e-16` and `3e-16`, matching a
+//! single ULP-scale gradient bucket. `TOL = 1e-12` keeps roughly four orders
+//! of margin above that measured binding point, the same margin used for
+//! `collision_common_distance_field_parity.rs`'s and
+//! `collision_env_distance_field_parity.rs`'s own bisected constants.
+//!
+//! `max_relative = TOL` is passed explicitly alongside `epsilon = TOL` at
+//! every call below. Without it, `approx`'s `assert_relative_eq!` falls back
+//! to `max_relative = f64::EPSILON` (~2.22e-16) whenever no `max_relative`
+//! is given, which silently becomes the binding term for any `epsilon`
+//! smaller than `largest_operand * f64::EPSILON` -- exactly how this file's
+//! own bisection down toward `0.0` kept "passing" past the true binding
+//! point during earlier measurement. Pinning `max_relative = TOL` removes
+//! that hidden second tolerance so `TOL` alone is what a future bisection of
+//! this file will measure.
 
 use std::fs;
 use std::sync::Arc;
@@ -62,8 +72,9 @@ use moveit_distance_field::{
 use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
 use nalgebra::{Matrix3, Point3, Translation3, UnitQuaternion, Vector3};
 
-/// `1e-9`: measured, not policy. See the module doc's "Tolerance" section.
-const TOL: f64 = 1e-9;
+/// Measured-margin tolerance (~4 orders above the bisected binding point,
+/// `1e-16`..`3e-16`). See the module doc's "Tolerance" section.
+const TOL: f64 = 1e-12;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -265,41 +276,53 @@ fn collision_distance_field_types_match_the_oracle() {
             assert_relative_eq!(
                 actual.relative_vec.x,
                 expected.relative_vec[0],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 actual.relative_vec.y,
                 expected.relative_vec[1],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 actual.relative_vec.z,
                 expected.relative_vec[2],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
-            assert_relative_eq!(actual.radius, expected.radius, epsilon = TOL);
+            assert_relative_eq!(
+                actual.radius,
+                expected.radius,
+                epsilon = TOL,
+                max_relative = TOL
+            );
         }
 
         let actual_bounding = body_decomposition.relative_bounding_sphere();
         assert_relative_eq!(
             actual_bounding.center.x,
             response.result.bounding_sphere.center[0],
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_relative_eq!(
             actual_bounding.center.y,
             response.result.bounding_sphere.center[1],
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_relative_eq!(
             actual_bounding.center.z,
             response.result.bounding_sphere.center[2],
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_relative_eq!(
             actual_bounding.radius,
             response.result.bounding_sphere.radius,
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
 
         // `relative_cylinder_pose` is genuinely uninitialized memory upstream
@@ -310,12 +333,14 @@ fn collision_distance_field_types_match_the_oracle() {
             assert_relative_eq!(
                 actual_cyl.translation.vector,
                 expected_cyl.translation.vector,
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 actual_cyl.rotation.to_rotation_matrix().matrix(),
                 expected_cyl.rotation.to_rotation_matrix().matrix(),
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
         }
 
@@ -353,10 +378,30 @@ fn collision_distance_field_types_match_the_oracle() {
             .zip(&response.result.gradients)
         {
             let actual = posed_field.distance_gradient(query[0], query[1], query[2]);
-            assert_relative_eq!(actual.distance, expected.distance, epsilon = TOL);
-            assert_relative_eq!(actual.gradient.x, expected.gradient[0], epsilon = TOL);
-            assert_relative_eq!(actual.gradient.y, expected.gradient[1], epsilon = TOL);
-            assert_relative_eq!(actual.gradient.z, expected.gradient[2], epsilon = TOL);
+            assert_relative_eq!(
+                actual.distance,
+                expected.distance,
+                epsilon = TOL,
+                max_relative = TOL
+            );
+            assert_relative_eq!(
+                actual.gradient.x,
+                expected.gradient[0],
+                epsilon = TOL,
+                max_relative = TOL
+            );
+            assert_relative_eq!(
+                actual.gradient.y,
+                expected.gradient[1],
+                epsilon = TOL,
+                max_relative = TOL
+            );
+            assert_relative_eq!(
+                actual.gradient.z,
+                expected.gradient[2],
+                epsilon = TOL,
+                max_relative = TOL
+            );
             assert_eq!(
                 actual.in_bounds, expected.in_bounds,
                 "id {id}: in_bounds mismatch"
@@ -398,7 +443,8 @@ fn collision_distance_field_types_match_the_oracle() {
         assert_relative_eq!(
             gradient.closest_distance,
             response.result.collision_gradient.closest_distance,
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_eq!(
             gradient.distances.len(),
@@ -409,7 +455,8 @@ fn collision_distance_field_types_match_the_oracle() {
             assert_relative_eq!(
                 gradient.distances[i],
                 response.result.collision_gradient.distances[i],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_eq!(
                 gradient.types[i],
@@ -419,17 +466,20 @@ fn collision_distance_field_types_match_the_oracle() {
             assert_relative_eq!(
                 gradient.gradients[i].x,
                 response.result.collision_gradient.gradients[i][0],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 gradient.gradients[i].y,
                 response.result.collision_gradient.gradients[i][1],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 gradient.gradients[i].z,
                 response.result.collision_gradient.gradients[i][2],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
         }
     }

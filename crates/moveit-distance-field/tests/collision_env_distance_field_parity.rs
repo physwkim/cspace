@@ -75,33 +75,59 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
-/// Measured, not policy: this constant used to pin `1e-4` with no doc
-/// comment at all -- inherited from the other parity files in this crate,
-/// never checked against what this file's own assertions actually see.
-/// Temporary instrumentation over every fixture case found
-/// `add_link_body_decompositions`' sphere radii and
-/// `generate_distance_field_cache_entry`'s `distance_queries` bit-exact
-/// (`max_abs = 0.0`), and `group_state_representation`'s bounding
-/// sphere/`field_pose` translation agreeing to `1.12e-13` relative /
-/// `4.44e-16` absolute at worst -- the `field_pose` rotation's
-/// sum-of-squared-component error (compared against `TOL * TOL` below)
-/// measured `9.24e-32` against a `1e-9`-scaled gate of `1e-18`, fourteen
-/// orders of margin. `1e-9` keeps four orders of margin above the worst
-/// plain-`TOL` measurement (`1.12e-13`) while remaining five orders
-/// tighter than the old value.
-const TOL: f64 = 1e-9;
+/// Measured-margin tolerance, not policy: this constant used to pin `1e-4`
+/// with no doc comment at all -- inherited from the other parity files in
+/// this crate, never checked against what this file's own assertions
+/// actually see. Bisected directly against every `assert_relative_eq!` call
+/// in this file (with `max_relative` already pinned explicitly, so no
+/// implicit `approx` default can hide the true floor -- see [`RADIUS_TOL`]'s
+/// doc for what happens when it is not): `1e-16` fails first on
+/// `bounding_sphere_center.z` (`left = 0.9616420264076277`, `right =
+/// 0.9616420264076276`); `3e-16` still fails, on the `field_pose` quaternion
+/// rotation check's `TOL * TOL` quadratic gate (`r_wrist_roll_link`, group
+/// `right_arm`: expected `[0.46547879812158294, 0.6080129633451752,
+/// -0.5383633189200836, 0.35187307618636826]` up to sign, got
+/// `[0.46547879812158266, 0.6080129633451752, -0.5383633189200835,
+/// 0.3518730761863682]`); `5e-16` passes. `TOL = 1e-12` keeps roughly three
+/// orders of margin above that `5e-16` boundary.
+///
+/// `max_relative = TOL` is passed explicitly alongside `epsilon` at every
+/// `assert_relative_eq!` call below (the `TOL * TOL` quaternion check is a
+/// plain `assert!`, not `assert_relative_eq!`, so it has no implicit
+/// `max_relative` to worry about). Without the explicit `max_relative`,
+/// `approx` falls back to `max_relative = f64::EPSILON` (~2.22e-16)
+/// whenever none is given, silently becoming the binding term for any
+/// `epsilon` below `largest_operand * f64::EPSILON`.
+const TOL: f64 = 1e-12;
 
-/// `sphere_radii` alone, and deliberately twelve orders tighter than [`TOL`].
+/// Measured-margin tolerance, like [`TOL`] -- not a structural bucket size
+/// like `shape_points_parity.rs`'s `POINT_EPS`. Applies to `sphere_radii`
+/// alone, and deliberately three orders tighter than [`TOL`].
 ///
 /// These radii are not the product of a long geometric pipeline the way
 /// `distance_queries` is — the two sides disagree only by float
 /// non-associativity in the mesh decomposition's arithmetic. Measured, not
 /// assumed: across the 24 radii that differ at all, the largest deviation is
 /// `3.469e-18` absolute / `1.436e-16` relative, i.e. one ulp at these
-/// magnitudes. `TOL` would admit `1e-4` on a `0.024` radius — 0.2% — so
-/// reusing it here because the neighbouring assertions do would leave twelve
-/// orders of magnitude of silent headroom on a field that has never needed
-/// any. `1e-12` is still four orders above the measurement.
+/// magnitudes.
+///
+/// Bisecting the bare named constant by itself, with no explicit
+/// `max_relative`, is misleading here: with the `epsilon`-only call this
+/// file used to make, `0.0`, `1e-16`, `1e-17`, and `1e-18` all pass, which
+/// looks like a bit-exact result, but it is not one -- it is `approx`'s
+/// implicit `max_relative = f64::EPSILON` default silently covering the
+/// measured `3.469e-18` deviation (radius magnitudes are ~0.024, so the
+/// implicit floor is `0.024 * 2.22e-16 ≈ 5.33e-18`, comfortably above the
+/// measurement) regardless of how low the named constant is bisected. Once
+/// `max_relative = RADIUS_TOL` is passed explicitly, removing that hidden
+/// floor, the real binding point reappears between `1e-18` (fails --
+/// `left = 0.024157498379465722`, `right = 0.02415749837946572`, on a
+/// `group_state_representation` sphere radius) and `1e-17` (passes),
+/// consistent with the measured `3.469e-18` absolute deviation.
+/// `RADIUS_TOL = 1e-12` keeps roughly five orders of margin above `1e-17`,
+/// not the twelve orders a naive reading of the old `1e-4` neighbour value
+/// would have suggested, and not the effectively unbounded headroom a
+/// `epsilon`-only `0.0` bisection would have implied either.
 const RADIUS_TOL: f64 = 1e-12;
 
 fn fixture_path(file_name: &str) -> String {
@@ -274,7 +300,7 @@ fn add_link_body_decompositions_matches_the_per_link_oracle_fixture() {
         .iter()
         .zip(&response.result.collision_spheres)
     {
-        assert_relative_eq!(*actual, expected.radius, epsilon = TOL);
+        assert_relative_eq!(*actual, expected.radius, epsilon = TOL, max_relative = TOL);
     }
 }
 
@@ -470,7 +496,12 @@ fn generate_distance_field_cache_entry_matches_the_oracle() {
             .zip(&expected.distance_queries)
         {
             let actual_distance = field.distance(point[0], point[1], point[2]);
-            assert_relative_eq!(actual_distance, *expected_distance, epsilon = TOL);
+            assert_relative_eq!(
+                actual_distance,
+                *expected_distance,
+                epsilon = TOL,
+                max_relative = TOL
+            );
         }
     }
 }
@@ -639,22 +670,26 @@ fn group_state_representation_matches_the_oracle() {
             assert_relative_eq!(
                 center.x,
                 expected_link.bounding_sphere_center[0],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 center.y,
                 expected_link.bounding_sphere_center[1],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 center.z,
                 expected_link.bounding_sphere_center[2],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 link_bd.bounding_sphere_radius(),
                 expected_link.bounding_sphere_radius,
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_eq!(
                 link_bd.collision_points().len(),
@@ -668,17 +703,20 @@ fn group_state_representation_matches_the_oracle() {
             assert_relative_eq!(
                 pose.translation.x,
                 expected_link.field_pose[0],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 pose.translation.y,
                 expected_link.field_pose[1],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             assert_relative_eq!(
                 pose.translation.z,
                 expected_link.field_pose[2],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
             // `q` and `-q` represent the identical rotation (the unit
             // quaternion double cover), and each side's FK computation is
@@ -730,7 +768,12 @@ fn group_state_representation_matches_the_oracle() {
                 .iter()
                 .zip(&expected_gradient.sphere_radii)
             {
-                assert_relative_eq!(*actual_radius, *expected_radius, epsilon = RADIUS_TOL);
+                assert_relative_eq!(
+                    *actual_radius,
+                    *expected_radius,
+                    epsilon = RADIUS_TOL,
+                    max_relative = RADIUS_TOL
+                );
             }
             assert_eq!(
                 gsr.gradients[i].joint_name, expected_gradient.joint_name,

@@ -79,19 +79,30 @@ use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 
-/// Measured, not policy: this constant used to pin `1e-4`, PORTING-PLAN.md
-/// §5 Phase 3's stated distance tolerance, matching
+/// Measured-margin tolerance, not policy: this constant used to pin `1e-4`,
+/// PORTING-PLAN.md §5 Phase 3's stated distance tolerance, matching
 /// `collision_distance_field_types_parity.rs`'s `TOL` -- inherited from a
 /// neighbour, never checked against what this file's own assertions
-/// actually see. Temporary instrumentation over both fixtures found every
-/// value this test compares (`collision_object_point_decomposition`'s
-/// world points, `link_body_decomposition`'s sphere radii and posed sphere
-/// centers/bounding sphere across all 8 cases) agrees with the oracle to
-/// within `3.75e-14` relative / `2.22e-16` absolute at worst -- the sphere
-/// radii were bit-exact. `1e-9` keeps four orders of margin above that
-/// worst measurement while remaining five orders tighter than the old
-/// value.
-const TOL: f64 = 1e-9;
+/// actually see. Bisected directly against every `assert_relative_eq!` call
+/// in this file, with `max_relative` already pinned explicitly (see below)
+/// so no implicit `approx` default can mask the true floor: `1e-16` fails on
+/// `collision_object_point_decomposition_matches_the_oracle`
+/// (`actual.y = 1.8499999999999999` vs `expected[1] = 1.85`); `3e-16`
+/// passes, on both this test and `link_body_decomposition_matches_the_oracle`.
+/// `TOL = 1e-12` keeps roughly three orders of margin above that `3e-16`
+/// boundary, the same order of margin used for
+/// `collision_distance_field_types_parity.rs`'s own bisected constant.
+///
+/// `max_relative = TOL` is passed explicitly alongside the `epsilon`
+/// argument at every call below, for the same structural reason as in
+/// `collision_distance_field_types_parity.rs`'s module doc: without it,
+/// `approx`'s implicit `max_relative` default (`f64::EPSILON`, ~2.22e-16)
+/// would silently become the binding term for any `epsilon` below
+/// `largest_operand * f64::EPSILON` -- this file's own binding point happens
+/// to sit above that floor (unlike `collision_env_distance_field_parity.rs`'s
+/// `RADIUS_TOL`), but pinning `max_relative` here too keeps that from ever
+/// becoming true silently in a future round.
+const TOL: f64 = 1e-12;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -224,9 +235,9 @@ fn collision_object_point_decomposition_matches_the_oracle() {
             "id {id}: point count mismatch"
         );
         for (actual, expected) in actual_points.iter().zip(&response.result.points) {
-            assert_relative_eq!(actual.x, expected[0], epsilon = TOL);
-            assert_relative_eq!(actual.y, expected[1], epsilon = TOL);
-            assert_relative_eq!(actual.z, expected[2], epsilon = TOL);
+            assert_relative_eq!(actual.x, expected[0], epsilon = TOL, max_relative = TOL);
+            assert_relative_eq!(actual.y, expected[1], epsilon = TOL, max_relative = TOL);
+            assert_relative_eq!(actual.z, expected[2], epsilon = TOL, max_relative = TOL);
         }
     }
 }
@@ -329,7 +340,7 @@ fn link_body_decomposition_matches_the_oracle() {
         .iter()
         .zip(&response.result.collision_spheres)
     {
-        assert_relative_eq!(*actual, expected.radius, epsilon = TOL);
+        assert_relative_eq!(*actual, expected.radius, epsilon = TOL, max_relative = TOL);
     }
 
     assert_eq!(request.cases.len(), response.result.cases.len());
@@ -360,31 +371,50 @@ fn link_body_decomposition_matches_the_oracle() {
             .iter()
             .zip(&expected.sphere_centers)
         {
-            assert_relative_eq!(actual.x, expected_center[0], epsilon = TOL);
-            assert_relative_eq!(actual.y, expected_center[1], epsilon = TOL);
-            assert_relative_eq!(actual.z, expected_center[2], epsilon = TOL);
+            assert_relative_eq!(
+                actual.x,
+                expected_center[0],
+                epsilon = TOL,
+                max_relative = TOL
+            );
+            assert_relative_eq!(
+                actual.y,
+                expected_center[1],
+                epsilon = TOL,
+                max_relative = TOL
+            );
+            assert_relative_eq!(
+                actual.z,
+                expected_center[2],
+                epsilon = TOL,
+                max_relative = TOL
+            );
         }
 
         let bounding_center = sphere_decomposition.bounding_sphere_center();
         assert_relative_eq!(
             bounding_center.x,
             expected.bounding_sphere_center[0],
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_relative_eq!(
             bounding_center.y,
             expected.bounding_sphere_center[1],
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_relative_eq!(
             bounding_center.z,
             expected.bounding_sphere_center[2],
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
         assert_relative_eq!(
             sphere_decomposition.bounding_sphere_radius(),
             expected.bounding_sphere_radius,
-            epsilon = TOL
+            epsilon = TOL,
+            max_relative = TOL
         );
 
         computed_sphere_centers.push(
@@ -416,5 +446,5 @@ fn link_body_decomposition_matches_the_oracle() {
         "a real, sub-resolution pose change must still change the posed sphere centers"
     );
     let dx = computed_sphere_centers[7][0][0] - computed_sphere_centers[0][0][0];
-    assert_relative_eq!(dx, 0.01, epsilon = TOL);
+    assert_relative_eq!(dx, 0.01, epsilon = TOL, max_relative = TOL);
 }

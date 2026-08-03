@@ -29,29 +29,37 @@
 //! *oracle's* fields reflect that real upstream defect, and that this port's
 //! `nearest_cell` disagrees with it in exactly that documented way, rather
 //! than re-deriving the claim from a reading of the C++ source.
+//!
+//! # Exactness
+//!
+//! PORTING-PLAN.md §5 Phase 3 names `1e-4` as the distance tolerance, but
+//! that is a policy floor, not a measurement, and this file used to pin it
+//! as a `DISTANCE_TOL` constant on that basis alone. Every value compared
+//! below -- `grid_to_world`, `distance`, `distance_cell`, `distance_gradient`,
+//! `nearest_cell` -- is a raw [`PropagationDistanceField`] wavefront result,
+//! with no mesh-decomposition or FK step upstream of it on either side: grid
+//! coordinates are small integers (exact in `f64`), squared distances are
+//! sums of their squares (exact, no rounding at these magnitudes), and the
+//! one `sqrt` per query is IEEE-754-correctly-rounded on both sides. There
+//! is no accumulation-order step for the two implementations to disagree
+//! about.
+//!
+//! That is a structural argument, not just an empirical one, but it was
+//! checked empirically too: bisecting a shared epsilon from `1e-9` down to
+//! `0.0` for every comparison in [`check_scenario`], across both fixtures,
+//! never produced a single failure. A constant nothing can violate is not a
+//! gate, so this file compares with plain `assert_eq!` instead of
+//! `assert_relative_eq!` -- if a future change to either side's arithmetic
+//! ever introduces real drift (say, from FMA contraction differing between
+//! the two toolchains), that is exactly the kind of regression an exact
+//! comparison catches and a loose tolerance would have hidden.
 
 use std::fs;
 
-use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use moveit_distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
 use nalgebra::Vector3;
-
-/// PORTING-PLAN.md §5 Phase 3 names `1e-4` as the distance tolerance, but
-/// that is a policy floor, not a measurement: every value this constant
-/// gates -- `grid_to_world`, `distance`, `distance_cell`, `distance_gradient`,
-/// `nearest_cell` -- is a raw [`PropagationDistanceField`] wavefront result,
-/// with no mesh-decomposition or FK step upstream of it on either side.
-/// Temporary instrumentation over both fixtures found these values bit-exact
-/// between this port and the oracle (`max_abs = 0.0`, `max_rel = 0.0`), so
-/// `1e-4` caught nothing a value ten orders of magnitude tighter would have
-/// missed. `1e-9` keeps five orders of comfortable margin over the
-/// next-loosest measurement in this crate's other parity tests (see
-/// `collision_env_distance_field_parity.rs`'s own tolerance doc comment,
-/// `1.12e-13` relative) while still catching any real regression the old
-/// value would have silently passed.
-const DISTANCE_TOL: f64 = 1e-9;
 
 #[derive(Deserialize)]
 struct RequestGeometry {
@@ -173,28 +181,23 @@ fn check_scenario(request_name: &str, response_name: &str) {
             "{response_name}: in_grid for {query:?}"
         );
 
+        // Bit-exact, not merely close: bisecting `assert_relative_eq!`'s
+        // `epsilon` down to `0.0` for every comparison in this function
+        // still passes on both fixtures (see the module doc's "Exactness"
+        // section). These `assert_eq!`s are that finding, not a stronger
+        // check bolted on afterward.
         let world = field.grid_to_world(x, y, z);
-        assert_relative_eq!(world.x, dump.world[0], epsilon = DISTANCE_TOL);
-        assert_relative_eq!(world.y, dump.world[1], epsilon = DISTANCE_TOL);
-        assert_relative_eq!(world.z, dump.world[2], epsilon = DISTANCE_TOL);
+        assert_eq!(world.x, dump.world[0]);
+        assert_eq!(world.y, dump.world[1]);
+        assert_eq!(world.z, dump.world[2]);
 
         let distance_world = field.distance(world.x, world.y, world.z);
-        assert_relative_eq!(
-            distance_world,
-            dump.distance_world,
-            epsilon = DISTANCE_TOL,
-            max_relative = DISTANCE_TOL
-        );
+        assert_eq!(distance_world, dump.distance_world);
 
         match dump.distance_cell {
             Some(expected) => {
                 let actual = field.distance_cell(x, y, z);
-                assert_relative_eq!(
-                    actual,
-                    expected,
-                    epsilon = DISTANCE_TOL,
-                    max_relative = DISTANCE_TOL
-                );
+                assert_eq!(actual, expected);
             }
             None => assert!(
                 !in_grid,
@@ -207,28 +210,13 @@ fn check_scenario(request_name: &str, response_name: &str) {
             gradient.in_bounds, dump.gradient.in_bounds,
             "{response_name}: gradient.in_bounds for {query:?}"
         );
-        assert_relative_eq!(
-            gradient.distance,
-            dump.gradient.distance,
-            epsilon = DISTANCE_TOL,
-            max_relative = DISTANCE_TOL
-        );
-        assert_relative_eq!(
-            gradient.gradient,
-            Vector3::from(dump.gradient.gradient),
-            epsilon = DISTANCE_TOL,
-            max_relative = DISTANCE_TOL
-        );
+        assert_eq!(gradient.distance, dump.gradient.distance);
+        assert_eq!(gradient.gradient, Vector3::from(dump.gradient.gradient));
 
         match &dump.nearest {
             Some(expected) => {
                 let actual = field.nearest_cell(x, y, z);
-                assert_relative_eq!(
-                    actual.distance,
-                    expected.distance,
-                    epsilon = DISTANCE_TOL,
-                    max_relative = DISTANCE_TOL
-                );
+                assert_eq!(actual.distance, expected.distance);
                 if expected.position == [-1, -1, -1] {
                     // The documented deviation (see `nearest_cell`'s
                     // "Deviations from upstream"): a cell farther than

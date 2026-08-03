@@ -78,6 +78,110 @@
 //! See [`DistanceField`]'s doc comment for what upstream's abstract base
 //! class carries that is deliberately *not* ported here, and why.
 //!
+//! # Completion condition
+//!
+//! PORTING-PLAN.md previously claimed a gap this crate had already closed
+//! (§65/§71) — a claim nobody had a way to check against the code, only to
+//! trust. This section is that check: it names exactly what "done" means for
+//! this crate's current scope, so plan and code can be compared directly
+//! instead of re-diverging silently.
+//!
+//! **Headers, fully audited (read in full against the pinned SHA, not
+//! inferred from what is already ported):**
+//!
+//! - `moveit_core/distance_field/include/moveit/distance_field/{distance_field,propagation_distance_field,voxel_grid,find_internal_points}.hpp`
+//!   plus their four `.h` deprecated-forwarding-shim siblings — see the
+//!   "Symbol audit: every public symbol under `moveit_core/distance_field/`"
+//!   section below for the per-symbol table.
+//! - `moveit_core/collision_distance_field/include/moveit/collision_distance_field/*.hpp`
+//!   (six headers: `collision_common_distance_field`,
+//!   `collision_distance_field_types`, `collision_env_distance_field`,
+//!   `collision_env_hybrid`, `collision_detector_allocator_distance_field`,
+//!   `collision_detector_allocator_hybrid`) plus their six `.h` shims — see
+//!   the "Symbol audit: every public symbol under
+//!   `collision_distance_field/include/`" section below.
+//!
+//! Every symbol in both packages is classified in those two sections as
+//! ported (with its Rust name), D-decision-excluded (with the decision), or
+//! unported (with the specific reason) — there is no symbol from either
+//! package left unclassified.
+//!
+//! **Fixtures, and what they cover:**
+//!
+//! - `tests/upstream_parity.rs` — every case upstream's own
+//!   `test_distance_field.cpp` gtest suite carries, minus `TestOcTree`
+//!   (needs an unported `octomap::OcTree`) and `TestPerformance` (a
+//!   benchmark, not an assertion) — see that file's own module doc for the
+//!   two exclusions' reasoning.
+//! - `tests/boundaries.rs` — invariant-boundary cases upstream's suite does
+//!   not carry: a point exactly on a cell boundary, a point outside the
+//!   grid, add-then-remove returning to the reset state (signed and
+//!   unsigned), and incremental update vs. full rebuild agreement.
+//! - `tests/oracle_parity.rs` — [`PropagationDistanceField`]'s own
+//!   `grid_to_world`/`distance`/`distance_cell`/`distance_gradient`/
+//!   `nearest_cell` against the oracle's `distance_field` op, both
+//!   `propagate_negative` settings, exact comparison (see that file's
+//!   "Exactness" doc section for why a tolerance does not apply here).
+//! - `tests/shape_points_parity.rs` — [`find_internal_points_convex`]
+//!   against the oracle's `shape_points` op, for all four `bodies::` shape
+//!   kinds (Sphere, Box, Cylinder, Mesh).
+//! - `tests/collision_distance_field_types_parity.rs` — `BodyDecomposition`'s
+//!   sphere decomposition/bounding sphere, [`PosedDistanceField::distance_gradient`]
+//!   and [`PosedDistanceField::get_collision_sphere_gradients`] (the member
+//!   overload) against the oracle, all four shape kinds at two resolutions
+//!   each.
+//! - `tests/collision_sphere_free_functions_parity.rs` — the free
+//!   [`get_collision_sphere_gradients`]/[`get_collision_sphere_collision`]/
+//!   [`get_collision_sphere_collisions`] functions against the oracle,
+//!   hand-built to cover every reachable branch (see that file's module doc
+//!   for the one upstream guard no fixture can reach, and why).
+//! - `tests/collision_common_distance_field_parity.rs` —
+//!   [`collision_object_point_decomposition`] and
+//!   `BodyDecomposition::from_shapes`/`PosedBodySphereDecomposition`
+//!   composed the way [`add_link_body_decompositions`] does, against the
+//!   oracle, for a real PR2 link across a group state.
+//! - `tests/collision_env_distance_field_parity.rs` — link-set selection
+//!   (`link_models_with_collision_geometry`), [`add_link_body_decompositions`]
+//!   against the per-link oracle fixture above, and
+//!   [`generate_distance_field_cache_entry`]/[`group_state_representation`]
+//!   indirectly through the oracle's `checkSelfCollision` ->
+//!   `getLastDistanceFieldEntry()` path, across three PR2 groups/ACM
+//!   configurations.
+//! - Everything under `src/*.rs`'s own `#[cfg(test)]` modules — unit tests
+//!   for behavior with no oracle op to compare against (cache invalidation,
+//!   ACM comparison, attached-body handling; see
+//!   `collision_env_distance_field.rs`'s and `collision_common_distance_field.rs`'s
+//!   own module docs).
+//!
+//! **What is still missing, and why it is not a gap in the above:** every
+//! item is already named individually in the two symbol-audit sections below
+//! with its own reason; this is the roll-up. `CollisionEnvDistanceField`
+//! itself (the collision *checker* — `checkCollision`/`checkSelfCollision`/
+//! `checkRobotCollision`/`distanceSelf`/`distanceRobot` and its persistent
+//! cache-owner role) is entirely unported, a later phase per
+//! `PORTING-PLAN.md` §3 — see `collision_env_distance_field.rs`'s module doc,
+//! "Still blocked, and why". `CollisionEnvHybrid` and both
+//! `CollisionDetectorAllocator*` classes are D-decision-excluded (D1's
+//! FCL/Bullet replacement, D4's compile-time-trait plugin model). The
+//! `AttachedBody`-dependent decomposition functions
+//! (`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`)
+//! and the octree-backed `PosedBodyPointDecomposition` constructor are
+//! unported because this crate's current scope has no `AttachedBody`/
+//! `octomap::OcTree` type to build them from. Nothing above depends on
+//! ROS message types, a renderer, or `World` in a way this crate's
+//! `DistanceFieldCollisionCache`/link-decomposition scope does not already
+//! account for.
+//!
+//! This crate's completion condition, stated as a check rather than a claim:
+//! every symbol in both audited packages is classified above; every
+//! classified-as-ported symbol has either an upstream-gtest-derived fixture
+//! (`upstream_parity.rs`), an oracle-driven fixture (the `*_parity.rs` files
+//! above), or a boundary/unit test with a documented reason no oracle op
+//! covers it; and every classified-as-unported symbol names the specific
+//! missing dependency or later-phase boundary, not "not yet". If a future
+//! symbol or fixture cannot be placed in one of those buckets, this section
+//! is stale and needs re-auditing before the plan is updated to match it.
+//!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
 //! Re-run by re-reading the headers fresh, not by inferring from what is
