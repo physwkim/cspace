@@ -85,26 +85,40 @@
 //!    collision flag *and* contact data in one call; the extra data is simply
 //!    discarded once the budget is spent. Observably identical output, no
 //!    optimization pass ported.
-//! 6. **Signed distance and nearest points both come from one `contact` call.**
-//!    Upstream's `distanceCallback` runs `fcl::distance` for the unsigned
-//!    distance and nearest points, then — only when `enable_signed_distance`
-//!    and the pair turns out to be touching or penetrating — re-runs
-//!    `fcl::collide` (up to 200 contacts) and takes the *maximum* penetration
-//!    depth across every contact found as the signed distance. This backend
-//!    instead calls `parry3d_f64::query::contact` once per pair (see
-//!    deviation 4: at most one contact exists here anyway), and reads
-//!    `Contact::dist` directly as the signed distance, clamping it to `>= 0`
-//!    when `enable_signed_distance` was not requested. `nearest_points` and
-//!    `normal` are likewise read from that same call's `point1`/`point2`/
-//!    `normal1` rather than a second FCL-specific query. "One call" is not
-//!    "one triangle" when either shape is a mesh: `parry3d_f64`'s own
-//!    `contact_composite_shape_shape` (the dispatch a `TriMesh` pair goes
-//!    through) already visits every sub-shape whose AABB overlaps the
-//!    other's and keeps the single deepest across all of them — this
-//!    backend's one call is already the maximum-over-the-contact-set
-//!    reduction upstream's 200-contact re-collide performs, for whichever
-//!    contact set that single narrow-phase pass considers. Confirmed, not
-//!    assumed: `moveit-collision/tests/collision_parity.rs`'s
+//! 6. **FCL's non-convex penetration depth is an approximation, not exact
+//!    EPA, and this backend computes an independent approximation of the
+//!    same ill-posed quantity — the two need not agree, and disagreement
+//!    takes three distinct presentations below.** Exact penetration depth
+//!    between two non-convex shapes has no closed form; upstream's
+//!    `distanceCallback` approximates it by re-running `fcl::collide` (up to
+//!    200 contacts) and taking the *maximum* penetration depth found across
+//!    every contact discovered, once `enable_signed_distance` and the pair
+//!    turns out to be touching or penetrating. This backend instead calls
+//!    `parry3d_f64::query::contact` once per pair (see deviation 4: at most
+//!    one contact exists here anyway), and reads `Contact::dist` directly as
+//!    the signed distance, clamping it to `>= 0` when `enable_signed_distance`
+//!    was not requested. `nearest_points` and `normal` are likewise read
+//!    from that same call's `point1`/`point2`/`normal1` rather than a second
+//!    FCL-specific query. "One call" is not "one triangle" when either shape
+//!    is a mesh: `parry3d_f64`'s own `contact_composite_shape_shape` (the
+//!    dispatch a `TriMesh` pair goes through) already visits every sub-shape
+//!    whose AABB overlaps the other's and keeps the single deepest across
+//!    all of them — this backend's one call is already the
+//!    maximum-over-the-contact-set reduction upstream's 200-contact
+//!    re-collide performs, for whichever contact set that single
+//!    narrow-phase pass considers.
+//!
+//!    Two independent approximations of an ill-posed quantity can disagree
+//!    in more than one way. A reader who hits a fourth presentation should
+//!    be able to recognize it from the paragraph above, not fail to find it
+//!    in the list below.
+//!
+//!    **(a) Pair-ranking disagreement**: several pairs interpenetrate
+//!    simultaneously and the two backends pick a different one as globally
+//!    deepest, because each pair's own independent EPA disagrees with the
+//!    other's independently of every other pair's — not systematically
+//!    one-sided. Confirmed, not assumed:
+//!    `moveit-collision/tests/collision_parity.rs`'s
 //!    `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact` takes the
 //!    live panda sweep's single worst `robot_distance` disagreement and
 //!    shows the oracle's own answer there exceeds the colliding link's mesh
@@ -115,85 +129,110 @@
 //!    computation producing an implausible number under deep, arbitrarily-
 //!    rotated interpenetration. Whether the same holds for every other
 //!    interpenetrating disagreement this backend reports is not established
-//!    either way — but at least one other case is: pr2's case 7552
-//!    (`pr2_case_7552_depth_disagreement_ranks_a_different_pair` in the same
-//!    test file) has this backend and the oracle each ranking a *different*
-//!    mesh pair as globally deepest among several simultaneously-
-//!    interpenetrating candidates, `|d|` two orders of magnitude smaller than
-//!    panda's outlier and well inside each pair's own bounding radius — the
-//!    ordinary, expected shape of this deviation, not the impossible-number
-//!    failure mode panda's worst case turned out to be. This deviation is
-//!    not limited to mesh-vs-mesh pairs, either:
+//!    either way — but at least one other case is the ordinary, expected
+//!    shape of this presentation rather than panda's impossible-number
+//!    failure mode: pr2's case 7552
+//!    (`pr2_case_7552_depth_disagreement_ranks_a_different_pair`, same test
+//!    file) has this backend and the oracle each ranking a *different* mesh
+//!    pair as globally deepest among several simultaneously-interpenetrating
+//!    candidates, `|d|` two orders of magnitude smaller than panda's outlier
+//!    and well inside each pair's own bounding radius. The robot-vs-world
+//!    side shows the same presentation at scale: a seed-20260804, 3000-case
+//!    pr2 `right_arm` sweep (`PORTING-PLAN.md` §60) finds `robot_distance`
+//!    disagreeing with the oracle on 2647 of 3000 cases, of which 7 are this
+//!    presentation — a pair-ranking flip that also exceeds tolerance,
+//!    tallied separately by `tools/moveit-diff`'s
+//!    `robot_pair_flip_and_value_diverges`.
+//!
+//!    **(b) A magnitude plateau, for one pair both backends already agree
+//!    is deepest, across a range of states**: this backend's own answer for
+//!    that pair holds constant while the true depth is changing, because a
+//!    second, state-invariant candidate happens to be shallower there.
+//!    Confirmed for a convex-primitive-vs-mesh pair (this deviation is not
+//!    limited to mesh-vs-mesh):
 //!    `pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates`
-//!    (same test file) confirms it for a convex primitive against a mesh —
-//!    `base_bellow_link` (a `<box>`) against `torso_lift_link` (a `<mesh>`),
-//!    this backend's own dominant self-collision constant across a
-//!    10,000-case pr2 sweep. This backend's answer for that pair is
-//!    `min(candidate_x, candidate_z(t))` over `torso_lift_joint` (the pair's
-//!    only degree of freedom): `candidate_x` is a `torso_lift_joint`-invariant
-//!    `-x`-face-vs-mesh planar contact (the same local box face and mesh
-//!    feature are found across the whole plateau; only the mesh's own
-//!    FK-correct z-position moves, which that contact does not depend on),
-//!    and `candidate_z(t)` is a genuinely `t`-dependent z-direction candidate,
-//!    linear in `t` with slope `1` (a rigid z-translation of the mesh shifts
-//!    a z-direction separating distance by exactly the translation). Below
+//!    (same test file) — `base_bellow_link` (a `<box>`) against
+//!    `torso_lift_link` (a `<mesh>`), this backend's own dominant
+//!    self-collision constant across a 10,000-case pr2 sweep. This
+//!    backend's answer for that pair is `min(candidate_x, candidate_z(t))`
+//!    over `torso_lift_joint` (the pair's only degree of freedom):
+//!    `candidate_x` is a `torso_lift_joint`-invariant `-x`-face-vs-mesh
+//!    planar contact (the same local box face and mesh feature are found
+//!    across the whole plateau; only the mesh's own FK-correct z-position
+//!    moves, which that contact does not depend on), and `candidate_z(t)`
+//!    is a genuinely `t`-dependent z-direction candidate, linear in `t`
+//!    with slope `1` (a rigid z-translation of the mesh shifts a
+//!    z-direction separating distance by exactly the translation). Below
 //!    the crossover `candidate_x` is shallower and this backend reports the
 //!    plateau; the oracle's own sweep over the same range instead decreases
-//!    smoothly and monotonically at very nearly `1:1` with the joint travel —
-//!    a real z-direction overlap, not EPA noise settling differently each
-//!    state, so "the oracle's own answer fails to hold constant" is not
-//!    itself the argument for this being deviation 6 rather than a bug (a
-//!    claim that the true depth *cannot* change over that span would be
-//!    circular, assuming the very thing in question). Past the crossover
-//!    `candidate_z(t)` shallows further and wins, and this backend's answer
-//!    then matches the oracle's own to `~1e-9` — the falsifiable signature
-//!    the test asserts, not a plateau it merely describes: agreement exactly
-//!    where `min(...)` predicts it, not resemblance throughout. Confirmed the
-//!    same way as the two mesh-vs-mesh cases above (bounding-radius
-//!    plausibility, not merely argued) — and, unlike those two,
-//!    `collision_parity.rs`'s own `assert_full_parity_matches_oracle` now runs
-//!    that same bounding-radius check on every colliding case in every
-//!    fixture, not just these three hand-picked ones: the sign-only branch
-//!    documented above now pairs with a real assertion that fails if a
-//!    colliding pair's own reported depth ever exceeds twice its own bounding
-//!    radius, catching a future regression toward panda-worst-case-style
-//!    impossible numbers even though exact magnitude parity is not required.
+//!    smoothly and monotonically at very nearly `1:1` with the joint
+//!    travel — a real z-direction overlap, not EPA noise settling
+//!    differently each state, so "the oracle's own answer fails to hold
+//!    constant" is not itself the argument for this being deviation 6
+//!    rather than a bug (a claim that the true depth *cannot* change over
+//!    that span would be circular, assuming the very thing in question).
+//!    Past the crossover `candidate_z(t)` shallows further and wins, and
+//!    this backend's answer then matches the oracle's own to `~1e-9` — the
+//!    falsifiable signature the test asserts, not a plateau it merely
+//!    describes: agreement exactly where `min(...)` predicts it, not
+//!    resemblance throughout. Confirmed the same way as (a)'s two cases
+//!    (bounding-radius plausibility, not merely argued) — and, unlike
+//!    those two, `collision_parity.rs`'s own `assert_full_parity_matches_oracle`
+//!    now runs that same bounding-radius check on every colliding case in
+//!    every fixture, not just these three hand-picked ones: the sign-only
+//!    branch documented above now pairs with a real assertion that fails
+//!    if a colliding pair's own reported depth ever exceeds twice its own
+//!    bounding radius, catching a future regression toward
+//!    panda-worst-case-style impossible numbers even though exact magnitude
+//!    parity is not required.
 //!
 //!    What looked like three of this backend's own frozen self-distance
 //!    constants across that 10,000-case sweep are actually two pair
-//!    *families*, not three distinct geometric coincidences:
-//!    `base_link`/each of the eight `*_caster_*_wheel_link`s collapses to one
-//!    value within `3.98e-14` because each wheel is rotationally symmetric
-//!    about its own roll axis, so the wheel-roll joint cannot move the
-//!    closest point — eight geometrically distinct pairs masquerading as one
-//!    constant; and `base_bellow_link`/`torso_lift_link` is not a true
-//!    constant at all, only this deviation's own plateau, spanning `5.536e-3`
-//!    across 177 sampled states before the ramp above takes over. So the
-//!    apparent "three frozen constants" were this same deviation showing up
-//!    twice, once via rotational symmetry and once via the plateau half of
-//!    `min(candidate_x, candidate_z(t))` — not three separate phenomena.
+//!    *families*, not three distinct geometric coincidences, and only one
+//!    of them is this presentation: `base_link`/each of the eight
+//!    `*_caster_*_wheel_link`s collapses to one value within `3.98e-14`
+//!    because each wheel is rotationally symmetric about its own roll axis,
+//!    so the wheel-roll joint cannot move the closest point — eight
+//!    geometrically distinct pairs masquerading as one constant, and not an
+//!    instance of this deviation at all; `base_bellow_link`/`torso_lift_link`
+//!    is not a true constant either, only (b)'s own plateau, spanning
+//!    `5.536e-3` across 177 sampled states before the ramp above takes
+//!    over. So the apparent "three frozen constants" were one real instance
+//!    of (b) plus one unrelated symmetry artifact, not three separate
+//!    phenomena.
 //!
-//!    The robot-vs-world side shows the same deviation too, in the opposite
-//!    direction: of 300 random pr2 states, `robot_distance` disagrees with
-//!    the oracle on 276, and one — `l_gripper_r_finger_link`/`floor` (oracle)
-//!    versus `l_gripper_r_finger_tip_link`/`floor` (this backend) — exceeds
-//!    tolerance with this backend *deeper*, the opposite of the shallower
-//!    plateau above, so the min-of-two-candidates mechanism does not itself
-//!    explain that case. It is not a different code path producing it,
-//!    though: [`distance_self`]/[`distance_robot`] both call the same
-//!    [`accumulate_distance`] over the same per-part [`query::contact`] call
-//!    and threshold logic, differing only in which [`PosedBody`] list supplies
-//!    the pairs ([`self_pairs`] permutes one robot body list against itself;
-//!    [`cross_pairs`] takes the robot list against [`world_bodies`]'s). The
-//!    one structural asymmetry between the two sides — world objects are
-//!    never padded or scaled (deviation 2, above) — does not apply to this
-//!    case either, since `floor` carries no padding on either side of that
-//!    comparison by construction. So this is the same independent-EPA,
-//!    different-local-feature disagreement deviation 6 already documents,
-//!    landing on a different link and a different sign purely because each
-//!    pair's own EPA disagreement is independent of every other pair's —
-//!    consistent with, not contradicting, deviation 6's own "not
-//!    systematically one-sided" reading.
+//!    **(c) A magnitude disagreement on a pair both backends already agree
+//!    is deepest, at a single state — no ranking flip, no plateau, just two
+//!    different depths for the one pair.** The same seed-20260804 pr2
+//!    `right_arm` sweep that supplies (a)'s 7 pair-flip count has 2 cases
+//!    of this presentation instead (`tools/moveit-diff`'s
+//!    `robot_same_pair_and_value_diverges`, structurally disjoint from the
+//!    pair-flip tally by construction — a pair either matches or it does
+//!    not): `l_gripper_l_finger_tip_link`/`floor` and
+//!    `l_gripper_r_finger_tip_link`/`floor`, both with this backend
+//!    *deeper* (oracle -0.011274/-0.009943 vs this backend
+//!    -0.015686/-0.012375). Confirmed deeper-and-correct, not merely
+//!    deeper: `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction`
+//!    (same test file) independently measures the lowest global-frame z
+//!    among the contacting fingertip mesh's own vertices — a computation
+//!    that touches neither backend's collision pipeline — and finds it
+//!    matches this backend's own deeper magnitude, not the oracle's
+//!    shallower one, with the deepest vertex confirmed (not assumed)
+//!    inside `floor_env`'s 4×4m footprint, where straight up is the only
+//!    cheap escape. So here the oracle's own re-collide-and-take-max-depth
+//!    search still misses this mesh's true deepest point; this backend's
+//!    independent EPA does not.
+//!
+//!    None of the three presentations comes from a different code path on
+//!    the robot-vs-world side: [`distance_self`]/[`distance_robot`] both
+//!    call the same [`accumulate_distance`] over the same per-part
+//!    [`query::contact`] call and threshold logic, differing only in which
+//!    [`PosedBody`] list supplies the pairs ([`self_pairs`] permutes one
+//!    robot body list against itself; [`cross_pairs`] takes the robot list
+//!    against [`world_bodies`]'s). The one structural asymmetry between the
+//!    two sides — world objects are never padded or scaled (deviation 2,
+//!    above) — does not apply to (c)'s two cases either, since `floor`
+//!    carries no padding on either side of the comparison by construction.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and
@@ -884,6 +923,24 @@ fn accumulate_collision<'a>(
         collision,
         distance: None,
         contacts: request.contacts.then_some(ContactData { by_pair }),
+        // `request.cost`/`request.max_cost_sources` are accepted but never
+        // read here -- `cost_sources` is always `None` regardless of what
+        // was requested. This is a backend limitation, not an oversight:
+        // upstream's `CostSource` comes from `fcl::CollisionResultd::
+        // getCostSources()` (`fcl2costsource`, `collision_common.cpp`),
+        // populated internally by FCL's own per-narrowphase-call cost-
+        // density computation whenever `fcl::CollisionRequestd`'s
+        // `enable_cost` is set. `parry3d_f64` has no equivalent primitive
+        // anywhere in its public API (confirmed by searching its full
+        // source for `cost_density`/`CostSource`: no matches) --
+        // `query::contact` returns a point pair, a normal and a signed
+        // distance, never a cost-weighted decomposition of the overlap
+        // volume. Implementing this would mean inventing an independent
+        // cost-density estimate from scratch, not adapting one `parry`
+        // already computes. Blocks `PlanningScene::getCostSources`
+        // (`crates/moveit-scene`) until either `parry3d_f64` grows an
+        // equivalent primitive or this backend gets its own independent
+        // cost-density implementation.
         cost_sources: None,
     }
 }
