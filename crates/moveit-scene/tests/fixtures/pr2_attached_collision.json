@@ -1,0 +1,46 @@
+{
+  "cases": [
+    {
+      "attached_bodies": [],
+      "joint_values": {},
+      "robot_collision": false,
+      "robot_distance": 0.004407999999937988
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "test_attached_sphere",
+          "link_name": "base_footprint",
+          "shape_translation": [
+            0.0,
+            0.0,
+            0.5
+          ],
+          "sphere_radius": 0.1,
+          "touch_links": []
+        }
+      ],
+      "joint_values": {},
+      "robot_collision": false,
+      "robot_distance": 0.004407999999937988
+    },
+    {
+      "attached_bodies": [
+        {
+          "id": "test_attached_sphere",
+          "link_name": "base_footprint",
+          "shape_translation": [
+            0.0,
+            0.0,
+            -0.1
+          ],
+          "sphere_radius": 0.1,
+          "touch_links": []
+        }
+      ],
+      "joint_values": {},
+      "robot_collision": true,
+      "robot_distance": -0.1
+    }
+  ]
+}

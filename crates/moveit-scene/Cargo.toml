@@ -17,6 +17,8 @@ moveit-srdf.workspace = true
 moveit-state.workspace = true
 
 [dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
 urdf-rs.workspace = true
 
 [lints]
