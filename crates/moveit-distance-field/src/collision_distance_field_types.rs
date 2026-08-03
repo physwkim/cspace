@@ -1079,6 +1079,29 @@ impl PosedBodyPointDecompositionVector {
 /// **Do not** "fix" this by squaring the right-hand side without raising it
 /// as its own change -- that alters what counts as intersecting, which is a
 /// semantic change, not a parity fix.
+///
+/// ## It errs in both directions, and one of them is unsafe
+///
+/// Writing `d` for the true centre distance and `s` for the radius sum,
+/// upstream asks `d² < s` where it means `d < s`. The two disagree on
+/// either side of `d = 1`, in opposite directions:
+///
+/// - `d < 1` shrinks under squaring, so `d² < s` holds where `d < s` does
+///   not: a **false positive**, reporting an intersection between spheres
+///   that are apart. For a broad-phase test that is merely wasteful --
+///   the narrow phase that follows rejects it.
+/// - `d > 1` grows under squaring, so `d² ≥ s` holds where `d < s` does:
+///   a **false negative**, reporting no intersection between spheres that
+///   genuinely overlap. `s = 3, d = 2` is such a case. A broad-phase test
+///   that answers "no" is not corrected by anything downstream, because
+///   nothing downstream runs -- the pair is culled.
+///
+/// The false-negative branch needs a radius sum above 1 (metres, as
+/// everything here is), which whole-link bounding spheres on a
+/// PR2-sized robot reach. So this is not only a performance wart; it can
+/// drop a colliding pair. That is the reason it is worth raising as its
+/// own change rather than leaving as a curiosity, and it is why both
+/// directions are pinned by tests below.
 pub fn do_bounding_spheres_intersect(
     p1: &PosedBodySphereDecomposition,
     p2: &PosedBodySphereDecomposition,
@@ -1273,6 +1296,54 @@ mod tests {
         assert!(
             do_bounding_spheres_intersect(&p1, &p2),
             "documented defect: squared-distance-vs-unsquared-radii-sum reports a false positive here"
+        );
+    }
+
+    /// The other side of the same defect, and the side that can lose a
+    /// collision rather than merely waste one. Two spheres of radius 1.5 m
+    /// whose centres are 2.0 m apart overlap by a full metre, but upstream
+    /// compares the **squared** distance (4.0) against the **unsquared**
+    /// radius sum (3.0) and culls the pair.
+    ///
+    /// Separate from the false-positive case above on purpose: they are
+    /// opposite sides of the `d = 1` crossover, so one test passing says
+    /// nothing about the other. A "fix" that squared the left side instead
+    /// of the right would keep the false-positive test green and only this
+    /// one would catch it.
+    #[test]
+    fn do_bounding_spheres_intersect_misses_a_genuine_overlap_past_the_unit_crossover() {
+        let bd1 = Arc::new(
+            BodyDecomposition::new(&Shape::Sphere(Sphere::new(1.5).unwrap()), 0.05, 0.0).unwrap(),
+        );
+        let bd2 = Arc::new(
+            BodyDecomposition::new(&Shape::Sphere(Sphere::new(1.5).unwrap()), 0.05, 0.0).unwrap(),
+        );
+
+        let mut p1 = PosedBodySphereDecomposition::new(bd1);
+        p1.update_pose(Isometry3::identity());
+        let mut p2 = PosedBodySphereDecomposition::new(bd2);
+        p2.update_pose(Isometry3::from_parts(
+            Translation3::new(2.0, 0.0, 0.0),
+            UnitQuaternion::identity(),
+        ));
+
+        let true_distance = (p1.bounding_sphere_center() - p2.bounding_sphere_center()).norm();
+        let radius_sum = p1.bounding_sphere_radius() + p2.bounding_sphere_radius();
+        assert!(
+            true_distance < radius_sum,
+            "test setup must place the spheres genuinely overlapping: \
+             distance {true_distance} is not below radius sum {radius_sum}"
+        );
+        assert!(
+            true_distance > 1.0,
+            "the false-negative branch only exists past the d = 1 crossover"
+        );
+
+        assert!(
+            !do_bounding_spheres_intersect(&p1, &p2),
+            "documented defect: this overlapping pair is culled, because the squared \
+             distance ({}) is compared against the unsquared radius sum ({radius_sum})",
+            true_distance * true_distance
         );
     }
 }
