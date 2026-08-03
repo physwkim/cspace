@@ -1092,7 +1092,7 @@ private:
     // solved-or-failed outcome, never the intermediate reseed draws the loop
     // below actually produces, so nothing else in this file can answer "did
     // this joint's reseed wrap or clamp?" -- see
-    // `tools/ci/check-continuous-reseed-wrap.sh`, which uses this to pin
+    // `tools/ci/verify-continuous-reseed-wrap.sh`, which uses this to pin
     // `RevoluteJointModel`'s wrap-not-clamp behaviour (round 6's fix, this
     // file's `sampleReseed`) against a regression nothing else here would
     // notice.

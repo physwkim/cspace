@@ -9,11 +9,16 @@
 # `oracle.cpp` ever reverts that branch to clamping, nothing else in this
 # repo notices; this does.
 #
-# Needs docker and the moveit-rs/oracle image -- like run-oracle-sweep.sh,
-# this is deliberately not one of the `check-*.sh` scripts `.github/workflows/
-# ci.yml` and the local gate loop run, and is not a `cargo test`.
+# Needs docker and the moveit-rs/oracle image -- like run-oracle-sweep.sh and
+# verify-fixture-provenance.sh, this is deliberately not one of the
+# `check-*.sh` scripts `.github/workflows/ci.yml` and the local gate loop run,
+# and is not a `cargo test`. The name is the whole mechanism: ci.yml globs
+# `tools/ci/check-*.sh` rather than enumerating, precisely so a new check
+# cannot be forgotten -- which means a docker-requiring script named `check-*`
+# is picked up by a runner that has no docker and no oracle image, and fails
+# there for a reason unrelated to what it tests.
 #
-#   tools/ci/check-continuous-reseed-wrap.sh
+#   tools/ci/verify-continuous-reseed-wrap.sh
 #
 # # The property, and why it separates wrap from clamp
 #
