@@ -737,15 +737,48 @@ impl<'m> PlanningScene<'m> {
     /// what an already-taken snapshot answers, which is the same staleness
     /// upstream itself accepts by resolving once.
     ///
-    /// Each object/subframe name is stored twice, bare and `/`-prefixed:
-    /// `isFixedFrame` checks the *unstripped* string against the base map
-    /// first and only strips a leading `/` for the object check
-    /// (`planning_scene.cpp:127-134`), so `isFixedFrame("obj")` and
-    /// `isFixedFrame("/obj")` are both `true` for a world object `obj`.
-    /// [`moveit_geometry::Transforms::can_transform`] is one flat map
-    /// lookup on the literal string it is given -- it cannot strip
-    /// anything itself -- so matching both call shapes needs both keys
-    /// present.
+    /// Each object/subframe name is stored bare *and* `/`-prefixed, but the
+    /// two are not symmetric: `isFixedFrame` checks the *unstripped* string
+    /// against the base map first and only strips **one leading `/`** before
+    /// the object check (`planning_scene.cpp:127-134`), so for a name `N`
+    /// that does not itself start with `/`, `isFixedFrame(N)` and
+    /// `isFixedFrame("/" + N)` are both `true`. [`moveit_geometry::Transforms::can_transform`]
+    /// is one flat map lookup on the literal string it is given -- it cannot
+    /// strip anything itself -- so matching both call shapes needs both keys
+    /// present, which is what the bare-plus-`/`-prefixed insert below does.
+    ///
+    /// That insert must *not* run unconditionally on the object/subframe id
+    /// itself, though: for an id `N` that already starts with `/` (a world
+    /// object literally named e.g. `/obj`), the correct bare-`N` query is
+    /// `isFixedFrame("/obj")`, which strips the query's own leading `/` and
+    /// checks `knowsObjectFrame("obj")` -- **not** `knowsObjectFrame("/obj")`
+    /// -- so it is `false` unless some other object is literally named
+    /// `obj`. Only `isFixedFrame("//obj")` (one more leading `/`, stripped
+    /// down to the literal id `/obj`) is `true`. Inserting the bare id
+    /// unconditionally, as an earlier version of this method did, makes
+    /// `can_transform("/obj")` wrongly agree with `isFixedFrame("/obj")`'s
+    /// *stripped* meaning instead of disagreeing the way `knowsObjectFrame`
+    /// actually does. `insert_object_frame` (below) encodes the fix: skip the bare
+    /// insert whenever the name already starts with `/`; always insert the
+    /// `/`-prefixed form.
+    ///
+    /// One further collision `knowsObjectFrame` resolves that a flat
+    /// bare/`/`-prefixed insert does not, by itself: `World::knowsTransform`
+    /// checks exact object ids *before* it ever considers the
+    /// `object_id + "/" + subframe_name` subframe form
+    /// (`world.cpp:145` runs before the subframe loop at `:150`) -- so a
+    /// world object literally named e.g. `a/b` always wins over a different
+    /// object `a` with a subframe `b`, even though both would otherwise
+    /// insert the same composite key `a/b`. This method resolves that the
+    /// same way: every object's own id is inserted first, and a subframe
+    /// composite is skipped (via [`World::has_object`]) wherever it collides
+    /// with another object's literal id. A subframe composite colliding with
+    /// a *different* object's subframe composite (nested-`/` subframe or
+    /// object names) is not modeled -- SRDF/`moveit_msgs::CollisionObject`
+    /// ids and subframe names do not contain `/` in practice, and
+    /// upstream's own resolution for that case depends on `std::map`
+    /// iteration order among ambiguous prefixes, not just which composite
+    /// strings exist.
     ///
     /// Robot-state link and attached-body names are deliberately excluded:
     /// `SceneTransforms::isFixedFrame` does not consult them either --
@@ -757,15 +790,23 @@ impl<'m> PlanningScene<'m> {
     /// here would over-match, not under-match.)
     pub fn transforms_with_world_objects(&self) -> Transforms {
         let mut snapshot = self.transforms().clone();
-        let insert = |snapshot: &mut Transforms, name: &str, pose: Isometry3| {
-            let _ = snapshot.set_transform(pose, name);
-            let _ = snapshot.set_transform(pose, format!("/{name}"));
-        };
+
+        // Object ids first, unconditionally -- `World::knowsTransform`
+        // checks exact object ids before it ever considers a subframe
+        // composite (`world.cpp:145`), so an object's own frame must win
+        // any later collision with another object's subframe composite.
         for (id, object) in self.world.iter() {
-            insert(&mut snapshot, id, object.pose());
+            insert_object_frame(&mut snapshot, id, object.pose());
+        }
+
+        for (id, object) in self.world.iter() {
             for name in object.subframe_names() {
+                let composite = format!("{id}/{name}");
+                if self.world.has_object(&composite) {
+                    continue;
+                }
                 if let Some(pose) = object.global_subframe_pose(name) {
-                    insert(&mut snapshot, &format!("{id}/{name}"), pose);
+                    insert_object_frame(&mut snapshot, &composite, pose);
                 }
             }
         }
@@ -1714,6 +1755,17 @@ impl<'m> PlanningScene<'m> {
     }
 }
 
+/// Insert `name`'s pose into `snapshot` under every key `isFixedFrame`'s
+/// unstripped-then-one-leading-`/`-stripped check would resolve `name` to.
+/// See [`PlanningScene::transforms_with_world_objects`]'s doc for why the
+/// bare form is skipped when `name` itself already starts with `/`.
+fn insert_object_frame(snapshot: &mut Transforms, name: &str, pose: Isometry3) {
+    if !name.starts_with('/') {
+        let _ = snapshot.set_transform(pose, name);
+    }
+    let _ = snapshot.set_transform(pose, format!("/{name}"));
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -2515,6 +2567,76 @@ mod tests {
         let snapshot = scene.transforms_with_world_objects();
 
         assert!(!snapshot.can_transform("nothing"));
+    }
+
+    #[test]
+    fn transforms_with_world_objects_does_not_over_match_a_slash_led_object_id() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("/obj", cuboid_shape(), Isometry3::identity());
+        scene.move_object("/obj", Isometry3::translation(3.0, 0.0, 0.0));
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        // isFixedFrame("/obj") strips one leading '/' and checks
+        // knowsObjectFrame("obj") -- a different object's id, which does not
+        // exist here -- so the bare id must NOT resolve, even though it is
+        // the object's own literal name.
+        assert!(!snapshot.can_transform("/obj"));
+        assert!(!snapshot.can_transform("obj"));
+        // isFixedFrame("//obj") strips one leading '/' down to the literal
+        // id "/obj", which does exist.
+        assert!(snapshot.can_transform("//obj"));
+        assert_eq!(
+            *snapshot.transform("//obj").unwrap(),
+            Isometry3::translation(3.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn transforms_with_world_objects_does_not_double_prefix_a_plain_object_id() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("obj", cuboid_shape(), Isometry3::identity());
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        assert!(!snapshot.can_transform("//obj"));
+    }
+
+    #[test]
+    fn transforms_with_world_objects_prefers_an_object_id_over_a_colliding_subframe_composite() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        // Object "a" with subframe "b" would compose to the same key "a/b"
+        // as a distinct top-level object literally named "a/b". Upstream
+        // resolves object ids before subframes (`world.cpp:145`), so the
+        // top-level object's own pose must win.
+        scene.add_shape("a", cuboid_shape(), Isometry3::identity());
+        let mut subframes = BTreeMap::new();
+        subframes.insert("b".to_owned(), Isometry3::translation(0.0, 0.0, 0.1));
+        scene.world.set_subframes_of_object("a", subframes);
+        scene.add_shape("a/b", cuboid_shape(), Isometry3::identity());
+        scene.move_object("a/b", Isometry3::translation(9.0, 0.0, 0.0));
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        assert!(snapshot.can_transform("a/b"));
+        assert_eq!(
+            *snapshot.transform("a/b").unwrap(),
+            Isometry3::translation(9.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn transforms_with_world_objects_never_answers_can_transform_for_an_empty_name() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("crate", cuboid_shape(), Isometry3::identity());
+
+        let snapshot = scene.transforms_with_world_objects();
+
+        assert!(!snapshot.can_transform(""));
     }
 
     // ---- collision checking -----------------------------------------------
