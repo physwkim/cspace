@@ -263,6 +263,7 @@ name = "moveit-distance-field"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-collision",
  "moveit-error",
  "moveit-geometry",
  "nalgebra",

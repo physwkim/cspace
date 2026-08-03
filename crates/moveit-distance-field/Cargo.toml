@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+moveit-collision.workspace = true
 moveit-error.workspace = true
 moveit-geometry.workspace = true
 nalgebra.workspace = true

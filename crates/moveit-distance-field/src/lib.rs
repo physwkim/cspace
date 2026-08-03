@@ -41,16 +41,24 @@
 //! - [`PosedDistanceField`], [`BodyDecomposition`] and the `Posed*` sphere/
 //!   point decomposition types — see [`PosedDistanceField`]'s own doc
 //!   comment for the composition-over-inheritance design note.
+//! - [`get_body_decomposition_cache_entry`] / [`collision_object_point_decomposition`]
+//!   — the `RobotState`/`RobotModel`-dependent slice of
+//!   `collision_common_distance_field`; see that function's own doc comment
+//!   for what is deferred and why.
 //!
 //! See [`DistanceField`]'s doc comment for what upstream's abstract base
 //! class carries that is deliberately *not* ported here, and why.
 
+mod collision_common_distance_field;
 mod collision_distance_field_types;
 mod distance_field;
 mod find_internal_points;
 mod propagation;
 mod voxel_grid;
 
+pub use collision_common_distance_field::{
+    collision_object_point_decomposition, get_body_decomposition_cache_entry,
+};
 pub use collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
     PosedBodyPointDecompositionVector, PosedBodySphereDecomposition,
