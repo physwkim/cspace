@@ -6521,3 +6521,76 @@ target_velocity = 0.0                                                       → 
 `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과, reseed-wrap 통과,
 재생 **28/28 identical**(새 `moveit-smoothing/acceleration_filter`,
 `moveit-smoothing/ruckig_filter` 포함).
+
+## 75. `isFixedFrame` 다리는 놓였고, mesh cost source는 백엔드 한계가 아니다 (2026-08-04)
+
+p1-fixtures 라운드 10(`ee78221`, `2046bbe`). 베이스 `5830e75`,
+main `252354d`에 머지. **995 → 999**.
+
+### 75.1 `transforms_with_world_objects`는 상류 범위와 맞다
+
+`planning_scene.cpp:123-137`의 `SceneTransforms::isFixedFrame`을 읽었다:
+빈 문자열 false → `Transforms::isFixedFrame`(원문 그대로, 베이스 맵)
+→ 앞의 `/` 하나만 벗겨 `knowsObjectFrame` → `World::knowsTransform`
+(`world.cpp:142-162`, 객체 이름 우선, 다음 `object/subframe`).
+`getCurrentState()`는 어느 경로에도 없다.
+
+새 접근자는 이 범위를 그대로 재현한다 — 베이스 맵 복제에 world 객체와
+subframe을 bare/`/`-prefixed 두 키로 접어 넣고, 로봇 링크와 attached body는
+넣지 않는다. `can_transform`이 문자열 그대로 한 번 조회하는 평면 맵이라
+두 키가 필요하다는 논리도 맞다.
+
+### 75.2 다만 앞에 `/`가 붙은 이름의 객체에서 과다 매칭한다
+
+상류: 객체 이름이 `/obj`일 때 `isFixedFrame("/obj")`는 베이스 맵에 없고,
+`/`를 벗긴 `knowsTransform("obj")`도 없으므로 **false**다.
+이 포트: `insert`가 `name`과 `/{name}`을 넣으므로 키가 `/obj`, `//obj`가
+되고 `can_transform("/obj")`가 **true**다.
+
+추가된 경계 테스트 4건은 이 경우를 덮지 않는다. 심각도는 낮지만
+경계에서의 불일치이고 재현이 한 줄이다 — 라운드 11에 넣는다.
+
+### 75.3 mesh cost source는 "백엔드 한계"가 아니다
+
+담당이 `scene.rs`에 쓴 문장: "matching this bit-for-bit needs
+`parry3d-f64`'s lower-level BVH/`Qbvh` traversal API, which nothing in
+`moveit-collision` calls today. This half is the genuine backend limitation."
+
+두 군데가 틀렸다.
+
+먼저 이름. `Qbvh`는 `parry3d-f64 0.30`에 **존재하지 않는다** —
+`grep -rl Qbvh` 결과 0건이고, `partitioning/mod.rs`가 내보내는 것은
+`Bvh`/`BvhNode`/`BvhNodeIndex`/`TraversalAction`이다. `Qbvh`는 이전
+버전 이름이다.
+
+그리고 결론. 필요한 데이터는 공개 API로 전부 나와 있다:
+`TriMesh::bvh() -> &Bvh`(`trimesh.rs:1808`), `Bvh::leaves`
+(`bvh_traverse.rs:103`), `Bvh::intersect_aabb -> impl Iterator<Item = u32>`
+(`bvh_queries.rs:203`), `BvhNode::aabb()`(`bvh_tree.rs:721`)와
+`leaf_data()`(`:567`), `TriMesh::triangle(i)`(`trimesh.rs:1881`).
+leaf 삼각형별 AABB를 얻어 겹치는 쌍의 교집합을 취하는 것이
+`fcl2costsource`가 하는 일이고, 그 재료가 다 있다.
+
+맞는 진술은 "`parry3d_f64::query::contact` **한 번의 호출**이 돌려주지
+않는다"이지 "백엔드에 없다"가 아니다. 두 번째 순회가 필요한 작업량
+문제이지 한계가 아니다. 따라서 mesh 절반도 non-mesh 절반과 같이
+p3-acm의 작업으로 넘어간다 — 문서에 한계로 남기면 다시 묻지 않게 되는데,
+그 결론이 틀렸다.
+
+### 75.4 `visibility_cone` 115건은 라운드 4부터 주인이 있었다
+
+내가 열 라운드째 "주인 없음"으로 적어 온 항목인데, 담당이 근거를 대고
+반박했다: `decide_cone`(`moveit-constraints/src/visibility.rs:381`)은
+자기 `World`/`ParryCollisionEnv`를 만들고 `PlanningScene`을 타지 않으며,
+§37/§38.3이 잔차를 `moveit-collision`의 contact 순회/tie-break 순서로
+좁혀 p3-acm에 배정했고 §46.1이 재확인했다. `moveit-scene`에는
+`visibility_cone` 참조가 0건이다.
+
+**주인 없음이 아니라 미해결이다.** 내 UNFIXED 문구가 틀렸다.
+
+### 75.5 머지 후 실측
+
+`cargo nextest run --workspace` **999/999**(995 + 4), `cargo test --doc
+--workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
+재생 **28/28 identical**.
