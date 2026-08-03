@@ -15,6 +15,10 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "collision_sphere_free_functions": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "distance_field": {
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
