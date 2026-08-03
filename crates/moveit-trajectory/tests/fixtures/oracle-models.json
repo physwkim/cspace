@@ -1,0 +1,22 @@
+{
+  "ruckig": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "totg": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "totg_robot_trajectory": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "totg_robot_trajectory_scaling_only": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "totg_synthetic": {
+    "srdf": "totg_synthetic.srdf",
+    "urdf": "totg_synthetic.urdf"
+  }
+}
