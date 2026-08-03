@@ -47,12 +47,19 @@ fn sphere() -> Arc<Shape> {
     ))
 }
 
-/// pr2, not panda: panda/fanuc/dual_arm_panda carry only `<mesh>` collision
-/// geometry, which the URDF loader does not yet retain (PORTING-PLAN.md
-/// §13.4), so every one of their links is invisible to this backend and no
-/// "collides" assertion against them could mean anything. pr2 has primitive
-/// collision shapes -- `base_footprint`'s 1mm box sits at `z = 0.071`, within
-/// reach of a 0.1-radius sphere at the origin.
+/// pr2, not panda, and `MeshSearchPaths::none()` rather than pr2's own
+/// vendored meshes (`fixtures/meshes/pr2_description/`, round-8 §32):
+/// panda/fanuc/dual_arm_panda carry only `<mesh>` collision geometry, so with
+/// no search paths every one of their links is invisible to this backend and
+/// no "collides" assertion against them could mean anything -- pr2 has a
+/// primitive collision shape on `base_footprint` (a 1mm box at `z = 0.071`,
+/// within reach of a 0.1-radius sphere at the origin) regardless of mesh
+/// resolution. Real search paths would additionally light up dozens of
+/// nearby pr2 mesh links (see `crates/moveit-collision/tests/
+/// collision_parity.rs`'s pr2 case dump) whose distance from the origin
+/// isn't controlled by this test at all, which would confound the
+/// shape-count/shape-kind boundary under test here -- so `none()` stays
+/// deliberate even though mesh resolution itself now works.
 fn robot() -> RobotModel {
     let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/pr2.urdf");
     let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/pr2.srdf");
