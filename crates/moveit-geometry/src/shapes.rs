@@ -153,6 +153,113 @@
 //!    calls `Arc::get_mut` (matching upstream's `const`). See [`OcTree`]'s
 //!    own doc comment for the corresponding [`PartialEq`] deviation.
 //!
+//! # `shapes.h` / `shape_operations.h` symbol audit (round 8)
+//!
+//! Every public declaration in the oracle container's installed
+//! `geometric_shapes/include/geometric_shapes/shapes.h` and
+//! `shape_operations.h`, classified so the next audit re-runs this instead of
+//! re-deriving it.
+//!
+//! `shapes.h`:
+//!
+//! - `ShapeType` enum and its `operator<<` — **ported** as [`ShapeType`]/
+//!   [`ShapeType::as_str`]/`Display`.
+//! - `Shape` base class: constructor/destructor, the pure-virtual
+//!   `clone`/`scaleAndPadd`, and the `ShapeType type` field — **subsumed by
+//!   D4.** An enum has no separate construct/destruct step to port, `#[derive(Clone)]`
+//!   is exact (every variant here is plain data — no raw pointers to
+//!   deep-copy, unlike upstream's `Mesh`), `scaleAndPadd` is
+//!   [`Shape::scale_and_padd`]'s per-variant match arms, and `type` is
+//!   subsumed by [`Shape::shape_type`] — there is no separate field that
+//!   could disagree with the enum discriminant, which is D4's whole point.
+//! - `Shape::scale(double)`/`Shape::padd(double)` (the non-virtual uniform
+//!   convenience wrappers) — **ported** as [`Shape::scale`]/[`Shape::padd`],
+//!   both defined in terms of [`Shape::scale_and_padd`] exactly as upstream
+//!   defines them in terms of the virtual `scaleAndPadd`.
+//! - `Shape::isFixed()` (default `false`, overridden `true` in `Plane`/
+//!   `OcTree`) — **ported** as [`Shape::is_fixed`].
+//! - `Shape::print(ostream&)`, and every concrete class's override of it
+//!   (`Sphere::print` through `OcTree::print`) — **unported.** Nothing in
+//!   this crate writes to a debug stream; see [`OcTree`]'s own doc,
+//!   "Deviations from upstream", for the one case — the null-`shared_ptr`
+//!   state `OcTree::print` has to branch on — where this port's `Option`
+//!   already makes the state explicit instead of needing a printed message.
+//! - Each concrete class's `STRING_NAME` (`Sphere::STRING_NAME` through
+//!   `OcTree::STRING_NAME`) — **ported** as [`ShapeType::as_str`]'s match
+//!   arms, already probe-verified per value.
+//! - `Cylinder`/`Cone`/`Box`/`Mesh`'s non-uniform overloads (2-, 3- or 6-arg
+//!   `scale`/`padd`/`scaleAndPadd` taking a separate factor per axis) —
+//!   **ported** as each type's `scale_axes`/`padd_axes`/`scale_and_padd_axes`.
+//!   `Sphere`/`Plane`/`OcTree` have no non-uniform overloads upstream either
+//!   (a sphere/plane/octree has no per-axis dimension to scale
+//!   independently), so none exist here.
+//! - `Mesh::computeTriangleNormals`/`computeVertexNormals`/`mergeVertices` —
+//!   **ported** as [`Mesh::compute_triangle_normals`]/
+//!   [`Mesh::compute_vertex_normals`]/[`Mesh::merge_vertices`].
+//! - `Mesh(unsigned int v_count, unsigned int t_count)` (the
+//!   allocate-then-fill-by-index constructor `constructShapeFromText` and
+//!   `mesh_operations.cpp`'s loading pipeline use internally) — **unported.**
+//!   [`Mesh::new`] takes fully-built `Vec`s instead (deviation 2 above), so
+//!   nothing in this port ever needs to allocate an empty mesh and fill it
+//!   by index; its only upstream caller besides internal pipeline plumbing
+//!   already ported elsewhere ([`Mesh::new`] itself) is the deferred
+//!   `constructShapeFromText` below.
+//! - `ShapePtr`/`ShapeConstPtr` (`shared_ptr<Shape>`/`shared_ptr<const Shape>`
+//!   typedefs) — **subsumed by Rust ownership.** A caller that needs shared
+//!   ownership of a [`Shape`] uses `Arc<Shape>` directly (as [`OcTree`]'s own
+//!   field does one level down, for the `octomap::OcTree` it wraps); there is no
+//!   separate named type to port for a type alias whose only job upstream is
+//!   working around the lack of a language-level ownership model.
+//!
+//! `shape_operations.h`, the 12 free functions:
+//!
+//! - `constructShapeFromMsg` (3 overloads: `SolidPrimitive`, `Plane`, `Mesh`,
+//!   plus the `ShapeMsg` variant dispatcher — 4 declarations total),
+//!   `constructMsgFromShape`, `constructMarkerFromShape`,
+//!   `computeShapeExtents(const ShapeMsg&)` — **D-decision excludes (D1).**
+//!   All six take or produce `shape_msgs`/`visualization_msgs` ROS message
+//!   types; PORTING-PLAN.md D1 keeps ROS-message (de)serialization and the
+//!   rviz marker layer out of the core crates entirely (see the provenance
+//!   comment at the top of this file).
+//! - `computeShapeExtents(const Shape*)` — **ported as [`Shape::extents`].**
+//! - `computeShapeBoundingSphere(const Shape*, center, radius)` — **ported as
+//!   [`Shape::bounding_sphere`]**, an owned [`BoundingSphere`] return instead
+//!   of two out-params.
+//! - `shapeStringName(const Shape*)` — **ported, subsumed by
+//!   [`Shape::shape_type`]`().`[`as_str`](ShapeType::as_str).** No dedicated
+//!   `shape_string_name` free function exists; `shape.shape_type().as_str()`
+//!   returns the identical `STRING_NAME` string with one fewer null-check
+//!   (this port's `Shape` is never null — an enum value, not a pointer —
+//!   which is the same "illegal state unrepresentable by construction"
+//!   argument the module doc's D4 section makes for the type as a whole).
+//! - `saveAsText(const Shape*, ostream&)`, `constructShapeFromText(istream&)`
+//!   — **unported this round, deliberately.** Read `shape_operations.cpp` in
+//!   full: the algorithm is fully known — write/read `STRING_NAME` then each
+//!   shape's raw numeric fields whitespace-separated (`Sphere`: radius;
+//!   `Box`: 3 sizes; `Cylinder`/`Cone`: radius, length; `Plane`: a b c d;
+//!   `Mesh`: vertex/triangle counts then each vertex and triangle, followed
+//!   by `computeTriangleNormals()`/`computeVertexNormals()`) via the
+//!   default `ostream`/`istream` `<<`/`>>` operators (no `setprecision`
+//!   anywhere in the file — a round trip is lossy to the default ~6
+//!   significant digits, confirmed by grepping `planning_scene.cpp` too for
+//!   any precision override; there is none). `OcTree` has no case in either
+//!   function, matching this port's own D4 boundary — that shape was never
+//!   round-trippable upstream either. The one in-scope caller is
+//!   `planning_scene.cpp`'s `PlanningScene::saveGeometryToStream`/
+//!   `loadGeometryFromStream` (`moveit_core/planning_scene`, not
+//!   `moveit_ros`) — real, but owned by `moveit-scene` (p1-fixtures'
+//!   crate this round, not this crate's), and that owner has not yet
+//!   specified whether the ported scene format will reuse this exact
+//!   `ostream`-text scheme at all, or a serde-based one more idiomatic for
+//!   this workspace — building a speculative port of an I/O format nobody
+//!   has asked this crate to expose yet is the same "no configurability for
+//!   a hypothetical future requirement" this project avoids elsewhere.
+//!   Falsifier: closes when a consumer names this exact format as the one it
+//!   needs; the algorithm above is the port recipe, transcribed from a
+//!   provenance-verified read of `shape_operations.cpp` (see the top-of-file
+//!   provenance comment) so whoever picks it up does not need to re-read the
+//!   source.
+//!
 //! # Who consumes `Shape::OcTree`, and what they will need from it
 //!
 //! Read from `moveit2`'s two call sites (`collision_common.cpp`,
@@ -185,7 +292,26 @@
 //!   memoized per-tree by an `OctreeCache` (see that module's doc) so the
 //!   `Compound` is not rebuilt on every collision/distance query, and the
 //!   wired path is oracle-verified against a real `CollisionEnvFCL` in
-//!   `crates/moveit-collision/tests/octree_world_collision_parity.rs`.
+//!   `crates/moveit-collision/tests/octree_world_collision_parity.rs`, and
+//!   `crates/moveit-collision/tests/octree_leaf_count_scaling_parity.rs`
+//!   measures `robot_distance` agreement across leaf counts 0–216 rather than
+//!   just asserting the structural difference (round 7 item 2; no divergence
+//!   at any count tested).
+//!
+//!   **Falsifier for this gap (round 8, re-verified against the pinned
+//!   `parry3d-f64 = "0.30.0"` in `Cargo.lock`):** the item closes when
+//!   `parry3d-f64` ships a shape that accepts *per-node* size, not one
+//!   uniform `voxel_size` for the whole shape. Checked
+//!   `Voxels::new` in
+//!   `~/.cargo/registry/src/index.crates.io-*/parry3d-f64-0.30.0/src/shape/voxels/voxels.rs:574` —
+//!   `pub fn new(voxel_size: Vector, grid_coordinates: &[IVector]) -> Self`,
+//!   one `voxel_size` for every cell — so it still cannot take a pruned,
+//!   variable-depth [`moveit_octomap::OcTree`] leaf directly, for the same
+//!   re-inflation reason given above. `rg -n 'pub fn new' .../voxels.rs`
+//!   returning a signature with a per-node size parameter (or a new
+//!   `parry3d_f64::shape` module implementing a sparse/hierarchical volume)
+//!   would close it; a version bump alone does not, unless that signature
+//!   changed.
 //! - **`collision_env_distance_field`'s treatment**
 //!   (`collision_env_distance_field.cpp`, `~line 1753`) only ever reads: it
 //!   builds `PosedBodyPointDecomposition(octree)` directly from the

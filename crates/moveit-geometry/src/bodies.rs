@@ -63,6 +63,29 @@
 // `contain`/`overlap`. [`OBB::extend_approx`]'s general-merge branch,
 // which the same probe caught disagreeing with the binary, is now a
 // literal port of `operator+`/`merge_largedist`/`merge_smalldist` instead.
+//
+// Round 8 re-verification: the cached source tree this file (and the round-8
+// symbol audit below) reads from is a tarball matching the shipped package
+// exactly by content (`geometric_shapes-2.3.3/` prefix, file mtimes
+// `2025-06-06 20:41`, matching `CHANGELOG.rst`'s own `2.3.3 (2025-06-06)`
+// entry — consistent with GitHub's per-tag source archive, not a hand-edited
+// tree), and the cached `libgeometric_shapes.so.2.3.3` copy checked against
+// it is byte-identical (`sha256sum`, `547881ff...`) to the one inside this
+// round's freshly rebuilt oracle image, so the check below applies to the
+// current tree. Re-ran shapes.rs's own string-table method for two files its
+// original six-literal check did not cover, since this round's audit draws
+// conclusions from both: `body_operations.cpp`'s "Creating body from shape:
+// Unknown shape type %d" and `shape_operations.cpp`'s "Unable to save shape
+// of type %d" / "Unknown shape type: '%s'" each appear in `strings
+// libgeometric_shapes.so.2.3.3` exactly once. For the one round-8 finding
+// that depends on a *negative* fact (`ConvexMesh::computeScaledVerticesFromPlaneProjections`
+// is never called, module docs below) — a fact no string literal can prove
+// — went one level past a source grep: `objdump -d`'d the shipped `.so`
+// directly and confirmed zero `call` instructions anywhere in the library
+// target that function's address, including inside
+// `bodies::ConvexMesh::updateInternalData()`'s own disassembly. That holds
+// regardless of whether the source tarball is letter-perfect, since it reads
+// the compiled binary's actual call graph, not the tarball's text.
 
 //! The posed, algorithmic half of `geometric_shapes`: `bodies::Body` and its
 //! four concrete kinds, plus the bounding-volume types they return. Upstream
@@ -81,23 +104,127 @@
 //! [`Body::compute_bounding_sphere`]), `computeBoundingCylinder`,
 //! `samplePointInside`, [`AABB`], [`OBB`], and the free function
 //! `mergeBoundingSpheres` (here [`merge_bounding_spheres`]). The free
-//! function `computeBoundingSphere(vector<Body*>)` (`body_operations.h`)
-//! has no dedicated port — a caller composes it from
-//! [`Body::compute_bounding_sphere`] and [`merge_bounding_spheres`] directly.
-//! `mergeBoundingBoxes`/`mergeBoundingBoxesApprox` (here
+//! function `computeBoundingSphere(vector<Body*>)` (`body_operations.h`) is
+//! unported, and — an earlier round of this doc's own claim, corrected here
+//! — is **not** equivalent to composing [`Body::compute_bounding_sphere`]
+//! and [`merge_bounding_spheres`]. Reading `body_operations.cpp` shows its
+//! real algorithm only considers `bodies::MESH` bodies at all (every other
+//! body type is silently skipped, upstream's own comment above the loop
+//! reading `// TODO - expand to all body types`), and even restricted to
+//! mesh bodies it computes one sphere from the centroid of every mesh's
+//! *raw* scaled/posed vertices pooled together, not by merging each body's
+//! own precomputed [`BoundingSphere`] pairwise the way
+//! [`merge_bounding_spheres`] does — a materially different result in
+//! general, not a reformulation of the same one. It has zero callers
+//! anywhere in the pinned `moveit2` tree (`rg -n
+//! 'bodies::computeBoundingSphere\('` finds none outside `geometric_shapes`
+//! itself), so there is no in-scope caller to port it for; the function is
+//! listed here as unported rather than as composed from parts this port
+//! already has. `mergeBoundingBoxes`/`mergeBoundingBoxesApprox` (here
 //! [`merge_bounding_boxes`]/[`merge_bounding_boxes_approx`]) are included too
 //! — they are one-line loops over [`AABB::extend_aabb`]/[`OBB::extend_approx`]
 //! once those types exist, and upstream's own test coverage for [`OBB`]
 //! (`test_bounding_box.cpp`'s `MergeBoundingBoxes` suite) runs through them.
 //!
-//! It deliberately does **not** port `bodies::BodyVector` (a thin
-//! `Vec<Body>`-plus-first-hit-query convenience wrapper), or the
-//! message/marker-facing free functions in `body_operations.h`
-//! (`createEmptyBodyFromShapeType`'s `shape_msgs`/`visualization_msgs`
-//! siblings, `constructShapeFromBody`, `constructMarkerFromBody`,
-//! `constructBodyFromMsg`) — none of these were in the requested scope, and
-//! the message-facing ones are out of scope for the same reason as
-//! `shapes.rs`'s message conversions (PORTING-PLAN.md D1).
+//! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
+//!
+//! Members not already named above, classified:
+//!
+//! - `Body::getType()` — **subsumed by D4.** A caller matches on [`Body`]'s
+//!   variant directly (`matches!(body, Body::Sphere(_))`, or the `match`
+//!   arms every dispatch method here already uses) instead of comparing a
+//!   `ShapeType` tag that D4 makes impossible to desync from the real type
+//!   in the first place. `collision_distance_field_types.cpp:63`'s
+//!   `if (body->getType() == shapes::ShapeType::SPHERE)` is the one in-scope
+//!   caller (`moveit-distance-field`'s port this round, not this crate's).
+//! - `setScaleDirty`/`setPaddingDirty`/`setPoseDirty`/`setDimensionsDirty`
+//!   (the batch-then-`updateInternalData()` half of each setter pair) —
+//!   **subsumed by the "no dirty/clean setter pair" design** (see below):
+//!   every setter here recomputes eagerly, so there is no separate `*Dirty`
+//!   entry point to port.
+//! - `containsPoint(double x, double y, double z, bool verbose = false)`
+//!   (the raw-coordinate convenience overload) and the `verbose` parameter
+//!   on both `containsPoint` overloads — **unported.** The 3-`double`
+//!   overload is a one-line wrapper that builds an `Eigen::Vector3d` and
+//!   forwards; callers here already pass `&Vector3` directly, so there is
+//!   nothing the wrapper would save. `verbose` only ever
+//!   `CONSOLE_BRIDGE_logDebug`s inside `containsPoint`'s per-body
+//!   implementations; this crate does not log (the same reasoning already
+//!   given for `print()`), so there is no destination for the message that
+//!   parameter would enable.
+//! - `useDimensions` (protected) — **subsumed**, folded into each concrete
+//!   body's own constructor/`recompute`, since this port never constructs an
+//!   empty [`Body`] and fills its dimensions in a second step the way
+//!   `createEmptyBodyFromShapeType` + `setDimensionsDirty` does.
+//! - `cloneAt` (both overloads) — **ported** as [`Sphere::clone_at`]/
+//!   [`Cylinder::clone_at`]/[`Cuboid::clone_at`]/[`ConvexMesh::clone_at`]
+//!   (the 1-arg, current-padding-and-scale overload) and each type's
+//!   `clone_at_with` (the 3-arg overload).
+//! - `ConvexMesh::getTriangles`/`getVertices`/`getScaledVertices`/`getPlanes`
+//!   — **ported** as [`ConvexMesh::triangles`]/[`ConvexMesh::vertices`]/
+//!   [`ConvexMesh::scaled_vertices`]/[`ConvexMesh::planes`] (deviation 2
+//!   above covers where the last two cannot match 1:1).
+//! - `ConvexMesh::computeScaledVerticesFromPlaneProjections` — **unported,
+//!   dead code upstream.** See the provenance comment at the top of this
+//!   file for the disassembly-level proof that it is never called from
+//!   anywhere in the shipped binary; [`ConvexMesh`]'s own `recompute` already
+//!   matches `updateInternalData()`'s actual (simpler, radial-scaling) inline
+//!   logic instead.
+//! - `ConvexMesh::correctVertexOrderFromPlanes` — **not needed**, per
+//!   deviation 2 above: `parry3d-f64`'s `try_convex_hull` already guarantees
+//!   CCW winding, so there is no per-facet vertex-order correction to make.
+//! - `ConvexMesh::countVerticesBehindPlane` — **unported.** Its own doc
+//!   comment upstream calls it "used mainly for debugging"; `rg -n
+//!   'countVerticesBehindPlane' /home/stevek/work/moveit2` returns no hits —
+//!   zero callers anywhere in the pinned tree.
+//!
+//! ## `body_operations.h` symbol audit (round 8)
+//!
+//! The remaining 4 of `body_operations.h`'s 11 declarations, classified:
+//!
+//! - `createEmptyBodyFromShapeType(ShapeType)` — **subsumed by
+//!   [`Body::from_shape`].** Upstream's own callers never call this alone;
+//!   every in-scope one (`kinematic_constraint.cpp:411,438`,
+//!   `distance_field.cpp:223,301,316`) immediately follows it with
+//!   `setDimensionsDirty(shape)`/`setPoseDirty(pose)`/`updateInternalData()`
+//!   — the exact composition [`Body::from_shape`] performs in one call under
+//!   this port's no-dirty-flag design (see below), followed by
+//!   [`Body::set_pose`] for the pose half.
+//! - `createBodyFromShape(const Shape*)` — **ported as
+//!   [`Body::from_shape`]**, already documented on that method as its direct
+//!   upstream counterpart. `body_operations.cpp` confirms the two are the
+//!   same composition (`createEmptyBodyFromShapeType(shape->type)` then
+//!   `body->setDimensions(shape)`), so this is not a fresh equivalence claim,
+//!   only cross-referencing one already made.
+//! - `constructShapeFromBody(const Body*)`, `constructMarkerFromBody(const
+//!   Body*, Marker&)`, and all three `constructBodyFromMsg` overloads —
+//!   **unported.** `rg -n
+//!   'constructShapeFromBody|constructMarkerFromBody|constructBodyFromMsg'
+//!   /home/stevek/work/moveit2` returns no hits for any of the four —  zero
+//!   callers anywhere in the pinned tree, not merely "not requested". The
+//!   marker/message ones would be D1-excluded regardless
+//!   (`visualization_msgs`/`shape_msgs`), matching `shapes.rs`'s message
+//!   conversions; `constructShapeFromBody` takes no message type and could in
+//!   principle be ported, but has no caller to port it for either.
+//!
+//! It deliberately does **not** port `bodies::BodyVector` — declared in
+//! `bodies.h`, not `body_operations.h`, included here because it is the one
+//! other unported symbol in the `bodies` namespace. Checking this claim
+//! against the pinned tree this round (`rg -n 'BodyVector'
+//! /home/stevek/work/moveit2`) found it does have a real in-scope caller —
+//! `collision_distance_field_types.hpp:293`'s `bodies::BodyVector bodies_;`
+//! member (`moveit_core/collision_distance_field`, `moveit-distance-field`'s
+//! port this round, not this crate's) — so "not in the requested scope" from
+//! an earlier round of this doc was an unverified guess, not a checked fact;
+//! corrected here rather than repeated. It is still not ported, but for a
+//! narrower and now-verified reason: `BodyVector` itself is a thin
+//! `std::vector<Body*>` plus loop-based `containsPoint`/first-hit
+//! `intersectsRay`/indexed `getBody`, entirely composable from a plain
+//! `Vec<Body>` and the per-body methods this crate already exposes
+//! ([`Body::contains_point`], [`Body::intersects_ray`]) — there is no
+//! algorithm here beyond the loop itself. Whether `moveit-distance-field`
+//! needs a dedicated wrapper type or can compose it inline from `Vec<Body>`
+//! is that crate's call against its own actual usage, not a gap in this one.
 //!
 //! # Design: enum, not a trait-object hierarchy (D4)
 //!
@@ -185,6 +312,37 @@
 //!    upstream's plane-merged output whenever the mesh has a coplanar
 //!    patch (e.g. a box: 12 triangles here against upstream's 6 merged
 //!    facets) — see that method's own doc for what it returns instead.
+//!
+//!    **Falsifier for "does the topology difference matter" (round 8):**
+//!    for two of [`ConvexMesh`]'s three triangle-consuming methods, it
+//!    provably cannot, by construction rather than by testing.
+//!    [`ConvexMesh::compute_volume`] sums each triangle's signed
+//!    origin-tetrahedron volume; that sum is a standard consequence of the
+//!    divergence theorem and is invariant to how a closed convex surface is
+//!    triangulated, so any diagonal choice across a coplanar patch gives the
+//!    identical total. [`ConvexMesh::contains_point`] (and
+//!    `samplePointInside`'s rejection sampling, which is built on it) ANDs
+//!    over every triangle's plane inequality; `convex_mesh_planes_accessor_dedups_to_libgeometric_shapes_box`
+//!    (`tests/probe_parity.rs`) already proves this port's per-triangle
+//!    plane set dedups to upstream's per-facet set exactly, and ANDing extra
+//!    duplicate constraints changes nothing, so the result cannot depend on
+//!    which diagonal either hull library picked. The one method where
+//!    triangulation is not merely cosmetic is
+//!    [`ConvexMesh::ray_intersections`]/`intersects_ray`: each candidate hit
+//!    is a genuine point-in-*triangle* test (barycentric cross-product signs
+//!    against that triangle's own three vertices, not just its plane), so a
+//!    ray whose hit point lands exactly on the shared edge between a
+//!    coplanar patch's two triangles depends on which triangle each
+//!    library's own floating-point tie-break assigns that point to — the
+//!    entry/exit *coordinate* is still identical (both triangles of a facet
+//!    share one plane equation, so `t` is the same), but whether the ray is
+//!    reported as a hit at all can differ at that exact measure-zero
+//!    boundary. That is not otherwise observable: it requires a ray
+//!    constructed to land precisely on the specific diagonal each library
+//!    happened to choose, which is a property of quickhull's and qhull's own
+//!    internal tie-breaking, not something this port controls or could match
+//!    without adopting qhull's numerics wholesale — the thing this deviation
+//!    already gives a reasoned decision not to do.
 //! 3. **`bodies::OBB`'s `contains_point`/`overlaps` are this port's own
 //!    implementation, not a literal port; `extend_approx`'s general-merge
 //!    case is.** See the provenance comment above. [`OBB::contains_point`]
