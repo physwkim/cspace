@@ -281,19 +281,24 @@ fn turn_drive_turn_geometry(
     }
 }
 
-/// Reimplementation of the ROS `angles` package's `normalize_angle`: bring
-/// `angle` into `(-pi, pi]`. The `angles` package source is not present on
-/// this machine (see `PORTING-PLAN.md` upstream reference paths); this is
-/// the well-known published formula, not a line-for-line port, and is only
-/// exercised by the diff-drive motion model, which neither fixture uses.
+// Ported from ROS package `angles` @ 1.16.1:
+//   include/angles/angles/angles.h (normalize_angle, shortest_angular_distance)
+
+/// Bring `angle` into `(-pi, pi]`, matching the ROS `angles` package's
+/// `normalize_angle`.
+///
+/// Only exercised by the diff-drive motion model, which neither the panda
+/// nor the fanuc fixture uses.
 fn normalize_angle(angle: f64) -> f64 {
-    let two_pi = 2.0 * PI;
-    let positive = ((angle + PI) % two_pi + two_pi) % two_pi;
-    positive - PI
+    let result = (angle + PI) % (2.0 * PI);
+    if result <= 0.0 {
+        result + PI
+    } else {
+        result - PI
+    }
 }
 
-/// Reimplementation of the ROS `angles` package's `shortest_angular_distance`
-/// — see [`normalize_angle`] for the caveat.
+/// Upstream `angles::shortest_angular_distance`.
 fn shortest_angular_distance(from: f64, to: f64) -> f64 {
     normalize_angle(to - from)
 }
@@ -324,6 +329,26 @@ mod tests {
                 ..Default::default()
             },
         ]
+    }
+
+    #[test]
+    fn normalize_angle_returns_positive_pi_at_the_pi_boundary() {
+        // angles::normalize_angle's range is (-pi, pi] — the upper bound is
+        // closed, the lower bound is open — so angle == pi (mod 2*pi) must
+        // come back as +pi, never -pi.
+        assert_eq!(normalize_angle(PI), PI);
+        assert_eq!(normalize_angle(-PI), PI);
+        assert_eq!(normalize_angle(3.0 * PI), PI);
+    }
+
+    #[test]
+    fn normalize_angle_wraps_just_past_pi_to_just_past_negative_pi() {
+        assert_relative_eq!(normalize_angle(PI + 0.1), -PI + 0.1, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn shortest_angular_distance_is_zero_for_equal_angles() {
+        assert_eq!(shortest_angular_distance(1.23, 1.23), 0.0);
     }
 
     #[test]
