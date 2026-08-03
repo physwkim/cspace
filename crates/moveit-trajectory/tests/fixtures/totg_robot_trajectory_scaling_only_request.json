@@ -1,0 +1,44 @@
+[
+  {
+    "cases": [
+      {
+        "acceleration_bounds": {
+          "panda_joint1": 1.5,
+          "panda_joint2": 2.5,
+          "panda_joint3": 3.5,
+          "panda_joint4": 4.5,
+          "panda_joint5": 5.5,
+          "panda_joint6": 6.5,
+          "panda_joint7": 7.5
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "waypoints": [
+          {
+            "panda_joint1": -0.5,
+            "panda_joint2": -0.4,
+            "panda_joint3": 0.0,
+            "panda_joint4": -2.0,
+            "panda_joint5": 0.0,
+            "panda_joint6": 2.0,
+            "panda_joint7": 0.5
+          },
+          {
+            "panda_joint1": -0.3,
+            "panda_joint2": -0.2,
+            "panda_joint3": 0.1,
+            "panda_joint4": -1.8,
+            "panda_joint5": 0.2,
+            "panda_joint6": 1.8,
+            "panda_joint7": 0.6
+          }
+        ]
+      }
+    ],
+    "group": "panda_arm",
+    "id": 1,
+    "op": "totg"
+  }
+]

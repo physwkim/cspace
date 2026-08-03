@@ -34,12 +34,10 @@
 //!   `ruckig_smoothing`'s precedent). Every upstream `RCLCPP_ERROR` +
 //!   `return false` site still returns [`Error`] here.
 //!
-//! # Known gap: the scaling-only overload has no reachable test path
+//! # Closed gap: the scaling-only overload's test path
 //!
-//! [`compute_time_stamps`] (the scaling-only overload) cannot succeed
-//! against any fixture in this workspace, real or synthetic, and cannot
-//! be made to today. Three separate claims, only the first of which is
-//! `moveit-model`'s:
+//! [`compute_time_stamps`] (the scaling-only overload) could not succeed
+//! against any fixture in this workspace for two rounds, because:
 //!
 //! 1. `moveit-model`'s URDF loader never sets `acceleration_bounded`.
 //!    `crates/moveit-model/src/joint/urdf.rs`'s `joint_bounds_from_urdf`
@@ -49,38 +47,41 @@
 //!    `false`. This matches upstream exactly: `jointBoundsFromURDF` in
 //!    `moveit_core/robot_model/src/robot_model.cpp` likewise never reads
 //!    an acceleration limit from a URDF `<limit>` element, because URDF's
-//!    schema has no such field. Not a defect, not this crate's.
-//! 2. Checked whether that gap is actually closed by any *programmatic*
-//!    route bypassing URDF entirely, rather than assumed: it is not,
-//!    today. `JointModel::set_variable_bounds_from_limits` (`model.rs`,
-//!    public) could do it, but nothing hands out a `&mut JointModel` to
-//!    reach it — `RobotModel`'s entire public surface after construction
-//!    is `&self`-only (`joint_model`/`joint_model_at`/`joint_models`,
-//!    `robot_model.rs`), and `from_urdf_and_srdf` is its only public
-//!    constructor. Upstream has exactly the missing piece: `RobotModel::
-//!    getJointModel(const std::string&)` has a non-`const` overload
-//!    returning `JointModel*` (`moveit_core/robot_model/include/moveit/
-//!    robot_model/robot_model.hpp:146`), which is what upstream's own
-//!    `joint_limits.yaml` loaders use to call `JointModel::
-//!    setVariableBounds` post-construction (`joint_model.hpp:356/359`) —
-//!    URDF and `joint_limits.yaml` are two different bound sources
-//!    upstream, merged after model load, not one one-shot constructor
-//!    call. **The one thing `moveit-model` would need to add for this
-//!    overload to become end-to-end testable:** a single mutable
-//!    accessor, `RobotModel::joint_model_mut(&mut self, name: &str) ->
-//!    Result<&mut JointModel>`, mirroring the existing `joint_model` and
-//!    upstream's non-`const` `getJointModel` overload. Nothing else is
-//!    missing — `set_variable_bounds_from_limits` is already public and
-//!    already sufficient once that accessor exists.
-//! 3. It does *not* follow from (1)+(2) that the overload is untestable
-//!    in principle — only that it is untestable *today*, pending the one
-//!    accessor named above. Reported to `moveit-model`'s owner rather
-//!    than added here, since `crates/moveit-model/` is out of this
-//!    crate's ownership.
+//!    schema has no such field. Not a defect, not this crate's — still
+//!    true today, and not what closed the gap.
+//! 2. Until it landed, nothing outside `moveit-model` could set
+//!    `acceleration_bounded` programmatically either.
+//!    `JointModel::set_variable_bounds_from_limits` (`model.rs`, public)
+//!    could do it, but nothing handed out a `&mut JointModel` to reach it
+//!    — `RobotModel`'s entire public surface after construction was
+//!    `&self`-only, and `from_urdf_and_srdf` its only public constructor.
+//!
+//! **What closed it:** `RobotModel::joint_model_mut(&mut self, name: &str)
+//! -> Result<&mut JointModel>` (`crates/moveit-model/src/robot_model.rs`),
+//! mirroring upstream's non-`const` `RobotModel::getJointModel(const
+//! std::string&)` overload (`moveit_core/robot_model/include/moveit/
+//! robot_model/robot_model.hpp:146`) — the same accessor upstream's own
+//! `joint_limits.yaml` loaders use to call `JointModel::setVariableBounds`
+//! post-construction (`joint_model.hpp:356/359`), since URDF and
+//! `joint_limits.yaml` are two different bound sources upstream, merged
+//! after model load rather than in one constructor call. Landed in
+//! `moveit-model` (out of this crate's ownership); this crate's own change
+//! was the test, not the accessor.
+//!
+//! `totg_robot_trajectory_scaling_only_parity.rs` now exercises
+//! [`compute_time_stamps`] end to end: it reads each `panda_arm` joint's
+//! current bounds via `JointModel::variable_bounds_msg`, overwrites only
+//! the acceleration fields, and writes them back via
+//! `set_variable_bounds_from_limits` — the same read/mutate/write shape
+//! upstream's own loaders use — before calling `compute_time_stamps`
+//! against a real oracle-captured numeric result.
+//! `oracle.cpp`'s `totgRobotTrajectoryCase` does the analogous mutation on
+//! `model_` via `JointModel::getVariableBoundsMsg`/`setVariableBounds` when
+//! a case carries an `"acceleration_bounds"` field.
 //!
 //! [`crate::trajectory_tools::apply_totg_time_parameterization`] wraps this
-//! same overload and inherits the identical gap; see that module's doc
-//! comment.
+//! same overload; its own test in `trajectory_tools.rs` uses the identical
+//! setup.
 //!
 //! # Not ported: `TimeParameterization`
 //!
