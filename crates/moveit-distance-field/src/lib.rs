@@ -526,6 +526,21 @@
 //!   `BTreeSet<(i32, i32, i32)>` needs no comparator typedef (see
 //!   `CompareEigenVector3i` above).
 //!
+//! **There is no Euclidean-vs-Manhattan (or any other) distance-metric mode
+//! to port.** All three constructors above take exactly one boolean mode
+//! parameter, `propagate_negative_distances`; `rg -n
+//! "PropagationDistanceField\("
+//! moveit_core/distance_field/include/moveit/distance_field/propagation_distance_field.hpp`
+//! against the pinned tree shows this for every overload, and `rg -ni
+//! "manhattan|chebyshev|euclidean" moveit_core/distance_field/` returns zero
+//! hits anywhere under the package. `PropagationDistanceField` is also the
+//! package's only subclass of `DistanceField` (`rg -n "public DistanceField"
+//! moveit_core/distance_field/` returns exactly this one hit), so there is
+//! no second class carrying an alternate metric either. The wavefront
+//! propagation itself (`propagatePositive`/`propagateNegative`, 26-connected
+//! `neighborhoods_`, squared-distance bucket ordering) is single and
+//! non-switchable on both sides of this port.
+//!
 //! ## `find_internal_points.hpp`
 //!
 //! - `findInternalPointsConvex` — ported as [`find_internal_points_convex`],
