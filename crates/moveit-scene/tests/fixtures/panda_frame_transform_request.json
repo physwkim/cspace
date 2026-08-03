@@ -58,6 +58,7 @@
   ],
   "id": 1,
   "joint_values": {},
+  "model": "panda",
   "objects": [
     {
       "id": "table",
