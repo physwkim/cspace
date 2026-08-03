@@ -43,6 +43,7 @@
 #include <moveit/kinematic_constraints/kinematic_constraint.hpp>
 #include <moveit/planning_scene/planning_scene.hpp>
 #include <moveit/robot_model/robot_model.hpp>
+#include <moveit/robot_model/revolute_joint_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
 #include <moveit/robot_trajectory/robot_trajectory.hpp>
@@ -1145,6 +1146,22 @@ private:
     for (std::size_t k = 0; k < active_joint_names.size(); ++k)
       seed_active[k] = (joint_min[active_full_index[k]] + joint_max[active_full_index[k]]) / 2.0;
 
+    // Which active joints are continuous revolute -- `RevoluteJointModel`
+    // is the only joint type in a single-DOF chain group with a
+    // `getVariableRandomPositionsNearBy` branch of its own
+    // (`revolute_joint_model.cpp:122-136`); `PrismaticJointModel`'s own
+    // version (`prismatic_joint_model.cpp:91-96`) has one formula, matching
+    // the non-continuous branch below exactly. Planar and floating joints
+    // cannot appear here at all -- `isSingleDOFJoints()` (this op's own
+    // early check) excludes them.
+    std::vector<bool> active_continuous(active_joint_names.size());
+    for (std::size_t k = 0; k < active_joint_names.size(); ++k)
+    {
+      const auto* revolute =
+          dynamic_cast<const moveit::core::RevoluteJointModel*>(model_->getJointModel(active_joint_names[k]));
+      active_continuous[k] = revolute != nullptr && revolute->isContinuous();
+    }
+
     // `KDLKinematicsPlugin::searchPositionIK`'s own reduction to
     // `consistency_limits_mimic` (lines 325-341: filter the caller's
     // full-space `consistency_limits` down to one entry per *active* joint),
@@ -1295,8 +1312,34 @@ private:
         if (has_consistency_limits)
         {
           const double limit = consistency_limits_mimic[k];
-          reseed_active[k] = ik_rng_.uniformReal(std::max(joint_min[full_i], seed_active[k] - limit),
-                                                  std::min(joint_max[full_i], seed_active[k] + limit));
+          if (active_continuous[k])
+          {
+            // `RevoluteJointModel::getVariableRandomPositionsNearBy`
+            // (revolute_joint_model.cpp:122-136): a continuous joint samples
+            // `near ± distance` unclamped, then wraps into `(-pi, pi]`
+            // instead of clamping to the joint's (here: reporting-only,
+            // [-pi, pi]) bounds. Clamping here -- as this branch did before
+            // this fix -- is the same defect this loop's non-continuous case
+            // was fixed for, pointing the other way: it silently narrows the
+            // reseed window near the wrap boundary instead of matching
+            // upstream's wrap-around sampling. Matches this port's own fix
+            // in `near_by_configuration` (crates/moveit-kinematics/src/cart_to_jnt.rs).
+            double value = ik_rng_.uniformReal(seed_active[k] - limit, seed_active[k] + limit);
+            if (value <= -M_PI || value > M_PI)
+            {
+              value = std::fmod(value, 2.0 * M_PI);
+              if (value <= -M_PI)
+                value += 2.0 * M_PI;
+              else if (value > M_PI)
+                value -= 2.0 * M_PI;
+            }
+            reseed_active[k] = value;
+          }
+          else
+          {
+            reseed_active[k] = ik_rng_.uniformReal(std::max(joint_min[full_i], seed_active[k] - limit),
+                                                    std::min(joint_max[full_i], seed_active[k] + limit));
+          }
         }
         else
         {
