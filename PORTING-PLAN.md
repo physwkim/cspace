@@ -2948,3 +2948,60 @@ intra-doc 링크로 가리키고 있었다.
   남아 있었다: `moveit-constraints/tests/utils_parity.rs:53`,
   `moveit-scene/tests/frame_transform_parity.rs:130`. 둘 다
   `&MeshSearchPaths::none()`을 넘기도록 고쳤다.
+
+## 25. 오라클 이미지 스탬프의 우회 경로 감사 (2026-08-03)
+
+§19.3에서 스탬프의 파일 집합을 넓혀 "해시된 것 = 이미지에 들어간 것"을
+구성적으로 맞췄지만, `src-digest.sh`가 스스로 적어 둔 대로 **파일이 아닌
+빌드 입력**은 여전히 밖에 있다. 그 항목을 문서 각주로 남겨 두는 대신
+전수 감사했다.
+
+**불변식.** 빌드된 이미지를 바꾸는 모든 입력은 태그와 스탬프를 바꿔야
+한다. 어떤 빌드 입력이라도 작업 트리와 다른 이미지는 답을 내면 안 된다.
+
+**소유자/게이트.** `run-oracle.sh`의 스탬프 비교. 그 값은
+`src-digest.sh:oracle_src_digest`가 만들고, `Dockerfile`이 이미지 안에
+찍고, `build.sh`가 태그로 쓴다.
+
+**우회 경로 전수.**
+
+1. `tools/moveit-oracle/` 아래 파일 — **덮인다** (§19.3).
+2. `--build-arg ROS_DISTRO=...` — **안 덮인다.** `Dockerfile`의 기본값
+   `rolling`은 해시되지만, CLI에서 넘긴 값은 파일을 건드리지 않는다.
+3. `--build-arg MOVEIT2_PACKAGES=...` — **안 덮인다.** 2와 같은 이유.
+   §19.1이 바로 이 인자의 *기본값*이 틀려서 생긴 사고였다.
+4. `TARGET=moveit build.sh` (→ `--target`) — **덮인다, 우연히.**
+   `/usr/local/share/oracle-src.sha256`을 쓰는 `RUN`이 `FROM moveit AS
+   oracle` 단계에만 있어서 중간 단계 이미지는 스탬프가 아예 없고,
+   `run-oracle.sh`가 `<missing or unstamped>`로 잡는다. 설계로 막은 게
+   아니라 부작용으로 막힌 것이므로 신뢰 대상은 아니다.
+5. `MOVEIT2_SHA=<다른 sha> build.sh` — **안 덮인다.** `build.sh`의 핀
+   검사는 `MOVEIT2_SHA`를 실제 HEAD와 비교할 뿐이고, 환경변수로 둘 다
+   옮기면 검사는 통과한다. 다른 moveit2에서 빌드된 이미지가 같은 다이제스트,
+   같은 태그를 갖는다.
+6. `MOVEIT2_SRC=<다른 체크아웃>` — 5와 같은 계열. 같은 SHA면 내용도 같으니
+   단독으로는 무해하고, 5와 조합될 때만 문제가 된다.
+7. 베이스 이미지 `moveit/moveit2:${ROS_DISTRO}-ci` — **안 덮인다.**
+   가변 태그다. 상류가 그 태그를 밀면 같은 다이제스트로 다른 이미지가
+   나온다. 로컬 파일 해시로는 원리적으로 닫을 수 없고, `@sha256:`로
+   핀하는 것만이 답이다.
+
+**구조적 해결(설계 확정, 적용 보류).** 각 우회를 개별 검사로 막는 대신
+스탬프를 "파일 다이제스트"에서 "해결된 전체 빌드 입력"으로 넓힌다:
+
+- `src-digest.sh`가 정본 `ROS_DISTRO` / `MOVEIT2_PACKAGES` / `MOVEIT2_SHA`를
+  한 곳에서 내놓는다(지금 `build.sh`와 `Dockerfile`에 흩어져 있다).
+- `build.sh`가 셋을 항상 명시적으로 `--build-arg`로 넘긴다.
+- `Dockerfile`이 **해결된** ARG 값을 파일 다이제스트와 함께 스탬프에
+  찍는다. 그러면 손으로 `--build-arg`를 넘긴 이미지는 스탬프가 트리와
+  달라져 잡힌다 (2, 3, 5 종료).
+- 베이스 이미지를 `@sha256:`로 핀하고 그 다이제스트도 스탬프에 넣는다
+  (7 종료).
+- 4는 부작용 의존을 그만두고, 스탬프 없는 이미지를 명시적으로 거부한다.
+
+**지금 적용하지 않는 이유(범위/시간 제한이 아니라 동시성).**
+`src-digest.sh`를 한 글자라도 바꾸면 다이제스트가 바뀌고, 그 순간 활동
+중인 6개 패널 전부의 태그가 무효화돼 동시 전체 재빌드가 걸린다. 라운드
+사이 조용한 시점에 적용한다. 그때까지 이 절이 UNFIXED 항목의 본문이다 —
+`src-digest.sh` 주석의 "Nothing in this repo passes them"은 2·3에 대해서만
+참이고 5·7은 그 주석이 다루지 않는다.
