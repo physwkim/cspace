@@ -83,74 +83,40 @@
 //! same overload; its own test in `trajectory_tools.rs` uses the identical
 //! setup.
 //!
-//! # `dynamics_solver`: unported gap, not excluded by any D-decision
+//! # `dynamics_solver`: ported, in `moveit-state`
 //!
 //! `velocity_limits`/`acceleration_limits` above (and `oracle.cpp`'s
 //! `"acceleration_bounds"` case field) are caller-supplied: nothing in this
-//! crate computes a per-joint acceleration bound from anything. Upstream has
-//! a separate package, `moveit_core/dynamics_solver`, that comes the closest
-//! to a source for one — worth recording here, since a future caller of
-//! [`compute_time_stamps_with_limits`] reaching for real acceleration limits
-//! is the reader this belongs in front of.
+//! crate computes a per-joint acceleration bound from anything. Upstream's
+//! `moveit_core/dynamics_solver` is the package that comes closest to a
+//! source for one, so a future caller of [`compute_time_stamps_with_limits`]
+//! reaching for real acceleration limits is the reader this belongs in
+//! front of.
 //!
-//! **What `dynamics_solver::DynamicsSolver` actually computes** (read in
-//! full from `dynamics_solver.hpp`/`.cpp` this round, not assumed): given a
-//! joint configuration, velocity, acceleration and a set of external
-//! wrenches, `getTorques` returns the joint torques required to produce that
-//! motion, via KDL's `ChainIdSolver_RNE` (recursive Newton-Euler) run over a
-//! `KDL::Chain` built from the group's URDF subtree. `getMaxPayload`/
-//! `getPayloadTorques` build on `getTorques` to answer a payload question.
-//! **There is no `getMaxAcceleration`-shaped method anywhere in this class.**
-//! A caller wanting "the acceleration each joint can sustain before its
-//! torque limit saturates" would have to invert `getTorques` against
-//! `getMaxTorques()` themselves (e.g. bisection) — upstream does not do this
-//! anywhere either: `rg -n 'dynamics_solver|DynamicsSolver'` across all of
-//! `moveit_core` outside `dynamics_solver/` itself returns no hits. Nothing
-//! upstream wires this package's output into `trajectory_processing` or
-//! `robot_trajectory`; the "natural producer of `acceleration_bounds`"
-//! framing is an analogy between two "per-joint limit" concepts, not an
-//! existing call-graph edge — worth being precise about rather than
-//! inheriting the stronger claim.
+//! **It is already ported**, as `moveit_state::dynamics::DynamicsSolver`
+//! (`crates/moveit-state/src/dynamics.rs`): `torques`, `max_torques`,
+//! `max_payload` and `payload_torques`, the Recursive Newton-Euler
+//! recursion written out rather than delegated to KDL, with the ROS message
+//! types replaced by `nalgebra` vectors. It is verified against the
+//! oracle's own `dynamics` op (`tools/moveit-oracle/src/oracle.cpp`,
+//! captured by `capture-dynamics-fixtures.py`) across four robots —
+//! `crates/moveit-state/tests/dynamics_parity.rs` reads
+//! `{panda,fanuc,dual_arm_panda,pr2}_dynamics.json`.
 //!
-//! **Disposition: unported, not excluded.** Neither D1 nor D3 disposes of
-//! it cleanly:
-//!
-//! - The public signature takes a `geometry_msgs::msg::Vector3` (gravity)
-//!   and `std::vector<geometry_msgs::msg::Wrench>` (external forces) — ROS
-//!   message types, D1-shaped on its face. But as with
-//!   `moveit-smoothing`'s `AccelerationLimitedPlugin` entry, this is a
-//!   narrow, droppable coupling rather than a blanket exclusion: a Rust port
-//!   could take `nalgebra::Vector3<f64>`/plain force-torque tuples instead
-//!   and lose nothing upstream's own numerics depend on. D1 does not, by
-//!   itself, rule this out.
-//! - The numeric core — recursive Newton-Euler over a kinematic chain — is
-//!   arithmetic, not a ROS surface, so D3's "pure-Rust first" principle for
-//!   OMPL applies here too: no `KDL` FFI is *mathematically* required.
-//! - What upstream's implementation *does* need beyond arithmetic is
-//!   `kdl_parser::treeFromUrdfModel` — extracting each link's mass/center of
-//!   mass/inertia tensor from the URDF into a `KDL::Chain`. That specific
-//!   blocker does not exist in this workspace: `moveit-model::LinkModel`
-//!   already carries [`mass`](moveit_model::LinkModel::mass)/
-//!   [`center_of_mass`](moveit_model::LinkModel::center_of_mass)/
-//!   [`inertia`](moveit_model::LinkModel::inertia) from the URDF `<inertial>`
-//!   element (`crates/moveit-model/src/link_model.rs`, confirmed by reading
-//!   it this round) — every input RNE needs is already sitting on
-//!   `RobotModel`/`LinkModel`, unrelated to and predating this round's work.
-//!
-//! So the honest gap is narrower than "needs a crate": the raw ingredients
-//! are already ported, and the recursion itself is textbook, closed-form
-//! arithmetic — the same shape `moveit-smoothing`'s `AccelerationLimitedPlugin`
-//! QP turned out to be. What is actually missing is a from-scratch
-//! implementation of that recursion with **no ground truth to verify it
-//! against**: no oracle op exists for a `dynamics_solver`-shaped
-//! computation, and unlike `RuckigFilter` (which wraps an established
-//! crate's already-exercised public API), a hand-derived RNE port would be
-//! this workspace's own unverified numerics from the first line. Whether
-//! that gap should be closed by a from-scratch implementation, a new oracle
-//! op, or a pure-Rust rigid-body-dynamics crate (none surveyed this round —
-//! that survey did not happen, so absence of a name here is not evidence
-//! none exists) is a workspace decision, not this round's to make alone. Not
-//! ported this round regardless of which of those a future round picks.
+//! **What it does not give this crate** is an acceleration bound.
+//! `getTorques` answers the forward question — the torques a given
+//! configuration, velocity and acceleration require — and
+//! `getMaxPayload`/`getPayloadTorques` build a payload answer on top of it.
+//! There is no `getMaxAcceleration`-shaped method anywhere in the class,
+//! upstream or here. A caller wanting "the acceleration each joint can
+//! sustain before its torque limit saturates" would have to invert torques
+//! against `max_torques()` themselves (e.g. by bisection). Upstream does
+//! not do this anywhere either: `rg -n 'dynamics_solver|DynamicsSolver'`
+//! across `moveit_core` outside `dynamics_solver/` returns no hits, so
+//! nothing upstream wires this package's output into
+//! `trajectory_processing` or `robot_trajectory`. The "natural producer of
+//! `acceleration_bounds`" framing is an analogy between two "per-joint
+//! limit" concepts, not an existing call-graph edge.
 //!
 //! # Not ported: `TimeParameterization`
 //!
