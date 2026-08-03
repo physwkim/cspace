@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  A minimal, valid URDF used only so `harness.rs` can build a real
+  `moveit_model::RobotModel` while talking to `fake-oracle.py`. It is
+  deliberately unrelated to the fake oracle's made-up "fake" model: the
+  harness tests check the runner's plumbing (session completes, a
+  disagreement is reported as a failed case rather than a crash), not FK
+  agreement, so nothing here needs to match the fake oracle's link/joint
+  names or values.
+-->
+<robot name="tiny">
+  <link name="base"/>
+  <link name="link1"/>
+  <joint name="joint1" type="revolute">
+    <parent link="base"/>
+    <child link="link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.0" upper="1.0" effort="1.0" velocity="1.0"/>
+  </joint>
+</robot>

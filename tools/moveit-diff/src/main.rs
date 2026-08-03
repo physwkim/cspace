@@ -21,6 +21,8 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
+use moveit_model::RobotModel;
+use moveit_srdf::SrdfModel;
 use protocol::{FkResult, ModelInfo, Op, OracleResult, Request, Response};
 
 /// How the runner was configured.
@@ -199,8 +201,22 @@ fn main() {
     }
 }
 
+/// Parse the same URDF/SRDF pair the oracle was launched with, so both sides
+/// answer questions about the same robot.
+fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
+    let urdf_xml = std::fs::read_to_string(&cfg.urdf)
+        .map_err(|e| format!("reading URDF {}: {e}", cfg.urdf))?;
+    let urdf =
+        urdf_rs::read_file(&cfg.urdf).map_err(|e| format!("parsing URDF {}: {e}", cfg.urdf))?;
+    let srdf =
+        SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+        .map_err(|e| format!("building RobotModel: {e}"))
+}
+
 fn run(cfg: &Config) -> Result<usize, String> {
     let mut oracle = Oracle::spawn(cfg)?;
+    let rust_model = build_rust_model(cfg)?;
 
     // The oracle is the source of truth for the fixture's joint names and
     // bounds, so cases can be sampled before moveit-rs can load a model at all.
@@ -218,7 +234,10 @@ fn run(cfg: &Config) -> Result<usize, String> {
 
     let mut verdicts: Vec<(String, Verdict)> = Vec::new();
 
-    verdicts.push(("model_info".to_owned(), compare_model_info(cfg, &model)));
+    verdicts.push((
+        "model_info".to_owned(),
+        compare_model_info(&rust_model, &model),
+    ));
 
     let states = match oracle.ask(Op::RandomStates {
         count: cfg.cases,
@@ -245,18 +264,19 @@ fn run(cfg: &Config) -> Result<usize, String> {
         };
         verdicts.push((
             format!("fk[{case}]"),
-            compare_fk(cfg, &model, &joint_values, &expected),
+            compare_fk(cfg, &rust_model, &joint_values, &expected),
         ));
     }
 
     report(&verdicts)
 }
 
-fn compare_model_info(_cfg: &Config, expected: &ModelInfo) -> Verdict {
-    match rust_impl::model_info() {
-        Err(e) => Verdict::Fail(e),
-        Ok(actual) if actual == *expected => Verdict::Pass,
-        Ok(actual) => Verdict::Fail(format!(
+fn compare_model_info(rust_model: &RobotModel, expected: &ModelInfo) -> Verdict {
+    let actual = rust_impl::model_info(rust_model);
+    if actual == *expected {
+        Verdict::Pass
+    } else {
+        Verdict::Fail(format!(
             "model differs: rust name={:?} links={} joints={}, oracle name={:?} links={} joints={}",
             actual.name,
             actual.links.len(),
@@ -264,17 +284,17 @@ fn compare_model_info(_cfg: &Config, expected: &ModelInfo) -> Verdict {
             expected.name,
             expected.links.len(),
             expected.joints.len()
-        )),
+        ))
     }
 }
 
 fn compare_fk(
     cfg: &Config,
-    model: &ModelInfo,
+    rust_model: &RobotModel,
     joint_values: &BTreeMap<String, f64>,
     expected: &FkResult,
 ) -> Verdict {
-    let actual = match rust_impl::fk(model, joint_values) {
+    let actual = match rust_impl::fk(rust_model, joint_values) {
         Ok(a) => a,
         Err(e) => return Verdict::Fail(e),
     };

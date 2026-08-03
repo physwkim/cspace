@@ -9,25 +9,30 @@
 //! `"Revolute"`. These tests are what make the stand-in a check rather than a
 //! file.
 //!
-//! Every case here reports failed, because `rust_impl` is deliberately
-//! unimplemented until Phase 1/2 land. That is the property under test: the
-//! runner must reach the comparison and report a disagreement, not die on the
-//! way there.
+//! Every case here reports failed. `rust_impl` is fully wired to
+//! `moveit-model`/`moveit-state` now, but `tests/fixtures/tiny.{urdf,srdf}`
+//! (needed so the runner can build a real `RobotModel` at all) describes a
+//! different robot than `fake-oracle.py`'s hand-rolled "fake" model, so
+//! model_info and every fk case disagree by construction. That is the
+//! property under test: the runner must reach the comparison and report a
+//! disagreement, not die on the way there. Agreement against the real oracle
+//! is `moveit-diff`'s own binary run in CI, not this test.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
 /// Run the runner against the fake oracle with `cases` FK cases.
 fn run(cases: &str) -> Output {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let fake = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fake-oracle.py");
     Command::new(env!("CARGO_BIN_EXE_moveit-diff"))
         .args([
             "--urdf",
-            "/dev/null",
+            fixtures.join("tiny.urdf").to_str().unwrap(),
             "--srdf",
-            "/dev/null",
+            fixtures.join("tiny.srdf").to_str().unwrap(),
             "--cases",
             cases,
         ])
@@ -55,7 +60,7 @@ fn the_runner_completes_a_session_against_the_fake_oracle() {
 }
 
 #[test]
-fn an_unimplemented_rust_side_exits_nonzero() {
+fn a_disagreeing_rust_side_exits_with_failure_not_a_crash() {
     let out = run("1");
     let stdout = String::from_utf8(out.stdout).expect("stdout is not utf-8");
 

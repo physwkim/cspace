@@ -132,8 +132,12 @@ version = "0.1.0"
 dependencies = [
  "moveit-error",
  "moveit-geometry",
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
  "serde",
  "serde_json",
+ "urdf-rs",
 ]
 
 [[package]]

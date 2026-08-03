@@ -18,6 +18,7 @@ moveit-error = { path = "crates/moveit-error", version = "0.1.0" }
 moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
 moveit-model = { path = "crates/moveit-model", version = "0.1.0" }
 moveit-srdf = { path = "crates/moveit-srdf", version = "0.1.0" }
+moveit-state = { path = "crates/moveit-state", version = "0.1.0" }
 
 nalgebra = { version = "0.35", features = ["serde-serialize"] }
 roxmltree = "0.21"
