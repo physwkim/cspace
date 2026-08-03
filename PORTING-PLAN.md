@@ -8135,3 +8135,96 @@ IMAGE=moveit-rs/oracle:3426f1b1193961ee run-oracle.sh ...
 
 부수 관찰: 이 머신에 `moveit-rs/oracle` 이미지가 10개 쌓여 있다.
 정리는 파괴적 작업이라 사용자 확인 없이 하지 않는다.
+
+## 96. p3-distance-field 라운드 15 머지 — `addOcTreeToField` 이식과 안 재지는 루프 경계
+
+`octree_points`/`add_octree_to_field`가 상류
+`distance_field.cpp:239-291`에서 이식됐고 `ULP_TOL`이 `TOL`로 바뀌며
+`1e-14`로 넓어졌다. 3커밋.
+
+`moveit-octomap` 의존은 이미 라운드 14에서 들어와 있었다 —
+`leaves_in_bbx`가 있어 p3-shapes에 보고할 것이 없다는 판단이 맞다.
+
+### 96.1 상류 대조 — 줄 단위로 맞는다
+
+`getOcTreePoints`를 직접 읽었다. 포트가 상류와 같은 것:
+`gridToWorld(0,0,0)`와 `gridToWorld(num_x, num_y, num_z)`로 만든 bbx,
+`isNodeOccupied` 필터, `getSize() <= resolution_` 분기,
+`ceil(getSize()/resolution_) * resolution_ / 2.0`, 그리고 세 겹
+`for (x = c-ceil_val; x <= c+ceil_val; x += resolution_)`.
+
+### 96.2 무는 지점 다섯 — 담당의 셋에 둘을 더했다
+
+```
+D1 점유 필터 무력화                    1 fail  (담당)
+D2 세분 건너뛰기(항상 중심점 하나)     1 fail  (담당)
+D3 bbx를 ±1e6으로 넓힘                 4 fail  (담당)
+D4 ceil_val에서 /2.0 제거              1 fail
+D5 ceil() → floor()                    1 fail
+```
+
+D3의 첫 시도(`Some(octree.leaves())`)는 **컴파일에 실패했다**
+(`Point3` 미사용). §82.1대로 bbx를 ±1e6으로 넓히는 컴파일되는 형태로
+다시 쟀다.
+
+담당이 D3에서 "`add_points_to_field`의 자체 경계 검사가 통합 수준에서
+bbox 클립 누락을 가린다, 그래서 private `octree_points`를 직접 테스트해야
+했다"고 적은 것이 맞다. 넓힌 bbx에서 실패하는 4건에
+`octree_points_excludes_leaves_outside_the_bounding_box`가 들어 있다.
+
+### 96.3 루프 경계 `<=`가 안 재진다
+
+```
+while x <= coord.x + ceil_val  →  <     78/78 통과
+while z <= coord.z + ceil_val  →  <     78/78 통과
+```
+
+이건 취향 경계가 아니다. 루프는 `coord.x - ceil_val`에서 시작해
+`x += resolution`으로 누적하고, `resolution`(0.1 등)은 이진수로 정확히
+표현되지 않는다. 마지막 반복이 `coord.x + ceil_val`에 **정확히**
+떨어지는지는 부동소수 누적에 달려 있고, `<=`와 `<`가 갈리는 지점이
+바로 거기다. 상류도 같은 취약성을 갖고 있으므로 포트는 충실하지만,
+세분된 점 격자의 **마지막 면이 포함되는지**를 재는 것이 트리에 없다.
+
+### 96.4 `TOL` 바닥은 재현되고 헤드룸은 54배다
+
+```
+TOL=1.9e-16   통과
+TOL=1.85e-16  1 fail  (add_remove_points_matches_upstream_test_propagation_distance_field)
+TOL=1.8e-16   1 fail
+TOL=0.0       1 fail
+```
+
+§89.1의 바닥 `1.850371707708594e-16`이 그대로다. `TOL = 1e-14`이므로
+헤드룸은 **54.0배 = 1.73자리**. §88.3이 `bodies.rs`에서 받아들인
+2–3자리보다 낮다. 다만 이 잔차는 `df.distance(1000,1000,1000)` 대
+`MAX_DIST` **한 지점**의 1 ULP 수준 양이고, 54 ULP의 여유는 그 크기에
+비례한다. 더 넓히라고 요구하지 않는다 — 1.2배였던 §89의 상태에서
+실질적으로 벗어났다.
+
+### 96.5 커버리지 감사 — 둘은 재현되고 하나는 내 계수기가 못 센다
+
+`distance_field.hpp`를 주석 제거 + 중괄호 깊이 추적으로 다시 셌다:
+
+```
+protected 메서드  2   ← 담당 보고 2 (1 ported / 1 unported)  일치
+protected 필드    8   ← 담당 보고 8 (7 ported / 1 unported)  일치
+public 메서드    27   ← 담당 보고 32                          불일치
+```
+
+**불일치의 원인은 내 쪽일 가능성이 높다.** 내 계수기는 `{ return
+size_x_; }` 형태의 인라인 본문 접근자에서 깊이 추적이 끊겨 목록이
+`getSizeX`에서 잘린다(`getSizeY`/`getSizeZ`/`getOriginX` 등이 빠졌다).
+따라서 32가 틀렸다고 주장하지 않는다 — **확인하지 못했다**고 적는다.
+§94.4에서 p3-shapes에 요구한 것과 같은 것을 요구한다: 세는 기준을
+한 줄로 먼저 적어라. 기준이 적혀 있어야 다음 라운드에 대조가 된다.
+
+### 96.6 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1073/1073**(1069 + 4),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **30/30 identical**. 스탬프
+`7b8463d6943edaac` 유지(오라클을 건드리지 않았다).
+
+담당이 보고한 1054/1054와 29/29는 베이스 `87f2209` 기준 값이다.
