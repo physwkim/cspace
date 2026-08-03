@@ -374,6 +374,67 @@ mod tests {
         }
     }
 
+    /// Falsification testing (see `crates/moveit-metrics`'s round-12 commit
+    /// history) found that disabling the `translation` branch entirely —
+    /// i.e. always computing over the full 6-row Jacobian regardless of the
+    /// `translation` argument — is *not* caught by
+    /// [`manipulability_metrics_are_finite_for_a_chain_group`] above (a
+    /// disabled-translation result is still finite): only the oracle
+    /// fixture's `manipulability_index_translation` field catches it. This
+    /// test closes that gap independent of the oracle, so a future edit
+    /// that collapses the two branches fails locally without a docker
+    /// container.
+    #[test]
+    fn manipulability_index_translation_flag_changes_the_result() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let metrics = KinematicsMetrics::new(&model);
+
+        let full = metrics
+            .manipulability_index(&posed, "panda_arm", false)
+            .unwrap();
+        let translation_only = metrics
+            .manipulability_index(&posed, "panda_arm", true)
+            .unwrap();
+        assert_ne!(
+            full, translation_only,
+            "translation=false and translation=true must read different Jacobian blocks"
+        );
+    }
+
+    /// Falsification testing found that dropping the joint-limits penalty
+    /// factor from [`Self::manipulability_index`] — always treating it as
+    /// `1.0` — is *not* caught by
+    /// [`manipulability_metrics_are_finite_for_a_chain_group`] above either
+    /// (an unpenalized result is still finite): only the oracle fixture's
+    /// `manipulability_index_full` field catches it. This test pins the
+    /// exact multiplicative relationship
+    /// (`penalized == unpenalized * joint_limits_penalty`) independent of
+    /// the oracle.
+    #[test]
+    fn manipulability_index_scales_by_joint_limits_penalty() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let group = model.joint_model_group("panda_arm").unwrap();
+
+        let mut metrics = KinematicsMetrics::new(&model);
+        let unpenalized = metrics
+            .manipulability_index(&posed, "panda_arm", false)
+            .unwrap();
+
+        metrics.set_penalty_multiplier(1.5);
+        let penalty = metrics.joint_limits_penalty(&posed, group).unwrap();
+        let penalized = metrics
+            .manipulability_index(&posed, "panda_arm", false)
+            .unwrap();
+
+        approx::assert_relative_eq!(penalized, unpenalized * penalty, max_relative = 1e-12);
+    }
+
     /// `hand` is a joint-list group, not a chain — every method must reject
     /// it as [`Error::Other`], matching upstream's `isChain()` guard (which
     /// upstream conflates into a `false` return; this port keeps it as a
