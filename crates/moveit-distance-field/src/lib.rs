@@ -98,7 +98,7 @@ pub use collision_distance_field_types::{
     get_collision_sphere_collisions, get_collision_sphere_gradients,
 };
 pub use collision_env_distance_field::{
-    DistanceFieldConfig, add_link_body_decompositions,
+    DistanceFieldCollisionCache, DistanceFieldConfig, add_link_body_decompositions,
     compare_cache_entry_to_allowed_collision_matrix, compare_cache_entry_to_state,
     generate_distance_field_cache_entry, get_distance_field_cache_entry,
     group_state_representation, update_group_state_representation_state,
