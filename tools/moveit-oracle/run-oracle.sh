@@ -14,10 +14,12 @@ source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
 
 # An image built from older oracle sources answers with old behaviour and no
 # error, so a fixture captured against it is wrong in a way nothing downstream
-# can see. The tag is derived from this tree's oracle sources, so a worktree
-# with different sources resolves to a different image rather than to whatever
-# another worktree built last.
-want="$(oracle_src_digest "$REPO_ROOT/tools/moveit-oracle")"
+# can see. The tag is derived from this tree's oracle sources *and* the
+# resolved non-file build inputs (see `oracle_stamp`), so a worktree with
+# different sources -- or the same sources built against a different base
+# image or package list -- resolves to a different image rather than to
+# whatever another worktree built last.
+want="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
 IMAGE="${IMAGE:-$(oracle_image_tag "$want")}"
 
 # The tag alone would be enough if tags were immutable; they are not, so the

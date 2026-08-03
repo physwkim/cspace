@@ -23,10 +23,23 @@
 # Layer 2 (stage `oracle`): the oracle binary itself, rebuilt on every source
 # change without re-running the moveit_core build.
 
-ARG ROS_DISTRO=rolling
-FROM moveit/moveit2:${ROS_DISTRO}-ci AS moveit
+# No defaults for BASE_IMAGE / MOVEIT2_PACKAGES / MOVEIT2_SHA: src-digest.sh
+# holds the canonical values and build.sh passes all three explicitly. A
+# default here would be a second definition of the same fact, and the stamp
+# would then be a claim about whichever one happened to win.
+#
+# The base is pinned by manifest digest rather than the mutable
+# `moveit/moveit2:rolling-ci` tag. That also removes the old
+# `ARG ROS_DISTRO`, which never did what it looked like it did: it selected
+# the base tag, while every `RUN` below read the base image's own
+# `ROS_DISTRO` ENV -- an ENV overrides a same-named ARG -- so a
+# `--build-arg ROS_DISTRO=humble` produced a humble base running rolling
+# paths. With the base pinned, the distro is a property of the image and
+# there is no argument left to disagree with it.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS moveit
 
-ARG MOVEIT2_PACKAGES="moveit_core moveit_resources_fanuc_description"
+ARG MOVEIT2_PACKAGES
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -74,12 +87,26 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
 # quietly answer from old code, and a fixture captured that way looks exactly
 # like a good one.
 #
-# The digest comes from src-digest.sh rather than a copy of its find
+# The stamp comes from src-digest.sh rather than a copy of its find
 # expression: the stamp written here and the value run-oracle.sh checks it
 # against have to be the same function, or a widened file set on one side
 # reads as a stale image on the other.
-RUN source /ws/oracle-src/src-digest.sh \
-    && oracle_src_digest /ws/oracle-src > /usr/local/share/oracle-src.sha256
+#
+# The three ARGs are exported before sourcing so `oracle_stamp` hashes the
+# values this build actually resolved, not src-digest.sh's own defaults.
+# That is the whole point of stamping them: a hand-passed
+# `--build-arg MOVEIT2_PACKAGES=...` or a re-pinned base now changes the
+# stamp, and run-oracle.sh rejects the image against an unchanged tree.
+# Reading the defaults here instead would stamp the canonical values onto a
+# non-canonical image -- worse than not stamping them at all.
+ARG BASE_IMAGE
+ARG MOVEIT2_PACKAGES
+ARG MOVEIT2_SHA
+RUN export ORACLE_BASE_IMAGE="$BASE_IMAGE" \
+           ORACLE_MOVEIT2_PACKAGES="$MOVEIT2_PACKAGES" \
+           ORACLE_MOVEIT2_SHA="$MOVEIT2_SHA" \
+    && source /ws/oracle-src/src-digest.sh \
+    && oracle_stamp /ws/oracle-src > /usr/local/share/oracle-src.sha256
 
 COPY moveit-oracle/entrypoint.sh /usr/local/bin/entrypoint.sh
 

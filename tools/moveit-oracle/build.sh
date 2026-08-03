@@ -9,18 +9,26 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
-MOVEIT2_SHA="${MOVEIT2_SHA:-e017c91ee12984393a28ba246075c65f69cde3bf}"
 
+# The pinned SHA, the package list and the base image all come from
+# src-digest.sh. They used to be spelled out here as well, which is how
+# `MOVEIT2_SHA=<other> build.sh` slipped past the pin check below: the check
+# compared the env value against the checkout, so moving both agreed with
+# itself. Now the same value that is checked is the one hashed into the
+# stamp, so a deliberate re-pin builds a differently-tagged image instead of
+# a same-tagged impostor.
+#
 # shellcheck source=tools/moveit-oracle/src-digest.sh
 source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
+MOVEIT2_SHA="$ORACLE_MOVEIT2_SHA"
 
 # Tagged by source digest, not `:latest`. Several worktrees share this docker
 # daemon, and more than one of them edits the oracle's C++ at a time; a single
 # mutable tag means whoever built last is silently everyone's oracle, and a
 # sweep running across robots can have the image swapped under it between two
 # of them.
-SRC_DIGEST="$(oracle_src_digest "$REPO_ROOT/tools/moveit-oracle")"
-IMAGE="${IMAGE:-$(oracle_image_tag "$SRC_DIGEST")}"
+STAMP="$(oracle_stamp "$REPO_ROOT/tools/moveit-oracle")"
+IMAGE="${IMAGE:-$(oracle_image_tag "$STAMP")}"
 
 have_sha="$(git -C "$MOVEIT2_SRC" rev-parse HEAD)"
 if [[ "$have_sha" != "$MOVEIT2_SHA" ]]; then
@@ -55,4 +63,12 @@ echo "context: $(du -sh "$CTX" | cut -f1)"
 # runs and $CTX -- a full moveit2 + moveit_resources export, ~100 MB each --
 # is left behind by every build, successful ones included. `set -e` already
 # propagates a failed build's status without exec's help.
-docker build ${TARGET:+--target "$TARGET"} -t "$IMAGE" -f "$CTX/moveit-oracle/Dockerfile" "$CTX"
+#
+# All three build args are passed explicitly and unconditionally. The
+# Dockerfile declares them with no defaults, so a missing one is a build
+# failure rather than a silent fallback to a second copy of the same fact.
+docker build ${TARGET:+--target "$TARGET"} \
+  --build-arg "BASE_IMAGE=$ORACLE_BASE_IMAGE" \
+  --build-arg "MOVEIT2_PACKAGES=$ORACLE_MOVEIT2_PACKAGES" \
+  --build-arg "MOVEIT2_SHA=$ORACLE_MOVEIT2_SHA" \
+  -t "$IMAGE" -f "$CTX/moveit-oracle/Dockerfile" "$CTX"
