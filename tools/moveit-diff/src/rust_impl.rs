@@ -445,9 +445,11 @@ pub fn ik(
     group: &str,
     joint_values: &BTreeMap<String, f64>,
     position_only: bool,
+    max_restarts: u32,
 ) -> Result<IkOutcome, String> {
     let params = SolverParams {
         position_only,
+        max_restarts: max_restarts as usize,
         ..Default::default()
     };
     let mut solver = NewtonRaphsonSolver::new(model, group, &params)

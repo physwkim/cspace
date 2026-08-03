@@ -79,6 +79,14 @@ struct Config {
     ik: bool,
     tol_ik: f64,
     ik_position_only: bool,
+    /// `Op::Ik::max_restarts` / `SolverParams::max_restarts` on this side.
+    /// Defaults to `20`, matching `SolverParams::default()`, so an
+    /// unqualified `--ik` invocation keeps its established behaviour.
+    /// `--ik-max-restarts 0` is round 2's decisive run: with no restart
+    /// randomness on either side, a surviving success-rate gap cannot be
+    /// restart-RNG divergence -- see `Op::Ik::max_restarts`'s own doc
+    /// comment.
+    ik_max_restarts: u32,
     oracle: Vec<String>,
 }
 
@@ -101,6 +109,7 @@ impl Config {
         // bounds a converged solution's FK error.
         let mut tol_ik = 2e-5;
         let mut ik_position_only = false;
+        let mut ik_max_restarts = 20u32;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -156,6 +165,11 @@ impl Config {
                         .map_err(|e| format!("--tol-ik: {e}"))?
                 }
                 "--ik-position-only" => ik_position_only = true,
+                "--ik-max-restarts" => {
+                    ik_max_restarts = want("--ik-max-restarts")?
+                        .parse()
+                        .map_err(|e| format!("--ik-max-restarts: {e}"))?
+                }
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -213,6 +227,7 @@ impl Config {
             ik,
             tol_ik,
             ik_position_only,
+            ik_max_restarts,
             oracle,
         })
     }
@@ -317,7 +332,9 @@ fn main() {
             eprintln!("                   [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]");
             eprintln!("                   [--constraints N] [--tol-constraints EPS]");
             eprintln!("                   [--collision] [--tol-distance EPS]");
-            eprintln!("                   [--ik] [--tol-ik EPS] [--ik-position-only]");
+            eprintln!(
+                "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
+            );
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
@@ -532,6 +549,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 group: group.clone(),
                 joint_values: joint_values.clone(),
                 position_only: cfg.ik_position_only,
+                max_restarts: cfg.ik_max_restarts,
             })? {
                 OracleResult::Ik(r) => r,
                 other => return Err(format!("expected ik, got {other:?}")),
@@ -582,6 +600,10 @@ fn run(cfg: &Config) -> Result<usize, String> {
         println!(
             "oracle degenerate (solution == seed): {}/{}",
             ik_stats.oracle_degenerate, ik_stats.oracle_success
+        );
+        println!(
+            "paired: b (oracle only) = {}, c (rust only) = {} (McNemar; b≈c means noise, b>>c means real)",
+            ik_stats.oracle_only, ik_stats.rust_only
         );
     }
 
@@ -1129,6 +1151,17 @@ struct IkStats {
     /// catches a solver that "succeeds" by returning its seed unmoved.
     rust_degenerate: usize,
     oracle_degenerate: usize,
+    /// McNemar's `b`: oracle solved this case, rust did not. Marginal totals
+    /// (`oracle_success` vs `rust_success`) cannot distinguish a real gap
+    /// from restart-RNG noise on the *same* 5,000 targets -- two solvers
+    /// disagreeing on different subsets of cases in each direction can
+    /// produce an identical marginal gap to one where every disagreement
+    /// runs the same way. `b`/`c` are the paired counts that do
+    /// distinguish them: `b ≈ c` means noise regardless of the marginal
+    /// gap's size, `b >> c` means a real effect.
+    oracle_only: usize,
+    /// McNemar's `c`: rust solved this case, oracle did not.
+    rust_only: usize,
 }
 
 /// How close counts as "did not move from the seed" for the degenerate
@@ -1152,10 +1185,22 @@ fn compare_ik(
 ) -> Verdict {
     stats.total += 1;
 
-    let outcome = match rust_impl::ik(rust_model, group, joint_values, cfg.ik_position_only) {
+    let outcome = match rust_impl::ik(
+        rust_model,
+        group,
+        joint_values,
+        cfg.ik_position_only,
+        cfg.ik_max_restarts,
+    ) {
         Ok(o) => o,
         Err(e) => return Verdict::Fail(e),
     };
+
+    match (expected.success, outcome.solution.is_some()) {
+        (true, false) => stats.oracle_only += 1,
+        (false, true) => stats.rust_only += 1,
+        (true, true) | (false, false) => {}
+    }
 
     if expected.success {
         stats.oracle_success += 1;
