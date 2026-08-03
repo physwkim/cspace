@@ -221,6 +221,37 @@
 //!    upstream's plane-merged output whenever the mesh has a coplanar
 //!    patch (e.g. a box: 12 triangles here against upstream's 6 merged
 //!    facets) — see that method's own doc for what it returns instead.
+//!
+//!    **Falsifier for "does the topology difference matter" (round 8):**
+//!    for two of [`ConvexMesh`]'s three triangle-consuming methods, it
+//!    provably cannot, by construction rather than by testing.
+//!    [`ConvexMesh::compute_volume`] sums each triangle's signed
+//!    origin-tetrahedron volume; that sum is a standard consequence of the
+//!    divergence theorem and is invariant to how a closed convex surface is
+//!    triangulated, so any diagonal choice across a coplanar patch gives the
+//!    identical total. [`ConvexMesh::contains_point`] (and
+//!    `samplePointInside`'s rejection sampling, which is built on it) ANDs
+//!    over every triangle's plane inequality; `convex_mesh_planes_accessor_dedups_to_libgeometric_shapes_box`
+//!    (`tests/probe_parity.rs`) already proves this port's per-triangle
+//!    plane set dedups to upstream's per-facet set exactly, and ANDing extra
+//!    duplicate constraints changes nothing, so the result cannot depend on
+//!    which diagonal either hull library picked. The one method where
+//!    triangulation is not merely cosmetic is
+//!    [`ConvexMesh::ray_intersections`]/`intersects_ray`: each candidate hit
+//!    is a genuine point-in-*triangle* test (barycentric cross-product signs
+//!    against that triangle's own three vertices, not just its plane), so a
+//!    ray whose hit point lands exactly on the shared edge between a
+//!    coplanar patch's two triangles depends on which triangle each
+//!    library's own floating-point tie-break assigns that point to — the
+//!    entry/exit *coordinate* is still identical (both triangles of a facet
+//!    share one plane equation, so `t` is the same), but whether the ray is
+//!    reported as a hit at all can differ at that exact measure-zero
+//!    boundary. That is not otherwise observable: it requires a ray
+//!    constructed to land precisely on the specific diagonal each library
+//!    happened to choose, which is a property of quickhull's and qhull's own
+//!    internal tie-breaking, not something this port controls or could match
+//!    without adopting qhull's numerics wholesale — the thing this deviation
+//!    already gives a reasoned decision not to do.
 //! 3. **`bodies::OBB`'s `contains_point`/`overlaps` are this port's own
 //!    implementation, not a literal port; `extend_approx`'s general-merge
 //!    case is.** See the provenance comment above. [`OBB::contains_point`]
