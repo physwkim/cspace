@@ -549,6 +549,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
 
     let mut max_jacobian_dev = 0.0f64;
+    let mut pair_stats = DistancePairStats::default();
     // Kept for the constraint-case generator below, which needs each state's
     // link poses to build "meaningful" (boundary-straddling) constraints
     // rather than re-asking the oracle for the same fk it already answered.
@@ -627,8 +628,14 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 OracleResult::Collision(c) => c,
                 other => return Err(format!("expected collision, got {other:?}")),
             };
-            let (verdict, dev) =
-                compare_collision(cfg, &rust_model, fixture, joint_values, &expected);
+            let (verdict, dev) = compare_collision(
+                cfg,
+                &rust_model,
+                fixture,
+                joint_values,
+                &expected,
+                &mut pair_stats,
+            );
             if dev.is_finite() {
                 max_distance_dev = max_distance_dev.max(dev);
             }
@@ -667,6 +674,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
     if cfg.collision {
         println!("worst distance deviation: {max_distance_dev:.3e}");
+        pair_stats.report();
     }
 
     if cfg.constraints > 0 {
@@ -1284,6 +1292,83 @@ fn quat_from_row_major(m: &[f64; 16]) -> UnitQuaternion {
     UnitQuaternion::from_rotation_matrix(&rotation)
 }
 
+/// Accumulated across every `collision[case]` whose booleans agreed (so a
+/// pair comparison was even possible) -- counts how often the two sides
+/// *name a different pair* for `self_distance`/`robot_distance`, split by
+/// whether that disagreement also moved the scalar past `cfg.tol_distance`.
+///
+/// This exists because a pair disagreement and a value disagreement are
+/// different observations that [`compare_collision`] used to conflate: the
+/// `DistancePair`s only ever reached the operator inside a `distance
+/// differs` `Verdict::Fail` message, so a case where the two sides pick
+/// different pairs but land on the same number -- a tie, since a case with
+/// more than one equidistant pair has no unique right answer -- was
+/// invisible. On pr2 that is not rare: most `robot_distance` pair
+/// disagreements are exactly this (any of pr2's eight equidistant caster
+/// wheels is a correct nearest-to-`floor` answer), and folding a tie into
+/// FAIL would make the sweep fail on cases that are not defects. Recording
+/// the split instead -- disagreements, and how many of those also exceed
+/// tolerance -- gives p3-acm the denominator their pair-ranking-flip
+/// diagnosis (PORTING-PLAN.md §53.3) needs, without changing what makes a
+/// case pass or fail.
+#[derive(Debug, Default, Clone, Copy)]
+struct DistancePairStats {
+    self_total: usize,
+    self_pair_disagrees: usize,
+    self_pair_disagrees_and_value_diverges: usize,
+    robot_total: usize,
+    robot_pair_disagrees: usize,
+    robot_pair_disagrees_and_value_diverges: usize,
+}
+
+impl DistancePairStats {
+    /// `"ranking flipped in N of M, of which K also moved the value past
+    /// tol"`, once for `self_distance` and once for `robot_distance`.
+    fn report(&self) {
+        println!(
+            "self  pair disagreement: {}/{} ({:.1}%), of which {} also exceeded tol",
+            self.self_pair_disagrees,
+            self.self_total,
+            100.0 * self.self_pair_disagrees as f64 / self.self_total.max(1) as f64,
+            self.self_pair_disagrees_and_value_diverges
+        );
+        println!(
+            "robot pair disagreement: {}/{} ({:.1}%), of which {} also exceeded tol",
+            self.robot_pair_disagrees,
+            self.robot_total,
+            100.0 * self.robot_pair_disagrees as f64 / self.robot_total.max(1) as f64,
+            self.robot_pair_disagrees_and_value_diverges
+        );
+    }
+}
+
+/// Whether two [`DistancePair`]s name the same pair of bodies, order-
+/// independent: the two sides do not agree on which of `link_names[0]`/`[1]`
+/// is "first" (seen directly in round 8's sweep, e.g. oracle's
+/// `floor/bl_caster_r_wheel_link` against this port's
+/// `br_caster_l_wheel_link/floor`), so a positional comparison would count
+/// every such case as a disagreement even when the named pair is identical.
+/// `None` on both sides (upstream's `DistanceResultsData::clear()` state,
+/// never overwritten) counts as agreement.
+fn distance_pair_matches(a: &Option<DistancePair>, b: &Option<DistancePair>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            let a_bodies = [
+                (&a.body_name_1, &a.body_type_1),
+                (&a.body_name_2, &a.body_type_2),
+            ];
+            let b_bodies = [
+                (&b.body_name_1, &b.body_type_1),
+                (&b.body_name_2, &b.body_type_2),
+            ];
+            (a_bodies[0] == b_bodies[0] && a_bodies[1] == b_bodies[1])
+                || (a_bodies[0] == b_bodies[1] && a_bodies[1] == b_bodies[0])
+        }
+        _ => false,
+    }
+}
+
 /// Compares a `collision` case: `self_collision`/`robot_collision` exactly,
 /// `self_distance`/`robot_distance` at `cfg.tol_distance`. Contact/nearest-
 /// point coordinates are never compared -- PORTING-PLAN.md §4.5 records that
@@ -1291,6 +1376,10 @@ fn quat_from_row_major(m: &[f64; 16]) -> UnitQuaternion {
 /// two sides' contact geometry differs by construction (module doc,
 /// `crates/moveit-collision/src/parry.rs`, deviations 4 and 6) in ways that
 /// would never converge under any tolerance.
+///
+/// Also tallies `pair_stats` (see [`DistancePairStats`]): a pair
+/// disagreement never affects the returned [`Verdict`] by itself, only the
+/// scalar does, exactly as before this parameter existed.
 ///
 /// Returns both the verdict and the worst of the two distance deviations
 /// (even on a pass), mirroring [`compare_jacobian`]'s reporting: the number
@@ -1303,6 +1392,7 @@ fn compare_collision(
     fixture: &CollisionFixture,
     joint_values: &BTreeMap<String, f64>,
     expected: &CollisionCheckResult,
+    pair_stats: &mut DistancePairStats,
 ) -> (Verdict, f64) {
     let actual = match rust_impl::collision(rust_model, &fixture.env, &fixture.acm, joint_values) {
         Ok(a) => a,
@@ -1343,6 +1433,21 @@ fn compare_collision(
     } else {
         self_dev.max(robot_dev)
     };
+
+    pair_stats.self_total += 1;
+    if !distance_pair_matches(&expected.self_distance_pair, &actual.self_distance_pair) {
+        pair_stats.self_pair_disagrees += 1;
+        if self_dev.is_nan() || self_dev > cfg.tol_distance {
+            pair_stats.self_pair_disagrees_and_value_diverges += 1;
+        }
+    }
+    pair_stats.robot_total += 1;
+    if !distance_pair_matches(&expected.robot_distance_pair, &actual.robot_distance_pair) {
+        pair_stats.robot_pair_disagrees += 1;
+        if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
+            pair_stats.robot_pair_disagrees_and_value_diverges += 1;
+        }
+    }
 
     if max_dev.is_nan() || max_dev > cfg.tol_distance {
         return (
