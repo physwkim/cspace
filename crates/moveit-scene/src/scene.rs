@@ -373,14 +373,54 @@ pub struct PathValidity {
 ///     closest-point call this backend's whole pipeline is built on (see
 ///     this crate's own module doc on `ParryCollisionEnv`) -- returns one
 ///     `Contact` per pair and exposes no per-triangle-leaf overlap
-///     enumeration; matching this bit-for-bit needs `parry3d-f64`'s
-///     lower-level BVH/`Qbvh` traversal API, which nothing in
-///     `moveit-collision` calls today. This half is the genuine backend
-///     limitation.
+///     enumeration. **This is not a backend wall, though** -- an earlier
+///     version of this doc said it needed "`parry3d-f64`'s lower-level
+///     BVH/`Qbvh` traversal API, which nothing in `moveit-collision` calls
+///     today" and called that "the genuine backend limitation"; `Qbvh` is a
+///     name from an older `parry` release and does not exist in
+///     `parry3d-f64` 0.30 (`rg -l Qbvh` over the vendored crate source is
+///     zero hits), and the data the mesh case actually needs is public on
+///     the type this crate already builds meshes with:
+///     - `TriMesh::bvh() -> &Bvh` (`trimesh.rs:1808`) -- each mesh's own
+///       BVH.
+///     - `Bvh::intersect_aabb(&Aabb) -> impl Iterator<Item = u32>`
+///       (`bvh_queries.rs:203`) or `Bvh::leaves(check_node)`
+///       (`bvh_traverse.rs:103`) -- enumerate leaf node indices.
+///     - `BvhNode::leaf_data() -> Option<u32>` (`bvh_tree.rs:567`) and
+///       `BvhNode::aabb()` (`bvh_tree.rs:721`) -- recover a leaf's triangle
+///       index and world-space AABB.
+///     - `TriMesh::triangle(i) -> Triangle` (`trimesh.rs:1881`) -- recover
+///       the triangle itself from that index.
 ///
-///   So the fix splits: p3-acm can close the non-mesh case now with data
-///   already at the call site; the mesh case needs a real new
-///   `parry3d-f64` integration, not a fill-in.
+///     For a mesh-involving pair, the per-leaf-pair AABBs are the
+///     world-space `aabb()` of each `BvhNode` one mesh's `Bvh::leaves`/
+///     `intersect_aabb` finds overlapping the other shape's AABB (or the
+///     other mesh's own leaf AABBs) -- a second, explicit traversal one
+///     level below the whole-shape `query::contact` this backend calls
+///     today, not new geometry and not missing capability.
+///
+///     What is still unresolved, and is p3-acm's to design rather than a
+///     fill-in: **traversal order.** FCL enumerates colliding leaf pairs in
+///     its own BVTT (bounding-volume test tree) walk, and
+///     `CollisionRequest::max_cost_sources` truncates the result --
+///     `CostSource`'s `Ord` (this crate's doc above) sorts what survives
+///     truncation for the final ranking, but *which* candidates survive
+///     truncation in the first place depends on the order the pairs were
+///     visited, which depends on the order the two BVHs happen to be
+///     walked. Reaching bit-parity needs walking the leaf-pair
+///     intersections in FCL's BVTT order (or showing the visit order does
+///     not change which pairs survive truncation for the cases this
+///     workspace's oracle produces), not just gathering the same leaf AABBs
+///     in whatever order `parry`'s `Bvh` API happens to yield them.
+///
+///   So the fix splits differently than "small fill-in vs. backend
+///   limitation": both halves are reachable with today's `parry3d-f64` --
+///   the non-mesh half is wiring, already-in-scope data into
+///   already-built machinery; the mesh half is a second BVH-leaf-pair
+///   traversal built on the public `Bvh` API above, plus reproducing (or
+///   ruling out the need to reproduce) FCL's BVTT visitation order under
+///   `max_cost_sources` truncation. Neither needs a capability
+///   `parry3d-f64` lacks.
 /// - `printKnownObjects` — distinct: `std::ostream` debug formatting with
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
