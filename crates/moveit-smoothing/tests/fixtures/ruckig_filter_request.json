@@ -1,0 +1,270 @@
+[
+  {
+    "cases": [
+      {
+        "acceleration_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        },
+        "commands": [
+          {
+            "positions": {
+              "panda_joint1": 1.0,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          }
+        ],
+        "group": "panda_arm",
+        "jerk_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        },
+        "reset": {
+          "accelerations": {
+            "panda_joint1": 0,
+            "panda_joint2": 0,
+            "panda_joint3": 0,
+            "panda_joint4": 0,
+            "panda_joint5": 0,
+            "panda_joint6": 0,
+            "panda_joint7": 0
+          },
+          "positions": {
+            "panda_joint1": 0,
+            "panda_joint2": -0.785,
+            "panda_joint3": 0,
+            "panda_joint4": -2.356,
+            "panda_joint5": 0,
+            "panda_joint6": 1.571,
+            "panda_joint7": 0.785
+          },
+          "velocities": {
+            "panda_joint1": 0,
+            "panda_joint2": 0,
+            "panda_joint3": 0,
+            "panda_joint4": 0,
+            "panda_joint5": 0,
+            "panda_joint6": 0,
+            "panda_joint7": 0
+          }
+        },
+        "update_period": 0.1,
+        "velocity_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        }
+      },
+      {
+        "acceleration_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        },
+        "commands": [
+          {
+            "positions": {
+              "panda_joint1": 0.3,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          },
+          {
+            "positions": {
+              "panda_joint1": 0.3,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          },
+          {
+            "positions": {
+              "panda_joint1": 0.3,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          },
+          {
+            "positions": {
+              "panda_joint1": 0.3,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          },
+          {
+            "positions": {
+              "panda_joint1": 0.3,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          }
+        ],
+        "group": "panda_arm",
+        "jerk_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        },
+        "reset": {
+          "accelerations": {
+            "panda_joint1": 0,
+            "panda_joint2": 0,
+            "panda_joint3": 0,
+            "panda_joint4": 0,
+            "panda_joint5": 0,
+            "panda_joint6": 0,
+            "panda_joint7": 0
+          },
+          "positions": {
+            "panda_joint1": 0,
+            "panda_joint2": -0.785,
+            "panda_joint3": 0,
+            "panda_joint4": -2.356,
+            "panda_joint5": 0,
+            "panda_joint6": 1.571,
+            "panda_joint7": 0.785
+          },
+          "velocities": {
+            "panda_joint1": 0,
+            "panda_joint2": 0,
+            "panda_joint3": 0,
+            "panda_joint4": 0,
+            "panda_joint5": 0,
+            "panda_joint6": 0,
+            "panda_joint7": 0
+          }
+        },
+        "update_period": 0.1,
+        "velocity_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        }
+      },
+      {
+        "acceleration_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        },
+        "commands": [
+          {
+            "positions": {
+              "panda_joint1": 0,
+              "panda_joint2": -0.785,
+              "panda_joint3": 0,
+              "panda_joint4": -2.356,
+              "panda_joint5": 0,
+              "panda_joint6": 1.571,
+              "panda_joint7": 0.785
+            }
+          }
+        ],
+        "group": "panda_arm",
+        "jerk_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        },
+        "reset": {
+          "accelerations": {
+            "panda_joint1": 0,
+            "panda_joint2": 0,
+            "panda_joint3": 0,
+            "panda_joint4": 0,
+            "panda_joint5": 0,
+            "panda_joint6": 0,
+            "panda_joint7": 0
+          },
+          "positions": {
+            "panda_joint1": 0,
+            "panda_joint2": -0.785,
+            "panda_joint3": 0,
+            "panda_joint4": -2.356,
+            "panda_joint5": 0,
+            "panda_joint6": 1.571,
+            "panda_joint7": 0.785
+          },
+          "velocities": {
+            "panda_joint1": 0,
+            "panda_joint2": 0,
+            "panda_joint3": 0,
+            "panda_joint4": 0,
+            "panda_joint5": 0,
+            "panda_joint6": 0,
+            "panda_joint7": 0
+          }
+        },
+        "update_period": 0.1,
+        "velocity_bounds": {
+          "panda_joint1": 1.0,
+          "panda_joint2": 1.0,
+          "panda_joint3": 1.0,
+          "panda_joint4": 1.0,
+          "panda_joint5": 1.0,
+          "panda_joint6": 1.0,
+          "panda_joint7": 1.0
+        }
+      }
+    ],
+    "id": 1,
+    "op": "ruckig_filter"
+  }
+]

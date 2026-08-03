@@ -61,21 +61,24 @@
 //   `getVariableBounds` would hit (upstream's `VariableBounds` lookup by
 //   name has no multi-DOF fallback either). This is upstream's own
 //   assumption, not something this port introduces or corrects.
-// - **Not oracle-verified.** Unlike this crate's other numeric ports, no
-//   fixture cross-checks [`RuckigFilter::do_smoothing`] against upstream's
-//   C++ `RuckigFilterPlugin::doSmoothing` — `tools/moveit-oracle/src/oracle.cpp`
-//   has no scaffolding for a `SmoothingBaseClass`-shaped op (it would need
-//   an `rclcpp::Node`, unlike every op the oracle currently has). This
-//   port's own tests (below) check bound compliance and qualitative
-//   direction, not bit-for-bit parity with upstream's `ruckig::update()`
-//   call. The gap is narrower than a from-scratch algorithm would be —
-//   `do_smoothing` calls `rsruckig::Ruckig::update` directly, an
-//   already-established third-party crate's own public API, per its own
-//   documented usage pattern — but it is still a real, disclosed gap, not
-//   parity `ruckig_parity.rs` already covers: that file exercises
+// - **Oracle-verified via `tools/moveit-oracle/src/oracle.cpp`'s
+//   `ruckig_filter` op.** [`RuckigFilter::do_smoothing`] is cross-checked
+//   against real `online_signal_smoothing::RuckigFilterPlugin::doSmoothing`
+//   (`crates/moveit-smoothing/tests/ruckig_filter_parity.rs`) — a separate
+//   fixture and op from `ruckig_parity.rs`'s, which exercises
 //   `rsruckig::Ruckig::calculate` (the offline/one-shot path
 //   `ruckig_smoothing.rs` uses), a different code path from the streaming
-//   `update`/`pass_to_input` loop this filter drives.
+//   `update`/`pass_to_input` loop this filter drives. The oracle op loads
+//   `RuckigFilterPlugin` the same way `acceleration_filter.rs`'s op loads
+//   `AccelerationLimitedPlugin` — `pluginlib::ClassLoader` plus a
+//   never-spun `rclcpp::Node`, since `moveit_ruckig_filter` sits under the
+//   same non-exported `moveit_core_pluginTargets` CMake export set (see
+//   that op's own comment in `oracle.cpp` for the full rationale). Like
+//   `ruckig_parity.rs`, `rsruckig` is an independent Rust reimplementation
+//   of the same published algorithm, not a binding to upstream's C++
+//   `ruckig` — its root-finding does not walk identical floating-point
+//   operations in identical order, so the parity test's tolerance is set
+//   from what the fixture actually produces, not assumed to be exact.
 
 use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};

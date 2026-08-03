@@ -1,0 +1,10 @@
+{
+  "acceleration_filter": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "ruckig_filter": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}

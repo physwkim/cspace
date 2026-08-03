@@ -8,8 +8,16 @@
 // The wire shapes here must stay in step with
 // tools/moveit-diff/src/protocol.rs.
 //
-// This binary deliberately links only moveit_core: it never starts a ROS node,
-// so a run needs no discovery, no DDS and no /clock.
+// This binary links only moveit_core, with one exception: the
+// `acceleration_filter` op (see its own comment below) constructs a single,
+// never-spun rclcpp::Node because AccelerationLimitedPlugin::initialize's own
+// signature leaves no other way to reach it, and loads the plugin through
+// pluginlib::ClassLoader rather than a direct CMake target link, since
+// moveit_core's build only puts that library into its pluginlib description
+// index (`moveit_core_pluginTargets`), not the `moveit_coreTargets` CMake
+// export set every other library here is pulled in through. That op aside,
+// nothing in this binary starts discovery, runs a spin loop, or touches
+// /clock.
 
 #include <algorithm>
 #include <cmath>
@@ -41,6 +49,7 @@
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/dynamics_solver/dynamics_solver.hpp>
 #include <moveit/kinematic_constraints/kinematic_constraint.hpp>
+#include <moveit/online_signal_smoothing/smoothing_base_class.hpp>
 #include <moveit/planning_scene/planning_scene.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <moveit/robot_model/revolute_joint_model.hpp>
@@ -69,6 +78,11 @@
 #include <kdl/chainfksolverpos_recursive.hpp>
 #include <kdl_parser/kdl_parser.hpp>
 #include "third_party/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.hpp"
+
+// The `acceleration_filter` op's plugin load and its one-off, never-spun
+// rclcpp::Node -- see the file header above and that op's own comment.
+#include <pluginlib/class_loader.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 using json = nlohmann::json;
 
@@ -562,6 +576,10 @@ public:
       return bodyQuery(request);
     if (op == "totg")
       return totg(request);
+    if (op == "acceleration_filter")
+      return accelerationFilter(request);
+    if (op == "ruckig_filter")
+      return ruckigFilter(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -3143,6 +3161,283 @@ private:
     }
 
     return json{ { "ok", true }, { "duration", trajectory->getDuration() }, { "samples", samples } };
+  }
+
+  /// Ground truth for the `moveit-smoothing` `AccelerationLimitedPlugin` port
+  /// -- the online, one-step-lookahead acceleration-limiting QP in
+  /// `online_signal_smoothing/acceleration_filter.cpp`. This is the only op
+  /// in this file that starts a real `rclcpp::Node`:
+  /// `AccelerationLimitedPlugin::initialize` takes an `rclcpp::Node::SharedPtr`
+  /// and reads its own declared parameters (`update_period`,
+  /// `planning_group_name`) through a `generate_parameter_library`
+  /// `ParamListener`, so there is no way to drive the real upstream class
+  /// without one. The node is never spun and nothing calls `rclcpp::spin` --
+  /// it exists only to hold two parameter values and a clock, so this starts
+  /// no discovery loop beyond the one-time participant `rclcpp::init` creates
+  /// for the process. `rclcpp::init` itself is called at most once per
+  /// process (guarded by `rclcpp::ok()`), since a second call would throw.
+  ///
+  /// The plugin is loaded through `pluginlib::ClassLoader`, not a direct
+  /// `#include` of `acceleration_filter.hpp` plus a CMake target link:
+  /// `moveit_acceleration_filter` is installed under
+  /// `moveit_core_pluginTargets`, a separate export set
+  /// `moveit_core/CMakeLists.txt` never passes to `ament_export_targets` (only
+  /// `moveit_coreTargets` is exported) -- upstream's own intended consumption
+  /// path for this plugin family is pluginlib's runtime `dlopen`, resolved
+  /// from the `filter_plugin_acceleration.xml` description
+  /// `pluginlib_export_plugin_description_file(moveit_core ...)` registers
+  /// into the ament index, not a compile-time link. Going through
+  /// `SmoothingBaseClass`'s pure-virtual interface this way also means this
+  /// op never touches `osqp` or `MOVEIT_OSQP_V1` directly -- that stays fully
+  /// inside the plugin's own `.so`.
+  ///
+  /// A case names a "group" (used both as the plugin's own
+  /// `planning_group_name` parameter and as the joint-name space for
+  /// "reset"/"commands" -- restricted, like every group this file's fixtures
+  /// use for smoothing ops, to groups whose active joints each own exactly
+  /// one variable, since `AccelerationLimitedPlugin::initialize`'s own
+  /// bounds-extraction loop advances its index once per *joint*, not once
+  /// per *variable*, and silently keeps only the last variable's bound for
+  /// any joint with more than one -- transcribed as-is on the Rust side
+  /// rather than worked around here), an "update_period", and an
+  /// "acceleration_bounds" map (joint name -> symmetric max |accel|, same
+  /// convention and the same `JointModel::setVariableBounds` mutation-of-
+  /// `model_` pattern as `totgRobotTrajectoryCase`'s own "acceleration_bounds"
+  /// above -- see that function's comment for why the mutation is
+  /// process-lifetime and must not be mixed into a fixture another case also
+  /// relies on). `AccelerationLimitedPlugin::initialize` fails outright if any
+  /// active joint in the group lacks an acceleration bound, so a case that
+  /// omits a joint from "acceleration_bounds" exercises that failure path
+  /// (`"initialize_ok": false`), not an unconstrained-bound case.
+  ///
+  /// "reset" seeds `last_positions_`/`last_velocities_`
+  /// (`AccelerationLimitedPlugin::reset`); each entry of "commands" is one
+  /// `doSmoothing` call in sequence, threaded through the plugin's own
+  /// internal state exactly as a real streaming caller would be. The
+  /// `accelerations` parameter `doSmoothing`/`reset` both take is read by
+  /// neither (see the unnamed/`/* unused */` parameter in the upstream
+  /// signatures) -- this op passes a scratch zero vector on every call and
+  /// the wire format has no `accelerations` field anywhere.
+  json accelerationFilter(const json& request)
+  {
+    json cases_out = json::array();
+    for (const json& c : request.at("cases"))
+      cases_out.push_back(accelerationFilterCase(c));
+    return json{ { "cases", cases_out } };
+  }
+
+  static Eigen::VectorXd readNamedVector(const json& map, const std::vector<std::string>& names)
+  {
+    Eigen::VectorXd v(static_cast<Eigen::Index>(names.size()));
+    for (std::size_t i = 0; i < names.size(); ++i)
+      v[static_cast<Eigen::Index>(i)] = map.at(names[i]).get<double>();
+    return v;
+  }
+
+  static json writeNamedVector(const Eigen::VectorXd& v, const std::vector<std::string>& names)
+  {
+    json out = json::object();
+    for (std::size_t i = 0; i < names.size(); ++i)
+      out[names[i]] = v[static_cast<Eigen::Index>(i)];
+    return out;
+  }
+
+  json accelerationFilterCase(const json& c)
+  {
+    const std::string group_name = c.at("group").get<std::string>();
+    if (!model_->hasJointModelGroup(group_name))
+      throw std::runtime_error("unknown group: " + group_name);
+
+    for (const auto& [joint_name, max_acceleration] : readLimitMap(c, "acceleration_bounds"))
+    {
+      moveit::core::JointModel* joint_model = model_->getJointModel(joint_name);
+      if (joint_model == nullptr)
+        throw std::runtime_error("unknown joint: " + joint_name);
+      std::vector<moveit_msgs::msg::JointLimits> limits = joint_model->getVariableBoundsMsg();
+      for (moveit_msgs::msg::JointLimits& limit : limits)
+      {
+        limit.has_acceleration_limits = true;
+        limit.max_acceleration = max_acceleration;
+      }
+      joint_model->setVariableBounds(limits);
+    }
+
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    std::vector<std::string> joint_names;
+    for (const moveit::core::JointModel* joint_model : group->getActiveJointModels())
+      joint_names.push_back(joint_model->getName());
+    const auto num_joints = static_cast<std::size_t>(joint_names.size());
+
+    if (!rclcpp::ok())
+      rclcpp::init(0, nullptr);
+    rclcpp::NodeOptions node_options;
+    node_options.parameter_overrides(
+        { rclcpp::Parameter("update_period", c.at("update_period").get<double>()),
+          rclcpp::Parameter("planning_group_name", group_name) });
+    static int node_counter = 0;
+    auto node = std::make_shared<rclcpp::Node>("acceleration_filter_oracle_" + std::to_string(node_counter++),
+                                               node_options);
+
+    pluginlib::ClassLoader<online_signal_smoothing::SmoothingBaseClass> loader(
+        "moveit_core", "online_signal_smoothing::SmoothingBaseClass");
+    std::shared_ptr<online_signal_smoothing::SmoothingBaseClass> plugin =
+        loader.createSharedInstance("online_signal_smoothing::AccelerationLimitedPlugin");
+
+    json result;
+    const bool initialize_ok = plugin->initialize(node, model_, num_joints);
+    result["initialize_ok"] = initialize_ok;
+    if (!initialize_ok)
+      return result;
+
+    const json& reset = c.at("reset");
+    const Eigen::VectorXd reset_positions = readNamedVector(reset.at("positions"), joint_names);
+    const Eigen::VectorXd reset_velocities = readNamedVector(reset.at("velocities"), joint_names);
+    Eigen::VectorXd scratch_accelerations = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(num_joints));
+    result["reset_ok"] = plugin->reset(reset_positions, reset_velocities, scratch_accelerations);
+
+    json steps = json::array();
+    for (const json& command : c.at("commands"))
+    {
+      Eigen::VectorXd positions = readNamedVector(command.at("positions"), joint_names);
+      Eigen::VectorXd velocities = readNamedVector(command.at("velocities"), joint_names);
+      const bool ok = plugin->doSmoothing(positions, velocities, scratch_accelerations);
+      steps.push_back(json{ { "ok", ok },
+                            { "positions", writeNamedVector(positions, joint_names) },
+                            { "velocities", writeNamedVector(velocities, joint_names) } });
+    }
+    result["steps"] = steps;
+    return result;
+  }
+
+  /// Ground truth for the `moveit-smoothing` `RuckigFilter` port -- the
+  /// streaming, jerk-limited command smoother in
+  /// `online_signal_smoothing/ruckig_filter.cpp`. Loaded through the same
+  /// `pluginlib::ClassLoader<online_signal_smoothing::SmoothingBaseClass>` +
+  /// one-off, never-spun `rclcpp::Node` as `accelerationFilter` above, for
+  /// the identical reason: `RuckigFilterPlugin::initialize` has the same
+  /// `SmoothingBaseClass` signature (`rclcpp::Node::SharedPtr`), and
+  /// `moveit_ruckig_filter` sits under the same non-exported
+  /// `moveit_core_pluginTargets` set as `moveit_acceleration_filter` --
+  /// `filter_plugin_ruckig.xml` registers it in the ament plugin index the
+  /// same way. See `accelerationFilter`'s own comment for the full node/
+  /// pluginlib rationale, not repeated here.
+  ///
+  /// A case names a "group" (also the plugin's `planning_group_name`
+  /// parameter and joint-name space), an "update_period", and
+  /// "velocity_bounds"/"acceleration_bounds"/"jerk_bounds" maps (joint name
+  /// -> symmetric max magnitude), applied to `model_` via
+  /// `setJointAccelerationVelocityJerkBounds` -- same `JointModel::
+  /// setVariableBounds` mutation-of-`model_` pattern, same single-DOF-joint-
+  /// group restriction, and the same process-lifetime-mutation caveat as
+  /// `accelerationFilter`'s own "acceleration_bounds". Missing any one of
+  /// the three bound kinds for an active joint fails
+  /// `RuckigFilterPlugin::initialize` outright (`getVelAccelJerkBounds`
+  /// checks velocity, then acceleration, then jerk, in that order) --
+  /// `"initialize_ok": false` in that case, no "reset"/"commands" evaluated.
+  ///
+  /// "reset" seeds `current_position_`/`current_velocity_`/
+  /// `current_acceleration_` (`RuckigFilterPlugin::reset`, which -- unlike
+  /// `AccelerationLimitedPlugin::reset` -- reads all three); each entry of
+  /// "commands" is one `doSmoothing` call in sequence, threaded through the
+  /// plugin's own internal Ruckig state exactly as a real streaming caller
+  /// would be. A command names only "positions": `doSmoothing`'s own
+  /// `velocities`/`accelerations` parameters are pure outputs upstream --
+  /// never read, only overwritten -- so this op passes zero-filled scratch
+  /// vectors of the right size for them on every call, matching
+  /// `moveit-smoothing::ruckig_filter::RuckigFilter::do_smoothing`'s
+  /// identical treatment on the Rust side (see that function's own doc
+  /// comment on why the incoming `positions` is the sole per-call input).
+  json ruckigFilter(const json& request)
+  {
+    json cases_out = json::array();
+    for (const json& c : request.at("cases"))
+      cases_out.push_back(ruckigFilterCase(c));
+    return json{ { "cases", cases_out } };
+  }
+
+  static void setJointAccelerationVelocityJerkBounds(const moveit::core::RobotModelPtr& model, const json& c)
+  {
+    auto apply = [&](const char* field, void (*setter)(moveit_msgs::msg::JointLimits&, double)) {
+      for (const auto& [joint_name, value] : readLimitMap(c, field))
+      {
+        moveit::core::JointModel* joint_model = model->getJointModel(joint_name);
+        if (joint_model == nullptr)
+          throw std::runtime_error("unknown joint: " + joint_name);
+        std::vector<moveit_msgs::msg::JointLimits> limits = joint_model->getVariableBoundsMsg();
+        for (moveit_msgs::msg::JointLimits& limit : limits)
+          setter(limit, value);
+        joint_model->setVariableBounds(limits);
+      }
+    };
+    apply("velocity_bounds", [](moveit_msgs::msg::JointLimits& limit, double value) {
+      limit.has_velocity_limits = true;
+      limit.max_velocity = value;
+    });
+    apply("acceleration_bounds", [](moveit_msgs::msg::JointLimits& limit, double value) {
+      limit.has_acceleration_limits = true;
+      limit.max_acceleration = value;
+    });
+    apply("jerk_bounds", [](moveit_msgs::msg::JointLimits& limit, double value) {
+      limit.has_jerk_limits = true;
+      limit.max_jerk = value;
+    });
+  }
+
+  json ruckigFilterCase(const json& c)
+  {
+    const std::string group_name = c.at("group").get<std::string>();
+    if (!model_->hasJointModelGroup(group_name))
+      throw std::runtime_error("unknown group: " + group_name);
+
+    setJointAccelerationVelocityJerkBounds(model_, c);
+
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    std::vector<std::string> joint_names;
+    for (const moveit::core::JointModel* joint_model : group->getActiveJointModels())
+      joint_names.push_back(joint_model->getName());
+    const auto num_joints = static_cast<std::size_t>(joint_names.size());
+
+    if (!rclcpp::ok())
+      rclcpp::init(0, nullptr);
+    rclcpp::NodeOptions node_options;
+    node_options.parameter_overrides(
+        { rclcpp::Parameter("update_period", c.at("update_period").get<double>()),
+          rclcpp::Parameter("planning_group_name", group_name) });
+    static int node_counter = 0;
+    auto node =
+        std::make_shared<rclcpp::Node>("ruckig_filter_oracle_" + std::to_string(node_counter++), node_options);
+
+    pluginlib::ClassLoader<online_signal_smoothing::SmoothingBaseClass> loader(
+        "moveit_core", "online_signal_smoothing::SmoothingBaseClass");
+    std::shared_ptr<online_signal_smoothing::SmoothingBaseClass> plugin =
+        loader.createSharedInstance("online_signal_smoothing::RuckigFilterPlugin");
+
+    json result;
+    const bool initialize_ok = plugin->initialize(node, model_, num_joints);
+    result["initialize_ok"] = initialize_ok;
+    if (!initialize_ok)
+      return result;
+
+    const json& reset = c.at("reset");
+    const Eigen::VectorXd reset_positions = readNamedVector(reset.at("positions"), joint_names);
+    const Eigen::VectorXd reset_velocities = readNamedVector(reset.at("velocities"), joint_names);
+    const Eigen::VectorXd reset_accelerations = readNamedVector(reset.at("accelerations"), joint_names);
+    result["reset_ok"] = plugin->reset(reset_positions, reset_velocities, reset_accelerations);
+
+    json steps = json::array();
+    for (const json& command : c.at("commands"))
+    {
+      Eigen::VectorXd positions = readNamedVector(command.at("positions"), joint_names);
+      Eigen::VectorXd velocities = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(num_joints));
+      Eigen::VectorXd accelerations = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(num_joints));
+      const bool ok = plugin->doSmoothing(positions, velocities, accelerations);
+      steps.push_back(json{ { "ok", ok },
+                            { "positions", writeNamedVector(positions, joint_names) },
+                            { "velocities", writeNamedVector(velocities, joint_names) },
+                            { "accelerations", writeNamedVector(accelerations, joint_names) } });
+    }
+    result["steps"] = steps;
+    return result;
   }
 
   /// Ground truth for the `moveit-constraints` `KinematicConstraintSet` port.
