@@ -454,6 +454,44 @@ mod tests {
         assert_sample_near_stays_within_radius(&s, &mut rng, &center, 0.5, 500, 1e-9);
     }
 
+    /// `distance`'s weighted-sum structure -- `sum(weight_i * distance_i)`
+    /// -- mirrors upstream `JointModelGroup::distance` (`joint_model_group.cpp:462-471`,
+    /// `d += factor_i * joint_i->distance(...)`), though the weight values
+    /// themselves are this crate's own extent-normalization rule rather than
+    /// upstream's `getDistanceFactor()` (an already-documented deviation --
+    /// see `JointModelGroupSpace`'s doc comment). What is checked here is
+    /// the arithmetic itself: two subspaces with independently-known
+    /// per-subspace distances (`RealVectorSpace`'s `|3.0| = 3.0`,
+    /// `So2Space`'s shorter arc over `PI/3`) at deliberately unequal
+    /// weights, summed by hand outside `CompoundSpace::distance` and
+    /// compared against its actual output -- not a value this
+    /// implementation itself produced.
+    #[test]
+    fn distance_is_the_hand_computed_weighted_sum_at_a_known_value() {
+        let s = CompoundSpace::new(vec![
+            (
+                CompoundSpace::real_vector(RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap()),
+                2.0,
+            ),
+            (CompoundSpace::so2(So2Space::new()), 5.0),
+        ])
+        .unwrap();
+        let a = vec![
+            CompoundValue::RealVector(vec![0.0]),
+            CompoundValue::So2(0.0),
+        ];
+        let b = vec![
+            CompoundValue::RealVector(vec![3.0]),
+            CompoundValue::So2(PI / 3.0),
+        ];
+        let expected = 2.0 * 3.0 + 5.0 * (PI / 3.0);
+        let actual = s.distance(&a, &b);
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "distance = {actual}, hand-computed weighted sum = {expected}"
+        );
+    }
+
     // PORTING-PLAN.md:1152: whether the StateSpace trait carries a
     // heterogeneous product's distance correctly — specifically, whether
     // summing per-subspace distances of genuinely different units (metres,

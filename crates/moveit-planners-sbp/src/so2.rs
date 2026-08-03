@@ -99,6 +99,33 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
+    /// Matches upstream `RevoluteJointModel::distance`'s continuous branch
+    /// (`revolute_joint_model.cpp:173-179`) transcribed independently here:
+    /// `d = fmod(fabs(v1 - v2), 2*PI); d > PI ? 2*PI - d : d` (Rust's `%`
+    /// agrees with C's `fmod` for the non-negative inputs `fabs` always
+    /// produces). Includes a case that crosses the wraparound point, where
+    /// `fmod`'s result and this space's own `normalize_angle` take different
+    /// intermediate routes to the same answer.
+    #[test]
+    fn distance_matches_upstream_continuous_revolute_formula() {
+        let s = So2Space::new();
+        for &(v1, v2) in &[
+            (0.0, 0.0),
+            (1.0, 2.0),
+            (3.0, -3.0),
+            (-PI + 0.1, PI - 0.1),
+            (2.9, -2.9),
+        ] {
+            let d = (v1 - v2).abs() % (2.0 * PI);
+            let upstream = if d > PI { 2.0 * PI - d } else { d };
+            let actual = s.distance(&v1, &v2);
+            assert!(
+                (actual - upstream).abs() < 1e-9,
+                "distance({v1}, {v2}) = {actual}, upstream fmod formula = {upstream}"
+            );
+        }
+    }
+
     #[test]
     fn distance_takes_the_shorter_arc() {
         let s = So2Space::new();
