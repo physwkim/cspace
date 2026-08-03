@@ -27,6 +27,8 @@ target_link_libraries(moveit_oracle
   PRIVATE
     moveit_core::moveit_robot_model
     moveit_core::moveit_robot_state
+    moveit_core::moveit_robot_trajectory
+    moveit_core::moveit_trajectory_processing
     moveit_core::moveit_collision_detection
     moveit_core::moveit_collision_detection_fcl
     moveit_core::moveit_distance_field

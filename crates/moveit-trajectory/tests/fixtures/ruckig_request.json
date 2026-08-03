@@ -1,0 +1,104 @@
+[
+  {
+    "cases": [
+      {
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "waypoints": [
+          {
+            "panda_joint1": 0.0
+          },
+          {
+            "panda_joint1": 0.05
+          }
+        ]
+      },
+      {
+        "acceleration_limits": {
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "jerk_limits": {
+          "panda_joint5": 100.0
+        },
+        "velocity_limits": {
+          "panda_joint1": 1.3
+        },
+        "waypoints": [
+          {
+            "panda_joint1": 0.0
+          },
+          {
+            "panda_joint1": 0.05
+          }
+        ]
+      },
+      {
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "waypoints": [
+          {
+            "panda_joint1": 0.0
+          },
+          {
+            "panda_joint1": 0.1
+          }
+        ]
+      },
+      {
+        "durations_from_previous": [
+          0.0
+        ],
+        "waypoints": [
+          {
+            "panda_joint1": 0.0
+          }
+        ]
+      },
+      {
+        "durations_from_previous": [],
+        "waypoints": []
+      },
+      {
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "mitigate_overshoot": true,
+        "waypoints": [
+          {
+            "panda_joint1": 0.0
+          },
+          {
+            "panda_joint1": 0.05
+          }
+        ]
+      },
+      {
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "waypoints": [
+          {
+            "panda_joint1": 0.0
+          },
+          {
+            "panda_joint1": 0.0
+          }
+        ]
+      }
+    ],
+    "group": "panda_arm",
+    "id": 1,
+    "op": "ruckig"
+  }
+]

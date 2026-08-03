@@ -18,6 +18,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <Eigen/Geometry>
@@ -39,6 +40,8 @@
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
+#include <moveit/robot_trajectory/robot_trajectory.hpp>
+#include <moveit/trajectory_processing/ruckig_traj_smoothing.hpp>
 #include <moveit/transforms/transforms.hpp>
 #include <srdfdom/model.h>
 #include <urdf_parser/urdf_parser.h>
@@ -432,6 +435,8 @@ public:
       return constraints(request);
     if (op == "octomap")
       return octomapOp(request);
+    if (op == "ruckig")
+      return ruckig(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -1426,6 +1431,120 @@ private:
               { "radius", body_decomp->getRelativeBoundingSphere().radius } } },
       { "cases", cases_out }
     };
+  }
+
+  /// Ground truth for the `moveit-trajectory` `ruckig_smoothing` port. Builds
+  /// a `robot_trajectory::RobotTrajectory` from each case's waypoints and
+  /// runs `trajectory_processing::RuckigSmoothing::applySmoothing` on it.
+  ///
+  /// A case that omits "velocity_limits" exercises the scaling-factor-only
+  /// overload (RobotModel bounds, scaled by max_velocity_scaling_factor /
+  /// max_acceleration_scaling_factor); a case that includes it (even as
+  /// `{}`) exercises the explicit-limits overload instead, with
+  /// "acceleration_limits" / "jerk_limits" defaulting to `{}` when absent --
+  /// joints missing from a supplied map still fall back to RobotModel bounds
+  /// (or DEFAULT_MAX_JERK), same as upstream. The
+  /// `moveit_msgs::msg::JointLimits` overload is not exercised: it is a thin
+  /// wrapper that unpacks into the explicit-limits overload's three maps,
+  /// and moveit-trajectory does not port it (D1).
+  json ruckig(const json& request)
+  {
+    const std::string group_name = request.at("group").get<std::string>();
+    if (!model_->hasJointModelGroup(group_name))
+      throw std::runtime_error("unknown group: " + group_name);
+
+    json cases_out = json::array();
+    for (const json& c : request.at("cases"))
+      cases_out.push_back(ruckigCase(group_name, c));
+    return json{ { "cases", cases_out } };
+  }
+
+  static std::unordered_map<std::string, double> readLimitMap(const json& c, const char* field)
+  {
+    std::unordered_map<std::string, double> out;
+    if (!c.contains(field))
+      return out;
+    for (auto it = c.at(field).begin(); it != c.at(field).end(); ++it)
+      out[it.key()] = it.value().get<double>();
+    return out;
+  }
+
+  json ruckigCase(const std::string& group_name, const json& c)
+  {
+    robot_trajectory::RobotTrajectory trajectory(model_, group_name);
+
+    const json& waypoints = c.at("waypoints");
+    const json& durations = c.at("durations_from_previous");
+    if (waypoints.size() != durations.size())
+      throw std::runtime_error("waypoints/durations_from_previous length mismatch");
+
+    for (std::size_t i = 0; i < waypoints.size(); ++i)
+    {
+      moveit::core::RobotState waypoint_state(model_);
+      waypoint_state.setToDefaultValues();
+      const json& values = waypoints.at(i);
+      for (auto it = values.begin(); it != values.end(); ++it)
+      {
+        if (!hasVariable(it.key()))
+          throw std::runtime_error("unknown joint variable: " + it.key());
+        waypoint_state.setVariablePosition(it.key(), it.value().get<double>());
+      }
+      waypoint_state.update();
+      trajectory.addSuffixWayPoint(waypoint_state, durations.at(i).get<double>());
+    }
+
+    const double max_velocity_scaling_factor = c.value("max_velocity_scaling_factor", 1.0);
+    const double max_acceleration_scaling_factor = c.value("max_acceleration_scaling_factor", 1.0);
+    const bool mitigate_overshoot = c.value("mitigate_overshoot", false);
+    const double overshoot_threshold = c.value("overshoot_threshold", 0.01);
+
+    bool ok = false;
+    if (c.contains("velocity_limits"))
+    {
+      const std::unordered_map<std::string, double> velocity_limits = readLimitMap(c, "velocity_limits");
+      const std::unordered_map<std::string, double> acceleration_limits = readLimitMap(c, "acceleration_limits");
+      const std::unordered_map<std::string, double> jerk_limits = readLimitMap(c, "jerk_limits");
+      ok = trajectory_processing::RuckigSmoothing::applySmoothing(
+          trajectory, velocity_limits, acceleration_limits, jerk_limits, max_velocity_scaling_factor,
+          max_acceleration_scaling_factor, mitigate_overshoot, overshoot_threshold);
+    }
+    else
+    {
+      ok = trajectory_processing::RuckigSmoothing::applySmoothing(
+          trajectory, max_velocity_scaling_factor, max_acceleration_scaling_factor, mitigate_overshoot,
+          overshoot_threshold);
+    }
+
+    json result;
+    result["ok"] = ok;
+    if (!ok)
+      return result;
+
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    const std::vector<std::string>& variable_names = group->getVariableNames();
+
+    json out_waypoints = json::array();
+    json out_durations = json::array();
+    for (std::size_t i = 0; i < trajectory.getWayPointCount(); ++i)
+    {
+      const moveit::core::RobotState& wp = trajectory.getWayPoint(i);
+      json positions = json::object();
+      json velocities = json::object();
+      json accelerations = json::object();
+      for (const std::string& name : variable_names)
+      {
+        positions[name] = wp.getVariablePosition(name);
+        velocities[name] = wp.getVariableVelocity(name);
+        accelerations[name] = wp.getVariableAcceleration(name);
+      }
+      out_waypoints.push_back(json{ { "positions", positions },
+                                     { "velocities", velocities },
+                                     { "accelerations", accelerations } });
+      out_durations.push_back(trajectory.getWayPointDurationFromPrevious(i));
+    }
+    result["waypoints"] = out_waypoints;
+    result["durations_from_previous"] = out_durations;
+    return result;
   }
 
   /// Ground truth for the `moveit-constraints` `KinematicConstraintSet` port.
