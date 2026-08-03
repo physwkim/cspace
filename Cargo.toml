@@ -29,6 +29,12 @@ linkme = "0.3"
 approx = "0.5"
 
 [workspace.lints.rust]
+# Denied here rather than through a CI-only `RUSTFLAGS: -D warnings`: cargo
+# applies this table to workspace members only, whereas RUSTFLAGS reaches every
+# dependency too and would fail the build on a warning in code we neither own
+# nor can fix. Keeping it in the manifest also means a local `cargo build` is
+# as strict as CI.
+warnings = "deny"
 missing_docs = "warn"
 unsafe_code = "forbid"
 

@@ -6,7 +6,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+# Deliberately no `RUSTFLAGS: -D warnings` here. Cargo passes RUSTFLAGS to every
+# unit it compiles, dependencies included, so it turns a warning in third-party
+# code into a CI failure we cannot fix -- and a new rustc lint would break the
+# build without anything in this repo changing. Strictness lives in
+# [workspace.lints.rust] instead, which applies to workspace members only.
 
 jobs:
   # The core crates carry no ROS dependency (PORTING-PLAN.md D1), so this job
