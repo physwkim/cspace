@@ -184,28 +184,38 @@ pub struct PathValidity {
 /// ## Message round-tripping (D1 except the first entry: this is a
 /// ROS-independent core crate)
 ///
-/// - `saveGeometryToStream`/`loadGeometryFromStream` — unported, not
-///   structurally D1: read in full (`planning_scene.cpp:1043-1085` writer,
-///   `:1087-1215` reader), the writer's only per-object color payload is
-///   four raw floats
-///   (`out << c.r << ' ' << c.g << ' ' << c.b << ' ' << c.a`,
-///   `planning_scene.cpp:1068`, literal `"0 0 0 0"` at `:1071` when unset)
-///   and the reader parses four floats back (`:1163-1164`) — no
-///   `std_msgs::msg::ColorRGBA` (de)serialization ever touches the stream.
-///   This crate's own `hasObjectColor`/`getObjectColor` family being D1
-///   (below) reflects this port's choice to type color storage with the ROS
-///   message, not something the `.scene` format itself needs — a plain
-///   RGBA struct would round-trip identically. The real reason it stays
-///   unported: no D1-scope consumer has asked for `.scene` file interop
-///   (searched `PORTING-PLAN.md`, every crate, `tools/` — nothing beyond
-///   this bullet). Its shape payload also delegates to
-///   `shapes::saveAsText`/`constructShapeFromText`
-///   (`planning_scene.cpp:1062`/`:1152`), which `moveit-geometry`'s own
-///   audit defers with the falsifier "closes when a consumer names this
-///   exact format as the one it needs" (`moveit_geometry::shapes` module
-///   doc) — this crate is that format's one candidate consumer and has not
-///   named it, so both halves stay open on the same unmet falsifier, not
-///   two deferrals each waiting on the other.
+/// - `saveGeometryToStream`/`loadGeometryFromStream` — **distinct, decided,
+///   not deferred**: round 7/8 (§59.4) left this open on "no consumer has
+///   asked for `.scene` file interop", the same unmet-falsifier shape
+///   `moveit-geometry`'s `shapes::saveAsText`/`constructShapeFromText`
+///   deferral mirrors (`planning_scene.cpp:1062`/`:1152` is this format's
+///   shape payload). A falsifier only two panels can satisfy by each
+///   waiting on the other's silence never closes on its own, so this round
+///   answers the real question instead: does this port intend to support
+///   loading a user-authored scene file, or round-tripping a scene through
+///   disk, at all? No. Every real upstream caller of this pair (searched
+///   with `rg loadGeometryFromStream saveGeometryToStream` across the whole
+///   `moveit2` tree) is `moveit_ros` tooling wrapped around a live ROS node,
+///   not a plain file utility: `move_group`'s
+///   `{load,save}_geometry_to_file_service_capability.cpp` (ROS service
+///   handlers), `warehouse/{import_from_text,save_as_text}.cpp` (database
+///   import/export against a running warehouse node), the RViz Motion
+///   Planning panel's Scene tab, and `planning_components_tools/
+///   publish_scene_from_text.cpp` — which reads a `.scene` file only to
+///   `rclcpp::Node::make_shared` a node and publish it as a
+///   `moveit_msgs::msg::PlanningScene`, not to do anything with the geometry
+///   itself outside ROS. `moveit_py`'s binding is the same shape one layer
+///   removed (`moveit_py` is its own out-of-scope rewrite, `PORTING-PLAN.md`
+///   §4.7). The read/write functions themselves are ROS-free — `istream`/
+///   `ostream`, no `moveit_msgs` — but every reason anything upstream has to
+///   call them is ROS-coupled, and `moveit-ros` (the one crate that could
+///   ever carry ROS-coupled tooling, `PORTING-PLAN.md` §0/§4.7) has no crate
+///   yet and no plan naming this workflow. This is a positive scope
+///   statement, not an absence of demand: `.scene` file interop is out of
+///   scope because every real reason to want it is out of scope, the same
+///   way `getObjectColor`'s `std_msgs::msg::ColorRGBA` typing was a storage
+///   choice and not this format's real gate (§59.4 already established that
+///   half). Both deferrals fall together on this answer.
 /// - `getPlanningSceneDiffMsg`/`getPlanningSceneMsg` (2 overloads) — D1
 ///   (`moveit_msgs::msg::PlanningScene`, `moveit_msgs::msg::PlanningSceneComponents`).
 /// - `getCollisionObjectMsg`/`getCollisionObjectMsgs` — D1
