@@ -251,14 +251,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "moveit-diff"
+name = "moveit-constraints"
 version = "0.1.0"
 dependencies = [
+ "approx",
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
  "moveit-srdf",
  "moveit-state",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
+name = "moveit-diff"
+version = "0.1.0"
+dependencies = [
+ "moveit-constraints",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
  "urdf-rs",

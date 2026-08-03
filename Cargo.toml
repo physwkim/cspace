@@ -15,6 +15,7 @@ authors = ["moveit-rs contributors"]
 
 [workspace.dependencies]
 moveit-collision = { path = "crates/moveit-collision", version = "0.1.0" }
+moveit-constraints = { path = "crates/moveit-constraints", version = "0.1.0" }
 moveit-error = { path = "crates/moveit-error", version = "0.1.0" }
 moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
 moveit-model = { path = "crates/moveit-model", version = "0.1.0" }

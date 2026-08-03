@@ -14,6 +14,7 @@ find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(random_numbers REQUIRED)
 find_package(geometric_shapes REQUIRED)
+find_package(moveit_msgs REQUIRED)
 
 add_executable(moveit_oracle src/oracle.cpp)
 
@@ -29,12 +30,14 @@ target_link_libraries(moveit_oracle
     moveit_core::moveit_distance_field
     moveit_core::moveit_collision_distance_field
     moveit_core::moveit_dynamics_solver
+    moveit_core::moveit_kinematic_constraints
     urdfdom::urdf_parser
     srdfdom::srdfdom
     Eigen3::Eigen
     nlohmann_json::nlohmann_json
     geometric_shapes::geometric_shapes
     ${random_numbers_LIBRARIES}
+    ${moveit_msgs_TARGETS}
 )
 target_include_directories(moveit_oracle PRIVATE ${random_numbers_INCLUDE_DIRS})
 

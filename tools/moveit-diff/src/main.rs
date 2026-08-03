@@ -21,9 +21,17 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
+use moveit_geometry::{Isometry3, Rotation3, UnitQuaternion, Vector3};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
-use protocol::{FkResult, JacobianResult, ModelInfo, Op, OracleResult, Request, Response};
+use protocol::{
+    ConstraintRegionSpec, ConstraintsResult, ConstraintsSpec, FkResult, JacobianResult,
+    JointConstraintSpec, ModelInfo, Op, OracleResult, OrientationConstraintSpec,
+    OrientationToleranceSpec, PositionConstraintSpec, Request, Response, ShapeSpec,
+    VisibilityConstraintSpec,
+};
+use rand::{RngExt, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 /// How the runner was configured.
 struct Config {
@@ -37,6 +45,11 @@ struct Config {
     /// existing `fk`-only invocations unchanged.
     group: Option<String>,
     tol_jacobian: f64,
+    /// How many constraint-combination cases to additionally generate and
+    /// compare via [`Op::Constraints`]. `0` (the default) runs none, keeping
+    /// existing `fk`/`jacobian`-only invocations unchanged.
+    constraints: usize,
+    tol_constraints: f64,
     oracle: Vec<String>,
 }
 
@@ -49,6 +62,8 @@ impl Config {
         let mut tol_fk = 1e-9;
         let mut group = None;
         let mut tol_jacobian = 1e-7;
+        let mut constraints = 0usize;
+        let mut tol_constraints = 1e-9;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -81,6 +96,16 @@ impl Config {
                         .parse()
                         .map_err(|e| format!("--tol-jacobian: {e}"))?
                 }
+                "--constraints" => {
+                    constraints = want("--constraints")?
+                        .parse()
+                        .map_err(|e| format!("--constraints: {e}"))?
+                }
+                "--tol-constraints" => {
+                    tol_constraints = want("--tol-constraints")?
+                        .parse()
+                        .map_err(|e| format!("--tol-constraints: {e}"))?
+                }
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -101,6 +126,8 @@ impl Config {
             tol_fk,
             group,
             tol_jacobian,
+            constraints,
+            tol_constraints,
             oracle,
         })
     }
@@ -203,6 +230,7 @@ fn main() {
             eprintln!("moveit-diff: {e}");
             eprintln!("usage: moveit-diff --urdf <path> --srdf <path> [--cases N] [--seed S]");
             eprintln!("                   [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]");
+            eprintln!("                   [--constraints N] [--tol-constraints EPS]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
@@ -271,8 +299,12 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
 
     let mut max_jacobian_dev = 0.0f64;
+    // Kept for the constraint-case generator below, which needs each state's
+    // link poses to build "meaningful" (boundary-straddling) constraints
+    // rather than re-asking the oracle for the same fk it already answered.
+    let mut fks: Vec<FkResult> = Vec::with_capacity(states.len());
 
-    for (case, joint_values) in states.into_iter().enumerate() {
+    for (case, joint_values) in states.iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
             joint_values: joint_values.clone(),
             links: Vec::new(),
@@ -282,7 +314,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
         };
         verdicts.push((
             format!("fk[{case}]"),
-            compare_fk(cfg, &rust_model, &joint_values, &expected),
+            compare_fk(cfg, &rust_model, joint_values, &expected),
         ));
 
         if let Some(group) = &cfg.group {
@@ -293,20 +325,77 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 OracleResult::Jacobian(j) => j,
                 other => return Err(format!("expected jacobian, got {other:?}")),
             };
-            let (verdict, dev) =
-                compare_jacobian(cfg, &rust_model, group, &joint_values, &expected);
+            let (verdict, dev) = compare_jacobian(cfg, &rust_model, group, joint_values, &expected);
             if dev.is_finite() {
                 max_jacobian_dev = max_jacobian_dev.max(dev);
             }
             verdicts.push((format!("jacobian[{case}]"), verdict));
         }
+        fks.push(expected);
     }
 
     if cfg.group.is_some() {
         println!("worst jacobian deviation: {max_jacobian_dev:.3e}");
     }
 
+    if cfg.constraints > 0 {
+        run_constraint_cases(cfg, &mut oracle, &rust_model, &states, &fks, &mut verdicts)?;
+    }
+
     report(&verdicts)
+}
+
+/// Kind label to `(satisfied, violated)` oracle-reported counts -- the
+/// factual split this task's completion report names per constraint kind,
+/// even if lopsided.
+type KindSplit = BTreeMap<&'static str, (usize, usize)>;
+
+/// Drives [`Op::Constraints`] over `cfg.constraints` generated combinations,
+/// cycling through the six constraint shapes [`build_constraint_case`] knows
+/// how to build, one per case, reusing the states and fk answers the
+/// `fk`/`jacobian` loop already collected instead of drawing new ones.
+fn run_constraint_cases(
+    cfg: &Config,
+    oracle: &mut Oracle,
+    rust_model: &RobotModel,
+    states: &[BTreeMap<String, f64>],
+    fks: &[FkResult],
+    verdicts: &mut Vec<(String, Verdict)>,
+) -> Result<(), String> {
+    let mut rng = ChaCha8Rng::seed_from_u64((cfg.seed as i64 as u64) ^ 0x5EED_C0DE_u64);
+    let mut split: KindSplit = KindSplit::new();
+
+    for case in 0..cfg.constraints {
+        let state_idx = case % states.len();
+        let joint_values = &states[state_idx];
+        let fk = &fks[state_idx];
+        let (kind, spec) = build_constraint_case(case, &mut rng, rust_model, joint_values, fk);
+
+        let expected = match oracle.ask(Op::Constraints {
+            joint_values: joint_values.clone(),
+            constraints: spec.clone(),
+        })? {
+            OracleResult::Constraints(c) => c,
+            other => return Err(format!("expected constraints, got {other:?}")),
+        };
+
+        let (verdict, satisfied) =
+            compare_constraints(cfg, rust_model, joint_values, &spec, &expected);
+        let entry = split.entry(kind).or_insert((0, 0));
+        match satisfied {
+            Some(true) => entry.0 += 1,
+            Some(false) => entry.1 += 1,
+            None => {}
+        }
+        verdicts.push((format!("constraints[{case}]:{kind}"), verdict));
+    }
+
+    println!("constraint satisfied/violated split (oracle-reported):");
+    for (kind, (satisfied, violated)) in &split {
+        println!("  {kind}: {satisfied} satisfied, {violated} violated");
+    }
+
+    Ok(())
 }
 
 fn compare_model_info(rust_model: &RobotModel, expected: &ModelInfo) -> Verdict {
@@ -406,6 +495,249 @@ fn compare_jacobian(
         );
     }
     (Verdict::Pass, max_dev)
+}
+
+/// Compares one [`Op::Constraints`] case. Returns the verdict, plus the
+/// oracle's own `satisfied` verdict for the case's one constraint (`None` on
+/// any mismatch/error, since there is then no agreed-on answer to bucket) --
+/// the caller uses this for the per-kind satisfied/violated split, which must
+/// reflect ground truth (the oracle), not whichever side the comparison
+/// happened to fail on.
+fn compare_constraints(
+    cfg: &Config,
+    rust_model: &RobotModel,
+    joint_values: &BTreeMap<String, f64>,
+    spec: &ConstraintsSpec,
+    expected: &ConstraintsResult,
+) -> (Verdict, Option<bool>) {
+    let actual = match rust_impl::constraints(rust_model, joint_values, spec) {
+        Ok(a) => a,
+        Err(e) => return (Verdict::Fail(e), None),
+    };
+    if actual.results.len() != expected.results.len() {
+        return (
+            Verdict::Fail(format!(
+                "result count mismatch: rust {} vs oracle {}",
+                actual.results.len(),
+                expected.results.len()
+            )),
+            None,
+        );
+    }
+    for (i, (a, e)) in actual.results.iter().zip(&expected.results).enumerate() {
+        if a.satisfied != e.satisfied {
+            return (
+                Verdict::Fail(format!(
+                    "constraint {i}: satisfied mismatch rust={} oracle={}",
+                    a.satisfied, e.satisfied
+                )),
+                Some(e.satisfied),
+            );
+        }
+        let d = (a.distance - e.distance).abs();
+        // NaN must fail, matching compare_fk/compare_jacobian's own guard.
+        if d.is_nan() || d > cfg.tol_constraints {
+            return (
+                Verdict::Fail(format!(
+                    "constraint {i}: distance oracle {:.17e} vs rust {:.17e} (|d|={d:.3e} > {:.3e})",
+                    e.distance, a.distance, cfg.tol_constraints
+                )),
+                Some(e.satisfied),
+            );
+        }
+    }
+    (Verdict::Pass, expected.results.first().map(|r| r.satisfied))
+}
+
+/// Row-major 4x4 for `pose` with `translation`, matching `rust_impl`'s
+/// `to_row_major_4x4`/`isometry_from_row_major` pair.
+fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
+    rust_impl::to_row_major_4x4(&Isometry3::from_parts(translation.into(), rotation))
+}
+
+/// Builds one `moveit_msgs`-shaped constraint at `joint_values`/`fk` (the
+/// state the case is drawn from), perturbed to straddle its own tolerance
+/// boundary so the differential run's satisfied/violated split is
+/// meaningful rather than a coin flip landing far from the boundary.
+/// Cycles through six shapes by `case % 6`: a joint-position constraint, a
+/// fixed-frame position constraint, a fixed-frame orientation constraint in
+/// each of the two [`OrientationToleranceSpec`] parameterizations, and a
+/// visibility constraint under each of the two criteria this port can decide
+/// without a collision backend (view-angle, range-angle) -- never
+/// `target_radius`, which needs the cone-vs-robot check `moveit-constraints`
+/// does not implement yet (see that crate's module docs).
+///
+/// Every case here resolves against the model frame (upstream's
+/// `mobile_frame_ == false` path): the mobile-frame resolution path is a
+/// shared, already-tested code path (`position.rs`/`orientation.rs`/
+/// `visibility.rs`'s own `mobile_frame_is_resolved_fresh_from_state`-style
+/// unit tests), not a further axis this bulk generator also needs to sweep.
+fn build_constraint_case(
+    case: usize,
+    rng: &mut ChaCha8Rng,
+    model: &RobotModel,
+    joint_values: &BTreeMap<String, f64>,
+    fk: &FkResult,
+) -> (&'static str, ConstraintsSpec) {
+    let mut spec = ConstraintsSpec::default();
+    let model_frame = model.model_frame().to_owned();
+
+    let kind = match case % 6 {
+        0 => {
+            let eligible: Vec<&str> = model
+                .joint_models()
+                .filter(|j| j.variable_count() == 1)
+                .map(|j| j.name())
+                .collect();
+            let joint_name = if eligible.is_empty() {
+                model.joint_names()[0].as_str()
+            } else {
+                eligible[case % eligible.len()]
+            };
+            let current = *joint_values.get(joint_name).unwrap_or(&0.0);
+            let tolerance: f64 = rng.random_range(0.01..0.2);
+            let offset = rng.random_range(-2.0 * tolerance..2.0 * tolerance);
+            spec.joint_constraints.push(JointConstraintSpec {
+                joint_name: joint_name.to_owned(),
+                position: current - offset,
+                tolerance_above: tolerance,
+                tolerance_below: tolerance,
+                weight: 1.0,
+            });
+            "joint"
+        }
+        1 => {
+            let links = model.link_names();
+            let link_name = &links[case % links.len()];
+            let point = fk
+                .link_transforms
+                .get(link_name)
+                .expect("link_name came from model.link_names()");
+            let mut center = [point[3], point[7], point[11]];
+            let half_extent: f64 = rng.random_range(0.02..0.1);
+            let r = rng.random_range(0.0..2.0 * half_extent);
+            center[case % 3] -= r;
+            spec.position_constraints.push(PositionConstraintSpec {
+                frame_id: model_frame,
+                link_name: link_name.clone(),
+                target_point_offset: [0.0, 0.0, 0.0],
+                regions: vec![ConstraintRegionSpec {
+                    shape: ShapeSpec::Box {
+                        size: [2.0 * half_extent; 3],
+                    },
+                    pose: pose_row_major(
+                        Vector3::new(center[0], center[1], center[2]),
+                        UnitQuaternion::identity(),
+                    ),
+                }],
+                weight: 1.0,
+            });
+            "position"
+        }
+        parameterization @ (2 | 3) => {
+            let links = model.link_names();
+            let link_name = &links[case % links.len()];
+            let point = fk
+                .link_transforms
+                .get(link_name)
+                .expect("link_name came from model.link_names()");
+            let actual = quat_from_row_major(point);
+            let tolerance: f64 = rng.random_range(0.01..0.3);
+            let theta = rng.random_range(0.0..2.0 * tolerance);
+            // `actual * Rz(-theta)` makes the rotation error
+            // `target^-1 * actual` exactly `Rz(theta)`, whose Euler/rotation-
+            // vector decomposition is `[0, 0, theta]` regardless of `actual`
+            // -- see this function's own commit for the derivation. That
+            // keeps the boundary straddle exact instead of merely
+            // approximate.
+            let target = actual * UnitQuaternion::from_axis_angle(&Vector3::z_axis(), -theta);
+            let c = target.coords;
+            let tolerance_spec = if parameterization == 2 {
+                OrientationToleranceSpec::XyzEuler {
+                    x: tolerance,
+                    y: tolerance,
+                    z: tolerance,
+                }
+            } else {
+                OrientationToleranceSpec::RotationVector {
+                    x: tolerance,
+                    y: tolerance,
+                    z: tolerance,
+                }
+            };
+            spec.orientation_constraints
+                .push(OrientationConstraintSpec {
+                    frame_id: model_frame,
+                    link_name: link_name.clone(),
+                    orientation: [c[0], c[1], c[2], c[3]],
+                    tolerance: tolerance_spec,
+                    weight: 1.0,
+                });
+            if parameterization == 2 {
+                "orientation_xyz_euler"
+            } else {
+                "orientation_rotation_vector"
+            }
+        }
+        4 => {
+            let tolerance = rng.random_range(0.02..0.3);
+            let angle = rng.random_range(0.0..2.0 * tolerance);
+            // `target_z` (the target pose's local z axis) must equal
+            // `-[sin(angle), 0, cos(angle)]` so that `dp = sensor_view_axis
+            // . -target_z == cos(angle)` exactly; rotating the standard z
+            // axis by `pi + angle` about y lands there (see this function's
+            // own commit for the derivation).
+            let target_rotation =
+                UnitQuaternion::from_axis_angle(&Vector3::y_axis(), std::f64::consts::PI + angle);
+            spec.visibility_constraints.push(VisibilityConstraintSpec {
+                sensor_frame_id: model_frame.clone(),
+                sensor_pose: pose_row_major(Vector3::zeros(), UnitQuaternion::identity()),
+                sensor_view_direction: "sensor_z".to_owned(),
+                target_frame_id: model_frame,
+                target_pose: pose_row_major(Vector3::zeros(), target_rotation),
+                cone_sides: 3,
+                target_radius: None,
+                max_view_angle: Some(tolerance),
+                max_range_angle: None,
+                weight: 1.0,
+            });
+            "visibility_view_angle"
+        }
+        5 => {
+            let tolerance: f64 = rng.random_range(0.02..0.3);
+            let angle = rng.random_range(0.0..2.0 * tolerance);
+            // The sensor-to-target direction is exactly
+            // `[sin(angle), 0, cos(angle)]`, so `dp = sensor_view_axis . dir
+            // == cos(angle)` exactly.
+            let target_translation = Vector3::new(angle.sin(), 0.0, angle.cos());
+            spec.visibility_constraints.push(VisibilityConstraintSpec {
+                sensor_frame_id: model_frame.clone(),
+                sensor_pose: pose_row_major(Vector3::zeros(), UnitQuaternion::identity()),
+                sensor_view_direction: "sensor_z".to_owned(),
+                target_frame_id: model_frame,
+                target_pose: pose_row_major(target_translation, UnitQuaternion::identity()),
+                cone_sides: 3,
+                target_radius: None,
+                max_view_angle: None,
+                max_range_angle: Some(tolerance),
+                weight: 1.0,
+            });
+            "visibility_range_angle"
+        }
+        _ => unreachable!("case % 6 is in 0..6"),
+    };
+
+    (kind, spec)
+}
+
+/// Rotation part of a row-major 4x4, matching the oracle's
+/// `fromRowMajor4x4`'s rotation half (see `rust_impl::isometry_from_row_major`
+/// for the translation half this function does not need).
+fn quat_from_row_major(m: &[f64; 16]) -> UnitQuaternion {
+    let rotation = Rotation3::from_matrix_unchecked(nalgebra::Matrix3::new(
+        m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10],
+    ));
+    UnitQuaternion::from_rotation_matrix(&rotation)
 }
 
 /// Print per-case lines and the summary. Returns the failure count.

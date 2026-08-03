@@ -1,27 +1,29 @@
 [package]
-name = "moveit-diff"
-description = "Differential test runner comparing moveit-rs against the C++ moveit2 oracle"
+name = "moveit-constraints"
+description = "Pure-Rust kinematic constraint types (moveit_core/kinematic_constraints): Joint/Position/Orientation/Visibility constraints and their decide()"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish = false
 
 [dependencies]
-moveit-constraints.workspace = true
 moveit-error.workspace = true
 moveit-geometry.workspace = true
 moveit-model.workspace = true
-moveit-srdf.workspace = true
 moveit-state.workspace = true
 nalgebra.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true
+moveit-srdf.workspace = true
 
 [lints]
 workspace = true
