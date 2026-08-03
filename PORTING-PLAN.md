@@ -9055,3 +9055,81 @@ moveit-constraints/Cargo.toml:15   moveit-kinematics.workspace = true
 `cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
 `verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK,
 `verify-fixture-replay.sh` **30/30 identical**.
+
+## 106. p1-fixtures 라운드 14 머지 — 그리고 내 브리프가 없는 문장을 인용했다
+
+2커밋(`47e7542`, `91f3c88`), `moveit-metrics`·`moveit-scene`, 문서만
+바뀌어 테스트 수 변동 없음.
+
+### 106.1 내 브리프 1항이 트리에 없는 문장을 가리켰다
+
+라운드 14 브리프에서 "UNFIXED 항목과 모듈 doc의 `no output-observable
+regression test; none is possible through this test shape` 문장을
+고쳐라"라고 적었다. **그 문장은 어떤 소스 파일에도 없었다.**
+
+```
+git grep 'output-observable' f881ced -- crates/   →  0건
+```
+
+담당의 라운드 13 **보고서 본문**에만 있던 문장이고, 나는 그것을 트리에
+대조하지 않고 모듈 doc에 있는 것처럼 인용했다. 담당이 이것을 잡아
+"인용된 문장은 커밋 메시지 본문에만 있고 재작성할 수 없으니 내용을
+살아 있는 doc에 적용했다"고 처리한 것이 맞다.
+
+**계열로 적는다:** 워커의 보고서에서 문장을 가져와 브리프에 넣을 때는
+그 문장이 트리에 있는지 먼저 확인해라. 보고서는 트리가 아니다. §104.1의
+"측정한 범위 밖으로 결론을 넓히지 마라"와 같은 뿌리다 — 검증하지 않은
+전제 위에 지시를 쌓았다.
+
+### 106.2 `columns < 6`의 양방향 결과가 doc에 들어갔다
+
+담당이 §101.2의 두 섭동을 **자기가 다시 재고 나서** 문서를 고쳤다.
+
+```
+< 6 → < 5   14 tests: 13 passed, 1 failed   panda_arm_5dof_kinematics_metrics_matches_the_oracle
+< 6 → < 4   14 tests: 13 passed, 1 failed   같은 테스트
+```
+
+비대칭의 이유도 들어갔다 — 넓히는 쪽은 행 full rank에서 특이값의 곱이
+`sqrt(det(J Jᵀ))`와 항등이라 무관측이고, 좁히는 쪽은 rank 결손으로
+`det(J Jᵀ) → 0`이 되어 관측된다. §101.2가 요구한 것이 그대로 들어갔다.
+
+### 106.3 `planning_scene.hpp` 재감사에서 구멍이 하나 나왔다
+
+기존 오버로드 수는 전부 유지된다. 내가 상류 헤더에서 두 개를 골라
+독립 확인했다:
+
+```
+grep -c 'bool isPathValid'    planning_scene.hpp  →  8   보고 8   일치
+grep -c 'void checkCollision' planning_scene.hpp  →  6   보고 6   일치
+```
+
+**새 구멍:** `PlanningScene(const PlanningScene&) = delete`(`:97`)와
+`operator=(const PlanningScene&) = delete`(`:102`)가 둘 다 `public:`
+블록(`:93`부터 `:927`의 `private:`까지) 안인데 감사에 항목이 없었다.
+내가 헤더에서 직접 확인했다. 한 항목으로 덮었고(Rust 구조체는 기본이
+non-`Copy`/non-`Clone`이라 이식할 것이 없다), 세는 규약도 문서에
+들어갔다 — 한 `public:` 선언당 한 항목, 동명 오버로드는 `(N overloads)`
+로 접기, 여러 줄 시그니처는 첫 줄에서 한 번, `= delete` 쌍은 같은
+관용구라 한 항목, 인라인 본문 접근자도 선언과 동일하게 셈.
+
+```
+rg -c '^/// - '  crates/moveit-scene/src/scene.rs   →  61
+rg -c '^/// - `' crates/moveit-scene/src/scene.rs   →  60
+```
+
+보고한 61/60과 맞는다.
+
+### 106.4 §79 몫은 0이다
+
+`moveit-scene` 1건, `moveit-metrics` 7건, **8건 전부 `max_relative`가
+있다**(`epsilon`만 0, 둘 다 없음 0). 내 §104 계수기로 재확인했다.
+이 담당의 §79 노출은 없다.
+
+### 106.5 머지 후 실측
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1093/1093**,
+`cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
+`verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK,
+`verify-fixture-replay.sh` **30/30 identical**.
