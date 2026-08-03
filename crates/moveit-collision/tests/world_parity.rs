@@ -4,16 +4,16 @@
 //! Parity test against the moveit2 C++ oracle's `world` op.
 //!
 //! `World` has no `RobotModel` dependency, so unlike `acm_parity.rs` there is
-//! no SRDF driving the scenario: the objects, shapes and subframes below are
-//! authored directly in this file with `moveit_geometry` types and replayed
-//! through [`moveit_collision::World`]'s own API. What is never
-//! hand-transcribed is the *expected* output — `tests/fixtures/world_response.json`
-//! is the oracle's own, unedited response (built from the identical scenario
-//! against the real `collision_detection::World`, dumped by the oracle's
-//! `world` op in `tools/moveit-oracle/src/oracle.cpp`) — so a composition
-//! convention this port got wrong shows up as a fixture mismatch instead of
-//! being baked into a hand-computed expected value that could carry the same
-//! mistake.
+//! no SRDF to build the scenario from. Instead both sides of this test are
+//! driven from `tests/fixtures/world_request.json` — a `world` op request,
+//! committed alongside the oracle's own unedited response in
+//! `world_response.json` — so the Rust-built [`moveit_collision::World`] and
+//! the oracle's real `collision_detection::World` are guaranteed to be built
+//! from the identical scenario: there is exactly one copy of "which objects,
+//! shapes, poses and subframes" in the tree, not a Rust transcription and a
+//! JSON transcription that could quietly drift apart. Only the *expected*
+//! output is oracle ground truth; the request itself is not something either
+//! side gets to assert about, it is the shared input.
 //!
 //! The scenario covers two things a unit test authored purely from reading
 //! `world.cpp` cannot: whether `nalgebra::Isometry3` composition
@@ -25,7 +25,6 @@
 //! crate's own reading of them.
 
 use std::collections::BTreeMap;
-use std::f64::consts::FRAC_PI_2;
 use std::fs;
 use std::sync::Arc;
 
@@ -34,7 +33,23 @@ use serde::Deserialize;
 
 use moveit_collision::World;
 use moveit_geometry::{Isometry3, Shape, Sphere};
-use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Matrix3, Translation3, UnitQuaternion};
+
+#[derive(Deserialize)]
+struct RequestObject {
+    id: String,
+    pose: [f64; 16],
+    #[serde(default)]
+    shape_poses: Vec<[f64; 16]>,
+    #[serde(default)]
+    subframes: BTreeMap<String, [f64; 16]>,
+}
+
+#[derive(Deserialize)]
+struct RequestFixture {
+    objects: Vec<RequestObject>,
+    queries: Vec<String>,
+}
 
 #[derive(Deserialize)]
 struct ShapeDump {
@@ -75,18 +90,27 @@ struct OracleResponse {
     result: WorldDump,
 }
 
-fn load_fixture() -> WorldDump {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/world_response.json"
+fn read_fixture(name: &str) -> String {
+    let path = format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        name
     );
-    let raw = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
+}
+
+fn load_request() -> RequestFixture {
+    let raw = read_fixture("world_request.json");
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse world_request.json: {e}"))
+}
+
+fn load_response() -> WorldDump {
+    let raw = read_fixture("world_response.json");
     let response: OracleResponse =
-        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse world_response.json: {e}"));
     response.result
 }
 
-/// Row-major 4x4, matching `toRowMajor4x4` in `oracle.cpp`.
+/// Row-major 4x4, matching `toRowMajor4x4`/`fromRowMajor4x4` in `oracle.cpp`.
 fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
     let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
     let translation = Translation3::new(m[3], m[7], m[11]);
@@ -103,57 +127,49 @@ fn assert_isometry_eq(actual: Isometry3, expected_row_major: &[f64; 16]) {
     );
 }
 
+/// A dummy 0.1m sphere, matching the oracle's own choice in `oracle.cpp`:
+/// only pose composition is under test here, not shape geometry.
 fn sphere() -> Arc<Shape> {
     Arc::new(Shape::Sphere(Sphere::new(0.1).unwrap()))
 }
 
-/// The same scenario the oracle's `world_response.json` fixture was recorded
-/// from — see this module's own doc comment for the exact request JSON that
-/// produced it (`shelf` rotated 90° about Z with two shapes and a subframe;
-/// `a`/`a/b` set up for the subframe-name-collision ambiguity).
-fn build_world() -> World {
+/// Replay `request` through [`World`]'s own API — the single source for
+/// "which objects, shapes, poses and subframes" this test and the committed
+/// oracle request share.
+fn build_world(request: &RequestFixture) -> World {
     let mut world = World::new();
-
-    let shelf_pose = Isometry3::from_parts(
-        Translation3::new(1.0, 2.0, 3.0),
-        UnitQuaternion::from_axis_angle(&Vector3::z_axis(), FRAC_PI_2),
-    );
-    world
-        .add_to_object(
-            "shelf",
-            shelf_pose,
-            &[sphere(), sphere()],
-            &[
-                Isometry3::translation(0.0, 0.0, 1.0),
-                Isometry3::translation(1.0, 0.0, 0.0),
-            ],
-        )
-        .expect("fresh object with shapes must notify");
-    let mut shelf_subframes = BTreeMap::new();
-    shelf_subframes.insert("tip".to_owned(), Isometry3::translation(0.0, 1.0, 0.0));
-    assert!(world.set_subframes_of_object("shelf", shelf_subframes));
-
-    world.set_object_pose("a", Isometry3::identity());
-
-    world
-        .add_to_object(
-            "a/b",
-            Isometry3::translation(1.0, 0.0, 0.0),
-            &[sphere()],
-            &[Isometry3::translation(0.0, 0.0, 1.0)],
-        )
-        .expect("fresh object with a shape must notify");
-    let mut ab_subframes = BTreeMap::new();
-    ab_subframes.insert("c".to_owned(), Isometry3::translation(0.0, 1.0, 0.0));
-    assert!(world.set_subframes_of_object("a/b", ab_subframes));
-
+    for object in &request.objects {
+        let pose = isometry_from_row_major(&object.pose);
+        if object.shape_poses.is_empty() {
+            world.set_object_pose(&object.id, pose);
+        } else {
+            let shapes: Vec<Arc<Shape>> = object.shape_poses.iter().map(|_| sphere()).collect();
+            let shape_poses: Vec<Isometry3> = object
+                .shape_poses
+                .iter()
+                .map(isometry_from_row_major)
+                .collect();
+            world
+                .add_to_object(&object.id, pose, &shapes, &shape_poses)
+                .unwrap_or_else(|| panic!("fresh object {} with shapes must notify", object.id));
+        }
+        if !object.subframes.is_empty() {
+            let subframes: BTreeMap<String, Isometry3> = object
+                .subframes
+                .iter()
+                .map(|(name, pose)| (name.clone(), isometry_from_row_major(pose)))
+                .collect();
+            assert!(world.set_subframes_of_object(&object.id, subframes));
+        }
+    }
     world
 }
 
 #[test]
 fn world_matches_oracle() {
-    let world = build_world();
-    let fixture = load_fixture();
+    let request = load_request();
+    let world = build_world(&request);
+    let fixture = load_response();
 
     for object_dump in &fixture.objects {
         let obj = world
@@ -182,6 +198,15 @@ fn world_matches_oracle() {
         }
     }
 
+    assert_eq!(
+        request.queries,
+        fixture
+            .queries
+            .iter()
+            .map(|q| q.name.clone())
+            .collect::<Vec<_>>(),
+        "request/response query lists must be the same list, in the same order"
+    );
     for query in &fixture.queries {
         assert_eq!(
             world.knows_transform(&query.name),
