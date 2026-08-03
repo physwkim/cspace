@@ -1,0 +1,570 @@
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "group": "panda_arm",
+    "penalty_multiplier": 1.5,
+    "states": [
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.045688160595446475,
+          0.33210253622265645,
+          0.2093958090243619
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          0.7342632461308982,
+          -0.4467895437779425,
+          0.5111130882221799,
+          -0.43144171498171685,
+          -0.8884103523460989,
+          -0.15679634057565073,
+          -0.5241331242680155,
+          0.10538571731965556,
+          0.845090716213396
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.0008251495379954577,
+          "panda_finger_joint2": 0.0008251495379954577,
+          "panda_joint1": -1.7867612824831625,
+          "panda_joint2": -0.9544292795743793,
+          "panda_joint3": 1.5098481162350157,
+          "panda_joint4": -2.229931635927409,
+          "panda_joint5": 0.33492228947198033,
+          "panda_joint6": 1.3654632389754988,
+          "panda_joint7": 0.9452438509045633,
+          "virtual_joint/rot_w": -0.6964574081381336,
+          "virtual_joint/rot_x": 0.21473225355847358,
+          "virtual_joint/rot_y": 0.5824518969047962,
+          "virtual_joint/rot_z": 0.3599818408242523,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 1.9768018079998506e-06,
+        "manipulability_index_full": 1.347006179872634e-06,
+        "manipulability_index_translation": 1.0694908271691637e-06,
+        "manipulability_translation": 7.037540046817418e-06
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.08983889076224337,
+          0.1622974950335225,
+          0.03839113604048032
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          -0.9934988418429023,
+          -0.1056094068420576,
+          0.042505346055300826,
+          -0.11153117029970776,
+          0.9777914668313197,
+          -0.17743913165768713,
+          0.022822123222647307,
+          0.1810262427890642,
+          0.9832134306005411
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.015095137413591147,
+          "panda_finger_joint2": 0.015095137413591147,
+          "panda_joint1": -2.6633999711412937,
+          "panda_joint2": -1.0694786232724787,
+          "panda_joint3": -1.821814726711111,
+          "panda_joint4": -2.920587481380091,
+          "panda_joint5": -1.3969371212144848,
+          "panda_joint6": 0.5725068952632137,
+          "panda_joint7": 2.3632071911246046,
+          "virtual_joint/rot_w": 0.00629948953756632,
+          "virtual_joint/rot_x": -0.9359780260827831,
+          "virtual_joint/rot_y": -0.3500461813171155,
+          "virtual_joint/rot_z": 0.03705566174079429,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 8.052405961412766e-09,
+        "manipulability_index_full": 2.3830600754707463e-09,
+        "manipulability_index_translation": 3.2388877245929898e-09,
+        "manipulability_translation": 6.658124108376755e-08
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.004825590765757387,
+          0.9828371274595422,
+          0.6374361893053795
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          -0.662824888417838,
+          0.6203422463617866,
+          -0.4193312111835856,
+          0.5198681059232064,
+          -0.02178509578042349,
+          -0.8539687125683563,
+          0.5388880400766918,
+          0.7840286391329404,
+          0.3080564449604184
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.026823207503184676,
+          "panda_finger_joint2": 0.026823207503184676,
+          "panda_joint1": 2.684668234927812,
+          "panda_joint2": -1.7098041579555718,
+          "panda_joint3": 2.832579850497283,
+          "panda_joint4": -0.6587323607172353,
+          "panda_joint5": -0.8081766871759668,
+          "panda_joint6": 2.198962907651439,
+          "panda_joint7": -0.9184059343880042,
+          "virtual_joint/rot_w": 0.3976958310897043,
+          "virtual_joint/rot_x": 0.34061621650744706,
+          "virtual_joint/rot_y": 0.6726329697289413,
+          "virtual_joint/rot_z": -0.522860886871113,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 3.1373141615091626e-10,
+        "manipulability_index_full": 5.245691515317128e-10,
+        "manipulability_index_translation": 1.0238108964018856e-09,
+        "manipulability_translation": 1.3047275577671055e-09
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.01738353958878828,
+          0.591111258911991,
+          0.7718352012699575
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          -0.51180839680681,
+          0.6823081649145206,
+          0.5220227323105976,
+          0.786636498709131,
+          0.12794522581947013,
+          0.6040141042133406,
+          -0.3453334386599164,
+          -0.7197816247175141,
+          0.6022119467947592
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.016917517222464085,
+          "panda_finger_joint2": 0.016917517222464085,
+          "panda_joint1": 1.9182640147326517,
+          "panda_joint2": -1.5787398821018637,
+          "panda_joint3": -0.8201846199087797,
+          "panda_joint4": -0.42800071646200966,
+          "panda_joint5": -2.4815350410578305,
+          "panda_joint6": 3.664254024303518,
+          "panda_joint7": 0.07669472559262047,
+          "virtual_joint/rot_w": 0.8179671738814045,
+          "virtual_joint/rot_x": -0.0707954877267733,
+          "virtual_joint/rot_y": -0.5228840162782564,
+          "virtual_joint/rot_z": -0.22915062053312524,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 5.902998535787664e-10,
+        "manipulability_index_full": 5.093677958973316e-10,
+        "manipulability_index_translation": 1.001861648010765e-08,
+        "manipulability_translation": 1.6882958558455356e-08
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.06882453708674392,
+          0.2903380401182303,
+          0.1831059619845535
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          -0.6666300430750222,
+          -0.5939986004415978,
+          0.45029995374551995,
+          -0.20098928988589798,
+          0.7249823307081019,
+          0.6587897430229245,
+          0.7177796953250746,
+          -0.3486635668297899,
+          0.6026823592445457
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.025455917594954372,
+          "panda_finger_joint2": 0.025455917594954372,
+          "panda_joint1": -0.7616141447516624,
+          "panda_joint2": 1.4234891764814033,
+          "panda_joint3": -2.847745122238854,
+          "panda_joint4": -2.2118459138798294,
+          "panda_joint5": 0.7872462491180747,
+          "panda_joint6": 1.032762554094661,
+          "panda_joint7": -1.9373352962019852,
+          "virtual_joint/rot_w": 0.19136737190100983,
+          "virtual_joint/rot_x": 0.5763468452916043,
+          "virtual_joint/rot_y": 0.34824726907159476,
+          "virtual_joint/rot_z": 0.7140915084765345,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 4.171017146734604e-08,
+        "manipulability_index_full": 2.643465573829853e-08,
+        "manipulability_index_translation": 2.0120365001874214e-08,
+        "manipulability_translation": 1.6194989525134552e-07
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.235812068877833,
+          0.027776661937223952,
+          0.07928524208635276
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          0.5683058660037597,
+          -0.5546911414996456,
+          0.6077385788375921,
+          0.49430230745809084,
+          -0.3603188629220999,
+          -0.7910976841478762,
+          -0.6577945511383655,
+          -0.7499920363339501,
+          -0.06941378773940342
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.005906214332208038,
+          "panda_finger_joint2": 0.005906214332208038,
+          "panda_joint1": -1.613013036569208,
+          "panda_joint2": -1.4195109018338843,
+          "panda_joint3": 2.5943186604913326,
+          "panda_joint4": -3.032033835596475,
+          "panda_joint5": 1.5334376807281749,
+          "panda_joint6": 1.0835269219451584,
+          "panda_joint7": 2.610731131228944,
+          "virtual_joint/rot_w": -0.7937321337864363,
+          "virtual_joint/rot_x": 0.07278498859075401,
+          "virtual_joint/rot_y": -0.4802533336279027,
+          "virtual_joint/rot_z": 0.36612618148660325,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 1.7530317760084484e-09,
+        "manipulability_index_full": 5.339898706635408e-10,
+        "manipulability_index_translation": 5.708246493981979e-10,
+        "manipulability_translation": 8.596873014082247e-09
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.9380803152644732,
+          0.05190012429131605,
+          0.005163947566392565
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          -0.9743292308691938,
+          0.22402817975696485,
+          -0.022224413347183326,
+          0.22404805749975185,
+          0.9745767450443366,
+          0.001623560708514011,
+          -0.02202311977067116,
+          0.0033974539831120656,
+          0.999751688921804
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.012634931160137058,
+          "panda_finger_joint2": 0.012634931160137058,
+          "panda_joint1": 2.800238028537622,
+          "panda_joint2": 0.036680819531343944,
+          "panda_joint3": -2.664567294442188,
+          "panda_joint4": -0.21472892751842743,
+          "panda_joint5": -1.0325128454667982,
+          "panda_joint6": 3.048742908539716,
+          "panda_joint7": -2.399099902195623,
+          "virtual_joint/rot_w": -0.8956132795164319,
+          "virtual_joint/rot_x": -0.19871442500307235,
+          "virtual_joint/rot_y": -0.04058786515705677,
+          "virtual_joint/rot_z": -0.39590662542007615,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 1.888982660381796e-10,
+        "manipulability_index_full": 2.946162682061385e-11,
+        "manipulability_index_translation": 6.83147571090539e-10,
+        "manipulability_translation": 3.1966148069259718e-09
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.06268323329883663,
+          0.4967391992322044,
+          0.4019023388340038
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          0.7621811658686859,
+          -0.5334265935570894,
+          0.3667914116785321,
+          0.3813948248882212,
+          0.8278275984737806,
+          0.411387232122749,
+          -0.5230849433347646,
+          -0.1736592539751709,
+          0.8344007463834467
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.002183382287621498,
+          "panda_finger_joint2": 0.002183382287621498,
+          "panda_joint1": 0.1945051994773559,
+          "panda_joint2": 0.3947513245465233,
+          "panda_joint3": -0.0219108446228784,
+          "panda_joint4": -2.2106495300085283,
+          "panda_joint5": -1.9018976488550194,
+          "panda_joint6": 3.432702991934493,
+          "panda_joint7": 0.5465006017342211,
+          "virtual_joint/rot_w": -0.6074019788295729,
+          "virtual_joint/rot_x": -0.33497149006634286,
+          "virtual_joint/rot_y": 0.30480708651024063,
+          "virtual_joint/rot_z": 0.6526481264585012,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 2.1596609927886252e-07,
+        "manipulability_index_full": 1.368137089405789e-07,
+        "manipulability_index_translation": 1.3272278435973122e-06,
+        "manipulability_translation": 4.214604091522198e-06
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.03494030413000528,
+          0.5532732989302531,
+          0.32494586039576157
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          0.6705520765743067,
+          -0.7350027292205833,
+          -0.10065237523366616,
+          -0.6629285857812551,
+          -0.5327653081954152,
+          -0.5260102817792727,
+          -0.33299489899388884,
+          -0.419442623515706,
+          0.8445012035647501
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.036061229882761836,
+          "panda_finger_joint2": 0.036061229882761836,
+          "panda_joint1": 0.19844406261118142,
+          "panda_joint2": -1.0512383523909374,
+          "panda_joint3": 1.5750763028976045,
+          "panda_joint4": -1.0564973643826785,
+          "panda_joint5": -0.321506032907497,
+          "panda_joint6": 0.820610800003633,
+          "panda_joint7": -1.17127034533713,
+          "virtual_joint/rot_w": -0.35917554290544945,
+          "virtual_joint/rot_x": -0.555438976641731,
+          "virtual_joint/rot_y": 0.6161952165511934,
+          "virtual_joint/rot_z": 0.4275323703594736,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 9.476396851919925e-07,
+        "manipulability_index_full": 1.008763557618617e-06,
+        "manipulability_index_translation": 1.6993691210286398e-06,
+        "manipulability_translation": 5.3881850993978715e-06
+      },
+      {
+        "ellipsoid_eigenvalues_imag": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvalues_real": [
+          0.003296688040799738,
+          1.0042777241870886,
+          0.720160209500719
+        ],
+        "ellipsoid_eigenvectors_imag": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "ellipsoid_eigenvectors_real": [
+          0.7097627001208808,
+          -0.6348702930856169,
+          -0.305248456956787,
+          -0.7042278921390938,
+          -0.6501272280341001,
+          -0.28530275726327264,
+          0.017320088061133786,
+          -0.4174617327685017,
+          0.9085294250729994
+        ],
+        "joint_values": {
+          "panda_finger_joint1": 0.025988718327134848,
+          "panda_finger_joint2": 0.025988718327134848,
+          "panda_joint1": -0.7937721341561992,
+          "panda_joint2": 1.5519086493847891,
+          "panda_joint3": 1.9667029371277898,
+          "panda_joint4": -0.08847480549162734,
+          "panda_joint5": -2.5001062062882817,
+          "panda_joint6": 2.389807428552303,
+          "panda_joint7": -2.0130716672571376,
+          "virtual_joint/rot_w": -0.4372155483012865,
+          "virtual_joint/rot_x": 0.6963818457942409,
+          "virtual_joint/rot_y": 0.3903850915284022,
+          "virtual_joint/rot_z": 0.41411878668344976,
+          "virtual_joint/trans_x": 0.0,
+          "virtual_joint/trans_y": 0.0,
+          "virtual_joint/trans_z": 0.0
+        },
+        "manipulability_full": 4.522898210537625e-09,
+        "manipulability_index_full": 6.189608441564923e-09,
+        "manipulability_index_translation": 8.105399781070988e-09,
+        "manipulability_translation": 9.510559120598648e-09
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "panda_kinematics_metrics": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}
