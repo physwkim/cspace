@@ -5585,6 +5585,13 @@ D1 범위에서 `Transforms` 클래스 자체를 필요로 하는 소비자는 �
 `moveit-scene` 안에 있으면 된다. 크레이트를 하나 더 만들면 의존 그래프만
 넓어지고 소유자는 그대로다.
 
+**정정 (§66).** 이 절이 딛고 선 전제 — "이 워크스페이스 어디에도
+`moveit_core/transforms` 크레이트가 없다" — 는 처음부터 거짓이었다.
+`moveit_geometry::Transforms`가 `95b1854`(2026-08-03)로 이미 포팅돼
+있었다. 결론(새 크레이트를 만들지 않는다)은 우연히 옳았지만 이유가
+틀렸다: 만들 필요가 없었던 게 아니라 **이미 있었다**. 라운드 8 브리프가
+그 거짓 전제를 검증 없이 되풀이했다.
+
 ### 59.4 `.scene` 유예는 살아남았다 — 단, 근거를 바꾼 뒤에
 
 워커가 `planning_scene.cpp:1043-1215`를 전문 읽고 §52가 지적한 것을 확인했다:
@@ -5962,3 +5969,62 @@ parity 테스트의 `TOL`은 다섯 파일에서 정확히 `1e-4`다. 줄을 고
 
 `cargo nextest run --workspace` **961/961**, clippy `-D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
+
+## 66. 세 번째 tier가 닫혔다 — 그리고 §59.3의 전제는 거짓이었다 (2026-08-04)
+
+p1-fixtures 라운드 8(`52261fe`, `4588c4f`). 브랜치 베이스가 `163531e`라
+그쪽 보고의 953/953·재생 23/23은 낡은 숫자다. 커밋 두 개인데 하나가
+findings 두 개를 담고 있다(`52261fe` = item 1 + item 3) — 한 finding 당
+한 커밋 규칙 위반이다.
+
+### 66.1 내 브리프가 거짓 전제를 되풀이했다
+
+라운드 8 브리프는 "`moveit_core/transforms`는 포팅되지 않은 구멍"이라는
+라운드 7의 발견 위에서 상류 소비자를 세고 `moveit-scene`에 두라고
+라우팅했다(§59.3). 그 전제가 거짓이다 — `moveit_geometry::Transforms`가
+`95b1854`(2026-08-03)로 이미 있었고, `transform`/`transform_vector3`/
+`transform_quaternion`/`transform_rotation_matrix`/`transform_pose`까지
+갖춰져 있다. 직접 확인했다.
+
+담당이 스스로 잡아서 중복 구현 대신 그것을 재사용했고, `scene.rs`/
+`layered.rs`의 잘못된 문장도 같이 고쳤다. 결론(새 크레이트 없음)은
+우연히 맞았지만 이유가 틀렸다: 만들 필요가 없었던 게 아니라 이미
+있었다.
+
+이번 라운드-세트에서 내가 워커 보고의 전제를 확인하지 않고 브리프에
+실어 보낸 두 번째다. 크레이트 존재 여부는 `rg -n "pub struct Transforms"
+crates/` 한 번이면 나온다.
+
+### 66.2 비재귀가 구조적으로 성립한다
+
+브리프가 요구한 것은 "주석이 아니라 구조로" 무한 재귀를 막으라는
+것이었다. 상류는 `SceneTransforms::getTransform`이 `scene_->getFrameTransform`을
+부르고 그쪽이 `getTransforms().Transforms::getTransform`으로 **명시적
+한정**해서 재귀를 끊는다(`planning_scene.cpp:2053`, `:2070`).
+
+이 포트에는 그 고리가 없다. `PlanningScene::transforms()`가 돌려주는
+것은 씬 역참조가 없는 순수 `moveit_geometry::Transforms`이므로, 재귀가
+성립할 수 있는 경로 자체가 존재하지 않는다. 한정자도 주석도 필요 없다.
+
+tier 순서는 상류 `planning_scene.cpp:2036-2054`와 같다:
+state → attached body → world → extra fixed frame map(`scene.rs:924-936`).
+
+### 66.3 경계값으로 테스트됐다
+
+새 테스트 8건이 시나리오가 아니라 경계다: 없는 이름, 빈 문자열, 선행
+슬래시, link 이름과 map 키가 같을 때 어느 tier가 이기는지, attached
+body와 world object가 같은 이름일 때 어느 쪽이 이기는지,
+`decouple_parent`가 상속된 맵을 실체화하는지.
+
+### 66.4 남은 것
+
+`SceneTransforms::isFixedFrame`의 선행 `/` 처리와 object frame 위임은
+재현되지 않았다. 유예 근거는 falsifier가 붙어 있다: 상류 전체에서 유일한
+호출자가 `kinematic_constraints/kinematic_constraint.cpp`(4곳)이고 그것이
+아직 미포팅에 메시지 타입이다. 소비자가 생기면 닫힌다.
+
+### 66.5 머지 후 실측
+
+`cargo nextest run --workspace` **969/969**, clippy `-D warnings` 0건,
+`fmt --check`/`doc --no-deps` 통과, `check-*.sh` 3건 OK,
+재생 **25/25 identical**.
