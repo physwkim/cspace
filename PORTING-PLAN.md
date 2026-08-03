@@ -5405,3 +5405,93 @@ p3-shapes는 §43에 대해 "octree는 아니고, 지목할 수 있는 것은 �
 이행되지 않았다"고 적혀 있다. main에는 없다 — p1-fixtures가 `ae85866`에서
 지웠고 `2d0bdeb`으로 병합됐다. 워커의 베이스가 그 병합 이전이었다.
 스스로 지우지 않고 올린 판단은 옳았다(자기 소유가 아니다).
+
+## 58. 두 패널의 오라클 편집이 합쳐진 자리에서 23/23 (2026-08-04)
+
+p3-distance-field 라운드 9 (`f812961`, `ac9f3e5`, `e31f1fb`), 병합 `bf1b193`.
+`nextest --workspace` **945/945**. stamp `c5e7d2936755ea44` +
+p3-distance-field의 `132da7515feddcc2` → **병합 결과 `746870de2ddd3ca6`**.
+
+### 58.1 어느 브랜치도 빌드한 적 없는 오라클
+
+p6-totg가 `acceleration_bounds`를, p3-distance-field가
+`collision_sphere_free_functions` op을 각자 `oracle.cpp`에 넣었다. 병합
+트리의 stamp는 둘 중 어느 것도 아니다 — 이 조합은 이번에 처음 빌드됐다.
+빌드하고 전부 재생했다:
+
+```
+3  moveit-collision        identical
+10 moveit-distance-field   identical
+3  moveit-geometry         identical
+1  moveit-octomap          identical
+1  moveit-scene            identical
+5  moveit-trajectory       identical
+```
+
+**23/23.** §54.2가 "오라클이 바뀐 뒤에도 그대로"를 한 패널의 편집으로
+보였다면, 이번은 서로 모르는 두 편집이 합쳐진 트리에서 그렇다. 병합 자체가
+답을 바꾸지 않았다는 증거는 이 형태로만 나온다.
+
+참고로 재생 스크립트는 이미지를 **빌드하지 않는다**. stamp가 어긋난 채
+돌리면 23건 전부 `ORACLE-FAIL rebuild with tools/moveit-oracle/build.sh`로
+큰 소리를 내며 죽는다 — 이번에 실제로 그렇게 죽었고, 그게 맞는 동작이다.
+
+### 58.2 member와 free의 갈라짐은 실재한다 — 직접 대조했다
+
+워커의 주장(포트가 상류 자신의 member-vs-free 갈라짐을 그대로 옮겼다)을
+상류에서 확인했다. `collision_distance_field_types.cpp`:
+
+| | member (`PosedDistanceField::`) | free 함수 |
+|---|---|---|
+| 경계 밖 임계 | `grad.norm() > 0` | `grad.norm() > EPSILON` (0.0001) |
+| `grad` 초기화 | `Eigen::Vector3d grad(0,0,0)` | `Eigen::Vector3d grad;` (미초기화) |
+| `subtract_radii` 후 | `dist = std::abs(dist);` | **없음** |
+
+Rust 쪽도 같다 — `collision_distance_field_types.rs:408`이 `> 0.0`,
+`:531`이 `> EPSILON`, `:419`에 `.abs()`, free 쪽(`:535-553`)에는 없다.
+free 변형은 음수 `dist`를 `gradient.distances[i]`에 그대로 넣는다. 실제로
+관측 가능한 차이이고, 포트가 옮긴 것이 맞다.
+
+### 58.3 그런데 임계 차이는 도달 불가능하다 — 감사에 빠진 사실
+
+`DistanceField::getDistanceGradient`를 읽었다(`distance_field.cpp:73-97`,
+헤더 `:313`에서 **non-virtual**):
+
+```cpp
+if (경계 밖) { gradient_x = gradient_y = gradient_z = 0.0; in_bounds = false; ... }
+```
+
+경계를 벗어나면 gradient를 **항상 (0,0,0)으로 쓴다**. 따라서
+`!in_bounds && grad.norm() > 임계` 는 어느 임계값이든 `0.0 > x`를 묻는
+것이고, member(`> 0`)든 free(`> EPSILON`)든 **절대 참이 될 수 없다.**
+non-virtual이므로 파생 클래스가 뒤집을 수도 없다.
+
+두 가지가 따라온다:
+
+1. 미초기화 `grad`도 실제로는 읽히지 않는다 — 두 경로 모두 호출 직후
+   세 성분이 쓰인다. 포트가 UB를 재현할 수 없다는 우려는 성립하지 않는다.
+2. **새 픽스처가 "두 오버로드의 모든 분기를 친다"는 주장은 과하다.** 경계
+   밖 조기 반환은 이 API를 통해 도달할 수 없는 분기다. 파리티는 유효하고
+   커버리지 주장이 한 칸 넓었다.
+
+관측 가능한 갈라짐은 `abs()` 유무 하나뿐이다. 그것은 픽스처가 실제로 친다.
+
+### 58.4 나머지 둘
+
+- `pregenerated_group_state_representation_map_` 도달불가 주장을 라운드 7의
+  `DistanceFieldCollisionCache::generate_collision_checking_structures`에
+  대해 다시 유도했다. 결론은 같지만(그것은 같은
+  `generate_distance_field_cache_entry`의 새 **호출자**이지 두 번째 생성
+  경로가 아니다) 근거를 타입 수준 보장으로 바꾸고 3항 falsifier를 감사
+  줄에 박았다. 재유도를 요구한 이유가 이것이다 — 결론이 같아도 근거가
+  낡으면 다음 라운드에 다시 물어야 한다.
+- `.h` shim 여섯 개: 전문을 읽어 BSD 블록 + `create_deprecated_headers.py`/
+  `moveit/moveit2#3113`을 가리키는 doc 주석 + 코드 세 줄(`#pragma once`,
+  `#pragma message`, `#include` 하나)임을 근거로 적었다. "dead
+  auto-generated"가 이제 재검증 가능한 문장이 됐다.
+
+### 58.5 워커 보고의 사실오류
+
+`verify-scene-fixture-replay.sh`를 게이트로 돌려 통과했다고 적혀 있다. main
+에 그 파일은 없다(`ae85866`에서 삭제, `2d0bdeb`으로 병합). p3-shapes와 같은
+원인 — 라운드 시작 시 rebase하지 않은 베이스다. §57.5와 같은 건이다.
