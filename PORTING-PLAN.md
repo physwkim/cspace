@@ -3594,3 +3594,44 @@ per PORTING-PLAN, untouched this round")이었고, 나는 그것을 트리와
 round"라고 적힌 UNFIXED는 그 일이 남아 있다는 증거가 아니다.
 
 3700줄을 다시 유도하는 대신 멈추고 물은 것이 옳았고 비용은 0이었다.
+
+## 32. `p3-acm` 7라운드 병합 — pr2 메시가 들어왔다 (2026-08-04)
+
+`2db5d10`. `nextest --workspace` **884/884**.
+
+### 32.1 세 라운드 동안 열려 있던 픽스처 복사가 닫혔다
+
+`c1e4f54`가 pr2의 `<collision>` 메시 18개를
+`fixtures/meshes/pr2_description/`에 넣었다. 확인했다:
+`git ls-files fixtures/meshes/`는 이제 fanuc 7 · panda 10 · pr2 18이고,
+`verify-fixture-provenance.sh`가 18개 전부 `identical`로 통과한다.
+**새 매핑 항목은 필요 없었다** — 그 스크립트의 메시 경로 도출이
+`fixtures/meshes/` → `$VENDOR/` 기계적 치환(스크립트 99-102행)이라
+파일시스템이 검사를 이끄는 설계가 여기서 값을 했다.
+
+`1ff4d3b`가 pr2의 충돌 테스트를 panda·fanuc과 같은
+`assert_full_parity_matches_oracle`로 바꿨다. 세 픽스처가 같은 단정문을
+쓰는지 직접 확인했다 (`collision_parity.rs:286-302`) — 같다. pr2의
+`self_collision` 제외 경로는 백엔드 격차가 아니라 픽스처에 메시가 없어서
+생긴 흔적이었다는 진단이 맞았다.
+
+이 병합으로 `moveit-distance-field`의 좁혀진 단정문 다섯 개를 막고 있던
+것이 사라졌다. `p3-distance-field`는 6라운드 진행 중이었고, 그 항목이
+`main` 확인에 걸려 있었으므로 라운드 중간에 직접 알렸다 — 이런 해제는
+브랜치를 병합하는 쪽에서만 보인다(§24.3과 같은 종류).
+
+### 32.2 비주얼 메시 미로드는 이제 명시된 결정이다
+
+`d77f9cb`가 `link_model.rs`의 부수 주석을 번호 붙은 편차 5로 승격시켰다 —
+D1 범위에 렌더러가 없으므로 영구 결정이다. §21.4가 "지금은 부수적
+주석일 뿐 명시된 결정이 아니다"라고 적어 둔 항목이 닫혔다.
+
+### 32.3 `MeshSearchPaths::none()` 호출자 — 세어 봤다
+
+`rg -n 'MeshSearchPaths::none\(\)' crates/ tools/` — **36건**. pr2 메시가
+들어온 지금 이 중 어느 것이 여전히 옳고 어느 것이 좁힘의 잔재인지는
+크레이트마다 다르고, 각 크레이트 소유자가 판단할 문제다. 병합자로서
+할 수 있는 것은 목록을 세는 것까지이므로 세어서 넘긴다. 메시가 있는
+픽스처(panda·fanuc·pr2)를 로드하면서 `none()`을 넘기는 호출부는
+"메시 없는 모델을 의도한 것"인지 "복사가 없던 시절의 잔재"인지를
+호출부마다 한 줄로 답해야 한다.
