@@ -9,12 +9,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use moveit_collision::{Action, AllowedCollisionMatrix, MoveObjectOutcome, Notification, World};
+use moveit_collision::{
+    Action, AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, CollisionResult,
+    Contact, DistanceRequest, MoveObjectOutcome, Notification, World,
+};
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
-use moveit_state::RobotState;
+use moveit_state::{Posed, RobotState};
 
 use crate::attached_body::AttachedBody;
 use crate::layered::Layered;
@@ -39,12 +42,58 @@ use crate::world_diff::WorldDiff;
 /// (upstream's separate named-frame lookup layer; no `Transforms`/
 /// `SceneTransforms` exists in this port yet), object colors/types
 /// (`object_colors_`/`object_types_`, cosmetic bookkeeping with no
-/// collision-relevant behavior), feasibility predicates, cost sources, and
-/// every `checkCollision`/`isState*`/`distanceToCollision` passthrough (all
-/// of these are thin wrappers over a `CollisionEnv`; this crate does not yet
-/// wire one to a `PlanningScene`, so calling one is left to a caller holding
-/// a [`moveit_collision::ParryCollisionEnv`] directly against
-/// [`PlanningScene::world`] and [`PlanningScene::current_state`]).
+/// collision-relevant behavior), `isState*` (constraint-checking
+/// passthroughs; `moveit_constraints` is out of scope, see above) and cost
+/// sources (`getCollisionEnv`/... never surface `CollisionRequest::cost` from
+/// a `PlanningScene` entry point upstream either).
+///
+/// # Collision checking
+///
+/// [`PlanningScene::check_collision`]/[`PlanningScene::check_self_collision`]/
+/// [`PlanningScene::check_robot_collision`]/[`PlanningScene::distance_to_collision`]/
+/// [`PlanningScene::colliding_pairs`]/[`PlanningScene::colliding_links`] are
+/// generic over a caller-supplied `E: CollisionEnv<Posed<'_, 'm>>` (in
+/// practice [`moveit_collision::ParryCollisionEnv`]) rather than owning one —
+/// upstream's `PlanningScene` owns *two* (`getCollisionEnv`/
+/// `getCollisionEnvUnpadded`, one per `CollisionDetectorAllocator` plugin),
+/// switched on `CollisionRequest::pad_environment_collisions`/
+/// `pad_self_collisions`. D4's compile-time-registry redesign replaces that
+/// plugin selection with the caller choosing (and owning) a concrete `E`
+/// directly, so there is only ever one backend in play here; every method
+/// below applies whatever padding `E` itself was built with (see
+/// `ParryCollisionEnv`'s own doc) to both the self- and robot-collision
+/// checks alike, rather than switching backends per flag.
+///
+/// Every method here also collapses upstream's separate const/non-const
+/// overload pairs (`checkCollision(state) const` vs `checkCollision(state)`,
+/// the latter calling `updateCollisionBodyTransforms()` first) into one
+/// `&mut self` method that always calls [`RobotState::update`] — `update`
+/// already no-ops when nothing is dirty (see its own doc comment), so this
+/// reproduces both overloads' observable behavior without a separate
+/// already-clean fast path to maintain.
+///
+/// [`PlanningScene::check_collision`] delegates to
+/// [`moveit_collision::CollisionEnv::check_collision`]'s existing default
+/// (self-collision first, then robot-collision with the *remaining* contact
+/// budget, merged) rather than upstream's own `PlanningScene::checkCollision`
+/// body, which checks robot-collision first and returns early once
+/// `res.contacts.size() >= req.max_contacts` (a *pair* count, not a total
+/// contact count) — a different order and a different early-exit condition.
+/// This is a deliberate deviation, not an oversight: `check_collision`'s
+/// default already has its own boundary tests (`max_contacts: 0` must not
+/// suppress the collision flag) and is the one piece of budget-subtraction
+/// logic this port maintains for every backend, so this method consumes it
+/// rather than re-deriving upstream's dual-env order on top.
+///
+/// `E`'s own [`World`] (`ParryCollisionEnv::world`) is a value the caller
+/// constructs, not a live view of [`PlanningScene::world`]: unlike
+/// upstream's `CollisionEnv`, which upstream's own `PlanningScene`
+/// constructs internally and keeps in sync via `World`'s observer callback
+/// (`notifyObjectChange`), this crate's `E` is handed in by the caller at
+/// every call. A caller wanting `E` to see this scene's world passes
+/// `env: &ParryCollisionEnv::new(scene.world().clone(), padding_scale)` — a
+/// cheap call thanks to [`World`]'s own copy-on-write [`Clone`] — and must
+/// re-clone after any world mutation the caller wants reflected.
 ///
 /// # The parent/child design
 ///
@@ -433,6 +482,149 @@ impl<'m> PlanningScene<'m> {
         Ok(body)
     }
 
+    // ---- collision checking -----------------------------------------------
+    //
+    // See the type doc's "Collision checking" section for the overload
+    // collapse (const/non-const, padded/unpadded env selection) and the
+    // documented deviation in `check_collision`'s self-then-robot order.
+
+    /// Check `self` for both self- and robot-collision against `env`, using
+    /// this scene's own [`PlanningScene::allowed_collision_matrix`]. Upstream
+    /// `checkCollision`/`checkCollisionUnpadded`, collapsed — see the type
+    /// doc.
+    pub fn check_collision<E>(&mut self, env: &E, request: &CollisionRequest) -> CollisionResult
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let acm = self.allowed_collision_matrix().clone();
+        let posed = self.current_state_mut().update();
+        env.check_collision(request, &posed, Some(&acm))
+    }
+
+    /// Check `self` for self-collision only against `env`. Upstream
+    /// `checkSelfCollision`.
+    pub fn check_self_collision<E>(
+        &mut self,
+        env: &E,
+        request: &CollisionRequest,
+    ) -> CollisionResult
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let acm = self.allowed_collision_matrix().clone();
+        let posed = self.current_state_mut().update();
+        env.check_self_collision(request, &posed, Some(&acm))
+    }
+
+    /// Check `self` against the world only (no self-collision) against
+    /// `env`. Upstream's `checkCollision` family has no standalone
+    /// robot-vs-world-only entry point at the `PlanningScene` level (only
+    /// the combined `checkCollision`); this exposes
+    /// [`moveit_collision::CollisionEnv::check_robot_collision`] directly
+    /// through the scene's own state/ACM for a caller that wants that half
+    /// alone, e.g. to build [`PlanningScene::colliding_pairs`]-style
+    /// diagnostics without paying for a self-collision pass.
+    pub fn check_robot_collision<E>(
+        &mut self,
+        env: &E,
+        request: &CollisionRequest,
+    ) -> CollisionResult
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let acm = self.allowed_collision_matrix().clone();
+        let posed = self.current_state_mut().update();
+        env.check_robot_collision(request, &posed, Some(&acm))
+    }
+
+    /// The distance between the robot at `self`'s current state and the
+    /// nearest world collision, ignoring self-collisions. Upstream
+    /// `distanceToCollision`/`distanceToCollisionUnpadded`, collapsed (see
+    /// the type doc) — always against this scene's own
+    /// [`PlanningScene::allowed_collision_matrix`], matching every upstream
+    /// overload that does not take an explicit different `acm` (the ones
+    /// that do are not ported: a caller wanting a one-off ACM already has
+    /// `env.distance_robot` directly, with `DistanceRequest { acm:
+    /// Some(&other_acm), .. }`).
+    pub fn distance_to_collision<E>(&mut self, env: &E) -> f64
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let acm = self.allowed_collision_matrix().clone();
+        let posed = self.current_state_mut().update();
+        let request = DistanceRequest {
+            acm: Some(&acm),
+            ..Default::default()
+        };
+        env.distance_robot(&request, &posed)
+            .minimum_distance
+            .distance
+    }
+
+    /// Every colliding pair (self- and robot-collision alike) for `self`'s
+    /// current state against `env`, keyed the same way
+    /// [`moveit_collision::ContactData::by_pair`] is. Upstream
+    /// `getCollidingPairs`.
+    ///
+    /// # Deviation from upstream
+    ///
+    /// `req.group_name` is not threaded through: `ParryCollisionEnv` never
+    /// reads [`CollisionRequest::group_name`] at all (`parry`'s module doc,
+    /// deviation 1 — group filtering needs a `RobotModel`-derived active-link
+    /// set upstream's own FCL backend never wires up either), so a
+    /// `group_name` parameter here would be inert. `req.max_contacts` is
+    /// upstream's `getLinkModelsWithCollisionGeometry().size() + 1`; this
+    /// port's [`RobotModel`] has no such query (see
+    /// `moveit-model::robot_model`'s doc), so this uses every link with a
+    /// non-empty [`moveit_model::LinkModel::shapes`] instead — a superset of
+    /// links that actually convert to collision geometry (a link could still
+    /// hold only [`Shape::OcTree`]/a degenerate [`Shape::Plane`], see
+    /// `parry`'s module doc deviations 9–10), so this can only make the
+    /// budget larger than upstream's, never smaller — the ceiling this
+    /// exists to avoid hitting is never hit early.
+    pub fn colliding_pairs<E>(&mut self, env: &E) -> BTreeMap<(String, String), Vec<Contact>>
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let max_contacts = self
+            .robot_model
+            .link_models()
+            .iter()
+            .filter(|link| !link.shapes().is_empty())
+            .count()
+            + 1;
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts,
+            max_contacts_per_pair: 1,
+            ..Default::default()
+        };
+        self.check_collision(env, &request)
+            .contacts
+            .map(|contacts| contacts.by_pair)
+            .unwrap_or_default()
+    }
+
+    /// Every robot link involved in a collision for `self`'s current state
+    /// against `env`. Upstream `getCollidingLinks`.
+    pub fn colliding_links<E>(&mut self, env: &E) -> Vec<String>
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let mut links = Vec::new();
+        for contacts in self.colliding_pairs(env).values() {
+            for contact in contacts {
+                if contact.body_type_1 == BodyType::RobotLink {
+                    links.push(contact.body_name_1.clone());
+                }
+                if contact.body_type_2 == BodyType::RobotLink {
+                    links.push(contact.body_name_2.clone());
+                }
+            }
+        }
+        links
+    }
+
     // ---- diff / decouple ----------------------------------------------------
 
     /// A new child scene that diffs against `self`: an empty
@@ -552,7 +744,7 @@ impl<'m> PlanningScene<'m> {
 mod tests {
     use std::sync::Arc;
 
-    use moveit_collision::AllowedCollisionType;
+    use moveit_collision::{AllowedCollisionType, LinkPaddingScale, ParryCollisionEnv};
     use moveit_geometry::Cuboid;
     use moveit_srdf::SrdfModel;
 
@@ -847,5 +1039,159 @@ mod tests {
                 .kind(),
             AllowedCollisionType::Always
         );
+    }
+
+    // ---- collision checking -----------------------------------------------
+
+    // Fixture: a fixed-base robot with two independent floating-joint boxes,
+    // `p`/`q`, so each can be posed to an arbitrary independent global
+    // transform. Mirrors `moveit_collision::parry`'s own test fixture.
+
+    fn box_link(name: &str) -> String {
+        format!(
+            r#"<link name="{name}">
+                <collision><geometry><box size="1 1 1"/></geometry></collision>
+            </link>"#
+        )
+    }
+
+    fn floating_joint(name: &str, parent: &str, child: &str) -> String {
+        format!(
+            r#"<joint name="{name}" type="floating">
+                <parent link="{parent}"/>
+                <child link="{child}"/>
+            </joint>"#
+        )
+    }
+
+    fn build_collision_model() -> RobotModel {
+        let urdf_xml = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                {p}{joint_p}{q}{joint_q}
+            </robot>"#,
+            p = box_link("p"),
+            joint_p = floating_joint("joint_p", "base", "p"),
+            q = box_link("q"),
+            joint_q = floating_joint("joint_q", "base", "q"),
+        );
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
+        let srdf = SrdfModel::parse_str(SRDF_XML).expect("test SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+            .expect("test fixture model must build")
+    }
+
+    #[test]
+    fn check_self_collision_reports_overlapping_links() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let result = scene.check_self_collision(&env, &CollisionRequest::default());
+
+        assert!(result.collision);
+    }
+
+    #[test]
+    fn check_self_collision_reports_clear_when_links_are_apart() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(5.0, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let result = scene.check_self_collision(&env, &CollisionRequest::default());
+
+        assert!(!result.collision);
+    }
+
+    #[test]
+    fn check_robot_collision_sees_the_scenes_world_once_cloned_into_env() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+        let env = ParryCollisionEnv::new(scene.world().clone(), LinkPaddingScale::default());
+
+        let result = scene.check_robot_collision(&env, &CollisionRequest::default());
+
+        assert!(result.collision);
+    }
+
+    #[test]
+    fn check_robot_collision_does_not_see_a_world_object_added_after_the_env_was_built() {
+        // Documents the "env's world is a value, not a live view" contract
+        // from the type doc's "Collision checking" section.
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let env = ParryCollisionEnv::new(scene.world().clone(), LinkPaddingScale::default());
+        scene.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+
+        let result = scene.check_robot_collision(&env, &CollisionRequest::default());
+
+        assert!(!result.collision);
+    }
+
+    #[test]
+    fn check_collision_finds_self_collision_even_when_the_world_is_clear() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let result = scene.check_collision(&env, &CollisionRequest::default());
+
+        assert!(result.collision);
+    }
+
+    #[test]
+    fn distance_to_collision_reports_the_gap_to_a_world_object() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::translation(2.0, 0.0, 0.0),
+        );
+        let env = ParryCollisionEnv::new(scene.world().clone(), LinkPaddingScale::default());
+
+        let distance = scene.distance_to_collision(&env);
+
+        assert!((distance - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn colliding_pairs_and_colliding_links_report_the_overlapping_self_collision_pair() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let pairs = scene.colliding_pairs(&env);
+        assert_eq!(pairs.len(), 1);
+        assert!(pairs.contains_key(&("p".to_string(), "q".to_string())));
+
+        let mut links = scene.colliding_links(&env);
+        links.sort();
+        assert_eq!(links, vec!["p".to_string(), "q".to_string()]);
     }
 }
