@@ -103,13 +103,22 @@ fn is_identity(transform: &Isometry3) -> bool {
 ///    mesh loading existed at all. `<capsule>` (a urdf-rs extension
 ///    upstream's own URDF parser doesn't itself recognise) is always
 ///    skipped the same way, with no search path able to change that.
-///
-///    Visual-mesh geometry is never loaded regardless — only its filename,
-///    origin and scale are kept (see [`LinkModel::visual_mesh_filename`]/
-///    [`LinkModel::visual_mesh_origin`]/[`LinkModel::visual_mesh_scale`]),
-///    since nothing this phase's done-criteria read (collision checking,
-///    kinematics) consumes a link's rendered appearance.
-/// 5. **Carries mass and rotational inertia — upstream's own `LinkModel`
+/// 5. **Visual-mesh geometry is never loaded — permanently, by design, not
+///    an interim gap.** Only a `<visual><mesh>`'s filename, origin and scale
+///    are kept (see [`LinkModel::visual_mesh_filename`]/
+///    [`LinkModel::visual_mesh_origin`]/[`LinkModel::visual_mesh_scale`]).
+///    Upstream loads visual geometry because `moveit::core::LinkModel` is
+///    shared with RViz's renderer; this port's D1 scope is a ROS-independent
+///    motion-planning library with no renderer of its own, so a link's
+///    rendered appearance has no consumer here to begin with — unlike
+///    deviation 4's collision-mesh gap, there is no downstream phase whose
+///    done-criteria this blocks, since none of collision checking,
+///    kinematics or dynamics reads a visual shape. Loading it would cost a
+///    DAE/OBJ parser (Assimp's formats, well beyond [`moveit_geometry::stl`])
+///    for data nothing in this crate's dependency graph ever reads. Revisit
+///    only if a future phase adds a renderer or visualization export that
+///    needs real visual geometry rather than just its filename.
+/// 6. **Carries mass and rotational inertia — upstream's own `LinkModel`
 ///    does not.** `moveit::core::LinkModel` has no such field at all;
 ///    `dynamics_solver::DynamicsSolver` gets this data by bypassing
 ///    `RobotModel` entirely and re-parsing the raw URDF a second time via
@@ -294,7 +303,7 @@ impl LinkModel {
 
     /// This link's mass, from its URDF `<inertial><mass>`. `0.0` if the
     /// link has no `<inertial>` element. See [`LinkModel`]'s doc comment,
-    /// deviation 5, for why upstream's own `LinkModel` has no equivalent.
+    /// deviation 6, for why upstream's own `LinkModel` has no equivalent.
     pub fn mass(&self) -> f64 {
         self.mass
     }

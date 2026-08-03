@@ -96,7 +96,26 @@
 //!    `Contact::dist` directly as the signed distance, clamping it to `>= 0`
 //!    when `enable_signed_distance` was not requested. `nearest_points` and
 //!    `normal` are likewise read from that same call's `point1`/`point2`/
-//!    `normal1` rather than a second FCL-specific query.
+//!    `normal1` rather than a second FCL-specific query. "One call" is not
+//!    "one triangle" when either shape is a mesh: `parry3d_f64`'s own
+//!    `contact_composite_shape_shape` (the dispatch a `TriMesh` pair goes
+//!    through) already visits every sub-shape whose AABB overlaps the
+//!    other's and keeps the single deepest across all of them — this
+//!    backend's one call is already the maximum-over-the-contact-set
+//!    reduction upstream's 200-contact re-collide performs, for whichever
+//!    contact set that single narrow-phase pass considers. Confirmed, not
+//!    assumed: `moveit-collision/tests/collision_parity.rs`'s
+//!    `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact` takes the
+//!    live panda sweep's single worst `robot_distance` disagreement and
+//!    shows the oracle's own answer there exceeds the colliding link's mesh
+//!    bounding radius by nearly an order of magnitude — geometrically
+//!    impossible for that pair, on either backend, however exhaustively its
+//!    contacts are searched. That case's gap is not this backend missing a
+//!    deeper real contact; it is upstream FCL/libccd's own penetration-depth
+//!    computation producing an implausible number under deep, arbitrarily-
+//!    rotated interpenetration. Whether the same holds for every other
+//!    interpenetrating disagreement this backend reports is not established
+//!    either way.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and
