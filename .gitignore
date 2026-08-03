@@ -1,0 +1,6 @@
+/target
+/tools/moveit-oracle/build
+/third_party
+.caucus
+*.log
+/.oracle-ctx.*

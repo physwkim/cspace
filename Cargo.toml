@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "tools/moveit-diff"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "BSD-3-Clause"
+repository = "https://github.com/stevek/moveit-rs"
+authors = ["moveit-rs contributors"]
+
+# Upstream reference: moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf
+# See PORTING-PLAN.md for the port's scope and phase plan.
+
+[workspace.dependencies]
+moveit-error = { path = "crates/moveit-error", version = "0.1.0" }
+moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
+
+nalgebra = { version = "0.35", features = ["serde-serialize"] }
+parry3d-f64 = "0.30"
+urdf-rs = "0.9"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+linkme = "0.3"
+approx = "0.5"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

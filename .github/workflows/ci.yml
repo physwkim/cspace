@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # The core crates carry no ROS dependency (PORTING-PLAN.md D1), so this job
+  # runs on a plain runner with no ROS 2 install. That is the point: if it ever
+  # needs one, the port has re-coupled and check-dep-direction catches it.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo nextest run --workspace
+      - name: doctests
+        run: cargo test --doc --workspace
+      - name: dependency direction
+        run: ./tools/ci/check-dep-direction.sh
+
+  # The differential harness needs the C++ oracle image, which takes long enough
+  # to build that it is not run on every push. `workflow_dispatch` and the
+  # nightly schedule are added once the image is published to a registry.
+  # Until then: tools/moveit-oracle/build.sh, then
+  # cargo run -p moveit-diff -- --urdf ... --srdf ...
