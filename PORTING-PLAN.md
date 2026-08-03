@@ -3466,3 +3466,77 @@ UNFIXED에 "`PlanningScene::distance_to_collision`이 상류의
 
 병합 후 전체 게이트: fmt·clippy(`--workspace --all-targets -D warnings`)
 ·nextest **867/867**·doctest·`cargo doc`·`check-*.sh` 3종 모두 통과.
+
+## 30. `p1-joints` 5라운드 / `p6-totg` 4라운드 병합 (2026-08-04)
+
+`71cb14a`(p1-joints), `025f9dc`(p6-totg). 병합 후 `nextest --workspace`
+**882/882**, 오라클 이미지 `448ac232926497b8`.
+
+### 30.1 §26.4의 주장을 직접 재측정했다
+
+§26.3의 격차가 오라클 자신의 버그였다는 것은 이 포팅에서 가장 값비싼
+종류의 발견이라, 보고를 옮기지 않고 전부 다시 확인했다.
+
+상류 확인: `kdl_kinematics_plugin.cpp:369-384`의 재시드 분기는
+`!consistency_limits_mimic.empty()`로 갈라져
+`getRandomConfiguration(jnt_seed_state.data, consistency_limits_mimic,
+jnt_pos_in.data)` — 즉 *원래 시드* 근처를 뽑는다. 수정 후 오라클이 하는
+것과 같다.
+
+수정 후 스윕을 내가 다시 돌렸다 (`--cases 500 --seed 20260803
+--ik-consistency-limit 0.35`, 이미지 `448ac232926497b8`):
+
+| 픽스처 / 그룹 | b | c |
+|---|---|---|
+| panda / panda_arm | 31 | 36 |
+| fanuc / manipulator | 32 | 32 |
+| dual_arm_panda / left_panda_arm | 35 | 45 |
+| pr2 / right_arm | 17 | 12 |
+
+보고된 값과 정확히 일치한다. §26.3에서 내가 측정했던 수정 전 값
+(15/69, 18/92, 20/67, 8/18)의 단방향 비대칭은 사라졌다.
+
+게이트가 장식이 아닌지도 확인했다. 수정 *전* 이미지
+(`a8988410cec4b1aa`)를 `--oracle` 래퍼로 직접 물려 새 `moveit-diff`를
+돌렸더니 panda가 `b=15, c=69`를 그대로 재현하고
+`FAIL ik_paired_divergence: |z| = 5.89 exceeds 3`으로 **런을 실패시킨다**.
+`failed: 0`을 "일치"로 읽던 실수는 이제 도구가 막는다.
+
+### 30.2 그런데 오라클은 아직 연속 관절을 랩하지 않는다 (UNFIXED)
+
+수정된 재시드는 무조건 클램프한다:
+
+```cpp
+reseed_active[k] = ik_rng_.uniformReal(std::max(joint_min[full_i], seed_active[k] - limit),
+                                       std::min(joint_max[full_i], seed_active[k] + limit));
+```
+
+상류 `RevoluteJointModel::getVariableRandomPositionsNearBy`
+(`revolute_joint_model.cpp:122-136`)는 `continuous_`일 때 `near ± distance`를
+클램프 없이 뽑고 `enforcePositionBounds`로 `(-pi, pi]`에 랩한다.
+`rg -n 'continuous|isContinuous|RevoluteJointModel' tools/moveit-oracle/src/oracle.cpp`
+— **0건**.
+
+이 라운드는 *포트* 쪽 클램프-대-랩 격차를 고쳤다(`6408570`). 그래서 지금
+상태는 부호가 뒤집힌 같은 격차다: 포트는 랩하고, 상류도 랩하고,
+**오라클만 클램프한다**. 네 픽스처로는 드러나지 않는데 그 이유는
+§26.4가 적어 둔 것과 같다 — pr2의 연속 관절 시드가 `[-pi, pi]`의 중점 0이고
+`0.35 × 2π ≈ 2.2 rad`로는 `±π`에 닿지 않는다. 이것은 정확성이 아니라
+픽스처의 한계다. 경계 근처 시드를 가진 연속 관절이 스윕에 들어오는
+순간 오라클이 틀린 쪽이 된다.
+
+### 30.3 `p6-totg`: `RobotTrajectory` 어댑터
+
+`computeTimeStamps` 두 오버로드, `totgComputeTimeStamps`,
+`doTimeParameterizationCalculations`, `hasMixedJointTypes`,
+`verifyScalingFactor` 이식. 오라클 `totg` op이 최상위 `"group"` 키로
+분기해 진짜 `robot_trajectory::RobotTrajectory`를 구동한다.
+
+보고된 UNFIXED 하나는 이 크레이트 밖 문제다: 스케일링 전용
+`compute_time_stamps` 오버로드는 이 워크스페이스의 어떤 픽스처로도
+성공할 수 없다. `joint_bounds_from_urdf`
+(`crates/moveit-model/src/joint/urdf.rs:119-144`)가 URDF에서 가속도 한계를
+전혀 읽지 않고(`VariableBounds::default()`의 `acceleration_bounded: false`),
+이는 상류 `jointBoundsFromURDF`도 마찬가지다 — URDF에 가속도 필드가 없고
+실제 MoveIt 설정은 별도 `joint_limits.yaml`에서 가져오는데 이 워크스페이스는
+그것을 로드하지 않는다. `moveit-model` 소유이므로 보고만 하고 넘긴다.
