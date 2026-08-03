@@ -1,0 +1,193 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "cases": [
+        {
+          "initialize_ok": true,
+          "reset_ok": true,
+          "steps": [
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 0.5,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -2.356,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 0.5,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 0.0,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            },
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 1.0,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -2.356,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 0.5,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 0.0,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            }
+          ]
+        },
+        {
+          "initialize_ok": true,
+          "reset_ok": true,
+          "steps": [
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 1.0000000000000009,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -2.356,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 1.0000000000000009,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 0.0,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            }
+          ]
+        },
+        {
+          "initialize_ok": true,
+          "reset_ok": true,
+          "steps": [
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 0.0008294991991130152,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -2.356,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 0.0008294991991130152,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 0.0,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            }
+          ]
+        },
+        {
+          "initialize_ok": true,
+          "reset_ok": true,
+          "steps": [
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 0.0,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -1.355999999999999,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 0.0,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 1.0000000000000009,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            }
+          ]
+        },
+        {
+          "initialize_ok": true,
+          "reset_ok": true,
+          "steps": [
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 99.0,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -2.356,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 99.0,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 0.0,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            }
+          ]
+        },
+        {
+          "initialize_ok": true,
+          "reset_ok": true,
+          "steps": [
+            {
+              "ok": true,
+              "positions": {
+                "panda_joint1": 0.0,
+                "panda_joint2": -0.785,
+                "panda_joint3": 0.0,
+                "panda_joint4": -2.356,
+                "panda_joint5": 0.0,
+                "panda_joint6": 1.571,
+                "panda_joint7": 0.785
+              },
+              "velocities": {
+                "panda_joint1": 0.0,
+                "panda_joint2": 0.0,
+                "panda_joint3": 0.0,
+                "panda_joint4": 0.0,
+                "panda_joint5": 0.0,
+                "panda_joint6": 0.0,
+                "panda_joint7": 0.0
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

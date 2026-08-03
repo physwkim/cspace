@@ -22,6 +22,11 @@ find_package(octomap REQUIRED)
 # package's rclcpp/pluginlib/moveit_ros_planning dependency tree.
 find_package(orocos_kdl REQUIRED)
 find_package(kdl_parser REQUIRED)
+# For the acceleration_filter op's rclcpp::Node and pluginlib::ClassLoader --
+# see oracle.cpp's file header and that op's own comment for why this one op
+# is the exception to the "no ROS node" rule the comment above describes.
+find_package(rclcpp REQUIRED)
+find_package(pluginlib REQUIRED)
 
 add_executable(moveit_oracle
   src/oracle.cpp
@@ -45,6 +50,7 @@ target_link_libraries(moveit_oracle
     moveit_core::moveit_dynamics_solver
     moveit_core::moveit_kinematic_constraints
     moveit_core::moveit_planning_scene
+    moveit_core::moveit_smoothing_base
     urdfdom::urdf_parser
     srdfdom::srdfdom
     Eigen3::Eigen
@@ -55,6 +61,8 @@ target_link_libraries(moveit_oracle
     ${OCTOMAP_LIBRARIES}
     ${orocos_kdl_LIBRARIES}
     kdl_parser::kdl_parser
+    rclcpp::rclcpp
+    pluginlib::pluginlib
 )
 # octomap ships old-style CMake variables (OCTOMAP_INCLUDE_DIRS/LIBRARIES),
 # not an imported target, per its own octomap-config.cmake. orocos_kdl is the
