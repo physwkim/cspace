@@ -2473,3 +2473,76 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 남겼다. 이 트리에 24개, 2.1 GB가 쌓여 있었다. `exec`을 떼고(`set -e`가
 종료 상태를 그대로 전파한다), 긴 빌드 중 Ctrl-C도 트랩을 타도록
 `trap 'exit 130' INT`을 더했다. 쌓인 24개는 삭제했다.
+
+---
+
+## 20. `visibility_cone`의 "위반" 분기를 오라클과 실제로 맞춘다 — 그리고 그 대가 (3라운드, 2026-08-03)
+
+### 20.1 §12.5의 100% "만족"은 커버리지가 아니었다
+
+§12.5가 남긴 표는 네 픽스처 전부에서 `visibility_cone: 285 satisfied,
+0 violated`였다 — 원뿔이 절대 로봇에 닿지 않는 배치(`FAR_OFFSET` 50m)만
+썼기 때문에, `decide_cone`이 실제로 충돌을 찾아내는 분기는 오라클과
+단 한 번도 맞춰보지 않은 채였다. panda/fanuc/dual_arm_panda는 여전히
+그럴 수밖에 없다 — 셋 다 `<collision>`이 전부 STL `<mesh>`이고
+`moveit-model`의 URDF 로더가 mesh 충돌 형상을 보존하지 않아
+(`link_model.rs` deviation 4, §15.2 표 재확인) parry로 표현 가능한
+충돌 형상이 하나도 없다. 원뿔을 어디에 두든 이 셋에 대해서는 "충돌
+있음"이 원천적으로 나올 수 없다.
+
+pr2는 다르다. §15.2가 이미 센 프리미티브 링크 17개(박스 5·실린더
+8·구 4)는 두 backend가 똑같이 본다. `moveit-diff`의 케이스 생성기
+(`tools/moveit-diff/src/main.rs`, `build_constraint_case`의
+`case % 7 == 6` 분기)를 픽스처를 인식하도록 고쳤다:
+`parry_representable_link_names`로 이런 링크가 있는 픽스처(사실상
+pr2뿐)에서는 생성되는 케이스의 절반(`(case / 7) % 2 == 0`)을 그런
+링크 하나의 전역 충돌-형상 중심에 정확히 배치하고, 나머지 절반은
+그대로 `FAR_OFFSET`을 유지한다 — 링크가 하나도 없는 픽스처는 이전과
+동일하게 매번 `FAR_OFFSET`을 쓴다.
+
+**결과 (seed 4, `--group right_arm --constraints 2000`, 2026-08-03):**
+
+```
+visibility_cone: 142 satisfied, 143 violated
+```
+
+panda(seed 1)/fanuc(seed 2)/dual_arm_panda(seed 3)는 각각 285/0으로
+불변, 전체 2,101/2,101 일치 — 셋 다 회귀 없음.
+
+### 20.2 "위반" 판정 자체는 143건 전부 오라클과 일치, 그러나 깊이(depth) 값은 아니다
+
+pr2 seed 4, 2,201건(fk 100 + jacobian 100 + model_info 1 +
+constraints 2,000) 중 **`satisfied` 불리언 불일치는 0건** — 근거리
+143건, 원거리 142건 전부 오라클과 "위반/만족" 판정이 일치한다.
+`decide_cone`의 충돌-판정 로직 자체가 상류 `VisibilityConstraint::
+decide()`(`kinematic_constraint.cpp:1069-1183`)와 정확히 같다는 확인이다.
+
+그런데 근거리 143건 중 **119건은 보고된 `distance`(진단용 깊이 값,
+판정 자체가 아니다)가 오라클과 다르다.** 원인은 §15.2와 같은 mesh
+gap이 다른 모습으로 나타난 것이다: `decide_cone`은 원뿔 하나만 담은
+임시 로컬 환경에 이 포트가 표현 가능한 로봇 링크만 넣고
+`max_contacts: 1`로 첫 번째로 찾은 접촉만 남긴다. 오라클의 동등한
+환경에는 pr2의 mesh 링크도 들어있고, pr2는 프리미티브 링크 바로
+옆에 mesh 링크가 촘촘히 붙어 있는 픽스처라 원뿔이 의도한 링크와
+함께 그런 mesh 링크에도 닿는 경우가 흔하다 — 그러면 상류의 순회
+순서가 의도한 접촉 대신 그 mesh 접촉을 "첫 번째"로 골라, 같은
+판정에 다른 깊이를 보고한다. 반지름(`0.005..0.015m`, pr2 최소
+형상인 head-mount 구 반지름 0.0005m보다는 크고 최대 형상인
+`base_bellow_link` 박스의 반폭 ~0.185m보다는 훨씬 작다)과 센서
+오프셋(`0.005m`)을 pr2의 가장 작은 형상 기준으로 줄여도 실패 건수는
+바닥 근처에서 거의 움직이지 않았다 — 반지름 0.3–0.6m·오프셋 1.0m
+공유 조합(원래 값) 2,201건 중 134건 실패, 반지름 0.005–0.015m·오프셋
+0.02m 조합 120건 실패, 최종값(반지름 0.005–0.015m·오프셋 0.005m)
+119건 실패. 세 자릿수대에서 더 내려가지 않는다 — 즉 이건 생성기
+파라미터로 없앨 수 있는 문제가 아니라 이 포트가 mesh 충돌 형상을
+갖지 못하는 한 구조적으로 남는 gap이다.
+
+**`UNFIXED`로 남긴다.** `decide_cone`(`crates/moveit-constraints/src/
+visibility.rs`)의 판정 로직은 정확하고, 이번 커밋으로 고칠 것이
+`moveit-constraints`나 이 생성기 안에는 없다 — `contact.depth`
+값 자체가 전부 `moveit-collision`에서 나오고, 닫으려면 그쪽에 mesh
+충돌 형상이 있어야 한다(§15.2의 근본 원인과 동일, 그쪽 소유자에게
+전달할 사항이지 이번 라운드 소유 범위가 아니다). `moveit-diff`의
+`compare_constraints`가 이 깊이 불일치를 여전히 `FAIL`로 찍는 것도
+의도적으로 그대로 뒀다 — pass 기준을 바꾸는 건 이 조사 범위보다 큰
+결정이라 판단해 이번 라운드에서 손대지 않았다.

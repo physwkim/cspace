@@ -160,7 +160,11 @@ pub fn jacobian(
 /// 3x3 block directly, the same normalization `world_parity.rs`'s own
 /// `isometry_from_row_major` applies for a request built from a wire value
 /// rather than computed in-process.
-fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
+///
+/// `pub(crate)`: also used by `main.rs`'s constraint-case generator to place
+/// a `visibility_cone` case's target at a link's actual collision-shape
+/// center rather than just its FK origin.
+pub(crate) fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
     let rotation = Rotation3::from_matrix_unchecked(Matrix3::new(
         m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10],
     ));
