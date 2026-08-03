@@ -3186,3 +3186,50 @@ fanuc `b=33, c=32`, pr2 `b=0, c=0`. 즉 **일관성 제한이 걸릴 때만** �
 `[min, max]`로 클램프한다. 다만 panda_arm에는 연속 관절이 없으므로 이
 분기만으로 panda의 격차를 설명하지는 못한다. 근본 원인은 미확정 —
 `p1-joints` 5라운드로 넘긴다.
+
+## 27. `p3-distance-field` 5라운드 병합 (2026-08-04)
+
+`5231cf2`. `nextest --workspace` **855/855**.
+
+### 27.1 pr2 메시 격차는 "기능 없음"이 아니라 "픽스처 복사 없음"
+
+워커가 `third_party/`를 직접 가리켜 `build_pr2_model`을 돌려 보고,
+좁혀 두었던 단정문이 전부 오라클과 정확히 일치한다고 보고했다. 중계하지
+않고 직접 재현했다:
+
+- `MeshSearchPaths::none()`: 지오메트리 보유 링크 **17개**.
+- `MeshSearchPaths::new([("moveit_resources_pr2_description",
+  third_party/.../pr2_description)])`: **54개**, 남은
+  `UnsupportedLinkGeometry{kind:"mesh"}` 진단 **0건** — 18개 충돌 메시가
+  전부 해석된다.
+- 그 54개를 `link_models_with_collision_geometry_response.json`의 오라클
+  링크 목록과 대조: 개수도 **순서까지도** 동일(`actual == expected`).
+
+즉 §21.4의 판정이 확인됐다 — 막고 있는 것은 `fixtures/meshes/`로의 0.59
+MiB 복사 한 건이고, 그건 `p3-acm` 몫이며 이 병합 시점에 아직 안 들어왔다
+(`fixtures/meshes/`에는 `fanuc_description`, `panda_description`뿐).
+워커는 좁힘을 유지하되 세 곳의 문서 주석을 "기능 없음"에서 "픽스처 복사
+없음, 정확성은 검증됨"으로 고쳤다 — 옳은 처리다. 검증한 사실을 픽스처가
+없다는 이유로 단정문에 넣지 않고, 대신 왜 안 넣는지를 정확히 적었다.
+
+### 27.2 이관 범위 재분류
+
+`compareCacheEntryToState` / `compareCacheEntryToAllowedCollisionMatrix`를
+자유 함수로 이식했다. 이전 라운드 문서가 이 둘을 `getDistanceFieldCacheEntry`와
+한 덩어리로 "캐시 타입에 막힘"이라 묶었는데, 실제로는
+`CollisionEnvDistanceField`의 캐시 멤버를 건드리지 않고 이미 이식된
+`DistanceFieldCacheEntry` + `RobotState` + `AllowedCollisionMatrix`만
+쓴다. 차단 목록이 과대했던 것.
+
+여전히 막힌 것: `GroupStateRepresentation`, `getDistanceFieldCacheEntry`,
+`generateCollisionCheckingStructures`, `updateGroupStateRepresentationState`.
+
+`p1-fixtures`의 새 `moveit-scene::AttachedBody`가 이걸 풀어 주는지도
+확인했고 — 풀어 주지 않는다. 그 타입은 `PlanningScene`에 살고 맨
+`RobotState`에서 닿지 않으므로, 두 새 함수의 부착체 비교는 공허하게 참이
+된다. 편차로 문서화했다.
+
+오라클 op이 이 두 함수에 단독으로 닿지 않아(확장은 워커 범위 밖) 불변식
+경계로 검증했다: 그룹 내/외 관절 이동, `EPSILON` 이내/초과 이동, 크기가
+다른 상태, ACM 행 수 변화, 새로 비활성화된 자기충돌, 새로 비활성화된
+그룹 내 쌍. 시나리오가 아니라 경계로 짠 테스트다.
