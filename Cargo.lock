@@ -196,6 +196,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-trajectory"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+ "nalgebra",
+]
+
+[[package]]
 name = "nalgebra"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

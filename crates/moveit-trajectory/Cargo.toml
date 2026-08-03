@@ -1,0 +1,19 @@
+[package]
+name = "moveit-trajectory"
+description = "Model-independent numeric core of time-optimal trajectory generation, ported from moveit_core/trajectory_processing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+moveit-error.workspace = true
+nalgebra.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+
+[lints]
+workspace = true
