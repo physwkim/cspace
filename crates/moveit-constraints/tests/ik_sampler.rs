@@ -19,13 +19,14 @@
 //! `crates/moveit-model/tests/fixtures/panda_model_info.json`) supply a
 //! real model.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::f64::consts::PI;
 use std::fs;
+use std::rc::Rc;
 
 use moveit_constraints::{
-    IkConstraintSampler, IkSamplingPose, OrientationConstraint, OrientationTolerance,
-    PositionConstraint,
+    ConstraintSampler, IkConstraintSampler, IkConstraintSamplerAdapter, IkSamplingPose,
+    OrientationConstraint, OrientationTolerance, PositionConstraint,
 };
 use moveit_geometry::{
     Cuboid, Isometry3, Rotation3, Shape, Sphere, Transforms, UnitQuaternion, Vector3,
@@ -722,7 +723,7 @@ fn sample_exhausts_max_attempts_when_ik_never_converges() {
     let mut rng = ChaCha8Rng::seed_from_u64(3);
 
     let max_attempts = 7;
-    let ok = ik.sample(&mut state, &mut solver, &mut rng, max_attempts);
+    let ok = ik.sample(&mut state, &mut solver, &mut rng, max_attempts, None);
     assert!(
         !ok,
         "IK that never converges must make sample() return false"
@@ -759,9 +760,15 @@ impl KinematicsSolver for EchoSolver {
         &mut self,
         seed: &[f64],
         _target: &Isometry3,
-        _options: &mut SolveOptions,
+        options: &mut SolveOptions,
     ) -> Option<Vec<f64>> {
-        Some(seed.to_vec())
+        let solution = seed.to_vec();
+        if let Some(callback) = options.solution_callback.as_deref_mut() {
+            if !callback(&solution) {
+                return None;
+            }
+        }
+        Some(solution)
     }
 }
 
@@ -813,7 +820,7 @@ fn sample_round_trips_seed_to_solution_by_name_even_with_a_reversed_joint_order(
     let mut rng = ChaCha8Rng::seed_from_u64(4);
     // `attempt == 0` reads `state`'s current values as the seed, so this
     // must succeed on the very first (and only) attempt.
-    let ok = ik.sample(&mut state, &mut solver, &mut rng, 1);
+    let ok = ik.sample(&mut state, &mut solver, &mut rng, 1, None);
     assert!(
         ok,
         "EchoSolver always converges and the region always contains panda_link8"
@@ -891,7 +898,7 @@ fn sample_with_a_real_solver_converges_on_a_position_and_orientation_target() {
     state.set_to_default_values();
     let mut rng = ChaCha8Rng::seed_from_u64(5);
 
-    let ok = ik.sample(&mut state, &mut solver, &mut rng, 30);
+    let ok = ik.sample(&mut state, &mut solver, &mut rng, 30, None);
     assert!(
         ok,
         "newton-raphson must find a solution near a reachable target within 30 attempts"
@@ -907,5 +914,170 @@ fn sample_with_a_real_solver_converges_on_a_position_and_orientation_target() {
     assert!(
         orientation_result.satisfied,
         "the accepted solution must independently satisfy the orientation constraint: {orientation_result:?}"
+    );
+}
+
+// ---- group_state_validity_callback: upstream's IK accept/reject hook ----
+
+#[test]
+fn sample_rejects_via_group_state_validity_callback_even_when_ik_converges() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Sphere(Sphere::new(10.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc),
+        orientation_constraint: None,
+    };
+    let mut solver = EchoSolver {
+        joint_names: PANDA_ARM_JOINTS.iter().map(|s| s.to_string()).collect(),
+    };
+    let ik = IkConstraintSampler::new(&model, &solver, sampler).unwrap();
+
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut rng = ChaCha8Rng::seed_from_u64(6);
+
+    let calls = Cell::new(0u32);
+    let mut reject_always = |_solution: &[f64]| {
+        calls.set(calls.get() + 1);
+        false
+    };
+    let max_attempts = 3;
+    let ok = ik.sample(
+        &mut state,
+        &mut solver,
+        &mut rng,
+        max_attempts,
+        Some(&mut reject_always),
+    );
+    assert!(
+        !ok,
+        "EchoSolver always converges, but a callback that always rejects \
+         must still make sample() fail"
+    );
+    assert_eq!(
+        calls.get(),
+        max_attempts,
+        "each of the max_attempts converged candidates must be offered to the callback"
+    );
+}
+
+#[test]
+fn sample_retries_past_group_state_validity_callback_rejections_and_accepts_on_success() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Sphere(Sphere::new(10.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc),
+        orientation_constraint: None,
+    };
+    let mut solver = EchoSolver {
+        joint_names: PANDA_ARM_JOINTS.iter().map(|s| s.to_string()).collect(),
+    };
+    let ik = IkConstraintSampler::new(&model, &solver, sampler).unwrap();
+
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut rng = ChaCha8Rng::seed_from_u64(7);
+
+    let calls = Cell::new(0u32);
+    let mut accept_on_third_call = |_solution: &[f64]| {
+        calls.set(calls.get() + 1);
+        calls.get() == 3
+    };
+    let ok = ik.sample(
+        &mut state,
+        &mut solver,
+        &mut rng,
+        5,
+        Some(&mut accept_on_third_call),
+    );
+    assert!(
+        ok,
+        "sample() must retry a callback-rejected candidate rather than giving up early"
+    );
+    assert_eq!(
+        calls.get(),
+        3,
+        "sample() must stop offering candidates to the callback as soon as one is accepted"
+    );
+}
+
+#[test]
+fn adapter_group_state_validity_callback_gates_the_trait_object_sample_path() {
+    let model = panda_model();
+    let group = model.joint_model_group("panda_arm").unwrap();
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Sphere(Sphere::new(10.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    let sampling_pose = IkSamplingPose {
+        position_constraint: Some(pc),
+        orientation_constraint: None,
+    };
+    let solver: Rc<RefCell<Box<dyn KinematicsSolver>>> =
+        Rc::new(RefCell::new(Box::new(EchoSolver {
+            joint_names: PANDA_ARM_JOINTS.iter().map(|s| s.to_string()).collect(),
+        })));
+    let mut adapter =
+        IkConstraintSamplerAdapter::new(&model, group, solver, sampling_pose, 3).unwrap();
+
+    let calls = Rc::new(Cell::new(0u32));
+    let calls_in_callback = Rc::clone(&calls);
+    adapter.set_group_state_validity_callback(Box::new(move |_solution: &[f64]| {
+        calls_in_callback.set(calls_in_callback.get() + 1);
+        false
+    }));
+
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut rng = ChaCha8Rng::seed_from_u64(8);
+
+    let sampler: &dyn ConstraintSampler = &adapter;
+    let ok = sampler.sample(&mut state, &mut rng);
+    assert!(
+        !ok,
+        "EchoSolver always converges, but a callback installed via \
+         set_group_state_validity_callback that always rejects must still \
+         make the trait object's sample() fail"
+    );
+    assert_eq!(
+        calls.get(),
+        3,
+        "each of the adapter's baked-in max_attempts candidates must reach the callback"
     );
 }

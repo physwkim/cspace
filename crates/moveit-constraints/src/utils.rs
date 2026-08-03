@@ -60,28 +60,54 @@
 //! `a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects`
 //! test proves `PlanningScene::transforms_with_world_objects` flows into
 //! [`PositionConstraint::new`] correctly, but nothing in this workspace
-//! calls it outside that test
-//! (`rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`
-//! finds no hit outside a `#[cfg(test)]` block). That is not a gap this
-//! crate's construction functions leave open — upstream never pairs the two
-//! either, in any code this port's scope reaches:
+//! calls it outside that test.
+//! `rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`
+//! prints **28** lines, not zero — `--glob '!*/tests/*'` only excludes the
+//! `tests/` integration-test directories, and every one of these three
+//! files' `#[cfg(test)]` unit-test modules lives inside `src/`. Sorted by
+//! whether each hit falls before or after its own file's `#[cfg(test)]`
+//! line (`moveit-scene/src/scene.rs:1769`,
+//! `moveit-planners-sbp/src/planning_scene_validity.rs:144`), the 28 are:
+//! 16 inside `scene.rs`'s own unit tests, 5 inside
+//! `planning_scene_validity.rs`'s, 3 in this module's own doc-comment prose
+//! (the sentence you are reading now, self-matching), and 4 in `scene.rs`
+//! outside any test module — of which 3 are `///` doc comments naming the
+//! function and only one, `scene.rs:791`, is the function's own `pub fn`
+//! definition. That definition is the sole non-test, non-doc-comment code
+//! hit; it is not a gap this crate's construction functions leave open —
+//! upstream never pairs the two either, in any code this port's scope
+//! reaches:
 //!
-//! - `constructGoalConstraints`'s implementation
-//!   (`moveit_core/kinematic_constraints/src/utils.cpp`) never references
-//!   `PlanningScene` or `Transforms` at all (`rg -n
-//!   'PlanningScene|Transforms' moveit_core/kinematic_constraints/src/utils.cpp`
-//!   is empty) — every overload builds a `moveit_msgs::msg::Constraints`
-//!   from a raw `RobotState`/link name/pose/point/quaternion, leaving any
-//!   frame resolution to whoever consumes the message afterward.
-//! - Every real caller of `constructGoalConstraints` is in `moveit_ros`
-//!   (`rg -l constructGoalConstraints moveit_core moveit_ros`: zero hits
-//!   under `moveit_core` outside the declaration/definition themselves;
-//!   hits under `moveit_ros/planning/moveit_cpp/src/planning_component.cpp`,
-//!   `moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp`,
-//!   `moveit_ros/visualization/motion_planning_rviz_plugin/src/motion_planning_frame_planning.cpp`,
-//!   `moveit_ros/warehouse/src/import_from_text.cpp`, and a
-//!   `moveit_ros/hybrid_planning` test) — all `moveit_ros`/`moveit_py`,
-//!   outside this port's D1 scope.
+//! - The structural reason, not just a survey of where callers happen to
+//!   live: none of `constructGoalConstraints`'s **7** overloads
+//!   (`moveit_core/kinematic_constraints/include/moveit/kinematic_constraints/utils.hpp`
+//!   lines 83, 99, 129, 148, 176, 205, 222) takes a `PlanningScene` or a
+//!   `Transforms` parameter — every one builds a
+//!   `moveit_msgs::msg::Constraints` from a raw `RobotState`/
+//!   `JointModelGroup`/link name/pose/point/quaternion, leaving frame
+//!   resolution to whoever consumes the message afterward. No caller,
+//!   anywhere, in any package, can pair a scene with goal-constraint
+//!   construction *through this function*, because the function gives it
+//!   nowhere to plug in — a fact about the signatures, not about which
+//!   package happens to call them. (`constructGoalConstraints`'s own
+//!   implementation confirms this from the callee side too:
+//!   `rg -n 'PlanningScene|Transforms' moveit_core/kinematic_constraints/src/utils.cpp`
+//!   is empty.)
+//! - For completeness, the caller survey this reasoning replaces: real
+//!   callers of `constructGoalConstraints`, excluding its own declaration,
+//!   definition and `CHANGELOG.rst`
+//!   (`rg -l constructGoalConstraints moveit_core moveit_ros moveit_planners
+//!   moveit_py | rg -v -e CHANGELOG.rst -e
+//!   'kinematic_constraints/include/.*utils.hpp' -e
+//!   'kinematic_constraints/src/utils.cpp'`), are **13** files — 7 under
+//!   `moveit_planners` (`ompl_interface`, `pilz_industrial_motion_planner`
+//!   and its `_testutils`), 5 under `moveit_ros`, 1 under `moveit_py` — none
+//!   under `moveit_core` itself. `moveit_planners` outnumbers `moveit_ros`
+//!   here; "every real caller is in `moveit_ros`" would have been wrong even
+//!   as a survey. All 13 are still outside this port's D1 scope (ROS
+//!   planning-pipeline wiring or its test harnesses), so the conclusion is
+//!   unchanged — the signature argument above is simply the reason that
+//!   holds regardless of which package a future caller lands in.
 //! - The mechanism that *would* pair a scene with constraint construction
 //!   upstream — `configure(msg, tf)` on `PositionConstraint`/
 //!   `OrientationConstraint`/`VisibilityConstraint`, resolving a
