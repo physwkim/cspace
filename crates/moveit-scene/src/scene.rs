@@ -989,26 +989,42 @@ impl<'m> PlanningScene<'m> {
     /// doc used to justify is now redundant and removed.
     ///
     /// # `SceneTransforms::isFixedFrame`'s leading-`/` and object-frame
-    /// delegation: not ported, and here is the falsifier
+    /// delegation: not ported, and here is why it still does not fire
     ///
     /// Upstream `SceneTransforms` also overrides `isFixedFrame`
     /// (`planning_scene.cpp:123-135`) to strip a leading `/` and consult
     /// `knowsObjectFrame` before falling back to the base class. That
     /// override exists so that code holding a bare `moveit::core::
     /// Transforms&` -- not knowing it is actually scene-backed -- still
-    /// gets scene-aware answers. Searching all of `moveit_core` for
-    /// `isFixedFrame` callers (`rg isFixedFrame`) finds exactly one:
-    /// `kinematic_constraints/kinematic_constraint.cpp` (`:382`, `:622`,
-    /// `:848`, `:861`), always as `tf.isFixedFrame(header.frame_id)` where
-    /// `header.frame_id` comes off a ROS message and `tf` is the
-    /// `Transforms&` `configure()` was handed. That crate is unported here
-    /// (D1-adjacent per the round-7 crate-consumer table: "`configure(msg,
-    /// tf)` only") and nothing else in `moveit_core` calls `isFixedFrame`
-    /// polymorphically. With zero reachable callers in this workspace, a
-    /// `PlanningScene`-side override of [`moveit_geometry::Transforms`]'s
-    /// `can_transform` would be speculative code with no caller to
-    /// exercise it -- so it stays unported until `kinematic_constraints`
-    /// (or an equivalent consumer) lands and actually needs it.
+    /// gets scene-aware answers. All of `moveit_core`'s `isFixedFrame`
+    /// callers (`rg isFixedFrame`) are the four sites in
+    /// `kinematic_constraint.cpp` (`:382`, `:622`, `:848`, `:861`, inside
+    /// `PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint::
+    /// configure`), always `tf.isFixedFrame(header.frame_id)` deciding
+    /// whether a constraint's reference frame is resolved once now (fixed)
+    /// or re-resolved through robot state on every `decide()` (mobile).
+    ///
+    /// Round 7 called that crate wholesale-unported; it is not, as of this
+    /// round -- `moveit-constraints::{PositionConstraint, OrientationConstraint,
+    /// VisibilityConstraint}` all exist and each reproduces this exact
+    /// fixed/mobile split (`position::resolve_frame`,
+    /// `orientation.rs:209`, `visibility.rs:79`), each keyed on
+    /// `tf.can_transform(frame_id)` -- the base-class half of `isFixedFrame`
+    /// this crate's [`moveit_geometry::Transforms`] already carries. So the
+    /// falsifier's premise updates, but its answer does not flip: `rg -n
+    /// "PositionConstraint::new|OrientationConstraint::new|VisibilityConstraint::new"
+    /// crates` outside `moveit-constraints` itself matches only its own
+    /// tests -- no call site anywhere in this workspace threads a
+    /// [`PlanningScene`]-derived [`moveit_geometry::Transforms`] into any of
+    /// the three constructors, so the world-object half of `isFixedFrame`
+    /// (the part [`PlanningScene::transforms`] deliberately does not carry --
+    /// see that method's own non-recursion doc) has no live caller to
+    /// diverge from upstream on yet. What would have to land for it to fire:
+    /// a bridge from a live [`PlanningScene`] into one of those three
+    /// `configure`-equivalents, passing a `Transforms` whose map includes
+    /// this scene's world-object frames -- not `self.transforms()` as-is,
+    /// which only carries the fixed-frame map by design. Until such a bridge
+    /// exists, an override here would still be code with no caller.
     pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
         let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
         self.current_state().knows_frame_transform(frame_id)
