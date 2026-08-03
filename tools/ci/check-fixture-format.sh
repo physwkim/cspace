@@ -14,7 +14,12 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-mapfile -t files < <(git ls-files 'crates/*/tests/fixtures/*.json')
+# Globbed off the filesystem rather than out of `git ls-files`: the check is
+# about what is on disk, and asking git makes it fail outright in an export
+# with no .git -- which is exactly how the oracle image builds its context.
+shopt -s nullglob
+files=(crates/*/tests/fixtures/*.json)
+shopt -u nullglob
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "no fixture JSON found -- did the glob or the layout change?" >&2
   exit 1
