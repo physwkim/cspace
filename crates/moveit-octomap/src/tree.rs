@@ -251,6 +251,19 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// ## `OcTreeBaseImpl.h`
 ///
 /// - `typedef NODE NodeType` -- not a callable member, skipped.
+/// - `getTreeType() const` (concrete, returns `"OcTreeBaseImpl"`) --
+///   already counted above, `OcTree.h` (`OcTree`'s own non-virtual
+///   `getTreeType()`, returning `"OcTree"`, is the declaration a caller
+///   actually reaches). **Correction, round 17 item 2:** this
+///   declaration (header line 104) was absent from every walk through
+///   round 16 -- neither a fresh bullet nor an "already counted above"
+///   cross-reference named it anywhere in this section. Found only by
+///   independently re-deriving this header's raw declaration count
+///   (77) and reconciling it against the bullets actually present (73
+///   accounted for, a 1-declaration gap) rather than trusting the
+///   existing walk. Same class of drift as `isNodeAtThreshold` in
+///   round 16, this time inside round 16's own table rather than round
+///   12's.
 /// - `setResolution(double)` -- distinct: zero `moveit_core` consumer,
 ///   resolution is fixed at [`OcTree::new`] and never changed in place.
 /// - `getResolution() const` -- ported as [`OcTree::resolution`].
@@ -500,18 +513,20 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///
 /// **Total, by `rg -c '^/// - \`' crates/moveit-octomap/src/tree.rs`
 /// (every such bullet in the file is inside this audit, so the plain
-/// per-file count is exact, no line range needed):** **158** bullets --
+/// per-file count is exact, no line range needed):** **159** bullets --
 /// the same unit `moveit-scene`'s `planning_scene.hpp` audit counts by (a
 /// bullet sometimes names more than one C++ declaration when they share
 /// one classification and reason, e.g. the three finest-depth `coordToKey`
 /// overloads under one `ported, fused` bullet -- exactly how that audit's
 /// own `checkCollision`/`getCollidingLinks` bundle several overloads per
-/// bullet too). Of the 158: 2 are not callable symbols at all (`typedef
-/// NODE NodeType`, the forward-declared `iterator_base`) and 5 are
+/// bullet too). Of the 159: 2 are not callable symbols at all (`typedef
+/// NODE NodeType`, the forward-declared `iterator_base`) and 6 are
 /// cross-references to declarations already tallied under a more-derived
-/// header (the `updateNode`/`toMaxLikelihood`/`readBinaryData`/
-/// `writeBinaryData` pure-virtual re-declarations in
-/// `AbstractOccupancyOcTree.h`, and the `getResolution`/`setResolution`/
+/// header (`OcTreeBaseImpl.h`'s own concrete `getTreeType()`, already
+/// counted at `OcTree.h`'s more-derived override -- round 17 item 2's
+/// correction, see that bullet; the `updateNode`/`toMaxLikelihood`/
+/// `readBinaryData`/`writeBinaryData` pure-virtual re-declarations in
+/// `AbstractOccupancyOcTree.h`; and the `getResolution`/`setResolution`/
 /// `size`/`memoryUsage`/`memoryUsageNode`/`getMetricMin`/`getMetricMax`/
 /// `getMetricSize`/`prune`/`expand`/`clear`/`readData`/`writeData`/
 /// `create`/`getTreeType` pure-virtual re-declarations in
