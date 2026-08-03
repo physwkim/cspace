@@ -12,7 +12,16 @@
 ARG ROS_DISTRO=rolling
 FROM moveit/moveit2:${ROS_DISTRO}-ci AS moveit
 
-ARG MOVEIT2_PACKAGES=moveit_core
+# `moveit_resources_fanuc_description` is named explicitly because nothing
+# pulls it in: `--packages-up-to moveit_core` builds the panda and pr2
+# description packages only because moveit_core test-depends on them, and
+# fanuc is not among those. Without it, every `package://
+# moveit_resources_fanuc_description/...` mesh in fixtures/fanuc.urdf fails
+# to resolve inside the container, RobotModel logs "No geometry is
+# associated to any robot links", and the oracle answers every fanuc
+# collision query against a robot with no collision geometry at all -- a
+# fixture captured that way agrees with anything.
+ARG MOVEIT2_PACKAGES="moveit_core moveit_resources_fanuc_description"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

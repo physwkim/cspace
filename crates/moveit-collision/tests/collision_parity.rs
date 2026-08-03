@@ -4,7 +4,7 @@
 //! Parity test against the moveit2 C++ oracle's `collision` op.
 //!
 //! Ground truth is the oracle's own response, captured verbatim into
-//! `tests/fixtures/{fanuc,pr2}_collision.json`: one default case
+//! `tests/fixtures/pr2_collision.json`: one default case
 //! (`joint_values: {}`) plus three cases sampled by the oracle's own
 //! `random_states` op, exactly `fk_parity.rs`'s pattern. Every case checks the
 //! robot against one fixed world object -- a `4x4x0.1` floor box centered at
@@ -21,7 +21,7 @@
 //! contacts per pair) in ways that cannot converge under any tolerance --
 //! only `collision`/`distance` are architecturally comparable at all.
 //!
-//! # No panda case, and no `self_collision` case for pr2
+//! # No panda or fanuc case, and no `self_collision` case for pr2
 //!
 //! Every panda/fanuc link's collision geometry is exactly one `<mesh>`
 //! element, and `moveit_model::LinkModel` does not load `<mesh>` collision
@@ -34,11 +34,20 @@
 //! bool` in all 10,000 cases (1,266 on `self_collision`, 8,734 on
 //! `robot_collision`, every rust-side distance exactly `f64::MAX` --
 //! "no pair was ever evaluated", not a near-boundary numerical disagreement).
-//! Fanuc agreed on all 10,000 (both sides trivially report no collision, since
-//! fanuc's compact reach never produces a real collision against this floor
-//! scene in this port's own geometry either) -- that agreement is not
-//! evidence this gap is closed, only that this scene happens not to exercise
-//! it for fanuc's arm.
+//!
+//! Fanuc used to have a fixture here that agreed with the oracle on every
+//! field. That agreement was an artifact of the oracle, not of this port:
+//! the image built `--packages-up-to moveit_core`, which does not pull in
+//! `moveit_resources_fanuc_description`, so the C++ side could not resolve
+//! fanuc's `package://` mesh URIs either and answered every query about a
+//! robot with no collision geometry at all -- `robot_collision: false`,
+//! `self_collision: false`, both distances `DBL_MAX`, in all four cases.
+//! With that package built in, the same four cases come back
+//! `robot_collision: true` in 4 of 4 (`robot_distance` ~ -1e-15, the base
+//! resting exactly on the floor) and `self_collision: true` in 2 of 4. Every
+//! field disagrees with this port, for the same reason panda's does, so
+//! fanuc is now in panda's position: no fixture, no test, until the mesh
+//! loader lands.
 //!
 //! PR2 mixes `<mesh>` with a handful of small `<box>`/`<cylinder>`/`<sphere>`
 //! links (gripper fingertips, a laser mount), so it is not geometry-free, but
@@ -56,11 +65,11 @@
 //!
 //! None of this is a defect in [`ParryCollisionEnv`] itself: every
 //! disagreement in the underlying sweep traced to rust-side geometry being
-//! either absent (panda, fanuc's non-exercised case) or incidental (pr2's
-//! self-collision leftover primitives), and the cases this file *can* assert
-//! (fanuc in full, pr2's `robot_collision`) pass at bit-for-bit distance
-//! agreement. `moveit-model`'s mesh loading is out of this crate's scope and
-//! owned by another worker.
+//! either absent (panda, fanuc) or incidental (pr2's self-collision leftover
+//! primitives), and the one case this file *can* assert (pr2's
+//! `robot_collision`) passes at bit-for-bit distance agreement.
+//! `moveit-model`'s mesh loading is out of this crate's scope and owned by
+//! another worker.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -77,11 +86,15 @@ use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
+/// `self_collision`/`self_distance` are present in the fixture but not
+/// deserialized: pr2 is the only robot left here and its self-collision is
+/// excluded on purpose (see the module doc). Serde ignores the extra keys, so
+/// the fixture stays a verbatim capture of the oracle's response rather than a
+/// trimmed one -- the day the mesh loader lands, asserting them again is a
+/// matter of adding the fields back, not re-capturing.
 #[derive(Deserialize)]
 struct CollisionCase {
     joint_values: BTreeMap<String, f64>,
-    self_collision: bool,
-    self_distance: f64,
     robot_collision: bool,
     robot_distance: f64,
 }
@@ -121,7 +134,7 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
 
 /// The oracle's `collision` op checks against
 /// `AllowedCollisionMatrix(*model_->getSRDF())` (`buildAcm` in `oracle.cpp`),
-/// so every case in the fixtures was captured with fanuc/pr2's
+/// so every case in the fixture was captured with pr2's
 /// `disable_collisions` entries suppressing the pairs they name. Without
 /// applying the same matrix here, this test would disagree with the oracle
 /// on exactly those suppressed pairs -- not a `ParryCollisionEnv` defect, a
@@ -166,49 +179,6 @@ fn build_state<'m>(model: &'m RobotModel, joint_values: &BTreeMap<String, f64>) 
 /// completion condition.
 const TOLERANCE: f64 = 1e-4;
 
-fn assert_full_parity_matches_oracle(model: &RobotModel, fixture_name: &str, srdf_file: &str) {
-    let env = floor_env();
-    let acm = build_acm(srdf_file);
-    let fixture = load_fixture(fixture_name);
-    for (case_index, case) in fixture.cases.iter().enumerate() {
-        let mut state = build_state(model, &case.joint_values);
-        let posed = state.update();
-
-        let self_result =
-            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
-        assert_eq!(
-            self_result.collision, case.self_collision,
-            "{fixture_name} case {case_index}: self_collision"
-        );
-        let robot_result =
-            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
-        assert_eq!(
-            robot_result.collision, case.robot_collision,
-            "{fixture_name} case {case_index}: robot_collision"
-        );
-
-        let distance_request = DistanceRequest {
-            enable_signed_distance: true,
-            acm: Some(&acm),
-            ..DistanceRequest::default()
-        };
-        let self_distance = env.distance_self(&distance_request, &posed, &[]);
-        assert!(
-            (self_distance.minimum_distance.distance - case.self_distance).abs() < TOLERANCE,
-            "{fixture_name} case {case_index}: self_distance {} != {} (oracle)",
-            self_distance.minimum_distance.distance,
-            case.self_distance
-        );
-        let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
-        assert!(
-            (robot_distance.minimum_distance.distance - case.robot_distance).abs() < TOLERANCE,
-            "{fixture_name} case {case_index}: robot_distance {} != {} (oracle)",
-            robot_distance.minimum_distance.distance,
-            case.robot_distance
-        );
-    }
-}
-
 /// Only `robot_collision`/`robot_distance` -- see the module doc for why
 /// `self_collision` is excluded for pr2.
 fn assert_robot_collision_matches_oracle(model: &RobotModel, fixture_name: &str, srdf_file: &str) {
@@ -239,12 +209,6 @@ fn assert_robot_collision_matches_oracle(model: &RobotModel, fixture_name: &str,
             case.robot_distance
         );
     }
-}
-
-#[test]
-fn fanuc_collision_matches_the_oracle() {
-    let model = build_model("fanuc.urdf", "fanuc.srdf");
-    assert_full_parity_matches_oracle(&model, "fanuc_collision.json", "fanuc.srdf");
 }
 
 #[test]

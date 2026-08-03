@@ -492,18 +492,6 @@ fn fanuc_robot_model_matches_the_oracle() {
         model.diagnostics(),
         expected_unsupported_link_geometry_diagnostics(&model, &urdf).as_slice()
     );
-    // This oracle build is `--packages-up-to moveit_core` only (see
-    // `tools/moveit-oracle/Dockerfile`), and `moveit_resources_fanuc_description`
-    // is not one of moveit_core's own test dependencies the way panda's and
-    // pr2's are — so even the C++ oracle itself fails to resolve every
-    // `package://.../meshes/collision/*.stl` URI here and ends up with zero
-    // shapes on every link (`fanuc_model_info.json`'s `link_details` all show
-    // `shape_types: []`, `centered_bounding_box_offset: [0, 0, 0]`). That
-    // makes this assertion pass for a different reason than panda/pr2's: it
-    // is not evidence this port's mesh-shape handling agrees with a real
-    // mesh-derived bounding box, only that both sides agree geometry is
-    // absent here. `visual_mesh_filename` is unaffected (plain URDF metadata,
-    // not a loaded mesh) and still checked for real.
     assert_link_geometry_matches_oracle(&model, &expected.link_details);
 
     // fanuc's `manipulator` chain runs `base_link` to `tool0`; the fixed
