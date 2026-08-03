@@ -195,6 +195,31 @@
 //! member, not by trusting the classification bullets above at face value —
 //! this is the independent count that checks they add up.
 //!
+//! **Counting criteria (PORTING-PLAN.md §97.2), stated so a re-count can be
+//! checked against the same rule rather than re-derived from scratch:**
+//! constructors and the destructor are *not* counted (upstream's own
+//! per-class "N/A" bullets above call those out separately, and a
+//! move/copy-constructor-free C++ class has at most one real constructor
+//! shape to port regardless of how many overloads it takes); every
+//! **inline-body accessor counts as one method**, `{ return size_x_; }`
+//! one-liners included — this is the category a naive brace-depth counter
+//! silently drops once it stops tracking after the first inline body, which
+//! is exactly the discrepancy between this section's 32 and an independent
+//! recount landing on 27 (`getSizeY`/`getSizeZ`/`getOriginX`/... lost);
+//! **overloads count separately, one per distinct signature**, never merged
+//! into their base name — `getDistance(double,double,double)` and
+//! `getDistance(int,int,int)` are 2 of the 32, matching this port's 1
+//! upstream-signature-to-1-Rust-name mapping (`distance`/`distance_cell`),
+//! and the same rule gives `collision_distance_field_types.hpp`'s
+//! `getCollisionSphereCollision` 2 overloads as 2 of its 5 free functions
+//! (`get_collision_sphere_collision`/`get_collision_sphere_collisions`);
+//! there are **no `virtual` re-declarations to reconcile** in either header
+//! counted here — `distance_field.hpp`'s pure-virtual methods are declared
+//! once, and `PropagationDistanceField`'s overrides live in
+//! `propagation_distance_field.hpp`, a different header handled in its own
+//! (non-numeric) symbol-audit section below, not double-counted against
+//! this one.
+//!
 //! `distance_field.hpp` (`DistanceField`, abstract base): 32 public methods
 //! — 26 ported, 2 unported (`writeToStream`/`readFromStream`), 4 D-excluded
 //! (the 4 marker methods). 2 protected methods — 1 ported (`getOcTreePoints`

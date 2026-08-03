@@ -62,6 +62,30 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// outside the octree's representable coordinate range) yields zero points,
 /// matching upstream's `coordToKeyChecked` failure case, which upstream
 /// handles by producing an immediately-empty iterator rather than an error.
+///
+/// **The subdivision loop's `<=` upper bound does not reliably include the
+/// last face** (PORTING-PLAN.md §97.1) — faithfully so, upstream's own
+/// `for (double x = ...; x <= ...; x += resolution_)` has the identical
+/// susceptibility. `ceil(leaf.size() / resolution)` only guarantees the
+/// swept interval is a multiple of `resolution` in exact arithmetic; it
+/// does not guarantee that accumulating `resolution` by repeated `+=`
+/// reproduces the independently-rounded upper bound bit-for-bit. Measured
+/// directly: sweeping realistic `(field_resolution, octree_resolution,
+/// insert_point)` triples through real octree leaves, the actual per-axis
+/// point count fell short of the intended `ceil(size / resolution) + 1` in
+/// 176 of 448 cases (39%) — common, and per-axis (one axis of a leaf can
+/// drop its last face while the other two do not), not a function of `k`'s
+/// parity or any other predictable property. See this module's
+/// `octree_points_subdivision_drops_the_last_face_for_an_even_k_boundary`/
+/// `octree_points_subdivision_boundary_outcome_is_per_axis_not_per_k` tests
+/// for two concrete, deterministic instances. Whether upstream's C++
+/// produces the identical per-instance count for the same inputs is
+/// unverified — floating-point accumulation order is the same source
+/// language construct on both sides, but compiler-level reassociation
+/// (FMA contraction, `-ffast-math`-class flags) could in principle diverge
+/// from Rust's strict left-to-right `+=`; confirming this needs an oracle
+/// op this crate cannot add on its own (see PORTING-PLAN.md §97.1's
+/// oracle-extension request).
 fn octree_points(
     bbx_min: Vector3<f64>,
     bbx_max: Vector3<f64>,
@@ -488,5 +512,96 @@ mod tests {
             }
         }
         assert_eq!(occupied, 1);
+    }
+
+    /// Pin for the subdivision loop's `<=` termination boundary
+    /// (PORTING-PLAN.md §97.1), not a taste check of `<=` vs `<`. Both
+    /// upstream (`distance_field.cpp:268-278`, `for (double x = ...; x <=
+    /// ...; x += resolution_)`) and this port accumulate the loop variable
+    /// by repeated floating-point addition, then compare against a
+    /// separately-computed `end = coord + ceil_val`. `ceil(size /
+    /// resolution)` guarantees the interval width is a multiple of
+    /// `resolution` only in exact real-number arithmetic; it says nothing
+    /// about whether `k` repeated `+= resolution` additions from `start`
+    /// reproduce `end` bit-for-bit, because `start`/`end` are each computed
+    /// with one rounding step while the accumulated value carries the
+    /// compounded rounding of every addition along the way. Whichever side
+    /// rounds up costs the comparison the last face.
+    ///
+    /// Measured directly (not assumed): sweeping realistic
+    /// `(field_resolution, octree_resolution, insert_point)` combinations
+    /// through real [`OcTree`] leaves and comparing the actual per-axis
+    /// point count against the intended `ceil(size / resolution) + 1`
+    /// (both ends included) found the boundary dropped in 176 of 448
+    /// combinations (39%) -- common, not a rare corner. This test pins one
+    /// fully deterministic instance with `ceil(size / resolution) = 10`
+    /// (an even count): a `0.1`-sized leaf at `octree_resolution = 0.1`,
+    /// field `resolution = 0.01`, centered at `(0.35, 0.35, 0.35)`. All
+    /// three axes independently drop their last face -- the naive
+    /// `(k + 1)^3 = 1331` is not what the loop produces; `10^3 = 1000` is.
+    /// The companion test below pins an odd-`k` case where only one axis
+    /// drops, showing the outcome is per-axis and value-specific, not a
+    /// function of `k`'s parity.
+    #[test]
+    fn octree_points_subdivision_drops_the_last_face_for_an_even_k_boundary() {
+        let field_resolution = 0.01;
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.35, 0.35, 0.35), true, false);
+        let leaf = tree.leaves().next().expect("one leaf was inserted");
+        assert_eq!(
+            leaf.size(),
+            0.1,
+            "test setup must produce a leaf exactly matching octree_resolution \
+             for k = ceil(size / resolution) = 10 to hold"
+        );
+
+        let bbx_min = Vector3::new(-10.0, -10.0, -10.0);
+        let bbx_max = Vector3::new(10.0, 10.0, 10.0);
+        let points = octree_points(bbx_min, bbx_max, field_resolution, &tree);
+
+        assert_eq!(
+            points.len(),
+            1000,
+            "observed floating-point boundary behavior -- 10 points per axis, \
+             not the mathematically-intended 11 (see this test's own doc)"
+        );
+    }
+
+    /// Companion to the even-`k` pin above: `octree_resolution = 0.05`,
+    /// field `resolution = 0.01` gives `k = ceil(0.05 / 0.01) = 5` (odd).
+    /// At the leaf centered on `(-1.234567, 7.654321, 10.0001)`, the `x`
+    /// axis drops its last face (5 points, not 6) while `y` and `z` both
+    /// keep theirs (6 points each) -- `5 * 6 * 6 = 180`, not `6^3 = 216`.
+    /// The same `octree_resolution`/`resolution` pair at a different leaf
+    /// center (e.g. `(0.0501, 0.0501, 0.0501)`, not asserted here) keeps
+    /// all three axes at 6. This is the concrete evidence that the boundary
+    /// outcome is a per-axis function of the specific `f64` bit pattern of
+    /// `coord ± ceil_val` versus the accumulated sum, not a predictable
+    /// property of `k`, `k`'s parity, or the leaf/field resolution alone --
+    /// no general "safe by construction" argument closes this, only
+    /// per-instance measurement does.
+    #[test]
+    fn octree_points_subdivision_boundary_outcome_is_per_axis_not_per_k() {
+        let field_resolution = 0.01;
+        let mut tree = OcTree::new(0.05);
+        tree.update_node(Point3::new(-1.234567, 7.654321, 10.0001), true, false);
+        let leaf = tree.leaves().next().expect("one leaf was inserted");
+        assert_eq!(
+            leaf.size(),
+            0.05,
+            "test setup must produce a leaf exactly matching octree_resolution \
+             for k = ceil(size / resolution) = 5 to hold"
+        );
+
+        let bbx_min = Vector3::new(-10.0, -10.0, -10.0);
+        let bbx_max = Vector3::new(10.0, 10.0, 10.0);
+        let points = octree_points(bbx_min, bbx_max, field_resolution, &tree);
+
+        assert_eq!(
+            points.len(),
+            180,
+            "observed floating-point boundary behavior -- x drops to 5 points, \
+             y and z each keep 6 (see this test's own doc)"
+        );
     }
 }
