@@ -9,6 +9,18 @@
         "end_effector_parent": null
       }
     },
+    "group_states": {
+      "manipulator": {
+        "all-zeros": {
+          "joint_1": 0.0,
+          "joint_2": 0.0,
+          "joint_3": 0.0,
+          "joint_4": 0.0,
+          "joint_5": 0.0,
+          "joint_6": 0.0
+        }
+      }
+    },
     "groups": {
       "manipulator": [
         "joint_1",

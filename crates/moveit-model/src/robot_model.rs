@@ -51,15 +51,14 @@ struct JointNode {
 ///
 /// 1. **Cross-references are indices, not pointers**, for the same reason as
 ///    [`LinkModel`]: no raw pointers into a sibling `Vec`.
-/// 2. **No group states or kinematics solver plumbing.** Upstream's
-///    `RobotModel` also carries `default_states_`/`buildGroupStates` and
-///    `group_kinematics_`. `PORTING-PLAN.md` puts kinematics solvers in
-///    `moveit-kinematics`, a later phase; SRDF `<group_state>` is read by
-///    `moveit-srdf` but not consumed here, for the same reason. (Each
-///    link's own collision/visual geometry, and end-effector resolution,
-///    *are* carried — see [`LinkModel`]'s doc comment and
-///    [`RobotModel::get_end_effector`] respectively for what that does and
-///    does not cover.)
+/// 2. **No kinematics solver plumbing.** Upstream's `RobotModel` also
+///    carries `group_kinematics_`; `PORTING-PLAN.md` puts kinematics
+///    solvers in `moveit-kinematics`, a later phase. (Each link's own
+///    collision/visual geometry, end-effector resolution and SRDF
+///    `<group_state>` support *are* carried — see [`LinkModel`]'s doc
+///    comment, [`RobotModel::get_end_effector`] and
+///    [`JointModelGroup::default_state_names`] respectively for what each
+///    does and does not cover.)
 /// 3. **No `common_root_`/`joint_roots_`/`is_chain_`/`is_single_dof_` on
 ///    groups, and no `computeDescendants`/`computeCommonRoots` on the
 ///    model.** These exist upstream purely to accelerate `RobotState`
@@ -200,6 +199,7 @@ impl RobotModel {
         let mut groups = building.build_groups();
         compute_subgroups(&mut groups);
         let end_effector_group_names = build_end_effectors(&mut groups, srdf.end_effectors());
+        building.build_group_states(&mut groups);
 
         Ok(Self {
             name: urdf.name.clone(),
@@ -970,6 +970,70 @@ impl<'a> Building<'a> {
             end_effector_name: None,
             end_effector_parent: None,
             attached_end_effector_names: Vec::new(),
+            default_state_names: Vec::new(),
+            default_states: HashMap::new(),
+        }
+    }
+
+    /// Upstream `RobotModel::buildGroupStates`. Iterates the SRDF's group
+    /// states in document order and, for each, its `joint_values` in the
+    /// `BTreeMap` order [`moveit_srdf::GroupState`] already stores them in
+    /// (alphabetical by joint name, matching upstream's `std::map`
+    /// iteration).
+    ///
+    /// # Deviation from upstream
+    ///
+    /// Upstream reports three recoverable problems through its logger and
+    /// otherwise proceeds unconditionally: a group state naming a group this
+    /// model does not have, a `<joint>` value naming a joint that is not
+    /// part of the named group, and a joint whose supplied value count does
+    /// not match its own variable count. `moveit-srdf` already guarantees
+    /// `GroupState::group` names a group the *SRDF document* defines, but
+    /// not that the group survived `RobotModel`'s own build (an SRDF group
+    /// can still be dropped for being empty, a duplicate, or having
+    /// unsatisfied subgroups) or that a joint name is real. This reproduces
+    /// upstream's silent-recovery stance for all three rather than adding a
+    /// `Diagnostic` variant, matching the precedent [`RobotModel`]'s doc
+    /// comment sets in deviation 6 — pr2's `tuck_arms` state is a real,
+    /// oracle-verified example of the "missing joints" case (upstream logs
+    /// `RCLCPP_WARN` for it and still stores the partial state).
+    fn build_group_states(&self, groups: &mut BTreeMap<String, JointModelGroup>) {
+        for group_state in self.srdf.group_states() {
+            let Some(group) = groups.get(&group_state.group) else {
+                continue;
+            };
+
+            let mut remaining_active: HashSet<&str> = group
+                .active_joint_names()
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let mut state: BTreeMap<String, f64> = BTreeMap::new();
+
+            for (joint_name, values) in &group_state.joint_values {
+                if !group.has_joint_model(joint_name) {
+                    continue;
+                }
+                remaining_active.remove(joint_name.as_str());
+
+                let Some(&joint_index) = self.joint_index_by_name.get(joint_name) else {
+                    continue;
+                };
+                let variable_names = self.joints[joint_index].model.variable_names();
+                if variable_names.len() != values.len() {
+                    continue;
+                }
+                for (name, &value) in variable_names.iter().zip(values) {
+                    state.insert(name.clone(), value);
+                }
+            }
+
+            if !state.is_empty() {
+                groups
+                    .get_mut(&group_state.group)
+                    .expect("just confirmed present above")
+                    .add_default_state(group_state.name.clone(), state);
+            }
         }
     }
 
@@ -1878,5 +1942,150 @@ mod tests {
         assert_eq!(arm.end_effector_parent(), None);
         assert!(arm.attached_end_effector_names().is_empty());
         assert_eq!(model.end_effectors().count(), 0);
+    }
+
+    /// A two-joint chain (`j1`,`j2`), a third joint (`j3`) outside the
+    /// `arm` group, and `arm` = `{j1, j2}`.
+    fn group_state_test_urdf() -> &'static str {
+        r#"<robot name="test">
+            <link name="base"/>
+            <link name="mid"/>
+            <link name="tip"/>
+            <link name="other_tip"/>
+            <joint name="j1" type="revolute">
+                <parent link="base"/><child link="mid"/><axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+            <joint name="j2" type="revolute">
+                <parent link="mid"/><child link="tip"/><axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+            <joint name="j3" type="revolute">
+                <parent link="base"/><child link="other_tip"/><axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
+            </joint>
+        </robot>"#
+    }
+
+    /// `group_state_element` is embedded verbatim as a child of `<robot>`,
+    /// alongside the `arm` group (`j1`,`j2`).
+    fn group_state_test_srdf(group_state_element: &str) -> String {
+        format!(
+            r#"<robot name="test">
+                <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+                <group name="arm"><joint name="j1"/><joint name="j2"/></group>
+                {group_state_element}
+            </robot>"#
+        )
+    }
+
+    #[test]
+    fn group_state_with_full_coverage_stores_every_variable() {
+        let srdf = group_state_test_srdf(
+            r#"<group_state name="home" group="arm">
+                <joint name="j1" value="0.1"/>
+                <joint name="j2" value="0.2"/>
+            </group_state>"#,
+        );
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        assert_eq!(arm.default_state_names(), ["home"]);
+        let state = arm.variable_default_positions("home").unwrap();
+        assert_eq!(state.len(), 2);
+        assert_eq!(state["j1"], 0.1);
+        assert_eq!(state["j2"], 0.2);
+    }
+
+    /// The real pr2 `tuck_arms` shape: a `<group_state>` that leaves some of
+    /// the group's active joints unspecified. Upstream still stores the
+    /// partial state (`RCLCPP_WARN`, not an error).
+    #[test]
+    fn group_state_missing_a_joint_still_stores_the_partial_state() {
+        let srdf = group_state_test_srdf(
+            r#"<group_state name="partial" group="arm">
+                <joint name="j1" value="0.1"/>
+            </group_state>"#,
+        );
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        let state = arm.variable_default_positions("partial").unwrap();
+        assert_eq!(state.len(), 1);
+        assert_eq!(state["j1"], 0.1);
+    }
+
+    #[test]
+    fn group_state_value_for_joint_outside_the_group_is_ignored() {
+        let srdf = group_state_test_srdf(
+            r#"<group_state name="outside" group="arm">
+                <joint name="j1" value="0.1"/>
+                <joint name="j3" value="0.5"/>
+            </group_state>"#,
+        );
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        let state = arm.variable_default_positions("outside").unwrap();
+        assert_eq!(state.len(), 1);
+        assert_eq!(state["j1"], 0.1);
+    }
+
+    #[test]
+    fn group_state_naming_an_unknown_group_is_ignored() {
+        let srdf = group_state_test_srdf(
+            r#"<group_state name="ghost" group="no_such_group">
+                <joint name="j1" value="0.1"/>
+            </group_state>"#,
+        );
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        assert!(
+            model
+                .joint_model_group("arm")
+                .unwrap()
+                .default_state_names()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn group_state_with_mismatched_variable_count_drops_that_joint_only() {
+        let srdf = group_state_test_srdf(
+            r#"<group_state name="mismatch" group="arm">
+                <joint name="j1" value="0.1 0.2"/>
+                <joint name="j2" value="0.2"/>
+            </group_state>"#,
+        );
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        let state = arm.variable_default_positions("mismatch").unwrap();
+        assert_eq!(state.len(), 1);
+        assert_eq!(state["j2"], 0.2);
+    }
+
+    #[test]
+    fn group_state_where_every_joint_value_is_unusable_stores_no_state_at_all() {
+        let srdf = group_state_test_srdf(
+            r#"<group_state name="empty" group="arm">
+                <joint name="j1" value="0.1 0.2"/>
+            </group_state>"#,
+        );
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        assert!(arm.default_state_names().is_empty());
+        assert!(arm.variable_default_positions("empty").is_none());
+    }
+
+    #[test]
+    fn variable_default_positions_returns_none_for_unknown_state_name() {
+        let srdf = group_state_test_srdf("");
+        let model = build(group_state_test_urdf(), &srdf).expect("builds");
+
+        let arm = model.joint_model_group("arm").unwrap();
+        assert!(arm.default_state_names().is_empty());
+        assert!(arm.variable_default_positions("anything").is_none());
     }
 }

@@ -39,6 +39,15 @@ struct OracleModelInfo {
     link_details: Vec<OracleLinkDetail>,
     #[serde(default)]
     group_end_effectors: std::collections::BTreeMap<String, OracleGroupEndEffector>,
+    /// Ground truth for `JointModelGroup::default_state_names`/
+    /// `variable_default_positions`: group name -> state name -> variable
+    /// name -> value. A state's variable map may be a strict subset of the
+    /// group's variables — see `assert_matches_oracle`'s `group_states` loop.
+    #[serde(default)]
+    group_states: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, f64>>,
+    >,
 }
 
 /// Ground truth for `JointModelGroup`'s end-effector fields
@@ -325,6 +334,37 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             ),
         }
     }
+
+    // The oracle serialises `getDefaultStateNames()` through a
+    // key-sorted JSON object, so document order is not recoverable from it —
+    // compare the name set, not the sequence, then check every state's
+    // values exactly.
+    for (group_name, expected_states) in &expected.group_states {
+        let group = model
+            .joint_model_group(group_name)
+            .unwrap_or_else(|_| panic!("missing group '{group_name}'"));
+
+        let mut actual_names: Vec<&String> = group.default_state_names().iter().collect();
+        actual_names.sort();
+        let mut expected_names: Vec<&String> = expected_states.keys().collect();
+        expected_names.sort();
+        assert_eq!(
+            actual_names, expected_names,
+            "default_state_names for group '{group_name}'"
+        );
+
+        for (state_name, expected_values) in expected_states {
+            let actual_values = group
+                .variable_default_positions(state_name)
+                .unwrap_or_else(|| {
+                    panic!("missing group_state '{state_name}' for group '{group_name}'")
+                });
+            assert_eq!(
+                actual_values, expected_values,
+                "group_state '{state_name}' for group '{group_name}'"
+            );
+        }
+    }
 }
 
 impl std::fmt::Debug for OracleEndEffectorParent {
@@ -478,6 +518,19 @@ fn pr2_robot_model_matches_the_oracle() {
     );
     assert!((bounds[2].min_position - (-std::f64::consts::PI)).abs() < 1e-9);
     assert!((bounds[2].max_position - std::f64::consts::PI).abs() < 1e-9);
+
+    // The real "missing joint" case for
+    // `JointModelGroup::variable_default_positions`: the fixture SRDF's
+    // `tuck_arms` group_state only values `l_shoulder_pan_joint`, and the
+    // oracle itself logs "Group state 'tuck_arms' doesn't specify all group
+    // joints in group 'arms'" for the other 13 active joints in `arms` — so
+    // `buildGroupStates` must store exactly that one variable, not default
+    // the rest to 0.0.
+    let arms = model.joint_model_group("arms").unwrap();
+    assert_eq!(arms.default_state_names(), ["tuck_arms"]);
+    let tuck_arms = arms.variable_default_positions("tuck_arms").unwrap();
+    assert_eq!(tuck_arms.len(), 1);
+    assert_eq!(tuck_arms.get("l_shoulder_pan_joint"), Some(&0.2));
 }
 
 /// Dual-arm panda's SRDF has no `<virtual_joint>` element at all — the

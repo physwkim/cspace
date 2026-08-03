@@ -63,6 +63,13 @@
         "end_effector_parent": null
       }
     },
+    "group_states": {
+      "arms": {
+        "tuck_arms": {
+          "l_shoulder_pan_joint": 0.2
+        }
+      }
+    },
     "groups": {
       "arms": [
         "l_shoulder_pan_joint",

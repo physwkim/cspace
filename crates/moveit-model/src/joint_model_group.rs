@@ -7,6 +7,8 @@
 //   moveit_core/robot_model/include/moveit/robot_model/joint_model_group.hpp
 //   moveit_core/robot_model/src/joint_model_group.cpp
 
+use std::collections::{BTreeMap, HashMap};
+
 /// One SRDF `<group>`, resolved against a URDF: the joints and links it
 /// contains, once chains, direct links and subgroups have all been expanded
 /// to the joint set they imply.
@@ -21,21 +23,20 @@
 ///
 /// Upstream's type also carries `joint_roots_`/`common_root_` (kinematic
 /// subtree roots, for `RobotState` FK optimisation), `updated_link_model_*`
-/// (which links move when this group's state changes), `is_chain_`/
-/// `is_single_dof_` (convenience flags derived from the joint set),
-/// `default_states_` (SRDF `<group_state>`) and the kinematics solver
-/// plumbing (`group_kinematics_`). None of those are read by this phase's
-/// done-criteria (link/joint counts, group composition, joint limits, mimic
-/// relationships); they belong to `moveit-state` (Phase 2), the SRDF
-/// group-state element (deferred alongside them), and `moveit-kinematics`
-/// (Phase 4) respectively. `PORTING-PLAN.md` Phase 1 scopes this crate to
-/// "JointModelGroup, 서브그룹, KinematicChain 해석" (subgroups,
-/// kinematic-chain resolution) — both of which this type does carry:
-/// [`JointModelGroup::subgroup_names`] and the `<chain>` element expansion in
-/// `RobotModel`'s group construction. (The end-effector fields
+/// (which links move when this group's state changes) and the kinematics
+/// solver plumbing (`group_kinematics_`). None of those are read by this
+/// phase's done-criteria (link/joint counts, group composition, joint
+/// limits, mimic relationships); they belong to `moveit-state` (Phase 2) and
+/// `moveit-kinematics` (Phase 4) respectively. `PORTING-PLAN.md` Phase 1
+/// scopes this crate to "JointModelGroup, 서브그룹, KinematicChain 해석"
+/// (subgroups, kinematic-chain resolution) — both of which this type does
+/// carry: [`JointModelGroup::subgroup_names`] and the `<chain>` element
+/// expansion in `RobotModel`'s group construction. (The end-effector fields
 /// (`end_effector_name_`, `end_effector_parent_`,
-/// `attached_end_effector_names_`) *are* carried — see
-/// [`JointModelGroup::is_end_effector`].)
+/// `attached_end_effector_names_`) and SRDF `<group_state>` support
+/// (`default_states_`) *are* carried — see
+/// [`JointModelGroup::is_end_effector`] and
+/// [`JointModelGroup::default_state_names`] respectively.)
 #[derive(Debug, Clone, PartialEq)]
 pub struct JointModelGroup {
     pub(crate) name: String,
@@ -52,6 +53,8 @@ pub struct JointModelGroup {
     pub(crate) end_effector_name: Option<String>,
     pub(crate) end_effector_parent: Option<EndEffectorParent>,
     pub(crate) attached_end_effector_names: Vec<String>,
+    pub(crate) default_state_names: Vec<String>,
+    pub(crate) default_states: HashMap<String, BTreeMap<String, f64>>,
 }
 
 /// The group and link a [`JointModelGroup`] end effector is attached to.
@@ -202,5 +205,45 @@ impl JointModelGroup {
     /// matches that.
     pub(crate) fn attach_end_effector(&mut self, eef_name: impl Into<String>) {
         self.attached_end_effector_names.push(eef_name.into());
+    }
+
+    /// `getDefaultStateNames`: the names of the SRDF `<group_state>`s known
+    /// for this group, in document order.
+    ///
+    /// # Deviation from upstream
+    ///
+    /// If the same name is ever added twice (via
+    /// [`JointModelGroup::add_default_state`]), upstream's
+    /// `default_states_names_.push_back(name)` keeps both entries even
+    /// though `default_states_[name]` silently keeps only the later value —
+    /// this port reproduces that duplication exactly, rather than
+    /// deduplicating, since the two names can't be told apart from the
+    /// values alone and a caller iterating this list to look up
+    /// [`JointModelGroup::variable_default_positions`] should see the same
+    /// count upstream does.
+    pub fn default_state_names(&self) -> &[String] {
+        &self.default_state_names
+    }
+
+    /// `getVariableDefaultPositions(name, values)`: the named SRDF
+    /// `<group_state>`'s variable-name-to-value map, or [`None`] if no state
+    /// named `name` was ever added for this group (upstream's `bool` return,
+    /// inverted to an [`Option`]).
+    ///
+    /// The map may not cover every variable in this group: upstream stores
+    /// exactly the variables `RobotModel::buildGroupStates` could resolve
+    /// (a `<joint>` value whose count didn't match the joint's variable
+    /// count, or whose name isn't part of this group, is dropped rather
+    /// than defaulted to a made-up value) and still keeps the state if
+    /// anything at all resolved. A caller must check `contains_key` per
+    /// variable rather than assuming full coverage.
+    pub fn variable_default_positions(&self, name: &str) -> Option<&BTreeMap<String, f64>> {
+        self.default_states.get(name)
+    }
+
+    /// `addDefaultState`.
+    pub(crate) fn add_default_state(&mut self, name: String, state: BTreeMap<String, f64>) {
+        self.default_state_names.push(name.clone());
+        self.default_states.insert(name, state);
     }
 }

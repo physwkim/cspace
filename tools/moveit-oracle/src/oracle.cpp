@@ -214,6 +214,7 @@ private:
 
     out["link_details"] = linkDetails();
     out["group_end_effectors"] = groupEndEffectors();
+    out["group_states"] = groupStates();
 
     return out;
   }
@@ -292,6 +293,29 @@ private:
                                           { "link", parent.second } };
       }
       out[group->getName()] = g;
+    }
+    return out;
+  }
+
+  json groupStates() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+    {
+      json states = json::object();
+      for (const std::string& name : group->getDefaultStateNames())
+      {
+        std::map<std::string, double> values;
+        if (group->getVariableDefaultPositions(name, values))
+        {
+          json vals = json::object();
+          for (const auto& kv : values)
+            vals[kv.first] = kv.second;
+          states[name] = vals;
+        }
+      }
+      if (!states.empty())
+        out[group->getName()] = states;
     }
     return out;
   }
