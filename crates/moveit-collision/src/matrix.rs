@@ -418,7 +418,9 @@ impl AllowedCollisionMatrix {
 
     /// The allowed-collision answer for a pair: the explicit entry if one
     /// exists, [`AllowedCollisionMatrix::entry`], else the combined default
-    /// for the two names, [`AllowedCollisionMatrix::default_for_pair`].
+    /// for the two names (`default_for_pair`/`combine_defaults`, both
+    /// private: they are internal helpers with no reason to be exposed on
+    /// their own).
     ///
     /// Upstream `getAllowedCollision(const std::string&, const std::string&,
     /// AllowedCollision::Type&)` and the `DecideContactFn&` overload, unified.

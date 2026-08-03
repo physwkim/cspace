@@ -581,7 +581,8 @@ impl World {
     /// (`new_pose = transform * old_pose`). Upstream `moveObject`.
     ///
     /// See [`MoveObjectOutcome`] for how this reproduces upstream's
-    /// early-exit on a transform that [`eigen_is_approx`] to the identity.
+    /// early-exit on a transform that `eigen_is_approx`s to the identity —
+    /// see the module docs, deviation 10, for the exact formula.
     pub fn move_object(&mut self, id: &str, transform: Isometry3) -> MoveObjectOutcome {
         let Some(old_pose) = self.objects.get(id).map(|o| o.pose) else {
             return MoveObjectOutcome::NotFound;
