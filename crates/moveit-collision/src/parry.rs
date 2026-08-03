@@ -327,7 +327,7 @@ use parry3d_f64::math::{Pose, Vector as ParryVector};
 use parry3d_f64::query::{self, Contact as ParryContact};
 use parry3d_f64::shape::{
     Ball, Cone as ParryCone, Cuboid as ParryCuboid, Cylinder as ParryCylinder, HalfSpace,
-    Shape as ParryShape, SharedShape, Triangle as ParryTriangle, TriMesh,
+    Shape as ParryShape, SharedShape, TriMesh, Triangle as ParryTriangle,
 };
 
 use crate::common::{
