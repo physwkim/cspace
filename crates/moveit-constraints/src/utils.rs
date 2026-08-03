@@ -60,11 +60,23 @@
 //! `a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects`
 //! test proves `PlanningScene::transforms_with_world_objects` flows into
 //! [`PositionConstraint::new`] correctly, but nothing in this workspace
-//! calls it outside that test
-//! (`rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`
-//! finds no hit outside a `#[cfg(test)]` block). That is not a gap this
-//! crate's construction functions leave open — upstream never pairs the two
-//! either, in any code this port's scope reaches:
+//! calls it outside that test.
+//! `rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`
+//! prints **28** lines, not zero — `--glob '!*/tests/*'` only excludes the
+//! `tests/` integration-test directories, and every one of these three
+//! files' `#[cfg(test)]` unit-test modules lives inside `src/`. Sorted by
+//! whether each hit falls before or after its own file's `#[cfg(test)]`
+//! line (`moveit-scene/src/scene.rs:1769`,
+//! `moveit-planners-sbp/src/planning_scene_validity.rs:144`), the 28 are:
+//! 16 inside `scene.rs`'s own unit tests, 5 inside
+//! `planning_scene_validity.rs`'s, 3 in this module's own doc-comment prose
+//! (the sentence you are reading now, self-matching), and 4 in `scene.rs`
+//! outside any test module — of which 3 are `///` doc comments naming the
+//! function and only one, `scene.rs:791`, is the function's own `pub fn`
+//! definition. That definition is the sole non-test, non-doc-comment code
+//! hit; it is not a gap this crate's construction functions leave open —
+//! upstream never pairs the two either, in any code this port's scope
+//! reaches:
 //!
 //! - `constructGoalConstraints`'s implementation
 //!   (`moveit_core/kinematic_constraints/src/utils.cpp`) never references
