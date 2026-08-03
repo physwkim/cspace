@@ -85,11 +85,26 @@ pub struct PathValidity {
 ///
 /// ## Frames
 ///
-/// - `getPlanningFrame` — unported: reads `scene_transforms_`'s target
-///   frame, the same TF tier [`PlanningScene::frame_transform`]'s own doc
-///   already records this port as missing.
-/// - `getTransforms`/`getTransformsNonConst` — unported, same TF-tier gap;
-///   no `Transforms`/`SceneTransforms` type exists in this port.
+/// - `getPlanningFrame`/`getTransforms`/`getTransformsNonConst` — unported,
+///   and **not D1 on its face**: `moveit_core/transforms` (the `Transforms`
+///   class -- `FixedTransformsMap`, `setTransform`/`setAllTransforms`/
+///   `getTransform`/`canTransform`/`isFixedFrame`/`sameFrame`) has no crate
+///   anywhere in this workspace. Its storage is `std::map<std::string,
+///   Eigen::Isometry3d>` -- no ROS message type. Searched every writer of
+///   `scene_transforms_`'s *content* in `planning_scene.cpp`: the ones that
+///   originate content are message-fed (`scene_msg.fixed_frame_transforms`
+///   at `:1334`/`:1383`) or copy an existing scene's map
+///   (`:344`/`:687`/`:1264`) -- but `getTransformsNonConst`
+///   (`planning_scene.hpp:200`) is itself public and returns a mutable
+///   `Transforms&`, and the base class's `setTransform(const
+///   Eigen::Isometry3d&, const std::string&)` (`transforms.hpp:113`) takes
+///   no ROS type at all. So a D1-scope caller holding `&mut PlanningScene`
+///   can seed a fixed frame with zero messages --
+///   `scene.getTransformsNonConst().setTransform(iso, "frame")` is real,
+///   public, non-ROS upstream API this port has no equivalent for. This is
+///   a genuine hole, not a covered D1 exclusion; see
+///   [`PlanningScene::frame_transform`]'s own doc for the resolution tier it
+///   costs. Not built this round -- establishing the gap, not closing it.
 /// - `getFrameTransform` (id-only, and explicit-`RobotState` overloads) —
 ///   ported as [`PlanningScene::frame_transform`]; the explicit-state
 ///   overloads collapse into the self-state form the same way collision
@@ -825,13 +840,19 @@ impl<'m> PlanningScene<'m> {
     ///    global pose
     /// 5. a world object id or object subframe -- [`World::get_transform`]
     ///
-    /// # Deviation from upstream: no TF tier
+    /// # Deviation from upstream: no extra-fixed-frame tier
     ///
-    /// Upstream falls through to `Transforms::getTransform` (`tf2`, D1 —
-    /// this is a ROS-independent core crate) as a final resort. This port
-    /// has no `Transforms` type carrying named frames from TF, so a name
-    /// that resolves in none of tiers 1-5 is [`Error::UnknownName`] here,
-    /// where upstream would still consult TF before giving up.
+    /// Upstream falls through to `Transforms::getTransform`
+    /// (`planning_scene.cpp:2050`, the base class -- not the
+    /// `SceneTransforms::getTransform` override tiers 3-4 above delegate to)
+    /// as a final resort. That tier is **not D1**: its storage is
+    /// `Eigen::Isometry3d`/`std::map`, no ROS message type, and it is
+    /// publicly writable message-free via `getTransformsNonConst` (see the
+    /// "Frames" section of this type's scope doc for the full evidence). It
+    /// stays unported because `moveit_core/transforms` has no crate in this
+    /// workspace at all, not because D1 excludes it. A name that resolves in
+    /// none of tiers 1-5 is [`Error::UnknownName`] here, where upstream
+    /// would still consult this sixth tier before giving up.
     ///
     /// # Errors
     ///
@@ -858,7 +879,8 @@ impl<'m> PlanningScene<'m> {
     /// would resolve `frame_id`, without computing a fresh transform (a pure
     /// name lookup — needs no [`PlanningScene::current_state_mut`], unlike
     /// `frame_transform` itself). Upstream `planning_scene.cpp:2061`, the
-    /// same tiers 1-5, tier 6 (TF) excluded for the same reason.
+    /// same tiers 1-5, tier 6 (the extra-fixed-frame map) excluded for the
+    /// same reason -- see `frame_transform`'s own doc.
     ///
     /// # The model frame is checked directly, not through tier 1's `RobotState`
     ///
@@ -876,20 +898,20 @@ impl<'m> PlanningScene<'m> {
     ///
     /// Upstream does not have that gap: its `PlanningScene::
     /// knowsFrameTransform` reaches `true` for the model frame anyway, but
-    /// through the *TF tier* -- `SceneTransforms`'s base `Transforms`
-    /// constructor seeds `transforms_map_[target_frame_] = Identity()` with
-    /// `target_frame_` set to the model frame
+    /// through the *extra-fixed-frame tier* -- `SceneTransforms`'s base
+    /// `Transforms` constructor seeds `transforms_map_[target_frame_] =
+    /// Identity()` with `target_frame_` set to the model frame
     /// (`planning_scene.cpp`'s `SceneTransforms` ctor forwards
-    /// `getRobotModel()->getModelFrame()`), so the otherwise-empty TF map
+    /// `getRobotModel()->getModelFrame()`), so the otherwise-empty map
     /// always trivially "knows" its own target frame. This is not a guess:
     /// it was confirmed live against the oracle's `frame_transform` op
     /// (`knows_transform: true` for `"world"` on panda, with no attached
     /// bodies or world objects registered at all) after the naive port
     /// above returned `false` for the same request.
     ///
-    /// This port has no TF tier to reproduce that mechanism with (see
-    /// `frame_transform`'s own "no TF tier" deviation), so it reproduces the
-    /// *result* directly instead: `frame_id == model_frame` is checked
+    /// This port has no such tier to reproduce that mechanism with (see
+    /// `frame_transform`'s own "no extra-fixed-frame tier" deviation), so it
+    /// reproduces the *result* directly instead: `frame_id == model_frame` is checked
     /// before tier 1, keeping this method in agreement with
     /// `frame_transform` on the model frame the way upstream's two methods
     /// agree with each other, rather than carrying `RobotState`'s narrower
