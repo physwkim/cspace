@@ -126,6 +126,58 @@
 //! once those types exist, and upstream's own test coverage for [`OBB`]
 //! (`test_bounding_box.cpp`'s `MergeBoundingBoxes` suite) runs through them.
 //!
+//! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
+//!
+//! Members not already named above, classified:
+//!
+//! - `Body::getType()` — **subsumed by D4.** A caller matches on [`Body`]'s
+//!   variant directly (`matches!(body, Body::Sphere(_))`, or the `match`
+//!   arms every dispatch method here already uses) instead of comparing a
+//!   `ShapeType` tag that D4 makes impossible to desync from the real type
+//!   in the first place. `collision_distance_field_types.cpp:63`'s
+//!   `if (body->getType() == shapes::ShapeType::SPHERE)` is the one in-scope
+//!   caller (`moveit-distance-field`'s port this round, not this crate's).
+//! - `setScaleDirty`/`setPaddingDirty`/`setPoseDirty`/`setDimensionsDirty`
+//!   (the batch-then-`updateInternalData()` half of each setter pair) —
+//!   **subsumed by the "no dirty/clean setter pair" design** (see below):
+//!   every setter here recomputes eagerly, so there is no separate `*Dirty`
+//!   entry point to port.
+//! - `containsPoint(double x, double y, double z, bool verbose = false)`
+//!   (the raw-coordinate convenience overload) and the `verbose` parameter
+//!   on both `containsPoint` overloads — **unported.** The 3-`double`
+//!   overload is a one-line wrapper that builds an `Eigen::Vector3d` and
+//!   forwards; callers here already pass `&Vector3` directly, so there is
+//!   nothing the wrapper would save. `verbose` only ever
+//!   `CONSOLE_BRIDGE_logDebug`s inside `containsPoint`'s per-body
+//!   implementations; this crate does not log (the same reasoning already
+//!   given for `print()`), so there is no destination for the message that
+//!   parameter would enable.
+//! - `useDimensions` (protected) — **subsumed**, folded into each concrete
+//!   body's own constructor/`recompute`, since this port never constructs an
+//!   empty [`Body`] and fills its dimensions in a second step the way
+//!   `createEmptyBodyFromShapeType` + `setDimensionsDirty` does.
+//! - `cloneAt` (both overloads) — **ported** as [`Sphere::clone_at`]/
+//!   [`Cylinder::clone_at`]/[`Cuboid::clone_at`]/[`ConvexMesh::clone_at`]
+//!   (the 1-arg, current-padding-and-scale overload) and each type's
+//!   `clone_at_with` (the 3-arg overload).
+//! - `ConvexMesh::getTriangles`/`getVertices`/`getScaledVertices`/`getPlanes`
+//!   — **ported** as [`ConvexMesh::triangles`]/[`ConvexMesh::vertices`]/
+//!   [`ConvexMesh::scaled_vertices`]/[`ConvexMesh::planes`] (deviation 2
+//!   above covers where the last two cannot match 1:1).
+//! - `ConvexMesh::computeScaledVerticesFromPlaneProjections` — **unported,
+//!   dead code upstream.** See the provenance comment at the top of this
+//!   file for the disassembly-level proof that it is never called from
+//!   anywhere in the shipped binary; [`ConvexMesh`]'s own `recompute` already
+//!   matches `updateInternalData()`'s actual (simpler, radial-scaling) inline
+//!   logic instead.
+//! - `ConvexMesh::correctVertexOrderFromPlanes` — **not needed**, per
+//!   deviation 2 above: `parry3d-f64`'s `try_convex_hull` already guarantees
+//!   CCW winding, so there is no per-facet vertex-order correction to make.
+//! - `ConvexMesh::countVerticesBehindPlane` — **unported.** Its own doc
+//!   comment upstream calls it "used mainly for debugging"; `rg -n
+//!   'countVerticesBehindPlane' /home/stevek/work/moveit2` returns no hits —
+//!   zero callers anywhere in the pinned tree.
+//!
 //! ## `body_operations.h` symbol audit (round 8)
 //!
 //! The remaining 4 of `body_operations.h`'s 11 declarations, classified:
