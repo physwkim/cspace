@@ -182,6 +182,40 @@
 //! symbol or fixture cannot be placed in one of those buckets, this section
 //! is stale and needs re-auditing before the plan is updated to match it.
 //!
+//! ## The `max_relative` trap (PORTING-PLAN.md §79)
+//!
+//! Diagnosed in this crate first (§71.2/§78.2), then found to be
+//! workspace-wide (§79): `approx`'s `assert_relative_eq!(a, b, epsilon =
+//! X)` does not compare against `X` alone. Its real pass condition is
+//! `|a - b| <= epsilon` **or** `|a - b| <= max_relative * max(|a|, |b|)`,
+//! and any call that omits `max_relative` gets `max_relative =
+//! f64::EPSILON` (~2.22e-16) silently. Bisecting `epsilon` alone toward
+//! `0.0` to find a tolerance's true binding point is unreliable for exactly
+//! this reason: once `epsilon` drops below `f64::EPSILON * max(|a|, |b|)`,
+//! the implicit `max_relative` term takes over and the assertion keeps
+//! passing regardless of how low `epsilon` goes — not because the values
+//! agree to that precision, but because the second, unnamed tolerance term
+//! is still covering the real difference. This crate's own `RADIUS_TOL`
+//! (see `collision_env_distance_field_parity.rs`'s doc comment) bisected
+//! all the way to `0.0` before this was understood, and only revealed its
+//! real floor (between `1e-18` and `1e-17`) once `max_relative` was pinned
+//! to the same named constant explicitly.
+//!
+//! Two exits, per call site: pin `max_relative` to the same named constant
+//! as `epsilon` (closes the trap, keeps the comparison a real gate at
+//! whatever value the constant is bisected to), or — if bisecting `epsilon`
+//! together with an explicit `max_relative` still finds no binding point
+//! above `0.0` — drop the tolerance entirely and use `assert_eq!` instead,
+//! as `oracle_parity.rs` and `collision_sphere_free_functions_parity.rs` do
+//! (see the "Exactness" section of `oracle_parity.rs`'s own module doc). A
+//! call site is *not* automatically defective for lacking `max_relative`:
+//! `upstream_parity.rs`'s 7 calls use upstream's own literal `EXPECT_NEAR`
+//! values (`0.0001`, `0.1`), which stay 12+ orders of magnitude above any
+//! magnitude this file's 1x1x1 meter grid can produce, so the implicit term
+//! can never dominate there — checked by bisecting all 7 to `0.0` together,
+//! which fails immediately, confirming the named epsilon is what is
+//! actually gating those assertions, not `approx`'s default.
+//!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
 //! Re-run by re-reading the headers fresh, not by inferring from what is
