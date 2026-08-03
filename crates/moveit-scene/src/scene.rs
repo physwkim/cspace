@@ -15,7 +15,7 @@ use moveit_collision::{
 };
 use moveit_constraints::KinematicConstraintSet;
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Shape};
+use moveit_geometry::{Isometry3, Shape, Transforms};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
 use moveit_state::{Posed, RobotState};
@@ -85,35 +85,40 @@ pub struct PathValidity {
 ///
 /// ## Frames
 ///
-/// - `getPlanningFrame`/`getTransforms`/`getTransformsNonConst` — unported,
-///   and **not D1 on its face**: `moveit_core/transforms` (the `Transforms`
-///   class -- `FixedTransformsMap`, `setTransform`/`setAllTransforms`/
-///   `getTransform`/`canTransform`/`isFixedFrame`/`sameFrame`) has no crate
-///   anywhere in this workspace. Its storage is `std::map<std::string,
-///   Eigen::Isometry3d>` -- no ROS message type. Searched every writer of
-///   `scene_transforms_`'s *content* in `planning_scene.cpp`: the ones that
-///   originate content are message-fed (`scene_msg.fixed_frame_transforms`
-///   at `:1334`/`:1383`) or copy an existing scene's map
-///   (`:344`/`:687`/`:1264`) -- but `getTransformsNonConst`
-///   (`planning_scene.hpp:200`) is itself public and returns a mutable
-///   `Transforms&`, and the base class's `setTransform(const
-///   Eigen::Isometry3d&, const std::string&)` (`transforms.hpp:113`) takes
-///   no ROS type at all. So a D1-scope caller holding `&mut PlanningScene`
-///   can seed a fixed frame with zero messages --
-///   `scene.getTransformsNonConst().setTransform(iso, "frame")` is real,
-///   public, non-ROS upstream API this port has no equivalent for. This is
-///   a genuine hole, not a covered D1 exclusion; see
-///   [`PlanningScene::frame_transform`]'s own doc for the resolution tier it
-///   costs. Not built this round -- establishing the gap, not closing it.
+/// - `getPlanningFrame` — ported as [`PlanningScene::planning_frame`].
+/// - `getTransforms`/`getTransformsNonConst` — ported as
+///   [`PlanningScene::transforms`]/[`PlanningScene::transforms_mut`],
+///   returning `&`/`&mut` [`moveit_geometry::Transforms`]. That type is a
+///   pre-existing, already-tested port of the ROS-free core of upstream
+///   `moveit_core/transforms` (`crates/moveit-geometry/src/transforms.rs`,
+///   present since this workspace's first commits) -- an earlier revision
+///   of this doc claimed no such crate existed anywhere in this workspace;
+///   that claim was wrong, and this round found and corrected it rather
+///   than building a second, duplicate implementation here.
+///   `setTransform(const Eigen::Isometry3d&, const std::string&)` (the
+///   message-free overload -- `transforms.hpp:113`) and
+///   `setAllTransforms`/`getAllTransforms` are ported as
+///   [`moveit_geometry::Transforms::set_transform`]/
+///   [`set_all_transforms`](moveit_geometry::Transforms::set_all_transforms)/
+///   [`all_transforms`](moveit_geometry::Transforms::all_transforms) on that
+///   type directly, reachable here via `getTransformsNonConst`'s mutable
+///   accessor. `setTransform(TransformStamped)` and `copyTransforms` — D1
+///   (`geometry_msgs::msg::TransformStamped`).
 /// - `getFrameTransform` (id-only, and explicit-`RobotState` overloads) —
 ///   ported as [`PlanningScene::frame_transform`]; the explicit-state
 ///   overloads collapse into the self-state form the same way collision
 ///   checking's const/non-const pairs collapse below — upstream's own
 ///   id-only overload already delegates to the explicit-state one against
-///   `getCurrentState()` (`planning_scene.cpp:2019`/`:2036`).
+///   `getCurrentState()` (`planning_scene.cpp:2019`/`:2036`). Its third
+///   tier, `getTransforms().Transforms::getTransform(frame_id)`
+///   (`:2050`), is now [`PlanningScene::frame_transform`]'s own tier 6 --
+///   see that method's doc for how the non-recursion upstream's explicit
+///   `Transforms::` qualifier enforces is reproduced structurally here.
 /// - `knowsFrameTransform` (id-only, and explicit-state) — ported as
 ///   [`PlanningScene::knows_frame_transform`]; same collapse
-///   (`planning_scene.cpp:2056`/`:2061`).
+///   (`planning_scene.cpp:2056`/`:2061`); see that method's doc for the
+///   `SceneTransforms::isFixedFrame` override this port does not reproduce,
+///   and why.
 ///
 /// ## World, collision detector, ACM
 ///
@@ -419,6 +424,13 @@ pub struct PlanningScene<'m> {
     /// `nullptr unless this is a diff scene`.
     world_diff: Option<WorldDiff>,
     acm: Layered<AllowedCollisionMatrix>,
+    /// The extra-fixed-frame map: this scene's own, or the parent's.
+    /// Upstream `scene_transforms_`, a `SceneTransformsPtr` reset at
+    /// [`PlanningScene::diff`] time (`planning_scene.cpp:1264`) exactly like
+    /// [`PlanningScene::current_state`] and
+    /// [`PlanningScene::allowed_collision_matrix`] above, so it gets the
+    /// same [`Layered`] treatment.
+    transforms: Layered<Transforms>,
     /// Never layered: every scene, root or child, owns its own copy,
     /// seeded by cloning the parent's at [`PlanningScene::diff`] time — the
     /// same "always owned, seeded by clone" treatment upstream gives
@@ -441,6 +453,8 @@ impl<'m> PlanningScene<'m> {
     pub fn with_world(robot_model: &'m RobotModel, srdf: &SrdfModel, world: World) -> Self {
         let mut robot_state = RobotState::new(robot_model);
         robot_state.set_to_default_values();
+        let transforms = Transforms::new(robot_model.model_frame())
+            .expect("RobotModel::model_frame is non-empty by construction");
         Self {
             name: String::new(),
             parent: None,
@@ -449,6 +463,7 @@ impl<'m> PlanningScene<'m> {
             world,
             world_diff: None,
             acm: Layered::Own(AllowedCollisionMatrix::from_srdf(srdf)),
+            transforms: Layered::Own(transforms),
             attached_bodies: BTreeMap::new(),
         }
     }
@@ -536,6 +551,44 @@ impl<'m> PlanningScene<'m> {
     /// Replace the ACM outright. Upstream `setAllowedCollisionMatrix`.
     pub fn set_allowed_collision_matrix(&mut self, acm: AllowedCollisionMatrix) {
         self.acm = Layered::Own(acm);
+    }
+
+    // ---- transforms ---------------------------------------------------
+
+    /// The extra-fixed-frame map: this scene's own, or the parent's.
+    /// Upstream `getTransforms`.
+    pub fn transforms(&self) -> &Transforms {
+        self.transforms.resolve(|| {
+            self.parent
+                .as_ref()
+                .expect("Layered::Inherited transforms requires a parent scene")
+                .transforms()
+        })
+    }
+
+    /// Mutable access to the extra-fixed-frame map, materializing this
+    /// scene's own copy first if it was inherited. Upstream
+    /// `getTransformsNonConst`.
+    pub fn transforms_mut(&mut self) -> &mut Transforms {
+        if !self.transforms.is_own() {
+            let cloned = self.transforms().clone();
+            self.transforms = Layered::Own(cloned);
+        }
+        match &mut self.transforms {
+            Layered::Own(transforms) => transforms,
+            Layered::Inherited => unreachable!("just materialized above"),
+        }
+    }
+
+    /// The frame every [`PlanningScene::transforms`] entry maps into, and
+    /// the frame [`PlanningScene::frame_transform`] resolves everything
+    /// against. Upstream `getPlanningFrame`, which returns the target frame
+    /// the scene's `SceneTransforms` was constructed with -- always the
+    /// robot model's frame, since that is the only value
+    /// `PlanningScene::initialize` ever passes to it
+    /// (`planning_scene.cpp:192`).
+    pub fn planning_frame(&self) -> &str {
+        self.transforms().target_frame()
     }
 
     // ---- world ------------------------------------------------------------
@@ -839,20 +892,24 @@ impl<'m> PlanningScene<'m> {
     /// 4. an attached-body subframe (`"<id>/<subframe>"`) -- that subframe's
     ///    global pose
     /// 5. a world object id or object subframe -- [`World::get_transform`]
+    /// 6. the extra-fixed-frame map -- [`PlanningScene::transforms`],
+    ///    [`moveit_geometry::Transforms::transform`]
     ///
-    /// # Deviation from upstream: no extra-fixed-frame tier
-    ///
-    /// Upstream falls through to `Transforms::getTransform`
+    /// Tier 6 closes the "no extra-fixed-frame tier" deviation §59.1/§59.2
+    /// found: upstream falls through to `Transforms::getTransform`
     /// (`planning_scene.cpp:2050`, the base class -- not the
     /// `SceneTransforms::getTransform` override tiers 3-4 above delegate to)
-    /// as a final resort. That tier is **not D1**: its storage is
-    /// `Eigen::Isometry3d`/`std::map`, no ROS message type, and it is
-    /// publicly writable message-free via `getTransformsNonConst` (see the
-    /// "Frames" section of this type's scope doc for the full evidence). It
-    /// stays unported because `moveit_core/transforms` has no crate in this
-    /// workspace at all, not because D1 excludes it. A name that resolves in
-    /// none of tiers 1-5 is [`Error::UnknownName`] here, where upstream
-    /// would still consult this sixth tier before giving up.
+    /// as a final resort, and [`moveit_geometry::Transforms`] already ported
+    /// that exact base class (`crates/moveit-geometry/src/transforms.rs`,
+    /// present since this workspace's very first commits -- §59's "no crate
+    /// exists" claim was wrong, missed by both the brief and this audit; see
+    /// [`PlanningScene::transforms`]'s doc). No polymorphism is needed to
+    /// call it non-recursively the way upstream's explicit `Transforms::`
+    /// qualification is: this method's own tier 6 call is a plain field
+    /// method call on [`moveit_geometry::Transforms`], which has no path
+    /// back into [`PlanningScene::frame_transform`] to recurse through --
+    /// the non-recursion upstream enforces with a qualifier is structural
+    /// here, by construction, not by convention.
     ///
     /// # Errors
     ///
@@ -872,7 +929,11 @@ impl<'m> PlanningScene<'m> {
             return Ok(link_transform * local_pose);
         }
 
-        self.world.get_transform(frame_id)
+        if let Ok(transform) = self.world.get_transform(frame_id) {
+            return Ok(transform);
+        }
+
+        self.transforms().transform(frame_id).copied()
     }
 
     /// `knowsFrameTransform`: whether [`PlanningScene::frame_transform`]
@@ -906,22 +967,44 @@ impl<'m> PlanningScene<'m> {
     /// always trivially "knows" its own target frame. This is not a guess:
     /// it was confirmed live against the oracle's `frame_transform` op
     /// (`knows_transform: true` for `"world"` on panda, with no attached
-    /// bodies or world objects registered at all) after the naive port
-    /// above returned `false` for the same request.
+    /// bodies or world objects registered at all) after a naive port
+    /// without this tier returned `false` for the same request.
     ///
-    /// This port has no such tier to reproduce that mechanism with (see
-    /// `frame_transform`'s own "no extra-fixed-frame tier" deviation), so it
-    /// reproduces the *result* directly instead: `frame_id == model_frame` is checked
-    /// before tier 1, keeping this method in agreement with
-    /// `frame_transform` on the model frame the way upstream's two methods
-    /// agree with each other, rather than carrying `RobotState`'s narrower
-    /// asymmetry up to the scene level where upstream does not have it.
+    /// [`PlanningScene::transforms`] closes this gap for real: its
+    /// [`moveit_geometry::Transforms::new`] seeds the identity entry for the
+    /// model frame exactly as `SceneTransforms`'s constructor does, so
+    /// `self.transforms().can_transform(frame_id)` reaches `true` for the
+    /// model frame through the same mechanism upstream uses, not a
+    /// restated special case. The old `frame_id == model_frame` check this
+    /// doc used to justify is now redundant and removed.
+    ///
+    /// # `SceneTransforms::isFixedFrame`'s leading-`/` and object-frame
+    /// delegation: not ported, and here is the falsifier
+    ///
+    /// Upstream `SceneTransforms` also overrides `isFixedFrame`
+    /// (`planning_scene.cpp:123-135`) to strip a leading `/` and consult
+    /// `knowsObjectFrame` before falling back to the base class. That
+    /// override exists so that code holding a bare `moveit::core::
+    /// Transforms&` -- not knowing it is actually scene-backed -- still
+    /// gets scene-aware answers. Searching all of `moveit_core` for
+    /// `isFixedFrame` callers (`rg isFixedFrame`) finds exactly one:
+    /// `kinematic_constraints/kinematic_constraint.cpp` (`:382`, `:622`,
+    /// `:848`, `:861`), always as `tf.isFixedFrame(header.frame_id)` where
+    /// `header.frame_id` comes off a ROS message and `tf` is the
+    /// `Transforms&` `configure()` was handed. That crate is unported here
+    /// (D1-adjacent per the round-7 crate-consumer table: "`configure(msg,
+    /// tf)` only") and nothing else in `moveit_core` calls `isFixedFrame`
+    /// polymorphically. With zero reachable callers in this workspace, a
+    /// `PlanningScene`-side override of [`moveit_geometry::Transforms`]'s
+    /// `can_transform` would be speculative code with no caller to
+    /// exercise it -- so it stays unported until `kinematic_constraints`
+    /// (or an equivalent consumer) lands and actually needs it.
     pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
         let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
-        frame_id == self.robot_model.model_frame()
-            || self.current_state().knows_frame_transform(frame_id)
+        self.current_state().knows_frame_transform(frame_id)
             || self.attached_frame(frame_id).is_some()
             || self.world.knows_transform(frame_id)
+            || self.transforms().can_transform(frame_id)
     }
 
     // ---- collision checking -----------------------------------------------
@@ -1296,6 +1379,7 @@ impl<'m> PlanningScene<'m> {
             world: self.world.clone(),
             world_diff: Some(WorldDiff::new()),
             acm: Layered::Inherited,
+            transforms: Layered::Inherited,
             attached_bodies: self.attached_bodies.clone(),
         }
     }
@@ -1876,7 +1960,7 @@ mod tests {
         assert!(diff.is_empty());
     }
 
-    // ---- frames: the five-tier ladder ----------------------------------------
+    // ---- frames: the six-tier ladder ----------------------------------------
 
     #[test]
     fn frame_transform_resolves_the_model_frame_and_a_link_name() {
@@ -2016,6 +2100,93 @@ mod tests {
             scene.frame_transform("dup").unwrap(),
             Isometry3::translation(0.0, 0.0, 1.0)
         );
+    }
+
+    #[test]
+    fn frame_transform_falls_through_to_the_extra_fixed_frame_map() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .transforms_mut()
+            .set_transform(Isometry3::translation(5.0, 0.0, 0.0), "map")
+            .unwrap();
+
+        assert_eq!(
+            scene.frame_transform("map").unwrap(),
+            Isometry3::translation(5.0, 0.0, 0.0)
+        );
+        assert!(scene.knows_frame_transform("map"));
+    }
+
+    #[test]
+    fn frame_transform_tier_six_absent_name_is_still_unknown() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .transforms_mut()
+            .set_transform(Isometry3::translation(5.0, 0.0, 0.0), "map")
+            .unwrap();
+
+        assert!(scene.frame_transform("no_such_frame").is_err());
+        assert!(!scene.knows_frame_transform("no_such_frame"));
+    }
+
+    #[test]
+    fn frame_transform_tier_six_empty_name_is_unknown() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        assert!(scene.frame_transform("").is_err());
+        assert!(!scene.knows_frame_transform(""));
+    }
+
+    #[test]
+    fn frame_transform_leading_slash_reaches_the_extra_fixed_frame_map() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .transforms_mut()
+            .set_transform(Isometry3::translation(5.0, 0.0, 0.0), "map")
+            .unwrap();
+
+        // Both `frame_transform` and `knows_frame_transform` strip a leading
+        // `/` before dispatching to any tier -- confirmed here through tier
+        // 6 specifically, since the earlier tiers already cover it for link
+        // names via the model-frame test above.
+        assert_eq!(
+            scene.frame_transform("/map").unwrap(),
+            Isometry3::translation(5.0, 0.0, 0.0)
+        );
+        assert!(scene.knows_frame_transform("/map"));
+    }
+
+    #[test]
+    fn frame_transform_prefers_the_link_tier_over_a_same_named_extra_fixed_frame() {
+        // "hand" is a real link. Registering "hand" in the extra-fixed-frame
+        // map too must not shadow the link tier -- tier 2 (link names) runs
+        // strictly before tier 6 (the extra-fixed-frame map) in the ladder,
+        // matching upstream's order (`state.getFrameTransform` before
+        // `getTransforms().Transforms::getTransform`,
+        // `planning_scene.cpp:2036`/`:2050`).
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .transforms_mut()
+            .set_transform(Isometry3::translation(9.0, 9.0, 9.0), "hand")
+            .unwrap();
+
+        assert_eq!(
+            scene.frame_transform("hand").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn planning_frame_is_the_model_frame() {
+        let model = build_model();
+        let scene = PlanningScene::new(&model, &srdf());
+        assert_eq!(scene.planning_frame(), model.model_frame());
+        assert_eq!(scene.planning_frame(), "base");
     }
 
     // ---- collision checking -----------------------------------------------
