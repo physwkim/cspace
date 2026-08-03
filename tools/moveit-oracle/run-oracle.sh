@@ -8,22 +8,25 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
-IMAGE="${IMAGE:-moveit-rs/oracle:latest}"
+
+# shellcheck source=tools/moveit-oracle/src-digest.sh
+source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
 
 # An image built from older oracle sources answers with old behaviour and no
 # error, so a fixture captured against it is wrong in a way nothing downstream
-# can see. Compare the source digest the image was stamped with (see the
-# Dockerfile) against the working tree before handing it any work.
-# Paths must be relative: sha256sum hashes the name alongside the bytes, and
-# the sources sit at /ws/oracle-src in the image but under the repo here.
-want="$(cd "$REPO_ROOT/tools/moveit-oracle" \
-        && find . -type f \
-             \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name 'CMakeLists.txt' \) \
-             -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+# can see. The tag is derived from this tree's oracle sources, so a worktree
+# with different sources resolves to a different image rather than to whatever
+# another worktree built last.
+want="$(oracle_src_digest "$REPO_ROOT/tools/moveit-oracle")"
+IMAGE="${IMAGE:-$(oracle_image_tag "$want")}"
+
+# The tag alone would be enough if tags were immutable; they are not, so the
+# stamp inside the image is still what is trusted. This also catches an image
+# predating the stamp entirely.
 have="$(docker run --rm --entrypoint cat "$IMAGE" /usr/local/share/oracle-src.sha256 2>/dev/null || true)"
 if [[ "$have" != "$want" ]]; then
   echo "$IMAGE was built from different oracle sources than the working tree" >&2
-  echo "  image: ${have:-<unstamped, predates this check>}" >&2
+  echo "  image: ${have:-<missing or unstamped>}" >&2
   echo "  tree:  $want" >&2
   echo "rebuild with tools/moveit-oracle/build.sh" >&2
   exit 1

@@ -9,8 +9,18 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
-IMAGE="${IMAGE:-moveit-rs/oracle:latest}"
 MOVEIT2_SHA="${MOVEIT2_SHA:-e017c91ee12984393a28ba246075c65f69cde3bf}"
+
+# shellcheck source=tools/moveit-oracle/src-digest.sh
+source "$REPO_ROOT/tools/moveit-oracle/src-digest.sh"
+
+# Tagged by source digest, not `:latest`. Several worktrees share this docker
+# daemon, and more than one of them edits the oracle's C++ at a time; a single
+# mutable tag means whoever built last is silently everyone's oracle, and a
+# sweep running across robots can have the image swapped under it between two
+# of them.
+SRC_DIGEST="$(oracle_src_digest "$REPO_ROOT/tools/moveit-oracle")"
+IMAGE="${IMAGE:-$(oracle_image_tag "$SRC_DIGEST")}"
 
 have_sha="$(git -C "$MOVEIT2_SRC" rev-parse HEAD)"
 if [[ "$have_sha" != "$MOVEIT2_SHA" ]]; then
