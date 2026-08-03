@@ -3597,7 +3597,11 @@ private:
   /// constructed entirely on the Rust test side from these primitives.
   /// Shared by octomapOp and octreeInWorld so the two ops agree on what "the
   /// same actions" means: update_point, update_key, insert_ray, prune,
-  /// update_inner_occupancy.
+  /// update_inner_occupancy, set_occupancy_thres, set_prob_hit,
+  /// set_prob_miss, set_clamping_thres_min, set_clamping_thres_max (the
+  /// five `{"prob": <double>}` sensor-model setters moveit-octomap's round
+  /// 15 ports -- ground truth for their effect on later hits/misses and on
+  /// `isNodeOccupied`'s boundary, not merely on this port's own arithmetic).
   static void applyOctomapActions(octomap::OcTree& tree, const json& actions)
   {
     for (const auto& action : actions)
@@ -3631,6 +3635,26 @@ private:
       {
         tree.updateInnerOccupancy();
       }
+      else if (type == "set_occupancy_thres")
+      {
+        tree.setOccupancyThres(action.at("prob").get<double>());
+      }
+      else if (type == "set_prob_hit")
+      {
+        tree.setProbHit(action.at("prob").get<double>());
+      }
+      else if (type == "set_prob_miss")
+      {
+        tree.setProbMiss(action.at("prob").get<double>());
+      }
+      else if (type == "set_clamping_thres_min")
+      {
+        tree.setClampingThresMin(action.at("prob").get<double>());
+      }
+      else if (type == "set_clamping_thres_max")
+      {
+        tree.setClampingThresMax(action.at("prob").get<double>());
+      }
       else
       {
         throw std::runtime_error("octomap: unsupported action type " + type);
@@ -3655,8 +3679,10 @@ private:
         if (node == nullptr)
           results.push_back(json{ { "mapped", false } });
         else
-          results.push_back(
-              json{ { "mapped", true }, { "log_odds", node->getLogOdds() }, { "occupancy", node->getOccupancy() } });
+          results.push_back(json{ { "mapped", true },
+                                   { "log_odds", node->getLogOdds() },
+                                   { "occupancy", node->getOccupancy() },
+                                   { "occupied", tree.isNodeOccupied(node) } });
       }
       else if (type == "occupancy_by_key")
       {
@@ -3671,8 +3697,10 @@ private:
         if (node == nullptr)
           results.push_back(json{ { "mapped", false } });
         else
-          results.push_back(
-              json{ { "mapped", true }, { "log_odds", node->getLogOdds() }, { "occupancy", node->getOccupancy() } });
+          results.push_back(json{ { "mapped", true },
+                                   { "log_odds", node->getLogOdds() },
+                                   { "occupancy", node->getOccupancy() },
+                                   { "occupied", tree.isNodeOccupied(node) } });
       }
       else if (type == "ray_keys")
       {

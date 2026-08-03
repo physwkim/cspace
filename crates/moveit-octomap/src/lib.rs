@@ -66,10 +66,15 @@
 //!   and key-set bookkeeping using the lower-level primitives this crate
 //!   does port (`compute_ray_keys`, `compute_update`, `update_node`).
 //! - **`bodies::Body`-style posed-body algorithms are not in this crate's
-//!   scope at all** -- that is `moveit-geometry`'s `shapes::OcTree` variant
-//!   (already stubbed, deliberately deferred to Phase 3/5 collision) and is
-//!   the future consumer of this crate's [`OcTree`], not something this
-//!   crate implements itself.
+//!   scope at all.** Stale as of round 15: this bullet used to say
+//!   `moveit-geometry`'s `shapes::OcTree` was still a stub deferred to
+//!   Phase 3 collision; it is not -- `shapes::OcTree` has been fully ported
+//!   since round 3, and there is no `bodies::`-level posed counterpart for
+//!   an octree upstream at all (`bodies::createBodyFromShape` returns
+//!   `nullptr` for `shapes::OCTREE`; this crate's own `Body::from_shape`
+//!   matches that with `Shape::OcTree => None`, see `bodies.rs`). See
+//!   `moveit-geometry`'s `shapes.rs`, "Who consumes `Shape::OcTree`" for the
+//!   actual, current transfer boundary and consumer-by-consumer status.
 //!
 //! # Symbol-by-symbol audit against upstream's public surface (round 12)
 //!
@@ -84,20 +89,32 @@
 //! `/home/stevek/work/moveit2/moveit_core` (not `moveit_ros`, which is
 //! `moveit-ros` territory and D1-excluded by the same reasoning applied
 //! throughout this project -- PORTING-PLAN.md's own D1 note on the
-//! `resolveConstraintFrames` TF fallback is the same pattern). 40 symbol
-//! groups (overloads collapsed to one row per upstream operation), four-way
+//! `resolveConstraintFrames` TF fallback is the same pattern). Written round
+//! 12 against 40 symbol groups; corrected round 15 (item 3) for two drifts
+//! the original table did not track: `tree_iterator` was ported by
+//! `457ea0f`, the very next commit to this crate after this audit's own
+//! commit `1aa52b3` (`git log --oneline -- crates/moveit-octomap` shows
+//! them adjacent), and nobody moved it out of `unported, in scope`; and
+//! round 15's own item
+//! 1 ported the five sensor-model setters this table used to list bundled
+//! with their still-unported getters. 41 symbol groups now (one more than
+//! round 12's 40: splitting the getter/setter bundle into two rows), four-way
 //! classified:
 //!
 //! ```text
-//! ported                22
-//! unported, in scope      3
+//! ported                24
+//! unported, in scope      2
 //! distinct because ...   15
 //! ------------------------
-//! total                  40
+//! total                  41
 //! ```
 //!
-//! **`ported`** (22): the constructor and logodds-space sensor-model
-//! getters; `AbstractOccupancyOcTree::isNodeOccupied`-equivalent queries;
+//! **`ported`** (24): the constructor and logodds-space sensor-model
+//! getters; the five probability-space sensor-model setters
+//! ([`OcTree::set_occupancy_thres`]/[`OcTree::set_prob_hit`]/
+//! [`OcTree::set_prob_miss`]/[`OcTree::set_clamping_thres_min`]/
+//! [`OcTree::set_clamping_thres_max`], round 15 item 1);
+//! `AbstractOccupancyOcTree::isNodeOccupied`-equivalent queries;
 //! `getNodeSize`; `search` (fused into [`OcTree::log_odds_at`]/
 //! [`OcTree::occupancy_at`]/[`OcTree::is_occupied`] rather than a raw
 //! nullable `NODE*` -- a deliberate shape deviation, not a gap);
@@ -108,7 +125,10 @@
 //! `computeUpdate` (point-slice-shaped here, not `octomap::Pointcloud`-typed
 //! -- see "What was deliberately not ported" above for why); `insertRay`;
 //! leaf iteration (`begin_leafs`/`end_leafs`, `begin_leafs_bbx`/
-//! `end_leafs_bbx`); `calcNumNodes`; `getNumLeafNodes`; `OcTreeKey`/
+//! `end_leafs_bbx`); full-tree iteration including inner nodes
+//! (`begin_tree`/`end_tree`, ported as [`OcTree::tree_nodes`] returning
+//! [`TreeNodes`]/[`TreeNode`] -- the correction above); `calcNumNodes`;
+//! `getNumLeafNodes`; `OcTreeKey`/
 //! `KeyRay`/`KeySet` plus the bit-level `computeChildKey`/`computeChildIdx`/
 //! `computeIndexKey`; `OcTreeNode`'s occupancy accessors and
 //! `updateOccupancyChildren`; `addValue` (inlined into the log-odds clamp in
@@ -118,27 +138,9 @@
 //! `pub(crate)` methods since nothing outside this crate needs direct child
 //! manipulation.
 //!
-//! **`unported, in scope`** (3) -- no current consumer, but not
+//! **`unported, in scope`** (2) -- no current consumer, but not
 //! architecturally excluded either:
 //!
-//! - **`tree_iterator` (`begin_tree`/`end_tree`, all nodes including
-//!   inner ones, as opposed to `leaf_iterator`'s leaves-only walk).**
-//!   Checking this round found a concrete, named reason it matters:
-//!   `collision_distance_field_types.cpp:355-364`'s
-//!   `PosedBodyPointDecomposition(const std::shared_ptr<const
-//!   octomap::OcTree>& octree)` constructor -- the one overload of that type
-//!   that builds collision points directly from an octree rather than from a
-//!   `BodyDecomposition` -- is implemented entirely in terms of
-//!   `octree->begin_tree()`/`end_tree()`. `moveit-distance-field`'s own
-//!   `PosedBodyPointDecomposition` (`collision_distance_field_types.rs:929`)
-//!   ports only the `BodyDecomposition`-sourced constructors
-//!   (`PosedBodyPointDecomposition::with_pose` and its plain form) -- the
-//!   octree-sourced overload is itself unported there. So this is not a
-//!   speculative gap: it is one specific upstream call site whose Rust-side
-//!   consumer is *also* missing, which is PORTING-PLAN.md §13's own "still
-//!   open" risk (standalone octree exists, but is not yet wired into a real
-//!   collision/distance-field path) in a more concrete form than it had
-//!   before this round.
 //! - **`setNodeValue`** (3 overloads: key, point, xyz). Already named in
 //!   PORTING-PLAN.md §13; still accurate -- `tree.rs`'s own module doc
 //!   explains the one upstream call site that conceptually wants it
@@ -148,6 +150,17 @@
 //!   every `(double x, double y, double z, ...)` triple-argument form for
 //!   both logodds and bool) -- pure ergonomic wrappers around the three
 //!   shapes already ported, with no caller needing the wider signature set.
+//!
+//! `tree_iterator` used to be listed here as the specific primitive
+//! `collision_env_distance_field.cpp`'s octree-sourced
+//! `PosedBodyPointDecomposition` constructor needs (see the correction
+//! above) -- that primitive is ported now
+//! ([`OcTree::tree_nodes`]/[`TreeNodes`]), so nothing in *this* crate blocks
+//! that constructor anymore. `moveit-distance-field` still does not consume
+//! it (no `moveit-octomap` dependency in its `Cargo.toml` as of round 15;
+//! see `moveit-geometry`'s `shapes.rs`, "Transfer boundary, symbol by
+//! symbol" for the full cross-crate accounting) -- that is a gap in
+//! `moveit-distance-field`, not here.
 //!
 //! **`distinct because ...`** (15) -- architecturally out of this
 //! workspace's scope, not merely uncalled so far: the `AbstractOcTree`
@@ -186,10 +199,15 @@
 //! `integrateMiss`/`nodeToMaxLikelihood` as separately named methods (this
 //! port inlines the sensor-model math directly into
 //! `update_node_log_odds`/`update_node_recurs` instead); the
-//! probability-space (non-log) sensor-model getters and setters
-//! (`getProbHit`/`setProbHit`/etc. -- their one `moveit_core` caller is the
-//! Bullet collision backend, which this project does not use, `parry`
-//! replacing FCL/Bullet per PORTING-PLAN.md); and `getMetricMin`/
+//! probability-space (non-log) sensor-model *getters*
+//! (`getProbHit`/`getProbMiss`/`getOccupancyThres`/`getClampingThresMin`/
+//! `getClampingThresMax` -- their one `moveit_core` caller is the Bullet
+//! collision backend, which this project does not use, `parry` replacing
+//! FCL/Bullet per PORTING-PLAN.md; the *setters* are ported --
+//! [`OcTree::set_prob_hit`], [`OcTree::set_prob_miss`],
+//! [`OcTree::set_occupancy_thres`], [`OcTree::set_clamping_thres_min`],
+//! [`OcTree::set_clamping_thres_max`] -- since they mutate state this port
+//! already exposes as configurable, round 15 item 1); and `getMetricMin`/
 //! `getMetricMax`/`getMetricSize` (zero consumer anywhere in
 //! `moveit_core`, including the perception layer).
 //!
@@ -223,6 +241,47 @@
 //! (`Box`-owned) rather than a flat keyed map: `prune`'s lossless
 //! multi-resolution collapse and leaf iteration's per-leaf depth both need a
 //! notion of tree level a flat map has no way to express.
+//!
+//! # Completion statement (round 15, item 3)
+//!
+//! Every number below is a command someone can re-run -- same model as
+//! `moveit-scene`'s completion statement, commit `08ab3c7`.
+//!
+//! **Symbol audit.** The "Symbol-by-symbol audit against upstream's public
+//! surface" section above is hand-classified against the extracted headers,
+//! not `rg`-reproducible in one line (it is a judgment call per symbol group,
+//! same as `moveit-geometry`'s `shapes.rs`/`bodies.rs` audits) -- 24 ported,
+//! 2 unported-in-scope (both named above, with the concrete call site each
+//! would need), 15 architecturally distinct, 41 symbol groups total. That
+//! table was itself corrected this round: `git log --oneline -- crates/
+//! moveit-octomap` shows `457ea0f` ("port tree_iterator as TreeNodes") as
+//! the very next commit to this crate after `1aa52b3` (the round-12 audit
+//! commit itself) -- the audit was stale from the commit immediately after
+//! it was written, and nobody had re-walked it since.
+//!
+//! **Tests.**
+//!
+//! ```text
+//! cargo nextest run -p moveit-octomap --no-fail-fast   # 27 tests run: 27 passed, 0 skipped
+//! rg -c '#\[test\]' crates/moveit-octomap/src/*.rs      # sums to 26
+//! ```
+//!
+//! 27 total: 26 unit tests inside `src/` (per-invariant-boundary, e.g.
+//! [`OcTree`]'s own clamp/threshold/prune boundary tests) plus exactly 1
+//! oracle-backed integration test,
+//! `octomap_matches_liboctomap_for_every_boundary_scenario`
+//! (`tests/octomap_parity.rs`), which replays
+//! `python3 -c "import json; print(len(json.load(open('tests/fixtures/octomap_request.json'))))"`
+//! -- **12** request/response pairs (from
+//! `crates/moveit-octomap/tests/fixtures/`) against this crate's own
+//! [`OcTree`] and compares every result field-by-field, including
+//! [`OcTree::is_occupied`], against the real `liboctomap.so.1.9.7`'s answer
+//! captured through the `moveit-rs` oracle. Ids 1-7 predate round 15; ids
+//! 8-12 (round 15, item 1) each isolate one of the five sensor-model setters'
+//! effect against oracle ground truth. `tools/ci/verify-fixture-replay.sh`
+//! (docker-gated, not part of this count) independently confirms the
+//! committed fixture still reproduces against a freshly built oracle image
+//! rather than only against a stale capture.
 
 mod iter;
 mod key;

@@ -160,6 +160,50 @@ impl OcTree {
         self.occ_prob_thres_log
     }
 
+    /// Upstream `setOccupancyThres`: reconfigures the boundary
+    /// [`Self::is_node_occupied_log_odds`] compares node log-odds against.
+    /// `prob` is a probability in `(0, 1)`, converted and stored in
+    /// log-odds space like every other sensor-model parameter here. Round
+    /// 15, item 1: ported and pinned against the real `liboctomap.so.1.9.7`
+    /// (see `crates/moveit-octomap/tests/octomap_parity.rs`'s
+    /// `set_occupancy_thres` scenario) -- previously this field could only
+    /// ever hold `Self::DEFAULT_OCCUPANCY_THRES`, a hardcoded value wearing
+    /// a per-instance-config shape with nothing able to reconfigure it.
+    pub fn set_occupancy_thres(&mut self, prob: f64) {
+        self.occ_prob_thres_log = logodds(prob);
+    }
+
+    /// Upstream `setProbHit`. `prob` is the hit sensor-model probability;
+    /// upstream asserts the resulting log-odds is non-negative (`prob >=
+    /// 0.5`), a debug-build-only sanity check this port matches with
+    /// `debug_assert!` rather than a `Result` this crate has no other
+    /// fallible-construction convention for. Round 15, item 1.
+    pub fn set_prob_hit(&mut self, prob: f64) {
+        self.prob_hit_log = logodds(prob);
+        debug_assert!(self.prob_hit_log >= 0.0);
+    }
+
+    /// Upstream `setProbMiss`. `prob` is the miss sensor-model probability;
+    /// upstream asserts the resulting log-odds is non-positive (`prob <=
+    /// 0.5`), matched here with `debug_assert!` for the same reason as
+    /// [`Self::set_prob_hit`]. Round 15, item 1.
+    pub fn set_prob_miss(&mut self, prob: f64) {
+        self.prob_miss_log = logodds(prob);
+        debug_assert!(self.prob_miss_log <= 0.0);
+    }
+
+    /// Upstream `setClampingThresMin`: the lowest log-odds a node's
+    /// occupancy is ever clamped to. Round 15, item 1.
+    pub fn set_clamping_thres_min(&mut self, prob: f64) {
+        self.clamping_thres_min = logodds(prob);
+    }
+
+    /// Upstream `setClampingThresMax`: the highest log-odds a node's
+    /// occupancy is ever clamped to. Round 15, item 1.
+    pub fn set_clamping_thres_max(&mut self, prob: f64) {
+        self.clamping_thres_max = logodds(prob);
+    }
+
     /// Upstream `getNodeSize`: the metric size of a voxel at `depth` (0:
     /// root, [`Self::TREE_DEPTH`]: finest resolution).
     pub fn node_size(&self, depth: u32) -> f64 {
@@ -175,21 +219,19 @@ impl OcTree {
     /// real binary, not assumed (see `Self::DEFAULT_OCCUPANCY_THRES`'s
     /// doc comment).
     ///
-    /// **Threshold source (round 14, item 2):** `occ_prob_thres_log` is
-    /// per-instance configuration state, matching upstream
-    /// `AbstractOccupancyOcTree`'s own `occ_prob_thres_log_` member
-    /// variable -- not a bare constant baked into this comparison. In
-    /// practice, though, it is *always* `Self::DEFAULT_OCCUPANCY_THRES`
-    /// today: upstream's own setter, `setOccupancyThres(double prob)`
-    /// (`AbstractOccupancyOcTree.h:188`), is one of the probability-space
-    /// sensor-model setters this port does not carry (see the module
-    /// docs' "probability-space (non-log) sensor-model getters and
-    /// setters" note) -- confirmed against that header in the oracle
-    /// container, not assumed. `DEFAULT_OCCUPANCY_THRES` itself is
-    /// already pinned against the real `liboctomap.so.1.9.7` (this
-    /// crate's own initial port, see that constant's doc comment and its
-    /// introducing commit), so nothing further needs oracle work unless a
-    /// future consumer needs `set_occupancy_thres` ported.
+    /// **Threshold source (round 14, item 2; superseded round 15, item 1):**
+    /// `occ_prob_thres_log` is per-instance configuration state, matching
+    /// upstream `AbstractOccupancyOcTree`'s own `occ_prob_thres_log_`
+    /// member variable -- not a bare constant baked into this comparison.
+    /// Round 14 found it was *always* `Self::DEFAULT_OCCUPANCY_THRES` in
+    /// practice, because [`Self::set_occupancy_thres`] did not exist yet;
+    /// round 15 ported that setter (along with its four sensor-model
+    /// siblings) and pinned its effect on this very comparison against the
+    /// real `liboctomap.so.1.9.7` -- see
+    /// `crates/moveit-octomap/tests/octomap_parity.rs`'s
+    /// `set_occupancy_thres` scenario, which checks a hit's `occupied`
+    /// determination flips at a raised threshold, matching the oracle's own
+    /// `isNodeOccupied` on the same tree state.
     pub fn is_node_occupied_log_odds(&self, log_odds: f32) -> bool {
         log_odds >= self.occ_prob_thres_log
     }
