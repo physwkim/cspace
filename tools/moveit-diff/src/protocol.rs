@@ -203,6 +203,30 @@ pub enum Op {
         /// `ChaCha8Rng` -- two independent streams whose per-case outcomes
         /// were never comparable at `max_restarts > 0`).
         max_restarts: u32,
+        /// `searchPositionIK`'s `consistency_limits` parameter, full-space
+        /// (one entry per chain joint, active and mimic alike) and keyed by
+        /// joint name rather than upstream's positional
+        /// `dimension_`-sized `Vec<f64>`, for the same reason
+        /// `joint_values` is a map: the oracle's and this side's chain
+        /// traversals never have to agree on an encounter order. Empty (the
+        /// default) means "no consistency limits", matching
+        /// `moveit_kinematics::registry::SolveOptions::consistency_limits`
+        /// being [`None`].
+        ///
+        /// Both sides reduce this full-space map to their own
+        /// active-joint-only vector independently -- the oracle via
+        /// `oracle.cpp`'s `ik()` (mirroring `KDLKinematicsPlugin::
+        /// searchPositionIK`'s own filter to `consistency_limits_mimic`),
+        /// this side via `rust_impl::IkSolver::solve_case` reading
+        /// [`Op::Ik::consistency_limits`] at each of its own
+        /// active-joint names. Doing the reduction on each side from the
+        /// same full-space input is what makes this an oracle-side check of
+        /// that reduction rather than a pre-reduced, circular one -- see
+        /// `PORTING-PLAN.md`'s round-4 `p1-joints` section for the
+        /// `checkConsistency` out-of-bounds read this shape is designed not
+        /// to reproduce.
+        #[serde(default)]
+        consistency_limits: BTreeMap<String, f64>,
     },
 }
 

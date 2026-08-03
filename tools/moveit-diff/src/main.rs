@@ -87,6 +87,17 @@ struct Config {
     /// restart-RNG divergence -- see `Op::Ik::max_restarts`'s own doc
     /// comment.
     ik_max_restarts: u32,
+    /// Fraction of each active joint's own `(max - min)` range used as its
+    /// `Op::Ik::consistency_limits` bound. `None` (the default) sends no
+    /// consistency limits at all -- unqualified `--ik` invocations keep
+    /// their established behaviour. Deliberately a *fraction of range*
+    /// rather than a fixed radian/metre bound: `panda_arm`'s revolute
+    /// joints and `manipulator`'s prismatic-free arm and a gripper's
+    /// prismatic finger do not share units or scale, so a single absolute
+    /// bound could be meaninglessly loose on one and always-rejecting on
+    /// another. See `Op::Ik::consistency_limits`'s doc comment for why this
+    /// is oracle-comparable at all.
+    ik_consistency_fraction: Option<f64>,
     oracle: Vec<String>,
 }
 
@@ -110,6 +121,7 @@ impl Config {
         let mut tol_ik = 2e-5;
         let mut ik_position_only = false;
         let mut ik_max_restarts = 20u32;
+        let mut ik_consistency_fraction: Option<f64> = None;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -170,6 +182,13 @@ impl Config {
                         .parse()
                         .map_err(|e| format!("--ik-max-restarts: {e}"))?
                 }
+                "--ik-consistency-limit" => {
+                    ik_consistency_fraction = Some(
+                        want("--ik-consistency-limit")?
+                            .parse()
+                            .map_err(|e| format!("--ik-consistency-limit: {e}"))?,
+                    )
+                }
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -228,6 +247,7 @@ impl Config {
             tol_ik,
             ik_position_only,
             ik_max_restarts,
+            ik_consistency_fraction,
             oracle,
         })
     }
@@ -335,6 +355,7 @@ fn main() {
             eprintln!(
                 "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
             );
+            eprintln!("                   [--ik-consistency-limit FRACTION]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
@@ -508,6 +529,27 @@ fn run(cfg: &Config) -> Result<usize, String> {
         )?),
         _ => None,
     };
+    // Full-space (active + mimic), one bound per chain joint -- see
+    // `Config::ik_consistency_fraction`'s doc comment for why this is a
+    // fraction of each joint's own range rather than one fixed bound, and
+    // `Op::Ik::consistency_limits`'s doc comment for why it is keyed by
+    // name. Computed once: bounds (and so the range each fraction scales)
+    // are group-constant, exactly like `IkSolver`'s own bounds-midpoint seed.
+    let ik_consistency_limits: BTreeMap<String, f64> =
+        match (&ik_solver, cfg.ik_consistency_fraction) {
+            (Some(solver), Some(fraction)) => solver
+                .chain_joint_names()
+                .into_iter()
+                .map(|name| {
+                    let bounds = &rust_model
+                        .joint_model(&name)
+                        .expect("chain_joint_names only ever names real model joints")
+                        .variable_bounds()[0];
+                    (name, fraction * (bounds.max_position - bounds.min_position))
+                })
+                .collect(),
+            _ => BTreeMap::new(),
+        };
 
     for (case, joint_values) in states.iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
@@ -563,6 +605,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 joint_values: joint_values.clone(),
                 position_only: cfg.ik_position_only,
                 max_restarts: cfg.ik_max_restarts,
+                consistency_limits: ik_consistency_limits.clone(),
             })? {
                 OracleResult::Ik(r) => r,
                 other => return Err(format!("expected ik, got {other:?}")),
@@ -573,6 +616,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                     .as_mut()
                     .expect("--ik built the solver before the loop"),
                 joint_values,
+                &ik_consistency_limits,
                 &expected,
                 &mut ik_stats,
             );
@@ -595,6 +639,14 @@ fn run(cfg: &Config) -> Result<usize, String> {
             "\n--- ik summary ({}) ---",
             cfg.group.as_deref().unwrap_or("")
         );
+        match cfg.ik_consistency_fraction {
+            Some(fraction) => println!(
+                "consistency limits: {:.1}% of range per active joint ({} joints)",
+                100.0 * fraction,
+                ik_consistency_limits.len()
+            ),
+            None => println!("consistency limits: none"),
+        }
         println!(
             "oracle success rate: {}/{} ({:.1}%)",
             ik_stats.oracle_success,
@@ -1193,12 +1245,13 @@ fn compare_ik(
     cfg: &Config,
     solver: &mut rust_impl::IkSolver<'_>,
     joint_values: &BTreeMap<String, f64>,
+    consistency_limits: &BTreeMap<String, f64>,
     expected: &IkResult,
     stats: &mut IkStats,
 ) -> Verdict {
     stats.total += 1;
 
-    let outcome = match solver.solve_case(joint_values) {
+    let outcome = match solver.solve_case(joint_values, consistency_limits) {
         Ok(o) => o,
         Err(e) => return Verdict::Fail(e),
     };
