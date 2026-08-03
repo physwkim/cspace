@@ -3243,3 +3243,60 @@ MiB 복사 한 건이고, 그건 `p3-acm` 몫이며 이 병합 시점에 아직 
 경계로 검증했다: 그룹 내/외 관절 이동, `EPSILON` 이내/초과 이동, 크기가
 다른 상태, ACM 행 수 변화, 새로 비활성화된 자기충돌, 새로 비활성화된
 그룹 내 쌍. 시나리오가 아니라 경계로 짠 테스트다.
+
+## 28. 한 번도 실행된 적 없는 CI를 실제로 실행했다 (2026-08-04)
+
+`.github/workflows/ci.yml`은 작성된 이후 한 번도 돌지 않았다 — 원격이
+없으니 GitHub Actions가 트리거된 적이 없다. 워커들이 매 라운드 도는 것은
+로컬 트리에서의 게이트이고, 그 트리에는 CI에 없는 것이 있다:
+`third_party/moveit_resources` (gitignore 대상). 즉 "로컬 855/855 통과"는
+"CI에서도 통과"의 증거가 아니었다.
+
+깨끗한 클론에서 ci.yml의 단계를 그대로 실행해 확인했다 (`b2f1d9c`,
+`git clone --no-hardlinks`로 추적 파일만 있는 트리 — `third_party/` 부재
+확인, `fixtures/meshes/`에는 fanuc 7건·panda 10건만 존재):
+
+- `cargo fmt --all -- --check` — rc=0
+- `cargo clippy --workspace --all-targets -- -D warnings` — rc=0
+- `cargo nextest run --workspace` — **855/855 통과**, rc=0
+- `cargo test --doc --workspace` — rc=0
+- `cargo doc --workspace --no-deps` — rc=0
+- `tools/ci/check-{dep-direction,fixture-format,no-lint-suppression}.sh` —
+  각 rc=0
+
+`fixtures/`가 `third_party/`의 사본인 설계(§"픽스처 출처")가 실제로
+값을 하고 있다는 뜻이다. 커밋된 테스트 중 `third_party/`를 읽는 것은
+없다 — 유일한 경로 문자열은 `tools/moveit-diff/src/main.rs:386`인데
+컴파일타임 문자열일 뿐 도구를 실제로 돌릴 때만 해석되고, moveit-diff는
+CI에서 돌지 않는다.
+
+남은 것은 원격 부재 하나다. 이 검증은 "ci.yml이 신선한 체크아웃에서
+재현된다"를 닫았지 "GitHub Actions에서 돈다"를 닫지 않았다 —
+액션 러너 고유의 실패(툴체인 액션, 캐시, nextest 설치)는 첫 푸시에서만
+드러난다.
+
+### 28.1 `distance_to_collision`의 `enableGroup` 누락은 동작 격차가 아니다
+
+UNFIXED에 "`PlanningScene::distance_to_collision`이 상류의
+`req.enableGroup(getRobotModel())`를 빠뜨렸다"가 올라 있었다. 상류를
+끝까지 따라가 보니 이 호출점에서는 동작이 같다:
+
+- `PlanningScene::distanceToCollision(state)` →
+  `getCollisionEnv()->distanceRobot(state, getAllowedCollisionMatrix())`
+  (`planning_scene.hpp:546-549`)
+- 그 편의 오버로드가 `DistanceRequest req;`를 **기본 생성**한 뒤
+  `req.enableGroup(...)`를 부른다 (`collision_env.hpp:220-232`)
+- `DistanceRequest::group_name`의 기본값은 `""`
+  (`collision_common.hpp:233`)
+- `enableGroup`은 `hasJointModelGroup("")`가 거짓이면
+  `active_components_only = nullptr`로 둔다
+  (`collision_common.hpp:206-216`), 그리고
+  `RobotModel::hasJointModelGroup`은 `joint_model_group_map_` 조회일
+  뿐이라 (`robot_model.cpp:507-510`) 빈 이름은 결코 맞지 않는다 —
+  SRDF 그룹 이름은 빈 문자열이 될 수 없다.
+
+`nullptr`은 "모든 링크"다. 이 포트의
+`DistanceRequest { acm: Some(&acm), ..Default::default() }` 역시 모든
+링크를 검사한다. 따라서 이 항목은 잘못된 답을 내는 격차가 아니라
+**그룹 한정 거리 질의라는 기능 자체의 부재**다. UNFIXED에서 그렇게
+다시 쓴다 — 사라진 것이 아니라 성격이 바뀐 것이다.
