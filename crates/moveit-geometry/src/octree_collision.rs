@@ -76,7 +76,6 @@ pub fn compound_from_octree(tree: &OcTree) -> Option<Compound> {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
     use nalgebra::Point3;
 
     use super::*;
@@ -87,16 +86,26 @@ mod tests {
         // Compound's local_aabb must land exactly on the leaf's own corner,
         // neither clipped short of it (an off-by-one in the half-extent)
         // nor padded past it.
+        //
+        // Bit-exact, not approximate: `assert_relative_eq!(..., epsilon =
+        // 1e-9)` bisected to `epsilon = 0.0, max_relative = 0.0` and still
+        // passed (round 14, §79 sweep) -- for this test's literal 0.1
+        // resolution and 0.05 point, `half_extent = leaf.size() / 2.0` is an
+        // exact halving (no rounding, per IEEE 754) of the same `0.1`
+        // literal `node_size` returns at the finest depth, and
+        // `leaf.coordinate() +/- half_extent` reproduces `0.0`/`0.1` bit for
+        // bit. `assert_relative_eq!` was silently testing to a tolerance
+        // nothing in this computation ever approaches.
         let mut tree = OcTree::new(0.1);
         tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
         let compound = compound_from_octree(&tree).expect("one occupied leaf");
         let aabb = compound.local_aabb();
-        assert_relative_eq!(aabb.mins.x, 0.0, epsilon = 1e-9);
-        assert_relative_eq!(aabb.mins.y, 0.0, epsilon = 1e-9);
-        assert_relative_eq!(aabb.mins.z, 0.0, epsilon = 1e-9);
-        assert_relative_eq!(aabb.maxs.x, 0.1, epsilon = 1e-9);
-        assert_relative_eq!(aabb.maxs.y, 0.1, epsilon = 1e-9);
-        assert_relative_eq!(aabb.maxs.z, 0.1, epsilon = 1e-9);
+        assert_eq!(aabb.mins.x, 0.0);
+        assert_eq!(aabb.mins.y, 0.0);
+        assert_eq!(aabb.mins.z, 0.0);
+        assert_eq!(aabb.maxs.x, 0.1);
+        assert_eq!(aabb.maxs.y, 0.1);
+        assert_eq!(aabb.maxs.z, 0.1);
     }
 
     #[test]
