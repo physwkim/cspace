@@ -1,0 +1,18 @@
+{
+  "ruckig": {
+    "srdf": "fixtures/panda.srdf",
+    "urdf": "fixtures/panda.urdf"
+  },
+  "totg": {
+    "srdf": "fixtures/panda.srdf",
+    "urdf": "fixtures/panda.urdf"
+  },
+  "totg_robot_trajectory": {
+    "srdf": "fixtures/panda.srdf",
+    "urdf": "fixtures/panda.urdf"
+  },
+  "totg_synthetic": {
+    "srdf": "crates/moveit-trajectory/tests/fixtures/totg_synthetic.srdf",
+    "urdf": "crates/moveit-trajectory/tests/fixtures/totg_synthetic.urdf"
+  }
+}
