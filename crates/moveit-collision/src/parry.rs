@@ -115,7 +115,14 @@
 //!    computation producing an implausible number under deep, arbitrarily-
 //!    rotated interpenetration. Whether the same holds for every other
 //!    interpenetrating disagreement this backend reports is not established
-//!    either way.
+//!    either way — but at least one other case is: pr2's case 7552
+//!    (`pr2_case_7552_depth_disagreement_ranks_a_different_pair` in the same
+//!    test file) has this backend and the oracle each ranking a *different*
+//!    mesh pair as globally deepest among several simultaneously-
+//!    interpenetrating candidates, `|d|` two orders of magnitude smaller than
+//!    panda's outlier and well inside each pair's own bounding radius — the
+//!    ordinary, expected shape of this deviation, not the impossible-number
+//!    failure mode panda's worst case turned out to be.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and
