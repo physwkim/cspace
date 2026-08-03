@@ -76,9 +76,28 @@ pub fn compound_from_octree(tree: &OcTree) -> Option<Compound> {
 
 #[cfg(test)]
 mod tests {
+    use approx::assert_relative_eq;
     use nalgebra::Point3;
 
     use super::*;
+
+    #[test]
+    fn a_single_leaf_bounding_box_lands_exactly_on_the_leafs_own_corner() {
+        // The tree's own bounding box IS this single leaf's box: the
+        // Compound's local_aabb must land exactly on the leaf's own corner,
+        // neither clipped short of it (an off-by-one in the half-extent)
+        // nor padded past it.
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
+        let compound = compound_from_octree(&tree).expect("one occupied leaf");
+        let aabb = compound.local_aabb();
+        assert_relative_eq!(aabb.mins.x, 0.0, epsilon = 1e-9);
+        assert_relative_eq!(aabb.mins.y, 0.0, epsilon = 1e-9);
+        assert_relative_eq!(aabb.mins.z, 0.0, epsilon = 1e-9);
+        assert_relative_eq!(aabb.maxs.x, 0.1, epsilon = 1e-9);
+        assert_relative_eq!(aabb.maxs.y, 0.1, epsilon = 1e-9);
+        assert_relative_eq!(aabb.maxs.z, 0.1, epsilon = 1e-9);
+    }
 
     #[test]
     fn empty_tree_has_no_occupied_leaves() {

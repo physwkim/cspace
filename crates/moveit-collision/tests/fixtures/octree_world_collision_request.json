@@ -1,0 +1,191 @@
+[
+  {
+    "actions": [],
+    "id": 1,
+    "object_pose": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "op": "octree_in_world",
+    "queries": [],
+    "resolution": 0.1,
+    "robot": {
+      "joint_values": {}
+    }
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 2,
+    "object_pose": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "op": "octree_in_world",
+    "queries": [],
+    "resolution": 0.1,
+    "robot": {
+      "joint_values": {}
+    }
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 3,
+    "object_pose": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "op": "octree_in_world",
+    "queries": [],
+    "resolution": 0.1,
+    "robot": {
+      "joint_values": {}
+    }
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.55,
+          0.0,
+          0.0
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 4,
+    "object_pose": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "op": "octree_in_world",
+    "queries": [],
+    "resolution": 0.1,
+    "robot": {
+      "joint_values": {}
+    }
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          1.65,
+          0.0,
+          0.0
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          1.55,
+          0.0,
+          0.0
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 5,
+    "object_pose": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "op": "octree_in_world",
+    "queries": [],
+    "resolution": 0.1,
+    "robot": {
+      "joint_values": {}
+    }
+  }
+]

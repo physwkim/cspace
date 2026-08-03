@@ -123,19 +123,7 @@
 //!    has no well-defined half-space to build, so [`convert_shape`] excludes
 //!    it from collision geometry rather than construct a `HalfSpace` with a
 //!    zero-length (and therefore un-normalizable) normal.
-//! 10. **[`moveit_geometry::Shape::OcTree`] converts to no shape at all —
-//!     not yet wired, no longer for want of a tree.** This deviation used
-//!     to read "carries no tree payload; no mature Rust `octomap` binding
-//!     exists yet". That is stale: `moveit-octomap` exists,
-//!     [`moveit_geometry::OcTree`] holds an
-//!     `Option<Arc<moveit_octomap::OcTree>>`, and
-//!     `moveit_geometry::octree_collision::compound_from_octree` builds a
-//!     `parry` `Compound` of one `Cuboid` per occupied leaf, oracle-verified
-//!     against real FCL at four boundaries (PORTING-PLAN.md §4.8). What is
-//!     missing is only the call from [`convert_shape`] to that function; an
-//!     octree in a [`World`] is still invisible to this backend until it
-//!     lands.
-//! 11. **`check_robot_collision_continuous` returns [`Error`].** See
+//! 10. **`check_robot_collision_continuous` returns [`Error`].** See
 //!     [`crate::CollisionEnv::check_robot_collision_continuous`]'s own doc:
 //!     upstream's FCL backend does not implement this case either, silently
 //!     leaving `res` untouched; this backend has no swept/conservative-
@@ -176,10 +164,11 @@
 //! design, above), so there is no second, distinct `PosedBody` sharing an
 //! identity with the first for that check to ever need to catch.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Shape, Vector3};
+use moveit_geometry::{Isometry3, Shape, Vector3, compound_from_octree};
 use moveit_model::LinkModel;
 use moveit_state::Posed;
 
@@ -245,12 +234,98 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
     Vector3::new(v.x, v.y, v.z)
 }
 
+/// Cache of [`Shape::OcTree`] → [`SharedShape`] conversions, keyed by the
+/// wrapped tree's `Arc` pointer identity — the same identity
+/// [`moveit_geometry::OcTree`]'s own [`PartialEq`] compares by, per its type
+/// doc's deviation note.
+///
+/// [`convert_shape`] is called fresh for every shape of every body on every
+/// [`CollisionEnv::check_robot_collision`]/[`CollisionEnv::distance_robot`]
+/// call ([`robot_bodies`]/[`world_bodies`] rebuild every [`PosedBody`] from
+/// scratch each time; see the module doc's design section). Without this
+/// cache, an unmoved sensor octree already in the [`World`] would pay
+/// [`compound_from_octree`]'s full leaf-to-`Cuboid` cost — measured at 130ms
+/// for a 0.02m leaf size over a room-scale scene, PORTING-PLAN.md §4.8 — on
+/// every single query against it, not once per octree update.
+///
+/// Entries are never evicted: nothing in this crate's current API replaces a
+/// [`World`] object's octree in place, so the only way an `Arc` pointer
+/// present in this cache stops being reachable from a live [`World`] is the
+/// caller building a *new* [`World`]/[`ParryCollisionEnv`] (fresh, empty
+/// cache) rather than mutating an existing one's octree object repeatedly.
+/// A future caller that does repeatedly rebuild-and-replace one `World`
+/// object's octree (e.g. per sensor scan) would accumulate one entry per
+/// scan here; that is a real characteristic to know about, not a bug fixed
+/// by an eviction policy this crate's current callers never exercise.
+///
+/// Shared, not reset, across [`ParryCollisionEnv::clone`] — matching
+/// [`Shape::OcTree`]'s own shallow-clone semantics (cloning a [`World`] that
+/// carries an octree bumps the wrapped `Arc`'s refcount rather than
+/// rebuilding the tree), a clone that still points at the same octree `Arc`
+/// still benefits from a cache hit here.
+#[derive(Clone, Default)]
+struct OctreeCache(Arc<Mutex<HashMap<usize, Option<SharedShape>>>>);
+
+impl std::fmt::Debug for OctreeCache {
+    /// `SharedShape` (`Arc<dyn parry3d_f64::shape::Shape>`) has no `Debug`
+    /// impl — the trait only requires `RayCast + PointQuery + Any + Send +
+    /// Sync` — so this reports the cache's size rather than its contents.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.0.lock().map_or(0, |cache| cache.len());
+        f.debug_struct("OctreeCache")
+            .field("entries", &len)
+            .finish()
+    }
+}
+
+impl OctreeCache {
+    /// Returns the cached conversion for `key`, or computes it with `build`
+    /// and stores the result (`Some` or `None`) so a later call with the
+    /// same `key` never re-invokes `build`.
+    fn get_or_compute(
+        &self,
+        key: usize,
+        build: impl FnOnce() -> Option<SharedShape>,
+    ) -> Option<SharedShape> {
+        let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(cached) = cache.get(&key) {
+            return cached.clone();
+        }
+        let value = build();
+        cache.insert(key, value.clone());
+        value
+    }
+}
+
 /// Convert one [`Shape`] into a `parry` shape, plus the extra local
 /// transform (identity, [`axis_fix`], or a plane offset) needed to align
-/// `parry`'s axis convention with upstream's. `None` for
-/// [`Shape::OcTree`] and a degenerate [`Shape::Plane`] — see the module doc,
-/// deviations 9 and 10.
-fn convert_shape(shape: &Shape) -> Option<(SharedShape, Isometry3)> {
+/// `parry`'s axis convention with upstream's.
+///
+/// `None` for a degenerate [`Shape::Plane`] (module doc, deviation 9) and for
+/// [`Shape::OcTree`] in two distinct cases that both happen to convert to
+/// nothing: no tree attached at all (`Shape::OcTree(OcTree { octree: None
+/// })`, upstream's default-constructed null `shared_ptr` state) has no
+/// geometry to build, ever; a tree that *is* attached but has no occupied
+/// leaves (a brand new tree, or one entirely marked free) has geometry that
+/// happens to be empty for this particular tree — [`compound_from_octree`]
+/// guards `Compound::new`'s empty-list panic the same way for that case.
+/// Both convert to "no collision geometry", but they are not the same fact:
+/// the first is a structural absence (no octree value exists here at all,
+/// matching upstream's null `shared_ptr`), the second is a data-dependent
+/// property of a real octree value (this particular immutable tree happens
+/// to have no occupied leaves; a differently-built tree of the same shape
+/// would not be empty).
+///
+/// A [`Shape::OcTree`] with an occupied leaf converts through
+/// [`compound_from_octree`], memoized by [`OctreeCache`] (see its own doc) so
+/// that repeated calls for the same tree — one per
+/// [`CollisionEnv`](crate::CollisionEnv) query — do not rebuild the same
+/// `Compound` from scratch every time. Oracle-verified end-to-end against a
+/// real `CollisionEnvFCL` in
+/// `crates/moveit-collision/tests/octree_world_collision_parity.rs`; this is
+/// no longer a deviation from upstream, so it does not carry an entry in the
+/// module doc's numbered list above.
+fn convert_shape(shape: &Shape, octree_cache: &OctreeCache) -> Option<(SharedShape, Isometry3)> {
     match shape {
         Shape::Sphere(s) => Some((SharedShape::new(Ball::new(s.radius)), Isometry3::identity())),
         Shape::Cylinder(c) => Some((
@@ -294,7 +369,13 @@ fn convert_shape(shape: &Shape) -> Option<(SharedShape, Isometry3)> {
                 .ok()
                 .map(|mesh| (SharedShape::new(mesh), Isometry3::identity()))
         }
-        Shape::OcTree(_) => None,
+        Shape::OcTree(o) => {
+            let tree = o.octree.as_ref()?;
+            let key = Arc::as_ptr(tree) as *const () as usize;
+            octree_cache
+                .get_or_compute(key, || compound_from_octree(tree).map(SharedShape::new))
+                .map(|shape| (shape, Isometry3::identity()))
+        }
     }
 }
 
@@ -374,6 +455,7 @@ fn link_body(
     link: &LinkModel,
     pose: Isometry3,
     padding_scale: &LinkPaddingScale,
+    octree_cache: &OctreeCache,
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(link.name());
     let padding = padding_scale.link_padding(link.name());
@@ -382,7 +464,7 @@ fn link_body(
         .iter()
         .filter_map(|link_shape| {
             let shape = scaled_padded_shape(&link_shape.shape, scale, padding);
-            let (parry_shape, extra) = convert_shape(&shape)?;
+            let (parry_shape, extra) = convert_shape(&shape, octree_cache)?;
             Some((to_pose(link_shape.origin_transform * extra), parry_shape))
         })
         .collect();
@@ -404,6 +486,7 @@ fn attached_body_body(
     geometry: &AttachedBodyGeometry<'_>,
     link_pose: Isometry3,
     padding_scale: &LinkPaddingScale,
+    octree_cache: &OctreeCache,
 ) -> Option<PosedBody> {
     let scale = padding_scale.link_scale(geometry.link_name);
     let padding = padding_scale.link_padding(geometry.link_name);
@@ -413,7 +496,7 @@ fn attached_body_body(
         .zip(geometry.shape_poses)
         .filter_map(|(shape, shape_pose)| {
             let scaled = scaled_padded_shape(shape, scale, padding);
-            let (parry_shape, extra) = convert_shape(&scaled)?;
+            let (parry_shape, extra) = convert_shape(&scaled, octree_cache)?;
             Some((to_pose(*shape_pose * extra), parry_shape))
         })
         .collect();
@@ -428,12 +511,12 @@ fn attached_body_body(
 
 /// One world object's [`PosedBody`], unscaled and unpadded (module doc,
 /// deviation 2). `None` if the object has no (convertible) shapes.
-fn object_body(id: &str, object: &Object) -> Option<PosedBody> {
+fn object_body(id: &str, object: &Object, octree_cache: &OctreeCache) -> Option<PosedBody> {
     let parts: Vec<(Pose, SharedShape)> = object
         .shapes()
         .iter()
         .filter_map(|entry| {
-            let (parry_shape, extra) = convert_shape(entry.shape())?;
+            let (parry_shape, extra) = convert_shape(entry.shape(), octree_cache)?;
             Some((to_pose(entry.pose() * extra), parry_shape))
         })
         .collect();
@@ -450,10 +533,11 @@ fn robot_bodies(
     state: &Posed<'_, '_>,
     attached_bodies: &[AttachedBodyGeometry<'_>],
     padding_scale: &LinkPaddingScale,
+    octree_cache: &OctreeCache,
 ) -> Vec<PosedBody> {
     let links = state.model().link_models().iter().filter_map(|link| {
         let pose = state.global_link_transform_at(link.link_index());
-        link_body(link, pose, padding_scale)
+        link_body(link, pose, padding_scale, octree_cache)
     });
     // `global_link_transform` only fails for a link name absent from
     // `state`'s own model; a caller building `AttachedBodyGeometry` from a
@@ -464,15 +548,15 @@ fn robot_bodies(
     // treated above: dropped, not fatal.
     let attached = attached_bodies.iter().filter_map(|geometry| {
         let link_pose = state.global_link_transform(geometry.link_name).ok()?;
-        attached_body_body(geometry, link_pose, padding_scale)
+        attached_body_body(geometry, link_pose, padding_scale, octree_cache)
     });
     links.chain(attached).collect()
 }
 
-fn world_bodies(world: &World) -> Vec<PosedBody> {
+fn world_bodies(world: &World, octree_cache: &OctreeCache) -> Vec<PosedBody> {
     world
         .iter()
-        .filter_map(|(id, object)| object_body(id, object))
+        .filter_map(|(id, object)| object_body(id, object, octree_cache))
         .collect()
 }
 
@@ -763,6 +847,9 @@ fn accumulate_distance<'a>(
 pub struct ParryCollisionEnv {
     world: World,
     padding_scale: LinkPaddingScale,
+    /// See [`OctreeCache`]'s own doc: avoids re-running
+    /// [`compound_from_octree`] for the same octree on every call.
+    octree_cache: OctreeCache,
 }
 
 impl ParryCollisionEnv {
@@ -772,6 +859,7 @@ impl ParryCollisionEnv {
         Self {
             world,
             padding_scale,
+            octree_cache: OctreeCache::default(),
         }
     }
 
@@ -804,7 +892,12 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult {
-        let bodies = robot_bodies(state, attached_bodies, &self.padding_scale);
+        let bodies = robot_bodies(
+            state,
+            attached_bodies,
+            &self.padding_scale,
+            &self.octree_cache,
+        );
         accumulate_collision(self_pairs(&bodies), request, acm)
     }
 
@@ -815,8 +908,13 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult {
-        let robot = robot_bodies(state, attached_bodies, &self.padding_scale);
-        let world = world_bodies(&self.world);
+        let robot = robot_bodies(
+            state,
+            attached_bodies,
+            &self.padding_scale,
+            &self.octree_cache,
+        );
+        let world = world_bodies(&self.world, &self.octree_cache);
         accumulate_collision(cross_pairs(&robot, &world), request, acm)
     }
 
@@ -842,7 +940,12 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         state: &Posed<'s, 'm>,
         attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> DistanceResult {
-        let bodies = robot_bodies(state, attached_bodies, &self.padding_scale);
+        let bodies = robot_bodies(
+            state,
+            attached_bodies,
+            &self.padding_scale,
+            &self.octree_cache,
+        );
         accumulate_distance(self_pairs(&bodies), request)
     }
 
@@ -852,8 +955,13 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
         state: &Posed<'s, 'm>,
         attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> DistanceResult {
-        let robot = robot_bodies(state, attached_bodies, &self.padding_scale);
-        let world = world_bodies(&self.world);
+        let robot = robot_bodies(
+            state,
+            attached_bodies,
+            &self.padding_scale,
+            &self.octree_cache,
+        );
+        let world = world_bodies(&self.world, &self.octree_cache);
         accumulate_distance(cross_pairs(&robot, &world), request)
     }
 }
@@ -874,14 +982,18 @@ mod tests {
 
     #[test]
     fn convert_shape_sphere_is_a_ball_at_the_origin() {
-        let (_shape, extra) = convert_shape(&Shape::Sphere(Sphere::new(2.0).unwrap())).unwrap();
+        let (_shape, extra) = convert_shape(
+            &Shape::Sphere(Sphere::new(2.0).unwrap()),
+            &OctreeCache::default(),
+        )
+        .unwrap();
         assert_eq!(extra, Isometry3::identity());
     }
 
     #[test]
     fn convert_shape_degenerate_plane_is_excluded() {
         let plane = Shape::Plane(Plane::new(0.0, 0.0, 0.0, 1.0));
-        assert!(convert_shape(&plane).is_none());
+        assert!(convert_shape(&plane, &OctreeCache::default()).is_none());
     }
 
     #[test]
@@ -889,15 +1001,106 @@ mod tests {
         // x = 3 (a=1, b=0, c=0, d=-3): signed offset from the origin along
         // the unit normal (1, 0, 0) is 3.
         let plane = Shape::Plane(Plane::new(1.0, 0.0, 0.0, -3.0));
-        let (_shape, extra) = convert_shape(&plane).unwrap();
+        let (_shape, extra) = convert_shape(&plane, &OctreeCache::default()).unwrap();
         assert_relative_eq!(extra.translation.vector.x, 3.0, epsilon = 1e-12);
         assert_relative_eq!(extra.translation.vector.y, 0.0, epsilon = 1e-12);
         assert_relative_eq!(extra.translation.vector.z, 0.0, epsilon = 1e-12);
     }
 
+    // --- Shape::OcTree: the two distinct "no tree" cases (convert_shape's
+    // own doc, above) must both convert to None, but for different reasons. ---
+
     #[test]
-    fn convert_shape_octree_is_excluded() {
-        assert!(convert_shape(&Shape::OcTree(OcTree::new())).is_none());
+    fn convert_shape_octree_with_no_tree_attached_is_excluded() {
+        // OcTree::new(): upstream's default-constructed null shared_ptr. No
+        // octree value exists at all, structurally, regardless of leaves.
+        assert!(convert_shape(&Shape::OcTree(OcTree::new()), &OctreeCache::default()).is_none());
+    }
+
+    #[test]
+    fn convert_shape_octree_with_a_tree_but_no_occupied_leaves_is_also_excluded() {
+        // A tree *is* attached here -- this is the data-dependent "empty"
+        // case, not the structural "absent" case above -- but it still has
+        // no occupied leaves, so it still converts to nothing.
+        let tree = Arc::new(moveit_octomap::OcTree::new(0.1));
+        let shape = Shape::OcTree(OcTree::from_tree(tree));
+        assert!(convert_shape(&shape, &OctreeCache::default()).is_none());
+    }
+
+    #[test]
+    fn convert_shape_octree_with_an_occupied_leaf_converts_to_a_compound() {
+        let mut tree = moveit_octomap::OcTree::new(0.1);
+        tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+        let shape = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
+
+        let (parry_shape, extra) = convert_shape(&shape, &OctreeCache::default())
+            .expect("an occupied leaf must convert to a Compound");
+
+        assert_eq!(extra, Isometry3::identity());
+        let compound = parry_shape
+            .as_compound()
+            .expect("Shape::OcTree converts to a parry3d_f64::shape::Compound");
+        assert_eq!(compound.shapes().len(), 1);
+    }
+
+    #[test]
+    fn convert_shape_octree_two_adjacent_leaves_of_different_occupancy_are_not_merged() {
+        // Two finest-resolution leaves sharing a face, one occupied and one
+        // free: octomap cannot prune them into a shared parent (their
+        // occupancy differs), so the Compound must carry two Cuboids, not
+        // one coarse box straddling the boundary.
+        let mut tree = moveit_octomap::OcTree::new(0.1);
+        tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, true);
+        tree.update_node(nalgebra::Point3::new(0.15, 0.05, 0.05), false, true);
+        tree.update_inner_occupancy();
+        tree.prune();
+        let shape = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
+
+        let (parry_shape, _) = convert_shape(&shape, &OctreeCache::default())
+            .expect("one occupied leaf out of the two must still convert");
+        let compound = parry_shape.as_compound().expect("shape is a Compound");
+        assert_eq!(
+            compound.shapes().len(),
+            1,
+            "only the occupied leaf becomes a Cuboid; its free neighbor contributes none, \
+             and the two are never merged into one box"
+        );
+    }
+
+    #[test]
+    fn convert_shape_octree_caches_and_does_not_rebuild_on_a_second_call() {
+        let mut tree = moveit_octomap::OcTree::new(0.1);
+        tree.update_node(nalgebra::Point3::new(0.05, 0.05, 0.05), true, false);
+        let shape = Shape::OcTree(OcTree::from_tree(Arc::new(tree)));
+        let cache = OctreeCache::default();
+
+        let (first_shape, _) = convert_shape(&shape, &cache).expect("first conversion succeeds");
+        let (second_shape, _) = convert_shape(&shape, &cache).expect("second conversion succeeds");
+
+        assert!(
+            Arc::ptr_eq(&first_shape.0, &second_shape.0),
+            "a second convert_shape call for the same tree must return the cached SharedShape, \
+             not a freshly rebuilt Compound"
+        );
+    }
+
+    #[test]
+    fn octree_cache_get_or_compute_invokes_build_only_once_per_key() {
+        let cache = OctreeCache::default();
+        let calls = std::cell::Cell::new(0);
+        let build = || {
+            calls.set(calls.get() + 1);
+            Some(SharedShape::new(Ball::new(1.0)))
+        };
+
+        assert!(cache.get_or_compute(42, build).is_some());
+        assert!(cache.get_or_compute(42, build).is_some());
+
+        assert_eq!(
+            calls.get(),
+            1,
+            "the second call for the same key must hit the cache"
+        );
     }
 
     #[test]
@@ -1222,6 +1425,69 @@ mod tests {
         assert!(!result.collision);
     }
 
+    /// One occupied leaf, wrapped as a [`Shape::OcTree`] world object, at
+    /// `leaf_center` in a tree of `resolution`.
+    fn octree_world_with_one_leaf(resolution: f64, leaf_center: nalgebra::Point3<f64>) -> World {
+        let mut tree = moveit_octomap::OcTree::new(resolution);
+        tree.update_node(leaf_center, true, false);
+        let mut world = World::new();
+        world.add_shape(
+            "octree_obstacle",
+            Arc::new(Shape::OcTree(OcTree::from_tree(Arc::new(tree)))),
+            Isometry3::identity(),
+        );
+        world
+    }
+
+    #[test]
+    fn check_robot_collision_detects_overlap_with_an_octree_world_object() {
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        // A leaf at the origin sits well inside the 1x1x1 robot box at "p".
+        let world = octree_world_with_one_leaf(0.1, nalgebra::Point3::new(0.0, 0.0, 0.0));
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
+
+        assert!(result.collision);
+    }
+
+    #[test]
+    fn check_robot_collision_reports_free_when_octree_leaf_is_far_away() {
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let world = octree_world_with_one_leaf(0.1, nalgebra::Point3::new(10.0, 0.0, 0.0));
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
+
+        assert!(!result.collision);
+    }
+
+    #[test]
+    fn check_robot_collision_touching_exactly_on_an_octree_leaf_face_is_detected() {
+        // The 1x1x1 robot box at "p" has its +x face at x=0.5. A leaf of
+        // size 0.1 centered at x=0.55 spans [0.5, 0.6]: its -x face lands
+        // exactly on the robot's +x face, a touching (zero-gap, not
+        // overlapping) contact -- the same "prediction 0.0 counts touching
+        // as collision" convention this backend already applies to every
+        // other shape pair (module doc, deviation 5).
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let world = octree_world_with_one_leaf(0.1, nalgebra::Point3::new(0.55, 0.0, 0.0));
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let result = env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
+
+        assert!(
+            result.collision,
+            "a leaf face exactly touching the robot's face must count as a collision"
+        );
+    }
+
     #[test]
     fn distance_self_reports_the_gap_between_separated_boxes() {
         let model = build_model(&["p", "q"]);
@@ -1384,6 +1650,24 @@ mod tests {
             Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
             Isometry3::translation(2.0, 0.0, 0.0),
         );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+
+        let result = env.distance_robot(&DistanceRequest::default(), &posed, &[]);
+
+        assert!(!result.collision);
+        assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn distance_robot_reports_the_gap_to_an_octree_world_object() {
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        // Robot box's +x face is at x=0.5; a leaf of size 0.1 centered at
+        // x=1.55 has its -x face at x=1.5, a 1.0m gap -- deliberately the
+        // same gap `distance_robot_reports_the_gap_to_a_world_object` checks
+        // for a Cuboid world object, so the two are directly comparable.
+        let world = octree_world_with_one_leaf(0.1, nalgebra::Point3::new(1.55, 0.0, 0.0));
         let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 
         let result = env.distance_robot(&DistanceRequest::default(), &posed, &[]);

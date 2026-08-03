@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<robot name="octree_world_robot">
+  <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+</robot>
