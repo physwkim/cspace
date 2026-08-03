@@ -648,7 +648,15 @@ g++ -O0 -o /tmp/x /w/x.cpp $INC -L/opt/ros/rolling/lib -lgeometric_shapes
 - `moveit-collision` — ACM과 collision_common, 오라클 `acm` op 포함
 - `moveit-distance-field` — VoxelGrid, PropagationDistanceField
 - `moveit-trajectory` — TOTG (`PathSegment`/`Path`/`Trajectory`)
-- `moveit-geometry` — `bodies::` 계층 (Phase 3 선행 조건)
+- `moveit-geometry` — `bodies::`가 main에 들어왔으나, §9.1이 이 패키지의
+  검증 경로로 못박은 C++ 프로브를 거치지 않았다(담당은 upstream gtest
+  리터럴로 대체했다고 보고). 프로브를 직접 만들어 돌린 결과 두 건이
+  어긋난다 — `ConvexMesh::ray_intersections`가 scale+padding 아래에서
+  교점 개수와 위치 모두 다르고, `OBB::extend_approx`의 extents가 다르다.
+  브랜치 `probe-parity`(`dbf50a7`)에 픽스처와 테스트가 있고 담당에게
+  넘겼다. gtest 리터럴이 약한 지점은 정확히 하나다: `test/*.cpp`는 `.so`에
+  컴파일되지 않으므로, 받아온 소스와 실제 바이너리를 잇는 문자열 테이블
+  대조가 그 값들을 덮지 못한다. 계층 (Phase 3 선행 조건)
 - `moveit-state` — `RobotState`와 FK, §8.2 설계
 - `moveit-planners-sbp` — Phase 7 착수. 오라클이 없는 유일한 단계이므로
   검증은 대조가 아니라 불변식이다: 반환된 경로의 모든 인접 쌍이
@@ -731,13 +739,22 @@ Rust 19,686 LOC, `cargo nextest run --workspace` 351/351.
   f64이며 1 ULP 차이라고 적었다. 실측 4,550 ULP. 값 36개 전부를 JSON
   픽스처로 옮기고 upstream `.cpp`의 `<<` 블록과 순서대로 대조했다.
 
-### 10.2 다음 게이트 — `cargo doc`
+### 10.2 검증 게이트 3번째 — `cargo doc` (추가 완료)
 
 `[workspace.lints.rust] warnings = "deny"`는 rustdoc 린트까지 deny로
 올리므로, 공개 문서가 비공개 항목을 `[`...`]`로 가리키면 하드 에러다.
-CI에 `cargo doc` 스텝이 없어 이것이 8곳까지 쌓였다 —
-`moveit-geometry` 1, `moveit-model` 7. 두 크레이트 담당에게 돌려보냈고,
-비는 즉시 `cargo doc --workspace --no-deps`를 CI 스텝으로 추가한다.
+그런데 CI 스텝 일곱 중 rustdoc을 실행하는 것이 하나도 없어, 이 에러는
+손으로 볼 때만 발견됐다. 네 크레이트에 걸쳐 8곳까지 쌓인 뒤에야 눈에
+띄었고, 그것을 담당에게 돌려보내는 사이 `moveit-model`에 새 코드 한
+라운드가 들어오며 7 → 11로 늘었다. 증가 속도가 처리 속도보다 빨랐다는
+뜻이므로 개별 반환을 그만두고 전부 닫은 뒤
+`cargo doc --workspace --no-deps`를 CI 스텝으로 넣었다. 11곳 모두 공개
+문서가 크레이트 내부 헬퍼나 세터를 가리킨 경우로, 링크를 만족시키려고
+`pub`으로 올릴 만한 것은 하나도 없어 이름을 평문 백틱으로 남겼다.
+
+CI 스텝은 이제 여덟이고, git remote가 없어 여전히 한 번도 실행된 적이
+없다. `git archive HEAD`로 뽑은 트리에서 여덟 개를 순서대로 돌려 전부
+통과함을 확인했다.
 
 ### 10.3 Phase 2 — FK 완료 조건 충족, 야코비안 미착수
 
@@ -771,4 +788,12 @@ seed를 바꿔(424242) 4로봇 8,004건을 독립 재현해 동일하게 0건 �
   주석의 주장이었지 검증된 적이 없다. 감당하지 못하면 trait을 고친다.
 - `moveit-smoothing` — §4.6이 Phase 6 착수 시점으로 미룬 ruckig 크레이트
   채택 결정. 결정과 근거를 §4.6에 되써넣는다.
-- `moveit-geometry` — `bodies::`
+- `moveit-geometry` — `bodies::`가 main에 들어왔으나, §9.1이 이 패키지의
+  검증 경로로 못박은 C++ 프로브를 거치지 않았다(담당은 upstream gtest
+  리터럴로 대체했다고 보고). 프로브를 직접 만들어 돌린 결과 두 건이
+  어긋난다 — `ConvexMesh::ray_intersections`가 scale+padding 아래에서
+  교점 개수와 위치 모두 다르고, `OBB::extend_approx`의 extents가 다르다.
+  브랜치 `probe-parity`(`dbf50a7`)에 픽스처와 테스트가 있고 담당에게
+  넘겼다. gtest 리터럴이 약한 지점은 정확히 하나다: `test/*.cpp`는 `.so`에
+  컴파일되지 않으므로, 받아온 소스와 실제 바이너리를 잇는 문자열 테이블
+  대조가 그 값들을 덮지 못한다.
