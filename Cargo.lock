@@ -148,6 +148,7 @@ checksum = "9847f980afb0628849bcd6a406cdffd29eb9d53fca83e1646005901a9acd4c5c"
 dependencies = [
  "approx",
  "glam 0.33.3",
+ "nalgebra",
  "num-traits",
  "simba",
 ]
@@ -236,12 +237,17 @@ name = "moveit-collision"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "glamx",
  "moveit-error",
  "moveit-geometry",
+ "moveit-model",
  "moveit-srdf",
+ "moveit-state",
  "nalgebra",
+ "parry3d-f64",
  "serde",
  "serde_json",
+ "urdf-rs",
 ]
 
 [[package]]
