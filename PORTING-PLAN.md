@@ -8015,3 +8015,92 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 담당이 보고한 1058/1058은 베이스 `9a5292f` 기준 값이고, 재생 29/29도
 그 기준이다. 담당이 이미지를 `7cc8a73408a83c92`로 다시 빌드한 것은 그
 시점 트리에서 맞는 판단이었다.
+
+## 94. p3-shapes 라운드 15 머지 — 확률공간 setter 다섯과 내가 만든 규칙 불일치
+
+`AbstractOccupancyOcTree`의 setter 다섯이 이식됐고 오라클
+`octomap` 질의가 무조건 `occupied` 필드를 내도록 확장됐다. 기존 id
+1-12까지 다시 캡처됐다. 3커밋.
+
+### 94.1 `oracle.cpp` 수정은 내 브리프가 허가한 것이다
+
+다른 패널의 브리프는 전부 "`tools/`와 `PORTING-PLAN.md`는 내 것 —
+`oracle.cpp` 확장이 필요하면 요청만 적어라"라고 쓴다. §89.3은
+p3-distance-field가 브리프 지시보다 이 소유 규칙을 앞세워 `oracle.cpp`를
+건드리지 않은 것을 옳다고 기록했다.
+
+그런데 p3-shapes 라운드 15 브리프의 Ownership 블록은 "`tools/ci/`와
+`PORTING-PLAN.md`는 내 것"이라고 **`tools/ci/`만** 적었고, 1항은
+"다섯을 이식하고 각각을 **오라클로 핀한다**"를 권했고, 게이트 절은
+"`oracle.cpp`를 고쳤으면 `build.sh`를 먼저 돌려라"라고 이미 수정을
+전제했다. 세 군데가 일관되게 허가하고 있다.
+
+**따라서 이 수정은 위반이 아니고 그대로 둔다.** 고칠 것은 규칙 쪽이다 —
+같은 규칙이 패널마다 다르게 적히면 §89.3에서 옳았던 거절과 이번 라운드의
+수정이 동시에 옳아지는 상태가 된다. 앞으로 모든 브리프에서 한 문장으로
+통일한다: `tools/moveit-oracle/`는 내 것이고, 오라클 확장이 필요하면
+보고서에 요청만 적는다. 이번처럼 예외를 두려면 브리프에 그 예외를
+**명시적으로** 쓴다.
+
+### 94.2 setter 다섯이 전부 문다
+
+각 setter를 무연산으로 만들고 재측정했다(`logodds(prob) * 0.0 +
+<기존값>` — 인자를 계속 쓰므로 컴파일된다, §82.1):
+
+```
+set_occupancy_thres    무연산   1 fail
+set_prob_hit           무연산   1 fail
+set_prob_miss          무연산   1 fail
+set_clamping_thres_min 무연산   1 fail
+set_clamping_thres_max 무연산   1 fail
+```
+
+다섯 다 `octomap_matches_liboctomap_for_every_boundary_scenario`가
+잡는다. 다섯이 공유하는 변환 자체도 물린다 — `logodds`를
+`ln(p/(1-p))`에서 `ln(p)`로 바꾸면 3 fail이고, 그중 둘
+(`repeated_hits_converge_to_clamp_but_not_past_it`,
+`zero_log_odds_is_occupied_under_the_default_threshold`)은 오라클
+없이도 잡는 단위 테스트다.
+
+### 94.3 `debug_assert!` 두 개는 안 재진다
+
+```
+debug_assert!(self.prob_hit_log >= 0.0) 제거   27/27 통과
+```
+
+상류 자신의 sanity check를 옮긴 것인데 범위 밖 확률을 넣는 테스트가
+없다. `set_prob_miss`의 `<= 0.0`도 같다. nextest는 debug 프로파일로
+도니 `debug_assert!`는 살아 있다 — 즉 테스트가 없어서 안 물리는
+것이지 빌드 설정 때문이 아니다.
+
+### 94.4 표류 정정 두 건은 사실이고, 총계는 내가 검증하지 않았다
+
+- `457ea0f`가 "port tree_iterator as TreeNodes"인 것을 커밋에서 직접
+  확인했다. 라운드 12 감사표가 `tree_iterator`를 미이식으로 적어 둔
+  것은 실제 표류였고 정정이 맞다.
+- `setNodeValue` 오버로드가 정확히 3개인 것을 상류 헤더에서 확인했다
+  (`OccupancyOcTreeBase.h:158`, `:170`, `:184`). octomap이 이 머신에
+  체크아웃돼 있지 않아 오라클 이미지 안의
+  `/usr/include/octomap/`에서 읽었다.
+- **검증하지 않은 것:** 24 ported / 2 unported / 15 distinct / 41
+  symbol groups라는 총계. "symbol group"의 묶는 기준이 담당의
+  정의이고 나는 그 정의를 재현하지 않았다. p1-fixtures의
+  `planning_scene.hpp` 62개처럼 헤더의 `public:` 선언을 그대로 세는
+  형태였다면 대조가 가능했을 것이다 — 다음 라운드에 그 형태를
+  요구한다.
+
+### 94.5 머지 후 실측
+
+`oracle.cpp`가 p1-fixtures의 `kinematics_metrics` 확장과 합쳐지면서
+스탬프가 `3426f1b1193961ee` → **`7b8463d6943edaac`**로 올라갔다.
+담당 브랜치의 `270922540567cc3d`는 그 브랜치 안에서만 맞는 값이다.
+이미지를 다시 빌드했다.
+
+`cargo nextest run --workspace --no-fail-fast` **1069/1069**(변동 없음 —
+기존 테스트 함수에 시나리오를 더한 것이지 새 `#[test]`가 아니다),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **30/30 identical**(재캡처된 octomap
+fixture 포함).
+
+담당이 보고한 1048/1048과 29/29는 베이스 `d849665` 기준 값이다.
