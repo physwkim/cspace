@@ -7356,10 +7356,63 @@ bellow/torso 고원, 92/532(17.3%)가 `base_link`/캐스터 휠 **여덟 쌍
 분해를 **확장**한다 — p3-acm이 진행 중인 1차원 스윕의 대상이 다섯이
 아니라 여덟이다.
 
-### 87.2 다른 시드로 독립 재현 중
+### 87.2 다른 시드로 독립 재현했다 — 결론이 선다
 
-같은 결론을 내 쪽에서 다른 시드(`77771111`, 6000 케이스)로 다시 재고
-있다. 결과는 다음 절에 적는다.
+시드 `77771111`, 6000 케이스로 내가 따로 돌린 결과:
+
+```
+자기측  111/6000  (1.85%)
+세계측    4/6000  (0.067%)
+비율                27.8x
+```
+
+담당의 두 지점과 나란히 놓으면:
+
+```
+            자기측     세계측     비율
+ 3000  (담당)  2.07%    0.067%    ~31x
+ 6000  (내 시드) 1.85%   0.067%    27.8x
+30000  (담당)  1.77%    0.047%    ~38x
+```
+
+시드가 다른데도 세 지점이 같은 자리에 있다. **비율 차이는 표본 문제가
+아니다** — 담당의 결론이 독립 재현으로 선다.
+
+쌍 구성도 재현된다. 자기측 111건 중 93건(83.8%)이 bellow/torso 고원이고
+(담당의 30000에서는 82.7%), 나머지 18건이 캐스터 휠 **일곱 쌍**에
+1–4건씩 퍼진다:
+
+```
+93  base_bellow_link/torso_lift_link
+ 4  base_link/fr_caster_r_wheel_link
+ 3  base_link/bl_caster_r_wheel_link
+ 3  base_link/fl_caster_l_wheel_link
+ 3  base_link/fl_caster_r_wheel_link
+ 3  base_link/fr_caster_l_wheel_link
+ 1  base_link/bl_caster_l_wheel_link
+ 1  base_link/br_caster_l_wheel_link
+```
+
+3000 케이스에서 다섯 쌍만 보이던 것이 시드를 바꾸고 표본을 두 배로
+늘리자 일곱으로 늘었다 — 담당이 30000에서 여덟 쌍 전부를 본 것과 같은
+방향이다. **캐스터 계열은 다섯 쌍이 아니라 여덟 쌍이고, p3-acm의 1차원
+스윕 대상이 그만큼 넓다.**
+
+세계측 4건은 전부 `floor`/`*_gripper_*_finger_tip_link`이다
+(`l_gripper_l_finger_tip` 2, `r_gripper_l_finger_tip` 1,
+`r_gripper_r_finger_tip` 1) — 담당의 30000판과 같은 계열이다.
+
+명령:
+
+```
+moveit-diff --urdf .../pr2.urdf --srdf .../pr2.srdf --group right_arm \
+  --collision --cases 6000 --seed 77771111 --stats-json <out> \
+  --oracle tools/moveit-oracle/run-oracle.sh
+```
+
+(`--stats-json`의 `cases` 필드는 표본 수가 아니라 검사 수다 —
+`verdicts.len()`, `main.rs:788`. 6000 표본이 18001 검사를 낸다. 비율의
+분모는 `--cases` 쪽이다.)
 
 ### 87.3 머지 후 실측
 
