@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 moveit-error.workspace = true
+moveit-geometry.workspace = true
 nalgebra.workspace = true
 
 [dev-dependencies]

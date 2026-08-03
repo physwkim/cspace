@@ -20,22 +20,16 @@
 //!   correctness assertion.
 //! - The file-I/O half of `TestReadWrite` (`writeToStream`/`readFromStream`
 //!   round trip) — that API isn't ported; see the same doc section.
-//! - The shape/gradient portion of `TestSignedAddRemovePoints` (everything
-//!   from `gradient_df.addShapeToField` onward) — `addShapeToField` itself
-//!   isn't ported (no `geometric_shapes::Shape` in this workspace), and
-//!   `getNearestCell`'s gradient-direction assertions are exercised more
-//!   directly by this crate's own boundary tests. The points-only portion
-//!   (add a cube of points, remove the center, assert equality against a
-//!   fresh rebuild) is ported below as
-//!   [`signed_add_remove_points_matches_rebuild_without_the_removed_point`] —
-//!   this is exactly the add/remove-vs-rebuild invariant our verification
-//!   brief asks for independent of the shape/gradient plumbing.
-//! - `TestShape` is ported with `addShapeToField`/`moveShapeInField` inlined
-//!   to their upstream definitions (`getShapePoints` +
-//!   `addPointsToField`/`updatePointsInField` — see `distance_field.cpp`),
-//!   since a sphere shape is available in this crate's test-only
-//!   [`ConvexBody`] the same way `find_internal_points.rs`'s own unit tests
-//!   use one.
+//!
+//! `TestSignedAddRemovePoints` and `TestShape` are ported in full, including
+//! the shape/gradient portions, using the now-ported
+//! [`DistanceField::add_shape_to_field`]/[`DistanceField::move_shape_in_field`]
+//! — see [`moveit_distance_field::DistanceField`]'s "Deviations from
+//! upstream" for the shape-type restriction (sphere/cylinder/box only) that
+//! makes this possible without a full `bodies::Body` port. This file's
+//! test-only [`ConvexBody`] sphere is still used to independently compute
+//! the expected obstacle point sets for `check_distance_field`, so the
+//! assertions do not just check the production code against itself.
 
 use approx::assert_relative_eq;
 use nalgebra::Vector3;
@@ -43,6 +37,7 @@ use nalgebra::Vector3;
 use moveit_distance_field::{
     ConvexBody, DistanceField, GridGeometry, PropagationDistanceField, find_internal_points_convex,
 };
+use moveit_geometry::{Isometry3, Shape, Sphere as GeomSphere};
 
 const WIDTH: f64 = 1.0;
 const HEIGHT: f64 = 1.0;
@@ -200,8 +195,9 @@ fn add_remove_points_matches_upstream_test_propagation_distance_field() {
 }
 
 /// Upstream `TEST(TestSignedPropagationDistanceField, TestSignedAddRemovePoints)`,
-/// points-only portion — see this file's module doc for the shape/gradient
-/// portion this omits.
+/// in full: the points-only portion (add a cube of points, remove the
+/// center, assert equality against a fresh rebuild), then the shape/gradient
+/// portion on a fresh `gradient_df`.
 #[test]
 fn signed_add_remove_points_matches_rebuild_without_the_removed_point() {
     let mut df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
@@ -246,6 +242,70 @@ fn signed_add_remove_points_matches_rebuild_without_the_removed_point() {
     test_df.add_points_to_field(&test_points);
 
     assert!(distance_fields_have_equal_distances(&df, &test_df));
+
+    // --- shape/gradient portion, on a fresh `gradient_df` ---
+
+    let mut gradient_df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
+    let sphere = Shape::Sphere(GeomSphere::new(0.25).unwrap());
+    let pose = Isometry3::translation(0.5, 0.5, 0.5);
+    gradient_df.add_shape_to_field(&sphere, &pose).unwrap();
+
+    assert!(gradient_df.cell(5, 5, 5).negative_distance_square > 1);
+
+    // All negative cells should have gradients that point towards cells
+    // with distance 1.
+    for z in 1..df.num_cells_z() - 1 {
+        for x in 1..df.num_cells_x() - 1 {
+            for y in 1..df.num_cells_y() - 1 {
+                let dist = gradient_df.distance_cell(x, y, z);
+                let nearest = gradient_df.nearest_cell(x, y, z);
+                assert_eq!(nearest.distance, dist);
+
+                if nearest.voxel.is_none() {
+                    if nearest.distance > 0.0 {
+                        assert!(nearest.distance >= gradient_df.uninitialized_distance());
+                    } else if nearest.distance < 0.0 {
+                        assert!(nearest.distance <= -gradient_df.uninitialized_distance());
+                    }
+                }
+
+                if gradient_df.cell(x, y, z).negative_distance_square > 0 {
+                    assert!(dist < 0.0);
+                    let world = df.grid_to_world(x, y, z);
+                    let grad = gradient_df.distance_gradient(world.x, world.y, world.z);
+                    assert!(grad.in_bounds, "{x} {y} {z}");
+                    assert_relative_eq!(dist, grad.distance, epsilon = 0.0001);
+
+                    let Some(_) = nearest.voxel else { continue };
+
+                    assert!(
+                        gradient_df
+                            .cell(nearest.position.x, nearest.position.y, nearest.position.z)
+                            .distance_square
+                            >= 1
+                    );
+
+                    let grad_size_sq = grad.gradient.norm_squared();
+                    if grad_size_sq < f64::EPSILON {
+                        continue;
+                    }
+                    let oo_grad_size = 1.0 / grad_size_sq.sqrt();
+                    let xscale = grad.gradient.x * oo_grad_size;
+                    let yscale = grad.gradient.y * oo_grad_size;
+                    let zscale = grad.gradient.z * oo_grad_size;
+
+                    let comp_x = world.x - xscale * dist;
+                    let comp_y = world.y - yscale * dist;
+                    let comp_z = world.z - zscale * dist;
+
+                    let (cell_in_bounds, cell_x, cell_y, cell_z) =
+                        gradient_df.world_to_grid(&Vector3::new(comp_x, comp_y, comp_z));
+                    assert!(cell_in_bounds);
+                    assert!(gradient_df.cell(cell_x, cell_y, cell_z).distance_square >= 1);
+                }
+            }
+        }
+    }
 }
 
 struct Sphere {
@@ -263,11 +323,12 @@ impl ConvexBody for Sphere {
     }
 }
 
-/// Upstream `TEST(TestSignedPropagationDistanceField, TestShape)`, with
-/// `addShapeToField(shape, pose)` inlined to `findInternalPointsConvex` +
-/// `addPointsToField`, and `moveShapeInField(shape, old, new)` inlined to
-/// `findInternalPointsConvex` at both poses + `updatePointsInField` — see
-/// `distance_field.cpp`'s definitions of both, and this file's module doc.
+/// Upstream `TEST(TestSignedPropagationDistanceField, TestShape)`, using the
+/// now-ported `add_shape_to_field`/`move_shape_in_field` to build the field
+/// (matching upstream's own use of `bodies::createBodyFromShape` only to
+/// independently recompute the expected point set for `checkDistanceField`,
+/// not to build the field itself), with this file's test-only [`ConvexBody`]
+/// sphere standing in for that independent recomputation.
 #[test]
 fn moving_a_shape_in_field_matches_rebuild_at_the_new_pose() {
     let mut df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
@@ -275,6 +336,10 @@ fn moving_a_shape_in_field_matches_rebuild_at_the_new_pose() {
     let num_x = df.num_cells_x();
     let num_y = df.num_cells_y();
     let num_z = df.num_cells_z();
+
+    let shape = Shape::Sphere(GeomSphere::new(0.25).unwrap());
+    let pose = Isometry3::translation(0.5, 0.5, 0.5);
+    let new_pose = Isometry3::translation(0.7, 0.7, 0.7);
 
     let sphere_p = Sphere {
         center: Vector3::new(0.5, 0.5, 0.5),
@@ -285,24 +350,26 @@ fn moving_a_shape_in_field_matches_rebuild_at_the_new_pose() {
         radius: 0.25,
     };
 
+    df.add_shape_to_field(&shape, &pose).unwrap();
+
     let mut point_vec = Vec::new();
     find_internal_points_convex(&sphere_p, RESOLUTION, &mut point_vec);
-    df.add_points_to_field(&point_vec);
     check_distance_field(&df, &point_vec, num_x, num_y, num_z, true);
+
+    df.add_shape_to_field(&shape, &new_pose).unwrap();
 
     let mut point_vec_2 = Vec::new();
     find_internal_points_convex(&sphere_np, RESOLUTION, &mut point_vec_2);
-    df.add_points_to_field(&point_vec_2);
     let mut point_vec_union = point_vec_2.clone();
     point_vec_union.extend(point_vec.iter().copied());
     check_distance_field(&df, &point_vec_union, num_x, num_y, num_z, true);
 
     // "should get rid of old pose"
-    df.update_points_in_field(&point_vec, &point_vec_2);
+    df.move_shape_in_field(&shape, &pose, &new_pose).unwrap();
     check_distance_field(&df, &point_vec_2, num_x, num_y, num_z, true);
 
     // "should be equivalent to just adding second shape"
     let mut test_df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
-    test_df.add_points_to_field(&point_vec_2);
+    test_df.add_shape_to_field(&shape, &new_pose).unwrap();
     assert!(distance_fields_have_equal_distances(&df, &test_df));
 }

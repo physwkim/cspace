@@ -7,7 +7,12 @@
 //   moveit_core/distance_field/include/moveit/distance_field/distance_field.hpp
 //   moveit_core/distance_field/src/distance_field.cpp
 
+use moveit_error::Result;
+use moveit_geometry::{Isometry3, Shape};
 use nalgebra::Vector3;
+
+use crate::find_internal_points::find_internal_points_convex;
+use crate::posed_shape::PosedShape;
 
 /// Distance and gradient at a queried world point. Return value of
 /// [`DistanceField::distance_gradient`], upstream
@@ -39,18 +44,24 @@ pub struct DistanceGradient {
 /// Upstream's base class also declares `addShapeToField`,
 /// `removeShapeFromField`, `moveShapeInField`, `addOcTreeToField` and the
 /// RViz marker-generating methods (`getIsoSurfaceMarkers`,
-/// `getGradientMarkers`, `getPlaneMarkers`, `getProjectionPlanes`). None of
-/// those are ported here:
+/// `getGradientMarkers`, `getPlaneMarkers`, `getProjectionPlanes`).
 ///
-/// - The shape/octree methods need `geometric_shapes::bodies::Body` and
-///   `octomap::OcTree` equivalents. Neither exists anywhere in this
-///   workspace yet (`moveit-geometry` carries `Transforms` only as of this
-///   writing — see that crate's module doc); this crate owns none of that
-///   and cannot invent it without guessing at a design another phase owns.
-///   [`crate::find_internal_points_convex`] ports the one piece of this
-///   family that *is* self-contained (it takes a body only through a local
-///   trait, [`crate::ConvexBody`]) so that whichever crate eventually
-///   defines a shape hierarchy can adopt it by implementing that trait.
+/// [`DistanceField::add_shape_to_field`], [`DistanceField::remove_shape_from_field`]
+/// and [`DistanceField::move_shape_in_field`] *are* ported, as default trait
+/// methods built from the required methods above plus
+/// [`crate::find_internal_points_convex`] — matching upstream's own
+/// placement of `getShapePoints`/`addShapeToField`/`moveShapeInField` as
+/// non-virtual methods on the `DistanceField` base class. They accept
+/// exactly the shape variants the crate-private `posed_shape` module
+/// supports (`Sphere`/`Cylinder`/`Cuboid` — see that module's doc for why),
+/// returning [`moveit_error::Error::Construct`] for the rest rather than
+/// upstream's null-deref on an unsupported shape type.
+///
+/// The rest is not ported:
+///
+/// - `addOcTreeToField` needs an `octomap::OcTree` equivalent, which exists
+///   nowhere in this workspace; this crate owns none of that and cannot
+///   invent it without guessing at a design another phase owns.
 /// - The marker methods build `visualization_msgs::msg::Marker` /
 ///   `MarkerArray` for RViz. `PORTING-PLAN.md` D1 keeps every crate outside
 ///   the optional `moveit-ros` free of ROS message types; there is nothing
@@ -164,5 +175,62 @@ pub trait DistanceField {
             gradient,
             in_bounds: true,
         }
+    }
+
+    /// Upstream `DistanceField::addShapeToField`: sample `shape` at `pose`
+    /// onto the field's resolution grid and add every point found inside it
+    /// as an obstacle.
+    ///
+    /// # Errors
+    ///
+    /// See this trait's "Deviations from upstream" for the shape variants
+    /// this supports.
+    fn add_shape_to_field(&mut self, shape: &Shape, pose: &Isometry3) -> Result<()> {
+        let posed = PosedShape::new(shape, pose)?;
+        let mut points = Vec::new();
+        find_internal_points_convex(&posed, self.resolution(), &mut points);
+        self.add_points_to_field(&points);
+        Ok(())
+    }
+
+    /// Upstream `DistanceField::removeShapeFromField`.
+    ///
+    /// # Errors
+    ///
+    /// See this trait's "Deviations from upstream" for the shape variants
+    /// this supports.
+    fn remove_shape_from_field(&mut self, shape: &Shape, pose: &Isometry3) -> Result<()> {
+        let posed = PosedShape::new(shape, pose)?;
+        let mut points = Vec::new();
+        find_internal_points_convex(&posed, self.resolution(), &mut points);
+        self.remove_points_from_field(&points);
+        Ok(())
+    }
+
+    /// Upstream `DistanceField::moveShapeInField`: remove the obstacle
+    /// points `shape` occupies at `old_pose` and add the ones it occupies at
+    /// `new_pose`, via a single [`DistanceField::update_points_in_field`]
+    /// call rather than a separate remove-then-add pass, matching upstream.
+    ///
+    /// # Errors
+    ///
+    /// See this trait's "Deviations from upstream" for the shape variants
+    /// this supports.
+    fn move_shape_in_field(
+        &mut self,
+        shape: &Shape,
+        old_pose: &Isometry3,
+        new_pose: &Isometry3,
+    ) -> Result<()> {
+        let old_posed = PosedShape::new(shape, old_pose)?;
+        let mut old_points = Vec::new();
+        find_internal_points_convex(&old_posed, self.resolution(), &mut old_points);
+
+        let new_posed = PosedShape::new(shape, new_pose)?;
+        let mut new_points = Vec::new();
+        find_internal_points_convex(&new_posed, self.resolution(), &mut new_points);
+
+        self.update_points_in_field(&old_points, &new_points);
+        Ok(())
     }
 }

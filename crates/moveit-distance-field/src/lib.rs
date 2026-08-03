@@ -38,6 +38,7 @@
 
 mod distance_field;
 mod find_internal_points;
+mod posed_shape;
 mod propagation;
 mod voxel_grid;
 
