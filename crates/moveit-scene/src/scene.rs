@@ -1368,8 +1368,9 @@ impl<'m> PlanningScene<'m> {
 
     /// A new child scene that diffs against `self`: an empty
     /// [`WorldDiff`], a cloned [`World`] snapshot (cheap: see
-    /// [`World`]'s own copy-on-write `Clone`), inherited state/ACM, and a
-    /// cloned attached-body set. Upstream `diff()`.
+    /// [`World`]'s own copy-on-write `Clone`), inherited
+    /// transforms/state/ACM, and a cloned attached-body set. Upstream
+    /// `diff()`.
     pub fn diff(self: &Arc<Self>) -> PlanningScene<'m> {
         PlanningScene {
             name: String::new(),
@@ -1393,9 +1394,9 @@ impl<'m> PlanningScene<'m> {
         result
     }
 
-    /// If this scene has a parent, apply what changed here — current state,
-    /// ACM, and world changes — onto `target`. A no-op if this scene has no
-    /// parent. Upstream `pushDiffs`.
+    /// If this scene has a parent, apply what changed here — the
+    /// extra-fixed-frame map, current state, ACM, and world changes — onto
+    /// `target`. A no-op if this scene has no parent. Upstream `pushDiffs`.
     ///
     /// The world-change replay preserves the one ACM subtlety upstream is
     /// careful about: an id whose only recorded action here is a *pure*
@@ -1410,6 +1411,10 @@ impl<'m> PlanningScene<'m> {
     pub fn push_diffs(&self, target: &mut PlanningScene<'m>) {
         if self.parent.is_none() {
             return;
+        }
+        if let Layered::Own(transforms) = &self.transforms {
+            let all = transforms.all_transforms().clone();
+            target.transforms_mut().set_all_transforms(all);
         }
         if let Layered::Own(state) = &self.robot_state {
             target.set_current_state(state.clone());
@@ -1461,11 +1466,17 @@ impl<'m> PlanningScene<'m> {
     /// Materialize every inherited field locally, discard the world diff
     /// (nothing left to diff against), and drop the parent. A no-op if this
     /// scene has no parent. Upstream `decoupleParent`, scoped to the fields
-    /// this port carries (`scene_transforms_`/`object_colors_`/
-    /// `object_types_` are not ported — see the type's scope doc).
+    /// this port carries (`object_colors_`/`object_types_` are not ported —
+    /// see the type's scope doc; `scene_transforms_` is layered like
+    /// `robot_state_`/`acm_` and is materialized here alongside them,
+    /// matching upstream `planning_scene.cpp:343-344`).
     pub fn decouple_parent(&mut self) {
         if self.parent.is_none() {
             return;
+        }
+        if !self.transforms.is_own() {
+            let cloned = self.transforms().clone();
+            self.transforms = Layered::Own(cloned);
         }
         if !self.robot_state.is_own() {
             let cloned = self.current_state().clone();
@@ -1480,11 +1491,11 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Reset a diff scene back to a fresh diff against its parent's
-    /// *current* state: any locally materialized `robot_state`/`acm`/
-    /// `attached_bodies` are discarded and re-inherited, `world` reclones
-    /// the parent's, and `world_diff` starts empty again. A no-op if this
-    /// scene has no parent (upstream: `if (!parent_) return;`). Upstream
-    /// `clearDiffs`, scoped to the fields this port carries — see
+    /// *current* state: any locally materialized `transforms`/`robot_state`/
+    /// `acm`/`attached_bodies` are discarded and re-inherited, `world`
+    /// reclones the parent's, and `world_diff` starts empty again. A no-op
+    /// if this scene has no parent (upstream: `if (!parent_) return;`).
+    /// Upstream `clearDiffs`, scoped to the fields this port carries — see
     /// [`PlanningScene::decouple_parent`]'s doc for which upstream fields
     /// that already excludes.
     ///
@@ -1499,6 +1510,7 @@ impl<'m> PlanningScene<'m> {
         };
         self.world = parent.world.clone();
         self.world_diff = Some(WorldDiff::new());
+        self.transforms = Layered::Inherited;
         self.robot_state = Layered::Inherited;
         self.acm = Layered::Inherited;
         self.attached_bodies = parent.attached_bodies.clone();
@@ -1696,6 +1708,26 @@ mod tests {
     // ---- push_diffs: the "attached, not deleted" ACM guard ------------------
 
     #[test]
+    fn push_diffs_propagates_a_locally_own_transforms_map() {
+        let model = build_model();
+        let root = PlanningScene::new(&model, &srdf());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+        child
+            .transforms_mut()
+            .set_transform(Isometry3::translation(1.0, 0.0, 0.0), "map")
+            .unwrap();
+
+        let mut target = PlanningScene::new(&model, &srdf());
+        child.push_diffs(&mut target);
+
+        assert_eq!(
+            target.frame_transform("map").unwrap(),
+            Isometry3::translation(1.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
     fn push_diffs_prunes_the_acm_entry_for_a_genuinely_destroyed_object() {
         let model = build_model();
         let mut root = PlanningScene::new(&model, &srdf());
@@ -1856,6 +1888,39 @@ mod tests {
     }
 
     #[test]
+    fn decouple_parent_materializes_the_inherited_transforms_map() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.transforms_mut()
+            .set_transform(Isometry3::translation(1.0, 0.0, 0.0), "map")
+            .unwrap();
+        let mut root = Arc::new(root);
+        let mut child = root.diff();
+        assert_eq!(
+            child.frame_transform("map").unwrap(),
+            Isometry3::translation(1.0, 0.0, 0.0)
+        );
+
+        child.decouple_parent();
+        assert!(child.parent().is_none());
+
+        Arc::get_mut(&mut root)
+            .expect("sole owner: child dropped its Arc clone in decouple_parent")
+            .transforms_mut()
+            .set_transform(Isometry3::translation(2.0, 0.0, 0.0), "map")
+            .unwrap();
+
+        // The child's copy was materialized at `decouple_parent` time, so
+        // the parent's later mutation of "map" is not observed -- upstream
+        // `planning_scene.cpp:344`'s `scene_transforms_` copy, matching
+        // `robot_state`/`acm`'s existing decouple treatment above.
+        assert_eq!(
+            child.frame_transform("map").unwrap(),
+            Isometry3::translation(1.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
     fn decouple_parent_then_the_childs_inherited_attached_body_frame_still_resolves() {
         let model = build_model();
         let mut root = PlanningScene::new(&model, &srdf());
@@ -1900,8 +1965,8 @@ mod tests {
         assert!(child.parent().is_none());
 
         // `world` is a full clone at `diff()` time, not layered, so this
-        // confirms `decouple_parent` (which only touches `robot_state`/
-        // `acm`/`world_diff`/`parent`) leaves that already-materialized
+        // confirms `decouple_parent` (which only touches `transforms`/
+        // `robot_state`/`acm`/`world_diff`/`parent`) leaves that already-materialized
         // world content intact rather than discarding it along with the
         // diff-tracking it does clear.
         assert_eq!(child.world().object_ids(), vec!["crate".to_owned()]);
