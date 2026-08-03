@@ -1149,8 +1149,10 @@ pair 하나에 contact 세 개가 쌓인 모양으로 이 뺄셈이 `count()` �
   현재 C++을 읽고 쓴 단위 테스트만 있고 Phase 3 완료 조건인 `1e-4`
   대조가 없다.
 - `moveit-planners-sbp` — `So2Space`/`Se3Space`/`CompoundSpace`.
-  `StateSpace` trait 모양이 wraparound와 SO(3)를 감당하는지는 지금까지
-  주석의 주장이었지 검증된 적이 없다. 감당하지 못하면 trait을 고친다.
+  `StateSpace` trait 모양이 wraparound와 SO(3)를 감당하는지는 §61에서
+  경계값으로 검증됐다 — trait 모양은 그대로 두어도 되고, 대신 구현 쪽에서
+  버그가 하나 나와 고쳤다(`Se3Space::rotation_distance`가 참각의 절반을
+  돌려주고 있었다, `9b04950`).
 - `moveit-smoothing` — §4.6이 Phase 6 착수 시점으로 미룬 ruckig 크레이트
   채택 결정. 결정과 근거를 §4.6에 되써넣는다.
 - `moveit-geometry` — `bodies::`가 main에 들어왔으나, §9.1이 이 패키지의
@@ -5652,3 +5654,70 @@ python 로그 파서가 같은 케이스에 대해 인라인 `FAIL` 줄과 실�
   codegen 템플릿), `cached_ik_kinematics_plugin` **미포팅이되 진짜 범위 내
   갭** — §4.4가 D4 trait 주석에서 이것을 명시적으로 이름 부른다. "요청되지
   않음"이 아니라 근거 있는 처분이다.
+
+## 61. 패널이 찾은 첫 알고리즘 버그 — 회전 거리가 참각의 절반이었다 (2026-08-04)
+
+p1-robotmodel 라운드 7(`2aa697b`, `2accae8`, `9b04950`, `f6e654f`,
+`37260f4`). 이 세션에서 패널이 문서/처분이 아니라 **동작하는 코드의
+계산 자체**를 틀렸다고 짚어낸 첫 건이다.
+
+### 61.1 `Se3Space::rotation_distance`가 절반을 돌려줬다
+
+`se3.rs`의 이전 식은 `2 * atan2(|a - near|, |a + near|)`였다. 단위
+사원수 `a`, `near`에 대해 `near`는 부호 보정된 가까운 대표원이고,
+`a . near = cos(theta/2)`(`theta`는 두 회전 사이 SO(3) 각). 4차원 단위
+벡터 사이 각을 `phi`라 하면 `phi = theta/2`이고
+`atan2(|a - near|, |a + near|) = phi/2 = theta/4`이다. 따라서 그 식이
+돌려주던 값은 `theta/2` — 자기 doc 주석이 주장하던 참각의 정확히
+절반이다. `4 * atan2(...)`가 `theta`이고, 이것이 `2 * acos(|a . near|)`와
+실수 산술에서 완전히 같다.
+
+내가 별도로 확인한 두 가지:
+
+- 상류 `FloatingJointModel::distanceRotation`
+  (`floating_joint_model.cpp:128-134`)은 `q2.angularDistance(q1)`이고,
+  Eigen의 `angularDistance`는 `2 * atan2(|d.vec()|, |d.w()|)` — 상대
+  회전의 참각이다. 30도 회전에 대해 상류 식과 `4 * atan2` 형태 둘 다
+  `29.999999999999996`도, 고쳐지기 전 식은 `14.999999999999998`도.
+- 이 수정은 배율 교정에 그치지 않는다. `sample_near`의 회전 분기 주석은
+  "각 `theta`의 회전을 합성하면 bi-invariant 측지 거리로 정확히 `theta`
+  떨어진 곳에 앉는다"고 적혀 있는데, 고치기 전에는 `theta/2`였으므로 그
+  주석이 사실이 아니었고 예산을 절반만 썼다. 같은 이유로
+  `rotation_radius = (rotation_budget / rotation_weight).min(PI)`의 `PI`
+  절단도 고치기 전 기준으로는 도달할 수 없는 상한이었다(옛 거리의
+  최대값은 `PI/2`). 상수 하나만 바꾸면 주석·절단·예산이 동시에 맞는
+  자리였다.
+
+`rotation_weight`가 `distance`에 기여하는 크기가 2배가 된다. 가중치를
+튜닝해 둔 호출자가 있었다면 값의 의미가 바뀌지만, 바뀐 쪽이 상류와
+같은 정의다.
+
+### 61.2 왜 기존 테스트가 전부 통과했나
+
+메트릭 공리(비음수·동일성·대칭성·삼각부등식)는 **양의 상수배에 대해
+불변**이다. `slerp`는 거리가 아니라 `t`로 매개화되므로 보간 축도
+따라간다. 그래서 무작위 추출로 공리를 검사하는 테스트는 배율이 몇이든
+전부 통과한다. 잡아낸 것은 "외부에서 각을 아는" 경계 케이스 하나 —
+`exp_map(x축, 30도)` — 였다. §56이 자기 논증을 원형에서 반증
+가능한 형태로 바꾼 것과 같은 종류의 교훈이고, 이번에는 그 형태만이
+버그를 드러냈다.
+
+### 61.3 `moveit-constraints -> moveit-kinematics` 엣지: 승인
+
+p1-robotmodel이 `IKConstraintSampler`/`ConstraintSamplerManager`를
+`moveit-constraints`에 놓으려면 필요하다고 올린 새 의존 엣지를 승인한다.
+`cargo tree -p moveit-kinematics -e normal`에 `moveit-constraints`가
+없음을 확인했다 — 순환이 아니다. `check-dep-direction.sh`가 막는 것은
+ROS 방향이지 이 방향이 아니다.
+
+같은 커밋에서 확정된 사실 하나가 이 엣지의 근거다: `rrt_connect.rs`의
+목표 서명이 구체 `S::State`이므로 **오늘 이 포트의 호출자는 pose goal을
+표현할 방법이 아예 없다**. `constraint_samplers`는 편의 기능이 아니라
+빠진 플래닝 능력이다.
+
+### 61.4 픽스처
+
+`panda_constraints.json`이 `panda_constraints_request.json`/
+`panda_constraints_response.json`으로 재생 대상에 들어왔다. 재생
+**24/24 identical**(§58의 23 + 이 한 건). §40의 "요청을 잃어버린
+픽스처" 계열이 이 크레이트에서도 닫혔다.
