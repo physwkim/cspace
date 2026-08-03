@@ -9,6 +9,8 @@
 //      KDLKinematicsPlugin::clipToJointLimits, lines 499-522;
 //      KDLKinematicsPlugin::searchPositionIK, lines 303-415)
 
+use std::f64::consts::PI;
+
 use nalgebra::DVector;
 use rand::{Rng, RngExt};
 
@@ -259,9 +261,14 @@ fn random_configuration(chain: &ChainInfo, rng: &mut impl Rng) -> Vec<f64> {
 }
 
 /// `KDLKinematicsPlugin::getRandomConfiguration(seed_state, consistency_limits,
-/// jnt_array)`, i.e. `JointModel::getVariableRandomPositionsNearBy`'s
-/// non-continuous branch: each active joint's value drawn uniformly from
-/// `[max(min, near - limit), min(max, near + limit)]`. See
+/// jnt_array)`, i.e. `JointModel::getVariableRandomPositionsNearBy`. A
+/// non-continuous active joint's value is drawn uniformly from
+/// `[max(min, near - limit), min(max, near + limit)]`; a continuous one
+/// (`RevoluteJointModel::getVariableRandomPositionsNearBy`'s own
+/// `continuous_` branch, `revolute_joint_model.cpp:122-136`) is drawn
+/// unclamped from `[near - limit, near + limit]` and then wrapped into
+/// `(-pi, pi]`, matching `RevoluteJoint::enforce_position_bounds`'s wrap
+/// formula rather than clamping it to an edge. See
 /// [`SolveOptions::consistency_limits`]'s doc comment for why
 /// `consistency_limits` here is reduced-space rather than upstream's
 /// full-space parameter.
@@ -275,10 +282,24 @@ fn near_by_configuration(
         .active_min
         .iter()
         .zip(&chain.active_max)
+        .zip(&chain.active_continuous)
         .zip(near)
         .zip(consistency_limits)
-        .map(|(((&min, &max), &near), &limit)| {
-            rng.random_range(min.max(near - limit)..=max.min(near + limit))
+        .map(|((((&min, &max), &continuous), &near), &limit)| {
+            if continuous {
+                let mut value = rng.random_range((near - limit)..=(near + limit));
+                if value <= -PI || value > PI {
+                    value %= 2.0 * PI;
+                    if value <= -PI {
+                        value += 2.0 * PI;
+                    } else if value > PI {
+                        value -= 2.0 * PI;
+                    }
+                }
+                value
+            } else {
+                rng.random_range(min.max(near - limit)..=max.min(near + limit))
+            }
         })
         .collect()
 }
@@ -428,6 +449,23 @@ mod tests {
         fn panda_arm() -> Self {
             let model = build_model("panda.urdf", "panda.srdf");
             let chain = ChainInfo::build(&model, "panda_arm").expect("real panda_arm chain");
+            let params = SolverParams::default();
+            let joint_weights = chain.resolve_joint_weights(&params);
+            Self {
+                model,
+                chain,
+                params,
+                joint_weights,
+            }
+        }
+
+        /// `right_arm` has two `continuous` revolute joints
+        /// (`r_forearm_roll_joint`, `r_wrist_roll_joint`) that `panda_arm`'s
+        /// bounded-only chain cannot exercise -- see
+        /// `near_by_configuration_wraps_a_continuous_joint_past_pi_instead_of_clamping`.
+        fn pr2_right_arm() -> Self {
+            let model = build_model("pr2.urdf", "pr2.srdf");
+            let chain = ChainInfo::build(&model, "right_arm").expect("real right_arm chain");
             let params = SolverParams::default();
             let joint_weights = chain.resolve_joint_weights(&params);
             Self {
@@ -696,6 +734,57 @@ mod tests {
         assert_eq!(
             reject_calls, 1,
             "callback must still be invoked once before the sole max_restarts=0 attempt is exhausted"
+        );
+    }
+
+    /// The continuous-joint boundary `near_by_configuration`'s non-continuous
+    /// branch cannot reach: sampling near `PI - 0.1` with a `0.5` limit spans
+    /// past `PI`, and a continuous joint must wrap around to the negative
+    /// side there (`RevoluteJointModel::getVariableRandomPositionsNearBy`'s
+    /// `continuous_` branch, `revolute_joint_model.cpp:126-129`) rather than
+    /// saturate at `PI` the way a bounded joint would.
+    #[test]
+    fn near_by_configuration_wraps_a_continuous_joint_past_pi_instead_of_clamping() {
+        let fixture = Fixture::pr2_right_arm();
+        let continuous_index = fixture
+            .chain
+            .active_joint_names
+            .iter()
+            .position(|name| name == "r_wrist_roll_joint")
+            .expect("r_wrist_roll_joint is active in right_arm");
+        assert!(
+            fixture.chain.active_continuous[continuous_index],
+            "r_wrist_roll_joint must be recorded as continuous"
+        );
+
+        let mut near: Vec<f64> = fixture
+            .chain
+            .active_min
+            .iter()
+            .zip(&fixture.chain.active_max)
+            .map(|(&lo, &hi)| (lo + hi) / 2.0)
+            .collect();
+        near[continuous_index] = PI - 0.1;
+        let limit = 0.5;
+        let mut limits = vec![10.0; near.len()];
+        limits[continuous_index] = limit;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut wrapped_negative = false;
+        for _ in 0..200 {
+            let sample = near_by_configuration(&fixture.chain, &near, &limits, &mut rng);
+            let value = sample[continuous_index];
+            assert!(
+                value > -PI && value <= PI,
+                "wrapped value {value} must land in (-pi, pi]"
+            );
+            if value < 0.0 {
+                wrapped_negative = true;
+            }
+        }
+        assert!(
+            wrapped_negative,
+            "sampling near pi - 0.1 with a 0.5 limit must sometimes wrap past pi to the negative side, not saturate at pi"
         );
     }
 }

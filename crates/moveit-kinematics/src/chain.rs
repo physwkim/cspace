@@ -100,6 +100,16 @@ pub(crate) struct ChainInfo {
     /// independently chosen.
     pub(crate) active_min: Vec<f64>,
     pub(crate) active_max: Vec<f64>,
+    /// Whether each active joint is a continuous revolute
+    /// ([`moveit_model::joint::RevoluteJoint::is_continuous`]). Copied here
+    /// rather than looked up through a live model reference at solve time,
+    /// the same way [`ChainInfo::active_min`]/[`ChainInfo::active_max`] are:
+    /// [`crate::cart_to_jnt::near_by_configuration`] needs it to reproduce
+    /// `RevoluteJointModel::getVariableRandomPositionsNearBy`'s own
+    /// `continuous_` branch (`revolute_joint_model.cpp:122-136`), which
+    /// samples `near ± limit` unclamped and wraps into range instead of
+    /// clamping directly.
+    pub(crate) active_continuous: Vec<bool>,
 }
 
 impl ChainInfo {
@@ -165,6 +175,7 @@ impl ChainInfo {
         let mut variable_index = Vec::new();
         let mut is_active = Vec::new();
         let mut mimic_of: Vec<Option<(String, f64)>> = Vec::new();
+        let mut continuous = Vec::new();
 
         for &joint_index in group.joint_indices() {
             let joint = model.joint_model_at(joint_index);
@@ -193,6 +204,7 @@ impl ChainInfo {
             joint_names.push(joint.name().to_owned());
             min.push(bounds.min_position);
             max.push(bounds.max_position);
+            continuous.push(joint.as_revolute().is_some_and(|r| r.is_continuous()));
             link_index.push(
                 model
                     .link_models()
@@ -222,6 +234,7 @@ impl ChainInfo {
         let mut active_joint_names = Vec::new();
         let mut active_min = Vec::new();
         let mut active_max = Vec::new();
+        let mut active_continuous = Vec::new();
         let mut reduced_index_of: std::collections::HashMap<&str, usize> =
             std::collections::HashMap::new();
         for (i, (name, &active)) in joint_names.iter().zip(&is_active).enumerate() {
@@ -230,6 +243,7 @@ impl ChainInfo {
                 active_joint_names.push(name.clone());
                 active_min.push(min[i]);
                 active_max.push(max[i]);
+                active_continuous.push(continuous[i]);
             }
         }
 
@@ -275,6 +289,7 @@ impl ChainInfo {
             active_joint_names,
             active_min,
             active_max,
+            active_continuous,
         })
     }
 
