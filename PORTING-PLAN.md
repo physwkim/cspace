@@ -5807,3 +5807,58 @@ disposition"을 요구하면서 미포팅을 전제로 문장을 썼다. 담당 
 `cargo nextest run --workspace` **961/961**, `cargo test --doc --workspace`
 통과, clippy `-D warnings` 0건, `check-*.sh` 3건 전부 OK, 재생
 **24/24 identical**. §4.6의 "보류"는 이 라운드로 완료 처리했다.
+
+## 63. plateau 논증이 반증 가능한 테스트가 됐다 (2026-08-04)
+
+p3-acm 라운드 10(`dcf3c4e`, `3825b85`, `758ef00`). 브랜치 베이스가
+`f76421a`라 그쪽 보고의 944/944·재생 19/19는 낡은 숫자다. 머지 후 실측은
+§63.4. 보고는 "4 commits"라고 적었지만 브랜치에는 3개다.
+
+### 63.1 하드코딩된 오라클 리터럴 두 개가 캡처된 픽스처가 됐다
+
+§56이 세운 min-of-two-candidates 논증이
+`pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates`로
+들어왔다. 읽어보고 확인한 것은 이 테스트가 자기 자신을 재는 종류가
+아니라는 점이다:
+
+- `candidate_x`는 plateau 위 세 점(0.02/0.10/0.18)이 `1e-9` 안에서 모두
+  같은지 확인한다 — 우연히 같은 두 점이 아니다.
+- `candidate_z`는 0.23/0.25 두 끝점으로 직선을 맞춘 뒤, **내부점 0.24**를
+  그 직선에 대조해 실제로 선형인지(두 점 secant가 아닌지) 확인한다.
+  기울기가 `1.0`이어야 한다는 것도 물리에서 온 외부 근거다 — 메시를 z로
+  `dt`만큼 강체 평행이동하면 z 방향 분리 거리는 정확히 `dt`만큼 이동한다.
+- 교차점은 맞춘 직선이 아니라 **이 백엔드의 살아 있는 `distance_self`
+  호출로 30회 이분해서** 관측한다. 관측값과 예측값이 `1e-4` 안에서
+  일치해야 한다.
+- 마지막이 진짜 반증 가능한 주장이다: 캡처된 오라클 응답에 대해 교차점
+  **이전**에는 `1e-3`보다 크게 **불일치**해야 하고(그것이 deviation 6),
+  교차점 **이후**에는 `1e-9` 안에서 일치해야 한다.
+
+리터럴 `ORACLE_DIST_AT_0_1`/`_0_2`는 사라지고
+`pr2_torso_lift_bellow_sweep_{request,response}.json`이 그 자리를 대신한다.
+값은 내가 이전 라운드에 직접 잰 것과 같다 — `0.1`에서
+`-0.13543907645960804`, `0.2`에서 `-0.05755014036972962`, `0.22`에서
+`-0.03537914888262761`. 이제 재생 대상이므로 오라클이 바뀌면
+`verify-fixture-replay.sh`가 먼저 말한다.
+
+### 63.2 world 쪽이 다른 코드 경로가 아니라는 것도 확인됐다
+
+`758ef00`의 주장을 `parry.rs`에서 직접 확인했다: `distance_self`(`:1109`)와
+`distance_robot`(`:1125`)이 둘 다 `accumulate_distance`(`:902`)를 부르고,
+차이는 `self_pairs(&bodies)`인지 `cross_pairs(&robot, &world)`인지뿐이다.
+
+이것이 §60.2를 좁힌다. world 쪽 9건이 self 쪽과 반대 방향인 이유는 다른
+경로를 타서가 아니다. 그리고 그중 **쌍이 같은 2건**은 §56의 순위 메커니즘으로
+설명될 수 없다 — 양쪽이 같은 쌍을 골랐는데 값이 다르므로, 남는 것은
+convex primitive(`floor`는 `Cuboid`) 대 메시의 침투 깊이 계산 차이뿐이다.
+
+### 63.3 삭제된 테스트를 가리키는 문서 참조
+
+`link_bounding_radius`의 근거 주석이 `dcf3c4e`가 지운 테스트 이름을 계속
+가리키고 있었다. `dc2e616`에서 살아남은 이름으로 고쳤다.
+
+### 63.4 머지 후 실측
+
+`cargo nextest run --workspace` **961/961**, clippy `-D warnings` 0건,
+`check-*.sh` 3건 OK, 출처 검사 OK(새 `moveit-collision/pr2.urdf`는
+`identical`), 재생 **25/25 identical**.
