@@ -7709,3 +7709,137 @@ moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
 `7cc8a73408a83c92` 유지.
 
 담당이 보고한 1038/1038은 베이스 `0ce4524` 기준 값이다.
+
+## 91. p1-fixtures 라운드 12 머지 — `kinematics_metrics` 이식과 허용오차 재측정
+
+`moveit-metrics` 크레이트가 새로 들어왔다(`kinematics_metrics` 4개
+공개 메서드), 오라클에 `kinematics_metrics` 질의가 붙었고 스탬프가
+`7cc8a73408a83c92` → `3426f1b1193961ee`로 올라갔다. 이미지는 다시
+빌드했다.
+
+### 91.1 담당이 잰 두 값은 소수점까지 재현된다
+
+임시 프로브로 40개 스칼라 비교와 120개 타원체 성분의 잔차를 직접 쟀다:
+
+```
+SCALAR    worst measured relative residual = 4.7503e-14   (보고서 4.75e-14)
+ELLIPSOID worst measured relative residual = 3.5860e-13   (보고서 3.59e-13)
+```
+
+`epsilon`을 0으로 놓고 `max_relative`만 이분한 결과도 이 값과 맞는다 —
+스칼라는 1e-13 통과 / 1e-14 실패, 타원체는 1e-12 통과 / 1e-13 실패.
+
+### 91.2 그런데 무는 상수는 `max_relative`가 아니라 `epsilon`이다
+
+§85.3대로 **상수 하나씩** 이분했더니 넷 다 단독으로는 0.0까지 통과했다.
+쌍으로 둘 다 0.0으로 놓아야 1 fail이다. 이유는 fixture 값의 크기다:
+
+```
+manipulability_index_full         min 2.94616e-11  max 1.34701e-06
+manipulability_index_translation  min 5.70825e-10  max 1.69937e-06
+manipulability_full               min 1.88898e-10  max 1.97680e-06
+manipulability_translation        min 1.30473e-09  max 7.03754e-06
+```
+
+가장 큰 값에서도 `SCALAR_MAX_RELATIVE * |expected|` = 1e-10 × 7.04e-06 =
+7.04e-16 로, `SCALAR_EPSILON` 1e-12보다 **작다**. 즉 40개 비교 전부에서
+`epsilon` 쪽이 허용폭을 정한다. 그 허용폭을 상대오차로 환산하면:
+
+```
+SCALAR    permitted band as relative: 1.4210e-7 ~ 3.3942e-2
+SCALAR    min headroom (band / residual) = 1.6866e8
+```
+
+가장 작은 값(2.94616e-11)에서는 **3.4% 상대오차가 통과한다**. 주석이
+적은 "`1e-10`은 측정 최악값의 ~2000배"는 성립하지 않고, "`epsilon`
+바닥은 비용이 없다"도 사실이 아니다 — 바닥이 전부를 결정하고 있다.
+
+타원체도 같은 모양이다. 고윳값 최소 3.29669e-03, 고유벡터 성분 최소
+1.62356e-03에 `ELLIPSOID_EPSILON` 1e-9이 걸리므로:
+
+```
+ELLIPSOID permitted band as relative: 최대 6.1593e-7
+ELLIPSOID min headroom = 5.2984e5
+```
+
+"~2700배"가 아니라 5~6자리다.
+
+지시는 §88.4·§89.1과 같은 형태다: **`epsilon` 두 개를 0.0으로 내리고
+`max_relative`를 측정 바닥에서 자릿수만큼 띄워라**(스칼라 1e-13,
+타원체 1e-12이 바닥). 값의 크기가 1e-11까지 내려가는 fixture에서
+절대 바닥은 상대 허용오차를 무력화한다.
+
+이 건은 §85.3의 직접적인 사례다. 쌍으로 묶어 이분했으면 "0.0에서
+실패한다"만 보고 건강해 보였을 것이다. 하나씩 재야 둘 다 단독으로
+불필요하다는 게 보인다.
+
+### 91.3 섭동 10건이 문다
+
+담당의 3건을 내가 다시 돌렸고 셋 다 재현된다. 여기에 7건을 더 걸었다.
+전부 `--no-fail-fast`, 각각 적용 → 실행 → 되돌림:
+
+```
+P1  manipulability의 min()/max() 뒤집기                    1 fail (담당)
+P2  manipulability_index의 translation 분기 무력화          1 fail (담당)
+P3  joint-limits penalty를 1.0으로 고정                     1 fail (담당)
+P5  타원체가 (0,0) 대신 (3,3) 3x3 블록을 읽음               1 fail
+P7  range <= f64::MIN_POSITIVE 건너뛰기 제거                1 fail
+P10 penalty_multiplier==0 단축 경로 제거                    2 fail
+P11 penalty 식 1-exp(-k*m) → exp(-k*m)                     1 fail
+P12 manipulability에서 penalty 인자 제거                    1 fail
+P13 고윳값에 1.000001 곱하기                                1 fail
+P14 manipulability의 translation이 rows(3,3)을 봄           1 fail
+```
+
+`1-exp(-k*m)`의 부호, 타원체가 penalty를 **곱하지 않는다**는 상류 사실
+(P13이 6자리 섭동에서 문다), 고정 관절이 별도 분기 없이 `range` 검사로
+걸러진다는 주장(P7) 모두 실측으로 닫혔다.
+
+### 91.4 그러나 4건은 통과한다 — 분기 하나와 관절종류 건너뛰기 3건이 안 물린다
+
+```
+P4  columns < 6  →  columns < 8 (7-DOF 팔을 SVD-곱 경로로 강제)  7/7 통과
+P6  연속 회전관절 건너뛰기 제거                                  7/7 통과
+P8  floating 관절 건너뛰기 제거                                  7/7 통과
+P9  planar 관절 건너뛰기 제거                                    7/7 통과
+```
+
+**P4**: 테스트 모듈 주석은 `columns < 6` 분기가 오라클 커버리지가
+없다고 이미 적어 뒀다. 실측은 그 반대편까지 말한다 — 조건 자체가 양쪽
+어느 방향으로도 측정되지 않는다. 계수(full-rank) J에서는 두 경로가
+허용오차 안에서 같은 값을 내기 때문이다. 활성 변수 6개 미만인 그룹이
+필요하다.
+
+**P6/P8/P9**: `panda_arm`의 `joint_indices()`에 연속·floating·planar
+관절이 하나도 없다. `fixtures/panda.srdf:49`가 floating
+`virtual_joint`를 선언하지만 그 관절은 `panda_arm` 그룹에 들어 있지
+않아 P8이 통과한다.
+
+넷 중 **planar이 제일 급하다.** 모듈 주석에서 가장 길고 가장 섬세한
+이탈 근거가 planar 센티널이다 — 상류는 `-DBL_MAX`, 이 포트는
+`f64::NEG_INFINITY`이고, 주석 스스로 "`DBL_MAX`를 쓰면 조용히 절대
+매치되지 않고 항상 통과해 버린다"고 적었다. 그 문장을 검증하는 것이
+지금 트리에 없다. **문서로만 있는 이탈**은 §79와 같은 모양이다.
+
+필요한 fixture는 이미 다 있다. 새 로봇 파일이 필요 없다:
+
+```
+fixtures/pr2.urdf      type="continuous" 19건
+fixtures/pr2.srdf:5    virtual_joint world_joint type="planar"
+fixtures/panda.srdf:49 virtual_joint type="floating"
+```
+
+`joint_limits_penalty`는 공개 API이고 체인 그룹을 요구하지 않으므로
+(`manipulability*`와 달리) 오라클 없이 단위 테스트로 넷 다 물릴 수
+있다.
+
+### 91.5 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1059/1059**(1052 + 7),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **30/30 identical**(29 → 30,
+`moveit-metrics/panda_kinematics_metrics` 추가분).
+
+담당이 보고한 1030/1030은 베이스 `2a2c5af` 기준 값이고, 재생 29 → 30도
+그 기준에서 센 것이다.
