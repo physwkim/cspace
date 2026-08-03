@@ -3197,6 +3197,109 @@ fanuc `b=33, c=32`, pr2 `b=0, c=0`. 즉 **일관성 제한이 걸릴 때만** �
 분기만으로 panda의 격차를 설명하지는 못한다. 근본 원인은 미확정 —
 `p1-joints` 5라운드로 넘긴다.
 
+### 26.4 재시드 격차의 근본 원인 — 오라클 자신의 버그, 그리고 별개의 연속 관절 격차
+
+**주 원인: 오라클의 재시드 루프가 `consistency_limits`를 무시하고 항상
+전체 범위에서 뽑는다.** `oracle.cpp`의 `ik()` 재시드 루프(2라운드에 처음
+작성됨, 4라운드에 `consistencyOk` 게이트만 추가되고 이 루프 자체는
+건드리지 않음)는 매 재시도마다
+
+```cpp
+reseed_active[k] = ik_rng_.uniformReal(joint_min[full_i], joint_max[full_i]);
+```
+
+로 각 활성 관절의 **전체** `[min, max]`에서 뽑았다 — `consistency_limits`가
+있는지 여부와 무관하게. 그런데 상류 `searchPositionIK`는 조건부다
+(`kdl_kinematics_plugin.cpp:373-382`):
+
+```cpp
+if (!consistency_limits_mimic.empty())
+  getRandomConfiguration(jnt_seed_state.data, consistency_limits_mimic, jnt_pos_in.data);  // near-by, clamped
+else
+  getRandomConfiguration(jnt_pos_in.data);  // full-range
+```
+
+일관성 제한이 걸려 있을 때는 원본 시드 근처에서, 클램프해서 뽑아야
+한다. 오라클은 이 분기를 아예 구현하지 않고 항상 full-range 분기만
+탄 것 — 이 포트 자신의 `near_by_configuration`(`cart_to_jnt.rs`)은
+처음부터 상류의 근접 재시드 분기를 정확히 구현하고 있었으므로, 좁은
+제한 아래서는 오라클의 재시드가 원본 시드에서 너무 멀리 떨어진 곳을
+뽑아 (수렴하더라도) 자신의 일관성 검사에서 스스로 떨어뜨리는 빈도가
+이 포트보다 훨씬 높았다 — 방향이 항상 이 포트 쪽으로 치우친 이유다.
+
+`joint_min[full_i]`/`joint_max[full_i]`를 `seed_active[k] ± limit`로
+클램프하도록 오라클의 재시드 루프를 고쳤다(`8143395`). 같은 시드
+(`--seed 20260803`)로 다시 측정:
+
+| 픽스처 / 그룹 | 수정 전 (이미지 `a8988410cec4b1aa`) b/c, z | 수정 후 (이미지 `7bc4f487ef8d16ab`) b/c, z |
+|---|---|---|
+| panda / panda_arm | 15/69, z=5.89 | 31/36, z=0.61 |
+| fanuc / manipulator | 18/92, z=7.06 | 32/32, z=0.00 |
+| dual_arm_panda / left_panda_arm | 20/67, z=5.04 | 35/45, z=1.12 |
+| pr2 / right_arm | 8/18, z=1.96 | 17/12, z=0.93 |
+
+(`z = |b - c| / sqrt(b + c)`, McNemar 정규근사.) panda/fanuc/dual_arm_panda
+세 그룹은 z가 5.0-7.1대에서 0.6-1.1대로 떨어졌다 — 이 격차의 압도적
+부분이 오라클 자신의 버그였다는 뜻이다. pr2는 수정 전에도 z=1.96으로
+"확실히 실효"라고 부를 정도는 아니었다 — 베이스라인 성공률이
+99.6-99.8%로 높아 애초에 재시드가 필요한 케이스 자체가 500건 중
+소수(`b+c=26`)뿐이었고, 이 통계량은 `b+c`가 작을 때 검정력이 낮다.
+버그가 pr2에 없었다는 뜻이 아니라, 이 표본 크기로는 그 그룹에서
+통계적으로 뚜렷하게 잡히지 않았다는 뜻이다 — `tools/moveit-diff`의
+`PAIRED_DIVERGENCE_Z_THRESHOLD` 독코멘트에도 같은 사실을 적어 두었다.
+
+**부수적, 별개의 원인: 연속 관절 재시드는 클램프가 아니라 랩(wrap)해야
+한다.** 상류 `RevoluteJointModel::getVariableRandomPositionsNearBy`
+(`revolute_joint_model.cpp:122-136`)는 `continuous_`일 때
+`near ± limit`을 **클램프 없이** 뽑고 `enforcePositionBounds`로
+`(-pi, pi]`에 랩시키는 별도 분기를 갖는데, 이 포트의
+`near_by_configuration`은 (5라운드 이전까지) 모든 관절을 `[min, max]`로
+직접 클램프했다 — 이 포트 자신의 독코멘트가 "non-continuous branch"라고
+이미 스스로 적어 놓았던, 구현되지 않은 절반이다. `ChainInfo`에
+`active_continuous: Vec<bool>`를 추가하고 `near_by_configuration`에
+연속 관절 전용 랩 분기를 넣어 고쳤다(`6408570`), 전용 단위 테스트
+(`near_by_configuration_wraps_a_continuous_joint_past_pi_instead_of_clamping`)로
+검증.
+
+이 격차는 네 공식 그룹의 스윕 수치에는 나타나지 않는다: pr2의 두
+연속 관절(`r_forearm_roll_joint`, `r_wrist_roll_joint`)은 경계
+`[-pi, pi]`의 중점인 0이 시드이고, `0.35 × 2π ≈ 2.2 rad` 제한은 0에서
+`±π` 경계에 닿지 못한다 — 즉 이 스윕 조건에서는 클램프 분기와 랩
+분기가 수학적으로 동일한 범위를 낸다. 그래서 수정 전후로 pr2 수치가
+완전히 동일하다(17/12, 변화 없음). 실제로 검증하려면 시드가 경계
+가까이 있어야 하므로, 스윕이 아니라 전용 단위 테스트로 이 분기를
+직접 겨냥해 검증했다.
+
+**구조적 조치: `b`/`c`를 출력 줄이 아니라 게이트로 만들었다.**
+`moveit-diff`의 `run()`은 이제 `paired_divergence_z(b, c)`(McNemar 정규근사
+통계량)를 계산해 `PAIRED_DIVERGENCE_Z_THRESHOLD = 3.0`을 넘으면
+`ik_paired_divergence`라는 실패 verdict를 `report()`에 밀어 넣는다
+(`957b230`) — `failed: 0`만 읽고 "일치"로 결론 내리는 26.2/26.3의 실수가
+도구 차원에서 반복될 수 없도록. 임계값 3.0은 이번 라운드 자신의
+수정 전/후 z값(5.89-7.05 대 0.00-1.12)에서 뽑았고, 그 경계 자체를
+`paired_divergence_tests`(`main.rs`)로 고정해 두었다.
+
+**재현 가능한 최종 스윕** (`--cases 500 --seed 20260803`,
+`--ik-max-restarts` 기본값 20, 오라클 이미지 `7bc4f487ef8d16ab`, 전부
+`failed: 0`, `ik_paired_divergence` 전부 PASS):
+
+| 픽스처 / 그룹 | 제한 없음 oracle/rust, b, c, z | `--ik-consistency-limit 0.35` oracle/rust, b, c, z |
+|---|---|---|
+| panda / panda_arm | 97.6%/98.0%, b=8, c=10, z=0.47 | 37.6%/38.6%, b=31, c=36, z=0.61 |
+| fanuc / manipulator | 91.2%/91.0%, b=33, c=32, z=0.12 | 44.4%/44.4%, b=32, c=32, z=0.00 |
+| dual_arm_panda / left_panda_arm | 97.6%/98.6%, b=6, c=11, z=1.21 | 37.6%/39.6%, b=35, c=45, z=1.12 |
+| pr2 / right_arm | 99.6%/99.6%, b=0, c=0, z=0.00 | 25.4%/24.4%, b=17, c=12, z=0.93 |
+
+크레이트 로컬 `crates/moveit-kinematics/tests/fixtures/pr2.urdf`+
+`pr2.srdf` / `l_gripper_finger_chain`(같은 조건, 같은 이미지):
+
+| 조건 | oracle/rust, b, c, z |
+|---|---|
+| 제한 없음 | 100.0%/100.0%, b=0, c=0, z=0.00 |
+| `--ik-consistency-limit 0.35` | 72.0%/72.0%, b=0, c=0, z=0.00 |
+
+모든 z가 임계값 3.0을 한참 밑돈다.
+
 ## 27. `p3-distance-field` 5라운드 병합 (2026-08-04)
 
 `5231cf2`. `nextest --workspace` **855/855**.
