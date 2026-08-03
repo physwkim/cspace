@@ -371,6 +371,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-metrics"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
 name = "moveit-model"
 version = "0.1.0"
 dependencies = [
