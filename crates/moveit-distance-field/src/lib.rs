@@ -221,35 +221,150 @@
 //! this one.
 //!
 //! `distance_field.hpp` (`DistanceField`, abstract base): 32 public methods
-//! — 26 ported, 2 unported (`writeToStream`/`readFromStream`), 4 D-excluded
-//! (the 4 marker methods). 2 protected methods — 1 ported (`getOcTreePoints`
-//! as the private `octree_points`), 1 unported (`setPoint`). 8 protected
-//! fields — 7 ported as implementer state, 1 deliberately unported
-//! (`inv_twice_resolution_`; see [`DistanceField::distance_gradient`]'s own
-//! doc).
+//! — 26 ported, 2 unported, 4 D-excluded. 2 protected methods — 1 ported, 1
+//! unported. 8 protected fields — 7 ported as implementer state, 1
+//! deliberately unported. One bullet per name below, so a re-count can diff
+//! against this list directly rather than this section's prose summary of
+//! it — `awk '/## `distance_field.hpp` \(by name\)/,/## `collision_distance_field_types.hpp` \(by name\)/'
+//! crates/moveit-distance-field/src/lib.rs | rg -c '^//! - '` gives **42**
+//! (= 32 + 2 + 8), heading-anchored so the command stays correct across
+//! future edits instead of hardcoding line numbers that would drift:
+//! ## `distance_field.hpp` (by name)
+//!
+//! - `addPointsToField` — ported, [`DistanceField::add_points_to_field`].
+//! - `removePointsFromField` — ported, [`DistanceField::remove_points_from_field`].
+//! - `updatePointsInField` — ported, [`DistanceField::update_points_in_field`].
+//! - `getShapePoints` — ported, inlined into the private `posed_body` plus
+//!   [`find_internal_points_convex`] (no separate Rust name).
+//! - `addShapeToField` — ported, [`DistanceField::add_shape_to_field`].
+//! - `addOcTreeToField` — ported, [`DistanceField::add_octree_to_field`].
+//! - `moveShapeInField` — ported, [`DistanceField::move_shape_in_field`].
+//! - `removeShapeFromField` — ported, [`DistanceField::remove_shape_from_field`].
+//! - `reset` — ported, [`DistanceField::reset`].
+//! - `getDistance(double,double,double)` — ported, [`DistanceField::distance`].
+//! - `getDistanceGradient` — ported, [`DistanceField::distance_gradient`].
+//! - `getDistance(int,int,int)` — ported, [`DistanceField::distance_cell`].
+//! - `isCellValid` — ported, [`DistanceField::is_cell_valid`].
+//! - `getXNumCells` — ported, [`DistanceField::num_cells_x`].
+//! - `getYNumCells` — ported, [`DistanceField::num_cells_y`].
+//! - `getZNumCells` — ported, [`DistanceField::num_cells_z`].
+//! - `gridToWorld` — ported, [`DistanceField::grid_to_world`].
+//! - `worldToGrid` — ported, [`DistanceField::world_to_grid`].
+//! - `writeToStream` — unported.
+//! - `readFromStream` — unported.
+//! - `getIsoSurfaceMarkers` — D1-excluded.
+//! - `getGradientMarkers` — D1-excluded.
+//! - `getPlaneMarkers` — D1-excluded.
+//! - `getProjectionPlanes` — D1-excluded.
+//! - `getSizeX` — ported, [`DistanceField::size_x`].
+//! - `getSizeY` — ported, [`DistanceField::size_y`].
+//! - `getSizeZ` — ported, [`DistanceField::size_z`].
+//! - `getOriginX` — ported, [`DistanceField::origin_x`].
+//! - `getOriginY` — ported, [`DistanceField::origin_y`].
+//! - `getOriginZ` — ported, [`DistanceField::origin_z`].
+//! - `getResolution` — ported, [`DistanceField::resolution`].
+//! - `getUninitializedDistance` — ported, [`DistanceField::uninitialized_distance`].
+//! - *(protected)* `getOcTreePoints` — ported, the private free function
+//!   `octree_points`.
+//! - *(protected)* `setPoint` — unported.
+//! - *(protected field)* `size_x_` — ported, implementer state.
+//! - *(protected field)* `size_y_` — ported, implementer state.
+//! - *(protected field)* `size_z_` — ported, implementer state.
+//! - *(protected field)* `origin_x_` — ported, implementer state.
+//! - *(protected field)* `origin_y_` — ported, implementer state.
+//! - *(protected field)* `origin_z_` — ported, implementer state.
+//! - *(protected field)* `resolution_` — ported, implementer state.
+//! - *(protected field)* `inv_twice_resolution_` — deliberately unported;
+//!   see [`DistanceField::distance_gradient`]'s own doc.
 //!
 //! `collision_distance_field_types.hpp` (11 top-level types, `grep -n
-//! "^class \|^struct \|^enum "` against the pinned tree): `CollisionType`
-//! (enum, 0 members), `CollisionSphere` (1 ctor), `GradientInfo` (1 ctor +
-//! `clear`), `PosedDistanceField` (1 ctor + 4 methods), `BodyDecomposition`
-//! (2 ctors + 7 methods), `PosedBodySphereDecomposition` (1 ctor + 7
-//! methods), `PosedBodyPointDecomposition` (3 ctors + 2 methods — the octree
-//! constructor is the one item this round newly ported, as
-//! [`PosedBodyPointDecomposition::from_octree`]),
-//! `PosedBodySphereDecompositionVector` (1 ctor + 7 methods),
-//! `PosedBodyPointDecompositionVector` (1 ctor + 5 methods), `ProximityInfo`
-//! (fields only, 0 methods), `BodyDecompositionVector` (forward-declared at
-//! line 226, never defined in this header — 0 members to port, confirmed by
-//! reading the full 536-line file). 44 public class/struct members total
-//! across the 8 types that have any, all 44 ported — cross-checked
-//! name-for-name against `collision_distance_field_types.rs`'s `pub fn`
-//! list (`grep -n "pub fn "`). Plus 5 namespace-level free functions
-//! (`determineCollisionSpheres`, `getCollisionSphereGradients`,
-//! `getCollisionSphereCollision` ×2 overloads mapped to 2 distinct Rust
-//! names since Rust has no overloading, `doBoundingSpheresIntersect`), all 5
-//! ported, plus 3 D-excluded (`getCollisionSphereMarkers`/
-//! `getProximityGradientMarkers`/`getCollisionMarkers`, D1). Zero unported
-//! symbols in this header.
+//! "^class \|^struct \|^enum "` against the pinned tree): under the same
+//! ctor-excluded criteria as above, this header has **34** public methods,
+//! not the 44 an earlier round of this section reported. That 44 was wrong
+//! two ways, not one: it folded the 11 constructors into a "members"
+//! headline the criteria above says not to count, *and*, independently of
+//! that, its own per-type tally undercounted `BodyDecomposition` at 7
+//! methods when the class has 8 (`replaceCollisionSpheres`/
+//! `getCollisionSpheres`/`getSphereRadii`/`getCollisionPoints`/`getBody`/
+//! `getBodiesCount`/`getRelativeCylinderPose`/`getRelativeBoundingSphere`,
+//! re-read directly from `collision_distance_field_types.hpp:228-299`).
+//! Restated consistently with `distance_field.hpp`'s own count above, which
+//! never counted `DistanceField`'s constructor either: **34 methods + 11
+//! constructors = 45** total ported symbols across the 8 types that have
+//! either, plus 5 free functions and 3 D-excluded free functions at
+//! namespace scope. `CollisionType` (enum, 0 members), `ProximityInfo`
+//! (fields only, 0 methods) and `BodyDecompositionVector`
+//! (forward-declared at line 226, never defined in this header — 0 members
+//! to port, confirmed by reading the full 536-line file) contribute
+//! nothing to either count. All 34 methods and all 11 constructors are
+//! ported — cross-checked name-for-name against
+//! `collision_distance_field_types.rs`'s `pub fn` list (`grep -n
+//! "pub fn "`). One bullet per name below; `awk '/## `collision_distance_field_types.hpp`
+//! \(by name\)/,/## The `max_relative` trap/'
+//! crates/moveit-distance-field/src/lib.rs | rg -c '^//! - '` gives **53**
+//! (= 34 + 11 + 5 + 3), heading-anchored for the same reason as above:
+//!
+//! ## `collision_distance_field_types.hpp` (by name)
+//!
+//! - `GradientInfo::clear` — ported, [`GradientInfo::clear`].
+//! - `PosedDistanceField::updatePose` — ported, [`PosedDistanceField::update_pose`].
+//! - `PosedDistanceField::getPose` — ported, [`PosedDistanceField::pose`].
+//! - `PosedDistanceField::getDistanceGradient` — ported, [`PosedDistanceField::distance_gradient`].
+//! - `PosedDistanceField::getCollisionSphereGradients` (member overload) —
+//!   ported, [`PosedDistanceField::get_collision_sphere_gradients`].
+//! - `BodyDecomposition::replaceCollisionSpheres` — ported, [`BodyDecomposition::replace_collision_spheres`].
+//! - `BodyDecomposition::getCollisionSpheres` — ported, [`BodyDecomposition::collision_spheres`].
+//! - `BodyDecomposition::getSphereRadii` — ported, [`BodyDecomposition::sphere_radii`].
+//! - `BodyDecomposition::getCollisionPoints` — ported, [`BodyDecomposition::collision_points`].
+//! - `BodyDecomposition::getBody` — ported, [`BodyDecomposition::body`].
+//! - `BodyDecomposition::getBodiesCount` — ported, [`BodyDecomposition::bodies_count`].
+//! - `BodyDecomposition::getRelativeCylinderPose` — ported, [`BodyDecomposition::relative_cylinder_pose`].
+//! - `BodyDecomposition::getRelativeBoundingSphere` — ported, [`BodyDecomposition::relative_bounding_sphere`].
+//! - `PosedBodySphereDecomposition::getCollisionSpheres` — ported, [`PosedBodySphereDecomposition::collision_spheres`].
+//! - `PosedBodySphereDecomposition::getSphereCenters` — ported, [`PosedBodySphereDecomposition::sphere_centers`].
+//! - `PosedBodySphereDecomposition::getCollisionPoints` — ported, [`PosedBodySphereDecomposition::collision_points`].
+//! - `PosedBodySphereDecomposition::getSphereRadii` — ported, [`PosedBodySphereDecomposition::sphere_radii`].
+//! - `PosedBodySphereDecomposition::getBoundingSphereCenter` — ported, [`PosedBodySphereDecomposition::bounding_sphere_center`].
+//! - `PosedBodySphereDecomposition::getBoundingSphereRadius` — ported, [`PosedBodySphereDecomposition::bounding_sphere_radius`].
+//! - `PosedBodySphereDecomposition::updatePose` — ported, [`PosedBodySphereDecomposition::update_pose`].
+//! - `PosedBodyPointDecomposition::getCollisionPoints` — ported, [`PosedBodyPointDecomposition::collision_points`].
+//! - `PosedBodyPointDecomposition::updatePose` — ported, [`PosedBodyPointDecomposition::update_pose`].
+//! - `PosedBodySphereDecompositionVector::getCollisionSpheres` — ported, [`PosedBodySphereDecompositionVector::collision_spheres`].
+//! - `PosedBodySphereDecompositionVector::getSphereCenters` — ported, [`PosedBodySphereDecompositionVector::sphere_centers`].
+//! - `PosedBodySphereDecompositionVector::getSphereRadii` — ported, [`PosedBodySphereDecompositionVector::sphere_radii`].
+//! - `PosedBodySphereDecompositionVector::addToVector` — ported, [`PosedBodySphereDecompositionVector::add_to_vector`].
+//! - `PosedBodySphereDecompositionVector::getSize` — ported, [`PosedBodySphereDecompositionVector::len`]
+//!   (plus a Rust-idiom `is_empty`, not an upstream symbol).
+//! - `PosedBodySphereDecompositionVector::getPosedBodySphereDecomposition` — ported, [`PosedBodySphereDecompositionVector::get`].
+//! - `PosedBodySphereDecompositionVector::updatePose` — ported, [`PosedBodySphereDecompositionVector::update_pose`].
+//! - `PosedBodyPointDecompositionVector::getCollisionPoints` — ported, [`PosedBodyPointDecompositionVector::collision_points`].
+//! - `PosedBodyPointDecompositionVector::addToVector` — ported, [`PosedBodyPointDecompositionVector::add_to_vector`].
+//! - `PosedBodyPointDecompositionVector::getSize` — ported, [`PosedBodyPointDecompositionVector::len`]
+//!   (plus a Rust-idiom `is_empty`, not an upstream symbol).
+//! - `PosedBodyPointDecompositionVector::getPosedBodyDecomposition` — ported, [`PosedBodyPointDecompositionVector::get`].
+//! - `PosedBodyPointDecompositionVector::updatePose` — ported, [`PosedBodyPointDecompositionVector::update_pose`].
+//! - *(constructor)* `CollisionSphere(rel, radius)` — ported, [`CollisionSphere::new`].
+//! - *(constructor)* `GradientInfo()` — ported, `GradientInfo`'s `Default` impl.
+//! - *(constructor)* `PosedDistanceField(size, origin, resolution, max_distance, propagate_negative_distances)`
+//!   — ported, [`PosedDistanceField::new`].
+//! - *(constructor)* `BodyDecomposition(shape, resolution, padding)` — ported, [`BodyDecomposition::new`].
+//! - *(constructor)* `BodyDecomposition(shapes, poses, resolution, padding)` — ported, [`BodyDecomposition::from_shapes`].
+//! - *(constructor)* `PosedBodySphereDecomposition(body_decomposition)` — ported, [`PosedBodySphereDecomposition::new`].
+//! - *(constructor)* `PosedBodyPointDecomposition(body_decomposition)` — ported, [`PosedBodyPointDecomposition::new`].
+//! - *(constructor)* `PosedBodyPointDecomposition(body_decomposition, pose)` — ported, [`PosedBodyPointDecomposition::with_pose`].
+//! - *(constructor)* `PosedBodyPointDecomposition(octree)` — ported, [`PosedBodyPointDecomposition::from_octree`].
+//! - *(constructor)* `PosedBodySphereDecompositionVector()` — ported, [`PosedBodySphereDecompositionVector::new`].
+//! - *(constructor)* `PosedBodyPointDecompositionVector()` — ported, [`PosedBodyPointDecompositionVector::new`].
+//! - *(free function)* `determineCollisionSpheres` — ported, [`determine_collision_spheres`].
+//! - *(free function)* `getCollisionSphereGradients` — ported, [`get_collision_sphere_gradients`].
+//! - *(free function)* `getCollisionSphereCollision` (maximum_value/tolerance overload)
+//!   — ported, [`get_collision_sphere_collision`].
+//! - *(free function)* `getCollisionSphereCollision` (num_coll/colls overload)
+//!   — ported, [`get_collision_sphere_collisions`].
+//! - *(free function)* `doBoundingSpheresIntersect` — ported, [`do_bounding_spheres_intersect`].
+//! - *(free function)* `getCollisionSphereMarkers` — D1-excluded.
+//! - *(free function)* `getProximityGradientMarkers` — D1-excluded.
+//! - *(free function)* `getCollisionMarkers` — D1-excluded.
 //!
 //! ## The `max_relative` trap (PORTING-PLAN.md §79)
 //!
