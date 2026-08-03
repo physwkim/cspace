@@ -8637,3 +8637,84 @@ norm_sqr_after 1e-12 · 1e-15 · 0.0 전부 통과 — 비트 동일
 `check-*.sh` 3건 OK, `verify-fixture-provenance.sh` OK,
 `verify-continuous-reseed-wrap.sh` OK, `verify-fixture-replay.sh`
 **30/30 identical**.
+
+## 101. p1-fixtures 라운드 13 머지 — 세 스킵이 물고, 못 편다던 것이 펴진다
+
+5커밋(`1e0ebf5`, `55b70a8`, `e0069e6`, `0552866`, `26efcb7`),
+`moveit-metrics` 한 크레이트, 테스트 +7(1081 → 1088).
+
+### 101.1 세 스킵 전부 문다
+
+§91에서 연속·부동·평면 스킵 셋이 안 재진다고 적었다. 머지된 트리에서
+각각 `if false &&`로 무력화해 다시 쟀다:
+
+```
+연속 스킵 (:211)      14 tests: 13 passed, 1 failed
+                      tests::continuous_revolute_joint_does_not_contribute_to_joint_limits_penalty
+부동 스킵             14 tests: 13 passed, 1 failed
+평면 sentinel         14 tests: 11 passed, 3 failed
+```
+
+연속 스킵을 위치 비교로 재려던 첫 시도가 `RevoluteJoint::distance`의
+2π 대칭 때문에 눈이 멀었다는 것을 담당이 찾아내 골든값 재계산으로
+바꾼 것, 평면 sentinel을 x/y 무한대와 theta ±PI 리터럴로 나눠 양방향
+격리한 것 둘 다 §91이 요구한 형태다.
+
+### 101.2 `columns < 6`은 못 편다고 했는데 펴진다
+
+담당이 UNFIXED에 "`columns < 6` → `< 8` 섭동이 새 `panda_arm_5dof`
+fixture로도 안 잡히고, 이 테스트 형태로는 잡을 수 없다"고 적었다.
+**앞은 맞고 뒤는 틀렸다.** 방향을 반대로 하면 잡힌다:
+
+```
+columns < 6 -> < 5    14 tests: 13 passed, 1 failed
+                      panda_arm_5dof_kinematics_metrics_matches_the_oracle
+columns < 6 -> < 4    14 tests: 13 passed, 1 failed
+                      같은 테스트
+```
+
+이유는 담당 자신의 논거가 한 방향으로만 성립하기 때문이다. 행 full
+rank인 자코비안에서 특이값의 곱은 `sqrt(det(J Jᵀ))`와 정확히 같으므로
+**넓히는 방향**(7-DOF를 SVD 경로로 보내는 `< 8`)은 관측되지 않는다.
+**좁히는 방향**은 다르다 — 5-DOF 그룹을 `det(J Jᵀ)` 경로로 보내면
+6×6(병진은 3×3) 곱행렬의 rank가 5 이하라 행렬식이 0이 되고
+manipulability가 0으로 떨어진다. 오라클 값과 다르다.
+
+**담당이 이번 라운드에 추가한 fixture가 바로 그 핀이다.** 재지 않은
+것은 fixture가 아니라 섭동의 방향이다. 일반화해서 가져갈 것: 임계
+상수를 재는 섭동은 **양방향**으로 걸어라. 한 방향이 수학적으로
+무관측이면 그것은 상수가 안 재진다는 증거가 아니라 그 방향이 잘못
+골라졌다는 증거다.
+
+### 101.3 fixture divergence는 요청으로 왔고 내가 넣었다
+
+`crates/moveit-metrics/tests/fixtures/panda.srdf`가 루트 fixture에
+`panda_base`(부동 `virtual_joint` 격리)와 `panda_arm_5dof`(panda_link0
+→ panda_link5, 5축)를 더한다. 루트 fixture는 vendored 상류와 바이트
+동일을 유지해야 하므로 크레이트 로컬이 갈라지는 것이 맞고,
+`moveit-kinematics`의 `pr2.srdf` 선례와 같은 형태다.
+
+`tools/`가 내 것이라 담당이 **고치지 않고 요청만 적었다.** §94.1의
+규칙이 이번에는 지켜졌다. `verify-fixture-provenance.sh`의 `DIVERGENT`
+표에 항목을 내가 넣었고(`cc60e94`), 넣기 전에 `diff`로 갈라진 부분이
+설명된 두 그룹뿐인지 직접 확인했다. 지금 `divergent`로 통과한다.
+
+### 101.4 완료 조건 9건은 상류에서 대조된다
+
+`kinematics_metrics.hpp`의 `public:` 블록(52–136행)을 직접 읽었다:
+생성자, `getManipulabilityIndex` ×2, `getManipulabilityEllipsoid` ×2,
+`getManipulability` ×2, `setPenaltyMultiplier`, `getPenaltyMultiplier`
+= **9건.** 포트의 `rg -c '^//! - \`' crates/moveit-metrics/src/lib.rs`도
+9를 낸다. 이름 단위로 하나씩 맞는다.
+
+`getJointLimitsPenalty`는 137행의 `protected:` 아래이므로 public 감사
+9건에 들어가지 않는 것이 맞다.
+
+### 101.5 머지 후 실측
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1088/1088**,
+`cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
+`verify-fixture-provenance.sh` OK(새 `DIVERGENT` 항목 포함),
+`verify-continuous-reseed-wrap.sh` OK, `verify-fixture-replay.sh`
+**30/30 identical**.
