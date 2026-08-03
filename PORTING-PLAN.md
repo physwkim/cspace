@@ -4554,3 +4554,26 @@ ported-as / excluded(결정 인용) / unported-no-consumer로 분류하고
 브리핑 조건을 지켰다. `getLinkNames` 하나가 포트도 결정 인용도 없이
 남는데, 유일한 상류 호출자 `getPositionFK`가 이 크레이트에 자리가
 없으므로 봉사할 소비자도 없다는 것이 그 항목의 분류다.
+
+## 45. `p1-fixtures` 5라운드 병합 (2026-08-04)
+
+`63981f2`. 이 패널도 보고가 배달되지 않은 채 idle이었고 세 커밋이
+브랜치에 남아 있었다. `nextest --workspace` **931/931**.
+
+상류 주장 둘을 받지 않고 확인했다:
+
+- `clear_diffs`(`bc31159`)가 대응한다는 `planning_scene.cpp:316-336`을
+  읽었다. `clearDiffs`는 부모의 world를 다시 복제하고 새 `WorldDiff`를
+  만들며 `robot_state_`/`acm_`를 `reset()`한다 — 워커의 설명("부모
+  링크는 유지한 채 얼어붙은 것들을 `Layered::Inherited`로 되돌린다")과
+  일치한다. 상류는 `scene_transforms_`/`object_colors_`/`object_types_`도
+  같이 리셋하는데, 워커가 "이 포트가 나르는 필드로 한정"이라고 범위를
+  명시했다.
+- `73d6a1b`이 고친 거짓 주장 — "상류는 `PlanningScene` 진입점에서
+  `CollisionRequest::cost`를 세우지 않는다" — 은 실제로 거짓이다.
+  `planning_scene.cpp:2464`와 `:2506`에서 `creq.cost = true`다. 두
+  곳이고, 워커가 지목한 `getCostSources`가 그중 하나다.
+
+`59ba2e6`은 `is_state_colliding`을 `is_state_valid` 안에서 꺼내
+독립 심볼로 만든 것으로, 순서는 이미 그대로 있었고 심볼만 없었다 —
+§39가 p3-shapes에 요구한 것과 같은 종류의 커버리지 구멍이다.
