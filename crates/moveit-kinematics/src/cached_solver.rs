@@ -58,6 +58,34 @@ use crate::registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolveOptions, Solver
 /// twice the restarts a single [`crate::NewtonRaphsonSolver`]/
 /// [`crate::LevenbergMarquardtSolver`] call would, not a
 /// budget-constrained fraction of one call's worth.
+///
+/// # Why this type has no oracle fixture
+///
+/// This crate's IK correctness (`newton_raphson`/`lma`) is checked
+/// against `tools/moveit-oracle` live, through `tools/moveit-diff --ik`
+/// runs -- there are no committed `Op::Ik` request/response JSON fixtures
+/// for `moveit-kinematics` to replay (confirmed: no
+/// `crates/moveit-kinematics/tests/fixtures/oracle-models.json`, unlike
+/// every crate `tools/ci/verify-fixture-replay.sh` does cover). Either
+/// way, `oracle.cpp`'s `Op::Ik` handler hand-transcribes
+/// `KDLKinematicsPlugin::searchPositionIK`/`CartToJnt` directly (its own
+/// doc comment says so) rather than loading the compiled plugin class
+/// through `pluginlib::ClassLoader` -- confirmed by grep, the only
+/// `pluginlib::ClassLoader` instantiation anywhere in `oracle.cpp` is for
+/// `online_signal_smoothing`, unrelated to kinematics. There is no
+/// `CachedIKKinematicsPlugin` in the oracle binary for a `--cached-ik`
+/// flag to exercise even if `moveit-diff` grew one, and adding one would
+/// not buy independent ground truth anyway: this type's caching
+/// behaviour -- which seed gets tried, whether an entry gets inserted --
+/// is exactly what this module's own `#[cfg(test)]` `FakeSolver`-based
+/// tests already pin (see
+/// `cache_hit_short_circuits_without_trying_the_callers_own_seed`/
+/// `cache_miss_falls_back_to_the_callers_own_seed`), not a floating-point
+/// computation an external oracle process would newly verify. The
+/// wrapped solve itself (once a seed is chosen) is the same
+/// [`KinematicsSolver::solve_with_options`] call
+/// [`crate::NewtonRaphsonSolver`]/[`crate::LevenbergMarquardtSolver`]
+/// already make under `moveit-diff --ik`.
 pub struct CachedIkSolver<S> {
     inner: S,
     cache: IkCache,
