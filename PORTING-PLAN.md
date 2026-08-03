@@ -2804,6 +2804,17 @@ not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
 **`p1-fixtures`(`AttachedBody`/서브프레임 소유자)가 `RobotState`
 레벨에 이름 기반 서브프레임 조회를 추가한 뒤에 재검토할 것.**
 
+**병합 시점 정정 (같은 라운드에서 해소됨).** `p1-fixtures`가 같은 라운드에
+그 조회를 내놨다 — 다만 `RobotState` 레벨이 아니라 **`PlanningScene` 레벨**로,
+이 포트가 부착체를 상태가 아니라 씬에 두기로 한 결정에 맞춰서다
+(`crates/moveit-scene/src/scene.rs:583` `frame_transform`,
+`:641` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
+월드 객체 id/서브프레임의 3단 사다리). `Posed::frame_transform`의 주석도
+`22bb2a2`에서 "attached bodies are not ported"를 버리고 "씬 한 층 위에서
+해결된다"로 고쳤다. 따라서 §23.1의 차단 사유는 더 이상 성립하지 않는다.
+남은 것은 상류가 `const RobotState&`를 받는 시그니처를 이 포트에서 무엇으로
+바꿀지 결정하는 일이고, 그건 `moveit-constraints` 소유자의 몫이다.
+
 ### 23.2 설계: "재구성"이지 "제자리 수정"이 아니다
 
 상류는 `moveit_msgs::msg::JointConstraint` 등을 필드 단위로
