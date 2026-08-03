@@ -185,7 +185,26 @@
 //!   memoized per-tree by an `OctreeCache` (see that module's doc) so the
 //!   `Compound` is not rebuilt on every collision/distance query, and the
 //!   wired path is oracle-verified against a real `CollisionEnvFCL` in
-//!   `crates/moveit-collision/tests/octree_world_collision_parity.rs`.
+//!   `crates/moveit-collision/tests/octree_world_collision_parity.rs`, and
+//!   `crates/moveit-collision/tests/octree_leaf_count_scaling_parity.rs`
+//!   measures `robot_distance` agreement across leaf counts 0–216 rather than
+//!   just asserting the structural difference (round 7 item 2; no divergence
+//!   at any count tested).
+//!
+//!   **Falsifier for this gap (round 8, re-verified against the pinned
+//!   `parry3d-f64 = "0.30.0"` in `Cargo.lock`):** the item closes when
+//!   `parry3d-f64` ships a shape that accepts *per-node* size, not one
+//!   uniform `voxel_size` for the whole shape. Checked
+//!   `Voxels::new` in
+//!   `~/.cargo/registry/src/index.crates.io-*/parry3d-f64-0.30.0/src/shape/voxels/voxels.rs:574` —
+//!   `pub fn new(voxel_size: Vector, grid_coordinates: &[IVector]) -> Self`,
+//!   one `voxel_size` for every cell — so it still cannot take a pruned,
+//!   variable-depth [`moveit_octomap::OcTree`] leaf directly, for the same
+//!   re-inflation reason given above. `rg -n 'pub fn new' .../voxels.rs`
+//!   returning a signature with a per-node size parameter (or a new
+//!   `parry3d_f64::shape` module implementing a sparse/hierarchical volume)
+//!   would close it; a version bump alone does not, unless that signature
+//!   changed.
 //! - **`collision_env_distance_field`'s treatment**
 //!   (`collision_env_distance_field.cpp`, `~line 1753`) only ever reads: it
 //!   builds `PosedBodyPointDecomposition(octree)` directly from the
