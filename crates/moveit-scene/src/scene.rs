@@ -46,59 +46,220 @@ pub struct PathValidity {
 ///
 /// # Scope
 ///
-/// Ported: the world (via [`PlanningScene::world`] and its mutators), the
-/// ACM, the current state, attached bodies (see [`AttachedBody`]'s module
-/// doc for why they live here rather than on [`RobotState`]), the
-/// parent/child diff relationship ([`PlanningScene::diff`],
-/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`],
-/// [`PlanningScene::clear_diffs`]), and state/path validity
-/// ([`PlanningScene::is_state_colliding`],
-/// [`PlanningScene::is_state_valid`],
-/// [`PlanningScene::is_state_constrained`],
-/// [`PlanningScene::is_path_valid`] — see their own docs for the dropped
-/// `moveit_msgs` overloads and feasibility predicate).
+/// Full audit of every *public* symbol in upstream
+/// `planning_scene::PlanningScene`, read from `planning_scene.hpp` itself
+/// (`planning_scene.h` is a deprecated `#pragma message`-only shim that
+/// `#include`s the `.hpp` and declares nothing of its own — see
+/// `create_deprecated_headers.py` in its header comment). One line each:
+/// `ported as <symbol>` / `D1 excludes it (<message type>)` / `distinct
+/// (<reason>)` / `unported (<reason>)`. Private/protected members
+/// (`initialize`, the `CollisionDetector` struct, the process-*Add/Remove/Move
+/// helpers, data fields) are implementation detail, not audited here.
 ///
-/// Deferred, not ported:
+/// ## Construction, identity, parent/child
 ///
-/// - Anything that round-trips a `moveit_msgs` type
-///   (`getPlanningSceneMsg`/`setPlanningSceneDiffMsg`/
-///   `processCollisionObjectMsg`/octomap handling, `getCurrentStateUpdated`'s
-///   `moveit_msgs::RobotState` overload — D1, this is a ROS-independent core
-///   crate).
-/// - `scene_transforms_`/`getTransforms` (upstream's separate named-frame
-///   lookup layer; no `Transforms`/`SceneTransforms` exists in this port
-///   yet).
-/// - The object-color family (`getObjectColor`/`setObjectColor`/
-///   `hasObjectColor`/`removeObjectColor`/`getKnownObjectColors`/
-///   `getOriginalObjectColor`) — D1, carries `std_msgs::msg::ColorRGBA`.
-/// - The object-type family (`getObjectType`/`setObjectType`/
-///   `hasObjectType`/`removeObjectType`/`getKnownObjectTypes`) — D1, carries
-///   `object_recognition_msgs::msg::ObjectType`.
-/// - `saveGeometryToStream`/`loadGeometryFromStream` — a bespoke `.scene`
-///   text format whose per-shape records call the D1-excluded
-///   `getObjectColor`, written to interoperate with RViz's scene-file UI
-///   (no renderer in D1 scope).
-/// - `printKnownObjects` — `std::ostream` debug formatting with no
-///   algorithmic content; everything it prints is already public via
-///   [`PlanningScene::world`]'s `object_ids` and
-///   [`PlanningScene::attached_bodies`].
-/// - `checkCollisionUnpadded`/`allocateCollisionDetector` — both exist
-///   upstream to manage a *second*, unpadded `CollisionEnv` instance; D4's
-///   redesign (see "Collision checking" below) already replaced that
-///   dual-env-per-plugin machinery with the caller owning one concrete `E`,
-///   so this type carries no `collision_detector_` field for either method
-///   to act on.
-/// - `setAttachedBodyUpdateCallback` — a plain-Rust-representable callback
-///   hook (unlike `moveit_msgs::Constraints`, no message type forces its
-///   exclusion), but nothing in this port's reach ever registers one — the
-///   same "no caller reaches the branch that would need it" reasoning
+/// - `PlanningScene(RobotModel, World)` / `PlanningScene(urdf, srdf, World)`
+///   — ported as [`PlanningScene::new`]/[`PlanningScene::with_world`].
+/// - `OCTOMAP_NS`, `DEFAULT_SCENE_NAME` — D1 (octomap/message-round-trip
+///   naming constants, unused without message handling).
+/// - `~PlanningScene` — not a portable symbol; nothing here needs a
+///   user-visible destructor.
+/// - `getName`/`setName` — ported as [`PlanningScene::name`]/[`PlanningScene::set_name`].
+/// - `diff() const` — ported as [`PlanningScene::diff`].
+/// - `diff(moveit_msgs::msg::PlanningScene&)` — D1 (`moveit_msgs::msg::PlanningScene`).
+/// - `getParent` — ported as [`PlanningScene::parent`].
+/// - `clone` (static) — ported as [`PlanningScene::cloned`].
+/// - `clearDiffs` — ported as [`PlanningScene::clear_diffs`].
+/// - `pushDiffs` — ported as [`PlanningScene::push_diffs`].
+/// - `decoupleParent` — ported as [`PlanningScene::decouple_parent`].
+///
+/// ## Robot model and state
+///
+/// - `getRobotModel` — ported as [`PlanningScene::robot_model`].
+/// - `getCurrentState`/`getCurrentStateNonConst` — ported as
+///   [`PlanningScene::current_state`]/[`PlanningScene::current_state_mut`].
+/// - `getCurrentStateUpdated(moveit_msgs::msg::RobotState)` — D1
+///   (`moveit_msgs::msg::RobotState`).
+/// - `setCurrentState(moveit_msgs::msg::RobotState)` — D1 (`moveit_msgs::msg::RobotState`).
+/// - `setCurrentState(RobotState)` — ported as [`PlanningScene::set_current_state`].
+///
+/// ## Frames
+///
+/// - `getPlanningFrame` — unported: reads `scene_transforms_`'s target
+///   frame, the same TF tier [`PlanningScene::frame_transform`]'s own doc
+///   already records this port as missing.
+/// - `getTransforms`/`getTransformsNonConst` — unported, same TF-tier gap;
+///   no `Transforms`/`SceneTransforms` type exists in this port.
+/// - `getFrameTransform` (id-only, and explicit-`RobotState` overloads) —
+///   ported as [`PlanningScene::frame_transform`]; the explicit-state
+///   overloads collapse into the self-state form the same way collision
+///   checking's const/non-const pairs collapse below — upstream's own
+///   id-only overload already delegates to the explicit-state one against
+///   `getCurrentState()` (`planning_scene.cpp:2019`/`:2036`).
+/// - `knowsFrameTransform` (id-only, and explicit-state) — ported as
+///   [`PlanningScene::knows_frame_transform`]; same collapse
+///   (`planning_scene.cpp:2056`/`:2061`).
+///
+/// ## World, collision detector, ACM
+///
+/// - `getCollisionDetectorName` — distinct: names the active
+///   `CollisionDetectorAllocator` plugin; D4 has no plugin registry to name
+///   (see `allocateCollisionDetector` below).
+/// - `getWorld`/`getWorldNonConst` — ported as [`PlanningScene::world`]
+///   (const); mutation goes through typed methods
+///   ([`PlanningScene::add_shape`]/[`PlanningScene::move_object`]/
+///   [`PlanningScene::remove_object`]/[`PlanningScene::remove_all_objects`])
+///   rather than a raw `&mut World` accessor.
+/// - `getCollisionEnv`/`getCollisionEnvUnpadded`/`getCollisionEnv(name)`/
+///   `getCollisionEnvUnpadded(name)`/`getCollisionEnvNonConst` — distinct:
+///   the padded/unpadded dual-`CollisionEnv`-per-plugin machinery; D4's
+///   redesign replaced it with the caller supplying one concrete `E` per
+///   call (see "Collision checking" below).
+/// - `getAllowedCollisionMatrix`/`getAllowedCollisionMatrixNonConst`/
+///   `setAllowedCollisionMatrix` — ported as
+///   [`PlanningScene::allowed_collision_matrix`]/
+///   [`PlanningScene::allowed_collision_matrix_mut`]/
+///   [`PlanningScene::set_allowed_collision_matrix`].
+/// - `removeAllCollisionObjects` — ported as [`PlanningScene::remove_all_objects`].
+///
+/// ## Collision checking
+///
+/// See also the "Collision checking" section below for the shared `E:
+/// CollisionEnv` design this whole group is built on.
+///
+/// - `isStateColliding` (current-state and explicit-state overloads) —
+///   ported as [`PlanningScene::is_state_colliding`] (see its own doc); the
+///   `moveit_msgs::msg::RobotState` overload — D1.
+/// - `checkCollision` (7 overloads) — ported as
+///   [`PlanningScene::check_collision`]; the explicit-different-ACM
+///   overloads are not ported — a caller wanting a one-off ACM already has
+///   `env.check_collision(request, &posed, &attached, Some(&other_acm))`
+///   directly.
+/// - `checkCollisionUnpadded` (6 overloads, upstream `[[deprecated]]`) —
+///   distinct: the same padded/unpadded dual-env machinery as
+///   `getCollisionEnvUnpadded` above; D4 obsoletes it.
+/// - `checkSelfCollision` (6 overloads) — ported as
+///   [`PlanningScene::check_self_collision`]; explicit-ACM overloads not
+///   ported, same reasoning as `checkCollision`.
+/// - (no upstream equivalent) — [`PlanningScene::check_robot_collision`] is
+///   an addition, not a port: upstream's `checkCollision` family has no
+///   robot-vs-world-only entry point at the `PlanningScene` level (see its
+///   own doc).
+/// - `getCollidingLinks` (5 overloads) — ported as
+///   [`PlanningScene::colliding_links`]; explicit-ACM overloads not ported,
+///   same reasoning.
+/// - `getCollidingPairs` (5 overloads, one with `group_name`) — ported as
+///   [`PlanningScene::colliding_pairs`] (`group_name` dropped — see its own
+///   doc, `ParryCollisionEnv` never reads it); explicit-ACM overloads not
+///   ported, same reasoning.
+///
+/// ## Distance
+///
+/// - `distanceToCollision` (4 overloads) — ported as
+///   [`PlanningScene::distance_to_collision`] (see its own doc);
+///   explicit-ACM overloads not ported, same reasoning as `checkCollision`.
+/// - `distanceToCollisionUnpadded` (4 overloads) — distinct: same
+///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it.
+///
+/// ## Message round-tripping (all D1: this is a ROS-independent core crate)
+///
+/// - `saveGeometryToStream`/`loadGeometryFromStream` — distinct, not D1: a
+///   bespoke `.scene` text format whose writer calls the D1-excluded
+///   `getObjectColor`, built to interoperate with RViz's scene-file UI (no
+///   renderer in D1 scope).
+/// - `getPlanningSceneDiffMsg`/`getPlanningSceneMsg` (2 overloads) — D1
+///   (`moveit_msgs::msg::PlanningScene`, `moveit_msgs::msg::PlanningSceneComponents`).
+/// - `getCollisionObjectMsg`/`getCollisionObjectMsgs` — D1
+///   (`moveit_msgs::msg::CollisionObject`).
+/// - `getAttachedCollisionObjectMsg`/`getAttachedCollisionObjectMsgs` — D1
+///   (`moveit_msgs::msg::AttachedCollisionObject`).
+/// - `getOctomapMsg` — D1 (`octomap_msgs::msg::OctomapWithPose`).
+/// - `getObjectColorMsgs` — D1 (`moveit_msgs::msg::ObjectColor`; also part
+///   of the object-color family below).
+/// - `setPlanningSceneDiffMsg`/`setPlanningSceneMsg`/`usePlanningSceneMsg`
+///   — D1 (`moveit_msgs::msg::PlanningScene`).
+/// - `shapesAndPosesFromCollisionObjectMessage` — D1
+///   (`moveit_msgs::msg::CollisionObject`).
+/// - `processCollisionObjectMsg` — D1 at the symbol
+///   (`moveit_msgs::msg::CollisionObject`), but its ADD/MOVE/REMOVE
+///   branches are ported natively as [`PlanningScene::add_shape`]/
+///   [`PlanningScene::move_object`]/[`PlanningScene::remove_object`].
+/// - `processAttachedCollisionObjectMsg` — D1 at the symbol
+///   (`moveit_msgs::msg::AttachedCollisionObject`), but its ADD/REMOVE
+///   branches are ported natively as [`PlanningScene::attach`]/
+///   [`PlanningScene::attach_new`]/[`PlanningScene::detach`].
+/// - `processPlanningSceneWorldMsg` — D1 (`moveit_msgs::msg::PlanningSceneWorld`).
+/// - `processOctomapMsg` (2 overloads) — D1
+///   (`octomap_msgs::msg::OctomapWithPose`, `octomap_msgs::msg::Octomap`).
+/// - `processOctomapPtr` — D1-adjacent: takes a raw `octomap::OcTree`
+///   pointer rather than a message directly, but exists solely to serve the
+///   octomap message-processing path above; no octomap handling exists
+///   anywhere in this port.
+///
+/// ## World-change callbacks
+///
+/// - `setAttachedBodyUpdateCallback` — distinct: a plain-Rust-representable
+///   callback hook (unlike a message type, nothing forces its exclusion),
+///   but nothing in this port's reach ever registers one — the same "no
+///   caller reaches the branch that would need it" reasoning
 ///   [`PlanningScene::is_state_valid`]'s own doc gives for the dropped
-///   `StateFeasibilityFn`.
+///   `StateFeasibilityFn` (see "Feasibility predicates" below).
 /// - `setCollisionObjectUpdateCallback` — same reasoning, and additionally
 ///   structurally obsoleted: [`moveit_collision::World`] replaced upstream's
 ///   `addObserver`/`ObserverCallbackFn` registration with every mutator
 ///   returning `Option<Notification>` directly, so there is no observer
 ///   slot left to wire a callback into.
+///
+/// ## Object colors and types
+///
+/// - `hasObjectColor`/`getObjectColor`/`getOriginalObjectColor`/
+///   `setObjectColor`/`removeObjectColor`/`getKnownObjectColors` — D1
+///   (`std_msgs::msg::ColorRGBA`).
+/// - `hasObjectType`/`getObjectType`/`setObjectType`/`removeObjectType`/
+///   `getKnownObjectTypes` — D1 (`object_recognition_msgs::msg::ObjectType`).
+///
+/// ## Feasibility predicates
+///
+/// - `setStateFeasibilityPredicate`/`getStateFeasibilityPredicate` —
+///   distinct: the `StateFeasibilityFn` accessor pair; no field exists to
+///   accessor since nothing registers a predicate (see `isStateValid`'s "No
+///   feasibility step" doc).
+/// - `isStateFeasible` (`moveit_msgs::msg::RobotState` and `RobotState`
+///   overloads) — the `RobotState` overload is not ported as its own
+///   symbol: with no predicate ever registered, its only reachable branch
+///   is the unconditional `true` (`planning_scene.cpp:2227-2243`), which
+///   [`PlanningScene::is_state_valid`] takes by omitting the step outright
+///   (see its own "No feasibility step" doc). The message overload — D1
+///   (`moveit_msgs::msg::RobotState`).
+/// - `setMotionFeasibilityPredicate`/`getMotionFeasibilityPredicate` —
+///   distinct: the `MotionFeasibilityFn` accessor pair, for a field
+///   (`motion_feasibility_`) confirmed by reading `planning_scene.cpp` in
+///   full to be stored but never *read* anywhere upstream either — not even
+///   by `isPathValid`. Dead code in the reference implementation itself,
+///   not merely unreachable from this port.
+///
+/// ## State and path validity
+///
+/// - `isStateConstrained` (4 overloads) — ported as
+///   [`PlanningScene::is_state_constrained`] (`RobotState` +
+///   `KinematicConstraintSet` form, see its own doc); the 3
+///   `moveit_msgs`-involving overloads — D1.
+/// - `isStateValid` (5 overloads) — ported as [`PlanningScene::is_state_valid`]
+///   (`RobotState` + `KinematicConstraintSet` form); the 4
+///   `moveit_msgs`-involving overloads — D1.
+/// - `isPathValid` (8 overloads) — ported as [`PlanningScene::is_path_valid`]
+///   (see its own doc); 7 overloads carry a `moveit_msgs` type somewhere in
+///   their signature — D1. The remaining message-free overload
+///   (`robot_trajectory::RobotTrajectory` only, no constraints) is not a D1
+///   exclusion: it depends on `robot_trajectory::RobotTrajectory`, owned by
+///   `moveit-trajectory`/p6-totg, not a message type. This port's
+///   `is_path_valid` takes `&[RobotState<'m>]` instead — a deliberate
+///   dependency-boundary choice (avoids a dependency edge on a crate this
+///   one does not own, for a type whose only relevant content here is its
+///   ordered waypoint sequence), not a gap.
+///
+/// ## Cost sources and diagnostics
+///
 /// - `getCostSources` (all four overloads) — blocked, not merely deferred.
 ///   Every Rust-side type this needs already exists in `moveit-collision`
 ///   ([`moveit_collision::CostSource`],
@@ -113,6 +274,15 @@ pub struct PathValidity {
 ///   BVH-subdivision algorithm with no `parry3d-f64` equivalent to call —
 ///   producing one is new backend work belonging in `moveit-collision`, not
 ///   something this crate can work around by itself.
+/// - `printKnownObjects` — distinct: `std::ostream` debug formatting with
+///   no algorithmic content; everything it prints is already public via
+///   [`PlanningScene::world`]'s `object_ids` and
+///   [`PlanningScene::attached_bodies`].
+/// - `allocateCollisionDetector` — distinct: registers a
+///   `CollisionDetectorAllocator` plugin; D4's redesign already replaced
+///   that dual-env-per-plugin machinery with the caller owning one concrete
+///   `E`, so this type carries no `collision_detector_` field for it to act
+///   on.
 ///
 /// # Collision checking
 ///
