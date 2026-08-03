@@ -2537,3 +2537,76 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 남겼다. 이 트리에 24개, 2.1 GB가 쌓여 있었다. `exec`을 떼고(`set -e`가
 종료 상태를 그대로 전파한다), 긴 빌드 중 Ctrl-C도 트랩을 타도록
 `trap 'exit 130' INT`을 더했다. 쌓인 24개는 삭제했다.
+
+## 20. 3개 패널 동시 병합 — TOTG 파리티, 옥트리 Compound, DistanceFieldCacheEntry (2026-08-03)
+
+`p6-totg`, `p3-shapes`, `p3-distance-field` 세 브랜치를 병합했다. 병합 후
+워크스페이스 797/797 통과, clippy·fmt·doc·네 개 CI 스크립트 전부 통과.
+
+### 20.1 `p6-totg`가 진짜 버그를 하나 잡았다
+
+`Trajectory::velocity`/`acceleration`이 `position`과 같은 방식으로
+`time_step`을 질의 시각 기준으로 다시 계산하고 있었다. 상류는 그러지
+않는다 — 직접 확인했다:
+`time_optimal_trajectory_generation.cpp:864-916`에서 `getPosition`만
+`time_step = time - previous->time_`으로 재대입하고,
+`getVelocity`(881행)/`getAcceleration`(898행)은 `time_step`을 세그먼트
+전체 폭(`it->time_ - previous->time_`)으로 둔 채 쓴다. 즉 속도·가속도는
+세그먼트 *끝점* 값이고, 세그먼트 안에서는 계단 함수다. 위치만 연속
+보간된다.
+
+오라클 `totg` op가 이걸 드러냈다: 케이스 2(중복 waypoint), t=0.0,
+`velocity[0]`이 `0.0` 대 오라클 `0.01` — 반올림 규모가 아니다. `sample()`을
+`position_at`(질의 시각 재대입, 위치 전용)과
+`segment_endpoint_state`(세그먼트 전체 폭, 속도·가속도 공용)로 나눠
+고쳤고, 이 포트 코드가 상류와 문장 단위로 일치함을 확인했다. 수정 후 5개
+케이스 전부 `1e-6` 이내(실측 편차는 최대 2e-9, 크기 ~1900 위에서).
+
+`RobotState::invert_velocity`도 함께 들어왔다. 내 과제 브리핑은 "속도와
+가속도를 뒤집는다"고 썼지만 상류 `invertVelocity`는 속도만 뒤집는다 —
+워커가 브리핑이 아니라 소스를 따랐다. 맞는 판단이다.
+
+### 20.2 `p3-shapes` — §4.8 2번안 구현 완료, 재구성 비용 실측
+
+`compound_from_octree`(점유 리프마다 자기 깊이 크기의 `Cuboid` 하나)를
+구현하고, 오라클에 `octree_shape_query` op(진짜 `fcl::collide`/
+`fcl::distance`)를 더해 네 경계 전부에서 일치를 확인했다. `Compound::new`
+재구성 시간은 0.05 m에서 13.3 ms, 0.02 m에서 130.4 ms — 자세한 수치와
+1번안의 근거 판단은 §4.8에 있다.
+
+다만 **아직 충돌 경로에 연결되지 않았다.** `parry.rs`의
+`convert_shape`가 `Shape::OcTree(_) => None`이라, `World`에 든 옥트리는
+여전히 이 백엔드에 보이지 않는다. 편차 10의 사유가 낡아 있던 것(`c67b5ca`,
+"트리 페이로드가 없다"는 서술은 `moveit-octomap`이 생긴 시점에 이미
+거짓이 됐다)은 고쳤고, 남은 것은 `convert_shape`에서의 호출 한 줄이다.
+
+### 20.3 `p3-distance-field` — `DistanceFieldCacheEntry` 오라클 검증
+
+`generateDistanceFieldCacheEntry`가 오라클과 비교된다. 그 과정에서
+`moveit-state`의 중복 코드 123줄(`includes_parent`/`joint_precedes`/
+`chain_root`/`descendant_links_of_joint`)을 지우고 `moveit-model`의
+`JointModelGroup::is_chain`/`joint_roots`/`RobotModel::descendant_link_indices`로
+위임했다 — 같은 알고리즘의 두 번째 사본이었음을 확인한 뒤의 삭제다.
+
+### 20.4 병합이 만든 픽스처 오류 하나 (§19의 여진)
+
+`p3-distance-field` 브랜치는 `b7f9329`(fanuc description 패키지) 이전에
+잘렸다. 그래서 새로 추가한 `group_updated_links`의 fanuc 값을
+지오메트리 없는 오라클에서 캡처했다 — `manipulator` 그룹의
+`updated_link_with_geometry_names`가 `[]`. 진짜 답은 6개 링크 전부다.
+재캡처했다(`d81cd0f` 직전 커밋). 단정문 자체는 이 포트의
+`UnsupportedLinkGeometry` 진단으로 필터링하도록 이미 짜여 있어서 그대로
+통과하지만, 이제는 의미가 있다.
+
+세 브랜치의 새 픽스처 세 벌(`totg`, `octree_shape_query`,
+`distance_field_cache_entry`)은 병합 후 이미지로 전부 다시 재생해
+커밋본과 동일함을 확인했다.
+
+### 20.5 새 UNFIXED: `RobotState::new`가 `<safety_controller>`를 읽지 않는다
+
+`p3-distance-field`가 보고한 실제 파리티 격차다. PR2의
+`torso_lift_joint`, `l/r_elbow_flex_joint`, `l/r_wrist_flex_joint`는 하드
+리밋이 0을 포함하지 않아 상류 `setToDefaultValues()`가 소프트 바운드
+중점을 기본값으로 쓰는데, 이 포트는 `0.0`을 쓴다. 워커는 해당 픽스처에서
+그 5개 관절을 상류 기본값으로 명시 고정해 우회했고(오라클 대비 no-op임을
+직접 확인), 근본 원인은 `moveit-state`/`moveit-model`에 남아 있다.
