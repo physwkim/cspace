@@ -94,7 +94,11 @@ impl Config {
 /// A live oracle subprocess.
 struct Oracle {
     child: Child,
-    stdin: ChildStdin,
+    /// `None` once closed. Closing this pipe is the oracle's shutdown signal,
+    /// so `Drop` must close it *before* waiting: a `wait()` with stdin still
+    /// open deadlocks against a child blocked reading the next request.
+    /// Holding it in an `Option` is what lets `Drop` take and close it.
+    stdin: Option<ChildStdin>,
     stdout: BufReader<ChildStdout>,
     next_id: u64,
 }
@@ -117,7 +121,7 @@ impl Oracle {
         let stdout = BufReader::new(child.stdout.take().ok_or("oracle stdout unavailable")?);
         Ok(Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             stdout,
             next_id: 0,
         })
@@ -128,8 +132,12 @@ impl Oracle {
         self.next_id += 1;
         let line = serde_json::to_string(&Request { id, op })
             .map_err(|e| format!("encoding request {id}: {e}"))?;
-        writeln!(self.stdin, "{line}").map_err(|e| format!("writing request {id}: {e}"))?;
-        self.stdin
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| format!("oracle stdin already closed at request {id}"))?;
+        writeln!(stdin, "{line}").map_err(|e| format!("writing request {id}: {e}"))?;
+        stdin
             .flush()
             .map_err(|e| format!("flushing request {id}: {e}"))?;
 
@@ -159,8 +167,10 @@ impl Oracle {
 
 impl Drop for Oracle {
     fn drop(&mut self) {
-        // Closing stdin is the oracle's shutdown signal; wait so the container
-        // is reaped rather than left behind.
+        // Order matters: closing stdin is the oracle's shutdown signal, and
+        // waiting before that deadlocks -- the child blocks reading a request
+        // that will never come while the parent blocks waiting for it to exit.
+        drop(self.stdin.take());
         let _ = self.child.wait();
     }
 }
