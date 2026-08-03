@@ -148,6 +148,20 @@
 //!     leaving `res` untouched; this backend has no swept/conservative-
 //!     advancement query wired up, and returns an explicit error rather than
 //!     an approximation that would misreport a real path collision as clear.
+//! 11. **[`Shape::OcTree`] converts to a `Cuboid`-per-occupied-leaf
+//!     [`Compound`], not a native octree.** `parry3d-f64` has no equivalent of
+//!     FCL's `fcl::OcTreed` (`PORTING-PLAN.md` records no mature Rust octree-
+//!     collision-shape crate was found); [`compound_from_octree`] builds one
+//!     `Cuboid` per occupied leaf instead. Measured, not merely described:
+//!     `crates/moveit-collision/tests/octree_leaf_count_scaling_parity.rs`
+//!     runs the same scene and query against the real oracle (a genuine
+//!     `fcl::OcTreed` inside `CollisionEnvFCL`) and this backend at occupied-
+//!     leaf counts from 1 to 217 (one leaf at a fixed, known distance from
+//!     the robot, plus 0 to 216 decoy leaves placed where they can never be
+//!     the nearest one). `robot_distance` is bit-for-bit identical to the
+//!     oracle's at every leaf count tested — this approximation does not
+//!     measurably diverge from a native octree on `robot_distance`, at least
+//!     up to the leaf counts exercised there.
 //!
 //! # Attached-body geometry
 //!
@@ -295,6 +309,9 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 /// per scan. The entry [`Self::get_or_compute`] is about to look up can never
 /// be the one pruned: its caller is holding the `Arc` being queried, so that
 /// entry's `strong_count()` is at least 1 at the moment of the prune.
+/// Verified against a real `World`/[`ParryCollisionEnv`] rebuild-and-replace
+/// loop, not merely argued from the prune's placement, in this file's
+/// `octree_cache_stays_bounded_across_a_real_rebuild_and_replace_loop`.
 ///
 /// Shared, not reset, across [`ParryCollisionEnv::clone`] — matching
 /// [`Shape::OcTree`]'s own shallow-clone semantics (cloning a [`World`] that
@@ -1628,6 +1645,60 @@ mod tests {
         assert!(
             result.collision,
             "a leaf face exactly touching the robot's face must count as a collision"
+        );
+    }
+
+    /// Round 7 item 3: the [`OctreeCache`] doc's claim that a caller who
+    /// rebuilds-and-replaces one `World` object's octree every scan "holds
+    /// at most one stale entry at a time" is tested here end-to-end -- a
+    /// real `World`, a real `ParryCollisionEnv`, and a real
+    /// `check_robot_collision` call every iteration -- not merely asserted
+    /// in prose. `World::add_shape` on an id that already exists *appends*
+    /// a shape rather than replacing it (`World::add_to_object`'s own doc),
+    /// so a genuine replace has to drop the old object first via
+    /// `World::remove_object`; that drop is what makes the previous
+    /// iteration's tree unreachable and lets `OctreeCache::get_or_compute`'s
+    /// prune -- run as the very first action of every call -- collect it on
+    /// the very next query.
+    #[test]
+    fn octree_cache_stays_bounded_across_a_real_rebuild_and_replace_loop() {
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+
+        let mut env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+
+        for i in 0..50 {
+            let mut tree = moveit_octomap::OcTree::new(0.1);
+            // Far from "p": the collision result itself is not what this
+            // test checks, only the cache's entry count.
+            tree.update_node(
+                nalgebra::Point3::new(10.0 + i as f64, 0.0, 0.0),
+                true,
+                false,
+            );
+
+            env.world_mut().remove_object("octree_obstacle");
+            env.world_mut().add_shape(
+                "octree_obstacle",
+                Arc::new(Shape::OcTree(OcTree::from_tree(Arc::new(tree)))),
+                Isometry3::identity(),
+            );
+
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
+
+            assert!(
+                env.octree_cache.len() <= 1,
+                "iteration {i}: cache held {} entries for a single rebuild-and-replace \
+                 object, expected at most 1",
+                env.octree_cache.len()
+            );
+        }
+
+        assert_eq!(
+            env.octree_cache.len(),
+            1,
+            "after the loop, exactly the last scan's tree should still be cached"
         );
     }
 

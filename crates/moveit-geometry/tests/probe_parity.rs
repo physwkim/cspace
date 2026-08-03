@@ -98,6 +98,115 @@ fn expect_usize(f: &BTreeMap<String, Value>, key: &str) -> usize {
         .unwrap_or_else(|| panic!("{key} is not an integer")) as usize
 }
 
+/// A fixture key holding an array of 3-vectors (as opposed to
+/// [`expect_vec3`], which reads one 3-vector directly out of a scalar key).
+fn expect_vec3_list(f: &BTreeMap<String, Value>, key: &str) -> Vec<Vector3> {
+    f.get(key)
+        .unwrap_or_else(|| panic!("fixture has no key {key}"))
+        .as_array()
+        .unwrap_or_else(|| panic!("{key} is not an array"))
+        .iter()
+        .map(|v| {
+            let a = v
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} entry is not an array"));
+            assert_eq!(a.len(), 3, "{key} entry is not a 3-vector");
+            Vector3::new(
+                a[0].as_f64().unwrap(),
+                a[1].as_f64().unwrap(),
+                a[2].as_f64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// A fixture key holding an array of `(normal, offset)` planes, each printed
+/// as `Vector4d(nx, ny, nz, d)` by the probe.
+fn expect_plane_list(f: &BTreeMap<String, Value>, key: &str) -> Vec<(Vector3, f64)> {
+    f.get(key)
+        .unwrap_or_else(|| panic!("fixture has no key {key}"))
+        .as_array()
+        .unwrap_or_else(|| panic!("{key} is not an array"))
+        .iter()
+        .map(|v| {
+            let a = v
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} entry is not an array"));
+            assert_eq!(a.len(), 4, "{key} entry is not a 4-vector");
+            (
+                Vector3::new(
+                    a[0].as_f64().unwrap(),
+                    a[1].as_f64().unwrap(),
+                    a[2].as_f64().unwrap(),
+                ),
+                a[3].as_f64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+/// Asserts `actual` and `expected` hold the same 3-vectors within [`EPS`],
+/// up to permutation — needed because this port's quickhull and upstream's
+/// qhull are not guaranteed to enumerate the same convex hull's vertices in
+/// the same order.
+fn assert_vec3_set_matches(actual: &[Vector3], expected: &[Vector3], what: &str) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{what}: length mismatch (actual {actual:?} vs expected {expected:?})"
+    );
+    let mut used = vec![false; actual.len()];
+    for e in expected {
+        let found = actual
+            .iter()
+            .enumerate()
+            .find(|(i, a)| !used[*i] && (*a - e).norm() <= EPS);
+        match found {
+            Some((i, _)) => used[i] = true,
+            None => panic!("{what}: no actual vector matches expected {e:?} within {EPS}"),
+        }
+    }
+}
+
+/// Collapses `planes` (one entry per triangle) down to one entry per unique
+/// `(normal, offset)` pair within [`EPS`] — the plane-merge this port does
+/// not do internally (see `bodies.rs`'s module docs, deviation 2, and
+/// [`ConvexMesh::planes`]'s own doc), performed here purely to compare
+/// against upstream's already-merged `getPlanes` output.
+fn dedup_planes(planes: &[(Vector3, f64)]) -> Vec<(Vector3, f64)> {
+    let mut groups: Vec<(Vector3, f64)> = Vec::new();
+    for &(n, d) in planes {
+        let already = groups
+            .iter()
+            .any(|&(gn, gd)| (gn - n).norm() <= EPS && (gd - d).abs() <= EPS);
+        if !already {
+            groups.push((n, d));
+        }
+    }
+    groups
+}
+
+/// Asserts `actual` and `expected` hold the same `(normal, offset)` planes
+/// within [`EPS`], up to permutation.
+fn assert_plane_set_matches(actual: &[(Vector3, f64)], expected: &[(Vector3, f64)], what: &str) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{what}: length mismatch (actual {actual:?} vs expected {expected:?})"
+    );
+    let mut used = vec![false; actual.len()];
+    for &(en, ed) in expected {
+        let found = actual.iter().enumerate().find(|(i, plane)| {
+            let (an, ad) = *plane;
+            !used[*i] && (an - en).norm() <= EPS && (ad - ed).abs() <= EPS
+        });
+        match found {
+            Some((i, _)) => used[i] = true,
+            None => panic!("{what}: no actual plane matches expected ({en:?}, {ed}) within {EPS}"),
+        }
+    }
+}
+
 fn assert_close(actual: f64, expected: f64, what: &str) {
     assert!(
         (actual - expected).abs() <= EPS,
@@ -153,6 +262,30 @@ fn tetrahedron() -> ShapeMesh {
     ];
     let triangles = vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]];
     ShapeMesh::new(vertices, triangles).expect("tetrahedron is a valid mesh")
+}
+
+/// The probe's unit box: 8 corners, no input triangles (the hull is
+/// recomputed from vertices alone either way — see `ConvexMesh::planes`'s
+/// doc). Matches `bodies.rs`'s private `box_mesh(1.0, 1.0, 1.0)` test helper
+/// exactly; duplicated here since that helper lives in a `#[cfg(test)] mod`
+/// not reachable from this integration test crate. This mesh's coplanar
+/// triangle pairs (2 triangles per box face) are what makes
+/// `convex_mesh_planes_accessor_dedups_to_libgeometric_shapes_box` a real
+/// test of the dedup claim in `ConvexMesh::planes`'s doc, unlike the
+/// tetrahedron (no two triangles on the same plane).
+fn box_mesh() -> ShapeMesh {
+    let h = 0.5;
+    let vertices = vec![
+        Vector3::new(-h, -h, -h),
+        Vector3::new(-h, -h, h),
+        Vector3::new(-h, h, -h),
+        Vector3::new(-h, h, h),
+        Vector3::new(h, -h, -h),
+        Vector3::new(h, -h, h),
+        Vector3::new(h, h, -h),
+        Vector3::new(h, h, h),
+    ];
+    ShapeMesh::new(vertices, Vec::new()).expect("box corners are a valid mesh")
 }
 
 /// Every body exposes the same query surface but through inherent methods on
@@ -546,4 +679,117 @@ fn obb_extend_approx_merge_largedist_matches_libgeometric_shapes() {
         expect_vec3(&f, "obb2.merged.origin"),
         "obb2.merged.origin",
     );
+}
+
+/// [`ConvexMesh::vertices`] against upstream `getVertices`, exact up to
+/// permutation — see the module docs, deviation 2, for why an exact vertex
+/// *set* match is expected here despite the two sides using different hull
+/// libraries: the tetrahedron has no interior points for either quickhull or
+/// qhull to discard, so both must select the same 4 vertices.
+#[test]
+fn convex_mesh_vertices_accessor_matches_libgeometric_shapes() {
+    let f = fixture();
+    let body = ConvexMesh::new(&tetrahedron()).unwrap();
+    assert_vec3_set_matches(
+        body.vertices(),
+        &expect_vec3_list(&f, "tet.vertices"),
+        "tet.vertices",
+    );
+}
+
+/// [`ConvexMesh::scaled_vertices`] against upstream `getScaledVertices`,
+/// posed/scaled/padded identically to `convex_mesh_matches_libgeometric_shapes`
+/// — scaling and padding move each hull vertex along its own line to the
+/// mesh center, so the scaled set is exact for the same reason the unscaled
+/// vertex set is.
+#[test]
+fn convex_mesh_scaled_vertices_accessor_matches_libgeometric_shapes() {
+    let f = fixture();
+    let mut body = ConvexMesh::new(&tetrahedron()).unwrap();
+    body.set_pose(probe_pose());
+    body.set_scale(1.15).unwrap();
+    body.set_padding(0.01).unwrap();
+    assert_vec3_set_matches(
+        body.scaled_vertices(),
+        &expect_vec3_list(&f, "tet.scaled_vertices"),
+        "tet.scaled_vertices",
+    );
+}
+
+/// [`ConvexMesh::planes`] against upstream `getPlanes` on a mesh with no
+/// coplanar triangle pairs: the tetrahedron's 4 triangles are each on a
+/// distinct plane, so this port's one-plane-per-triangle output has the same
+/// length as upstream's one-plane-per-facet output, and the two sets match
+/// exactly. `planes()` is documented as pose/scale/padding-independent
+/// (mirroring upstream's own `planes_`, computed once at construction), so
+/// this body is left at its default identity pose/scale/padding.
+#[test]
+fn convex_mesh_planes_accessor_matches_libgeometric_shapes_tetrahedron() {
+    let f = fixture();
+    let body = ConvexMesh::new(&tetrahedron()).unwrap();
+    assert_plane_set_matches(
+        &body.planes(),
+        &expect_plane_list(&f, "tet.planes"),
+        "tet.planes",
+    );
+}
+
+/// [`ConvexMesh::vertices`] on a mesh with coplanar faces (a box: two
+/// triangles per face): still exact, because vertex membership does not
+/// depend on how a face gets triangulated.
+#[test]
+fn convex_mesh_vertices_accessor_matches_libgeometric_shapes_box() {
+    let f = fixture();
+    let body = ConvexMesh::new(&box_mesh()).unwrap();
+    assert_vec3_set_matches(
+        body.vertices(),
+        &expect_vec3_list(&f, "box.vertices"),
+        "box.vertices",
+    );
+}
+
+/// [`ConvexMesh::planes`] against upstream `getPlanes` on the box, the case
+/// deviation 2 says will not match 1:1: this port reports one plane per
+/// triangle (12, two duplicated per face), where upstream merges coplanar
+/// triangles into one plane per facet (6). Grouping this port's 12 by
+/// `(normal, offset)` within [`EPS`] must dedup down to exactly upstream's 6
+/// values — proving the *only* difference from upstream is the missing
+/// merge, not a computational disagreement.
+#[test]
+fn convex_mesh_planes_accessor_dedups_to_libgeometric_shapes_box() {
+    let f = fixture();
+    let body = ConvexMesh::new(&box_mesh()).unwrap();
+    let expected = expect_plane_list(&f, "box.planes");
+
+    let planes = body.planes();
+    assert_eq!(
+        planes.len(),
+        expected.len() * 2,
+        "box.planes: expected a triangle-per-plane count of exactly twice \
+         upstream's facet count (2 triangles per face on a box), got {}",
+        planes.len()
+    );
+
+    let deduped = dedup_planes(&planes);
+    assert_plane_set_matches(&deduped, &expected, "box.planes (deduped)");
+}
+
+/// [`ConvexMesh::triangles`] is documented as not expected to match
+/// upstream's triangulation topology; this test pins only what the doc
+/// promises — one triple per hull triangle, all indices in range — rather
+/// than a specific index layout, since asserting the latter would break the
+/// moment either hull library's internal tie-breaking changed.
+#[test]
+fn convex_mesh_triangles_accessor_shape() {
+    let body = ConvexMesh::new(&tetrahedron()).unwrap();
+    let tris = body.triangles();
+    assert_eq!(tris.len(), 4, "tetrahedron has exactly 4 hull faces");
+    for tri in tris {
+        for &idx in tri {
+            assert!(
+                (idx as usize) < body.vertices().len(),
+                "triangle index in range"
+            );
+        }
+    }
 }

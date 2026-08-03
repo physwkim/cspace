@@ -169,10 +169,22 @@
 //!    plane across every triangle of a multi-triangle facet — an
 //!    optimization, not a behavior: a convex region bounded by `N` planes
 //!    and the same region bounded by `N` redundant co-planar
-//!    half-spaces are the same region). [`ConvexMesh`] does not expose
-//!    `getTriangles`/`getVertices`/`getScaledVertices`/`getPlanes` — they
-//!    were not in the requested scope, and dropping the plane-merge maps
-//!    means this port's plane count does not match upstream's 1:1 anyway.
+//!    half-spaces are the same region). [`ConvexMesh`] exposes
+//!    [`ConvexMesh::vertices`] and [`ConvexMesh::scaled_vertices`] as exact
+//!    matches for upstream's `getVertices`/`getScaledVertices` (both are
+//!    hull-vertex sets, and a probe confirms the same vertex set — up to
+//!    permutation — for meshes where every input point is a true hull
+//!    vertex). [`ConvexMesh::triangles`] matches upstream's `getTriangles`
+//!    in what it enumerates (one hull triangle per entry) but not
+//!    necessarily in its exact triangulation: `parry3d-f64`'s quickhull and
+//!    qhull can choose different face diagonals across a coplanar patch, so
+//!    the *topology* is not guaranteed to agree, only vertex membership and
+//!    hull volume. [`ConvexMesh::planes`] cannot match upstream's
+//!    `getPlanes` 1:1 for the reason above: this port keeps one entry per
+//!    *triangle*, not per *facet*, so its length is a superset of
+//!    upstream's plane-merged output whenever the mesh has a coplanar
+//!    patch (e.g. a box: 12 triangles here against upstream's 6 merged
+//!    facets) — see that method's own doc for what it returns instead.
 //! 3. **`bodies::OBB`'s `contains_point`/`overlaps` are this port's own
 //!    implementation, not a literal port; `extend_approx`'s general-merge
 //!    case is.** See the provenance comment above. [`OBB::contains_point`]
@@ -2053,6 +2065,15 @@ struct MeshData {
     /// matching upstream's own comment that its per-facet planes
     /// "correspond to the unscaled mesh").
     normals: Vec<Vector3>,
+    /// Each triangle's plane offset in the mesh's own (unposed, unscaled)
+    /// frame — `-normal.dot(vertices[tri[0]])`, so the plane is `{x :
+    /// normal.dot(x) + offset == 0}`. Backs [`ConvexMesh::planes`] only;
+    /// `ConvexMesh`'s live containment test uses the scaled/padded
+    /// `plane_offsets` field instead (see [`ConvexMesh::recompute`]) —
+    /// upstream's own comment on `planes_` notes the stored offset
+    /// "corresponds to the unscaled mesh" and that callers needing the
+    /// scaled offset must recompute it themselves.
+    unscaled_plane_offsets: Vec<f64>,
     /// Centroid of `vertices`.
     mesh_center: Vector3,
     /// The farthest any hull vertex is from `mesh_center`.
@@ -2113,12 +2134,15 @@ fn build_mesh_data(mesh: &ShapeMesh) -> Result<MeshData> {
     let vertices: Vec<Vector3> = hull_vertices.into_iter().map(from_parry).collect();
 
     let mut normals = Vec::with_capacity(triangles.len());
+    let mut unscaled_plane_offsets = Vec::with_capacity(triangles.len());
     for tri in &triangles {
         let v0 = vertices[tri[0] as usize];
         let v1 = vertices[tri[1] as usize];
         let v2 = vertices[tri[2] as usize];
         let normal = (v1 - v0).cross(&(v2 - v0));
-        normals.push(normal.try_normalize(0.0).unwrap_or_else(Vector3::zeros));
+        let normal = normal.try_normalize(0.0).unwrap_or_else(Vector3::zeros);
+        unscaled_plane_offsets.push(-normal.dot(&v0));
+        normals.push(normal);
     }
 
     let mesh_center = vertices.iter().sum::<Vector3>() / vertices.len() as f64;
@@ -2132,6 +2156,7 @@ fn build_mesh_data(mesh: &ShapeMesh) -> Result<MeshData> {
         vertices,
         triangles,
         normals,
+        unscaled_plane_offsets,
         mesh_center,
         mesh_radius_bounding,
         box_offset,
@@ -2246,6 +2271,66 @@ impl ConvexMesh {
             .map(|(tri, normal)| -normal.dot(&self.scaled_vertices[tri[0] as usize]))
             .collect();
         Ok(())
+    }
+
+    /// The convex hull's vertices, in the mesh's own unposed, unscaled
+    /// frame. Upstream `getVertices`. Exact: both this port's quickhull and
+    /// upstream's qhull compute the convex hull of the same input point
+    /// set, so the vertex *set* matches (up to order and, for a mesh with
+    /// no coplanar-with-hull interior points, exactly) — a probe against
+    /// the shipped `.so` confirms this for both a mesh with no discarded
+    /// interior points (a tetrahedron) and one with coplanar faces (a box).
+    pub fn vertices(&self) -> &[Vector3] {
+        &self.mesh_data.vertices
+    }
+
+    /// The convex hull's vertices, scaled and padded along their own line
+    /// to the mesh center — i.e. `vertices()` after this body's current
+    /// [`ConvexMesh::set_scale`]/[`ConvexMesh::set_padding`]. Upstream
+    /// `getScaledVertices`. Exact, for the same reason `vertices` is.
+    pub fn scaled_vertices(&self) -> &[Vector3] {
+        &self.scaled_vertices
+    }
+
+    /// The convex hull's triangles, as vertex-index triples into
+    /// [`ConvexMesh::vertices`]. Upstream `getTriangles`, which returns the
+    /// same triangles flattened into one contiguous index list rather than
+    /// grouped in triples — this port's `[u32; 3]`-per-triangle shape is a
+    /// representation choice, not a semantic difference.
+    ///
+    /// Not expected to match upstream triangle-for-triangle: this port's
+    /// quickhull and upstream's qhull can split the same coplanar patch
+    /// along different face diagonals, so the triangulation *topology* can
+    /// legitimately differ between the two even when every vertex and the
+    /// overall hull volume agree. A probe confirms vertex-set and
+    /// volume/count-of-triangles-per-planar-patch equivalence, not
+    /// index-for-index equality.
+    pub fn triangles(&self) -> &[[u32; 3]] {
+        &self.mesh_data.triangles
+    }
+
+    /// One outward-facing plane per hull *triangle*, as `(normal, offset)`
+    /// pairs in the mesh's own unposed, unscaled frame, where the plane is
+    /// `{x : normal.dot(x) + offset == 0}`. Upstream `getPlanes` returns
+    /// one plane per hull *facet* instead, merging the planes of adjacent
+    /// triangles that are coplanar to within its own tolerance (see the
+    /// module docs, deviation 2, for why this port does not reconstruct
+    /// that merge) — so this method's length is a superset of upstream's
+    /// whenever the mesh has a coplanar patch (a box: this port reports 12
+    /// entries, six duplicated pairs, where upstream reports 6), and an
+    /// exact match only when no two triangles share a plane (e.g. a
+    /// tetrahedron, whose 4 triangles are all on distinct planes). Grouping
+    /// this method's output by `(normal, offset)` within a small tolerance
+    /// recovers upstream's per-facet count and values; a probe against the
+    /// shipped `.so` confirms both the tetrahedron's exact match and the
+    /// box's over-count-that-dedups-to-the-same-values case.
+    pub fn planes(&self) -> Vec<(Vector3, f64)> {
+        self.mesh_data
+            .normals
+            .iter()
+            .copied()
+            .zip(self.mesh_data.unscaled_plane_offsets.iter().copied())
+            .collect()
     }
 
     /// Returns an empty vector. Upstream `getDimensions` — a convex mesh has
