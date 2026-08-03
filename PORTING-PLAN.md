@@ -2481,3 +2481,45 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 남겼다. 이 트리에 24개, 2.1 GB가 쌓여 있었다. `exec`을 떼고(`set -e`가
 종료 상태를 그대로 전파한다), 긴 빌드 중 Ctrl-C도 트랩을 타도록
 `trap 'exit 130' INT`을 더했다. 쌓인 24개는 삭제했다.
+
+## 20. `p1-joints` 4라운드 (2026-08-03)
+
+### 20.1 `checkConsistency`의 OOB 읽기 — 결함은 확인, 브리핑의 인용 두 건은 정정
+
+4라운드 과제가 지목한 읽기를 핀 SHA(`e017c91ee12984393a28ba246075c65f69cde3bf`)
+그대로에서 직접 다시 읽었다. 결함 자체는 **확인**된다:
+
+- `kdl_kinematics_plugin.cpp:84-94`의 `checkConsistency`는
+  `for (std::size_t i = 0; i < dimension_; ++i)` (풀스페이스 경계, 88행)로
+  돌면서 `consistency_limits[i]` (90행)를 인덱싱한다.
+- 호출부(`kdl_kinematics_plugin.cpp:391-392`)가 넘기는 `consistency_limits`
+  인자는 `consistency_limits_mimic` — 337-341행에서 `mimic_joints_[i].active`인
+  항목만 추려 만든, **활성 관절 수만큼만 있는** `std::vector<double>`이다.
+- 즉 그룹에 mimic 관절이 하나라도 있으면 `dimension_ >` 활성 관절 수가 되고,
+  `consistency_limits[i]`는 `i`가 활성 관절 수를 넘는 순간
+  `std::vector::operator[]`의 경계 밖을 읽는다 — 예외가 아니라 UB.
+
+브리핑의 인용 중 두 가지는 **정정**한다:
+
+1. "`kinematics_base.cpp:320`의 에러 메시지" — 틀렸다.
+   `kinematics_base.cpp`는 210줄뿐이고 `dimension_`이라는 이름이 단 한 번도
+   나오지 않는다(`rg dimension_ kinematics_base.cpp` 매치 0건). `dimension_`은
+   `KDLKinematicsPlugin`(하위 클래스, `kdl_kinematics_plugin.hpp`) 전용
+   멤버다. 인용된 에러 메시지("Seed state must have size %d instead of
+   size %zu")는 실제로 `kdl_kinematics_plugin.cpp:320`에 있다 — 파일 이름이
+   바뀐 것뿐, 그 옆 줄의 "consistency_limits must be empty or have size %d"
+   (`kdl_kinematics_plugin.cpp:329`)는 브리핑 인용 그대로 맞다.
+2. "`jnt_seed_state.data`, `jnt_pos_out.data`... 전부 reduced-size" — 틀렸다.
+   둘 다 `KDL::JntArray(dimension_)`으로 선언된다(352, 354행) — **풀스페이스**다.
+   reduced-space인 건 세 인자 중 가운데 `consistency_limits_mimic` 하나뿐이다.
+   OOB는 "세 인자가 서로 안 맞는다"가 아니라 "풀스페이스 경계로 reduced-space
+   벡터 하나만 인덱싱한다"는, 더 좁고 정확한 모양이다.
+
+이 결함은 이식하지 않는다: `registry.rs`의 `SolveOptions` 독코멘트가 이미
+`consistency_limits`를 reduced-space(활성 관절 수만큼)로 정의해, `seed`/해가
+이미 사는 공간과 맞춰서 이 불일치를 애초에 구성 불가능하게 만든다(217465e,
+3라운드) — 그 문서화는 이번 확인으로 바뀌지 않는다. 오라클 `ik` op은 이
+좁혀진 모양(풀스페이스 인자를 받아 오라클 쪽에서 `consistency_limits_mimic`으로
+축약한 뒤 넘기는 것은 상류와 동일하게 하되, 축약된 벡터의 길이가 `dimension_`이
+아니라 활성 관절 수라는 것을 오라클 구현이 스스로 인지하게)으로 설계해야
+이 OOB를 오라클측에서도 재현하지 않는다.
