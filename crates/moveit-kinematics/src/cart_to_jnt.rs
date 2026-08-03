@@ -503,7 +503,12 @@ mod tests {
 
     /// `satisfies_consistency`'s own defining boundary: exactly at the
     /// limit is accepted (upstream's `>` violation check, not `>=`), one ULP
-    /// over it is rejected.
+    /// over it is rejected. `<=` on raw `f64`s has no hidden proportional
+    /// tolerance the way `assert_relative_eq!` without `max_relative` does
+    /// (see `PORTING-PLAN.md` §79) -- bisected at the literal bit level
+    /// (`f64::from_bits`, not an arbitrary small delta) to confirm that
+    /// directly: one ULP under `at_limit` is still accepted, one ULP over
+    /// is rejected, with nothing in between.
     #[test]
     fn satisfies_consistency_accepts_at_the_limit_and_rejects_just_over_it() {
         let seed = [1.0, 2.0];
@@ -511,8 +516,11 @@ mod tests {
         let limits = [0.5, 0.5];
         assert!(satisfies_consistency(&seed, &at_limit, &limits));
 
-        let just_over = [1.500_000_1, 2.5];
-        assert!(!satisfies_consistency(&seed, &just_over, &limits));
+        let one_ulp_under = [f64::from_bits(at_limit[0].to_bits() - 1), 2.5];
+        assert!(satisfies_consistency(&seed, &one_ulp_under, &limits));
+
+        let one_ulp_over = [f64::from_bits(at_limit[0].to_bits() + 1), 2.5];
+        assert!(!satisfies_consistency(&seed, &one_ulp_over, &limits));
     }
 
     /// `search_position_ik` with a default (`None`, `None`) [`SolveOptions`]
