@@ -2283,18 +2283,22 @@ private:
     return result;
   }
 
-  /// Ground truth for the `moveit-trajectory` `Path`/`Trajectory` port
-  /// (the model-independent numeric core of
+  /// Ground truth for the `moveit-trajectory` `Path`/`Trajectory` port (the
+  /// model-independent numeric core of
   /// `trajectory_processing::time_optimal_trajectory_generation.hpp` lines
-  /// 62-192 -- *not* the `TimeOptimalTrajectoryGeneration` adapter class,
-  /// which takes a `robot_trajectory::RobotTrajectory` and is out of this
-  /// port's scope). Each case runs `Path::create` then, if that succeeds,
-  /// `Trajectory::create`, and reports which stage failed when either
-  /// returns `std::nullopt`. `sample_times` are request-supplied rather than
-  /// derived from the computed duration, so both sides evaluate at
-  /// identically the same instants regardless of any duration disagreement
-  /// -- the numbers nlohmann::json can't represent (NaN, on a zero-length
-  /// path) serialize as JSON `null` via `dump_float`'s own NaN/Inf guard.
+  /// 62-192) *and*, when a request names a `"group"`, for the
+  /// `TimeOptimalTrajectoryGeneration` adapter (header line 193 on) --
+  /// see `totgRobotTrajectoryCase` below. A request with no `"group"` key
+  /// runs the original core-only path (`totgCase`), unchanged, so
+  /// `totg_request.json`/`totg_response.json` (captured before the adapter
+  /// was in scope) keep working verbatim. Each core-only case runs
+  /// `Path::create` then, if that succeeds, `Trajectory::create`, and
+  /// reports which stage failed when either returns `std::nullopt`.
+  /// `sample_times` are request-supplied rather than derived from the
+  /// computed duration, so both sides evaluate at identically the same
+  /// instants regardless of any duration disagreement -- the numbers
+  /// nlohmann::json can't represent (NaN, on a zero-length path) serialize
+  /// as JSON `null` via `dump_float`'s own NaN/Inf guard.
   static Eigen::VectorXd totgReadVector(const json& arr)
   {
     Eigen::VectorXd v(static_cast<Eigen::Index>(arr.size()));
@@ -2311,12 +2315,111 @@ private:
     return out;
   }
 
-  json totg(const json& request) const
+  json totg(const json& request)
   {
     json cases_out = json::array();
-    for (const json& c : request.at("cases"))
-      cases_out.push_back(totgCase(c));
+    if (request.contains("group"))
+    {
+      const std::string group_name = request.at("group").get<std::string>();
+      if (!model_->hasJointModelGroup(group_name))
+        throw std::runtime_error("unknown group: " + group_name);
+      for (const json& c : request.at("cases"))
+        cases_out.push_back(totgRobotTrajectoryCase(group_name, c));
+    }
+    else
+    {
+      for (const json& c : request.at("cases"))
+        cases_out.push_back(totgCase(c));
+    }
     return json{ { "cases", cases_out } };
+  }
+
+  /// Ground truth for the `moveit-trajectory`
+  /// `time_optimal_trajectory_generation` module -- the
+  /// `TimeOptimalTrajectoryGeneration` adapter around `Path`/`Trajectory`.
+  /// Shaped exactly like `ruckigCase` above (same waypoint/duration/
+  /// limit-map wire format, same result shape), since both build a
+  /// `robot_trajectory::RobotTrajectory` from named-variable waypoints and
+  /// report it back the same way. A case that omits "velocity_limits"
+  /// exercises the scaling-factor-only `computeTimeStamps` overload
+  /// (`RobotModel` bounds, scaled by `max_velocity_scaling_factor`/
+  /// `max_acceleration_scaling_factor`); a case that includes it (even as
+  /// `{}`) exercises the explicit-limits overload instead, with
+  /// "acceleration_limits" defaulting to `{}` when absent. The
+  /// `moveit_msgs::msg::JointLimits` overload is not exercised, for the same
+  /// reason `ruckig` does not exercise its analogous overload: a thin
+  /// wrapper the port doesn't carry (D1).
+  json totgRobotTrajectoryCase(const std::string& group_name, const json& c)
+  {
+    robot_trajectory::RobotTrajectory trajectory(model_, group_name);
+
+    const json& waypoints = c.at("waypoints");
+    const json& durations = c.at("durations_from_previous");
+    if (waypoints.size() != durations.size())
+      throw std::runtime_error("waypoints/durations_from_previous length mismatch");
+
+    for (std::size_t i = 0; i < waypoints.size(); ++i)
+    {
+      moveit::core::RobotState waypoint_state(model_);
+      waypoint_state.setToDefaultValues();
+      const json& values = waypoints.at(i);
+      for (auto it = values.begin(); it != values.end(); ++it)
+      {
+        if (!hasVariable(it.key()))
+          throw std::runtime_error("unknown joint variable: " + it.key());
+        waypoint_state.setVariablePosition(it.key(), it.value().get<double>());
+      }
+      waypoint_state.update();
+      trajectory.addSuffixWayPoint(waypoint_state, durations.at(i).get<double>());
+    }
+
+    const double max_velocity_scaling_factor = c.value("max_velocity_scaling_factor", 1.0);
+    const double max_acceleration_scaling_factor = c.value("max_acceleration_scaling_factor", 1.0);
+
+    trajectory_processing::TimeOptimalTrajectoryGeneration totg;
+    bool ok = false;
+    if (c.contains("velocity_limits"))
+    {
+      const std::unordered_map<std::string, double> velocity_limits = readLimitMap(c, "velocity_limits");
+      const std::unordered_map<std::string, double> acceleration_limits = readLimitMap(c, "acceleration_limits");
+      ok = totg.computeTimeStamps(trajectory, velocity_limits, acceleration_limits, max_velocity_scaling_factor,
+                                   max_acceleration_scaling_factor);
+    }
+    else
+    {
+      ok = totg.computeTimeStamps(trajectory, max_velocity_scaling_factor, max_acceleration_scaling_factor);
+    }
+
+    json result;
+    result["ok"] = ok;
+    if (!ok)
+      return result;
+
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    const std::vector<std::string>& variable_names = group->getVariableNames();
+
+    json out_waypoints = json::array();
+    json out_durations = json::array();
+    for (std::size_t i = 0; i < trajectory.getWayPointCount(); ++i)
+    {
+      const moveit::core::RobotState& wp = trajectory.getWayPoint(i);
+      json positions = json::object();
+      json velocities = json::object();
+      json accelerations = json::object();
+      for (const std::string& name : variable_names)
+      {
+        positions[name] = wp.getVariablePosition(name);
+        velocities[name] = wp.getVariableVelocity(name);
+        accelerations[name] = wp.getVariableAcceleration(name);
+      }
+      out_waypoints.push_back(json{ { "positions", positions },
+                                     { "velocities", velocities },
+                                     { "accelerations", accelerations } });
+      out_durations.push_back(trajectory.getWayPointDurationFromPrevious(i));
+    }
+    result["waypoints"] = out_waypoints;
+    result["durations_from_previous"] = out_durations;
+    return result;
   }
 
   json totgCase(const json& c) const

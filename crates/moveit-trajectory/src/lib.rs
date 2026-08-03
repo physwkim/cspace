@@ -28,18 +28,17 @@
 //!   so it also satisfies jerk limits, via the `ruckig` online trajectory
 //!   generator (the `rsruckig` crate). See that module's doc comment for
 //!   what it does not port.
-//!
-//! # Out of scope
-//!
-//! `TimeOptimalTrajectoryGeneration` (the `robot_trajectory::RobotTrajectory`
-//! adapter, header line 193 on) is **not** ported here — see
-//! `PORTING-PLAN.md` and [`crate::trajectory`]'s module doc comment.
+//! - [`time_optimal_trajectory_generation`], upstream's `trajectory_processing::
+//!   TimeOptimalTrajectoryGeneration` — the `robot_trajectory::RobotTrajectory`
+//!   adapter around [`Path`]/[`Trajectory`] (header line 193 on). See that
+//!   module's doc comment for what it does not port.
 
 mod numeric;
 mod path;
 pub mod path_segment;
 pub mod robot_trajectory;
 pub mod ruckig_smoothing;
+pub mod time_optimal_trajectory_generation;
 pub mod trajectory;
 
 pub use path::{DEFAULT_PATH_TOLERANCE, Path};
