@@ -267,11 +267,15 @@ dependencies = [
 name = "moveit-diff"
 version = "0.1.0"
 dependencies = [
+ "moveit-constraints",
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
  "moveit-srdf",
  "moveit-state",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
  "urdf-rs",

@@ -30,11 +30,22 @@
 #include <moveit/collision_detection/world.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
+#include <moveit/kinematic_constraints/kinematic_constraint.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
+#include <moveit/transforms/transforms.hpp>
 #include <srdfdom/model.h>
 #include <urdf_parser/urdf_parser.h>
+
+#include <geometry_msgs/msg/pose.hpp>
+#include <moveit_msgs/msg/bounding_volume.hpp>
+#include <moveit_msgs/msg/constraints.hpp>
+#include <moveit_msgs/msg/joint_constraint.hpp>
+#include <moveit_msgs/msg/orientation_constraint.hpp>
+#include <moveit_msgs/msg/position_constraint.hpp>
+#include <moveit_msgs/msg/visibility_constraint.hpp>
+#include <shape_msgs/msg/solid_primitive.hpp>
 
 using json = nlohmann::json;
 
@@ -85,6 +96,61 @@ Eigen::Isometry3d fromRowMajor4x4(const json& arr)
   return t;
 }
 
+/// `geometry_msgs::msg::Pose` for `t`, matching `rust_impl::to_row_major_4x4`'s
+/// own row-major encoding on the wire (this helper builds a message, not JSON
+/// -- the wire pose a `constraints` request carries is decoded via
+/// `fromRowMajor4x4` first, then re-expressed as a `Pose` message here for
+/// `moveit_msgs`' own fields to hold).
+geometry_msgs::msg::Pose isometryToPoseMsg(const Eigen::Isometry3d& t)
+{
+  geometry_msgs::msg::Pose pose;
+  pose.position.x = t.translation().x();
+  pose.position.y = t.translation().y();
+  pose.position.z = t.translation().z();
+  const Eigen::Quaterniond q(t.rotation());
+  pose.orientation.x = q.x();
+  pose.orientation.y = q.y();
+  pose.orientation.z = q.z();
+  pose.orientation.w = q.w();
+  return pose;
+}
+
+/// `shape_msgs::msg::SolidPrimitive` for one [`Op::Constraints`] region's
+/// `shape` field (see `protocol.rs`'s `ShapeSpec`) -- `"mesh"` is not handled
+/// here since a `SolidPrimitive` has no mesh case; the caller routes a mesh
+/// region into `BoundingVolume::meshes`/`mesh_poses` instead (see
+/// `positionConstraintFromJson`).
+shape_msgs::msg::SolidPrimitive solidPrimitiveFromJson(const json& shape_json)
+{
+  shape_msgs::msg::SolidPrimitive primitive;
+  const std::string type = shape_json.at("type").get<std::string>();
+  if (type == "sphere")
+  {
+    primitive.type = shape_msgs::msg::SolidPrimitive::SPHERE;
+    primitive.dimensions = { shape_json.at("radius").get<double>() };
+  }
+  else if (type == "box")
+  {
+    const auto size = shape_json.at("size").get<std::array<double, 3>>();
+    primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+    primitive.dimensions = { size[0], size[1], size[2] };
+  }
+  else if (type == "cylinder")
+  {
+    primitive.type = shape_msgs::msg::SolidPrimitive::CYLINDER;
+    primitive.dimensions.resize(2);
+    primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_HEIGHT] =
+        shape_json.at("length").get<double>();
+    primitive.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_RADIUS] =
+        shape_json.at("radius").get<double>();
+  }
+  else
+  {
+    throw std::runtime_error("constraints: unsupported primitive shape type " + type);
+  }
+  return primitive;
+}
+
 /// Matches the `kind` strings `moveit_model::Diagnostic::UnsupportedLinkGeometry`
 /// and the `link_details[].shape_types` wire field use — this oracle's own
 /// naming, not upstream's (`shapes::Shape` has no built-in name accessor;
@@ -127,6 +193,137 @@ std::string allowedCollisionTypeToString(collision_detection::AllowedCollision::
       return "CONDITIONAL";
   }
   throw std::runtime_error("unknown AllowedCollision::Type");
+}
+
+/// `moveit_msgs::msg::JointConstraint` for one `request["constraints"]
+/// ["joint_constraints"]` entry -- see `protocol.rs`'s `JointConstraintSpec`.
+moveit_msgs::msg::JointConstraint jointConstraintFromJson(const json& j)
+{
+  moveit_msgs::msg::JointConstraint jc;
+  jc.joint_name = j.at("joint_name").get<std::string>();
+  jc.position = j.at("position").get<double>();
+  jc.tolerance_above = j.at("tolerance_above").get<double>();
+  jc.tolerance_below = j.at("tolerance_below").get<double>();
+  jc.weight = j.at("weight").get<double>();
+  return jc;
+}
+
+/// `moveit_msgs::msg::PositionConstraint` for one `request["constraints"]
+/// ["position_constraints"]` entry -- see `protocol.rs`'s
+/// `PositionConstraintSpec`/`ConstraintRegionSpec`. A `"mesh"` region routes
+/// to `constraint_region.meshes`/`mesh_poses` since a `SolidPrimitive` (what
+/// `solidPrimitiveFromJson` builds) has no mesh case; every other shape
+/// routes to `constraint_region.primitives`/`primitive_poses`.
+moveit_msgs::msg::PositionConstraint positionConstraintFromJson(const json& j)
+{
+  moveit_msgs::msg::PositionConstraint pc;
+  pc.header.frame_id = j.at("frame_id").get<std::string>();
+  pc.link_name = j.at("link_name").get<std::string>();
+  const auto offset = j.at("target_point_offset").get<std::array<double, 3>>();
+  pc.target_point_offset.x = offset[0];
+  pc.target_point_offset.y = offset[1];
+  pc.target_point_offset.z = offset[2];
+
+  for (const auto& region_json : j.at("regions"))
+  {
+    const json& shape_json = region_json.at("shape");
+    const Eigen::Isometry3d pose = fromRowMajor4x4(region_json.at("pose"));
+    if (shape_json.at("type").get<std::string>() == "mesh")
+    {
+      shape_msgs::msg::Mesh mesh;
+      const auto vertices_json = shape_json.at("vertices");
+      const auto triangles_json = shape_json.at("triangles");
+      mesh.vertices.resize(vertices_json.size());
+      for (std::size_t i = 0; i < vertices_json.size(); ++i)
+      {
+        const auto v = vertices_json[i].get<std::array<double, 3>>();
+        mesh.vertices[i].x = v[0];
+        mesh.vertices[i].y = v[1];
+        mesh.vertices[i].z = v[2];
+      }
+      mesh.triangles.resize(triangles_json.size());
+      for (std::size_t i = 0; i < triangles_json.size(); ++i)
+      {
+        const auto t = triangles_json[i].get<std::array<std::uint32_t, 3>>();
+        mesh.triangles[i].vertex_indices = { t[0], t[1], t[2] };
+      }
+      pc.constraint_region.meshes.push_back(mesh);
+      pc.constraint_region.mesh_poses.push_back(isometryToPoseMsg(pose));
+    }
+    else
+    {
+      pc.constraint_region.primitives.push_back(solidPrimitiveFromJson(shape_json));
+      pc.constraint_region.primitive_poses.push_back(isometryToPoseMsg(pose));
+    }
+  }
+
+  pc.weight = j.at("weight").get<double>();
+  return pc;
+}
+
+/// `moveit_msgs::msg::OrientationConstraint` for one `request["constraints"]
+/// ["orientation_constraints"]` entry -- see `protocol.rs`'s
+/// `OrientationConstraintSpec`/`OrientationToleranceSpec`.
+moveit_msgs::msg::OrientationConstraint orientationConstraintFromJson(const json& j)
+{
+  moveit_msgs::msg::OrientationConstraint oc;
+  oc.header.frame_id = j.at("frame_id").get<std::string>();
+  oc.link_name = j.at("link_name").get<std::string>();
+
+  const auto q = j.at("orientation").get<std::array<double, 4>>();
+  oc.orientation.x = q[0];
+  oc.orientation.y = q[1];
+  oc.orientation.z = q[2];
+  oc.orientation.w = q[3];
+
+  const json& tol = j.at("tolerance");
+  const std::string parameterization = tol.at("parameterization").get<std::string>();
+  if (parameterization == "xyz_euler")
+    oc.parameterization = moveit_msgs::msg::OrientationConstraint::XYZ_EULER_ANGLES;
+  else if (parameterization == "rotation_vector")
+    oc.parameterization = moveit_msgs::msg::OrientationConstraint::ROTATION_VECTOR;
+  else
+    throw std::runtime_error("constraints: unknown orientation parameterization " + parameterization);
+  oc.absolute_x_axis_tolerance = tol.at("x").get<double>();
+  oc.absolute_y_axis_tolerance = tol.at("y").get<double>();
+  oc.absolute_z_axis_tolerance = tol.at("z").get<double>();
+
+  oc.weight = j.at("weight").get<double>();
+  return oc;
+}
+
+/// `moveit_msgs::msg::VisibilityConstraint` for one `request["constraints"]
+/// ["visibility_constraints"]` entry -- see `protocol.rs`'s
+/// `VisibilityConstraintSpec`. `target_radius`/`max_view_angle`/
+/// `max_range_angle` default to `0.0` (upstream's own "unconstrained"
+/// sentinel) when the JSON field is absent, matching the `Option<f64>` ->
+/// omitted-when-`None` encoding `protocol.rs` uses for all three.
+moveit_msgs::msg::VisibilityConstraint visibilityConstraintFromJson(const json& j)
+{
+  moveit_msgs::msg::VisibilityConstraint vc;
+
+  vc.sensor_pose.header.frame_id = j.at("sensor_frame_id").get<std::string>();
+  vc.sensor_pose.pose = isometryToPoseMsg(fromRowMajor4x4(j.at("sensor_pose")));
+
+  const std::string direction = j.at("sensor_view_direction").get<std::string>();
+  if (direction == "sensor_x")
+    vc.sensor_view_direction = moveit_msgs::msg::VisibilityConstraint::SENSOR_X;
+  else if (direction == "sensor_y")
+    vc.sensor_view_direction = moveit_msgs::msg::VisibilityConstraint::SENSOR_Y;
+  else if (direction == "sensor_z")
+    vc.sensor_view_direction = moveit_msgs::msg::VisibilityConstraint::SENSOR_Z;
+  else
+    throw std::runtime_error("constraints: unknown sensor_view_direction " + direction);
+
+  vc.target_pose.header.frame_id = j.at("target_frame_id").get<std::string>();
+  vc.target_pose.pose = isometryToPoseMsg(fromRowMajor4x4(j.at("target_pose")));
+
+  vc.cone_sides = j.at("cone_sides").get<std::int32_t>();
+  vc.target_radius = j.value("target_radius", 0.0);
+  vc.max_view_angle = j.value("max_view_angle", 0.0);
+  vc.max_range_angle = j.value("max_range_angle", 0.0);
+  vc.weight = j.at("weight").get<double>();
+  return vc;
 }
 
 class Oracle
@@ -172,6 +369,8 @@ public:
       return shapePoints(request);
     if (op == "common_root")
       return commonRoot(request);
+    if (op == "constraints")
+      return constraints(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -770,6 +969,55 @@ private:
       points_out.push_back(json::array({ p.x(), p.y(), p.z() }));
 
     return json{ { "points", points_out } };
+  }
+
+  /// Ground truth for the `moveit-constraints` `KinematicConstraintSet` port.
+  /// Applies `joint_values` on top of the model defaults the same way
+  /// `fk`/`jacobian` do, builds a `moveit_msgs::msg::Constraints` from
+  /// `request["constraints"]` (see the free-function `*FromJson` builders
+  /// above `Oracle` for the per-kind message shapes, matching
+  /// `protocol.rs`'s `ConstraintsSpec`), builds a
+  /// `moveit::core::Transforms(model_->getModelFrame())` (identity-only, no
+  /// TF listener), and calls `KinematicConstraintSet::add(msg, tf)` then
+  /// `decide(state, results)`. `add` returning `false` means at least one
+  /// constraint failed to `configure()` -- this differential test's own case
+  /// generator never produces such a constraint, so that is treated as a
+  /// hard error rather than silently evaluating a partially-configured set
+  /// (see `moveit-constraints`' own `KinematicConstraintSet::decide`
+  /// deviation doc for why a partially-decidable set should never be
+  /// reported as if it were fully decided).
+  json constraints(const json& request)
+  {
+    applyJointValues(request);
+
+    moveit_msgs::msg::Constraints msg;
+    const json& spec = request.at("constraints");
+    if (spec.contains("joint_constraints"))
+      for (const auto& jc_json : spec.at("joint_constraints"))
+        msg.joint_constraints.push_back(jointConstraintFromJson(jc_json));
+    if (spec.contains("position_constraints"))
+      for (const auto& pc_json : spec.at("position_constraints"))
+        msg.position_constraints.push_back(positionConstraintFromJson(pc_json));
+    if (spec.contains("orientation_constraints"))
+      for (const auto& oc_json : spec.at("orientation_constraints"))
+        msg.orientation_constraints.push_back(orientationConstraintFromJson(oc_json));
+    if (spec.contains("visibility_constraints"))
+      for (const auto& vc_json : spec.at("visibility_constraints"))
+        msg.visibility_constraints.push_back(visibilityConstraintFromJson(vc_json));
+
+    const moveit::core::Transforms transforms(model_->getModelFrame());
+    kinematic_constraints::KinematicConstraintSet set(model_);
+    if (!set.add(msg, transforms))
+      throw std::runtime_error("KinematicConstraintSet::add failed to configure one or more constraints");
+
+    std::vector<kinematic_constraints::ConstraintEvaluationResult> results;
+    set.decide(*state_, results);
+
+    json results_out = json::array();
+    for (const kinematic_constraints::ConstraintEvaluationResult& r : results)
+      results_out.push_back(json{ { "satisfied", r.satisfied }, { "distance", r.distance } });
+
+    return json{ { "results", results_out } };
   }
 
   moveit::core::RobotModelPtr model_;

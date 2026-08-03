@@ -122,6 +122,159 @@ pub enum Op {
         /// Grid spacing `findInternalPointsConvex` samples at.
         resolution: f64,
     },
+    /// Ground truth for the `moveit-constraints` `KinematicConstraintSet`
+    /// port. Builds a `moveit_msgs::msg::Constraints` from `constraints`
+    /// (one message vector per constraint kind, joint/position/orientation/
+    /// visibility, each filled in request order — the same order
+    /// `KinematicConstraintSet::add(msg, tf)` walks internally, and the order
+    /// [`ConstraintsResult::results`] reports back in), sets `joint_values` on
+    /// top of the model defaults exactly as [`Op::Fk`] does, builds a
+    /// `KinematicConstraintSet` against a `Transforms(model_->getModelFrame())`
+    /// (identity-only — no TF listener, matching this port's own
+    /// `Transforms::new(model.model_frame())`), and calls
+    /// `decide(state, results)`.
+    Constraints {
+        /// Joint name to position. Joints omitted keep their default value.
+        joint_values: BTreeMap<String, f64>,
+        /// The constraints to build and evaluate.
+        constraints: ConstraintsSpec,
+    },
+}
+
+/// The constraints to build for one [`Op::Constraints`] request, grouped by
+/// kind and in the exact order `KinematicConstraintSet::add` walks them
+/// (joint, then position, then orientation, then visibility) — the same
+/// order [`ConstraintsResult::results`] reports back in, which is what lets a
+/// flat result index be correlated back to a specific input constraint.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ConstraintsSpec {
+    /// `Constraints::joint_constraints`.
+    #[serde(default)]
+    pub joint_constraints: Vec<JointConstraintSpec>,
+    /// `Constraints::position_constraints`.
+    #[serde(default)]
+    pub position_constraints: Vec<PositionConstraintSpec>,
+    /// `Constraints::orientation_constraints`.
+    #[serde(default)]
+    pub orientation_constraints: Vec<OrientationConstraintSpec>,
+    /// `Constraints::visibility_constraints`.
+    #[serde(default)]
+    pub visibility_constraints: Vec<VisibilityConstraintSpec>,
+}
+
+/// One `moveit_msgs::msg::JointConstraint`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JointConstraintSpec {
+    /// `joint_name`, following upstream's own `"joint"` /
+    /// `"joint/local_variable"` convention.
+    pub joint_name: String,
+    /// `position`.
+    pub position: f64,
+    /// `tolerance_above`.
+    pub tolerance_above: f64,
+    /// `tolerance_below`.
+    pub tolerance_below: f64,
+    /// `weight`.
+    pub weight: f64,
+}
+
+/// One region of a `moveit_msgs::msg::BoundingVolume.primitives` (with its
+/// paired `primitive_poses` entry) — meshes are not needed by this
+/// differential test, so [`ConstraintsSpec`] only ever builds the primitive
+/// half of a `BoundingVolume`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConstraintRegionSpec {
+    /// The region's shape.
+    pub shape: ShapeSpec,
+    /// The region's pose relative to `PositionConstraintSpec::frame_id`,
+    /// row-major 4x4.
+    pub pose: [f64; 16],
+}
+
+/// One `moveit_msgs::msg::PositionConstraint`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PositionConstraintSpec {
+    /// `header.frame_id`.
+    pub frame_id: String,
+    /// `link_name`.
+    pub link_name: String,
+    /// `target_point_offset`.
+    pub target_point_offset: [f64; 3],
+    /// `constraint_region.primitives`/`primitive_poses`, paired.
+    pub regions: Vec<ConstraintRegionSpec>,
+    /// `weight`.
+    pub weight: f64,
+}
+
+/// One `moveit_msgs::msg::OrientationConstraint`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OrientationConstraintSpec {
+    /// `header.frame_id`.
+    pub frame_id: String,
+    /// `link_name`.
+    pub link_name: String,
+    /// `orientation`, as `[x, y, z, w]`.
+    pub orientation: [f64; 4],
+    /// `parameterization` plus the three `absolute_*_axis_tolerance` fields.
+    pub tolerance: OrientationToleranceSpec,
+    /// `weight`.
+    pub weight: f64,
+}
+
+/// `parameterization` plus the three `absolute_*_axis_tolerance` fields of a
+/// `moveit_msgs::msg::OrientationConstraint`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "parameterization", rename_all = "snake_case")]
+pub enum OrientationToleranceSpec {
+    /// `parameterization = XYZ_EULER_ANGLES` (`0`).
+    XyzEuler {
+        /// `absolute_x_axis_tolerance`.
+        x: f64,
+        /// `absolute_y_axis_tolerance`.
+        y: f64,
+        /// `absolute_z_axis_tolerance`.
+        z: f64,
+    },
+    /// `parameterization = ROTATION_VECTOR` (`1`).
+    RotationVector {
+        /// `absolute_x_axis_tolerance`.
+        x: f64,
+        /// `absolute_y_axis_tolerance`.
+        y: f64,
+        /// `absolute_z_axis_tolerance`.
+        z: f64,
+    },
+}
+
+/// One `moveit_msgs::msg::VisibilityConstraint`. Only the criteria decidable
+/// without a collision backend are exercised by the differential test that
+/// drives this (view-angle/range-angle) — see `moveit-constraints`' own
+/// module docs for why `target_radius` alone cannot be.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VisibilityConstraintSpec {
+    /// `sensor_pose`'s `header.frame_id`.
+    pub sensor_frame_id: String,
+    /// `sensor_pose`, row-major 4x4.
+    pub sensor_pose: [f64; 16],
+    /// `sensor_view_direction`: `"sensor_x"`, `"sensor_y"` or `"sensor_z"`.
+    pub sensor_view_direction: String,
+    /// `target_pose`'s `header.frame_id`.
+    pub target_frame_id: String,
+    /// `target_pose`, row-major 4x4.
+    pub target_pose: [f64; 16],
+    /// `cone_sides`.
+    pub cone_sides: usize,
+    /// `target_radius`; `None` encodes upstream's `0.0` (unconstrained).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_radius: Option<f64>,
+    /// `max_view_angle`; `None` encodes upstream's `0.0` (unconstrained).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_view_angle: Option<f64>,
+    /// `max_range_angle`; `None` encodes upstream's `0.0` (unconstrained).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_range_angle: Option<f64>,
+    /// `weight`.
+    pub weight: f64,
 }
 
 /// A shape for [`Op::ShapePoints`] -- the four variants
@@ -229,6 +382,8 @@ pub enum OracleResult {
     DistanceField(DistanceFieldResult),
     /// Answer to [`Op::ShapePoints`].
     ShapePoints(ShapePointsResult),
+    /// Answer to [`Op::Constraints`].
+    Constraints(ConstraintsResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -483,4 +638,22 @@ pub struct ShapePointsResult {
     /// nested-loop enumeration order (x outer, y middle, z inner) -- not
     /// deduplicated or sorted, since points are compared as a set.
     pub points: Vec<[f64; 3]>,
+}
+
+/// Answer to [`Op::Constraints`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ConstraintResult {
+    /// `ConstraintEvaluationResult::satisfied`.
+    pub satisfied: bool,
+    /// `ConstraintEvaluationResult::distance`.
+    pub distance: f64,
+}
+
+/// Answer to [`Op::Constraints`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConstraintsResult {
+    /// One entry per constraint in [`ConstraintsSpec`], flattened in
+    /// joint/position/orientation/visibility order (matching
+    /// `KinematicConstraintSet::add`'s own internal call order).
+    pub results: Vec<ConstraintResult>,
 }

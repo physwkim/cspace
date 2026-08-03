@@ -9,14 +9,28 @@
 
 use std::collections::BTreeMap;
 
-use moveit_geometry::{Isometry3, Vector3};
+use moveit_constraints::{
+    Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
+    OrientationTolerance, PositionConstraint, SensorSpec, TargetSpec, VisibilityConstraint,
+    VisibilityCriteria,
+};
+use moveit_geometry::{
+    Cuboid, Cylinder, Isometry3, Mesh, Rotation3, Shape, Sphere, Transforms, UnitQuaternion,
+    Vector3,
+};
 use moveit_model::RobotModel;
 use moveit_state::RobotState;
+use nalgebra::{Matrix3, Quaternion, Translation3};
 
-use crate::protocol::{FkResult, JacobianResult, JointDetail, Mimic, ModelInfo};
+use crate::protocol::{
+    ConstraintResult, ConstraintsResult, ConstraintsSpec, FkResult, JacobianResult, JointDetail,
+    Mimic, ModelInfo, OrientationToleranceSpec, ShapeSpec,
+};
 
-/// Row-major 4x4, matching the oracle's `toRowMajor4x4`.
-fn to_row_major_4x4(transform: &Isometry3) -> [f64; 16] {
+/// Row-major 4x4, matching the oracle's `toRowMajor4x4`. `pub(crate)`: also
+/// used by `main.rs`'s constraint-case generator to turn a computed pose into
+/// the wire format `ConstraintsSpec` carries.
+pub(crate) fn to_row_major_4x4(transform: &Isometry3) -> [f64; 16] {
     let m = transform.to_homogeneous();
     let mut out = [0.0; 16];
     for r in 0..4 {
@@ -135,4 +149,187 @@ pub fn jacobian(
         }
     }
     Ok(JacobianResult { rows, cols, data })
+}
+
+/// Row-major 4x4, matching the oracle's `fromRowMajor4x4`. Decomposes into a
+/// rotation via `UnitQuaternion::from_matrix` rather than trusting the raw
+/// 3x3 block directly, the same normalization `world_parity.rs`'s own
+/// `isometry_from_row_major` applies for a request built from a wire value
+/// rather than computed in-process.
+fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
+    let rotation = Rotation3::from_matrix_unchecked(Matrix3::new(
+        m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10],
+    ));
+    let translation = Translation3::new(m[3], m[7], m[11]);
+    Isometry3::from_parts(translation, UnitQuaternion::from_rotation_matrix(&rotation))
+}
+
+fn shape_from_spec(spec: &ShapeSpec) -> Result<Shape, String> {
+    Ok(match spec {
+        ShapeSpec::Sphere { radius } => {
+            Shape::Sphere(Sphere::new(*radius).map_err(|e| format!("sphere: {e}"))?)
+        }
+        ShapeSpec::Box { size } => {
+            Shape::Cuboid(Cuboid::new(size[0], size[1], size[2]).map_err(|e| format!("box: {e}"))?)
+        }
+        ShapeSpec::Cylinder { radius, length } => {
+            Shape::Cylinder(Cylinder::new(*radius, *length).map_err(|e| format!("cylinder: {e}"))?)
+        }
+        ShapeSpec::Mesh {
+            vertices,
+            triangles,
+        } => Shape::Mesh(
+            Mesh::new(
+                vertices
+                    .iter()
+                    .map(|v| Vector3::new(v[0], v[1], v[2]))
+                    .collect(),
+                triangles.clone(),
+            )
+            .map_err(|e| format!("mesh: {e}"))?,
+        ),
+    })
+}
+
+fn sensor_view_direction_from_spec(
+    name: &str,
+) -> Result<moveit_constraints::SensorViewDirection, String> {
+    match name {
+        "sensor_x" => Ok(moveit_constraints::SensorViewDirection::SensorX),
+        "sensor_y" => Ok(moveit_constraints::SensorViewDirection::SensorY),
+        "sensor_z" => Ok(moveit_constraints::SensorViewDirection::SensorZ),
+        other => Err(format!("unknown sensor_view_direction {other:?}")),
+    }
+}
+
+/// Builds every constraint in `spec` against `model`/`tf`, in the same
+/// joint/position/orientation/visibility order
+/// `KinematicConstraintSet::add(msg, tf)` walks internally (see
+/// `ConstraintsSpec`'s doc comment), then evaluates the resulting set at
+/// `joint_values` layered on top of the model's default positions, reset-
+/// then-apply the same way [`fk`]/[`jacobian`] do.
+///
+/// A `VisibilityConstraintSpec` with `target_radius` set makes the set
+/// undecidable (see `moveit-constraints`' own module docs on why the
+/// cone-vs-robot check is not ported): that surfaces as an `Err` here rather
+/// than a fabricated `satisfied` result, exactly as
+/// `KinematicConstraintSet::decide_each` itself refuses to answer.
+pub fn constraints(
+    model: &RobotModel,
+    joint_values: &BTreeMap<String, f64>,
+    spec: &ConstraintsSpec,
+) -> Result<ConstraintsResult, String> {
+    let tf = Transforms::new(model.model_frame()).map_err(|e| format!("Transforms::new: {e}"))?;
+
+    let mut set = KinematicConstraintSet::new();
+
+    for jc in &spec.joint_constraints {
+        let c = JointConstraint::new(
+            model,
+            &jc.joint_name,
+            jc.position,
+            jc.tolerance_above,
+            jc.tolerance_below,
+            jc.weight,
+        )
+        .map_err(|e| format!("joint constraint {:?}: {e}", jc.joint_name))?;
+        set.push(Constraint::Joint(c));
+    }
+
+    for pc in &spec.position_constraints {
+        let regions: Vec<(Shape, Isometry3)> = pc
+            .regions
+            .iter()
+            .map(|r| Ok((shape_from_spec(&r.shape)?, isometry_from_row_major(&r.pose))))
+            .collect::<Result<_, String>>()?;
+        let c = PositionConstraint::new(
+            model,
+            &tf,
+            &pc.link_name,
+            &pc.frame_id,
+            Vector3::new(
+                pc.target_point_offset[0],
+                pc.target_point_offset[1],
+                pc.target_point_offset[2],
+            ),
+            &regions,
+            pc.weight,
+        )
+        .map_err(|e| format!("position constraint {:?}: {e}", pc.link_name))?;
+        set.push(Constraint::Position(c));
+    }
+
+    for oc in &spec.orientation_constraints {
+        let orientation = UnitQuaternion::from_quaternion(Quaternion::new(
+            oc.orientation[3],
+            oc.orientation[0],
+            oc.orientation[1],
+            oc.orientation[2],
+        ));
+        let tolerance = match oc.tolerance {
+            OrientationToleranceSpec::XyzEuler { x, y, z } => {
+                OrientationTolerance::XyzEuler { x, y, z }
+            }
+            OrientationToleranceSpec::RotationVector { x, y, z } => {
+                OrientationTolerance::RotationVector { x, y, z }
+            }
+        };
+        let c = OrientationConstraint::new(
+            model,
+            &tf,
+            &oc.link_name,
+            &oc.frame_id,
+            orientation,
+            tolerance,
+            oc.weight,
+        )
+        .map_err(|e| format!("orientation constraint {:?}: {e}", oc.link_name))?;
+        set.push(Constraint::Orientation(c));
+    }
+
+    for vc in &spec.visibility_constraints {
+        let c = VisibilityConstraint::new(
+            model,
+            &tf,
+            SensorSpec {
+                frame_id: &vc.sensor_frame_id,
+                pose: isometry_from_row_major(&vc.sensor_pose),
+                view_direction: sensor_view_direction_from_spec(&vc.sensor_view_direction)?,
+            },
+            TargetSpec {
+                frame_id: &vc.target_frame_id,
+                pose: isometry_from_row_major(&vc.target_pose),
+            },
+            vc.cone_sides,
+            VisibilityCriteria {
+                target_radius: vc.target_radius,
+                max_view_angle: vc.max_view_angle,
+                max_range_angle: vc.max_range_angle,
+            },
+            vc.weight,
+        )
+        .map_err(|e| format!("visibility constraint: {e}"))?;
+        set.push(Constraint::Visibility(c));
+    }
+
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, &value) in joint_values {
+        state
+            .set_variable_position(name, value)
+            .map_err(|e| format!("setting {name}: {e}"))?;
+    }
+    let posed = state.update();
+
+    let results = set
+        .decide_each(&posed)
+        .map_err(|e| format!("undecided: {e}"))?
+        .into_iter()
+        .map(|r| ConstraintResult {
+            satisfied: r.satisfied,
+            distance: r.distance,
+        })
+        .collect();
+
+    Ok(ConstraintsResult { results })
 }
