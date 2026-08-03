@@ -14,10 +14,15 @@
 //!
 //! This crate ports `kinematic_constraints/kinematic_constraint.{hpp,cpp}` —
 //! the four constraint types and their `decide()`/construction logic — and,
-//! in [`utils`], the 11 functions of `kinematic_constraints/utils.{hpp,cpp}`
+//! in [`utils`], 13 of the 15 functions of `kinematic_constraints/utils.{hpp,cpp}`
 //! that build or update a [`KinematicConstraintSet`] from plain geometric
-//! arguments rather than from ROS parameters. See that module's doc comment
-//! for exactly what is and is not ported from `utils.{hpp,cpp}` and why.
+//! arguments rather than from ROS parameters (a stale "11" stood here before
+//! this doc comment's Round 6 symbol audit below counted again from the
+//! header directly: `resolve_position_constraint_frame`/
+//! `resolve_orientation_constraint_frame` were added after this line was
+//! first written and the count was never revisited). See that module's doc
+//! comment for exactly what is and is not ported from `utils.{hpp,cpp}` and
+//! why.
 //!
 //! `equal()`, `print()`, `clear()` and `getMarkers()` are also not ported:
 //! none of them are exercised by `decide()`, which is this phase's
@@ -48,6 +53,192 @@
 //! [`VisibilityConstraint::decide`]'s doc for why that needs no
 //! `PlanningScene`/broader collision world, only `moveit-collision`
 //! (already a dependency of this crate, no `moveit-scene` needed).
+//!
+//! # Round 6 symbol audit
+//!
+//! Every public symbol declared in upstream's
+//! `kinematic_constraint.hpp`/`utils.hpp`, classified as `ported as <symbol>`,
+//! `D-decision excludes it`, or `unported (why not yet)`. Re-run by reading
+//! the two headers directly (not by inferring from what already exists here)
+//! before trusting this table for a future phase's completion check.
+//!
+//! ## `KinematicConstraint` (abstract base) and its shared members
+//!
+//! - `ConstraintEvaluationResult` -> ported as [`ConstraintEvaluationResult`],
+//!   direct transcription (see its own doc for why no field needed a redesign).
+//! - `clear()` -> unported: no concrete type keeps mutable post-construction
+//!   state to clear. A "cleared" constraint is a fresh `new()` call instead.
+//! - `decide(state, verbose)` -> ported per concrete type as `decide()`; the
+//!   `verbose` flag is dropped (D-decision: no logging path exists in this
+//!   crate to condition on it).
+//! - `enabled()` -> ported only on [`VisibilityConstraint`] (the one type that
+//!   genuinely can be disabled post-construction, all three criteria `None`).
+//!   `JointConstraint`/`PositionConstraint`/`OrientationConstraint` have no
+//!   disabled representation and always report satisfied-by-construction
+//!   (D-decision: illegal/disabled states are prevented at `new()` instead of
+//!   checked at `decide()`).
+//! - `equal(other, margin)` -> unported (blanket note above: not exercised by
+//!   `decide()`).
+//! - `getType()` -> unported directly; the equivalent information is the
+//!   [`Constraint`] enum's variant tag itself (D-decision: structural, not a
+//!   method).
+//! - `print(out)` -> unported (blanket note above).
+//! - `getConstraintWeight()` -> ported as `weight()` on each concrete type
+//!   individually, not on a shared base (D-decision: no trait unites the
+//!   four constraint types; each is a variant of the [`Constraint`] enum).
+//! - `getRobotModel()` -> unported: no concrete type retains its constructing
+//!   `&RobotModel`; construction resolves what it needs (link/variable index)
+//!   and releases the borrow.
+//!
+//! ## `JointConstraint`
+//!
+//! - Two-step `ctor(model)` + `configure(msg)` -> collapsed into
+//!   [`JointConstraint::new`] (see "No `moveit_msgs::Constraints`" above).
+//! - `equal`, `enabled`, `clear`, `print` -> unported (see base, above).
+//! - `decide` -> ported as [`JointConstraint::decide`].
+//! - `getJointModel()` -> unported: no accessor keeps the upstream
+//!   `JointModel*`; only the joint's variable identity is retained, and
+//!   nothing in this crate or its tests needs the pointer itself.
+//! - `getLocalVariableName()` -> ported as `local_variable_name()`.
+//! - `getJointVariableName()` -> ported as `joint_variable_name()`.
+//! - `getJointVariableIndex()` -> ported as `joint_variable_index()`.
+//! - `getDesiredJointPosition()` -> ported as `desired_joint_position()`.
+//! - `getJointToleranceAbove()` -> ported as `joint_tolerance_above()`.
+//! - `getJointToleranceBelow()` -> ported as `joint_tolerance_below()`.
+//! - File-private `normalizeAngle` (`kinematic_constraint.cpp:67-79`) ->
+//!   ported as private fn `normalize_angle` in `joint.rs`, a direct
+//!   transcription (distinct from the `angles`-crate `normalize_angle` used
+//!   elsewhere in this workspace — upstream itself keeps two).
+//!
+//! ## `OrientationConstraint`
+//!
+//! - Two-step `ctor(model)` + `configure(msg)` -> collapsed into
+//!   [`OrientationConstraint::new`].
+//! - `equal`, `enabled`, `clear`, `print` -> unported (see base, above).
+//! - `decide` -> ported as [`OrientationConstraint::decide`].
+//! - `getLinkModel()` -> ported name-only as `link_name()`; no `LinkModel`
+//!   pointer is exposed (unneeded by any caller in this crate).
+//! - `getReferenceFrame()` -> ported as `reference_frame()`.
+//! - `mobileReferenceFrame()` -> ported as `mobile_reference_frame()`.
+//! - `getDesiredRotationMatrixInRefFrame()` -> **unported (why not yet)**: no
+//!   accessor exposes the private `desired_r_in_frame_id` field; it is read
+//!   only internally by `decide()`'s `RotationVector` branch, and no internal
+//!   or test caller needs the raw matrix outside `decide()` yet. A genuine
+//!   gap, not a D-decision.
+//! - `getDesiredRotationMatrix()` -> **unported (why not yet)**, same reason:
+//!   the target's rotation lives inside the private `OrientationTarget` enum
+//!   and is never separately exposed.
+//! - `getXAxisTolerance()`/`getYAxisTolerance()`/`getZAxisTolerance()`/
+//!   `getParameterizationType()` -> D-decision excludes all four as separate
+//!   accessors: folded into one [`OrientationConstraint::tolerance`] accessor
+//!   returning the whole [`OrientationTolerance`] enum (one sum type instead
+//!   of three floats plus a discriminating tag — see that enum's own
+//!   "Deviation from upstream" doc).
+//! - File-private `normalizeAbsoluteAngle`, `calcEulerAngles` -> ported as
+//!   private fns `normalize_absolute_angle`, `calc_euler_angles` in
+//!   `orientation.rs`, direct transcriptions.
+//!
+//! ## `PositionConstraint`
+//!
+//! - Two-step `ctor(model)` + `configure(msg)` -> collapsed into
+//!   [`PositionConstraint::new`].
+//! - `equal`, `enabled`, `clear`, `print` -> unported (see base, above).
+//! - `decide` -> ported as [`PositionConstraint::decide`].
+//! - `getLinkModel()` -> ported name-only as `link_name()`, same reasoning as
+//!   `OrientationConstraint::getLinkModel()` above.
+//! - `getLinkOffset()` -> ported as `link_offset()`.
+//! - `hasLinkOffset()` -> ported as `has_link_offset()`.
+//! - `getConstraintRegions()` -> ported as `constraint_regions()`, returning
+//!   `&[ConstraintRegion]` — one `Vec` of a sum type replacing upstream's four
+//!   parallel vectors (`constraint_region_`, `constraint_region_pose_`, and
+//!   the mesh/primitive split) — see [`ConstraintRegion`]'s own doc.
+//! - `getReferenceFrame()` -> ported as `reference_frame()`.
+//! - `mobileReferenceFrame()` -> ported as `mobile_reference_frame()`.
+//!
+//! ## `VisibilityConstraint`
+//!
+//! - Two-step `ctor(model)` + `configure(msg)` -> collapsed into
+//!   [`VisibilityConstraint::new`].
+//! - `equal`, `clear`, `print` -> unported (see base, above).
+//! - `getVisibilityCone(pose, cone)` -> ported as private `cone_mesh()`
+//!   (Round 4 tail disposition, folded in here so it is not rediscovered as a
+//!   gap).
+//! - `getMarkers(state, markers)` -> unported: no `visualization_msgs::
+//!   MarkerArray` equivalent exists anywhere in this workspace (D1), and
+//!   nothing in Phase 5's `decide()`-based completion condition exercises it.
+//! - `enabled()` -> ported as `enabled()` — the one `enabled()` in this whole
+//!   crate that is a real runtime check rather than always-true-by-
+//!   construction, matching upstream's own semantics (this type alone can be
+//!   constructed with all three visibility criteria absent).
+//! - `decide` -> ported as [`VisibilityConstraint::decide`].
+//! - Protected `decideContact(contact)` -> ported as free fn
+//!   `allow_sensor_or_target_contact` in `visibility.rs` (Round 4 tail
+//!   disposition, folded in here).
+//!
+//! ## `KinematicConstraintSet`
+//!
+//! - `ctor(model)` -> [`KinematicConstraintSet::new`] takes no model:
+//!   constituent constraints are already resolved against a model at their
+//!   own construction, so the set itself never needs to retain one
+//!   (D-decision).
+//! - `clear()` -> unported: no persistent resource to release beyond the
+//!   `Vec`'s own `Drop`; a caller wanting an empty set constructs a fresh
+//!   [`KinematicConstraintSet::new`].
+//! - `add(moveit_msgs::msg::Constraints, tf)` and the four
+//!   `add(vector<{Joint,Position,Orientation,Visibility}Constraint>, ...)`
+//!   overloads -> D-decision excludes all five: no `moveit_msgs` type exists
+//!   to add from (D1). The ported equivalent is `push(Constraint)`, adding one
+//!   already-resolved constraint at a time.
+//! - `decide(state, verbose)` -> ported as `decide()`.
+//! - `decide(state, results, verbose)` -> ported as `decide_each()`, returning
+//!   the per-constraint `Vec` directly instead of writing through an
+//!   out-parameter.
+//! - `equal(other, margin)`, `print(out)` -> unported (see base, above).
+//! - `getPositionConstraints()`/`getOrientationConstraints()`/
+//!   `getJointConstraints()`/`getVisibilityConstraints()` -> D-decision
+//!   excludes all four: `constraints()` returns one flat `&[Constraint]` (a
+//!   `Vec` of a sum type, not four parallel `moveit_msgs` vectors — see
+//!   [`Constraint`]'s own "Deviation from upstream" doc); a caller wanting
+//!   only one kind filters that slice.
+//! - `getAllConstraints()` -> unported: no `moveit_msgs::msg::Constraints` to
+//!   reaggregate into (D1).
+//! - `empty()` -> ported as `is_empty()`.
+//! - Not upstream: `len()`, `constraints_mut()`, `push()` — new API this
+//!   port's reconstruct-rather-than-mutate update model needs (see
+//!   `crate::utils`'s `update_*` functions, which call `constraints_mut()`).
+//!
+//! ## `utils.hpp` (15 declarations, 1 excluded — see [`utils`] for detail)
+//!
+//! - `mergeConstraints` -> ported as `merge_constraints`.
+//! - `countIndividualConstraints` -> ported as `count_individual_constraints`.
+//! - `constructGoalConstraints(state, jmg, tolerance)` and its two-tolerance
+//!   overload -> collapsed, ported as `construct_goal_joint_constraints`.
+//! - `updateJointConstraints` -> ported as `update_joint_constraints`.
+//! - `constructGoalConstraints(link, pose, tol_pos, tol_angle)` (sphere
+//!   region) -> ported as `construct_goal_pose_constraints`.
+//! - `constructGoalConstraints(link, pose, vec tol_pos, vec tol_angle)` (box
+//!   region) -> ported as `construct_goal_pose_constraints_box`.
+//! - `updatePoseConstraint` -> ported as `update_pose_constraint`.
+//! - `constructGoalConstraints(link, quat, tolerance)` -> ported as
+//!   `construct_goal_orientation_constraints`.
+//! - `updateOrientationConstraint` -> ported as `update_orientation_constraint`.
+//! - `constructGoalConstraints(link, reference_point, goal_point, tolerance)`
+//!   and its reference-point-omitted overload -> collapsed, ported as
+//!   `construct_goal_position_constraints`.
+//! - `updatePositionConstraint` -> ported as `update_position_constraint`.
+//! - `constructConstraints(node, param_name, constraints)` -> D-decision
+//!   excludes it: parses YAML through an `rclcpp::Node` parameter server,
+//!   which this core crate has no access to at all (D1/D2) — a `moveit-ros`
+//!   concern, not this crate's. Its six file-private helper functions
+//!   (`collectConstraints` and the per-type `constructConstraint`/
+//!   `constructPoseStamped` overloads that exist only to support it) share
+//!   the same exclusion for the same reason, folded in here so they are not
+//!   rediscovered as gaps.
+//! - `resolveConstraintFrames` -> ported, split into
+//!   `resolve_position_constraint_frame` and
+//!   `resolve_orientation_constraint_frame` (`PORTING-PLAN.md` §23.1
+//!   merge-time correction; see `utils.rs`'s own doc for why the split runs
+//!   before construction rather than after).
 
 mod joint;
 mod orientation;
