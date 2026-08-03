@@ -23,6 +23,7 @@
 #include <Eigen/Geometry>
 #include <nlohmann/json.hpp>
 
+#include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
@@ -61,6 +62,21 @@ json toRowMajor4x4(const Eigen::Isometry3d& t)
   return out;
 }
 
+/// Matches AllowedCollisionType's variant names in protocol.rs.
+std::string allowedCollisionTypeToString(collision_detection::AllowedCollision::Type type)
+{
+  switch (type)
+  {
+    case collision_detection::AllowedCollision::NEVER:
+      return "NEVER";
+    case collision_detection::AllowedCollision::ALWAYS:
+      return "ALWAYS";
+    case collision_detection::AllowedCollision::CONDITIONAL:
+      return "CONDITIONAL";
+  }
+  throw std::runtime_error("unknown AllowedCollision::Type");
+}
+
 class Oracle
 {
 public:
@@ -94,6 +110,8 @@ public:
       return jacobian(request);
     if (op == "random_states")
       return randomStates(request);
+    if (op == "acm")
+      return acm();
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -239,6 +257,46 @@ private:
     return json{ { "rows", static_cast<std::size_t>(j.rows()) },
                  { "cols", static_cast<std::size_t>(j.cols()) },
                  { "data", data } };
+  }
+
+  /// Ground truth for the `moveit-collision` differential test: builds an
+  /// `AllowedCollisionMatrix` the same way `PlanningScene` does, from the
+  /// loaded SRDF's `disable_collisions`/`enable_collisions`/
+  /// `disable_default_collisions`, and dumps every explicit entry plus every
+  /// default entry. `AllowedCollision::CONDITIONAL` never appears here: the
+  /// SRDF-driven constructor only ever calls the bool-taking `setEntry`, never
+  /// the predicate overload.
+  json acm() const
+  {
+    collision_detection::AllowedCollisionMatrix matrix(*model_->getSRDF());
+
+    std::vector<std::string> names;
+    matrix.getAllEntryNames(names);
+
+    json entries = json::array();
+    for (std::size_t i = 0; i < names.size(); ++i)
+    {
+      for (std::size_t j = i; j < names.size(); ++j)
+      {
+        collision_detection::AllowedCollision::Type type;
+        if (matrix.getEntry(names[i], names[j], type))
+        {
+          entries.push_back(json{ { "link1", names[i] },
+                                   { "link2", names[j] },
+                                   { "type", allowedCollisionTypeToString(type) } });
+        }
+      }
+    }
+
+    json defaults = json::object();
+    for (const std::string& name : names)
+    {
+      collision_detection::AllowedCollision::Type type;
+      if (matrix.getDefaultEntry(name, type))
+        defaults[name] = allowedCollisionTypeToString(type);
+    }
+
+    return json{ { "names", names }, { "entries", entries }, { "defaults", defaults } };
   }
 
   moveit::core::RobotModelPtr model_;

@@ -63,6 +63,10 @@ pub enum Op {
         /// Joint name to position.
         joint_values: BTreeMap<String, f64>,
     },
+    /// The `AllowedCollisionMatrix` built from the loaded SRDF's
+    /// `disable_collisions`/`enable_collisions`/`disable_default_collisions`,
+    /// dumped entry by entry.
+    Acm,
 }
 
 /// A response from the oracle.
@@ -92,6 +96,8 @@ pub enum OracleResult {
     RandomStates(RandomStatesResult),
     /// Answer to [`Op::Jacobian`].
     Jacobian(JacobianResult),
+    /// Answer to [`Op::Acm`].
+    Acm(AcmResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -176,4 +182,39 @@ pub struct JacobianResult {
     pub cols: usize,
     /// Row-major `rows * cols` entries.
     pub data: Vec<f64>,
+}
+
+/// Answer to [`Op::Acm`].
+///
+/// Mirrors `collision_detection::AllowedCollisionMatrix`'s own storage split
+/// rather than its merged `getAllowedCollision` view: [`AcmResult::entries`]
+/// is the explicit-entry table (`entries_`) and [`AcmResult::defaults`] is the
+/// per-name default table (`default_entries_`), each dumped independently —
+/// the same tables `moveit-collision`'s `AllowedCollisionMatrix` keeps.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AcmResult {
+    /// Every name known to the matrix (`getAllEntryNames`), sorted.
+    pub names: Vec<String>,
+    /// Every explicit pair entry. Symmetric pairs are reported once, with
+    /// `link1 <= link2` in `names` order — the oracle emits only the upper
+    /// triangle since `getEntry(a, b, ..)` and `getEntry(b, a, ..)` always
+    /// agree.
+    pub entries: Vec<AcmEntry>,
+    /// Per-name default, keyed by name. `"NEVER"`, `"ALWAYS"` or
+    /// `"CONDITIONAL"`, matching [`AcmEntry::kind`].
+    pub defaults: BTreeMap<String, String>,
+}
+
+/// One explicit pair entry in an [`AcmResult`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AcmEntry {
+    /// First link of the pair.
+    pub link1: String,
+    /// Second link of the pair.
+    pub link2: String,
+    /// `"NEVER"`, `"ALWAYS"` or `"CONDITIONAL"` — the spelling
+    /// `AllowedCollision::Type`'s enumerators print as, transcribed verbatim
+    /// rather than reinvented, the same rule `JointDetail::type_name` follows.
+    #[serde(rename = "type")]
+    pub kind: String,
 }

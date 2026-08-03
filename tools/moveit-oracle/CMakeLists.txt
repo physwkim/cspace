@@ -24,6 +24,7 @@ target_link_libraries(moveit_oracle
   PRIVATE
     moveit_core::moveit_robot_model
     moveit_core::moveit_robot_state
+    moveit_core::moveit_collision_detection
     urdfdom::urdf_parser
     srdfdom::srdfdom
     Eigen3::Eigen
