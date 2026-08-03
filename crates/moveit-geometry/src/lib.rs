@@ -5,14 +5,20 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/transforms/include/moveit/transforms/transforms.hpp
 //   moveit_core/transforms/src/transforms.cpp
+// and from geometric_shapes 2.3.3 (see shapes.rs's provenance comment).
 
 //! Frame transforms and geometric primitives for moveit-rs.
 //!
-//! Phase 1 of `PORTING-PLAN.md` adds the `geometric_shapes` equivalents here.
-//! Today this crate carries [`Transforms`] only.
+//! This crate carries [`Transforms`] (`moveit_core/transforms`) and the
+//! `geometric_shapes` shape data layer (see the [`shapes`] module docs for
+//! scope and provenance).
 
+mod shapes;
 mod transforms;
 
+pub use shapes::{
+    BoundingSphere, Cone, Cuboid, Cylinder, Mesh, OcTree, Plane, Shape, ShapeType, Sphere,
+};
 pub use transforms::Transforms;
 
 /// Rigid-body transform. Replaces upstream `Eigen::Isometry3d`.
