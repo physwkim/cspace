@@ -21,7 +21,7 @@ use moveit_geometry::{
     Cuboid, Cylinder, Isometry3, Mesh, Rotation3, Shape, Sphere, Transforms, UnitQuaternion,
     Vector3,
 };
-use moveit_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolverParams};
+use moveit_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
 use moveit_model::RobotModel;
 use moveit_state::{Posed, RobotState};
 use nalgebra::{Matrix3, Quaternion, Translation3};
@@ -500,11 +500,53 @@ impl<'m> IkSolver<'m> {
         })
     }
 
+    /// Every single-DOF (revolute/prismatic) joint in this solver's own
+    /// chain -- active and mimic alike, in depth-first order.
+    /// `moveit_kinematics::chain::ChainInfo` (which already computes exactly
+    /// this) is private to that crate, so this rebuilds the same filter
+    /// from only public `RobotModel`/`JointModelGroup` API. Used solely to
+    /// build the full-space [`crate::protocol::Op::Ik::consistency_limits`]
+    /// map the oracle expects -- [`IkSolver::solve_case`] itself only ever
+    /// needs [`IkSolver::joint_names`]-ordered (reduced-space) limits, since
+    /// that is what [`SolveOptions::consistency_limits`] already is.
+    pub fn chain_joint_names(&self) -> Vec<String> {
+        let group = self
+            .model
+            .joint_model_group(&self.group)
+            .expect("IkSolver::new already built a solver for this group");
+        group
+            .joint_indices()
+            .iter()
+            .filter_map(|&idx| {
+                let joint = self.model.joint_model_at(idx);
+                (joint.variable_count() > 0).then(|| joint.name().to_owned())
+            })
+            .collect()
+    }
+
     /// One case: build the target from `joint_values`, solve, and measure
     /// the solution's own FK error against that target.
+    ///
+    /// `consistency_limits` is [`crate::protocol::Op::Ik::consistency_limits`]'s
+    /// same full-space (active + mimic), by-name map -- this method reduces
+    /// it to the active-joint-only `Vec<f64>`
+    /// [`moveit_kinematics::SolveOptions::consistency_limits`]
+    /// itself expects, reading each of [`IkSolver::joint_names`]'s own
+    /// entries out of the full map and ignoring any mimic-joint entry the
+    /// map happens to carry (mirroring the oracle's own reduction to
+    /// `consistency_limits_mimic`). An empty map means "no consistency
+    /// limits", matching [`IkSolver::solve_case`]'s previous behaviour.
+    ///
+    /// # Errors
+    ///
+    /// If `consistency_limits` is non-empty but does not have an entry for
+    /// one of [`IkSolver::joint_names`]'s own names -- a caller error, the
+    /// same way [`moveit_kinematics::KinematicsSolver::solve_with_options`]'s
+    /// `# Panics` treats a mis-sized `consistency_limits` slice.
     pub fn solve_case(
         &mut self,
         joint_values: &BTreeMap<String, f64>,
+        consistency_limits: &BTreeMap<String, f64>,
     ) -> Result<IkOutcome, String> {
         let model = self.model;
         let group = self.group.as_str();
@@ -519,7 +561,27 @@ impl<'m> IkSolver<'m> {
         let posed = state.update();
         let target = chain_relative_pose(model, group, &posed)?;
 
-        let solution = self.solver.solve(&self.seed, &target);
+        let reduced_limits: Option<Vec<f64>> = if consistency_limits.is_empty() {
+            None
+        } else {
+            Some(
+                self.joint_names
+                    .iter()
+                    .map(|name| {
+                        consistency_limits.get(name).copied().ok_or_else(|| {
+                            format!("consistency_limits missing entry for active joint '{name}'")
+                        })
+                    })
+                    .collect::<Result<Vec<f64>, String>>()?,
+            )
+        };
+        let mut options = SolveOptions {
+            consistency_limits: reduced_limits.as_deref(),
+            solution_callback: None,
+        };
+        let solution = self
+            .solver
+            .solve_with_options(&self.seed, &target, &mut options);
         let errors = match &solution {
             Some(sol) => {
                 let mut solved_state = RobotState::new(model);

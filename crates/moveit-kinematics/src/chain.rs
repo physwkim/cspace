@@ -54,6 +54,14 @@ pub(crate) struct ChainInfo {
     /// absolute root joint, matching
     /// `moveit_state::RobotState`'s own `parent_link_of_joint`.
     pub(crate) root_link_index: Option<usize>,
+    /// `KinematicsBase::base_frame_`: [`ChainInfo::root_link_index`]'s link
+    /// name, or [`moveit_model::RobotModel::root_link_name`] when that index
+    /// is `None`. The frame every [`crate::KinematicsSolver::solve`] target
+    /// pose is given in — see [`ChainInfo::root_pose_world`].
+    pub(crate) base_frame: String,
+    /// `KinematicsBase::tip_frames_[0]`: [`ChainInfo::tip_link_index`]'s link
+    /// name.
+    pub(crate) tip_frame: String,
 
     // ---- Full space (dimension_), depth-first order ------------------
     /// Each full-space entry's own joint name (== its one variable's name,
@@ -245,10 +253,18 @@ impl ChainInfo {
             }
         }
 
+        let base_frame = match root_link_index {
+            Some(idx) => model.link_model_at(idx).name().to_owned(),
+            None => model.root_link_name().to_owned(),
+        };
+        let tip_frame = model.link_model_at(tip_link_index).name().to_owned();
+
         Ok(Self {
             group_name: group_name.to_owned(),
             tip_link_index,
             root_link_index,
+            base_frame,
+            tip_frame,
             joint_names,
             map_index,
             multiplier,
@@ -277,6 +293,16 @@ impl ChainInfo {
             Some(root_link) => posed.global_link_transform_at(root_link).inverse(),
             None => Isometry3::identity(),
         }
+    }
+
+    /// `KinematicsBase::getBaseFrame`.
+    pub(crate) fn base_frame(&self) -> &str {
+        &self.base_frame
+    }
+
+    /// `KinematicsBase::getTipFrame`.
+    pub(crate) fn tip_frame(&self) -> &str {
+        &self.tip_frame
     }
 
     /// `KDLKinematicsPlugin::getJointWeights`: every active joint defaults
@@ -561,5 +587,80 @@ mod tests {
 
         assert_eq!(chain.active_joint_names, vec!["j1", "j2"]);
         assert_eq!(weights, vec![1.0, 0.25]);
+    }
+
+    /// The ordinary case: the chain's root joint's parent link is a real,
+    /// non-root link, so `base_frame`/`tip_frame` resolve to that link's own
+    /// name and the tip link's own name respectively — not the model root.
+    #[test]
+    fn base_frame_and_tip_frame_resolve_to_the_chain_endpoint_link_names() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <link name="root"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <group name="chain">
+    <chain base_link="root" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let chain = ChainInfo::build(&model, "chain").expect("valid two-joint chain");
+
+        assert_eq!(chain.base_frame(), "root");
+        assert_eq!(chain.tip_frame(), "tip");
+    }
+
+    /// When the chain's root joint *is* the model's own absolute root joint
+    /// (here: the group names the virtual joint explicitly, ahead of `j1`),
+    /// `root_link_index` is `None` (see `root_pose_world`'s doc comment) and
+    /// `base_frame` must fall back to the model's own root link name rather
+    /// than panicking or returning an empty string.
+    #[test]
+    fn base_frame_falls_back_to_the_model_root_link_when_the_chain_starts_there() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="from_the_top">
+  <link name="root"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="from_the_top">
+  <virtual_joint name="virtual_joint" type="fixed" parent_frame="world" child_link="root"/>
+  <group name="chain">
+    <joint name="virtual_joint"/>
+    <joint name="j1"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let chain = ChainInfo::build(&model, "chain").expect("valid one-joint chain from the root");
+
+        assert_eq!(chain.root_link_index, None);
+        assert_eq!(chain.base_frame(), model.root_link_name());
+        assert_eq!(chain.base_frame(), "root");
+        assert_eq!(chain.tip_frame(), "tip");
     }
 }

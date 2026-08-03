@@ -1008,6 +1008,25 @@ private:
   /// restart-RNG divergence (the oracle's own reseed draws come from
   /// `ik_rng_`, a boost mt19937 stream, independent of the Rust side's
   /// `ChaCha8Rng`) or a real algorithmic difference.
+  ///
+  /// # Deviation from upstream: `checkConsistency`'s out-of-bounds read is
+  /// not reproduced
+  ///
+  /// `request["consistency_limits"]` is `searchPositionIK`'s own parameter,
+  /// full-space and keyed by joint name (see `Op::Ik::consistency_limits`'s
+  /// doc comment). This method performs upstream's own reduction to
+  /// `consistency_limits_mimic` and then checks each active joint's
+  /// distance from the seed against its own reduced-space bound -- the
+  /// semantics `checkConsistency` clearly intends, but not the letter of
+  /// how it is written: that function loops `i < dimension_` (full-space)
+  /// while indexing `consistency_limits_mimic[i]`, an active-joint-sized
+  /// (not `dimension_`-sized) vector -- a real out-of-bounds
+  /// `std::vector::operator[]` read whenever the chain has at least one
+  /// mimic joint, confirmed against `kdl_kinematics_plugin.cpp:84-94` and
+  /// recorded in `PORTING-PLAN.md`'s round-4 `p1-joints` section. This op
+  /// exists to be oracle-comparable ground truth, not to reproduce a read
+  /// past the end of a `std::vector` -- so it implements the intended
+  /// check instead.
   json ik(const json& request)
   {
     constexpr unsigned int kMaxSolverIterations = 500;   // SolverParams::max_solver_iterations default
@@ -1126,6 +1145,60 @@ private:
     for (std::size_t k = 0; k < active_joint_names.size(); ++k)
       seed_active[k] = (joint_min[active_full_index[k]] + joint_max[active_full_index[k]]) / 2.0;
 
+    // `KDLKinematicsPlugin::searchPositionIK`'s own reduction to
+    // `consistency_limits_mimic` (lines 325-341: filter the caller's
+    // full-space `consistency_limits` down to one entry per *active* joint),
+    // transcribed here by joint name rather than by `dimension_`-position so
+    // this side and the Rust side never have to agree on a full-space
+    // encounter order. `request["consistency_limits"]` carries an entry for
+    // every full-space (active + mimic) joint, matching upstream's parameter
+    // shape, even though only the active-joint entries are ever read here --
+    // exactly like upstream's own `consistency_limits[i]` for a mimic
+    // joint's index, which is present in the caller's vector but never
+    // pushed onto `consistency_limits_mimic`.
+    std::vector<double> consistency_limits_mimic;
+    const bool has_consistency_limits =
+        request.contains("consistency_limits") && !request.at("consistency_limits").empty();
+    if (has_consistency_limits)
+    {
+      const json& limits = request.at("consistency_limits");
+      consistency_limits_mimic.reserve(active_joint_names.size());
+      for (const std::string& name : active_joint_names)
+      {
+        if (!limits.contains(name))
+          throw std::runtime_error("consistency_limits missing entry for active joint '" + name + "'");
+        consistency_limits_mimic.push_back(limits.at(name).get<double>());
+      }
+    }
+
+    // `KDLKinematicsPlugin::checkConsistency`'s intent -- reject a converged
+    // solution unless every *active* joint stayed within its own
+    // `consistency_limits_mimic` bound of the original seed -- reimplemented
+    // to loop over `consistency_limits_mimic`'s own (active-joint) size
+    // rather than `dimension_`. See `PORTING-PLAN.md`'s round-4 `p1-joints`
+    // section, confirming upstream's `checkConsistency` loops `i <
+    // dimension_` while indexing that same active-joint-sized vector -- an
+    // out-of-bounds `std::vector::operator[]` read on any chain with a mimic
+    // joint (`kdl_kinematics_plugin.cpp:84-94`). This reimplementation
+    // indexes `consistency_limits_mimic[k]` only for `k` in
+    // `[0, active_joint_names.size())`, so it cannot trip that read: each
+    // active joint's own full-space value (`q_seed_full`/`q_out` at
+    // `active_full_index[k]`) is what upstream's `jnt_seed_state`/
+    // `jnt_pos_out` (both full-space) actually hold at that position, so
+    // this is the bug-free version of the same per-active-joint check, not a
+    // different one.
+    auto consistencyOk = [&](const KDL::JntArray& q_seed_full, const KDL::JntArray& q_out_full) {
+      if (!has_consistency_limits)
+        return true;
+      for (std::size_t k = 0; k < active_joint_names.size(); ++k)
+      {
+        const std::size_t full_i = active_full_index[k];
+        if (std::fabs(q_seed_full(full_i) - q_out_full(full_i)) > consistency_limits_mimic[k])
+          return false;
+      }
+      return true;
+    };
+
     KDL::ChainIkSolverVelMimicSVD ik_solver_vel(kdl_chain, mimic_joints, position_only, kSvdThreshold);
     KDL::ChainFkSolverPos_recursive fk_solver(kdl_chain);
 
@@ -1196,8 +1269,14 @@ private:
       return success;
     };
 
+    // Consistency is always measured against the *original* seed, never a
+    // retry's own reseed point -- matches `searchPositionIK`'s
+    // `jnt_seed_state`, set once before the retry loop and never
+    // reassigned inside it.
+    const KDL::JntArray q_seed_full = buildQFull(seed_active);
+
     KDL::JntArray q_out(mimic_joints.size());
-    bool success = cartToJnt(buildQFull(seed_active), q_out);
+    bool success = cartToJnt(q_seed_full, q_out) && consistencyOk(q_seed_full, q_out);
     for (unsigned int attempt = 0; attempt < max_restarts && !success; ++attempt)
     {
       std::vector<double> reseed_active(active_joint_names.size());
@@ -1206,7 +1285,7 @@ private:
         reseed_active[k] =
             ik_rng_.uniformReal(joint_min[active_full_index[k]], joint_max[active_full_index[k]]);
       }
-      success = cartToJnt(buildQFull(reseed_active), q_out);
+      success = cartToJnt(buildQFull(reseed_active), q_out) && consistencyOk(q_seed_full, q_out);
     }
 
     if (!success)
