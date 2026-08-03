@@ -23,6 +23,7 @@ moveit-state = { path = "crates/moveit-state", version = "0.1.0" }
 nalgebra = { version = "0.35", features = ["serde-serialize"] }
 roxmltree = "0.21"
 parry3d-f64 = "0.30"
+glamx = { version = "0.3", default-features = false, features = ["nalgebra"] }
 urdf-rs = "0.9"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

@@ -11,13 +11,18 @@ authors.workspace = true
 [dependencies]
 moveit-error.workspace = true
 moveit-geometry.workspace = true
+moveit-model.workspace = true
 moveit-srdf.workspace = true
+moveit-state.workspace = true
+glamx.workspace = true
+nalgebra.workspace = true
+parry3d-f64.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-nalgebra.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+urdf-rs.workspace = true
 
 [lints]
 workspace = true
