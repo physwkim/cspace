@@ -2523,3 +2523,96 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 축약한 뒤 넘기는 것은 상류와 동일하게 하되, 축약된 벡터의 길이가 `dimension_`이
 아니라 활성 관절 수라는 것을 오라클 구현이 스스로 인지하게)으로 설계해야
 이 OOB를 오라클측에서도 재현하지 않는다.
+
+### 20.2 오라클 `ik` op의 `consistency_limits` 확장과 4+1개 픽스처 비교
+
+**설계.** 와이어의 `consistency_limits`는 `joint_values`와 같은 모양 —
+관절 이름을 키로 하는 맵(`BTreeMap<String, f64>`) — 이고, **풀스페이스**
+(상류 `searchPositionIK`가 실제로 받는 모양)로 정의했다. reduced-space로
+이미 축약된 값을 오라클에 넘기면 오라클이 하는 일은 "그대로 통과"뿐이라
+비교가 순환 논증이 된다; 오라클 쪽에서 활성 관절만 추려 자신만의
+`consistency_limits_mimic`을 구성하게 해야 20.1에서 확인한 상류의 축약
+자체를 검증하는 셈이 된다. 이름 기반 키를 쓴 것은 위치 기반
+(`Vec<f64>`)이었다면 오라클과 이 포트가 각자 독립적으로 구현한 관절
+순회 순서가 반드시 일치해야 했을 텐데, 그 순서 불일치가 바로 20.1의
+OOB 버그가 태어난 방식이기 때문이다.
+
+오라클의 일관성 검사(`consistencyOk`, `oracle.cpp`)는 재시도 루프
+시작 전에 **한 번만** 캡처한 원본 시드(`q_seed_full`)를 기준으로 매
+시도의 해를 비교한다 — 상류의 `jnt_seed_state`가 `searchPositionIK`의
+재시도 루프 안에서 재대입되지 않는 것과 동일하다. 재시드 지점을
+기준으로 비교하면 20.1의 OOB와는 다른 종류의 버그(기준점이 매 시도
+바뀌는)가 됐을 것이다.
+
+**해 콜백은 와이어에 없다.** 상류 `searchPositionIK`의
+`solution_callback`은 임의의 C++ 클로저이고, 이 포트의
+`SolveOptions::solution_callback`도 마찬가지로 `FnMut` 클로저다. 둘 다
+프로세스 경계를 넘길 수 있는 값이 아니므로 오라클 와이어 프로토콜에는
+이에 대응하는 필드를 만들지 않았다 — 이번 확장에서도, 앞으로도 만들
+계획이 없다. `rust_impl.rs`의 `solve_case`는 항상
+`solution_callback: None`으로 호출한다.
+
+**소거법으로 확인한 사실: mimic 관절을 포함하는 IK 체인은 프로젝트
+전체에서 크레이트 로컬 테스트 픽스처 하나뿐이다.** 공식 4개 픽스처
+(`fixtures/*.srdf`, `verify-fixture-provenance.sh`로 벤더 원본과
+바이트 동일함이 잠겨 있음)를 전수 확인한 결과:
+
+- pr2의 `l_end_effector`/`r_end_effector`는 두 손가락이 같은 palm
+  링크에서 갈라지는 분기 목록이라 `is_chain()`이 아니다; `right_arm`/
+  `left_arm`은 그리퍼까지 닿지 않는다.
+- panda의 `hand` 그룹은 실제 `<joint>` 멤버가 `panda_finger_joint1`
+  하나뿐이고 mimic은 `<passive_joint>` 참조로만 존재한다 — 그 passive
+  참조를 인정하더라도 `panda_leftfinger`/`panda_rightfinger`가 같은
+  `panda_hand` 링크에서 갈라지므로 체인이 아니다.
+- fanuc과 dual_arm_panda는 팔 체인에 mimic 관절이 아예 없다.
+
+유일하게 실사용 가능한 mimic 체인은
+`crates/moveit-kinematics/tests/fixtures/pr2.srdf`에 이미 문서화되어
+있던 크레이트 로컬 전용 그룹 `l_gripper_finger_chain`
+(`base_link="l_wrist_roll_link" tip_link="l_gripper_l_finger_tip_link"`,
+실제 PR2 URDF의 관절 타입/mimic 배수를 그대로 쓰되 상류에 없는 그룹
+경계를 새로 그은 것 — 그 파일 자체의 코멘트 및
+`velocity.rs::pr2_gripper_mimic_column_folds_into_its_masters_column_not_its_own`
+테스트 참고)이다. 이 URDF는 공식 잠긴 `fixtures/pr2.urdf`와 바이트
+동일함을 `diff`로 확인했다(SRDF에 그룹 하나만 추가된 차이). 이 조합은
+공식 4-픽스처 스윕에는 넣지 않고 별도로, `--urdf`/`--srdf`를 크레이트
+로컬 경로로 직접 지정해 돌렸다.
+
+**`--ik-consistency-limit FRACTION`.** IK 시드는 항상 각 관절 자체
+경계의 중점이고, 일관성 검사는 재시드가 아니라 그 원본 시드에 대해서만
+측정하므로, 한 관절이 가질 수 있는 최대 편차는 정확히 `range/2`다 —
+`FRACTION ≥ 0.5`는 아무것도 거부하지 않는 자명한 통과가 된다. 7-DOF
+팔에서 0.1~0.15는 20회 재시도로도 사실상 100% 거부(과제가 경고한
+"아무것도 거부하지 않는 스윕은 아무것도 검증하지 않는다"의 반대
+극단이자 마찬가지로 무의미)였다. 공식 4개 그룹에는 두 극단 모두를
+피한 **0.35**를, DOF가 훨씬 낮은(1 능동 + 1 mimic) `l_gripper_finger_chain`에는
+낮은 차원 탓에 같은 fraction이 다르게 반응함을 확인하기 위해
+0.1/0.2/0.35 세 값을 스윕했다.
+
+**결과 (오라클/이 포트 성공률, 500 케이스, `--ik-max-restarts` 기본값 20, FK 정확성 실패 전부 0건):**
+
+| 픽스처 / 그룹 | 제한 없음 (oracle/rust) | `--ik-consistency-limit 0.35` (oracle/rust) |
+|---|---|---|
+| panda / panda_arm | 96.0% / 98.0% | 31.4% / 36.0% |
+| fanuc / manipulator | 91.2% / 89.2% | 33.2% / 44.4% |
+| dual_arm_panda / left_panda_arm | 99.0% / 96.6% | 28.6% / 33.6% |
+| pr2 / right_arm | 99.8% / 99.6% | 23.2% / 25.2% |
+
+크레이트 로컬 `pr2.urdf`+`pr2.srdf` / `l_gripper_finger_chain`
+(오라클과 이 포트가 매 케이스 정확히 같은 수만 성공 — `paired: b=0, c=0`):
+
+| fraction | 성공률 |
+|---|---|
+| 제한 없음 | 100.0% (500/500) |
+| 0.1 | 20.8% (104/500) |
+| 0.2 | 42.0% (210/500) |
+| 0.35 | 69.8% (349/500) |
+
+네 공식 그룹 모두와 mimic 체인 모두에서 오라클/이 포트 성공률이 소수점
+첫째 자리까지 완전히 일치했고(`paired: b (oracle only) = 0, c (rust only)
+= 0`), FK 정확성 실패는 8+4개 실행 전부에서 0건이었다 — `consistency_limits`의
+풀스페이스→축약 로직과 재시도 루프의 원본-시드 고정이 상류와 이 포트
+양쪽에서 동일하게 동작함을 확인했다. 구현은 `oracle.cpp`(op 확장),
+`protocol.rs`(`Op::Ik::consistency_limits` 필드), `rust_impl.rs`
+(`chain_joint_names`/`solve_case`의 축약), `main.rs`(`--ik-consistency-limit`
+CLI, 관절별 fraction×range 계산)에 있다(d4b72cc).
