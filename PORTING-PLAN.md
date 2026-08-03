@@ -7922,3 +7922,96 @@ p3-shapes          4건
 `moveit-state/tests/invariants.rs`의 4건은 소유자가 없는 크레이트에
 있다. 지금은 어느 패널도 이 파일을 자기 것으로 열지 않는다 — 다음
 라운드에서 배정한다.
+
+## 93. p1-joints 라운드 12 머지 — `CachedIkSolver` 이식과 재는 것이 없는 상수
+
+`ik_cache.rs`(`IKCache`)와 `cached_solver.rs`(`CachedIKKinematicsPlugin`
+데코레이터)가 들어왔고 `newton_raphson_cached`/`lma_cached` 두 등록이
+붙었다. 5커밋, 범위는 `moveit-kinematics`뿐이다.
+
+### 93.1 상류 대조 — 세 지점을 직접 읽었다
+
+- `Pose::distance`(`ik_cache.cpp:290-293`)는
+  `(position - pose.position).length() + orientation.angleShortestPath(...)`
+  다. 포트의 `pose_distance`가 `norm() + UnitQuaternion::angle_to`인
+  것이 맞다 — `angle_to`도 최단경로 각([0, π])이다.
+- `updateCache`의 삽입 가드는 `ik_cache_.size() < ik_cache_.capacity()`
+  이지 `max_cache_size_`가 아니다(`:183`). 그런데
+  `initializeCache`가 `:75`에서 `reserve(max_cache_size_)`를 먼저 하고
+  `:119`의 `reserve(last_saved_cache_size_)`는 그보다 작으므로 libstdc++
+  `reserve`의 무연산 규칙에 걸린다. 용량은 `max_cache_size_`에 머무르고,
+  포트의 `entries.len() >= self.max_cache_size` 가드와 동치다.
+- 삽입 조건이 OR(`pose 거리 초과 || config 제곱거리 초과`)인 것도
+  `:183-184`에서 확인했다.
+
+### 93.2 핀 8건이 문다
+
+담당이 표로 낸 4건을 포함해 내가 직접 걸었다. `--no-fail-fast`, 각각
+적용 → 실행 → 되돌림:
+
+```
+M1 update의 OR 게이트를 AND로                      3 fail
+M2 pose_distance에서 angle_to 항 제거              1 fail
+M3 nearest가 min 대신 max                          3 fail
+M4 가득 찬 캐시 가드 제거                          1 fail
+M6 캐시 시드를 무시하고 호출자 시드를 먼저 시도    2 fail
+M7 호출자 시드 폴백 제거                           2 fail
+M8 성공해도 캐시를 갱신하지 않음                   1 fail
+```
+
+M6과 M8의 첫 시도는 **컴파일에 실패했다**(`CacheEntry::config`가 미사용이
+되어 `never used`가 에러로 올라온다). §82.1대로 컴파일되지 않는 삭제는
+핀의 증거가 아니므로 `let _keep = nearest.config();`와 `if false {}`로
+바꿔 다시 쟀다. 위 숫자는 그 재측정 값이다.
+
+### 93.3 통과하는 섭동 3건 — 둘은 진짜 구멍, 하나는 아니다
+
+```
+M5  config 게이트 >  →  >=      31/31 통과
+M5b pose 게이트   >  →  >=      31/31 통과
+M9  update가 nearest를 재조회    31/31 통과
+```
+
+M5·M5b는 실제로 안 재는 경계다. 상류가 양쪽 다 strict `>`이고 포트도
+그렇지만, 임계값에 **정확히 걸린** 입력을 넣는 테스트가 없다. §85 이후
+이 저장소가 쓰는 "서사가 아니라 불변식 경계로 테스트하라"의 정확한
+대상이다.
+
+M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `nearest`는
+두 시도 전에 조회한 그 값이지 여기서 다시 조회한 값이 아니다"는
+`solve_with_options`가 `&mut self`를 잡고 있어 호출 중간에 캐시가 바뀔
+수 없으므로 **구조적으로 보장된다**. 테스트가 필요 없는 불변식이니
+다음 라운드에서 이걸 쫓지 마라.
+
+### 93.4 `IK_DEGENERATE_EPS` — 보고서의 판정은 맞고 근거는 좁다
+
+담당은 `main.rs:1755`/`:1771`의 `IK_DEGENERATE_EPS`가 "정보용 카운터로
+출력될 뿐 `Verdict`로 들어가지 않는다"고 적었다. `Verdict` 부분은 맞고,
+어떤 테스트도 이 상수나 두 필드를 참조하지 않는 것도 `rg`로 확인했다.
+
+다만 `IkStats`는 `#[derive(serde::Serialize)]`이고
+`main.rs:795`의 `ik: cfg.ik.then_some(ik_stats)`로 **`--stats-json`에
+그대로 실린다**. 즉 이 상수는 출력만 되는 것이 아니라 내가 매 sweep마다
+읽는 기계판독 결과의 한 숫자를 정한다. 1e-6 elementwise max-norm이
+"degenerate"의 정의이고, 그 정의가 어디에서도 검증되지 않는다.
+
+판정은 바뀌지 않는다(게이트하는 것이 없다는 것이 발견이다). 근거만
+넓힌다.
+
+### 93.5 오라클 fixture 부재는 사실이다
+
+`moveit-kinematics`에는 `tests/fixtures/oracle-models.json`이 아예
+없다 — 다른 9개 크레이트에는 있다. `"op": "ik"`를 쓰는 요청 fixture도
+워크스페이스에 0건이다. 담당의 `6f35548` 기록이 맞다.
+
+### 93.6 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1069/1069**(1059 + 10),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **30/30 identical**. 스탬프
+`3426f1b1193961ee` 유지(오라클을 건드리지 않았다).
+
+담당이 보고한 1058/1058은 베이스 `9a5292f` 기준 값이고, 재생 29/29도
+그 기준이다. 담당이 이미지를 `7cc8a73408a83c92`로 다시 빌드한 것은 그
+시점 트리에서 맞는 판단이었다.
