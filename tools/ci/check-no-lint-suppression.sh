@@ -30,10 +30,24 @@ fi
 # are ordinary calls and take a string literal rather than a lint name.
 pattern='^\s*#!?\[\s*(allow|expect)\s*\('
 
-if hits=$(rg -n --pcre2 "$pattern" --glob '*.rs' crates tools 2>/dev/null); then
-  echo "lint suppression is not permitted -- fix the lint at source:" >&2
-  echo "$hits" >&2
-  exit 1
-fi
+# rg's three exit codes are three different answers and only two of them are
+# this check's business: 0 is "found suppressions", 1 is "found none", and 2 is
+# "rg itself failed" (unreadable path, bad pattern). Testing the command in an
+# `if` collapses 1 and 2 into the same branch, so a broken search would print
+# OK -- the whole failure mode this file exists to prevent, one level up.
+status=0
+hits=$(rg -n --pcre2 "$pattern" --glob '*.rs' crates tools) || status=$?
+case "$status" in
+  0)
+    echo "lint suppression is not permitted -- fix the lint at source:" >&2
+    echo "$hits" >&2
+    exit 1
+    ;;
+  1) ;;  # no matches: the pass case
+  *)
+    echo "rg failed (exit $status) -- this check did not run" >&2
+    exit "$status"
+    ;;
+esac
 
 echo "OK: no lint suppression in crates/ or tools/"

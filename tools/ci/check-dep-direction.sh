@@ -30,8 +30,19 @@ while read -r pkg; do
   [[ "$pkg" == "$ALLOWED_PACKAGE" ]] && continue
   # `cargo tree -e normal` omits dev- and build-dependencies: a ROS dep in a
   # dev-dependency would still make `cargo test` need ROS, so include those too.
-  hits="$(cargo tree -p "$pkg" -e normal,dev,build --prefix none --no-dedupe 2>/dev/null \
-          | awk '{print $1}' | sort -u | grep -E "$BANNED_RE" || true)"
+  # `cargo tree` runs on its own rather than at the head of the pipe, and its
+  # stderr is kept: piped, the `|| true` at the tail would turn "cargo tree
+  # could not resolve this package" into an empty `hits`, i.e. into "no ROS
+  # dependency found" -- a pass for a crate that was never inspected.
+  tree_status=0
+  tree="$(cargo tree -p "$pkg" -e normal,dev,build --prefix none --no-dedupe)" \
+    || tree_status=$?
+  if [[ $tree_status -ne 0 ]]; then
+    echo "FAIL cargo tree -p $pkg exited $tree_status -- $pkg was not checked" >&2
+    status=1
+    continue
+  fi
+  hits="$(awk '{print $1}' <<<"$tree" | sort -u | grep -E "$BANNED_RE" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL $pkg depends on a ROS client library:" >&2
     sed 's/^/    /' <<<"$hits" >&2

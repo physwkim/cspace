@@ -51,14 +51,13 @@ COUNT="20000"
 # serialized to JSON is large enough (a few hundred KB at this script's
 # default) to blow past this host's effective ARG_MAX if passed as a single
 # argv element to the analysis step below.
+REQUEST_FILE="$(mktemp)"
+RAW_FILE="$(mktemp)"
+STDERR_FILE="$(mktemp)"
 RESPONSE_FILE="$(mktemp)"
-trap 'rm -f "$RESPONSE_FILE"' EXIT
+trap 'rm -f "$REQUEST_FILE" "$RAW_FILE" "$STDERR_FILE" "$RESPONSE_FILE"' EXIT
 
-python3 - "$JOINT" "$NEAR" "$LIMIT" "$COUNT" <<'PYEOF' | \
-  "$REPO_ROOT/tools/moveit-oracle/run-oracle.sh" \
-    --urdf "$REPO_ROOT/crates/moveit-kinematics/tests/fixtures/pr2.urdf" \
-    --srdf "$REPO_ROOT/crates/moveit-kinematics/tests/fixtures/pr2.srdf" \
-    2>/dev/null | tail -1 > "$RESPONSE_FILE"
+python3 - "$JOINT" "$NEAR" "$LIMIT" "$COUNT" > "$REQUEST_FILE" <<'PYEOF'
 import json, sys
 joint, near, limit, count = sys.argv[1:5]
 print(json.dumps({
@@ -72,6 +71,37 @@ print(json.dumps({
     },
 }))
 PYEOF
+
+# Not `python3 ... | run-oracle.sh ... 2>/dev/null | tail -1`, which is how
+# this was first written and which had both of the failure modes
+# `run-oracle-sweep.sh`'s own comment warns about. The pipe made `tail` the
+# status-reporting stage, and `2>/dev/null` threw away the only text that says
+# what went wrong -- so on a host where the caller lacks the docker group, this
+# script exited 1 having printed nothing at all, which reads as "the check is
+# broken" rather than "docker is unreachable". stderr is captured instead of
+# discarded (the oracle's build chatter is noise on the success path, evidence
+# on the failure path) and replayed only when the run fails.
+status=0
+"$REPO_ROOT/tools/moveit-oracle/run-oracle.sh" \
+  --urdf "$REPO_ROOT/crates/moveit-kinematics/tests/fixtures/pr2.urdf" \
+  --srdf "$REPO_ROOT/crates/moveit-kinematics/tests/fixtures/pr2.srdf" \
+  < "$REQUEST_FILE" > "$RAW_FILE" 2> "$STDERR_FILE" || status=$?
+
+if [[ $status -ne 0 ]]; then
+  echo "run-oracle.sh failed (exit $status). Its stderr:" >&2
+  cat "$STDERR_FILE" >&2
+  exit "$status"
+fi
+
+# The oracle emits one JSON object per line; the last is this script's only
+# request. Split from the run above so a malformed response is diagnosed here
+# rather than silently becoming an empty file.
+tail -1 "$RAW_FILE" > "$RESPONSE_FILE"
+if [[ ! -s "$RESPONSE_FILE" ]]; then
+  echo "run-oracle.sh exited 0 but produced no response line. Its stderr:" >&2
+  cat "$STDERR_FILE" >&2
+  exit 1
+fi
 
 python3 - "$RESPONSE_FILE" "$JOINT" "$NEAR" "$LIMIT" <<'PYEOF'
 import json, math, sys
