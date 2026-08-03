@@ -6,13 +6,17 @@
 //   moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_env_distance_field.hpp
 //   moveit_core/collision_distance_field/src/collision_env_distance_field.cpp
 
-//! The construction-only slice of `CollisionEnvDistanceField`:
+//! The slice of `CollisionEnvDistanceField` this port needs:
 //! [`add_link_body_decompositions`] (upstream's two `addLinkBodyDecompositions`
 //! overloads), which builds one [`BodyDecomposition`] per robot link with
-//! collision geometry, unposed, ready for a `RobotState` to pose later; and
+//! collision geometry, unposed, ready for a `RobotState` to pose later;
 //! [`generate_distance_field_cache_entry`] (upstream
 //! `generateDistanceFieldCacheEntry`), which builds a
-//! [`crate::DistanceFieldCacheEntry`] for one group.
+//! [`crate::DistanceFieldCacheEntry`] for one group; and
+//! [`DistanceFieldCollisionCache`], the persistent cache-owner
+//! [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
+//! (upstream `generateCollisionCheckingStructures`) needs -- see this
+//! module's doc comment for its design.
 //!
 //! # Scope: what unblocked this round, and what is still blocked
 //!
@@ -49,24 +53,77 @@
 //! [`crate::DistanceFieldCacheEntry`]'s own "always empty" attached-body
 //! fields.
 //!
+//! # `generateCollisionCheckingStructures` and its cache-owner type
+//!
+//! This round lands [`DistanceFieldCollisionCache`] and its
+//! [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
+//! (upstream `generateCollisionCheckingStructures`) -- the last unported
+//! piece of this sub-package. Its body
+//! (`collision_env_distance_field.cpp:158-175`) is short enough to quote in
+//! full, read fresh against upstream's actual usage rather than assumed from
+//! a previous round's "still blocked" grouping:
+//!
+//! ```text
+//! DistanceFieldCacheEntryConstPtr dfce = getDistanceFieldCacheEntry(group_name, state, acm);
+//! if (!dfce || (generate_distance_field && !dfce->distance_field_)) {
+//!   DistanceFieldCacheEntryPtr new_dfce =
+//!       generateDistanceFieldCacheEntry(group_name, state, acm, generate_distance_field);
+//!   std::scoped_lock slock(update_cache_lock_);
+//!   distance_field_cache_entry_ = new_dfce;
+//!   dfce = new_dfce;
+//! }
+//! getGroupStateRepresentation(dfce, state, gsr);
+//! ```
+//!
+//! Every read in that body -- `resolution_`, `link_body_decomposition_index_map_`,
+//! and everything else [`generate_distance_field_cache_entry`]/
+//! [`group_state_representation`] themselves read off
+//! `CollisionEnvDistanceField` -- is already an explicit parameter of one of
+//! those two already-ported free functions, or of [`get_distance_field_cache_entry`]
+//! (the third function this body calls). Exactly one thing in this body is
+//! *not* already a parameter anywhere: `distance_field_cache_entry_` itself,
+//! read at the top and conditionally overwritten at the bottom. That is the
+//! whole of "owns state across calls" this function needs a type for; every
+//! other read is "is merely where upstream put the function", already
+//! solved by this file's existing free functions taking that state as an
+//! argument instead of a `self` field. `update_cache_lock_` is a
+//! `const`-method workaround for mutating `distance_field_cache_entry_`
+//! through a `const_cast` (upstream's `checkCollision`/`checkSelfCollision`
+//! need to stay `const` while still caching); a `&mut self` method gives the
+//! same single-writer guarantee at compile time, so there is no mutex field
+//! to port.
+//!
+//! [`DistanceFieldCollisionCache`] is that one field, plus the two
+//! construction-time inputs every call needs regardless of a cache hit or
+//! miss (the return value of [`add_link_body_decompositions`], and a
+//! [`DistanceFieldConfig`]) -- not a port of `CollisionEnvDistanceField`
+//! itself. Upstream's own call sites confirm the narrower type is correct,
+//! not merely convenient: `checkSelfCollisionHelper` and the six other
+//! `check*`/`distance*` callers (`collision_env_distance_field.cpp:185`,
+//! `1395`, `1428`, `1461`, `1490`, `1526`, `1547`) all guard the call the
+//! same way -- `if (!gsr) generateCollisionCheckingStructures(...); else
+//! updateGroupStateRepresentationState(...)` -- so the *caller*, not this
+//! function, decides whether the cache is even consulted, and
+//! `updateGroupStateRepresentationState` (already ported, and itself
+//! stateless) needs nothing from `CollisionEnvDistanceField` when that
+//! branch is taken instead. `in_group_update_map_` and
+//! `pregenerated_group_state_representation_map_` -- upstream members this
+//! function's own body never touches -- correspondingly have no field here
+//! either: the first is computed inline per call by
+//! [`generate_distance_field_cache_entry`] rather than cached (see that
+//! function's own doc comment), and the second cannot be read by any
+//! [`group_state_representation`] call this port can reach (see that
+//! function's "Deviations from upstream").
+//!
 //! Still blocked, and why:
 //!
-//! - **`generateCollisionCheckingStructures`/`getDistanceFieldCacheEntry`/
-//!   `getGroupStateRepresentation`/`updateGroupStateRepresentationState`.**
-//!   Every one of these reads or writes `CollisionEnvDistanceField`'s own
-//!   `distance_field_cache_entry_` cache member, or consumes/produces a
-//!   `GroupStateRepresentation` (deferred; see
-//!   `collision_common_distance_field.rs`'s module doc for why). Porting any
-//!   of them needs either the not-yet-ported `CollisionEnvDistanceField`
-//!   type itself or the not-yet-ported `GroupStateRepresentation`
-//!   construction path (`getGroupStateRepresentation` poses every group
-//!   link's sphere decomposition at its current global transform -- real
-//!   work, not a trivial wrapper). Both are out of this round's scope.
 //! - **`getPosedLinkBodySphereDecomposition`/`getPosedLinkBodyPointDecomposition`.**
-//!   Trivial one-line wrappers, but every upstream caller of either is
-//!   itself inside the still-blocked `getGroupStateRepresentation`; porting
-//!   a wrapper with no real caller to exercise it stays deferred alongside
-//!   it rather than added speculatively.
+//!   Trivial one-line wrappers; now that their only upstream callers
+//!   ([`group_state_representation`] and this file's own
+//!   `build_non_group_distance_field`) are ported, both inline the
+//!   equivalent `PosedBodySphereDecomposition`/`PosedBodyPointDecomposition`
+//!   constructor call directly rather than through a same-crate,
+//!   single-call-site wrapper -- see those functions' own doc comments.
 //! - **`AttachedBody`-dependent methods** (`getAttachedBodySphereDecomposition`/
 //!   `getAttachedBodyPointDecomposition`, in `collision_common_distance_field.cpp`).
 //!   `AttachedBody` now exists (`moveit-scene`), but is unreachable from a
@@ -85,6 +142,10 @@
 //! wrapping a `World` observer and a `planning_scene::PlanningScene` this
 //! workspace does not have yet either) -- remains out of scope regardless
 //! ("do not try to land all of it in one round") and is not addressed here.
+//! [`DistanceFieldCollisionCache`] is not that type and does not become it:
+//! it owns only the one cache slot `generateCollisionCheckingStructures`
+//! itself reads and writes, none of the World/`PlanningScene`/observer state
+//! the excluded methods above need.
 //!
 //! Upstream's own `test_collision_distance_field.cpp` -- read in full to
 //! look for a ground truth for this round's new function too -- does not
@@ -127,32 +188,27 @@
 //! ownership of -- so this port computes it locally rather than reporting
 //! it as a blocker.
 //!
-//! That local filter cannot reach byte-exact parity with the live oracle on
-//! `pr2.urdf` as tested here, but this is a missing *fixture copy*, not a
-//! missing *feature* or an open correctness question: `moveit-model` now
-//! loads STL `<mesh>` collision geometry given an explicit
-//! [`moveit_model::MeshSearchPaths`] (its `LinkModel` doc comment, deviation
-//! 4), and pr2's 18 `<collision>` mesh files are themselves vendored --
-//! present under the gitignored `third_party/moveit_resources/pr2_description/`
-//! checkout -- but not yet copied into this workspace's committed
-//! `fixtures/meshes/` the way panda's and fanuc's are -- see
-//! `moveit-collision`'s `collision_parity.rs`, whose `fixture_mesh_search_paths`
-//! documents the identical gap for its own pr2 case. The test below builds
-//! its model with [`moveit_model::MeshSearchPaths::none`] accordingly, so
-//! every pr2 `<mesh>` element is still skipped with a
-//! `Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. }`, and the oracle
-//! (linked against the real mesh files) still reports every mesh-only-collision
-//! link (`base_link`, the caster rotation links, `torso_lift_link`, every arm
-//! link, ...) as having collision geometry where this port does not. The
-//! parity test checks the weaker, still load-bearing property this port can
-//! actually satisfy without that fixture copy: the computed set equals the
-//! oracle's set minus exactly the links `moveit-model` recorded that
-//! diagnostic for -- i.e. every disagreement is accounted for, none is
-//! silent. Pointing this test's model at `third_party/` directly (a probe,
-//! not committed) confirmed the stronger property already holds: with real
-//! meshes loaded, the computed set matches the oracle's byte-for-byte, no
-//! diagnostics. Once `fixtures/meshes/pr2_description/` lands, this test
-//! should be re-derived to assert that byte-exact equality directly.
+//! That local filter now reaches byte-exact parity with the live oracle on
+//! `pr2.urdf`: pr2's 18 `<collision>` mesh files are committed under
+//! `fixtures/meshes/pr2_description/` (landed by p3-acm; see
+//! `tools/ci/verify-fixture-provenance.sh`), the same way panda's and
+//! fanuc's are, so `collision_env_distance_field_parity.rs`'s
+//! `link_models_with_collision_geometry_matches_the_oracle` builds its model
+//! with real mesh geometry and compares the computed link set against the
+//! oracle's by plain equality, no per-link mesh-gap narrowing -- the earlier
+//! version of this paragraph described a fixture-copy gap that closed before
+//! this round and has been removed rather than left to go stale again.
+//!
+//! This file's own `pr2_model()` test helper below still builds with
+//! [`moveit_model::MeshSearchPaths::none`], but for an unrelated reason, not
+//! a residual fixture gap: every test that uses it
+//! (`only_links_with_shapes_get_a_decomposition`,
+//! `link_spheres_override_replaces_the_computed_spheres_for_that_link_only`)
+//! checks a structural correlation ("a link has a decomposition iff it has
+//! shapes", "overriding one link's spheres leaves every other link's alone")
+//! that holds regardless of which links carry geometry, so loading real
+//! meshes would add test cost (real STL parsing) without changing what
+//! either test can prove.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -261,6 +317,10 @@ pub fn add_link_body_decompositions(
 /// only ever meaningful together. `None` in
 /// [`generate_distance_field_cache_entry`]'s own `generate_distance_field`
 /// parameter plays the role of upstream's `generate_distance_field = false`.
+/// `Copy` so [`DistanceFieldCollisionCache`] can hand a value out to
+/// [`generate_distance_field_cache_entry`] on every cache-miss call without
+/// forcing that call to consume the cache's own copy.
+#[derive(Debug, Clone, Copy)]
 pub struct DistanceFieldConfig {
     /// Corner-origin grid geometry, matching [`PropagationDistanceField::new`].
     /// Upstream performs a center-to-corner shift (`origin_.x() - 0.5 *
@@ -778,6 +838,110 @@ pub fn update_group_state_representation_state(
         };
     }
     Ok(())
+}
+
+/// Upstream `CollisionEnvDistanceField`'s persistent cache slot
+/// (`distance_field_cache_entry_`) plus the two construction-time inputs
+/// every [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
+/// call needs regardless of a cache hit or miss -- not
+/// `CollisionEnvDistanceField` itself. See this module's doc comment for why
+/// the narrower scope is the one upstream's own call sites actually need.
+pub struct DistanceFieldCollisionCache<'m> {
+    link_body_decompositions: LinkBodyDecompositions,
+    distance_field_config: DistanceFieldConfig,
+    /// `distance_field_cache_entry_`. The only field here with no
+    /// already-ported free-function equivalent -- see this module's doc
+    /// comment.
+    cache_entry: Option<DistanceFieldCacheEntry<'m>>,
+}
+
+impl<'m> DistanceFieldCollisionCache<'m> {
+    /// Upstream `CollisionEnvDistanceField::initialize`'s config-storage
+    /// half only. Upstream's other half -- a loop over every joint group
+    /// building a `DistanceFieldCacheEntry` and pregenerating a
+    /// `GroupStateRepresentation` for it -- exists solely to populate
+    /// `pregenerated_group_state_representation_map_`, a map
+    /// [`group_state_representation`] proves no call reachable from this
+    /// port can ever read (see that function's own "Deviations from
+    /// upstream"); there is nothing here for that loop to do.
+    pub fn new(
+        link_body_decompositions: LinkBodyDecompositions,
+        distance_field_config: DistanceFieldConfig,
+    ) -> Self {
+        Self {
+            link_body_decompositions,
+            distance_field_config,
+            cache_entry: None,
+        }
+    }
+
+    /// Upstream `CollisionEnvDistanceField::generateCollisionCheckingStructures`.
+    /// Reuses the cached entry when [`get_distance_field_cache_entry`]
+    /// accepts it for `group_name`/`state`/`acm` *and* it already carries a
+    /// distance field or none was asked for; otherwise rebuilds one via
+    /// [`generate_distance_field_cache_entry`] and replaces the cache before
+    /// building this call's [`GroupStateRepresentation`] via
+    /// [`group_state_representation`] -- the exact three-step sequence
+    /// upstream's own body performs (`collision_env_distance_field.cpp:158-175`).
+    ///
+    /// # Deviation from upstream
+    ///
+    /// Upstream serializes the cache write with `update_cache_lock_`
+    /// (`std::scoped_lock`) because its method is `const` and mutates
+    /// `distance_field_cache_entry_` through a `const_cast` -- a workaround
+    /// for `CollisionEnvDistanceField`'s own `checkCollision`/
+    /// `checkSelfCollision` methods needing to stay `const` while still
+    /// caching. This port's `&mut self` gives the same single-writer
+    /// exclusivity at compile time, so there is no mutex field to port.
+    ///
+    /// # Errors
+    ///
+    /// See [`generate_distance_field_cache_entry`] and
+    /// [`group_state_representation`].
+    pub fn generate_collision_checking_structures<'s>(
+        &'s mut self,
+        group_name: &str,
+        state: &Posed<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+        current_attached_bodies: &[AttachedBodyGeometry<'_>],
+        generate_distance_field: bool,
+    ) -> Result<GroupStateRepresentation<'s, 'm>> {
+        let needs_rebuild = match get_distance_field_cache_entry(
+            self.cache_entry.as_ref(),
+            group_name,
+            state,
+            acm,
+            current_attached_bodies,
+        ) {
+            None => true,
+            Some(dfce) => generate_distance_field && dfce.distance_field.is_none(),
+        };
+
+        if needs_rebuild {
+            let config = generate_distance_field.then_some(self.distance_field_config);
+            self.cache_entry = Some(generate_distance_field_cache_entry(
+                group_name,
+                state,
+                acm,
+                &self.link_body_decompositions,
+                config,
+                current_attached_bodies,
+            )?);
+        }
+
+        let dfce = self
+            .cache_entry
+            .as_ref()
+            .expect("just populated above whenever it was absent or stale");
+        group_state_representation(
+            dfce,
+            state,
+            &self.link_body_decompositions.0,
+            self.distance_field_config.geometry.resolution,
+            self.distance_field_config.max_propagation_distance,
+            self.distance_field_config.use_signed_distance_field,
+        )
+    }
 }
 
 /// The `generate_distance_field: true` branch of upstream
@@ -1588,5 +1752,264 @@ mod tests {
                 ),
             }
         }
+    }
+
+    // --- DistanceFieldCollisionCache::generate_collision_checking_structures ---
+
+    /// Matching `oracle_default_distance_field_config` in
+    /// `collision_env_distance_field_parity.rs`, at a coarser resolution for
+    /// unit-test speed -- these tests only exercise cache-invalidation
+    /// decisions, not distance-field accuracy.
+    fn small_distance_field_config() -> DistanceFieldConfig {
+        let size = Vector3::new(3.0, 3.0, 4.0);
+        let origin_center = Vector3::new(0.0, 0.0, 0.0);
+        DistanceFieldConfig {
+            geometry: GridGeometry::new(size, origin_center - 0.5 * size, 0.05).unwrap(),
+            max_propagation_distance: 0.25,
+            use_signed_distance_field: false,
+        }
+    }
+
+    fn right_arm_collision_cache(model: &RobotModel) -> DistanceFieldCollisionCache<'_> {
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(model, 0.05, &padding, None).unwrap();
+        DistanceFieldCollisionCache::new(link_body_decompositions, small_distance_field_config())
+    }
+
+    #[test]
+    fn generate_collision_checking_structures_builds_a_fresh_entry_on_first_call() {
+        let model = pr2_model();
+        let mut cache = right_arm_collision_cache(&model);
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let gsr = cache
+            .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
+            .unwrap();
+
+        assert_eq!(gsr.dfce.group_name, "right_arm");
+        assert!(
+            gsr.dfce.distance_field.is_none(),
+            "generate_distance_field: false must not build a field"
+        );
+    }
+
+    #[test]
+    fn generate_collision_checking_structures_rebuilds_when_a_distance_field_becomes_required() {
+        let model = pr2_model();
+        let mut cache = right_arm_collision_cache(&model);
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let first = cache
+            .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
+            .unwrap();
+        assert!(first.dfce.distance_field.is_none());
+
+        let second = cache
+            .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], true)
+            .unwrap();
+        assert!(
+            second.dfce.distance_field.is_some(),
+            "a cached entry with no distance field must be rebuilt when one is required"
+        );
+    }
+
+    #[test]
+    fn generate_collision_checking_structures_switches_group_without_stale_data() {
+        let model = pr2_model();
+        let mut cache = right_arm_collision_cache(&model);
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        cache
+            .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
+            .unwrap();
+        let gsr = cache
+            .generate_collision_checking_structures("left_arm", &posed, Some(&acm), &[], false)
+            .unwrap();
+
+        assert_eq!(gsr.dfce.group_name, "left_arm");
+        assert!(
+            gsr.dfce
+                .link_names
+                .iter()
+                .all(|name| !name.starts_with('r')),
+            "a left_arm cache entry must not carry right_arm's own link names: {:?}",
+            gsr.dfce.link_names
+        );
+    }
+
+    #[test]
+    fn generate_collision_checking_structures_reflects_a_changed_acm_rather_than_the_stale_cache() {
+        let model = pr2_model();
+        let mut cache = right_arm_collision_cache(&model);
+        let srdf = pr2_srdf();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let permissive_acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let baseline = cache
+            .generate_collision_checking_structures(
+                "right_arm",
+                &posed,
+                Some(&permissive_acm),
+                &[],
+                false,
+            )
+            .unwrap();
+        let link = baseline
+            .dfce
+            .link_names
+            .iter()
+            .zip(&baseline.dfce.link_has_geometry)
+            .find(|&(_, &has_geometry)| has_geometry)
+            .map(|(name, _)| name.clone())
+            .expect("right_arm must have at least one geometry-bearing link");
+        let link_index = baseline
+            .dfce
+            .link_names
+            .iter()
+            .position(|n| n == &link)
+            .unwrap();
+        let baseline_self_collision = baseline.dfce.self_collision_enabled[link_index];
+
+        let mut restrictive_acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        restrictive_acm.set_entry(&link, &link, true);
+
+        let updated = cache
+            .generate_collision_checking_structures(
+                "right_arm",
+                &posed,
+                Some(&restrictive_acm),
+                &[],
+                false,
+            )
+            .unwrap();
+
+        assert!(
+            baseline_self_collision,
+            "the permissive acm must leave {link}'s self-collision enabled"
+        );
+        assert!(
+            !updated.dfce.self_collision_enabled[link_index],
+            "a new acm disabling {link}'s self-collision must invalidate the cached entry, \
+             not serve the permissive acm's stale bit"
+        );
+    }
+
+    #[test]
+    fn generate_collision_checking_structures_agrees_with_a_fresh_generate_and_represent_call() {
+        let model = pr2_model();
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let config = small_distance_field_config();
+
+        let mut cache = DistanceFieldCollisionCache::new(link_body_decompositions.clone(), config);
+        let via_cache = cache
+            .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
+            .unwrap();
+
+        let direct_dfce = generate_distance_field_cache_entry(
+            "right_arm",
+            &posed,
+            Some(&acm),
+            &link_body_decompositions,
+            None,
+            &[],
+        )
+        .unwrap();
+        let direct_gsr = group_state_representation(
+            &direct_dfce,
+            &posed,
+            &link_body_decompositions.0,
+            config.geometry.resolution,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+
+        assert_eq!(via_cache.dfce.link_names, direct_gsr.dfce.link_names);
+        assert_eq!(
+            via_cache.dfce.link_has_geometry,
+            direct_gsr.dfce.link_has_geometry
+        );
+        for i in 0..via_cache.dfce.link_names.len() {
+            match (
+                &via_cache.link_body_decompositions[i],
+                &direct_gsr.link_body_decompositions[i],
+            ) {
+                (Some(a), Some(b)) => {
+                    assert_eq!(
+                        a.sphere_centers(),
+                        b.sphere_centers(),
+                        "link {} disagreed between the cache path and a fresh direct call",
+                        via_cache.dfce.link_names[i]
+                    );
+                }
+                (None, None) => {}
+                _ => panic!(
+                    "link {} disagreed on whether it has geometry",
+                    via_cache.dfce.link_names[i]
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn generate_collision_checking_structures_rebuilds_on_out_of_group_movement_past_epsilon() {
+        let model = pr2_model();
+        let mut cache = right_arm_collision_cache(&model);
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let (_in_group_var, out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let baseline = state.update();
+        let baseline_gsr = cache
+            .generate_collision_checking_structures("right_arm", &baseline, Some(&acm), &[], false)
+            .unwrap();
+        let baseline_state_values = baseline_gsr.dfce.state_values.clone();
+
+        let mut moved = moveit_state::RobotState::new(&model);
+        moved.set_to_default_values();
+        moved
+            .set_variable_position(&out_of_group_var, STATE_CHECK_EPSILON * 2.0)
+            .unwrap();
+        let moved_posed = moved.update();
+        let moved_gsr = cache
+            .generate_collision_checking_structures(
+                "right_arm",
+                &moved_posed,
+                Some(&acm),
+                &[],
+                false,
+            )
+            .unwrap();
+
+        assert_ne!(
+            baseline_state_values, moved_gsr.dfce.state_values,
+            "moving {out_of_group_var} past STATE_CHECK_EPSILON must invalidate and rebuild \
+             the cached entry rather than keep serving the pre-move state_values"
+        );
     }
 }
