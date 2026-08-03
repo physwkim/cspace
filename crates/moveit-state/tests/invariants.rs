@@ -13,6 +13,7 @@ use std::fs;
 
 use approx::assert_relative_eq;
 use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
@@ -367,7 +368,7 @@ fn pr2_random_positions_satisfy_bounds_and_mimic_consistency() {
         ("r_gripper_l_finger_joint", "r_gripper_r_finger_tip_joint"),
     ];
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+    let mut rng = ChaCha8Rng::seed_from_u64(1);
     for round in 0..20 {
         state.set_to_random_positions_with(&mut rng);
         assert!(

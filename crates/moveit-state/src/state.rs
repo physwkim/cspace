@@ -15,7 +15,7 @@ use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
 use moveit_model::RobotModel;
 use moveit_model::joint::{JointKind, JointModel};
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
 ///
@@ -54,7 +54,7 @@ pub type JointIndex = usize;
 ///   computation not worth caching separately from the link-transform
 ///   sweep that already visits every dirty joint once.
 ///
-/// What is left is exactly one axis: [`RobotState::dirty`], `Option<JointIndex>`
+/// What is left is exactly one axis: the private `dirty` field, `Option<JointIndex>`
 /// holding the common root of every joint whose transform is stale — mirroring
 /// upstream's actual `dirty_link_transforms_` field type (`const JointModel*`,
 /// not `bool`; see `robot_state.hpp:1682` and `RobotModel::getCommonRoot`).
@@ -375,7 +375,7 @@ impl<'m> RobotState<'m> {
     /// derived from its (possibly just-changed) master —
     /// `RobotModel::getVariableDefaultPositions` calls
     /// `RobotModel::updateMimicJoints` internally upstream, a whole-model
-    /// pass this port's [`RobotState::propagate_all_mimics`] matches.
+    /// pass this port's private `propagate_all_mimics` matches.
     /// Verified against a live oracle: a mimic joint's value tracks its
     /// master's default even when the state was previously randomized to a
     /// different value (not merely left over from construction's `0.0`).
@@ -412,12 +412,6 @@ impl<'m> RobotState<'m> {
         }
         self.propagate_all_mimics();
         self.dirty = Some(self.root_joint_index);
-    }
-
-    /// [`RobotState::set_to_random_positions_with`], seeded from the
-    /// system RNG.
-    pub fn set_to_random_positions(&mut self) {
-        self.set_to_random_positions_with(&mut rand::rng());
     }
 
     // ---- Bounds ---------------------------------------------------------

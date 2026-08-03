@@ -17,6 +17,7 @@ rand.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 urdf-rs.workspace = true
