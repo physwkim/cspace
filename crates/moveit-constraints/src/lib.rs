@@ -74,9 +74,13 @@
 //! **Tests.** `cargo nextest run -p moveit-constraints --no-fail-fast`:
 //! **89** tests, 89 passed. Of those,
 //! `rg -c '^mod oracle_' crates/moveit-constraints/tests/utils_parity.rs`
-//! is **7** — real moveit2-oracle comparison modules
-//! (`oracle:5188956fc433d046`, `tests/fixtures/oracle-models.json`), not
-//! self-referential assertions, together holding **16** `#[test]` functions
+//! is **7** — real moveit2-oracle comparison modules, not self-referential
+//! assertions. Ground truth is the `panda_constraints` entry of
+//! `tests/fixtures/oracle-models.json`, checked against the current oracle
+//! image every round by `tools/ci/verify-fixture-replay.sh` — not a fixed
+//! image tag pinned in prose here, which would only ever describe the image
+//! that captured the fixture, not the one this crate is verified against
+//! today. Together they hold **16** `#[test]` functions
 //! (`sed -n '176,555p' crates/moveit-constraints/tests/utils_parity.rs | rg
 //! -c '#\[test\]'`, the line range spanning from the first `mod oracle_`
 //! block through the last); see `utils_parity.rs`'s own module doc for the
