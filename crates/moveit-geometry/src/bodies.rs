@@ -104,10 +104,23 @@
 //! [`Body::compute_bounding_sphere`]), `computeBoundingCylinder`,
 //! `samplePointInside`, [`AABB`], [`OBB`], and the free function
 //! `mergeBoundingSpheres` (here [`merge_bounding_spheres`]). The free
-//! function `computeBoundingSphere(vector<Body*>)` (`body_operations.h`)
-//! has no dedicated port — a caller composes it from
-//! [`Body::compute_bounding_sphere`] and [`merge_bounding_spheres`] directly.
-//! `mergeBoundingBoxes`/`mergeBoundingBoxesApprox` (here
+//! function `computeBoundingSphere(vector<Body*>)` (`body_operations.h`) is
+//! unported, and — an earlier round of this doc's own claim, corrected here
+//! — is **not** equivalent to composing [`Body::compute_bounding_sphere`]
+//! and [`merge_bounding_spheres`]. Reading `body_operations.cpp` shows its
+//! real algorithm only considers `bodies::MESH` bodies at all (every other
+//! body type is silently skipped, upstream's own comment above the loop
+//! reading `// TODO - expand to all body types`), and even restricted to
+//! mesh bodies it computes one sphere from the centroid of every mesh's
+//! *raw* scaled/posed vertices pooled together, not by merging each body's
+//! own precomputed [`BoundingSphere`] pairwise the way
+//! [`merge_bounding_spheres`] does — a materially different result in
+//! general, not a reformulation of the same one. It has zero callers
+//! anywhere in the pinned `moveit2` tree (`rg -n
+//! 'bodies::computeBoundingSphere\('` finds none outside `geometric_shapes`
+//! itself), so there is no in-scope caller to port it for; the function is
+//! listed here as unported rather than as composed from parts this port
+//! already has. `mergeBoundingBoxes`/`mergeBoundingBoxesApprox` (here
 //! [`merge_bounding_boxes`]/[`merge_bounding_boxes_approx`]) are included too
 //! — they are one-line loops over [`AABB::extend_aabb`]/[`OBB::extend_approx`]
 //! once those types exist, and upstream's own test coverage for [`OBB`]
