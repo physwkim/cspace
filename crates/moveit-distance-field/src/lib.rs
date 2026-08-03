@@ -54,7 +54,7 @@ mod voxel_grid;
 pub use collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
     PosedBodyPointDecompositionVector, PosedBodySphereDecomposition,
-    PosedBodySphereDecompositionVector, PosedDistanceField, ProximityInfo,
+    PosedBodySphereDecompositionVector, PosedDistanceField, ProximityInfo, SphereGradientQuery,
     determine_collision_spheres, do_bounding_spheres_intersect, get_collision_sphere_collision,
     get_collision_sphere_collisions, get_collision_sphere_gradients,
 };

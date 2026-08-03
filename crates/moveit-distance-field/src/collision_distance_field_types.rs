@@ -121,6 +121,31 @@ pub enum CollisionType {
     Environment = 3,
 }
 
+/// How a sphere-gradient query should be evaluated.
+///
+/// Upstream passes these five as five trailing parameters to both
+/// `getCollisionSphereGradients` overloads. Grouping them is not only about
+/// the argument count: `subtract_radii` and `stop_at_first_collision` are
+/// two `bool`s separated by a single `f64`, so transposing them at a call
+/// site compiles and silently changes what the query means. Named fields
+/// make that transposition unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SphereGradientQuery {
+    /// Recorded in [`GradientInfo::types`] for each sphere the query
+    /// improves on.
+    pub collision_type: CollisionType,
+    /// Penetration below which a sphere is not counted as in collision.
+    pub tolerance: f64,
+    /// Subtract each sphere's radius from the sampled distance, turning a
+    /// centre distance into a surface distance.
+    pub subtract_radii: bool,
+    /// Distances at or above this are ignored entirely.
+    pub maximum_value: f64,
+    /// Return as soon as any sphere is in collision, leaving the remaining
+    /// spheres' gradients unwritten.
+    pub stop_at_first_collision: bool,
+}
+
 /// A sphere approximating part of a body's geometry, in the body's own
 /// (unposed) frame. Upstream `collision_detection::CollisionSphere`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -361,18 +386,21 @@ impl PosedDistanceField {
     /// `grad.norm() > 0` and `grad.norm() > EPSILON` are both always false
     /// regardless of which threshold is used. Kept for structural parity
     /// with upstream, not because either branch is reachable.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_collision_sphere_gradients(
         &self,
         sphere_list: &[CollisionSphere],
         sphere_centers: &[Vector3<f64>],
         gradient: &mut GradientInfo,
-        collision_type: CollisionType,
-        tolerance: f64,
-        subtract_radii: bool,
-        maximum_value: f64,
-        stop_at_first_collision: bool,
+        query: &SphereGradientQuery,
     ) -> bool {
+        let &SphereGradientQuery {
+            collision_type,
+            tolerance,
+            subtract_radii,
+            maximum_value,
+            stop_at_first_collision,
+        } = query;
+
         let mut in_collision = false;
         for (i, sphere) in sphere_list.iter().enumerate() {
             let p = sphere_centers[i];
@@ -479,19 +507,22 @@ pub fn determine_collision_spheres(
 /// [`PosedDistanceField::get_collision_sphere_gradients`]'s "Deviation from
 /// upstream" doc for the two places these two overloads disagree, preserved
 /// here rather than unified.
-#[allow(clippy::too_many_arguments)]
 pub fn get_collision_sphere_gradients(
     distance_field: &dyn DistanceField,
     sphere_list: &[CollisionSphere],
     sphere_centers: &[Vector3<f64>],
     gradient: &mut GradientInfo,
-    collision_type: CollisionType,
-    tolerance: f64,
-    subtract_radii: bool,
-    maximum_value: f64,
-    stop_at_first_collision: bool,
+    query: &SphereGradientQuery,
 ) -> bool {
     const EPSILON: f64 = 0.0001;
+
+    let &SphereGradientQuery {
+        collision_type,
+        tolerance,
+        subtract_radii,
+        maximum_value,
+        stop_at_first_collision,
+    } = query;
 
     let mut in_collision = false;
     for (i, sphere) in sphere_list.iter().enumerate() {

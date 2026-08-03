@@ -44,7 +44,9 @@ use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use moveit_distance_field::BodyDecomposition;
-use moveit_distance_field::{CollisionType, DistanceField, GradientInfo, PosedDistanceField};
+use moveit_distance_field::{
+    CollisionType, DistanceField, GradientInfo, PosedDistanceField, SphereGradientQuery,
+};
 use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
 use nalgebra::{Matrix3, Point3, Translation3, UnitQuaternion, Vector3};
 
@@ -369,11 +371,13 @@ fn collision_distance_field_types_match_the_oracle() {
             body_decomposition.collision_spheres(),
             &sphere_centers,
             &mut gradient,
-            CollisionType::SelfCollision,
-            /* tolerance = */ 0.0,
-            /* subtract_radii = */ true,
-            /* maximum_value = */ 1.0e6,
-            /* stop_at_first_collision = */ false,
+            &SphereGradientQuery {
+                collision_type: CollisionType::SelfCollision,
+                tolerance: 0.0,
+                subtract_radii: true,
+                maximum_value: 1.0e6,
+                stop_at_first_collision: false,
+            },
         );
 
         assert_eq!(
