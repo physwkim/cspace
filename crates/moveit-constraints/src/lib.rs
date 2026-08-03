@@ -47,6 +47,41 @@
 //! completion condition (`PORTING-PLAN.md` §5 Phase 5). See the report this
 //! crate's introducing commits carry for what remains `UNFIXED`.
 //!
+//! # Completion statement
+//!
+//! Every number below is a command someone can re-run.
+//!
+//! **`kinematic_constraint.hpp`/`utils.hpp`** (the `decide()`-facing half,
+//! `PORTING-PLAN.md` §5 Phase 5's own completion condition):
+//! `rg -c '^//! - `' crates/moveit-constraints/src/lib.rs` is **61** — the
+//! "Round 6 symbol audit" section above, including the 14 `utils.hpp`
+//! bullets folded into its own final subsection (a bullet count, not a
+//! 1:1 declaration count — a few bullets there fold sibling overloads
+//! together, e.g. `getXAxisTolerance()`/`getYAxisTolerance()`/
+//! `getZAxisTolerance()`/`getParameterizationType()` on one line). That
+//! audit's own conclusion, unchanged this round: every unported symbol is
+//! D1-excluded, a documented structural D-decision, or explicitly not
+//! exercised by `decide()` — no undocumented gap survived it.
+//!
+//! **`constraint_samplers/*.hpp`** (round 12's audit, immediately below
+//! this section): `rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs`
+//! is **66**, one bullet per declaration exactly (no folding). 17 ported,
+//! 22 structural, 8 D4-excluded, 6 D1-excluded, **13 real gaps** — see that
+//! section for the exact breakdown and why none of the 13 block Phase 5's
+//! `decide()`-based completion condition (they are sampler-side
+//! diagnostics/benchmarking, not constraint evaluation).
+//!
+//! **Tests.** `cargo nextest run -p moveit-constraints --no-fail-fast`:
+//! **89** tests, 89 passed. Of those,
+//! `rg -c '^mod oracle_' crates/moveit-constraints/tests/utils_parity.rs`
+//! is **7** — real moveit2-oracle comparison modules
+//! (`oracle:5188956fc433d046`, `tests/fixtures/oracle-models.json`), not
+//! self-referential assertions, together holding **16** `#[test]` functions
+//! (`sed -n '176,555p' crates/moveit-constraints/tests/utils_parity.rs | rg
+//! -c '#\[test\]'`, the line range spanning from the first `mod oracle_`
+//! block through the last); see `utils_parity.rs`'s own module doc for the
+//! oracle image tag and what each case checks.
+//!
 //! # No `moveit_msgs::Constraints` — and no `configure(msg, tf)`
 //!
 //! Upstream's four `configure()` methods each take a
@@ -256,6 +291,206 @@
 //!   `resolve_orientation_constraint_frame` (`PORTING-PLAN.md` §23.1
 //!   merge-time correction; see `utils.rs`'s own doc for why the split runs
 //!   before construction rather than after).
+//!
+//! ## `constraint_samplers/*.hpp` symbol audit (round 12)
+//!
+//! Unlike the audit above, this one had never been run before this round —
+//! `sampler.rs`/`ik_sampler.rs`/`constraint_sampler_manager.rs` each carried
+//! their own architecture doc but no symbol-by-symbol walk, so the gaps
+//! tagged `gap` below were previously invisible rather than deliberately
+//! deferred. Read directly from
+//! `constraint_sampler{,_allocator,_manager,_tools}.hpp`,
+//! `default_constraint_samplers.hpp` and `union_constraint_sampler.hpp`, one
+//! bullet per declaration (constructor overloads counted individually, not
+//! folded together, so the count below is exact rather than a bullet
+//! count). Every bullet's disposition tag — `ported`, `structural`, `D1`,
+//! `D4`, or `gap` — is the exact word immediately after `->` **on the same
+//! line as the `CS:` marker**, never wrapped to a continuation line, so the
+//! `rg` counts below match the prose exactly; only the free-form reasoning
+//! after the tag wraps.
+//!
+//! ### `ConstraintSampler` (abstract base, `constraint_sampler.hpp`)
+//!
+//! - CS: `DEFAULT_MAX_SAMPLING_ATTEMPTS` -> gap: no equivalent default
+//!   anywhere (every caller in this crate's own tests passes its own
+//!   attempt count or samples without a retry loop at all)
+//! - CS: `ConstraintSampler(scene, group_name)` (ctor) -> structural:
+//!   collapsed into each concrete type's own `new()`, no base constructor to
+//!   share (traits are not constructed)
+//! - CS: `~ConstraintSampler()` (dtor) -> structural: no Rust equivalent
+//!   needed
+//! - CS: `configure(constr)` -> D1: no `moveit_msgs::Constraints` to
+//!   receive; also collapsed into each concrete type's own `new()`
+//! - CS: `getGroupName()` -> ported: `ConstraintSampler::group_name`
+//! - CS: `getJointModelGroup()` -> ported:
+//!   `ConstraintSampler::joint_model_group`
+//! - CS: `getPlanningScene()` -> structural: documented in `sampler.rs`'s
+//!   own "# No `PlanningScene`" section — neither ported sampler needs
+//!   anything a `PlanningScene` provides beyond the model
+//! - CS: `getFrameDependency()` -> ported:
+//!   `ConstraintSampler::frame_dependency`
+//! - CS: `getGroupStateValidityCallback()` -> gap: no state validity
+//!   callback is threaded through any sampler in this crate
+//! - CS: `setGroupStateValidityCallback(callback)` -> gap: same
+//! - CS: `sample(state)` (1-arg overload) -> structural: collapsed into
+//!   `ConstraintSampler::sample`'s one signature (`sampler.rs`'s own "#
+//!   `sample`'s collapsed signature" section)
+//! - CS: `sample(state, max_attempts)` (2-arg overload) -> structural: same
+//!   collapse
+//! - CS: `sample(state, reference_state)` (2-arg overload) -> structural:
+//!   same collapse
+//! - CS: `sample(state, reference_state, max_attempts)` (pure virtual) -> ported:
+//!   same target as the three collapsed overloads above, `ConstraintSampler::sample`
+//! - CS: `isValid()` -> gap: no persisted validity flag — a sampler that
+//!   fails to build returns `Err` from `new()` instead of a post-hoc query
+//! - CS: `getVerbose()` -> gap: no verbose/logging mode exists anywhere in
+//!   this crate
+//! - CS: `setVerbose(verbose)` -> gap: same
+//! - CS: `getName()` -> gap: debugging-only per upstream's own doc ("for
+//!   debugging purposes"); every one of the four concrete implementers
+//!   below drops its own override too
+//!
+//! ### `JointConstraintSampler` (`default_constraint_samplers.hpp`)
+//!
+//! - CS: `JointConstraintSampler(scene, group_name)` (ctor) -> structural:
+//!   collapsed into `JointConstraintSampler::new`
+//! - CS: `JointConstraintSampler(scene, group_name, seed)` (ctor) -> structural:
+//!   no internal RNG state at all —
+//!   `ConstraintSampler::sample` takes `rng: &mut dyn Rng` from the caller
+//!   instead
+//! - CS: `configure(constr)` -> D1: no message type
+//! - CS: `configure(jc)` -> structural: collapsed into
+//!   `JointConstraintSampler::new`
+//! - CS: `sample(state, ks, max_attempts)` -> ported: the `ConstraintSampler`
+//!   trait impl
+//! - CS: `getConstrainedJointCount()` -> ported:
+//!   `JointConstraintSampler::constrained_variable_count`
+//! - CS: `getUnconstrainedJointCount()` -> ported:
+//!   `JointConstraintSampler::unconstrained_variable_count`
+//! - CS: `getName()` -> gap: see base
+//!
+//! ### `IKSamplingPose` (`default_constraint_samplers.hpp`)
+//!
+//! - CS: `IKSamplingPose()` (ctor) -> structural: a struct literal replaces
+//!   every one of the seven constructor overloads on this line and the six
+//!   below (`ik_sampler.rs`'s own doc comment on [`IkSamplingPose`])
+//! - CS: `IKSamplingPose(pc)` (ctor) -> structural: same
+//! - CS: `IKSamplingPose(oc)` (ctor) -> structural: same
+//! - CS: `IKSamplingPose(pc, oc)` (ctor) -> structural: same
+//! - CS: `IKSamplingPose(pc ptr)` (ctor) -> structural: same
+//! - CS: `IKSamplingPose(oc ptr)` (ctor) -> structural: same
+//! - CS: `IKSamplingPose(pc ptr, oc ptr)` (ctor) -> structural: same
+//! - CS: `position_constraint_` -> ported:
+//!   `IkSamplingPose::position_constraint`
+//! - CS: `orientation_constraint_` -> ported:
+//!   `IkSamplingPose::orientation_constraint`
+//!
+//! ### `IKConstraintSampler` (`default_constraint_samplers.hpp`)
+//!
+//! - CS: `IKConstraintSampler(scene, group_name)` (ctor) -> structural:
+//!   collapsed into `IkConstraintSampler::new`
+//! - CS: `IKConstraintSampler(scene, group_name, seed)` (ctor) -> structural:
+//!   no internal RNG state, same reasoning as `JointConstraintSampler`
+//! - CS: `configure(constr)` -> D1: no message type
+//! - CS: `configure(sp)` -> structural: collapsed into
+//!   `IkConstraintSampler::new`
+//! - CS: `getIKTimeout()` -> structural: no `ik_timeout_` at all —
+//!   `SolverParams::max_restarts` on the solver replaces it
+//!   (`ik_sampler.rs`'s own "# Deviation from upstream: no `ik_timeout_`"
+//!   section)
+//! - CS: `setIKTimeout(timeout)` -> structural: same
+//! - CS: `getPositionConstraint()` -> gap: no accessor exposes the sampling
+//!   pose's constraints back out of a built `IkConstraintSampler`
+//! - CS: `getOrientationConstraint()` -> gap: same
+//! - CS: `getSamplingVolume()` -> ported:
+//!   `IkConstraintSampler::sampling_volume`
+//! - CS: `getLinkName()` -> ported: `IkConstraintSampler::link_name`
+//! - CS: `sample(state, reference_state, max_attempts)` -> ported: the
+//!   inherent `IkConstraintSampler::sample` — not a `ConstraintSampler`
+//!   trait impl, see this type's own "Deviation from upstream: does not
+//!   implement `ConstraintSampler`" doc
+//! - CS: `samplePose(pos, quat, ks, max_attempts)` -> ported:
+//!   `IkConstraintSampler::sample_pose`
+//! - CS: `getName()` -> gap: see base
+//!
+//! ### `UnionConstraintSampler` (`union_constraint_sampler.hpp`)
+//!
+//! - CS: `UnionConstraintSampler(scene, group_name, samplers)` (ctor) -> ported:
+//!   `UnionConstraintSampler::new`
+//! - CS: `getSamplers()` -> ported: `UnionConstraintSampler::samplers`
+//! - CS: `configure(constr)` (no-op) -> structural: no configure step exists
+//!   at all — `new` is structurally always valid, matching the no-op's own
+//!   always-true semantics
+//! - CS: `canService(constr)` (no-op) -> D4: exists only to serve
+//!   `ConstraintSamplerManager::selectSampler`'s plugin dispatch, the same
+//!   mechanism excluded below
+//! - CS: `sample(state, reference_state, max_attempts)` -> ported: the
+//!   `ConstraintSampler` trait impl
+//! - CS: `getName()` -> gap: see base
+//!
+//! ### `ConstraintSamplerAllocator` (`constraint_sampler_allocator.hpp`)
+//!
+//! - CS: `ConstraintSamplerAllocator()` (ctor) -> D4: the whole
+//!   plugin-allocator interface is excluded (D4 already excludes runtime
+//!   plugin-by-string dispatch; see `constraint_sampler_manager.rs`'s own
+//!   "`ConstraintSamplerManager` itself is not ported" section) — nothing in
+//!   this crate implements this interface
+//! - CS: `~ConstraintSamplerAllocator()` (dtor) -> D4: same
+//! - CS: `alloc(scene, group_name, constr)` -> D4: same
+//! - CS: `canService(scene, group_name, constr)` -> D4: same
+//!
+//! ### `ConstraintSamplerManager` (`constraint_sampler_manager.hpp`)
+//!
+//! - CS: `ConstraintSamplerManager()` (ctor) -> D4: no manager struct exists
+//!   at all
+//! - CS: `registerSamplerAllocator(sa)` -> D4: same exclusion
+//! - CS: `selectSampler(scene, group_name, constr)` -> D4: the
+//!   registry-dispatch half of the manager
+//! - CS: `selectDefaultSampler(scene, group_name, constr)` -> ported: the
+//!   free function [`select_default_sampler`]
+//!
+//! ### `constraint_sampler_tools.hpp` (free functions)
+//!
+//! - CS: `visualizeDistribution(sampler, reference_state, link_name, sample_count, markers)` -> D1:
+//!   needs `visualization_msgs::msg::MarkerArray`
+//! - CS: `visualizeDistribution(constr, scene, group, link_name, sample_count, markers)` -> D1:
+//!   same, plus `moveit_msgs::Constraints`
+//! - CS: `countSamplesPerSecond(sampler, reference_state)` -> gap: a
+//!   benchmarking helper that takes no ROS type (unlike its sibling below)
+//!   and so is not D1-excluded, just never ported
+//! - CS: `countSamplesPerSecond(constr, scene, group)` -> D1: takes
+//!   `moveit_msgs::Constraints` and `PlanningSceneConstPtr` directly
+//!
+//! Reproduction: `rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs`
+//! is **66** — every public declaration across the six
+//! `constraint_samplers/*.hpp` headers (`constraint_sampler_tools.hpp`'s
+//! free functions included, `pr2_arm_ik.hpp`/`pr2_arm_kinematics_plugin.hpp`
+//! excluded: those live under `constraint_samplers/test/`, not the public
+//! `include/` API surface this audit covers). Breakdown, each reproducible
+//! with `rg -c '^//! - CS:.*-> TAG' crates/moveit-constraints/src/lib.rs`
+//! for the given `TAG`:
+//!
+//! - tag `ported` (implemented, findable under a Rust name given above): 17
+//! - tag `structural` (collapsed constructor/configure overloads, or an
+//!   internal-state field this port's design has no use for): 22
+//! - tag `D4` (the plugin-allocator/registry mechanism, already excluded
+//!   workspace-wide): 8
+//! - tag `D1` (a ROS message or `visualization_msgs` type this crate cannot
+//!   depend on): 6
+//! - tag `gap` (real, not previously documented anywhere in this crate): 13
+//!   — `DEFAULT_MAX_SAMPLING_ATTEMPTS`,
+//!   `getGroupStateValidityCallback`/`setGroupStateValidityCallback`,
+//!   `isValid`, `getVerbose`/`setVerbose`, `getName` (four separate
+//!   declarations, one per concrete type), `getPositionConstraint`/
+//!   `getOrientationConstraint` on `IkConstraintSampler`, and
+//!   `countSamplesPerSecond(sampler, reference_state)`. None of these are
+//!   exercised by `decide()`, this phase's own completion condition (see
+//!   this crate's introducing doc comment) — they are debugging/diagnostic
+//!   accessors or a benchmarking helper, not sampling correctness — but
+//!   they are real gaps, not deferred-on-purpose ones, and are named here
+//!   rather than left to be rediscovered.
+//!
+//! 17 + 22 + 8 + 6 + 13 = 66.
 
 mod constraint_sampler_manager;
 mod ik_sampler;

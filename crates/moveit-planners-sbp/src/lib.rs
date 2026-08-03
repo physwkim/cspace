@@ -61,6 +61,53 @@
 //! See each module's `tests` for the specific claims and the crate's commit
 //! history / report for which parts of this design are least certain.
 //!
+//! # Completion statement
+//!
+//! Every number below is a command someone can re-run.
+//!
+//! **`planning_interface.hpp`** (this crate's only upstream C++ header —
+//! see "Round 6 symbol audit" immediately below for why the other six
+//! modules have none to audit against):
+//! `sed -n '126,203p' crates/moveit-planners-sbp/src/lib.rs | rg -c '^//! - '`
+//! is **18** — one bullet per upstream declaration, or per matched sibling
+//! overload/accessor pair audited together (e.g. `getGroupName()`/`getName()`
+//! on one line). Those 18 bullets account for all **25** public
+//! declarations in
+//! `/home/stevek/work/moveit2/moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp`:
+//! `PlannerConfigurationSettings`/`PlannerConfigurationMap` (2, audited as
+//! one struct-level unit — this port's D4 exclusion is of the whole
+//! stringly-typed config bag, not field-by-field), `PlanningContext`'s 12
+//! public members (ctor, dtor, `getGroupName`, `getName`,
+//! `getPlanningScene`, `getMotionPlanRequest`, `setPlanningScene`,
+//! `setMotionPlanRequest`, `solve` x2, `terminate`, `clear`), and
+//! `PlannerManager`'s 11 (ctor, dtor, `initialize`, `getDescription`,
+//! `getPlanningAlgorithms`, `getPlanningContext` x2, `canServiceRequest`,
+//! `setPlannerConfigurations`, `getPlannerConfigurations`, `terminate`).
+//! **22** of the 25 are `unported` (D1/D2/D4/structural, one reason per
+//! bullet); the remaining **3** are ported — `solve`'s two overloads
+//! collapsed into one [`registry::PlanningContext::solve`], and
+//! `getPlanningContext(scene, req, error_code)` ported as
+//! [`registry::PlannerManager::get_planning_context`] (its
+//! error-code-ignoring sibling overload stays unported, Rust's `Result`
+//! already spelling "ignore the error" at the call site). Re-derive the 25
+//! by reading the header at that path directly; nothing here parses it
+//! automatically.
+//!
+//! **Tests.** `cargo nextest run -p moveit-planners-sbp --no-fail-fast`:
+//! **93** tests, 93 passed. There is no oracle comparison for this crate at
+//! all (see "Why properties, not an oracle" above) — every test is a
+//! property or boundary check instead. The one property common to every
+//! [`StateSpace`] this crate ships (`space::RealVectorSpace`, `so2::So2Space`,
+//! `se3::Se3Space`, `compound::CompoundSpace`,
+//! `joint_model_group_space::JointModelGroupSpace`) is exercised through one
+//! shared helper: `rg -c 'assert_metric_and_interpolation_axioms\(' <file>`
+//! finds exactly one call site in each of `so2.rs`, `space.rs`,
+//! `compound.rs` and `se3.rs`, and two in `joint_model_group_space.rs` (one
+//! per fixture group it drives the axioms against) — six call sites total
+//! against the one `pub(crate) fn assert_metric_and_interpolation_axioms`
+//! defined in `test_support.rs`, not six independent reimplementations of
+//! the same check.
+//!
 //! # Round 6 symbol audit
 //!
 //! This crate has two upstream relationships, not one, and they get audited
@@ -102,17 +149,25 @@
 //!   `solve()` — see [`registry::PlanningContext`]'s own "Deviation from
 //!   upstream: no `terminate`/`clear`" doc section, which this shares the
 //!   same reasoning with.
-//! - `solve(MotionPlanResponse&)` and `solve(MotionPlanDetailedResponse&)`
-//!   -> collapsed and ported as one [`registry::PlanningContext::solve`]
+//! - `solve(MotionPlanResponse&)` and `solve(MotionPlanDetailedResponse&)` ->
+//!   collapsed and ported as one [`registry::PlanningContext::solve`]
 //!   returning `Result<`[`registry::PlanningResponse`]`, `[`registry::PlanError`]`>`;
 //!   no detailed-response variant exists because nothing in this workspace
 //!   consumes upstream's extra per-stage timing/trajectory detail.
 //! - `terminate()`/`clear()` -> unported — see [`registry::PlanningContext`]'s
 //!   own "Deviation from upstream" doc: no concurrency model here for
 //!   cross-thread cancellation, and no context reuse to clear.
+//! - `~PlanningContext()` (dtor) -> unported: no Rust equivalent to audit —
+//!   every `registry::PlanningContext` implementor is dropped by ordinary
+//!   Rust ownership, not an explicit virtual destructor.
 //!
 //! ## `PlannerManager`
 //!
+//! - `PlannerManager()` (ctor) / `~PlannerManager()` (dtor) -> unported: both
+//!   are trivial no-ops upstream (`{}`); [`registry::RrtConnectManager`] and
+//!   every other [`registry::PlannerManager`] implementor is an ordinary
+//!   Rust value built by a struct literal or `#[derive(Default)]` and
+//!   dropped automatically, with no constructor/destructor body to port.
 //! - `initialize(model, node, parameter_namespace)` -> unported: no
 //!   `rclcpp::Node`/ROS parameter namespace exists anywhere in this
 //!   workspace (D1/D2); [`registry::RrtConnectManager`] needs no
