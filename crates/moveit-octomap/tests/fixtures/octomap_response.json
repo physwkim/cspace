@@ -7,7 +7,8 @@
         {
           "log_odds": 3.511030673980713,
           "mapped": true,
-          "occupancy": 0.9710000010045966
+          "occupancy": 0.9710000010045966,
+          "occupied": true
         }
       ]
     }
@@ -20,7 +21,8 @@
         {
           "log_odds": -2.000027894973755,
           "mapped": true,
-          "occupancy": 0.1191999932599187
+          "occupancy": 0.1191999932599187,
+          "occupied": false
         }
       ]
     }
@@ -47,42 +49,50 @@
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "log_odds": 0.8472978472709656,
           "mapped": true,
-          "occupancy": 0.69999999724559
+          "occupancy": 0.69999999724559,
+          "occupied": true
         },
         {
           "nodes": [
@@ -530,6 +540,76 @@
               "z": -32666.5
             }
           ]
+        }
+      ]
+    }
+  },
+  {
+    "id": 8,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559,
+          "occupied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 9,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": 2.944438934326172,
+          "mapped": true,
+          "occupancy": 0.9499999978700872,
+          "occupied": true
+        }
+      ]
+    }
+  },
+  {
+    "id": 10,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": -2.000027894973755,
+          "mapped": true,
+          "occupancy": 0.1191999932599187,
+          "occupied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 11,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": -0.40546509623527527,
+          "mapped": true,
+          "occupancy": 0.40000000284949333,
+          "occupied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 12,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": 0.40546509623527527,
+          "mapped": true,
+          "occupancy": 0.5999999971505066,
+          "occupied": true
         }
       ]
     }

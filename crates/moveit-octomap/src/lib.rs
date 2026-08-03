@@ -186,10 +186,15 @@
 //! `integrateMiss`/`nodeToMaxLikelihood` as separately named methods (this
 //! port inlines the sensor-model math directly into
 //! `update_node_log_odds`/`update_node_recurs` instead); the
-//! probability-space (non-log) sensor-model getters and setters
-//! (`getProbHit`/`setProbHit`/etc. -- their one `moveit_core` caller is the
-//! Bullet collision backend, which this project does not use, `parry`
-//! replacing FCL/Bullet per PORTING-PLAN.md); and `getMetricMin`/
+//! probability-space (non-log) sensor-model *getters*
+//! (`getProbHit`/`getProbMiss`/`getOccupancyThres`/`getClampingThresMin`/
+//! `getClampingThresMax` -- their one `moveit_core` caller is the Bullet
+//! collision backend, which this project does not use, `parry` replacing
+//! FCL/Bullet per PORTING-PLAN.md; the *setters* are ported --
+//! [`OcTree::set_prob_hit`], [`OcTree::set_prob_miss`],
+//! [`OcTree::set_occupancy_thres`], [`OcTree::set_clamping_thres_min`],
+//! [`OcTree::set_clamping_thres_max`] -- since they mutate state this port
+//! already exposes as configurable, round 15 item 1); and `getMetricMin`/
 //! `getMetricMax`/`getMetricSize` (zero consumer anywhere in
 //! `moveit_core`, including the perception layer).
 //!

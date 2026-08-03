@@ -805,5 +805,506 @@
       }
     ],
     "resolution": 1.0
+  },
+  {
+    "actions": [
+      {
+        "prob": 0.9,
+        "type": "set_occupancy_thres"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 8,
+    "op": "octomap",
+    "queries": [
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "occupancy"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "prob": 0.95,
+        "type": "set_prob_hit"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 9,
+    "op": "octomap",
+    "queries": [
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "occupancy"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "prob": 0.05,
+        "type": "set_prob_miss"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 10,
+    "op": "octomap",
+    "queries": [
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "occupancy"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "prob": 0.4,
+        "type": "set_clamping_thres_min"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 11,
+    "op": "octomap",
+    "queries": [
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "occupancy"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "prob": 0.6,
+        "type": "set_clamping_thres_max"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 12,
+    "op": "octomap",
+    "queries": [
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "occupancy"
+      }
+    ],
+    "resolution": 0.1
   }
 ]

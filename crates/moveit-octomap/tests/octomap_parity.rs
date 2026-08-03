@@ -24,9 +24,11 @@
 //! answers against the captured response for the same request's queries.
 //!
 //! Only the action/query variants this fixture actually uses are modelled
-//! here (`update_point`, `update_key`, `prune`; `occupancy`,
-//! `occupancy_by_key`, `node_count`, `ray_keys`, `tree_walk`) -- this is a
-//! fixture replay, not a mirror of the oracle's full wire protocol.
+//! here (`update_point`, `update_key`, `prune`, `set_occupancy_thres`,
+//! `set_prob_hit`, `set_prob_miss`, `set_clamping_thres_min`,
+//! `set_clamping_thres_max`; `occupancy`, `occupancy_by_key`, `node_count`,
+//! `ray_keys`, `tree_walk`) -- this is a fixture replay, not a mirror of the
+//! oracle's full wire protocol.
 
 use std::fs;
 
@@ -60,6 +62,21 @@ enum ActionSpec {
         lazy_eval: bool,
     },
     Prune,
+    SetOccupancyThres {
+        prob: f64,
+    },
+    SetProbHit {
+        prob: f64,
+    },
+    SetProbMiss {
+        prob: f64,
+    },
+    SetClampingThresMin {
+        prob: f64,
+    },
+    SetClampingThresMax {
+        prob: f64,
+    },
 }
 
 #[derive(Deserialize)]
@@ -182,6 +199,11 @@ fn octomap_matches_liboctomap_for_every_boundary_scenario() {
                     );
                 }
                 ActionSpec::Prune => tree.prune(),
+                ActionSpec::SetOccupancyThres { prob } => tree.set_occupancy_thres(*prob),
+                ActionSpec::SetProbHit { prob } => tree.set_prob_hit(*prob),
+                ActionSpec::SetProbMiss { prob } => tree.set_prob_miss(*prob),
+                ActionSpec::SetClampingThresMin { prob } => tree.set_clamping_thres_min(*prob),
+                ActionSpec::SetClampingThresMax { prob } => tree.set_clamping_thres_max(*prob),
             }
         }
 
@@ -205,6 +227,12 @@ fn octomap_matches_liboctomap_for_every_boundary_scenario() {
                             (actual_occupancy - expected_occupancy).abs() < OCCUPANCY_EPS,
                             "{ctx}: occupancy {actual_occupancy} vs oracle {expected_occupancy}"
                         );
+                        let expected_occupied = expect_bool(result, "occupied", &ctx);
+                        let actual_occupied = tree.is_occupied(Point3::from(*point)).unwrap();
+                        assert_eq!(
+                            actual_occupied, expected_occupied,
+                            "{ctx}: occupied {actual_occupied} vs oracle {expected_occupied}"
+                        );
                     }
                 }
                 QuerySpec::OccupancyByKey { key } => {
@@ -226,6 +254,12 @@ fn octomap_matches_liboctomap_for_every_boundary_scenario() {
                             (f64::from(actual.unwrap()) - expected_log_odds).abs() < LOG_ODDS_EPS,
                             "{ctx}: key {key:?} log_odds {} vs oracle {expected_log_odds}",
                             actual.unwrap()
+                        );
+                        let expected_occupied = expect_bool(result, "occupied", &ctx);
+                        let actual_occupied = tree.is_occupied(point).unwrap();
+                        assert_eq!(
+                            actual_occupied, expected_occupied,
+                            "{ctx}: key {key:?} occupied {actual_occupied} vs oracle {expected_occupied}"
                         );
                     }
                 }
