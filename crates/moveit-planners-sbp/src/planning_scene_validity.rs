@@ -57,26 +57,33 @@ use crate::validity::StateValidityChecker;
 /// are actually read. Measured by
 /// `cargo run --example planning_scene_validity_bench -p moveit-planners-sbp`
 /// (panda_arm, 7 DoF, real mesh-loaded collision geometry via
-/// `fixture_mesh_search_paths`, empty world, no constraints, 50 calls):
-/// **~8-15 ms/call** — three orders of magnitude past an early
-/// no-mesh-geometry measurement this doc comment previously (wrongly)
-/// cited, because that measurement's scene had no collision shapes loaded
-/// at all (see this crate's commit history for that correction). This is a
-/// total, not a breakdown — no profiling was done to say how much is the
-/// `Vec<f64>` clone versus FK versus the real self-collision mesh checks
-/// [`moveit_collision::ParryCollisionEnv`] now actually performs. A single
-/// `Termination::Iterations(20_000)` RRT-Connect query against real panda
-/// geometry is therefore on the order of *minutes* of validity checking
-/// alone in this unoptimized debug profile; a release build would be
-/// faster, not measured here. That is slow enough to be a real planning-
-/// latency concern for real-geometry queries specifically, but no pooling
-/// scheme is built against it yet — pooling would not address mesh
-/// collision cost at all (it only avoids the `Vec<f64>` clone, a small
-/// fraction of this total), and nothing here has measured what would. This
-/// module's own `is_valid_does_not_regress_by_orders_of_magnitude` test
-/// guards only against a catastrophic (~100x) regression in this cost, not
-/// against exceeding it — see that test's doc comment for why the bound it
-/// asserts is loose on purpose.
+/// `fixture_mesh_search_paths`, empty world, no constraints, 50 calls;
+/// add `--release` for the optimized figure): **debug ~8-15 ms/call,
+/// release ~1-6 ms/call (mean ~2 ms)** — the debug figure is three orders
+/// of magnitude past an early no-mesh-geometry measurement this doc
+/// comment previously (wrongly) cited, because that measurement's scene
+/// had no collision shapes loaded at all (see this crate's commit history
+/// for that correction). This is a total, not a breakdown — no profiling
+/// was done to say how much is the `Vec<f64>` clone versus FK versus the
+/// real self-collision mesh checks [`moveit_collision::ParryCollisionEnv`]
+/// now actually performs.
+///
+/// Release is roughly 6x faster than debug here, not the ~50x that would
+/// retire the concern below — both regimes are the same order of
+/// magnitude, so a single `Termination::Iterations(20_000)` RRT-Connect
+/// query against real panda geometry costs, by this measurement, on the
+/// order of tens of seconds at the release mean (20,000 x ~2 ms ≈ 41 s)
+/// and up into the low minutes at either regime's max-observed per-call
+/// cost (20,000 x ~6-15 ms ≈ 2-5 min) — a real planning-latency concern for
+/// real-geometry queries specifically, not merely a debug-profile
+/// artifact. No pooling scheme is built against it yet — pooling would not
+/// address mesh collision cost at all (it only avoids the `Vec<f64>`
+/// clone, a small fraction of this total), and nothing here has measured
+/// what would. This module's own
+/// `is_valid_does_not_regress_by_orders_of_magnitude` test guards only
+/// against a catastrophic (~100x) regression in this cost, not against
+/// exceeding it — see that test's doc comment for why the bound it asserts
+/// is loose on purpose.
 pub struct PlanningSceneValidityChecker<'a, 'm, E> {
     scene: RefCell<&'a mut PlanningScene<'m>>,
     env: &'a E,
