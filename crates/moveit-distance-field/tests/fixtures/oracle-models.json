@@ -43,6 +43,10 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "octree_points": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "shape_points": {
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
