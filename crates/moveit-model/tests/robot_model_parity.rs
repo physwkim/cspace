@@ -61,6 +61,20 @@ struct OracleModelInfo {
     /// in `oracle.cpp`.
     #[serde(default)]
     joint_descendant_links: std::collections::BTreeMap<String, Vec<String>>,
+    /// Ground truth for `JointModelGroup::updated_link_names`/
+    /// `updated_link_with_geometry_names`, keyed by group name.
+    #[serde(default)]
+    group_updated_links: std::collections::BTreeMap<String, OracleGroupUpdatedLinks>,
+}
+
+/// Ground truth for `JointModelGroup::updated_link_names`/
+/// `updated_link_with_geometry_names`, both already in `OrderLinksByIndex`
+/// order on the oracle side (`getUpdatedLinkModelNames`/
+/// `getUpdatedLinkModelsWithGeometryNames`), so compared as a sequence.
+#[derive(Deserialize)]
+struct OracleGroupUpdatedLinks {
+    updated_link_names: Vec<String>,
+    updated_link_with_geometry_names: Vec<String>,
 }
 
 /// Ground truth for `RobotModel::get_common_root`, one entry per queried
@@ -414,7 +428,8 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             .map(|&idx| model.joint_names()[idx].as_str())
             .collect();
         assert_eq!(
-            actual_root_names, expected_root_names.as_slice(),
+            actual_root_names,
+            expected_root_names.as_slice(),
             "joint_roots for group '{group_name}'"
         );
     }
@@ -436,6 +451,63 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             actual_links, expected_links,
             "descendant_link_indices for joint '{joint_name}'"
         );
+    }
+
+    // `updated_link_with_geometry_names` cannot expect byte-exact parity: it
+    // filters on `!shapes().is_empty()`, and this port's `LinkModel` never
+    // builds a shape for a mesh or capsule `<collision>` element (deviation
+    // 4 on `LinkModel`'s own doc comment; see
+    // `mesh_collision_is_skipped_with_a_diagnostic_and_leaves_no_shape` /
+    // `capsule_collision_is_skipped_with_a_diagnostic`), while the oracle
+    // links against real mesh files and so still counts those links as
+    // having geometry. The real property is not set-equality but: our
+    // computed set is exactly the oracle's minus the links whose divergence
+    // a recorded `UnsupportedLinkGeometry` diagnostic explains.
+    let unsupported_geometry_links: std::collections::HashSet<&str> = model
+        .diagnostics()
+        .iter()
+        .filter_map(|d| match d {
+            Diagnostic::UnsupportedLinkGeometry {
+                link,
+                kind: "mesh" | "capsule",
+            } => Some(link.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    for (group_name, expected_updated) in &expected.group_updated_links {
+        let group = model
+            .joint_model_group(group_name)
+            .unwrap_or_else(|_| panic!("missing group '{group_name}'"));
+        assert_eq!(
+            group.updated_link_names(),
+            expected_updated.updated_link_names.as_slice(),
+            "updated_link_names for group '{group_name}'"
+        );
+
+        let expected_with_geometry_our_model_can_represent: Vec<String> = expected_updated
+            .updated_link_with_geometry_names
+            .iter()
+            .filter(|name| !unsupported_geometry_links.contains(name.as_str()))
+            .cloned()
+            .collect();
+        assert_eq!(
+            group.updated_link_with_geometry_names(),
+            expected_with_geometry_our_model_can_represent.as_slice(),
+            "updated_link_with_geometry_names for group '{group_name}', after excluding \
+             links whose only collision geometry is an (intentionally unsupported) \
+             mesh or capsule"
+        );
+        for name in &expected_updated.updated_link_with_geometry_names {
+            if !group.updated_link_with_geometry_names().contains(name) {
+                assert!(
+                    unsupported_geometry_links.contains(name.as_str()),
+                    "{name} is in the oracle's updated_link_with_geometry_names for \
+                     group '{group_name}' but missing from ours with no \
+                     UnsupportedLinkGeometry diagnostic to explain it"
+                );
+            }
+        }
     }
 }
 
