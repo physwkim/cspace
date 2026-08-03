@@ -1,8 +1,8 @@
 {
+  "count": 10,
+  "group": "panda_arm",
   "id": 0,
   "op": "kinematics_metrics",
-  "group": "panda_arm",
-  "count": 10,
-  "seed": 20260804,
-  "penalty_multiplier": 1.5
+  "penalty_multiplier": 1.5,
+  "seed": 20260804
 }
