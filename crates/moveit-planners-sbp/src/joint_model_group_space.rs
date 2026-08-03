@@ -467,6 +467,69 @@ mod tests {
         }
     }
 
+    /// `JointModelGroupSpace::distance` delegates straight to
+    /// `CompoundSpace::distance`, but the weights it builds that
+    /// `CompoundSpace` with come from `fixtures/panda.urdf`'s own `<limit>`
+    /// elements (see this module's `1 / extent` doc comment) -- external to
+    /// this implementation in the same sense the other boundary tests in
+    /// this sweep are, just sourced from a robot description instead of a
+    /// textbook formula. `panda_arm` is bounded-revolute-only (see
+    /// `GROUPS`'s doc comment), so each joint's contribution is
+    /// `(1 / (upper - lower)) * |v1 - v2|`, upstream `RevoluteJointModel::
+    /// distance`'s non-continuous branch (`revolute_joint_model.cpp:180-181`)
+    /// at this crate's own extent-normalized weight -- both already pinned
+    /// individually by `space.rs`'s
+    /// `distance_at_one_dimension_matches_upstream_prismatic_and_bounded_revolute`
+    /// and `compound.rs`'s `distance_is_the_hand_computed_weighted_sum_at_a_known_value`;
+    /// this test is what confirms `JointModelGroupSpace` actually wires a
+    /// real model's real bounds into that composition rather than something
+    /// that only happens to look right in isolation.
+    #[test]
+    fn distance_matches_a_hand_computed_sum_from_panda_urdf_s_own_joint_limits() {
+        let model = load_model("panda.urdf", "panda.srdf");
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+
+        // (lower, upper) transcribed from fixtures/panda.urdf's
+        // panda_joint1..7 <safety_controller soft_lower_limit=""
+        // soft_upper_limit=""> elements -- moveit-model's URDF loader
+        // builds `VariableBounds` from those, not from <limit>, matching
+        // upstream `RobotModel::computeVariableBoundsMsg`'s safety-limit
+        // preference -- in `panda_arm`'s own joint order.
+        let bounds: [(f64, f64); 7] = [
+            (-2.8973, 2.8973),
+            (-1.7628, 1.7628),
+            (-2.8973, 2.8973),
+            (-3.0718, 0.0175),
+            (-2.8973, 2.8973),
+            (-0.0175, 3.7525),
+            (-2.8973, 2.8973),
+        ];
+        let delta = 0.1;
+        let expected: f64 = bounds
+            .iter()
+            .map(|&(lower, upper)| delta / (upper - lower))
+            .sum();
+
+        let group = model.joint_model_group("panda_arm").unwrap();
+
+        let mut state_a = RobotState::new(&model);
+        state_a.set_to_default_values();
+        let mut state_b = RobotState::new(&model);
+        state_b.set_to_default_values();
+        for name in group.variable_names() {
+            state_a.set_variable_position(name, 0.0).unwrap();
+            state_b.set_variable_position(name, delta).unwrap();
+        }
+
+        let state_a = space.read_robot_state(&state_a);
+        let state_b = space.read_robot_state(&state_b);
+        let actual = space.distance(&state_a, &state_b);
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "distance = {actual}, hand-computed from panda.urdf's own bounds = {expected}"
+        );
+    }
+
     #[test]
     fn metric_and_interpolation_axioms_hold_for_every_fixture_group() {
         for &(urdf_file, srdf_file, group_name) in GROUPS {

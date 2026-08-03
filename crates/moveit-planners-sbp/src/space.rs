@@ -240,6 +240,29 @@ mod tests {
         assert_eq!(s.distance(&vec![0.0, 0.0], &vec![3.0, 4.0]), 5.0);
     }
 
+    /// At dimension 1 -- the only dimension `JointModelGroupSpace` ever
+    /// builds a `RealVectorSpace` at, one axis per bounded revolute or
+    /// prismatic joint -- this degenerates to upstream `PrismaticJointModel::
+    /// distance`/the non-continuous branch of `RevoluteJointModel::distance`
+    /// (`prismatic_joint_model.cpp:114-116`, `revolute_joint_model.cpp:180-181`):
+    /// both are `fabs(values1[0] - values2[0])`. Pinned against that formula
+    /// transcribed independently here (`(v1 - v2).abs()`), not against
+    /// `RealVectorSpace::distance` itself, so a regression in the
+    /// implementation has something external to disagree with.
+    #[test]
+    fn distance_at_one_dimension_matches_upstream_prismatic_and_bounded_revolute() {
+        let s = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
+        let cases: [(f64, f64); 4] = [(0.0, 0.0), (2.5, -1.5), (-3.0, 3.0), (7.0, 7.0)];
+        for &(v1, v2) in &cases {
+            let upstream = (v1 - v2).abs();
+            let actual = s.distance(&vec![v1], &vec![v2]);
+            assert_eq!(
+                actual, upstream,
+                "distance({v1}, {v2}) = {actual}, upstream fabs(v1 - v2) = {upstream}"
+            );
+        }
+    }
+
     #[test]
     fn distance_is_symmetric() {
         let s = space();

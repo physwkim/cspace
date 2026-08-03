@@ -329,6 +329,54 @@ mod tests {
         }
     }
 
+    /// Matches upstream `FloatingJointModel::distanceTranslation`
+    /// (`floating_joint_model.cpp:120-126`), `sqrt(dx^2 + dy^2 + dz^2)`, at a
+    /// Pythagorean quadruple (`3, 4, 12 -> 13`) so the expected value is
+    /// exact rather than a value this same implementation produced. Both
+    /// states share a rotation, so `rotation_distance`'s contribution is
+    /// exactly `0.0` and does not need to be subtracted out.
+    #[test]
+    fn translation_distance_matches_upstream_floating_joint_translation_at_a_known_value() {
+        let s = Se3Space::new([(-20.0, 20.0), (-20.0, 20.0), (-20.0, 20.0)], 1.0).unwrap();
+        let identity: Quat = [1.0, 0.0, 0.0, 0.0];
+        let from = Se3State {
+            translation: [0.0, 0.0, 0.0],
+            rotation: identity,
+        };
+        let to = Se3State {
+            translation: [3.0, 4.0, 12.0],
+            rotation: identity,
+        };
+        assert_eq!(s.distance(&from, &to), 13.0);
+    }
+
+    /// Matches upstream `FloatingJointModel::distance` (`floating_joint_model.cpp:115-118`),
+    /// `distanceTranslation + angular_distance_weight_ * distanceRotation`,
+    /// with both terms nonzero and a non-unit weight, so a bug that dropped
+    /// or misweighted either term would show up against a value computed
+    /// independently of this implementation: translation `(3, 4, 0) -> 5.0`
+    /// (a 3-4-5 triangle), rotation exactly `60` degrees about the z-axis
+    /// (`exp_map`, this module's own SO(3) exponential map, not
+    /// `Se3Space::distance` -- the value under test), `rotation_weight = 2.0`.
+    #[test]
+    fn distance_matches_upstream_floating_joint_weighted_sum_at_a_known_value() {
+        let s = Se3Space::new([(-20.0, 20.0), (-20.0, 20.0), (-20.0, 20.0)], 2.0).unwrap();
+        let from = Se3State {
+            translation: [0.0, 0.0, 0.0],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        let to = Se3State {
+            translation: [3.0, 4.0, 0.0],
+            rotation: exp_map(&[0.0, 0.0, 1.0], 60.0_f64.to_radians()),
+        };
+        let expected = 5.0 + 2.0 * 60.0_f64.to_radians();
+        let actual = s.distance(&from, &to);
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "distance = {actual}, expected translation 5.0 + weight 2.0 * 60 degrees = {expected}"
+        );
+    }
+
     #[test]
     fn distance_ignores_quaternion_sign() {
         let s = space();
