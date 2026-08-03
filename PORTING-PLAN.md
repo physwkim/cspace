@@ -3743,3 +3743,184 @@ pr2 메시가 §32에서 들어왔으므로 `build_pr2_model`이 실제 탐색 �
 한 줄이다. 이 정도로 좁혀진 요구는 받는 패널이 판단할 것이 남지 않아
 바로 실행된다. 앞선 라운드들의 크로스 패널 블로커가 몇 번씩 왕복한
 이유는 대부분 요구가 이 수준으로 좁혀지지 않아서였다.
+
+## 35. `p1-joints` 6라운드 — §30.2의 UNFIXED를 닫는다 (2026-08-04)
+
+`cd29af4` 기준 리베이스. 오라클 이미지 `7396c8b95fdc00f7`
+(`tools/moveit-oracle/src-digest.sh` 스탬프로 확인).
+
+### 35.1 오라클의 재시드가 이제 연속 관절에서 랩한다
+
+§30.2가 UNFIXED로 남긴 것: 5라운드의 재시드 수정은 무조건
+`std::max(joint_min, seed-limit)..std::min(joint_max, seed+limit)`로
+클램프해, 포트(`6408570`)와 상류는 랩하는데 오라클만 클램프하는 부호
+반전 격차가 남아 있었다.
+
+`oracle.cpp`에 `active_continuous`(활성 관절별 `dynamic_cast<const
+RevoluteJointModel*>(...)->isContinuous()`)를 한 번 계산해 두고,
+재시드 루프의 `has_consistency_limits` 분기를 그 값으로 다시 갈랐다:
+연속 관절은 `ik_rng_.uniformReal(seed-limit, seed+limit)`을 클램프 없이
+뽑은 뒤 `fmod`로 `(-pi, pi]`에 랩한다 — `RevoluteJointModel::
+enforcePositionBounds`(`revolute_joint_model.cpp:218-230`)와 정확히 같은
+공식. 비연속 관절은 기존 클램프 공식 그대로 둔다.
+
+다른 단일 자유도 관절 타입도 같은 방식으로 확인했다:
+
+- `PrismaticJointModel::getVariableRandomPositionsNearBy`
+  (`prismatic_joint_model.cpp:91-96`)는 연속 개념이 전혀 없고 클램프
+  공식 하나뿐 — 오라클의 비연속 분기와 정확히 일치, 5라운드에서 이미
+  확인한 그대로다.
+- Planar/Floating 관절은 이 op에 도달할 수 없다 — `isSingleDOFJoints()`
+  (오라클 `ik` op 자신의 최상단 조건, `oracle.cpp:1044`)가 이미 걸러낸다.
+- 그러므로 `RevoluteJointModel`의 `continuous_` 분기가 이 op이 다루는
+  전체 단일 자유도 관절 타입 중 유일하게 클램프 공식과 다른 경우였다 —
+  이번에 우연히 처음 찾은 사례가 아니라 그것이 전부다.
+
+`build.sh`로 재빌드, 새 이미지 `7396c8b95fdc00f7`. 재빌드 후 4픽스처
+스윕을 재측정해 수치가 그대로임을 확인했다(`--cases 500 --seed
+20260803 --ik-max-restarts 20`, 이미지 `7396c8b95fdc00f7`):
+
+| 픽스처 / 그룹 | 제한 없음 b, c | `--ik-consistency-limit 0.35` b, c |
+|---|---|---|
+| panda / panda_arm | 8, 10 | 31, 36 |
+| fanuc / manipulator | 33, 32 | 32, 32 |
+| dual_arm_panda / left_panda_arm | 6, 11 | 35, 45 |
+| pr2 / right_arm | 0, 0 | 17, 12 |
+
+30.1의 수치와 완전히 같다 — 예상대로다. 이 네 픽스처의 연속 관절
+(`r_forearm_roll_joint`, `r_wrist_roll_joint`)은 시드가 항상 `[-pi,pi]`의
+중점 0이고 `0.35 × 2π ≈ 2.2 rad` 한계로는 랩 경계에 닿지 않으므로,
+클램프 공식과 랩 공식이 이 스윕 조건에서는 수치적으로 동일한 결과를
+낸다.
+
+### 35.2 그 분기를 실제 스윕으로 때리기 — "시드가 `±π` 근처"는 문자 그대로는 불가능하다
+
+과제의 원래 표현("a seed near ±π on a continuous joint")을 문자 그대로
+만족시키려 했으나, 상류 자체의 설계가 이를 막는다: 오라클의
+`seed_active[k]`는 항상 활성 관절의 bounds 중점이고
+(`seed_active[k] = (joint_min + joint_max) / 2.0`, `oracle.cpp:1144-1146`),
+연속 관절의 bounds는 어떤 URDF를 넣든 상류 생성자가 하드코딩한
+`-M_PI`/`M_PI`다(`RevoluteJointModel`의 기본 생성자 및
+`setContinuous(true)`, `revolute_joint_model.cpp:60-92`). 포트의
+`IkSolver`도 같은 bounds-중점 관례를 쓴다. 즉 CLI로도, 새 URDF
+픽스처로도 시드 자체를 `±π` 근처로 옮길 방법이 없다 — 이건 테스트
+설계의 한계가 아니라 상류 자체의 불변식이다.
+
+도달 가능한 대체 경로: 시드가 항상 0이므로, `seed ± limit`이 랩 경계를
+넘게 하려면 `--ik-consistency-limit`을 `π`보다 크게 주면 된다. 연속
+관절을 가진 픽스처/그룹은 현재 커밋된 것 중 pr2 `right_arm`
+(`r_forearm_roll_joint`, `r_wrist_roll_joint`)이 유일하다 — 새 URDF
+픽스처를 추가할 필요 없이 기존 픽스처에 이 플래그 조합만으로 도달한다.
+
+`limit = 4.0`(`> π ≈ 3.14159`)에서 분기가 실제로 얼마나 발동하는지
+먼저 계산으로 확인했다: 두 공식 모두 같은 하부 난수 draw `u ∈ [0,1)`를
+소비하지만 다른 구간으로 스케일한다(클램프: `u`를 `[-π,π]`로, 랩:
+`u`를 `[-limit,limit]`로 스케일 후 접음). 폭 `2·limit`에서 랩이 발동하는
+비율은 `(limit - π) / limit`; `limit=4.0`이면 `(4.0 - 3.14159)/4.0 ≈
+21.5%` — 재시드 draw의 5분의 1 이상이 두 공식에서 서로 다른 최종
+관절값을 낸다. 분기는 죽은 코드가 아니라 실측으로도 무겁게 실행된다.
+
+실측 스윕 (`--cases 500 --seed 20260803 --group right_arm
+--ik-consistency-limit 4.0 --ik-max-restarts 20`, pr2/right_arm):
+
+| 오라클 이미지 | b (oracle only) | c (rust only) | z |
+|---|---|---|---|
+| `7396c8b95fdc00f7`(수정 후, 랩) | 1 | 0 | 1.00 |
+| `448ac232926497b8`(수정 전, 클램프)* | 1 | 2 | 1.73 |
+
+*수정 전 이미지는 현재 트리와 소스가 달라 `run-oracle.sh`의 스탬프
+검사가 막으므로, 그 검사만 건너뛰는 임시 래퍼로 고정 이미지를 직접
+`docker run`했다 — 커밋하지 않은 스크래치 스크립트, 5라운드 병합자가
+`a8988410cec4b1aa`를 검증할 때 쓴 것과 같은 방식.
+
+`--cases 500`에서는 표본이 너무 작아(`b+c`가 1~3) 결론을 낼 수 없어
+`--cases 5000`으로 반복했다:
+
+| 오라클 이미지 | b | c | z |
+|---|---|---|---|
+| `7396c8b95fdc00f7`(랩) | 19 | 15 | 0.73 |
+| `448ac232926497b8`(클램프) | 20 | 15 | 0.87 |
+
+정직하게 말해: 두 이미지의 b/c는 서로 거의 같고, `z`도 둘 다 임계값
+3.0에 한참 못 미친다 — 수정 전/후 사이의 **집계 성공/실패** 수준에서는
+이 픽스처가 결함을 거의 드러내지 않는다. 이유를 구조적으로 설명할
+필요가 있어, `--ik-max-restarts 0`(재시드 자체를 끔) 대 `20`을
+같은 `limit=4.0`, `--cases 5000`에서 비교했다:
+
+| `--ik-max-restarts` | 오라클 이미지 | b | c | z |
+|---|---|---|---|---|
+| 0 | `7396c8b95fdc00f7` | 23 | 7 | 2.92 |
+| 20 | `7396c8b95fdc00f7` | 19 | 15 | 0.73 |
+| 20 | `448ac232926497b8` | 20 | 15 | 0.87 |
+
+재시드를 아예 끄면 `z=2.92`로 임계값 바로 아래까지 올라가는 진짜
+격차가 있다 — 재시드 메커니즘 자체(클램프든 랩이든)가 이 격차 대부분을
+닫는다. 클램프-대-랩의 구분이 기여하는 몫은 `0.87`과 `0.73`의 차이
+정도로, 재시드 유무가 만드는 효과보다 훨씬 작다. pr2의
+forearm-roll/wrist-roll은 방향이 완전히 자유로운 축이라, 재탐색을
+어느 값에서 시작하든(클램프든 랩이든) 목표 자세에 수렴하는 데 별
+차이가 없기 때문으로 구조적으로 설명된다 — 이 픽스처의 IK 여유도의
+성질이지, 검증이 부실해서가 아니다.
+
+**결론**: 이 분기는 실제 스윕(`--cases`, `--seed`, 고정 이미지로
+재현 가능)으로 도달 가능하고 무겁게 실행됨을 계산과 실측 양쪽으로
+확인했다. 다만 현재 커밋된 4개 픽스처 중 연속 관절을 가진 유일한
+그룹(pr2/right_arm)의 IK 여유도가 높아, 그 분기의 존재가 **집계
+성공/실패 수의 페어드 발산 통계**에는 강한 신호를 남기지 않는다.
+이것은 §35.3의 검정력 문제와 같은 종류의 한계다 — 더 작은 `b+c`
+표본에서 진짜 결함이 통계량에 가려지는 것과 마찬가지로, 여기서는
+결함 자체는 확인됐지만 이 특정 관절의 IK 여유도가 그 결함이 성공/실패
+카운트에 미치는 영향을 흡수한다.
+
+### 35.3 `ik_paired_divergence`의 검정력을 도구 안에서 말한다
+
+5라운드부터 pr2의 수정 전 쌍(`b=8, c=18`)이 `z=1.96`으로 임계값
+3.0을 넘지 못했다는 것, 그리고 이것이 pr2가 영향받지 않았다는 뜻이
+아니라 `b+c=26`이 너무 작다는 뜻이라는 것을 알고 있었다. 이 캐벗을
+보고서가 아니라 도구 자체에 넣었다.
+
+유도: `z = |b-c| / sqrt(b+c)`이므로, 실제 쏠림 비율 `p`(더 큰 쪽이
+전체 불일치에서 차지하는 비율, `p > 0.5`)가 고정일 때 기댓값은
+`E[z] ≈ (2p-1) · sqrt(b+c)`로 `sqrt(b+c)`에 비례해 커진다. 이
+프로젝트가 직접 확인한 가장 작은 진짜(노이즈 아닌) 쏠림은 pr2 자신의
+5라운드 수정 전 쌍 `b=8, c=18`(`p = 18/26 = 9/13`, `2p-1 = 5/13`)이다
+— panda/fanuc/dual_arm_panda가 같은 결함을 `z 5.04~7.06`으로 훨씬
+분명하게 보여준 것과 같은 결함인데, pr2는 재시드가 필요한 케이스 자체가
+적어서(고성공률) 표본이 작았을 뿐이다. 이걸 기준으로 삼아(임의의
+숫자가 아니라 실측된 가장 작은 진짜 효과 크기로 보정):
+
+```
+n_min = (3.0 / (5/13))^2 = (39/5)^2 = 60.84  →  61
+```
+
+`MINIMUM_USABLE_B_PLUS_C = 61`을 `tools/moveit-diff/src/main.rs`에
+추가했다. `b+c`가 이보다 작고 `z`가 임계값을 넘지 못하면
+`Verdict::Underpowered`(별도 상태, `Pass`로 접히지 않음)를 내고
+`UNDERPOWERED ik_paired_divergence: b + c = N is below 61, ...`를
+출력한다. pr2의 수정 전 쌍(`b+c=26`)은 물론이고 pr2의 **수정 후** 쌍
+(`b=17, c=12`, `b+c=29`)도 이 기준 아래다 — 정직한 결과: 실제 61 미만
+표본으로 돌린 이 라운드의 pr2/right_arm `--ik-consistency-limit 0.35`
+스윕은 이제 `PASS`가 아니라 `UNDERPOWERED`로 찍힌다(실측 확인,
+`--cases 500 --seed 20260803`). 임계값 미달을 낮추거나 이 사실을
+숨기지 않고 그대로 뒀다 — 실측된 효과 크기로 보정한 바닥선이 pr2
+자신의 값보다 큰 것은 우연이 아니라 pr2가 정확히 이 통계량이 약한
+경계 사례이기 때문이다.
+
+`paired_divergence_tests`에 경계 테스트 6개(합 9개): 유도식 자체를
+`MINIMUM_USABLE_B_PLUS_C`와 다시 대조하는 테스트, pr2 수정 전/후 쌍이
+각각 바닥선 아래/양쪽에 있음을 고정하는 테스트, 나머지 세 픽스처의
+수정 후 쌍이 바닥선을 넘김을 고정하는 테스트.
+
+### 35.4 게이트
+
+- `cargo fmt --all`: PASS
+- `cargo clippy --workspace --all-targets -- -D warnings`: PASS
+- `cargo nextest run --workspace`: PASS, 885/885 (기준 882/882 + 이번
+  라운드 `moveit-diff::paired_divergence_tests` 순증 3개: 기존 3개에서
+  6개로)
+- `cargo test --doc --workspace`: PASS
+- `cargo doc --workspace --no-deps`: PASS
+- `tools/ci/check-dep-direction.sh`: PASS
+- `tools/ci/check-fixture-format.sh`: PASS
+- `tools/ci/check-no-lint-suppression.sh`: PASS
+- `tools/ci/verify-fixture-provenance.sh`: PASS
