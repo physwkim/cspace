@@ -603,9 +603,45 @@ impl<'m> PlanningScene<'m> {
     /// name lookup — needs no [`PlanningScene::current_state_mut`], unlike
     /// `frame_transform` itself). Upstream `planning_scene.cpp:2061`, the
     /// same tiers 1-5, tier 6 (TF) excluded for the same reason.
+    ///
+    /// # The model frame is checked directly, not through tier 1's `RobotState`
+    ///
+    /// [`moveit_state::RobotState::knows_frame_transform`] does not
+    /// special-case the model frame (see its own doc) -- confirmed against
+    /// upstream `RobotState::knowsFrameTransform`
+    /// (`robot_state.cpp:1386-1405`), which really only checks
+    /// `hasLinkModel`/attached bodies. Naively porting `PlanningScene::
+    /// knowsFrameTransform` as "tier 1's `RobotState`, then attached bodies,
+    /// then the world" would therefore report `false` for a model frame that
+    /// is not itself a link name (true for panda's floating virtual joint --
+    /// `model_frame() == "world"`, not `"panda_link0"`) even though
+    /// [`PlanningScene::frame_transform`] resolves the same name via
+    /// [`moveit_state::Posed::frame_transform`]'s own model-frame check.
+    ///
+    /// Upstream does not have that gap: its `PlanningScene::
+    /// knowsFrameTransform` reaches `true` for the model frame anyway, but
+    /// through the *TF tier* -- `SceneTransforms`'s base `Transforms`
+    /// constructor seeds `transforms_map_[target_frame_] = Identity()` with
+    /// `target_frame_` set to the model frame
+    /// (`planning_scene.cpp`'s `SceneTransforms` ctor forwards
+    /// `getRobotModel()->getModelFrame()`), so the otherwise-empty TF map
+    /// always trivially "knows" its own target frame. This is not a guess:
+    /// it was confirmed live against the oracle's `frame_transform` op
+    /// (`knows_transform: true` for `"world"` on panda, with no attached
+    /// bodies or world objects registered at all) after the naive port
+    /// above returned `false` for the same request.
+    ///
+    /// This port has no TF tier to reproduce that mechanism with (see
+    /// `frame_transform`'s own "no TF tier" deviation), so it reproduces the
+    /// *result* directly instead: `frame_id == model_frame` is checked
+    /// before tier 1, keeping this method in agreement with
+    /// `frame_transform` on the model frame the way upstream's two methods
+    /// agree with each other, rather than carrying `RobotState`'s narrower
+    /// asymmetry up to the scene level where upstream does not have it.
     pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
         let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
-        self.current_state().knows_frame_transform(frame_id)
+        frame_id == self.robot_model.model_frame()
+            || self.current_state().knows_frame_transform(frame_id)
             || self.attached_frame(frame_id).is_some()
             || self.world.knows_transform(frame_id)
     }
