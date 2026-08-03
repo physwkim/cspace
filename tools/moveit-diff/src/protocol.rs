@@ -788,6 +788,57 @@ pub struct ConstraintsResult {
     pub results: Vec<ConstraintResult>,
 }
 
+/// Identifies the pair of bodies behind one `DistanceResultsData::minimum_distance`
+/// — the oracle's `distancePairToJson`, this port's [`crate::rust_impl::collision`].
+/// Named directly off `DistanceResultsData::link_names`/`body_types` on both
+/// sides rather than inferred, so a `distance differs` report can say *which*
+/// pair each side picked instead of only that the scalars disagree — round 8
+/// item 1's diagnostic addition, after pr2 case 7552 sat unnamed for three
+/// rounds with only the scalar to go on. `None` when upstream's
+/// `DistanceResultsData::clear()` state was never overwritten (no other body
+/// existed to measure against). Deliberately excludes shape kinds: the
+/// oracle's own `self_distance_pair`/`robot_distance_pair` JSON carries them
+/// too, but naming the pair only needs a link/body-type identity, and this
+/// struct is deserialized against that JSON with unmatched fields simply
+/// ignored (no `deny_unknown_fields`), so the oracle can carry more than this
+/// side names without desyncing the wire format.
+///
+/// What round 8 item 1's pair names actually showed, against pr2 at 300
+/// cases (`--seed 20260804`, `fixtures/pr2.urdf`/`.srdf`): every
+/// `self_distance` "distance differs" failure traces to just two pairs on
+/// this side, not three unrelated ones. `base_bellow_link`/`torso_lift_link`
+/// produces both `-5.29289090633392e-2` (340/600, the dominant plateau) and
+/// `-4.91695723318727e-2` (once, case 18) plus a dozen more nearby-but-
+/// distinct values — the pair drifts in a narrow band (~-0.047 to -0.053) as
+/// `torso_lift_joint` moves, rather than sitting at one frozen number. The
+/// remaining 246/600 are eight *different* pairs — `base_link` against each
+/// of the eight `*_caster_*_wheel_link`s — that collapse onto the same
+/// `-4.65920000000832e-2` to ~11 significant digits: each caster wheel's
+/// mesh is rotationally symmetric about its own roll axis, so the wheel-roll
+/// continuous joint's rotation cannot change the closest-point distance to
+/// `base_link` at all, and float noise is all that's left to tell the eight
+/// apart. The oracle's own minimum on the same cases is a different pair
+/// almost every time (mostly `*_gripper_*_finger*` pairs at `-1e-2`..`-1e-1`)
+/// -- consistent with p3-acm's case-7552 finding that this is a pair-ranking
+/// flip, not a same-pair depth drift: this port's self-distance search finds
+/// these two near-static pairs and apparently never gets to weigh the
+/// gripper pairs against them. Diagnostic only, handed to p3-acm (who own
+/// `moveit-collision`) rather than fixed here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DistancePair {
+    /// `DistanceResultsData::link_names[0]`.
+    pub body_name_1: String,
+    /// `DistanceResultsData::body_types[0]`, named via the oracle's
+    /// `bodyTypeName`/this port's own equivalent: `"robot_link"`,
+    /// `"robot_attached"` or `"world_object"`.
+    pub body_type_1: String,
+    /// `DistanceResultsData::link_names[1]`.
+    pub body_name_2: String,
+    /// `DistanceResultsData::body_types[1]`, named the same way as
+    /// `body_type_1`.
+    pub body_type_2: String,
+}
+
 /// Answer to [`Op::Collision`].
 ///
 /// Contact/nearest-point coordinates are deliberately absent: PORTING-PLAN.md
@@ -795,18 +846,22 @@ pub struct ConstraintsResult {
 /// verification limit, not an oversight — see `crates/moveit-collision/src/parry.rs`'s
 /// module doc, deviations 4 and 6, for why a coordinate-level comparison
 /// would not be meaningful here even if it were attempted.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CollisionCheckResult {
     /// `CollisionEnvFCL::checkSelfCollision`'s `CollisionResult::collision`.
     pub self_collision: bool,
     /// `CollisionEnvFCL::distanceSelf`'s `DistanceResult::minimum_distance.distance`,
     /// signed (`enable_signed_distance = true`).
     pub self_distance: f64,
+    /// The pair behind `self_distance`. See [`DistancePair`].
+    pub self_distance_pair: Option<DistancePair>,
     /// `CollisionEnvFCL::checkRobotCollision`'s `CollisionResult::collision`.
     pub robot_collision: bool,
     /// `CollisionEnvFCL::distanceRobot`'s `DistanceResult::minimum_distance.distance`,
     /// signed (`enable_signed_distance = true`).
     pub robot_distance: f64,
+    /// The pair behind `robot_distance`. See [`DistancePair`].
+    pub robot_distance_pair: Option<DistancePair>,
 }
 
 /// Answer to [`Op::Ik`].

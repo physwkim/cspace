@@ -29,9 +29,9 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
-    ConstraintsSpec, FkResult, IkResult, JacobianResult, JointConstraintSpec, ModelInfo, Op,
-    OracleResult, OrientationConstraintSpec, OrientationToleranceSpec, PositionConstraintSpec,
-    Request, Response, ShapeSpec, VisibilityConstraintSpec,
+    ConstraintsSpec, DistancePair, FkResult, IkResult, JacobianResult, JointConstraintSpec,
+    ModelInfo, Op, OracleResult, OrientationConstraintSpec, OrientationToleranceSpec,
+    PositionConstraintSpec, Request, Response, ShapeSpec, VisibilityConstraintSpec,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -1347,18 +1347,38 @@ fn compare_collision(
     if max_dev.is_nan() || max_dev > cfg.tol_distance {
         return (
             Verdict::Fail(format!(
-                "distance differs: self oracle {:.17e} vs rust {:.17e} (|d|={self_dev:.3e}), \
-                 robot oracle {:.17e} vs rust {:.17e} (|d|={robot_dev:.3e}), tol {:.3e}",
+                "distance differs: self oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={self_dev:.3e}), \
+                 robot oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={robot_dev:.3e}), tol {:.3e}",
                 expected.self_distance,
+                format_distance_pair(&expected.self_distance_pair),
                 actual.self_distance,
+                format_distance_pair(&actual.self_distance_pair),
                 expected.robot_distance,
+                format_distance_pair(&expected.robot_distance_pair),
                 actual.robot_distance,
+                format_distance_pair(&actual.robot_distance_pair),
                 cfg.tol_distance
             )),
             max_dev,
         );
     }
     (Verdict::Pass, max_dev)
+}
+
+/// Formats a [`DistancePair`] for `compare_collision`'s `distance differs`
+/// message -- `"link_a(robot_link)/link_b(world_object)"`, or `"none"` when
+/// upstream's `DistanceResultsData::clear()` state was never overwritten. A
+/// message that reports two disagreeing scalars without saying which pair
+/// produced them is what left pr2 case 7552 unnamed for three rounds (see
+/// `protocol.rs`'s [`DistancePair`] doc).
+fn format_distance_pair(pair: &Option<DistancePair>) -> String {
+    match pair {
+        Some(p) => format!(
+            "{}({})/{}({})",
+            p.body_name_1, p.body_type_1, p.body_name_2, p.body_type_2
+        ),
+        None => "none".to_owned(),
+    }
 }
 
 /// Accumulated across every `ik[case]` in a run -- Phase 4's own completion
