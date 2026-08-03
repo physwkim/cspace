@@ -23,6 +23,11 @@
 //!   RobotTrajectory` — a sequence of `RobotState` waypoints plus
 //!   per-waypoint durations. Unlike the two types above, this one *does*
 //!   depend on `moveit-model`/`moveit-state`; see that module's doc comment.
+//! - [`ruckig_smoothing`], upstream's `trajectory_processing::
+//!   RuckigSmoothing` — re-parameterizes a [`robot_trajectory::RobotTrajectory`]
+//!   so it also satisfies jerk limits, via the `ruckig` online trajectory
+//!   generator (the `rsruckig` crate). See that module's doc comment for
+//!   what it does not port.
 //!
 //! # Out of scope
 //!
@@ -34,6 +39,7 @@ mod numeric;
 mod path;
 pub mod path_segment;
 pub mod robot_trajectory;
+pub mod ruckig_smoothing;
 pub mod trajectory;
 
 pub use path::{DEFAULT_PATH_TOLERANCE, Path};
