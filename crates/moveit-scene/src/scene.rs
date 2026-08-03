@@ -858,6 +858,31 @@ impl<'m> PlanningScene<'m> {
         constraints.decide(&posed).satisfied
     }
 
+    /// Whether `self`'s current state, checked against `env`, collides.
+    /// Upstream `isStateColliding(state, group, verbose)`
+    /// (`planning_scene.cpp:2217`) — the `moveit_msgs::RobotState` overload
+    /// (`:2197`) is a construct-then-delegate wrapper and is not ported: D1
+    /// has no `moveit_msgs` type to build one from. The current-state
+    /// convenience overload (`isStateColliding(group, verbose)`, no
+    /// explicit state) collapses into this one `&mut self` method the same
+    /// way every other method here collapses upstream's const/non-const
+    /// pairs (see the type doc's "Collision checking" section). `group`
+    /// lives on `request.group_name` rather than as a separate parameter,
+    /// matching how every other method here threads
+    /// [`CollisionRequest`] through — upstream's own version overwrites
+    /// whatever `group_name` a caller-built request carried with its
+    /// separate `group` argument, which this signature has no way to do by
+    /// construction. `verbose` is dropped for the same reason the rest of
+    /// this family drops it: `CollisionRequest::verbose` is itself a
+    /// stored-but-never-read field in this port (confirmed: no backend
+    /// consults it), matching upstream's own `RCLCPP_INFO`-only use.
+    pub fn is_state_colliding<E>(&mut self, env: &E, request: &CollisionRequest) -> bool
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        self.check_collision(env, request).collision
+    }
+
     /// Whether `self`'s current state, checked against `env`, is free of
     /// collision and satisfies `constraints` (`None` means unconstrained).
     /// Upstream `isStateValid(state, KinematicConstraintSet, group,
@@ -869,7 +894,9 @@ impl<'m> PlanningScene<'m> {
     /// order exactly: a state that fails both is reported as a collision
     /// failure here, the same as upstream's short-circuiting `if
     /// (isStateColliding(...)) return false;` before it ever reaches
-    /// `isStateConstrained`.
+    /// `isStateConstrained` — this method calls
+    /// [`PlanningScene::is_state_colliding`] rather than re-deriving that
+    /// ordering inline.
     ///
     /// # No feasibility step
     ///
@@ -900,7 +927,7 @@ impl<'m> PlanningScene<'m> {
     where
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
-        if self.check_collision(env, request).collision {
+        if self.is_state_colliding(env, request) {
             return false;
         }
         match constraints {
@@ -1728,6 +1755,32 @@ mod tests {
         let result = scene.check_self_collision(&env, &CollisionRequest::default());
 
         assert!(!result.collision);
+    }
+
+    #[test]
+    fn is_state_colliding_reports_the_current_states_self_collision() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        assert!(scene.is_state_colliding(&env, &CollisionRequest::default()));
+    }
+
+    #[test]
+    fn is_state_colliding_is_false_when_links_are_apart() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(5.0, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        assert!(!scene.is_state_colliding(&env, &CollisionRequest::default()));
     }
 
     #[test]
