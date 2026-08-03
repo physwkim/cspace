@@ -21,8 +21,10 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-/// Run the runner against the fake oracle with `cases` FK cases.
-fn run(cases: &str) -> Output {
+/// Run the runner against the fake oracle with `cases` FK cases and any
+/// `extra` arguments inserted before `--oracle` (which must stay last: it
+/// swallows every argument after it as the oracle's own command line).
+fn run_with(cases: &str, extra: &[&str]) -> Output {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let fake = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -36,11 +38,17 @@ fn run(cases: &str) -> Output {
             "--cases",
             cases,
         ])
+        .args(extra)
         .arg("--oracle")
         .arg("python3")
         .arg(&fake)
         .output()
         .expect("failed to run moveit-diff")
+}
+
+/// [`run_with`] with no extra arguments -- every pre-existing call site.
+fn run(cases: &str) -> Output {
+    run_with(cases, &[])
 }
 
 #[test]
@@ -76,6 +84,42 @@ fn a_disagreeing_rust_side_exits_with_failure_not_a_crash() {
         stdout.contains("passed: 0"),
         "expected every case to fail:\n{stdout}"
     );
+}
+
+/// `--stats-json` must write the same counts the stdout summary prints, as
+/// real JSON a caller can parse rather than another string to scrape --
+/// PORTING-PLAN.md §60.3 is two denominators wrong for exactly the opposite
+/// reason this flag exists.
+#[test]
+fn stats_json_writes_the_report_as_machine_readable_json() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("moveit-diff-stats-{}.json", std::process::id()));
+    let path_str = path.to_str().unwrap();
+
+    let out = run_with("1", &["--stats-json", path_str]);
+    let stdout = String::from_utf8(out.stdout).expect("stdout is not utf-8");
+    assert!(
+        stdout.contains("passed: 0"),
+        "expected every case to fail:\n{stdout}"
+    );
+
+    let contents = std::fs::read_to_string(&path).expect("--stats-json did not write a file");
+    std::fs::remove_file(&path).ok();
+    let value: serde_json::Value =
+        serde_json::from_str(&contents).expect("--stats-json output is not valid JSON");
+
+    // "1" case plus model_info, matching `run`'s "cases:  4" comment for "3".
+    assert_eq!(value["cases"], 2);
+    assert_eq!(value["passed"], 0);
+    assert_eq!(value["failed"], 2);
+    assert_eq!(value["underpowered"], 0);
+    // No --group/--collision/--ik on this run, so every optional block is
+    // absent rather than a zeroed-out struct that would misread as "ran and
+    // found nothing".
+    assert!(value["worst_jacobian_deviation"].is_null());
+    assert!(value["worst_distance_deviation"].is_null());
+    assert!(value["distance_pairs"].is_null());
+    assert!(value["ik"].is_null());
 }
 
 #[test]

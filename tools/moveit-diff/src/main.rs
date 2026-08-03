@@ -10,7 +10,8 @@
 //! ```text
 //! moveit-diff --urdf <path> --srdf <path> [--cases N] [--seed S]
 //!             [--tol-fk EPS] [--group NAME] [--tol-jacobian EPS]
-//!             [--collision] [--tol-distance EPS] [--oracle <cmd> [args...]]
+//!             [--collision] [--tol-distance EPS] [--stats-json <path>]
+//!             [--oracle <cmd> [args...]]
 //! ```
 //!
 //! Exit status is 0 only when every case passed.
@@ -98,6 +99,21 @@ struct Config {
     /// another. See `Op::Ik::consistency_limits`'s doc comment for why this
     /// is oracle-comparable at all.
     ik_consistency_fraction: Option<f64>,
+    /// Where to write the run's counts as JSON, alongside the existing
+    /// human-readable stdout report. `None` (the default) writes nothing,
+    /// keeping every existing invocation's behaviour unchanged.
+    ///
+    /// PORTING-PLAN.md §60.3 is why this exists: two of round 9's reported
+    /// denominators were wrong because they were hand-parsed out of this
+    /// tool's own prose (once double-counting an inline `FAIL` line against
+    /// the end-of-run aggregate that restates it, once from a still-unclosed
+    /// arithmetic error) instead of read from a number this binary already
+    /// computed. `--stats-json` makes every count [`RunStats`] carries
+    /// re-derivable by construction -- `serde_json::from_str` on this file,
+    /// not a regex over stdout -- instead of re-parsed by every reader
+    /// (this round's worker, the next round's reviewer, p3-acm) hitting the
+    /// same class of mistake independently.
+    stats_json: Option<String>,
     oracle: Vec<String>,
 }
 
@@ -122,6 +138,7 @@ impl Config {
         let mut ik_position_only = false;
         let mut ik_max_restarts = 20u32;
         let mut ik_consistency_fraction: Option<f64> = None;
+        let mut stats_json: Option<String> = None;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -189,6 +206,7 @@ impl Config {
                             .map_err(|e| format!("--ik-consistency-limit: {e}"))?,
                     )
                 }
+                "--stats-json" => stats_json = Some(want("--stats-json")?),
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -248,6 +266,7 @@ impl Config {
             ik_position_only,
             ik_max_restarts,
             ik_consistency_fraction,
+            stats_json,
             oracle,
         })
     }
@@ -363,6 +382,7 @@ fn main() {
                 "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
             );
             eprintln!("                   [--ik-consistency-limit FRACTION]");
+            eprintln!("                   [--stats-json <path>]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
@@ -497,6 +517,26 @@ fn build_collision_fixture(cfg: &Config) -> Result<CollisionFixture, String> {
         acm,
         wire_objects,
     })
+}
+
+/// Every count this run computed, in one machine-readable place -- see
+/// [`Config::stats_json`]'s doc comment for why this exists. Mirrors exactly
+/// what the stdout report already prints; nothing here is derived
+/// specially for this struct.
+#[derive(serde::Serialize)]
+struct RunStats {
+    cases: usize,
+    passed: usize,
+    failed: usize,
+    underpowered: usize,
+    /// `Some` only when `--group` ran a jacobian comparison.
+    worst_jacobian_deviation: Option<f64>,
+    /// `Some` only when `--collision` ran.
+    worst_distance_deviation: Option<f64>,
+    /// `Some` only when `--collision` ran.
+    distance_pairs: Option<DistancePairStats>,
+    /// `Some` only when `--ik` ran.
+    ik: Option<IkStats>,
 }
 
 fn run(cfg: &Config) -> Result<usize, String> {
@@ -741,7 +781,25 @@ fn run(cfg: &Config) -> Result<usize, String> {
         verdicts.push(("ik_paired_divergence".to_string(), verdict));
     }
 
-    report(&verdicts)
+    let (failures, underpowered) = report(&verdicts)?;
+
+    if let Some(path) = &cfg.stats_json {
+        let stats = RunStats {
+            cases: verdicts.len(),
+            passed: verdicts.len() - failures - underpowered,
+            failed: failures,
+            underpowered,
+            worst_jacobian_deviation: cfg.group.is_some().then_some(max_jacobian_dev),
+            worst_distance_deviation: cfg.collision.then_some(max_distance_dev),
+            distance_pairs: cfg.collision.then_some(pair_stats),
+            ik: cfg.ik.then_some(ik_stats),
+        };
+        let json = serde_json::to_string_pretty(&stats)
+            .map_err(|e| format!("serializing --stats-json: {e}"))?;
+        std::fs::write(path, json).map_err(|e| format!("writing --stats-json {path}: {e}"))?;
+    }
+
+    Ok(failures)
 }
 
 /// Kind label to `(satisfied, violated)` oracle-reported counts -- the
@@ -1524,7 +1582,7 @@ fn format_distance_pair(pair: &Option<DistancePair>) -> String {
 /// condition is a rate over many cases, not a per-case verdict (see
 /// `Op::Ik`'s doc comment), so these counts are tallied alongside, not
 /// instead of, `compare_ik`'s per-case correctness verdict.
-#[derive(Default)]
+#[derive(Debug, Default, serde::Serialize)]
 struct IkStats {
     total: usize,
     oracle_success: usize,
@@ -1700,7 +1758,10 @@ fn compare_ik(
 /// wrong was found, only that this run could not have told either way -- but
 /// it prints as its own `UNDERPOWERED` line rather than folding into `PASS`,
 /// so it survives being read at a glance.
-fn report(verdicts: &[(String, Verdict)]) -> Result<usize, String> {
+/// Prints the standard PASS/FAIL/UNDERPOWERED report and returns
+/// `(failures, underpowered)`, the two counts [`RunStats`] cannot derive
+/// from `verdicts.len()` alone.
+fn report(verdicts: &[(String, Verdict)]) -> Result<(usize, usize), String> {
     let mut failures = 0usize;
     let mut underpowered = 0usize;
     // Distinct failure messages, so 1,000 identical "unimplemented" lines
@@ -1738,7 +1799,7 @@ fn report(verdicts: &[(String, Verdict)]) -> Result<usize, String> {
             println!("  {count:>6}x  (first: {first})  {msg}");
         }
     }
-    Ok(failures)
+    Ok((failures, underpowered))
 }
 
 #[cfg(test)]
