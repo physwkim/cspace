@@ -923,6 +923,24 @@ fn accumulate_collision<'a>(
         collision,
         distance: None,
         contacts: request.contacts.then_some(ContactData { by_pair }),
+        // `request.cost`/`request.max_cost_sources` are accepted but never
+        // read here -- `cost_sources` is always `None` regardless of what
+        // was requested. This is a backend limitation, not an oversight:
+        // upstream's `CostSource` comes from `fcl::CollisionResultd::
+        // getCostSources()` (`fcl2costsource`, `collision_common.cpp`),
+        // populated internally by FCL's own per-narrowphase-call cost-
+        // density computation whenever `fcl::CollisionRequestd`'s
+        // `enable_cost` is set. `parry3d_f64` has no equivalent primitive
+        // anywhere in its public API (confirmed by searching its full
+        // source for `cost_density`/`CostSource`: no matches) --
+        // `query::contact` returns a point pair, a normal and a signed
+        // distance, never a cost-weighted decomposition of the overlap
+        // volume. Implementing this would mean inventing an independent
+        // cost-density estimate from scratch, not adapting one `parry`
+        // already computes. Blocks `PlanningScene::getCostSources`
+        // (`crates/moveit-scene`) until either `parry3d_f64` grows an
+        // equivalent primitive or this backend gets its own independent
+        // cost-density implementation.
         cost_sources: None,
     }
 }
