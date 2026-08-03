@@ -233,45 +233,39 @@
 //!   which is the same "illegal state unrepresentable by construction"
 //!   argument the module doc's D4 section makes for the type as a whole).
 //! - `saveAsText(const Shape*, ostream&)`, `constructShapeFromText(istream&)`
-//!   — **unported this round, deliberately.** Read `shape_operations.cpp` in
-//!   full: the algorithm is fully known — write/read `STRING_NAME` then each
-//!   shape's raw numeric fields whitespace-separated (`Sphere`: radius;
-//!   `Box`: 3 sizes; `Cylinder`/`Cone`: radius, length; `Plane`: a b c d;
-//!   `Mesh`: vertex/triangle counts then each vertex and triangle, followed
-//!   by `computeTriangleNormals()`/`computeVertexNormals()`) via the
-//!   default `ostream`/`istream` `<<`/`>>` operators (no `setprecision`
-//!   anywhere in the file — a round trip is lossy to the default ~6
-//!   significant digits, confirmed by grepping `planning_scene.cpp` too for
-//!   any precision override; there is none). `OcTree` has no case in either
-//!   function, matching this port's own D4 boundary — that shape was never
-//!   round-trippable upstream either. The one in-scope caller is
-//!   `planning_scene.cpp`'s `PlanningScene::saveGeometryToStream`/
-//!   `loadGeometryFromStream` (`moveit_core/planning_scene`, not
-//!   `moveit_ros`) — real, but owned by `moveit-scene` (p1-fixtures'
-//!   crate this round, not this crate's), and that owner has not yet
-//!   specified whether the ported scene format will reuse this exact
-//!   `ostream`-text scheme at all, or a serde-based one more idiomatic for
-//!   this workspace — building a speculative port of an I/O format nobody
-//!   has asked this crate to expose yet is the same "no configurability for
-//!   a hypothetical future requirement" this project avoids elsewhere.
-//!   Falsifier: closes when a consumer names this exact format as the one it
-//!   needs; the algorithm above is the port recipe, transcribed from a
-//!   provenance-verified read of `shape_operations.cpp` (see the top-of-file
-//!   provenance comment) so whoever picks it up does not need to re-read the
-//!   source.
+//!   — **distinct, decided, not deferred (round 12).** Rounds 7-11 carried
+//!   this as an open falsifier ("closes when a consumer names this exact
+//!   format as the one it needs"), with `planning_scene.cpp`'s
+//!   `PlanningScene::saveGeometryToStream`/`loadGeometryFromStream`
+//!   (`:1062`/`:1152`) as the one candidate consumer — owned by
+//!   `moveit-scene`, not this crate. Two deferrals each waiting on the
+//!   other's silence never closes on its own; `moveit-scene` answered the
+//!   real question this round instead of naming the format
+//!   (`crates/moveit-scene/src/scene.rs`, commit `86f102c`): does this port
+//!   intend `.scene` file interop at all? No. Every real upstream caller of
+//!   `saveGeometryToStream`/`loadGeometryFromStream` — `move_group`'s
+//!   `{load,save}_geometry_to_file_service_capability.cpp`, warehouse
+//!   import/export, the RViz Scene tab, `publish_scene_from_text.cpp` — is
+//!   `moveit_ros` tooling wrapped around a live ROS node; `moveit_py` is the
+//!   out-of-scope rewrite one layer removed. `moveit-ros`, the one crate
+//!   that could ever carry ROS-coupled tooling, does not exist and has no
+//!   plan naming this workflow. That answer settles this crate's half too:
+//!   `saveAsText`/`constructShapeFromText` has no reason to exist here
+//!   beyond serving a caller that is now a positive out-of-scope decision,
+//!   not an unmet falsifier. Not ported, and not reopened by a future
+//!   `moveit-scene` round without a new, different consumer naming this
+//!   exact text format for a reason unrelated to `.scene` file interop.
 //!
-//!   Falsifier evaluated, not just stated: `rg -n
-//!   'saveAsText|constructShapeFromText|save_as_text|construct_shape_from_text'`
-//!   over the whole workspace turns up only this module doc — no fixture, no
-//!   test, no other crate's source names either function. `moveit-scene`'s
-//!   own module doc (`crates/moveit-scene/src/scene.rs`, "Message
-//!   round-tripping" section) independently classifies
-//!   `saveGeometryToStream`/`loadGeometryFromStream` as **distinct, not
-//!   ported** — deferred for its own reason (RViz scene-file UI interop, no
-//!   renderer in D1 scope), not because it names this exact text format as
-//!   what it needs. `tools/moveit-oracle/src/oracle.cpp` has no op touching
-//!   either function either (`rg` for the same pattern there is also empty).
-//!   The falsifier has not fired; the deferral stands.
+//!   The algorithm remains recorded in case that ever happens: write/read
+//!   `STRING_NAME` then each shape's raw numeric fields whitespace-separated
+//!   (`Sphere`: radius; `Box`: 3 sizes; `Cylinder`/`Cone`: radius, length;
+//!   `Plane`: a b c d; `Mesh`: vertex/triangle counts then each vertex and
+//!   triangle, followed by `computeTriangleNormals()`/
+//!   `computeVertexNormals()`) via the default `ostream`/`istream` `<<`/`>>`
+//!   operators (no `setprecision` anywhere in the file — a round trip is
+//!   lossy to the default ~6 significant digits). `OcTree` has no case in
+//!   either function, matching this port's own D4 boundary — that shape was
+//!   never round-trippable upstream either.
 //!
 //! # Who consumes `Shape::OcTree`, and what they will need from it
 //!
