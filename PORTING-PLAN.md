@@ -2979,3 +2979,60 @@ tests/utils_parity.rs`에 `resolve_constraint_frame_boundary` 모듈(6
 `update_joint_constraints`의 `local_variable_name` 미제거 이름 비교
 한계(§23.3-1)는 이 함수와 무관 — `resolveConstraintFrames`는
 위치/방향 제약만 다루고, 상류 자신도 조인트 제약을 건드리지 않는다.
+
+---
+
+## 25. §22 UNFIXED 재검증 — mesh는 착지했다, 그러나 119건은 115건으로만 줄었다 (4라운드, 2026-08-04)
+
+§22.2가 pr2 `visibility_cone`의 119/2,201 거리(depth) 불일치를
+`moveit-model`이 mesh 충돌 형상을 갖지 못한 탓으로 근본 원인을
+지목하고 `UNFIXED`로 남긴 뒤, `p3-acm`이 STL 로더(`947f3e6`,
+`73da61e`, `aaaaae8`, `a1b2b5a`로 병합)를 착지시켰다. `moveit-model`은
+이제 `RobotModel::from_urdf_and_srdf`에 실제
+[`MeshSearchPaths`](crates/moveit-model/src/link_model.rs)를 주면
+`<mesh>` 충돌 형상을 보존하고, `moveit-collision::parry`(`parry.rs:287-296`)는
+그 정점/삼각형을 근사가 아니라 진짜 `parry3d::shape::TriMesh`로
+변환한다 — 확인 후 진행했다(추측 아님).
+
+`tools/moveit-diff`의 유일한 `from_urdf_and_srdf` 호출부
+(`build_rust_model`)는 이 라운드가 시작되기 전부터 이미
+`mesh_search_paths()`를 쓰고 있었다 — panda/fanuc뿐 아니라 pr2까지
+`third_party/moveit_resources/pr2_description`으로 매핑되어 있었다
+(이 함수 자체가 `aaaaae8`, 즉 mesh 로더를 착지시킨 그 커밋에서
+도입됐다). 라운드 4 작업 지시에 있던 "`moveit-diff`의 모든
+`from_urdf_and_srdf` 호출부가 지금 `MeshSearchPaths::none()`을 쓴다"는
+전제는 리베이스 이후 시점 기준으로 이미 사실이 아니었다 — 내가
+`mesh_search_paths()`나 `build_rust_model`을 고칠 필요는 없었고,
+실제로 고치지 않았다.
+
+**재실행 (§22.2와 동일 조건, seed 4·`--cases 100`·`--group right_arm`·
+`--constraints 2000`, 2026-08-04):**
+
+```
+cases:  2201
+passed: 2086
+failed: 115
+```
+
+`visibility_cone: 142 satisfied, 143 violated` — §22.1의 분포와
+동일, `satisfied` 불리언 불일치는 여전히 0건. `decide_cone`의 판정
+로직 자체는 이번에도 완전히 정확했다.
+
+119 → 115, 4건 감소. **0으로 떨어지지 않았다** — §22.2가 세운
+가설("mesh 충돌 형상이 없어서")은 방향은 맞았지만, mesh가 실제로
+로드되고 `moveit-collision`이 그것을 진짜 삼각형 메시로 변환해도
+근거리 143건 중 115건(80%)은 여전히 오라클과 다른 깊이를 보고한다.
+`decide_cone`의 `max_contacts: 1` 로컬 환경이 이제 pr2의 mesh 링크를
+포함하는데도(§22.2 당시엔 아예 없었다) 오라클의 "첫 접촉" 순회
+순서와 여전히 다른 접촉을 고르는 경우가 대다수라는 뜻이다 — 즉
+근본 원인은 "mesh 형상의 부재"가 아니라 그보다 한 단계 더 깊이,
+`moveit-collision`이 여러 접촉 후보 중 하나를 고르는 순회/타이브레이크
+순서가 상류(FCL 기반)와 다른 데 있다. 이건 `moveit-collision`
+내부의 접촉 순회 로직 문제이지 `moveit-constraints`의 `decide_cone`도
+이 생성기도 고칠 수 있는 지점이 아니다 — 이번 라운드의 소유 범위
+밖이며, 조사해서 고치는 것도 이번 라운드 지시("바뀌면 보고하되
+직접 고치지 마라")를 넘어선다.
+
+**`UNFIXED`로 계속 남긴다**, 숫자만 119→115로 갱신한다. mesh 로더
+착지가 이 gap을 완전히 닫지 못했다는 것 자체가 새로운 사실이므로,
+접촉 순회 순서 조사는 `moveit-collision` 소유자에게 넘긴다.
