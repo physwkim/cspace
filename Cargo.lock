@@ -460,6 +460,7 @@ dependencies = [
  "moveit-srdf",
  "moveit-state",
  "nalgebra",
+ "rsruckig",
  "serde",
  "serde_json",
  "urdf-rs",
@@ -711,6 +712,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "rsruckig"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f1fd553ac99199900fcc11b6ecbb81462f6e0eba8d5db018056d868c4d1ddcf"
+dependencies = [
+ "arrayvec",
+ "num-traits",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

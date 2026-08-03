@@ -13,6 +13,7 @@ moveit-error.workspace = true
 moveit-model.workspace = true
 moveit-state.workspace = true
 nalgebra.workspace = true
+rsruckig.workspace = true
 
 [dev-dependencies]
 approx.workspace = true

@@ -36,6 +36,7 @@ linkme = "0.3"
 approx = "0.5"
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_chacha = "0.10"
+rsruckig = "3.0.0"
 
 [workspace.lints.rust]
 # Denied here rather than through a CI-only `RUSTFLAGS: -D warnings`: cargo
