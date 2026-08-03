@@ -31,4 +31,12 @@ pub enum SbpError {
         /// The offending upper bound.
         max: f64,
     },
+
+    /// A subspace weight (e.g. [`crate::se3::Se3Space`]'s rotation weight)
+    /// was negative or non-finite.
+    #[error("invalid weight {value}: must be finite and non-negative")]
+    InvalidWeight {
+        /// The offending weight.
+        value: f64,
+    },
 }

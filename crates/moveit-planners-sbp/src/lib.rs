@@ -48,6 +48,7 @@ mod error;
 pub mod nn;
 mod rrt_connect;
 mod sampling;
+pub mod se3;
 pub mod so2;
 pub mod space;
 #[cfg(test)]
@@ -57,6 +58,7 @@ pub mod validity;
 pub use error::SbpError;
 pub use nn::Gnat;
 pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
+pub use se3::{Se3Space, Se3State};
 pub use so2::So2Space;
 pub use space::{RealVectorSpace, StateSpace};
 pub use validity::{DiscreteMotionValidator, MotionValidator, StateValidityChecker};
