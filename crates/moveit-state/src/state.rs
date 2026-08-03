@@ -1051,13 +1051,17 @@ impl<'s, 'm> Posed<'s, 'm> {
         Ok(joint.compute_transform(&self.0.positions[first..first + count]))
     }
 
-    /// `getFrameTransform`/`getFrameInfo`, restricted to what this port
-    /// supports: a leading `/` is stripped, `frame_id == model_frame`
+    /// `getFrameTransform`/`getFrameInfo`, restricted to what this crate
+    /// alone can resolve: a leading `/` is stripped, `frame_id == model_frame`
     /// resolves to the identity transform at the root link (upstream:
     /// `robot_state.cpp:1345`), and otherwise `frame_id` must name a link.
     /// Upstream's further fallback to attached bodies and their subframes
-    /// is out of scope for this task (attached bodies are not ported); see
-    /// this crate's `UNFIXED` report.
+    /// lives one layer up, on the `moveit-scene` crate's
+    /// `PlanningScene::frame_transform` — this port keeps attached bodies on
+    /// the scene rather than on `RobotState` (see that crate's
+    /// `attached_body` module doc), so this method structurally cannot see
+    /// them; the scene calls this method for its own first two tiers before
+    /// trying the rest.
     ///
     /// # Errors
     ///

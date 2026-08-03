@@ -41,6 +41,7 @@
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/dynamics_solver/dynamics_solver.hpp>
 #include <moveit/kinematic_constraints/kinematic_constraint.hpp>
+#include <moveit/planning_scene/planning_scene.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
@@ -59,6 +60,7 @@
 #include <moveit_msgs/msg/position_constraint.hpp>
 #include <moveit_msgs/msg/visibility_constraint.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
 
 // The `ik` op's solver: KDL::ChainIkSolverVelMimicSVD, vendored verbatim (see
 // that header's own comment for why) plus kdl_parser to build a KDL::Chain
@@ -473,6 +475,8 @@ public:
       return collision(request);
     if (op == "world")
       return world(request);
+    if (op == "frame_transform")
+      return frameTransform(request);
     if (op == "distance_field")
       return distanceField(request);
     if (op == "shape_points")
@@ -1366,6 +1370,105 @@ private:
       { "robot_collision", robot_res.collision },
       { "robot_distance", robot_dres.minimum_distance.distance },
     };
+  }
+
+  /// Ground truth for `PlanningScene::frame_transform`/`knows_frame_transform`
+  /// (`moveit-scene`). Builds a real `planning_scene::PlanningScene` from
+  /// `model_` so upstream's own three-tier ladder
+  /// (`planning_scene.cpp:2036`/`:2061`) runs unmodified: `RobotState::
+  /// getFrameInfo` (model frame, link, attached-body id/subframe --
+  /// attached bodies applied to `*state_` exactly as `collision()` does,
+  /// plus an optional per-body `subframes` map), then `World::getTransform`/
+  /// `knowsTransform` (world objects fed from `request["objects"]`, same
+  /// shape as the `world` op, with an optional per-object `subframes` map),
+  /// then the TF tier (`SceneTransforms`, always empty here since nothing
+  /// ever calls `setTransforms` on it -- it can only ever contribute "not
+  /// found", the same "no TF tier" gap `PlanningScene::frame_transform`'s
+  /// own doc records).
+  ///
+  /// `PlanningScene::getFrameTransform`'s documented contract is "return
+  /// identity when no transform is available, use `knowsFrameTransform` to
+  /// tell the two apart" -- so `transform` in the response is always
+  /// upstream's actual return value (identity when unresolved), reported
+  /// alongside `knows_transform` rather than folded into one optional. This
+  /// also captures `world.rs`'s documented `knowsTransform`/`getTransform`
+  /// ambiguity (a subframe name colliding with a sibling object's name)
+  /// exactly as it surfaces through the *scene*'s ladder, from upstream
+  /// directly, not re-derived from reading world.cpp.
+  json frameTransform(const json& request)
+  {
+    applyJointValues(request);
+
+    state_->clearAttachedBodies();
+    for (const auto& attached_json : request.value("attached_bodies", json::array()))
+    {
+      const std::string id = attached_json.at("id").get<std::string>();
+      const std::string link_name = attached_json.at("link_name").get<std::string>();
+      const auto& shapes_json = attached_json.at("shapes");
+      const auto& shape_poses_json = attached_json.at("shape_poses");
+      std::vector<shapes::ShapeConstPtr> shapes;
+      EigenSTL::vector_Isometry3d shape_poses;
+      for (std::size_t i = 0; i < shapes_json.size(); ++i)
+      {
+        const json& shape_json = shapes_json.at(i);
+        const std::string shape_type = shape_json.at("type").get<std::string>();
+        shapes.push_back(parseShape(shape_type, shape_json));
+        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
+      }
+      std::set<std::string> touch_links;
+      if (attached_json.contains("touch_links"))
+      {
+        for (const auto& link_json : attached_json.at("touch_links"))
+        {
+          touch_links.insert(link_json.get<std::string>());
+        }
+      }
+      moveit::core::FixedTransformsMap subframes;
+      if (attached_json.contains("subframes"))
+      {
+        for (auto it = attached_json.at("subframes").begin(); it != attached_json.at("subframes").end(); ++it)
+          subframes[it.key()] = fromRowMajor4x4(it.value());
+      }
+      state_->attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links, link_name,
+                          trajectory_msgs::msg::JointTrajectory(), subframes);
+    }
+    state_->update();
+
+    planning_scene::PlanningScene scene(model_);
+    scene.getCurrentStateNonConst() = *state_;
+
+    for (const auto& object_json : request.value("objects", json::array()))
+    {
+      const std::string id = object_json.at("id").get<std::string>();
+      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+      const json& shape_json = object_json.at("shape");
+      const std::string shape_type = shape_json.at("type").get<std::string>();
+      std::shared_ptr<shapes::Shape> shape = parseShape(shape_type, shape_json);
+      scene.getWorldNonConst()->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
+
+      if (object_json.contains("subframes") && !object_json.at("subframes").empty())
+      {
+        moveit::core::FixedTransformsMap subframes;
+        for (auto it = object_json.at("subframes").begin(); it != object_json.at("subframes").end(); ++it)
+          subframes[it.key()] = fromRowMajor4x4(it.value());
+        scene.getWorldNonConst()->setSubframesOfObject(id, subframes);
+      }
+    }
+
+    json queries_out = json::array();
+    for (const auto& query_json : request.at("queries"))
+    {
+      const std::string name = query_json.get<std::string>();
+      const bool knows = scene.knowsFrameTransform(name);
+      const Eigen::Isometry3d transform = scene.getFrameTransform(name);
+      queries_out.push_back(json{
+        { "name", name },
+        { "knows_transform", knows },
+        { "transform", toRowMajor4x4(transform) },
+      });
+    }
+
+    return json{ { "queries", queries_out } };
   }
 
   /// Ground truth for the `moveit-collision` World port. Builds a
