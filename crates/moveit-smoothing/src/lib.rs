@@ -30,12 +30,18 @@
 //!   acceleration/jerk limits jointly across all DOF. No pure-Rust `osqp`
 //!   binding is a workspace dependency; porting this needs one adopted
 //!   first.
-//! - `RuckigFilter` (`ruckig_filter.hpp`/`.cpp`) — wraps `<ruckig/ruckig.hpp>`
-//!   (the `ruckig` C++ library) for jerk-limited online trajectory
-//!   generation. `PORTING-PLAN.md` §4.6 defers the crate choice (`rsruckig`
-//!   vs `ferromotion-ruckig` vs a from-scratch port) to a dedicated
-//!   evaluation against this file's own test vectors; that evaluation has
-//!   not happened yet.
+//! - `RuckigFilterPlugin` (`ruckig_filter.hpp`/`.cpp`) — unlike
+//!   `ButterworthFilter`, upstream never splits out a model-independent
+//!   piece here: `RuckigFilterPlugin` is the only class in the file, and it
+//!   is a `SmoothingBaseClass` implementation coupled to `rclcpp::Node`,
+//!   `RobotModelConstPtr` and a `generate_parameter_library`-generated
+//!   `Params` struct throughout (`initialize`, `getVelAccelJerkBounds`) —
+//!   the same ROS/`RobotModel` coupling `ButterworthFilterPlugin` has, with
+//!   nothing underneath it to extract. `PORTING-PLAN.md` §4.6 no longer
+//!   defers the crate choice — it names `rsruckig` (pure Rust, not an FFI
+//!   `-sys` binding) — but still defers wiring it in here, because the
+//!   blocker is the ROS/`RobotModel` coupling above, not the crate
+//!   question.
 
 mod butterworth;
 
