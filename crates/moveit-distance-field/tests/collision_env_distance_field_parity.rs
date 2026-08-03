@@ -75,7 +75,21 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
-const TOL: f64 = 1e-4;
+/// Measured, not policy: this constant used to pin `1e-4` with no doc
+/// comment at all -- inherited from the other parity files in this crate,
+/// never checked against what this file's own assertions actually see.
+/// Temporary instrumentation over every fixture case found
+/// `add_link_body_decompositions`' sphere radii and
+/// `generate_distance_field_cache_entry`'s `distance_queries` bit-exact
+/// (`max_abs = 0.0`), and `group_state_representation`'s bounding
+/// sphere/`field_pose` translation agreeing to `1.12e-13` relative /
+/// `4.44e-16` absolute at worst -- the `field_pose` rotation's
+/// sum-of-squared-component error (compared against `TOL * TOL` below)
+/// measured `9.24e-32` against a `1e-9`-scaled gate of `1e-18`, fourteen
+/// orders of margin. `1e-9` keeps four orders of margin above the worst
+/// plain-`TOL` measurement (`1.12e-13`) while remaining five orders
+/// tighter than the old value.
+const TOL: f64 = 1e-9;
 
 /// `sphere_radii` alone, and deliberately twelve orders tighter than [`TOL`].
 ///

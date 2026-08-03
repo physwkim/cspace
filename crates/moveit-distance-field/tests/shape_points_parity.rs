@@ -41,6 +41,17 @@
 //! [`POINT_EPS`]. The comparison is exact set equality on those gridded
 //! keys, so a missing or extra point is reported as such rather than
 //! being matched to a near neighbour.
+//!
+//! Unlike this crate's other parity tests' `TOL`/`DISTANCE_TOL`, a coarser
+//! [`POINT_EPS`] is the safe direction here (it can only turn a real defect
+//! into a false pass at a scale within a few ULPs of that defect, never
+//! hide a bigger one), so there is nothing to tighten. The noise itself was
+//! measured directly, by zipping this port's and the oracle's point arrays
+//! by index (both sides enumerate the same sampling grid in the same
+//! order, so this needs no set-matching): `5.55e-17` absolute / `1.78e-16`
+//! relative across every fixture case, i.e. [`POINT_EPS`] is roughly ten
+//! orders of magnitude coarser than the measured noise, not the six this
+//! comment previously estimated without measuring.
 
 use std::collections::HashSet;
 use std::fs;
@@ -61,8 +72,8 @@ use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
 /// ULPs apart that happen to straddle a bucket edge land in different
 /// buckets and read as a mismatch. That direction is the safe one — it can
 /// cost a false failure, never a false pass — and it is why this constant is
-/// six orders of magnitude coarser than the noise it absorbs rather than
-/// merely larger than it.
+/// roughly ten orders of magnitude coarser than the measured noise it
+/// absorbs (see the module doc) rather than merely larger than it.
 const POINT_EPS: f64 = 1e-6;
 
 #[derive(Deserialize)]

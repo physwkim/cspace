@@ -38,8 +38,20 @@ use serde::Deserialize;
 use moveit_distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
 use nalgebra::Vector3;
 
-/// `1e-4`: PORTING-PLAN.md §5 Phase 3's stated distance tolerance.
-const DISTANCE_TOL: f64 = 1e-4;
+/// PORTING-PLAN.md §5 Phase 3 names `1e-4` as the distance tolerance, but
+/// that is a policy floor, not a measurement: every value this constant
+/// gates -- `grid_to_world`, `distance`, `distance_cell`, `distance_gradient`,
+/// `nearest_cell` -- is a raw [`PropagationDistanceField`] wavefront result,
+/// with no mesh-decomposition or FK step upstream of it on either side.
+/// Temporary instrumentation over both fixtures found these values bit-exact
+/// between this port and the oracle (`max_abs = 0.0`, `max_rel = 0.0`), so
+/// `1e-4` caught nothing a value ten orders of magnitude tighter would have
+/// missed. `1e-9` keeps five orders of comfortable margin over the
+/// next-loosest measurement in this crate's other parity tests (see
+/// `collision_env_distance_field_parity.rs`'s own tolerance doc comment,
+/// `1.12e-13` relative) while still catching any real regression the old
+/// value would have silently passed.
+const DISTANCE_TOL: f64 = 1e-9;
 
 #[derive(Deserialize)]
 struct RequestGeometry {

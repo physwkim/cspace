@@ -29,13 +29,25 @@
 //!
 //! # Tolerance
 //!
-//! `1e-4`, matching `oracle_parity.rs`'s `DISTANCE_TOL` (PORTING-PLAN.md §5
-//! Phase 3's stated distance tolerance) -- used uniformly here rather than
-//! `shape_points_parity.rs`'s coarser grid-bucketing, because every value
-//! compared in this test (sphere positions/radii, bounding sphere,
-//! gradients, collision-gradient outputs) is a direct floating point number
-//! read off a fixed-order, deterministic computation on both sides, not an
-//! unordered point cloud that needs set comparison.
+//! Used uniformly here rather than `shape_points_parity.rs`'s coarser
+//! grid-bucketing, because every value compared in this test (sphere
+//! positions/radii, bounding sphere, gradients, collision-gradient outputs)
+//! is a direct floating point number read off a fixed-order, deterministic
+//! computation on both sides, not an unordered point cloud that needs set
+//! comparison.
+//!
+//! The value itself, `1e-9`, is measured, not copied: this file used to pin
+//! `1e-4` matching `oracle_parity.rs`'s `DISTANCE_TOL` (PORTING-PLAN.md §5
+//! Phase 3's stated distance tolerance), but that number was never checked
+//! against what this test actually observes. Temporary instrumentation over
+//! every fixture case found every bucket -- sphere positions/radii, bounding
+//! sphere, cylinder pose, `distance_gradient`, `get_collision_sphere_gradients`
+//! -- agrees with the oracle to within `6.63e-14` relative / `2.22e-16`
+//! absolute at worst (mesh-decomposition float non-associativity and a few
+//! ULPs of wavefront-propagation noise, nothing structural). `1e-4` was
+//! roughly ten orders of magnitude looser than that; `1e-9` keeps four
+//! orders of margin above the worst measurement while still catching a real
+//! regression the old value would have silently passed.
 
 use std::fs;
 use std::sync::Arc;
@@ -50,9 +62,8 @@ use moveit_distance_field::{
 use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
 use nalgebra::{Matrix3, Point3, Translation3, UnitQuaternion, Vector3};
 
-/// `1e-4`: PORTING-PLAN.md §5 Phase 3's stated distance tolerance. See the
-/// module doc for why this is used uniformly rather than a coarser bucket.
-const TOL: f64 = 1e-4;
+/// `1e-9`: measured, not policy. See the module doc's "Tolerance" section.
+const TOL: f64 = 1e-9;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

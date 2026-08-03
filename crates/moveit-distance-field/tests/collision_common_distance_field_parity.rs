@@ -79,9 +79,19 @@ use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 
-/// PORTING-PLAN.md §5 Phase 3's stated distance tolerance, matching
-/// `collision_distance_field_types_parity.rs`.
-const TOL: f64 = 1e-4;
+/// Measured, not policy: this constant used to pin `1e-4`, PORTING-PLAN.md
+/// §5 Phase 3's stated distance tolerance, matching
+/// `collision_distance_field_types_parity.rs`'s `TOL` -- inherited from a
+/// neighbour, never checked against what this file's own assertions
+/// actually see. Temporary instrumentation over both fixtures found every
+/// value this test compares (`collision_object_point_decomposition`'s
+/// world points, `link_body_decomposition`'s sphere radii and posed sphere
+/// centers/bounding sphere across all 8 cases) agrees with the oracle to
+/// within `3.75e-14` relative / `2.22e-16` absolute at worst -- the sphere
+/// radii were bit-exact. `1e-9` keeps four orders of margin above that
+/// worst measurement while remaining five orders tighter than the old
+/// value.
+const TOL: f64 = 1e-9;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
