@@ -71,15 +71,30 @@
 //! case, e.g. `0.28633902198848005` vs `0.2863390219884798`, diff ~2.5e-16 --
 //! larger than the ~6.4e-17 the implicit relative branch alone would have
 //! given it, so this assertion was never actually masked, just far looser
-//! than it needed to be). `TOL` is `1e-12`, giving ~3.6 orders of magnitude
-//! of headroom over the measured floor -- matching the headroom
-//! `distance-field` settled on in PORTING-PLAN.md §78.2 for the same
-//! independent-reimplementation situation. That the diffs bottom out at the
-//! f64 ULP floor rather than growing with trajectory length is itself
-//! evidence `rsruckig`'s root-finding agrees with the oracle's `ruckig` to
-//! within rounding, not that this assertion has lost discriminating power;
-//! the deletion/perturbation testing in "What each case discriminates"
-//! above is what establishes that it still does.
+//! than it needed to be).
+//!
+//! `positions`/`velocities`/`accelerations` share this one `TOL`, so a
+//! bisection that only watches the first `assert_relative_eq!` failure
+//! could report the loosest group's floor and never notice a tighter group
+//! hiding behind it (PORTING-PLAN.md's correction to §79's method, citing
+//! `distance-field/tests/upstream_parity.rs`: 4 of 7 bundled assertions
+//! there only bit 12 orders below the named epsilon once re-bisected per
+//! group). Re-verified with a non-panicking max-diff sweep across every
+//! case/step/joint instead of asserting: `positions` maxes at `5.55e-17`,
+//! `velocities` at `1.11e-16`, `accelerations` at `2.22e-16` -- the
+//! `accelerations` group above (`~2.5e-16`) genuinely is the tightest of
+//! the three, so the first-failure bisection was not masking a tighter
+//! group.
+//!
+//! `TOL` is `1e-12`, giving ~3.6 orders of magnitude of headroom over the
+//! measured floor -- matching the headroom `distance-field` settled on in
+//! PORTING-PLAN.md §78.2 for the same independent-reimplementation
+//! situation. That the diffs bottom out at the f64 ULP floor rather than
+//! growing with trajectory length is itself evidence `rsruckig`'s
+//! root-finding agrees with the oracle's `ruckig` to within rounding, not
+//! that this assertion has lost discriminating power; the
+//! deletion/perturbation testing in "What each case discriminates" above is
+//! what establishes that it still does.
 
 use std::collections::HashMap;
 use std::fs;
