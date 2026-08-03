@@ -305,6 +305,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-octomap"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+ "serde_json",
+]
+
+[[package]]
 name = "moveit-planners-sbp"
 version = "0.1.0"
 dependencies = [
