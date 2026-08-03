@@ -1,0 +1,402 @@
+{
+  "box.aabb.max": [
+    0.8067222375603802,
+    -0.19477326121695127,
+    1.5932586196995682
+  ],
+  "box.aabb.min": [
+    -0.20672223756038016,
+    -1.2052267387830486,
+    0.6067413803004321
+  ],
+  "box.bcyl.length": 0.8999999999999999,
+  "box.bcyl.origin": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "box.bcyl.radius": 0.3911521443121589,
+  "box.bsphere.center": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "box.bsphere.radius": 0.5962382074305536,
+  "box.contains[0]": 1,
+  "box.contains[1]": 0,
+  "box.contains[2]": 1,
+  "box.contains[3]": 0,
+  "box.contains[4]": 1,
+  "box.contains[5]": 1,
+  "box.obb.extents": [
+    0.6599999999999999,
+    0.8999999999999999,
+    0.42
+  ],
+  "box.obb.origin": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "box.ray[0].count": 2,
+  "box.ray[0].hit": 1,
+  "box.ray[0].pt[0]": [
+    0.3,
+    -0.7,
+    0.7716844442202548
+  ],
+  "box.ray[0].pt[1]": [
+    0.3,
+    -0.7,
+    1.4283155557797445
+  ],
+  "box.ray[1].count": 2,
+  "box.ray[1].hit": 1,
+  "box.ray[1].pt[0]": [
+    -0.024220855831774468,
+    -0.7,
+    1.1
+  ],
+  "box.ray[1].pt[1]": [
+    0.624220855831775,
+    -0.7,
+    1.1
+  ],
+  "box.ray[2].count": 2,
+  "box.ray[2].hit": 1,
+  "box.ray[2].pt[0]": [
+    0.3,
+    -1.1945559635054164,
+    1.1
+  ],
+  "box.ray[2].pt[1]": [
+    0.3,
+    -0.20544403649458465,
+    1.1
+  ],
+  "box.ray[3].count": 0,
+  "box.ray[3].hit": 0,
+  "box.ray[4].count": 1,
+  "box.ray[4].hit": 1,
+  "box.ray[4].pt[0]": [
+    0.4542349785741595,
+    -0.5072062767823006,
+    1.396902333755257
+  ],
+  "box.volume": 0.24947999999999992,
+  "convexmesh.aabb.max": [
+    2.0972758367603026,
+    0.32471159312774495,
+    2.147908741471151
+  ],
+  "convexmesh.aabb.min": [
+    0.15919958882522978,
+    -1.255538002819205,
+    0.24173647093407447
+  ],
+  "convexmesh.bcyl.length": 1.17,
+  "convexmesh.bcyl.origin": [
+    1.1282377127927663,
+    -0.46541320484572996,
+    1.1948226062026126
+  ],
+  "convexmesh.bcyl.radius": 0.8231727983645296,
+  "convexmesh.bsphere.center": [
+    0.7141188563963832,
+    -0.582706602422865,
+    1.1474113031013062
+  ],
+  "convexmesh.bsphere.radius": 0.9635296272271774,
+  "convexmesh.contains[0]": 1,
+  "convexmesh.contains[1]": 0,
+  "convexmesh.contains[2]": 1,
+  "convexmesh.contains[3]": 0,
+  "convexmesh.contains[4]": 0,
+  "convexmesh.contains[5]": 0,
+  "convexmesh.obb.extents": [
+    1.17,
+    1.17,
+    1.17
+  ],
+  "convexmesh.obb.origin": [
+    1.1282377127927663,
+    -0.46541320484572996,
+    1.1948226062026126
+  ],
+  "convexmesh.ray[0].count": 1,
+  "convexmesh.ray[0].hit": 1,
+  "convexmesh.ray[0].pt[0]": [
+    0.3,
+    -0.7,
+    1.0437118825220129
+  ],
+  "convexmesh.ray[1].count": 2,
+  "convexmesh.ray[1].hit": 1,
+  "convexmesh.ray[1].pt[0]": [
+    -0.32815004519489044,
+    -0.7,
+    1.1
+  ],
+  "convexmesh.ray[1].pt[1]": [
+    0.35840569806803035,
+    -0.7,
+    1.1
+  ],
+  "convexmesh.ray[2].count": 1,
+  "convexmesh.ray[2].hit": 1,
+  "convexmesh.ray[2].pt[0]": [
+    0.3,
+    -0.655473353407316,
+    1.1
+  ],
+  "convexmesh.ray[3].count": 0,
+  "convexmesh.ray[3].hit": 0,
+  "convexmesh.ray[4].count": 2,
+  "convexmesh.ray[4].hit": 1,
+  "convexmesh.ray[4].pt[0]": [
+    0.32054697288583645,
+    -0.6743162838927044,
+    1.1395529228052352
+  ],
+  "convexmesh.ray[4].pt[1]": [
+    0.3297564174011388,
+    -0.6628044782485765,
+    1.1572811034971924
+  ],
+  "convexmesh.volume": 0.16666666666666666,
+  "cylinder.aabb.max": [
+    0.8583264176315683,
+    -0.21827881595046744,
+    1.656170524279621
+  ],
+  "cylinder.aabb.min": [
+    -0.25832641763156833,
+    -1.1817211840495325,
+    0.5438294757203794
+  ],
+  "cylinder.bcyl.length": 1.03,
+  "cylinder.bcyl.origin": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "cylinder.bcyl.radius": 0.29500000000000004,
+  "cylinder.bsphere.center": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "cylinder.bsphere.radius": 0.5935065290289568,
+  "cylinder.contains[0]": 1,
+  "cylinder.contains[1]": 0,
+  "cylinder.contains[2]": 1,
+  "cylinder.contains[3]": 0,
+  "cylinder.contains[4]": 1,
+  "cylinder.contains[5]": 1,
+  "cylinder.obb.extents": [
+    0.5900000000000001,
+    0.5900000000000001,
+    1.03
+  ],
+  "cylinder.obb.origin": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "cylinder.ray[0].count": 2,
+  "cylinder.ray[0].hit": 1,
+  "cylinder.ray[0].pt[0]": [
+    0.3,
+    -0.7,
+    0.716227291403777
+  ],
+  "cylinder.ray[0].pt[1]": [
+    0.3,
+    -0.7,
+    1.4837727085962218
+  ],
+  "cylinder.ray[1].count": 2,
+  "cylinder.ray[1].hit": 1,
+  "cylinder.ray[1].pt[0]": [
+    -0.08719508828701272,
+    -0.7,
+    1.1
+  ],
+  "cylinder.ray[1].pt[1]": [
+    0.6871950882870119,
+    -0.7,
+    1.1
+  ],
+  "cylinder.ray[2].count": 2,
+  "cylinder.ray[2].hit": 1,
+  "cylinder.ray[2].pt[0]": [
+    0.3,
+    -1.0240685057210914,
+    1.1
+  ],
+  "cylinder.ray[2].pt[1]": [
+    0.3,
+    -0.3759314942789098,
+    1.1
+  ],
+  "cylinder.ray[3].count": 0,
+  "cylinder.ray[3].hit": 0,
+  "cylinder.ray[4].count": 1,
+  "cylinder.ray[4].hit": 1,
+  "cylinder.ray[4].pt[0]": [
+    0.44040803272653656,
+    -0.5244899590918293,
+    1.370285462998583
+  ],
+  "cylinder.volume": 0.28159901369901136,
+  "obb.a.vertices": [
+    [
+      -0.5,
+      -0.5,
+      -0.5
+    ],
+    [
+      -0.5,
+      -0.5,
+      0.5
+    ],
+    [
+      -0.5,
+      0.5,
+      -0.5
+    ],
+    [
+      -0.5,
+      0.5,
+      0.5
+    ],
+    [
+      0.5,
+      -0.5,
+      -0.5
+    ],
+    [
+      0.5,
+      -0.5,
+      0.5
+    ],
+    [
+      0.5,
+      0.5,
+      -0.5
+    ],
+    [
+      0.5,
+      0.5,
+      0.5
+    ]
+  ],
+  "obb.a_contains_c": 0,
+  "obb.a_contains_origin": 1,
+  "obb.a_overlaps_c": 1,
+  "obb.merged.extents": [
+    1.6758837473455768,
+    1.5715759020468965,
+    1.3
+  ],
+  "obb.merged.origin": [
+    0.1352736719073267,
+    0.20336734691434635,
+    0.15000000000000002
+  ],
+  "obb2.merged.extents": [
+    5.276215387442537,
+    1.382526183616898,
+    1.4515229241858343
+  ],
+  "obb2.merged.origin": [
+    2.0694887287570296,
+    0.15521165465677728,
+    -0.10347443643785134
+  ],
+  "sphere.aabb.max": [
+    0.8700000000000001,
+    -0.1299999999999999,
+    1.6700000000000002
+  ],
+  "sphere.aabb.min": [
+    -0.2700000000000001,
+    -1.27,
+    0.53
+  ],
+  "sphere.bcyl.length": 1.1400000000000001,
+  "sphere.bcyl.origin": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "sphere.bcyl.radius": 0.5700000000000001,
+  "sphere.bsphere.center": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "sphere.bsphere.radius": 0.5700000000000001,
+  "sphere.contains[0]": 1,
+  "sphere.contains[1]": 0,
+  "sphere.contains[2]": 1,
+  "sphere.contains[3]": 0,
+  "sphere.contains[4]": 1,
+  "sphere.contains[5]": 1,
+  "sphere.obb.extents": [
+    1.1400000000000001,
+    1.1400000000000001,
+    1.1400000000000001
+  ],
+  "sphere.obb.origin": [
+    0.3,
+    -0.7,
+    1.1
+  ],
+  "sphere.ray[0].count": 2,
+  "sphere.ray[0].hit": 1,
+  "sphere.ray[0].pt[0]": [
+    0.3,
+    -0.7,
+    0.53
+  ],
+  "sphere.ray[0].pt[1]": [
+    0.3,
+    -0.7,
+    1.6700000000000002
+  ],
+  "sphere.ray[1].count": 2,
+  "sphere.ray[1].hit": 1,
+  "sphere.ray[1].pt[0]": [
+    -0.2700000000000001,
+    -0.7,
+    1.1
+  ],
+  "sphere.ray[1].pt[1]": [
+    0.8700000000000001,
+    -0.7,
+    1.1
+  ],
+  "sphere.ray[2].count": 2,
+  "sphere.ray[2].hit": 1,
+  "sphere.ray[2].pt[0]": [
+    0.3,
+    -1.27,
+    1.1
+  ],
+  "sphere.ray[2].pt[1]": [
+    0.3,
+    -0.1299999999999999,
+    1.1
+  ],
+  "sphere.ray[3].count": 0,
+  "sphere.ray[3].hit": 0,
+  "sphere.ray[4].count": 1,
+  "sphere.ray[4].hit": 1,
+  "sphere.ray[4].pt[0]": [
+    0.5276701173216818,
+    -0.4154123533478978,
+    1.5382649758442375
+  ],
+  "sphere.volume": 0.7757346243950063
+}

@@ -286,6 +286,7 @@ dependencies = [
  "moveit-error",
  "nalgebra",
  "parry3d-f64",
+ "serde_json",
 ]
 
 [[package]]
