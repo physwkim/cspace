@@ -77,6 +77,19 @@ use moveit_state::RobotState;
 
 const TOL: f64 = 1e-4;
 
+/// `sphere_radii` alone, and deliberately twelve orders tighter than [`TOL`].
+///
+/// These radii are not the product of a long geometric pipeline the way
+/// `distance_queries` is — the two sides disagree only by float
+/// non-associativity in the mesh decomposition's arithmetic. Measured, not
+/// assumed: across the 24 radii that differ at all, the largest deviation is
+/// `3.469e-18` absolute / `1.436e-16` relative, i.e. one ulp at these
+/// magnitudes. `TOL` would admit `1e-4` on a `0.024` radius — 0.2% — so
+/// reusing it here because the neighbouring assertions do would leave twelve
+/// orders of magnitude of silent headroom on a field that has never needed
+/// any. `1e-12` is still four orders above the measurement.
+const RADIUS_TOL: f64 = 1e-12;
+
 fn fixture_path(file_name: &str) -> String {
     format!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
@@ -703,7 +716,7 @@ fn group_state_representation_matches_the_oracle() {
                 .iter()
                 .zip(&expected_gradient.sphere_radii)
             {
-                assert_relative_eq!(*actual_radius, *expected_radius, epsilon = TOL);
+                assert_relative_eq!(*actual_radius, *expected_radius, epsilon = RADIUS_TOL);
             }
             assert_eq!(
                 gsr.gradients[i].joint_name, expected_gradient.joint_name,
