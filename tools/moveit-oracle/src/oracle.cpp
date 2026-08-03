@@ -539,6 +539,8 @@ public:
       return frameTransform(request);
     if (op == "is_state_valid")
       return isStateValid(request);
+    if (op == "octree_points")
+      return octreePoints(request);
     if (op == "distance_field")
       return distanceField(request);
     if (op == "shape_points")
@@ -2247,6 +2249,67 @@ private:
     }
 
     return json{ { "queries", queries_out } };
+  }
+
+  /// Ground truth for `DistanceField::getOcTreePoints`
+  /// (`distance_field.cpp:240-283`), the leaf-subdivision loop this port
+  /// reimplements as `distance_field.rs`'s `octree_points`. Requested by
+  /// p3-distance-field: the port's own tests can only show what the port
+  /// does, and the open question is a cross-language one -- for a leaf
+  /// larger than the field resolution, upstream walks
+  /// `for (double x = getX() - ceil_val; x <= getX() + ceil_val; x +=
+  /// resolution_)` on each axis, accumulating the loop variable by repeated
+  /// addition while comparing against a separately-rounded bound, so whether
+  /// the last face survives depends on floating-point accumulation that a
+  /// C++ compiler is free to contract (FMA) differently from Rust.
+  ///
+  /// `getOcTreePoints` is `protected` (`distance_field.hpp:587`) and derives
+  /// its bounding box from the field's own grid extent rather than taking
+  /// one, so this op builds a real `PropagationDistanceField` with the
+  /// requested geometry and reaches the method through a derived class --
+  /// not through `addOcTreeToField`, whose `addPointsToField` step would
+  /// collapse several points into one cell and hide exactly the per-point
+  /// count this op exists to compare.
+  ///
+  /// Deliberately dumps every point in emission order, not just the count:
+  /// two implementations can agree on how many points they produce and still
+  /// disagree on which, and the count alone would not distinguish "the last
+  /// face is missing" from "the whole grid is shifted by one step".
+  json octreePoints(const json& request) const
+  {
+    struct PointExposer : distance_field::PropagationDistanceField
+    {
+      using PropagationDistanceField::PropagationDistanceField;
+      using DistanceField::getOcTreePoints;
+    };
+
+    const json& geom = request.at("geometry");
+    const auto size = geom.at("size").get<std::array<double, 3>>();
+    const auto origin = geom.at("origin").get<std::array<double, 3>>();
+    const double resolution = geom.at("resolution").get<double>();
+
+    octomap::OcTree tree(request.at("octree_resolution").get<double>());
+    applyOctomapActions(tree, request.at("actions"));
+
+    const PointExposer field(size[0], size[1], size[2], resolution, origin[0], origin[1], origin[2],
+                             /*max_distance=*/resolution, /*propagate_negative=*/false);
+
+    EigenSTL::vector_Vector3d points;
+    field.getOcTreePoints(&tree, &points);
+
+    json points_out = json::array();
+    for (const Eigen::Vector3d& point : points)
+      points_out.push_back(json::array({ point.x(), point.y(), point.z() }));
+
+    json leaves_out = json::array();
+    for (octomap::OcTree::leaf_iterator it = tree.begin_leafs(), end = tree.end_leafs(); it != end; ++it)
+    {
+      leaves_out.push_back(json{ { "coordinate", json::array({ it.getX(), it.getY(), it.getZ() }) },
+                                 { "size", it.getSize() },
+                                 { "occupied", tree.isNodeOccupied(*it) } });
+    }
+
+    return json{ { "points", points_out }, { "count", points.size() }, { "leaves", leaves_out } };
   }
 
   /// Ground truth for `find_internal_points_convex`
