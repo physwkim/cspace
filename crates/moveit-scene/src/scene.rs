@@ -1461,6 +1461,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn decouple_parent_then_the_childs_inherited_attached_body_frame_still_resolves() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.attach_new(
+            "box",
+            "hand",
+            vec![cuboid_shape()],
+            vec![Isometry3::translation(0.3, 0.0, 0.0)],
+            BTreeSet::new(),
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.decouple_parent();
+        assert!(child.parent().is_none());
+
+        // `attached_bodies` is cloned eagerly at `diff()` regardless of
+        // decoupling, but resolving its frame still routes through
+        // `current_state_mut`, which was `Layered::Inherited` before
+        // `decouple_parent` materialized it -- this exercises that
+        // materialization happened correctly rather than leaving a
+        // dangling inherited state with no parent to resolve against.
+        assert_eq!(
+            child.frame_transform("box").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.0)
+        );
+        assert!(child.knows_frame_transform("box"));
+    }
+
+    #[test]
+    fn decouple_parent_then_the_childs_inherited_world_object_still_resolves() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("crate", cuboid_shape(), Isometry3::identity());
+        root.move_object("crate", Isometry3::translation(2.0, 0.0, 0.0));
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.decouple_parent();
+        assert!(child.parent().is_none());
+
+        // `world` is a full clone at `diff()` time, not layered, so this
+        // confirms `decouple_parent` (which only touches `robot_state`/
+        // `acm`/`world_diff`/`parent`) leaves that already-materialized
+        // world content intact rather than discarding it along with the
+        // diff-tracking it does clear.
+        assert_eq!(child.world().object_ids(), vec!["crate".to_owned()]);
+        assert_eq!(
+            child.frame_transform("crate").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.0)
+        );
+        assert!(child.knows_frame_transform("crate"));
+    }
+
     // ---- frames: the five-tier ladder ----------------------------------------
 
     #[test]
