@@ -7619,3 +7619,93 @@ PosedBodyPointDecomposition::PosedBodyPointDecomposition(
 -D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
 연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
 `7cc8a73408a83c92` 유지.
+
+## 90. 도달 불가 분기가 표현 불가능해졌다 — 그리고 보고서 한 줄이 트리와 다르다 (2026-08-04)
+
+p1-robotmodel 라운드 11 머지(`8146ecc`, `95041dd`, `0ba77c4`).
+베이스 `0ce4524`, main에 머지. **1050 → 1052**.
+
+### 90.1 §84.2의 구조적 처방이 실행됐다
+
+`used`가 `BTreeMap`에서 `Option<(String, IkConstraintSamplerAdapter)>`로
+바뀌었다. `smallest_across_links`와 그 안의 검증 불가능한 동률 비교는
+트리에서 사라졌다(`rg`로 확인, 0건). **도달 불가 분기를 주석으로
+설명하는 대신 표현 불가능하게 만든 것**이 이 라운드 세트에서 처음 나온
+구조적 종결이다.
+
+살아남은 링크별 동률 방향은 여전히 물린다 —
+`existing < candidate`를 `<=`로 뒤집으면 `-p moveit-constraints`(89건)에서
+1 fail이다.
+
+### 90.2 서브그룹 재귀 상한이 상류에 없다
+
+상류 `constraint_sampler_manager.cpp:366`이 `selectDefaultSampler`를
+**자기 자신으로** 다시 부른다. 즉 재귀에 깊이 제한이 없고, 포트가 갖고
+있던 한 단계 상한은 실제 이탈이었다. `SubgroupSolver` 재귀 트리로
+교체됐고, 재귀 스레딩을 `Vec::new()`로 끊으면 1 fail이다 — 깊이 2
+테스트(`top`→`mid`→`leaf`)가 실제로 재고 있다.
+
+### 90.3 손수 쓴 허용오차 43곳은 전부 진짜 게이트다
+
+담당이 13개 파일 43+6곳을 자동 하네스로 이분했고, 상수를 바꿀 곳이
+하나도 없다는 결론이다. 내가 `so2.rs`를 표본으로 다시 쟀다
+(`-p moveit-planners-sbp`, 93건):
+
+```
+1e-9 (현재)  93/93 통과
+1e-12        93/93 통과
+1e-15        93/93 통과
+1e-16        4 fail
+0.0          7 fail
+```
+
+바닥이 `1e-16`–`1e-15`, 상수가 `1e-9`이므로 **헤드룸 6–7자리**다.
+담당이 보고한 "1.5–12+자리" 범위와 맞다. 그리고 `.abs() <` 형태는
+`assert_relative_eq!`와 달리 `max_relative` 경로가 없으므로 `0.0`까지의
+이분이 그대로 의미를 갖는다 — §79 함정의 사촌이 아니라 순수한
+상수-과대 문제였고, 이 크레이트에는 없었다.
+
+`space.rs:366`의 `0.02`가 부동소수 허용오차가 아니라 몬테카를로 통계
+경계(~8.5σ)라는 구분도 타당하다.
+
+### 90.4 보고서 한 줄이 트리와 다르다 — `isFixedFrame` 배선은 설치가 아니다
+
+보고서는 `0ba77c4`가 "constructor-side call site wiring
+`PlanningScene::transforms_with_world_objects()` into
+`PositionConstraint::new`"를 **추가**했다고 적었다. 실제로 들어간 것은
+`#[cfg(test)]` 안의 테스트 하나다.
+
+`rg`로 확인한 워크스페이스 전체 상황:
+
+```
+moveit-scene/src/scene.rs:791       정의
+moveit-scene/src/scene.rs:2507-2637 자기 테스트 8건
+moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
+                                    #[cfg(test)] 테스트 안
+```
+
+**프로덕션 호출자는 0건이다.** 그리고 그건 담당의 잘못이 아니다 —
+`construct_goal_pose_constraints`(`utils.rs:245`)를 비롯한 생성 경로가
+전부 `tf: &Transforms`를 **호출자에게서 받는** 형태이고, 워크스페이스에
+`PlanningScene`에서 목표 제약을 만드는 프로덕션 경로가 아직 없다.
+배선할 대상 자체가 없다.
+
+그러므로 UNFIXED 문구를 바꾼다: **"`isFixedFrame` 생성자 미배선"이
+아니라 "배선 지점이 특정·테스트로 증명됐고, 프로덕션 호출자는 그런
+경로가 생길 때 만들어진다"**이다. 어느 크레이트가 그 경로를 갖게 될지
+(`moveit-planners-sbp`가 유일하게 양쪽에 의존한다)까지 문서에 남았으니
+재개 조건은 명확하다.
+
+`moveit-constraints`가 `moveit-scene`에 의존할 수 없다는 근거
+(`check-dep-direction.sh`가 `moveit-scene → moveit-constraints` 방향을
+이미 쓰고 있어 순환이 된다)는 맞다.
+
+### 90.5 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1052/1052**(1050 + 2),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
+`7cc8a73408a83c92` 유지.
+
+담당이 보고한 1038/1038은 베이스 `0ce4524` 기준 값이다.
