@@ -54,16 +54,16 @@ use crate::validity::StateValidityChecker;
 /// variable count, not just this group's, on every call) plus whatever
 /// forward-kinematics work [`PlanningScene::is_state_valid`]'s
 /// `RobotState::update` performs the first time this sample's transforms
-/// are actually read. Measured by this module's own `measured_call_cost`
-/// test on the panda fixture (`panda_arm`, 7 DoF, real mesh-loaded
-/// collision geometry via `fixture_mesh_search_paths`, empty world, no
-/// constraints, `cargo nextest` debug profile, 50 calls): **~8-15
-/// ms/call** — three orders of magnitude past an early no-mesh-geometry
-/// measurement this doc comment previously (wrongly) cited, because that
-/// measurement's scene had no collision shapes loaded at all (see this
-/// module's own tests' history for that correction). This is a total, not
-/// a breakdown — no profiling was done to say how much is the `Vec<f64>`
-/// clone versus FK versus the real self-collision mesh checks
+/// are actually read. Measured by
+/// `cargo run --example planning_scene_validity_bench -p moveit-planners-sbp`
+/// (panda_arm, 7 DoF, real mesh-loaded collision geometry via
+/// `fixture_mesh_search_paths`, empty world, no constraints, 50 calls):
+/// **~8-15 ms/call** — three orders of magnitude past an early
+/// no-mesh-geometry measurement this doc comment previously (wrongly)
+/// cited, because that measurement's scene had no collision shapes loaded
+/// at all (see this crate's commit history for that correction). This is a
+/// total, not a breakdown — no profiling was done to say how much is the
+/// `Vec<f64>` clone versus FK versus the real self-collision mesh checks
 /// [`moveit_collision::ParryCollisionEnv`] now actually performs. A single
 /// `Termination::Iterations(20_000)` RRT-Connect query against real panda
 /// geometry is therefore on the order of *minutes* of validity checking
@@ -72,7 +72,11 @@ use crate::validity::StateValidityChecker;
 /// latency concern for real-geometry queries specifically, but no pooling
 /// scheme is built against it yet — pooling would not address mesh
 /// collision cost at all (it only avoids the `Vec<f64>` clone, a small
-/// fraction of this total), and nothing here has measured what would.
+/// fraction of this total), and nothing here has measured what would. This
+/// module's own `is_valid_does_not_regress_by_orders_of_magnitude` test
+/// guards only against a catastrophic (~100x) regression in this cost, not
+/// against exceeding it — see that test's doc comment for why the bound it
+/// asserts is loose on purpose.
 pub struct PlanningSceneValidityChecker<'a, 'm, E> {
     scene: RefCell<&'a mut PlanningScene<'m>>,
     env: &'a E,
@@ -133,7 +137,6 @@ where
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::Instant;
 
     use moveit_collision::{LinkPaddingScale, ParryCollisionEnv};
     use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
@@ -142,12 +145,9 @@ mod tests {
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_scene::PlanningScene;
     use moveit_srdf::SrdfModel;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
 
     use super::*;
     use crate::joint_model_group_space::JointModelGroupSpace;
-    use crate::space::StateSpace;
 
     /// The `moveit_resources_panda_description` package committed under
     /// `fixtures/meshes/` (see `tools/ci/verify-fixture-provenance.sh` and
@@ -302,13 +302,17 @@ mod tests {
         );
     }
 
-    /// Not a correctness test: reports the per-call cost this type's own
-    /// doc comment cites, so that number is reproducible rather than only
-    /// asserted in prose. No `assert!` on the timing itself — machine
-    /// speed varies too much across CI/dev hosts for a hard bound to be
-    /// meaningful here.
+    /// Not a timing measurement (see `examples/planning_scene_validity_bench.rs`
+    /// for that) -- a regression guard. The bound is deliberately huge
+    /// relative to the measured cost (this type's own doc comment: debug
+    /// ~8-15 ms/call, release ~1-6 ms/call) so it never fails from ordinary
+    /// machine-speed variance, but still catches an accidental ~100x
+    /// blowup -- e.g. a change that makes this call quadratic in variable
+    /// count, or drops an early-out FCL/`parry` relies on -- in a normal
+    /// `cargo nextest run`, without needing anyone to remember to run the
+    /// example.
     #[test]
-    fn measured_call_cost() {
+    fn is_valid_does_not_regress_by_orders_of_magnitude() {
         let (model, srdf) = load_panda();
         let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
         let mut scene = PlanningScene::new(&model, &srdf);
@@ -322,22 +326,16 @@ mod tests {
             &space,
         );
 
-        let mut rng = ChaCha8Rng::seed_from_u64(0);
-        let samples: Vec<_> = (0..50).map(|_| space.sample_uniform(&mut rng)).collect();
-
-        let mut durations = Vec::with_capacity(samples.len());
-        for sample in &samples {
-            let start = Instant::now();
-            std::hint::black_box(checker.is_valid(sample));
-            durations.push(start.elapsed());
-        }
-        let total: std::time::Duration = durations.iter().sum();
-        println!(
-            "PlanningSceneValidityChecker::is_valid: mean {:?}/call, min {:?}, max {:?}, over {} calls (panda_arm, empty world, no constraints)",
-            total / durations.len() as u32,
-            durations.iter().min().unwrap(),
-            durations.iter().max().unwrap(),
-            durations.len()
+        let ready = ready_state(&model);
+        let sample = space.read_robot_state(&ready);
+        let start = std::time::Instant::now();
+        std::hint::black_box(checker.is_valid(&sample));
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "a single is_valid call took {elapsed:?}, over 100x the ~15 ms debug-profile \
+             maximum this type's doc comment measures -- see \
+             examples/planning_scene_validity_bench.rs for a precise re-measurement"
         );
     }
 }
