@@ -3132,11 +3132,57 @@ OOB 버그가 태어난 방식이기 때문이다.
 | 0.2 | 42.0% (210/500) |
 | 0.35 | 69.8% (349/500) |
 
-네 공식 그룹 모두와 mimic 체인 모두에서 오라클/이 포트 성공률이 소수점
-첫째 자리까지 완전히 일치했고(`paired: b (oracle only) = 0, c (rust only)
-= 0`), FK 정확성 실패는 8+4개 실행 전부에서 0건이었다 — `consistency_limits`의
+FK 정확성 실패는 8+4개 실행 전부에서 0건이었다 — `consistency_limits`의
 풀스페이스→축약 로직과 재시도 루프의 원본-시드 고정이 상류와 이 포트
 양쪽에서 동일하게 동작함을 확인했다. 구현은 `oracle.cpp`(op 확장),
 `protocol.rs`(`Op::Ik::consistency_limits` 필드), `rust_impl.rs`
 (`chain_joint_names`/`solve_case`의 축약), `main.rs`(`--ik-consistency-limit`
 CLI, 관절별 fraction×range 계산)에 있다(d4b72cc).
+
+
+### 26.3 §26.2의 결론 정정 — 재시드 경로에 단방향 격차가 있다 (병합 시 측정)
+
+§26.2는 "네 공식 그룹 모두에서 오라클/이 포트 성공률이 소수점 첫째
+자리까지 완전히 일치했고 `paired: b = 0, c = 0`"이라고 맺었다. **그
+문장은 §26.2 자신의 표와 모순된다** — 같은 표가 panda 31.4% / 36.0%,
+fanuc 33.2% / 44.4%를 적고 있고, `b`/`c`는 정의상 성공 개수 차이
+(`rust_success - oracle_success == c - b`)이므로 둘 다 0일 수 없다.
+`failed: 0`은 "각 측이 낸 해가 자기 FK로 목표를 맞추는가"만 보는
+지표이고 두 측이 같은 케이스에서 성공하는가는 보지 않는다 —
+`main.rs:1345-1360`의 `oracle_only`/`rust_only` 독코멘트가 바로 그
+구분을 위해 존재한다고 적고 있다.
+
+병합 시점에 직접 측정했다 (`--cases 500 --seed 20260803`,
+`--ik-max-restarts` 기본값 20, 이미지 `a8988410cec4b1aa`):
+
+| 픽스처 / 그룹 | `--ik-consistency-limit 0.35` oracle/rust | b (oracle만) | c (rust만) |
+|---|---|---|---|
+| panda / panda_arm | 27.8% / 38.6% | 15 | 69 |
+| fanuc / manipulator | 29.6% / 44.4% | 18 | 92 |
+| dual_arm_panda / left_panda_arm | 30.2% / 39.6% | 20 | 67 |
+| pr2 / right_arm | 22.4% / 24.4% | 8 | 18 |
+
+제한 없이 같은 시드로 돌리면 대칭 잡음이다: panda `b=8, c=10`,
+fanuc `b=33, c=32`, pr2 `b=0, c=0`. 즉 **일관성 제한이 걸릴 때만** 네
+그룹 전부에서 `c >> b`가 되고, 방향이 언제나 이 포트 쪽이다. `moveit-diff`
+자신의 판정 기준(`b≈c`는 잡음, 한쪽이 크게 크면 실효)으로 실효다.
+
+**격차의 위치는 재시드 경로로 좁혀진다.** `--ik-max-restarts 0`으로
+재시드를 아예 끄면 두 측이 정확히 일치한다:
+
+| panda / panda_arm, `--ik-max-restarts 0` | oracle/rust | b | c |
+|---|---|---|---|
+| `--ik-consistency-limit 0.35` | 15.2% / 15.2% (76/500) | 0 | 0 |
+| 제한 없음 | 50.6% / 50.6% (253/500) | 1 | 1 |
+
+첫 시도, 뉴턴 반복, 일관성 수락/거부 판정은 두 측이 동일하다. 갈리는
+곳은 `near_by_configuration`(이 포트) 대 `getVariableRandomPositionsNearBy`
+(상류)뿐이다. RNG 스트림 차이(ChaCha8 대 boost mt19937)만이라면 부호가
+대칭이어야 하는데 네 그룹 전부 한 방향이므로, RNG만으로는 설명되지
+않는다. 확인된 후보 하나: 상류 `RevoluteJointModel::getVariableRandomPositionsNearBy`
+(`revolute_joint_model.cpp:122-136`)는 **연속 관절(`continuous_`)일 때
+`near ± distance`를 클램프 없이 뽑고 `enforcePositionBounds`로 감싸는**
+별도 분기를 갖는데, 이 포트의 `near_by_configuration`은 모든 관절을
+`[min, max]`로 클램프한다. 다만 panda_arm에는 연속 관절이 없으므로 이
+분기만으로 panda의 격차를 설명하지는 못한다. 근본 원인은 미확정 —
+`p1-joints` 5라운드로 넘긴다.
