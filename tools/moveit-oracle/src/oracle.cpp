@@ -1535,6 +1535,11 @@ private:
   /// then, only for a penetrating pair, a second up-to-200-contact `collide`
   /// pass taking the deepest penetration) at all, since an unsigned distance
   /// is clamped to `>= 0` on both sides regardless of that deviation.
+  /// `self_distance_pair`/`robot_distance_pair` (`distancePairToJson` below)
+  /// name the pair behind `self_distance`/`robot_distance` directly from
+  /// `DistanceResultsData::link_names`/`body_types` -- pr2 case 7552 is a
+  /// `*_distance` disagreement, not a `*_collision` one, so this field, not
+  /// `contactsToJson`'s, is what actually names its pair.
   json collision(const json& request)
   {
     applyJointValues(request);
@@ -1609,9 +1614,11 @@ private:
     return json{
       { "self_collision", self_res.collision },
       { "self_distance", self_dres.minimum_distance.distance },
+      { "self_distance_pair", distancePairToJson(self_dres.minimum_distance, *world) },
       { "self_contacts", contactsToJson(self_res.contacts, *world) },
       { "robot_collision", robot_res.collision },
       { "robot_distance", robot_dres.minimum_distance.distance },
+      { "robot_distance_pair", distancePairToJson(robot_dres.minimum_distance, *world) },
       { "robot_contacts", contactsToJson(robot_res.contacts, *world) },
     };
   }
@@ -1678,6 +1685,34 @@ private:
       });
     }
     return out;
+  }
+
+  /// Names the pair behind a `distanceSelf`/`distanceRobot` scalar directly
+  /// from `DistanceResultsData::link_names`/`body_types` -- unlike
+  /// `contactsToJson`, this needs no `CollisionRequest`-side inference at
+  /// all, since upstream's distance query already carries the pair that
+  /// produced `minimum_distance` on the very struct that carries the
+  /// number. Added for round-8 item 1 alongside `contactsToJson`: pr2 case
+  /// 7552 (`collision_parity.rs`) is a `self_distance`/`robot_distance`
+  /// disagreement, not a `self_collision`/`robot_collision` one, so this is
+  /// the field that actually answers it, rather than the contacts side.
+  /// `link_names[0]`/`[1]` are empty together
+  /// (`DistanceResultsData::clear()`) when nothing was ever found -- e.g. no
+  /// other body exists to measure against -- so `null` is returned rather
+  /// than looking up an empty name.
+  json distancePairToJson(const collision_detection::DistanceResultsData& d,
+                           const collision_detection::World& world) const
+  {
+    if (d.link_names[0].empty() || d.link_names[1].empty())
+      return nullptr;
+    return json{
+      { "body_name_1", d.link_names[0] },
+      { "body_type_1", bodyTypeName(d.body_types[0]) },
+      { "shape_kinds_1", shapeKindsFor(d.body_types[0], d.link_names[0], world) },
+      { "body_name_2", d.link_names[1] },
+      { "body_type_2", bodyTypeName(d.body_types[1]) },
+      { "shape_kinds_2", shapeKindsFor(d.body_types[1], d.link_names[1], world) },
+    };
   }
 
   /// Ground truth for `PlanningScene::frame_transform`/`knows_frame_transform`
