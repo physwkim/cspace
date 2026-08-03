@@ -6309,3 +6309,60 @@ p3-distance-field 라운드 11(`994c4b3`, `07c5591`). 베이스 `e690982`.
 
 `cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
+
+## 72. world 쪽 마지막 미해명 2건이 닫혔다 — 이 포트가 맞다 (2026-08-04)
+
+p3-acm 라운드 11(`fc361a9`, `d499634`). 베이스 `90c11a3`.
+
+### 72.1 충돌 파이프라인을 전혀 타지 않는 측정
+
+§60.2/§63.2가 남긴 것: `l_gripper_{l,r}_finger_tip_link`/`floor` 두 건은
+양쪽이 **같은 쌍**을 골랐는데 값이 다르므로 §56의 순위 메커니즘으로
+설명되지 않는다. 침투 깊이는 최소 이동 거리(MTD)이므로, 더 깊은 답은
+얕은 답이 실제 분리 방향에 대응하지 않을 때만 정당하다.
+
+담당이 그 판정을 두 백엔드 어느 쪽에도 의존하지 않는 방법으로 했다:
+`deepest_vertex_under_floor`가 링크 메시의 **자기 정점들**을 global link
+transform으로 옮겨 가장 낮은 z를 찾는다. parry도 FCL도 타지 않는다.
+그리고 그 정점이 `floor_env`의 4×4m 안쪽에 있는지를 테스트 안에서
+단언한다 — 그래야 "똑바로 위가 유일한 싼 탈출"이 성립하고 깊이가 곧
+MTD가 된다.
+
+결과: 두 건 모두 이 포트의 크기를 재현한다(422번 0.015686397 대
+0.015686399, 2996번 0.012374991 대 0.012374991).
+
+내가 확인한 것은 이 단언이 실제로 구별력이 있는지다. `TOLERANCE`는
+`1e-4`이고 오라클과 이 포트의 차이는 4.41e-3과 2.43e-3 — 각각 44배와
+24배다. 이 포트가 오라클의 값을 냈다면 정점 검사가 실패한다.
+
+**결론: `parry.rs`의 결함이 아니다.** 오라클의 얕은 값이 도달 가능한
+분리 이동에 대응하지 않는다. `distanceRobot`의 re-collide-and-take-max-depth
+탐색이 이 메시의 진짜 최심점을 놓치는 것이고, 이는 deviation 6과 같은
+메커니즘(FCL의 비볼록 침투 깊이는 근사이지 정확한 EPA가 아니다)이
+쌍 순위가 아니라 크기 불일치로 나타난 것이다.
+
+### 72.2 7과 2는 겹치지 않는다 — 계기가 보장한다
+
+`main.rs:1521-1541`을 직접 읽었다. `distance_pair_matches`가 참이면
+`*_same_pair_and_value_diverges`, 거짓이면 `*_pair_disagrees` 후
+`*_pair_flip_and_value_diverges`로 간다 — `if/else`이므로 한 케이스가 두
+카운터에 동시에 들어갈 수 없다. §60.2가 손으로 나눈 7 + 2가 구조적으로
+서로소임이 코드로 보장된다.
+
+### 72.3 `assert_plausible_depth`는 이 계열을 잡을 수 없었다
+
+`link_bounding_radius("floor")`가 `None`이다(floor는 로봇 링크가 아니다).
+그래서 robot/World 쌍에서는 경계가 fingertip 자기 반지름의 2배
+(≈0.069m)로 퇴화하고, 양쪽 값 0.010~0.016m는 그 안에 넉넉히 들어간다.
+이 불일치는 실제 world geometry에 대고 재는 것(`deepest_vertex_under_floor`)
+으로만 잡힌다. `link_bounding_radius`에 적혔다.
+
+### 72.4 머지 후 실측
+
+`cargo nextest run --workspace` **982/982**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
+재생 **26/26 identical**(새 `pr2_world_object_same_pair` 포함).
+
+이로써 §43에서 시작한 pr2 거리 불일치 계열에서 **world 쪽은 전부
+설명됐다** — 7건은 순위 flip(§56의 메커니즘), 2건은 이 포트가 맞고
+오라클이 얕다. 남은 것은 self 쪽 same-pair 62건(§67.2)이다.
