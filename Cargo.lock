@@ -188,6 +188,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-smoothing"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+]
+
+[[package]]
 name = "moveit-srdf"
 version = "0.1.0"
 dependencies = [
