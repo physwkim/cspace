@@ -42,8 +42,8 @@ mod tools;
 mod world;
 
 pub use common::{
-    BodyType, CollisionDistance, CollisionRequest, CollisionResult, Contact, ContactData,
-    CostSource, DistanceMap, DistanceRequest, DistanceRequestType, DistanceResult,
+    AttachedBodyGeometry, BodyType, CollisionDistance, CollisionRequest, CollisionResult, Contact,
+    ContactData, CostSource, DistanceMap, DistanceRequest, DistanceRequestType, DistanceResult,
     DistanceResultsData, IsDoneFn,
 };
 pub use env::{CollisionEnv, LinkPaddingScale};

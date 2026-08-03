@@ -60,7 +60,8 @@ use std::collections::BTreeMap;
 use moveit_error::Result;
 
 use crate::common::{
-    CollisionRequest, CollisionResult, ContactData, DistanceRequest, DistanceResult,
+    AttachedBodyGeometry, CollisionRequest, CollisionResult, ContactData, DistanceRequest,
+    DistanceResult,
 };
 use crate::matrix::AllowedCollisionMatrix;
 
@@ -102,24 +103,54 @@ use crate::matrix::AllowedCollisionMatrix;
 ///
 /// Nothing above is silently dropped: every overload either maps onto one of
 /// the five methods below, or is named here as not portable yet and why.
+///
+/// # Attached-body geometry: the upstream answer, and why this trait deviates
+///
+/// Upstream's own answer to "where does attached-body geometry enter a
+/// collision check" is: the backend asks the *state* for it.
+/// `CollisionEnvFCL::constructFCLObjectRobot` calls `state.getAttachedBodies(ab)`
+/// and folds every attached body's geometry into the same per-robot object
+/// every one of `checkSelfCollision`/`checkRobotCollision`/`distanceSelf`/
+/// `distanceRobot` builds from — attached bodies are not a side channel some
+/// of those four consult and others don't; they are simply part of what
+/// "the robot at this state" means, upstream-side.
+///
+/// This crate's `State` is generic and opaque (see this module's doc,
+/// above) precisely so it does not have to depend on `moveit_state`; that
+/// same genericity is why it cannot be the thing attached bodies live on
+/// here — `moveit_state::RobotState` itself carries no attached-body concept
+/// yet (`moveit_scene::AttachedBody`'s own doc: `PlanningScene` is the sole
+/// owner of that data for now, precisely because `RobotState` has nowhere to
+/// put it). Each method below therefore takes `attached_bodies: &[AttachedBodyGeometry<'_>]`
+/// as an explicit parameter standing in for what `state.getAttachedBodies()`
+/// would return if it could — passed alongside `state`, to every one of the
+/// same four methods upstream feeds it into, preserving upstream's real
+/// structural answer ("attached bodies are part of the robot, not a
+/// separate query") as closely as this port's crate boundaries allow. When
+/// `RobotState` gains attached-body support, this parameter folds into
+/// `State` itself and every signature below simplifies back to upstream's
+/// shape.
 pub trait CollisionEnv<State> {
     /// `checkSelfCollision`: check the robot against itself. Any collision
-    /// between any pair of links is reported; `acm` filters which pairs are
-    /// allowed to collide (`None` reports every pair, matching the no-ACM
-    /// overload).
+    /// between any pair of links (and any attached body — see the trait
+    /// doc) is reported; `acm` filters which pairs are allowed to collide
+    /// (`None` reports every pair, matching the no-ACM overload).
     fn check_self_collision(
         &self,
         request: &CollisionRequest,
         state: &State,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult;
 
-    /// `checkRobotCollision` (single-state overloads): check the robot at
-    /// `state` against the world. Self-collisions are not checked.
+    /// `checkRobotCollision` (single-state overloads): check the robot
+    /// (including any attached body — see the trait doc) at `state` against
+    /// the world. Self-collisions are not checked.
     fn check_robot_collision(
         &self,
         request: &CollisionRequest,
         state: &State,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult;
 
@@ -141,16 +172,28 @@ pub trait CollisionEnv<State> {
         request: &CollisionRequest,
         state1: &State,
         state2: &State,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> Result<CollisionResult>;
 
     /// `distanceSelf(req, res, state)`: the distance to self-collision at
-    /// `state`.
-    fn distance_self(&self, request: &DistanceRequest<'_>, state: &State) -> DistanceResult;
+    /// `state`, including any attached body (see the trait doc).
+    fn distance_self(
+        &self,
+        request: &DistanceRequest<'_>,
+        state: &State,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
+    ) -> DistanceResult;
 
-    /// `distanceRobot(req, res, state)`: the distance between the robot at
-    /// `state` and the world.
-    fn distance_robot(&self, request: &DistanceRequest<'_>, state: &State) -> DistanceResult;
+    /// `distanceRobot(req, res, state)`: the distance between the robot
+    /// (including any attached body — see the trait doc) at `state` and the
+    /// world.
+    fn distance_robot(
+        &self,
+        request: &DistanceRequest<'_>,
+        state: &State,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
+    ) -> DistanceResult;
 
     /// `checkCollision`: self-collision, then robot-collision only if either
     /// no collision was found yet or `request.contacts` is set and there is
@@ -189,9 +232,10 @@ pub trait CollisionEnv<State> {
         &self,
         request: &CollisionRequest,
         state: &State,
+        attached_bodies: &[AttachedBodyGeometry<'_>],
         acm: Option<&AllowedCollisionMatrix>,
     ) -> CollisionResult {
-        let mut result = self.check_self_collision(request, state, acm);
+        let mut result = self.check_self_collision(request, state, attached_bodies, acm);
         let contacts_have_room = result
             .contacts
             .as_ref()
@@ -202,7 +246,12 @@ pub trait CollisionEnv<State> {
                 max_contacts: request.max_contacts.saturating_sub(already_found),
                 ..request.clone()
             };
-            result.merge(self.check_robot_collision(&remaining_request, state, acm));
+            result.merge(self.check_robot_collision(
+                &remaining_request,
+                state,
+                attached_bodies,
+                acm,
+            ));
         }
         result
     }
@@ -436,6 +485,7 @@ mod tests {
             &self,
             _request: &CollisionRequest,
             _state: &FakeRobotState,
+            _attached_bodies: &[AttachedBodyGeometry<'_>],
             _acm: Option<&AllowedCollisionMatrix>,
         ) -> CollisionResult {
             self.self_result.clone()
@@ -445,6 +495,7 @@ mod tests {
             &self,
             request: &CollisionRequest,
             _state: &FakeRobotState,
+            _attached_bodies: &[AttachedBodyGeometry<'_>],
             _acm: Option<&AllowedCollisionMatrix>,
         ) -> CollisionResult {
             self.robot_seen_max_contacts.set(request.max_contacts);
@@ -456,6 +507,7 @@ mod tests {
             _request: &CollisionRequest,
             _state1: &FakeRobotState,
             _state2: &FakeRobotState,
+            _attached_bodies: &[AttachedBodyGeometry<'_>],
             _acm: Option<&AllowedCollisionMatrix>,
         ) -> Result<CollisionResult> {
             unimplemented!("not exercised by these tests")
@@ -465,6 +517,7 @@ mod tests {
             &self,
             _request: &DistanceRequest<'_>,
             _state: &FakeRobotState,
+            _attached_bodies: &[AttachedBodyGeometry<'_>],
         ) -> DistanceResult {
             unimplemented!("not exercised by these tests")
         }
@@ -473,6 +526,7 @@ mod tests {
             &self,
             _request: &DistanceRequest<'_>,
             _state: &FakeRobotState,
+            _attached_bodies: &[AttachedBodyGeometry<'_>],
         ) -> DistanceResult {
             unimplemented!("not exercised by these tests")
         }
@@ -507,7 +561,7 @@ mod tests {
             max_contacts: 1,
             ..Default::default()
         };
-        let result = env.check_collision(&request, &FakeRobotState, None);
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
         // Only the self-collision contact is present: robot check was skipped.
         assert_eq!(result.contacts.unwrap().count(), 1);
     }
@@ -528,7 +582,7 @@ mod tests {
             max_contacts: 1,
             ..Default::default()
         };
-        let result = env.check_collision(&request, &FakeRobotState, None);
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
         assert!(result.collision);
         assert_eq!(result.contacts.unwrap().count(), 1);
     }
@@ -558,7 +612,7 @@ mod tests {
             max_contacts: 2,
             ..Default::default()
         };
-        let result = env.check_collision(&request, &FakeRobotState, None);
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
         assert_eq!(result.contacts.unwrap().pair_count(), 2);
     }
 
@@ -582,7 +636,7 @@ mod tests {
             max_contacts: 5,
             ..Default::default()
         };
-        let result = env.check_collision(&request, &FakeRobotState, None);
+        let result = env.check_collision(&request, &FakeRobotState, &[], None);
         assert_eq!(result.contacts.unwrap().count(), 2);
     }
 
@@ -609,7 +663,7 @@ mod tests {
             max_contacts: 5,
             ..Default::default()
         };
-        env.check_collision(&request, &FakeRobotState, None);
+        env.check_collision(&request, &FakeRobotState, &[], None);
         assert_eq!(env.robot_seen_max_contacts.get(), 2);
     }
 

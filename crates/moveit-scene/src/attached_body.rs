@@ -37,6 +37,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use moveit_collision::AttachedBodyGeometry;
 use moveit_geometry::{Isometry3, Shape};
 
 /// Geometry rigidly attached to a robot link. See the module doc for how
@@ -93,5 +94,19 @@ impl AttachedBody {
     /// collision. Upstream `getTouchLinks`.
     pub fn touch_links(&self) -> &BTreeSet<String> {
         &self.touch_links
+    }
+
+    /// Borrows this body's fields as a [`moveit_collision::AttachedBodyGeometry`]
+    /// — the view a [`moveit_collision::CollisionEnv`] backend needs, without
+    /// `moveit-collision` depending back on this crate. See
+    /// [`crate::PlanningScene`]'s "Collision checking" doc for how this is used.
+    pub fn as_geometry(&self) -> AttachedBodyGeometry<'_> {
+        AttachedBodyGeometry {
+            id: &self.id,
+            link_name: &self.link_name,
+            shapes: &self.shapes,
+            shape_poses: &self.shape_poses,
+            touch_links: &self.touch_links,
+        }
     }
 }

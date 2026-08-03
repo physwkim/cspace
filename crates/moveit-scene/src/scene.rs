@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use moveit_collision::{
-    Action, AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, CollisionResult,
-    Contact, DistanceRequest, MoveObjectOutcome, Notification, World,
+    Action, AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionEnv, CollisionRequest,
+    CollisionResult, Contact, DistanceRequest, MoveObjectOutcome, Notification, World,
 };
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape};
@@ -63,6 +63,15 @@ use crate::world_diff::WorldDiff;
 /// below applies whatever padding `E` itself was built with (see
 /// `ParryCollisionEnv`'s own doc) to both the self- and robot-collision
 /// checks alike, rather than switching backends per flag.
+///
+/// Every check/distance method also passes `self`'s
+/// [`PlanningScene::attached_bodies`] to `env` as
+/// [`moveit_collision::AttachedBodyGeometry`] borrows. This follows upstream
+/// `CollisionEnvFCL::constructFCLObjectRobot`, which folds
+/// `state.getAttachedBodies()` into the *same* `FCLObject` used for
+/// self-collision, robot-vs-world collision, and both distance queries —
+/// attached geometry is part of what "the robot" means to every one of
+/// these checks, not an optional extra passed to some and not others.
 ///
 /// Every method here also collapses upstream's separate const/non-const
 /// overload pairs (`checkCollision(state) const` vs `checkCollision(state)`,
@@ -488,8 +497,19 @@ impl<'m> PlanningScene<'m> {
     // collapse (const/non-const, padded/unpadded env selection) and the
     // documented deviation in `check_collision`'s self-then-robot order.
 
+    /// This scene's attached bodies, cloned out of the `attached_bodies`
+    /// field so the resulting owned [`AttachedBody`] values do not keep
+    /// `self` borrowed — [`PlanningScene::current_state_mut`] needs
+    /// `&mut self` right after this, and each entry is cheap to clone
+    /// ([`std::sync::Arc`] shapes, small `Vec`/`BTreeSet` poses and
+    /// touch-links).
+    fn attached_body_snapshot(&self) -> Vec<AttachedBody> {
+        self.attached_bodies.values().cloned().collect()
+    }
+
     /// Check `self` for both self- and robot-collision against `env`, using
-    /// this scene's own [`PlanningScene::allowed_collision_matrix`]. Upstream
+    /// this scene's own [`PlanningScene::allowed_collision_matrix`] and
+    /// [`PlanningScene::attached_bodies`]. Upstream
     /// `checkCollision`/`checkCollisionUnpadded`, collapsed — see the type
     /// doc.
     pub fn check_collision<E>(&mut self, env: &E, request: &CollisionRequest) -> CollisionResult
@@ -497,11 +517,17 @@ impl<'m> PlanningScene<'m> {
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
         let acm = self.allowed_collision_matrix().clone();
+        let attached_bodies = self.attached_body_snapshot();
         let posed = self.current_state_mut().update();
-        env.check_collision(request, &posed, Some(&acm))
+        let attached: Vec<AttachedBodyGeometry<'_>> = attached_bodies
+            .iter()
+            .map(AttachedBody::as_geometry)
+            .collect();
+        env.check_collision(request, &posed, &attached, Some(&acm))
     }
 
-    /// Check `self` for self-collision only against `env`. Upstream
+    /// Check `self` for self-collision only against `env`, including this
+    /// scene's [`PlanningScene::attached_bodies`]. Upstream
     /// `checkSelfCollision`.
     pub fn check_self_collision<E>(
         &mut self,
@@ -512,8 +538,13 @@ impl<'m> PlanningScene<'m> {
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
         let acm = self.allowed_collision_matrix().clone();
+        let attached_bodies = self.attached_body_snapshot();
         let posed = self.current_state_mut().update();
-        env.check_self_collision(request, &posed, Some(&acm))
+        let attached: Vec<AttachedBodyGeometry<'_>> = attached_bodies
+            .iter()
+            .map(AttachedBody::as_geometry)
+            .collect();
+        env.check_self_collision(request, &posed, &attached, Some(&acm))
     }
 
     /// Check `self` against the world only (no self-collision) against
@@ -533,8 +564,13 @@ impl<'m> PlanningScene<'m> {
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
         let acm = self.allowed_collision_matrix().clone();
+        let attached_bodies = self.attached_body_snapshot();
         let posed = self.current_state_mut().update();
-        env.check_robot_collision(request, &posed, Some(&acm))
+        let attached: Vec<AttachedBodyGeometry<'_>> = attached_bodies
+            .iter()
+            .map(AttachedBody::as_geometry)
+            .collect();
+        env.check_robot_collision(request, &posed, &attached, Some(&acm))
     }
 
     /// The distance between the robot at `self`'s current state and the
@@ -551,12 +587,17 @@ impl<'m> PlanningScene<'m> {
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
         let acm = self.allowed_collision_matrix().clone();
+        let attached_bodies = self.attached_body_snapshot();
         let posed = self.current_state_mut().update();
+        let attached: Vec<AttachedBodyGeometry<'_>> = attached_bodies
+            .iter()
+            .map(AttachedBody::as_geometry)
+            .collect();
         let request = DistanceRequest {
             acm: Some(&acm),
             ..Default::default()
         };
-        env.distance_robot(&request, &posed)
+        env.distance_robot(&request, &posed, &attached)
             .minimum_distance
             .distance
     }
