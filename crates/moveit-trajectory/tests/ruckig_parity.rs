@@ -21,20 +21,37 @@
 //! waypoints < 2` no-op path), a `mitigate_overshoot: true` case, and a
 //! duplicate-consecutive-waypoints case.
 //!
-//! # Tolerance
+//! # Exactness, not tolerance
 //!
-//! `rsruckig` is an independent Rust reimplementation of the same published
-//! algorithm as upstream's C++ `ruckig`, not a binding to it -- its
-//! block/step-2 root-finding does not walk identical floating-point
-//! operations in identical order, so exact bit-parity is not expected.
-//! `TOL` is set from what this fixture actually produces (`assert_relative_
-//! eq!` failures below list the observed diffs if the port's numerics ever
-//! drift), not chosen a priori.
+//! This file used `assert_relative_eq!` with an unspecified `max_relative`
+//! (silently `f64::EPSILON`, ~2.22e-16) until PORTING-PLAN.md §78.1/§79
+//! found that trap workspace-wide: bisecting `epsilon` alone can never
+//! reach a real biting point once the implicit relative branch covers the
+//! diff on its own. Here it does more than cover it -- pinning
+//! `epsilon = max_relative = 0.0` and printing every non-bit-identical pair
+//! (not just asserting) showed **zero** diffs across all 7 cases' waypoints:
+//! `run_ruckig` never rewrites a waypoint's position (only
+//! `duration_from_previous`, and -- on the duration-extension path only --
+//! velocity/acceleration, which this fixture's inputs start at `0.0` and
+//! `0.0 / duration_extension_factor` stays `0.0`), so `positions`/
+//! `velocities`/`accelerations` are literal echoes of what the test set up,
+//! not values this port computed. `duration_from_previous` *is* computed
+//! (by `rsruckig`'s `Ruckig::calculate`/`get_duration`) and still came back
+//! bit-identical to the oracle's `ruckig` for every case -- for these
+//! non-degenerate single-segment trapezoidal profiles both independent
+//! implementations evidently walk the same floating-point operations in the
+//! same order. All four fields are therefore `assert_eq!`, not
+//! `assert_relative_eq!`: this is measured exactness on the current
+//! fixture, not an a priori claim that `rsruckig` always bit-matches
+//! `ruckig` (see `ruckig_filter_parity.rs`'s streaming fixture, whose
+//! multi-tick cases do diverge at the ULP level). Confirmed still
+//! discriminating: multiplying `run_ruckig`'s
+//! `ruckig_output.get_duration()` writeback by `1.0001` makes case 0's
+//! `duration_from_previous` assertion fail.
 
 use std::collections::HashMap;
 use std::fs;
 
-use approx::assert_relative_eq;
 use serde::Deserialize;
 
 use moveit_model::{MeshSearchPaths, RobotModel};
@@ -44,8 +61,6 @@ use moveit_trajectory::RobotTrajectory;
 use moveit_trajectory::ruckig_smoothing::{
     SmoothingOptions, apply_smoothing, apply_smoothing_with_limits,
 };
-
-const TOL: f64 = 1e-9;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -200,10 +215,10 @@ fn ruckig_smoothing_matches_the_oracle() {
         );
 
         for waypoint_idx in 0..trajectory.way_point_count() {
-            assert_relative_eq!(
+            assert_eq!(
                 trajectory.way_point_duration_from_previous(waypoint_idx),
                 expected.durations_from_previous[waypoint_idx],
-                epsilon = TOL
+                "case {case_index} waypoint {waypoint_idx}: duration_from_previous"
             );
 
             let waypoint = trajectory
@@ -212,30 +227,30 @@ fn ruckig_smoothing_matches_the_oracle() {
             let expected_waypoint = &expected.waypoints[waypoint_idx];
 
             for (name, &expected_position) in &expected_waypoint.positions {
-                assert_relative_eq!(
+                assert_eq!(
                     waypoint.variable_position(name).unwrap_or_else(|e| panic!(
                         "case {case_index}: waypoint {waypoint_idx}: variable_position({name}): {e}"
                     )),
                     expected_position,
-                    epsilon = TOL
+                    "case {case_index} waypoint {waypoint_idx}: position {name}"
                 );
             }
             for (name, &expected_velocity) in &expected_waypoint.velocities {
-                assert_relative_eq!(
+                assert_eq!(
                     waypoint.variable_velocity(name).unwrap_or_else(|e| panic!(
                         "case {case_index}: waypoint {waypoint_idx}: variable_velocity({name}): {e}"
                     )),
                     expected_velocity,
-                    epsilon = TOL
+                    "case {case_index} waypoint {waypoint_idx}: velocity {name}"
                 );
             }
             for (name, &expected_acceleration) in &expected_waypoint.accelerations {
-                assert_relative_eq!(
+                assert_eq!(
                     waypoint.variable_acceleration(name).unwrap_or_else(|e| panic!(
                         "case {case_index}: waypoint {waypoint_idx}: variable_acceleration({name}): {e}"
                     )),
                     expected_acceleration,
-                    epsilon = TOL
+                    "case {case_index} waypoint {waypoint_idx}: acceleration {name}"
                 );
             }
         }
