@@ -15,7 +15,6 @@
 //! Exit status is 0 only when every case passed.
 
 mod protocol;
-mod rng;
 mod rust_impl;
 
 use std::collections::BTreeMap;
@@ -23,14 +22,13 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use protocol::{FkResult, ModelInfo, Op, OracleResult, Request, Response};
-use rng::Rng;
 
 /// How the runner was configured.
 struct Config {
     urdf: String,
     srdf: String,
     cases: usize,
-    seed: u64,
+    seed: i32,
     tol_fk: f64,
     oracle: Vec<String>,
 }
@@ -40,7 +38,7 @@ impl Config {
         let mut urdf = None;
         let mut srdf = None;
         let mut cases = 1_000usize;
-        let mut seed = 0u64;
+        let mut seed = 0i32;
         let mut tol_fk = 1e-9;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
@@ -222,9 +220,22 @@ fn run(cfg: &Config) -> Result<usize, String> {
 
     verdicts.push(("model_info".to_owned(), compare_model_info(cfg, &model)));
 
-    let mut rng = Rng::new(cfg.seed);
-    for case in 0..cfg.cases {
-        let joint_values = sample_joint_values(&mut rng, &model);
+    let states = match oracle.ask(Op::RandomStates {
+        count: cfg.cases,
+        seed: cfg.seed,
+    })? {
+        OracleResult::RandomStates(r) => r.states,
+        other => return Err(format!("expected random_states, got {other:?}")),
+    };
+    if states.len() != cfg.cases {
+        return Err(format!(
+            "asked for {} random states, oracle returned {}",
+            cfg.cases,
+            states.len()
+        ));
+    }
+
+    for (case, joint_values) in states.into_iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
             joint_values: joint_values.clone(),
             links: Vec::new(),
@@ -239,30 +250,6 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
 
     report(&verdicts)
-}
-
-/// Draw one value per joint variable, uniform inside the oracle's bounds.
-fn sample_joint_values(rng: &mut Rng, model: &ModelInfo) -> BTreeMap<String, f64> {
-    let mut out = BTreeMap::new();
-    for joint in &model.joint_details {
-        if joint.mimic.is_some() {
-            // A mimic joint's value is derived, never sampled. Sampling it
-            // would let the runner assert a value the model is free to
-            // overwrite, which would be a bug in the test, not in the port.
-            continue;
-        }
-        for (i, name) in joint.variable_names.iter().enumerate() {
-            let (lo, hi) = match (joint.position_bounded.get(i), joint.bounds.get(i)) {
-                // Upstream leaves min/max at 0.0 for an unbounded (continuous)
-                // variable, so sampling the reported range would pin every
-                // continuous joint to zero and never exercise it.
-                (Some(true), Some(&(lo, hi))) => (lo, hi),
-                _ => (-std::f64::consts::PI, std::f64::consts::PI),
-            };
-            out.insert(name.clone(), rng.range(lo, hi));
-        }
-    }
-    out
 }
 
 fn compare_model_info(_cfg: &Config, expected: &ModelInfo) -> Verdict {

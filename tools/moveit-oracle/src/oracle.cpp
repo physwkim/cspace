@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 
 #include <moveit/robot_model/robot_model.hpp>
+#include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
 #include <srdfdom/model.h>
 #include <urdf_parser/urdf_parser.h>
@@ -41,6 +42,12 @@ std::string readFile(const std::string& path)
   std::ostringstream ss;
   ss << in.rdbuf();
   return ss.str();
+}
+
+/// null for a non-finite limit; JSON has no representation for infinity.
+json finiteOrNull(double v)
+{
+  return std::isfinite(v) ? json(v) : json(nullptr);
 }
 
 /// Row-major 4x4, matching FkResult::link_transforms in protocol.rs.
@@ -85,6 +92,8 @@ public:
       return fk(request);
     if (op == "jacobian")
       return jacobian(request);
+    if (op == "random_states")
+      return randomStates(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -110,7 +119,11 @@ private:
       json bounded = json::array();
       for (const moveit::core::VariableBounds& b : joint->getVariableBounds())
       {
-        bounds.push_back(json::array({ b.min_position_, b.max_position_ }));
+        // JSON cannot carry an infinity, and a floating joint's translation
+        // bounds are infinite while still reporting position_bounded_ true.
+        // Emitting null for a non-finite limit says "unbounded" explicitly
+        // instead of letting nlohmann turn it into an untyped null downstream.
+        bounds.push_back(json::array({ finiteOrNull(b.min_position_), finiteOrNull(b.max_position_) }));
         bounded.push_back(b.position_bounded_);
       }
       d["bounds"] = bounds;
@@ -177,6 +190,32 @@ private:
       transforms[link] = toRowMajor4x4(state_->getGlobalLinkTransform(link));
     }
     return json{ { "link_transforms", transforms } };
+  }
+
+  /// Draw whole-model random states with MoveIt's own sampler.
+  ///
+  /// The oracle owns the randomness rather than the runner:
+  /// RobotModel::getVariableRandomPositions normalizes a floating joint's
+  /// quaternion, respects each joint type's bounds and derives mimic values.
+  /// A runner sampling variable-by-variable would get all three wrong and the
+  /// resulting disagreements would be defects in the test, not in the port.
+  json randomStates(const json& request)
+  {
+    const std::size_t count = request.at("count").get<std::size_t>();
+    random_numbers::RandomNumberGenerator rng(request.at("seed").get<int>());
+
+    json states = json::array();
+    std::vector<double> values(model_->getVariableCount());
+    const std::vector<std::string>& names = model_->getVariableNames();
+    for (std::size_t i = 0; i < count; ++i)
+    {
+      model_->getVariableRandomPositions(rng, values.data());
+      json state = json::object();
+      for (std::size_t v = 0; v < names.size(); ++v)
+        state[names[v]] = values[v];
+      states.push_back(state);
+    }
+    return json{ { "states", states } };
   }
 
   json jacobian(const json& request)

@@ -44,6 +44,18 @@ pub enum Op {
         #[serde(default)]
         links: Vec<String>,
     },
+    /// Draw `count` whole-model random states from the oracle's own sampler.
+    ///
+    /// The oracle owns randomness so that floating-joint quaternions come out
+    /// normalized, bounds are respected per joint type and mimic values are
+    /// derived — none of which a variable-by-variable sampler here would get
+    /// right. A run is reproducible from `seed`.
+    RandomStates {
+        /// How many states to draw.
+        count: usize,
+        /// Seed for `random_numbers::RandomNumberGenerator`.
+        seed: i32,
+    },
     /// Geometric Jacobian of `group` at the given joint values.
     Jacobian {
         /// Joint model group name.
@@ -76,6 +88,8 @@ pub enum OracleResult {
     ModelInfo(ModelInfo),
     /// Answer to [`Op::Fk`].
     Fk(FkResult),
+    /// Answer to [`Op::RandomStates`].
+    RandomStates(RandomStatesResult),
     /// Answer to [`Op::Jacobian`].
     Jacobian(JacobianResult),
 }
@@ -114,9 +128,10 @@ pub struct JointDetail {
     /// and so on, and any convention invented here would silently disagree.
     pub variable_names: Vec<String>,
     /// Per-variable `(min, max)` position bounds, parallel to
-    /// `variable_names`. Meaningless where `position_bounded` is false —
-    /// upstream leaves both at `0.0` for a continuous joint.
-    pub bounds: Vec<(f64, f64)>,
+    /// `variable_names`. `None` on a side means unbounded: JSON has no
+    /// infinity, and a floating joint's translation limits are infinite while
+    /// `position_bounded` still reads true.
+    pub bounds: Vec<(Option<f64>, Option<f64>)>,
     /// Per-variable `VariableBounds::position_bounded_`, parallel to
     /// `variable_names`.
     pub position_bounded: Vec<bool>,
@@ -141,6 +156,13 @@ pub struct Mimic {
 pub struct FkResult {
     /// Link name to its global transform, row-major 4x4.
     pub link_transforms: BTreeMap<String, [f64; 16]>,
+}
+
+/// Answer to [`Op::RandomStates`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RandomStatesResult {
+    /// One map of variable name to position per state.
+    pub states: Vec<BTreeMap<String, f64>>,
 }
 
 /// Answer to [`Op::Jacobian`].
