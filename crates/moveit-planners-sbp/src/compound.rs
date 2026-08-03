@@ -337,6 +337,8 @@ impl StateSpace for CompoundSpace {
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::PI;
+
     use super::*;
     use crate::test_support::{
         assert_metric_and_interpolation_axioms, assert_sample_near_stays_within_radius,
@@ -450,5 +452,67 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(5);
         let center = s.sample_uniform(&mut rng);
         assert_sample_near_stays_within_radius(&s, &mut rng, &center, 0.5, 500, 1e-9);
+    }
+
+    // PORTING-PLAN.md:1152: whether the StateSpace trait carries a
+    // heterogeneous product's distance correctly — specifically, whether
+    // summing per-subspace distances of genuinely different units (metres,
+    // radians) through one weight each still produces a metric — has "so
+    // far been a comment's assertion, never verified." `distance`'s own doc
+    // comment argument ("a nonnegative weighted sum of metrics satisfies the
+    // triangle inequality termwise") is a real theorem, not hand-waving, but
+    // this is a boundary check of it at a deliberately extreme, constructed
+    // weight ratio rather than the `1.0`/`1.0`/`0.5` weights
+    // `metric_and_interpolation_axioms_hold` above happens to use.
+
+    /// A metres-weighted-1000x-more-than-radians space, with one of the two
+    /// constructed points straddling the `So2` seam: if summing differently
+    /// scaled per-subspace distances into one scalar could ever break the
+    /// triangle inequality, an extreme weight ratio combined with a seam
+    /// crossing is where it would show up, not at comparable weights on an
+    /// interior point.
+    #[test]
+    fn weighted_distance_across_mixed_units_holds_the_triangle_inequality_at_an_extreme_ratio() {
+        let s = CompoundSpace::new(vec![
+            (
+                CompoundSpace::real_vector(RealVectorSpace::new(vec![(-1000.0, 1000.0)]).unwrap()),
+                1000.0,
+            ),
+            (CompoundSpace::so2(So2Space::new()), 0.001),
+        ])
+        .unwrap();
+
+        let a = vec![
+            CompoundValue::RealVector(vec![-500.0]),
+            CompoundValue::So2(-PI + 0.05),
+        ];
+        let b = vec![
+            CompoundValue::RealVector(vec![500.0]),
+            CompoundValue::So2(PI - 0.05),
+        ];
+        let c = vec![
+            CompoundValue::RealVector(vec![0.0]),
+            CompoundValue::So2(0.0),
+        ];
+
+        let d_ab = s.distance(&a, &b);
+        let d_ba = s.distance(&b, &a);
+        assert!(
+            (d_ab - d_ba).abs() < 1e-9,
+            "distance not symmetric under mixed-unit weighting: {d_ab} vs {d_ba}"
+        );
+
+        let d_ac = s.distance(&a, &c);
+        let d_bc = s.distance(&b, &c);
+        assert!(
+            d_ac <= d_ab + d_bc + 1e-9,
+            "triangle inequality violated under mixed-unit weighting: distance(a,c) = {d_ac} > \
+             distance(a,b) + distance(b,c) = {}",
+            d_ab + d_bc
+        );
+
+        // Zero exactly on the diagonal, regardless of how extreme the
+        // per-subspace weights are.
+        assert_eq!(s.distance(&a, &a), 0.0);
     }
 }

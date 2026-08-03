@@ -1,0 +1,258 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        }
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.05,
+          "satisfied": true
+        },
+        {
+          "distance": 0.05,
+          "satisfied": true
+        },
+        {
+          "distance": 0.05,
+          "satisfied": true
+        },
+        {
+          "distance": 0.05,
+          "satisfied": true
+        },
+        {
+          "distance": 0.05,
+          "satisfied": true
+        },
+        {
+          "distance": 0.05,
+          "satisfied": true
+        },
+        {
+          "distance": 0.05,
+          "satisfied": true
+        }
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.5,
+          "satisfied": false
+        },
+        {
+          "distance": 0.5,
+          "satisfied": false
+        },
+        {
+          "distance": 0.5,
+          "satisfied": false
+        },
+        {
+          "distance": 0.5,
+          "satisfied": false
+        },
+        {
+          "distance": 0.5,
+          "satisfied": false
+        },
+        {
+          "distance": 0.5,
+          "satisfied": false
+        },
+        {
+          "distance": 0.5,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        },
+        {
+          "distance": 0.0,
+          "satisfied": true
+        }
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.4512427284732686,
+          "satisfied": false
+        },
+        {
+          "distance": 3.14159265358,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 6,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.35409862714149876,
+          "satisfied": false
+        },
+        {
+          "distance": 4.028371646492172,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 7,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.4512427284732686,
+          "satisfied": false
+        },
+        {
+          "distance": 3.14159265358,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 8,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.35409862714149876,
+          "satisfied": false
+        },
+        {
+          "distance": 4.028371646492172,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 9,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 3.14159265358,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 10,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 3.8415926535817104,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 11,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.42334383189100117,
+          "satisfied": false
+        }
+      ]
+    }
+  },
+  {
+    "id": 12,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "distance": 0.34128464383247803,
+          "satisfied": false
+        }
+      ]
+    }
+  }
+]

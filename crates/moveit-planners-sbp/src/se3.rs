@@ -52,15 +52,30 @@ fn exp_map(axis: &[f64], angle: f64) -> Quat {
 /// `a` and `b` by construction rather than by a sign check at each call
 /// site.
 ///
-/// The angle itself is `2 * atan2(|a - b|, |a + b|)`, not the textbook
-/// `2 * acos(a . b)`. Both are exact in real arithmetic; only the first is
-/// accurate in floating point near zero, which is the case a metric cannot
-/// afford to get wrong. `acos` has an infinite derivative at `1.0`, so a
-/// dot product one ULP below it — already as good as normalizing a
-/// quaternion can get — yields an angle around `1e-8` rather than `0`, and
-/// `distance(a, a)` stops being zero. `atan2` reads the same angle off a
-/// chord length that is itself small there, and loses nothing:
-/// `distance(a, a)` is exactly `0.0`.
+/// Matches upstream `FloatingJointModel::distanceRotation`, which is Eigen's
+/// `Quaterniond::angularDistance` — `2 * acos(|a . b|)`, the true `SO(3)`
+/// rotation angle (e.g. a 30-degree rotation about any axis is `30 degrees`
+/// apart from identity by this measure, not `15`).
+///
+/// The angle here is computed as `4 * atan2(|a - b|, |a + b|)` rather than
+/// that textbook `2 * acos(a . b)` directly, because `acos` has an infinite
+/// derivative at `1.0`: a dot product one ULP below it — already as good as
+/// normalizing a quaternion can get — yields an angle around `1e-8` rather
+/// than `0` through `acos`, so `distance(a, a)` stops being zero. `atan2`
+/// reads the same angle off a chord length that is itself small there, and
+/// loses nothing: `distance(a, a)` is exactly `0.0`. The two are exactly
+/// equal in real arithmetic: for unit vectors `a`, `near`, the half-angle
+/// identity `tan(phi / 2) = |a - near| / |a + near|` gives
+/// `2 * atan2(|a - near|, |a + near|) = phi = acos(a . near)`, so doubling
+/// that again — `4 * atan2(...)` — is exactly `2 * acos(a . near)`. An
+/// earlier version of this function used the `2 *` factor from that
+/// intermediate identity directly, which silently returned half the real
+/// rotation angle everywhere (`distance`, and `sample_near`'s exp-map-radius
+/// reasoning below, both consumed that halved value consistently with each
+/// other, so no metric axiom caught it — only a boundary check against a
+/// rotation of *known* angle did, see this module's
+/// `interpolate_takes_the_shorter_arc_even_from_the_far_quaternion_representative`
+/// test).
 fn rotation_distance(a: &Quat, b: &Quat) -> f64 {
     // The near representative: with a positive dot product, `a - b` is the
     // short chord and `a + b` the long one.
@@ -71,7 +86,7 @@ fn rotation_distance(a: &Quat, b: &Quat) -> f64 {
     };
     let chord =
         |f: fn(f64, f64) -> f64| (0..4).map(|i| f(a[i], near[i]).powi(2)).sum::<f64>().sqrt();
-    2.0 * chord(|x, y| x - y).atan2(chord(|x, y| x + y))
+    4.0 * chord(|x, y| x - y).atan2(chord(|x, y| x + y))
 }
 
 /// Spherical linear interpolation, taking the shorter of the two arcs a
@@ -401,5 +416,94 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(6);
         let center = s.sample_uniform(&mut rng);
         assert_sample_near_stays_within_radius(&s, &mut rng, &center, 1.0, 500, 1e-9);
+    }
+
+    // PORTING-PLAN.md:1152 records that whether the StateSpace trait can
+    // carry SO(3) has "so far been a comment's assertion, never verified".
+    // `distance_ignores_quaternion_sign` above already checks `distance`;
+    // the boundary `distance` alone cannot exercise is `interpolate`'s own
+    // internal sign correction (`slerp`'s `dot < 0` branch) — constructed
+    // cases, not the random pairs `metric_and_interpolation_axioms_hold`
+    // below draws (a random quaternion pair does land on both sides of
+    // `dot == 0` over 2000 draws, but incidentally; these pin the specific
+    // near/far representative pair down explicitly).
+
+    /// A small, known rotation (30 degrees about the x-axis) given as its
+    /// *far* quaternion representative (`-b`, `quat_dot(identity, -b) < 0`).
+    /// `slerp` must still walk the 30-degree arc, not interpret `-b` as a
+    /// near-180-degree-away target and take the long way around.
+    #[test]
+    fn interpolate_takes_the_shorter_arc_even_from_the_far_quaternion_representative() {
+        let s = space();
+        let identity: Quat = [1.0, 0.0, 0.0, 0.0];
+        let near = exp_map(&[1.0, 0.0, 0.0], 30.0_f64.to_radians());
+        assert!(
+            quat_dot(&identity, &near) > 0.0,
+            "test setup: `near` should already be identity's near representative"
+        );
+        let far = [-near[0], -near[1], -near[2], -near[3]];
+        assert!(
+            quat_dot(&identity, &far) < 0.0,
+            "test setup: `far` should be identity's far representative"
+        );
+
+        let from = Se3State {
+            translation: [0.0, 0.0, 0.0],
+            rotation: identity,
+        };
+        let to = Se3State {
+            translation: [0.0, 0.0, 0.0],
+            rotation: far,
+        };
+
+        // The true angular separation is 30 degrees (rotation_distance
+        // already picks the near representative), and the halfway point
+        // must be 15 degrees along that arc — not the ~165-degree halfway
+        // point a naive quaternion-space lerp of `identity` to `far` would
+        // produce by going through the long way.
+        let whole = s.distance(&from, &to);
+        assert!(
+            (whole - 30.0_f64.to_radians()).abs() < 1e-9,
+            "distance(identity, far) = {whole}, expected 30 degrees"
+        );
+        let mid = s.interpolate(&from, &to, 0.5);
+        let d_from_mid = rotation_distance(&identity, &mid.rotation);
+        assert!(
+            (d_from_mid - 15.0_f64.to_radians()).abs() < 1e-6,
+            "rotation_distance(identity, midpoint) = {d_from_mid} rad, expected 15 degrees \
+             (interpolate took the long way around instead of the short one)"
+        );
+    }
+
+    /// `to` and `-to` represent the same target rotation, so interpolating
+    /// toward either from the same `from` must trace the same physical path
+    /// at every `t` — a trait that treated the quaternion as an opaque
+    /// coordinate vector (no sign correction) would produce two different
+    /// paths for what is the same request.
+    #[test]
+    fn interpolate_is_invariant_to_which_quaternion_represents_the_target() {
+        let s = space();
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        for _ in 0..200 {
+            let from = s.sample_uniform(&mut rng);
+            let to = s.sample_uniform(&mut rng);
+            let mut to_negated = to.clone();
+            to_negated.rotation = [
+                -to.rotation[0],
+                -to.rotation[1],
+                -to.rotation[2],
+                -to.rotation[3],
+            ];
+            for &t in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+                let via_to = s.interpolate(&from, &to, t);
+                let via_negated = s.interpolate(&from, &to_negated, t);
+                let d = rotation_distance(&via_to.rotation, &via_negated.rotation);
+                assert!(
+                    d < 1e-6,
+                    "interpolate(from, to, {t}) and interpolate(from, -to, {t}) diverge by \
+                     {d} rad in rotation; t={t}, from={from:?}, to={to:?}"
+                );
+            }
+        }
     }
 }

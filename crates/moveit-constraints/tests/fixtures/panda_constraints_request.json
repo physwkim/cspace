@@ -1,0 +1,716 @@
+[
+  {
+    "constraints": {
+      "joint_constraints": [
+        {
+          "joint_name": "panda_joint1",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint2",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint3",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint4",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint5",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint6",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint7",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 1,
+    "joint_values": {
+      "panda_joint1": 0.0,
+      "panda_joint2": 0.0,
+      "panda_joint3": 0.0,
+      "panda_joint4": 0.0,
+      "panda_joint5": 0.0,
+      "panda_joint6": 0.0,
+      "panda_joint7": 0.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "joint_constraints": [
+        {
+          "joint_name": "panda_joint1",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint2",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint3",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint4",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint5",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint6",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint7",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 2,
+    "joint_values": {
+      "panda_joint1": 0.05,
+      "panda_joint2": 0.05,
+      "panda_joint3": 0.05,
+      "panda_joint4": 0.05,
+      "panda_joint5": 0.05,
+      "panda_joint6": 0.05,
+      "panda_joint7": 0.05
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "joint_constraints": [
+        {
+          "joint_name": "panda_joint1",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint2",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint3",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint4",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint5",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint6",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint7",
+          "position": 0.0,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 3,
+    "joint_values": {
+      "panda_joint1": 0.5,
+      "panda_joint2": 0.5,
+      "panda_joint3": 0.5,
+      "panda_joint4": 0.5,
+      "panda_joint5": 0.5,
+      "panda_joint6": 0.5,
+      "panda_joint7": 0.5
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "joint_constraints": [
+        {
+          "joint_name": "panda_joint1",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint2",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint3",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint4",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint5",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint6",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        },
+        {
+          "joint_name": "panda_joint7",
+          "position": 0.05,
+          "tolerance_above": 0.1,
+          "tolerance_below": 0.1,
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 4,
+    "joint_values": {
+      "panda_joint1": 0.05,
+      "panda_joint2": 0.05,
+      "panda_joint3": 0.05,
+      "panda_joint4": 0.05,
+      "panda_joint5": 0.05,
+      "panda_joint6": 0.05,
+      "panda_joint7": 0.05
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "orientation_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "orientation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "tolerance": {
+            "parameterization": "rotation_vector",
+            "x": 0.3,
+            "y": 0.3,
+            "z": 0.3
+          },
+          "weight": 1.0
+        }
+      ],
+      "position_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "regions": [
+            {
+              "pose": [
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.6,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "shape": {
+                "radius": 0.05,
+                "type": "sphere"
+              }
+            }
+          ],
+          "target_point_offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 5,
+    "joint_values": {
+      "panda_joint1": 0.0,
+      "panda_joint2": 0.0,
+      "panda_joint3": 0.0,
+      "panda_joint4": 0.0,
+      "panda_joint5": 0.0,
+      "panda_joint6": 0.0,
+      "panda_joint7": 0.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "orientation_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "orientation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "tolerance": {
+            "parameterization": "rotation_vector",
+            "x": 0.3,
+            "y": 0.3,
+            "z": 0.3
+          },
+          "weight": 1.0
+        }
+      ],
+      "position_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "regions": [
+            {
+              "pose": [
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.6,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "shape": {
+                "radius": 0.05,
+                "type": "sphere"
+              }
+            }
+          ],
+          "target_point_offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 6,
+    "joint_values": {
+      "panda_joint2": -0.3,
+      "panda_joint4": -1.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "orientation_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "orientation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "tolerance": {
+            "parameterization": "rotation_vector",
+            "x": 0.2,
+            "y": 0.2,
+            "z": 0.4
+          },
+          "weight": 1.0
+        }
+      ],
+      "position_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "regions": [
+            {
+              "pose": [
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.6,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "shape": {
+                "size": [
+                  0.1,
+                  0.1,
+                  0.1
+                ],
+                "type": "box"
+              }
+            }
+          ],
+          "target_point_offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 7,
+    "joint_values": {
+      "panda_joint1": 0.0,
+      "panda_joint2": 0.0,
+      "panda_joint3": 0.0,
+      "panda_joint4": 0.0,
+      "panda_joint5": 0.0,
+      "panda_joint6": 0.0,
+      "panda_joint7": 0.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "orientation_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "orientation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "tolerance": {
+            "parameterization": "rotation_vector",
+            "x": 0.2,
+            "y": 0.2,
+            "z": 0.4
+          },
+          "weight": 1.0
+        }
+      ],
+      "position_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "regions": [
+            {
+              "pose": [
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.6,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "shape": {
+                "size": [
+                  0.1,
+                  0.1,
+                  0.1
+                ],
+                "type": "box"
+              }
+            }
+          ],
+          "target_point_offset": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 8,
+    "joint_values": {
+      "panda_joint2": -0.3,
+      "panda_joint4": -1.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "orientation_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "orientation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "tolerance": {
+            "parameterization": "xyz_euler",
+            "x": 0.3,
+            "y": 0.3,
+            "z": 0.3
+          },
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 9,
+    "joint_values": {
+      "panda_joint1": 0.0,
+      "panda_joint2": 0.0,
+      "panda_joint3": 0.0,
+      "panda_joint4": 0.0,
+      "panda_joint5": 0.0,
+      "panda_joint6": 0.0,
+      "panda_joint7": 0.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "orientation_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "orientation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "tolerance": {
+            "parameterization": "xyz_euler",
+            "x": 0.3,
+            "y": 0.3,
+            "z": 0.3
+          },
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 10,
+    "joint_values": {
+      "panda_joint2": -0.3,
+      "panda_joint4": -1.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "position_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "regions": [
+            {
+              "pose": [
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.6,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "shape": {
+                "radius": 0.05,
+                "type": "sphere"
+              }
+            }
+          ],
+          "target_point_offset": [
+            0.01,
+            0.02,
+            0.03
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 11,
+    "joint_values": {
+      "panda_joint1": 0.0,
+      "panda_joint2": 0.0,
+      "panda_joint3": 0.0,
+      "panda_joint4": 0.0,
+      "panda_joint5": 0.0,
+      "panda_joint6": 0.0,
+      "panda_joint7": 0.0
+    },
+    "op": "constraints"
+  },
+  {
+    "constraints": {
+      "position_constraints": [
+        {
+          "frame_id": "world",
+          "link_name": "panda_link8",
+          "regions": [
+            {
+              "pose": [
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.6,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ],
+              "shape": {
+                "radius": 0.05,
+                "type": "sphere"
+              }
+            }
+          ],
+          "target_point_offset": [
+            0.01,
+            0.02,
+            0.03
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "id": 12,
+    "joint_values": {
+      "panda_joint2": -0.3,
+      "panda_joint4": -1.0
+    },
+    "op": "constraints"
+  }
+]

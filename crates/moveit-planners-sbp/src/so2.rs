@@ -179,4 +179,108 @@ mod tests {
             assert_sample_near_stays_within_radius(&s, &mut rng, &center, radius, 500, 1e-9);
         }
     }
+
+    // PORTING-PLAN.md:1152 records that the StateSpace trait's ability to
+    // carry wraparound has "so far been a comment's assertion, never
+    // verified" — the following are boundary-value tests, not the random
+    // draws `assert_metric_and_interpolation_axioms` already runs below,
+    // because a random f64 draw essentially never lands exactly on the seam
+    // or exactly PI apart.
+
+    /// Both crossing directions, constructed rather than drawn at random:
+    /// two points close together *across* the seam, each on the far side of
+    /// PI from the other's raw value.
+    #[test]
+    fn interpolate_crosses_the_seam_from_the_negative_side() {
+        let s = So2Space::new();
+        let from = -PI + 0.1;
+        let to = PI - 0.1;
+        // The short way from `from` to `to` is 0.2 rad, going negative
+        // (through -PI, wrapping to the +PI side) — not the 2*PI - 0.2 rad
+        // the raw values would suggest.
+        let d = s.distance(&from, &to);
+        assert!((d - 0.2).abs() < 1e-9, "distance = {d}");
+        let mid = s.interpolate(&from, &to, 0.5);
+        assert!(
+            mid.abs() > PI - 0.11,
+            "interpolate({from}, {to}, 0.5) = {mid}, expected near +/-PI (crossing the seam)"
+        );
+    }
+
+    /// The mirror image of the above: same two points, arguments swapped,
+    /// crossing from the positive side instead.
+    #[test]
+    fn interpolate_crosses_the_seam_from_the_positive_side() {
+        let s = So2Space::new();
+        let from = PI - 0.1;
+        let to = -PI + 0.1;
+        let d = s.distance(&from, &to);
+        assert!((d - 0.2).abs() < 1e-9, "distance = {d}");
+        let mid = s.interpolate(&from, &to, 0.5);
+        assert!(
+            mid.abs() > PI - 0.11,
+            "interpolate({from}, {to}, 0.5) = {mid}, expected near +/-PI (crossing the seam)"
+        );
+        // The midpoint of a geodesic does not depend on which endpoint is
+        // "from" and which is "to".
+        let other_mid = s.interpolate(&to, &from, 0.5);
+        assert!(
+            (mid - other_mid).abs() < 1e-9,
+            "interpolate(a, b, 0.5) = {mid} but interpolate(b, a, 0.5) = {other_mid}"
+        );
+    }
+
+    /// Exactly PI apart: both arcs are the same length, so the choice of
+    /// direction is a tie, not a bug either way. What must hold regardless
+    /// of which side `normalize_angle`'s tie-break lands on is that the
+    /// midpoint still splits the distance exactly in half on both sides —
+    /// this is the case a trait that quietly special-cased "the shorter
+    /// arc" without handling the tie could return a mid-point that is not
+    /// equidistant, or produce a non-finite value from a 0/0 in the
+    /// direction computation.
+    #[test]
+    fn interpolate_at_exactly_pi_apart_still_splits_the_distance_evenly() {
+        let s = So2Space::new();
+        let from = 0.0;
+        let to = PI;
+        let whole = s.distance(&from, &to);
+        assert!((whole - PI).abs() < 1e-9, "distance(0, PI) = {whole}");
+        let mid = s.interpolate(&from, &to, 0.5);
+        assert!(mid.is_finite(), "interpolate(0, PI, 0.5) = {mid}");
+        let d_from_mid = s.distance(&from, &mid);
+        let d_mid_to = s.distance(&mid, &to);
+        assert!(
+            (d_from_mid - PI / 2.0).abs() < 1e-9,
+            "distance(from, mid) = {d_from_mid}, expected PI/2"
+        );
+        assert!(
+            (d_mid_to - PI / 2.0).abs() < 1e-9,
+            "distance(mid, to) = {d_mid_to}, expected PI/2"
+        );
+    }
+
+    /// Distance symmetry and the triangle inequality at constructed points
+    /// straddling the seam, not the random pairs
+    /// `assert_metric_and_interpolation_axioms` already draws below.
+    #[test]
+    fn distance_symmetry_and_triangle_inequality_hold_across_the_seam() {
+        let s = So2Space::new();
+        let a = -PI + 0.05; // just past -PI
+        let b = PI - 0.05; // just past +PI (the seam-adjacent point)
+        let c = 0.1; // on the far side of the circle from the seam
+        let d_ab = s.distance(&a, &b);
+        let d_ba = s.distance(&b, &a);
+        assert!(
+            (d_ab - d_ba).abs() < 1e-9,
+            "distance(a,b) = {d_ab}, distance(b,a) = {d_ba}"
+        );
+        let d_ac = s.distance(&a, &c);
+        let d_bc = s.distance(&b, &c);
+        assert!(
+            d_ac <= d_ab + d_bc + 1e-9,
+            "triangle inequality violated across the seam: distance(a,c) = {d_ac} > \
+             distance(a,b) + distance(b,c) = {}",
+            d_ab + d_bc
+        );
+    }
 }

@@ -21,26 +21,79 @@
 //! Upstream's `MotionPlanRequest::goal_constraints` is
 //! `Vec<moveit_msgs::msg::Constraints>` — a set of possibly-Cartesian goal
 //! constraints, turned into candidate joint-space states at plan time by a
-//! `constraint_samplers` sampler. Per `PORTING-PLAN.md` D1 (no
-//! `moveit_msgs`) this port has no `moveit_msgs::msg::Constraints` to carry,
-//! and — independently of D1 — no `constraint_samplers` equivalent exists
-//! anywhere in this workspace to turn one into states (`PORTING-PLAN.md`
-//! §3 nominally scopes `constraint_samplers` under `moveit-constraints`,
-//! but it was never ported there).
+//! `constraint_samplers` sampler
+//! (`ConstraintSamplerManager::selectDefaultSampler` picking a
+//! `JointConstraintSampler`, an `IKConstraintSampler`, or a
+//! `UnionConstraintSampler` of both). Per `PORTING-PLAN.md` D1 (no
+//! `moveit_msgs`) this port has no `moveit_msgs::msg::Constraints` to carry
+//! in the first place, and — independently of D1 — `constraint_samplers`
+//! itself has never been ported (`PORTING-PLAN.md` §3 only nominally scoped
+//! it under `moveit-constraints`).
 //!
-//! [`PlanningRequest::goal`] is therefore a concrete
-//! [`crate::joint_model_group_space::JointModelGroupSpace`] state
-//! (`Vec<CompoundValue>`), not a constraint to sample from. The rejected
-//! alternative was a single-[`moveit_constraints::JointConstraint`]-per-variable
-//! stub standing in for a real sampler: it would silently mishandle any
-//! Cartesian (position/orientation) goal, which is exactly the case a real
-//! sampler exists to handle, so a stub narrow enough to always work (joint
-//! goals only) would be indistinguishable from this concrete-state design
-//! except for an extra, misleading layer of indirection. [`PlanningRequest::path_constraints`]
-//! *is* carried directly as a [`KinematicConstraintSet`], because path
-//! constraints are evaluated per-candidate via `decide()` — see
+//! **The consequence, settled here rather than left ambiguous: a caller of
+//! this crate cannot express a pose (position/orientation) goal at all —
+//! this is a missing planning capability, not a missing convenience.**
+//! [`PlanningRequest::goal`] is `Vec<CompoundValue>`, and
+//! [`crate::rrt_connect::rrt_connect`] takes that as one concrete
+//! `S::State`, not a region or a sampler; no code path anywhere in this
+//! workspace turns a [`moveit_constraints::PositionConstraint`]/
+//! [`moveit_constraints::OrientationConstraint`] into even one candidate
+//! joint-space state, let alone the several an IK-backed sampler would offer
+//! so the planner could pick whichever is reachable. A caller wanting "move
+//! the end-effector to this pose" must invoke `moveit-kinematics` itself,
+//! outside this crate, and hand in the single joint-space point one IK call
+//! returns — foreclosing the multi-solution goal regions IK is generally
+//! many-to-one over, exactly what `IKConstraintSampler` exists to preserve.
+//!
+//! [`PlanningRequest::goal`] being a concrete state rather than a constraint
+//! to sample from was, at the time, the rejected alternative to a
+//! single-[`moveit_constraints::JointConstraint`]-per-variable stub: the stub
+//! would have silently mishandled any Cartesian goal (exactly the case a
+//! real sampler exists to handle), so it would have been indistinguishable
+//! from this concrete-state design except for an extra, misleading layer of
+//! indirection. That reasoning was correct as far as it went, but stopped one
+//! level short of naming what a real sampler would unlock; the paragraph
+//! above is that.
+//!
+//! **Disposition** (proposed, not started — a new crate or a new
+//! inter-crate dependency edge is a workspace decision, not mine to make
+//! unilaterally):
+//!
+//! - `ConstraintSampler` (the base trait) and `JointConstraintSampler` ->
+//!   port into `moveit-constraints`. Both are pure joint-space logic over
+//!   types that crate already owns ([`moveit_constraints::JointConstraint`],
+//!   [`KinematicConstraintSet`]); neither needs a new dependency.
+//! - `UnionConstraintSampler` -> port into `moveit-constraints` alongside
+//!   them; it only composes other samplers by sorted dependency order, no
+//!   new dependency either.
+//! - `IKConstraintSampler` and `ConstraintSamplerManager::selectDefaultSampler`
+//!   -> port into `moveit-constraints`, but this adds a real dependency edge,
+//!   `moveit-constraints -> moveit-kinematics`, that does not exist today
+//!   (for `moveit_kinematics::KinematicsSolver` and its compile-time
+//!   registry — the same D4 mechanism this crate's own [`PlannerManager`]
+//!   already follows). No cycle results: `moveit-kinematics` depends on none
+//!   of `moveit-error`/`moveit-geometry`/`moveit-model`/`moveit-state`, none
+//!   of which depend back on `moveit-constraints`. Still a graph change
+//!   worth a sign-off, not a silent addition.
+//! - `constraint_sampler_tools.{hpp,cpp}` -> excluded outright:
+//!   `visualizeDistribution`'s two overloads need a
+//!   `visualization_msgs::msg::MarkerArray` (D1, matching this workspace's
+//!   existing `getMarkers()` exclusion), and `countSamplesPerSecond`'s two
+//!   overloads are a benchmarking helper with no test or caller needing it.
+//!
+//! Porting the sampler alone would not close the capability gap above:
+//! [`crate::rrt_connect::rrt_connect`]'s signature takes one fixed
+//! `goal: S::State`, not a region or a re-sampleable source, so even a fully
+//! ported `IKConstraintSampler` would have nowhere to hand its (potentially
+//! many, potentially retried-on-collision) candidate states — RRT-Connect
+//! itself would need a second change, accepting something
+//! `GoalSampleableRegion`-shaped, before it could actually consume one.
+//!
+//! [`PlanningRequest::path_constraints`] *is* carried directly as a
+//! [`KinematicConstraintSet`], because path constraints are evaluated
+//! per-candidate via `decide()` — see
 //! [`crate::planning_scene_validity::PlanningSceneValidityChecker`] — never
-//! sampled from, so D1's missing sampler does not block them.
+//! sampled from, so the missing sampler does not block them.
 //!
 //! `start` is not a [`PlanningRequest`] field: [`RrtConnectManager::get_planning_context`]
 //! reads it from the [`moveit_scene::PlanningScene`] it is given

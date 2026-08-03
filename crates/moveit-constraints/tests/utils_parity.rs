@@ -15,6 +15,23 @@
 //! oracle gained a `constraints` op), since every construction function here
 //! is exercised only through `decide()`'s output, never by asserting on the
 //! constructed value directly.
+//!
+//! `panda_constraints.json` itself carries only each case's `results`
+//! (`satisfied`/`distance`), not the wire request that produced them -- the
+//! `joint_values`/tolerances/poses live only in this file's own literals
+//! (`s0`/`s1`/`s2`/`SB`, the `construct_goal_*` call arguments above). Unlike
+//! `panda_is_state_valid.json`/`pr2_attached_collision.json`
+//! (`moveit-scene`'s hand-built "cases" fixtures, whose summary fields are
+//! *not* enough to reconstruct a wire request), every one of those inputs is
+//! a plain `constraints`-op field, so `tests/fixtures/panda_constraints_request.json`/
+//! `panda_constraints_response.json` reconstructs the 12 cases' wire requests
+//! by hand from these literals and were confirmed byte-for-byte against
+//! `panda_constraints.json`'s already-committed `results` before being
+//! committed (see `tests/fixtures/oracle-models.json`'s `panda_constraints`
+//! entry) -- this closes the `tools/ci/verify-fixture-replay.sh` gap without
+//! changing what this file itself reads from, since the 12 cases exercise
+//! several distinct `moveit_constraints::utils` construction functions, not
+//! one generic request shape a test could deserialize and dispatch through.
 
 use std::fs;
 
