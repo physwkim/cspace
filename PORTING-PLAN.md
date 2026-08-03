@@ -7256,3 +7256,72 @@ max_relative = 0.0       1 fail
 연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
 `7cc8a73408a83c92` 유지. 담당이 보고한 1010/1010은 베이스 `159dda1`
 기준 값이다.
+
+## 86. `cost_sources`가 착지했다 — 그러나 삼각형 단위 granularity는 재지 않는다 (2026-08-04)
+
+p3-acm 라운드 13 부분 머지(`6890fdd`, `fc93f45`). 베이스 `9576dfb`,
+main에 머지. **1036 → 1048**.
+
+담당은 아직 라운드가 끝나지 않았다 — 캐스터 1차원 스윕의 ground-truth
+프로브가 돌고 있어 fallback 창을 넘겼다. 커밋된 두 건만 먼저 들여왔고
+감시는 다시 걸어 뒀다. §80과 같은 처리다.
+
+### 86.1 §76.2의 판정이 뒤집혀 구현으로 닫혔다
+
+§76.2에서 두 패널이 각각 다른 논거로 `getCostSources`를 "백엔드 한계"로
+결론냈고 둘 다 틀렸다고 적었다. 이번에 실제로 구현됐다. 상류 대조를
+내가 직접 했다:
+
+`CostSource::operator<`(`collision_common.hpp:128-141`)는
+`cost*getVolume()` 내림차순 → `cost` 내림차순 →
+`aabb_min` 사전순이다. Rust 쪽 `Ord`(`common.rs:148`)는
+`c2.total_cmp(&c1)` → `other.cost.total_cmp(&self.cost)` →
+`total_cmp_aabb`로 세 단계가 정확히 대응한다.
+
+절단도 맞다. 상류는 삽입할 때마다
+`while (size() > max_cost_sources) erase(--end())`
+(`collision_common.cpp:285-287`, 같은 패턴이 `:351-353`, `:388-390`에
+세 번 반복된다)로 **뒤에서** 지운다. 정렬이 "가장 비싼 것이 앞"이므로
+뒤는 가장 싼 것이고, Rust의 `BTreeSet::pop_last()`가 같은 것을 지운다.
+
+### 86.2 네 갈래는 물리고, 다섯째는 물리지 않는다
+
+`-p moveit-collision`(168건) `--no-fail-fast`:
+
+```
+절단 방향 뒤집기 (pop_last → pop_first)              1 fail
+CostSource 정렬 뒤집기 (c2.total_cmp(c1) → c1↔c2)    5 fail
+cost 상수 1.0 → 2.0                                  4 fail
+mesh-shape: 삼각형 AABB → 메시 전체 AABB             0 fail  ← 통과
+mesh-mesh:  삼각형 AABB → 메시 전체 AABB             0 fail  ← 통과
+```
+
+**이 구현의 중심 주장이 재어지지 않는다.** 커밋 메시지는 "Mesh-vs-mesh
+emits one CostSource per intersecting triangle pair"라고 쓰고, 문서는
+`mesh_collision_traversal_node-inl.h`의
+`AABB(p1,p2,p3).overlap(AABB(q1,q2,q3))`를 인용한다. 그런데 삼각형별
+AABB를 메시 전체 AABB로 바꿔도 168건 전부 통과한다.
+
+원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2541`)은
+**삼각형 하나짜리 메시**라서 전체 AABB와 그 한 삼각형의 AABB가 같다.
+테스트 이름이
+`mesh_shape_cost_sources_is_one_triangle_aabb_overlapped_with_the_whole_shape_aabb`
+로 바로 그 성질을 주장하는데, 그 픽스처로는 주장과 반대 구현을 구분할
+수 없다.
+
+§74.3(오라클 fixture가 `target_velocity`를 재지 않음),
+§77.2(`sample_pose` 네 줄), §85.1(`upstream_parity.rs` 네 건)과 같은
+계열이다 — **테스트가 자기 이름이 말하는 것을 재고 있는지는 지우고
+돌려 봐야만 안다.**
+
+라운드 13 잔여 작업으로 넘긴다: 최소 두 삼각형 이상, 그리고 두
+삼각형이 **서로 다른 AABB를 갖도록** 배치한 메시로 두 경로를 다시
+핀해라.
+
+### 86.3 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1048/1048**(1036 + 12),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
+`7cc8a73408a83c92` 유지.
