@@ -3635,3 +3635,58 @@ D1 범위에 렌더러가 없으므로 영구 결정이다. §21.4가 "지금은
 픽스처(panda·fanuc·pr2)를 로드하면서 `none()`을 넘기는 호출부는
 "메시 없는 모델을 의도한 것"인지 "복사가 없던 시절의 잔재"인지를
 호출부마다 한 줄로 답해야 한다.
+
+## 33. `p3-distance-field` 6라운드 병합 — 좁힘 해제와 마지막 이관 조각 (2026-08-04)
+
+`247ca6f`. `nextest --workspace` **898/898**.
+
+### 33.1 다섯 개 단정문이 정확한 동등성으로 돌아왔다
+
+pr2 메시가 §32에서 들어왔으므로 `build_pr2_model`이 실제 탐색 경로를 쓰고
+`model.diagnostics()`가 비었다. 좁혀 두었던 것들이 전부 풀렸다:
+`link_models_with_collision_geometry`의 링크 집합, `link_has_geometry`,
+`link_body_indices`(이전에는 "오라클 비교 불가"라며 역직렬화조차 하지
+않았다), `self_collision_enabled`, `intra_group_collision_enabled` —
+모두 평범한 `assert_eq!`. `distance_queries`는
+`actual >= expected - TOL`이라는 부분집합 성질에서
+`assert_relative_eq!`로 바뀌었다.
+
+§21.4에서 §27.1을 거쳐 §32.1까지 이어진 항목이 여기서 닫혔다.
+
+### 33.2 느슨하게 만든 단정문 하나 — 그리고 얼마나 느슨해야 했는가
+
+워커가 `sphere_radii` 하나는 반대로 *느슨하게* 해야 했다고 보고했다.
+메시 유래 구(球)를 처음 비교하게 되면서 오라클과 "16번째 유효숫자에서"
+어긋난다는 것이다. 조용히 좁히지 않고 보고한 것이 옳다.
+
+주장을 측정했다. 테스트에 임시 계측을 넣어 차이가 나는 24개 반지름의
+최대 편차를 뽑으니 **절대 `3.469e-18`, 상대 `1.436e-16`** — 이 크기에서
+1 ulp다. "16번째 유효숫자"는 정확한 표현이었다.
+
+그런데 워커가 고른 허용오차는 `TOL = 1e-4`였고, 이유는 "이 파일의 다른
+기하 필드가 전부 쓰는 값"이었다. 그건 근거가 아니라 일관성이다.
+`0.024` 반지름에 `1e-4`는 0.2%이고, 측정값보다 **12자리** 느슨하다 —
+앞으로 진짜 회귀가 그 안에 들어와도 조용히 통과한다.
+
+`RADIUS_TOL = 1e-12`을 따로 두고 근거를 그 자리에 적었다(`eaa41db`).
+측정값보다 여전히 4자리 위이므로 float 비결합성에는 넉넉하고, 0.2%
+회귀는 잡는다. **허용오차는 옆 단정문이 쓰는 값이 아니라 측정된 오차가
+정당화해야 한다.**
+
+### 33.3 이관 조각
+
+`get_distance_field_cache_entry`, `group_state_representation`,
+`update_group_state_representation_state` 이식.
+`compare_cache_entry_to_state`의 부착체 비교가 `AttachedBodyGeometry`/
+`AttachedBodySnapshot`으로 실제 비교가 되어, §27이 기록한 "공허하게 참"
+상태가 닫혔다.
+
+`generateCollisionCheckingStructures`만 남았고, 크레이트 안에 아직
+설계되지 않은 영속 캐시 소유자 타입(`CollisionEnvDistanceField` 자신의
+역할)이 필요하다는 이유가 붙어 있다.
+
+커밋 두 개 중 `547cb97`은 세 함수를 한 커밋에 묶었다. 워커가 이유를
+밝혔다 — `get_distance_field_cache_entry`가 같은 본문 안에서
+`compare_cache_entry_to_state`의 바뀐 시그니처를 부르므로 기계적으로
+쪼개면 존재한 적 없는 중간 문서를 지어내야 한다. 발견 하나에 커밋 하나
+규칙의 단위가 "발견"이지 "함수"가 아니므로 이 판단은 유효하다.
