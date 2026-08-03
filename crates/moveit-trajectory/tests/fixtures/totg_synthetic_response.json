@@ -1,0 +1,1434 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "cases": [
+        {
+          "durations_from_previous": [
+            0.0,
+            0.1,
+            0.1,
+            0.10000000000000003,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.10000000000000009,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999987,
+            0.10000000000000009,
+            0.014213562383204925
+          ],
+          "has_mixed_joint_types": false,
+          "ok": true,
+          "waypoints": [
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.6,
+                "planar_joint/x": 1.0,
+                "planar_joint/y": 0.4
+              },
+              "positions": {
+                "planar_joint/theta": 0.0,
+                "planar_joint/x": 0.0,
+                "planar_joint/y": 0.0
+              },
+              "velocities": {
+                "planar_joint/theta": 0.0006,
+                "planar_joint/x": 0.001,
+                "planar_joint/y": 0.0004
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.6000000000001693,
+                "planar_joint/x": 1.0000000000002913,
+                "planar_joint/y": 0.4000000000001152
+              },
+              "positions": {
+                "planar_joint/theta": 0.0029999999999999944,
+                "planar_joint/x": 0.0049999999999999906,
+                "planar_joint/y": 0.001999999999999996
+              },
+              "velocities": {
+                "planar_joint/theta": 0.06000000000000006,
+                "planar_joint/x": 0.10000000000000012,
+                "planar_joint/y": 0.04000000000000005
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.5999999999991007,
+                "planar_joint/x": 0.9999999999985012,
+                "planar_joint/y": 0.3999999999994005
+              },
+              "positions": {
+                "planar_joint/theta": 0.011999999999999993,
+                "planar_joint/x": 0.01999999999999999,
+                "planar_joint/y": 0.007999999999999997
+              },
+              "velocities": {
+                "planar_joint/theta": 0.1199999999999994,
+                "planar_joint/x": 0.199999999999999,
+                "planar_joint/y": 0.07999999999999961
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.6000000000030697,
+                "planar_joint/x": 1.000000000005107,
+                "planar_joint/y": 0.4000000000020373
+              },
+              "positions": {
+                "planar_joint/theta": 0.027000000000000024,
+                "planar_joint/x": 0.04500000000000004,
+                "planar_joint/y": 0.018000000000000016
+              },
+              "velocities": {
+                "planar_joint/theta": 0.18000000000000377,
+                "planar_joint/x": 0.3000000000000063,
+                "planar_joint/y": 0.12000000000000252
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.6000000000002109,
+                "planar_joint/x": 1.000000000000333,
+                "planar_joint/y": 0.4000000000001499
+              },
+              "positions": {
+                "planar_joint/theta": 0.048000000000000084,
+                "planar_joint/x": 0.08000000000000014,
+                "planar_joint/y": 0.032000000000000056
+              },
+              "velocities": {
+                "planar_joint/theta": 0.24000000000000135,
+                "planar_joint/x": 0.4000000000000023,
+                "planar_joint/y": 0.16000000000000092
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.6000000000223377,
+                "planar_joint/x": 1.000000000037248,
+                "planar_joint/y": 0.40000000001488256
+              },
+              "positions": {
+                "planar_joint/theta": 0.07500000000000007,
+                "planar_joint/x": 0.1250000000000001,
+                "planar_joint/y": 0.050000000000000044
+              },
+              "velocities": {
+                "planar_joint/theta": 0.3000000000000213,
+                "planar_joint/x": 0.5000000000000356,
+                "planar_joint/y": 0.20000000000001422
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.6000000000051514,
+                "planar_joint/x": 1.0000000000086597,
+                "planar_joint/y": 0.40000000000342506
+              },
+              "positions": {
+                "planar_joint/theta": 0.10799999999999985,
+                "planar_joint/x": 0.17999999999999974,
+                "planar_joint/y": 0.0719999999999999
+              },
+              "velocities": {
+                "planar_joint/theta": 0.36000000000000193,
+                "planar_joint/x": 0.6000000000000033,
+                "planar_joint/y": 0.2400000000000013
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 0.5999999999941602,
+                "planar_joint/x": 0.9999999999903411,
+                "planar_joint/y": 0.39999999999612534
+              },
+              "positions": {
+                "planar_joint/theta": 0.14699999999999935,
+                "planar_joint/x": 0.24499999999999894,
+                "planar_joint/y": 0.09799999999999959
+              },
+              "velocities": {
+                "planar_joint/theta": 0.41999999999998866,
+                "planar_joint/x": 0.6999999999999812,
+                "planar_joint/y": 0.2799999999999925
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.5999999999802269,
+                "planar_joint/x": -0.9999999999671374,
+                "planar_joint/y": -0.3999999999868272
+              },
+              "positions": {
+                "planar_joint/theta": 0.1868225099353331,
+                "planar_joint/x": 0.3113708498922218,
+                "planar_joint/y": 0.12454833995688873
+              },
+              "velocities": {
+                "planar_joint/theta": 0.36840000000001616,
+                "planar_joint/x": 0.614000000000027,
+                "planar_joint/y": 0.24560000000001078
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.6000000000234146,
+                "planar_joint/x": -1.0000000000389688,
+                "planar_joint/y": -0.40000000001560976
+              },
+              "positions": {
+                "planar_joint/theta": 0.22067532367832948,
+                "planar_joint/x": 0.36779220613054914,
+                "planar_joint/y": 0.14711688245221965
+              },
+              "velocities": {
+                "planar_joint/theta": 0.30839999999997525,
+                "planar_joint/x": 0.5139999999999588,
+                "planar_joint/y": 0.20559999999998352
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.5999999999584388,
+                "planar_joint/x": -0.9999999999306666,
+                "planar_joint/y": -0.3999999999722833
+              },
+              "positions": {
+                "planar_joint/theta": 0.24852813742132618,
+                "planar_joint/x": 0.41421356236887696,
+                "planar_joint/y": 0.16568542494755079
+              },
+              "velocities": {
+                "planar_joint/theta": 0.2484000000000425,
+                "planar_joint/x": 0.4140000000000709,
+                "planar_joint/y": 0.16560000000002836
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.6000000000088818,
+                "planar_joint/x": -1.0000000000148215,
+                "planar_joint/y": -0.40000000000591196
+              },
+              "positions": {
+                "planar_joint/theta": 0.270380951164323,
+                "planar_joint/x": 0.45063491860720495,
+                "planar_joint/y": 0.180253967442882
+              },
+              "velocities": {
+                "planar_joint/theta": 0.18839999999999196,
+                "planar_joint/x": 0.3139999999999866,
+                "planar_joint/y": 0.12559999999999466
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.6000000000058842,
+                "planar_joint/x": -1.0000000000097977,
+                "planar_joint/y": -0.40000000000391356
+              },
+              "positions": {
+                "planar_joint/theta": 0.2862337649073197,
+                "planar_joint/x": 0.47705627484553287,
+                "planar_joint/y": 0.19082250993821315
+              },
+              "velocities": {
+                "planar_joint/theta": 0.12839999999999455,
+                "planar_joint/x": 0.21399999999999092,
+                "planar_joint/y": 0.08559999999999637
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.6000000000029282,
+                "planar_joint/x": -1.000000000004885,
+                "planar_joint/y": -0.4000000000019568
+              },
+              "positions": {
+                "planar_joint/theta": 0.2960865786503164,
+                "planar_joint/x": 0.4934776310838607,
+                "planar_joint/y": 0.1973910524335443
+              },
+              "velocities": {
+                "planar_joint/theta": 0.06839999999999707,
+                "planar_joint/x": 0.11399999999999513,
+                "planar_joint/y": 0.04559999999999805
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.6000000000009125,
+                "planar_joint/x": -1.0000000000015214,
+                "planar_joint/y": -0.40000000000060804
+              },
+              "positions": {
+                "planar_joint/theta": 0.2999393923933131,
+                "planar_joint/x": 0.49989898732218846,
+                "planar_joint/y": 0.19995959492887538
+              },
+              "velocities": {
+                "planar_joint/theta": 0.008399999999999151,
+                "planar_joint/x": 0.013999999999998588,
+                "planar_joint/y": 0.005599999999999435
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -0.6000000000373578,
+                "planar_joint/x": -1.000000000062263,
+                "planar_joint/y": -0.40000000002490527
+              },
+              "positions": {
+                "planar_joint/theta": 0.3,
+                "planar_joint/x": 0.5,
+                "planar_joint/y": 0.2
+              },
+              "velocities": {
+                "planar_joint/theta": 1.1713662426429666e-17,
+                "planar_joint/x": 1.952277071071611e-17,
+                "planar_joint/y": 7.809108284286445e-18
+              }
+            }
+          ]
+        },
+        {
+          "durations_from_previous": [
+            0.0,
+            0.1,
+            0.1,
+            0.10000000000000003,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.10000000000000009,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999987,
+            0.10000000000000009,
+            0.09999999999999987,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999987,
+            0.10000000000000009,
+            0.09999999999999987,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999964,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999964,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999964,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999964,
+            0.10000000000000053,
+            0.09999999999999964,
+            0.09999999999999964,
+            0.10000000000000053,
+            0.09999999999999964,
+            0.10000000000000053,
+            0.08862455708467643
+          ],
+          "has_mixed_joint_types": false,
+          "ok": true,
+          "waypoints": [
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.0,
+                "planar_joint/x": -0.2181818181818182,
+                "planar_joint/y": 0.3272727272727273
+              },
+              "positions": {
+                "planar_joint/theta": -3.0,
+                "planar_joint/x": 0.0,
+                "planar_joint/y": 0.0
+              },
+              "velocities": {
+                "planar_joint/theta": 0.003,
+                "planar_joint/x": -0.0002181818181818182,
+                "planar_joint/y": 0.0003272727272727273
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999999977796,
+                "planar_joint/x": -0.21818181818165203,
+                "planar_joint/y": 0.3272727272724815
+              },
+              "positions": {
+                "planar_joint/theta": -2.985,
+                "planar_joint/x": -0.0010909090909090899,
+                "planar_joint/y": 0.0016363636363636344
+              },
+              "velocities": {
+                "planar_joint/theta": 0.2999999999999977,
+                "planar_joint/x": -0.02181818181818165,
+                "planar_joint/y": 0.03272727272727247
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.0000000000011102,
+                "planar_joint/x": -0.21818181818190183,
+                "planar_joint/y": 0.3272727272728562
+              },
+              "positions": {
+                "planar_joint/theta": -2.94,
+                "planar_joint/x": -0.0043636363636363595,
+                "planar_joint/y": 0.0065454545454545375
+              },
+              "velocities": {
+                "planar_joint/theta": 0.6000000000000029,
+                "planar_joint/x": -0.04363636363636385,
+                "planar_joint/y": 0.06545454545454577
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999999729106,
+                "planar_joint/x": -0.21818181817985485,
+                "planar_joint/y": 0.32727272726977535
+              },
+              "positions": {
+                "planar_joint/theta": -2.8649999999999998,
+                "planar_joint/x": -0.009818181818181837,
+                "planar_joint/y": 0.014727272727272754
+              },
+              "velocities": {
+                "planar_joint/theta": 0.89999999999998,
+                "planar_joint/x": -0.065454545454544,
+                "planar_joint/y": 0.09818181818181601
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999999874545,
+                "planar_joint/x": -0.21818181818090956,
+                "planar_joint/y": 0.3272727272713713
+              },
+              "positions": {
+                "planar_joint/theta": -2.7599999999999993,
+                "planar_joint/x": -0.017454545454545514,
+                "planar_joint/y": 0.026181818181818264
+              },
+              "velocities": {
+                "planar_joint/theta": 1.1999999999999924,
+                "planar_joint/x": -0.08727272727272672,
+                "planar_joint/y": 0.1309090909090901
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.000000000009215,
+                "planar_joint/x": -0.21818181818249163,
+                "planar_joint/y": 0.3272727272737305
+              },
+              "positions": {
+                "planar_joint/theta": -2.624999999999999,
+                "planar_joint/x": -0.027272727272727327,
+                "planar_joint/y": 0.040909090909090985
+              },
+              "velocities": {
+                "planar_joint/theta": 1.5000000000000084,
+                "planar_joint/x": -0.10909090909090971,
+                "planar_joint/y": 0.16363636363636455
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.999999999920397,
+                "planar_joint/x": -0.21818181817603846,
+                "planar_joint/y": 0.32727272726404383
+              },
+              "positions": {
+                "planar_joint/theta": -2.46,
+                "planar_joint/x": -0.0392727272727273,
+                "planar_joint/y": 0.05890909090909094
+              },
+              "velocities": {
+                "planar_joint/theta": 1.7999999999999141,
+                "planar_joint/x": -0.13090909090908467,
+                "planar_joint/y": 0.196363636363627
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.0000000000525135,
+                "planar_joint/x": -0.2181818181856419,
+                "planar_joint/y": 0.32727272727844897
+              },
+              "positions": {
+                "planar_joint/theta": -2.265000000000001,
+                "planar_joint/x": -0.053454545454545394,
+                "planar_joint/y": 0.08018181818181808
+              },
+              "velocities": {
+                "planar_joint/theta": 2.1000000000000405,
+                "planar_joint/x": -0.15272727272727568,
+                "planar_joint/y": 0.2290909090909135
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999999632516,
+                "planar_joint/x": -0.21818181817917484,
+                "planar_joint/y": 0.3272727272687345
+              },
+              "positions": {
+                "planar_joint/theta": -2.040000000000003,
+                "planar_joint/x": -0.06981818181818161,
+                "planar_joint/y": 0.10472727272727239
+              },
+              "velocities": {
+                "planar_joint/theta": 2.3999999999999457,
+                "planar_joint/x": -0.17454545454545062,
+                "planar_joint/y": 0.2618181818181759
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.999999999874878,
+                "planar_joint/x": -0.2181818181727078,
+                "planar_joint/y": 0.3272727272591311
+              },
+              "positions": {
+                "planar_joint/theta": -1.785000000000006,
+                "planar_joint/x": -0.08836363636363596,
+                "planar_joint/y": 0.13254545454545394
+              },
+              "velocities": {
+                "planar_joint/theta": 2.699999999999852,
+                "planar_joint/x": -0.19636363636362558,
+                "planar_joint/y": 0.2945454545454384
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.999999999786504,
+                "planar_joint/x": -0.2181818181662685,
+                "planar_joint/y": 0.32727272724941664
+              },
+              "positions": {
+                "planar_joint/theta": -1.5000000000000089,
+                "planar_joint/x": -0.10909090909090846,
+                "planar_joint/y": 0.16363636363636266
+              },
+              "velocities": {
+                "planar_joint/theta": 2.9999999999997575,
+                "planar_joint/x": -0.21818181818180055,
+                "planar_joint/y": 0.32727272727270085
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": -1.1999999999999944,
+                "planar_joint/x": -0.13090909090909134,
+                "planar_joint/y": 0.19636363636363696
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": -0.8999999999999801,
+                "planar_joint/x": -0.1527272727272742,
+                "planar_joint/y": 0.22909090909091126
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": -0.5999999999999661,
+                "planar_joint/x": -0.17454545454545703,
+                "planar_joint/y": 0.2618181818181855
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": -0.29999999999995164,
+                "planar_joint/x": -0.1963636363636399,
+                "planar_joint/y": 0.29454545454545983
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": 6.17284001691587e-14,
+                "planar_joint/x": -0.2181818181818227,
+                "planar_joint/y": 0.327272727272734
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": 0.30000000000007576,
+                "planar_joint/x": -0.24000000000000554,
+                "planar_joint/y": 0.36000000000000826
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.818557203946038e-10,
+                "planar_joint/x": -2.050111982004057e-11,
+                "planar_joint/y": 3.068232546815274e-11
+              },
+              "positions": {
+                "planar_joint/theta": 0.6000000000000905,
+                "planar_joint/x": -0.26181818181818844,
+                "planar_joint/y": 0.3927272727272826
+              },
+              "velocities": {
+                "planar_joint/theta": 3.000000000000282,
+                "planar_joint/x": -0.2181818181818387,
+                "planar_joint/y": 0.327272727272758
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999997832845,
+                "planar_joint/x": 0.21818181816607068,
+                "planar_joint/y": -0.3272727272491199
+              },
+              "positions": {
+                "planar_joint/theta": 0.8999642121603387,
+                "planar_joint/x": -0.2836337608843883,
+                "planar_joint/y": 0.4254506413265824
+              },
+              "velocities": {
+                "planar_joint/theta": 2.98339754824685,
+                "planar_joint/x": -0.21697436714522547,
+                "planar_joint/y": 0.3254615507178382
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.999999999761524,
+                "planar_joint/x": 0.21818181816446086,
+                "planar_joint/y": -0.3272727272466774
+              },
+              "positions": {
+                "planar_joint/theta": 1.1834988574581833,
+                "planar_joint/x": -0.30425446236059517,
+                "planar_joint/y": 0.45638169354089275
+              },
+              "velocities": {
+                "planar_joint/theta": 2.683397548246878,
+                "planar_joint/x": -0.19515618532704568,
+                "planar_joint/y": 0.2927342779905685
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999999171774,
+                "planar_joint/x": 0.21818181817581994,
+                "planar_joint/y": -0.32727272726370216
+              },
+              "positions": {
+                "planar_joint/theta": 1.437033502756027,
+                "planar_joint/x": -0.3226933456549838,
+                "planar_joint/y": 0.48404001848247563
+              },
+              "velocities": {
+                "planar_joint/theta": 2.383397548246727,
+                "planar_joint/x": -0.17333800350885287,
+                "planar_joint/y": 0.2600070052632793
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999997175593,
+                "planar_joint/x": 0.21818181816126897,
+                "planar_joint/y": -0.3272727272419034
+              },
+              "positions": {
+                "planar_joint/theta": 1.6605681480538763,
+                "planar_joint/x": -0.33895041076755467,
+                "planar_joint/y": 0.508425616151332
+              },
+              "velocities": {
+                "planar_joint/theta": 2.083397548246933,
+                "planar_joint/x": -0.15151982169068604,
+                "planar_joint/y": 0.22727973253602907
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -3.000000000398792,
+                "planar_joint/x": 0.2181818182108268,
+                "planar_joint/y": -0.3272727273162263
+              },
+              "positions": {
+                "planar_joint/theta": 1.8541027933517205,
+                "planar_joint/x": -0.353025657698307,
+                "planar_joint/y": 0.5295384865474604
+              },
+              "velocities": {
+                "planar_joint/theta": 1.783397548246256,
+                "planar_joint/x": -0.12970163987245498,
+                "planar_joint/y": 0.1945524598086825
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999996735944,
+                "planar_joint/x": 0.21818181815807708,
+                "planar_joint/y": -0.3272727272371017
+              },
+              "positions": {
+                "planar_joint/theta": 2.017637438649563,
+                "planar_joint/x": -0.364919086447241,
+                "planar_joint/y": 0.5473786296708614
+              },
+              "velocities": {
+                "planar_joint/theta": 1.483397548246988,
+                "planar_joint/x": -0.10788345805432642,
+                "planar_joint/y": 0.16182518708148963
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.999999999481526,
+                "planar_joint/x": 0.21818181814408802,
+                "planar_joint/y": -0.3272727272161528
+              },
+              "positions": {
+                "planar_joint/theta": 2.151172083947406,
+                "planar_joint/x": -0.37463069701435686,
+                "planar_joint/y": 0.5619460455215353
+              },
+              "velocities": {
+                "planar_joint/theta": 1.1833975482471872,
+                "planar_joint/x": -0.08606527623615909,
+                "planar_joint/y": 0.12909791435423862
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.999999999621969,
+                "planar_joint/x": 0.21818181815433008,
+                "planar_joint/y": -0.3272727272314812
+              },
+              "positions": {
+                "planar_joint/theta": 2.254706729245254,
+                "planar_joint/x": -0.38216048939965486,
+                "planar_joint/y": 0.5732407340994822
+              },
+              "velocities": {
+                "planar_joint/theta": 0.8833975482470472,
+                "planar_joint/x": -0.06424709441796707,
+                "planar_joint/y": 0.09637064162695061
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.999999999940381,
+                "planar_joint/x": 0.21818181817748492,
+                "planar_joint/y": -0.32727272726622386
+              },
+              "positions": {
+                "planar_joint/theta": 2.328241374543104,
+                "planar_joint/x": -0.38750846360313485,
+                "planar_joint/y": 0.5812626954047022
+              },
+              "velocities": {
+                "planar_joint/theta": 0.5833975482467247,
+                "planar_joint/x": -0.042428912599761795,
+                "planar_joint/y": 0.0636433688996427
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -3.000000000044964,
+                "planar_joint/x": 0.2181818181850907,
+                "planar_joint/y": -0.3272727272776395
+              },
+              "positions": {
+                "planar_joint/theta": 2.37177601984095,
+                "planar_joint/x": -0.39067461962479644,
+                "planar_joint/y": 0.5860119294371946
+              },
+              "velocities": {
+                "planar_joint/theta": 0.2833975482466145,
+                "planar_joint/x": -0.020610730781571964,
+                "planar_joint/y": 0.030916096172357944
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -1.2447725417563076,
+                "planar_joint/x": 1.9975674989006456,
+                "planar_joint/y": -1.117775924067208
+              },
+              "positions": {
+                "planar_joint/theta": 2.396842118269771,
+                "planar_joint/x": -0.38432965875999,
+                "planar_joint/y": 0.5845405282823067
+              },
+              "velocities": {
+                "planar_joint/theta": 0.21526972887559692,
+                "planar_joint/x": 0.1639201148873856,
+                "planar_joint/y": -0.06898431738823811
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.999650668548967,
+                "planar_joint/x": -0.2783198266780488,
+                "planar_joint/y": -0.0715864058006593
+              },
+              "positions": {
+                "planar_joint/theta": 2.4079108539957246,
+                "planar_joint/x": -0.36044395376157334,
+                "planar_joint/y": 0.5730341567754291
+              },
+              "velocities": {
+                "planar_joint/theta": -0.02999819804031743,
+                "planar_joint/x": 0.2668201511878119,
+                "planar_joint/y": -0.13954159054586654
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.999999999949485,
+                "planar_joint/x": 1.6799999999716881,
+                "planar_joint/y": -1.0799999999817995
+              },
+              "positions": {
+                "planar_joint/theta": 2.390755400718831,
+                "planar_joint/x": -0.33882302440254525,
+                "planar_joint/y": 0.5606719442587791
+              },
+              "velocities": {
+                "planar_joint/theta": -0.30861926955533847,
+                "planar_joint/x": 0.17282679095098952,
+                "planar_joint/y": -0.11110293703992183
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999998889777,
+                "planar_joint/x": 1.6799999999378608,
+                "planar_joint/y": -1.0799999999600376
+              },
+              "positions": {
+                "planar_joint/theta": 2.3449525152103963,
+                "planar_joint/x": -0.31317340851782177,
+                "planar_joint/y": 0.5441829054757424
+              },
+              "velocities": {
+                "planar_joint/theta": -0.6086192695552791,
+                "planar_joint/x": 0.3408267909509563,
+                "planar_joint/y": -0.21910293703990047
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -3.0000000003758105,
+                "planar_joint/x": 1.680000000210476,
+                "planar_joint/y": -1.080000000135314
+              },
+              "positions": {
+                "planar_joint/theta": 2.26914962970196,
+                "planar_joint/x": -0.2707237926330973,
+                "planar_joint/y": 0.5168938666927054
+              },
+              "velocities": {
+                "planar_joint/theta": -0.908619269555765,
+                "planar_joint/x": 0.5088267909512284,
+                "planar_joint/y": -0.32710293704007537
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999997748468,
+                "planar_joint/x": 1.6799999998738875,
+                "planar_joint/y": -1.0799999999189516
+              },
+              "positions": {
+                "planar_joint/theta": 2.1633467441935275,
+                "planar_joint/x": -0.21147417674837526,
+                "planar_joint/y": 0.4788048279096698
+              },
+              "velocities": {
+                "planar_joint/theta": -1.2086192695551714,
+                "planar_joint/x": 0.6768267909508959,
+                "planar_joint/y": -0.43510293703986164
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999998425704,
+                "planar_joint/x": 1.679999999911826,
+                "planar_joint/y": -1.0799999999432455
+              },
+              "positions": {
+                "planar_joint/theta": 2.027543858685094,
+                "planar_joint/x": -0.13542456086365223,
+                "planar_joint/y": 0.42991578912663353
+              },
+              "velocities": {
+                "planar_joint/theta": -1.5086192695552438,
+                "planar_joint/x": 0.8448267909509365,
+                "planar_joint/y": -0.5431029370398877
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -3.000000000332845,
+                "planar_joint/x": 1.6800000001863842,
+                "planar_joint/y": -1.080000000119882
+              },
+              "positions": {
+                "planar_joint/theta": 1.8617409731766592,
+                "planar_joint/x": -0.042574944978929025,
+                "planar_joint/y": 0.3702267503435972
+              },
+              "velocities": {
+                "planar_joint/theta": -1.8086192695557315,
+                "planar_joint/x": 1.0128267909512096,
+                "planar_joint/y": -0.6511029370400633
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -3.0000000008424372,
+                "planar_joint/x": 1.6800000004717115,
+                "planar_joint/y": -1.0800000003031798
+              },
+              "positions": {
+                "planar_joint/theta": 1.6659380876682226,
+                "planar_joint/x": 0.06707467090579544,
+                "planar_joint/y": 0.29973771156056
+              },
+              "velocities": {
+                "planar_joint/theta": -2.1086192695562285,
+                "planar_joint/x": 1.1808267909514878,
+                "planar_joint/y": -0.7591029370402421
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": -2.9999999998729905,
+                "planar_joint/x": 1.6799999999288124,
+                "planar_joint/y": -1.0799999999542367
+              },
+              "positions": {
+                "planar_joint/theta": 1.440135202159776,
+                "planar_joint/x": 0.19352428679052555,
+                "planar_joint/y": 0.21844867277751925
+              },
+              "velocities": {
+                "planar_joint/theta": -2.4086192695552464,
+                "planar_joint/x": 1.348826790950938,
+                "planar_joint/y": -0.8671029370398886
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.0000000001314504,
+                "planar_joint/x": -1.6800000000735855,
+                "planar_joint/y": 1.0800000000473844
+              },
+              "positions": {
+                "planar_joint/theta": 1.1844804051816267,
+                "planar_joint/x": 0.3366909730982892,
+                "planar_joint/y": 0.12641294586538548
+              },
+              "velocities": {
+                "planar_joint/theta": -2.6639999999998403,
+                "planar_joint/x": 1.4918399999999103,
+                "planar_joint/y": -0.9590399999999423
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999991615596,
+                "planar_joint/x": -1.6799999995306865,
+                "planar_joint/y": 1.0799999996982192
+              },
+              "positions": {
+                "planar_joint/theta": 0.93289303805613,
+                "planar_joint/x": 0.4775798986885673,
+                "planar_joint/y": 0.0358414937002067
+              },
+              "velocities": {
+                "planar_joint/theta": -2.3640000000008223,
+                "planar_joint/x": 1.3238400000004604,
+                "planar_joint/y": -0.8510400000002959
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.0000000015050183,
+                "planar_joint/x": -1.6800000008428901,
+                "planar_joint/y": 1.0800000005418422
+              },
+              "positions": {
+                "planar_joint/theta": 0.7113056709306438,
+                "planar_joint/x": 0.6016688242788395,
+                "planar_joint/y": -0.04392995846496828
+              },
+              "velocities": {
+                "planar_joint/theta": -2.06399999999849,
+                "planar_joint/x": 1.1558399999991544,
+                "planar_joint/y": -0.7430399999994564
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999986148858,
+                "planar_joint/x": -1.6799999992244559,
+                "planar_joint/y": 1.0799999995014122
+              },
+              "positions": {
+                "planar_joint/theta": 0.5197183038051838,
+                "planar_joint/x": 0.7089577498690971,
+                "planar_joint/y": -0.11290141063013387
+              },
+              "velocities": {
+                "planar_joint/theta": -1.7640000000013953,
+                "planar_joint/x": 0.9878400000007813,
+                "planar_joint/y": -0.6350400000005022
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.000000000488276,
+                "planar_joint/x": -1.6800000002733457,
+                "planar_joint/y": 1.0800000001756906
+              },
+              "positions": {
+                "planar_joint/theta": 0.35813093667971435,
+                "planar_joint/x": 0.79944667545936,
+                "planar_joint/y": -0.17107286279530287
+              },
+              "velocities": {
+                "planar_joint/theta": -1.4639999999995197,
+                "planar_joint/x": 0.819839999999731,
+                "planar_joint/y": -0.5270399999998271
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.000000000105471,
+                "planar_joint/x": -1.6800000000590105,
+                "planar_joint/y": 1.080000000037983
+              },
+              "positions": {
+                "planar_joint/theta": 0.22654356955422453,
+                "planar_joint/x": 0.8731356010496343,
+                "planar_joint/y": -0.21844431496047917
+              },
+              "velocities": {
+                "planar_joint/theta": -1.1639999999998991,
+                "planar_joint/x": 0.6518399999999435,
+                "planar_joint/y": -0.4190399999999636
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.99999999942224,
+                "planar_joint/x": -1.6799999996764343,
+                "planar_joint/y": 1.0799999997919976
+              },
+              "positions": {
+                "planar_joint/theta": 0.12495620242873058,
+                "planar_joint/x": 0.9300245266399109,
+                "planar_joint/y": -0.255015767125657
+              },
+              "velocities": {
+                "planar_joint/theta": -0.8640000000005736,
+                "planar_joint/x": 0.48384000000032124,
+                "planar_joint/y": -0.3110400000002065
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999996449507,
+                "planar_joint/x": -1.6799999998011679,
+                "planar_joint/y": 1.0799999998721557
+              },
+              "positions": {
+                "planar_joint/theta": 0.053368835303243906,
+                "planar_joint/x": 0.9701134522301834,
+                "planar_joint/y": -0.28078721929083217
+              },
+              "velocities": {
+                "planar_joint/theta": -0.5640000000003531,
+                "planar_joint/x": 0.31584000000019774,
+                "planar_joint/y": -0.20304000000012712
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 2.9999999998649414,
+                "planar_joint/x": -1.6799999999243471,
+                "planar_joint/y": 1.07999999995137
+              },
+              "positions": {
+                "planar_joint/theta": 0.011781468177756278,
+                "planar_joint/x": 0.9934023778204565,
+                "planar_joint/y": -0.2957586714560077
+              },
+              "velocities": {
+                "planar_joint/theta": -0.26400000000013407,
+                "planar_joint/x": 0.14784000000007508,
+                "planar_joint/y": -0.09504000000004825
+              }
+            },
+            {
+              "accelerations": {
+                "planar_joint/theta": 3.0000000007668075,
+                "planar_joint/x": -1.680000000429412,
+                "planar_joint/y": 1.0800000002760504
+              },
+              "positions": {
+                "planar_joint/theta": 0.0,
+                "planar_joint/x": 1.0,
+                "planar_joint/y": -0.3
+              },
+              "velocities": {
+                "planar_joint/theta": 4.2309180758723856e-16,
+                "planar_joint/x": -2.369314122488536e-16,
+                "planar_joint/y": 1.5231305073140587e-16
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "cases": [
+        {
+          "durations_from_previous": [
+            0.0,
+            0.1,
+            0.1,
+            0.10000000000000003,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.10000000000000009,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.09999999999999998,
+            0.10000000000000009,
+            0.10000000000000009,
+            0.09999999999999987,
+            0.10000000000000009,
+            0.014213562383315947
+          ],
+          "has_mixed_joint_types": true,
+          "ok": true,
+          "waypoints": [
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.6000000000000002,
+                "mixed_revolute_joint": 1.0000000000000002
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.0,
+                "mixed_revolute_joint": 0.0
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.0006000000000000002,
+                "mixed_revolute_joint": 0.0010000000000000002
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.5999999999995379,
+                "mixed_revolute_joint": 0.9999999999992228
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.0029999999999999983,
+                "mixed_revolute_joint": 0.0049999999999999975
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.0599999999999996,
+                "mixed_revolute_joint": 0.09999999999999934
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.6000000000012518,
+                "mixed_revolute_joint": 1.000000000002054
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.012,
+                "mixed_revolute_joint": 0.02
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.12000000000000141,
+                "mixed_revolute_joint": 0.20000000000000234
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.5999999999999334,
+                "mixed_revolute_joint": 0.999999999999889
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.026999999999999965,
+                "mixed_revolute_joint": 0.04499999999999994
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.179999999999999,
+                "mixed_revolute_joint": 0.2999999999999983
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.5999999999955757,
+                "mixed_revolute_joint": 0.9999999999926725
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.047999999999999765,
+                "mixed_revolute_joint": 0.07999999999999961
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.23999999999999333,
+                "mixed_revolute_joint": 0.3999999999999889
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.5999999999793054,
+                "mixed_revolute_joint": 0.9999999999654721
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.07499999999999943,
+                "mixed_revolute_joint": 0.12499999999999904
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.29999999999997573,
+                "mixed_revolute_joint": 0.4999999999999596
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.6000000000010436,
+                "mixed_revolute_joint": 1.0000000000017764
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.10799999999999896,
+                "mixed_revolute_joint": 0.17999999999999827
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.35999999999999616,
+                "mixed_revolute_joint": 0.5999999999999936
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": 0.5999999999894418,
+                "mixed_revolute_joint": 0.9999999999824585
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.14699999999999827,
+                "mixed_revolute_joint": 0.2449999999999971
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.4199999999999832,
+                "mixed_revolute_joint": 0.6999999999999721
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.6000000000035416,
+                "mixed_revolute_joint": -1.0000000000058842
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.18682250993533212,
+                "mixed_revolute_joint": 0.3113708498922202
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.36839999999999135,
+                "mixed_revolute_joint": 0.6139999999999856
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.5999999999919398,
+                "mixed_revolute_joint": -0.9999999999865663
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.22067532367832857,
+                "mixed_revolute_joint": 0.36779220613054764
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.3084000000000043,
+                "mixed_revolute_joint": 0.5140000000000071
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.599999999980449,
+                "mixed_revolute_joint": -0.999999999967415
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.2485281374213251,
+                "mixed_revolute_joint": 0.4142135623688752
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.24840000000001708,
+                "mixed_revolute_joint": 0.41400000000002846
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.6000000000107192,
+                "mixed_revolute_joint": -1.0000000000178746
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.2703809511643218,
+                "mixed_revolute_joint": 0.45063491860720306
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.18839999999998808,
+                "mixed_revolute_joint": 0.31399999999998013
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.5999999999859834,
+                "mixed_revolute_joint": -0.9999999999766576
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.2862337649073187,
+                "mixed_revolute_joint": 0.47705627484553126
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.12840000000001425,
+                "mixed_revolute_joint": 0.21400000000002375
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.5999999999885341,
+                "mixed_revolute_joint": -0.9999999999808903
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.2960865786503156,
+                "mixed_revolute_joint": 0.4934776310838594
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.06840000000001134,
+                "mixed_revolute_joint": 0.1140000000000189
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.5999999999988287,
+                "mixed_revolute_joint": -0.9999999999980484
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.29993939239331274,
+                "mixed_revolute_joint": 0.49989898732218796
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 0.008400000000000704,
+                "mixed_revolute_joint": 0.014000000000001173
+              }
+            },
+            {
+              "accelerations": {
+                "mixed_prismatic_joint": -0.6000000000192057,
+                "mixed_revolute_joint": -1.0000000000320095
+              },
+              "positions": {
+                "mixed_prismatic_joint": 0.3,
+                "mixed_revolute_joint": 0.5
+              },
+              "velocities": {
+                "mixed_prismatic_joint": 4.5071647194142884e-17,
+                "mixed_revolute_joint": 7.511941199023814e-17
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
