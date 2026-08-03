@@ -5,17 +5,16 @@
 // Ported from octomap 1.9.7 (see key.rs's provenance comment for how the
 // version was matched):
 //   include/octomap/OcTreeIterator.hxx (`iterator_base`, `leaf_iterator`,
-//     `leaf_bbx_iterator`)
+//     `leaf_bbx_iterator`, `tree_iterator`)
 //
-// `tree_iterator` (every node, inner and leaf) is not ported: no moveit2
-// consumer identified in Step 1 of this change iterates a tree at all (the
-// sensor updaters only call `updateNode`/`search`, keyed by point or
-// `OcTreeKey`, never a range iterator), and nothing in this crate's own
-// leaf-oriented API needs to walk inner nodes as first-class yielded items.
-// `leaf_iterator` and `leaf_bbx_iterator` are ported anyway, matching the
-// task's explicit requirement for "leaf iteration with node size and
-// bounding-box-limited iteration" as part of this port's minimum surface,
-// independent of today's call sites.
+// `tree_iterator` (every node, inner and leaf) is ported as `TreeNodes` --
+// round 13's item 1. Its upstream consumer is
+// `collision_distance_field/src/collision_distance_field_types.cpp:355`'s
+// `PosedBodyPointDecomposition(const shared_ptr<const octomap::OcTree>&)`
+// constructor, which walks `begin_tree()`/`end_tree()` directly (occupied
+// leaves become collision points, occupied inner nodes are skipped since
+// they are represented at finer depth by their own children); that
+// constructor itself belongs to `moveit-distance-field`, not this crate.
 
 use nalgebra::Point3;
 
@@ -235,5 +234,114 @@ impl Leaf<'_> {
     /// Upstream `AbstractOccupancyOcTree::isNodeOccupied` applied to this leaf.
     pub fn is_occupied(&self) -> bool {
         self.tree.is_node_occupied_log_odds(self.log_odds)
+    }
+}
+
+/// Iterator over every node in an [`OcTree`] -- inner nodes as well as
+/// leaves -- in the same pre-order as [`Leaves`] (a node before its
+/// children, child 0's subtree before child 1's). Upstream `tree_iterator`.
+///
+/// Unlike [`Leaves`], which decides per-node whether to yield it (leaf) or
+/// descend into it (inner node), `tree_iterator` does both for every node:
+/// upstream's `singleIncrement` unconditionally queues an already-visited
+/// node's children (a no-op if it has none) once its depth is below the
+/// traversal's max depth, regardless of whether the node is itself a leaf.
+/// [`TreeNode::is_leaf`] surfaces upstream `tree_iterator::isLeaf` for
+/// callers that need to distinguish the two after the fact.
+pub struct TreeNodes<'a> {
+    tree: &'a OcTree,
+    stack: Vec<StackElem<'a>>,
+}
+
+impl<'a> TreeNodes<'a> {
+    pub(crate) fn new(tree: &'a OcTree) -> Self {
+        let mut stack = Vec::new();
+        if let Some(root) = tree.root() {
+            stack.push(StackElem {
+                node: root,
+                key: OcTree::root_key(),
+                depth: 0,
+            });
+        }
+        Self { tree, stack }
+    }
+}
+
+impl<'a> Iterator for TreeNodes<'a> {
+    type Item = TreeNode<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let elem = self.stack.pop()?;
+        if elem.depth < OcTree::TREE_DEPTH {
+            push_children(&mut self.stack, elem.node, elem.key, elem.depth, |_, _| {
+                true
+            });
+        }
+        Some(TreeNode {
+            tree: self.tree,
+            node: elem.node,
+            key: elem.key,
+            depth: elem.depth,
+        })
+    }
+}
+
+/// A single node yielded by [`TreeNodes`]: its key, the depth it was found
+/// at, and its occupancy -- inner node or leaf alike. Not a direct upstream
+/// type, for the same reason [`Leaf`] isn't: upstream's iterator
+/// dereferences to the node itself plus free accessor functions on the
+/// iterator, which Rust's `Iterator` can't yield as one live borrow.
+pub struct TreeNode<'a> {
+    tree: &'a OcTree,
+    node: &'a Node,
+    key: OcTreeKey,
+    depth: u32,
+}
+
+impl TreeNode<'_> {
+    /// Upstream `iterator_base::getKey`.
+    pub fn key(&self) -> OcTreeKey {
+        self.key
+    }
+
+    /// Upstream `iterator_base::getIndexKey`.
+    pub fn index_key(&self) -> OcTreeKey {
+        compute_index_key(OcTree::TREE_DEPTH - self.depth, self.key)
+    }
+
+    /// Upstream `iterator_base::getDepth`.
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    /// Upstream `iterator_base::getCoordinate` (and, per-axis, `getX`/`getY`/`getZ`).
+    pub fn coordinate(&self) -> Point3<f64> {
+        self.tree.key_to_coord_at_depth(self.key, self.depth)
+    }
+
+    /// Upstream `iterator_base::getSize`.
+    pub fn size(&self) -> f64 {
+        self.tree.node_size(self.depth)
+    }
+
+    /// Upstream `tree_iterator::isLeaf`: no children, or already at the
+    /// traversal's max depth.
+    pub fn is_leaf(&self) -> bool {
+        !self.node.has_children() || self.depth == OcTree::TREE_DEPTH
+    }
+
+    /// Upstream `OcTreeNode::getLogOdds` on the dereferenced node.
+    pub fn log_odds(&self) -> f32 {
+        self.node.log_odds
+    }
+
+    /// Upstream `OcTreeNode::getOccupancy`.
+    pub fn occupancy(&self) -> f64 {
+        crate::tree::probability(f64::from(self.node.log_odds))
+    }
+
+    /// Upstream `AbstractOccupancyOcTree::isNodeOccupied` applied to this node.
+    pub fn is_occupied(&self) -> bool {
+        self.tree.is_node_occupied_log_odds(self.node.log_odds)
     }
 }

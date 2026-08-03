@@ -649,6 +649,9 @@
           101
         ],
         "type": "occupancy_by_key"
+      },
+      {
+        "type": "tree_walk"
       }
     ],
     "resolution": 1.0
@@ -699,5 +702,108 @@
       }
     ],
     "resolution": 0.1
+  },
+  {
+    "actions": [],
+    "id": 6,
+    "op": "octomap",
+    "queries": [
+      {
+        "type": "tree_walk"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "key": [
+          100,
+          100,
+          100
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          100,
+          100,
+          101
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          100,
+          101,
+          100
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          100,
+          101,
+          101
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          101,
+          100,
+          100
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          101,
+          100,
+          101
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          101,
+          101,
+          100
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          101,
+          101,
+          101
+        ],
+        "lazy_eval": true,
+        "occupied": true,
+        "type": "update_key"
+      }
+    ],
+    "id": 7,
+    "op": "octomap",
+    "queries": [
+      {
+        "type": "tree_walk"
+      }
+    ],
+    "resolution": 1.0
   }
 ]

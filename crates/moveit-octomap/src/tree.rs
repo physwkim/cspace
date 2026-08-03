@@ -571,6 +571,13 @@ impl OcTree {
         crate::iter::LeavesInBbx::new(self, min, max)
     }
 
+    /// Upstream `begin_tree()`/`end_tree()`: iterate every node in the tree,
+    /// inner nodes and leaves alike, in pre-order. See
+    /// [`crate::iter::TreeNodes`].
+    pub fn tree_nodes(&self) -> crate::iter::TreeNodes<'_> {
+        crate::iter::TreeNodes::new(self)
+    }
+
     /// Upstream `insertRay`: integrates a miss along the whole ray and, if
     /// the ray was not cut short by `max_range`, a hit at `end`. A ray cut
     /// short by `max_range` records only the miss up to the cut point --

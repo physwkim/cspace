@@ -25,8 +25,8 @@
 //!
 //! Only the action/query variants this fixture actually uses are modelled
 //! here (`update_point`, `update_key`, `prune`; `occupancy`,
-//! `occupancy_by_key`, `node_count`, `ray_keys`) -- this is a fixture replay,
-//! not a mirror of the oracle's full wire protocol.
+//! `occupancy_by_key`, `node_count`, `ray_keys`, `tree_walk`) -- this is a
+//! fixture replay, not a mirror of the oracle's full wire protocol.
 
 use std::fs;
 
@@ -69,6 +69,7 @@ enum QuerySpec {
     OccupancyByKey { key: [u16; 3] },
     NodeCount,
     RayKeys { origin: [f64; 3], end: [f64; 3] },
+    TreeWalk,
 }
 
 #[derive(Deserialize)]
@@ -270,6 +271,64 @@ fn octomap_matches_liboctomap_for_every_boundary_scenario() {
                                 "{ctx}: ray key mismatch"
                             );
                         }
+                    }
+                }
+                QuerySpec::TreeWalk => {
+                    let expected_nodes = result
+                        .get("nodes")
+                        .unwrap_or_else(|| panic!("{ctx}: missing nodes"))
+                        .as_array()
+                        .unwrap_or_else(|| panic!("{ctx}: nodes is not an array"));
+                    let actual_nodes: Vec<_> = tree.tree_nodes().collect();
+                    assert_eq!(
+                        actual_nodes.len(),
+                        expected_nodes.len(),
+                        "{ctx}: tree_walk node count mismatch"
+                    );
+                    for (i, (actual, expected)) in
+                        actual_nodes.iter().zip(expected_nodes).enumerate()
+                    {
+                        let node_ctx = format!("{ctx}: tree_walk node {i}");
+                        let c = actual.coordinate();
+                        assert!(
+                            (c.x - expect_f64(expected, "x", &node_ctx)).abs() < 1e-9,
+                            "{node_ctx}: x mismatch"
+                        );
+                        assert!(
+                            (c.y - expect_f64(expected, "y", &node_ctx)).abs() < 1e-9,
+                            "{node_ctx}: y mismatch"
+                        );
+                        assert!(
+                            (c.z - expect_f64(expected, "z", &node_ctx)).abs() < 1e-9,
+                            "{node_ctx}: z mismatch"
+                        );
+                        assert!(
+                            (actual.size() - expect_f64(expected, "size", &node_ctx)).abs() < 1e-9,
+                            "{node_ctx}: size mismatch"
+                        );
+                        assert_eq!(
+                            u64::from(actual.depth()),
+                            expect_u64(expected, "depth", &node_ctx),
+                            "{node_ctx}: depth mismatch"
+                        );
+                        assert_eq!(
+                            actual.is_leaf(),
+                            expect_bool(expected, "is_leaf", &node_ctx),
+                            "{node_ctx}: is_leaf mismatch"
+                        );
+                        assert!(
+                            (f64::from(actual.log_odds())
+                                - expect_f64(expected, "log_odds", &node_ctx))
+                            .abs()
+                                < LOG_ODDS_EPS,
+                            "{node_ctx}: log_odds mismatch"
+                        );
+                        assert!(
+                            (actual.occupancy() - expect_f64(expected, "occupancy", &node_ctx))
+                                .abs()
+                                < OCCUPANCY_EPS,
+                            "{node_ctx}: occupancy mismatch"
+                        );
                     }
                 }
             }

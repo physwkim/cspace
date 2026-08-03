@@ -218,6 +218,6 @@ mod key;
 mod node;
 mod tree;
 
-pub use iter::{Leaf, Leaves, LeavesInBbx};
+pub use iter::{Leaf, Leaves, LeavesInBbx, TreeNode, TreeNodes};
 pub use key::{KeyRay, KeySet, KeyType, OcTreeKey};
 pub use tree::OcTree;
