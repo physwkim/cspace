@@ -335,22 +335,19 @@
 //! reasons specific to each (an `RCLCPP_WARN`-only use this crate has no
 //! logging channel for; an idiomatic-iterator replacement respectively) —
 //! see their own symbol-audit entries. `RobotTrajectory::print`/
-//! `operator<<` is the one item with no D-decision or missing-dependency
-//! reason: it stays unported simply because no round has asked for it yet
-//! (see `robot_trajectory.rs`'s "Out of scope" note) — a real, checkable gap
-//! if a future task needs it, not a "not yet" placeholder with nothing to
-//! act on.
+//! `operator<<` is ported as `impl std::fmt::Display for RobotTrajectory`
+//! (round 12); see `robot_trajectory.rs`'s "Deviations from upstream" note
+//! for the one gap that trait signature leaves (no `variable_indexes`
+//! override parameter).
 //!
 //! This crate's completion condition, stated as a check rather than a
 //! claim: every symbol in both audited headers is classified above; every
 //! classified-as-ported symbol has either an upstream-gtest-derived fixture,
 //! an oracle-driven fixture, or a boundary/unit test with a documented
 //! reason no oracle op covers it; and every classified-as-unported symbol
-//! names the specific missing dependency, D-decision, or (for `print`/
-//! `operator<<` alone) the concrete "nobody has asked for it" reason — not
-//! "not yet" on its own. If a future symbol or fixture cannot be placed in
-//! one of those buckets, this section is stale and needs re-auditing before
-//! the plan is updated to match it.
+//! names the specific missing dependency or D-decision. If a future symbol
+//! or fixture cannot be placed in one of those buckets, this section is
+//! stale and needs re-auditing before the plan is updated to match it.
 //!
 //! # Symbol audit: `robot_trajectory.hpp`
 //!
@@ -465,7 +462,8 @@
 //!   `bool` pair.
 //! - `class Iterator`, `begin`/`end` — excluded, see that module's "Out of
 //!   scope" note: `iter()` is the idiomatic replacement.
-//! - `print`/`operator<<` — excluded, see that module's "Out of scope" note.
+//! - `print`/`operator<<` — ported as `impl std::fmt::Display for
+//!   RobotTrajectory`; see that module's "Deviations from upstream" note.
 //! - free `pathLength` — ported as `path_length`.
 //! - free `smoothness` — ported as `smoothness`.
 //! - free `waypointDensity` — ported as `waypoint_density`.

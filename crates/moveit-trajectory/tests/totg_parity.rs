@@ -61,19 +61,26 @@
 //! others, diluting their power to catch a real regression. Measured with
 //! a non-panicking max-diff sweep (temporarily printing each quantity's
 //! largest `|actual - expected|` across every case/sample/index instead of
-//! asserting): `duration` maxes at `8.89e-9` (case 4, not case 5 as an
-//! earlier draft of this doc claimed, and looser than that draft's claimed
-//! `2e-9` bound), while `position`/`velocity`/`acceleration` max at
-//! `2.27e-13`, `2.22e-16`, `1.78e-15` respectively -- duration's floor is
-//! about 4 orders of magnitude looser than the others', because it comes
-//! out of the iterative switching-point/time-step integration
-//! (`trajectory.rs`'s `Trajectory::create`) rather than a direct
-//! coordinate read. A single `TOL` sized for duration would leave
-//! position/velocity/acceleration a real regression could hide inside; a
-//! single `TOL` sized for them would spuriously fail on duration's honest
-//! noise. Split: `TOL = 1e-9` covers position/velocity/acceleration with
-//! ~3.6 orders of headroom over `2.27e-13`; `DURATION_TOL = 2e-5` covers
-//! duration with ~3.35 orders of headroom over `8.89e-9`. Both still
+//! asserting): `duration` maxes at `8.893039193935692e-9`, in case 5 --
+//! re-measured directly in round 12 after two earlier drafts of this doc
+//! disagreed with each other about which case (`4` vs `5`) and which bound
+//! (`2e-9` vs `8.89e-9`); case 5 is correct and is now cross-checked
+//! against `Trajectory::create`'s round-12 root-cause investigation in
+//! `trajectory.rs`'s `upstream_test2` doc comment, which traces this exact
+//! number to case 5 being the only one of the five that builds a
+//! `CircularPathSegment` -- cases 1/3/4 (straight lines, or blends too
+//! shallow to matter) are bit-exact (`0e0`) against the oracle. While
+//! `position`/`velocity`/`acceleration` max at `2.27e-13`, `2.22e-16`,
+//! `1.78e-15` respectively -- duration's floor is about 4 orders of
+//! magnitude looser than the others', because it comes out of the
+//! iterative switching-point/time-step integration (`trajectory.rs`'s
+//! `Trajectory::create`) rather than a direct coordinate read. A single
+//! `TOL` sized for duration would leave position/velocity/acceleration a
+//! real regression could hide inside; a single `TOL` sized for them would
+//! spuriously fail on duration's honest noise. Split: `TOL = 1e-9` covers
+//! position/velocity/acceleration with ~3.6 orders of headroom over
+//! `2.27e-13`; `DURATION_TOL = 2e-5` covers duration with ~3.35 orders of
+//! headroom over `8.893e-9`. Both still
 //! absolute, not relative -- several expected values (e.g. case 2's
 //! terminal velocity `3.19e-17`) are legitimately near zero, where a
 //! relative bound is meaningless, matching `ruckig_parity.rs`'s original

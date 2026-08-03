@@ -869,6 +869,11 @@ mod tests {
     /// `EXPECT_DOUBLE_EQ` literals for this case (0 ULP), so both are now
     /// `assert_eq!`, per-component for position, matching upstream's actual
     /// test shape.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 108/109) -- excluded
+    /// from round 12's `trajectory.rs` epsilon bisection per
+    /// PORTING-PLAN.md's round-12 report.
     #[test]
     fn upstream_test1() {
         let waypoints = [
@@ -911,17 +916,13 @@ mod tests {
     /// exception in this whole file -- unlike `test1`/`test3`, it is
     /// genuinely *not* bit-exact against upstream's literal: measured diff
     /// `8.893e-9` (`1922.14184275348748` actual vs `1922.1418427445944`
-    /// expected), the same ~4-order-of-magnitude floor
-    /// `totg_robot_trajectory_parity.rs`'s duration group and
-    /// `totg_parity.rs`'s case-4 duration measured independently against
-    /// the oracle, so this is this port's genuine numeric behaviour on this
-    /// waypoint set, not noise from this specific test. `epsilon = 1e-6`
-    /// (~2 orders of headroom over the measured floor) predates this round
-    /// and was already tight enough to have caught a masked
-    /// `max_relative`-only pass. `max_relative` is pinned to `f64::EPSILON`
-    /// explicitly -- i.e. the same value it would silently default to --
-    /// rather than to `epsilon` the way the sibling parity files in this
-    /// sweep pin it: those files' compared magnitudes stay near `1`, so
+    /// expected, ≈20000 ULP at this magnitude). `epsilon = 1e-6` (~2 orders
+    /// of headroom over the measured floor) predates this round and was
+    /// already tight enough to have caught a masked `max_relative`-only
+    /// pass. `max_relative` is pinned to `f64::EPSILON` explicitly -- i.e.
+    /// the same value it would silently default to -- rather than to
+    /// `epsilon` the way the sibling parity files in this sweep pin it:
+    /// those files' compared magnitudes stay near `1`, so
     /// `max_relative = epsilon` barely changes the effective bound, but
     /// `duration` here is `~1922`, and pinning `max_relative = 1e-6` would
     /// widen the *effective* tolerance to `1e-6 * 1922 ≈ 1.9e-3` -- roughly
@@ -931,6 +932,107 @@ mod tests {
     /// most `f64::EPSILON * 1922 ≈ 4.3e-13` -- six orders below `epsilon`
     /// -- so it is provably inert here, matching the pre-existing
     /// (undocumented) behaviour without the magnitude trap.
+    ///
+    /// # Root cause of the `8.893e-9` (round 12)
+    ///
+    /// An earlier draft of this doc comment claimed this was "the same
+    /// ~4-order-of-magnitude floor `totg_robot_trajectory_parity.rs`'s
+    /// duration group and `totg_parity.rs`'s case-4 duration measured
+    /// independently against the oracle" -- re-measured directly this
+    /// round and **false**: `totg_robot_trajectory_parity.rs`'s
+    /// `duration_from_previous` group actually floors at `1.39e-17` (see
+    /// its own doc comment), and a live re-run of `totg_parity.rs` against
+    /// the current oracle build shows its case 4 (a 2-waypoint straight
+    /// line, `[0,0]` to `[10,0]`) is **bit-exact** (`0e0` diff) against the
+    /// oracle, not `8.89e-9`. Across `totg_parity.rs`'s five cases, the
+    /// *only* one with a nonzero duration diff is case 5 -- this exact
+    /// waypoint set -- at `8.893039193935692e-9`, matching this test's own
+    /// diff against upstream's hardcoded literal almost to the last
+    /// significant digit. That correction narrows the search a lot: cases
+    /// 1/3/4 (straight lines and a 4-waypoint path with no circular blend
+    /// tight enough to matter) are exact; only this waypoint set, which
+    /// blends three intermediate waypoints into `CircularPathSegment`s via
+    /// `acos`/`sin`/`cos`/`tan`, diverges. Every other candidate this round
+    /// checked came back negative:
+    ///
+    /// - **Accumulation order**: [`Trajectory::create`]'s timing loop,
+    ///   [`Trajectory::integrate_forward`], and
+    ///   [`Trajectory::integrate_backward`] were read side-by-side against
+    ///   `time_optimal_trajectory_generation.cpp` (upstream lines
+    ///   398-410, 564-663, 690-742) term-for-term -- identical operation
+    ///   order throughout, including which pre-mutation value each
+    ///   expression captures (e.g. `most_recent`/`trajectory.front()`
+    ///   read before the following reassignment on both sides). Every
+    ///   `getMinMax*`/`get*MaxPathVelocity*` helper (upstream lines
+    ///   747-828) matches the same way. Ruled out.
+    /// - **FMA/instruction contraction**: `objdump -d` on the oracle
+    ///   image's own compiled `libmoveit_trajectory_processing.so`
+    ///   (`moveit-rs/oracle:7b8463d6943edaac`) finds zero `vfmadd*`
+    ///   instructions anywhere in the library (only plain `mulsd`/`addsd`)
+    ///   -- consistent with `tools/moveit-oracle/CMakeLists.txt`/`Dockerfile`
+    ///   passing no `-march=native`/`-mfma`, so GCC's `-ffp-contract=fast`
+    ///   default has no FMA-capable target to contract into. This port
+    ///   never calls `f64::mul_add` either. Ruled out on both sides.
+    /// - **`libm` version/dispatch skew**: `ldd --version` inside the
+    ///   oracle image and on the host both report `GLIBC 2.39-0ubuntu8.7`
+    ///   -- the same build. `objdump -T` on the compiled test binary
+    ///   confirms Rust's `f64::{sin,cos,tan,acos}` are dynamically linked
+    ///   against the system `libm.so.6` (`GLIBC_2.2.5`-versioned symbols),
+    ///   not a bundled soft-float implementation -- so both sides call the
+    ///   literal same compiled transcendental-function code for a given
+    ///   input. Ruled out.
+    /// - **Vector-reduction summation order**: `Circular::new`'s
+    ///   `start_direction.dot(&end_direction)` and the `norm_squared`
+    ///   inside each `.normalize()` call are 2-4-term sums where
+    ///   reassociation could change the last bit. Instrumented all three
+    ///   blends this waypoint set builds with four summation orders
+    ///   (naive sequential, reverse, halves-pairwise-tree, and an SSE2
+    ///   2-wide-lane-interleaved pairing matching what Eigen's packet
+    ///   `redux` would produce on this `-march`-less build) -- all four
+    ///   land on the identical bit pattern for every sum in this specific
+    ///   test's geometry. Not order-sensitive *for these particular
+    ///   values*. Ruled out for this case, though not as a general claim
+    ///   about nalgebra vs. Eigen reduction order elsewhere.
+    /// - **`normalize()`'s division convention**: nalgebra's
+    ///   `Matrix::normalize` is `self.unscale(self.norm())`, and
+    ///   `unscale` resolves (via `simba::scalar::ComplexField::unscale`)
+    ///   to `self / factor` -- true division, matching Eigen's own
+    ///   `normalized()` (`n / sqrt(z)`), not a reciprocal-multiply. Ruled
+    ///   out.
+    ///
+    /// What is established: the divergence is real (not a stale-baseline
+    /// artifact -- corrected above), isolated to this crate's only
+    /// oracle-parity case that constructs a `CircularPathSegment`, and not
+    /// explained by any instruction-selection or summation-order
+    /// hypothesis checkable from the Rust side alone. Since every
+    /// mechanical candidate above is eliminated with cited evidence rather
+    /// than asserted, the remaining possibility is that Eigen's live
+    /// `Eigen::VectorXd::dot`/`normalized` (a genuinely dynamic-size
+    /// reduction, distinct from the fixed-size orders tested above) or
+    /// the live `acos`/`sin`/`cos`/`tan` evaluation chain returns a
+    /// different bit pattern than nalgebra's for the same mathematical
+    /// input, which then compounds through the ~197 iterative Euler steps
+    /// [`Trajectory::create`] takes for this waypoint set (measured via a
+    /// temporary step-count dump) and the near-singular
+    /// `1 / (slope - start_slope)` division
+    /// [`Trajectory::integrate_backward`] performs at each backward/
+    /// forward splice. This cannot be confirmed further without an
+    /// intermediate-value dump from a live C++ run, which is out of this
+    /// crate's reach this round (`tools/moveit-oracle/` is not owned
+    /// here) -- see PORTING-PLAN.md's round-12 report for the exact
+    /// oracle query requested: per-`CircularPathSegment` `start_dot_end`,
+    /// `angle`, `radius`, `center`/`x`/`y` for this waypoint set, so a
+    /// future round can bit-compare them directly against this port's own
+    /// values and find the first point of disagreement. Until then,
+    /// `epsilon`/`max_relative` above stay as measured; the property this
+    /// round adds is that the `8.893e-9` floor is specific to
+    /// `CircularPathSegment` geometry, not a generic property of
+    /// `Trajectory::create`'s iteration.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 156/157) -- excluded
+    /// from round 12's `trajectory.rs` epsilon bisection per
+    /// PORTING-PLAN.md's round-12 report, same as [`upstream_test1`]'s.
     #[test]
     fn upstream_test2() {
         let waypoints = [
@@ -985,6 +1087,11 @@ mod tests {
     /// the smaller `time_step` apparently avoids whatever accumulates
     /// `test2`'s `8.893e-9` divergence. Both duration and position are now
     /// `assert_eq!`.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 204/205) -- excluded
+    /// from round 12's `trajectory.rs` epsilon bisection per
+    /// PORTING-PLAN.md's round-12 report, same as [`upstream_test1`]'s.
     #[test]
     fn upstream_test3() {
         let waypoints = [
@@ -1072,6 +1179,27 @@ mod tests {
     /// `assert_relative_eq!(..., epsilon = 1e-9)` an earlier round
     /// substituted -- see [`upstream_test1`]'s doc comment for the same
     /// fidelity issue found across this file.
+    ///
+    /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
+    /// …, 0.1)` transcribed verbatim (upstream lines 594/595) -- excluded
+    /// from this round's bisection per PORTING-PLAN.md's round-12 report.
+    /// The other two `EXPECT_NEAR` sites, both `1e-3` in upstream (duration
+    /// line 589, acceleration lines 604/608), were bisected this round
+    /// (`1e-6 → 1e-9 → 1e-12 → 1e-15 → 0.0`, `--no-fail-fast`, one constant
+    /// at a time) rather than assumed identical just because the *value*
+    /// matches upstream's literal:
+    ///
+    /// - `traj_duration` vs `0.320_681`: fails at `epsilon = 1e-6`
+    ///   (`0.3204013114849768` actual, diff `2.8e-4`) -- upstream's own
+    ///   `1e-3` is already the tightest step in the ladder that passes, kept
+    ///   as-is (not tightened; this measurement corroborates upstream's
+    ///   choice rather than just inheriting it unverified).
+    /// - the two acceleration checks (`±max_acceleration[0]`, magnitude
+    ///   `28.0`): pass at `epsilon = 1e-9`, fail at `1e-12`
+    ///   (`27.999999999998224` actual vs `28.0`, diff `1.78e-12`) --
+    ///   tightened from upstream's `1e-3` to `1e-9` (~2.75 orders of
+    ///   headroom over the measured floor), since this port's own precision
+    ///   here is far tighter than upstream's chosen bound.
     #[test]
     fn upstream_test_single_dof_discontinuity() {
         let start_position = 1.881_943;
@@ -1097,13 +1225,13 @@ mod tests {
                 assert_relative_eq!(
                     trajectory.acceleration(time)[0],
                     max_acceleration[0],
-                    epsilon = 1e-3
+                    epsilon = 1e-9
                 );
             } else if time > t_switch {
                 assert_relative_eq!(
                     trajectory.acceleration(time)[0],
                     -max_acceleration[0],
-                    epsilon = 1e-3
+                    epsilon = 1e-9
                 );
             }
             time += 0.01;
