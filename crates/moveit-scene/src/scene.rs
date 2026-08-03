@@ -50,22 +50,69 @@ pub struct PathValidity {
 /// ACM, the current state, attached bodies (see [`AttachedBody`]'s module
 /// doc for why they live here rather than on [`RobotState`]), the
 /// parent/child diff relationship ([`PlanningScene::diff`],
-/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`]), and
-/// state/path validity ([`PlanningScene::is_state_valid`],
+/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`],
+/// [`PlanningScene::clear_diffs`]), and state/path validity
+/// ([`PlanningScene::is_state_colliding`],
+/// [`PlanningScene::is_state_valid`],
 /// [`PlanningScene::is_state_constrained`],
 /// [`PlanningScene::is_path_valid`] — see their own docs for the dropped
 /// `moveit_msgs` overloads and feasibility predicate).
 ///
-/// Deferred, not ported: anything that round-trips a `moveit_msgs` type
-/// (`getPlanningSceneMsg`/`setPlanningSceneDiffMsg`/
-/// `processCollisionObjectMsg`/octomap handling — D1, this is a
-/// ROS-independent core crate), `scene_transforms_`/`getTransforms`
-/// (upstream's separate named-frame lookup layer; no `Transforms`/
-/// `SceneTransforms` exists in this port yet), object colors/types
-/// (`object_colors_`/`object_types_`, cosmetic bookkeeping with no
-/// collision-relevant behavior) and cost sources (`getCollisionEnv`/...
-/// never surface `CollisionRequest::cost` from a `PlanningScene` entry
-/// point upstream either).
+/// Deferred, not ported:
+///
+/// - Anything that round-trips a `moveit_msgs` type
+///   (`getPlanningSceneMsg`/`setPlanningSceneDiffMsg`/
+///   `processCollisionObjectMsg`/octomap handling, `getCurrentStateUpdated`'s
+///   `moveit_msgs::RobotState` overload — D1, this is a ROS-independent core
+///   crate).
+/// - `scene_transforms_`/`getTransforms` (upstream's separate named-frame
+///   lookup layer; no `Transforms`/`SceneTransforms` exists in this port
+///   yet).
+/// - The object-color family (`getObjectColor`/`setObjectColor`/
+///   `hasObjectColor`/`removeObjectColor`/`getKnownObjectColors`/
+///   `getOriginalObjectColor`) — D1, carries `std_msgs::msg::ColorRGBA`.
+/// - The object-type family (`getObjectType`/`setObjectType`/
+///   `hasObjectType`/`removeObjectType`/`getKnownObjectTypes`) — D1, carries
+///   `object_recognition_msgs::msg::ObjectType`.
+/// - `saveGeometryToStream`/`loadGeometryFromStream` — a bespoke `.scene`
+///   text format whose per-shape records call the D1-excluded
+///   `getObjectColor`, written to interoperate with RViz's scene-file UI
+///   (no renderer in D1 scope).
+/// - `printKnownObjects` — `std::ostream` debug formatting with no
+///   algorithmic content; everything it prints is already public via
+///   [`PlanningScene::world`]'s `object_ids` and
+///   [`PlanningScene::attached_bodies`].
+/// - `checkCollisionUnpadded`/`allocateCollisionDetector` — both exist
+///   upstream to manage a *second*, unpadded `CollisionEnv` instance; D4's
+///   redesign (see "Collision checking" below) already replaced that
+///   dual-env-per-plugin machinery with the caller owning one concrete `E`,
+///   so this type carries no `collision_detector_` field for either method
+///   to act on.
+/// - `setAttachedBodyUpdateCallback` — a plain-Rust-representable callback
+///   hook (unlike `moveit_msgs::Constraints`, no message type forces its
+///   exclusion), but nothing in this port's reach ever registers one — the
+///   same "no caller reaches the branch that would need it" reasoning
+///   [`PlanningScene::is_state_valid`]'s own doc gives for the dropped
+///   `StateFeasibilityFn`.
+/// - `setCollisionObjectUpdateCallback` — same reasoning, and additionally
+///   structurally obsoleted: [`moveit_collision::World`] replaced upstream's
+///   `addObserver`/`ObserverCallbackFn` registration with every mutator
+///   returning `Option<Notification>` directly, so there is no observer
+///   slot left to wire a callback into.
+/// - `getCostSources` (all four overloads) — blocked, not merely deferred.
+///   Every Rust-side type this needs already exists in `moveit-collision`
+///   ([`moveit_collision::CostSource`],
+///   [`moveit_collision::CollisionResult::cost_sources`],
+///   [`moveit_collision::remove_cost_sources`],
+///   [`moveit_collision::remove_overlapping`]), but
+///   `moveit_collision::ParryCollisionEnv`'s collision callback hardcodes
+///   `cost_sources: None` regardless of [`CollisionRequest::cost`] —
+///   contradicting `CollisionResult::cost_sources`'s own doc ("present
+///   exactly when `CollisionRequest::cost` was set"). Upstream's actual
+///   source is `fcl::CollisionResultd::getCostSources()`, an FCL-internal
+///   BVH-subdivision algorithm with no `parry3d-f64` equivalent to call —
+///   producing one is new backend work belonging in `moveit-collision`, not
+///   something this crate can work around by itself.
 ///
 /// # Collision checking
 ///
@@ -858,6 +905,31 @@ impl<'m> PlanningScene<'m> {
         constraints.decide(&posed).satisfied
     }
 
+    /// Whether `self`'s current state, checked against `env`, collides.
+    /// Upstream `isStateColliding(state, group, verbose)`
+    /// (`planning_scene.cpp:2217`) — the `moveit_msgs::RobotState` overload
+    /// (`:2197`) is a construct-then-delegate wrapper and is not ported: D1
+    /// has no `moveit_msgs` type to build one from. The current-state
+    /// convenience overload (`isStateColliding(group, verbose)`, no
+    /// explicit state) collapses into this one `&mut self` method the same
+    /// way every other method here collapses upstream's const/non-const
+    /// pairs (see the type doc's "Collision checking" section). `group`
+    /// lives on `request.group_name` rather than as a separate parameter,
+    /// matching how every other method here threads
+    /// [`CollisionRequest`] through — upstream's own version overwrites
+    /// whatever `group_name` a caller-built request carried with its
+    /// separate `group` argument, which this signature has no way to do by
+    /// construction. `verbose` is dropped for the same reason the rest of
+    /// this family drops it: `CollisionRequest::verbose` is itself a
+    /// stored-but-never-read field in this port (confirmed: no backend
+    /// consults it), matching upstream's own `RCLCPP_INFO`-only use.
+    pub fn is_state_colliding<E>(&mut self, env: &E, request: &CollisionRequest) -> bool
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        self.check_collision(env, request).collision
+    }
+
     /// Whether `self`'s current state, checked against `env`, is free of
     /// collision and satisfies `constraints` (`None` means unconstrained).
     /// Upstream `isStateValid(state, KinematicConstraintSet, group,
@@ -869,7 +941,9 @@ impl<'m> PlanningScene<'m> {
     /// order exactly: a state that fails both is reported as a collision
     /// failure here, the same as upstream's short-circuiting `if
     /// (isStateColliding(...)) return false;` before it ever reaches
-    /// `isStateConstrained`.
+    /// `isStateConstrained` — this method calls
+    /// [`PlanningScene::is_state_colliding`] rather than re-deriving that
+    /// ordering inline.
     ///
     /// # No feasibility step
     ///
@@ -900,7 +974,7 @@ impl<'m> PlanningScene<'m> {
     where
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
-        if self.check_collision(env, request).collision {
+        if self.is_state_colliding(env, request) {
             return false;
         }
         match constraints {
@@ -1108,6 +1182,31 @@ impl<'m> PlanningScene<'m> {
         }
         self.world_diff = None;
         self.parent = None;
+    }
+
+    /// Reset a diff scene back to a fresh diff against its parent's
+    /// *current* state: any locally materialized `robot_state`/`acm`/
+    /// `attached_bodies` are discarded and re-inherited, `world` reclones
+    /// the parent's, and `world_diff` starts empty again. A no-op if this
+    /// scene has no parent (upstream: `if (!parent_) return;`). Upstream
+    /// `clearDiffs`, scoped to the fields this port carries — see
+    /// [`PlanningScene::decouple_parent`]'s doc for which upstream fields
+    /// that already excludes.
+    ///
+    /// The counterpart to [`PlanningScene::decouple_parent`]: that method
+    /// freezes everything inherited in place and severs the parent link;
+    /// this keeps the parent link and un-freezes everything back to it, so
+    /// a diff scene that diverged while used for read-only planning can be
+    /// handed back for reuse without `parent.diff()`-ing a brand new one.
+    pub fn clear_diffs(&mut self) {
+        let Some(parent) = self.parent.clone() else {
+            return;
+        };
+        self.world = parent.world.clone();
+        self.world_diff = Some(WorldDiff::new());
+        self.robot_state = Layered::Inherited;
+        self.acm = Layered::Inherited;
+        self.attached_bodies = parent.attached_bodies.clone();
     }
 }
 
@@ -1518,6 +1617,54 @@ mod tests {
         assert!(child.knows_frame_transform("crate"));
     }
 
+    #[test]
+    fn clear_diffs_on_a_root_scene_is_a_no_op() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+
+        root.clear_diffs();
+
+        assert_eq!(root.world().object_ids(), vec!["box".to_owned()]);
+    }
+
+    #[test]
+    fn clear_diffs_resets_a_diverged_child_to_a_fresh_diff_against_the_parent() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("floor", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.add_shape("box", cuboid_shape(), Isometry3::translation(1.0, 0.0, 0.0));
+        assert!(child.remove_object("floor"));
+        child
+            .allowed_collision_matrix_mut()
+            .set_entry("a", "b", true);
+        child
+            .attach_new(
+                "held",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        child.clear_diffs();
+
+        assert!(child.parent().is_some());
+        assert_eq!(child.world().object_ids(), vec!["floor".to_owned()]);
+        assert!(child.attached_bodies().next().is_none());
+        assert!(child.allowed_collision_matrix().entry("a", "b").is_none());
+        let diff = child
+            .world_diff
+            .as_ref()
+            .expect("child scene must track a diff");
+        assert!(diff.is_empty());
+    }
+
     // ---- frames: the five-tier ladder ----------------------------------------
 
     #[test]
@@ -1728,6 +1875,32 @@ mod tests {
         let result = scene.check_self_collision(&env, &CollisionRequest::default());
 
         assert!(!result.collision);
+    }
+
+    #[test]
+    fn is_state_colliding_reports_the_current_states_self_collision() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        assert!(scene.is_state_colliding(&env, &CollisionRequest::default()));
+    }
+
+    #[test]
+    fn is_state_colliding_is_false_when_links_are_apart() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(5.0, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        assert!(!scene.is_state_colliding(&env, &CollisionRequest::default()));
     }
 
     #[test]
