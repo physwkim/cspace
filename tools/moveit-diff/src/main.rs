@@ -341,6 +341,13 @@ impl Drop for Oracle {
 enum Verdict {
     Pass,
     Fail(String),
+    /// A real gate ran, found nothing above its threshold, but had too few
+    /// paired disagreements for that to mean agreement -- see
+    /// [`MINIMUM_USABLE_B_PLUS_C`]. Printed distinctly from `Pass` so a
+    /// reader scanning for `PASS`/`FAIL` lines cannot mistake "not enough
+    /// signal to judge" for "judged and found fine", the exact confusion
+    /// `ik_paired_divergence` itself was added to prevent one level up.
+    Underpowered(String),
 }
 
 fn main() {
@@ -703,6 +710,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
             ik_stats.oracle_only, ik_stats.rust_only
         );
         let z = paired_divergence_z(ik_stats.oracle_only, ik_stats.rust_only);
+        let b_plus_c = ik_stats.oracle_only + ik_stats.rust_only;
         let verdict = if z > PAIRED_DIVERGENCE_Z_THRESHOLD {
             println!(
                 "VERDICT: paired divergence is not noise (|z| = {z:.2} > {PAIRED_DIVERGENCE_Z_THRESHOLD}) -- b = {}, c = {} likely reflects a real algorithmic gap, not restart-RNG variance",
@@ -711,6 +719,13 @@ fn run(cfg: &Config) -> Result<usize, String> {
             Verdict::Fail(format!(
                 "paired ik divergence |z| = {z:.2} exceeds {PAIRED_DIVERGENCE_Z_THRESHOLD} (b = {}, c = {}) -- see PAIRED_DIVERGENCE_Z_THRESHOLD's doc comment",
                 ik_stats.oracle_only, ik_stats.rust_only
+            ))
+        } else if b_plus_c < MINIMUM_USABLE_B_PLUS_C {
+            println!(
+                "VERDICT: underpowered -- b + c = {b_plus_c} < {MINIMUM_USABLE_B_PLUS_C}, so |z| = {z:.2} not clearing {PAIRED_DIVERGENCE_Z_THRESHOLD} does not mean agreement; see MINIMUM_USABLE_B_PLUS_C's doc comment"
+            );
+            Verdict::Underpowered(format!(
+                "b + c = {b_plus_c} is below {MINIMUM_USABLE_B_PLUS_C}, the minimum this gate needs to resolve a real divergence as small as the one it is calibrated against -- see MINIMUM_USABLE_B_PLUS_C's doc comment"
             ))
         } else {
             Verdict::Pass
@@ -1409,6 +1424,35 @@ fn paired_divergence_z(oracle_only: usize, rust_only: usize) -> f64 {
 /// report that only reads success-rate lines or `failed: 0`.
 const PAIRED_DIVERGENCE_Z_THRESHOLD: f64 = 3.0;
 
+/// Minimum `b + c` for a `z` at or under [`PAIRED_DIVERGENCE_Z_THRESHOLD`] to
+/// be read as "no divergence found" rather than "not enough disagreements to
+/// tell". Below this, `z <= 3.0` is exactly the failure mode
+/// `ik_paired_divergence` exists to catch one level up: a printed pass that
+/// a reader takes for agreement.
+///
+/// `z = |b - c| / sqrt(b + c)`, so for a fixed true skew `p` (the fraction of
+/// disagreements landing on the larger side, `p > 0.5`), its expectation
+/// grows with `sqrt(b + c)`: `E[z] ~= (2p - 1) * sqrt(b + c)`. Solving
+/// `(2p - 1) * sqrt(n) = 3.0` for `n` gives the `b + c` this gate needs to
+/// expect a `z` right at the threshold for a skew of `p`.
+///
+/// `p` has to come from somewhere real, not an assumed number: the smallest
+/// skew this project has directly confirmed as a genuine (not noise) bug is
+/// pr2's own round-5 pre-fix pair, `b = 8, c = 18` (`p = 18/26 = 9/13`,
+/// `2p - 1 = 5/13`) -- the same reseed bug that panda/fanuc/dual_arm_panda
+/// showed at `z` between `5.04` and `7.06`, just with fewer of pr2's cases
+/// ever needing a reseed at all (see `PAIRED_DIVERGENCE_Z_THRESHOLD`'s doc
+/// comment). Calibrating against that, rather than an arbitrary split, means
+/// this floor is "big enough to have caught the smallest real bug seen so
+/// far", not a guess:
+///
+/// `n = (3.0 / (5/13))^2 = (39/5)^2 = 60.84`, rounded up to `61`.
+///
+/// pr2's own pre-fix run had `b + c = 26 < 61` -- exactly why its `z = 1.96`
+/// stayed under `3.0` despite the bug being real, and exactly the case this
+/// constant now flags as `Verdict::Underpowered` instead of `Verdict::Pass`.
+const MINIMUM_USABLE_B_PLUS_C: usize = 61;
+
 /// How close counts as "did not move from the seed" for the degenerate
 /// check -- far looser than `tol_ik`, since this is about catching a solver
 /// that took no real step at all, not measuring numerical precision.
@@ -1492,8 +1536,14 @@ fn compare_ik(
 }
 
 /// Print per-case lines and the summary. Returns the failure count.
+///
+/// `Verdict::Underpowered` is not counted in `failed` -- it asserts nothing
+/// wrong was found, only that this run could not have told either way -- but
+/// it prints as its own `UNDERPOWERED` line rather than folding into `PASS`,
+/// so it survives being read at a glance.
 fn report(verdicts: &[(String, Verdict)]) -> Result<usize, String> {
     let mut failures = 0usize;
+    let mut underpowered = 0usize;
     // Distinct failure messages, so 1,000 identical "unimplemented" lines
     // collapse to one with a count instead of burying the real disagreements.
     let mut by_message: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
@@ -1501,6 +1551,10 @@ fn report(verdicts: &[(String, Verdict)]) -> Result<usize, String> {
     for (name, verdict) in verdicts {
         match verdict {
             Verdict::Pass => println!("PASS {name}"),
+            Verdict::Underpowered(msg) => {
+                underpowered += 1;
+                println!("UNDERPOWERED {name}: {msg}");
+            }
             Verdict::Fail(msg) => {
                 failures += 1;
                 let entry = by_message.entry(msg.as_str()).or_insert((0, name.as_str()));
@@ -1514,8 +1568,11 @@ fn report(verdicts: &[(String, Verdict)]) -> Result<usize, String> {
 
     println!("\n--- summary ---");
     println!("cases:  {}", verdicts.len());
-    println!("passed: {}", verdicts.len() - failures);
+    println!("passed: {}", verdicts.len() - failures - underpowered);
     println!("failed: {failures}");
+    if underpowered > 0 {
+        println!("underpowered: {underpowered}");
+    }
     if failures > 0 {
         println!("distinct failure messages:");
         for (msg, (count, first)) in &by_message {
@@ -1565,5 +1622,48 @@ mod paired_divergence_tests {
     #[test]
     fn statistic_is_symmetric_in_b_and_c() {
         assert_eq!(paired_divergence_z(15, 69), paired_divergence_z(69, 15));
+    }
+
+    /// The exact case `MINIMUM_USABLE_B_PLUS_C` was calibrated against:
+    /// pr2's round-5 pre-fix pair sits under both the z threshold and the
+    /// power floor, which is precisely why it must read as `Underpowered`
+    /// rather than `Pass`.
+    #[test]
+    fn pr2_pre_fix_pair_is_below_both_the_threshold_and_the_power_floor() {
+        let (b, c) = (8, 18);
+        assert!(paired_divergence_z(b, c) <= PAIRED_DIVERGENCE_Z_THRESHOLD);
+        assert!(b + c < MINIMUM_USABLE_B_PLUS_C);
+    }
+
+    /// Locks the constant to its own derivation: `n` such that a skew of
+    /// `p = 9/13` (pr2's round-5 pre-fix `b=8, c=18`) gives an expected `z`
+    /// of exactly `PAIRED_DIVERGENCE_Z_THRESHOLD`, rounded up. If this drifts
+    /// from `MINIMUM_USABLE_B_PLUS_C`, the doc comment's derivation and the
+    /// constant have gone out of sync.
+    #[test]
+    fn minimum_usable_b_plus_c_matches_its_own_derivation() {
+        let p = 9.0 / 13.0;
+        let n_min = (PAIRED_DIVERGENCE_Z_THRESHOLD / (2.0 * p - 1.0)).powi(2);
+        assert_eq!(MINIMUM_USABLE_B_PLUS_C, n_min.ceil() as usize);
+    }
+
+    /// The three round-5 post-fix pairs with enough disagreements clear the
+    /// floor and must not be misread as underpowered. pr2's own post-fix
+    /// pair (`b=17, c=12`, `n=29`) is deliberately excluded and asserted the
+    /// other way: `n=29 < 61` means this gate now reports pr2's post-fix run
+    /// itself as `Underpowered`, not `Pass` -- an honest consequence of a
+    /// floor calibrated against a real effect size, not a reason to lower
+    /// the floor until pr2 clears it.
+    #[test]
+    fn post_fix_pairs_with_enough_n_clear_the_power_floor_pr2_does_not() {
+        for (b, c) in [(31, 36), (32, 32), (35, 45)] {
+            assert!(
+                b + c >= MINIMUM_USABLE_B_PLUS_C,
+                "b={b}, c={c}: b+c={} should clear the power floor",
+                b + c
+            );
+        }
+        let (b, c) = (17, 12);
+        assert!(b + c < MINIMUM_USABLE_B_PLUS_C);
     }
 }
