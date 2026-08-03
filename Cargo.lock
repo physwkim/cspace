@@ -266,6 +266,8 @@ dependencies = [
  "moveit-error",
  "moveit-geometry",
  "nalgebra",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

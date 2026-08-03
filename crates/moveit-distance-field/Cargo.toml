@@ -16,6 +16,8 @@ nalgebra.workspace = true
 [dev-dependencies]
 approx.workspace = true
 nalgebra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

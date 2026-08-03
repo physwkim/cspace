@@ -1,0 +1,405 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "queries": [
+      {
+        "cell": [
+          1,
+          1,
+          1
+        ],
+        "distance_cell": 0.0,
+        "distance_world": 0.0,
+        "gradient": {
+          "distance": 0.0,
+          "gradient": [
+            -0.5,
+            -0.5,
+            -0.5
+          ],
+          "in_bounds": true
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.0,
+          "position": [
+            1,
+            1,
+            1
+          ],
+          "voxel_present": false
+        },
+        "world": [
+          0.1,
+          0.1,
+          0.1
+        ]
+      },
+      {
+        "cell": [
+          2,
+          2,
+          2
+        ],
+        "distance_cell": 0.0,
+        "distance_world": 0.0,
+        "gradient": {
+          "distance": 0.0,
+          "gradient": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "in_bounds": true
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.0,
+          "position": [
+            2,
+            2,
+            2
+          ],
+          "voxel_present": false
+        },
+        "world": [
+          0.2,
+          0.2,
+          0.2
+        ]
+      },
+      {
+        "cell": [
+          4,
+          4,
+          4
+        ],
+        "distance_cell": 0.34641016151377546,
+        "distance_world": 0.34641016151377546,
+        "gradient": {
+          "distance": 0.34641016151377546,
+          "gradient": [
+            0.4999999999999999,
+            0.4999999999999999,
+            0.4999999999999999
+          ],
+          "in_bounds": true
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.34641016151377546,
+          "position": [
+            2,
+            2,
+            2
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.4,
+          0.4,
+          0.4
+        ]
+      },
+      {
+        "cell": [
+          0,
+          1,
+          1
+        ],
+        "distance_cell": 0.1,
+        "distance_world": 0.1,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.1,
+          "position": [
+            1,
+            1,
+            1
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.0,
+          0.1,
+          0.1
+        ]
+      },
+      {
+        "cell": [
+          9,
+          1,
+          1
+        ],
+        "distance_cell": 0.4,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.4,
+          "position": [
+            -1,
+            -1,
+            -1
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.9,
+          0.1,
+          0.1
+        ]
+      },
+      {
+        "cell": [
+          1,
+          0,
+          1
+        ],
+        "distance_cell": 0.1,
+        "distance_world": 0.1,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.1,
+          "position": [
+            1,
+            1,
+            1
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.1,
+          0.0,
+          0.1
+        ]
+      },
+      {
+        "cell": [
+          1,
+          9,
+          1
+        ],
+        "distance_cell": 0.4,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.4,
+          "position": [
+            -1,
+            -1,
+            -1
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.1,
+          0.9,
+          0.1
+        ]
+      },
+      {
+        "cell": [
+          1,
+          1,
+          0
+        ],
+        "distance_cell": 0.1,
+        "distance_world": 0.1,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.1,
+          "position": [
+            1,
+            1,
+            1
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.1,
+          0.1,
+          0.0
+        ]
+      },
+      {
+        "cell": [
+          1,
+          1,
+          9
+        ],
+        "distance_cell": 0.4,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": true,
+        "nearest": {
+          "distance": 0.4,
+          "position": [
+            -1,
+            -1,
+            -1
+          ],
+          "voxel_present": true
+        },
+        "world": [
+          0.1,
+          0.1,
+          0.9
+        ]
+      },
+      {
+        "cell": [
+          -1,
+          -1,
+          -1
+        ],
+        "distance_cell": null,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": false,
+        "nearest": null,
+        "world": [
+          -0.1,
+          -0.1,
+          -0.1
+        ]
+      },
+      {
+        "cell": [
+          10,
+          10,
+          10
+        ],
+        "distance_cell": null,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": false,
+        "nearest": null,
+        "world": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "cell": [
+          -5,
+          5,
+          5
+        ],
+        "distance_cell": null,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": false,
+        "nearest": null,
+        "world": [
+          -0.5,
+          0.5,
+          0.5
+        ]
+      },
+      {
+        "cell": [
+          100,
+          100,
+          100
+        ],
+        "distance_cell": null,
+        "distance_world": 0.4,
+        "gradient": {
+          "distance": 0.35,
+          "gradient": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "in_bounds": false
+        },
+        "in_grid": false,
+        "nearest": null,
+        "world": [
+          10.0,
+          10.0,
+          10.0
+        ]
+      }
+    ]
+  }
+}

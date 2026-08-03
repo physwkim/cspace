@@ -159,7 +159,10 @@ pub struct NearestCell<'a> {
     /// nearest free cell), positive if outside (distance to the nearest
     /// obstacle), zero if unknown.
     pub distance: f64,
-    /// The position of the nearest cell.
+    /// The position of the nearest cell, or the queried cell itself when
+    /// `voxel` is `None` — see [`PropagationDistanceField::nearest_cell`]'s
+    /// "Deviations from upstream" for why this is the queried cell rather
+    /// than upstream's raw (possibly-sentinel) `pos` output in that case.
     pub position: Vector3<i32>,
 }
 
@@ -270,13 +273,28 @@ impl PropagationDistanceField {
     /// pos.z())`), which its own doc comment calls out as "MUST be valid or
     /// data corruption (SEGFAULTS) will occur" — undefined behaviour in
     /// practice, not a crash, for a query this ordinary and reachable (query
-    /// any cell farther than `max_distance` from every obstacle). This port
-    /// validates the position first, matching the same guard this crate's
-    /// own `remove_obstacle_voxels` cleanup pass already applies to the
-    /// identical hazard, and reports the capped distance with `voxel: None`
-    /// instead — matching this method's own documented "if nearby cell is
-    /// unknown, zero" contract, which the unguarded read never actually
-    /// implemented for this case.
+    /// any cell farther than `max_distance` from every obstacle). Confirmed
+    /// empirically against the real upstream binary in
+    /// `tests/oracle_parity.rs`: the read never actually segfaults for this
+    /// case, it forms a well-defined (never dereferenced) out-of-bounds
+    /// pointer that the `ncell == cell` identity check then reports as
+    /// *present*, so upstream's own `getNearestCell` fails to implement the
+    /// "if nearest cell is unknown, return nullptr" contract its own doc
+    /// comment promises. This port validates the position first, matching
+    /// the same guard this crate's own `remove_obstacle_voxels` cleanup pass
+    /// already applies to the identical hazard, and reports the capped
+    /// distance with `voxel: None` instead — implementing the contract
+    /// upstream's own doc promises but its implementation does not.
+    ///
+    /// [`NearestCell::position`] follows the same substitution: upstream's
+    /// `pos` out-parameter is left holding the raw
+    /// [`PropDistanceFieldVoxel::UNINITIALIZED`] sentinel in this case (not a
+    /// real cell coordinate), so this port reports the *queried* cell there
+    /// instead, the same fallback upstream's own third branch
+    /// ("if nearby cell is unknown, zero" / `pos = (x, y, z)`) already uses
+    /// for the case it does implement correctly. `distance` is not part of
+    /// this deviation: both sides compute it the same way, before either
+    /// checks whether `pos` is valid.
     pub fn nearest_cell(&self, x: i32, y: i32, z: i32) -> NearestCell<'_> {
         let queried = Vector3::new(x, y, z);
         let cell = self.voxel_grid.get_cell(x, y, z);
