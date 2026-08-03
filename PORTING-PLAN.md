@@ -8104,3 +8104,34 @@ debug_assert!(self.prob_hit_log >= 0.0) 제거   27/27 통과
 fixture 포함).
 
 담당이 보고한 1048/1048과 29/29는 베이스 `d849665` 기준 값이다.
+
+## 95. 오라클 staleness 가드를 실제로 재 봤다
+
+이 세션에서 모든 패널이 최소 한 번씩 낡은 이미지 스탬프에 걸렸다.
+`run-oracle.sh`가 그것을 잡도록 짜여 있다는 것은 코드에 적혀 있었지만,
+**가드가 실제로 발화하는지는 아무도 재지 않았다.** 양방향으로 쟀다:
+
+```
+IMAGE=moveit-rs/oracle:3426f1b1193961ee run-oracle.sh ...
+  exit=1
+  moveit-rs/oracle:3426f1b1193961ee was built from different oracle
+  sources than the working tree
+    image: 3426f1b1193961ee...
+    tree:  7b8463d6943edaac...
+  rebuild with tools/moveit-oracle/build.sh
+
+현재 태그로 실행  →  모델 로드까지 정상 진행
+```
+
+가드는 태그 이름이 아니라 이미지 안의
+`/usr/local/share/oracle-src.sha256`를 트리의 `oracle_stamp`와 대조한다.
+태그는 변경 가능하므로 이름만으로는 부족하다는 판단이 옳고, 스탬프가
+아예 없는 옛 이미지도 `<missing or unstamped>`로 걸린다.
+
+**그러므로 낡은 이미지로 캡처된 fixture가 조용히 통과하는 경로는 없다.**
+`verify-fixture-replay.sh`가 이미지를 빌드하지 않는다는 사실은 그대로지만
+(그래서 `oracle.cpp`를 고친 뒤 `build.sh`를 먼저 돌리라는 지시는 계속
+유효하다), 잊었을 때의 결과는 조용한 오답이 아니라 즉시 실패다.
+
+부수 관찰: 이 머신에 `moveit-rs/oracle` 이미지가 10개 쌓여 있다.
+정리는 파괴적 작업이라 사용자 확인 없이 하지 않는다.
