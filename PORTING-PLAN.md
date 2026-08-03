@@ -5495,3 +5495,83 @@ non-virtual이므로 파생 클래스가 뒤집을 수도 없다.
 `verify-scene-fixture-replay.sh`를 게이트로 돌려 통과했다고 적혀 있다. main
 에 그 파일은 없다(`ae85866`에서 삭제, `2d0bdeb`으로 병합). p3-shapes와 같은
 원인 — 라운드 시작 시 rebase하지 않은 베이스다. §57.5와 같은 건이다.
+
+## 59. 내가 세운 가설이 틀렸고 워커가 반증했다 — transforms는 진짜 구멍이다 (2026-08-04)
+
+p1-fixtures 라운드 7 (`31fde4c`, `b224347`), 병합 `bc6cf36`.
+`nextest --workspace` **945/945**.
+
+### 59.1 브리핑이 준 가설, 그리고 그것이 깨진 지점
+
+§52 브리핑에서 나는 이렇게 물었다: `scene_transforms_`의 fixed-frame 맵을
+메시지가 아닌 경로로 채울 수 있는가. 그리고 내가 찾은 writer 목록
+(`planning_scene.cpp:1334`/`:1383`은 메시지, `:344`/`:687`/`:1264`는 부모
+장면 복사)을 제시하며 "이 열거가 완전하면 맵은 구성상 메시지로만 채워지고
+D1이 덮는다"고 적었다.
+
+**열거는 완전하지 않았다.** 워커가 찾은 것:
+
+```cpp
+// planning_scene.hpp:200
+moveit::core::Transforms& getTransformsNonConst();     // public, mutable&
+
+// transforms.hpp:113
+void setTransform(const Eigen::Isometry3d& t, const std::string& from_frame);
+```
+
+직접 확인했다. 둘 다 public이고 두 번째는 ROS 타입을 하나도 받지 않는다.
+`&mut PlanningScene`을 쥔 D1 범위의 호출자가 메시지 없이 fixed frame을
+심을 수 있다. 내가 가설로 준 닫는 논증은 성립하지 않는다.
+
+브리핑이 가설을 주면 워커가 그것을 확인해 오는 실패 모드를 계속 경계해
+왔는데, 이번엔 반대로 갔다 — 가설을 받고 반증했다. 요구한 형태가 이것이다.
+
+### 59.2 그래서 `getFrameTransform`에는 이 포트에 없는 단계가 있다
+
+상류를 읽었다(`planning_scene.cpp:2036-2054`, `:2061-2071`):
+
+```cpp
+const Eigen::Isometry3d& t1 = state.getFrameTransform(frame_id, &frame_found);  // 로봇 링크/부착체
+if (frame_found) return t1;
+const Eigen::Isometry3d& t2 = getWorld()->getTransform(frame_id, frame_found);  // world object/subframe
+if (frame_found) return t2;
+return getTransforms().Transforms::getTransform(frame_id);                       // fixed-frame 맵
+```
+
+`knowsFrameTransform`도 같은 순서로 `Transforms::canTransform`까지 간다.
+마지막 단계가 이 포트에 없다. `moveit_core/transforms`는 **D1 배제가 아니라
+미포팅 구멍**이다. 워커가 `frame_transform`/`knows_frame_transform` 문서의
+"TF tier", "tf2, D1" 표현을 전부 이 결론에 맞게 고쳤다.
+
+### 59.3 크레이트는 만들지 않는다 — 소비자를 세어 본 결과
+
+`transforms.hpp`를 include하는 상류 파일을 전수 조사했다:
+
+| 소비자 | 실제로 쓰는 것 |
+|---|---|
+| `kinematic_constraints/kinematic_constraint.hpp` | `configure(msg, tf)`뿐 — 메시지의 frame_id를 푸는 용도, D1 인접 |
+| `collision_detection/world.hpp` | `FixedTransformsMap` **typedef**(= `map<string, Isometry3d>`)만, 클래스 아님 |
+| `robot_state/{robot_state,conversions,attached_body}.hpp` | msg 변환 경로 |
+| `planning_scene/planning_scene.hpp` | **클래스 본체 — 위 3단계 fallback** |
+
+D1 범위에서 `Transforms` 클래스 자체를 필요로 하는 소비자는 하나,
+`PlanningScene::getFrameTransform`뿐이다. 별도 크레이트를 세울 근거가 없다 —
+맵 하나와 조회, `transformPose`/`Vector3`/`Quaternion`/`Matrix` 계열이
+`moveit-scene` 안에 있으면 된다. 크레이트를 하나 더 만들면 의존 그래프만
+넓어지고 소유자는 그대로다.
+
+### 59.4 `.scene` 유예는 살아남았다 — 단, 근거를 바꾼 뒤에
+
+워커가 `planning_scene.cpp:1043-1215`를 전문 읽고 §52가 지적한 것을 확인했다:
+writer는 생 float 넷을 찍고(`:1068`, 없으면 리터럴 `"0 0 0 0"` `:1071`),
+reader는 float 넷을 되읽는다(`:1163-1164`). `std_msgs::msg::ColorRGBA`
+직렬화가 스트림에 닿는 지점은 없다. 즉 이 크레이트의 `getObjectColor`가
+D1인 것은 **이 포트가 고른 저장 타입** 때문이지 `.scene` 형식의 요구가
+아니다.
+
+그래서 "distinct, `getObjectColor`가 D1이므로"는 폐기하고, 양쪽이 같은
+falsifier를 들게 했다 — "이 형식을 필요로 한다고 말한 소비자가 없다".
+p3-shapes의 `saveAsText`/`constructShapeFromText` 유예와 **같은** 조건이고,
+`moveit-scene`이 그 형식의 유일한 후보 소비자이면서 아직 요구하지 않았다.
+서로를 가리키며 열려 있던 두 유예가 하나의 미충족 수요 조건으로 합쳐졌다.
+§57.2가 걱정한 상태가 해소됐다.
