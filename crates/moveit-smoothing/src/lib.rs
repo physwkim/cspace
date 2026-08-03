@@ -8,7 +8,8 @@
 
 //! The model-independent numeric core of upstream `online_signal_smoothing`:
 //! a single-signal first-order Butterworth low-pass filter, ported as
-//! [`ButterworthFilter`].
+//! [`ButterworthFilter`], and a `Synchronization::Phase` Ruckig streaming
+//! filter, ported as [`ruckig_filter::RuckigFilter`].
 //!
 //! # Out of scope
 //!
@@ -30,18 +31,16 @@
 //!   acceleration/jerk limits jointly across all DOF. No pure-Rust `osqp`
 //!   binding is a workspace dependency; porting this needs one adopted
 //!   first.
-//! - `RuckigFilterPlugin` (`ruckig_filter.hpp`/`.cpp`) — unlike
-//!   `ButterworthFilter`, upstream never splits out a model-independent
-//!   piece here: `RuckigFilterPlugin` is the only class in the file, and it
-//!   is a `SmoothingBaseClass` implementation coupled to `rclcpp::Node`,
-//!   `RobotModelConstPtr` and a `generate_parameter_library`-generated
-//!   `Params` struct throughout (`initialize`, `getVelAccelJerkBounds`) —
-//!   the same ROS/`RobotModel` coupling `ButterworthFilterPlugin` has, with
-//!   nothing underneath it to extract. `PORTING-PLAN.md` §4.6 no longer
-//!   defers the crate choice — it names `rsruckig` (pure Rust, not an FFI
-//!   `-sys` binding) — but still defers wiring it in here, because the
-//!   blocker is the ROS/`RobotModel` coupling above, not the crate
-//!   question.
+//! - `RuckigFilterPlugin` (`ruckig_filter.hpp`/`.cpp`) — ported as
+//!   [`ruckig_filter::RuckigFilter`]/[`ruckig_filter::joint_vel_accel_jerk_bounds`].
+//!   See `ruckig_filter.rs`'s module doc for the ROS-coupling analysis this
+//!   rests on (only `initialize`'s ROS-parameter-YAML loading was ever
+//!   coupled to `rclcpp::Node`; `doSmoothing`/`reset`/`getVelAccelJerkBounds`
+//!   were not) and every deviation from upstream.
+
+/// A `Synchronization::Phase` Ruckig streaming filter — see the module doc's
+/// `RuckigFilterPlugin` entry.
+pub mod ruckig_filter;
 
 mod butterworth;
 
