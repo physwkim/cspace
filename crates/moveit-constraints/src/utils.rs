@@ -602,7 +602,7 @@ where
 /// version of this function to walk; that shape would be a function whose
 /// retargeting branch can never execute, the same "degenerate no-op" this
 /// crate's introducing doc comment already refused to write for
-/// [`resolve_frame_to_link`]'s predecessor. The equivalent work instead
+/// `resolve_frame_to_link`'s predecessor. The equivalent work instead
 /// happens once per constraint, immediately before calling
 /// [`crate::PositionConstraint::new`]/[`crate::OrientationConstraint::new`] —
 /// exactly the point in this crate's pipeline that corresponds to upstream's
@@ -628,11 +628,11 @@ where
 /// A caller with a `PlanningScene` in scope supplies it as a thin wrapper
 /// over the scene's own lookup; a caller with no attached bodies at all (or
 /// no scene) supplies `|_| None`, degrading to exactly the model frame/link
-/// tiers [`resolve_frame_to_link`] resolves on its own.
+/// tiers `resolve_frame_to_link` resolves on its own.
 ///
 /// # Derivation
 ///
-/// [`resolve_frame_to_link`] returns `(robot_link, frame_to_link)` where
+/// `resolve_frame_to_link` returns `(robot_link, frame_to_link)` where
 /// `frame_to_link` is upstream's own `robot_link_to_link_name =
 /// getGlobalLinkTransform(robot_link).inverse() * transform` (`transform`
 /// being `link_name`'s own global pose) — the pose of `link_name`'s frame
@@ -641,7 +641,7 @@ where
 /// treatment of the same field) reproduces upstream's `offset_robot_link =
 /// robot_link_to_link_name * offset_link_name` exactly.
 ///
-/// `Ok(None)` if `link_name` resolves via none of [`resolve_frame_to_link`]'s
+/// `Ok(None)` if `link_name` resolves via none of `resolve_frame_to_link`'s
 /// tiers (upstream: `frame_found = false`). `offset` is returned unchanged
 /// when `link_name` already names `robot_link` — upstream's own `c.link_name
 /// != robot_link->getName()` guard, skipping a no-op transform composition.
@@ -683,7 +683,7 @@ where
 ///
 /// Upstream's `link_name_to_robot_link` is `transform.linear().transpose()
 /// times getGlobalLinkTransform(robot_link).linear()`. Since
-/// [`resolve_frame_to_link`]'s `frame_to_link.rotation()` is
+/// `resolve_frame_to_link`'s `frame_to_link.rotation()` is
 /// `getGlobalLinkTransform(robot_link).linear().transpose() times
 /// transform.linear()` (by the same derivation as the position half),
 /// `link_name_to_robot_link` is exactly `frame_to_link.rotation().inverse()`
@@ -692,7 +692,7 @@ where
 /// to hand to [`crate::OrientationConstraint::new`] together with the
 /// resolved link.
 ///
-/// `Ok(None)` if `link_name` resolves via none of [`resolve_frame_to_link`]'s
+/// `Ok(None)` if `link_name` resolves via none of `resolve_frame_to_link`'s
 /// tiers, exactly as the position half.
 ///
 /// # Errors
