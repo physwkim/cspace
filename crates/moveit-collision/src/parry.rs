@@ -331,15 +331,16 @@ impl OctreeCache {
         value
     }
 
-    /// The number of trees this cache currently holds a conversion for
-    /// (after pruning would happen, not before — see [`Self::get_or_compute`]).
-    /// Used by [`std::fmt::Debug`] and by this module's own growth-bound
-    /// tests; not exposed outside `parry.rs`.
+    /// How many entries the map actually holds right now — a pure observer,
+    /// deliberately. Pruning here as well would make the growth-bound test
+    /// unable to fail: it would report the pruned count whether or not
+    /// [`Self::get_or_compute`] ever pruned anything, which is a test that
+    /// measures its own helper. Dead entries are counted, because "an entry
+    /// nobody can use is still occupying the map" is exactly the fact that
+    /// test exists to catch.
     #[cfg(test)]
     fn len(&self) -> usize {
-        let mut cache = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        cache.retain(|_, (weak, _)| weak.strong_count() > 0);
-        cache.len()
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
 }
 
