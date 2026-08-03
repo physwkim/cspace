@@ -104,6 +104,62 @@ pub enum Op {
         /// `in_grid` reports whether a given query landed inside the grid.
         queries: Vec<[i32; 3]>,
     },
+    /// Ground truth for `find_internal_points_convex`
+    /// (`distance_field::findInternalPointsConvex`) -- the shape-to-points
+    /// step [`Op::DistanceField`] does not exercise, since that op takes
+    /// `occupied_cells` as an explicit input and starts only after this
+    /// step. Builds the `bodies::Body` for `shape` exactly as upstream
+    /// `DistanceField::getShapePoints` does: `createEmptyBodyFromShapeType`,
+    /// then `setDimensionsDirty`, `setPoseDirty` and `updateInternalData`,
+    /// which never touch scale or padding (so both stay at 1.0/0.0), poses
+    /// it at `pose`, and returns every point `findInternalPointsConvex`
+    /// finds on the `resolution`-spaced grid.
+    ShapePoints {
+        /// The shape to sample.
+        shape: ShapeSpec,
+        /// The shape's pose, row-major 4x4.
+        pose: [f64; 16],
+        /// Grid spacing `findInternalPointsConvex` samples at.
+        resolution: f64,
+    },
+}
+
+/// A shape for [`Op::ShapePoints`] -- the four variants
+/// `bodies::createEmptyBodyFromShapeType` has a case for (`Cone`/`Plane`/
+/// `OcTree` fall through to a null body upstream and have no `ShapeSpec`
+/// here).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ShapeSpec {
+    /// `shapes::Sphere`.
+    Sphere {
+        /// Radius.
+        radius: f64,
+    },
+    /// `shapes::Box`.
+    Box {
+        /// Extent along x, y, z.
+        size: [f64; 3],
+    },
+    /// `shapes::Cylinder`.
+    Cylinder {
+        /// Radius.
+        radius: f64,
+        /// Length along the shape's local z axis.
+        length: f64,
+    },
+    /// `shapes::Mesh`, via `bodies::ConvexMesh`.
+    Mesh {
+        /// Vertex positions.
+        vertices: Vec<[f64; 3]>,
+        /// Triangle vertex-index triples. Upstream's own
+        /// `ConvexMesh::useDimensions` ignores this entirely and recomputes
+        /// a convex hull from `vertices` alone via qhull -- present here
+        /// only so the oracle's `shapes::Mesh` constructor (which always
+        /// allocates a `triangles` array sized to match) has a value to put
+        /// in it.
+        triangles: Vec<[u32; 3]>,
+    },
 }
 
 /// Size, origin and resolution of the grid built by [`Op::DistanceField`].
@@ -171,6 +227,8 @@ pub enum OracleResult {
     World(WorldResult),
     /// Answer to [`Op::DistanceField`].
     DistanceField(DistanceFieldResult),
+    /// Answer to [`Op::ShapePoints`].
+    ShapePoints(ShapePointsResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -416,4 +474,13 @@ pub struct DistanceFieldNearest {
     /// defect this crate's own `nearest_cell` closes by returning `None`
     /// instead -- see `propagation.rs`'s deviation doc.
     pub voxel_present: bool,
+}
+
+/// Answer to [`Op::ShapePoints`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapePointsResult {
+    /// Every point `findInternalPointsConvex` found, in upstream's own
+    /// nested-loop enumeration order (x outer, y middle, z inner) -- not
+    /// deduplicated or sorted, since points are compared as a set.
+    pub points: Vec<[f64; 3]>,
 }

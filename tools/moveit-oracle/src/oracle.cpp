@@ -21,11 +21,14 @@
 #include <vector>
 
 #include <Eigen/Geometry>
+#include <geometric_shapes/body_operations.h>
+#include <geometric_shapes/bodies.h>
 #include <geometric_shapes/shapes.h>
 #include <nlohmann/json.hpp>
 
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
+#include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
@@ -165,6 +168,8 @@ public:
       return world(request);
     if (op == "distance_field")
       return distanceField(request);
+    if (op == "shape_points")
+      return shapePoints(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -650,6 +655,84 @@ private:
     }
 
     return json{ { "queries", queries_out } };
+  }
+
+  /// Ground truth for `find_internal_points_convex`
+  /// (`distance_field::findInternalPointsConvex`), the piece of
+  /// `moveit-distance-field`'s shape-to-obstacle-points path that the
+  /// `distance_field` op above does not exercise: that op takes
+  /// `occupied_cells` as an explicit input, starting only after this step.
+  /// This mirrors upstream `DistanceField::getShapePoints` exactly: builds
+  /// the `bodies::Body` the same way (`createEmptyBodyFromShapeType` +
+  /// `setDimensionsDirty` + `setPoseDirty` + `updateInternalData`, never
+  /// touching `setScale`/`setPadding` -- see `posed_body` in
+  /// `distance_field.rs` for why this port's own construction hard-codes
+  /// scale 1.0/padding 0.0 to match), then calls `findInternalPointsConvex`
+  /// directly and dumps the resulting point list. `request["shape"]["type"]`
+  /// is one of `"sphere"`, `"box"`, `"cylinder"`, `"mesh"` -- the four
+  /// `bodies::` has a case for in `createEmptyBodyFromShapeType`.
+  json shapePoints(const json& request) const
+  {
+    const json& shape_json = request.at("shape");
+    const std::string type = shape_json.at("type").get<std::string>();
+    const Eigen::Isometry3d pose = fromRowMajor4x4(request.at("pose"));
+    const double resolution = request.at("resolution").get<double>();
+
+    std::unique_ptr<shapes::Shape> shape;
+    if (type == "sphere")
+    {
+      shape = std::make_unique<shapes::Sphere>(shape_json.at("radius").get<double>());
+    }
+    else if (type == "box")
+    {
+      const auto size = shape_json.at("size").get<std::array<double, 3>>();
+      shape = std::make_unique<shapes::Box>(size[0], size[1], size[2]);
+    }
+    else if (type == "cylinder")
+    {
+      shape = std::make_unique<shapes::Cylinder>(shape_json.at("radius").get<double>(),
+                                                  shape_json.at("length").get<double>());
+    }
+    else if (type == "mesh")
+    {
+      const auto vertices_json = shape_json.at("vertices");
+      const auto triangles_json = shape_json.at("triangles");
+      auto* mesh = new shapes::Mesh(vertices_json.size(), triangles_json.size());
+      for (std::size_t i = 0; i < vertices_json.size(); ++i)
+      {
+        const auto v = vertices_json[i].get<std::array<double, 3>>();
+        mesh->vertices[3 * i] = v[0];
+        mesh->vertices[3 * i + 1] = v[1];
+        mesh->vertices[3 * i + 2] = v[2];
+      }
+      for (std::size_t i = 0; i < triangles_json.size(); ++i)
+      {
+        const auto t = triangles_json[i].get<std::array<unsigned int, 3>>();
+        mesh->triangles[3 * i] = t[0];
+        mesh->triangles[3 * i + 1] = t[1];
+        mesh->triangles[3 * i + 2] = t[2];
+      }
+      shape.reset(mesh);
+    }
+    else
+    {
+      throw std::runtime_error("shape_points: unsupported shape type " + type);
+    }
+
+    bodies::Body* body = bodies::createEmptyBodyFromShapeType(shape->type);
+    body->setDimensionsDirty(shape.get());
+    body->setPoseDirty(pose);
+    body->updateInternalData();
+
+    EigenSTL::vector_Vector3d points;
+    distance_field::findInternalPointsConvex(*body, resolution, points);
+    delete body;
+
+    json points_out = json::array();
+    for (const Eigen::Vector3d& p : points)
+      points_out.push_back(json::array({ p.x(), p.y(), p.z() }));
+
+    return json{ { "points", points_out } };
   }
 
   moveit::core::RobotModelPtr model_;
