@@ -25,6 +25,7 @@
 //! `PORTING-PLAN.md` for what later phases (collision geometry, kinematics
 //! solvers, `RobotState`) still own.
 
+mod aabb;
 mod diagnostic;
 pub mod joint;
 mod joint_model_group;
@@ -33,5 +34,5 @@ mod robot_model;
 
 pub use diagnostic::Diagnostic;
 pub use joint_model_group::JointModelGroup;
-pub use link_model::LinkModel;
+pub use link_model::{LinkModel, LinkShape};
 pub use robot_model::RobotModel;

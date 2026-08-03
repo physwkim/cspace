@@ -143,6 +143,259 @@
       "joint_6",
       "joint_6-tool0"
     ],
+    "link_details": [
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "base_link",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/base_link.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "base",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "link_1",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/link_1.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "link_2",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/link_2.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "link_3",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/link_3.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "link_4",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/link_4.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "link_5",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/link_5.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "link_6",
+        "shape_types": [],
+        "visual_mesh_filename": "package://moveit_resources_fanuc_description/meshes/visual/link_6.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "tool0",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      }
+    ],
     "links": [
       "base_link",
       "base",

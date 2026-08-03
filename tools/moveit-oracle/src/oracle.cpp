@@ -21,9 +21,9 @@
 #include <vector>
 
 #include <Eigen/Geometry>
+#include <geometric_shapes/shapes.h>
 #include <nlohmann/json.hpp>
 
-#include <geometric_shapes/shapes.h>
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
 #include <moveit/robot_model/robot_model.hpp>
@@ -79,6 +79,35 @@ Eigen::Isometry3d fromRowMajor4x4(const json& arr)
   Eigen::Isometry3d t;
   t.matrix() = m;
   return t;
+}
+
+/// Matches the `kind` strings `moveit_model::Diagnostic::UnsupportedLinkGeometry`
+/// and the `link_details[].shape_types` wire field use — this oracle's own
+/// naming, not upstream's (`shapes::Shape` has no built-in name accessor;
+/// `ShapeType`'s `operator<<` exists but is a debug print, not a stable wire
+/// contract).
+std::string shapeTypeName(shapes::ShapeType type)
+{
+  switch (type)
+  {
+    case shapes::SPHERE:
+      return "sphere";
+    case shapes::CYLINDER:
+      return "cylinder";
+    case shapes::CONE:
+      return "cone";
+    case shapes::BOX:
+      return "box";
+    case shapes::PLANE:
+      return "plane";
+    case shapes::MESH:
+      return "mesh";
+    case shapes::OCTREE:
+      return "octree";
+    case shapes::UNKNOWN_SHAPE:
+      break;
+  }
+  throw std::runtime_error("unknown shapes::ShapeType");
 }
 
 /// Matches AllowedCollisionType's variant names in protocol.rs.
@@ -183,6 +212,52 @@ private:
       groups[group->getName()] = group->getJointModelNames();
     out["groups"] = groups;
 
+    out["link_details"] = linkDetails();
+
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `LinkModel` collision/visual geometry
+  /// (`LinkModel`'s doc comment, deviation 4, in the Rust port): one entry per
+  /// link, every `<collision>` element's shape kind in file order (this
+  /// oracle's own naming, see `shapeTypeName`), the centered bounding-box
+  /// offset (`null` per component when non-finite -- a link with no
+  /// collision geometry has `NaN` here, same as the Rust port, since upstream
+  /// `LinkModel::setGeometry` calls `aabb.center()` unconditionally), and the
+  /// visual mesh metadata (present only when there is one, i.e.
+  /// `getVisualMeshFilename()` is non-empty).
+  json linkDetails() const
+  {
+    json out = json::array();
+    for (const moveit::core::LinkModel* link : model_->getLinkModels())
+    {
+      json l;
+      l["name"] = link->getName();
+
+      json shape_types = json::array();
+      for (const shapes::ShapeConstPtr& shape : link->getShapes())
+        shape_types.push_back(shapeTypeName(shape->type));
+      l["shape_types"] = shape_types;
+
+      const Eigen::Vector3d& offset = link->getCenteredBoundingBoxOffset();
+      l["centered_bounding_box_offset"] =
+          json::array({ finiteOrNull(offset.x()), finiteOrNull(offset.y()), finiteOrNull(offset.z()) });
+
+      const std::string& mesh_filename = link->getVisualMeshFilename();
+      if (mesh_filename.empty())
+      {
+        l["visual_mesh_filename"] = nullptr;
+      }
+      else
+      {
+        l["visual_mesh_filename"] = mesh_filename;
+        l["visual_mesh_origin"] = toRowMajor4x4(link->getVisualMeshOrigin());
+        const Eigen::Vector3d& scale = link->getVisualMeshScale();
+        l["visual_mesh_scale"] = json::array({ scale.x(), scale.y(), scale.z() });
+      }
+
+      out.push_back(l);
+    }
     return out;
   }
 

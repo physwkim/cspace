@@ -22,7 +22,7 @@ use std::fs;
 
 use serde::Deserialize;
 
-use moveit_model::RobotModel;
+use moveit_model::{Diagnostic, RobotModel};
 use moveit_srdf::SrdfModel;
 
 #[derive(Deserialize)]
@@ -35,6 +35,8 @@ struct OracleModelInfo {
     groups: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(default)]
     joint_details: Vec<OracleJointDetail>,
+    #[serde(default)]
+    link_details: Vec<OracleLinkDetail>,
 }
 
 /// Only the field this test needs from the oracle's per-joint `model_info`
@@ -51,9 +53,111 @@ struct OracleJointDetail {
     type_name: String,
 }
 
+/// The oracle's per-link geometry, added to ground `LinkModel`'s collision
+/// shapes, bounding-box offset and visual mesh metadata (`LinkModel`'s doc
+/// comment, deviation 4) rather than leaving them untested by any fixture.
+#[derive(Deserialize)]
+struct OracleLinkDetail {
+    name: String,
+    shape_types: Vec<String>,
+    centered_bounding_box_offset: [Option<f64>; 3],
+    visual_mesh_filename: Option<String>,
+    #[serde(default)]
+    visual_mesh_origin: Option<[f64; 16]>,
+    #[serde(default)]
+    visual_mesh_scale: Option<[f64; 3]>,
+}
+
 #[derive(Deserialize)]
 struct OracleResponse {
     result: OracleModelInfo,
+}
+
+fn to_row_major_4x4(transform: &moveit_geometry::Isometry3) -> [f64; 16] {
+    let m = transform.to_homogeneous();
+    let mut out = [0.0; 16];
+    for r in 0..4 {
+        for c in 0..4 {
+            out[r * 4 + c] = m[(r, c)];
+        }
+    }
+    out
+}
+
+/// Ground truth for `LinkModel`'s collision/visual geometry (`LinkModel`'s
+/// doc comment, deviation 4): for every link, the supported-shape count and,
+/// where the link has no `<mesh>`/`<capsule>` collision element at all, the
+/// exact bounding-box offset (a link with any mesh collision gets a real
+/// mesh-vertex-derived offset from the oracle that this port cannot
+/// reproduce without a mesh-file loader, so that comparison is skipped for
+/// those links rather than faked). Visual mesh filename/origin/scale are
+/// plain URDF metadata, not loaded geometry, so those are asserted
+/// unconditionally.
+fn assert_link_geometry_matches_oracle(model: &RobotModel, expected: &[OracleLinkDetail]) {
+    for detail in expected {
+        let link = model
+            .link_model(&detail.name)
+            .unwrap_or_else(|_| panic!("missing link '{}'", detail.name));
+
+        let has_unsupported_shape = detail
+            .shape_types
+            .iter()
+            .any(|kind| kind == "mesh" || kind == "capsule");
+        let supported_shape_count = detail
+            .shape_types
+            .iter()
+            .filter(|kind| *kind != "mesh" && *kind != "capsule")
+            .count();
+        assert_eq!(
+            link.shapes().len(),
+            supported_shape_count,
+            "supported shape count for link '{}'",
+            detail.name
+        );
+
+        if !has_unsupported_shape {
+            let offset = link.centered_bounding_box_offset();
+            for (i, expected_component) in detail.centered_bounding_box_offset.iter().enumerate() {
+                let expected_component = expected_component
+                    .unwrap_or_else(|| panic!("non-finite bounding box offset component {i} for link '{}' with no mesh/capsule shape", detail.name));
+                assert!(
+                    (offset[i] - expected_component).abs() < 1e-9,
+                    "bounding box offset component {i} for link '{}': {} vs oracle {}",
+                    detail.name,
+                    offset[i],
+                    expected_component
+                );
+            }
+        }
+
+        assert_eq!(
+            link.visual_mesh_filename(),
+            detail.visual_mesh_filename.as_deref(),
+            "visual mesh filename for link '{}'",
+            detail.name
+        );
+        if let Some(expected_origin) = &detail.visual_mesh_origin {
+            let origin = to_row_major_4x4(link.visual_mesh_origin());
+            for (i, (actual, expected)) in origin.iter().zip(expected_origin.iter()).enumerate() {
+                assert!(
+                    (actual - expected).abs() < 1e-9,
+                    "visual mesh origin component {i} for link '{}': {actual} vs oracle {expected}",
+                    detail.name
+                );
+            }
+        }
+        if let Some(expected_scale) = &detail.visual_mesh_scale {
+            let scale = link.visual_mesh_scale();
+            for (i, expected_component) in expected_scale.iter().enumerate() {
+                assert!(
+                    (scale[i] - expected_component).abs() < 1e-9,
+                    "visual mesh scale component {i} for link '{}': {} vs oracle {expected_component}",
+                    detail.name,
+                    scale[i]
+                );
+            }
+        }
+    }
 }
 
 fn load_fixture(file_name: &str) -> OracleModelInfo {
@@ -67,7 +171,7 @@ fn load_fixture(file_name: &str) -> OracleModelInfo {
     response.result
 }
 
-fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
+fn build_model_with_urdf(urdf_file: &str, srdf_file: &str) -> (RobotModel, urdf_rs::Robot) {
     let urdf_path = format!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/{}"),
         urdf_file
@@ -80,14 +184,48 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    let model =
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build");
+    (model, urdf)
 }
 
-/// Like [`build_model`], but also asserts the SRDF parsed with no
+/// The diagnostics [`RobotModel::from_urdf_and_srdf`] must report for a
+/// fixture's link geometry: one [`Diagnostic::UnsupportedLinkGeometry`] per
+/// `<collision>` element whose geometry is `<mesh>` or `<capsule>` (see
+/// `LinkModel`'s doc comment, deviation 4), derived directly from the URDF
+/// rather than hand-transcribed, in the same per-link order
+/// [`RobotModel::link_names`] visits.
+fn expected_unsupported_link_geometry_diagnostics(
+    model: &RobotModel,
+    urdf: &urdf_rs::Robot,
+) -> Vec<Diagnostic> {
+    let links_by_name: std::collections::HashMap<&str, &urdf_rs::Link> =
+        urdf.links.iter().map(|l| (l.name.as_str(), l)).collect();
+    model
+        .link_names()
+        .iter()
+        .flat_map(|name| {
+            let urdf_link = links_by_name[name.as_str()];
+            urdf_link.collision.iter().filter_map(move |collision| {
+                let kind = match &collision.geometry {
+                    urdf_rs::Geometry::Mesh { .. } => Some("mesh"),
+                    urdf_rs::Geometry::Capsule { .. } => Some("capsule"),
+                    _ => None,
+                };
+                kind.map(|kind| Diagnostic::UnsupportedLinkGeometry {
+                    link: name.clone(),
+                    kind,
+                })
+            })
+        })
+        .collect()
+}
+
+/// Like [`build_model_with_urdf`], but also asserts the SRDF parsed with no
 /// diagnostics — appropriate for panda/fanuc/PR2, whose SRDFs are clean, but
 /// not for dual-arm panda, whose two `UnknownGroup` diagnostics are expected
 /// (see `dual_arm_panda_robot_model_matches_the_oracle`).
-fn build_clean_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
+fn build_clean_model_with_urdf(urdf_file: &str, srdf_file: &str) -> (RobotModel, urdf_rs::Robot) {
     let srdf_path = format!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/{}"),
         srdf_file
@@ -98,7 +236,7 @@ fn build_clean_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         "fixture SRDF must parse cleanly: {:?}",
         srdf.diagnostics()
     );
-    build_model(urdf_file, srdf_file)
+    build_model_with_urdf(urdf_file, srdf_file)
 }
 
 fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
@@ -131,11 +269,17 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
 
 #[test]
 fn panda_robot_model_matches_the_oracle() {
-    let model = build_clean_model("panda.urdf", "panda.srdf");
+    let (model, urdf) = build_clean_model_with_urdf("panda.urdf", "panda.srdf");
     let expected = load_fixture("panda_model_info.json");
     assert_matches_oracle(&model, &expected);
 
-    assert!(model.diagnostics().is_empty(), "{:?}", model.diagnostics());
+    // Every panda link's `<collision>` is exactly one `<mesh>` — see
+    // `LinkModel`'s doc comment, deviation 4.
+    assert_eq!(
+        model.diagnostics(),
+        expected_unsupported_link_geometry_diagnostics(&model, &urdf).as_slice()
+    );
+    assert_link_geometry_matches_oracle(&model, &expected.link_details);
 
     // The measured example from role instructions: `hand` names one joint
     // (`panda_finger_joint1`) plus three links, and expands to three joints
@@ -161,11 +305,29 @@ fn panda_robot_model_matches_the_oracle() {
 
 #[test]
 fn fanuc_robot_model_matches_the_oracle() {
-    let model = build_clean_model("fanuc.urdf", "fanuc.srdf");
+    let (model, urdf) = build_clean_model_with_urdf("fanuc.urdf", "fanuc.srdf");
     let expected = load_fixture("fanuc_model_info.json");
     assert_matches_oracle(&model, &expected);
 
-    assert!(model.diagnostics().is_empty(), "{:?}", model.diagnostics());
+    // Every fanuc link's `<collision>` is exactly one `<mesh>` — see
+    // `LinkModel`'s doc comment, deviation 4.
+    assert_eq!(
+        model.diagnostics(),
+        expected_unsupported_link_geometry_diagnostics(&model, &urdf).as_slice()
+    );
+    // This oracle build is `--packages-up-to moveit_core` only (see
+    // `tools/moveit-oracle/Dockerfile`), and `moveit_resources_fanuc_description`
+    // is not one of moveit_core's own test dependencies the way panda's and
+    // pr2's are — so even the C++ oracle itself fails to resolve every
+    // `package://.../meshes/collision/*.stl` URI here and ends up with zero
+    // shapes on every link (`fanuc_model_info.json`'s `link_details` all show
+    // `shape_types: []`, `centered_bounding_box_offset: [0, 0, 0]`). That
+    // makes this assertion pass for a different reason than panda/pr2's: it
+    // is not evidence this port's mesh-shape handling agrees with a real
+    // mesh-derived bounding box, only that both sides agree geometry is
+    // absent here. `visual_mesh_filename` is unaffected (plain URDF metadata,
+    // not a loaded mesh) and still checked for real.
+    assert_link_geometry_matches_oracle(&model, &expected.link_details);
 
     // fanuc's `manipulator` chain runs `base_link` to `tool0`; the fixed
     // joint `base_link-base` sits on a sibling branch off `base_link` (to
@@ -186,11 +348,18 @@ fn fanuc_robot_model_matches_the_oracle() {
 /// coverage `PlanarJoint` and the continuous-joint bounds path have.
 #[test]
 fn pr2_robot_model_matches_the_oracle() {
-    let model = build_clean_model("pr2.urdf", "pr2.srdf");
+    let (model, urdf) = build_clean_model_with_urdf("pr2.urdf", "pr2.srdf");
     let expected = load_fixture("pr2_model_info.json");
     assert_matches_oracle(&model, &expected);
 
-    assert!(model.diagnostics().is_empty(), "{:?}", model.diagnostics());
+    // pr2 mixes `<mesh>` and `<box>` collision geometry — this is the
+    // fixture that actually exercises `LinkModel::shapes` being non-empty
+    // (see `LinkModel`'s doc comment, deviation 4).
+    assert_eq!(
+        model.diagnostics(),
+        expected_unsupported_link_geometry_diagnostics(&model, &urdf).as_slice()
+    );
+    assert_link_geometry_matches_oracle(&model, &expected.link_details);
 
     use std::collections::HashMap;
     let type_counts: HashMap<&str, usize> =
@@ -249,11 +418,17 @@ fn pr2_robot_model_matches_the_oracle() {
 /// link name (`world`), not a name chosen from the SRDF.
 #[test]
 fn dual_arm_panda_robot_model_matches_the_oracle() {
-    let model = build_model("dual_arm_panda.urdf", "dual_arm_panda.srdf");
+    let (model, urdf) = build_model_with_urdf("dual_arm_panda.urdf", "dual_arm_panda.srdf");
     let expected = load_fixture("dual_arm_panda_model_info.json");
     assert_matches_oracle(&model, &expected);
 
-    assert!(model.diagnostics().is_empty(), "{:?}", model.diagnostics());
+    // Every dual-arm panda link's `<collision>` is exactly one `<mesh>` —
+    // see `LinkModel`'s doc comment, deviation 4.
+    assert_eq!(
+        model.diagnostics(),
+        expected_unsupported_link_geometry_diagnostics(&model, &urdf).as_slice()
+    );
+    assert_link_geometry_matches_oracle(&model, &expected.link_details);
 
     // The two `UnknownGroup` diagnostics are expected SRDF-level findings
     // (see `moveit_srdf`'s own

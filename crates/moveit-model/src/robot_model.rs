@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, UnitQuaternion};
+use moveit_geometry::{Cuboid, Cylinder, Isometry3, Shape, Sphere, UnitQuaternion, Vector3};
 use moveit_srdf::{Group, SrdfModel, VirtualJointType};
 use nalgebra::Translation3;
 use roxmltree::Document;
@@ -19,7 +19,7 @@ use roxmltree::Document;
 use crate::diagnostic::Diagnostic;
 use crate::joint::{JointModel, JointType, PlanarMotionModel, joint_model_from_urdf};
 use crate::joint_model_group::JointModelGroup;
-use crate::link_model::LinkModel;
+use crate::link_model::{LinkModel, LinkShape};
 
 /// The `source_kind` every [`Error::Parse`] from this module carries.
 const URDF: &str = "URDF";
@@ -49,16 +49,14 @@ struct JointNode {
 ///
 /// 1. **Cross-references are indices, not pointers**, for the same reason as
 ///    [`LinkModel`]: no raw pointers into a sibling `Vec`.
-/// 2. **No collision/visual geometry, group states, end effectors, or
-///    kinematics solver plumbing.** Upstream's `RobotModel` also carries
-///    `link_models_with_collision_geometry_vector_`,
-///    `default_states_`/`buildGroupStates`, `end_effectors_`, and
-///    `group_kinematics_`. `PORTING-PLAN.md` puts collision geometry in
-///    `moveit-collision` and kinematics solvers in `moveit-kinematics`, later
-///    phases; SRDF `<group_state>` and `<end_effector>` elements are read by
-///    `moveit-srdf` but not consumed here, for the same reason. None of these
-///    are read by this phase's done-criteria (link/joint counts, group
-///    composition, joint limits, mimic relationships).
+/// 2. **No group states, end effectors, or kinematics solver plumbing.**
+///    Upstream's `RobotModel` also carries `default_states_`/
+///    `buildGroupStates`, `end_effectors_`, and `group_kinematics_`.
+///    `PORTING-PLAN.md` puts kinematics solvers in `moveit-kinematics`, a
+///    later phase; SRDF `<group_state>` and `<end_effector>` elements are
+///    read by `moveit-srdf` but not consumed here, for the same reason.
+///    (Each link's own collision/visual geometry *is* carried — see
+///    [`LinkModel`]'s doc comment for what that does and does not cover.)
 /// 3. **No `common_root_`/`joint_roots_`/`is_chain_`/`is_single_dof_` on
 ///    groups, and no `computeDescendants`/`computeCommonRoots` on the
 ///    model.** These exist upstream purely to accelerate `RobotState`
@@ -174,9 +172,13 @@ impl RobotModel {
 
         let (root_joint, model_frame) = root_virtual_joint(srdf, root_link_name);
 
+        let links_by_name: HashMap<&str, &urdf_rs::Link> =
+            urdf.links.iter().map(|l| (l.name.as_str(), l)).collect();
+
         let mut building = Building {
             srdf,
             children,
+            links_by_name,
             limit_presence,
             joints: Vec::new(),
             joint_index_by_name: HashMap::new(),
@@ -411,6 +413,40 @@ fn isometry_from_urdf_pose(pose: &urdf_rs::Pose) -> Isometry3 {
     )
 }
 
+/// [`construct_shape`]'s result: either the [`Shape`] upstream's
+/// `constructShape` would have built, or the kind of geometry it named that
+/// this port cannot build one for.
+enum ShapeOrUnsupported {
+    Shape(Shape),
+    Unsupported(&'static str),
+}
+
+/// Upstream `RobotModel::constructShape`. See [`crate::link_model::LinkModel`]'s
+/// doc comment, deviation 4, for why `<mesh>` and `<capsule>` (a urdf-rs
+/// extension upstream's own URDF parser does not recognise) are unsupported
+/// rather than built.
+///
+/// # Errors
+///
+/// [`Error::Construct`] if a `<box>`/`<cylinder>`/`<sphere>` dimension is
+/// negative.
+fn construct_shape(geometry: &urdf_rs::Geometry) -> Result<ShapeOrUnsupported> {
+    Ok(match geometry {
+        urdf_rs::Geometry::Sphere { radius } => {
+            ShapeOrUnsupported::Shape(Shape::Sphere(Sphere::new(*radius)?))
+        }
+        urdf_rs::Geometry::Box { size } => {
+            let [x, y, z] = size.0;
+            ShapeOrUnsupported::Shape(Shape::Cuboid(Cuboid::new(x, y, z)?))
+        }
+        urdf_rs::Geometry::Cylinder { radius, length } => {
+            ShapeOrUnsupported::Shape(Shape::Cylinder(Cylinder::new(*radius, *length)?))
+        }
+        urdf_rs::Geometry::Mesh { .. } => ShapeOrUnsupported::Unsupported("mesh"),
+        urdf_rs::Geometry::Capsule { .. } => ShapeOrUnsupported::Unsupported("capsule"),
+    })
+}
+
 /// Which of the raw URDF's `<joint>` elements have a `<limit>` child, keyed
 /// by joint name.
 ///
@@ -446,6 +482,7 @@ fn joint_limit_presence(urdf_xml: &str) -> Result<HashMap<String, bool>> {
 struct Building<'a> {
     srdf: &'a SrdfModel,
     children: HashMap<&'a str, Vec<&'a urdf_rs::Joint>>,
+    links_by_name: HashMap<&'a str, &'a urdf_rs::Link>,
     limit_presence: HashMap<String, bool>,
     joints: Vec<JointNode>,
     joint_index_by_name: HashMap<String, usize>,
@@ -499,6 +536,10 @@ impl<'a> Building<'a> {
             self.links[parent_index].add_child_joint_index(joint_index);
         }
 
+        if let Some(&urdf_link) = self.links_by_name.get(link_name) {
+            self.apply_link_geometry(link_index, urdf_link)?;
+        }
+
         // Cloning this (small) Vec of `&Joint`s breaks the borrow of
         // `self.children` before the recursive call below needs `&mut self`.
         let children = self.children.get(link_name).cloned().unwrap_or_default();
@@ -516,6 +557,65 @@ impl<'a> Building<'a> {
                 child_model,
                 origin,
             )?;
+        }
+
+        Ok(())
+    }
+
+    /// Upstream `RobotModel::constructLinkModel`: this link's collision
+    /// shapes (every `<collision>` element, upstream's `col_array`) and,
+    /// separately, its visual mesh metadata (tried from the first
+    /// `<visual>` element first, the first `<collision>` element second —
+    /// plain filename/origin/scale, not a loaded mesh; see `LinkModel`'s
+    /// doc comment, deviation 4, for why the two differ in what they need).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Construct`] if a `<collision>` shape's dimensions are
+    /// negative (upstream constructs the shape unconditionally; this port's
+    /// [`Shape`] constructors validate).
+    fn apply_link_geometry(&mut self, link_index: usize, urdf_link: &urdf_rs::Link) -> Result<()> {
+        let mut shapes = Vec::new();
+        for collision in &urdf_link.collision {
+            let origin_transform = isometry_from_urdf_pose(&collision.origin);
+            match construct_shape(&collision.geometry)? {
+                ShapeOrUnsupported::Shape(shape) => shapes.push(LinkShape {
+                    shape,
+                    origin_transform,
+                }),
+                ShapeOrUnsupported::Unsupported(kind) => {
+                    self.diagnostics.push(Diagnostic::UnsupportedLinkGeometry {
+                        link: urdf_link.name.clone(),
+                        kind,
+                    });
+                }
+            }
+        }
+        self.links[link_index].set_geometry(shapes);
+
+        let visual_mesh = urdf_link
+            .visual
+            .first()
+            .map(|v| (&v.geometry, &v.origin))
+            .filter(|(geometry, _)| matches!(geometry, urdf_rs::Geometry::Mesh { .. }))
+            .or_else(|| {
+                urdf_link
+                    .collision
+                    .first()
+                    .map(|c| (&c.geometry, &c.origin))
+                    .filter(|(geometry, _)| matches!(geometry, urdf_rs::Geometry::Mesh { .. }))
+            });
+        if let Some((urdf_rs::Geometry::Mesh { filename, scale }, origin)) = visual_mesh {
+            if !filename.is_empty() {
+                let scale = scale.map_or(Vector3::new(1.0, 1.0, 1.0), |s| {
+                    Vector3::new(s.0[0], s.0[1], s.0[2])
+                });
+                self.links[link_index].set_visual_mesh(
+                    filename.clone(),
+                    isometry_from_urdf_pose(origin),
+                    scale,
+                );
+            }
         }
 
         Ok(())
@@ -1300,5 +1400,155 @@ mod tests {
             <link name="b"/>
         </robot>"#;
         assert!(build(urdf, FIXED_BASE_SRDF).is_err());
+    }
+
+    fn link_with_geometry_urdf(link_extra: &str) -> String {
+        format!(
+            r#"<robot name="test">
+                <link name="base">{link_extra}</link>
+            </robot>"#
+        )
+    }
+
+    #[test]
+    fn box_collision_at_identity_produces_a_shape_and_a_centered_bounding_box() {
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><box size="2 4 6"/></geometry></collision>"#,
+        );
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+        assert!(model.diagnostics().is_empty(), "{:?}", model.diagnostics());
+
+        let base = model.link_model("base").unwrap();
+        assert_eq!(
+            base.shapes(),
+            [LinkShape {
+                shape: Shape::Cuboid(Cuboid::new(2.0, 4.0, 6.0).unwrap()),
+                origin_transform: Isometry3::identity(),
+            }]
+        );
+        assert_eq!(base.centered_bounding_box_offset(), Vector3::zeros());
+    }
+
+    /// The boundary several real `pr2` links exercise: no `<collision>`
+    /// element at all. The oracle reports `centered_bounding_box_offset:
+    /// [0.0, 0.0, 0.0]` for these — an exact zero from Eigen's empty-box
+    /// constant, not `NaN` — see `Aabb`'s doc comment.
+    #[test]
+    fn link_with_no_collision_has_no_shapes_and_a_zero_bounding_box_center() {
+        let urdf = link_with_geometry_urdf("");
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        let base = model.link_model("base").unwrap();
+        assert!(base.shapes().is_empty());
+        assert_eq!(base.centered_bounding_box_offset(), Vector3::zeros());
+    }
+
+    #[test]
+    fn mesh_collision_is_skipped_with_a_diagnostic_and_leaves_no_shape() {
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><mesh filename="package://x/foo.stl"/></geometry></collision>"#,
+        );
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        assert_eq!(
+            model.diagnostics(),
+            [Diagnostic::UnsupportedLinkGeometry {
+                link: "base".to_string(),
+                kind: "mesh",
+            }]
+        );
+        assert!(model.link_model("base").unwrap().shapes().is_empty());
+    }
+
+    #[test]
+    fn capsule_collision_is_skipped_with_a_diagnostic() {
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><capsule radius="0.1" length="0.4"/></geometry></collision>"#,
+        );
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        assert_eq!(
+            model.diagnostics(),
+            [Diagnostic::UnsupportedLinkGeometry {
+                link: "base".to_string(),
+                kind: "capsule",
+            }]
+        );
+    }
+
+    /// A link with both a valid and an unsupported `<collision>` element
+    /// keeps the valid shape and diagnoses only the unsupported one — the
+    /// two do not desync into "shapes.len() != collision element count".
+    #[test]
+    fn one_unsupported_collision_element_does_not_drop_the_others() {
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><sphere radius="1"/></geometry></collision>
+               <collision><geometry><mesh filename="foo.stl"/></geometry></collision>"#,
+        );
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        assert_eq!(
+            model.diagnostics(),
+            [Diagnostic::UnsupportedLinkGeometry {
+                link: "base".to_string(),
+                kind: "mesh",
+            }]
+        );
+        assert_eq!(
+            model.link_model("base").unwrap().shapes(),
+            [LinkShape {
+                shape: Shape::Sphere(Sphere::new(1.0).unwrap()),
+                origin_transform: Isometry3::identity(),
+            }]
+        );
+    }
+
+    #[test]
+    fn negative_shape_dimension_errors_the_whole_build() {
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><box size="-1 1 1"/></geometry></collision>"#,
+        );
+        assert!(build(&urdf, FIXED_BASE_SRDF).is_err());
+    }
+
+    #[test]
+    fn visual_mesh_prefers_the_first_visual_mesh_over_collision() {
+        let urdf = link_with_geometry_urdf(concat!(
+            r#"<visual><geometry><mesh filename="visual.dae" scale="2 2 2"/></geometry></visual>"#,
+            r#"<collision><geometry><mesh filename="collision.stl"/></geometry></collision>"#,
+        ));
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        let base = model.link_model("base").unwrap();
+        assert_eq!(base.visual_mesh_filename(), Some("visual.dae"));
+        assert_eq!(base.visual_mesh_scale(), Vector3::new(2.0, 2.0, 2.0));
+    }
+
+    /// When the first `<visual>` element isn't a mesh, upstream falls back
+    /// to the first `<collision>` mesh rather than leaving
+    /// `visual_mesh_filename_` empty.
+    #[test]
+    fn visual_mesh_falls_back_to_collision_when_first_visual_is_not_a_mesh() {
+        let urdf = link_with_geometry_urdf(concat!(
+            r#"<visual><geometry><box size="1 1 1"/></geometry></visual>"#,
+            r#"<collision><geometry><mesh filename="collision.stl"/></geometry></collision>"#,
+        ));
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        let base = model.link_model("base").unwrap();
+        assert_eq!(base.visual_mesh_filename(), Some("collision.stl"));
+    }
+
+    #[test]
+    fn no_mesh_in_visual_or_collision_leaves_visual_mesh_filename_none() {
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><box size="1 1 1"/></geometry></collision>"#,
+        );
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        assert_eq!(
+            model.link_model("base").unwrap().visual_mesh_filename(),
+            None
+        );
     }
 }

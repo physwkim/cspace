@@ -1338,6 +1338,2124 @@
       "r_torso_lift_side_plate_joint",
       "torso_lift_motor_screw_joint"
     ],
+    "link_details": [
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.071
+        ],
+        "name": "base_footprint",
+        "shape_types": [
+          "box"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.32808753848075867
+        ],
+        "name": "base_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/base.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "base_bellow_link",
+        "shape_types": [
+          "box"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "base_laser_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.06799008511006832
+        ],
+        "name": "bl_caster_rotation_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/caster.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "bl_caster_l_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "bl_caster_r_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.06799008511006832
+        ],
+        "name": "br_caster_rotation_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/caster.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "br_caster_l_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "br_caster_r_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.06799008511006832
+        ],
+        "name": "fl_caster_rotation_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/caster.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "fl_caster_l_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "fl_caster_r_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.06799008511006832
+        ],
+        "name": "fr_caster_rotation_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/caster.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "fr_caster_l_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "fr_caster_r_wheel_link",
+        "shape_types": [
+          "cylinder"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/base_v0/wheel.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.08804820105433464,
+          0.0,
+          -0.09598320722579956
+        ],
+        "name": "torso_lift_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/torso_v0/torso_lift.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.015857383608818054,
+          0.0007569193840026855,
+          0.006755713373422623
+        ],
+        "name": "head_pan_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/head_v0/head_pan.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.050771038979291916,
+          0.0,
+          0.10062087327241898
+        ],
+        "name": "head_tilt_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/head_v0/head_tilt.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_plate_frame",
+        "shape_types": [
+          "box"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_link",
+        "shape_types": [
+          "sphere"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/sensors/kinect_prosilica_v0/115x100_swept_back--coarse.STL",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          0.001,
+          0.001,
+          0.001
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_kinect_ir_link",
+        "shape_types": [
+          "sphere"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_kinect_ir_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_kinect_rgb_link",
+        "shape_types": [
+          "sphere"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_kinect_rgb_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_prosilica_link",
+        "shape_types": [
+          "sphere"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "head_mount_prosilica_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "projector_wg6802418_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "projector_wg6802418_child_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "sensor_mount_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "double_stereo_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "narrow_stereo_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "narrow_stereo_l_stereo_camera_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "narrow_stereo_l_stereo_camera_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "narrow_stereo_r_stereo_camera_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "narrow_stereo_r_stereo_camera_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "narrow_stereo_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "wide_stereo_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "wide_stereo_l_stereo_camera_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "wide_stereo_l_stereo_camera_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "wide_stereo_r_stereo_camera_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "wide_stereo_r_stereo_camera_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "wide_stereo_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "high_def_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "high_def_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "imu_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0496923103928566,
+          2.7827918529510498e-05,
+          -0.17452900111675262
+        ],
+        "name": "l_shoulder_pan_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/shoulder_v0/shoulder_pan.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.002956327050924301,
+          0.00010809674859046936,
+          1.5348196029663086e-06
+        ],
+        "name": "l_shoulder_lift_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/shoulder_v0/shoulder_lift.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.1296200007200241,
+          0.0,
+          0.0
+        ],
+        "name": "l_upper_arm_roll_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/shoulder_v0/upper_arm_roll.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.21532252430915833,
+          8.80211591720581e-05,
+          -0.0021647438406944275
+        ],
+        "name": "l_upper_arm_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/upper_arm_v0/upper_arm.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.006359681487083435,
+          -0.00019830279052257538,
+          1.5098601579666138e-05
+        ],
+        "name": "l_elbow_flex_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/upper_arm_v0/elbow_flex.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.04100004490464926,
+          -4.12575900554657e-05,
+          -1.0812655091285706e-05
+        ],
+        "name": "l_forearm_roll_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/upper_arm_v0/forearm_roll.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_forearm_cam_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_forearm_cam_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.2259286344051361,
+          9.549781680107117e-06,
+          0.006419101729989052
+        ],
+        "name": "l_forearm_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/forearm_v0/forearm.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.004511277191340923,
+          0.0,
+          -0.001719517633318901
+        ],
+        "name": "l_wrist_flex_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/forearm_v0/wrist_flex.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.03324992582201958,
+          0.0,
+          -9.346567094326019e-05
+        ],
+        "name": "l_wrist_roll_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/forearm_v0/wrist_roll.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0775075051933527,
+          1.025758683681488e-05,
+          1.317821443080902e-06
+        ],
+        "name": "l_gripper_palm_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/gripper_palm.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.04311220720410347,
+          0.018395679537206888,
+          1.082196831703186e-06
+        ],
+        "name": "l_gripper_l_finger_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.002813151106238365,
+          0.006430056877434254,
+          1.910608261823654e-06
+        ],
+        "name": "l_gripper_l_finger_tip_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger_tip.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_gripper_led_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_gripper_motor_accelerometer_link",
+        "shape_types": [
+          "box"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_gripper_motor_slider_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_gripper_motor_screw_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.04311220720410347,
+          -0.018395679537210906,
+          -1.0821968325046283e-06
+        ],
+        "name": "l_gripper_r_finger_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          -0.0,
+          0.0,
+          0.0,
+          -1.0,
+          2.0682310711021444e-13,
+          0.0,
+          0.0,
+          -2.0682310711021444e-13,
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.002813151106238365,
+          -0.006430056877432609,
+          -1.9106082590914647e-06
+        ],
+        "name": "l_gripper_r_finger_tip_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger_tip.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          -0.0,
+          0.0,
+          0.0,
+          -1.0,
+          2.0682310711021444e-13,
+          0.0,
+          0.0,
+          -2.0682310711021444e-13,
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_gripper_l_finger_tip_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_gripper_tool_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "l_torso_lift_side_plate_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.0029161330312490463,
+          0.0,
+          0.0036398768424987793
+        ],
+        "name": "laser_tilt_mount_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/tilting_laser_v0/tilting_hokuyo.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "laser_tilt_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0496923103928566,
+          2.7827918529510498e-05,
+          -0.17452900111675262
+        ],
+        "name": "r_shoulder_pan_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/shoulder_v0/shoulder_pan.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.002956327050924301,
+          0.00010809674859046936,
+          1.5348196029663086e-06
+        ],
+        "name": "r_shoulder_lift_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/shoulder_v0/shoulder_lift.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.1296200007200241,
+          0.0,
+          0.0
+        ],
+        "name": "r_upper_arm_roll_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/shoulder_v0/upper_arm_roll.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.21532252430915833,
+          8.80211591720581e-05,
+          -0.0021647438406944275
+        ],
+        "name": "r_upper_arm_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/upper_arm_v0/upper_arm.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.006359681487083435,
+          -0.00019830279052257538,
+          1.5098601579666138e-05
+        ],
+        "name": "r_elbow_flex_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/upper_arm_v0/elbow_flex.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.04100004490464926,
+          -4.12575900554657e-05,
+          -1.0812655091285706e-05
+        ],
+        "name": "r_forearm_roll_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/upper_arm_v0/forearm_roll.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_forearm_cam_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_forearm_cam_optical_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.2259286344051361,
+          9.549781680107117e-06,
+          0.006419101729989052
+        ],
+        "name": "r_forearm_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/forearm_v0/forearm.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.004511277191340923,
+          0.0,
+          -0.001719517633318901
+        ],
+        "name": "r_wrist_flex_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/forearm_v0/wrist_flex.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.03324992582201958,
+          0.0,
+          -9.346567094326019e-05
+        ],
+        "name": "r_wrist_roll_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/forearm_v0/wrist_roll.stl",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0775075051933527,
+          1.025758683681488e-05,
+          1.317821443080902e-06
+        ],
+        "name": "r_gripper_palm_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/gripper_palm.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.04311220720410347,
+          0.018395679537206888,
+          1.082196831703186e-06
+        ],
+        "name": "r_gripper_l_finger_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.002813151106238365,
+          0.006430056877434254,
+          1.910608261823654e-06
+        ],
+        "name": "r_gripper_l_finger_tip_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger_tip.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_gripper_led_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_gripper_motor_accelerometer_link",
+        "shape_types": [
+          "box"
+        ],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_gripper_motor_slider_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_gripper_motor_screw_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.04311220720410347,
+          -0.018395679537210906,
+          -1.0821968325046283e-06
+        ],
+        "name": "r_gripper_r_finger_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          -0.0,
+          0.0,
+          0.0,
+          -1.0,
+          2.0682310711021444e-13,
+          0.0,
+          0.0,
+          -2.0682310711021444e-13,
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.002813151106238365,
+          -0.006430056877432609,
+          -1.9106082590914647e-06
+        ],
+        "name": "r_gripper_r_finger_tip_link",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_pr2_description/urdf/meshes/gripper_v0/l_finger_tip.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          -0.0,
+          0.0,
+          0.0,
+          -1.0,
+          2.0682310711021444e-13,
+          0.0,
+          0.0,
+          -2.0682310711021444e-13,
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_gripper_l_finger_tip_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_gripper_tool_frame",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "r_torso_lift_side_plate_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "torso_lift_motor_screw_link",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      }
+    ],
     "links": [
       "base_footprint",
       "base_link",

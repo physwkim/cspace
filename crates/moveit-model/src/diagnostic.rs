@@ -96,6 +96,18 @@ pub enum Diagnostic {
         /// The text as written in the document.
         value: String,
     },
+
+    /// A link's `<collision>` element used a shape kind this port cannot
+    /// build a [`moveit_geometry::Shape`] for — see
+    /// [`crate::link_model::LinkModel`]'s doc comment, deviation 4. The
+    /// element is skipped: this link ends up with fewer
+    /// [`crate::link_model::LinkModel::shapes`] than upstream.
+    UnsupportedLinkGeometry {
+        /// The link the `<collision>` element belongs to.
+        link: String,
+        /// `"mesh"` or `"capsule"`.
+        kind: &'static str,
+    },
 }
 
 impl fmt::Display for Diagnostic {
@@ -139,6 +151,10 @@ impl fmt::Display for Diagnostic {
             } => write!(
                 f,
                 "unable to parse property {property:?} on joint {joint:?} as a number: {value:?}"
+            ),
+            Self::UnsupportedLinkGeometry { link, kind } => write!(
+                f,
+                "link {link:?} has a {kind} <collision> element, which this port cannot build a shape for; skipped"
             ),
         }
     }

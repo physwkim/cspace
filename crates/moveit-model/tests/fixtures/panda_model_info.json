@@ -263,6 +263,403 @@
       "panda_finger_joint1",
       "panda_finger_joint2"
     ],
+    "link_details": [
+      {
+        "centered_bounding_box_offset": [
+          -0.041255850344896317,
+          2.8345733880996704e-05,
+          0.06998516952080536
+        ],
+        "name": "panda_link0",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link0.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          8.711777627468109e-05,
+          -0.03709043934941292,
+          -0.0685154888778925
+        ],
+        "name": "panda_link1",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link1.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -8.425302803516388e-05,
+          -0.06939476728439331,
+          0.03719636611640453
+        ],
+        "name": "panda_link2",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link2.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.041457733139395714,
+          0.028142908588051796,
+          -0.03293054923415184
+        ],
+        "name": "panda_link3",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link3.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -0.041233668103814125,
+          0.03442987985908985,
+          0.027922743931412697
+        ],
+        "name": "panda_link4",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link4.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          3.34419310092926e-05,
+          0.03738817572593689,
+          -0.10619302466511726
+        ],
+        "name": "panda_link5",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link5.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.042101310566067696,
+          0.015146210789680481,
+          0.006161786615848541
+        ],
+        "name": "panda_link6",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link6.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.018635770305991173,
+          0.018578847870230675,
+          0.07941387966275215
+        ],
+        "name": "panda_link7",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/link7.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "panda_link8",
+        "shape_types": [],
+        "visual_mesh_filename": null
+      },
+      {
+        "centered_bounding_box_offset": [
+          -1.0067597031593323e-05,
+          -0.0017819218337535858,
+          0.020018674433231354
+        ],
+        "name": "panda_hand",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/hand.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          7.68294557929039e-06,
+          0.013135369845258538,
+          0.02699036512785824
+        ],
+        "name": "panda_leftfinger",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/finger.dae",
+        "visual_mesh_origin": [
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "centered_bounding_box_offset": [
+          -7.682945576062937e-06,
+          -0.013135369845260508,
+          0.02699036512785824
+        ],
+        "name": "panda_rightfinger",
+        "shape_types": [
+          "mesh"
+        ],
+        "visual_mesh_filename": "package://moveit_resources_panda_description/meshes/visual/finger.dae",
+        "visual_mesh_origin": [
+          -1.0,
+          2.0682310711021444e-13,
+          -0.0,
+          0.0,
+          -2.0682310711021444e-13,
+          -1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "visual_mesh_scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    ],
     "links": [
       "panda_link0",
       "panda_link1",
