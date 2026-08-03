@@ -279,6 +279,7 @@ dependencies = [
  "moveit-collision",
  "moveit-error",
  "moveit-geometry",
+ "moveit-kinematics",
  "moveit-model",
  "moveit-srdf",
  "moveit-state",
