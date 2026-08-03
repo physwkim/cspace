@@ -473,3 +473,37 @@ fanuc(9 links, 9 joints, 1 group)로도 51/51 동일하게 동작.
 §4.1 `RobotState` dirty-flag → sum type (읽기 API가 `&self` → `&mut self`),
 §4.3 순수 Rust 제약 타입. 둘 다 Phase 1 이후에 뒤집으면 전 크레이트의 타입
 시그니처가 바뀐다.
+
+## 8. Phase 1 — 진행 중 (2026-08-03)
+
+`moveit-srdf`(SRDF 파서)와 `moveit-model`의 joint 계층이 들어왔다. 둘 다
+오라클 대조로 검증했고, 기대값을 Rust 리터럴로 옮겨 적는 대신 오라클의
+`model_info` 응답 JSON을 픽스처로 커밋해 역직렬화 비교한다 — 전사 오타가
+조용히 통과하는 경로를 없애고, 오라클이 바뀌면 픽스처 diff로 드러나게
+하려는 것이다. 같은 이유로 픽스처 URDF/SRDF도 크레이트 안에 벤더링한다:
+`third_party/`는 gitignore라 fresh clone과 CI에 존재하지 않는다.
+
+### 8.1 확정된 설계 결정 2건
+
+**`group_state`의 파싱 불가 값은 해당 joint를 버린다.** 상류 srdfdom은
+추출 실패 시 `0.0`을 저장하는데, `0.0`은 합법적인 joint 위치라서 하류에서
+실패를 구분할 방법이 없다 — 명명된 자세의 오타 하나가 "0으로 이동"으로
+조용히 바뀐다. 파싱된 모델이 상류와 달라지는 유일한 지점이고, 잘못된
+입력에 한해서만 갈린다.
+
+**URDF `<limit>` 태그의 부재 판정은 RobotModel 계층이 소유한다.**
+`urdf_rs::Joint::limit`은 `Option`이 아니라 `#[serde(default)]`여서 태그
+부재와 전부 0인 명시적 limit을 구분하지 못한다 (상류는 널 포인터로
+구분한다). joint 계층은 이 구분을 할 수 없는 자리에 있으므로 판정을
+위로 올린다: URDF와 SRDF를 함께 쥐는 RobotModel이 원본 XML에서 `<limit>`
+존재 여부를 직접 읽어 joint 계층에 넘긴다. 방치하면 `<limit>` 없는
+revolute joint가 `[0, 0]`으로 잠긴다 — panda와 fanuc은 모든 관절이 명시적
+non-zero limit을 가져 드러나지 않을 뿐이다.
+
+### 8.2 픽스처 현황
+
+`third_party/moveit_resources`에 prbt는 없다 (§7.4의 서술은 틀렸다).
+쓸 수 있는 것은 panda, fanuc, dual-arm panda(`panda.urdf.xacro`라 확장
+필요), pr2(`urdf/robot.xml` + `srdf/robot.xml`, 확장 불필요)다. pr2는
+continuous joint와 mimic 관계를 가져 panda/fanuc이 덮지 못하는 영역을
+덮는다.
