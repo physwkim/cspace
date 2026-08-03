@@ -18,9 +18,16 @@
 //! centres and radii `BodyDecomposition::from_shapes` +
 //! `PosedBodySphereDecomposition` produce for a real robot link
 //! (`base_bellow_link`, PR2's only link with a single non-mesh (`<box>`)
-//! collision shape at an identity origin -- see `moveit_model::LinkModel`'s
-//! own doc comment on why panda/fanuc's mesh-only collision geometry can't
-//! exercise this at all) across a group state, built the same way upstream's
+//! collision shape at an identity origin -- panda/fanuc's own collision
+//! geometry is mesh-only, and `build_pr2_model` below builds with
+//! [`moveit_model::MeshSearchPaths::none`] the same way
+//! `collision_env_distance_field_parity.rs` does for pr2 (see that file's
+//! module doc for why: pr2's meshes are vendored under the gitignored
+//! `third_party/moveit_resources/pr2_description/` checkout but not yet
+//! copied into this workspace's committed `fixtures/meshes/` the way
+//! panda's and fanuc's are, and this test does not wire the latter two's
+//! mesh paths in either, so no robot here has any mesh-derived shape) across
+//! a group state, built the same way upstream's
 //! `addLinkBodyDecompositions` does but composed here entirely from
 //! primitives this port already has (`BodyDecomposition::from_shapes`,
 //! `PosedBodySphereDecomposition`, `RobotState::global_link_transform`) --
@@ -276,7 +283,8 @@ fn link_body_decomposition_matches_the_oracle() {
     assert!(
         !shapes.is_empty(),
         "fixture link {} has no collision geometry on this port -- pick a different link \
-         (see moveit_model::LinkModel's mesh-geometry-not-loaded deviation)",
+         (this test builds with MeshSearchPaths::none, so a mesh-only-collision link has \
+         no shape here regardless of moveit-model's own STL loading support)",
         request.link
     );
 

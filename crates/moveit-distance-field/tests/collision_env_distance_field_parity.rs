@@ -44,17 +44,37 @@
 //! active-joint-variable exclusion against a group shape very different from
 //! a chain).
 //!
-//! Every PR2 arm/gripper link's collision geometry is mesh-only (see
+//! Every PR2 arm/gripper link's collision geometry is mesh-only, and
+//! `moveit-model` can load STL `<mesh>` geometry now (`RobotModel::from_urdf_and_srdf`
+//! takes a [`MeshSearchPaths`]). pr2's 18 `<collision>` mesh files *are*
+//! vendored -- all present under the gitignored
+//! `third_party/moveit_resources/pr2_description/urdf/meshes/` checkout --
+//! but not yet copied into this workspace's committed `fixtures/meshes/` the
+//! way panda's and fanuc's are (p3-acm's task this round; see
 //! `link_models_with_collision_geometry_matches_the_oracle_modulo_the_documented_mesh_deviation`'s
-//! own doc comment for the underlying gap), and no real SRDF planning group
-//! is composed entirely of primitive-geometry links, so
-//! `generate_distance_field_cache_entry_matches_the_oracle` cannot avoid the
-//! mesh gap by choosing a different group -- it hits `link_has_geometry` and
-//! every field derived from it (`link_body_indices`, `self_collision_enabled`,
+//! own doc comment for what was checked). `build_pr2_model` below still
+//! builds with [`MeshSearchPaths::none`] accordingly, since the committed
+//! fixture path does not exist yet.
+//!
+//! This is a missing *fixture copy*, not an open correctness question: this
+//! round, pointing `build_pr2_model` at `third_party/` directly (a probe,
+//! not committed -- that path is gitignored, not guaranteed present in CI)
+//! reproduced every mesh, and every assertion this file narrows --
+//! `link_models_with_collision_geometry`'s link set, `link_has_geometry`,
+//! `self_collision_enabled`, `intra_group_collision_enabled`, and the
+//! distance field's own `distance_queries` -- came back byte-exact against
+//! the oracle for all three `generate_distance_field_cache_entry` cases and
+//! the `link_models_with_collision_geometry` case, no discrepancies. Until
+//! the `fixtures/meshes/pr2_description/` copy lands, `build_pr2_model`
+//! cannot point there, so `generate_distance_field_cache_entry_matches_the_oracle`
+//! still hits `link_has_geometry` and every field derived from it
+//! (`link_body_indices`, `self_collision_enabled`,
 //! `intra_group_collision_enabled`, and the distance field's own obstacle
-//! set) on essentially every case. Each of those assertions is narrowed
-//! per-link accordingly; see the loop body's own comments for the exact
-//! rule per field.
+//! set) on essentially every case; each of those assertions is narrowed
+//! per-link accordingly, see the loop body's own comments for the exact
+//! rule per field. Once the fixture copy lands, swap `MeshSearchPaths::none()`
+//! for the real map and tighten every narrowed assertion here to plain
+//! equality -- this round's probe is the evidence that tightening will pass.
 
 use std::collections::HashMap;
 use std::fs;
@@ -110,18 +130,33 @@ struct LmwcgResponseEntry {
 }
 
 /// `link_models_with_collision_geometry` cannot expect byte-exact parity
-/// with the oracle: the oracle links against real mesh files and so counts
-/// mesh-only-collision links (`pr2.urdf`'s `base_link`, the caster rotation
-/// links, `torso_lift_link`, every arm link, ...) as having collision
-/// geometry, while this port's `RobotModel` deliberately never loads
-/// `<mesh>` geometry at all -- see `moveit-model`'s `LinkModel` doc comment,
+/// with the oracle here: the oracle links against real mesh files and so
+/// counts mesh-only-collision links (`pr2.urdf`'s `base_link`, the caster
+/// rotation links, `torso_lift_link`, every arm link, ...) as having
+/// collision geometry, while `build_pr2_model` below builds with
+/// [`MeshSearchPaths::none`] -- **not** because this port's `RobotModel`
+/// cannot load `<mesh>` geometry (it can, given an explicit
+/// [`MeshSearchPaths`]; see `moveit-model`'s `LinkModel` doc comment,
 /// deviation 4, and its own `mesh_collision_is_skipped_with_a_diagnostic_and_leaves_no_shape`
-/// test. Every such skip is recorded as a `Diagnostic::UnsupportedLinkGeometry`.
+/// test), and **not** because pr2's meshes are missing -- all 18 of
+/// `pr2.urdf`'s `<collision>` mesh files are vendored under the gitignored
+/// `third_party/moveit_resources/pr2_description/urdf/meshes/` (checked
+/// directly: every reference resolves to a file that exists there) -- but
+/// because they are not yet copied into this workspace's committed
+/// `fixtures/meshes/` the way panda's and fanuc's are (checked directly:
+/// `fixtures/meshes/` holds only `panda_description/` and
+/// `fanuc_description/`; `moveit-collision`'s `collision_parity.rs` documents
+/// the identical gap for its own pr2 case; p3-acm owns landing that copy).
+/// Every unresolved `<mesh>` is recorded as a `Diagnostic::UnsupportedLinkGeometry`.
 ///
-/// So the real property to check is not set-equality but: our computed set
-/// is *exactly* the oracle's set minus the links whose divergence is
-/// explained by a recorded mesh diagnostic -- i.e. every disagreement is
-/// accounted for, none is silent.
+/// So the real property to check here, until that fixture copy lands, is
+/// not set-equality but: our computed set is *exactly* the oracle's set
+/// minus the links whose divergence is explained by a recorded mesh
+/// diagnostic -- i.e. every disagreement is accounted for, none is silent.
+/// Pointing `build_pr2_model` at `third_party/` directly this round (a
+/// probe, not committed) confirmed the stronger property already holds:
+/// with real meshes loaded, `actual_links` matches `expected_links`
+/// byte-for-byte, no diagnostics, no narrowing needed.
 #[test]
 fn link_models_with_collision_geometry_matches_the_oracle_modulo_the_documented_mesh_deviation() {
     let model = build_pr2_model();
