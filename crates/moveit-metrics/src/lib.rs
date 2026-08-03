@@ -317,6 +317,21 @@ mod tests {
             .expect("fixture model must build")
     }
 
+    /// `joint_limits_penalty` is public and, unlike `manipulability*`, does
+    /// not require a chain group -- pr2's `right_arm` (continuous joints)
+    /// and `base` (the planar virtual joint) groups, both unedited, are
+    /// enough to pin the per-joint-type skip logic without an oracle round
+    /// trip.
+    fn build_pr2_model() -> RobotModel {
+        let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/pr2.urdf");
+        let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/pr2.srdf");
+        let urdf_xml = fs::read_to_string(urdf_path).expect("fixture URDF must read");
+        let urdf = urdf_rs::read_file(urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(srdf_path).expect("fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("fixture model must build")
+    }
+
     /// Default `penalty_multiplier` is `0.0`: [`KinematicsMetrics::joint_limits_penalty`]
     /// must return `1.0` unconditionally, upstream's `fabs(x) <=
     /// numeric_limits::min()` short-circuit.
@@ -327,6 +342,62 @@ mod tests {
         let metrics = KinematicsMetrics::new(&model);
         let group = model.joint_model_group("panda_arm").unwrap();
         assert_eq!(metrics.joint_limits_penalty(&state, group).unwrap(), 1.0);
+    }
+
+    /// A continuous revolute joint does not contribute to the product: pr2's
+    /// `right_arm` chain includes two continuous joints
+    /// (`r_forearm_roll_joint`, `r_wrist_roll_joint`, `type="continuous"`
+    /// in `pr2.urdf`).
+    ///
+    /// A test that only moves a continuous joint's *position* cannot tell
+    /// "excluded from the product" apart from "included but coincidentally
+    /// invariant": `RevoluteJoint::distance` wraps at `2*PI`
+    /// (`joint/revolute.rs`), and a continuous joint's bounds are always
+    /// exactly `[-PI, PI]` -- two antipodal points on that wrap, so the
+    /// wrapped distance to each is identical for *every* position, making
+    /// the would-be product term a constant `0.25` regardless of where the
+    /// joint sits. So this pins the exclusion directly: recompute the
+    /// expected product from the same public primitives
+    /// (`JointModel::variable_bounds`/`distance`) with continuous joints
+    /// left out -- exactly the production loop's stated rule -- and compare
+    /// against the real `joint_limits_penalty` output. Deleting the
+    /// `is_continuous()` skip would fold both continuous joints' constant
+    /// `0.25` factor into the actual product, moving it off this golden
+    /// value while leaving it just as position-invariant as before -- the
+    /// failure this test exists to catch would be invisible to a
+    /// move-the-position-and-compare test at any position.
+    #[test]
+    fn continuous_revolute_joint_does_not_contribute_to_joint_limits_penalty() {
+        let model = build_pr2_model();
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("right_arm").unwrap();
+        let state = RobotState::new(&model);
+
+        let mut expected_product = 1.0;
+        for &joint_index in group.joint_indices() {
+            let joint = model.joint_model_at(joint_index);
+            if let JointKind::Revolute(revolute) = joint.kind() {
+                if revolute.is_continuous() {
+                    continue;
+                }
+            }
+            let values = state.joint_position(joint.name()).unwrap();
+            let bounds = joint.variable_bounds();
+            let lower: Vec<f64> = bounds.iter().map(|b| b.min_position).collect();
+            let upper: Vec<f64> = bounds.iter().map(|b| b.max_position).collect();
+            let lower_distance = joint.distance(values, &lower);
+            let upper_distance = joint.distance(values, &upper);
+            let range = lower_distance + upper_distance;
+            if range <= f64::MIN_POSITIVE {
+                continue;
+            }
+            expected_product *= lower_distance * upper_distance / (range * range);
+        }
+        let expected_penalty = 1.0 - (-1.5_f64 * expected_product).exp();
+
+        let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
+        assert_eq!(actual_penalty, expected_penalty);
     }
 
     /// All four public metrics compute finite values for a real chain group
