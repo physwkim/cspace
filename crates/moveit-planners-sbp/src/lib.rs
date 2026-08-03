@@ -52,6 +52,6 @@ mod validity;
 
 pub use error::SbpError;
 pub use nn::Gnat;
-pub use rrt_connect::{RrtConnectParams, rrt_connect};
+pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
 pub use space::{RealVectorSpace, StateSpace};
 pub use validity::{DiscreteMotionValidator, MotionValidator, StateValidityChecker};

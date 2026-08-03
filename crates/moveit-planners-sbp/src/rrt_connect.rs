@@ -25,6 +25,53 @@ use crate::nn::Gnat;
 use crate::space::StateSpace;
 use crate::validity::{MotionValidator, StateValidityChecker};
 
+/// The condition(s) that stop [`rrt_connect`] from growing its trees
+/// further.
+///
+/// This is a sum type rather than "an iteration cap plus an optional
+/// deadline" so that a caller who needs the [determinism
+/// guarantee](rrt_connect#determinism) can select [`Termination::Iterations`]
+/// and get it *by construction*: that variant carries no [`Duration`], so
+/// [`rrt_connect`]'s loop has nothing to call [`Instant::now`] against and
+/// cannot become clock-bound even by accident. [`Termination::Deadline`] and
+/// [`Termination::Both`] are the caller's explicit choice to trade that
+/// guarantee for a wall-clock safety net.
+#[derive(Debug, Clone, Copy)]
+pub enum Termination {
+    /// Run for at most `max_iterations` iterations (one `extend` plus, if it
+    /// succeeds, one `connect` attempt each). Never reads the wall clock:
+    /// two calls with an identical seed always run exactly the same number
+    /// of iterations.
+    Iterations(usize),
+    /// Run until `deadline` elapses. Not deterministic: the number of
+    /// iterations completed before the deadline fires depends on machine
+    /// speed and load.
+    Deadline(Duration),
+    /// Run until either bound is hit, whichever comes first. Not
+    /// deterministic, for the same reason as [`Termination::Deadline`].
+    Both {
+        /// See [`Termination::Iterations`].
+        max_iterations: usize,
+        /// See [`Termination::Deadline`].
+        deadline: Duration,
+    },
+}
+
+/// Why [`rrt_connect`] returned without a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanningFailure {
+    /// `start` or `goal` itself failed [`StateValidityChecker::is_valid`]:
+    /// an invalid endpoint can never appear on a valid path, so nothing was
+    /// searched for.
+    InvalidEndpoint,
+    /// The `max_iterations` bound in `params.termination` was reached
+    /// before a solution was found.
+    IterationsExhausted,
+    /// The `deadline` bound in `params.termination` elapsed before a
+    /// solution was found.
+    DeadlineExhausted,
+}
+
 /// Tuning parameters for [`rrt_connect`].
 #[derive(Debug, Clone)]
 pub struct RrtConnectParams {
@@ -38,20 +85,8 @@ pub struct RrtConnectParams {
     /// toward each other directly rather than relying solely on `connect`'s
     /// own greedy walk to close the gap.
     pub goal_bias: f64,
-    /// Upper bound on the number of RRT-Connect iterations (one `extend`
-    /// plus, if it succeeds, one `connect` attempt each).
-    pub max_iterations: usize,
-    /// Upper bound on wall-clock time spent planning.
-    ///
-    /// This bound is machine-speed-dependent. If it is the constraint that
-    /// actually stops the search (planning is cut off by the clock before
-    /// `max_iterations` or a solution is found), the number of iterations
-    /// actually run — and therefore the returned path — can differ between
-    /// runs and between machines even with an identical seed. The
-    /// determinism guarantee on [`rrt_connect`] holds only when
-    /// `max_iterations` is the binding constraint, not the clock: give a
-    /// generous budget when reproducibility matters, such as in tests.
-    pub time_budget: Duration,
+    /// When to stop growing the trees. See [`Termination`].
+    pub termination: Termination,
     /// Nearest-neighbour index branching factor, forwarded to
     /// [`Gnat::new`] for each tree.
     pub nn_degree: usize,
@@ -206,18 +241,23 @@ where
 
 /// Plans a path from `start` to `goal` with bidirectional RRT-Connect.
 ///
-/// Returns `Some(path)` on success, with `path[0] == start` and
+/// Returns `Ok(path)` on success, with `path[0] == start` and
 /// `path.last() == Some(&goal)` exactly, and every consecutive pair valid
 /// under `motion_validator` (both properties are asserted directly by this
-/// crate's tests, not just inferred). Returns `None` if `params.max_iterations`
-/// or `params.time_budget` is exhausted first, including immediately if
-/// `start` or `goal` is itself invalid — an invalid endpoint can never
-/// appear on a valid path, so there is nothing to search for.
+/// crate's tests, not just inferred). Returns `Err(PlanningFailure::InvalidEndpoint)`
+/// immediately if `start` or `goal` is itself invalid, or
+/// `Err(PlanningFailure::IterationsExhausted)` /
+/// `Err(PlanningFailure::DeadlineExhausted)` if the corresponding bound in
+/// `params.termination` is hit first — see [`PlanningFailure`].
 ///
 /// # Determinism
 /// Two calls with equivalent `space`/`checker`/`motion_validator` and an
-/// identically-seeded `rng` produce byte-identical paths, provided
-/// `params.time_budget` is not the binding constraint — see its docs.
+/// identically-seeded `rng` produce byte-identical results when
+/// `params.termination` is [`Termination::Iterations`] — that variant never
+/// reads the wall clock, so nothing in this function can make the result
+/// depend on machine speed. [`Termination::Deadline`] and
+/// [`Termination::Both`] intentionally give up this guarantee; do not use
+/// them where reproducibility matters.
 ///
 /// # Panics
 /// If `params` is out of range: see [`RrtConnectParams`]'s field docs.
@@ -229,7 +269,7 @@ pub fn rrt_connect<S, C, M, R>(
     goal: S::State,
     rng: &mut R,
     params: &RrtConnectParams,
-) -> Option<Vec<S::State>>
+) -> Result<Vec<S::State>, PlanningFailure>
 where
     S: StateSpace,
     C: StateValidityChecker<S>,
@@ -239,8 +279,21 @@ where
     params.assert_valid();
 
     if !checker.is_valid(&start) || !checker.is_valid(&goal) {
-        return None;
+        return Err(PlanningFailure::InvalidEndpoint);
     }
+
+    // `deadline` is `None` for `Termination::Iterations`: that is what makes
+    // "never reads the wall clock" true by construction rather than by
+    // convention — there is simply nothing here to check `Instant::now`
+    // against.
+    let (max_iterations, deadline) = match params.termination {
+        Termination::Iterations(max_iterations) => (max_iterations, None),
+        Termination::Deadline(deadline) => (usize::MAX, Some(Instant::now() + deadline)),
+        Termination::Both {
+            max_iterations,
+            deadline,
+        } => (max_iterations, Some(Instant::now() + deadline)),
+    };
 
     let mut tree_a = Tree::new(space, start.clone(), params.nn_degree);
     let mut tree_b = Tree::new(space, goal.clone(), params.nn_degree);
@@ -249,11 +302,12 @@ where
     // flag tracks which is which so the final path can be oriented
     // start-to-goal regardless of which tree closed the gap.
     let mut a_is_start = true;
-    let deadline = Instant::now() + params.time_budget;
 
-    for _ in 0..params.max_iterations {
-        if Instant::now() >= deadline {
-            break;
+    for _ in 0..max_iterations {
+        if let Some(deadline) = deadline {
+            if Instant::now() >= deadline {
+                return Err(PlanningFailure::DeadlineExhausted);
+            }
         }
 
         let other_root = if a_is_start { &goal } else { &start };
@@ -293,7 +347,7 @@ where
                 if !a_is_start {
                     path.reverse();
                 }
-                return Some(path);
+                return Ok(path);
             }
         }
 
@@ -301,7 +355,7 @@ where
         a_is_start = !a_is_start;
     }
 
-    None
+    Err(PlanningFailure::IterationsExhausted)
 }
 
 #[cfg(test)]
@@ -316,8 +370,7 @@ mod tests {
         RrtConnectParams {
             step_size: 0.5,
             goal_bias: 0.05,
-            max_iterations: 10_000,
-            time_budget: Duration::from_secs(10),
+            termination: Termination::Iterations(10_000),
             nn_degree: 8,
         }
     }
@@ -438,10 +491,42 @@ mod tests {
         let goal = vec![5.0, 0.0];
 
         let mut small_cap = params();
-        small_cap.max_iterations = 2_000;
+        small_cap.termination = Termination::Iterations(2_000);
 
-        let path = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(4), &small_cap);
-        assert!(path.is_none(), "a fully closed wall must not be crossed");
+        let result = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(4), &small_cap);
+        assert_eq!(
+            result,
+            Err(PlanningFailure::IterationsExhausted),
+            "a fully closed wall must not be crossed"
+        );
+    }
+
+    #[test]
+    fn deadline_exhausted_reports_correctly() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        // Same fully-closed wall as `closed_passage_fails_within_the_cap`,
+        // but bounded by a deadline rather than an iteration cap, to check
+        // that `Termination::Deadline` is honoured and reported correctly.
+        // This is the one test in this module that is allowed to depend on
+        // wall-clock behaviour, since it is testing that behaviour directly.
+        let checker = |state: &Vec<f64>| !(-1.0..=1.0).contains(&state[0]);
+        let mv = DiscreteMotionValidator::new(&checker, 0.05);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+
+        let mut short_deadline = params();
+        short_deadline.termination = Termination::Deadline(Duration::from_millis(20));
+
+        let result = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start,
+            goal,
+            &mut rng(4),
+            &short_deadline,
+        );
+        assert_eq!(result, Err(PlanningFailure::DeadlineExhausted));
     }
 
     #[test]
@@ -449,7 +534,7 @@ mod tests {
         let space = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
         let checker = |state: &Vec<f64>| state[0] >= 0.0;
         let mv = DiscreteMotionValidator::new(&checker, 0.1);
-        let path = rrt_connect(
+        let result = rrt_connect(
             &space,
             &checker,
             &mv,
@@ -458,7 +543,7 @@ mod tests {
             &mut rng(5),
             &params(),
         );
-        assert!(path.is_none());
+        assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
     }
 
     #[test]
