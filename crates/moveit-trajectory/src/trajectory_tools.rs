@@ -123,7 +123,6 @@ pub fn apply_ruckig_smoothing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
     use moveit_state::RobotState;
@@ -225,11 +224,17 @@ mod tests {
         .expect("compute_time_stamps must succeed");
 
         assert_eq!(via_tool.way_point_count(), via_core.way_point_count());
+        // Bit-exact: `via_tool`/`via_core` are built from identical inputs
+        // and this is the same deterministic computation run twice (once
+        // through the wrapper, once directly), with no source of
+        // divergence between the two calls. Measured `0e0` max diff across
+        // every waypoint via a temporary `eprintln!` sweep before
+        // converting from `assert_relative_eq!` per PORTING-PLAN.md
+        // §78.1/§79.
         for idx in 0..via_tool.way_point_count() {
-            assert_relative_eq!(
+            assert_eq!(
                 via_tool.way_point_duration_from_previous(idx),
-                via_core.way_point_duration_from_previous(idx),
-                epsilon = 1e-12
+                via_core.way_point_duration_from_previous(idx)
             );
         }
     }
@@ -246,11 +251,13 @@ mod tests {
             .expect("apply_smoothing must succeed");
 
         assert_eq!(via_tool.way_point_count(), via_core.way_point_count());
+        // Bit-exact for the same reason as
+        // `apply_totg_time_parameterization_with_upstream_defaults_forwards_to_compute_time_stamps`
+        // above -- measured `0e0` max diff before converting.
         for idx in 0..via_tool.way_point_count() {
-            assert_relative_eq!(
+            assert_eq!(
                 via_tool.way_point_duration_from_previous(idx),
-                via_core.way_point_duration_from_previous(idx),
-                epsilon = 1e-12
+                via_core.way_point_duration_from_previous(idx)
             );
         }
     }
