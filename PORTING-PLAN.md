@@ -588,3 +588,69 @@ Planar 1, mimic 6개, 그리고 `position_bounded=false`인 continuous revolute
 `theta`만 무경계다 — `PlanarJoint`와 `normalize_angle`은 panda·fanuc에
 planar 조인트가 없어 지금까지 오라클 대조를 받지 못했고, pr2가 그 경로를
 연다.
+
+---
+
+## 9. Phase 1 완료, Phase 2·3·7 착수 (2026-08-03)
+
+Phase 1의 완료 조건은 "링크 수, 조인트 수, 그룹 구성, 조인트 한계값, mimic
+관계가 오라클과 완전 일치"였다. panda와 fanuc에 대해 충족했고, 대조는
+`crates/moveit-model/tests/fixtures/{panda,fanuc}_model_info.json`을 통해
+이루어진다. 픽스처가 낡거나 손으로 고쳐지지 않았음은 오라클을 다시
+질의해 필드 단위로 비교하는 방식으로 확인했다. dual-arm panda와 pr2는
+아직 대조 전이다 — §8.4가 적은 대로 pr2가 planar·continuous 경로를 처음
+여는 픽스처다.
+
+### 9.1 `geometric_shapes` 도형 계층 — 소스 부재 상황의 검증 절차
+
+`geometric_shapes`는 moveit2와 별개 패키지이고 이 기계에 소스가 없다.
+오라클 이미지에는 헤더와 컴파일된 `.so`만 들어 있다. 그래서 GitHub 태그
+`2.3.3`에서 받은 소스를 근거로 삼되, 그 소스가 실제로 링크되는 바이너리와
+같은 것임을 두 방향으로 확인했다.
+
+- 헤더는 Debian 패키지(`2.3.3-1noble.20260113.113114`)의 것과 byte-identical.
+- `.cpp`는 `shapes.cpp`에만 나타나는 예외/경고 문자열 6개가
+  `strings libgeometric_shapes.so.2.3.3`에 각각 정확히 1회 등장함으로 확인.
+
+그 위에, 컨테이너 안에서 실제 라이브러리에 링크한 C++ 프로브를 컴파일해
+sphere/cylinder/cone/cuboid/mesh의 `scaleAndPadd` 연쇄와 extents·bounding
+sphere 값 30개를 뽑아 Rust 테스트 기대값과 자릿수까지 대조했다. 소스를
+읽어 옮긴 것이 맞는지를 소스가 아니라 바이너리에 물어본 셈이다. 같은
+절차를 `bodies::` 계층에도 적용한다.
+
+컴파일 방법 — `shape_operations.h`가 `shape_msgs`를 끌어오므로 패키지
+자신의 include 디렉터리만으로는 부족하다:
+
+```
+source /opt/ros/rolling/setup.bash
+INC="-I/usr/include/eigen3"; for d in /opt/ros/rolling/include/*/; do INC="$INC -I$d"; done
+g++ -O0 -o /tmp/x /w/x.cpp $INC -L/opt/ros/rolling/lib -lgeometric_shapes
+```
+
+### 9.2 이식하며 닫은 upstream 결함 3건
+
+포팅은 upstream을 그대로 옮기는 것이 원칙이지만, 다음 셋은 재현이 아니라
+차단을 택했다. 각각 이탈을 `shapes.rs`에 명시한다.
+
+1. `Mesh::scaleAndPadd`가 padding이 0인 scale-only 호출에서도
+   `vertex_normals`를 무조건 역참조한다. `vertex_normals`가 null인 메시로
+   호출하면 SIGSEGV(exit 139) — 컨테이너에서 재현 확인. 2인자 생성자
+   `Mesh(v_count, t_count)`는 배열을 할당하므로 upstream 자체 테스트는
+   이 경로를 지나지 않는다. Rust는 `Error::Construct`를 돌려준다.
+2. 면적이 0인 삼각형에서 Eigen `normalize()`가 NaN을 만들고, 그것이
+   `computeVertexNormals`의 가중 평균으로 번진다. Rust는
+   `try_normalize(0.0)`로 영벡터를 대신 넣는다.
+3. 삼각형 정점 인덱스가 범위를 벗어나면 upstream은 검사 없이 읽는다.
+   `Mesh::new`가 거부한다.
+
+### 9.3 지금 병렬로 도는 작업
+
+- `moveit-collision` — ACM과 collision_common, 오라클 `acm` op 포함
+- `moveit-distance-field` — VoxelGrid, PropagationDistanceField
+- `moveit-trajectory` — TOTG (`PathSegment`/`Path`/`Trajectory`)
+- `moveit-geometry` — `bodies::` 계층 (Phase 3 선행 조건)
+- `moveit-state` — `RobotState`와 FK, §8.2 설계
+- `moveit-planners-sbp` — Phase 7 착수. 오라클이 없는 유일한 단계이므로
+  검증은 대조가 아니라 불변식이다: 반환된 경로의 모든 인접 쌍이
+  `MotionValidator`를 통과할 것, 같은 시드는 같은 경로를 낼 것,
+  최근접 이웃 질의가 brute-force와 일치할 것.
