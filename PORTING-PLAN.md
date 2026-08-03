@@ -1068,3 +1068,43 @@ euler.hpp` 선언만 있다. 재귀 본체는 `liborocos-kdl.so.1.5`에 컴파�
 `third_party`는 gitignore 대상이라 브랜치로 전파되지 않는다. 워크트리는
 절대경로로 읽고 자기 안에 복사하지 않는다. `build.sh`는 이 트리를 이미지로
 내보내지 않는다 — 참조 전용이고 오라클은 apt 바이너리를 그대로 쓴다.
+
+### 11.8 `collision_distance_field_types` 이식과 upstream 결함 2건
+
+`CollisionSphere` / `GradientInfo` / `PosedDistanceField` /
+`BodyDecomposition` / `PosedBody*Decomposition` / `ProximityInfo`가
+`moveit-distance-field`에 들어왔다. `collision_distance_field_types` 오라클
+op과 픽스처 8건(Sphere/Box/Cylinder/Mesh × 해상도 2종)으로 검증한다.
+
+upstream의 `test_collision_distance_field.cpp`는 `TEST_F` 5건 전부
+`RobotModel`/`RobotState`를 세우므로 이 슬라이스에 이식 가능한 케이스가
+**0건**이다. 검증은 전적으로 오라클 대조와 불변식 경계 테스트에 의존한다.
+
+**결함 1 — `doBoundingSpheresIntersect`가 제곱 거리를 제곱하지 않은 반지름
+합과 비교한다.** `d² < s`를 묻지만 의도는 `d < s`다. 담당은 이것을
+byte-for-byte 보존하고 false positive 방향(d < 1)을 회귀 테스트로 못박았다.
+그 판단은 옳지만 서술이 절반이었다 — 같은 식은 `d = 1`을 기준으로 방향이
+뒤집힌다. `d > 1`에서는 **false negative**가 나온다: `s = 3, d = 2`면 1 m나
+겹친 쌍을 "안 닿음"으로 걷어낸다. broad phase가 "아니오"라고 답하면 이를
+바로잡을 narrow phase가 아예 돌지 않으므로, 이쪽이 안전 측 결함이다.
+반지름 합 1 m는 PR2급 로봇의 링크 바운딩 스피어가 도달하는 값이다.
+`2d7f3f6`에서 양쪽 방향을 각각 테스트로 고정했다(동작은 그대로).
+
+**결함 2 — `relative_cylinder_pose_`가 Sphere 전용 바디에서 초기화되지
+않는다.** `determineCollisionSpheres`는 cylinder/box/mesh 분기에서만
+`relative_transform`을 쓰고 sphere 분기는 손대지 않는데, 그 멤버에는 기본
+초기화가 없다.
+
+이 주장을 독립적으로 재확인했다. 커밋된 요청 8건을 그대로 재생한 결과
+`relative_cylinder_pose`를 뺀 나머지는 8건 모두 **바이트 단위로 동일**하고,
+`relative_cylinder_pose`는 **id 1과 5에서만** 달라진다 — 정확히 Sphere
+픽스처 두 건이다. 즉 담당이 파리티 대조에서 제외한 범위가 넓지도 좁지도
+않게 맞다. 이 이식은 `Isometry3::identity()`로 시드하므로 Rust 쪽은
+결정적이다(문서화된 의도적 이탈).
+
+`#[allow(clippy::too_many_arguments)]` 2건이 함께 들어와
+`check-no-lint-suppression.sh`가 실패했다(담당 보고서는 CI 스크립트 3개 중
+2개만 나열했고 이것이 빠진 하나였다). `12da049`에서 `SphereGradientQuery`로
+묶어 근본에서 없앴다 — 인자 개수는 증상이고, 실제 문제는 `f64` 하나를 사이에
+둔 `bool` 두 개라 호출부에서 뒤바꿔도 컴파일된다는 점이었다. 파리티 테스트가
+이미 `/* subtract_radii = */` 주석으로 방향을 잡고 있었던 것이 그 증거다.
