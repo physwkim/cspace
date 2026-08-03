@@ -7,14 +7,17 @@
 //   moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp
 //   moveit_core/robot_state/src/robot_state.cpp
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::f64::consts::PI;
 use std::ops::Deref;
 
+use nalgebra::DMatrix;
+
 use moveit_error::{Error, Result};
-use moveit_geometry::Isometry3;
+use moveit_geometry::{Isometry3, Vector3};
+use moveit_model::JointModelGroup;
 use moveit_model::RobotModel;
-use moveit_model::joint::{JointKind, JointModel};
+use moveit_model::joint::{JointKind, JointModel, JointType};
 use rand::{Rng, RngExt};
 
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
@@ -704,6 +707,132 @@ impl<'m> RobotState<'m> {
             );
         }
     }
+
+    // ---- Jacobian support ---------------------------------------------
+    //
+    // moveit_model::JointModelGroup deliberately does not store
+    // `is_chain_`/`joint_roots_`/`updated_link_model_set_` (see its own doc
+    // comment: computed over the whole joint/link graph, which only
+    // RobotState's per-call walk below actually needs). The four helpers
+    // here recompute exactly what upstream's `JointModelGroup` constructor
+    // and its `includesParent`/`jointPrecedes` free functions
+    // (joint_model_group.cpp) precompute once, but on demand.
+
+    /// The link a joint is attached from. Upstream
+    /// `JointModel::getParentLinkModel()`; `None` only for the model's
+    /// absolute root joint, matching upstream returning `nullptr` there.
+    fn parent_link_of_joint(&self, joint_index: JointIndex) -> Option<usize> {
+        self.model
+            .link_model_at(self.link_of_joint[joint_index])
+            .parent_link_index()
+    }
+
+    /// `includesParent`: true if some ancestor of `joint_index` — walking
+    /// up through `RobotModel::parent_joint_index`, and recursing into a
+    /// mimic ancestor's own master when that ancestor itself mimics
+    /// another joint — is a non-mimic active joint of `group`. A `false`
+    /// result means `joint_index` roots a distinct subtree within `group`.
+    fn includes_parent(&self, joint_index: JointIndex, group: &JointModelGroup) -> bool {
+        let mut current = joint_index;
+        loop {
+            let Some(next) = self.model.parent_joint_index(current) else {
+                return false;
+            };
+            current = next;
+            let joint = self.model.joint_model_at(current);
+            if group.has_joint_model(joint.name())
+                && joint.variable_count() > 0
+                && joint.mimic().is_none()
+            {
+                return true;
+            }
+            if let Some(mimic) = joint.mimic() {
+                let mimic_index = self.joint_index_by_name[mimic.joint_name.as_str()];
+                let mimic_joint = self.model.joint_model_at(mimic_index);
+                if group.has_joint_model(mimic_joint.name())
+                    && mimic_joint.variable_count() > 0
+                    && mimic_joint.mimic().is_none()
+                {
+                    return true;
+                }
+                if self.includes_parent(mimic_index, group) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    /// `jointPrecedes`: true if `b` is `a`'s nearest ancestor once any
+    /// fixed joints in between are skipped over.
+    fn joint_precedes(&self, a: JointIndex, b: JointIndex) -> bool {
+        let Some(mut p) = self.model.parent_joint_index(a) else {
+            return false;
+        };
+        loop {
+            if p == b {
+                return true;
+            }
+            if self.model.joint_model_at(p).joint_type() != JointType::Fixed {
+                return false;
+            }
+            let Some(next) = self.model.parent_joint_index(p) else {
+                return false;
+            };
+            p = next;
+        }
+    }
+
+    /// `JointModelGroup::isChain()`/`joint_roots_`: `Some(root)` iff
+    /// `group` is a chain — exactly one of its active joints has no
+    /// in-group ancestor, and every consecutive pair in the group's full
+    /// (already depth-first-sorted, see `RobotModel::joint_indices`) joint
+    /// list satisfies `joint_precedes`.
+    fn chain_root(&self, group: &JointModelGroup) -> Option<JointIndex> {
+        let roots: Vec<JointIndex> = group
+            .active_joint_indices()
+            .iter()
+            .copied()
+            .filter(|&joint_index| !self.includes_parent(joint_index, group))
+            .collect();
+        if roots.len() != 1 {
+            return None;
+        }
+
+        let joints = group.joint_indices();
+        for k in (1..joints.len()).rev() {
+            if !self.joint_precedes(joints[k], joints[k - 1]) {
+                return None;
+            }
+        }
+        Some(roots[0])
+    }
+
+    /// `JointModel::getDescendantLinkModels()`, walked on demand for a
+    /// single joint rather than precomputed for every joint in the model
+    /// (this port only ever needs it for one chain root at a time — see
+    /// `RobotModel`'s own doc comment on why it skips that precompute).
+    /// Every link reachable from `joint_index`'s own child link by
+    /// repeatedly following either a link's child joints or a joint's
+    /// mimic followers (upstream's `computeDescendantsHelper` recurses
+    /// into both `LinkModel::getChildJointModels` and
+    /// `JointModel::getMimicRequests`), including `joint_index`'s own
+    /// child link.
+    fn descendant_links_of_joint(&self, joint_index: JointIndex) -> BTreeSet<usize> {
+        let mut seen_joints = BTreeSet::new();
+        let mut links = BTreeSet::new();
+        let mut stack = vec![joint_index];
+        while let Some(current) = stack.pop() {
+            if !seen_joints.insert(current) {
+                continue;
+            }
+            let child_link = self.link_of_joint[current];
+            links.insert(child_link);
+            let link = self.model.link_model_at(child_link);
+            stack.extend(link.child_joint_indices().iter().copied());
+            stack.extend(self.mimic_requests[current].iter().copied());
+        }
+        links
+    }
 }
 
 impl<'s, 'm> Posed<'s, 'm> {
@@ -758,6 +887,140 @@ impl<'s, 'm> Posed<'s, 'm> {
             return Ok(Isometry3::identity());
         }
         self.global_link_transform(frame_id)
+    }
+
+    /// `getJacobian(const JointModelGroup*, const Eigen::Vector3d&)`: the
+    /// 6xN geometric Jacobian of `group`'s last link
+    /// (`group.link_models().last()`) at `reference_point` (a point fixed
+    /// in that link's own frame), expressed in the model frame — rows
+    /// ordered translation (0..3) then rotation (3..6), columns in
+    /// `group`'s variable order.
+    ///
+    /// Upstream's 2-argument overload always calls its 4-argument sibling
+    /// with `link = group->getLinkModels().back()` and
+    /// `use_quaternion_representation = false`; this is that fixed
+    /// combination.
+    ///
+    /// # Deviations from upstream
+    ///
+    /// 1. **No quaternion-representation branch.** The 4-argument
+    ///    overload also supports a 7-row quaternion-derivative Jacobian
+    ///    when `use_quaternion_representation` is true, but the
+    ///    2-argument overload this method matches always passes `false`,
+    ///    so that branch is dead code behind this entry point and is not
+    ///    ported.
+    /// 2. **Distinct typed errors, not a bool + log line collapsed into
+    ///    one generic exception.** Upstream's 4-argument overload returns
+    ///    `false` (and logs) for "not a chain", "link not in the chain"
+    ///    and "unsupported joint type"; its 2-argument overload then
+    ///    throws one generic `Exception` for all of them. This method
+    ///    keeps them as distinct [`Error::Other`] messages instead.
+    ///    Upstream's fourth rejection, "the group has no joint models", is
+    ///    not reachable through this method: `group` being a chain
+    ///    already implies at least one active joint (see the doc comment
+    ///    on this crate's `chain_root` helper), so it is not ported as a
+    ///    separate case.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no group is named `group`.
+    ///
+    /// [`Error::Other`] if `group` is not a chain, if its last link falls
+    /// outside that chain (only possible for a group whose own joints and
+    /// links disagree — not reachable from any group [`RobotModel`]
+    /// itself builds, but checked to stay faithful to upstream), or if an
+    /// active joint on the path to the tip is neither revolute, prismatic
+    /// nor planar (the only unported case in practice is a floating
+    /// joint's group, since a fixed joint is never active).
+    pub fn jacobian(&self, group: &str, reference_point: &Vector3) -> Result<DMatrix<f64>> {
+        let model = self.0.model;
+        let group_model = model.joint_model_group(group)?;
+
+        let Some(chain_root) = self.0.chain_root(group_model) else {
+            return Err(Error::other(format!(
+                "the group '{group}' is not a chain; cannot compute Jacobian"
+            )));
+        };
+
+        let tip_link = *group_model
+            .link_indices()
+            .last()
+            .expect("a chain root's active joint gives the group at least one link");
+
+        let descendant_links = self.0.descendant_links_of_joint(chain_root);
+        if !descendant_links.contains(&tip_link) {
+            return Err(Error::other(format!(
+                "link '{}' does not belong to the chain rooted by group '{group}'; cannot compute Jacobian",
+                model.link_model_at(tip_link).name()
+            )));
+        }
+
+        let root_joint = group_model.joint_indices()[0];
+        let root_pose_world = match self.0.parent_link_of_joint(root_joint) {
+            Some(root_link) => self.global_link_transform_at(root_link).inverse(),
+            None => Isometry3::identity(),
+        };
+
+        let columns = group_model.variable_names().len();
+        let mut jacobian = DMatrix::<f64>::zeros(6, columns);
+
+        let root_pose_tip = root_pose_world * self.global_link_transform_at(tip_link);
+        // Eigen's `Isometry3d * Vector3d` is a full point transform
+        // (rotation and translation); nalgebra's `Isometry3 * Vector3` is
+        // rotation-only by design, so the translation is added by hand
+        // here to match upstream `root_pose_tip * reference_point_position`.
+        let tip_point = root_pose_tip.rotation * reference_point + root_pose_tip.translation.vector;
+
+        let mut i = 0usize;
+        for &joint_index in group_model.active_joint_indices() {
+            if self.0.parent_link_of_joint(joint_index) == Some(tip_link) {
+                break;
+            }
+            let child_link = self.0.link_of_joint[joint_index];
+            let root_pose_link = root_pose_world * self.global_link_transform_at(child_link);
+            let joint = model.joint_model_at(joint_index);
+
+            match joint.kind() {
+                JointKind::Revolute(revolute) => {
+                    let axis_wrt_origin = root_pose_link.rotation * revolute.axis();
+                    let linear =
+                        axis_wrt_origin.cross(&(tip_point - root_pose_link.translation.vector));
+                    jacobian.fixed_view_mut::<3, 1>(0, i).copy_from(&linear);
+                    jacobian
+                        .fixed_view_mut::<3, 1>(3, i)
+                        .copy_from(&axis_wrt_origin);
+                }
+                JointKind::Prismatic(prismatic) => {
+                    let axis_wrt_origin = root_pose_link.rotation * prismatic.axis();
+                    jacobian
+                        .fixed_view_mut::<3, 1>(0, i)
+                        .copy_from(&axis_wrt_origin);
+                }
+                JointKind::Planar(_) => {
+                    let x_axis = root_pose_link.rotation * Vector3::new(1.0, 0.0, 0.0);
+                    let y_axis = root_pose_link.rotation * Vector3::new(0.0, 1.0, 0.0);
+                    let z_axis = root_pose_link.rotation * Vector3::new(0.0, 0.0, 1.0);
+                    let z_linear = z_axis.cross(&(tip_point - root_pose_link.translation.vector));
+                    jacobian.fixed_view_mut::<3, 1>(0, i).copy_from(&x_axis);
+                    jacobian.fixed_view_mut::<3, 1>(0, i + 1).copy_from(&y_axis);
+                    jacobian
+                        .fixed_view_mut::<3, 1>(0, i + 2)
+                        .copy_from(&z_linear);
+                    jacobian.fixed_view_mut::<3, 1>(3, i + 2).copy_from(&z_axis);
+                }
+                JointKind::Floating(_) | JointKind::Fixed => {
+                    return Err(Error::other(format!(
+                        "joint '{}' has unsupported type {} for Jacobian computation",
+                        joint.name(),
+                        joint.type_name()
+                    )));
+                }
+            }
+
+            i += joint.variable_count();
+        }
+
+        Ok(jacobian)
     }
 }
 
