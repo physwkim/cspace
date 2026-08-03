@@ -15,9 +15,12 @@
 //! [`ConstraintSampler`] and the two samplers `PORTING-PLAN.md`'s
 //! `registry.rs` disposition (`crates/moveit-planners-sbp/src/registry.rs`)
 //! identified as needing no new dependency: [`JointConstraintSampler`] and
-//! [`UnionConstraintSampler`]. `IKConstraintSampler` is not here — it needs
-//! `moveit_kinematics::KinematicsSolver`, a real new dependency edge, and is
-//! only scoped, not started (see this crate's introducing report).
+//! [`UnionConstraintSampler`]. `IKConstraintSampler` is ported in
+//! `crate::ik_sampler` as [`crate::IkConstraintSampler`], not here — it needs
+//! `moveit_kinematics::KinematicsSolver`, a real new dependency edge this
+//! module's two samplers still do not, and — per this module's own doc
+//! comment below on [`ConstraintSampler::sample`]'s collapsed signature —
+//! it does not implement this trait at all.
 //!
 //! # No `PlanningScene`
 //!
@@ -49,10 +52,13 @@
 //! literal port of the 3-arg signature would force every real caller of the
 //! common case through a clone. [`ConstraintSampler::sample`] therefore
 //! takes one `&mut RobotState`, no separate reference and no attempt count.
-//! This is a deliberate, narrower trait than upstream's base class — revisit
-//! it if/when `IKConstraintSampler` actually needs a distinct reference
-//! state or a retry budget, rather than threading unread parameters through
-//! every implementer now.
+//! This is a deliberate, narrower trait than upstream's base class.
+//! [`crate::IkConstraintSampler`] is the case that actually needs both a
+//! distinct reference state and a retry budget, confirming the prediction
+//! this paragraph used to make — but it does not widen this trait to get
+//! them; see its own doc comment for why an inherent method (not a wider
+//! [`ConstraintSampler::sample`] every implementer would have to grow unread
+//! parameters for) was the better fit once a real second caller existed.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};

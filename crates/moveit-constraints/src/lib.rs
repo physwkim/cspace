@@ -13,13 +13,13 @@
 
 //! Kinematic constraints and their `decide()` — [`JointConstraint`],
 //! [`PositionConstraint`], [`OrientationConstraint`], [`VisibilityConstraint`]
-//! and the aggregate [`KinematicConstraintSet`] — plus, in `sampler`, two
-//! `constraint_samplers` that sample states satisfying a constraint rather
-//! than just evaluating one: [`ConstraintSampler`], [`JointConstraintSampler`]
-//! and [`UnionConstraintSampler`]. See `sampler`'s own doc comment for
-//! scope (no `IKConstraintSampler` yet — it needs a new dependency edge,
-//! see this crate's introducing report) and its deviations from upstream's
-//! base class shape.
+//! and the aggregate [`KinematicConstraintSet`] — plus, in `sampler` and
+//! `ik_sampler`, the `constraint_samplers` that sample states satisfying a
+//! constraint rather than just evaluating one: [`ConstraintSampler`],
+//! [`JointConstraintSampler`], [`UnionConstraintSampler`] and
+//! [`IkConstraintSampler`]. See `sampler`'s own doc comment for its
+//! deviations from upstream's base class shape, and [`IkConstraintSampler`]'s
+//! own doc comment for why it does not implement [`ConstraintSampler`].
 //!
 //! # Scope
 //!
@@ -131,14 +131,13 @@
 //!   pointer is exposed (unneeded by any caller in this crate).
 //! - `getReferenceFrame()` -> ported as `reference_frame()`.
 //! - `mobileReferenceFrame()` -> ported as `mobile_reference_frame()`.
-//! - `getDesiredRotationMatrixInRefFrame()` -> **unported (why not yet)**: no
-//!   accessor exposes the private `desired_r_in_frame_id` field; it is read
-//!   only internally by `decide()`'s `RotationVector` branch, and no internal
-//!   or test caller needs the raw matrix outside `decide()` yet. A genuine
-//!   gap, not a D-decision.
-//! - `getDesiredRotationMatrix()` -> **unported (why not yet)**, same reason:
-//!   the target's rotation lives inside the private `OrientationTarget` enum
-//!   and is never separately exposed.
+//! - `getDesiredRotationMatrixInRefFrame()` -> ported as
+//!   [`OrientationConstraint::desired_rotation_matrix_in_ref_frame`] (round 9
+//!   — closed once `ik_sampler`'s `samplePose` `ROTATION_VECTOR` branch and
+//!   its unconditional final quaternion construction needed it).
+//! - `getDesiredRotationMatrix()` -> ported as
+//!   [`OrientationConstraint::desired_rotation_matrix`] (round 9, same
+//!   reason).
 //! - `getXAxisTolerance()`/`getYAxisTolerance()`/`getZAxisTolerance()`/
 //!   `getParameterizationType()` -> D-decision excludes all four as separate
 //!   accessors: folded into one [`OrientationConstraint::tolerance`] accessor
@@ -251,6 +250,7 @@
 //!   merge-time correction; see `utils.rs`'s own doc for why the split runs
 //!   before construction rather than after).
 
+mod ik_sampler;
 mod joint;
 mod orientation;
 mod position;
@@ -259,6 +259,7 @@ mod set;
 pub mod utils;
 mod visibility;
 
+pub use ik_sampler::{IkConstraintSampler, IkSamplingPose};
 pub use joint::JointConstraint;
 pub use orientation::{OrientationConstraint, OrientationTolerance};
 pub use position::{ConstraintRegion, PositionConstraint};

@@ -280,6 +280,40 @@ impl OrientationConstraint {
         self.tolerance
     }
 
+    /// `getDesiredRotationMatrixInRefFrame`: the target rotation as given at
+    /// construction, in the constraint's own header frame
+    /// (`frame_id`/[`OrientationConstraint::reference_frame`] before any
+    /// fixed-frame transform is applied) — upstream's own doc comment notes
+    /// this is unaffected by the mobile/fixed split, matching this port's
+    /// own `desired_r_in_frame_id` field, which is set once and never
+    /// touched by either `OrientationTarget` branch.
+    pub fn desired_rotation_matrix_in_ref_frame(&self) -> Rotation3 {
+        self.desired_r_in_frame_id
+    }
+
+    /// `getDesiredRotationMatrix`: the target rotation expressed in
+    /// [`OrientationConstraint::reference_frame`] — for the `Mobile` branch
+    /// this is the same untransformed value as
+    /// [`OrientationConstraint::desired_rotation_matrix_in_ref_frame`]
+    /// (upstream never transforms it in that branch either); for the
+    /// `Fixed` branch it is the transform-composed rotation
+    /// cached at construction, recovered here as the inverse of
+    /// `rotation_matrix_inv` (upstream's own `desired_rotation_matrix_inv_ =
+    /// desired_rotation_matrix_.transpose()`, and a rotation matrix's
+    /// inverse and transpose are the same matrix) rather than storing the
+    /// same rotation twice.
+    pub fn desired_rotation_matrix(&self) -> Rotation3 {
+        match &self.target {
+            OrientationTarget::Fixed {
+                rotation_matrix_inv,
+                ..
+            } => rotation_matrix_inv.inverse(),
+            OrientationTarget::Mobile {
+                rotation_matrix, ..
+            } => *rotation_matrix,
+        }
+    }
+
     /// `OrientationConstraint::decide`.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let actual = state
