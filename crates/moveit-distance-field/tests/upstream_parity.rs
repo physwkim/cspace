@@ -67,13 +67,31 @@
 //!   (`left = 0.30000000000000004`, `right = 0.3`) — a genuine 1-ULP
 //!   float-representation difference, not a defect being masked. `0.0001`
 //!   sat 12 orders of magnitude above this floor and never gated anything.
-//!   Fixed by pinning `max_relative = ULP_TOL` (`f64::EPSILON`, ~20%
-//!   headroom above the measured floor) explicitly on all 4 sites — see
-//!   `ULP_TOL`'s own doc comment. Confirmed the pinned assertion has
-//!   discriminating power (not just "some tolerance is set"): perturbing
-//!   `df.distance(1000.0, 1000.0, 1000.0)` by a factor of
-//!   `1.000000000001` (`left = 0.3000000000003001`) fails against
-//!   `ULP_TOL`, restored after confirming.
+//!   Fixed by pinning `max_relative = TOL` explicitly on all 4 sites — see
+//!   `TOL`'s own doc comment for the margin and why it stays on
+//!   `max_relative` rather than moving to `epsilon`. Confirmed the pinned
+//!   assertion has discriminating power (not just "some tolerance is set"):
+//!   perturbing `df.distance(1000.0, 1000.0, 1000.0)` by a factor of
+//!   `1.000000000001` (`left = 0.3000000000003001`) fails against `TOL`,
+//!   restored after confirming.
+//!
+//!   **Revised in PORTING-PLAN.md §90.1**: the first fix here pinned
+//!   `max_relative = f64::EPSILON` (`2.220446049250313e-16`), only ~20%
+//!   above the `1.850371707708594e-16` floor — margin sized in fractions of
+//!   the floor, not orders of magnitude, unlike every other measured
+//!   tolerance in this crate (`RADIUS_TOL`/`TOL` in
+//!   `collision_env_distance_field_parity.rs` both keep 3-5 orders). A
+//!   margin that thin breaks under float evaluation-order changes that
+//!   don't touch correctness at all (a different LLVM version, a changed
+//!   inlining decision reordering the same arithmetic) — the kind of noise
+//!   this tolerance exists to absorb in the first place. `TOL = 1e-14`
+//!   reopens roughly 1.7 orders of magnitude (`54×`) of headroom above the
+//!   same measured floor; re-bisected across the full candidate range
+//!   `1e-16` to `1e-14` (`1e-16`, `1.5e-16`, `1.8e-16`, `1.85e-16` all still
+//!   fail on the same `df.distance(1000.0, 1000.0, 1000.0)` vs `MAX_DIST`
+//!   site; `1.9e-16`, `1e-15`, `1e-14` all pass) to confirm that site stays
+//!   the single binding constraint across the group at every candidate
+//!   width, not just at the original razor-thin one.
 //! - **The 3 `epsilon = RESOLUTION` sites are a real gate.** Bisected alone
 //!   (the 4 `0.0001` sites untouched): `0.014` passes, `0.0135` fails, floor
 //!   at `comp_y` vs `point1().y` (`left = 0.013552992069481018`,
@@ -102,15 +120,26 @@ const ORIGIN_Y: f64 = 0.0;
 const ORIGIN_Z: f64 = 0.0;
 const MAX_DIST: f64 = 0.3;
 /// `max_relative` pin for the 4 `epsilon = 0.0001` sites below (see the
-/// module doc's "Tolerances" section): bisected floor
+/// module doc's "Tolerances" section): re-bisected floor
 /// `5.551115123125783e-17 / 0.30000000000000004 ≈ 1.850371707708594e-16`
 /// (`df.distance(1000.0, 1000.0, 1000.0)` vs `MAX_DIST`, a genuine 1-ULP
-/// float-representation difference, not a hidden defect), `f64::EPSILON`
-/// (`2.220446049250313e-16`) gives roughly 20% headroom above it -- tight by
-/// this crate's usual margins, appropriate since the floor itself is a
-/// literal ULP of the compared magnitude, not a measurement with room to
-/// spare.
-const ULP_TOL: f64 = f64::EPSILON;
+/// float-representation difference, not a hidden defect). `TOL = 1e-14`
+/// keeps roughly 1.7 orders of magnitude (`54×`) of margin above that floor
+/// -- in line with this crate's other measured tolerances
+/// (`RADIUS_TOL`/`TOL` in `collision_env_distance_field_parity.rs` keep 3-5
+/// orders above their own floors), not the ~20% `f64::EPSILON` gave in the
+/// first pass at this fix, which was tight enough to break under an
+/// evaluation-order change that touches no correctness at all.
+///
+/// Stays on `max_relative`, not `epsilon`: every value the 4 sites below
+/// compare is a distance or a distance-gradient magnitude bounded in
+/// `[-0.3, 0.3]` (`MAX_DIST`), and the measured noise is 1-ULP-of-magnitude
+/// -- it shrinks with the compared value the same way `max_relative`'s
+/// tolerance does, so a relative bound stays proportionally tight across
+/// that whole range instead of the fixed absolute slack `epsilon` would fix
+/// at the largest magnitude and then leave far looser than necessary for
+/// small ones. `epsilon` stays `0.0` at every site.
+const TOL: f64 = 1e-14;
 
 fn geometry() -> GridGeometry {
     GridGeometry::new(
@@ -214,15 +243,10 @@ fn add_remove_points_matches_upstream_test_propagation_distance_field() {
         df.distance(1000.0, 1000.0, 1000.0),
         MAX_DIST,
         epsilon = 0.0,
-        max_relative = ULP_TOL
+        max_relative = TOL
     );
     let grad = df.distance_gradient(1000.0, 1000.0, 1000.0);
-    assert_relative_eq!(
-        grad.distance,
-        MAX_DIST,
-        epsilon = 0.0,
-        max_relative = ULP_TOL
-    );
+    assert_relative_eq!(grad.distance, MAX_DIST, epsilon = 0.0, max_relative = TOL);
     assert!(!grad.in_bounds);
 
     df.add_points_to_field(&[point1(), point2()]);
@@ -243,7 +267,7 @@ fn add_remove_points_matches_upstream_test_propagation_distance_field() {
                 let world = df.grid_to_world(x, y, z);
                 let grad = df.distance_gradient(world.x, world.y, world.z);
                 assert!(grad.in_bounds, "{x} {y} {z}");
-                assert_relative_eq!(dist, grad.distance, epsilon = 0.0, max_relative = ULP_TOL);
+                assert_relative_eq!(dist, grad.distance, epsilon = 0.0, max_relative = TOL);
                 if dist > 0.0 && dist < MAX_DIST {
                     let norm = grad.gradient.norm();
                     let xscale = grad.gradient.x / norm;
@@ -344,7 +368,7 @@ fn signed_add_remove_points_matches_rebuild_without_the_removed_point() {
                     let world = df.grid_to_world(x, y, z);
                     let grad = gradient_df.distance_gradient(world.x, world.y, world.z);
                     assert!(grad.in_bounds, "{x} {y} {z}");
-                    assert_relative_eq!(dist, grad.distance, epsilon = 0.0, max_relative = ULP_TOL);
+                    assert_relative_eq!(dist, grad.distance, epsilon = 0.0, max_relative = TOL);
 
                     let Some(_) = nearest.voxel else { continue };
 
