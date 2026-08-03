@@ -21,13 +21,16 @@
 //!
 //! # Scope
 //!
-//! This crate ports `moveit_core/distance_field` in full, plus the one
-//! slice of `moveit_core/collision_distance_field` that has no `RobotModel`
-//! dependency — `collision_distance_field_types` (sphere/point body
-//! decomposition, and a posed wrapper around [`PropagationDistanceField`]).
-//! The rest of `collision_distance_field` (the collision checker itself,
-//! which needs `RobotModel`) belongs to a later phase; see
-//! `PORTING-PLAN.md` §3.
+//! This crate ports `moveit_core/distance_field` in full, plus
+//! `moveit_core/collision_distance_field`'s body-decomposition machinery:
+//! `collision_distance_field_types` (no `RobotModel` dependency),
+//! `collision_common_distance_field`'s `RobotState`/`RobotModel`-dependent
+//! half, and `collision_env_distance_field`'s construction-only slice
+//! (`addLinkBodyDecompositions`). The collision *checker* itself
+//! (`CollisionEnvDistanceField::checkCollision` and friends) belongs to a
+//! later phase, blocked in part on dependency gaps this crate's own module
+//! docs record; see `PORTING-PLAN.md` §3 and [`add_link_body_decompositions`]'s
+//! own doc comment for specifics.
 //!
 //! - [`VoxelGrid`] — the generic dense grid, with the world↔cell coordinate
 //!   conversion whose rounding convention is load-bearing (see its `impl`
@@ -45,12 +48,16 @@
 //!   — the `RobotState`/`RobotModel`-dependent slice of
 //!   `collision_common_distance_field`; see that function's own doc comment
 //!   for what is deferred and why.
+//! - [`add_link_body_decompositions`] — `collision_env_distance_field`'s
+//!   construction-only slice; see its own doc comment for the two real
+//!   dependency gaps that block the rest of that file.
 //!
 //! See [`DistanceField`]'s doc comment for what upstream's abstract base
 //! class carries that is deliberately *not* ported here, and why.
 
 mod collision_common_distance_field;
 mod collision_distance_field_types;
+mod collision_env_distance_field;
 mod distance_field;
 mod find_internal_points;
 mod propagation;
@@ -66,6 +73,7 @@ pub use collision_distance_field_types::{
     determine_collision_spheres, do_bounding_spheres_intersect, get_collision_sphere_collision,
     get_collision_sphere_collisions, get_collision_sphere_gradients,
 };
+pub use collision_env_distance_field::add_link_body_decompositions;
 pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};
 pub use propagation::{NearestCell, PropDistanceFieldVoxel, PropagationDistanceField};
