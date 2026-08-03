@@ -126,14 +126,53 @@
 //! once those types exist, and upstream's own test coverage for [`OBB`]
 //! (`test_bounding_box.cpp`'s `MergeBoundingBoxes` suite) runs through them.
 //!
-//! It deliberately does **not** port `bodies::BodyVector` (a thin
-//! `Vec<Body>`-plus-first-hit-query convenience wrapper), or the
-//! message/marker-facing free functions in `body_operations.h`
-//! (`createEmptyBodyFromShapeType`'s `shape_msgs`/`visualization_msgs`
-//! siblings, `constructShapeFromBody`, `constructMarkerFromBody`,
-//! `constructBodyFromMsg`) — none of these were in the requested scope, and
-//! the message-facing ones are out of scope for the same reason as
-//! `shapes.rs`'s message conversions (PORTING-PLAN.md D1).
+//! ## `body_operations.h` symbol audit (round 8)
+//!
+//! The remaining 4 of `body_operations.h`'s 11 declarations, classified:
+//!
+//! - `createEmptyBodyFromShapeType(ShapeType)` — **subsumed by
+//!   [`Body::from_shape`].** Upstream's own callers never call this alone;
+//!   every in-scope one (`kinematic_constraint.cpp:411,438`,
+//!   `distance_field.cpp:223,301,316`) immediately follows it with
+//!   `setDimensionsDirty(shape)`/`setPoseDirty(pose)`/`updateInternalData()`
+//!   — the exact composition [`Body::from_shape`] performs in one call under
+//!   this port's no-dirty-flag design (see below), followed by
+//!   [`Body::set_pose`] for the pose half.
+//! - `createBodyFromShape(const Shape*)` — **ported as
+//!   [`Body::from_shape`]**, already documented on that method as its direct
+//!   upstream counterpart. `body_operations.cpp` confirms the two are the
+//!   same composition (`createEmptyBodyFromShapeType(shape->type)` then
+//!   `body->setDimensions(shape)`), so this is not a fresh equivalence claim,
+//!   only cross-referencing one already made.
+//! - `constructShapeFromBody(const Body*)`, `constructMarkerFromBody(const
+//!   Body*, Marker&)`, and all three `constructBodyFromMsg` overloads —
+//!   **unported.** `rg -n
+//!   'constructShapeFromBody|constructMarkerFromBody|constructBodyFromMsg'
+//!   /home/stevek/work/moveit2` returns no hits for any of the four —  zero
+//!   callers anywhere in the pinned tree, not merely "not requested". The
+//!   marker/message ones would be D1-excluded regardless
+//!   (`visualization_msgs`/`shape_msgs`), matching `shapes.rs`'s message
+//!   conversions; `constructShapeFromBody` takes no message type and could in
+//!   principle be ported, but has no caller to port it for either.
+//!
+//! It deliberately does **not** port `bodies::BodyVector` — declared in
+//! `bodies.h`, not `body_operations.h`, included here because it is the one
+//! other unported symbol in the `bodies` namespace. Checking this claim
+//! against the pinned tree this round (`rg -n 'BodyVector'
+//! /home/stevek/work/moveit2`) found it does have a real in-scope caller —
+//! `collision_distance_field_types.hpp:293`'s `bodies::BodyVector bodies_;`
+//! member (`moveit_core/collision_distance_field`, `moveit-distance-field`'s
+//! port this round, not this crate's) — so "not in the requested scope" from
+//! an earlier round of this doc was an unverified guess, not a checked fact;
+//! corrected here rather than repeated. It is still not ported, but for a
+//! narrower and now-verified reason: `BodyVector` itself is a thin
+//! `std::vector<Body*>` plus loop-based `containsPoint`/first-hit
+//! `intersectsRay`/indexed `getBody`, entirely composable from a plain
+//! `Vec<Body>` and the per-body methods this crate already exposes
+//! ([`Body::contains_point`], [`Body::intersects_ray`]) — there is no
+//! algorithm here beyond the loop itself. Whether `moveit-distance-field`
+//! needs a dedicated wrapper type or can compose it inline from `Vec<Body>`
+//! is that crate's call against its own actual usage, not a gap in this one.
 //!
 //! # Design: enum, not a trait-object hierarchy (D4)
 //!
