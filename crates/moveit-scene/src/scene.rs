@@ -407,6 +407,25 @@ impl<'m> PlanningScene<'m> {
             .iter()
             .map(|s| link_transform.inverse() * object_pose * s.pose())
             .collect();
+        // Same one-level composition as `shape_poses` above, for the
+        // object's subframes -- upstream carries `obj_in_world->subframe_poses_`
+        // (object-relative) into the new `AttachedBody` untouched
+        // (`planning_scene.cpp:1590`) because its own two-level `pose_`
+        // absorbs the link offset; this port has no `pose_` to absorb it
+        // into (see `AttachedBody`'s module doc), so it is folded in here
+        // instead.
+        let subframes: BTreeMap<String, Isometry3> = object
+            .subframe_names()
+            .map(|name| {
+                let pose = object
+                    .subframe_pose(name)
+                    .expect("name was just listed by subframe_names");
+                (
+                    name.to_owned(),
+                    link_transform.inverse() * object_pose * pose,
+                )
+            })
+            .collect();
 
         let notification = self.world.remove_object(id);
         self.track(notification);
@@ -419,6 +438,7 @@ impl<'m> PlanningScene<'m> {
                 shapes,
                 shape_poses,
                 touch_links,
+                subframes,
             ),
         );
         Ok(())
@@ -426,8 +446,8 @@ impl<'m> PlanningScene<'m> {
 
     /// Attach geometry that is not already a world object. Upstream
     /// `processAttachedCollisionObjectMsg`'s ADD branch, message-shapes
-    /// case. `shape_poses` are relative to `link_name`'s own frame (see
-    /// [`AttachedBody`]'s module doc).
+    /// case. `shape_poses`/`subframes` are relative to `link_name`'s own
+    /// frame (see [`AttachedBody`]'s module doc).
     pub fn attach_new(
         &mut self,
         id: &str,
@@ -435,6 +455,7 @@ impl<'m> PlanningScene<'m> {
         shapes: Vec<Arc<Shape>>,
         shape_poses: Vec<Isometry3>,
         touch_links: BTreeSet<String>,
+        subframes: BTreeMap<String, Isometry3>,
     ) -> Result<()> {
         if !self.robot_model.has_link_model(link_name) {
             return Err(Error::other(format!("no such link: {link_name}")));
@@ -452,6 +473,7 @@ impl<'m> PlanningScene<'m> {
                 shapes,
                 shape_poses,
                 touch_links,
+                subframes,
             ),
         );
         Ok(())
@@ -488,7 +510,104 @@ impl<'m> PlanningScene<'m> {
             self.world
                 .add_to_object(id, link_transform, body.shapes(), body.shape_poses());
         self.track(notification);
+        // `body`'s subframes are already relative to `link_name` (see the
+        // module doc), and the object we just created is posed at exactly
+        // `link_transform` -- the same "no transform needed" case
+        // `add_to_object` above relies on for shapes. Upstream:
+        // `world_->setSubframesOfObject` right after `addToObject`
+        // (`planning_scene.cpp:1743`), which produces no notification either
+        // (`World::set_subframes_of_object`'s own doc).
+        let subframes: BTreeMap<String, Isometry3> = body
+            .subframe_names()
+            .map(|name| {
+                (
+                    name.to_owned(),
+                    body.subframe_pose(name)
+                        .expect("name was just listed by subframe_names"),
+                )
+            })
+            .collect();
+        self.world.set_subframes_of_object(id, subframes);
         Ok(body)
+    }
+
+    // ---- frames -------------------------------------------------------------
+
+    /// Which attached body `frame_id` names, if any, as `(link_name, pose
+    /// local to that link)` -- identity for a bare attached-body id
+    /// (upstream `AttachedBody::getGlobalPose`'s `pose_`, which this port's
+    /// one-level design has no field for — see [`AttachedBody`]'s module
+    /// doc), the stored subframe pose for `"<id>/<subframe>"` otherwise.
+    /// Looked up before [`PlanningScene::frame_transform`] poses the state,
+    /// so this immutable borrow of [`PlanningScene::attached_bodies`] ends
+    /// before [`PlanningScene::current_state_mut`]'s exclusive one begins —
+    /// same shape as [`PlanningScene::attached_body_snapshot`].
+    fn attached_frame(&self, frame_id: &str) -> Option<(&str, Isometry3)> {
+        if let Some(body) = self.attached_bodies.get(frame_id) {
+            return Some((body.link_name(), Isometry3::identity()));
+        }
+        self.attached_bodies.values().find_map(|body| {
+            let suffix = frame_id.strip_prefix(body.id())?.strip_prefix('/')?;
+            let pose = body.subframe_pose(suffix)?;
+            Some((body.link_name(), pose))
+        })
+    }
+
+    /// `getFrameTransform`: the global transform to `frame_id`, upstream
+    /// `planning_scene.cpp:2036`'s ladder --
+    ///
+    /// 1. a leading `/` is stripped
+    /// 2. the model frame, or a link name -- [`Posed::frame_transform`]
+    ///    (upstream folds this and tiers 3-4 into one `RobotState::getFrameInfo`
+    ///    call; this port's attached bodies live on [`PlanningScene`], not
+    ///    [`moveit_state::RobotState`] — see [`AttachedBody`]'s module doc —
+    ///    so tiers 3-4 are this method's own work instead)
+    /// 3. an attached-body id -- that body's global pose (its attach link's
+    ///    global transform; see the private `attached_frame` helper for why
+    ///    there is no separate body-local offset to compose in here)
+    /// 4. an attached-body subframe (`"<id>/<subframe>"`) -- that subframe's
+    ///    global pose
+    /// 5. a world object id or object subframe -- [`World::get_transform`]
+    ///
+    /// # Deviation from upstream: no TF tier
+    ///
+    /// Upstream falls through to `Transforms::getTransform` (`tf2`, D1 —
+    /// this is a ROS-independent core crate) as a final resort. This port
+    /// has no `Transforms` type carrying named frames from TF, so a name
+    /// that resolves in none of tiers 1-5 is [`Error::UnknownName`] here,
+    /// where upstream would still consult TF before giving up.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `frame_id` resolves in no tier.
+    pub fn frame_transform(&mut self, frame_id: &str) -> Result<Isometry3> {
+        let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
+        let attached = self
+            .attached_frame(frame_id)
+            .map(|(link_name, pose)| (link_name.to_owned(), pose));
+
+        let posed = self.current_state_mut().update();
+        if let Ok(transform) = posed.frame_transform(frame_id) {
+            return Ok(transform);
+        }
+        if let Some((link_name, local_pose)) = &attached {
+            let link_transform = posed.global_link_transform(link_name)?;
+            return Ok(link_transform * local_pose);
+        }
+
+        self.world.get_transform(frame_id)
+    }
+
+    /// `knowsFrameTransform`: whether [`PlanningScene::frame_transform`]
+    /// would resolve `frame_id`, without computing a fresh transform (a pure
+    /// name lookup — needs no [`PlanningScene::current_state_mut`], unlike
+    /// `frame_transform` itself). Upstream `planning_scene.cpp:2061`, the
+    /// same tiers 1-5, tier 6 (TF) excluded for the same reason.
+    pub fn knows_frame_transform(&self, frame_id: &str) -> bool {
+        let frame_id = frame_id.strip_prefix('/').unwrap_or(frame_id);
+        self.current_state().knows_frame_transform(frame_id)
+            || self.attached_frame(frame_id).is_some()
+            || self.world.knows_transform(frame_id)
     }
 
     // ---- collision checking -----------------------------------------------
@@ -906,6 +1025,54 @@ mod tests {
     }
 
     #[test]
+    fn attach_folds_the_world_objects_subframe_into_a_link_relative_pose() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let mut subframes = BTreeMap::new();
+        subframes.insert("tip".to_owned(), Isometry3::translation(0.0, 0.0, 0.5));
+        scene.world.set_subframes_of_object("box", subframes);
+
+        scene.attach("box", "hand", BTreeSet::new()).unwrap();
+
+        // "hand" sits at (0, 0, 1) relative to "base" (the fixture's fixed
+        // joint origin) and "box" was at the world's identity pose, so the
+        // link-relative subframe pose is `hand_global.inverse() * identity *
+        // (0, 0, 0.5)` = `(0, 0, -0.5)`.
+        let body = scene.attached_body("box").unwrap();
+        assert_eq!(
+            body.subframe_pose("tip"),
+            Some(Isometry3::translation(0.0, 0.0, -0.5))
+        );
+    }
+
+    #[test]
+    fn detach_writes_the_attached_bodys_subframes_back_onto_the_world_object() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let mut subframes = BTreeMap::new();
+        subframes.insert("tip".to_owned(), Isometry3::translation(0.0, 0.0, 0.5));
+        scene
+            .attach_new(
+                "box",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                subframes,
+            )
+            .unwrap();
+
+        scene.detach("box").unwrap();
+
+        let object = scene.world().get_object("box").unwrap();
+        assert_eq!(
+            object.subframe_pose("tip"),
+            Some(Isometry3::translation(0.0, 0.0, 0.5))
+        );
+    }
+
+    #[test]
     fn remove_object_prunes_the_acm_entry_but_attach_leaves_it_alone() {
         let model = build_model();
         let mut scene = PlanningScene::new(&model, &srdf());
@@ -1079,6 +1246,148 @@ mod tests {
                 .unwrap()
                 .kind(),
             AllowedCollisionType::Always
+        );
+    }
+
+    // ---- frames: the five-tier ladder ----------------------------------------
+
+    #[test]
+    fn frame_transform_resolves_the_model_frame_and_a_link_name() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        // This fixture's virtual joint is `type="fixed"`, so
+        // `RobotModel::model_frame` is the root link name ("base"), not the
+        // virtual joint's `parent_frame` ("world") -- `parent_frame` only
+        // becomes the model frame for planar/floating virtual joints. "base"
+        // therefore exercises the model-frame and link-name tiers at once;
+        // "world" is not a frame this model knows at all.
+        assert_eq!(model.model_frame(), "base");
+        assert_eq!(
+            scene.frame_transform("base").unwrap(),
+            Isometry3::identity()
+        );
+        assert_eq!(
+            scene.frame_transform("hand").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.0)
+        );
+        assert!(scene.knows_frame_transform("base"));
+        assert!(scene.frame_transform("world").is_err());
+        assert!(!scene.knows_frame_transform("world"));
+    }
+
+    #[test]
+    fn frame_transform_resolves_an_attached_bodys_bare_id_to_its_links_transform() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .attach_new(
+                "box",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::translation(0.3, 0.0, 0.0)],
+                BTreeSet::new(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        // A bare attached-body id resolves to its attach link's own global
+        // pose, not the shape's -- see `attached_frame`'s doc for why there
+        // is no separate body-local offset in this port's one-level design.
+        assert_eq!(
+            scene.frame_transform("box").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.0)
+        );
+        assert!(scene.knows_frame_transform("box"));
+    }
+
+    #[test]
+    fn frame_transform_resolves_an_attached_bodys_subframe() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let mut subframes = BTreeMap::new();
+        subframes.insert("tip".to_owned(), Isometry3::translation(0.0, 0.0, 0.2));
+        scene
+            .attach_new(
+                "box",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                subframes,
+            )
+            .unwrap();
+
+        assert_eq!(
+            scene.frame_transform("box/tip").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.2)
+        );
+        assert!(scene.knows_frame_transform("box/tip"));
+    }
+
+    #[test]
+    fn frame_transform_falls_through_to_the_world_for_an_object_and_its_subframe() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        // `add_shape` poses the shape relative to the object, not the
+        // object itself (`World::add_shape` always creates the object at
+        // `Isometry3::identity()`) -- `move_object` is what sets the
+        // object's own pose, which is what `frame_transform`'s world tier
+        // (`World::get_transform`) reports back.
+        scene.add_shape("crate", cuboid_shape(), Isometry3::identity());
+        scene.move_object("crate", Isometry3::translation(2.0, 0.0, 0.0));
+        let mut subframes = BTreeMap::new();
+        subframes.insert("lid".to_owned(), Isometry3::translation(0.0, 0.0, 0.1));
+        scene.world.set_subframes_of_object("crate", subframes);
+
+        assert_eq!(
+            scene.frame_transform("crate").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            scene.frame_transform("crate/lid").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.1)
+        );
+        assert!(scene.knows_frame_transform("crate"));
+        assert!(scene.knows_frame_transform("crate/lid"));
+    }
+
+    #[test]
+    fn frame_transform_reports_a_name_resolving_in_no_tier() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        assert!(scene.frame_transform("nothing").is_err());
+        assert!(!scene.knows_frame_transform("nothing"));
+    }
+
+    #[test]
+    fn frame_transform_prefers_the_attached_body_tier_over_a_same_named_world_object() {
+        // The ladder checks attached bodies (tiers 3-4) strictly before the
+        // world (tier 5) -- upstream's own order, `RobotState::getFrameInfo`
+        // (folded into `state.getFrameTransform`, tier 2 here) runs before
+        // `World::getTransform` in `PlanningScene::getFrameTransform`
+        // (`planning_scene.cpp:2036`). A world object and an attached body
+        // sharing a name should not be reachable in practice ([`PlanningScene::attach`]
+        // removes the world object of the same id first), so this exercises
+        // the ladder's ordering directly rather than a realistic scene.
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("dup", cuboid_shape(), Isometry3::translation(9.0, 0.0, 0.0));
+        scene
+            .attach_new(
+                "dup",
+                "hand",
+                vec![cuboid_shape()],
+                vec![Isometry3::identity()],
+                BTreeSet::new(),
+                BTreeMap::new(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            scene.frame_transform("dup").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.0)
         );
     }
 

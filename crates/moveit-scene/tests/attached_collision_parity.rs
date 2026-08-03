@@ -156,6 +156,7 @@ fn pr2_attached_body_robot_collision_matches_the_oracle() {
                         attached.shape_translation[2],
                     )],
                     attached.touch_links.iter().cloned().collect(),
+                    BTreeMap::new(),
                 )
                 .unwrap_or_else(|e| panic!("attach {}: {e}", attached.id));
         }
