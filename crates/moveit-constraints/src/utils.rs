@@ -52,6 +52,51 @@
 //! two-tolerance form with `tolerance_below == tolerance_above`) become one
 //! function each here, with the call pattern that reproduces the delegating
 //! overload documented instead of a second public function.
+//!
+//! # No production caller pairs a `PlanningScene` with goal-constraint
+//! construction, upstream or here
+//!
+//! `moveit_planners_sbp::planning_scene_validity`'s
+//! `a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects`
+//! test proves `PlanningScene::transforms_with_world_objects` flows into
+//! [`PositionConstraint::new`] correctly, but nothing in this workspace
+//! calls it outside that test
+//! (`rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`
+//! finds no hit outside a `#[cfg(test)]` block). That is not a gap this
+//! crate's construction functions leave open — upstream never pairs the two
+//! either, in any code this port's scope reaches:
+//!
+//! - `constructGoalConstraints`'s implementation
+//!   (`moveit_core/kinematic_constraints/src/utils.cpp`) never references
+//!   `PlanningScene` or `Transforms` at all (`rg -n
+//!   'PlanningScene|Transforms' moveit_core/kinematic_constraints/src/utils.cpp`
+//!   is empty) — every overload builds a `moveit_msgs::msg::Constraints`
+//!   from a raw `RobotState`/link name/pose/point/quaternion, leaving any
+//!   frame resolution to whoever consumes the message afterward.
+//! - Every real caller of `constructGoalConstraints` is in `moveit_ros`
+//!   (`rg -l constructGoalConstraints moveit_core moveit_ros`: zero hits
+//!   under `moveit_core` outside the declaration/definition themselves;
+//!   hits under `moveit_ros/planning/moveit_cpp/src/planning_component.cpp`,
+//!   `moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp`,
+//!   `moveit_ros/visualization/motion_planning_rviz_plugin/src/motion_planning_frame_planning.cpp`,
+//!   `moveit_ros/warehouse/src/import_from_text.cpp`, and a
+//!   `moveit_ros/hybrid_planning` test) — all `moveit_ros`/`moveit_py`,
+//!   outside this port's D1 scope.
+//! - The mechanism that *would* pair a scene with constraint construction
+//!   upstream — `configure(msg, tf)` on `PositionConstraint`/
+//!   `OrientationConstraint`/`VisibilityConstraint`, resolving a
+//!   message's `header.frame_id` against a `Transforms` — is already
+//!   documented as absent from this port by design, not omission:
+//!   `PORTING-PLAN.md`:1592 (this crate's own introducing section) records
+//!   that D1 excludes `moveit_msgs` types from this crate, so there is no
+//!   `configure()` to port and each type's `new()` takes plain Rust
+//!   arguments instead.
+//!
+//! In short: the production call site
+//! `moveit_planners_sbp::planning_scene_validity`'s doc comment describes as
+//! "not yet built" has no upstream analog inside D1's boundary to port
+//! from. It stays a gap this port carries deliberately, not one a future
+//! round should expect to close by finding more upstream code to read.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Cuboid, Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
