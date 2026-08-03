@@ -13,8 +13,9 @@
 //!
 //! Deliberately **not** ported, with reasons:
 //!
-//! - `TestOcTree` — needs `octomap::OcTree` and
-//!   `DistanceField::addOcTreeToField`; neither exists in this workspace (see
+//! - `TestOcTree` — needs `DistanceField::addOcTreeToField`, which is
+//!   unported; `moveit-octomap` now ports an `octomap::OcTree` equivalent,
+//!   but this crate has no dependency on it (see
 //!   [`moveit_distance_field::DistanceField`]'s "Deviations from upstream").
 //! - `TestPerformance` — a benchmark (timing printed to stdout), not a
 //!   correctness assertion.
@@ -30,6 +31,32 @@
 //! test-only [`ConvexBody`] sphere is still used to independently compute
 //! the expected obstacle point sets for `check_distance_field`, so the
 //! assertions do not just check the production code against itself.
+//!
+//! # Tolerances are upstream's own, and checked against the same trap as
+//! # this crate's other parity files
+//!
+//! All 7 `assert_relative_eq!` calls below carry upstream's own literal
+//! `EXPECT_NEAR` values (`0.0001`, or `RESOLUTION` = `0.1`), not a
+//! policy-copied constant, and none pass `max_relative` explicitly. Per
+//! PORTING-PLAN.md §79's workspace-wide sweep, an unpinned
+//! `assert_relative_eq!` can silently ride on `approx`'s implicit
+//! `max_relative = f64::EPSILON` default when the named `epsilon` is smaller
+//! than `f64::EPSILON * max(|a|, |b|)` — the exact failure mode found in
+//! this crate's other parity files' `RADIUS_TOL` (see `lib.rs`'s completion
+//! section for the general statement).
+//!
+//! Checked the same way: setting all 7 to `epsilon = 0.0` does **not** pass
+//! -- `add_remove_points_matches_upstream_test_propagation_distance_field`
+//! fails immediately, at the `comp_y`/`point1().y` check
+//! (`left = -1.3877787807814457e-17`, `right = 0.0`). This is not a
+//! borderline result: `0.0001` and `0.1` are 12-13 orders of magnitude above
+//! that noise floor, and every value compared here is bounded by this file's
+//! own 1x1x1 meter grid, so `f64::EPSILON * max(|a|, |b|)` cannot approach
+//! either named epsilon at any magnitude this test can produce -- unlike
+//! `RADIUS_TOL`, where the compared magnitude (~0.024) and the bisected
+//! epsilon (~1e-17) were close enough for the implicit floor to matter. No
+//! `max_relative` pin is needed here; the named epsilon already dominates by
+//! construction, not merely by measurement at one point.
 
 use approx::assert_relative_eq;
 use nalgebra::Vector3;

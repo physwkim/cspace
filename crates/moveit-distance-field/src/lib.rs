@@ -110,9 +110,9 @@
 //!
 //! - `tests/upstream_parity.rs` — every case upstream's own
 //!   `test_distance_field.cpp` gtest suite carries, minus `TestOcTree`
-//!   (needs an unported `octomap::OcTree`) and `TestPerformance` (a
-//!   benchmark, not an assertion) — see that file's own module doc for the
-//!   two exclusions' reasoning.
+//!   (needs the unported `DistanceField::addOcTreeToField`) and
+//!   `TestPerformance` (a benchmark, not an assertion) — see that file's own
+//!   module doc for the two exclusions' reasoning.
 //! - `tests/boundaries.rs` — invariant-boundary cases upstream's suite does
 //!   not carry: a point exactly on a cell boundary, a point outside the
 //!   grid, add-then-remove returning to the reset state (signed and
@@ -165,9 +165,13 @@
 //! FCL/Bullet replacement, D4's compile-time-trait plugin model). The
 //! `AttachedBody`-dependent decomposition functions
 //! (`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`)
-//! and the octree-backed `PosedBodyPointDecomposition` constructor are
-//! unported because this crate's current scope has no `AttachedBody`/
-//! `octomap::OcTree` type to build them from. Nothing above depends on
+//! are unported because a bare `moveit_state::State` structurally cannot see
+//! attached bodies (they live on `moveit_scene::PlanningScene`, which this
+//! crate does not depend on — see `moveit-state`'s `State::frame_transform`
+//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is
+//! unported because this crate has no dependency on `moveit-octomap` — that
+//! crate now ports an `octomap::OcTree` equivalent, but nothing in this
+//! crate's own dependency graph reaches it. Nothing above depends on
 //! ROS message types, a renderer, or `World` in a way this crate's
 //! `DistanceFieldCollisionCache`/link-decomposition scope does not already
 //! account for.
@@ -181,6 +185,40 @@
 //! missing dependency or later-phase boundary, not "not yet". If a future
 //! symbol or fixture cannot be placed in one of those buckets, this section
 //! is stale and needs re-auditing before the plan is updated to match it.
+//!
+//! ## The `max_relative` trap (PORTING-PLAN.md §79)
+//!
+//! Diagnosed in this crate first (§71.2/§78.2), then found to be
+//! workspace-wide (§79): `approx`'s `assert_relative_eq!(a, b, epsilon =
+//! X)` does not compare against `X` alone. Its real pass condition is
+//! `|a - b| <= epsilon` **or** `|a - b| <= max_relative * max(|a|, |b|)`,
+//! and any call that omits `max_relative` gets `max_relative =
+//! f64::EPSILON` (~2.22e-16) silently. Bisecting `epsilon` alone toward
+//! `0.0` to find a tolerance's true binding point is unreliable for exactly
+//! this reason: once `epsilon` drops below `f64::EPSILON * max(|a|, |b|)`,
+//! the implicit `max_relative` term takes over and the assertion keeps
+//! passing regardless of how low `epsilon` goes — not because the values
+//! agree to that precision, but because the second, unnamed tolerance term
+//! is still covering the real difference. This crate's own `RADIUS_TOL`
+//! (see `collision_env_distance_field_parity.rs`'s doc comment) bisected
+//! all the way to `0.0` before this was understood, and only revealed its
+//! real floor (between `1e-18` and `1e-17`) once `max_relative` was pinned
+//! to the same named constant explicitly.
+//!
+//! Two exits, per call site: pin `max_relative` to the same named constant
+//! as `epsilon` (closes the trap, keeps the comparison a real gate at
+//! whatever value the constant is bisected to), or — if bisecting `epsilon`
+//! together with an explicit `max_relative` still finds no binding point
+//! above `0.0` — drop the tolerance entirely and use `assert_eq!` instead,
+//! as `oracle_parity.rs` and `collision_sphere_free_functions_parity.rs` do
+//! (see the "Exactness" section of `oracle_parity.rs`'s own module doc). A
+//! call site is *not* automatically defective for lacking `max_relative`:
+//! `upstream_parity.rs`'s 7 calls use upstream's own literal `EXPECT_NEAR`
+//! values (`0.0001`, `0.1`), which stay 12+ orders of magnitude above any
+//! magnitude this file's 1x1x1 meter grid can produce, so the implicit term
+//! can never dominate there — checked by bisecting all 7 to `0.0` together,
+//! which fails immediately, confirming the named epsilon is what is
+//! actually gating those assertions, not `approx`'s default.
 //!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
@@ -273,9 +311,9 @@
 //!   `PosedBodyPointDecomposition(body_decomposition, pose)` as
 //!   [`PosedBodyPointDecomposition::new`]/[`PosedBodyPointDecomposition::with_pose`].
 //!   The third, `PosedBodyPointDecomposition(const std::shared_ptr<const
-//!   octomap::OcTree>&)`, is unported: no crate in this workspace ports
-//!   `octomap::OcTree` or an equivalent octree type, so there is no input
-//!   type to build it from.
+//!   octomap::OcTree>&)`, is unported: `moveit-octomap` now ports an
+//!   `octomap::OcTree` equivalent, but this crate has no dependency on it,
+//!   so there is no input type in this crate's own scope to build it from.
 //! - `PosedBodySphereDecompositionVector` (class) — ported as
 //!   [`PosedBodySphereDecompositionVector`] (`getSize`/
 //!   `getPosedBodySphereDecomposition` as

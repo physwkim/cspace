@@ -22,13 +22,14 @@
 //!
 //! Not ported from this pair of files:
 //!
-//! - `PosedBodyPointDecomposition`'s `octomap::OcTree` constructor: no
-//!   `octomap` binding exists in this workspace (PORTING-PLAN.md's own gap
-//!   analysis flags `octomap` as "성숙도 미달" / not mature enough, pending a
-//!   Phase 3 evaluation of a from-scratch implementation) and this crate owns
-//!   none of that design, so it cannot be invented here without guessing at
-//!   a design another phase owns -- the same reasoning [`DistanceField`]'s
-//!   module doc already applies to `addOcTreeToField`.
+//! - `PosedBodyPointDecomposition`'s `octomap::OcTree` constructor: an
+//!   `octomap::OcTree` equivalent is now ported, in `moveit-octomap`, but
+//!   this crate has no dependency on that crate -- the same reasoning
+//!   [`DistanceField`]'s module doc already applies to `addOcTreeToField`.
+//!   (`PORTING-PLAN.md`'s original gap analysis flagged `octomap` itself as
+//!   not mature enough for a from-scratch implementation; `moveit-octomap`'s
+//!   existence means that gap has since closed elsewhere in the workspace,
+//!   even though this crate has not picked up the dependency.)
 //! - `getCollisionSphereMarkers`, `getProximityGradientMarkers`,
 //!   `getCollisionMarkers`: build `visualization_msgs::msg::MarkerArray` for
 //!   RViz. PORTING-PLAN.md D1 keeps ROS message types out of every crate but

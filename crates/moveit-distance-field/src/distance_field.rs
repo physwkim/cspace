@@ -93,9 +93,10 @@ pub struct DistanceGradient {
 ///
 /// The rest is not ported:
 ///
-/// - `addOcTreeToField` needs an `octomap::OcTree` equivalent, which exists
-///   nowhere in this workspace; this crate owns none of that and cannot
-///   invent it without guessing at a design another phase owns.
+/// - `addOcTreeToField` needs an `octomap::OcTree` equivalent. `moveit-octomap`
+///   now ports one, but this crate has no dependency on it; wiring that up
+///   and building this method is a scope decision this crate does not make
+///   unilaterally, not an availability gap.
 /// - The marker methods build `visualization_msgs::msg::Marker` /
 ///   `MarkerArray` for RViz. `PORTING-PLAN.md` D1 keeps every crate outside
 ///   the optional `moveit-ros` free of ROS message types; there is nothing
