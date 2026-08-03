@@ -8506,12 +8506,17 @@ insert (0.3125, 0.3125, 0.3125)  →  leaf size 0.125, coord 0.3125 (정확)
 `getSizeY`/`getSizeZ`/`getOriginX` 등을 놓쳤다). 기준이 적혔으니 다음
 라운드에 그 기준대로 대조한다.
 
-### 99.4 §92의 마지막 1건이 닫혔다
+### 99.4 §92가 이 크레이트에 남긴 1건이 닫혔다
 
 `collision_distance_field_types.rs:1263`의 `assert_relative_eq!(sphere
 .radius, 0.2)`는 `radius * 1.0 + 0.0`이라 비트 동일이고, `assert_eq!`로
-바꿨다. 근거가 주석에 들어 있다. **워크스페이스에 `epsilon`도
-`max_relative`도 없는 사이트는 이제 0건이다.**
+바꿨다. 근거가 주석에 들어 있다.
+
+**정정(§104):** 이 절은 처음에 "워크스페이스에 `epsilon`도
+`max_relative`도 없는 사이트는 이제 0건"이라고 적었다. 틀렸다. 담당이
+닫은 것은 **자기 크레이트의** 마지막 1건이고, 나는 그것을 워크스페이스
+전체로 일반화하면서 다시 세지 않았다. 실제로는 p3-acm의 두 크레이트에
+**10건이 남아 있다**(§104).
 
 ### 99.5 §참조 다섯 개가 존재하지 않는 절을 가리킨다
 
@@ -8890,3 +8895,62 @@ epsilon = f64::EPSILON / 4  141 tests: 138 passed, 3 failed
 `cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
 `verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK,
 `verify-fixture-replay.sh` **30/30 identical**.
+
+## 104. `assert_relative_eq!` 재고 갱신 — 그리고 §99.4의 내 오류
+
+§92 이후 여러 라운드가 쓸었으니 다시 셌다. 주석(`//` 이하)을 지운 뒤
+괄호 짝맞추기로 호출을 잘라 분류하는 같은 계수기다(§92의 오염을 피하는
+형태).
+
+```
+워크스페이스 전체   호출 151
+  max_relative 있음     82
+  epsilon만             59
+  둘 다 없음            10
+```
+
+§92 시점의 183 = 60 / 108 / 15에서 상당히 옮겨졌다. 총 호출 수가 준
+것은 비트 동일로 판명된 사이트가 `assert_eq!`로 바뀌었기 때문이다
+(§99.4, §103.4).
+
+### 104.1 §99.4에서 내가 틀렸다
+
+§99.4에 "워크스페이스에 `epsilon`도 `max_relative`도 없는 사이트는
+이제 0건"이라고 적었다. **틀렸다.** p3-distance-field가 닫은 것은
+자기 크레이트의 마지막 1건이고, 나는 그것을 워크스페이스 전체로
+일반화하면서 다시 세지 않았다. 담당의 보고는 자기 범위에 대해
+정확했다 — 일반화한 것은 나다. §99.4를 정정했다.
+
+둘 다 없는 사이트 10건은 전부 p3-acm의 두 크레이트에 있다:
+
+```
+crates/moveit-collision/src/parry.rs          4
+crates/moveit-model/src/joint/revolute.rs     3
+crates/moveit-model/src/joint/prismatic.rs    2
+crates/moveit-model/src/joint/model.rs        1
+```
+
+**계열로 적는다:** 담당의 보고가 자기 범위에서 맞을 때 그것을
+워크스페이스 주장으로 올리려면 워크스페이스에서 다시 세야 한다.
+§92에서 내가 주석을 코드로 센 것, §101.2에서 담당이 한 방향 섭동만으로
+"못 편다"고 결론낸 것과 같은 모양이다 — **측정한 범위 밖으로 결론을
+넓히지 마라.**
+
+### 104.2 §79 노출의 나머지는 전부 p3-acm이다
+
+한 번도 배정된 적 없는 마지막 큰 덩어리다. 지금 트리 기준:
+
+```
+crates/moveit-collision/src/parry.rs        총 22   epsilon만 18   둘 다 없음 4
+crates/moveit-model/src/joint/planar.rs     총 10   epsilon만 10
+crates/moveit-model/src/joint/revolute.rs   총  9   epsilon만  6   둘 다 없음 3
+crates/moveit-model/src/joint/floating.rs   총  4   epsilon만  4
+crates/moveit-model/src/joint/prismatic.rs  총  3   epsilon만  1   둘 다 없음 2
+crates/moveit-model/src/joint/model.rs      총  3   epsilon만  2   둘 다 없음 1
+                                                   ----------   -----------
+                                                          41            10
+```
+
+`moveit-collision/tests/world_parity.rs`의 1건만 `max_relative`가
+있다. **51건이 §79 노출로 남아 있고 전부 이 담당 몫이다.**
+다음 라운드에 배정한다.
