@@ -11,16 +11,58 @@
 //!
 //! # Scope
 //!
-//! Upstream's six public methods collapse to four here, one per computation
-//! rather than one per `std::string`/`JointModelGroup*` overload pair —
-//! this crate has no `RobotModel`-owned `JointModelGroup*` to accept, only
-//! `&str` group names, matching [`moveit_state::Posed::jacobian`]'s own
-//! established `&str`-group convention. Upstream's `bool` return (`false`
-//! for "unknown group" and "group is not a chain" alike) becomes
-//! [`moveit_error::Result`] with the two causes distinguished
-//! ([`moveit_error::Error::UnknownName`] vs. [`moveit_error::Error::Other`]),
-//! matching [`moveit_state::Posed::jacobian`]'s own error shape (see
-//! its doc comment for the same deviation).
+//! Full audit of every `public:` member of upstream
+//! `kinematics_metrics::KinematicsMetrics`, read from
+//! `kinematics_metrics.hpp` itself. One line each: `ported as <symbol>` /
+//! `distinct (<reason>)` / `D1 excludes it (<message type>)` / `unported
+//! (<reason>)`. `getJointLimitsPenalty` is declared `private` upstream, not
+//! `public`, so it is not one of the bullets below — see the
+//! `getJointLimitsPenalty` section further down for its own port.
+//!
+//! 9 audit bullets below (verify: `rg -c '^//! - \`' crates/moveit-metrics/src/lib.rs`
+//! gives `9`), zero `unported, in scope` gaps and zero D1 exclusions: this
+//! header has no ROS message dependencies at all (`#include
+//! <moveit/robot_state/robot_state.hpp>` and Eigen only), so nothing here
+//! needed either bucket.
+//!
+//! - `KinematicsMetrics(RobotModelConstPtr)` — ported as [`KinematicsMetrics::new`].
+//! - `getManipulabilityIndex(state, group_name: string, index&, translation=false)`
+//!   — ported as [`KinematicsMetrics::manipulability_index`].
+//! - `getManipulabilityIndex(state, joint_model_group: JointModelGroup*, index&, translation=false)`
+//!   — distinct (collapses into the same [`KinematicsMetrics::manipulability_index`]:
+//!   this crate has no `RobotModel`-owned `JointModelGroup*` to accept, only
+//!   `&str` group names, matching [`moveit_state::Posed::jacobian`]'s own
+//!   established `&str`-group convention).
+//! - `getManipulabilityEllipsoid(state, group_name: string, eigen_values&, eigen_vectors&)`
+//!   — ported as [`KinematicsMetrics::manipulability_ellipsoid`].
+//! - `getManipulabilityEllipsoid(state, joint_model_group: JointModelGroup*, eigen_values&, eigen_vectors&)`
+//!   — distinct (collapses into the same [`KinematicsMetrics::manipulability_ellipsoid`],
+//!   same reason as the `getManipulabilityIndex` overload above).
+//! - `getManipulability(state, group_name: string, condition_number&, translation=false)`
+//!   — ported as [`KinematicsMetrics::manipulability`].
+//! - `getManipulability(state, joint_model_group: JointModelGroup*, condition_number&, translation=false)`
+//!   — distinct (collapses into the same [`KinematicsMetrics::manipulability`], same reason).
+//! - `setPenaltyMultiplier(double)` — ported as [`KinematicsMetrics::set_penalty_multiplier`].
+//! - `getPenaltyMultiplier() const` — ported as [`KinematicsMetrics::penalty_multiplier`].
+//!
+//! Three of the nine bullets are `distinct`: each is one half of an
+//! overload pair whose `string`/`JointModelGroup*` variants this port
+//! collapses into a single `&str`-taking method. That leaves six upstream
+//! `get*` declarations (three computations, `getManipulabilityIndex`/
+//! `getManipulabilityEllipsoid`/`getManipulability`, each declared twice)
+//! folding into three port methods, plus
+//! [`KinematicsMetrics::joint_limits_penalty`] — private upstream, exposed
+//! here since a Rust module has no `friend`-equivalent visibility escape
+//! and every other method in this crate needs it (see below) — as a fourth
+//! public "does a computation" method: upstream's six `get*` declarations
+//! collapsing to four port methods.
+//!
+//! Upstream's `bool` return (`false` for "unknown group" and "group is not
+//! a chain" alike) becomes [`moveit_error::Result`] with the two causes
+//! distinguished ([`moveit_error::Error::UnknownName`] vs.
+//! [`moveit_error::Error::Other`]), matching
+//! [`moveit_state::Posed::jacobian`]'s own error shape (see its doc
+//! comment for the same deviation).
 //!
 //! Dependencies (`#include`) are `robot_state` and Eigen only upstream —
 //! `rclcpp` appears solely for `RCLCPP_DEBUG` logging of intermediate
