@@ -37,6 +37,13 @@ CASES_TO_RUN=(
   "pr2             base"
 )
 
+# Before comparing anything: confirm the fixtures still are the robots they
+# name. A sweep that agrees with the oracle on a drifted `fixtures/panda.urdf`
+# proves both sides read the same file, not that either matches upstream panda.
+# This runs here rather than in the `check-*.sh` set because it needs
+# `third_party/`, which this script already requires and CI does not have.
+"$REPO_ROOT/tools/ci/verify-fixture-provenance.sh"
+
 # Release, not debug: 10k cases x 5 sweeps is ~50k FK+jacobian evaluations per
 # side, and the debug build makes the Rust side rather than the oracle the
 # bottleneck.
