@@ -42,20 +42,26 @@
 //! caller-supplies-the-solver decision [`crate::IkConstraintSampler::new`]
 //! already made, now threaded one level up.
 //!
-//! # One level of subgroup nesting
+//! # Subgroup nesting is unbounded, matching upstream
 //!
-//! Upstream's subgroup recursion (`selectDefaultSampler` calling itself on
-//! `it->first->getName()`) re-derives ITS OWN subgroup solvers by reading
-//! the same global `getGroupKinematics()` map again — recursion can go as
-//! deep as the model's group hierarchy does. This port's recursive call
-//! passes `subgroup_solvers: vec![]`, so a subgroup-of-a-subgroup that
-//! itself needs an IK solver is not resolved. None of this crate's three
-//! model fixtures (panda, fanuc, dual-arm panda) define a group whose
-//! *subgroup* is itself composite with its own further subgroups needing
-//! solvers — `panda_arm_hand`'s only subgroups (`panda_arm`, `hand`) are
-//! themselves leaf chains — so this is an untested, undemonstrated gap, not
-//! a silently-wrong path exercised by anything this phase's done-criteria
-//! checks.
+//! `constraint_sampler_manager.cpp:322-380`: Step C's loop calls
+//! `selectDefaultSampler(scene, it->first->getName(), sub_constr)` —
+//! the *whole* function, recursively, not a stripped inner variant — and
+//! that call reads `jmg->getGroupKinematics()` fresh for whatever group it
+//! was given. There is no depth check anywhere in the C++: recursion goes
+//! exactly as deep as the model's group hierarchy and its
+//! `kinematics.yaml` solver assignments do. Nothing in this port's own
+//! algorithm caps it either: `select_default_sampler`'s `subgroup_solvers`
+//! is `Vec<`[`SubgroupSolver`]`>`, and each [`SubgroupSolver`] carries its
+//! *own* `subgroup_solvers` for the recursive call to pass on — the
+//! caller-supplied tree upstream would instead discover lazily, one
+//! `getGroupKinematics()` call per recursion level, from a single global
+//! per-model map. None of this crate's three model fixtures (panda, fanuc,
+//! dual-arm panda) define a group two subgroup-levels deep with a solver at
+//! the bottom (`panda_arm_hand`'s only subgroups, `panda_arm` and `hand`,
+//! are themselves leaf chains) — `tests/constraint_sampler_manager.rs`
+//! covers depth 2 with a group hierarchy built in-test via
+//! `SrdfModel::parse_str`, since no fixture demonstrates it.
 //!
 //! # No cross-link tie-break: `used` can hold at most one link, by construction
 //!
@@ -93,12 +99,29 @@ use crate::{
     JointConstraintSampler, OrientationConstraint, PositionConstraint, UnionConstraintSampler,
 };
 
+/// One entry of a caller-supplied `subgroup_solvers` tree: `group_name` is
+/// the subgroup this solver directly targets, `solver` is its allocator,
+/// and `subgroup_solvers` is that same subgroup's *own* immediate-subgroup
+/// solvers — what upstream would discover by calling
+/// `jmg->getGroupKinematics().second` again after recursing into
+/// `group_name` (see this module's doc comment on why recursion is
+/// unbounded and must be threaded explicitly here instead).
+pub struct SubgroupSolver {
+    /// The subgroup this solver directly targets.
+    pub group_name: String,
+    /// `group_name`'s own IK allocator.
+    pub solver: Box<dyn KinematicsSolver>,
+    /// `group_name`'s own immediate-subgroup solvers, recursively.
+    pub subgroup_solvers: Vec<SubgroupSolver>,
+}
+
 /// `ConstraintSamplerManager::selectDefaultSampler`.
 ///
 /// `solver` stands in for upstream's `jmg->getGroupKinematics().first` — the
 /// group's own IK solver, if any. `subgroup_solvers` stands in for
-/// `jmg->getGroupKinematics().second` — one solver per immediate subgroup
-/// that has one (see this module's doc comment on why only one level deep).
+/// `jmg->getGroupKinematics().second` — one [`SubgroupSolver`] per immediate
+/// subgroup that has one, each carrying its own further subgroup solvers in
+/// turn (see this module's doc comment on why recursion is unbounded).
 /// `max_attempts` is baked into any [`IkConstraintSamplerAdapter`] this
 /// builds, replacing the `max_attempts` argument upstream's
 /// `ConstraintSampler::sample` takes per-call (see `sampler.rs`'s own doc
@@ -120,7 +143,7 @@ pub fn select_default_sampler(
     group_name: &str,
     constraints: &[Constraint],
     solver: Option<Box<dyn KinematicsSolver>>,
-    subgroup_solvers: Vec<(String, Box<dyn KinematicsSolver>)>,
+    subgroup_solvers: Vec<SubgroupSolver>,
     max_attempts: u32,
 ) -> Result<Option<Box<dyn ConstraintSampler>>> {
     let Ok(group) = model.joint_model_group(group_name) else {
@@ -181,7 +204,7 @@ fn select_default_sampler_inner(
     group: &JointModelGroup,
     constraints: GroupConstraints<'_>,
     solver: Option<Box<dyn KinematicsSolver>>,
-    subgroup_solvers: Vec<(String, Box<dyn KinematicsSolver>)>,
+    subgroup_solvers: Vec<SubgroupSolver>,
     max_attempts: u32,
 ) -> Result<Option<Box<dyn ConstraintSampler>>> {
     let GroupConstraints {
@@ -229,7 +252,12 @@ fn select_default_sampler_inner(
         let mut used_o: BTreeSet<usize> = BTreeSet::new();
         let mut some_sampler_valid = false;
 
-        for (subgroup_name, subgroup_solver) in subgroup_solvers {
+        for entry in subgroup_solvers {
+            let SubgroupSolver {
+                group_name: subgroup_name,
+                solver: subgroup_solver,
+                subgroup_solvers: nested_subgroup_solvers,
+            } = entry;
             let Ok(subgroup) = model.joint_model_group(&subgroup_name) else {
                 return Err(moveit_error::Error::unknown_name("group", &subgroup_name));
             };
@@ -263,7 +291,7 @@ fn select_default_sampler_inner(
                     orientations: &sub_orientations,
                 },
                 Some(subgroup_solver),
-                vec![],
+                nested_subgroup_solvers,
                 max_attempts,
             )? {
                 some_sampler_valid = true;
