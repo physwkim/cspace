@@ -7,7 +7,7 @@
 //   moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp
 //   moveit_core/robot_state/src/robot_state.cpp
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::ops::Deref;
 
@@ -15,9 +15,8 @@ use nalgebra::DMatrix;
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Vector3};
-use moveit_model::JointModelGroup;
 use moveit_model::RobotModel;
-use moveit_model::joint::{JointKind, JointModel, JointType};
+use moveit_model::joint::{JointKind, JointModel};
 use rand::{Rng, RngExt};
 
 /// An index into [`RobotModel::joint_models`](moveit_model::RobotModel::joint_models).
@@ -710,13 +709,12 @@ impl<'m> RobotState<'m> {
 
     // ---- Jacobian support ---------------------------------------------
     //
-    // moveit_model::JointModelGroup deliberately does not store
-    // `is_chain_`/`joint_roots_`/`updated_link_model_set_` (see its own doc
-    // comment: computed over the whole joint/link graph, which only
-    // RobotState's per-call walk below actually needs). The four helpers
-    // here recompute exactly what upstream's `JointModelGroup` constructor
-    // and its `includesParent`/`jointPrecedes` free functions
-    // (joint_model_group.cpp) precompute once, but on demand.
+    // `is_chain`/`joint_roots` (`JointModelGroup::is_chain`/`joint_roots`)
+    // and the descendant-link walk (`RobotModel::descendant_link_indices`)
+    // are now computed once, at model-build time, by `moveit-model` itself
+    // (see those methods' own doc comments) -- this crate used to duplicate
+    // both traversals here on demand, before `moveit-model` carried them.
+    // `jacobian`, this section's only caller, uses them directly instead.
 
     /// The link a joint is attached from. Upstream
     /// `JointModel::getParentLinkModel()`; `None` only for the model's
@@ -725,113 +723,6 @@ impl<'m> RobotState<'m> {
         self.model
             .link_model_at(self.link_of_joint[joint_index])
             .parent_link_index()
-    }
-
-    /// `includesParent`: true if some ancestor of `joint_index` — walking
-    /// up through `RobotModel::parent_joint_index`, and recursing into a
-    /// mimic ancestor's own master when that ancestor itself mimics
-    /// another joint — is a non-mimic active joint of `group`. A `false`
-    /// result means `joint_index` roots a distinct subtree within `group`.
-    fn includes_parent(&self, joint_index: JointIndex, group: &JointModelGroup) -> bool {
-        let mut current = joint_index;
-        loop {
-            let Some(next) = self.model.parent_joint_index(current) else {
-                return false;
-            };
-            current = next;
-            let joint = self.model.joint_model_at(current);
-            if group.has_joint_model(joint.name())
-                && joint.variable_count() > 0
-                && joint.mimic().is_none()
-            {
-                return true;
-            }
-            if let Some(mimic) = joint.mimic() {
-                let mimic_index = self.joint_index_by_name[mimic.joint_name.as_str()];
-                let mimic_joint = self.model.joint_model_at(mimic_index);
-                if group.has_joint_model(mimic_joint.name())
-                    && mimic_joint.variable_count() > 0
-                    && mimic_joint.mimic().is_none()
-                {
-                    return true;
-                }
-                if self.includes_parent(mimic_index, group) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    /// `jointPrecedes`: true if `b` is `a`'s nearest ancestor once any
-    /// fixed joints in between are skipped over.
-    fn joint_precedes(&self, a: JointIndex, b: JointIndex) -> bool {
-        let Some(mut p) = self.model.parent_joint_index(a) else {
-            return false;
-        };
-        loop {
-            if p == b {
-                return true;
-            }
-            if self.model.joint_model_at(p).joint_type() != JointType::Fixed {
-                return false;
-            }
-            let Some(next) = self.model.parent_joint_index(p) else {
-                return false;
-            };
-            p = next;
-        }
-    }
-
-    /// `JointModelGroup::isChain()`/`joint_roots_`: `Some(root)` iff
-    /// `group` is a chain — exactly one of its active joints has no
-    /// in-group ancestor, and every consecutive pair in the group's full
-    /// (already depth-first-sorted, see `RobotModel::joint_indices`) joint
-    /// list satisfies `joint_precedes`.
-    fn chain_root(&self, group: &JointModelGroup) -> Option<JointIndex> {
-        let roots: Vec<JointIndex> = group
-            .active_joint_indices()
-            .iter()
-            .copied()
-            .filter(|&joint_index| !self.includes_parent(joint_index, group))
-            .collect();
-        if roots.len() != 1 {
-            return None;
-        }
-
-        let joints = group.joint_indices();
-        for k in (1..joints.len()).rev() {
-            if !self.joint_precedes(joints[k], joints[k - 1]) {
-                return None;
-            }
-        }
-        Some(roots[0])
-    }
-
-    /// `JointModel::getDescendantLinkModels()`, walked on demand for a
-    /// single joint rather than precomputed for every joint in the model
-    /// (this port only ever needs it for one chain root at a time — see
-    /// `RobotModel`'s own doc comment on why it skips that precompute).
-    /// Every link reachable from `joint_index`'s own child link by
-    /// repeatedly following either a link's child joints or a joint's
-    /// mimic followers (upstream's `computeDescendantsHelper` recurses
-    /// into both `LinkModel::getChildJointModels` and
-    /// `JointModel::getMimicRequests`), including `joint_index`'s own
-    /// child link.
-    fn descendant_links_of_joint(&self, joint_index: JointIndex) -> BTreeSet<usize> {
-        let mut seen_joints = BTreeSet::new();
-        let mut links = BTreeSet::new();
-        let mut stack = vec![joint_index];
-        while let Some(current) = stack.pop() {
-            if !seen_joints.insert(current) {
-                continue;
-            }
-            let child_link = self.link_of_joint[current];
-            links.insert(child_link);
-            let link = self.model.link_model_at(child_link);
-            stack.extend(link.child_joint_indices().iter().copied());
-            stack.extend(self.mimic_requests[current].iter().copied());
-        }
-        links
     }
 }
 
@@ -917,9 +808,9 @@ impl<'s, 'm> Posed<'s, 'm> {
     ///    keeps them as distinct [`Error::Other`] messages instead.
     ///    Upstream's fourth rejection, "the group has no joint models", is
     ///    not reachable through this method: `group` being a chain
-    ///    already implies at least one active joint (see the doc comment
-    ///    on this crate's `chain_root` helper), so it is not ported as a
-    ///    separate case.
+    ///    already implies at least one active joint (see
+    ///    [`moveit_model::JointModelGroup::is_chain`]'s own doc comment), so
+    ///    it is not ported as a separate case.
     ///
     /// # Errors
     ///
@@ -936,18 +827,22 @@ impl<'s, 'm> Posed<'s, 'm> {
         let model = self.0.model;
         let group_model = model.joint_model_group(group)?;
 
-        let Some(chain_root) = self.0.chain_root(group_model) else {
+        if !group_model.is_chain() {
             return Err(Error::other(format!(
                 "the group '{group}' is not a chain; cannot compute Jacobian"
             )));
-        };
+        }
+        let chain_root = *group_model
+            .joint_roots()
+            .first()
+            .expect("is_chain() implies exactly one joint root");
 
         let tip_link = *group_model
             .link_indices()
             .last()
             .expect("a chain root's active joint gives the group at least one link");
 
-        let descendant_links = self.0.descendant_links_of_joint(chain_root);
+        let descendant_links = model.descendant_link_indices(chain_root);
         if !descendant_links.contains(&tip_link) {
             return Err(Error::other(format!(
                 "link '{}' does not belong to the chain rooted by group '{group}'; cannot compute Jacobian",
