@@ -55,39 +55,46 @@
 //! level short of naming what a real sampler would unlock; the paragraph
 //! above is that.
 //!
-//! **Disposition** (proposed, not started — a new crate or a new
-//! inter-crate dependency edge is a workspace decision, not mine to make
-//! unilaterally):
+//! **Disposition** (round 14: ported, not proposed — the paragraph above
+//! describes the state this section used to be written against; it is
+//! stale about what has since landed in `moveit-constraints`, corrected
+//! here in place rather than deleted, since the still-missing
+//! `rrt_connect` half below is still accurate):
 //!
 //! - `ConstraintSampler` (the base trait) and `JointConstraintSampler` ->
-//!   port into `moveit-constraints`. Both are pure joint-space logic over
-//!   types that crate already owns ([`moveit_constraints::JointConstraint`],
-//!   [`KinematicConstraintSet`]); neither needs a new dependency.
-//! - `UnionConstraintSampler` -> port into `moveit-constraints` alongside
-//!   them; it only composes other samplers by sorted dependency order, no
-//!   new dependency either.
+//!   ported as [`moveit_constraints::ConstraintSampler`]/
+//!   [`moveit_constraints::JointConstraintSampler`],
+//!   `moveit-constraints/src/sampler.rs`.
+//! - `UnionConstraintSampler` -> ported as
+//!   [`moveit_constraints::UnionConstraintSampler`],
+//!   `moveit-constraints/src/sampler.rs`, composing other samplers by
+//!   sorted dependency order.
 //! - `IKConstraintSampler` and `ConstraintSamplerManager::selectDefaultSampler`
-//!   -> port into `moveit-constraints`, but this adds a real dependency edge,
-//!   `moveit-constraints -> moveit-kinematics`, that does not exist today
-//!   (for `moveit_kinematics::KinematicsSolver` and its compile-time
-//!   registry — the same D4 mechanism this crate's own [`PlannerManager`]
-//!   already follows). No cycle results: `moveit-kinematics` depends on none
-//!   of `moveit-error`/`moveit-geometry`/`moveit-model`/`moveit-state`, none
-//!   of which depend back on `moveit-constraints`. Still a graph change
-//!   worth a sign-off, not a silent addition.
-//! - `constraint_sampler_tools.{hpp,cpp}` -> excluded outright:
+//!   -> ported as [`moveit_constraints::IkConstraintSampler`]/
+//!   [`moveit_constraints::IkConstraintSamplerAdapter`]
+//!   (`moveit-constraints/src/ik_sampler.rs`) and
+//!   [`moveit_constraints::select_default_sampler`]
+//!   (`moveit-constraints/src/constraint_sampler_manager.rs`). The
+//!   dependency edge this needed, `moveit-constraints -> moveit-kinematics`,
+//!   now exists (`moveit-constraints/Cargo.toml`'s
+//!   `moveit-kinematics.workspace = true`) — no cycle resulted, matching
+//!   the no-cycle check this section originally reasoned through before the
+//!   edge was added.
+//! - `constraint_sampler_tools.{hpp,cpp}` -> still excluded outright:
 //!   `visualizeDistribution`'s two overloads need a
 //!   `visualization_msgs::msg::MarkerArray` (D1, matching this workspace's
 //!   existing `getMarkers()` exclusion), and `countSamplesPerSecond`'s two
 //!   overloads are a benchmarking helper with no test or caller needing it.
 //!
-//! Porting the sampler alone would not close the capability gap above:
-//! [`crate::rrt_connect::rrt_connect`]'s signature takes one fixed
-//! `goal: S::State`, not a region or a re-sampleable source, so even a fully
-//! ported `IKConstraintSampler` would have nowhere to hand its (potentially
-//! many, potentially retried-on-collision) candidate states — RRT-Connect
-//! itself would need a second change, accepting something
-//! `GoalSampleableRegion`-shaped, before it could actually consume one.
+//! Porting the sampler alone did not close the capability gap above, and
+//! still has not: [`crate::rrt_connect::rrt_connect`]'s signature takes one
+//! fixed `goal: S::State`, not a region or a re-sampleable source, so even
+//! though `IkConstraintSamplerAdapter` now exists, it has nowhere in this
+//! crate to hand its (potentially many, potentially retried-on-collision)
+//! candidate states — RRT-Connect itself still needs a second change,
+//! accepting something `GoalSampleableRegion`-shaped, before it could
+//! actually consume one. That second change has not been made; this
+//! disposition note describes the sampler side only.
 //!
 //! [`PlanningRequest::path_constraints`] *is* carried directly as a
 //! [`KinematicConstraintSet`], because path constraints are evaluated

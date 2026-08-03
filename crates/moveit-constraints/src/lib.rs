@@ -327,7 +327,14 @@
 //!   are default arguments to the two `sample()` overloads this port
 //!   already collapses away (tagged `structural` above); no other
 //!   production file in `moveit_core`/`moveit_planners`/`moveit_ros`
-//!   references the constant at all
+//!   references the constant at all. Round 14 re-check: (a) the *number*
+//!   this constant supplies does become a loop bound wherever it lands
+//!   (`for (a = 0; a < max_attempts; ++a)`), but the constant itself is
+//!   never read anywhere except as one of two now-collapsed default
+//!   arguments — every call site in this port's design already supplies
+//!   its own concrete count, so there is no omitted-argument call site left
+//!   for a default to ever apply to; (b) no production caller, per Round
+//!   13's evidence above
 //! - CS: `ConstraintSampler(scene, group_name)` (ctor) -> structural:
 //!   collapsed into each concrete type's own `new()`, no base constructor to
 //!   share (traits are not constructed)
@@ -376,14 +383,35 @@
 //!   `sampleHelper` (`:589`) purely to short-circuit a never-configured
 //!   sampler — a state this port's fallible `new()` makes unreachable by
 //!   construction; the only external `isValid()` callers anywhere are
-//!   upstream's own `test_constraint_samplers.cpp`
+//!   upstream's own `test_constraint_samplers.cpp`. Round 14 re-check: (a)
+//!   yes — `if (!is_valid_) { WARN; return false; }` at `:589` is a real
+//!   branch condition, the same shape `setGroupStateValidityCallback` had.
+//!   The difference from that case: there the *state* (an installed
+//!   callback) exists and is reachable in this port's design and was simply
+//!   never wired in; here the *state* `is_valid_` discriminates (configure
+//!   never having succeeded) cannot be constructed at all in this port,
+//!   because `new()` returns `Result` and a `IkConstraintSampler` value
+//!   only ever exists already-configured. Nothing is left to route the
+//!   branch to. (b) no production caller, per Round 13's evidence above
 //! - CS: `getVerbose()` -> gap: no verbose/logging mode exists anywhere in
 //!   this crate. Round 13 evidence: `verbose_` only ever gates an
 //!   `RCLCPP_INFO`/`RCLCPP_WARN` call or is forwarded into
 //!   `decide(state, verbose_)` to control *its* logging
 //!   (`default_constraint_samplers.cpp:612,657,659,707`) — it never changes
 //!   a `decide()`/`sample()` return value, and this crate already dropped
-//!   `rclcpp` logging entirely
+//!   `rclcpp` logging entirely. Round 14 re-check: (a) at `:612`/`:707`
+//!   `verbose_` gates only an `RCLCPP_INFO` call, no other statement in
+//!   that branch — confirmed a dead end, not merely assumed. At
+//!   `:657`/`:659` it is forwarded into `PositionConstraint`/
+//!   `OrientationConstraint::decide(state, verbose)`, whose own `verbose`
+//!   parameter this crate's Round 6 audit (`lib.rs`'s "Round 6 symbol
+//!   audit" section above) already dropped entirely as D-decision "no
+//!   logging path exists"; every `decide()` oracle-parity test in this
+//!   crate (`utils_parity.rs`'s `oracle_construct_goal_*`/
+//!   `oracle_update_*` modules) already passes without ever threading a
+//!   verbose flag through, which would not be possible if `verbose`
+//!   changed `.satisfied` upstream. (b) no production caller — same file,
+//!   same two call sites, both internal
 //! - CS: `setVerbose(verbose)` -> gap: same
 //! - CS: `getName()` -> gap: debugging-only per upstream's own doc ("for
 //!   debugging purposes"); every one of the four concrete implementers
@@ -394,7 +422,12 @@
 //!   `default_constraint_samplers.cpp` — every `getName()` call in those
 //!   files is on a `JointModelGroup`/`LinkModel`, an unrelated method that
 //!   happens to share the name; the sampler's own `getName()` is called
-//!   only from `test_constraint_samplers.cpp`
+//!   only from `test_constraint_samplers.cpp`. Round 14 re-check: (a) `rg
+//!   -n 'getName\(\)\s*=='` against the same three files finds zero
+//!   comparisons on any `getName()` result — every hit is a `%s`
+//!   format-string argument to `RCLCPP_DEBUG` or a name string forwarded
+//!   into a constructor call, never a value a branch reads; (b) zero
+//!   production callers, unchanged from Round 13
 //!
 //! ### `JointConstraintSampler` (`default_constraint_samplers.hpp`)
 //!
@@ -448,7 +481,10 @@
 //! - CS: `getPositionConstraint()` -> gap: no accessor exposes the sampling
 //!   pose's constraints back out of a built `IkConstraintSampler`. Round 13
 //!   evidence: both accessors are called only from upstream's own
-//!   `test_constraint_samplers.cpp`; no production file calls either
+//!   `test_constraint_samplers.cpp`; no production file calls either. Round
+//!   14 re-check: (a) not applicable — with zero production callers there
+//!   is no downstream code for the returned pointer to reach, branch or
+//!   otherwise; (b) zero production callers, unchanged from Round 13
 //! - CS: `getOrientationConstraint()` -> gap: same
 //! - CS: `getSamplingVolume()` -> ported:
 //!   `IkConstraintSampler::sampling_volume`
@@ -509,7 +545,15 @@
 //!   only caller anywhere in `moveit_core`/`moveit_planners`/`moveit_ros` is
 //!   its own D1-excluded `(constr, scene, group)` sibling
 //!   (`constraint_sampler_tools.cpp:68`) forwarding to it — nothing outside
-//!   this file calls it
+//!   this file calls it. Round 14 re-check, specifically not closing this
+//!   with "it's a statistic, so harmless" —
+//!   `constraint_sampler_tools.cpp:65-69` shows the sibling does not
+//!   inspect the returned `double` at all, only forwards it straight back
+//!   out as its own return value, so the number never reaches a threshold
+//!   or an `if`/assert anywhere in this repo's copy of `moveit_core`: (a)
+//!   no branch, confirmed by reading the one caller rather than assuming a
+//!   benchmarking helper is inert; (b) no production caller — the only
+//!   caller is itself D1-excluded
 //! - CS: `countSamplesPerSecond(constr, scene, group)` -> D1: takes
 //!   `moveit_msgs::Constraints` and `PlanningSceneConstPtr` directly
 //!
