@@ -167,3 +167,143 @@ impl IkCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moveit_geometry::{UnitQuaternion, Vector3};
+
+    fn pose_at(x: f64) -> Isometry3 {
+        Isometry3::from_parts(Vector3::new(x, 0.0, 0.0).into(), Default::default())
+    }
+
+    #[test]
+    fn empty_cache_returns_the_query_pose_paired_with_an_all_zero_config() {
+        let cache = IkCache::new(&IkCacheOptions::default());
+        let query = pose_at(3.0);
+        let nearest = cache.nearest(&query, 4);
+        assert_eq!(nearest.pose, query);
+        assert_eq!(nearest.config(), [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn nearest_picks_the_closer_of_two_entries_by_pose_distance() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            min_pose_distance: 0.0,
+            min_config_distance: 0.0,
+            ..IkCacheOptions::default()
+        });
+        let far_seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&far_seed, &pose_at(10.0), &[1.0]);
+        let near_seed = cache.nearest(&pose_at(10.0), 1);
+        cache.update(&near_seed, &pose_at(1.0), &[2.0]);
+
+        let nearest = cache.nearest(&pose_at(0.9), 1);
+        assert_eq!(nearest.config(), [2.0]);
+    }
+
+    fn pose_with_yaw(yaw: f64) -> Isometry3 {
+        Isometry3::from_parts(
+            Vector3::new(0.0, 0.0, 0.0).into(),
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), yaw),
+        )
+    }
+
+    /// Every other test here holds orientation at identity and varies only
+    /// position, so a `pose_distance` that silently dropped its
+    /// `angle_to` term (position-only) would still pass them all. Both
+    /// entries below share the same position; only orientation differs,
+    /// isolating that term.
+    #[test]
+    fn nearest_picks_the_closer_of_two_entries_by_orientation_distance() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            min_pose_distance: 0.0,
+            min_config_distance: 0.0,
+            ..IkCacheOptions::default()
+        });
+        let far_seed = cache.nearest(&pose_with_yaw(0.0), 1);
+        cache.update(&far_seed, &pose_with_yaw(2.0), &[1.0]);
+        let near_seed = cache.nearest(&pose_with_yaw(2.0), 1);
+        cache.update(&near_seed, &pose_with_yaw(0.2), &[2.0]);
+
+        let nearest = cache.nearest(&pose_with_yaw(0.1), 1);
+        assert_eq!(nearest.config(), [2.0]);
+    }
+
+    #[test]
+    fn tie_break_keeps_the_first_inserted_entry() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            min_pose_distance: 0.0,
+            min_config_distance: 0.0,
+            max_cache_size: 5000,
+        });
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&seed, &pose_at(1.0), &[100.0]);
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&seed, &pose_at(-1.0), &[200.0]);
+
+        // Both entries are exactly `1.0` away from the query pose.
+        let nearest = cache.nearest(&pose_at(0.0), 1);
+        assert_eq!(nearest.config(), [100.0]);
+    }
+
+    #[test]
+    fn update_inserts_when_pose_distance_alone_clears_the_threshold() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            min_pose_distance: 5.0,
+            min_config_distance: 100.0,
+            ..IkCacheOptions::default()
+        });
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        // Config distance is 0 (identical config), but pose distance (10)
+        // clears `min_pose_distance` (5) -- the OR must still insert.
+        cache.update(&seed, &pose_at(10.0), &[0.0]);
+        assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[test]
+    fn update_inserts_when_config_distance_alone_clears_the_threshold() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            min_pose_distance: 100.0,
+            min_config_distance: 1.0,
+            ..IkCacheOptions::default()
+        });
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        // Pose distance is 0 (identical pose), but config distance (5)
+        // clears `min_config_distance` (1) -- the OR must still insert.
+        cache.update(&seed, &pose_at(0.0), &[5.0]);
+        assert_eq!(cache.entries.len(), 1);
+    }
+
+    #[test]
+    fn update_rejects_when_neither_distance_clears_its_threshold() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            min_pose_distance: 100.0,
+            min_config_distance: 100.0,
+            ..IkCacheOptions::default()
+        });
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&seed, &pose_at(0.1), &[0.1]);
+        assert_eq!(cache.entries.len(), 0);
+    }
+
+    #[test]
+    fn update_refuses_once_the_cache_is_full() {
+        let mut cache = IkCache::new(&IkCacheOptions {
+            max_cache_size: 1,
+            min_pose_distance: 0.0,
+            min_config_distance: 0.0,
+        });
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&seed, &pose_at(1.0), &[1.0]);
+        assert_eq!(cache.entries.len(), 1);
+
+        let seed = cache.nearest(&pose_at(50.0), 1);
+        cache.update(&seed, &pose_at(50.0), &[50.0]);
+        assert_eq!(
+            cache.entries.len(),
+            1,
+            "cache must not grow past max_cache_size"
+        );
+    }
+}

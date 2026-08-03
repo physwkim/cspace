@@ -141,9 +141,13 @@ fn registered_cache_options() -> IkCacheOptions {
 #[linkme::distributed_slice(KINEMATICS_SOLVERS)]
 static NEWTON_RAPHSON_CACHED: SolverRegistration = SolverRegistration {
     name: "newton_raphson_cached",
-    construct: |model: &RobotModel, group_name: &str, params: &SolverParams| -> Result<Box<dyn KinematicsSolver>> {
+    construct: |model: &RobotModel,
+                group_name: &str,
+                params: &SolverParams|
+     -> Result<Box<dyn KinematicsSolver>> {
         NewtonRaphsonSolver::new(model, group_name, params).map(|solver| {
-            Box::new(CachedIkSolver::new(solver, registered_cache_options())) as Box<dyn KinematicsSolver>
+            Box::new(CachedIkSolver::new(solver, registered_cache_options()))
+                as Box<dyn KinematicsSolver>
         })
     },
 };
@@ -151,9 +155,135 @@ static NEWTON_RAPHSON_CACHED: SolverRegistration = SolverRegistration {
 #[linkme::distributed_slice(KINEMATICS_SOLVERS)]
 static LMA_CACHED: SolverRegistration = SolverRegistration {
     name: "lma_cached",
-    construct: |model: &RobotModel, group_name: &str, params: &SolverParams| -> Result<Box<dyn KinematicsSolver>> {
+    construct: |model: &RobotModel,
+                group_name: &str,
+                params: &SolverParams|
+     -> Result<Box<dyn KinematicsSolver>> {
         LevenbergMarquardtSolver::new(model, group_name, params).map(|solver| {
-            Box::new(CachedIkSolver::new(solver, registered_cache_options())) as Box<dyn KinematicsSolver>
+            Box::new(CachedIkSolver::new(solver, registered_cache_options()))
+                as Box<dyn KinematicsSolver>
         })
     },
 };
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use super::*;
+
+    /// A [`KinematicsSolver`] whose `solve_with_options` is scripted: it
+    /// records every `seed` it is called with (through a shared handle a
+    /// test can inspect after `solver` -- and this fake -- have been moved
+    /// into a [`CachedIkSolver`]), and converges only when `seed` equals
+    /// `accepts_seed`. That lets a test observe exactly which seed(s)
+    /// [`CachedIkSolver`] tried, in what order, without depending on any
+    /// real numeric solver's convergence behaviour.
+    struct FakeSolver {
+        joint_names: Vec<String>,
+        accepts_seed: Vec<f64>,
+        calls: Rc<RefCell<Vec<Vec<f64>>>>,
+    }
+
+    impl KinematicsSolver for FakeSolver {
+        fn group_name(&self) -> &str {
+            "fake"
+        }
+
+        fn joint_names(&self) -> &[String] {
+            &self.joint_names
+        }
+
+        fn base_frame(&self) -> &str {
+            "base"
+        }
+
+        fn tip_frame(&self) -> &str {
+            "tip"
+        }
+
+        fn solve_with_options(
+            &mut self,
+            seed: &[f64],
+            _target: &Isometry3,
+            _options: &mut SolveOptions,
+        ) -> Option<Vec<f64>> {
+            self.calls.borrow_mut().push(seed.to_vec());
+            (seed == self.accepts_seed.as_slice()).then(|| seed.to_vec())
+        }
+    }
+
+    fn zero_gate_options() -> IkCacheOptions {
+        IkCacheOptions {
+            max_cache_size: 5000,
+            min_pose_distance: 0.0,
+            min_config_distance: 0.0,
+        }
+    }
+
+    /// Pins the cache-miss half of the cache hit/miss branch: an empty
+    /// cache's `nearest()` dummy (all-zero config) is tried first, and
+    /// only once *that* fails does [`CachedIkSolver`] retry with the
+    /// caller's own `seed` -- see `CachedIkSolver::solve_with_options`'s
+    /// doc comment. Neutralizing the fallback (e.g. returning the
+    /// nearest-seed attempt's `None` directly instead of retrying) makes
+    /// this test fail: `result` would be `None`, not `Some([3.0])`.
+    #[test]
+    fn cache_miss_falls_back_to_the_callers_own_seed() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let inner = FakeSolver {
+            joint_names: vec!["j1".to_string()],
+            accepts_seed: vec![3.0],
+            calls: Rc::clone(&calls),
+        };
+        let mut solver = CachedIkSolver::new(inner, zero_gate_options());
+        let target = Isometry3::identity();
+
+        let result = solver.solve_with_options(&[3.0], &target, &mut SolveOptions::default());
+
+        assert_eq!(result, Some(vec![3.0]));
+        assert_eq!(
+            *calls.borrow(),
+            vec![vec![0.0], vec![3.0]],
+            "an empty cache must try the all-zero dummy seed before falling back to the caller's seed"
+        );
+    }
+
+    /// Pins the cache-hit half of the cache hit/miss branch: once the
+    /// cache holds a seed that itself converges, that nearest-seed
+    /// attempt is *not* followed by a second attempt with the caller's
+    /// own (different, and here rejecting) seed. Neutralizing the branch
+    /// (e.g. always trying both seeds unconditionally) makes this test
+    /// fail: `calls` would list two entries, not one.
+    #[test]
+    fn cache_hit_short_circuits_without_trying_the_callers_own_seed() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let inner = FakeSolver {
+            joint_names: vec!["j1".to_string()],
+            accepts_seed: vec![7.0],
+            calls: Rc::clone(&calls),
+        };
+        let mut solver = CachedIkSolver::new(inner, zero_gate_options());
+        let target = Isometry3::identity();
+
+        // Prime the cache: the empty-cache dummy seed [0.0] is rejected,
+        // the caller's own seed [7.0] converges and gets cached against
+        // `target` (see `cache_miss_falls_back_to_the_callers_own_seed`).
+        let primed = solver.solve_with_options(&[7.0], &target, &mut SolveOptions::default());
+        assert_eq!(primed, Some(vec![7.0]));
+        calls.borrow_mut().clear();
+
+        // Solve again at the same pose with a *different*, rejecting
+        // caller seed. The cache now holds [7.0] as `target`'s nearest
+        // seed, so that's what gets tried -- and it converges immediately.
+        let hit = solver.solve_with_options(&[99.0], &target, &mut SolveOptions::default());
+
+        assert_eq!(hit, Some(vec![7.0]));
+        assert_eq!(
+            *calls.borrow(),
+            vec![vec![7.0]],
+            "a cache hit must not fall back to the caller's own seed"
+        );
+    }
+}
