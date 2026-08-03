@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 
 use moveit_collision::{
-    AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, ParryCollisionEnv,
+    AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, DistanceRequest,
+    DistanceResultsData, ParryCollisionEnv,
 };
 use moveit_constraints::{
     Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
@@ -27,8 +28,8 @@ use moveit_state::{Posed, RobotState};
 use nalgebra::{Matrix3, Quaternion, Translation3};
 
 use crate::protocol::{
-    CollisionCheckResult, ConstraintResult, ConstraintsResult, ConstraintsSpec, FkResult,
-    JacobianResult, JointDetail, Mimic, ModelInfo, OrientationToleranceSpec, ShapeSpec,
+    CollisionCheckResult, ConstraintResult, ConstraintsResult, ConstraintsSpec, DistancePair,
+    FkResult, JacobianResult, JointDetail, Mimic, ModelInfo, OrientationToleranceSpec, ShapeSpec,
 };
 
 /// Row-major 4x4, matching the oracle's `toRowMajor4x4`. `pub(crate)`: also
@@ -377,9 +378,36 @@ pub fn collision(
     Ok(CollisionCheckResult {
         self_collision: self_result.collision,
         self_distance: self_distance.minimum_distance.distance,
+        self_distance_pair: distance_pair(&self_distance.minimum_distance),
         robot_collision: robot_result.collision,
         robot_distance: robot_distance.minimum_distance.distance,
+        robot_distance_pair: distance_pair(&robot_distance.minimum_distance),
     })
+}
+
+/// [`DistancePair`] off a [`DistanceResultsData`], matching the oracle's
+/// `distancePairToJson`: `None` when `link_names` are empty together
+/// (`DistanceResultsData::clear()`'s untouched state), so an oracle-side
+/// `null` and this side's `None` deserialize/serialize identically.
+fn distance_pair(data: &DistanceResultsData) -> Option<DistancePair> {
+    if data.link_names[0].is_empty() || data.link_names[1].is_empty() {
+        return None;
+    }
+    Some(DistancePair {
+        body_name_1: data.link_names[0].clone(),
+        body_type_1: body_type_name(data.body_types[0]).to_owned(),
+        body_name_2: data.link_names[1].clone(),
+        body_type_2: body_type_name(data.body_types[1]).to_owned(),
+    })
+}
+
+/// Matches the oracle's `bodyTypeName` naming for `collision_detection::BodyTypes::Type`.
+fn body_type_name(body_type: BodyType) -> &'static str {
+    match body_type {
+        BodyType::RobotLink => "robot_link",
+        BodyType::RobotAttached => "robot_attached",
+        BodyType::WorldObject => "world_object",
+    }
 }
 
 /// `group`'s tip link pose expressed in `group`'s own base-link frame --
