@@ -445,6 +445,223 @@ mod tests {
         assert_eq!(baseline_penalty, moved_penalty);
     }
 
+    /// A planar joint with its default (unconfigured) bounds is skipped:
+    /// pr2's `base` group is exactly `world_joint` (`type="planar"` in
+    /// `pr2.srdf`), left at `PlanarJoint`'s defaults --
+    /// `x`/`y` bounded `±INFINITY`, `theta` bounded `∓PI`. The
+    /// sentinel check in `joint_limits_penalty` reads only the joint's
+    /// *bounds*, never the state's position, so this must hold for every
+    /// position, not just the all-zero default -- moving `theta` off `0.0`
+    /// must not change the penalty.
+    ///
+    /// This alone does not isolate the `x`/`y` infinite-bound check from
+    /// the `theta` `±PI` literal check below it: both are true here at
+    /// once (the OR only needs one to fire), so this test would keep
+    /// passing even if the `x`/`y` half of the sentinel silently stopped
+    /// matching -- `planar_xy_infinite_bounds_still_skip_despite_finite_theta`
+    /// isolates that half specifically, the same way
+    /// `planar_theta_bound_at_pi_literal_still_skips_despite_finite_translation`
+    /// isolates `theta`'s.
+    #[test]
+    fn planar_joint_with_default_bounds_is_skipped_in_joint_limits_penalty() {
+        let model = build_pr2_model();
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("base").unwrap();
+
+        let baseline = RobotState::new(&model);
+        let baseline_penalty = metrics.joint_limits_penalty(&baseline, group).unwrap();
+
+        let mut moved = RobotState::new(&model);
+        moved
+            .set_joint_positions("world_joint", &[1.0, -2.0, 1.0])
+            .unwrap();
+        let moved_penalty = metrics.joint_limits_penalty(&moved, group).unwrap();
+
+        assert_eq!(baseline_penalty, moved_penalty);
+    }
+
+    /// The `x`/`y` infinite-bound half of the same sentinel, isolated from
+    /// `theta`: `theta` is given a finite, non-default range via
+    /// `RobotModel::joint_model_mut`/`JointModel::set_variable_bounds`
+    /// (`world_joint/theta` alone), while `x`/`y` are left at
+    /// `PlanarJoint`'s default `±INFINITY`. The joint must still be
+    /// skipped, on the `x`/`y` check alone -- confirmed empirically: if the
+    /// `f64::NEG_INFINITY`/`f64::INFINITY` comparisons in
+    /// `joint_limits_penalty` are swapped for a different sentinel (e.g.
+    /// upstream's literal, finite `-DBL_MAX`/`DBL_MAX`, which this port's
+    /// `new_planar` never actually produces -- see this module's own doc
+    /// comment), every other test in this file still passes (the `theta`
+    /// check in `planar_joint_with_default_bounds_is_skipped_...` covers
+    /// for it), and only this test catches the regression.
+    #[test]
+    fn planar_xy_infinite_bounds_still_skip_despite_finite_theta() {
+        let mut model = build_pr2_model();
+        let joint = model.joint_model_mut("world_joint").unwrap();
+        joint
+            .set_variable_bounds(
+                "world_joint/theta",
+                moveit_model::joint::VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        // `x`/`y` left at `new_planar`'s default `±INFINITY` bounds.
+
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("base").unwrap();
+
+        let state = RobotState::new(&model);
+        let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
+        let expected_penalty = 1.0 - (-1.5_f64).exp();
+
+        assert_eq!(actual_penalty, expected_penalty);
+    }
+
+    /// The other direction of the same sentinel: give `world_joint` finite
+    /// `x`/`y` bounds and a `theta` range that does not touch `±PI`,
+    /// via the public `RobotModel::joint_model_mut`/
+    /// `JointModel::set_variable_bounds` API (planar joints built from URDF
+    /// never carry non-default bounds -- `joint/urdf.rs`'s
+    /// `UrdfJointType::Planar` arm always calls `new_planar` with no limit
+    /// data, so this direction cannot be reached from any URDF/SRDF
+    /// fixture, only by mutating an already-built model). None of the six
+    /// sentinel conditions hold, so the joint's distance-to-bound term is
+    /// actually computed -- moving `theta` must now change the penalty.
+    /// This is the test that pins the *other* end of the same design
+    /// deviation `planar_xy_infinite_bounds_still_skip_despite_finite_theta`
+    /// pins: that one confirms genuinely infinite bounds still match the
+    /// port's `f64::NEG_INFINITY`/`f64::INFINITY` sentinel; this one
+    /// confirms genuinely finite bounds do *not* spuriously match it (the
+    /// failure mode upstream's own comment about `DBL_MAX` warns against,
+    /// documented in this module's doc comment but, before these two tests,
+    /// never exercised).
+    #[test]
+    fn planar_joint_with_finite_bounds_is_not_skipped_in_joint_limits_penalty() {
+        let mut model = build_pr2_model();
+        let joint = model.joint_model_mut("world_joint").unwrap();
+        joint
+            .set_variable_bounds(
+                "world_joint/x",
+                moveit_model::joint::VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        joint
+            .set_variable_bounds(
+                "world_joint/y",
+                moveit_model::joint::VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        joint
+            .set_variable_bounds(
+                "world_joint/theta",
+                moveit_model::joint::VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("base").unwrap();
+
+        let baseline = RobotState::new(&model);
+        let baseline_penalty = metrics.joint_limits_penalty(&baseline, group).unwrap();
+
+        let mut moved = RobotState::new(&model);
+        moved
+            .set_joint_positions("world_joint", &[0.0, 0.0, 0.5])
+            .unwrap();
+        let moved_penalty = metrics.joint_limits_penalty(&moved, group).unwrap();
+
+        assert_ne!(baseline_penalty, moved_penalty);
+    }
+
+    /// The `theta` bound's `±PI` literal comparison, isolated from
+    /// the `x`/`y` infinite-bound checks: `x`/`y` are given the same finite
+    /// bounds as the previous test, but `theta` is left at its default
+    /// `∓PI` range. The joint must still be skipped on `theta` alone.
+    ///
+    /// This cannot be pinned by comparing two states the way the other
+    /// three skip tests are: `PlanarJoint::distance` (`joint/planar.rs`)
+    /// wraps its angular term at `2*PI`, and `-PI`/`PI` are the same point
+    /// on that wrap, so *whether or not the skip fires*, the distance to
+    /// the lower bound's `theta` component always equals the distance to
+    /// the upper bound's -- for every position, not just the default. With
+    /// `x`/`y` also symmetric around the all-zero default, that makes
+    /// `lower_bound_distance == upper_bound_distance` regardless of `theta`,
+    /// which forces the per-joint term to the constant `0.25` (`L*L /
+    /// (2L)^2`) independent of whether the joint is skipped -- the same
+    /// blind spot the `continuous_revolute_joint_does_not_contribute` test
+    /// above works around, here on `theta` instead of a whole joint.
+    ///
+    /// So this pins the closed-form value directly instead: `base` is a
+    /// single-joint group, so if `world_joint` is skipped,
+    /// `joint_limits_multiplier` never leaves its initial `1.0` and the
+    /// whole penalty collapses to `1.0 - exp(-penalty_multiplier)` --
+    /// exactly, not approximately. If the `-std::f64::consts::PI`/
+    /// `std::f64::consts::PI` literals in `joint_limits_penalty` ever
+    /// changed (e.g. to a near-PI approximation), this default `theta`
+    /// range would stop matching either literal, the joint would stop
+    /// being skipped, and the penalty would move off this closed form --
+    /// as confirmed by deliberately breaking the literal and re-running
+    /// this test.
+    #[test]
+    fn planar_theta_bound_at_pi_literal_still_skips_despite_finite_translation() {
+        let mut model = build_pr2_model();
+        let joint = model.joint_model_mut("world_joint").unwrap();
+        joint
+            .set_variable_bounds(
+                "world_joint/x",
+                moveit_model::joint::VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        joint
+            .set_variable_bounds(
+                "world_joint/y",
+                moveit_model::joint::VariableBounds {
+                    min_position: -1.0,
+                    max_position: 1.0,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        // `theta` left at `new_planar`'s default `∓PI` bounds.
+
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("base").unwrap();
+
+        let state = RobotState::new(&model);
+        let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
+        let expected_penalty = 1.0 - (-1.5_f64).exp();
+
+        assert_eq!(actual_penalty, expected_penalty);
+    }
+
     /// All four public metrics compute finite values for a real chain group
     /// at the default (all-zero) configuration, and agree with each other's
     /// documented relationship: `manipulability_index(translation=false)`
