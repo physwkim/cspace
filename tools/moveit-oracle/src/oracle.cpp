@@ -1056,8 +1056,68 @@ private:
   /// exists to be oracle-comparable ground truth, not to reproduce a read
   /// past the end of a `std::vector` -- so it implements the intended
   /// check instead.
+  /// One draw of `searchPositionIK`'s reseed formula
+  /// (kdl_kinematics_plugin.cpp:373-382), continuous-joint-aware
+  /// (`RevoluteJointModel::getVariableRandomPositionsNearBy`,
+  /// revolute_joint_model.cpp:122-136). Factored out so `ik()`'s real reseed
+  /// loop and its `reseed_probe` diagnostic below draw from one definition
+  /// instead of two copies that could drift apart.
+  double sampleReseed(bool continuous, double near, double limit, double min, double max)
+  {
+    if (continuous)
+    {
+      // Unclamped `near +/- limit`, then wrapped into `(-pi, pi]` -- not
+      // clamped to the joint's (here: reporting-only, [-pi, pi]) bounds.
+      // Matches this port's own fix in `near_by_configuration`
+      // (crates/moveit-kinematics/src/cart_to_jnt.rs).
+      double value = ik_rng_.uniformReal(near - limit, near + limit);
+      if (value <= -M_PI || value > M_PI)
+      {
+        value = std::fmod(value, 2.0 * M_PI);
+        if (value <= -M_PI)
+          value += 2.0 * M_PI;
+        else if (value > M_PI)
+          value -= 2.0 * M_PI;
+      }
+      return value;
+    }
+    return ik_rng_.uniformReal(std::max(min, near - limit), std::min(max, near + limit));
+  }
+
   json ik(const json& request)
   {
+    // Diagnostic-only probe: draw `count` samples from `sampleReseed` in
+    // isolation for one named joint, bypassing the group/FK/solve machinery
+    // below entirely. `ik()`'s own response reports only the final
+    // solved-or-failed outcome, never the intermediate reseed draws the loop
+    // below actually produces, so nothing else in this file can answer "did
+    // this joint's reseed wrap or clamp?" -- see
+    // `tools/ci/check-continuous-reseed-wrap.sh`, which uses this to pin
+    // `RevoluteJointModel`'s wrap-not-clamp behaviour (round 6's fix, this
+    // file's `sampleReseed`) against a regression nothing else here would
+    // notice.
+    if (request.contains("reseed_probe"))
+    {
+      const json& probe = request.at("reseed_probe");
+      const std::string joint_name = probe.at("joint").get<std::string>();
+      const double near = probe.at("near").get<double>();
+      const double limit = probe.at("limit").get<double>();
+      const unsigned int count = probe.at("count").get<unsigned int>();
+
+      const moveit::core::JointModel* jm = model_->getJointModel(joint_name);
+      if (!jm)
+        throw std::runtime_error("reseed_probe: unknown joint '" + joint_name + "'");
+      const auto* revolute = dynamic_cast<const moveit::core::RevoluteJointModel*>(jm);
+      const bool continuous = revolute != nullptr && revolute->isContinuous();
+      const moveit::core::VariableBounds& bounds = jm->getVariableBounds()[0];
+
+      json draws = json::array();
+      for (unsigned int i = 0; i < count; ++i)
+        draws.push_back(sampleReseed(continuous, near, limit, bounds.min_position_, bounds.max_position_));
+
+      return json{ { "continuous", continuous }, { "draws", draws } };
+    }
+
     constexpr unsigned int kMaxSolverIterations = 500;   // SolverParams::max_solver_iterations default
     constexpr double kEpsilon = 0.00001;                 // SolverParams::epsilon default
     constexpr double kSvdThreshold = 0.001;               // SolverParams::svd_threshold default
@@ -1339,35 +1399,14 @@ private:
         const std::size_t full_i = active_full_index[k];
         if (has_consistency_limits)
         {
-          const double limit = consistency_limits_mimic[k];
-          if (active_continuous[k])
-          {
-            // `RevoluteJointModel::getVariableRandomPositionsNearBy`
-            // (revolute_joint_model.cpp:122-136): a continuous joint samples
-            // `near ± distance` unclamped, then wraps into `(-pi, pi]`
-            // instead of clamping to the joint's (here: reporting-only,
-            // [-pi, pi]) bounds. Clamping here -- as this branch did before
-            // this fix -- is the same defect this loop's non-continuous case
-            // was fixed for, pointing the other way: it silently narrows the
-            // reseed window near the wrap boundary instead of matching
-            // upstream's wrap-around sampling. Matches this port's own fix
-            // in `near_by_configuration` (crates/moveit-kinematics/src/cart_to_jnt.rs).
-            double value = ik_rng_.uniformReal(seed_active[k] - limit, seed_active[k] + limit);
-            if (value <= -M_PI || value > M_PI)
-            {
-              value = std::fmod(value, 2.0 * M_PI);
-              if (value <= -M_PI)
-                value += 2.0 * M_PI;
-              else if (value > M_PI)
-                value -= 2.0 * M_PI;
-            }
-            reseed_active[k] = value;
-          }
-          else
-          {
-            reseed_active[k] = ik_rng_.uniformReal(std::max(joint_min[full_i], seed_active[k] - limit),
-                                                    std::min(joint_max[full_i], seed_active[k] + limit));
-          }
+          // `searchPositionIK`'s own branch (kdl_kinematics_plugin.cpp:373-382):
+          // reseed near the *original* seed, clamped to each active joint's
+          // own consistency_limits_mimic bound, whenever limits are active;
+          // only fall back to a full-range draw when they are not (the
+          // `else` branch below). `sampleReseed` is what actually branches
+          // on continuity -- see its own doc comment.
+          reseed_active[k] = sampleReseed(active_continuous[k], seed_active[k], consistency_limits_mimic[k],
+                                           joint_min[full_i], joint_max[full_i]);
         }
         else
         {
