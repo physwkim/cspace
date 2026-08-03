@@ -41,7 +41,7 @@ use approx::assert_relative_eq;
 use nalgebra::Vector3;
 
 use moveit_distance_field::{
-    ConvexBody, DistanceField, PropagationDistanceField, find_internal_points_convex,
+    ConvexBody, DistanceField, GridGeometry, PropagationDistanceField, find_internal_points_convex,
 };
 
 const WIDTH: f64 = 1.0;
@@ -52,6 +52,15 @@ const ORIGIN_X: f64 = 0.0;
 const ORIGIN_Y: f64 = 0.0;
 const ORIGIN_Z: f64 = 0.0;
 const MAX_DIST: f64 = 0.3;
+
+fn geometry() -> GridGeometry {
+    GridGeometry::new(
+        Vector3::new(WIDTH, HEIGHT, DEPTH),
+        Vector3::new(ORIGIN_X, ORIGIN_Y, ORIGIN_Z),
+        RESOLUTION,
+    )
+    .unwrap()
+}
 
 fn point1() -> Vector3<f64> {
     Vector3::new(0.1, 0.0, 0.0)
@@ -132,10 +141,7 @@ fn distance_fields_have_equal_distances(
 /// Upstream `TEST(TestPropagationDistanceField, TestAddRemovePoints)`.
 #[test]
 fn add_remove_points_matches_upstream_test_propagation_distance_field() {
-    let mut df = PropagationDistanceField::new(
-        WIDTH, HEIGHT, DEPTH, RESOLUTION, ORIGIN_X, ORIGIN_Y, ORIGIN_Z, MAX_DIST, false,
-    )
-    .unwrap();
+    let mut df = PropagationDistanceField::new(geometry(), MAX_DIST, false).unwrap();
 
     let num_x = df.num_cells_x();
     let num_y = df.num_cells_y();
@@ -198,10 +204,7 @@ fn add_remove_points_matches_upstream_test_propagation_distance_field() {
 /// portion this omits.
 #[test]
 fn signed_add_remove_points_matches_rebuild_without_the_removed_point() {
-    let mut df = PropagationDistanceField::new(
-        WIDTH, HEIGHT, DEPTH, RESOLUTION, ORIGIN_X, ORIGIN_Y, ORIGIN_Z, MAX_DIST, true,
-    )
-    .unwrap();
+    let mut df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
 
     let num_x = df.num_cells_x();
     let num_y = df.num_cells_y();
@@ -234,10 +237,7 @@ fn signed_add_remove_points_matches_rebuild_without_the_removed_point() {
     let center_point = df.grid_to_world(5, 5, 5);
     df.remove_points_from_field(&[center_point]);
 
-    let mut test_df = PropagationDistanceField::new(
-        WIDTH, HEIGHT, DEPTH, RESOLUTION, ORIGIN_X, ORIGIN_Y, ORIGIN_Z, MAX_DIST, true,
-    )
-    .unwrap();
+    let mut test_df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
     let test_points: Vec<Vector3<f64>> = points
         .iter()
         .copied()
@@ -270,10 +270,7 @@ impl ConvexBody for Sphere {
 /// `distance_field.cpp`'s definitions of both, and this file's module doc.
 #[test]
 fn moving_a_shape_in_field_matches_rebuild_at_the_new_pose() {
-    let mut df = PropagationDistanceField::new(
-        WIDTH, HEIGHT, DEPTH, RESOLUTION, ORIGIN_X, ORIGIN_Y, ORIGIN_Z, MAX_DIST, true,
-    )
-    .unwrap();
+    let mut df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
 
     let num_x = df.num_cells_x();
     let num_y = df.num_cells_y();
@@ -305,10 +302,7 @@ fn moving_a_shape_in_field_matches_rebuild_at_the_new_pose() {
     check_distance_field(&df, &point_vec_2, num_x, num_y, num_z, true);
 
     // "should be equivalent to just adding second shape"
-    let mut test_df = PropagationDistanceField::new(
-        WIDTH, HEIGHT, DEPTH, RESOLUTION, ORIGIN_X, ORIGIN_Y, ORIGIN_Z, MAX_DIST, true,
-    )
-    .unwrap();
+    let mut test_df = PropagationDistanceField::new(geometry(), MAX_DIST, true).unwrap();
     test_df.add_points_to_field(&point_vec_2);
     assert!(distance_fields_have_equal_distances(&df, &test_df));
 }

@@ -12,7 +12,7 @@ use moveit_error::{Error, Result};
 use nalgebra::Vector3;
 
 use crate::distance_field::DistanceField;
-use crate::voxel_grid::{Dimension, VoxelGrid};
+use crate::voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 
 /// Per-voxel bookkeeping for [`PropagationDistanceField`]: distances (stored
 /// squared, in cells — see the field docs) plus enough state to resume
@@ -194,28 +194,19 @@ pub struct PropagationDistanceField {
 impl PropagationDistanceField {
     /// Upstream `PropagationDistanceField(size_x, size_y, size_z,
     /// resolution, origin_x, origin_y, origin_z, max_distance,
-    /// propagate_negative_distances = false)`.
+    /// propagate_negative_distances = false)`, with the six size/origin
+    /// arguments bundled into `geometry` — see [`GridGeometry`]'s doc
+    /// comment for why.
     ///
     /// # Errors
     ///
     /// See this type's "Deviations from upstream" doc section.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        size_x: f64,
-        size_y: f64,
-        size_z: f64,
-        resolution: f64,
-        origin_x: f64,
-        origin_y: f64,
-        origin_z: f64,
+        geometry: GridGeometry,
         max_distance: f64,
         propagate_negative_distances: bool,
     ) -> Result<Self> {
-        if !(resolution.is_finite() && resolution > 0.0) {
-            return Err(Error::construct(format!(
-                "resolution must be finite and positive, got {resolution}"
-            )));
-        }
+        let resolution = geometry.resolution;
         // Upstream: `max_distance_sq_ = ceil(max_distance_ / resolution_) *
         // ceil(max_distance_ / resolution_)`, assigned into an `int` field.
         let n = (max_distance / resolution).ceil();
@@ -228,16 +219,7 @@ impl PropagationDistanceField {
         }
         let max_distance_sq = max_distance_sq_f as i32;
 
-        let voxel_grid = VoxelGrid::new(
-            size_x,
-            size_y,
-            size_z,
-            resolution,
-            origin_x,
-            origin_y,
-            origin_z,
-            PropDistanceFieldVoxel::new(max_distance_sq, 0),
-        )?;
+        let voxel_grid = VoxelGrid::new(geometry, PropDistanceFieldVoxel::new(max_distance_sq, 0));
 
         let (neighborhoods, direction_number_to_direction) = build_neighborhoods();
         let bucket_len = (max_distance_sq + 1) as usize;

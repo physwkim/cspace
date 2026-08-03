@@ -44,4 +44,4 @@ mod voxel_grid;
 pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};
 pub use propagation::{NearestCell, PropDistanceFieldVoxel, PropagationDistanceField};
-pub use voxel_grid::{Dimension, VoxelGrid};
+pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};

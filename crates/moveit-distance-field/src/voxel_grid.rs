@@ -21,6 +21,58 @@ pub enum Dimension {
     Z = 2,
 }
 
+/// The size, origin and resolution of a [`VoxelGrid`] or
+/// [`crate::PropagationDistanceField`], bundled into one type.
+///
+/// Upstream spells these as six separate `size_x`/`size_y`/`size_z`/
+/// `origin_x`/`origin_y`/`origin_z` `f64` constructor arguments (plus
+/// `resolution`), which the type checker cannot tell apart — a caller that
+/// transposes a size and an origin compiles silently into a corrupt grid.
+/// Bundling `size` and `origin` into [`Vector3`] fields makes them
+/// distinguishable by type-shape at the call site instead.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GridGeometry {
+    /// World-space extent along x, y, z.
+    pub size: Vector3<f64>,
+    /// World-space location of cell `(0, 0, 0)`'s corner.
+    pub origin: Vector3<f64>,
+    /// The edge length of one (cubic) cell.
+    pub resolution: f64,
+}
+
+impl GridGeometry {
+    /// Build a grid geometry, validating what
+    /// `VoxelGrid`/`PropagationDistanceField`'s upstream constructors do not
+    /// (see [`VoxelGrid::new`]'s former "Deviations from upstream" note,
+    /// folded into this type since the checks moved here): a non-positive
+    /// `resolution` or a negative `size` divides/multiplies silently into
+    /// infinite or NaN cell counts upstream.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Construct`] when `resolution` is not finite and positive, or
+    /// any `size` component is not finite and non-negative.
+    pub fn new(size: Vector3<f64>, origin: Vector3<f64>, resolution: f64) -> Result<Self> {
+        if !(resolution.is_finite() && resolution > 0.0) {
+            return Err(Error::construct(format!(
+                "resolution must be finite and positive, got {resolution}"
+            )));
+        }
+        for (name, value) in [("size.x", size.x), ("size.y", size.y), ("size.z", size.z)] {
+            if !(value.is_finite() && value >= 0.0) {
+                return Err(Error::construct(format!(
+                    "{name} must be finite and non-negative, got {value}"
+                )));
+            }
+        }
+        Ok(Self {
+            size,
+            origin,
+            resolution,
+        })
+    }
+}
+
 /// A dense, axis-aligned 3D grid of `T`, addressable by either integer cell
 /// index or world coordinate.
 ///
@@ -62,45 +114,23 @@ pub struct VoxelGrid<T> {
 
 impl<T: Clone> VoxelGrid<T> {
     /// Upstream `VoxelGrid::VoxelGrid(size_x, size_y, size_z, resolution,
-    /// origin_x, origin_y, origin_z, default_object)`.
-    ///
-    /// # Errors
-    ///
-    /// Upstream performs no validation here at all: a non-positive
-    /// `resolution` divides silently into `oo_resolution_ = 1.0 /
-    /// resolution_`, producing infinite or NaN cell counts. This port fails
-    /// fast instead of building a corrupt grid.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        size_x: f64,
-        size_y: f64,
-        size_z: f64,
-        resolution: f64,
-        origin_x: f64,
-        origin_y: f64,
-        origin_z: f64,
-        default_object: T,
-    ) -> Result<Self> {
-        if !(resolution.is_finite() && resolution > 0.0) {
-            return Err(Error::construct(format!(
-                "resolution must be finite and positive, got {resolution}"
-            )));
-        }
-        for (name, size) in [("size_x", size_x), ("size_y", size_y), ("size_z", size_z)] {
-            if !(size.is_finite() && size >= 0.0) {
-                return Err(Error::construct(format!(
-                    "{name} must be finite and non-negative, got {size}"
-                )));
-            }
-        }
+    /// origin_x, origin_y, origin_z, default_object)`. Infallible: `geometry`
+    /// is already validated by [`GridGeometry::new`] — see that type's doc
+    /// comment for what upstream fails to check here.
+    pub fn new(geometry: GridGeometry, default_object: T) -> Self {
+        let GridGeometry {
+            size,
+            origin,
+            resolution,
+        } = geometry;
 
         let oo_resolution = 1.0 / resolution;
-        let size = [size_x, size_y, size_z];
-        let origin = [origin_x, origin_y, origin_z];
+        let size = [size.x, size.y, size.z];
+        let origin = [origin.x, origin.y, origin.z];
         let origin_minus = [
-            origin_x - 0.5 * resolution,
-            origin_y - 0.5 * resolution,
-            origin_z - 0.5 * resolution,
+            origin[0] - 0.5 * resolution,
+            origin[1] - 0.5 * resolution,
+            origin[2] - 0.5 * resolution,
         ];
         // Matches upstream exactly: truncating multiplication, not the
         // rounded `getCellFromLocation` formula.
@@ -113,7 +143,7 @@ impl<T: Clone> VoxelGrid<T> {
         let stride1 = num_cells[1] * num_cells[2];
         let stride2 = num_cells[2];
 
-        Ok(Self {
+        Self {
             data: vec![default_object.clone(); num_cells_total.max(0) as usize],
             default_object,
             size,
@@ -124,7 +154,7 @@ impl<T: Clone> VoxelGrid<T> {
             num_cells,
             stride1,
             stride2,
-        })
+        }
     }
 
     /// Upstream `VoxelGrid::reset`: sets every cell to `initial`.
@@ -247,9 +277,16 @@ impl<T: Clone> VoxelGrid<T> {
 mod tests {
     use super::*;
 
+    /// A cube grid of the given size and resolution, origin at zero — every
+    /// test below except [`rejects_non_positive_resolution`] only varies
+    /// these two.
+    fn cube_geometry(size: f64, resolution: f64) -> GridGeometry {
+        GridGeometry::new(Vector3::new(size, size, size), Vector3::zeros(), resolution).unwrap()
+    }
+
     #[test]
     fn dimensions_match_upstream_test_read_write() {
-        let vg = VoxelGrid::new(0.02, 0.02, 0.02, 0.01, 0.0, 0.0, 0.0, -100).unwrap();
+        let vg = VoxelGrid::new(cube_geometry(0.02, 0.01), -100);
         assert_eq!(vg.num_cells(Dimension::X), 2);
         assert_eq!(vg.num_cells(Dimension::Y), 2);
         assert_eq!(vg.num_cells(Dimension::Z), 2);
@@ -257,7 +294,7 @@ mod tests {
 
     #[test]
     fn reset_then_set_round_trips_every_cell() {
-        let mut vg = VoxelGrid::new(0.02, 0.02, 0.02, 0.01, 0.0, 0.0, 0.0, -100).unwrap();
+        let mut vg = VoxelGrid::new(cube_geometry(0.02, 0.01), -100);
         vg.reset(0);
         for x in 0..2 {
             for y in 0..2 {
@@ -288,14 +325,15 @@ mod tests {
 
     #[test]
     fn rejects_non_positive_resolution() {
-        assert!(VoxelGrid::new(1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0).is_err());
-        assert!(VoxelGrid::new(1.0, 1.0, 1.0, -0.1, 0.0, 0.0, 0.0, 0).is_err());
+        let size = Vector3::new(1.0, 1.0, 1.0);
+        assert!(GridGeometry::new(size, Vector3::zeros(), 0.0).is_err());
+        assert!(GridGeometry::new(size, Vector3::zeros(), -0.1).is_err());
     }
 
     #[test]
     fn cell_from_location_rounds_to_nearest_cell_center() {
         // resolution 1.0, origin 0.0: cell k covers world [k-0.5, k+0.5).
-        let vg = VoxelGrid::new(10.0, 10.0, 10.0, 1.0, 0.0, 0.0, 0.0, 0).unwrap();
+        let vg = VoxelGrid::new(cube_geometry(10.0, 1.0), 0);
         assert_eq!(vg.cell_from_location(Dimension::X, 0.0), 0);
         assert_eq!(vg.cell_from_location(Dimension::X, 0.49), 0);
         // exactly on the upper boundary rounds up to the next cell: floor
@@ -307,7 +345,7 @@ mod tests {
 
     #[test]
     fn world_to_grid_reports_invalid_outside_the_grid_but_still_computes_indices() {
-        let vg = VoxelGrid::new(1.0, 1.0, 1.0, 0.1, 0.0, 0.0, 0.0, 0).unwrap();
+        let vg = VoxelGrid::new(cube_geometry(1.0, 0.1), 0);
         let (valid, x, y, z) = vg.world_to_grid(&Vector3::new(1000.0, 1000.0, 1000.0));
         assert!(!valid);
         assert!(x > 0 && y > 0 && z > 0);
@@ -315,7 +353,7 @@ mod tests {
 
     #[test]
     fn grid_to_world_round_trips_cell_centers() {
-        let vg = VoxelGrid::new(1.0, 1.0, 1.0, 0.1, 0.0, 0.0, 0.0, 0).unwrap();
+        let vg = VoxelGrid::new(cube_geometry(1.0, 0.1), 0);
         for cell in [0, 3, 9] {
             let world = vg.grid_to_world(cell, cell, cell);
             let (valid, x, y, z) = vg.world_to_grid(&world);

@@ -24,7 +24,7 @@
 //!   is enabled at construction; positive distances are identical either
 //!   way.
 
-use moveit_distance_field::{DistanceField, PropagationDistanceField};
+use moveit_distance_field::{DistanceField, GridGeometry, PropagationDistanceField};
 use nalgebra::Vector3;
 
 const WIDTH: f64 = 1.0;
@@ -35,18 +35,13 @@ const ORIGIN: f64 = 0.0;
 const MAX_DIST: f64 = 0.3;
 
 fn new_field(propagate_negative: bool) -> PropagationDistanceField {
-    PropagationDistanceField::new(
-        WIDTH,
-        HEIGHT,
-        DEPTH,
+    let geometry = GridGeometry::new(
+        Vector3::new(WIDTH, HEIGHT, DEPTH),
+        Vector3::new(ORIGIN, ORIGIN, ORIGIN),
         RESOLUTION,
-        ORIGIN,
-        ORIGIN,
-        ORIGIN,
-        MAX_DIST,
-        propagate_negative,
     )
-    .unwrap()
+    .unwrap();
+    PropagationDistanceField::new(geometry, MAX_DIST, propagate_negative).unwrap()
 }
 
 fn fields_equal(a: &PropagationDistanceField, b: &PropagationDistanceField) -> bool {
