@@ -56,6 +56,11 @@
 //!   comment for the remaining dependency gap and
 //!   [`generate_distance_field_cache_entry`]'s own doc comment for what it
 //!   builds.
+//! - [`compare_cache_entry_to_state`] / [`compare_cache_entry_to_allowed_collision_matrix`]
+//!   — decide whether a [`DistanceFieldCacheEntry`] is still valid for a new
+//!   `RobotState`/`AllowedCollisionMatrix`; see
+//!   `collision_env_distance_field`'s module doc for what is still deferred
+//!   around them.
 //! - [`DistanceFieldCacheEntry`] — the group-, ACM-, and robot-state-specific
 //!   cache entry [`generate_distance_field_cache_entry`] populates; see its
 //!   own doc comment for what upstream field it deliberately leaves unset.
@@ -83,7 +88,9 @@ pub use collision_distance_field_types::{
     get_collision_sphere_collisions, get_collision_sphere_gradients,
 };
 pub use collision_env_distance_field::{
-    DistanceFieldConfig, add_link_body_decompositions, generate_distance_field_cache_entry,
+    DistanceFieldConfig, add_link_body_decompositions,
+    compare_cache_entry_to_allowed_collision_matrix, compare_cache_entry_to_state,
+    generate_distance_field_cache_entry,
 };
 pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};

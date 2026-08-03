@@ -27,21 +27,41 @@
 //! [`crate::DistanceFieldCacheEntry`] struct itself (in
 //! `collision_common_distance_field.rs`; see its module doc for the type).
 //!
+//! This round additionally lands [`compare_cache_entry_to_state`]/
+//! [`compare_cache_entry_to_allowed_collision_matrix`] (upstream
+//! `compareCacheEntryToState`/`compareCacheEntryToAllowedCollisionMatrix`):
+//! a previous round grouped these with `getDistanceFieldCacheEntry` as all
+//! alike blocked on the not-ported `CollisionEnvDistanceField` cache member,
+//! but neither actually touches it -- both take only a
+//! [`crate::DistanceFieldCacheEntry`] (already ported) plus a `RobotState`/
+//! `AllowedCollisionMatrix` (already available), so both are free functions
+//! here rather than methods needing that type's cache field or
+//! construction-time state. `p1-fixtures` has since landed
+//! `moveit-scene::AttachedBody`, but it remains unreachable from here: it is
+//! tracked on `moveit_scene::PlanningScene`, not on `moveit_state::RobotState`
+//! (that crate's own doc still lists "no attached bodies" under deferred
+//! scope, deliberately, so `PlanningScene` stays the sole owner -- see
+//! `moveit-scene`'s `attached_body` module doc), and
+//! [`generate_distance_field_cache_entry`] takes a bare `RobotState`, not a
+//! `PlanningScene`. Both new functions' own doc comments cover the resulting
+//! deviation: upstream's attached-body comparison is vacuously true here,
+//! since a bare `RobotState` genuinely has none to compare, matching
+//! [`crate::DistanceFieldCacheEntry`]'s own "always empty" attached-body
+//! fields.
+//!
 //! Still blocked, and why:
 //!
 //! - **`generateCollisionCheckingStructures`/`getDistanceFieldCacheEntry`/
-//!   `getGroupStateRepresentation`/`compareCacheEntryToState`/
-//!   `compareCacheEntryToAllowedCollisionMatrix`/
-//!   `updateGroupStateRepresentationState`.** Every one of these reads or
-//!   writes `CollisionEnvDistanceField`'s own `distance_field_cache_entry_`
-//!   cache member, or consumes/produces a `GroupStateRepresentation`
-//!   (deferred; see `collision_common_distance_field.rs`'s module doc for
-//!   why). Porting any of them needs either the not-yet-ported
-//!   `CollisionEnvDistanceField` type itself or the not-yet-ported
-//!   `GroupStateRepresentation` construction path
-//!   (`getGroupStateRepresentation` poses every group link's sphere
-//!   decomposition at its current global transform -- real work, not a
-//!   trivial wrapper). Both are out of this round's scope.
+//!   `getGroupStateRepresentation`/`updateGroupStateRepresentationState`.**
+//!   Every one of these reads or writes `CollisionEnvDistanceField`'s own
+//!   `distance_field_cache_entry_` cache member, or consumes/produces a
+//!   `GroupStateRepresentation` (deferred; see
+//!   `collision_common_distance_field.rs`'s module doc for why). Porting any
+//!   of them needs either the not-yet-ported `CollisionEnvDistanceField`
+//!   type itself or the not-yet-ported `GroupStateRepresentation`
+//!   construction path (`getGroupStateRepresentation` poses every group
+//!   link's sphere decomposition at its current global transform -- real
+//!   work, not a trivial wrapper). Both are out of this round's scope.
 //! - **`getPosedLinkBodySphereDecomposition`/`getPosedLinkBodyPointDecomposition`.**
 //!   Trivial one-line wrappers, but every upstream caller of either is
 //!   itself inside the still-blocked `getGroupStateRepresentation`; porting
@@ -49,8 +69,10 @@
 //!   it rather than added speculatively.
 //! - **`AttachedBody`-dependent methods** (`getAttachedBodySphereDecomposition`/
 //!   `getAttachedBodyPointDecomposition`, in `collision_common_distance_field.cpp`).
-//!   `AttachedBody` does not exist anywhere in this workspace this round
-//!   either (p1-fixtures owns it).
+//!   `AttachedBody` now exists (`moveit-scene`), but is unreachable from a
+//!   bare `RobotState` -- see the paragraph above -- and these two take a
+//!   `moveit::core::AttachedBody*` directly, which this workspace has no
+//!   equivalent standalone type for outside `moveit-scene`'s ownership of it.
 //!
 //! The rest of `CollisionEnvDistanceField` -- `checkSelfCollision`,
 //! `checkCollision`, `checkRobotCollision`, the `distance*` methods,
@@ -416,6 +438,88 @@ fn is_always_allowed(acm: &AllowedCollisionMatrix, a: &str, b: &str) -> bool {
     )
 }
 
+/// Upstream file-local `const double EPSILON = 0.001f;`
+/// (`collision_env_distance_field.cpp:55`), the tolerance
+/// [`compare_cache_entry_to_state`] allows an out-of-group joint variable to
+/// have drifted by before invalidating a cached entry.
+const STATE_CHECK_EPSILON: f64 = 0.001;
+
+/// Upstream `CollisionEnvDistanceField::compareCacheEntryToState`. `false`
+/// ("regenerate the cache") when `state` carries a different number of
+/// variables than `dfce` was generated with, or any variable *outside* the
+/// group (`dfce.state_check_indices`) has moved by more than
+/// `STATE_CHECK_EPSILON` (`0.001`, matching upstream's own file-local
+/// `EPSILON`) since `dfce` was generated. See
+/// `collision_common_distance_field.rs`'s "`compareCacheEntryToState`'s
+/// cache-key semantics" doc section for what this actually checks and why.
+///
+/// # Deviation from upstream
+///
+/// Upstream also compares `dfce->state_->getAttachedBodies()` against
+/// `state.getAttachedBodies()` (count, then name/touch-links/shapes per
+/// body, in order), invalidating the cache on any difference. This port
+/// omits that comparison: see this module's doc comment for why
+/// `moveit_state::RobotState` has no attached bodies to fetch here at all
+/// (unlike upstream's `RobotState`, this port's does not own that concept),
+/// so every `RobotState` reachable from this function has vacuously zero
+/// attached bodies on both sides, and a comparison that can only ever agree
+/// is omitted rather than encoded as a check with one possible outcome.
+pub fn compare_cache_entry_to_state(
+    dfce: &DistanceFieldCacheEntry<'_>,
+    state: &Posed<'_, '_>,
+) -> bool {
+    let new_state_values = state.positions();
+    if dfce.state_values.len() != new_state_values.len() {
+        return false;
+    }
+    dfce.state_check_indices
+        .iter()
+        .all(|&i| (dfce.state_values[i] - new_state_values[i]).abs() <= STATE_CHECK_EPSILON)
+}
+
+/// Upstream `CollisionEnvDistanceField::compareCacheEntryToAllowedCollisionMatrix`.
+/// `false` ("regenerate the cache") when `acm` has a different number of
+/// rows than `dfce.acm`, or when `acm` would compute a different
+/// self-collision-enabled or intra-group-collision-enabled bit than `dfce`
+/// already cached, for any pair of geometry-bearing links in
+/// `dfce.link_names`.
+///
+/// # Deviation from upstream
+///
+/// Upstream also collects `dfce->state_->getAttachedBodies()` into a local
+/// `attached_bodies` -- but never reads it again afterward in this function
+/// (`collision_env_distance_field.cpp:1322-1369`: assigned once, never
+/// used). This port omits the equivalent fetch rather than port a call with
+/// no observable effect; see [`compare_cache_entry_to_state`]'s doc comment
+/// for why `moveit_state::RobotState` has nothing to fetch here regardless.
+pub fn compare_cache_entry_to_allowed_collision_matrix(
+    dfce: &DistanceFieldCacheEntry<'_>,
+    acm: &AllowedCollisionMatrix,
+) -> bool {
+    if dfce.acm.len() != acm.len() {
+        return false;
+    }
+    for (i, link_name) in dfce.link_names.iter().enumerate() {
+        if !dfce.link_has_geometry[i] {
+            continue;
+        }
+        let self_collision_enabled = !is_always_allowed(acm, link_name, link_name);
+        if self_collision_enabled != dfce.self_collision_enabled[i] {
+            return false;
+        }
+        for (j, other) in dfce.link_names.iter().enumerate().skip(i + 1) {
+            if !dfce.link_has_geometry[j] {
+                continue;
+            }
+            let intra_collision_enabled = !is_always_allowed(acm, link_name, other);
+            if dfce.intra_group_collision_enabled[i][j] != intra_collision_enabled {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// The `generate_distance_field: true` branch of upstream
 /// `generateDistanceFieldCacheEntry`: a fresh [`PropagationDistanceField`]
 /// seeded with every collision-bearing link's points *outside* the group
@@ -533,5 +637,298 @@ mod tests {
                 "link {name} was not overridden but its spheres changed anyway"
             );
         }
+    }
+
+    fn pr2_srdf() -> moveit_srdf::SrdfModel {
+        let srdf_path = format!("{}/tests/fixtures/pr2.srdf", env!("CARGO_MANIFEST_DIR"));
+        moveit_srdf::SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse")
+    }
+
+    /// One in-group variable name (moving it must never affect
+    /// [`compare_cache_entry_to_state`], since it is excluded from
+    /// `state_check_indices` by construction) and one out-of-group variable
+    /// name (moving it is exactly what `state_check_indices` exists to
+    /// detect), derived from the model/group directly rather than
+    /// hardcoded, so this stays correct if the fixture's joint set changes.
+    fn one_in_group_and_one_out_of_group_variable(
+        model: &RobotModel,
+        group_name: &str,
+    ) -> (String, String) {
+        let group = model.joint_model_group(group_name).unwrap();
+        let active: HashSet<&str> = group
+            .active_joint_indices()
+            .iter()
+            .flat_map(|&i| model.joint_model_at(i).variable_names())
+            .map(String::as_str)
+            .collect();
+        let in_group = active
+            .iter()
+            .next()
+            .expect("group must have at least one active variable")
+            .to_string();
+        let out_of_group = model
+            .variable_names()
+            .iter()
+            .find(|name| !active.contains(name.as_str()))
+            .expect("model must have at least one variable outside the group")
+            .to_string();
+        (in_group, out_of_group)
+    }
+
+    fn right_arm_cache_entry(model: &RobotModel) -> DistanceFieldCacheEntry<'_> {
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(model, 0.05, &padding, None).unwrap();
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(model);
+        state.set_to_default_values();
+        let posed = state.update();
+        generate_distance_field_cache_entry(
+            "right_arm",
+            &posed,
+            Some(&acm),
+            &link_body_decompositions,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_ignores_in_group_joint_movement() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let (in_group_var, _out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        state.set_variable_position(&in_group_var, 1.0).unwrap();
+        let posed = state.update();
+
+        assert!(
+            compare_cache_entry_to_state(&dfce, &posed),
+            "moving {in_group_var} (in-group) must not invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_detects_out_of_group_joint_movement_past_epsilon() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let (_in_group_var, out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        state.set_variable_position(&out_of_group_var, 1.0).unwrap();
+        let posed = state.update();
+
+        assert!(
+            !compare_cache_entry_to_state(&dfce, &posed),
+            "moving {out_of_group_var} (out-of-group) by 1.0 rad must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_tolerates_out_of_group_movement_within_epsilon() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let (_in_group_var, out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+        let baseline = dfce
+            .state
+            .variable_position(&out_of_group_var)
+            .expect("variable exists");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_position(&out_of_group_var, baseline + STATE_CHECK_EPSILON * 0.5)
+            .unwrap();
+        let posed = state.update();
+
+        assert!(
+            compare_cache_entry_to_state(&dfce, &posed),
+            "moving {out_of_group_var} by half of EPSILON must not invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_state_rejects_a_state_from_a_different_sized_model() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+
+        // A minimal single-joint model has a different variable count than
+        // pr2's, exercising the size-mismatch branch directly rather than
+        // only ever reaching it through a shared model this test can't
+        // otherwise desync.
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="one_joint">
+  <link name="base"/>
+  <link name="tip"/>
+  <joint name="j" type="revolute">
+    <parent link="base"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = moveit_srdf::SrdfModel::default();
+        let other_model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .unwrap();
+        let mut other_state = moveit_state::RobotState::new(&other_model);
+        other_state.set_to_default_values();
+        let other_posed = other_state.update();
+
+        assert!(
+            !compare_cache_entry_to_state(&dfce, &other_posed),
+            "a state with a different variable count must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_allowed_collision_matrix_agrees_with_its_own_generating_acm() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
+
+        assert!(compare_cache_entry_to_allowed_collision_matrix(&dfce, &acm));
+    }
+
+    #[test]
+    fn compare_cache_entry_to_allowed_collision_matrix_detects_a_new_disabled_self_collision() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let link = dfce
+            .link_names
+            .iter()
+            .zip(&dfce.link_has_geometry)
+            .find(|&(_, &has_geometry)| has_geometry)
+            .map(|(name, _)| name.clone())
+            .expect("right_arm must have at least one geometry-bearing link");
+
+        let mut acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
+        acm.set_entry(&link, &link, true);
+
+        assert!(
+            !compare_cache_entry_to_allowed_collision_matrix(&dfce, &acm),
+            "disabling {link}'s self-collision in a new acm must invalidate the cache entry"
+        );
+    }
+
+    /// A minimal two-joint chain with a `<box>` collision shape on every
+    /// link, so its own updated-link set has two geometry-bearing links
+    /// without depending on `pr2.urdf`'s mesh gap (`right_arm`'s own
+    /// updated-link set has only one geometry-bearing link under
+    /// [`MeshSearchPaths::none`] -- see this module's doc comment -- so it
+    /// cannot exercise the intra-group-pair branch at all).
+    fn two_link_model_and_srdf() -> (RobotModel, moveit_srdf::SrdfModel) {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="two_link">
+  <link name="base">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <link name="mid">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <link name="tip">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <joint name="j1" type="revolute">
+    <parent link="base"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="two_link">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = moveit_srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("two_link model must build");
+        (model, srdf)
+    }
+
+    #[test]
+    fn compare_cache_entry_to_allowed_collision_matrix_detects_a_new_disabled_intra_group_pair() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let dfce = generate_distance_field_cache_entry(
+            "chain",
+            &posed,
+            Some(&acm),
+            &link_body_decompositions,
+            None,
+        )
+        .unwrap();
+
+        let geometry_links: Vec<&String> = dfce
+            .link_names
+            .iter()
+            .zip(&dfce.link_has_geometry)
+            .filter(|&(_, &has_geometry)| has_geometry)
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            geometry_links.len(),
+            2,
+            "the group's updated-link set is its two non-base links (\"mid\", \"tip\"), \
+             both with their own box collision shape -- \"base\" is the group's fixed \
+             reference frame, not an updated link"
+        );
+        let (a, b) = (geometry_links[0].clone(), geometry_links[1].clone());
+
+        let mut new_acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        new_acm.set_entry(&a, &b, true);
+
+        assert!(
+            !compare_cache_entry_to_allowed_collision_matrix(&dfce, &new_acm),
+            "disabling collision between {a} and {b} in a new acm must invalidate the cache entry"
+        );
+    }
+
+    #[test]
+    fn compare_cache_entry_to_allowed_collision_matrix_rejects_a_different_size() {
+        let model = pr2_model();
+        let dfce = right_arm_cache_entry(&model);
+        let mut acm = AllowedCollisionMatrix::from_srdf(&pr2_srdf());
+        acm.set_entry("base_link", "base_footprint", true);
+
+        // `AllowedCollisionMatrix::len` counts distinct rows, so this only
+        // grows `acm`'s size if pr2.srdf's own entries didn't already cover
+        // this pair -- assert that precondition rather than assume it.
+        assert_ne!(
+            dfce.acm.len(),
+            acm.len(),
+            "test setup must pick a pair that changes the row count"
+        );
+
+        assert!(!compare_cache_entry_to_allowed_collision_matrix(
+            &dfce, &acm
+        ));
     }
 }
