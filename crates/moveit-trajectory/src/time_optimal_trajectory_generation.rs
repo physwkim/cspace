@@ -49,7 +49,7 @@
 //!   variable by name.** Same substitution `ruckig_smoothing` already made,
 //!   for the same reason: [`moveit_model::JointModelGroup`] has no
 //!   index-list-returning method in this workspace, and this crate's
-//!   [`RobotState`] accessors are name-based.
+//!   [`moveit_state::RobotState`] accessors are name-based.
 //! - **The active-joint limit vector is always built by active-joint loop
 //!   position, never by `vars[active_joint_indices[idx]]` as a vector
 //!   index.** This is the one place this port could not transcribe upstream
@@ -86,7 +86,7 @@
 //!     to look up the bound) uniformly for both [`compute_time_stamps`] and
 //!     [`compute_time_stamps_with_limits`].
 //! - **The active-vs-all-variable dimension mismatch is a typed [`Error`],
-//!   not a silent truncation or a panic.** [`do_time_parameterization_calculations`]
+//!   not a silent truncation or a panic.** `do_time_parameterization_calculations`
 //!   (cpp:1162-1271) builds waypoints over *every* group variable including
 //!   mimic joints (`idx = group->getVariableIndexList()`, `num_joints =
 //!   group->getVariableCount()`, cpp:1183-1184) — deliberately, since a
@@ -109,7 +109,7 @@
 //!   reaches one without first hitting the undefined behaviour above.
 //! - **`hasMixedJointTypes` is ported as a standalone predicate,
 //!   [`has_mixed_joint_types`], but is not called from
-//!   [`do_time_parameterization_calculations`].** Upstream's only use of it
+//!   `do_time_parameterization_calculations`.** Upstream's only use of it
 //!   (cpp:1176-1180) is `RCLCPP_WARN` — it never gates control flow — and
 //!   this crate has no logging channel to route the diagnostic through (see
 //!   the "Out of scope" note above). The predicate itself is still ported
@@ -148,7 +148,7 @@ use crate::trajectory::Trajectory;
 /// `DEFAULT_TIMESTEP`, cpp:53. Distinct from
 /// [`crate::trajectory::VELOCITY_SWITCHING_SCAN_STEP`] (round 3's own doc
 /// comment on that constant already flags the coincidence): this one is the
-/// `time_step` [`do_time_parameterization_calculations`] passes to
+/// `time_step` `do_time_parameterization_calculations` passes to
 /// `Trajectory::create`, the other is an unrelated scan-step epsilon inside
 /// `Trajectory`'s own switching-point search. They share a value only
 /// because both upstream authors independently picked `1e-3`.
@@ -169,15 +169,15 @@ pub struct TotgOptions {
     /// `min_angle_change`: the minimum per-joint change between consecutive
     /// waypoints for the later one to be kept as distinct, rather than
     /// collapsed into the former (see
-    /// [`do_time_parameterization_calculations`]).
+    /// `do_time_parameterization_calculations`).
     pub min_angle_change: f64,
     /// A factor in `(0, 1]` which can slow down the trajectory. Values
-    /// outside that range are replaced by [`DEFAULT_SCALING_FACTOR`] (see
-    /// [`verify_scaling_factor`]).
+    /// outside that range are replaced by `DEFAULT_SCALING_FACTOR` (see
+    /// `verify_scaling_factor`).
     pub max_velocity_scaling_factor: f64,
     /// A factor in `(0, 1]` which can slow down the trajectory. Values
-    /// outside that range are replaced by [`DEFAULT_SCALING_FACTOR`] (see
-    /// [`verify_scaling_factor`]).
+    /// outside that range are replaced by `DEFAULT_SCALING_FACTOR` (see
+    /// `verify_scaling_factor`).
     pub max_acceleration_scaling_factor: f64,
 }
 
@@ -466,7 +466,7 @@ fn verify_scaling_factor(requested_scaling_factor: f64) -> f64 {
 
 /// `hasMixedJointTypes` (cpp:1273-1288). See the module-level "Deviations
 /// from upstream" note on why this is not called from
-/// [`do_time_parameterization_calculations`].
+/// `do_time_parameterization_calculations`.
 pub fn has_mixed_joint_types(trajectory: &RobotTrajectory<'_>, group: &JointModelGroup) -> bool {
     let model = trajectory.robot_model();
     let mut have_prismatic = false;
@@ -698,7 +698,7 @@ mod tests {
     /// `verifyScalingFactor` (cpp:1290-1312): `(0.0, 1.0]` passes through
     /// unchanged, everything else — including the boundary `0.0` itself,
     /// negative, and greater than `1.0` — is replaced by
-    /// [`DEFAULT_SCALING_FACTOR`].
+    /// `DEFAULT_SCALING_FACTOR`.
     #[test]
     fn verify_scaling_factor_boundaries() {
         assert_eq!(verify_scaling_factor(0.5), 0.5);
