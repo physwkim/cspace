@@ -318,6 +318,7 @@
 
 mod cart_to_jnt;
 mod chain;
+mod ik_cache;
 mod lma;
 mod newton_raphson;
 mod params;
