@@ -123,11 +123,18 @@
 //!    has no well-defined half-space to build, so [`convert_shape`] excludes
 //!    it from collision geometry rather than construct a `HalfSpace` with a
 //!    zero-length (and therefore un-normalizable) normal.
-//! 10. **[`moveit_geometry::Shape::OcTree`] converts to no shape at all.**
-//!     This port's [`moveit_geometry::OcTree`] carries no tree payload (see
-//!     its own doc comment: no mature Rust `octomap` binding exists yet), so
-//!     there is no geometry here to convert regardless of backend — the same
-//!     gap the FCL backend would face if this crate ever gained one.
+//! 10. **[`moveit_geometry::Shape::OcTree`] converts to no shape at all —
+//!     not yet wired, no longer for want of a tree.** This deviation used
+//!     to read "carries no tree payload; no mature Rust `octomap` binding
+//!     exists yet". That is stale: `moveit-octomap` exists,
+//!     [`moveit_geometry::OcTree`] holds an
+//!     `Option<Arc<moveit_octomap::OcTree>>`, and
+//!     `moveit_geometry::octree_collision::compound_from_octree` builds a
+//!     `parry` `Compound` of one `Cuboid` per occupied leaf, oracle-verified
+//!     against real FCL at four boundaries (PORTING-PLAN.md §4.8). What is
+//!     missing is only the call from [`convert_shape`] to that function; an
+//!     octree in a [`World`] is still invisible to this backend until it
+//!     lands.
 //! 11. **`check_robot_collision_continuous` returns [`Error`].** See
 //!     [`crate::CollisionEnv::check_robot_collision_continuous`]'s own doc:
 //!     upstream's FCL backend does not implement this case either, silently
