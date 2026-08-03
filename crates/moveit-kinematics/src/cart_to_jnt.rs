@@ -17,6 +17,7 @@ use moveit_state::RobotState;
 
 use crate::chain::ChainInfo;
 use crate::params::SolverParams;
+use crate::registry::SolveOptions;
 use crate::velocity::solve_velocity;
 
 /// Bundles the three per-solver-instance, call-invariant arguments
@@ -245,17 +246,65 @@ pub(crate) fn cart_to_jnt(
     None
 }
 
-/// `KDLKinematicsPlugin::searchPositionIK`'s single-pose, no-callback,
-/// no-consistency-limits case: one [`cart_to_jnt`] attempt from `seed`,
-/// then up to `params.max_restarts` further attempts from a uniformly
-/// random reseed within each active joint's own bounds
-/// (`getRandomConfiguration`).
+/// `KDLKinematicsPlugin::getRandomConfiguration(jnt_array)`: each active
+/// joint's value drawn uniformly across its own full `[min, max]` range,
+/// independent of any seed.
+fn random_configuration(chain: &ChainInfo, rng: &mut impl Rng) -> Vec<f64> {
+    chain
+        .active_min
+        .iter()
+        .zip(&chain.active_max)
+        .map(|(&min, &max)| rng.random_range(min..=max))
+        .collect()
+}
+
+/// `KDLKinematicsPlugin::getRandomConfiguration(seed_state, consistency_limits,
+/// jnt_array)`, i.e. `JointModel::getVariableRandomPositionsNearBy`'s
+/// non-continuous branch: each active joint's value drawn uniformly from
+/// `[max(min, near - limit), min(max, near + limit)]`. See
+/// [`SolveOptions::consistency_limits`]'s doc comment for why
+/// `consistency_limits` here is reduced-space rather than upstream's
+/// full-space parameter.
+fn near_by_configuration(
+    chain: &ChainInfo,
+    near: &[f64],
+    consistency_limits: &[f64],
+    rng: &mut impl Rng,
+) -> Vec<f64> {
+    chain
+        .active_min
+        .iter()
+        .zip(&chain.active_max)
+        .zip(near)
+        .zip(consistency_limits)
+        .map(|(((&min, &max), &near), &limit)| {
+            rng.random_range(min.max(near - limit)..=max.min(near + limit))
+        })
+        .collect()
+}
+
+/// `KDLKinematicsPlugin::checkConsistency`, reduced-space — see
+/// [`SolveOptions::consistency_limits`]'s doc comment.
+fn satisfies_consistency(seed: &[f64], solution: &[f64], consistency_limits: &[f64]) -> bool {
+    seed.iter()
+        .zip(solution)
+        .zip(consistency_limits)
+        .all(|((&s, &sol), &limit)| (s - sol).abs() <= limit)
+}
+
+/// `KDLKinematicsPlugin::searchPositionIK`'s single-pose case in its
+/// fullest form: one [`cart_to_jnt`] attempt from `seed`, then up to
+/// `params.max_restarts` further attempts from a reseed — uniformly
+/// near `seed` within `options.consistency_limits` if given, else
+/// uniformly across each active joint's own full bounds
+/// (`getRandomConfiguration`). A numerically-converged attempt that
+/// `options` rejects (either gate) is treated exactly like a
+/// non-converging one: the loop retries rather than returning `None`
+/// outright.
 ///
 /// # Deviation from upstream
 ///
-/// No `consistency_limits`/`IKCallbackFn` — see this crate's "do not port
-/// the ROS surface" doc comment; no wall-clock `timeout` — see
-/// [`SolverParams::max_restarts`].
+/// No wall-clock `timeout` — see [`SolverParams::max_restarts`].
 pub(crate) fn search_position_ik(
     ctx: &SolveContext,
     state: &mut RobotState,
@@ -263,21 +312,307 @@ pub(crate) fn search_position_ik(
     target: &Isometry3,
     pinv: &impl Fn(f64, f64) -> f64,
     rng: &mut impl Rng,
+    options: &mut SolveOptions,
 ) -> Option<Vec<f64>> {
-    if let Some(solution) = cart_to_jnt(ctx, state, seed, target, pinv, rng) {
+    for attempt in 0..=ctx.params.max_restarts {
+        let attempt_seed = if attempt == 0 {
+            seed.to_vec()
+        } else {
+            match options.consistency_limits {
+                Some(limits) => near_by_configuration(ctx.chain, seed, limits, rng),
+                None => random_configuration(ctx.chain, rng),
+            }
+        };
+
+        let Some(solution) = cart_to_jnt(ctx, state, &attempt_seed, target, pinv, rng) else {
+            continue;
+        };
+
+        if let Some(limits) = options.consistency_limits {
+            if !satisfies_consistency(seed, &solution, limits) {
+                continue;
+            }
+        }
+        if let Some(callback) = options.solution_callback.as_deref_mut() {
+            if !callback(&solution) {
+                continue;
+            }
+        }
         return Some(solution);
     }
-    for _ in 0..ctx.params.max_restarts {
-        let random_seed: Vec<f64> = ctx
-            .chain
-            .active_min
-            .iter()
-            .zip(&ctx.chain.active_max)
-            .map(|(&min, &max)| rng.random_range(min..=max))
-            .collect();
-        if let Some(solution) = cart_to_jnt(ctx, state, &random_seed, target, pinv, rng) {
-            return Some(solution);
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    use moveit_model::RobotModel;
+    use moveit_srdf::SrdfModel;
+
+    use super::*;
+    use crate::params::SolverParams;
+
+    fn fixture_path(file_name: &str) -> String {
+        format!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+            file_name
+        )
+    }
+
+    fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
+        let urdf_path = fixture_path(urdf_file);
+        let srdf_path = fixture_path(srdf_file);
+        let urdf_xml =
+            fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+        let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    }
+
+    fn truncated_pinv(threshold: f64) -> impl Fn(f64, f64) -> f64 {
+        move |s, smax| if s > threshold * smax { 1.0 / s } else { 0.0 }
+    }
+
+    /// This test module's own FK: apply `config` (active-joint order) to a
+    /// fresh state and read the tip pose in the chain's own base frame —
+    /// the same computation [`cart_to_jnt`]'s iteration loop performs, so a
+    /// target built this way is exactly reachable from that config.
+    fn fk_of(chain: &ChainInfo, model: &RobotModel, config: &[f64]) -> Isometry3 {
+        let mut state = RobotState::new(model);
+        state.set_to_default_values();
+        for (name, &value) in chain.active_joint_names.iter().zip(config) {
+            state.set_variable_position(name, value).unwrap();
+        }
+        let posed = state.update();
+        chain.root_pose_world(&posed) * posed.global_link_transform_at(chain.tip_link_index)
+    }
+
+    struct Fixture {
+        model: RobotModel,
+        chain: ChainInfo,
+        params: SolverParams,
+        joint_weights: Vec<f64>,
+    }
+
+    impl Fixture {
+        fn panda_arm() -> Self {
+            let model = build_model("panda.urdf", "panda.srdf");
+            let chain = ChainInfo::build(&model, "panda_arm").expect("real panda_arm chain");
+            let params = SolverParams::default();
+            let joint_weights = chain.resolve_joint_weights(&params);
+            Self {
+                model,
+                chain,
+                params,
+                joint_weights,
+            }
+        }
+
+        fn ctx(&self) -> SolveContext<'_> {
+            SolveContext {
+                chain: &self.chain,
+                params: &self.params,
+                joint_weights: &self.joint_weights,
+            }
+        }
+
+        /// The chain's midpoint config, and that same config with joint `0`
+        /// bumped by `fraction` of its own half-range — always in-bounds
+        /// since the bump starts from the midpoint.
+        fn midpoint_and_bumped(&self, fraction: f64) -> (Vec<f64>, Vec<f64>) {
+            let mid: Vec<f64> = self
+                .chain
+                .active_min
+                .iter()
+                .zip(&self.chain.active_max)
+                .map(|(&lo, &hi)| (lo + hi) / 2.0)
+                .collect();
+            let mut bumped = mid.clone();
+            bumped[0] += fraction * (self.chain.active_max[0] - self.chain.active_min[0]) / 2.0;
+            (mid, bumped)
         }
     }
-    None
+
+    /// `satisfies_consistency`'s own defining boundary: exactly at the
+    /// limit is accepted (upstream's `>` violation check, not `>=`), one ULP
+    /// over it is rejected.
+    #[test]
+    fn satisfies_consistency_accepts_at_the_limit_and_rejects_just_over_it() {
+        let seed = [1.0, 2.0];
+        let at_limit = [1.5, 2.5];
+        let limits = [0.5, 0.5];
+        assert!(satisfies_consistency(&seed, &at_limit, &limits));
+
+        let just_over = [1.500_000_1, 2.5];
+        assert!(!satisfies_consistency(&seed, &just_over, &limits));
+    }
+
+    /// `search_position_ik` with a default (`None`, `None`) [`SolveOptions`]
+    /// must behave exactly as it did before this crate had the concept of
+    /// options at all — same seed, same rng draws, same accept criterion.
+    #[test]
+    fn default_options_accept_the_first_convergent_attempt() {
+        let fixture = Fixture::panda_arm();
+        let ctx = fixture.ctx();
+        let (seed, _) = fixture.midpoint_and_bumped(0.3);
+        let target = fk_of(&fixture.chain, &fixture.model, &seed);
+
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let pinv = truncated_pinv(fixture.params.svd_threshold);
+        let mut options = SolveOptions::default();
+
+        let solution = search_position_ik(
+            &ctx,
+            &mut state,
+            &seed,
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
+        );
+        assert!(
+            solution.is_some(),
+            "seed is already the exact target config, so attempt 0 must converge at the seed"
+        );
+    }
+
+    /// The consistency-limit gate at its own boundary: a converged solution
+    /// that lands far from `seed` (by construction — the target is built
+    /// from a config `0.3` of a joint's half-range away from `seed`) is
+    /// accepted under a generous limit and rejected under a tight one, with
+    /// `max_restarts = 0` so there is only ever the one attempt to judge.
+    #[test]
+    fn consistency_limit_gates_a_convergent_solution_by_distance_from_seed() {
+        let mut fixture = Fixture::panda_arm();
+        fixture.params.max_restarts = 0;
+        let ctx = fixture.ctx();
+        let (seed, bumped) = fixture.midpoint_and_bumped(0.3);
+        let target = fk_of(&fixture.chain, &fixture.model, &bumped);
+        let pinv = truncated_pinv(fixture.params.svd_threshold);
+
+        let generous = vec![10.0; seed.len()];
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut options = SolveOptions {
+            consistency_limits: Some(&generous),
+            solution_callback: None,
+        };
+        let solution = search_position_ik(
+            &ctx,
+            &mut state,
+            &seed,
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
+        );
+        assert!(
+            solution.is_some(),
+            "a generous consistency limit must not reject a solution that had to move to converge"
+        );
+
+        let tight = vec![0.01; seed.len()];
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut options = SolveOptions {
+            consistency_limits: Some(&tight),
+            solution_callback: None,
+        };
+        let solution = search_position_ik(
+            &ctx,
+            &mut state,
+            &seed,
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
+        );
+        assert!(
+            solution.is_none(),
+            "a 0.01 rad limit must reject a solution that had to move by roughly 0.3 of a joint's half-range, with no restart left to retry"
+        );
+    }
+
+    /// The solution-callback gate at its own boundary: an always-accepting
+    /// callback must not change the outcome an option-free call already
+    /// gets; an always-rejecting callback must turn that same convergent
+    /// attempt into `None` (exhausting the sole `max_restarts = 0` attempt)
+    /// rather than ever being skipped.
+    #[test]
+    fn solution_callback_gates_acceptance_independent_of_convergence() {
+        let mut fixture = Fixture::panda_arm();
+        fixture.params.max_restarts = 0;
+        let ctx = fixture.ctx();
+        let (seed, _) = fixture.midpoint_and_bumped(0.3);
+        let target = fk_of(&fixture.chain, &fixture.model, &seed);
+        let pinv = truncated_pinv(fixture.params.svd_threshold);
+
+        let mut accept_calls = 0usize;
+        let mut accept_all = |_: &[f64]| {
+            accept_calls += 1;
+            true
+        };
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut options = SolveOptions {
+            consistency_limits: None,
+            solution_callback: Some(&mut accept_all),
+        };
+        let solution = search_position_ik(
+            &ctx,
+            &mut state,
+            &seed,
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
+        );
+        assert!(
+            solution.is_some(),
+            "an always-accepting callback must not reject a convergent solution"
+        );
+        assert_eq!(
+            accept_calls, 1,
+            "callback must be invoked exactly once for the one convergent attempt"
+        );
+
+        let mut reject_calls = 0usize;
+        let mut reject_all = |_: &[f64]| {
+            reject_calls += 1;
+            false
+        };
+        let mut state = RobotState::new(&fixture.model);
+        state.set_to_default_values();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut options = SolveOptions {
+            consistency_limits: None,
+            solution_callback: Some(&mut reject_all),
+        };
+        let solution = search_position_ik(
+            &ctx,
+            &mut state,
+            &seed,
+            &target,
+            &pinv,
+            &mut rng,
+            &mut options,
+        );
+        assert!(
+            solution.is_none(),
+            "an always-rejecting callback must turn even a convergent attempt into no solution"
+        );
+        assert_eq!(
+            reject_calls, 1,
+            "callback must still be invoked once before the sole max_restarts=0 attempt is exhausted"
+        );
+    }
 }

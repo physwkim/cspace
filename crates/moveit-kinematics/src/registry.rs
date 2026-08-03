@@ -11,19 +11,67 @@ use moveit_model::RobotModel;
 
 use crate::params::SolverParams;
 
+/// Bundles `searchPositionIK`'s two behaviour-affecting extras beyond the
+/// `(seed, target)` pair [`KinematicsSolver::solve`] already takes:
+/// `consistency_limits` (`KDLKinematicsPlugin::checkConsistency`'s
+/// per-active-joint bound on how far a solution may land from `seed`) and
+/// `solution_callback` (`IKCallbackFn`'s accept/reject hook, upstream used
+/// for e.g. collision-checking a candidate before accepting it). Both
+/// default to `None`, which reproduces [`KinematicsSolver::solve`] exactly
+/// — see [`KinematicsSolver::solve_with_options`]'s doc comment for how
+/// each one gates a converged attempt.
+///
+/// # Deviation from upstream: `consistency_limits` is reduced-space
+///
+/// Upstream's `consistency_limits` parameter is full-space
+/// (`dimension_`-sized, one entry per joint including mimics), filtered
+/// down to `consistency_limits_mimic` (active-joint-sized) immediately
+/// before use inside `searchPositionIK` — but then passed to
+/// `checkConsistency`, which loops `i < dimension_` while indexing that
+/// same active-joint-sized vector: an out-of-bounds `std::vector::operator[]`
+/// read on any chain with at least one mimic joint. `consistency_limits`
+/// here is reduced-space from the start (one entry per
+/// [`KinematicsSolver::joint_names`] entry, the same space `seed` and the
+/// returned solution already live in), which makes that mismatch
+/// impossible by construction rather than porting it.
+#[derive(Default)]
+pub struct SolveOptions<'a> {
+    /// One bound per [`KinematicsSolver::joint_names`] entry: a converged
+    /// solution is rejected (and the attempt retried, subject to
+    /// [`SolverParams::max_restarts`]) unless `|seed[i] - solution[i]| <=
+    /// consistency_limits[i]` for every `i`.
+    pub consistency_limits: Option<&'a [f64]>,
+    /// Called on every attempt that converges numerically, with the
+    /// candidate solution in [`KinematicsSolver::joint_names`] order.
+    /// Returning `false` rejects it (the attempt is retried, subject to
+    /// [`SolverParams::max_restarts`], exactly like a
+    /// [`SolveOptions::consistency_limits`] rejection) instead of upstream's
+    /// `IKCallbackFn` writing a non-`SUCCESS` `MoveItErrorCodes` — see
+    /// [`KinematicsSolver::solve`]'s `# Deviation` on `Option` replacing
+    /// `bool` plus an out parameter for why this crate has no
+    /// `MoveItErrorCodes` to write through.
+    pub solution_callback: Option<&'a mut SolutionCallback<'a>>,
+}
+
+/// [`SolveOptions::solution_callback`]'s type, named so that field does not
+/// trip clippy's `type_complexity` lint.
+pub type SolutionCallback<'a> = dyn FnMut(&[f64]) -> bool + 'a;
+
 /// Replaces upstream `kinematics::KinematicsBase`: the interface every
 /// numeric IK solver in this crate implements.
 ///
 /// # Deviations from upstream
 ///
 /// 1. **One tip, one pose, one seed-vs-solution shape.** Upstream's
-///    `KinematicsBase` supports multi-tip whole-body IK
-///    (`getPositionIK(ik_poses: Vec<Pose>, ...)`), IK cost functions, an
-///    `IKCallbackFn` collision hook and a discretization-method enum for
-///    redundancy resolution. `kdl_kinematics_plugin` — the solver this
-///    crate actually ports — uses none of that: it is single-tip,
-///    single-pose, no callback, `NO_DISCRETIZATION` only. This trait keeps
-///    only the shape `kdl_kinematics_plugin` exercises.
+///    `KinematicsBase` also supports multi-tip whole-body IK
+///    (`getPositionIK(ik_poses: Vec<Pose>, ...)`) and IK cost functions.
+///    Neither is exercised by `kdl_kinematics_plugin` — the solver this
+///    crate actually ports — which never overrides the multi-tip
+///    overload's default (single-pose-only) implementation and rejects
+///    any cost function outright. This trait keeps only the shape
+///    `kdl_kinematics_plugin` exercises; [`SolveOptions`] carries
+///    `consistency_limits` and `solution_callback`, the two extras it
+///    *does* exercise.
 /// 2. **No timeout, no `KinematicsQueryOptions`.** See
 ///    [`SolverParams::max_restarts`]'s doc comment for the timeout
 ///    replacement; `return_approximate_solution` and
@@ -40,16 +88,23 @@ pub trait KinematicsSolver {
     /// `getJointNames`: the seed/solution vector's order.
     fn joint_names(&self) -> &[String];
 
-    /// `searchPositionIK`'s single-pose, no-callback, `NO_DISCRETIZATION`
-    /// case, folding in `getPositionIK`'s single-attempt behaviour through
-    /// [`SolverParams::max_restarts`] rather than a separate method.
+    /// `searchPositionIK`'s single-pose case in its fullest form (`timeout`
+    /// replaced by [`SolverParams::max_restarts`] — see that field's doc
+    /// comment), folding in `getPositionIK`'s single-attempt behaviour
+    /// through `max_restarts = 0` rather than a separate method, and
+    /// `consistency_limits`/`solution_callback` through `options` rather
+    /// than four separate overloads the way upstream's virtual-dispatch
+    /// interface needs to.
     ///
     /// `seed` and the returned solution are in [`KinematicsSolver::joint_names`]
     /// order (reduced space — see `chain::ChainInfo`'s doc
     /// comment); `target` is this solver's tip link's desired pose in the
     /// chain's own base-link frame (upstream's `base_frame_` —
     /// `chain::ChainInfo::root_pose_world`), not the model's world
-    /// frame.
+    /// frame. A candidate that converges numerically but that `options`
+    /// rejects (either gate) does not count as "no solution" outright —
+    /// the attempt is retried exactly like a non-converging one, up to
+    /// [`SolverParams::max_restarts`].
     ///
     /// # Deviation from upstream: `Option`, not `bool` plus an out
     /// parameter
@@ -65,7 +120,22 @@ pub trait KinematicsSolver {
     ///
     /// If `seed.len()` does not equal
     /// [`KinematicsSolver::joint_names`]`().len()`.
-    fn solve(&mut self, seed: &[f64], target: &Isometry3) -> Option<Vec<f64>>;
+    fn solve_with_options(
+        &mut self,
+        seed: &[f64],
+        target: &Isometry3,
+        options: &mut SolveOptions,
+    ) -> Option<Vec<f64>>;
+
+    /// [`KinematicsSolver::solve_with_options`] with `consistency_limits`
+    /// and `solution_callback` both `None` — every existing caller's shape.
+    ///
+    /// # Panics
+    ///
+    /// See [`KinematicsSolver::solve_with_options`].
+    fn solve(&mut self, seed: &[f64], target: &Isometry3) -> Option<Vec<f64>> {
+        self.solve_with_options(seed, target, &mut SolveOptions::default())
+    }
 }
 
 /// One [`KinematicsSolver`] implementation's compile-time registration.

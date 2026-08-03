@@ -73,4 +73,6 @@ mod velocity;
 pub use lma::LevenbergMarquardtSolver;
 pub use newton_raphson::NewtonRaphsonSolver;
 pub use params::SolverParams;
-pub use registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolverRegistration};
+pub use registry::{
+    KINEMATICS_SOLVERS, KinematicsSolver, SolutionCallback, SolveOptions, SolverRegistration,
+};
