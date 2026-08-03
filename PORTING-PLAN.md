@@ -780,6 +780,24 @@ seed를 바꿔(424242) 4로봇 8,004건을 독립 재현해 동일하게 0건 �
 - `moveit-collision` — `CollisionRequest`/`CollisionResult`/`CollisionEnv`
   trait. 요청 플래그와 결과 필드의 짝을 bool + 값 병렬 필드로 재현하지
   않고, 요청하지 않은 필드가 표현 불가능하도록 한다 (§4.1의 재적용).
+  병합 완료(`6973eed`..`00ce5d6`). 리뷰에서 세 건을 잡아 고쳤다:
+  `remove_overlapping`이 제거된 박스를 다시 제거자로 쓰던 것,
+  `check_collision`의 여유 판정이 pair 수가 아니라 contact 총수를 보던 것,
+  `LinkPaddingScale`의 "tracked"가 맵 두 개로 갈라져 있던 것.
+
+### 10.5 parry 백엔드가 닫아야 할 `max_contacts`
+
+`CollisionEnv`의 메서드는 각자 소유한 `CollisionResult`를 반환하고
+`check_collision`이 둘을 병합한다. 업스트림은 `CollisionResult&` 하나를
+두 호출에 함께 넘기므로, robot 검사 콜백이 이미 쌓인 self 검사의
+contact 수를 보고 `max_contacts`에서 멈춘다. 반환-소유 방식에서는 robot
+검사가 self 검사의 결과를 볼 수 없어, 병합 결과가 `max_contacts`를
+넘을 수 있다.
+
+`check_collision`의 진입 판정은 업스트림과 일치하지만 (pair 수 대조,
+`db31a4c`), 백엔드 내부의 누적 상한은 아직 아무도 강제하지 않는다.
+구체 백엔드(parry)를 붙일 때 닫아야 한다 — 남은 예산을 요청과 함께
+백엔드에 넘기는 형태가 유력하다. 지금은 백엔드가 없어 관측되지 않는다.
 - `moveit-distance-field` — 오라클 `distance_field` op. 이 크레이트는
   현재 C++을 읽고 쓴 단위 테스트만 있고 Phase 3 완료 조건인 `1e-4`
   대조가 없다.
