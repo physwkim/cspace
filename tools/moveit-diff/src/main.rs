@@ -510,7 +510,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 cfg,
                 &rust_model,
                 group,
-                &joint_values,
+                joint_values,
                 &expected,
                 &mut ik_stats,
             );
