@@ -929,6 +929,42 @@ mod tests {
     }
 
     #[test]
+    fn check_self_collision_still_reports_collision_with_a_spent_contact_budget() {
+        // `max_contacts: 0` is not a hypothetical. `CollisionEnv::check_collision`
+        // subtracts the self-check's contact count from the request before
+        // calling the robot check (PORTING-PLAN.md 10.5), saturating at zero, so
+        // a self-check that fills the budget hands the robot check exactly this
+        // request. The budget governs how many contacts are *stored*; it must
+        // never govern whether a collision is *found*. A backend that folded the
+        // two together would report a clear scene for the overlapping pair here,
+        // and the caller has no way to tell that apart from a genuinely clear one.
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[("p", Isometry3::identity()), ("q", Isometry3::identity())],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 0,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, None);
+
+        assert!(
+            result.collision,
+            "a spent contact budget must not suppress the collision flag"
+        );
+        assert_eq!(
+            result.contacts.expect("contacts requested").count(),
+            0,
+            "a spent contact budget must store nothing"
+        );
+    }
+
+    #[test]
     fn check_robot_collision_detects_overlap_with_a_world_object() {
         let model = build_model(&["p"]);
         let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
