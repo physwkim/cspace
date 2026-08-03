@@ -42,12 +42,26 @@ jobs:
       # to 11 on its own.
       - name: docs
         run: cargo doc --workspace --no-deps
-      - name: dependency direction
-        run: ./tools/ci/check-dep-direction.sh
-      - name: fixture format
-        run: ./tools/ci/check-fixture-format.sh
-      - name: no lint suppression
-        run: ./tools/ci/check-no-lint-suppression.sh
+      # Globbed, not enumerated. `tools/ci/verify-fixture-provenance.sh`'s header
+      # and PORTING-PLAN both say `check-*.sh` is the set CI runs -- and named
+      # that script `verify-*` specifically to stay out of it. That convention
+      # only carries weight if this step derives from the glob: with three steps
+      # listed by hand, a new `check-*.sh` would go unrun here while both
+      # documents claimed otherwise. An empty glob fails rather than passing
+      # vacuously, so a rename cannot silently empty the set.
+      - name: ci checks
+        shell: bash
+        run: |
+          shopt -s nullglob
+          scripts=(tools/ci/check-*.sh)
+          if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo "no tools/ci/check-*.sh found -- the glob CI runs is empty" >&2
+            exit 1
+          fi
+          for s in "${scripts[@]}"; do
+            echo "== $s"
+            "$s"
+          done
 
   # The differential harness needs the C++ oracle image, which takes long enough
   # to build that it is not run on every push. `workflow_dispatch` and the
