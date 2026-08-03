@@ -488,6 +488,9 @@ private:
     out["group_end_effectors"] = groupEndEffectors();
     out["group_states"] = groupStates();
     out["group_is_chain"] = groupIsChain();
+    out["group_joint_roots"] = groupJointRoots();
+    out["joint_descendant_links"] = jointDescendantLinks();
+    out["group_updated_links"] = groupUpdatedLinks();
 
     return out;
   }
@@ -600,6 +603,55 @@ private:
     json out = json::object();
     for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
       out[group->getName()] = group->isChain();
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `JointModelGroup::joint_roots`, keyed
+  /// by group name: the names of every joint in `joint_roots_`.
+  json groupJointRoots() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+    {
+      json roots = json::array();
+      for (const moveit::core::JointModel* joint : group->getJointRoots())
+        roots.push_back(joint->getName());
+      out[group->getName()] = roots;
+    }
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `RobotModel::descendant_link_indices`
+  /// (upstream `JointModel::getDescendantLinkModels`), keyed by joint name:
+  /// the names of every descendant link. Compared as a set on the Rust side
+  /// -- upstream's own vector is DFS-insertion-ordered, not index-ordered,
+  /// and nothing downstream (`updated_link_model_*`, itself a re-sorted
+  /// `std::set` union) depends on that order surviving.
+  json jointDescendantLinks() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModel* joint : model_->getJointModels())
+    {
+      json links = json::array();
+      for (const moveit::core::LinkModel* link : joint->getDescendantLinkModels())
+        links.push_back(link->getName());
+      out[joint->getName()] = links;
+    }
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `JointModelGroup::updated_link_names`/
+  /// `updated_link_with_geometry_names`, keyed by group name.
+  json groupUpdatedLinks() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+    {
+      out[group->getName()] = json{
+        { "updated_link_names", group->getUpdatedLinkModelNames() },
+        { "updated_link_with_geometry_names", group->getUpdatedLinkModelsWithGeometryNames() },
+      };
+    }
     return out;
   }
 
