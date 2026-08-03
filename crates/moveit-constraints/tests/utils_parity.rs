@@ -30,10 +30,13 @@ use moveit_constraints::utils::{
     construct_goal_joint_constraints, construct_goal_orientation_constraints,
     construct_goal_pose_constraints, construct_goal_pose_constraints_box,
     construct_goal_position_constraints, count_individual_constraints, merge_constraints,
+    resolve_orientation_constraint_frame, resolve_position_constraint_frame,
     update_joint_constraints, update_orientation_constraint, update_pose_constraint,
     update_position_constraint,
 };
-use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet, PositionConstraint};
+use moveit_constraints::{
+    Constraint, JointConstraint, KinematicConstraintSet, OrientationTolerance, PositionConstraint,
+};
 
 const TOLERANCE: f64 = 1e-6;
 
@@ -701,4 +704,218 @@ fn count_individual_constraints_is_len() {
         JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, 1.0).unwrap(),
     ));
     assert_eq!(count_individual_constraints(&set), 1);
+}
+
+/// `resolveConstraintFrames` ported as [`resolve_position_constraint_frame`]/
+/// [`resolve_orientation_constraint_frame`] -- no oracle op exists for it
+/// (its only upstream caller is a `moveit_ros` planning request adapter, not
+/// anything the C++ oracle exposes), so every case here is a hand-computed
+/// boundary test, per `PORTING-PLAN.md` §23's "test by invariant boundary"
+/// convention for this crate.
+mod resolve_constraint_frame_boundary {
+    use super::*;
+
+    /// The entire point of the function: `"gripper_tool"` is not a link in
+    /// `panda_model()` at all -- it stands in for an attached body's
+    /// subframe, resolved only by the closure (as `PlanningScene::
+    /// attached_frame` would resolve a real one). A pure translation `T`
+    /// (identity rotation) keeps the expected offset a one-line hand
+    /// computation: `frame_to_link * point(offset) = offset + translation`
+    /// for an identity-rotation isometry. If this degenerated back into a
+    /// no-op (as round 3's design would have), `resolved` would equal
+    /// `"gripper_tool"` and `offset` would be unchanged -- neither happens.
+    #[test]
+    fn attached_subframe_resolves_to_its_link_with_an_adjusted_position_offset() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        let mut frame_to_link = Isometry3::identity();
+        frame_to_link.translation.vector = Vector3::new(1.0, 2.0, 3.0);
+        let resolve_attached = |name: &str| {
+            (name == "gripper_tool").then(|| ("panda_link8".to_string(), frame_to_link))
+        };
+
+        let offset = Vector3::new(0.1, 0.0, 0.0);
+        let (resolved, adjusted) = resolve_position_constraint_frame(
+            &model,
+            &posed,
+            "gripper_tool",
+            offset,
+            resolve_attached,
+        )
+        .unwrap()
+        .expect("gripper_tool is resolvable via the closure");
+
+        assert_eq!(resolved, "panda_link8");
+        assert!((adjusted - Vector3::new(1.1, 2.0, 3.0)).norm() < TOLERANCE);
+    }
+
+    /// The orientation half of the same case: a pure rotation (no
+    /// translation, irrelevant to orientation) composes the identity target
+    /// orientation with `link_name_to_robot_link = frame_to_link.rotation().inverse()`
+    /// -- so the resolved orientation should be exactly that inverse
+    /// rotation, not the original identity.
+    #[test]
+    fn attached_subframe_resolves_to_its_link_with_an_adjusted_orientation() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        let rotation =
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2);
+        let frame_to_link = Isometry3::from_parts(nalgebra::Translation3::identity(), rotation);
+        let resolve_attached = |name: &str| {
+            (name == "gripper_tool").then(|| ("panda_link8".to_string(), frame_to_link))
+        };
+
+        let (resolved, adjusted) = resolve_orientation_constraint_frame(
+            &model,
+            &posed,
+            "gripper_tool",
+            UnitQuaternion::identity(),
+            OrientationTolerance::RotationVector {
+                x: 0.1,
+                y: 0.1,
+                z: 0.1,
+            },
+            resolve_attached,
+        )
+        .unwrap()
+        .expect("gripper_tool is resolvable via the closure");
+
+        assert_eq!(resolved, "panda_link8");
+        let expected = rotation.inverse();
+        assert!(adjusted.angle_to(&expected) < TOLERANCE);
+    }
+
+    /// `link_name` already names a real link: both halves return it
+    /// untouched, with the caller's offset/orientation unchanged -- upstream's
+    /// own `c.link_name != robot_link->getName()` guard, exercised on the
+    /// branch where it is false.
+    #[test]
+    fn a_plain_link_name_is_returned_unchanged() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        let offset = Vector3::new(0.4, 0.5, 0.6);
+
+        let (resolved, adjusted) =
+            resolve_position_constraint_frame(&model, &posed, "panda_link8", offset, |_| None)
+                .unwrap()
+                .expect("a real link always resolves");
+        assert_eq!(resolved, "panda_link8");
+        assert_eq!(adjusted, offset);
+
+        let orientation = UnitQuaternion::identity();
+        let (resolved, adjusted) = resolve_orientation_constraint_frame(
+            &model,
+            &posed,
+            "panda_link8",
+            orientation,
+            OrientationTolerance::XyzEuler {
+                x: 0.1,
+                y: 0.1,
+                z: 0.1,
+            },
+            |_| None,
+        )
+        .unwrap()
+        .expect("a real link always resolves");
+        assert_eq!(resolved, "panda_link8");
+        assert_eq!(adjusted, orientation);
+    }
+
+    /// The model frame maps to the root link, with `frame_to_link` derived
+    /// from the *current* state rather than a closure -- confirmed against
+    /// an independently-taken `global_link_transform` on the same state
+    /// (the only ground truth available without an oracle op for this
+    /// function; see this module's own doc comment).
+    #[test]
+    fn the_model_frame_resolves_to_the_root_link() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        let root_transform = posed.global_link_transform(model.root_link_name()).unwrap();
+
+        let offset = Vector3::new(0.2, 0.0, 0.0);
+        let (resolved, adjusted) =
+            resolve_position_constraint_frame(&model, &posed, model.model_frame(), offset, |_| {
+                None
+            })
+            .unwrap()
+            .expect("the model frame always resolves");
+
+        assert_eq!(resolved, model.root_link_name());
+        let expected = (root_transform.inverse() * nalgebra::Point3::from(offset)).coords;
+        assert!((adjusted - expected).norm() < TOLERANCE);
+    }
+
+    /// Neither a link, the model frame, nor anything the closure recognises:
+    /// `Ok(None)`, matching upstream's `frame_found = false`.
+    #[test]
+    fn an_unrecognised_frame_is_none() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+
+        assert!(
+            resolve_position_constraint_frame(
+                &model,
+                &posed,
+                "nonexistent_frame",
+                Vector3::zeros(),
+                |_| None,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            resolve_orientation_constraint_frame(
+                &model,
+                &posed,
+                "nonexistent_frame",
+                UnitQuaternion::identity(),
+                OrientationTolerance::RotationVector {
+                    x: 0.1,
+                    y: 0.1,
+                    z: 0.1
+                },
+                |_| None,
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    /// Upstream refuses to retarget an `XyzEuler` orientation constraint
+    /// across an actual frame change (`utils.cpp:661-664`): Euler-angle
+    /// tolerances have no rotation-composition rule, only rotation vectors
+    /// do. This is the one case that is a genuine frame change (attached
+    /// subframe, not a same-link no-op), so it must error rather than
+    /// silently retarget.
+    #[test]
+    fn xyz_euler_tolerance_across_a_real_frame_change_is_an_error() {
+        let model = panda_model();
+        let mut state = state_with(&model, &s0());
+        let posed = state.update();
+        let resolve_attached = |name: &str| {
+            (name == "gripper_tool").then(|| ("panda_link8".to_string(), Isometry3::identity()))
+        };
+
+        let err = resolve_orientation_constraint_frame(
+            &model,
+            &posed,
+            "gripper_tool",
+            UnitQuaternion::identity(),
+            OrientationTolerance::XyzEuler {
+                x: 0.1,
+                y: 0.1,
+                z: 0.1,
+            },
+            resolve_attached,
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::Other { .. }));
+    }
 }
