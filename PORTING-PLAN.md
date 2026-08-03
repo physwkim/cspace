@@ -6850,3 +6850,56 @@ moveit-trajectory/src/path_segment/linear.rs  6/6
 §74.3(오라클 fixture가 `target_velocity`를 재지 않음),
 §77.2(`sample_pose`의 네 줄이 부호를 뒤집어도 통과)와 같은 계열이다:
 **통과하는 단언이 무언가를 재고 있다는 증거가 아니다.**
+
+## 80. 62건의 분해가 세 번 독립으로 같은 값을 냈다 (2026-08-04)
+
+p1-joints 라운드 11 부분 머지(`be5b8c1`, `5878d1a`, `a8b5e91`).
+베이스 `231e17b`, main `159dda1`에 머지. **1010 → 1017**.
+
+담당은 라운드가 끝나지 않았다 — 30000 케이스 pr2 스윕이 아직 돌고 있어
+fallback 창을 넘겼다. 브랜치에 커밋된 세 건만 먼저 들여왔고 감시는 다시
+걸어 뒀다.
+
+### 80.1 히스토그램을 내가 직접 돌렸다
+
+`--stats-json`에 `self_same_pair_histogram`이 생겼다. 같은 시드로 내가
+다시 돌린 결과:
+
+```
+base_bellow_link/torso_lift_link    52
+base_link/fr_caster_r_wheel_link     4
+base_link/br_caster_l_wheel_link     3
+base_link/bl_caster_r_wheel_link     1
+base_link/fl_caster_l_wheel_link     1
+base_link/fr_caster_l_wheel_link     1
+                                  ----
+                                    62
+```
+
+`self_same_pair_and_value_diverges`도 62다. **52 + 10, 캐스터 휠 링크
+다섯 종** — p1-joints의 계측, p3-acm이 §76.1에서 독립으로 분해한 결과,
+그리고 내 재현이 셋 다 같다.
+
+명령:
+
+```
+moveit-diff --urdf .../pr2.urdf --srdf .../pr2.srdf \
+  --group right_arm --collision --cases 3000 --seed 20260804 \
+  --stats-json <out> --oracle tools/moveit-oracle/run-oracle.sh
+```
+
+### 80.2 `cached_ik_kinematics_plugin` 판정
+
+"지금 해도 될 만큼 작지만 위로 올릴 만큼 크지는 않다" —
+가로챌 메서드는 `solve_with_options` 하나, 디스크 캐시 포맷은 포팅
+대상이 아니라 로컬 `serde` 선택, 최근접 시드 조회는 GNAT 트리 이식이
+아니라 선형 스캔. 크레이트 경계를 넘지 않으므로 이 크레이트의 다음
+라운드 작업이지 워크스페이스 결정이 아니다. **여러 라운드 미결이던
+항목이 닫혔다.**
+
+### 80.3 머지 후 실측
+
+`cargo nextest run --workspace` **1017/1017**(1010 + 7), `cargo test --doc
+--workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
+재생 **29/29 identical**.
