@@ -2341,7 +2341,22 @@ private:
   ///    performing before an octree query means anything in world
   ///    coordinates -- see crates/moveit-geometry/src/shapes.rs's module docs
   ///    for the full FCL/parry3d-f64/distance-field consumer analysis.
-  json octreeInWorld(const json& request) const
+  ///
+  /// Round 5's gap: everything above stops at pose composition and point
+  /// occupancy, never a real collision query -- and `octreeShapeQuery` below
+  /// deliberately bypasses `CollisionEnvFCL`/`RobotState`/ACM entirely (see
+  /// its own doc). Neither answers "does a real robot collide with a World
+  /// whose only object is this octree", which is the question a
+  /// `moveit_collision::ParryCollisionEnv` wiring `Shape::OcTree` through
+  /// `convert_shape` actually needs ground truth for. When the request
+  /// carries a `"robot"` key (`{"joint_values": {...}}`, `collision`'s own
+  /// vocabulary via `applyJointValues`), this additionally builds a real
+  /// `collision_detection::CollisionEnvFCL` over the exact same `World`
+  /// object already built above and runs `checkRobotCollision`/
+  /// `distanceRobot`, adding `robot_collision`/`robot_distance` to the
+  /// response. Requests without `"robot"` (round 2's own fixtures) see no
+  /// change to the existing fields.
+  json octreeInWorld(const json& request)
   {
     const double resolution = request.at("resolution").get<double>();
     auto tree = std::make_shared<octomap::OcTree>(resolution);
@@ -2349,16 +2364,16 @@ private:
 
     auto shape = std::make_shared<shapes::OcTree>(tree);
 
-    collision_detection::World w;
+    auto w = std::make_shared<collision_detection::World>();
     const Eigen::Isometry3d object_pose = fromRowMajor4x4(request.at("object_pose"));
     const Eigen::Isometry3d shape_pose =
         request.contains("shape_pose") ? fromRowMajor4x4(request.at("shape_pose")) : Eigen::Isometry3d::Identity();
 
     const std::vector<shapes::ShapeConstPtr> shape_ptrs{ shape };
     const EigenSTL::vector_Isometry3d shape_poses{ shape_pose };
-    w.addToObject("octree_object", object_pose, shape_ptrs, shape_poses);
+    w->addToObject("octree_object", object_pose, shape_ptrs, shape_poses);
 
-    const EigenSTL::vector_Isometry3d& global_shape_poses = w.getGlobalShapeTransforms("octree_object");
+    const EigenSTL::vector_Isometry3d& global_shape_poses = w->getGlobalShapeTransforms("octree_object");
     const Eigen::Isometry3d& global_pose = global_shape_poses.at(0);
 
     json queries_out = json::array();
@@ -2376,9 +2391,31 @@ private:
             json{ { "mapped", true }, { "log_odds", node->getLogOdds() }, { "occupancy", node->getOccupancy() } });
     }
 
-    return json{ { "shape_pose", toRowMajor4x4(shape_pose) },
-                  { "global_pose", toRowMajor4x4(global_pose) },
-                  { "queries", queries_out } };
+    json result = json{ { "shape_pose", toRowMajor4x4(shape_pose) },
+                         { "global_pose", toRowMajor4x4(global_pose) },
+                         { "queries", queries_out } };
+
+    if (request.contains("robot"))
+    {
+      applyJointValues(request.at("robot"));
+      collision_detection::AllowedCollisionMatrix acm = buildAcm();
+      collision_detection::CollisionEnvFCL env(model_, w);
+
+      collision_detection::CollisionRequest robot_req;
+      collision_detection::CollisionResult robot_res;
+      env.checkRobotCollision(robot_req, robot_res, *state_, acm);
+
+      collision_detection::DistanceRequest robot_dreq;
+      robot_dreq.enable_signed_distance = true;
+      robot_dreq.acm = &acm;
+      collision_detection::DistanceResult robot_dres;
+      env.distanceRobot(robot_dreq, robot_dres, *state_);
+
+      result["robot_collision"] = robot_res.collision;
+      result["robot_distance"] = robot_dres.minimum_distance.distance;
+    }
+
+    return result;
   }
 
   /// Ground truth for an actual octree-vs-shape collision/distance query --

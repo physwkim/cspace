@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!--
+  Not a vendored robot: a minimal single-link fixture purpose-built for
+  octree_world_collision_parity.rs, mirroring parry.rs's own internal test
+  robot (`box_link`/`floating_joint`/`FIXED_BASE_SRDF` in
+  crates/moveit-collision/src/parry.rs) so both sides of that parity test
+  describe the exact same kinematic tree: one 1x1x1 box link ("p") on a
+  floating joint from a fixed "base". Kept under tests/fixtures/, not the
+  repo-root fixtures/ directory, so tools/ci/verify-fixture-provenance.sh's
+  vendored-source mapping (which only covers the real panda/fanuc/pr2/
+  dual_arm_panda robots) has no reason to know about it.
+-->
+<robot name="octree_world_robot">
+  <link name="base"/>
+  <link name="p">
+    <collision>
+      <geometry><box size="1 1 1"/></geometry>
+    </collision>
+  </link>
+  <joint name="joint_p" type="floating">
+    <parent link="base"/>
+    <child link="p"/>
+  </joint>
+</robot>
