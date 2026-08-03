@@ -34,4 +34,7 @@ export_tree "$REPO_ROOT/third_party/moveit_resources" moveit_resources
 cp -a "$REPO_ROOT/tools/moveit-oracle" "$CTX/moveit-oracle"
 
 echo "context: $(du -sh "$CTX" | cut -f1)"
-exec docker build -t "$IMAGE" -f "$CTX/moveit-oracle/Dockerfile" "$CTX"
+# No pipe here: piping docker build into tail/tee masks its exit status behind
+# the last stage of the pipeline, which turns a failed build into a silent
+# success for any caller that checks $?.
+exec docker build ${TARGET:+--target "$TARGET"} -t "$IMAGE" -f "$CTX/moveit-oracle/Dockerfile" "$CTX"
