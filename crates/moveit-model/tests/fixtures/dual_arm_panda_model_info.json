@@ -14,6 +14,10 @@
         "end_effector_parent": null
       }
     },
+    "group_is_chain": {
+      "left_panda_arm": true,
+      "right_panda_arm": true
+    },
     "group_states": {
       "left_panda_arm": {
         "ready": {

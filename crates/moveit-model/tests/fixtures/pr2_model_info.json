@@ -63,6 +63,16 @@
         "end_effector_parent": null
       }
     },
+    "group_is_chain": {
+      "arms": false,
+      "arms_and_torso": false,
+      "base": true,
+      "l_end_effector": false,
+      "left_arm": true,
+      "r_end_effector": false,
+      "right_arm": true,
+      "whole_body": false
+    },
     "group_states": {
       "arms": {
         "tuck_arms": {

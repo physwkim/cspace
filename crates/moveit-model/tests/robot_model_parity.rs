@@ -48,6 +48,23 @@ struct OracleModelInfo {
         String,
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, f64>>,
     >,
+    /// Ground truth for `JointModelGroup::is_chain`, keyed by group name.
+    #[serde(default)]
+    group_is_chain: std::collections::BTreeMap<String, bool>,
+}
+
+/// Ground truth for `RobotModel::get_common_root`, one entry per queried
+/// pair, in request order — see `pr2_common_root_matches_the_oracle`.
+#[derive(Deserialize)]
+struct OracleCommonRootPair {
+    a: String,
+    b: String,
+    common_root: String,
+}
+
+#[derive(Deserialize)]
+struct OracleCommonRootResponse {
+    result: Vec<OracleCommonRootPair>,
 }
 
 /// Ground truth for `JointModelGroup`'s end-effector fields
@@ -365,6 +382,57 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             );
         }
     }
+
+    for (group_name, expected_is_chain) in &expected.group_is_chain {
+        let group = model
+            .joint_model_group(group_name)
+            .unwrap_or_else(|_| panic!("missing group '{group_name}'"));
+        assert_eq!(
+            group.is_chain(),
+            *expected_is_chain,
+            "is_chain for group '{group_name}'"
+        );
+    }
+}
+
+/// Ground truth for `RobotModel::get_common_root` against a committed
+/// oracle fixture of `{a, b} -> common_root` triples, covering the
+/// invariant boundaries the porting task calls out: same joint, ancestor in
+/// each direction, a pair spanning the root `world_joint`, and — the case
+/// that breaks a textbook LCA — two joints that are themselves direct
+/// siblings under the same link (`l_shoulder_pan_joint`/
+/// `r_shoulder_pan_joint`, both parented at `torso_lift_link`, and
+/// `fl_caster_rotation_joint`/`fr_caster_rotation_joint`, both parented at
+/// `base_link`), where upstream's own `getCommonRoot` returns the model's
+/// global root rather than the joint that actually branches them — see
+/// `RobotModel::get_common_root`'s doc comment for why.
+fn assert_common_root_matches_oracle(model: &RobotModel, fixture_file: &str) {
+    let path = format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        fixture_file
+    );
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    let response: OracleCommonRootResponse =
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+
+    let joint_index = |name: &str| -> usize {
+        model
+            .joint_names()
+            .iter()
+            .position(|n| n == name)
+            .unwrap_or_else(|| panic!("no joint named '{name}'"))
+    };
+
+    for pair in &response.result {
+        let got = model.get_common_root(joint_index(&pair.a), joint_index(&pair.b));
+        assert_eq!(
+            model.joint_names()[got],
+            pair.common_root,
+            "get_common_root({}, {})",
+            pair.a,
+            pair.b
+        );
+    }
 }
 
 impl std::fmt::Debug for OracleEndEffectorParent {
@@ -531,6 +599,15 @@ fn pr2_robot_model_matches_the_oracle() {
     let tuck_arms = arms.variable_default_positions("tuck_arms").unwrap();
     assert_eq!(tuck_arms.len(), 1);
     assert_eq!(tuck_arms.get("l_shoulder_pan_joint"), Some(&0.2));
+
+    // `left_arm`/`right_arm` are each a single unbranched chain;
+    // `arms`/`arms_and_torso`/`whole_body` are not, since they union two
+    // independently-rooted chains.
+    assert!(model.joint_model_group("left_arm").unwrap().is_chain());
+    assert!(model.joint_model_group("right_arm").unwrap().is_chain());
+    assert!(!model.joint_model_group("arms").unwrap().is_chain());
+
+    assert_common_root_matches_oracle(&model, "pr2_common_root.json");
 }
 
 /// Dual-arm panda's SRDF has no `<virtual_joint>` element at all — the
