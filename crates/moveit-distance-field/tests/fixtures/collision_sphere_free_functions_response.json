@@ -1,0 +1,235 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "collision_bool": true,
+      "collision_with_limit": {
+        "collision": true,
+        "colls": []
+      },
+      "gradients": {
+        "closest_distance": -0.15000000000000002,
+        "collision": true,
+        "distances": [
+          -0.15000000000000002,
+          1.7976931348623157e+308,
+          1.7976931348623157e+308
+        ],
+        "gradients": [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "types": [
+          1,
+          0,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "collision_bool": true,
+      "collision_with_limit": {
+        "collision": true,
+        "colls": [
+          0,
+          1
+        ]
+      },
+      "gradients": {
+        "closest_distance": -0.13,
+        "collision": true,
+        "distances": [
+          -0.13,
+          -0.13,
+          -0.13,
+          1.7976931348623157e+308
+        ],
+        "gradients": [
+          [
+            -1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "types": [
+          1,
+          1,
+          1,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "result": {
+      "collision_bool": true,
+      "collision_with_limit": {
+        "collision": true,
+        "colls": [
+          0,
+          1,
+          2
+        ]
+      },
+      "gradients": {
+        "closest_distance": -0.13,
+        "collision": true,
+        "distances": [
+          -0.13,
+          -0.13,
+          -0.13,
+          1.7976931348623157e+308
+        ],
+        "gradients": [
+          [
+            -1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "types": [
+          1,
+          1,
+          1,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "result": {
+      "collision_bool": true,
+      "collision_with_limit": {
+        "collision": true,
+        "colls": [
+          0
+        ]
+      },
+      "gradients": {
+        "closest_distance": 0.1,
+        "collision": true,
+        "distances": [
+          0.1,
+          0.1,
+          1.7976931348623157e+308
+        ],
+        "gradients": [
+          [
+            1.5000000000000002,
+            0.0,
+            0.0
+          ],
+          [
+            1.5000000000000002,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "types": [
+          1,
+          1,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "id": 5,
+    "ok": true,
+    "result": {
+      "collision_bool": false,
+      "collision_with_limit": {
+        "collision": false,
+        "colls": []
+      },
+      "gradients": {
+        "closest_distance": 1.7976931348623157e+308,
+        "collision": false,
+        "distances": [
+          1.7976931348623157e+308,
+          1.7976931348623157e+308,
+          1.7976931348623157e+308
+        ],
+        "gradients": [
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "types": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  }
+]

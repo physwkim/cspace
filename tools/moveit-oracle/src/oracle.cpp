@@ -532,6 +532,8 @@ public:
       return commonRoot(request);
     if (op == "collision_distance_field_types")
       return collisionDistanceFieldTypes(request);
+    if (op == "collision_sphere_free_functions")
+      return collisionSphereFreeFunctions(request);
     if (op == "distance_field_cache_entry")
       return distanceFieldCacheEntry(request);
     if (op == "group_state_representation")
@@ -2324,6 +2326,114 @@ private:
                                        { "gradients", grads_out } };
 
     return out;
+  }
+
+  /// Ground truth for the three free functions in
+  /// `collision_distance_field_types.{hpp,cpp}` that
+  /// `collisionDistanceFieldTypes` above never calls: the free
+  /// `getCollisionSphereGradients(const distance_field::DistanceField*, ...)`
+  /// and both `getCollisionSphereCollision` overloads (bool-only, and the
+  /// `num_coll`/`colls` variant). `collisionDistanceFieldTypes` only drives
+  /// `PosedDistanceField::getCollisionSphereGradients`, the *member*
+  /// overload -- upstream's two `getCollisionSphereGradients` overloads
+  /// disagree with each other on two points (the out-of-bounds threshold is
+  /// `grad.norm() > 0` on the member vs `grad.norm() > EPSILON` on the free
+  /// function; the member `std::abs()`s `dist` after subtracting the sphere
+  /// radius, the free function does not), so a fixture that only exercises
+  /// the member proves nothing about the free function's own arithmetic.
+  ///
+  /// Builds a raw `distance_field::PropagationDistanceField` directly (no
+  /// `PosedDistanceField`, no pose, no `BodyDecomposition`/shape parsing --
+  /// the free functions take a bare `const distance_field::DistanceField*`
+  /// and a caller-supplied sphere list already in the field's own frame, so
+  /// there is nothing upstream for a pose to apply here), then calls all
+  /// three free functions against the same `spheres` list and reports every
+  /// result. `request["spheres"]` is deliberately a mix of one sphere deep
+  /// inside an occupied cell (negative post-radius-subtraction `dist`,
+  /// exercising the abs()-vs-not divergence noted above) and spheres placed
+  /// to land on both sides of `maximum_value`/`tolerance`, so `collision`
+  /// is `true` for at least one sphere and `false` for at least one other --
+  /// a fixture where every sphere trivially misses would leave the
+  /// `in_collision = true` branches, and the `num_coll` early-return paths
+  /// in the second `getCollisionSphereCollision` overload, unexercised.
+  json collisionSphereFreeFunctions(const json& request) const
+  {
+    const json& geom = request.at("geometry");
+    const auto size = geom.at("size").get<std::array<double, 3>>();
+    const auto origin = geom.at("origin").get<std::array<double, 3>>();
+    const double resolution = geom.at("resolution").get<double>();
+    const double max_distance = request.at("max_distance").get<double>();
+    const bool propagate_negative = request.at("propagate_negative").get<bool>();
+
+    distance_field::PropagationDistanceField field(size[0], size[1], size[2], resolution, origin[0], origin[1],
+                                                    origin[2], max_distance, propagate_negative);
+
+    EigenSTL::vector_Vector3d occupied_points;
+    for (const auto& cell_json : request.at("occupied_cells"))
+    {
+      const auto cell = cell_json.get<std::array<int, 3>>();
+      double wx = NAN;
+      double wy = NAN;
+      double wz = NAN;
+      field.gridToWorld(cell[0], cell[1], cell[2], wx, wy, wz);
+      occupied_points.emplace_back(wx, wy, wz);
+    }
+    field.addPointsToField(occupied_points);
+
+    std::vector<collision_detection::CollisionSphere> sphere_list;
+    EigenSTL::vector_Vector3d sphere_centers;
+    for (const auto& sphere_json : request.at("spheres"))
+    {
+      const auto center = sphere_json.at("center").get<std::array<double, 3>>();
+      const double radius = sphere_json.at("radius").get<double>();
+      sphere_list.emplace_back(Eigen::Vector3d(center[0], center[1], center[2]), radius);
+      sphere_centers.emplace_back(center[0], center[1], center[2]);
+    }
+
+    const double maximum_value = request.at("maximum_value").get<double>();
+    const double tolerance = request.at("tolerance").get<double>();
+    const bool subtract_radii = request.at("subtract_radii").get<bool>();
+    const unsigned int num_coll = request.at("num_coll").get<unsigned int>();
+
+    const distance_field::DistanceField* raw_field = &field;
+
+    collision_detection::GradientInfo grad_info;
+    const std::size_t n_spheres = sphere_list.size();
+    grad_info.distances.assign(n_spheres, DBL_MAX);
+    grad_info.types.assign(n_spheres, collision_detection::NONE);
+    grad_info.gradients.assign(n_spheres, Eigen::Vector3d::Zero());
+
+    const bool gradients_collision = collision_detection::getCollisionSphereGradients(
+        raw_field, sphere_list, sphere_centers, grad_info, collision_detection::SELF, tolerance, subtract_radii,
+        maximum_value, /*stop_at_first_collision=*/false);
+
+    json distances_out = json::array();
+    json types_out = json::array();
+    json grads_out = json::array();
+    for (std::size_t i = 0; i < n_spheres; ++i)
+    {
+      distances_out.push_back(grad_info.distances[i]);
+      types_out.push_back(static_cast<int>(grad_info.types[i]));
+      grads_out.push_back(
+          json::array({ grad_info.gradients[i].x(), grad_info.gradients[i].y(), grad_info.gradients[i].z() }));
+    }
+
+    const bool collision_bool = collision_detection::getCollisionSphereCollision(
+        raw_field, sphere_list, sphere_centers, maximum_value, tolerance);
+
+    std::vector<unsigned int> colls;
+    const bool collision_with_limit = collision_detection::getCollisionSphereCollision(
+        raw_field, sphere_list, sphere_centers, maximum_value, tolerance, num_coll, colls);
+
+    return json{
+      { "gradients", json{ { "closest_distance", grad_info.closest_distance },
+                            { "collision", gradients_collision },
+                            { "distances", distances_out },
+                            { "types", types_out },
+                            { "gradients", grads_out } } },
+      { "collision_bool", collision_bool },
+      { "collision_with_limit", json{ { "collision", collision_with_limit }, { "colls", colls } } },
+    };
   }
 
   /// Ground truth for `moveit-distance-field`'s

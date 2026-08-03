@@ -680,7 +680,14 @@ pub fn get_distance_field_cache_entry<'e, 'm>(
 ///   (see its own doc comment) has no such field at all -- there is no
 ///   `initialize`-equivalent constructor in this crate's scope to populate
 ///   it from, so every `DistanceFieldCacheEntry` this port can build takes
-///   the fresh-build branch, unconditionally.
+///   the fresh-build branch, unconditionally. Still true with
+///   [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
+///   in the picture: it is a new *caller* of
+///   [`generate_distance_field_cache_entry`], reusing a cached entry or
+///   building one exactly the same way as before -- not a second
+///   construction path, and it does not add a field to
+///   [`DistanceFieldCacheEntry`] or a branch here. See `lib.rs`'s module doc
+///   for the falsifier condition that would change this.
 /// - **Attached bodies are always skipped**, same reasoning as this module's
 ///   own `build_non_group_distance_field`: this workspace has no `AttachedBody`
 ///   reachable from a bare `RobotState`. Upstream's own trailing
