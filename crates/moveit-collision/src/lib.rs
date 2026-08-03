@@ -8,11 +8,14 @@
 //   moveit_core/collision_detection/include/moveit/collision_detection/world.hpp
 //   moveit_core/collision_detection/src/collision_common.cpp
 //   moveit_core/collision_detection/src/collision_matrix.cpp
+//   moveit_core/collision_detection/src/collision_tools.cpp
 //   moveit_core/collision_detection/src/world.cpp
 
 //! The `RobotModel`-independent slice of `moveit_core/collision_detection`:
 //! [`AllowedCollisionMatrix`], the request/result types every collision
-//! backend shares, and the [`World`] collision-object container.
+//! backend shares, the [`World`] collision-object container, and pure
+//! [`CostSource`] utilities ([`total_cost`], [`intersect_cost_sources`],
+//! [`remove_overlapping`], [`remove_cost_sources`], [`sensor_positioning`]).
 //!
 //! # Out of scope here
 //!
@@ -24,6 +27,7 @@
 
 mod common;
 mod matrix;
+mod tools;
 mod world;
 
 pub use common::{
@@ -32,4 +36,7 @@ pub use common::{
     DistanceResultsData, IsDoneFn,
 };
 pub use matrix::{AllowedCollision, AllowedCollisionMatrix, AllowedCollisionType, DecideContactFn};
+pub use tools::{
+    intersect_cost_sources, remove_cost_sources, remove_overlapping, sensor_positioning, total_cost,
+};
 pub use world::{Action, MoveObjectOutcome, Notification, Object, ShapeEntry, World};
