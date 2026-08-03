@@ -2267,3 +2267,78 @@ FCL 실제 순회(`octree_solver-inl.h`의 `OcTreeShapeIntersectRecurse`)를 읽
 parry 벤더 소스 대비로 가격 매겼고 커스텀 parry `Shape`/`QueryDispatcher`를
 권고한다. 지시대로 구현은 하지 않았다. §14.2에서 "결정 대기"로 남긴 항목의
 근거가 이로써 갖춰졌다.
+
+## 18. `p1-fixtures` 3라운드 병합 — 부착체(attached body)가 충돌 경로에 연결됐다 (2026-08-03)
+
+`ee6f7e8`. 브랜치 커밋 4개: `4b99de4`(`PlanningScene` 충돌 메서드),
+`9170651`(`CollisionEnv`에 부착체 지오메트리 관통), `f915b6e`(오라클
+`collision` op의 `attached_bodies` 필드), `4c546a1`(pr2 부착체 픽스처).
+
+### 18.1 무엇이 연결됐나
+
+`CollisionEnv`의 네 메서드(`check_self_collision`, `check_robot_collision`,
+`distance_self`, `distance_robot`)가 `attached: &[AttachedBodyGeometry]`
+파라미터를 받는다. 상류 `CollisionEnvFCL::constructFCLObjectRobot`이
+`state.getAttachedBodies()`를 자기·로봇·거리 질의가 공유하는 *같은*
+`FCLObject`에 접어넣는 구조를 그대로 따른 것 — 부착 지오메트리는 일부
+질의에만 주는 선택 인자가 아니라 이 검사들 모두에게 "로봇"의 일부다.
+
+`PosedBody`에 `attached_link: Option<String>`과 `touch_links:
+BTreeSet<String>`이 붙고, 두 게이트가 바디 쌍 단위로 동작한다:
+`link_touches_attached`(부착체의 `touch_links`에 든 링크와의 쌍은 건너뜀),
+`attached_pair_allowed`(같은 링크에 붙은 부착체끼리는 충돌 검사에서만
+건너뜀 — 패널이 상류 `distanceCallback`에는 이 규칙이 없음을 확인했고,
+그래서 `accumulate_distance`에는 `link_touches_attached`만 있다).
+
+### 18.2 `parry.rs` 3-way 병합
+
+같은 파일을 `b7d86f0`(§15.4의 `PosedBody` 부품 리스트화)에서 내가 이미
+재구조화한 상태라 충돌 영역 5곳을 손으로 풀었다. 두 변경은 직교한다 —
+저쪽은 바디 쌍 게이트(필드 2개 + 생성자 1개 + 게이트 함수 2개), 이쪽은
+바디 *내부*의 부품 교차곱. 병합 결과는 게이트가 부품 루프 **바깥**(바디 쌍
+단위), 부품 교차곱이 안쪽. 저쪽 `attached_body_body()` 생성자도
+`pose_parts`로 다시 썼다.
+
+### 18.3 시그니처 변경이 드러낸 정지 호출부 3곳
+
+`attached` 파라미터 추가는 크레이트 경계를 넘는 변경이라 앵커
+`check_robot_collision|check_self_collision|distance_robot|distance_self`로
+워크스페이스 전체 48개 호출부를 열거해 분류했다. 정지한 것은 정확히 3곳:
+`crates/moveit-collision/tests/multi_shape_object.rs:79`, `:155`,
+`crates/moveit-constraints/src/visibility.rs:404`. 모두 `&[]`로 고쳤다 —
+세 곳 다 부착체가 없는 시나리오다.
+
+### 18.4 픽스처를 새 오라클로 재캡처했다
+
+`crates/moveit-scene/tests/fixtures/pr2_attached_collision.json`의 3 케이스를
+요청 3개로 다시 만들어 갓 빌드한 `moveit-rs/oracle:22b53eac162fcac9`에
+흘려보냈다. 커밋본과 값이 정확히 일치한다:
+
+| case | 부착체 | `robot_collision` | `robot_distance` |
+|---|---|---|---|
+| 0 | 없음 | false | 0.004407999999937988 |
+| 1 | sphere r=0.1 @ `base_footprint` z=+0.5 | false | 0.004407999999937988 |
+| 2 | 같은 sphere @ z=−0.1 | true | −0.1 |
+
+케이스 2의 `−0.1`은 바닥 박스(`4×4×0.1`, 윗면 z=0)에 구가 0.1 m 파고든
+값과 비트 단위로 같다.
+
+### 18.5 패널의 판단 하나를 독립 확인했다
+
+패널 보고: "`PlanningScene::distance_to_collision`은 상류
+`distanceToCollision`의 부호 없는 거리 기본값을 재현하므로 실제 관통을
+`0.0`으로 클램프한다. 오라클의 부호 있는 `robot_distance`와 비교했다면
+버그가 아니라 거짓 실패였을 것이다." — 상류에서 확인했다:
+`planning_scene.hpp:546`의 `distanceToCollision`이
+`collision_env.hpp:220`의 편의 `distanceRobot(state, acm)`을 부르고, 그
+편의 오버로드는 기본 생성 `DistanceRequest`를 쓰며
+`collision_common.hpp:222`가 `enable_signed_distance = false`다. 이 포트
+쪽도 `common.rs:331`이 기본값 `false`, `parry.rs:701-705`가 그때
+`contact.dist.max(0.0)`으로 클램프한다. 그래서 이 파리티 테스트는
+`distance_to_collision`이 아니라 `enable_signed_distance: true`를 명시한
+직접 `distance_robot` 호출로 거리를 잰다.
+
+주의로 남길 편차 하나: 상류 편의 오버로드는
+`req.enableGroup(getRobotModel())`도 호출해 `active_components_only`를
+설정하지만, 이 포트의 `distance_to_collision`은 그러지 않는다. §5의
+`group_name` 미관통 편차와 같은 뿌리다.
