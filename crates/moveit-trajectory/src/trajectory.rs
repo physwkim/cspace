@@ -195,13 +195,35 @@ impl Trajectory {
 
     /// `getPosition`.
     pub fn position(&self, time: f64) -> DVector<f64> {
-        let (path_pos, _path_vel) = self.sample(time);
+        let idx = self.segment_index(time);
+        let path_pos = Self::position_at(self.trajectory[idx - 1], self.trajectory[idx], time);
         self.path.config(path_pos)
     }
 
     /// `getVelocity`.
+    ///
+    /// # Deviation from upstream (a non-deviation, spelled out)
+    ///
+    /// Upstream's `getVelocity` computes the `path_pos`/`path_vel` it feeds
+    /// to `path_.getTangent` using the *full* enclosing segment's time step
+    /// (`it->time_ - previous->time_`), never re-deriving it against the
+    /// query `time` the way `getPosition` does (`time - previous->time_`).
+    /// Concretely: for any `time` inside a segment `(previous, current]`,
+    /// `getVelocity` returns the value at `current.time_`, not at `time` —
+    /// it is a step function of `time`, constant within each segment,
+    /// unlike [`Trajectory::position`]. This looks like it could be an
+    /// upstream oversight, but it is upstream's actual, observable
+    /// behaviour (confirmed disagreeing with an earlier, incorrect version
+    /// of this port against the `totg` oracle op — see
+    /// `tests/totg_parity.rs`), so it is transcribed here rather than
+    /// "fixed" into a continuously interpolated curve. [`Trajectory::
+    /// acceleration`] has the same non-re-derivation property, for the same
+    /// reason (see its doc comment); `Trajectory::segment_endpoint_state`
+    /// is the computation both share.
     pub fn velocity(&self, time: f64) -> DVector<f64> {
-        let (path_pos, path_vel) = self.sample(time);
+        let idx = self.segment_index(time);
+        let (path_pos, path_vel) =
+            Self::segment_endpoint_state(self.trajectory[idx - 1], self.trajectory[idx]);
         self.path.tangent(path_pos) * path_vel
     }
 
@@ -209,33 +231,22 @@ impl Trajectory {
     ///
     /// # Deviation from upstream (a non-deviation, spelled out)
     ///
-    /// [`Trajectory::position`]/[`Trajectory::velocity`] re-derive their
-    /// local time step as `time - previous.time` before evaluating the
-    /// quadratic — see `Trajectory::sample`. This method does **not**:
-    /// it evaluates the segment's constant acceleration using the *full*
-    /// segment span `current.time - previous.time` throughout, exactly as
-    /// upstream does. That is not an oversight — `trajectory` is built by
-    /// fixed-acceleration Euler steps (see `Trajectory::integrate_forward`/
-    /// `Trajectory::integrate_backward`), so acceleration is constant
-    /// *within* a segment; querying `path_pos`/`path_vel` at the segment's
-    /// own end point (rather than at `time`) and differencing the tangent
-    /// there is upstream's way of reading off that constant, and it would
-    /// change the returned value to re-derive it against `time` the way the
-    /// other two methods do.
+    /// Like [`Trajectory::velocity`] (see its doc comment), this evaluates
+    /// the segment's constant acceleration using the *full* segment span
+    /// `current.time - previous.time` throughout rather than re-deriving
+    /// against `time` — exactly as upstream does. That is not an oversight
+    /// — `trajectory` is built by fixed-acceleration Euler steps (see
+    /// `Trajectory::integrate_forward`/`Trajectory::integrate_backward`),
+    /// so acceleration is constant *within* a segment; querying `path_pos`/
+    /// `path_vel` at the segment's own end point and differencing the
+    /// tangent there is upstream's way of reading off that constant.
     pub fn acceleration(&self, time: f64) -> DVector<f64> {
         let idx = self.segment_index(time);
         let current = self.trajectory[idx];
         let previous = self.trajectory[idx - 1];
-
         let time_step = current.time - previous.time;
-        let acceleration = 2.0
-            * (current.path_pos - previous.path_pos - time_step * previous.path_vel)
-            / (time_step * time_step);
 
-        let path_pos = previous.path_pos
-            + time_step * previous.path_vel
-            + 0.5 * time_step * time_step * acceleration;
-        let path_vel = previous.path_vel + time_step * acceleration;
+        let (path_pos, path_vel) = Self::segment_endpoint_state(previous, current);
 
         let mut path_acc = self.path.tangent(path_pos) * path_vel
             - self.path.tangent(previous.path_pos) * previous.path_vel;
@@ -245,23 +256,36 @@ impl Trajectory {
         path_acc
     }
 
-    /// Shared by [`Trajectory::position`]/[`Trajectory::velocity`]: the
-    /// path position and path velocity at `time`, found by fitting the
-    /// constant-acceleration quadratic between the trajectory steps
-    /// bracketing `time` and evaluating it at `time` itself (as opposed to
-    /// [`Trajectory::acceleration`], which deliberately does not — see its
+    /// The path position at `time`, found by fitting the constant-
+    /// acceleration quadratic between the trajectory steps `previous` and
+    /// `current` bracketing `time` and evaluating it at `time` itself — as
+    /// opposed to [`Trajectory::segment_endpoint_state`], which deliberately
+    /// evaluates at `current.time` instead (see [`Trajectory::velocity`]'s
     /// doc comment).
-    fn sample(&self, time: f64) -> (f64, f64) {
-        let idx = self.segment_index(time);
-        let current = self.trajectory[idx];
-        let previous = self.trajectory[idx - 1];
-
+    fn position_at(previous: TrajectoryStep, current: TrajectoryStep, time: f64) -> f64 {
         let segment_time_step = current.time - previous.time;
         let acceleration = 2.0
             * (current.path_pos - previous.path_pos - segment_time_step * previous.path_vel)
             / (segment_time_step * segment_time_step);
 
         let time_step = time - previous.time;
+        previous.path_pos
+            + time_step * previous.path_vel
+            + 0.5 * time_step * time_step * acceleration
+    }
+
+    /// Shared by [`Trajectory::velocity`]/[`Trajectory::acceleration`]: the
+    /// path position and path velocity evaluated at the *end* of the
+    /// segment `(previous, current)`, found by fitting the segment's
+    /// constant-acceleration quadratic and evaluating it at `current.time`
+    /// — see [`Trajectory::velocity`]'s doc comment for why that, not the
+    /// query time, is upstream's actual behaviour.
+    fn segment_endpoint_state(previous: TrajectoryStep, current: TrajectoryStep) -> (f64, f64) {
+        let time_step = current.time - previous.time;
+        let acceleration = 2.0
+            * (current.path_pos - previous.path_pos - time_step * previous.path_vel)
+            / (time_step * time_step);
+
         let path_pos = previous.path_pos
             + time_step * previous.path_vel
             + 0.5 * time_step * time_step * acceleration;

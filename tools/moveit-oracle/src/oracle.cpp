@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -43,6 +44,7 @@
 #include <moveit/robot_state/robot_state.hpp>
 #include <moveit/robot_trajectory/robot_trajectory.hpp>
 #include <moveit/trajectory_processing/ruckig_traj_smoothing.hpp>
+#include <moveit/trajectory_processing/time_optimal_trajectory_generation.hpp>
 #include <moveit/transforms/transforms.hpp>
 #include <srdfdom/model.h>
 #include <urdf_parser/urdf_parser.h>
@@ -497,6 +499,8 @@ public:
       return ruckig(request);
     if (op == "body_query")
       return bodyQuery(request);
+    if (op == "totg")
+      return totg(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -1859,6 +1863,76 @@ private:
     result["waypoints"] = out_waypoints;
     result["durations_from_previous"] = out_durations;
     return result;
+  }
+
+  /// Ground truth for the `moveit-trajectory` `Path`/`Trajectory` port
+  /// (the model-independent numeric core of
+  /// `trajectory_processing::time_optimal_trajectory_generation.hpp` lines
+  /// 62-192 -- *not* the `TimeOptimalTrajectoryGeneration` adapter class,
+  /// which takes a `robot_trajectory::RobotTrajectory` and is out of this
+  /// port's scope). Each case runs `Path::create` then, if that succeeds,
+  /// `Trajectory::create`, and reports which stage failed when either
+  /// returns `std::nullopt`. `sample_times` are request-supplied rather than
+  /// derived from the computed duration, so both sides evaluate at
+  /// identically the same instants regardless of any duration disagreement
+  /// -- the numbers nlohmann::json can't represent (NaN, on a zero-length
+  /// path) serialize as JSON `null` via `dump_float`'s own NaN/Inf guard.
+  static Eigen::VectorXd totgReadVector(const json& arr)
+  {
+    Eigen::VectorXd v(static_cast<Eigen::Index>(arr.size()));
+    for (std::size_t i = 0; i < arr.size(); ++i)
+      v[static_cast<Eigen::Index>(i)] = arr.at(i).get<double>();
+    return v;
+  }
+
+  static json totgWriteVector(const Eigen::VectorXd& v)
+  {
+    json out = json::array();
+    for (Eigen::Index i = 0; i < v.size(); ++i)
+      out.push_back(v[i]);
+    return out;
+  }
+
+  json totg(const json& request) const
+  {
+    json cases_out = json::array();
+    for (const json& c : request.at("cases"))
+      cases_out.push_back(totgCase(c));
+    return json{ { "cases", cases_out } };
+  }
+
+  json totgCase(const json& c) const
+  {
+    std::vector<Eigen::VectorXd> waypoints;
+    for (const json& wp : c.at("waypoints"))
+      waypoints.push_back(totgReadVector(wp));
+    const double max_deviation = c.at("max_deviation").get<double>();
+
+    std::optional<trajectory_processing::Path> path =
+        trajectory_processing::Path::create(waypoints, max_deviation);
+    if (!path)
+      return json{ { "ok", false }, { "stage", "path_create" } };
+
+    const Eigen::VectorXd max_velocity = totgReadVector(c.at("max_velocity"));
+    const Eigen::VectorXd max_acceleration = totgReadVector(c.at("max_acceleration"));
+    const double time_step = c.at("time_step").get<double>();
+
+    std::optional<trajectory_processing::Trajectory> trajectory =
+        trajectory_processing::Trajectory::create(*path, max_velocity, max_acceleration, time_step);
+    if (!trajectory)
+      return json{ { "ok", false }, { "stage", "trajectory_create" } };
+
+    json samples = json::array();
+    for (const json& t_json : c.at("sample_times"))
+    {
+      const double t = t_json.get<double>();
+      samples.push_back(json{ { "time", t },
+                               { "position", totgWriteVector(trajectory->getPosition(t)) },
+                               { "velocity", totgWriteVector(trajectory->getVelocity(t)) },
+                               { "acceleration", totgWriteVector(trajectory->getAcceleration(t)) } });
+    }
+
+    return json{ { "ok", true }, { "duration", trajectory->getDuration() }, { "samples", samples } };
   }
 
   /// Ground truth for the `moveit-constraints` `KinematicConstraintSet` port.
