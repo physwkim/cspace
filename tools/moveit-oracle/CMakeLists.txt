@@ -44,6 +44,7 @@ target_link_libraries(moveit_oracle
     moveit_core::moveit_collision_distance_field
     moveit_core::moveit_dynamics_solver
     moveit_core::moveit_kinematic_constraints
+    moveit_core::moveit_planning_scene
     urdfdom::urdf_parser
     srdfdom::srdfdom
     Eigen3::Eigen
