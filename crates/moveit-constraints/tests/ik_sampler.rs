@@ -27,12 +27,14 @@ use moveit_constraints::{
     IkConstraintSampler, IkSamplingPose, OrientationConstraint, OrientationTolerance,
     PositionConstraint,
 };
-use moveit_geometry::{Cuboid, Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
+use moveit_geometry::{
+    Cuboid, Isometry3, Rotation3, Shape, Sphere, Transforms, UnitQuaternion, Vector3,
+};
 use moveit_kinematics::{KinematicsSolver, NewtonRaphsonSolver, SolveOptions, SolverParams};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
-use rand::SeedableRng;
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 fn fixture_path(file_name: &str) -> String {
@@ -272,6 +274,349 @@ fn sample_pose_orientation_only_stays_within_the_triangle_inequality_angle_bound
         "with no position constraint, the sampled link position should vary across calls \
          (forward kinematics of a freshly randomized state), not stay fixed"
     );
+}
+
+// ---- samplePose: pinning the four lines a loose bound cannot distinguish ----
+//
+// The tests above check containment and a triangle-inequality bound — both
+// satisfied by a sign or order inversion in `sample_pose`'s pose arithmetic.
+// These four pin the exact returned value against an expected value derived
+// independently of `sample_pose`: the same seeded RNG draws are replayed
+// through the same already-tested primitives `sample_pose` itself calls
+// (`ConstraintRegion`/`Body::sample_point_inside` for position,
+// `Rng::random`/`random_range` for the per-axis angles — the u01-to-angle
+// formula itself was already confirmed correct line-by-line against
+// upstream and is not one of the four disputed lines), then combined by
+// hand using the *correct* order/sign for whichever of the four lines this
+// test targets. A test's expected value only agrees with `sample_pose`'s
+// actual return if that one line is right.
+
+/// Replays the position half of `sample_pose`'s RNG draws for a
+/// single-region `Cuboid` constraint (`regions.len() == 1`, so the region
+/// index draw `(i + k) % regions.len()` always selects region 0 regardless
+/// of `k`'s value) and returns the sampled point before any mobile-frame or
+/// link-offset adjustment. `Body::sample_point_inside` for a `Cuboid` always
+/// succeeds on its first draw (`bodies.rs`: three `uniform()` calls, no
+/// rejection loop), so this consumes exactly the same draws `sample_pose`
+/// consumes for the position half, landing `rng` at the same point in the
+/// stream `sample_pose` would reach before drawing the orientation angles.
+fn replay_cuboid_position(pc: &PositionConstraint, rng: &mut ChaCha8Rng) -> Vector3 {
+    let _k: usize = rng.random_range(0..1usize);
+    let region = &pc.constraint_regions()[0];
+    let body = region.body.clone_at(region.pose);
+    body.sample_point_inside(1, &mut |lo, hi| rng.random_range(lo..hi))
+        .expect("a Cuboid region never rejects its first sample")
+}
+
+/// Replays the three `2.0 * (u01 - 0.5) * (tol - eps)` draws `sample_pose`
+/// makes for the orientation delta, in the same order (x, then y, then z).
+/// This formula itself is not one of the four disputed lines (round 9
+/// already confirmed it against upstream), so reproducing it here is
+/// establishing known input to the four tests below, not begging the
+/// question of what they each check.
+fn replay_orientation_angles(rng: &mut ChaCha8Rng, x_tol: f64, y_tol: f64, z_tol: f64) -> Vector3 {
+    let eps = f64::EPSILON;
+    let u1: f64 = rng.random();
+    let u2: f64 = rng.random();
+    let u3: f64 = rng.random();
+    Vector3::new(
+        2.0 * (u1 - 0.5) * (x_tol - eps),
+        2.0 * (u2 - 0.5) * (y_tol - eps),
+        2.0 * (u3 - 0.5) * (z_tol - eps),
+    )
+}
+
+/// The *correct* X, then Y, then Z axis-angle composition — independent of
+/// `sample_pose`'s own `UnitQuaternion::from_axis_angle` chain in that it is
+/// built from `Rotation3` matrices multiplied directly, not by calling into
+/// `ik_sampler.rs` at all.
+fn expected_xyz_euler_diff(angles: Vector3) -> UnitQuaternion {
+    let rx = Rotation3::from_axis_angle(&Vector3::x_axis(), angles.x);
+    let ry = Rotation3::from_axis_angle(&Vector3::y_axis(), angles.y);
+    let rz = Rotation3::from_axis_angle(&Vector3::z_axis(), angles.z);
+    UnitQuaternion::from_rotation_matrix(&(rx * ry * rz))
+}
+
+#[test]
+fn sample_pose_xyz_euler_order_kills_a_zyx_swap() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    // Three distinct, well-separated tolerances: X*Y*Z and Z*Y*X only agree
+    // when the three per-axis rotations happen to commute, which generic
+    // distinct nonzero angles about three different axes do not.
+    let (x_tol, y_tol, z_tol) = (0.30, 0.15, 0.22);
+    let oc = OrientationConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        UnitQuaternion::identity(),
+        OrientationTolerance::XyzEuler {
+            x: x_tol,
+            y: y_tol,
+            z: z_tol,
+        },
+        1.0,
+    )
+    .unwrap();
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc.clone()),
+        orientation_constraint: Some(oc),
+    };
+    let ik = IkConstraintSampler::new(&model, &FakeTip::new("panda_link8"), sampler).unwrap();
+
+    let mut state = RobotState::new(&model);
+    let reference = state.update();
+    let mut rng_real = ChaCha8Rng::seed_from_u64(101);
+    let mut rng_shadow = rng_real.clone();
+
+    let (_actual_pos, actual_quat) = ik.sample_pose(&reference, &mut rng_real, 1).unwrap();
+
+    replay_cuboid_position(&pc, &mut rng_shadow);
+    let angles = replay_orientation_angles(&mut rng_shadow, x_tol, y_tol, z_tol);
+    // desired == identity, so `desired_rotation_matrix() * diff == diff`.
+    let expected_quat = expected_xyz_euler_diff(angles);
+
+    assert!(
+        actual_quat.angle_to(&expected_quat) < 1e-9,
+        "X*Y*Z composition mismatch: got {actual_quat:?}, expected {expected_quat:?} \
+         (angle between them: {} rad)",
+        actual_quat.angle_to(&expected_quat)
+    );
+}
+
+#[test]
+fn sample_pose_rotation_vector_transpose_kills_dropping_the_transpose() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    // A desired rotation about a single coordinate axis is not symmetric
+    // for any angle other than 0 or pi, so its transpose is a genuinely
+    // different matrix from itself — the transpose is not a no-op here.
+    let desired = UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.7);
+    let (x_tol, y_tol, z_tol) = (0.05, 0.04, 0.06);
+    let oc = OrientationConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        desired,
+        OrientationTolerance::RotationVector {
+            x: x_tol,
+            y: y_tol,
+            z: z_tol,
+        },
+        1.0,
+    )
+    .unwrap();
+    // Fixed frame, world == identity in `tf`, so `desired_rotation_matrix()`
+    // and `desired_rotation_matrix_in_ref_frame()` both equal `desired`'s
+    // own rotation matrix here — confirmed from `orientation.rs`: the Fixed
+    // branch caches `rotation_matrix_inv = (tf * desired).inverse()`, and
+    // `tf` here is the identity map.
+    assert_eq!(oc.desired_rotation_matrix(), desired.to_rotation_matrix());
+    assert_eq!(
+        oc.desired_rotation_matrix_in_ref_frame(),
+        desired.to_rotation_matrix()
+    );
+
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc.clone()),
+        orientation_constraint: Some(oc.clone()),
+    };
+    let ik = IkConstraintSampler::new(&model, &FakeTip::new("panda_link8"), sampler).unwrap();
+
+    let mut state = RobotState::new(&model);
+    let reference = state.update();
+    let mut rng_real = ChaCha8Rng::seed_from_u64(102);
+    let mut rng_shadow = rng_real.clone();
+
+    let (_actual_pos, actual_quat) = ik.sample_pose(&reference, &mut rng_real, 1).unwrap();
+
+    replay_cuboid_position(&pc, &mut rng_shadow);
+    let angles = replay_orientation_angles(&mut rng_shadow, x_tol, y_tol, z_tol);
+    let rotation_vector = oc.desired_rotation_matrix_in_ref_frame().transpose() * angles;
+    let expected_diff = UnitQuaternion::from_axis_angle(
+        &nalgebra::Unit::new_normalize(rotation_vector),
+        rotation_vector.norm(),
+    );
+    let expected_quat = desired * expected_diff;
+
+    assert!(
+        actual_quat.angle_to(&expected_quat) < 1e-9,
+        "transpose mismatch: got {actual_quat:?}, expected {expected_quat:?} \
+         (angle between them: {} rad)",
+        actual_quat.angle_to(&expected_quat)
+    );
+}
+
+#[test]
+fn sample_pose_mobile_frame_composition_order_kills_a_swap() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        Vector3::zeros(),
+        &[(
+            Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    let (x_tol, y_tol, z_tol) = (0.05, 0.04, 0.06);
+    // "panda_link4" is not "world" and `tf` only maps "world", so this
+    // resolves to `OrientationTarget::Mobile` — `mobile_reference_frame()`
+    // is true and `sample_pose` must compose with a fresh frame lookup.
+    let oc = OrientationConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "panda_link4",
+        UnitQuaternion::identity(),
+        OrientationTolerance::XyzEuler {
+            x: x_tol,
+            y: y_tol,
+            z: z_tol,
+        },
+        1.0,
+    )
+    .unwrap();
+    assert!(oc.mobile_reference_frame());
+
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc.clone()),
+        orientation_constraint: Some(oc.clone()),
+    };
+    let ik = IkConstraintSampler::new(&model, &FakeTip::new("panda_link8"), sampler).unwrap();
+
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    // Away from all-zero joint values, so panda_link4's orientation at the
+    // reference state is genuinely non-identity (checked below) and the
+    // composition order actually matters.
+    for (name, &v) in PANDA_ARM_JOINTS
+        .iter()
+        .zip(&[0.2, -0.5, 0.3, -1.2, 0.4, 0.9, -0.3])
+    {
+        state.set_variable_position(name, v).unwrap();
+    }
+    let reference = state.update();
+    let frame_rot = reference.frame_transform("panda_link4").unwrap().rotation;
+    assert!(
+        frame_rot.angle_to(&UnitQuaternion::identity()) > 1e-3,
+        "this test only exercises the composition order if panda_link4's \
+         orientation at the reference state is genuinely non-identity"
+    );
+
+    let mut rng_real = ChaCha8Rng::seed_from_u64(103);
+    let mut rng_shadow = rng_real.clone();
+
+    let (_actual_pos, actual_quat) = ik.sample_pose(&reference, &mut rng_real, 1).unwrap();
+
+    replay_cuboid_position(&pc, &mut rng_shadow);
+    let angles = replay_orientation_angles(&mut rng_shadow, x_tol, y_tol, z_tol);
+    // desired == identity, so the pre-mobile-composition quat is `diff` alone.
+    let pre_mobile_quat = expected_xyz_euler_diff(angles);
+    let expected_quat = frame_rot * pre_mobile_quat;
+
+    assert!(
+        actual_quat.angle_to(&expected_quat) < 1e-9,
+        "mobile-frame composition order mismatch: got {actual_quat:?}, \
+         expected {expected_quat:?} (angle between them: {} rad)",
+        actual_quat.angle_to(&expected_quat)
+    );
+}
+
+#[test]
+fn sample_pose_link_offset_kills_adding_instead_of_subtracting() {
+    let model = panda_model();
+    let tf = Transforms::new("world").unwrap();
+    let offset = Vector3::new(0.05, -0.03, 0.02);
+    let pc = PositionConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        offset,
+        &[(
+            Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()),
+            Isometry3::identity(),
+        )],
+        1.0,
+    )
+    .unwrap();
+    assert!(pc.has_link_offset());
+    let (x_tol, y_tol, z_tol) = (0.30, 0.15, 0.22);
+    let oc = OrientationConstraint::new(
+        &model,
+        &tf,
+        "panda_link8",
+        "world",
+        UnitQuaternion::identity(),
+        OrientationTolerance::XyzEuler {
+            x: x_tol,
+            y: y_tol,
+            z: z_tol,
+        },
+        1.0,
+    )
+    .unwrap();
+    let sampler = IkSamplingPose {
+        position_constraint: Some(pc.clone()),
+        orientation_constraint: Some(oc),
+    };
+    let ik = IkConstraintSampler::new(&model, &FakeTip::new("panda_link8"), sampler).unwrap();
+
+    let mut state = RobotState::new(&model);
+    let reference = state.update();
+    let mut rng_real = ChaCha8Rng::seed_from_u64(104);
+    let mut rng_shadow = rng_real.clone();
+
+    let (actual_pos, actual_quat) = ik.sample_pose(&reference, &mut rng_real, 1).unwrap();
+
+    let raw_pos = replay_cuboid_position(&pc, &mut rng_shadow);
+    let angles = replay_orientation_angles(&mut rng_shadow, x_tol, y_tol, z_tol);
+    let expected_quat = expected_xyz_euler_diff(angles);
+    let expected_pos = raw_pos - expected_quat * offset;
+
+    assert!(
+        (actual_pos - expected_pos).norm() < 1e-9,
+        "link-offset sign mismatch: got {actual_pos:?}, expected {expected_pos:?} \
+         (raw sampled point {raw_pos:?}, offset {offset:?})"
+    );
+    // Sanity check independent of the sign under test: a `+=` bug would
+    // also still leave `actual_quat` matching, so this alone would not
+    // have caught it — the position assertion above is what does.
+    assert!(actual_quat.angle_to(&expected_quat) < 1e-9);
 }
 
 // ---- sample: the restart path when IK never converges, and seed/solution ordering ----

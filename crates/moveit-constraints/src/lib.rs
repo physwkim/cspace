@@ -10,16 +10,23 @@
 //   moveit_core/constraint_samplers/src/default_constraint_samplers.cpp
 //   moveit_core/constraint_samplers/include/moveit/constraint_samplers/union_constraint_sampler.hpp
 //   moveit_core/constraint_samplers/src/union_constraint_sampler.cpp
+//   moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_manager.hpp
+//   moveit_core/constraint_samplers/src/constraint_sampler_manager.cpp
 
 //! Kinematic constraints and their `decide()` — [`JointConstraint`],
 //! [`PositionConstraint`], [`OrientationConstraint`], [`VisibilityConstraint`]
 //! and the aggregate [`KinematicConstraintSet`] — plus, in `sampler` and
 //! `ik_sampler`, the `constraint_samplers` that sample states satisfying a
 //! constraint rather than just evaluating one: [`ConstraintSampler`],
-//! [`JointConstraintSampler`], [`UnionConstraintSampler`] and
-//! [`IkConstraintSampler`]. See `sampler`'s own doc comment for its
-//! deviations from upstream's base class shape, and [`IkConstraintSampler`]'s
-//! own doc comment for why it does not implement [`ConstraintSampler`].
+//! [`JointConstraintSampler`], [`UnionConstraintSampler`],
+//! [`IkConstraintSampler`] and [`IkConstraintSamplerAdapter`]. See
+//! `sampler`'s own doc comment for its deviations from upstream's base class
+//! shape, and [`IkConstraintSampler`]'s own doc comment for why it does not
+//! implement [`ConstraintSampler`] itself ([`IkConstraintSamplerAdapter`]
+//! does, and is what a caller actually builds). [`select_default_sampler`],
+//! in `constraint_sampler_manager`, ports `ConstraintSamplerManager::
+//! selectDefaultSampler` — see that module's own doc comment for what of
+//! `ConstraintSamplerManager` is and is not ported.
 //!
 //! # Scope
 //!
@@ -250,6 +257,7 @@
 //!   merge-time correction; see `utils.rs`'s own doc for why the split runs
 //!   before construction rather than after).
 
+mod constraint_sampler_manager;
 mod ik_sampler;
 mod joint;
 mod orientation;
@@ -259,7 +267,8 @@ mod set;
 pub mod utils;
 mod visibility;
 
-pub use ik_sampler::{IkConstraintSampler, IkSamplingPose};
+pub use constraint_sampler_manager::select_default_sampler;
+pub use ik_sampler::{IkConstraintSampler, IkConstraintSamplerAdapter, IkSamplingPose};
 pub use joint::JointConstraint;
 pub use orientation::{OrientationConstraint, OrientationTolerance};
 pub use position::{ConstraintRegion, PositionConstraint};

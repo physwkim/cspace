@@ -10,16 +10,18 @@
 //    loadIKSolver, getSamplingVolume, getLinkName, samplePose, sample,
 //    sampleHelper, validate, callIK})
 
+use std::cell::RefCell;
 use std::f64::consts::PI;
+use std::rc::Rc;
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Transforms, UnitQuaternion, Vector3};
 use moveit_kinematics::KinematicsSolver;
-use moveit_model::RobotModel;
+use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::{Posed, RobotState};
 use rand::{Rng, RngExt};
 
-use crate::{OrientationConstraint, OrientationTolerance, PositionConstraint};
+use crate::{ConstraintSampler, OrientationConstraint, OrientationTolerance, PositionConstraint};
 
 /// A position constraint, an orientation constraint, or both, sharing one
 /// link — the target [`IkConstraintSampler::sample_pose`] samples within.
@@ -60,11 +62,11 @@ pub struct IkSamplingPose {
 /// instead has its own inherent [`IkConstraintSampler::sample`], matching
 /// the `rng: &mut dyn Rng` precedent already established on the trait
 /// itself: an external mutable resource is a call parameter, not a stored
-/// field. One consequence: this type cannot yet be placed inside a
+/// field. One consequence: this type on its own cannot be placed inside a
 /// [`crate::UnionConstraintSampler`] (whose element type is `Box<dyn
-/// ConstraintSampler>`) — see this crate's round-9 report for why that is
-/// deferred to the not-yet-ported `ConstraintSamplerManager`, the only
-/// upstream caller that ever composes an IK sampler with others.
+/// ConstraintSampler>`) — [`IkConstraintSamplerAdapter`], round 10's
+/// composition decision, is what goes there instead. See that type's own
+/// doc comment for why an adapter, not a wider trait, is the fix.
 ///
 /// # Deviation from upstream: no fixed-link bridging
 ///
@@ -480,4 +482,107 @@ fn sample_unit_quaternion(rng: &mut dyn Rng) -> (f64, f64, f64, f64) {
     let z = sqrt_u1 * (2.0 * PI * u3).sin();
     let w = sqrt_u1 * (2.0 * PI * u3).cos();
     (x, y, z, w)
+}
+
+/// Round 10's composition decision: wraps an [`IkConstraintSampler`] plus
+/// the solver and retry budget it needs so the pair together implement
+/// [`ConstraintSampler`] and can sit inside a [`crate::UnionConstraintSampler`].
+///
+/// # Why an adapter, not a wider trait
+///
+/// [`IkConstraintSampler`]'s own doc comment already ruled out widening
+/// [`ConstraintSampler::sample`]'s signature to carry a solver: every other
+/// implementer would grow a parameter it never reads. The remaining
+/// question is where the solver instance itself lives. [`ConstraintSampler::sample`]
+/// takes `&self`, not `&mut self` (upstream's own `sample` is `const`-ish in
+/// spirit — the point of an immutable interface for a union of samplers to
+/// call through in sequence), but [`KinematicsSolver::solve`] needs `&mut
+/// dyn KinematicsSolver`. `Rc<RefCell<Box<dyn KinematicsSolver>>>` resolves
+/// that the same way upstream's own `kb_` does: a `kinematics::KinematicsBaseConstPtr`
+/// is a `shared_ptr`, one solver instance shared by every
+/// `IKConstraintSampler` built against the same group (upstream's
+/// `getSolverInstance()` returns the same pointer every time it is called on
+/// one `JointModelGroup`) — `Rc::clone` is this port's equivalent of copying
+/// that `shared_ptr`, and `RefCell` supplies the interior mutability `&self`
+/// needs to still reach `solve`. Single-threaded by construction, matching
+/// this crate's other D4 decisions: nothing here is `Send`.
+pub struct IkConstraintSamplerAdapter {
+    group: JointModelGroup,
+    ik: IkConstraintSampler,
+    solver: Rc<RefCell<Box<dyn KinematicsSolver>>>,
+    /// Baked in at construction, not read per-call: `ConstraintSampler::sample`
+    /// takes no `max_attempts` parameter (see `sampler.rs`'s own doc comment
+    /// on why), so this is where upstream's `sample(..., max_attempts)`
+    /// argument has to live instead.
+    max_attempts: u32,
+    /// `frame_depends_`, computed once here rather than recomputed on every
+    /// [`ConstraintSampler::frame_dependency`] call, matching
+    /// [`crate::UnionConstraintSampler`]'s own precomputed `frame_depends`.
+    frame_depends: Vec<String>,
+}
+
+impl IkConstraintSamplerAdapter {
+    /// Build an adapter around a fresh [`IkConstraintSampler`], taking
+    /// shared ownership of `solver` (see this type's doc comment on why
+    /// `Rc<RefCell<_>>`).
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`IkConstraintSampler::new`] can return.
+    pub fn new(
+        model: &RobotModel,
+        group: &JointModelGroup,
+        solver: Rc<RefCell<Box<dyn KinematicsSolver>>>,
+        sampling_pose: IkSamplingPose,
+        max_attempts: u32,
+    ) -> Result<Self> {
+        let mut frame_depends = Vec::new();
+        if let Some(pc) = &sampling_pose.position_constraint {
+            if pc.mobile_reference_frame() {
+                frame_depends.push(pc.reference_frame().to_string());
+            }
+        }
+        if let Some(oc) = &sampling_pose.orientation_constraint {
+            if oc.mobile_reference_frame() {
+                frame_depends.push(oc.reference_frame().to_string());
+            }
+        }
+
+        let ik = {
+            let solver_ref = solver.borrow();
+            IkConstraintSampler::new(model, &**solver_ref, sampling_pose)?
+        };
+
+        Ok(Self {
+            group: group.clone(),
+            ik,
+            solver,
+            max_attempts,
+            frame_depends,
+        })
+    }
+
+    /// `getSamplingVolume`, forwarded from the wrapped [`IkConstraintSampler`]
+    /// — the sampling-volume tie-break `crate::constraint_sampler_manager`
+    /// needs is not part of the [`ConstraintSampler`] trait itself (no other
+    /// implementer has a meaningful volume to compare).
+    pub fn sampling_volume(&self) -> f64 {
+        self.ik.sampling_volume()
+    }
+}
+
+impl ConstraintSampler for IkConstraintSamplerAdapter {
+    fn joint_model_group(&self) -> &JointModelGroup {
+        &self.group
+    }
+
+    fn frame_dependency(&self) -> &[String] {
+        &self.frame_depends
+    }
+
+    fn sample(&self, state: &mut RobotState<'_>, rng: &mut dyn Rng) -> bool {
+        let mut solver_ref = self.solver.borrow_mut();
+        self.ik
+            .sample(state, &mut **solver_ref, rng, self.max_attempts)
+    }
 }
