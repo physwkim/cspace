@@ -14,10 +14,11 @@
 //!
 //! `moveit_model::LinkModel` now loads `<mesh>` collision geometry (STL,
 //! resolved through [`MeshSearchPaths`] -- see that type and
-//! `moveit-geometry`'s `stl` module), so panda and fanuc, whose collision
-//! geometry is exactly one `<mesh>` element per link, build with real
-//! collision shapes here rather than none at all. [`fixture_mesh_search_paths`]
-//! points at the two packages committed under `fixtures/meshes/`.
+//! `moveit-geometry`'s `stl` module), so panda and fanuc (whose collision
+//! geometry is exactly one `<mesh>` element per link) and pr2's `<mesh>`
+//! links build with real collision shapes here rather than none at all.
+//! [`fixture_mesh_search_paths`] points at the three packages committed
+//! under `fixtures/meshes/`.
 //!
 //! Contact-point/nearest-point coordinates are never compared here.
 //! PORTING-PLAN.md §4.5 records that exclusion as Phase 3's recorded
@@ -77,21 +78,19 @@
 //! least the interpenetrating regime's boundary cases, and demonstrably
 //! fails to explain its own worst outlier."
 //!
-//! # No `self_collision` case for pr2
+//! # pr2's mesh gap was a fixture gap, not a feature gap
 //!
-//! PR2 mixes `<mesh>` with a handful of small `<box>`/`<cylinder>`/`<sphere>`
-//! links (gripper fingertips, a laser mount) that this port does load, but
-//! that leftover primitive set is not what pr2's own real self-collision
-//! surface (torso against arms) is made of: a live 10,000-state sweep found
-//! `self_collision` disagreed in 9,999 of 10,000 cases, with rust's
-//! `self_distance` always landing near a single, nearly pose-invariant value
-//! (~2.9 cm -- the leftover primitive pair's own separation, essentially
-//! independent of arm configuration) while the oracle's real mesh-driven
-//! self-collision varies per state. `robot_collision`, by contrast, agreed in
-//! 9,999 of 10,000: pr2's base has real box collision geometry covering it,
-//! so the floor-vs-base check genuinely exercises the same geometry on both
-//! sides. This file therefore asserts `robot_collision`/`robot_distance`
-//! parity for pr2 but not `self_collision`/`self_distance`.
+//! Earlier rounds asserted only `robot_collision`/`robot_distance` for pr2:
+//! a live 10,000-state sweep against a rust build with pr2's real `<mesh>`
+//! collision links unresolved (no committed fixture mesh tree for pr2, only
+//! the leftover `<box>`/`<cylinder>`/`<sphere>` links) found `self_collision`
+//! disagreeing in 9,999 of 10,000 cases, `self_distance` pinned near a single
+//! pose-invariant `~2.9 cm` (the leftover primitive pair's own separation)
+//! while the oracle's real mesh-driven self-collision varied per state.
+//! [`fixture_mesh_search_paths`] now points pr2 at
+//! `fixtures/meshes/pr2_description/` the same way panda/fanuc already were,
+//! and [`pr2_collision_matches_the_oracle`] asserts the same full
+//! `self_collision`/`robot_collision` parity panda and fanuc do.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -135,12 +134,8 @@ fn load_fixture(file_name: &str) -> CollisionFixture {
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
 }
 
-/// The two `moveit_resources_*_description` packages committed under
-/// `fixtures/meshes/` (see `tools/ci/verify-fixture-provenance.sh`) -- pr2's
-/// meshes are not committed there, so its `<mesh>` collision elements stay
-/// unresolved and skipped, exactly as before mesh loading existed. That is
-/// fine: this file's pr2 test asserts only `robot_collision`, which pr2's
-/// real `<box>`/`<cylinder>`/`<sphere>` links already cover without any mesh.
+/// The three `moveit_resources_*_description` packages committed under
+/// `fixtures/meshes/` (see `tools/ci/verify-fixture-provenance.sh`).
 fn fixture_mesh_search_paths() -> MeshSearchPaths {
     let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
     MeshSearchPaths::new([
@@ -151,6 +146,10 @@ fn fixture_mesh_search_paths() -> MeshSearchPaths {
         (
             "moveit_resources_fanuc_description",
             format!("{meshes_root}/fanuc_description"),
+        ),
+        (
+            "moveit_resources_pr2_description",
+            format!("{meshes_root}/pr2_description"),
         ),
     ])
 }
@@ -285,38 +284,6 @@ fn assert_full_parity_matches_oracle(model: &RobotModel, fixture_name: &str, srd
     }
 }
 
-/// Only `robot_collision`/`robot_distance` -- see the module doc for why
-/// `self_collision` is excluded for pr2.
-fn assert_robot_collision_matches_oracle(model: &RobotModel, fixture_name: &str, srdf_file: &str) {
-    let env = floor_env();
-    let acm = build_acm(srdf_file);
-    let fixture = load_fixture(fixture_name);
-    for (case_index, case) in fixture.cases.iter().enumerate() {
-        let mut state = build_state(model, &case.joint_values);
-        let posed = state.update();
-
-        let robot_result =
-            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(&acm));
-        assert_eq!(
-            robot_result.collision, case.robot_collision,
-            "{fixture_name} case {case_index}: robot_collision"
-        );
-
-        let distance_request = DistanceRequest {
-            enable_signed_distance: true,
-            acm: Some(&acm),
-            ..DistanceRequest::default()
-        };
-        let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
-        assert!(
-            (robot_distance.minimum_distance.distance - case.robot_distance).abs() < TOLERANCE,
-            "{fixture_name} case {case_index}: robot_distance {} != {} (oracle)",
-            robot_distance.minimum_distance.distance,
-            case.robot_distance
-        );
-    }
-}
-
 #[test]
 fn panda_collision_matches_the_oracle() {
     let model = build_model("panda.urdf", "panda.srdf");
@@ -330,9 +297,9 @@ fn fanuc_collision_matches_the_oracle() {
 }
 
 #[test]
-fn pr2_robot_collision_matches_the_oracle() {
+fn pr2_collision_matches_the_oracle() {
     let model = build_model("pr2.urdf", "pr2.srdf");
-    assert_robot_collision_matches_oracle(&model, "pr2_collision.json", "pr2.srdf");
+    assert_full_parity_matches_oracle(&model, "pr2_collision.json", "pr2.srdf");
 }
 
 /// Round 7 item 1: `parry.rs`'s deviation 6 blames every panda
