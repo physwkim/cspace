@@ -126,6 +126,40 @@
 //! once those types exist, and upstream's own test coverage for [`OBB`]
 //! (`test_bounding_box.cpp`'s `MergeBoundingBoxes` suite) runs through them.
 //!
+//! # Who actually calls this, in this workspace (round 10)
+//!
+//! This module's algorithms were originally scoped as "deferred to Phase 3
+//! collision" (this crate's own round-1 brief) before being ported in round
+//! 3 (`PORTING-PLAN.md` §16). That phrase implied `moveit-collision` would be
+//! the consumer; re-checked this round against the tree as it now stands,
+//! that was never the shape of it. `moveit-collision` explicitly declines
+//! [`Body`] (its own `lib.rs`/`world.rs` module docs: "the `bodies::`
+//! posed-geometry layer is ... out of scope for `World`") — its
+//! `ParryCollisionEnv` backend builds directly on `parry3d-f64` shapes
+//! through its own `PosedBody`, never on this module. The real, current
+//! consumers are elsewhere:
+//!
+//! - [`Body::from_shape`]/[`Body::contains_point`] — `moveit-constraints`'s
+//!   `PositionConstraint` (`position.rs`), for constraint-region membership.
+//! - [`Body::compute_bounding_sphere`] — `moveit-distance-field`'s
+//!   `distance_field.rs`.
+//! - [`Body::compute_bounding_cylinder`] — `moveit-distance-field`'s
+//!   `collision_distance_field_types.rs`.
+//! - [`Body::contains_point`] again — `moveit-distance-field`'s
+//!   `find_internal_points.rs`.
+//! - [`Body::intersects_ray`], [`Body::sample_point_inside`],
+//!   [`Body::compute_volume`] — exercised only by this module's own tests and
+//!   [`crate`]'s `body_query_parity`/`probe_parity` right now; no caller
+//!   outside `moveit-geometry` yet (checked by `rg` for each method name
+//!   across `crates/*/src`, excluding this file and `shapes.rs`).
+//!
+//! So "deferred to Phase 3 collision" is not a live UNFIXED condition: the
+//! condition it named (moveit-collision existing) was met and then the
+//! premise under it turned out false (moveit-collision does not need this
+//! module at all). The narrower, still-accurate unported items are the ones
+//! enumerated in the symbol audits directly below, each already qualified by
+//! its own caller check rather than by scope-phase.
+//!
 //! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
 //!
 //! Members not already named above, classified:
