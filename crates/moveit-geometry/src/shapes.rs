@@ -49,13 +49,12 @@
 //! unposed geometry helpers `computeShapeExtents`/`computeShapeBoundingSphere`
 //! (here [`Shape::extents`]/[`Shape::bounding_sphere`]).
 //!
-//! It deliberately does **not** port `bodies::Body` (`Sphere`, `Cylinder`,
-//! `Box`, `ConvexMesh` in upstream's `namespace bodies`) — `containsPoint`,
-//! `intersectsRay`, and `computeBoundingBox`/`computeBoundingCylinder` on a
-//! *posed* body, along with the `bodies::AABB`/`bodies::OBB` types those
-//! return. That is the algorithmic half of `geometric_shapes` and belongs
-//! with Phase 3 collision detection (`crates/moveit-collision`), not this
-//! crate.
+//! The posed-body algorithms upstream's `namespace bodies` layers on top
+//! of these shapes — `containsPoint`, `intersectsRay`, and
+//! `computeBoundingBox`/`computeBoundingCylinder` on a *posed* body, plus
+//! the `bodies::AABB`/`bodies::OBB` types those return — live in the
+//! sibling [`crate::bodies`] module, not here; see its module docs for
+//! scope and provenance.
 //!
 //! [`Shape::compute_volume`] and [`Shape::get_dimensions`] are a partial
 //! exception worth explaining, because upstream does not define either on
@@ -75,8 +74,9 @@
 //! guess a formula upstream never wrote. `bodies::ConvexMesh` exists but its
 //! `computeVolume`/`getDimensions` are posed-body algorithms (qhull-backed
 //! convex hull, `useDimensions`/`computeScaledVerticesFromPlaneProjections`)
-//! deferred with the rest of `bodies::Body`; [`Shape::Mesh`] also returns
-//! `None`. `Plane` and `OcTree` have no `bodies::` counterpart either.
+//! that belong to [`crate::bodies::ConvexMesh`], not this module;
+//! [`Shape::Mesh`] still returns `None` here. `Plane` and `OcTree` have no
+//! `bodies::` counterpart either.
 //!
 //! # Design: enum, not a trait-object hierarchy (D4)
 //!
@@ -203,8 +203,8 @@ impl fmt::Display for ShapeType {
 /// A sphere bounding a shape, centered at the shape's own origin.
 ///
 /// Upstream `bodies::BoundingSphere`, restricted to the unposed case
-/// `shapes::computeShapeBoundingSphere` produces — see the module docs for
-/// why the posed case (`bodies::Body::computeBoundingSphere`) is deferred.
+/// `shapes::computeShapeBoundingSphere` produces; reused as-is by
+/// [`crate::bodies`] for the posed case (`bodies::Body::computeBoundingSphere`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoundingSphere {
     /// The sphere's center, relative to the shape's own origin.

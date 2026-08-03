@@ -10,9 +10,10 @@
 //! Frame transforms and geometric primitives for moveit-rs.
 //!
 //! This crate carries [`Transforms`] (`moveit_core/transforms`) and the
-//! `geometric_shapes` shape data layer (see the [`shapes`] module docs for
-//! scope and provenance).
+//! `geometric_shapes` shape and body layers (see the [`shapes`] and
+//! [`bodies`] module docs for scope and provenance).
 
+pub mod bodies;
 mod shapes;
 mod transforms;
 
