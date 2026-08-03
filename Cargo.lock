@@ -412,6 +412,7 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "moveit-collision",
+ "moveit-constraints",
  "moveit-error",
  "moveit-geometry",
  "moveit-model",

@@ -13,6 +13,7 @@ use moveit_collision::{
     Action, AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionEnv, CollisionRequest,
     CollisionResult, Contact, DistanceRequest, MoveObjectOutcome, Notification, World,
 };
+use moveit_constraints::KinematicConstraintSet;
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Shape};
 use moveit_model::RobotModel;
@@ -23,6 +24,22 @@ use crate::attached_body::AttachedBody;
 use crate::layered::Layered;
 use crate::world_diff::WorldDiff;
 
+/// The result of [`PlanningScene::is_path_valid`]: overall validity plus
+/// which waypoint indices failed. Upstream returns a plain `bool` and
+/// writes indices into a caller-supplied `std::vector<std::size_t>*
+/// invalid_index` out-param (`nullptr` meaning "don't bother, short-circuit
+/// on the first failure instead") — this port always computes the full set
+/// and returns both together, see [`PlanningScene::is_path_valid`]'s own
+/// doc for why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathValidity {
+    /// Whether every waypoint was valid (and, if checked, the goal was
+    /// satisfied) — equivalent to `invalid_waypoints.is_empty()`.
+    pub valid: bool,
+    /// Indices into the `waypoints` slice that failed, in ascending order.
+    pub invalid_waypoints: Vec<usize>,
+}
+
 /// The environment a planning instance reasons about: the world, the ACM,
 /// the current [`RobotState`], attached bodies, and (for a diff scene) a
 /// parent to fall back on. Upstream `planning_scene::PlanningScene`.
@@ -31,9 +48,13 @@ use crate::world_diff::WorldDiff;
 ///
 /// Ported: the world (via [`PlanningScene::world`] and its mutators), the
 /// ACM, the current state, attached bodies (see [`AttachedBody`]'s module
-/// doc for why they live here rather than on [`RobotState`]), and the
+/// doc for why they live here rather than on [`RobotState`]), the
 /// parent/child diff relationship ([`PlanningScene::diff`],
-/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`]).
+/// [`PlanningScene::push_diffs`], [`PlanningScene::decouple_parent`]), and
+/// state/path validity ([`PlanningScene::is_state_valid`],
+/// [`PlanningScene::is_state_constrained`],
+/// [`PlanningScene::is_path_valid`] — see their own docs for the dropped
+/// `moveit_msgs` overloads and feasibility predicate).
 ///
 /// Deferred, not ported: anything that round-trips a `moveit_msgs` type
 /// (`getPlanningSceneMsg`/`setPlanningSceneDiffMsg`/
@@ -42,10 +63,9 @@ use crate::world_diff::WorldDiff;
 /// (upstream's separate named-frame lookup layer; no `Transforms`/
 /// `SceneTransforms` exists in this port yet), object colors/types
 /// (`object_colors_`/`object_types_`, cosmetic bookkeeping with no
-/// collision-relevant behavior), `isState*` (constraint-checking
-/// passthroughs; `moveit_constraints` is out of scope, see above) and cost
-/// sources (`getCollisionEnv`/... never surface `CollisionRequest::cost` from
-/// a `PlanningScene` entry point upstream either).
+/// collision-relevant behavior) and cost sources (`getCollisionEnv`/...
+/// never surface `CollisionRequest::cost` from a `PlanningScene` entry
+/// point upstream either).
 ///
 /// # Collision checking
 ///
@@ -821,6 +841,161 @@ impl<'m> PlanningScene<'m> {
         links
     }
 
+    // ---- state / path validity --------------------------------------------
+
+    /// Whether `self`'s current state satisfies `constraints`. Upstream
+    /// `isStateConstrained(state, KinematicConstraintSet, verbose)`
+    /// (`planning_scene.cpp:2277`) — the `moveit_msgs::Constraints`
+    /// overload (`:2245`/`:2269`) is a construct-then-delegate wrapper
+    /// around this one (build a `KinematicConstraintSet` from the message,
+    /// then call this exact method, confirmed from source) and is not
+    /// ported: D1 has no `moveit_msgs` type to build one from. `verbose`'s
+    /// `RCLCPP_INFO` diagnostics are dropped for the same reason
+    /// [`moveit_constraints::KinematicConstraintSet::decide`] itself
+    /// carries no `verbose` parameter.
+    pub fn is_state_constrained(&mut self, constraints: &KinematicConstraintSet) -> bool {
+        let posed = self.current_state_mut().update();
+        constraints.decide(&posed).satisfied
+    }
+
+    /// Whether `self`'s current state, checked against `env`, is free of
+    /// collision and satisfies `constraints` (`None` means unconstrained).
+    /// Upstream `isStateValid(state, KinematicConstraintSet, group,
+    /// verbose)` (`planning_scene.cpp:2313`).
+    ///
+    /// # Ordering
+    ///
+    /// Collision is checked before constraints, matching upstream's own
+    /// order exactly: a state that fails both is reported as a collision
+    /// failure here, the same as upstream's short-circuiting `if
+    /// (isStateColliding(...)) return false;` before it ever reaches
+    /// `isStateConstrained`.
+    ///
+    /// # No feasibility step
+    ///
+    /// Upstream's real overload also checks `isStateFeasible` — a
+    /// caller-registered `StateFeasibilityFn` predicate — between collision
+    /// and constraints. This port does not carry that predicate: unlike
+    /// `moveit_msgs::Constraints` (excluded by D1, a ROS message type), a
+    /// `Fn(&Posed) -> bool` predicate is a plain Rust concern and would be
+    /// straightforward to store on its own. What it is not is exercised by
+    /// anything in this port's reach: nothing here ever calls the upstream
+    /// equivalent of `setStateFeasibilityPredicate`, so every caller of
+    /// this method already takes upstream's "no predicate registered"
+    /// branch, which is unconditionally `true`
+    /// (`planning_scene.cpp:2227-2243`) — exactly the branch this port
+    /// takes by omitting the step outright. Adding a stored `Arc<dyn
+    /// Fn(...)>` field (with diff-scene inheritance semantics to match, see
+    /// [`PlanningScene::diff`]'s own doc on what is and is not inherited)
+    /// for a predicate no call site can register would be speculative
+    /// configurability for a hypothetical future caller; one that actually
+    /// needs it can add the field then, informed by that caller's real
+    /// requirements.
+    pub fn is_state_valid<E>(
+        &mut self,
+        env: &E,
+        request: &CollisionRequest,
+        constraints: Option<&KinematicConstraintSet>,
+    ) -> bool
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        if self.check_collision(env, request).collision {
+            return false;
+        }
+        match constraints {
+            Some(constraints) => self.is_state_constrained(constraints),
+            None => true,
+        }
+    }
+
+    /// Whether every waypoint in `waypoints` is
+    /// [`PlanningScene::is_state_valid`] against `path_constraints`, and the
+    /// *last* waypoint additionally satisfies at least one of
+    /// `goal_constraints` (empty means no goal check). Upstream
+    /// `isPathValid(RobotTrajectory, path_constraints, goal_constraints,
+    /// group, verbose, invalid_index)` (`planning_scene.cpp:2365`), driven
+    /// end to end (not re-derived) by `oracle.cpp`'s `is_state_valid` op,
+    /// which is this method's ground truth. The other four `isPathValid`
+    /// overloads (`moveit_msgs::RobotState`/`RobotTrajectory` message
+    /// conversions) are not ported: D1, no `moveit_msgs` type to convert
+    /// from.
+    ///
+    /// # No interpolation between waypoints
+    ///
+    /// Confirmed from upstream's own loop body (`planning_scene.cpp:2376-2422`):
+    /// it only ever reads `trajectory.getWayPoint(i)` for `i` in
+    /// `0..getWayPointCount()`. No state between two requested waypoints is
+    /// ever constructed or checked, on either side of this port — a
+    /// collision that only a continuous sweep between two individually
+    /// collision-free waypoints would catch is invisible to `isPathValid`
+    /// upstream, and to `is_path_valid` here too.
+    ///
+    /// # Every waypoint sees the same attached bodies
+    ///
+    /// This port's [`AttachedBody`] lives on `PlanningScene`, not
+    /// per-`RobotState` the way upstream's does (see [`AttachedBody`]'s
+    /// module doc) — `self`'s current attached-body set applies to every
+    /// waypoint checked here, matching `oracle.cpp`'s `is_state_valid` op,
+    /// which attaches once to the scene and copies that state (attached
+    /// bodies included) into every waypoint it builds.
+    ///
+    /// `self`'s current state is restored before this returns, whatever the
+    /// last waypoint checked was: unlike upstream (whose `isPathValid`
+    /// never touches `current_state_` — every waypoint state is local to
+    /// its loop), this port's only avenue to check an arbitrary state's
+    /// collision is [`PlanningScene::current_state_mut`] (see
+    /// [`PlanningScene::check_collision`]'s own doc), so each waypoint is
+    /// installed as the current state in turn and the original is put back
+    /// before returning.
+    ///
+    /// Invalid waypoint indices are collected, not short-circuited on the
+    /// first failure: upstream's `invalid_index == nullptr` fast path is a
+    /// performance choice with no observable difference in the returned
+    /// bool, and a Rust caller of a method returning [`PathValidity`]
+    /// always wants the full diagnostic. A waypoint that fails for state
+    /// validity *and* (being last) an unmet goal contributes its index once
+    /// here, not twice the way upstream's raw `invalid_index` vector can —
+    /// see `oracle.cpp`'s own doc for why the oracle side deliberately does
+    /// *not* make the same dedup, so a disagreement on how many times
+    /// upstream pushes an index stays visible during development even
+    /// though this method's own contract only promises a set of indices.
+    pub fn is_path_valid<E>(
+        &mut self,
+        env: &E,
+        request: &CollisionRequest,
+        waypoints: &[RobotState<'m>],
+        path_constraints: Option<&KinematicConstraintSet>,
+        goal_constraints: &[KinematicConstraintSet],
+    ) -> PathValidity
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let saved_state = self.current_state().clone();
+        let mut invalid_waypoints = Vec::new();
+        let waypoint_count = waypoints.len();
+        for (i, waypoint) in waypoints.iter().enumerate() {
+            self.set_current_state(waypoint.clone());
+            let mut valid = self.is_state_valid(env, request, path_constraints);
+            if i + 1 == waypoint_count && !goal_constraints.is_empty() {
+                let satisfies_goal = goal_constraints
+                    .iter()
+                    .any(|goal| self.is_state_constrained(goal));
+                if !satisfies_goal {
+                    valid = false;
+                }
+            }
+            if !valid {
+                invalid_waypoints.push(i);
+            }
+        }
+        self.set_current_state(saved_state);
+        PathValidity {
+            valid: invalid_waypoints.is_empty(),
+            invalid_waypoints,
+        }
+    }
+
     // ---- diff / decouple ----------------------------------------------------
 
     /// A new child scene that diffs against `self`: an empty
@@ -1284,6 +1459,63 @@ mod tests {
                 .kind(),
             AllowedCollisionType::Always
         );
+    }
+
+    #[test]
+    fn decouple_parent_then_the_childs_inherited_attached_body_frame_still_resolves() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.attach_new(
+            "box",
+            "hand",
+            vec![cuboid_shape()],
+            vec![Isometry3::translation(0.3, 0.0, 0.0)],
+            BTreeSet::new(),
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.decouple_parent();
+        assert!(child.parent().is_none());
+
+        // `attached_bodies` is cloned eagerly at `diff()` regardless of
+        // decoupling, but resolving its frame still routes through
+        // `current_state_mut`, which was `Layered::Inherited` before
+        // `decouple_parent` materialized it -- this exercises that
+        // materialization happened correctly rather than leaving a
+        // dangling inherited state with no parent to resolve against.
+        assert_eq!(
+            child.frame_transform("box").unwrap(),
+            Isometry3::translation(0.0, 0.0, 1.0)
+        );
+        assert!(child.knows_frame_transform("box"));
+    }
+
+    #[test]
+    fn decouple_parent_then_the_childs_inherited_world_object_still_resolves() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("crate", cuboid_shape(), Isometry3::identity());
+        root.move_object("crate", Isometry3::translation(2.0, 0.0, 0.0));
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        child.decouple_parent();
+        assert!(child.parent().is_none());
+
+        // `world` is a full clone at `diff()` time, not layered, so this
+        // confirms `decouple_parent` (which only touches `robot_state`/
+        // `acm`/`world_diff`/`parent`) leaves that already-materialized
+        // world content intact rather than discarding it along with the
+        // diff-tracking it does clear.
+        assert_eq!(child.world().object_ids(), vec!["crate".to_owned()]);
+        assert_eq!(
+            child.frame_transform("crate").unwrap(),
+            Isometry3::translation(2.0, 0.0, 0.0)
+        );
+        assert!(child.knows_frame_transform("crate"));
     }
 
     // ---- frames: the five-tier ladder ----------------------------------------

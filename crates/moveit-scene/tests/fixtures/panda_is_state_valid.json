@@ -1,0 +1,296 @@
+{
+  "cases": [
+    {
+      "attached_bodies": [],
+      "goal_constraints": [],
+      "invalid_waypoints": [
+        0
+      ],
+      "name": "default_self_collision",
+      "objects": [],
+      "path_constraints": {},
+      "valid": false,
+      "waypoints": [
+        {}
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [],
+      "invalid_waypoints": [],
+      "name": "clean_arm_no_objects",
+      "objects": [],
+      "path_constraints": {},
+      "valid": true,
+      "waypoints": [
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [],
+      "invalid_waypoints": [
+        0
+      ],
+      "name": "joint_constraint_violated",
+      "objects": [],
+      "path_constraints": {
+        "joint_constraints": [
+          {
+            "joint_name": "panda_joint1",
+            "position": 0.0,
+            "tolerance_above": 0.01,
+            "tolerance_below": 0.01,
+            "weight": 1.0
+          }
+        ]
+      },
+      "valid": false,
+      "waypoints": [
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [],
+      "invalid_waypoints": [],
+      "name": "joint_constraint_satisfied",
+      "objects": [],
+      "path_constraints": {
+        "joint_constraints": [
+          {
+            "joint_name": "panda_joint1",
+            "position": 1.7963031968139114,
+            "tolerance_above": 0.001,
+            "tolerance_below": 0.001,
+            "weight": 1.0
+          }
+        ]
+      },
+      "valid": true,
+      "waypoints": [
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [],
+      "invalid_waypoints": [
+        0
+      ],
+      "name": "floor_collision",
+      "objects": [
+        {
+          "id": "floor",
+          "pose": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            -0.05,
+            0,
+            0,
+            0,
+            1
+          ],
+          "shape": {
+            "size": [
+              4,
+              4,
+              0.1
+            ],
+            "type": "box"
+          }
+        }
+      ],
+      "path_constraints": {},
+      "valid": false,
+      "waypoints": [
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [],
+      "invalid_waypoints": [],
+      "name": "floor_far_away",
+      "objects": [
+        {
+          "id": "floor",
+          "pose": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            -2.05,
+            0,
+            0,
+            0,
+            1
+          ],
+          "shape": {
+            "size": [
+              4,
+              4,
+              0.1
+            ],
+            "type": "box"
+          }
+        }
+      ],
+      "path_constraints": {},
+      "valid": true,
+      "waypoints": [
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [
+        {
+          "joint_constraints": [
+            {
+              "joint_name": "panda_joint1",
+              "position": 1.7963031968139114,
+              "tolerance_above": 0.001,
+              "tolerance_below": 0.001,
+              "weight": 1.0
+            }
+          ]
+        }
+      ],
+      "invalid_waypoints": [
+        0
+      ],
+      "name": "path_first_waypoint_colliding",
+      "objects": [],
+      "path_constraints": {},
+      "valid": false,
+      "waypoints": [
+        {},
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    },
+    {
+      "attached_bodies": [],
+      "goal_constraints": [
+        {
+          "joint_constraints": [
+            {
+              "joint_name": "panda_joint1",
+              "position": 0.0,
+              "tolerance_above": 0.001,
+              "tolerance_below": 0.001,
+              "weight": 1.0
+            }
+          ]
+        }
+      ],
+      "invalid_waypoints": [
+        1
+      ],
+      "name": "path_goal_unsatisfied",
+      "objects": [],
+      "path_constraints": {},
+      "valid": false,
+      "waypoints": [
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        },
+        {
+          "panda_finger_joint1": 0.03870284711942077,
+          "panda_finger_joint2": 0.03870284711942077,
+          "panda_joint1": 1.7963031968139114,
+          "panda_joint2": -1.367045416675508,
+          "panda_joint3": 0.5202098102540242,
+          "panda_joint4": -2.7952401106926845,
+          "panda_joint5": -2.5815944557785055,
+          "panda_joint6": 3.6457397275674155,
+          "panda_joint7": 2.039502041528095
+        }
+      ]
+    }
+  ]
+}

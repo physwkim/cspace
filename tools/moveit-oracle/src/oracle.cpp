@@ -432,6 +432,30 @@ moveit_msgs::msg::VisibilityConstraint visibilityConstraintFromJson(const json& 
   return vc;
 }
 
+/// Builds a `moveit_msgs::msg::Constraints` from a JSON object shaped like
+/// `Op::Constraints`'s own `constraints` field (`protocol.rs`'s
+/// `ConstraintsSpec`) -- kept as its own free function rather than sharing
+/// `Oracle::constraints`'s inline block, since that op belongs to a
+/// different owner. Used by `isStateValid` for `path_constraints` and each
+/// entry of `goal_constraints`.
+moveit_msgs::msg::Constraints constraintsMsgFromJson(const json& spec)
+{
+  moveit_msgs::msg::Constraints msg;
+  if (spec.contains("joint_constraints"))
+    for (const auto& jc_json : spec.at("joint_constraints"))
+      msg.joint_constraints.push_back(jointConstraintFromJson(jc_json));
+  if (spec.contains("position_constraints"))
+    for (const auto& pc_json : spec.at("position_constraints"))
+      msg.position_constraints.push_back(positionConstraintFromJson(pc_json));
+  if (spec.contains("orientation_constraints"))
+    for (const auto& oc_json : spec.at("orientation_constraints"))
+      msg.orientation_constraints.push_back(orientationConstraintFromJson(oc_json));
+  if (spec.contains("visibility_constraints"))
+    for (const auto& vc_json : spec.at("visibility_constraints"))
+      msg.visibility_constraints.push_back(visibilityConstraintFromJson(vc_json));
+  return msg;
+}
+
 class Oracle
 {
 public:
@@ -478,6 +502,8 @@ public:
       return world(request);
     if (op == "frame_transform")
       return frameTransform(request);
+    if (op == "is_state_valid")
+      return isStateValid(request);
     if (op == "distance_field")
       return distanceField(request);
     if (op == "shape_points")
@@ -1611,6 +1637,129 @@ private:
     }
 
     return json{ { "queries", queries_out } };
+  }
+
+  /// Ground truth for `PlanningScene::is_state_valid`/`is_state_constrained`/
+  /// `is_path_valid` (`moveit-scene`). Builds a real
+  /// `planning_scene::PlanningScene` the same way `frameTransform` does, so
+  /// the FCL-backed collision env its own constructor wires up by default
+  /// (`planning_scene.cpp:200`, `allocateCollisionDetector
+  /// (CollisionDetectorAllocatorFCL::create())`) is what actually answers
+  /// every collision check here -- not a hand-rolled `CollisionEnvFCL` like
+  /// `collision()` builds. `objects`/`attached_bodies` are fed in with the
+  /// same shapes those two ops already use.
+  ///
+  /// One request checks a whole *path*, not just one state: `waypoints`
+  /// (one entry means plain `isStateValid`), `path_constraints` applied to
+  /// every waypoint, `goal_constraints` (checked disjunctively, one
+  /// `isStateConstrained` per entry) applied only to the last. This calls
+  /// the real `PlanningScene::isPathValid(trajectory, path_constraints,
+  /// goal_constraints, group, verbose, invalid_index)` end to end
+  /// (`planning_scene.cpp:2365`) rather than re-deriving its per-waypoint
+  /// loop here, so what this returns is upstream's own composition of
+  /// collision/feasibility/constraints, not this port's understanding of
+  /// it. `group` is always `""` (whole robot, `RobotTrajectory`'s own
+  /// single-argument constructor -- no `JointModelGroup` at all): this
+  /// port's `ParryCollisionEnv` never reads `CollisionRequest::group_name`
+  /// (see `moveit-collision`'s `colliding_pairs` deviation doc), so
+  /// requesting anything narrower here would make the two sides check
+  /// different geometry for a reason unrelated to what this op tests. The
+  /// feasibility predicate (`state_feasibility_`) is never registered on
+  /// `scene`, matching this port's decision not to carry a caller-supplied
+  /// predicate at all (see `moveit-scene::PlanningScene::is_state_valid`'s
+  /// own doc) -- both sides therefore always take upstream's "no predicate
+  /// registered -> true" branch.
+  ///
+  /// Every waypoint gets the *same* attached bodies: this port's
+  /// `AttachedBody` lives on `PlanningScene`, not per-`RobotState` the way
+  /// upstream's does (see `attached_body.rs`'s module doc), so a waypoint
+  /// state here is built by copy-constructing `scene`'s current state
+  /// (attached bodies and all) and then overwriting only the joint
+  /// variables named in that waypoint -- upstream's own
+  /// `RobotState::setToDefaultValues` never touches the attached-body list,
+  /// so this carries the same bodies through every waypoint without
+  /// replaying `attachBody` once per waypoint.
+  ///
+  /// `invalid_index` is returned verbatim (as `invalid_waypoints`) rather
+  /// than deduplicated here: upstream can push the same waypoint index
+  /// twice (once for state validity, once for an unmet goal, when both
+  /// fail on the last waypoint) -- that raw shape is preserved so a
+  /// disagreement in *how many* times an index was pushed is visible to
+  /// the Rust side rather than silently absorbed on this side.
+  json isStateValid(const json& request)
+  {
+    planning_scene::PlanningScene scene(model_);
+
+    scene.getCurrentStateNonConst().clearAttachedBodies();
+    for (const auto& attached_json : request.value("attached_bodies", json::array()))
+    {
+      const std::string id = attached_json.at("id").get<std::string>();
+      const std::string link_name = attached_json.at("link_name").get<std::string>();
+      const auto& shapes_json = attached_json.at("shapes");
+      const auto& shape_poses_json = attached_json.at("shape_poses");
+      std::vector<shapes::ShapeConstPtr> shapes;
+      EigenSTL::vector_Isometry3d shape_poses;
+      for (std::size_t i = 0; i < shapes_json.size(); ++i)
+      {
+        const json& shape_json = shapes_json.at(i);
+        const std::string shape_type = shape_json.at("type").get<std::string>();
+        shapes.push_back(parseShape(shape_type, shape_json));
+        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
+      }
+      std::set<std::string> touch_links;
+      if (attached_json.contains("touch_links"))
+      {
+        for (const auto& link_json : attached_json.at("touch_links"))
+        {
+          touch_links.insert(link_json.get<std::string>());
+        }
+      }
+      scene.getCurrentStateNonConst().attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links,
+                                                  link_name);
+    }
+    scene.getCurrentStateNonConst().update();
+
+    for (const auto& object_json : request.value("objects", json::array()))
+    {
+      const std::string id = object_json.at("id").get<std::string>();
+      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+      const json& shape_json = object_json.at("shape");
+      const std::string shape_type = shape_json.at("type").get<std::string>();
+      std::shared_ptr<shapes::Shape> shape = parseShape(shape_type, shape_json);
+      scene.getWorldNonConst()->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
+    }
+
+    const moveit_msgs::msg::Constraints path_constraints_msg =
+        constraintsMsgFromJson(request.value("path_constraints", json::object()));
+
+    std::vector<moveit_msgs::msg::Constraints> goal_constraints_msg;
+    for (const auto& gc_json : request.value("goal_constraints", json::array()))
+      goal_constraints_msg.push_back(constraintsMsgFromJson(gc_json));
+
+    robot_trajectory::RobotTrajectory trajectory(model_);
+    for (const auto& wp_json : request.at("waypoints"))
+    {
+      moveit::core::RobotState waypoint_state(scene.getCurrentState());
+      waypoint_state.setToDefaultValues();
+      for (auto it = wp_json.begin(); it != wp_json.end(); ++it)
+      {
+        if (!hasVariable(it.key()))
+          throw std::runtime_error("unknown joint variable: " + it.key());
+        waypoint_state.setVariablePosition(it.key(), it.value().get<double>());
+      }
+      waypoint_state.update();
+      trajectory.addSuffixWayPoint(waypoint_state, 0.1);
+    }
+
+    std::vector<std::size_t> invalid_index;
+    const bool valid =
+        scene.isPathValid(trajectory, path_constraints_msg, goal_constraints_msg, "", true, &invalid_index);
+
+    json invalid_out = json::array();
+    for (std::size_t idx : invalid_index)
+      invalid_out.push_back(idx);
+
+    return json{ { "valid", valid }, { "invalid_waypoints", invalid_out } };
   }
 
   /// Ground truth for the `moveit-collision` World port. Builds a
