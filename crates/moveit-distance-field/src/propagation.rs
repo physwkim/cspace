@@ -255,24 +255,62 @@ impl PropagationDistanceField {
     }
 
     /// Upstream `PropagationDistanceField::getNearestCell`.
+    ///
+    /// # Deviations from upstream
+    ///
+    /// A cell farther than `max_distance` from every obstacle (respectively,
+    /// from every free cell, for the negative field) is never visited by
+    /// this crate's own `propagate_positive`/`propagate_negative`, so its
+    /// `closest_point`/`closest_negative_point` stays at
+    /// [`PropDistanceFieldVoxel::UNINITIALIZED`] — a `reset()`-time filler
+    /// value, not a real cell — while `distance_square`/
+    /// `negative_distance_square` still holds the legitimate "at least
+    /// `max_distance`" capped value. Upstream reads that sentinel as a grid
+    /// index unconditionally (`voxel_grid_->getCell(pos.x(), pos.y(),
+    /// pos.z())`), which its own doc comment calls out as "MUST be valid or
+    /// data corruption (SEGFAULTS) will occur" — undefined behaviour in
+    /// practice, not a crash, for a query this ordinary and reachable (query
+    /// any cell farther than `max_distance` from every obstacle). This port
+    /// validates the position first, matching the same guard this crate's
+    /// own `remove_obstacle_voxels` cleanup pass already applies to the
+    /// identical hazard, and reports the capped distance with `voxel: None`
+    /// instead — matching this method's own documented "if nearby cell is
+    /// unknown, zero" contract, which the unguarded read never actually
+    /// implemented for this case.
     pub fn nearest_cell(&self, x: i32, y: i32, z: i32) -> NearestCell<'_> {
         let queried = Vector3::new(x, y, z);
         let cell = self.voxel_grid.get_cell(x, y, z);
         if cell.distance_square > 0 {
             let pos = cell.closest_point;
+            let distance = self.sqrt_table[cell.distance_square as usize];
+            if !self.voxel_grid.is_cell_valid(pos.x, pos.y, pos.z) {
+                return NearestCell {
+                    voxel: None,
+                    distance,
+                    position: queried,
+                };
+            }
             let neighbor = self.voxel_grid.get_cell(pos.x, pos.y, pos.z);
             return NearestCell {
                 voxel: (pos != queried).then_some(neighbor),
-                distance: self.sqrt_table[cell.distance_square as usize],
+                distance,
                 position: pos,
             };
         }
         if cell.negative_distance_square > 0 {
             let pos = cell.closest_negative_point;
+            let distance = -self.sqrt_table[cell.negative_distance_square as usize];
+            if !self.voxel_grid.is_cell_valid(pos.x, pos.y, pos.z) {
+                return NearestCell {
+                    voxel: None,
+                    distance,
+                    position: queried,
+                };
+            }
             let neighbor = self.voxel_grid.get_cell(pos.x, pos.y, pos.z);
             return NearestCell {
                 voxel: (pos != queried).then_some(neighbor),
-                distance: -self.sqrt_table[cell.negative_distance_square as usize],
+                distance,
                 position: pos,
             };
         }
