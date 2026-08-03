@@ -340,6 +340,7 @@ name = "moveit-geometry"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "glamx",
  "moveit-error",
  "moveit-octomap",
  "nalgebra",
