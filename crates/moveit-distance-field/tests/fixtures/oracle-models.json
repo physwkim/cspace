@@ -1,0 +1,46 @@
+{
+  "collision_distance_field_types": {
+    "ignore_result_fields_by_id": {
+      "1": [
+        "relative_cylinder_pose"
+      ],
+      "5": [
+        "relative_cylinder_pose"
+      ]
+    },
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "collision_object_point_decomposition": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "distance_field": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "distance_field_cache_entry": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "distance_field_negative": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "group_state_representation": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "link_body_decomposition": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "link_models_with_collision_geometry": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "shape_points": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  }
+}
