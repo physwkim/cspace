@@ -146,9 +146,12 @@ mod tests {
     use std::fs;
 
     use moveit_collision::{LinkPaddingScale, ParryCollisionEnv};
-    use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
+    use moveit_constraints::{
+        Constraint, JointConstraint, KinematicConstraintSet, PositionConstraint,
+    };
     use moveit_geometry::Shape;
     use moveit_geometry::shapes::Sphere;
+    use moveit_geometry::{Isometry3, Vector3};
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_scene::PlanningScene;
     use moveit_srdf::SrdfModel;
@@ -343,6 +346,73 @@ mod tests {
             "a single is_valid call took {elapsed:?}, over 100x the ~15 ms debug-profile \
              maximum this type's doc comment measures -- see \
              examples/planning_scene_validity_bench.rs for a precise re-measurement"
+        );
+    }
+
+    /// The constructor-side half of `PlanningScene::transforms_with_world_objects`'s
+    /// own doc comment: `moveit-constraints` cannot depend on `moveit-scene`
+    /// (`tools/ci/check-dep-direction.sh` would reject the cycle -- collision
+    /// checking already flows `moveit-scene -> moveit-constraints`), so the
+    /// call site that threads a `PlanningScene`-derived
+    /// [`moveit_geometry::Transforms`] into
+    /// [`moveit_constraints::PositionConstraint::new`] has to live here, in
+    /// this crate, the one place that depends on both. `scene.transforms()`
+    /// alone must fail to resolve a world-object reference frame (upstream's
+    /// base, non-scene-aware `Transforms::isFixedFrame` half); only
+    /// `scene.transforms_with_world_objects()` reaches the scene-aware
+    /// object-frame half `SceneTransforms::isFixedFrame` overrides in, and
+    /// only that call resolves the constraint `Fixed` instead of erroring.
+    #[test]
+    fn a_position_constraint_against_a_world_object_only_resolves_through_transforms_with_world_objects()
+     {
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene.add_shape(
+            "table",
+            std::sync::Arc::new(Shape::Sphere(Sphere::new(0.1).unwrap())),
+            Isometry3::translation(1.0, 0.0, 0.0),
+        );
+
+        let bare = scene.transforms();
+        let err = PositionConstraint::new(
+            &model,
+            bare,
+            "panda_link8",
+            "table",
+            Vector3::zeros(),
+            &[(
+                Shape::Sphere(Sphere::new(0.05).unwrap()),
+                Isometry3::identity(),
+            )],
+            1.0,
+        )
+        .expect_err(
+            "scene.transforms() alone does not know about world objects, so \"table\" must not \
+             resolve as a reference frame",
+        );
+        assert!(
+            matches!(err, moveit_error::Error::UnknownName { .. }),
+            "expected UnknownName, got {err:?}"
+        );
+
+        let with_objects = scene.transforms_with_world_objects();
+        let constraint = PositionConstraint::new(
+            &model,
+            &with_objects,
+            "panda_link8",
+            "table",
+            Vector3::zeros(),
+            &[(
+                Shape::Sphere(Sphere::new(0.05).unwrap()),
+                Isometry3::identity(),
+            )],
+            1.0,
+        )
+        .expect("transforms_with_world_objects() must resolve the \"table\" world object");
+        assert!(
+            !constraint.mobile_reference_frame(),
+            "a world-object reference frame must resolve Fixed, matching upstream \
+             SceneTransforms::isFixedFrame's object-frame half"
         );
     }
 }
