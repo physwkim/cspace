@@ -243,10 +243,21 @@ impl<'m> RobotTrajectory<'m> {
     /// `Err` if the trajectory is currently empty and `dt != 0.0` — the new
     /// waypoint would become waypoint 0. See the module-level "Deviations
     /// from upstream" note.
-    pub fn add_suffix_way_point(&mut self, state: RobotState<'m>, dt: f64) -> Result<&mut Self> {
+    ///
+    /// Calls [`RobotState::update`] on `state` before storing it, matching
+    /// upstream's `state->update()`: [`RobotState`] derives `PartialEq` over
+    /// its cached transforms and dirty-subtree bookkeeping, so a waypoint
+    /// stored without settling those first would not compare equal to the
+    /// same logical state stored after an explicit `update()` elsewhere.
+    pub fn add_suffix_way_point(
+        &mut self,
+        mut state: RobotState<'m>,
+        dt: f64,
+    ) -> Result<&mut Self> {
         if self.waypoints.is_empty() && dt != 0.0 {
             return Err(Self::first_duration_error());
         }
+        state.update();
         self.waypoints.push_back(state);
         self.duration_from_previous.push_back(dt);
         Ok(self)
@@ -258,7 +269,12 @@ impl<'m> RobotTrajectory<'m> {
     /// becomes waypoint 0, whose duration-from-previous is structurally
     /// `0.0` in this port (see the module-level "Deviations from upstream"
     /// note) — there is no value for a `dt` parameter here to hold.
-    pub fn add_prefix_way_point(&mut self, state: RobotState<'m>) -> &mut Self {
+    ///
+    /// Calls [`RobotState::update`] on `state` before storing it, matching
+    /// upstream's `state->update()`; see [`RobotTrajectory::add_suffix_way_point`]'s
+    /// doc comment for why.
+    pub fn add_prefix_way_point(&mut self, mut state: RobotState<'m>) -> &mut Self {
+        state.update();
         self.waypoints.push_front(state);
         self.duration_from_previous.push_front(0.0);
         self
@@ -268,10 +284,14 @@ impl<'m> RobotTrajectory<'m> {
     ///
     /// `Err` if `index > way_point_count()`, or if `index == 0` and
     /// `dt != 0.0` (see the module-level "Deviations from upstream" note).
+    ///
+    /// Calls [`RobotState::update`] on `state` before storing it, matching
+    /// upstream's `state->update()`; see [`RobotTrajectory::add_suffix_way_point`]'s
+    /// doc comment for why.
     pub fn insert_way_point(
         &mut self,
         index: usize,
-        state: RobotState<'m>,
+        mut state: RobotState<'m>,
         dt: f64,
     ) -> Result<&mut Self> {
         if index > self.waypoints.len() {
@@ -280,6 +300,7 @@ impl<'m> RobotTrajectory<'m> {
         if index == 0 && dt != 0.0 {
             return Err(Self::first_duration_error());
         }
+        state.update();
         self.waypoints.insert(index, state);
         self.duration_from_previous.insert(index, dt);
         Ok(self)

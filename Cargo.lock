@@ -436,6 +436,10 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "moveit-error",
+ "moveit-model",
+ "moveit-srdf",
+ "rsruckig",
+ "urdf-rs",
 ]
 
 [[package]]
