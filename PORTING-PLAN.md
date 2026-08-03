@@ -4680,3 +4680,73 @@ pr2 URDF에서 직접 확인한 것(팔·그리퍼 충돌 링크 13개 중 10개
 `<mesh>`)과 거기서 나오는 추론을 **inference, not measurement**로
 분리해 적었다. 이 프로젝트에서 반복해 요구해 온 구분이고, 지시 없이
 지켜졌다.
+
+## 47. `p1-robotmodel` 5라운드 병합 — Phase 7 착수 (2026-08-04)
+
+`932599e`. `nextest --workspace` **941/941** (934 + 7).
+
+### 47.1 자기 코드의 전제를 이번 라운드에 확인해서 뒤집었다
+
+워커 자신의 테스트 코드와 문서 주석이 panda의 메시 충돌 형상이
+"이 저장소에 vendoring되어 있지 않다"고 단정하고 있었다. 기억에서
+가져온 문장이고, 거짓이었다 — `fixtures/meshes/panda_description/`은
+커밋돼 있고 `moveit-collision`의 `collision_parity.rs`가 이미
+`MeshSearchPaths::new`로 그것을 푼다. 합성 모델 대신 실제 메시를 로드하는
+쪽으로 테스트를 고쳤다.
+
+그 수정이 두 가지를 연달아 드러냈다:
+
+1. panda의 전-0 상태가 실제 메시에서는 **자기충돌 상태**다. 오라클
+   픽스처로 직접 확인했다 — `panda_collision.json`의 첫 케이스는
+   `joint_values: {}`(전부 기본값)이고 `self_collision: true`,
+   `self_distance: -0.01311`이다. 두 테스트 모두 `panda.srdf`의
+   `"ready"` 자세로 바꿨다.
+2. `measured_call_cost`가 보고하던 수가 **세 자릿수 틀렸다**. 이전
+   측정(`~88µs/call`)은 충돌 형상이 하나도 로드되지 않은 씬에 대한
+   것이었고, 실제 메시로는 **~8–15ms/call**(debug 프로파일)이다.
+   샘플 수를 10,000에서 50으로 줄였다.
+
+측정값을 재기 전에 설계하지 말라는 지시가 있었고, 워커는 잰 값을
+믿었다가 그 값 자체가 틀렸다는 것을 다시 재서 찾아냈다. 첫 측정을
+"쟀으니 됐다"로 닫지 않은 것이 이 라운드의 핵심이다.
+
+### 47.2 설계 결정 셋, 각각 기각안과 함께
+
+- `PlannerManager`/`PlanningContext`를 새 `moveit-planning` 크레이트가
+  아니라 `moveit-planners-sbp` 안에 둔다 — 공유 크레이트의 모양을
+  검증할 두 번째 플래너 계열이 아직 없고, `moveit-kinematics::registry`가
+  이미 트레이트+레지스트리를 유일 구현체와 같은 자리에 두는 선례다.
+- `get_planning_context`를 `&ParryCollisionEnv`로 특수화한다. 기각안:
+  제네릭 `E: CollisionEnv<..>` — 트레이트 메서드에서 `dyn` 객체 안전성이
+  깨진다.
+- D1-free `MotionPlanRequest` 대응물의 `goal`은 구체적인
+  `Vec<CompoundValue>` 상태다. 기각안: 변수당 `JointConstraint` 하나짜리
+  샘플러 스텁 — 워크스페이스 어디에도 `constraint_samplers`가 없고(§3이
+  명목상 범위에 넣어 두었는데도), 스텁은 Cartesian 목표를 조용히
+  잘못 처리한다.
+
+### 47.3 단정하지 않는 테스트가 하나 들어왔다
+
+`measured_call_cost`에는 `assert!`가 없다. 시간 한계를 걸면 머신 속도
+차이 때문에 의미가 없다는 것이 워커의 이유이고, 그 이유는 타이트한
+한계를 걸지 말라는 근거는 되지만 아무것도 걸지 말라는 근거는 아니다.
+현재 상태는 nextest가 통과 시 stdout을 삼키므로 **출력이 보이지도
+않고 실패할 수도 없는데 50회 × 약 10ms를 매 실행마다 쓴다**.
+
+**Anchor:** `rg -n 'println!' crates/ tools/ --glob '*.rs'`
+**Sites:** `#[test]` 안의 `println!`은
+`planning_scene_validity.rs:335` 한 곳
+**Distinct, skip:** `crates/moveit-geometry/examples/octree_compound_bench.rs`
+— 테스트가 아니라 예제 바이너리이고, 이것이 **이 저장소가 이미 가진
+올바른 자리의 선례**다. `tools/moveit-diff/src/main.rs`는 바이너리
+자신의 출력이다.
+
+크레이트 소유자에게 넘긴다. 내가 고치지 않은 이유는 이것이 정확성
+결함이 아니라 배치 규약 결함이고, CI 글롭 건(§44.2)과 달리 다른 누구도
+깨뜨리지 않기 때문이다.
+
+### 47.4 보고서의 커밋 수가 실제와 다르다
+
+보고서가 "Four commits this round"라고 적고 셋(`d616c1f`, `1fa9778`,
+`100ce0a`)을 나열했다. 브랜치에도 셋이다. 고칠 것은 없고, 자기 보고의
+숫자를 세지 않은 사례로만 적어 둔다.
