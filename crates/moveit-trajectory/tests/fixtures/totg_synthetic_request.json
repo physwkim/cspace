@@ -1,0 +1,102 @@
+[
+  {
+    "cases": [
+      {
+        "acceleration_limits": {
+          "planar_joint/theta": 1.0,
+          "planar_joint/x": 1.0,
+          "planar_joint/y": 1.0
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "velocity_limits": {
+          "planar_joint/theta": 1.0,
+          "planar_joint/x": 1.0,
+          "planar_joint/y": 1.0
+        },
+        "waypoints": [
+          {
+            "planar_joint/theta": 0.0,
+            "planar_joint/x": 0.0,
+            "planar_joint/y": 0.0
+          },
+          {
+            "planar_joint/theta": 0.3,
+            "planar_joint/x": 0.5,
+            "planar_joint/y": 0.2
+          }
+        ]
+      },
+      {
+        "acceleration_limits": {
+          "planar_joint/theta": 3.0,
+          "planar_joint/x": 2.0,
+          "planar_joint/y": 1.5
+        },
+        "durations_from_previous": [
+          0.0,
+          0.2,
+          0.2
+        ],
+        "velocity_limits": {
+          "planar_joint/theta": 3.0,
+          "planar_joint/x": 2.0,
+          "planar_joint/y": 1.5
+        },
+        "waypoints": [
+          {
+            "planar_joint/theta": -3.0,
+            "planar_joint/x": 0.0,
+            "planar_joint/y": 0.0
+          },
+          {
+            "planar_joint/theta": 2.5,
+            "planar_joint/x": -0.4,
+            "planar_joint/y": 0.6
+          },
+          {
+            "planar_joint/theta": 0.0,
+            "planar_joint/x": 1.0,
+            "planar_joint/y": -0.3
+          }
+        ]
+      }
+    ],
+    "group": "planar_group",
+    "id": 1,
+    "op": "totg"
+  },
+  {
+    "cases": [
+      {
+        "acceleration_limits": {
+          "mixed_prismatic_joint": 1.0,
+          "mixed_revolute_joint": 1.0
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "velocity_limits": {
+          "mixed_prismatic_joint": 1.0,
+          "mixed_revolute_joint": 1.0
+        },
+        "waypoints": [
+          {
+            "mixed_prismatic_joint": 0.0,
+            "mixed_revolute_joint": 0.0
+          },
+          {
+            "mixed_prismatic_joint": 0.3,
+            "mixed_revolute_joint": 0.5
+          }
+        ]
+      }
+    ],
+    "group": "mixed_group",
+    "id": 2,
+    "op": "totg"
+  }
+]

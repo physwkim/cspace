@@ -16,6 +16,7 @@
             0.09999999999999998,
             0.04600384659226786
           ],
+          "has_mixed_joint_types": false,
           "ok": true,
           "waypoints": [
             {
@@ -293,6 +294,7 @@
             0.09999999999999998,
             0.04600384659226786
           ],
+          "has_mixed_joint_types": false,
           "ok": true,
           "waypoints": [
             {
@@ -570,6 +572,7 @@
             0.09999999999999998,
             0.04600384659226786
           ],
+          "has_mixed_joint_types": false,
           "ok": true,
           "waypoints": [
             {

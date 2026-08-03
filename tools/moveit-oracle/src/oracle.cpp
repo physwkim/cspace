@@ -2504,8 +2504,32 @@ private:
   /// `moveit_msgs::msg::JointLimits` overload is not exercised, for the same
   /// reason `ruckig` does not exercise its analogous overload: a thin
   /// wrapper the port doesn't carry (D1).
+  /// Re-implementation of `TimeOptimalTrajectoryGeneration::hasMixedJointTypes`
+  /// (cpp:1273-1288), which the oracle cannot call directly (it is a
+  /// private member of that class): identical logic over the same public
+  /// `JointModelGroup::getActiveJointModels()`/`JointModel::getType()`
+  /// this crate's own `has_mixed_joint_types` also uses. Exposed on every
+  /// `totgRobotTrajectoryCase` response (not just as a stderr `RCLCPP_WARN`
+  /// side effect, which upstream's own real call site at cpp:1176 is
+  /// limited to) so a mixed-joint-type group is a wire-checkable parity
+  /// case rather than a log line a test would have to scrape.
+  static bool hasMixedJointTypesForGroup(const moveit::core::JointModelGroup* group)
+  {
+    const std::vector<const moveit::core::JointModel*>& joint_models = group->getActiveJointModels();
+    const bool have_prismatic =
+        std::any_of(joint_models.cbegin(), joint_models.cend(), [](const moveit::core::JointModel* joint_model) {
+          return joint_model->getType() == moveit::core::JointModel::JointType::PRISMATIC;
+        });
+    const bool have_revolute =
+        std::any_of(joint_models.cbegin(), joint_models.cend(), [](const moveit::core::JointModel* joint_model) {
+          return joint_model->getType() == moveit::core::JointModel::JointType::REVOLUTE;
+        });
+    return have_prismatic && have_revolute;
+  }
+
   json totgRobotTrajectoryCase(const std::string& group_name, const json& c)
   {
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
     robot_trajectory::RobotTrajectory trajectory(model_, group_name);
 
     const json& waypoints = c.at("waypoints");
@@ -2547,10 +2571,10 @@ private:
 
     json result;
     result["ok"] = ok;
+    result["has_mixed_joint_types"] = hasMixedJointTypesForGroup(group);
     if (!ok)
       return result;
 
-    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
     const std::vector<std::string>& variable_names = group->getVariableNames();
 
     json out_waypoints = json::array();

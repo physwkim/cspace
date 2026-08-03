@@ -19,7 +19,9 @@
 //! overload (`compute_time_stamps`) is not exercised here: this port's
 //! `moveit-model` URDF loader never sets `acceleration_bounded`, so that
 //! overload fails validation against every fixture in this workspace
-//! before it can reach any numeric comparison (see this round's report).
+//! before it can reach any numeric comparison — see
+//! `time_optimal_trajectory_generation.rs`'s "Known gap" doc section for
+//! the full analysis and the precise API this crate is waiting on.
 //! Custom limits bypass that gap entirely, matching upstream's own
 //! `setAccelerationLimits` test workaround.
 //!
@@ -38,6 +40,15 @@
 //! `a_middle_duplicate_waypoint_is_dropped_not_double_counted` unit
 //! test).
 //!
+//! Every case also cross-checks `has_mixed_joint_types` against
+//! `oracle.cpp`'s `hasMixedJointTypesForGroup` (a re-implementation of
+//! the private `TimeOptimalTrajectoryGeneration::hasMixedJointTypes`,
+//! cpp:1273-1288, over the same public `getActiveJointModels()` API --
+//! see that function's doc comment for why a re-implementation was
+//! necessary rather than a direct call). `panda_arm` is revolute-only, so
+//! every case here asserts `false`; `totg_synthetic_parity.rs` is where
+//! this comes back `true`.
+//!
 //! # Tolerance
 //!
 //! Both sides run the identical Kunz & Stilman numerics this crate's
@@ -55,7 +66,7 @@ use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use moveit_trajectory::RobotTrajectory;
 use moveit_trajectory::time_optimal_trajectory_generation::{
-    TotgOptions, compute_time_stamps_with_limits,
+    TotgOptions, compute_time_stamps_with_limits, has_mixed_joint_types,
 };
 
 const TOL: f64 = 1e-6;
@@ -118,6 +129,7 @@ struct TotgRtResultWaypoint {
 #[derive(Deserialize)]
 struct TotgRtResultCase {
     ok: bool,
+    has_mixed_joint_types: bool,
     #[serde(default)]
     durations_from_previous: Vec<f64>,
     #[serde(default)]
@@ -154,6 +166,14 @@ fn totg_robot_trajectory_matches_the_oracle() {
     {
         let mut trajectory = RobotTrajectory::for_group_name(&model, &request.group)
             .unwrap_or_else(|e| panic!("case {case_index}: for_group_name: {e}"));
+        let group = model
+            .joint_model_group(&request.group)
+            .unwrap_or_else(|e| panic!("case {case_index}: joint_model_group: {e}"));
+        assert_eq!(
+            has_mixed_joint_types(&trajectory, group),
+            expected.has_mixed_joint_types,
+            "case {case_index}: has_mixed_joint_types mismatch"
+        );
 
         for (values, &dt) in case.waypoints.iter().zip(&case.durations_from_previous) {
             let mut state = RobotState::new(&model);
