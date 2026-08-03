@@ -2627,3 +2627,72 @@ Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
 같은 크레이트의 `collision_common_distance_field_parity.rs:312`도
 `RobotState::new`로 시작하지만 헬퍼 `apply_joint_values`가 이미
 `set_to_default_values()`를 부르므로 같은 결함이 아니다.
+
+## 21. 메시 로더 착지 — `<mesh>` UNFIXED 종료
+
+`p3-acm`의 세 커밋(`947f3e6`, `73da61e`, `aaaaae8`)을 `a1b2b5a`로 병합했다.
+phase 3 시작부터 열려 있던 `<mesh>` collision geometry 미로딩이 닫혔다.
+
+### 21.1 무엇이 들어왔나
+
+- `moveit-geometry::stl::mesh_from_bytes` — STL 로더. 로드 시점에
+  `compute_vertex_normals()`를 무조건 호출해 geometric_shapes의
+  `createMeshFromVertices`와 맞춘다.
+- `MeshSearchPaths` — `package://` URI 해석용 **패키지 이름 → 디렉터리
+  맵**. 처음에는 탐색 루트 목록이었는데, 벤더링된 트리 이름이 소스
+  저장소 이름(`panda_description`)이고 URDF의 `package://` URI는 ROS
+  패키지 이름(`moveit_resources_panda_description`)이라 루트+이름 join이
+  조용히 아무것도 못 찾았다. 명시 맵이 그 이중 의미를 없앤다.
+- `RobotModel::from_urdf_and_srdf(..., &MeshSearchPaths)` — 시그니처
+  변경. 충돌 지오메트리를 안 쓰는 호출자는 `MeshSearchPaths::none()`을
+  넘기고, 그러면 모든 `<mesh>`가 예전처럼 `Diagnostic::UnsupportedLinkGeometry`
+  와 함께 건너뛰어진다.
+- `Diagnostic::UnsupportedLinkGeometry`에 `detail: Option<String>` 추가 —
+  mesh 스킵 사유(미해석 `package://` URI, 미지원 확장자, 손상된 STL)를
+  이름으로 남긴다.
+
+### 21.2 병합 시 고친 것
+
+자동 병합이 성공했지만 의미상 깨진 두 곳: `main` 쪽
+`moveit-model/tests/robot_model_parity.rs:483`과
+`moveit-distance-field/tests/collision_env_distance_field_parity.rs:379`이
+`UnsupportedLinkGeometry`를 옛 3필드 모양으로 구조분해하고 있었다. 둘 다
+`..`로 고쳤다. `collision_env_distance_field_parity.rs`의 import 블록은
+3-way 충돌이 났고, 양쪽을 합쳐 해결했다(HEAD의 새 심볼 + p3-acm의
+`MeshSearchPaths`).
+
+### 21.3 워커 보고 독립 검증
+
+보고를 중계하지 않고 병합 트리용 오라클 이미지(`0e59f840560d9bfe`)를 새로
+빌드해 직접 재생했다:
+
+- `capture-collision-fixtures.py` 재실행 — `panda_collision.json`,
+  `fanuc_collision.json`, `pr2_collision.json` 셋 다 커밋본과 **바이트
+  동일**.
+- `mesh_parity.json`의 18개 케이스 전부를 `mesh` op으로 재생 —
+  `vertex_count` / `triangle_count` / 정점 집합 **불일치 0**.
+
+병합 후 워크스페이스: fmt clean, `clippy --workspace --all-targets
+-D warnings` clean, `nextest --workspace` **813/813**,
+`test --doc --workspace` clean, `tools/ci` 스크립트 4종 전부 통과.
+
+### 21.4 남은 것 — 닫히지 않았다
+
+- **거리 크기 차이.** 스윕에서 boolean 불일치는 0(panda 20,001건, pr2
+  20,001건)이지만 침투 거리 크기는 어긋난다. 워커의 근본 원인 지목은
+  `parry3d_f64::query::contact` 단일 접촉 vs FCL의 최대 200접촉 최대
+  침투깊이 누적(`parry.rs` deviation 6)이고, fanuc mesh-vs-mesh에서 `~3x`,
+  panda/pr2 mesh-vs-box에서 최악 `2.738` / `3.218e-1`이라는 **측정**은
+  있으나 그 인과는 **아직 반증 시도된 적이 없다**. round 7에서 최악
+  케이스를 골라 접촉 집합 최대값 누적으로 FCL 답이 재현되는지 확인하도록
+  지시했다.
+- **pr2 case 7552** `robot_collision` 불일치 — primitive 지오메트리,
+  미해명. 현재 스윕이 boolean 불일치 0을 보고하므로 고쳐졌는지 커버가
+  빠졌는지 확인이 필요하다.
+- **비주얼 메시는 여전히 로드하지 않는다** (`link_model.rs:107`).
+  렌더러가 없는 D1 범위에서는 영구 결정일 가능성이 높으나, 지금은 부수적
+  주석일 뿐 명시된 결정이 아니다.
+- **`MeshSearchPaths::none()` 호출자들.** 워크스페이스의
+  `from_urdf_and_srdf` 호출자 대부분이 아직 `none()`을 넘긴다. 특히
+  `moveit-distance-field`의 pr2 테스트들은 단정문이 메시 격차에 맞춰
+  좁혀져 있어, 그 좁힘이 이제 불필요하거나 다른 모양이어야 한다.
