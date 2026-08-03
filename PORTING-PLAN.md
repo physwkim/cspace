@@ -1622,3 +1622,92 @@ UnsupportedLinkGeometry { kind: "mesh" }`가 기록된 링크**, 즉 모든
 `JointModel::getDescendantLinkModels`로 두는 것이므로 `moveit-model`이
 소유해야 한다. 다음 라운드에서 `moveit-model`에 넣고 state 쪽 중복을
 위임으로 바꾸도록 지정했다 — 같은 사실에 집을 두 채 두지 않기 위해서다.
+
+---
+
+## 14. Phase 4 완료, octree 충돌 결정 대기 (2026-08-03)
+
+### 14.1 `moveit-kinematics` — Phase 4 이식, 완료 조건은 미달
+
+`cefeabd` 병합. 커밋 여섯: `adcf5a7`(`KinematicsSolver` trait +
+Newton-Raphson, LMA), `3b5bd12`(`solve()`의 `RobotState` 기본값 초기화),
+`58ecb48`(불변식 경계 테스트, 자족적 FK-of-solution), `62f1e09`(diff `ik`
+op), `75adb02`(오라클 `ik` op — `ChainIkSolverVelMimicSVD` 벤더링 +
+외부 루프 전사), `cb668b7`(`--tol-ik` 기본값 수정).
+
+**워커가 완료 조건 미달을 반올림하지 않고 그대로 보고했다.** "성공률 ≥
+오라클" 기준을 네 픽스처 중 셋에서 못 맞췄고(0.3~1.4%p 뒤짐) 하나는
+동률이다. 재빌드한 오라클로 다시 돌려 숫자를 자릿수까지 확인했다:
+
+| 픽스처 / 그룹 | 오라클 | rust | degenerate |
+|---|---|---|---|
+| panda / panda_arm | 4897/5000 (97.9%) | 4876/5000 (97.5%) | 0 / 0 |
+| fanuc / manipulator | 4568/5000 (91.4%) | 4498/5000 (90.0%) | 0 / 0 |
+
+케이스별로는 15001/15001 통과, 실패 0 — 수렴한 해의 FK는 전부
+`2e-5` 안에 든다.
+
+**고쳐진 결함 1건.** `moveit-diff`의 `--tol-ik` 기본값이 `1e-6`으로,
+`SolverParams::default().epsilon`(`1e-5`)보다 빡빡했다. `CartToJnt`의
+수렴 판정이 twist 노름 `<= epsilon`인 스텝을 받아들이므로 수렴한 해의
+FK 오차는 `(0, epsilon]` 어디에나 놓일 수 있다. panda_arm 5,000
+스윕에서 2930건이 "실패"로 찍혔고 전부 오차가 `7e-6`~`9.9e-6`, 즉
+epsilon 아래였다 — 솔버 결함이 아니라 측정 도구의 기준선이 틀린
+것이다. `2e-5`로 고쳤다.
+
+**성공률 격차는 원인 미규명이고, 다음 라운드는 측정 과제로 넘겼다.**
+워커가 두 후보(Eigen 대 nalgebra 부동소수 발산, 재시작 RNG 스트림
+분리)를 제시하되 어느 쪽도 단정하지 않았다. 코드를 확인한 결과 비교
+설계 자체에 문제가 있다:
+
+- `velocity.rs`는 `ChainIkSolverVelMimicSVD`를 실제로 이식했다 — mimic
+  fold, 가중치, SVD, *상대* `svd_threshold`까지. 속도 단계의 알고리즘
+  불일치는 아니다.
+- `cart_to_jnt.rs:270`이 `params.max_restarts`만큼 무작위 재시작을
+  돌리는데, 시드가 `ChaCha8Rng`다. 오라클 쪽 재시작은
+  `random_numbers::RandomNumberGenerator`(boost mt19937)에서 온다.
+  **독립된 난수 스트림을 가진 두 확률적 솔버는 케이스별 결과가 애초에
+  비교 대상이 아니다.**
+
+따라서 다음 라운드의 결정적 실험은 양쪽 모두 `max_restarts = 0`으로
+두고 동일 시드에서 한 번만 시도하는 것이다. 격차가 사라지면 원인은
+재시작 RNG이고 결함이 아니다. 남으면 그때는 결정론적 재현자가 생긴다.
+아울러 주변부 합계(4897 대 4876)가 아니라 McNemar 쌍 카운트를 요구했다 —
+같은 5,000개 표적에 대한 비교이므로 쌍 통계라야 의미가 있다.
+`max_restarts`/`epsilon`/`svd_threshold`를 올려 격차를 메우는 것은
+금지했다.
+
+### 14.2 `shapes::OcTree` 충돌 배선 — parry에 대응물이 없다
+
+`4cd9ab4` 병합. 커밋 둘: `f8cbcaf`(`shapes::OcTree`에 실제 옥트리
+페이로드), `6534835`(오라클 `octree_in_world` op, 검증, 보류 목록).
+
+**결정이 필요한 발견:** `parry3d-f64` 0.30.0에는 다중 해상도 옥트리
+충돌 형상이 없다. 가장 가까운 `shape::Voxels`는 균일 해상도 전용이라,
+`OcTree`에 쓰려면 트리의 최소 해상도보다 거친 리프를 최대 `8^k`개의
+단위 셀로 펼쳐야 한다 — 실제 센서 맵에서 `prune()`이 아끼는 메모리를
+정확히 그만큼 도로 부풀린다. 워커는 우회책을 적용하지 않았고 의존성도
+추가하지 않았다. 옳은 판단이다.
+
+이것은 이식 과제가 아니라 설계 결정이므로, 다음 라운드에 근거 수집만
+지시했다: 상류 FCL `fcl::OcTree`의 깊이 적응 순회가 균일 복셀 형상이
+줄 수 없는 것이 무엇인지, 실제 맵에서 측정한 확장 비율, 그리고 선택지
+넷(커스텀 parry 형상 / 리프별 `Cuboid` 컴파운드 + BVH / 깊이 제한
+균일 확장 / FCL FFI — D3가 "순수 Rust 먼저, FFI는 나중"이므로 배제
+대상은 아니다) 각각의 비용. 구현은 이번 라운드에 하지 않는다.
+
+`build.sh`를 워크트리에서 못 돌린다는 워커의 보고는 내 브리핑이 틀린
+것이었다 — `third_party/`는 gitignore되므로 워크트리 지역이고 리베이스로
+따라오지 않는다. 워커가 워크트리 격리를 이유로 세션 루트 체크아웃을
+건드리기를 거부한 것이 맞다. 병합된 트리에서 내가 실제 `build.sh`를
+돌렸고 정상 빌드됐다.
+
+### 14.3 병합이 만든 결함 — 같은 모양 두 번째
+
+`compare_ik` 호출부의 불필요한 차용. `joint_values`는 `main`의 `run()`
+루프에서 `&BTreeMap`인데 옛 트리 기준으로 갈라진 브랜치가 소유값으로
+넘겼다. p3-acm의 `collision` op(§13.4)에서 이미 한 번 나온 것과 정확히
+같은 모양이다. `rg '&joint_values' tools/moveit-diff/src/`로 전수 확인해
+`main.rs:513` 한 곳뿐임을 확인하고 고쳤다 — 나머지 열 곳은 이미 맨
+이름으로 넘기고 있었다. 양쪽 브랜치가 각각 clippy를 통과하므로 병합 후
+전체 게이트에서만 잡히는 종류다.
