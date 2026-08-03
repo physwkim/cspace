@@ -1,0 +1,77 @@
+[
+  {
+    "distance_queries": [
+      [
+        0.5,
+        0.0,
+        1.0
+      ],
+      [
+        10.0,
+        10.0,
+        10.0
+      ]
+    ],
+    "group": "right_arm",
+    "id": 1,
+    "joint_values": {
+      "l_elbow_flex_joint": -1.13565,
+      "l_wrist_flex_joint": -1.05,
+      "r_elbow_flex_joint": -1.13565,
+      "r_wrist_flex_joint": -1.05,
+      "torso_lift_joint": 0.16825
+    },
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  },
+  {
+    "distance_queries": [
+      [
+        0.5,
+        0.0,
+        1.0
+      ],
+      [
+        10.0,
+        10.0,
+        10.0
+      ]
+    ],
+    "group": "right_arm",
+    "id": 2,
+    "joint_values": {
+      "l_elbow_flex_joint": -1.13565,
+      "l_wrist_flex_joint": -1.05,
+      "r_elbow_flex_joint": -1.13565,
+      "r_wrist_flex_joint": -1.05,
+      "torso_lift_joint": 0.16825
+    },
+    "op": "distance_field_cache_entry",
+    "use_acm": false
+  },
+  {
+    "distance_queries": [
+      [
+        0.7,
+        0.2,
+        1.0
+      ],
+      [
+        10.0,
+        10.0,
+        10.0
+      ]
+    ],
+    "group": "l_end_effector",
+    "id": 3,
+    "joint_values": {
+      "l_elbow_flex_joint": -1.13565,
+      "l_wrist_flex_joint": -1.05,
+      "r_elbow_flex_joint": -1.13565,
+      "r_wrist_flex_joint": -1.05,
+      "torso_lift_joint": 0.16825
+    },
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  }
+]

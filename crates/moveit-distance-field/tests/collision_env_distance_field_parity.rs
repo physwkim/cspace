@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Parity tests against the moveit2 C++ oracle for
-//! `collision_env_distance_field.rs`'s `add_link_body_decompositions`.
+//! `collision_env_distance_field.rs`'s `add_link_body_decompositions` and
+//! `generate_distance_field_cache_entry`.
 //!
-//! Two properties, two ops:
+//! `add_link_body_decompositions`: two properties, two ops:
 //!
 //! - **Link *set* selection.** `add_link_body_decompositions` iterates
 //!   `robot_model.link_models()` filtered to `!shapes().is_empty()`, in
@@ -27,20 +28,49 @@
 //!   `base_bellow_link`'s entry rather than re-deriving the same numbers
 //!   through a second oracle op.
 //!
-//! `test_collision_distance_field.cpp` gives no ground truth here either --
-//! see `collision_env_distance_field.rs`'s own module doc for why (every
-//! `TEST_F` case calls `checkSelfCollision`/`checkRobotCollision`, none
-//! reach `addLinkBodyDecompositions` directly).
+//! `test_collision_distance_field.cpp` gives no ground truth for either
+//! function -- see `collision_env_distance_field.rs`'s own module doc for
+//! why (every `TEST_F` case calls `checkSelfCollision`/`checkRobotCollision`,
+//! none reach `addLinkBodyDecompositions`/`generateDistanceFieldCacheEntry`
+//! directly). `generate_distance_field_cache_entry_matches_the_oracle` below
+//! drives `generateDistanceFieldCacheEntry` indirectly instead, through the
+//! `distance_field_cache_entry` op's `checkSelfCollision` ->
+//! `getLastDistanceFieldEntry()` path (see that op's own doc comment in
+//! `oracle.cpp`), across three cases: `right_arm` with an ACM (exercises the
+//! self/intra-group exclusion logic against `pr2.srdf`'s real
+//! `disable_collisions` entries), `right_arm` with no ACM (the
+//! "enable everything" branch), and `l_end_effector` (a group with one
+//! active joint and several mimics, exercising `state_check_indices`'
+//! active-joint-variable exclusion against a group shape very different from
+//! a chain).
+//!
+//! Every PR2 arm/gripper link's collision geometry is mesh-only (see
+//! `link_models_with_collision_geometry_matches_the_oracle_modulo_the_documented_mesh_deviation`'s
+//! own doc comment for the underlying gap), and no real SRDF planning group
+//! is composed entirely of primitive-geometry links, so
+//! `generate_distance_field_cache_entry_matches_the_oracle` cannot avoid the
+//! mesh gap by choosing a different group -- it hits `link_has_geometry` and
+//! every field derived from it (`link_body_indices`, `self_collision_enabled`,
+//! `intra_group_collision_enabled`, and the distance field's own obstacle
+//! set) on essentially every case. Each of those assertions is narrowed
+//! per-link accordingly; see the loop body's own comments for the exact
+//! rule per field.
 
+use std::collections::HashMap;
 use std::fs;
 
 use approx::assert_relative_eq;
+use nalgebra::Vector3;
 use serde::Deserialize;
 
-use moveit_collision::LinkPaddingScale;
-use moveit_distance_field::add_link_body_decompositions;
+use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale};
+use moveit_distance_field::{
+    DistanceField, DistanceFieldConfig, GridGeometry, add_link_body_decompositions,
+    generate_distance_field_cache_entry,
+};
 use moveit_model::RobotModel;
 use moveit_srdf::SrdfModel;
+use moveit_state::RobotState;
 
 const TOL: f64 = 1e-4;
 
@@ -241,5 +271,291 @@ fn add_link_body_decompositions_matches_the_per_link_oracle_fixture() {
         .zip(&response.result.collision_spheres)
     {
         assert_relative_eq!(*actual, expected.radius, epsilon = TOL);
+    }
+}
+
+// --- distance_field_cache_entry ---
+
+fn build_pr2_srdf() -> SrdfModel {
+    SrdfModel::parse_file(fixture_path("pr2.srdf")).expect("pr2.srdf must parse")
+}
+
+#[derive(Deserialize)]
+struct DfceRequest {
+    group: String,
+    #[serde(default)]
+    joint_values: HashMap<String, f64>,
+    use_acm: bool,
+    distance_queries: Vec<[f64; 3]>,
+}
+
+#[derive(Deserialize)]
+struct DfceResult {
+    group_name: String,
+    link_names: Vec<String>,
+    link_has_geometry: Vec<bool>,
+    // `link_body_indices` deliberately not deserialized: not oracle-comparable
+    // under the mesh gap, see the test's own comment at its use site.
+    link_state_indices: Vec<usize>,
+    self_collision_enabled: Vec<bool>,
+    intra_group_collision_enabled: Vec<Vec<bool>>,
+    attached_body_names: Vec<String>,
+    attached_body_link_state_indices: Vec<usize>,
+    state_check_indices: Vec<usize>,
+    state_values: Vec<f64>,
+    has_field: bool,
+    distance_queries: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct DfceResponseEntry {
+    result: DfceResult,
+}
+
+/// The oracle's `distance_field_cache_entry` op drives
+/// `CollisionEnvDistanceField env(model_)` with every constructor argument
+/// defaulted; this reproduces those defaults exactly (`size_x = size_y =
+/// 3.0`, `size_z = 4.0`, `origin = (0, 0, 0)`, `resolution = .02`,
+/// `max_propogation_distance = .25`, `use_signed_distance_field = false` --
+/// `collision_env_distance_field.hpp:49-55`) so the distance field this test
+/// builds is cell-for-cell the same field the oracle queried, not merely a
+/// field with the same obstacle points at a different resolution.
+fn oracle_default_distance_field_config() -> DistanceFieldConfig {
+    let size = Vector3::new(3.0, 3.0, 4.0);
+    let origin_center = Vector3::new(0.0, 0.0, 0.0);
+    let resolution = 0.02;
+    DistanceFieldConfig {
+        // Upstream shifts its own center-origin members to a corner inline
+        // at the `PropagationDistanceField` construction site this function
+        // ports; see `DistanceFieldConfig::geometry`'s own doc comment.
+        geometry: GridGeometry::new(size, origin_center - 0.5 * size, resolution)
+            .expect("grid geometry"),
+        max_propagation_distance: 0.25,
+        use_signed_distance_field: false,
+    }
+}
+
+/// The fixture's `joint_values` are not empty, despite every case wanting
+/// the model's *default* state: `torso_lift_joint`, `l/r_elbow_flex_joint`,
+/// and `l/r_wrist_flex_joint` all have a `<safety_controller>` element in
+/// `pr2.urdf` whose `soft_lower_limit`/`soft_upper_limit` excludes zero, and
+/// upstream's `RobotState::setToDefaultValues()` reads those *soft* bounds
+/// (not the `<limit>` hard bounds) to compute a 0-excluded joint's default as
+/// their midpoint -- e.g. `torso_lift_joint`'s soft bounds `(0.0115, 0.325)`
+/// default to `0.16825`, not `0.0`. This port's default-state computation
+/// (`RobotState::new`, in `moveit-state`) does not read `<safety_controller>`
+/// at all and defaults every joint to `0.0` regardless of bounds -- a real,
+/// upstream-observed gap, but in a crate this task does not own this round
+/// (`moveit-state`/`moveit-model`; see the top-level task's scope). Rather
+/// than depend on that unrelated default-value computation matching the
+/// oracle's, every fixture request pins these five variables to the exact
+/// value upstream's own default already computes for them (confirmed via a
+/// direct oracle diff: feeding these values back to `applyJointValues`,
+/// which runs `setToDefaultValues()` then overlays `joint_values`, is a
+/// byte-for-byte no-op against the oracle's own default-state response) --
+/// so both sides start from the identical state, and this test exercises
+/// only `generateDistanceFieldCacheEntry`'s own logic, not default-value
+/// computation.
+#[test]
+fn generate_distance_field_cache_entry_matches_the_oracle() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+
+    let requests: Vec<DfceRequest> =
+        serde_json::from_str(&read_fixture("distance_field_cache_entry_request.json"))
+            .expect("parse distance_field_cache_entry_request.json");
+    let responses: Vec<DfceResponseEntry> =
+        serde_json::from_str(&read_fixture("distance_field_cache_entry_response.json"))
+            .expect("parse distance_field_cache_entry_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert!(!requests.is_empty(), "fixture must carry at least one case");
+
+    // Same mesh-collision gap as `link_models_with_collision_geometry_matches_the_oracle_modulo_the_documented_mesh_deviation`,
+    // reused here because it cascades into every geometry-derived field this
+    // test checks -- see the loop body below for exactly how each field's
+    // assertion is narrowed per mesh-affected link.
+    let unsupported_mesh_links: std::collections::HashSet<&str> = model
+        .diagnostics()
+        .iter()
+        .filter_map(|d| match d {
+            moveit_model::Diagnostic::UnsupportedLinkGeometry { link, kind: "mesh" } => {
+                Some(link.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !unsupported_mesh_links.is_empty(),
+        "pr2.urdf is expected to exercise the mesh-skip path; if this is now \
+         empty, either the fixture changed or moveit-model started loading \
+         meshes -- re-derive this test rather than deleting the assertion"
+    );
+    let (_, link_body_decomposition_index_map) = &link_body_decompositions;
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected = &response.result;
+
+        let mut state = RobotState::new(&model);
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values for {}: {e}", request.group));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+
+        let entry = generate_distance_field_cache_entry(
+            &request.group,
+            &posed,
+            acm_arg,
+            &link_body_decompositions,
+            Some(oracle_default_distance_field_config()),
+        )
+        .unwrap_or_else(|e| {
+            panic!(
+                "generate_distance_field_cache_entry({}): {e}",
+                request.group
+            )
+        });
+
+        assert_eq!(entry.group_name, expected.group_name, "group_name");
+        assert_eq!(entry.link_names, expected.link_names, "link_names");
+        assert_eq!(
+            entry.link_state_indices, expected.link_state_indices,
+            "link_state_indices"
+        );
+        assert_eq!(
+            entry.attached_body_names, expected.attached_body_names,
+            "attached_body_names"
+        );
+        assert_eq!(
+            entry.attached_body_link_state_indices, expected.attached_body_link_state_indices,
+            "attached_body_link_state_indices"
+        );
+        assert_eq!(
+            entry.state_check_indices, expected.state_check_indices,
+            "state_check_indices"
+        );
+        assert_eq!(
+            entry.state_values.len(),
+            expected.state_values.len(),
+            "state_values length"
+        );
+
+        // `link_has_geometry` and everything it feeds (`link_body_indices`,
+        // `self_collision_enabled`, `intra_group_collision_enabled`) inherit
+        // the mesh-collision gap: for a mesh-affected link this port always
+        // computes `link_has_geometry = false` (`add_link_body_decompositions`
+        // never built it a `BodyDecomposition` either), while the oracle,
+        // linked against the real mesh files, computes `true`. That single
+        // divergence is asserted explicitly per link below; every downstream
+        // field is then checked either against the oracle (where the link's
+        // geometry status agrees) or for internal self-consistency with this
+        // port's own `link_has_geometry` value (where it does not) -- never
+        // against an oracle value this port has no way to reproduce.
+        for (i, link_name) in entry.link_names.iter().enumerate() {
+            let mesh_affected = unsupported_mesh_links.contains(link_name.as_str());
+            if mesh_affected {
+                assert!(
+                    !entry.link_has_geometry[i] && expected.link_has_geometry[i],
+                    "{link_name} (group {}): expected the documented mesh-gap divergence \
+                     (ours=false, oracle=true), got ours={}, oracle={}",
+                    request.group,
+                    entry.link_has_geometry[i],
+                    expected.link_has_geometry[i]
+                );
+            } else {
+                assert_eq!(
+                    entry.link_has_geometry[i], expected.link_has_geometry[i],
+                    "link_has_geometry[{i}] ({link_name}, group {})",
+                    request.group
+                );
+            }
+
+            // `link_body_indices`: not oracle-comparable at all under the
+            // mesh gap, even for a non-mesh-affected link -- both ports
+            // assign indices sequentially over their own filtered
+            // collision-geometry link set, and that set's length differs
+            // (ours omits every mesh-only link), so the same link can land
+            // at different sequential positions in each. Check wiring
+            // against this port's own index map instead.
+            let expected_body_index = if entry.link_has_geometry[i] {
+                link_body_decomposition_index_map[link_name]
+            } else {
+                0
+            };
+            assert_eq!(
+                entry.link_body_indices[i], expected_body_index,
+                "link_body_indices[{i}] ({link_name}, group {}) disagrees with this port's own index map",
+                request.group
+            );
+
+            if mesh_affected {
+                assert!(
+                    !entry.self_collision_enabled[i],
+                    "self_collision_enabled[{i}] ({link_name}, group {}): mesh-affected link must \
+                     take this port's no-geometry branch (false)",
+                    request.group
+                );
+                assert!(
+                    entry.intra_group_collision_enabled[i].iter().all(|&b| !b),
+                    "intra_group_collision_enabled[{i}] ({link_name}, group {}): mesh-affected \
+                     link's row must be all-false, matching this port's no-geometry branch",
+                    request.group
+                );
+            } else {
+                assert_eq!(
+                    entry.self_collision_enabled[i], expected.self_collision_enabled[i],
+                    "self_collision_enabled[{i}] ({link_name}, group {})",
+                    request.group
+                );
+                assert_eq!(
+                    entry.intra_group_collision_enabled[i],
+                    expected.intra_group_collision_enabled[i],
+                    "intra_group_collision_enabled[{i}] ({link_name}, group {})",
+                    request.group
+                );
+            }
+        }
+
+        assert_eq!(
+            entry.distance_field.is_some(),
+            expected.has_field,
+            "has_field"
+        );
+        let field = entry
+            .distance_field
+            .as_ref()
+            .expect("every fixture case requests generate_distance_field");
+        assert_eq!(
+            request.distance_queries.len(),
+            expected.distance_queries.len(),
+            "fixture's own request/response distance_queries length mismatch"
+        );
+        // Distance, not equality: this port's field is seeded from a strict
+        // subset of the oracle's obstacle points (every mesh-only link's
+        // points are simply never generated, see above), and removing
+        // obstacle points from a propagation distance transform can only
+        // raise or preserve the distance reported at any query point, never
+        // lower it, up to the same `max_propagation_distance` cap on both
+        // sides. So `actual >= expected` is the real, checkable property; a
+        // tighter equality would only hold by coincidence.
+        for (point, expected_distance) in request
+            .distance_queries
+            .iter()
+            .zip(&expected.distance_queries)
+        {
+            let actual_distance = field.distance(point[0], point[1], point[2]);
+            assert!(
+                actual_distance >= *expected_distance - TOL,
+                "distance at {point:?} (group {}): expected >= {expected_distance} \
+                 (subset-obstacle-set property), got {actual_distance}",
+                request.group
+            );
+        }
     }
 }

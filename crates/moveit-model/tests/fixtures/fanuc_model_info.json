@@ -12,6 +12,11 @@
     "group_is_chain": {
       "manipulator": true
     },
+    "group_joint_roots": {
+      "manipulator": [
+        "joint_1"
+      ]
+    },
     "group_states": {
       "manipulator": {
         "all-zeros": {
@@ -24,6 +29,20 @@
         }
       }
     },
+    "group_updated_links": {
+      "manipulator": {
+        "updated_link_names": [
+          "link_1",
+          "link_2",
+          "link_3",
+          "link_4",
+          "link_5",
+          "link_6",
+          "tool0"
+        ],
+        "updated_link_with_geometry_names": []
+      }
+    },
     "groups": {
       "manipulator": [
         "joint_1",
@@ -33,6 +52,64 @@
         "joint_5",
         "joint_6",
         "joint_6-tool0"
+      ]
+    },
+    "joint_descendant_links": {
+      "FixedBase": [
+        "base_link",
+        "base",
+        "link_1",
+        "link_2",
+        "link_3",
+        "link_4",
+        "link_5",
+        "link_6",
+        "tool0"
+      ],
+      "base_link-base": [
+        "base"
+      ],
+      "joint_1": [
+        "link_1",
+        "link_2",
+        "link_3",
+        "link_4",
+        "link_5",
+        "link_6",
+        "tool0"
+      ],
+      "joint_2": [
+        "link_2",
+        "link_3",
+        "link_4",
+        "link_5",
+        "link_6",
+        "tool0"
+      ],
+      "joint_3": [
+        "link_3",
+        "link_4",
+        "link_5",
+        "link_6",
+        "tool0"
+      ],
+      "joint_4": [
+        "link_4",
+        "link_5",
+        "link_6",
+        "tool0"
+      ],
+      "joint_5": [
+        "link_5",
+        "link_6",
+        "tool0"
+      ],
+      "joint_6": [
+        "link_6",
+        "tool0"
+      ],
+      "joint_6-tool0": [
+        "tool0"
       ]
     },
     "joint_details": [

@@ -35,6 +35,7 @@
 #include <moveit/collision_distance_field/collision_common_distance_field.hpp>
 #include <moveit/collision_detection_fcl/collision_env_fcl.hpp>
 #include <moveit/collision_distance_field/collision_distance_field_types.hpp>
+#include <moveit/collision_distance_field/collision_env_distance_field.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/dynamics_solver/dynamics_solver.hpp>
@@ -479,6 +480,8 @@ public:
       return commonRoot(request);
     if (op == "collision_distance_field_types")
       return collisionDistanceFieldTypes(request);
+    if (op == "distance_field_cache_entry")
+      return distanceFieldCacheEntry(request);
     if (op == "dynamics")
       return dynamics(request);
     if (op == "collision_object_point_decomposition")
@@ -557,6 +560,9 @@ private:
     out["group_end_effectors"] = groupEndEffectors();
     out["group_states"] = groupStates();
     out["group_is_chain"] = groupIsChain();
+    out["group_joint_roots"] = groupJointRoots();
+    out["joint_descendant_links"] = jointDescendantLinks();
+    out["group_updated_links"] = groupUpdatedLinks();
 
     return out;
   }
@@ -669,6 +675,55 @@ private:
     json out = json::object();
     for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
       out[group->getName()] = group->isChain();
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `JointModelGroup::joint_roots`, keyed
+  /// by group name: the names of every joint in `joint_roots_`.
+  json groupJointRoots() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+    {
+      json roots = json::array();
+      for (const moveit::core::JointModel* joint : group->getJointRoots())
+        roots.push_back(joint->getName());
+      out[group->getName()] = roots;
+    }
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `RobotModel::descendant_link_indices`
+  /// (upstream `JointModel::getDescendantLinkModels`), keyed by joint name:
+  /// the names of every descendant link. Compared as a set on the Rust side
+  /// -- upstream's own vector is DFS-insertion-ordered, not index-ordered,
+  /// and nothing downstream (`updated_link_model_*`, itself a re-sorted
+  /// `std::set` union) depends on that order surviving.
+  json jointDescendantLinks() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModel* joint : model_->getJointModels())
+    {
+      json links = json::array();
+      for (const moveit::core::LinkModel* link : joint->getDescendantLinkModels())
+        links.push_back(link->getName());
+      out[joint->getName()] = links;
+    }
+    return out;
+  }
+
+  /// Ground truth for `moveit-model`'s `JointModelGroup::updated_link_names`/
+  /// `updated_link_with_geometry_names`, keyed by group name.
+  json groupUpdatedLinks() const
+  {
+    json out = json::object();
+    for (const moveit::core::JointModelGroup* group : model_->getJointModelGroups())
+    {
+      out[group->getName()] = json{
+        { "updated_link_names", group->getUpdatedLinkModelNames() },
+        { "updated_link_with_geometry_names", group->getUpdatedLinkModelsWithGeometryNames() },
+      };
+    }
     return out;
   }
 
@@ -1664,6 +1719,90 @@ private:
                                        { "distances", distances_out },
                                        { "types", types_out },
                                        { "gradients", grads_out } };
+
+    return out;
+  }
+
+  /// Ground truth for `moveit-distance-field`'s
+  /// `generate_distance_field_cache_entry` (upstream
+  /// `CollisionEnvDistanceField::generateDistanceFieldCacheEntry`, a
+  /// `protected` method). Rather than subclassing to expose it directly,
+  /// this drives it through the same public path upstream's own callers
+  /// use: `checkSelfCollision(req, res, state, acm)` internally calls
+  /// `generateCollisionCheckingStructures` ->
+  /// `generateDistanceFieldCacheEntry` and caches the result, which the
+  /// public `getLastDistanceFieldEntry()` then returns -- so this exercises
+  /// the exact call path `test_collision_distance_field.cpp` itself relies
+  /// on, not a synthetic shortcut.
+  ///
+  /// Every scalar/vector bookkeeping field of `DistanceFieldCacheEntry` is
+  /// dumped for byte-exact comparison. `distance_field_` itself is not
+  /// dumped cell-by-cell: `PropagationDistanceField`'s own propagation
+  /// correctness is independently oracle-verified elsewhere in this
+  /// workspace (the `distance_field` op), so what this op actually needs to
+  /// prove is narrower -- that `generateDistanceFieldCacheEntry` selects the
+  /// right *input* points and wires them into a field at all. `has_field`
+  /// answers "did generation run", and `distance_queries` (evaluated
+  /// against the real field via `getDistance`) answers "did the selected
+  /// points actually land in it" -- both real, if not exhaustive, checks of
+  /// the new logic surface, without re-deriving `PropagationDistanceField`
+  /// correctness a second time.
+  ///
+  /// `attached_body_names_`/`attached_body_link_state_indices_` are always
+  /// empty on the oracle side too, for the same reason `moveit-state`'s own
+  /// `frame_transform` doc gives: this workspace has no `AttachedBody`
+  /// fixture to attach, so both ports observe the same "no attached bodies"
+  /// state rather than one port faking a nonexistent case the other cannot
+  /// produce.
+  json distanceFieldCacheEntry(const json& request)
+  {
+    applyJointValues(request);
+
+    const std::string group_name = request.at("group").get<std::string>();
+    if (!model_->hasJointModelGroup(group_name))
+      throw std::runtime_error("unknown group: " + group_name);
+
+    const bool use_acm = request.value("use_acm", true);
+    collision_detection::AllowedCollisionMatrix acm = buildAcm();
+
+    collision_detection::CollisionEnvDistanceField env(model_);
+
+    collision_detection::CollisionRequest req;
+    req.group_name = group_name;
+    collision_detection::CollisionResult res;
+    if (use_acm)
+      env.checkSelfCollision(req, res, *state_, acm);
+    else
+      env.checkSelfCollision(req, res, *state_);
+
+    collision_detection::DistanceFieldCacheEntryConstPtr dfce = env.getLastDistanceFieldEntry();
+    if (!dfce)
+      throw std::runtime_error("no DistanceFieldCacheEntry produced for group " + group_name);
+
+    json out;
+    out["group_name"] = dfce->group_name_;
+    out["link_names"] = dfce->link_names_;
+    out["link_has_geometry"] = dfce->link_has_geometry_;
+    out["link_body_indices"] = dfce->link_body_indices_;
+    out["link_state_indices"] = dfce->link_state_indices_;
+    out["self_collision_enabled"] = dfce->self_collision_enabled_;
+    out["intra_group_collision_enabled"] = dfce->intra_group_collision_enabled_;
+    out["attached_body_names"] = dfce->attached_body_names_;
+    out["attached_body_link_state_indices"] = dfce->attached_body_link_state_indices_;
+    out["state_check_indices"] = dfce->state_check_indices_;
+    out["state_values"] = dfce->state_values_;
+    out["has_field"] = static_cast<bool>(dfce->distance_field_);
+
+    json distance_queries_out = json::array();
+    if (dfce->distance_field_ && request.contains("distance_queries"))
+    {
+      for (const auto& q : request.at("distance_queries"))
+      {
+        const auto pt = q.get<std::array<double, 3>>();
+        distance_queries_out.push_back(dfce->distance_field_->getDistance(pt[0], pt[1], pt[2]));
+      }
+    }
+    out["distance_queries"] = distance_queries_out;
 
     return out;
   }
