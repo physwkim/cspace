@@ -23,7 +23,7 @@ use std::fs;
 
 use serde::Deserialize;
 
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
@@ -65,7 +65,8 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
     // diagnostics being empty the way `robot_model_parity.rs` does for the
     // other three fixtures.
     let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
 }
 
 /// Row-major 4x4, matching the oracle's `toRowMajor4x4`.

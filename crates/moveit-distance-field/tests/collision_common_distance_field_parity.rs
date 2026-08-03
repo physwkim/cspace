@@ -56,7 +56,7 @@ use moveit_distance_field::{
     BodyDecomposition, PosedBodySphereDecomposition, collision_object_point_decomposition,
 };
 use moveit_geometry::{Isometry3, Shape};
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
@@ -91,7 +91,8 @@ fn build_pr2_model() -> RobotModel {
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("pr2.urdf must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("pr2.srdf must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("pr2 model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("pr2 model must build")
 }
 
 // --- collision_object_point_decomposition ---

@@ -16,7 +16,7 @@
 use std::fs;
 
 use moveit_geometry::Vector3;
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
@@ -34,13 +34,15 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
 }
 
 fn build_model_from_str(urdf_xml: &str, srdf_xml: &str) -> RobotModel {
     let urdf = urdf_rs::read_from_string(urdf_xml).expect("inline URDF must parse");
     let srdf = SrdfModel::parse_str(srdf_xml).expect("inline SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf).expect("inline model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("inline model must build")
 }
 
 /// For any group `jacobian` accepts, the linear (translation) rows'

@@ -22,7 +22,7 @@ use std::fs;
 
 use serde::Deserialize;
 
-use moveit_model::{Diagnostic, RobotModel};
+use moveit_model::{Diagnostic, MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 
 #[derive(Deserialize)]
@@ -252,8 +252,8 @@ fn build_model_with_urdf(urdf_file: &str, srdf_file: &str) -> (RobotModel, urdf_
         fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
-    let model =
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build");
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build");
     (model, urdf)
 }
 
@@ -263,6 +263,16 @@ fn build_model_with_urdf(urdf_file: &str, srdf_file: &str) -> (RobotModel, urdf_
 /// `LinkModel`'s doc comment, deviation 4), derived directly from the URDF
 /// rather than hand-transcribed, in the same per-link order
 /// [`RobotModel::link_names`] visits.
+///
+/// [`build_model_with_urdf`] passes [`MeshSearchPaths::none`] -- this test's
+/// job is model *structure* (names, frames, groups, ordering), which is
+/// orthogonal to whether a `<mesh>` element actually resolves to geometry;
+/// mesh resolution itself is covered by `moveit-model`'s own
+/// `mesh_search_paths` and `robot_model` unit tests and by
+/// `moveit-collision`'s parity tests, against real search paths. So every
+/// `<mesh>` element here is expected to report the fixed "no mesh search
+/// paths were configured" detail, regardless of whether that resource would
+/// actually resolve under `fixtures/meshes/`.
 fn expected_unsupported_link_geometry_diagnostics(
     model: &RobotModel,
     urdf: &urdf_rs::Robot,
@@ -275,14 +285,18 @@ fn expected_unsupported_link_geometry_diagnostics(
         .flat_map(|name| {
             let urdf_link = links_by_name[name.as_str()];
             urdf_link.collision.iter().filter_map(move |collision| {
-                let kind = match &collision.geometry {
-                    urdf_rs::Geometry::Mesh { .. } => Some("mesh"),
-                    urdf_rs::Geometry::Capsule { .. } => Some("capsule"),
-                    _ => None,
+                let (kind, detail) = match &collision.geometry {
+                    urdf_rs::Geometry::Mesh { .. } => (
+                        Some("mesh"),
+                        Some("no mesh search paths were configured".to_string()),
+                    ),
+                    urdf_rs::Geometry::Capsule { .. } => (Some("capsule"), None),
+                    _ => (None, None),
                 };
                 kind.map(|kind| Diagnostic::UnsupportedLinkGeometry {
                     link: name.clone(),
                     kind,
+                    detail,
                 })
             })
         })
@@ -470,6 +484,7 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             Diagnostic::UnsupportedLinkGeometry {
                 link,
                 kind: "mesh" | "capsule",
+                ..
             } => Some(link.as_str()),
             _ => None,
         })

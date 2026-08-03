@@ -22,6 +22,7 @@ use crate::joint::{JointModel, JointType, PlanarMotionModel, joint_model_from_ur
 use crate::joint_model_group::EndEffectorParent;
 use crate::joint_model_group::JointModelGroup;
 use crate::link_model::{LinkModel, LinkShape};
+use crate::mesh_search_paths::MeshSearchPaths;
 
 /// The `source_kind` every [`Error::Parse`] from this module carries.
 const URDF: &str = "URDF";
@@ -136,19 +137,33 @@ impl RobotModel {
     /// `urdf_joint->limits` pointer). This is recovered here by reading the
     /// raw XML directly, see `joint_limit_presence`.
     ///
+    /// `mesh_search_paths` resolves each `<collision>` element's
+    /// `<mesh filename="package://...">` to a file on disk (see
+    /// [`MeshSearchPaths`] for the resolution rule); [`MeshSearchPaths::none`]
+    /// reproduces this port's original mesh-collision behaviour of skipping
+    /// every `<mesh>` element with a
+    /// [`crate::Diagnostic::UnsupportedLinkGeometry`], for callers that do
+    /// not need collision geometry at all.
+    ///
     /// Upstream `RobotModel::RobotModel`/`buildModel`.
     ///
     /// # Errors
     ///
     /// [`Error::Construct`] if the URDF has no link with no parent joint (no
-    /// root), more than one such link, or a joint
-    /// [`joint_model_from_urdf`] rejects (a `Spherical` joint).
+    /// root), more than one such link, a joint [`joint_model_from_urdf`]
+    /// rejects (a `Spherical` joint), or a `<mesh>` element's `package://`
+    /// URI resolves to a file this port can no longer read (the resolver
+    /// itself already confirmed the file exists, so this is a genuine
+    /// environment fault, not a mesh this port simply cannot support --
+    /// unsupported mesh formats and unresolved `package://` URIs are
+    /// [`crate::Diagnostic::UnsupportedLinkGeometry`], not this).
     ///
     /// [`Error::Parse`] if `urdf_xml` is not well-formed XML.
     pub fn from_urdf_and_srdf(
         urdf: &urdf_rs::Robot,
         urdf_xml: &str,
         srdf: &SrdfModel,
+        mesh_search_paths: &MeshSearchPaths,
     ) -> Result<Self> {
         let limit_presence = joint_limit_presence(urdf_xml)?;
 
@@ -206,6 +221,7 @@ impl RobotModel {
             children,
             links_by_name,
             limit_presence,
+            mesh_search_paths,
             joints: Vec::new(),
             joint_index_by_name: HashMap::new(),
             joint_names: Vec::new(),
@@ -821,22 +837,32 @@ fn isometry_from_urdf_pose(pose: &urdf_rs::Pose) -> Isometry3 {
 
 /// [`construct_shape`]'s result: either the [`Shape`] upstream's
 /// `constructShape` would have built, or the kind of geometry it named that
-/// this port cannot build one for.
+/// this port cannot build one for, and why -- see
+/// [`crate::Diagnostic::UnsupportedLinkGeometry`] for what `detail` means
+/// per `kind`.
 enum ShapeOrUnsupported {
     Shape(Shape),
-    Unsupported(&'static str),
+    Unsupported {
+        kind: &'static str,
+        detail: Option<String>,
+    },
 }
 
 /// Upstream `RobotModel::constructShape`. See [`crate::link_model::LinkModel`]'s
-/// doc comment, deviation 4, for why `<mesh>` and `<capsule>` (a urdf-rs
-/// extension upstream's own URDF parser does not recognise) are unsupported
-/// rather than built.
+/// doc comment, deviation 4, for why `<capsule>` (a urdf-rs extension
+/// upstream's own URDF parser does not recognise) is always unsupported, and
+/// [`construct_mesh_shape`] for the several distinct reasons a `<mesh>`
+/// element can be.
 ///
 /// # Errors
 ///
 /// [`Error::Construct`] if a `<box>`/`<cylinder>`/`<sphere>` dimension is
-/// negative.
-fn construct_shape(geometry: &urdf_rs::Geometry) -> Result<ShapeOrUnsupported> {
+/// negative, or a `<mesh>` resolves to a file this port can no longer read
+/// (see [`construct_mesh_shape`]).
+fn construct_shape(
+    geometry: &urdf_rs::Geometry,
+    mesh_search_paths: &MeshSearchPaths,
+) -> Result<ShapeOrUnsupported> {
     Ok(match geometry {
         urdf_rs::Geometry::Sphere { radius } => {
             ShapeOrUnsupported::Shape(Shape::Sphere(Sphere::new(*radius)?))
@@ -848,8 +874,71 @@ fn construct_shape(geometry: &urdf_rs::Geometry) -> Result<ShapeOrUnsupported> {
         urdf_rs::Geometry::Cylinder { radius, length } => {
             ShapeOrUnsupported::Shape(Shape::Cylinder(Cylinder::new(*radius, *length)?))
         }
-        urdf_rs::Geometry::Mesh { .. } => ShapeOrUnsupported::Unsupported("mesh"),
-        urdf_rs::Geometry::Capsule { .. } => ShapeOrUnsupported::Unsupported("capsule"),
+        urdf_rs::Geometry::Mesh { filename, scale } => {
+            construct_mesh_shape(filename, *scale, mesh_search_paths)?
+        }
+        urdf_rs::Geometry::Capsule { .. } => ShapeOrUnsupported::Unsupported {
+            kind: "capsule",
+            detail: None,
+        },
+    })
+}
+
+/// The `<mesh>` case of [`construct_shape`], split out because it has
+/// several distinct failure modes upstream's single `createMeshFromResource`
+/// call does not distinguish (it either returns a `Mesh*` or `nullptr`):
+/// unlike upstream, which resolves any Assimp-supported format through the
+/// real ROS package index, this port only loads STL
+/// ([`moveit_geometry::stl`]) and only resolves `package://` URIs against
+/// the given `mesh_search_paths` ([`MeshSearchPaths`]) rather than a live
+/// ament index. Each failure is reported as a distinct
+/// [`crate::Diagnostic::UnsupportedLinkGeometry`] `detail` rather than
+/// collapsed into one "mesh" reason, so a residual sweep disagreement names
+/// its cause instead of just "mesh".
+fn construct_mesh_shape(
+    filename: &str,
+    scale: Option<urdf_rs::Vec3>,
+    mesh_search_paths: &MeshSearchPaths,
+) -> Result<ShapeOrUnsupported> {
+    let unsupported = |detail: String| ShapeOrUnsupported::Unsupported {
+        kind: "mesh",
+        detail: Some(detail),
+    };
+
+    let Some(path) = mesh_search_paths.resolve(filename) else {
+        let detail = if mesh_search_paths.is_empty() {
+            "no mesh search paths were configured".to_string()
+        } else {
+            format!("{filename:?} did not resolve against any configured mesh search path")
+        };
+        return Ok(unsupported(detail));
+    };
+
+    let is_stl = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("stl"));
+    if !is_stl {
+        return Ok(unsupported(format!(
+            "{filename:?} resolved to {}, which this port cannot load (only STL is supported)",
+            path.display()
+        )));
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| {
+        Error::construct(format!(
+            "mesh {filename:?} resolved to {}, but it could not be read: {e}",
+            path.display()
+        ))
+    })?;
+
+    let scale = scale.map_or(Vector3::new(1.0, 1.0, 1.0), |s| {
+        Vector3::new(s.0[0], s.0[1], s.0[2])
+    });
+
+    Ok(match moveit_geometry::mesh_from_bytes(&bytes, scale) {
+        Ok(mesh) => ShapeOrUnsupported::Shape(Shape::Mesh(mesh)),
+        Err(e) => unsupported(format!("failed to parse {} as STL: {e}", path.display())),
     })
 }
 
@@ -890,6 +979,7 @@ struct Building<'a> {
     children: HashMap<&'a str, Vec<&'a urdf_rs::Joint>>,
     links_by_name: HashMap<&'a str, &'a urdf_rs::Link>,
     limit_presence: HashMap<String, bool>,
+    mesh_search_paths: &'a MeshSearchPaths,
     joints: Vec<JointNode>,
     joint_index_by_name: HashMap<String, usize>,
     joint_names: Vec<String>,
@@ -979,20 +1069,22 @@ impl<'a> Building<'a> {
     ///
     /// [`Error::Construct`] if a `<collision>` shape's dimensions are
     /// negative (upstream constructs the shape unconditionally; this port's
-    /// [`Shape`] constructors validate).
+    /// [`Shape`] constructors validate), or see [`construct_mesh_shape`] for
+    /// a `<mesh>` element.
     fn apply_link_geometry(&mut self, link_index: usize, urdf_link: &urdf_rs::Link) -> Result<()> {
         let mut shapes = Vec::new();
         for collision in &urdf_link.collision {
             let origin_transform = isometry_from_urdf_pose(&collision.origin);
-            match construct_shape(&collision.geometry)? {
+            match construct_shape(&collision.geometry, self.mesh_search_paths)? {
                 ShapeOrUnsupported::Shape(shape) => shapes.push(LinkShape {
                     shape,
                     origin_transform,
                 }),
-                ShapeOrUnsupported::Unsupported(kind) => {
+                ShapeOrUnsupported::Unsupported { kind, detail } => {
                     self.diagnostics.push(Diagnostic::UnsupportedLinkGeometry {
                         link: urdf_link.name.clone(),
                         kind,
+                        detail,
                     });
                 }
             }
@@ -1652,9 +1744,17 @@ mod tests {
     </robot>"#;
 
     fn build(urdf_xml: &str, srdf_xml: &str) -> Result<RobotModel> {
+        build_with_mesh_paths(urdf_xml, srdf_xml, &MeshSearchPaths::none())
+    }
+
+    fn build_with_mesh_paths(
+        urdf_xml: &str,
+        srdf_xml: &str,
+        mesh_search_paths: &MeshSearchPaths,
+    ) -> Result<RobotModel> {
         let urdf = urdf_rs::read_from_string(urdf_xml).expect("test URDF must parse");
         let srdf = SrdfModel::parse_str(srdf_xml).expect("test SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf)
+        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, mesh_search_paths)
     }
 
     fn revolute_joint(name: &str, parent: &str, child: &str, mimic: &str) -> String {
@@ -2038,7 +2138,7 @@ mod tests {
     }
 
     #[test]
-    fn mesh_collision_is_skipped_with_a_diagnostic_and_leaves_no_shape() {
+    fn mesh_collision_with_no_search_paths_is_skipped_with_a_diagnostic() {
         let urdf = link_with_geometry_urdf(
             r#"<collision><geometry><mesh filename="package://x/foo.stl"/></geometry></collision>"#,
         );
@@ -2049,6 +2149,7 @@ mod tests {
             [Diagnostic::UnsupportedLinkGeometry {
                 link: "base".to_string(),
                 kind: "mesh",
+                detail: Some("no mesh search paths were configured".to_string()),
             }]
         );
         assert!(model.link_model("base").unwrap().shapes().is_empty());
@@ -2066,8 +2167,100 @@ mod tests {
             [Diagnostic::UnsupportedLinkGeometry {
                 link: "base".to_string(),
                 kind: "capsule",
+                detail: None,
             }]
         );
+    }
+
+    #[test]
+    fn mesh_collision_whose_package_is_not_in_any_search_path_is_skipped_with_a_diagnostic() {
+        let dir = mesh_test_dir();
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><mesh filename="package://not_a_real_package/foo.stl"/></geometry></collision>"#,
+        );
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
+        let model =
+            build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
+
+        assert_eq!(
+            model.diagnostics(),
+            [Diagnostic::UnsupportedLinkGeometry {
+                link: "base".to_string(),
+                kind: "mesh",
+                detail: Some(
+                    "\"package://not_a_real_package/foo.stl\" did not resolve against any \
+                     configured mesh search path"
+                        .to_string()
+                ),
+            }]
+        );
+    }
+
+    #[test]
+    fn mesh_collision_resolving_to_a_non_stl_file_is_skipped_with_a_diagnostic() {
+        let dir = mesh_test_dir();
+        std::fs::write(dir.join("link0.dae"), b"<collada/>").unwrap();
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><mesh filename="package://panda_description/link0.dae"/></geometry></collision>"#,
+        );
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
+        let model =
+            build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
+
+        let diagnostics = model.diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let Diagnostic::UnsupportedLinkGeometry { kind, detail, .. } = &diagnostics[0] else {
+            panic!("expected UnsupportedLinkGeometry, got {:?}", diagnostics[0]);
+        };
+        assert_eq!(*kind, "mesh");
+        assert!(
+            detail
+                .as_deref()
+                .is_some_and(|d| d.contains("only STL is supported")),
+            "detail was {detail:?}"
+        );
+    }
+
+    #[test]
+    fn mesh_collision_with_malformed_stl_bytes_is_skipped_with_a_diagnostic() {
+        let dir = mesh_test_dir();
+        std::fs::write(dir.join("broken.stl"), b"not an stl file").unwrap();
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><mesh filename="package://panda_description/broken.stl"/></geometry></collision>"#,
+        );
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
+        let model =
+            build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
+
+        let diagnostics = model.diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let Diagnostic::UnsupportedLinkGeometry { kind, detail, .. } = &diagnostics[0] else {
+            panic!("expected UnsupportedLinkGeometry, got {:?}", diagnostics[0]);
+        };
+        assert_eq!(*kind, "mesh");
+        assert!(
+            detail
+                .as_deref()
+                .is_some_and(|d| d.contains("failed to parse")),
+            "detail was {detail:?}"
+        );
+    }
+
+    #[test]
+    fn mesh_collision_resolving_to_a_valid_stl_file_builds_a_mesh_shape() {
+        let dir = mesh_test_dir();
+        std::fs::write(dir.join("triangle.stl"), synthetic_binary_stl()).unwrap();
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><mesh filename="package://panda_description/triangle.stl"/></geometry></collision>"#,
+        );
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
+        let model =
+            build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths).expect("builds");
+
+        assert!(model.diagnostics().is_empty());
+        let shapes = model.link_model("base").unwrap().shapes();
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(shapes[0].shape, Shape::Mesh(_)));
     }
 
     /// A link with both a valid and an unsupported `<collision>` element
@@ -2086,6 +2279,7 @@ mod tests {
             [Diagnostic::UnsupportedLinkGeometry {
                 link: "base".to_string(),
                 kind: "mesh",
+                detail: Some("no mesh search paths were configured".to_string()),
             }]
         );
         assert_eq!(
@@ -2095,6 +2289,40 @@ mod tests {
                 origin_transform: Isometry3::identity(),
             }]
         );
+    }
+
+    /// A fresh, unique scratch directory per test; nothing removes it
+    /// afterward (these are a few bytes each and `/tmp` is reclaimed by the
+    /// OS), matching [`crate::mesh_search_paths`]'s own tests.
+    fn mesh_test_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "moveit-model-robot-model-mesh-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// One triangle, binary STL: 80-byte header, `u32` triangle count of 1,
+    /// then one 50-byte record (12-byte normal, three `f32` vertex triples,
+    /// 2-byte attribute count) -- see `moveit_geometry::stl`'s module doc
+    /// for the format.
+    fn synthetic_binary_stl() -> Vec<u8> {
+        let mut bytes = vec![0u8; 84];
+        bytes[80..84].copy_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 12]); // normal, unread
+        let vertices: [[f32; 3]; 3] = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        for vertex in vertices {
+            for component in vertex {
+                bytes.extend_from_slice(&component.to_le_bytes());
+            }
+        }
+        bytes.extend_from_slice(&[0u8; 2]); // attribute byte count
+        bytes
     }
 
     #[test]

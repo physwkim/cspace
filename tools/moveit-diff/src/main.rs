@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale, ParryCollisionEnv, World};
 use moveit_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
@@ -349,6 +349,37 @@ fn main() {
     }
 }
 
+/// The `moveit_resources_*_description` packages every committed fixture
+/// robot's `<mesh>` URIs name, mapped to their real (gitignored) vendored
+/// checkouts under `third_party/moveit_resources/` -- see that directory's
+/// own `README.md` for provenance. Unlike `collision_parity.rs`'s
+/// `fixture_mesh_search_paths` (which points at the small, committed subset
+/// under `fixtures/meshes/` so `cargo test` needs no submodule), this tool
+/// already requires `third_party/` for `tools/ci/run-oracle-sweep.sh`'s own
+/// fixture-provenance check, and is never run in CI (see that script's own
+/// module doc), so pointing directly at the full vendored tree costs nothing
+/// extra here and additionally covers pr2, which `fixtures/meshes/` does not.
+fn mesh_search_paths() -> MeshSearchPaths {
+    let resources_root = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../third_party/moveit_resources"
+    );
+    MeshSearchPaths::new([
+        (
+            "moveit_resources_panda_description",
+            format!("{resources_root}/panda_description"),
+        ),
+        (
+            "moveit_resources_fanuc_description",
+            format!("{resources_root}/fanuc_description"),
+        ),
+        (
+            "moveit_resources_pr2_description",
+            format!("{resources_root}/pr2_description"),
+        ),
+    ])
+}
+
 /// Parse the same URDF/SRDF pair the oracle was launched with, so both sides
 /// answer questions about the same robot.
 fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
@@ -358,7 +389,7 @@ fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
         urdf_rs::read_file(&cfg.urdf).map_err(|e| format!("parsing URDF {}: {e}", cfg.urdf))?;
     let srdf =
         SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
         .map_err(|e| format!("building RobotModel: {e}"))
 }
 

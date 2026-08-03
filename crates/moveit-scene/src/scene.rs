@@ -787,6 +787,7 @@ mod tests {
 
     use moveit_collision::{AllowedCollisionType, LinkPaddingScale, ParryCollisionEnv};
     use moveit_geometry::Cuboid;
+    use moveit_model::MeshSearchPaths;
     use moveit_srdf::SrdfModel;
 
     use super::*;
@@ -811,7 +812,7 @@ mod tests {
     fn build_model() -> RobotModel {
         let urdf = urdf_rs::read_from_string(URDF_XML).expect("test URDF must parse");
         let srdf = SrdfModel::parse_str(SRDF_XML).expect("test SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, URDF_XML, &srdf)
+        RobotModel::from_urdf_and_srdf(&urdf, URDF_XML, &srdf, &MeshSearchPaths::none())
             .expect("test fixture model must build")
     }
 
@@ -1118,7 +1119,7 @@ mod tests {
         );
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
         let srdf = SrdfModel::parse_str(SRDF_XML).expect("test SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
             .expect("test fixture model must build")
     }
 

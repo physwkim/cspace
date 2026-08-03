@@ -16,7 +16,7 @@ use std::fs;
 
 use moveit_error::Error;
 use moveit_geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
@@ -39,7 +39,8 @@ fn panda_model() -> RobotModel {
     let urdf_xml = fs::read_to_string(&urdf_path).expect("read panda.urdf");
     let urdf = urdf_rs::read_file(&urdf_path).expect("parse panda.urdf");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("parse panda.srdf");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("build panda model")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("build panda model")
 }
 
 /// PR2 has continuous joints (e.g. `fl_caster_rotation_joint`); panda and
@@ -51,7 +52,8 @@ fn pr2_model() -> RobotModel {
     let urdf_xml = fs::read_to_string(&urdf_path).expect("read pr2.urdf");
     let urdf = urdf_rs::read_file(&urdf_path).expect("parse pr2.urdf");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("parse pr2.srdf");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("build pr2 model")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("build pr2 model")
 }
 
 fn sphere_region(radius: f64, pose: Isometry3) -> (Shape, Isometry3) {

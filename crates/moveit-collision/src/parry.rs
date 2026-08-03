@@ -303,19 +303,22 @@ fn convert_shape(shape: &Shape) -> Option<(SharedShape, Isometry3)> {
 ///
 /// # Panics
 ///
-/// Never, in practice: [`LinkModel::shapes`] can never contain
-/// [`Shape::Mesh`] (`LinkModel`'s own doc comment: mesh collision geometry is
-/// skipped entirely by the URDF loader, never stored), and every other shape
-/// variant's dimensions are already validated non-negative at construction —
-/// scaling by a validated-positive [`LinkPaddingScale::link_scale`] and
-/// adding a validated-non-negative [`LinkPaddingScale::link_padding`] can
-/// never make them negative. [`Shape::scale_and_padd`] can only fail for
-/// those two reasons, both unreachable here.
+/// Never, in practice: every non-mesh shape variant's dimensions are already
+/// validated non-negative at construction, so scaling by a
+/// validated-positive [`LinkPaddingScale::link_scale`] and adding a
+/// validated-non-negative [`LinkPaddingScale::link_padding`] can never make
+/// them negative. [`Shape::Mesh`] can appear in [`LinkModel::shapes`] — the
+/// URDF loader does resolve `<mesh>` collision geometry, through
+/// `moveit_model::MeshSearchPaths` — but `moveit_geometry::stl::mesh_from_bytes`
+/// calls `compute_vertex_normals` unconditionally at load time, so
+/// [`Shape::scale_and_padd`]'s one documented mesh failure mode
+/// (`vertex_normals: None`) is unreachable for any mesh that reached
+/// `LinkModel::shapes` through that loader.
 fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
     let mut shape = shape.clone();
     shape.scale_and_padd(scale, padding).expect(
-        "robot link collision shapes are never Shape::Mesh and are already non-negative, \
-         so scale_and_padd cannot fail here",
+        "every robot link collision shape is either non-negative by construction or a mesh \
+         with vertex normals already computed at load time, so scale_and_padd cannot fail here",
     );
     shape
 }
@@ -861,7 +864,7 @@ mod tests {
 
     use approx::assert_relative_eq;
     use moveit_geometry::{Cuboid, OcTree, Plane, Shape, Sphere};
-    use moveit_model::RobotModel;
+    use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
     use moveit_state::RobotState;
 
@@ -981,7 +984,7 @@ mod tests {
             format!(r#"<robot name="test"><link name="base"/>{links_and_joints}</robot>"#);
         let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
         let srdf = SrdfModel::parse_str(FIXED_BASE_SRDF).expect("test SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf)
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
             .expect("test fixture model must build")
     }
 
