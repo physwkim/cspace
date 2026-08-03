@@ -10,7 +10,6 @@
 
 use moveit_state::Posed;
 
-use crate::visibility::VisibilityDecision;
 use crate::{
     ConstraintEvaluationResult, JointConstraint, OrientationConstraint, PositionConstraint,
     VisibilityConstraint,
@@ -41,36 +40,9 @@ pub enum Constraint {
     Visibility(VisibilityConstraint),
 }
 
-/// [`KinematicConstraintSet::decide`] could not fully evaluate the set: the
-/// constraint at `index` is a [`VisibilityConstraint`] whose criteria are not
-/// decidable by geometry alone (see
-/// [`VisibilityConstraint::decide_geometry`] and the crate's module docs).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error(
-    "constraint at index {index} (a VisibilityConstraint) needs a cone-vs-robot \
-     collision check this port cannot yet perform"
-)]
-pub struct UndecidedConstraint {
-    /// Index into [`KinematicConstraintSet::constraints`] of the constraint
-    /// that could not be decided.
-    pub index: usize,
-}
-
 /// A collection of constraints, satisfied exactly when every member is.
 ///
 /// Upstream `kinematic_constraints::KinematicConstraintSet`.
-///
-/// # Deviation from upstream: `decide()` can refuse to answer
-///
-/// Upstream's `decide()` always returns a `ConstraintEvaluationResult`. This
-/// port's [`KinematicConstraintSet::decide`] returns
-/// `Result<_, UndecidedConstraint>` instead, because a contained
-/// [`VisibilityConstraint`] can genuinely not be decided yet (no collision
-/// backend — see the crate's module docs). Reporting such a set as
-/// "satisfied" would be worse than refusing to answer: it is exactly the
-/// silently-wrong-satisfied outcome
-/// [`crate::visibility::VisibilityDecision::NeedsConeCollisionCheck`] exists
-/// to prevent one layer up.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct KinematicConstraintSet {
     constraints: Vec<Constraint>,
@@ -106,48 +78,29 @@ impl KinematicConstraintSet {
 
     /// `decide(state, results, verbose)`: every member's individual result,
     /// in [`KinematicConstraintSet::constraints`] order.
-    ///
-    /// # Errors
-    ///
-    /// [`UndecidedConstraint`] naming the first contained
-    /// [`VisibilityConstraint`] (by index) that needed a cone-vs-robot
-    /// collision check this port cannot yet perform.
-    pub fn decide_each(
-        &self,
-        state: &Posed,
-    ) -> Result<Vec<ConstraintEvaluationResult>, UndecidedConstraint> {
+    pub fn decide_each(&self, state: &Posed) -> Vec<ConstraintEvaluationResult> {
         self.constraints
             .iter()
-            .enumerate()
-            .map(|(index, constraint)| match constraint {
-                Constraint::Joint(c) => Ok(c.decide(state)),
-                Constraint::Position(c) => Ok(c.decide(state)),
-                Constraint::Orientation(c) => Ok(c.decide(state)),
-                Constraint::Visibility(c) => match c.decide_geometry(state) {
-                    VisibilityDecision::Decided(r) => Ok(r),
-                    VisibilityDecision::NeedsConeCollisionCheck => {
-                        Err(UndecidedConstraint { index })
-                    }
-                },
+            .map(|constraint| match constraint {
+                Constraint::Joint(c) => c.decide(state),
+                Constraint::Position(c) => c.decide(state),
+                Constraint::Orientation(c) => c.decide(state),
+                Constraint::Visibility(c) => c.decide(state),
             })
             .collect()
     }
 
     /// `decide(state, verbose)`: satisfied iff every member is, with a
     /// distance that is the sum of every member's.
-    ///
-    /// # Errors
-    ///
-    /// See [`KinematicConstraintSet::decide_each`].
-    pub fn decide(&self, state: &Posed) -> Result<ConstraintEvaluationResult, UndecidedConstraint> {
-        let results = self.decide_each(state)?;
-        Ok(results
-            .into_iter()
-            .fold(ConstraintEvaluationResult::new(true, 0.0), |acc, r| {
+    pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
+        self.decide_each(state).into_iter().fold(
+            ConstraintEvaluationResult::new(true, 0.0),
+            |acc, r| {
                 ConstraintEvaluationResult::new(
                     acc.satisfied && r.satisfied,
                     acc.distance + r.distance,
                 )
-            }))
+            },
+        )
     }
 }

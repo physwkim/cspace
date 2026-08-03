@@ -23,9 +23,8 @@
 //! `moveit-ros`/`moveit-planning` convenience wrappers around the types this
 //! crate defines, not part of the constraint model itself.
 //!
-//! `equal()`, `print()`, `clear()`, `getMarkers()` and
-//! `VisibilityConstraint::getVisibilityCone`'s mesh output are also not
-//! ported: none of them are exercised by `decide()`, which is this phase's
+//! `equal()`, `print()`, `clear()` and `getMarkers()` are also not ported:
+//! none of them are exercised by `decide()`, which is this phase's
 //! completion condition (`PORTING-PLAN.md` §5 Phase 5). See the report this
 //! crate's introducing commits carry for what remains `UNFIXED`.
 //!
@@ -44,19 +43,15 @@
 //! mapping decision for each type and names the conversions a future
 //! `moveit-ros::TryFrom<moveit_msgs::...>` will have to report as lossy.
 //!
-//! # `VisibilityConstraint` is partial
+//! # `VisibilityConstraint` is ported in full
 //!
 //! Upstream's `VisibilityConstraint::decide()` builds a mesh cone between
-//! sensor and target and collision-checks it against the robot via
-//! `collision_detection::CollisionEnvFCL`. This port has no collision
-//! backend yet (`moveit-collision::CollisionEnv` has no implementor — see
-//! that crate's `env.rs`), so the cone-vs-robot check cannot be performed.
-//! [`VisibilityConstraint::decide_geometry`] implements every check upstream
-//! performs *before* that point (view-angle, range-angle) faithfully, and
-//! returns [`visibility::VisibilityDecision::NeedsConeCollisionCheck`]
-//! rather than guessing `satisfied` when upstream would have gone on to
-//! check the cone. [`KinematicConstraintSet::decide`] surfaces that as
-//! `Err` rather than silently reporting the set satisfied.
+//! sensor and target and collision-checks it against the robot via a local,
+//! throwaway `collision_detection::CollisionEnvFCL`. This port does the
+//! same over `moveit_collision::ParryCollisionEnv` — see
+//! [`VisibilityConstraint::decide`]'s doc for why that needs no
+//! `PlanningScene`/broader collision world, only `moveit-collision`
+//! (already a dependency of this crate, no `moveit-scene` needed).
 
 mod joint;
 mod orientation;
@@ -67,10 +62,9 @@ mod visibility;
 pub use joint::JointConstraint;
 pub use orientation::{OrientationConstraint, OrientationTolerance};
 pub use position::{ConstraintRegion, PositionConstraint};
-pub use set::{Constraint, KinematicConstraintSet, UndecidedConstraint};
+pub use set::{Constraint, KinematicConstraintSet};
 pub use visibility::{
     SensorSpec, SensorViewDirection, TargetSpec, VisibilityConstraint, VisibilityCriteria,
-    VisibilityDecision,
 };
 
 /// The result of evaluating one constraint against a state. Upstream

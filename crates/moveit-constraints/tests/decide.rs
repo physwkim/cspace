@@ -21,9 +21,9 @@ use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 
 use moveit_constraints::{
-    Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
-    OrientationTolerance, PositionConstraint, SensorSpec, SensorViewDirection, TargetSpec,
-    VisibilityConstraint, VisibilityCriteria, VisibilityDecision,
+    Constraint, ConstraintEvaluationResult, JointConstraint, KinematicConstraintSet,
+    OrientationConstraint, OrientationTolerance, PositionConstraint, SensorSpec,
+    SensorViewDirection, TargetSpec, VisibilityConstraint, VisibilityCriteria,
 };
 
 fn fixture_path(file_name: &str) -> String {
@@ -575,12 +575,7 @@ mod visibility {
         )
         .unwrap();
         assert!(!c.enabled());
-        assert_eq!(
-            c.decide_geometry(&posed),
-            VisibilityDecision::Decided(moveit_constraints::ConstraintEvaluationResult::new(
-                true, 0.0
-            ))
-        );
+        assert_eq!(c.decide(&posed), ConstraintEvaluationResult::new(true, 0.0));
     }
 
     #[test]
@@ -615,12 +610,7 @@ mod visibility {
         )
         .unwrap();
         assert!(c.enabled());
-        match c.decide_geometry(&posed) {
-            VisibilityDecision::Decided(r) => assert!(!r.satisfied),
-            VisibilityDecision::NeedsConeCollisionCheck => {
-                panic!("view-angle violation must not require a collision check")
-            }
-        }
+        assert!(!c.decide(&posed).satisfied);
     }
 
     #[test]
@@ -653,20 +643,32 @@ mod visibility {
             1.0,
         )
         .unwrap();
-        match c.decide_geometry(&posed) {
-            VisibilityDecision::Decided(r) => assert!(!r.satisfied),
-            VisibilityDecision::NeedsConeCollisionCheck => {
-                panic!("range-angle violation must not require a collision check")
-            }
-        }
+        assert!(!c.decide(&posed).satisfied);
     }
 
+    // `panda.urdf`'s `<collision>` geometry is 100% `<mesh>` (STL) -- and
+    // `moveit-model`'s URDF loader skips mesh collision geometry entirely
+    // (see `moveit-collision`'s `parry.rs` module doc, "world objects are
+    // never padded or scaled" section and `scaled_padded_shape`'s doc), so a
+    // panda `RobotModel` has *zero* parry-representable collision geometry:
+    // every one of its links produces no `PosedBody` at all, and the cone
+    // check can never report a hit against it regardless of geometry. Both
+    // cone tests below use `pr2_model()` instead, whose `base_bellow_link`
+    // has a real primitive (`<box size="0.05 0.37 0.3"/>`) collision shape.
+
     #[test]
-    fn target_radius_alone_needs_a_cone_collision_check() {
-        let model = panda_model();
+    fn cone_far_from_the_robot_is_satisfied() {
+        // Sensor and target both 10m away from base_bellow_link along +X --
+        // far outside any pr2 link's reach, so the cone can't intersect one.
+        let model = pr2_model();
         let mut state = RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
+        let link_pos = posed
+            .global_link_transform("base_bellow_link")
+            .unwrap()
+            .translation
+            .vector;
 
         let transforms = tf(&model);
         let c = VisibilityConstraint::new(
@@ -674,25 +676,73 @@ mod visibility {
             &transforms,
             SensorSpec {
                 frame_id: model.model_frame(),
-                pose: Isometry3::translation(0.0, 0.0, 1.0),
+                pose: Isometry3::translation(link_pos.x + 10.0, link_pos.y, link_pos.z + 1.0),
                 view_direction: SensorViewDirection::SensorZ,
             },
             TargetSpec {
                 frame_id: model.model_frame(),
-                pose: Isometry3::identity(),
+                pose: Isometry3::translation(link_pos.x + 10.0, link_pos.y, link_pos.z),
             },
             8,
             VisibilityCriteria {
-                target_radius: Some(0.02),
+                target_radius: Some(0.1),
                 ..Default::default()
             },
             1.0,
         )
         .unwrap();
-        assert_eq!(
-            c.decide_geometry(&posed),
-            VisibilityDecision::NeedsConeCollisionCheck
+        assert!(c.enabled());
+        assert_eq!(c.decide(&posed), ConstraintEvaluationResult::new(true, 0.0));
+    }
+
+    #[test]
+    fn cone_through_a_robot_link_is_violated() {
+        // Sensor 1m above base_bellow_link's own origin, target *at* that
+        // origin: the cone's base is a filled disc (its two "base triangle"
+        // fans reach from the target-center vertex out to the rim), so
+        // putting the target exactly on the link plants that filled cap
+        // disc through its 0.05x0.37x0.3 box -- a cap disc built somewhere
+        // else along the sensor-target axis would only place the cone's
+        // hollow lateral shell near the box, which can pass clean through a
+        // box small enough to fit inside without ever touching that shell.
+        let model = pr2_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let link_pos = posed
+            .global_link_transform("base_bellow_link")
+            .unwrap()
+            .translation
+            .vector;
+
+        let transforms = tf(&model);
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::translation(link_pos.x, link_pos.y, link_pos.z + 1.0),
+                view_direction: SensorViewDirection::SensorZ,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::translation(link_pos.x, link_pos.y, link_pos.z),
+            },
+            8,
+            VisibilityCriteria {
+                target_radius: Some(0.5),
+                ..Default::default()
+            },
+            1.0,
+        )
+        .unwrap();
+        assert!(c.enabled());
+        let r = c.decide(&posed);
+        assert!(
+            !r.satisfied,
+            "expected the cone's base cap to hit base_bellow_link"
         );
+        assert!(r.distance > 0.0);
     }
 
     #[test]
@@ -762,7 +812,7 @@ mod set {
         let mut state = RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
-        let r = set.decide(&posed).unwrap();
+        let r = set.decide(&posed);
         assert!(r.satisfied);
         assert_eq!(r.distance, 0.0);
     }
@@ -780,45 +830,10 @@ mod set {
 
         let mut set = KinematicConstraintSet::new();
         set.push(Constraint::Joint(ok));
-        assert!(set.decide(&posed).unwrap().satisfied);
+        assert!(set.decide(&posed).satisfied);
 
         set.push(Constraint::Joint(bad));
         assert_eq!(set.len(), 2);
-        assert!(!set.decide(&posed).unwrap().satisfied);
-    }
-
-    #[test]
-    fn an_undecidable_visibility_member_is_reported_not_swallowed() {
-        let model = panda_model();
-        let mut state = RobotState::new(&model);
-        state.set_to_default_values();
-        let posed = state.update();
-
-        let transforms = Transforms::new(model.model_frame()).unwrap();
-        let vis = VisibilityConstraint::new(
-            &model,
-            &transforms,
-            SensorSpec {
-                frame_id: model.model_frame(),
-                pose: Isometry3::translation(0.0, 0.0, 1.0),
-                view_direction: SensorViewDirection::SensorZ,
-            },
-            TargetSpec {
-                frame_id: model.model_frame(),
-                pose: Isometry3::identity(),
-            },
-            8,
-            VisibilityCriteria {
-                target_radius: Some(0.02),
-                ..Default::default()
-            },
-            1.0,
-        )
-        .unwrap();
-
-        let mut set = KinematicConstraintSet::new();
-        set.push(Constraint::Visibility(vis));
-        let err = set.decide(&posed).unwrap_err();
-        assert_eq!(err.index, 0);
+        assert!(!set.decide(&posed).satisfied);
     }
 }

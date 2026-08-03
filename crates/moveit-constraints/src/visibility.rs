@@ -6,13 +6,20 @@
 //   moveit_core/kinematic_constraints/include/moveit/kinematic_constraints/kinematic_constraint.hpp
 //   (class VisibilityConstraint)
 //   moveit_core/kinematic_constraints/src/kinematic_constraint.cpp
-//   (VisibilityConstraint::configure, VisibilityConstraint::decide,
-//    up to and not including the cone-vs-robot collision check)
+//   (VisibilityConstraint::configure, VisibilityConstraint::getVisibilityCone,
+//    VisibilityConstraint::decide, VisibilityConstraint::decideContact)
 
+use std::sync::Arc;
+
+use moveit_collision::{
+    AllowedCollisionMatrix, BodyType, CollisionEnv, CollisionRequest, Contact, DecideContactFn,
+    LinkPaddingScale, ParryCollisionEnv, World,
+};
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Transforms};
+use moveit_geometry::{Isometry3, Mesh, Shape, Transforms, Vector3};
 use moveit_model::RobotModel;
 use moveit_state::Posed;
+use nalgebra::Point3;
 
 use crate::ConstraintEvaluationResult;
 
@@ -104,31 +111,17 @@ impl FramedPose {
     }
 }
 
-/// What [`VisibilityConstraint::decide_geometry`] could determine without
-/// performing the cone-vs-robot collision check upstream's `decide()`
-/// finishes with. See the crate's module docs for why that check is not yet
-/// implemented.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum VisibilityDecision {
-    /// The view-angle or range-angle checks alone already decided the
-    /// outcome (either violated, or no radius was configured so upstream's
-    /// `decide()` never reaches the cone check either).
-    Decided(ConstraintEvaluationResult),
-    /// Upstream would build the visibility cone and collision-check it
-    /// against the robot here. This port has no collision backend to do
-    /// that with yet (see the crate's module docs) — callers must not treat
-    /// this as "satisfied".
-    NeedsConeCollisionCheck,
-}
-
 /// Constrains a target disc to remain visible (unimpeded by the robot's own
 /// links) from a sensor, optionally also constraining the sensor's and
 /// target's relative viewing/range angles.
 ///
-/// Upstream `kinematic_constraints::VisibilityConstraint`. See the crate's
-/// module docs for what is and is not ported: the view-angle and
-/// range-angle checks are complete; the cone-vs-robot collision check is
-/// not (no collision backend exists yet in this port).
+/// Upstream `kinematic_constraints::VisibilityConstraint`, ported in full:
+/// the view-angle and range-angle checks, and the cone-vs-robot collision
+/// check ([`VisibilityConstraint::decide`] builds the visibility cone as a
+/// [`Mesh`] and checks it against the robot via
+/// `moveit_collision::ParryCollisionEnv`, mirroring upstream's local,
+/// scoped `CollisionEnvFCL` — see that method's doc for why no
+/// `PlanningScene`/broader collision world is needed here).
 ///
 /// # Deviation from upstream: `Option<f64>` for the two angle limits, and
 /// for the target radius
@@ -266,9 +259,12 @@ impl VisibilityConstraint {
     }
 
     /// The view-angle and range-angle checks from upstream's `decide()`,
-    /// stopping short of the cone-vs-robot collision check — see this
-    /// type's and the crate's module docs.
-    pub fn decide_geometry(&self, state: &Posed) -> VisibilityDecision {
+    /// stopping short of the cone-vs-robot collision check. `Some` if these
+    /// two checks alone already decide the outcome (either violated, or no
+    /// radius was configured so upstream's `decide()` never reaches the
+    /// cone check either); `None` means [`VisibilityConstraint::decide`]
+    /// must go on to build and collision-check the cone.
+    fn decide_by_angle(&self, state: &Posed) -> Option<ConstraintEvaluationResult> {
         let world_to_sensor = self.sensor.resolve(state);
         let world_to_target = self.target.resolve(state);
 
@@ -289,11 +285,11 @@ impl VisibilityConstraint {
             let normal1 = -target_z;
             let dp = sensor_view_axis.dot(&normal1);
             if dp < 0.0 {
-                return VisibilityDecision::Decided(ConstraintEvaluationResult::new(false, 0.0));
+                return Some(ConstraintEvaluationResult::new(false, 0.0));
             }
             let ang = dp.acos();
             if max_view_angle < ang {
-                return VisibilityDecision::Decided(ConstraintEvaluationResult::new(false, 0.0));
+                return Some(ConstraintEvaluationResult::new(false, 0.0));
             }
         }
 
@@ -302,17 +298,152 @@ impl VisibilityConstraint {
                 .normalize();
             let dp = sensor_view_axis.dot(&dir);
             if dp < 0.0 {
-                return VisibilityDecision::Decided(ConstraintEvaluationResult::new(false, 0.0));
+                return Some(ConstraintEvaluationResult::new(false, 0.0));
             }
             let ang = dp.acos();
             if max_range_angle < ang {
-                return VisibilityDecision::Decided(ConstraintEvaluationResult::new(false, 0.0));
+                return Some(ConstraintEvaluationResult::new(false, 0.0));
             }
         }
 
         match self.target_radius {
-            Some(_) => VisibilityDecision::NeedsConeCollisionCheck,
-            None => VisibilityDecision::Decided(ConstraintEvaluationResult::new(true, 0.0)),
+            Some(_) => None,
+            None => Some(ConstraintEvaluationResult::new(true, 0.0)),
         }
     }
+
+    /// `getVisibilityCone(tform_world_to_sensor, tform_world_to_target)`: the
+    /// mesh cone upstream collision-checks against the robot — apex at the
+    /// sensor origin, base a `cone_sides`-gon of radius `target_radius`
+    /// centered on the target, plus one extra vertex at the target center
+    /// itself (upstream's `points_[1]`, used by the base triangles).
+    /// Vertex/triangle indices below follow upstream's exactly: `0` sensor,
+    /// `1` target center, `2..cone_sides+2` the disc rim, closing the loop
+    /// between the last and first rim points with the two triangles
+    /// upstream computes outside its main loop.
+    fn cone_mesh(&self, world_to_sensor: Isometry3, world_to_target: Isometry3) -> Mesh {
+        let target_radius = self
+            .target_radius
+            .expect("only called from decide() after decide_by_angle found a radius configured");
+
+        let mut vertices = Vec::with_capacity(self.cone_sides + 2);
+        vertices.push(world_to_sensor.translation.vector);
+        vertices.push(world_to_target.translation.vector);
+        let delta = 2.0 * std::f64::consts::PI / self.cone_sides as f64;
+        for i in 0..self.cone_sides {
+            let a = delta * i as f64;
+            let rim_point_in_target =
+                Vector3::new(a.sin() * target_radius, a.cos() * target_radius, 0.0);
+            vertices.push((world_to_target * Point3::from(rim_point_in_target)).coords);
+        }
+
+        let mut triangles = Vec::with_capacity(self.cone_sides * 2);
+        for i in 1..self.cone_sides {
+            triangles.push([(i + 1) as u32, 0, (i + 2) as u32]);
+            triangles.push([(i + 1) as u32, 1, (i + 2) as u32]);
+        }
+        triangles.push([(self.cone_sides + 1) as u32, 0, 2]);
+        triangles.push([(self.cone_sides + 1) as u32, 1, 2]);
+
+        Mesh::new(vertices, triangles)
+            .expect("every triangle index above is < cone_sides + 2, the vertex count just built")
+    }
+
+    /// `decide(state, verbose)`, ported in full. The view-angle/range-angle
+    /// checks (`decide_by_angle`) run first, matching upstream's early
+    /// returns; only when a `target_radius` is configured and those two
+    /// checks pass does this go on to build the cone (`cone_mesh`) and
+    /// collision-check it.
+    ///
+    /// # Why no `PlanningScene`/broader collision world is needed
+    ///
+    /// Upstream's cone check does not use the caller's own collision
+    /// world — it builds a brand new, throwaway
+    /// `collision_detection::CollisionEnvFCL(robot_model_)`, adds the cone
+    /// as that local environment's only world object, checks the robot
+    /// against it, then discards the whole thing. This method reproduces
+    /// exactly that: a fresh `moveit_collision::World` holding only the
+    /// cone, a fresh `ParryCollisionEnv` over it (default, untracked
+    /// [`LinkPaddingScale`] — untracked already reports the same
+    /// padding-`0.0`/scale-`1.0` upstream's default-constructed
+    /// `CollisionEnvFCL` uses), and a fresh
+    /// [`AllowedCollisionMatrix`] with one default conditional entry for
+    /// `"cone"`. None of this depends on `moveit-scene`'s `PlanningScene`
+    /// (not yet built by this port) or any collision state the caller
+    /// might be tracking elsewhere.
+    pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
+        let Some(result) = self.decide_by_angle(state) else {
+            return self.decide_cone(state);
+        };
+        result
+    }
+
+    fn decide_cone(&self, state: &Posed) -> ConstraintEvaluationResult {
+        let world_to_sensor = self.sensor.resolve(state);
+        let world_to_target = self.target.resolve(state);
+        let cone = self.cone_mesh(world_to_sensor, world_to_target);
+
+        let mut world = World::new();
+        world.add_shape("cone", Arc::new(Shape::Mesh(cone)), Isometry3::identity());
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::new());
+
+        let mut acm = AllowedCollisionMatrix::new();
+        acm.set_default_conditional_entry(
+            "cone",
+            allow_sensor_or_target_contact(
+                self.sensor_frame().to_owned(),
+                self.target_frame().to_owned(),
+            ),
+        );
+
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 1,
+            ..Default::default()
+        };
+        let result = env.check_robot_collision(&request, state, Some(&acm));
+
+        let depth = result
+            .contacts
+            .as_ref()
+            .and_then(|contacts| contacts.by_pair.values().next())
+            .and_then(|pair| pair.first())
+            .map_or(0.0, |contact| contact.depth);
+        ConstraintEvaluationResult::new(
+            !result.collision,
+            if result.collision { depth } else { 0.0 },
+        )
+    }
+}
+
+/// `decideContact`: a contact with the cone is ignored (does not make the
+/// constraint violated) when either body is a robot-attached object
+/// (upstream allows these unconditionally, regardless of name), or when the
+/// robot-link side of the contact is named the same as the sensor or
+/// target frame (the sensor/target links themselves necessarily touch the
+/// cone at its apex/base-center vertices, which is not the occlusion this
+/// constraint checks for).
+fn allow_sensor_or_target_contact(sensor_frame: String, target_frame: String) -> DecideContactFn {
+    Arc::new(move |contact: &mut Contact| {
+        if contact.body_type_1 == BodyType::RobotAttached
+            || contact.body_type_2 == BodyType::RobotAttached
+        {
+            return true;
+        }
+        if contact.body_type_1 == BodyType::RobotLink
+            && contact.body_type_2 == BodyType::WorldObject
+            && (Transforms::same_frame(&contact.body_name_1, &sensor_frame)
+                || Transforms::same_frame(&contact.body_name_1, &target_frame))
+        {
+            return true;
+        }
+        if contact.body_type_2 == BodyType::RobotLink
+            && contact.body_type_1 == BodyType::WorldObject
+            && (Transforms::same_frame(&contact.body_name_2, &sensor_frame)
+                || Transforms::same_frame(&contact.body_name_2, &target_frame))
+        {
+            return true;
+        }
+        false
+    })
 }

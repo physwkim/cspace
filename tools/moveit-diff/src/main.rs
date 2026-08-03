@@ -559,13 +559,36 @@ fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
 /// state the case is drawn from), perturbed to straddle its own tolerance
 /// boundary so the differential run's satisfied/violated split is
 /// meaningful rather than a coin flip landing far from the boundary.
-/// Cycles through six shapes by `case % 6`: a joint-position constraint, a
+/// Cycles through seven shapes by `case % 7`: a joint-position constraint, a
 /// fixed-frame position constraint, a fixed-frame orientation constraint in
-/// each of the two [`OrientationToleranceSpec`] parameterizations, and a
-/// visibility constraint under each of the two criteria this port can decide
-/// without a collision backend (view-angle, range-angle) -- never
-/// `target_radius`, which needs the cone-vs-robot check `moveit-constraints`
-/// does not implement yet (see that crate's module docs).
+/// each of the two [`OrientationToleranceSpec`] parameterizations, a
+/// visibility constraint under each of the two angle criteria
+/// (view-angle, range-angle), and a visibility constraint with
+/// `target_radius` set -- the cone-vs-robot collision check.
+///
+/// # The `target_radius` case never places the cone near the robot
+///
+/// `panda.urdf`/`fanuc.urdf`/`dual_arm_panda.urdf`'s `<collision>` geometry
+/// is entirely `<mesh>` (STL); `moveit-model`'s URDF loader does not retain
+/// mesh collision geometry at all (see `moveit-collision`'s `parry.rs`
+/// module doc), so a `RobotModel` built from any of them has *zero*
+/// parry-representable collision geometry -- the port can never detect a
+/// cone-vs-robot collision against these three fixtures, no matter where the
+/// cone is placed, while the oracle's real FCL backend collides against the
+/// real STL meshes. Placing the cone near the robot for those fixtures would
+/// therefore compare two backends checking entirely different geometry, not
+/// exercise a shared code path -- a parity check that cannot fail whatever
+/// the port does is not a parity check. This case instead always places the
+/// cone far outside every fixture's reach (`FAR_OFFSET`, well past pr2's own
+/// ~1.7m arm length, the largest committed fixture), so both sides agree
+/// "clear" for every fixture regardless of collision-geometry differences.
+/// This exercises the real request/response wire path and the "no collision"
+/// branch of `VisibilityConstraint::decide_cone` end-to-end against the
+/// oracle; the "collision found" branch is covered instead by
+/// `moveit-constraints`' own `cone_through_a_robot_link_is_violated` unit
+/// test, which uses pr2's one primitive (non-mesh) collision shape
+/// (`base_bellow_link`) since that is the only committed fixture whose
+/// collision geometry this port loads at all.
 ///
 /// Every case here resolves against the model frame (upstream's
 /// `mobile_frame_ == false` path): the mobile-frame resolution path is a
@@ -582,7 +605,7 @@ fn build_constraint_case(
     let mut spec = ConstraintsSpec::default();
     let model_frame = model.model_frame().to_owned();
 
-    let kind = match case % 6 {
+    let kind = match case % 7 {
         0 => {
             let eligible: Vec<&str> = model
                 .joint_models()
@@ -724,7 +747,40 @@ fn build_constraint_case(
             });
             "visibility_range_angle"
         }
-        _ => unreachable!("case % 6 is in 0..6"),
+        6 => {
+            // Well past pr2's own ~1.7m reach -- see this function's doc
+            // comment for why the cone must stay clear of every fixture's
+            // geometry here, not just panda/fanuc/dual_arm_panda's mesh
+            // links.
+            const FAR_OFFSET: f64 = 50.0;
+            let links = model.link_names();
+            let link_name = &links[case % links.len()];
+            let point = fk
+                .link_transforms
+                .get(link_name)
+                .expect("link_name came from model.link_names()");
+            let mut anchor = Vector3::new(point[3], point[7], point[11]);
+            let axis = case % 3;
+            anchor[axis] += FAR_OFFSET;
+            let radius = rng.random_range(0.05..0.5);
+            spec.visibility_constraints.push(VisibilityConstraintSpec {
+                sensor_frame_id: model_frame.clone(),
+                sensor_pose: pose_row_major(
+                    anchor + Vector3::new(0.0, 0.0, 1.0),
+                    UnitQuaternion::identity(),
+                ),
+                sensor_view_direction: "sensor_z".to_owned(),
+                target_frame_id: model_frame,
+                target_pose: pose_row_major(anchor, UnitQuaternion::identity()),
+                cone_sides: 3 + case % 6,
+                target_radius: Some(radius),
+                max_view_angle: None,
+                max_range_angle: None,
+                weight: 1.0,
+            });
+            "visibility_cone"
+        }
+        _ => unreachable!("case % 7 is in 0..7"),
     };
 
     (kind, spec)

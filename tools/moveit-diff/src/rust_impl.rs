@@ -209,11 +209,9 @@ fn sensor_view_direction_from_spec(
 /// `joint_values` layered on top of the model's default positions, reset-
 /// then-apply the same way [`fk`]/[`jacobian`] do.
 ///
-/// A `VisibilityConstraintSpec` with `target_radius` set makes the set
-/// undecidable (see `moveit-constraints`' own module docs on why the
-/// cone-vs-robot check is not ported): that surfaces as an `Err` here rather
-/// than a fabricated `satisfied` result, exactly as
-/// `KinematicConstraintSet::decide_each` itself refuses to answer.
+/// A `VisibilityConstraintSpec` with `target_radius` set runs the full
+/// cone-vs-robot collision check (`moveit-constraints`' own
+/// `VisibilityConstraint::decide`), not just the view/range-angle checks.
 pub fn constraints(
     model: &RobotModel,
     joint_values: &BTreeMap<String, f64>,
@@ -323,7 +321,6 @@ pub fn constraints(
 
     let results = set
         .decide_each(&posed)
-        .map_err(|e| format!("undecided: {e}"))?
         .into_iter()
         .map(|r| ConstraintResult {
             satisfied: r.satisfied,
