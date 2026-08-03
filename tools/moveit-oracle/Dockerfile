@@ -16,9 +16,16 @@ ARG MOVEIT2_PACKAGES=moveit_core
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# nlohmann/json is the oracle's only dependency beyond MoveIt itself.
+# nlohmann/json, plus orocos_kdl and kdl_parser for the ik op's vendored
+# KDL::ChainIkSolverVelMimicSVD (see src/third_party/kdl_kinematics_plugin/)
+# -- installed as prebuilt packages rather than added to
+# --packages-up-to, since neither is part of the moveit2 source tree this
+# image builds from.
 RUN apt-get -q update \
-    && apt-get -q install --no-install-recommends -y nlohmann-json3-dev \
+    && apt-get -q install --no-install-recommends -y \
+       nlohmann-json3-dev \
+       ros-${ROS_DISTRO}-orocos-kdl-vendor \
+       ros-${ROS_DISTRO}-kdl-parser \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ws/src

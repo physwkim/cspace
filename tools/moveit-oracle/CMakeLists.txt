@@ -14,8 +14,17 @@ find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(random_numbers REQUIRED)
 find_package(geometric_shapes REQUIRED)
+# For the ik op's vendored KDL::ChainIkSolverVelMimicSVD (see
+# src/third_party/kdl_kinematics_plugin/) -- the same two packages
+# moveit_kinematics/CMakeLists.txt itself finds, without the rest of that
+# package's rclcpp/pluginlib/moveit_ros_planning dependency tree.
+find_package(orocos_kdl REQUIRED)
+find_package(kdl_parser REQUIRED)
 
-add_executable(moveit_oracle src/oracle.cpp)
+add_executable(moveit_oracle
+  src/oracle.cpp
+  src/third_party/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.cpp
+)
 
 # Namespaced targets, not bare library names: moveit_core exports
 # moveit_core::moveit_robot_model, and a bare `moveit_robot_model` is treated by
@@ -33,7 +42,12 @@ target_link_libraries(moveit_oracle
     nlohmann_json::nlohmann_json
     geometric_shapes::geometric_shapes
     ${random_numbers_LIBRARIES}
+    ${orocos_kdl_LIBRARIES}
+    kdl_parser::kdl_parser
 )
-target_include_directories(moveit_oracle PRIVATE ${random_numbers_INCLUDE_DIRS})
+target_include_directories(moveit_oracle PRIVATE
+  ${random_numbers_INCLUDE_DIRS}
+  ${orocos_kdl_INCLUDE_DIRS}
+)
 
 install(TARGETS moveit_oracle RUNTIME DESTINATION bin)
