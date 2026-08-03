@@ -1,0 +1,14 @@
+{
+  "octree_leaf_count_scaling": {
+    "srdf": "octree_world_robot.srdf",
+    "urdf": "octree_world_robot.urdf"
+  },
+  "octree_world_collision": {
+    "srdf": "octree_world_robot.srdf",
+    "urdf": "octree_world_robot.urdf"
+  },
+  "world": {
+    "srdf": "octree_world_robot.srdf",
+    "urdf": "octree_world_robot.urdf"
+  }
+}

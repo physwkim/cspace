@@ -122,7 +122,30 @@
 //!    interpenetrating candidates, `|d|` two orders of magnitude smaller than
 //!    panda's outlier and well inside each pair's own bounding radius — the
 //!    ordinary, expected shape of this deviation, not the impossible-number
-//!    failure mode panda's worst case turned out to be.
+//!    failure mode panda's worst case turned out to be. This deviation is
+//!    not limited to mesh-vs-mesh pairs, either:
+//!    `pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced` (same test
+//!    file) confirms it for a convex primitive against a mesh —
+//!    `base_bellow_link` (a `<box>`) against `torso_lift_link` (a `<mesh>`),
+//!    this backend's own dominant self-collision constant across a
+//!    10,000-case pr2 sweep. This backend's answer for that pair is
+//!    bit-identical across a wide span of `torso_lift_joint` (the pair's
+//!    only degree of freedom), and the raw contact geometry over that span
+//!    shows why: the same local box face and the same local mesh feature are
+//!    found at every state tested, so the true penetration depth genuinely
+//!    is constant there — flat, parallel-face overlap is a well-known hard
+//!    case for GJK/EPA (the support direction is ambiguous across the whole
+//!    face), and it is the oracle's own answer that fails to hold constant
+//!    over that same span, not this backend's. Confirmed the same way as the
+//!    two mesh-vs-mesh cases above (bounding-radius plausibility, not merely
+//!    argued) — and, unlike those two, `collision_parity.rs`'s own
+//!    `assert_full_parity_matches_oracle` now runs that same bounding-radius
+//!    check on every colliding case in every fixture, not just these three
+//!    hand-picked ones: the sign-only branch documented above now pairs with
+//!    a real assertion that fails if a colliding pair's own reported depth
+//!    ever exceeds twice its own bounding radius, catching a future
+//!    regression toward panda-worst-case-style impossible numbers even
+//!    though exact magnitude parity is not required.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and
