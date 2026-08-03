@@ -4967,3 +4967,74 @@ find crates tools -name '*_response.json' | wc -l   → 21
 적었다. `moveit-octomap`은 §13에서 p3-shapes가 만든 크레이트이고 전용
 태스크 파일까지 있었는데, 최근 블록에서 이름이 빠졌다. 고아 크레이트는
 아니고 브리핑 표기 누락이다 — 그 1건도 p3-shapes 소유로 센다.
+
+## 52. 크레이트 로컬 로봇 기술이 출처 검사 밖에 있었다 (2026-08-04)
+
+`6ec9a97`(p1-fixtures 병합), `dd497e4`(검사 확장).
+`nextest --workspace` **941/941**.
+
+### 52.1 수렴은 됐다
+
+p1-fixtures가 §48.2의 수렴 지시를 그대로 실행했다:
+`verify-scene-fixture-replay.sh` 삭제, `oracle-models.json`으로 이전,
+요청 JSON에서 이제 중복인 `"model"` 필드 제거(같은 사실을 두 곳에 적지
+않는다). 직접 돌려 확인했다 — 이제 스크립트 하나가 **10건**을 재생하고
+전부 `identical`이다.
+
+### 52.2 그러다 검사 밖에 있던 것을 찾았다
+
+이전 과정에서 워커가 `panda.urdf`/`panda.srdf`를
+`crates/moveit-scene/tests/fixtures/`에 복사했다. 공유 스크립트가
+urdf/srdf를 매니페스트 기준 상대 경로로 푸므로 필요한 복사이고,
+`moveit-state`·`moveit-kinematics`·`moveit-constraints`·
+`moveit-distance-field`가 이미 같은 일을 하고 있던 선례를 따른 것이다.
+
+그런데 `verify-fixture-provenance.sh`는 `fixtures/*.urdf fixtures/*.srdf`만
+순회한다. **크레이트 로컬 복사본 12개는 아무것과도 대조되지 않고 있었다.**
+루트 복사본은 vendored 트리와 대조돼 깨끗한데, 크레이트 로컬 복사본이 그
+루트에서 갈라져도 아무 일도 일어나지 않는 상태였다 — 그 크레이트의 모든
+파리티 주장이 이름과 다른 로봇을 조용히 기술하게 된다.
+
+전수 대조해 보니 하나가 실제로 다르다:
+
+```
+DIFFERS  crates/moveit-kinematics/tests/fixtures/pr2.srdf
+```
+
+읽어 보니 **의도된 차이**다. 상류 PR2 SRDF의 어떤 그룹도 격리하지 않는
+"활성 조인트 1 + mimic 조인트 1"짜리 `is_chain()` 그룹
+(`l_gripper_finger_chain`)을 mimic 조인트 테스트용으로 추가한 것이고,
+파일 안에 그 이유가 적혀 있다. 조인트 타입과
+`l_gripper_l_finger_tip_joint`의 mimic 배수/오프셋은 실제 PR2 URDF의
+값이며 그룹 경계만 새것이다.
+
+즉 드리프트 사고는 아니었다. 그러나 **그것을 기계적으로 아는 방법이
+없었다** — 파일을 열어 주석을 읽는 것 말고는.
+
+### 52.3 확장: 크레이트 로컬을 루트에 사슬로 묶는다
+
+`dd497e4`. 규칙은 같은 basename의 루트 픽스처와 바이트 동일이다. 루트
+픽스처가 이미 vendored 소스와 묶여 있으므로, 두 단계를 이으면 크레이트
+로컬 복사본도 출처 검사를 받게 된다.
+
+예외는 두 종류이고 둘 다 표 항목을 요구한다 — 침묵은 허용하지 않는다:
+
+- `DIVERGENT` — 의도된 편집. `moveit-kinematics/pr2.srdf` 한 건.
+  루트와 **같아지면** `STALE`로 실패한다. 편집이 상류로 흡수됐는데 표만
+  남는 상태를 잡기 위한 것이다.
+- `SYNTHETIC` — 어떤 vendored 기술의 복사본도 아닌 손으로 쓴 로봇.
+  `octree_world_robot.{urdf,srdf}`, `totg_synthetic.{urdf,srdf}` 4건.
+
+표가 아니라 파일시스템으로 구동한다(기존 스크립트의 원칙 그대로).
+어느 쪽에도 없고 루트와 다르면 실패하므로, 새 크레이트 로컬 기술이
+잊혀서 검사를 빠져나갈 수 없다.
+
+세 실패 모드를 각각 주입해 확인했다:
+
+```
+DRIFTED   moveit-state/panda.urdf에 한 줄 추가        → 검출
+UNMAPPED  루트에 짝이 없는 newbot.urdf 추가            → 검출
+STALE     kinematics/pr2.srdf를 루트와 같게 만듦       → 검출
+```
+
+전부 되돌린 뒤 재실행 pass. 통과만 보고 끝내지 않았다.
