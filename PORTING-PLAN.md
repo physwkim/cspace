@@ -4163,3 +4163,57 @@ isStateValid/isPathValid`인데, 본문과 `scene.rs:874`의 문서는
 "이식했다"로 답하고, 커버리지 감사는 대부분 그 층에서 이뤄진다. 심볼
 이름을 제목에 거는 것은 그 심볼이 이식됐다는 진술이므로, 의도적 제외는
 제목이 아니라 본문에만 있어야 한다. 5라운드 브리핑으로 전달했다.
+
+## 39. `p3-shapes` 7라운드 병합 — 서술을 측정으로 바꾸다 (2026-08-04)
+
+`b304332`. `nextest --workspace` **919/919**.
+
+### 39.1 "구조적 격차"가 숫자를 갖게 됐다
+
+§4.8이 결정한 것 — `parry3d-f64`에 다중 해상도 옥트리가 없어
+`Shape::OcTree`를 리프당 `Cuboid`의 `Compound`로 표현한다 — 은 지금까지
+기전 서술이었고, 그 기전이 실제로 답을 틀리게 하는지는 아무도 재지
+않았다. 이번 라운드가 쟀다: 디코이 리프 수를 0에서 216까지 늘리면서
+`robot_distance`를 오라클과 대조했고, 모든 리프 수에서 비트 단위로
+일치, 발산 추세 없음(`octree_leaf_count_scaling_parity.rs`).
+
+이것은 격차가 없다는 증명이 아니다 — 측정한 리프 수 범위에서 관측되는
+결과 차이가 없다는 것이고, 워커가 그 구분을 정확히 지켰다. "구조가
+다르다"와 "답이 다르다"는 다른 진술이고, 후자만 사용자에게 의미가
+있다. UNFIXED는 남되 이제 측정치가 붙어 있다.
+
+### 39.2 캐시 경계 주장을 자기 테스트로 되돌려 확인했다 — 그리고 나도 했다
+
+`OctreeCache`의 "최대 한 개의 stale 엔트리" 문서 주장이 실제
+`World`/`ParryCollisionEnv`/`check_robot_collision` 위에서 50회
+replace 루프로 검증됐다(`a9acef8`). 워커는 `get_or_compute`의 `retain`을
+지워 테스트가 반복 1회차에서 실패하는 것을 확인하고 소스를 바이트
+동일하게 복원했다.
+
+받지 않고 다시 했다. `retain` 한 줄을 주석으로 바꾸고
+`cargo nextest run -p moveit-collision -E 'test(octree_cache)'`:
+5개 중 2개 실패(`octree_cache_prunes_an_entry_once_nothing_holds_its_tree`,
+`octree_cache_stays_bounded_across_a_real_rebuild_and_replace_loop`),
+실패 메시지는 `iteration 1: cache held 2 entries ... expected at most 1`.
+복원 후 `git diff` 빈 출력, 5/5 통과. §31.2에서 "테스트가 자기 헬퍼를
+측정하고 있었다"를 잡은 이후 이 크레이트의 캐시 테스트는 전부 이
+방식으로 확인한다.
+
+### 39.3 세 라운드째 같은 stale UNFIXED
+
+`bodies::Body`의 `containsPoint`/`intersectsRay`/posed `boundingBox`가
+"Phase 3 충돌로 연기됨"이라는 UNFIXED 줄이 이번에도 그대로 실려 왔다.
+
+`rg -n 'fn contains_point|fn intersects_ray' crates/moveit-geometry/src/bodies.rs`
+= **11건**. `Sphere`/`Cylinder`/`Cuboid`/`ConvexMesh` 각각과
+`Body` 디스패처(`bodies.rs:2513`의 enum, `:2551`의 impl)까지 전부 있다.
+`probe_parity.rs`가 실제 `.so`에 대고 고정하고 있다.
+
+§31.3에 적었듯 이 문장을 **처음 6라운드 브리핑에 실은 것은 나였다** —
+워커의 5라운드 UNFIXED를 검증 없이 옮겼다. 그 라운드에 정정해서
+전달했는데도 7라운드 보고서에 다시 실렸다. 즉 이건 한쪽의 실수가
+아니라 UNFIXED 줄이 라운드를 넘어 복사될 때 아무도 트리를 다시 보지
+않는다는 구조적 문제다. 8라운드 브리핑에서 요구한 것은 "지우라"가
+아니라 **모든 UNFIXED 줄에 근거 명령을 붙이라**는 것이다 — 다음 라운드에
+그 명령을 다시 돌리면 참/거짓이 즉시 갈린다. 근거 없이 이월할 수 없는
+형식으로 만드는 것이 유일한 구조적 해결이다.
