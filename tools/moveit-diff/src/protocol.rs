@@ -155,6 +155,13 @@ pub enum Op {
         /// robot against, built with real shapes (unlike [`Op::World`]'s
         /// dummy spheres, which only exercise pose composition).
         objects: Vec<CollisionObjectSpec>,
+        /// Bodies to attach to the state via `RobotState::attachBody` before
+        /// running any check, ground truth for `moveit_scene::AttachedBody`/
+        /// `moveit_collision::AttachedBodyGeometry`. Empty means the plain
+        /// [`Op::Collision`] behavior every existing fixture already
+        /// exercises.
+        #[serde(default)]
+        attached_bodies: Vec<AttachedBodySpec>,
     },
 }
 
@@ -306,6 +313,29 @@ pub struct CollisionObjectSpec {
     pub pose: [f64; 16],
     /// The object's collision shape.
     pub shape: ShapeSpec,
+}
+
+/// One body for [`Op::Collision`]'s `attached_bodies`: ground truth for
+/// `RobotState::attachBody(id, pose, shapes, shape_poses, touch_links,
+/// link_name)`. `pose` (upstream's separate object-pose level between the
+/// link and its shapes) is not a field here: the oracle side always passes
+/// `Eigen::Isometry3d::Identity()` for it, matching
+/// `moveit_scene::AttachedBody`'s own one-level design (its own module doc)
+/// where `shape_poses` are already relative to the link frame directly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedBodySpec {
+    /// `AttachedBody::getName()`.
+    pub id: String,
+    /// The link to attach to.
+    pub link_name: String,
+    /// This body's shapes, parallel to `shape_poses`.
+    pub shapes: Vec<ShapeSpec>,
+    /// Each shape's pose relative to `link_name`'s own frame, row-major 4x4,
+    /// parallel to `shapes`.
+    pub shape_poses: Vec<[f64; 16]>,
+    /// `AttachedBody::getTouchLinks()`.
+    #[serde(default)]
+    pub touch_links: Vec<String>,
 }
 
 /// A shape for [`Op::ShapePoints`] -- the four variants

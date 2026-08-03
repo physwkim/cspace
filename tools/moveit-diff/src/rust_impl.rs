@@ -359,16 +359,18 @@ pub fn collision(
     }
     let posed = state.update();
 
-    let self_result = env.check_self_collision(&CollisionRequest::default(), &posed, Some(acm));
-    let robot_result = env.check_robot_collision(&CollisionRequest::default(), &posed, Some(acm));
+    let self_result =
+        env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(acm));
+    let robot_result =
+        env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(acm));
 
     let distance_request = DistanceRequest {
         enable_signed_distance: true,
         acm: Some(acm),
         ..DistanceRequest::default()
     };
-    let self_distance = env.distance_self(&distance_request, &posed);
-    let robot_distance = env.distance_robot(&distance_request, &posed);
+    let self_distance = env.distance_self(&distance_request, &posed, &[]);
+    let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
 
     Ok(CollisionCheckResult {
         self_collision: self_result.collision,
