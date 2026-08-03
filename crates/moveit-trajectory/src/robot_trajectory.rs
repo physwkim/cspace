@@ -16,9 +16,10 @@
 //!   `trajectory_msgs` conversions, out of scope per `PORTING-PLAN.md` D1;
 //!   they belong in the optional `moveit-ros` crate.
 //! - `RobotTrajectory::print` and `operator<<` — upstream's per-waypoint
-//!   dump includes velocity and acceleration columns, and this port's
-//!   [`RobotState`] carries neither (`moveit-state`'s own scope defers
-//!   velocity/acceleration/effort tracking); `#[derive(Debug)]` gives a
+//!   dump includes velocity and acceleration columns. [`RobotState`] now
+//!   carries both (added for `RuckigSmoothing`'s sake), so the original
+//!   reason this was deferred no longer holds; it stays unported simply
+//!   because this task never asked for it. `#[derive(Debug)]` gives a
 //!   structural dump instead.
 //! - The hand-rolled `RobotTrajectory::Iterator` class — [`RobotTrajectory::iter`]
 //!   is the idiomatic Rust replacement for the `begin()`/`end()` pair it
@@ -34,10 +35,11 @@
 //!   on [`RobotTrajectory`] always deep-copies — there is no cheaper aliasing
 //!   mode to preserve, and no `deepcopy: bool` parameter.
 //! - **`reverse()` does not invert velocity.** Upstream's `reverse()` calls
-//!   `RobotState::invertVelocity()` on every waypoint. This port's
-//!   `RobotState` carries no velocity at all, so there is nothing to invert;
-//!   this is not a missing feature, it is a consequence of a choice already
-//!   made upstream of this crate.
+//!   `RobotState::invertVelocity()` on every waypoint. [`RobotState`] now
+//!   carries velocity, but nothing in this crate's current scope calls
+//!   `reverse()` on a velocity-populated trajectory (`RuckigSmoothing` does
+//!   not call it), so `invertVelocity` was not ported either; see this
+//!   crate's `UNFIXED` report.
 //! - **Unknown group names are a typed error, not a silent whole-robot
 //!   fallback.** Upstream's `RobotTrajectory(robot_model, group: string)`
 //!   constructor calls `robot_model->getJointModelGroup(group)`, which logs
