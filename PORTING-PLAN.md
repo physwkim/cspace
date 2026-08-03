@@ -1042,3 +1042,29 @@ ACM 커버리지는 `dual_arm_panda`(68쌍, 22링크)가 담당한다 — §10.6
 - `print` / `operator<<` — `moveit-state`가 아직 속도·가속도를 싣지 않는다.
 
 `RuckigSmoothing`과 오라클 `ruckig` op은 아직 시작하지 않았다.
+
+### 11.7 `orocos_kdl` 소스 확보 — 사용자 승인 (2026-08-03)
+
+`dynamics_solver` 이식이 `KDL::ChainIdSolver_RNE`에서 막혔다. 로컬 탐색
+결과는 명확했다 — 호스트 파일시스템, `/opt/ros`(부재), 오라클 이미지 어디에도
+`.cpp`가 없고 이미지에는 `/usr/include/kdl/chainidsolver_recursive_newton_
+euler.hpp` 선언만 있다. 재귀 본체는 `liborocos-kdl.so.1.5`에 컴파일되어 있다.
+`moveit2.repos`에도 없다 — orocos_kdl은 소스 체크아웃이 아니라 apt 바이너리로
+들어오므로, `moveit_msgs`/`moveit_resources`에 이미 적용된 third_party 조달
+절차가 덮지 않는다.
+
+따라서 새 결정 사항이었고 사용자가 fetch를 승인했다.
+`third_party/orocos_kinematics_dynamics`에 태그 `v1.5.1`로 체크아웃했다
+(설치된 `liborocos-kdl-dev 1.5.1-4build1`에 대응).
+
+**대응 관계는 가정하지 않고 확인했다.** fetch한 트리의
+`orocos_kdl/src/chainidsolver_recursive_newton_euler.hpp`가 이미지 안
+`/usr/include/kdl/`의 같은 파일과 **바이트 단위로 동일**하다. 즉 읽는 소스가
+비교 대상 `.so`를 빌드한 그 소스다. §9.1이 `geometric_shapes`에 대해 세운
+절차와 같은 종류의 확인이며, 태그가 패키지 버전과 맞는다는 것은 증거이지
+증명이 아니다 — diff 한 번이면 되므로 다른 KDL 파일에 의존하게 되면 그때도
+같은 확인을 한다.
+
+`third_party`는 gitignore 대상이라 브랜치로 전파되지 않는다. 워크트리는
+절대경로로 읽고 자기 안에 복사하지 않는다. `build.sh`는 이 트리를 이미지로
+내보내지 않는다 — 참조 전용이고 오라클은 apt 바이너리를 그대로 쓴다.
