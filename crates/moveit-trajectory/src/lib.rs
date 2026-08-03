@@ -224,6 +224,128 @@
 //!   resolved by following the `.cpp` definition.
 //! - `checkOvershoot` (private) — ported as [`ruckig_smoothing`]'s private
 //!   `check_overshoot`.
+//!
+//! # Symbol audit: `robot_trajectory.hpp`
+//!
+//! Re-run by re-reading the header fresh, not by inferring from what is
+//! already ported. `robot_trajectory.h` is the deprecated forwarding shim
+//! (`#pragma message(".h header is obsolete...")`, one `#include`) — no
+//! independent content.
+//!
+//! `MOVEIT_CLASS_FORWARD(RobotTrajectory)` — unported: expands to
+//! `RobotTrajectoryPtr`/`ConstPtr`/`WeakPtr` `std::shared_ptr` typedefs; this
+//! port has no shared-ownership handle to name.
+//!
+//! - 3 constructors (`RobotModelConstPtr`; `+ group: const std::string&`;
+//!   `+ group: const JointModelGroup*`) — ported as
+//!   [`robot_trajectory::RobotTrajectory::new`]/
+//!   [`robot_trajectory::RobotTrajectory::for_group_name`]/
+//!   [`robot_trajectory::RobotTrajectory::for_group`]. See that module's
+//!   "Deviations from upstream" note: an unknown group name is `Err`, not a
+//!   silent whole-robot fallback (upstream's `getJointModelGroup` logs and
+//!   returns `nullptr`).
+//! - `operator=` (defaulted, shallow copy) and the `(other, deepcopy)` copy
+//!   constructor — distinct: subsumed by `#[derive(Clone)]`, which always
+//!   deep-copies (see that module's "Deviations from upstream" note on why
+//!   there is no cheaper aliasing mode left to preserve — `RobotState` is
+//!   already a plain value type here, not a `shared_ptr`).
+//! - `getRobotModel`/`getGroup`/`getGroupName`/`setGroupName` — ported as
+//!   `robot_trajectory::RobotTrajectory::robot_model`/`group`/`group_name`/
+//!   `set_group_name`. `setGroupName` upstream silently sets `group_` to
+//!   `nullptr` for an unknown name; this port's `set_group_name` returns
+//!   `Err` instead, the same deviation as the string-group constructor.
+//! - `getWayPointCount`/`size` — both ported as one
+//!   `robot_trajectory::RobotTrajectory::way_point_count`. Upstream's `size`
+//!   differs from `getWayPointCount` only by a debug-mode `assert` that
+//!   `waypoints_`/`duration_from_previous_` stay the same length; this
+//!   port's two `VecDeque`s can never diverge in length in the first place
+//!   (every mutator keeps them in lockstep), so there is nothing left for a
+//!   second method to assert.
+//! - `getWayPoint`/`getLastWayPoint`/`getFirstWayPoint` (`const&`, UB out of
+//!   range) and `getWayPointPtr`/`getLastWayPointPtr`/`getFirstWayPointPtr`
+//!   (mutable) — ported as `way_point`/`last_way_point`/`first_way_point`
+//!   and their `_mut` counterparts, all `Result`-returning; see that
+//!   module's "Deviations from upstream" note on panicking index access
+//!   becoming `Result`. Upstream's `const`/mutable overload pairs collapse
+//!   to one name each plus a `_mut` suffix, the idiomatic Rust shape.
+//! - `getWayPointDurations` — ported as `way_point_durations`.
+//! - `getWayPointDurationFromStart` — ported as
+//!   `way_point_duration_from_start`; clamps an out-of-range `index` to the
+//!   last waypoint, matching upstream's own doc comment ("returns overall
+//!   duration if index is out of range").
+//! - `getWayPointDurationFromPrevious` — ported as
+//!   `way_point_duration_from_previous`; `0.0` out of range, matching
+//!   upstream.
+//! - `setWayPointDurationFromPrevious` — ported as
+//!   `set_way_point_duration_from_previous`; `Err` at index 0 for a nonzero
+//!   value, per the `duration_from_previous[0]` invariant (that module's
+//!   doc comment).
+//! - `empty` — ported as `is_empty`.
+//! - `addSuffixWayPoint` (2 overloads: `const RobotState&`, `const
+//!   RobotStatePtr&`) — collapsed into one
+//!   `add_suffix_way_point(RobotState<'m>, dt)`: this port's `RobotState` is
+//!   already a plain value type, with no `shared_ptr`/`Ptr` distinction to
+//!   preserve two overloads for. Calls [`moveit_state::RobotState::update`]
+//!   on the incoming state before storing it, matching upstream's
+//!   `state->update()` — see that method's own doc comment for why this
+//!   matters beyond upstream-parity (`RobotState`'s derived `PartialEq`).
+//! - `addPrefixWayPoint` (2 overloads) — collapsed the same way into
+//!   `add_prefix_way_point(RobotState<'m>)`; upstream's `dt` parameter is
+//!   dropped (that module's doc: the front waypoint's duration is
+//!   structurally `0.0`). Also calls `update()` before storing.
+//! - `insertWayPoint` (2 overloads) — collapsed into
+//!   `insert_way_point(index, RobotState<'m>, dt)`, `Result`-returning where
+//!   upstream indexes unchecked. Also calls `update()` before storing.
+//! - `append` — ported as `append`; upstream's `start_index = 0`/
+//!   `end_index = SIZE_MAX` defaults are dropped (Rust has no default
+//!   parameters) — every caller passes both explicitly. Does not call
+//!   `update()`: unlike the three methods above, `append` only moves
+//!   already-stored (already-settled) waypoints from `source`, matching
+//!   upstream, which does not call `update()` here either.
+//! - `swap` — distinct: `std::mem::swap(&mut a, &mut b)` already swaps two
+//!   [`robot_trajectory::RobotTrajectory`] values whole, at zero cost and
+//!   with identical behaviour to a bespoke method — this port's struct has
+//!   no `Drop` impl and no `shared_ptr`-style aliasing to preserve
+//!   field-by-field (upstream's own `swap` exists specifically to call
+//!   `robot_model_.swap(...)` on a `shared_ptr` rather than incur an
+//!   atomic-refcount copy/decrement pair). No forwarding wrapper is added.
+//! - `removeWayPoint` — ported as `remove_way_point`, `Result`-returning.
+//! - `clear` — ported as `clear`.
+//! - `getDuration` — ported as `duration`.
+//! - `getAverageSegmentDuration` — ported as `average_segment_duration`.
+//! - `getRobotTrajectoryMsg` — D-decision excludes it: D1
+//!   (`moveit_msgs::msg::RobotTrajectory` output parameter).
+//! - `setRobotTrajectoryMsg(reference_state, const
+//!   trajectory_msgs::msg::JointTrajectory&)` — D-decision excludes it: D1.
+//! - `setRobotTrajectoryMsg(reference_state, const
+//!   moveit_msgs::msg::RobotTrajectory&)` — D-decision excludes it: D1.
+//! - `setRobotTrajectoryMsg(reference_state, const moveit_msgs::msg::
+//!   RobotState&, const moveit_msgs::msg::RobotTrajectory&)` — D-decision
+//!   excludes it: D1 (two `moveit_msgs` parameters).
+//! - `reverse` — ported as `reverse`.
+//! - `unwind()`/`unwind(const RobotState&)` — ported as `unwind`/
+//!   `unwind_from`.
+//! - `findWayPointIndicesForDurationAfterStart` — ported as
+//!   `find_way_point_indices_for_duration_after_start`; returns
+//!   `(usize, usize, f64)` instead of writing through three out-parameters —
+//!   the idiomatic Rust shape for a 3-value return, not a behavioural
+//!   deviation. All 4 documented edge cases (empty trajectory, negative
+//!   duration, duration past the total, single-waypoint trajectory) are
+//!   reproduced and covered by their own boundary tests.
+//! - `getStateAtDurationFromStart` — ported as
+//!   `state_at_duration_from_start`; see that module's "Deviations from
+//!   upstream" note on the `Option` return replacing the out-parameter/
+//!   `bool` pair.
+//! - `class Iterator`, `begin`/`end` — excluded, see that module's "Out of
+//!   scope" note: `iter()` is the idiomatic replacement.
+//! - `print`/`operator<<` — excluded, see that module's "Out of scope" note.
+//! - free `pathLength` — ported as `path_length`.
+//! - free `smoothness` — ported as `smoothness`.
+//! - free `waypointDensity` — ported as `waypoint_density`.
+//! - free `toJointTrajectory` — D-decision excludes it: D1
+//!   (`trajectory_msgs::msg::JointTrajectory` return type; no ROS type in
+//!   its parameters, but D1 excludes a signature for appearing on either
+//!   side).
 
 mod numeric;
 mod path;
