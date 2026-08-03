@@ -429,6 +429,8 @@ public:
       return constraints(request);
     if (op == "octomap")
       return octomapOp(request);
+    if (op == "octree_in_world")
+      return octreeInWorld(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -1402,12 +1404,12 @@ private:
   /// scenario -- the scenario itself (repeated hits to the clamp, a miss
   /// sequence, a to-be-pruned cube of siblings, a ray leaving the tree) is
   /// constructed entirely on the Rust test side from these primitives.
-  json octomapOp(const json& request) const
+  /// Shared by octomapOp and octreeInWorld so the two ops agree on what "the
+  /// same actions" means: update_point, update_key, insert_ray, prune,
+  /// update_inner_occupancy.
+  static void applyOctomapActions(octomap::OcTree& tree, const json& actions)
   {
-    const double resolution = request.at("resolution").get<double>();
-    octomap::OcTree tree(resolution);
-
-    for (const auto& action : request.at("actions"))
+    for (const auto& action : actions)
     {
       const std::string type = action.at("type").get<std::string>();
       const bool lazy_eval = action.value("lazy_eval", false);
@@ -1443,6 +1445,13 @@ private:
         throw std::runtime_error("octomap: unsupported action type " + type);
       }
     }
+  }
+
+  json octomapOp(const json& request) const
+  {
+    const double resolution = request.at("resolution").get<double>();
+    octomap::OcTree tree(resolution);
+    applyOctomapActions(tree, request.at("actions"));
 
     json results = json::array();
     for (const auto& query : request.at("queries"))
@@ -1496,6 +1505,73 @@ private:
     }
 
     return json{ { "results", results } };
+  }
+
+  /// Ground truth for wiring `shapes::OcTree` into
+  /// `collision_detection::World` -- the round-2 gap this task flagged:
+  /// MoveIt represents sensor-derived obstacles as an octomap *inside the
+  /// collision world*, and nothing prior to this op exercised that path.
+  /// Builds an `octomap::OcTree` from `request["actions"]` (identical
+  /// vocabulary to octomapOp, replayed through the same applyOctomapActions
+  /// helper), wraps it in a `shapes::OcTree` exactly as
+  /// `collision_detection::World::addToObject` expects any shape, adds it to
+  /// a `World` object at `request["object_pose"]` (with an optional
+  /// per-shape `request["shape_pose"]`, identity if absent), then reports:
+  ///  - the shape's local pose and its world-composed global pose (the same
+  ///    fields the `world` op above reports for any shape) -- this confirms
+  ///    `World` composes an OcTree shape's pose the same generic way it
+  ///    composes any other shape, i.e. nothing octree-specific happens at
+  ///    this layer, matching this port's finding that neither
+  ///    collision_detection_fcl nor collision_env_distance_field special-case
+  ///    *pose* handling, only the geometry conversion;
+  ///  - for each `request["queries"]` world-frame point, whether it is
+  ///    occupied, computed the way a collision backend must: invert the
+  ///    shape's global pose to map the world-frame point into the octree's
+  ///    own local frame, then query that local point. This is the
+  ///    computation collision_common.cpp's `fcl::OcTreed` wrap and
+  ///    collision_env_distance_field.cpp's
+  ///    `PosedBodyPointDecomposition(octree)` each rely on their own backend
+  ///    performing before an octree query means anything in world
+  ///    coordinates -- see crates/moveit-geometry/src/shapes.rs's module docs
+  ///    for the full FCL/parry3d-f64/distance-field consumer analysis.
+  json octreeInWorld(const json& request) const
+  {
+    const double resolution = request.at("resolution").get<double>();
+    auto tree = std::make_shared<octomap::OcTree>(resolution);
+    applyOctomapActions(*tree, request.at("actions"));
+
+    auto shape = std::make_shared<shapes::OcTree>(tree);
+
+    collision_detection::World w;
+    const Eigen::Isometry3d object_pose = fromRowMajor4x4(request.at("object_pose"));
+    const Eigen::Isometry3d shape_pose =
+        request.contains("shape_pose") ? fromRowMajor4x4(request.at("shape_pose")) : Eigen::Isometry3d::Identity();
+
+    const std::vector<shapes::ShapeConstPtr> shape_ptrs{ shape };
+    const EigenSTL::vector_Isometry3d shape_poses{ shape_pose };
+    w.addToObject("octree_object", object_pose, shape_ptrs, shape_poses);
+
+    const EigenSTL::vector_Isometry3d& global_shape_poses = w.getGlobalShapeTransforms("octree_object");
+    const Eigen::Isometry3d& global_pose = global_shape_poses.at(0);
+
+    json queries_out = json::array();
+    for (const auto& query : request.at("queries"))
+    {
+      const auto p = query.at("point").get<std::array<double, 3>>();
+      const Eigen::Vector3d world_point(p[0], p[1], p[2]);
+      const Eigen::Vector3d local_point = global_pose.inverse() * world_point;
+
+      const octomap::OcTreeNode* node = tree->search(local_point.x(), local_point.y(), local_point.z());
+      if (node == nullptr)
+        queries_out.push_back(json{ { "mapped", false } });
+      else
+        queries_out.push_back(
+            json{ { "mapped", true }, { "log_odds", node->getLogOdds() }, { "occupancy", node->getOccupancy() } });
+    }
+
+    return json{ { "shape_pose", toRowMajor4x4(shape_pose) },
+                  { "global_pose", toRowMajor4x4(global_pose) },
+                  { "queries", queries_out } };
   }
 
   moveit::core::RobotModelPtr model_;

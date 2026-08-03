@@ -1,0 +1,236 @@
+[
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      },
+      {
+        "occupied": false,
+        "point": [
+          0.35,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 1,
+    "object_pose": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "op": "octree_in_world",
+    "queries": [
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "point": [
+          0.35,
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "point": [
+          5.0,
+          5.0,
+          5.0
+        ]
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 2,
+    "object_pose": [
+      1,
+      0,
+      0,
+      2.0,
+      0,
+      1,
+      0,
+      3.0,
+      0,
+      0,
+      1,
+      4.0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "op": "octree_in_world",
+    "queries": [
+      {
+        "point": [
+          2.05,
+          3.05,
+          4.05
+        ]
+      },
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ]
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 3,
+    "object_pose": [
+      0,
+      -1,
+      0,
+      1.0,
+      1,
+      0,
+      0,
+      2.0,
+      0,
+      0,
+      1,
+      0.0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "op": "octree_in_world",
+    "queries": [
+      {
+        "point": [
+          0.95,
+          2.05,
+          0.05
+        ]
+      },
+      {
+        "point": [
+          1.05,
+          2.05,
+          0.05
+        ]
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "occupied": true,
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ],
+        "type": "update_point"
+      }
+    ],
+    "id": 4,
+    "object_pose": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "op": "octree_in_world",
+    "queries": [
+      {
+        "point": [
+          5.05,
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "point": [
+          0.05,
+          0.05,
+          0.05
+        ]
+      }
+    ],
+    "resolution": 0.1,
+    "shape_pose": [
+      1,
+      0,
+      0,
+      5.0,
+      0,
+      1,
+      0,
+      0.0,
+      0,
+      0,
+      1,
+      0.0,
+      0,
+      0,
+      0,
+      1
+    ]
+  }
+]

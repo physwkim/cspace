@@ -321,6 +321,7 @@ dependencies = [
  "moveit-octomap",
  "nalgebra",
  "parry3d-f64",
+ "serde",
  "serde_json",
 ]
 
