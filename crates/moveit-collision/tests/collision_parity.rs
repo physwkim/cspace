@@ -1574,8 +1574,9 @@ fn load_self_wheel_oracle_points() -> Vec<SelfWheelOraclePoint> {
 /// doc already names as producing this backend's own frozen `-0.046592m`
 /// constant (the wheel-roll joint cannot move the closest point). Of those
 /// 10, 3 have an oracle magnitude exceeding twice the wheel's own bounding
-/// radius (`link_bounding_radius`, `0.1534m` for a pr2 caster wheel) --
-/// geometrically impossible for that pair, on either backend, the same
+/// radius (`link_bounding_radius`, `0.0767m` for a pr2 caster wheel, so a
+/// `0.1534m` bound) -- geometrically impossible for that pair, on either
+/// backend, the same
 /// failure mode `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`
 /// already documents for deviation 6(a). The remaining 7 stay within that
 /// bound and are not adjudicated by it either way: a within-bound number is
