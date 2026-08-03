@@ -28,6 +28,7 @@
 
 #include <moveit/collision_detection/collision_matrix.hpp>
 #include <moveit/collision_detection/world.hpp>
+#include <moveit/collision_distance_field/collision_distance_field_types.hpp>
 #include <moveit/distance_field/find_internal_points.hpp>
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/robot_model/robot_model.hpp>
@@ -114,6 +115,50 @@ std::string shapeTypeName(shapes::ShapeType type)
   throw std::runtime_error("unknown shapes::ShapeType");
 }
 
+/// Builds the `shapes::Shape` named by `request["shape"]["type"]` --
+/// `"sphere"`, `"box"`, `"cylinder"` or `"mesh"`, the four `bodies::` has a
+/// case for. Shared by `shapePoints` and `collisionDistanceFieldTypes`,
+/// which both need a shape built from the same wire format.
+std::shared_ptr<shapes::Shape> parseShape(const std::string& type, const json& shape_json)
+{
+  if (type == "sphere")
+  {
+    return std::make_shared<shapes::Sphere>(shape_json.at("radius").get<double>());
+  }
+  if (type == "box")
+  {
+    const auto size = shape_json.at("size").get<std::array<double, 3>>();
+    return std::make_shared<shapes::Box>(size[0], size[1], size[2]);
+  }
+  if (type == "cylinder")
+  {
+    return std::make_shared<shapes::Cylinder>(shape_json.at("radius").get<double>(),
+                                               shape_json.at("length").get<double>());
+  }
+  if (type == "mesh")
+  {
+    const auto vertices_json = shape_json.at("vertices");
+    const auto triangles_json = shape_json.at("triangles");
+    auto mesh = std::make_shared<shapes::Mesh>(vertices_json.size(), triangles_json.size());
+    for (std::size_t i = 0; i < vertices_json.size(); ++i)
+    {
+      const auto v = vertices_json[i].get<std::array<double, 3>>();
+      mesh->vertices[3 * i] = v[0];
+      mesh->vertices[3 * i + 1] = v[1];
+      mesh->vertices[3 * i + 2] = v[2];
+    }
+    for (std::size_t i = 0; i < triangles_json.size(); ++i)
+    {
+      const auto t = triangles_json[i].get<std::array<unsigned int, 3>>();
+      mesh->triangles[3 * i] = t[0];
+      mesh->triangles[3 * i + 1] = t[1];
+      mesh->triangles[3 * i + 2] = t[2];
+    }
+    return mesh;
+  }
+  throw std::runtime_error("unsupported shape type " + type);
+}
+
 /// Matches AllowedCollisionType's variant names in protocol.rs.
 std::string allowedCollisionTypeToString(collision_detection::AllowedCollision::Type type)
 {
@@ -170,6 +215,8 @@ public:
       return distanceField(request);
     if (op == "shape_points")
       return shapePoints(request);
+    if (op == "collision_distance_field_types")
+      return collisionDistanceFieldTypes(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -678,46 +725,7 @@ private:
     const Eigen::Isometry3d pose = fromRowMajor4x4(request.at("pose"));
     const double resolution = request.at("resolution").get<double>();
 
-    std::unique_ptr<shapes::Shape> shape;
-    if (type == "sphere")
-    {
-      shape = std::make_unique<shapes::Sphere>(shape_json.at("radius").get<double>());
-    }
-    else if (type == "box")
-    {
-      const auto size = shape_json.at("size").get<std::array<double, 3>>();
-      shape = std::make_unique<shapes::Box>(size[0], size[1], size[2]);
-    }
-    else if (type == "cylinder")
-    {
-      shape = std::make_unique<shapes::Cylinder>(shape_json.at("radius").get<double>(),
-                                                  shape_json.at("length").get<double>());
-    }
-    else if (type == "mesh")
-    {
-      const auto vertices_json = shape_json.at("vertices");
-      const auto triangles_json = shape_json.at("triangles");
-      auto* mesh = new shapes::Mesh(vertices_json.size(), triangles_json.size());
-      for (std::size_t i = 0; i < vertices_json.size(); ++i)
-      {
-        const auto v = vertices_json[i].get<std::array<double, 3>>();
-        mesh->vertices[3 * i] = v[0];
-        mesh->vertices[3 * i + 1] = v[1];
-        mesh->vertices[3 * i + 2] = v[2];
-      }
-      for (std::size_t i = 0; i < triangles_json.size(); ++i)
-      {
-        const auto t = triangles_json[i].get<std::array<unsigned int, 3>>();
-        mesh->triangles[3 * i] = t[0];
-        mesh->triangles[3 * i + 1] = t[1];
-        mesh->triangles[3 * i + 2] = t[2];
-      }
-      shape.reset(mesh);
-    }
-    else
-    {
-      throw std::runtime_error("shape_points: unsupported shape type " + type);
-    }
+    std::shared_ptr<shapes::Shape> shape = parseShape(type, shape_json);
 
     bodies::Body* body = bodies::createEmptyBodyFromShapeType(shape->type);
     body->setDimensionsDirty(shape.get());
@@ -733,6 +741,130 @@ private:
       points_out.push_back(json::array({ p.x(), p.y(), p.z() }));
 
     return json{ { "points", points_out } };
+  }
+
+  /// Ground truth for `collision_distance_field_types.{hpp,cpp}`: the two
+  /// pieces `shapePoints`/`distanceField` above do not exercise --
+  /// `BodyDecomposition`'s sphere decomposition
+  /// (`determineCollisionSpheres` + `computeBoundingSphere`) and
+  /// `PosedDistanceField`'s pose-transform order, both directly and through
+  /// `getCollisionSphereGradients`.
+  ///
+  /// `request["shape_pose"]` poses the shape `BodyDecomposition` is built
+  /// from -- note this uses the *vector* constructor
+  /// (`BodyDecomposition(shapes, poses, resolution, padding)`), not the
+  /// single-shape one, because upstream's single-shape constructor always
+  /// passes `Eigen::Isometry3d::Identity()` for the pose regardless of what
+  /// the caller wants (see `collision_distance_field_types.cpp`), which
+  /// would make a non-identity `shape_pose` untestable through it.
+  ///
+  /// The collision-sphere-gradient integration poses each decomposed
+  /// sphere's `relative_vec_` by that same `shape_pose` before querying --
+  /// matching what a real caller does through
+  /// `PosedBodySphereDecomposition::updatePose(shape_pose)`, without
+  /// depending on that (unported) type here.
+  json collisionDistanceFieldTypes(const json& request) const
+  {
+    const json& shape_json = request.at("shape");
+    const std::string type = shape_json.at("type").get<std::string>();
+    const Eigen::Isometry3d shape_pose = fromRowMajor4x4(request.at("shape_pose"));
+    const double resolution = request.at("resolution").get<double>();
+    const double padding = request.at("padding").get<double>();
+
+    shapes::ShapeConstPtr shape = parseShape(type, shape_json);
+    std::vector<shapes::ShapeConstPtr> shapes_vec{ shape };
+    EigenSTL::vector_Isometry3d poses_vec{ shape_pose };
+    collision_detection::BodyDecomposition body_decomp(shapes_vec, poses_vec, resolution, padding);
+
+    json spheres_out = json::array();
+    for (const collision_detection::CollisionSphere& cs : body_decomp.getCollisionSpheres())
+    {
+      spheres_out.push_back(json{ { "relative_vec", json::array({ cs.relative_vec_.x(), cs.relative_vec_.y(),
+                                                                    cs.relative_vec_.z() }) },
+                                   { "radius", cs.radius_ } });
+    }
+
+    json out;
+    out["collision_spheres"] = spheres_out;
+    out["relative_cylinder_pose"] = toRowMajor4x4(body_decomp.getRelativeCylinderPose());
+    out["bounding_sphere"] = json{
+      { "center", json::array({ body_decomp.getRelativeBoundingSphere().center.x(),
+                                 body_decomp.getRelativeBoundingSphere().center.y(),
+                                 body_decomp.getRelativeBoundingSphere().center.z() }) },
+      { "radius", body_decomp.getRelativeBoundingSphere().radius }
+    };
+
+    const json& field_json = request.at("posed_field");
+    const json& geom = field_json.at("geometry");
+    const auto size = geom.at("size").get<std::array<double, 3>>();
+    const auto origin = geom.at("origin").get<std::array<double, 3>>();
+    const double field_resolution = geom.at("resolution").get<double>();
+    const double max_distance = field_json.at("max_distance").get<double>();
+    const bool propagate_negative = field_json.at("propagate_negative").get<bool>();
+    const Eigen::Isometry3d field_pose = fromRowMajor4x4(field_json.at("field_pose"));
+
+    collision_detection::PosedDistanceField posed_field(Eigen::Vector3d(size[0], size[1], size[2]),
+                                                         Eigen::Vector3d(origin[0], origin[1], origin[2]),
+                                                         field_resolution, max_distance, propagate_negative);
+
+    EigenSTL::vector_Vector3d occupied_points;
+    for (const auto& cell_json : field_json.at("occupied_cells"))
+    {
+      const auto cell = cell_json.get<std::array<int, 3>>();
+      double wx = NAN;
+      double wy = NAN;
+      double wz = NAN;
+      posed_field.gridToWorld(cell[0], cell[1], cell[2], wx, wy, wz);
+      occupied_points.emplace_back(wx, wy, wz);
+    }
+    posed_field.addPointsToField(occupied_points);
+    posed_field.updatePose(field_pose);
+
+    json gradients_out = json::array();
+    for (const auto& q : request.at("gradient_queries"))
+    {
+      const auto pt = q.get<std::array<double, 3>>();
+      double gx = NAN;
+      double gy = NAN;
+      double gz = NAN;
+      bool in_bounds = false;
+      const double dist = posed_field.getDistanceGradient(pt[0], pt[1], pt[2], gx, gy, gz, in_bounds);
+      gradients_out.push_back(
+          json{ { "distance", dist }, { "gradient", json::array({ gx, gy, gz }) }, { "in_bounds", in_bounds } });
+    }
+    out["gradients"] = gradients_out;
+
+    EigenSTL::vector_Vector3d sphere_centers;
+    for (const collision_detection::CollisionSphere& cs : body_decomp.getCollisionSpheres())
+      sphere_centers.push_back(shape_pose * cs.relative_vec_);
+
+    collision_detection::GradientInfo grad_info;
+    const std::size_t n_spheres = body_decomp.getCollisionSpheres().size();
+    grad_info.distances.assign(n_spheres, DBL_MAX);
+    grad_info.types.assign(n_spheres, collision_detection::NONE);
+    grad_info.gradients.assign(n_spheres, Eigen::Vector3d::Zero());
+
+    const bool collision = posed_field.getCollisionSphereGradients(
+        body_decomp.getCollisionSpheres(), sphere_centers, grad_info, collision_detection::SELF,
+        /*tolerance=*/0.0, /*subtract_radii=*/true, /*maximum_value=*/1.0e6, /*stop_at_first_collision=*/false);
+
+    json distances_out = json::array();
+    json types_out = json::array();
+    json grads_out = json::array();
+    for (std::size_t i = 0; i < n_spheres; ++i)
+    {
+      distances_out.push_back(grad_info.distances[i]);
+      types_out.push_back(static_cast<int>(grad_info.types[i]));
+      grads_out.push_back(
+          json::array({ grad_info.gradients[i].x(), grad_info.gradients[i].y(), grad_info.gradients[i].z() }));
+    }
+    out["collision_gradient"] = json{ { "closest_distance", grad_info.closest_distance },
+                                       { "collision", collision },
+                                       { "distances", distances_out },
+                                       { "types", types_out },
+                                       { "gradients", grads_out } };
+
+    return out;
   }
 
   moveit::core::RobotModelPtr model_;
