@@ -1,0 +1,6 @@
+{
+  "panda_frame_transform": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}

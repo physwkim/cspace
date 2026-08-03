@@ -48,6 +48,14 @@
 //! result. Case 2 attaches the same sphere translated `-0.1m` in z, driving
 //! it `0.1m` into the floor's top face at `z = 0`; the oracle reports
 //! `robot_collision: true, robot_distance: -0.1` bit-exact with the offset.
+//!
+//! `pr2_attached_collision.json` is a hand-built "cases" shape (one summary
+//! object per case, not the literal oracle wire request), so it is not
+//! covered by `tools/ci/verify-fixture-replay.sh`'s `oracle-models.json`
+//! manifest: replaying it would mean reconstructing a `collision` wire
+//! request from these summary fields for each case, a different job from
+//! diffing an already-captured request/response pair. Intentionally absent,
+//! not an oversight.
 
 use std::collections::BTreeMap;
 use std::fs;
