@@ -7097,3 +7097,81 @@ scene.rs:2642 = "// ---- collision checking ----"           (일치)
 `7cc8a73408a83c92` 유지.
 
 담당이 보고한 1003/1003과 28/28은 베이스 `cd13b7f` 기준 값이다.
+
+## 84. §77.2가 닫혔다 — 그리고 죽은 분기 하나를 실측으로 확인했다 (2026-08-04)
+
+p1-robotmodel 라운드 10 머지(`10306a3`, `ec01208`). 베이스 `b0520ce`,
+main에 머지. **1023 → 1036**.
+
+### 84.1 `sample_pose`의 네 줄이 전부 물린다
+
+§77.2에서 `sample_pose`의 다섯 줄 중 넷이 부호·순서를 뒤집어도 통과한다고
+적었다. 담당이 `tests/ik_sampler.rs`에 네 건을 추가했다 — 각각 시드된 RNG를
+이미 검증된 프리미티브로 재생해서 `sample_pose` 자신의 산술과 **독립으로**
+계산한 기대값과 비교한다. 내가 네 갈래를 다시 흔들어
+`-p moveit-constraints`(88건)를 `--no-fail-fast`로 돌린 결과:
+
+```
+XYZ 오일러 → ZYX 뒤집기                  3 fail
+`.transpose()` 삭제                      1 fail
+`frame_rot * quat` → `quat * frame_rot`  1 fail
+`pos -=` → `pos +=`                      1 fail
+```
+
+네 갈래 전부 물린다. **§77.2의 미핀 항목이 닫혔다.** 오일러 뒤집기가
+3건을 떨어뜨리는 것은 나머지 두 테스트가 같은 오일러 단계를 공유하기
+때문이고, 담당 보고와 일치한다.
+
+### 84.2 동률 처리의 비대칭이 상류와 맞다 — 한쪽은 도달 불가
+
+`ConstraintSamplerManager::selectDefaultSampler`가
+`select_default_sampler`로 이식됐다. 동률 방향이 두 곳에서 반대인데,
+상류를 직접 읽어 확인했다
+(`constraint_sampler_manager.cpp`):
+
+```
+링크별 삽입 (:194)   if (used_l[link]->getSamplingVolume() < iks->...) use = false;
+                     → 동률이면 use가 true로 남아 새 후보가 이긴다 (나중 승)
+링크 간 축약 (:303)  if (v < msv) { iks = it->second; msv = v; }
+                     → 동률이면 갱신하지 않아 첫 후보가 이긴다 (먼저 승)
+```
+
+Rust 쪽도 각각 `existing < candidate`(나중 승)와 `b <= candidate`이면
+`b` 유지(먼저 승)로 정확히 반대다. `BTreeMap`이 `std::map`의 키 순서와
+같으므로 "먼저"의 뜻도 일치한다.
+
+**두 방향을 각각 뒤집어 봤더니 결과가 갈렸다:**
+
+```
+링크별 동률 방향 뒤집기 (< → <=)    1 fail
+링크 간 동률 방향 뒤집기 (<= → <)   0 fail — 88/88 통과
+```
+
+링크 간 쪽은 재고 있지 않다. 다만 이건 §79 계열의 구멍이 아니라
+**구조적 도달 불가**다. `ik_sampler.rs:177`이 제약 링크가 솔버의 tip
+프레임과 같지 않으면 생성 자체를 거절하므로(고정 링크 브리징 미이식),
+한 그룹에 솔버 하나·tip 하나면 `used`의 키는 최대 하나다. 담당의 UNFIXED가
+그 사실을 정확히 적었고 내 실측이 그것과 일치한다.
+
+**그래서 남는 것은 설계 결정이다.** 키가 최대 하나임이 구성상 보장된다면
+그 상태는 `BTreeMap`이 아니라 `Option<(String, _)>`이어야 하고, 그러면
+`>1` 분기와 그 안의 동률 비교가 아예 표현 불가능해진다. 지금은 "나중에
+브리징이 들어오면 쓰려고" 충실 이식으로 남겨 둔, 영원히 실행되지 않는
+분기다. 다음 라운드에 이 선택을 매듭짓게 한다.
+
+### 84.3 `too_many_arguments`를 구조로 닫았다
+
+`select_default_sampler_inner`의 clippy 경고를 `#[allow]`이 아니라
+세 제약 종류 슬라이스를 `GroupConstraints`로 묶어서 닫았다. 억제 금지
+규칙이 실제로 지켜진 사례다.
+
+### 84.4 머지 후 실측
+
+`cargo nextest run --workspace --no-fail-fast` **1036/1036**(1023 + 13),
+`cargo test --doc --workspace` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사와
+연속 reseed 검사 통과, 재생 **29/29 identical**. 스탬프
+`7cc8a73408a83c92` 유지.
+
+담당이 보고한 1023/1023은 베이스 `b0520ce` 기준 값인데, 우연히 머지 전
+main의 수와 같다.
