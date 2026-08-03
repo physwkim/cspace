@@ -210,6 +210,29 @@
 //!   field does one level down, for the `octomap::OcTree` it wraps); there is no
 //!   separate named type to port for a type alias whose only job upstream is
 //!   working around the lack of a language-level ownership model.
+//! - Each concrete class's own constructors (`Sphere()`/`Sphere(double)`,
+//!   `Cylinder()`/`Cylinder(double, double)`, `Cone()`/`Cone(double, double)`,
+//!   `Box()`/`Box(double, double, double)`, `Mesh()`, `Plane()`/`Plane(double,
+//!   double, double, double)`, `OcTree()`/`OcTree(const shared_ptr<const
+//!   octomap::OcTree>&)` — 13 declarations, `Mesh(unsigned int, unsigned
+//!   int)` already covered above) and each concrete class's own data fields
+//!   (`Sphere::radius`, `Cylinder`/`Cone`'s `length`/`radius`, `Box::size`,
+//!   `Mesh`'s six count/pointer fields, `Plane`'s `a`/`b`/`c`/`d`, `OcTree`'s
+//!   `octree`, already named in deviation 6 above) — **ported, direct
+//!   constructor-for-constructor and field-for-field**, one Rust field or
+//!   `new`/`try_new` parameter per upstream field or constructor parameter,
+//!   per variant's own struct definition. **Addition, round 17 item 3:**
+//!   absent from every walk through round 8 as its own accounted-for bullet
+//!   — the general "direct field-for-field port" statement in the D4 design
+//!   section above (in the `Cuboid` rename paragraph) was never restated
+//!   here as covering the other six variants' constructors and fields too.
+//! - The `using Shape::padd;`/`using Shape::scale;` using-declarations in
+//!   `Cylinder`/`Cone`/`Box`/`Mesh` — not a declaration (no new symbol; a
+//!   C++ visibility mechanism reintroducing the base overload set alongside
+//!   each subclass's own overloads), skipped. Rust has no equivalent
+//!   shadowing rule to work around: [`Shape::scale`]/[`Shape::padd`] and
+//!   each variant's `scale_axes`/`padd_axes` are just differently-named
+//!   methods, not overloads competing for the same name.
 //!
 //! `shape_operations.h`, the 12 free functions:
 //!
@@ -217,10 +240,13 @@
 //!   plus the `ShapeMsg` variant dispatcher — 4 declarations total),
 //!   `constructMsgFromShape`, `constructMarkerFromShape`,
 //!   `computeShapeExtents(const ShapeMsg&)` — **D-decision excludes (D1).**
-//!   All six take or produce `shape_msgs`/`visualization_msgs` ROS message
-//!   types; PORTING-PLAN.md D1 keeps ROS-message (de)serialization and the
-//!   rviz marker layer out of the core crates entirely (see the provenance
-//!   comment at the top of this file).
+//!   All seven take or produce `shape_msgs`/`visualization_msgs` ROS message
+//!   types (4 + 1 + 1 + 1 = 7, not 6 — **correction, round 17 item 3**: the
+//!   prior wording undercounted `constructShapeFromMsg`'s own 4 overloads by
+//!   one against the other three named declarations); PORTING-PLAN.md D1
+//!   keeps ROS-message (de)serialization and the rviz marker layer out of
+//!   the core crates entirely (see the provenance comment at the top of
+//!   this file).
 //! - `computeShapeExtents(const Shape*)` — **ported as [`Shape::extents`].**
 //! - `computeShapeBoundingSphere(const Shape*, center, radius)` — **ported as
 //!   [`Shape::bounding_sphere`]**, an owned [`BoundingSphere`] return instead
