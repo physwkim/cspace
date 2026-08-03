@@ -5,6 +5,10 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_optimal_trajectory_generation.hpp (lines 193-303)
 //   moveit_core/trajectory_processing/src/time_optimal_trajectory_generation.cpp (lines 918-1312)
+//
+// Considered and deliberately not ported:
+//   moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_parameterization.hpp
+//   (see the "Not ported: `TimeParameterization`" section below)
 
 //! `trajectory_processing::TimeOptimalTrajectoryGeneration`: the
 //! [`crate::robot_trajectory::RobotTrajectory`] adapter around the
@@ -77,6 +81,51 @@
 //! [`crate::trajectory_tools::apply_totg_time_parameterization`] wraps this
 //! same overload and inherits the identical gap; see that module's doc
 //! comment.
+//!
+//! # Not ported: `TimeParameterization`
+//!
+//! Upstream's `TimeOptimalTrajectoryGeneration` implements the abstract
+//! base class `trajectory_processing::TimeParameterization`
+//! (`time_parameterization.hpp`) — three pure-virtual `computeTimeStamps`
+//! overloads matching this type's own three. No trait is ported for it, for
+//! a reason specific to upstream's actual implementor set rather than to
+//! the mere existence of the base class:
+//!
+//! - `rg -n 'public TimeParameterization'` across the entire pinned
+//!   upstream checkout returns exactly one match —
+//!   `TimeOptimalTrajectoryGeneration` itself. `RuckigSmoothing`
+//!   (`ruckig_traj_smoothing.hpp`) does not inherit it, despite covering
+//!   the same "time-parameterize a trajectory" role; its own `applySmoothing`
+//!   has a different name and signature. No other type anywhere in the
+//!   checkout inherits it either.
+//! - No call site anywhere in upstream takes a `TimeParameterization&`,
+//!   `TimeParameterizationPtr`, or holds one in a container — confirmed by
+//!   grepping the symbol outside its own header and
+//!   `time_optimal_trajectory_generation.hpp`. There is no `pluginlib`
+//!   export macro for it, and no factory selects between implementations
+//!   by name or config, unlike D4's actual motivating cases (planner
+//!   backends selected at runtime).
+//!
+//! One implementor, zero polymorphic call sites: this is an abstraction
+//! upstream declared but never exercises. D4's compile-time plugin registry
+//! (`PORTING-PLAN.md` §0, trait + `linkme`) earns its cost when upstream
+//! actually substitutes implementations; a `TimeParameterization` trait
+//! here would have exactly one `impl` and nothing that calls through the
+//! trait object instead of the concrete type — an unused trait, which is a
+//! worse artifact than the documented decision not to add one.
+//!
+//! Separately, and regardless of the above: a faithful trait would not be
+//! constructible under D1 anyway. The third pure-virtual overload takes
+//! `const std::vector<moveit_msgs::msg::JointLimits>&`
+//! (`time_parameterization.hpp:55-58`) — the same `moveit_msgs` type this
+//! module's own inherent third overload excludes above. A trait method
+//! signature is exactly as core-crate-visible as a free function's, so D1
+//! excludes that method the same way; a trait with two of its three
+//! required methods would not mirror the base class it claims to model.
+//! This is the D1 exclusion propagating from a leaf type up into an
+//! interface shape, not a new decision — named here because an interface
+//! is where a partial exclusion becomes structurally visible in a way a
+//! single skipped free function does not.
 //!
 //! # Deviations from upstream
 //!
