@@ -14,11 +14,15 @@ use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, UnitQuaternion};
 use moveit_srdf::{Group, SrdfModel, VirtualJointType};
 use nalgebra::Translation3;
+use roxmltree::Document;
 
 use crate::diagnostic::Diagnostic;
 use crate::joint::{JointModel, JointType, PlanarMotionModel, joint_model_from_urdf};
 use crate::joint_model_group::JointModelGroup;
 use crate::link_model::LinkModel;
+
+/// The `source_kind` every [`Error::Parse`] from this module carries.
+const URDF: &str = "URDF";
 
 /// The tree/index bookkeeping upstream stores directly on `JointModel`
 /// (`joint_index_`, `first_variable_index_`, `parent_link_model_`,
@@ -100,6 +104,14 @@ pub struct RobotModel {
 impl RobotModel {
     /// Build a model from a URDF and its matching SRDF.
     ///
+    /// `urdf_xml` must be the same document `urdf` was parsed from: `urdf_rs`
+    /// discards whether each `<joint>` had a `<limit>` element at all
+    /// (`Joint::limit` is `#[serde(default)]`, not `Option`), which the joint
+    /// layer's bounds computation needs to distinguish "no limit" from an
+    /// explicit all-zero one (upstream tells them apart via a null
+    /// `urdf_joint->limits` pointer). This is recovered here by reading the
+    /// raw XML directly, see [`joint_limit_presence`].
+    ///
     /// Upstream `RobotModel::RobotModel`/`buildModel`.
     ///
     /// # Errors
@@ -107,7 +119,15 @@ impl RobotModel {
     /// [`Error::Construct`] if the URDF has no link with no parent joint (no
     /// root), more than one such link, or a joint
     /// [`joint_model_from_urdf`] rejects (a `Spherical` joint).
-    pub fn from_urdf_and_srdf(urdf: &urdf_rs::Robot, srdf: &SrdfModel) -> Result<Self> {
+    ///
+    /// [`Error::Parse`] if `urdf_xml` is not well-formed XML.
+    pub fn from_urdf_and_srdf(
+        urdf: &urdf_rs::Robot,
+        urdf_xml: &str,
+        srdf: &SrdfModel,
+    ) -> Result<Self> {
+        let limit_presence = joint_limit_presence(urdf_xml)?;
+
         // Upstream builds this same adjacency in `urdf::ModelInterface::initTree`,
         // which iterates `joints_` — a `std::map<std::string, JointSharedPtr>` — in
         // ascending key order. Each parent link's `child_joints` therefore ends up
@@ -157,6 +177,7 @@ impl RobotModel {
         let mut building = Building {
             srdf,
             children,
+            limit_presence,
             joints: Vec::new(),
             joint_index_by_name: HashMap::new(),
             joint_names: Vec::new(),
@@ -390,6 +411,33 @@ fn isometry_from_urdf_pose(pose: &urdf_rs::Pose) -> Isometry3 {
     )
 }
 
+/// Which of the raw URDF's `<joint>` elements have a `<limit>` child, keyed
+/// by joint name.
+///
+/// `urdf_rs::Joint::limit` is `#[serde(default)]`, not `Option`, so a missing
+/// `<limit>` element and an explicit all-zero one deserialize identically;
+/// upstream's `jointBoundsFromURDF` tells them apart with a null
+/// `urdf_joint->limits` pointer. Reading the raw XML directly — the same
+/// approach `moveit_srdf` takes to parse the SRDF — recovers the
+/// distinction for `joint::urdf::joint_bounds_from_urdf` to use.
+fn joint_limit_presence(urdf_xml: &str) -> Result<HashMap<String, bool>> {
+    let doc = Document::parse(urdf_xml).map_err(|e| Error::Parse {
+        source_kind: URDF,
+        message: e.to_string(),
+    })?;
+    Ok(doc
+        .root_element()
+        .children()
+        .filter(|n| n.has_tag_name("joint"))
+        .filter_map(|joint| {
+            joint.attribute("name").map(|name| {
+                let has_limit = joint.children().any(|c| c.has_tag_name("limit"));
+                (name.to_string(), has_limit)
+            })
+        })
+        .collect())
+}
+
 /// The in-progress state of a [`RobotModel`] build: the tree walk
 /// (`buildRecursive`), mimic resolution (`buildMimic`), and group
 /// construction (`buildGroups`) all need the same link/joint index maps, so
@@ -398,6 +446,7 @@ fn isometry_from_urdf_pose(pose: &urdf_rs::Pose) -> Isometry3 {
 struct Building<'a> {
     srdf: &'a SrdfModel,
     children: HashMap<&'a str, Vec<&'a urdf_rs::Joint>>,
+    limit_presence: HashMap<String, bool>,
     joints: Vec<JointNode>,
     joint_index_by_name: HashMap<String, usize>,
     joint_names: Vec<String>,
@@ -454,7 +503,12 @@ impl<'a> Building<'a> {
         // `self.children` before the recursive call below needs `&mut self`.
         let children = self.children.get(link_name).cloned().unwrap_or_default();
         for child_joint in children {
-            let child_model = joint_model_from_urdf(child_joint)?;
+            let limit_present = self
+                .limit_presence
+                .get(&child_joint.name)
+                .copied()
+                .unwrap_or(false);
+            let child_model = joint_model_from_urdf(child_joint, limit_present)?;
             let origin = isometry_from_urdf_pose(&child_joint.origin);
             self.visit(
                 Some(link_index),
@@ -906,7 +960,7 @@ mod tests {
     fn build(urdf_xml: &str, srdf_xml: &str) -> Result<RobotModel> {
         let urdf = urdf_rs::read_from_string(urdf_xml).expect("test URDF must parse");
         let srdf = SrdfModel::parse_str(srdf_xml).expect("test SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, &srdf)
+        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf)
     }
 
     fn revolute_joint(name: &str, parent: &str, child: &str, mimic: &str) -> String {
@@ -936,6 +990,56 @@ mod tests {
             j2 = revolute_joint("j2", "mid", "mid2", j2_mimic),
             j3 = revolute_joint("j3", "mid2", "tip", j3_mimic),
         )
+    }
+
+    /// The presence-detection boundary `panda`/`fanuc` never exercise: a
+    /// `<joint>` with no `<limit>` element at all must build unbounded, not
+    /// clamped to `[0, 0]` the way an explicit all-zero `<limit>` is.
+    /// `urdf_rs::Joint::limit` deserializes identically in both cases
+    /// (`#[serde(default)]`), so this specifically exercises
+    /// `joint_limit_presence`'s raw-XML read, not just `joint_bounds_from_urdf`
+    /// in isolation.
+    ///
+    /// Prismatic, not revolute: a non-continuous revolute joint's
+    /// `position_bounded` is unconditionally forced `true` by
+    /// `JointModel::set_continuous(false)` regardless of `<limit>` presence
+    /// (matches upstream's `RevoluteJointModel::setContinuous`), so it can't
+    /// show this distinction; prismatic joints never call `set_continuous`.
+    #[test]
+    fn joint_with_no_limit_element_is_unbounded_not_a_zero_width_bound() {
+        let urdf = r#"<robot name="test">
+            <link name="base"/>
+            <link name="mid"/>
+            <link name="tip"/>
+            <joint name="with_limit" type="prismatic">
+                <parent link="base"/>
+                <child link="mid"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="0" upper="0" effort="0" velocity="0"/>
+            </joint>
+            <joint name="without_limit" type="prismatic">
+                <parent link="mid"/>
+                <child link="tip"/>
+                <axis xyz="0 0 1"/>
+            </joint>
+        </robot>"#;
+        let model = build(urdf, FIXED_BASE_SRDF).expect("builds");
+
+        let with_limit = model.joint_model("with_limit").unwrap().variable_bounds()[0];
+        let without_limit = model
+            .joint_model("without_limit")
+            .unwrap()
+            .variable_bounds()[0];
+
+        assert!(with_limit.position_bounded);
+        assert_eq!(with_limit.min_position, 0.0);
+        assert_eq!(with_limit.max_position, 0.0);
+        assert!(!with_limit.velocity_bounded);
+
+        assert!(!without_limit.position_bounded);
+        assert!(!without_limit.velocity_bounded);
+
+        assert_ne!(with_limit, without_limit);
     }
 
     #[test]

@@ -146,7 +146,9 @@ fn joints_by_name(urdf_path: &str) -> HashMap<String, JointModel> {
         .joints
         .iter()
         .map(|joint| {
-            let model = joint_model_from_urdf(joint).expect("fixture joint must convert");
+            // Every revolute/continuous/prismatic joint in the panda and fanuc
+            // fixtures carries an explicit `<limit>` element.
+            let model = joint_model_from_urdf(joint, true).expect("fixture joint must convert");
             (model.name().to_string(), model)
         })
         .collect()

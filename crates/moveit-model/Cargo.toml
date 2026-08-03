@@ -13,6 +13,7 @@ moveit-error.workspace = true
 moveit-geometry.workspace = true
 moveit-srdf.workspace = true
 nalgebra.workspace = true
+roxmltree.workspace = true
 urdf-rs.workspace = true
 
 [dev-dependencies]

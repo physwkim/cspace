@@ -126,6 +126,7 @@ dependencies = [
  "moveit-geometry",
  "moveit-srdf",
  "nalgebra",
+ "roxmltree",
  "serde",
  "serde_json",
  "urdf-rs",

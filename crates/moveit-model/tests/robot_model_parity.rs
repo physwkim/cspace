@@ -58,6 +58,8 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
         srdf_file
     );
+    let urdf_xml =
+        fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
     let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
     assert!(
@@ -65,7 +67,7 @@ fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
         "fixture SRDF must parse cleanly: {:?}",
         srdf.diagnostics()
     );
-    RobotModel::from_urdf_and_srdf(&urdf, &srdf).expect("fixture model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
 }
 
 fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {

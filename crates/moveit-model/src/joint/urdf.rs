@@ -23,18 +23,23 @@ use super::model::JointModel;
 /// `urdf_rs::Joint` in hand (e.g. from walking `urdf_rs::Robot::joints`
 /// themselves, or constructing a virtual joint by hand from the SRDF).
 ///
+/// `limit_present` must be whether the original `<joint>` element had a
+/// `<limit>` child at all — see [`joint_bounds_from_urdf`]'s doc comment for
+/// why this can't be recovered from `joint.limit` alone, and thus must come
+/// from the caller.
+///
 /// # Errors
 ///
 /// [`Error::construct`] if `joint.joint_type` is [`urdf_rs::JointType::Spherical`],
 /// which has no MoveIt equivalent.
-pub fn joint_model_from_urdf(joint: &urdf_rs::Joint) -> Result<JointModel> {
+pub fn joint_model_from_urdf(joint: &urdf_rs::Joint, limit_present: bool) -> Result<JointModel> {
     use urdf_rs::JointType as UrdfJointType;
 
     let mut model = match joint.joint_type {
         UrdfJointType::Revolute => {
             let mut model = JointModel::new_revolute(joint.name.clone());
             model
-                .set_variable_bounds(&joint.name, joint_bounds_from_urdf(joint))
+                .set_variable_bounds(&joint.name, joint_bounds_from_urdf(joint, limit_present))
                 .expect("just constructed with this exact variable name");
             model
                 .set_continuous(false)
@@ -48,7 +53,7 @@ pub fn joint_model_from_urdf(joint: &urdf_rs::Joint) -> Result<JointModel> {
         UrdfJointType::Continuous => {
             let mut model = JointModel::new_revolute(joint.name.clone());
             model
-                .set_variable_bounds(&joint.name, joint_bounds_from_urdf(joint))
+                .set_variable_bounds(&joint.name, joint_bounds_from_urdf(joint, limit_present))
                 .expect("just constructed with this exact variable name");
             model
                 .set_continuous(true)
@@ -62,7 +67,7 @@ pub fn joint_model_from_urdf(joint: &urdf_rs::Joint) -> Result<JointModel> {
         UrdfJointType::Prismatic => {
             let mut model = JointModel::new_prismatic(joint.name.clone());
             model
-                .set_variable_bounds(&joint.name, joint_bounds_from_urdf(joint))
+                .set_variable_bounds(&joint.name, joint_bounds_from_urdf(joint, limit_present))
                 .expect("just constructed with this exact variable name");
             model
                 .as_prismatic_mut()
@@ -100,37 +105,41 @@ fn axis_vector(joint: &urdf_rs::Joint) -> Vector3 {
 /// Upstream `jointBoundsFromURDF`: bounds for a 1-DOF joint (revolute,
 /// continuous or prismatic).
 ///
-/// # Deviation from upstream
-///
-/// Upstream distinguishes "no `<limit>` element" (`urdf_joint->limits` is
-/// null) from an explicit all-zero one; `urdf_rs::Joint::limit` is not
-/// optional (`#[serde(default)]`), so this port cannot make that
-/// distinction and always takes the `<limit>`-present branch. This only
-/// changes behaviour for a joint with no `<limit>` tag at all — neither the
-/// panda nor the fanuc fixture has one on any revolute, continuous or
-/// prismatic joint — and for a `Continuous` joint it is harmless regardless:
-/// [`JointModel::set_continuous`]`(true)`, called immediately afterward,
-/// unconditionally overwrites the position bounds this function computes.
-fn joint_bounds_from_urdf(joint: &urdf_rs::Joint) -> VariableBounds {
+/// `limit_present` stands in for upstream's null check on `urdf_joint->limits`:
+/// `urdf_rs::Joint::limit` is `#[serde(default)]` rather than `Option`, so a
+/// missing `<limit>` element and an explicit all-zero one both deserialize to
+/// the same `JointLimit { lower: 0.0, upper: 0.0, .. }` — the caller
+/// ([`RobotModel`](crate::RobotModel), via [`joint_model_from_urdf`]) must
+/// recover the distinction from the raw URDF XML and pass it in, since
+/// `joint.limit` alone cannot. When `limit_present` is `false`, every bound this function
+/// would otherwise set from `joint.limit` is left at
+/// [`VariableBounds::default`]'s unbounded value instead, matching upstream
+/// leaving `position_bounded_`/`velocity_bounded_` at their default `false`
+/// when `urdf_joint->limits` is null.
+fn joint_bounds_from_urdf(joint: &urdf_rs::Joint, limit_present: bool) -> VariableBounds {
     let mut bounds = VariableBounds::default();
     if let Some(safety) = &joint.safety_controller {
         bounds.position_bounded = true;
         bounds.min_position = safety.soft_lower_limit;
         bounds.max_position = safety.soft_upper_limit;
-        if joint.limit.lower > bounds.min_position {
-            bounds.min_position = joint.limit.lower;
+        if limit_present {
+            if joint.limit.lower > bounds.min_position {
+                bounds.min_position = joint.limit.lower;
+            }
+            if joint.limit.upper < bounds.max_position {
+                bounds.max_position = joint.limit.upper;
+            }
         }
-        if joint.limit.upper < bounds.max_position {
-            bounds.max_position = joint.limit.upper;
-        }
-    } else {
+    } else if limit_present {
         bounds.position_bounded = true;
         bounds.min_position = joint.limit.lower;
         bounds.max_position = joint.limit.upper;
     }
-    bounds.max_velocity = joint.limit.velocity.abs();
-    bounds.min_velocity = -bounds.max_velocity;
-    bounds.velocity_bounded = bounds.max_velocity > f64::EPSILON;
+    if limit_present {
+        bounds.max_velocity = joint.limit.velocity.abs();
+        bounds.min_velocity = -bounds.max_velocity;
+        bounds.velocity_bounded = bounds.max_velocity > f64::EPSILON;
+    }
     bounds
 }
 
@@ -173,10 +182,33 @@ mod tests {
             velocity: 1.5,
             effort: 0.0,
         };
-        let bounds = joint_bounds_from_urdf(&joint);
+        let bounds = joint_bounds_from_urdf(&joint, true);
         assert!(bounds.position_bounded);
         assert_eq!(bounds.min_position, -2.0);
         assert_eq!(bounds.max_position, 2.0);
+    }
+
+    /// The boundary the panda/fanuc fixtures never exercise: a joint with no
+    /// `<limit>` element at all must come out fully unbounded (matching
+    /// upstream's null `urdf_joint->limits`), not clamped to the `[0, 0]`
+    /// that `JointLimit::default()` happens to hold. `limit_present` is what
+    /// distinguishes the two — `joint.limit` is identical in both cases.
+    #[test]
+    fn absent_limit_is_unbounded_not_a_zero_width_bound() {
+        let mut joint = base_joint(UrdfJointType::Revolute);
+        joint.limit = JointLimit::default();
+
+        let absent = joint_bounds_from_urdf(&joint, false);
+        assert!(!absent.position_bounded);
+        assert!(!absent.velocity_bounded);
+
+        let explicit_zero = joint_bounds_from_urdf(&joint, true);
+        assert!(explicit_zero.position_bounded);
+        assert_eq!(explicit_zero.min_position, 0.0);
+        assert_eq!(explicit_zero.max_position, 0.0);
+        assert!(!explicit_zero.velocity_bounded);
+
+        assert_ne!(absent, explicit_zero);
     }
 
     #[test]
@@ -194,7 +226,7 @@ mod tests {
             k_position: 0.0,
             k_velocity: 0.0,
         });
-        let bounds = joint_bounds_from_urdf(&joint);
+        let bounds = joint_bounds_from_urdf(&joint, true);
         assert_eq!(bounds.min_position, -2.0);
         assert_eq!(bounds.max_position, 2.0);
     }
@@ -214,7 +246,7 @@ mod tests {
             k_position: 0.0,
             k_velocity: 0.0,
         });
-        let bounds = joint_bounds_from_urdf(&joint);
+        let bounds = joint_bounds_from_urdf(&joint, true);
         assert_eq!(bounds.min_position, -1.0);
         assert_eq!(bounds.max_position, 1.0);
     }
@@ -223,10 +255,10 @@ mod tests {
     fn velocity_bounded_is_false_at_zero_and_true_above_epsilon() {
         let mut joint = base_joint(UrdfJointType::Revolute);
         joint.limit.velocity = 0.0;
-        assert!(!joint_bounds_from_urdf(&joint).velocity_bounded);
+        assert!(!joint_bounds_from_urdf(&joint, true).velocity_bounded);
 
         joint.limit.velocity = 1.0;
-        assert!(joint_bounds_from_urdf(&joint).velocity_bounded);
+        assert!(joint_bounds_from_urdf(&joint, true).velocity_bounded);
     }
 
     #[test]
@@ -243,7 +275,7 @@ mod tests {
             multiplier: None,
             offset: None,
         });
-        let model = joint_model_from_urdf(&joint).unwrap();
+        let model = joint_model_from_urdf(&joint, true).unwrap();
         let mimic = model.mimic().expect("mimic was set");
         assert_eq!(mimic.joint_name, "other");
         assert_eq!(mimic.factor, 1.0);
@@ -264,7 +296,7 @@ mod tests {
             multiplier: Some(2.0),
             offset: Some(0.1),
         });
-        let model = joint_model_from_urdf(&joint).unwrap();
+        let model = joint_model_from_urdf(&joint, true).unwrap();
         let mimic = model.mimic().expect("mimic was set");
         assert_eq!(mimic.factor, 2.0);
         assert_eq!(mimic.offset, 0.1);
@@ -279,7 +311,7 @@ mod tests {
             velocity: 1.0,
             effort: 0.0,
         };
-        let model = joint_model_from_urdf(&joint).unwrap();
+        let model = joint_model_from_urdf(&joint, true).unwrap();
         assert!(!model.as_revolute().unwrap().is_continuous());
         assert!(model.variable_bounds()[0].position_bounded);
     }
@@ -293,7 +325,7 @@ mod tests {
             velocity: 1.0,
             effort: 0.0,
         };
-        let model = joint_model_from_urdf(&joint).unwrap();
+        let model = joint_model_from_urdf(&joint, true).unwrap();
         assert!(model.as_revolute().unwrap().is_continuous());
         assert!(!model.variable_bounds()[0].position_bounded);
     }
@@ -310,7 +342,7 @@ mod tests {
         joint.axis = urdf_rs::Axis {
             xyz: urdf_rs::Vec3([0.0, 0.0, 1.0]),
         };
-        let model = joint_model_from_urdf(&joint).unwrap();
+        let model = joint_model_from_urdf(&joint, true).unwrap();
         let axis = model.as_prismatic().unwrap().axis();
         assert_eq!((axis.x, axis.y, axis.z), (0.0, 0.0, 1.0));
     }
@@ -318,19 +350,19 @@ mod tests {
     #[test]
     fn fixed_floating_and_planar_produce_the_matching_kind() {
         assert!(matches!(
-            joint_model_from_urdf(&base_joint(UrdfJointType::Fixed))
+            joint_model_from_urdf(&base_joint(UrdfJointType::Fixed), true)
                 .unwrap()
                 .kind(),
             JointKind::Fixed
         ));
         assert!(matches!(
-            joint_model_from_urdf(&base_joint(UrdfJointType::Floating))
+            joint_model_from_urdf(&base_joint(UrdfJointType::Floating), true)
                 .unwrap()
                 .kind(),
             JointKind::Floating(_)
         ));
         assert!(matches!(
-            joint_model_from_urdf(&base_joint(UrdfJointType::Planar))
+            joint_model_from_urdf(&base_joint(UrdfJointType::Planar), true)
                 .unwrap()
                 .kind(),
             JointKind::Planar(_)
@@ -339,6 +371,6 @@ mod tests {
 
     #[test]
     fn spherical_joint_type_is_rejected() {
-        assert!(joint_model_from_urdf(&base_joint(UrdfJointType::Spherical)).is_err());
+        assert!(joint_model_from_urdf(&base_joint(UrdfJointType::Spherical), true).is_err());
     }
 }
