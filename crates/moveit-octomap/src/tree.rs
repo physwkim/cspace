@@ -191,7 +191,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///   as [`OcTree::insert_ray`].
 /// - `castRay(const point3d&, const point3d&, point3d&, bool, double)
 ///   const` -- distinct: zero `moveit_core` consumer
-///   (`rg -rl castRay moveit_core`, excluding `moveit_ros`/tests, is
+///   (`rg -l castRay moveit_core`, excluding `moveit_ros`/tests, is
 ///   empty, checked round 16); this workspace's octree collision path is
 ///   the leaf-`Cuboid` `Compound` approximation, PORTING-PLAN.md §4.8's
 ///   decision, not octomap's own raycasting.
@@ -429,7 +429,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///   rather than re-dereferencing a pointer.
 /// - `isNodeOccupied(const OcTreeNode&) const` -- ported, same fusion.
 /// - `isNodeAtThreshold(const OcTreeNode*) const` -- distinct: zero
-///   `moveit_core` consumer (`rg -rl isNodeAtThreshold moveit_core`,
+///   `moveit_core` consumer (`rg -l isNodeAtThreshold moveit_core`,
 ///   excluding tests/`moveit_ros`, is empty, checked round 16).
 ///   **Correction, round 16 item 2:** round 12's audit never classified
 ///   this symbol at all -- neither `ported` nor `unported, in scope` nor
