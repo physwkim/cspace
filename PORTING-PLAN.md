@@ -1533,3 +1533,42 @@ clippy를 통과했으므로 병합 후 게이트에서만 잡히는 종류다. 
 파일에서 났고 `protocol.rs`·`main.rs`·`rust_impl.rs`는 양쪽이 같은 지점에
 서로 다른 항목을 추가한 것이라 기계적 "양쪽 유지"가 통하지 않았다 —
 `use` 목록 병합과 enum·struct 경계 재구성을 손으로 했다.
+
+### 13.5 `moveit-scene` 착수 — `WorldDiff` + `PlanningScene`
+
+`e4ee160`, 충돌 없이 병합. 새 크레이트 `crates/moveit-scene`
+(1,440줄: `scene.rs`, `world_diff.rs`, `attached_body.rs`, `layered.rs`).
+병합 후 717/717 통과.
+
+**과제 브리핑이 틀렸고 워커가 그것을 잡아냈다.** 내가 준 브리핑은
+"상류는 바디가 부착될 때 ACM 항목을 추가하고 분리될 때 제거한다"고
+적었는데, 워커가 `processAttachedCollisionObjectMsg`와
+`RobotState::attachBody`를 끝까지 읽고 사실이 아님을 확인한 뒤
+조용히 우회하는 대신 전면에 보고했다. 보고를 그대로 받지 않고
+`~/work/moveit2/moveit_core`에서 직접 확인했다:
+
+- `pushDiffs`(`planning_scene.cpp:377-381`) — `DESTROY`일 때
+  `removeEntry`는 `if (!scene->getCurrentState().hasAttachedBody(it.first))`
+  안에서만 실행된다. 워커가 인용한 주석 그대로다.
+- `RobotState::attachBody` — 함수 본문 전체에 ACM/`AllowedCollision`
+  참조가 0건.
+- `processAttachedCollisionObjectMsg` — `AllowedCollisionMatrix`/`acm_`
+  참조가 0건.
+- `planning_scene.cpp`의 ACM 변경 지점은 정확히 셋(`:380`, `:1473`,
+  `:1948`)이고 그중 attach/detach 경로는 없다.
+
+실제 불변식은 더 좁다: **한 id의 ACM 항목은 그 id가 월드에 있든
+부착 바디로 있든 존재하는 동안 유지되고, 완전한 삭제로만 정리된다.**
+구현이 이 검증된 동작을 따르고, `scene.rs`에 "Deviation from the task
+brief, confirmed against upstream"으로 문서화되어 있으며 경계 테스트
+2건이 붙어 있다.
+
+**남은 것 중 둘은 이번 라운드에 해소됐다.** 워커가 `c773c80` 시점에
+"오라클 `collision` op이 없다"고 정확히 기록했는데, `f7050c5`(p3-acm)이
+그것을 들여왔다. `PlanningScene`을 충돌 백엔드에 연결하는 것과
+부착 바디 형상(`parry.rs`가 현재 `link_models()`와 `world.iter()`만
+순회한다)이 다음 라운드 과제다.
+
+다음 라운드 픽스처는 pr2 원시 형상 위에 짓도록 지정했다 — §13.4의
+메시 공백이 닫히기 전까지 panda/fanuc의 일치는 패리티의 증거가
+아니기 때문이다.
