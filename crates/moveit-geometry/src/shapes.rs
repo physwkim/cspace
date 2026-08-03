@@ -260,6 +260,19 @@
 //!   provenance comment) so whoever picks it up does not need to re-read the
 //!   source.
 //!
+//!   Falsifier evaluated, not just stated: `rg -n
+//!   'saveAsText|constructShapeFromText|save_as_text|construct_shape_from_text'`
+//!   over the whole workspace turns up only this module doc — no fixture, no
+//!   test, no other crate's source names either function. `moveit-scene`'s
+//!   own module doc (`crates/moveit-scene/src/scene.rs`, "Message
+//!   round-tripping" section) independently classifies
+//!   `saveGeometryToStream`/`loadGeometryFromStream` as **distinct, not
+//!   ported** — deferred for its own reason (RViz scene-file UI interop, no
+//!   renderer in D1 scope), not because it names this exact text format as
+//!   what it needs. `tools/moveit-oracle/src/oracle.cpp` has no op touching
+//!   either function either (`rg` for the same pattern there is also empty).
+//!   The falsifier has not fired; the deferral stands.
+//!
 //! # Who consumes `Shape::OcTree`, and what they will need from it
 //!
 //! Read from `moveit2`'s two call sites (`collision_common.cpp`,

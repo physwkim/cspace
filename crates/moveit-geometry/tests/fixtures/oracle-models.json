@@ -1,0 +1,14 @@
+{
+  "body_query": {
+    "srdf": "fanuc.srdf",
+    "urdf": "fanuc.urdf"
+  },
+  "octree_in_world": {
+    "srdf": "fanuc.srdf",
+    "urdf": "fanuc.urdf"
+  },
+  "octree_shape_query": {
+    "srdf": "fanuc.srdf",
+    "urdf": "fanuc.urdf"
+  }
+}

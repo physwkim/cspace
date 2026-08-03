@@ -47,6 +47,18 @@
 //!
 //! To regenerate: see `tools/ci/` and the compile recipe in
 //! `PORTING-PLAN.md` §9.1.
+//!
+//! Not in `tests/fixtures/oracle-models.json`, deliberately: this fixture
+//! never went through `moveit_oracle`'s request/response wire protocol at
+//! all (see above -- it is a hand-rolled C++ probe's `%.17g` stdout, one
+//! flat `{"box.aabb.max": [...], ...}` object of named values, linked
+//! directly against `libgeometric_shapes.so`). `tools/ci/verify-fixture-replay.sh`
+//! replays `moveit_oracle`'s own `--urdf`/`--srdf` NDJSON wire format; there
+//! is no `op`/`id` request this file corresponds to, so it is not a
+//! different kind of gap the manifest is missing, but a different
+//! verification mechanism entirely (`PORTING-PLAN.md` §9.1's binary-probe
+//! route, used precisely because `geometric_shapes` itself has no oracle op
+//! at all -- it is a separate upstream package `moveit_oracle` never links).
 
 use std::collections::BTreeMap;
 use std::fs;

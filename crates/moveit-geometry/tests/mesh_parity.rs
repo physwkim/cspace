@@ -22,6 +22,17 @@
 //! not from `third_party/` directly, so this test runs under a plain
 //! `cargo nextest run --workspace` with no vendored checkout required.
 //!
+//! Not in `tests/fixtures/oracle-models.json`, deliberately:
+//! `tools/ci/verify-fixture-replay.sh` replays a `<stem>_request.json`/
+//! `<stem>_response.json` pair through the oracle's wire protocol verbatim
+//! (each line an `{"id", "op", ...}` object in, an `{"id", "ok", "result"}`
+//! object out). This file is real oracle output but already reshaped into
+//! this test's own per-case schema (`resource`/`scale`/`vertex_count`/
+//! `triangle_count`/`vertices`, no `id`/`op` at all) before being committed,
+//! so it cannot be replayed as-is -- there is no wire-format request to send
+//! back through `run-oracle.sh`. Re-capturing it in wire format to make it
+//! replayable is a separate job from this round's audit.
+//!
 //! # Vertex order is not asserted
 //!
 //! [`Mesh::merge_vertices`]'s dedup keeps each vertex at its first-occurrence
