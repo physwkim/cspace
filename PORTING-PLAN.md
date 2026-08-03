@@ -8780,3 +8780,113 @@ B의 "x만 떨어지고 y·z는 6개를 유지한다"는 포트 테스트의 주
 이 op으로 fixture를 캡처하는 것은 아직 안 했다 — 소유자가
 p3-distance-field이고 라운드 17에서 세 사례의 입력을 확정해 오기로
 돼 있다. op이 먼저 들어갔으니 사례는 코드가 아니라 데이터로 붙는다.
+
+## 103. p3-shapes 라운드 16 머지 — 158줄 감사와 돌지 않는 명령 두 개
+
+3커밋(`da36f51`, `91bec85`, `941b942`), `moveit-octomap`·`moveit-geometry`,
+테스트 +2(1088 → 1090).
+
+### 103.1 `debug_assert!` 둘 다 문다
+
+§94.3에서 안 재진다고 적은 두 sanity check를 `#[should_panic]`으로
+덮었다. 머지된 트리에서 둘 다 지워 봤다:
+
+```
+debug_assert! 2개 제거    29 tests: 27 passed, 2 failed
+                          tree::tests::set_prob_miss_above_half_panics_in_debug
+                          tree::tests::set_prob_hit_below_half_panics_in_debug
+```
+
+### 103.2 24/2/15/41이 158줄 감사로 바뀌었고, 검사된다
+
+§94.4에서 "symbol group"의 묶는 기준이 담당 정의라 재현할 수 없다고
+적었다. 이번에 **선언 단위 감사**로 바뀌었고 기준이 먼저 적혀 있다 —
+`OcTree` 인스턴스에 호출 가능한 모든 public 멤버(상속 사슬
+`OcTree` → `OccupancyOcTreeBase` → `OcTreeBaseImpl` →
+`AbstractOccupancyOcTree` → `AbstractOcTree`, 각 헤더의 `class X : public Y`
+줄에서 직접 확인), 파생에서 재선언되는 pure virtual은 **최파생 한
+번만**, 최파생이 아닌 생성자·소멸자는 제외, protected/private과
+비호출 선언(타입 별칭, 전방 선언)은 범위 밖.
+
+`rg -c '^/// - \`' crates/moveit-octomap/src/tree.rs` = **158**을
+머지된 트리에서 직접 돌려 확인했다.
+
+**내가 한 헤더를 골라 대조했다.** `AbstractOcTree.h`를 오라클 이미지
+안에서 읽어 public 선언을 독립적으로 세면 24줄이 나오고, 감사의 해당
+절은 8줄이다. 차이가 기준으로 전부 설명된다:
+
+```
+pure virtual 17건  (getResolution/setResolution/size/memoryUsage/
+                    memoryUsageNode/getMetricMin×2/getMetricMax×2/
+                    getMetricSize/prune/expand/clear/readData/writeData,
+                    create/getTreeType)  → 롤업 2줄 "already counted above"
+생성자·소멸자 2건                        → 기준상 제외
+write×2 · createTree · read×2 5건        → distinct 5줄
+iterator_base 전방 선언                  → 비호출, 1줄로 표시
+```
+
+**빠진 선언이 없다.** 24건이 8줄에 남김없이 대응한다. §94.4가 요구한
+"다음 라운드에 내가 대조할 수 있는 형태"가 됐다.
+
+`isNodeAtThreshold`가 라운드 12 표에서 아예 분류되지 않았던 것을
+담당이 찾아 낸 것도 맞다.
+
+### 103.3 근거로 적은 명령 두 개가 적힌 대로 돌지 않는다
+
+```
+tree.rs:194   rg -rl castRay moveit_core
+tree.rs:432   rg -rl isNodeAtThreshold moveit_core
+```
+
+ripgrep의 `-r`은 **값을 받는다**(`-r REPLACEMENT, --replace=REPLACEMENT`).
+따라서 `-rl`은 `-l`이 아니라 `--replace=l`로 파싱되고, 두 명령은 파일
+목록이 아니라 "매치를 `l`로 치환한 줄"을 낸다. 히트가 0건이면 출력이
+비어 결과가 같아 보이지만, 히트가 생기는 순간 전혀 다른 것을 낸다.
+
+**판정 자체는 맞다.** 올바른 형태로 내가 직접 확인했다:
+
+```
+rg -l castRay moveit_core            exit 1 (0건)
+rg -l isNodeAtThreshold moveit_core  exit 1 (0건)
+```
+
+§97.2와 같은 계열이다 — 근거로 문서에 박아 넣은 명령이 적힌 대로
+돌지 않는 것. 그때는 `--glob '!*/tests/*'`가 `#[cfg(test)]`를 걸러
+주지 못했고, 이번은 짧은 플래그 묶음이 값을 삼켰다. **두 번째
+사례이므로 규칙으로 적는다: 문서에 넣는 명령은 넣기 전에 그대로
+복사해 한 번 돌리고, 출력이 문서의 주장과 맞는지 확인해라.**
+
+### 103.4 허용치 네 사이트 — 바닥이 재현되고 가려짐이 하나 있었다
+
+`transforms.rs` 3건을 세 상수 동시에 이분해 담당이 보고한 바닥을
+재현했다:
+
+```
+epsilon = 0.0               141 tests: 138 passed, 3 failed
+epsilon = f64::EPSILON      141 tests: 141 passed
+epsilon = f64::EPSILON / 2  141 tests: 139 passed, 2 failed
+epsilon = f64::EPSILON / 4  141 tests: 138 passed, 3 failed
+```
+
+세 사이트 중 둘의 바닥이 `f64::EPSILON`, 하나가 `f64::EPSILON / 2`라는
+보고와 정확히 맞는다.
+
+**`transform_pose_applies_translation`에서 담당이 자기 이분이 가려진
+것을 잡아냈다** — `max_relative`를 기본값(역시 `f64::EPSILON`)으로 둔
+채 `epsilon`만 내렸더니 값의 크기가 ~1.0이라 상대항이 혼자 차이를
+덮어 `f64::EPSILON / 2`가 통과했다. `max_relative = 0.0`으로 고정하고
+다시 재서 실패를 확인했다. §91.2·§98.2와 같은 결함의 세 번째 얼굴이고,
+이번에는 **측정 도구 쪽에서** 나타났다 — 이분 자체가 다른 게이트에
+가려질 수 있다.
+
+`stl.rs`의 1건은 비트 동일을 확인하고 `assert_eq!`로 바꿨다(§99.4의
+정본과 같은 형태). 세 `transforms.rs` 사이트는 바닥이 아니라 측정된
+헤드룸 위치인 `1e-12`를 유지하고 `max_relative = 0.0`을 명시했다.
+
+### 103.5 머지 후 실측
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1090/1090**,
+`cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
+`verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK,
+`verify-fixture-replay.sh` **30/30 identical**.
