@@ -8954,3 +8954,104 @@ crates/moveit-model/src/joint/model.rs      총  3   epsilon만  2   둘 다 없
 `moveit-collision/tests/world_parity.rs`의 1건만 `max_relative`가
 있다. **51건이 §79 노출로 남아 있고 전부 이 담당 몫이다.**
 다음 라운드에 배정한다.
+
+## 105. p1-robotmodel 라운드 13 머지 — 진단이라고 분류한 것이 게이트였다
+
+5커밋(`9eaf218`, `0ce1b0b`, `20feed0`, `f37f460`, `581ce00`),
+`moveit-constraints` 한 크레이트, 테스트 +3(1090 → 1093).
+
+### 105.1 §97.4가 요구한 확인에서 오분류가 하나 나왔다
+
+라운드 12의 완료 조건은 11건의 `gap`을 "sampler-side 진단/벤치마킹이라
+Phase 5의 `decide()` 완료 조건을 막지 않는다"로 닫았다. §97.4에서
+"정말 진단/벤치마킹뿐인지 심볼별로 확인하고 하나라도 아니면
+이식해라"고 요구했고, **하나가 아니었다.**
+
+`setGroupStateValidityCallback`은 진단이 아니라 **IK 해의 수락을
+결정하는 게이트**다. 상류를 직접 읽어 확인했다:
+
+```
+default_constraint_samplers.cpp:596-602
+  if (group_state_validity_callback_)
+    adapted_ik_validity_callback = [...] { return samplingIkCallbackFnAdapter(...); };
+  → kinematics::KinematicsBase::IKCallbackFn 으로 솔버에 넘어간다
+
+ompl_interface/src/detail/constrained_goal_sampler.cpp:135
+  constraint_sampler_->setGroupStateValidityCallback(gsvcf);   ← 실제 프로덕션 호출자
+```
+
+콜백이 설정되면 IK가 낸 해를 그 콜백이 거부할 수 있다. 헤더만 보고
+"setter니 설정용"으로 읽으면 놓치고, `.cpp`를 읽어야 보인다. 담당이
+이번 라운드에 헤더가 아니라 `.cpp` 대조로 바꾼 것이 이것을 잡았다.
+
+이식됐다(`f37f460`) — `moveit_kinematics::SolveOptions::solution_callback`을
+재사용해 `IkConstraintSampler::sample`에 배선하고,
+`IkConstraintSamplerAdapter`에는 `RefCell` 필드로 넣었다. 새 테스트
+3개를 컴파일되는 형태로 무력화해 봤다(`Some(ref mut cb) => { let _ =
+&mut **cb; None }`):
+
+```
+콜백이 솔버에 닿지 않게 함    92 tests: 89 passed, 3 failed
+  sample_rejects_via_group_state_validity_callback_even_when_ik_converges
+  sample_retries_past_group_state_validity_callback_rejections_and_accepts_on_success
+  adapter_group_state_validity_callback_gates_the_trait_object_sample_path
+```
+
+셋 다 문다. getter 쪽은 상류 자신이 선언 밖에서 호출하지 않으므로
+`structural`로 재분류한 것도 근거가 있다.
+
+### 105.2 완료 조건 66건이 태그 단위로 재현된다
+
+```
+rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
+태그별:  ported 18 · structural 23 · D4 8 · D1 6 · gap 11  =  66
+```
+
+문서의 `18 + 23 + 8 + 6 + 11 = 66`이 맞는다. 내가 화살표 뒤 태그를
+파싱해 독립적으로 세서 같은 분포를 얻었다. §97.1에 이어 이 담당의
+완료 조건이 명령 수준까지 재현되는 두 번째 라운드다.
+
+### 105.3 §97.2·§97.3의 세 건이 모두 닫혔다
+
+- `utils.rs`의 `rg` 명령: 0건을 함의하던 것을 **기대 출력 그대로**
+  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:791` 하나).
+  §97.2가 권한 후자를 골랐다.
+- 호출자 위치 논거를 **시그니처 논거**로 교체했다. 담당이 브리프의
+  15파일/43줄을 그대로 쓰지 않고 자기가 다시 세어 13파일/7-5-1로
+  적은 것도 맞게 한 것이다 — 재현하지 않은 남의 숫자를 인용하는 것이
+  이 저장소가 반복해서 잡아 온 결함이다.
+- `lib.rs:78`의 죽은 오라클 태그를 지우고 매 라운드 검사되는
+  `panda_constraints` fixture 항목을 가리키게 했다.
+
+### 105.4 `registry.rs`의 처분 절이 낡았다 — 담당의 UNFIXED가 맞다
+
+담당이 범위 밖이라 두고 보고만 한 것을 내가 확인했다.
+`moveit-planners-sbp/src/registry.rs:58`의
+
+```
+**Disposition** (proposed, not started — ...)
+```
+
+절은 `ConstraintSampler`/`JointConstraintSampler`/`UnionConstraintSampler`/
+`IKConstraintSampler`/`selectDefaultSampler`를 앞으로 이식할 것으로
+적고, `moveit-constraints -> moveit-kinematics` 의존 간선이 "does not
+exist today"라고 적는다. 다섯 심볼 전부 지금 존재하고 간선도 존재한다:
+
+```
+sampler.rs:76    pub trait ConstraintSampler
+sampler.rs:131   pub struct JointConstraintSampler
+sampler.rs:333   pub struct UnionConstraintSampler
+ik_sampler.rs:101 pub struct IkConstraintSampler
+constraint_sampler_manager.rs:141  pub fn select_default_sampler
+moveit-constraints/Cargo.toml:15   moveit-kinematics.workspace = true
+```
+
+**범위를 지키고 보고만 한 판단이 맞다.** 라운드 14에서 고친다.
+
+### 105.5 머지 후 실측
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1093/1093**,
+`cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
+`verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK,
+`verify-fixture-replay.sh` **30/30 identical**.
