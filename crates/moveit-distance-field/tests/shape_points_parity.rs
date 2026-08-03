@@ -34,10 +34,13 @@
 //! [`nalgebra::UnitQuaternion`], so a general rotation matrix is
 //! reconstructed through a quaternion round-trip -- see
 //! `isometry_from_row_major` below), which can perturb a coordinate by a few
-//! ULPs relative to the oracle's direct matrix assignment. A tolerance-based
-//! set comparison absorbs that expected noise while still catching a real
-//! disagreement: a genuine off-by-one grid defect moves a point by a whole
-//! `resolution`, many orders of magnitude past the tolerance used here.
+//! ULPs relative to the oracle's direct matrix assignment. Comparing the
+//! coordinates gridded onto [`POINT_EPS`] absorbs that expected noise while
+//! still catching a real disagreement: a genuine off-by-one grid defect
+//! moves a point by a whole `resolution`, many orders of magnitude past
+//! [`POINT_EPS`]. The comparison is exact set equality on those gridded
+//! keys, so a missing or extra point is reported as such rather than
+//! being matched to a near neighbour.
 
 use std::collections::HashSet;
 use std::fs;
@@ -49,9 +52,17 @@ use moveit_geometry::bodies::Body;
 use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
 use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
 
-/// Coordinates within this of each other are the same point. Well below the
-/// coarsest resolution used here (0.05) and well above the sub-ULP noise a
-/// quaternion round-trip of the pose can introduce (see the module docs).
+/// Grid the coordinates onto this spacing before comparing, so the pose's
+/// quaternion round-trip (see the module docs) does not read as a
+/// disagreement. Well below the coarsest resolution used here (0.05) and
+/// well above that noise.
+///
+/// This buckets rather than compares within a tolerance, so two points a few
+/// ULPs apart that happen to straddle a bucket edge land in different
+/// buckets and read as a mismatch. That direction is the safe one — it can
+/// cost a false failure, never a false pass — and it is why this constant is
+/// six orders of magnitude coarser than the noise it absorbs rather than
+/// merely larger than it.
 const POINT_EPS: f64 = 1e-6;
 
 #[derive(Deserialize)]
