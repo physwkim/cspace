@@ -318,6 +318,7 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "moveit-error",
+ "moveit-octomap",
  "nalgebra",
  "parry3d-f64",
  "serde_json",

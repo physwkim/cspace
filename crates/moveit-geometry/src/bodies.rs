@@ -3688,7 +3688,7 @@ mod tests {
             .is_none()
         );
         assert!(
-            Body::from_shape(&Shape::OcTree(crate::shapes::OcTree))
+            Body::from_shape(&Shape::OcTree(crate::shapes::OcTree::new()))
                 .unwrap()
                 .is_none()
         );

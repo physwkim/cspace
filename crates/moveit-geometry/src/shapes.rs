@@ -140,14 +140,86 @@
 //!    vertex the degenerate triangle touches. [`Mesh::compute_triangle_normals`]
 //!    uses `try_normalize(0.0)`, which is `None` for exactly this case, and
 //!    substitutes the zero vector.
-//! 6. **The `OcTree` payload is deferred.** PORTING-PLAN.md §2 records that
-//!    no mature Rust `octomap` equivalent exists (`bye_octomap_rs` 0.1.1,
-//!    "성숙도 미달"). [`OcTree`] is a unit struct so `ShapeType::OcTree` is
-//!    representable and `Shape::OcTree(OcTree)` round-trips, but it carries
-//!    no tree data — `shapes::OcTree::octree`
-//!    (`std::shared_ptr<const octomap::OcTree>`) has no port yet.
+//! 6. **The `OcTree` payload is `Arc<moveit_octomap::OcTree>`, not
+//!    `Rc`/an owned value.** Round 1 left [`OcTree`] a unit struct
+//!    (PORTING-PLAN.md §2's "성숙도 미달" gap); `moveit-octomap` (this
+//!    crate's sibling, also this round) closes it. Upstream's field is
+//!    `std::shared_ptr<const octomap::OcTree>` — shared, read-only ownership
+//!    — and `OcTree::clone()` (`shapes.cpp`) returns `new OcTree(octree)`,
+//!    reusing the same `shared_ptr` rather than deep-copying the tree.
+//!    `Arc<moveit_octomap::OcTree>` reproduces both facts at once: cloning a
+//!    [`Shape::OcTree`] is an `O(1)` refcount bump sharing the same tree
+//!    (matching upstream's shallow `clone()`), and nothing in this crate ever
+//!    calls `Arc::get_mut` (matching upstream's `const`). See [`OcTree`]'s
+//!    own doc comment for the corresponding [`PartialEq`] deviation.
+//!
+//! # Who consumes `Shape::OcTree`, and what they will need from it
+//!
+//! Read from `moveit2`'s two call sites (`collision_common.cpp`,
+//! `collision_env_distance_field.cpp`) so the eventual consumer does not have
+//! to re-derive this; neither is implemented here — this crate is the shape
+//! layer, not a collision backend, and `moveit-distance-field` owns the
+//! second file this round.
+//!
+//! - **`collision_detection_fcl`'s conversion**
+//!   (`collision_common.cpp::createCollisionGeometry`, the `shapes::OCTREE`
+//!   case) is a one-line wrap: `new fcl::OcTreed(g->octree)`. FCL has a
+//!   native octree collision geometry that operates directly on an
+//!   arbitrary-resolution, arbitrary-depth `octomap::OcTree`, including
+//!   pruned (coarse) leaves, at whatever depth `prune()` left them.
+//!   `moveit-collision`'s `parry3d-f64` backend (`crates/moveit-collision/src/parry.rs`,
+//!   `convert_shape`, deviation 10) has no such counterpart to convert into:
+//!   `parry3d-f64` 0.30.0's closest shape, `parry3d_f64::shape::Voxels`, is a
+//!   **uniform-resolution** sparse voxel grid (one fixed `voxel_size` for
+//!   every filled cell in the shape) — it has no notion of a coarser leaf.
+//!   Feeding it from an [`OcTree`] therefore means enumerating every occupied
+//!   [`moveit_octomap::Leaf`] via [`moveit_octomap::OcTree::leaves`] and, for
+//!   any leaf coarser than the tree's own finest resolution (i.e. anywhere
+//!   `prune()` collapsed uniform siblings — exactly the mechanism real sensor
+//!   maps rely on to stay small), expanding that one leaf back into up to
+//!   `8^k` finest-resolution unit cells (`k` = depth deficit) to satisfy
+//!   `Voxels`' single-resolution constraint. A large collapsed region (a
+//!   cleared floor, an unmapped wall) is the case pruning exists to shrink,
+//!   and is exactly the case this expansion re-inflates back to its
+//!   pre-pruned cell count — the real cost of using `Voxels` here, not a
+//!   theoretical one.
+//! - **`collision_env_distance_field`'s treatment**
+//!   (`collision_env_distance_field.cpp`, `~line 1753`) only ever reads: it
+//!   builds `PosedBodyPointDecomposition(octree)` directly from the
+//!   `shared_ptr<const octomap::OcTree>`, without a body/shape round trip at
+//!   all. The interface it needs is exactly what [`moveit_octomap::OcTree`]
+//!   already exposes for this purpose: [`moveit_octomap::OcTree::leaves`]
+//!   filtered by [`moveit_octomap::Leaf::is_occupied`], reading
+//!   [`moveit_octomap::Leaf::coordinate`] (and, if a decomposition wants to
+//!   record cell size, [`moveit_octomap::Leaf::size`]) per occupied leaf.
+//!   Nothing further is needed on the `moveit-octomap` side for this
+//!   consumer; the point-decomposition type itself belongs to
+//!   `moveit-distance-field`.
+//! - Neither consumer calls anything that inserts new data into a tree
+//!   (`insertPointCloud`/`computeDiscreteUpdate`) — both only read an
+//!   already-built `OcTree` handed to them through a `World::Object`'s
+//!   shapes. The sensor updaters that populate a tree from a point cloud
+//!   (`pointcloud_octomap_updater.cpp`,
+//!   `occupancy_map_monitor.cpp`) are a separate, ROS-node-shaped ingestion
+//!   subsystem the round-1 Step 1 survey already found and deferred; this
+//!   analysis does not change that — `insertPointCloud` stays deferred.
+//! - What both consumers *do* need, in common, is the composition of a
+//!   `World::Object`'s pose with a shape's own sub-pose, then mapping a
+//!   world-frame query back into the octree's local frame before a query
+//!   means anything — `collision_common.cpp`'s `fcl::OcTreed` and
+//!   `collision_env_distance_field.cpp`'s `PosedBodyPointDecomposition`
+//!   each perform that step through their own backend-specific mechanism,
+//!   but neither special-cases the *pose* half of it. That half is verified
+//!   directly against the real oracle (`octree_in_world` op, exercising
+//!   `collision_detection::World::addToObject`/`getGlobalShapeTransforms`
+//!   with a `shapes::OcTree`) in
+//!   `crates/moveit-geometry/tests/octree_in_world_parity.rs`, using only
+//!   this crate's own [`OcTree`]/[`crate::Isometry3`] and
+//!   [`moveit_octomap::OcTree`]'s existing point-query API — nothing further
+//!   is needed from this crate for either backend to build on.
 
 use std::fmt;
+use std::sync::Arc;
 
 use moveit_error::{Error, Result};
 
@@ -640,16 +712,40 @@ impl Plane {
 
 /// Representation of an octree as a shape. Upstream `shapes::OcTree`.
 ///
-/// # Deviation from upstream
+/// # Deviations from upstream
 ///
-/// The tree payload (`shapes::OcTree::octree`,
-/// `std::shared_ptr<const octomap::OcTree>`) is deferred — see the module
-/// docs, deviation 6. This is a unit struct so `ShapeType::OcTree` stays
-/// representable in [`Shape`] without pulling in an octomap dependency.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct OcTree;
+/// - **`octree` is `Option<Arc<moveit_octomap::OcTree>>`, not a raw
+///   `shared_ptr`.** See the module docs, deviation 6, for why `Arc`; `Option`
+///   reproduces upstream's default-constructed (`OcTree::OcTree()`) null
+///   `shared_ptr` state, which upstream's own `OcTree::print()`
+///   (`if (octree) ... else "OcTree[NULL]"`) explicitly handles rather than
+///   assumes away. `print()` itself is not ported — nothing in this crate
+///   logs — so the null case only shows up here as `octree: None`.
+/// - **[`PartialEq`] compares by [`Arc::ptr_eq`], not tree contents.**
+///   `std::shared_ptr`'s own `operator==` compares the two pointers, not the
+///   pointees, so two `shapes::OcTree`s wrapping separately-built but
+///   identical trees are upstream-`!=`; a per-node structural comparison here
+///   would be both more expensive than upstream ever pays and answer a
+///   different question than upstream's `==` does. Two `None` trees (both
+///   the default-constructed null state) are equal.
+#[derive(Debug, Clone, Default)]
+pub struct OcTree {
+    /// The wrapped tree, or `None` for upstream's default-constructed
+    /// (null-`shared_ptr`) state. Upstream `shapes::OcTree::octree`.
+    pub octree: Option<Arc<moveit_octomap::OcTree>>,
+}
 
 impl OcTree {
+    /// Upstream `OcTree::OcTree()`: no tree yet.
+    pub const fn new() -> Self {
+        Self { octree: None }
+    }
+
+    /// Upstream `OcTree::OcTree(const std::shared_ptr<const octomap::OcTree>&)`.
+    pub const fn from_tree(tree: Arc<moveit_octomap::OcTree>) -> Self {
+        Self { octree: Some(tree) }
+    }
+
     /// An octree cannot be scaled or padded. Upstream `OcTree::scaleAndPadd`
     /// logs a warning (`CONSOLE_BRIDGE_logWarn("OcTrees cannot be scaled or
     /// padded")`) and otherwise does nothing; see [`Plane::scale_and_padd`]
@@ -663,6 +759,18 @@ impl OcTree {
     /// A no-op, like [`OcTree::scale_and_padd`]. Upstream `Shape::padd` as
     /// inherited (via `using Shape::padd;`) by `OcTree`.
     pub const fn padd(&mut self, _padding: f64) {}
+}
+
+impl PartialEq for OcTree {
+    /// See the type doc's deviation on [`PartialEq`]: identity, not tree
+    /// content, matching upstream `shared_ptr::operator==`.
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.octree, &other.octree) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
 }
 
 /// A triangle mesh. By convention the mesh's own AABB is centered at the
@@ -1248,7 +1356,7 @@ mod tests {
         let mut shape = Shape::Plane(p);
         assert!(shape.scale_and_padd(100.0, 100.0).is_ok());
 
-        let mut o = Shape::OcTree(OcTree);
+        let mut o = Shape::OcTree(OcTree::new());
         assert!(o.scale_and_padd(100.0, 100.0).is_ok());
         assert!(o.is_fixed());
     }
@@ -1295,7 +1403,7 @@ mod tests {
             Shape::Cone(Cone::new(1.0, 1.0).unwrap()),
             Shape::Plane(Plane::new(0.0, 0.0, 1.0, 0.0)),
             Shape::Mesh(Mesh::default()),
-            Shape::OcTree(OcTree),
+            Shape::OcTree(OcTree::new()),
         ] {
             assert!(shape.compute_volume().is_none());
             assert!(shape.get_dimensions().is_none());
@@ -1506,7 +1614,7 @@ mod tests {
             (Shape::Cuboid(Cuboid::default()), "box"),
             (Shape::Plane(Plane::default()), "plane"),
             (Shape::Mesh(Mesh::default()), "mesh"),
-            (Shape::OcTree(OcTree), "octree"),
+            (Shape::OcTree(OcTree::new()), "octree"),
         ];
         for (shape, expected) in cases {
             assert_eq!(shape.shape_type().to_string(), expected);
@@ -1555,7 +1663,7 @@ mod tests {
 
     #[test]
     fn ground_truth_octree_scale_and_padd_empty() {
-        let mut octree = OcTree;
+        let mut octree = OcTree::new();
         octree.scale(2.0);
         octree.padd(1.0);
         octree.scale_and_padd(2.0, 1.0);

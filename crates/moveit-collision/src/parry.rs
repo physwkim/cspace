@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn convert_shape_octree_is_excluded() {
-        assert!(convert_shape(&Shape::OcTree(OcTree)).is_none());
+        assert!(convert_shape(&Shape::OcTree(OcTree::new())).is_none());
     }
 
     #[test]
