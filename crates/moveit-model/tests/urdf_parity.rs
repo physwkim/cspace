@@ -3,42 +3,72 @@
 
 //! Parity test against the moveit2 C++ oracle.
 //!
-//! Ground truth captured by querying `tools/moveit-oracle` for
-//! `panda_description`/`panda_moveit_config` and
+//! Ground truth is the oracle's own `model_info` response, captured verbatim
+//! into `tests/fixtures/{panda,fanuc}_model_info.json` by querying
+//! `tools/moveit-oracle` for `panda_description`/`panda_moveit_config` and
 //! `fanuc_description`/`fanuc_moveit_config` (see `PORTING-PLAN.md` for the
-//! pinned upstream SHA and the fixture checkout). `virtual_joint`
-//! (panda, Floating) and `FixedBase` (fanuc, Fixed) come from each robot's
-//! SRDF `<virtual_joint>` element, not from the URDF; SRDF parsing is out of
-//! scope for this crate (see role instructions), so they are constructed by
-//! hand here rather than read from a fixture.
+//! pinned upstream SHA and the fixture checkout). Comparing against a
+//! deserialized fixture, rather than hand-transcribed Rust literals, means a
+//! transcription typo can't make this test assert the wrong thing and a
+//! future oracle change shows up as a fixture diff instead of silent drift.
 //!
-//! fanuc.urdf's own `<limit>` tags spell pi as the literal `3.14`/`6.28`
-//! (not `std::f64::consts::PI`); the expected bounds below transcribe those
-//! literal strings so this test is exact against what the oracle actually
-//! parsed, so `clippy::approx_constant` is silenced rather than "fixed" —
-//! replacing them with the true constant would make the test parity-check
-//! against a value the fixture does not contain.
-#![allow(clippy::approx_constant)]
+//! `virtual_joint` (panda, Floating) and `FixedBase` (fanuc, Fixed) come from
+//! each robot's SRDF `<virtual_joint>` element, not from the URDF; SRDF
+//! parsing is out of scope for this crate (see role instructions), so they
+//! are constructed by hand here rather than read from the URDF fixture. The
+//! oracle's `model_info` response does include them, so the fixture still
+//! covers their expected shape.
 
 use std::collections::HashMap;
+use std::fs;
+
+use serde::Deserialize;
 
 use moveit_model::joint::{JointModel, JointType, joint_model_from_urdf};
 
-/// One joint's expected shape, transcribed from the oracle's `model_info`
-/// response.
-struct Expected {
-    name: &'static str,
-    type_name: &'static str,
-    variable_names: &'static [&'static str],
-    /// `(min, max)` per variable, or `None` where the oracle reported
+/// One joint's shape as reported by the oracle's `model_info` op.
+#[derive(Deserialize)]
+struct OracleJointDetail {
+    name: String,
+    type_name: String,
+    variable_names: Vec<String>,
+    /// `(min, max)` per variable; `(None, None)` where the oracle reported
     /// `[null, null]` (an infinite bound — still `position_bounded`, see
     /// [`moveit_model::joint::FloatingJoint`]'s doc comment).
-    bounds: &'static [Option<(f64, f64)>],
-    position_bounded: &'static [bool],
-    mimic: Option<(&'static str, f64, f64)>,
+    bounds: Vec<(Option<f64>, Option<f64>)>,
+    position_bounded: Vec<bool>,
+    mimic: Option<OracleMimic>,
 }
 
-fn assert_matches_oracle(model: &JointModel, expected: &Expected) {
+#[derive(Deserialize)]
+struct OracleMimic {
+    joint: String,
+    multiplier: f64,
+    offset: f64,
+}
+
+#[derive(Deserialize)]
+struct OracleResult {
+    joint_details: Vec<OracleJointDetail>,
+}
+
+#[derive(Deserialize)]
+struct OracleResponse {
+    result: OracleResult,
+}
+
+fn load_fixture(file_name: &str) -> Vec<OracleJointDetail> {
+    let path = format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        file_name
+    );
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    let response: OracleResponse =
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+    response.result.joint_details
+}
+
+fn assert_matches_oracle(model: &JointModel, expected: &OracleJointDetail) {
     assert_eq!(model.name(), expected.name);
     assert_eq!(
         model.type_name(),
@@ -48,7 +78,7 @@ fn assert_matches_oracle(model: &JointModel, expected: &Expected) {
     );
     assert_eq!(
         model.variable_names(),
-        expected.variable_names,
+        expected.variable_names.as_slice(),
         "variable_names of '{}'",
         expected.name
     );
@@ -65,7 +95,7 @@ fn assert_matches_oracle(model: &JointModel, expected: &Expected) {
             "position_bounded[{i}] of '{}'",
             expected.name
         );
-        if let Some((min, max)) = expected.bounds[i] {
+        if let (Some(min), Some(max)) = expected.bounds[i] {
             assert!(
                 (bounds.min_position - min).abs() < 1e-9,
                 "min_position[{i}] of '{}': {} != {min}",
@@ -81,21 +111,30 @@ fn assert_matches_oracle(model: &JointModel, expected: &Expected) {
         }
     }
 
-    match (model.mimic(), expected.mimic) {
+    match (model.mimic(), &expected.mimic) {
         (None, None) => {}
-        (Some(mimic), Some((joint_name, factor, offset))) => {
+        (Some(mimic), Some(expected_mimic)) => {
             assert_eq!(
-                mimic.joint_name, joint_name,
+                mimic.joint_name, expected_mimic.joint,
                 "mimic joint of '{}'",
                 expected.name
             );
-            assert_eq!(mimic.factor, factor, "mimic factor of '{}'", expected.name);
-            assert_eq!(mimic.offset, offset, "mimic offset of '{}'", expected.name);
+            assert_eq!(
+                mimic.factor, expected_mimic.multiplier,
+                "mimic factor of '{}'",
+                expected.name
+            );
+            assert_eq!(
+                mimic.offset, expected_mimic.offset,
+                "mimic offset of '{}'",
+                expected.name
+            );
         }
         (actual, expected_mimic) => {
             panic!(
-                "mimic mismatch for '{}': actual={actual:?}, expected={expected_mimic:?}",
-                expected.name
+                "mimic mismatch for '{}': actual={actual:?}, expected present={}",
+                expected.name,
+                expected_mimic.is_some()
             )
         }
     }
@@ -113,6 +152,17 @@ fn joints_by_name(urdf_path: &str) -> HashMap<String, JointModel> {
         .collect()
 }
 
+fn joint_type_count(joints: &HashMap<String, JointModel>, joint_type: JointType) -> usize {
+    joints
+        .values()
+        .filter(|j| j.joint_type() == joint_type)
+        .count()
+}
+
+fn oracle_type_count(expected: &[OracleJointDetail], type_name: &str) -> usize {
+    expected.iter().filter(|j| j.type_name == type_name).count()
+}
+
 #[test]
 fn panda_joint_layer_matches_the_oracle() {
     let mut joints = joints_by_name(concat!(
@@ -124,149 +174,36 @@ fn panda_joint_layer_matches_the_oracle() {
         JointModel::new_floating("virtual_joint"),
     );
 
-    let expected = [
-        Expected {
-            name: "virtual_joint",
-            type_name: "Floating",
-            variable_names: &[
-                "virtual_joint/trans_x",
-                "virtual_joint/trans_y",
-                "virtual_joint/trans_z",
-                "virtual_joint/rot_x",
-                "virtual_joint/rot_y",
-                "virtual_joint/rot_z",
-                "virtual_joint/rot_w",
-            ],
-            bounds: &[
-                None,
-                None,
-                None,
-                Some((-1.0, 1.0)),
-                Some((-1.0, 1.0)),
-                Some((-1.0, 1.0)),
-                Some((-1.0, 1.0)),
-            ],
-            position_bounded: &[true; 7],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint1",
-            type_name: "Revolute",
-            variable_names: &["panda_joint1"],
-            bounds: &[Some((-2.8973, 2.8973))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint2",
-            type_name: "Revolute",
-            variable_names: &["panda_joint2"],
-            bounds: &[Some((-1.7628, 1.7628))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint3",
-            type_name: "Revolute",
-            variable_names: &["panda_joint3"],
-            bounds: &[Some((-2.8973, 2.8973))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint4",
-            type_name: "Revolute",
-            variable_names: &["panda_joint4"],
-            bounds: &[Some((-3.0718, 0.0175))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint5",
-            type_name: "Revolute",
-            variable_names: &["panda_joint5"],
-            bounds: &[Some((-2.8973, 2.8973))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint6",
-            type_name: "Revolute",
-            variable_names: &["panda_joint6"],
-            bounds: &[Some((-0.0175, 3.7525))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint7",
-            type_name: "Revolute",
-            variable_names: &["panda_joint7"],
-            bounds: &[Some((-2.8973, 2.8973))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_joint8",
-            type_name: "Fixed",
-            variable_names: &[],
-            bounds: &[],
-            position_bounded: &[],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_hand_joint",
-            type_name: "Fixed",
-            variable_names: &[],
-            bounds: &[],
-            position_bounded: &[],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_finger_joint1",
-            type_name: "Prismatic",
-            variable_names: &["panda_finger_joint1"],
-            bounds: &[Some((0.0, 0.04))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "panda_finger_joint2",
-            type_name: "Prismatic",
-            variable_names: &["panda_finger_joint2"],
-            bounds: &[Some((0.0, 0.04))],
-            position_bounded: &[true],
-            mimic: Some(("panda_finger_joint1", 1.0, 0.0)),
-        },
-    ];
+    let expected = load_fixture("panda_model_info.json");
 
     assert_eq!(joints.len(), expected.len(), "total joint count");
     for e in &expected {
         let model = joints
-            .get(e.name)
+            .get(&e.name)
             .unwrap_or_else(|| panic!("missing joint '{}'", e.name));
         assert_matches_oracle(model, e);
     }
 
-    let revolute_count = joints
-        .values()
-        .filter(|j| j.joint_type() == JointType::Revolute)
-        .count();
-    let fixed_count = joints
-        .values()
-        .filter(|j| j.joint_type() == JointType::Fixed)
-        .count();
-    let prismatic_count = joints
-        .values()
-        .filter(|j| j.joint_type() == JointType::Prismatic)
-        .count();
-    let floating_count = joints
-        .values()
-        .filter(|j| j.joint_type() == JointType::Floating)
-        .count();
-    assert_eq!(revolute_count, 7);
-    assert_eq!(fixed_count, 2);
-    assert_eq!(prismatic_count, 2);
-    assert_eq!(floating_count, 1);
+    assert_eq!(
+        joint_type_count(&joints, JointType::Revolute),
+        oracle_type_count(&expected, "Revolute"),
+        "revolute count"
+    );
+    assert_eq!(
+        joint_type_count(&joints, JointType::Fixed),
+        oracle_type_count(&expected, "Fixed"),
+        "fixed count"
+    );
+    assert_eq!(
+        joint_type_count(&joints, JointType::Prismatic),
+        oracle_type_count(&expected, "Prismatic"),
+        "prismatic count"
+    );
+    assert_eq!(
+        joint_type_count(&joints, JointType::Floating),
+        oracle_type_count(&expected, "Floating"),
+        "floating count"
+    );
 }
 
 #[test]
@@ -277,97 +214,24 @@ fn fanuc_joint_layer_matches_the_oracle() {
     ));
     joints.insert("FixedBase".to_string(), JointModel::new_fixed("FixedBase"));
 
-    let expected = [
-        Expected {
-            name: "FixedBase",
-            type_name: "Fixed",
-            variable_names: &[],
-            bounds: &[],
-            position_bounded: &[],
-            mimic: None,
-        },
-        Expected {
-            name: "base_link-base",
-            type_name: "Fixed",
-            variable_names: &[],
-            bounds: &[],
-            position_bounded: &[],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_1",
-            type_name: "Revolute",
-            variable_names: &["joint_1"],
-            bounds: &[Some((-3.14, 3.14))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_2",
-            type_name: "Revolute",
-            variable_names: &["joint_2"],
-            bounds: &[Some((-1.57, 2.79))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_3",
-            type_name: "Revolute",
-            variable_names: &["joint_3"],
-            bounds: &[Some((-3.14, 4.61))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_4",
-            type_name: "Revolute",
-            variable_names: &["joint_4"],
-            bounds: &[Some((-3.31, 3.31))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_5",
-            type_name: "Revolute",
-            variable_names: &["joint_5"],
-            bounds: &[Some((-3.31, 3.31))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_6",
-            type_name: "Revolute",
-            variable_names: &["joint_6"],
-            bounds: &[Some((-6.28, 6.28))],
-            position_bounded: &[true],
-            mimic: None,
-        },
-        Expected {
-            name: "joint_6-tool0",
-            type_name: "Fixed",
-            variable_names: &[],
-            bounds: &[],
-            position_bounded: &[],
-            mimic: None,
-        },
-    ];
+    let expected = load_fixture("fanuc_model_info.json");
 
     assert_eq!(joints.len(), expected.len(), "total joint count");
     for e in &expected {
         let model = joints
-            .get(e.name)
+            .get(&e.name)
             .unwrap_or_else(|| panic!("missing joint '{}'", e.name));
         assert_matches_oracle(model, e);
     }
 
-    let revolute_count = joints
-        .values()
-        .filter(|j| j.joint_type() == JointType::Revolute)
-        .count();
-    let fixed_count = joints
-        .values()
-        .filter(|j| j.joint_type() == JointType::Fixed)
-        .count();
-    assert_eq!(revolute_count, 6);
-    assert_eq!(fixed_count, 3);
+    assert_eq!(
+        joint_type_count(&joints, JointType::Revolute),
+        oracle_type_count(&expected, "Revolute"),
+        "revolute count"
+    );
+    assert_eq!(
+        joint_type_count(&joints, JointType::Fixed),
+        oracle_type_count(&expected, "Fixed"),
+        "fixed count"
+    );
 }

@@ -1,0 +1,284 @@
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "groups": {
+      "hand": [
+        "panda_hand_joint",
+        "panda_finger_joint1",
+        "panda_finger_joint2"
+      ],
+      "panda_arm": [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+        "panda_joint8"
+      ],
+      "panda_arm_hand": [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+        "panda_joint8",
+        "panda_hand_joint",
+        "panda_finger_joint1",
+        "panda_finger_joint2"
+      ]
+    },
+    "joint_details": [
+      {
+        "bounds": [
+          [
+            null,
+            null
+          ],
+          [
+            null,
+            null
+          ],
+          [
+            null,
+            null
+          ],
+          [
+            -1.0,
+            1.0
+          ],
+          [
+            -1.0,
+            1.0
+          ],
+          [
+            -1.0,
+            1.0
+          ],
+          [
+            -1.0,
+            1.0
+          ]
+        ],
+        "name": "virtual_joint",
+        "position_bounded": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "type_name": "Floating",
+        "variable_names": [
+          "virtual_joint/trans_x",
+          "virtual_joint/trans_y",
+          "virtual_joint/trans_z",
+          "virtual_joint/rot_x",
+          "virtual_joint/rot_y",
+          "virtual_joint/rot_z",
+          "virtual_joint/rot_w"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "panda_joint1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -1.7628,
+            1.7628
+          ]
+        ],
+        "name": "panda_joint2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint2"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "panda_joint3",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint3"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.0718,
+            0.0175
+          ]
+        ],
+        "name": "panda_joint4",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint4"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "panda_joint5",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint5"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -0.0175,
+            3.7525
+          ]
+        ],
+        "name": "panda_joint6",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint6"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -2.8973,
+            2.8973
+          ]
+        ],
+        "name": "panda_joint7",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "panda_joint7"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "panda_joint8",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "panda_hand_joint",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.04
+          ]
+        ],
+        "name": "panda_finger_joint1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "panda_finger_joint1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            0.0,
+            0.04
+          ]
+        ],
+        "mimic": {
+          "joint": "panda_finger_joint1",
+          "multiplier": 1.0,
+          "offset": 0.0
+        },
+        "name": "panda_finger_joint2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Prismatic",
+        "variable_names": [
+          "panda_finger_joint2"
+        ]
+      }
+    ],
+    "joints": [
+      "virtual_joint",
+      "panda_joint1",
+      "panda_joint2",
+      "panda_joint3",
+      "panda_joint4",
+      "panda_joint5",
+      "panda_joint6",
+      "panda_joint7",
+      "panda_joint8",
+      "panda_hand_joint",
+      "panda_finger_joint1",
+      "panda_finger_joint2"
+    ],
+    "links": [
+      "panda_link0",
+      "panda_link1",
+      "panda_link2",
+      "panda_link3",
+      "panda_link4",
+      "panda_link5",
+      "panda_link6",
+      "panda_link7",
+      "panda_link8",
+      "panda_hand",
+      "panda_leftfinger",
+      "panda_rightfinger"
+    ],
+    "model_frame": "world",
+    "name": "panda",
+    "root_link": "panda_link0"
+  }
+}

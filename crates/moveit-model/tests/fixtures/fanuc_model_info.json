@@ -1,0 +1,161 @@
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "groups": {
+      "manipulator": [
+        "joint_1",
+        "joint_2",
+        "joint_3",
+        "joint_4",
+        "joint_5",
+        "joint_6",
+        "joint_6-tool0"
+      ]
+    },
+    "joint_details": [
+      {
+        "bounds": [],
+        "name": "FixedBase",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [],
+        "name": "base_link-base",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      },
+      {
+        "bounds": [
+          [
+            -3.14,
+            3.14
+          ]
+        ],
+        "name": "joint_1",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "joint_1"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -1.57,
+            2.79
+          ]
+        ],
+        "name": "joint_2",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "joint_2"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.14,
+            4.61
+          ]
+        ],
+        "name": "joint_3",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "joint_3"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.31,
+            3.31
+          ]
+        ],
+        "name": "joint_4",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "joint_4"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -3.31,
+            3.31
+          ]
+        ],
+        "name": "joint_5",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "joint_5"
+        ]
+      },
+      {
+        "bounds": [
+          [
+            -6.28,
+            6.28
+          ]
+        ],
+        "name": "joint_6",
+        "position_bounded": [
+          true
+        ],
+        "type_name": "Revolute",
+        "variable_names": [
+          "joint_6"
+        ]
+      },
+      {
+        "bounds": [],
+        "name": "joint_6-tool0",
+        "position_bounded": [],
+        "type_name": "Fixed",
+        "variable_names": []
+      }
+    ],
+    "joints": [
+      "FixedBase",
+      "base_link-base",
+      "joint_1",
+      "joint_2",
+      "joint_3",
+      "joint_4",
+      "joint_5",
+      "joint_6",
+      "joint_6-tool0"
+    ],
+    "links": [
+      "base_link",
+      "base",
+      "link_1",
+      "link_2",
+      "link_3",
+      "link_4",
+      "link_5",
+      "link_6",
+      "tool0"
+    ],
+    "model_frame": "base_link",
+    "name": "fanuc",
+    "root_link": "base_link"
+  }
+}
