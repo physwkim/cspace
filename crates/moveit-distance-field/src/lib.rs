@@ -507,7 +507,10 @@
 //!   same as message types, and nothing in the ported test suite exercises
 //!   these debug-only paths.
 //! - field `propagate_negative_` — ported as the private `propagate_negative`
-//!   field.
+//!   field. **Genuinely threaded, not merely fixture-pinned**: see
+//!   [`PropagationDistanceField::new`]'s own doc comment for the `rg`
+//!   evidence that it gates the same call sites upstream's
+//!   `propagate_negative_` does, line for line.
 //! - field `voxel_grid_` — ported as the private `voxel_grid` field
 //!   (`VoxelGrid<PropDistanceFieldVoxel>` owned directly rather than behind
 //!   a `shared_ptr`).
