@@ -319,6 +319,216 @@
 //!   opposed to the robot-link half [`DistanceFieldCollisionCache`] covers).
 //! - `logger_` — unported; ROS logging, not carried by this crate's
 //!   ROS-independent scope (PORTING-PLAN.md D1).
+//!
+//! # Symbol audit: every public symbol under `moveit_core/distance_field/`
+//!
+//! The audit above covers `collision_distance_field/include/`; this one
+//! covers the *other* upstream package this crate carries —
+//! `distance_field.hpp`, `propagation_distance_field.hpp`, `voxel_grid.hpp`
+//! and `find_internal_points.hpp` — established by directly reading all
+//! four `.hpp` files, their `.cpp`s, and their `.h` shims in full, not by
+//! inferring from what is already ported. Same shim pattern as the six
+//! headers above: `distance_field.h`, `propagation_distance_field.h`,
+//! `voxel_grid.h` and `find_internal_points.h` are each the identical
+//! three-line deprecated forwarding shim, confirmed the same way (reading
+//! all four in full), so only the `.hpp` files carry real symbols. Same
+//! classification key as above.
+//!
+//! ## `voxel_grid.hpp`
+//!
+//! - `Dimension` (enum) — ported as [`Dimension`].
+//! - `MOVEIT_DECLARE_PTR_MEMBER(VoxelGrid)` — unported: a C++
+//!   smart-pointer-typedef convenience macro, no Rust equivalent needed.
+//! - `VoxelGrid(size_x, ..., default_object)` (sized constructor) — ported
+//!   as [`VoxelGrid::new`], the six size/origin doubles bundled into
+//!   [`GridGeometry`] (see that type's doc comment for why).
+//! - `virtual ~VoxelGrid()` — unported: Rust ownership needs no destructor
+//!   for what this type never allocates outside its own `Vec`.
+//! - `VoxelGrid()` (default constructor) / `resize` — unported: see
+//!   [`VoxelGrid`]'s own "Deviations from upstream" doc, first bullet.
+//! - `operator()(double,double,double)` — ported as [`VoxelGrid::get`].
+//! - `operator()(const Eigen::Vector3d&)`, `getCell(const Eigen::Vector3i&)`
+//!   (const and non-const), `setCell(const Eigen::Vector3i&, const T&)` and
+//!   `isCellValid(const Eigen::Vector3i&)` — unported: each is a one-line
+//!   forward to the scalar overload beside it, and every call site in this
+//!   crate already holds three separate components rather than an
+//!   `Eigen::Vector3`-shaped value at the point it calls in — see
+//!   [`VoxelGrid`]'s own "Deviations from upstream" doc for the `rg`
+//!   evidence.
+//! - `getCell(int,int,int)` (const and non-const) — ported as
+//!   [`VoxelGrid::get_cell`]/[`VoxelGrid::get_cell_mut`].
+//! - `setCell(int,int,int,const T&)` — ported as [`VoxelGrid::set_cell`].
+//! - `reset(const T&)` — ported as [`VoxelGrid::reset`].
+//! - `getSize`/`getResolution`/`getOrigin`/`getNumCells` — ported as
+//!   [`VoxelGrid::size`]/[`VoxelGrid::resolution`]/[`VoxelGrid::origin`]/
+//!   [`VoxelGrid::num_cells`].
+//! - `gridToWorld(int,int,int,double&,double&,double&)` and
+//!   `gridToWorld(const Eigen::Vector3i&, Eigen::Vector3d&)` — collapsed
+//!   into [`VoxelGrid::grid_to_world`]; see that method's own doc comment
+//!   for the deliberately asymmetric shape versus `world_to_grid` below.
+//! - `worldToGrid(double,double,double,int&,int&,int&)` and
+//!   `worldToGrid(const Eigen::Vector3d&, Eigen::Vector3i&)` — collapsed
+//!   into [`VoxelGrid::world_to_grid`]; see that method's own doc comment.
+//! - `isCellValid(int,int,int)` — ported as [`VoxelGrid::is_cell_valid`].
+//! - `isCellValid(Dimension,int)` — ported as
+//!   [`VoxelGrid::is_cell_valid_dim`].
+//! - protected `ref` — ported as the private `VoxelGrid::index`, kept
+//!   private since nothing outside this module needs a raw 1D index.
+//! - protected `getCellFromLocation` — ported as
+//!   [`VoxelGrid::cell_from_location`], made `pub` (this crate's rounding
+//!   convention at cell boundaries lives here; see that method's own doc).
+//! - protected `getLocationFromCell` — ported as
+//!   [`VoxelGrid::location_from_cell`], made `pub`.
+//! - fields `data_`/`default_object_`/`size_`/`resolution_`/
+//!   `oo_resolution_`/`origin_`/`origin_minus_`/`num_cells_`/`stride1_`/
+//!   `stride2_` — ported as [`VoxelGrid`]'s private fields of the same
+//!   names minus the trailing underscore; `data_` becomes an owned `Vec<T>`
+//!   rather than a raw `T*`.
+//! - field `num_cells_total_` — not stored: this port reads `data.len()`
+//!   wherever upstream would read `num_cells_total_`.
+//! - field `data_ptrs_` (`T*** data_ptrs_`) — unported, and dead in the
+//!   *upstream* source, not merely unneeded in Rust: `rg -n "data_ptrs_"`
+//!   against the full `moveit_core/distance_field` tree returns only its
+//!   own declaration line — never initialized, assigned, or read anywhere,
+//!   including by the constructor/destructor that own `data_`. Nothing to
+//!   port.
+//!
+//! ## `distance_field.hpp`
+//!
+//! - `PlaneVisualizationType` (enum) — D-decision excludes it: D1 (used
+//!   only by `getPlaneMarkers`, see the marker methods below).
+//! - `DistanceField` constructor / destructor — N/A: see [`DistanceField`]'s
+//!   own doc comment, "The rest is not ported", last bullet.
+//! - `addPointsToField`/`removePointsFromField`/`updatePointsInField`/
+//!   `reset` (pure virtual) — ported as the required trait methods
+//!   [`DistanceField::add_points_to_field`]/
+//!   [`DistanceField::remove_points_from_field`]/
+//!   [`DistanceField::update_points_in_field`]/[`DistanceField::reset`].
+//! - `getShapePoints`/`addShapeToField`/`moveShapeInField`/
+//!   `removeShapeFromField` — ported as
+//!   [`DistanceField::add_shape_to_field`]/
+//!   [`DistanceField::move_shape_in_field`]/
+//!   [`DistanceField::remove_shape_from_field`] (`getShapePoints` has no
+//!   separate Rust name — its one job, converting a shape+pose into
+//!   obstacle points, is inlined as this crate's private `posed_body` plus
+//!   [`find_internal_points_convex`], called from all three).
+//! - `addOcTreeToField` — unported; see [`DistanceField`]'s own doc.
+//! - `getOcTreePoints` (protected) — unported: upstream's only caller is
+//!   `addOcTreeToField`, itself unported above.
+//! - `getDistance(double,double,double)`/`getDistance(int,int,int)`/
+//!   `isCellValid`/`getXNumCells`/`getYNumCells`/`getZNumCells`/
+//!   `gridToWorld`/`worldToGrid`/`getUninitializedDistance` (pure virtual)
+//!   — ported as the required trait methods [`DistanceField::distance`]/
+//!   [`DistanceField::distance_cell`]/[`DistanceField::is_cell_valid`]/
+//!   [`DistanceField::num_cells_x`]/[`DistanceField::num_cells_y`]/
+//!   [`DistanceField::num_cells_z`]/[`DistanceField::grid_to_world`]/
+//!   [`DistanceField::world_to_grid`]/
+//!   [`DistanceField::uninitialized_distance`].
+//! - `getDistanceGradient` — ported as the default trait method
+//!   [`DistanceField::distance_gradient`]; see that method's own doc for the
+//!   `inv_twice_resolution_` truncation bug this port cannot reintroduce,
+//!   and [`PosedDistanceField::get_collision_sphere_gradients`]'s
+//!   "Decision" doc section for the downstream consequence of this method's
+//!   zero-on-out-of-bounds behaviour.
+//! - `writeToStream`/`readFromStream` — unported; see [`DistanceField`]'s
+//!   own doc.
+//! - `getIsoSurfaceMarkers`/`getGradientMarkers`/`getPlaneMarkers`/
+//!   `getProjectionPlanes` — D-decision excludes them: D1.
+//! - `setPoint` (protected) — unported: upstream's only caller is
+//!   `getProjectionPlanes`, itself excluded above.
+//! - `getSizeX`/`getSizeY`/`getSizeZ`/`getOriginX`/`getOriginY`/
+//!   `getOriginZ`/`getResolution` (inline getters) — ported as the required
+//!   trait methods [`DistanceField::size_x`]/[`DistanceField::size_y`]/
+//!   [`DistanceField::size_z`]/[`DistanceField::origin_x`]/
+//!   [`DistanceField::origin_y`]/[`DistanceField::origin_z`]/
+//!   [`DistanceField::resolution`].
+//! - fields `size_x_`/`size_y_`/`size_z_`/`origin_x_`/`origin_y_`/
+//!   `origin_z_`/`resolution_` — ported as the state each implementer
+//!   ([`PropagationDistanceField`]) stores in its own [`VoxelGrid`], read
+//!   back through the getter methods above rather than duplicated on the
+//!   trait.
+//! - field `inv_twice_resolution_` (mistyped `int`, silently truncating) —
+//!   unported as a stored field; see [`DistanceField::distance_gradient`]'s
+//!   own doc for why this port recomputes it from `resolution()` instead of
+//!   caching the upstream bug.
+//!
+//! ## `propagation_distance_field.hpp`
+//!
+//! - `CompareEigenVector3i` (struct) — unported: a `std::set` ordering
+//!   comparator for cache locality only, not correctness — see
+//!   [`PropagationDistanceField::update_points_in_field`]'s own "Deviation
+//!   from upstream" doc for why a plain `(x, y, z)`-ordered `BTreeSet`
+//!   replaces it.
+//! - `PropDistanceFieldVoxel` (struct, 2 constructors) — ported as
+//!   [`PropDistanceFieldVoxel`]; the field-uninitialized default
+//!   constructor has no caller (see that type's own "Deviation from
+//!   upstream" doc) so only the 2-argument constructor is ported, as
+//!   [`PropDistanceFieldVoxel::new`].
+//! - `PropagationDistanceField(size_x, ..., propagate_negative_distances)`
+//!   (primary constructor) — ported as [`PropagationDistanceField::new`].
+//! - `PropagationDistanceField(octree, bbx_min, bbx_max, ...)` /
+//!   `PropagationDistanceField(istream&, ...)` — unported; see
+//!   [`PropagationDistanceField`]'s own "Deviations from upstream" doc,
+//!   first bullet.
+//! - `~PropagationDistanceField()` (empty override) — N/A, same as the base
+//!   class destructor above.
+//! - `addPointsToField`/`removePointsFromField`/`updatePointsInField`/
+//!   `reset`/`getDistance` (×2)/`isCellValid`/`getXNumCells`/
+//!   `getYNumCells`/`getZNumCells`/`gridToWorld`/`worldToGrid`/
+//!   `getUninitializedDistance` (overrides) — ported as this type's
+//!   [`DistanceField`] impl.
+//! - `writeToStream`/`readFromStream` (overrides) — unported; same reason
+//!   as the base class.
+//! - `getCell` — ported as [`PropagationDistanceField::cell`].
+//! - `getNearestCell` — ported as [`PropagationDistanceField::nearest_cell`];
+//!   see that method's own doc comment for a real upstream defect
+//!   (undefined-behaviour-in-practice pointer aliasing) this port closes
+//!   rather than reproduces.
+//! - `getMaximumDistanceSquared` — ported as
+//!   [`PropagationDistanceField::max_distance_squared`].
+//! - private `initialize` — ported inline in
+//!   [`PropagationDistanceField::new`] (no separate method; nothing else
+//!   calls it, matching upstream, where every constructor also calls it
+//!   exactly once).
+//! - private `addNewObstacleVoxels`/`removeObstacleVoxels`/
+//!   `propagatePositive`/`propagateNegative` — ported as the private
+//!   `add_new_obstacle_voxels`/`remove_obstacle_voxels`/
+//!   `propagate_positive`/`propagate_negative` methods.
+//! - private `getDistance(const PropDistanceFieldVoxel&)` — ported as the
+//!   private `distance_of`.
+//! - private `getDirectionNumber`/`getLocationDifference`/
+//!   `initNeighborhoods` — ported as the free functions
+//!   `direction_number`/`build_neighborhoods` (the latter two merged:
+//!   `build_neighborhoods` returns both the neighborhoods table and the
+//!   direction-number-to-direction lookup `getLocationDifference` reads
+//!   from, since nothing else needs them built separately).
+//! - private `print` (×2, debug-only `RCLCPP_DEBUG` dumps) — unported;
+//!   `PORTING-PLAN.md` D1's ROS-independence applies to logging macros the
+//!   same as message types, and nothing in the ported test suite exercises
+//!   these debug-only paths.
+//! - field `propagate_negative_` — ported as the private `propagate_negative`
+//!   field.
+//! - field `voxel_grid_` — ported as the private `voxel_grid` field
+//!   (`VoxelGrid<PropDistanceFieldVoxel>` owned directly rather than behind
+//!   a `shared_ptr`).
+//! - fields `bucket_queue_`/`negative_bucket_queue_` — ported as the
+//!   private `bucket_queue`/`negative_bucket_queue` fields.
+//! - fields `max_distance_`/`max_distance_sq_` — ported as the private
+//!   `max_distance`/`max_distance_sq` fields.
+//! - field `sqrt_table_` — ported as the private `sqrt_table` field.
+//! - field `neighborhoods_` — ported as the private `neighborhoods` field.
+//! - field `direction_number_to_direction_` — ported as the private
+//!   `direction_number_to_direction` field.
+//! - `VoxelSet` (private typedef) — unported as a named type: this port's
+//!   `BTreeSet<(i32, i32, i32)>` needs no comparator typedef (see
+//!   `CompareEigenVector3i` above).
+//!
+//! ## `find_internal_points.hpp`
+//!
+//! - `findInternalPointsConvex` — ported as [`find_internal_points_convex`],
+//!   generic over [`ConvexBody`] rather than upstream's concrete
+//!   `bodies::Body` — see that trait's own doc comment for the narrowed
+//!   dependency and why.
 
 mod collision_common_distance_field;
 mod collision_distance_field_types;

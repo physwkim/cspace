@@ -98,6 +98,26 @@ impl GridGeometry {
 ///   out-of-bounds indices; this port panics instead (Rust's `Vec` indexing
 ///   already does this — no `unsafe` is used to intentionally skip the
 ///   bounds check).
+/// - Upstream declares five `Eigen::Vector3`-taking convenience overloads
+///   next to their scalar equivalents — `operator()(const Eigen::Vector3d&)`,
+///   `getCell(const Eigen::Vector3i&)` (const and non-const),
+///   `setCell(const Eigen::Vector3i&, const T&)` and
+///   `isCellValid(const Eigen::Vector3i&)` — each a one-line forward to the
+///   scalar overload beside it. This port drops all five: `rg` over every
+///   call site of the scalar equivalents in this crate shows each one
+///   already holding three separate `i32`/`f64` components (a loop index, a
+///   destructured tuple) at the point it calls in, never an
+///   `Eigen::Vector3`-shaped value, so there is nothing for a Vector3-taking
+///   overload to save. [`VoxelGrid::grid_to_world`] and
+///   [`VoxelGrid::world_to_grid`] below are the two exceptions — see their
+///   own doc comments for why those two *do* each carry one Vector3 shape.
+/// - `data_ptrs_` (`T*** data_ptrs_`, a protected field) is dead code in the
+///   *upstream* source, not merely unneeded in Rust: `rg -n "data_ptrs_"`
+///   against the full `moveit_core/distance_field` tree returns only its own
+///   declaration line — never initialized, assigned, or read anywhere,
+///   including by the constructor/destructor that own `data_`. Nothing to
+///   port. `num_cells_total_` is dropped for the ordinary reason instead:
+///   this port reads `data.len()` wherever upstream would read it.
 #[derive(Debug, Clone)]
 pub struct VoxelGrid<T> {
     data: Vec<T>,
@@ -253,7 +273,17 @@ impl<T: Clone> VoxelGrid<T> {
         self.origin[dim as usize] + self.resolution * f64::from(cell)
     }
 
-    /// Upstream `VoxelGrid::gridToWorld(int,int,int,...)`.
+    /// Upstream `VoxelGrid::gridToWorld(int,int,int,...)`, collapsing that
+    /// overload and its `gridToWorld(const Eigen::Vector3i&, Eigen::Vector3d&)`
+    /// sibling into one method that takes scalar `i32`s in and returns an
+    /// owned `Vector3<f64>` out — the opposite input/output shape from
+    /// [`VoxelGrid::world_to_grid`] below, deliberately, not an
+    /// inconsistency: every call site of this method in this crate already
+    /// holds `x`/`y`/`z` as three separate loop indices or a destructured
+    /// tuple, never an `Eigen::Vector3i`-shaped value, so a
+    /// `Vector3<i32>`-taking overload would only force a repack the caller
+    /// does not need; the `Vector3<f64>` return, in turn, is what every
+    /// caller immediately wants a world point *as*.
     pub fn grid_to_world(&self, x: i32, y: i32, z: i32) -> Vector3<f64> {
         Vector3::new(
             self.location_from_cell(Dimension::X, x),
@@ -262,9 +292,17 @@ impl<T: Clone> VoxelGrid<T> {
         )
     }
 
-    /// Upstream `VoxelGrid::worldToGrid`. Returns the computed indices
-    /// alongside whether they are valid, matching upstream's "the returned
-    /// indices will be computed even if they are invalid" contract.
+    /// Upstream `VoxelGrid::worldToGrid`, collapsing that overload and its
+    /// `worldToGrid(const Eigen::Vector3d&, Eigen::Vector3i&)` sibling into
+    /// one method that takes a `&Vector3<f64>` in — the shape every call
+    /// site of this method in this crate already holds a world point in
+    /// (constructed fresh or read out of a points slice), unlike
+    /// [`VoxelGrid::grid_to_world`] above (see that method's own doc for the
+    /// matching rationale on its side). Returns the computed indices
+    /// alongside whether they are valid as a plain tuple rather than a named
+    /// struct, since every caller destructures it immediately — matching
+    /// upstream's "the returned indices will be computed even if they are
+    /// invalid" contract.
     pub fn world_to_grid(&self, world: &Vector3<f64>) -> (bool, i32, i32, i32) {
         let x = self.cell_from_location(Dimension::X, world.x);
         let y = self.cell_from_location(Dimension::Y, world.y);
