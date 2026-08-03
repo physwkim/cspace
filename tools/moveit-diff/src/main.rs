@@ -168,6 +168,36 @@ impl Config {
             }
         }
 
+        // `--cases` sizes the pool of random states that every other op reads:
+        // the fk/jacobian/collision/ik loop walks it, and the constraint loop
+        // cycles through it. So `--cases 0` alongside any of them is a
+        // contradictory request -- it asks to compare something against no
+        // states at all. Rejecting it here, at the one point a `Config` is
+        // built, is what lets every consumer below index the pool without a
+        // guard; `run_constraint_cases`' `case % states.len()` divided by zero
+        // before this check existed.
+        if cases == 0 {
+            let mut asked: Vec<&str> = Vec::new();
+            if constraints > 0 {
+                asked.push("--constraints");
+            }
+            if collision {
+                asked.push("--collision");
+            }
+            if ik {
+                asked.push("--ik");
+            }
+            if group.is_some() {
+                asked.push("--group");
+            }
+            if !asked.is_empty() {
+                return Err(format!(
+                    "--cases 0 leaves no states for {} to run against",
+                    asked.join(", ")
+                ));
+            }
+        }
+
         Ok(Self {
             urdf: urdf.ok_or("--urdf is required")?,
             srdf: srdf.ok_or("--srdf is required")?,
