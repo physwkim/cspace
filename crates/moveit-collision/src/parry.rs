@@ -124,28 +124,76 @@
 //!    ordinary, expected shape of this deviation, not the impossible-number
 //!    failure mode panda's worst case turned out to be. This deviation is
 //!    not limited to mesh-vs-mesh pairs, either:
-//!    `pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced` (same test
-//!    file) confirms it for a convex primitive against a mesh —
+//!    `pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates`
+//!    (same test file) confirms it for a convex primitive against a mesh —
 //!    `base_bellow_link` (a `<box>`) against `torso_lift_link` (a `<mesh>`),
 //!    this backend's own dominant self-collision constant across a
 //!    10,000-case pr2 sweep. This backend's answer for that pair is
-//!    bit-identical across a wide span of `torso_lift_joint` (the pair's
-//!    only degree of freedom), and the raw contact geometry over that span
-//!    shows why: the same local box face and the same local mesh feature are
-//!    found at every state tested, so the true penetration depth genuinely
-//!    is constant there — flat, parallel-face overlap is a well-known hard
-//!    case for GJK/EPA (the support direction is ambiguous across the whole
-//!    face), and it is the oracle's own answer that fails to hold constant
-//!    over that same span, not this backend's. Confirmed the same way as the
-//!    two mesh-vs-mesh cases above (bounding-radius plausibility, not merely
-//!    argued) — and, unlike those two, `collision_parity.rs`'s own
-//!    `assert_full_parity_matches_oracle` now runs that same bounding-radius
-//!    check on every colliding case in every fixture, not just these three
-//!    hand-picked ones: the sign-only branch documented above now pairs with
-//!    a real assertion that fails if a colliding pair's own reported depth
-//!    ever exceeds twice its own bounding radius, catching a future
-//!    regression toward panda-worst-case-style impossible numbers even
-//!    though exact magnitude parity is not required.
+//!    `min(candidate_x, candidate_z(t))` over `torso_lift_joint` (the pair's
+//!    only degree of freedom): `candidate_x` is a `torso_lift_joint`-invariant
+//!    `-x`-face-vs-mesh planar contact (the same local box face and mesh
+//!    feature are found across the whole plateau; only the mesh's own
+//!    FK-correct z-position moves, which that contact does not depend on),
+//!    and `candidate_z(t)` is a genuinely `t`-dependent z-direction candidate,
+//!    linear in `t` with slope `1` (a rigid z-translation of the mesh shifts
+//!    a z-direction separating distance by exactly the translation). Below
+//!    the crossover `candidate_x` is shallower and this backend reports the
+//!    plateau; the oracle's own sweep over the same range instead decreases
+//!    smoothly and monotonically at very nearly `1:1` with the joint travel —
+//!    a real z-direction overlap, not EPA noise settling differently each
+//!    state, so "the oracle's own answer fails to hold constant" is not
+//!    itself the argument for this being deviation 6 rather than a bug (a
+//!    claim that the true depth *cannot* change over that span would be
+//!    circular, assuming the very thing in question). Past the crossover
+//!    `candidate_z(t)` shallows further and wins, and this backend's answer
+//!    then matches the oracle's own to `~1e-9` — the falsifiable signature
+//!    the test asserts, not a plateau it merely describes: agreement exactly
+//!    where `min(...)` predicts it, not resemblance throughout. Confirmed the
+//!    same way as the two mesh-vs-mesh cases above (bounding-radius
+//!    plausibility, not merely argued) — and, unlike those two,
+//!    `collision_parity.rs`'s own `assert_full_parity_matches_oracle` now runs
+//!    that same bounding-radius check on every colliding case in every
+//!    fixture, not just these three hand-picked ones: the sign-only branch
+//!    documented above now pairs with a real assertion that fails if a
+//!    colliding pair's own reported depth ever exceeds twice its own bounding
+//!    radius, catching a future regression toward panda-worst-case-style
+//!    impossible numbers even though exact magnitude parity is not required.
+//!
+//!    What looked like three of this backend's own frozen self-distance
+//!    constants across that 10,000-case sweep are actually two pair
+//!    *families*, not three distinct geometric coincidences:
+//!    `base_link`/each of the eight `*_caster_*_wheel_link`s collapses to one
+//!    value within `3.98e-14` because each wheel is rotationally symmetric
+//!    about its own roll axis, so the wheel-roll joint cannot move the
+//!    closest point — eight geometrically distinct pairs masquerading as one
+//!    constant; and `base_bellow_link`/`torso_lift_link` is not a true
+//!    constant at all, only this deviation's own plateau, spanning `5.536e-3`
+//!    across 177 sampled states before the ramp above takes over. So the
+//!    apparent "three frozen constants" were this same deviation showing up
+//!    twice, once via rotational symmetry and once via the plateau half of
+//!    `min(candidate_x, candidate_z(t))` — not three separate phenomena.
+//!
+//!    The robot-vs-world side shows the same deviation too, in the opposite
+//!    direction: of 300 random pr2 states, `robot_distance` disagrees with
+//!    the oracle on 276, and one — `l_gripper_r_finger_link`/`floor` (oracle)
+//!    versus `l_gripper_r_finger_tip_link`/`floor` (this backend) — exceeds
+//!    tolerance with this backend *deeper*, the opposite of the shallower
+//!    plateau above, so the min-of-two-candidates mechanism does not itself
+//!    explain that case. It is not a different code path producing it,
+//!    though: [`distance_self`]/[`distance_robot`] both call the same
+//!    [`accumulate_distance`] over the same per-part [`query::contact`] call
+//!    and threshold logic, differing only in which [`PosedBody`] list supplies
+//!    the pairs ([`self_pairs`] permutes one robot body list against itself;
+//!    [`cross_pairs`] takes the robot list against [`world_bodies`]'s). The
+//!    one structural asymmetry between the two sides — world objects are
+//!    never padded or scaled (deviation 2, above) — does not apply to this
+//!    case either, since `floor` carries no padding on either side of that
+//!    comparison by construction. So this is the same independent-EPA,
+//!    different-local-feature disagreement deviation 6 already documents,
+//!    landing on a different link and a different sign purely because each
+//!    pair's own EPA disagreement is independent of every other pair's —
+//!    consistent with, not contradicting, deviation 6's own "not
+//!    systematically one-sided" reading.
 //! 7. **No early exit on `distanceSelf`/`distanceRobot`.** Upstream's
 //!    `distanceCallback` sets `cdata->done = true` (stopping the broadphase
 //!    traversal) as soon as a collision is confirmed and

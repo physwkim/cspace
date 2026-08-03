@@ -7,6 +7,10 @@
     "srdf": "octree_world_robot.srdf",
     "urdf": "octree_world_robot.urdf"
   },
+  "pr2_torso_lift_bellow_sweep": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "world": {
     "srdf": "octree_world_robot.srdf",
     "urdf": "octree_world_robot.urdf"

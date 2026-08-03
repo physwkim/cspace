@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "joint_values": {
+      "torso_lift_joint": 0.1
+    },
+    "objects": [],
+    "op": "collision"
+  },
+  {
+    "id": 2,
+    "joint_values": {
+      "torso_lift_joint": 0.2
+    },
+    "objects": [],
+    "op": "collision"
+  },
+  {
+    "id": 3,
+    "joint_values": {
+      "torso_lift_joint": 0.22
+    },
+    "objects": [],
+    "op": "collision"
+  }
+]

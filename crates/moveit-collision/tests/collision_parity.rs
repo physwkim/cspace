@@ -86,16 +86,28 @@
 //! seed-1, 10,000-case pr2 sweep, and it is the one pair on all of pr2 whose
 //! relative pose is a pure function of a single joint
 //! (`torso_lift_joint`) -- so its whole plateau/ramp shape over that joint's
-//! range is directly inspectable, not just spot-checked at one state.
-//! [`pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced`] reads the
-//! raw contact geometry (not just the reported scalar) at two states inside
-//! this backend's wide, bit-identical plateau and shows the same local box
-//! face and the same local mesh feature are found at both -- the true
-//! penetration depth genuinely is constant there, a flat-parallel-face
-//! configuration GJK/EPA implementations are known to disagree on, and it is
-//! the *oracle's* own answer that fails to hold constant over that span, not
-//! this backend's. See `parry.rs`'s deviation 6 for the generalization from
-//! mesh-vs-mesh to convex-primitive-vs-mesh this licenses.
+//! range is directly inspectable, not just spot-checked at one state. This
+//! backend's own curve there is `min(candidate_x, candidate_z(t))`:
+//! `candidate_x` is a `torso_lift_joint`-invariant `-x`-face-vs-mesh planar
+//! contact, and `candidate_z(t)` is a genuinely `t`-dependent z-direction
+//! candidate, linear in `t` with slope `1`. Below the crossover `candidate_x`
+//! is shallower and this backend reports the plateau; the oracle's own sweep
+//! over the same range instead decreases smoothly and monotonically at very
+//! nearly `1:1` with the joint travel -- a real z-direction overlap, not
+//! noise -- so "the oracle's own answer fails to hold constant" is not
+//! itself the argument (a claim that the true depth *cannot* change over
+//! that span would be circular, assuming the very thing in question). Past
+//! the crossover `candidate_z(t)` shallows further and wins, and this
+//! backend's answer should then match the oracle's, not merely resemble it.
+//! [`pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates`]
+//! asserts exactly that: it establishes both candidates from live samples,
+//! bisects this backend's own observed crossover independently of the fitted
+//! lines, confirms the two candidates actually meet there to within this
+//! crate's own `TOLERANCE`, and checks agreement with a real captured oracle
+//! response at `torso_lift_joint = 0.22`, past the crossover, to `~1e-9`. See
+//! `parry.rs`'s deviation 6 for the generalization from mesh-vs-mesh to
+//! convex-primitive-vs-mesh this licenses, and for the two pair-families
+//! that made this deviation look like three frozen constants at first.
 //!
 //! That the divergence is *confined to* the interpenetrating regime was
 //! confirmed above; that deviation 6 is *why* it diverges there was, until
@@ -190,6 +202,88 @@ fn load_fixture(file_name: &str) -> CollisionFixture {
     let path = fixture_path(file_name);
     let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+}
+
+/// One request from `pr2_torso_lift_bellow_sweep_request.json` -- the raw
+/// oracle wire shape (`{"id", "joint_values", "objects", "op"}`), not the
+/// pre-flattened [`CollisionCase`] shape the other fixtures use, since this
+/// one is read alongside its own request to match request/response by `id`
+/// rather than array position (`verify-fixture-replay.sh`'s own rule).
+#[derive(Deserialize)]
+struct TorsoSweepRequestCase {
+    id: u64,
+    joint_values: BTreeMap<String, f64>,
+}
+
+#[derive(Deserialize)]
+struct TorsoSweepDistancePair {
+    body_name_1: String,
+    body_name_2: String,
+}
+
+#[derive(Deserialize)]
+struct TorsoSweepResult {
+    self_distance: f64,
+    self_distance_pair: TorsoSweepDistancePair,
+}
+
+#[derive(Deserialize)]
+struct TorsoSweepResponseCase {
+    id: u64,
+    result: TorsoSweepResult,
+}
+
+/// One `torso_lift_joint` state and the oracle's own `self_distance` for
+/// `base_bellow_link`/`torso_lift_link` there, read from
+/// `pr2_torso_lift_bellow_sweep_{request,response}.json` -- a real captured
+/// oracle response (round 10 §56.3/§40), not a transcribed literal.
+struct TorsoSweepOraclePoint {
+    torso_lift_joint: f64,
+    self_distance: f64,
+}
+
+fn load_torso_sweep_oracle_points() -> Vec<TorsoSweepOraclePoint> {
+    let requests: Vec<TorsoSweepRequestCase> = {
+        let path = fixture_path("pr2_torso_lift_bellow_sweep_request.json");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    };
+    let responses: Vec<TorsoSweepResponseCase> = {
+        let path = fixture_path("pr2_torso_lift_bellow_sweep_response.json");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    };
+    let responses_by_id: BTreeMap<u64, &TorsoSweepResponseCase> =
+        responses.iter().map(|r| (r.id, r)).collect();
+
+    requests
+        .iter()
+        .map(|req| {
+            let torso_lift_joint = *req
+                .joint_values
+                .get("torso_lift_joint")
+                .expect("torso sweep fixture request must set torso_lift_joint");
+            let response = responses_by_id
+                .get(&req.id)
+                .unwrap_or_else(|| panic!("no response for request id {}", req.id));
+            let pair = &response.result.self_distance_pair;
+            assert!(
+                (pair.body_name_1 == "torso_lift_link" && pair.body_name_2 == "base_bellow_link")
+                    || (pair.body_name_1 == "base_bellow_link"
+                        && pair.body_name_2 == "torso_lift_link"),
+                "request id {}: oracle's own global self_distance winner there is {}/{}, not \
+                 torso_lift_link/base_bellow_link -- this fixture's states must stay inside the \
+                 range where this pair is the oracle's own global argmin",
+                req.id,
+                pair.body_name_1,
+                pair.body_name_2
+            );
+            TorsoSweepOraclePoint {
+                torso_lift_joint,
+                self_distance: response.result.self_distance,
+            }
+        })
+        .collect()
 }
 
 /// The three `moveit_resources_*_description` packages committed under
@@ -965,61 +1059,65 @@ fn gripper_pair_contact_is_prediction_invariant() {
     }
 }
 
-/// Round 9 items 2 and 43: `base_bellow_link`/`torso_lift_link` (a `<box>`
-/// against a `<mesh>`, not the mesh-mesh pairs deviation 6's other confirmed
-/// instances involve) is this backend's own dominant self-collision constant
-/// across the seed-1, 10,000-case pr2 sweep (`-5.29289090633392e-2` --
-/// exactly this test's `EXPECTED_DIST`, see `PORTING-PLAN.md` §43). It is
-/// also, by construction, the one pair on all of pr2 whose relative pose is
-/// a function of a *single* joint: `base_bellow_link` is fixed to
+/// Round 9 items 2 and 43, revised by round 10 §56/§56.3:
+/// `base_bellow_link`/`torso_lift_link` (a `<box>` against a `<mesh>`, not
+/// the mesh-mesh pairs deviation 6's other confirmed instances involve) is
+/// this backend's own dominant self-collision constant across the seed-1,
+/// 10,000-case pr2 sweep, and the one pair on all of pr2 whose relative pose
+/// is a function of a *single* joint: `base_bellow_link` is fixed to
 /// `base_link`, `torso_lift_link` moves along `torso_lift_joint` alone
 /// (range `[0.0, 0.33]`), so every other one of pr2's ~46 other joints is
-/// irrelevant to this specific pair's own distance.
+/// irrelevant to this specific pair's own distance -- its whole plateau/ramp
+/// shape over that one joint's range is directly inspectable, not just
+/// spot-checked at one state.
 ///
-/// This backend's answer for the pair is bit-identical at `torso_lift_joint
-/// = 0.1` and `= 0.2` -- an 0.1m change in the mesh's own position with no
-/// change in this backend's reported depth. Queried directly against the
-/// live oracle (bypassing `moveit-diff`, `tools/moveit-oracle/src/oracle.cpp`
-/// via a bare `collision` op with only `torso_lift_joint` set, verified
-/// against the current tree's `oracle_stamp` `f6e61b6136ad4791`), the
-/// oracle's own answer for this exact pair at these two states is `-0.1354`
-/// and `-0.0576` -- not constant at all. Naively this reads like this
-/// backend failing to track a real state change (`round9`'s "hole" framing:
-/// "the sign-only branch is hiding a recoverable bug").
+/// Round 9 argued that because the same local box face and the same local
+/// mesh feature are found at two states inside the plateau, "the true
+/// penetration depth genuinely is constant there," and therefore it must be
+/// the oracle's own varying answer that is wrong. **That the true depth
+/// cannot change over that span is the thing in dispute; assuming it is how
+/// the argument reached its conclusion.** The oracle's own sweep across
+/// `torso_lift_joint = 0.00` to `0.30` (step `0.02`) is not erratic: from
+/// `0.12` to `0.22` it decreases smoothly and monotonically, shallowing at
+/// very nearly `1:1` with the joint travel -- the signature of a genuine
+/// z-direction overlap, not EPA noise. "Fails to hold constant" does not
+/// survive that.
 ///
-/// Reading the raw contact geometry directly (bypassing
-/// `ParryCollisionEnv`/`accumulate_distance` and calling
-/// `parry3d_f64::query::contact` on `base_bellow_link`'s raw `Shape::Cuboid`
-/// against `torso_lift_link`'s raw `Shape::Mesh`) shows the opposite: at
-/// both states, `normal1 = (-1, 0, 0)` and both contact points' local x
-/// coordinates are identical, while both points' z coordinates shift by
-/// *exactly* the 0.1m the mesh itself moved (confirmed against each link's
-/// own `global_link_transform`). The same local box face and the same local
-/// mesh feature are found at both states; only the mesh's own FK-correct
-/// global position moved. That is only possible if `torso_lift_link`'s mesh
-/// has a flat region parallel to `base_bellow_link`'s box face across this
-/// whole span of `torso_lift_joint` -- in which case the true penetration
-/// depth genuinely *is* constant there, and this backend's plateau is the
-/// geometrically correct answer, not a stuck computation. The oracle's own
-/// continuously-varying number is what fails to hold up here: a flat,
-/// parallel-face overlap is a well-known hard case for GJK/EPA (the support
-/// direction is ambiguous across the whole face), and FCL/libccd settling on
-/// a different, non-maximal local feature at each state -- rather than the
-/// uniform true maximum -- is consistent with that. Deviation 6's "two
-/// independent EPA implementations need not converge" reading holds for this
-/// pair too, generalized from mesh-vs-mesh to convex-primitive-vs-mesh: see
-/// `parry.rs`'s module doc.
+/// What does survive: this backend's own curve is
+/// `min(candidate_x, candidate_z(t))`. `candidate_x` is the `-x`-face-vs-mesh
+/// planar contact this test's plateau samples establish as
+/// `torso_lift_joint`-invariant (neither body's local geometry in that
+/// direction depends on the joint). `candidate_z(t)` is a genuinely
+/// `t`-dependent z-direction separating-distance candidate -- this test's
+/// ramp samples confirm it is linear in `t` with slope `1` (a rigid
+/// z-translation of the mesh shifts a z-direction separating distance by
+/// exactly the translation, a geometric identity, not a curve fit).
+/// Penetration depth *is* the minimum translation that separates; when two
+/// directions both separate, the answer is the shallower one. Below the
+/// crossover, `candidate_x` is shallower and this backend reports the
+/// plateau; past it, `candidate_z(t)` shallows further and wins, and this
+/// backend's answer should then land on the oracle's own -- not merely
+/// resemble it. That is the falsifiable claim this test asserts, not just
+/// describes: it bisects this backend's own *observed* crossover
+/// independently of the two fitted lines, confirms the two candidates
+/// actually meet there to within this crate's own [`TOLERANCE`] (confirming
+/// `min(...)` as the mechanism, rather than inferring it from two agreeing
+/// samples), and checks agreement with a real captured oracle response
+/// (`pr2_torso_lift_bellow_sweep_{request,response}.json`, read via
+/// [`load_torso_sweep_oracle_points`]) at `torso_lift_joint = 0.22`, past the
+/// crossover, to `~1e-9` -- the assertion that carries weight, since a test
+/// that only checks two points inside the flat region could never
+/// distinguish "correctly taking the minimum" from "stuck". See `parry.rs`'s
+/// deviation 6 for the generalization from mesh-vs-mesh to
+/// convex-primitive-vs-mesh this licenses, and for the two pair-families
+/// that made this deviation look like three frozen constants at first.
 ///
-/// Both readings agree this is not a magnitude blow-up like panda's worst
-/// case: [`assert_plausible_depth`] (reused, not reimplemented, from
-/// [`assert_full_parity_matches_oracle`]'s own companion check) confirms
-/// both backends' numbers at both states sit inside twice
-/// `base_bellow_link`'s own bounding radius.
+/// Every sampled distance also passes through [`assert_plausible_depth`]
+/// (reused, not reimplemented, from [`assert_full_parity_matches_oracle`]'s
+/// own companion check): this is not a magnitude blow-up like panda's worst
+/// case.
 #[test]
-fn pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced() {
-    use parry3d_f64::query;
-    use parry3d_f64::shape::{Cuboid as ParryCuboid, TriMesh};
-
+fn pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates() {
     let model = build_model("pr2.urdf", "pr2.srdf");
     let env = floor_env();
     let mut acm = AllowedCollisionMatrix::new();
@@ -1028,24 +1126,11 @@ fn pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced() {
     }
     acm.set_entry("base_bellow_link", "torso_lift_link", false);
 
-    // This backend's own answer, verified bit-identical at both states via
-    // the direct oracle query below.
-    const EXPECTED_DIST: f64 = -5.292_890_906_333_925e-2;
-    // The oracle's own per-pair answer at the same two states -- read from a
-    // bare `collision` op request (`joint_values: {"torso_lift_joint": ...}`,
-    // every other joint at its default), confirmed via the response's own
-    // `self_distance_pair` naming exactly this pair, against oracle image
-    // `f6e61b6136ad4791` (this tree's current `oracle_stamp`).
-    const ORACLE_DIST_AT_0_1: f64 = -0.135_439_076_459_608_04;
-    const ORACLE_DIST_AT_0_2: f64 = -0.057_550_140_369_729_62;
-
-    let mut raw_contacts = Vec::new();
-    for &torso in &[0.1_f64, 0.2] {
+    let bellow_torso_distance = |torso: f64| -> f64 {
         let mut joint_values = BTreeMap::new();
         joint_values.insert("torso_lift_joint".to_owned(), torso);
         let mut state = build_state(&model, &joint_values);
         let posed = state.update();
-
         let request = DistanceRequest {
             enable_signed_distance: true,
             acm: Some(&acm),
@@ -1057,110 +1142,131 @@ fn pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced() {
             ["base_bellow_link".to_owned(), "torso_lift_link".to_owned()],
             "torso_lift_joint={torso}: isolated ACM must report this pair"
         );
-        assert!(
-            (distance.minimum_distance.distance - EXPECTED_DIST).abs() < 1e-9,
-            "torso_lift_joint={torso}: distance {} != {EXPECTED_DIST} -- this backend's own \
-             plateau moved, this test's premise no longer holds",
-            distance.minimum_distance.distance
-        );
         assert_plausible_depth(
             &model,
-            "pr2_torso_lift_bellow_pair_plateau_is_geometrically_forced",
+            "pr2_torso_lift_bellow_pair_crossover_confirms_min_of_two_candidates",
             0,
             "self_distance",
             &distance.minimum_distance,
         );
+        distance.minimum_distance.distance
+    };
 
-        let bellow = model.link_model("base_bellow_link").unwrap();
-        let bellow_ls = &bellow.shapes()[0];
-        let Shape::Cuboid(b) = &bellow_ls.shape else {
-            panic!("base_bellow_link shape[0] is not a cuboid");
-        };
-        let bellow_shape = ParryCuboid::new(parry3d_f64::math::Vector::new(
-            b.size[0] * 0.5,
-            b.size[1] * 0.5,
-            b.size[2] * 0.5,
-        ));
-        let bellow_global = posed.global_link_transform("base_bellow_link").unwrap();
-        let bellow_pose: parry3d_f64::math::Pose =
-            (bellow_global * bellow_ls.origin_transform).into();
-
-        let torso_link = model.link_model("torso_lift_link").unwrap();
-        let torso_ls = &torso_link.shapes()[0];
-        let Shape::Mesh(m) = &torso_ls.shape else {
-            panic!("torso_lift_link shape[0] is not a mesh");
-        };
-        let verts = m
-            .vertices
-            .iter()
-            .map(|v| parry3d_f64::math::Vector::new(v.x, v.y, v.z))
-            .collect();
-        let torso_shape = TriMesh::new(verts, m.triangles.clone()).expect("valid trimesh");
-        let torso_global = posed.global_link_transform("torso_lift_link").unwrap();
-        let torso_pose: parry3d_f64::math::Pose = (torso_global * torso_ls.origin_transform).into();
-
-        // A huge, effectively-unbounded prediction margin: there is no
-        // competing pair to narrow `accumulate_distance`'s running
-        // threshold against here, so this is not the `Global`-threshold
-        // truncation `parry.rs`'s `bounded_prediction` documents -- the raw
-        // call below is unbounded on top of that isolation.
-        let contact = query::contact(
-            &bellow_pose,
-            &bellow_shape,
-            &torso_pose,
-            &torso_shape,
-            1.0e6,
-        )
-        .unwrap_or_else(|e| panic!("torso_lift_joint={torso}: query::contact: {e}"))
-        .unwrap_or_else(|| panic!("torso_lift_joint={torso}: expected a contact"));
+    // `candidate_x`: sampled at three points spread across the plateau
+    // (round 9's own `EXPECTED_DIST`, at `torso_lift_joint = 0.1`, is one of
+    // them). All three must agree -- the plateau is not just two
+    // coincidentally-equal samples.
+    let candidate_x_states = [0.02_f64, 0.10, 0.18];
+    let candidate_x_samples = candidate_x_states.map(bellow_torso_distance);
+    let candidate_x = candidate_x_samples[0];
+    for (t, d) in candidate_x_states.iter().zip(candidate_x_samples) {
         assert!(
-            (contact.dist - EXPECTED_DIST).abs() < 1e-9,
-            "torso_lift_joint={torso}: raw contact.dist {} != {EXPECTED_DIST}",
-            contact.dist
-        );
-        assert_eq!(
-            contact.normal1,
-            parry3d_f64::math::Vector::new(-1.0, 0.0, 0.0),
-            "torso_lift_joint={torso}: expected a pure -x planar contact on the box's face"
-        );
-        raw_contacts.push((torso, contact));
-    }
-
-    let (torso_a, contact_a) = raw_contacts[0];
-    let (torso_b, contact_b) = raw_contacts[1];
-    let expected_z_shift = torso_b - torso_a;
-    for (label, a, b) in [
-        ("point1.x", contact_a.point1.x, contact_b.point1.x),
-        ("point2.x", contact_a.point2.x, contact_b.point2.x),
-    ] {
-        assert!(
-            (a - b).abs() < 1e-9,
-            "{label} moved between torso_lift_joint={torso_a} and {torso_b} ({a} vs {b}) -- \
-             expected the same local feature on both bodies at both states"
-        );
-    }
-    for (label, a, b) in [
-        ("point1.z", contact_a.point1.z, contact_b.point1.z),
-        ("point2.z", contact_a.point2.z, contact_b.point2.z),
-    ] {
-        assert!(
-            ((b - a) - expected_z_shift).abs() < 1e-9,
-            "{label} shifted by {} between torso_lift_joint={torso_a} and {torso_b}, expected \
-             exactly the mesh's own {expected_z_shift}m FK translation",
-            b - a
+            (d - candidate_x).abs() < 1e-9,
+            "torso_lift_joint={t}: candidate_x sample {d} != {candidate_x} -- the plateau is not \
+             actually constant across these states"
         );
     }
 
-    // The oracle's own answer at these same two states is not constant --
-    // unlike this backend's, which the assertions above pinned to
-    // `EXPECTED_DIST` at both. That asymmetry (this backend's own geometry
-    // proven internally consistent above; the oracle's own number is the one
-    // that varies where the true depth should not) is the basis for reading
-    // this as deviation 6, not a hole in this port -- see this test's own
-    // doc comment.
-    assert!(
-        (ORACLE_DIST_AT_0_1 - ORACLE_DIST_AT_0_2).abs() > 1e-3,
-        "oracle's own answer for this pair no longer varies between torso_lift_joint=0.1 and \
-         0.2 ({ORACLE_DIST_AT_0_1} vs {ORACLE_DIST_AT_0_2}) -- this test's premise no longer holds"
+    // `candidate_z`: sampled at three points spread across the ramp, well
+    // past the `(0.20, 0.22)` bracket below. Fit as a line from the two
+    // endpoints, then confirmed to actually *be* linear (not merely a
+    // two-point secant) by checking the interior point against the fitted
+    // line.
+    let (t_z0, t_z1, t_z2) = (0.23_f64, 0.24, 0.25);
+    let (d_z0, d_z1, d_z2) = (
+        bellow_torso_distance(t_z0),
+        bellow_torso_distance(t_z1),
+        bellow_torso_distance(t_z2),
     );
+    let candidate_z_slope = (d_z2 - d_z0) / (t_z2 - t_z0);
+    assert!(
+        (candidate_z_slope - 1.0).abs() < 1e-6,
+        "candidate_z's fitted slope {candidate_z_slope} != 1.0 -- a rigid z-translation of the \
+         mesh by dt should shift a z-direction separating distance by exactly dt"
+    );
+    let predicted_d_z1 = d_z0 + candidate_z_slope * (t_z1 - t_z0);
+    assert!(
+        (d_z1 - predicted_d_z1).abs() < 1e-9,
+        "candidate_z at {t_z1} is {d_z1}, but the line through {t_z0}/{t_z2} predicts \
+         {predicted_d_z1} -- candidate_z is not actually linear, only its two-point secant is"
+    );
+    let candidate_z = |t: f64| d_z0 + candidate_z_slope * (t - t_z0);
+
+    // The predicted crossover: where the constant `candidate_x` line meets
+    // the fitted `candidate_z` line.
+    let predicted_crossover = t_z0 + (candidate_x - d_z0) / candidate_z_slope;
+    const BRACKET: (f64, f64) = (0.20, 0.22);
+    assert!(
+        (BRACKET.0..=BRACKET.1).contains(&predicted_crossover),
+        "predicted crossover {predicted_crossover} fell outside round 10's own bracket {BRACKET:?}"
+    );
+
+    // The *observed* crossover, bisected from this backend's own live
+    // `distance_self` calls -- not the fitted lines -- so `min(...)` is
+    // confirmed as the actual mechanism rather than inferred only from the
+    // fit above.
+    let still_on_plateau = |t: f64| (bellow_torso_distance(t) - candidate_x).abs() < 1e-9;
+    assert!(
+        still_on_plateau(BRACKET.0),
+        "torso_lift_joint={}: expected this to still be on the plateau",
+        BRACKET.0
+    );
+    assert!(
+        !still_on_plateau(BRACKET.1),
+        "torso_lift_joint={}: expected this to already be past the crossover",
+        BRACKET.1
+    );
+    let (mut lo, mut hi) = BRACKET;
+    for _ in 0..30 {
+        let mid = 0.5 * (lo + hi);
+        if still_on_plateau(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let observed_crossover = lo;
+    assert!(
+        (observed_crossover - predicted_crossover).abs() < 1e-4,
+        "bisected crossover {observed_crossover} != predicted {predicted_crossover} -- min(...) \
+         does not actually explain this backend's own curve"
+    );
+
+    // At the crossover, the two candidates must actually be equal -- not
+    // merely both close to whatever this backend reports there -- to within
+    // this crate's own [`TOLERANCE`] ("the backend's own tolerance", round
+    // 10's own phrasing).
+    assert!(
+        (candidate_x - candidate_z(observed_crossover)).abs() < TOLERANCE,
+        "at the crossover, candidate_x {candidate_x} and candidate_z {} differ by more than \
+         {TOLERANCE} -- min(...) requires the two candidates to actually meet there",
+        candidate_z(observed_crossover)
+    );
+
+    // The falsifiable claim itself, checked against a real captured oracle
+    // response, not a transcribed literal: inside the plateau this backend
+    // disagrees with the oracle (that disagreement is deviation 6, not a
+    // hole in this port); past the crossover, `min(...)` predicts this
+    // backend's own answer should match the oracle's, not merely resemble
+    // it.
+    for point in load_torso_sweep_oracle_points() {
+        let rust_distance = bellow_torso_distance(point.torso_lift_joint);
+        if point.torso_lift_joint < observed_crossover {
+            assert!(
+                (rust_distance - point.self_distance).abs() > 1e-3,
+                "torso_lift_joint={}: expected this backend's plateau ({rust_distance}) to \
+                 still disagree with the oracle ({}) here",
+                point.torso_lift_joint,
+                point.self_distance
+            );
+        } else {
+            assert!(
+                (rust_distance - point.self_distance).abs() < 1e-9,
+                "torso_lift_joint={}: this backend {rust_distance} != oracle {} past the \
+                 crossover -- the falsifiable claim this test exists to check",
+                point.torso_lift_joint,
+                point.self_distance
+            );
+        }
+    }
 }
