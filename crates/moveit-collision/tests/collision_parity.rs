@@ -169,8 +169,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use moveit_collision::{
-    AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, DistanceResultsData,
-    LinkPaddingScale, ParryCollisionEnv, World,
+    AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, DistanceRequestType,
+    DistanceResultsData, LinkPaddingScale, ParryCollisionEnv, World,
 };
 use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
@@ -1570,25 +1570,28 @@ fn load_self_wheel_oracle_points() -> Vec<SelfWheelOraclePoint> {
 /// disagree on its magnitude, 52 are the known `base_bellow_link`/
 /// `torso_lift_link` plateau (deviation 6(b), `PORTING-PLAN.md` §56/§63.1).
 /// The other 10 are `base_link`/one of five distinct `*_caster_*_wheel_link`
-/// links -- the same rotationally-symmetric family `parry.rs`'s deviation-6
-/// doc already names as producing this backend's own frozen `-0.046592m`
-/// constant (the wheel-roll joint cannot move the closest point). Of those
-/// 10, 3 have an oracle magnitude exceeding twice the wheel's own bounding
-/// radius (`link_bounding_radius`, `0.0767m` for a pr2 caster wheel, so a
-/// `0.1534m` bound) -- geometrically impossible for that pair, on either
-/// backend, the same
+/// links -- the same pair family `parry.rs`'s deviation-6 doc already names
+/// as producing this backend's own frozen `-0.046592m` constant (a shared
+/// planar `base_link` mesh face, not wheel symmetry -- see that doc and
+/// `pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`,
+/// below). Of those 10, 3 have an oracle magnitude exceeding twice the
+/// wheel's own bounding radius (`link_bounding_radius`, `0.0767m` for a pr2
+/// caster wheel, so a `0.1534m` bound) -- geometrically impossible for that
+/// pair, on either backend, the same
 /// failure mode `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`
 /// already documents for deviation 6(a). The remaining 7 stay within that
 /// bound and are not adjudicated by it either way: a within-bound number is
 /// consistent with both "this backend misses a real deeper contact" and
-/// "another independent-EPA local-minimum disagreement", and a self-side
-/// pair (both bodies posed, no fixed external reference like `floor_env`'s
-/// box) admits no cheaper, backend-independent ground truth the way
-/// `deepest_vertex_under_floor` gives the world-object side -- that check's
-/// "project onto a fixed plane" argument has nothing to stand on when both
-/// meshes move. So this test documents only the 3 that a bounding-radius
-/// bound alone already settles; the other 7 need a case-by-case
-/// investigation this test does not attempt.
+/// "another independent-EPA local-minimum disagreement". Round 13 found a
+/// backend-independent ground truth for this pair *family* specifically --
+/// `parry3d_f64`'s own per-triangle `query::contact`, called directly
+/// against each of `base_link`'s 96 mesh triangles rather than through
+/// `distance_self`'s full pipeline (`pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`)
+/// -- but that only explains *this backend's own* `-0.046592m`, not whether
+/// the oracle's FCL/libccd search missed something deeper; a self-side pair
+/// still has no fixed external reference the way `floor_env`'s box gives
+/// `deepest_vertex_under_floor`, so the oracle side of the remaining 7
+/// still needs a case-by-case investigation this test does not attempt.
 #[test]
 fn pr2_self_wheel_same_pair_oracle_magnitude_is_implausible() {
     let model = build_model("pr2.urdf", "pr2.srdf");
@@ -1645,4 +1648,276 @@ fn pr2_self_wheel_same_pair_oracle_magnitude_is_implausible() {
             distance.minimum_distance.distance
         );
     }
+}
+
+/// The winning `base_link` mesh triangle (its own vertex indices) against
+/// `cylinder_link_name`'s cylinder, and the exact contact depth
+/// `parry3d_f64::query::contact` finds for it -- computed by calling that
+/// same query directly against each of `base_link`'s individual mesh
+/// triangles (in the cylinder's own local frame, so both shapes sit at a
+/// fixed relative pose independent of the caller's world frame), rather
+/// than through `distance_self`'s full pipeline. `TriMesh`'s own narrow
+/// phase (`contact_composite_shape_shape`, see
+/// `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`'s doc for
+/// how this was confirmed from the vendored source) already visits every
+/// overlapping triangle exhaustively and keeps the deepest, so this
+/// reproduces `distance_self`'s own per-pair answer exactly while also
+/// naming *which* triangle produced it -- the "backend-independent ground
+/// truth" `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible`'s own
+/// doc says a self-side pair has none of, using `parry3d_f64`'s own EPA as
+/// the reference rather than reimplementing it. (A hand-rolled point-to-
+/// surface distance was tried first and rejected: for a large mesh
+/// triangle piercing clean through a solid cylinder, the true EPA
+/// minimum-separating-translation depth is generally *not* recoverable as
+/// any single point's distance to the cylinder's surface -- that pointwise
+/// measure only equals the true penetration depth for an infinite
+/// half-space, as `deepest_vertex_under_floor` relies on, not a bounded
+/// convex cylinder.)
+fn native_deepest_triangle_vs_cylinder(
+    model: &RobotModel,
+    posed: &moveit_state::Posed<'_, '_>,
+    mesh_link_name: &str,
+    cylinder_link_name: &str,
+) -> (f64, [u32; 3]) {
+    let mesh_link = model
+        .link_model(mesh_link_name)
+        .unwrap_or_else(|e| panic!("{mesh_link_name}: {e}"));
+    let mesh_shape = &mesh_link.shapes()[0];
+    let Shape::Mesh(mesh) = &mesh_shape.shape else {
+        panic!("{mesh_link_name} shape[0] is not a mesh");
+    };
+    let mesh_frame = posed
+        .global_link_transform(mesh_link_name)
+        .unwrap_or_else(|e| panic!("{mesh_link_name}: {e}"))
+        * mesh_shape.origin_transform;
+
+    let cyl_link = model
+        .link_model(cylinder_link_name)
+        .unwrap_or_else(|e| panic!("{cylinder_link_name}: {e}"));
+    let cyl_shape = &cyl_link.shapes()[0];
+    let Shape::Cylinder(cylinder) = &cyl_shape.shape else {
+        panic!("{cylinder_link_name} shape[0] is not a cylinder");
+    };
+    let cyl_frame = posed
+        .global_link_transform(cylinder_link_name)
+        .unwrap_or_else(|e| panic!("{cylinder_link_name}: {e}"))
+        * cyl_shape.origin_transform;
+
+    let to_cyl = cyl_frame.inverse() * mesh_frame;
+    let local_vertices: Vec<parry3d_f64::math::Vector> = mesh
+        .vertices
+        .iter()
+        .map(|v| {
+            let p = to_cyl.transform_point(&nalgebra::Point3::from(*v));
+            parry3d_f64::math::Vector::new(p.x, p.y, p.z)
+        })
+        .collect();
+
+    let parry_cylinder = parry3d_f64::shape::Cylinder::new(cylinder.length * 0.5, cylinder.radius);
+    // parry's canonical cylinder axis is Y; `to_cyl` above already expresses
+    // every point in the cylinder shape's *own* local frame (Z along its
+    // axis, matching `convert_shape`'s `axis_fix`), so querying parry's
+    // `Cylinder` primitive needs that same Y-onto-Z rotation applied to its
+    // own pose (identity otherwise).
+    let axis_fix: parry3d_f64::math::Pose =
+        nalgebra::Isometry3::rotation(nalgebra::Vector3::x() * std::f64::consts::FRAC_PI_2).into();
+    let identity: parry3d_f64::math::Pose = nalgebra::Isometry3::identity().into();
+
+    let mut best = f64::INFINITY;
+    let mut best_tri = [0u32; 3];
+    for tri in &mesh.triangles {
+        let p0 = local_vertices[tri[0] as usize];
+        let p1 = local_vertices[tri[1] as usize];
+        let p2 = local_vertices[tri[2] as usize];
+        let triangle = parry3d_f64::shape::Triangle::new(p0, p1, p2);
+        let Ok(Some(contact)) =
+            parry3d_f64::query::contact(&identity, &triangle, &axis_fix, &parry_cylinder, 0.0)
+        else {
+            continue;
+        };
+        if contact.dist < best {
+            best = contact.dist;
+            best_tri = *tri;
+        }
+    }
+    (best, best_tri)
+}
+
+/// Round 13 item 2 (`PORTING-PLAN.md`): confirms, for all three
+/// `pr2_self_wheel_same_pair_oracle_implausible_{request,response}.json`
+/// cases (two `br_caster_l_wheel_link` poses, one `fl_caster_l_wheel_link`
+/// pose), that this backend's own frozen `-0.046592m` self-distance
+/// constant is [`native_deepest_triangle_vs_cylinder`]'s answer too, and
+/// that the winning triangle is the *same* `base_link` mesh triangle
+/// (vertex indices `[14, 12, 15]`) every time, with all three of its
+/// vertices sharing one `z` in `base_link`'s own frame -- the load-bearing
+/// fact behind `parry.rs`'s corrected deviation-6 doc: a near-planar face
+/// of `base_link`'s own coarse collision mesh, not a wheel symmetry.
+#[test]
+fn pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face() {
+    const TOLERANCE: f64 = 1e-9;
+    const PLANAR_TOLERANCE: f64 = 1e-9;
+
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    for point in load_self_wheel_oracle_points() {
+        let mut state = build_state(&model, &point.joint_values);
+        let posed = state.update();
+
+        let (native_depth, winning_triangle) = native_deepest_triangle_vs_cylinder(
+            &model,
+            &posed,
+            "base_link",
+            &point.wheel_link_name,
+        );
+
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            request_type: DistanceRequestType::Single,
+            ..DistanceRequest::default()
+        };
+        let distance = env.distance_self(&request, &posed, &[]);
+        let key_ab = ("base_link".to_owned(), point.wheel_link_name.clone());
+        let key_ba = (point.wheel_link_name.clone(), "base_link".to_owned());
+        let backend_depth = distance
+            .distances
+            .get(&key_ab)
+            .or_else(|| distance.distances.get(&key_ba))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: no base_link/wheel entry in distances",
+                    point.wheel_link_name
+                )
+            })[0]
+            .distance;
+
+        assert!(
+            (native_depth - backend_depth).abs() < TOLERANCE,
+            "{}: native per-triangle search found {native_depth}, distance_self found \
+             {backend_depth} -- expected the same answer, since TriMesh's own narrow phase \
+             already visits every overlapping triangle exhaustively",
+            point.wheel_link_name,
+        );
+        assert_eq!(
+            winning_triangle,
+            [14, 12, 15],
+            "{}: a different base_link triangle won this time -- the shared-planar-face \
+             explanation for the frozen constant may no longer hold",
+            point.wheel_link_name,
+        );
+
+        let mesh_link = model.link_model("base_link").unwrap();
+        let Shape::Mesh(mesh) = &mesh_link.shapes()[0].shape else {
+            panic!("base_link shape[0] is not a mesh");
+        };
+        let z0 = mesh.vertices[winning_triangle[0] as usize][2];
+        for idx in winning_triangle {
+            let z = mesh.vertices[idx as usize][2];
+            assert!(
+                (z - z0).abs() < PLANAR_TOLERANCE,
+                "{}: winning triangle vertex {idx} has z={z}, expected {z0} -- the triangle is \
+                 not planar in base_link's own frame, so it cannot explain a joint-invariant depth",
+                point.wheel_link_name,
+            );
+        }
+    }
+}
+
+/// Round 13 item 2's own one-parameter-family sweep (`PORTING-PLAN.md`):
+/// with every other joint fixed at
+/// `pr2_self_wheel_same_pair_oracle_implausible_request.json` case 3's own
+/// values, sweeps `fl_caster_rotation_joint` -- whose axis (vertical, `0 0
+/// 1`) is nowhere near `fl_caster_l_wheel_link`'s own (horizontal) roll
+/// axis -- and confirms the *actual* shape of this backend's own answer as
+/// a function of that one joint: a `min` of (at least) three candidate
+/// `base_link` triangles. One is
+/// [`pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`]'s
+/// planar `[14, 12, 15]`, and it does dominate at every interior point
+/// sampled here -- but a second, genuinely `theta`-varying candidate
+/// (triangle `[13, 12, 14]`) is shallower near `theta = 0` and deepens
+/// monotonically approaching the plateau. This is the same "one constant
+/// candidate, one that actually moves, `min` of the two" shape `parry.rs`'s
+/// deviation 6(b) already documents for `base_bellow_link`/
+/// `torso_lift_link`'s `candidate_x`/`candidate_z(t)`, not a fully global
+/// invariant: a dense 72-point sweep (this test's own scratch predecessor,
+/// not committed) found the planar candidate's plateau covers roughly 80%
+/// of the joint's full range, and two *different* triangles (`[13, 12,
+/// 14]` near `theta = 0`, `[15, 12, 16]` near `theta ~ 3.5..4.4`) win the
+/// remaining ~20%. This backend's own `-0.046592m` constant is therefore
+/// this pair's plateau, not its value everywhere -- the same distinction
+/// [`pr2_self_wheel_same_pair_oracle_magnitude_is_implausible`]'s own doc
+/// comment already draws for `base_bellow_link`/`torso_lift_link`. Had the
+/// plateau covered the *entire* range, or had the ramp region stayed
+/// frozen too, either would have been the real defect this test exists to
+/// catch.
+#[test]
+fn pr2_self_wheel_same_pair_frozen_constant_is_a_plateau_not_a_global_invariant() {
+    const TOLERANCE: f64 = 1e-9;
+    const PLATEAU_TRIANGLE: [u32; 3] = [14, 12, 15];
+    const PLATEAU_DEPTH: f64 = -0.046592;
+    const RAMP_TRIANGLE: [u32; 3] = [13, 12, 14];
+
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let base_points = load_self_wheel_oracle_points();
+    let base_joint_values = base_points[2].joint_values.clone();
+    assert_eq!(base_points[2].wheel_link_name, "fl_caster_l_wheel_link");
+
+    let query_at = |theta: f64| {
+        let mut joint_values = base_joint_values.clone();
+        joint_values.insert("fl_caster_rotation_joint".to_owned(), theta);
+        let mut state = build_state(&model, &joint_values);
+        let posed = state.update();
+        native_deepest_triangle_vs_cylinder(&model, &posed, "base_link", "fl_caster_l_wheel_link")
+    };
+
+    // Well inside the plateau (a dense 72-point sweep found it solid across
+    // roughly theta in [0.52, 3.40] union [4.45, 5.76]): the same triangle,
+    // the same depth, at every point.
+    for theta in [0.7, 1.6, 2.4, 3.1, 4.6, 5.0, 5.5] {
+        let (depth, triangle) = query_at(theta);
+        assert_eq!(
+            triangle, PLATEAU_TRIANGLE,
+            "theta={theta}: expected the plateau triangle to still win here"
+        );
+        assert!(
+            (depth - PLATEAU_DEPTH).abs() < TOLERANCE,
+            "theta={theta}: depth {depth} left the plateau's {PLATEAU_DEPTH}"
+        );
+    }
+
+    // Near theta=0, a *different* triangle wins, with a depth that
+    // genuinely moves -- monotonically deepening as theta approaches the
+    // plateau -- rather than being frozen at some other constant. Proving
+    // this is what distinguishes "this pair is a plateau" from "this pair
+    // is frozen and the plateau assertions above just got lucky."
+    let ramp_points: Vec<(f64, f64, [u32; 3])> = [0.0, 0.1, 0.2, 0.3, 0.4]
+        .into_iter()
+        .map(|theta| {
+            let (depth, triangle) = query_at(theta);
+            (theta, depth, triangle)
+        })
+        .collect();
+    for (theta, _, triangle) in &ramp_points {
+        assert_eq!(
+            *triangle, RAMP_TRIANGLE,
+            "theta={theta}: expected the ramp triangle, not the plateau one, this close to theta=0"
+        );
+    }
+    for pair in ramp_points.windows(2) {
+        let (theta_a, depth_a, _) = pair[0];
+        let (theta_b, depth_b, _) = pair[1];
+        assert!(
+            depth_b < depth_a,
+            "theta={theta_a}->{theta_b}: depth {depth_a}->{depth_b} did not strictly deepen \
+             approaching the plateau"
+        );
+    }
+    assert!(
+        ramp_points.last().unwrap().1 > PLATEAU_DEPTH,
+        "the ramp's last sampled point already reached the plateau's own depth -- sample closer \
+         to theta=0 so this test still exercises the ramp, not the plateau"
+    );
 }

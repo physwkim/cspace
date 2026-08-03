@@ -191,15 +191,42 @@
 //!    *families*, not three distinct geometric coincidences, and only one
 //!    of them is this presentation: `base_link`/each of the eight
 //!    `*_caster_*_wheel_link`s collapses to one value within `3.98e-14`
-//!    because each wheel is rotationally symmetric about its own roll axis,
-//!    so the wheel-roll joint cannot move the closest point — eight
-//!    geometrically distinct pairs masquerading as one constant, and not an
-//!    instance of this deviation at all; `base_bellow_link`/`torso_lift_link`
-//!    is not a true constant either, only (b)'s own plateau, spanning
-//!    `5.536e-3` across 177 sampled states before the ramp above takes
-//!    over. So the apparent "three frozen constants" were one real instance
-//!    of (b) plus one unrelated symmetry artifact, not three separate
-//!    phenomena.
+//!    across the seed-1 sweep's own sampled states. Round 13 found this is
+//!    not the wheel's own roll-axis symmetry a previous version of this doc
+//!    claimed — that could not explain the collapse surviving a swap to a
+//!    *different* wheel, and a dense sweep of `*_caster_rotation_joint`
+//!    (whose axis is vertical, nowhere near the wheel's own horizontal
+//!    roll axis) shows the true picture is not even a global invariant:
+//!    [`query::contact`] against a [`TriMesh`] visits every triangle
+//!    overlapping the other shape and keeps the deepest
+//!    (`contact_composite_shape_shape`, see
+//!    `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`'s own doc
+//!    for how that was read from the vendored source), and the winner is a
+//!    `min` of *several* `base_link` triangles, not one. One of them is a
+//!    near-planar face whose three vertices share one `z` in `base_link`'s
+//!    own frame (`pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`);
+//!    a rotation about `*_caster_rotation_joint`'s own (vertical) axis and
+//!    a translation to a different corner both leave that face's `z` — and
+//!    so the wheel's perpendicular clearance to it — unchanged, so it wins
+//!    unchanged across roughly 80% of the joint's own range and at every
+//!    corner sampled. The other ~20% (two *different*, genuinely
+//!    `theta`-varying triangles, one on each side) is shallower there and
+//!    wins instead
+//!    (`pr2_self_wheel_same_pair_frozen_constant_is_a_plateau_not_a_global_invariant`).
+//!    This is the exact same "one constant candidate, one that actually
+//!    moves, `min` of the two" shape this doc's own (b), directly below,
+//!    already describes for `base_bellow_link`/`torso_lift_link`'s
+//!    `candidate_x`/`candidate_z(t)`, not a distinct symmetry — eight
+//!    geometrically distinct pairs sharing (b)'s own plateau-then-ramp
+//!    mechanism against the same planar feature, and not an instance of
+//!    this deviation at all over the range where that feature wins;
+//!    `base_bellow_link`/`torso_lift_link` is not a true constant either,
+//!    only (b)'s own plateau, spanning `5.536e-3` across 177 sampled states
+//!    before the ramp above takes over. So the apparent "three frozen
+//!    constants" were one real instance of (b) plus one second instance of
+//!    the *same* plateau-then-ramp mechanism as (b), not three separate
+//!    phenomena — and the seed-1 sweep's own sampled states simply never
+//!    landed in the wheel pair's ~20% ramp region.
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
