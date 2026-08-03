@@ -216,6 +216,16 @@ fn validated_scale(scale: f64) -> f64 {
 /// [`Self::with_links`] or a prior `set_*` call — rather than re-querying a
 /// `RobotModel` on every call.
 ///
+/// That makes "tracked" load-bearing in a way it is not upstream, where the
+/// bulk setters read the model rather than a map, so one link name owns one
+/// entry holding both values here. Keeping padding and scale in separate
+/// maps would give "tracked" two answers: a link named only to
+/// `set_link_scale` would be invisible to `set_padding_for_all_links`, which
+/// is the sort of gap upstream cannot have. A link tracked through either
+/// setter therefore starts at the same padding `0.0` / scale `1.0` the
+/// getters report for an untracked link, so tracking alone never changes
+/// what is reported.
+///
 /// Every setter here funnels through the same private validating helpers
 /// (upstream: `validatePadding`/`validateScale`, which log through `rclcpp`
 /// — unavailable in a ROS-independent core crate, D1 — and are silently
@@ -234,8 +244,25 @@ fn validated_scale(scale: f64) -> f64 {
 /// caller (the concrete backend, once one exists) to act on directly.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LinkPaddingScale {
-    link_padding: BTreeMap<String, f64>,
-    link_scale: BTreeMap<String, f64>,
+    links: BTreeMap<String, LinkAdjustment>,
+}
+
+/// One tracked link's padding and scale. The defaults are what the getters
+/// report for an untracked link, so tracking a link through one setter does
+/// not change what the other one reports about it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LinkAdjustment {
+    padding: f64,
+    scale: f64,
+}
+
+impl Default for LinkAdjustment {
+    fn default() -> Self {
+        Self {
+            padding: 0.0,
+            scale: 1.0,
+        }
+    }
 }
 
 impl LinkPaddingScale {
@@ -249,47 +276,46 @@ impl LinkPaddingScale {
     /// for `robot_model_->getLinkModelsWithCollisionGeometry()` (see the
     /// type's deviation note).
     pub fn with_links(links: impl IntoIterator<Item = String>, padding: f64, scale: f64) -> Self {
-        let padding = validated_padding(padding);
-        let scale = validated_scale(scale);
-        let mut link_padding = BTreeMap::new();
-        let mut link_scale = BTreeMap::new();
-        for link in links {
-            link_padding.insert(link.clone(), padding);
-            link_scale.insert(link, scale);
-        }
+        let adjustment = LinkAdjustment {
+            padding: validated_padding(padding),
+            scale: validated_scale(scale),
+        };
         Self {
-            link_padding,
-            link_scale,
+            links: links.into_iter().map(|link| (link, adjustment)).collect(),
         }
     }
 
     /// `getLinkPadding(link_name)`: `0.0` for an untracked link.
     pub fn link_padding(&self, link_name: &str) -> f64 {
-        self.link_padding.get(link_name).copied().unwrap_or(0.0)
+        self.links
+            .get(link_name)
+            .map_or(LinkAdjustment::default().padding, |a| a.padding)
     }
 
     /// `getLinkScale(link_name)`: `1.0` for an untracked link.
     pub fn link_scale(&self, link_name: &str) -> f64 {
-        self.link_scale.get(link_name).copied().unwrap_or(1.0)
+        self.links
+            .get(link_name)
+            .map_or(LinkAdjustment::default().scale, |a| a.scale)
     }
 
-    /// `getLinkPadding()`: every tracked link's padding.
-    pub fn link_paddings(&self) -> &BTreeMap<String, f64> {
-        &self.link_padding
+    /// `getLinkPadding()`: every tracked link's padding, in name order.
+    pub fn link_paddings(&self) -> impl Iterator<Item = (&str, f64)> {
+        self.links.iter().map(|(k, a)| (k.as_str(), a.padding))
     }
 
-    /// `getLinkScale()`: every tracked link's scale.
-    pub fn link_scales(&self) -> &BTreeMap<String, f64> {
-        &self.link_scale
+    /// `getLinkScale()`: every tracked link's scale, in name order.
+    pub fn link_scales(&self) -> impl Iterator<Item = (&str, f64)> {
+        self.links.iter().map(|(k, a)| (k.as_str(), a.scale))
     }
 
     /// `setLinkPadding(link_name, padding)`. Returns whether the resolved
     /// (post-validation) value actually changed.
     pub fn set_link_padding(&mut self, link_name: impl Into<String>, padding: f64) -> bool {
-        let link_name = link_name.into();
         let padding = validated_padding(padding);
-        let changed = self.link_padding(&link_name) != padding;
-        self.link_padding.insert(link_name, padding);
+        let entry = self.links.entry(link_name.into()).or_default();
+        let changed = entry.padding != padding;
+        entry.padding = padding;
         changed
     }
 
@@ -311,10 +337,10 @@ impl LinkPaddingScale {
     /// `setLinkScale(link_name, scale)`. Returns whether the resolved
     /// (post-validation) value actually changed.
     pub fn set_link_scale(&mut self, link_name: impl Into<String>, scale: f64) -> bool {
-        let link_name = link_name.into();
         let scale = validated_scale(scale);
-        let changed = self.link_scale(&link_name) != scale;
-        self.link_scale.insert(link_name, scale);
+        let entry = self.links.entry(link_name.into()).or_default();
+        let changed = entry.scale != scale;
+        entry.scale = scale;
         changed
     }
 
@@ -338,7 +364,7 @@ impl LinkPaddingScale {
     /// here). Returns the names of links whose resolved padding actually
     /// changed.
     pub fn set_padding_for_all_links(&mut self, padding: f64) -> Vec<String> {
-        let links: Vec<String> = self.link_padding.keys().cloned().collect();
+        let links: Vec<String> = self.links.keys().cloned().collect();
         self.set_link_paddings(links.into_iter().map(|link| (link, padding)))
     }
 
@@ -347,7 +373,7 @@ impl LinkPaddingScale {
     /// here). Returns the names of links whose resolved scale actually
     /// changed.
     pub fn set_scale_for_all_links(&mut self, scale: f64) -> Vec<String> {
-        let links: Vec<String> = self.link_scale.keys().cloned().collect();
+        let links: Vec<String> = self.links.keys().cloned().collect();
         self.set_link_scales(links.into_iter().map(|link| (link, scale)))
     }
 }
@@ -623,6 +649,36 @@ mod tests {
         assert_eq!(changed, vec!["a".to_string(), "b".to_string()]);
         assert_eq!(p.link_padding("a"), 0.2);
         assert_eq!(p.link_padding("c"), 0.0);
+    }
+
+    #[test]
+    fn a_link_tracked_by_either_setter_is_tracked_by_both_bulk_setters() {
+        // "c" is named only to set_link_scale. With padding and scale in
+        // separate maps it would be absent from the padding map and so
+        // skipped by set_padding_for_all_links, giving "tracked" two
+        // different answers depending on which bulk setter asked.
+        let mut p = LinkPaddingScale::new();
+        p.set_link_scale("c", 2.0);
+        assert_eq!(p.set_padding_for_all_links(0.3), vec!["c".to_string()]);
+        assert_eq!(p.link_padding("c"), 0.3);
+        assert_eq!(p.link_scale("c"), 2.0, "the scale must survive untouched");
+
+        let mut q = LinkPaddingScale::new();
+        q.set_link_padding("d", 0.4);
+        assert_eq!(q.set_scale_for_all_links(3.0), vec!["d".to_string()]);
+        assert_eq!(q.link_scale("d"), 3.0);
+        assert_eq!(q.link_padding("d"), 0.4);
+    }
+
+    #[test]
+    fn link_paddings_and_link_scales_list_the_same_links() {
+        let mut p = LinkPaddingScale::with_links(["a".to_string()], 0.1, 1.5);
+        p.set_link_scale("b", 2.0);
+        p.set_link_padding("c", 0.2);
+        let padded: Vec<&str> = p.link_paddings().map(|(name, _)| name).collect();
+        let scaled: Vec<&str> = p.link_scales().map(|(name, _)| name).collect();
+        assert_eq!(padded, vec!["a", "b", "c"]);
+        assert_eq!(scaled, padded);
     }
 
     #[test]
