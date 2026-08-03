@@ -2,5 +2,6 @@
 /tools/moveit-oracle/build
 /third_party
 .caucus
+.claude
 *.log
 /.oracle-ctx.*
