@@ -49,6 +49,7 @@
 #include <moveit/distance_field/propagation_distance_field.hpp>
 #include <moveit/dynamics_solver/dynamics_solver.hpp>
 #include <moveit/kinematic_constraints/kinematic_constraint.hpp>
+#include <moveit/kinematics_metrics/kinematics_metrics.hpp>
 #include <moveit/online_signal_smoothing/smoothing_base_class.hpp>
 #include <moveit/planning_scene/planning_scene.hpp>
 #include <moveit/robot_model/robot_model.hpp>
@@ -526,6 +527,8 @@ public:
       return jacobian(request);
     if (op == "random_states")
       return randomStates(request);
+    if (op == "kinematics_metrics")
+      return kinematicsMetrics(request);
     if (op == "acm")
       return acm();
     if (op == "collision")
@@ -1039,6 +1042,100 @@ private:
     return json{ { "rows", static_cast<std::size_t>(j.rows()) },
                  { "cols", static_cast<std::size_t>(j.cols()) },
                  { "data", data } };
+  }
+
+  /// Ground truth for `moveit-metrics`' `KinematicsMetrics`: all four public
+  /// values (`getManipulabilityIndex`/`getManipulability`, each at
+  /// `translation` true and false, plus `getManipulabilityEllipsoid`) from
+  /// `kinematics_metrics::KinematicsMetrics`, at `count` random whole-model
+  /// states drawn the same way `randomStates` draws them -- the oracle owns
+  /// the randomness (see that op's own comment for why a runner-side sampler
+  /// would not be comparable).
+  ///
+  /// Eigenvalues/eigenvectors come back as `Eigen::MatrixXcd` (complex)
+  /// upstream; both real and imaginary parts are dumped rather than
+  /// discarding the imaginary half, so the Rust side can assert it is
+  /// negligible instead of assuming it -- see `moveit-metrics`'s own doc
+  /// comment on why `nalgebra::SymmetricEigen` (real-only) is still a valid
+  /// port of a matrix that upstream's own type only defensively allows to be
+  /// complex.
+  json kinematicsMetrics(const json& request)
+  {
+    const std::string group_name = request.at("group").get<std::string>();
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (!group)
+      throw std::runtime_error("unknown group: " + group_name);
+
+    const std::size_t count = request.at("count").get<std::size_t>();
+    const double penalty_multiplier = request.at("penalty_multiplier").get<double>();
+    random_numbers::RandomNumberGenerator rng(request.at("seed").get<int>());
+
+    kinematics_metrics::KinematicsMetrics metrics(model_);
+    metrics.setPenaltyMultiplier(penalty_multiplier);
+
+    std::vector<double> values(model_->getVariableCount());
+    const std::vector<std::string>& names = model_->getVariableNames();
+
+    json states = json::array();
+    for (std::size_t i = 0; i < count; ++i)
+    {
+      model_->getVariableRandomPositions(rng, values.data());
+      state_->setVariablePositions(values);
+      state_->update();
+
+      json joint_values = json::object();
+      for (std::size_t v = 0; v < names.size(); ++v)
+        joint_values[names[v]] = values[v];
+
+      double index_full = 0.0, index_translation = 0.0;
+      double manipulability_full = 0.0, manipulability_translation = 0.0;
+      const bool ok_index_full = metrics.getManipulabilityIndex(*state_, group, index_full, false);
+      const bool ok_index_translation =
+          metrics.getManipulabilityIndex(*state_, group, index_translation, true);
+      const bool ok_manipulability_full = metrics.getManipulability(*state_, group, manipulability_full, false);
+      const bool ok_manipulability_translation =
+          metrics.getManipulability(*state_, group, manipulability_translation, true);
+
+      Eigen::MatrixXcd eigen_values, eigen_vectors;
+      const bool ok_ellipsoid = metrics.getManipulabilityEllipsoid(*state_, group, eigen_values, eigen_vectors);
+
+      if (!ok_index_full || !ok_index_translation || !ok_manipulability_full || !ok_manipulability_translation ||
+          !ok_ellipsoid)
+        throw std::runtime_error("kinematics_metrics: group " + group_name + " is not a chain");
+
+      json eigenvalues_real = json::array();
+      json eigenvalues_imag = json::array();
+      for (Eigen::Index r = 0; r < eigen_values.rows(); ++r)
+      {
+        eigenvalues_real.push_back(eigen_values(r, 0).real());
+        eigenvalues_imag.push_back(eigen_values(r, 0).imag());
+      }
+
+      json eigenvectors_real = json::array();
+      json eigenvectors_imag = json::array();
+      for (Eigen::Index r = 0; r < eigen_vectors.rows(); ++r)
+      {
+        for (Eigen::Index c = 0; c < eigen_vectors.cols(); ++c)
+        {
+          eigenvectors_real.push_back(eigen_vectors(r, c).real());
+          eigenvectors_imag.push_back(eigen_vectors(r, c).imag());
+        }
+      }
+
+      states.push_back(json{
+          { "joint_values", joint_values },
+          { "manipulability_index_full", index_full },
+          { "manipulability_index_translation", index_translation },
+          { "manipulability_full", manipulability_full },
+          { "manipulability_translation", manipulability_translation },
+          { "ellipsoid_eigenvalues_real", eigenvalues_real },
+          { "ellipsoid_eigenvalues_imag", eigenvalues_imag },
+          { "ellipsoid_eigenvectors_real", eigenvectors_real },
+          { "ellipsoid_eigenvectors_imag", eigenvectors_imag },
+      });
+    }
+
+    return json{ { "group", group_name }, { "penalty_multiplier", penalty_multiplier }, { "states", states } };
   }
 
   /// The `AllowedCollisionMatrix` `PlanningScene` itself builds: straight from
