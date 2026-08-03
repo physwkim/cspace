@@ -78,22 +78,36 @@
 //! upstream never pairs the two either, in any code this port's scope
 //! reaches:
 //!
-//! - `constructGoalConstraints`'s implementation
-//!   (`moveit_core/kinematic_constraints/src/utils.cpp`) never references
-//!   `PlanningScene` or `Transforms` at all (`rg -n
-//!   'PlanningScene|Transforms' moveit_core/kinematic_constraints/src/utils.cpp`
-//!   is empty) — every overload builds a `moveit_msgs::msg::Constraints`
-//!   from a raw `RobotState`/link name/pose/point/quaternion, leaving any
-//!   frame resolution to whoever consumes the message afterward.
-//! - Every real caller of `constructGoalConstraints` is in `moveit_ros`
-//!   (`rg -l constructGoalConstraints moveit_core moveit_ros`: zero hits
-//!   under `moveit_core` outside the declaration/definition themselves;
-//!   hits under `moveit_ros/planning/moveit_cpp/src/planning_component.cpp`,
-//!   `moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp`,
-//!   `moveit_ros/visualization/motion_planning_rviz_plugin/src/motion_planning_frame_planning.cpp`,
-//!   `moveit_ros/warehouse/src/import_from_text.cpp`, and a
-//!   `moveit_ros/hybrid_planning` test) — all `moveit_ros`/`moveit_py`,
-//!   outside this port's D1 scope.
+//! - The structural reason, not just a survey of where callers happen to
+//!   live: none of `constructGoalConstraints`'s **7** overloads
+//!   (`moveit_core/kinematic_constraints/include/moveit/kinematic_constraints/utils.hpp`
+//!   lines 83, 99, 129, 148, 176, 205, 222) takes a `PlanningScene` or a
+//!   `Transforms` parameter — every one builds a
+//!   `moveit_msgs::msg::Constraints` from a raw `RobotState`/
+//!   `JointModelGroup`/link name/pose/point/quaternion, leaving frame
+//!   resolution to whoever consumes the message afterward. No caller,
+//!   anywhere, in any package, can pair a scene with goal-constraint
+//!   construction *through this function*, because the function gives it
+//!   nowhere to plug in — a fact about the signatures, not about which
+//!   package happens to call them. (`constructGoalConstraints`'s own
+//!   implementation confirms this from the callee side too:
+//!   `rg -n 'PlanningScene|Transforms' moveit_core/kinematic_constraints/src/utils.cpp`
+//!   is empty.)
+//! - For completeness, the caller survey this reasoning replaces: real
+//!   callers of `constructGoalConstraints`, excluding its own declaration,
+//!   definition and `CHANGELOG.rst`
+//!   (`rg -l constructGoalConstraints moveit_core moveit_ros moveit_planners
+//!   moveit_py | rg -v -e CHANGELOG.rst -e
+//!   'kinematic_constraints/include/.*utils.hpp' -e
+//!   'kinematic_constraints/src/utils.cpp'`), are **13** files — 7 under
+//!   `moveit_planners` (`ompl_interface`, `pilz_industrial_motion_planner`
+//!   and its `_testutils`), 5 under `moveit_ros`, 1 under `moveit_py` — none
+//!   under `moveit_core` itself. `moveit_planners` outnumbers `moveit_ros`
+//!   here; "every real caller is in `moveit_ros`" would have been wrong even
+//!   as a survey. All 13 are still outside this port's D1 scope (ROS
+//!   planning-pipeline wiring or its test harnesses), so the conclusion is
+//!   unchanged — the signature argument above is simply the reason that
+//!   holds regardless of which package a future caller lands in.
 //! - The mechanism that *would* pair a scene with constraint construction
 //!   upstream — `configure(msg, tf)` on `PositionConstraint`/
 //!   `OrientationConstraint`/`VisibilityConstraint`, resolving a
