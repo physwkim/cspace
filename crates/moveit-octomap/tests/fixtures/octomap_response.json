@@ -1,0 +1,110 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": 3.511030673980713,
+          "mapped": true,
+          "occupancy": 0.9710000010045966
+        }
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "log_odds": -2.000027894973755,
+          "mapped": true,
+          "occupancy": 0.1191999932599187
+        }
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "count": 24
+        }
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "count": 16
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        },
+        {
+          "log_odds": 0.8472978472709656,
+          "mapped": true,
+          "occupancy": 0.69999999724559
+        }
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "ok": true,
+    "result": {
+      "results": [
+        {
+          "keys": [],
+          "ok": false
+        },
+        {
+          "keys": [],
+          "ok": false
+        },
+        {
+          "keys": [],
+          "ok": false
+        }
+      ]
+    }
+  }
+]
