@@ -110,9 +110,9 @@
 //!
 //! - `tests/upstream_parity.rs` — every case upstream's own
 //!   `test_distance_field.cpp` gtest suite carries, minus `TestOcTree`
-//!   (needs an unported `octomap::OcTree`) and `TestPerformance` (a
-//!   benchmark, not an assertion) — see that file's own module doc for the
-//!   two exclusions' reasoning.
+//!   (needs the unported `DistanceField::addOcTreeToField`) and
+//!   `TestPerformance` (a benchmark, not an assertion) — see that file's own
+//!   module doc for the two exclusions' reasoning.
 //! - `tests/boundaries.rs` — invariant-boundary cases upstream's suite does
 //!   not carry: a point exactly on a cell boundary, a point outside the
 //!   grid, add-then-remove returning to the reset state (signed and
@@ -165,9 +165,13 @@
 //! FCL/Bullet replacement, D4's compile-time-trait plugin model). The
 //! `AttachedBody`-dependent decomposition functions
 //! (`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`)
-//! and the octree-backed `PosedBodyPointDecomposition` constructor are
-//! unported because this crate's current scope has no `AttachedBody`/
-//! `octomap::OcTree` type to build them from. Nothing above depends on
+//! are unported because a bare `moveit_state::State` structurally cannot see
+//! attached bodies (they live on `moveit_scene::PlanningScene`, which this
+//! crate does not depend on — see `moveit-state`'s `State::frame_transform`
+//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is
+//! unported because this crate has no dependency on `moveit-octomap` — that
+//! crate now ports an `octomap::OcTree` equivalent, but nothing in this
+//! crate's own dependency graph reaches it. Nothing above depends on
 //! ROS message types, a renderer, or `World` in a way this crate's
 //! `DistanceFieldCollisionCache`/link-decomposition scope does not already
 //! account for.
@@ -307,9 +311,9 @@
 //!   `PosedBodyPointDecomposition(body_decomposition, pose)` as
 //!   [`PosedBodyPointDecomposition::new`]/[`PosedBodyPointDecomposition::with_pose`].
 //!   The third, `PosedBodyPointDecomposition(const std::shared_ptr<const
-//!   octomap::OcTree>&)`, is unported: no crate in this workspace ports
-//!   `octomap::OcTree` or an equivalent octree type, so there is no input
-//!   type to build it from.
+//!   octomap::OcTree>&)`, is unported: `moveit-octomap` now ports an
+//!   `octomap::OcTree` equivalent, but this crate has no dependency on it,
+//!   so there is no input type in this crate's own scope to build it from.
 //! - `PosedBodySphereDecompositionVector` (class) — ported as
 //!   [`PosedBodySphereDecompositionVector`] (`getSize`/
 //!   `getPosedBodySphereDecomposition` as

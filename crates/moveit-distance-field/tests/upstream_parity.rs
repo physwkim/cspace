@@ -13,8 +13,9 @@
 //!
 //! Deliberately **not** ported, with reasons:
 //!
-//! - `TestOcTree` — needs `octomap::OcTree` and
-//!   `DistanceField::addOcTreeToField`; neither exists in this workspace (see
+//! - `TestOcTree` — needs `DistanceField::addOcTreeToField`, which is
+//!   unported; `moveit-octomap` now ports an `octomap::OcTree` equivalent,
+//!   but this crate has no dependency on it (see
 //!   [`moveit_distance_field::DistanceField`]'s "Deviations from upstream").
 //! - `TestPerformance` — a benchmark (timing printed to stdout), not a
 //!   correctness assertion.
