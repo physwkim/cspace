@@ -118,8 +118,10 @@ pub struct ModelInfo {
 pub struct JointDetail {
     /// Joint name.
     pub name: String,
-    /// `JointModel::getTypeName()`: `REVOLUTE`, `PRISMATIC`, `PLANAR`,
-    /// `FLOATING`, `FIXED`, `UNKNOWN`.
+    /// `JointModel::getTypeName()`: `Revolute`, `Prismatic`, `Planar`,
+    /// `Floating`, `Fixed`, `Unknown`. Capitalized exactly so — upstream
+    /// returns these strings verbatim from a switch on its type enum, not the
+    /// enumerator spelling.
     pub type_name: String,
     /// `JointModel::getVariableNames()`, in the model's own order.
     ///

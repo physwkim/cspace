@@ -17,14 +17,14 @@ MODEL = {
     "joint_details": [
         {
             "name": "joint1",
-            "type_name": "REVOLUTE",
+            "type_name": "Revolute",
             "variable_names": ["joint1"],
             "bounds": [[-1.0, 1.0]],
             "position_bounded": [True],
         },
         {
             "name": "joint2",
-            "type_name": "REVOLUTE",
+            "type_name": "Revolute",
             "variable_names": ["joint2"],
             "bounds": [[None, None]],
             "position_bounded": [False],
