@@ -8330,3 +8330,115 @@ moveit-geometry/src/stl.rs:60                       oracle:1717af5da743934c
 --all-targets -D warnings` 0건, `fmt --check` 통과, `check-*.sh` 3건 OK.
 
 담당이 보고한 1052/1052와 29/29는 베이스 `7d8d40a` 기준 값이다.
+
+## 98. p6-totg 라운드 11 머지 — 담당이 자기 오류를 잡았고, 설명되지 않은 8.893e-9
+
+17커밋(`0d1c240`..`fda0733`), 15파일, `moveit-trajectory`와
+`moveit-smoothing` 두 크레이트. 단언만 바뀌어 테스트 수는 1073/1073
+그대로다. `8cce74f`로 `--no-ff` 머지했다.
+
+게이트는 머지된 트리에서 내가 다시 돌렸다: fmt 통과, clippy
+`--workspace --all-targets -D warnings` 0건, nextest **1073/1073**,
+`--doc` 통과, `cargo doc --no-deps` 통과, `check-*.sh` 3건 OK,
+provenance OK, reseed OK, 재생 **30/30 identical**.
+
+### 98.1 §92의 57건이 11건으로 줄었다
+
+§92에서 이 두 크레이트에 `max_relative` 없는 사이트가 57건이라고
+적었다. 머지 후 전수 재고를 다시 돌렸다:
+
+```
+assert_relative_eq! 호출        30
+  max_relative 있음             19
+  epsilon만                     11   ← 전부 trajectory.rs
+  둘 다 없음                     0
+```
+
+남은 11건은 전부 `trajectory.rs` 안이다. §79 노출에서 이 담당 몫으로는
+가장 큰 감소다.
+
+### 98.2 담당이 스스로 잡은 결함이 실제로 문다
+
+담당은 `trajectory.rs`의 duration 단언에서 `max_relative = 1e-6`을
+넣으면 **허용 폭이 오히려 넓어진다**는 것을 스스로 발견하고
+`f64::EPSILON`으로 되돌렸다고 보고했다. 내가 직접 재확인했다.
+
+```
+1_922.141_842_744_594_4 → 1_922.141_852_744_594_4  (+1e-5)   1 fail
+                        → +1e-8                              통과
+                        → +1e-9                              통과
++1e-5 nudge + max_relative = 1e-6 복원                        통과   ← 결함 재현
+```
+
+`approx`는 `|a-b| <= epsilon` **또는** `|a-b| <= max_relative *
+max(|a|,|b|)`이면 통과한다. 값이 1922이므로 `max_relative = 1e-6`은
+실효 허용 폭 `1.9e-3`, `f64::EPSILON`은 `4.3e-13`이다. `epsilon =
+1e-6`이 둘 중 더 좁아 실제로 무는 쪽이 되고, 그래서 +1e-5는 실패하고
++1e-8은 통과한다.
+
+**§91.2의 반대 방향이다.** §91.2에서는 비교값이 작아(≤7.03754e-06)
+절대 floor가 `max_relative`를 삼켰다. 여기서는 비교값이 커서
+`max_relative`가 절대 floor를 삼킨다. 같은 결함의 두 얼굴이고, 규칙은
+하나다 — **허용치는 비교되는 값의 크기를 보고 정해라.**
+
+내 첫 섭동은 무효였다. `1922.1418427445944`를 치환했는데 소스의
+리터럴은 `1_922.141_842_744_594_4`로 밑줄이 들어가 있어 doc 주석의
+출현만 바뀌었고 아무것도 실패하지 않았다. 밑줄 형태로 다시 재서 위
+숫자를 얻었다. §82.1과 같은 종류의 무효 측정이다.
+
+### 98.3 `epsilon = 0.1` 속도 사이트는 상류 충실이다
+
+상류 `test_time_optimal_trajectory_generation.cpp`를 직접 읽었다:
+`EXPECT_NEAR` 13건, `EXPECT_DOUBLE_EQ` 28건.
+
+```
+:108 :109 :156 :157   EXPECT_NEAR(0.0, trajectory.getVelocity(0.0)[0], 0.1)
+:140                  EXPECT_DOUBLE_EQ(1922.1418427445944, trajectory.getDuration())
+```
+
+포트의 `epsilon = 0.1` 속도 사이트는 상류 자신의 `EXPECT_NEAR` 폭을
+그대로 옮긴 것이다. §92에서 p3-distance-field의 `epsilon = RESOLUTION`
+3건을 구멍이 아니라고 판정한 것과 같은 범주다 — **상류가 고른 폭을
+옮긴 것은 이 저장소가 채우라고 요구하는 구멍이 아니다.**
+
+### 98.4 설명되지 않은 8.893e-9
+
+상류가 `EXPECT_DOUBLE_EQ`(4 ULP)로 못 박은 duration을 이 포트는
+그 폭 안에서 재현하지 못한다.
+
+```
+상류    1922.1418427445944
+포트    1922.14184275348748
+차이    8.893e-9 절대 = 4.6e-12 상대 ≈ 20000 ULP
+```
+
+`epsilon = 1e-6`이 이 차이를 덮으므로 테스트는 통과하고, 헤드룸은
+약 112배다. **그러나 8.893e-9이 어디서 오는지는 설명되지 않았다.**
+경계는 지어졌고 원인은 지어지지 않았다. 20000 ULP는 마지막 자리
+누적으로 보기에 큰 값이다 — 적분 스텝 수, `std::` 대 Rust의
+초월함수 구현, 또는 경로 이산화 중 하나가 갈리고 있을 가능성이
+있고 어느 쪽인지 재지 않았다. 다음 라운드의 1항이다.
+
+### 98.5 문서 주장 대조 — 22건이고 낡은 표현은 없다
+
+담당은 "doc 히트 24건을 확인했고 낡은 표현이 없다"고 보고했다. 내
+패턴(`unported|out of scope|not yet|once ported`)으로는 **22건**이
+나온다. 24를 재현하지 못했다 — 패턴 차이로 보이고 결함으로 보지
+않는다. 그 22건은 내가 전부 읽었고 낡은 표현은 없다:
+
+- D1 제외(`moveit_msgs`/`trajectory_msgs` 변환)에 결정을 함께 적은 것
+  다수.
+- `trajectory.rs:15`는 **자기 정정을 기록한 것**이다 — "이 주석은
+  전에 범위 밖이라고 적었는데 그 모듈이 착지하면서 사실이 아니게
+  됐다".
+- `ruckig_smoothing.rs:72`의 "out of scope for this crate to add"는
+  `moveit-model`에 인덱스 목록 메서드를 추가하는 일을 가리키고,
+  그 크레이트는 p3-acm 소유다. 소유권 진술이라 맞다.
+
+`lib.rs:339`와 `robot_trajectory.rs:21` 두 곳은 `RobotTrajectory::print`
+/`operator<<`를 **미이식으로 남은 유일한 항목**으로 지목하면서 그
+이유를 "D 결정도 의존성 부재도 아니고, 어떤 라운드도 요구하지 않았기
+때문"이라고 적는다. 이 저장소가 금지한 "not yet" 자리채움이 아니라
+**행동 가능한 실제 격차**다. 미룬 원래 이유(`RobotState`에 속도·가속도가
+없었다)가 `RuckigSmoothing` 때문에 사라졌다는 것까지 적혀 있다.
+다음 라운드에 이식한다.
