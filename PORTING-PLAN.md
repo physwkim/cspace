@@ -4863,3 +4863,43 @@ p3-distance-field가 쓰는 곳은 Sphere-only 바디에 대한
 스크립트가 드리프트를 실제로 잡는지 커밋된 응답에 불일치를 주입해
 FAIL을 관측하고 되돌리는 방식으로 자기 검증했다 — 통과만 보고 끝내지
 않았다.
+
+## 51. §40 픽스처 21건의 정확한 소유자별 회계 (2026-08-04)
+
+§48이 "21건 중 9건 재생됨"이라고만 적었다. 나머지 12건이 어디에 있는지
+세지 않은 채였고, 세어 보니 내 브리핑 두 건이 존재하지 않는 일을
+지시하고 있었다.
+
+`find crates tools -name '*_request.json'` 전수:
+
+| 크레이트 | 건수 | 상태 | 소유 패널 |
+|---|---|---|---|
+| `moveit-distance-field` | 9 | **재생 확인됨**(전부 `identical`) | p3-distance-field |
+| `moveit-collision` | 3 | 미검증 — `octree_leaf_count_scaling`, `octree_world_collision`, `world` | p3-acm |
+| `moveit-geometry` | 3 | 미검증 — `body_query`, `octree_in_world`, `octree_shape_query` | p3-shapes |
+| `moveit-trajectory` | 4 | 미검증 — `ruckig`, `totg`, `totg_robot_trajectory`, `totg_synthetic` | p6-totg |
+| `moveit-octomap` | 1 | 미검증 — `octomap` | p3-shapes |
+| `moveit-scene` | 1 | `"model"` 필드는 있으나 매니페스트 미이전 | p1-fixtures |
+
+`moveit-kinematics`, `moveit-diff`, `moveit-constraints`,
+`moveit-planners-sbp`, `moveit-model`, `moveit-state`, `moveit-srdf`,
+`moveit-smoothing`은 요청 픽스처가 **하나도 없다**.
+
+### 51.1 p1-joints와 p1-robotmodel에게 없는 일을 시켰다
+
+두 패널의 이번 라운드 브리핑에 §40 재생 항목을 넣었는데, 둘 다 요청
+픽스처가 0건이다. p1-joints는 이 항목을 todo에 올려 둔 채 작업 중이었다.
+두 패널에 취소 지시를 보냈다.
+
+원인은 §41.2·§39.3에서 워커들에게 처방한 것과 정확히 같은 결함이다 —
+**주장에 falsifier를 달지 않았다.** "21건이 여섯 크레이트에 흩어져
+있다"(§40)에서 "그러므로 이 패널도 갖고 있다"로 넘어가는 데 근거가
+없었고, 근거를 만드는 명령은 1초짜리였다. 워커의 UNFIXED에 요구한 규칙을
+내가 쓰는 *태스크*에도 적용해야 한다.
+
+### 51.2 소유권 블록이 `moveit-octomap`을 빠뜨리고 있었다
+
+최근 라운드 브리핑들의 ownership 절이 p3-shapes를 `moveit-geometry/`로만
+적었다. `moveit-octomap`은 §13에서 p3-shapes가 만든 크레이트이고 전용
+태스크 파일까지 있었는데, 최근 블록에서 이름이 빠졌다. 고아 크레이트는
+아니고 브리핑 표기 누락이다 — 그 1건도 p3-shapes 소유로 센다.
