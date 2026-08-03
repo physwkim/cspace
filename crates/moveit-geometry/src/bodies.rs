@@ -153,6 +153,25 @@
 //!   outside `moveit-geometry` yet (checked by `rg` for each method name
 //!   across `crates/*/src`, excluding this file and `shapes.rs`).
 //!
+//!   Checked (round 11) whether "no caller" understates
+//!   [`ConvexMesh::intersects_ray`] specifically, since §9.1's probe already
+//!   found [`ConvexMesh::ray_intersections`] disagreeing with the C++ oracle
+//!   under scale+padding (deviations 7 and 8, documented on
+//!   [`ConvexMesh::ray_intersections`] itself). It does not: `intersects_ray`
+//!   is a one-line wrapper, `!self.ray_intersections(origin, dir,
+//!   None).is_empty()`, so it is not a *different*, unverified surface —
+//!   `probe_parity.rs` calling `ray_intersections` directly already exercises
+//!   the exact code `intersects_ray` runs. Also checked whether that probe
+//!   work itself ever landed: branch `probe-parity`'s tip and commit
+//!   `dbf50a7` both name a "probe bodies:: against the shipped
+//!   libgeometric_shapes" change, but neither is an ancestor of `HEAD`
+//!   (`git merge-base --is-ancestor dbf50a7 HEAD` fails). `git diff dbf50a7
+//!   0032889 -- crates/moveit-geometry/tests/probe_parity.rs` is empty —
+//!   `dbf50a7` is a byte-identical orphaned duplicate of `0032889`, which
+//!   *is* an ancestor of `HEAD` and was extended by four follow-up commits
+//!   already on `main` (`10b1909`, `16cf87b`, `aa80496`, `9ca1dd3`). Nothing
+//!   is stranded.
+//!
 //! So "deferred to Phase 3 collision" is not a live UNFIXED condition: the
 //! condition it named (moveit-collision existing) was met and then the
 //! premise under it turned out false (moveit-collision does not need this
