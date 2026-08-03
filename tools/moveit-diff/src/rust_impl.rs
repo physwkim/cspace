@@ -526,7 +526,7 @@ impl<'m> IkSolver<'m> {
     /// `consistency_limits` is [`crate::protocol::Op::Ik::consistency_limits`]'s
     /// same full-space (active + mimic), by-name map -- this method reduces
     /// it to the active-joint-only `Vec<f64>`
-    /// [`moveit_kinematics::registry::SolveOptions::consistency_limits`]
+    /// [`moveit_kinematics::SolveOptions::consistency_limits`]
     /// itself expects, reading each of [`IkSolver::joint_names`]'s own
     /// entries out of the full map and ignoring any mimic-joint entry the
     /// map happens to carry (mirroring the oracle's own reduction to
