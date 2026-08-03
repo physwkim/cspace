@@ -99,25 +99,41 @@
 //! from *all* of that link's shapes together, and is itself in the
 //! out-of-scope file.
 //!
-//! # Cache key: `Arc` identity via raw address, not a `Weak` upstream port
+//! # Cache key: `Arc` identity via raw address, pinned by a stored `Weak`
 //!
 //! Upstream keys `BodyDecompositionCache::map_` on `shapes::ShapeConstWeakPtr`
 //! compared with `std::owner_less` -- ownership-based identity, not shape
-//! *value* equality, and with no liveness check at lookup time (a lookup
-//! against a since-expired weak pointer key that still exists in the map is
-//! simply never matched by a live query, since `owner_less` still orders it
-//! consistently). A `HashMap` needs `Hash`/`Eq`, which `std::sync::Weak`
+//! *value* equality. A `HashMap` needs `Hash`/`Eq`, which `std::sync::Weak`
 //! does not implement in Rust, so this port keys on `Arc::as_ptr(shape) as
-//! usize` instead: the pointer's numeric address. This is an equally
-//! faithful identity comparison -- two live `Arc`s alias the same
-//! allocation iff `Arc::as_ptr` agrees, exactly matching `owner_less` -- and
-//! is simpler and sound: the address is never dereferenced, only compared,
-//! so a key surviving past its shape's last `Arc` being dropped is inert
-//! (it just never matches a future live shape, since addresses are not
-//! reused while any `Arc` referencing this cache could still exist --
-//! ported values are held by `Arc<BodyDecomposition>` and returned to
-//! callers, not by the shape itself, so there is no reuse hazard from the
-//! cache's own entries).
+//! usize` instead: the pointer's numeric address. Two live `Arc`s alias the
+//! same allocation iff `Arc::as_ptr` agrees, exactly matching `owner_less`.
+//!
+//! A bare address is not enough, though: once every `Arc<Shape>` pointing at
+//! an allocation is dropped, Rust's allocator is free to hand that same
+//! address to a later, *unrelated* `Arc<Shape>` allocation. A first version
+//! of this cache stored only `Arc<BodyDecomposition>` values against that
+//! bare address and hit exactly this -- confirmed concretely by
+//! `collision_object_point_decomposition_matches_the_oracle` in
+//! `collision_common_distance_field_parity.rs`, where a sphere's `Arc<Shape>`
+//! was built, cached, and dropped, and a box's `Arc<Shape>` built immediately
+//! after landed at the same freed address, so the box's lookup silently
+//! returned the sphere's stale `BodyDecomposition` (a wildly different
+//! interior point count). Upstream does not have this hazard: storing a
+//! `std::weak_ptr` as a `std::map` key keeps that pointer's *control block*
+//! allocated for as long as the map entry exists, even after the pointee
+//! itself is destroyed, so a later, unrelated `shared_ptr`'s control block
+//! can never land at that address while the map key survives.
+//!
+//! This port closes the gap the same way: each entry stores a
+//! `Weak<Shape>` alongside the cached value. Holding any `Weak<T>` keeps
+//! `T`'s `ArcInner` allocation (and therefore its address) alive even after
+//! `T` itself is dropped in place -- Rust deallocates only once *both* the
+//! strong and weak counts reach zero. Since this cache never evicts
+//! (matching upstream's own unimplemented `// TODO - clean cache`), every
+//! address it has ever cached stays pinned for the rest of the process, so
+//! a later shape can never reuse it. Only the numeric address is ever
+//! dereferenced-free-compared as the `HashMap` key; the `Weak` exists
+//! purely to pin the allocation, not to be upgraded on lookup.
 //!
 //! # Locking pattern matches upstream, redundant-computation race included
 //!
@@ -139,7 +155,7 @@
 //! behaviour.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use moveit_collision::Object;
 use moveit_error::Result;
@@ -156,8 +172,12 @@ use crate::collision_distance_field_types::{
 /// (`// TODO - clean cache`, right where `clean_count_` would be read) --
 /// there is no behaviour to port, so this cache never evicts, matching
 /// upstream's actual (not intended) behaviour exactly.
-fn body_decomposition_cache() -> &'static Mutex<HashMap<usize, Arc<BodyDecomposition>>> {
-    static CACHE: OnceLock<Mutex<HashMap<usize, Arc<BodyDecomposition>>>> = OnceLock::new();
+/// `Weak<Shape>` pins the cached shape's allocation address so it can never
+/// be reused by a later, unrelated shape; see this module's doc comment.
+type BodyDecompositionCacheEntry = (Weak<Shape>, Arc<BodyDecomposition>);
+
+fn body_decomposition_cache() -> &'static Mutex<HashMap<usize, BodyDecompositionCacheEntry>> {
+    static CACHE: OnceLock<Mutex<HashMap<usize, BodyDecompositionCacheEntry>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -187,7 +207,7 @@ pub fn get_body_decomposition_cache_entry(
         let cache = body_decomposition_cache()
             .lock()
             .expect("body decomposition cache mutex poisoned");
-        if let Some(existing) = cache.get(&key) {
+        if let Some((_, existing)) = cache.get(&key) {
             return Ok(Arc::clone(existing));
         }
     }
@@ -201,7 +221,7 @@ pub fn get_body_decomposition_cache_entry(
     let mut cache = body_decomposition_cache()
         .lock()
         .expect("body decomposition cache mutex poisoned");
-    cache.insert(key, Arc::clone(&decomposition));
+    cache.insert(key, (Arc::downgrade(shape), Arc::clone(&decomposition)));
     Ok(decomposition)
 }
 
@@ -314,6 +334,53 @@ mod tests {
             "test setup must pick resolutions that actually produce different point counts, \
              otherwise this test cannot distinguish the cached-stale value from a correct one"
         );
+    }
+
+    /// Regression test for a real defect this port introduced (not an
+    /// upstream one): the cache used to key on a bare
+    /// `Arc::as_ptr(shape) as usize` with nothing pinning that address, so
+    /// once the original `Arc<Shape>` was dropped, Rust's allocator was
+    /// free to hand the same address to a later, unrelated `Arc<Shape>`
+    /// allocation -- which then silently received the *first* shape's
+    /// cached `BodyDecomposition`. This reproduced concretely via
+    /// `collision_object_point_decomposition_matches_the_oracle` in
+    /// `collision_common_distance_field_parity.rs`: a sphere and a box
+    /// built and dropped back-to-back landed at the same address on this
+    /// allocator, and the box's decomposition silently came back as the
+    /// sphere's.
+    ///
+    /// The fix stores a `Weak<Shape>` alongside the cached value, which
+    /// pins the allocation for as long as the (never-evicted) cache entry
+    /// exists. This test allocates and drops many differently-sized shapes
+    /// in a tight loop -- the same shape/drop churn that triggered the bug
+    /// -- and checks every returned decomposition against an independent,
+    /// freshly rebuilt one, so a mixed-up cache entry is caught regardless
+    /// of whether this particular run actually reuses an address.
+    #[test]
+    fn cache_entry_survives_the_original_arc_shape_being_dropped() {
+        let mut decompositions = Vec::new();
+        for i in 0..64_u32 {
+            let radius = 0.05 + f64::from(i) * 0.01;
+            let shape = sphere_shape(radius);
+            let decomposition = get_body_decomposition_cache_entry(&shape, 0.05).unwrap();
+            decompositions.push((radius, decomposition));
+            // `shape`'s only strong reference is dropped here.
+        }
+        for (radius, decomposition) in &decompositions {
+            let expected = BodyDecomposition::new(
+                &sphere_shape(*radius),
+                0.05,
+                BodyDecomposition::DEFAULT_PADDING,
+            )
+            .unwrap();
+            assert_eq!(
+                decomposition.collision_points().len(),
+                expected.collision_points().len(),
+                "cached decomposition for radius {radius} does not match a fresh rebuild -- \
+                 a later shape's allocation appears to have reused an earlier, dropped \
+                 shape's address"
+            );
+        }
     }
 
     #[test]
