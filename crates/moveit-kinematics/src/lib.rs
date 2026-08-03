@@ -195,7 +195,58 @@
 //! Conclusion: every method with a live consumer in this crate's scope
 //! has a Rust-side home; every exclusion above cites a specific
 //! `PORTING-PLAN.md` decision or a concretely absent caller, not "not
-//! needed yet." This audit found no gap requiring a new port.
+//! needed yet." This audit found no gap requiring a new port in
+//! `kdl_kinematics_plugin` itself — see the next section for
+//! `moveit_kinematics`'s three other plugins, one of which *is* a gap.
+//!
+//! # The other three `moveit_kinematics` plugins
+//!
+//! `moveit_kinematics/` ships four plugins; the audit above covers only
+//! `kdl_kinematics_plugin`, the one every MoveIt robot gets by default.
+//! The other three, checked rather than assumed:
+//!
+//! - `srv_kinematics_plugin` — **excluded, D1/D2 (no ROS dependency)**.
+//!   Read `srv_kinematics_plugin.cpp`: its `searchPositionIK` body is an
+//!   `rclcpp::Client<moveit_msgs::srv::GetPositionIK>` (`ik_service_client_`,
+//!   constructed in `initialize` via `node_->create_client`,
+//!   `async_send_request` in `searchPositionIK`) that forwards the request
+//!   to an external ROS node and returns its answer. There is no numeric
+//!   solver here to port — the entire class *is* the ROS surface this
+//!   crate's "Do not port the ROS surface" section already excludes, not a
+//!   solver with a ROS wrapper around it.
+//! - `ikfast_kinematics_plugin` — **unported, no portable algorithm
+//!   exists**. This directory has no `src/`: `templates/
+//!   ikfast61_moveit_plugin_template.cpp` is a 1421-line C++ template with
+//!   placeholder tokens that OpenRave's separate, external IKFast code
+//!   generator fills in with a *robot-specific* closed-form analytic
+//!   solution, per the README ("Generates a IKFast kinematics plugin for
+//!   MoveIt using OpenRave generated cpp files"). There is no generic
+//!   IKFast solver class to port; porting this would mean porting
+//!   OpenRave's symbolic-algebra codegen tool, which is a different and
+//!   far larger project, not a gap in this crate's scope.
+//! - `cached_ik_kinematics_plugin` — **unported, and unlike the two above
+//!   this is a real gap, not a decision.** Read
+//!   `cached_ik_kinematics_plugin.hpp`/`ik_cache.cpp` rather than assume
+//!   from the name: `CachedIKKinematicsPlugin<KinematicsPlugin>` is a CRTP
+//!   mixin that inherits from *any* `KinematicsBase` solver (in upstream,
+//!   `cached_kdl_kinematics_plugin.cpp`/`cached_ur_kinematics_plugin.cpp`
+//!   instantiate it over `KDLKinematicsPlugin`), intercepting
+//!   `searchPositionIK` to replace the caller's seed with the nearest
+//!   cached `(pose, solution)` pair (`IKCache::getBestApproximateIKSolution`,
+//!   a GNAT nearest-neighbor search over past solutions,
+//!   `detail/NearestNeighborsGNAT.hpp`) before delegating to the wrapped
+//!   solver, then caches the new pair on success
+//!   (`IKCache::updateCache`/`confirmCache`). Cache persistence
+//!   (`ik_cache.cpp`) is plain `std::filesystem` file I/O, not a ROS
+//!   resource lookup. This is algorithmic, not ROS-bound, and
+//!   `PORTING-PLAN.md` §4.4 already lists `cached_ik` alongside `kdl`,
+//!   `srv`, `ikfast` as one of the four `KinematicsSolver` trait
+//!   implementors the plugin-registry decision (D4) anticipated. No task
+//!   this crate has received has asked for a warm-started/cached solver
+//!   variant, so nothing here builds one — but the honest reason is
+//!   "unimplemented, in scope," not "not requested," since those read
+//!   identically in six months and only one is a decision that closes the
+//!   gap.
 
 mod cart_to_jnt;
 mod chain;
