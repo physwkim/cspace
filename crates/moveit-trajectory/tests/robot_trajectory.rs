@@ -669,6 +669,61 @@ fn out_of_range_index_access_is_a_typed_error() {
     assert!(trajectory.insert_way_point(len, state, 0.1).is_ok());
 }
 
+// ---- addSuffixWayPoint/addPrefixWayPoint/insertWayPoint settle the state --
+
+/// Upstream's `addSuffixWayPoint`/`addPrefixWayPoint`/`insertWayPoint` call
+/// `state->update()` before storing the waypoint. `RobotState` derives
+/// `PartialEq`/`Debug` over its cached transforms and dirty-subtree
+/// bookkeeping (not just joint positions), so a waypoint stored without that
+/// eager `update()` would carry a `dirty: Some(_)` marker distinguishable
+/// from — and not `==` to — the same logical state stored via a path that
+/// did settle it. These three tests would have failed before `update()` was
+/// added to each of the three methods.
+#[test]
+fn add_suffix_way_point_settles_the_stored_waypoint() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut trajectory = RobotTrajectory::new(&model);
+    trajectory.add_suffix_way_point(state, 0.0).unwrap();
+
+    let debug = format!("{:?}", trajectory.way_point(0).unwrap());
+    assert!(
+        debug.contains("dirty: None"),
+        "waypoint not settled: {debug}"
+    );
+}
+
+#[test]
+fn add_prefix_way_point_settles_the_stored_waypoint() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut trajectory = RobotTrajectory::new(&model);
+    trajectory.add_prefix_way_point(state);
+
+    let debug = format!("{:?}", trajectory.way_point(0).unwrap());
+    assert!(
+        debug.contains("dirty: None"),
+        "waypoint not settled: {debug}"
+    );
+}
+
+#[test]
+fn insert_way_point_settles_the_stored_waypoint() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let mut trajectory = RobotTrajectory::new(&model);
+    trajectory.insert_way_point(0, state, 0.0).unwrap();
+
+    let debug = format!("{:?}", trajectory.way_point(0).unwrap());
+    assert!(
+        debug.contains("dirty: None"),
+        "waypoint not settled: {debug}"
+    );
+}
+
 // ---- Boundary tests: unknown group name --------------------------------
 
 #[test]
