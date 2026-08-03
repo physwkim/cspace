@@ -414,6 +414,30 @@ mod tests {
         assert_eq!(metrics.joint_limits_penalty(&state, group).unwrap(), 1.0);
     }
 
+    /// The exact boundary of the `penalty_multiplier` short-circuit:
+    /// `penalty_multiplier == f64::MIN_POSITIVE` must still take the
+    /// `<=` early return, matching upstream's `fabs(x) <=
+    /// numeric_limits::min()`. `0.0` (the default, above) can't isolate
+    /// `<=` from `<` -- `0.0` is strictly less than `f64::MIN_POSITIVE`
+    /// either way -- only the boundary value itself can. Measured this
+    /// round: weakening the comparison to `<` makes this exact input skip
+    /// the short-circuit and fall into the real per-joint loop with a
+    /// `penalty_multiplier` of `2.2250738585072014e-308`; `left: 0.0,
+    /// right: 1.0` -- the result is finite (the per-joint product is
+    /// bounded), but `1.0 - exp(-tiny * product)` underflows to `0.0` for
+    /// any `tiny` this far below `f64::EPSILON`, so the two operators
+    /// disagree by the full width of the penalty's range at this input,
+    /// not by a rounding-sized amount.
+    #[test]
+    fn penalty_multiplier_at_the_min_positive_boundary_still_short_circuits() {
+        let model = build_model();
+        let state = RobotState::new(&model);
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(f64::MIN_POSITIVE);
+        let group = model.joint_model_group("panda_arm").unwrap();
+        assert_eq!(metrics.joint_limits_penalty(&state, group).unwrap(), 1.0);
+    }
+
     /// A continuous revolute joint does not contribute to the product: pr2's
     /// `right_arm` chain includes two continuous joints
     /// (`r_forearm_roll_joint`, `r_wrist_roll_joint`, `type="continuous"`
@@ -468,6 +492,51 @@ mod tests {
 
         let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
         assert_eq!(actual_penalty, expected_penalty);
+    }
+
+    /// The exact boundary of the `range` skip, isolated the same way as
+    /// `penalty_multiplier_at_the_min_positive_boundary_still_short_circuits`
+    /// above: `panda_joint7`'s bounds are mutated so its distance to the
+    /// lower bound is exactly `0.0` and its distance to the upper bound is
+    /// exactly `f64::MIN_POSITIVE` (a revolute, non-continuous joint's
+    /// `distance` is a plain `(value1 - value2).abs()`, so this is exact,
+    /// not approximate), making `range == f64::MIN_POSITIVE` on the nose.
+    /// `<=` must still skip this joint's term. Measured this round:
+    /// weakening the comparison to `<` does not skip it, and
+    /// `lower_bound_distance * upper_bound_distance / (range * range)`
+    /// becomes `0.0 * f64::MIN_POSITIVE / (f64::MIN_POSITIVE *
+    /// f64::MIN_POSITIVE)` -- `f64::MIN_POSITIVE * f64::MIN_POSITIVE`'s
+    /// true value (`~4.95e-616`) is smaller than the smallest positive
+    /// `f64` representable at all (the smallest subnormal, `~4.94e-324`),
+    /// so it underflows to exactly `0.0`, giving `0.0 / 0.0 == NaN`,
+    /// which then poisons the whole product -- the same failure
+    /// shape as the planar `DBL_MAX` perturbation measured in this
+    /// module's own doc comment, not a coincidence: both sentinels guard
+    /// exactly this class of near-zero-denominator division.
+    #[test]
+    fn range_at_the_min_positive_boundary_still_skips() {
+        let mut model = build_model();
+        let joint = model.joint_model_mut("panda_joint7").unwrap();
+        joint
+            .set_variable_bounds(
+                "panda_joint7",
+                moveit_model::joint::VariableBounds {
+                    min_position: 0.0,
+                    max_position: f64::MIN_POSITIVE,
+                    position_bounded: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("panda_arm").unwrap();
+
+        let state = RobotState::new(&model);
+        let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
+
+        assert!(actual_penalty.is_finite(), "{actual_penalty}");
     }
 
     /// A floating joint is skipped unconditionally (no bound check at all):
