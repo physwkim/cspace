@@ -79,6 +79,458 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// actually flat. The pointer tree is the structurally necessary
 /// representation for the semantics this crate's callers need, not an
 /// arbitrary upstream-fidelity choice.
+///
+/// # Symbol-by-symbol audit against upstream's public surface (round 16, item 2)
+///
+/// Round 12's audit (`lib.rs`'s old "24 ported / 2 unported / 15 distinct /
+/// 41 symbol groups" table) classified by "symbol group", a grouping rule
+/// stated nowhere and not reproducible by inspection -- round 16's brief
+/// rejected it on exactly that ground. This section replaces it with the
+/// format `moveit-scene`'s `planning_scene.hpp` audit uses (commit
+/// `943e909`): one bullet per literal `public:` declaration pulled from the
+/// header text itself, not a paraphrase.
+///
+/// **Headers read.** `octomap` is not checked out on this host at all (see
+/// this crate's provenance note in `lib.rs`); all five headers below were
+/// read from inside the `moveit-rs` oracle container --
+/// `sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:7b8463d6943edaac -c 'cat /usr/include/octomap/<header>'"`
+/// -- in this order (most-derived class first):
+///
+/// ```text
+/// octomap/OcTree.h                    (101 lines)
+/// octomap/OccupancyOcTreeBase.h       (508 lines)
+/// octomap/OcTreeBaseImpl.h            (575 lines)
+/// octomap/AbstractOccupancyOcTree.h   (241 lines)
+/// octomap/AbstractOcTree.h            (164 lines)
+/// ```
+///
+/// **Collapsing rule.** This crate's exposed surface is every public member
+/// callable on an [`OcTree`] instance -- the union of `OcTree`'s own
+/// `public:` section with every ancestor's (`OccupancyOcTreeBase<OcTreeNode>`
+/// -> `OcTreeBaseImpl<OcTreeNode, AbstractOccupancyOcTree>` ->
+/// `AbstractOccupancyOcTree` -> `AbstractOcTree`, that exact order --
+/// confirmed from each header's own `class X : public Y` line, not
+/// assumed), where a name a base class declares (pure) virtual and a
+/// derived class overrides with the identical signature is counted
+/// **once**, at its most-derived declaration -- the walk below visits
+/// headers most-derived-first and marks a re-declaration "already counted
+/// above" instead of re-listing it. Non-most-derived constructors/
+/// destructors (`AbstractOcTree()`, `AbstractOccupancyOcTree()`,
+/// `~AbstractOccupancyOcTree()`, etc.) are *not* separately counted: a
+/// caller builds an `OcTree` by calling `OcTree::new`, never a base
+/// constructor directly, so those are implementation plumbing, not part of
+/// the callable surface. Protected/private members and non-callable
+/// declarations (type aliases, forward-declared nested classes) are out of
+/// scope entirely (same rule `planning_scene.hpp`'s audit used).
+///
+/// One bullet per declaration: `ported as <symbol>` / `unported, in scope
+/// (<reason>)` / `distinct (<reason>)`.
+///
+/// ## `OcTree.h`
+///
+/// - `OcTree(double resolution)` -- ported as [`OcTree::new`].
+/// - `OcTree(std::string filename)` -- distinct (binary-file-backed
+///   constructor; this crate ports no file/stream IO at all, see `IO`
+///   below -- octrees enter this workspace only via ROS messages, itself
+///   D1-excluded).
+/// - `~OcTree()` -- distinct (upstream's own body is `{}`; nothing here
+///   needs a user-visible destructor beyond Rust's implicit `Drop` over the
+///   owned `Box<Node>` tree).
+/// - `create() const` -- distinct (`AbstractOcTree`'s runtime-type
+///   registry; D4 rules out runtime polymorphism, this crate has exactly
+///   one concrete tree type).
+/// - `getTreeType() const` -- distinct, same registry reasoning.
+///
+/// ## `OccupancyOcTreeBase.h`
+///
+/// - `OccupancyOcTreeBase(double resolution)` -- ported, collapsed into
+///   [`OcTree::new`] (the public 3-arg constructor for tree-constant
+///   subclassing is protected, out of scope).
+/// - `~OccupancyOcTreeBase()` -- distinct, same as `~OcTree()` above.
+/// - `OccupancyOcTreeBase(const OccupancyOcTreeBase&)` (copy constructor)
+///   -- distinct: this workspace's octrees are shared via `Arc`, never
+///   deep-cloned.
+/// - `insertPointCloud(const Pointcloud&, const point3d&, double, bool,
+///   bool)` -- distinct, D1 (every caller is a `moveit_ros/perception`
+///   depth-camera updater converting a ROS `sensor_msgs` cloud into
+///   `octomap::Pointcloud` first).
+/// - `insertPointCloud(const Pointcloud&, const point3d&, const pose6d&,
+///   double, bool, bool)` -- distinct, same D1 reasoning.
+/// - `insertPointCloud(const ScanNode&, double, bool, bool)` -- distinct,
+///   same D1 reasoning.
+/// - `insertPointCloudRays(const Pointcloud&, const point3d&, double,
+///   bool)` -- distinct, same D1 reasoning.
+/// - `setNodeValue(const OcTreeKey&, float, bool)` -- unported, in scope
+///   (PORTING-PLAN.md §13; this crate's "What this port does not carry
+///   over" section above names the one upstream call site that
+///   conceptually wants it and explains why it routes through
+///   [`OcTree::update_node_log_odds_by_key`] with a saturating delta
+///   instead).
+/// - `setNodeValue(const point3d&, float, bool)` -- unported, in scope,
+///   same reason.
+/// - `setNodeValue(double, double, double, float, bool)` -- unported, in
+///   scope, same reason.
+/// - `updateNode(const OcTreeKey&, float, bool)` -- ported as
+///   [`OcTree::update_node_log_odds_by_key`].
+/// - `updateNode(const point3d&, float, bool)` -- ported as
+///   [`OcTree::update_node_log_odds`].
+/// - `updateNode(double, double, double, float, bool)` -- unported, in
+///   scope (pure ergonomic wrapper around the point3d overload above; no
+///   caller in `moveit_core` needs the triple-arg form).
+/// - `updateNode(const OcTreeKey&, bool, bool)` -- ported as
+///   [`OcTree::update_node_by_key`].
+/// - `updateNode(const point3d&, bool, bool)` -- ported as
+///   [`OcTree::update_node`].
+/// - `updateNode(double, double, double, bool, bool)` -- unported, in
+///   scope, same ergonomic-wrapper reasoning.
+/// - `toMaxLikelihood()` -- distinct (this port inlines the max-likelihood
+///   clamp directly into the private `update_node_recurs` step
+///   [`OcTree::update_node_log_odds_by_key`] calls, rather than keeping it
+///   a separately callable pass).
+/// - `insertRay(const point3d&, const point3d&, double, bool)` -- ported
+///   as [`OcTree::insert_ray`].
+/// - `castRay(const point3d&, const point3d&, point3d&, bool, double)
+///   const` -- distinct: zero `moveit_core` consumer
+///   (`rg -rl castRay moveit_core`, excluding `moveit_ros`/tests, is
+///   empty, checked round 16); this workspace's octree collision path is
+///   the leaf-`Cuboid` `Compound` approximation, PORTING-PLAN.md §4.8's
+///   decision, not octomap's own raycasting.
+/// - `getRayIntersection(...)` -- distinct, zero consumer, same reasoning.
+/// - `getNormals(const point3d&, std::vector<point3d>&, bool) const` --
+///   distinct, zero consumer (marching-cubes surface reconstruction).
+/// - `useBBXLimit(bool)` -- distinct: zero consumer, only meaningful
+///   alongside the already-D1-excluded BBX-limited `insertPointCloud`
+///   path.
+/// - `bbxSet() const` -- distinct, same reasoning.
+/// - `setBBXMin(point3d&)` -- distinct, same reasoning.
+/// - `setBBXMax(point3d&)` -- distinct, same reasoning.
+/// - `getBBXMin() const` -- distinct, same reasoning.
+/// - `getBBXMax() const` -- distinct, same reasoning.
+/// - `getBBXBounds() const` -- distinct, same reasoning.
+/// - `getBBXCenter() const` -- distinct, same reasoning.
+/// - `inBBX(const point3d&) const` -- distinct, same reasoning.
+/// - `inBBX(const OcTreeKey&) const` -- distinct, same reasoning.
+/// - `enableChangeDetection(bool)` -- distinct: zero consumer, change
+///   detection confirmed unused by every moveit2 consumer since this
+///   crate's original round.
+/// - `isChangeDetectionEnabled() const` -- distinct, same reasoning.
+/// - `resetChangeDetection()` -- distinct, same reasoning.
+/// - `changedKeysBegin() const` -- distinct, same reasoning.
+/// - `changedKeysEnd() const` -- distinct, same reasoning.
+/// - `numChangesDetected() const` -- distinct, same reasoning.
+/// - `computeUpdate(const Pointcloud&, const point3d&, KeySet&, KeySet&,
+///   double)` -- ported as [`OcTree::compute_update`] (point-slice-shaped,
+///   not `octomap::Pointcloud`-typed -- see `lib.rs`'s "What was
+///   deliberately not ported").
+/// - `computeDiscreteUpdate(...)` -- distinct: no moveit2 sensor updater
+///   calls it, both hand-roll their own key-set bookkeeping using the
+///   lower-level primitives this crate does port instead.
+/// - `readBinaryData(std::istream&)` -- distinct, binary stream IO
+///   (octrees enter this workspace only via ROS messages, never
+///   `.bt`/`.ot` files).
+/// - `readBinaryNode(std::istream&, NODE*)` -- distinct, same IO
+///   reasoning.
+/// - `writeBinaryNode(std::ostream&, const NODE*) const` -- distinct, same
+///   IO reasoning.
+/// - `writeBinaryData(std::ostream&) const` -- distinct, same IO
+///   reasoning.
+/// - `updateInnerOccupancy()` -- ported as
+///   [`OcTree::update_inner_occupancy`].
+/// - `integrateHit(NODE*) const` -- distinct, inlined into
+///   [`OcTree::update_node_by_key`]'s sensor-model dispatch
+///   (`prob_hit_log`) rather than kept as a separately callable step.
+/// - `integrateMiss(NODE*) const` -- distinct, same reasoning, inlined
+///   into the ray-miss path (`integrate_miss_on_ray`).
+/// - `updateNodeLogOdds(NODE*, const float&) const` -- ported, inlined
+///   into the private `update_node_recurs`'s add-then-clamp step (the
+///   split upstream makes between `addValue` and `updateNodeLogOdds`).
+/// - `nodeToMaxLikelihood(NODE*) const` -- distinct, same reasoning as
+///   `toMaxLikelihood` above.
+/// - `nodeToMaxLikelihood(NODE&) const` -- distinct, same reasoning.
+///
+/// ## `OcTreeBaseImpl.h`
+///
+/// - `typedef NODE NodeType` -- not a callable member, skipped.
+/// - `setResolution(double)` -- distinct: zero `moveit_core` consumer,
+///   resolution is fixed at [`OcTree::new`] and never changed in place.
+/// - `getResolution() const` -- ported as [`OcTree::resolution`].
+/// - `getTreeDepth() const` -- ported as the [`OcTree::TREE_DEPTH`]
+///   associated constant, not a runtime getter -- upstream's own value is
+///   fixed to `16` for every instance too (set once by the
+///   `tree_depth`-parameterized constructor `OcTree` never uses), so this
+///   is a shape deviation, not a gap.
+/// - `getNodeSize(unsigned depth) const` -- ported as
+///   [`OcTree::node_size`].
+/// - `clearKeyRays()` -- distinct: upstream's own doc comment calls this
+///   "only useful for the StaticMemberInitializer classes" (the registry
+///   machinery D4 already excludes); [`OcTree::compute_ray_keys`] builds
+///   and returns a fresh `KeyRay` per call instead of reusing a shared
+///   scratch buffer, so there is no buffer here to clear.
+/// - `createNodeChild(NODE*, unsigned)` -- ported, fused with
+///   `allocNodeChildren` into `Node::create_child` (`pub(crate)`; no
+///   consumer outside this crate needs direct child manipulation).
+/// - `deleteNodeChild(NODE*, unsigned)` -- distinct: no per-child deletion
+///   primitive exists in `node.rs` at all. [`OcTree::prune`] only ever
+///   collapses a *whole* 8-child array at once (`Node::prune` sets
+///   `children = None`); `OcTreeBaseImpl::deleteNode`'s structural
+///   per-key deletion path -- the actual caller of `deleteNodeChild`
+///   upstream -- is itself unported below, so nothing in this crate's
+///   scope deletes a single child in isolation.
+/// - `getNodeChild(NODE*, unsigned) const` -- ported, fused with
+///   `nodeChildExists` into `Node::child`/`Node::child_mut` (`Option`
+///   covers both "no children array" and "this slot empty").
+/// - `getNodeChild(const NODE*, unsigned) const` -- ported, same fusion
+///   (the const overload).
+/// - `isNodeCollapsible(const NODE*) const` -- ported as
+///   `Node::is_collapsible` (`pub(crate)`).
+/// - `nodeChildExists(const NODE*, unsigned) const` -- ported, fused into
+///   `Node::child` (see `getNodeChild` above).
+/// - `nodeHasChildren(const NODE*) const` -- ported as
+///   `Node::has_children`.
+/// - `expandNode(NODE*)` -- ported as `Node::expand` (`pub(crate)`).
+/// - `pruneNode(NODE*)` -- ported as `Node::prune` (`pub(crate)`).
+/// - `getRoot() const` -- ported, `pub(crate)` as `OcTree::root`.
+/// - `search(double x, double y, double z, unsigned depth) const` --
+///   unported, in scope: pure ergonomic triple-arg wrapper around the
+///   `point3d` overload below, no caller needs it.
+/// - `search(const point3d&, unsigned depth) const` -- ported, fused into
+///   [`OcTree::log_odds_at`]/[`OcTree::occupancy_at`]/
+///   [`OcTree::is_occupied`], which return typed values rather than a raw
+///   nullable `NODE*` -- a deliberate shape deviation, not a gap.
+/// - `search(const OcTreeKey&, unsigned depth) const` -- ported,
+///   `pub(crate)` as `OcTree::search`.
+/// - `deleteNode(double, double, double, unsigned)` -- distinct: zero
+///   consumer, this port's sensor-model update path only ever adds/clamps
+///   log-odds, never structurally deletes an existing node.
+/// - `deleteNode(const point3d&, unsigned)` -- distinct, same reasoning.
+/// - `deleteNode(const OcTreeKey&, unsigned)` -- distinct, same reasoning.
+/// - `clear()` -- distinct: zero consumer, nothing resets a tree to empty
+///   in place in this crate's scope.
+/// - `prune()` -- ported as [`OcTree::prune`].
+/// - `expand()` (tree-wide) -- distinct: zero consumer, and upstream's own
+///   doc warns it is "an expensive operation, especially when the tree is
+///   nearly empty" -- the per-node primitive this algorithm would walk the
+///   tree calling, `expandNode`, is ported above; the tree-wide sweep
+///   itself is not.
+/// - `size() const` -- distinct, **NO-GO, decided round 13 item 2** (see
+///   `lib.rs`'s dedicated section for the full reasoning -- its one
+///   `moveit_core`-reachable caller is `collision_detection_bullet`,
+///   dropped by PORTING-PLAN.md outright).
+/// - `memoryUsage() const` -- distinct: zero consumer.
+/// - `memoryUsageNode() const` -- distinct, same.
+/// - `memoryFullGrid() const` -- distinct, same.
+/// - `volume()` -- distinct, same.
+/// - `getMetricSize(double&, double&, double&)` -- distinct: zero consumer
+///   anywhere in `moveit_core`, including the perception layer.
+/// - `getMetricSize(double&, double&, double&) const` -- distinct, same.
+/// - `getMetricMin(double&, double&, double&)` -- distinct, same.
+/// - `getMetricMin(double&, double&, double&) const` -- distinct, same.
+/// - `getMetricMax(double&, double&, double&)` -- distinct, same.
+/// - `getMetricMax(double&, double&, double&) const` -- distinct, same.
+/// - `calcNumNodes() const` -- ported as [`OcTree::num_nodes`] (checked
+///   directly against `OcTreeBaseImpl.h:269` versus `size()`'s
+///   `OcTreeBaseImpl.h:241` -- [`OcTree::num_nodes`] is this one, an O(n)
+///   recursive traversal, not the O(1) `tree_size` counter).
+/// - `getNumLeafNodes() const` -- ported as [`OcTree::num_leaf_nodes`].
+/// - `getUnknownLeafCenters(point3d_list&, point3d, point3d, unsigned)
+///   const` -- distinct: zero consumer, introspection/debugging helper.
+/// - `computeRayKeys(const point3d&, const point3d&, KeyRay&) const` --
+///   ported as [`OcTree::compute_ray_keys`].
+/// - `computeRay(const point3d&, const point3d&, std::vector<point3d>&)`
+///   -- distinct: zero consumer, and upstream's own doc says "use the
+///   faster computeRayKeys method if possible".
+/// - `readData(std::istream&)` -- distinct, binary stream IO, same
+///   reasoning as `readBinaryData` above.
+/// - `writeData(std::ostream&) const` -- distinct, same IO reasoning.
+/// - `typedef leaf_iterator iterator` / `begin(unsigned char) const` --
+///   ported as [`OcTree::leaves`] (upstream's default iterator *is*
+///   `leaf_iterator`, the same primitive `begin_leafs` below returns).
+/// - `end() const` -- ported, folded into Rust's `Iterator` protocol:
+///   [`crate::iter::Leaves`] implements `Iterator` and stops on `None`
+///   rather than comparing against a separate sentinel end-value.
+/// - `begin_leafs(unsigned char) const` -- ported as [`OcTree::leaves`].
+/// - `end_leafs() const` -- ported, folded into `Iterator` (see `end()`
+///   above).
+/// - `begin_leafs_bbx(const OcTreeKey&, const OcTreeKey&, unsigned char)
+///   const` -- unported, in scope: [`OcTree::leaves_in_bbx`] only takes
+///   the `point3d`-bounded overload below; no caller needs the
+///   raw-key-bounded entry point.
+/// - `begin_leafs_bbx(const point3d&, const point3d&, unsigned char)
+///   const` -- ported as [`OcTree::leaves_in_bbx`].
+/// - `end_leafs_bbx() const` -- ported, folded into `Iterator`.
+/// - `begin_tree(unsigned char) const` -- ported as
+///   [`OcTree::tree_nodes`].
+/// - `end_tree() const` -- ported, folded into `Iterator`.
+/// - `coordToKey(double) const`, `coordToKey(const point3d&) const`,
+///   `coordToKey(double, double, double) const` (3 declarations, finest
+///   depth) -- ported, fused: the unchecked single-axis cast these
+///   overloads perform is the first step inside the private
+///   `coord_to_key_checked_axis`, not kept as a separately callable
+///   primitive since every conversion entry point this crate exposes
+///   ([`OcTree::coord_to_key_checked`]) needs the bounds check anyway.
+/// - `coordToKey(double, unsigned depth) const`,
+///   `coordToKey(const point3d&, unsigned depth) const`,
+///   `coordToKey(double, double, double, unsigned depth) const` (3
+///   declarations) -- distinct: no depth-parameterized *encode* path
+///   exists in this crate at all (only `OcTree::key_to_coord_at_depth`,
+///   the *decode* direction, takes a `depth`); no caller in scope inserts
+///   or queries at a depth other than the finest -- multi-resolution
+///   *read* (leaf iteration reporting a coarser depth after pruning) is
+///   the direction this crate needs, not multi-resolution *write*.
+/// - `adjustKeyAtDepth(const OcTreeKey&, unsigned) const` -- distinct, same
+///   "no caller needs multi-resolution write" reasoning.
+/// - `adjustKeyAtDepth(key_type, unsigned) const` -- distinct, same.
+/// - `coordToKeyChecked(const point3d&, OcTreeKey&) const` -- ported as
+///   [`OcTree::coord_to_key_checked`].
+/// - `coordToKeyChecked(const point3d&, unsigned depth, OcTreeKey&)
+///   const` -- distinct, same depth-write reasoning as `coordToKey`
+///   above.
+/// - `coordToKeyChecked(double, double, double, OcTreeKey&) const` --
+///   unported, in scope: pure ergonomic triple-arg wrapper around the
+///   `point3d` overload, no caller needs it.
+/// - `coordToKeyChecked(double, double, double, unsigned depth,
+///   OcTreeKey&) const` -- distinct, same depth-write reasoning.
+/// - `coordToKeyChecked(double, key_type&) const` -- ported, `pub(crate)`
+///   as the private `coord_to_key_checked_axis` (the single-axis step
+///   [`OcTree::coord_to_key_checked`] calls three times).
+/// - `coordToKeyChecked(double, unsigned depth, key_type&) const` --
+///   distinct, same depth-write reasoning.
+/// - `keyToCoord(key_type, unsigned depth) const` -- ported, `pub(crate)`
+///   as `key_to_coord_axis_at_depth`.
+/// - `keyToCoord(key_type) const` (finest depth) -- ported, `pub(crate)`
+///   as `key_to_coord_axis` (used directly inside
+///   [`OcTree::compute_ray_keys`]'s voxel-border math).
+/// - `keyToCoord(const OcTreeKey&) const` (finest, all 3 axes) -- ported,
+///   fused: `OcTree::key_to_coord_at_depth` handles the finest depth as
+///   one branch (`depth == Self::TREE_DEPTH`) of the depth-parameterized
+///   version below rather than keeping a separate wrapper.
+/// - `keyToCoord(const OcTreeKey&, unsigned depth) const` -- ported,
+///   `pub(crate)` as `OcTree::key_to_coord_at_depth`.
+/// - `swapContent(OcTreeBaseImpl&)` -- distinct: this workspace's octrees
+///   are shared via `Arc`, never swapped.
+/// - `operator==(const OcTreeBaseImpl&) const` -- distinct, same
+///   reasoning (the one `octree ==` hit in `moveit_core` outside
+///   tests/`moveit_ros`, `planning_scene.cpp:1510`, is a `shared_ptr`
+///   identity comparison, not this operator -- confirmed by reading the
+///   call site itself, round 16, not assumed from the grep hit alone).
+///
+/// ## `AbstractOccupancyOcTree.h`
+///
+/// - `writeBinary(const std::string&)` -- distinct, binary file IO.
+/// - `writeBinary(std::ostream&)` -- distinct, same.
+/// - `writeBinaryConst(const std::string&) const` -- distinct, same.
+/// - `writeBinaryConst(std::ostream&) const` -- distinct, same.
+/// - `readBinary(std::istream&)` -- distinct, same.
+/// - `readBinary(const std::string&)` -- distinct, same.
+/// - `isNodeOccupied(const OcTreeNode*) const` -- ported, fused into
+///   [`OcTree::is_node_occupied_log_odds`]: `OcTree::search` already
+///   returns `Option<&Node>`, so the natural shape compares the found
+///   node's own `log_odds` field directly (see [`OcTree::is_occupied`])
+///   rather than re-dereferencing a pointer.
+/// - `isNodeOccupied(const OcTreeNode&) const` -- ported, same fusion.
+/// - `isNodeAtThreshold(const OcTreeNode*) const` -- distinct: zero
+///   `moveit_core` consumer (`rg -rl isNodeAtThreshold moveit_core`,
+///   excluding tests/`moveit_ros`, is empty, checked round 16).
+///   **Correction, round 16 item 2:** round 12's audit never classified
+///   this symbol at all -- neither `ported` nor `unported, in scope` nor
+///   `distinct` named it anywhere in the old table. It was a genuine gap
+///   in that walk, the same class of drift round 15 found for
+///   `tree_iterator`, caught only by this round's fresh literal read of
+///   the header rather than trusting the prior table.
+/// - `isNodeAtThreshold(const OcTreeNode&) const` -- distinct, same
+///   correction and reasoning.
+/// - `updateNode(const OcTreeKey&, float, bool)` (pure virtual),
+///   `updateNode(const point3d&, float, bool)` (pure virtual),
+///   `updateNode(const OcTreeKey&, bool, bool)` (pure virtual),
+///   `updateNode(const point3d&, bool, bool)` (pure virtual) -- already
+///   counted above, `OccupancyOcTreeBase.h`.
+/// - `toMaxLikelihood()` (pure virtual) -- already counted above,
+///   `OccupancyOcTreeBase.h`.
+/// - `readBinaryData(std::istream&)` (pure virtual), `writeBinaryData(
+///   std::ostream&) const` (pure virtual) -- already counted above,
+///   `OccupancyOcTreeBase.h`.
+/// - `setOccupancyThres(double)` -- ported as
+///   [`OcTree::set_occupancy_thres`] (round 15, item 1).
+/// - `setProbHit(double)` -- ported as [`OcTree::set_prob_hit`] (round 15
+///   item 1; the `assert(prob_hit_log >= 0.0)` at `:190` ported as
+///   `debug_assert!`, round 16 item 1).
+/// - `setProbMiss(double)` -- ported as [`OcTree::set_prob_miss`] (same
+///   rounds, `assert(prob_miss_log <= 0.0)` at `:192`).
+/// - `setClampingThresMin(double)` -- ported as
+///   [`OcTree::set_clamping_thres_min`] (round 15, item 1).
+/// - `setClampingThresMax(double)` -- ported as
+///   [`OcTree::set_clamping_thres_max`] (round 15, item 1).
+/// - `getOccupancyThres() const` -- distinct: its one `moveit_core` caller
+///   (`bullet_utils.cpp:210`) is the Bullet collision backend, dropped by
+///   PORTING-PLAN.md (`parry3d-f64` replaces both FCL and Bullet).
+/// - `getOccupancyThresLog() const` -- ported as
+///   [`OcTree::occupancy_thres_log`].
+/// - `getProbHit() const` -- distinct, zero consumer.
+/// - `getProbHitLog() const` -- ported as [`OcTree::prob_hit_log`].
+/// - `getProbMiss() const` -- distinct, zero consumer.
+/// - `getProbMissLog() const` -- ported as [`OcTree::prob_miss_log`].
+/// - `getClampingThresMin() const` -- distinct, zero consumer.
+/// - `getClampingThresMinLog() const` -- ported as
+///   [`OcTree::clamping_thres_min_log`].
+/// - `getClampingThresMax() const` -- distinct, zero consumer.
+/// - `getClampingThresMaxLog() const` -- ported as
+///   [`OcTree::clamping_thres_max_log`].
+///
+/// ## `AbstractOcTree.h`
+///
+/// - `getResolution() const`, `setResolution(double)`, `size() const`,
+///   `memoryUsage() const`, `memoryUsageNode() const`,
+///   `getMetricMin(double&,double&,double&)` (both overloads),
+///   `getMetricMax(double&,double&,double&)` (both overloads),
+///   `getMetricSize(double&,double&,double&)`, `prune()`, `expand()`,
+///   `clear()`, `readData(std::istream&)`, `writeData(std::ostream&)
+///   const` (all pure virtual) -- already counted above, `OcTreeBaseImpl.h`.
+/// - `create() const`, `getTreeType() const` (pure virtual) -- already
+///   counted above, `OcTree.h`.
+/// - `class iterator_base` (forward declaration only; the real
+///   `leaf_iterator`/`tree_iterator`/`leaf_bbx_iterator` declarations in
+///   this header are commented out, `AbstractOcTree.h:82-104`) -- not a
+///   callable member, skipped.
+/// - `write(const std::string&) const` -- distinct, file IO.
+/// - `write(std::ostream&) const` -- distinct, same.
+/// - `createTree(const std::string, double)` (static) -- distinct: the
+///   registry/factory pattern D4 excludes, zero consumer.
+/// - `read(const std::string&)` (static) -- distinct, file IO.
+/// - `read(std::istream&)` (static) -- distinct, same.
+///
+/// **Total, by `rg -c '^/// - \`' crates/moveit-octomap/src/tree.rs`
+/// (every such bullet in the file is inside this audit, so the plain
+/// per-file count is exact, no line range needed):** **158** bullets --
+/// the same unit `moveit-scene`'s `planning_scene.hpp` audit counts by (a
+/// bullet sometimes names more than one C++ declaration when they share
+/// one classification and reason, e.g. the three finest-depth `coordToKey`
+/// overloads under one `ported, fused` bullet -- exactly how that audit's
+/// own `checkCollision`/`getCollidingLinks` bundle several overloads per
+/// bullet too). Of the 158: 2 are not callable symbols at all (`typedef
+/// NODE NodeType`, the forward-declared `iterator_base`) and 5 are
+/// cross-references to declarations already tallied under a more-derived
+/// header (the `updateNode`/`toMaxLikelihood`/`readBinaryData`/
+/// `writeBinaryData` pure-virtual re-declarations in
+/// `AbstractOccupancyOcTree.h`, and the `getResolution`/`setResolution`/
+/// `size`/`memoryUsage`/`memoryUsageNode`/`getMetricMin`/`getMetricMax`/
+/// `getMetricSize`/`prune`/`expand`/`clear`/`readData`/`writeData`/
+/// `create`/`getTreeType` pure-virtual re-declarations in
+/// `AbstractOcTree.h`) -- neither group is counted again. The remaining
+/// **151** audited bullets:
+///
+/// ```text
+/// ported                55
+/// unported, in scope     8
+/// distinct               88
+/// ------------------------
+/// total                 151
+/// ```
+///
+/// **`unported, in scope`** (8), all named above: the three `setNodeValue`
+/// overloads; the two triple-`double`-argument `updateNode` overloads; the
+/// triple-`double`-argument `search`/`coordToKeyChecked` overloads (pure
+/// ergonomic wrappers, one bullet each); and `begin_leafs_bbx`'s
+/// raw-`OcTreeKey`-bounded overload.
 #[derive(Debug)]
 pub struct OcTree {
     root: Option<Box<Node>>,
@@ -175,9 +627,16 @@ impl OcTree {
 
     /// Upstream `setProbHit`. `prob` is the hit sensor-model probability;
     /// upstream asserts the resulting log-odds is non-negative (`prob >=
-    /// 0.5`), a debug-build-only sanity check this port matches with
-    /// `debug_assert!` rather than a `Result` this crate has no other
-    /// fallible-construction convention for. Round 15, item 1.
+    /// 0.5`) with plain C `assert()` (`AbstractOccupancyOcTree.h:190`,
+    /// `void setProbHit(double prob){prob_hit_log = logodds(prob);
+    /// assert(prob_hit_log >= 0.0);}`, read directly from the oracle
+    /// container this round, round 16 item 1) -- a debug-build-only sanity
+    /// check under `NDEBUG`, matched here with `debug_assert!` for the same
+    /// reason rather than a `Result` this crate has no other
+    /// fallible-construction convention for. Round 15, item 1; the
+    /// `debug_assert!` firing on an out-of-range `prob` is itself tested by
+    /// `tests::set_prob_hit_below_half_panics_in_debug` (round 16 item 1 --
+    /// round 15 ported the assertion but nothing exercised it).
     pub fn set_prob_hit(&mut self, prob: f64) {
         self.prob_hit_log = logodds(prob);
         debug_assert!(self.prob_hit_log >= 0.0);
@@ -185,8 +644,10 @@ impl OcTree {
 
     /// Upstream `setProbMiss`. `prob` is the miss sensor-model probability;
     /// upstream asserts the resulting log-odds is non-positive (`prob <=
-    /// 0.5`), matched here with `debug_assert!` for the same reason as
-    /// [`Self::set_prob_hit`]. Round 15, item 1.
+    /// 0.5`) with plain C `assert()` (`AbstractOccupancyOcTree.h:192`, same
+    /// container read as [`Self::set_prob_hit`]), matched here with
+    /// `debug_assert!` for the same reason. Round 15, item 1; see
+    /// `tests::set_prob_miss_above_half_panics_in_debug` (round 16 item 1).
     pub fn set_prob_miss(&mut self, prob: f64) {
         self.prob_miss_log = logodds(prob);
         debug_assert!(self.prob_miss_log <= 0.0);
@@ -928,5 +1389,25 @@ mod tests {
             tree.leaves_in_bbx(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0e9, 0.0, 0.0))
                 .is_none()
         );
+    }
+
+    // Round 15 ported set_prob_hit/set_prob_miss's upstream `assert(prob_hit_log
+    // >= 0.0)`/`assert(prob_miss_log <= 0.0)` as `debug_assert!`, but nothing
+    // called either with an out-of-range probability -- removing both
+    // debug_assert!s left nextest's debug-profile run at 27/27, unchanged.
+    // These two exercise the boundary that assertion exists to catch.
+
+    #[test]
+    #[should_panic]
+    fn set_prob_hit_below_half_panics_in_debug() {
+        let mut tree = OcTree::new(0.1);
+        tree.set_prob_hit(0.3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_prob_miss_above_half_panics_in_debug() {
+        let mut tree = OcTree::new(0.1);
+        tree.set_prob_miss(0.7);
     }
 }
