@@ -58,7 +58,31 @@
 //! trailing comment, and `tools/ci/verify-fixture-provenance.sh`'s
 //! `DIVERGENT` table entry for it) — no committed *upstream* fixture
 //! (`panda_arm` 7, fanuc `manipulator` 6, pr2 arm groups 7) has fewer than
-//! 6 active-joint variables. Regenerate that response fixture with:
+//! 6 active-joint variables.
+//!
+//! This pins the branch's *narrowing* direction (the threshold literal
+//! shrinking, e.g. `columns < 6` -> `columns < 5` or `< 4`): confirmed by
+//! deliberately making that change and re-running both parity tests —
+//! `panda_arm_5dof_kinematics_metrics_matches_the_oracle` fails at both
+//! `< 5` and `< 4` (`panda_kinematics_metrics_matches_the_oracle` does not,
+//! since `panda_arm`'s 7 columns stay on the determinant path either way).
+//! Shrinking the threshold below `panda_arm_5dof`'s column count routes it
+//! onto the `sqrt(det(J J^T))` path with a `J` that has only 5 columns —
+//! `J J^T` is then a 6x6 (or 3x3, `translation=true`) matrix built from a
+//! rank-<=5 outer product, so its determinant is exactly (up to rounding)
+//! `0.0`, diverging hard from the oracle's genuinely nonzero SVD-product
+//! answer. The branch's *widening* direction (`columns < 6` -> `columns <
+//! 8`, routing a `>= 6`-column group like `panda_arm` onto the SVD-product
+//! path instead) stays unobservable through any oracle-diff fixture,
+//! confirmed the same way: product of singular values equals `sqrt(det(J
+//! J^T))` exactly for any full row-rank `J`, so widening the threshold
+//! only ever *adds* full-row-rank groups to the SVD-product side, where
+//! both formulas already agree. The two directions are not symmetric —
+//! only narrowing below an *exercised* group's own column count can expose
+//! a real divergence, and only `panda_arm_5dof` (once its own group falls
+//! below the threshold) can expose it in this fixture set.
+//!
+//! Regenerate that response fixture with:
 //! ```text
 //! R=/home/stevek/work/moveit-rs/.caucus/worktrees/5REEQZSC40-p1-fixtures-920dace3-1
 //! python3 -c "import json; print(json.dumps(json.load(open('$R/crates/moveit-metrics/tests/fixtures/panda_arm_5dof_kinematics_metrics_request.json'))))" \
