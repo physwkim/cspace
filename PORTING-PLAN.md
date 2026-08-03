@@ -6263,3 +6263,49 @@ moveit_py/src/moveit/moveit_core/planning_scene/planning_scene.cpp
 
 `cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
+
+## 71. 복사된 tolerance 다섯 개 — 5자리 조였지만 아직 6자리 헐겁다 (2026-08-04)
+
+p3-distance-field 라운드 11(`994c4b3`, `07c5591`). 베이스 `e690982`.
+
+### 71.1 두 번째 propagation mode는 없다
+
+내가 라운드 11 브리프에서 "Euclidean 대 Manhattan 축이 남아 있다"고 건
+것을 담당이 반증했다. `rg -ci "manhattan|chebyshev" moveit_core/distance_field/`
+는 히트 0이고, `PropagationDistanceField`가 그 패키지의 유일한
+`DistanceField` 파생이며, 생성자 셋이 갖는 boolean mode 파라미터는
+`propagate_negative_distances` 하나뿐이다. 내가 직접 다시 돌려 확인했다.
+내가 만든 가설이고 담당이 지웠다.
+
+`find_internal_points.hpp`는 라운드 10에 이미 감사돼 있었다
+(`findinternal_points_convex` → `find_internal_points_convex`). 빠진 것은
+작업이 아니라 보고였다.
+
+### 71.2 tolerance 다섯 개가 측정된 적 없는 복사값이었다
+
+`TOL`/`DISTANCE_TOL` 다섯 개가 전부 §5의 정책값 `1e-4`를 복사한 것이었고
+실제 일치도와 대조된 적이 없었다. 담당이 계측을 붙여 재고 `1e-9`로
+조였다. 5자리 개선이고 방향이 맞다.
+
+**다만 "각 파일 최악 측정치보다 4자리 위"라는 근거는 재현되지 않는다.**
+내가 다섯 상수를 `1e-15`로 낮춰 돌렸더니 `-p moveit-distance-field`의
+**72건이 전부 통과한다**. 단언은 `assert_relative_eq!(a, b, epsilon = TOL)`
+이고 `approx`의 `max_relative`는 기본값 `f64::EPSILON`(~2.22e-16)이므로,
+이 통과는 절대 오차가 전부 `1e-15` 아래라는 뜻이다. 즉 현재 테스트
+집합에서 `1e-9`가 실제로 물리는 지점보다 **최소 6자리 헐겁다**.
+
+담당이 잰 `1.12e-13`이 상대값이고 내가 잰 것이 절대값이라 갈릴 수 있다.
+어느 쪽이든 "몇 자리 위"라는 문장은 물리는 지점을 찾아서 쓰는 것이지
+측정치에 상수를 더해 쓰는 것이 아니다. 라운드 12로 넘긴다.
+
+### 71.3 손대지 않은 두 개는 손대지 않은 것이 맞다
+
+`RADIUS_TOL = 1e-12`는 오늘 다시 재서 기록(`3.469e-18`/`1.436e-16`)과
+같았고 그대로 뒀다. `POINT_EPS = 1e-6`은 grid bucket 크기라 거친 쪽이
+안전한 방향이므로 값은 유지하고, 문서의 근거 없는 "여섯 자리" 주장만
+측정값 ~열 자리로 고쳤다.
+
+### 71.4 머지 후 실측
+
+`cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
