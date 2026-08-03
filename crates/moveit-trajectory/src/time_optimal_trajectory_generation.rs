@@ -15,9 +15,13 @@
 //! # Out of scope
 //!
 //! - `computeTimeStamps(..., const std::vector<moveit_msgs::msg::JointLimits>&, ...)`
-//!   — a `moveit_msgs` conversion, out of scope per `PORTING-PLAN.md` D1. It
-//!   is a thin wrapper that unpacks a `JointLimits` message into the same
-//!   `velocity_limits`/`acceleration_limits` maps
+//!   — a `moveit_msgs` conversion, out of scope per `PORTING-PLAN.md` §0's
+//!   recorded D1 interpretation ("코어 크레이트는 ROS 타입을 일절 참조하지
+//!   않는다. `moveit_msgs` ... 에 해당하는 것은 코어 안에서 순수 Rust
+//!   타입으로 새로 정의한다.", lines 20-26) — not an independently invented
+//!   call: `moveit_msgs::msg::JointLimits` is exactly the ROS message type
+//!   that text names. It is also a thin wrapper that unpacks a `JointLimits`
+//!   message into the same `velocity_limits`/`acceleration_limits` maps
 //!   [`compute_time_stamps_with_limits`] already takes (cpp:1006-1027), so
 //!   nothing behavioural is lost by skipping it — matching
 //!   `ruckig_smoothing`'s precedent for the analogous overload there.
