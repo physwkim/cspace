@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Transforms, UnitQuaternion, Vector3};
-use moveit_kinematics::KinematicsSolver;
+use moveit_kinematics::{KinematicsSolver, SolutionCallback, SolveOptions};
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::{Posed, RobotState};
 use rand::{Rng, RngExt};
@@ -371,12 +371,28 @@ impl IkConstraintSampler {
     /// holding that solution rather than being reverted before the next
     /// attempt — upstream's `callIK` writes via `setJointGroupPositions`
     /// *before* calling `validate()` and never undoes it either.
+    ///
+    /// `group_state_validity_callback` is upstream's `group_state_validity_callback_`
+    /// (`getGroupStateValidityCallback`/`setGroupStateValidityCallback`),
+    /// threaded through `samplingIkCallbackFnAdapter` into the IK solve
+    /// itself so a converged-but-rejected candidate is retried rather than
+    /// accepted — this port reuses [`moveit_kinematics::SolveOptions::solution_callback`]
+    /// directly instead of reimplementing the adapter, since it is the same
+    /// accept/reject hook (its own doc comment already names "collision-checking
+    /// a candidate before accepting it" as the intended use). Upstream's
+    /// adapter also hands the callback `(state, jmg, values)`; this port's
+    /// callback receives only the candidate `&[f64]` because a Rust closure
+    /// already captures whatever `RobotState`/`JointModelGroup` context it
+    /// needs by reference — passing them as explicit parameters would only
+    /// duplicate what the closure's environment already holds, and `state`
+    /// itself cannot be re-lent here (it is already borrowed by this call).
     pub fn sample(
         &self,
         state: &mut RobotState<'_>,
         solver: &mut dyn KinematicsSolver,
         mut rng: &mut dyn Rng,
         max_attempts: u32,
+        mut group_state_validity_callback: Option<&mut SolutionCallback<'_>>,
     ) -> bool {
         let mut reference = RobotState::new(state.model());
         reference.set_variable_positions(state.positions());
@@ -423,7 +439,20 @@ impl IkConstraintSampler {
             };
 
             let target = Isometry3::from_parts(nalgebra::Translation3::from(point), quat);
-            let Some(solution) = solver.solve(&seed, &target) else {
+            let mut options = SolveOptions {
+                consistency_limits: None,
+                // A plain `.as_deref_mut()` here ties the reborrow's lifetime
+                // to `SolveOptions`'s single lifetime parameter for the whole
+                // function body (mutable references are invariant), which
+                // the borrow checker then reads as one borrow spanning every
+                // loop iteration. Matching on `ref mut` instead reborrows
+                // fresh, and only for this iteration's `options`.
+                solution_callback: match group_state_validity_callback {
+                    Some(ref mut cb) => Some(&mut **cb),
+                    None => None,
+                },
+            };
+            let Some(solution) = solver.solve_with_options(&seed, &target, &mut options) else {
                 continue;
             };
 
@@ -484,6 +513,13 @@ fn sample_unit_quaternion(rng: &mut dyn Rng) -> (f64, f64, f64, f64) {
     (x, y, z, w)
 }
 
+/// [`IkConstraintSamplerAdapter::group_state_validity_callback`]'s boxed
+/// element type, named so that field and
+/// [`IkConstraintSamplerAdapter::set_group_state_validity_callback`] do not
+/// trip clippy's `type_complexity` lint — matching
+/// `moveit_kinematics::SolutionCallback`'s own reason for existing.
+type GroupStateValidityCallback = dyn FnMut(&[f64]) -> bool;
+
 /// Round 10's composition decision: wraps an [`IkConstraintSampler`] plus
 /// the solver and retry budget it needs so the pair together implement
 /// [`ConstraintSampler`] and can sit inside a [`crate::UnionConstraintSampler`].
@@ -519,6 +555,16 @@ pub struct IkConstraintSamplerAdapter {
     /// [`ConstraintSampler::frame_dependency`] call, matching
     /// [`crate::UnionConstraintSampler`]'s own precomputed `frame_depends`.
     frame_depends: Vec<String>,
+    /// `group_state_validity_callback_`, settable via
+    /// [`IkConstraintSamplerAdapter::set_group_state_validity_callback`].
+    /// `RefCell`-wrapped for the same reason [`IkConstraintSamplerAdapter::solver`]
+    /// is: [`ConstraintSampler::sample`] takes `&self`, but calling a
+    /// `FnMut` needs `&mut` access to the boxed closure. Owned
+    /// (`Box<GroupStateValidityCallback>`, implicitly `'static`) rather than
+    /// borrowed, matching `solver`'s own `Box<dyn KinematicsSolver>` (no
+    /// explicit lifetime) — a callback that needs shared state reaches it
+    /// the same way `solver` does, through its own `Rc<RefCell<_>>`.
+    group_state_validity_callback: RefCell<Option<Box<GroupStateValidityCallback>>>,
 }
 
 impl IkConstraintSamplerAdapter {
@@ -559,6 +605,7 @@ impl IkConstraintSamplerAdapter {
             solver,
             max_attempts,
             frame_depends,
+            group_state_validity_callback: RefCell::new(None),
         })
     }
 
@@ -568,6 +615,18 @@ impl IkConstraintSamplerAdapter {
     /// implementer has a meaningful volume to compare).
     pub fn sampling_volume(&self) -> f64 {
         self.ik.sampling_volume()
+    }
+
+    /// `setGroupStateValidityCallback`: install the accept/reject hook every
+    /// subsequent [`ConstraintSampler::sample`] call runs a converged IK
+    /// candidate through (see [`IkConstraintSampler::sample`]'s doc comment
+    /// on how it is wired into the solve itself). No `getGroupStateValidityCallback`
+    /// is ported alongside it — upstream's own getter has zero callers
+    /// anywhere in `moveit_core`, `moveit_planners` or `moveit_ros`, only
+    /// the setter does (`ompl_interface/src/detail/constrained_goal_sampler.cpp:135`,
+    /// itself out of this port's D3 scope until an OMPL bridge exists).
+    pub fn set_group_state_validity_callback(&mut self, callback: Box<GroupStateValidityCallback>) {
+        *self.group_state_validity_callback.get_mut() = Some(callback);
     }
 }
 
@@ -582,7 +641,9 @@ impl ConstraintSampler for IkConstraintSamplerAdapter {
 
     fn sample(&self, state: &mut RobotState<'_>, rng: &mut dyn Rng) -> bool {
         let mut solver_ref = self.solver.borrow_mut();
+        let mut callback_ref = self.group_state_validity_callback.borrow_mut();
+        let callback: Option<&mut SolutionCallback<'_>> = callback_ref.as_deref_mut();
         self.ik
-            .sample(state, &mut **solver_ref, rng, self.max_attempts)
+            .sample(state, &mut **solver_ref, rng, self.max_attempts, callback)
     }
 }
