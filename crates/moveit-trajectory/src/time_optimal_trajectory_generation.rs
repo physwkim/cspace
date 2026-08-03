@@ -1,0 +1,949 @@
+// Copyright (c) 2011-2012, Georgia Tech Research Corporation
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_optimal_trajectory_generation.hpp (lines 193-303)
+//   moveit_core/trajectory_processing/src/time_optimal_trajectory_generation.cpp (lines 918-1312)
+
+//! `trajectory_processing::TimeOptimalTrajectoryGeneration`: the
+//! [`crate::robot_trajectory::RobotTrajectory`] adapter around the
+//! model-independent [`crate::path::Path`]/[`crate::trajectory::Trajectory`]
+//! core ([`crate`]'s module doc comment; `PORTING-PLAN.md`'s "out of scope"
+//! note this module now supersedes).
+//!
+//! # Out of scope
+//!
+//! - `computeTimeStamps(..., const std::vector<moveit_msgs::msg::JointLimits>&, ...)`
+//!   — a `moveit_msgs` conversion, out of scope per `PORTING-PLAN.md` D1. It
+//!   is a thin wrapper that unpacks a `JointLimits` message into the same
+//!   `velocity_limits`/`acceleration_limits` maps
+//!   [`compute_time_stamps_with_limits`] already takes (cpp:1006-1027), so
+//!   nothing behavioural is lost by skipping it — matching
+//!   `ruckig_smoothing`'s precedent for the analogous overload there.
+//! - The `RCLCPP_ERROR`/`RCLCPP_WARN` logging calls are not ported; this
+//!   crate has no logging dependency to route them through (matching
+//!   `ruckig_smoothing`'s precedent). Every upstream `RCLCPP_ERROR` +
+//!   `return false` site still returns [`Error`] here.
+//!
+//! # Deviations from upstream
+//!
+//! - **No default constructor parameters, no class.** Upstream's
+//!   `TimeOptimalTrajectoryGeneration` is a class whose constructor takes
+//!   `path_tolerance`/`resample_dt`/`min_angle_change` (each defaulted) and
+//!   whose `computeTimeStamps` overloads default
+//!   `max_velocity_scaling_factor`/`max_acceleration_scaling_factor` to
+//!   `1.0`. Rust has no default parameters; [`TotgOptions`] groups all five,
+//!   and its [`Default`] impl reproduces every upstream default
+//!   (`path_tolerance = DEFAULT_PATH_TOLERANCE`, `resample_dt = 0.1`,
+//!   `min_angle_change = 0.001`, both scaling factors `1.0`) —
+//!   `TotgOptions { min_angle_change: 0.01, ..Default::default() }`
+//!   reproduces a call that only overrode the constructor's third
+//!   parameter. [`compute_time_stamps`]/[`compute_time_stamps_with_limits`]
+//!   are free functions instead of methods, for the same reason
+//!   `ruckig_smoothing` uses free functions: nothing is carried across calls
+//!   that a struct would need to own.
+//! - **`getVariableIndexList()`/`getVariableNames()` (a global per-DOF
+//!   integer index into the whole `RobotState`) is replaced by iterating
+//!   [`JointModelGroup::variable_names`] and addressing each `RobotState`
+//!   variable by name.** Same substitution `ruckig_smoothing` already made,
+//!   for the same reason: [`moveit_model::JointModelGroup`] has no
+//!   index-list-returning method in this workspace, and this crate's
+//!   [`RobotState`] accessors are name-based.
+//! - **The active-joint limit vector is always built by active-joint loop
+//!   position, never by `vars[active_joint_indices[idx]]` as a vector
+//!   index.** This is the one place this port could not transcribe upstream
+//!   literally, because upstream itself is inconsistent between its two
+//!   overloads:
+//!   - The scaling-only overload (cpp:924-1004) builds `max_velocity`/
+//!     `max_acceleration` correctly: `for (size_t idx = 0; idx <
+//!     num_active_joints; ++idx)` (cpp:954) uses the *loop counter* `idx` to
+//!     write `max_velocity[idx]` (cpp:968-969), and only uses
+//!     `active_joint_indices[idx]` to look up the bound
+//!     (`vars[active_joint_indices[idx]]`, cpp:957) — a dense,
+//!     active-joint-position-indexed vector, exactly [`TotgOptions`]'s
+//!     dense semantics here.
+//!   - The explicit-limits overload (cpp:1029-1135) does not: `for (const
+//!     auto idx : indices)` (cpp:1062) rebinds `idx` to each *element value*
+//!     of `indices` (i.e. each active variable's position in the group's
+//!     *full* — active-plus-mimic — variable list, cpp:1051-1053), then
+//!     writes `max_velocity[idx]` (cpp:1072, 1085, 1106, 1119) into a vector
+//!     sized `indices.size()` (the active-only count, cpp:1058-1060). For
+//!     any group with a mimic joint, `indices` contains a strictly
+//!     increasing subsequence of `0..num_all_variables` with gaps at the
+//!     mimic positions, so its largest element is `>= indices.size()`
+//!     whenever any gap precedes it — `max_velocity[idx]`/
+//!     `max_acceleration[idx]` is then an out-of-bounds `Eigen::VectorXd`
+//!     write, undefined behaviour in C++. `panda_arm` and every group in
+//!     upstream's own test suite has no mimic joint, so `indices` is exactly
+//!     `0..num_active` and this is invisible there; `fixtures/pr2.srdf`'s
+//!     `l_end_effector`/`r_end_effector` groups (mimic gripper fingers) do
+//!     reach it. There is no undefined behaviour to port in a memory-safe
+//!     language, and the surrounding code's evident intent — a dense,
+//!     active-joint-count-sized vector, matching the *other* overload's own
+//!     correct pattern one function up — is unambiguous, so this port uses
+//!     that pattern (loop position as the vector index, `indices[idx]` only
+//!     to look up the bound) uniformly for both [`compute_time_stamps`] and
+//!     [`compute_time_stamps_with_limits`].
+//! - **The active-vs-all-variable dimension mismatch is a typed [`Error`],
+//!   not a silent truncation or a panic.** [`do_time_parameterization_calculations`]
+//!   (cpp:1162-1271) builds waypoints over *every* group variable including
+//!   mimic joints (`idx = group->getVariableIndexList()`, `num_joints =
+//!   group->getVariableCount()`, cpp:1183-1184) — deliberately, since a
+//!   mimic joint's position is still part of the path being time-parameterized
+//!   — but is handed `max_velocity`/`max_acceleration` sized to the
+//!   *active-only* variable count built by the callers above
+//!   (cpp:951/1058). For a group with no mimic joints these two counts
+//!   coincide; for a group with one, they do not, and upstream's
+//!   `Eigen::VectorXd` indexing of the undersized limit vectors against the
+//!   full-sized path is itself unchecked (another `operator[]` OOB, same
+//!   root cause as the previous point). This port checks
+//!   `max_velocity.len() == max_acceleration.len() ==
+//!   group.variable_names().len()` before calling
+//!   `crate::trajectory::Trajectory::create` and returns [`Error::other`]
+//!   naming the mismatch instead — the conversion this round's task
+//!   description asked for explicitly. In practice this means
+//!   [`compute_time_stamps`]/[`compute_time_stamps_with_limits`] reject
+//!   every mimic-joint group outright; there is no upstream behaviour for a
+//!   *successful* mimic-joint-group call to port, since upstream never
+//!   reaches one without first hitting the undefined behaviour above.
+//! - **`hasMixedJointTypes` is ported as a standalone predicate,
+//!   [`has_mixed_joint_types`], but is not called from
+//!   [`do_time_parameterization_calculations`].** Upstream's only use of it
+//!   (cpp:1176-1180) is `RCLCPP_WARN` — it never gates control flow — and
+//!   this crate has no logging channel to route the diagnostic through (see
+//!   the "Out of scope" note above). The predicate itself is still ported
+//!   byte-for-byte and exercised directly by this module's own tests; a
+//!   caller wanting the diagnostic can call it before
+//!   [`compute_time_stamps`].
+//! - **Velocity/acceleration bound validation differs by exact comparison
+//!   operator between the two overloads, transcribed as-is.** The
+//!   scaling-only overload rejects `max_velocity_ <= 0.0` but only
+//!   `max_acceleration_ < 0.0` (cpp:962/983); the explicit-limits overload
+//!   rejects `max_velocity_ < 0.0` (not `<=`) for its own robot-model
+//!   fallback branch, and `max_acceleration_ < 0.0` for its (cpp:1079/1113).
+//!   A caller-supplied entry in `velocity_limits`/`acceleration_limits` is
+//!   never validated at all (cpp:1069-1074/1103-1108) — only the robot-model
+//!   fallback branch is. This asymmetry looks unintentional, but "transcribe
+//!   the numerics rather than rewriting them into something cleaner" applies
+//!   here same as everywhere else in this crate; each comparison below cites
+//!   its upstream line.
+//! - **The upstream out-of-range-limit error messages sometimes name the
+//!   wrong variable (`vars[idx]` instead of `vars[active_joint_indices[idx]]`,
+//!   cpp:964-965), a cosmetic copy-paste bug in a value never used for
+//!   anything but a log string this port drops anyway.** This port's
+//!   [`Error::other`] messages name the variable actually at fault.
+
+use std::collections::HashMap;
+
+use nalgebra::DVector;
+
+use moveit_error::{Error, Result};
+use moveit_model::JointModelGroup;
+
+use crate::path::{DEFAULT_PATH_TOLERANCE, Path};
+use crate::robot_trajectory::RobotTrajectory;
+use crate::trajectory::Trajectory;
+
+/// `DEFAULT_TIMESTEP`, cpp:53. Distinct from
+/// [`crate::trajectory::VELOCITY_SWITCHING_SCAN_STEP`] (round 3's own doc
+/// comment on that constant already flags the coincidence): this one is the
+/// `time_step` [`do_time_parameterization_calculations`] passes to
+/// `Trajectory::create`, the other is an unrelated scan-step epsilon inside
+/// `Trajectory`'s own switching-point search. They share a value only
+/// because both upstream authors independently picked `1e-3`.
+const DEFAULT_TIMESTEP: f64 = 1e-3;
+
+/// `DEFAULT_SCALING_FACTOR`, cpp:55.
+const DEFAULT_SCALING_FACTOR: f64 = 1.0;
+
+/// The five independently-defaulted parameters upstream's constructor and
+/// every `computeTimeStamps` overload take. See the module-level
+/// "Deviations from upstream" note on "No default constructor parameters".
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TotgOptions {
+    /// `path_tolerance`, passed to `Path::create`.
+    pub path_tolerance: f64,
+    /// `resample_dt`: the output trajectory's resampling period.
+    pub resample_dt: f64,
+    /// `min_angle_change`: the minimum per-joint change between consecutive
+    /// waypoints for the later one to be kept as distinct, rather than
+    /// collapsed into the former (see
+    /// [`do_time_parameterization_calculations`]).
+    pub min_angle_change: f64,
+    /// A factor in `(0, 1]` which can slow down the trajectory. Values
+    /// outside that range are replaced by [`DEFAULT_SCALING_FACTOR`] (see
+    /// [`verify_scaling_factor`]).
+    pub max_velocity_scaling_factor: f64,
+    /// A factor in `(0, 1]` which can slow down the trajectory. Values
+    /// outside that range are replaced by [`DEFAULT_SCALING_FACTOR`] (see
+    /// [`verify_scaling_factor`]).
+    pub max_acceleration_scaling_factor: f64,
+}
+
+impl Default for TotgOptions {
+    /// Matches every upstream constructor/overload default.
+    fn default() -> Self {
+        Self {
+            path_tolerance: DEFAULT_PATH_TOLERANCE,
+            resample_dt: 0.1,
+            min_angle_change: 0.001,
+            max_velocity_scaling_factor: DEFAULT_SCALING_FACTOR,
+            max_acceleration_scaling_factor: DEFAULT_SCALING_FACTOR,
+        }
+    }
+}
+
+/// `TimeOptimalTrajectoryGeneration::computeTimeStamps` (the scaling-only
+/// overload, cpp:924-1004).
+///
+/// Re-parameterizes `trajectory` in place with time-optimal velocity/
+/// acceleration profiles, using per-joint velocity/acceleration bounds read
+/// from `trajectory`'s own `RobotModel` (via its `JointModelGroup`'s
+/// *active* joint variables — see the module-level "Deviations from
+/// upstream" note on why mimic joints are excluded from this lookup but not
+/// from the waypoints themselves), scaled by
+/// `options.max_velocity_scaling_factor`/`options.max_acceleration_scaling_factor`.
+///
+/// An empty trajectory is returned unmodified (cpp:928-929): there is
+/// nothing to time-parameterize.
+///
+/// # Errors
+///
+/// [`Error`] if: `trajectory` has no group set; any active joint variable
+/// has no velocity bound, or an acceleration bound less than zero, or a
+/// velocity bound less than or equal to zero (see the module-level
+/// "Deviations from upstream" note on the exact per-overload comparison);
+/// the group has a mimic joint (see the module-level note on the
+/// active-vs-all-variable dimension mismatch this becomes); or the
+/// underlying `Path::create`/`Trajectory::create` fails.
+pub fn compute_time_stamps(
+    trajectory: &mut RobotTrajectory<'_>,
+    options: &TotgOptions,
+) -> Result<()> {
+    if trajectory.is_empty() {
+        return Ok(());
+    }
+
+    let group = validate_group(trajectory)?;
+    let velocity_scaling_factor = verify_scaling_factor(options.max_velocity_scaling_factor);
+    let acceleration_scaling_factor =
+        verify_scaling_factor(options.max_acceleration_scaling_factor);
+
+    let active_variables = active_joint_variables(trajectory, group);
+    let num_active = active_variables.len();
+    let mut max_velocity = DVector::zeros(num_active);
+    let mut max_acceleration = DVector::zeros(num_active);
+
+    for (idx, (_, joint_name, bounds)) in active_variables.iter().enumerate() {
+        if bounds.velocity_bounded {
+            if bounds.max_velocity <= 0.0 {
+                return Err(Error::other(format!(
+                    "invalid max_velocity {} specified for '{joint_name}', must be greater than 0.0",
+                    bounds.max_velocity
+                )));
+            }
+            max_velocity[idx] =
+                bounds.max_velocity.abs().min(bounds.min_velocity.abs()) * velocity_scaling_factor;
+        } else {
+            return Err(Error::other(format!(
+                "no velocity limit was defined for joint '{joint_name}'! you have to define \
+                 velocity limits in the URDF or joint_limits.yaml"
+            )));
+        }
+
+        if bounds.acceleration_bounded {
+            if bounds.max_acceleration < 0.0 {
+                return Err(Error::other(format!(
+                    "invalid max_acceleration {} specified for '{joint_name}', must be greater \
+                     than 0.0",
+                    bounds.max_acceleration
+                )));
+            }
+            max_acceleration[idx] = bounds
+                .max_acceleration
+                .abs()
+                .min(bounds.min_acceleration.abs())
+                * acceleration_scaling_factor;
+        } else {
+            return Err(Error::other(format!(
+                "no acceleration limit was defined for joint '{joint_name}'! you have to define \
+                 acceleration limits in the URDF or joint_limits.yaml"
+            )));
+        }
+    }
+
+    do_time_parameterization_calculations(trajectory, &max_velocity, &max_acceleration, options)
+}
+
+/// `TimeOptimalTrajectoryGeneration::computeTimeStamps` (the explicit
+/// per-joint limits overload, cpp:1029-1135).
+///
+/// Like [`compute_time_stamps`], but every active joint variable named in
+/// `velocity_limits`/`acceleration_limits` overrides the corresponding
+/// `RobotModel` bound (still scaled by
+/// `options.max_velocity_scaling_factor`/`options.max_acceleration_scaling_factor`).
+/// A variable not named in a given map falls back to its `RobotModel`
+/// bound, if any.
+///
+/// # Errors
+///
+/// Same as [`compute_time_stamps`], except a variable named in
+/// `velocity_limits`/`acceleration_limits` is never bounds-checked (matching
+/// upstream — see the module-level "Deviations from upstream" note) and so
+/// can never fail on that variable's account.
+pub fn compute_time_stamps_with_limits(
+    trajectory: &mut RobotTrajectory<'_>,
+    velocity_limits: &HashMap<String, f64>,
+    acceleration_limits: &HashMap<String, f64>,
+    options: &TotgOptions,
+) -> Result<()> {
+    if trajectory.is_empty() {
+        return Ok(());
+    }
+
+    let group = validate_group(trajectory)?;
+    let velocity_scaling_factor = verify_scaling_factor(options.max_velocity_scaling_factor);
+    let acceleration_scaling_factor =
+        verify_scaling_factor(options.max_acceleration_scaling_factor);
+
+    let active_variables = active_joint_variables(trajectory, group);
+    let num_active = active_variables.len();
+    let mut max_velocity = DVector::zeros(num_active);
+    let mut max_acceleration = DVector::zeros(num_active);
+
+    for (idx, (variable_name, joint_name, bounds)) in active_variables.iter().enumerate() {
+        let mut velocity_set = false;
+        if let Some(&limit) = velocity_limits.get(variable_name) {
+            max_velocity[idx] = limit * velocity_scaling_factor;
+            velocity_set = true;
+        }
+        if bounds.velocity_bounded && !velocity_set {
+            if bounds.max_velocity < 0.0 {
+                return Err(Error::other(format!(
+                    "invalid max_velocity {} specified for '{joint_name}', must be greater than 0.0",
+                    bounds.max_velocity
+                )));
+            }
+            max_velocity[idx] =
+                bounds.max_velocity.abs().min(bounds.min_velocity.abs()) * velocity_scaling_factor;
+            velocity_set = true;
+        }
+        if !velocity_set {
+            return Err(Error::other(format!(
+                "no velocity limit was defined for joint '{joint_name}'! you have to define \
+                 velocity limits in the URDF or joint_limits.yaml"
+            )));
+        }
+
+        let mut acceleration_set = false;
+        if let Some(&limit) = acceleration_limits.get(variable_name) {
+            max_acceleration[idx] = limit * acceleration_scaling_factor;
+            acceleration_set = true;
+        }
+        if bounds.acceleration_bounded && !acceleration_set {
+            if bounds.max_acceleration < 0.0 {
+                return Err(Error::other(format!(
+                    "invalid max_acceleration {} specified for '{joint_name}', must be greater \
+                     than 0.0",
+                    bounds.max_acceleration
+                )));
+            }
+            max_acceleration[idx] = bounds
+                .max_acceleration
+                .abs()
+                .min(bounds.min_acceleration.abs())
+                * acceleration_scaling_factor;
+            acceleration_set = true;
+        }
+        if !acceleration_set {
+            return Err(Error::other(format!(
+                "no acceleration limit was defined for joint '{joint_name}'! you have to define \
+                 acceleration limits in the URDF or joint_limits.yaml"
+            )));
+        }
+    }
+
+    do_time_parameterization_calculations(trajectory, &max_velocity, &max_acceleration, options)
+}
+
+/// `totgComputeTimeStamps` (cpp:1137-1160): resample `trajectory` to
+/// (approximately) `num_waypoints` waypoints, by running
+/// [`compute_time_stamps`] once to find the optimal duration, then again
+/// with `resample_dt = duration / (num_waypoints - 1)`.
+///
+/// # Errors
+///
+/// [`Error`] if `num_waypoints < 2` (cpp:1147-1151), or if either
+/// [`compute_time_stamps`] call fails.
+///
+/// # Deviation from upstream
+///
+/// Upstream's first `computeTimeStamps` call (cpp:1154) discards its `bool`
+/// return value entirely — a failure there is silently ignored, and
+/// `trajectory.getDuration()` (whatever it was before, likely `0.0` for a
+/// freshly-built trajectory) is used as `optimal_duration` regardless. This
+/// port propagates that first call's `Err` instead, since silently
+/// continuing with a bogus `optimal_duration` (and therefore a bogus
+/// `new_resample_dt`) is not a behaviour worth reproducing: every caller in
+/// upstream's own test suite only ever observes the second call's result.
+pub fn totg_compute_time_stamps(
+    num_waypoints: usize,
+    trajectory: &mut RobotTrajectory<'_>,
+    max_velocity_scaling_factor: f64,
+    max_acceleration_scaling_factor: f64,
+) -> Result<()> {
+    if num_waypoints < 2 {
+        return Err(Error::other(
+            "computeTimeStamps() requires num_waypoints > 1",
+        ));
+    }
+
+    let default_options = TotgOptions {
+        path_tolerance: DEFAULT_PATH_TOLERANCE,
+        resample_dt: 0.1,
+        max_velocity_scaling_factor,
+        max_acceleration_scaling_factor,
+        ..Default::default()
+    };
+    compute_time_stamps(trajectory, &default_options)?;
+    let optimal_duration = trajectory.duration();
+    let new_resample_dt = optimal_duration / (num_waypoints - 1) as f64;
+
+    let resample_options = TotgOptions {
+        path_tolerance: DEFAULT_PATH_TOLERANCE,
+        resample_dt: new_resample_dt,
+        max_velocity_scaling_factor,
+        max_acceleration_scaling_factor,
+        ..Default::default()
+    };
+    compute_time_stamps(trajectory, &resample_options)
+}
+
+/// `validateGroup`-equivalent (this specific check is inlined at the top of
+/// each upstream `computeTimeStamps` overload, e.g. cpp:931-936).
+fn validate_group<'g>(trajectory: &RobotTrajectory<'g>) -> Result<&'g JointModelGroup> {
+    trajectory.group().ok_or_else(|| {
+        Error::other("it looks like the planner did not set the group the plan was computed for")
+    })
+}
+
+/// `computeJointVariableIndices(group->getActiveJointModelNames(), ...)`
+/// (cpp:945-946/1053), expanded into `(variable_name, joint_name, bounds)`
+/// triples in active-joint order — the dense, active-joint-position-indexed
+/// list both `computeTimeStamps` overloads build their `max_velocity`/
+/// `max_acceleration` vectors over. See the module-level "Deviations from
+/// upstream" note on why this port uses this same dense construction for
+/// both overloads.
+fn active_joint_variables<'s>(
+    trajectory: &RobotTrajectory<'s>,
+    group: &JointModelGroup,
+) -> Vec<(String, String, moveit_model::joint::VariableBounds)> {
+    let model = trajectory.robot_model();
+    let mut result = Vec::new();
+    for &joint_index in group.active_joint_indices() {
+        let joint = model.joint_model_at(joint_index);
+        for variable_name in joint.variable_names() {
+            let bounds = *joint
+                .variable_bounds_for(variable_name)
+                .expect("variable_name came from this joint's own variable_names()");
+            result.push((variable_name.clone(), joint.name().to_string(), bounds));
+        }
+    }
+    result
+}
+
+/// `verifyScalingFactor` (cpp:1290-1312). See the module-level "Out of
+/// scope" note on why the `RCLCPP_WARN` this replaces (naming which limit
+/// type — velocity or acceleration — was invalid) is not ported.
+fn verify_scaling_factor(requested_scaling_factor: f64) -> f64 {
+    if requested_scaling_factor > 0.0 && requested_scaling_factor <= 1.0 {
+        requested_scaling_factor
+    } else {
+        DEFAULT_SCALING_FACTOR
+    }
+}
+
+/// `hasMixedJointTypes` (cpp:1273-1288). See the module-level "Deviations
+/// from upstream" note on why this is not called from
+/// [`do_time_parameterization_calculations`].
+pub fn has_mixed_joint_types(trajectory: &RobotTrajectory<'_>, group: &JointModelGroup) -> bool {
+    let model = trajectory.robot_model();
+    let mut have_prismatic = false;
+    let mut have_revolute = false;
+    for &joint_index in group.active_joint_indices() {
+        let joint = model.joint_model_at(joint_index);
+        match joint.joint_type() {
+            moveit_model::joint::JointType::Prismatic => have_prismatic = true,
+            moveit_model::joint::JointType::Revolute => have_revolute = true,
+            _ => {}
+        }
+    }
+    have_prismatic && have_revolute
+}
+
+/// `doTimeParameterizationCalculations` (cpp:1162-1271).
+fn do_time_parameterization_calculations(
+    trajectory: &mut RobotTrajectory<'_>,
+    max_velocity: &DVector<f64>,
+    max_acceleration: &DVector<f64>,
+    options: &TotgOptions,
+) -> Result<()> {
+    // This lib does not actually work properly when angles wrap around, so we need to unwind
+    // the path first.
+    trajectory.unwind();
+
+    let group = validate_group(trajectory)?;
+    let variable_names = group.variable_names().to_vec();
+    let num_joints = variable_names.len();
+
+    if max_velocity.len() != num_joints || max_acceleration.len() != num_joints {
+        return Err(Error::other(format!(
+            "max_velocity/max_acceleration have {}/{} entries but the group '{}' has {num_joints} \
+             variables (including any mimic joints); computeTimeStamps only builds limits for \
+             active joint variables, so a group with a mimic joint cannot be time-parameterized \
+             (see this module's doc comment, \"the active-vs-all-variable dimension mismatch\")",
+            max_velocity.len(),
+            max_acceleration.len(),
+            group.name(),
+        )));
+    }
+
+    let num_points = trajectory.way_point_count();
+
+    // Have to convert into Eigen(-equivalent) data structs and remove repeated points
+    // (https://github.com/tobiaskunz/trajectories/issues/3)
+    let mut points: Vec<DVector<f64>> = Vec::new();
+    for p in 0..num_points {
+        let waypoint = trajectory.way_point(p)?;
+        let mut new_point = DVector::zeros(num_joints);
+        // The first point should always be kept.
+        let mut diverse_point = p == 0;
+
+        for (j, name) in variable_names.iter().enumerate() {
+            new_point[j] = waypoint.variable_position(name)?;
+            // If any joint angle is different, it's a unique waypoint.
+            if p > 0
+                && (new_point[j] - points.last().expect("p > 0 implies a prior point")[j]).abs()
+                    > options.min_angle_change
+            {
+                diverse_point = true;
+            }
+        }
+
+        if diverse_point {
+            points.push(new_point);
+        } else if p == num_points - 1 {
+            // If the last point is not a diverse_point we replace the last added point with it
+            // to make sure to always have the input end point as the last point.
+            let last = points.len() - 1;
+            points[last] = new_point;
+        }
+    }
+
+    // Return trajectory with only the first waypoint if there are not multiple diverse points.
+    if points.len() == 1 {
+        let model = trajectory.robot_model();
+        let mut waypoint = trajectory.way_point(0)?.clone();
+        waypoint.set_variable_velocities(&vec![0.0; model.variable_count()]);
+        waypoint.set_variable_accelerations(&vec![0.0; model.variable_count()]);
+        trajectory.clear();
+        trajectory.add_suffix_way_point(waypoint, 0.0)?;
+        return Ok(());
+    }
+
+    // Now actually call the algorithm.
+    let path = Path::create(&points, options.path_tolerance)?;
+    let parameterized = Trajectory::create(path, max_velocity, max_acceleration, DEFAULT_TIMESTEP)?;
+
+    // Compute sample count.
+    let sample_count = (parameterized.duration() / options.resample_dt).ceil() as usize;
+
+    // Resample and fill in trajectory.
+    let mut waypoint = trajectory.way_point(0)?.clone();
+    trajectory.clear();
+    let mut last_t = 0.0;
+    for sample in 0..=sample_count {
+        // Always sample the end of the trajectory as well.
+        let t = (sample as f64 * options.resample_dt).min(parameterized.duration());
+        let position = parameterized.position(t);
+        let velocity = parameterized.velocity(t);
+        let acceleration = parameterized.acceleration(t);
+
+        for (j, name) in variable_names.iter().enumerate() {
+            waypoint.set_variable_position(name, position[j])?;
+            waypoint.set_variable_velocity(name, velocity[j])?;
+            waypoint.set_variable_acceleration(name, acceleration[j])?;
+        }
+
+        trajectory.add_suffix_way_point(waypoint.clone(), t - last_t)?;
+        last_t = t;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fs;
+
+    use moveit_model::{MeshSearchPaths, RobotModel};
+    use moveit_srdf::SrdfModel;
+    use moveit_state::RobotState;
+
+    use super::*;
+
+    fn fixture_path(file_name: &str) -> String {
+        format!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/{}"),
+            file_name
+        )
+    }
+
+    fn load(urdf_name: &str, srdf_name: &str) -> RobotModel {
+        let urdf_path = fixture_path(urdf_name);
+        let srdf_path = fixture_path(srdf_name);
+        let urdf_xml =
+            fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+        let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("fixture model must build")
+    }
+
+    fn panda() -> RobotModel {
+        load("panda.urdf", "panda.srdf")
+    }
+
+    fn pr2() -> RobotModel {
+        load("pr2.urdf", "pr2.srdf")
+    }
+
+    const PANDA_ARM_JOINTS: [&str; 7] = [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+    ];
+
+    fn add_panda_arm_waypoint<'m>(
+        trajectory: &mut RobotTrajectory<'m>,
+        model: &'m RobotModel,
+        positions: [f64; 7],
+        dt: f64,
+    ) {
+        let mut state = RobotState::new(model);
+        state.set_to_default_values();
+        for (name, value) in PANDA_ARM_JOINTS.iter().zip(positions) {
+            state.set_variable_position(name, value).unwrap();
+        }
+        // Upstream's own `add_waypoint` lambda passes `delta_t` for every waypoint,
+        // including the first — upstream's `RobotTrajectory` never enforces that
+        // `duration_from_previous[0] == 0.0` (see `robot_trajectory.rs`'s own
+        // module doc comment on that invariant, added by this port). Passing `dt`
+        // for an empty trajectory here would trip that invariant instead of
+        // reproducing upstream's test, so the first waypoint always uses `0.0`.
+        let dt = if trajectory.is_empty() { 0.0 } else { dt };
+        trajectory.add_suffix_way_point(state, dt).unwrap();
+    }
+
+    fn panda_arm_limits(value_per_joint: [f64; 7]) -> HashMap<String, f64> {
+        PANDA_ARM_JOINTS
+            .iter()
+            .zip(value_per_joint)
+            .map(|(name, value)| ((*name).to_string(), value))
+            .collect()
+    }
+
+    /// Upstream `testCustomLimits` (test file lines 209-240): explicit
+    /// per-joint velocity/acceleration limits succeed against real
+    /// `panda_arm` fixture data — sidestepping the acceleration-bounds
+    /// environmental gap the scaling-only overload cannot reach against any
+    /// fixture in this workspace (see this round's report; upstream's own
+    /// `setAccelerationLimits` test helper works around the identical gap
+    /// in its own test URDF by mutating `JointModel` bounds after
+    /// construction, an API this port's `moveit-model` does not expose).
+    #[test]
+    fn upstream_test_custom_limits() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0],
+            0.1,
+        );
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [-0.45, -3.2, 1.2, -2.4, -0.8, 0.6, 0.0],
+            0.1,
+        );
+
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &limits,
+            &limits,
+            &TotgOptions::default(),
+        );
+        assert!(result.is_ok(), "failed to compute time stamps: {result:?}");
+    }
+
+    /// `verifyScalingFactor` (cpp:1290-1312): `(0.0, 1.0]` passes through
+    /// unchanged, everything else — including the boundary `0.0` itself,
+    /// negative, and greater than `1.0` — is replaced by
+    /// [`DEFAULT_SCALING_FACTOR`].
+    #[test]
+    fn verify_scaling_factor_boundaries() {
+        assert_eq!(verify_scaling_factor(0.5), 0.5);
+        assert_eq!(verify_scaling_factor(1.0), 1.0);
+        assert_eq!(verify_scaling_factor(0.0), DEFAULT_SCALING_FACTOR);
+        assert_eq!(verify_scaling_factor(-0.5), DEFAULT_SCALING_FACTOR);
+        assert_eq!(verify_scaling_factor(1.5), DEFAULT_SCALING_FACTOR);
+    }
+
+    /// Q1 (round 4 task), case 1: an empty trajectory is a silent no-op
+    /// success (cpp:928-929/1034-1035), not an error.
+    #[test]
+    fn empty_trajectory_is_a_no_op_success() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+
+        let result = compute_time_stamps(&mut trajectory, &TotgOptions::default());
+        assert!(result.is_ok());
+        assert_eq!(trajectory.way_point_count(), 0);
+    }
+
+    /// Q1, case 2: a single-waypoint trajectory collapses to exactly one
+    /// waypoint with zero velocity/acceleration and `duration_from_previous
+    /// == 0.0` (cpp:1218-1227's `points.size() == 1` branch).
+    #[test]
+    fn single_waypoint_collapses_to_one_zero_velocity_waypoint() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0],
+            0.1,
+        );
+
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &TotgOptions::default())
+            .expect("a single waypoint is not an error");
+
+        assert_eq!(trajectory.way_point_count(), 1);
+        assert_eq!(trajectory.way_point_duration_from_previous(0), 0.0);
+        let waypoint = trajectory.way_point(0).unwrap();
+        for name in PANDA_ARM_JOINTS {
+            assert_eq!(waypoint.variable_velocity(name).unwrap(), 0.0);
+            assert_eq!(waypoint.variable_acceleration(name).unwrap(), 0.0);
+        }
+    }
+
+    /// Q1, case 3: a trajectory whose waypoints are all identical hits the
+    /// exact same `points.size() == 1` collapse as the genuinely-single-
+    /// waypoint case above — every later waypoint fails the
+    /// `min_angle_change` diversity check against the first
+    /// (cpp:1194-1216).
+    #[test]
+    fn all_identical_waypoints_collapse_the_same_way_as_a_single_waypoint() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let positions = [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0];
+
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(&mut trajectory, &model, positions, 0.1);
+        add_panda_arm_waypoint(&mut trajectory, &model, positions, 0.1);
+        add_panda_arm_waypoint(&mut trajectory, &model, positions, 0.1);
+
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &TotgOptions::default())
+            .expect("all-identical waypoints are not an error");
+
+        assert_eq!(trajectory.way_point_count(), 1);
+        assert_eq!(trajectory.way_point_duration_from_previous(0), 0.0);
+        let waypoint = trajectory.way_point(0).unwrap();
+        for name in PANDA_ARM_JOINTS {
+            assert_eq!(waypoint.variable_velocity(name).unwrap(), 0.0);
+            assert_eq!(waypoint.variable_acceleration(name).unwrap(), 0.0);
+        }
+    }
+
+    /// A *consecutive* duplicate in the middle of an otherwise-diverse
+    /// trajectory is dropped (cpp:1206-1216's `else if (p == num_points -
+    /// 1)` branch never fires for a middle point, so it is simply never
+    /// pushed), not collapsed to a single waypoint and not counted twice:
+    /// `[A, A, B]` must produce exactly the same total duration as `[A, B]`.
+    #[test]
+    fn a_middle_duplicate_waypoint_is_dropped_not_double_counted() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let a = [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0];
+        let b = [-0.45, -3.2, 1.2, -2.4, -0.8, 0.6, 0.0];
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+
+        let mut with_dup = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(&mut with_dup, &model, a, 0.1);
+        add_panda_arm_waypoint(&mut with_dup, &model, a, 0.1);
+        add_panda_arm_waypoint(&mut with_dup, &model, b, 0.1);
+        compute_time_stamps_with_limits(&mut with_dup, &limits, &limits, &TotgOptions::default())
+            .expect("a dropped duplicate is not an error");
+
+        let mut without_dup = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(&mut without_dup, &model, a, 0.1);
+        add_panda_arm_waypoint(&mut without_dup, &model, b, 0.1);
+        compute_time_stamps_with_limits(
+            &mut without_dup,
+            &limits,
+            &limits,
+            &TotgOptions::default(),
+        )
+        .unwrap();
+
+        assert!((with_dup.duration() - without_dup.duration()).abs() < 1e-9);
+        assert_eq!(with_dup.way_point_count(), without_dup.way_point_count());
+    }
+
+    /// Q2: a group with a mimic joint. `r_end_effector`'s active joints
+    /// (`r_gripper_l_finger_joint`, `r_gripper_motor_slider_joint`,
+    /// `r_gripper_motor_screw_joint`, `r_gripper_joint` — 4 variables) are a
+    /// strict subset of its full variable list (7, the same 4 plus the 3
+    /// joints that mimic `r_gripper_l_finger_joint`:
+    /// `r_gripper_r_finger_joint`, `r_gripper_l_finger_tip_joint`,
+    /// `r_gripper_r_finger_tip_joint`). See the module-level "Deviations
+    /// from upstream" note: this port rejects the mismatch outright rather
+    /// than reproducing upstream's out-of-bounds write.
+    #[test]
+    fn mimic_joint_group_is_a_typed_error_not_a_panic() {
+        let model = pr2();
+        let group = model.joint_model_group("r_end_effector").unwrap();
+        assert_eq!(group.active_joint_indices().len(), 4);
+        assert_eq!(group.variable_names().len(), 7);
+
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        let mut first = RobotState::new(&model);
+        first.set_to_default_values();
+        trajectory.add_suffix_way_point(first.clone(), 0.0).unwrap();
+        let mut second = first.clone();
+        second
+            .set_variable_position("r_gripper_l_finger_joint", 0.3)
+            .unwrap();
+        trajectory.add_suffix_way_point(second, 0.1).unwrap();
+
+        let mut limits = HashMap::new();
+        for name in [
+            "r_gripper_l_finger_joint",
+            "r_gripper_motor_slider_joint",
+            "r_gripper_motor_screw_joint",
+            "r_gripper_joint",
+        ] {
+            limits.insert(name.to_string(), 1.0);
+        }
+
+        let result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &limits,
+            &limits,
+            &TotgOptions::default(),
+        );
+        let err = result.expect_err("a mimic-joint group must not silently misparameterize");
+        let message = err.to_string();
+        assert!(
+            message.contains("4") && message.contains('7'),
+            "expected the error to name both the active (4) and full (7) variable counts: {message}"
+        );
+    }
+
+    /// A custom entry in `velocity_limits`/`acceleration_limits` is never
+    /// bounds-checked, unlike a `RobotModel`-derived fallback (cpp:1069-1074/
+    /// 1103-1108 vs. cpp:1076-1088/1110-1122; see the module-level
+    /// "Deviations from upstream" note). A `0.0` custom acceleration limit
+    /// must not surface the "invalid max_acceleration" error this module
+    /// raises only for the model-bounds-fallback branch.
+    #[test]
+    fn a_zero_custom_limit_skips_bound_validation() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0],
+            0.1,
+        );
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [-0.45, -3.2, 1.2, -2.4, -0.8, 0.6, 0.0],
+            0.1,
+        );
+
+        let velocity_limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let mut acceleration_limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        acceleration_limits.insert("panda_joint1".to_string(), 0.0);
+
+        let result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &velocity_limits,
+            &acceleration_limits,
+            &TotgOptions::default(),
+        );
+        // A zero max_acceleration for a joint that actually moves between the two
+        // waypoints (panda_joint1 does) still fails downstream, inside
+        // `Trajectory::create` — matching upstream's own
+        // `testRelevantZeroMaxAccelerationsInvalidateTrajectory` (already ported
+        // in round 3). The point of this test is which error it fails *with*:
+        // never the bounds-fallback "invalid max_acceleration" this module raises
+        // itself, since a custom-supplied limit skips that validation entirely.
+        let err = result.expect_err("a zero acceleration limit on a moving joint is invalid");
+        let message = err.to_string();
+        assert!(
+            !message.contains("invalid max_acceleration"),
+            "a custom limit must never hit the bounds-fallback validation branch: {message}"
+        );
+    }
+
+    /// `hasMixedJointTypes` (cpp:1273-1288): `panda_arm` is all-revolute;
+    /// `r_end_effector` mixes revolute (`r_gripper_l_finger_joint`,
+    /// `r_gripper_motor_screw_joint`) and prismatic
+    /// (`r_gripper_motor_slider_joint`, `r_gripper_joint`) active joints.
+    #[test]
+    fn has_mixed_joint_types_boundary() {
+        let panda_model = panda();
+        let panda_group = panda_model.joint_model_group("panda_arm").unwrap();
+        let panda_trajectory = RobotTrajectory::for_group(&panda_model, Some(panda_group));
+        assert!(!has_mixed_joint_types(&panda_trajectory, panda_group));
+
+        let pr2_model = pr2();
+        let pr2_group = pr2_model.joint_model_group("r_end_effector").unwrap();
+        let pr2_trajectory = RobotTrajectory::for_group(&pr2_model, Some(pr2_group));
+        assert!(has_mixed_joint_types(&pr2_trajectory, pr2_group));
+    }
+
+    /// `totgComputeTimeStamps` (cpp:1137-1160) requires `num_waypoints >
+    /// 1` (cpp:1147-1151).
+    #[test]
+    fn totg_compute_time_stamps_rejects_fewer_than_two_waypoints() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0],
+            0.1,
+        );
+
+        assert!(totg_compute_time_stamps(1, &mut trajectory, 1.0, 1.0).is_err());
+        assert!(totg_compute_time_stamps(0, &mut trajectory, 1.0, 1.0).is_err());
+    }
+}

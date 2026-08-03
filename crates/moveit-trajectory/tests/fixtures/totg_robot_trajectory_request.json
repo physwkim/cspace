@@ -1,0 +1,153 @@
+[
+  {
+    "cases": [
+      {
+        "acceleration_limits": {
+          "panda_joint1": 1.3,
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3,
+          "panda_joint4": 4.3,
+          "panda_joint5": 5.3,
+          "panda_joint6": 6.3,
+          "panda_joint7": 7.3
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "velocity_limits": {
+          "panda_joint1": 1.3,
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3,
+          "panda_joint4": 4.3,
+          "panda_joint5": 5.3,
+          "panda_joint6": 6.3,
+          "panda_joint7": 7.3
+        },
+        "waypoints": [
+          {
+            "panda_joint1": -0.5,
+            "panda_joint2": -3.52,
+            "panda_joint3": 1.35,
+            "panda_joint4": -2.51,
+            "panda_joint5": -0.88,
+            "panda_joint6": 0.63,
+            "panda_joint7": 0.0
+          },
+          {
+            "panda_joint1": -0.45,
+            "panda_joint2": -3.2,
+            "panda_joint3": 1.2,
+            "panda_joint4": -2.4,
+            "panda_joint5": -0.8,
+            "panda_joint6": 0.6,
+            "panda_joint7": 0.0
+          }
+        ]
+      },
+      {
+        "acceleration_limits": {
+          "panda_joint1": 1.3,
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3,
+          "panda_joint4": 4.3,
+          "panda_joint5": 5.3,
+          "panda_joint6": 6.3,
+          "panda_joint7": 7.3
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1
+        ],
+        "max_acceleration_scaling_factor": -1.0,
+        "max_velocity_scaling_factor": 2.0,
+        "velocity_limits": {
+          "panda_joint1": 1.3,
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3,
+          "panda_joint4": 4.3,
+          "panda_joint5": 5.3,
+          "panda_joint6": 6.3,
+          "panda_joint7": 7.3
+        },
+        "waypoints": [
+          {
+            "panda_joint1": -0.5,
+            "panda_joint2": -3.52,
+            "panda_joint3": 1.35,
+            "panda_joint4": -2.51,
+            "panda_joint5": -0.88,
+            "panda_joint6": 0.63,
+            "panda_joint7": 0.0
+          },
+          {
+            "panda_joint1": -0.45,
+            "panda_joint2": -3.2,
+            "panda_joint3": 1.2,
+            "panda_joint4": -2.4,
+            "panda_joint5": -0.8,
+            "panda_joint6": 0.6,
+            "panda_joint7": 0.0
+          }
+        ]
+      },
+      {
+        "acceleration_limits": {
+          "panda_joint1": 1.3,
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3,
+          "panda_joint4": 4.3,
+          "panda_joint5": 5.3,
+          "panda_joint6": 6.3,
+          "panda_joint7": 7.3
+        },
+        "durations_from_previous": [
+          0.0,
+          0.1,
+          0.1
+        ],
+        "velocity_limits": {
+          "panda_joint1": 1.3,
+          "panda_joint2": 2.3,
+          "panda_joint3": 3.3,
+          "panda_joint4": 4.3,
+          "panda_joint5": 5.3,
+          "panda_joint6": 6.3,
+          "panda_joint7": 7.3
+        },
+        "waypoints": [
+          {
+            "panda_joint1": -0.5,
+            "panda_joint2": -3.52,
+            "panda_joint3": 1.35,
+            "panda_joint4": -2.51,
+            "panda_joint5": -0.88,
+            "panda_joint6": 0.63,
+            "panda_joint7": 0.0
+          },
+          {
+            "panda_joint1": -0.5,
+            "panda_joint2": -3.52,
+            "panda_joint3": 1.35,
+            "panda_joint4": -2.51,
+            "panda_joint5": -0.88,
+            "panda_joint6": 0.63,
+            "panda_joint7": 0.0
+          },
+          {
+            "panda_joint1": -0.45,
+            "panda_joint2": -3.2,
+            "panda_joint3": 1.2,
+            "panda_joint4": -2.4,
+            "panda_joint5": -0.8,
+            "panda_joint6": 0.6,
+            "panda_joint7": 0.0
+          }
+        ]
+      }
+    ],
+    "group": "panda_arm",
+    "id": 1,
+    "op": "totg"
+  }
+]

@@ -1,12 +1,15 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Parity test against the moveit2 C++ oracle's `totg` op, covering
+//! Parity test against the moveit2 C++ oracle's `totg` op, core-only
+//! branch (a request with no top-level `"group"` key), covering
 //! [`moveit_trajectory::Path`]/[`moveit_trajectory::Trajectory`] (the
 //! model-independent numeric core of `time_optimal_trajectory_generation.
 //! hpp` lines 62-192) -- *not* the `TimeOptimalTrajectoryGeneration`
-//! adapter class (header line 193 on), which is out of this crate's scope
-//! (see `PORTING-PLAN.md` and `crate::trajectory`'s module doc comment).
+//! adapter class (header line 193 on) built on top of that core. The
+//! adapter has its own parity fixture and test,
+//! `totg_robot_trajectory_parity.rs`, against the same op's
+//! group-driven branch.
 //!
 //! Fixture cases, one per invariant boundary:
 //!
