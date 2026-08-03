@@ -84,3 +84,20 @@ impl SolverParams {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn orientation_weight_is_zero_exactly_when_position_only_is_set() {
+        let mut params = SolverParams {
+            orientation_vs_position: 3.5,
+            ..Default::default()
+        };
+        assert_eq!(params.orientation_weight(), 3.5);
+
+        params.position_only = true;
+        assert_eq!(params.orientation_weight(), 0.0);
+    }
+}

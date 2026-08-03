@@ -370,3 +370,193 @@ impl ChainInfo {
         jacobian
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moveit_srdf::SrdfModel;
+
+    fn build_model_from_str(urdf_xml: &str, srdf_xml: &str) -> RobotModel {
+        let urdf = urdf_rs::read_from_string(urdf_xml).expect("inline URDF must parse");
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("inline SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf).expect("inline model must build")
+    }
+
+    /// `arms` combines `left`/`right` as two independent one-joint chains:
+    /// two roots, so `is_chain()` fails before `ChainInfo::build` even
+    /// starts walking joints.
+    #[test]
+    fn build_rejects_a_non_chain_group() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="two_arms">
+  <link name="root"/>
+  <link name="left_tip"/>
+  <link name="right_tip"/>
+  <joint name="left" type="revolute">
+    <parent link="root"/>
+    <child link="left_tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="right" type="revolute">
+    <parent link="root"/>
+    <child link="right_tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="two_arms">
+  <group name="left">
+    <joint name="left"/>
+  </group>
+  <group name="right">
+    <joint name="right"/>
+  </group>
+  <group name="arms">
+    <group name="left"/>
+    <group name="right"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let err = ChainInfo::build(&model, "arms").unwrap_err();
+        assert!(err.to_string().contains("not a chain"), "got: {err}");
+    }
+
+    /// A group named by nothing in the SRDF is `Error::UnknownName`, not
+    /// folded into the "not a chain" message — matches
+    /// `moveit_state::Posed::jacobian`'s own boundary.
+    #[test]
+    fn build_reports_an_unknown_group_as_unknown_name() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="one_link">
+  <link name="root"/>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="one_link">
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let err = ChainInfo::build(&model, "no_such_group").unwrap_err();
+        assert!(matches!(err, Error::UnknownName { .. }));
+    }
+
+    /// A single floating joint is a trivial one-joint chain (nothing to
+    /// fail the adjacency check), so `build` reaches its own DOF check and
+    /// must reject it there for having 7 variables, not silently truncate
+    /// it to one.
+    #[test]
+    fn build_rejects_a_multi_dof_joint() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="floaty">
+  <link name="root"/>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="floaty">
+  <virtual_joint name="virtual_joint" type="floating" parent_frame="world" child_link="root"/>
+  <group name="whole">
+    <joint name="virtual_joint"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let err = ChainInfo::build(&model, "whole").unwrap_err();
+        assert!(err.to_string().contains("DOF"), "got: {err}");
+    }
+
+    /// `tip`'s mimic points at `hidden`, a joint on a sibling branch that
+    /// never appears on the `root`-to-`tip` path and so is not part of
+    /// `chain`'s own joint list — `ChainInfo::build`'s own deviation from
+    /// upstream (see this method's doc comment) is to reject this rather
+    /// than silently desynchronise `mimic_joints_`.
+    #[test]
+    fn build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="mimic_outside">
+  <link name="root"/>
+  <link name="hidden_tip"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="hidden" type="revolute">
+    <parent link="root"/>
+    <child link="hidden_tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+    <mimic joint="hidden" multiplier="2.0" offset="0.0"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="mimic_outside">
+  <group name="chain">
+    <chain base_link="root" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let err = ChainInfo::build(&model, "chain").unwrap_err();
+        assert!(
+            err.to_string().contains("not itself in the group"),
+            "got: {err}"
+        );
+    }
+
+    /// `resolve_joint_weights`: unlisted joints default to `1.0`;
+    /// [`crate::SolverParams::joint_weights`] overrides by name and only by
+    /// name — a name it does not mention must not perturb any other
+    /// column's weight.
+    #[test]
+    fn resolve_joint_weights_defaults_to_one_and_overrides_by_name_only() {
+        let urdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <link name="root"/>
+  <link name="mid"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="root"/>
+    <child link="mid"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf = r#"<?xml version="1.0"?>
+<robot name="two_joint">
+  <group name="chain">
+    <chain base_link="root" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let model = build_model_from_str(urdf, srdf);
+        let chain = ChainInfo::build(&model, "chain").expect("valid two-joint chain");
+
+        let mut params = crate::params::SolverParams::default();
+        params.joint_weights.insert("j2".to_owned(), 0.25);
+        let weights = chain.resolve_joint_weights(&params);
+
+        assert_eq!(chain.active_joint_names, vec!["j1", "j2"]);
+        assert_eq!(weights, vec![1.0, 0.25]);
+    }
+}

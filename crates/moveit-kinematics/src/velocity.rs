@@ -102,3 +102,79 @@ pub(crate) fn solve_velocity(
     let qdot_reduced = DVector::from_fn(cols, |col, _| y[col] * joint_weights[col]);
     expand_to_full(chain, &qdot_reduced)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use moveit_model::RobotModel;
+    use moveit_srdf::SrdfModel;
+    use moveit_state::RobotState;
+
+    use super::*;
+
+    fn fixture_path(file_name: &str) -> String {
+        format!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+            file_name
+        )
+    }
+
+    fn build_model(urdf_file: &str, srdf_file: &str) -> RobotModel {
+        let urdf_path = fixture_path(urdf_file);
+        let srdf_path = fixture_path(srdf_file);
+        let urdf_xml =
+            fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+        let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    }
+
+    /// `fold_jacobian`'s defining invariant, on a real (not synthetic) mimic
+    /// chain: `pr2`'s `l_gripper_finger_chain` group is
+    /// `l_gripper_l_finger_joint` (active) followed by
+    /// `l_gripper_l_finger_tip_joint` (mimic, `multiplier = 1.0`). The
+    /// mimic's own full-space column must be non-zero (see
+    /// [`crate::chain::ChainInfo::full_jacobian`]'s doc comment for why
+    /// this crate cannot reuse `Posed::jacobian`, which would leave it
+    /// zero), and `fold_jacobian` must accumulate it, scaled by
+    /// `multiplier`, into the *master's* reduced column rather than
+    /// dropping it or folding it into a column of its own.
+    #[test]
+    fn pr2_gripper_mimic_column_folds_into_its_masters_column_not_its_own() {
+        let model = build_model("pr2.urdf", "pr2.srdf");
+        let chain =
+            ChainInfo::build(&model, "l_gripper_finger_chain").expect("real pr2 mimic chain");
+        assert_eq!(chain.dimension(), 2, "one active + one mimic joint");
+        assert_eq!(chain.reduced_dimension(), 1, "only the master is active");
+        assert_eq!(
+            chain.multiplier[1], 1.0,
+            "l_gripper_l_finger_tip_joint's real multiplier"
+        );
+        assert_eq!(
+            chain.map_index[1], chain.map_index[0],
+            "the mimic folds into its master's own column, not a column of its own"
+        );
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_position("l_gripper_l_finger_joint", 0.3)
+            .unwrap();
+        let posed = state.update();
+
+        let full = chain.full_jacobian(&posed);
+        assert!(
+            full.column(1).norm() > 1e-9,
+            "the mimic's own column must be real, not the all-zero column \
+             Posed::jacobian would leave for a joint outside active_joint_indices()"
+        );
+
+        let reduced = fold_jacobian(&chain, &full);
+        let expected = full.column(0) + full.column(1);
+        assert!(
+            (reduced.column(0) - expected).norm() < 1e-12,
+            "reduced column must be the sum of both full-space columns, not just the master's own"
+        );
+    }
+}
