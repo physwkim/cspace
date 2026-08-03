@@ -105,36 +105,38 @@ pub fn intersect_cost_sources(
 /// earlier (in `operator<` order) one covers at least `overlap_fraction` of
 /// its own volume.
 ///
-/// Upstream iterates with a fixed outer iterator while erasing from the same
-/// set-in-order; this collects the surviving sources into a fresh
-/// [`BTreeSet`] instead; the result is identical because both approaches
-/// compare every unordered pair exactly once and a source already marked for
-/// removal never removes another (upstream never re-visits an erased
-/// iterator either).
+/// A removed source never goes on to remove anything itself: upstream erases
+/// it from the set before the outer iterator can reach it, so it is gone as a
+/// remover and not only as a result. That asymmetry is load-bearing, and it
+/// is why removal is expressed here by erasing from the set being built
+/// rather than by a parallel `removed` flag array: a flag the outer loop
+/// forgets to consult silently turns a dropped box into a remover, dropping a
+/// box upstream keeps (see
+/// `remove_overlapping_does_not_let_a_removed_source_remove_another`).
+///
+/// Iterating an ordered snapshot rather than the live set is safe because the
+/// only mutation is removal, and the outer loop re-checks liveness.
 pub fn remove_overlapping(
     cost_sources: &BTreeSet<CostSource>,
     overlap_fraction: f64,
 ) -> BTreeSet<CostSource> {
-    let all: Vec<&CostSource> = cost_sources.iter().collect();
-    let mut removed = vec![false; all.len()];
-    for i in 0..all.len() {
-        let threshold = all[i].volume() * overlap_fraction;
-        for j in (i + 1)..all.len() {
-            if removed[j] {
-                continue;
-            }
-            let Some((min, max)) = aabb_intersection(all[i], all[j]) else {
+    let ordered: Vec<CostSource> = cost_sources.iter().copied().collect();
+    let mut live = cost_sources.clone();
+    for (i, source) in ordered.iter().enumerate() {
+        if !live.contains(source) {
+            continue;
+        }
+        let threshold = source.volume() * overlap_fraction;
+        for other in &ordered[i + 1..] {
+            let Some((min, max)) = aabb_intersection(source, other) else {
                 continue;
             };
             if aabb_volume(min, max) >= threshold {
-                removed[j] = true;
+                live.remove(other);
             }
         }
     }
-    all.into_iter()
-        .zip(removed)
-        .filter_map(|(source, is_removed)| (!is_removed).then_some(*source))
-        .collect()
+    live
 }
 
 /// `removeCostSources`: for each source in `cost_sources_to_remove`, drop any
@@ -292,6 +294,29 @@ mod tests {
 
         let result = remove_overlapping(&sources, 0.5);
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn remove_overlapping_does_not_let_a_removed_source_remove_another() {
+        // a removes b (b covers all of a, threshold 0.5 * vol(a) = 0.5).
+        // b would remove c (c covers half of b, threshold 0.5 * vol(b) = 1.0),
+        // but upstream has already erased b before its outer iterator gets
+        // there, so c survives. a and c do not intersect at all -- they meet
+        // exactly at x = 1, and a zero-volume intersection is not an overlap.
+        let a = cost_source([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 10.0);
+        let b = cost_source([0.0, 0.0, 0.0], [2.0, 1.0, 1.0], 4.0);
+        let c = cost_source([1.0, 0.0, 0.0], [3.0, 1.0, 1.0], 3.0);
+        let sources: BTreeSet<CostSource> = [a, b, c].into_iter().collect();
+        // cost * volume is 10, 8, 6: the set iterates a, b, c in that order,
+        // which is what makes b an outer source after it has been removed.
+        assert_eq!(
+            sources.iter().copied().collect::<Vec<_>>(),
+            vec![a, b, c],
+            "the case depends on this iteration order"
+        );
+
+        let result = remove_overlapping(&sources, 0.5);
+        assert_eq!(result, [a, c].into_iter().collect::<BTreeSet<_>>());
     }
 
     #[test]
