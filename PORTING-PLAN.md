@@ -411,45 +411,65 @@ planning scene 토픽 구독.
 
 ---
 
-## 7. 착수 전 블로커
+## 7. Phase 0 — 완료 (2026-08-03)
 
-### 7.1 오라클 하네스 빌드 환경이 이 머신에 없다 (실측, 2026-08-03)
+§7.1의 블로커는 선택지 B로 해소되었다.
+
+### 7.1 오라클 환경 (해소)
+
+Docker 29.7.1 설치 확인. `moveit/moveit2:rolling-ci`(5.14 GB) 위에
+`--packages-up-to moveit_core`로 상류 `e017c91e`를 빌드하고 그 위에 오라클을
+얹은 `moveit-rs/oracle:latest` 이미지가 동작한다. 호스트에는 ROS 2도 colcon도
+설치하지 않았다.
+
+`tools/moveit-oracle/build.sh`는 `git archive`로 컨텍스트를 만든다 — 각 트리를
+커밋된 HEAD에 고정하므로 더러운 작업 트리가 참조 구현에 새어 들어갈 수 없고,
+`.git`이 데몬으로 전송되지 않는다.
+
+### 7.2 Phase 0 완료 조건 — 충족
+
+> 오라클이 panda URDF/SRDF에 대해 임의 관절값 1,000세트의 FK를 출력하고,
+> `moveit-diff`가 그것을 읽어 "Rust 구현 없음"으로 1,000건 전부 실패 보고한다.
+
+실행 결과 (`--cases 1000 --seed 1`):
 
 ```
-/opt/ros/*              없음
-colcon                  없음
-/usr/include/ompl       없음
-/usr/include/fcl        없음
-docker / podman         없음
-OS                      Ubuntu 24.04.3 LTS (noble)
-apt sources             ROS 2 저장소 미등록
+oracle model: panda (12 links, 12 joints, 3 groups)
+cases:  1001      passed: 0      failed: 1001
+   1x  model_info : moveit-model not implemented (Phase 1)
+1000x  fk[0..999] : moveit-state not implemented (Phase 2)
 ```
 
-§5 Phase 0의 `tools/moveit-oracle`은 `moveit_core`를 링크해야 하고,
-`moveit_core`는 292개 파일 중 95개가 `rclcpp`를 직접 참조하므로(§1.2)
-ROS 2 없이는 빌드되지 않는다. **§5 전 단계의 완료 조건이 오라클과의 비교로
-정의되어 있으므로, 이 블로커가 풀리기 전에는 Phase 1도 검증할 수 없다.**
+fanuc(9 links, 9 joints, 1 group)로도 51/51 동일하게 동작.
 
-선택지:
+### 7.3 Phase 0에서 확정된 설계 — 오라클이 랜덤 상태를 소유한다
 
-- **A. ROS 2 rolling apt 설치** — noble은 rolling의 현행 타깃이 아니다
-  (상류 CI는 `rolling-resolute`로 이동 중). jazzy를 설치하고 moveit2를
-  `jazzy` 브랜치 SHA로 고정하는 편이 마찰이 적다. 대신 기준 SHA가
-  `e017c91e`(main)에서 바뀐다.
-- **B. Docker 설치 후 `moveit/moveit2:rolling-ci` 이미지 사용 (권장)** —
-  상류가 `.docker/ci/Dockerfile`을 제공한다. 호스트를 오염시키지 않고
-  기준 SHA `e017c91e`를 그대로 유지한다. 오라클은 컨테이너 안에서 돌고
-  JSON만 주고받으므로 Rust 측은 호스트에서 개발한다.
-- **C. 오라클 없이 진행** — 검증을 상류 C++ 단위 테스트의 기대값을
-  손으로 옮기는 수준으로 낮춘다. §5의 "10,000 상태 × 3로봇" 규모 검증은
-  포기하게 된다. **권장하지 않는다.**
+초안은 러너가 오라클이 보고한 경계 안에서 변수별로 균등 샘플링했다. 이것이
+동시에 세 가지를 틀리게 만든다:
 
-A와 B 모두 설치 행위가 필요하므로 사용자 승인 없이 진행하지 않는다.
+1. floating 조인트의 병진 경계는 무한대다. JSON은 무한대를 표현하지 못하고
+   nlohmann은 `null`을 낸다. 게다가 그 변수의 `position_bounded_`는 `true`라서
+   "bounded=false면 무한"이라는 규칙도 성립하지 않는다.
+2. floating 조인트의 쿼터니언 4성분을 독립 샘플링하면 정규화되지 않는다.
+3. mimic 조인트 값은 파생값이지 자유 변수가 아니다.
 
-### 7.2 블로커와 무관하게 즉시 착수 가능한 것
+셋 다 포팅이 아니라 **테스트의 결함**으로 나타난다. 구조적 해결: 오라클이
+`RobotModel::getVariableRandomPositions`로 상태를 생성하고 러너는 그 값을 양쪽에
+그대로 먹인다. 이 함수가 세 가지를 이미 전부 처리하며, 재현성은 오라클에
+넘긴 seed가 보장한다. 러너의 자체 RNG는 삭제했다.
 
-1. workspace + CI (fmt / clippy / nextest / 의존 방향 검사)
-2. `moveit_resources` 체크아웃 (`moveit2.repos`의 `ros2` 브랜치)
-3. `moveit-error` / `moveit-geometry` 골격
-4. §4.1 `RobotState` 캐시 API와 §4.3 제약 타입의 프로토타입 — 두 설계 결정을
-   Phase 1 착수 전에 고정하기 위한 것
+`ModelInfo`의 경계는 무한한 쪽을 `null`로 싣는다 — 비유한 double을 그대로
+직렬화하는 대신 "무경계"를 명시적으로 말한다.
+
+### 7.4 남은 것
+
+- `moveit-error`(에러 코드 + 예외), `moveit-geometry`(Transforms) 착수 완료.
+  워크스페이스 테스트 14/14 통과.
+- prbt 픽스처는 xacro라 확장이 필요하다 (컨테이너에 xacro 있음). Phase 1 준비물.
+- `.github/workflows/ci.yml`은 작성했으나 원격이 없어 아직 실행된 적 없다.
+
+### 7.5 다음 단계 — Phase 1 착수 전 사인오프 2건
+
+§4.1 `RobotState` dirty-flag → sum type (읽기 API가 `&self` → `&mut self`),
+§4.3 순수 Rust 제약 타입. 둘 다 Phase 1 이후에 뒤집으면 전 크레이트의 타입
+시그니처가 바뀐다.
