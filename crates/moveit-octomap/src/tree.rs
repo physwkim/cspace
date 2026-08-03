@@ -175,9 +175,16 @@ impl OcTree {
 
     /// Upstream `setProbHit`. `prob` is the hit sensor-model probability;
     /// upstream asserts the resulting log-odds is non-negative (`prob >=
-    /// 0.5`), a debug-build-only sanity check this port matches with
-    /// `debug_assert!` rather than a `Result` this crate has no other
-    /// fallible-construction convention for. Round 15, item 1.
+    /// 0.5`) with plain C `assert()` (`AbstractOccupancyOcTree.h:190`,
+    /// `void setProbHit(double prob){prob_hit_log = logodds(prob);
+    /// assert(prob_hit_log >= 0.0);}`, read directly from the oracle
+    /// container this round, round 16 item 1) -- a debug-build-only sanity
+    /// check under `NDEBUG`, matched here with `debug_assert!` for the same
+    /// reason rather than a `Result` this crate has no other
+    /// fallible-construction convention for. Round 15, item 1; the
+    /// `debug_assert!` firing on an out-of-range `prob` is itself tested by
+    /// `tests::set_prob_hit_below_half_panics_in_debug` (round 16 item 1 --
+    /// round 15 ported the assertion but nothing exercised it).
     pub fn set_prob_hit(&mut self, prob: f64) {
         self.prob_hit_log = logodds(prob);
         debug_assert!(self.prob_hit_log >= 0.0);
@@ -185,8 +192,10 @@ impl OcTree {
 
     /// Upstream `setProbMiss`. `prob` is the miss sensor-model probability;
     /// upstream asserts the resulting log-odds is non-positive (`prob <=
-    /// 0.5`), matched here with `debug_assert!` for the same reason as
-    /// [`Self::set_prob_hit`]. Round 15, item 1.
+    /// 0.5`) with plain C `assert()` (`AbstractOccupancyOcTree.h:192`, same
+    /// container read as [`Self::set_prob_hit`]), matched here with
+    /// `debug_assert!` for the same reason. Round 15, item 1; see
+    /// `tests::set_prob_miss_above_half_panics_in_debug` (round 16 item 1).
     pub fn set_prob_miss(&mut self, prob: f64) {
         self.prob_miss_log = logodds(prob);
         debug_assert!(self.prob_miss_log <= 0.0);
@@ -928,5 +937,25 @@ mod tests {
             tree.leaves_in_bbx(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0e9, 0.0, 0.0))
                 .is_none()
         );
+    }
+
+    // Round 15 ported set_prob_hit/set_prob_miss's upstream `assert(prob_hit_log
+    // >= 0.0)`/`assert(prob_miss_log <= 0.0)` as `debug_assert!`, but nothing
+    // called either with an out-of-range probability -- removing both
+    // debug_assert!s left nextest's debug-profile run at 27/27, unchanged.
+    // These two exercise the boundary that assertion exists to catch.
+
+    #[test]
+    #[should_panic]
+    fn set_prob_hit_below_half_panics_in_debug() {
+        let mut tree = OcTree::new(0.1);
+        tree.set_prob_hit(0.3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_prob_miss_above_half_panics_in_debug() {
+        let mut tree = OcTree::new(0.1);
+        tree.set_prob_miss(0.7);
     }
 }
