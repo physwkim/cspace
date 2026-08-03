@@ -1960,9 +1960,17 @@ be non-negative") — `DistanceRequestType::Global`의 누적기가 앞선 관�
 
 **미해결.** pr2 case 7552의 고립된 `robot_collision` 불일치(오라클
 collision=true/distance=-0.0249 대 rust collision=false/
-distance=+0.0044)는 원인 미규명이다. 원시 형상 케이스라 메시 로딩으로
+distance=+0.0044)는 원인 미규명이다. ~~원시 형상 케이스라 메시 로딩으로
 설명되지 않는다 — box에서 0을 가로지르는 부호 반전은 두 쪽이 점이 면의
-어느 편에 있는지를 두고 불일치한다는 뜻이다. 다음 라운드에 함께 넘겼다.
+어느 편에 있는지를 두고 불일치한다는 뜻이다.~~ 다음 라운드에 함께 넘겼다.
+
+**취소선 부분은 거짓이다(2026-08-04, §46.1에서 해소).** 케이스 7552가
+원시 형상 케이스가 아니다. 양쪽이 고르는 쌍이 넷 다 메시를 포함한다 —
+자기충돌은 `l_gripper_r_finger_link`/`l_gripper_palm_link`(오라클)와
+`base_bellow_link`/`torso_lift_link`(이 포트), 로봇충돌은
+`r_gripper_l_finger_link`/`floor`와
+`r_gripper_l_finger_tip_link`/`floor`다. 이 문장을 쓴 시점에는 어느
+쌍인지 알 방법이 없었고(§43.4), 그런데도 형상 종류를 단정했다.
 
 **병합 중 도입된 결함 1건.** `compare_collision` 호출부의 불필요한
 차용 — `joint_values`가 `main`에서는 `&BTreeMap`, 워커 브랜치에서는
