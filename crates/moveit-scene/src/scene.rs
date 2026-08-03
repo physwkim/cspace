@@ -56,6 +56,16 @@ pub struct PathValidity {
 /// (`initialize`, the `CollisionDetector` struct, the process-*Add/Remove/Move
 /// helpers, data fields) are implementation detail, not audited here.
 ///
+/// Re-walked symbol-by-symbol this round against the current
+/// `planning_scene.hpp`: 59 audit bullets below, every one already landing
+/// in one of the four buckets above — zero `unported, in scope` gaps
+/// survived the walk. What the walk did find were three stale overload
+/// tallies inherited from round 6's original audit
+/// (`checkCollision`, `getCollidingLinks`, `getCollidingPairs` — corrected
+/// in place below, each against a fresh count of the header) and one
+/// undocumented overload collapse (`getTransforms`, below) — this crate's
+/// coverage was already complete, the doc's bookkeeping was not.
+///
 /// ## Construction, identity, parent/child
 ///
 /// - `PlanningScene(RobotModel, World)` / `PlanningScene(urdf, srdf, World)`
@@ -94,7 +104,18 @@ pub struct PathValidity {
 ///   present since this workspace's first commits) -- an earlier revision
 ///   of this doc claimed no such crate existed anywhere in this workspace;
 ///   that claim was wrong, and this round found and corrected it rather
-///   than building a second, duplicate implementation here.
+///   than building a second, duplicate implementation here. Upstream
+///   actually declares three overloads here, not two: `getTransforms()
+///   const` (`:184`), a non-const `getTransforms()` (`:197`, `.cpp:671`)
+///   whose only addition is `getCurrentStateNonConst().update()` before
+///   delegating to the const form, and `getTransformsNonConst()` (`:200`).
+///   The middle one collapses into [`PlanningScene::transforms`] here, not
+///   a second `&mut self` method: its state-refresh exists so a caller
+///   holding the polymorphic `SceneTransforms&` gets fresh link/attached-
+///   body transforms before querying it, and `moveit_geometry::Transforms`
+///   as returned here never reads robot-state link transforms at all (see
+///   [`PlanningScene::frame_transform`]'s tier split) -- so there is
+///   nothing for a state refresh to keep fresh.
 ///   `setTransform(const Eigen::Isometry3d&, const std::string&)` (the
 ///   message-free overload -- `transforms.hpp:113`) and
 ///   `setAllTransforms`/`getAllTransforms` are ported as
@@ -150,7 +171,7 @@ pub struct PathValidity {
 /// - `isStateColliding` (current-state and explicit-state overloads) —
 ///   ported as [`PlanningScene::is_state_colliding`] (see its own doc); the
 ///   `moveit_msgs::msg::RobotState` overload — D1.
-/// - `checkCollision` (7 overloads) — ported as
+/// - `checkCollision` (6 overloads, not 7 — recounted this round) — ported as
 ///   [`PlanningScene::check_collision`]; the explicit-different-ACM
 ///   overloads are not ported — a caller wanting a one-off ACM already has
 ///   `env.check_collision(request, &posed, &attached, Some(&other_acm))`
@@ -165,10 +186,11 @@ pub struct PathValidity {
 ///   an addition, not a port: upstream's `checkCollision` family has no
 ///   robot-vs-world-only entry point at the `PlanningScene` level (see its
 ///   own doc).
-/// - `getCollidingLinks` (5 overloads) — ported as
-///   [`PlanningScene::colliding_links`]; explicit-ACM overloads not ported,
-///   same reasoning.
-/// - `getCollidingPairs` (5 overloads, one with `group_name`) — ported as
+/// - `getCollidingLinks` (6 overloads, not 5 — recounted this round) —
+///   ported as [`PlanningScene::colliding_links`]; explicit-ACM overloads
+///   not ported, same reasoning.
+/// - `getCollidingPairs` (6 overloads, not 5, four with `group_name` not
+///   one — recounted this round) — ported as
 ///   [`PlanningScene::colliding_pairs`] (`group_name` dropped — see its own
 ///   doc, `ParryCollisionEnv` never reads it); explicit-ACM overloads not
 ///   ported, same reasoning.
