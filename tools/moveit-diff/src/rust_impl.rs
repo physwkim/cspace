@@ -440,67 +440,104 @@ pub struct IkOutcome {
 /// `joint_values` the same way [`fk`] builds one, restricted to `group`'s
 /// own chain-relative frame. See [`crate::protocol::Op::Ik`]'s doc comment
 /// for the full rationale.
-pub fn ik(
-    model: &RobotModel,
-    group: &str,
-    joint_values: &BTreeMap<String, f64>,
-    position_only: bool,
-    max_restarts: u32,
-) -> Result<IkOutcome, String> {
-    let params = SolverParams {
-        position_only,
-        max_restarts: max_restarts as usize,
-        ..Default::default()
-    };
-    let mut solver = NewtonRaphsonSolver::new(model, group, &params)
-        .map_err(|e| format!("constructing NewtonRaphsonSolver for {group}: {e}"))?;
-    let joint_names = solver.joint_names().to_vec();
+///
+/// Built once for a whole run and reused across every case, because
+/// `NewtonRaphsonSolver` owns the `ChaCha8Rng` its random restarts draw
+/// from. Constructing one per case reseeds that stream to `DEFAULT_SEED`
+/// every time, so all N cases would retry from the *same* `max_restarts`
+/// configurations -- a strictly poorer search than upstream's, whose
+/// `KDLKinematicsPlugin` is initialized once and whose `random_number_
+/// generator_` therefore keeps advancing across the run. That asymmetry,
+/// not the solve step, is what a restart-enabled success-rate comparison
+/// would otherwise be measuring.
+pub struct IkSolver<'m> {
+    model: &'m RobotModel,
+    group: String,
+    solver: NewtonRaphsonSolver,
+    joint_names: Vec<String>,
+    /// The bounds-midpoint seed, identical for every case of a given group
+    /// (bounds are group-constant), so it is computed once here.
+    seed: Vec<f64>,
+}
 
-    let mut state = RobotState::new(model);
-    state.set_to_default_values();
-    for (name, &value) in joint_values {
-        state
-            .set_variable_position(name, value)
-            .map_err(|e| format!("setting {name}: {e}"))?;
-    }
-    let posed = state.update();
-    let target = chain_relative_pose(model, group, &posed)?;
-
-    let seed: Vec<f64> = joint_names
-        .iter()
-        .map(|name| {
-            let bounds = &model
-                .joint_model(name)
-                .expect("solver's own joint name is a real model joint")
-                .variable_bounds()[0];
-            (bounds.min_position + bounds.max_position) / 2.0
+impl<'m> IkSolver<'m> {
+    pub fn new(
+        model: &'m RobotModel,
+        group: &str,
+        position_only: bool,
+        max_restarts: u32,
+    ) -> Result<Self, String> {
+        let params = SolverParams {
+            position_only,
+            max_restarts: max_restarts as usize,
+            ..Default::default()
+        };
+        let solver = NewtonRaphsonSolver::new(model, group, &params)
+            .map_err(|e| format!("constructing NewtonRaphsonSolver for {group}: {e}"))?;
+        let joint_names = solver.joint_names().to_vec();
+        let seed: Vec<f64> = joint_names
+            .iter()
+            .map(|name| {
+                let bounds = &model
+                    .joint_model(name)
+                    .expect("solver's own joint name is a real model joint")
+                    .variable_bounds()[0];
+                (bounds.min_position + bounds.max_position) / 2.0
+            })
+            .collect();
+        Ok(Self {
+            model,
+            group: group.to_owned(),
+            solver,
+            joint_names,
+            seed,
         })
-        .collect();
+    }
 
-    let solution = solver.solve(&seed, &target);
-    let errors = match &solution {
-        Some(sol) => {
-            let mut solved_state = RobotState::new(model);
-            solved_state.set_to_default_values();
-            for (name, &value) in joint_names.iter().zip(sol) {
-                solved_state
-                    .set_variable_position(name, value)
-                    .map_err(|e| format!("setting solved {name}: {e}"))?;
-            }
-            let solved_posed = solved_state.update();
-            let solved_pose = chain_relative_pose(model, group, &solved_posed)?;
-            let translation_error =
-                (solved_pose.translation.vector - target.translation.vector).norm();
-            let rotation_error = (target.rotation.inverse() * solved_pose.rotation).angle();
-            Some((translation_error, rotation_error))
+    /// One case: build the target from `joint_values`, solve, and measure
+    /// the solution's own FK error against that target.
+    pub fn solve_case(
+        &mut self,
+        joint_values: &BTreeMap<String, f64>,
+    ) -> Result<IkOutcome, String> {
+        let model = self.model;
+        let group = self.group.as_str();
+
+        let mut state = RobotState::new(model);
+        state.set_to_default_values();
+        for (name, &value) in joint_values {
+            state
+                .set_variable_position(name, value)
+                .map_err(|e| format!("setting {name}: {e}"))?;
         }
-        None => None,
-    };
+        let posed = state.update();
+        let target = chain_relative_pose(model, group, &posed)?;
 
-    Ok(IkOutcome {
-        joint_names,
-        seed,
-        solution,
-        errors,
-    })
+        let solution = self.solver.solve(&self.seed, &target);
+        let errors = match &solution {
+            Some(sol) => {
+                let mut solved_state = RobotState::new(model);
+                solved_state.set_to_default_values();
+                for (name, &value) in self.joint_names.iter().zip(sol) {
+                    solved_state
+                        .set_variable_position(name, value)
+                        .map_err(|e| format!("setting solved {name}: {e}"))?;
+                }
+                let solved_posed = solved_state.update();
+                let solved_pose = chain_relative_pose(model, group, &solved_posed)?;
+                let translation_error =
+                    (solved_pose.translation.vector - target.translation.vector).norm();
+                let rotation_error = (target.rotation.inverse() * solved_pose.rotation).angle();
+                Some((translation_error, rotation_error))
+            }
+            None => None,
+        };
+
+        Ok(IkOutcome {
+            joint_names: self.joint_names.clone(),
+            seed: self.seed.clone(),
+            solution,
+            errors,
+        })
+    }
 }

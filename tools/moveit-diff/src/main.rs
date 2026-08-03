@@ -496,6 +496,18 @@ fn run(cfg: &Config) -> Result<usize, String> {
     let mut fks: Vec<FkResult> = Vec::with_capacity(states.len());
     let mut max_distance_dev = 0.0f64;
     let mut ik_stats = IkStats::default();
+    // Built once, outside the loop: `NewtonRaphsonSolver` owns the RNG its
+    // random restarts draw from, so a fresh solver per case would replay the
+    // same `max_restarts` draws on every case. See `rust_impl::IkSolver`.
+    let mut ik_solver = match (cfg.ik, &cfg.group) {
+        (true, Some(group)) => Some(rust_impl::IkSolver::new(
+            &rust_model,
+            group,
+            cfg.ik_position_only,
+            cfg.ik_max_restarts,
+        )?),
+        _ => None,
+    };
 
     for (case, joint_values) in states.iter().enumerate() {
         let expected = match oracle.ask(Op::Fk {
@@ -556,8 +568,9 @@ fn run(cfg: &Config) -> Result<usize, String> {
             };
             let verdict = compare_ik(
                 cfg,
-                &rust_model,
-                group,
+                ik_solver
+                    .as_mut()
+                    .expect("--ik built the solver before the loop"),
                 joint_values,
                 &expected,
                 &mut ik_stats,
@@ -1177,21 +1190,14 @@ const IK_DEGENERATE_EPS: f64 = 1e-6;
 /// verdict (see `Op::Ik`'s doc comment).
 fn compare_ik(
     cfg: &Config,
-    rust_model: &RobotModel,
-    group: &str,
+    solver: &mut rust_impl::IkSolver<'_>,
     joint_values: &BTreeMap<String, f64>,
     expected: &IkResult,
     stats: &mut IkStats,
 ) -> Verdict {
     stats.total += 1;
 
-    let outcome = match rust_impl::ik(
-        rust_model,
-        group,
-        joint_values,
-        cfg.ik_position_only,
-        cfg.ik_max_restarts,
-    ) {
+    let outcome = match solver.solve_case(joint_values) {
         Ok(o) => o,
         Err(e) => return Verdict::Fail(e),
     };
