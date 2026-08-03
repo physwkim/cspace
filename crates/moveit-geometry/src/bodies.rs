@@ -149,9 +149,12 @@
 //!   `find_internal_points.rs`.
 //! - [`Body::intersects_ray`], [`Body::sample_point_inside`],
 //!   [`Body::compute_volume`] — exercised only by this module's own tests and
-//!   [`crate`]'s `body_query_parity`/`probe_parity` right now; no caller
-//!   outside `moveit-geometry` yet (checked by `rg` for each method name
-//!   across `crates/*/src`, excluding this file and `shapes.rs`).
+//!   [`crate`]'s `body_query_parity`/`probe_parity` right now; no *Rust*
+//!   caller outside `moveit-geometry` yet (checked by `rg` for each method
+//!   name across `crates/*/src`, excluding this file and `shapes.rs`). Their
+//!   *upstream* consumers, and which crate will call each once ported, are
+//!   decided per-method below (round 13, item 3) rather than left as one
+//!   undifferentiated "no caller" line.
 //!
 //!   Checked (round 11) whether "no caller" understates
 //!   [`ConvexMesh::intersects_ray`] specifically, since §9.1's probe already
@@ -178,6 +181,47 @@
 //! module at all). The narrower, still-accurate unported items are the ones
 //! enumerated in the symbol audits directly below, each already qualified by
 //! its own caller check rather than by scope-phase.
+//!
+//! ## [`Body::intersects_ray`] / [`Body::sample_point_inside`]: owners (round 13, item 3)
+//!
+//! "No caller outside `moveit-geometry` yet" (above, since round 10) is a
+//! report line, not a state — closed here per-method rather than repeated.
+//!
+//! **[`Body::sample_point_inside`] — named consumer: `moveit-constraints`
+//! (p1-robotmodel's).** `moveit_core/constraint_samplers/src/
+//! default_constraint_samplers.cpp:461`'s `IKConstraintSampler::samplePose`
+//! calls `b[(i + k) % b.size()]->samplePointInside(random_number_generator_,
+//! max_attempts, pos)` on `b`, the `std::vector<bodies::BodyPtr>` returned by
+//! `PositionConstraint::getConstraintRegions()` — a real, indexed, per-body
+//! call, not a `BodyVector`-mediated one. `PositionConstraint` is already
+//! `moveit-constraints`'s (`position.rs`, cited above for
+//! [`Body::contains_point`]); its `getConstraintRegions()` equivalent is that
+//! crate's port, and it is what will call [`Body::sample_point_inside`] once
+//! ported. No reopening condition needed — this is a real call site now, not
+//! a deferred one.
+//!
+//! **[`Body::intersects_ray`] — no consumer, upstream included; decided
+//! unported for now.** Re-checked this round against both trees: `rg -n
+//! intersectsRay` across the full `geometric_shapes` 2.3.3 source (`src/`,
+//! `include/`, `test/`) finds exactly two non-test call sites, both internal
+//! to `bodies.cpp` itself and already accounted for above —
+//! `ConvexMesh::intersectsRay`'s bounding-box pre-check
+//! (`bodies.cpp:1241`, mirrored by this port's `ray_intersections`
+//! short-circuit, lines 156-164 above) and `BodyVector::intersectsRay`'s
+//! first-hit loop over child bodies (`bodies.cpp:1414`, the wrapper decided
+//! not-worth-porting at lines 263-278 above). Neither is an external
+//! consumer; both are the same not-yet-ported-for-anyone-else algorithm
+//! calling itself. `rg -n intersectsRay` across all of `/home/stevek/work/
+//! moveit2` (`moveit_core` and `moveit_ros`) returns zero hits — no
+//! moveit2-layer caller exists either, unlike `sample_point_inside`. So this
+//! is upstream's own answer, not a gap in what this port's search covered:
+//! nothing anywhere in the pinned upstream tree calls a `Body`'s
+//! `intersectsRay` except another `Body` method already covered by an
+//! existing decision. Stays unported. Reopens if a future consumer appears —
+//! most plausibly Phase 3 collision's `ParryCollisionEnv`/`PosedBody` path,
+//! if it ever needs a body-level ray test this module could serve instead of
+//! `parry3d-f64`'s own ray-cast, or if `BodyVector` gets a real caller and
+//! its decided-unported status (lines 263-278) is itself reopened.
 //!
 //! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
 //!

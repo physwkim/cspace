@@ -3592,6 +3592,30 @@ private:
       {
         results.push_back(json{ { "count", static_cast<std::uint64_t>(tree.calcNumNodes()) } });
       }
+      else if (type == "tree_walk")
+      {
+        // Direct, field-by-field pin for `begin_tree()`/`end_tree()`
+        // (inner nodes and leaves, pre-order): every node's position,
+        // size, depth, leaf-ness and occupancy, in traversal order. Unlike
+        // `octreeInWorld`, which only checks a tree's *effect* on
+        // downstream collision/distance results, this exposes the
+        // iterator's own per-node output directly, so a Rust-side
+        // `tree_iterator` port can be compared node-for-node instead of
+        // merely self-consistently.
+        json nodes = json::array();
+        for (auto it = tree.begin_tree(), end = tree.end_tree(); it != end; ++it)
+        {
+          nodes.push_back(json{ { "x", it.getX() },
+                                 { "y", it.getY() },
+                                 { "z", it.getZ() },
+                                 { "size", it.getSize() },
+                                 { "depth", it.getDepth() },
+                                 { "is_leaf", it.isLeaf() },
+                                 { "log_odds", it->getLogOdds() },
+                                 { "occupancy", it->getOccupancy() } });
+        }
+        results.push_back(json{ { "nodes", nodes } });
+      }
       else
       {
         throw std::runtime_error("octomap: unsupported query type " + type);

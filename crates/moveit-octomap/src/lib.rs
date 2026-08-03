@@ -196,15 +196,26 @@
 //! **A naming precision, not a gap:** [`OcTree::num_nodes`] is upstream's
 //! `calcNumNodes()` -- an O(n) recursive traversal -- not `size()`, the O(1)
 //! `tree_size` counter upstream maintains incrementally across every
-//! insert/delete/prune/expand. `size()`/`tree_size` itself was never
-//! ported under any name. No consumer in this workspace currently needs the
-//! O(1) form (every octree here is built once per test/fixture, not mutated
-//! in a hot loop where the traversal cost of `num_nodes()` would matter),
-//! so this is not promoted to `unported, in scope` above, but the name
-//! [`OcTree::num_nodes`] should not be read as "this is `size()`" --
-//! checked directly against `OcTreeBaseImpl.h:241` (`size()`) versus
-//! `OcTreeBaseImpl.h:269` (`calcNumNodes()`) rather than assumed from the
-//! Rust name alone.
+//! insert/delete/prune/expand, checked directly against
+//! `OcTreeBaseImpl.h:241` (`size()`) versus `OcTreeBaseImpl.h:269`
+//! (`calcNumNodes()`) rather than assumed from the Rust name alone.
+//!
+//! **`size()`/`tree_size`: NO-GO, decided (round 13, item 2).** Its one
+//! `moveit_core`-reachable caller is `collision_detection_bullet/src/
+//! bullet_integration/bullet_utils.cpp:209`'s `geom->octree->size()`
+//! (sizing a `btCompoundShape`'s child capacity) -- the same file whose
+//! `getOccupancyThres()` call at line 210 is this port's other confirmed
+//! Bullet-only consumer. `collision_detection_bullet` (4,278 LOC) is
+//! dropped by PORTING-PLAN.md outright, folded into the single
+//! `parry3d-f64` backend that replaces both FCL and Bullet -- so `size()`'s
+//! only known upstream consumer does not survive the port under any crate.
+//! Porting it anyway would mean giving every mutation path
+//! (`update_node`/`prune`/`expand`/their `_by_key` siblings) a
+//! single-owner incremental counter to maintain for a value nothing reads.
+//! Not ported. Reopens if a future `parry3d-f64` collision backend (or any
+//! other consumer) needs O(1) node-count introspection -- at that point
+//! `tree_size` is an invariant with one owner across every mutation path,
+//! not a bare getter, per this project's structure-over-patch rule.
 //!
 //! # Representation
 //!
@@ -218,6 +229,6 @@ mod key;
 mod node;
 mod tree;
 
-pub use iter::{Leaf, Leaves, LeavesInBbx};
+pub use iter::{Leaf, Leaves, LeavesInBbx, TreeNode, TreeNodes};
 pub use key::{KeyRay, KeySet, KeyType, OcTreeKey};
 pub use tree::OcTree;
