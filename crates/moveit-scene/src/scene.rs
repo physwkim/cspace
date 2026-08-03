@@ -161,12 +161,31 @@ pub struct PathValidity {
 /// - `distanceToCollisionUnpadded` (4 overloads) — distinct: same
 ///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it.
 ///
-/// ## Message round-tripping (all D1: this is a ROS-independent core crate)
+/// ## Message round-tripping (D1 except the first entry: this is a
+/// ROS-independent core crate)
 ///
-/// - `saveGeometryToStream`/`loadGeometryFromStream` — distinct, not D1: a
-///   bespoke `.scene` text format whose writer calls the D1-excluded
-///   `getObjectColor`, built to interoperate with RViz's scene-file UI (no
-///   renderer in D1 scope).
+/// - `saveGeometryToStream`/`loadGeometryFromStream` — unported, not
+///   structurally D1: read in full (`planning_scene.cpp:1043-1085` writer,
+///   `:1087-1215` reader), the writer's only per-object color payload is
+///   four raw floats
+///   (`out << c.r << ' ' << c.g << ' ' << c.b << ' ' << c.a`,
+///   `planning_scene.cpp:1068`, literal `"0 0 0 0"` at `:1071` when unset)
+///   and the reader parses four floats back (`:1163-1164`) — no
+///   `std_msgs::msg::ColorRGBA` (de)serialization ever touches the stream.
+///   This crate's own `hasObjectColor`/`getObjectColor` family being D1
+///   (below) reflects this port's choice to type color storage with the ROS
+///   message, not something the `.scene` format itself needs — a plain
+///   RGBA struct would round-trip identically. The real reason it stays
+///   unported: no D1-scope consumer has asked for `.scene` file interop
+///   (searched `PORTING-PLAN.md`, every crate, `tools/` — nothing beyond
+///   this bullet). Its shape payload also delegates to
+///   `shapes::saveAsText`/`constructShapeFromText`
+///   (`planning_scene.cpp:1062`/`:1152`), which `moveit-geometry`'s own
+///   audit defers with the falsifier "closes when a consumer names this
+///   exact format as the one it needs" (`moveit_geometry::shapes` module
+///   doc) — this crate is that format's one candidate consumer and has not
+///   named it, so both halves stay open on the same unmet falsifier, not
+///   two deferrals each waiting on the other.
 /// - `getPlanningSceneDiffMsg`/`getPlanningSceneMsg` (2 overloads) — D1
 ///   (`moveit_msgs::msg::PlanningScene`, `moveit_msgs::msg::PlanningSceneComponents`).
 /// - `getCollisionObjectMsg`/`getCollisionObjectMsgs` — D1
