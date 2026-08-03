@@ -4344,3 +4344,59 @@ replace 루프로 검증됐다(`a9acef8`). 워커는 `get_or_compute`의 `retain
 대해 내린 처방과 같은 처방이 문서 주장에도 필요하다 — 검증 대상을
 병합자가 열거하는 대신, 워커가 편집하는 문단 안의 모든 사실 주장이
 근거를 하나씩 달고 있어야 한다.
+
+## 42. `p6-totg` 6라운드 병합 — 트레이트를 이식하지 않기로 한 근거 (2026-08-04)
+
+`f9c53d7`. `nextest --workspace` **927/927** (925 + 2).
+
+### 42.1 D4 판단을 받지 않고 상류에서 다시 확인했다
+
+워커의 핵심 주장은 "`TimeParameterization` 순수 가상 인터페이스를
+트레이트로 이식하지 않는다 — 구현체가 하나이고 다형적 호출부가 없으므로
+쓰이지 않는 추상화가 된다"였다. 둘 다 직접 확인했다:
+
+- `rg -n 'public TimeParameterization' ~/work/moveit2` → 한 줄,
+  `time_optimal_trajectory_generation.hpp:193`의
+  `TimeOptimalTrajectoryGeneration`뿐. `RuckigSmoothing`은 상속하지
+  않는다.
+- `TimeParameterizationPtr|TimeParameterization&|TimeParameterization>|TimeParameterization \*`를
+  헤더 자신을 제외하고 전체 체크아웃에서 검색 → **출력 없음**. 상류에
+  다형적 호출부가 하나도 없다.
+
+D4(컴파일타임 레지스트리)는 플러그인 지점에 트레이트를 두라는 결정이지,
+구현체가 하나이고 디스패치가 없는 자리에도 두라는 결정이 아니다.
+`90d90a6`(병합 후 `9bf99da`)이 그 판단과 근거를 심볼 옆에 남겼다.
+
+워커가 따로 짚은 것 하나 — 그 인터페이스의 세 번째 순수 가상 오버로드가
+`moveit_msgs::msg::JointLimits`를 받으므로, 충실한 트레이트는 D1에
+막힌다. D1 제외가 잎 타입에서 인터페이스 모양으로 전파되는 사례다.
+
+### 42.2 래퍼 두 개의 기본값을 대조로 확인했다
+
+`trajectory_tools.cpp:63-76`의 `applyTOTGTimeParameterization`/
+`applyRuckigSmoothing`은 각각 `TimeOptimalTrajectoryGeneration`/
+`RuckigSmoothing`을 만들어 한 번 호출하고 끝난다 — 상류 본문을 직접 읽어
+확인했다. 워커는 기본 인자를 `TotgOptions::default()`/
+`SmoothingOptions::default()`와 대조해 이미 일치함을(`0.1`/`0.1`/`0.001`,
+`false`/`0.01`) 보고했다. "일치할 것이다"가 아니라 "대조했고 어긋난 곳이
+없었다"가 보고 형태였다.
+
+나머지 셋(`isTrajectoryEmpty`, `trajectoryWaypointCount`,
+`createTrajectoryMessage`)은 D1 제외이며, 이번에는 뭉뚱그리지 않고
+각각 이름을 달아 `trajectory_tools.rs`에 남겼다.
+
+### 42.3 5라운드 UNFIXED가 세 가지를 뭉쳐 놓았던 것을 워커가 스스로 갈랐다
+
+이전 라운드의 UNFIXED 한 줄은 (a) 설계상 이식하지 않는 것,
+(b) D1이 막는 것, (c) `RobotModel::joint_model_mut`에 막힌 것,
+(d) **이미 이식된 것**을 하나로 묶어 놓았고, 마지막 항목은 없는 구멍을
+있다고 적은 것이었다. 6라운드 보고는 항목당 한 절로 갈라 다시 썼다.
+§39.3의 stale UNFIXED 처방이 요구한 것과 같은 형태를 워커가 지시 없이
+적용한 사례다.
+
+남은 실제 차단 항목은 하나뿐이다: 스케일링 전용
+`compute_time_stamps` 오버로드와 그 래퍼가
+`RobotModel::joint_model_mut`에 막혀 있다. 보고 시점에
+`rg -rn joint_model_mut crates/moveit-model/src/`가 아무것도 내지
+않는다는 것을 워커가 직접 확인하고 적었다 — 게이트 전에 확인한 의존성
+상태다.
