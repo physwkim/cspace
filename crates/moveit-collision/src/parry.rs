@@ -322,16 +322,17 @@ use moveit_geometry::{Isometry3, Shape, Vector3, compound_from_octree};
 use moveit_model::LinkModel;
 use moveit_state::Posed;
 
+use parry3d_f64::bounding_volume::Aabb;
 use parry3d_f64::math::{Pose, Vector as ParryVector};
 use parry3d_f64::query::{self, Contact as ParryContact};
 use parry3d_f64::shape::{
     Ball, Cone as ParryCone, Cuboid as ParryCuboid, Cylinder as ParryCylinder, HalfSpace,
-    SharedShape, TriMesh,
+    Shape as ParryShape, SharedShape, Triangle as ParryTriangle, TriMesh,
 };
 
 use crate::common::{
     AttachedBodyGeometry, BodyType, CollisionRequest, CollisionResult, Contact, ContactData,
-    DistanceRequest, DistanceRequestType, DistanceResult, DistanceResultsData,
+    CostSource, DistanceRequest, DistanceRequestType, DistanceResult, DistanceResultsData,
 };
 use crate::env::{CollisionEnv, LinkPaddingScale};
 use crate::matrix::{AllowedCollision, AllowedCollisionMatrix};
@@ -831,6 +832,166 @@ fn to_contact(
     }
 }
 
+fn cost_source_from_aabb(aabb: Aabb) -> CostSource {
+    CostSource {
+        aabb_min: [aabb.mins.x, aabb.mins.y, aabb.mins.z],
+        aabb_max: [aabb.maxs.x, aabb.maxs.y, aabb.maxs.z],
+        // `fcl2costsource`: `cs.cost = fcs.cost_density`. `cost_density` is a
+        // plain `CollisionGeometry` member FCL default-initializes to `1`
+        // (`collision_geometry-inl.h:56`) and nothing in `moveit_core` ever
+        // writes (`rg cost_density moveit_core` finds only the read side,
+        // `collision_tools.cpp:275`), so every real cost source this crate's
+        // oracle can produce carries that same constant. This is not a
+        // simplification of a computed estimate: FCL never computes a
+        // density estimate either, so there is nothing else to reproduce.
+        cost: 1.0,
+    }
+}
+
+/// The world-space AABB of `tri` (given in `pose`'s local frame), built from
+/// its three transformed vertices directly — matching
+/// `mesh_collision_traversal_node-inl.h`'s `AABB<S>(p1, p2, p3)`, computed
+/// there from vertices already baked into world coordinates (see
+/// `initialize`'s upfront `tf1`/`tf2` bake-in in the same file). This is
+/// tighter than [`Aabb::transform_by`] on the triangle's local AABB, which
+/// would loosen to bound the *rotated box*, not the *rotated triangle* — the
+/// two agree only when the rotation is axis-aligned.
+fn triangle_world_aabb(pose: &Pose, tri: &ParryTriangle) -> Aabb {
+    let a = pose * tri.a;
+    let b = pose * tri.b;
+    let c = pose * tri.c;
+    Aabb::new(a.min(b).min(c), a.max(b).max(c))
+}
+
+/// Upstream's per-narrowphase-call cost-source production, independent of
+/// [`AllowedCollision::Conditional`]'s own accept/reject decision: reading
+/// `collision_common.cpp` in full shows `if (enable_cost) { ... }` running
+/// unconditionally after *every* `fcl::collide` call this file makes — inside
+/// the `dcf` branch (after the per-contact accept/reject loop, not gated by
+/// its outcome), and in both halves of the no-`dcf` branch (whether or not
+/// `want_contact_count` left room to store a [`Contact`]). So this is called
+/// from [`accumulate_collision`] for every part pair that already produced a
+/// real geometric [`ParryContact`], before that pair's
+/// [`AllowedCollision::Conditional`] predicate (if any) is even consulted —
+/// a pair the predicate goes on to silently accept still contributes cost
+/// sources, matching upstream exactly.
+///
+/// Three shape-kind combinations, matching the three FCL traversal-node
+/// files that call `addCostSource` (`detail/traversal/collision/`):
+/// - **mesh vs mesh** (`mesh_collision_traversal_node-inl.h`): one
+///   [`CostSource`] per pair of triangles confirmed to intersect —
+///   [`mesh_mesh_cost_sources`].
+/// - **mesh vs anything else** (`mesh_shape_collision_traversal_node-inl.h`):
+///   one per `mesh`-side triangle confirmed to intersect the other side,
+///   overlapped against that side's own *whole-shape* AABB, not a
+///   triangle-vs-triangle box — [`mesh_shape_cost_sources`].
+/// - **neither is a mesh** (`shape_collision_traversal_node-inl.h`): at most
+///   one, over both shapes' own whole-shape AABBs from
+///   [`ParryShape::compute_aabb`] — the same call already named as the
+///   non-mesh half of this fill-in by `moveit-scene`'s own doc audit.
+///
+/// Every case does its candidate search BVH-pruned on the mesh side(s)
+/// (`TriMesh::bvh`/[`parry3d_f64::partitioning::Bvh::intersect_aabb`]) and
+/// then confirms with an exact geometric test
+/// ([`query::intersection_test`]) before emitting anything — the same
+/// broad/narrow two-stage structure FCL's own BVH traversal performs, not an
+/// AABB-overlap approximation of it. A [`Compound`](parry3d_f64::shape::Compound)
+/// built from an octree (deviation 11) is not a [`TriMesh`], so it always
+/// takes the whole-shape-AABB path above — one cost source per colliding
+/// octree pair, not per occupied leaf. FCL's own octree narrowphase
+/// (`octree_solver-inl.h`) *does* cost per leaf, so this is a real, if minor,
+/// further deviation on top of deviation 11's own Cuboid-per-leaf
+/// [`Compound`] choice, not a new one this backend didn't already carry:
+/// once occupied leaves are flattened into one compound shape, no
+/// finer-than-the-compound granularity survives to cost separately.
+fn cost_sources_for_part_pair(
+    a_pose: &Pose,
+    a_shape: &dyn ParryShape,
+    b_pose: &Pose,
+    b_shape: &dyn ParryShape,
+) -> Vec<CostSource> {
+    match (a_shape.as_trimesh(), b_shape.as_trimesh()) {
+        (Some(mesh_a), Some(mesh_b)) => mesh_mesh_cost_sources(a_pose, mesh_a, b_pose, mesh_b),
+        (Some(mesh_a), None) => mesh_shape_cost_sources(a_pose, mesh_a, b_pose, b_shape),
+        (None, Some(mesh_b)) => mesh_shape_cost_sources(b_pose, mesh_b, a_pose, a_shape),
+        (None, None) => {
+            let aabb_a = a_shape.compute_aabb(a_pose);
+            let aabb_b = b_shape.compute_aabb(b_pose);
+            aabb_a
+                .intersection(&aabb_b)
+                .map(|overlap| vec![cost_source_from_aabb(overlap)])
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// One [`CostSource`] per pair of triangles (one from `mesh_a`, one from
+/// `mesh_b`) confirmed to actually intersect. `mesh_a`'s triangles are
+/// visited exhaustively — `TriMesh::bvh()` exposes no node-to-node walk that
+/// would let the *outer* search skip whole subtrees the way
+/// [`Bvh::intersect_aabb`](parry3d_f64::partitioning::Bvh::intersect_aabb)
+/// does for the inner one — but each visited triangle's candidate partners
+/// in `mesh_b` are BVH-pruned by its own local AABB (transformed into
+/// `mesh_b`'s local frame, where its BVH lives) before the exact
+/// [`query::intersection_test`] runs.
+fn mesh_mesh_cost_sources(
+    a_pose: &Pose,
+    mesh_a: &TriMesh,
+    b_pose: &Pose,
+    mesh_b: &TriMesh,
+) -> Vec<CostSource> {
+    let a_to_b = b_pose.inv_mul(a_pose);
+    let mut sources = Vec::new();
+    for ia in 0..mesh_a.num_triangles() as u32 {
+        let tri_a = mesh_a.triangle(ia);
+        let local_aabb_a = Aabb::new(
+            tri_a.a.min(tri_a.b).min(tri_a.c),
+            tri_a.a.max(tri_a.b).max(tri_a.c),
+        );
+        let query_aabb_in_b = local_aabb_a.transform_by(&a_to_b);
+        for ib in mesh_b.bvh().intersect_aabb(&query_aabb_in_b) {
+            let tri_b = mesh_b.triangle(ib);
+            if !query::intersection_test(a_pose, &tri_a, b_pose, &tri_b).unwrap_or(false) {
+                continue;
+            }
+            let world_a = triangle_world_aabb(a_pose, &tri_a);
+            let world_b = triangle_world_aabb(b_pose, &tri_b);
+            if let Some(overlap) = world_a.intersection(&world_b) {
+                sources.push(cost_source_from_aabb(overlap));
+            }
+        }
+    }
+    sources
+}
+
+/// One [`CostSource`] per `mesh`-side triangle confirmed to intersect
+/// `other` (a non-mesh shape), the triangle's own world AABB overlapped
+/// against `other`'s whole-shape world AABB — matching
+/// `mesh_shape_collision_traversal_node-inl.h`'s `AABB<S>(p1, p2,
+/// p3).overlap(shape_aabb, ...)`, `shape_aabb` there being `other`'s own
+/// `computeBV` result, not a per-feature box of `other`.
+fn mesh_shape_cost_sources(
+    mesh_pose: &Pose,
+    mesh: &TriMesh,
+    other_pose: &Pose,
+    other: &dyn ParryShape,
+) -> Vec<CostSource> {
+    let other_world_aabb = other.compute_aabb(other_pose);
+    let query_aabb_in_mesh = other_world_aabb.transform_by(&mesh_pose.inverse());
+    let mut sources = Vec::new();
+    for i in mesh.bvh().intersect_aabb(&query_aabb_in_mesh) {
+        let tri = mesh.triangle(i);
+        if !query::intersection_test(mesh_pose, &tri, other_pose, other).unwrap_or(false) {
+            continue;
+        }
+        let tri_world_aabb = triangle_world_aabb(mesh_pose, &tri);
+        if let Some(overlap) = tri_world_aabb.intersection(&other_world_aabb) {
+            sources.push(cost_source_from_aabb(overlap));
+        }
+    }
+    sources
+}
+
 /// The `ROBOT_LINK`/`ROBOT_ATTACHED` half of `collisionCallback`'s/
 /// `distanceCallback`'s touch-links rule (module doc, "Attached-body
 /// geometry"): true if one side is a link the other side's attached body is
@@ -888,6 +1049,12 @@ fn accumulate_collision<'a>(
     let mut collision = false;
     let mut by_pair: BTreeMap<(String, String), Vec<Contact>> = BTreeMap::new();
     let mut stored_total = 0usize;
+    // Most-costly-first, matching upstream's `std::set<CostSource,
+    // CostSource::operator<>` (see `CostSource`'s own `Ord` doc); trimmed to
+    // `request.max_cost_sources` after every insertion below, exactly as
+    // `cdata->res_->cost_sources.insert(cs); while (... > max_cost_sources)
+    // erase(--end());` does in `collision_common.cpp`.
+    let mut cost_sources: BTreeSet<CostSource> = BTreeSet::new();
     for (a, b) in pairs {
         let allowed = acm.and_then(|m| m.allowed_collision(&a.name, &b.name));
         if matches!(allowed, Some(AllowedCollision::Always)) {
@@ -900,6 +1067,19 @@ fn accumulate_collision<'a>(
             let Ok(Some(contact)) = query::contact(a_pose, a_shape, b_pose, b_shape, 0.0) else {
                 continue;
             };
+            // Independent of `is_collision`, below: `collision_common.cpp`
+            // computes cost sources unconditionally once a real contact is
+            // found, whether or not `AllowedCollision::Conditional`'s own
+            // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
+            // own doc).
+            if request.cost {
+                for source in cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape) {
+                    cost_sources.insert(source);
+                    while cost_sources.len() > request.max_cost_sources {
+                        cost_sources.pop_last();
+                    }
+                }
+            }
             let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
             let is_collision = match allowed {
                 Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
@@ -923,25 +1103,7 @@ fn accumulate_collision<'a>(
         collision,
         distance: None,
         contacts: request.contacts.then_some(ContactData { by_pair }),
-        // `request.cost`/`request.max_cost_sources` are accepted but never
-        // read here -- `cost_sources` is always `None` regardless of what
-        // was requested. This is a backend limitation, not an oversight:
-        // upstream's `CostSource` comes from `fcl::CollisionResultd::
-        // getCostSources()` (`fcl2costsource`, `collision_common.cpp`),
-        // populated internally by FCL's own per-narrowphase-call cost-
-        // density computation whenever `fcl::CollisionRequestd`'s
-        // `enable_cost` is set. `parry3d_f64` has no equivalent primitive
-        // anywhere in its public API (confirmed by searching its full
-        // source for `cost_density`/`CostSource`: no matches) --
-        // `query::contact` returns a point pair, a normal and a signed
-        // distance, never a cost-weighted decomposition of the overlap
-        // volume. Implementing this would mean inventing an independent
-        // cost-density estimate from scratch, not adapting one `parry`
-        // already computes. Blocks `PlanningScene::getCostSources`
-        // (`crates/moveit-scene`) until either `parry3d_f64` grows an
-        // equivalent primitive or this backend gets its own independent
-        // cost-density implementation.
-        cost_sources: None,
+        cost_sources: request.cost.then(|| cost_sources.into_iter().collect()),
     }
 }
 
@@ -2323,5 +2485,311 @@ mod tests {
             "one attached body naming the other in touch_links must allow their overlap, \
              regardless of which side names which"
         );
+    }
+
+    // Cost sources: `cost_sources_for_part_pair` and its two mesh helpers,
+    // tested directly against hand-computed AABBs so the exact numbers are
+    // checked, not just "something non-empty came out" -- plus the
+    // `accumulate_collision`-level invariants (None-vs-empty-Vec, the
+    // `Conditional`-accept case, and `max_cost_sources` trimming) that no
+    // amount of geometry-level testing alone would cover.
+
+    fn unit_cuboid() -> ParryCuboid {
+        ParryCuboid::new(ParryVector::new(0.5, 0.5, 0.5))
+    }
+
+    /// `approx` has no blanket `RelativeEq` for `[f64; 3]`; this compares
+    /// component-wise instead of stringifying both sides into a slice.
+    fn assert_point_close(actual: [f64; 3], expected: [f64; 3]) {
+        for i in 0..3 {
+            assert_relative_eq!(actual[i], expected[i], epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn cost_sources_for_part_pair_shape_shape_is_the_overlap_of_both_whole_aabbs() {
+        let a_pose = to_pose(Isometry3::identity());
+        let b_pose = to_pose(Isometry3::translation(0.5, 0.0, 0.0));
+        let a = unit_cuboid();
+        let b = unit_cuboid();
+
+        let sources = cost_sources_for_part_pair(&a_pose, &a, &b_pose, &b);
+
+        assert_eq!(sources.len(), 1);
+        assert_point_close(sources[0].aabb_min, [0.0, -0.5, -0.5]);
+        assert_point_close(sources[0].aabb_max, [0.5, 0.5, 0.5]);
+        assert_eq!(sources[0].cost, 1.0);
+    }
+
+    #[test]
+    fn cost_sources_for_part_pair_shape_shape_disjoint_is_empty() {
+        let a_pose = to_pose(Isometry3::identity());
+        let b_pose = to_pose(Isometry3::translation(50.0, 0.0, 0.0));
+        let a = unit_cuboid();
+        let b = unit_cuboid();
+
+        assert!(cost_sources_for_part_pair(&a_pose, &a, &b_pose, &b).is_empty());
+    }
+
+    /// One large flat triangle in the z=0 plane, base `y = -5` to apex
+    /// `(0, 5)`: at `y = -2` its footprint spans `x ∈ [-3.5, 3.5]` (linear
+    /// interpolation along both slanted edges), comfortably containing every
+    /// query shape the tests below place near `(0, -2, 0)` — chosen so which
+    /// triangle a query point falls into is never ambiguous, unlike a
+    /// two-triangle square split along a diagonal that could pass through
+    /// the query point itself.
+    fn big_flat_triangle() -> TriMesh {
+        TriMesh::new(
+            vec![
+                ParryVector::new(-5.0, -5.0, 0.0),
+                ParryVector::new(5.0, -5.0, 0.0),
+                ParryVector::new(0.0, 5.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn mesh_shape_cost_sources_is_one_triangle_aabb_overlapped_with_the_whole_shape_aabb() {
+        let mesh_pose = to_pose(Isometry3::identity());
+        let mesh = big_flat_triangle();
+        let other_pose = to_pose(Isometry3::translation(0.0, -2.0, 0.0));
+        let other = ParryCuboid::new(ParryVector::new(0.1, 0.1, 0.1));
+
+        let sources = mesh_shape_cost_sources(&mesh_pose, &mesh, &other_pose, &other);
+
+        assert_eq!(sources.len(), 1);
+        assert_point_close(sources[0].aabb_min, [-0.1, -2.1, 0.0]);
+        assert_point_close(sources[0].aabb_max, [0.1, -1.9, 0.0]);
+        assert_eq!(sources[0].cost, 1.0);
+    }
+
+    #[test]
+    fn mesh_shape_cost_sources_no_intersection_is_empty() {
+        let mesh_pose = to_pose(Isometry3::identity());
+        let mesh = big_flat_triangle();
+        // Well outside the triangle's footprint, even though its AABB (a
+        // huge flat square, z ranging only over [0, 0]) still overlaps the
+        // cuboid's own AABB in x/y -- this exercises the exact geometric
+        // `query::intersection_test` gate, not merely a bounding-box check.
+        let other_pose = to_pose(Isometry3::translation(-4.9, 4.9, 5.0));
+        let other = ParryCuboid::new(ParryVector::new(0.05, 0.05, 0.05));
+
+        assert!(mesh_shape_cost_sources(&mesh_pose, &mesh, &other_pose, &other).is_empty());
+    }
+
+    #[test]
+    fn mesh_mesh_cost_sources_is_the_intersecting_triangle_pairs_overlap() {
+        let a_pose = to_pose(Isometry3::identity());
+        let mesh_a = big_flat_triangle();
+        // A thin vertical triangle through the flat one at (0, -2, 0):
+        // base at z=-0.5 spanning x in [-0.1, 0.1], apex at (0, -2, 0.5).
+        // Linearly interpolating to z=0 (halfway) narrows the cross-section
+        // to x in [-0.05, 0.05] -- still inside mesh_a's x in [-3.5, 3.5]
+        // footprint at y=-2, so the two triangles genuinely cross rather
+        // than merely sharing an AABB.
+        let mesh_b = TriMesh::new(
+            vec![
+                ParryVector::new(-0.1, -2.0, -0.5),
+                ParryVector::new(0.1, -2.0, -0.5),
+                ParryVector::new(0.0, -2.0, 0.5),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .unwrap();
+        let b_pose = to_pose(Isometry3::identity());
+
+        let sources = mesh_mesh_cost_sources(&a_pose, &mesh_a, &b_pose, &mesh_b);
+
+        assert_eq!(sources.len(), 1);
+        assert_point_close(sources[0].aabb_min, [-0.1, -2.0, 0.0]);
+        assert_point_close(sources[0].aabb_max, [0.1, -2.0, 0.0]);
+        assert_eq!(sources[0].cost, 1.0);
+    }
+
+    #[test]
+    fn mesh_mesh_cost_sources_no_intersection_is_empty() {
+        let a_pose = to_pose(Isometry3::identity());
+        let mesh_a = big_flat_triangle();
+        let mesh_b = TriMesh::new(
+            vec![
+                ParryVector::new(-0.1, 100.0, -0.5),
+                ParryVector::new(0.1, 100.0, -0.5),
+                ParryVector::new(0.0, 100.0, 0.5),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .unwrap();
+        let b_pose = to_pose(Isometry3::identity());
+
+        assert!(mesh_mesh_cost_sources(&a_pose, &mesh_a, &b_pose, &mesh_b).is_empty());
+    }
+
+    #[test]
+    fn check_self_collision_cost_sources_is_none_when_not_requested() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+
+        let result = env.check_self_collision(&CollisionRequest::default(), &posed, &[], None);
+
+        assert!(result.cost_sources.is_none());
+    }
+
+    #[test]
+    fn check_self_collision_cost_sources_is_some_empty_when_requested_but_nothing_collides() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(5.0, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            cost: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        assert!(!result.collision);
+        assert_eq!(result.cost_sources, Some(Vec::new()));
+    }
+
+    #[test]
+    fn check_self_collision_cost_sources_populated_for_a_colliding_pair() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            cost: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        let sources = result.cost_sources.expect("cost requested");
+        assert_eq!(sources.len(), 1);
+        assert_point_close(sources[0].aabb_min, [0.0, -0.5, -0.5]);
+        assert_point_close(sources[0].aabb_max, [0.5, 0.5, 0.5]);
+        assert_eq!(sources[0].cost, 1.0);
+    }
+
+    #[test]
+    fn check_self_collision_cost_sources_computed_even_when_conditional_predicate_accepts() {
+        // `AllowedCollision::Conditional`'s predicate deciding "not a
+        // collision" must not suppress cost-source computation: reading
+        // `collision_common.cpp` in full shows `if (enable_cost) {...}`
+        // running unconditionally after fcl::collide, independent of what
+        // the pair's own `dcf` predicate goes on to decide per contact.
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let mut acm = AllowedCollisionMatrix::new();
+        acm.set_conditional_entry("p", "q", Arc::new(|_: &mut Contact| true));
+        let request = CollisionRequest {
+            cost: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], Some(&acm));
+
+        assert!(!result.collision, "predicate accepted the contact");
+        let sources = result.cost_sources.expect("cost requested");
+        assert_eq!(
+            sources.len(),
+            1,
+            "cost is computed independently of the predicate's accept/reject decision"
+        );
+    }
+
+    #[test]
+    fn check_self_collision_cost_sources_always_entry_skips_cost_too() {
+        // The `AllowedCollision::Always`/touch-links skip happens *before*
+        // any geometry query at all -- no `parry3d_f64::query::contact` call
+        // means no cost source either, matching upstream's `if
+        // (always_allow_collision) return false;` guarding the entire rest
+        // of `collisionCallback`, cost included.
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let mut acm = AllowedCollisionMatrix::new();
+        acm.set_entry("p", "q", true);
+        let request = CollisionRequest {
+            cost: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], Some(&acm));
+
+        assert!(!result.collision);
+        assert_eq!(result.cost_sources, Some(Vec::new()));
+    }
+
+    #[test]
+    fn check_self_collision_max_cost_sources_keeps_only_the_most_costly() {
+        // p, q, r pairwise overlapping by different amounts along x, so
+        // each pair's overlap volume (cost is a constant `1.0`, so ranking
+        // is purely by volume) differs: p-q overlaps by 0.1, p-r by 0.8,
+        // q-r by 0.3. `max_cost_sources: 2` must keep the two largest
+        // (p-r, q-r) and drop the smallest (p-q) -- exercising the same
+        // trim upstream's `while (cost_sources.size() > max_cost_sources)
+        // erase(--end())` performs, most-costly-first.
+        let model = build_model(&["p", "q", "r"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.9, 0.0, 0.0)),
+                ("r", Isometry3::translation(0.2, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            cost: true,
+            max_cost_sources: 2,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        let sources = result.cost_sources.expect("cost requested");
+        assert_eq!(sources.len(), 2, "trimmed to max_cost_sources");
+        let volumes: Vec<f64> = sources.iter().map(CostSource::volume).collect();
+        assert_relative_eq!(volumes[0], 0.8, epsilon = 1e-9);
+        assert_relative_eq!(volumes[1], 0.3, epsilon = 1e-9);
     }
 }
