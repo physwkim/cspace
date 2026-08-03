@@ -4484,3 +4484,73 @@ if (!cdata->req->enable_signed_distance && cdata->res->collision)
 
 `moveit-collision` 소유자(p3-acm)에게 넘긴다. 라운드 첫 작업은 원인
 추정이 아니라 쌍을 이름 댈 수 있게 만드는 것이다.
+
+## 44. `p1-joints` 7라운드 병합 — 관측 불가능하던 수정에 관측기를 붙였다 (2026-08-04)
+
+`d7ef13c`. 보고가 배달되지 않은 채 패널이 idle이었고(§38과 같은 형태),
+브랜치에 두 커밋이 남아 있었다.
+
+### 44.1 6라운드 수정에 실행 가능한 회귀 검사가 없었다는 것을 워커가 스스로 지목했다
+
+§35에서 병합한 연속 조인트 reseed 수정(`9444463`)은 그 라운드에
+"이 네 픽스처·이 시드에서는 무해한 no-op"으로 확인됐고, 그것이 곧
+**어떤 자동 검사도 이 수정의 되돌림을 잡지 못한다**는 뜻이었다.
+`ik()`의 응답은 최종 solved/failed만 나르고 중간 reseed 추출값은
+나르지 않으므로, 분기를 관측하려면 계측을 새로 만들어야 했다.
+워커는 `reseed_probe` 요청 필드를 추가해 실제 reseed 루프와 같은
+`sampleReseed()`에서 N개를 뽑게 하고, FK/solve를 우회했다.
+
+`verify-continuous-reseed-wrap.sh`가 검사하는 성질은 범위가 아니라
+**밀도**다. `limit = 4.0 > π`에서 wrap과 clamp는 둘 다 `[-π, π]`
+안에만 값을 내므로 범위로는 구별되지 않는다. 산술을 손으로 다시
+유도해 확인했다:
+
+- wrap: `[-4, 4]` 균등에서 `(π, 4]`와 `[-4, -π)`가 반대쪽 경계 밴드로
+  접힌다. 밴드 폭은 `4 - π = 0.858407`, 두 밴드 질량은
+  `2 × 0.858407 / 8 = 0.429204` → **42.9204%**
+- clamp: 표본 구간이 뽑기 전에 `[-π, π]`로 잘리므로 밀도가 평평하다.
+  `2 × 0.858407 / (2π) = 0.273241` → **27.3241%**
+
+스크립트가 출력하는 예측값과 자릿수까지 일치한다. 측정값은 42.6000%
+(20000 draws)이고, 워커는 옛 clamp 식을 일부러 되살려 재빌드한 뒤
+27.22%를 관측해 반대 방향도 확인했다 — 통과하는 것만 보이고 실패하는
+것은 안 보인 검사가 아니다.
+
+### 44.2 그 스크립트가 CI 글롭 안에 있었다
+
+병합 시점에 찾은 결함이다. 스크립트 자신의 헤더에는 이렇게 적혀 있었다:
+"like run-oracle-sweep.sh, this is deliberately not one of the `check-*.sh`
+scripts `.github/workflows/ci.yml` ... run". 그런데 파일 이름이
+`check-continuous-reseed-wrap.sh`였다. `ci.yml`은 열거가 아니라
+`tools/ci/check-*.sh` 글롭으로 돌리므로(새 검사를 빠뜨리지 않으려고
+일부러 그렇게 했다), 이름이 헤더를 이긴다. GitHub Actions 러너에는
+docker도 오라클 이미지도 없으므로 이 스크립트는 자기가 검사하는 것과
+무관한 이유로 실패했을 것이다.
+
+**Anchor:** `rg -n 'docker|third_party|run-oracle' tools/ci/check-*.sh`
+**Sites:** `check-continuous-reseed-wrap.sh` 한 곳
+**Same defect at:** 그 한 곳
+**Distinct, skip:** `check-dep-direction.sh`, `check-fixture-format.sh`,
+`check-no-lint-suppression.sh` — docker/`third_party` 의존이 없고 글롭
+안에 있는 것이 맞다
+
+`5f2d1be`에서 `verify-continuous-reseed-wrap.sh`로 옮겼다.
+`verify-fixture-provenance.sh`가 이미 같은 이유로 글롭 밖에 있고 그
+이유를 헤더에 적어 두었으므로, 규칙은 새로 만든 것이 아니라 이미 있던
+것이다. 이름이 곧 기제라는 점을 새 헤더에 명시했다.
+
+`oracle.cpp`의 주석이 옛 경로를 가리키고 있어 같이 고쳤고, 그 결과
+스탬프가 바뀌어 오라클을 재빌드했다(`05f4d82bcb77d40f`). 주석 한 줄
+때문에 재빌드가 필요한 것은 §25에서 의도적으로 택한 트레이드의
+비용 쪽이다.
+
+### 44.3 심볼 감사에서 구멍이 나오지 않았다는 보고
+
+`3870e18`이 `kdl_kinematics_plugin.{hpp,cpp}`,
+`chainiksolver_vel_mimic_svd.{hpp,cpp}`, `KDLKinematicsPlugin`이
+재정의하는 모든 `KinematicsBase` 가상 함수를 열거해
+ported-as / excluded(결정 인용) / unported-no-consumer로 분류하고
+`lib.rs` 모듈 문서에 남겼다. 보고서가 아니라 크레이트 안에 두라는
+브리핑 조건을 지켰다. `getLinkNames` 하나가 포트도 결정 인용도 없이
+남는데, 유일한 상류 호출자 `getPositionFK`가 이 크레이트에 자리가
+없으므로 봉사할 소비자도 없다는 것이 그 항목의 분류다.
