@@ -9133,3 +9133,123 @@ rg -c '^/// - `' crates/moveit-scene/src/scene.rs   →  60
 `cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
 `verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK,
 `verify-fixture-replay.sh` **30/30 identical**.
+
+## 107. p6-totg 라운드 12 머지 — 그리고 요청받은 오라클 op을 내가 만들었다
+
+3커밋(`c90b5c1` `Display` 이식, `0e659e3` 11개 사이트 이분, `468b638`
+8.893e-9 추적)을 `--no-ff`로 머지했다. 머지 후 실측 **1096/1096**.
+
+### 107.1 `Display` 이식은 상류 열 순서와 맞는다
+
+`RobotTrajectory::print`/`operator<<`를 `impl std::fmt::Display`로
+옮겼다. 내가 상류와 열 순서를 대조했다 — `"Empty trajectory."`,
+`"Trajectory has N points over D seconds"`, `  waypoint {:>3} time
+{:>5.3} pos `, 그다음 조건부 `vel `/`acc `/`eff `. 일치한다.
+`Display`의 시그니처에 상류의 `variable_indexes` 오버라이드를 넣을
+자리가 없다는 것은 편차로 문서화됐다.
+
+### 107.2 11개 사이트 이분 — 8개는 상류 전사라 손대지 않는 것이 맞다
+
+`trajectory.rs`의 `epsilon`만 있는 11개 중 8개가
+`EXPECT_NEAR(0.0, trajectory.getVelocity(...)[0], 0.1)`의 전사다.
+**8건 모두 내가 상류에서 직접 확인했다** — `:108/109`, `:156/157`,
+`:204/205`, `:594/595` 각각이 정확히 그 형태다. 전사한 상수를 이분하는
+것은 상류를 다시 쓰는 것이므로 그대로 두고 줄 인용을 붙인 처리가 맞다.
+
+나머지 3건은 내가 재현했다.
+
+```
+epsilon = 1e-9  → 1e-12   1 fail   upstream_test_single_dof_discontinuity
+traj_duration 1e-3 → 1e-6  1 fail   같은 테스트
+```
+
+`traj_duration`의 `1e-3`은 이제 가정이 아니라 측정된 최소 통과 단계이고,
+가속도 검사 둘은 `1e-3` → `1e-9`로 조여졌다.
+
+### 107.3 요청받은 op은 요청받은 모양으로는 만들 수 없다 — 그리고 그 대체가 답을 냈다
+
+담당이 UNFIXED에 오라클 요청을 남겼다. `upstream_test2`의 5웨이포인트
+집합(`max_deviation=100.0`)에 대해 생성되는 `CircularPathSegment` 3개
+각각의 `start_dot_end`·`angle`·`radius`·`center`/`x`/`y`를 f64 전정밀도로
+달라는 것이었다.
+
+**그 모양으로는 못 만든다.** 근거:
+
+```
+time_optimal_trajectory_generation.cpp:103   class CircularPathSegment
+time_optimal_trajectory_generation.hpp:117   PathSegment* getPathSegment(double& s) const;   ← private:
+```
+
+타입이 설치되는 헤더가 아니라 `.cpp` 안에 있고, 세그먼트 핸들을 얻는
+유일한 통로도 `private`다. §102의 `getOcTreePoints`는 `protected`라 파생
+클래스로 닿았지만 여기는 그 수가 없다. 상류를 패치하면 닿지만, 그러면
+오라클이 "손대지 않은 상류의 동작 기록"이기를 그만둔다. **"닿지 않는다"로
+닫지 않고**(내가 p3-distance-field에게 "근거 없이 '괜찮다'로 닫지 마라"고
+한 것과 같은 기준) 공개면으로 같은 기하를 재는 op을 만들었다 —
+`totg_path`(`12ff220`). 스탬프 `e1e8f6b2659b08b0` → **`e7d32225310d3278`**.
+
+공개면이 같은 값을 준다:
+
+- `getSwitchingPoints`가 세그먼트 경계를 호길이로 주므로 각 블렌드의
+  호길이 = `angle * radius`
+- 원호 안에서 `getCurvature(s)`는 노름이 `1/radius`이므로 **`radius`가
+  직접 복원되고**, 호길이로 `angle`이 따라 나온다
+- 블렌드 양 끝의 `getConfig`/`getTangent`가 시작·이탈 지점을 고정한다
+
+복원되지 않는 것은 `center`·`x`·`y`뿐이고, 그 셋은 경로의 관측량이 아니라
+기저 선택이다.
+
+### 107.4 실측 결과 — `Path`는 상류와 사실상 비트 일치다
+
+호길이 1213.34…에서 블렌드 3개는 `[50, 140.238]`, `[380.719, 879.851]`,
+`[1084.802, 1163.341]`이다. 각 블렌드 안 3점과 직선 구간 4점에서 상류와
+포트를 ULP로 비교했다.
+
+```
+length                       ulp   0
+블렌드1 (R=84.19078207201368)  |k| ulp  0,  0,  0
+블렌드2 (R=993.4961962279818)  |k| ulp  0,  0, -1
+블렌드3 (R≈50)                 |k| ulp +2, +3, +2
+직선 4점                       |k| ulp  0 (모두 정확히 0)
+tangent 최대                                     19 ulp
+config  최대                                      1 ulp
+```
+
+**세 반지름 중 둘은 비트 일치하고, 셋째만 2~3 ULP 어긋난다.** 셋째
+블렌드는 방향 `(-0.98058, 0.19612, 0)`에서 `(0,0,-1)`로 꺾이는 직각
+모서리이고 반지름의 참값은 50이다 — 상류가 `50.00000000000001`, 포트가
+`49.99999999999999`로 **양쪽 다 50에서 반대 방향으로** 벗어난다. 한쪽이
+틀린 것이 아니라 둘 다 반올림한 것이다.
+
+`tangent`의 19 ULP는 블렌드 전용이 아니다 — 직선 구간(`s=260`)에서도
+18 ULP가 난다. 그 자리에서 손으로 확인했다: 원시 웨이포인트 차의
+정규화(`d/‖d‖`도, `d * (1/‖d‖)`도)로는 포트 값이 재현되지 않는다
+(각각 `[3,-1,-11,0]`, `[3,0,-11,0]` ULP). 상류 `LinearPathSegment`의
+끝점이 원시 웨이포인트가 아니라 **블렌드가 잘라낸 끝점**이기 때문이고,
+따라서 직선 구간의 접선도 블렌드 산술의 오차를 물려받는다.
+
+### 107.5 그래서 8.893e-9은 기하가 아니라 적분에서 커진다
+
+지속시간 편차를 같은 단위로 놓으면:
+
+```
+8.893e-9 / 1922.141842744594 = 4.63e-12  →  1922 근방의 ULP로 3.9e4 ULP
+```
+
+입력 기하는 **19 ULP 이하**로 일치하는데 출력은 **3.9e4 ULP** 어긋난다.
+약 2000배다. 즉 남은 편차의 발생 자리는 `Path` 생성이 아니라
+`Trajectory`의 적분·전환점 탐색이다. `468b638`이 누적 순서·FMA(objdump에
+`vfmadd` 0건)·libm 편차·리덕션 순서·정규화 관례를 근거를 붙여 배제한
+것은 유효하고, 이번 측정은 **탐색 범위를 `Trajectory`로 좁힌다.**
+
+라운드 13은 여기서부터다. `totg_path`는 이미 있고 픽스처 포획만 남았다 —
+포획은 담당의 크레이트 안이므로 담당이 한다.
+
+### 107.6 머지 후 실측
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1096/1096**,
+`cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
+`verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK
+(42.6000% > 35.1222%), `verify-fixture-replay.sh` **30/30 identical**
+(새 이미지 `e7d32225310d3278`로 재실행).
