@@ -102,6 +102,14 @@ impl KinematicsSolver for NewtonRaphsonSolver {
         self.chain.solver_joint_names()
     }
 
+    fn base_frame(&self) -> &str {
+        self.chain.base_frame()
+    }
+
+    fn tip_frame(&self) -> &str {
+        self.chain.tip_frame()
+    }
+
     fn solve_with_options(
         &mut self,
         seed: &[f64],

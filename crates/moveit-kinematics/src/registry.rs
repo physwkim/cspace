@@ -71,7 +71,12 @@ pub type SolutionCallback<'a> = dyn FnMut(&[f64]) -> bool + 'a;
 ///    any cost function outright. This trait keeps only the shape
 ///    `kdl_kinematics_plugin` exercises; [`SolveOptions`] carries
 ///    `consistency_limits` and `solution_callback`, the two extras it
-///    *does* exercise.
+///    *does* exercise. For the same reason, [`KinematicsSolver::tip_frame`]
+///    is singular where upstream's `getTipFrames` returns a
+///    `Vec<String>`: that plural exists solely to name each pose in the
+///    multi-tip overload's `ik_poses` argument, an overload this trait does
+///    not have. A `Vec` of one name would document a capability this crate
+///    does not offer rather than the one it does.
 /// 2. **No timeout, no `KinematicsQueryOptions`.** See
 ///    [`SolverParams::max_restarts`]'s doc comment for the timeout
 ///    replacement; `return_approximate_solution` and
@@ -87,6 +92,14 @@ pub trait KinematicsSolver {
 
     /// `getJointNames`: the seed/solution vector's order.
     fn joint_names(&self) -> &[String];
+
+    /// `getBaseFrame`: the frame every [`KinematicsSolver::solve`] `target`
+    /// is given in (`chain::ChainInfo::root_pose_world`'s output frame).
+    fn base_frame(&self) -> &str;
+
+    /// `getTipFrame`: this chain's tip link. See this trait's `# Deviations`,
+    /// item 1, for why there is no plural `getTipFrames`.
+    fn tip_frame(&self) -> &str;
 
     /// `searchPositionIK`'s single-pose case in its fullest form (`timeout`
     /// replaced by [`SolverParams::max_restarts`] — see that field's doc
