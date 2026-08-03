@@ -31,6 +31,17 @@
       "panda_arm": true,
       "panda_arm_hand": false
     },
+    "group_joint_roots": {
+      "hand": [
+        "panda_finger_joint1"
+      ],
+      "panda_arm": [
+        "panda_joint1"
+      ],
+      "panda_arm_hand": [
+        "panda_joint1"
+      ]
+    },
     "group_states": {
       "hand": {
         "close": {
@@ -72,6 +83,72 @@
         }
       }
     },
+    "group_updated_links": {
+      "hand": {
+        "updated_link_names": [
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ],
+        "updated_link_with_geometry_names": [
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ]
+      },
+      "panda_arm": {
+        "updated_link_names": [
+          "panda_link1",
+          "panda_link2",
+          "panda_link3",
+          "panda_link4",
+          "panda_link5",
+          "panda_link6",
+          "panda_link7",
+          "panda_link8",
+          "panda_hand",
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ],
+        "updated_link_with_geometry_names": [
+          "panda_link1",
+          "panda_link2",
+          "panda_link3",
+          "panda_link4",
+          "panda_link5",
+          "panda_link6",
+          "panda_link7",
+          "panda_hand",
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ]
+      },
+      "panda_arm_hand": {
+        "updated_link_names": [
+          "panda_link1",
+          "panda_link2",
+          "panda_link3",
+          "panda_link4",
+          "panda_link5",
+          "panda_link6",
+          "panda_link7",
+          "panda_link8",
+          "panda_hand",
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ],
+        "updated_link_with_geometry_names": [
+          "panda_link1",
+          "panda_link2",
+          "panda_link3",
+          "panda_link4",
+          "panda_link5",
+          "panda_link6",
+          "panda_link7",
+          "panda_hand",
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ]
+      }
+    },
     "groups": {
       "hand": [
         "panda_hand_joint",
@@ -100,6 +177,110 @@
         "panda_hand_joint",
         "panda_finger_joint1",
         "panda_finger_joint2"
+      ]
+    },
+    "joint_descendant_links": {
+      "panda_finger_joint1": [
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_finger_joint2": [
+        "panda_rightfinger"
+      ],
+      "panda_hand_joint": [
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint1": [
+        "panda_link1",
+        "panda_link2",
+        "panda_link3",
+        "panda_link4",
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint2": [
+        "panda_link2",
+        "panda_link3",
+        "panda_link4",
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint3": [
+        "panda_link3",
+        "panda_link4",
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint4": [
+        "panda_link4",
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint5": [
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint6": [
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint7": [
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "panda_joint8": [
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
+      ],
+      "virtual_joint": [
+        "panda_link0",
+        "panda_link1",
+        "panda_link2",
+        "panda_link3",
+        "panda_link4",
+        "panda_link5",
+        "panda_link6",
+        "panda_link7",
+        "panda_link8",
+        "panda_hand",
+        "panda_leftfinger",
+        "panda_rightfinger"
       ]
     },
     "joint_details": [

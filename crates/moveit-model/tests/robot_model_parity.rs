@@ -51,6 +51,16 @@ struct OracleModelInfo {
     /// Ground truth for `JointModelGroup::is_chain`, keyed by group name.
     #[serde(default)]
     group_is_chain: std::collections::BTreeMap<String, bool>,
+    /// Ground truth for `JointModelGroup::joint_roots`, keyed by group name:
+    /// the ordered names of every joint in upstream's `joint_roots_`.
+    #[serde(default)]
+    group_joint_roots: std::collections::BTreeMap<String, Vec<String>>,
+    /// Ground truth for `RobotModel::descendant_link_indices` (upstream
+    /// `JointModel::getDescendantLinkModels`), keyed by joint name. Compared
+    /// as a set, not a sequence — see `jointDescendantLinks`'s doc comment
+    /// in `oracle.cpp`.
+    #[serde(default)]
+    joint_descendant_links: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// Ground truth for `RobotModel::get_common_root`, one entry per queried
@@ -391,6 +401,40 @@ fn assert_matches_oracle(model: &RobotModel, expected: &OracleModelInfo) {
             group.is_chain(),
             *expected_is_chain,
             "is_chain for group '{group_name}'"
+        );
+    }
+
+    for (group_name, expected_root_names) in &expected.group_joint_roots {
+        let group = model
+            .joint_model_group(group_name)
+            .unwrap_or_else(|_| panic!("missing group '{group_name}'"));
+        let actual_root_names: Vec<&str> = group
+            .joint_roots()
+            .iter()
+            .map(|&idx| model.joint_names()[idx].as_str())
+            .collect();
+        assert_eq!(
+            actual_root_names, expected_root_names.as_slice(),
+            "joint_roots for group '{group_name}'"
+        );
+    }
+
+    for (joint_name, expected_link_names) in &expected.joint_descendant_links {
+        let joint_index = model
+            .joint_names()
+            .iter()
+            .position(|n| n == joint_name)
+            .unwrap_or_else(|| panic!("no joint named '{joint_name}'"));
+        let actual_links: std::collections::BTreeSet<&str> = model
+            .descendant_link_indices(joint_index)
+            .iter()
+            .map(|&idx| model.link_names()[idx].as_str())
+            .collect();
+        let expected_links: std::collections::BTreeSet<&str> =
+            expected_link_names.iter().map(String::as_str).collect();
+        assert_eq!(
+            actual_links, expected_links,
+            "descendant_link_indices for joint '{joint_name}'"
         );
     }
 }
