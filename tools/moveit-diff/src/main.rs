@@ -1711,8 +1711,50 @@ const MINIMUM_USABLE_B_PLUS_C: usize = 61;
 
 /// How close counts as "did not move from the seed" for the degenerate
 /// check -- far looser than `tol_ik`, since this is about catching a solver
-/// that took no real step at all, not measuring numerical precision.
+/// that took no real step at all, not measuring numerical precision. This is
+/// not a ported constant -- upstream's `KDLKinematicsPlugin`/
+/// `ChainIkSolverVelMimicSVD` have no "did not move" concept at all
+/// (confirmed by `rg -n "degenerate"` over `kdl_kinematics_plugin.cpp`: no
+/// hits), so there is no oracle value to match. This value, and the
+/// diagnostic itself, are this tool's own invention for catching a bug class
+/// (a solver that returns its seed rather than actually iterating) that
+/// upstream's own test suite has no name for either.
+///
+/// `IK_DEGENERATE_EPS` gates `stats.rust_degenerate`/`stats.oracle_degenerate`
+/// (`IkStats`, `#[derive(Serialize)]`), which land in `--stats-json` verbatim
+/// -- a number read by whoever runs a sweep, not just a print statement, so
+/// its value has to be defensible, not just "small".
+///
+/// Measured against 2952 successful `panda_arm` solves (`--urdf
+/// fixtures/panda.urdf --group panda_arm --ik --cases 3000 --seed 1`,
+/// instrumented to print each case's own elementwise max-`|solved - seed|` --
+/// exactly the quantity `IK_DEGENERATE_EPS` gates, since "every joint moved
+/// less than `IK_DEGENERATE_EPS`" is equivalent to "the worst-moved joint
+/// moved less than `IK_DEGENERATE_EPS`"): the smallest max-per-case value
+/// across all 2952 cases was `3.414642e-01`, roughly `5.5` decades above
+/// `1e-6`. Every real convergence this sweep produced left `1e-6` with wide
+/// headroom on both sides -- loose enough that `NewtonRaphsonSolver`'s own
+/// floating-point iteration noise near a genuine near-seed convergence would
+/// not spuriously clear `>= IK_DEGENERATE_EPS`, tight enough that no
+/// legitimate solve observed here came remotely close to tripping it by
+/// coincidence. Not a claim that `1e-6` is the *only* value with this
+/// property -- anything between roughly `1e-6` and `1e-2` would show the
+/// same headroom against this sweep -- only that `1e-6` is inside that band,
+/// not an arbitrary guess outside it.
 const IK_DEGENERATE_EPS: f64 = 1e-6;
+
+/// The shared "did not move from the seed" test behind both
+/// `stats.rust_degenerate` and `stats.oracle_degenerate`: true only when
+/// *every* joint's solved value sits within [`IK_DEGENERATE_EPS`] of its
+/// seed value (elementwise max-norm, not Euclidean -- one joint that moved
+/// enough is sufficient to call the whole solution non-degenerate,
+/// regardless of how many others did not move at all).
+fn is_degenerate_from_seed(solution: &[f64], seed: &[f64]) -> bool {
+    solution
+        .iter()
+        .zip(seed)
+        .all(|(&v, &s)| (v - s).abs() < IK_DEGENERATE_EPS)
+}
 
 /// Compares one `ik[case]`. Per-case failure is reserved for what upstream
 /// itself would call a bug: a converged solution whose own FK misses the
@@ -1744,17 +1786,18 @@ fn compare_ik(
     if expected.success {
         stats.oracle_success += 1;
         if let Some(solution) = &expected.solution {
-            let degenerate =
-                outcome
-                    .joint_names
-                    .iter()
-                    .zip(&outcome.seed)
-                    .all(|(name, &seed_value)| {
-                        solution
-                            .get(name)
-                            .is_some_and(|&v| (v - seed_value).abs() < IK_DEGENERATE_EPS)
-                    });
-            if degenerate {
+            // `solution` crossed the wire from the oracle process, keyed by
+            // name rather than position, so a name it omits is a real
+            // possibility to handle, not just a same-process invariant.
+            // `f64::INFINITY` keeps that joint from ever reading as "did
+            // not move", matching the original `is_some_and(...)` -> false
+            // behaviour this replaces.
+            let positional: Vec<f64> = outcome
+                .joint_names
+                .iter()
+                .map(|name| solution.get(name).copied().unwrap_or(f64::INFINITY))
+                .collect();
+            if is_degenerate_from_seed(&positional, &outcome.seed) {
                 stats.oracle_degenerate += 1;
             }
         }
@@ -1765,11 +1808,7 @@ fn compare_ik(
     };
     stats.rust_success += 1;
 
-    let degenerate = solution
-        .iter()
-        .zip(&outcome.seed)
-        .all(|(&v, &s)| (v - s).abs() < IK_DEGENERATE_EPS);
-    if degenerate {
+    if is_degenerate_from_seed(solution, &outcome.seed) {
         stats.rust_degenerate += 1;
     }
 
@@ -1924,6 +1963,57 @@ mod paired_divergence_tests {
         }
         let (b, c) = (17, 12);
         assert!(b + c < MINIMUM_USABLE_B_PLUS_C);
+    }
+}
+
+#[cfg(test)]
+mod is_degenerate_from_seed_tests {
+    use super::*;
+
+    /// The measured basis for `IK_DEGENERATE_EPS`: the smallest observed
+    /// elementwise max-`|solved - seed|` across 2952 real `panda_arm` solves
+    /// was `3.414642e-01` (see `IK_DEGENERATE_EPS`'s own doc comment) --
+    /// roughly `5.5` decades above the threshold. A solution that moved by
+    /// that much, the smallest real movement this sweep produced, must not
+    /// read as degenerate; this is the floor `IK_DEGENERATE_EPS` has to stay
+    /// under to keep matching that measurement.
+    #[test]
+    fn the_smallest_measured_real_movement_does_not_read_as_degenerate() {
+        let seed = [0.0, 0.0];
+        let smallest_measured_movement = [3.414_642e-1, 0.0];
+        assert!(!is_degenerate_from_seed(&smallest_measured_movement, &seed));
+    }
+
+    /// A solution identical to its seed in every joint is the textbook
+    /// degenerate case this diagnostic exists to catch.
+    #[test]
+    fn a_solution_identical_to_its_seed_is_degenerate() {
+        let seed = [0.1, -0.2, 0.3];
+        assert!(is_degenerate_from_seed(&seed, &seed));
+    }
+
+    /// Elementwise max-norm, not Euclidean or mean: one joint moved far
+    /// enough is sufficient to call the whole solution non-degenerate, no
+    /// matter how many other joints sit exactly on their seed value. A mean-
+    /// or sum-based check would still read this as degenerate, since one
+    /// large diff among many zeros can average back under the threshold.
+    #[test]
+    fn one_joint_moving_past_the_threshold_is_enough_to_disqualify_the_whole_solution() {
+        let seed = [0.0; 8];
+        let mut solution = [0.0; 8];
+        solution[3] = 1.0;
+        assert!(!is_degenerate_from_seed(&solution, &seed));
+    }
+
+    /// `IK_DEGENERATE_EPS` itself is strict `<`, matching upstream `Pose::
+    /// distance`/`configDistance2`'s own strict comparisons ported in
+    /// `ik_cache.rs` (`1eabb2b`): exactly at the threshold does not count as
+    /// "did not move", only strictly under it does.
+    #[test]
+    fn exactly_at_the_threshold_is_not_degenerate() {
+        let seed = [0.0];
+        let solution = [IK_DEGENERATE_EPS];
+        assert!(!is_degenerate_from_seed(&solution, &seed));
     }
 }
 
