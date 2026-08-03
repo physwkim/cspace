@@ -3,56 +3,35 @@
 
 //! Parity test against the moveit2 C++ oracle's `totg` op, group-driven
 //! branch, covering `time_optimal_trajectory_generation.rs`'s
-//! `RobotTrajectory` adapter (`compute_time_stamps_with_limits`).
+//! [`compute_time_stamps`] (the scaling-only overload) end to end.
 //!
-//! `totg_parity.rs` already cross-checks the model-independent
-//! `Path`/`Trajectory` core against the oracle's core-only `totg` cases
-//! (no `"group"` key). This file exercises the adapter layer on top of
-//! that core: waypoint construction from a `RobotTrajectory`, scaling-
-//! factor clamping, and write-back, via the same `totg` op with a
-//! `"group"` key set (see `oracle.cpp`'s `totgRobotTrajectoryCase`).
+//! `totg_robot_trajectory_parity.rs` exercises `compute_time_stamps_with_limits`
+//! exclusively, because no fixture model in this workspace has
+//! `acceleration_bounded` set: `moveit-model`'s URDF loader never reads an
+//! acceleration limit (URDF has no such field), and until
+//! `RobotModel::joint_model_mut` landed, nothing outside `moveit-model`
+//! could set one programmatically either. That accessor now exists, so this
+//! file closes the gap `time_optimal_trajectory_generation.rs`'s doc comment
+//! used to record under "Known gap".
 //!
-//! All three fixture cases go through `compute_time_stamps_with_limits`
-//! (the explicit-limits overload) with the exact `panda_arm` per-joint
-//! limits from upstream's `testCustomLimits` (already ported as a unit
-//! test in `time_optimal_trajectory_generation.rs`), matching upstream's
-//! own `setAccelerationLimits` test workaround for a URDF with no
-//! acceleration field. The scaling-only overload (`compute_time_stamps`)
-//! is not exercised here — see
-//! `totg_robot_trajectory_scaling_only_parity.rs`, a separate fixture and
-//! test file, and `time_optimal_trajectory_generation.rs`'s "Closed gap"
-//! doc section for why it needed its own model setup rather than a fourth
-//! case here.
-//!
-//! Case 0 is the baseline (`testCustomLimits`'s own two waypoints,
-//! oracle-side, as a sanity cross-check of the already-ported unit test).
-//! Case 1 is identical except `max_velocity_scaling_factor: 2.0` and
-//! `max_acceleration_scaling_factor: -1.0` (both outside `(0, 1]`) --
-//! `verify_scaling_factor`/`verifyScalingFactor` must clamp both to the
-//! default `1.0`, so this case's oracle output is bit-identical to case
-//! 0's (confirmed when the fixture was captured; the oracle logged
-//! `Invalid max_velocity_scaling_factor 2.000000 specified, defaulting to
-//! 1.000000 instead.` and the equivalent for acceleration). Case 2
-//! repeats waypoint 0 before waypoint 1 -- the duplicate must be dropped
-//! by the `min_angle_change` dedup pass, producing the same waypoint
-//! count and durations as case 0/1 (matching this crate's own
-//! `a_middle_duplicate_waypoint_is_dropped_not_double_counted` unit
-//! test).
-//!
-//! Every case also cross-checks `has_mixed_joint_types` against
-//! `oracle.cpp`'s `hasMixedJointTypesForGroup` (a re-implementation of
-//! the private `TimeOptimalTrajectoryGeneration::hasMixedJointTypes`,
-//! cpp:1273-1288, over the same public `getActiveJointModels()` API --
-//! see that function's doc comment for why a re-implementation was
-//! necessary rather than a direct call). `panda_arm` is revolute-only, so
-//! every case here asserts `false`; `totg_synthetic_parity.rs` is where
-//! this comes back `true`.
+//! `panda.urdf` already gives every `panda_arm` joint `velocity_bounded =
+//! true` (from its `<limit velocity="...">` elements) — only acceleration
+//! was missing. This test adds it the same way upstream's own
+//! `joint_limits.yaml` loaders do: read the joint's current bounds via
+//! [`JointModel::variable_bounds_msg`], overwrite only the acceleration
+//! fields, write back via [`JointModel::set_variable_bounds_from_limits`].
+//! `oracle.cpp`'s `totgRobotTrajectoryCase` does the oracle-side equivalent
+//! (`JointModel::getVariableBoundsMsg`/`setVariableBounds`) when a case
+//! carries an `"acceleration_bounds"` field — see that function's doc
+//! comment. Both sides start from the same `panda.urdf`, so the two
+//! mutations produce the same model.
 //!
 //! # Tolerance
 //!
-//! Both sides run the identical Kunz & Stilman numerics this crate's
+//! Same `TOL` as `totg_robot_trajectory_parity.rs`, for the same reason:
+//! both sides run the identical Kunz & Stilman numerics
 //! `totg_parity.rs` already validates bit-for-bit against the core-only
-//! oracle path; `TOL` matches that file's.
+//! oracle path.
 
 use std::collections::HashMap;
 use std::fs;
@@ -60,12 +39,13 @@ use std::fs;
 use approx::assert_relative_eq;
 use serde::Deserialize;
 
+use moveit_model::joint::JointModel;
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
 use moveit_trajectory::RobotTrajectory;
 use moveit_trajectory::time_optimal_trajectory_generation::{
-    TotgOptions, compute_time_stamps_with_limits, has_mixed_joint_types,
+    TotgOptions, compute_time_stamps, has_mixed_joint_types,
 };
 
 const TOL: f64 = 1e-6;
@@ -99,23 +79,30 @@ fn panda() -> RobotModel {
         .expect("fixture model must build")
 }
 
-#[derive(Deserialize)]
-struct TotgRtRequestCase {
-    waypoints: Vec<HashMap<String, f64>>,
-    durations_from_previous: Vec<f64>,
-    #[serde(default)]
-    max_velocity_scaling_factor: Option<f64>,
-    #[serde(default)]
-    max_acceleration_scaling_factor: Option<f64>,
-    velocity_limits: HashMap<String, f64>,
-    #[serde(default)]
-    acceleration_limits: HashMap<String, f64>,
+/// Mirrors `oracle.cpp`'s `totgRobotTrajectoryCase` handling of a case's
+/// `"acceleration_bounds"` field: read-modify-write through
+/// [`JointModel::variable_bounds_msg`]/[`JointModel::set_variable_bounds_from_limits`]
+/// so URDF-sourced position/velocity bounds are preserved.
+fn set_acceleration_bound(joint: &mut JointModel, max_acceleration: f64) {
+    let mut limits = joint.variable_bounds_msg();
+    for limit in &mut limits {
+        limit.has_acceleration_limits = true;
+        limit.max_acceleration = max_acceleration;
+    }
+    joint.set_variable_bounds_from_limits(&limits);
 }
 
 #[derive(Deserialize)]
-struct TotgRtRequest {
+struct TotgRtScalingOnlyRequestCase {
+    acceleration_bounds: HashMap<String, f64>,
+    waypoints: Vec<HashMap<String, f64>>,
+    durations_from_previous: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct TotgRtScalingOnlyRequest {
     group: String,
-    cases: Vec<TotgRtRequestCase>,
+    cases: Vec<TotgRtScalingOnlyRequestCase>,
 }
 
 #[derive(Deserialize)]
@@ -146,15 +133,17 @@ struct TotgRtResponseEntry {
 }
 
 #[test]
-fn totg_robot_trajectory_matches_the_oracle() {
-    let model = panda();
+fn totg_robot_trajectory_scaling_only_matches_the_oracle() {
+    let mut model = panda();
 
-    let requests: Vec<TotgRtRequest> =
-        serde_json::from_str(&read_fixture("totg_robot_trajectory_request.json"))
-            .expect("parse totg_robot_trajectory_request.json");
-    let responses: Vec<TotgRtResponseEntry> =
-        serde_json::from_str(&read_fixture("totg_robot_trajectory_response.json"))
-            .expect("parse totg_robot_trajectory_response.json");
+    let requests: Vec<TotgRtScalingOnlyRequest> = serde_json::from_str(&read_fixture(
+        "totg_robot_trajectory_scaling_only_request.json",
+    ))
+    .expect("parse totg_robot_trajectory_scaling_only_request.json");
+    let responses: Vec<TotgRtResponseEntry> = serde_json::from_str(&read_fixture(
+        "totg_robot_trajectory_scaling_only_response.json",
+    ))
+    .expect("parse totg_robot_trajectory_scaling_only_response.json");
     assert_eq!(requests.len(), responses.len());
     let request = &requests[0];
     let response = &responses[0];
@@ -163,6 +152,13 @@ fn totg_robot_trajectory_matches_the_oracle() {
     for (case_index, (case, expected)) in
         request.cases.iter().zip(&response.result.cases).enumerate()
     {
+        for (joint_name, &max_acceleration) in &case.acceleration_bounds {
+            let joint = model
+                .joint_model_mut(joint_name)
+                .unwrap_or_else(|e| panic!("case {case_index}: joint_model_mut: {e}"));
+            set_acceleration_bound(joint, max_acceleration);
+        }
+
         let mut trajectory = RobotTrajectory::for_group_name(&model, &request.group)
             .unwrap_or_else(|e| panic!("case {case_index}: for_group_name: {e}"));
         let group = model
@@ -187,23 +183,12 @@ fn totg_robot_trajectory_matches_the_oracle() {
                 .unwrap_or_else(|e| panic!("case {case_index}: add_suffix_way_point: {e}"));
         }
 
-        let options = TotgOptions {
-            max_velocity_scaling_factor: case.max_velocity_scaling_factor.unwrap_or(1.0),
-            max_acceleration_scaling_factor: case.max_acceleration_scaling_factor.unwrap_or(1.0),
-            ..Default::default()
-        };
-
-        let result = compute_time_stamps_with_limits(
-            &mut trajectory,
-            &case.velocity_limits,
-            &case.acceleration_limits,
-            &options,
-        );
+        let result = compute_time_stamps(&mut trajectory, &TotgOptions::default());
 
         assert_eq!(
             result.is_ok(),
             expected.ok,
-            "case {case_index}: compute_time_stamps_with_limits ok mismatch ({result:?})"
+            "case {case_index}: compute_time_stamps ok mismatch ({result:?})"
         );
         if !expected.ok {
             continue;

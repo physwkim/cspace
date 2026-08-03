@@ -21,9 +21,10 @@
 //! [`apply_totg_time_parameterization`] wraps the scaling-only
 //! `compute_time_stamps` overload specifically (matching upstream, which
 //! only ever constructs a scaling-only `TimeOptimalTrajectoryGeneration`
-//! call from here), so it inherits that overload's "Known gap" documented
-//! on [`crate::time_optimal_trajectory_generation`]: it cannot succeed
-//! against any fixture in this workspace either, for the same reason.
+//! call from here), so its test below builds on the same
+//! `RobotModel::joint_model_mut`-based acceleration-bounds setup as
+//! [`crate::time_optimal_trajectory_generation`]'s now-closed "Known gap"
+//! section describes.
 //!
 //! # Out of scope
 //!
@@ -164,22 +165,51 @@ mod tests {
         trajectory
     }
 
+    /// `panda.urdf` has no `<limit>` acceleration field (URDF's schema has
+    /// none), so every `panda_arm` joint needs `acceleration_bounded` set
+    /// programmatically before the scaling-only overload can succeed —
+    /// same read ([`moveit_model::joint::JointModel::variable_bounds_msg`])
+    /// / mutate / write
+    /// ([`moveit_model::joint::JointModel::set_variable_bounds_from_limits`])
+    /// pattern `totg_robot_trajectory_scaling_only_parity.rs` uses against
+    /// the oracle.
+    fn set_uniform_acceleration_bound(model: &mut RobotModel, max_acceleration: f64) {
+        for name in [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ] {
+            let joint = model.joint_model_mut(name).expect("panda_arm joint exists");
+            let mut limits = joint.variable_bounds_msg();
+            for limit in &mut limits {
+                limit.has_acceleration_limits = true;
+                limit.max_acceleration = max_acceleration;
+            }
+            joint.set_variable_bounds_from_limits(&limits);
+        }
+    }
+
     /// `apply_totg_time_parameterization` wraps
     /// [`time_optimal_trajectory_generation::compute_time_stamps`] (the
-    /// scaling-only overload), so it inherits that overload's "Known gap"
-    /// documented on [`time_optimal_trajectory_generation`]: no fixture in
-    /// this workspace has `acceleration_bounded` set, so neither call can
-    /// reach the numeric core. What this test can and does check is that
-    /// the wrapper forwards its five arguments into an equivalent
-    /// [`TotgOptions`] faithfully — both calls must fail on the exact same
-    /// joint for the exact same reason, not just "both fail".
+    /// scaling-only overload); this asserts the wrapper forwards its five
+    /// arguments into an equivalent [`TotgOptions`] faithfully by requiring
+    /// both calls to reach the same successful numeric result, not just
+    /// "both fail the same way" (the only thing checkable before
+    /// `RobotModel::joint_model_mut` existed — see
+    /// [`time_optimal_trajectory_generation`]'s former "Known gap" doc
+    /// section, now closed).
     #[test]
     fn apply_totg_time_parameterization_with_upstream_defaults_forwards_to_compute_time_stamps() {
-        let model = panda();
+        let mut model = panda();
+        set_uniform_acceleration_bound(&mut model, 3.0);
         let mut via_tool = two_waypoint_trajectory(&model);
         let mut via_core = two_waypoint_trajectory(&model);
 
-        let tool_err = apply_totg_time_parameterization(
+        apply_totg_time_parameterization(
             &mut via_tool,
             1.0,
             1.0,
@@ -187,14 +217,21 @@ mod tests {
             0.1,
             0.001,
         )
-        .expect_err("no fixture has acceleration bounds; see the Known gap doc section");
-        let core_err = time_optimal_trajectory_generation::compute_time_stamps(
+        .expect("apply_totg_time_parameterization must succeed");
+        time_optimal_trajectory_generation::compute_time_stamps(
             &mut via_core,
             &TotgOptions::default(),
         )
-        .expect_err("no fixture has acceleration bounds; see the Known gap doc section");
+        .expect("compute_time_stamps must succeed");
 
-        assert_eq!(tool_err.to_string(), core_err.to_string());
+        assert_eq!(via_tool.way_point_count(), via_core.way_point_count());
+        for idx in 0..via_tool.way_point_count() {
+            assert_relative_eq!(
+                via_tool.way_point_duration_from_previous(idx),
+                via_core.way_point_duration_from_previous(idx),
+                epsilon = 1e-12
+            );
+        }
     }
 
     #[test]

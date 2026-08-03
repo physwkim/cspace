@@ -2871,6 +2871,22 @@ private:
   /// `moveit_msgs::msg::JointLimits` overload is not exercised, for the same
   /// reason `ruckig` does not exercise its analogous overload: a thin
   /// wrapper the port doesn't carry (D1).
+  /// A case may also carry "acceleration_bounds" (joint name -> max
+  /// acceleration, same shape as "velocity_limits"/"acceleration_limits"):
+  /// applied to `model_` itself, via the same read
+  /// (`JointModel::getVariableBoundsMsg`) / mutate / write
+  /// (`JointModel::setVariableBounds`) pattern `joint_limits.yaml` loaders
+  /// use upstream, *before* the scaling-only overload runs. `panda.urdf`
+  /// (like every URDF) has no `<limit>` acceleration field, so `model_`
+  /// never has `acceleration_bounded` set on any joint without this --
+  /// which is exactly why the scaling-only overload had no reachable test
+  /// case anywhere in this workspace before `RobotModel::joint_model_mut`
+  /// landed on the Rust side (see `time_optimal_trajectory_generation.rs`'s
+  /// former "Known gap" section, now closed). The mutation is applied to
+  /// `model_` itself, not scoped to the case, so it persists for the rest
+  /// of this oracle process -- deliberately kept to its own isolated
+  /// `totg_robot_trajectory_scaling_only_request.json`, never mixed into a
+  /// fixture another case in the same file also relies on.
   /// Re-implementation of `TimeOptimalTrajectoryGeneration::hasMixedJointTypes`
   /// (cpp:1273-1288), which the oracle cannot call directly (it is a
   /// private member of that class): identical logic over the same public
@@ -2896,6 +2912,23 @@ private:
 
   json totgRobotTrajectoryCase(const std::string& group_name, const json& c)
   {
+    if (c.contains("acceleration_bounds"))
+    {
+      for (const auto& [joint_name, max_acceleration] : readLimitMap(c, "acceleration_bounds"))
+      {
+        moveit::core::JointModel* joint_model = model_->getJointModel(joint_name);
+        if (joint_model == nullptr)
+          throw std::runtime_error("unknown joint: " + joint_name);
+        std::vector<moveit_msgs::msg::JointLimits> limits = joint_model->getVariableBoundsMsg();
+        for (moveit_msgs::msg::JointLimits& limit : limits)
+        {
+          limit.has_acceleration_limits = true;
+          limit.max_acceleration = max_acceleration;
+        }
+        joint_model->setVariableBounds(limits);
+      }
+    }
+
     const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
     robot_trajectory::RobotTrajectory trajectory(model_, group_name);
 
