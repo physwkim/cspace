@@ -50,9 +50,19 @@
 //!
 //! # Tolerance
 //!
-//! Both sides run the identical Kunz & Stilman numerics this crate's
-//! `totg_parity.rs` already validates bit-for-bit against the core-only
-//! oracle path; `TOL` matches that file's.
+//! `assert_relative_eq!` without an explicit `max_relative` silently gets
+//! `f64::EPSILON` (~2.22e-16), so bisecting `epsilon` alone can plateau
+//! before a real biting point (PORTING-PLAN.md §78.1/§79) -- and it did
+//! here: the old unqualified `TOL` passed all the way to `0.0`. Every call
+//! below now pins `max_relative = TOL`, coupling both branches to the same
+//! constant. Bisecting that: `2.5e-16` and above pass, `2e-16` and below
+//! fail (first divergence is `duration_from_previous`, e.g.
+//! `-1.0781250000000013` vs `-1.078125000000001`, diff ~3e-16, right at the
+//! f64 ULP floor for values of this magnitude -- not the "bit-for-bit"
+//! `totg_parity.rs` was believed to establish). `TOL` is `1e-12`, ~3.6
+//! orders of magnitude of headroom. Confirmed still discriminating:
+//! multiplying `do_time_parameterization_calculations`'s
+//! `position[j]` writeback by `1.0001` fails the fixture.
 
 use std::collections::HashMap;
 use std::fs;
@@ -68,7 +78,7 @@ use moveit_trajectory::time_optimal_trajectory_generation::{
     TotgOptions, compute_time_stamps_with_limits, has_mixed_joint_types,
 };
 
-const TOL: f64 = 1e-6;
+const TOL: f64 = 1e-12;
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -224,7 +234,8 @@ fn totg_robot_trajectory_matches_the_oracle() {
             assert_relative_eq!(
                 trajectory.way_point_duration_from_previous(waypoint_idx),
                 expected.durations_from_previous[waypoint_idx],
-                epsilon = TOL
+                epsilon = TOL,
+                max_relative = TOL
             );
 
             let waypoint = trajectory
@@ -238,7 +249,8 @@ fn totg_robot_trajectory_matches_the_oracle() {
                         "case {case_index}: waypoint {waypoint_idx}: variable_position({name}): {e}"
                     )),
                     expected_position,
-                    epsilon = TOL
+                    epsilon = TOL,
+                    max_relative = TOL
                 );
             }
             for (name, &expected_velocity) in &expected_waypoint.velocities {
@@ -247,7 +259,8 @@ fn totg_robot_trajectory_matches_the_oracle() {
                         "case {case_index}: waypoint {waypoint_idx}: variable_velocity({name}): {e}"
                     )),
                     expected_velocity,
-                    epsilon = TOL
+                    epsilon = TOL,
+                    max_relative = TOL
                 );
             }
             for (name, &expected_acceleration) in &expected_waypoint.accelerations {
@@ -256,7 +269,8 @@ fn totg_robot_trajectory_matches_the_oracle() {
                         "case {case_index}: waypoint {waypoint_idx}: variable_acceleration({name}): {e}"
                     )),
                     expected_acceleration,
-                    epsilon = TOL
+                    epsilon = TOL,
+                max_relative = TOL
                 );
             }
         }
