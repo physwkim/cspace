@@ -375,6 +375,25 @@ impl RobotModel {
             .ok_or_else(|| Error::unknown_name("joint", name))
     }
 
+    /// `getJointModel(const std::string&)`, non-`const` overload.
+    ///
+    /// Round-8 §38 (p6-totg parity, `0ae431d`): without this, the already-
+    /// `pub` `JointModel::set_variable_bounds_from_limits` was unreachable
+    /// from outside this crate, since every other `RobotModel` accessor is
+    /// `&self` -- no fixture outside `moveit-model` itself could construct a
+    /// model whose joint limits differ from its URDF's.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `name`.
+    pub fn joint_model_mut(&mut self, name: &str) -> Result<&mut JointModel> {
+        let index = *self
+            .joint_index_by_name
+            .get(name)
+            .ok_or_else(|| Error::unknown_name("joint", name))?;
+        Ok(&mut self.joints[index].model)
+    }
+
     /// `hasJointModel`
     pub fn has_joint_model(&self, name: &str) -> bool {
         self.joint_index_by_name.contains_key(name)
@@ -1738,6 +1757,7 @@ fn build_end_effectors(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::joint::VariableBounds;
 
     const FIXED_BASE_SRDF: &str = r#"<robot name="test">
         <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
@@ -1834,6 +1854,60 @@ mod tests {
         assert!(!without_limit.velocity_bounded);
 
         assert_ne!(with_limit, without_limit);
+    }
+
+    /// Round-8 §38: before `joint_model_mut`, no fixture outside this crate
+    /// could build a model whose joint limits differ from its URDF's, since
+    /// `RobotModel`'s public API was exhaustively `&self` even though
+    /// `JointModel::set_variable_bounds`/`set_variable_bounds_from_limits`
+    /// were already `pub`.
+    #[test]
+    fn joint_model_mut_reaches_the_already_pub_bounds_setters() {
+        let urdf = r#"<robot name="test">
+            <link name="base"/>
+            <link name="tip"/>
+            <joint name="j" type="prismatic">
+                <parent link="base"/>
+                <child link="tip"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="0" upper="1" effort="0" velocity="0"/>
+            </joint>
+        </robot>"#;
+        let mut model = build(urdf, FIXED_BASE_SRDF).expect("builds");
+
+        let original = model.joint_model("j").unwrap().variable_bounds()[0];
+        assert_eq!(original.max_position, 1.0);
+
+        model
+            .joint_model_mut("j")
+            .expect("j exists")
+            .set_variable_bounds(
+                "j",
+                VariableBounds {
+                    max_position: 5.0,
+                    ..original
+                },
+            )
+            .expect("j has a variable named j");
+
+        let updated = model.joint_model("j").unwrap().variable_bounds()[0];
+        assert_eq!(updated.max_position, 5.0);
+        assert_eq!(
+            updated.min_position, original.min_position,
+            "only the touched field should change"
+        );
+    }
+
+    #[test]
+    fn joint_model_mut_unknown_name_is_an_error() {
+        let mut model = build(
+            r#"<robot name="test">
+                <link name="base"/>
+            </robot>"#,
+            FIXED_BASE_SRDF,
+        )
+        .expect("builds");
+        assert!(model.joint_model_mut("no_such_joint").is_err());
     }
 
     #[test]
