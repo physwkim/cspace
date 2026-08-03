@@ -1279,11 +1279,29 @@ private:
     bool success = cartToJnt(q_seed_full, q_out) && consistencyOk(q_seed_full, q_out);
     for (unsigned int attempt = 0; attempt < max_restarts && !success; ++attempt)
     {
+      // `searchPositionIK`'s own branch (kdl_kinematics_plugin.cpp:373-382):
+      // reseed near the *original* seed, clamped to each active joint's own
+      // consistency_limits_mimic bound, whenever limits are active; only
+      // fall back to a full-range draw when they are not. Sampling full-range
+      // unconditionally here (as this loop did before this fix) starves the
+      // consistency check under a tight limit -- almost every full-range
+      // reseed lands too far from `q_seed_full` to pass `consistencyOk`
+      // even when `cartToJnt` converges, which is a real bug, not RNG noise
+      // (see PORTING-PLAN.md's round-5 `p1-joints` section).
       std::vector<double> reseed_active(active_joint_names.size());
       for (std::size_t k = 0; k < active_joint_names.size(); ++k)
       {
-        reseed_active[k] =
-            ik_rng_.uniformReal(joint_min[active_full_index[k]], joint_max[active_full_index[k]]);
+        const std::size_t full_i = active_full_index[k];
+        if (has_consistency_limits)
+        {
+          const double limit = consistency_limits_mimic[k];
+          reseed_active[k] = ik_rng_.uniformReal(std::max(joint_min[full_i], seed_active[k] - limit),
+                                                  std::min(joint_max[full_i], seed_active[k] + limit));
+        }
+        else
+        {
+          reseed_active[k] = ik_rng_.uniformReal(joint_min[full_i], joint_max[full_i]);
+        }
       }
       success = cartToJnt(buildQFull(reseed_active), q_out) && consistencyOk(q_seed_full, q_out);
     }
