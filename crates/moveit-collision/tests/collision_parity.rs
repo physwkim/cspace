@@ -1481,3 +1481,167 @@ fn pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direc
         );
     }
 }
+
+/// One `self_distance`/`self_distance_pair` case from
+/// `pr2_self_wheel_same_pair_oracle_implausible_{request,response}.json` --
+/// three states (seed 20260804, `right_arm --collision`, case indices 216,
+/// 971 and 1265 of the same 3000-case sweep item 1's other fixtures use)
+/// where this backend and the oracle agree on the self-side argmin pair
+/// (`base_link`/one of the eight `*_caster_*_wheel_link`s, the same
+/// rotationally-symmetric family `parry.rs`'s deviation-6 doc already names
+/// as producing this backend's own frozen `-0.046592m` constant) but
+/// disagree on magnitude far outside that pair's own bounding-radius bound.
+struct SelfWheelOraclePoint {
+    joint_values: BTreeMap<String, f64>,
+    oracle_distance: f64,
+    wheel_link_name: String,
+}
+
+fn load_self_wheel_oracle_points() -> Vec<SelfWheelOraclePoint> {
+    #[derive(Deserialize)]
+    struct RequestCase {
+        id: u64,
+        joint_values: BTreeMap<String, f64>,
+    }
+    #[derive(Deserialize)]
+    struct DistancePair {
+        body_name_1: String,
+        body_name_2: String,
+    }
+    #[derive(Deserialize)]
+    struct ResultCase {
+        self_distance: f64,
+        self_distance_pair: DistancePair,
+    }
+    #[derive(Deserialize)]
+    struct ResponseCase {
+        id: u64,
+        result: ResultCase,
+    }
+
+    let requests: Vec<RequestCase> = {
+        let path = fixture_path("pr2_self_wheel_same_pair_oracle_implausible_request.json");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    };
+    let responses: Vec<ResponseCase> = {
+        let path = fixture_path("pr2_self_wheel_same_pair_oracle_implausible_response.json");
+        let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+    };
+    let responses_by_id: BTreeMap<u64, &ResponseCase> =
+        responses.iter().map(|r| (r.id, r)).collect();
+
+    requests
+        .iter()
+        .map(|req| {
+            let response = responses_by_id
+                .get(&req.id)
+                .unwrap_or_else(|| panic!("no response for request id {}", req.id));
+            let pair = &response.result.self_distance_pair;
+            let (base_side, wheel_side) = if pair.body_name_1 == "base_link" {
+                (pair.body_name_1.as_str(), pair.body_name_2.as_str())
+            } else {
+                (pair.body_name_2.as_str(), pair.body_name_1.as_str())
+            };
+            assert_eq!(
+                base_side, "base_link",
+                "request id {}: fixture is meant to capture a base_link/wheel pair",
+                req.id
+            );
+            assert!(
+                wheel_side.ends_with("_caster_l_wheel_link")
+                    || wheel_side.ends_with("_caster_r_wheel_link"),
+                "request id {}: {wheel_side} is not a caster wheel link",
+                req.id
+            );
+            SelfWheelOraclePoint {
+                joint_values: req.joint_values.clone(),
+                oracle_distance: response.result.self_distance,
+                wheel_link_name: wheel_side.to_owned(),
+            }
+        })
+        .collect()
+}
+
+/// Round 12 item 1 (`PORTING-PLAN.md` -- this round-set's self-side same-pair
+/// breakdown): of the 62 seed-20260804 `right_arm --collision` cases where
+/// this backend and the oracle agree on the self-side deepest pair but
+/// disagree on its magnitude, 52 are the known `base_bellow_link`/
+/// `torso_lift_link` plateau (deviation 6(b), `PORTING-PLAN.md` §56/§63.1).
+/// The other 10 are `base_link`/one of five distinct `*_caster_*_wheel_link`
+/// links -- the same rotationally-symmetric family `parry.rs`'s deviation-6
+/// doc already names as producing this backend's own frozen `-0.046592m`
+/// constant (the wheel-roll joint cannot move the closest point). Of those
+/// 10, 3 have an oracle magnitude exceeding twice the wheel's own bounding
+/// radius (`link_bounding_radius`, `0.1534m` for a pr2 caster wheel) --
+/// geometrically impossible for that pair, on either backend, the same
+/// failure mode `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`
+/// already documents for deviation 6(a). The remaining 7 stay within that
+/// bound and are not adjudicated by it either way: a within-bound number is
+/// consistent with both "this backend misses a real deeper contact" and
+/// "another independent-EPA local-minimum disagreement", and a self-side
+/// pair (both bodies posed, no fixed external reference like `floor_env`'s
+/// box) admits no cheaper, backend-independent ground truth the way
+/// `deepest_vertex_under_floor` gives the world-object side -- that check's
+/// "project onto a fixed plane" argument has nothing to stand on when both
+/// meshes move. So this test documents only the 3 that a bounding-radius
+/// bound alone already settles; the other 7 need a case-by-case
+/// investigation this test does not attempt.
+#[test]
+fn pr2_self_wheel_same_pair_oracle_magnitude_is_implausible() {
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let acm = build_acm("pr2.srdf");
+    let env = floor_env();
+
+    for point in load_self_wheel_oracle_points() {
+        let mut state = build_state(&model, &point.joint_values);
+        let posed = state.update();
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&acm),
+            ..DistanceRequest::default()
+        };
+        let distance = env.distance_self(&request, &posed, &[]);
+
+        assert!(
+            distance
+                .minimum_distance
+                .link_names
+                .contains(&point.wheel_link_name)
+                && distance
+                    .minimum_distance
+                    .link_names
+                    .contains(&"base_link".to_owned()),
+            "{}: oracle's argmin pair is base_link/{}, this backend's is {:?} -- expected \
+             agreement on the pair, disagreement only on depth",
+            point.wheel_link_name,
+            point.wheel_link_name,
+            distance.minimum_distance.link_names
+        );
+
+        let bound = link_bounding_radius(&model, &point.wheel_link_name)
+            .map(|radius| 2.0 * radius)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: expected a finite bounding radius",
+                    point.wheel_link_name
+                )
+            });
+        assert!(
+            point.oracle_distance.abs() > bound,
+            "{}: oracle's own {} no longer exceeds this pair's {bound} bound -- the implausible \
+             number this test exists to document may have been fixed upstream (rebuild the \
+             fixture) or this case no longer belongs in the implausible set",
+            point.wheel_link_name,
+            point.oracle_distance
+        );
+        assert!(
+            distance.minimum_distance.distance.abs() <= bound,
+            "{}: this backend's own {} exceeds its own plausibility bound {bound} -- a real \
+             regression, not the oracle-side implausibility this test documents",
+            point.wheel_link_name,
+            distance.minimum_distance.distance
+        );
+    }
+}
