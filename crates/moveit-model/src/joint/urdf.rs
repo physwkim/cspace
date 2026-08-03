@@ -24,7 +24,7 @@ use super::model::JointModel;
 /// themselves, or constructing a virtual joint by hand from the SRDF).
 ///
 /// `limit_present` must be whether the original `<joint>` element had a
-/// `<limit>` child at all — see [`joint_bounds_from_urdf`]'s doc comment for
+/// `<limit>` child at all — see `joint_bounds_from_urdf`'s doc comment for
 /// why this can't be recovered from `joint.limit` alone, and thus must come
 /// from the caller.
 ///

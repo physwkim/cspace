@@ -30,7 +30,7 @@ use super::bounds::VariableBounds;
 ///    on just one of the four components (a naive per-variable clamp, a
 ///    per-variable random perturbation) breaks that invariant.
 ///    [`FloatingJoint::normalize_rotation`] is the only repair operation;
-///    [`FloatingJoint::enforce_position_bounds`] always calls it first.
+///    `enforce_position_bounds` always calls it first.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloatingJoint {
     angular_distance_weight: f64,
@@ -45,7 +45,7 @@ impl Default for FloatingJoint {
 }
 
 impl FloatingJoint {
-    /// The weight applied to the rotational component of [`FloatingJoint::distance`]
+    /// The weight applied to the rotational component of `FloatingJoint::distance`
     /// relative to the translational component (which has weight 1).
     pub fn angular_distance_weight(&self) -> f64 {
         self.angular_distance_weight
@@ -140,7 +140,7 @@ impl FloatingJoint {
             + self.angular_distance_weight * Self::distance_rotation(values1, values2)
     }
 
-    /// The translational component of [`FloatingJoint::distance`]: Euclidean
+    /// The translational component of `FloatingJoint::distance`: Euclidean
     /// distance between `values1[0..3]` and `values2[0..3]`.
     pub fn distance_translation(values1: &[f64; 7], values2: &[f64; 7]) -> f64 {
         let dx = values1[0] - values2[0];
@@ -150,7 +150,7 @@ impl FloatingJoint {
     }
 
     /// Upstream normalizes both quaternions before comparing (even though
-    /// [`FloatingJoint::satisfies_position_bounds`] elsewhere treats a
+    /// `satisfies_position_bounds` elsewhere treats a
     /// non-unit quaternion as out of bounds) — reproduced as-is.
     pub fn distance_rotation(values1: &[f64; 7], values2: &[f64; 7]) -> f64 {
         let q1 = UnitQuaternion::new_normalize(quaternion_from_xyzw(values1));

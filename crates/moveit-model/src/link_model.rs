@@ -16,7 +16,7 @@ use crate::aabb::Aabb;
 ///
 /// Upstream keeps `shapes_` and `collision_origin_transform_` as two
 /// parallel `std::vector`s that every mutator must keep the same length —
-/// [`LinkModel::set_geometry`] takes one `Vec` of this pair instead, so
+/// `LinkModel::set_geometry` takes one `Vec` of this pair instead, so
 /// "one shape, no matching transform" is unrepresentable rather than a bug
 /// class to avoid.
 #[derive(Debug, Clone, PartialEq)]
@@ -219,7 +219,7 @@ impl LinkModel {
     /// `getCenteredBoundingBoxOffset`: the center of the axis-aligned
     /// bounding box of [`LinkModel::shapes`], with the link positioned at
     /// its own origin. Exactly zero in every component if `shapes` is empty
-    /// — see [`crate::aabb::Aabb`]'s doc comment.
+    /// — see `Aabb`'s doc comment.
     pub fn centered_bounding_box_offset(&self) -> Vector3 {
         self.centered_bounding_box_offset
     }

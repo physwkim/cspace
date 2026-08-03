@@ -111,7 +111,7 @@ impl RobotModel {
     /// layer's bounds computation needs to distinguish "no limit" from an
     /// explicit all-zero one (upstream tells them apart via a null
     /// `urdf_joint->limits` pointer). This is recovered here by reading the
-    /// raw XML directly, see [`joint_limit_presence`].
+    /// raw XML directly, see `joint_limit_presence`.
     ///
     /// Upstream `RobotModel::RobotModel`/`buildModel`.
     ///

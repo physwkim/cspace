@@ -49,7 +49,7 @@ impl Default for PlanarJoint {
 }
 
 impl PlanarJoint {
-    /// The weight applied to the rotational component of [`PlanarJoint::distance`]
+    /// The weight applied to the rotational component of `PlanarJoint::distance`
     /// relative to the translational component (which has weight 1).
     pub fn angular_distance_weight(&self) -> f64 {
         self.angular_distance_weight

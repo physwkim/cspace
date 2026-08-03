@@ -63,7 +63,7 @@ pub struct JointModelGroup {
 ///
 /// # Deviation from upstream
 ///
-/// This only exists at all once [`JointModelGroup::set_end_effector_parent`]
+/// This only exists at all once `set_end_effector_parent`
 /// has actually run — which upstream does exactly once per group that *is* an
 /// end effector (see `RobotModel::buildGroupsInfoEndEffectors`) — so
 /// [`JointModelGroup::end_effector_parent`] returns [`None`] for a
@@ -213,7 +213,7 @@ impl JointModelGroup {
     /// # Deviation from upstream
     ///
     /// If the same name is ever added twice (via
-    /// [`JointModelGroup::add_default_state`]), upstream's
+    /// `add_default_state`), upstream's
     /// `default_states_names_.push_back(name)` keeps both entries even
     /// though `default_states_[name]` silently keeps only the later value —
     /// this port reproduces that duplication exactly, rather than
