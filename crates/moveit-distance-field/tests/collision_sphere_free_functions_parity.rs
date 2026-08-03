@@ -37,9 +37,18 @@
 //!
 //! `tests/fixtures/collision_sphere_free_functions_request.json` (ids 1-5)
 //! is a hand-built, not captured-from-a-larger-scenario, case set, chosen to
-//! cover every branch the crate's doc comments on
-//! [`get_collision_sphere_collision`]/[`get_collision_sphere_collisions`]
-//! call out:
+//! cover every *reachable* branch in
+//! [`get_collision_sphere_collision`]/[`get_collision_sphere_collisions`]:
+//!
+//! - **Not covered, and not coverable through this API**: the
+//!   `!in_bounds && grad.norm() > threshold` early-return guard at the top
+//!   of every function in this family. See
+//!   [`PosedDistanceField::get_collision_sphere_gradients`]'s "Decision" doc
+//!   section -- [`DistanceField::distance_gradient`] zeroes the gradient on
+//!   every out-of-bounds return, so the guard can never be true regardless
+//!   of which of the two thresholds this family uses, and no fixture can
+//!   exercise it. The five cases below accordingly cover every branch
+//!   *after* that guard, not literally "every branch" in the function.
 //!
 //! - id 1: one sphere penetrating an occupied cell (`subtract_radii = true`,
 //!   negative post-subtraction `dist`), `num_coll = 0` -- exercises
