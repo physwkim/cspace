@@ -13,6 +13,7 @@ find_package(srdfdom REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(random_numbers REQUIRED)
+find_package(geometric_shapes REQUIRED)
 
 add_executable(moveit_oracle src/oracle.cpp)
 
@@ -29,6 +30,7 @@ target_link_libraries(moveit_oracle
     srdfdom::srdfdom
     Eigen3::Eigen
     nlohmann_json::nlohmann_json
+    geometric_shapes::geometric_shapes
     ${random_numbers_LIBRARIES}
 )
 target_include_directories(moveit_oracle PRIVATE ${random_numbers_INCLUDE_DIRS})

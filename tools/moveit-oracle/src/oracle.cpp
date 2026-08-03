@@ -23,7 +23,9 @@
 #include <Eigen/Geometry>
 #include <nlohmann/json.hpp>
 
+#include <geometric_shapes/shapes.h>
 #include <moveit/collision_detection/collision_matrix.hpp>
+#include <moveit/collision_detection/world.hpp>
 #include <moveit/robot_model/robot_model.hpp>
 #include <random_numbers/random_numbers.h>
 #include <moveit/robot_state/robot_state.hpp>
@@ -60,6 +62,23 @@ json toRowMajor4x4(const Eigen::Isometry3d& t)
     for (int c = 0; c < 4; ++c)
       out.push_back(m(r, c));
   return out;
+}
+
+/// Inverse of toRowMajor4x4. `Eigen::Isometry3d::matrix()` is a plain 4x4
+/// affine matrix with no runtime orthogonality check, so assigning any
+/// caller-supplied 4x4 into it round-trips exactly -- the request is trusted
+/// to carry a genuine isometry, the same trust nalgebra::Isometry3 encodes by
+/// construction on the Rust side.
+Eigen::Isometry3d fromRowMajor4x4(const json& arr)
+{
+  Eigen::Matrix4d m;
+  auto it = arr.begin();
+  for (int r = 0; r < 4; ++r)
+    for (int c = 0; c < 4; ++c)
+      m(r, c) = (*it++).get<double>();
+  Eigen::Isometry3d t;
+  t.matrix() = m;
+  return t;
 }
 
 /// Matches AllowedCollisionType's variant names in protocol.rs.
@@ -112,6 +131,8 @@ public:
       return randomStates(request);
     if (op == "acm")
       return acm();
+    if (op == "world")
+      return world(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -297,6 +318,91 @@ private:
     }
 
     return json{ { "names", names }, { "entries", entries }, { "defaults", defaults } };
+  }
+
+  /// Ground truth for the `moveit-collision` World port. Builds a
+  /// `collision_detection::World` straight from the request -- World has no
+  /// RobotModel dependency, so `model_`/`state_` are untouched here -- one
+  /// object per `request["objects"]` entry (a dummy 0.1m sphere per shape
+  /// pose, since only pose composition is under test, not shape geometry),
+  /// then dumps every object's pose, per-shape pose/global pose and
+  /// per-subframe pose/global pose. `request["queries"]` is answered with
+  /// both `knowsTransform` and `getTransform`: the two are deliberately
+  /// queried against the same real, unmodified upstream methods so a name
+  /// where they disagree (a subframe name colliding with a sibling object's
+  /// name -- see world.rs's module docs) is observed from upstream directly,
+  /// not re-derived from a Rust reading of world.cpp.
+  json world(const json& request) const
+  {
+    collision_detection::World w;
+
+    for (const auto& object_json : request.at("objects"))
+    {
+      const std::string id = object_json.at("id").get<std::string>();
+      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+
+      std::vector<shapes::ShapeConstPtr> shape_ptrs;
+      EigenSTL::vector_Isometry3d shape_poses;
+      for (const auto& shape_pose_json : object_json.at("shape_poses"))
+      {
+        shape_ptrs.push_back(std::make_shared<shapes::Sphere>(0.1));
+        shape_poses.push_back(fromRowMajor4x4(shape_pose_json));
+      }
+      if (!shape_ptrs.empty())
+        w.addToObject(id, pose, shape_ptrs, shape_poses);
+      else
+        w.setObjectPose(id, pose);
+
+      if (object_json.contains("subframes") && !object_json.at("subframes").empty())
+      {
+        moveit::core::FixedTransformsMap subframes;
+        for (auto it = object_json.at("subframes").begin(); it != object_json.at("subframes").end(); ++it)
+          subframes[it.key()] = fromRowMajor4x4(it.value());
+        w.setSubframesOfObject(id, subframes);
+      }
+    }
+
+    json objects_out = json::array();
+    for (const std::string& id : w.getObjectIds())
+    {
+      collision_detection::World::ObjectConstPtr obj = w.getObject(id);
+      const EigenSTL::vector_Isometry3d& global_shape_poses = w.getGlobalShapeTransforms(id);
+
+      json shapes_out = json::array();
+      for (std::size_t i = 0; i < obj->shape_poses_.size(); ++i)
+      {
+        shapes_out.push_back(json{ { "pose", toRowMajor4x4(obj->shape_poses_[i]) },
+                                    { "global_pose", toRowMajor4x4(global_shape_poses[i]) } });
+      }
+
+      json subframes_out = json::object();
+      for (const auto& [name, subframe_pose] : obj->subframe_poses_)
+      {
+        subframes_out[name] = json{ { "pose", toRowMajor4x4(subframe_pose) },
+                                     { "global_pose", toRowMajor4x4(obj->global_subframe_poses_.at(name)) } };
+      }
+
+      objects_out.push_back(json{ { "id", id },
+                                   { "pose", toRowMajor4x4(obj->pose_) },
+                                   { "shapes", shapes_out },
+                                   { "subframes", subframes_out } });
+    }
+
+    json queries_out = json::array();
+    if (request.contains("queries"))
+    {
+      for (const auto& query_json : request.at("queries"))
+      {
+        const std::string name = query_json.get<std::string>();
+        bool frame_found = false;
+        const Eigen::Isometry3d& transform = w.getTransform(name, frame_found);
+        queries_out.push_back(json{ { "name", name },
+                                     { "knows_transform", w.knowsTransform(name) },
+                                     { "transform", frame_found ? json(toRowMajor4x4(transform)) : json(nullptr) } });
+      }
+    }
+
+    return json{ { "objects", objects_out }, { "queries", queries_out } };
   }
 
   moveit::core::RobotModelPtr model_;

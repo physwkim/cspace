@@ -67,6 +67,41 @@ pub enum Op {
     /// `disable_collisions`/`enable_collisions`/`disable_default_collisions`,
     /// dumped entry by entry.
     Acm,
+    /// Ground truth for the `moveit-collision` `World` port. Builds a
+    /// `collision_detection::World` directly from `objects` — no `RobotModel`
+    /// involved, since `World` has none — and dumps every object's pose,
+    /// per-shape pose/global pose and per-subframe pose/global pose, plus
+    /// `knowsTransform`/`getTransform` answers for each name in `queries`.
+    World {
+        /// Objects to build the world from, in request order (the response's
+        /// own object order is the world's, i.e. sorted by id).
+        objects: Vec<WorldObjectSpec>,
+        /// Names to resolve with `knowsTransform`/`getTransform` after every
+        /// object above has been added.
+        #[serde(default)]
+        queries: Vec<String>,
+    },
+}
+
+/// One object to build in [`Op::World`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldObjectSpec {
+    /// The object's id.
+    pub id: String,
+    /// The object's pose, row-major 4x4.
+    pub pose: [f64; 16],
+    /// Per-shape pose relative to the object's own pose, row-major 4x4 each.
+    /// Empty means a shapeless object (`World::setObjectPose`, not
+    /// `addToObject`) — needed for the `knowsTransform`/`getTransform`
+    /// ambiguity case, which turns on an object existing at all, not on it
+    /// carrying shapes. Each shape is a dummy 0.1m sphere on the oracle
+    /// side: only pose composition is under test here, not shape geometry.
+    #[serde(default)]
+    pub shape_poses: Vec<[f64; 16]>,
+    /// Subframe name to pose relative to the object's own pose, row-major
+    /// 4x4 each.
+    #[serde(default)]
+    pub subframes: BTreeMap<String, [f64; 16]>,
 }
 
 /// A response from the oracle.
@@ -98,6 +133,8 @@ pub enum OracleResult {
     Jacobian(JacobianResult),
     /// Answer to [`Op::Acm`].
     Acm(AcmResult),
+    /// Answer to [`Op::World`].
+    World(WorldResult),
 }
 
 /// Structural facts about a `RobotModel`, used by the Phase 1 completion check.
@@ -217,4 +254,61 @@ pub struct AcmEntry {
     /// rather than reinvented, the same rule `JointDetail::type_name` follows.
     #[serde(rename = "type")]
     pub kind: String,
+}
+
+/// Answer to [`Op::World`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldResult {
+    /// Every object built, sorted by id (`World::getObjectIds`'s own order).
+    pub objects: Vec<WorldObjectResult>,
+    /// One answer per name in [`Op::World`]'s `queries`, in request order.
+    pub queries: Vec<WorldQueryResult>,
+}
+
+/// One object's dumped state in a [`WorldResult`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldObjectResult {
+    /// The object's id.
+    pub id: String,
+    /// The object's pose, row-major 4x4.
+    pub pose: [f64; 16],
+    /// Per-shape pose and global pose, in the object's own shape order.
+    pub shapes: Vec<WorldShapeResult>,
+    /// Subframe name to its pose and global pose.
+    pub subframes: BTreeMap<String, WorldSubframeResult>,
+}
+
+/// One shape's pose and global pose in a [`WorldObjectResult`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldShapeResult {
+    /// Pose relative to the object's own pose, row-major 4x4.
+    pub pose: [f64; 16],
+    /// Pose in the world frame, row-major 4x4.
+    pub global_pose: [f64; 16],
+}
+
+/// One subframe's pose and global pose in a [`WorldObjectResult`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldSubframeResult {
+    /// Pose relative to the object's own pose, row-major 4x4.
+    pub pose: [f64; 16],
+    /// Pose in the world frame, row-major 4x4.
+    pub global_pose: [f64; 16],
+}
+
+/// Answer to one name in [`Op::World`]'s `queries`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorldQueryResult {
+    /// The queried name, echoed back.
+    pub name: String,
+    /// `World::knowsTransform(name)`.
+    pub knows_transform: bool,
+    /// `World::getTransform(name, frame_found)`, row-major 4x4, present only
+    /// when `frame_found` came back `true`. This can be `Some` while
+    /// [`WorldQueryResult::knows_transform`] is `false` — see `world.rs`'s
+    /// module docs — for a subframe name colliding with a sibling object's
+    /// name; that is the documented upstream ambiguity, not a bug in either
+    /// field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f64; 16]>,
 }
