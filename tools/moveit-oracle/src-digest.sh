@@ -30,11 +30,18 @@
 # Paths are relative on purpose: sha256sum hashes the name alongside the
 # bytes, and these sources sit at /ws/oracle-src inside the image but under
 # the repo out here.
+#
+# `sort` runs under LC_ALL=C so the digest is a function of the bytes alone.
+# Collation is locale-dependent: this host sorts case-insensitively
+# (`build.sh` before `CMakeLists.txt`), the container's C locale sorts by
+# byte (`CMakeLists.txt` first). Same files, same contents, different
+# concatenation order, different digest -- which run-oracle.sh reports as a
+# stale image that rebuilding cannot fix.
 set -euo pipefail
 
 oracle_src_digest() {  # <tools/moveit-oracle dir>
   cd "$1" && find . -type f -print0 |
-    sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+    LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
 }
 
 # The tag carries the digest so that two worktrees with different oracle
