@@ -20,9 +20,11 @@
 //! state/path validity built on `moveit_constraints`'s
 //! [`moveit_constraints::KinematicConstraintSet`] — see
 //! [`PlanningScene::is_state_valid`]). See [`PlanningScene`]'s own doc for
-//! the rest of what upstream `planning_scene.cpp` carries that this crate
-//! does not yet port (message round-tripping, named-frame transforms,
-//! object colors/types, cost sources).
+//! the full scope audit, and the "Completion statement" below for the one
+//! remaining blocked symbol (`getCostSources`) and what D1 permanently
+//! excludes instead of merely deferring (message round-tripping, object
+//! colors/types — `std_msgs`/`moveit_msgs` types this crate has no reason
+//! to carry).
 //!
 //! See [`PlanningScene`]'s doc for the parent/child design — deliberately
 //! reasoned through rather than transcribed from upstream's
