@@ -1,0 +1,517 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
+//! Bidirectional RRT-Connect (Kuffner & LaValle, "RRT-Connect: An Efficient
+//! Approach to Single-Query Path Planning", ICRA 2000).
+//!
+//! Two trees grow, one rooted at the start state and one at the goal. Each
+//! iteration, one tree takes a single step (`extend`) toward a sampled
+//! state; if that step succeeds, the *other* tree greedily walks
+//! (`connect`) all the way toward wherever the first tree just grew, one
+//! step at a time, until it either reaches that exact state (the trees have
+//! met — a path exists) or gets blocked. The trees swap roles every
+//! iteration.
+//!
+//! There is no upstream C++ implementation to port here and no oracle to
+//! check answers against (PORTING-PLAN.md §2, §6.3: no Rust OMPL
+//! equivalent exists). Correctness in this module is established by the
+//! property tests below, not by comparison to a reference.
+
+use std::time::{Duration, Instant};
+
+use rand::{Rng, RngExt};
+
+use crate::nn::Gnat;
+use crate::space::StateSpace;
+use crate::validity::{MotionValidator, StateValidityChecker};
+
+/// Tuning parameters for [`rrt_connect`].
+#[derive(Debug, Clone)]
+pub struct RrtConnectParams {
+    /// Maximum distance (in [`StateSpace::distance`] units) a single
+    /// `extend` step advances a tree toward its target.
+    pub step_size: f64,
+    /// Probability in `[0.0, 1.0]` that a tree's growth target for a given
+    /// iteration is the *other* tree's root — the goal, when growing the
+    /// start-rooted tree; the start, when growing the goal-rooted tree —
+    /// instead of a uniform random sample. Biases both trees to reach
+    /// toward each other directly rather than relying solely on `connect`'s
+    /// own greedy walk to close the gap.
+    pub goal_bias: f64,
+    /// Upper bound on the number of RRT-Connect iterations (one `extend`
+    /// plus, if it succeeds, one `connect` attempt each).
+    pub max_iterations: usize,
+    /// Upper bound on wall-clock time spent planning.
+    ///
+    /// This bound is machine-speed-dependent. If it is the constraint that
+    /// actually stops the search (planning is cut off by the clock before
+    /// `max_iterations` or a solution is found), the number of iterations
+    /// actually run — and therefore the returned path — can differ between
+    /// runs and between machines even with an identical seed. The
+    /// determinism guarantee on [`rrt_connect`] holds only when
+    /// `max_iterations` is the binding constraint, not the clock: give a
+    /// generous budget when reproducibility matters, such as in tests.
+    pub time_budget: Duration,
+    /// Nearest-neighbour index branching factor, forwarded to
+    /// [`Gnat::new`] for each tree.
+    pub nn_degree: usize,
+}
+
+impl RrtConnectParams {
+    fn assert_valid(&self) {
+        assert!(
+            self.step_size.is_finite() && self.step_size > 0.0,
+            "RrtConnectParams::step_size must be finite and positive, got {}",
+            self.step_size
+        );
+        assert!(
+            (0.0..=1.0).contains(&self.goal_bias),
+            "RrtConnectParams::goal_bias must be within [0.0, 1.0], got {}",
+            self.goal_bias
+        );
+        assert!(
+            self.nn_degree > 0,
+            "RrtConnectParams::nn_degree must be at least 1, got 0"
+        );
+    }
+}
+
+struct TreeNode<P> {
+    state: P,
+    parent: Option<usize>,
+}
+
+struct Tree<S: StateSpace> {
+    nodes: Vec<TreeNode<S::State>>,
+    nn: Gnat<S, usize>,
+}
+
+impl<S: StateSpace> Tree<S> {
+    fn new(space: &S, root: S::State, nn_degree: usize) -> Self {
+        let mut nn = Gnat::new(nn_degree);
+        nn.insert(space, root.clone(), 0);
+        Self {
+            nodes: vec![TreeNode {
+                state: root,
+                parent: None,
+            }],
+            nn,
+        }
+    }
+
+    fn push(&mut self, space: &S, state: S::State, parent: usize) -> usize {
+        let index = self.nodes.len();
+        self.nn.insert(space, state.clone(), index);
+        self.nodes.push(TreeNode {
+            state,
+            parent: Some(parent),
+        });
+        index
+    }
+
+    /// The path from this tree's root to `index`, root first.
+    fn path_to_root(&self, mut index: usize) -> Vec<S::State> {
+        let mut reversed = Vec::new();
+        loop {
+            reversed.push(self.nodes[index].state.clone());
+            match self.nodes[index].parent {
+                Some(parent) => index = parent,
+                None => break,
+            }
+        }
+        reversed.reverse();
+        reversed
+    }
+}
+
+enum ExtendResult {
+    /// No valid step could be taken: the nearest state's single step toward
+    /// the target failed state or motion validity.
+    Trapped,
+    /// A valid step was taken but did not reach the target.
+    Advanced(usize),
+    /// A valid step was taken and landed exactly on the target.
+    Reached(usize),
+}
+
+/// Takes a single bounded step from `tree`'s nearest node toward `target`.
+fn extend<S, C, M>(
+    space: &S,
+    checker: &C,
+    motion_validator: &M,
+    tree: &mut Tree<S>,
+    target: &S::State,
+    step_size: f64,
+) -> ExtendResult
+where
+    S: StateSpace,
+    C: StateValidityChecker<S>,
+    M: MotionValidator<S>,
+{
+    let (nearest_state, &nearest_index) = tree
+        .nn
+        .nearest(space, target)
+        .expect("a tree always has at least its root");
+    let nearest_state = nearest_state.clone();
+
+    let dist = space.distance(&nearest_state, target);
+    if dist == 0.0 {
+        // The nearest node already *is* the target: nothing to extend.
+        return ExtendResult::Reached(nearest_index);
+    }
+
+    let reaches = dist <= step_size;
+    let new_state = if reaches {
+        target.clone()
+    } else {
+        space.interpolate(&nearest_state, target, step_size / dist)
+    };
+
+    if !checker.is_valid(&new_state)
+        || !motion_validator.is_motion_valid(space, &nearest_state, &new_state)
+    {
+        return ExtendResult::Trapped;
+    }
+
+    let index = tree.push(space, new_state, nearest_index);
+    if reaches {
+        ExtendResult::Reached(index)
+    } else {
+        ExtendResult::Advanced(index)
+    }
+}
+
+/// Repeatedly `extend`s `tree` toward `target` until it is `Reached` or
+/// `Trapped` — the "greedy connect loop".
+fn connect<S, C, M>(
+    space: &S,
+    checker: &C,
+    motion_validator: &M,
+    tree: &mut Tree<S>,
+    target: &S::State,
+    step_size: f64,
+) -> ExtendResult
+where
+    S: StateSpace,
+    C: StateValidityChecker<S>,
+    M: MotionValidator<S>,
+{
+    loop {
+        match extend(space, checker, motion_validator, tree, target, step_size) {
+            ExtendResult::Advanced(_) => continue,
+            terminal => return terminal,
+        }
+    }
+}
+
+/// Plans a path from `start` to `goal` with bidirectional RRT-Connect.
+///
+/// Returns `Some(path)` on success, with `path[0] == start` and
+/// `path.last() == Some(&goal)` exactly, and every consecutive pair valid
+/// under `motion_validator` (both properties are asserted directly by this
+/// crate's tests, not just inferred). Returns `None` if `params.max_iterations`
+/// or `params.time_budget` is exhausted first, including immediately if
+/// `start` or `goal` is itself invalid — an invalid endpoint can never
+/// appear on a valid path, so there is nothing to search for.
+///
+/// # Determinism
+/// Two calls with equivalent `space`/`checker`/`motion_validator` and an
+/// identically-seeded `rng` produce byte-identical paths, provided
+/// `params.time_budget` is not the binding constraint — see its docs.
+///
+/// # Panics
+/// If `params` is out of range: see [`RrtConnectParams`]'s field docs.
+pub fn rrt_connect<S, C, M, R>(
+    space: &S,
+    checker: &C,
+    motion_validator: &M,
+    start: S::State,
+    goal: S::State,
+    rng: &mut R,
+    params: &RrtConnectParams,
+) -> Option<Vec<S::State>>
+where
+    S: StateSpace,
+    C: StateValidityChecker<S>,
+    M: MotionValidator<S>,
+    R: Rng,
+{
+    params.assert_valid();
+
+    if !checker.is_valid(&start) || !checker.is_valid(&goal) {
+        return None;
+    }
+
+    let mut tree_a = Tree::new(space, start.clone(), params.nn_degree);
+    let mut tree_b = Tree::new(space, goal.clone(), params.nn_degree);
+    // Whether `tree_a` is currently the start-rooted tree (as opposed to the
+    // goal-rooted one) — the two trees are swapped every iteration, and this
+    // flag tracks which is which so the final path can be oriented
+    // start-to-goal regardless of which tree closed the gap.
+    let mut a_is_start = true;
+    let deadline = Instant::now() + params.time_budget;
+
+    for _ in 0..params.max_iterations {
+        if Instant::now() >= deadline {
+            break;
+        }
+
+        let other_root = if a_is_start { &goal } else { &start };
+        let sample = if rng.random_bool(params.goal_bias) {
+            other_root.clone()
+        } else {
+            space.sample_uniform(rng)
+        };
+
+        let grown = match extend(
+            space,
+            checker,
+            motion_validator,
+            &mut tree_a,
+            &sample,
+            params.step_size,
+        ) {
+            ExtendResult::Trapped => None,
+            ExtendResult::Advanced(index) | ExtendResult::Reached(index) => Some(index),
+        };
+
+        if let Some(index) = grown {
+            let reached_state = tree_a.nodes[index].state.clone();
+            if let ExtendResult::Reached(other_index) = connect(
+                space,
+                checker,
+                motion_validator,
+                &mut tree_b,
+                &reached_state,
+                params.step_size,
+            ) {
+                let mut path = tree_a.path_to_root(index);
+                let mut other_path = tree_b.path_to_root(other_index);
+                other_path.reverse();
+                other_path.remove(0); // duplicate of `reached_state`, the meeting point
+                path.extend(other_path);
+                if !a_is_start {
+                    path.reverse();
+                }
+                return Some(path);
+            }
+        }
+
+        std::mem::swap(&mut tree_a, &mut tree_b);
+        a_is_start = !a_is_start;
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::space::RealVectorSpace;
+    use crate::validity::DiscreteMotionValidator;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    fn params() -> RrtConnectParams {
+        RrtConnectParams {
+            step_size: 0.5,
+            goal_bias: 0.05,
+            max_iterations: 10_000,
+            time_budget: Duration::from_secs(10),
+            nn_degree: 8,
+        }
+    }
+
+    fn rng(seed: u64) -> ChaCha8Rng {
+        ChaCha8Rng::seed_from_u64(seed)
+    }
+
+    #[test]
+    #[should_panic(expected = "step_size")]
+    fn zero_step_size_panics() {
+        let mut p = params();
+        p.step_size = 0.0;
+        p.assert_valid();
+    }
+
+    #[test]
+    #[should_panic(expected = "goal_bias")]
+    fn out_of_range_goal_bias_panics() {
+        let mut p = params();
+        p.goal_bias = 1.5;
+        p.assert_valid();
+    }
+
+    #[test]
+    #[should_panic(expected = "nn_degree")]
+    fn zero_nn_degree_panics() {
+        let mut p = params();
+        p.nn_degree = 0;
+        p.assert_valid();
+    }
+
+    #[test]
+    fn empty_space_reaches_start_and_goal_exactly() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        let always_valid = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always_valid, 0.1);
+        let start = vec![-5.0, -5.0];
+        let goal = vec![5.0, 5.0];
+
+        let path = rrt_connect(
+            &space,
+            &always_valid,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            &mut rng(1),
+            &params(),
+        )
+        .expect("open space must be solvable");
+
+        assert_eq!(path.first(), Some(&start));
+        assert_eq!(path.last(), Some(&goal));
+    }
+
+    #[test]
+    fn every_consecutive_pair_is_motion_valid() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        // A vertical wall at x in [-1, 1] with a gap for y in [3, 4].
+        let checker = |state: &Vec<f64>| {
+            let (x, y) = (state[0], state[1]);
+            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
+        };
+        let mv = DiscreteMotionValidator::new(&checker, 0.05);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+
+        let path = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(2), &params())
+            .expect("gap must be findable");
+
+        assert!(path.len() >= 2);
+        for pair in path.windows(2) {
+            assert!(
+                mv.is_motion_valid(&space, &pair[0], &pair[1]),
+                "invalid segment {:?} -> {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+    }
+
+    #[test]
+    fn narrow_gap_is_crossed() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        let checker = |state: &Vec<f64>| {
+            let (x, y) = (state[0], state[1]);
+            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
+        };
+        let mv = DiscreteMotionValidator::new(&checker, 0.05);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+
+        let path = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(3), &params())
+            .expect("gap must be findable");
+
+        // The wall spans x in [-1, 1]; the path must actually pass through
+        // it, and only through the gap (y in [3, 4]) while doing so. It is
+        // not enough that the planner merely reported success.
+        assert!(
+            path.iter().any(|s| (-1.0..=1.0).contains(&s[0])),
+            "path never enters the wall's x range at all: {path:?}"
+        );
+        for state in path.iter().filter(|s| (-1.0..=1.0).contains(&s[0])) {
+            assert!(
+                (3.0..=4.0).contains(&state[1]),
+                "path point {state:?} is inside the wall's x range but outside the gap"
+            );
+        }
+    }
+
+    #[test]
+    fn closed_passage_fails_within_the_cap() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        // Same wall, no gap: x in [-1, 1] is entirely blocked.
+        let checker = |state: &Vec<f64>| !(-1.0..=1.0).contains(&state[0]);
+        let mv = DiscreteMotionValidator::new(&checker, 0.05);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+
+        let mut small_cap = params();
+        small_cap.max_iterations = 2_000;
+
+        let path = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(4), &small_cap);
+        assert!(path.is_none(), "a fully closed wall must not be crossed");
+    }
+
+    #[test]
+    fn invalid_start_fails_immediately() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0)]).unwrap();
+        let checker = |state: &Vec<f64>| state[0] >= 0.0;
+        let mv = DiscreteMotionValidator::new(&checker, 0.1);
+        let path = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            vec![-1.0],
+            vec![5.0],
+            &mut rng(5),
+            &params(),
+        );
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn same_seed_gives_byte_identical_path() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        let checker = |state: &Vec<f64>| {
+            let (x, y) = (state[0], state[1]);
+            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
+        };
+        let mv = DiscreteMotionValidator::new(&checker, 0.05);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+
+        let path_1 = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            &mut rng(42),
+            &params(),
+        )
+        .expect("gap must be findable");
+        let path_2 = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(42), &params())
+            .expect("gap must be findable");
+
+        assert_eq!(path_1, path_2);
+    }
+
+    #[test]
+    fn different_seeds_give_different_paths() {
+        let space = RealVectorSpace::new(vec![(-10.0, 10.0), (-10.0, 10.0)]).unwrap();
+        let checker = |state: &Vec<f64>| {
+            let (x, y) = (state[0], state[1]);
+            !((-1.0..=1.0).contains(&x) && !(3.0..=4.0).contains(&y))
+        };
+        let mv = DiscreteMotionValidator::new(&checker, 0.05);
+        let start = vec![-5.0, 0.0];
+        let goal = vec![5.0, 0.0];
+
+        let path_1 = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start.clone(),
+            goal.clone(),
+            &mut rng(10),
+            &params(),
+        )
+        .expect("gap must be findable");
+        let path_2 = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(11), &params())
+            .expect("gap must be findable");
+
+        assert_ne!(path_1, path_2);
+    }
+}
