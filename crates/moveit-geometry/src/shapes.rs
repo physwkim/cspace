@@ -163,7 +163,7 @@
 //! `shapes.h`:
 //!
 //! - `ShapeType` enum and its `operator<<` — **ported** as [`ShapeType`]/
-//!   [`ShapeType::as_str`]/[`Display`].
+//!   [`ShapeType::as_str`]/`Display`.
 //! - `Shape` base class: constructor/destructor, the pure-virtual
 //!   `clone`/`scaleAndPadd`, and the `ShapeType type` field — **subsumed by
 //!   D4.** An enum has no separate construct/destruct step to port, `#[derive(Clone)]`
