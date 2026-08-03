@@ -6594,3 +6594,86 @@ p3-acm의 작업으로 넘어간다 — 문서에 한계로 남기면 다시 묻
 --workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
 재생 **28/28 identical**.
+
+## 76. self 쪽 62건이 분해됐고, cost source는 "발명"할 게 없다 (2026-08-04)
+
+p3-acm 라운드 12(`3a9da07`, `2d5d3c7`, `0da55bf`). 베이스 `85d1a14`,
+main `cd13b7f`에 머지. **999 → 1000**, 재생 **28 → 29**.
+
+### 76.1 62건의 분해
+
+52건은 이미 아는 `base_bellow_link`/`torso_lift_link` 평탄부(deviation
+6(b), §56/§63.1). 나머지 10건은 전부 `base_link` 대 다섯 개
+`*_caster_*_wheel_link` 중 하나다. 그중 3건은 오라클 값이 그 쌍의
+bounding-radius 한계를 넘어 fixture와 영구 테스트로 고정됐고, 7건은
+한계 안이라 판정되지 않았다.
+
+새 테스트가 구별력이 있는지 확인했다. `parry.rs`의 `minimum_distance`
+누적에 `×4`를 넣으니 `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible`이
+실패한다 — 쌍 자체가 바뀌면서 첫 단언에서 걸린다. fixture 대 상수 비교만
+하는 테스트가 아니다.
+
+문서의 수치 표기 하나는 틀렸다: "twice the wheel's own bounding radius
+(`link_bounding_radius`, `0.1534m` for a pr2 caster wheel)"에서 `0.1534m`는
+반지름이 아니라 **2배 한계값**이다(반지름은 ≈`0.0767m`). 오라클 값
+0.1815~0.1829가 한계를 넘는다는 단언이 통과하므로 한계가 0.3068일 수는
+없다.
+
+### 76.2 판정 불가 7건 — 이 계열은 1차원이다
+
+담당의 일반론("두 임의의 posed mesh에는 `floor_env` 같은 고정 외부 기준이
+없다")은 맞다. 그런데 **이 계열은 임의의 두 mesh가 아니다.**
+
+`pr2.urdf`를 읽었다: `base_link` → `*_caster_rotation_link`(축 `0 0 1`)
+→ `*_caster_{l,r}_wheel_link`(축 `0 1 0`). 즉 `base_link`↔wheel 상대
+변환은 스칼라 두 개의 함수이고, 휠 메시는 자기 회전축에 대해 대칭이라
+(deviation 6 문서가 "the wheel-roll joint cannot move the closest point"로
+이미 적은 사실) **기하는 `*_caster_rotation_joint` 하나의 함수다.**
+
+한 개의 스칼라라면 §63.1이 평탄부에 쓴 기법이 그대로 적용된다 — 그
+관절을 훑으면서 양쪽 답을 함수로 보고, 교차점을 이분하고, 원 정점으로
+독립 측정한다. 판정 불가가 아니라 아직 안 한 것이다. 라운드 13.
+
+덧붙여, 이 포트가 이 계열에서 **상수** `-0.046592m`를 내는데 오라클은
+세 케이스에서 0.18291/0.18150/0.18206으로 **변한다**. 캐스터 회전이
+케이스마다 다르므로 변하는 쪽이 자동으로 틀린 것은 아니지만, 두 함수의
+모양이 다르다는 사실 자체가 1차원 훑기로 바로 드러난다.
+
+### 76.3 `cost_density`는 계산되는 값이 아니라 필드다
+
+담당이 `parry.rs`에 쓴 결론: "Implementing this would mean inventing an
+independent cost-density estimate from scratch, not adapting one `parry`
+already computes."
+
+FCL 헤더를 오라클 이미지에서 직접 읽었다. 그런 추정치는 FCL도 계산하지
+않는다.
+
+- `collision_geometry.h:102`의 `S cost_density;`는 지오메트리의 **필드**이고
+  `collision_geometry-inl.h:56`에서 **`1`로 초기화**된다. `moveit_core`
+  전체에서 이 값을 설정하는 곳은 없다(`collision_tools.cpp:275`가 읽기만
+  한다). 즉 MoveIt에서 `cs.cost`는 항상 `1`이다.
+- `cost_source-inl.h:55-72`: `total_cost = cost_density × (AABB 부피)`.
+- `mesh_collision_traversal_node-inl.h:186-189`: 교차하는 **삼각형 쌍마다**
+  `AABB(p1,p2,p3).overlap(AABB(q1,q2,q3), overlap_part)` — 두 삼각형
+  AABB의 교집합 상자 하나.
+
+그러므로 `CostSource` 전체가 "겹침 AABB + 상수 1"이다. 발명할 밀도
+추정치가 없다.
+
+§75.3에서 확인한 대로 재료도 다 있다: `TriMesh::bvh()`,
+`Bvh::intersect_aabb`, `BvhNode::aabb()`/`leaf_data()`,
+`TriMesh::triangle(i)`. **p1-fixtures와 p3-acm이 서로 다른 근거로 같은
+'백엔드 한계' 결론에 도달했고, 둘 다 틀렸다.** 두 크레이트의 문서를
+모두 고치고 구현은 p3-acm이 한다.
+
+순서 문제는 남는다: `res_->cost_sources`가 `std::set<CostSource>`이고
+`collision_common.cpp:286`이 `max_cost_sources`를 넘으면 뒤에서 지우므로
+`CostSource::operator<`(`cost_source-inl.h:93`) 정렬 순서가 관측 가능하다.
+그건 구현할 때 맞춰야 할 대상이지 한계가 아니다.
+
+### 76.4 머지 후 실측
+
+`cargo nextest run --workspace` **1000/1000**, `cargo test --doc
+--workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과, reseed-wrap 통과,
+재생 **29/29 identical**.
