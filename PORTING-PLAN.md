@@ -5167,3 +5167,79 @@ scaling-only `compute_time_stamps` 오버로드가 이번에 닫혔다. 닫은 �
 두 커밋의 순서를 바꾸거나 매니페스트 등록을 픽스처와 같은 커밋에 두면 됐다.
 없는 규칙을 근거로 고치지 않은 것이 이번 건의 실제 문제이고, 브랜치는 병합
 전이라 되쓰는 비용도 없었다.
+
+## 55. 검사가 실패했는데 통과라고 말하는 자리 셋 (2026-08-04)
+
+p1-robotmodel 라운드 6 (`f5c5123`, `2d763fb`, `7ec0702`, `142c0a1`),
+병합 `0bcc06c`. 후속 수정 `8791569`. `nextest --workspace` **942/942**.
+
+### 55.1 §49.4의 두 UNFIXED가 닫혔다
+
+`measured_call_cost`는 assert가 없고 nextest가 성공 시 stdout을 삼켜서
+아무도 볼 수 없는 테스트였다. `examples/planning_scene_validity_bench.rs`로
+옮기고, 자리에는 느슨한(2 s) 회귀 가드 테스트를 남겼다 — 측정은 실행해서
+읽는 것이고 테스트는 무너졌을 때 실패하는 것이라는 구분이 맞다.
+
+그리고 release 프로파일을 실제로 쟀다. 직접 재현했다:
+
+```
+release: mean 2.092531ms/call, min 889.71µs, max 5.724474ms, 50 calls
+```
+
+워커 보고는 2.048 ms, 내 실행은 2.093 ms — 같은 수다. debug 12.868 ms에서
+약 6배이지 50배가 아니다. 문서의 "질의당 수 분" 주장이 debug 숫자 위에
+서 있던 것을 고쳐, 이제 release 평균으로 20,000회 ≈ 41 s를 유도하고
+"분 단위"는 max 관측치 쪽에만 남겼다(`planning_scene_validity.rs:61-76`).
+지연 우려 자체는 유지되고 근거만 바뀌었다.
+
+`moveit-constraints`/`moveit-planners-sbp` 양쪽에 심볼 감사를 붙였고,
+"11 functions"라는 낡은 수를 13으로 고쳤다.
+
+### 55.2 UNFIXED로 올라온 것 — 그리고 그 진단은 틀렸다
+
+워커가 올렸다: `verify-continuous-reseed-wrap.sh`를 `sg docker` 없이 돌리면
+**아무것도 출력하지 않고 exit 1** 한다. 직접 확인했다 — 출력 0바이트,
+exit 1. 현상은 정확하다.
+
+다만 진단이 틀렸다. 워커는 "스크립트가 CLAUDE.md가 요구하는 `sg docker -c`
+래퍼 없이 docker를 직접 부른다"고 적었다. `sg docker`는 **호출자 쪽 환경**
+문제다(이 호스트에서 사용자의 보조 그룹이 셸에 반영돼 있지 않다). 스크립트가
+자기를 감쌀 수는 없고, 감싸서도 안 된다 — 그러면 그 그룹이 없는 호스트에서
+못 돌게 된다.
+
+진짜 결함은 **왜 실패했는지 한 글자도 말하지 않는 것**이다:
+
+```bash
+python3 - ... | run-oracle.sh ... 2>/dev/null | tail -1 > "$RESPONSE_FILE"
+```
+
+`2>/dev/null`이 유일한 설명을 버리고, `| tail`이 상태 보고 단계를 `tail`로
+바꾼다. 둘 다 `run-oracle-sweep.sh`가 자기 주석에 이미 적어 둔 금지 사항인데
+내가 이 스크립트를 쓰면서 지키지 않았다.
+
+### 55.3 인용된 자리는 표본이었다 — 같은 결함 셋
+
+앵커 `2>/dev/null` + "fallible 생산자를 필터로 파이프":
+
+| site | 판정 |
+|---|---|
+| `verify-continuous-reseed-wrap.sh:61` | **같은 결함** |
+| `check-no-lint-suppression.sh:33` | **같은 결함** — `if hits=$(rg ...)`가 rg의 "매치 없음"(1)과 "rg 자체 실패"(2)를 같은 분기로 접는다. 검색이 깨져도 `OK`를 찍는다 |
+| `check-dep-direction.sh:33` | **같은 결함** — `cargo tree`가 파이프 머리에 있고 꼬리가 `\|\| true`라, cargo가 해석하지 못한 패키지가 "ROS 의존 없음"이 된다. 검사받지 않은 크레이트가 통과로 보고된다 |
+| `run-oracle.sh:28,42` | 별개 — 부재가 곧 기대되는 신호인 탐침(`\|\| true`가 의도) |
+| `run-oracle-sweep.sh:76`, `verify-fixture-provenance.sh:79,162` | 별개 — 이미 실패가 확정된 분기 안에서 표시용으로 자르는 것 |
+
+셋 다 `8791569` 하나로 고쳤다(한 발견, 여러 자리). 각각 주입해 확인했다:
+
+```
+docker 그룹 없이 reseed-wrap  → "run-oracle.sh failed (exit 1)" + 이미지 stamp 불일치 전문
+rg에 없는 경로 추가            → "rg failed (exit 2) -- this check did not run", exit 2
+cargo tree에 없는 패키지       → "FAIL cargo tree -p ... exited 101 -- ... was not checked", exit 1
+```
+
+수정 후 `sg docker`로 감싼 정상 경로 재실행: `42.6000%`, 이전과 같은 수,
+exit 0. 성공 경로는 그대로다.
+
+이 결함군이 위험한 이유는 §51에 적은 것과 같다 — 검사가 **없는 것**보다
+**돌지 않았는데 통과라고 말하는 것**이 나쁘다. 앞은 빈칸으로 보이고 뒤는
+증거로 보인다.
