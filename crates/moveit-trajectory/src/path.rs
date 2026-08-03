@@ -203,8 +203,6 @@ impl Path {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     fn v(values: &[f64]) -> DVector<f64> {
@@ -228,26 +226,33 @@ mod tests {
     fn two_waypoints_build_a_single_linear_segment_no_blend() {
         let waypoints = [v(&[0.0, 0.0]), v(&[3.0, 4.0])];
         let path = Path::create(&waypoints, DEFAULT_PATH_TOLERANCE).unwrap();
-        assert_relative_eq!(path.length(), 5.0, epsilon = 1e-9);
-        assert_relative_eq!(
-            (path.config(0.0) - &waypoints[0]).norm(),
-            0.0,
-            epsilon = 1e-9
-        );
-        assert_relative_eq!(
-            (path.config(path.length()) - &waypoints[1]).norm(),
-            0.0,
-            epsilon = 1e-9
-        );
+        // Bit-exact: 3^2 + 4^2 = 25.0 is exactly representable and IEEE 754
+        // sqrt is correctly rounded, so `path.length()` and the endpoint
+        // configs (plain interpolation against the 0.0/1.0 arc-length
+        // extremes) land exactly on the literals below -- measured via a
+        // temporary `eprintln!` of `(actual - expected).abs()`, all `0e0`,
+        // before converting from `assert_relative_eq!` per PORTING-PLAN.md
+        // §78.1/§79.
+        assert_eq!(path.length(), 5.0);
+        assert_eq!((path.config(0.0) - &waypoints[0]).norm(), 0.0);
+        assert_eq!((path.config(path.length()) - &waypoints[1]).norm(), 0.0);
     }
 
     #[test]
     fn three_collinear_waypoints_blend_to_a_straight_path() {
         let waypoints = [v(&[0.0, 0.0]), v(&[1.0, 0.0]), v(&[2.0, 0.0])];
         let path = Path::create(&waypoints, DEFAULT_PATH_TOLERANCE).unwrap();
-        assert_relative_eq!(path.length(), 2.0, epsilon = 1e-9);
+        // Bit-exact for the same reason as
+        // `two_waypoints_build_a_single_linear_segment_no_blend` above: the
+        // blend at (1,0) collapses to `Circular::new`'s degenerate,
+        // exact-intersection case (dot product of the two collinear
+        // direction vectors is exactly 1.0, past the `> 0.999_999`
+        // threshold), so `path.length()` is the exact sum `1.0 + 0.0 + 1.0`
+        // and `mid[1]` reads straight off a literal `0.0` input with no
+        // intervening arithmetic. Measured `0e0` before converting.
+        assert_eq!(path.length(), 2.0);
         let mid = path.config(1.0);
-        assert_relative_eq!(mid[1], 0.0, epsilon = 1e-9);
+        assert_eq!(mid[1], 0.0);
     }
 
     #[test]
@@ -270,7 +275,10 @@ mod tests {
         let waypoints = [p.clone(), p.clone()];
         let path = Path::create(&waypoints, DEFAULT_PATH_TOLERANCE).unwrap();
         assert_eq!(path.length(), 0.0);
-        assert_relative_eq!((path.config(0.0) - &p).norm(), 0.0, epsilon = 1e-9);
+        // Bit-exact: two identical waypoints produce a single degenerate
+        // linear segment whose `config` returns the start point verbatim
+        // with no arithmetic on it. Measured `0e0` before converting.
+        assert_eq!((path.config(0.0) - &p).norm(), 0.0);
     }
 
     #[test]
