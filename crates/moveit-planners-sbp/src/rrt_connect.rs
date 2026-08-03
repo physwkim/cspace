@@ -58,17 +58,20 @@ pub enum Termination {
 }
 
 /// Why [`rrt_connect`] returned without a path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum PlanningFailure {
     /// `start` or `goal` itself failed [`StateValidityChecker::is_valid`]:
     /// an invalid endpoint can never appear on a valid path, so nothing was
     /// searched for.
+    #[error("start or goal state is itself invalid")]
     InvalidEndpoint,
     /// The `max_iterations` bound in `params.termination` was reached
     /// before a solution was found.
+    #[error("no path found within the iteration budget")]
     IterationsExhausted,
     /// The `deadline` bound in `params.termination` elapsed before a
     /// solution was found.
+    #[error("no path found before the deadline")]
     DeadlineExhausted,
 }
 

@@ -11,13 +11,34 @@ authors.workspace = true
 [dependencies]
 thiserror.workspace = true
 rand.workspace = true
+rand_chacha.workspace = true
+linkme.workspace = true
 moveit-model.workspace = true
 moveit-state.workspace = true
+moveit-collision.workspace = true
+moveit-constraints.workspace = true
+moveit-error.workspace = true
+moveit-scene = { path = "../moveit-scene", version = "0.1.0" }
 
 [dev-dependencies]
-rand_chacha.workspace = true
+moveit-geometry.workspace = true
 moveit-srdf.workspace = true
 urdf-rs.workspace = true
 
-[lints]
-workspace = true
+# Not `[lints] workspace = true`: this crate's PlannerManager registry
+# (`src/registry.rs`) uses `linkme::distributed_slice`, per PORTING-PLAN.md
+# D4 -- the same mechanism `moveit-kinematics::registry` already uses, whose
+# Cargo.toml explains in full why `unsafe_code` (and only that lint) has to
+# be relaxed here: every `distributed_slice` static expands to a
+# `#[link_section]` item, which trips the lint even though no source file in
+# this crate contains an actual `unsafe` block, and the workspace's
+# `unsafe_code = "forbid"` cannot be downgraded by a narrower per-site
+# `#[allow(...)]` (`forbid` refuses even that, and
+# `tools/ci/check-no-lint-suppression.sh` would reject the attempt anyway).
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
