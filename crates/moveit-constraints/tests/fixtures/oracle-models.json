@@ -1,0 +1,6 @@
+{
+  "panda_constraints": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}
