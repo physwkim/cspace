@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 moveit-error.workspace = true
 moveit-geometry.workspace = true
+moveit-kinematics.workspace = true
 moveit-model.workspace = true
 moveit-srdf.workspace = true
 moveit-state.workspace = true
