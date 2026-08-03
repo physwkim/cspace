@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 moveit-error.workspace = true
 moveit-geometry.workspace = true
+moveit-srdf.workspace = true
 nalgebra.workspace = true
 urdf-rs.workspace = true
 

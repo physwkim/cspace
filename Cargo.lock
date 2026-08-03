@@ -124,6 +124,7 @@ dependencies = [
  "approx",
  "moveit-error",
  "moveit-geometry",
+ "moveit-srdf",
  "nalgebra",
  "serde",
  "serde_json",

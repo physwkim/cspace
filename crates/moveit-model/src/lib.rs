@@ -11,14 +11,27 @@
 //   moveit_core/robot_model/include/moveit/robot_model/floating_joint_model.hpp
 //   moveit_core/robot_model/include/moveit/robot_model/fixed_joint_model.hpp
 
-//! The joint layer of the moveit-rs robot model port.
+//! The robot model layer of the moveit-rs port: joints, links, the full
+//! kinematic tree, and SRDF planning groups.
 //!
 //! # Scope
 //!
-//! This crate is deliberately narrow: it ports [`joint::JointModel`] and its
-//! five concrete kinds (Revolute, Prismatic, Planar, Floating, Fixed),
-//! [`joint::VariableBounds`] and mimic relations. `LinkModel`, `RobotModel`
-//! and `JointModelGroup` are owned by other crates in this port — see
-//! `PORTING-PLAN.md`.
+//! [`joint`] ports [`joint::JointModel`] and its five concrete kinds
+//! (Revolute, Prismatic, Planar, Floating, Fixed), [`joint::VariableBounds`]
+//! and mimic relations, in isolation from any tree structure. [`LinkModel`],
+//! [`RobotModel`] and [`JointModelGroup`] build on top of it: `RobotModel`
+//! assembles a URDF and its matching SRDF into the full kinematic tree,
+//! resolving mimic relationships and SRDF `<group>` elements against it. See
+//! `PORTING-PLAN.md` for what later phases (collision geometry, kinematics
+//! solvers, `RobotState`) still own.
 
+mod diagnostic;
 pub mod joint;
+mod joint_model_group;
+mod link_model;
+mod robot_model;
+
+pub use diagnostic::Diagnostic;
+pub use joint_model_group::JointModelGroup;
+pub use link_model::LinkModel;
+pub use robot_model::RobotModel;
