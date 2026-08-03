@@ -1250,13 +1250,14 @@ id 3 = 264점). 이어서 `Arc::downgrade(shape)`를 `Weak::new()`로 바꾼
 
 `moveit_core/kinematic_constraints/kinematic_constraint.{hpp,cpp}`를
 이식했다: `JointConstraint`, `PositionConstraint`, `OrientationConstraint`,
-`VisibilityConstraint`(부분), `KinematicConstraintSet`,
-`ConstraintEvaluationResult`. `utils.{hpp,cpp}`는 이식하지 않는다 — 거기
-함수 전부가 `moveit_msgs::msg::Constraints`나 `rclcpp::Node`를 인자로
-받거나 반환해서, D1에 따라 이 크레이트가 아니라 `moveit-ros`/
-`moveit-planning`의 몫이다. `moveit-scene`은 이번 라운드 범위 밖이다
+`VisibilityConstraint`(2라운드에서 완전 이식, §12.5), `KinematicConstraintSet`,
+`ConstraintEvaluationResult`. `utils.{hpp,cpp}`는 이식하지 않는다 — 이번
+크레이트가 아니라 `moveit-ros`/`moveit-planning`의 몫이라는 판단은
+그대로지만, 실제로 함수 전부가 `moveit_msgs`/`rclcpp::Node`에 묶여 있는
+것은 아니다; 함수별 근거는 §12.7. `moveit-scene`은 이번 라운드 범위 밖이다
 (충돌 검사 백엔드가 아직 trait뿐이라 §11.5의 `moveit-collision`을
-막고 있다).
+막고 있다) — `VisibilityConstraint`의 원뿔-충돌 검사는 그럼에도 완전히
+끝났다, §12.5에서 보듯 `PlanningScene`이 아예 필요 없었기 때문이다.
 
 ### 12.1 §4.3 매핑 결정 3건 — 어떤 필드가 `Option`/enum이 됐는가
 
@@ -1301,18 +1302,19 @@ body: Body, pose: Isometry3 }` 하나가 이 넷을 대신한다 — `Body`
 enum으로 각각 고쳤다 — payload가 그 의미를 정의하는 variant 안에서만
 존재하게.
 
-### 12.2 `VisibilityConstraint`는 부분 이식이다
+### 12.2 `VisibilityConstraint`는 1라운드에서 부분 이식이었다 (2라운드에서 종결, §12.5)
 
 upstream `decide()`는 view-angle·range-angle 검사를 통과하면 센서-타겟
 사이에 원뿔 메시를 만들어 `collision_detection::CollisionEnvFCL`로
-로봇과 충돌 검사한다. `moveit-collision::CollisionEnv`는 아직 trait만
-있고 구현체가 없다(§9.3, §11.4). `VisibilityConstraint::decide_geometry`는
-view-angle·range-angle 검사까지는 완전히 이식했고, 그 뒤 원뿔 검사가
-필요한 지점에서 `satisfied`를 지어내는 대신
-`VisibilityDecision::NeedsConeCollisionCheck`를 반환한다.
+로봇과 충돌 검사한다. 1라운드 시점엔 `moveit-collision::CollisionEnv`가
+아직 trait만 있고 구현체가 없어서(§9.3, §11.4)
+`VisibilityConstraint::decide_geometry`는 view-angle·range-angle 검사까지만
+완전히 이식했고, 그 뒤 원뿔 검사가 필요한 지점에서 `satisfied`를 지어내는
+대신 `VisibilityDecision::NeedsConeCollisionCheck`를 반환했다.
 `KinematicConstraintSet::decide`는 이걸 삼키지 않고
-`Err(UndecidedConstraint)`로 전파한다 — 이 상황을 "만족"으로 보고하는
-쪽이 이 설계 전체가 막으려는 조용한 오답이기 때문이다.
+`Err(UndecidedConstraint)`로 전파했다 — 이 상황을 "만족"으로 보고하는
+쪽이 이 설계 전체가 막으려는 조용한 오답이었기 때문이다. `moveit-collision`에
+`ParryCollisionEnv` 구현체가 들어온 뒤(§11.9) 이 gap을 닫았다 — §12.5.
 
 ### 12.3 오라클 대조
 
@@ -1359,6 +1361,153 @@ self.offset`을 그대로 썼다 — `self.offset: Vector3`. upstream의
 `FramedPose::resolve`, 뷰/레인지 각도의 방향 벡터)은 각각
 Isometry×Isometry 합성이거나 진짜 방향 벡터라 이 결함에 해당하지
 않는다 — `rg`로 크레이트 전체를 확인했다.
+
+### 12.5 `VisibilityConstraint`의 원뿔-충돌 검사 이식 완료 (2라운드, 2026-08-03)
+
+§12.2의 gap을 닫았다. `decide()`는 이제 view/range-angle 검사가
+`target_radius` 때문에 미결정으로 남을 때 `decide_cone()`을 호출해
+완전히 결정한다 — `KinematicConstraintSet`/`ConstraintEvaluationResult`
+양쪽 다시 infallible해졌고(`UndecidedConstraint`/`VisibilityDecision`
+제거), `Err`로 전파할 미결정 상태 자체가 없어졌다.
+
+**`PlanningScene` 없이 끝난다.** upstream `decide()`가 만드는
+`CollisionEnvFCL`은 그 함수 안에서만 사는 일회용 충돌 월드다 — 호출자의
+씬을 참조하지 않는다. `decide_cone()`도 똑같이 한다: `cone_mesh()`로
+센서-타겟 원뿔의 `Mesh`를 만들고, `moveit_collision::World`에 그
+하나뿐인 도형을 `"cone"`이라는 이름으로 넣은 뒤, `ParryCollisionEnv`로
+`state`의 로봇과 충돌 검사한다. 센서/타겟 프레임 자신과의 자가 충돌은
+`AllowedCollisionMatrix::set_default_conditional_entry`로 걸러낸다
+(`allow_sensor_or_target_contact`가 `RobotAttached`이거나 링크 이름이
+sensor/target 프레임과 같으면 허용). `moveit-scene`이 이번 라운드 범위
+밖이라는 §12 서두의 사실은 그대로지만, 이 기준은 애초에 그게 필요
+없었다 — upstream 자신이 씬이 아니라 그때그때 만드는 충돌 월드를
+쓰기 때문이다.
+
+**`moveit-collision`에서 발견하고 고친 결함 1건 (별도 커밋).**
+원뿔 메시(`TriMesh`)를 `World`에 넣는 첫 호출자가 이 코드였다 —
+로봇 링크는 문서 주석대로 `Shape::Mesh`를 절대 갖지 않으므로,
+`parry.rs`의 `PosedBody`는 지금까지 `TriMesh`를 담아본 적이 없었다.
+`parry3d_f64::shape::TriMesh`는 그 자체로 복합 도형이라
+(`as_composite_shape()`가 `Some`을 반환), 도형이 하나뿐인 바디도 항상
+`Compound::new(parts)`로 감싸던 기존 `parry.rs` 설계는
+`"Nested composite shapes are not allowed."` 패닉을 낸다. `PosedBody.shape`
+타입을 `Compound`에서 `SharedShape`(`Arc<dyn Shape>`)로 바꾸고, 새
+`combine_parts` 헬퍼가 도형이 하나뿐인 바디는 `Compound`를 아예 거치지
+않고 그 도형의 상대 pose를 바디 pose에 직접 합성하게 했다(2개 이상인
+바디만 `Compound`를 쓴다). 이건 이번 원뿔 검사 코드가 처음으로 드러낸
+`moveit-collision`의 잠재 결함이라 별도 커밋으로 남긴다.
+
+**`moveit-diff` 케이스 생성기도 고쳤다 — 이게 이번 지시의 핵심 확인
+사항이다.** 1라운드의 대조 케이스 생성기는 `target_radius`를 항상
+0으로만 만들어서(§12.3의 표에 `visibility_cone` 종류가 아예 없는 이유)
+원뿔 경로 자체를 한 번도 오라클과 맞춰보지 않았다. `build_constraint_case`에
+7번째 케이스 종류 `"visibility_cone"`을 추가했다 — `max_view_angle`/
+`max_range_angle`을 절대 설정하지 않고 `target_radius`만 설정하므로,
+`decide_by_angle`이 항상 `None`을 반환해 **생성된 케이스의 100%가
+실제로 원뿔-충돌 경로에 도달한다**(뷰/레인지 각도 조기 결정으로
+새는 케이스가 0%).
+
+그런데 그 100%는 전부 "충돌 없음"으로만 오라클과 일치한다 — **panda,
+fanuc, dual_arm_panda 세 픽스처의 `<collision>` 형상이 전부 STL
+`<mesh>`이고, `moveit-model`의 URDF 로더가 메시 충돌 형상을 아예
+보존하지 않아서(로더 자체는 이 작업 범위 밖, 다른 워커 소유), 이
+셋의 `RobotModel`은 parry로 표현 가능한 충돌 형상이 하나도 없다.**
+원뿔을 로봇 어디에 두든 이 셋에 대해서는 충돌이 감지될 수 없다 —
+이건 이번 라운드가 만든 결함이 아니라 이미 있던, 범위 밖의 구조적
+gap이다(`UNFIXED`로 보고). "같은 gap이 다른 모자를 쓰고 나타난 것"을
+피하려고, 생성기는 새 케이스를 항상 모든 픽스처의 도달 범위 밖(회전
+관절 포함 최대 실측 픽스처인 pr2의 팔 길이 ~1.7m보다 훨씬 큰 50m
+오프셋)에 놓는다 — 그러면 포트와 오라클 양쪽이 "충돌 없음"에
+동의하는 것이 실제 충돌 판정 로직이 아니라 우연한 기하학적 배치
+때문이 아니라, 원뿔-충돌 판정 자체가 대칭적으로 정직하게 작동한다는
+뜻이 된다. 대신 "충돌 있음" 분기는 이 크레이트 자신의 유닛 테스트
+`cone_through_a_robot_link_is_violated`가 검증한다 — 유일하게
+원시(primitive) 충돌 형상을 실제로 갖는 픽스처인 pr2의
+`base_bellow_link`(`<box size="0.05 0.37 0.3"/>`)를 향해 원뿔의
+바닥 원판(밑면 캡, 속이 빈 옆면 쉘과 달리 실제로 채워진 면)이 정확히
+그 링크 위치를 지나게 배치한다.
+
+**대조 결과 (4개 픽스처, 각 2,201건 = fk 100 + jacobian 100 +
+model_info 1 + constraints 2,000, 전부 seed별 재실행으로 재확인,
+2026-08-03):**
+
+| 픽스처            | seed | group            | 결과            | `visibility_cone` (만족/위반) |
+|--------------------|------|-------------------|-----------------|--------------------------------|
+| panda              | 1    | panda_arm         | 2201/2201 일치  | 285 / 0                        |
+| fanuc              | 2    | manipulator       | 2201/2201 일치  | 285 / 0                        |
+| dual_arm_panda     | 3    | left_panda_arm    | 2201/2201 일치  | 285 / 0                        |
+| pr2                | 4    | right_arm         | 2201/2201 일치  | 285 / 0                        |
+
+네 실행 모두 `visibility_cone` 285건 전부가 "만족"으로만 오라클과
+일치한다 — 위 문단에서 설명한 대로 의도된 결과지 우연이 아니다.
+
+**대조 메커니즘 자체가 살아있다는 확인 (표준 지침 — 처음 통과한 검사는
+일부러 깨서 검증).** `decide_cone`의 마지막 판정
+(`!result.collision` → `result.collision`으로 뒤집음)을 일부러 깨고
+panda seed 1로 300 케이스를 재실행했더니 `visibility_cone` 42건 전부가
+`satisfied mismatch rust=false oracle=true`로 정확히 실패했다. 되돌리고
+재실행하니 351/351 다시 일치했다 — 대조 스크립트가 이 경로의 회귀를
+실제로 잡아낸다는 확인이다.
+
+### 12.6 dual-arm panda 대조 추가 (2라운드, §12.3 완료조건 확장)
+
+§12.3에서 "이 라운드에서 URDF가 아직 준비되지 않아 대조하지 못했다"고
+남긴 dual-arm panda가 이제 `third_party/moveit_resources/dual_arm_panda_moveit_config`
++ `fixtures/dual_arm_panda.urdf`/`.srdf`로 준비됐다(다른 워커가 xacro를
+전개). §12.5의 4-픽스처 대조 표에 이미 포함했다 — `left_panda_arm`
+그룹으로 2,201건 전부 일치. 이 절반의 완료 조건은 이제 panda·fanuc
+2건이 아니라 panda·fanuc·dual_arm_panda·pr2 4건, 합계 8,804건 100%
+일치로 채워졌다.
+
+
+### 12.7 `kinematic_constraints/utils.{hpp,cpp}` 함수별 분류 — 이식 안 함, 목록만 (2라운드)
+
+과제 지시대로 이식하지 않는다. `moveit/kinematic_constraints/utils.hpp`가
+선언하는 15개 함수(오버로드 포함)와 `utils.cpp`가 그 뒤에 숨긴
+비공개 헬퍼 6개를 함수 단위로 분류했다. 기준: 시그니처에 `moveit_msgs`/
+`rclcpp::Node`가 있어도 그게 알맹이(연산 자체)에 꼭 필요하지 않고 그냥
+데이터를 담는 그릇이면 `portable`, ROS 파라미터 서버/노드/토픽 자체가
+알맹이면 `moveit-ros`.
+
+**공개 함수 (utils.hpp), 15개:**
+
+| 함수 | 분류 | 근거 |
+|---|---|---|
+| `mergeConstraints(Constraints&, Constraints&)` | portable | 관절 제약의 구간 겹침 + 가중평균 병합은 진짜 산술이다; `moveit_msgs` 타입은 벡터-오브-구조체 그릇일 뿐, `RCLCPP_ERROR`는 실패 경로 로깅으로 부수적이다. |
+| `countIndividualConstraints(Constraints&)` | portable | 벡터 길이 합, 사소하지만 msg 비의존적. 다만 우리 `KinematicConstraintSet`은 이미 `Vec<Constraint>` 하나라 이식할 실익이 거의 없다. |
+| `constructGoalConstraints(state, jmg, below, above)` | portable | `state.copyJointGroupPositions` + `jmg->getVariableNames()`로 활성 관절마다 `JointConstraint` 하나씩 만든다 — msg는 출력 그릇일 뿐. |
+| `constructGoalConstraints(state, jmg, tolerance)` | portable | 위 함수로 위임하는 얇은 오버로드. |
+| `updateJointConstraints(Constraints&, state, jmg)` | portable | jmg의 활성 관절 이름에 있으면 갱신, 없으면 실패 — 순수 로직, frame/header 없음. |
+| `constructGoalConstraints(link, PoseStamped, tol_pos, tol_angle)` (구 region) | portable | pose → 구 영역 `PositionConstraint` + rotation-vector `OrientationConstraint` 변환이 알맹이다. `header.frame_id`는 유지할 값(우리 쪽도 이미 평문 `&str` frame_id를 받는다), `header.stamp`(ROS 시각)는 이 함수도 그냥 통과시킬 뿐 아무 데도 안 쓰여서 이식 시 버릴 항목. |
+| `constructGoalConstraints(link, PoseStamped, Vec<f64> tol_pos, Vec<f64> tol_angle)` (박스 영역) | portable | 위와 동일한 근거. |
+| `updatePoseConstraint(Constraints&, link, PoseStamped&)` | portable | position/orientation 갱신 두 함수로 위임하는 얇은 변환. |
+| `constructGoalConstraints(link, QuaternionStamped, tolerance)` | portable | orientation-only 버전, 근거는 pose 버전과 동일. |
+| `updateOrientationConstraint(Constraints&, link, QuaternionStamped&)` | portable | 이름으로 찾아 갱신, `frame_id` 빈 값이면 실패(`RCLCPP_ERROR`는 부수적, `Result::Err`로 대체 가능). |
+| `constructGoalConstraints(link, Point ref, PointStamped goal, tolerance)` | portable | 구 영역 `PositionConstraint` 하나 조립 — 필드 대입뿐. |
+| `constructGoalConstraints(link, PointStamped goal, tolerance)` | portable | 위 함수로 위임(`reference_point = 0`). |
+| `updatePositionConstraint(Constraints&, link, PointStamped&)` | portable | `updateOrientationConstraint`와 같은 모양. |
+| `constructConstraints(rclcpp::Node::SharedPtr&, param, Constraints&)` | **moveit-ros** | 알맹이 자체가 `node->get_parameter`/`has_parameter`/`list_parameters` — ROS 파라미터 서버 읽기이지 기하/산술이 아니다. |
+| `resolveConstraintFrames(state, Constraints&)` | portable (단, 현재 moveit-rs에서 사실상 no-op) | 알맹이는 `getGlobalLinkTransform(robot_link).inverse() * transform`과 쿼터니언 합성 — 진짜 Eigen 기하 연산, `tf2::toMsg`/`fromMsg`는 형식 변환이라 부수적. **다만** 이 함수가 하는 일 전부가 "`link_name`이 부착 물체(attached body)/서브프레임을 가리킬 때 로봇 링크로 되돌린다"는 것인데, `moveit-state`의 `frame_transform`(§ 아래 참고)은 문서 주석에 그대로 적혀 있듯 attached body/subframe 폴백을 지원하지 않는다(`crates/moveit-state/src/state.rs:872-878`, "Upstream's further fallback to attached bodies and their subframes is out of scope for this task"). 즉 이 함수를 지금 이식해도 `robot_link->getName() == c.link_name`가 항상 참이 되어 버려 실질적으로 항상 `Ok(true)`만 반환하는 퇴화 함수가 된다 — attached body 지원이 먼저 들어와야 의미가 생긴다. |
+
+**비공개 헬퍼 (utils.cpp, 익명 네임스페이스), 6개 — 전부 `moveit-ros`:**
+`constructPoseStamped`, `constructConstraint`(Joint/Position/Orientation/
+Visibility 4개 오버로드), `collectConstraints`. 여섯 다 `rclcpp::Node::SharedPtr`의
+`get_parameter`/`has_parameter`/`list_parameters`를 직접 부른다 — 공개
+함수 `constructConstraints` 하나를 위한 내부 구현이고, 독자적으로
+이식할 이유가 없다.
+
+**분류 결과가 애초 예상과 다르다는 점을 그대로 적는다.** 과제 지시문은
+"기하 헬퍼 몇 개 정도가 portable 쪽에 떨어질 것"이라고 예상했지만,
+실측 결과는 반대다 — 15개 공개 함수 중 13개가 `portable`이고
+`moveit-ros`는 `constructConstraints` 하나(+ 그걸 지탱하는 비공개
+헬퍼 6개)뿐이다. 이유: 이 파일의 함수 대부분은 `moveit_msgs::msg::Constraints`를
+그저 출력 그릇으로만 쓸 뿐 ROS 노드/파라미터 서버/토픽 자체에 의존하지
+않는다 — 우리 크레이트는 애초에 이 메시지 타입 자체를 갖지 않고
+`JointConstraint`/`PositionConstraint`/... 같은 순수 Rust 값을 직접
+만들므로, 이 함수들의 "산술/조립 로직"은 msg 대신 우리 타입을 만들도록
+그대로 옮겨질 수 있다. ROS에 진짜로 묶인 건 파라미터 서버를 읽는
+`constructConstraints` 계열뿐이다. 이번 라운드는 이 목록만 남기고
+포팅하지 않는다 — 지시대로.
 
 ---
 

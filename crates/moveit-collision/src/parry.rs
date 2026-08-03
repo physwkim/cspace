@@ -16,17 +16,18 @@
 //! A [`CollisionEnv`] backend for `moveit_state::RobotState`, built on
 //! `parry3d-f64`.
 //!
-//! # Design: one [`Compound`] per named body
+//! # Design: one shape per named body
 //!
 //! Upstream builds one FCL `CollisionObject` per link
 //! (`constructFCLObjectRobot`, combining every `LinkModel::shapes()` entry
 //! into one FCL geometry) and one per world object
 //! (`constructFCLObjectWorld`, same combination over `Object::shapes()`).
 //! [`PosedBody`] reproduces that: a link's or object's several shapes become
-//! one `parry3d_f64::shape::Compound`, posed once. A collision or distance
-//! check between two bodies is therefore always exactly one `parry` query,
-//! matching the one-`CollisionObject`-pair-per-callback-invocation shape of
-//! upstream's design, whatever the shape count on either side.
+//! one `parry` shape, posed once ([`combine_parts`]: a lone shape as itself,
+//! two or more wrapped in a `parry3d_f64::shape::Compound`). A collision or
+//! distance check between two bodies is therefore always exactly one `parry`
+//! query, matching the one-`CollisionObject`-pair-per-callback-invocation
+//! shape of upstream's design, whatever the shape count on either side.
 //!
 //! # Deviations from upstream
 //!
@@ -267,13 +268,42 @@ fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
 }
 
 /// One named, posed collision body — a robot link or a world object — with
-/// every one of its shapes combined into a single [`Compound`], matching
-/// upstream's one-`CollisionObject`-per-body design. See the module doc.
+/// every one of its shapes combined into a single `parry` shape, matching
+/// upstream's one-`CollisionObject`-per-body design. See the module doc and
+/// [`combine_parts`] for why that single shape is a bare [`SharedShape`]
+/// rather than always a [`Compound`].
 struct PosedBody {
     name: String,
     body_type: BodyType,
-    shape: Compound,
+    shape: SharedShape,
     pose: Pose,
+}
+
+/// Fold one body's posed shape parts (each already relative to the body's own
+/// pose) into the single `(SharedShape, Pose)` a [`PosedBody`] holds. `None`
+/// if `parts` is empty.
+///
+/// A single part is returned as-is, with its relative pose composed directly
+/// into `pose`, rather than always wrapped in a [`Compound`] of one: `parry`
+/// treats [`parry3d_f64::shape::TriMesh`] itself as a composite shape (its
+/// own `as_composite_shape` returns `Some`), and `Compound::new` panics
+/// (`"Nested composite shapes are not allowed"`) if any of its parts is
+/// composite — so wrapping a lone [`Shape::Mesh`] part in a `Compound` (e.g.
+/// [`crate::VisibilityConstraint`]'s visibility cone, the first caller to put
+/// a `Shape::Mesh` in a [`World`] object; [`LinkModel::shapes`] can never
+/// contain one, see [`scaled_padded_shape`]'s doc) would panic. Two or more
+/// parts still go through `Compound` as before; a body with several shapes
+/// where more than one is a mesh remains unsupported (would still panic) —
+/// no caller in this crate constructs that today.
+fn combine_parts(parts: Vec<(Pose, SharedShape)>, pose: Isometry3) -> Option<(SharedShape, Pose)> {
+    match parts.len() {
+        0 => None,
+        1 => {
+            let (part_pose, shape) = parts.into_iter().next().expect("len checked above");
+            Some((shape, to_pose(pose) * part_pose))
+        }
+        _ => Some((SharedShape::new(Compound::new(parts)), to_pose(pose))),
+    }
 }
 
 /// One robot link's [`PosedBody`], scaled and padded per `padding_scale`.
@@ -297,14 +327,12 @@ fn link_body(
             Some((to_pose(link_shape.origin_transform * extra), parry_shape))
         })
         .collect();
-    if parts.is_empty() {
-        return None;
-    }
+    let (shape, pose) = combine_parts(parts, pose)?;
     Some(PosedBody {
         name: link.name().to_owned(),
         body_type: BodyType::RobotLink,
-        shape: Compound::new(parts),
-        pose: to_pose(pose),
+        shape,
+        pose,
     })
 }
 
@@ -319,14 +347,12 @@ fn object_body(id: &str, object: &Object) -> Option<PosedBody> {
             Some((to_pose(entry.pose() * extra), parry_shape))
         })
         .collect();
-    if parts.is_empty() {
-        return None;
-    }
+    let (shape, pose) = combine_parts(parts, object.pose())?;
     Some(PosedBody {
         name: id.to_owned(),
         body_type: BodyType::WorldObject,
-        shape: Compound::new(parts),
-        pose: to_pose(object.pose()),
+        shape,
+        pose,
     })
 }
 
@@ -430,7 +456,9 @@ fn accumulate_collision<'a>(
         if matches!(allowed, Some(AllowedCollision::Always)) {
             continue;
         }
-        let Ok(Some(contact)) = query::contact(&a.pose, &a.shape, &b.pose, &b.shape, 0.0) else {
+        let Ok(Some(contact)) =
+            query::contact(&a.pose, a.shape.as_ref(), &b.pose, b.shape.as_ref(), 0.0)
+        else {
             continue;
         };
         let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
@@ -501,9 +529,9 @@ fn accumulate_distance<'a>(
         };
         let Ok(Some(contact)) = query::contact(
             &a.pose,
-            &a.shape,
+            a.shape.as_ref(),
             &b.pose,
-            &b.shape,
+            b.shape.as_ref(),
             bounded_prediction(threshold),
         ) else {
             continue;
