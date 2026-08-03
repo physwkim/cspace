@@ -117,4 +117,16 @@
   <disable_collisions link1="panda_link4" link2="panda_rightfinger" reason="Never"/>
   <disable_collisions link1="panda_link6" link2="panda_rightfinger" reason="Never"/>
   <disable_collisions link1="panda_link7" link2="panda_rightfinger" reason="Never"/>
+  <!-- Diverges from fixtures/panda.srdf (see
+       tools/ci/verify-fixture-provenance.sh's DIVERGENT table: an entry
+       for this file is needed there, mirroring
+       crates/moveit-kinematics/tests/fixtures/pr2.srdf's existing one).
+       fixtures/panda.srdf is a byte-for-byte copy of the vendored upstream
+       panda.srdf and must stay that way, but joint_limits_penalty's
+       floating-joint skip needs a group containing `virtual_joint` (the
+       floating virtual joint from world to panda_link0) to pin, and no
+       upstream panda group isolates it. -->
+  <group name="panda_base">
+    <joint name="virtual_joint"/>
+  </group>
 </robot>

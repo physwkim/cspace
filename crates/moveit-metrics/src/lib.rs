@@ -332,6 +332,22 @@ mod tests {
             .expect("fixture model must build")
     }
 
+    /// `../../fixtures/panda.srdf` must stay a byte-for-byte copy of the
+    /// vendored upstream SRDF (`tools/ci/verify-fixture-provenance.sh`), so
+    /// it cannot gain a group no upstream panda group has. This crate-local
+    /// copy is deliberately allowed to diverge from it -- see the comment
+    /// at the bottom of `tests/fixtures/panda.srdf` for the added
+    /// `panda_base` group and what it's for.
+    fn build_model_with_panda_base_group() -> RobotModel {
+        let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/panda.urdf");
+        let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/panda.srdf");
+        let urdf_xml = fs::read_to_string(urdf_path).expect("fixture URDF must read");
+        let urdf = urdf_rs::read_file(urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(srdf_path).expect("divergent fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("fixture model must build")
+    }
+
     /// Default `penalty_multiplier` is `0.0`: [`KinematicsMetrics::joint_limits_penalty`]
     /// must return `1.0` unconditionally, upstream's `fabs(x) <=
     /// numeric_limits::min()` short-circuit.
@@ -398,6 +414,35 @@ mod tests {
 
         let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
         assert_eq!(actual_penalty, expected_penalty);
+    }
+
+    /// A floating joint is skipped unconditionally (no bound check at all):
+    /// `panda_base` is the divergent group over `virtual_joint`
+    /// (`tests/fixtures/panda.srdf`, `type="floating"` -- see
+    /// `build_model_with_panda_base_group`'s doc for why this reads a
+    /// crate-local copy, not the shared root fixture). Its translation
+    /// variables are bound to `±INFINITY`, so if the skip were
+    /// removed, `distance()` to an infinite bound would make `range`
+    /// infinite too, and `lower*upper/(range*range)` would be an
+    /// `inf*inf/(inf*inf)` indeterminate form -- `NaN`, which fails this
+    /// equality outright (`NaN != NaN`) rather than merely drifting.
+    #[test]
+    fn floating_joint_is_skipped_in_joint_limits_penalty() {
+        let model = build_model_with_panda_base_group();
+        let mut metrics = KinematicsMetrics::new(&model);
+        metrics.set_penalty_multiplier(1.5);
+        let group = model.joint_model_group("panda_base").unwrap();
+
+        let baseline = RobotState::new(&model);
+        let baseline_penalty = metrics.joint_limits_penalty(&baseline, group).unwrap();
+
+        let mut moved = RobotState::new(&model);
+        moved
+            .set_joint_positions("virtual_joint", &[1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0])
+            .unwrap();
+        let moved_penalty = metrics.joint_limits_penalty(&moved, group).unwrap();
+
+        assert_eq!(baseline_penalty, moved_penalty);
     }
 
     /// All four public metrics compute finite values for a real chain group
