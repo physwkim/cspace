@@ -47,7 +47,7 @@ use serde::Deserialize;
 
 use moveit_collision::World;
 use moveit_geometry::{Cuboid, Isometry3, Shape};
-use moveit_model::RobotModel;
+use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use nalgebra::{Matrix3, Translation3, UnitQuaternion};
@@ -127,7 +127,8 @@ fn build_model() -> RobotModel {
     let urdf_xml = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
     let urdf = urdf_rs::read_file(path).expect("fixture URDF must parse");
     let srdf = SrdfModel::parse_file(srdf_path).expect("fixture SRDF must parse");
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf).expect("fixture model must build")
+    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+        .expect("fixture model must build")
 }
 
 fn srdf() -> SrdfModel {

@@ -266,6 +266,20 @@ impl OrientationConstraint {
         matches!(self.target, OrientationTarget::Mobile { .. })
     }
 
+    /// Not an upstream accessor: needed by
+    /// `crate::utils::update_orientation_constraint`, which reconstructs an
+    /// `OrientationConstraint` from an existing one's fields rather than
+    /// mutating a stored `moveit_msgs` field in place (see this crate's
+    /// introducing doc comment on why `new()` replaces `configure()`).
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
+    /// See [`OrientationConstraint::weight`].
+    pub fn tolerance(&self) -> OrientationTolerance {
+        self.tolerance
+    }
+
     /// `OrientationConstraint::decide`.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let actual = state

@@ -865,6 +865,33 @@ fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
     rust_impl::to_row_major_4x4(&Isometry3::from_parts(translation.into(), rotation))
 }
 
+/// Whether `moveit-collision`'s parry backend can represent this shape at
+/// all -- excludes `Mesh` (never retained by `moveit-model`'s URDF loader in
+/// the first place, so never reachable from a `RobotModel`'s links, but
+/// checked here too for robustness) and `OcTree` (this port's `OcTree`
+/// carries no tree payload, see `moveit-collision`'s `parry.rs` module doc,
+/// deviation 10).
+fn is_parry_representable(shape: &Shape) -> bool {
+    !matches!(shape, Shape::Mesh(_) | Shape::OcTree(_))
+}
+
+/// Every link name whose collision geometry `moveit-collision`'s parry
+/// backend actually represents -- see [`build_constraint_case`]'s doc
+/// comment for why the `visibility_cone` case needs this to place a
+/// genuine, oracle-comparable collision.
+fn parry_representable_link_names(model: &RobotModel) -> Vec<&str> {
+    model
+        .link_models()
+        .iter()
+        .filter(|link| {
+            link.shapes()
+                .iter()
+                .any(|s| is_parry_representable(&s.shape))
+        })
+        .map(moveit_model::LinkModel::name)
+        .collect()
+}
+
 /// Builds one `moveit_msgs`-shaped constraint at `joint_values`/`fk` (the
 /// state the case is drawn from), perturbed to straddle its own tolerance
 /// boundary so the differential run's satisfied/violated split is
@@ -876,7 +903,7 @@ fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
 /// (view-angle, range-angle), and a visibility constraint with
 /// `target_radius` set -- the cone-vs-robot collision check.
 ///
-/// # The `target_radius` case never places the cone near the robot
+/// # The `target_radius` case is fixture-aware about where it can place the cone
 ///
 /// `panda.urdf`/`fanuc.urdf`/`dual_arm_panda.urdf`'s `<collision>` geometry
 /// is entirely `<mesh>` (STL); `moveit-model`'s URDF loader does not retain
@@ -888,17 +915,44 @@ fn pose_row_major(translation: Vector3, rotation: UnitQuaternion) -> [f64; 16] {
 /// real STL meshes. Placing the cone near the robot for those fixtures would
 /// therefore compare two backends checking entirely different geometry, not
 /// exercise a shared code path -- a parity check that cannot fail whatever
-/// the port does is not a parity check. This case instead always places the
-/// cone far outside every fixture's reach (`FAR_OFFSET`, well past pr2's own
-/// ~1.7m arm length, the largest committed fixture), so both sides agree
-/// "clear" for every fixture regardless of collision-geometry differences.
-/// This exercises the real request/response wire path and the "no collision"
-/// branch of `VisibilityConstraint::decide_cone` end-to-end against the
-/// oracle; the "collision found" branch is covered instead by
-/// `moveit-constraints`' own `cone_through_a_robot_link_is_violated` unit
-/// test, which uses pr2's one primitive (non-mesh) collision shape
-/// (`base_bellow_link`) since that is the only committed fixture whose
-/// collision geometry this port loads at all.
+/// the port does is not a parity check. For these three, this case always
+/// places the cone far outside the model's reach (`FAR_OFFSET`), so both
+/// sides agree "clear" regardless of collision-geometry differences.
+///
+/// `pr2.urdf` is different: `parry_representable_link_names` finds 17 links
+/// whose collision geometry is a primitive (5 box, 8 cylinder, 4 sphere) --
+/// `moveit-model`'s loader retains those, so both the port and the oracle's
+/// FCL backend see the same geometry there. Whenever the model has such a
+/// link, half of this case's occurrences (`(case / 7) % 2 == 0`) place the
+/// target exactly at one such link's global collision-shape center (cycling
+/// through the eligible links by case) with a small radius and sensor
+/// offset -- see the `Some(link_name)` arm below for why both are kept
+/// small -- so the cone's filled base cap (see `VisibilityConstraint::
+/// cone_mesh`'s own doc for why the cap, not the hollow lateral shell, is
+/// what must overlap) reaches the target link's surface without also
+/// reaching a neighbor's. The other half keep the `FAR_OFFSET` placement,
+/// so the split covers both branches of `decide_cone` against the real
+/// oracle instead of only the "no collision" one. Fixtures with no eligible
+/// link keep the `FAR_OFFSET` placement for every occurrence, unchanged.
+///
+/// This closes the coverage gap -- `decide_cone`'s `satisfied`/`violated`
+/// verdict matches the oracle on every one of pr2's near- and far-placed
+/// cases -- but does not close a second, narrower gap: the reported
+/// *distance* (the constraint's diagnostic depth, not its verdict) still
+/// disagrees on most near-placed cases. `decide_cone` builds a throwaway
+/// local environment containing only the cone plus whatever robot links the
+/// port can represent (`max_contacts: 1`, so only the first contact found is
+/// kept); the oracle's equivalent environment also contains pr2's mesh
+/// links, which sit immediately adjacent to nearly every primitive link on
+/// this densely-packed fixture. When the cone also touches one of those,
+/// upstream's traversal order can surface that contact instead of the
+/// intended one, and the two sides then report different depths for the
+/// same verdict. This is the mesh-visibility gap already on record (see
+/// `PORTING-PLAN.md`), now visible in a second place; it is not a
+/// `decide_cone` logic defect (its collision-decision logic matches
+/// upstream's `VisibilityConstraint::decide()` exactly), and closing it
+/// requires mesh collision geometry this port does not carry, not a change
+/// to this generator or to `decide_cone` itself.
 ///
 /// Every case here resolves against the model frame (upstream's
 /// `mobile_frame_ == false` path): the mobile-frame resolution path is a
@@ -1058,25 +1112,68 @@ fn build_constraint_case(
             "visibility_range_angle"
         }
         6 => {
-            // Well past pr2's own ~1.7m reach -- see this function's doc
-            // comment for why the cone must stay clear of every fixture's
-            // geometry here, not just panda/fanuc/dual_arm_panda's mesh
-            // links.
-            const FAR_OFFSET: f64 = 50.0;
-            let links = model.link_names();
-            let link_name = &links[case % links.len()];
-            let point = fk
-                .link_transforms
-                .get(link_name)
-                .expect("link_name came from model.link_names()");
-            let mut anchor = Vector3::new(point[3], point[7], point[11]);
-            let axis = case % 3;
-            anchor[axis] += FAR_OFFSET;
-            let radius = rng.random_range(0.05..0.5);
+            let eligible = parry_representable_link_names(model);
+            // See this function's doc comment: fixtures with no
+            // parry-representable link always take the far branch, and
+            // fixtures that have one (pr2) alternate so the split covers
+            // both branches of `decide_cone` against the oracle.
+            let hit_link = (!eligible.is_empty() && (case / 7) % 2 == 0)
+                .then(|| eligible[case % eligible.len()]);
+
+            let (anchor, radius, sensor_offset) = match hit_link {
+                Some(link_name) => {
+                    let link_model = model
+                        .link_model(link_name)
+                        .expect("link_name came from parry_representable_link_names(model)");
+                    let shape = link_model
+                        .shapes()
+                        .iter()
+                        .find(|s| is_parry_representable(&s.shape))
+                        .expect("link_name is eligible because it has such a shape");
+                    let link_fk = rust_impl::isometry_from_row_major(
+                        fk.link_transforms
+                            .get(link_name)
+                            .expect("link_name came from model.link_models()"),
+                    );
+                    let center = (link_fk * shape.origin_transform).translation.vector;
+                    // Small on both axes, and matched to each other, not
+                    // to the far branch's radius/1m offset: pr2's
+                    // smallest primitive (the head-mount spheres, r =
+                    // 0.0005m) sits centimeters from its largest
+                    // (base_bellow_link's box, half-extent ~0.185m), and
+                    // every one of them sits right up against the rest
+                    // of pr2's body -- much of it mesh, invisible to this
+                    // port. A radius or sensor offset sized for the big
+                    // shapes would swallow or sweep through that
+                    // neighboring geometry; keeping both small enough for
+                    // even the smallest shape (but still positive, so the
+                    // filled base cap always reaches the target's own
+                    // surface -- see this function's doc comment) keeps
+                    // the cone local to the one link this case intends.
+                    (center, rng.random_range(0.005..0.015), 0.005)
+                }
+                None => {
+                    // Well past pr2's own ~1.7m reach -- see this
+                    // function's doc comment for why the cone must stay
+                    // clear of every fixture's geometry here, not just
+                    // panda/fanuc/dual_arm_panda's mesh links.
+                    const FAR_OFFSET: f64 = 50.0;
+                    let links = model.link_names();
+                    let link_name = &links[case % links.len()];
+                    let point = fk
+                        .link_transforms
+                        .get(link_name)
+                        .expect("link_name came from model.link_names()");
+                    let mut anchor = Vector3::new(point[3], point[7], point[11]);
+                    let axis = case % 3;
+                    anchor[axis] += FAR_OFFSET;
+                    (anchor, rng.random_range(0.05..0.5), 1.0)
+                }
+            };
             spec.visibility_constraints.push(VisibilityConstraintSpec {
                 sensor_frame_id: model_frame.clone(),
                 sensor_pose: pose_row_major(
-                    anchor + Vector3::new(0.0, 0.0, 1.0),
+                    anchor + Vector3::new(0.0, 0.0, sensor_offset),
                     UnitQuaternion::identity(),
                 ),
                 sensor_view_direction: "sensor_z".to_owned(),

@@ -219,6 +219,15 @@ impl JointConstraint {
         self.tolerance_below
     }
 
+    /// Not an upstream accessor (`weight_` has none there either): needed by
+    /// `crate::utils::merge_constraints`/`update_joint_constraints`, which
+    /// reconstruct a `JointConstraint` from an existing one's fields rather
+    /// than mutating a stored `moveit_msgs` field in place (see this crate's
+    /// introducing doc comment on why `new()` replaces `configure()`).
+    pub fn weight(&self) -> f64 {
+        self.weight
+    }
+
     /// `JointConstraint::decide`.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let current = state.variable_position_at(self.variable_index);
@@ -238,5 +247,36 @@ impl JointConstraint {
         let satisfied =
             dif <= self.tolerance_above + 2.0 * EPS && dif >= -self.tolerance_below - 2.0 * EPS;
         ConstraintEvaluationResult::new(satisfied, self.weight * dif.abs())
+    }
+
+    /// Upstream `mergeConstraints`'s per-joint merge arithmetic
+    /// (`utils.cpp:80-100`), factored out here because it needs this type's
+    /// private fields: intersect `self`'s and `other`'s tolerance windows,
+    /// weighted-average the two positions clamped into the intersection, and
+    /// split the remaining slack back into above/below tolerances. `self`
+    /// (upstream's `a`, the "first" constraint) supplies the identity fields
+    /// (`joint_variable_name`/`local_variable_name`/`variable_index`/
+    /// `is_continuous`) that are already known equal between the two callers
+    /// only ever merge same-joint constraints together. `None` when the two
+    /// windows don't overlap at all (upstream: `low > high`, discarded with
+    /// an error log instead of a merged result).
+    pub(crate) fn merged(&self, other: &Self) -> Option<Self> {
+        let low =
+            (self.position - self.tolerance_below).max(other.position - other.tolerance_below);
+        let high =
+            (self.position + self.tolerance_above).min(other.position + other.tolerance_above);
+        if low > high {
+            return None;
+        }
+        let weight = self.weight + other.weight;
+        let position = ((self.position * self.weight + other.position * other.weight) / weight)
+            .clamp(low, high);
+        Some(Self {
+            position,
+            tolerance_above: (high - position).max(0.0),
+            tolerance_below: (position - low).max(0.0),
+            weight: weight / 2.0,
+            ..self.clone()
+        })
     }
 }
