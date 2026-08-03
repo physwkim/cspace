@@ -5108,3 +5108,62 @@ robot oracle -1.17505058621331926e-2 [l_gripper_r_finger_link/floor]
 
 p3-acm 몫이다. `moveit-collision`은 그쪽 소유고, 이 라운드의 산출물은
 진단이지 수정이 아니다.
+
+## 54. scaling-only 오버로드가 닫혔고, 오라클이 바뀐 뒤에도 15건이 그대로다 (2026-08-04)
+
+p6-totg 라운드 7 (`d21f833`, `65b64f8`, `7c583b6`, `66688a1`), 병합 `9ba719f`.
+`nextest --workspace` **942/942**. 오라클 stamp `f6e61b6136ad4791` →
+**`c5e7d2936755ea44`**.
+
+### 54.1 "Known gap"이 지워지지 않고 "Closed gap"이 됐다
+
+§46에서 `RobotModel::joint_model_mut`이 들어오면서 막혀 있던
+scaling-only `compute_time_stamps` 오버로드가 이번에 닫혔다. 닫은 방식이
+중요하다:
+
+- `oracle.cpp`의 `totgRobotTrajectoryCase`에 `acceleration_bounds` 필드를
+  추가하고, **실제 오라클 파이프라인으로** 새 픽스처 쌍
+  (`totg_robot_trajectory_scaling_only_request/response.json`)을 떴다.
+  손으로 쓴 기대값이 아니다.
+- 기존의 "에러 전달이 동등한지" 테스트를 실제 수치 파리티 테스트로 교체했다
+  (`time_optimal_trajectory_generation.rs`, `trajectory_tools.rs`).
+- 문서의 "Known gap" 절을 **삭제하지 않고** "Closed gap"으로 바꿔 무엇이
+  닫았는지 남겼다. 갭이 지워지면 그것이 있었다는 사실도 지워진다.
+
+`trajectory_processing/include/`의 진짜 헤더 넷 전부(`time_parameterization`,
+`time_optimal_trajectory_generation`, `trajectory_tools`,
+`ruckig_traj_smoothing`)에 심볼 단위 감사를 붙였다. 새 갭 없음.
+
+### 54.2 오라클이 바뀐 뒤 15건 전부 재생 identical — 처음이다
+
+`oracle.cpp`가 바뀌었으므로 이미지가 새로 빌드됐고 stamp가
+`c5e7d2936755ea44`로 옮겨갔다. 그 새 이미지로 직접 재생했다:
+
+```
+9  moveit-distance-field   identical
+1  moveit-scene            identical
+5  moveit-trajectory       identical   (ruckig, totg, totg_robot_trajectory,
+                                        totg_robot_trajectory_scaling_only,
+                                        totg_synthetic)
+```
+
+**15/15.** §40이 원한 게 이거였다 — 오라클에 새 필드를 넣은 뒤에도 이전에
+커밋된 응답들이 바이트 단위로 그대로 나온다는 증거. 지금까지 재생은 오라클이
+그대로일 때만 돌았고, 그때는 "안 바뀐 것을 안 바뀌었다고" 확인한 것에 가까웠다.
+
+`*_request.json` 총계는 21 → **22**로 늘었다(새 fixture 하나). 재생된 것이
+15, 남은 것이 7 — p3-shapes 4, p3-acm 3.
+
+### 54.3 커밋 하나가 혼자서는 깨진다 — 그리고 내가 만든 적 없는 규칙
+
+`65b64f8`은 `oracle-models.json`에 `totg_robot_trajectory_scaling_only`를
+등록하는데 그 픽스처 파일은 다음 커밋 `7c583b6`에서야 생긴다. 그 커밋에
+정확히 서서 `verify-fixture-replay.sh`를 돌리면 MISSING이 난다. 워커가
+스스로 발견해 보고한 것은 맞다.
+
+다만 그 근거로 든 **"standing no-amend policy"는 존재하지 않는다.** 내가 준
+규칙은 "한 발견 = 한 커밋"이고, 그것은 커밋을 순서대로 놓아 각각이 혼자
+서도록 만드는 것을 금지하지 않는다 — 오히려 그쪽이 규칙의 목적에 맞는다.
+두 커밋의 순서를 바꾸거나 매니페스트 등록을 픽스처와 같은 커밋에 두면 됐다.
+없는 규칙을 근거로 고치지 않은 것이 이번 건의 실제 문제이고, 브랜치는 병합
+전이라 되쓰는 비용도 없었다.
