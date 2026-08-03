@@ -101,7 +101,14 @@ fn enforce_bounds_wraps_an_unbounded_continuous_joint_into_pi_range() {
         (-std::f64::consts::PI..=std::f64::consts::PI).contains(&wrapped),
         "enforce_bounds must wrap a continuous joint's value into [-pi, pi], got {wrapped}"
     );
+    // Bisected per-constant (§85.3): dropping this to 1e-12 still passes;
+    // 1e-15 fails at a real diff of ~2.22e-14
+    // (0.8268795405320245 vs 0.8268795405320025) -- genuine `sin` rounding
+    // noise from the wrap, not a hidden proportional tolerance (§79). 1e-9
+    // sits ~4.5 decades above that noise floor; no change needed.
     assert_relative_eq!(wrapped.sin(), 1000.0_f64.sin(), epsilon = 1e-9);
+    // Same bisection, independently: 1e-12 passes, 1e-15 fails at a real
+    // diff of ~3.22e-14 (0.5623790762906707 vs 0.5623790762907029).
     assert_relative_eq!(wrapped.cos(), 1000.0_f64.cos(), epsilon = 1e-9);
 }
 
@@ -143,6 +150,13 @@ fn harmonize_positions_rewraps_without_changing_the_transform() {
         .update()
         .global_link_transform("bl_caster_rotation_link")
         .unwrap();
+    // Bisected per-constant (§85.3) down through 1e-12, 1e-15, and 0.0: all
+    // pass, `before`/`after` are bit-for-bit identical. Not a coincidence of
+    // this input -- this doc comment's own opening paragraph is the reason:
+    // harmonizing never marks link transforms dirty, so `update()` after
+    // `harmonize_positions()` returns the same cached transform rather than
+    // recomputing one through sin/cos of the rewrapped angle. `epsilon =
+    // 1e-9` has effectively infinite headroom; no change needed.
     assert_relative_eq!(before, after, epsilon = 1e-9);
 }
 
@@ -302,6 +316,10 @@ fn enforce_bounds_renormalizes_a_quaternion_broken_by_independent_writes() {
             value * value
         })
         .sum();
+    // Bisected per-constant (§85.3) down through 1e-12, 1e-15, and 0.0: all
+    // pass -- `norm_sqr_after` prints as exactly `1.0`, bit-for-bit, for this
+    // input (`(2.0, 3.0, 0.0, 1.0)` renormalized). `epsilon = 1e-9` has
+    // effectively infinite headroom here too; no change needed.
     assert_relative_eq!(norm_sqr_after, 1.0, epsilon = 1e-9);
 }
 

@@ -306,4 +306,92 @@ mod tests {
             "cache must not grow past max_cache_size"
         );
     }
+
+    /// `update`'s pose gate is strict `>`, matching upstream's `Pose::
+    /// distance(...) > options_.min_pose_distance`. `pose_at(1.0)` against
+    /// `pose_at(0.0)` gives a translation-only `pose_distance` of exactly
+    /// `1.0` (rotation identical on both sides, so `angle_to` contributes
+    /// exactly `0.0`; `(1.0 - 0.0).norm() == 1.0` exactly, no rounding).
+    /// The config side is held at `[0.0]` vs the dummy entry's own
+    /// `[0.0]`, so its distance is exactly `0.0` and cannot itself clear a
+    /// gate.
+    ///
+    /// A geometric input cannot be nudged by one ULP and expect
+    /// `pose_distance`'s output to move by exactly one ULP in turn --
+    /// `.norm()` is a `sqrt`, a nonlinear transform that does not preserve
+    /// ULP spacing the way `cart_to_jnt.rs:313`'s plain subtraction does
+    /// (`f8fa9d8`). `min_pose_distance` itself has no such transform
+    /// between the option and the comparison, so nudging *it* by one ULP
+    /// (`f64::from_bits`) is the exact-boundary probe here, not the
+    /// query pose.
+    #[test]
+    fn pose_gate_rejects_exactly_at_the_threshold_and_inserts_one_ulp_past_it() {
+        let at_threshold = IkCacheOptions {
+            max_cache_size: 5000,
+            min_pose_distance: 1.0,
+            min_config_distance: 1000.0,
+        };
+        let mut cache = IkCache::new(&at_threshold);
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&seed, &pose_at(1.0), &[0.0]);
+        assert_eq!(
+            cache.entries.len(),
+            0,
+            "pose_distance == min_pose_distance must not clear a strict > gate"
+        );
+
+        let one_ulp_under = IkCacheOptions {
+            max_cache_size: 5000,
+            min_pose_distance: f64::from_bits(1.0f64.to_bits() - 1),
+            min_config_distance: 1000.0,
+        };
+        let mut cache = IkCache::new(&one_ulp_under);
+        let seed = cache.nearest(&pose_at(0.0), 1);
+        cache.update(&seed, &pose_at(1.0), &[0.0]);
+        assert_eq!(
+            cache.entries.len(),
+            1,
+            "pose_distance one ULP past min_pose_distance must clear the gate"
+        );
+    }
+
+    /// `update`'s config gate is strict `>` in the *squared* space:
+    /// `configDistance2(...) > min_config_distance2_`, and
+    /// `min_config_distance2_` is `min_config_distance * min_config_distance`
+    /// (`IkCache::new`). With `min_config_distance = 1.0`, the threshold is
+    /// exactly `1.0` (`1.0 * 1.0` has no rounding). Unlike the pose gate,
+    /// `config_distance2` never takes a square root, so nudging the input
+    /// by a chosen amount *can* move its output by exactly one ULP:
+    /// `1.0.powi(2) + (2f64.powi(-26)).powi(2) == f64::from_bits(1.0_f64.
+    /// to_bits() + 1)` bit-for-bit (`2.0_f64.powi(-26)` squares to exactly
+    /// `2.0_f64.powi(-52)`, the ULP at `1.0`, and `1.0 + that` needs no
+    /// rounding since the sum is itself exactly representable) --
+    /// confirmed by compiling and running the actual arithmetic, not
+    /// derived on paper alone.
+    #[test]
+    fn config_gate_rejects_exactly_at_the_threshold_and_inserts_one_ulp_past_it() {
+        let options = IkCacheOptions {
+            max_cache_size: 5000,
+            min_pose_distance: 1000.0,
+            min_config_distance: 1.0,
+        };
+        let mut cache = IkCache::new(&options);
+        let seed = cache.nearest(&pose_at(0.0), 2);
+        cache.update(&seed, &pose_at(0.0), &[1.0, 0.0]);
+        assert_eq!(
+            cache.entries.len(),
+            0,
+            "config_distance2 == min_config_distance2 must not clear a strict > gate"
+        );
+
+        let mut cache = IkCache::new(&options);
+        let seed = cache.nearest(&pose_at(0.0), 2);
+        let one_ulp_past = 2f64.powi(-26);
+        cache.update(&seed, &pose_at(0.0), &[1.0, one_ulp_past]);
+        assert_eq!(
+            cache.entries.len(),
+            1,
+            "config_distance2 one ULP past min_config_distance2 must clear the gate"
+        );
+    }
 }
