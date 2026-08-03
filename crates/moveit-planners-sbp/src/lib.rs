@@ -47,6 +47,7 @@
 mod error;
 pub mod nn;
 mod rrt_connect;
+mod sampling;
 pub mod space;
 pub mod validity;
 

@@ -6,6 +6,7 @@
 use rand::{Rng, RngExt};
 
 use crate::error::SbpError;
+use crate::sampling::{sample_ball_radius_fraction, sample_unit_vector};
 
 /// A metric space of planner states.
 ///
@@ -20,10 +21,25 @@ use crate::error::SbpError;
 ///
 /// The trait exists so this crate is not Euclidean-by-assumption:
 /// `distance` and `interpolate` are per-space operations rather than a fixed
-/// formula, which is what lets a future space compose a wraparound revolute
-/// joint (shortest arc, not linear difference) or an SO(3) orientation
-/// (geodesic, not linear blend) without changing anything in [`crate::nn`]
-/// or [`crate::rrt_connect`] — both are written only against this trait.
+/// formula, which is what lets a space compose a wraparound revolute joint
+/// (shortest arc, not linear difference, see `So2Space`) or an SO(3)
+/// orientation (geodesic, not linear blend, see `Se3Space`) without changing
+/// anything in [`crate::nn`] or [`crate::rrt_connect`] — both are written
+/// only against this trait.
+///
+/// # Object safety
+///
+/// Every method here takes `&mut dyn Rng` rather than a generic `<R: Rng>`
+/// parameter, which costs one dynamic dispatch per random draw but is what
+/// makes `StateSpace` itself object-safe: `CompoundSpace` holds a
+/// heterogeneous list of subspaces (a revolute joint next to a floating
+/// joint next to a prismatic one) behind `Box<dyn StateSpace<State = _>>`,
+/// which is only expressible at all if the trait has no generic methods to
+/// put in a vtable. An earlier version of this trait used `<R: Rng>` and had
+/// to be changed for exactly this reason — see
+/// `crates/moveit-planners-sbp`'s commit history for the record of that
+/// change and why it was necessary rather than a `CompoundSpace`-only
+/// workaround.
 pub trait StateSpace {
     /// A single point in the space.
     type State: Clone;
@@ -48,7 +64,7 @@ pub trait StateSpace {
     fn satisfies_bounds(&self, state: &Self::State) -> bool;
 
     /// Draws a state uniformly at random from this space's bounds.
-    fn sample_uniform<R: Rng>(&self, rng: &mut R) -> Self::State;
+    fn sample_uniform(&self, rng: &mut dyn Rng) -> Self::State;
 
     /// Draws a state uniformly at random from the ball of `radius` around
     /// `center` under [`distance`](StateSpace::distance) (clipped to this
@@ -57,23 +73,7 @@ pub trait StateSpace {
     /// gets a sample that thins out from the centre the way a uniform
     /// distribution over a disc or sphere actually does, not one
     /// artificially concentrated toward the ball's corners or shell.
-    fn sample_near<R: Rng>(&self, rng: &mut R, center: &Self::State, radius: f64) -> Self::State;
-}
-
-/// One sample from the standard normal distribution, via the Box-Muller
-/// transform.
-///
-/// Box-Muller produces two independent standard normals from two uniforms;
-/// only the cosine branch is used here since callers draw one coordinate at
-/// a time, so this costs one extra uniform draw beyond the theoretical
-/// minimum. That is irrelevant next to what it replaces (see
-/// [`RealVectorSpace::sample_near`]'s doc comment): the cost here is `O(1)`
-/// regardless of the space's dimension, where the rejection-sampling
-/// alternative was exponential in it.
-fn standard_normal<R: Rng>(rng: &mut R) -> f64 {
-    let u1: f64 = rng.random_range(f64::MIN_POSITIVE..1.0);
-    let u2: f64 = rng.random_range(0.0..1.0);
-    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    fn sample_near(&self, rng: &mut dyn Rng, center: &Self::State, radius: f64) -> Self::State;
 }
 
 /// Plain bounded `R^n` with the Euclidean metric: `distance` is the L2 norm
@@ -158,14 +158,14 @@ impl StateSpace for RealVectorSpace {
             .all(|(&v, &(min, max))| v >= min && v <= max)
     }
 
-    fn sample_uniform<R: Rng>(&self, rng: &mut R) -> Vec<f64> {
+    fn sample_uniform(&self, rng: &mut dyn Rng) -> Vec<f64> {
         self.bounds
             .iter()
             .map(|&(min, max)| rng.random_range(min..=max))
             .collect()
     }
 
-    fn sample_near<R: Rng>(&self, rng: &mut R, center: &Vec<f64>, radius: f64) -> Vec<f64> {
+    fn sample_near(&self, rng: &mut dyn Rng, center: &Vec<f64>, radius: f64) -> Vec<f64> {
         debug_assert_eq!(center.len(), self.dimension());
         if radius <= 0.0 {
             let mut state = center.clone();
@@ -174,40 +174,14 @@ impl StateSpace for RealVectorSpace {
         }
 
         let dim = self.dimension();
-        // Uniform direction on the unit sphere: independent standard-normal
-        // coordinates are spherically symmetric (their joint density
-        // depends only on the vector's norm, since the exponent in the
-        // product of Gaussian densities is `-(x_1^2 + ... + x_dim^2) / 2`),
-        // so normalizing such a vector to unit length gives a direction
-        // uniform on the sphere exactly. This costs exactly `dim` draws of
-        // `standard_normal` and no rejection.
-        //
-        // An earlier version of this method instead rejection-sampled in
-        // the unit box (draw uniformly in `[-1, 1]^dim`, keep only points
-        // inside the unit ball, normalize). That is also exactly uniform on
-        // the sphere, but its acceptance probability is the ball-to-box
-        // volume ratio, which collapses exponentially as `dim` grows: about
-        // 1 in 27 draws at `dim = 7`, 1 in 86,000 at `dim = 15`. This
-        // crate's planning groups reach 14-15 DOF
-        // (`fixtures/dual_arm_panda.urdf`, PR2's `arms_and_torso`), where
-        // that made `sample_near` cost tens to hundreds of milliseconds per
-        // call — see `sample_near_completes_at_planning_relevant_dimension`
-        // below, which is the regression test for this.
-        let mut direction: Vec<f64> = (0..dim).map(|_| standard_normal(rng)).collect();
-        let norm = direction.iter().map(|v| v * v).sum::<f64>().sqrt();
-        for v in &mut direction {
-            *v /= norm;
-        }
-
-        // A radius uniform *within the ball's volume* (rather than a radius
-        // uniform in [0, radius], which would concentrate samples near the
-        // centre) is `radius * u^(1/dim)` for `u` uniform in [0, 1): the
-        // volume enclosed within radius `r` scales as `r^dim`, so this is
-        // exactly the inverse-CDF transform that makes the enclosed volume,
-        // and therefore the sample, uniform. See e.g. Barthe et al., "A
-        // Probabilistic Approach to the Geometry of the l^n_p-Ball" (2005).
-        let u: f64 = rng.random_range(0.0..1.0);
-        let r = radius * u.powf(1.0 / dim as f64);
+        // See `crate::sampling` for why this is a direction drawn uniformly
+        // on the unit sphere (via `sample_unit_vector`, no rejection) rather
+        // than the exponentially-expensive-in-dimension rejection sampling
+        // this method used to do — see
+        // `sample_near_completes_at_planning_relevant_dimension` below,
+        // this method's regression test for that history.
+        let direction = sample_unit_vector(rng, dim);
+        let r = radius * sample_ball_radius_fraction(rng, dim);
 
         let mut state: Vec<f64> = center
             .iter()
