@@ -71,6 +71,141 @@
 //!   the future consumer of this crate's [`OcTree`], not something this
 //!   crate implements itself.
 //!
+//! # Symbol-by-symbol audit against upstream's public surface (round 12)
+//!
+//! This crate has had rounds of parity/oracle work but never a pass over
+//! upstream `octomap`'s actual header surface, symbol by symbol, the way
+//! `moveit-geometry`'s `shapes.rs`/`bodies.rs` module docs already do for
+//! their own crate. Done here against the headers extracted from the oracle
+//! container's `liboctomap-dev 1.9.7+dfsg-3.1build3`
+//! (`AbstractOcTree.h`, `AbstractOccupancyOcTree.h`, `OcTree.h`,
+//! `OcTreeNode.h`, `OcTreeDataNode.h`, `OccupancyOcTreeBase.h`,
+//! `OcTreeBaseImpl.h`), cross-checked against every call site in
+//! `/home/stevek/work/moveit2/moveit_core` (not `moveit_ros`, which is
+//! `moveit-ros` territory and D1-excluded by the same reasoning applied
+//! throughout this project -- PORTING-PLAN.md's own D1 note on the
+//! `resolveConstraintFrames` TF fallback is the same pattern). 40 symbol
+//! groups (overloads collapsed to one row per upstream operation), four-way
+//! classified:
+//!
+//! ```text
+//! ported                22
+//! unported, in scope      3
+//! distinct because ...   15
+//! ------------------------
+//! total                  40
+//! ```
+//!
+//! **`ported`** (22): the constructor and logodds-space sensor-model
+//! getters; `AbstractOccupancyOcTree::isNodeOccupied`-equivalent queries;
+//! `getNodeSize`; `search` (fused into [`OcTree::log_odds_at`]/
+//! [`OcTree::occupancy_at`]/[`OcTree::is_occupied`] rather than a raw
+//! nullable `NODE*` -- a deliberate shape deviation, not a gap);
+//! `coordToKeyChecked`'s point overload; the three `updateNode` overload
+//! shapes this workspace's sensor-model callers actually use (key+logodds,
+//! key+bool, point+bool); the protected relative `updateNodeLogOdds`;
+//! `updateInnerOccupancy`; tree-wide `prune`; `computeRayKeys`;
+//! `computeUpdate` (point-slice-shaped here, not `octomap::Pointcloud`-typed
+//! -- see "What was deliberately not ported" above for why); `insertRay`;
+//! leaf iteration (`begin_leafs`/`end_leafs`, `begin_leafs_bbx`/
+//! `end_leafs_bbx`); `calcNumNodes`; `getNumLeafNodes`; `OcTreeKey`/
+//! `KeyRay`/`KeySet` plus the bit-level `computeChildKey`/`computeChildIdx`/
+//! `computeIndexKey`; `OcTreeNode`'s occupancy accessors and
+//! `updateOccupancyChildren`; `addValue` (inlined into the log-odds clamp in
+//! `update_node_recurs` rather than kept as a named method); and the
+//! `OcTreeDataNode`-level child-structural primitives (`createChild`,
+//! `expandNode`, `isNodeCollapsible`, `pruneNode`), present as `Node`'s
+//! `pub(crate)` methods since nothing outside this crate needs direct child
+//! manipulation.
+//!
+//! **`unported, in scope`** (3) -- no current consumer, but not
+//! architecturally excluded either:
+//!
+//! - **`tree_iterator` (`begin_tree`/`end_tree`, all nodes including
+//!   inner ones, as opposed to `leaf_iterator`'s leaves-only walk).**
+//!   Checking this round found a concrete, named reason it matters:
+//!   `collision_distance_field_types.cpp:355-364`'s
+//!   `PosedBodyPointDecomposition(const std::shared_ptr<const
+//!   octomap::OcTree>& octree)` constructor -- the one overload of that type
+//!   that builds collision points directly from an octree rather than from a
+//!   `BodyDecomposition` -- is implemented entirely in terms of
+//!   `octree->begin_tree()`/`end_tree()`. `moveit-distance-field`'s own
+//!   `PosedBodyPointDecomposition` (`collision_distance_field_types.rs:929`)
+//!   ports only the `BodyDecomposition`-sourced constructors
+//!   (`PosedBodyPointDecomposition::with_pose` and its plain form) -- the
+//!   octree-sourced overload is itself unported there. So this is not a
+//!   speculative gap: it is one specific upstream call site whose Rust-side
+//!   consumer is *also* missing, which is PORTING-PLAN.md §13's own "still
+//!   open" risk (standalone octree exists, but is not yet wired into a real
+//!   collision/distance-field path) in a more concrete form than it had
+//!   before this round.
+//! - **`setNodeValue`** (3 overloads: key, point, xyz). Already named in
+//!   PORTING-PLAN.md §13; still accurate -- `tree.rs`'s own module doc
+//!   explains the one upstream call site that conceptually wants it
+//!   (`lazy_free_space_updater.cpp`) routes through the relative
+//!   `update_node_log_odds` primitive with a saturating delta instead.
+//! - **The remaining `updateNode` overload shapes** (point+logodds, and
+//!   every `(double x, double y, double z, ...)` triple-argument form for
+//!   both logodds and bool) -- pure ergonomic wrappers around the three
+//!   shapes already ported, with no caller needing the wider signature set.
+//!
+//! **`distinct because ...`** (15) -- architecturally out of this
+//! workspace's scope, not merely uncalled so far: the `AbstractOcTree`
+//! registry/factory (`create`/`getTreeType`/`createTree`/
+//! `registerTreeType`/`StaticMemberInitializer`, D4 rules out runtime-type
+//! polymorphism for a crate with exactly one concrete tree type);
+//! `ColorOcTree`/`CountingOcTree`/`OcTreeStamped` and their node types (zero
+//! `moveit_core` reference); binary file/stream IO (`writeBinary*`/
+//! `readBinary*`/`AbstractOcTree::write`/`read`/`readHeader` -- octrees
+//! enter this workspace only via ROS messages in `moveit_ros/perception`,
+//! itself D1-excluded, never via `.bt`/`.ot` files); change detection
+//! (`enableChangeDetection` and its accessors, confirmed unused since the
+//! crate's original round); `insertPointCloud`/`insertPointCloudRays`/
+//! `computeDiscreteUpdate` (every caller is a `moveit_ros/perception`
+//! depth-camera updater converting a ROS `sensor_msgs` cloud into
+//! `octomap::Pointcloud` first -- D1-excluded by the same "moveit-ros
+//! territory" reasoning PORTING-PLAN.md already applies elsewhere, even
+//! though `octomap::Pointcloud` itself is not a ROS type); `castRay`/
+//! `getRayIntersection`/`getNormals` (this workspace's octree collision
+//! path is the leaf-`Cuboid` `Compound` approximation, PORTING-PLAN.md
+//! §4.8's decision, not octomap's own raycasting); the BBX-limit machinery
+//! (`useBBXLimit` and its accessors -- only meaningful alongside the
+//! already-excluded BBX-limited `insertPointCloud` path); introspection/
+//! debugging helpers with zero `moveit_core` consumer
+//! (`getUnknownLeafCenters`, `computeRay`, `volume`, `memoryUsage`,
+//! `memoryUsageNode`, `memoryFullGrid`, `setResolution`); `swapContent`/
+//! `operator==`/the deep-copy constructor (this workspace's octrees are
+//! shared via `Arc`, never compared or deep-cloned); the tree-level
+//! structural-editing surface (`createNodeChild`/`deleteNodeChild`/
+//! `getNodeChild`/`isNodeCollapsible`/`nodeChildExists`/`nodeHasChildren`/
+//! `deleteNode`/`getRoot`, already covered internally where `update_node`/
+//! `prune` actually need child access, via `Node`'s own `pub(crate)`
+//! methods); `getMeanChildLogOdds` (upstream itself only wires the *max*
+//! variant into `updateOccupancyChildren`); the deprecated-upstream
+//! `childExists`/`hasChildren`; `toMaxLikelihood`/`integrateHit`/
+//! `integrateMiss`/`nodeToMaxLikelihood` as separately named methods (this
+//! port inlines the sensor-model math directly into
+//! `update_node_log_odds`/`update_node_recurs` instead); the
+//! probability-space (non-log) sensor-model getters and setters
+//! (`getProbHit`/`setProbHit`/etc. -- their one `moveit_core` caller is the
+//! Bullet collision backend, which this project does not use, `parry`
+//! replacing FCL/Bullet per PORTING-PLAN.md); and `getMetricMin`/
+//! `getMetricMax`/`getMetricSize` (zero consumer anywhere in
+//! `moveit_core`, including the perception layer).
+//!
+//! **A naming precision, not a gap:** [`OcTree::num_nodes`] is upstream's
+//! `calcNumNodes()` -- an O(n) recursive traversal -- not `size()`, the O(1)
+//! `tree_size` counter upstream maintains incrementally across every
+//! insert/delete/prune/expand. `size()`/`tree_size` itself was never
+//! ported under any name. No consumer in this workspace currently needs the
+//! O(1) form (every octree here is built once per test/fixture, not mutated
+//! in a hot loop where the traversal cost of `num_nodes()` would matter),
+//! so this is not promoted to `unported, in scope` above, but the name
+//! [`OcTree::num_nodes`] should not be read as "this is `size()`" --
+//! checked directly against `OcTreeBaseImpl.h:241` (`size()`) versus
+//! `OcTreeBaseImpl.h:269` (`calcNumNodes()`) rather than assumed from the
+//! Rust name alone.
+//!
 //! # Representation
 //!
 //! See [`OcTree`]'s own docs for why the tree is pointer-linked nodes
