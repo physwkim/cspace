@@ -147,14 +147,18 @@
 //!   `collision_distance_field_types.rs`.
 //! - [`Body::contains_point`] again — `moveit-distance-field`'s
 //!   `find_internal_points.rs`.
-//! - [`Body::intersects_ray`], [`Body::sample_point_inside`],
-//!   [`Body::compute_volume`] — exercised only by this module's own tests and
-//!   [`crate`]'s `body_query_parity`/`probe_parity` right now; no *Rust*
-//!   caller outside `moveit-geometry` yet (checked by `rg` for each method
-//!   name across `crates/*/src`, excluding this file and `shapes.rs`). Their
-//!   *upstream* consumers, and which crate will call each once ported, are
-//!   decided per-method below (round 13, item 3) rather than left as one
+//! - [`Body::intersects_ray`], [`Body::compute_volume`] — exercised only by
+//!   this module's own tests and [`crate`]'s `body_query_parity`/
+//!   `probe_parity` right now; no *Rust* caller outside `moveit-geometry`
+//!   (checked by `rg` for each method name across `crates/*/src`, excluding
+//!   this file and `shapes.rs`). Their *upstream* consumers, or absence
+//!   thereof, are decided per-method below (round 13 item 3, corrected round
+//!   14 item 0a for `intersects_ray`) rather than left as one
 //!   undifferentiated "no caller" line.
+//! - [`Body::sample_point_inside`] — **has** a caller outside this crate:
+//!   `moveit-constraints`'s `ik_sampler.rs:254` (round 14 item 0b corrects
+//!   round 13's "once ported" framing, which was already stale when
+//!   written — see below).
 //!
 //!   Checked (round 11) whether "no caller" understates
 //!   [`ConvexMesh::intersects_ray`] specifically, since §9.1's probe already
@@ -187,41 +191,58 @@
 //! "No caller outside `moveit-geometry` yet" (above, since round 10) is a
 //! report line, not a state — closed here per-method rather than repeated.
 //!
-//! **[`Body::sample_point_inside`] — named consumer: `moveit-constraints`
-//! (p1-robotmodel's).** `moveit_core/constraint_samplers/src/
+//! **[`Body::sample_point_inside`] — has a consumer: `moveit-constraints`.**
+//! Upstream, `moveit_core/constraint_samplers/src/
 //! default_constraint_samplers.cpp:461`'s `IKConstraintSampler::samplePose`
 //! calls `b[(i + k) % b.size()]->samplePointInside(random_number_generator_,
 //! max_attempts, pos)` on `b`, the `std::vector<bodies::BodyPtr>` returned by
 //! `PositionConstraint::getConstraintRegions()` — a real, indexed, per-body
-//! call, not a `BodyVector`-mediated one. `PositionConstraint` is already
-//! `moveit-constraints`'s (`position.rs`, cited above for
-//! [`Body::contains_point`]); its `getConstraintRegions()` equivalent is that
-//! crate's port, and it is what will call [`Body::sample_point_inside`] once
-//! ported. No reopening condition needed — this is a real call site now, not
-//! a deferred one.
+//! call, not a `BodyVector`-mediated one. Round 13 recorded this as a future
+//! consumer ("once ported"); it already was ported by then —
+//! `moveit-constraints/src/ik_sampler.rs:254`'s `IkSampler::sample_pose`
+//! (p1-robotmodel round 9, merged after this crate's round-13 base, so the
+//! round-13 report was stale the moment it was written) calls exactly
+//! [`Body::sample_point_inside`] on the clone-at-pose'd constraint-region
+//! body: `body.sample_point_inside(max_attempts, &mut |lo, hi|
+//! rng.random_range(lo..hi))`. That caller fixes the two things this port's
+//! signature had to get right to be usable: `max_attempts: u32` is a plain
+//! retry budget (not upstream's `RandomNumberGenerator&` bundled with it —
+//! this port takes attempts and a sampler as two separate parameters), and
+//! `uniform: &mut dyn FnMut(f64, f64) -> f64` is the `(lo, hi) -> sample`
+//! closure every concrete body's `sample_point_inside` calls one or more
+//! times per attempt (see [`Sphere::sample_point_inside`],
+//! [`Cylinder::sample_point_inside`], etc.) — `ik_sampler.rs:254` supplies
+//! `rng.random_range(lo..hi)` for it, which is exactly what upstream's
+//! bundled `RandomNumberGenerator::uniformReal(lo, hi)` would have produced
+//! through the same call sites.
 //!
-//! **[`Body::intersects_ray`] — no consumer, upstream included; decided
-//! unported for now.** Re-checked this round against both trees: `rg -n
-//! intersectsRay` across the full `geometric_shapes` 2.3.3 source (`src/`,
-//! `include/`, `test/`) finds exactly two non-test call sites, both internal
-//! to `bodies.cpp` itself and already accounted for above —
-//! `ConvexMesh::intersectsRay`'s bounding-box pre-check
-//! (`bodies.cpp:1241`, mirrored by this port's `ray_intersections`
+//! **[`Body::intersects_ray`] — ported (`Sphere`/`Cylinder`/`Cuboid`/
+//! `ConvexMesh`/[`Body`]'s own enum dispatch, five `intersects_ray` methods
+//! in this file), no consumer outside this crate.** This method is *not*
+//! missing an implementation; what is missing is an external caller. Round
+//! 13's wording ("stays unported", "decided unported for now") read as if
+//! the method itself were absent, which it is not and never has been —
+//! corrected here (round 14, item 0a) rather than repeated. Re-checked this
+//! round against both trees: `rg -n intersectsRay` across the full
+//! `geometric_shapes` 2.3.3 source (`src/`, `include/`, `test/`) finds
+//! exactly two non-test call sites, both internal to `bodies.cpp` itself and
+//! already accounted for above — `ConvexMesh::intersectsRay`'s bounding-box
+//! pre-check (`bodies.cpp:1241`, mirrored by this port's `ray_intersections`
 //! short-circuit, lines 156-164 above) and `BodyVector::intersectsRay`'s
 //! first-hit loop over child bodies (`bodies.cpp:1414`, the wrapper decided
 //! not-worth-porting at lines 263-278 above). Neither is an external
-//! consumer; both are the same not-yet-ported-for-anyone-else algorithm
-//! calling itself. `rg -n intersectsRay` across all of `/home/stevek/work/
-//! moveit2` (`moveit_core` and `moveit_ros`) returns zero hits — no
-//! moveit2-layer caller exists either, unlike `sample_point_inside`. So this
-//! is upstream's own answer, not a gap in what this port's search covered:
-//! nothing anywhere in the pinned upstream tree calls a `Body`'s
-//! `intersectsRay` except another `Body` method already covered by an
-//! existing decision. Stays unported. Reopens if a future consumer appears —
-//! most plausibly Phase 3 collision's `ParryCollisionEnv`/`PosedBody` path,
-//! if it ever needs a body-level ray test this module could serve instead of
-//! `parry3d-f64`'s own ray-cast, or if `BodyVector` gets a real caller and
-//! its decided-unported status (lines 263-278) is itself reopened.
+//! consumer; both are the same already-ported algorithm calling itself.
+//! `rg -n intersectsRay` across all of `/home/stevek/work/moveit2`
+//! (`moveit_core` and `moveit_ros`) returns zero hits — no moveit2-layer
+//! caller exists either, unlike `sample_point_inside`. So this is upstream's
+//! own answer, not a gap in what this port's search covered: nothing
+//! anywhere in the pinned upstream tree calls a `Body`'s `intersectsRay`
+//! except another `Body` method already covered by an existing decision.
+//! Reopens if a future consumer appears — most plausibly Phase 3 collision's
+//! `ParryCollisionEnv`/`PosedBody` path, if it ever needs a body-level ray
+//! test this module could serve instead of `parry3d-f64`'s own ray-cast, or
+//! if `BodyVector` gets a real caller and its decided-unported status (lines
+//! 263-278) is itself reopened.
 //!
 //! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
 //!
