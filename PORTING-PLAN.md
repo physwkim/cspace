@@ -6082,3 +6082,77 @@ world 쪽 7 + 2 = 9는 §60.2가 손으로 쪼갠 값과 정확히 같다. 계�
 
 `cargo nextest run --workspace` **970/970**, clippy `-D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
+
+## 68. metric 배율 결함을 계열로 쓸어냈다 (2026-08-04)
+
+p1-robotmodel 라운드 8(`c2ff170`, `4cc14e1`). 베이스 `1b58458`.
+
+### 68.1 요구한 숫자는 보고가 아니라 커밋 메시지에 있었다
+
+브리프가 화면에 요구한 것 — distance/metric 진입점이 몇 개이고, 그중
+몇 개가 이번 라운드 전에는 외부값 경계 테스트가 없었는지 — 은 보고
+본문에 없다. `c2ff170`의 커밋 메시지에는 있다: **진짜 진입점 5개**,
+그리고 산술 없이 그대로 위임하는 어댑터 3개(`compound.rs`의
+`RealVectorAdapter`/`So2Adapter`/`Se3Adapter`). 다섯 개 각각에 대해 어떤
+상류 심볼로 못박았는지가 파일:행과 함께 적혀 있다:
+
+- `RealVectorSpace::distance` — `prismatic_joint_model.cpp:114-116`,
+  `revolute_joint_model.cpp:180-181`
+- `So2Space::distance` — `revolute_joint_model.cpp:173-179`의 continuous 분기
+- `Se3Space::distance` — `floating_joint_model.cpp:120-126`(병진),
+  `:115-118`(가중합). 회전은 `9b04950`에서 이미
+- `CompoundSpace::distance` — `joint_model_group.cpp:462-471`
+- `JointModelGroupSpace::distance` — `fixtures/panda.urdf`의 실제 한계값
+
+보고에 안 적으면 없는 것과 같다. 다음 라운드 브리프에 그렇게 적었다.
+
+### 68.2 테스트가 틀렸고 구현이 맞았던 건
+
+`JointModelGroupSpace`의 pin을 처음 쓸 때 URDF `<limit>` 값을 그대로
+기대값으로 넣었더니 구현과 어긋났다. 실제 bound는
+`<safety_controller soft_lower_limit/soft_upper_limit>`에서 온다. 상류
+`robot_model.cpp:898-908`을 직접 확인했다 — `urdf_joint->safety`가 있으면
+soft limit을 쓰고, hard limit은 그것을 **좁히는 방향으로만** 적용된다
+(`limits->lower > min_position_`일 때만 올리고, `limits->upper <
+max_position_`일 때만 내린다). 담당이 테스트를 고쳤지 구현을 고치지
+않았다.
+
+### 68.3 sampler 두 개가 들어왔다
+
+`4cc14e1`. 브리프가 놓치기 쉽다고 지목한 두 가지가 둘 다 들어왔다:
+
+- `JointConstraintSampler::configure`가 bound 교집합이 비면 **configure
+  시점에 실패**한다(샘플링 시점이 아니라). 경계 테스트 4종 — 빈 교집합,
+  한 점 교집합(`tolerance == 0`), 그룹 밖 관절, 입력 순서를 뒤집은 union.
+- `UnionConstraintSampler`의 `OrderSamplers` 술어가 그대로 이식됐다.
+  상류 `union_constraint_sampler.cpp:60-121`과 한 줄씩 대조했다:
+  updated-link 집합 포함 관계 → frame dependency → 순환 의존 tie-break →
+  `JointConstraintSampler` 우선 → 그룹 이름 사전순. `dynamic_cast` 자리는
+  `is_joint_constraint_sampler()` trait 메서드가 대신하고, 정렬은
+  `sort_by`(Rust에서 stable)로 상류 `std::stable_sort`와 같다.
+
+### 68.4 `IKConstraintSampler`의 블로커 — 결정
+
+담당이 두 가지를 올렸다. 하나는 자기 것이고(두 `OrientationConstraint`
+접근자, 이제 "미사용 접근자 갭"이 아니라 확인된 블로커다), 다른 하나를
+나에게 라우팅했다: 상류 `ConstraintSamplerManager::selectDefaultSampler`가
+`jmg->getGroupKinematics()`로 그룹→solver를 찾는데 이 포트에는 그 매핑이
+없다.
+
+**결정: 매핑을 만들지 않는다. `IKConstraintSampler`가 solver를 인자로
+받는다.** 근거는 D4다 — `moveit-kinematics`의 `KINEMATICS_SOLVERS`는
+알고리즘의 컴파일타임 레지스트리이고, `SolverRegistration::construct`가
+이미 group_name을 **호출자에게서** 받는다. 그룹별 기본 solver 지정은
+상류에서 `kinematics.yaml`/`robot_model_loader`가 하는 런타임 설정이고,
+그 계열(`ConstraintSamplerManager`의 문자열 플러그인 디스패치)은 이미
+D4로 제외돼 있다. 여기서 `JointModelGroup`에 `group_kinematics_`를
+새로 심으면 제외한 런타임 설정 계층을 뒷문으로 들이는 셈이다.
+
+따라서 블로커는 하나로 줄어든다 — 두 접근자 — 이고 그것은 담당의
+크레이트 안에 있다. `moveit-kinematics`/`moveit-model`은 이 건으로
+건드리지 않는다.
+
+### 68.5 머지 후 실측
+
+`cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
