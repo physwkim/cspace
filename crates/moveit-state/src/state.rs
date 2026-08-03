@@ -73,11 +73,20 @@ pub type JointIndex = usize;
 ///
 /// # Deviations from upstream
 ///
-/// 1. **No velocity, acceleration or effort.** `PORTING-PLAN.md` scopes this
-///    task to positions and forward kinematics; `enforce_bounds`/
-///    `satisfies_bounds` therefore only ever check position bounds (upstream
-///    additionally checks velocity bounds when `has_velocity_` is set, which
-///    this port never sets).
+/// 1. **Acceleration and effort get independent storage, not upstream's
+///    aliased buffer.** Upstream stores both in one
+///    `effort_or_acceleration_` vector, switched by
+///    `has_acceleration_`/`has_effort_` (`markAcceleration`/`markEffort`
+///    each clear the other flag): a memory optimisation whose only
+///    observable consequence is that setting one silently clobbers the
+///    other. No caller in this workspace relies on that clobber, so this
+///    port gives each its own `Vec<f64>` instead of reproducing the dual
+///    meaning. [`RobotState::enforce_bounds`]/[`RobotState::satisfies_bounds`]
+///    check velocity bounds too, when [`RobotState::has_velocities`] is
+///    true, matching upstream's `enforceBounds(const JointModel*)`/
+///    `satisfiesBounds(const JointModel*, double)` in full now — upstream
+///    itself never extends either to acceleration or effort bounds, so
+///    this port does not either.
 /// 2. **No attached bodies.** `attachBody`/`getFrameTransform`'s
 ///    attached-body fallback/`knowsFrameTransform`'s attached-body fallback
 ///    are all deferred; see the crate's `UNFIXED` report.
@@ -94,6 +103,17 @@ pub type JointIndex = usize;
 pub struct RobotState<'m> {
     model: &'m RobotModel,
     positions: Vec<f64>,
+    /// `velocity_`.
+    velocity: Vec<f64>,
+    /// Upstream aliases this onto the same buffer as `effort`, switched by
+    /// `has_acceleration_`/`has_effort_`; this port gives it independent
+    /// storage instead (see this type's doc comment).
+    acceleration: Vec<f64>,
+    /// See `acceleration`'s doc comment.
+    effort: Vec<f64>,
+    has_velocity: bool,
+    has_acceleration: bool,
+    has_effort: bool,
     transforms: Vec<Isometry3>,
     dirty: Option<JointIndex>,
     /// `joint.first_variable_index()` upstream — this port's `RobotModel`
@@ -196,6 +216,12 @@ impl<'m> RobotState<'m> {
         Self {
             model,
             positions: vec![0.0; model.variable_count()],
+            velocity: vec![0.0; model.variable_count()],
+            acceleration: vec![0.0; model.variable_count()],
+            effort: vec![0.0; model.variable_count()],
+            has_velocity: false,
+            has_acceleration: false,
+            has_effort: false,
             transforms: vec![Isometry3::identity(); n_links],
             dirty: Some(root_joint_index),
             first_variable_index,
@@ -258,6 +284,220 @@ impl<'m> RobotState<'m> {
             .get(name)
             .copied()
             .ok_or_else(|| Error::unknown_name("joint", name))
+    }
+
+    // ---- Velocity, acceleration, effort --------------------------------
+    //
+    // Upstream aliases `acceleration_`/`effort_` onto one buffer, switched
+    // by `has_acceleration_`/`has_effort_`; see this type's doc comment for
+    // why this port gives them independent storage instead. None of these
+    // setters propagate to mimic joints — upstream's own
+    // `setVariableVelocity`/`setVariableAcceleration`/`setVariableEffort`
+    // do not call `updateMimicJoint` either.
+
+    /// `hasVelocities`
+    pub fn has_velocities(&self) -> bool {
+        self.has_velocity
+    }
+
+    /// `hasAccelerations`
+    pub fn has_accelerations(&self) -> bool {
+        self.has_acceleration
+    }
+
+    /// `hasEffort`
+    pub fn has_effort(&self) -> bool {
+        self.has_effort
+    }
+
+    /// `getVariableVelocities` (const overload)
+    pub fn velocities(&self) -> &[f64] {
+        &self.velocity
+    }
+
+    /// `getVariableAccelerations` (const overload)
+    pub fn accelerations(&self) -> &[f64] {
+        &self.acceleration
+    }
+
+    /// `getVariableEffort` (const overload)
+    pub fn effort(&self) -> &[f64] {
+        &self.effort
+    }
+
+    /// `setVariableVelocities(const double*)`: replace every velocity at
+    /// once.
+    ///
+    /// # Panics
+    ///
+    /// If `values.len()` does not equal
+    /// [`RobotModel::variable_count`](moveit_model::RobotModel::variable_count),
+    /// matching upstream's own precondition (there enforced only by a
+    /// debug-only `assert`; here by the slice-copy itself).
+    pub fn set_variable_velocities(&mut self, values: &[f64]) {
+        self.velocity.copy_from_slice(values);
+        self.has_velocity = true;
+    }
+
+    /// `setVariableAccelerations(const double*)`
+    ///
+    /// # Panics
+    ///
+    /// See [`RobotState::set_variable_velocities`].
+    pub fn set_variable_accelerations(&mut self, values: &[f64]) {
+        self.acceleration.copy_from_slice(values);
+        self.has_acceleration = true;
+    }
+
+    /// `setVariableEffort(const double*)`: replace every effort value at
+    /// once. Named `_efforts` (upstream overloads on parameter type, which
+    /// Rust cannot) to stay distinct from the per-variable
+    /// [`RobotState::set_variable_effort`].
+    ///
+    /// # Panics
+    ///
+    /// See [`RobotState::set_variable_velocities`].
+    pub fn set_variable_efforts(&mut self, values: &[f64]) {
+        self.effort.copy_from_slice(values);
+        self.has_effort = true;
+    }
+
+    /// `getVariableVelocity(const std::string&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is not a variable in this model.
+    pub fn variable_velocity(&self, name: &str) -> Result<f64> {
+        let index = self.model.variable_index(name)?;
+        Ok(self.velocity[index])
+    }
+
+    /// `getVariableVelocity(int)`
+    pub fn variable_velocity_at(&self, index: usize) -> f64 {
+        self.velocity[index]
+    }
+
+    /// `setVariableVelocity(const std::string&, double)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is not a variable in this model.
+    pub fn set_variable_velocity(&mut self, name: &str, value: f64) -> Result<()> {
+        let index = self.model.variable_index(name)?;
+        self.velocity[index] = value;
+        self.has_velocity = true;
+        Ok(())
+    }
+
+    /// `setVariableVelocity(int, double)`
+    pub fn set_variable_velocity_at(&mut self, index: usize, value: f64) {
+        self.velocity[index] = value;
+        self.has_velocity = true;
+    }
+
+    /// `getVariableAcceleration(const std::string&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is not a variable in this model.
+    pub fn variable_acceleration(&self, name: &str) -> Result<f64> {
+        let index = self.model.variable_index(name)?;
+        Ok(self.acceleration[index])
+    }
+
+    /// `getVariableAcceleration(int)`
+    pub fn variable_acceleration_at(&self, index: usize) -> f64 {
+        self.acceleration[index]
+    }
+
+    /// `setVariableAcceleration(const std::string&, double)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is not a variable in this model.
+    pub fn set_variable_acceleration(&mut self, name: &str, value: f64) -> Result<()> {
+        let index = self.model.variable_index(name)?;
+        self.acceleration[index] = value;
+        self.has_acceleration = true;
+        Ok(())
+    }
+
+    /// `setVariableAcceleration(int, double)`
+    pub fn set_variable_acceleration_at(&mut self, index: usize, value: f64) {
+        self.acceleration[index] = value;
+        self.has_acceleration = true;
+    }
+
+    /// `getVariableEffort(const std::string&)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is not a variable in this model.
+    pub fn variable_effort(&self, name: &str) -> Result<f64> {
+        let index = self.model.variable_index(name)?;
+        Ok(self.effort[index])
+    }
+
+    /// `getVariableEffort(int)`
+    pub fn variable_effort_at(&self, index: usize) -> f64 {
+        self.effort[index]
+    }
+
+    /// `setVariableEffort(const std::string&, double)`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if `name` is not a variable in this model.
+    pub fn set_variable_effort(&mut self, name: &str, value: f64) -> Result<()> {
+        let index = self.model.variable_index(name)?;
+        self.effort[index] = value;
+        self.has_effort = true;
+        Ok(())
+    }
+
+    /// `setVariableEffort(int, double)`
+    pub fn set_variable_effort_at(&mut self, index: usize, value: f64) {
+        self.effort[index] = value;
+        self.has_effort = true;
+    }
+
+    /// `getJointVelocities`: a joint's own variable slice of
+    /// [`RobotState::velocities`]. Empty for a fixed joint (see
+    /// [`RobotState::joint_position`] for why an empty slice is the
+    /// faithful translation of upstream's `nullptr`).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `name`.
+    pub fn joint_velocity(&self, name: &str) -> Result<&[f64]> {
+        let index = self.joint_index(name)?;
+        let joint = self.model.joint_model_at(index);
+        let first = self.first_variable_index[index];
+        Ok(&self.velocity[first..first + joint.variable_count()])
+    }
+
+    /// `getJointAccelerations`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `name`.
+    pub fn joint_acceleration(&self, name: &str) -> Result<&[f64]> {
+        let index = self.joint_index(name)?;
+        let joint = self.model.joint_model_at(index);
+        let first = self.first_variable_index[index];
+        Ok(&self.acceleration[first..first + joint.variable_count()])
+    }
+
+    /// `getJointEffort`
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `name`.
+    pub fn joint_effort(&self, name: &str) -> Result<&[f64]> {
+        let index = self.joint_index(name)?;
+        let joint = self.model.joint_model_at(index);
+        let first = self.first_variable_index[index];
+        Ok(&self.effort[first..first + joint.variable_count()])
     }
 
     // ---- Setting positions --------------------------------------------
@@ -419,13 +659,15 @@ impl<'m> RobotState<'m> {
 
     // ---- Bounds ---------------------------------------------------------
 
-    /// `enforceBounds()`: every active joint's own
-    /// [`JointModel::enforce_position_bounds`]. Velocity bounds are never
-    /// checked (see this type's doc comment).
+    /// `enforceBounds()`: every active joint's own position bounds, plus
+    /// velocity bounds when [`RobotState::has_velocities`] is true —
+    /// matching upstream's `enforceBounds(const JointModel*)`, which
+    /// combines `enforcePositionBounds` with a conditional
+    /// `enforceVelocityBounds`.
     pub fn enforce_bounds(&mut self) {
         let model = self.model;
         for &joint_index in model.active_joint_indices() {
-            self.enforce_position_bounds_for(joint_index);
+            self.enforce_bounds_for(joint_index);
         }
     }
 
@@ -438,9 +680,17 @@ impl<'m> RobotState<'m> {
         let model = self.model;
         let group = model.joint_model_group(group_name)?;
         for &joint_index in group.active_joint_indices() {
-            self.enforce_position_bounds_for(joint_index);
+            self.enforce_bounds_for(joint_index);
         }
         Ok(())
+    }
+
+    /// `enforceBounds(const JointModel*)`
+    fn enforce_bounds_for(&mut self, joint_index: JointIndex) {
+        self.enforce_position_bounds_for(joint_index);
+        if self.has_velocity {
+            self.enforce_velocity_bounds_for(joint_index);
+        }
     }
 
     fn enforce_position_bounds_for(&mut self, joint_index: JointIndex) {
@@ -456,13 +706,27 @@ impl<'m> RobotState<'m> {
         }
     }
 
-    /// `satisfiesBounds(double)`: every active joint's own
-    /// [`JointModel::satisfies_position_bounds`].
+    /// `enforceVelocityBounds`. Unlike position, an out-of-bounds velocity
+    /// clamp never dirties a transform or propagates to a mimic — upstream
+    /// does not call `markDirtyJointTransforms`/`updateMimicJoint` from
+    /// `enforceVelocityBounds` either.
+    fn enforce_velocity_bounds_for(&mut self, joint_index: JointIndex) {
+        let joint = self.model.joint_model_at(joint_index);
+        if joint.variable_count() == 0 {
+            return;
+        }
+        let first = self.first_variable_index[joint_index];
+        let count = joint.variable_count();
+        joint.enforce_velocity_bounds(&mut self.velocity[first..first + count]);
+    }
+
+    /// `satisfiesBounds(double)`: every active joint's own position bounds,
+    /// plus velocity bounds when [`RobotState::has_velocities`] is true.
     pub fn satisfies_bounds(&self, margin: f64) -> bool {
         self.model
             .active_joint_indices()
             .iter()
-            .all(|&joint_index| self.satisfies_position_bounds_for(joint_index, margin))
+            .all(|&joint_index| self.satisfies_bounds_for(joint_index, margin))
     }
 
     /// `satisfiesBounds(const JointModelGroup*, double)`
@@ -475,7 +739,13 @@ impl<'m> RobotState<'m> {
         Ok(group
             .active_joint_indices()
             .iter()
-            .all(|&joint_index| self.satisfies_position_bounds_for(joint_index, margin)))
+            .all(|&joint_index| self.satisfies_bounds_for(joint_index, margin)))
+    }
+
+    /// `satisfiesBounds(const JointModel*, double)`
+    fn satisfies_bounds_for(&self, joint_index: JointIndex, margin: f64) -> bool {
+        self.satisfies_position_bounds_for(joint_index, margin)
+            && (!self.has_velocity || self.satisfies_velocity_bounds_for(joint_index, margin))
     }
 
     fn satisfies_position_bounds_for(&self, joint_index: JointIndex, margin: f64) -> bool {
@@ -483,6 +753,14 @@ impl<'m> RobotState<'m> {
         let first = self.first_variable_index[joint_index];
         let count = joint.variable_count();
         joint.satisfies_position_bounds(&self.positions[first..first + count], margin)
+    }
+
+    /// `satisfiesVelocityBounds`
+    fn satisfies_velocity_bounds_for(&self, joint_index: JointIndex, margin: f64) -> bool {
+        let joint = self.model.joint_model_at(joint_index);
+        let first = self.first_variable_index[joint_index];
+        let count = joint.variable_count();
+        joint.satisfies_velocity_bounds(&self.velocity[first..first + count], margin)
     }
 
     /// `harmonizePositions()`: every active joint's own

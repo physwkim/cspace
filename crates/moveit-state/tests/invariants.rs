@@ -393,3 +393,205 @@ fn posed_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Posed<'static, 'static>>();
 }
+
+// ---- Velocity / acceleration / effort --------------------------------
+
+/// Before anything is ever set, `has_velocities`/`has_accelerations`/
+/// `has_effort` all report `false` — the boundary a freshly constructed
+/// `RobotState` must start at, matching upstream's default-constructed
+/// `has_velocity_ = has_acceleration_ = has_effort_ = false`.
+#[test]
+fn fresh_state_has_no_velocity_acceleration_or_effort() {
+    let model = panda();
+    let state = RobotState::new(&model);
+    assert!(!state.has_velocities());
+    assert!(!state.has_accelerations());
+    assert!(!state.has_effort());
+}
+
+/// Setting a single variable's velocity by name flips `has_velocities` and
+/// is readable back both by name and by the model's global variable index,
+/// without disturbing any other variable's velocity (still `0.0`).
+#[test]
+fn set_variable_velocity_is_readable_by_name_and_by_index() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let index = model.variable_index("panda_joint1").unwrap();
+
+    state.set_variable_velocity("panda_joint1", 1.5).unwrap();
+
+    assert!(state.has_velocities());
+    assert_eq!(state.variable_velocity("panda_joint1").unwrap(), 1.5);
+    assert_eq!(state.variable_velocity_at(index), 1.5);
+    let other_index = model.variable_index("panda_joint2").unwrap();
+    assert_eq!(
+        state.variable_velocity_at(other_index),
+        0.0,
+        "an unrelated variable's velocity must stay at its zero default"
+    );
+}
+
+/// `set_variable_velocities` (whole-array) is the bulk counterpart to the
+/// per-variable setter above: one call replaces every velocity and flips
+/// `has_velocities`.
+#[test]
+fn set_variable_velocities_replaces_the_whole_array() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    let n = model.variable_count();
+
+    state.set_variable_velocities(&vec![0.5; n]);
+
+    assert!(state.has_velocities());
+    assert!(state.velocities().iter().all(|&v| v == 0.5));
+}
+
+/// The invariant this task exists to close: upstream aliases acceleration
+/// and effort onto one buffer, so setting one clobbers the other
+/// (`hasAccelerations() == true` implies `hasEffort() == false`, always).
+/// This port gives them independent storage instead — setting acceleration
+/// then effort (or the reverse order) must leave *both* set, with *both*
+/// values intact, not just the most recently written one.
+#[test]
+fn acceleration_and_effort_do_not_alias() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+
+    state
+        .set_variable_acceleration("panda_joint1", 3.0)
+        .unwrap();
+    state.set_variable_effort("panda_joint1", 7.0).unwrap();
+
+    assert!(
+        state.has_accelerations(),
+        "upstream's aliasing would have cleared this when effort was set"
+    );
+    assert!(state.has_effort());
+    assert_eq!(state.variable_acceleration("panda_joint1").unwrap(), 3.0);
+    assert_eq!(state.variable_effort("panda_joint1").unwrap(), 7.0);
+}
+
+/// Same invariant, opposite write order — the aliasing upstream implements
+/// is order-dependent (whichever was set most recently wins), so both
+/// orders must be checked to confirm this port has no order dependence at
+/// all.
+#[test]
+fn effort_then_acceleration_also_do_not_alias() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+
+    state.set_variable_effort("panda_joint1", 7.0).unwrap();
+    state
+        .set_variable_acceleration("panda_joint1", 3.0)
+        .unwrap();
+
+    assert!(state.has_accelerations());
+    assert!(
+        state.has_effort(),
+        "upstream's aliasing would have cleared this when acceleration was set"
+    );
+    assert_eq!(state.variable_acceleration("panda_joint1").unwrap(), 3.0);
+    assert_eq!(state.variable_effort("panda_joint1").unwrap(), 7.0);
+}
+
+/// `joint_velocity`/`joint_acceleration`/`joint_effort` return a joint's
+/// own slice, in the same order `joint_position` already does — the
+/// per-joint read path this task's accessor list calls for alongside the
+/// per-variable one.
+#[test]
+fn joint_scoped_accessors_return_the_joints_own_slice() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_variable_velocity("panda_joint1", 1.0).unwrap();
+    state
+        .set_variable_acceleration("panda_joint1", 2.0)
+        .unwrap();
+    state.set_variable_effort("panda_joint1", 3.0).unwrap();
+
+    assert_eq!(state.joint_velocity("panda_joint1").unwrap(), &[1.0]);
+    assert_eq!(state.joint_acceleration("panda_joint1").unwrap(), &[2.0]);
+    assert_eq!(state.joint_effort("panda_joint1").unwrap(), &[3.0]);
+}
+
+/// An unknown joint/variable name is `Error::UnknownName`, not a panic —
+/// checked across every new accessor family, matching how the existing
+/// position accessors already behave.
+#[test]
+fn unknown_name_is_an_error_not_a_panic_for_every_new_accessor() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+
+    assert!(state.variable_velocity("no_such_joint").is_err());
+    assert!(state.variable_acceleration("no_such_joint").is_err());
+    assert!(state.variable_effort("no_such_joint").is_err());
+    assert!(state.set_variable_velocity("no_such_joint", 1.0).is_err());
+    assert!(
+        state
+            .set_variable_acceleration("no_such_joint", 1.0)
+            .is_err()
+    );
+    assert!(state.set_variable_effort("no_such_joint", 1.0).is_err());
+    assert!(state.joint_velocity("no_such_joint").is_err());
+    assert!(state.joint_acceleration("no_such_joint").is_err());
+    assert!(state.joint_effort("no_such_joint").is_err());
+}
+
+/// The boundary `enforce_bounds`/`satisfies_bounds` must now respect:
+/// velocity bounds are checked *only* once `has_velocities()` is true.
+/// Before any velocity is ever set, an out-of-bounds *default* velocity
+/// cannot occur (defaults are `0.0`, always in-bounds), so this drives the
+/// boundary explicitly by setting an out-of-range velocity and checking
+/// both sides of the `has_velocities` gate.
+#[test]
+fn satisfies_bounds_checks_velocity_only_once_velocity_is_set() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+
+    // panda_joint1's velocity limit is 2.3925 rad/s (fixture URDF).
+    assert!(
+        state.satisfies_bounds(0.0),
+        "a state with no velocity ever set must satisfy bounds regardless of what a raw \
+         out-of-range velocity write would look like, since has_velocities() is still false"
+    );
+
+    state.set_variable_velocity("panda_joint1", 100.0).unwrap();
+    assert!(
+        !state.satisfies_bounds(0.0),
+        "once has_velocities() is true, an out-of-range velocity must be caught"
+    );
+
+    state.enforce_bounds();
+    assert!(
+        state.satisfies_bounds(0.0),
+        "post-clamp state must satisfy both position and velocity bounds"
+    );
+    let clamped = state.variable_velocity("panda_joint1").unwrap();
+    assert!(
+        clamped <= 2.3925,
+        "velocity must have been pulled back to its bound, got {clamped}"
+    );
+}
+
+/// `enforce_bounds`'s velocity clamp must not dirty the transform cache —
+/// upstream's `enforceVelocityBounds` never calls
+/// `markDirtyJointTransforms`, unlike the position clamp right next to it.
+/// A position that already satisfies its bounds must produce the exact
+/// same global link transform before and after an out-of-bounds velocity
+/// is clamped.
+#[test]
+fn enforce_bounds_velocity_clamp_does_not_perturb_the_transform() {
+    let model = panda();
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let before = state.update().global_link_transform("panda_link8").unwrap();
+
+    state.set_variable_velocity("panda_joint1", 100.0).unwrap();
+    state.enforce_bounds();
+    let after = state.update().global_link_transform("panda_link8").unwrap();
+
+    assert_eq!(
+        before, after,
+        "clamping an out-of-bounds velocity must not move the link transform"
+    );
+}

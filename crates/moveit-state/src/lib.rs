@@ -13,20 +13,21 @@
 //!
 //! # Scope
 //!
-//! This crate ports variable storage, the position setters (all
-//! `setVariablePositions`/`setJointPositions` overloads), mimic-joint
-//! propagation on every write path, bounds (`enforceBounds`/
-//! `satisfiesBounds`/`harmonizePositions`), default/random positions,
-//! forward kinematics (`updateLinkTransforms`, `getGlobalLinkTransform`,
-//! `getJointTransform`, `getFrameTransform`, `knowsFrameTransform`), and
-//! inverse dynamics ([`DynamicsSolver`], see the `dynamics` module's doc
-//! comment for its own scope and deviations).
+//! This crate ports variable storage (position, velocity, acceleration,
+//! effort), the position setters (all `setVariablePositions`/
+//! `setJointPositions` overloads), mimic-joint propagation on every
+//! position write path, bounds (`enforceBounds`/`satisfiesBounds`/
+//! `harmonizePositions`, including velocity bounds), default/random
+//! positions, forward kinematics (`updateLinkTransforms`,
+//! `getGlobalLinkTransform`, `getJointTransform`, `getFrameTransform`,
+//! `knowsFrameTransform`), and inverse dynamics ([`DynamicsSolver`], see
+//! the `dynamics` module's doc comment for its own scope and deviations).
 //!
 //! Deferred, out of scope for this task: `setFromIK`/`setFromDiffIK`,
-//! attached bodies, `interpolate`, distance metrics, `computeAABB`,
-//! anything touching `moveit_msgs`, and velocity/acceleration/effort
-//! tracking. See the `state` module's doc comments for the per-method
-//! deviations, and this crate's test report for what remains `UNFIXED`.
+//! attached bodies, `interpolate`, distance metrics, `computeAABB`, and
+//! anything touching `moveit_msgs`. See the `state` module's doc comments
+//! for the per-method deviations, and this crate's test report for what
+//! remains `UNFIXED`.
 
 mod dynamics;
 mod state;
