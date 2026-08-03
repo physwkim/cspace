@@ -6028,3 +6028,57 @@ body와 world object가 같은 이름일 때 어느 쪽이 이기는지,
 `cargo nextest run --workspace` **969/969**, clippy `-D warnings` 0건,
 `fmt --check`/`doc --no-deps` 통과, `check-*.sh` 3건 OK,
 재생 **25/25 identical**.
+
+## 67. self 쪽에도 same-pair 종이 있다 — 62건 (2026-08-04)
+
+p1-joints 라운드 10(`024af85`, `12b70ab`, `a107193`, `b7dd96b`). 패널이
+전달한 보고 텍스트는 이미 머지된 **라운드 9**의 것이었다(5 commits,
+베이스 `5aac6ed`, 941/941, 재생 10/10). 브랜치에는 라운드 10 커밋 4개가
+`0d1afee` 위에 실제로 올라와 있었고, 보고 없이 코드만 있는 상태였다.
+아래는 내가 직접 재서 확인한 결과다.
+
+### 67.1 `--stats-json`이 세 번째 재파싱을 끝냈다
+
+이 라운드-세트에서 분모 오류가 세 번 나왔고 전부 사람이 읽는 로그를
+일회용 python으로 긁은 데서 나왔다(§60.1, §60.3, 그리고 내 것 하나).
+`moveit-diff`가 이미 갖고 있는 수를 `--stats-json <path>`로 내보내게
+했으니 이제 재파싱이 아니라 재실행으로 확인된다. 구조적 처방이 맞다.
+
+바로 그 도구로 3000건을 다시 돌렸다(`right_arm`, seed 20260804,
+`--collision`):
+
+```json
+"self_total": 3000,  "self_pair_disagrees": 2935,
+"self_pair_flip_and_value_diverges": 2935,
+"self_same_pair_and_value_diverges": 62,
+"robot_total": 3000, "robot_pair_disagrees": 2647,
+"robot_pair_flip_and_value_diverges": 7,
+"robot_same_pair_and_value_diverges": 2
+```
+
+world 쪽 7 + 2 = 9는 §60.2가 손으로 쪼갠 값과 정확히 같다. 계기가
+사람의 분류를 재현했다.
+
+### 67.2 내 브리프가 물은 것의 답: 0이 아니라 62다
+
+라운드 10 브리프가 물었다 — "self 쪽에 same-pair 종이 아예 없다면 그것
+자체가 발견이다". 없지 않다. **62/3000**이고, world 쪽 2건보다 31배
+흔하다.
+
+이것이 §56과 §63.2를 다시 좁힌다. §56이 세운 min-of-two-candidates는
+**순위** 메커니즘이므로 양쪽이 같은 쌍을 고른 62건을 설명하지 못한다.
+그중 얼마가 이미 알려진 plateau 계열(양쪽 다 `base_bellow_link`/
+`torso_lift_link`를 골랐고 값만 다른, deviation 6)이고 얼마가 새로운
+것인지는 아직 나뉘어 있지 않다. p3-acm 라운드 11이 world 쪽 2건을 다루고
+있으므로, self 쪽 62건의 쌍 구성표가 그 작업의 입력이다.
+
+### 67.3 bellow 분모는 177/300이 맞다
+
+`b7dd96b`가 `170/300`을 `177/300`으로 고쳤다 — 내가 이전 라운드에 직접
+재서 얻은 값과 같고, caster 쪽 `123/300`과 합쳐 정확히 300이 된다.
+원인은 매칭 범위가 `, robot oracle` 이후 텍스트까지 먹은 것이었다.
+
+### 67.4 머지 후 실측
+
+`cargo nextest run --workspace` **970/970**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
