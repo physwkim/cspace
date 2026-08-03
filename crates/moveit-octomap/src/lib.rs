@@ -111,6 +111,16 @@
 //! rather than trusting the prior table. It has zero `moveit_core`
 //! consumer and is now classified `distinct`.
 //!
+//! **Second correction (round 17, item 2).** Independently re-deriving
+//! each header's raw declaration count and reconciling it against the
+//! bullets actually present found `OcTreeBaseImpl.h`'s own concrete
+//! `getTreeType()` (header line 104, shadowed by `OcTree.h`'s
+//! more-derived override) absent from every walk through round 16 --
+//! not a fresh bullet, not an "already counted above" cross-reference,
+//! simply missing. Same class of drift as `isNodeAtThreshold` above,
+//! this time inside round 16's own table. See [`OcTree`]'s doc for the
+//! added cross-reference bullet; the total below is now 159, not 158.
+//!
 //! **A naming precision, not a gap:** [`OcTree::num_nodes`] is upstream's
 //! `calcNumNodes()` -- an O(n) recursive traversal -- not `size()`, the O(1)
 //! `tree_size` counter upstream maintains incrementally across every
@@ -154,14 +164,17 @@
 //! make up the upstream inheritance chain, in the same bullet-per-line
 //! format `moveit-scene`'s `planning_scene.hpp` audit uses --
 //! `rg -c '^/// - \`' crates/moveit-octomap/src/tree.rs` over that walk's
-//! line range reproduces **158** bullets (7 of them are non-symbols or
+//! line range reproduces **159** bullets (8 of them are non-symbols or
 //! cross-references to a declaration already tallied elsewhere in the
 //! walk, see [`OcTree`]'s doc for which); the remaining 151 audited
 //! bullets are 55 ported, 8 unported-in-scope (all named there, each with
 //! the concrete call site it would need), 88 architecturally distinct.
-//! That walk also found one symbol round 12's table never classified at
-//! all -- `isNodeAtThreshold` (both overloads) -- the same class of
-//! stale-audit drift round 15 found for `tree_iterator`.
+//! That walk found two symbols no prior table ever classified at all --
+//! round 12's table never named `isNodeAtThreshold` (both overloads),
+//! and round 16's own fresh table never named `OcTreeBaseImpl`'s own
+//! concrete `getTreeType()` (round 17 item 2's correction) -- the same
+//! class of stale-audit drift round 15 found for `tree_iterator`,
+//! recurring inside the very table built to fix it.
 //!
 //! **Tests.**
 //!
