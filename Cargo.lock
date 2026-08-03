@@ -208,6 +208,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-state"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-srdf",
+ "nalgebra",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
 name = "moveit-trajectory"
 version = "0.1.0"
 dependencies = [

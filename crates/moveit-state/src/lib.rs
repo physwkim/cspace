@@ -21,7 +21,7 @@
 //! Deferred, out of scope for this task: the Jacobian, `setFromIK`/
 //! `setFromDiffIK`, attached bodies, `interpolate`, distance metrics,
 //! `computeAABB`, anything touching `moveit_msgs`, and velocity/
-//! acceleration/effort tracking. See [`state`]'s doc comments for the
+//! acceleration/effort tracking. See the `state` module's doc comments for the
 //! per-method deviations, and this crate's test report for what remains
 //! `UNFIXED`.
 
