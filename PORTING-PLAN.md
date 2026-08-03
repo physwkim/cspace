@@ -2342,3 +2342,78 @@ BTreeSet<String>`이 붙고, 두 게이트가 바디 쌍 단위로 동작한다:
 `req.enableGroup(getRobotModel())`도 호출해 `active_components_only`를
 설정하지만, 이 포트의 `distance_to_collision`은 그러지 않는다. §5의
 `group_name` 미관통 편차와 같은 뿌리다.
+
+## 19. 오라클이 fanuc을 지오메트리 없이 빌드하고 있었다 (2026-08-03)
+
+§15.3에서 "fanuc의 통과는 공허하다"고 적었던 항목의 원인을 찾아 고쳤다.
+커밋 `f95df44`, `a6823d7`, `b7f9329`, `89c6e51` — 서로 다른 네 개의 결함이다.
+
+### 19.1 원인: `moveit_resources_fanuc_description`이 이미지에 없었다
+
+Dockerfile은 `--packages-up-to moveit_core`로 빌드한다. 그 결과 이미지에
+설치된 description 패키지는 `panda_description`과 `pr2_description`뿐이다
+— 둘은 `moveit_core`의 test 의존이라 딸려 들어온 것이고, fanuc은 아니다.
+컨테이너 안에서 `fixtures/fanuc.urdf`의 모든
+`package://moveit_resources_fanuc_description/...` 메시가 해석에 실패하고
+(`Package [...] does not exist`, `mesh_operations.cpp:289`), RobotModel이
+`No geometry is associated to any robot links`를 남긴 뒤,
+`link_models_with_collision_geometry`가 `[]`를 답한다.
+
+즉 **fanuc에 대한 모든 오라클 응답은 지오메트리가 없는 로봇에 대한
+진술이었다.** 패키지를 빌드 목록에 명시하니 7개 링크(`base_link`,
+`link_1`..`link_6`)가 정상적으로 올라온다.
+
+### 19.2 그래서 커밋된 fanuc 픽스처 두 개가 틀렸다
+
+| 픽스처 | 옛 값 | 진짜 오라클 |
+|---|---|---|
+| `fanuc_collision.json` (4 케이스) | `robot_collision:false`, `self_collision:false`, 양쪽 거리 `DBL_MAX` | `robot_collision` 4/4 `true` (거리 ≈ −1e-15), `self_collision` 2/4 `true` |
+| `fanuc_model_info.json` (`link_details`) | `shape_types: []`, `centered_bounding_box_offset: [0,0,0]` | `shape_types: ["mesh"]`, 실제 메시 유래 오프셋 |
+| `fanuc_acm.json` | — | 동일 (SRDF만 읽으므로 영향 없음, 재실행으로 확인) |
+
+`fanuc_collision.json`은 재캡처하지 않고 테스트와 함께 **삭제**했다. 이 포트는
+fanuc 지오메트리가 0개라 모든 필드가 불일치하므로, panda가 이미 있는 자리
+— 픽스처 없음, 테스트 없음 — 로 옮긴 것이다. 메시 로더가 들어오면
+복원한다. `fanuc_model_info.json`은 재캡처했고, 테스트는 그대로 통과한다:
+`assert_link_geometry_matches_oracle`이 원래부터 `mesh`/`capsule` 링크를
+`supported_shape_count`에서 빼고 bbox 비교를 건너뛰도록 되어 있었다. 이제는
+panda·pr2와 같은 이유로 통과한다.
+
+`robot_model_parity.rs`에 있던 "오라클도 fanuc 메시를 못 읽는다"는 주석
+블록은 삭제했다 — 원인을 정확히 짚은 진단이었고, 이 커밋이 그 원인을
+없앴다.
+
+### 19.3 스탬프가 이 결함을 잡지 못한 이유 (구조적)
+
+이미지 스탬프는 "이 이미지가 지금 트리에서 빌드됐는가"를 답하라고 있는
+장치인데, 해시 대상이 `*.cpp`/`*.hpp`/`*.h`/`CMakeLists.txt`뿐이었다.
+**Dockerfile, build.sh(및 그것이 들고 있는 `MOVEIT2_SHA` 핀),
+entrypoint.sh는 전부 밖**이었다. Dockerfile을 고쳐도 다이제스트가
+그대로이니 태그도 그대로고, `run-oracle.sh`는 옛 이미지를 최신이라고
+승인한다 — 스탬프가 막으라고 만들어진 바로 그 실패다.
+
+확장자 화이트리스트를 없애고 디렉터리의 **모든 정규 파일**을 해시한다.
+build.sh가 이 디렉터리 전체를 컨텍스트에 `cp -a`하고 Dockerfile이 전부
+`COPY`하므로, "해시된 집합"과 "이미지에 들어간 집합"이 구성상 같아진다.
+Dockerfile이 갖고 있던 `find` 식 복사본도 없애고 `src-digest.sh`를
+`source`한다(정의 하나).
+
+### 19.4 그 과정에서 드러난 로케일 결함
+
+화이트리스트를 넓히자마자 호스트와 컨테이너의 다이제스트가 갈라졌다.
+파일도 내용도 같은데 `sort`의 콜레이션이 다르다: 호스트는 대소문자 무시로
+`build.sh` → `CMakeLists.txt`, 컨테이너의 C 로케일은 바이트 순으로
+`CMakeLists.txt`가 먼저. 연결 순서가 달라 해시가 달라지고, 결과는
+"다시 빌드해도 고쳐지지 않는 stale image" 보고다. `LC_ALL=C sort`로
+고정했다. 옛 화이트리스트가 이걸 가리고 있었다 — 두 콜레이션이 갈릴 수
+있는 이름이 `CMakeLists.txt` 하나뿐이었고, `src/` 대비로는 우연히 양쪽 다
+먼저였다.
+
+### 19.5 `build.sh`가 컨텍스트를 지우지 못하고 있었다
+
+`trap 'rm -rf "$CTX"' EXIT` 다음 줄이 `exec docker build`였다. `exec`은
+셸을 대체하므로 EXIT 트랩이 실행되지 않는다 — **성공한 빌드까지 포함해
+모든 빌드가** moveit2 + moveit_resources 전체 export(개당 ~90 MB)를
+남겼다. 이 트리에 24개, 2.1 GB가 쌓여 있었다. `exec`을 떼고(`set -e`가
+종료 상태를 그대로 전파한다), 긴 빌드 중 Ctrl-C도 트랩을 타도록
+`trap 'exit 130' INT`을 더했다. 쌓인 24개는 삭제했다.
