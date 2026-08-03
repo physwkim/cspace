@@ -116,6 +116,57 @@
 //! multi-solid ASCII file) before `extractMeshData` concatenates them — a
 //! difference invisible on every real fixture here, since binary STL has no
 //! concept of multiple solids at all.
+//!
+//! # `mesh_operations.h` symbol audit (round 8)
+//!
+//! Every public declaration in the oracle container's installed
+//! `geometric_shapes/include/geometric_shapes/mesh_operations.h`, classified
+//! against `moveit2`'s pinned-tree callers so the next audit can re-run this
+//! rather than re-derive it:
+//!
+//! - `createMeshFromVertices(vertices, triangles)` (the two-`Vec` overload) —
+//!   **ported as [`crate::shapes::Mesh::new`]**, called from this module's own
+//!   [`mesh_from_bytes`] the same way upstream's `extractMeshData` calls it.
+//! - `createMeshFromVertices(source)` (the single-`Vec`, `std::set`-dedup
+//!   overload) — **unported.** `rg -n 'createMeshFromVertices\('
+//!   /home/stevek/work/moveit2` finds exactly one call, `semantic_world.cpp:154`,
+//!   using the two-`Vec` overload above, not this one; this overload has zero
+//!   callers anywhere in the pinned tree. Its constituents
+//!   ([`crate::shapes::Mesh::new`], [`crate::shapes::Mesh::merge_vertices`],
+//!   [`crate::shapes::Mesh::compute_triangle_normals`]) already exist, so it
+//!   is trivially composable if a caller ever needs it — unlike
+//!   `body_operations.cpp`'s `computeBoundingSphere(vector)`, this is not
+//!   asserted as equivalent to any already-shipped port, since no caller
+//!   requires it be built.
+//! - `createMeshFromResource(resource)`, `createMeshFromResource(resource,
+//!   scale)`, `createMeshFromBinary(buffer, size, hint)`,
+//!   `createMeshFromBinary(buffer, size, scale, hint)` — **D-decision
+//!   excludes the general case** (assimp is not a workspace dependency;
+//!   PORTING-PLAN.md records no Rust assimp binding pulled in, and this
+//!   module's own doc above records that even the reference source for
+//!   Assimp's behavior had to come from a public header, since no assimp
+//!   source/-dbgsym package exists on this machine either). The one in-scope
+//!   caller of the `(resource, scale)` overload — `robot_model.cpp:1280`,
+//!   `RobotModel::constructShape`'s `MESH` case — is real and ported, but
+//!   narrowed to the STL-only subset this crate's fixtures actually need:
+//!   [`mesh_from_bytes`] is that port, verified against real Assimp output in
+//!   `tests/mesh_parity.rs` rather than merely assumed.
+//! - `createMeshFromAsset(scene, scale, hint)`, `createMeshFromAsset(scene,
+//!   hint)` — **D-decision excludes.** Both take `const aiScene*`, an assimp
+//!   type, as a parameter — there is no STL-only narrowing possible here the
+//!   way there is for `createMeshFromResource`, since these operate on an
+//!   already-parsed assimp scene graph, not a byte buffer this port could
+//!   intercept before assimp sees it.
+//! - `createMeshFromShape(const Shape*)` and its four single-type overloads
+//!   (`Box`, `Sphere`, `Cylinder`, `Cone`) — **unported.** `rg -n
+//!   'createMeshFromShape\(' /home/stevek/work/moveit2` finds two callers,
+//!   `render_shapes.cpp:86` (the `Cone` overload) and
+//!   `depth_image_octomap_updater.cpp:213` (the polymorphic `Shape*`
+//!   overload) — both `moveit_ros` (out of scope per PORTING-PLAN.md §1),
+//!   zero `moveit_core` callers.
+//! - `writeSTLBinary(const Mesh*, buffer)` — **unported.** `rg -n
+//!   'writeSTLBinary' /home/stevek/work/moveit2` returns no hits at all —
+//!   zero callers anywhere in the pinned tree, in or out of scope.
 
 use crate::Vector3;
 use crate::shapes::Mesh;
