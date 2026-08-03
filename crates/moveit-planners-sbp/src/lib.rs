@@ -41,6 +41,9 @@
 //!   real `moveit_scene::PlanningScene` collision/constraint check.
 //! - [`nn`] — [`Gnat`], the nearest-neighbour index.
 //! - [`rrt_connect`] — bidirectional RRT-Connect.
+//! - [`registry`] — [`registry::PlannerManager`]/[`registry::PlanningContext`]
+//!   and the [`registry::PLANNER_MANAGERS`] compile-time registry (D4),
+//!   plus [`registry::RrtConnectManager`], the one registered planner.
 //!
 //! # Why properties, not an oracle
 //!
@@ -63,6 +66,7 @@ mod error;
 pub mod joint_model_group_space;
 pub mod nn;
 pub mod planning_scene_validity;
+pub mod registry;
 mod rrt_connect;
 mod sampling;
 pub mod se3;
@@ -77,6 +81,10 @@ pub use error::SbpError;
 pub use joint_model_group_space::JointModelGroupSpace;
 pub use nn::Gnat;
 pub use planning_scene_validity::PlanningSceneValidityChecker;
+pub use registry::{
+    PLANNER_MANAGERS, PlanError, PlannerManager, PlannerRegistration, PlanningContext,
+    PlanningRequest, PlanningResponse, RrtConnectManager,
+};
 pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
 pub use se3::{Se3Space, Se3State};
 pub use so2::So2Space;
