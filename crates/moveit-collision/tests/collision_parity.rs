@@ -50,13 +50,32 @@
 //! every case where a link actually penetrated the floor (e.g. oracle
 //! `-1.896`, this backend `-0.149`), while every *non*-penetrating case (the
 //! two fanuc cases above, and every panda case with `robot_collision:
-//! false`) agrees to `~1e-9`-`~1e-16`. The divergence is confined exactly to
-//! the interpenetrating regime deviation 6 predicts, not a general
-//! mesh-distance defect. [`assert_full_parity_matches_oracle`] therefore
-//! asserts full distance-magnitude parity only when the oracle reports no
-//! collision on that side; when it reports a collision, only the sign (`<=
-//! TOLERANCE`) is asserted, matching what the boolean
+//! false`) agrees to `~1e-9`-`~1e-16`. [`assert_full_parity_matches_oracle`]
+//! therefore asserts full distance-magnitude parity only when the oracle
+//! reports no collision on that side; when it reports a collision, only the
+//! sign (`<= TOLERANCE`) is asserted, matching what the boolean
 //! `self_collision`/`robot_collision` check already independently confirms.
+//!
+//! That the divergence is *confined to* the interpenetrating regime was
+//! confirmed above; that deviation 6 is *why* it diverges there was, until
+//! [`panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`], an
+//! unfalsified argument, not a tested one. That test picks the sweep's
+//! single worst case (case 3289, `|d| = 2.738`) and shows the argument does
+//! not hold for it: `parry3d_f64::query::contact` against a mesh already
+//! visits every triangle overlapping the other shape and keeps the deepest
+//! (`contact_composite_shape_shape`, read from the vendored crate source --
+//! see that test's doc comment), so there is no unexploited
+//! maximum-over-contacts left for this backend to add, and the colliding
+//! link's own mesh is geometrically too small (bounding radius well under a
+//! meter) for a `2.8`-unit penetration depth to be physically possible
+//! against it at all. For *this* case, the oracle's own FCL/libccd
+//! penetration-depth computation is the one producing an impossible number,
+//! not this backend missing a deeper real contact. Whether that also
+//! explains the sweep's other ~9,500 distance-only disagreements is not
+//! claimed -- each would need its own such check -- so this narrows
+//! deviation 6 from "the explanation" to "an explanation that holds for at
+//! least the interpenetrating regime's boundary cases, and demonstrably
+//! fails to explain its own worst outlier."
 //!
 //! # No `self_collision` case for pr2
 //!
@@ -314,4 +333,139 @@ fn fanuc_collision_matches_the_oracle() {
 fn pr2_robot_collision_matches_the_oracle() {
     let model = build_model("pr2.urdf", "pr2.srdf");
     assert_robot_collision_matches_oracle(&model, "pr2_collision.json", "pr2.srdf");
+}
+
+/// Round 7 item 1: `parry.rs`'s deviation 6 blames every panda
+/// `robot_distance` disagreement on this backend taking a single contact
+/// where FCL's `distanceCallback` re-collides (up to 200 contacts) and keeps
+/// the deepest. That explanation is testable, and for the sweep's own worst
+/// case it is wrong.
+///
+/// `parry3d_f64::query::contact` between a mesh and a primitive does not
+/// stop at one triangle: it dispatches to `contact_composite_shape_shape`
+/// (`parry3d-f64-0.30.0/src/query/contact/contact_composite_shape_shape.rs`),
+/// which visits every triangle whose AABB overlaps the other shape's and
+/// keeps whichever `dist` is smallest -- i.e. deepest -- across all of them.
+/// One `query::contact` call against a mesh is *already* a
+/// maximum-over-the-contact-set reduction; there is no unexploited
+/// aggregation left for this backend to add.
+///
+/// The seed-1, 10,000-case panda sweep's single worst disagreement (case
+/// 3289) is concrete evidence this reduction is not the gap: oracle
+/// `robot_distance = -2.80638374720525752` against this backend's
+/// `-0.06879644150682307`, both naming the same closest pair
+/// (`panda_link0`, `floor`). `panda_link0`'s own collision mesh spans at
+/// most `bounding_radius` from its own local origin (asserted below,
+/// computed from the real STL vertices this test loads through the same
+/// [`RobotModel`] every other test in this file uses) -- nowhere near large
+/// enough for a rigid body's own penetration depth to reach 2.8: a body
+/// cannot overlap anything by more than its own diameter, in any
+/// orientation, at any pose. No accumulation over `panda_link0`'s actual
+/// triangles, however exhaustive, can produce oracle's -2.806; this
+/// backend's -0.069 is the geometrically consistent answer for this pair.
+///
+/// So oracle's -2.806 is not a deeper true contact this backend fails to
+/// find, and deviation 6's stated cause (single contact vs FCL's
+/// 200-contact maximum) does not explain this disagreement. The oracle's
+/// own FCL/libccd penetration-depth (EPA) computation is producing a
+/// geometrically-impossible result for this arbitrarily-rotated, deeply
+/// interpenetrating configuration -- a known libccd failure mode under deep
+/// penetration, not a gap in this port. Whether that also explains every one
+/// of the sweep's other ~9,500 distance-only disagreements is not claimed
+/// here (each would need its own bounding-radius check); this test
+/// falsifies deviation 6 as *this* case's cause, which is what "the worst
+/// deviation" was cited for.
+#[test]
+fn panda_worst_sweep_deviation_is_not_a_missed_deeper_contact() {
+    let model = build_model("panda.urdf", "panda.srdf");
+    let acm = build_acm("panda.srdf");
+    let env = floor_env();
+
+    // Case 3289 of the seed-1, 10,000-case `tools/moveit-diff --collision`
+    // sweep against panda: the sweep's single worst `robot_distance`
+    // deviation (|d| = 2.738). Re-derived, not guessed: the oracle's
+    // `random_states` RNG draws states strictly in sequence, so requesting
+    // `count: 3290` with the same `seed: 1` reproduces states 0..=3289
+    // identically to the original 10,000-case run, and `states[3289]` was
+    // read directly off that response.
+    let joint_values: BTreeMap<String, f64> = [
+        ("panda_finger_joint1", 0.020648300275206567),
+        ("panda_finger_joint2", 0.020648300275206567),
+        ("panda_joint1", -2.1341387270914858),
+        ("panda_joint2", 0.5692316297013313),
+        ("panda_joint3", 2.775629999012407),
+        ("panda_joint4", -1.1947285405220465),
+        ("panda_joint5", -1.2969677427162882),
+        ("panda_joint6", 2.576966588832438),
+        ("panda_joint7", -2.012807961705187),
+        ("virtual_joint/rot_w", 0.4993027569946919),
+        ("virtual_joint/rot_x", 0.6067748702274111),
+        ("virtual_joint/rot_y", -0.09358784320449841),
+        ("virtual_joint/rot_z", -0.6113610466183941),
+        ("virtual_joint/trans_x", 0.0),
+        ("virtual_joint/trans_y", 0.0),
+        ("virtual_joint/trans_z", 0.0),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect();
+
+    // The oracle's `collision` op answer for exactly this state, against
+    // this same floor object -- read from the sweep log, not recomputed.
+    const ORACLE_ROBOT_DISTANCE: f64 = -2.806_383_747_205_257_5;
+
+    let mut state = build_state(&model, &joint_values);
+    let posed = state.update();
+    let request = DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(&acm),
+        ..DistanceRequest::default()
+    };
+    let robot_distance = env.distance_robot(&request, &posed, &[]);
+    assert_eq!(
+        robot_distance.minimum_distance.link_names,
+        ["panda_link0".to_owned(), "floor".to_owned()],
+        "expected panda_link0 to remain the closest pair for this case"
+    );
+    assert!(
+        (robot_distance.minimum_distance.distance - (-0.06879644150682307)).abs() < 1e-9,
+        "this backend's own robot_distance moved from the value this test's finding is about: {}",
+        robot_distance.minimum_distance.distance
+    );
+
+    // panda_link0's own collision mesh's bounding radius from its own local
+    // origin -- an upper bound on the penetration depth any accumulation
+    // over its real triangles could ever report, since a rigid body cannot
+    // overlap anything by more than its own diameter.
+    let link0 = model
+        .link_model("panda_link0")
+        .expect("panda has panda_link0");
+    let bounding_radius = link0
+        .shapes()
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Mesh(mesh) => mesh
+                .vertices
+                .iter()
+                .map(|v| {
+                    (shape.origin_transform * nalgebra::Point3::from(*v))
+                        .coords
+                        .norm()
+                })
+                .fold(None::<f64>, |acc, d| Some(acc.map_or(d, |a| a.max(d)))),
+            _ => None,
+        })
+        .fold(0.0_f64, f64::max);
+
+    assert!(
+        (0.0..1.0).contains(&bounding_radius),
+        "panda_link0's mesh bounding radius {bounding_radius} was expected to be a small, \
+         positive, sub-meter value"
+    );
+    assert!(
+        ORACLE_ROBOT_DISTANCE.abs() > 2.0 * bounding_radius,
+        "oracle's robot_distance {ORACLE_ROBOT_DISTANCE} does not exceed twice panda_link0's own \
+         bounding radius {bounding_radius} -- this test's premise (that value is geometrically \
+         impossible for this pair) no longer holds"
+    );
 }
