@@ -47,6 +47,16 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
     && cmake --build /ws/oracle-build --parallel \
     && cmake --install /ws/oracle-build --prefix /usr/local
 
+# Stamp the oracle sources this image was built from. run-oracle.sh compares
+# it against the working tree and refuses to answer from a stale image: a new
+# op fails loudly ("unsupported op"), but a *changed* op does not -- it would
+# quietly answer from old code, and a fixture captured that way looks exactly
+# like a good one.
+RUN cd /ws/oracle-src \
+    && find . -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name 'CMakeLists.txt' \) \
+       -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 \
+       > /usr/local/share/oracle-src.sha256
+
 COPY moveit-oracle/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
