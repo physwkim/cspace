@@ -64,15 +64,20 @@
 //! exercised by `decide()` — no undocumented gap survived it.
 //!
 //! **`constraint_samplers/*.hpp`** (round 12's audit, immediately below
-//! this section): `rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs`
-//! is **66**, one bullet per declaration exactly (no folding). 17 ported,
-//! 22 structural, 8 D4-excluded, 6 D1-excluded, **13 real gaps** — see that
-//! section for the exact breakdown and why none of the 13 block Phase 5's
-//! `decide()`-based completion condition (they are sampler-side
-//! diagnostics/benchmarking, not constraint evaluation).
+//! this section, re-verified symbol-by-symbol against upstream's `.cpp`
+//! rather than the header in round 13): `rg -c '^//! - CS:'
+//! crates/moveit-constraints/src/lib.rs` is **66**, one bullet per
+//! declaration exactly (no folding). 18 ported, 23 structural, 8
+//! D4-excluded, 6 D1-excluded, **11 real gaps** — see that section for the
+//! exact breakdown and why none of the 11 block Phase 5's `decide()`-based
+//! completion condition (they are sampler-side diagnostics/benchmarking,
+//! not constraint evaluation). Round 13 found one of round 12's two
+//! `getGroupStateValidityCallback`/`setGroupStateValidityCallback` `gap`
+//! tags did not hold up and ported it — see
+//! [`IkConstraintSampler::sample`]/[`IkConstraintSamplerAdapter`].
 //!
 //! **Tests.** `cargo nextest run -p moveit-constraints --no-fail-fast`:
-//! **89** tests, 89 passed. Of those,
+//! **92** tests, 92 passed. Of those,
 //! `rg -c '^mod oracle_' crates/moveit-constraints/tests/utils_parity.rs`
 //! is **7** — real moveit2-oracle comparison modules, not self-referential
 //! assertions. Ground truth is the `panda_constraints` entry of
@@ -317,7 +322,12 @@
 //!
 //! - CS: `DEFAULT_MAX_SAMPLING_ATTEMPTS` -> gap: no equivalent default
 //!   anywhere (every caller in this crate's own tests passes its own
-//!   attempt count or samples without a retry loop at all)
+//!   attempt count or samples without a retry loop at all). Round 13
+//!   evidence: upstream's only two uses (`constraint_sampler.hpp:171,202`)
+//!   are default arguments to the two `sample()` overloads this port
+//!   already collapses away (tagged `structural` above); no other
+//!   production file in `moveit_core`/`moveit_planners`/`moveit_ros`
+//!   references the constant at all
 //! - CS: `ConstraintSampler(scene, group_name)` (ctor) -> structural:
 //!   collapsed into each concrete type's own `new()`, no base constructor to
 //!   share (traits are not constructed)
@@ -333,9 +343,23 @@
 //!   anything a `PlanningScene` provides beyond the model
 //! - CS: `getFrameDependency()` -> ported:
 //!   `ConstraintSampler::frame_dependency`
-//! - CS: `getGroupStateValidityCallback()` -> gap: no state validity
-//!   callback is threaded through any sampler in this crate
-//! - CS: `setGroupStateValidityCallback(callback)` -> gap: same
+//! - CS: `getGroupStateValidityCallback()` -> structural: no accessor is
+//!   ported alongside the setter below — upstream's own getter has zero
+//!   callers anywhere in `moveit_core`, `moveit_planners` or `moveit_ros`
+//!   (round 13 audit), so there is nothing that ever reads the callback
+//!   back out once set
+//! - CS: `setGroupStateValidityCallback(callback)` -> ported: round 13's
+//!   audit found this one is not diagnostic-only —
+//!   `default_constraint_samplers.cpp`'s `sampleHelper`/`callIK`/
+//!   `samplingIkCallbackFnAdapter` show this gates real IK-solution
+//!   acceptance, not diagnostics — `ompl_interface/src/detail/`
+//!   `constrained_goal_sampler.cpp:135` is a real production caller. Ported
+//!   as `IkConstraintSampler::sample`'s `group_state_validity_callback`
+//!   parameter (reusing `moveit_kinematics::SolveOptions::solution_callback`,
+//!   the same accept/reject hook, rather than inventing a new type) and
+//!   `IkConstraintSamplerAdapter::set_group_state_validity_callback`, baked
+//!   in at construction like `max_attempts` since `ConstraintSampler::sample`
+//!   has no per-call parameter for it either
 //! - CS: `sample(state)` (1-arg overload) -> structural: collapsed into
 //!   `ConstraintSampler::sample`'s one signature (`sampler.rs`'s own "#
 //!   `sample`'s collapsed signature" section)
@@ -346,13 +370,31 @@
 //! - CS: `sample(state, reference_state, max_attempts)` (pure virtual) -> ported:
 //!   same target as the three collapsed overloads above, `ConstraintSampler::sample`
 //! - CS: `isValid()` -> gap: no persisted validity flag — a sampler that
-//!   fails to build returns `Err` from `new()` instead of a post-hoc query
+//!   fails to build returns `Err` from `new()` instead of a post-hoc query.
+//!   Round 13 evidence: `is_valid_` is set once by `configure`
+//!   (`default_constraint_samplers.cpp:165,291`) and checked at the top of
+//!   `sampleHelper` (`:589`) purely to short-circuit a never-configured
+//!   sampler — a state this port's fallible `new()` makes unreachable by
+//!   construction; the only external `isValid()` callers anywhere are
+//!   upstream's own `test_constraint_samplers.cpp`
 //! - CS: `getVerbose()` -> gap: no verbose/logging mode exists anywhere in
-//!   this crate
+//!   this crate. Round 13 evidence: `verbose_` only ever gates an
+//!   `RCLCPP_INFO`/`RCLCPP_WARN` call or is forwarded into
+//!   `decide(state, verbose_)` to control *its* logging
+//!   (`default_constraint_samplers.cpp:612,657,659,707`) — it never changes
+//!   a `decide()`/`sample()` return value, and this crate already dropped
+//!   `rclcpp` logging entirely
 //! - CS: `setVerbose(verbose)` -> gap: same
 //! - CS: `getName()` -> gap: debugging-only per upstream's own doc ("for
 //!   debugging purposes"); every one of the four concrete implementers
-//!   below drops its own override too
+//!   below drops its own override too. Round 13 evidence: `rg -n
+//!   '(sampler|iks|jcs|cs)->getName\(\)|\.getName\(\)$' moveit_core/constraint_samplers`
+//!   finds zero calls on a `ConstraintSampler` instance anywhere in
+//!   `constraint_sampler_manager.cpp`/`union_constraint_sampler.cpp`/
+//!   `default_constraint_samplers.cpp` — every `getName()` call in those
+//!   files is on a `JointModelGroup`/`LinkModel`, an unrelated method that
+//!   happens to share the name; the sampler's own `getName()` is called
+//!   only from `test_constraint_samplers.cpp`
 //!
 //! ### `JointConstraintSampler` (`default_constraint_samplers.hpp`)
 //!
@@ -404,7 +446,9 @@
 //!   section)
 //! - CS: `setIKTimeout(timeout)` -> structural: same
 //! - CS: `getPositionConstraint()` -> gap: no accessor exposes the sampling
-//!   pose's constraints back out of a built `IkConstraintSampler`
+//!   pose's constraints back out of a built `IkConstraintSampler`. Round 13
+//!   evidence: both accessors are called only from upstream's own
+//!   `test_constraint_samplers.cpp`; no production file calls either
 //! - CS: `getOrientationConstraint()` -> gap: same
 //! - CS: `getSamplingVolume()` -> ported:
 //!   `IkConstraintSampler::sampling_volume`
@@ -461,7 +505,11 @@
 //!   same, plus `moveit_msgs::Constraints`
 //! - CS: `countSamplesPerSecond(sampler, reference_state)` -> gap: a
 //!   benchmarking helper that takes no ROS type (unlike its sibling below)
-//!   and so is not D1-excluded, just never ported
+//!   and so is not D1-excluded, just never ported. Round 13 evidence: its
+//!   only caller anywhere in `moveit_core`/`moveit_planners`/`moveit_ros` is
+//!   its own D1-excluded `(constr, scene, group)` sibling
+//!   (`constraint_sampler_tools.cpp:68`) forwarding to it — nothing outside
+//!   this file calls it
 //! - CS: `countSamplesPerSecond(constr, scene, group)` -> D1: takes
 //!   `moveit_msgs::Constraints` and `PlanningSceneConstPtr` directly
 //!
@@ -474,27 +522,39 @@
 //! with `rg -c '^//! - CS:.*-> TAG' crates/moveit-constraints/src/lib.rs`
 //! for the given `TAG`:
 //!
-//! - tag `ported` (implemented, findable under a Rust name given above): 17
+//! - tag `ported` (implemented, findable under a Rust name given above): 18
 //! - tag `structural` (collapsed constructor/configure overloads, or an
-//!   internal-state field this port's design has no use for): 22
+//!   internal-state field this port's design has no use for): 23
 //! - tag `D4` (the plugin-allocator/registry mechanism, already excluded
 //!   workspace-wide): 8
 //! - tag `D1` (a ROS message or `visualization_msgs` type this crate cannot
 //!   depend on): 6
-//! - tag `gap` (real, not previously documented anywhere in this crate): 13
-//!   — `DEFAULT_MAX_SAMPLING_ATTEMPTS`,
-//!   `getGroupStateValidityCallback`/`setGroupStateValidityCallback`,
-//!   `isValid`, `getVerbose`/`setVerbose`, `getName` (four separate
-//!   declarations, one per concrete type), `getPositionConstraint`/
-//!   `getOrientationConstraint` on `IkConstraintSampler`, and
-//!   `countSamplesPerSecond(sampler, reference_state)`. None of these are
-//!   exercised by `decide()`, this phase's own completion condition (see
-//!   this crate's introducing doc comment) — they are debugging/diagnostic
-//!   accessors or a benchmarking helper, not sampling correctness — but
-//!   they are real gaps, not deferred-on-purpose ones, and are named here
-//!   rather than left to be rediscovered.
+//! - tag `gap` (real, not previously documented anywhere in this crate): 11
+//!   — `DEFAULT_MAX_SAMPLING_ATTEMPTS`, `isValid`, `getVerbose`/
+//!   `setVerbose`, `getName` (four separate declarations, one per concrete
+//!   type), `getPositionConstraint`/`getOrientationConstraint` on
+//!   `IkConstraintSampler`, and `countSamplesPerSecond(sampler,
+//!   reference_state)`. Round 13 re-verified each against upstream's `.cpp`
+//!   (not just the header) rather than relying on round 12's header-only
+//!   read; each bullet above now carries that evidence inline. None of
+//!   these eleven are exercised by `decide()`, this phase's own completion
+//!   condition (see this crate's introducing doc comment) — they are
+//!   debugging/diagnostic accessors or a benchmarking helper, not sampling
+//!   correctness — but they are real gaps, not deferred-on-purpose ones,
+//!   and are named here rather than left to be rediscovered.
 //!
-//! 17 + 22 + 8 + 6 + 13 = 66.
+//! Round 13 also re-verified `getGroupStateValidityCallback`/
+//! `setGroupStateValidityCallback`, round 12's other two `gap`-tagged
+//! symbols, against `default_constraint_samplers.cpp` rather than the
+//! header alone, and found the setter genuinely gates IK-solution
+//! acceptance (a real production caller exists in
+//! `ompl_interface/src/detail/constrained_goal_sampler.cpp`) — not
+//! diagnostic-only. It is now ported (see the `ConstraintSampler` section
+//! above); the getter, which upstream itself never calls outside its own
+//! declaration, is tagged `structural` instead of carried forward as a
+//! second `gap`.
+//!
+//! 18 + 23 + 8 + 6 + 11 = 66.
 
 mod constraint_sampler_manager;
 mod ik_sampler;
