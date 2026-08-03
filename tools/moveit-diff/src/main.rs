@@ -44,6 +44,19 @@ struct Config {
     /// a per-case verdict -- see `run`'s ik block -- but a converged
     /// solution's own FK is still checked to `tol_ik`, which IS a per-case
     /// correctness verdict.
+    ///
+    /// `tol_ik` must stay looser than `SolverParams::default().epsilon`
+    /// (`1e-5`): `rust_impl::ik` always solves with that default, matching
+    /// the oracle's own `kEpsilon` for a fair success-rate comparison, and
+    /// `CartToJnt`'s convergence check accepts any step whose twist norm is
+    /// `<= epsilon` -- so a converged solution's FK error can legitimately
+    /// land anywhere in `(0, epsilon]`, not just near `0`. A 5,000-case
+    /// panda_arm sweep measured this directly: with `tol_ik = 1e-6`, 2930
+    /// cases "failed" with translation errors between `7e-6` and `9.9e-6`,
+    /// none above `epsilon`'s `1e-5` bound -- expected epsilon-bounded
+    /// slack, not a solver defect. `tol_ik` only catches a real correctness
+    /// bug (branch-wrong solution, sign error, etc.) once it is set above
+    /// that bound.
     ik: bool,
     tol_ik: f64,
     ik_position_only: bool,
@@ -60,7 +73,10 @@ impl Config {
         let mut group = None;
         let mut tol_jacobian = 1e-7;
         let mut ik = false;
-        let mut tol_ik = 1e-6;
+        // See `Config::tol_ik`'s own doc comment: this must stay looser than
+        // `SolverParams::default().epsilon` (1e-5), which is what actually
+        // bounds a converged solution's FK error.
+        let mut tol_ik = 2e-5;
         let mut ik_position_only = false;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
