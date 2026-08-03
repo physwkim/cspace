@@ -308,7 +308,6 @@ fn next_coordinate<'a>(tokens: &mut impl Iterator<Item = &'a str>) -> Result<f64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
 
     /// Builds a binary STL buffer: 80-byte header (caller-supplied, so a test
     /// can start it with the literal bytes `solid`), a `u32` triangle count,
@@ -368,7 +367,10 @@ mod tests {
 
         let mesh = mesh_from_bytes(&bytes, Vector3::new(2.0, 0.5, 10.0)).expect("valid binary STL");
 
-        assert_relative_eq!(mesh.vertices[0], Vector3::new(2.0, 1.0, 30.0));
+        // Bit-exact (round 16, item 3): bisected to epsilon = 0.0, max_relative
+        // = 0.0 and still passed -- 1.0*2.0, 2.0*0.5, and 3.0*10.0 are each
+        // exactly representable and exactly computed in f64.
+        assert_eq!(mesh.vertices[0], Vector3::new(2.0, 1.0, 30.0));
     }
 
     #[test]

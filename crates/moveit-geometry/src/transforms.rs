@@ -269,7 +269,17 @@ mod tests {
         let out = t
             .transform_vector3("a", &Vector3::new(1.0, 0.0, 0.0))
             .unwrap();
-        assert_relative_eq!(out, Vector3::new(0.0, 1.0, 0.0), epsilon = 1e-12);
+        // NOT bit-exact (round 16, item 3): fails at epsilon = 0.0 (measured
+        // left = [2.220446049250313e-16, 1.0, 0.0], right = [0.0, 1.0, 0.0]);
+        // passes at epsilon = f64::EPSILON, fails at f64::EPSILON / 2.0 with
+        // max_relative pinned to 0.0. epsilon = 1e-12 below is real, measured
+        // headroom, not the found floor.
+        assert_relative_eq!(
+            out,
+            Vector3::new(0.0, 1.0, 0.0),
+            epsilon = 1e-12,
+            max_relative = 0.0
+        );
     }
 
     #[test]
@@ -280,10 +290,20 @@ mod tests {
         let out = t
             .transform_pose("a", &Isometry3::translation(1.0, 0.0, 0.0))
             .unwrap();
+        // NOT bit-exact (round 16, item 3): fails at epsilon = 0.0 (measured
+        // left = [1.0000000000000002, 3.0, 3.0], right = [1.0, 3.0, 3.0]);
+        // passes at epsilon = f64::EPSILON, fails at f64::EPSILON / 2.0, but
+        // only once max_relative is pinned to 0.0 -- left unpinned, the
+        // default max_relative (also f64::EPSILON) masked the epsilon = f64::
+        // EPSILON / 2.0 failure because these components are ~1.0 in
+        // magnitude, so the relative term alone (f64::EPSILON * 1.0) covered
+        // the diff regardless of the explicit epsilon. epsilon = 1e-12 below
+        // is real, measured headroom, not the found floor.
         assert_relative_eq!(
             out.translation.vector,
             Vector3::new(1.0, 3.0, 3.0),
-            epsilon = 1e-12
+            epsilon = 1e-12,
+            max_relative = 0.0
         );
     }
 
@@ -297,6 +317,16 @@ mod tests {
         let via_m = t
             .transform_rotation_matrix("a", &q.to_rotation_matrix())
             .unwrap();
-        assert_relative_eq!(via_q.to_rotation_matrix(), via_m, epsilon = 1e-12);
+        // NOT bit-exact (round 16, item 3): fails at epsilon = 0.0 (measured
+        // max per-component diff 1.1102230246251565e-16, i.e. f64::EPSILON /
+        // 2.0); passes at epsilon = f64::EPSILON / 2.0, fails at f64::EPSILON
+        // / 4.0, with max_relative pinned to 0.0. epsilon = 1e-12 below is
+        // real, measured headroom, not the found floor.
+        assert_relative_eq!(
+            via_q.to_rotation_matrix(),
+            via_m,
+            epsilon = 1e-12,
+            max_relative = 0.0
+        );
     }
 }
