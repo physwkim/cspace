@@ -6741,11 +6741,18 @@ p3-distance-field 라운드 12(`047808e`, `78b9635`, `7d65688`, `760301b`).
 ### 78.1 원인은 `max_relative`였다
 
 §71.2에서 다섯 상수를 `1e-15`로 낮춰도 72건이 전부 통과했던 이유가
-밝혀졌다. `assert_relative_eq!(a, b, epsilon = TOL)`은 `max_relative`를
-주지 않으면 `f64::EPSILON`(~2.22e-16)을 쓰는데, 비교 대상 크기가 1에
-비해 작으면 그 기본값이 명시한 상수를 눌러 버린다. 상수를 아무리
-낮춰도 통과하니 이분법이 `0.0`까지 내려간다 — 내가 잰 것도, 담당이
-처음에 잰 `1.12e-13`도 같은 함정의 양쪽 면이다.
+밝혀졌다. `assert_relative_eq!(a, b, epsilon = TOL)`은 통과 조건이
+`|a-b| <= epsilon` **또는** `|a-b| <= max_relative × max(|a|,|b|)`이고,
+`max_relative`를 주지 않으면 `f64::EPSILON`(~2.22e-16)이 들어간다.
+즉 명시한 `epsilon`과 무관하게 **크기에 비례하는 허용치가 항상 하나 더
+켜져 있다.** 비교값이 1 근처 이상이면 그 비례 허용치가 관측 오차를
+덮어 버리므로, `epsilon`만 이분해서는 무는 지점에 영영 닿지 못한다 —
+`0.0`까지 내려도 통과한다. 내가 잰 것도, 담당이 처음에 잰 `1.12e-13`도
+같은 함정의 양쪽 면이다.
+
+(실제로 이 크레이트가 그 경우다: 수정 후 `epsilon = 1e-16`에서 실패하는
+차이가 수정 전에는 `epsilon = 0`에서도 통과했으므로
+`2.22e-16 × max(|a|,|b|) > 1e-16`, 즉 `max(|a|,|b|) > 0.45`다.)
 
 세 파일의 모든 `assert_relative_eq!`에 `max_relative = TOL`을 명시로
 넘긴 뒤 다시 이분했다.
@@ -6796,3 +6803,50 @@ p3-distance-field 라운드 12(`047808e`, `78b9635`, `7d65688`, `760301b`).
 --workspace` 통과, clippy `--workspace --all-targets -D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 출처 검사 통과,
 재생 **29/29 identical**.
+
+## 79. `max_relative` 함정은 워크스페이스 전체의 계열이다 (2026-08-04)
+
+§78이 한 크레이트에서 닫은 것은 표본이지 모집단이 아니다. 앵커를 잡고
+전수 조사했다.
+
+**앵커:** `assert_relative_eq!` 호출 중 `max_relative`를 넘기지 않는 것.
+
+**전수:** `crates/`와 `tools/`의 모든 `.rs`에서 호출 괄호를 균형 파싱해
+셌다.
+
+```
+총 호출          274
+max_relative 있음  45
+없음              229
+```
+
+없는 229건이 전부 결함은 아니다. 비례 허용치 `2.22e-16 × max(|a|,|b|)`가
+관측 오차보다 작으면 `epsilon`이 실제로 지배하므로 그 단언은 멀쩡하다.
+결함은 **비교값 크기가 커서 비례 허용치가 명시한 `epsilon`을 덮는**
+경우뿐이고, 그것은 파일마다 재봐야 안다 — §78.2가 한 그대로
+`epsilon`을 이분해 무는 지점을 찾고, `0.0`까지 내려도 통과하면 그
+파일이 이 함정에 걸린 것이다.
+
+크레이트별 미지정 호출 수(상위):
+
+```
+moveit-geometry/src/bodies.rs                47/47
+moveit-geometry/src/shapes.rs                45/45
+moveit-trajectory/src/trajectory.rs          21/21
+moveit-collision/src/parry.rs                19/19
+moveit-model/src/joint/planar.rs             10/10
+moveit-model/src/joint/revolute.rs            9/9
+moveit-distance-field/tests/upstream_parity.rs 7/7
+moveit-geometry/src/octree_collision.rs       6/6
+moveit-trajectory/src/path.rs                 6/6
+moveit-trajectory/src/path_segment/linear.rs  6/6
+```
+
+각 크레이트 담당에게 자기 파일의 이분 결과를 요구한다. `0.0`까지 통과하는
+파일은 §78.3처럼 exactness 단언으로 바꾸거나 `max_relative`를 명시하고
+다시 이분한다.
+
+이것이 §68("일률적으로 틀린 상수가 모든 자기 일관성 검사를 통과한다"),
+§74.3(오라클 fixture가 `target_velocity`를 재지 않음),
+§77.2(`sample_pose`의 네 줄이 부호를 뒤집어도 통과)와 같은 계열이다:
+**통과하는 단언이 무언가를 재고 있다는 증거가 아니다.**
