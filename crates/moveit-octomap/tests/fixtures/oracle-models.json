@@ -1,0 +1,6 @@
+{
+  "octomap": {
+    "srdf": "fanuc.srdf",
+    "urdf": "fanuc.urdf"
+  }
+}
