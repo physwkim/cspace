@@ -6203,3 +6203,63 @@ falsifier 없는 "open"은 잊어버린 것과 구별되지 않는다 — 이 �
 
 `cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
 `fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
+
+## 70. `.scene` 유예가 양쪽에서 동시에 닫혔다 (2026-08-04)
+
+p1-fixtures 라운드 9(`86f102c`, `37f7a2f`, `943e909`). 베이스 `9c76ff2`.
+finding 3개, 커밋 3개.
+
+### 70.1 두 패널이 서로의 침묵을 가리키던 유예
+
+`saveGeometryToStream`/`loadGeometryFromStream`(`moveit-scene`)과
+`shapes::saveAsText`/`constructShapeFromText`(`moveit-geometry`)가 같은
+falsifier — "이 형식을 필요로 한다고 말한 소비자가 없다" — 를 들고 서로를
+가리키고 있었다(§59.4). 없는 수요는 잊어버린 항목과 구별되지 않으므로
+긍정문으로 닫으라고 요구했고, 담당이 근거를 갖고 닫았다.
+
+상류에서 이 두 함수를 부르는 곳을 내가 직접 세어 확인했다:
+
+```
+moveit_ros/warehouse/src/{save_as_text,import_from_text}.cpp
+moveit_ros/move_group/src/default_capabilities/{load,save}_geometry_*_service_capability.cpp
+moveit_ros/visualization/motion_planning_rviz_plugin/src/motion_planning_frame_objects.cpp
+moveit_ros/planning/planning_components_tools/src/publish_scene_from_text.cpp
+moveit_py/src/moveit/moveit_core/planning_scene/planning_scene.cpp
+```
+
+정의와 자기 테스트를 빼면 **전부 `moveit_ros` 아니면 `moveit_py`**다. D1/D2
+어느 쪽으로도 범위 밖이다. 이제 "수요가 없다"가 아니라 "수요가 있는 곳이
+전부 범위 밖이다"로 적혀 있고, p3-shapes의 대칭 유예도 같이 닫힌다.
+
+### 70.2 stale해진 overload 개수 세 건
+
+`943e909`이 라운드 6에서 물려받은 개수 셋을 헤더에 대고 다시 셌다. 내가
+`planning_scene.hpp`에서 직접 재확인했다:
+
+| 심볼 | 라운드 6이 적었던 값 | 실제 |
+|---|---|---|
+| `checkCollision` | 7 | **6** |
+| `getCollidingLinks` | 5 | **6** |
+| `getCollidingPairs` | 5 | **6** |
+
+`getCollidingPairs` 6개 중 `group_name`을 받는 것은 1개가 아니라 **4개**다
+(선언마다 괄호 짝을 맞춰 시그니처를 잘라내 세었다). 감사 bullet 59개를
+전부 다시 걸었고 `unported, in scope`는 0건 — 커버리지는 이미 완전했고,
+틀린 것은 개수뿐이었다.
+
+### 70.3 남은 것
+
+`isFixedFrame`의 world object frame 위임은 여전히 살아 있는 호출자가
+없다. 다만 falsifier의 전제는 바뀌었다 — `moveit-constraints`가 이제
+통째로 미포팅이 아니고 `PositionConstraint`/`OrientationConstraint`/
+`VisibilityConstraint`가 `can_transform`으로 base class 절반을 이미
+재현한다. 막고 있는 것은 살아 있는 `PlanningScene`에서 `Transforms`를
+그 생성자들로 흘려보내는 다리가 없다는 것이고, 그것이 생기면 닫힌다.
+
+새로 표면화된 것: `getCostSources`가 막혀 있다 —
+`ParryCollisionEnv`가 `cost_sources: None`을 하드코딩한다. p3-acm 소관.
+
+### 70.4 머지 후 실측
+
+`cargo nextest run --workspace` **981/981**, clippy `-D warnings` 0건,
+`fmt --check` 통과, `check-*.sh` 3건 OK, 재생 **25/25 identical**.
