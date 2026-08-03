@@ -198,7 +198,8 @@
 //!    orientation, arithmetic-mean center, then componentwise min/max of
 //!    both boxes' vertices projected onto the merged axes). A probe
 //!    (`tests/probe_parity.rs`) pins this against the shipped binary for
-//!    both branches.
+//!    both branches — see deviation 7 for the one case the same probe
+//!    found where this port keeps behavior that disagrees with the binary.
 //! 4. **`samplePointInside` takes a caller-supplied uniform-sampler closure,
 //!    not a `random_numbers::RandomNumberGenerator`.** That type has no Rust
 //!    port (PORTING-PLAN.md records no mature substitute was pulled in for
@@ -234,6 +235,48 @@
 //!    their own mesh cases (8 vertices, 12 triangles) — and cross-check
 //!    against the equivalent [`Cuboid`] body, since a box-shaped convex mesh
 //!    and a [`Cuboid`] describe the same geometry.
+//! 7. **`ConvexMesh::ray_intersections` keeps a sign convention that
+//!    disagrees with the shipped `.so` on 3 of the probe's 5 rays, because
+//!    the binary's own two relevant methods disagree with each other.** A
+//!    binary-ground-truth probe found `intersectsRay` on a padded, scaled
+//!    tetrahedron reporting a hit count on `ray[0]`, `ray[2]` and `ray[4]`
+//!    that is topologically impossible given the *same binary's* own
+//!    `containsPoint` answers (the probe originally cited only `ray[0]`;
+//!    enabling the probe's other rays past it surfaced that the same defect
+//!    also hits `ray[2]` and `ray[4]`). Upstream's `isPointInsidePlanes`
+//!    recomputes each plane's padded/scaled offset as `-plane_normal.dot(
+//!    scaled_vertex)`, while `intersectsRay` independently recomputes the
+//!    *same* quantity as `+plane_normal.dot(scaled_vertex)` (`bodies.cpp`,
+//!    read in full — confirmed byte-for-byte, not a transcription slip).
+//!    This port caches one signed `plane_offsets` value per triangle
+//!    (`ConvexMesh::recompute`) and reuses it in both
+//!    `ConvexMesh::is_point_inside_planes` and
+//!    [`ConvexMesh::ray_intersections`], so it cannot reproduce this
+//!    inconsistency by construction. Proof the binary, not this port, is
+//!    wrong, ray by ray (each argument needs only boundedness, not
+//!    convexity, and no reference beyond the fixture's own other outputs):
+//!    - `ray[0]`: an exterior origin, running through the posed body's
+//!      probe-origin point (confirmed interior by the fixture's own
+//!      `containsPoint`) and beyond. A bounded region can only be entered
+//!      and later exited around a point it truly contains, so the two hits
+//!      must bracket that point; the binary reports 1 (unbracketed) hit.
+//!    - `ray[2]`: a second, orthogonal ray through the same confirmed-
+//!      interior point. The binary reports 1 hit, and that hit falls
+//!      *after* the interior point in the ray's parametrization — i.e. by
+//!      the binary's own account, zero boundary crossings occur before
+//!      reaching a point its own `containsPoint` calls interior, the same
+//!      contradiction as `ray[0]`.
+//!    - `ray[4]`: origin *is* the confirmed-interior point itself, so
+//!      escaping a bounded region to infinity requires an odd number of
+//!      crossings. This port reports 1 (odd, correct); the binary reports 2
+//!      (even, impossible from an interior start).
+//!
+//!    This port keeps its single, self-consistent sign convention on all
+//!    three; `tests/probe_parity.rs`'s `convex_mesh_sign_bug_upstream_defect`
+//!    documents the fixture keys this disagreement lands on and asserts
+//!    this port's own (internally consistent) answers, plus the bracket/
+//!    parity check proving each one, instead of the fixture's values for
+//!    those three rays.
 
 use moveit_error::{Error, Result};
 

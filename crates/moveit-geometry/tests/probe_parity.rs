@@ -31,6 +31,15 @@
 //! branch, needed to close the disagreement documented in `bodies.rs`'s
 //! module docs, deviation 3.
 //!
+//! `convexmesh.ray[0]`, enabled here for the first time, turned out not to
+//! be a lone case: the shipped `.so`'s own `intersectsRay` and
+//! `containsPoint` disagree with each other on `ray[0]`, `[2]` and `[4]`
+//! (`bodies.rs`'s module docs, deviation 7). `convex_mesh_matches_libgeometric_shapes`
+//! excludes those three from the generic comparison;
+//! `convex_mesh_sign_bug_upstream_defect` below pins this port's own
+//! (internally consistent) answers for them instead, with the topological
+//! proof that the fixture's values for those rays cannot be right.
+//!
 //! To regenerate: see `tools/ci/` and the compile recipe in
 //! `PORTING-PLAN.md` §9.1.
 
@@ -145,9 +154,13 @@ fn tetrahedron() -> ShapeMesh {
 /// distinct types, so the shared assertions are a macro rather than a
 /// function over a trait object.
 macro_rules! check_body {
-    ($f:expr, $name:literal, $body:expr) => {{
+    ($f:expr, $name:literal, $body:expr) => {
+        check_body!($f, $name, $body, skip_rays: [])
+    };
+    ($f:expr, $name:literal, $body:expr, skip_rays: [$($skip:expr),* $(,)?]) => {{
         let f = $f;
         let body = $body;
+        let skip_rays: &[usize] = &[$($skip),*];
 
         for (i, p) in probe_points().iter().enumerate() {
             let key = format!("{}.contains[{}]", $name, i);
@@ -156,6 +169,9 @@ macro_rules! check_body {
         }
 
         for (i, (origin, dir)) in probe_rays().iter().enumerate() {
+            if skip_rays.contains(&i) {
+                continue;
+            }
             let dir = dir.normalize();
             let hits = body.ray_intersections(origin, &dir, Some(2));
             let hit_key = format!("{}.ray[{}].hit", $name, i);
@@ -263,6 +279,13 @@ fn cuboid_matches_libgeometric_shapes() {
     check_body!(f, "box", body);
 }
 
+/// `convexmesh.ray[0]`, `[2]` and `[4]` are excluded from the fixture
+/// comparison: they are `bodies.rs`'s documented deviation 7, where the
+/// shipped `.so`'s own `intersectsRay` and `containsPoint` contradict each
+/// other (proved in the module docs), so the fixture's hit counts for these
+/// three rays are upstream's bug, not ground truth to match. See
+/// `convex_mesh_sign_bug_upstream_defect` below for the assertions this
+/// port keeps in their place.
 #[test]
 fn convex_mesh_matches_libgeometric_shapes() {
     let f = fixture();
@@ -270,7 +293,91 @@ fn convex_mesh_matches_libgeometric_shapes() {
     body.set_pose(probe_pose());
     body.set_scale(1.15).unwrap();
     body.set_padding(0.01).unwrap();
-    check_body!(f, "convexmesh", body);
+    check_body!(f, "convexmesh", body, skip_rays: [0, 2, 4]);
+}
+
+/// The upstream sign-convention defect behind deviation 7, pinned against
+/// this port's own (internally self-consistent) answers rather than the
+/// fixture, on all three rays it manifests on. Each proof needs no
+/// reference beyond the binary's own other outputs, already in the
+/// fixture: a bounded body can only be entered and later passed (or, when
+/// the ray starts inside, only ever left) after crossing its boundary a
+/// parity-fixed number of times, and the fixture's own `containsPoint`
+/// results pin which side of the boundary each relevant point is on.
+///
+/// - ray[0]: exterior origin, ray runs to a confirmed-interior point
+///   (`convexmesh.contains[0]`) and beyond. A bounded region can only be
+///   entered then exited around that point, so bracketing hits are
+///   required; upstream reports 1 (unbracketed) hit.
+/// - ray[2]: same interior point, orthogonal ray. Upstream reports 1 hit,
+///   *after* the interior point on this ray's parametrization — meaning
+///   upstream's own account has zero crossings before reaching a point its
+///   own `containsPoint` calls interior, which is the same contradiction as
+///   ray[0].
+/// - ray[4]: origin *is* the confirmed-interior point itself
+///   (`probe_points()[0]`), so escaping to infinity requires an odd number
+///   of crossings. This port reports 1 (odd); upstream reports 2 (even).
+///
+/// The exact values pinned here are this port's own, hand-verified in the
+/// investigation behind deviation 7 against the shipped `.so`'s real
+/// (qhull-computed) hull data via `ConvexMesh`'s `getVertices`/
+/// `getScaledVertices`/`getPlanes` accessors and an independently
+/// recomputed ray-plane intersection — not merely "whatever this port
+/// currently outputs" — so pinning them here is a real regression guard,
+/// not a circular one.
+#[test]
+fn convex_mesh_sign_bug_upstream_defect() {
+    let f = fixture();
+    let mut body = ConvexMesh::new(&tetrahedron()).unwrap();
+    body.set_pose(probe_pose());
+    body.set_scale(1.15).unwrap();
+    body.set_padding(0.01).unwrap();
+
+    assert!(
+        expect_usize(&f, "convexmesh.contains[0]") == 1,
+        "sanity: the topological arguments need the fixture's own containsPoint(origin) to be true"
+    );
+    let origin_point = probe_points()[0];
+
+    // ray[0]: bracket check on z.
+    let (origin, dir) = probe_rays()[0];
+    let hits = body.ray_intersections(&origin, &dir.normalize(), Some(2));
+    assert_eq!(hits.len(), 2, "convexmesh.ray[0] (see deviation 7)");
+    assert_close(hits[0].z, 1.0323458853008276, "convexmesh.ray[0].pt[0].z");
+    assert_close(
+        hits[1].z,
+        1.160_120_379_681_655,
+        "convexmesh.ray[0].pt[1].z",
+    );
+    assert!(
+        hits[0].z < origin_point.z && origin_point.z < hits[1].z,
+        "convexmesh.ray[0]: hits should bracket the confirmed-interior probe origin point"
+    );
+
+    // ray[2]: bracket check on y.
+    let (origin, dir) = probe_rays()[2];
+    let hits = body.ray_intersections(&origin, &dir.normalize(), Some(2));
+    assert_eq!(hits.len(), 2, "convexmesh.ray[2] (see deviation 7)");
+    assert_close(hits[0].y, -0.7475581529289892, "convexmesh.ray[2].pt[0].y");
+    assert_close(hits[1].y, -0.5954610418532651, "convexmesh.ray[2].pt[1].y");
+    assert!(
+        hits[0].y < origin_point.y && origin_point.y < hits[1].y,
+        "convexmesh.ray[2]: hits should bracket the confirmed-interior probe origin point"
+    );
+
+    // ray[4]: origin is the confirmed-interior point, so the forward ray
+    // must leave the body an odd number of times.
+    let (origin, dir) = probe_rays()[4];
+    assert_vec_close(origin, origin_point, "convexmesh.ray[4] origin sanity");
+    let hits = body.ray_intersections(&origin, &dir.normalize(), Some(2));
+    assert_eq!(
+        hits.len(),
+        1,
+        "convexmesh.ray[4] (see deviation 7): starting inside a bounded body requires an odd exit count"
+    );
+    assert_close(hits[0].x, 0.3596564673983505, "convexmesh.ray[4].pt[0].x");
+    assert_close(hits[0].y, -0.6254294157520618, "convexmesh.ray[4].pt[0].y");
+    assert_close(hits[0].z, 1.2148386997418248, "convexmesh.ray[4].pt[0].z");
 }
 
 /// `OBB::overlaps`/`contains`/`extend_approx` is the corner of this layer
