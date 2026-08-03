@@ -973,3 +973,17 @@ FK 스윕도 스탬프 이미지로 다시 돌렸다 — 이전 검증에 쓰지
 다시 쓰인 것이 아니라 `group_is_chain` 필드가 더해진 것인지 확인했다 —
 삭제 라인 0, 추가 라인 5/3/4/10. 오라클 픽스처를 수정하는 변경은 이
 확인 없이는 병합하지 않는다.
+
+### 11.4 `fixtures/pr2.srdf`의 얇은 ACM — 상류의 축약본이다
+
+pr2 ACM 픽스처가 `disable_collisions` 한 건뿐인 것을 "우리 픽스처의 빈
+구멍"으로 기록해 뒀었는데, 출처를 확인했다.
+`fixtures/pr2.srdf`는 `third_party/moveit_resources/pr2_description/srdf/
+robot.xml`과 **바이트 단위로 동일**하고, 그 상류 파일 자체가
+`<!-- and many more disable_collisions tags -->` 주석을 달고 나머지를
+생략한 축약본이다. moveit_resources에는 pr2용 moveit_config가 없어서 더
+완전한 SRDF는 로컬에 존재하지 않는다.
+
+따라서 pr2 ACM이 얇은 것은 상류에 충실한 결과이지 이식 누락이 아니다.
+ACM 커버리지는 `dual_arm_panda`(68쌍, 22링크)가 담당한다 — §10.6. 이
+항목은 미해결이 아니라 종결로 옮긴다.
