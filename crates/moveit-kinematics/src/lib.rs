@@ -304,6 +304,17 @@
 //!   not a workspace decision; the workspace-level question, if any, is
 //!   only whether a cached variant of `newton_raphson`/`lma` is something a
 //!   consumer actually wants.
+//!
+//!   **Verdict: small enough to do now, not large enough to route.** One
+//!   [`KinematicsSolver`] method to intercept (`solve_with_options`), the
+//!   on-disk cache format is OUT (a local `serde` choice, not a port
+//!   target — point 3 above), and the nearest-seed lookup is a linear scan,
+//!   not a ported GNAT tree (point 2 above). Nothing here crosses a crate
+//!   boundary or touches `KINEMATICS_SOLVERS`' shape beyond adding two more
+//!   `SolverRegistration` entries, so it is scoped work for a future round
+//!   of this crate, not a decision that needs to go up a level.
+//!
+//!   consumer actually wants.
 
 mod cart_to_jnt;
 mod chain;
