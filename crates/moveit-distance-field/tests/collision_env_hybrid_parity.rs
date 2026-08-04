@@ -266,7 +266,8 @@ fn check_robot_collision_distance_field_matches_the_oracle_robot_only_mode() {
             link_body_decompositions.clone(),
             config,
             0.0,
-        );
+        )
+        .unwrap();
 
         let mut state = RobotState::new(&model);
         state.set_to_default_values();
@@ -444,7 +445,8 @@ fn check_collision_distance_field_environment_branch_paired_control() {
             link_body_decompositions.clone(),
             config,
             0.0,
-        );
+        )
+        .unwrap();
 
         let mut state = RobotState::new(&model);
         state.set_to_default_values();
