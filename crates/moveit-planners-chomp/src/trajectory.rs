@@ -769,6 +769,21 @@ mod tests {
         assert_eq!(traj.num_free_points(), 0);
     }
 
+    /// Neither constructor can produce `end_index + 1 < start_index` (only
+    /// `end_index + 1 == start_index`, the boundary
+    /// [`num_free_points_zero_for_inverted_range`] above covers, which
+    /// happens not to need saturation at all: `(0 + 1) - 1` does not
+    /// underflow). [`ChompTrajectory::set_start_end_index`] is ported
+    /// unchecked (`setStartEndIndex` has no guard upstream either) and lets
+    /// a caller reach the actually-underflowing case directly.
+    #[test]
+    fn num_free_points_zero_when_set_start_end_index_inverts_by_more_than_one() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 10, 0.1, GROUP).unwrap();
+        traj.set_start_end_index(5, 0);
+        assert_eq!(traj.num_free_points(), 0);
+    }
+
     #[test]
     fn from_source_trajectory_pads_short_source_and_pins_full_trajectory_index() {
         let model = panda_model();
