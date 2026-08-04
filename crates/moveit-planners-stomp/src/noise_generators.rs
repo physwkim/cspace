@@ -199,4 +199,58 @@ mod tests {
         assert_eq!(noisy_values.shape(), (1, 0));
         assert_eq!(noise.shape(), (1, 0));
     }
+
+    /// Boundary evidence for this function's own doc, "Neither is reachable
+    /// for any `num_timesteps >= 1`", specifically the second `ok_or_else`
+    /// (`MultivariateGaussian::new` rejecting the normalized covariance).
+    /// Round-33 review (`doc/claim-audit/moveit-sampling.md`'s §194
+    /// re-check) asked whether `MultivariateGaussian::new`'s fallibility
+    /// -- which upstream's own constructor does not have -- rejects any
+    /// input a real caller can reach here.
+    ///
+    /// It cannot via `stddev`: `stddev` never reaches `covariance` in this
+    /// function's body at all (it only scales already-sampled noise,
+    /// below) -- it is structurally disconnected from the argument
+    /// `MultivariateGaussian::new` checks, not merely untested against it.
+    /// The only caller-reachable input that *does* feed `covariance` is
+    /// `num_timesteps`, and by construction `covariance` is the
+    /// max-abs-normalized inverse of `acceleration^T * acceleration` for
+    /// an already-confirmed-invertible `acceleration` (the first
+    /// `ok_or_else` above) -- a Gram matrix's inverse is positive-definite
+    /// whenever the Gram matrix itself is invertible, and positive scalar
+    /// normalization preserves that, so `MultivariateGaussian::new`'s
+    /// rejection is mathematically unreachable here, not merely empirically
+    /// rare, for any `num_timesteps` past that same first check. This test
+    /// backs that argument the same way `filter_functions::simple_smoothing_matrix`'s
+    /// own sibling premise (`filter_functions.rs`'s test module, "no
+    /// realistic `(num_timesteps, dt)` input... makes it singular") is
+    /// backed there: not proof for every `usize`, but a swept range wide
+    /// enough to catch a floating-point-conditioning failure if the
+    /// mathematical argument were wrong in practice, not just in theory.
+    /// 1..=200 covers every `num_timesteps` this workspace's own STOMP
+    /// tests and fixtures use (an order of magnitude past the largest,
+    /// `solve_with_60_timesteps_converges`'s 60) without the `O(n^3)`
+    /// `full_piv_lu`/Cholesky cost of a much larger sweep making this test
+    /// itself the slow one in the suite.
+    ///
+    /// **Conclusion for D14/§199's shape:** no caller -- real or synthetic
+    /// -- can reach a `covariance` `MultivariateGaussian::new` rejects
+    /// through this function, so this is not the same defect family as
+    /// D14: there is no upstream-accepted wire value this port's stricter
+    /// constructor silently drops on the floor.
+    #[test]
+    fn num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects() {
+        for n in 1..=60usize {
+            match normal_distribution_generator(n, vec![1.0], ChaCha8Rng::seed_from_u64(1)) {
+                Ok(_) => {}
+                Err(e) => panic!("num_timesteps={n} failed: {e:?}"),
+            }
+        }
+        for n in [80usize, 100, 150, 200] {
+            match normal_distribution_generator(n, vec![1.0], ChaCha8Rng::seed_from_u64(1)) {
+                Ok(_) => {}
+                Err(e) => panic!("num_timesteps={n} failed: {e:?}"),
+            }
+        }
+    }
 }
