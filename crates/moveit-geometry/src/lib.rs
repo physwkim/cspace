@@ -69,6 +69,47 @@
 //! masking-proof bisected tolerances -- see `shapes.rs`'s and `bodies.rs`'s
 //! own provenance comments for that history) rather than one test per
 //! upstream method.
+//!
+//! **`assert_relative_eq!` reckoning (round 18, item 2), recounted fresh in
+//! the current tree, not trusted from PORTING-PLAN.md's §104 workspace
+//! table** (which predates several rounds of change and never broke this
+//! crate's own share out on its own). Not counted by `rg -c
+//! assert_relative_eq! crates/moveit-geometry/src/*.rs` (13, the exact
+//! §73.1/§83.3/§92/§104.1 miscount class: 4 of those 13 are doc-comment
+//! prose mentioning the macro by name, not a call to it -- `shapes.rs`'s own
+//! comment records that round 14's §79 sweep already converted every one of
+//! that file's 45 `assert_relative_eq!` calls to `assert_eq!`, and
+//! `octree_collision.rs`'s comment records the same for its one bit-exact
+//! call). Counted instead by stripping `//` tails and paren-bracket-matching
+//! each `assert_relative_eq!(`/`relative_eq!(` call's own argument text --
+//! a script rather than an eyeball pass, so the same miscount can't recur
+//! next round:
+//!
+//! ```text
+//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-geometry/src/*.rs
+//! both=9 epsilon_only=0 max_relative_only=0 neither=0
+//! ```
+//!
+//! All **9** real call sites (6 in [`bodies`]'s tests, 3 in `transforms.rs`'s
+//! tests) pass both `epsilon` and `max_relative` explicitly, each with a
+//! comment recording the bisection that measured the given `epsilon` as real
+//! headroom above a found floor (not an unmeasured carryover) and pins
+//! `max_relative = 0.0` so the relative term never masks it -- the exact
+//! §85.3/§103.4 discipline. `neither` is 0, so there is nothing to bisect or
+//! convert to `assert_eq!` this round. An earlier PORTING-PLAN.md passage
+//! (pre-§104) recorded 4 outstanding sites outside `bodies.rs` --
+//! `transforms.rs` (3, still present, accounted for above) and `stl.rs` (1,
+//! now 0: `grep -n assert_relative_eq crates/moveit-geometry/src/stl.rs`
+//! finds nothing, its tests are plain `assert_eq!`/`assert!`). Sibling crate
+//! `moveit-octomap`'s own reckoning is 0 calls, `approx` never being a
+//! dependency there; see that crate's completion statement.
+//!
+//! Two manual `assert!((lhs - rhs).abs() < tol)` sites in
+//! `octree_collision.rs` (lines 132-133, 163 as of this round) are outside
+//! this reckoning's scope -- they take no named `epsilon`/`max_relative`
+//! argument to classify, being a different pattern (a bare tolerance
+//! literal) than the `assert_relative_eq!`/`relative_eq!` macro family this
+//! item covers.
 
 pub mod bodies;
 mod octree_collision;

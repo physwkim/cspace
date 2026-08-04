@@ -201,6 +201,24 @@
 //! (docker-gated, not part of this count) independently confirms the
 //! committed fixture still reproduces against a freshly built oracle image
 //! rather than only against a stale capture.
+//!
+//! **`assert_relative_eq!` reckoning (round 18, item 2).** This crate has
+//! **zero** calls, not counted by `rg -c` (which mixes doc-comment mentions
+//! into the total, the exact class PORTING-PLAN.md §73.1/§83.3/§92/§104.1
+//! got bitten by four times) but confirmed two ways: `grep -n approx
+//! crates/moveit-octomap/Cargo.toml` has no match -- this crate never took
+//! the `approx` dependency `moveit-geometry` did -- and `moveit-geometry`'s
+//! own `//`-tail-stripped, paren-bracket-matched scanner (see that crate's
+//! completion statement) confirms it by running clean against this crate
+//! too:
+//!
+//! ```text
+//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-octomap/src/*.rs
+//! both=0 epsilon_only=0 max_relative_only=0 neither=0
+//! ```
+//!
+//! Nothing to classify into epsilon-only/max_relative-only/both/neither;
+//! nothing to bisect.
 
 mod iter;
 mod key;
