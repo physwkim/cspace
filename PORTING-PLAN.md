@@ -16110,3 +16110,144 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
 (`700e7be54cb0a61f`)다. 커밋은 발견 단위로 나뉘고 검증은 트리 단위로
 이뤄진다는 뜻이며, 중간 커밋 하나만 체크아웃해 오라클을 돌리려는
 사람은 자기 손으로 빌드해야 한다.
+
+## §213 "인용 하나-소비자 열 개" 검사를 크레이트 전체로 확장 — 갈라진 곳은 §211 하나뿐이었다
+
+### §213.1 앵커와 방법
+
+앵커: `rg -n '^impl(<[^>]*>)? (TryFrom|From)<' ros/moveit-ros/src` (39개
+매치). 각 impl의 프로덕션 콜사이트는 파일별 `#[cfg(test)] mod tests`
+시작 줄을 경계로 `rg -n '::try_from\(|\.try_into\(\)'` 결과를 나눠 셌다
+— 테스트 안에서만 불리는 것은 소비자로 세지 않았다.
+
+콜사이트가 1개뿐인 impl은 애초에 "공유"가 아니므로 갈릴 위험이 없다.
+2개 이상인 impl만 아래 표에 올렸고, 각각을 실제 상류 C++ 소스
+(`/home/stevek/work/moveit2`, `third_party/geometric_shapes`)를 열어
+확인했다 — §211.6과 같은 방법, 인용을 재사용하지 않고 직접 다시 열었다.
+
+### §213.2 표
+
+| impl | 프로덕션 콜사이트 | 상류 도달 경로 | 판정 |
+|---|---|---|---|
+| `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `position.rs:161`, `visibility.rs:114`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
+| `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `position.rs:160`(BoundingVolume), `collision_object.rs:183`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
+| `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:310`(processCollisionObjectMsg), `attached.rs:62`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
+| `TryFrom<ConstraintsMsg> for KinematicConstraintSet` | 3곳 — `planning.rs`의 `goal_constraints`/`path_constraints`/`trajectory_constraints` | 셋 다 `KinematicConstraintSet::add(const moveit_msgs::msg::Constraints&, const Transforms&)` (`kinematic_constraint.cpp:1294`) 단 하나 — 이 함수는 호출자가 `MotionPlanRequest`의 어느 필드에서 왔는지 알지 못한다 | 균일. 편집 불필요 |
+| `TryFrom<Point>`/`TryFrom<Vector3> for CoreVector3` 및 그 역방향(`Point`/`Vector3`/`Pose`/`Quaternion` 출력) | 여러 곳 (`position.rs`, `planning.rs`×2, `shapes.rs` 등) | 실패 분기 자체가 없음 — `geometry.rs`의 기존 doc comment가 이미 "Total in practice"라고 명시하며, 이번 스윕은 그 주장을 소스가 아니라 impl 본문 자체(항상 `Ok`)로 재확인했다 | 균일 — 구조적으로 갈릴 수 없음 |
+| 나머지 전부: `JointLimits`, `JointConstraint`/`PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint`의 msg<->core 양방향, `RobotState`, `RobotTrajectory`/`JointTrajectory`, `MeshMsg`/`PlaneMsg` -> `Shape`/`Plane` | 각 1곳 | 해당 없음 | 애초에 공유 impl이 아님 — 대상 아님 |
+
+### §213.3 결론
+
+`f2a7847`의 Quaternion/Pose 분리가 이 크레이트에서 "한 impl이 서로 다른
+상류 규칙에 닿는 소비자를 가진" 유일한 사례였다. 갈림 위험이 있던
+나머지 셋(`SolidPrimitiveMsg`, `CollisionObjectOperation`,
+`ConstraintsMsg`)은 소비자가 2곳 이상이지만 전부 실제로 같은 상류 함수
+하나에 닿는다는 것을 인용 없이 직접 소스를 열어 확인했다 — 이번
+라운드에서 이 크레이트에 추가로 쪼갤 곳은 없다.
+
+## §214 같은 함수 안의 형제 분기, 같은 변형(variant) — `e3b40c6`과 같은 모양을 이 크레이트에서도 찾았다
+
+### §214.1 앵커
+
+`moveit-constraints`의 `e3b40c6`: `Body::from_shape(shape)?`의 `Err` 절반과
+`Ok(None)` 절반이 같은 줄에 있는데, 테스트가 `.is_err()`만 확인해서
+`?`를 `.unwrap_or(None)`으로 바꿔 형제 분기로 라우팅해도 초록으로
+남았다. 같은 모양을 `ros/moveit-ros/src` 전체에서 찾기 위해 함수 본문
+안에 같은 `Error` variant를 만드는 `Err(Error::...)` 리터럴이 2개
+이상인 함수를 스캔했다 (AST 없이 중괄호 깊이로 함수 본문을 잘라
+`Err(Error::(\w+)` 패턴 카운트). 결과 5개:
+
+| 파일:함수 | 같은 variant 반복 | 기존 테스트가 구분했는가 |
+|---|---|---|
+| `trajectory.rs`의 `TryFrom<JointTrajectoryMsg>::try_from` | `Construct` × 3 (positions 길이 불일치/0이 아닌 시작 시각/시간 역행) + `set_point_array`의 4번째(속도/가속도/effort 길이) | 아니오 — 시작 시각·시간 역행 테스트는 variant만 확인, positions 길이 불일치와 속도 길이 불일치는 테스트 자체가 없었음 |
+| `state.rs`의 `TryFrom<RobotStateMsg>::try_from` | `Other` × 3 (`is_diff`/`attached_collision_objects`/`multi_dof_joint_state`) + `set_parallel_array`의 4번째(속도/effort 길이) | 아니오 — `is_diff`만 테스트 있었고 variant만 확인, 나머지 셋은 테스트 자체가 없었음 |
+| `planning.rs`의 `TryFrom<PlanningRequestMsg>::try_from` | `Other` × 2 (`start_state`/`reference_trajectories`) | 아니오 — `start_state`만 테스트 있었고 variant만 확인, `reference_trajectories`는 테스트 자체가 없었음 |
+| `scene/attached.rs`의 `apply_attach` | `Other` × 2 (월드 오브젝트 승격 경로의 "no geometry"/메시지-지오메트리 경로의 "no geometry") | 아니오 — 두 테스트 모두 존재하지만 variant만 확인 |
+| `scene/collision_object.rs`의 `apply_move` | `Other` × 2 (알 수 없는 id/포즈 개수 불일치) | 아니오 — 두 테스트 모두 존재하지만 variant만 확인 |
+
+### §214.2 고친 방법
+
+`e3b40c6`과 동일한 헬퍼 모양(`assert_err_mentions`, `#[track_caller]`,
+렌더링된 에러 문자열에 `needle`이 포함되는지 확인)을 이 다섯 파일 각각의
+테스트 모듈에 추가했다 — 크레이트 공용 헬퍼로 올리지 않은 이유는
+`e3b40c6` 자체가 파일 로컬 헬퍼였고, 이 크레이트의 `Result`는 파일마다
+`std::result::Result`거나 `moveit_error::Result` 별칭이라(뒤엣것은
+제네릭 인자가 하나뿐) 시그니처가 파일마다 달라야 했기 때문이다
+(`scene/attached.rs`, `scene/collision_object.rs`는
+`std::result::Result<T, Error>`로 명시).
+
+variant만 확인하던 기존 테스트 6곳을 메시지 내용 확인으로 바꾸고,
+테스트가 아예 없던 형제 분기 6곳에 새 테스트를 추가했다 (positions
+길이 불일치·속도 길이 불일치 ×2파일·`attached_collision_objects`·
+`multi_dof_joint_state`·`reference_trajectories`). 141개였던 테스트가
+147개.
+
+### §214.3 스캔에서 제외한 것
+
+같은 함수 안에 2개 이상이지만 이미 호출부마다 다른 메시지를 만드는
+공유 헬퍼(`constraints/position.rs`의 `dim()` — BOX_X/SPHERE_RADIUS 등
+필드 이름이 이미 인자로 갈리고, `collision_object.rs`의
+`parallel_shapes`/`subframes_from_parallel_arrays` — `items_field`가
+이미 인자로 갈림)는 이번 라운드에 포함하지 않았다: 메시지가 이미
+호출부마다 다르므로 §214가 잡는 정확한 결함 모양(형제 분기가 *같은*
+메시지를 만들어 라우팅 버그를 가릴 수 있는 경우)이 아니고, 테스트가
+그 메시지 내용을 아직 확인하지 않는 것은 커버리지 gap이지 이번 항목이
+겨냥한 판별 불가능성이 아니다.
+
+## §215 사이트별 norm 경계값 표 — norm=2.0가 회귀를 낸 지점이라 이번 라운드는 사이트별 실측을 새로 추가했다
+
+### §215.1 방법
+
+§211/§213이 세운 규칙: `f2a7847`이 쪼갠 두 규칙(generic — 유한·0이
+아니면 무조건 재정규화, strict — `OrientationConstraintQuaternion`,
+1e-3 임계값)에 열 개의 와이어 필드가 어느 규칙에 닿는지는 이미
+확인했지만, 그 소비자 열 곳 "각각"에서 norm=2.0/1.0009/1.0011/전부
+0/NaN 다섯 값이 실제로 어떤 결과를 내는지는 아직 아무도 실행한 적이
+없었다 — `geometry.rs`의 규칙 자체 단위 테스트만 있었다. 아홉 곳은
+와이어 필드에서 `Isometry3::try_from(Pose(...))` 호출까지 분기가
+전혀 없는 것을 직접 코드를 읽어 재확인했으므로(§213.1의 `rg` 앵커
+재실행), 코드 경로가 동일하다는 근거로 generic 규칙의 단위 테스트
+결과를 그 아홉 곳에 적용할 수 있다 — 다만 이것은 "이 사이트에서
+실행함"과는 다른 주장이라 `doc/message-mapping.md` §18의 표에서
+`✅site`(이 사이트 자체를 실행)와 `✅generic-fn`/`✅strict`(코드
+동일성으로 추론, 이 사이트에서 실행한 것은 아님)를 구분해서 표기했다.
+
+norm=2.0 열만은 예외로 열 곳 전부에 이 사이트 자체를 통과하는
+end-to-end 테스트를 새로 추가했다: `4ff563d`가 실제로 깨뜨린 값이라
+추론이 아니라 실측이 필요하다고 판단했다. `strict` 규칙(사이트 #2,
+`OrientationConstraint.orientation`)은 norm=2.0에서 이미 이전
+라운드에 end-to-end 테스트(`orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose`)가
+있었고, 나머지 네 값은 `geometry.rs`의 `OrientationConstraintQuaternion`
+단위 테스트로만 커버된다 (이 사이트 자체에서 실행한 것은 아님, 표에
+그대로 명시).
+
+### §215.2 이번 라운드에 추가한 사이트별 실측 테스트
+
+- `constraints/position.rs`: `region_pose_with_norm_2_orientation_succeeds_and_normalizes`
+  (`position.rs:161`)
+- `constraints/visibility.rs`: `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize`
+  (`visibility.rs:114`/`115`, 필드 두 개를 테스트 하나로)
+- `scene/collision_object.rs`: `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
+  (`:142`/`:207`), `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes`
+  (`:239`), `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
+  (`:478`/`:515`)
+- `scene/planning_scene.rs`: `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes`
+  (`:147`)
+- `geometry.rs`: `norm_just_inside_orientation_rules_1e_minus_3_tolerance_is_also_accepted_here`
+  — generic 규칙 자체가 norm=1.0009에서 정확히 실행된 적이 없었던
+  빈틈을 메움 (strict 규칙 쪽은 이미 있었음)
+
+147개였던 테스트가 154개 (신규 7개: `position.rs` 1 +
+`visibility.rs` 1 + `collision_object.rs` 3 + `planning_scene.rs` 1 +
+`geometry.rs` 1).
+
+### §215.3 아직 "실행하지 않음"으로 남긴 것
+
+없음 — 브리프의 "실행하지 않은 행이 있으면 실행하거나 명시적으로
+미검증 표시"라는 지시를 각 셀 단위로 적용했다: norm=2.0 열은 열 곳
+전부 이 사이트 자체 실행, 나머지 네 값은 코드 동일성 근거를 명시하고
+"이 사이트에서 실행한 것은 아님"이라고 표에 그대로 적었다 (숨기지
+않음). 이 근거가 깨지는 조건도 표 마지막에 명시했다: 아홉 곳 중
+하나라도 와이어 필드와 호출 사이에 분기(사이트별 기본값 대체나
+clamp 등)가 생기면 그 행의 추론 셀은 더 이상 유효하지 않고 실제
+사이트별 테스트로 다시 실행해야 한다.

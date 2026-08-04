@@ -318,6 +318,39 @@ mod tests {
     }
 
     #[test]
+    fn octomap_origin_with_norm_2_orientation_succeeds_and_normalizes() {
+        // §211/§213's tenth-of-ten-minus-one site (the ninth of the nine
+        // sharing the generic Pose rule): `apply_octomap`'s `map.origin` ->
+        // `Isometry3::try_from(Pose(...))` at planning_scene.rs:147. Same
+        // shape as geometry.rs's `pose_with_norm_2_orientation_succeeds_and_normalizes`,
+        // run through this site's own full call chain instead of the bare
+        // conversion, per PORTING-PLAN.md §215's per-site table.
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let mut world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1, 2]),
+        };
+        world.octomap.origin.orientation = r2r::geometry_msgs::msg::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 2.0,
+        };
+        apply_planning_scene_world(&mut scene, world).unwrap();
+        let object = scene
+            .world()
+            .get_object(OCTOMAP_NS)
+            .expect("octomap must be inserted at OCTOMAP_NS");
+        assert!(
+            (object.pose().rotation.into_inner().norm() - 1.0).abs() < 1e-12,
+            "got: {:?}",
+            object.pose().rotation
+        );
+    }
+
+    #[test]
     fn full_octree_payload_is_decoded_and_inserted() {
         let model = one_joint_model();
         let srdf = empty_srdf();

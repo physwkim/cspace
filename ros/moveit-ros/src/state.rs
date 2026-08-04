@@ -179,6 +179,25 @@ pub(crate) mod tests {
     use moveit_model::MeshSearchPaths;
     use moveit_srdf::SrdfModel;
 
+    /// Asserts the call was rejected *for the reason named*, not merely
+    /// that it was rejected. `TryFrom<RobotStateMsg>::try_from` has three
+    /// independent `Error::Other` sites (`is_diff`,
+    /// `attached_collision_objects`, `multi_dof_joint_state`) and
+    /// `set_parallel_array` a fourth `Error::Construct` site (called for
+    /// position/velocity/effort) -- `matches!(err, Error::Other(_))` alone
+    /// cannot tell a test that a routing bug swapped which branch fired
+    /// (same shape as `moveit-constraints`' `e3b40c6`).
+    #[track_caller]
+    fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
+        let rendered = result
+            .expect_err("expected this call to be rejected")
+            .to_string();
+        assert!(
+            rendered.contains(needle),
+            "expected the rejection to come from the branch that reports {needle:?}, got: {rendered}"
+        );
+    }
+
     pub(crate) fn one_joint_model() -> RobotModel {
         let urdf_xml = r#"<?xml version="1.0"?>
 <robot name="one_joint">
@@ -236,8 +255,34 @@ pub(crate) mod tests {
             attached_collision_objects: vec![],
             is_diff: false,
         };
-        let err = CoreRobotState::try_from(RobotStateMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "JointState.position has length",
+        );
+    }
+
+    #[test]
+    fn mismatched_velocity_length_is_rejected() {
+        // Sibling of `mismatched_position_length_is_rejected`, same
+        // `set_parallel_array` Error::Construct site called with a
+        // different `field` -- previously untested for velocity/effort.
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: sensor_msgs::JointState {
+                header: Default::default(),
+                name: vec!["j1".to_string()],
+                position: vec![0.5],
+                velocity: vec![1.0, 2.0],
+                effort: vec![],
+            },
+            multi_dof_joint_state: Default::default(),
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "JointState.velocity has length",
+        );
     }
 
     #[test]
@@ -268,8 +313,48 @@ pub(crate) mod tests {
             attached_collision_objects: vec![],
             is_diff: true,
         };
-        let err = CoreRobotState::try_from(RobotStateMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "is_diff=true",
+        );
+    }
+
+    #[test]
+    fn attached_collision_objects_is_rejected_not_silently_dropped() {
+        // Sibling of `is_diff_is_rejected_not_silently_dropped` in the same
+        // function -- previously untested entirely, not merely
+        // undiscriminated: a routing bug could have made this branch
+        // unreachable and nothing would have noticed.
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: Default::default(),
+            multi_dof_joint_state: Default::default(),
+            attached_collision_objects: vec![Default::default()],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "attached_collision_objects is not representable",
+        );
+    }
+
+    #[test]
+    fn multi_dof_joint_state_is_rejected_not_silently_dropped() {
+        // Third sibling in the same function -- also previously untested.
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: Default::default(),
+            multi_dof_joint_state: sensor_msgs::MultiDOFJointState {
+                joint_names: vec!["virtual_joint".to_string()],
+                ..Default::default()
+            },
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "multi_dof_joint_state has no core representation",
+        );
     }
 
     #[test]

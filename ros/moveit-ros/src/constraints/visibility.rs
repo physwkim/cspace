@@ -402,6 +402,37 @@ mod tests {
     }
 
     #[test]
+    fn sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize() {
+        // PORTING-PLAN.md §215's per-site table: `sensor_pose`/`target_pose`
+        // at :114-115 share the generic Pose rule with the other eight
+        // sites -- confirmed through this site's own full call chain, not
+        // just the bare conversion in geometry.rs's own tests.
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.sensor_pose.pose.orientation = r2r::geometry_msgs::msg::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 2.0,
+        };
+        msg.target_pose.pose.orientation = r2r::geometry_msgs::msg::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 2.0,
+        };
+        let c = moveit_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap();
+        let sensor_norm = c.sensor().rotation.into_inner().norm();
+        let target_norm = c.target().rotation.into_inner().norm();
+        assert!((sensor_norm - 1.0).abs() < 1e-12, "got: {sensor_norm}");
+        assert!((target_norm - 1.0).abs() < 1e-12, "got: {target_norm}");
+    }
+
+    #[test]
     fn cone_sides_below_3_is_clamped_not_rejected() {
         // Confirms moveit_constraints::VisibilityConstraint::new's own
         // clamp-to-3 behavior, not an error -- see this module's doc

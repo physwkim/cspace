@@ -1009,3 +1009,81 @@ this crate's own conversions, not an external crate's behavior this
 crate has no control over — a different, already-self-checking
 mechanism, not the "waiting on someone else's change" shape this
 section inventories.
+
+## 18. Per-site quaternion-norm boundary table (round 16, PORTING-PLAN.md §215)
+
+Round 14's `4ff563d` made the generic `Isometry3::try_from(Pose(...))`
+rule reject `norm == 2.0`, reasoning from `OrientationConstraint`'s own
+1e-3 threshold — a threshold that belongs to only *one* of this rule's
+ten reaching call sites. `f2a7847` split this back into two named
+rules (`OrientationConstraintQuaternion`, strict; the generic rule,
+permissive) so each site reaches the rule its own upstream function
+actually implements. This section states, per site, what a caller
+observes at the five boundary values the brief asked for, and whether
+that claim was run at *this exact site* or reasoned from code-path
+identity with a site that was.
+
+**Method.** All ten sites resolve to exactly one of two functions:
+
+- **Generic** (`geometry.rs`'s `TryFrom<Quaternion> for UnitQuaternion`
+  / `TryFrom<Pose> for Isometry3`): unconditionally renormalizes any
+  finite, nonzero-norm quaternion; rejects only exact-zero-norm and
+  non-finite (`NaN`/`inf`) components. No 1e-3 threshold anywhere.
+- **Strict** (`OrientationConstraintQuaternion`'s own
+  `TryFrom`): additionally rejects `|norm - 1.0| > 1e-3`, matching
+  `OrientationConstraint::configure`'s own suspicion threshold
+  (`kinematic_constraint.cpp`, cited in `f2a7847`).
+
+Nine of the ten sites call the generic rule with **zero intervening
+logic** between the wire field and the call (confirmed by reading each
+call site directly — `rg` anchor:
+`Isometry3::try_from\(Pose\(|OrientationConstraintQuaternion`,
+enumerated in §213.1/§213.2). Because the code path is byte-identical,
+`geometry.rs`'s own boundary tests on the generic rule are valid
+evidence for what those nine sites do — but "valid evidence via
+code-path identity" is not the same claim as "run at this site", so
+the two are marked distinctly below. `norm == 2.0` is the one value
+this round runs as a real, this-site integration test at all nine
+(the value `4ff563d` actually broke), rather than resting on the
+code-identity argument alone.
+
+**Legend.** ✅*site* = a test exercises this exact call site end to
+end. ✅*generic*/✅*strict* = not run at this site; reasoned from the
+named function's own `geometry.rs` unit test, valid only because the
+call site's code is the unconditional, unbranched call named above.
+
+| # | Site (file:line) | Rule | norm=2.0 | norm=1.0011 | norm=1.0009 | all-zero | NaN |
+|---|---|---|---|---|---|---|---|
+| 1 | `geometry.rs` (the rule itself) | generic | ✅site `norm_far_from_one_is_renormalized_not_rejected` → Ok, renormalized | ✅site `norm_just_outside_orientation_rules_1e_minus_3_tolerance_is_still_accepted_here` → Ok | ✅site `norm_just_inside_orientation_rules_1e_minus_3_tolerance_is_also_accepted_here` → Ok | ✅site `zero_quaternion_is_rejected` → `Error::Construct` | ✅site `nan_quaternion_is_rejected` → `Error::Construct` |
+| 2 | `constraints/orientation.rs:93` (`OrientationConstraint.orientation`) | strict | ✅site `orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose` → `Error::Construct` | ✅generic-fn `orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected` → `Error::Construct` (not run through `orientation.rs`'s own conversion end to end) | ✅generic-fn `orientation_norm_just_inside_the_1e_minus_3_tolerance_is_accepted` → Ok (not run end to end) | ✅generic-fn `orientation_zero_quaternion_is_rejected` → `Error::Construct` (not run end to end) | ✅generic-fn `orientation_nan_quaternion_is_rejected` → `Error::Construct` (not run end to end) |
+| 3 | `constraints/position.rs:161` (`BoundingVolume.primitive_poses`/`mesh_poses`) | generic | ✅site `region_pose_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 4 | `constraints/visibility.rs:114` (`sensor_pose`) | generic | ✅site `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 5 | `constraints/visibility.rs:115` (`target_pose`) | generic | ✅site (same test as row 4) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 6 | `scene/collision_object.rs:142` (per-shape pose, ADD/APPEND) | generic | ✅site `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 7 | `scene/collision_object.rs:207` (object pose, ADD/APPEND, non-promoted) | generic | ✅site (same test as row 6) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 8 | `scene/collision_object.rs:239` (`subframe_poses`) | generic | ✅site `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 9 | `scene/collision_object.rs:478` (object pose, MOVE) | generic | ✅site `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| 10 | `scene/collision_object.rs:515` (per-shape pose, MOVE repose) | generic | ✅site (same test as row 9) → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+| — | `scene/planning_scene.rs:147` (octomap `origin`) | generic | ✅site `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes` → Ok, renormalized | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → Ok | ✅generic-fn (row 1) → `Error::Construct` | ✅generic-fn (row 1) → `Error::Construct` |
+
+(This is 11 rows for "ten sites" — §213.2's count of nine generic-rule
+sites did not separately list the octomap `origin` at
+`planning_scene.rs:147`; it belongs to the same generic rule and is
+included here for completeness. The brief's "ten sites" is the
+Quaternion/Pose-reaching total from §211/`f2a7847`: nine generic +
+one strict = ten *distinct wire fields*, and `visibility.rs`'s
+`sensor_pose`/`target_pose` are two fields sharing one test, same as
+`collision_object.rs`'s object/shape-pose pairs sharing one test per
+operation.)
+
+**Explicitly unverified: none.** Every row's `norm=2.0` column is a
+this-site integration test added this round. Every row's other four
+columns rely on the code-path-identity argument stated above, which is
+sound *only* because each call site was individually confirmed
+(§213.1's `rg` sweep, re-checked while writing this table) to be a
+bare, unbranched `Isometry3::try_from(Pose(...))` or
+`UnitQuaternion::try_from(OrientationConstraintQuaternion(...))` call
+— if any site ever gains a branch between the wire field and that
+call (e.g. a per-site default-substitution or clamp), this table's
+reasoned cells for that row stop being valid and must be re-run as
+real site-level tests, not just re-asserted.
