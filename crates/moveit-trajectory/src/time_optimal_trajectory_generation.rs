@@ -1061,9 +1061,17 @@ mod tests {
         let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
         let options = TotgOptions::default().with_resample_dt(1e-300).unwrap();
         let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        // `compute_time_stamps_with_limits`/`do_time_parameterization_
+        // calculations` reach several `Error::other` sites (missing
+        // velocity/acceleration limits, the active-variable-count guard,
+        // the sample-count bound); `.is_err()` alone cannot say which
+        // fired. This case hits the sample-count bound specifically
+        // (confirmed by printing the error before converting this check).
         assert!(
-            result.is_err(),
-            "an astronomically small resample_dt must be rejected: {result:?}"
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("exceeding the")),
+            "an astronomically small resample_dt must be rejected by the sample-count bound: {result:?}"
         );
     }
 
@@ -1084,9 +1092,13 @@ mod tests {
         assert!(subnormal > 0.0 && subnormal < f64::MIN_POSITIVE);
         let options = TotgOptions::default().with_resample_dt(subnormal).unwrap();
         let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        // See `resample_dt_producing_an_unreasonable_sample_count_is_rejected`
+        // for why this checks the message rather than just `.is_err()`.
         assert!(
-            result.is_err(),
-            "a subnormal resample_dt must be rejected: {result:?}"
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("exceeding the")),
+            "a subnormal resample_dt must be rejected by the sample-count bound: {result:?}"
         );
     }
 
@@ -1146,9 +1158,13 @@ mod tests {
             .with_resample_dt(resample_dt)
             .unwrap();
         let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        // See `resample_dt_producing_an_unreasonable_sample_count_is_rejected`
+        // for why this checks the message rather than just `.is_err()`.
         assert!(
-            result.is_err(),
-            "a resample_dt targeting the usize::MAX boundary must be rejected, not looped: {result:?}"
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("exceeding the")),
+            "a resample_dt targeting the usize::MAX boundary must be rejected by the sample-count bound, not looped: {result:?}"
         );
     }
 
