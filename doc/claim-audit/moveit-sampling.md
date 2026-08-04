@@ -27,16 +27,78 @@ This crate's share of the cross-crate sweep triggered by `a682f63`
 (full rationale in `moveit-stomp-core`'s own claim-audit doc). This
 crate has exactly one public type.
 
+**How "no port-only API exists at all" (row below, prior round) was
+established, and why it was checked again this round.** Absence claims
+in this project have a bad record -- one fell to a single `rg` earlier
+this session ([[absence-claims-need-the-source-opened]]-shaped) -- so
+per this round's ask, the exact method, not just the conclusion:
+
+- **Anchor, port side:** `` ^\s*pub fn|^\s*pub struct `` (`rg`,
+  `crates/moveit-sampling/src/*.rs`). Five hits: `pub struct
+  MultivariateGaussian` (`multivariate_gaussian.rs:69`), `pub fn
+  new` (`:79`), `pub fn size` (`:92`), `pub fn
+  sample_with_covariance` (`:102`), `pub fn
+  sample_without_covariance` (`:113`); plus the `pub use
+  multivariate_gaussian::MultivariateGaussian` re-export in
+  `lib.rs:61`, which is the same type, not a sixth item.
+- **This crate has no single upstream counterpart file** -- it ports
+  two independently-maintained classes in two different upstream
+  packages (`stomp_moveit::math::MultivariateGaussian` and
+  `chomp::MultivariateGaussian`, see the crate's own module doc, "One
+  class, two upstream files"). Every port-side hit above was checked
+  against **both**, not one:
+  - `/home/stevek/work/moveit2/moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`
+    (pinned `e017c91ee12984393a28ba246075c65f69cde3bf`), full `public:`
+    section read this round (lines 58-71): a templated constructor and
+    one templated `sample(output, use_covariance = true)`. Nothing
+    else public; `size_` is a `private:` `int` (line 77).
+  - `/home/stevek/work/moveit2/moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/multivariate_gaussian.hpp`,
+    same pin, full `public:` section read this round (lines 50-58): a
+    templated constructor and one templated `sample(output)` (no
+    `use_covariance` parameter). Same layout, `size_` private (line
+    64).
+  - Both packages' stray `.h` twins (`multivariate_gaussian.h` next to
+    each `.hpp` above) opened and confirmed this round to be pure
+    `create_deprecated_headers.py`-generated forwarding stubs (`#pragma
+    message` + one `#include` of the real `.hpp`, no declarations of
+    their own) -- contribute nothing beyond the `.hpp` files already
+    checked, consistent with `moveit-stomp-core`'s own `§172` row
+    noting the same shape for a different `.h`/`.hpp` pair.
+  - `rg -i size` against both `.hpp` files: the only hits are the
+    private `size_` member and its two internal uses -- confirms no
+    public `size()`/`getSize()` accessor exists in either class, under
+    any name, not just the exact spelling this port chose.
+
+**Correction to the prior round's row 33 classification, found by this
+re-check:** `size()` was classified `port-only? no` on the claim that
+it is an "upstream-faithful ported method." That is wrong -- neither
+upstream class has a public size accessor at all (`size_` is
+`private:` in both, confirmed above), so `size()` **is** port-only,
+the same shape as every other row this crate's sweep is looking for.
+It carries no invariant risk for a different reason than "it has an
+upstream counterpart": `size()` returns `self.mean.len()`, a read-only
+view over the `mean` this port's own caller already passed into
+`new(mean, covariance)` -- it exposes no state the caller did not
+already possess by construction, so there is no upstream-private state
+newly reachable through it, unlike `Stomp::with_cancel_handle`'s
+pre-construction `proceed` window.
+
 | API | port-only? | upstream state newly reachable | invariant at risk? |
 |---|---|---|---|
 | `MultivariateGaussian::new(mean, covariance)` | no -- direct port of `stomp_moveit::math::MultivariateGaussian`/`chomp::MultivariateGaussian`'s constructor, with a stated deviation (see this crate's own "Deviation: construction can fail") | none -- the deviation moves in the *safe* direction: upstream's constructor always succeeds and silently produces `NaN`-sampling state for a non-positive-definite `covariance`; this port's `Option`-returning constructor makes that state *unconstructable* instead of opening anything new | no -- the opposite pattern from `with_cancel_handle`: this narrows what was reachable upstream |
-| `size()`, `sample_with_covariance`, `sample_without_covariance` | no -- upstream-faithful ported methods (the latter two are `sample(output, true)`/`sample(output, false)` split into two names, see this crate's own "Deviation: two named methods" doc) over already-validated state | none | no |
+| `sample_with_covariance`, `sample_without_covariance` | no -- upstream-faithful ported methods (`sample(output, true)`/`sample(output, false)` split into two names, see this crate's own "Deviation: two named methods" doc) over already-validated state | none | no |
+| `size()` | **yes -- corrected this round, was misclassified "no" in the prior pass.** No public `size()`/`size_` accessor exists in either upstream class; `size_` is `private:` in both | a read of `mean.len()` -- state the caller already supplied to `new` and therefore already possessed | no -- read-only, over caller-already-known state, not upstream-private state |
 
-**Conclusion:** no port-only API exists in this crate at all --
-every public item is a direct port of an upstream counterpart, one
-with a deviation that removes reachable bad state rather than adding
-reachable state. No finding.
+**Conclusion (corrected):** one port-only API exists in this crate
+(`size()`, not zero), found by this re-check to have been
+misclassified previously. It carries no invariant risk: it is a
+read-only accessor over state the caller already owns, not a new path
+to anything upstream kept structurally unreachable. The prior round's
+headline -- "no port-only API exists in this crate at all" -- was
+false as stated; "no port-only API in this crate carries invariant
+risk" is the claim that actually holds, and is the corrected headline
+here.
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| `crates/moveit-sampling/src/multivariate_gaussian.rs`, every `pub fn`/`pub struct` | No port-only API exists in this crate; the one constructor's deviation narrows reachable state, it does not expand it | CONFIRMED, 4 methods on 1 type enumerated and classified above | Read every public item in this tree, cross-referenced against both upstream `multivariate_gaussian.hpp` files | (pending, see report) |
+| `crates/moveit-sampling/src/multivariate_gaussian.rs`, every `pub fn`/`pub struct` (re-check) | `size()` is port-only (prior round's "no" was wrong); it carries no invariant risk. `new`'s deviation still narrows reachable state rather than expanding it | CONFIRMED, 5 items re-enumerated and classified above, 1 corrected | Read every public item in this tree; read the full `public:` section of both upstream `.hpp` files and confirmed both `.h` twins are deprecation stubs, this round | (pending, see report) |
