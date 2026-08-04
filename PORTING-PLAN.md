@@ -14395,3 +14395,63 @@ Transforms::getTransform (transforms.cpp:110-125)
 `collision_object.rs`, `attached.rs`가 이미 같은 패턴을 쓰고 있으므로
 그쪽 진입점들도 같은 질문을 받는다. 한 자리를 고치고 나머지를 안 세면
 CLAUDE.md의 defect-family 규칙 위반이다.
+
+## §184 §171 종결 — 그리고 "둘 다 통과"는 자기 UNFIXED와 모순이었다
+
+p3-acm이 `mesh_shape_cost_sources`의 mesh 비용원 루트 박스를 축정렬
+`Bvh` AABB로 맞추던 것을 지향 OBB로 바꿨다(`1e25683`). 근거를 포트
+쪽에서 서술하지 않고 FCL 원본에서 읽었다 — `moveit_core`는 항상
+`fcl::BVHModel<fcl::OBBRSSd>`를 만들고 `constructBox`가 그것을 `obb`
+성분으로 줄인다(`fcl/include/fcl/geometry/shape/utility-inl.h:1083-1088`),
+그리고 점 집합은 `geometry-inl.h:1349-1379`의 삼각형 꼭짓점 가중 방식이다.
+`parry3d_f64::utils::obb`에 같은 점 집합을 먹여 `mesh_world_obb_aabb`로
+교체했다.
+
+요청한 이등분도 그대로 재현해 왔다: path id 3에서
+`pre_remove_cost_sources n=2` → `post_remove_cost_sources n=5` →
+`post_remove_overlapping n=5`. **`remove_cost_sources`의 축별 분할은
+처음부터 결함이 아니었다.** p1-fixtures가 지목한 용의자가 아니라 그
+위쪽 박스 적합이 원인이었고, 나는 그 용의자를 "측정이 아니라 추론"이라고
+표시해서 넘겼으므로 이 결과는 절차가 의도대로 작동한 경우다.
+
+### 184.1 보고의 두 문장이 서로 모순이다
+
+보고서 본문: "both `#[ignore]`d tests now pass in full at the existing
+`1e-9` threshold". 같은 보고서 UNFIXED: "State-op id 5 (group-filter):
+`9 actual vs 2 expected`". **두 문장은 같은 테스트에 대한 것이고 동시에
+참일 수 없다.** 병합 후 `--run-ignored all`로 실측:
+
+```text
+PASS  moveit-scene::cost_sources_parity
+        panda_path_cost_sources_blocked_by_mesh_shape_cost_sources
+FAIL  moveit-scene::cost_sources_parity
+        panda_cost_sources_blocked_by_mesh_shape_cost_sources
+  cost_sources_parity.rs:510: case id 5: count mismatch
+    left: 9   right: 2
+```
+
+즉 **하나는 진짜로 통과하고, 하나는 여전히 실패한다.** 실패의 원인은 그
+패널이 UNFIXED에 스스로 적어 둔 id 5다. 수정 자체는 진짜다 — id 2가
+`2.69e-2`에서 통과로 바뀌었기 때문에 테스트가 id 5까지 **도달**한 것이고,
+이전에는 id 2에서 멈췄다. 진전이 실패를 앞으로 밀어낸 것이지 없앤 것이
+아니다.
+
+### 184.2 결과적으로 `#[ignore]` 두 개의 상태가 갈렸다
+
+- `panda_path_cost_sources_blocked_by_mesh_shape_cost_sources` — 이제
+  통과한다. `#[ignore]`는 만료됐고 지워야 한다. 남겨 두면 통과하는
+  테스트가 영원히 안 돌고, 회귀가 나도 아무도 모른다.
+- `panda_cost_sources_blocked_by_mesh_shape_cost_sources` — 계속
+  `#[ignore]`이되 **이유 문자열이 틀렸다.** 지금 문구는 id 2의
+  `2.69e-2` 거리 간극을 말하는데 그 간극은 사라졌다. id 5 그룹 필터로
+  다시 써야 한다.
+
+둘 다 `crates/moveit-scene/`이라 p1-fixtures 소유다. p3-acm은 옳게
+라우팅했고, 라우팅된 항목이 UNFIXED 목록에서 늙지 않도록 §182.2와 같이
+다음 브리프에 넣는다.
+
+### 184.3 검증
+
+`sg docker -c tools/ci/verify-fixture-replay.sh` — 47/47 identical,
+DRIFTED 0. 기하 적합을 바꿨는데 오라클 fixture가 한 바이트도 안 움직였다
+(§149). 워크스페이스 1544/1544, 다섯 게이트 명령 전부 초록.
