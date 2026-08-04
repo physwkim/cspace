@@ -99,3 +99,81 @@ validation to `.adapt()`'s `Result`, so eagerly validating only this one
 constructor would be inconsistent with the crate's own established
 convention, not a fix for a live defect. No `moveit-planning` change
 made; recorded here instead of silently dropped.
+
+## `planning_pipeline_interfaces` (Round 12): undocumented gap, per-file verdict
+
+`moveit_ros/planning/planning_pipeline_interfaces/src/` (4 files) was
+neither ported nor excluded anywhere in `lib.rs` before this round —
+`rg -i 'PlanResponsesContainer|solution_selection|stopping_criterion|parallel'`
+over `crates/moveit-planning/src/` found one hit, an unrelated comment.
+Each of the 4 files opened and classified individually, not collapsed:
+
+| file | verdict | evidence |
+|---|---|---|
+| `plan_responses_container.cpp` | **gap, ported** | `PlanResponsesContainer`: `std::mutex`-guarded `std::vector<MotionPlanResponse>`, `pushBack`/`getSolutions`. No ROS type, no `rclcpp`. Ported as [`crate::plan_responses::PlanResponsesContainer`], commit `0fca5a6`. |
+| `solution_selection_functions.cpp` | **gap, ported** | One function, `getShortestSolution` — not two ("shortest-path/shortest-duration") as the round's opening hypothesis guessed; the header (`solution_selection_functions.hpp`) declares only this one. No ROS type. Ported as [`crate::plan_responses::shortest_solution`], commit `0fca5a6`. |
+| `stopping_criterion_function.cpp` | **gap, ported** | One function, `stopAtFirstSolution`. No ROS type, and unlike the other three files, no `RCLCPP_*` macro at all. Ported as [`crate::plan_responses::stop_at_first_solution`], commit `0fca5a6`. |
+| `planning_pipeline_interfaces.cpp` | **mixed — 4 functions, 4 individual verdicts, not one** | see below |
+
+`planning_pipeline_interfaces.cpp` itself has 4 functions, each opened
+separately:
+
+- `getLogger()` — D1 exclude: `rclcpp::Logger`, pure logging, matches this
+  crate's existing convention for every other `RCLCPP_*` site
+  (`add_ruckig_traj_smoothing.rs`'s module doc, "Symbol audit").
+- `createPlanningPipelineMap(pipeline_names, robot_model, node, ...)` — D1
+  exclude: takes `const rclcpp::Node::SharedPtr& node` directly, to load
+  pipeline parameters from the ROS parameter server. This is the actual
+  Node-coupled function in this file.
+- `planWithSinglePipeline(request, scene, planning_pipelines)` — **not a
+  gap**: looks `request.pipeline_id` up in `planning_pipelines` (a
+  `std::unordered_map<string, PlanningPipelinePtr>`), calls
+  `pipeline->generatePlan`, and defensively normalizes an unset error code
+  to `FAILURE`. `crate::request`'s own doc (`:56-59`) already excludes
+  `pipeline_id` for the identical reason — "selects *among* pipelines, a
+  caller/orchestration concern, and this workspace has exactly one
+  pipeline" — and the error-code-normalization half of this function's job
+  is structurally superseded by [`crate::pipeline::generate_plan`]'s own
+  `Result` typing (every failure path already carries an error; there is
+  no "returned `false`, error code left at `SUCCESS`" case a `Result` can
+  represent). So every piece of `planWithSinglePipeline` is either already
+  deferred (name lookup) or already generalized (error normalization), not
+  a fresh port target. **Expires** the moment this crate (not a downstream
+  registry crate) gains its own concrete, name-keyed pipeline/planner map —
+  at that point this function's name-lookup half becomes a real gap.
+- `planWithParallelPipelines(requests, scene, planning_pipelines, stop_cb, select_fn)`
+  — **not a gap this round, but for a narrower reason than the round's
+  opening hypothesis**: the brief that opened this round attributed the
+  `rclcpp::Node` coupling to this function; checked directly, it does not
+  take one — `createPlanningPipelineMap` does (see above), and this is the
+  correction the brief invited if the reading were wrong. What
+  `planWithParallelPipelines` actually depends on is the same
+  `unordered_map<string, PlanningPipelinePtr>` `planWithSinglePipeline`
+  does (it calls that function once per spawned thread) — the same
+  deferred-registry reason, not ROS. Its own substance beyond that
+  lookup — spawn one thread per request, push each outcome into a
+  [`PlanResponsesContainer`], poll `stopping_criterion_callback` after each
+  push and terminate the remaining pipelines if it fires, then apply
+  `solution_selection_function` (or return everything) — has no ROS
+  coupling in it either, and nothing has ported it this round: doing so
+  needs `Box<dyn Planner<'m>>` (or an equivalent) to be usable across
+  `std::thread::scope` threads, which was out of scope to design and prove
+  in the same round as the 3 pure files above. **Expires** the moment (a)
+  this crate gains a concrete pipeline/planner map (same trigger as
+  `planWithSinglePipeline`) or (b) a caller needs concurrent multi-pipeline
+  planning against the existing `&[Box<dyn Planner<'m>>]` shape — at that
+  point [`crate::plan_responses::PlanResponsesContainer`]/
+  [`crate::plan_responses::shortest_solution`]/
+  [`crate::plan_responses::stop_at_first_solution`] ported this round are
+  the pieces such an implementation would compose, already oracle-testable
+  in isolation.
+
+### Tests
+
+[`crate::plan_responses`]'s own `#[cfg(test)]` module pins the tie-break
+`shortest_solution` cannot get wrong silently: empty input, all-success
+(shorter wins regardless of position), any success beats any failure,
+exact-tie-keeps-first, and all-failure-keeps-first — the last two are the
+boundary `std::min_element`'s strict-improvement-only replacement produces
+and a narrative "one success, one failure" test alone would not catch.
+`stop_at_first_solution` is covered for empty/all-failure/mixed-with-one-success.
