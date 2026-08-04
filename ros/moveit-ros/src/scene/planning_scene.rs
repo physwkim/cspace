@@ -244,7 +244,14 @@ mod tests {
             octomap: octomap_with_pose("ColorOcTree", model.model_frame(), true, vec![1]),
         };
         let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `apply_octomap` has a sibling `Error::Other`
+        // site (decode failure, hit by `truncated_octree_payload_is_rejected`
+        // below) that a bare `matches!` cannot tell apart from this
+        // type-name check.
+        assert!(
+            err.to_string().contains("type 'OcTree' is expected"),
+            "got: {err:?}"
+        );
     }
 
     /// Round 7's plan (`ea686a6`) named this exact byte fixture
@@ -275,7 +282,12 @@ mod tests {
             octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1]),
         };
         let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Sibling of `non_octree_octomap_type_is_rejected` above -- this one
+        // must name the decode-failure branch, not the type-name check.
+        assert!(
+            err.to_string().contains("octomap payload decode failed"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
