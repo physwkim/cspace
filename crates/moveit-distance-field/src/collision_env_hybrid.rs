@@ -172,6 +172,83 @@ impl<'m> HybridCollisionEnv<'m> {
     /// claim, including its own §153.1 expiry note -- that expiry is about
     /// *this* claim (no cache to invalidate), not the structural one above,
     /// which holds regardless of whether either backend ever grows a cache.
+    ///
+    /// # Proof: the reverse direction is a compile error, not a discipline
+    ///
+    /// The remaining question is the mirror of the one above: could
+    /// [`Self::world_mut`] be called *while* a distance-field check's result
+    /// is still alive and being read, mutating the world out from under it?
+    /// No -- and provably so, not by convention: every
+    /// `check_*_distance_field` method takes `&'s mut self` and returns a
+    /// value borrowing that same `'s` ([`GroupStateRepresentation`]`<'s,
+    /// 'm>`, via its `dfce: &'a DistanceFieldCacheEntry<'m>` field), so the
+    /// exclusive borrow used to produce the result stays alive for as long
+    /// as the result itself is in scope. A second `&mut self` call -- which
+    /// [`Self::world_mut`] requires -- cannot coexist with that borrow; the
+    /// borrow checker rejects it before the question of *correctness* even
+    /// arises. This compiles:
+    ///
+    /// ```no_run
+    /// # use moveit_collision::{CollisionRequest, LinkPaddingScale, World};
+    /// # use moveit_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
+    /// # use moveit_model::{MeshSearchPaths, RobotModel};
+    /// # use nalgebra::Vector3;
+    /// # let urdf: urdf_rs::Robot =
+    /// #     urdf_rs::read_from_string(r#"<robot name="r"><link name="l"/></robot>"#).unwrap();
+    /// # let srdf = moveit_srdf::SrdfModel::parse_str(r#"<robot name="r"/>"#).unwrap();
+    /// # let model =
+    /// #     RobotModel::from_urdf_and_srdf(&urdf, "", &srdf, &MeshSearchPaths::none()).unwrap();
+    /// # let padding = LinkPaddingScale::new();
+    /// # let decompositions = add_link_body_decompositions(&model, 0.02, &padding, None).unwrap();
+    /// # let size = Vector3::new(1.0, 1.0, 1.0);
+    /// # let config = DistanceFieldConfig {
+    /// #     geometry: GridGeometry::new(size, -0.5 * size, 0.05).unwrap(),
+    /// #     max_propagation_distance: 0.5,
+    /// #     use_signed_distance_field: false,
+    /// # };
+    /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0);
+    /// # let mut state = moveit_state::RobotState::new(&model);
+    /// # state.set_to_default_values();
+    /// # let posed = state.update();
+    /// {
+    ///     let (result, gsr) = env
+    ///         .check_self_collision_distance_field(&CollisionRequest::default(), &posed, None, &[])
+    ///         .unwrap();
+    ///     let _ = (result, gsr); // both dropped at the end of this block
+    /// }
+    /// env.world_mut(); // fine: no live borrow from the check above remains
+    /// ```
+    ///
+    /// This does not:
+    ///
+    /// ```compile_fail
+    /// # use moveit_collision::{CollisionRequest, LinkPaddingScale, World};
+    /// # use moveit_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
+    /// # use moveit_model::{MeshSearchPaths, RobotModel};
+    /// # use nalgebra::Vector3;
+    /// # let urdf: urdf_rs::Robot =
+    /// #     urdf_rs::read_from_string(r#"<robot name="r"><link name="l"/></robot>"#).unwrap();
+    /// # let srdf = moveit_srdf::SrdfModel::parse_str(r#"<robot name="r"/>"#).unwrap();
+    /// # let model =
+    /// #     RobotModel::from_urdf_and_srdf(&urdf, "", &srdf, &MeshSearchPaths::none()).unwrap();
+    /// # let padding = LinkPaddingScale::new();
+    /// # let decompositions = add_link_body_decompositions(&model, 0.02, &padding, None).unwrap();
+    /// # let size = Vector3::new(1.0, 1.0, 1.0);
+    /// # let config = DistanceFieldConfig {
+    /// #     geometry: GridGeometry::new(size, -0.5 * size, 0.05).unwrap(),
+    /// #     max_propagation_distance: 0.5,
+    /// #     use_signed_distance_field: false,
+    /// # };
+    /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0);
+    /// # let mut state = moveit_state::RobotState::new(&model);
+    /// # state.set_to_default_values();
+    /// # let posed = state.update();
+    /// let (result, gsr) = env
+    ///     .check_self_collision_distance_field(&CollisionRequest::default(), &posed, None, &[])
+    ///     .unwrap();
+    /// env.world_mut(); // `gsr` below is still live -- must not compile
+    /// let _ = (result, gsr);
+    /// ```
     pub fn world_mut(&mut self) -> &mut World {
         self.parry.world_mut()
     }
@@ -589,6 +666,23 @@ mod tests {
     /// test is what must start failing -- grep this crate for `§153.1`
     /// before adding one, and update this test's premise rather than
     /// patching around a new failure here.
+    ///
+    /// # Mutation-tested, not merely asserted
+    ///
+    /// This test's `res_after.collision` assertion is the discriminator for
+    /// the "stale second world" bug upstream's `setWorld` override exists to
+    /// prevent (see [`HybridCollisionEnv::world_mut`]'s §196.3 doc): if
+    /// `build_env_distance_field` read from anything other than
+    /// `self.parry.world()` fresh -- a snapshot taken at construction, a
+    /// cached copy never updated by `world_mut` -- the environment field
+    /// would never see the `add_shape` below, and `res_after.collision`
+    /// would stay `false`. Confirmed by temporarily changing
+    /// `build_env_distance_field`'s source loop from `self.parry.world()` to
+    /// a fresh, permanently-empty `World::new()` (the shape a stale second
+    /// world would take, since it would never observe the swap either) and
+    /// re-running: this test failed, at exactly this assertion, with the
+    /// expected message. Reverted before commit; `git diff` on that revert
+    /// showed no residual change.
     #[test]
     fn check_robot_collision_distance_field_reflects_a_world_swap_on_the_next_call() {
         let (model, _gap) = two_link_gap_model();
