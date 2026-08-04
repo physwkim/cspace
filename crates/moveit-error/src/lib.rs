@@ -35,15 +35,19 @@
 //! because two sibling branches of one call can both produce
 //! [`Error::Construct`] and a bare `.is_err()` cannot tell them apart. The
 //! obvious structural answer — give each branch its own variant — is the
-//! wrong one here, on counts: [`Error::Construct`] has 139 construction
-//! sites and [`Error::Other`] 78, spread across every crate as deliberate
+//! wrong one here, on counts (`rg`, `crates/` + `ros/`, construction calls
+//! plus match/pattern sites, counted separately so neither hides in the
+//! other): [`Error::Construct`] has 121 sites (89 `Error::construct(...)`
+//! calls, 32 `Error::Construct(...)` matches) and [`Error::Other`] 149 (104
+//! calls, 45 matches), spread across every crate as deliberate
 //! message-carrying catch-alls for exactly the two upstream types named
 //! above. Per-branch variants would mean hundreds of them, and the enum
 //! would stop describing a hierarchy and start listing call sites.
 //!
 //! The structured form already exists where the discriminating information
 //! is itself structured rather than prose: [`Error::UnknownName`] carries
-//! `{ kind, name }` and is used at 91 sites, including
+//! `{ kind, name }` and is used at 42 sites (20 `Error::unknown_name(...)`
+//! calls, 22 `Error::UnknownName { .. }` matches), including
 //! `constraint_sampler_manager.rs`'s own branch discrimination, which needs
 //! no string matching at all. That is the rule to apply when adding a
 //! variant — structure the error when the thing that distinguishes it is

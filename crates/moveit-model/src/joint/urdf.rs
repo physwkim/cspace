@@ -32,6 +32,20 @@ use super::model::JointModel;
 ///
 /// [`Error::construct`] if `joint.joint_type` is [`urdf_rs::JointType::Spherical`],
 /// which has no MoveIt equivalent.
+///
+/// # Deviation from upstream
+///
+/// Verified against `urdfdom_headers/urdf_model/joint.h:173-175`: upstream's
+/// own `urdf::Joint::Type` enum is `UNKNOWN, REVOLUTE, CONTINUOUS,
+/// PRISMATIC, FLOATING, PLANAR, FIXED` — it has no `SPHERICAL` value at all,
+/// so `constructJointModel`'s switch (`robot_model.cpp:942-980`) can never
+/// receive one; its `default:` arm (reached only for `UNKNOWN`) logs
+/// `RCLCPP_ERROR("Unknown joint type: %d")` and leaves `new_joint_model`
+/// `nullptr` rather than raising any typed error. `Spherical` exists here
+/// only because `urdf_rs` (this port's URDF parser, a different library from
+/// upstream's `urdfdom`) has a variant upstream's enum lacks entirely — this
+/// is not upstream declining to support a type it has, it is this port
+/// rejecting a type upstream's own type system cannot express.
 pub fn joint_model_from_urdf(joint: &urdf_rs::Joint, limit_present: bool) -> Result<JointModel> {
     use urdf_rs::JointType as UrdfJointType;
 

@@ -3938,10 +3938,22 @@ mod tests {
     /// produce a body that never contains or intersects anything (see the
     /// module docs' note on this being a deliberate improvement over
     /// upstream's own "zombie" empty-`mesh_data_` behavior).
+    ///
+    /// `build_mesh_data` has a second, distinct `Error::Construct` site --
+    /// `try_convex_hull` itself failing -- and `try_convex_hull` on zero
+    /// points also errors, so a bare `.is_err()` here would still pass even
+    /// with the dedicated vertex-count guard deleted entirely (bite-checked:
+    /// removing the guard leaves this test green). Matching on the message
+    /// is what proves the guard fired rather than the hull call falling
+    /// through and failing on its own.
     #[test]
     fn convex_mesh_zero_vertex_is_an_error() {
         let mesh = ShapeMesh::default();
-        assert!(ConvexMesh::new(&mesh).is_err());
+        let err = ConvexMesh::new(&mesh).unwrap_err();
+        assert!(
+            err.to_string().contains("requires at least one vertex"),
+            "expected the dedicated vertex-count guard, got: {err}"
+        );
     }
 
     /// Boundary: a mesh with vertices but zero *input* triangles is still
@@ -4027,14 +4039,31 @@ mod tests {
         assert!(Sphere::new(0.0).is_ok());
     }
 
+    /// Distinct from `cylinder_negative_length_is_an_error` below:
+    /// `Cylinder::recompute` has two separate sequential guards with two
+    /// different messages ("radius"/"length"), unlike `shapes::Cylinder`'s
+    /// single combined `||` guard -- a bare `.is_err()` cannot tell the two
+    /// apart, so a message swapped onto the wrong guard would still pass
+    /// both tests (bite-checked: swapping the two messages left both green
+    /// under the old assertion).
     #[test]
     fn cylinder_negative_radius_is_an_error() {
-        assert!(Cylinder::new(-1.0, 1.0).is_err());
+        let err = Cylinder::new(-1.0, 1.0).unwrap_err();
+        assert!(
+            err.to_string().contains("radius"),
+            "expected the radius guard, got: {err}"
+        );
     }
 
+    /// Distinct from `cylinder_negative_radius_is_an_error` above: see that
+    /// test's doc comment.
     #[test]
     fn cylinder_negative_length_is_an_error() {
-        assert!(Cylinder::new(1.0, -1.0).is_err());
+        let err = Cylinder::new(1.0, -1.0).unwrap_err();
+        assert!(
+            err.to_string().contains("length"),
+            "expected the length guard, got: {err}"
+        );
     }
 
     #[test]
