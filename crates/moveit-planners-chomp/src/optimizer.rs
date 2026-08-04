@@ -768,20 +768,57 @@ fn resolve_collision_point_joint_index(
 ///   [`ChompOptimizer::perform_forward_kinematics`].
 /// - **`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an injected
 ///   closure**, not a method backed by `planning_scene_->isPathValid`.
-///   Porting a mesh-to-mesh check faithfully needs
-///   `moveit_scene::PlanningScene` + a parry3d-f64 collision environment --
-///   an architecturally distinct backend from the `DistanceFieldCollisionCache`
-///   this round's brief (and the `hy_env_`/`getCollisionGradients`
-///   evidence backing it) actually authorizes. [`ChompOptimizer::optimize`]
-///   instead takes a `mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState,
+///   **Round 20: approved** (`PORTING-PLAN.md` §154's review) --
+///   wiring this as a method today would make `moveit-planners-chomp` (this
+///   round's brief, and the `hy_env_`/`getCollisionGradients` evidence
+///   backing it) depend on two crates it has never carried:
+///   `moveit-scene` (for `PlanningScene::is_path_valid`,
+///   `scene.rs:1695`) and `moveit-collision` (for `ParryCollisionEnv`,
+///   `parry.rs:1611` -- the only existing implementer of the
+///   `CollisionEnv<Posed>` bound `is_path_valid` requires;
+///   `DistanceFieldCollisionCache` does not implement it).
+///   [`ChompOptimizer::optimize`] instead takes a
+///   `mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState,
 ///   &DMatrix<f64>) -> bool` closure, called with `self.start_state` and
 ///   `self.best_group_trajectory` (matching upstream's own data source: the
 ///   check reads `best_group_trajectory_`'s *values* at
 ///   `group_trajectory_`'s *shape*, not the just-`updateFullTrajectory`'d
-///   current iterate -- see `chomp_optimizer.cpp:520-537`). This is a design
-///   decision that needs sign-off, not a settled port; a caller that hasn't
-///   wired up the mesh-to-mesh backend can pass `&mut |_, _| false` and get
-///   upstream's `collision_threshold_`-only behavior.
+///   current iterate -- see `chomp_optimizer.cpp:520-537`).
+///
+///   **(a) What a caller passing `&mut |_, _| false` does not get.**
+///   Upstream's early-exit condition 1 (the every-10th-iteration mesh check,
+///   see this module's "termination condition" doc) becomes permanently
+///   unreachable, so `is_collision_free_` can only ever become `true`
+///   through condition 2, the sphere/distance-field-approximated
+///   `collision_cost < collision_threshold_` comparison -- and only when
+///   [`ChompParameters::filter_mode`] is unset. Two concrete upstream
+///   behaviors are therefore lost, not merely "the mesh check is skipped":
+///   (i) with `filter_mode` set, `optimize()` here can never report
+///   collision-free early at all, only by exhausting `max_iterations`
+///   (pinned by
+///   `optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out`);
+///   (ii) even with `filter_mode` unset, a trajectory that is genuinely
+///   mesh-collision-free but whose sphere-decomposition `collision_cost`
+///   still sits at or above `collision_threshold_` -- a real case, since the
+///   sphere decomposition is a padded over-approximation of the real mesh,
+///   not merely a hypothetical one -- is caught early by upstream's mesh
+///   check and is not caught early here.
+///
+///   **(b) What would need to exist for this to become a method.** The
+///   underlying capability already exists elsewhere in this workspace --
+///   `moveit_scene::PlanningScene::is_path_valid` is ported and generic over
+///   `E: CollisionEnv<Posed>`, and `moveit_collision::ParryCollisionEnv`
+///   already implements that bound. What is missing is specifically this
+///   crate depending on both of them and threading a
+///   `&mut PlanningScene`/`&ParryCollisionEnv` pair through
+///   [`ChompOptimizer::optimize`] the same way [`ChompCollisionContext`]
+///   already threads `DistanceFieldCollisionCache` -- at which point
+///   `mesh_to_mesh_collision_free` collapses from an injected closure into a
+///   real call to `scene.is_path_valid(env, request,
+///   best_group_trajectory_as_states, path_constraints, goal_constraints)`.
+///   Not attempted this round: adding those two dependencies and the
+///   trajectory-to-`&[RobotState]` conversion `is_path_valid` needs is a
+///   design decision of its own, not implied by this round's brief.
 /// - **`dynamic_cast<const CollisionEnvHybrid*>` and its null check
 ///   disappear.** [`ChompCollisionContext::cache`] is already statically
 ///   typed as [`moveit_distance_field::DistanceFieldCollisionCache`]; Rust
