@@ -40,14 +40,18 @@ use moveit_trajectory::RobotTrajectory;
 ///   site sits inside a `PlanningContext`-equivalent's own `solve()`, never
 ///   `PlanningPipeline::generatePlan` itself — checked both ways, pinned
 ///   `e017c91e`: `rg -n '\.planning_time\s*=' moveit_core moveit_ros
-///   moveit_planners moveit_py` finds it set in
+///   moveit_planners moveit_py` finds
+///   `planning_interface::MotionPlanResponse::planning_time` set in
 ///   `ompl_interface/src/model_based_planning_context.cpp:799`,
 ///   `chomp/chomp_interface/src/chomp_planning_context.cpp:62`,
 ///   `stomp/src/stomp_moveit_planning_context.cpp:277`, and
-///   `pilz_industrial_motion_planner`'s `move_group_sequence_service.cpp:128`/
-///   `move_group_sequence_action.cpp:264`/`trajectory_generator.cpp:267,277`;
-///   `rg -n planning_time moveit_ros/planning/planning_pipeline/src/planning_pipeline.cpp`
-///   finds nothing. This is the same structural class as
+///   `trajectory_generator.cpp:267,277` (`pilz_industrial_motion_planner`'s
+///   own `PlanningContext::solve()`). The same `rg` also matches
+///   `move_group_sequence_service.cpp:128`/`move_group_sequence_action.cpp:264`,
+///   but those set `.planning_time` on `moveit_msgs::msg::MotionSequenceResponse`
+///   (a ROS-service response's own field, same name, unrelated type) —
+///   `pilz_industrial_motion_planner`'s sequence-capability wrapper, not
+///   this member. This is the same structural class as
 ///   [`crate::request::PlanningRequest`]'s own doc comment's
 ///   `allowed_planning_time` bullet: a value a concrete planner owns, not
 ///   this crate's pipeline. Unlike [`PlanningResponse::start_state`] (round
