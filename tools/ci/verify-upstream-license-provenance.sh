@@ -115,6 +115,47 @@ COPYLEFT = re.compile(r"GNU Lesser General Public|GNU General Public|LGPL|GPL-",
 # Identifiers this workspace uses that a copyleft upstream cannot support.
 PERMISSIVE = re.compile(r"^(BSD-|MIT|Apache-)", re.I)
 
+BRACE = re.compile(r"^([^{}]*)\{([^{}]+)\}(.*)$")
+
+
+def expand_braces(token):
+    """`dir/{a/b.hpp,c.cpp}` is two citations written as one path."""
+    match = BRACE.match(token)
+    if not match:
+        return [token]
+    head, body, tail = match.groups()
+    return [
+        expanded
+        for part in body.split(",")
+        for expanded in expand_braces(head + part.strip() + tail)
+    ]
+
+
+def resolve_citation(citation):
+    """Every upstream file a citation names, or `[]` if it names none.
+
+    One rule for both shapes a citation takes. A path names one file. A
+    directory with no filenames indented under it -- how `moveit-planners-pilz`
+    and `moveit-planners-stomp` cite the packages they port whole -- names the
+    sources beneath it, and dropping it silently was the same failure as any
+    other unopened citation.
+    """
+    for root in search_roots:
+        candidate = os.path.join(root, citation)
+        if os.path.isfile(candidate):
+            return [candidate]
+        if citation.endswith("/") and os.path.isdir(candidate):
+            found = [
+                os.path.join(where, name)
+                for where, _, names in os.walk(candidate)
+                for name in names
+                if FILENAME.search(name)
+            ]
+            if found:
+                return sorted(found)
+    return []
+
+
 tracked = [
     path
     for path in subprocess.run(
@@ -157,33 +198,39 @@ for path in tracked:
             continue
         indent, token = len(match.group(1)), match.group(2)
         if token.endswith("/"):
-            prefix = (indent, token)
+            # Held rather than emitted: if indented filenames follow, they are
+            # what was cited. If none do, the directory itself is the citation
+            # and gets emitted when the header ends.
+            if prefix is not None and not prefix[2]:
+                citations.append(prefix[1])
+            prefix = [indent, token, False]
             continue
-        if not FILENAME.search(token):
+        expanded = [part for part in expand_braces(token) if FILENAME.search(part)]
+        if not expanded:
             continue
         if prefix is not None and indent > prefix[0]:
-            citations.append(prefix[1] + token)
+            prefix[2] = True
+            citations.extend(prefix[1] + part for part in expanded)
         else:
             prefix = None
-            citations.append(token)
+            citations.extend(expanded)
+    if prefix is not None and not prefix[2]:
+        citations.append(prefix[1])
     if not citations:
         continue
 
     for citation in citations:
-        resolved = None
-        for root in search_roots:
-            candidate = os.path.join(root, citation)
-            if os.path.isfile(candidate):
-                resolved = candidate
-                break
-        if resolved is None:
+        resolved = resolve_citation(citation)
+        if not resolved:
             unresolved.append((path, citation))
             continue
-        checked += 1
-        with open(resolved, encoding="utf-8", errors="replace") as handle:
-            head = handle.read(8000)
-        if COPYLEFT.search(head) and PERMISSIVE.match(spdx):
-            conflicts.append((path, spdx, citation))
+        for member in resolved:
+            checked += 1
+            with open(member, encoding="utf-8", errors="replace") as handle:
+                head = handle.read(8000)
+            if COPYLEFT.search(head) and PERMISSIVE.match(spdx):
+                conflicts.append((path, spdx, citation))
+                break
 
 status = 0
 
@@ -202,7 +249,7 @@ if unresolved:
     print("Point the matching *_SRC variable at that checkout, or correct the", file=sys.stderr)
     print("citation. An unopened citation is an unchecked licence, not a clean one.", file=sys.stderr)
 
-print(f"checked {checked} upstream citation(s) across {len(tracked)} tracked source file(s)")
+print(f"checked {checked} upstream file(s) cited by {len(tracked)} tracked source file(s)")
 if status == 0:
     print("OK: no permissive-SPDX file cites a copyleft upstream file")
 sys.exit(status)
