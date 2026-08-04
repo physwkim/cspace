@@ -133,6 +133,38 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
+    // Assertion-discrimination sweep (round 2): `new` has exactly two
+    // `None`-producing sites -- the shape guard at line 82 and
+    // `Cholesky::new(..)?` at line 84 -- and a bare `.is_none()` cannot
+    // say which one fired in general (`Option::None` carries no payload
+    // to swap, unlike `Error::other("msg")`). Verdict here is
+    // `single-branch`, but per-test rather than per-function: each
+    // test's specific input can reach only one of the two sites, proven
+    // empirically (not by eyeball) by no-op'ing the shape guard
+    // (`if covariance.nrows() != size || covariance.ncols() != size`
+    // -> `if false`) and re-running this cluster:
+    //   - `mismatched_covariance_shape_is_none` (3x3 identity, mean len
+    //     2): with the guard gone, `Cholesky::new` on the now-unchecked
+    //     3x3 identity succeeds (it is square and positive-definite),
+    //     so the assertion flips to `Some` and fails -- the guard was
+    //     this test's only route to `None`.
+    //   - `non_square_covariance_is_none` (2x3, mean len 2): with the
+    //     guard gone, `Cholesky::new` on a non-square matrix panics
+    //     (nalgebra: "The input matrix must be square") rather than
+    //     returning `None` -- the guard was this test's only route to
+    //     `None` too; the Cholesky site cannot substitute for it even
+    //     by accident.
+    //   - `indefinite_covariance_is_none` / the zero-covariance test
+    //     below: shapes already match (`nrows() == ncols() == size`),
+    //     so the guard's condition is false regardless of whether the
+    //     guard exists; disabling it changes nothing, and both tests
+    //     passed unaffected in the same run. Their `None` can only come
+    //     from `Cholesky::new` failing.
+    // Reachability-bite output: 2 failed (the two shape tests, one via
+    // assertion, one via panic), 2 passed unaffected (the two Cholesky
+    // tests) -- exactly the split the input construction predicts.
+    // Mutation reverted (`git diff` empty) before this comment was
+    // written; no source change was needed.
     #[test]
     fn mismatched_covariance_shape_is_none() {
         let mean = DVector::from_vec(vec![0.0, 0.0]);
