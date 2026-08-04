@@ -77,6 +77,7 @@ pub mod conversion_functions;
 pub mod cost_functions;
 pub mod filter_functions;
 pub mod noise_generators;
+pub mod planner;
 
 /// The precondition `conversion_functions` and `filter_functions` both
 /// require: `name`'s joint must have exactly one variable. See
