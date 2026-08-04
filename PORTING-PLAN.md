@@ -13882,3 +13882,68 @@ hang이 된다 — §172.1 사례 2(`max_distance_sq`)와 같은 계열, 메모�
 Tests: `resolution_far_smaller_than_distance_panics_instead_of_hanging`,
 `nan_distance_panics_instead_of_silently_producing_a_degenerate_range`
 (`crates/moveit-planners-sbp/src/validity.rs`).
+
+## §177 링커 순서는 선택 규칙이 아니다 — `linkme` 슬라이스의 첫 항목 집기
+
+**측정.** `moveit-octomap/Cargo.toml`에 `thiserror` 한 줄을 추가한 것
+**만으로** `moveit-planners-pilz`의 오라클 패리티 테스트 3건이 깨졌다.
+단일 변수로 격리했다 — 65c0fd9(p1-joints 병합 직후)에 `Cargo.lock` +
+`crates/moveit-octomap/Cargo.toml` 두 파일만 얹으면 재현되고, 나머지
+p3-shapes 변경(octomap `tree.rs` 568줄, `error.rs`, doc)을 전부 얹고
+그 두 파일만 되돌리면 통과한다. 3회 반복, 결정적.
+
+원인은 octomap이 아니다. `KINEMATICS_SOLVERS`(`linkme::distributed_slice`)의
+**나열 순서가 뒤집혔다**:
+
+```text
+65c0fd9 : ["lma", "newton_raphson", "lma_cached", "newton_raphson_cached"]
+f74a2b7 : ["lma_cached", "newton_raphson_cached", "lma", "newton_raphson"]
+```
+
+`linkme`의 순서는 링커 섹션 배치 순서이고, 그것은 의존성 그래프의
+함수다. 워크스페이스 **어디에서든** 크레이트가 의존성을 하나 더 달면
+바뀔 수 있다.
+
+**결함.** pilz의 여섯 개 호출부가 전부 이 모양이다:
+
+```rust
+KINEMATICS_SOLVERS
+    .iter()
+    .find_map(|registration| { (registration.construct)(...).ok().filter(...) })
+```
+
+"구성에 성공하는 첫 등록을 쓴다" — 여기서 "첫"은 링커가 정한다. panda
+arm 그룹에는 네 등록이 전부 구성에 성공하므로, 실제로 쓰이는 IK 솔버는
+소스 어디에도 적혀 있지 않고 빌드 그래프가 고른다. 이것이
+[Structural fix vs. clever patch]가 말하는 **런타임 게이트**의 최악
+형태다: 게이트조차 아니고, 관측 가능한 규칙이 없다.
+
+`SolverRegistration::name`의 자체 doc은 이미 "The name a caller scanning
+`KINEMATICS_SOLVERS` **matches on**"이라고 쓰여 있다. 계약은 있었고
+호출부가 지키지 않았다.
+
+**§177.1 두 번째 사실 — `lma_cached`는 `lma`와 같은 답을 주지 않는다.**
+순서가 뒤집혀 `lma_cached`가 선택되자 LIN의 waypoint 0이
+`-2.2506433721376613`이 되었다. 오라클은 `-2.356`, 즉 시작 상태 그대로다.
+시작 자세에서 시작 관절값을 시드로 준 IK가 시드를 그대로 돌려주지 않는다.
+캐시 래퍼가 감싼 솔버와 관측적으로 동등하지 않다는 뜻이고, 이것은 순서
+문제와 **별개의 결함**이다. 순서를 고정해도 이쪽은 남는다.
+
+**§177.2 고칠 방향.** 이름으로 고르는 단일 소유 API를 `moveit-kinematics`에
+두고 여섯 호출부를 전부 그리로 보낸다. 어떤 솔버를 쓰는지가 소스의 값이
+되어야 하며, 링커의 부산물이면 안 된다. D4(컴파일타임 레지스트리)는
+`dlopen` 이름 조회를 안 하겠다는 것이지 **선택 규칙을 두지 말라는 것이
+아니다** — 지금은 규칙이 없는 것이지 D4를 따르고 있는 것이 아니다.
+
+**§177.3 회귀 테스트는 무엇을 고정해야 하나.** 슬라이스의 순서를
+`assert_eq!` 하면 안 된다 — 그것은 링커를 고정하는 것이고, 다음 의존성
+추가에서 결함이 아닌 것이 빨갛게 된다. 고정해야 할 것은 **어떤 그룹에
+대해 해결된 솔버의 이름**이다. 그러면 다음 재배열은 수치 패리티가 조용히
+드리프트하는 대신 선택 단계에서 이름으로 실패한다.
+
+**§177.4 만료조건 없음 — 다른 레지스트리에도 적용된다.** 지금
+워크스페이스의 `distributed_slice`는 둘이다.
+`PLANNER_MANAGERS`(`moveit-planners-sbp/src/registry.rs:441`)의 유일한
+순회는 `:655`의 `find(|r| r.name == "rrt_connect")`로 이름 키이고
+테스트 전용이라 이 결함이 아니다. 새 레지스트리를 만들거나 새 순회를
+추가할 때 이 절이 요구하는 것은 하나다: **첫 항목을 집지 말 것.**
