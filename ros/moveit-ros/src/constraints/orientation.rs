@@ -34,6 +34,25 @@ pub struct OrientationConstraintMsgOut(pub moveit_msgs::OrientationConstraint);
 /// positionally (§6) -- this is the same "don't silently absorb an invalid
 /// discriminant" case as `SensorViewDirection`, just with an `Err` instead
 /// of a value swap as the wrong-code failure mode.
+///
+/// # Kept D6, round 14 (`kinematic_constraint.cpp:652-659`)
+///
+/// Upstream substitutes `XYZ_EULER_ANGLES` for any `parameterization_type_`
+/// that is neither `XYZ_EULER_ANGLES(0)` nor `ROTATION_VECTOR(1)`. This
+/// looks like D14's "upstream defines the wire default's meaning" shape
+/// (the same shape that applied to `weight`), but the two differ in one
+/// deciding way: `weight`'s wire default (`0.0`, an unset `float64`) is
+/// itself the value the whole `weight<=EPS` branch fires on, so D14 was
+/// about what an *unset* field means. `parameterization`'s wire default is
+/// already `XYZ_EULER_ANGLES=0` (`OrientationConstraint.msg`'s own comment:
+/// "(default value)") -- an unset field is already a valid, meaningful
+/// enumerant with no fallback needed. The `!= 0 && != 1` branch can only
+/// fire for a value 2..=255 that a publisher *deliberately* wrote, which is
+/// not "the wire default" reaching this code at all; it is a genuinely
+/// invalid, explicit discriminant, the same shape `SensorViewDirection`'s
+/// wire encoding already rejects rather than coerces. D6 applies as
+/// originally written: reject, matching `invalid_parameterization_is_rejected`
+/// below (present since round 2, re-confirmed this round, not new).
 fn tolerance_from_wire(
     parameterization: u8,
     x: f64,
