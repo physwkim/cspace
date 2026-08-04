@@ -782,6 +782,7 @@ fn group_state_representation_matches_the_oracle() {
             0.02,
             0.25,
             false,
+            &[],
         )
         .unwrap_or_else(|e| panic!("group_state_representation({}): {e}", request.group));
 
