@@ -1007,6 +1007,52 @@ impl<'m> PlanningScene<'m> {
         }
     }
 
+    /// Replace the poses of an existing object's shapes, leaving the
+    /// object's own pose untouched. Upstream `World::moveShapesInObject`,
+    /// called inline from `processCollisionObjectMove`
+    /// (planning_scene.cpp:2004) with no scene-level side effect around it
+    /// beyond the raw world mutation — unlike [`PlanningScene::remove_object`]
+    /// there is no ACM entry to prune here, since the object identity and
+    /// its ACM entry are unaffected by moving its shapes.
+    ///
+    /// `false`, with no mutation, if `id` is unknown or `shape_poses.len()`
+    /// does not match the object's current shape count — both collapse to
+    /// the same upstream `false` (world.cpp:262-278), so unlike
+    /// [`PlanningScene::move_object`] there is no second, "found but
+    /// unchanged" case to distinguish: every failure here really is "no
+    /// shapes moved," so a plain `bool` carries the same information a
+    /// `MoveObjectOutcome`-style enum would.
+    pub fn move_shapes_in_object(&mut self, id: &str, shape_poses: &[Isometry3]) -> bool {
+        let Some(notification) = self.world.move_shapes_in_object(id, shape_poses) else {
+            return false;
+        };
+        self.track(Some(notification));
+        true
+    }
+
+    /// Replace an object's entire subframe map. Upstream
+    /// `World::setSubframesOfObject`, called inline from several composite
+    /// functions (`processCollisionObjectAdd`, `detachObject`,
+    /// `decoupleParent`, scene-file loading — planning_scene.cpp:393,
+    /// 1201, 1743, 1927) with no scene-level side effect of its own at any
+    /// of those call sites: none of them touch the ACM, object color, or
+    /// object type as a consequence of the subframe assignment itself.
+    ///
+    /// An empty map removes every subframe the object had. Produces no
+    /// [`Notification`] — matching `World::set_subframes_of_object`'s own
+    /// doc, upstream's `setSubframesOfObject` does not call `notify` at
+    /// all (world.cpp:365-378), a real asymmetry with every other mutator
+    /// in this section, not an oversight.
+    ///
+    /// `false`, with no mutation, if `id` is unknown.
+    pub fn set_subframes_of_object(
+        &mut self,
+        id: &str,
+        subframe_poses: BTreeMap<String, Isometry3>,
+    ) -> bool {
+        self.world.set_subframes_of_object(id, subframe_poses)
+    }
+
     // ---- attached bodies ----------------------------------------------------
 
     /// Every attached body, by id.
@@ -2188,6 +2234,115 @@ mod tests {
         scene.remove_object("box");
 
         assert!(!scene.allowed_collision_matrix().has_entry("box"));
+    }
+
+    // ---- move_shapes_in_object / set_subframes_of_object ---------------------
+
+    #[test]
+    fn move_shapes_in_object_missing_object_is_false() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        assert!(!scene.move_shapes_in_object("box", &[Isometry3::identity()]));
+    }
+
+    #[test]
+    fn move_shapes_in_object_shape_count_mismatch_is_false() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+
+        assert!(
+            !scene.move_shapes_in_object("box", &[Isometry3::identity(), Isometry3::identity()])
+        );
+        assert_eq!(
+            scene.world().get_object("box").unwrap().shapes()[0].pose(),
+            Isometry3::identity()
+        );
+    }
+
+    #[test]
+    fn move_shapes_in_object_moves_the_shape_and_tracks_the_notification() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        let new_pose = Isometry3::translation(1.0, 0.0, 0.0);
+        assert!(child.move_shapes_in_object("box", &[new_pose]));
+
+        assert_eq!(
+            child.world().get_object("box").unwrap().shapes()[0].pose(),
+            new_pose
+        );
+        let diff = child.world_diff.as_ref().unwrap();
+        assert_eq!(diff.get("box").unwrap(), Action::MOVE_SHAPE);
+    }
+
+    #[test]
+    fn set_subframes_of_object_missing_object_is_false() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+
+        assert!(!scene.set_subframes_of_object("box", BTreeMap::new()));
+    }
+
+    #[test]
+    fn set_subframes_of_object_overwrites_existing_subframes_and_produces_no_notification() {
+        let model = build_model();
+        let mut root = PlanningScene::new(&model, &srdf());
+        root.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let mut old_subframes = BTreeMap::new();
+        old_subframes.insert("old".to_owned(), Isometry3::translation(0.0, 0.0, 0.5));
+        assert!(root.set_subframes_of_object("box", old_subframes));
+        let root = Arc::new(root);
+        let mut child = root.diff();
+
+        let mut new_subframes = BTreeMap::new();
+        new_subframes.insert("new".to_owned(), Isometry3::translation(1.0, 0.0, 0.0));
+        assert!(child.set_subframes_of_object("box", new_subframes));
+
+        let object = child.world().get_object("box").unwrap();
+        assert_eq!(object.subframe_pose("old"), None);
+        assert_eq!(
+            object.subframe_pose("new"),
+            Some(Isometry3::translation(1.0, 0.0, 0.0))
+        );
+        // Upstream `setSubframesOfObject` never calls `notify` — the world
+        // diff records nothing for "box", not even a no-op entry.
+        let diff = child.world_diff.as_ref().unwrap();
+        assert!(diff.get("box").is_none());
+    }
+
+    #[test]
+    fn set_subframes_of_object_empty_map_removes_every_subframe() {
+        let model = build_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene.add_shape("box", cuboid_shape(), Isometry3::identity());
+        let mut subframes = BTreeMap::new();
+        subframes.insert("tip".to_owned(), Isometry3::translation(0.0, 0.0, 0.5));
+        assert!(scene.set_subframes_of_object("box", subframes));
+        assert!(
+            scene
+                .world()
+                .get_object("box")
+                .unwrap()
+                .subframe_pose("tip")
+                .is_some()
+        );
+
+        assert!(scene.set_subframes_of_object("box", BTreeMap::new()));
+
+        assert_eq!(
+            scene
+                .world()
+                .get_object("box")
+                .unwrap()
+                .subframe_names()
+                .count(),
+            0
+        );
     }
 
     // ---- push_diffs: the "attached, not deleted" ACM guard ------------------
