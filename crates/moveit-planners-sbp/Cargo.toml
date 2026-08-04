@@ -18,11 +18,11 @@ moveit-state.workspace = true
 moveit-collision.workspace = true
 moveit-constraints.workspace = true
 moveit-error.workspace = true
+moveit-geometry.workspace = true
 moveit-kinematics.workspace = true
 moveit-scene.workspace = true
 
 [dev-dependencies]
-moveit-geometry.workspace = true
 moveit-srdf.workspace = true
 serde.workspace = true
 serde_json.workspace = true
