@@ -12832,3 +12832,64 @@ chainiksolver_vel_mimic_svd.hpp:59
 게이트 실측: clippy `--workspace --all-targets -- -D warnings` 통과, nextest
 **1419 pass / 2 skipped**, doctest **5**, `check-*.sh` **8/8**,
 `ros/verify-ros-interop.sh` **`all gates passed`**, 라이선스 게이트 **272건 / 충돌 0**.
+
+## §163 D12 기각 — `solver: None`은 크레이트 계층 결함이 아니다 (`cc377ff`)
+
+p1-robotmodel 라운드 22의 측정 보고 `doc/d12-solver-none-structural-measurement.md`.
+**D12를 기각한다.** 그리고 D12가 이 문서에 결정으로 등재된 적이 없었다는 것도
+같이 고친다 — 나는 워커 브리프에서 "D12"라는 라벨을 써왔지만
+`rg 'D12' PORTING-PLAN.md`는 0건이었다. 브리프에만 존재하는 결정 라벨은 결정이
+아니다.
+
+### 163.1 D12가 무엇이었나
+
+`moveit-kinematics-base`를 `moveit-model` 아래로 추출해 `JointModelGroup`이
+`Arc<dyn KinematicsSolver>`를 들 수 있게 하자 — 여러 라운드에 걸쳐 반복해서
+올라온 `solver: None` UNFIXED의 구조적 원인이 크레이트 순환이라는 가정에서
+나온 것이다.
+
+### 163.2 기각 근거 — 가정이 틀렸다
+
+측정 1–4단계는 추출이 **가능하다**는 것을 보였다(순환 없음,
+`check-dep-direction.sh` 통과, 최소 API 확정). 그런데 실행하면 안 된다. 이유는
+크레이트 계층이 아니라 **이미 내려진 결정**이다. 두 곳에서 확인했다:
+
+- **§68.4** (내가 내린 결정): "매핑을 만들지 않는다. `IKConstraintSampler`가
+  solver를 인자로 받는다." 근거는 D4 — 그룹별 기본 solver 지정은 상류의
+  런타임 설정 계층(`kinematics.yaml`/`robot_model_loader`)이고 D4가 통째로
+  제외한 계열이다. `JointModelGroup`에 `group_kinematics_`를 심는 것은 그
+  제외한 계층을 뒷문으로 들이는 것이다.
+- **§77.1**: "D4 결정대로 solver는 인자로 받고 ... `check-dep-direction.sh`는
+  통과한다" — 같은 결정을 재확인하고, 그때 생긴
+  `moveit-constraints -> moveit-kinematics` 간선이 게이트를 통과한다는 것까지
+  적어뒀다.
+
+핵심은 이것이다: 추출을 해도 **그 필드를 자동으로 채울 것이 없다.** 상류가
+그것을 채우는 기구(`RobotModel::setKinematicsAllocators`, ROS 파라미터 서버에서
+`robot_model_loader` 생성 시점에 주입)가 바로 D4가 제외한 런타임 설정 계층이다.
+추출은 호출자가 solver를 **저장**할 수 있게 할 뿐, 없는 것을 만들어내지 않는다 —
+"no caller has anything to give"가 실제로 가리키는 것이 그것이다.
+
+### 163.3 그러면 그 UNFIXED를 무엇이 닫나
+
+크레이트 재구조화가 아니라 **호출자 배선**이다. `moveit-kinematics`와
+`moveit-constraints`에 이미 둘 다 의존하는 플래너 크레이트 안에서 끝난다.
+현재 `moveit-planners-sbp::registry::RrtConnectContext::solve`를 비롯한 어떤
+생산 진입점도 solver를 이름으로 찾아 구성해 넘기지 않는다 — 못 찾아서 `None`이
+아니라 **애초에 `None`을 고른다.** sbp의 `PlanningRequest`에 선택적이고
+호출자가 명시적으로 구성한 solver를 통과시키는 것이 그 갭을 닫는다.
+
+### 163.4 만료 조건
+
+§153.1의 "부재 근거" 제외가 **아니다** — 블로커는 없는 계층이 아니라 서 있는
+결정이다. 따라서 D4의 런타임 설정 제외 자체를 kinematics에 한해 좁히기로
+하는 새 결정이 나올 때만 재론한다. 크레이트 순환 논거만으로 다시 올리는 것은
+이미 두 번 답한 질문을 다시 묻는 것이다.
+
+### 163.5 브리프의 전제 하나가 틀렸다
+
+내 브리프는 `moveit-kinematics`의 직접 의존자를 "5개"로 적었다. 실측은
+**3개**다(`moveit-planners-stomp`, `moveit-constraints`, `moveit-planners-pilz`).
+`moveit-planners-sbp`는 직접 의존자가 아니다 — `Cargo.toml`의 언급은 주석 한
+줄이고(`:32`), `src/`의 `moveit_kinematics` 언급 4건도 전부 doc comment다.
+워커가 잡아냈고 내가 `rg`로 재확인했다.
