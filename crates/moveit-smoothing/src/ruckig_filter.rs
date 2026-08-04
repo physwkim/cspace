@@ -379,10 +379,16 @@ mod tests {
     /// order upstream's `getVelAccelJerkBounds` checks in.
     #[test]
     fn joint_vel_accel_jerk_bounds_fails_without_acceleration_limits() {
+        // `matches!` alone cannot tell this apart from the sibling
+        // single-DOF/velocity/jerk guards, all Error::Other in this
+        // function; message-swap bite-checked against them.
         let model = panda();
         let group = model.joint_model_group("panda_arm").unwrap();
         let err = joint_vel_accel_jerk_bounds(&model, group).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("acceleration limit defined"),
+            "{err}"
+        );
     }
 
     fn set_uniform_accel_jerk_bounds(model: &mut RobotModel, max_acceleration: f64, max_jerk: f64) {
@@ -519,6 +525,9 @@ mod tests {
 
     #[test]
     fn do_smoothing_rejects_a_mismatched_length() {
+        // `matches!` alone cannot tell this apart from do_smoothing's
+        // sibling ruckig-update-failure site, also an Error::Other;
+        // message-swap bite-checked against it.
         let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5];
@@ -527,7 +536,7 @@ mod tests {
         let err = filter
             .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "{err:?}");
+        assert!(err.to_string().contains("must each have length"), "{err}");
     }
 
     #[test]

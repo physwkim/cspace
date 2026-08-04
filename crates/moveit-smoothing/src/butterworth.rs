@@ -145,9 +145,12 @@ mod tests {
 
     #[test]
     fn coefficient_below_one_is_rejected() {
-        // Boundary: upstream's `coeff < 1` check.
+        // Boundary: upstream's `coeff < 1` check. `matches!` alone cannot
+        // tell this apart from `new`'s other three `Error::Construct`
+        // sites (infinite feedback_term_/scale_term_, feedback_term_ ~ 0);
+        // message-swap bite-checked against each of them.
         let err = ButterworthFilter::new(0.999_999).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        assert!(err.to_string().contains("unstable"), "{err}");
     }
 
     #[test]
@@ -156,7 +159,7 @@ mod tests {
         // feedback_term_ = 1 - (-1) = 2 is finite, so this exercises the
         // second upstream check (isinf(scale_term_)), not the first.
         let err = ButterworthFilter::new(-1.0).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        assert!(err.to_string().contains("scale_term_"), "{err}");
     }
 
     #[test]
@@ -166,7 +169,10 @@ mod tests {
         // does not (1.0 is not < 1.0) — the two checks guard different
         // boundaries of the same value.
         let err = ButterworthFilter::new(1.0).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("resulted in feedback term of 0"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -174,7 +180,10 @@ mod tests {
         // coeff = 1 + 1e-10: feedback_term_ = -1e-10, magnitude still under
         // EPSILON = 1e-9 even though coeff clears the `< 1` check.
         let err = ButterworthFilter::new(1.0 + 1e-10).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("resulted in feedback term of 0"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -188,7 +197,7 @@ mod tests {
     fn coefficient_of_infinity_makes_feedback_term_infinite() {
         // feedback_term_ = 1 - inf = -inf: the very first upstream check.
         let err = ButterworthFilter::new(f64::INFINITY).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "{err:?}");
+        assert!(err.to_string().contains("feedback_term_"), "{err}");
     }
 
     /// Not an invariant this port enforces — a direct transcription check.
