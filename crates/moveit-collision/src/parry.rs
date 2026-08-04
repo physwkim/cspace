@@ -265,27 +265,95 @@
 //!    tests for the oracle side — versus 16 within that bound; the
 //!    round-12 sweep's own 3-of-10/7-of-10 split is the same shape at a
 //!    different sample size, not a coincidence this round's independent
-//!    reproduction should be read as contradicting. The blocker for the
-//!    16-within-bound remainder is unchanged: confirming whether FCL's own
+//!    reproduction should be read as contradicting. Round 15 left the
+//!    16-within-bound remainder as a blocker: confirming whether FCL's own
 //!    EPA search *within a triangle pair it does examine* converges to a
-//!    shallower-than-true answer requires reading FCL/libccd's own
-//!    penetration-depth source, not `moveit2`'s (the `distanceCallback`
-//!    call site read at
-//!    `~/work/moveit2/moveit_core/collision_detection_fcl/src/collision_common.cpp:471`
-//!    only confirms the *caller's* `num_max_contacts = 200` budget is not
-//!    the explanation — comfortably above `base_link`'s 96 triangles, so
-//!    contact-budget censoring is ruled out, but the search behavior
-//!    *inside* a single narrow-phase call is FCL's own code). No local
-//!    checkout of FCL itself (as opposed to `moveit2`, which depends on
-//!    it) was found on this machine, so per this project's own
-//!    reference-source rule this is reported as a blocker rather than
-//!    guessed at: closing this question needs either a local FCL/libccd
-//!    checkout or an oracle extension exposing FCL's per-contact
-//!    candidate depths (not just the max it already returns) for this
-//!    pair at a fixed state — the latter is not requested here, since no
-//!    upstream *header* was checked to confirm such a field is reachable
-//!    without patching FCL itself, and this crate does not own
-//!    `tools/moveit-oracle/`.
+//!    shallower-than-true answer needed FCL/libccd's own penetration-depth
+//!    source, not present locally at the time.
+//!
+//!    Round 16 got that source and closed the question — refuted, not
+//!    confirmed. Versions matter here, so they are recorded once: FCL git
+//!    tag `0.7.0` (the oracle image's `libfcl-dev 0.7.0-3build2`'s Debian
+//!    changelog shows only a sparc64 patch and no-change rebuilds on top of
+//!    upstream 0.7.0, so the oracle runs plain upstream 0.7.0, not the
+//!    17-commits-later tree a plain checkout lands on by default — that
+//!    later tree rewrites 447 lines of
+//!    `include/fcl/narrowphase/detail/convexity_based_algorithm/gjk_libccd-inl.h`,
+//!    so reading it instead would risk documenting an algorithm the oracle
+//!    does not run) and libccd git tag `v2.1` (the oracle image's
+//!    `libccd2 2.1-2`'s changelog is packaging-only on top of upstream
+//!    v2.1, and a plain checkout lands there directly), both built with
+//!    `CCD_DOUBLE` (the image's own `/usr/include/ccd/config.h` defines it,
+//!    `CCD_SINGLE` undefined). Diffed the 0.7.0 tag against the
+//!    17-commits-later tree first, to know whether the gap mattered at all:
+//!    `include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h` (owns
+//!    `ShapeTransformedTriangleIntersectLibccdImpl::run`, the mesh-triangle-
+//!    vs-shape entry point) is byte-identical between the two, and within
+//!    `gjk_libccd-inl.h` the specific functions that entry point reaches —
+//!    `supportTriangle`, `supportCyl`, `GJKCollide` — are unchanged too; the
+//!    447-line rewrite (`3c2b993`/`da430b1`) is confined to the *distance*-
+//!    query code (`ccdVec3PointTriDist2`, `doSimplex3`/`doSimplex4`,
+//!    `GJKDistance`/`GJKSignedDistance`), a different query type from the
+//!    *collision* query (`checkCollision`/`getCostSources`, hence
+//!    self-distance's own depth) this question is about. So the 17-commit
+//!    gap does not affect this answer either way.
+//!
+//!    `gjk_solver_libccd-inl.h` (confirmed identical across both FCL trees)
+//!    shows `ShapeTransformedTriangleIntersectLibccdImpl::run` builds a real
+//!    3-vertex `ccd_triangle_t` via `triCreateGJKObject(P1, P2, P3, tf2)`
+//!    and calls `detail::GJKCollide<S>`, which (`gjk_libccd-inl.h`, line
+//!    2670 in the 17-commits-later tree, line 2575 in the 0.7.0 tag — line
+//!    number differs, body confirmed byte-identical) is a thin wrapper:
+//!    `CCD_INIT`, set `support1`/`support2`/`center1`/`center2`/
+//!    `max_iterations`/`mpr_tolerance`, then call the *unmodified upstream*
+//!    `ccdMPRPenetration` — libccd's own Minkowski Portal Refinement, from
+//!    `mpr.c`, not an FCL reimplementation. `fcl/narrowphase/collision_request.h`
+//!    confirms `GJKSolverType::GST_LIBCCD` is `CollisionRequest`'s default
+//!    `gjk_solver_type_`, and grepping all of `moveit2` finds no override —
+//!    so this *is* the code path `checkCollision` runs. `supportTriangle`
+//!    (same file, line 2615/2520 respectively, body byte-identical) is
+//!    exactly the farthest of the 3 fixed vertices along `dir`, no
+//!    reimplementation ambiguity to guess at.
+//!
+//!    Built libccd v2.1 from source (`cmake -DCCD_DOUBLE=ON`) and drove
+//!    `ccdMPRPenetration` directly, outside this crate (a C library this
+//!    crate does not and should not depend on, so this is a described
+//!    external repro, not a committed test) — against `base_link`'s own
+//!    real winning triangle (vertex indices `[14, 12, 15]`, the same
+//!    triangle `pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`
+//!    names) and `bl_caster_l_wheel_link`'s own real cylinder
+//!    (`radius=0.074792`, `length=0.034`), both dumped live from the model
+//!    this round. Swept 560 poses (5 tilt axes × 7 angles × 4 planar
+//!    offsets × 4 target penetration depths) and compared every one against
+//!    `parry3d_f64::query::contact`'s own independent EPA answer for the
+//!    identical triangle/cylinder pose — the same cross-implementation
+//!    standard `native_deepest_triangle_vs_cylinder` already uses as ground
+//!    truth in this file's own test suite, not a new methodology invented
+//!    for this question.
+//!
+//!    **Result: refuted.** Of 560 poses, 409 had both algorithms agree the
+//!    shapes touch; of those, 215 disagreed on depth by more than float
+//!    noise (max 0.158m, median-over-all-409 8.5e-4m), and in every one of
+//!    those 215, `ccdMPRPenetration`'s depth was *larger* than parry's,
+//!    never smaller (`mpr>parry: 215, mpr<parry: 0`). At the exact
+//!    tangency boundary (target depth 0) the two disagree on whether the
+//!    shapes touch at all in 63/140 poses (62 parry-yes/mpr-no, 1 the
+//!    reverse) — expected floating-point sign noise astride a knife-edge
+//!    boundary, not a magnitude bias, since it does not recur once the true
+//!    depth is bounded away from zero. **`ccdMPRPenetration` does not
+//!    converge to a shallower-than-true depth for this shape pair; if
+//!    anything the opposite.** So the 16-within-bound remainder's magnitude
+//!    disagreement is not explained by narrow-phase precision loss inside a
+//!    triangle pair FCL already examines. What is still open is whether
+//!    FCL's broad-phase/BVH traversal ever hands the narrow-phase a
+//!    *different, shallower* candidate triangle than this backend's own
+//!    exhaustive per-triangle search finds — a candidate-*selection*
+//!    question, not a numerical-precision one, and not answered by
+//!    anything above: it needs either FCL's BVH traversal order read
+//!    end-to-end for this pair (not done this round) or an oracle extension
+//!    exposing which triangle pair FCL's collision result actually names
+//!    (not requested here, for the same not-owning-`tools/moveit-oracle/`
+//!    reason as before).
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
