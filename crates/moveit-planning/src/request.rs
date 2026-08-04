@@ -16,6 +16,129 @@
 //! existing `PlanningRequest` (a concrete-state goal with RRT-Connect's own
 //! tuning fields), is the request type the adapters in this crate operate
 //! on.
+//!
+//! # D8 delta audit (round 21): every field of upstream `MotionPlanRequest`
+//!
+//! PORTING-PLAN.md §140 confirmed the deeper reason `moveit-planners-sbp`'s
+//! own `PlanningRequest`/`PlanningResponse` cannot simply relocate onto
+//! these types: the two pairs disagree in shape, not just name. This section
+//! is the field-by-field accounting D8 needs before that unification.
+//! `third_party/moveit_msgs/msg/MotionPlanRequest.msg` at the pinned commit
+//! has 16 fields, one line each below:
+//!
+//! - `workspace_parameters` (`WorkspaceParameters`) — ported as
+//!   [`PlanningRequest::workspace_bounds`] ([`WorkspaceBounds`], minus
+//!   `header`, D1).
+//! - `start_state` (`RobotState`) — distinct: expressed by mutating
+//!   [`moveit_scene::PlanningScene::current_state_mut`]/`set_current_state`
+//!   before the adapter chain runs, not carried as a request field —
+//!   matches upstream's own semantics (`definePlanningRequest.dox:19-20`:
+//!   unset joints default to the scene's current state), just relocated to
+//!   the scene the request is evaluated against rather than duplicated onto
+//!   the request itself.
+//! - `goal_constraints` (`Constraints[]`) — ported as
+//!   [`PlanningRequest::goal_constraints`] (`Vec<KinematicConstraintSet>`,
+//!   already-typed constraint sets in place of raw messages).
+//! - `path_constraints` (`Constraints`) — ported as
+//!   [`PlanningRequest::path_constraints`] (`Option<KinematicConstraintSet>`,
+//!   an empty message becomes `None`).
+//! - `trajectory_constraints` (`TrajectoryConstraints`) — ported as
+//!   [`PlanningRequest::trajectory_constraints`] (`Vec<KinematicConstraintSet>`,
+//!   from `TrajectoryConstraints::constraints: Vec<Constraints>`).
+//! - `reference_trajectories` (`GenericTrajectory[]`) — unported, in scope:
+//!   confirmed via `rg -n 'req\.|request\.' planning_pipeline.cpp` that
+//!   `generatePlan` itself never reads this field (only `trajectory_constraints`
+//!   and `planner_id` are), and no adapter or planner in this workspace
+//!   reads it either — relevant only to a reference-trajectory-seeded
+//!   optimizer (e.g. STOMP/CHOMP) that does not exist in this crate yet,
+//!   the same "not ported speculatively" reasoning the crate doc comment
+//!   already applies to planner-specific tuning fields.
+//! - `pipeline_id` (`string`) — unported, in scope: same reasoning —
+//!   `planning_pipeline.cpp` never reads it (it selects *among* pipelines, a
+//!   caller/orchestration concern), and this workspace has exactly one
+//!   pipeline.
+//! - `planner_id` (`string`) — ported as [`PlanningRequest::planner_id`].
+//! - `group_name` (`string`) — ported as [`PlanningRequest::group_name`].
+//! - `num_planning_attempts` (`int32`) — unported, in scope: not read by
+//!   `planning_pipeline.cpp` itself (confirmed by the same `rg` above);
+//!   consumed downstream by a `PlannerManager`'s own retry loop, which is
+//!   `moveit-planner-registry`'s concern once D8 lands, not this crate's.
+//! - `allowed_planning_time` (`float64`) — unported, in scope: same —
+//!   consumed by `PlanningContext::solve`'s own timeout, not by
+//!   `planning_pipeline.cpp` or any adapter here.
+//! - `max_velocity_scaling_factor` (`float64`) — ported as
+//!   [`PlanningRequest::max_velocity_scaling_factor`].
+//! - `max_acceleration_scaling_factor` (`float64`) — ported as
+//!   [`PlanningRequest::max_acceleration_scaling_factor`].
+//! - `cartesian_speed_limited_link` (`string`) — distinct: confirmed via
+//!   `rg -n 'LimitMaxCartesianLinkSpeed'` over the full `/home/stevek/work/moveit2`
+//!   checkout that no such request-adapter plugin exists anywhere upstream
+//!   at the pinned commit, despite the `.msg` file's own comment naming one
+//!   — the only real consumers of this field are `pilz_industrial_motion_planner`'s
+//!   own trajectory generators (`trajectory_generator_{circ,lin,polyline}.cpp`),
+//!   a specific planner plugin outside this crate's default-adapter-chain
+//!   scope entirely, not a `default_planning_request_adapters` plugin.
+//! - `max_cartesian_speed` (`float64`) — distinct: same reasoning as
+//!   `cartesian_speed_limited_link`, same pilz-only consumer.
+//! - `smoothness_level` (`float64`) — distinct: same reasoning, same
+//!   pilz-only consumer.
+//!
+//! Total: 8 ported, 4 distinct, 4 unported-in-scope = 16, matching the
+//! `.msg` field count exactly.
+//!
+//! # D8 delta audit: `moveit-planners-sbp::registry::PlanningRequest`/`PlanningResponse`
+//!
+//! Read-only (that file is `moveit-planners-sbp`'s, not this crate's — see
+//! `crates/moveit-planners-sbp/src/registry.rs:136-166`). Mapping each of
+//! its fields onto the canonical types above, in the three buckets D8 needs:
+//!
+//! **Missing from canonical, D8 must add:** none found this round beyond
+//! what round 20 already added (`trajectory_constraints`, `planner_id`) —
+//! every sbp-local field below either already has a canonical counterpart or
+//! is planner-tuning that canonical deliberately excludes (next bucket).
+//!
+//! **sbp-local-only, stays off `PlanningRequest` by design (not a gap):**
+//! `resolution` (`f64`, `DiscreteMotionValidator` bisection step),
+//! `seed` (`u64`, RNG seed), `params` (`RrtConnectParams`) — all three are
+//! RRT-Connect-specific tuning; the crate doc comment already documents why
+//! `PlanningRequest` deliberately excludes planner tuning (it belongs on
+//! each concrete `PlannerManager`-analogous type's own construction, not on
+//! a request shape meant to serve more than one planner algorithm). D8
+//! moves these onto `RrtConnectManager`'s own construction, not onto
+//! `PlanningRequest`.
+//!
+//! **Different representation, needs conversion — the actual D8 work:**
+//! - `goal: Vec<CompoundValue>` (one concrete joint-space state) versus
+//!   canonical [`PlanningRequest::goal_constraints`] (`Vec<KinematicConstraintSet>`,
+//!   a region). This is the gap PORTING-PLAN.md §140.2 names as the root
+//!   cause the two `PlanningRequest` types diverged in the first place.
+//!   `registry.rs`'s own module doc already records that closing it needs
+//!   two things, of which only the first exists today: (1) a constraint
+//!   sampler turning a region into candidate concrete states — ported, as
+//!   [`moveit_constraints::JointConstraintSampler`]/[`moveit_constraints::IkConstraintSamplerAdapter`]/
+//!   [`moveit_constraints::UnionConstraintSampler`] — and (2)
+//!   `crate::rrt_connect::rrt_connect` itself accepting something
+//!   `GoalSampleableRegion`-shaped instead of one fixed `S::State` — not
+//!   done. D8 depends on p1-robotmodel's in-flight `ConstraintSamplerManager`
+//!   wiring (PORTING-PLAN.md §140.2's stated precondition) landing first.
+//! - sbp-local `PlanningResponse::trajectory: Vec<RobotState<'m>>` (bare
+//!   waypoints) versus canonical [`crate::PlanningResponse::trajectory`]
+//!   (`RobotTrajectory<'m>`, one `duration_from_previous` per waypoint) —
+//!   mechanical, not a design question: `RobotTrajectory::new` +
+//!   `add_suffix_way_point(state, 0.0)` per waypoint reproduces the
+//!   bare-waypoint shape with an explicit zero/unset duration, exactly what
+//!   this crate's own response adapters
+//!   ([`crate::response_adapters::AddRuckigTrajectorySmoothing`]/
+//!   [`crate::response_adapters::AddTimeOptimalParameterization`]) already
+//!   expect to receive and fill in.
+//! - sbp-local response has no `planner_id`; canonical requires one — D8
+//!   either has `RrtConnectContext::solve` fill in `"rrt_connect"` directly,
+//!   or leaves it empty and relies on `crate::pipeline::generate_plan`'s
+//!   existing fallback from [`PlanningRequest::planner_id`]. Mechanical
+//!   addition, not a conversion of existing data.
+//! - `path_constraints: Option<KinematicConstraintSet>` and `group_name:
+//!   String` are already byte-for-byte the same type on both sides — no
+//!   conversion needed, direct reuse.
 
 use moveit_constraints::KinematicConstraintSet;
 use moveit_geometry::Vector3;
