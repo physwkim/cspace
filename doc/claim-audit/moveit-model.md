@@ -86,3 +86,29 @@ symbol-level completeness within each file (e.g. `link_model.rs`'s
 documented mesh-collision-shape and effort/acceleration-limit
 deviations, `PORTING-PLAN.md` §13.4 deviation 4 and `:1501`/`:3606`,
 already tracked there) — only that no whole file was silently dropped.
+
+## Test-assertion discrimination sweep (moveit-constraints round; recorded
+here for the `moveit-model` half)
+
+Not an upstream-claim row (no doc comment here claims anything about
+upstream) — recorded per the same table for continuity with the sibling
+finding in `moveit-constraints.md`. Anchor `is_err\(\)|is_none\(\)|unwrap_err\(\)`,
+swept workspace-wide, classified for this crate's hits: does any assertion
+sit next to a sibling branch producing a different error on the same
+call, so a bare `.is_err()` cannot identify which one fired?
+
+`robot_model.rs`'s `no_root_link_errors`/`multiple_root_links_errors`
+are sibling arms of the same `match root_candidates.as_slice()`
+(`:198-213`, `[]` vs `names`) but both only asserted `.is_err()`.
+Bite-checked: merged the two arms' messages into one shared string —
+both tests reddened (confirmed the merge, not just one arm, broke both),
+reverted, then applied the fix (each test now checks its own arm's
+message substring) and reran the same merge — both tests correctly
+reddened again. Every other `is_err()`/`is_none()`/`unwrap_err()` hit in
+this crate has exactly one reachable branch for its exercised input, or
+is a plain field-access `Option` (`JointModel::mimic()`) with no sibling
+reason to conflate — not this defect shape.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `robot_model.rs:2162,2171` (`no_root_link_errors`/`multiple_root_links_errors`) | Two sibling tests, each pinning a different arm of the same `match`, asserted only `.is_err()` | CONFIRMED same-defect, fixed | See sweep note above | `fe3bd82` |
