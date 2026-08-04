@@ -45,9 +45,12 @@
 //! `expected.gradient[0] = 0.4660254037844388` -- while `3e-16` and `1e-15`
 //! both pass; the binding point sits between `1e-16` and `3e-16`, matching a
 //! single ULP-scale gradient bucket. `TOL = 1e-12` keeps roughly four orders
-//! of margin above that measured binding point, the same margin used for
-//! `collision_common_distance_field_parity.rs`'s and
-//! `collision_env_distance_field_parity.rs`'s own bisected constants.
+//! of margin above that measured binding point. Re-bisected under
+//! `float_roundtrip` (PORTING-PLAN.md §115) to check for the fixture-parsing
+//! contamination that affected `collision_common_distance_field_parity.rs`'s
+//! and `collision_env_distance_field_parity.rs`'s own constants: this file's
+//! floor is unaffected -- `1e-16` still fails on the identical
+//! `0.466025403784439` vs `0.4660254037844388` pair, so `TOL` is unchanged.
 //!
 //! `max_relative = TOL` is passed explicitly alongside `epsilon = TOL` at
 //! every call below. Without it, `approx`'s `assert_relative_eq!` falls back
