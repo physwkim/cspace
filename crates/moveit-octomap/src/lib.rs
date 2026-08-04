@@ -568,20 +568,26 @@
 //! carries `resolution`/`clamping_thres_min`/`clamping_thres_max` as its
 //! own fields (needed by the binary-path reconstruction above). The actual
 //! gap was not representation, it was that **no decode function existed**
-//! -- closed round 33, [`OcTree::read_binary_data`]/[`OcTree::read_data`]
-//! (encode is still unported, see [`OcTree`]'s own audit). The decoder
-//! lives inside this crate (not e.g. `moveit-ros`), because it needs to
-//! call `Node::create_child` and set `log_odds` directly, and both are
-//! `pub(crate)`, not exported (`lib.rs`'s `pub use` list has neither
-//! `Node` nor a way to construct an [`OcTree`] from an already-built
-//! tree). A decoder would also need to reject `id !=
+//! -- closed round 33, [`OcTree::read_binary_data`]/[`OcTree::read_data`].
+//! The encode direction, deferred round 33 as out of brief, was ported this
+//! round too: [`OcTree::write_binary_data`]/[`OcTree::write_data`], pinned
+//! byte-for-byte against the oracle's own `serialize` output rather than
+//! only round-tripped through this crate's own decoder (see
+//! `tests/encode_parity.rs`). The decoder/encoder both live inside this
+//! crate (not e.g. `moveit-ros`), because they need `Node::create_child`/
+//! `Node::child`/`log_odds` directly, and all are `pub(crate)`, not
+//! exported (`lib.rs`'s `pub use` list has neither `Node` nor a way to
+//! construct an [`OcTree`] from an already-built tree). A decoder would
+//! also need to reject `id !=
 //! "OcTree"` (`"ColorOcTree"` is not ported, see "What was deliberately not
 //! ported" above) -- note this only matters for the `binary == false` path:
 //! `ColorOcTreeNode::writeData` appends 3 extra color bytes per node beyond
 //! `OcTreeDataNode::writeData`'s `f32`, but the `binary == true` path never
 //! touches node color at all, so a plain-`OcTree` binary decoder happens to
 //! read a `ColorOcTree`'s compact payload correctly regardless of `id`
-//! (structure-only, not verified for the full-data path).
+//! (structure-only, not verified for the full-data path). The encoder has
+//! no such concern at all: it only ever writes a plain `OcTree`'s own
+//! fields, never a `ColorOcTree`'s.
 //!
 //! **Size estimate, corrected (§161): state the unit, not just a number.**
 //! The paragraph below originally gave "~215 lines of upstream C++" from
