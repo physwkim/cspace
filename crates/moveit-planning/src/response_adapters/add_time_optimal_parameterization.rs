@@ -37,30 +37,31 @@
 //! [`moveit_trajectory::trajectory_tools::apply_totg_time_parameterization`]
 //! — already ported in `moveit-trajectory`, not re-implemented here.
 //!
-//! # Closes §123.2: `moveit-planners-stomp::fill_robot_trajectory`'s placeholder `dt`
+//! # History: this adapter no longer "closes" a STOMP gap
 //!
+//! An earlier round of this doc claimed this adapter closes a
 //! `moveit-planners-stomp::conversion_functions::fill_robot_trajectory`
-//! documents, in its own doc comment, that every waypoint after the first
-//! gets a placeholder `dt = 0.1` "matching upstream['s]... comment noting
-//! 'the actual timestep duration will be computed by a planner adapter
-//! after solving'" — and until this round, nothing in this workspace was
-//! that adapter. This module *is* that adapter: any
-//! [`crate::response::PlanningResponse::trajectory`] a STOMP-backed
-//! `PlanningContext::solve` produces (uniform placeholder `dt`s, per
-//! `fill_robot_trajectory`'s own contract) gets its waypoint durations
-//! overwritten by [`AddTimeOptimalParameterization::adapt`] with real
-//! time-optimal ones, the same as any other planner's response passing
-//! through this adapter. Proven by
-//! [`tests::closes_the_stomp_fill_robot_trajectory_placeholder_dt_gap`]
-//! below, not asserted: the test builds a trajectory with exactly
-//! `fill_robot_trajectory`'s documented shape (waypoint 0 at `dt = 0.0`,
-//! every later waypoint at the placeholder `dt = 0.1`) and checks that
-//! after `adapt` runs, the later waypoints' durations are no longer
-//! uniformly `0.1`. This crate does not depend on `moveit-planners-stomp`
-//! itself (it is not a `[workspace.dependencies]` entry — see the round
-//! report) — the test constructs the bug's exact documented shape directly
-//! instead of calling `fill_robot_trajectory`, so the regression is pinned
-//! without that dependency.
+//! placeholder-`dt` gap: that function used to hand back a `RobotTrajectory`
+//! with every waypoint after the first at an inert `dt = 0.1`, silently
+//! wrong unless something downstream reparameterized it. That is no longer
+//! how `fill_robot_trajectory` behaves — checked directly against
+//! `crates/moveit-planners-stomp/src/conversion_functions.rs`, not assumed
+//! from the old claim: it now returns `UnparameterizedTrajectory`, a type
+//! with no duration accessor at all, and the only way to obtain a real
+//! `RobotTrajectory` from it is `UnparameterizedTrajectory::into_uniformly_timed(dt)`,
+//! which requires the caller to name `dt` explicitly. There is no longer a
+//! placeholder `0.1` anywhere for a response adapter to overwrite — the fix
+//! landed at the source, by making the silently-wrong-value path
+//! unrepresentable, not by relying on a downstream consumer to catch it.
+//!
+//! [`AddTimeOptimalParameterization::adapt`]'s TOTG computation below is
+//! unchanged and still real general-purpose behavior — reparameterizing
+//! timing on whatever trajectory this crate's response chain sees, from any
+//! planner — it just no longer plays a STOMP-specific corrective role. See
+//! [`tests::totg_overwrites_a_uniform_placeholder_duration`] for a
+//! regression test that TOTG genuinely replaces a uniform, non-time-optimal
+//! duration profile with a real one; it no longer references STOMP's own
+//! (removed) placeholder shape.
 
 use moveit_collision::ParryCollisionEnv;
 use moveit_scene::PlanningScene;
@@ -179,6 +180,7 @@ mod tests {
             workspace_bounds: Default::default(),
             max_velocity_scaling_factor: 1.0,
             max_acceleration_scaling_factor: 1.0,
+            ..Default::default()
         }
     }
 
@@ -201,7 +203,10 @@ mod tests {
         let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
         trajectory.add_suffix_way_point(start, 0.0).unwrap();
         trajectory.add_suffix_way_point(goal, 0.0).unwrap();
-        let mut response = PlanningResponse { trajectory };
+        let mut response = PlanningResponse {
+            trajectory,
+            planner_id: String::new(),
+        };
 
         assert_eq!(adapter().description(), "AddTimeOptimalParameterization");
         adapter()
@@ -211,13 +216,14 @@ mod tests {
         assert!(response.trajectory.duration() > 0.0);
     }
 
-    /// See the module doc's "Closes §123.2" section. This trajectory is
-    /// built with exactly `moveit-planners-stomp::conversion_functions::
-    /// fill_robot_trajectory`'s own documented output shape: waypoint 0 at
-    /// `dt = 0.0`, every later waypoint at the placeholder `dt = 0.1` —
-    /// without depending on that crate (see the module doc for why).
+    /// See the module doc's "History" section — this no longer pins a live
+    /// STOMP gap (round 21 closed that at the source), it is a general
+    /// regression test that a uniform, non-time-optimal duration profile
+    /// (waypoint 0 at `dt = 0.0`, every later waypoint at a uniform
+    /// `dt = 0.1`, the shape any naive fixed-step discretization produces)
+    /// gets overwritten with real time-optimal durations.
     #[test]
-    fn closes_the_stomp_fill_robot_trajectory_placeholder_dt_gap() {
+    fn totg_overwrites_a_uniform_placeholder_duration() {
         let (model, srdf) = panda();
         let mut scene = PlanningScene::new(&model, &srdf);
         let env = ParryCollisionEnv::default();
@@ -231,17 +237,20 @@ mod tests {
             waypoint
                 .set_joint_positions("panda_joint1", &[0.05 * i as f64])
                 .unwrap();
-            // The exact placeholder `fill_robot_trajectory` emits for every
-            // waypoint after the first.
+            // A uniform, non-time-optimal duration profile — the shape any
+            // naive fixed-step discretization produces.
             trajectory.add_suffix_way_point(waypoint, 0.1).unwrap();
         }
         assert!(
             (1..trajectory.way_point_count())
                 .all(|i| trajectory.way_point_duration_from_previous(i) == 0.1),
-            "test setup must reproduce fill_robot_trajectory's placeholder dt exactly"
+            "test setup must produce a uniform dt = 0.1 profile exactly"
         );
 
-        let mut response = PlanningResponse { trajectory };
+        let mut response = PlanningResponse {
+            trajectory,
+            planner_id: String::new(),
+        };
         adapter()
             .adapt(&mut scene, &env, &request(), &mut response)
             .expect("a five-segment panda_arm move must reparameterize successfully");
@@ -250,8 +259,8 @@ mod tests {
             .all(|i| response.trajectory.way_point_duration_from_previous(i) == 0.1);
         assert!(
             !still_uniform_placeholder,
-            "AddTimeOptimalParameterization must overwrite fill_robot_trajectory's \
-             placeholder dt = 0.1 with real time-optimal durations, not leave it in place"
+            "AddTimeOptimalParameterization must overwrite a uniform dt = 0.1 profile \
+             with real time-optimal durations, not leave it in place"
         );
     }
 }
