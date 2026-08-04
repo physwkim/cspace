@@ -15918,3 +15918,82 @@ opt-level = 2`가 `e733f19`이고, 일회성 빌드 비용 +14초는 첫 테스�
 행도 "이 비용은 테스트가 아니라 빌드 설정에서 온다"를 말할 수 없다. 그것을
 말한 것은 한 테스트를 dev와 release 양쪽에서 **각각 재본** 한 번의 측정
 이었다. 표는 순위를 주고 원인은 대조가 준다.
+
+## §211 인용 하나가 소비자 열 개를 대변할 수 없다 — 상류 규칙 세 개를 한 규칙으로 덮은 라운드
+
+### §211.1 시작점: 워커의 근거는 맞았지만 그 근거가 닿는 곳이 하나였다
+
+p9-ros가 `4ff563d`에서 `ros/moveit-ros/src/geometry.rs`의
+`TryFrom<Quaternion> for UnitQuaternion` 문턱을 `norm <= f64::EPSILON`에서
+`|norm - 1.0| > 1e-3`으로 좁혔다. 근거로 든 것은
+`kinematic_constraint.cpp:609-615` — `OrientationConstraint::configure`가
+`fabs(q.norm() - 1.0) > 1e-3`을 "probably incorrect"로 보고 항등원으로
+치환하는 분기다. 그 인용 자체는 **확인했고 정확하다**. 같은 라운드의
+`cone_sides` 판정도 `:822-829`과 헤더 `:878`(`unsigned int cone_sides_;`)에서
+그대로 성립한다 — 상류 자신의 가드 순서가 int→unsigned 감김을 이미 막고
+있어서 `msg.cone_sides.max(0) as usize`는 정확히 옳다.
+
+문제는 근거가 아니라 **그 근거가 닿는 호출 지점의 수**였다. 이 impl의
+소비자는 열 개다. `configure`에 닿는 것은 그중 하나다.
+
+### §211.2 상류에는 규칙이 하나가 아니라 셋이다
+
+| 포트 지점 | 상류 도달 경로 | 상류 규칙 |
+|---|---|---|
+| `constraints/orientation.rs:85` | `OrientationConstraint::configure` :609-615 | `\|norm-1\|>1e-3` → 경고 후 항등원 치환 |
+| `constraints/position.rs:161` | `PositionConstraint::configure` :405-406, :433-434 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
+| `constraints/visibility.rs:114,115` | `VisibilityConstraint::configure` :845-846, :858-859 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
+| `scene/collision_object.rs:142,207,239,478,515` | `planning_scene.cpp` `utilities::poseMsgToEigen` | 무조건 `quaternion.normalize()` |
+| `scene/planning_scene.rs:147` | `planning_scene.cpp:1496` 같은 헬퍼 | 무조건 `quaternion.normalize()` |
+
+두 가지가 이 표를 만들었다.
+
+하나. **`ASSERT_ISOMETRY`는 검사처럼 보이지만 릴리스에서 아무것도 하지
+않는다.** `third_party/geometric_shapes`의 `check_isometry.h`에서 `NDEBUG`이면
+`(void)sizeof(transform);`로 전개된다. 아니면 `checkIsometry`를
+`Eigen::NumTraits<double>::dummy_precision()`(1e-12)로 부르고
+`assert(!"Invalid isometry transform")`으로 죽는다. 즉 이 세 지점에서
+출하되는 상류의 동작은 "검사 없음"이고, 디버그 상류의 동작은
+"1e-12에서 abort"다. 1e-3은 그 어느 쪽도 아니다.
+
+둘. **`planning_scene.cpp:76-82`의 `utilities::poseMsgToEigen`은 정규화가
+목적인 헬퍼다.** 독스트링이 "convert Pose msg to Eigen::Isometry,
+**normalizing the quaternion part if necessary**"이고 본문은 조건 없는
+`quaternion.normalize()`다. 여섯 지점이 여기로 간다. `norm == 2.0`은 상류가
+**의도적으로 받아들이는** 값이고, D14의 시험("상류가 의미를 정의하는가")이
+성립한다 — 정의된 의미가 "정규화한다"이다. 그 여섯 지점에 D6은 닿지 않는다.
+
+### §211.3 균일함이 목표가 아니었다
+
+이 라운드에서 처음에 떠오른 교정은 "경계에 규칙 하나"였다 — 이 문서가
+반복해서 선호해 온 형태다. 그것이 틀린 이유는 **상류가 균일하지 않기
+때문**이다. 균일한 규칙은 미러링하는 대상이 균일할 때만 기본값이다. 세
+규칙을 하나로 덮는 것은 정리가 아니라 동작 변경이고, 정리처럼 보이기
+때문에 리뷰를 통과한다.
+
+구조적 교정은 문턱을 옮기는 것이 아니라 **이중 의미를 없애는 것**이다.
+현재 `TryFrom<Quaternion>`은 한 지점에서 "방향 제약의 의심 규칙"을,
+아홉 지점에서 "일반 포즈 규칙"을 뜻한다. 각 상류 규칙에 자기 이름을 주고
+`Pose → Isometry3`가 어느 규칙을 적용하는지 호출자에게 보이게 해야 한다.
+p9-ros에 이 형태로 넘겼고, `ASSERT_ISOMETRY` 세 지점은 어느 규칙을
+택할지 **접지 말고 판정해서 근거와 함께 보고**하도록 명시했다.
+
+### §211.4 문서가 코드보다 먼저 낡았다
+
+`TryFrom<Pose> for Isometry3`의 독스트링은 `4ff563d` 이후에도 "Fails exactly
+when the embedded orientation does (`Quaternion::try_from`'s
+**zero/non-finite-norm** case)"라고 말한다. 이제 `norm == 2.0`에서도 실패한다.
+Pose 경로의 유일한 테스트 `pose_with_degenerate_orientation_fails`가 전부-0
+케이스만 덮고 있어서 — 즉 **낡은 문서가 말하는 그 케이스만** 덮고 있어서 —
+어긋남을 아무것도 잡지 못했다. 테스트가 문서와 같은 범위를 가지면 문서의
+낡음을 테스트로 검출할 수 없다.
+
+### §211.5 규칙
+
+**공유 헬퍼의 상류 규칙을 인용하기 전에 소비자를 센다.** 인용 하나에
+소비자 열이면 그 자체가 신호다. 헬퍼는 호출자 하나가 시야에 있는 동안
+쓰이고, 그 호출자의 상류 규칙이 헬퍼의 규칙으로 기록된다. 이후의 모든
+호출자는 누구도 자기 몫으로 다시 유도하지 않은 정당화를 상속한다.
+
+**가드의 문턱이 매크로에서 오면 매크로를 연다.** `ASSERT_ISOMETRY`는
+검사처럼 읽히고 릴리스에서 `(void)sizeof(x)`로 컴파일된다.
