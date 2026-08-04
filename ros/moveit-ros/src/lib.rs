@@ -62,6 +62,10 @@
 //! implemented for arbitrary types`) were both run inside `ros/`'s
 //! container -- see this round's report for the exact command and output.
 
+pub mod constraints;
 pub mod geometry;
+pub mod planning;
+pub mod state;
+pub mod trajectory;
 
 pub use moveit_error::{Error, Result};
