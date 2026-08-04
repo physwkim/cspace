@@ -49,15 +49,15 @@ for manifest in "${manifests[@]}"; do
   # awk emits one `<member> <line>` record per offending declaration. The
   # sub-table form is only reported once its whole table has been read,
   # because `workspace = true` inside it is the accepted spelling too.
-  while IFS= read -r record; do
-    m="${record%% *}"
-    line="${record#* }"
-    echo "$manifest: '$m' is a workspace member declared inline:" >&2
-    echo "    $line" >&2
-    echo "  Add it to [workspace.dependencies] in the root Cargo.toml and" >&2
-    echo "  write '$m.workspace = true' here." >&2
-    status=1
-  done < <(
+  #
+  # Checked substitution, not `done < <(printf ... | awk ... "$manifest")`:
+  # process substitution discards the producer's exit status, so an awk
+  # read/parse failure on `$manifest` would drive zero loop iterations --
+  # zero inline-dependency findings -- and this manifest would report clean
+  # having examined nothing. An empty `$records` here-strings one blank
+  # line, which the `-n` guard below skips, so the genuinely-clean case is
+  # unaffected.
+  if ! records="$(
     printf '%s\n' "${members[@]}" |
     awk '
       NR == FNR { member[$0] = 1; next }
@@ -100,7 +100,21 @@ for manifest in "${manifests[@]}"; do
 
       END { flush_subtable() }
     ' - "$manifest"
-  )
+  )"; then
+    echo "$manifest: inline-dependency scan failed -- nothing was checked for this manifest" >&2
+    status=1
+    continue
+  fi
+  while IFS= read -r record; do
+    [ -n "$record" ] || continue
+    m="${record%% *}"
+    line="${record#* }"
+    echo "$manifest: '$m' is a workspace member declared inline:" >&2
+    echo "    $line" >&2
+    echo "  Add it to [workspace.dependencies] in the root Cargo.toml and" >&2
+    echo "  write '$m.workspace = true' here." >&2
+    status=1
+  done <<<"$records"
 done
 
 if [ "$status" -ne 0 ]; then

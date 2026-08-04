@@ -61,10 +61,23 @@ for manifest in "${manifests[@]}"; do
     fi
   fi
 
-  mapfile -t sources < <(git ls-files -- "$crate_dir/*.rs" | sort)
-  if [ "${#sources[@]}" -eq 0 ]; then
+  # Checked substitution, not `mapfile -t sources < <(git ls-files ... | sort)`:
+  # process substitution discards the producer's exit status, so a broken
+  # `git ls-files` (the same `.git`-less-export scenario that broke
+  # check-audit-scripts-not-copied.sh) would be indistinguishable from "this
+  # crate genuinely has no .rs files" -- both silently `continue` past the
+  # crate with no diagnostic. The genuinely-empty case is still a silent
+  # `continue`, unchanged: a manifest-only crate legitimately has nothing to
+  # check here.
+  if ! sources_raw="$(git ls-files -- "$crate_dir/*.rs" | sort)"; then
+    echo "$manifest: git ls-files failed for $crate_dir -- nothing was checked" >&2
+    status=1
     continue
   fi
+  if [ -z "$sources_raw" ]; then
+    continue
+  fi
+  mapfile -t sources <<<"$sources_raw"
 
   ids=()
   missing=0
