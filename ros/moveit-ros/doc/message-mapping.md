@@ -425,19 +425,32 @@ planner-selection/tuning concerns — this is a pre-existing, documented
 design choice in `moveit-planning`, not something this round's conversion
 invented.
 
+**[R3 CORRECTION]** `p1-fixtures` round 20 added
+`PlanningRequest::{trajectory_constraints, planner_id}` and
+`PlanningResponse::planner_id` to `moveit-planning` after this round's
+round 2 was written — round 2's `..Default::default()`/`Error::other`
+handling of `MotionPlanRequest.trajectory_constraints` (and the
+then-correct "no field" claim for `planner_id`) went stale in the same
+merge and broke this crate's build (round 3 item 0, fixed with its own
+commit; `ros/moveit-ros` is outside the root workspace, D5, so no gate
+saw the two crates disagree until a round-3 brief ran
+`verify-ros-interop.sh` by hand). The table below is corrected to match
+current `moveit-planning`.
+
 | `MotionPlanRequest` field | `PlanningRequest` field | 1:1? |
 |---|---|---|
 | `workspace_parameters: WorkspaceParameters{header, min_corner, max_corner}` | `workspace_bounds: WorkspaceBounds{min_corner, max_corner}` | `header` dropped (metadata, same treatment as §1); `min_corner`/`max_corner` via §1's `Vector3` conversion (total) |
 | `start_state: RobotState` | **no field** | **Rejected, not dropped**, if non-default (per D6): assuming a different start state than the one requested would change what the plan actually solves for — same reasoning as §9's `is_diff`/`attached_collision_objects` guards, applied one level up |
 | `goal_constraints: Constraints[]` | `goal_constraints: Vec<KinematicConstraintSet>` | via §8's `Constraints` conversion per element |
 | `path_constraints: Constraints` (single, wire has no "unset" state — an all-empty `Constraints` is the convention) | `path_constraints: Option<KinematicConstraintSet>` | an all-4-arrays-empty `Constraints` maps to `None`; anything else via §8 |
-| `trajectory_constraints: TrajectoryConstraints` | **no field** | **Rejected if non-empty** — real waypoint-constraint content with nowhere to go |
+| `trajectory_constraints: TrajectoryConstraints{constraints: Constraints[]}` | `trajectory_constraints: Vec<KinematicConstraintSet>` | **[R3]** now representable — mapped via §8's `Constraints` conversion per element, exactly like `goal_constraints` above, just a different field |
 | `reference_trajectories: GenericTrajectory[]` | **no field** | **Rejected if non-empty** — real seed-trajectory content with nowhere to go |
-| `pipeline_id`/`planner_id`/`num_planning_attempts`/`allowed_planning_time`/`cartesian_speed_limited_link`/`max_cartesian_speed`/`smoothness_level` | **no field** | **Dropped, not rejected** — planner-orchestration metadata, no invariant a dropped tuning knob could violate, same documented-scope reasoning as `PlanningRequest`'s own doc comment on planner-specific tuning |
+| `planner_id: string` | `planner_id: String` | **[R3]** now representable — mapped directly (`""` = unset on both sides) |
+| `pipeline_id`/`num_planning_attempts`/`allowed_planning_time`/`cartesian_speed_limited_link`/`max_cartesian_speed`/`smoothness_level` | **no field** | **Dropped, not rejected** — planner-orchestration metadata, no invariant a dropped tuning knob could violate, same documented-scope reasoning as `PlanningRequest`'s own doc comment on planner-specific tuning |
 | `group_name: string` | `group_name: String` | yes |
 | `max_velocity_scaling_factor`/`max_acceleration_scaling_factor: float64` | same names | yes |
 
-`MotionPlanResponse` vs. `moveit_planning::PlanningResponse{ trajectory: RobotTrajectory<'m> }`:
+`MotionPlanResponse` vs. `moveit_planning::PlanningResponse{ trajectory: RobotTrajectory<'m>, planner_id: String }`:
 
 | `MotionPlanResponse` field | `PlanningResponse` field | 1:1? |
 |---|---|---|
@@ -446,3 +459,4 @@ invented.
 | `trajectory: moveit_msgs/RobotTrajectory` | `trajectory: RobotTrajectory<'m>` | via §10's `RobotTrajectoryMsg`/`RobotTrajectoryMsgOut` (rejects non-empty `multi_dof_joint_trajectory`) |
 | `planning_time: float64` | **no field** | dropped |
 | `error_code: MoveItErrorCodes` | **no field** (`PlanningResponse`'s own doc comment: `error_code` is this crate's `Result` return instead — a `PlanningResponse` value only ever exists once a solve already succeeded) | msg→core: dropped (a `PlanningResponse` cannot represent a failure `error_code` at all — a message carrying a failure code has to be handled by the caller *before* attempting this `TryFrom`, not by it); core→msg: synthesizes `SUCCESS` (`val=1`), since a `PlanningResponse` value existing at all already implies success |
+| **no field** | `planner_id: String` | **[R3, genuine gap the other direction]** `moveit-planning`'s own doc comment on `PlanningResponse::planner_id` claims it matches "an unset `moveit_msgs::msg::MotionPlanResponse::planner_id`" — checked against both `third_party/moveit_msgs/msg/MotionPlanResponse.msg` and the r2r-generated struct (fields: `trajectory_start`/`group_name`/`trajectory`/`planning_time`/`error_code` only): **`MotionPlanResponse` has no `planner_id` field at all.** This is a core-only field with nowhere on *this* message to go — msg→core always produces `""`; core→msg always drops it, regardless of what the `PlanningResponse` value carries. Named here as a documentation correction for `moveit-planning`'s owner, not worked around by inventing a wire field. |
