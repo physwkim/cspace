@@ -99,12 +99,25 @@ fi
 # separate "test result:" line, and a unit-test run filtered down to
 # nothing must not hide behind an unrelated doctest count that happens to
 # be nonzero.
-unit_summary="$(sed -n '1,/^   Doc-tests/p' <<<"$test_output" | grep -E '^test result: ' | tail -1)"
+#
+# `|| true` on both assignments below: under this script's own `set -e` and
+# `pipefail`, `grep`'s legitimate "no match" exit (1) propagates to the whole
+# pipeline and aborts the assignment before the `-z` check that follows it
+# ever runs -- the same `test_status=$?` shape 48ef7ce closed, reappearing
+# through pipefail instead of `$?`. Round 18's sweep found it: a unit-test run
+# filtered down to nothing produced no diagnostic at all, not even this
+# file's own "could not find..." message below, because the script had
+# already died one line above it.
+unit_summary="$(sed -n '1,/^   Doc-tests/p' <<<"$test_output" | grep -E '^test result: ' | tail -1 || true)"
 if [[ -z "$unit_summary" ]]; then
   echo "FAIL could not find the unit-test 'test result:' line in cargo test's output -- nothing was checked." >&2
   exit 1
 fi
-actual_tests="$(grep -oE '[0-9]+ passed' <<<"$unit_summary" | grep -oE '^[0-9]+')"
+actual_tests="$(grep -oE '[0-9]+ passed' <<<"$unit_summary" | grep -oE '^[0-9]+' || true)"
+if [[ -z "$actual_tests" ]]; then
+  echo "FAIL could not parse a passing-test count out of: $unit_summary" >&2
+  exit 1
+fi
 if [[ "$actual_tests" -ne "$expected_tests" ]]; then
   echo "FAIL cargo test reported $actual_tests passing unit test(s) but ros/moveit-ros/src has $expected_tests '#[test]' function(s)." >&2
   echo "FAIL a stray #[cfg], a filter, or a renamed module silently dropped $((expected_tests - actual_tests)) of them from the run." >&2

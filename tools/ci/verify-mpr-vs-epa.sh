@@ -49,10 +49,23 @@ LIBCCD_SRC="$LIBCCD_SRC" ./tools/mpr-vs-epa/build.sh >/dev/null
 # The Rust side prints the reconstructed geometry on stdout and its own EPA
 # depth on stderr; both are checked, because a reconstruction that silently
 # changed would otherwise feed libccd different inputs and still "agree".
-epa_line="$(cargo run --release --example case104_mpr_input -p moveit-collision \
+#
+# `cargo run` as its own statement, not chained with `&&` inside the
+# `epa_line=` substitution: chained, a `cargo run` that succeeds but whose
+# stderr no longer contains "EPA depth=" makes `grep` the pipeline's exit
+# status, which under this script's own `set -e`/`pipefail` aborts *at the
+# assignment* -- before python's `one()` below, which exists specifically to
+# print "FAIL could not read EPA depth from: ..." for exactly this case, ever
+# runs. Round 18's sweep found it: the same `test_status=$?`-shape dead
+# handler 48ef7ce closed in ros/verify-ros-interop.sh, here via `&&` instead
+# of `$?`. Splitting the statements gives `cargo run` its own honest abort
+# (a real build/run failure still stops the script, with cargo's own output
+# already on screen) and lets a merely-absent "EPA depth=" line reach the
+# handler that was written for it.
+cargo run --release --example case104_mpr_input -p moveit-collision \
   2>"$REPO_ROOT/tools/mpr-vs-epa/build/epa.txt" \
-  >"$REPO_ROOT/tools/mpr-vs-epa/build/geometry.txt" && \
-  grep -F 'EPA depth=' "$REPO_ROOT/tools/mpr-vs-epa/build/epa.txt")"
+  >"$REPO_ROOT/tools/mpr-vs-epa/build/geometry.txt"
+epa_line="$(grep -F 'EPA depth=' "$REPO_ROOT/tools/mpr-vs-epa/build/epa.txt" || true)"
 
 mpr_line="$(./tools/mpr-vs-epa/build/mpr_case104 <"$REPO_ROOT/tools/mpr-vs-epa/build/geometry.txt")"
 

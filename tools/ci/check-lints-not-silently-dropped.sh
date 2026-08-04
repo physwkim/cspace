@@ -69,6 +69,18 @@ for manifest in "${manifests[@]}"; do
   # groups -- a crate that defines neither table is the worst case, not an
   # exempt one, so this is not conditional on the table existing.
   for group in rust clippy; do
+    # Checked substitution, not `done < <(workspace_keys "$group")`: process
+    # substitution discards the producer's exit status, so a `workspace_keys`
+    # failure would drive zero loop iterations -- zero per-key checks, no
+    # diagnostic -- and this manifest's group would report clean having
+    # examined nothing. The already-empty case (flagged above at line 52) is
+    # unaffected: an empty `$keys` here-strings one blank line, which the
+    # `-n` guard below already skips.
+    if ! keys="$(workspace_keys "$group")"; then
+      echo "$manifest: workspace_keys $group failed -- nothing was checked for this group" >&2
+      status=1
+      continue
+    fi
     while IFS= read -r key; do
       [ -n "$key" ] || continue
       if ! crate_keys "$manifest" "$group" | grep -qx "$key"; then
@@ -77,7 +89,7 @@ for manifest in "${manifests[@]}"; do
         echo "  Restate it (relaxing the value if that is the intent, with the reason)." >&2
         status=1
       fi
-    done < <(workspace_keys "$group")
+    done <<<"$keys"
   done
 done
 
