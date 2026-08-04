@@ -1,7 +1,5 @@
 // Copyright (c) 2008, Willow Garage, Inc.
 // Copyright (c) 2012, Willow Garage, Inc.
-// Copyright (c) 2007, Ruben Smits
-// Copyright (c) 2013, Sachin Chitta, Willow Garage
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
@@ -10,9 +8,11 @@
 //   moveit_core/kinematics_base/src/kinematics_base.cpp
 //   moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp
 //   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/kdl_kinematics_plugin.hpp
-//   moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp
-//   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.hpp
 //   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/joint_mimic.hpp
+// See the module doc's "Why this file stays BSD-3-Clause" section for
+// chainiksolver_vel_mimic_svd.{hpp,cpp}, the LGPL-2.1-or-later source this
+// crate's velocity solve (`velocity.rs`) plays the role of instead of
+// porting.
 
 //! Numeric inverse kinematics for moveit-rs.
 //!
@@ -52,6 +52,28 @@
 //! `initialize(node, robot_model, group_name, base_frame, tip_frames,
 //! search_discretization)` becomes a plain constructor taking the model, the
 //! group name and a [`SolverParams`].
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! moveit2 vendors `KDL::ChainIkSolverVelMimicSVD`
+//! (`chainiksolver_vel_mimic_svd.{hpp,cpp}`) inside its own
+//! `moveit_kinematics/kdl_kinematics_plugin/` tree, cited the same way as
+//! this crate's legitimately-BSD `kdl_kinematics_plugin.{hpp,cpp}` and
+//! `kinematics_base.{hpp,cpp}` citations above — but that one vendored file
+//! keeps its own original header: `Copyright (C) 2007 Ruben Smits`,
+//! `URL: http://www.orocos.org/kdl`, LGPL-2.1-or-later, modified for mimic
+//! joints under `Copyright (C) 2013 Sachin Chitta, Willow Garage` inside
+//! that same LGPL file — heavier copyleft than this workspace's
+//! BSD-3-Clause. A moveit2 file's citation *path* does not say which
+//! license applies; only its own header does.
+//!
+//! `velocity.rs`'s mimic-fold/velocity-solve plays the role of that file's
+//! `CartToJnt` without transcribing it — see that module's own doc comment
+//! for the derivation. What this crate's audit below reuses from
+//! `chainiksolver_vel_mimic_svd.{hpp,cpp}` is exclusively *interface
+//! facts*: which upstream method name a Rust item corresponds to (a
+//! pointer for cross-reference, not expression) and the 6-row
+//! linear/angular twist convention every caller must already agree on.
 //!
 //! # Position-only IK and joint limits are modes, not solvers
 //!
@@ -146,10 +168,12 @@
 //!   through a second entry point.
 //! - `CartToJnt(FrameVel, JntArrayVel&)` — upstream itself returns `-1`
 //!   ("not yet implemented"); nothing to port.
-//! - `CartToJnt(JntArray, Twist, JntArray&, weights)` — ported as
-//!   `velocity::solve_velocity`.
-//! - `jacToJacReduced` — ported as `velocity::fold_jacobian`; the inverse
-//!   qdot-expansion loop is ported as `velocity::expand_to_full`.
+//! - `CartToJnt(JntArray, Twist, JntArray&, weights)` — plays the role of
+//!   `velocity::solve_velocity`, independently derived rather than
+//!   transcribed (see that module's own "Why this file stays BSD-3-Clause"
+//!   section — its source is LGPL-2.1-or-later).
+//! - `jacToJacReduced` — re-derived as `velocity::fold_jacobian`; the
+//!   inverse qdot-expansion loop is re-derived as `velocity::expand_to_full`.
 //! - `isPositionOnly` — ported inline as
 //!   `params.orientation_weight() == 0.0` at `cart_to_jnt`'s call site,
 //!   not a standalone method, since [`SolverParams::position_only`]
