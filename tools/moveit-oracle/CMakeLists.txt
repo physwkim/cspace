@@ -27,6 +27,11 @@ find_package(kdl_parser REQUIRED)
 # is the exception to the "no ROS node" rule the comment above describes.
 find_package(rclcpp REQUIRED)
 find_package(pluginlib REQUIRED)
+# For the plan op's OMPL RRTConnect baseline (Phase 7's completion condition).
+# ompl ships as a prebuilt ROS package in the base image, so this adds nothing
+# to MOVEIT2_PACKAGES -- see oracle.cpp's `plan()` for why it links plain OMPL
+# rather than moveit_planners_ompl.
+find_package(ompl REQUIRED)
 
 add_executable(moveit_oracle
   src/oracle.cpp
@@ -64,14 +69,16 @@ target_link_libraries(moveit_oracle
     kdl_parser::kdl_parser
     rclcpp::rclcpp
     pluginlib::pluginlib
+    ${OMPL_LIBRARIES}
 )
 # octomap ships old-style CMake variables (OCTOMAP_INCLUDE_DIRS/LIBRARIES),
-# not an imported target, per its own octomap-config.cmake. orocos_kdl is the
-# same shape.
+# not an imported target, per its own octomap-config.cmake. orocos_kdl and
+# ompl are the same shape.
 target_include_directories(moveit_oracle PRIVATE
   ${random_numbers_INCLUDE_DIRS}
   ${OCTOMAP_INCLUDE_DIRS}
   ${orocos_kdl_INCLUDE_DIRS}
+  ${OMPL_INCLUDE_DIRS}
 )
 
 install(TARGETS moveit_oracle RUNTIME DESTINATION bin)

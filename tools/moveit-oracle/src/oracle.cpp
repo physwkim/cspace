@@ -20,6 +20,8 @@
 // /clock.
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -84,6 +86,28 @@
 // rclcpp::Node -- see the file header above and that op's own comment.
 #include <pluginlib/class_loader.hpp>
 #include <rclcpp/rclcpp.hpp>
+
+// The `plan` op's C++ baseline planner. Plain OMPL, not
+// moveit_planners_ompl: OMPL 1.7 is already in the base image (headers,
+// libompl.so and omplConfig.cmake all under /opt/ros/${ROS_DISTRO}), so this
+// costs no widening of MOVEIT2_PACKAGES, whereas moveit_planners_ompl would
+// pull moveit_ros_planning and its rclcpp/tf2_ros tree into the colcon build.
+// See `plan()`'s own comment for what that choice does and does not buy.
+#include <ompl/base/PlannerTerminationCondition.h>
+#include <ompl/base/ProblemDefinition.h>
+#include <ompl/base/ScopedState.h>
+#include <ompl/base/SpaceInformation.h>
+#include <ompl/base/StateValidityChecker.h>
+#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/base/spaces/SO2StateSpace.h>
+#include <ompl/base/spaces/SO3StateSpace.h>
+#include <ompl/geometric/PathGeometric.h>
+#include <ompl/geometric/planners/rrt/RRTConnect.h>
+#include <ompl/util/Console.h>
+#include <ompl/util/RandomNumbers.h>
+
+#include <moveit/robot_model/floating_joint_model.hpp>
+#include <moveit/robot_model/planar_joint_model.hpp>
 
 using json = nlohmann::json;
 
@@ -489,6 +513,300 @@ moveit_msgs::msg::Constraints constraintsMsgFromJson(const json& spec)
   return msg;
 }
 
+namespace ob = ompl::base;
+namespace og = ompl::geometric;
+
+/// `UNBOUNDED_TRANSLATION_HALF_EXTENT` in `moveit-planners-sbp`'s
+/// `joint_model_group_space.rs`, restated here because the two sides have to
+/// substitute the *same* half-extent for a non-finite translation bound or
+/// their spaces are not the same space. See that constant's own doc comment
+/// for why a substitution is needed at all.
+constexpr double PLAN_UNBOUNDED_TRANSLATION_HALF_EXTENT = 10.0;
+
+/// `bounded_axis` in the same file: the joint's own bounds when both are
+/// finite, the fixed half-extent either side of zero otherwise.
+std::pair<double, double> planBoundedAxis(const moveit::core::VariableBounds& bounds)
+{
+  if (std::isfinite(bounds.min_position_) && std::isfinite(bounds.max_position_))
+    return { bounds.min_position_, bounds.max_position_ };
+  return { -PLAN_UNBOUNDED_TRANSLATION_HALF_EXTENT, PLAN_UNBOUNDED_TRANSLATION_HALF_EXTENT };
+}
+
+/// Where one OMPL subspace of the `plan` op's state space reads and writes in
+/// a `RobotState`'s flat variable array -- `SubspaceSlot` in
+/// `joint_model_group_space.rs`, mirrored one for one including that type's
+/// split of a planar joint into three independent subspaces.
+struct PlanSubspaceSlot
+{
+  enum class Kind
+  {
+    RealVector,  ///< one variable
+    So2,         ///< one variable
+    Se3,         ///< seven: trans x/y/z then rot x/y/z/w, `FloatingJointModel` order
+  };
+  Kind kind;
+  std::array<int, 7> variables{};
+};
+
+/// The distance `ompl::base::SO3StateSpace` reports for a rotation of known
+/// angle `PI/2` -- measured, not assumed.
+///
+/// `moveit-planners-sbp`'s `Se3Space::distance` weights the *full* rotation
+/// angle (its `rotation_distance` is an atan2 chord form of `2*acos(|dot|)`;
+/// see that function's own comment for the halved-angle bug that convention
+/// once caused there). An SO3 subspace mirroring it therefore needs weight
+/// `angular_distance_weight * (PI/2) / so3DistanceOfQuarterTurn()`. OMPL's
+/// header declares `distance` without documenting its formula and this image
+/// ships no OMPL `.cpp`, so the factor is read off the linked library at run
+/// time and reported back in the response (`space.so3_quarter_turn_distance`)
+/// rather than hard-coded from a reading of source that is not present here.
+double so3DistanceOfQuarterTurn()
+{
+  auto so3 = std::make_shared<ob::SO3StateSpace>();
+  ob::State* a = so3->allocState();
+  ob::State* b = so3->allocState();
+  a->as<ob::SO3StateSpace::StateType>()->setIdentity();
+  auto* qb = b->as<ob::SO3StateSpace::StateType>();
+  qb->x = 0.0;
+  qb->y = 0.0;
+  qb->z = std::sin(M_PI / 4.0);
+  qb->w = std::cos(M_PI / 4.0);
+  const double d = so3->distance(a, b);
+  so3->freeState(a);
+  so3->freeState(b);
+  return d;
+}
+
+/// The OMPL mirror of one `JointModelGroupSpace`, plus the per-subspace
+/// description echoed back so the Rust side can assert the two constructions
+/// agree without having to trust this one.
+struct PlanSpace
+{
+  ob::StateSpacePtr space;
+  std::vector<PlanSubspaceSlot> layout;
+  json description;
+  double so3_quarter_turn_distance = 0.0;
+};
+
+/// Builds `JointModelGroupSpace::new(model, group->getName())`'s OMPL twin.
+///
+/// Dispatch and weights follow that constructor exactly: bounded revolute and
+/// prismatic to a one-axis `RealVectorStateSpace` weighted `1/(max-min)`,
+/// continuous revolute to `SO2StateSpace` weighted `1/(2*PI)`, planar to
+/// `x`/`y` real axes plus a `theta` SO2 weighted
+/// `angular_distance_weight/(2*PI)`, floating to a
+/// `RealVectorStateSpace(3) + SO3StateSpace` compound weighted `1/extent`
+/// with `extent = |translation ranges| + PI/2 * angular_distance_weight`.
+/// A fixed or mimic joint contributes nothing on either side --
+/// `getActiveJointModels()` already excludes both.
+PlanSpace buildPlanSpace(const moveit::core::JointModelGroup* group)
+{
+  PlanSpace out;
+  out.so3_quarter_turn_distance = so3DistanceOfQuarterTurn();
+  out.description = json::array();
+  auto compound = std::make_shared<ob::CompoundStateSpace>();
+
+  const auto add_real_axis = [&](const std::string& joint_name, const moveit::core::VariableBounds& bounds,
+                                 int variable) {
+    const auto [min, max] = planBoundedAxis(bounds);
+    auto axis = std::make_shared<ob::RealVectorStateSpace>(1);
+    ob::RealVectorBounds axis_bounds(1);
+    axis_bounds.setLow(0, min);
+    axis_bounds.setHigh(0, max);
+    axis->setBounds(axis_bounds);
+    const double weight = 1.0 / (max - min);
+    compound->addSubspace(axis, weight);
+    out.layout.push_back({ PlanSubspaceSlot::Kind::RealVector, { variable } });
+    out.description.push_back(json{ { "joint", joint_name },
+                                    { "type", "real_vector" },
+                                    { "weight", weight },
+                                    { "bounds", json::array({ min, max }) } });
+  };
+
+  const auto add_so2 = [&](const std::string& joint_name, double weight, int variable) {
+    compound->addSubspace(std::make_shared<ob::SO2StateSpace>(), weight);
+    out.layout.push_back({ PlanSubspaceSlot::Kind::So2, { variable } });
+    out.description.push_back(json{ { "joint", joint_name }, { "type", "so2" }, { "weight", weight } });
+  };
+
+  for (const moveit::core::JointModel* joint : group->getActiveJointModels())
+  {
+    const int first = joint->getFirstVariableIndex();
+    const std::vector<moveit::core::VariableBounds>& bounds = joint->getVariableBounds();
+
+    switch (joint->getType())
+    {
+      case moveit::core::JointModel::REVOLUTE:
+        if (static_cast<const moveit::core::RevoluteJointModel*>(joint)->isContinuous())
+          add_so2(joint->getName(), 1.0 / (2.0 * M_PI), first);
+        else
+          add_real_axis(joint->getName(), bounds[0], first);
+        break;
+
+      case moveit::core::JointModel::PRISMATIC:
+        add_real_axis(joint->getName(), bounds[0], first);
+        break;
+
+      case moveit::core::JointModel::PLANAR:
+      {
+        add_real_axis(joint->getName(), bounds[0], first);
+        add_real_axis(joint->getName(), bounds[1], first + 1);
+        const double angular_weight =
+            static_cast<const moveit::core::PlanarJointModel*>(joint)->getAngularDistanceWeight();
+        add_so2(joint->getName(), angular_weight / (2.0 * M_PI), first + 2);
+        break;
+      }
+
+      case moveit::core::JointModel::FLOATING:
+      {
+        const double angular_weight =
+            static_cast<const moveit::core::FloatingJointModel*>(joint)->getAngularDistanceWeight();
+
+        auto translation = std::make_shared<ob::RealVectorStateSpace>(3);
+        ob::RealVectorBounds translation_bounds(3);
+        double squared_extent = 0.0;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+          const auto [min, max] = planBoundedAxis(bounds[axis]);
+          translation_bounds.setLow(axis, min);
+          translation_bounds.setHigh(axis, max);
+          squared_extent += (max - min) * (max - min);
+        }
+        translation->setBounds(translation_bounds);
+        const double extent = std::sqrt(squared_extent) + M_PI * 0.5 * angular_weight;
+
+        // Not `ob::SE3StateSpace`: that type fixes its own rotation weight at
+        // 1.0 against OMPL's SO3 distance convention, which is not the
+        // full-angle convention `Se3Space::distance` uses. Composing the two
+        // subspaces here is what lets the rotation weight be the calibrated
+        // `angular_distance_weight` the Rust side actually applies.
+        auto se3 = std::make_shared<ob::CompoundStateSpace>();
+        const double rotation_weight = angular_weight * (M_PI / 2.0) / out.so3_quarter_turn_distance;
+        se3->addSubspace(translation, 1.0);
+        se3->addSubspace(std::make_shared<ob::SO3StateSpace>(), rotation_weight);
+
+        compound->addSubspace(se3, 1.0 / extent);
+        out.layout.push_back({ PlanSubspaceSlot::Kind::Se3,
+                               { first, first + 1, first + 2, first + 3, first + 4, first + 5, first + 6 } });
+        out.description.push_back(json{ { "joint", joint->getName() },
+                                        { "type", "se3" },
+                                        { "weight", 1.0 / extent },
+                                        { "rotation_weight", rotation_weight },
+                                        { "angular_distance_weight", angular_weight } });
+        break;
+      }
+
+      default:
+        throw std::runtime_error("plan: joint " + joint->getName() + " has a type this op does not build a space for");
+    }
+  }
+
+  out.space = compound;
+  return out;
+}
+
+/// Writes an OMPL state into `robot_state`'s variables, then `update()`s it.
+///
+/// `setVariablePosition(index, value)` rather than a write through
+/// `getVariablePositions()`: the latter hands out a raw `double*` and leaves
+/// the dirty-transform bookkeeping to the caller, so a subsequent `update()`
+/// can legitimately decide there is nothing to recompute.
+void planStateToRobotState(const ob::State* state, const std::vector<PlanSubspaceSlot>& layout,
+                           moveit::core::RobotState& robot_state)
+{
+  const auto* compound = state->as<ob::CompoundState>();
+  for (std::size_t i = 0; i < layout.size(); ++i)
+  {
+    const PlanSubspaceSlot& slot = layout[i];
+    switch (slot.kind)
+    {
+      case PlanSubspaceSlot::Kind::RealVector:
+        robot_state.setVariablePosition(slot.variables[0],
+                                        compound->as<ob::RealVectorStateSpace::StateType>(i)->values[0]);
+        break;
+      case PlanSubspaceSlot::Kind::So2:
+        robot_state.setVariablePosition(slot.variables[0], compound->as<ob::SO2StateSpace::StateType>(i)->value);
+        break;
+      case PlanSubspaceSlot::Kind::Se3:
+      {
+        const auto* se3 = compound->as<ob::CompoundState>(i);
+        const auto* translation = se3->as<ob::RealVectorStateSpace::StateType>(0);
+        const auto* rotation = se3->as<ob::SO3StateSpace::StateType>(1);
+        for (int axis = 0; axis < 3; ++axis)
+          robot_state.setVariablePosition(slot.variables[axis], translation->values[axis]);
+        robot_state.setVariablePosition(slot.variables[3], rotation->x);
+        robot_state.setVariablePosition(slot.variables[4], rotation->y);
+        robot_state.setVariablePosition(slot.variables[5], rotation->z);
+        robot_state.setVariablePosition(slot.variables[6], rotation->w);
+        break;
+      }
+    }
+  }
+  robot_state.update();
+}
+
+/// The inverse of `planStateToRobotState`, for start and goal states.
+void robotStateToPlanState(const moveit::core::RobotState& robot_state,
+                           const std::vector<PlanSubspaceSlot>& layout, ob::State* state)
+{
+  auto* compound = state->as<ob::CompoundState>();
+  for (std::size_t i = 0; i < layout.size(); ++i)
+  {
+    const PlanSubspaceSlot& slot = layout[i];
+    switch (slot.kind)
+    {
+      case PlanSubspaceSlot::Kind::RealVector:
+        compound->as<ob::RealVectorStateSpace::StateType>(i)->values[0] =
+            robot_state.getVariablePosition(slot.variables[0]);
+        break;
+      case PlanSubspaceSlot::Kind::So2:
+        compound->as<ob::SO2StateSpace::StateType>(i)->value = robot_state.getVariablePosition(slot.variables[0]);
+        break;
+      case PlanSubspaceSlot::Kind::Se3:
+      {
+        auto* se3 = compound->as<ob::CompoundState>(i);
+        auto* translation = se3->as<ob::RealVectorStateSpace::StateType>(0);
+        auto* rotation = se3->as<ob::SO3StateSpace::StateType>(1);
+        for (int axis = 0; axis < 3; ++axis)
+          translation->values[axis] = robot_state.getVariablePosition(slot.variables[axis]);
+        rotation->x = robot_state.getVariablePosition(slot.variables[3]);
+        rotation->y = robot_state.getVariablePosition(slot.variables[4]);
+        rotation->z = robot_state.getVariablePosition(slot.variables[5]);
+        rotation->w = robot_state.getVariablePosition(slot.variables[6]);
+        break;
+      }
+    }
+  }
+}
+
+/// `PlanningSceneValidityChecker` in `moveit-planners-sbp`: writes the
+/// candidate into the scene's own current state and asks the scene.
+///
+/// `group` is `""` (whole robot), matching the `is_state_valid` op's own
+/// choice and for the same reason -- this port's `ParryCollisionEnv` never
+/// reads `CollisionRequest::group_name`, so narrowing here would make the two
+/// sides check different geometry for a reason unrelated to planning.
+class PlanValidityChecker : public ob::StateValidityChecker
+{
+public:
+  PlanValidityChecker(const ob::SpaceInformationPtr& si, planning_scene::PlanningScene& scene,
+                      const std::vector<PlanSubspaceSlot>& layout)
+    : ob::StateValidityChecker(si), scene_(scene), layout_(layout)
+  {
+  }
+
+  bool isValid(const ob::State* state) const override
+  {
+    moveit::core::RobotState& robot_state = scene_.getCurrentStateNonConst();
+    planStateToRobotState(state, layout_, robot_state);
+    return scene_.isStateValid(robot_state, "", false);
+  }
+
+private:
+  planning_scene::PlanningScene& scene_;
+  const std::vector<PlanSubspaceSlot>& layout_;
+};
+
 class Oracle
 {
 public:
@@ -585,6 +903,8 @@ public:
       return totgPath(request);
     if (op == "acceleration_filter")
       return accelerationFilter(request);
+    if (op == "plan")
+      return plan(request);
     if (op == "ruckig_filter")
       return ruckigFilter(request);
     throw std::runtime_error("unsupported op: " + op);
@@ -4186,6 +4506,225 @@ private:
     };
   }
 
+  /// Phase 7's C++ baseline: OMPL RRTConnect over a state space built to
+  /// mirror `moveit-planners-sbp`'s own `JointModelGroupSpace`, with validity
+  /// answered by a real `planning_scene::PlanningScene`.
+  ///
+  /// # What this baseline is, and what it is not
+  ///
+  /// It is plain `ompl::geometric::RRTConnect` -- the reference
+  /// implementation of the algorithm the port reimplements -- driven over a
+  /// space this op constructs joint by joint to match `JointModelGroupSpace`
+  /// exactly (see `buildPlanSpace`), so `PathGeometric::length()` and the
+  /// port's own path length are measured in the *same metric* and the
+  /// completion condition's "median path length within 1.3x" compares two
+  /// numbers that mean the same thing.
+  ///
+  /// It is **not** `moveit_planners_ompl`'s `ModelBasedPlanningContext`. That
+  /// class adds a projection evaluator, path simplification, a
+  /// `ModelBasedStateSpace` whose distance delegates to
+  /// `JointModelGroup::distance` over a flat array (not a weighted
+  /// `CompoundStateSpace` -- the deviation `joint_model_group_space.rs`
+  /// already documents), and the request-adapter chain. None of that is here.
+  /// A success rate or path length from this op is a statement about
+  /// RRTConnect on this space, not about what `move_group` would return.
+  ///
+  /// # Determinism
+  ///
+  /// `ompl::RNG::setSeed` is process-global and OMPL rejects it once any
+  /// `RNG` instance exists, so the request's `seed` is applied at most once
+  /// per oracle process -- the response says whether this call is the one
+  /// that applied it (`seed_applied`). A whole request stream replayed in
+  /// order into a fresh process is therefore reproducible, which is exactly
+  /// what `verify-fixture-replay.sh` does; a single problem re-run in
+  /// isolation is not.
+  ///
+  /// The termination budget is a counting `PlannerTerminationCondition`
+  /// rather than a wall clock, so the answer does not depend on machine
+  /// speed. OMPL 1.7 ships no iteration-based condition (checked:
+  /// `PlannerTerminationCondition.h` declares only the timed, non/always,
+  /// and/or, and exact-solution forms), so this counts *evaluations of the
+  /// condition*.
+  ///
+  /// That count is the same unit as the port's `Termination::Iterations`,
+  /// measured rather than assumed: `og::RRTConnect::solve` evaluates the
+  /// condition exactly once at the top of each grow-and-connect iteration
+  /// and nowhere else, so a budget of `n` permits `n` iterations and the
+  /// terminating evaluation is the `n+1`th. A `max_iterations` sweep of
+  /// `0,1,2,3,5,10,50,200,5000` on panda_arm against a box obstacle returns
+  /// `ptc_evaluations = 1` at budget `0` with status `Timeout` and no path
+  /// -- zero iterations run, exactly as the port's `for _ in
+  /// 0..max_iterations` does at the same budget. `ptc_evaluations` is
+  /// returned on every problem so this correspondence stays checkable
+  /// rather than becoming a claim in a comment.
+  ///
+  /// Note what that same sweep also shows: every non-zero budget solved in
+  /// one iteration. RRTConnect's `connect` step is greedy and unbounded --
+  /// it walks toward the other tree until it arrives or is blocked -- so on
+  /// a 7-DoF arm a single iteration routinely closes the whole gap, and an
+  /// iteration budget is a far weaker lever here than its name suggests.
+  /// Sizing a benchmark by this budget alone would mostly measure nothing.
+  ///
+  /// # Comparability knobs
+  ///
+  /// `range` maps to `RRTConnect::setRange`, the port's
+  /// `RrtConnectParams::step_size`. `motion_resolution` is an *absolute*
+  /// spacing in space-distance units, matching the port's
+  /// `DiscreteMotionValidator::new(checker, resolution)`; OMPL states the
+  /// same quantity as a fraction of the space's maximum extent, so it is
+  /// converted here and both the extent and the resolved segment length are
+  /// returned. The port has no counterpart to OMPL's `goal_bias`-free
+  /// bidirectional growth: `RrtConnectParams::goal_bias` biases each tree
+  /// toward the other tree's root, and `og::RRTConnect` has no such
+  /// parameter at all. That is a real algorithmic difference between the two
+  /// implementations, recorded here rather than papered over with a knob
+  /// that does not exist on this side.
+  ///
+  /// `distance_probes` is the deterministic part of this op: each entry's
+  /// `a`/`b` joint maps are converted to states and the *space's own*
+  /// `distance` is returned. Planner output is seed-dependent, so this is the
+  /// only surface on which the Rust side can assert bit-level agreement --
+  /// and agreement here is what makes a length comparison meaningful at all.
+  json plan(const json& request)
+  {
+    // OMPL's default console output handler writes INFO and WARN to stdout,
+    // which is this process's NDJSON response channel. Silencing it is not
+    // cosmetic: one OMPL log line mid-stream desynchronizes every subsequent
+    // response from its request.
+    ompl::msg::noOutputHandler();
+
+    const std::string group_name = request.at("group").get<std::string>();
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (!group)
+      throw std::runtime_error("plan: unknown joint model group: " + group_name);
+
+    bool seed_applied = false;
+    if (request.contains("seed") && !ompl_seeded_)
+    {
+      ompl::RNG::setSeed(request.at("seed").get<std::uint_fast32_t>());
+      ompl_seeded_ = true;
+      seed_applied = true;
+    }
+
+    PlanSpace plan_space = buildPlanSpace(group);
+    plan_space.space->setup();
+    const double maximum_extent = plan_space.space->getMaximumExtent();
+
+    planning_scene::PlanningScene scene(model_);
+    scene.getCurrentStateNonConst() = *state_;
+    for (const auto& object_json : request.value("objects", json::array()))
+    {
+      const std::string id = object_json.at("id").get<std::string>();
+      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+      const json& shape_json = object_json.at("shape");
+      std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+      scene.getWorldNonConst()->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
+    }
+
+    auto si = std::make_shared<ob::SpaceInformation>(plan_space.space);
+    si->setStateValidityChecker(std::make_shared<PlanValidityChecker>(si, scene, plan_space.layout));
+    const double motion_resolution = request.value("motion_resolution", 0.0);
+    if (motion_resolution > 0.0)
+      si->setStateValidityCheckingResolution(motion_resolution / maximum_extent);
+    si->setup();
+
+    // Reads a request's joint-name -> value map into a full RobotState,
+    // starting from the default state so joints outside `group` hold the same
+    // values on both sides.
+    const auto read_state = [&](const json& joints) {
+      moveit::core::RobotState robot_state(*state_);
+      for (auto it = joints.begin(); it != joints.end(); ++it)
+      {
+        if (!hasVariable(it.key()))
+          throw std::runtime_error("plan: unknown joint variable: " + it.key());
+        robot_state.setVariablePosition(it.key(), it.value().get<double>());
+      }
+      robot_state.update();
+      return robot_state;
+    };
+
+    json probes_out = json::array();
+    for (const json& probe : request.value("distance_probes", json::array()))
+    {
+      ob::ScopedState<> a(plan_space.space);
+      ob::ScopedState<> b(plan_space.space);
+      robotStateToPlanState(read_state(probe.at("a")), plan_space.layout, a.get());
+      robotStateToPlanState(read_state(probe.at("b")), plan_space.layout, b.get());
+      probes_out.push_back(json{ { "distance", plan_space.space->distance(a.get(), b.get()) } });
+    }
+
+    const double range = request.value("range", 0.0);
+    const std::size_t default_max_iterations = request.value("max_iterations", std::size_t{ 100000 });
+
+    json problems_out = json::array();
+    for (const json& problem : request.value("problems", json::array()))
+    {
+      ob::ScopedState<> start(plan_space.space);
+      ob::ScopedState<> goal(plan_space.space);
+      robotStateToPlanState(read_state(problem.at("start")), plan_space.layout, start.get());
+      robotStateToPlanState(read_state(problem.at("goal")), plan_space.layout, goal.get());
+
+      auto pdef = std::make_shared<ob::ProblemDefinition>(si);
+      pdef->setStartAndGoalStates(start, goal);
+
+      auto planner = std::make_shared<og::RRTConnect>(si);
+      if (range > 0.0)
+        planner->setRange(range);
+      planner->setProblemDefinition(pdef);
+      planner->setup();
+
+      const std::size_t max_iterations = problem.value("max_iterations", default_max_iterations);
+      std::size_t evaluations = 0;
+      const ob::PlannerTerminationCondition ptc(
+          [&evaluations, max_iterations]() { return ++evaluations > max_iterations; });
+
+      const auto started = std::chrono::steady_clock::now();
+      const ob::PlannerStatus status = planner->solve(ptc);
+      const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+
+      json problem_out{ { "id", problem.at("id") },
+                        { "solved", static_cast<bool>(status) },
+                        { "exact", pdef->hasExactSolution() },
+                        { "status", status.asString() },
+                        { "planning_time_s", elapsed },
+                        { "ptc_evaluations", evaluations } };
+
+      // Only an exact solution is reported as a path: RRTConnect can return
+      // an approximate one that ends short of the goal, and counting that
+      // toward a success rate would inflate this baseline against a port
+      // whose `rrt_connect` has no approximate-solution path at all.
+      if (pdef->hasExactSolution())
+      {
+        const auto path = std::static_pointer_cast<og::PathGeometric>(pdef->getSolutionPath());
+        problem_out["length"] = path->length();
+
+        json waypoints = json::array();
+        moveit::core::RobotState waypoint_state(*state_);
+        for (std::size_t i = 0; i < path->getStateCount(); ++i)
+        {
+          planStateToRobotState(path->getState(i), plan_space.layout, waypoint_state);
+          json waypoint = json::object();
+          for (const std::string& variable : group->getVariableNames())
+            waypoint[variable] = waypoint_state.getVariablePosition(variable);
+          waypoints.push_back(waypoint);
+        }
+        problem_out["path"] = waypoints;
+      }
+
+      problems_out.push_back(problem_out);
+    }
+
+    return json{ { "space",
+                   json{ { "dimension", plan_space.space->getDimension() },
+                         { "maximum_extent", maximum_extent },
+                         { "longest_valid_segment_length", plan_space.space->getLongestValidSegmentLength() },
+                         { "so3_quarter_turn_distance", plan_space.so3_quarter_turn_distance },
+                         { "subspaces", plan_space.description } } },
+                 { "seed_applied", seed_applied },
+                 { "distance_probes", probes_out },
+                 { "problems", problems_out } };
+  }
+
   moveit::core::RobotModelPtr model_;
   std::unique_ptr<moveit::core::RobotState> state_;
 
@@ -4199,6 +4738,12 @@ private:
   // this need not (and structurally cannot, since it is a wholly separate
   // RNG stream) match moveit-kinematics's own reseed draws.
   random_numbers::RandomNumberGenerator ik_rng_{ 42 };
+
+  // For the `plan` op only. `ompl::RNG::setSeed` errors out once any RNG
+  // instance exists, so the seed can be applied at most once per process;
+  // this records whether that has already happened. See `plan()`'s
+  // Determinism section.
+  bool ompl_seeded_ = false;
 };
 
 }  // namespace
