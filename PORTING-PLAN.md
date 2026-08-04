@@ -14455,3 +14455,60 @@ FAIL  moveit-scene::cost_sources_parity
 `sg docker -c tools/ci/verify-fixture-replay.sh` — 47/47 identical,
 DRIFTED 0. 기하 적합을 바꿨는데 오라클 fixture가 한 바이트도 안 움직였다
 (§149). 워크스페이스 1544/1544, 다섯 게이트 명령 전부 초록.
+
+## §185 블렌더 966줄이 들어왔고, 그것을 잴 오라클 op이 없다
+
+p1-joints 라운드 32가 `trajectory_blender_transition_window`를 포팅했다
+(`b3e39c3`, 966줄). §179.1이 연 항목이고, 이로써 §5 Phase 8 범위 줄의
+"LIN/PTP/CIRC + sequence blending" 중 마지막 항이 코드로는 닫혔다.
+lib.rs의 "Not yet in scope, planned for later rounds" 문장도 사라졌다.
+
+item 4의 측정은 내가 상류에서 직접 확인했다. 기존 제외 사유
+("`plan_components_builder`는 `command_list_manager`의 요청 타입에
+의존한다")는 **좁은 것이 아니라 틀렸다**:
+
+```console
+$ rg 'command_list_manager|CommandListManager' \
+    include/.../plan_components_builder.hpp src/plan_components_builder.cpp
+(no hits)
+$ rg 'PlanComponentsBuilder' include/.../command_list_manager.hpp
+222:  PlanComponentsBuilder plan_comp_builder_;
+```
+
+의존은 반대 방향이다. `moveit_msgs` 등장은 4회뿐이고 전부
+`CREATE_MOVEIT_ERROR_CODE_EXCEPTION(..., MoveItErrorCodes::FAILURE)`의
+매크로 인자다 — 요청 마샬링이 아니다. §153이 말한 그대로, 의존성을
+근거로 든 제외가 의존성을 확인하지 않은 채 여러 라운드를 살아남았다.
+
+### 185.1 그런데 이 966줄은 상류와 비교된 적이 없다
+
+블렌더의 테스트는 9개이고 전부 자기 일관성 검사다 — `validate_request`의
+거부 조건 다섯, `determine_trajectory_alignment` 둘,
+`search_intersection_points` 둘, 그리고 경계 연속성 하나. **상류 출력과
+대조하는 것은 하나도 없다.** LIN/PTP/CIRC는 `pilz_trajectory` op으로
+1e-6 이내를 재고 있는데(§132), 블렌드는 잴 수단이 없다.
+
+Phase 8의 완료 조건은 "LIN/PTP/CIRC 궤적이 오라클과 1e-6 이내"라고
+쓰여 있어서 문자 그대로는 블렌드를 요구하지 않는다. 그러나 범위 줄이
+블렌딩을 포함하는 이상, **범위에는 있는데 완료 조건이 안 재는 부분**이
+생긴 것이고 그것은 조건 문구의 결함이지 면제가 아니다.
+
+### 185.2 비용은 이미 치러져 있다
+
+§122가 pilz 오라클의 비용을 12패키지 확장으로 미리 쟀고, §132가 그것을
+치렀다. 지금 `tools/moveit-oracle/CMakeLists.txt:92`가 이미 링크한다:
+
+```cmake
+pilz_industrial_motion_planner::trajectory_generation_common
+```
+
+§122.3이 확인한 대로 이 타겟이 곧
+`trajectory_functions` + `trajectory_generator` +
+`trajectory_blender_transition_window`다. 즉 **블렌드 op을 추가하는 데
+새 패키지도, 이미지 확장도 필요 없다.** 드는 비용은 오라클 소스 변경으로
+스탬프가 바뀌는 것뿐이고, 그것은 §149가 이미 규정한 절차다 — 새 능력을
+더할 때 기존 fixture가 한 바이트도 안 움직이는 것이 조건이며
+`verify-fixture-replay.sh`가 그것을 검사한다.
+
+절차는 §107/§155/§156과 같다: 소유자 패널이 요청서를 쓰고 조율자가 op을
+만든다. `tools/moveit-oracle/`는 조율자 소유다.
