@@ -818,9 +818,10 @@ impl<'m> PlanningScene<'m> {
     /// the frame [`PlanningScene::frame_transform`] resolves everything
     /// against. Upstream `getPlanningFrame`, which returns the target frame
     /// the scene's `SceneTransforms` was constructed with -- always the
-    /// robot model's frame, since that is the only value
-    /// `PlanningScene::initialize` ever passes to it
-    /// (`planning_scene.cpp:192`).
+    /// robot model's frame, because `SceneTransforms`'s own constructor
+    /// hardcodes `scene->getRobotModel()->getModelFrame()`
+    /// (`planning_scene.cpp:114`) regardless of which of its 4 call sites
+    /// (`:192, 686, 1263, 1333`) constructs it.
     pub fn planning_frame(&self) -> &str {
         self.transforms().target_frame()
     }
