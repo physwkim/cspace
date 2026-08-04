@@ -1210,10 +1210,17 @@ impl PosedBodyPointDecompositionVector {
 /// radii) -- dimensionally inconsistent, so the two sides are comparable
 /// only by coincidence rather than by construction. This looks like
 /// upstream meant to square the right-hand side (or take `.norm()` on the
-/// left) and never caught it: `test_collision_distance_field.cpp` has no
-/// case that reaches this function at all (see this module's doc), so
-/// nothing has ever exercised it. Ported byte-for-byte, since this task's
-/// mandate is matching upstream's actual behaviour, not upstream's intent.
+/// left) and never caught it: `test_collision_distance_field.cpp`'s
+/// `LinksInCollision` case *does* reach this function (its
+/// `acm_->setEntry("base_link", "base_bellow_link", false)` leaves that
+/// pair's intra-group check enabled, and `checkSelfCollision` ->
+/// `checkSelfCollisionHelper` -> `getIntraGroupCollisions` calls this
+/// function for every enabled, geometry-bearing intra-group pair), so the
+/// defect has been exercised without ever being caught -- upstream's own
+/// test suite passes with it in place, because the pinned PR2 fixture
+/// never lands in the false-negative window described below. Ported
+/// byte-for-byte, since this task's mandate is matching upstream's actual
+/// behaviour, not upstream's intent.
 /// **Do not** "fix" this by squaring the right-hand side without raising it
 /// as its own change -- that alters what counts as intersecting, which is a
 /// semantic change, not a parity fix.
