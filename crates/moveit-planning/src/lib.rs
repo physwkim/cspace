@@ -317,7 +317,7 @@
 //! use moveit_collision::ParryCollisionEnv;
 //! use moveit_model::{MeshSearchPaths, RobotModel};
 //! use moveit_planners_sbp::{
-//!     JointModelGroupSpace, PlannerManager, PlanningContext,
+//!     Goal, JointModelGroupSpace, PlannerManager, PlanningContext,
 //!     PlanningRequest as SbpPlanningRequest, RrtConnectManager, RrtConnectParams, StateSpace,
 //!     Termination,
 //! };
@@ -344,7 +344,7 @@
 //!
 //! let request = SbpPlanningRequest {
 //!     group_name: "panda_arm".to_string(),
-//!     goal: goal.clone(),
+//!     goal: Goal::State(goal.clone()),
 //!     path_constraints: None,
 //!     resolution: 0.05,
 //!     seed: 7,
