@@ -279,6 +279,26 @@ pub enum DistanceRequestType {
     #[default]
     Global,
     /// Find the global minimum for each pair.
+    ///
+    /// This is inherently more expensive than [`Self::Global`] for a
+    /// query touching many pairs, not just a backend quirk: `Global` narrows
+    /// its search radius as soon as *any* pair beats the running minimum, so
+    /// every later pair benefits from a shrinking bound regardless of which
+    /// pair set it. `Single` tracks a bound per pair key, so a pair whose key
+    /// has not been seen before starts from
+    /// [`DistanceRequest::distance_threshold`] (effectively unbounded by
+    /// default) with no benefit from any other pair's result — an
+    /// `O(pairs)` cost in unbounded-radius queries rather than `O(pairs)`
+    /// queries most of which prune almost immediately. Measured on
+    /// `ParryCollisionEnv::distance_self` for PR2's ~40-link self-check
+    /// (`moveit-collision/tests/collision_parity.rs`,
+    /// `pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`
+    /// before it was fixed to use `Global` instead): ~340s per call under
+    /// `Single`, ~0.11s per call under `Global`, for the identical answer on
+    /// the one pair both requests happened to agree was of interest. Prefer
+    /// `Global` whenever only the overall minimum (or a specific pair
+    /// reachable through it) is needed; reach for `Single` only when
+    /// distances for multiple *different* pairs are genuinely all required.
     Single,
     /// Find a limited (`max_contacts_per_body`) set of contacts for a given
     /// pair.

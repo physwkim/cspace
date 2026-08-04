@@ -169,8 +169,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use moveit_collision::{
-    AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, DistanceRequestType,
-    DistanceResultsData, LinkPaddingScale, ParryCollisionEnv, World,
+    AllowedCollisionMatrix, CollisionEnv, CollisionRequest, DistanceRequest, DistanceResultsData,
+    LinkPaddingScale, ParryCollisionEnv, World,
 };
 use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
@@ -1773,26 +1773,39 @@ fn pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face() {
             &point.wheel_link_name,
         );
 
+        // `Global` (default), not `Single`: `Single` tracks a search bound
+        // per pair key, so with PR2's ~40 links every one of the ~800 other
+        // pairs pays an unbounded-threshold query with no benefit from this
+        // pair's own result (`DistanceRequestType::Single`'s own doc has the
+        // measurement -- 1000x+ slower for this exact case). `Global`'s
+        // shared, shrinking bound prunes those in comparison, and gives the
+        // identical answer for *this* pair, since
+        // `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` already
+        // establishes base_link/this wheel is the true global self-distance
+        // minimum at these fixture points, not merely *a* pair among many.
         let request = DistanceRequest {
             enable_signed_distance: true,
             acm: Some(&acm),
-            request_type: DistanceRequestType::Single,
             ..DistanceRequest::default()
         };
         let distance = env.distance_self(&request, &posed, &[]);
-        let key_ab = ("base_link".to_owned(), point.wheel_link_name.clone());
-        let key_ba = (point.wheel_link_name.clone(), "base_link".to_owned());
-        let backend_depth = distance
-            .distances
-            .get(&key_ab)
-            .or_else(|| distance.distances.get(&key_ba))
-            .unwrap_or_else(|| {
-                panic!(
-                    "{}: no base_link/wheel entry in distances",
-                    point.wheel_link_name
-                )
-            })[0]
-            .distance;
+        assert!(
+            distance
+                .minimum_distance
+                .link_names
+                .contains(&"base_link".to_owned())
+                && distance
+                    .minimum_distance
+                    .link_names
+                    .contains(&point.wheel_link_name),
+            "{}: expected the global self-distance minimum to be the base_link/wheel pair \
+             this test is about, found {:?} instead -- Global's minimum_distance no longer \
+             names the pair Single's distances[key] used to, so the two request types are not \
+             interchangeable here anymore",
+            point.wheel_link_name,
+            distance.minimum_distance.link_names,
+        );
+        let backend_depth = distance.minimum_distance.distance;
 
         assert!(
             (native_depth - backend_depth).abs() < TOLERANCE,
