@@ -734,3 +734,56 @@ the oracle is largest, for each of the nine sweep angles.
   that is a more direct demonstration of shape-change than magnitude
   alone could give, though it is read as illustrative, not as a second
   falsifiable claim in its own right.
+
+**Measured (existing fixtures, no new oracle round trip; a temporary
+probe iterating `drive_case` over all nine cases, run and reverted).**
+`max_d` is `max_joint |D(θ, i*)|` in metres; `profile` is `max_joint
+|D(θ, i)|` at every waypoint, smallest to be transparent about how far
+the argmax sits above its runner-up (the "not refuted by" tie exception
+above):
+
+| θ | `i*` | joint at `i*` | runner-up ratio |
+|---:|---:|---|---:|
+| 30° | 7 | `panda_joint1` | 70% (i=6: `4.023e-9` vs `5.736e-9`) |
+| 60° | 4 | `panda_joint7` | 61% (i=1: `3.600e-9` vs `5.864e-9`) |
+| 75° | 7 | `panda_joint7` | 64% (i=5: `5.377e-9` vs `8.464e-9`) |
+| 90° (case A) | 7 | `panda_joint5` | 56% (i=5: `1.267e-9` vs `2.278e-9`) |
+| 100° | 1 | `panda_joint1` | 53% (i=7: `7.436e-10` vs `1.416e-9`) |
+| 105° | 5 | `panda_joint5` | 30% (i=1: `2.067e-9` vs `6.890e-9`) |
+| 110° | 5 | `panda_joint5` | 33% (i=1: `2.655e-9` vs `8.128e-9`) |
+| 112° (case E) | 5 | `panda_joint5` | 34% (i=1: `2.868e-9` vs `8.484e-9`) |
+| 112°, r=0.03 | 5 | `panda_joint5` | 65% (i=1: `5.549e-9` vs `8.493e-9`) |
+
+Every runner-up sits at 30-70% of the argmax -- nowhere near the ~10%
+near-tie band the prediction's own "not refuted by" clause carved out,
+so every one of these nine argmax values is a clean read, not a
+coin-flip in the noise floor.
+
+**Verdict: not refuted, and by more than the minimum the prediction
+asked for.** `i*(θ)` takes four different values across the sweep
+(`7, 4, 7, 7, 1, 5, 5, 5, 5`) -- not the single constant value a
+fixed-shape mechanism would need, consistent with Case G's algebra. It
+goes further than "the waypoint index moves": **the dominant joint
+itself changes** -- `panda_joint1`/`panda_joint7` own the shallow
+angles (30-75°) and 100°'s own local minimum, `panda_joint5` owns 90°
+and the whole 105-112° climb. A mechanism that is genuinely one thing
+across the sweep (redundant-kinematics IK divergence or otherwise)
+would need to explain not just a shifting timing within one joint's
+error, but *which joint the redundant-kinematics null-space choice
+diverges on* changing with corner angle -- a mechanism with real
+structure, not a single scalar "how much."
+
+The 60°/105° supporting exhibit lands cleanly: matched overall velocity
+divergence (`6.4188e-8` vs `6.6526e-8`, within 4% of each other) pairs
+with completely different profiles -- different dominant joint
+(`panda_joint7` vs `panda_joint5`) and different waypoint (`4` vs `5`).
+Two cases that look identical through the velocity channel's single
+scalar are not, in the underlying signal that channel is derived from.
+
+This does not identify what the mechanism is -- Case G already noted
+that identifying one was out of scope for what has been measured so
+far. It sharpens what "unexplained" means one step further: not "an
+unmeasured amount of a known mechanism," but a divergence whose
+*location* (which joint, which point in the blend) itself depends on
+corner angle in a way no fixture generated so far isolates from angle,
+radius, or arm posture individually.
