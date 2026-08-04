@@ -309,6 +309,61 @@ by hand.
 **Anchor:** a test body that reconstructs a quantity the subject also
 computes, without ever calling the subject to get it.
 
+**Anchor as a concrete `rg` pattern (round: margin audit).** The shape
+itself ("reconstructs a quantity without calling the subject") has no
+single literal regex -- whether a hit is the anchor or "distinct"
+requires reading whether the enclosing test also calls the real
+subject, which is exactly what the table below already does per row.
+What *is* mechanizable is the **first-pass filter**: every call site
+of a shared helper capable of producing the kind of derived numeric
+quantity a duplicate-computation test would reconstruct. Re-run this
+command and diff its output against the table below -- any new line
+not already classified in a row is a new candidate to read by hand and
+add a row for; this replaces re-reading all 81 (now 84, after this
+round's test-splitting commit) tests from scratch:
+
+```
+rg -n --type rust \
+  -e 'generate_finite_difference_matrix\(' \
+  -e 'generate_smoothing_matrix\(' \
+  -e 'symmetric_eigenvalues\(' \
+  crates/moveit-stomp-core/src crates/moveit-planners-stomp/src
+```
+
+Run as of this round this returns 19 lines. 9 are each helper's own
+`pub fn`/`fn` definition line, its internal production-code call sites
+(e.g. `generate_smoothing_matrix` calling
+`generate_finite_difference_matrix` inside `utils.rs`, `Stomp::new`
+calling it in `stomp.rs`), and doc-comment mentions -- none of those
+are candidates, they are the subject's own implementation, not a test
+reconstructing it. The remaining 10 are inside a `#[cfg(test)] mod
+tests { ... }` block and map onto 7 of the 10 rows in the table below
+(`utils.rs`'s three finite-difference tests, its three smoothing-matrix
+tests, `stomp.rs::DummyTask::new`, `filter_functions.rs`'s
+`simple_smoothing_matrix_applies_...`, and
+`noise_generators.rs`'s `acceleration_gram_matrix_conditioning_...`).
+The other 3 rows (`stomp.rs::interpolate`, `planner.rs::linear_interpolation`,
+`planner.rs::plan_finds_a_lower_cost_trajectory_...`'s inline duplicate)
+are a different sub-shape -- a parallel reimplementation of
+interpolation, not reuse of one of these three helpers -- and this
+pattern cannot find them; they were only found by the original hand
+read and have no mechanized filter here. A future re-run should
+discard any hit outside a `#[cfg(test)]` module before diffing the
+remaining lines against the table, then still hand-read for the
+interpolation-duplication sub-shape separately.
+
+This is a maintained allowlist, not a closed-form detector: it only
+finds tests routing through helpers already on the `-e` list. Extend
+the list whenever a new shared numerical helper crosses either crate's
+internal module boundary (a new `pub(crate)` or private function in
+`utils.rs`/`filter_functions.rs`/`noise_generators.rs` that computes a
+derived matrix, cost, or statistic another module might independently
+recompute in a test). A hit this filter cannot catch -- an ad hoc
+formula duplicated inline with no shared helper behind it at all --
+still requires the hand-read this sweep already did once; the filter
+narrows the set that needs re-reading after this baseline, it does not
+eliminate hand-reading permanently.
+
 **Sites** (`generate_finite_difference_matrix`/`generate_smoothing_matrix`/`symmetric_eigenvalues`
 call sites inside `#[cfg(test)]` modules, plus the two already-documented
 duplicate-formula test helpers):
