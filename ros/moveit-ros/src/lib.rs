@@ -63,5 +63,6 @@
 //! container -- see this round's report for the exact command and output.
 
 pub mod geometry;
+pub mod state;
 
 pub use moveit_error::{Error, Result};
