@@ -14203,3 +14203,59 @@ error: test run failed
 탈출 조건 하나에 의존하는 테스트가 그 모양이다. 지금 워크스페이스에서
 `num_iterations = 1_000_000` 같은 상한은 이 한 건뿐이지만, 세어 본 것이
 아니라 이 라운드에 눈에 띈 것이 하나라는 뜻이다.
+
+## §181 시딩 수정은 단위 테스트가 지키고 있고, end-to-end 측정은 그것을 재지 않는다
+
+p1-robotmodel 라운드 26이 `GroupConstraintSampler`의 `working`을 호출
+사이에 유지하도록 고쳤다(상류 `work_state_`와 같은 모양,
+`f8c7af0`). 같은 라운드가 `path_constraints_end_to_end_wired_vs_unwired`를
+추가해 **unwired 1/5, wired 5/5**를 측정했고, 라운드 24의 **wired 0/5 vs
+unwired 5/5**가 뒤집힌 것을 시딩 수정의 결과로 서술했다.
+
+### 181.1 실측 — 수정을 되돌려도 숫자가 같다
+
+`try_sample`에 라운드 24의 매-호출 초기화(`*state = template.clone()`)를
+되돌려 넣고 그대로 돌렸다.
+
+```text
+path_constraints_end_to_end_wired_vs_unwired:
+    unwired 1/5, wired 5/5 (self-motion distance 0.803693435403718 rad)
+```
+
+수정 전과 **자릿수까지 동일하다.** 변이가 그 경로에 닿지 않은 것이
+아니다 — `try_sample`에 `eprintln!`을 넣어 세어 보니 이 테스트 한 번에
+**11회** 불린다(§180.1의 교훈대로 변이 도달을 먼저 확인했다). 11회면
+solve당 두 번 남짓이고, 호출 간 지속성이 지속시킬 것이 거의 없다.
+
+따라서 0/5 → 5/5 뒤집힘의 원인은 시딩 수정이 아니다. 남은 후보는 같은
+라운드의 `resolve_constraint_sampler` 추출(§163.3의 goal 전용 `.take()`
+결함을 닫은 것)과, 커밋 메시지 자신이 밝힌 시나리오 차이 — 라운드 24는
+네 시나리오 스윕이었고 이번은 한 시나리오다. 둘 중 어느 것인지는 아직
+안 쟀다.
+
+### 181.2 그러나 수정은 지켜지고 있다
+
+같은 변이로 크레이트 전체를 돌리면 정확히 하나가 빨개진다:
+
+```text
+FAIL constrained_sampler::tests::
+    try_sample_carries_the_previous_draws_result_forward_as_the_next_seed
+Summary: 106 tests run: 105 passed, 1 failed
+```
+
+즉 시딩 수정에는 가드가 있다. **없는 것은 가드가 아니라 귀속의 근거다** —
+단위 테스트는 "이전 결과가 다음 시드가 된다"를 지키고, end-to-end 측정은
+"그것이 성공률을 바꾼다"를 지지하지 않는다. 두 주장은 다르고, 라운드
+보고는 앞엣것의 증거로 뒤엣것을 말했다.
+
+### 181.3 규칙
+
+수정 A와 측정 B가 같은 라운드에 들어오면 **B에서 A를 되돌려 보기 전에는
+A가 B를 움직였다고 쓰지 않는다.** 같은 라운드에 다른 수정이 함께
+들어왔다면 특히 그렇다 — 이번에 함께 들어온 것이 하나 더 있었고, 그쪽이
+남은 후보다. §127의 "관례로만 지켜지던 것"과 같은 자리다: 인과는 관례로
+지켜지지 않는다.
+
+이것은 메모리의 `record-causes-as-falsifiable-predictions`가 예측한 그대로
+발생했다 — 일관되지만 측정되지 않은 원인이 반증 가능한 형태로 적혀 있었고,
+되돌려 보니 반증됐다.
