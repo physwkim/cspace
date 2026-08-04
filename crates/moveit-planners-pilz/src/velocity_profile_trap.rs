@@ -1,28 +1,23 @@
-// Copyright (c) 2004-2005, Erwin Aertbelien, Div. PMA, Dep. of Mech. Eng., K.U.Leuven
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from orocos_kinematics_dynamics @ v1.5.1 (see
-// `crates/moveit-state/src/dynamics.rs` for how this workspace pins and
-// verifies that checkout against the oracle image's compiled `liborocos-kdl`):
-//   orocos_kdl/src/velocityprofile_trap.hpp
-//   orocos_kdl/src/velocityprofile_trap.cpp
-// used by moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf's
+// Used by moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf's
 //   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator.cpp
 // (`TrajectoryGenerator::cartesianTrapVelocityProfile`).
 
 //! Symmetric trapezoidal velocity profile ([`VelocityProfileTrap`]).
 //!
-//! Ported from `KDL::VelocityProfile_Trap`, the profile
+//! Plays the role of `KDL::VelocityProfile_Trap`, the profile
 //! `TrajectoryGenerator::cartesianTrapVelocityProfile` builds to time-
 //! parametrize a Cartesian path's arc length for `LIN`/`CIRC` — distinct from
 //! [`crate::velocity_profile::VelocityProfileAtrap`] (Pilz's own asymmetric
 //! profile, used by `PTP`'s per-joint synchronization): this one has a single
-//! acceleration magnitude shared by both ramps, matching KDL's own type.
+//! acceleration magnitude shared by both ramps, matching KDL's own type. See
+//! below for why this is *not* a line-by-line port of it.
 //!
 //! # Deviations from upstream
 //!
-//! - **Only `SetProfile`/`Duration`/`Pos` are ported.** Upstream's
+//! - **Only `SetProfile`/`Duration`/`Pos` are provided.** Upstream's
 //!   `SetProfileDuration`/`SetProfileVelocity`/`Vel`/`Acc`/`Write`/`Clone`
 //!   exist to satisfy `KDL::VelocityProfile`'s polymorphic interface and
 //!   upstream's own re-timing callers; `cartesianTrapVelocityProfile` (this
@@ -38,6 +33,26 @@
 //!   `length` at least `f64::EPSILON` (its own zero-length fallback), so
 //!   `endpos > startpos` always holds for every caller this port has; `sign`
 //!   is reproduced as a plain `if` rather than a general 3-way function.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! `KDL::VelocityProfile_Trap` is LGPL-2.1-or-later
+//! (`third_party/orocos_kinematics_dynamics/`), heavier copyleft than this
+//! workspace's BSD-3-Clause. Nothing in this file is transcribed from it:
+//! [`VelocityProfileTrap::set_profile`] and [`VelocityProfileTrap::pos`] are
+//! each derived independently from elementary SUVAT kinematics — see
+//! `set_profile`'s own doc comment for the derivation and the algebraic
+//! argument that it reduces to the same phase partition upstream computes.
+//! What is reused from the LGPL source is *interface facts*, not
+//! expression: the symmetric-trapezoid shape itself (accelerate at
+//! `max_acc` to `max_vel`, cruise, decelerate back to rest) and the
+//! `max_vel`/`max_acc` constructor parameters, which is the physical
+//! problem being solved, not a particular derivation of it. Equivalence
+//! with upstream is proven the same way every other generator in this
+//! crate proves it: oracle parity on captured fixtures
+//! (`tests/pilz_trajectory_lin_parity.rs`, whose rejection case exercises
+//! this profile's exact numeric output via a real backward-difference
+//! acceleration violation), not line correspondence.
 
 /// A symmetric trapezoidal (accelerate / constant / decelerate) velocity
 /// profile between two 1-D positions.
