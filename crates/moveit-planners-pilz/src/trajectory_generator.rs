@@ -72,34 +72,53 @@
 //! fallback — a link rigidly attached to, but not equal to, a constructible
 //! solver's own tip is rejected here where upstream would accept it.
 //!
-//! # Deferred: everything downstream of validation
+//! # `generate`, `MotionPlanInfo`, `MotionPlanResponse`
 //!
-//! `generate` (the `try { validateRequest; cmdSpecificRequestValidation;
-//! extractMotionPlanInfo; plan } catch {...}` orchestration),
-//! `cmdSpecificRequestValidation` (empty in the base class; each of
-//! `LIN`/`PTP`/`CIRC` overrides it), `extractMotionPlanInfo`/`plan` (pure
-//! virtual — no body to port), `MotionPlanInfo` (needs a diffed
-//! [`moveit_scene::PlanningScene`] plus a resolved goal pose — the same
-//! extraction only a concrete generator can do), `cartesianTrapVelocityProfile`
-//! (needs `KDL::VelocityProfile_Trap`, a *KDL library* symmetric trapezoidal
-//! profile distinct from this crate's own [`crate::velocity_profile::VelocityProfileAtrap`]
-//! and not yet ported anywhere in this crate), `setMaxCartesianSpeed`,
-//! `setSuccessResponse`/`setFailureResponse` (build a
-//! `planning_interface::MotionPlanResponse`, a type this port does not have),
-//! and `filterGroupValues` (msg-structure-only: parallel-array zipping with no
-//! native counterpart to zip, since [`StartState`] is already keyed by name)
-//! all belong to the concrete `LIN`/`PTP`/`CIRC` generators, a later round's
-//! scope — none of them are "not ported", they are not reachable without that
-//! round's own types.
+//! [`PilzGenerator`] is the base-class half of upstream's orchestration:
+//! `generate`'s `try { validateRequest; cmdSpecificRequestValidation;
+//! extractMotionPlanInfo; plan } catch {...}` becomes
+//! [`PilzGenerator::generate`]'s default method, calling four smaller methods
+//! (`self.base().validate_request`, [`PilzGenerator::cmd_specific_request_validation`],
+//! [`PilzGenerator::extract_motion_plan_info`], [`PilzGenerator::plan`]) that
+//! each concrete generator (`PTP`/`LIN`/`CIRC`, in their own modules) provides
+//! instead of C++ virtual dispatch. [`MotionPlanInfo`] is the same
+//! diffed-scene-plus-resolved-goal bundle upstream's nested class is,
+//! constructed the same way (`scene->diff()`, apply `req.start_state`, read
+//! back `start_joint_position` from the group's active joints) via
+//! [`MotionPlanInfo::new`], called once by [`PilzGenerator::generate`] itself
+//! rather than by each concrete generator. [`MotionPlanResponse`] replaces
+//! `planning_interface::MotionPlanResponse`, restricted to the two fields any
+//! caller here reads (`error_code`, `trajectory`) — `planning_time` is not
+//! carried: this port has no `rclcpp::Clock`, and wall-clock timing is not
+//! part of what a bit-for-bit oracle comparison could ever check.
+//! [`PilzGenerator::generate`] is generic over the same `E: CollisionEnv`
+//! [`crate::trajectory_functions::IkContext`] already is, since a Cartesian
+//! goal's IK (inside [`PilzGenerator::extract_motion_plan_info`]) needs one.
+//!
+//! # Deferred: LIN/CIRC-only machinery
+//!
+//! `cartesianTrapVelocityProfile` (needs `KDL::VelocityProfile_Trap`, a *KDL
+//! library* symmetric trapezoidal profile distinct from this crate's own
+//! [`crate::velocity_profile::VelocityProfileAtrap`] and not yet ported
+//! anywhere in this crate), `setMaxCartesianSpeed`, and `filterGroupValues`
+//! (msg-structure-only: parallel-array zipping with no native counterpart to
+//! zip, since [`StartState`] is already keyed by name) are needed only by
+//! `LIN`/`CIRC`, not `PTP` — still a later round's scope.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
-use moveit_geometry::{UnitQuaternion, Vector3};
+use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
 use moveit_kinematics::{KINEMATICS_SOLVERS, SolverParams};
 use moveit_model::RobotModel;
+use moveit_scene::PlanningScene;
+use moveit_state::Posed;
+use moveit_trajectory::RobotTrajectory;
 
 use crate::limits::{JointLimitsContainer, LimitsContainer};
+use crate::trajectory_functions::IkContext;
 
 /// Lower bound (exclusive) on `max_velocity_scaling_factor`/
 /// `max_acceleration_scaling_factor`. Upstream `MIN_SCALING_FACTOR`.
@@ -242,6 +261,238 @@ impl<'m> TrajectoryGenerator<'m> {
             &req.group_name,
             self.planner_limits.joint_limits(),
         )
+    }
+}
+
+/// Information extracted from a [`MotionPlanRequest`], needed to plan.
+///
+/// Upstream `TrajectoryGenerator::MotionPlanInfo`. [`Self::start_scene`] is a
+/// [`PlanningScene::diff`] of the scene [`Self::new`] was built from, with
+/// `req.start_state` applied — every concrete generator's `plan` runs against
+/// this scene, not the original.
+///
+/// # Deviations from upstream
+///
+/// - No `waypoints` field: upstream declares
+///   `std::vector<Eigen::Isometry3d> waypoints` but neither `PTP`'s nor
+///   `LIN`'s `extractMotionPlanInfo`/`plan` ever writes or reads it (only
+///   `CIRC` does, a later round's scope) — carrying it here for `PTP`/`LIN`
+///   would be a field with no reader, forbidden by this workspace's
+///   `deny(warnings)`.
+/// - No `circ_path_point` field, for the same reason (`CIRC`-only).
+pub struct MotionPlanInfo<'m> {
+    /// The planning group. Upstream `group_name`.
+    pub group_name: String,
+    /// The Cartesian goal's link, empty for a joint-space goal. Upstream
+    /// `link_name`.
+    pub link_name: String,
+    /// The Cartesian goal's link's pose at the start state. Upstream
+    /// `start_pose`; left [`Isometry3::identity`] by [`Self::new`] — only a
+    /// Cartesian-goal generator's `extractMotionPlanInfo` fills it in.
+    pub start_pose: Isometry3,
+    /// The Cartesian goal pose, or [`Isometry3::identity`] for a joint-space
+    /// goal. Upstream `goal_pose`.
+    pub goal_pose: Isometry3,
+    /// Per-joint starting position, over the group's active joints. Upstream
+    /// `start_joint_position`.
+    pub start_joint_position: HashMap<String, f64>,
+    /// Per-joint goal position, over the group's active joints. Upstream
+    /// `goal_joint_position`.
+    pub goal_joint_position: HashMap<String, f64>,
+    /// The scene planning runs against: [`Self::new`]'s input scene, diffed
+    /// and with `req.start_state` applied. Upstream `start_scene`.
+    pub start_scene: Arc<PlanningScene<'m>>,
+}
+
+impl<'m> MotionPlanInfo<'m> {
+    /// Upstream `TrajectoryGenerator::MotionPlanInfo::MotionPlanInfo`.
+    ///
+    /// # Errors
+    ///
+    /// [`MoveItErrorCode::InvalidGroupName`] if `req.group_name` names no
+    /// group in `scene`'s robot model — unreachable through
+    /// [`PilzGenerator::generate`], which only calls this after
+    /// [`TrajectoryGenerator::validate_request`] has already confirmed the
+    /// group name.
+    pub(crate) fn new(scene: &Arc<PlanningScene<'m>>, req: &MotionPlanRequest) -> Result<Self> {
+        let mut diffed = scene.diff();
+        diffed
+            .current_state_mut()
+            .set_variable_positions_by_name(&req.start_state.position)?;
+        let start_scene = Arc::new(diffed);
+
+        let group = start_scene
+            .robot_model()
+            .joint_model_group(&req.group_name)
+            .map_err(|_| Error::Code(MoveItErrorCode::InvalidGroupName))?;
+        let mut start_joint_position = HashMap::new();
+        for name in group.active_joint_names() {
+            start_joint_position.insert(
+                name.clone(),
+                start_scene.current_state().variable_position(name)?,
+            );
+        }
+
+        Ok(Self {
+            group_name: req.group_name.clone(),
+            link_name: String::new(),
+            start_pose: Isometry3::identity(),
+            goal_pose: Isometry3::identity(),
+            start_joint_position,
+            goal_joint_position: HashMap::new(),
+            start_scene,
+        })
+    }
+}
+
+/// The outcome of [`PilzGenerator::generate`].
+///
+/// Upstream `planning_interface::MotionPlanResponse`, restricted to the two
+/// fields any caller here reads — see this module's `# generate,
+/// MotionPlanInfo, MotionPlanResponse` section for why `planning_time` is not
+/// carried.
+pub struct MotionPlanResponse<'m> {
+    /// Upstream `error_code.val`.
+    pub error_code: MoveItErrorCode,
+    /// Upstream `trajectory`. [`None`] on any failure — upstream's
+    /// `setFailureResponse` only conditionally clears an already-set
+    /// trajectory, but nothing before `plan` succeeds ever sets one, so this
+    /// is equivalent for every path [`PilzGenerator::generate`] takes.
+    pub trajectory: Option<RobotTrajectory<'m>>,
+}
+
+impl<'m> MotionPlanResponse<'m> {
+    fn success(trajectory: RobotTrajectory<'m>) -> Self {
+        Self {
+            error_code: MoveItErrorCode::Success,
+            trajectory: Some(trajectory),
+        }
+    }
+
+    /// Upstream `catch (const MoveItErrorCodeException& ex) { res.error_code.val
+    /// = ex.getErrorCode(); ... }`. Every error surfaced by
+    /// [`TrajectoryGenerator::validate_request`] or a concrete generator's
+    /// own methods is [`Error::Code`] by construction (see each function's
+    /// own `# Errors`); [`MoveItErrorCode::Failure`] is a fallback for the
+    /// non-`Code` variants those methods never actually return, matching
+    /// upstream's own `FAILURE` default for a `TrajectoryGeneratorInvalidLimitsException`-like
+    /// construction failure.
+    fn failure(error: Error) -> Self {
+        let error_code = match error {
+            Error::Code(code) => code,
+            _ => MoveItErrorCode::Failure,
+        };
+        Self {
+            error_code,
+            trajectory: None,
+        }
+    }
+}
+
+/// A concrete Pilz trajectory generator (`PTP`/`LIN`/`CIRC`).
+///
+/// Upstream's pure-virtual `extractMotionPlanInfo`/`plan`, dispatched through
+/// [`PilzGenerator::generate`]'s default method instead of C++ virtual
+/// dispatch — see this module's `# generate, MotionPlanInfo,
+/// MotionPlanResponse` section.
+///
+/// `E` is the collision backend [`crate::trajectory_functions::IkContext`]
+/// checks a Cartesian goal's IK candidates against (only a Cartesian goal
+/// ever performs IK; a joint-space goal never touches `E`).
+pub trait PilzGenerator<'m, E>
+where
+    E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+{
+    /// The base validation state (robot model, fused limits) this generator
+    /// was built with.
+    fn base(&self) -> &TrajectoryGenerator<'m>;
+
+    /// Command-specific validation beyond [`TrajectoryGenerator::validate_request`].
+    /// Upstream `cmdSpecificRequestValidation`, empty in the base class (no
+    /// override needs one yet — `PTP`/`LIN` upstream don't override it
+    /// either).
+    ///
+    /// # Errors
+    ///
+    /// Whatever the concrete generator's own validation reports.
+    fn cmd_specific_request_validation(&self, _req: &MotionPlanRequest) -> Result<()> {
+        Ok(())
+    }
+
+    /// Resolve `req`'s goal into `info`. Upstream `extractMotionPlanInfo`.
+    ///
+    /// `ctx.scene` is [`PilzGenerator::generate`]'s own `ctx.scene` argument
+    /// (the *original*, undiffed scene) — matching upstream's `generate`,
+    /// which calls `extractMotionPlanInfo(scene, req, plan_info)` with that
+    /// same outer `scene`, not `plan_info.start_scene`.
+    ///
+    /// # Errors
+    ///
+    /// [`MoveItErrorCode::NoIkSolution`] if `req.goal` is a Cartesian target
+    /// with no reachable IK solution. Concrete-generator-specific errors
+    /// otherwise.
+    fn extract_motion_plan_info(
+        &self,
+        ctx: &IkContext<'_, 'm, E>,
+        req: &MotionPlanRequest,
+        info: &mut MotionPlanInfo<'m>,
+    ) -> Result<()>;
+
+    /// Plan a trajectory from `info.start_joint_position` to `info.goal_joint_position`
+    /// (or `info.goal_pose`, for a Cartesian-space generator). Upstream `plan`.
+    ///
+    /// `ctx.scene` is `info.start_scene` — matching upstream's `plan(plan_info.start_scene,
+    /// ...)`.
+    ///
+    /// # Errors
+    ///
+    /// Concrete-generator-specific.
+    fn plan(
+        &self,
+        ctx: &IkContext<'_, 'm, E>,
+        req: &MotionPlanRequest,
+        info: &MotionPlanInfo<'m>,
+        sampling_time: f64,
+    ) -> Result<RobotTrajectory<'m>>;
+
+    /// Generate a trajectory for `req` against `ctx.scene`, at `sampling_time`
+    /// intervals.
+    ///
+    /// Upstream `generate`'s `try { validateRequest; cmdSpecificRequestValidation;
+    /// extractMotionPlanInfo; plan } catch (const MoveItErrorCodeException& ex)
+    /// { ...; setFailureResponse(...); return; }` — each stage's error
+    /// short-circuits straight to [`MotionPlanResponse::failure`], matching
+    /// upstream's one-exception-at-a-time short-circuit.
+    fn generate(
+        &self,
+        ctx: &IkContext<'_, 'm, E>,
+        req: &MotionPlanRequest,
+        sampling_time: f64,
+    ) -> MotionPlanResponse<'m> {
+        if let Err(error) = self.base().validate_request(req) {
+            return MotionPlanResponse::failure(error);
+        }
+        if let Err(error) = self.cmd_specific_request_validation(req) {
+            return MotionPlanResponse::failure(error);
+        }
+
+        let mut info = match MotionPlanInfo::new(ctx.scene, req) {
+            Ok(info) => info,
+            Err(error) => return MotionPlanResponse::failure(error),
+        };
+        if let Err(error) = self.extract_motion_plan_info(ctx, req, &mut info) {
+            return MotionPlanResponse::failure(error);
+        }
+
+        let plan_ctx = IkContext {
+            scene: &info.start_scene,
+            env: ctx.env,
+            check_self_collision: ctx.check_self_collision,
+        };
+        match self.plan(&plan_ctx, req, &info, sampling_time) {
+            Ok(trajectory) => MotionPlanResponse::success(trajectory),
+            Err(error) => MotionPlanResponse::failure(error),
+        }
     }
 }
 

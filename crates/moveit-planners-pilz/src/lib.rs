@@ -37,10 +37,11 @@
 //!   `validateRequest` family only; see that module's doc for exactly what
 //!   is ported versus deferred.
 //!
-//! Not yet in scope, planned for later rounds once the above land: the
-//! concrete `_ptp`/`_lin`/`_circ` generators (`plan`/`extractMotionPlanInfo`,
-//! `generate`, `MotionPlanInfo`, `setSuccessResponse`/`setFailureResponse`)
-//! and `trajectory_blender_transition_window`.
+//! - [`trajectory_generator_ptp`] — `trajectory_generator_ptp.{hpp,cpp}`: the
+//!   concrete point-to-point generator.
+//!
+//! Not yet in scope, planned for later rounds: the concrete `_lin`/`_circ`
+//! generators and `trajectory_blender_transition_window`.
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -95,4 +96,5 @@ pub mod limits;
 pub mod path_circle;
 pub mod trajectory_functions;
 pub mod trajectory_generator;
+pub mod trajectory_generator_ptp;
 pub mod velocity_profile;
