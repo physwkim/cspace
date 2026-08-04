@@ -11651,3 +11651,68 @@ $ du -sh $D → 103M
 커밋된 lockfile이 지정하는 버전 중 yank된 것도, 받을 수 없는 것도 없다. §136.1의
 (b)를 닫는다. 남는 것은 (a) 네 `uses:` 액션의 실제 동작뿐이고, 그건 GitHub Actions
 러너 없이는 재현할 수 없다 — 원격이 붙기 전까지 UNFIXED로 둔다.
+
+## §143 오라클의 두 번째 요청 간 오염 경로 — 첨부 바디
+
+§138이 pilz op의 `setKinematicsAllocators`를 private model로 닫았다. 같은 계열이
+한 층 아래에 하나 더 있었다.
+
+`applyJointValues`는 모든 op이 요청 상태를 설치할 때 거치는 단일 진입점이고, 자기
+doc에 불변식을 이미 적어놨다:
+
+> Reset first: leaving the previous case's values in place would make a result
+> depend on request order, which would quietly hide a disagreement on any
+> variable the request omits.
+
+그런데 그 함수가 부르는 `setToDefaultValues()`는 관절 값만 되돌리고 **첨부 바디
+목록은 건드리지 않는다.** `state_`는 프로세스 수명 내내 살아 있으므로, 한 요청이
+붙인 첨부 바디가 다음 요청에 그대로 남는다. 즉 그 doc이 선언한 불변식을 그 함수가
+절반만 강제하고 있었다.
+
+**Anchor:** `clearAttachedBodies` / `attachBody` on the shared `state_`
+**Sites:** `oracle.cpp:2016`(`collision`), `:2214`(`frameTransform`),
+`:2337`(`isStateValid`); `applyJointValues` 호출자 10곳
+(`:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`)
+**Same defect at:** `:2016`, `:2214` — 둘 다 `applyJointValues` 직후에 스스로
+`clearAttachedBodies()`를 부르고 있었다. 나머지 8개 호출자는 부르지 않는다. 두
+집단을 가르는 것은 **누가 그 생각을 했느냐**뿐이었다.
+**Distinct, skip:** `:2337` — 매 호출마다 새로 만드는 `PlanningScene`의
+`getCurrentStateNonConst()`를 비운다. 요청 간 수명이 없으므로 샐 곳이 없다.
+
+호출자 두 곳에 있던 런타임 가드를 지우고 소유자 안으로 옮겼다:
+
+```cpp
+void applyJointValues(const json& request)
+{
+  state_->setToDefaultValues();
+  state_->clearAttachedBodies();
+  ...
+```
+
+이제 "`applyJointValues`가 끝나면 `*state_`는 모델 기본값이고 아무것도 붙어 있지
+않다"가 **기억한 경로가 아니라 모든 경로에서** 참이다. 첨부하는 op은 그 뒤에
+그대로 첨부한다. 가드를 하나 더 잘 두는 게 아니라 가드가 필요 없는 상태로 만드는
+쪽 — §138과 같은 판단이다.
+
+### 143.1 검증과 그 한계
+
+새 stamp `e35d8c82d0cabbf6` (이전 `9acdf82cb2e09162`).
+
+```
+verify-fixture-replay.sh        → identical 36줄 / 총 36줄 (36/36)
+verify-fixture-provenance.sh    → fail/error/mismatch 0건
+check-fixture-format.sh         → OK: 109 oracle fixtures are in canonical form
+```
+
+`sg docker -c`가 감싼 명령의 종료코드를 가리므로 전부 출력 내용으로 판정했다.
+
+**36/36 identical이 "오염이 없었다"를 증명하지 않는다.** `verify-fixture-replay.sh`는
+fixture *파일* 하나당 오라클 프로세스 하나를 띄워 그 파일의 요청만 한 NDJSON
+스트림으로 먹인다 — 파일 간 순서 효과는 애초에 이 스크립트가 볼 수 없는 곳에
+있다(§138과 같은 사각지대). 지금 corpus가 그 순서를 우연히 밟지 않았을 뿐이고,
+그게 이 결함이 오래 안 보인 이유다. 이번 변경이 하는 일은 corpus가 밟지 않았음을
+확인하는 게 아니라 **밟을 수 있는 순서를 없애는 것**이다.
+
+바꿔 말하면 이 커밋은 현재 corpus에 대해 동작 변화가 0이다. 값어치는 다음에 추가될
+op — 특히 첨부 바디가 실제로 충돌 검사에 참여하게 만드는 작업(p3-distance-field
+라운드 23) — 이 같은 함정을 다시 밟지 못한다는 데 있다.
