@@ -721,24 +721,27 @@ guard-checked-only.**
   bare `u8` has no "unset" value at all (always one of the four), so it
   is not in this category despite being adjacent.
 
-- **enum integer value** (2 findings, both currently correct but fragile):
+- **enum integer value** (2 findings; both fixed round 12, `993506d`/
+  `6c2d884`, PORTING-PLAN.md §191.2):
   - `planning.rs`: `error_code: moveit_msgs::MoveItErrorCodes { val: 1, ..
-    }` hardcodes the literal `1` for `SUCCESS` instead of referencing the
+    }` hardcoded the literal `1` for `SUCCESS` instead of referencing the
     r2r-generated `moveit_msgs::msg::MoveItErrorCodes::SUCCESS` constant
     (confirmed generated: `target/.../moveit_msgs.rs:6473`, one of 29
-    named constants per §2's own audit). Correct today; a repin that
-    renumbered `SUCCESS` would silently make every successful response
-    report the wrong code, with no compile error.
+    named constants per §2's own audit). Fixed to `val:
+    moveit_msgs::MoveItErrorCodes::SUCCESS as i32`.
   - `collision_object.rs:46-49`: local `const ADD: u8 = 0`/`REMOVE = 1`/
-    `APPEND = 2`/`MOVE = 3` duplicate the r2r-generated `moveit_msgs::msg::
+    `APPEND = 2`/`MOVE = 3` duplicated the r2r-generated `moveit_msgs::msg::
     CollisionObject::{ADD,REMOVE,APPEND,MOVE}` constants (confirmed
     generated: `target/.../moveit_msgs.rs:4935-4938`) instead of
-    referencing them. Lower real-world risk than `SUCCESS` above — these
-    four are long-lived public API every C++ `MoveGroupInterface` consumer
-    depends on, so renumbering them would break far more than this crate —
-    but it is the same category, and the doc comment at `collision_object.
-    rs:51-52` already independently re-derived the same four values from
-    the `.msg` text rather than importing them.
+    referencing them. Fixed to cast from the generated constants. **What
+    the fix actually buys, corrected after this doc first shipped:** a
+    repin that renumbers one of these is followed automatically (`as u8`
+    casts whatever the new discriminant is) — it does *not* turn a repin
+    into a compile error, since `as` on a fieldless enum accepts any
+    value the variant carries. Only deleting or renaming the constant
+    itself would fail to compile. The earlier draft of this row (and the
+    matching source comment) claimed the compile-error benefit instead of
+    the auto-follows-repin benefit; both are corrected now.
   - `VisibilityConstraint.sensor_view_direction` (§175's own claim-audit
     row, `constraints/visibility.rs:36-37`) and `OrientationConstraint.
     parameterization` (deferred to `crates/moveit-constraints/src/
