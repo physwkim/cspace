@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "RustyXML"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b5ace29ee3216de37c0546865ad08edef58b0f9e76838ed8959a84a990e58c5"
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -479,6 +485,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "linkme"
+version = "0.3.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3045e122bd98aef8ec3ad58ce84f0791f64e70163d1a02710af4aa11a4d54cc5"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77060ebe535362c3da75682cd17b0431017b6e7c5661e714fc69a7ad017d1301"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
+
+[[package]]
 name = "log"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -507,6 +533,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
+name = "moveit-collision"
+version = "0.1.0"
+dependencies = [
+ "glamx",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-octomap",
+ "moveit-srdf",
+ "moveit-state",
+ "nalgebra",
+ "parry3d-f64",
+]
+
+[[package]]
+name = "moveit-constraints"
+version = "0.1.0"
+dependencies = [
+ "moveit-collision",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-kinematics",
+ "moveit-model",
+ "moveit-state",
+ "nalgebra",
+ "rand 0.10.2",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "moveit-error"
 version = "0.1.0"
 dependencies = [
@@ -525,6 +581,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-kinematics"
+version = "0.1.0"
+dependencies = [
+ "linkme",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-state",
+ "nalgebra",
+ "rand 0.10.2",
+ "rand_chacha",
+]
+
+[[package]]
+name = "moveit-model"
+version = "0.1.0"
+dependencies = [
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-srdf",
+ "nalgebra",
+ "roxmltree",
+ "urdf-rs",
+]
+
+[[package]]
 name = "moveit-octomap"
 version = "0.1.0"
 dependencies = [
@@ -532,14 +614,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-planning"
+version = "0.1.0"
+dependencies = [
+ "moveit-collision",
+ "moveit-constraints",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-scene",
+ "moveit-state",
+ "moveit-trajectory",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "moveit-ros"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-constraints",
  "moveit-error",
  "moveit-geometry",
+ "moveit-model",
+ "moveit-planning",
+ "moveit-srdf",
+ "moveit-state",
+ "moveit-trajectory",
  "nalgebra",
  "r2r",
+ "urdf-rs",
+]
+
+[[package]]
+name = "moveit-scene"
+version = "0.1.0"
+dependencies = [
+ "moveit-collision",
+ "moveit-constraints",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
+]
+
+[[package]]
+name = "moveit-srdf"
+version = "0.1.0"
+dependencies = [
+ "moveit-error",
+ "roxmltree",
+]
+
+[[package]]
+name = "moveit-state"
+version = "0.1.0"
+dependencies = [
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "nalgebra",
+ "rand 0.10.2",
+]
+
+[[package]]
+name = "moveit-trajectory"
+version = "0.1.0"
+dependencies = [
+ "moveit-error",
+ "moveit-model",
+ "moveit-state",
+ "nalgebra",
+ "rsruckig",
 ]
 
 [[package]]
@@ -719,7 +866,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
 dependencies = [
  "phf_shared",
- "rand",
+ "rand 0.8.7",
 ]
 
 [[package]]
@@ -751,6 +898,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
+name = "ppv-lite86"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
+dependencies = [
+ "zerocopy",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -767,6 +923,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.36.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
+dependencies = [
+ "memchr",
+ "serde",
 ]
 
 [[package]]
@@ -787,7 +953,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "r2r"
 version = "0.9.6"
-source = "git+https://github.com/sequenceplanner/r2r?tag=0.9.6#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
+source = "git+https://github.com/sequenceplanner/r2r?rev=2d080c4dede3ec950620d2b82f6521bc4fa1e690#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
 dependencies = [
  "force-send-sync",
  "futures",
@@ -814,7 +980,7 @@ dependencies = [
 [[package]]
 name = "r2r_actions"
 version = "0.9.6"
-source = "git+https://github.com/sequenceplanner/r2r?tag=0.9.6#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
+source = "git+https://github.com/sequenceplanner/r2r?rev=2d080c4dede3ec950620d2b82f6521bc4fa1e690#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
 dependencies = [
  "bindgen",
  "r2r_common",
@@ -825,7 +991,7 @@ dependencies = [
 [[package]]
 name = "r2r_common"
 version = "0.9.6"
-source = "git+https://github.com/sequenceplanner/r2r?tag=0.9.6#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
+source = "git+https://github.com/sequenceplanner/r2r?rev=2d080c4dede3ec950620d2b82f6521bc4fa1e690#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
 dependencies = [
  "bindgen",
  "os_str_bytes",
@@ -836,7 +1002,7 @@ dependencies = [
 [[package]]
 name = "r2r_macros"
 version = "0.9.6"
-source = "git+https://github.com/sequenceplanner/r2r?tag=0.9.6#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
+source = "git+https://github.com/sequenceplanner/r2r?rev=2d080c4dede3ec950620d2b82f6521bc4fa1e690#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -846,7 +1012,7 @@ dependencies = [
 [[package]]
 name = "r2r_msg_gen"
 version = "0.9.6"
-source = "git+https://github.com/sequenceplanner/r2r?tag=0.9.6#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
+source = "git+https://github.com/sequenceplanner/r2r?rev=2d080c4dede3ec950620d2b82f6521bc4fa1e690#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
 dependencies = [
  "bindgen",
  "force-send-sync",
@@ -863,7 +1029,7 @@ dependencies = [
 [[package]]
 name = "r2r_rcl"
 version = "0.9.6"
-source = "git+https://github.com/sequenceplanner/r2r?tag=0.9.6#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
+source = "git+https://github.com/sequenceplanner/r2r?rev=2d080c4dede3ec950620d2b82f6521bc4fa1e690#2d080c4dede3ec950620d2b82f6521bc4fa1e690"
 dependencies = [
  "bindgen",
  "paste",
@@ -877,7 +1043,27 @@ version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
- "rand_core",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
+dependencies = [
+ "getrandom",
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e6af7f3e25ded52c41df4e0b1af2d047e45896c2f3281792ed68a1c243daedb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -885,6 +1071,12 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rawpointer"
@@ -948,6 +1140,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
 
 [[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "rsruckig"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f1fd553ac99199900fcc11b6ecbb81462f6e0eba8d5db018056d868c4d1ddcf"
+dependencies = [
+ "arrayvec",
+ "num-traits",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "rstar"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -987,6 +1199,18 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-xml-rs"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb3aa78ecda1ebc9ec9847d5d3aba7d618823446a049ba2491940506da6e2782"
+dependencies = [
+ "log",
+ "serde",
+ "thiserror 1.0.69",
+ "xml-rs",
 ]
 
 [[package]]
@@ -1162,6 +1386,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "urdf-rs"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "074515a3e6dc230bbbdcf35830fd71b67b55ae2ac22bc4ff69d89412fc84b830"
+dependencies = [
+ "RustyXML",
+ "quick-xml",
+ "regex",
+ "serde",
+ "serde-xml-rs",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "uuid"
 version = "1.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1245,6 +1483,32 @@ name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+
+[[package]]
+name = "xml-rs"
+version = "0.8.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ae8337f8a065cfc972643663ea4279e04e7256de865aa66fe25cec5fb912d3f"
+
+[[package]]
+name = "zerocopy"
+version = "0.8.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5a105cd7b140f6eeec8acff2ea38135d3cab283ada58540f629fe51e46696eb"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fe976fb70c78cd64cccfe3a6fc142244e8a77b70959b30faf9d0ac37ee228eb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "zmij"

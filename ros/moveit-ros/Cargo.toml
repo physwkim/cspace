@@ -21,16 +21,25 @@ publish = false
 [workspace]
 
 [dependencies]
-# EMPIRICAL PROBE, not the final pin -- see this round's report.
-# r2r 0.9.5 (D2's named version) fails to build against this image's ROS 2
-# Rolling: `rcl_timer_init` (r2r-0.9.5/src/nodes.rs:1485) does not exist in
-# this Rolling snapshot's rcl, which only has `rcl_timer_init2`. r2r 0.9.6
-# fixes exactly this (github.com/sequenceplanner/r2r compare 0.9.5...0.9.6,
+# D7 (round 2 decision, PORTING-PLAN.md Phase 9): r2r pinned by commit SHA,
+# not a mutable tag. D2 named r2r 0.9.5, but 0.9.5 fails to build against
+# this image's ROS 2 Rolling: `rcl_timer_init` (r2r-0.9.5/src/nodes.rs:1485)
+# does not exist in this Rolling snapshot's rcl, which only has
+# `rcl_timer_init2` (round-1 finding, container-verified). r2r 0.9.6 fixes
+# exactly this (github.com/sequenceplanner/r2r compare 0.9.5...0.9.6,
 # `nodes.rs`: adds a distro-`cfg`-gated `init_timer` wrapper that calls
 # `rcl_timer_init` on foxy/galactic/humble/iron and `rcl_timer_init2` "for
-# Jazzy, Rolling, and newer"). Testing 0.9.6 here to confirm that fix is
-# sufficient before recommending D2 be repinned.
-r2r = { git = "https://github.com/sequenceplanner/r2r", tag = "0.9.6" } # PROBE ONLY, see report -- 0.9.6 is unpublished to crates.io
+# Jazzy, Rolling, and newer") -- but 0.9.6 is unpublished to crates.io, only
+# a GitHub tag. `rev = "<sha>"` instead of `tag = "0.9.6"`: a tag is mutable
+# (`tools/moveit-oracle/src-digest.sh`'s own base-image-pinning comment
+# applies verbatim to git tags -- "upstream can move it and every local file
+# digest stays identical while the image underneath changes"); without a
+# `Cargo.lock` a tag-pinned consumer would silently build whatever commit
+# upstream moved `0.9.6` to point at. SHA below confirmed via
+# `git ls-remote --tags https://github.com/sequenceplanner/r2r` (lightweight
+# tag, not annotated -- no `^{}` deref entry -- so this is directly the
+# commit SHA, not a tag-object SHA).
+r2r = { git = "https://github.com/sequenceplanner/r2r", rev = "2d080c4dede3ec950620d2b82f6521bc4fa1e690" }
 
 # Path deps to the core workspace, not `workspace = true`: this manifest is
 # its own workspace (see above), so there is no `[workspace.dependencies]`
