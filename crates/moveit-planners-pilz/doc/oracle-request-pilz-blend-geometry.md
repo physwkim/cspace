@@ -954,3 +954,65 @@ and this is a genuinely new data point: raising `blend_radius` at a
 sharp corner can push position divergence itself higher than any
 prior fixture measured, independent of the tie/no-tie question. See
 `CORNER112_RADIUS08_POSITION_TOLERANCE` in `pilz_blend_parity.rs`.
+
+## Mechanizing the tolerance-hole audit
+
+The prior round's audit rule has a crisp shape: a per-case tolerance
+constant that is *looser* than the shared constant it overrides, for
+a channel the case's own measured max already passes under the
+shared constant, is a hole -- it turns off regression detection for
+no reason tied to anything measured. That audit was done by hand: read
+each override constant's doc comment, read the measured-max number
+recorded there in prose, compare it to the shared constant.
+
+**Whether a `tools/ci/check-*.sh` can re-run that audit depends on
+what it is allowed to trust.** The measured-max numbers live only in
+rustdoc prose (`` `8.276e-8` at `blend_trajectory` waypoint 5 ``-style
+sentences), not in any machine-readable form. A checker that parses
+those sentences for a number and a comparison would be parsing
+English, and it would fail exactly the way this repo's own "Checkers
+fail toward silence" lesson describes: the day someone rephrases a
+comment, reorders the "measures `X`... above `Y`" clause, or adds a
+sentence the regex does not anticipate, the parse silently misses and
+the checker still prints OK, having checked nothing. **That version is
+not written**, for that reason.
+
+**What is written instead is the same invariant expressed as
+execution rather than prose.** `pilz_blend_parity.rs` now carries one
+`#[should_panic]` test per override constant, each named
+`blend_panda_arm_<case>_needs_its_own_<channel>_tolerance`: it runs
+the case with that one channel dropped back to
+`Tolerances::SHARED` (every other tolerance the case actually needs
+held fixed) and asserts the comparison then fails. A green run of
+that test, under `cargo nextest run -p moveit-planners-pilz`, *is* the
+audit -- checked against the port's and the oracle's real output on
+every test invocation, not a number transcribed into a comment once
+and never re-verified. All ten of today's overrides have this
+companion test; all ten pass, confirming (by execution, independent of
+this round's own prose re-derivation above) that none of the ten is a
+hole.
+
+That leaves one gap a should_panic test alone cannot close: nothing
+stops a future override from being added *without* its companion
+test. `tools/ci/check-pilz-tolerance-overrides.sh` closes that gap,
+and it is the part that genuinely is mechanizable soundly, because it
+does not need the measured-max number at all -- it only needs to know
+whether a companion test *exists*. For every per-case `*_TOLERANCE`
+constant (everything `Tolerances::SHARED`'s own field list does not
+name, read structurally out of that block rather than off a hardcoded
+list), it derives the expected companion test's name from the
+constant's own name and checks that a function with that exact name
+exists and carries `#[should_panic]`. That is a structural
+existence-and-attribute check, not a semantic one -- it cannot tell
+whether the companion test asserts the *right* thing (that is what
+code review is for, same as any other test), but it cannot silently
+pass on a missing companion either: verified against three induced
+failures (a renamed companion test, a companion test with the
+`#[should_panic]` attribute stripped, and a brand-new override
+constant added with no companion test at all), each reported by name
+with exit 1. It needs no docker and no fixture, so it is a `check-*.sh`
+script: `.github/workflows/ci.yml`'s own `tools/ci/check-*.sh` glob
+picks it up automatically, the same glob every other no-docker checker
+in this directory already relies on -- no `verify-all.sh` edit needed,
+since that script's glob is `verify-*.sh` and is reserved for the
+docker/oracle-dependent scripts specifically (see its own header).
