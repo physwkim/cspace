@@ -813,13 +813,38 @@
 //!    (`(0.600,-0.572,0.560)`, `(0.707,0.135,-0.695)`,
 //!    `(0.026,-0.654,0.756)`), the tolerance gap starts at `2.3e-2`-`2.6e-2`
 //!    and shrinks geometrically over `16`-`24` real iterations before
-//!    reaching `1e-10`, and the reported depths (`0.0677`, `0.0748`,
-//!    `0.0734`) bear no simple relationship to the cylinder's own
-//!    dimensions. This is not a coincidence of one case generalized again:
-//!    it is the same mechanism, measured 9 times independently on 9
+//!    reaching `1e-10`. This is not a coincidence of one case generalized
+//!    again: it is the same mechanism, measured 9 times independently on 9
 //!    different triangle/state pairs sharing only the cylinder's own
 //!    geometry, with a 3-case contrast sample showing the mechanism does
 //!    not fire when `dir` is not axis-locked.
+//!
+//!    **The half-length is not the only plateau, and the contrast sample
+//!    was too small to see the other one.** This block used to end the
+//!    sentence above with "and the reported depths (`0.0677`, `0.0748`,
+//!    `0.0734`) bear no simple relationship to the cylinder's own
+//!    dimensions." Counted over the sweep's own printed readings rather
+//!    than three sampled cases, that is false. In a seed-4 run through case
+//!    623 (586 lines carrying an `mpr=` reading, 623 carrying an `oracle=`
+//!    one):
+//!
+//!    - `mpr == 7.479200e-2` in **101 of 586** — exactly the cylinder's own
+//!      `radius="0.074792"`, to every printed digit, and by far the modal
+//!      value (the next most common appears 3 times).
+//!    - `oracle == 1.700000e-2` in **381 of 623** — the `length/2` plateau
+//!      this block traces, produced by FCL on the oracle side in 61% of
+//!      sampled cases, not the rare libccd artifact the "9 of 945" framing
+//!      suggests.
+//!    - `epa` has no modal value at all: its top bucket appears twice.
+//!
+//!    Contrast case 4's own reported depth *is* `7.479200e-2` — the radius
+//!    — so one of the three cases chosen to show the mechanism not firing
+//!    is itself sitting on a dimension plateau, just a different one. What
+//!    the instrumented `findPenetr` trace establishes about the axis-locked
+//!    `length/2` case stands as measured; what does not follow from it is
+//!    that a non-axis-locked `dir` implies a genuine depth. Whether the
+//!    radius plateau has its own degenerate branch in `support.c` (the
+//!    `zdist` computation's other side) was not traced.
 //!
 //!    **What is still unexplained after this**, stated plainly rather than
 //!    folded into a tidier-sounding claim: *why* the portal Phase-1/2
