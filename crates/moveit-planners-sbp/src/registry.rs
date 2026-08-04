@@ -2254,6 +2254,55 @@ mod tests {
         for (label, wired, unwired) in &scenario4_results {
             eprintln!("    {label}: unwired {unwired}/5, wired {wired}/5");
         }
+
+        // `PORTING-PLAN.md` §195: a number cited in this test's own doc
+        // comment (the "# Measured" table above) or in
+        // `doc/claim-audit/moveit-planners-sbp.md` is a claim, not merely an
+        // observation, the moment something else depends on it -- and
+        // nothing kept these six true until now (verified: routing the
+        // wired branch's solver to `None` inside `run_scenario`, deleting
+        // the entire effect this sweep exists to measure, left this test
+        // green). All seeds are `ChaCha8Rng`-deterministic, so every number
+        // is pinned exactly rather than left as an inequality: either
+        // direction moving is a real change to what this sweep reports, not
+        // noise to tolerate. Scenario 3's `(5, 5)` is asserted too, even
+        // though wired and unwired are equal there -- that equality is
+        // itself the scenario's finding (see this test's doc comment and
+        // `doc/claim-audit/moveit-planners-sbp.md`), and is exactly as
+        // capable of silently drifting as the other five.
+        assert_eq!(
+            (scenario1_unwired, scenario1_wired),
+            (1, 5),
+            "scenario 1 (self-motion, Goal::State) moved off the documented unwired 1/5, wired 5/5"
+        );
+        assert_eq!(
+            (scenario2_unwired, scenario2_wired),
+            (0, 5),
+            "scenario 2 (Goal::Constraints, no corridor) moved off the documented unwired 0/5, wired 5/5"
+        );
+        assert_eq!(
+            (scenario3_unwired, scenario3_wired),
+            (5, 5),
+            "scenario 3 (orientation-only corridor) moved off the documented unwired 5/5, wired 5/5 tie"
+        );
+        let expected_scenario4 = [
+            ("tight (0.03/Iterations(20))", 5u32, 1u32),
+            ("medium (0.1/Iterations(20))", 5u32, 0u32),
+            ("loose (0.2/Iterations(200))", 5u32, 0u32),
+        ];
+        for ((label, wired, unwired), (expected_label, expected_wired, expected_unwired)) in
+            scenario4_results.iter().zip(&expected_scenario4)
+        {
+            assert_eq!(
+                label, expected_label,
+                "scenario 4's budget ordering/labels changed"
+            );
+            assert_eq!(
+                (*unwired, *wired),
+                (*expected_unwired, *expected_wired),
+                "scenario 4 {label} moved off the documented unwired {expected_unwired}/5, wired {expected_wired}/5"
+            );
+        }
     }
 
     /// The D8 equivalence determination this round's brief asked for:
