@@ -431,8 +431,17 @@ name = "moveit-planners-pilz"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-collision",
  "moveit-error",
  "moveit-geometry",
+ "moveit-kinematics",
+ "moveit-model",
+ "moveit-scene",
+ "moveit-srdf",
+ "moveit-state",
+ "moveit-trajectory",
+ "nalgebra",
+ "urdf-rs",
 ]
 
 [[package]]

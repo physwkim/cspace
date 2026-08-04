@@ -28,11 +28,19 @@
 //! - [`limits`] — `joint_limits_container.{hpp,cpp}`,
 //!   `joint_limits_extension.hpp`, `limits_container.{hpp,cpp}`: per-joint
 //!   and Cartesian limit storage and fusion.
+//! - [`cartesian_trajectory`] — `cartesian_trajectory.hpp`,
+//!   `cartesian_trajectory_point.hpp`: a Cartesian-space trajectory type.
+//! - [`trajectory_functions`] — `trajectory_functions.{hpp,cpp}`: IK/FK
+//!   round-trips (via `moveit-kinematics`), joint-limit-aware sampling, and
+//!   the blending-sphere search shared by every generator.
+//! - [`trajectory_generator`] — `trajectory_generator.{hpp,cpp}`'s
+//!   `validateRequest` family only; see that module's doc for exactly what
+//!   is ported versus deferred.
 //!
-//! Not yet in scope, planned for later rounds once the above land:
-//! `trajectory_functions`, `trajectory_generator` (base) plus its
-//! `_ptp`/`_lin`/`_circ` specializations, and
-//! `trajectory_blender_transition_window`.
+//! Not yet in scope, planned for later rounds once the above land: the
+//! concrete `_ptp`/`_lin`/`_circ` generators (`plan`/`extractMotionPlanInfo`,
+//! `generate`, `MotionPlanInfo`, `setSuccessResponse`/`setFailureResponse`)
+//! and `trajectory_blender_transition_window`.
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -82,6 +90,9 @@
 //! every logging call site above is replaced with a native `Result`/`bool`
 //! return instead of a log-and-continue.
 
+pub mod cartesian_trajectory;
 pub mod limits;
 pub mod path_circle;
+pub mod trajectory_functions;
+pub mod trajectory_generator;
 pub mod velocity_profile;
