@@ -150,6 +150,29 @@
 //! no C++ baseline at all — it is scored purely against the port's own
 //! output — and is untouched by this round.
 //!
+//! ## Round 18: tolerance-floor survey
+//!
+//! `70a6b31` fixed the workspace's `serde_json` float parser because 8.1% of
+//! committed fixture literals came back one ULP off, contaminating any
+//! tolerance bisected against a value read that way. `rg -c
+//! '1e-6|1e-9|1e-12' crates/moveit-planners-sbp/src --glob '!lib.rs'` (this
+//! doc comment itself quotes that pattern, so `lib.rs` is excluded rather
+//! than left to self-match) finds every such literal in `space.rs`,
+//! `so2.rs`, `se3.rs`, `compound.rs`, `nn.rs`, `validity.rs`,
+//! `joint_model_group_space.rs` and `sampling.rs` — none in `benches/` or
+//! `examples/`. Every one of them compares two Rust-computed `f64`s (a
+//! metric-axiom check, a norm-stays-near-1 check, a sample-stays-in-radius
+//! check, or a formula cross-check against a hand-written Rust literal) —
+//! none reads a `serde_json`-parsed value from a committed fixture and
+//! compares it with a tolerance. The one site in this crate that *does*
+//! compare against a live-oracle-derived value,
+//! `tests/plan_space_parity.rs`'s `distance_probes` check, uses bit-exact
+//! `assert_eq!`, not a tolerance, so the noisy-parser floor `70a6b31` fixed
+//! was never a floor this crate's tolerances could have been bisected
+//! against in the first place. Matching `moveit-constraints`'s own survey
+//! (`a4c6fc6`) and `moveit-geometry`/`moveit-octomap`'s (`d239666`): none
+//! affected here either.
+//!
 //! # Round 6 symbol audit
 //!
 //! This crate has two upstream relationships, not one, and they get audited
