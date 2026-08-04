@@ -22,6 +22,7 @@
 #   tools/ci/verify-fixture-provenance.sh
 set -euo pipefail
 
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 VENDOR="third_party/moveit_resources"
@@ -85,7 +86,9 @@ check_fixture() {  # <fixture path> <vendored source path>
 # mapping must fail rather than silently escape the check. That is the whole
 # difference between a rule and a list of the files someone remembered.
 shopt -s nullglob
-for fixture in fixtures/*.urdf fixtures/*.srdf; do
+root_fixtures=(fixtures/*.urdf fixtures/*.srdf)
+require_nonempty "${#root_fixtures[@]}" "urdf/srdf fixture under fixtures/"
+for fixture in "${root_fixtures[@]}"; do
   check_fixture "$fixture" "${SOURCE_OF[$fixture]:-}"
 done
 
@@ -98,7 +101,9 @@ done
 # not a table: a new file under fixtures/meshes/ is checked automatically,
 # with no mapping entry to remember to add.
 shopt -s globstar
-for fixture in fixtures/meshes/**/*.stl; do
+mesh_fixtures=(fixtures/meshes/**/*.stl)
+require_nonempty "${#mesh_fixtures[@]}" "collision mesh under fixtures/meshes/"
+for fixture in "${mesh_fixtures[@]}"; do
   check_fixture "$fixture" "$VENDOR/${fixture#fixtures/meshes/}"
 done
 
@@ -165,7 +170,9 @@ check_crate_local() {  # <crate-local fixture path>
   fi
 }
 
-for fixture in crates/*/tests/fixtures/*.urdf crates/*/tests/fixtures/*.srdf; do
+crate_local_fixtures=(crates/*/tests/fixtures/*.urdf crates/*/tests/fixtures/*.srdf)
+require_nonempty "${#crate_local_fixtures[@]}" "crate-local fixture under crates/*/tests/fixtures/"
+for fixture in "${crate_local_fixtures[@]}"; do
   check_crate_local "$fixture"
 done
 

@@ -413,6 +413,17 @@ if unretained:
     print("as the cited file writes it, or say `Used by` if nothing was ported.", file=sys.stderr)
 
 print(f"checked {checked} upstream file(s) cited by {len(tracked)} tracked source file(s)")
+# `tools/ci/gate-lib.sh`'s rule, in this script's own language: a run that
+# opened no upstream file examined nothing, and must not print the OK block
+# below. Zero `tracked` files (a path convention change under crates//tools//
+# ros/) and zero `checked` files (no tracked file carrying a resolvable
+# citation any more) are both that state.
+if not tracked or checked == 0:
+    print(f"FAIL examined nothing: {len(tracked)} tracked source file(s), "
+          f"{checked} upstream file(s) opened.", file=sys.stderr)
+    print("FAIL either the path convention changed or citations stopped resolving; "
+          "passing here would be vacuous.", file=sys.stderr)
+    sys.exit(1)
 if status == 0:
     print("OK: no permissive-SPDX file cites a copyleft upstream file, every")
     print("    asserted upstream copyright is reproduced by a file that file cites,")

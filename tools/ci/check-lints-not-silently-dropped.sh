@@ -23,6 +23,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 cd "$repo_root"
 
 # Keys under a `[workspace.lints.<group>]` table in the root manifest.
@@ -54,7 +55,10 @@ for group in rust clippy; do
   fi
 done
 
-for manifest in $(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort); do
+mapfile -t manifests < <(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
+require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
+
+for manifest in "${manifests[@]}"; do
   # The inheriting form: `[lints]` followed by `workspace = true`.
   if awk '/^\[lints\]/ { in_tbl = 1; next } /^\[/ { in_tbl = 0 } in_tbl' "$manifest" |
      grep -Eq '^[[:space:]]*workspace[[:space:]]*=[[:space:]]*true'; then

@@ -20,6 +20,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 cd "$repo_root"
 
 # Every local member's package name, taken from its directory name -- which
@@ -29,10 +30,14 @@ mapfile -t members < <(
   git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' |
     sed 's|/Cargo.toml$||' | sed 's|.*/||' | sort -u
 )
+require_nonempty "${#members[@]}" "workspace member under crates/ or tools/"
+
+mapfile -t manifests < <(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
+require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
 
 status=0
 
-for manifest in $(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort); do
+for manifest in "${manifests[@]}"; do
   # Cargo accepts two spellings for the same edge, so both are scanned:
   #
   #   [dependencies]                    <- key form

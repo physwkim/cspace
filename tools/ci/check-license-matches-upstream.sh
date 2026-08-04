@@ -30,6 +30,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 cd "$repo_root"
 
 workspace_license="$(sed -n 's/^license[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
@@ -40,7 +41,10 @@ fi
 
 status=0
 
-for manifest in $(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort); do
+mapfile -t manifests < <(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
+require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
+
+for manifest in "${manifests[@]}"; do
   crate_dir="$(dirname "$manifest")"
 
   # Effective license: an explicit value wins, otherwise the crate must say it
