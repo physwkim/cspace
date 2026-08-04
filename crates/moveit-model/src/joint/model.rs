@@ -923,8 +923,6 @@ impl JointModel {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     #[test]
@@ -1109,14 +1107,19 @@ mod tests {
         let transform = joint.compute_transform(&values);
         let mut recovered = [0.0];
         joint.compute_variable_positions(&transform, &mut recovered);
-        assert_relative_eq!(recovered[0], 0.7, epsilon = 1e-9);
+        // Measured exact for this input; not asserted as a general property
+        // of the round trip.
+        assert_eq!(recovered[0], 0.7);
     }
 
     #[test]
     fn fixed_dispatch_is_a_transform_identity_noop() {
         let joint = JointModel::new_fixed("j");
         let transform = joint.compute_transform(&[]);
-        assert_relative_eq!(transform.translation.vector.norm(), 0.0);
+        // A fixed joint's transform is the identity; the zero vector's own
+        // norm is exactly 0.0 under IEEE 754, not a value measured for this
+        // input alone.
+        assert_eq!(transform.translation.vector.norm(), 0.0);
         assert_eq!(joint.distance(&[], &[]), 0.0);
         assert_eq!(joint.maximum_extent(), 0.0);
     }
@@ -1128,8 +1131,10 @@ mod tests {
         let transform = joint.compute_transform(&values);
         let mut recovered = [0.0; 7];
         joint.compute_variable_positions(&transform, &mut recovered);
+        // Measured exact for these inputs; not asserted as a general
+        // property of the round trip.
         for (a, b) in values.iter().zip(recovered.iter()) {
-            assert_relative_eq!(*a, *b, epsilon = 1e-9);
+            assert_eq!(*a, *b);
         }
     }
 }

@@ -286,7 +286,9 @@ mod tests {
         let mut values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0];
         assert!(FloatingJoint::normalize_rotation(&mut values));
         let norm_sqr: f64 = values[3..7].iter().map(|v| v * v).sum();
-        assert_relative_eq!(norm_sqr, 1.0, epsilon = 1e-12);
+        // Every component divides by the exact norm 2.0 -- a power of two,
+        // so the division is exact under IEEE 754.
+        assert_eq!(norm_sqr, 1.0);
     }
 
     #[test]
@@ -302,7 +304,9 @@ mod tests {
         let mut values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0];
         assert!(FloatingJoint::enforce_position_bounds(&mut values, &bounds));
         let norm_sqr: f64 = values[3..7].iter().map(|v| v * v).sum();
-        assert_relative_eq!(norm_sqr, 1.0, epsilon = 1e-12);
+        // Same 2.0-norm quaternion as `normalize_rotation_rescales_non_unit_quaternion`;
+        // exact for the same reason.
+        assert_eq!(norm_sqr, 1.0);
     }
 
     #[test]
@@ -323,7 +327,9 @@ mod tests {
         let to = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
         let state = FloatingJoint::interpolate(&from, &to, 0.5);
         let norm_sqr: f64 = state[3..7].iter().map(|v| v * v).sum();
-        assert_relative_eq!(norm_sqr, 1.0, epsilon = 1e-9);
+        // The antipodal fallback's normalization carries a 1-ULP residue
+        // (0.9999999999999998 vs 1.0), unlike the exact-norm cases above.
+        assert_relative_eq!(norm_sqr, 1.0, epsilon = 1e-15, max_relative = 0.0);
     }
 
     #[test]
@@ -331,8 +337,10 @@ mod tests {
         let values = [1.0, -2.0, 3.0, 0.5, 0.5, 0.5, 0.5];
         let transform = FloatingJoint::compute_transform(&values);
         let recovered = FloatingJoint::compute_variable_positions(&transform);
+        // Measured exact for these inputs; not asserted as a general
+        // property of the round trip.
         for (a, b) in values.iter().zip(recovered.iter()) {
-            assert_relative_eq!(*a, *b, epsilon = 1e-9);
+            assert_eq!(*a, *b);
         }
     }
 }

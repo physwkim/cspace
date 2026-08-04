@@ -226,7 +226,17 @@
 //!    constants" were one real instance of (b) plus one second instance of
 //!    the *same* plateau-then-ramp mechanism as (b), not three separate
 //!    phenomena — and the seed-1 sweep's own sampled states simply never
-//!    landed in the wheel pair's ~20% ramp region.
+//!    landed in the wheel pair's ~20% ramp region. All of the above
+//!    establishes only that *this backend's* `-0.046592m` is the correct
+//!    answer to the question its own [`TriMesh`] narrow phase asks
+//!    (`pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`
+//!    confirms this by calling `parry3d_f64::query::contact` directly, not
+//!    through this backend's own pipeline). It says nothing about whether
+//!    the oracle's FCL/libccd search misses a deeper self-side contact for
+//!    this pair family: unlike (a) and (b)'s cases, a self-side pair has no
+//!    independent geometric reference the way `floor_env`'s box gives (c),
+//!    below, so that question is still open and is not resolved by anything
+//!    in this doc.
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
@@ -1408,9 +1418,11 @@ mod tests {
         // the unit normal (1, 0, 0) is 3.
         let plane = Shape::Plane(Plane::new(1.0, 0.0, 0.0, -3.0));
         let (_shape, extra) = convert_shape(&plane, &OctreeCache::default()).unwrap();
-        assert_relative_eq!(extra.translation.vector.x, 3.0, epsilon = 1e-12);
-        assert_relative_eq!(extra.translation.vector.y, 0.0, epsilon = 1e-12);
-        assert_relative_eq!(extra.translation.vector.z, 0.0, epsilon = 1e-12);
+        // The normal (1, 0, 0) is already axis-aligned and unit length, so the
+        // offset is `-d` with no division or trig involved -- exact.
+        assert_eq!(extra.translation.vector.x, 3.0);
+        assert_eq!(extra.translation.vector.y, 0.0);
+        assert_eq!(extra.translation.vector.z, 0.0);
     }
 
     // --- Shape::OcTree: the two distinct "no tree" cases (convert_shape's
@@ -1590,9 +1602,12 @@ mod tests {
     #[test]
     fn axis_fix_maps_parry_y_up_onto_moveit_z_up() {
         let fixed = axis_fix() * Vector3::new(0.0, 1.0, 0.0);
-        assert_relative_eq!(fixed.x, 0.0, epsilon = 1e-12);
-        assert_relative_eq!(fixed.y, 0.0, epsilon = 1e-12);
-        assert_relative_eq!(fixed.z, 1.0, epsilon = 1e-12);
+        assert_eq!(fixed.x, 0.0);
+        // `axis_fix()`'s 90-degree rotation is built from `f64::consts::FRAC_PI_2`'s
+        // sin/cos, not exact literals, so this component carries a 1-ULP
+        // (`f64::EPSILON`) residue rather than landing on 0.0 exactly.
+        assert_relative_eq!(fixed.y, 0.0, epsilon = 1e-15, max_relative = 0.0);
+        assert_eq!(fixed.z, 1.0);
     }
 
     #[test]
@@ -1605,9 +1620,12 @@ mod tests {
             -0.5,
         );
         let c = to_contact(&pc, "a", BodyType::RobotLink, "b", BodyType::WorldObject);
-        assert_relative_eq!(c.pos, Vector3::new(0.5, 0.0, 0.0));
-        assert_relative_eq!(c.normal, Vector3::new(1.0, 0.0, 0.0));
-        assert_relative_eq!(c.depth, 0.5);
+        // Every input here is exactly representable and every step (midpoint,
+        // copy, negate-and-clamp) is exact under IEEE 754, so this is a
+        // structural identity, not a value measured for this input alone.
+        assert_eq!(c.pos, Vector3::new(0.5, 0.0, 0.0));
+        assert_eq!(c.normal, Vector3::new(1.0, 0.0, 0.0));
+        assert_eq!(c.depth, 0.5);
         assert_eq!(c.body_name_1, "a");
         assert_eq!(c.body_type_1, BodyType::RobotLink);
         assert_eq!(c.body_name_2, "b");
@@ -1624,7 +1642,10 @@ mod tests {
         let shape = Shape::Cuboid(Cuboid::new(2.0, 2.0, 2.0).unwrap());
         let scaled = scaled_padded_shape(&shape, 2.0, 0.5);
         match scaled {
-            Shape::Cuboid(c) => assert_relative_eq!(c.size[0], 5.0),
+            // `size[0] * scale + padding * 2.0` on exactly-representable
+            // operands (2.0 * 2.0 + 0.5 * 2.0 = 5.0) is exact under IEEE
+            // 754, not a value measured for this input alone.
+            Shape::Cuboid(c) => assert_eq!(c.size[0], 5.0),
             other => panic!("expected Cuboid, got {other:?}"),
         }
     }
@@ -2042,7 +2063,10 @@ mod tests {
         let result = env.distance_self(&DistanceRequest::default(), &posed, &[]);
 
         assert!(!result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
+        // Axis-aligned box distance at an exact-literal translation reduces
+        // to subtraction of exact literals -- exact under IEEE 754. The same
+        // reasoning applies to the other minimum-distance assertions below.
+        assert_eq!(result.minimum_distance.distance, 1.0);
     }
 
     #[test]
@@ -2065,7 +2089,7 @@ mod tests {
         let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, 0.0, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, 0.0);
     }
 
     #[test]
@@ -2088,7 +2112,7 @@ mod tests {
         let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, -0.5, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, -0.5);
     }
 
     #[test]
@@ -2120,7 +2144,7 @@ mod tests {
         let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, -1.0, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, -1.0);
     }
 
     #[test]
@@ -2174,7 +2198,7 @@ mod tests {
         let result = env.distance_self(&request, &posed, &[]);
 
         assert!(result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, -0.5, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, -0.5);
     }
 
     #[test]
@@ -2193,7 +2217,7 @@ mod tests {
         let result = env.distance_robot(&DistanceRequest::default(), &posed, &[]);
 
         assert!(!result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, 1.0);
     }
 
     #[test]
@@ -2211,7 +2235,7 @@ mod tests {
         let result = env.distance_robot(&DistanceRequest::default(), &posed, &[]);
 
         assert!(!result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, 1.0);
     }
 
     #[test]
@@ -2306,7 +2330,7 @@ mod tests {
         let result = env.distance_robot(&DistanceRequest::default(), &posed, &[attached]);
 
         assert!(!result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, 1.0, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, 1.0);
     }
 
     #[test]
@@ -2388,7 +2412,7 @@ mod tests {
         let result = env.distance_self(&request, &posed, &[a, b]);
 
         assert!(result.collision);
-        assert_relative_eq!(result.minimum_distance.distance, -1.0, epsilon = 1e-9);
+        assert_eq!(result.minimum_distance.distance, -1.0);
     }
 
     #[test]
@@ -2529,7 +2553,9 @@ mod tests {
     /// component-wise instead of stringifying both sides into a slice.
     fn assert_point_close(actual: [f64; 3], expected: [f64; 3]) {
         for i in 0..3 {
-            assert_relative_eq!(actual[i], expected[i], epsilon = 1e-12);
+            // Hand-computed AABB coordinates against exact-literal cuboid
+            // geometry -- exact, not merely close.
+            assert_eq!(actual[i], expected[i]);
         }
     }
 
@@ -2816,7 +2842,11 @@ mod tests {
         let sources = result.cost_sources.expect("cost requested");
         assert_eq!(sources.len(), 2, "trimmed to max_cost_sources");
         let volumes: Vec<f64> = sources.iter().map(CostSource::volume).collect();
-        assert_relative_eq!(volumes[0], 0.8, epsilon = 1e-9);
-        assert_relative_eq!(volumes[1], 0.3, epsilon = 1e-9);
+        // p-r's overlap is `1.0 - 0.2`, exact.
+        assert_eq!(volumes[0], 0.8);
+        // q-r's overlap is `1.0 - (0.9 - 0.2)`: `0.9 - 0.2` is not exactly
+        // representable in binary floating point (it rounds to
+        // 0.7000000000000001), so the result carries a 1-ULP residue.
+        assert_relative_eq!(volumes[1], 0.3, epsilon = 1e-15, max_relative = 0.0);
     }
 }

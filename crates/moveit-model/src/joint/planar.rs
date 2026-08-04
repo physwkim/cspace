@@ -343,7 +343,15 @@ mod tests {
 
     #[test]
     fn normalize_angle_wraps_just_past_pi_to_just_past_negative_pi() {
-        assert_relative_eq!(normalize_angle(PI + 0.1), -PI + 0.1, epsilon = 1e-12);
+        // `normalize_angle`'s wrap subtracts a multiple of `2*PI`, which
+        // leaves a few-ULP residue near the pi boundary rather than landing
+        // on the literal exactly.
+        assert_relative_eq!(
+            normalize_angle(PI + 0.1),
+            -PI + 0.1,
+            epsilon = 1e-15,
+            max_relative = 0.0
+        );
     }
 
     #[test]
@@ -362,7 +370,8 @@ mod tests {
     fn normalize_rotation_wraps_just_past_pi() {
         let mut values = [0.0, 0.0, PI + 0.1];
         assert!(PlanarJoint::normalize_rotation(&mut values));
-        assert_relative_eq!(values[2], -PI + 0.1, epsilon = 1e-12);
+        // Measured exact for this input; not asserted as a general property.
+        assert_eq!(values[2], -PI + 0.1);
     }
 
     #[test]
@@ -387,7 +396,8 @@ mod tests {
         assert!(PlanarJoint::enforce_position_bounds(&mut values, &bounds));
         assert_eq!(values[0], 1.0);
         assert_eq!(values[1], -1.0);
-        assert_relative_eq!(values[2], -PI + 0.1, epsilon = 1e-12);
+        // Measured exact for this input; not asserted as a general property.
+        assert_eq!(values[2], -PI + 0.1);
     }
 
     #[test]
@@ -397,7 +407,11 @@ mod tests {
             ..Default::default()
         };
         let d = joint.distance(&[0.0, 0.0, -PI + 0.1], &[0.0, 0.0, PI - 0.1]);
-        assert_relative_eq!(d, 0.2, epsilon = 1e-9);
+        // The short-way distance goes through a modulo-based wrap, which
+        // leaves a 1-ULP residue here (0.20000000000000018 vs 0.2) rather
+        // than landing on the literal exactly -- the same pattern as
+        // `RevoluteJoint::distance`'s equivalent test.
+        assert_relative_eq!(d, 0.2, epsilon = 1e-15, max_relative = 0.0);
     }
 
     #[test]
@@ -407,7 +421,8 @@ mod tests {
             ..Default::default()
         };
         let state = joint.interpolate(&[0.0, 0.0, PI - 0.1], &[0.0, 0.0, -PI + 0.1], 0.5);
-        assert_relative_eq!(state[2].abs(), PI, epsilon = 1e-9);
+        // Measured exact for this input; not asserted as a general property.
+        assert_eq!(state[2].abs(), PI);
     }
 
     #[test]
@@ -417,7 +432,8 @@ mod tests {
             ..Default::default()
         };
         let state = joint.interpolate(&[0.0, 0.0, 0.0], &[0.0, 0.0, PI], 0.5);
-        assert_relative_eq!(state[2], PI / 2.0, epsilon = 1e-12);
+        // `0.0 + (PI - 0.0) * 0.5` is exact under IEEE 754.
+        assert_eq!(state[2], PI / 2.0);
     }
 
     #[test]
@@ -441,9 +457,11 @@ mod tests {
         for theta in [-2.5_f64, 0.0, 1.2] {
             let transform = PlanarJoint::compute_transform(&[0.3, -0.7, theta]);
             let recovered = PlanarJoint::compute_variable_positions(&transform);
-            assert_relative_eq!(recovered[0], 0.3, epsilon = 1e-9);
-            assert_relative_eq!(recovered[1], -0.7, epsilon = 1e-9);
-            assert_relative_eq!(recovered[2], theta, epsilon = 1e-9);
+            // Measured exact for these inputs; not asserted as a general
+            // property of the round trip.
+            assert_eq!(recovered[0], 0.3);
+            assert_eq!(recovered[1], -0.7);
+            assert_eq!(recovered[2], theta);
         }
     }
 
@@ -459,10 +477,14 @@ mod tests {
         assert!(transform.rotation.quaternion().w < 0.0);
         let recovered = PlanarJoint::compute_variable_positions(&transform);
         let round_tripped = PlanarJoint::compute_transform(&[0.0, 0.0, recovered[2]]);
+        // `angle_to` goes through a quaternion round trip (build, negate on
+        // w<0, recover, rebuild), which leaves a few-ULP residue rather than
+        // landing on 0.0 exactly.
         assert_relative_eq!(
             round_tripped.rotation.angle_to(&transform.rotation),
             0.0,
-            epsilon = 1e-9
+            epsilon = 1e-15,
+            max_relative = 0.0
         );
     }
 }
