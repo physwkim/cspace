@@ -11625,3 +11625,29 @@ resolve한다.
 
 현재 트리에서 `cargo metadata --locked`와 `cargo fetch --locked` 둘 다 통과하므로
 이 커밋은 동작 변화가 없다 — 구멍만 닫는다.
+
+### 142.2 cold crates.io resolution — 측정했고, 통과한다
+
+§136.1의 (b)다. CI 러너는 매번 빈 `CARGO_HOME`에서 시작하므로, 호스트의 따뜻한
+레지스트리 캐시가 가려주던 문제(yank된 버전, 사라진 crate)가 거기서만 드러날 수
+있다. 그대로 재현했다:
+
+```
+$ rm -rf $D && mkdir -p $D
+$ CARGO_HOME=$D cargo fetch --locked
+    Updating crates.io index
+ Downloading crates ...
+   ... (85 crates)
+$ echo $?
+0
+$ du -sh $D → 103M
+```
+
+`Downloaded` 85줄. `Cargo.lock`의 `name =` 항목은 107개이고, 차이 22는 워크스페이스
+멤버 수와 정확히 같다(`cargo metadata --no-deps` → packages 22개; `crates/` 21개 +
+`tools/moveit-diff`). 멤버는 path dependency라 내려받지 않는다 — 즉 내려받아야 할
+것을 전부 내려받았고 빠진 게 없다.
+
+커밋된 lockfile이 지정하는 버전 중 yank된 것도, 받을 수 없는 것도 없다. §136.1의
+(b)를 닫는다. 남는 것은 (a) 네 `uses:` 액션의 실제 동작뿐이고, 그건 GitHub Actions
+러너 없이는 재현할 수 없다 — 원격이 붙기 전까지 UNFIXED로 둔다.
