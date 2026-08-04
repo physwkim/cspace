@@ -335,18 +335,21 @@ acceleration at waypoint 6 (`panda_joint5`) — spread across multiple
 interior waypoints (1, 2, 5, 6) and multiple joints
 (`panda_joint1`/`3`/`5`/`6`), not one isolated sample. That spread is the
 refuting condition's own tell against a slerp-direction or off-by-one
-bug (which would show as one outlier, not a smooth growth), and is
-consistent instead with panda_arm's redundant-kinematics IK null-space
-selection diverging more between solvers as the corner sharpens — the
-same phenomenon already budgeted for at 90° in
-`lin_panda_arm_matches_the_oracle`'s own module doc, larger here because
-the geometry is sharper. `first_trajectory`/`second_trajectory` and
-`blend_trajectory`'s own position/time stay within the existing shared
-tolerance; only interior velocity/acceleration exceed it. See
-`pilz_blend_parity.rs`'s `CORNER112_VELOCITY_TOLERANCE`/
-`CORNER112_ACCELERATION_TOLERANCE` for the case-specific, separately
-measured tolerance this finding got instead of a widened shared
-constant.
+bug (which would show as one outlier, not a smooth growth). **This
+paragraph originally attributed the spread to "panda_arm's
+redundant-kinematics IK null-space selection diverging more between
+solvers as the corner sharpens" — that attribution has since been tested
+by the Case F sweep below and refuted: divergence is not monotone in
+corner angle (90°/100° measure the sweep's minimum, not a point partway
+up a trend), so "the corner sharpens" is not, by itself, an explanation
+for case E's own number. See Case F's "Measured sweep" and "Verdict"
+below for the full table and what stays unexplained.**
+`first_trajectory`/`second_trajectory` and `blend_trajectory`'s own
+position/time stay within the existing shared tolerance; only interior
+velocity/acceleration exceed it. See `pilz_blend_parity.rs`'s
+`CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE` for
+the case-specific, separately measured tolerance this finding got
+instead of a widened shared constant.
 
 ## Response shape, tolerance
 
@@ -476,3 +479,127 @@ historical record; the misattribution is fixed at its source paragraph).
   §207 already recorded and this round's case E already answers — left
   in place as "the falsified prediction it turned out to be," per the
   existing text, not re-litigated here a second time.
+
+## Case F: a falsifiable prediction for case E's "corner sharpness" attribution
+
+Case E's own doc section above and `pilz_blend_parity.rs`'s
+`CORNER112_VELOCITY_TOLERANCE` attribute the interior-`blend_trajectory`
+divergence to "panda_arm's redundant-kinematics IK null-space selection
+diverging more between solvers as the corner sharpens." That sentence is
+consistent with the one data point it was built from (case E vs. cases
+A-D) and it has not been tested against a second data point — exactly
+the shape PORTING-PLAN.md §207.1 flagged as the failure mode this session
+keeps finding: a plausible mechanism reported as though it were measured.
+This section states it as a prediction, before any of the fixtures below
+were generated, so the sweep that follows cannot be shaped by its own
+result.
+
+**Prediction.** Let θ be the corner deviation angle between segment 1's
+and segment 2's Cartesian direction (`0°` = straight through, no turn;
+`180°` = full reversal; case A/B/C sit at `90°`, case D at `150°`
+(rejected), case E at `112°`). Holding `blend_radius` (`0.05`) and both
+segments' `max_velocity_scaling_factor`/`max_acceleration_scaling_factor`
+(`0.1`/`0.1`) fixed at case A's values, and every other field identical
+to case A (same start pose, same `+0.1m` segment length):
+
+- **Quantity:** `max(|Δvelocity|)` and `max(|Δacceleration|)` across
+  `blend_trajectory`'s waypoints, measured the same way case E's own
+  numbers were (`compare_segment`'s per-waypoint, per-joint absolute
+  difference against the oracle response).
+- **Direction:** monotonically non-decreasing in θ, for θ swept from
+  shallower than case A's `90°` up through as sharp as the pipeline still
+  succeeds (bisected at `112.6°` OK / `112.8°` rejected).
+- **Refuted by:** (a) any angle producing strictly *larger* divergence
+  than a sharper angle tried at a later point in the sweep — true
+  non-monotonicity, not sub-order-of-magnitude noise from floating-point/
+  backward-difference amplification; (b) a control variable that is *not*
+  θ (radius, held fixed at a constant angle) moving the divergence by a
+  comparable or larger amount than θ does over the swept range — that
+  would show radius, not angle, is doing some or all of the driving, and
+  the "corner sharpness" attribution would need restating as "radius and/
+  or angle," not simply "the corner sharpens."
+- **Not refuted by:** small deviations from strict monotonicity within
+  the same order of magnitude — the source cases already show some
+  non-monotonic scatter within a fixed order of magnitude (case B's
+  `2.95e-10` measures *below* case A's `1.96e-8` at the same `90°`, from
+  the asymmetric-speed geometry alone), so the prediction is about the
+  trend across roughly an order of magnitude or more, not a strict
+  inequality at every adjacent pair.
+
+**Sweep plan, fixed before generating any fixture.** Seven new oracle
+round trips: six angles at `blend_radius: 0.05` spanning shallower than
+case A through case E (`30°`, `60°`, `75°`, `100°`, `105°`, `110°` —
+reusing case A's own `90°` measurement and case E's own `112°`
+measurement as the two anchors already on file, not re-measuring them),
+plus one radius control at case E's own `112°` angle with `blend_radius`
+lowered to `0.03` (`panda_blend_corner112_radius03`) to test prediction
+refutation (b) directly at the angle where the effect is largest, rather
+than only at case A/C's `90°` where the effect is near the tolerance
+floor and has little power to discriminate. `pilz_trajectory_lin_parity.rs`'s
+own precedent (this document's earlier note that A/B's document ran the
+full pipeline before filing) is followed here too: every fixture below is
+generated by actually running `blend()` to completion locally before the
+oracle request is sent, not assumed to succeed from the angle alone.
+
+**Measured sweep (real oracle, all seven fixtures `error_code = 1`
+`SUCCESS`; cases A/E figures repeated from their own sections above for a
+single table).** `max(|Δvelocity|)`/`max(|Δacceleration|)`, both measured
+identically to case E's own numbers and confirmed to reproduce case A's
+and case E's already-filed figures exactly through the same measurement
+path before any new fixture was trusted:
+
+| θ | max \|Δvelocity\| | max \|Δacceleration\| |
+|---:|---:|---:|
+| 30° | `4.0972e-8` | `7.7099e-7` |
+| 60° | `6.4188e-8` | `1.1279e-6` |
+| 75° | `8.9525e-8` | `1.4818e-6` |
+| 90° (case A) | `1.9582e-8` | `2.9061e-7` |
+| 100° | `1.5487e-8` | `2.9642e-7` |
+| 105° | `6.6526e-8` | `1.3293e-6` |
+| 110° | `7.9133e-8` | `1.5797e-6` |
+| 112° (case E) | `8.2760e-8` | `1.6513e-6` |
+
+**Radius control (`panda_blend_corner112_radius03`, θ fixed at case E's
+112°):** `blend_radius: 0.05` (case E) measures `1.6513e-6`
+acceleration; `blend_radius: 0.03` measures `9.2747e-7` — radius alone,
+angle held fixed, moves acceleration divergence by a factor of `~1.8`.
+
+**Verdict: refuted, both ways.**
+
+- **Refutation (a) — non-monotonicity.** The sweep is not monotone in
+  θ. 90° and 100° measure the *lowest* divergence of the entire sweep —
+  lower than 30°/60°/75° (shallower than case A) and lower than
+  105°/110°/112° (sharper than case A). The dip is not sub-order-of-
+  magnitude scatter of the kind the prediction's own "not refuted by"
+  clause allowed for (case B's `2.95e-10` at 90°): acceleration falls
+  from `1.4818e-6` at 75° to `2.9061e-7` at 90° (~5.1x) and rises back to
+  `1.3293e-6` at 105° (~4.6x) — a real, repeated-order-of-magnitude
+  swing on both sides of the same two points, confirmed by rerunning
+  cases A and E through the identical `measure_case` path used for the
+  six new points (reproducing their own filed figures exactly, so the
+  dip is not a measurement-method artifact) and by confirming case A's
+  own fixture sits on the identical θ-parametrized construction as the
+  six new points (`corner + 0.1 * (cos θ, sin θ, 0)`, same start pose,
+  same `0.1m` segment length — verified directly against the request
+  JSON, not assumed).
+- **Refutation (b) — a non-θ control moves the divergence by a
+  comparable amount.** The radius control's `~1.8x` swing at fixed θ is
+  on the same order as several of the sweep's own θ-driven swings (the
+  100°→105° step alone is `~4.5x`; the sweep's full range top-to-bottom
+  is `~5.7x`). Radius is not a negligible second-order effect next to
+  angle; it moves the same quantity by a comparable order of magnitude
+  while θ is held fixed.
+
+Both refutation conditions the prediction itself named are met, so the
+prediction from this section's own "Prediction" above is **refuted**:
+divergence is not a monotone function of corner angle with radius held
+fixed. What actually varies with the divergence, from the data measured
+so far: something specific to the `~90–100°` region of this particular
+geometry (case A/case-100° arm posture reaching this Cartesian corner)
+minimizes it, with divergence rising on both sides — not a "sharper
+corner, more divergence" trend, and not fully separable from radius
+either, per the control above. No alternative mechanism has been tested
+against this shape (e.g. Jacobian conditioning or null-space geometry
+local to panda_arm's posture at this specific corner), so per this
+round's own instruction: **unexplained**, with the numbers above, rather
+than a second untested plausible mechanism replacing the first.
