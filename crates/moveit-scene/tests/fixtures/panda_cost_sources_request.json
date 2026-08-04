@@ -415,5 +415,21 @@
     "max_costs": 50,
     "objects": [],
     "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "id": 10,
+    "joint_values": {},
+    "max_costs": 10,
+    "objects": [],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "id": 11,
+    "joint_values": {},
+    "max_costs": 40,
+    "objects": [],
+    "op": "cost_sources"
   }
 ]

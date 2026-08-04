@@ -74,7 +74,7 @@
 //!
 //! # What each case isolates
 //!
-//! `panda_cost_sources_request.json` (state op, ids 1-9):
+//! `panda_cost_sources_request.json` (state op, ids 1-11):
 //! - id 1: `joint_values={}` (the established default self-colliding pose),
 //!   no world object, `group_name` omitted -- upstream's state overload runs
 //!   one `checkCollision(cost=true)` and swaps the result out with **no**
@@ -102,6 +102,12 @@
 //!   adds `panda_link7` to `touch_links` and the same collision vanishes (0)
 //!   -- `attached_bodies`/`touch_links` read the same schema `collision`
 //!   does, exercised here rather than assumed.
+//! - ids 10-11: id 1's self-colliding state again, at `max_costs` 10 and
+//!   40 -- both below the true mesh-vs-mesh count of 75, so both exercise
+//!   the truncate-to-most-costly boundary on a case unaffected by the
+//!   `mesh_shape_cost_sources` defect below, closing a gap ids 2-6/8
+//!   cannot: before these two, nothing in this crate's asserted suite
+//!   measured `max_costs` truncation against real oracle ground truth.
 //!
 //! `panda_path_cost_sources_request.json` (trajectory op, ids 1-6):
 //! - ids 1-2: two waypoints, one clean (`CLEAN_POSE`) and one self-colliding
@@ -357,8 +363,20 @@ fn scene_with_attached<'m>(
 /// object/attached body at all (mesh-vs-mesh self-collision, or the
 /// far-away/touch-suppressed zero cases), so the defect documented on
 /// [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] cannot reach
-/// them.
-const COST_SOURCES_PASSING_IDS: [u32; 3] = [1, 7, 9];
+/// them. Ids 10-11 are the same id-1 self-collision state at `max_costs`
+/// 10 and 40 (both below the true count of 75), added to measure the
+/// `max_costs` truncation rule -- `CostSource::Ord`
+/// (`crates/moveit-collision/src/common.rs:144-160`) -- independently of
+/// §171: computing the volume-sorted top 10/40 of id 1's own 75-entry
+/// response offline and comparing against these two oracle-captured
+/// responses confirms the oracle truncates to exactly that ranking (top-N
+/// by `cost * volume`, then `cost`, then `aabb_min`), with no case in this
+/// 75-entry population where two sources tie through `aabb_min` and differ
+/// only in `aabb_max` -- the collapse `CostSource::cmp`'s doc comment
+/// says it deliberately reproduces from `std::set<CostSource>::operator<`
+/// (which does not compare `aabb_max`) exists in principle but does not
+/// trigger on this dataset.
+const COST_SOURCES_PASSING_IDS: [u32; 5] = [1, 7, 9, 10, 11];
 
 fn run_cost_sources_case(
     model: &RobotModel,
@@ -383,7 +401,7 @@ fn panda_cost_sources_matches_the_oracle() {
     let srdf = srdf();
     let cases: Vec<CostSourcesCase> = load("panda_cost_sources_request.json");
     let responses: Vec<OracleResponse> = load("panda_cost_sources_response.json");
-    assert_eq!(cases.len(), 9, "expected exactly 9 cases in the fixture");
+    assert_eq!(cases.len(), 11, "expected exactly 11 cases in the fixture");
 
     for case in cases
         .iter()
