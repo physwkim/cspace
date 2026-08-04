@@ -22,10 +22,18 @@
 # taught about each new upstream.
 #
 # Deliberately NOT named `check-*.sh`: it reads the upstream checkouts
-# (`$MOVEIT2_SRC` and friends), which are outside this repository and absent
-# from a CI runner, exactly like `verify-fixture-provenance.sh`'s vendored
-# tree. A script that always skipped there would read as coverage while
-# providing none.
+# (`$MOVEIT2_SRC` and friends, plus the gitignored `third_party/` trees), which
+# are outside this repository and absent from a CI runner, exactly like
+# `verify-fixture-provenance.sh`'s vendored tree. A script that always skipped
+# there would read as coverage while providing none.
+#
+# `geometric_shapes`, `srdfdom` and `octomap` had to be fetched into
+# `third_party/` for this check to open them at all. Their ports cite exact
+# versions and record how the sources were obtained -- `shapes.rs` even pins
+# geometric_shapes to commit `192801ce`, which the fetched tag `2.3.3` resolves
+# to -- but the trees themselves were transient, so nothing on disk could
+# re-verify the claim. A provenance record that cannot be re-opened is a record
+# of what someone did once, not a property of the tree.
 #
 # An unresolved citation is a failure, not a skip: a header naming an upstream
 # file this script cannot open is precisely the case where nobody has checked
@@ -42,21 +50,31 @@ MOVEIT2_SRC="${MOVEIT2_SRC:-$HOME/work/moveit2}"
 STOMP_SRC="${STOMP_SRC:-$HOME/work/stomp}"
 FCL_SRC="${FCL_SRC:-$HOME/work/fcl}"
 LIBCCD_SRC="${LIBCCD_SRC:-$HOME/work/libccd}"
+# `geometric_shapes` and `srdfdom` are cited by their clone-directory name, so
+# the root that resolves them is `third_party/` itself. octomap's citations are
+# package-relative (`include/octomap/...`), and its repository nests the package
+# one level down, so it needs a root of its own. Both are the same gitignored
+# external-checkout arrangement `verify-fixture-provenance.sh` already depends
+# on, pinned to the versions the citing headers name: geometric_shapes 2.3.3,
+# srdfdom 2.0.8, octomap 1.9.7.
+THIRD_PARTY_SRC="${THIRD_PARTY_SRC:-$REPO_ROOT/third_party}"
+OCTOMAP_SRC="${OCTOMAP_SRC:-$THIRD_PARTY_SRC/octomap/octomap}"
 
-for src in "$MOVEIT2_SRC" "$STOMP_SRC" "$FCL_SRC" "$LIBCCD_SRC"; do
+for src in "$MOVEIT2_SRC" "$STOMP_SRC" "$FCL_SRC" "$LIBCCD_SRC" "$THIRD_PARTY_SRC" "$OCTOMAP_SRC"; do
   if [[ ! -d "$src" ]]; then
     echo "$src is absent -- this check needs the upstream checkouts it compares against" >&2
     exit 1
   fi
 done
 
-python3 - "$REPO_ROOT" "$MOVEIT2_SRC" "$STOMP_SRC" "$FCL_SRC" "$LIBCCD_SRC" <<'PYEOF'
+python3 - "$REPO_ROOT" "$MOVEIT2_SRC" "$STOMP_SRC" "$FCL_SRC" "$LIBCCD_SRC" \
+  "$THIRD_PARTY_SRC" "$OCTOMAP_SRC" <<'PYEOF'
 import os
 import re
 import subprocess
 import sys
 
-repo_root, *upstream_roots = sys.argv[1:6]
+repo_root, *upstream_roots = sys.argv[1:]
 # The repo itself last: a few headers cite vendored sources under third_party/.
 search_roots = upstream_roots + [repo_root]
 
