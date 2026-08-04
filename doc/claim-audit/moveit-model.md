@@ -49,3 +49,40 @@ declaration with a floating-point initializer to any file above, or a new
 upstream file citing floating-point-narrowing joins this crate's cited
 set, this table's `CONFIRMED (absent)` rows must be re-swept, not assumed
 to still hold.
+
+## Directory-level unported-file audit (this crate's scope only)
+
+Answered by file count first, not by what the port already cites — an
+unported file produces no audit row from inside the port, so only listing
+upstream's own directory finds it. `find moveit_core/robot_model -name
+'*.cpp' -o -name '*.hpp' -o -name '*.h'`, `.h` files excluded from the
+count below: every one is a `create_deprecated_headers.py`-generated
+forwarding shim (`#include <.../foo.hpp>` plus a deprecation
+`#pragma message`), not a second porting unit — spot-checked
+`link_model.h` in full.
+
+`PORTING-PLAN.md:142` scopes `moveit-model` to `robot_model` (7,909
+lines) plus URDF/SRDF loading; `robot_state` (9,202 lines, `:143`) is a
+different, not-yet-started crate (`moveit-state`) — its absence here is a
+crate boundary, not a missing file.
+
+| upstream file (`moveit_core/robot_model/`) | status | evidence |
+|---|---|---|
+| `include/.../aabb.hpp` + `src/aabb.cpp` | ported: `crates/moveit-model/src/aabb.rs` | cited (1 hit) |
+| `include/.../fixed_joint_model.hpp` + `src/fixed_joint_model.cpp` | ported: `joint/fixed.rs` | cited (1 hit) |
+| `include/.../floating_joint_model.hpp` + `src/floating_joint_model.cpp` | ported: `joint/floating.rs` | cited (1 hit) |
+| `include/.../joint_model_group.hpp` + `src/joint_model_group.cpp` | ported: `joint_model_group.rs` | cited (3 hits) |
+| `include/.../joint_model.hpp` + `src/joint_model.cpp` | ported: `joint/model.rs` | cited (6 hits) |
+| `include/.../link_model.hpp` + `src/link_model.cpp` | ported: `link_model.rs` | cited (1 hit) |
+| `include/.../planar_joint_model.hpp` + `src/planar_joint_model.cpp` | ported: `joint/planar.rs` | cited (1 hit) |
+| `include/.../prismatic_joint_model.hpp` + `src/prismatic_joint_model.cpp` | ported: `joint/prismatic.rs` | cited (1 hit) |
+| `include/.../revolute_joint_model.hpp` + `src/revolute_joint_model.cpp` | ported: `joint/revolute.rs` | cited (1 hit) |
+| `include/.../robot_model.hpp` + `src/robot_model.cpp` | ported: `robot_model.rs` | cited (4 hits) |
+| `test/test.cpp` | not a literal port; upstream's own unit test, not public API. This port's oracle-fixture tests (`tests/*_parity.rs`, `tests/fixtures/{panda,fanuc}_model_info.json`) are the coverage for this crate's own behaviour, per this repo's established convention (commit `8e45543`) of deserializing an oracle fixture rather than transcribing one C++ test's literals | `rg -c` on each `.cpp`/`.hpp` name against `crates/moveit-model/{src,tests}`, verified >0 for all ten pairs above |
+
+Result: 0 missing files. Every substantive (non-`.h`-shim) upstream file
+in `robot_model/` has a cited Rust counterpart. This does not audit
+symbol-level completeness within each file (e.g. `link_model.rs`'s
+documented mesh-collision-shape and effort/acceleration-limit
+deviations, `PORTING-PLAN.md` §13.4 deviation 4 and `:1501`/`:3606`,
+already tracked there) — only that no whole file was silently dropped.
