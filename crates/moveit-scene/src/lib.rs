@@ -44,11 +44,17 @@
 //! `blocked`:
 //!
 //! ```text
-//! rg -c '^/// - `' crates/moveit-scene/src/scene.rs   # (counting only the audit block, scene.rs:47-434)
+//! rg -c '^/// - `' crates/moveit-scene/src/scene.rs
 //! ```
 //!
-//! is **59** bullets, and [`PlanningScene`]'s doc states the walk found
-//! zero `unported, in scope` gaps among them.
+//! is **60** bullets — the only such bullets anywhere in that file, so no
+//! line-range restriction is needed to isolate the audit block from
+//! anything else (re-verified this round: a prior version of this count,
+//! 59, had drifted after the audit block grew and shifted past the
+//! line-range this comment used to cite). Every one of the 60 classifies as
+//! `ported as` (28), `D1` (21), `distinct` (10), or `blocked` (1), a sum of
+//! 60 with nothing left over, so [`PlanningScene`]'s doc statement that the
+//! walk found zero `unported, in scope` gaps among them still holds.
 //! `moveit_core/collision_detection/{include/moveit/collision_detection/,src/}world_diff.{hpp,cpp}`:
 //! [`WorldDiff`] ports every public member (`setWorld`/`reset`/
 //! `getChanges`/`size`/`find`/`set`/`clearChanges`) except the

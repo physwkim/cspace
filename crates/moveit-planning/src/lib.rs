@@ -31,11 +31,13 @@
 //! `PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`.
 //! Architecturally that is backwards — a *planner* crate should depend on
 //! the planning-request vocabulary, not define it — and sbp's own module doc
-//! says so directly. This round fixes the layering going forward without
-//! touching sbp itself (off limits this round: p1-robotmodel is running
-//! Phase 7 benchmarks on that crate). Relocating sbp onto these types is
-//! deferred to next round, precondition: the p1-robotmodel branch merges
-//! first (see this crate's own doc below and the round report).
+//! says so directly. This crate fixes the layering going forward without
+//! touching sbp itself: relocating sbp onto these types is
+//! `moveit-planners-sbp`'s own crate's job (assigned there alongside its
+//! constraint-sampler wiring, round 19), not this one's — this crate's part
+//! of that relocation is proving these canonical types can actually receive
+//! it, which the full request/response adapter chain doctest below (see
+//! "# The adapter chain") now exercises end to end.
 //!
 //! Two shape differences from sbp's existing types are not cosmetic; each is
 //! forced by what this round's adapters actually need to read or write:
@@ -124,6 +126,54 @@
 //! future STOMP integration), not something a planner-agnostic adapter
 //! chain can do on its own.
 //!
+//! # Upstream inventory: every adapter file at the pinned commit, accounted for
+//!
+//! Swept `moveit_ros/planning/planning_request_adapter_plugins/src/` and
+//! `moveit_ros/planning/planning_response_adapter_plugins/src/` at the
+//! pinned commit file by file (`find … -name '*.cpp'`, cross-checked
+//! against each directory's own `CMakeLists.txt` `add_library` source list
+//! and each file's `^class ` declaration — neither directory has a separate
+//! plugin-registration XML, so the `.cpp` file list plus each file's class
+//! name is the ground truth): **5** request-adapter files, **4**
+//! response-adapter files, 9 total.
+//!
+//! - Request (5/5 ported): `check_for_stacked_constraints.cpp` →
+//!   [`request_adapters::CheckForStackedConstraints`],
+//!   `check_start_state_bounds.cpp` → [`request_adapters::CheckStartStateBounds`],
+//!   `check_start_state_collision.cpp` → [`request_adapters::CheckStartStateCollision`],
+//!   `resolve_constraint_frames.cpp` → [`request_adapters::ResolveConstraintFrames`],
+//!   `validate_workspace_bounds.cpp` → [`request_adapters::ValidateWorkspaceBounds`].
+//! - Response (3/4 ported, 1 D1-excluded): `add_ruckig_traj_smoothing.cpp` →
+//!   [`response_adapters::AddRuckigTrajectorySmoothing`],
+//!   `add_time_optimal_parameterization.cpp` →
+//!   [`response_adapters::AddTimeOptimalParameterization`], `validate_path.cpp`
+//!   → [`response_adapters::ValidateSolution`]; `display_motion_path.cpp` — D1
+//!   (rviz `MarkerArray`/`DisplayTrajectory` publishing, no other content, see
+//!   the crate header comment).
+//!
+//! Four older MoveIt names sometimes associated with this plugin set —
+//! `fix_start_state_bounds`, `fix_start_state_collision`,
+//! `fix_workspace_bounds`, `add_iterative_spline_parameterization` — name no
+//! file at the pinned commit. Checked against upstream's own git history,
+//! not assumed:
+//! - `fix_start_state_bounds`/`fix_start_state_collision`/
+//!   `fix_workspace_bounds` are pre-rename names upstream commit `915b400e4`
+//!   ("adding one more request adapter (to fix colliding states) + update
+//!   listing of plugins + rename workspace fixing adapter") retired in favor
+//!   of `check_start_state_bounds.cpp`/`check_start_state_collision.cpp`/
+//!   `validate_workspace_bounds.cpp` — already ported under the current
+//!   name, listed above.
+//! - `add_iterative_spline_parameterization` was permanently removed from
+//!   upstream at commit `62e6f9e71` ("Remove Iterative Spline and Iterative
+//!   Parabola time-param algorithms (v2) (#1780)"), confirmed an ancestor of
+//!   the pinned commit via `git merge-base --is-ancestor` — there is no file
+//!   left to port; the pinned commit's only time-parameterization adapters
+//!   are ruckig and TOTG, both already ported above.
+//!
+//! So the gap this section exists to check for is empty: every upstream file
+//! the pinned commit ships is either ported or D1-excluded, and none of the
+//! four candidate names above still name a file with anything left to port.
+//!
 //! # The adapter chain
 //!
 //! [`PlanningRequestAdapter`]/[`PlanningResponseAdapter`] replace
@@ -132,9 +182,87 @@
 //! `planning_pipeline::PlanningPipeline` runs each adapter through in order,
 //! short-circuiting on the first failure — the "adapter chain" §5 Phase 7
 //! named but never built. A caller assembles its own
-//! `&[Box<dyn PlanningRequestAdapter>]` (see each module's tests for an
-//! example); this crate does not hand out a fixed default ordering, since no
-//! caller of one exists yet to have an opinion on it.
+//! `&[Box<dyn PlanningRequestAdapter>]`/`&[Box<dyn PlanningResponseAdapter>]`
+//! (the doctest below is the first example anywhere in this crate that
+//! actually does — every adapter module's own tests call `adapter.adapt`
+//! directly, not through [`run_request_adapters`]/[`run_response_adapters`]);
+//! this crate does not hand out a fixed default ordering, since no caller of
+//! one exists yet to have an opinion on it.
+//!
+//! ```
+//! use moveit_collision::ParryCollisionEnv;
+//! use moveit_model::{MeshSearchPaths, RobotModel};
+//! use moveit_planning::request_adapters::{
+//!     CheckForStackedConstraints, CheckStartStateBounds, CheckStartStateCollision,
+//!     ResolveConstraintFrames, ValidateWorkspaceBounds,
+//! };
+//! use moveit_planning::response_adapters::{AddRuckigTrajectorySmoothing, ValidateSolution};
+//! use moveit_planning::{
+//!     run_request_adapters, run_response_adapters, PlanningRequest, PlanningRequestAdapter,
+//!     PlanningResponse, PlanningResponseAdapter, WorkspaceBounds,
+//! };
+//! use moveit_scene::PlanningScene;
+//! use moveit_srdf::SrdfModel;
+//! use moveit_state::RobotState;
+//! use moveit_trajectory::RobotTrajectory;
+//! use std::fs;
+//!
+//! let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+//! let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+//! let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+//! let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+//! let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+//!     .expect("fixture model must build");
+//!
+//! let mut scene = PlanningScene::new(&model, &srdf);
+//! let env = ParryCollisionEnv::default();
+//!
+//! // The request half: every request adapter this crate has, run once each,
+//! // in one call.
+//! let mut request = PlanningRequest {
+//!     group_name: "panda_arm".to_string(),
+//!     goal_constraints: vec![],
+//!     path_constraints: None,
+//!     workspace_bounds: WorkspaceBounds::default(),
+//!     max_velocity_scaling_factor: 1.0,
+//!     max_acceleration_scaling_factor: 1.0,
+//! };
+//! let request_chain: Vec<Box<dyn PlanningRequestAdapter>> = vec![
+//!     Box::new(CheckForStackedConstraints),
+//!     Box::new(CheckStartStateBounds::new(false)),
+//!     Box::new(CheckStartStateCollision),
+//!     Box::new(ResolveConstraintFrames),
+//!     Box::new(ValidateWorkspaceBounds::new(2.0)),
+//! ];
+//! run_request_adapters(&request_chain, &mut scene, &env, &mut request)
+//!     .expect("a default-pose, empty-world panda_arm request must pass every request adapter");
+//! assert_ne!(
+//!     request.workspace_bounds,
+//!     WorkspaceBounds::default(),
+//!     "ValidateWorkspaceBounds must have filled in the unset box"
+//! );
+//!
+//! // The response half. A hand-built trajectory stands in for a planner's
+//! // output here — wiring a concrete planner (`moveit-planners-sbp`) onto
+//! // this crate's own canonical `PlanningRequest`/`PlanningResponse` is that
+//! // crate's job, not this one's (see "Deviation from
+//! // `moveit-planners-sbp::registry`'s existing types" above).
+//! let mut start = RobotState::new(&model);
+//! start.set_to_default_values();
+//! let mut goal = start.clone();
+//! goal.set_joint_positions("panda_joint1", &[0.4]).unwrap();
+//! let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
+//! trajectory.add_suffix_way_point(start, 0.0).unwrap();
+//! trajectory.add_suffix_way_point(goal, 0.0).unwrap();
+//! let mut response = PlanningResponse { trajectory };
+//!
+//! let response_chain: Vec<Box<dyn PlanningResponseAdapter>> =
+//!     vec![Box::new(AddRuckigTrajectorySmoothing), Box::new(ValidateSolution)];
+//! run_response_adapters(&response_chain, &mut scene, &env, &request, &mut response)
+//!     .expect("a two-waypoint panda_arm move must smooth and then validate successfully");
+//!
+//! assert!(response.trajectory.duration() > 0.0);
+//! ```
 //!
 //! Both traits specialize directly to [`moveit_collision::ParryCollisionEnv`]
 //! rather than being generic over `E: CollisionEnv<..>`, for the same reason
@@ -170,10 +298,10 @@
 //! doctest only, not [`PlanningRequest`]/[`PlanningResponse`] above, which
 //! remain sbp-independent production types), not this crate's own canonical
 //! [`PlanningRequest`]/[`PlanningResponse`]. Relocating sbp's registry onto
-//! this crate's types is next round's work, precondition the p1-robotmodel
-//! branch merging first (see "Deviation from `moveit-planners-sbp::registry`'s
-//! existing types" above) — until that lands, actually running a plan means
-//! speaking sbp's vocabulary end to end, not this crate's. That seam (sbp's
+//! this crate's types is `moveit-planners-sbp`'s own job (see "Deviation
+//! from `moveit-planners-sbp::registry`'s existing types" above) — until
+//! that lands, actually running a plan means speaking sbp's vocabulary end
+//! to end, not this crate's. That seam (sbp's
 //! `registry::PlanningRequest`/`PlanningResponse` on one side, this crate's
 //! [`PlanningRequest`]/[`PlanningResponse`] on the other) is exactly what a
 //! `TryFrom` conversion will need to bridge once the relocation lands, so
