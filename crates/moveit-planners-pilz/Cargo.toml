@@ -1,0 +1,19 @@
+[package]
+name = "moveit-planners-pilz"
+description = "Pilz industrial motion planner for moveit-rs: analytical LIN/PTP/CIRC trajectory generation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+moveit-error.workspace = true
+moveit-geometry.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+
+[lints]
+workspace = true
