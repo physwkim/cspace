@@ -270,7 +270,9 @@ mod tests {
         let (joint, bounds) = continuous();
         let mut value = PI + 0.5;
         joint.enforce_position_bounds(&mut value, &bounds);
-        assert_relative_eq!(value, -PI + 0.5, epsilon = 1e-12);
+        // `(PI + 0.5) - 2*PI + 0.5`-shaped wraparound measured exact for this
+        // input; not asserted as a general property of `PI` arithmetic.
+        assert_eq!(value, -PI + 0.5);
     }
 
     #[test]
@@ -278,7 +280,7 @@ mod tests {
         let (joint, bounds) = continuous();
         let mut value = PI;
         joint.enforce_position_bounds(&mut value, &bounds);
-        assert_relative_eq!(value, PI, epsilon = 1e-12);
+        assert_eq!(value, PI);
     }
 
     #[test]
@@ -290,7 +292,8 @@ mod tests {
         };
         let mut value = -1.0 - 2.0 * PI;
         assert!(RevoluteJoint::harmonize_position(&mut value, &bounds));
-        assert_relative_eq!(value, -1.0, epsilon = 1e-12);
+        // Measured exact for this input; not asserted as a general property.
+        assert_eq!(value, -1.0);
     }
 
     #[test]
@@ -311,7 +314,8 @@ mod tests {
         // From just past +pi to just past -pi the short way is forward through pi,
         // not backward across zero.
         let state = joint.interpolate(PI - 0.1, -PI + 0.1, 0.5);
-        assert_relative_eq!(state.abs(), PI, epsilon = 1e-9);
+        // Measured exact for this input; not asserted as a general property.
+        assert_eq!(state.abs(), PI);
     }
 
     #[test]
@@ -326,7 +330,15 @@ mod tests {
     #[test]
     fn distance_takes_the_short_way_when_continuous() {
         let (joint, _bounds) = continuous();
-        assert_relative_eq!(joint.distance(-PI + 0.1, PI - 0.1), 0.2, epsilon = 1e-9);
+        // The short-way distance goes through a modulo-based wrap, which
+        // leaves a 1-ULP residue here (0.20000000000000018 vs 0.2) rather
+        // than landing on the literal exactly.
+        assert_relative_eq!(
+            joint.distance(-PI + 0.1, PI - 0.1),
+            0.2,
+            epsilon = 1e-15,
+            max_relative = 0.0
+        );
     }
 
     #[test]
@@ -344,7 +356,9 @@ mod tests {
         for value in [-0.75_f64, 0.0, 0.9] {
             let transform = joint.compute_transform(value);
             let recovered = joint.compute_variable_position(&transform);
-            assert_relative_eq!(recovered, value, epsilon = 1e-9);
+            // Measured exact for these inputs; not asserted as a general
+            // property of the round trip.
+            assert_eq!(recovered, value);
         }
     }
 }
