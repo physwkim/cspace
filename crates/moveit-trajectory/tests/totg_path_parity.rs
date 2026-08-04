@@ -67,6 +67,42 @@
 //! against `tangent[0]` fail with diff `~2.623e-7`, far past
 //! `TANGENT_TOL`; against `curvature_norm`, diff `~1.188e-8`, far past
 //! `CURVATURE_TOL`.
+//!
+//! ## Round 14: re-measured under `float_roundtrip`, unchanged
+//!
+//! `serde_json`'s default f64 parser is not correctly rounded (round 13
+//! measured the floors above with it); the workspace now resolves
+//! `serde_json` with the `float_roundtrip` feature (`Cargo.toml`), so every
+//! fixture literal deserializes to the exact value the oracle wrote. Re-
+//! running the same throwaway diagnostic under the fixed parser reproduces
+//! the identical floors bit-for-bit -- `2.27373675443232059e-13` /
+//! `1.05471187339389871e-15` / `2.16840434497100887e-17` /
+//! `1.04083408558608426e-17` -- so `CONFIG_TOL`/`TANGENT_TOL`/
+//! `CURVATURE_TOL` are unchanged. This is not assumed from the floors
+//! matching; a standalone checker (outside this workspace, built without
+//! `float_roundtrip`) directly confirmed which literals in
+//! `totg_path_request.json`/`totg_path_response.json` the old parser got
+//! wrong -- 2 of 30 and 8 of 138 respectively, all `sample_arc_lengths`/`s`
+//! echoes or `config`/`tangent`/`curvature` components at samples other than
+//! the ones that set each category's max -- and the diagnostic was
+//! instrumented to print which `(sample, component)` sets each reported
+//! max: `config` at sample 5's `config[2]` (`1043.2228678362944`, not among
+//! the corrupted literals), `tangent` at sample 8's `tangent[0]`
+//! (`-0.3752519769224667`, not corrupted), `curvature` at sample 6's
+//! `curvature[0]` (`0.007505039538449353`, not corrupted), `curvature_norm`
+//! at sample 7 (`0.019999999999999997`, not corrupted). None of the eight
+//! corrupted response literals -- `-0.0009300842487151479`,
+//! `1020.0139966538143`, `-0.00010177853025357365`,
+//! `-0.0009923757125245853`, `0.013867504840522621`,
+//! `-0.9238795325112871`, plus the two `s` echoes -- is the term that sets
+//! any of the four reported maxima, which is why fixing the parser left
+//! this fixture's floors unmoved even though the fixture itself does
+//! contain corrupted-under-the-old-parser literals. The six bidirectional
+//! perturbation checks from round 13 (`config[0]`/`tangent[0]`/
+//! `curvature_norm`, `*1.000001` and `*0.999999`) were re-run against the
+//! fixed parser and still fail with the same diffs (`~1.424e-3` /
+//! `~2.623e-7` / `~1.188e-8`), confirming discriminating power is likewise
+//! unaffected.
 
 use std::fs;
 
