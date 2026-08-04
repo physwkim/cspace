@@ -26,6 +26,39 @@
 //! (`Fn(&DMatrix<f64>, &mut DMatrix<f64>) -> bool`) elsewhere in this
 //! workspace, not a fresh construction. These keep their `&mut DMatrix<f64>`
 //! parameter rather than being converted to return a new owned matrix.
+//!
+//! # Completeness audit (round 26): `task.h`
+//!
+//! `task.h` has 10 symbols: the class itself, a typedef, a trivial
+//! constructor, and 7 methods (3 pure-virtual, 4 virtual-with-default) —
+//! `rg -c '^(class Task;|typedef std::shared_ptr<Task>|  Task\(\)|  virtual
+//! (bool|void) \w+\()' include/stomp/task.h` is 10 (the forward-declaration
+//! line and the definition-opener line both start with `class Task`; the
+//! pattern above anchors on the `;`-terminated forward declaration only, so
+//! it is not double-counted).
+//!
+//! - `class Task` — ported as [`Task`] (trait, not the D4 shape-enum
+//!   pattern: `Task` is a customization point implemented by external
+//!   callers, the same reason `moveit_kinematics`'s solver interface is a
+//!   trait too — D4 targets closed, upstream-enumerated sets like
+//!   `geometric_shapes::Shape`, not open extension points like this one).
+//! - `TaskPtr` (`typedef std::shared_ptr<Task> TaskPtr`) — distinct: Rust has
+//!   no `shared_ptr`-alias convention; every use site in this port spells
+//!   `Box<dyn Task + 'a>` inline instead of through a named alias. No
+//!   behavioral difference.
+//! - `Task()` (trivial, empty-body constructor) — distinct: traits carry no
+//!   constructor; nothing for an empty base-class constructor to correspond
+//!   to.
+//! - `generateNoisyParameters` — ported as [`Task::generate_noisy_parameters`].
+//! - `computeNoisyCosts` — ported as [`Task::compute_noisy_costs`].
+//! - `computeCosts` — ported as [`Task::compute_costs`].
+//! - `filterNoisyParameters` — ported as [`Task::filter_noisy_parameters`].
+//! - `filterParameterUpdates` — ported as [`Task::filter_parameter_updates`].
+//! - `postIteration` — ported as [`Task::post_iteration`].
+//! - `done` — ported as [`Task::done`].
+//!
+//! Sum: 1 (class) + 1 (typedef) + 1 (ctor) + 7 (methods) = 10, matching the
+//! `rg` count above. Zero `unported, in scope`, zero `D1 exclusion`.
 
 use nalgebra::{DMatrix, DVector};
 

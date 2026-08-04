@@ -86,6 +86,58 @@
 //! `check-audit-scripts-not-copied.sh`) -- six per-crate copies would have
 //! made six different undercounts look like six different crates'
 //! baselines instead of one shared bug.
+//!
+//! # Symbol-completeness audit (round 26)
+//!
+//! This crate had never received a `moveit-scene`-style symbol-by-symbol
+//! audit before this round -- it is the only crate in the workspace with a
+//! different upstream and a different license, so no existing audit tool's
+//! output covered it. Reference repo re-verified exactly at the pin this
+//! round, not just close to it:
+//!
+//! ```text
+//! $ git -C /home/stevek/work/stomp log --oneline -1
+//! b1a87c8 Merge pull request #18 from mosfet80/patch-3
+//! $ git -C /home/stevek/work/stomp rev-list --count b1a87c80...HEAD
+//! 0
+//! ```
+//!
+//! `HEAD` *is* `b1a87c80f7338caae25a5c689b876da15492aa75`, not merely close
+//! to it -- no "checkout has drifted past the pin" gap to account for.
+//!
+//! Every symbol in `stomp.h`, `stomp.cpp`, `task.h`, and `utils.h` (`utils.cpp`
+//! adds nothing beyond `utils.h`'s own declarations) is enumerated and
+//! classified in the respective module's own doc -- see [`stomp`]'s
+//! "Completeness audit" section (`stomp.h` + `stomp.cpp`, 47 symbols),
+//! [`task`]'s (`task.h`, 10 symbols), and [`utils`]'s (`utils.h`, 14
+//! symbols). `examples/` and `test/utest.cpp` are outside this audit's
+//! scope (item 2 of this round's brief separately ports `test/stomp_3dof.cpp`
+//! as an acceptance test, not a symbol-completeness target).
+//!
+//! ```text
+//! rg -c '^\s*//! - ' crates/moveit-stomp-core/src/stomp.rs
+//! 47
+//! rg -c '^\s*//! - ' crates/moveit-stomp-core/src/task.rs
+//! 10
+//! rg -c '^\s*//! - ' crates/moveit-stomp-core/src/utils.rs
+//! 14
+//! ```
+//!
+//! 47 + 10 + 14 = 71, and 71 is independently the sum of every upstream
+//! symbol counted by the `rg` commands shown in each module's own audit
+//! section (`stomp.h`'s 40 + `stomp.cpp`'s 7 file-local = 47; `task.h`'s 10;
+//! `utils.h`'s 14) -- the two counts (bullets written, symbols found in
+//! upstream) agree by construction, not by coincidence, since each bullet
+//! cites the exact upstream symbol it classifies. Of the 71: **67 `ported
+//! as`, 4 `distinct`** -- 2 in [`stomp`] (the `Eigen::VectorXd` `solve`
+//! overload, subsumed by `&[f64]`; `num_timesteps_padded_`, collapsed to a
+//! local) and 2 in [`task`] (`TaskPtr`'s typedef; `Task()`'s trivial
+//! constructor -- see each module's own doc for the per-symbol reasoning).
+//! Zero `unported, in scope`. Zero `D1 exclusion` -- unlike `moveit_core`
+//! headers, nothing in `stomp.h`/`stomp.cpp`/`task.h`/`utils.h` touches a
+//! ROS message type or any other D1-excluded dependency; this crate's own
+//! module doc above already confirmed that by grepping for
+//! `ros/ros.h`/`rclcpp`/`ros::` across every ported file with zero matches.
 
 /// `utils.h`/`utils.cpp` -- see this module's own doc for what's ported and
 /// what's deferred.

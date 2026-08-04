@@ -66,8 +66,22 @@
 //! (this module's own test module) already demonstrates it -- a second
 //! thread sleeping for a duration then calling `.cancel()` on a cloned
 //! handle while `plan` runs on the first. Removed from the exclusion list
-//! entirely rather than re-justified within it: there is no gap here for a
-//! future round to close.
+//! entirely rather than re-justified within it -- but "no gap" would
+//! overstate it: upstream's watcher lives *inside*
+//! `StompPlanningContext::solve`, so self-cancelling from
+//! `req.allowed_planning_time` is `PlanningContext`-layer behavior, and
+//! that layer is not ported here (this module's own doc, "Round 24:
+//! cancellation, lifted to the caller", already says `PlanningContext`
+//! itself is out of scope). The gap is real, just not this crate's to
+//! close, and it is already tracked one layer up:
+//! `moveit-planning/src/request.rs`'s `MotionPlanRequest` field audit
+//! (round 21, p1-fixtures) lists `allowed_planning_time` as "unported, in
+//! scope: ... consumed by `PlanningContext::solve`'s own timeout, not by
+//! `planning_pipeline.cpp` or any adapter here." What's true here is
+//! narrower: this crate has no gap, because everything a future
+//! `PlanningContext::solve` needs to honor that field --
+//! `CancelHandle`/`std::thread::spawn`/`.cancel()` -- already exists and is
+//! demonstrated by the test above.
 //!
 //! Pluginlib registration (round 23/24's other grouped item) is not in
 //! either function's own file at all: `rg -n
