@@ -1551,17 +1551,20 @@ mod tests {
     ///
     /// **Measured after the fix: unwired 1/5, wired 5/5** (`step_size:
     /// 0.03`, `goal_bias: 0.0`, `Iterations(20)`) -- the reverse of the
-    /// pre-fix regression this scenario's ancestor recorded, at a budget
-    /// tight enough to be discriminating (a looser budget, e.g. `step_size:
-    /// 0.2`/`Iterations(20)` tried first, let *both* wired and unwired
-    /// solve 5/5: 0.8 rad is close enough, and this region's local geometry
-    /// well-behaved enough, that a nearly-direct connect attempt stays
-    /// inside tolerance regardless of sampler at a coarser step size, so
-    /// that budget does not exercise this fix at all). This is one
+    /// pre-fix regression this scenario's ancestor recorded. This is one
     /// scenario, not the four-scenario sweep the pre-fix measurement used
     /// (that sweep was never committed as code to re-run) -- reported as
     /// what it is, a single re-measurement showing the fix reversing the
-    /// specific regression it targeted, not a full re-sweep.
+    /// specific regression it targeted, not a full re-sweep. `PORTING-PLAN.md`
+    /// §187's own committed rebuild of that sweep,
+    /// `path_constraints_four_scenario_wired_vs_unwired_sweep` (below),
+    /// found this exact scenario still discriminating at looser budgets
+    /// too (`step_size: 0.2`/`Iterations(200)`: unwired 0/5, wired 5/5) --
+    /// an earlier version of this comment claimed a looser budget made
+    /// *both* solve 5/5, which does not hold for the scenario actually
+    /// committed here; that claim was never re-checked against this exact
+    /// code before being written down, the same failure §187 records for
+    /// round 24's own uncommitted sweep.
     ///
     /// The self-motion separation is found empirically, not fabricated:
     /// independent random-restart IK (tried first) converged to distant,
