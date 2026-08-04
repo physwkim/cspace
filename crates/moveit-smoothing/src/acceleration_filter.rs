@@ -530,13 +530,19 @@ mod tests {
 
     #[test]
     fn do_smoothing_before_reset_is_an_error() {
+        // `matches!` alone cannot tell this apart from do_smoothing's
+        // sibling velocities-length guard, also an Error::Other;
+        // message-swap bite-checked against it.
         let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0);
         let mut positions = [0.5];
         let mut velocities = [0.5];
         let err = filter
             .do_smoothing(&mut positions, &mut velocities)
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("Make sure the reset was called"),
+            "{err}"
+        );
     }
 
     #[test]
