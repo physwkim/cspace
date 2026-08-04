@@ -676,9 +676,7 @@ struct GsrGradient {
     distances: Vec<f64>,
     sphere_radii: Vec<f64>,
     joint_name: String,
-    // `sphere_locations_count` deliberately not deserialized: not
-    // oracle-comparable at all, see this test's own doc comment on
-    // `group_state_representation_matches_the_oracle`.
+    sphere_locations_count: usize,
 }
 
 #[derive(Deserialize)]
@@ -713,14 +711,17 @@ struct GsrResponseEntry {
 /// `CollisionEnvDistanceField(model_)`'s constructor eagerly pre-builds a
 /// `GroupStateRepresentation` per group at construction time, so every
 /// query the oracle answers actually takes upstream's **pregenerated**
-/// reuse branch instead. Two fields are consequently excluded or
-/// precondition-checked rather than compared outright:
+/// reuse branch instead. `sphere_locations_count` used to be excluded here
+/// for exactly that reason -- the pregenerated branch fills
+/// `sphere_locations` for links, the fresh branch this port implements
+/// previously never did -- until PORTING-PLAN.md §154 (round 25) measured
+/// that gap to be this port's own, not upstream's: `sphere_locations` is
+/// value-identical between the two branches (see
+/// [`group_state_representation`]'s own doc comment), so this port now sets
+/// it too, and this test compares its length against the oracle's count
+/// below rather than skipping it. One field remains precondition-checked
+/// rather than compared outright:
 ///
-/// - `sphere_locations_count` is not deserialized at all: the pregenerated
-///   branch always populates `sphere_locations`, the fresh branch this port
-///   implements never does (see [`group_state_representation`]'s own doc
-///   comment) -- there is no value on this port's side to compare it
-///   against.
 /// - `closest_distance`/`collision`/`types`/`distances` are only meaningful
 ///   to compare when the oracle's own `checkCollision` pipeline found
 ///   nothing for that link (`collision: false`): construction alone (this
@@ -927,6 +928,13 @@ fn group_state_representation_matches_the_oracle() {
                 gsr.gradients[i].joint_name, expected_gradient.joint_name,
                 "joint_name ({}, group {})",
                 expected_link.link_name, request.group
+            );
+            assert_eq!(
+                gsr.gradients[i].sphere_locations.len(),
+                expected_gradient.sphere_locations_count,
+                "sphere_locations_count ({}, group {})",
+                expected_link.link_name,
+                request.group
             );
 
             // See this test's own doc comment: only comparable when the

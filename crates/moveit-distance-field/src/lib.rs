@@ -767,22 +767,43 @@
 //!   precomputes it for every group up front. Same information, computed
 //!   fresh instead of cached — not a missing map, a different recomputation
 //!   strategy for the one caller this crate has.
-//! - `pregenerated_group_state_representation_map_` — **unported as a
-//!   field, and provably unreachable, not merely unimplemented**: populated
-//!   only inside `CollisionEnvDistanceField::initialize()` (unported,
-//!   checker-level, above), which eagerly builds one
-//!   `DistanceFieldCacheEntry` + `GroupStateRepresentation` pair per joint
-//!   model group at construction time. It is read in exactly one place,
-//!   `generateDistanceFieldCacheEntry`'s
+//! - `pregenerated_group_state_representation_map_` — **unported as a field
+//!   (round 25 revision: still true, but *not* because it is unreachable —
+//!   see below).** Populated only inside
+//!   `CollisionEnvDistanceField::initialize()` (unported, checker-level,
+//!   above), which eagerly builds one `DistanceFieldCacheEntry` +
+//!   `GroupStateRepresentation` pair per joint model group at construction
+//!   time. It is read in exactly one place, `generateDistanceFieldCacheEntry`'s
 //!   `dfce->pregenerated_group_state_representation_ = it->second`, and that
 //!   field is read only by `getGroupStateRepresentation`'s "already
-//!   pregenerated" branch. The unreachability is a *type-level* guarantee
-//!   here, not a call-graph argument that a new caller could invalidate:
-//!   [`DistanceFieldCacheEntry`] has no `pregenerated_group_state_representation`
-//!   field at all (see its field list below), and this port's
-//!   [`group_state_representation`] has no corresponding early-return branch
-//!   to read one — there is nothing to reach regardless of which function
-//!   constructs the entry.
+//!   pregenerated" branch (`collision_env_distance_field.cpp:1212-1227`).
+//!
+//!   Earlier revisions of this note argued the field's *absence* was inert
+//!   because nothing here could ever read it. PORTING-PLAN.md §154 measures
+//!   that argument to have been incomplete: since `initialize()`'s
+//!   fresh-build call only runs once per group, essentially *every* real
+//!   upstream call site takes the pregenerated branch, not the fresh-build
+//!   one — so the two branches' field-by-field differences are not moot,
+//!   they are what every caller actually observes. The one field that
+//!   differs, `sphere_locations` on link entries, is closed directly in
+//!   [`group_state_representation`] as of round 25 (see that function's own
+//!   "Deviations from upstream") — not by adding this field/map/branch, but
+//!   by recognizing the pregenerated branch's extra line reads a value this
+//!   port's existing fresh-build loop already has in hand at the same point
+//!   in its own control flow, since both branches source the same
+//!   `link_body_decomposition_vector_.at(ind)` posed to the same transform.
+//!
+//!   What remains genuinely unported is the *cache-reuse mechanism* itself
+//!   (reusing an already-built `PosedDistanceField` per link across calls,
+//!   instead of rebuilding one every call) — a performance difference with
+//!   no known remaining output-correctness gap. See
+//!   [`DistanceFieldCollisionCache::new`]'s doc comment for the type-level
+//!   reason that mechanism is not added anyway: it would require this port's
+//!   [`GroupStateRepresentation<'a, 'm>`] (which *borrows* its `dfce`, unlike
+//!   upstream's `shared_ptr`) to be stored self-referentially alongside its
+//!   own owned `DistanceFieldCacheEntry`, which safe Rust cannot express
+//!   without pinning/unsafe or an external self-referential-struct
+//!   dependency.
 //!
 //!   Re-derived against
 //!   [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
@@ -794,16 +815,13 @@
 //!   `group_state_representation`'s branching. It does not change this
 //!   conclusion.
 //!
-//!   **Falsifier** — this becomes reachable only if *all three* land
-//!   together: (1) [`DistanceFieldCacheEntry`] gains a
-//!   `pregenerated_group_state_representation` field; (2) some construction
-//!   path populates it *before* first use — this crate's scope has no
-//!   `initialize()`-equivalent eager per-group precomputation step to do
-//!   that from (the `planning_scene_`/checker-construction state below is
-//!   unported for the same reason); and (3) [`group_state_representation`]
-//!   gains an early-return branch that reads it. Adding only (1) is inert
-//!   (an unread field); adding only (3) cannot compile against today's
-//!   [`DistanceFieldCacheEntry`] (the field it would read does not exist).
+//!   **Falsifier** — the *mechanism* (not the value, already closed) becomes
+//!   worth adding only if a caller-observable *behavior* gap, not merely a
+//!   speed difference, is measured between this port's rebuild-every-call
+//!   and upstream's cache-reuse — e.g. some field a reused, once-built
+//!   decomposition would retain across calls that a fresh rebuild computes
+//!   differently. None is known as of round 25; §154's own gap
+//!   (`sphere_locations`) is closed without it (see above).
 //! - `planning_scene_` — unported; `PlanningScene`-dependent, checker-level
 //!   construction state (built once in `initialize()`, used only to source
 //!   a default-empty `AllowedCollisionMatrix` for the pregeneration loop

@@ -805,9 +805,11 @@ pub fn get_distance_field_cache_entry<'e, 'm>(
 }
 
 /// Upstream `CollisionEnvDistanceField::getGroupStateRepresentation`'s
-/// fresh-build branch only (`!dfce->pregenerated_group_state_representation_`
-/// -- see this function's "Deviations from upstream" for why the other
-/// branch cannot be reached here). Builds one
+/// fresh-build *construction* branch (`!dfce->pregenerated_group_state_representation_`),
+/// with the pregenerated branch's `sphere_locations` output reproduced
+/// directly rather than through its cache-reuse mechanism -- see this
+/// function's "Deviations from upstream" for why the two branches agree on
+/// every field value despite that mechanism staying unported. Builds one
 /// [`PosedBodySphereDecomposition`]/[`PosedDistanceField`] pair per
 /// geometry-bearing link in `dfce.link_names`, posed at `state`'s current
 /// global transform for that link, plus a [`GradientInfo`] slot sized to
@@ -826,33 +828,64 @@ pub fn get_distance_field_cache_entry<'e, 'm>(
 ///
 /// # Deviations from upstream
 ///
-/// - **The "pregenerated" branch is not ported, because it is provably
-///   unreachable here.** Upstream populates
+/// - **The "pregenerated" branch's *cache-reuse mechanism* is not ported,
+///   because it is provably unreachable here -- but its *observable output*
+///   is (round 25).** Upstream populates
 ///   `dfce->pregenerated_group_state_representation_` in exactly one place,
 ///   `CollisionEnvDistanceField::initialize` (its constructor path,
 ///   `collision_env_distance_field.cpp:126-156`): for every joint group, it
 ///   builds a `DistanceFieldCacheEntry` and immediately calls this same
-///   function to populate `pregenerated_group_state_representation_map_`,
-///   which a *later* `generateDistanceFieldCacheEntry` call then copies onto
-///   the field this branch checks. `DistanceFieldCacheEntry` in this port
-///   (see its own doc comment) has no such field at all -- there is no
-///   `initialize`-equivalent constructor in this crate's scope to populate
-///   it from, so every `DistanceFieldCacheEntry` this port can build takes
-///   the fresh-build branch, unconditionally. Still true with
-///   [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
-///   in the picture: it is a new *caller* of
-///   [`generate_distance_field_cache_entry`], reusing a cached entry or
-///   building one exactly the same way as before -- not a second
-///   construction path, and it does not add a field to
-///   [`DistanceFieldCacheEntry`] or a branch here. See `lib.rs`'s module doc
-///   for the falsifier condition that would change this.
+///   function -- which at that moment still takes the fresh-build branch,
+///   since the field is not yet populated -- to seed
+///   `pregenerated_group_state_representation_map_`, which a *later*
+///   `generateDistanceFieldCacheEntry` call then copies onto the field this
+///   branch checks. Consequence: **every call to this function upstream
+///   makes *after* construction takes the pregenerated branch**
+///   (`:1212-1227`), not the fresh-build branch -- the fresh-build branch
+///   only ever runs once per group, inside `initialize()` itself. Earlier
+///   revisions of this doc comment treated "fresh-build branch only" as this
+///   port's scope and concluded the *value* differences between the two
+///   branches were therefore moot; PORTING-PLAN.md §154 measures that
+///   conclusion to be wrong for `sphere_locations` specifically -- an oracle
+///   fixture committed before the `gradients` field even existed already
+///   showed non-empty per-link `sphere_locations`, which only the
+///   pregenerated branch's extra line (`:1224`,
+///   `gradients_[i].sphere_locations = link_body_decompositions_[i]->getSphereCenters()`,
+///   evaluated *after* that call's `updatePose`) can produce.
+///
+///   `DistanceFieldCacheEntry` in this port (see its own doc comment) still
+///   has no `pregenerated_group_state_representation`-equivalent field, and
+///   there is still no `initialize`-equivalent eager per-group construction
+///   step in this crate's scope to populate one -- see this module's
+///   [`DistanceFieldCollisionCache::new`] doc for exactly why that
+///   *mechanism* remains unported. But `:1224`'s value does not depend on
+///   *which* branch computed it, only on the current pose and the
+///   underlying decomposition geometry: both branches source their link
+///   decomposition from the same `link_body_decomposition_vector_.at(ind)`
+///   (`dfce.link_body_indices[i]` here) and pose it to the same
+///   `state.getFrameTransform`/[`Posed::global_link_transform`] before
+///   reading centers back out. This port's link loop below already builds
+///   that decomposition and poses it in the same statement sequence (there
+///   is no separate "already built earlier" object to distinguish it from),
+///   so reading `link_bd.sphere_centers()` right after `link_bd.update_pose`
+///   yields the identical value the pregenerated branch's own read would --
+///   closing the *value* gap directly at its one construction site, without
+///   needing the cache-reuse machinery that produces the same value
+///   upstream. What upstream's pregenerated branch buys that this still does
+///   not reproduce is purely a *performance* difference (reusing an
+///   already-built `PosedDistanceField` instead of rebuilding one every
+///   call) -- see [`DistanceFieldCollisionCache::new`]'s doc comment and
+///   `lib.rs`'s module doc for that remaining, still-open mechanism gap and
+///   its own falsifier condition.
 /// - **Attached bodies (round 22): upstream's trailing attached-body loop
 ///   (`collision_env_distance_field.cpp:1229-1251`) is now ported**, using
 ///   [`attached_body_sphere_decomposition`] to build each attached body's
-///   posed decomposition and, unlike the link loop above,
-///   `sphere_locations` *is* set at fresh-build time here -- upstream itself
-///   sets it in this loop (`:1249`) but not the link loop above, a real
-///   upstream asymmetry this port preserves rather than smooths over. Each
+///   posed decomposition. Upstream runs this loop *unconditionally*, after
+///   the fresh-build/pregenerated `if`/`else` closes, so `sphere_locations`
+///   (`:1246`) is always set here regardless of branch -- matching the link
+///   loop above, which as of round 25 also sets `sphere_locations`
+///   unconditionally (see this doc's first bullet); there is no longer a
+///   link/attached-body asymmetry to preserve. Each
 ///   `dfce.attached_body_names[i]` is looked up by id in the caller-supplied
 ///   `attached_bodies` slice (see this function's own signature) -- the same
 ///   explicit-parameter pattern this crate already uses everywhere a
@@ -945,6 +978,7 @@ pub fn group_state_representation<'a, 'm>(
             types: vec![CollisionType::None; sphere_count],
             distances: vec![f64::MAX; sphere_count],
             gradients: vec![Vector3::zeros(); sphere_count],
+            sphere_locations: link_bd.sphere_centers().to_vec(),
             sphere_radii: link_bd.sphere_radii().to_vec(),
             joint_name: state.model().joint_model_at(joint_index).name().to_string(),
             ..GradientInfo::default()
@@ -1125,11 +1159,39 @@ impl<'m> DistanceFieldCollisionCache<'m> {
     /// Upstream `CollisionEnvDistanceField::initialize`'s config-storage
     /// half only. Upstream's other half -- a loop over every joint group
     /// building a `DistanceFieldCacheEntry` and pregenerating a
-    /// `GroupStateRepresentation` for it -- exists solely to populate
-    /// `pregenerated_group_state_representation_map_`, a map
-    /// [`group_state_representation`] proves no call reachable from this
-    /// port can ever read (see that function's own "Deviations from
-    /// upstream"); there is nothing here for that loop to do.
+    /// `GroupStateRepresentation` for it -- exists to populate
+    /// `pregenerated_group_state_representation_map_`, which lets later
+    /// [`Self::generate_collision_checking_structures`] calls reuse an
+    /// already-built `PosedDistanceField` per link instead of rebuilding one
+    /// from scratch every call (see
+    /// [`group_state_representation`]'s own "Deviations from upstream" for
+    /// the *value*-level half of this story: as of round 25, that function
+    /// reproduces the pregenerated branch's `sphere_locations` output
+    /// directly, so this loop is no longer needed for output correctness --
+    /// only for the caching optimization).
+    ///
+    /// That optimization itself stays unported, and is a genuine type-level
+    /// obstacle, not a missing convenience: upstream's per-group cache entry
+    /// is `pregenerated_group_state_representation_map_[group] : GroupStateRepresentation`,
+    /// and this port's [`GroupStateRepresentation<'a, 'm>`] borrows its
+    /// `dfce: &'a DistanceFieldCacheEntry<'m>` rather than owning/sharing it.
+    /// To hold N pregenerated entries (one per joint model group) alive
+    /// across calls, `Self` would need to *also* own N independent
+    /// `DistanceFieldCacheEntry<'m>` values (not the single, call-overwritten
+    /// `cache_entry` slot below) with addresses stable for `Self`'s own
+    /// lifetime, while simultaneously storing `GroupStateRepresentation`
+    /// values borrowing from them -- a struct holding both owned data and a
+    /// reference into a sibling field of the same struct. Safe Rust cannot
+    /// express that directly; it requires either pinning/unsafe or an
+    /// external self-referential-struct crate (e.g. `ouroboros`/`self_cell`),
+    /// neither of which this round adds for what is now, post-round-25, a
+    /// pure performance optimization with no output-correctness gap left to
+    /// close. **Falsifier:** this becomes worth reconsidering only if a
+    /// caller-observable *behavior* gap (not merely speed) is measured
+    /// between rebuild-every-call and upstream's cache-reuse -- e.g. a field
+    /// this port's fresh rebuild computes differently from what a reused,
+    /// once-built decomposition would retain across calls. No such gap is
+    /// known; §154's own gap (`sphere_locations`) is closed without it.
     pub fn new(
         link_body_decompositions: LinkBodyDecompositions,
         distance_field_config: DistanceFieldConfig,
