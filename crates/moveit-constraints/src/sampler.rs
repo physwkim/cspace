@@ -69,16 +69,20 @@ use moveit_state::RobotState;
 use rand::{Rng, RngExt};
 
 /// Upstream `ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`
-/// (`constraint_sampler.hpp:64`), `2`. This module's own doc comment used
-/// to record the constant as an undeferred gap because, at the time, every
-/// caller in this crate already supplied its own concrete attempt count and
-/// no collapsed `sample()` default argument was left for it to apply to;
-/// `crate::constraint_sampler_manager::select_default_sampler`'s own
-/// `max_attempts` parameter is exactly such a caller-supplied count, and
-/// `moveit_planners_sbp::registry::RrtConnectContext::solve` is now a real
-/// production call site that needs a value to pass rather than inventing
-/// one — see this crate's `lib.rs` "`constraint_samplers/*.hpp` symbol
-/// audit" for the crate-level gap-list bookkeeping this closes.
+/// (`constraint_sampler.hpp:64`), `2`. Upstream's only two uses of this
+/// constant (`constraint_sampler.hpp:171,202`) are default arguments to two
+/// `sample()` overloads this port's own trait design already collapses away
+/// (see this module's doc comment) — no live production call site upstream
+/// ever actually receives `2`; every real caller (`constrained_sampler.cpp:69-70`,
+/// `constrained_goal_sampler.cpp:137`) instead passes
+/// `ModelBasedPlanningContext::getMaximumStateSamplingAttempts()`, configured
+/// to `4` by `planning_context_manager.cpp:259`. Round 20 mistakenly reused
+/// this constant as that value in
+/// `moveit_planners_sbp::registry::RrtConnectContext::solve`; round 21
+/// corrected it to a locally-defined `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS = 4`
+/// there instead, so this constant remains ported (it matches upstream's
+/// named literal) but — as rounds 13/14 originally found — has no real
+/// production call site in this workspace.
 pub const DEFAULT_MAX_SAMPLING_ATTEMPTS: u32 = 2;
 
 use crate::JointConstraint;

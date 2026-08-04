@@ -128,9 +128,7 @@
 //! is no runtime plugin boundary for a string bag to cross.
 
 use moveit_collision::{CollisionRequest, ParryCollisionEnv};
-use moveit_constraints::{
-    DEFAULT_MAX_SAMPLING_ATTEMPTS, KinematicConstraintSet, select_default_sampler,
-};
+use moveit_constraints::{KinematicConstraintSet, select_default_sampler};
 use moveit_scene::PlanningScene;
 use moveit_state::RobotState;
 use rand::SeedableRng;
@@ -145,6 +143,23 @@ use crate::rrt_connect::{
     ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, rrt_connect,
 };
 use crate::validity::DiscreteMotionValidator;
+
+/// The `max_attempts` every live upstream call to `ConstraintSampler::sample`
+/// actually passes: `ModelBasedPlanningContext::getMaximumStateSamplingAttempts()`,
+/// configured to `4` by `PlanningContextManager`'s constructor
+/// (`planning_context_manager.cpp:259`, `max_state_sampling_attempts_(4)`)
+/// and consumed both by path-constraint sampling
+/// (`detail/constrained_sampler.cpp:69-70`,
+/// `constraint_sampler_->sample(work_state_, ..., getMaximumStateSamplingAttempts())`)
+/// and by goal-constraint sampling (`detail/constrained_goal_sampler.cpp:137`).
+/// Round 20 used [`moveit_constraints::DEFAULT_MAX_SAMPLING_ATTEMPTS`] (`2`)
+/// here instead — that constant is upstream `ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`
+/// (`constraint_sampler.hpp:64`), a default-argument fallback for two
+/// `sample()` overloads this port's own trait design already collapses away
+/// (see `moveit_constraints::sampler`'s doc comment); no live production
+/// call site upstream ever actually receives `2`. This constant is the
+/// correct one instead.
+const DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS: u32 = 4;
 
 /// A motion planning query. See this module's doc comment for why this,
 /// rather than a transcription of upstream's `MotionPlanRequest`, is the
@@ -340,7 +355,7 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
                     constraints.constraints(),
                     None,
                     vec![],
-                    DEFAULT_MAX_SAMPLING_ATTEMPTS,
+                    DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS,
                 )
                 .expect(
                     "select_default_sampler's only Err is an unresolvable subgroup_solvers name; \
