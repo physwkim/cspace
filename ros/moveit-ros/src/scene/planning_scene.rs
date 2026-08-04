@@ -29,11 +29,15 @@
 //! scene's model match the name the message expects", both needed by
 //! whatever future caller assembles the rest of `usePlanningSceneMsg`.
 
+use std::sync::Arc;
+
 use moveit_error::{Error, Result};
+use moveit_geometry::{Isometry3, OcTree as OcTreeShape, Shape};
 use moveit_scene::PlanningScene;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::collision_object::{OCTOMAP_NS, apply_collision_object};
+use crate::geometry::Pose;
 
 /// `PlanningScene.is_diff`'s exact meaning: this scene has a parent it is
 /// layered as a diff on top of. Upstream sets/reads `is_diff` as a plain
@@ -76,107 +80,26 @@ pub fn apply_planning_scene_world(
 /// Upstream `processOctomapMsg(const octomap_msgs::msg::OctomapWithPose&)`
 /// (`planning_scene.cpp:1478`).
 ///
-/// # Structural gap: octomap binary payload decoding belongs to `moveit-octomap`
+/// An empty `octomap.data` is a no-op -- upstream's own early return
+/// (`:1483`) once the previous octomap has been cleared. A non-empty
+/// payload is decoded by [`moveit_octomap::OcTree::read_binary_data`] or
+/// [`moveit_octomap::OcTree::read_data`] (round 8: those two entry points
+/// landed in `moveit-octomap`, closing the round-5/round-7 structural gap
+/// this doc comment used to describe) and inserted the same way
+/// `apply_collision_object` inserts every other shape kind
+/// (`moveit_scene::PlanningScene::add_shape`, `src/scene/collision_object.rs:382`)
+/// -- octomap is not a new insertion mechanism, just a new [`Shape`]
+/// variant.
 ///
-/// An empty `octomap.data` is a correct, real no-op -- upstream's own early
-/// return (`:1483`) once the previous octomap has been cleared. A
-/// **non-empty** payload requires decoding octomap's binary tree
-/// serialization (`octomap_msgs::readTree` / `OcTree::readData`) into a
-/// [`moveit_octomap::OcTree`] -- confirmed absent from that type's public
-/// surface (only `OcTree::new(resolution)` builds an empty tree; `Node` is
-/// `pub(crate)` and `OcTree::root` is private, so `ros/` cannot reach the
-/// primitives a decoder would need even if it wanted to).
+/// `msg.binary` selects the entry point, not a preference: the two wire
+/// formats are structurally different (`read_binary_data`'s 2-bit-per-child
+/// compact form vs. `read_data`'s per-node raw `f32`), so one function
+/// cannot serve both and neither is a fallback for the other.
 ///
-/// **Decided round 5: this decoder is `moveit-octomap`'s (p3-shapes'), not
-/// `ros/`'s.** octomap's binary serialization is octomap's own format, not a
-/// ROS format -- `octomap_msgs::readTree`/`readData` write `msg.data`
-/// straight into `OcTree::readBinaryData`/`readData`, bypassing any file
-/// header or the `AbstractOcTree` registry entirely. Deserializing a type's
-/// own format is that type's owning crate's job; exposing `Node`/`root` as
-/// `pub` just so `ros/` could decode here would invert encapsulation for
-/// `ros/`'s convenience. See `doc/message-mapping.md` §11's "Structural
-/// gaps" list for the full requirements spec this crate has written for
-/// `moveit-octomap`'s owner (API signature, upstream file:line citations,
-/// this call site, and the verification approach) -- not implemented here.
-///
-/// # Round 7 prep: dispatch shape and test plan for when the decoder lands
-///
-/// Not implemented this round (`p3-shapes` has not yet added the two entry
-/// points) -- written down now so the decoder can be plugged in without
-/// re-deriving this shape. `moveit_scene::PlanningScene::add_shape(&mut self,
-/// id: &str, shape: Arc<Shape>, pose: Isometry3)` (`crates/moveit-scene/src/scene.rs:968`)
-/// is the existing insertion call `apply_collision_object` already uses for
-/// every other shape kind (`src/scene/collision_object.rs:382`) -- the
-/// octomap path is not a new insertion mechanism, just a new [`Shape`]
-/// variant (`Shape::OcTree`, see `crates/moveit-collision/src/octomap_filter.rs`'s
-/// own test helper `object_with_octree` for the exact construction:
-/// `OcTreeShape::from_tree(Arc::new(tree))` wrapped in `Shape::OcTree`).
-///
-/// Once `OcTree::read_binary_data(&mut self, &[u8]) -> Result<(), E>` /
-/// `read_data(&mut self, &[u8]) -> Result<(), E>` exist, the current final
-/// `Err(Error::other(...))` branch becomes:
-///
-/// ```text
-/// let mut tree = moveit_octomap::OcTree::new(map.octomap.resolution);
-/// let bytes: Vec<u8> = map.octomap.data.iter().map(|&b| b as u8).collect();
-/// let decode_result = if map.octomap.binary {
-///     tree.read_binary_data(&bytes)
-/// } else {
-///     tree.read_data(&bytes)
-/// };
-/// decode_result.map_err(|e| Error::other(format!("octomap payload decode failed: {e}")))?;
-/// let origin = Isometry3::try_from(Pose(map.origin))?;
-/// let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(tree)));
-/// scene.add_shape(OCTOMAP_NS, Arc::new(shape), origin);
-/// Ok(())
-/// ```
-///
-/// `data: Vec<i8>` (ROS has no unsigned byte array type) needs the
-/// `as u8` recast shown above before either entry point sees it --
-/// `octomap_msgs::readTree`/`readData` treat the wire bytes as raw octets,
-/// not signed values; the `i8` on the Rust side is purely `r2r`'s message
-/// binding, not a semantic sign.
-///
-/// The `map.octomap.id != "OcTree"` check stays exactly as-is above this
-/// dispatch -- unaffected by which entry point decodes the payload.
-///
-/// Test plan (`mod tests` below):
-/// - [`empty_collision_objects_and_empty_octomap_is_a_no_op`] and
-///   [`non_octree_octomap_type_is_rejected`] are unchanged: neither reaches
-///   the binary/full dispatch (empty-data early return / wrong-`id` early
-///   return both happen before it).
-/// - `nonempty_octree_payload_names_the_structural_gap` is retired under
-///   that name and that framing -- once the entry points exist, `vec![1, 2,
-///   3]` is no longer "any non-empty payload is rejected because nothing is
-///   implemented," it is *malformed* input to a real decoder. Replace it
-///   with `malformed_octree_payload_is_rejected`: same fixture bytes, same
-///   `octomap_with_pose("OcTree", vec![1, 2, 3])`, same
-///   `assert!(matches!(err, Error::Other(_)))`, but the assertion now
-///   documents "the decoder rejects a corrupt/truncated stream," not "no
-///   decoder exists." If `moveit-octomap`'s decoder happens to accept
-///   `[1, 2, 3]` as a (degenerate but valid) bitstream instead of erroring,
-///   this fixture stops being a valid malformed-payload probe and needs
-///   different bytes -- that is a real finding to report when this lands,
-///   not an assumption to bake in now.
-/// - Add `binary_octree_payload_is_decoded_and_inserted`: `binary: true`,
-///   `data` from an oracle-captured fixture (`octomap_msgs::binaryMsgFromMap`
-///   against a small tree with a handful of updated nodes, per
-///   `doc/message-mapping.md`'s "Structural gaps" list, same byte-fixture
-///   pattern as §149/§157). Assert `scene.world().get_object(OCTOMAP_NS)`
-///   exists and its `Shape::OcTree` tree's leaf occupancy (via
-///   `moveit-octomap`'s `src/iter.rs` leaf iteration, not a raw byte
-///   comparison -- the format is lossy at `clamping_thres_min`/`_max`)
-///   matches the oracle's tree.
-/// - Add `full_octree_payload_is_decoded_and_inserted`: identical shape,
-///   `binary: false`, oracle bytes from `fullMsgToMap`, decoded via
-///   `read_data` instead of `read_binary_data`.
-/// - Add `octomap_replaces_any_previous_octree_at_the_reserved_id`: two
-///   calls to `apply_planning_scene_world` with different non-empty
-///   payloads, asserting the second's tree content -- not the first's --
-///   is what `scene.world().get_object(OCTOMAP_NS)` holds afterward. This
-///   exercises the `let _ = scene.remove_object(OCTOMAP_NS);` line at the
-///   top of this function, which today only ever discards an empty world
-///   (no test yet inserts anything at `OCTOMAP_NS` to be replaced).
+/// `data: Vec<i8>` (ROS has no unsigned byte array type) is recast `as u8`
+/// before either entry point sees it -- `octomap_msgs::readTree`/`readData`
+/// treat the wire bytes as raw octets, not signed values; the `i8` on the
+/// Rust side is purely `r2r`'s message binding, not a semantic sign.
 fn apply_octomap(
     scene: &mut PlanningScene<'_>,
     map: r2r::octomap_msgs::msg::OctomapWithPose,
@@ -192,10 +115,20 @@ fn apply_octomap(
             map.octomap.id
         )));
     }
-    Err(Error::other(
-        "non-empty Octomap.data cannot be converted: moveit_octomap::OcTree has no binary-payload \
-         decoder (octomap_msgs::readTree/OcTree::readData is unported) (doc/message-mapping.md §11)",
-    ))
+
+    let mut tree = moveit_octomap::OcTree::new(map.octomap.resolution);
+    let bytes: Vec<u8> = map.octomap.data.iter().map(|&b| b as u8).collect();
+    let decode_result = if map.octomap.binary {
+        tree.read_binary_data(&bytes)
+    } else {
+        tree.read_data(&bytes)
+    };
+    decode_result.map_err(|e| Error::other(format!("octomap payload decode failed: {e}")))?;
+
+    let origin = Isometry3::try_from(Pose(map.origin))?;
+    let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(tree)));
+    scene.add_shape(OCTOMAP_NS, Arc::new(shape), origin);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -227,13 +160,17 @@ mod tests {
         }
     }
 
-    fn octomap_with_pose(id: &str, data: Vec<i8>) -> r2r::octomap_msgs::msg::OctomapWithPose {
+    fn octomap_with_pose(
+        id: &str,
+        binary: bool,
+        data: Vec<i8>,
+    ) -> r2r::octomap_msgs::msg::OctomapWithPose {
         r2r::octomap_msgs::msg::OctomapWithPose {
             header: Default::default(),
             origin: identity_pose(),
             octomap: r2r::octomap_msgs::msg::Octomap {
                 header: Default::default(),
-                binary: true,
+                binary,
                 id: id.to_string(),
                 resolution: 0.1,
                 data,
@@ -268,7 +205,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let world = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("OcTree", vec![]),
+            octomap: octomap_with_pose("OcTree", true, vec![]),
         };
         apply_planning_scene_world(&mut scene, world).unwrap();
         assert!(scene.world().is_empty());
@@ -281,22 +218,141 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let world = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("ColorOcTree", vec![1]),
+            octomap: octomap_with_pose("ColorOcTree", true, vec![1]),
+        };
+        let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
+    /// Round 7's plan (`ea686a6`) named this exact byte fixture
+    /// (`vec![1, 2, 3]`) as a risk: once a real decoder exists, `[1, 2, 3]`
+    /// might turn out to be a degenerate *valid* bitstream instead of a
+    /// malformed one, and if so that had to be reported rather than quietly
+    /// swapped for different bytes. It is: `read_binary_node` reads its
+    /// root's two child-packing bytes as `child1to4 = 1 (0b01)`,
+    /// `child5to8 = 2 (0b10)` -- child 0 gets the `(1, 0)` "free leaf" code
+    /// and child 4 gets the `(0, 1)` "occupied leaf" code, neither packed
+    /// byte contains a `(1, 1)` "has children" code, so decoding never
+    /// recurses and returns `Ok` without ever looking at the trailing third
+    /// byte (matching `read_binary_data`'s own doc: "trailing bytes after a
+    /// complete decode are not an error"). `vec![1, 2, 3]` is exercised
+    /// directly below, as a **success** case with a named leaf shape, not
+    /// as an error case.
+    #[test]
+    fn truncated_octree_payload_is_rejected() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            // One byte: `read_binary_node` reads `child1to4` successfully,
+            // then fails reading `child5to8` -- a real `UnexpectedEof`, not
+            // a chosen-to-look-malformed value like the retired
+            // `vec![1, 2, 3]` fixture turned out to be.
+            octomap: octomap_with_pose("OcTree", true, vec![1]),
         };
         let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "got: {err:?}");
     }
 
     #[test]
-    fn nonempty_octree_payload_names_the_structural_gap() {
+    fn binary_octree_payload_is_decoded_and_inserted() {
         let model = one_joint_model();
         let srdf = empty_srdf();
         let mut scene = PlanningScene::new(&model, &srdf);
         let world = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("OcTree", vec![1, 2, 3]),
+            // See `truncated_octree_payload_is_rejected`'s doc comment for
+            // the exact bit-level derivation of what these two bytes decode
+            // to: root's child 0 a free leaf, child 4 an occupied leaf, no
+            // recursion.
+            octomap: octomap_with_pose("OcTree", true, vec![1, 2]),
         };
-        let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        apply_planning_scene_world(&mut scene, world).unwrap();
+
+        let object = scene
+            .world()
+            .get_object(OCTOMAP_NS)
+            .expect("octomap must be inserted at OCTOMAP_NS");
+        let shapes = object.shapes();
+        assert_eq!(shapes.len(), 1, "got: {shapes:?}");
+        let Shape::OcTree(octree_shape) = shapes[0].shape().as_ref() else {
+            panic!("got: {:?}", shapes[0].shape());
+        };
+        let tree = octree_shape.octree.as_ref().expect("tree must be decoded");
+        let leaf_log_odds: Vec<f32> = tree.leaves().map(|l| l.log_odds()).collect();
+        assert_eq!(leaf_log_odds.len(), 2, "got: {leaf_log_odds:?}");
+        assert_eq!(
+            tree.leaves().filter(|l| l.is_occupied()).count(),
+            1,
+            "got: {leaf_log_odds:?}"
+        );
+        assert_eq!(
+            tree.leaves().filter(|l| !l.is_occupied()).count(),
+            1,
+            "got: {leaf_log_odds:?}"
+        );
+    }
+
+    #[test]
+    fn full_octree_payload_is_decoded_and_inserted() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            // `read_data_node`: 4-byte little-endian f32 root log-odds
+            // (0.5f32 == 0x3F00_0000, LE bytes 0x00 0x00 0x00 0x3F), then a
+            // 1-byte child bitmap of 0 -- a single-node tree, no children.
+            octomap: octomap_with_pose("OcTree", false, vec![0, 0, 0, 63, 0]),
+        };
+        apply_planning_scene_world(&mut scene, world).unwrap();
+
+        let object = scene
+            .world()
+            .get_object(OCTOMAP_NS)
+            .expect("octomap must be inserted at OCTOMAP_NS");
+        let shapes = object.shapes();
+        assert_eq!(shapes.len(), 1, "got: {shapes:?}");
+        let Shape::OcTree(octree_shape) = shapes[0].shape().as_ref() else {
+            panic!("got: {:?}", shapes[0].shape());
+        };
+        let tree = octree_shape.octree.as_ref().expect("tree must be decoded");
+        let leaf_log_odds: Vec<f32> = tree.leaves().map(|l| l.log_odds()).collect();
+        assert_eq!(leaf_log_odds, vec![0.5], "got: {leaf_log_odds:?}");
+    }
+
+    #[test]
+    fn octomap_replaces_any_previous_octree_at_the_reserved_id() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let first = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", true, vec![1, 2]),
+        };
+        apply_planning_scene_world(&mut scene, first).unwrap();
+
+        let second = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", false, vec![0, 0, 0, 63, 0]),
+        };
+        apply_planning_scene_world(&mut scene, second).unwrap();
+
+        let object = scene
+            .world()
+            .get_object(OCTOMAP_NS)
+            .expect("octomap must still be present after the second apply");
+        let shapes = object.shapes();
+        assert_eq!(shapes.len(), 1, "got: {shapes:?}");
+        let Shape::OcTree(octree_shape) = shapes[0].shape().as_ref() else {
+            panic!("got: {:?}", shapes[0].shape());
+        };
+        let tree = octree_shape.octree.as_ref().expect("tree must be decoded");
+        // The second payload's single root leaf, not the first's two
+        // binary-format leaves -- proves `apply_octomap`'s
+        // `scene.remove_object(OCTOMAP_NS)` actually discarded the first
+        // tree rather than accumulating shapes across calls.
+        assert_eq!(tree.leaves().count(), 1, "got: {:?}", scene.world());
     }
 }

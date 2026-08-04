@@ -611,6 +611,7 @@ name = "moveit-octomap"
 version = "0.1.0"
 dependencies = [
  "nalgebra",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -638,6 +639,7 @@ dependencies = [
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
+ "moveit-octomap",
  "moveit-planning",
  "moveit-scene",
  "moveit-srdf",
