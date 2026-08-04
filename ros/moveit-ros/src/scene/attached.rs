@@ -36,8 +36,8 @@ use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::collision_object::{
     CollisionObjectOperation, OCTOMAP_NS, shapes_and_poses_from_collision_object,
+    subframes_from_parallel_arrays,
 };
-use crate::geometry::Pose;
 
 /// Apply one `AttachedCollisionObject` command. Upstream
 /// `processAttachedCollisionObjectMsg` (`planning_scene.cpp:1536`).
@@ -55,9 +55,10 @@ pub fn apply_attached_collision_object(
         CollisionObjectOperation::Append => apply_attach(scene, msg, false),
         CollisionObjectOperation::Remove => apply_detach(scene, msg),
         CollisionObjectOperation::Move => Err(Error::other(
-            "MOVE is not implemented for attached objects -- upstream itself has no MOVE \
-             handling in processAttachedCollisionObjectMsg either \
-             (planning_scene.cpp:1536-1760 has no MOVE branch at all)",
+            "MOVE is not implemented for attached objects -- upstream itself has not \
+             implemented it either: processAttachedCollisionObjectMsg's MOVE branch is\
+             \n  RCLCPP_ERROR(getLogger(), \"Move for attached objects not yet implemented\");\
+             \n(planning_scene.cpp:1762-1765)",
         )),
     }
 }
@@ -203,7 +204,11 @@ fn shapes_from_message_geometry(
         planes,
         plane_poses,
     )?;
-    let local_subframes = subframes_from_parallel_arrays(subframe_names, subframe_poses)?;
+    let local_subframes = subframes_from_parallel_arrays(
+        "processAttachedCollisionObjectMsg:1612/1615",
+        subframe_names,
+        subframe_poses,
+    )?;
 
     let world_to_header = scene.frame_transform(header_frame_id)?;
     let link_transform = {
@@ -223,35 +228,6 @@ fn shapes_from_message_geometry(
         .collect();
 
     Ok((shapes, shape_poses, subframes))
-}
-
-/// `AttachedCollisionObject.subframe_names`/`.subframe_poses`, exact-length
-/// only. Upstream indexes `subframe_names[i]` for `i` in
-/// `0..subframe_poses.size()` with **no length check at all**
-/// (`planning_scene.cpp:1596-1599`) -- a real out-of-bounds read if
-/// `subframe_names` is shorter. This port rejects the mismatch instead of
-/// reproducing that read, the same choice already made for
-/// `shape_msgs::MeshTriangle.vertex_indices`/`Plane.coef` in
-/// `crate::scene::shapes`.
-fn subframes_from_parallel_arrays(
-    subframe_names: Vec<String>,
-    subframe_poses: Vec<geometry_msgs::Pose>,
-) -> Result<BTreeMap<String, Isometry3>> {
-    if subframe_names.len() != subframe_poses.len() {
-        return Err(Error::construct(format!(
-            "AttachedCollisionObject.object.subframe_names has length {} but subframe_poses has \
-             length {} (upstream indexes these without any length check -- \
-             processAttachedCollisionObjectMsg:1596-1599 -- this port rejects the mismatch \
-             instead of reproducing that out-of-bounds read)",
-            subframe_names.len(),
-            subframe_poses.len()
-        )));
-    }
-    let mut map = BTreeMap::new();
-    for (name, pose) in subframe_names.into_iter().zip(subframe_poses) {
-        map.insert(name, Isometry3::try_from(Pose(pose))?);
-    }
-    Ok(map)
 }
 
 /// REMOVE (detach). Upstream's REMOVE branch (`:1631-1667`).
