@@ -84,7 +84,7 @@ pub struct HybridCollisionEnv<'m> {
     parry: ParryCollisionEnv,
     distance_field: DistanceFieldCollisionCache<'m>,
     /// Kept alongside `distance_field` (whose own copy is private to
-    /// `collision_env_distance_field`) so [`Self::build_env_distance_field`]
+    /// `collision_env_distance_field`) so `build_env_distance_field`
     /// can rebuild an environment field with the same geometry/propagation
     /// settings [`Self::distance_field`]'s own self-collision field uses --
     /// matching upstream, whose single `CollisionEnvDistanceField`
@@ -241,14 +241,14 @@ impl<'m> HybridCollisionEnv<'m> {
     /// Upstream `CollisionEnvHybrid::checkCollisionDistanceField`'s four
     /// overloads (`collision_env_hybrid.cpp:107-133`), all
     /// `cenv_distance_->checkCollision(...)`. See
-    /// [`Self::build_env_distance_field`] for why the environment field
+    /// `build_env_distance_field` for why the environment field
     /// argument is built fresh here rather than read off a cache, and this
     /// module's doc comment for why that is not a new arity-collapse
     /// decision on top of [`DistanceFieldCollisionCache::check_collision`].
     ///
     /// # Errors
     ///
-    /// See [`Self::build_env_distance_field`] and
+    /// See `build_env_distance_field` and
     /// [`DistanceFieldCollisionCache::check_collision`].
     pub fn check_collision_distance_field<'s>(
         &'s mut self,
@@ -275,7 +275,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::build_env_distance_field`] and
+    /// See `build_env_distance_field` and
     /// [`DistanceFieldCollisionCache::check_robot_collision`].
     pub fn check_robot_collision_distance_field<'s>(
         &'s mut self,
@@ -301,7 +301,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::build_env_distance_field`] and
+    /// See `build_env_distance_field` and
     /// [`DistanceFieldCollisionCache::get_collision_gradients`].
     pub fn get_collision_gradients<'s>(
         &'s mut self,
@@ -327,7 +327,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::build_env_distance_field`] and
+    /// See `build_env_distance_field` and
     /// [`DistanceFieldCollisionCache::get_all_collisions`].
     pub fn get_all_collisions<'s>(
         &'s mut self,
