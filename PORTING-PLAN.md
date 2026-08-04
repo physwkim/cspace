@@ -13191,5 +13191,15 @@ BSD-3-Clause 제1항과 Apache-2.0 제4(c)항은 파생물이 출처의 저작�
 - **(소유자 미지정)** — `moveit-error/src/lib.rs`(2021 PickNik)
 
 전체 목록은 `tools/ci/verify-upstream-license-provenance.sh`를 돌리면
-파일:연도:권리자로 나온다. **상류가 적은 그대로** 옮겨라 — 매칭은 정확
-일치다.
+파일:연도:권리자로 나온다.
+
+맞춰야 하는 것은 **연도와 권리자 이름 단어들뿐**이다. `(c)` 유무, 연도
+뒤 쉼표, 대소문자, 구두점, 말미의 `Inc`/`Corporation`/`GmbH` 접미사는
+정규화로 사라지므로 상류의 구두점을 흉내 낼 필요가 없다 —
+`geometric_shapes`는 `Copyright 2008 Willow Garage, Inc.`로,
+moveit2는 `Copyright (c) 2008, Willow Garage, Inc.`로 쓰는데 둘은 같게
+취급된다. 이 트리의 기존 문체를 유지하고 연도와 이름만 상류 것으로 써라.
+
+정규화가 살려주지 **않는** 것은 이름 철자다. 상류는 움라우트를 쓰지 않고
+ASCII로 `Universitaet Hamburg`라고 적는다
+(`moveit_core/utils/src/message_checks.cpp:4`).
