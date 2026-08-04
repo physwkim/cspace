@@ -16144,3 +16144,52 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
 `ConstraintsMsg`)은 소비자가 2곳 이상이지만 전부 실제로 같은 상류 함수
 하나에 닿는다는 것을 인용 없이 직접 소스를 열어 확인했다 — 이번
 라운드에서 이 크레이트에 추가로 쪼갤 곳은 없다.
+
+## §214 같은 함수 안의 형제 분기, 같은 변형(variant) — `e3b40c6`과 같은 모양을 이 크레이트에서도 찾았다
+
+### §214.1 앵커
+
+`moveit-constraints`의 `e3b40c6`: `Body::from_shape(shape)?`의 `Err` 절반과
+`Ok(None)` 절반이 같은 줄에 있는데, 테스트가 `.is_err()`만 확인해서
+`?`를 `.unwrap_or(None)`으로 바꿔 형제 분기로 라우팅해도 초록으로
+남았다. 같은 모양을 `ros/moveit-ros/src` 전체에서 찾기 위해 함수 본문
+안에 같은 `Error` variant를 만드는 `Err(Error::...)` 리터럴이 2개
+이상인 함수를 스캔했다 (AST 없이 중괄호 깊이로 함수 본문을 잘라
+`Err(Error::(\w+)` 패턴 카운트). 결과 5개:
+
+| 파일:함수 | 같은 variant 반복 | 기존 테스트가 구분했는가 |
+|---|---|---|
+| `trajectory.rs`의 `TryFrom<JointTrajectoryMsg>::try_from` | `Construct` × 3 (positions 길이 불일치/0이 아닌 시작 시각/시간 역행) + `set_point_array`의 4번째(속도/가속도/effort 길이) | 아니오 — 시작 시각·시간 역행 테스트는 variant만 확인, positions 길이 불일치와 속도 길이 불일치는 테스트 자체가 없었음 |
+| `state.rs`의 `TryFrom<RobotStateMsg>::try_from` | `Other` × 3 (`is_diff`/`attached_collision_objects`/`multi_dof_joint_state`) + `set_parallel_array`의 4번째(속도/effort 길이) | 아니오 — `is_diff`만 테스트 있었고 variant만 확인, 나머지 셋은 테스트 자체가 없었음 |
+| `planning.rs`의 `TryFrom<PlanningRequestMsg>::try_from` | `Other` × 2 (`start_state`/`reference_trajectories`) | 아니오 — `start_state`만 테스트 있었고 variant만 확인, `reference_trajectories`는 테스트 자체가 없었음 |
+| `scene/attached.rs`의 `apply_attach` | `Other` × 2 (월드 오브젝트 승격 경로의 "no geometry"/메시지-지오메트리 경로의 "no geometry") | 아니오 — 두 테스트 모두 존재하지만 variant만 확인 |
+| `scene/collision_object.rs`의 `apply_move` | `Other` × 2 (알 수 없는 id/포즈 개수 불일치) | 아니오 — 두 테스트 모두 존재하지만 variant만 확인 |
+
+### §214.2 고친 방법
+
+`e3b40c6`과 동일한 헬퍼 모양(`assert_err_mentions`, `#[track_caller]`,
+렌더링된 에러 문자열에 `needle`이 포함되는지 확인)을 이 다섯 파일 각각의
+테스트 모듈에 추가했다 — 크레이트 공용 헬퍼로 올리지 않은 이유는
+`e3b40c6` 자체가 파일 로컬 헬퍼였고, 이 크레이트의 `Result`는 파일마다
+`std::result::Result`거나 `moveit_error::Result` 별칭이라(뒤엣것은
+제네릭 인자가 하나뿐) 시그니처가 파일마다 달라야 했기 때문이다
+(`scene/attached.rs`, `scene/collision_object.rs`는
+`std::result::Result<T, Error>`로 명시).
+
+variant만 확인하던 기존 테스트 6곳을 메시지 내용 확인으로 바꾸고,
+테스트가 아예 없던 형제 분기 6곳에 새 테스트를 추가했다 (positions
+길이 불일치·속도 길이 불일치 ×2파일·`attached_collision_objects`·
+`multi_dof_joint_state`·`reference_trajectories`). 141개였던 테스트가
+147개.
+
+### §214.3 스캔에서 제외한 것
+
+같은 함수 안에 2개 이상이지만 이미 호출부마다 다른 메시지를 만드는
+공유 헬퍼(`constraints/position.rs`의 `dim()` — BOX_X/SPHERE_RADIUS 등
+필드 이름이 이미 인자로 갈리고, `collision_object.rs`의
+`parallel_shapes`/`subframes_from_parallel_arrays` — `items_field`가
+이미 인자로 갈림)는 이번 라운드에 포함하지 않았다: 메시지가 이미
+호출부마다 다르므로 §214가 잡는 정확한 결함 모양(형제 분기가 *같은*
+메시지를 만들어 라우팅 버그를 가릴 수 있는 경우)이 아니고, 테스트가
+그 메시지 내용을 아직 확인하지 않는 것은 커버리지 gap이지 이번 항목이
+겨냥한 판별 불가능성이 아니다.

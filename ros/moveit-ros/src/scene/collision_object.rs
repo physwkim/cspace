@@ -523,6 +523,26 @@ mod tests {
     use crate::state::tests::one_joint_model;
     use moveit_srdf::SrdfModel;
 
+    /// Asserts the call was rejected *for the reason named*, not merely
+    /// that it was rejected. `apply_move` has two independent `Error::Other`
+    /// sites (unknown object id, mismatched shape-pose count) --
+    /// `matches!(err, Error::Other(_))` alone cannot tell a test that a
+    /// routing bug swapped which branch fired (same shape as
+    /// `moveit-constraints`' `e3b40c6`).
+    #[track_caller]
+    fn assert_err_mentions<T: std::fmt::Debug>(
+        result: std::result::Result<T, Error>,
+        needle: &str,
+    ) {
+        let rendered = result
+            .expect_err("expected this call to be rejected")
+            .to_string();
+        assert!(
+            rendered.contains(needle),
+            "expected the rejection to come from the branch that reports {needle:?}, got: {rendered}"
+        );
+    }
+
     fn scene(model: &moveit_model::RobotModel) -> PlanningScene<'_> {
         let srdf =
             SrdfModel::parse_str("<?xml version=\"1.0\"?><robot name=\"one_joint\"></robot>")
@@ -751,9 +771,10 @@ mod tests {
     fn move_requires_existing_object() {
         let model = one_joint_model();
         let mut sc = scene(&model);
-        let err = apply_collision_object(&mut sc, base_object("box", model.model_frame(), MOVE))
-            .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert_err_mentions(
+            apply_collision_object(&mut sc, base_object("box", model.model_frame(), MOVE)),
+            "does not exist. Cannot move",
+        );
     }
 
     #[test]
@@ -798,8 +819,10 @@ mod tests {
         let mut mv = base_object("box", model.model_frame(), MOVE);
         mv.pose = posed(5.0, 0.0, 0.0);
         mv.primitive_poses = vec![identity_pose(), identity_pose()]; // object has 1 shape
-        let err = apply_collision_object(&mut sc, mv).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert_err_mentions(
+            apply_collision_object(&mut sc, mv),
+            "must have same number of geometry poses",
+        );
         // Upstream's own partial-effect: the pose move already happened.
         assert_eq!(
             sc.world().get_object("box").unwrap().pose(),

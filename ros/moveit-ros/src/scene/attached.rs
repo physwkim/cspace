@@ -313,6 +313,26 @@ mod tests {
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
 
+    /// Asserts the call was rejected *for the reason named*, not merely
+    /// that it was rejected. `apply_attach` has two independent
+    /// `Error::Other` "no geometry" sites (world-object-promotion path vs.
+    /// the message-geometry path) -- `matches!(err, Error::Other(_))` alone
+    /// cannot tell a test that a routing bug swapped which branch fired
+    /// (same shape as `moveit-constraints`' `e3b40c6`).
+    #[track_caller]
+    fn assert_err_mentions<T: std::fmt::Debug>(
+        result: std::result::Result<T, Error>,
+        needle: &str,
+    ) {
+        let rendered = result
+            .expect_err("expected this call to be rejected")
+            .to_string();
+        assert!(
+            rendered.contains(needle),
+            "expected the rejection to come from the branch that reports {needle:?}, got: {rendered}"
+        );
+    }
+
     fn two_link_model() -> RobotModel {
         let urdf_xml = r#"<?xml version="1.0"?>
 <robot name="two_joint">
@@ -483,8 +503,10 @@ mod tests {
         let mut msg = base_attached("box", "tip", model.model_frame(), 0);
         msg.object.primitives = vec![];
         msg.object.primitive_poses = vec![];
-        let err = apply_attached_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert_err_mentions(
+            apply_attached_collision_object(&mut sc, msg),
+            "does not exist in the collision world",
+        );
     }
 
     #[test]
@@ -562,8 +584,10 @@ mod tests {
         let mut append = base_attached("box", "tip", model.model_frame(), 2);
         append.object.primitives = vec![];
         append.object.primitive_poses = vec![];
-        let err = apply_attached_collision_object(&mut sc, append).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert_err_mentions(
+            apply_attached_collision_object(&mut sc, append),
+            "no geometry to attach",
+        );
     }
 
     #[test]

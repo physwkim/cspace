@@ -233,6 +233,25 @@ mod tests {
     use super::*;
     use crate::state::tests::one_joint_model;
 
+    /// Asserts the call was rejected *for the reason named*, not merely
+    /// that it was rejected. `TryFrom<JointTrajectoryMsg>::try_from`'s loop
+    /// body has three independent `Error::Construct` sites (positions-length
+    /// mismatch, nonzero start time, decreasing time) and `set_point_array`
+    /// has a fourth (velocities/accelerations/effort length mismatch) --
+    /// all the same variant, so `matches!(err, Error::Construct(_))` alone
+    /// cannot tell a test that a routing bug swapped which branch fired
+    /// (same shape as `moveit-constraints`' `e3b40c6`).
+    #[track_caller]
+    fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
+        let rendered = result
+            .expect_err("expected this call to be rejected")
+            .to_string();
+        assert!(
+            rendered.contains(needle),
+            "expected the rejection to come from the branch that reports {needle:?}, got: {rendered}"
+        );
+    }
+
     fn point(position: f64, sec: i32, nanosec: u32) -> trajectory_msgs::JointTrajectoryPoint {
         trajectory_msgs::JointTrajectoryPoint {
             positions: vec![position],
@@ -272,8 +291,50 @@ mod tests {
             joint_names: vec!["j1".to_string()],
             points: vec![point(0.0, 1, 0)],
         };
-        let err = RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        assert_err_mentions(
+            RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
+            "not 0s",
+        );
+    }
+
+    #[test]
+    fn positions_length_mismatch_is_rejected() {
+        // The sibling of `nonzero_start_time_is_rejected` and
+        // `decreasing_time_from_start_is_rejected` in the same loop body --
+        // previously untested (not merely undiscriminated).
+        let model = one_joint_model();
+        let msg = trajectory_msgs::JointTrajectory {
+            header: Default::default(),
+            joint_names: vec!["j1".to_string(), "j2".to_string()],
+            points: vec![point(0.0, 0, 0)],
+        };
+        assert_err_mentions(
+            RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
+            "positions has length",
+        );
+    }
+
+    #[test]
+    fn velocities_length_mismatch_is_rejected() {
+        // `set_point_array`'s own Error::Construct site, called with a
+        // different `field` for velocities/accelerations/effort --
+        // previously untested for any of the three.
+        let model = one_joint_model();
+        let msg = trajectory_msgs::JointTrajectory {
+            header: Default::default(),
+            joint_names: vec!["j1".to_string()],
+            points: vec![trajectory_msgs::JointTrajectoryPoint {
+                positions: vec![0.0],
+                velocities: vec![1.0, 2.0],
+                accelerations: vec![],
+                effort: vec![],
+                time_from_start: r2r::builtin_interfaces::msg::Duration { sec: 0, nanosec: 0 },
+            }],
+        };
+        assert_err_mentions(
+            RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
+            "velocities has length",
+        );
     }
 
     /// Tripwire (PORTING-PLAN.md §153.1/§205) on `moveit_trajectory::
@@ -308,8 +369,10 @@ mod tests {
                 point(0.2, 0, 500_000_000),
             ],
         };
-        let err = RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        assert_err_mentions(
+            RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
+            "is less than point",
+        );
     }
 
     #[test]

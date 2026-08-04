@@ -321,6 +321,23 @@ mod tests {
     use super::*;
     use crate::state::tests::one_joint_model;
 
+    /// Asserts the call was rejected *for the reason named*, not merely
+    /// that it was rejected. `TryFrom<PlanningRequestMsg>::try_from` has two
+    /// independent `Error::Other` sites (`start_state`,
+    /// `reference_trajectories`) -- `matches!(err, Error::Other(_))` alone
+    /// cannot tell a test that a routing bug swapped which branch fired
+    /// (same shape as `moveit-constraints`' `e3b40c6`).
+    #[track_caller]
+    fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
+        let rendered = result
+            .expect_err("expected this call to be rejected")
+            .to_string();
+        assert!(
+            rendered.contains(needle),
+            "expected the rejection to come from the branch that reports {needle:?}, got: {rendered}"
+        );
+    }
+
     fn identity_workspace(model: &RobotModel) -> moveit_msgs::WorkspaceParameters {
         moveit_msgs::WorkspaceParameters {
             header: r2r::std_msgs::msg::Header {
@@ -389,8 +406,23 @@ mod tests {
             position: vec![0.1],
             ..Default::default()
         };
-        let err = PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert_err_mentions(
+            PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }),
+            "start_state is not representable",
+        );
+    }
+
+    #[test]
+    fn nonempty_reference_trajectories_is_rejected_not_silently_dropped() {
+        // Sibling of `nondefault_start_state_is_rejected_not_silently_dropped`
+        // in the same function -- previously untested entirely.
+        let model = one_joint_model();
+        let mut msg = valid_request(&model);
+        msg.reference_trajectories.push(Default::default());
+        assert_err_mentions(
+            PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }),
+            "reference_trajectories has no",
+        );
     }
 
     #[test]
