@@ -14512,3 +14512,49 @@ pilz_industrial_motion_planner::trajectory_generation_common
 
 절차는 §107/§155/§156과 같다: 소유자 패널이 요청서를 쓰고 조율자가 op을
 만든다. `tools/moveit-oracle/`는 조율자 소유다.
+
+## §186 §139의 세 번째 사례 — 상속 그래프로 내린 제외가 또 틀렸다
+
+p3-distance-field 라운드 28이 `CollisionEnvHybrid` 제외를 측정으로
+바꿨다(`ddd5ff0`). 기존 사유는 "`CollisionEnvFCL`을 직접 상속하는데
+D4.5로 `CollisionEnvFCL`이 포팅되지 않으므로 그것에 의존하는 것도 될 수
+없다"였다. 상류에서 직접 세어 확인했다:
+
+```console
+$ rg -n 'CollisionEnvFCL' src/collision_env_hybrid.cpp
+49:  : CollisionEnvFCL(robot_model)
+61:  : CollisionEnvFCL(robot_model, world, padding, scale)
+69:  : CollisionEnvFCL(other, world)
+169:  CollisionEnvFCL::setWorld(world);
+```
+
+멤버 22개 중 기반 클래스를 건드리는 것은 **4개**뿐이고, 그 중 셋은
+생성자 base-init이며 넘기는 것(`getWorld()`, `(world, padding, scale)`)은
+전부 `CollisionEnv` 자신에 선언된 것이지 FCL 고유가 아니다. 남은
+하나 `setWorld`가 하는 실제 일은 FCL의 지속 broadphase 캐시
+(`manager_`/`fcl_objs_`)를 월드 교체 시 재구축하는 것인데,
+`ParryCollisionEnv`에는 그 캐시 자체가 없다 — 매 `check_*` 호출마다
+`self.world`에서 바디를 새로 계산한다(`parry.rs:1840`). 나머지 18개는
+전부 `cenv_distance_`로의 통과 호출, 즉 이 크레이트가 이미 가진
+`DistanceFieldCollisionCache`다.
+
+**§139, §185의 `plan_components_builder`, 그리고 이것 — 같은 계열 세
+번째다.** 세 번 다 "관계를 보고 호출을 결론냈다"이고, 세 번 다 실제로
+세어 보니 호출이 한 줌이었다. 제외 사유가 *관계*(상속, 의존, 포함)를
+가리키면 그 자체가 재측정 신호다. 관계는 호출 수를 말해 주지 않는다.
+
+### 186.1 이번에는 소유권 경계에서 멈춘 것이 옳았다
+
+그 패널은 포팅하지 않고 추정치만 냈다. 조합기가 살 자리는
+`moveit-distance-field`(이미 `moveit-collision`에 단방향 의존)이지만
+공개 형태를 `moveit-collision`의 백엔드 타입이 정하므로 그쪽 소유자의
+결정이라는 이유다. 브리프가 "추정치를 먼저 달라, 디프를 만들지 마라"고
+요구한 그대로다 — §182.2가 라우팅을 한 라운드 늦춘 것과 달리, 여기서는
+늦춘 것이 비용이 아니라 정확히 필요한 조율이었다.
+
+**판단: 포팅한다.** 근거는 셋이다. (1) 두 반쪽이 모두 이미 있고
+연결만 없다. (2) D4.5는 FCL *백엔드*를 대체했지 `CollisionEnv` 인터페이스를
+지운 것이 아니며, 이 제외는 그 둘을 혼동한 것이 원인이었다. (3) distance-field
+자기충돌 + 범용 월드충돌이라는 조합은 상류에서 실제로 쓰이는 구성이다.
+자리는 `moveit-distance-field`, 공개 형태는 `moveit-collision` 소유자가
+검토한다.
