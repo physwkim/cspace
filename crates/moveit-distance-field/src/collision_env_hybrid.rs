@@ -126,30 +126,52 @@ impl<'m> HybridCollisionEnv<'m> {
         self.parry.world()
     }
 
-    /// Upstream `CollisionEnvHybrid::setWorld` minus the
-    /// `CollisionEnvFCL::setWorld` call: that call's entire purpose is
-    /// rebuilding FCL's persistent broadphase cache
-    /// (`collision_env_fcl.cpp:417-438`, `manager_`/`fcl_objs_`) and
-    /// rewiring `World` observers on a world swap.
-    /// [`ParryCollisionEnv`] has no such structure to invalidate -- every
-    /// `check_*` call rebuilds its collision bodies fresh from `self.world`
-    /// (`parry.rs:1840`, `world_bodies(&self.world, ...)`), so there is
-    /// nothing here to rebuild; a caller mutates the `World` this returns
-    /// (or replaces it wholesale) and the very next call already sees it.
-    /// See [`Self::check_collision_distance_field`]'s doc for why the
-    /// distance-field half has the identical property, and the
+    /// Upstream `CollisionEnvHybrid::setWorld` (`collision_env_hybrid.cpp:163-170`)
+    /// does two things: `cenv_distance_->setWorld(world)`, then
+    /// `CollisionEnvFCL::setWorld(world)`. Both calls exist because upstream
+    /// stores the world *twice* -- once as the `WorldPtr` `CollisionEnvFCL`
+    /// (via the `CollisionEnv` base) rebuilds its FCL broadphase cache from,
+    /// once as the `WorldPtr` `cenv_distance_` derives
+    /// `distance_field_cache_entry_world_` from -- and nothing but that one
+    /// override keeps the two in step. Anyone who reaches
+    /// `CollisionEnvFCL::setWorld` directly on a `CollisionEnvHybrid` --
+    /// through a `CollisionEnvFCL&`/`CollisionEnv&` reference, which C++
+    /// permits since `setWorld` is a plain (non-`final`) virtual override,
+    /// not a sealed one -- updates the FCL half's world and leaves
+    /// `cenv_distance_`'s stale: the two halves would then disagree about
+    /// what "the world" even is, not just about whether something in it
+    /// collides.
+    ///
+    /// # §196.3: why this type has no `set_world` at all, not just a safe one
+    ///
+    /// [`HybridCollisionEnv`] holds exactly *one* `World` value -- inside
+    /// `self.parry` (see this type's own field list). `self.distance_field`
+    /// (a [`DistanceFieldCollisionCache`]) holds no `World` reference of its
+    /// own; `build_env_distance_field` derives its environment field by
+    /// reading `self.parry.world()` fresh on every call instead. So "the
+    /// two halves disagree about what the world is" is not a state this
+    /// type can reach -- not because a second world is kept carefully in
+    /// sync by some guard, but because there is only ever one `World` value
+    /// to begin with. `world_mut` below is the *only* way in or out for it,
+    /// for both halves at once by construction; there is no second entry
+    /// point for a caller to update selectively and no invariant to state,
+    /// because there is nothing left for two updates to disagree about.
+    ///
+    /// The remaining question upstream's override also answers -- does a
+    /// world swap actually take effect on the *next* call, or does some
+    /// cache need invalidating first -- is a separate, narrower claim, since
+    /// having one `World` value doesn't by itself guarantee every reader of
+    /// it is cache-free. [`ParryCollisionEnv`] has no persistent structure
+    /// to invalidate: every `check_*` call rebuilds its collision bodies
+    /// fresh from `self.world` (`parry.rs:1884`,
+    /// `world_bodies(&self.world, ...)`), and `build_env_distance_field`
+    /// does the same for the distance-field half (see that method's own
+    /// doc). See the
     /// `check_robot_collision_distance_field_reflects_a_world_swap_on_the_next_call`
-    /// test in this module for the empirical check backing this claim.
-    ///
-    /// # §153.1: this claim expires if `ParryCollisionEnv` ever gains a
-    /// persistent, world-derived cache
-    ///
-    /// This method's *absence* (there is no `set_world` here at all, only
-    /// `world_mut` below) rests on "`ParryCollisionEnv` recomputes from
-    /// `self.world` on every call" being true *today*. If a future round
-    /// adds any such cache to `ParryCollisionEnv` for performance, this
-    /// claim -- and the test named above -- must be revisited; grep this
-    /// crate for `§153.1` before adding one.
+    /// test in this module for the empirical check backing that narrower
+    /// claim, including its own §153.1 expiry note -- that expiry is about
+    /// *this* claim (no cache to invalidate), not the structural one above,
+    /// which holds regardless of whether either backend ever grows a cache.
     pub fn world_mut(&mut self) -> &mut World {
         self.parry.world_mut()
     }
