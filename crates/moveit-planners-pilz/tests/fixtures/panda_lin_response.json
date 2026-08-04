@@ -9,7 +9,6 @@
     "panda_joint6",
     "panda_joint7"
   ],
-  "planning_time": 0.00175731,
   "waypoints": [
     {
       "accelerations": {
