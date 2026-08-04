@@ -458,11 +458,61 @@
 //!    mismatched and matched cases alike. `7.9e-17m` sits roughly 12 orders
 //!    of magnitude below even the smallest of the 3 mismatches
 //!    (`2.417e-5`), so FK divergence is categorically not a candidate cause
-//!    of them. One unverified next candidate for a future round: a
-//!    mesh/padding difference between what this port's own `RobotModel`
-//!    hands the C++ repro's hand-built
-//!    `BVHModel` and what `CollisionEnvFCL` actually builds inside the
-//!    oracle before `distanceCallback` runs — not traced this round.
+//!    of them.
+//!
+//!    Round 19 measured the padding half of that next candidate rather than
+//!    leaving it as a hypothesis. `CollisionEnv::CollisionEnv(model, padding
+//!    = 0.0, scale = 1.0)` (`collision_env.hpp:61`) fills `link_padding_`/
+//!    `link_scale_` with that same uniform `0.0`/`1.0` pair for every link
+//!    `getLinkModelsWithCollisionGeometry()` returns
+//!    (`collision_env.cpp:83-96`) — not per-link, one constant for the whole
+//!    robot. The oracle's `collision` op constructs
+//!    `collision_detection::CollisionEnvFCL env(model_, world);`
+//!    (`tools/moveit-oracle/src/oracle.cpp:2097`), the 2-argument
+//!    constructor, and never calls `setPadding`/`setLinkPadding` anywhere on
+//!    that op's path — so every pr2 link's padding stays at the ctor
+//!    default. That default genuinely reaches FCL's geometry construction,
+//!    not a dead field: `CollisionEnvFCL`'s own `model, world, padding,
+//!    scale` constructor (the one `CollisionEnvFCL env(model_, world)` at
+//!    `oracle.cpp:2097` resolves to) calls
+//!    `createCollisionGeometry(shape, getLinkScale(name), getLinkPadding(name),
+//!    link, j)` per link per shape, the padding/scale-taking overload
+//!    (`collision_detection_fcl/src/collision_env_fcl.cpp:135`, mirrored at
+//!    `:96` for the world-less constructor and `:503` for
+//!    `updatedPaddingOrScaling`), not the no-padding one — it is applied, at
+//!    value `0.0`/`1.0`, which scales/pads nothing. `moveit_core/srdf`
+//!    (checked via `rg -n padding`) has no padding concept at all, and the
+//!    pr2 SRDF fixture has no such key either, so there is no config-file
+//!    source of a nonzero default to miss.
+//!
+//!    This port's own construction is `LinkPaddingScale::default()`
+//!    (`crates/moveit-collision/tests/collision_parity.rs:354`) — an empty
+//!    map, whose [`LinkPaddingScale::link_padding`]/
+//!    [`LinkPaddingScale::link_scale`] getters return `LinkAdjustment`'s
+//!    `Default` (`env.rs`: `padding: 0.0, scale: 1.0`) for any untracked
+//!    link, the identical numeric pair. Treatment group (the 3 mismatched
+//!    links: `br_caster_l_wheel_link`, `fr_caster_l_wheel_link`,
+//!    `fr_caster_r_wheel_link`) and control group (3 arbitrary other pr2
+//!    links with collision geometry: `base_link`, `torso_lift_link`,
+//!    `fl_caster_r_wheel_link`) report the same `0.0`/`1.0` pair on both
+//!    sides for every link checked — expected, since neither code path ever
+//!    branches on link name when deciding padding; the oracle's ctor default
+//!    and this port's untracked-link default are the same two literals by
+//!    construction, not by sampling luck. The padding/scale hypothesis is
+//!    **refuted**: it cannot explain any of the 3 mismatches, because both
+//!    backends apply exactly zero padding and unit scale to every pr2 link on
+//!    this code path, full stop.
+//!
+//!    The mesh half of the original candidate is still untraced and is the
+//!    actual next candidate: whether the C++ repro's hand-built `BVHModel`
+//!    (constructed directly from this port's own `RobotModel` mesh data for
+//!    the repro) loads/converts pr2's `base_link`/wheel-link collision STLs
+//!    into the same vertices and triangle winding that
+//!    `CollisionEnvFCL::getCollisionGeometry`'s own
+//!    `createCollisionGeometry`/`FCLShapeCache` path builds inside the oracle
+//!    before `distanceCallback` runs. Padding/scale being ruled out narrows
+//!    what "different BVH" could mean for the 3 residual cases to mesh
+//!    construction itself — not traced this round.
 //!
 //!    The 4 different-triangle cases and these 3 `self_distance` mismatches
 //!    overlap in exactly 1 of the 16 (`br_caster_l_wheel_link`, case index
