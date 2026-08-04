@@ -707,32 +707,45 @@
 //! - `getSelfCollisions` — ported (round 21) as the module-private free
 //!   function `get_self_collisions` in `collision_env_distance_field.rs`,
 //!   called from `check_self_collision`/`check_collision`/
-//!   `get_all_collisions`. **Known gap (exposed round 22):** its loop never
-//!   reads `attached_body_names`/`attached_body_decompositions`, so an
-//!   attached body's spheres are never checked for self-collision, even now
-//!   that those fields can be non-empty — see that function's own "Deviation
-//!   from upstream" for the full explanation.
+//!   `get_all_collisions`. Round 22 exposed a real gap here (its loop never
+//!   read `attached_body_names`/`attached_body_decompositions`), and round 23
+//!   (`ebd7ebc`) closed it: the loop bound now covers
+//!   `link_names.len() + attached_body_names.len()`, matching upstream's own
+//!   indexing (`collision_env_distance_field.cpp:278-320`) — see that
+//!   function's own "Deviation from upstream" for the full account, and
+//!   `bde1dcb` for the oracle-verified attached-body fixtures.
 //! - `getSelfProximityGradients` — ported (round 21) as the module-private
-//!   free function `get_self_proximity_gradients`. Same known
-//!   attached-body gap as `getSelfCollisions`.
+//!   free function `get_self_proximity_gradients`. Round 22 mistakenly
+//!   grouped this with `getSelfCollisions`'s real gap; round 23's fresh read
+//!   of the loop bound found this one has **no** attached-body gap at all:
+//!   upstream's own loop condition here is `i < link_names_.size()`
+//!   (`:359`), never extending to `attached_body_names_`, so the
+//!   attached-body branch is dead code in the C++ itself and correctly
+//!   omitted rather than ported unreachable.
 //! - `getIntraGroupCollisions` — ported (round 21) as the module-private
-//!   free function `get_intra_group_collisions`. Same known attached-body
-//!   gap (no link-vs-attached or attached-vs-attached pair is ever checked).
+//!   free function `get_intra_group_collisions`. Same real attached-body gap
+//!   as `getSelfCollisions` (no link-vs-attached or attached-vs-attached pair
+//!   was ever checked), closed the same way in round 23 (`ebd7ebc`).
 //! - `getIntraGroupProximityGradients` — ported (round 21) as the
 //!   module-private free function `get_intra_group_proximity_gradients`.
-//!   Same known attached-body gap as `getIntraGroupCollisions`.
+//!   Same real attached-body gap as `getIntraGroupCollisions`, closed in
+//!   round 23 (`ebd7ebc`).
 //! - `getEnvironmentCollisions` — ported (round 21) as the module-private
 //!   free function `get_environment_collisions`, taking
 //!   `env_distance_field: &dyn DistanceField` as an explicit parameter in
 //!   place of reading `distance_field_cache_entry_world_->distance_field_`
-//!   off the `World` this crate does not depend on. Same known
-//!   attached-body gap as `getSelfCollisions`.
+//!   off the `World` this crate does not depend on. Same real attached-body
+//!   gap as `getSelfCollisions`, closed in round 23 (`ebd7ebc`).
 //! - `getEnvironmentProximityGradients` — ported (round 21) the same way, as
 //!   the module-private free function `get_environment_proximity_gradients`.
-//!   Unlike its five siblings above, this one has **no** attached-body gap:
-//!   upstream's own loop bound here (`collision_env_distance_field.cpp:1649`)
-//!   never advances past `link_names_.size()`, so its attached-body branch
-//!   is dead code in the C++ itself.
+//!   Like `getSelfProximityGradients` above, this one never had an
+//!   attached-body gap: upstream's own loop bound here
+//!   (`collision_env_distance_field.cpp:1649`) never advances past
+//!   `link_names_.size()`, so its attached-body branch is dead code in the
+//!   C++ itself. Of the six `get*`/`get*ProximityGradients` functions this
+//!   section lists, these two were always faithful; the other four carried a
+//!   real gap that round 23 closed — see each function's own doc comment for
+//!   its exact upstream loop-bound citation.
 //! - `updatedPaddingOrScaling` — unported: a no-op override of the
 //!   `CollisionEnv` interface upstream itself (`return;`, no body).
 //! - `generateDistanceFieldCacheEntryWorld`, `updateDistanceObject`,
