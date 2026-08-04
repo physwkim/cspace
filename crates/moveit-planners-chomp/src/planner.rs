@@ -89,6 +89,25 @@
 //! `moveit_planning`'s adapter-pipeline-shaped types or on `moveit-scene`.
 //! [`ChompRequest`], [`GoalJointConstraint`] and [`ChompSolution`] below
 //! follow that same pattern.
+//!
+//! # Deviation: `planning_time_limit + 5` is validated before narrowing (`§172`/`§153.1`)
+//!
+//! Upstream's recovery loop (`chomp_planner.cpp:177-181`) computes
+//! `params_nonconst.planning_time_limit_ + 5` (a `double`) and passes it,
+//! with no `static_cast`, to `setRecoveryParams`'s `int planning_time_limit`
+//! parameter -- an implicit narrowing conversion that is undefined behaviour
+//! in C++ whenever the sum falls outside `int`'s range (or is
+//! non-finite -- `planning_time_limit_` is a free-standing `pub` `f64` on
+//! [`crate::parameters::ChompParameters`], reachable from
+//! `moveit-planning`'s response-adapter code the same way
+//! `TotgOptions::resample_dt` is; see `moveit-trajectory`'s
+//! `time_optimal_trajectory_generation` module for that precedent). [`solve`]
+//! rejects `planning_time_limit + 5.0` outside `[i32::MIN, i32::MAX]` (as an
+//! `f64` comparison, before any cast) with a typed [`Error`] rather than
+//! reproducing C++'s UB via Rust's saturating `as`, which has no "right
+//! answer" to match here. This deviation is scoped to exactly that rejected
+//! range and expires if upstream adds its own validation to
+//! `setRecoveryParams`/`ChompParameters::planning_time_limit_`.
 use crate::optimizer::{ChompCollisionContext, ChompOptimizer};
 use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
@@ -307,6 +326,27 @@ fn build_seed_trajectory<'m>(
     Ok(trajectory)
 }
 
+/// Validates `planning_time_limit + 5` fits in [`i32`] before the recovery
+/// loop narrows it into `ChompParameters::set_recovery_params`'s `i32`
+/// parameter. See [`solve`]'s module doc, "Deviation: `planning_time_limit +
+/// 5` is validated before narrowing (`§172`/`§153.1`)", for why this checks
+/// the sum in `f64` space rather than transcribing upstream's uncast,
+/// UB-on-overflow narrowing directly.
+fn validate_recovery_time_limit(planning_time_limit: f64) -> Result<i32> {
+    let recovery_time_limit = planning_time_limit + 5.0;
+    if recovery_time_limit.is_finite()
+        && recovery_time_limit >= f64::from(i32::MIN)
+        && recovery_time_limit <= f64::from(i32::MAX)
+    {
+        Ok(recovery_time_limit as i32)
+    } else {
+        Err(Error::other(format!(
+            "planning_time_limit {planning_time_limit} + 5 does not fit in the recovery \
+             parameters' i32 field"
+        )))
+    }
+}
+
 /// Ported from `ChompPlanner::solve` (`chomp_planner.cpp:63-306`). See this
 /// module's doc comment for the field-coverage measurement behind porting
 /// it (`eb4fa4e`), and [`ChompRequest`]'s doc for why `planning_scene`/
@@ -373,10 +413,16 @@ pub fn solve<'m>(
     let mut optimizer;
     loop {
         if replan_flag {
+            // See `validate_recovery_time_limit`'s doc and this module's
+            // "Deviations from upstream" note (`§172`/`§153.1`) for why this
+            // validates before narrowing instead of transcribing upstream's
+            // uncast `planning_time_limit_ + 5` directly.
+            let recovery_time_limit =
+                validate_recovery_time_limit(params_nonconst.planning_time_limit)?;
             params_nonconst.set_recovery_params(
                 params_nonconst.learning_rate + 0.02,
                 params_nonconst.ridge_factor + 0.002,
-                params_nonconst.planning_time_limit as i32 + 5,
+                recovery_time_limit,
                 params_nonconst.max_iterations + 50,
             );
         }
@@ -902,5 +948,57 @@ mod tests {
             .position(|&idx| model.joint_model_at(idx).name() == "j1")
             .expect("j1 is an active joint of the group");
         assert_relative_eq!(goal_row[j1_column], 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_accepts_a_typical_value() {
+        assert_eq!(validate_recovery_time_limit(6.0).unwrap(), 11);
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32() {
+        // `f64::from(i32::MAX) - 4.0` puts `planning_time_limit + 5` one ULP
+        // past `i32::MAX`: upstream's uncast `static_cast<int>` at this
+        // boundary is undefined behaviour, and a naive
+        // `planning_time_limit as i32 + 5` transcription would saturate the
+        // cast to `i32::MAX` and then overflow the following `+ 5` in `i32`
+        // space. This must be a typed error, not a panic or a wrapped value.
+        let planning_time_limit = f64::from(i32::MAX) - 4.0;
+        assert!(validate_recovery_time_limit(planning_time_limit).is_err());
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_accepts_the_exact_i32_max_boundary() {
+        let planning_time_limit = f64::from(i32::MAX) - 5.0;
+        assert_eq!(
+            validate_recovery_time_limit(planning_time_limit).unwrap(),
+            i32::MAX
+        );
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_accepts_the_exact_i32_min_boundary() {
+        let planning_time_limit = f64::from(i32::MIN) - 5.0;
+        assert_eq!(
+            validate_recovery_time_limit(planning_time_limit).unwrap(),
+            i32::MIN
+        );
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32() {
+        let planning_time_limit = f64::from(i32::MIN) - 6.0;
+        assert!(validate_recovery_time_limit(planning_time_limit).is_err());
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_rejects_nan() {
+        assert!(validate_recovery_time_limit(f64::NAN).is_err());
+    }
+
+    #[test]
+    fn validate_recovery_time_limit_rejects_infinity() {
+        assert!(validate_recovery_time_limit(f64::INFINITY).is_err());
+        assert!(validate_recovery_time_limit(f64::NEG_INFINITY).is_err());
     }
 }
