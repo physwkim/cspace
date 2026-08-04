@@ -240,7 +240,7 @@ fn cosines(a: f64, b: f64, c: f64) -> f64 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathCircle {
     orient_start: UnitQuaternion,
-    rot_axis: Vector3,
+    rot_axis: Unit<Vector3>,
     center: Vector3,
     x_axis: Vector3,
     y_axis: Vector3,
@@ -337,8 +337,7 @@ impl PathCircle {
             + self.x_axis * (self.radius * p.cos())
             + self.y_axis * (self.radius * p.sin());
         let theta = s * self.scale_rot;
-        let rotation = self.orient_start
-            * UnitQuaternion::from_axis_angle(&Unit::new_unchecked(self.rot_axis), theta);
+        let rotation = self.orient_start * UnitQuaternion::from_axis_angle(&self.rot_axis, theta);
         Isometry3::from_parts(translation.into(), rotation)
     }
 }

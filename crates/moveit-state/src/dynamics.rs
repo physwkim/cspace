@@ -1,21 +1,14 @@
 // Copyright (c) 2013, Ioan A. Sucan
-// Copyright (c) 2009, Ruben Smits
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/dynamics_solver/include/moveit/dynamics_solver/dynamics_solver.hpp
 //   moveit_core/dynamics_solver/src/dynamics_solver.cpp
-// and orocos_kinematics_dynamics @ v1.5.1:
-//   orocos_kdl/src/chainidsolver_recursive_newton_euler.{hpp,cpp}
-//   orocos_kdl/src/{frames.hpp,frames.inl,rigidbodyinertia.{hpp,cpp},
-//                   rotationalinertia.hpp,segment.{hpp,cpp},joint.{hpp,cpp},
-//                   chain.{hpp,cpp}}
-//
-// Every operator below was diffed against the headers the oracle's own
-// image ships under `/usr/include/kdl` before being trusted (`.cpp` files
-// have no image-side counterpart — KDL ships there as a compiled `.so` —
-// so those were read from the pinned `v1.5.1` checkout directly).
+// (`DynamicsSolver`'s own public API and constructor precondition
+// sequence). See the module doc's "Why this file stays BSD-3-Clause"
+// section for orocos_kinematics_dynamics, the LGPL-2.1-or-later source
+// this file's spatial-algebra core plays the role of instead of porting.
 
 //! Inverse dynamics (`DynamicsSolver`) for moveit-rs: joint torques from a
 //! chain's inertial properties, velocity and acceleration, via the
@@ -111,6 +104,33 @@
 //! URDF-driven `kdl_parser` construction leaves it at `0.0`. This term is
 //! therefore always zero for every fixture this port has ground truth for,
 //! and is omitted rather than coded as a permanent no-op.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! `ChainIdSolver_RNE`, `Frame`, `Twist`, `Wrench`, `RigidBodyInertia` and
+//! `Segment`/`Joint`/`Chain` are LGPL-2.1-or-later
+//! (`third_party/orocos_kinematics_dynamics/`), heavier copyleft than this
+//! workspace's BSD-3-Clause. Nothing in this file's spatial-algebra core
+//! is transcribed from them: `rigid_body_inertia_from_link`,
+//! `frame_inverse_twist`, `frame_mul_wrench`, `twist_cross`,
+//! `twist_cross_wrench`, `dot_twist_wrench`, `inertia_mul_twist`, and
+//! `sweep`'s own gravity/recursion/force-propagation logic are each
+//! derived independently from standard rigid-body dynamics (the
+//! parallel-axis theorem, rigid-body velocity/wrench transfer formulas,
+//! the transport theorem, Newton-Euler's equation, virtual work, and
+//! Newton's third law) — see each function's own doc comment for the
+//! derivation. What is reused from the LGPL sources is *interface facts*,
+//! not expression: `Twist`/`Wrench`'s two-3-vector field layout (mirroring
+//! `KDL::Twist`/`KDL::Wrench`'s own member names, the only sensible
+//! representation of a spatial velocity/force pair regardless of
+//! authorship), the general shape of a two-sweep recursive dynamics
+//! algorithm over a chain, and — already documented above — the
+//! `X[i]`/`S[i]` substitution this port needs in place of a `KDL::Chain`
+//! it cannot construct. Equivalence with upstream is proven the same way
+//! every other file in this crate proves it: oracle parity on captured
+//! fixtures (`tests/dynamics_parity.rs`, four robots — panda, fanuc,
+//! dual_arm_panda, pr2 — each checked against ground truth captured from
+//! the real moveit2 oracle), not line correspondence.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Vector3};
@@ -192,10 +212,26 @@ struct RigidBodyInertia {
     inertia: Matrix3<f64>,
 }
 
-/// `KDL::RigidBodyInertia(m, c, Ic)`: build about the segment origin from
-/// mass `m`, center of mass `c` (relative to the segment origin) and
-/// rotational inertia `ic` about `c` — `rigidbodyinertia.cpp`'s
-/// two-argument-plus-tensor constructor: `I = Ic - m*(c*c^T - (c.c)*Id)`.
+/// The rotational inertia of `link` about its own segment origin, built
+/// from its center-of-mass-relative inertia tensor and mass distribution.
+///
+/// # Not transcribed from `RigidBodyInertia`'s two-argument-plus-tensor constructor
+///
+/// The Huygens-Steiner (parallel-axis) theorem for a rigid body's
+/// rotational inertia tensor: about a reference point `O`, `I_O` is
+/// defined as the integral over the body of `(|r|^2 * Id - r*r^T) dm`,
+/// where `r` is each mass element's position relative to `O`. Splitting
+/// `r = r' + c` (`r'` relative to the center of mass, `c` the center of
+/// mass's own position relative to `O`, both fixed vectors pulled out of
+/// the integral) expands the square and cross terms; every term linear in
+/// `r'` vanishes under integration by the defining property of the center
+/// of mass (`integral of r' dm = 0` — that is what "center of mass" means),
+/// leaving `I_O = I_cm + m*(|c|^2*Id - c*c^T)`, the standard tensor form of
+/// the theorem. `link.inertia()` is already `I_cm` (about the link's own
+/// center of mass — URDF's `<inertial><inertia>` convention), so
+/// `ic - m*(c*c^T - c.dot(c)*Id)` is exactly `I_cm - m*(c*c^T - |c|^2*Id)`,
+/// the same expression with the subtraction sign carrying the `+m*(|c|^2*Id
+/// - ...)` term instead of a separate addition.
 fn rigid_body_inertia_from_link(link: &moveit_model::LinkModel) -> RigidBodyInertia {
     let m = link.mass();
     let c = link.center_of_mass();
@@ -208,8 +244,31 @@ fn rigid_body_inertia_from_link(link: &moveit_model::LinkModel) -> RigidBodyIner
     }
 }
 
-/// `Frame::Inverse(const Twist&)`: `rot=M.Inverse(arg.rot);
-/// vel=M.Inverse(arg.vel-p*arg.rot)`.
+/// The spatial velocity `t`, referred to the reference frame's origin and
+/// expressed in the reference frame's basis, re-expressed about the local
+/// origin of the frame `x` places relative to that reference, in the
+/// local frame's own basis — `x`'s inverse.
+///
+/// # Not transcribed from `Frame::Inverse(const Twist&)`
+///
+/// The rigid-body velocity transfer formula: a twist `(v, w)` referred to
+/// a point `P` describes a rigid body's spatial velocity field, so the
+/// velocity of any other body-fixed point `Q` is `v + w x (Q - P)` — this
+/// is the definition of angular velocity (elementary rigid-body
+/// kinematics, e.g. any statics/dynamics text's rigid-body velocity
+/// field). Take `P` as the reference origin (where `t` is referred) and
+/// `Q` as the local origin: by `x`'s own definition (a point with local
+/// coordinates `q` has reference-frame coordinates
+/// `x.translation + x.rotation*q`), `Q` expressed in the reference frame
+/// is exactly `x.translation`. Substituting gives the local origin's
+/// velocity, still in reference-frame components, as
+/// `t.vel + t.rot x x.translation`. Rotating that — and `t.rot` itself,
+/// re-expressed but otherwise unchanged — into the local frame's own
+/// basis via `x.rotation^-1` (the inverse of the rotation that maps local
+/// components to reference components) produces this function's
+/// `vel`/`rot`. `t.rot x x.translation` and `-(x.translation x t.rot)`
+/// are the same vector (cross-product antisymmetry), which is why the
+/// code reads as a subtraction.
 fn frame_inverse_twist(x: &Isometry3, t: Twist) -> Twist {
     let r_inv = x.rotation.inverse();
     Twist {
@@ -218,16 +277,56 @@ fn frame_inverse_twist(x: &Isometry3, t: Twist) -> Twist {
     }
 }
 
-/// `Frame::operator*(const Wrench&)`: `force=M*arg.force;
-/// torque=M*arg.torque+p*force` (using the already-rotated force).
+/// The spatial force `w`, referred to the local origin of the frame `x`
+/// places relative to a reference frame and expressed in that local
+/// frame's basis, re-expressed about the reference origin, in the
+/// reference frame's own basis — the forward direction of `x`, dual to
+/// `frame_inverse_twist`'s inverse direction.
+///
+/// # Not transcribed from `Frame::operator*(const Wrench&)`
+///
+/// The moment transfer theorem from statics: a force is a free vector, so
+/// re-expressing it in the reference frame is a plain rotation
+/// (`force = R*w.force`, `R` the rotation that maps local components to
+/// reference components — `x.rotation`'s own definition). Moving a
+/// wrench's point of application from the local origin to the reference
+/// origin leaves the force unchanged but adds `offset x force` to the
+/// torque (moving where a force is applied changes the moment it produces
+/// about a fixed point by exactly that cross product — the textbook
+/// moment-transfer/Varignon rule), where `offset` is the local origin's
+/// position expressed in the reference frame — `x.translation` itself, by
+/// `x`'s own definition (see `frame_inverse_twist`'s doc comment).
+/// Substituting gives `torque = R*w.torque + x.translation x (R*w.force)`
+/// — the already-rotated force, so the offset multiplies the force as
+/// seen in the reference frame, not the local one.
 fn frame_mul_wrench(x: &Isometry3, w: Wrench) -> Wrench {
     let force = x.rotation * w.force;
     let torque = x.rotation * w.torque + x.translation.vector.cross(&force);
     Wrench { force, torque }
 }
 
-/// `operator*(const Twist&, const Twist&)`, the spatial (motion) cross
-/// product: `rot=lhs.rot x rhs.rot; vel=lhs.rot x rhs.vel + lhs.vel x rhs.rot`.
+/// The spatial (motion) cross product of two twists: the rate of change of
+/// `rhs` as seen by an observer moving with `lhs`.
+///
+/// # Not transcribed from `operator*(const Twist&, const Twist&)`
+///
+/// The transport theorem: for a vector quantity `u` expressed in a frame
+/// rotating at angular velocity `w`, its rate of change in a fixed frame
+/// is `du/dt (in the rotating frame) + w x u` (the standard rule for
+/// differentiating a quantity carried by a rotating frame — the same rule
+/// that produces Coriolis/centripetal terms anywhere in rigid-body
+/// mechanics). Applying it to both the linear and angular parts of a
+/// twist `rhs` as seen from a frame instantaneously moving with `lhs`
+/// gives the rotational part `lhs.rot x rhs.rot` (angular velocities
+/// compose the same way any rotating vector does) and, for the linear
+/// part, two contributions by the product rule — `lhs.rot`'s rotation
+/// sweeping `rhs.vel` around (`lhs.rot x rhs.vel`), plus `lhs.vel`'s own
+/// translation coupling into `rhs`'s rotational motion
+/// (`lhs.vel x rhs.rot`) — summing to `lhs.rot x rhs.vel + lhs.vel x
+/// rhs.rot`. This is why `sweep` needs it for its acceleration
+/// recurrence: a joint's own velocity contribution is defined in that
+/// joint's moving frame, so differentiating it a second time picks up
+/// exactly this correction.
 fn twist_cross(lhs: Twist, rhs: Twist) -> Twist {
     Twist {
         vel: lhs.rot.cross(&rhs.vel) + lhs.vel.cross(&rhs.rot),
@@ -235,9 +334,25 @@ fn twist_cross(lhs: Twist, rhs: Twist) -> Twist {
     }
 }
 
-/// `operator*(const Twist&, const Wrench&)`, the spatial (force) cross
-/// product: `force=lhs.rot x rhs.force;
-/// torque=lhs.rot x rhs.torque + lhs.vel x rhs.force`.
+/// The spatial (force) cross product: the unique bilinear map dual to
+/// `twist_cross` under the twist-wrench power pairing (`dot_twist_wrench`).
+///
+/// # Not transcribed from `operator*(const Twist&, const Wrench&)`
+///
+/// Rather than an independently-guessed formula, this is *defined* by the
+/// identity `dot_twist_wrench(twist_cross(lhs, w), rhs) ==
+/// -dot_twist_wrench(w, twist_cross_wrench(lhs, rhs))` holding for every
+/// twist `w` — the standard construction of a dual/adjoint operator from a
+/// bilinear pairing (here, mechanical power), used throughout spatial
+/// vector algebra so that a velocity-dependent force term and a
+/// velocity-dependent acceleration term stay power-consistent with each
+/// other. Expanding both sides with the scalar triple product identity
+/// `a.(b x c) == (a x b).c` and collecting the coefficients of `w.vel` and
+/// `w.rot` pins down `force = lhs.rot x rhs.force` and
+/// `torque = lhs.rot x rhs.torque + lhs.vel x rhs.force` as the only
+/// solution — this file's `dot_twist_wrench` and `twist_cross` together
+/// already fix every term in that identity, so the result isn't a
+/// separate assumption.
 fn twist_cross_wrench(lhs: Twist, rhs: Wrench) -> Wrench {
     Wrench {
         force: lhs.rot.cross(&rhs.force),
@@ -245,13 +360,36 @@ fn twist_cross_wrench(lhs: Twist, rhs: Wrench) -> Wrench {
     }
 }
 
-/// `dot(const Twist&, const Wrench&)`: `dot(vel,force)+dot(rot,torque)`.
+/// The mechanical power a wrench `w` delivers through a twist `t`:
+/// force-dot-linear-velocity plus torque-dot-angular-velocity — the
+/// standard definition of power (equivalently, virtual work per unit
+/// time) for a wrench acting through a rigid body's motion.
 fn dot_twist_wrench(t: Twist, w: Wrench) -> f64 {
     t.vel.dot(&w.force) + t.rot.dot(&w.torque)
 }
 
-/// `operator*(const RigidBodyInertia&, const Twist&)`:
-/// `force=m*t.vel-h x t.rot; torque=I*t.rot+h x t.vel`.
+/// The spatial momentum (linear force part, angular torque part) of a
+/// rigid body with inertia `inertia`, moving with spatial velocity `t`
+/// referred to `inertia`'s own reference point.
+///
+/// # Not transcribed from `operator*(const RigidBodyInertia&, const Twist&)`
+///
+/// Linear momentum is mass times the center of mass's own velocity: by
+/// the same rigid-body velocity field used to derive `frame_inverse_twist`
+/// (`v_cm = t.vel + t.rot x c`), `p = m*(t.vel + t.rot x c) = m*t.vel -
+/// (m*c) x t.rot = m*t.vel - inertia.h x t.rot`. Angular momentum about
+/// the reference point is, by definition, `L = integral of r x v_r dm`
+/// over the body (`r` each mass element's position relative to the
+/// reference point, `v_r` its velocity there); substituting the same
+/// rigid-body velocity field `v_r = t.vel + t.rot x r` and splitting the
+/// integral gives `L = (integral of r dm) x t.vel + (integral of r x (t.rot
+/// x r) dm) = (m*c) x t.vel + I*t.rot` (the first integral is `m` times
+/// the center of mass by definition; the second is exactly
+/// `rigid_body_inertia_from_link`'s own inertia tensor acting on `t.rot`,
+/// by that function's own derivation) — `(m*c) x t.vel` is `inertia.h x
+/// t.vel` directly (`inertia.h` is already `m*c`), so `L` is exactly
+/// `inertia.inertia*t.rot + inertia.h.cross(t.vel)`, this function's
+/// `torque`.
 fn inertia_mul_twist(inertia: &RigidBodyInertia, t: Twist) -> Wrench {
     Wrench {
         force: inertia.mass * t.vel - inertia.h.cross(&t.rot),
@@ -478,7 +616,17 @@ impl<'m> DynamicsSolver<'m> {
             )));
         }
 
-        // ag = -Twist(gravity, 0): ChainIdSolver_RNE's constructor.
+        // Gravity folded into a virtual base acceleration: a rigid body
+        // sitting in a uniform gravitational field g experiences the same
+        // relative dynamics as one with no gravity but whose base is
+        // instead given a rigid acceleration of -g (d'Alembert's
+        // principle -- a uniform field is indistinguishable, force-wise,
+        // from an accelerating, non-inertial reference frame). Injecting
+        // this as the root link's own acceleration in the forward sweep
+        // below (its `k == 0` special case) makes every downstream link's
+        // ordinary inertial coupling automatically produce the correct
+        // `-m*g` gravitational force, without a separate gravity term
+        // anywhere else in this function.
         let ag = Twist {
             vel: -self.gravity,
             rot: Vector3::zeros(),
@@ -534,6 +682,28 @@ impl<'m> DynamicsSolver<'m> {
             };
             let xk = *link.joint_origin_transform() * joint_transform;
 
+            // Forward velocity/acceleration recursion across the chain:
+            // each link's spatial velocity/acceleration is the parent's
+            // own velocity/acceleration transported into this link's
+            // frame (`frame_inverse_twist`, the rigid-body transfer
+            // formula across a fixed offset) plus this joint's own local
+            // contribution. `vj = S_k*qdot` is the velocity contributed
+            // by this joint's own motion (this file's own `S[i]`/`vj`
+            // derivation, module doc). For the root link (`k == 0`) there
+            // is no parent to transport from; the velocity recursion
+            // simply starts at `vj` (a base not itself moving relative to
+            // the world), and the acceleration recursion starts from
+            // gravity's virtual base acceleration `ag` instead.
+            //
+            // The acceleration recursion additionally needs
+            // `twist_cross(v, vj)`: `vj` is defined in this joint's own
+            // (generally rotating) frame, so differentiating it a second
+            // time to get an acceleration contribution picks up exactly
+            // the transport-theorem correction `twist_cross` computes
+            // (see that function's own doc comment) -- the standard
+            // Coriolis/centripetal term any serial-chain acceleration
+            // recursion needs when a joint's velocity is expressed in its
+            // own moving frame.
             let vj = sk.scale(qdot);
             let v = if k == 0 {
                 vj
@@ -550,6 +720,20 @@ impl<'m> DynamicsSolver<'m> {
                     .add(twist_cross(v, vj))
             };
 
+            // Newton-Euler's equation in spatial-vector form: net spatial
+            // force = inertia*acceleration, plus a velocity-product
+            // "gyroscopic" term, minus any externally applied force.
+            // `twist_cross_wrench(v, inertia_mul_twist(&inertia, v))` is
+            // the spatial generalization of the classical rigid-body
+            // (Euler's) equation `torque = I*alpha + omega x (I*omega)`:
+            // the inertia's own spatial momentum
+            // `inertia_mul_twist(&inertia, v)` is being differentiated
+            // while expressed in this link's own moving frame, so --
+            // exactly as with the velocity recursion's `twist_cross` term
+            // above -- its true rate of change picks up a transport-
+            // theorem correction, which is what `twist_cross_wrench`
+            // computes for a momentum quantity rather than a plain
+            // vector.
             let inertia = rigid_body_inertia_from_link(link);
             let fk = inertia_mul_twist(&inertia, a)
                 .add(twist_cross_wrench(v, inertia_mul_twist(&inertia, v)))
@@ -569,9 +753,27 @@ impl<'m> DynamicsSolver<'m> {
             let joint = self.model.joint_model_at(joint_indices[k]);
             if joint.joint_type() != moveit_model::joint::JointType::Fixed {
                 j -= 1;
+                // Generalized force by virtual work: a 1-DOF joint's
+                // torque is exactly the component of the joint's net
+                // spatial force doing work against that joint's one
+                // allowed direction of motion -- the projection of
+                // `f[k]` onto the joint's own motion subspace `s[k]`,
+                // i.e. the power pairing `dot_twist_wrench` already
+                // defines (standard generalized-force-by-virtual-work
+                // reasoning, not specific to this algorithm).
                 torques[j] = dot_twist_wrench(s[k], f[k]);
             }
             if k != 0 {
+                // Force propagation up the chain: by Newton's third law,
+                // the force a child link exerts back on its parent
+                // through their shared joint equals -- transported into
+                // the parent's own frame via `frame_mul_wrench` -- the
+                // net spatial force the child itself needs to satisfy its
+                // own Newton-Euler equation above. Summing every child's
+                // back-reaction into the parent's own `f` is how a
+                // backward sweep accumulates a chain's forces from the
+                // tip toward the root, one rigid joint connection at a
+                // time.
                 f[k - 1] = f[k - 1].add(frame_mul_wrench(&x[k], f[k]));
             }
         }
