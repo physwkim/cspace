@@ -982,6 +982,111 @@ mod tests {
         );
     }
 
+    /// A subnormal `resample_dt` (below [`f64::MIN_POSITIVE`]) is finite and
+    /// positive, so it passes the `is_finite() && > 0.0` check, but drives
+    /// `raw_sample_count` far past [`MAX_RESAMPLE_SAMPLE_COUNT`] — the same
+    /// rejection path as `resample_dt_producing_an_unreasonable_sample_count_is_rejected`,
+    /// exercised at the true subnormal boundary rather than merely a small
+    /// normal value.
+    #[test]
+    fn resample_dt_subnormal_is_rejected() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let options = TotgOptions {
+            resample_dt: 5e-324, // f64::from_bits(1), the smallest positive subnormal
+            ..Default::default()
+        };
+        assert!(options.resample_dt > 0.0 && options.resample_dt < f64::MIN_POSITIVE);
+        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        assert!(
+            result.is_err(),
+            "a subnormal resample_dt must be rejected: {result:?}"
+        );
+    }
+
+    /// `resample_dt = NaN` fails `is_finite()` directly -- distinct from the
+    /// `duration == 0.0 && resample_dt == 0.0` NaN documented below, which
+    /// arises from division rather than being passed in directly.
+    #[test]
+    fn resample_dt_nan_is_rejected() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let options = TotgOptions {
+            resample_dt: f64::NAN,
+            ..Default::default()
+        };
+        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        assert!(
+            result.is_err(),
+            "resample_dt = NaN must be rejected: {result:?}"
+        );
+    }
+
+    /// `resample_dt = +inf` fails `is_finite()`; `duration / +inf == 0.0`
+    /// would otherwise `.ceil()` to a harmless-looking `0`, so this must be
+    /// caught by the finiteness check specifically, not the sample-count
+    /// bound.
+    #[test]
+    fn resample_dt_positive_infinity_is_rejected() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let options = TotgOptions {
+            resample_dt: f64::INFINITY,
+            ..Default::default()
+        };
+        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        assert!(
+            result.is_err(),
+            "resample_dt = +inf must be rejected: {result:?}"
+        );
+    }
+
+    /// `resample_dt = -inf` fails both the finiteness and the `<= 0.0`
+    /// check.
+    #[test]
+    fn resample_dt_negative_infinity_is_rejected() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let options = TotgOptions {
+            resample_dt: f64::NEG_INFINITY,
+            ..Default::default()
+        };
+        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        assert!(
+            result.is_err(),
+            "resample_dt = -inf must be rejected: {result:?}"
+        );
+    }
+
+    /// A `resample_dt` deliberately sized so `duration / resample_dt` lands
+    /// in the immediate vicinity of `usize::MAX` (not just "very large") is
+    /// still rejected by [`MAX_RESAMPLE_SAMPLE_COUNT`] before the `as usize`
+    /// cast, and does not attempt to loop -- this is checked by asserting
+    /// rejection, never by actually driving the `0..=sample_count` loop
+    /// anywhere near that count.
+    #[test]
+    fn resample_dt_targeting_the_usize_max_boundary_is_rejected() {
+        let model = panda();
+        let mut trajectory = two_waypoint_trajectory(&model);
+        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
+        let approx_duration = 10.0;
+        let resample_dt = approx_duration / (usize::MAX as f64);
+        assert!(resample_dt.is_finite() && resample_dt > 0.0);
+        let options = TotgOptions {
+            resample_dt,
+            ..Default::default()
+        };
+        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        assert!(
+            result.is_err(),
+            "a resample_dt targeting the usize::MAX boundary must be rejected, not looped: {result:?}"
+        );
+    }
+
     /// §172 item 4: `duration == 0.0 && resample_dt == 0.0` would divide to
     /// `NaN`, and `NaN as usize` is `0` in Rust — an accidentally safe
     /// value, not a deliberately validated one. In practice this exact
@@ -992,6 +1097,26 @@ mod tests {
     /// takes positive time under finite velocity/acceleration limits. This
     /// is reasoned from the control flow (there is no reachable nonzero-point
     /// zero-duration path to construct), not measured against one.
+    ///
+    /// This also covers [`totg_compute_time_stamps`]'s internal two-call
+    /// chain (see
+    /// `totg_compute_time_stamps_silently_collapses_duplicate_waypoints_matching_upstream`
+    /// below): its second call passes a `new_resample_dt` computed from the
+    /// *first* call's result, which for duplicate input waypoints is
+    /// `0.0 / (num_waypoints - 1) == 0.0` (`:586`) — but the trajectory the
+    /// first call leaves behind already has exactly one waypoint (this same
+    /// `points.len() == 1` branch, hit by the first call), so the second
+    /// call's own diversity loop sees `num_points == 1` and takes this same
+    /// early return *again*, before ever reading the `0.0` it was handed.
+    /// Reproduced directly (`cargo test temp_probe...`, output discarded,
+    /// not committed) before writing this: the observed result was
+    /// `Ok(())` with `way_point_count == 1`, not an `Err` from the
+    /// `resample_dt` validation added elsewhere in this module — confirming
+    /// the early return, not a `0.0 / 0.0 = NaN -> 0` cast, is what actually
+    /// fires. `moveit2` upstream has the identical two-early-return
+    /// structure at `cpp:1219-1226` (read directly, pinned SHA), executed
+    /// twice for the same reason, so this is exact behavioural parity, not
+    /// a porting deviation — no `§153.1` note applies.
     #[test]
     fn resample_dt_is_unreachable_when_waypoints_collapse_to_one_point() {
         let model = panda();
@@ -1012,6 +1137,45 @@ mod tests {
             "identical waypoints collapse before resample_dt is ever read: {result:?}"
         );
         assert_eq!(trajectory.way_point_count(), 1);
+    }
+
+    /// `totg_compute_time_stamps` asked for `num_waypoints = 5` and two
+    /// input waypoints at identical positions; the input has 2 waypoints,
+    /// the caller requested (approximately) 5, and what comes back is 1 --
+    /// with `Ok(())`, no error, no log. See
+    /// `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+    /// doc comment above for the exact mechanism (the `points.len() == 1`
+    /// early return firing twice, once per internal `computeTimeStamps`
+    /// call) and why this is verified upstream parity (`cpp:1219-1226`
+    /// fires the same way), not a `resample_dt` narrowing bug: the `0.0`
+    /// `new_resample_dt` this scenario computes at `:586` is never actually
+    /// read as a divisor by either call. This test pins the current,
+    /// upstream-matching contract so it is not silently changed later by
+    /// someone assuming the missing waypoints are a narrowing-fix
+    /// oversight.
+    #[test]
+    fn totg_compute_time_stamps_silently_collapses_duplicate_waypoints_matching_upstream() {
+        let mut model = panda();
+        for name in PANDA_ARM_JOINTS {
+            let joint = model.joint_model_mut(name).unwrap();
+            let mut limits = joint.variable_bounds_msg();
+            for limit in &mut limits {
+                limit.has_acceleration_limits = true;
+                limit.max_acceleration = 3.3;
+            }
+            joint.set_variable_bounds_from_limits(&limits);
+        }
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        let position = [-0.5, -3.52, 1.35, -2.51, -0.88, 0.63, 0.0];
+        add_panda_arm_waypoint(&mut trajectory, &model, position, 0.1);
+        add_panda_arm_waypoint(&mut trajectory, &model, position, 0.1);
+
+        let result = totg_compute_time_stamps(5, &mut trajectory, 1.0, 1.0);
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(trajectory.way_point_count(), 1);
+        assert_eq!(trajectory.duration(), 0.0);
     }
 
     /// Q1 (round 4 task), case 1: an empty trajectory is a silent no-op
