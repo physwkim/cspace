@@ -840,9 +840,16 @@ impl BodyDecomposition {
         &self.relative_collision_points
     }
 
-    /// Upstream `BodyDecomposition::getBody`. Panics if `i` is out of range,
-    /// matching this crate's established panic-not-UB stance on unchecked
-    /// upstream indexing (see e.g. `VoxelGrid::get_cell`'s doc comment).
+    /// Upstream `BodyDecomposition::getBody` delegates to
+    /// `bodies::BodyVector::getBody`, which bounds-checks and returns
+    /// `nullptr` for an out-of-range `i` rather than reading past the
+    /// vector. This port panics instead, matching `VoxelGrid::get_cell`'s
+    /// panic-not-silent-default stance elsewhere in this crate rather than
+    /// upstream's own null-return here -- see [`BodyDecomposition::body`]'s
+    /// own name for why an `Option<&Body>` return wasn't chosen: every call
+    /// site in this crate derives `i` from `bodies_count()`, so an
+    /// out-of-range `i` is a caller bug, not a data-dependent case worth
+    /// propagating through the return type.
     pub fn body(&self, i: usize) -> &Body {
         &self.bodies[i]
     }
@@ -1445,10 +1452,10 @@ mod tests {
         assert_eq!(decomp.collision_points(), original_points.as_slice());
     }
 
-    /// Upstream `BodyDecomposition::getBody` has no bounds check (unchecked
-    /// `bodies_[i]`); this port's [`BodyDecomposition::body`] panics instead
-    /// of reading out of bounds, matching this crate's established
-    /// panic-not-UB stance (see that method's own doc comment).
+    /// Upstream `BodyDecomposition::getBody` bounds-checks and returns
+    /// `nullptr` for an out-of-range index; this port's
+    /// [`BodyDecomposition::body`] panics instead, a deliberate deviation
+    /// documented on that method itself.
     #[test]
     #[should_panic(expected = "index out of bounds")]
     fn body_decomposition_body_panics_out_of_range() {
