@@ -49,7 +49,11 @@ use crate::velocity_profile::KDL_EPSILON;
 /// `KDL::Vector::Normalize`: normalizes in place and returns the original
 /// norm, except a norm below `eps` yields the unit X axis and a returned
 /// norm of `0.0` (upstream's zero-length convention, not IEEE `NaN`).
-fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
+///
+/// `pub(crate)`: also used by [`crate::path_circle::PathCircle`], which
+/// needs the identical `KDL::Vector::Normalize` convention for its own
+/// plane-normal and radius computations.
+pub(crate) fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
     let norm = v.norm();
     if norm < eps {
         (Vector3::new(1.0, 0.0, 0.0), 0.0)
@@ -61,7 +65,11 @@ fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
 /// `KDL::Rotation::GetRotAngle`: the angle and unit axis of `rotation`'s
 /// rotation-vector (log map), with upstream's `angle == 0` and `angle == PI`
 /// singularity handling.
-fn get_rot_angle(rotation: &UnitQuaternion, eps: f64) -> (f64, Vector3) {
+///
+/// `pub(crate)`: also used by [`crate::path_circle::PathCircle`], whose
+/// `RotationalInterpolation_SingleAxis` component is the identical
+/// convention `PathLine` folds in — see that type's own module doc.
+pub(crate) fn get_rot_angle(rotation: &UnitQuaternion, eps: f64) -> (f64, Vector3) {
     let m = rotation.to_rotation_matrix();
     let d = |r: usize, c: usize| m[(r, c)];
     let eps2 = eps * 10.0;

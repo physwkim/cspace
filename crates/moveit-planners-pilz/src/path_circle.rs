@@ -7,58 +7,90 @@
 //   moveit_planners/pilz_industrial_motion_planner/src/path_circle_generator.cpp
 
 //! Circle solving for `CIRC` motions ([`circle_from_center`],
-//! [`circle_from_interim`]), ported from upstream's `PathCircleGenerator`.
+//! [`circle_from_interim`]), ported from upstream's `PathCircleGenerator`,
+//! plus the interpolated position+orientation path itself ([`PathCircle`]).
 //!
-//! # Scope: analytical geometry only, `KDL::Path_Circle` deferred
+//! # Scope
 //!
-//! Upstream's `circleFromCenter`/`circleFromInterim` both end by constructing
-//! a `KDL::Path_Circle` — the interpolated position+orientation path object
-//! used by `trajectory_generator_circ`, which is not yet in this crate's
-//! scope. This module ports only the analytical geometry that upstream
-//! computes *before* that construction: the circle's center, radius and
-//! sweep angle, plus the auxiliary point upstream passes to `Path_Circle` to
-//! disambiguate its plane and direction. [`CircleGeometry`] carries exactly
-//! that. When `trajectory_generator_circ` is ported, it is expected to
-//! consume a [`CircleGeometry`] plus the start/goal orientations to build the
-//! full interpolated path — see `KDL::Path_Circle`'s constructor
-//! (`orocos_kdl/src/path_circle.cpp`, vendored under
-//! `third_party/orocos_kinematics_dynamics/`) for how `radius`/center/aux-point
-//! feed into the plane-normal and rotational-interpolation setup that stays
-//! out of scope here.
+//! [`circle_from_center`]/[`circle_from_interim`] port the analytical
+//! geometry upstream's `circleFromCenter`/`circleFromInterim` compute before
+//! constructing a `KDL::Path_Circle`: the circle's center, radius and sweep
+//! angle, plus the auxiliary point used to disambiguate the circle's plane
+//! and direction. [`PathCircle`] then plays the role of that
+//! `KDL::Path_Circle` — see its own doc for how it is derived and why it is
+//! *not* a line-by-line port.
 //!
-//! Consequences of that deferral for this round's API:
-//!
-//! - Inputs are plain positions ([`Vector3`]), not full `KDL::Frame`
-//!   poses — upstream's own geometry computation never reads the
-//!   orientation components either; they are only consumed inside
-//!   `Path_Circle` for orientation SLERP.
-//! - `eqradius` is not a parameter here. Upstream threads it straight through
-//!   to `Path_Circle`, where it is the knob that balances linear vs.
-//!   rotational interpolation speed; nothing in the geometry solve itself
-//!   reads it.
-//! - [`CircleGeometry::radius`] is `|start - center|` (what `Path_Circle`
-//!   itself recomputes from its `F_base_start`/`F_base_center` at
-//!   construction time), not `eqradius`.
+//! Only [`PathCircle::path_length`]/[`PathCircle::pos`] are provided, not
+//! `Vel`/`Acc`/`Write`/`Clone`/`LengthToS`: `generate_joint_trajectory`
+//! (this crate's `trajectory_functions` module) only ever calls
+//! [`crate::trajectory_functions::CartesianPath::duration`]/`pos` on a
+//! Cartesian path, the same scope limit already documented on
+//! [`crate::path_line::PathLine`].
 //!
 //! # Deviations from upstream
 //!
 //! - **Errors are [`moveit_error::Error::Construct`], not KDL exceptions.**
 //!   Upstream throws `ErrorMotionPlanningCenterPointDifferentRadius` (a
 //!   `KDL::Error_MotionPlanning` subclass, numeric code `3006`) from
-//!   [`circle_from_center`] and `KDL::Error_MotionPlanning_Circle_No_Plane`
-//!   from [`circle_from_interim`]; this port has no KDL exception hierarchy,
-//!   so both map to `Error::Construct` with a message naming the upstream
-//!   exception, matching this crate's house error convention.
-//! - **The `KDL::epsilon` swap around `Path_Circle` construction is not
-//!   ported.** Upstream's `circleFromCenter` temporarily overwrites the
-//!   global `KDL::epsilon` with `MAX_COLINEAR_NORM` so `Path_Circle`'s own
-//!   internal degeneracy check uses the same tolerance as this class; since
-//!   `Path_Circle` itself is deferred, there is nothing to swap the epsilon
-//!   for yet. `MAX_COLINEAR_NORM` is reused directly as
-//!   [`MAX_COLINEAR_NORM`] wherever this module needs the same check.
+//!   [`circle_from_center`], `KDL::Error_MotionPlanning_Circle_No_Plane` from
+//!   [`circle_from_interim`], and `Path_Circle`'s own constructor throws
+//!   `Error_MotionPlanning_Circle_ToSmall`/`Error_MotionPlanning_Circle_No_Plane`
+//!   again for degeneracies it detects itself ([`PathCircle::new`]); this
+//!   port has no KDL exception hierarchy, so all map to `Error::Construct`
+//!   with a message naming the upstream exception, matching this crate's
+//!   house error convention.
+//! - **The degeneracy tolerance is an explicit parameter, not a swapped
+//!   global.** Upstream's `Path_Circle` constructor checks its own
+//!   `radius`/plane-normal degeneracy against the *global* `KDL::epsilon`,
+//!   and `circleFromCenter` temporarily overwrites that global with
+//!   `MAX_COLINEAR_NORM` for the duration of the call (`circleFromInterim`
+//!   does not — it leaves the global at its ordinary default). This module
+//!   has no global to swap, so [`PathCircle::new`] takes that tolerance as
+//!   an explicit `eps` argument instead: callers built on
+//!   [`circle_from_center`] must pass [`MAX_COLINEAR_NORM`], callers built on
+//!   [`circle_from_interim`] must pass
+//!   [`crate::velocity_profile::KDL_EPSILON`] — reproducing the same two
+//!   tolerances upstream's swap produces, without a mutable global.
+//! - **No "both zero" guard, matching upstream's own asymmetry.**
+//!   `KDL::Path_Line`'s constructor has an explicit branch for
+//!   `angle == 0 && dist == 0` (see [`crate::path_line::PathLine::new`]'s own
+//!   deviation note); `KDL::Path_Circle`'s constructor has no equivalent
+//!   branch — its `else` arm unconditionally computes `scalerot = oalpha /
+//!   pathlength`, dividing by `dist` even when both `oalpha` and `dist` are
+//!   zero. [`PathCircle::new`] preserves this upstream asymmetry rather than
+//!   silently patching it in: for a `CIRC` request with `start == goal` (a
+//!   client bug, not a case a correctly-formed circle command hits), this
+//!   port's `scalerot` is `NaN`, exactly reproducing upstream's own
+//!   behaviour there.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! `KDL::Path_Circle` and `RotationalInterpolation_SingleAxis` are
+//! LGPL-2.1-or-later (`third_party/orocos_kinematics_dynamics/`), heavier
+//! copyleft than this workspace's BSD-3-Clause. [`PathCircle`] is therefore
+//! not transcribed from `orocos_kdl/src/path_circle.cpp`: its geometry is
+//! derived independently from elementary vector algebra (an orthonormal
+//! frame built from the start-to-center radius vector and the plane normal
+//! through the auxiliary point; position sampled by rotating that radius
+//! vector through the swept angle). What is reused from the LGPL source is
+//! *interface facts*, not expression — named here by convention rather than
+//! by file:line: the constructor's argument roles (a center point, an
+//! auxiliary point pinning the plane, and a start/goal rotation pair), the
+//! `eqradius` convention balancing translational against rotational arc
+//! length into one path parameter (already independently derived for
+//! [`crate::path_line::PathLine`], reused verbatim since `Path_Line` and
+//! `Path_Circle` share the identical balancing rule), and the
+//! `RotationalInterpolation_SingleAxis` axis-angle convention (already
+//! ported as `path_line::get_rot_angle` for `PathLine`, reused as-is here).
+//! Equivalence with upstream is proven the same way every other
+//! generator in this crate proves it: oracle parity on captured fixtures
+//! (`tests/pilz_trajectory_circ_parity.rs`), not line correspondence.
 
 use moveit_error::{Error, Result};
-use moveit_geometry::Vector3;
+use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
+use nalgebra::Unit;
+
+use crate::path_line::{get_rot_angle, kdl_normalize};
 
 /// Upstream `PathCircleGenerator::MAX_RADIUS_DIFF`: the largest tolerated
 /// difference between the start-to-center and goal-to-center distances in
@@ -201,11 +233,121 @@ fn cosines(a: f64, b: f64, c: f64) -> f64 {
     (((a * a + b * b - c * c) / (2.0 * a * b)).clamp(-1.0, 1.0)).acos()
 }
 
+/// The interpolated position+orientation path of a circular arc, playing the
+/// role of upstream's `KDL::Path_Circle` — independently derived, not
+/// transcribed; see the [module docs](self) for why and what convention
+/// facts are reused.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PathCircle {
+    orient_start: UnitQuaternion,
+    rot_axis: Vector3,
+    center: Vector3,
+    x_axis: Vector3,
+    y_axis: Vector3,
+    radius: f64,
+    path_length: f64,
+    scale_lin: f64,
+    scale_rot: f64,
+}
+
+impl PathCircle {
+    /// Builds the interpolated arc from `start` to `goal` along `geometry`
+    /// (as solved by [`circle_from_center`]/[`circle_from_interim`]).
+    ///
+    /// `eqradius` is the equivalent radius balancing rotational against
+    /// translational path length, the same convention
+    /// [`crate::path_line::PathLine::new`] uses. `eps` is the degeneracy
+    /// tolerance for the radius and plane-normal checks below — see the
+    /// [module docs](self)'s deviation note for which constant callers must
+    /// pass depending on whether `geometry` came from [`circle_from_center`]
+    /// ([`MAX_COLINEAR_NORM`]) or [`circle_from_interim`]
+    /// ([`crate::velocity_profile::KDL_EPSILON`]).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Construct`] if `start` coincides with `geometry.center`
+    /// (upstream: `Error_MotionPlanning_Circle_ToSmall`), or if
+    /// `geometry.aux_point` is colinear with `start` and `geometry.center`,
+    /// leaving the circle's plane undetermined (upstream:
+    /// `Error_MotionPlanning_Circle_No_Plane`).
+    pub fn new(
+        start: &Isometry3,
+        goal: &Isometry3,
+        geometry: &CircleGeometry,
+        eqradius: f64,
+        eps: f64,
+    ) -> Result<Self> {
+        let center = geometry.center;
+
+        let (x_axis, radius) = kdl_normalize(start.translation.vector - center, eps);
+        if radius < eps {
+            return Err(Error::construct(
+                "circle radius too small to determine a plane; a circle cannot be created",
+            ));
+        }
+
+        let (tmpv, _) = kdl_normalize(geometry.aux_point - center, eps);
+        let (z_axis, z_norm) = kdl_normalize(x_axis.cross(&tmpv), eps);
+        if z_norm < eps {
+            return Err(Error::construct(
+                "start, center and auxiliary point are colinear; a circle cannot be created",
+            ));
+        }
+        let y_axis = z_axis.cross(&x_axis);
+
+        let r_start_end = start.rotation.inverse() * goal.rotation;
+        let (oalpha, rot_axis) = get_rot_angle(&r_start_end, eps);
+
+        let dist = geometry.alpha * radius;
+        let (path_length, scale_lin, scale_rot) = if oalpha * eqradius > dist {
+            (
+                oalpha * eqradius,
+                dist / (oalpha * eqradius),
+                1.0 / eqradius,
+            )
+        } else {
+            // Upstream has no "both zero" guard here, unlike `Path_Line` --
+            // see the module doc's deviation note. `scale_rot` is `NaN` when
+            // `oalpha == 0.0 && dist == 0.0`, faithfully reproducing that.
+            (dist, 1.0, oalpha / dist)
+        };
+
+        Ok(Self {
+            orient_start: start.rotation,
+            rot_axis,
+            center,
+            x_axis,
+            y_axis,
+            radius,
+            path_length,
+            scale_lin,
+            scale_rot,
+        })
+    }
+
+    /// Upstream `PathLength`.
+    pub fn path_length(&self) -> f64 {
+        self.path_length
+    }
+
+    /// Upstream `Pos`.
+    pub fn pos(&self, s: f64) -> Isometry3 {
+        let p = s * self.scale_lin / self.radius;
+        let translation = self.center
+            + self.x_axis * (self.radius * p.cos())
+            + self.y_axis * (self.radius * p.sin());
+        let theta = s * self.scale_rot;
+        let rotation = self.orient_start
+            * UnitQuaternion::from_axis_angle(&Unit::new_unchecked(self.rot_axis), theta);
+        Isometry3::from_parts(translation.into(), rotation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
-    use std::f64::consts::{FRAC_PI_2, PI};
+    use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
     /// A quarter circle solved from its explicit center.
     #[test]
@@ -295,6 +437,124 @@ mod tests {
             Vector3::new(2.0, 0.0, 0.0),
             Vector3::new(1.0, 0.0, 0.0),
         );
+        assert!(result.is_err());
+    }
+
+    // -- PathCircle --
+
+    fn identity_pose(p: Vector3) -> Isometry3 {
+        Isometry3::from_parts(p.into(), UnitQuaternion::identity())
+    }
+
+    /// `pos(0)`/`pos(path_length)` reproduce `start`/`goal` exactly, for a
+    /// quarter circle with a non-trivial orientation change.
+    #[test]
+    fn pos_at_zero_and_path_length_reproduces_start_and_goal() {
+        let start = Isometry3::from_parts(
+            Vector3::new(1.0, 0.0, 0.0).into(),
+            UnitQuaternion::identity(),
+        );
+        let goal = Isometry3::from_parts(
+            Vector3::new(0.0, 1.0, 0.0).into(),
+            UnitQuaternion::from_euler_angles(0.0, 0.0, FRAC_PI_2),
+        );
+        let geom = circle_from_center(
+            start.translation.vector,
+            goal.translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+        let path = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM).unwrap();
+
+        let at_start = path.pos(0.0);
+        assert_relative_eq!(
+            at_start.translation.vector,
+            start.translation.vector,
+            epsilon = 1e-9
+        );
+        assert_relative_eq!(
+            at_start.rotation.quaternion().coords,
+            start.rotation.quaternion().coords,
+            epsilon = 1e-9
+        );
+
+        let at_end = path.pos(path.path_length());
+        assert_relative_eq!(
+            at_end.translation.vector,
+            goal.translation.vector,
+            epsilon = 1e-9
+        );
+        let same_rotation =
+            (at_end.rotation.quaternion().coords - goal.rotation.quaternion().coords).norm() < 1e-9
+                || (at_end.rotation.quaternion().coords + goal.rotation.quaternion().coords).norm()
+                    < 1e-9;
+        assert!(
+            same_rotation,
+            "{:?} != +/-{:?}",
+            at_end.rotation, goal.rotation
+        );
+    }
+
+    /// A full quarter circle at the unit radius sweeps a path length of
+    /// `radius * alpha` when translation, not rotation, is the limiting
+    /// motion (identical start/goal orientation, so `oalpha == 0`).
+    #[test]
+    fn pure_translation_path_length_is_radius_times_alpha() {
+        let start = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let goal = identity_pose(Vector3::new(0.0, 1.0, 0.0));
+        let geom = circle_from_center(
+            start.translation.vector,
+            goal.translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+        let path = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM).unwrap();
+        assert_relative_eq!(path.path_length(), FRAC_PI_2, epsilon = 1e-9);
+
+        let midpoint = path.pos(path.path_length() / 2.0);
+        assert_relative_eq!(
+            midpoint.translation.vector,
+            Vector3::new(FRAC_PI_4.cos(), FRAC_PI_4.sin(), 0.0),
+            epsilon = 1e-9
+        );
+    }
+
+    /// Boundary: `start == center` leaves no radius to build a plane from
+    /// (`Error_MotionPlanning_Circle_ToSmall`). Constructed directly against
+    /// a hand-built [`CircleGeometry`], bypassing
+    /// `circle_from_center`/`circle_from_interim`, since neither solver can
+    /// itself produce a zero-radius geometry from non-degenerate inputs.
+    #[test]
+    fn zero_radius_is_rejected() {
+        let start = identity_pose(Vector3::new(0.0, 0.0, 0.0));
+        let goal = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let geom = CircleGeometry {
+            center: Vector3::new(0.0, 0.0, 0.0),
+            radius: 0.0,
+            alpha: FRAC_PI_2,
+            aux_point: Vector3::new(0.0, 1.0, 0.0),
+        };
+        let result = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM);
+        assert!(result.is_err());
+    }
+
+    /// Boundary: a half circle solved via [`circle_from_center`] succeeds at
+    /// the geometry layer (`start`/`goal` are equidistant from `center`), but
+    /// its auxiliary point (upstream convention: `goal` itself) is exactly
+    /// colinear with the start-to-center radius vector, leaving the circle's
+    /// plane undetermined (`Error_MotionPlanning_Circle_No_Plane`) -- the
+    /// documented reason [`circle_from_center`] cannot express a half circle.
+    #[test]
+    fn half_circle_from_center_has_no_determinable_plane() {
+        let start = identity_pose(Vector3::new(1.0, 0.0, 0.0));
+        let goal = identity_pose(Vector3::new(-1.0, 0.0, 0.0));
+        let geom = circle_from_center(
+            start.translation.vector,
+            goal.translation.vector,
+            Vector3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+        let result = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM);
         assert!(result.is_err());
     }
 }
