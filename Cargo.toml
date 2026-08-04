@@ -91,3 +91,32 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# The test suite is dominated by unoptimized numeric work, not by its own
+# assertions: `gripper_pair_contact_is_prediction_invariant` builds the PR2
+# model and runs three parry contact queries, and took 18.4s at the cargo
+# default (`opt-level = 0`) against 0.9s here -- a 20x gap, measured, and the
+# same shape across every PR2/distance-field parity test. Whole-workspace
+# `cargo nextest run --workspace`: 24.2s before, 2.0s after.
+#
+# `opt-level = 1` for workspace crates rather than 2: the remaining gap to a
+# release build was not measurable on these tests, and 1 keeps compile time
+# and codegen debuggability closer to the default. Dependencies go to 2
+# because they are compiled once and cached; they are nalgebra and
+# parry3d-f64, where the numeric work actually happens.
+#
+# Cost, measured on this machine (96 cores, cold `CARGO_TARGET_DIR`,
+# `cargo nextest run --workspace --no-run`): 25s at the default, 39s here.
+# The +14s one-time build cost is repaid by the first test run.
+#
+# `debug-assertions` and `overflow-checks` are untouched and stay on -- they
+# default to true for the dev profile independently of `opt-level`, verified
+# here (`--print cfg` still emits `debug_assertions`, and an `u8` overflow
+# still panics at `-C opt-level=1 -C debug-assertions=on`). A profile that
+# silently turned those off would trade the suite's wall clock for its
+# coverage.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
