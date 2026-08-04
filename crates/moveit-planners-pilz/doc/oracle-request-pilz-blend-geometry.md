@@ -59,6 +59,12 @@ unchanged from case A.
 `blend_align_index`/branch = `else` (`way_point_count_1 == way_point_count_2 == 11`),
 `first_trajectory` waypoints unchanged at `16`, `second_trajectory` waypoints `16`.
 
+**Confirmed (run 2026-08-05, oracle stamp `043ed31a2186fe4e`):** the oracle
+returns exactly `first_intersection_index = 5`,
+`second_intersection_index = 10`, both input waypoint counts `16`. Landed
+as `blend_panda_arm_radius08_matches_the_oracle`, comparing every waypoint
+of all three response segments, not the indices alone.
+
 **What this discriminates that A/B cannot.** A/B only ever probed
 `blend_radius = 0.05`; the two index values (`8`/`7`) are pinned at
 exactly one point. Case C is not expected to newly exercise the alignment
@@ -115,6 +121,20 @@ chaining requirement are unchanged from case A.
 
 (Segment 2's goal position above is transcribed directly from this port's
 own local run — `corner + 0.1 * (cos150°, sin150°, 0)` — not hand-computed.)
+
+**Result (run 2026-08-05, oracle stamp `043ed31a2186fe4e`): the oracle
+rejects this case.** `error_code = -1` (`PLANNING_FAILED`), stage `blend`,
+no waypoint arrays at all — `generateJointTrajectory` fails the 4th blend
+sample on `panda_joint2`'s deceleration limit (`-2.50863` against `-1.875`).
+The prediction below is therefore **not testable as written**: neither
+index field is emitted, so "identical to case A" was neither confirmed nor
+refuted, and the sharper-corner interpolation comparison this case was
+proposed for does not exist on this geometry. What the case does buy is a
+rejection-parity check — this port rejects the same request at the same
+sample, on the same joint, at the same deceleration value — landed as
+`blend_panda_arm_corner150_is_rejected_like_the_oracle`. PORTING-PLAN.md
+§207. The rest of this section is left as written, as the falsified
+prediction it turned out to be.
 
 **Predicted: identical to case A** — `first_intersection_index = 8`,
 `second_intersection_index = 7`, branch `else`. This is a measured
