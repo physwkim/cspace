@@ -1139,6 +1139,77 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 /// after construction, so a future edit that collapses a fixture's group to
 /// zero active joints fails loudly here instead of downstream as a
 /// silently-passing `assert!(!result.collision)`.
+///
+/// # §189: workspace-wide sweep behind this gate
+///
+/// `type="fixed"` is where the symptom was first spotted (§191), not the
+/// defect itself -- the defect is "a group resolves to an empty
+/// `updated_link_names()` set and an assertion is built on it" (§196), and a
+/// fixed joint is one route in, not the only one. This sweep enumerates the
+/// actual `type="fixed"` fixture population and, separately, measures which
+/// of its groups are actually empty -- rather than assuming from the joint
+/// type alone.
+///
+/// `rg -n 'type="fixed"' --type rust -g '*.rs'` over the whole workspace
+/// found 34 sites (a starting population, not a verdict) at the time of this
+/// sweep. 24 are `virtual_joint` world-attachment boilerplate or
+/// SRDF-parse-only/doc-comment sites -- `virtual_joint` never enters a
+/// `<group>`'s joint list, so none of those can affect group resolution at
+/// all. The remaining 10 are real `<joint type="fixed">` elements inside a
+/// URDF fixture:
+///
+/// - `moveit-model/src/robot_model.rs:2007,2010,2013,2016`
+///   (`chain_between_two_branches_finds_the_common_ancestor`, group
+///   `"cross"`, all 4 joints fixed) -- **measured EMPTY**
+///   (`updated_link_names() == []`, confirmed by running the real
+///   `RobotModel`/`SrdfModel` code against this fixture's exact XML, not by
+///   reading it) but the test only asserts `joint_names()`, never
+///   `updated_link_names()` -- not the risk pattern.
+/// - `moveit-model/src/robot_model.rs:2477,2480` (`end_effector_test_urdf`,
+///   groups `"hand"` = `[j4]` and `"other"` = `[j5]`, each one fixed joint)
+///   -- **measured EMPTY** for both, confirmed the same way. Every
+///   assertion built on `"hand"`/`"other"` in that fixture's ~10 dependent
+///   tests is end-effector metadata (`is_end_effector`, `end_effector_name`,
+///   `end_effector_parent`, `attached_end_effector_names`), never
+///   `updated_link_names()`/`link_names()` -- not the risk pattern.
+/// - `moveit-model/src/robot_model.rs:2155,2158` (`no_root_link_errors`,
+///   joints `j1`/`j2` form a 2-link cycle with no root) -- `build()` itself
+///   returns `Err` before any group ever resolves; not applicable.
+/// - `moveit-model/src/robot_model.rs:2802`
+///   (`is_chain_true_across_an_unlisted_fixed_joint`, joint `mid_fixed`) --
+///   not a member of the fixture's `"arm"` group at all (`"arm"` is
+///   `[j1, j2]`, both revolute); measured non-empty as a control. Not at
+///   risk.
+/// - `moveit-scene/src/scene.rs:2077` (`hand_joint`, the `attach`/`detach`
+///   fixture) -- its SRDF defines no `<group>` element whatsoever; there is
+///   no group to be empty.
+///
+/// A fresh `rg -n
+/// 'updated_link_names\(\)|updated_link_indices\(\)|updated_link_with_geometry_names\(\)|updated_link_with_geometry_indices\(\)'
+/// --type rust -g '*.rs'` (the actual consumers of the set this gate
+/// guards, run fresh rather than trusted from an earlier round) turned up
+/// exactly: this crate's own two now-gated fixtures plus
+/// `collision_env_distance_field.rs:3117`'s PR2-`"right_arm"`-based test
+/// (a real robot, non-empty); `moveit-model`'s own
+/// `updated_link_names_filters_to_geometry_bearing_links` test (correct,
+/// non-vacuous, revolute joints); `moveit-model/tests/robot_model_parity.rs`
+/// (compares our `updated_link_names()` to the oracle's own value
+/// group-by-group -- an empty-vs-empty agreement there is validating a real
+/// semantic property against ground truth, not a vacuously-passing
+/// presence/absence check, so it is not the same defect even where the
+/// oracle's own answer happens to be empty); `moveit-constraints/src/
+/// sampler.rs`'s `order_samplers` (a subset-comparison with a handled
+/// `frame_dependency` fallback, not a presence/absence assertion); and
+/// `moveit-planners-chomp/src/optimizer.rs`'s
+/// `build_fixed_link_resolution_map` (a CHOMP trajectory-optimization input
+/// that structurally requires active joints already, so a zero-active-joint
+/// group is not a realistic input rather than an untested one).
+///
+/// Conclusion: within this crate, the defect existed only in the two
+/// fixtures now gated below (§196 closes them). No other crate's test
+/// suite was found to combine an empty-`updated_link_names()` group with a
+/// presence/absence assertion built on it. Those other crates are out of
+/// this crate's edit scope; this sweep is reported, not silently acted on.
 #[cfg(test)]
 pub(crate) mod test_support {
     use moveit_model::RobotModel;
