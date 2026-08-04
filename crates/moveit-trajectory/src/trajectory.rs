@@ -1309,6 +1309,14 @@ mod tests {
     // entirely, rather than disguising it from the lint.
 
     /// Upstream `TEST(time_optimal_trajectory_generation, AccelerationLimitIsRespected)`.
+    ///
+    /// `resample_dt` below has the same `duration / resample_dt).ceil() as _`
+    /// shape as the `§172` `TotgOptions::resample_dt` finding, but is
+    /// `distinct`, not the same defect: it is a `fn`-local `f64 = 0.01`
+    /// literal (transcribed from upstream's own test, not a field any
+    /// caller can set), so it can never be zero, negative, or otherwise
+    /// invalid — there is no reachable path to the boundary values that
+    /// make `TotgOptions::resample_dt` dangerous.
     #[test]
     fn upstream_acceleration_limit_is_respected() {
         let path_tolerance = 0.001;
