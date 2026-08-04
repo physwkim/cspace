@@ -10903,3 +10903,65 @@ ROS 호환이 얹히는 것이지, 그 반대가 아니다. 사용자가 요구�
 이것은 §5의 Phase 9 완료 조건을 바꾸지 않는다. 다만 **Phase 9는 Phase 8과
 병렬로 진행하되, Phase 8의 완료 조건 선언보다 먼저 선언하지 않는다** —
 §121.3이 Phase 7/8에 적용한 규칙과 같다.
+
+## 130. pilz 오라클을 요청서보다 먼저 빌드해 봤다 (2026-08-04)
+
+§122는 pilz 오라클의 비용을 **소스 읽기로** 추정했다: 콜콘 7 -> 19패키지,
+`joint_limits_common`이 `moveit_ros_planning`/`moveit_ros_move_group`에
+직접 링크하므로 해석적 core만 떼어 낼 수 없고, 다만 필요한 타겟이
+`ament_export_targets`에 있으므로 pluginlib 우회는 필요 없다.
+
+**추정은 추정이다.** 이미지를 한 번도 만들어 본 적이 없는데 요청서가
+확정되면 그때 처음 빌드하는 것은 순서가 거꾸로다 — 그 시점에 실패하면
+p1-joints의 라운드가 통째로 막힌다. 그래서 요청서를 기다리지 않고 변종을
+먼저 빌드했다.
+
+**정본을 건드리지 않고 할 수 있다.** `ORACLE_MOVEIT2_PACKAGES`는
+`oracle_build_inputs`에 들어가고 그것이 스탬프에 들어가므로, 오버라이드한
+빌드는 다른 태그를 받는다 — 설계가 이미 "재핀된 빌드가 정본을 사칭하지
+못한다"를 보장한다. 정본 `8ed8a9395b730b08`은 그대로이고 변종은
+`ce29f1718ca74fda`다.
+
+### 130.1 측정 결과
+
+빌드는 **성공했다**. `/ws/install`에 19개가 아니라 **21개** 패키지가 들어왔다
+(§122의 추정보다 2개 많다 — `pilz_industrial_motion_planner_testutils`와
+`moveit_resources_prbt_ikfast_manipulator_plugin`을 세지 않았다).
+pilz가 설치한 공유 라이브러리는 열 개다:
+
+```
+libcommand_list_manager.so        libplanning_context_loader_lin.so
+libjoint_limits_common.so         libplanning_context_loader_polyline.so
+libpilz_industrial_motion_planner.so  libplanning_context_loader_ptp.so
+libplanning_context_loader_base.so    libsequence_capability.so
+libplanning_context_loader_circ.so    libtrajectory_generation_common.so
+```
+
+**pluginlib 우회가 필요 없다는 §122의 결론은 맞다.** 심볼로 확인했다:
+
+- `TrajectoryGenerator::generate(PlanningSceneConstPtr const&,
+  MotionPlanRequest const&, MotionPlanResponse&, double)` — `T`(정의됨),
+  `libtrajectory_generation_common.so`
+- `TrajectoryGeneratorPTP::TrajectoryGeneratorPTP(RobotModelConstPtr const&,
+  LimitsContainer const&, string const&)` — `T`,
+  `libplanning_context_loader_ptp.so`
+- LIN / CIRC 생성자도 각각 `libplanning_context_loader_lin.so` /
+  `_circ.so`에 `T`
+
+즉 셋 다 직접 생성하고 `generate`를 직접 부를 수 있다. 플러그인 로더를
+거칠 이유가 없다.
+
+### 130.2 요청서에 남는 질문은 하나로 좁혀졌다
+
+링크 가능성은 이제 열린 질문이 아니다. 남은 것은 **`PlanningScene`과
+`MotionPlanRequest`를 JSON에서 어떻게 조립하는가**이고, 그것이 이 op의
+실제 비용이다(p1-joints에게 이미 넘긴 사실 넷 중 세 번째). `generate`의
+`sampling_time` 기본값이 0.1이라는 것도 `1e-6` 비교 대상을 정할 때
+영향이 있다.
+
+### 130.3 남는 것
+
+이 변종 이미지는 요청서가 확정되면 버린다 — `oracle.cpp`에 pilz op를
+더하면 파일 다이제스트가 바뀌어 어차피 또 다른 스탬프가 된다. 지금 값은
+**"빌드가 되는가"에 대한 답**이지 보관할 산출물이 아니다. 정리 대상
+이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인 필요).
