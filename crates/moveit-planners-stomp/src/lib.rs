@@ -135,9 +135,16 @@
 //! output for that adapter's test to have been reproducing since round 21;
 //! its doc is stale, though its actual behavior (re-time whatever
 //! `RobotTrajectory` it is given) is unaffected by that staleness. This
-//! crate does not depend on `moveit-planning` (nor vice versa -- confirmed
-//! via that crate's own `response.rs` doc, "No `Option`", and its `lib.rs`),
-//! so this is a documentation-only mismatch, not a compile-time or runtime
+//! crate still does not depend on `moveit-planning`, nor vice versa --
+//! re-verified round 25 against the current tree, which by then also
+//! carries round 24's `moveit-scene`/`moveit-collision`/`moveit-constraints`
+//! and round 25's own `moveit-kinematics`/`moveit-geometry` (dev-only)
+//! additions: `cargo tree -p moveit-planners-stomp -e normal,dev,build
+//! --prefix none | sort -u | grep -i planning` and `cargo tree -p
+//! moveit-planning -e normal,dev,build --prefix none --invert | grep -i
+//! stomp` both print nothing. None of this crate's dependencies (nor their
+//! own transitive dependencies) reach back to `moveit-planning`, so this is
+//! still a documentation-only mismatch, not a compile-time or runtime
 //! conflict; not fixed here since `moveit-planning` belongs to a different
 //! round's worker.
 //!
@@ -185,10 +192,13 @@
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!
-//! Run for real against the tree as committed this round. Zero calls: this
-//! crate's tests compare exact-integer-representable f64 values (bound
-//! clamps, waypoint counts, matrix round-trips through the same arithmetic
-//! on both sides) with `assert_eq!`/`assert_ne!`, never a tolerance-bearing
+//! Re-run round 25 against the tree as committed this round (unchanged from
+//! round 24's own reckoning, including the new
+//! `extract_seed_trajectory`/`sample_goal_state` tests this round adds).
+//! Zero calls: this crate's tests compare exact-integer-representable f64
+//! values (bound clamps, waypoint counts, matrix round-trips through the
+//! same arithmetic on both sides, and the new tests' clamped joint
+//! positions) with `assert_eq!`/`assert_ne!`, never a tolerance-bearing
 //! float comparison. Nothing to classify, nothing to bisect, no tolerance
 //! floor to re-measure.
 
