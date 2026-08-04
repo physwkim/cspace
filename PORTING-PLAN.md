@@ -12599,3 +12599,80 @@ round-trip 테스트는 시작 상태를 궤적 첫 waypoint와 **다른 값**(`
 `trajectory_start`를 "대응 필드 없음"으로 적어둔 doc도 고쳤다. `group_name`/
 `planning_time`/`error_code`는 여전히 대응물이 없고, `planning_time`은
 p1-fixtures가 근거를 대는 중이라 만료 조건을 같이 적었다.
+
+## §159 D11은 닫히지 않았다 — LGPL이 `third_party/`가 아니라 moveit2를 거쳐 들어와 있다
+
+p1-joints 라운드 21(`3a3bcf8`)이 orocos 계열 재유도를 끝내고 "§151/D11 is now
+fully closed"라고 보고했다. 재유도 자체는 검산했고 맞다 — `path_line.rs`,
+`velocity_profile_trap.rs`, `dynamics.rs`에서 Erwin Aertbelien / Ruben Smits
+저작권이 사라졌고, 남은 LGPL 언급은 "왜 이 파일이 BSD로 남는가"를 설명하는
+산문이지 저작권 부여가 아니다. **닫히지 않은 것은 모집단이다.**
+
+### 159.1 측정
+
+213개 `.rs`의 헤더가 인용한 upstream 파일을 전부 열어 copyleft 문구를 찾았다.
+BSD-3-Clause를 선언하면서 copyleft upstream을 인용하는 파일 3개:
+
+```
+crates/moveit-kinematics/src/lib.rs             chainiksolver_vel_mimic_svd.{cpp,hpp}
+crates/moveit-kinematics/src/newton_raphson.rs  chainiksolver_vel_mimic_svd.{cpp,hpp}
+crates/moveit-kinematics/src/velocity.rs        chainiksolver_vel_mimic_svd.cpp
+```
+
+`moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/
+chainiksolver_vel_mimic_svd.hpp` 원문 헤더:
+
+```
+// Copyright  (C)  2007  Ruben Smits <ruben dot smits at mech dot kuleuven dot be>
+// URL: http://www.orocos.org/kdl
+// This library is free software; ... GNU Lesser General Public
+// License ... version 2.1 of the License, or (at your option) any later version.
+// Modified to account for "mimic" joints ...
+// Copyright  (C)  2013  Sachin Chitta, Willow Garage
+```
+
+moveit2가 KDL 솔버를 **LGPL 헤더째 vendoring**한 파일이다. Sachin Chitta의 수정도
+그 LGPL 파일 안에서 이뤄졌으니 같은 라이선스 아래 있다.
+
+표현이 실제로 옮겨져 있다는 것은 우리 쪽 doc이 스스로 말한다. `velocity.rs`:
+`fold_jacobian`은 "`jacToJacReduced`" … "exactly as upstream's `result = vel1 +
+multiplier * vel2` accumulation does", `expand_to_full`은 "matching upstream's own
+expansion at the end of `ChainIkSolverVelMimicSVD::CartToJnt`". 인터페이스 사실
+재사용이 아니라 전사다. 세 파일 어디에도 `path_line.rs`가 갖게 된 "Why this file
+stays BSD-3-Clause" 정당화가 없다(`rg -i 'lgpl|stays BSD|independently|re-derived'`
+→ 0건).
+
+### 159.2 구조적 원인 — 저장소 라이선스를 파일 라이선스로 대신 썼다
+
+라운드 21의 모집단은 "`third_party/orocos_kinematics_dynamics/`에서 온 파일"이었다.
+이 세 파일의 인용 경로는 `moveit_kinematics/...`라 그 모집단에 들어오지 않는다.
+한 문장으로:
+
+> **upstream 저장소가 BSD라고 해서 그 안의 모든 파일이 BSD인 것은 아니다.**
+
+D11이 "orocos에서 온 것"을 anchor로 삼은 것이 결함이었다. 올바른 anchor는
+**인용된 파일 자체의 라이선스 문구**다 — 그 파일이 어느 저장소에 있는지와 무관하게.
+
+### 159.3 게이트 (`a83ddfa`)
+
+`tools/ci/verify-upstream-license-provenance.sh`. 각 `.rs` 헤더의 인용 경로를
+upstream 체크아웃에서 열어 copyleft 문구를 찾고, 그 파일의 SPDX가 permissive면
+실패한다. 규칙을 표에서 읽지 않고 **인용된 파일에서 매번 다시 읽는다** — 새 upstream이
+추가돼도 가르칠 것이 없다.
+
+`check-*`가 아니라 `verify-*`인 이유는 `verify-fixture-provenance.sh`와 같다:
+upstream 체크아웃이 필요하고 CI 러너에는 없다. 인용을 **열지 못하면 통과가 아니라
+실패**다 — 열지 못한 인용이야말로 아무도 라이선스를 확인하지 않은 경우다.
+
+현재 250건 인용을 검사한다. 미해소 24건은 로컬에 체크아웃이 없는 것들이다:
+`geometric_shapes/`(19), `srdfdom/`(3), `include/octomap/`(2). **이 셋의 라이선스는
+확인되지 않았다 — 추정하지 않는다.** 사용자에게 경로를 요청해 둔 상태다.
+
+### 159.4 상태
+
+- **§151/§152의 `git push` 차단은 계속 유효하다.** D11은 열려 있다.
+- 세 파일의 재유도는 p1-joints 라운드 22로 보냈다 — 라운드 21에서 검증된 같은
+  방법론(1차 원리 재유도 → LGPL 저작권 제거 → "Why this file stays BSD" 섹션 →
+  파리티 유지 확인)이다.
+- 만료 조건(§153.1): `geometric_shapes`/`srdfdom`/`octomap` 체크아웃이 생기면
+  미해소 24건이 실제 판정으로 바뀐다. 그 전까지 "clean"이라고 말할 수 없다.
