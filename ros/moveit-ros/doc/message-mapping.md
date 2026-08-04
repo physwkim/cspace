@@ -885,3 +885,52 @@ Named here so the observation is not lost, not acted on.
 **Conclusion:** no new same-defect site found in `ros/moveit-ros`
 itself. §183 was the family's only site in this crate; the anchor
 correction (§191) widened the *search*, not the *result*.
+
+### 17.6 Which of §17.5's four expiry conditions are self-revealing (round 13)
+
+§153.1 requires naming what clears an absence-reasoned rejection, but a
+condition documented in a comment still relies on someone reading that
+comment at the right moment. The four expiry conditions `d4ca334` added
+are not equally reliant on that: one of them is caught by the compiler
+itself the moment its trigger fires, the other three are not. Checked
+empirically, not just by inspection, since a plausible-looking claim
+about compile errors was already wrong once this round (§17.2's
+corrected renumbering claim).
+
+- **`planning.rs:130-135` (`start_state`/`reference_trajectories`) —
+  mechanically self-revealing.** The `Ok(PlanningRequest { ... })`
+  construction at `planning.rs:180-188` is an exhaustive struct
+  literal (no `..Default::default()`) even though `PlanningRequest`
+  derives `Default`. Verified by temporarily adding an undocumented
+  field to `crates/moveit-planning::PlanningRequest` and rebuilding
+  `ros/moveit-ros` in the docker toolchain: the build failed with
+  `error[E0063]: missing field `__temp_compile_check_field` in
+  initializer of `PlanningRequest`` pointing at exactly this call
+  site (the temporary field, and the edit to
+  `crates/moveit-planning/src/request.rs`, were reverted immediately
+  after; neither was committed). A new `PlanningRequest` field forces
+  a person to this exact line without anyone needing to remember the
+  comment exists.
+- **`state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
+  `multi_dof_joint_state`) — requires human memory.** Neither
+  `TryFrom<RobotStateMsg>` nor `TryFrom<CoreRobotState>` builds
+  `CoreRobotState` through a struct literal (`CoreRobotState::new`,
+  an opaque constructor, is the only construction site) and
+  `multi_dof_joint_state` support arriving on `moveit_state::RobotState`
+  changes no signature this file calls. The `attached_collision_objects`/
+  `is_diff` gap is even further from compiler-visible: its expiry is
+  authoring a conversion entry point that does not exist yet, so there
+  is nothing for a future edit to newly fail against.
+- **`trajectory.rs:142` (nonzero `time_from_start[0]`) — requires
+  human memory.** The rejection guards `RobotTrajectory::
+  add_suffix_way_point`'s own runtime invariant
+  (`duration_from_previous[0] == 0.0`), not a type or field
+  `TryFrom<JointTrajectoryMsg>` constructs exhaustively. A future
+  change to that invariant changes behavior, not any signature this
+  file's construction sites would fail to match.
+
+Only the latter two (three sites) genuinely need §153.1's
+documented-expiry treatment — the `planning.rs` one already has a
+compiler-enforced backstop independent of the comment, though the
+comment stays since it explains *why*, which E0063's message alone
+would not.

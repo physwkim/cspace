@@ -194,22 +194,28 @@ mod tests {
         assert_eq!(back.joint_constraints[0].joint_name, "j1");
     }
 
-    /// PORTING-PLAN.md §199 (D14): a `weight` of `0.0` is not an
-    /// unanswerable lookup (D6's actual scope -- an unresolved frame name)
-    /// but a wire default upstream's own constructors give it meaning for --
-    /// `kinematic_constraint.cpp:263` (`JointConstraint`, and the matching
-    /// lines for `PositionConstraint`/`OrientationConstraint`/
-    /// `VisibilityConstraint`) warns and substitutes `1.0` instead of
-    /// failing. `crates/moveit-constraints::JointConstraint::new` currently
-    /// rejects it with `Err` (`weight <= EPS`), so this test is red until
-    /// that crate's own D14 fix lands -- confirmed red by running this test
-    /// without `--ignored` before adding the `#[ignore]` below. Un-ignore
-    /// once the owning panel normalizes `weight` the way upstream does.
+    // PORTING-PLAN.md §199 (D14) + §205 (tripwire, not `#[ignore]`): a
+    // `weight` of `0.0` is not an unanswerable lookup (D6's actual scope --
+    // an unresolved frame name) but a wire default upstream's own
+    // constructors give meaning to -- `kinematic_constraint.cpp:263`
+    // (`JointConstraint`) and the matching `PositionConstraint`/
+    // `OrientationConstraint`/`VisibilityConstraint` lines the coordinator
+    // cited (`:450`/`:641`/`:871`) all warn and substitute `1.0` instead of
+    // failing. `crates/moveit-constraints`'s four constructors currently
+    // reject it with `Err` instead (`weight <= EPS`, one site per type,
+    // confirmed present in all four by reading each source file this
+    // round, not just `JointConstraint`) -- that crate owns the D14 fix,
+    // not this one.
+    //
+    // These four tests assert the CURRENT (wrong) `Err` behavior, not the
+    // desired one, so they are green today and go automatically RED the
+    // moment D14 lands (a `#[ignore]`d test asserting the desired behavior
+    // would instead stay silently green either way -- exactly the shape
+    // §184/§197.3 already closed once in this session). When one goes red,
+    // replace that test with `assert_eq!(c.weight(), 1.0)` on the
+    // corresponding `Constraint` variant, per D14.
     #[test]
-    #[ignore = "blocked on D14/§199: crates/moveit-constraints must \
-                normalize weight<=EPS to 1.0 instead of rejecting; \
-                currently red"]
-    fn unspecified_weight_is_normalized_to_one_not_rejected() {
+    fn unspecified_joint_weight_is_currently_rejected_not_normalized() {
         let model = one_joint_model();
         let mut unspecified_weight = joint_msg("j1");
         unspecified_weight.weight = 0.0; // wire default: never set by the publisher
@@ -220,11 +226,127 @@ mod tests {
             orientation_constraints: vec![],
             visibility_constraints: vec![],
         };
-        let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap();
-        match &set.constraints()[0] {
-            Constraint::Joint(c) => assert_eq!(c.weight(), 1.0),
-            other => panic!("expected Joint, got {other:?}"),
+        let err =
+            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    fn identity_pose() -> r2r::geometry_msgs::msg::Pose {
+        r2r::geometry_msgs::msg::Pose {
+            position: r2r::geometry_msgs::msg::Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            orientation: r2r::geometry_msgs::msg::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
         }
+    }
+
+    #[test]
+    fn unspecified_position_weight_is_currently_rejected_not_normalized() {
+        let model = one_joint_model();
+        let msg = moveit_msgs::Constraints {
+            name: "unspecified_weight".to_string(),
+            joint_constraints: vec![],
+            position_constraints: vec![moveit_msgs::PositionConstraint {
+                header: r2r::std_msgs::msg::Header {
+                    frame_id: model.model_frame().to_string(),
+                    ..Default::default()
+                },
+                link_name: "tip".to_string(),
+                target_point_offset: Default::default(),
+                constraint_region: moveit_msgs::BoundingVolume {
+                    primitives: vec![r2r::shape_msgs::msg::SolidPrimitive {
+                        type_: 2, // SPHERE
+                        dimensions: vec![0.05],
+                        polygon: Default::default(),
+                    }],
+                    primitive_poses: vec![identity_pose()],
+                    meshes: vec![],
+                    mesh_poses: vec![],
+                },
+                weight: 0.0, // wire default: never set by the publisher
+            }],
+            orientation_constraints: vec![],
+            visibility_constraints: vec![],
+        };
+        let err =
+            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn unspecified_orientation_weight_is_currently_rejected_not_normalized() {
+        let model = one_joint_model();
+        let msg = moveit_msgs::Constraints {
+            name: "unspecified_weight".to_string(),
+            joint_constraints: vec![],
+            position_constraints: vec![],
+            orientation_constraints: vec![moveit_msgs::OrientationConstraint {
+                header: r2r::std_msgs::msg::Header {
+                    frame_id: model.model_frame().to_string(),
+                    ..Default::default()
+                },
+                orientation: r2r::geometry_msgs::msg::Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+                link_name: "tip".to_string(),
+                absolute_x_axis_tolerance: 0.1,
+                absolute_y_axis_tolerance: 0.1,
+                absolute_z_axis_tolerance: 0.1,
+                parameterization: 0, // XYZ_EULER_ANGLES
+                weight: 0.0,         // wire default: never set by the publisher
+            }],
+            visibility_constraints: vec![],
+        };
+        let err =
+            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn unspecified_visibility_weight_is_currently_rejected_not_normalized() {
+        let model = one_joint_model();
+        let identity = identity_pose();
+        let msg = moveit_msgs::Constraints {
+            name: "unspecified_weight".to_string(),
+            joint_constraints: vec![],
+            position_constraints: vec![],
+            orientation_constraints: vec![],
+            visibility_constraints: vec![moveit_msgs::VisibilityConstraint {
+                target_radius: 0.1,
+                target_pose: r2r::geometry_msgs::msg::PoseStamped {
+                    header: r2r::std_msgs::msg::Header {
+                        frame_id: model.model_frame().to_string(),
+                        ..Default::default()
+                    },
+                    pose: identity.clone(),
+                },
+                cone_sides: 4,
+                sensor_pose: r2r::geometry_msgs::msg::PoseStamped {
+                    header: r2r::std_msgs::msg::Header {
+                        frame_id: "tip".to_string(),
+                        ..Default::default()
+                    },
+                    pose: identity,
+                },
+                max_view_angle: 0.0,
+                max_range_angle: 0.0,
+                sensor_view_direction: 2,
+                weight: 0.0, // wire default: never set by the publisher
+            }],
+        };
+        let err =
+            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
     }
 
     #[test]
