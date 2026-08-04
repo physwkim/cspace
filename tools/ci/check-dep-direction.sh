@@ -1,15 +1,22 @@
 #!/bin/bash
-# Enforces PORTING-PLAN.md §3: no crate except `moveit-ros` may depend on a ROS
-# client library. D1 makes the core a ROS-independent library; without a
-# mechanical check, a single convenience dependency quietly re-couples it and
-# the breakage is only noticed when someone tries to build without ROS 2.
+# Enforces PORTING-PLAN.md §3: no workspace member may depend on a ROS client
+# library. D1 makes the core a ROS-independent library; without a mechanical
+# check, a single convenience dependency quietly re-couples it and the breakage
+# is only noticed when someone tries to build without ROS 2.
+#
+# There used to be an `ALLOWED_PACKAGE='moveit-ros'` skip here, from when D2's
+# ROS crate was going to be a member. §129 put it at `ros/moveit-ros/` with its
+# own `[workspace]` instead, so `cargo metadata --no-deps` cannot list it and
+# the skip could never fire. Removing it rather than leaving it as a no-op is
+# the point: with no exception, the rule below is uniform, and the day someone
+# moves that crate under `crates/` this check fails -- which is the correct
+# answer, and the answer a dormant name-match would have suppressed.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 BANNED_RE='^(r2r|r2r_.*|rclrs|ros2-client|rustdds|rosidl_.*)$'
-ALLOWED_PACKAGE='moveit-ros'
 
 # Capture the package list up front. A process-substitution feeding `while
 # read` swallows the producer's exit status, so a failing `cargo metadata` would
@@ -27,7 +34,6 @@ fi
 
 status=0
 while read -r pkg; do
-  [[ "$pkg" == "$ALLOWED_PACKAGE" ]] && continue
   # `cargo tree -e normal` omits dev- and build-dependencies: a ROS dep in a
   # dev-dependency would still make `cargo test` need ROS, so include those too.
   # `cargo tree` runs on its own rather than at the head of the pipe, and its
@@ -51,6 +57,6 @@ while read -r pkg; do
 done <<<"$packages"
 
 if [[ $status -eq 0 ]]; then
-  echo "OK: no crate outside $ALLOWED_PACKAGE depends on a ROS client library"
+  echo "OK: no workspace member depends on a ROS client library"
 fi
 exit $status
