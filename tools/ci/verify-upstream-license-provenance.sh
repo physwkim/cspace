@@ -64,6 +64,21 @@
 # obvious: the fix is to make the two agree, and a matcher lenient enough to
 # accept a reworded holder is lenient enough to accept a wrong one.
 #
+# The third rule (UNRETAINED) is that one's mirror, and the one with a licence
+# clause behind it rather than a provenance argument: BSD-3-Clause and
+# Apache-2.0 both require a derivative work to retain its source's copyright
+# notice. Asserting a notice nothing supports is a provenance error; dropping
+# one the licence obliges you to carry is a compliance error, and this tree had
+# 36 of the latter -- including `joint/planar.rs` and `joint/revolute.rs`
+# needing exactly the `2013, Ioan A. Sucan` line that four other files assert
+# without having ported from him.
+#
+# It applies only where the header says `Ported from`, never `Used by`: the
+# second names the upstream caller of something, which creates no derivative
+# work. `velocity.rs` is the case that makes the distinction load-bearing --
+# what it cites is the call site that *would* have used the LGPL solver it
+# deliberately did not port.
+#
 #   tools/ci/verify-upstream-license-provenance.sh
 set -euo pipefail
 
@@ -156,6 +171,13 @@ COPYRIGHT = re.compile(
 ASSERTION = re.compile(r"^//\s*Copyright\b", re.I)
 # This tree's own line, which by construction has no upstream to justify it.
 OURS = re.compile(r"moveit-rs contributors", re.I)
+# The two verbs a header uses to introduce citations, and the reason the
+# retention rule below can tell them apart. `Ported from` means this file is a
+# derivative work of what follows; `Used by` means the opposite direction --
+# `velocity.rs` cites the call site that *would* have used the LGPL solver it
+# deliberately did not port. Only a derivation has a notice to retain.
+DERIVATION = re.compile(r"^//\s*(Ported|Derived|Adapted)\b", re.I)
+REFERENCE = re.compile(r"^//\s*Used by\b", re.I)
 
 
 def copyright_claims(lines, anchored=False):
@@ -252,11 +274,14 @@ def header_of(path):
 conflicts = []
 unresolved = []
 unjustified = []
+unretained = []
 checked = 0
 
 for path in tracked:
     spdx = ""
     citations = []
+    derivations = set()
+    derived = False
     header = header_of(path)
     asserted = copyright_claims(header, anchored=True)
     prefix = None          # (indent width, directory path) of the enclosing `.../` line
@@ -264,6 +289,10 @@ for path in tracked:
         match = SPDX.match(line)
         if match:
             spdx = match.group(1)
+        if DERIVATION.match(line):
+            derived = True
+        elif REFERENCE.match(line):
+            derived = False
         if NOT_PORTED.match(line):
             break
         match = CITATION.match(line)
@@ -287,12 +316,15 @@ for path in tracked:
         else:
             prefix = None
             citations.extend(expanded)
+        if derived:
+            derivations.update(citations[-len(expanded):])
     if prefix is not None and not prefix[2]:
         citations.append(prefix[1])
     if not citations and not asserted:
         continue
 
     justified = set()
+    retain = set()
     for citation in citations:
         resolved = resolve_citation(citation)
         if not resolved:
@@ -303,7 +335,14 @@ for path in tracked:
             checked += 1
             with open(member, encoding="utf-8", errors="replace") as handle:
                 head = handle.read(8000)
-            justified |= copyright_claims(head.splitlines())
+            found = copyright_claims(head.splitlines())
+            justified |= found
+            # A package directory names too many holders for a file header to
+            # reproduce, so retention is asked only of a citation that resolves
+            # to one file. That is a stated limit of this rule, not a claim
+            # that a whole-package port owes nothing.
+            if citation in derivations and len(resolved) == 1:
+                retain |= found
             if not reported and COPYLEFT.search(head) and PERMISSIVE.match(spdx):
                 # One report per citation: a package directory is cited once,
                 # however many copyleft files happen to sit under it.
@@ -312,6 +351,8 @@ for path in tracked:
 
     for year, holder in sorted(asserted - justified):
         unjustified.append((path, year, holder, tuple(citations)))
+    for year, holder in sorted(retain - asserted):
+        unretained.append((path, year, holder))
 
 status = 0
 if conflicts:
@@ -343,9 +384,20 @@ if unjustified:
     print("or its year/holder drifted from the file it came from. Make the notice", file=sys.stderr)
     print("reproduce the source it claims, or drop it.", file=sys.stderr)
 
+if unretained:
+    status = 1
+    for path, year, holder in unretained:
+        print(f"UNRETAINED  {path} ports from a file whose notice it drops:", file=sys.stderr)
+        print(f"            {year}, {holder}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("BSD-3-Clause and Apache-2.0 both require retaining the copyright", file=sys.stderr)
+    print("notice of the source a derivative work is built from. Add the line", file=sys.stderr)
+    print("as the cited file writes it, or say `Used by` if nothing was ported.", file=sys.stderr)
+
 print(f"checked {checked} upstream file(s) cited by {len(tracked)} tracked source file(s)")
 if status == 0:
-    print("OK: no permissive-SPDX file cites a copyleft upstream file, and every")
-    print("    asserted upstream copyright is reproduced by a file that file cites")
+    print("OK: no permissive-SPDX file cites a copyleft upstream file, every")
+    print("    asserted upstream copyright is reproduced by a file that file cites,")
+    print("    and every ported-from file's notice is retained")
 sys.exit(status)
 PYEOF
