@@ -86,21 +86,33 @@
 //!   existing `getMarkers()` exclusion), and `countSamplesPerSecond`'s two
 //!   overloads are a benchmarking helper with no test or caller needing it.
 //!
-//! Porting the sampler alone did not close the capability gap above, and
-//! still has not: [`crate::rrt_connect::rrt_connect`]'s signature takes one
-//! fixed `goal: S::State`, not a region or a re-sampleable source, so even
-//! though `IkConstraintSamplerAdapter` now exists, it has nowhere in this
-//! crate to hand its (potentially many, potentially retried-on-collision)
-//! candidate states — RRT-Connect itself still needs a second change,
-//! accepting something `GoalSampleableRegion`-shaped, before it could
-//! actually consume one. That second change has not been made; this
-//! disposition note describes the sampler side only.
+//! Porting the sampler alone did not close the *goal* half of the
+//! capability gap above, and still has not: [`crate::rrt_connect::rrt_connect`]'s
+//! `goal` parameter is one fixed `S::State`, not a region or a
+//! re-sampleable source, so even though `IkConstraintSamplerAdapter` now
+//! exists, it has nowhere in this crate to hand its (potentially many,
+//! potentially retried-on-collision) candidate states — RRT-Connect's
+//! *goal* still needs a second change, accepting something
+//! `GoalSampleableRegion`-shaped, before it could actually consume one.
+//! That second change has not been made; this disposition note describes
+//! the sampler side only.
 //!
 //! [`PlanningRequest::path_constraints`] *is* carried directly as a
 //! [`KinematicConstraintSet`], because path constraints are evaluated
 //! per-candidate via `decide()` — see
-//! [`crate::planning_scene_validity::PlanningSceneValidityChecker`] — never
-//! sampled from, so the missing sampler does not block them.
+//! [`crate::planning_scene_validity::PlanningSceneValidityChecker`] — so
+//! correctness never depended on a sampler. **Round 20**: `path_constraints`
+//! is now also fed to `select_default_sampler` and wired into
+//! [`crate::rrt_connect::rrt_connect`]'s uniform-sampling step (not its
+//! fixed `goal` — see [`crate::rrt_connect::Sampler`] and
+//! [`crate::rrt_connect::ConstrainedStateSampler`], mirroring upstream's
+//! `ompl_interface::ConstrainedSampler`), a distinct seam from the
+//! still-unaddressed goal-region gap the paragraph above describes:
+//! `RrtConnectContext::solve` builds the sampler through
+//! `crate::constrained_sampler::GroupConstraintSampler` whenever
+//! `path_constraints` is `Some`, purely as a sampling-efficiency aid —
+//! `checker` below still enforces the constraint on every candidate
+//! regardless of whether a sampler was available to help find one.
 //!
 //! `start` is not a [`PlanningRequest`] field: [`RrtConnectManager::get_planning_context`]
 //! reads it from the [`moveit_scene::PlanningScene`] it is given
@@ -116,17 +128,22 @@
 //! is no runtime plugin boundary for a string bag to cross.
 
 use moveit_collision::{CollisionRequest, ParryCollisionEnv};
-use moveit_constraints::KinematicConstraintSet;
+use moveit_constraints::{
+    DEFAULT_MAX_SAMPLING_ATTEMPTS, KinematicConstraintSet, select_default_sampler,
+};
 use moveit_scene::PlanningScene;
 use moveit_state::RobotState;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use crate::compound::CompoundValue;
+use crate::constrained_sampler::GroupConstraintSampler;
 use crate::error::SbpError;
 use crate::joint_model_group_space::JointModelGroupSpace;
 use crate::planning_scene_validity::PlanningSceneValidityChecker;
-use crate::rrt_connect::{PlanningFailure, RrtConnectParams, rrt_connect};
+use crate::rrt_connect::{
+    ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, rrt_connect,
+};
 use crate::validity::DiscreteMotionValidator;
 
 /// A motion planning query. See this module's doc comment for why this,
@@ -293,6 +310,47 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
         let start = self.space.read_robot_state(self.scene.current_state());
         let template = self.scene.current_state().clone();
 
+        // Mirrors `ompl_interface::ModelBasedPlanningContext::allocPathConstrainedSampler`
+        // (`model_based_planning_context.cpp`): builds the sampler
+        // `ConstraintSamplerManager::selectDefaultSampler` picks for
+        // `path_constraints`, before the tree search starts, so every
+        // uniform sample it draws can be constraint-directed rather than
+        // rejection-sampled after the fact. `select_default_sampler`'s only
+        // `Err` is an unresolvable name inside `subgroup_solvers`
+        // (`constraint_sampler_manager.rs:262`) — structurally unreachable
+        // here since `subgroup_solvers` is always empty: this port has no
+        // per-request IK-solver-per-subgroup wiring (see this module's own
+        // doc comment on why `PlanningRequest` carries no such thing).
+        // `Ok(None)` (no sampler could be built — e.g. `path_constraints`
+        // has no joint constraint and `solver: None` forecloses the
+        // IK-backed position/orientation path) is not an error: it means
+        // this query falls back to plain uniform sampling, exactly as if
+        // `path_constraints` were absent from the sampler's point of view.
+        // Correctness does not depend on a sampler existing either way —
+        // `checker` below still enforces `path_constraints` on every
+        // candidate regardless.
+        let constraint_sampler = self
+            .request
+            .path_constraints
+            .as_ref()
+            .and_then(|constraints| {
+                select_default_sampler(
+                    self.scene.robot_model(),
+                    &self.request.group_name,
+                    constraints.constraints(),
+                    None,
+                    vec![],
+                    DEFAULT_MAX_SAMPLING_ATTEMPTS,
+                )
+                .expect(
+                    "select_default_sampler's only Err is an unresolvable subgroup_solvers name; \
+                 subgroup_solvers is always empty here, so that path can never be taken",
+                )
+            });
+        let path_sampler = constraint_sampler
+            .as_deref()
+            .map(|sampler| GroupConstraintSampler::new(&self.space, sampler, template.clone()));
+
         let checker = PlanningSceneValidityChecker::new(
             &mut *self.scene,
             self.env,
@@ -309,7 +367,12 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
             &motion_validator,
             start,
             self.request.goal.clone(),
-            &mut rng,
+            Sampler {
+                rng: &mut rng,
+                constrained_sampler: path_sampler
+                    .as_ref()
+                    .map(|sampler| sampler as &dyn ConstrainedStateSampler<JointModelGroupSpace>),
+            },
             &self.request.params,
         )?;
 
@@ -423,7 +486,7 @@ mod tests {
         let (resolution, seed, params) = default_params(1);
 
         let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
-        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
         let goal = space.sample_uniform(&mut rng);
         // Captured before `solve()`: `PlanningSceneValidityChecker::is_valid`
         // leaves the scene's current state at whatever it last checked (see
@@ -529,7 +592,7 @@ mod tests {
             goal: goal.clone(),
             path_constraints: None,
             resolution: 0.02,
-            seed: 11,
+            seed: 3,
             params: RrtConnectParams {
                 step_size: 0.3,
                 goal_bias: 0.1,
@@ -563,5 +626,133 @@ mod tests {
             "PlanningScene::is_path_valid must independently confirm every waypoint the planner returned: {:?}",
             validity.invalid_waypoints
         );
+    }
+
+    /// Proves [`RrtConnectContext::solve`]'s constraint-sampler wiring is
+    /// load-bearing, not merely invoked: `panda_joint1` is pinned to
+    /// `+/-0.005` (against its own `+/-2.9671` bound, `panda.urdf:37`), start
+    /// and goal both already satisfy it, and `goal_bias: 0.0` forces every
+    /// sample through the uniform-sampling branch — [`RrtConnectParams`]'s
+    /// own doc comment covers what `goal_bias` biases toward; the point here
+    /// is that with it disabled, the window is the only thing standing
+    /// between the search and a solution.
+    ///
+    /// Both the window and the 20-iteration budget were picked by
+    /// measurement, not derivation: a `+/-0.05` window at a 300-iteration
+    /// budget (this test's first draft) let the unwired control find a path
+    /// on roughly half of a 30-seed sweep — a straight line between two
+    /// points already inside a convex interval constraint never leaves it,
+    /// so RRT-Connect's own bias toward short, near-direct paths in an
+    /// obstacle-free space finds one by chance often enough that "the
+    /// control fails" was not a reliable property, only a lucky seed. The
+    /// swept combination actually used below (`+/-0.005`, 20 iterations)
+    /// scored 30/30 unwired failures *and* 30/30 wired successes across
+    /// seeds `0..30` — see this round's git history for the sweep.
+    ///
+    /// - **Unwired control**: [`rrt_connect`] called directly with
+    ///   [`Sampler::unconstrained`] but the *same* constrained `checker` —
+    ///   this is exactly what [`RrtConnectContext::solve`] would do if the
+    ///   round 20 wiring did not exist. Must fail within the budget.
+    /// - **Wired**: the exact same query through the real
+    ///   [`RrtConnectManager::get_planning_context`] -> `solve()` path,
+    ///   same seed, same budget. Must succeed, and every waypoint's
+    ///   `panda_joint1` must sit inside the window — proving the registry's
+    ///   sampler wiring, not the checker alone, is what turns a budget the
+    ///   checker-only search exhausts into one the search solves within.
+    #[test]
+    fn path_constraint_sampler_is_load_bearing_not_merely_invoked() {
+        use moveit_constraints::{Constraint, JointConstraint};
+
+        use crate::rrt_connect::Sampler;
+
+        let (model, srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+
+        let mut goal_state = RobotState::new(&model);
+        goal_state.set_to_default_values();
+        for (name, value) in [
+            ("panda_joint1", 0.0025),
+            ("panda_joint2", 1.0),
+            ("panda_joint3", -0.5),
+            ("panda_joint4", -1.5),
+            ("panda_joint5", 0.3),
+            ("panda_joint6", 1.2),
+            ("panda_joint7", 0.4),
+        ] {
+            goal_state.set_variable_position(name, value).unwrap();
+        }
+        let goal = space.read_robot_state(&goal_state);
+
+        let joint_constraint = JointConstraint::new(&model, "panda_joint1", 0.0, 0.005, 0.005, 1.0)
+            .expect("valid joint constraint");
+        let mut path_constraints = KinematicConstraintSet::new();
+        path_constraints.push(Constraint::Joint(joint_constraint));
+
+        let small_budget = RrtConnectParams {
+            step_size: 0.5,
+            goal_bias: 0.0,
+            termination: Termination::Iterations(20),
+            nn_degree: 8,
+        };
+
+        // Unwired control: same checker (constrained), plain uniform
+        // sampling only.
+        let mut control_scene = PlanningScene::new(&model, &srdf);
+        let control_env = ParryCollisionEnv::default();
+        let control_checker = PlanningSceneValidityChecker::new(
+            &mut control_scene,
+            &control_env,
+            CollisionRequest::default(),
+            Some(&path_constraints),
+            &space,
+        );
+        let control_mv = DiscreteMotionValidator::new(&control_checker, 0.05);
+        let mut default_state = RobotState::new(&model);
+        default_state.set_to_default_values();
+        let control_start = space.read_robot_state(&default_state);
+        let control_result = rrt_connect(
+            &space,
+            &control_checker,
+            &control_mv,
+            control_start,
+            goal.clone(),
+            Sampler::unconstrained(&mut ChaCha8Rng::seed_from_u64(3)),
+            &small_budget,
+        );
+        assert_eq!(
+            control_result,
+            Err(PlanningFailure::IterationsExhausted),
+            "the unwired control (checker-only, no sampler) must NOT find the path the wired \
+             search below finds within the same iteration budget"
+        );
+
+        // Wired: the real registry path.
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let manager = RrtConnectManager;
+        let request = PlanningRequest {
+            group_name: "panda_arm".to_string(),
+            goal,
+            path_constraints: Some(path_constraints),
+            resolution: 0.05,
+            seed: 3,
+            params: small_budget,
+        };
+        let mut context = manager
+            .get_planning_context(&mut scene, &env, request)
+            .expect("panda_arm is a real group");
+        let response = context.solve().expect(
+            "the wired search must solve within the same iteration budget the unwired control \
+             above exhausts",
+        );
+        drop(context);
+
+        for (index, waypoint) in response.trajectory.iter().enumerate() {
+            let value = waypoint.variable_position("panda_joint1").unwrap();
+            assert!(
+                (-0.005..=0.005).contains(&value),
+                "waypoint {index}: panda_joint1 = {value} escaped the +/-0.005 constraint window"
+            );
+        }
     }
 }

@@ -365,6 +365,7 @@
 //!   comment).
 
 pub mod compound;
+mod constrained_sampler;
 mod error;
 pub mod joint_model_group_space;
 pub mod nn;
@@ -388,7 +389,9 @@ pub use registry::{
     PLANNER_MANAGERS, PlanError, PlannerManager, PlannerRegistration, PlanningContext,
     PlanningRequest, PlanningResponse, RrtConnectManager,
 };
-pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
+pub use rrt_connect::{
+    ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, Termination, rrt_connect,
+};
 pub use se3::{Se3Space, Se3State};
 pub use so2::So2Space;
 pub use space::{RealVectorSpace, StateSpace};
