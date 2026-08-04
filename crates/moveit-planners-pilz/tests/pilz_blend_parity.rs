@@ -1106,4 +1106,3 @@ fn blend_panda_arm_corner112_radius08_needs_its_own_acceleration_tolerance() {
         },
     );
 }
-
