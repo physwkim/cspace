@@ -113,6 +113,43 @@
 //! nothing here to bisect for a default-`max_relative`-masking regression
 //! the way other crates in this workspace round needed to.
 //!
+//! # Round 18: Phase 7's C++ baseline, not yet a port-side verdict
+//!
+//! Phase 7's three completion conditions (`PORTING-PLAN.md` §5) each compare
+//! this port's [`rrt_connect::rrt_connect`] against C++ OMPL RRTConnect on
+//! the same 500 problems. Building the problem set and measuring the C++
+//! side of that comparison is this round's whole scope — no port-side
+//! measurement exists yet (deferred to the next round; see that round's own
+//! report for why: a wrong problem set would have invalidated every port
+//! number measured against it, so the set is built and its C++ baseline
+//! checked on its own first).
+//!
+//! `examples/plan_benchmark_problem_set.rs` samples `(start, goal)` pairs
+//! for one named obstacle configuration and filters out any pair invalid on
+//! either end (self-collision or obstacle penetration, via this crate's own
+//! [`planning_scene_validity::PlanningSceneValidityChecker`]) — an
+//! unfiltered set would measure the sampler, not the planner.
+//! `benches/sweep_baseline.sh` drives it against the live oracle's `plan` op
+//! (§118) and is the reproducible command behind every number below; see
+//! that script's own doc comment for the full obstacle-difficulty sweep
+//! table, the reasoning for building the final set from exactly two of the
+//! six configs (`floor_wall`, `cage` — the only two where median
+//! `ptc_evaluations` rises above RRTConnect's single-iteration floor), and
+//! why that selection is *not* the same band another panel's
+//! untransferable-geometry measurement named.
+//!
+//! **C++ baseline, 500 problems (250 `floor_wall` + 250 `cage`, seeds
+//! `900001`/`900002`):** `498/500` solved (`99.6%`), median path length
+//! `2.6598` (space-distance units, [`joint_model_group_space::JointModelGroupSpace::distance`]'s
+//! own metric — see `tests/plan_space_parity.rs` for why that metric is the
+//! one both sides can be compared in at all), median `ptc_evaluations` `2`.
+//! This is the number condition 1 (success rate ≥90% of this) and condition
+//! 3 (port median length within 1.3x of this `2.6598`) will be compared
+//! against once a port-side measurement exists. Condition 2 (100% of
+//! produced paths pass `moveit-scene`'s collision/constraint checks) needs
+//! no C++ baseline at all — it is scored purely against the port's own
+//! output — and is untouched by this round.
+//!
 //! # Round 6 symbol audit
 //!
 //! This crate has two upstream relationships, not one, and they get audited
