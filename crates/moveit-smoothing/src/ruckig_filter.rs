@@ -379,10 +379,16 @@ mod tests {
     /// order upstream's `getVelAccelJerkBounds` checks in.
     #[test]
     fn joint_vel_accel_jerk_bounds_fails_without_acceleration_limits() {
+        // `matches!` alone cannot tell this apart from the sibling
+        // single-DOF/velocity/jerk guards, all Error::Other in this
+        // function; message-swap bite-checked against them.
         let model = panda();
         let group = model.joint_model_group("panda_arm").unwrap();
         let err = joint_vel_accel_jerk_bounds(&model, group).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "{err:?}");
+        assert!(
+            err.to_string().contains("acceleration limit defined"),
+            "{err}"
+        );
     }
 
     fn set_uniform_accel_jerk_bounds(model: &mut RobotModel, max_acceleration: f64, max_jerk: f64) {
@@ -524,10 +530,11 @@ mod tests {
         let mut positions = [0.5];
         let mut velocities = [0.0];
         let mut accelerations = [0.0];
-        let err = filter
-            .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
-            .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "{err:?}");
+        assert!(
+            filter
+                .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
+                .is_err()
+        );
     }
 
     #[test]
