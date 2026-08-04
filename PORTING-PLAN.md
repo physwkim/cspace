@@ -13881,6 +13881,36 @@ Tests: `resolution_far_smaller_than_distance_panics_instead_of_hanging`,
 `nan_distance_panics_instead_of_silently_producing_a_degenerate_range`
 (`crates/moveit-planners-sbp/src/validity.rs`).
 
+### 176.2 `longestValidSegmentCountFactor_` — factor confirmed 1, not dropped
+
+`validSegmentCount`'s full upstream line is
+`longestValidSegmentCountFactor_ * (unsigned int)ceil(distance / longestValidSegment_)`
+(`StateSpace.cpp:853`); the port has no factor. Checked whether that is a
+silently dropped multiplier or a correct no-op:
+
+- `StateSpace.cpp:94`: `longestValidSegmentCountFactor_` defaults to `1`
+  and is only ever changed by `setValidSegmentCountFactor()`
+  (`StateSpace.cpp:825`).
+- `rg -n "ValidSegmentCountFactor|longest_valid_segment" moveit_planners/ompl`
+  against upstream moveit2: MoveIt's `ompl_interface` only ever reads/sets
+  `longest_valid_segment_fraction` (`model_based_planning_context.cpp:294-315`,
+  feeding `setLongestValidSegmentFraction`) and never calls
+  `setValidSegmentCountFactor`. Also confirmed via
+  `ompl_interface.cpp:170`, which declares `longest_valid_segment_fraction`
+  as the only related planner parameter — no factor parameter exists in
+  the path this port models.
+
+So in the only path this port targets (MoveIt's own OMPL integration, not
+arbitrary direct OMPL use), the factor is always `1` — multiplying by it
+is a no-op upstream itself never exercises differently. Confirmed, not a
+defect. `PlanningRequest::resolution` also already models
+`longestValidSegment_` (the post-fraction absolute distance
+`DiscreteMotionValidator::new` takes directly), not the raw
+`longest_valid_segment_fraction` — the `maxExtent_ * fraction`
+multiplication is likewise the caller's responsibility outside this
+crate, matching how `moveit_planners_sbp` takes `resolution` as an
+already-resolved absolute value throughout, not a fraction.
+
 ## §177 링커 순서는 선택 규칙이 아니다 — `linkme` 슬라이스의 첫 항목 집기
 
 **측정.** `moveit-octomap/Cargo.toml`에 `thiserror` 한 줄을 추가한 것

@@ -126,13 +126,31 @@
 //! standing exclusion of that runtime-configuration layer (§68.4/§77.1,
 //! reaffirmed by §163's D12 rejection). `None` (every request before this
 //! field existed) is unchanged: identical fallback to uniform sampling.
-//! [`PlanningRequest::path_constraints`]' own `select_default_sampler` call
-//! does **not** read this field — see that call site's own comment in
-//! `RrtConnectContext::solve` for why (`Box<dyn KinematicsSolver>` has no
-//! `Clone`, so one caller-supplied solver cannot back both calls at once);
-//! a path-constraint goal needing IK-backed sampling must still resolve to
-//! a concrete [`Goal::State`] via `moveit-kinematics` itself, exactly as
-//! this section used to say for both cases.
+//! Through round 23, [`PlanningRequest::path_constraints`]' own
+//! `select_default_sampler` call did **not** read this field: it was
+//! consumed via `.take()` inside the goal call only, so the field's meaning
+//! ("the caller's solver") silently depended on which call site executed —
+//! a path-constraint region needing IK-backed sampling got none, with no
+//! type-level signal that this gap existed.
+//!
+//! **Round 24** (closing the same `PORTING-PLAN.md` §163.3 gap Round 23
+//! opened) fixed that: `solve` now converts `self.request.solver` once into
+//! a shared `Rc<RefCell<Box<dyn KinematicsSolver>>>>`, and both
+//! `select_default_sampler` calls — `path_constraints`' own and the goal's
+//! own — go through the same `resolve_constraint_sampler` helper (below,
+//! right before this trait's `impl`), wrapped in `SharedKinematicsSolver`,
+//! so both are backed by the *same* solver instance instead of only
+//! whichever call site got to `.take()` it first. See
+//! [`PlanningRequest::solver`]'s own doc comment for why `Rc<RefCell<>>` was
+//! chosen over `Arc` and over splitting the field in two.
+//!
+//! Boundary-tested at the `resolve_constraint_sampler` level, not
+//! end-to-end, for `path_constraints` specifically:
+//! `path_constraints_solver_wiring_matches_the_call_site` (this module's
+//! tests). An end-to-end `solve()`/`rrt_connect` test cannot discriminate
+//! here — `constrained_sampler::GroupConstraintSampler`'s own doc
+//! comment records a confirmed, separate architectural gap in how it seeds
+//! IK attempts that a wired path sampler does not reliably overcome.
 //!
 //! [`PlanningRequest::path_constraints`] *is* carried directly as a
 //! [`KinematicConstraintSet`], because path constraints are evaluated
@@ -164,9 +182,16 @@
 //! knows which concrete planner it is constructing a request for, so there
 //! is no runtime plugin boundary for a string bag to cross.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use moveit_collision::{CollisionRequest, ParryCollisionEnv};
-use moveit_constraints::{KinematicConstraintSet, select_default_sampler};
-use moveit_kinematics::KinematicsSolver;
+use moveit_constraints::{
+    Constraint, ConstraintSampler, KinematicConstraintSet, select_default_sampler,
+};
+use moveit_geometry::Isometry3;
+use moveit_kinematics::{KinematicsSolver, SolveOptions};
+use moveit_model::RobotModel;
 use moveit_scene::PlanningScene;
 use moveit_state::RobotState;
 use rand::SeedableRng;
@@ -290,23 +315,159 @@ pub struct PlanningRequest {
     pub seed: u64,
     /// RRT-Connect's own tuning parameters.
     pub params: RrtConnectParams,
-    /// Backs [`Goal::Constraints`]' own [`select_default_sampler`] call
-    /// with a real IK solver, so a goal region with a
-    /// [`moveit_constraints::PositionConstraint`]/
-    /// [`moveit_constraints::OrientationConstraint`] gets a real
+    /// Backs *every* [`select_default_sampler`] call `RrtConnectContext::solve`
+    /// makes — both [`Goal::Constraints`]' own and
+    /// [`PlanningRequest::path_constraints`]' own — with one real IK solver,
+    /// so a [`moveit_constraints::PositionConstraint`]/
+    /// [`moveit_constraints::OrientationConstraint`] region gets a real
     /// `IKConstraintSampler` instead of always falling back to uniform
-    /// sampling — see this module's own doc comment ("Round 21" paragraph)
-    /// for the gap this closes, and `PORTING-PLAN.md` §163.3/§164.5 for why
-    /// this is caller-supplied wiring, not automatic resolution: **nothing
-    /// in this crate picks a solver by name.** A caller wanting one must
-    /// construct it themselves, e.g. from
-    /// `moveit_kinematics::KINEMATICS_SOLVERS`, exactly as D4
-    /// already requires everywhere else in this workspace. `None` (every
-    /// call site's behavior before this field existed) remains fully valid
-    /// and keeps producing identical results: `path_constraints`' own
-    /// `select_default_sampler` call does not read this field yet — see
-    /// this module's doc comment for that still-open half.
+    /// sampling. See this module's own doc comment ("Round 21"/"Round 24"
+    /// paragraphs) for the gap this closes, and `PORTING-PLAN.md`
+    /// §163.3/§164.5 for why this is caller-supplied wiring, not
+    /// automatic resolution: **nothing in this crate picks a solver by
+    /// name.** A caller wanting one must construct it themselves, e.g. from
+    /// `moveit_kinematics::KINEMATICS_SOLVERS`, exactly as D4 already
+    /// requires everywhere else in this workspace. `None` (every call
+    /// site's behavior before this field existed) remains fully valid and
+    /// keeps producing identical results.
+    ///
+    /// **What is, and is not, verified for the `path_constraints` call
+    /// site specifically:** `registry.rs`'s
+    /// `path_constraints_solver_wiring_matches_the_call_site` test proves
+    /// `resolve_constraint_sampler` (the function both call sites now share)
+    /// builds no sampler for a Cartesian-only region when this field is
+    /// `None`, and a real IK-backed sampler producing constraint-satisfying
+    /// draws when it is `Some(..)`. It does not prove a full RRT-Connect
+    /// path search through a Cartesian-constrained corridor succeeds
+    /// end-to-end — `constrained_sampler::GroupConstraintSampler`'s
+    /// doc comment records a confirmed, separate architectural gap (its
+    /// per-attempt IK seed is not re-anchored to tree locality) that a wired
+    /// path sampler does not reliably overcome, and in the most tightly
+    /// measured scenario, actively worsened (0/5 vs. 5/5 success at matched
+    /// step size and budget). Setting this field is safe and correctly
+    /// wired either way — `checker` still enforces `path_constraints` on
+    /// every candidate regardless of whether a sampler helped find one —
+    /// but it is not, by itself, a fix for path-constrained planning
+    /// reliability.
+    ///
+    /// # Why `Option<Box<dyn KinematicsSolver>>`, not `Rc`/`Arc`/two fields
+    ///
+    /// The caller-facing type stays a plain owned `Box`: a caller building
+    /// one [`PlanningRequest`] never needs to know this context internally
+    /// shares it across two `select_default_sampler` calls.
+    /// `RrtConnectContext::solve` itself does the one-time conversion into
+    /// `SharedKinematicsSolver` (backed by `Rc<RefCell<Box<dyn
+    /// KinematicsSolver>>>` — the exact type `select_default_sampler`
+    /// already builds internally per call,
+    /// `moveit-constraints/src/constraint_sampler_manager.rs`'s own Step B),
+    /// so this field always means the same thing regardless of which
+    /// call site reads it: "the caller's solver, if any." Before round 24
+    /// this field read `Box<dyn KinematicsSolver>` and was consumed via
+    /// `.take()` inside the goal-only call site — meaning depended on
+    /// which branch executed, and a second call site added later would
+    /// have silently observed `None`; that is the exact defect round 24
+    /// closes.
+    ///
+    /// Three ownership shapes were weighed for the *internal* sharing
+    /// mechanism `solve` converts into:
+    ///
+    /// - **`Rc<RefCell<Box<dyn KinematicsSolver>>>>` (chosen).** Every
+    ///   [`PlanningContext`] in this crate is already documented
+    ///   single-threaded (see that trait's own doc comment), so this needs
+    ///   no `Send`/`Sync` bound on [`KinematicsSolver`] — none is declared on
+    ///   the trait today, so requiring one would newly constrain every
+    ///   implementation in this workspace. It also matches the sharing
+    ///   mechanism `select_default_sampler` already builds internally per
+    ///   call (`constraint_sampler_manager.rs`'s own Step B), so this round
+    ///   introduces no new pattern, just reuses it across call sites.
+    /// - **`Arc<dyn KinematicsSolver>`.** Rejected on two grounds, not just
+    ///   the `Send + Sync` cost: [`KinematicsSolver::solve_with_options`]
+    ///   takes `&mut self`, and a bare `Arc` grants only shared (immutable)
+    ///   access — reaching `&mut self` through it needs interior mutability
+    ///   regardless (`Arc<Mutex<Box<dyn KinematicsSolver>>>>`, not a plain
+    ///   `Arc`), at which point it is the identical shape as the chosen one
+    ///   plus an unneeded `Send + Sync` bound and mutex overhead for a
+    ///   single-threaded caller.
+    /// - **Splitting into two fields** (one solver per call site). Rejected:
+    ///   it removes the dual meaning but forces a caller with one real
+    ///   solver to either construct it twice or clone a handle themselves —
+    ///   pushing the exact sharing problem this type solves onto every
+    ///   caller instead of solving it once, centrally.
     pub solver: Option<Box<dyn KinematicsSolver>>,
+}
+
+/// Forwards to a solver borrowed through `Rc<RefCell<Box<dyn
+/// KinematicsSolver>>>` so more than one owner can hold a
+/// [`KinematicsSolver`]-shaped handle onto the *same* underlying solver
+/// instance — see [`PlanningRequest::solver`]'s own doc comment for why
+/// [`RrtConnectContext::solve`] needs this.
+///
+/// The four `&str`/`&[String]`-returning accessors
+/// ([`KinematicsSolver::group_name`], [`KinematicsSolver::joint_names`],
+/// [`KinematicsSolver::base_frame`], [`KinematicsSolver::tip_frame`]) are
+/// cached as owned `String`/`Vec<String>` at construction time rather than
+/// forwarded live through `RefCell::borrow()`: a borrow guard is a temporary
+/// that cannot outlive the method call producing it, so `&str` borrowed
+/// through one cannot satisfy `fn group_name(&self) -> &str`'s `&self`
+/// lifetime (`E0515`). Only [`KinematicsSolver::solve_with_options`] forwards
+/// live, through `RefCell::borrow_mut()`, because it returns an owned
+/// `Option<Vec<f64>>` with no such lifetime problem.
+struct SharedKinematicsSolver {
+    inner: Rc<RefCell<Box<dyn KinematicsSolver>>>,
+    group_name: String,
+    joint_names: Vec<String>,
+    base_frame: String,
+    tip_frame: String,
+}
+
+impl SharedKinematicsSolver {
+    fn new(inner: Rc<RefCell<Box<dyn KinematicsSolver>>>) -> Self {
+        let (group_name, joint_names, base_frame, tip_frame) = {
+            let solver = inner.borrow();
+            (
+                solver.group_name().to_string(),
+                solver.joint_names().to_vec(),
+                solver.base_frame().to_string(),
+                solver.tip_frame().to_string(),
+            )
+        };
+        Self {
+            inner,
+            group_name,
+            joint_names,
+            base_frame,
+            tip_frame,
+        }
+    }
+}
+
+impl KinematicsSolver for SharedKinematicsSolver {
+    fn group_name(&self) -> &str {
+        &self.group_name
+    }
+
+    fn joint_names(&self) -> &[String] {
+        &self.joint_names
+    }
+
+    fn base_frame(&self) -> &str {
+        &self.base_frame
+    }
+
+    fn tip_frame(&self) -> &str {
+        &self.tip_frame
+    }
+
+    fn solve_with_options(
+        &mut self,
+        seed: &[f64],
+        target: &Isometry3,
+        options: &mut SolveOptions,
+    ) -> Option<Vec<f64>> {
+        self.inner
+            .borrow_mut()
+            .solve_with_options(seed, target, options)
+    }
 }
 
 impl std::fmt::Debug for PlanningRequest {
@@ -472,84 +633,90 @@ struct RrtConnectContext<'a, 'm> {
     request: PlanningRequest,
 }
 
+/// The `select_default_sampler` call both the `path_constraints` and the
+/// goal (`Goal::Constraints`) branches of [`RrtConnectContext::solve`] make
+/// — factored out to one function so this round's boundary test
+/// (`path_constraints_solver_wiring_matches_the_call_site`, below) exercises
+/// the exact code `solve()` runs at the `path_constraints` call site,
+/// rather than a hand-reconstructed copy of it that could silently drift
+/// out of sync.
+///
+/// Mirrors `ompl_interface::ModelBasedPlanningContext::allocPathConstrainedSampler`/
+/// `allocGoalSampler` (`model_based_planning_context.cpp`), which build
+/// their `ConstraintSamplerPtr` the same way for both path and goal
+/// constraints. `select_default_sampler`'s only `Err` is an unresolvable
+/// name inside `subgroup_solvers` (`constraint_sampler_manager.rs:262`) —
+/// structurally unreachable here since `subgroup_solvers` is always empty
+/// at both call sites. `Ok(None)` (no sampler could be built — e.g. no
+/// joint constraint and no solver was supplied) is not an error: it means
+/// this query falls back to plain uniform sampling for that region,
+/// exactly as if the constraints were absent from the sampler's point of
+/// view. For `path_constraints`, correctness does not depend on a sampler
+/// existing either way — `checker` in `solve()` still enforces
+/// `path_constraints` on every candidate regardless of whether a sampler
+/// was available to help find one.
+fn resolve_constraint_sampler(
+    model: &RobotModel,
+    group_name: &str,
+    constraints: &[Constraint],
+    shared_solver: Option<Rc<RefCell<Box<dyn KinematicsSolver>>>>,
+) -> Option<Box<dyn ConstraintSampler>> {
+    select_default_sampler(
+        model,
+        group_name,
+        constraints,
+        shared_solver
+            .map(|inner| Box::new(SharedKinematicsSolver::new(inner)) as Box<dyn KinematicsSolver>),
+        vec![],
+        DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS,
+    )
+    .expect(
+        "select_default_sampler's only Err is an unresolvable subgroup_solvers name; \
+         subgroup_solvers is always empty here, so that path can never be taken",
+    )
+}
+
 impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
     fn solve(&mut self) -> Result<PlanningResponse<'m>, PlanError> {
         let start = self.space.read_robot_state(self.scene.current_state());
         let template = self.scene.current_state().clone();
 
-        // Mirrors `ompl_interface::ModelBasedPlanningContext::allocPathConstrainedSampler`
-        // (`model_based_planning_context.cpp`): builds the sampler
-        // `ConstraintSamplerManager::selectDefaultSampler` picks for
-        // `path_constraints`, before the tree search starts, so every
-        // uniform sample it draws can be constraint-directed rather than
-        // rejection-sampled after the fact. `select_default_sampler`'s only
-        // `Err` is an unresolvable name inside `subgroup_solvers`
-        // (`constraint_sampler_manager.rs:262`) — structurally unreachable
-        // here since `subgroup_solvers` is always empty, and this call
-        // still passes `solver: None` unconditionally: `Box<dyn
-        // KinematicsSolver>` has no `Clone`, so `self.request.solver` can
-        // back only one of this function's two `select_default_sampler`
-        // calls, and the goal call below is the one PORTING-PLAN.md
-        // §163.3/§164.5's boundary tests exercise. A caller whose
-        // `path_constraints` itself needs IK-backed position/orientation
-        // sampling still gets none here — recorded as a still-open,
-        // narrower gap, not silently folded into the goal-side closure.
-        // `Ok(None)` (no sampler could be built — e.g. `path_constraints`
-        // has no joint constraint and `solver: None` forecloses the
-        // IK-backed position/orientation path) is not an error: it means
-        // this query falls back to plain uniform sampling, exactly as if
-        // `path_constraints` were absent from the sampler's point of view.
-        // Correctness does not depend on a sampler existing either way —
-        // `checker` below still enforces `path_constraints` on every
-        // candidate regardless.
+        // Round 24: `self.request.solver` is converted to a shared
+        // `Rc<RefCell<Box<dyn KinematicsSolver>>>>` once, up front, so both
+        // `resolve_constraint_sampler` calls below (`path_constraints`' own
+        // and the goal's own) can be backed by the *same* real IK solver
+        // instance instead of only whichever call site got to `.take()` it
+        // first. See `PlanningRequest::solver`'s own doc comment and
+        // `SharedKinematicsSolver` for why this replaces the old
+        // single-consumer `.take()` pattern.
+        let shared_solver: Option<Rc<RefCell<Box<dyn KinematicsSolver>>>> = self
+            .request
+            .solver
+            .take()
+            .map(|solver| Rc::new(RefCell::new(solver)));
+
         let constraint_sampler = self
             .request
             .path_constraints
             .as_ref()
             .and_then(|constraints| {
-                select_default_sampler(
+                resolve_constraint_sampler(
                     self.scene.robot_model(),
                     &self.request.group_name,
                     constraints.constraints(),
-                    None,
-                    vec![],
-                    DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS,
-                )
-                .expect(
-                    "select_default_sampler's only Err is an unresolvable subgroup_solvers name; \
-                 subgroup_solvers is always empty here, so that path can never be taken",
+                    shared_solver.clone(),
                 )
             });
         let path_sampler = constraint_sampler
             .as_deref()
             .map(|sampler| GroupConstraintSampler::new(&self.space, sampler, template.clone()));
 
-        // Same reasoning as `constraint_sampler` above, built the same way
-        // (before `checker` takes `self.scene` for the rest of this
-        // function) — `select_default_sampler`'s `Err` path is unreachable
-        // here for the identical reason. Mirrors
-        // `ompl_interface::ModelBasedPlanningContext::allocGoalSampler`,
-        // which allocates the goal's own `ConstraintSamplerPtr` the same
-        // way `allocPathConstrainedSampler` does for path constraints, just
-        // fed `goal_constraints_` instead.
-        //
-        // Unlike `constraint_sampler` above, this call is fed
-        // `self.request.solver` (`.take()`: `Box<dyn KinematicsSolver>` has
-        // no `Clone`, and this is the only call site that consumes it —
-        // see `PlanningRequest::solver`'s own doc comment). `None` when the
-        // caller left it unset, unchanged from before this field existed.
         let goal_constraint_sampler = match &self.request.goal {
-            Goal::Constraints(goal_constraints) => select_default_sampler(
+            Goal::Constraints(goal_constraints) => resolve_constraint_sampler(
                 self.scene.robot_model(),
                 &self.request.group_name,
                 goal_constraints.constraints(),
-                self.request.solver.take(),
-                vec![],
-                DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS,
-            )
-            .expect(
-                "select_default_sampler's only Err is an unresolvable subgroup_solvers name; \
-                 subgroup_solvers is always empty here, so that path can never be taken",
+                shared_solver.clone(),
             ),
             Goal::State(_) => None,
         };
@@ -1186,6 +1353,182 @@ mod tests {
             assert!(
                 oc.decide(&posed).satisfied,
                 "seed {seed}: wired trajectory's last waypoint escaped the orientation tolerance"
+            );
+        }
+    }
+
+    /// `PlanningRequest::solver` (`PORTING-PLAN.md` §176), boundary-tested
+    /// for the `path_constraints` call site specifically: through round 23
+    /// this call site never read `self.request.solver` at all (it was
+    /// consumed via `.take()` inside the goal branch only), so a
+    /// Cartesian-only `path_constraints` region got no IK-backed sampler no
+    /// matter what a caller passed. Round 24 fixed that by routing both call
+    /// sites through the shared `resolve_constraint_sampler` helper above.
+    ///
+    /// This is deliberately **not** an end-to-end `solve()`/`rrt_connect`
+    /// test: `crate::constrained_sampler::GroupConstraintSampler`'s own doc
+    /// comment records a confirmed, separate architectural gap (its `template`
+    /// is a fixed per-attempt seed, not re-anchored to tree locality) that
+    /// makes a wired path sampler *not* reliably improve — and in the
+    /// tightest measured scenario, actively worsen — full RRT-Connect
+    /// success for path-constrained corridors. A `solve()`-level test would
+    /// therefore measure that confound, not this round's change. Instead
+    /// this calls `resolve_constraint_sampler` directly, with the exact
+    /// arguments `solve()`'s `path_constraints` branch passes it
+    /// (`group_name`, `subgroup_solvers: vec![]`,
+    /// `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS`).
+    ///
+    /// **What this test proves:** `resolve_constraint_sampler` builds no
+    /// sampler for a Cartesian-only region when `solver: None` — the red
+    /// half, matching every request before `PlanningRequest::solver`
+    /// existed — and builds a real IK-backed sampler whose draws satisfy
+    /// both the position and orientation constraint when `solver: Some(..)`
+    /// — the green half.
+    ///
+    /// **What this test does NOT prove:** that `solve()`'s `path_constraints`
+    /// branch itself still passes `shared_solver.clone()` rather than some
+    /// future edit reverting it to an unconditional `None` — this test calls
+    /// `resolve_constraint_sampler` directly, not through `solve()`, so it
+    /// cannot observe that call site's own argument. What closes that gap is
+    /// structural, not this assertion: `solve()`'s `path_constraints` and
+    /// goal branches (below) call `resolve_constraint_sampler` with the
+    /// textually identical `shared_solver.clone()` pattern, and the goal
+    /// branch's use of that exact pattern *is* independently verified
+    /// end-to-end by `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable`
+    /// (above) — a reviewer comparing the two call sites, not an automated
+    /// test, is what stands behind the path branch matching it. Nor does
+    /// this test prove a full RRT-Connect path search through a
+    /// Cartesian-constrained corridor succeeds end-to-end; see the seeding
+    /// gap noted above for why that is a separate, open question.
+    #[test]
+    fn path_constraints_solver_wiring_matches_the_call_site() {
+        use moveit_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
+        use moveit_geometry::{Sphere, Transforms, Vector3};
+        use moveit_kinematics::{NewtonRaphsonSolver, SolverParams};
+
+        const PANDA_ARM_JOINTS: [&str; 7] = [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ];
+
+        let (model, _srdf) = load_panda();
+
+        // Same target pose `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable`
+        // (above) already measures a `NewtonRaphsonSolver` reliably reaching
+        // within these tolerances — reused rather than re-derived.
+        let true_values = [0.3, -0.4, 0.2, -1.9, 0.1, 1.2, 0.5];
+        let mut fk_state = RobotState::new(&model);
+        fk_state.set_to_default_values();
+        for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&true_values) {
+            fk_state.set_variable_position(name, v).unwrap();
+        }
+        let target_pose = fk_state
+            .update()
+            .global_link_transform("panda_link8")
+            .unwrap();
+
+        let tf = Transforms::new("world").unwrap();
+        let pc = PositionConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[(Shape::Sphere(Sphere::new(0.02).unwrap()), target_pose)],
+            1.0,
+        )
+        .unwrap();
+        let oc = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.1,
+                y: 0.1,
+                z: 0.1,
+            },
+            1.0,
+        )
+        .unwrap();
+
+        let mut path_constraints = KinematicConstraintSet::new();
+        path_constraints.push(Constraint::Position(pc.clone()));
+        path_constraints.push(Constraint::Orientation(oc.clone()));
+
+        // Red half.
+        let unwired =
+            resolve_constraint_sampler(&model, "panda_arm", path_constraints.constraints(), None);
+        assert!(
+            unwired.is_none(),
+            "solver: None must build no sampler for a Cartesian-only path_constraints region, \
+             matching this call site's behaviour before PlanningRequest::solver existed"
+        );
+
+        // Green half.
+        let solver: Box<dyn KinematicsSolver> = Box::new(
+            NewtonRaphsonSolver::new(&model, "panda_arm", &SolverParams::default())
+                .expect("panda_arm is a chain"),
+        );
+        let shared_solver = Some(Rc::new(RefCell::new(solver)));
+        let wired = resolve_constraint_sampler(
+            &model,
+            "panda_arm",
+            path_constraints.constraints(),
+            shared_solver,
+        )
+        .expect(
+            "solver: Some(..) must build a real IK-backed sampler for this Cartesian-only \
+             region, the same target pose the goal-side wiring test above already measures a \
+             NewtonRaphsonSolver reliably reaching",
+        );
+
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        // `set_to_default_values()`, matching `solve()`'s own `template`
+        // (`self.scene.current_state().clone()`, and
+        // `PlanningScene::with_world` always calls
+        // `set_to_default_values()` at construction) -- an all-zero
+        // `RobotState::new` template converges the IK seed 0/50 times for
+        // this target pose; the default-values seed converges reliably, the
+        // same gap the goal-side wiring test above implicitly relies on by
+        // going through the real `scene.current_state()`.
+        let mut template = RobotState::new(&model);
+        template.set_to_default_values();
+        let bridge = GroupConstraintSampler::new(&space, wired.as_ref(), template);
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        // `try_sample` returning `None` on a given call is an ordinary
+        // "this attempt found nothing," not a failure -- `rrt_connect.rs`'s
+        // own `sample_uniform` only ever allows the constrained sampler 3
+        // tries before falling back to plain uniform sampling
+        // (`rrt_connect.rs`'s `Sampler::sample_uniform` doc comment, mirroring
+        // upstream `ConstrainedSampler::sampleUniform`'s
+        // `!sampleC && !sampleC && !sampleC`). This loop retries generously
+        // (50 attempts) per draw instead, since the property under test is
+        // "can this sampler ever produce a compliant draw," not "does it
+        // succeed within the 3-try budget a single `rrt_connect` growth step
+        // allows" -- that tighter budget is a tree-growth performance
+        // concern, not what this test measures.
+        for i in 0..20 {
+            let compound = (0..50)
+                .find_map(|_| bridge.try_sample(&mut rng))
+                .unwrap_or_else(|| panic!("draw {i}: IK-backed sampler found nothing in 50 tries"));
+            let mut robot_state = RobotState::new(&model);
+            robot_state.set_to_default_values();
+            space.write_robot_state(&compound, &mut robot_state);
+            let posed = robot_state.update();
+            assert!(
+                pc.decide(&posed).satisfied,
+                "draw {i}: sample escaped the position tolerance"
+            );
+            assert!(
+                oc.decide(&posed).satisfied,
+                "draw {i}: sample escaped the orientation tolerance"
             );
         }
     }
