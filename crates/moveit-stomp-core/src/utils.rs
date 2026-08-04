@@ -284,7 +284,7 @@ pub fn generate_finite_difference_matrix(
 ///
 /// # `num_timesteps == 0`
 ///
-/// Handled by [`full_piv_lu_try_inverse_or_empty`] before reaching
+/// Handled by `full_piv_lu_try_inverse_or_empty` before reaching
 /// `full_piv_lu()`, not a case that flows through the general path.
 /// Upstream's `int num_timesteps` lets Eigen invert a 0x0
 /// `control_cost_matrix_R` without complaint (empty matrices are trivially

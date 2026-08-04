@@ -293,7 +293,7 @@ impl Stomp {
     }
 
     /// `solve(first, last, parameters_optimized)`: computes an initial
-    /// trajectory via [`Stomp::compute_initial_trajectory`], then optimizes
+    /// trajectory via `Stomp::compute_initial_trajectory`, then optimizes
     /// it. Upstream's `Eigen::VectorXd` overload of the same name is not
     /// ported separately: converting a `DVector<f64>` to `&[f64]` is
     /// `.as_slice()` at the call site, so it carries no separate behavior
