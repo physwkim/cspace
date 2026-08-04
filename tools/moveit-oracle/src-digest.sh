@@ -77,7 +77,18 @@ oracle_file_digest() {  # <tools/moveit-oracle dir>
 # Dockerfile depends on this: it exports the resolved ARGs before sourcing,
 # so the stamp records what the build actually used and not these defaults.
 ORACLE_BASE_IMAGE="${ORACLE_BASE_IMAGE:-moveit/moveit2@sha256:7c394edd1faac3eb2dda1519df0cda58e9d870c42aaa7a7678934f76e3d1acc0}"
-ORACLE_MOVEIT2_PACKAGES="${ORACLE_MOVEIT2_PACKAGES:-moveit_core moveit_resources_fanuc_description}"
+# pilz_industrial_motion_planner joins moveit_core here for the
+# `pilz_trajectory` op (Phase 8's LIN/PTP/CIRC completion condition). It is
+# the one planner this file builds from source rather than taking prebuilt
+# from the base image the way `plan` takes OMPL: pilz is a moveit2 package,
+# so it tracks MOVEIT2_SHA, and a prebuilt copy would silently pair oracle
+# trajectories with a different revision than every other op reports.
+#
+# moveit_kinematics comes with it, not for a generator but for LIN and CIRC:
+# both run IK on their Cartesian goal, and a URDF+SRDF-only RobotModel has no
+# solver, so both returned NO_IK_SOLUTION until `ensureKinematicsSolver`
+# could load `kdl_kinematics_plugin/KDLKinematicsPlugin` by name.
+ORACLE_MOVEIT2_PACKAGES="${ORACLE_MOVEIT2_PACKAGES:-moveit_core moveit_resources_fanuc_description pilz_industrial_motion_planner moveit_kinematics}"
 ORACLE_MOVEIT2_SHA="${ORACLE_MOVEIT2_SHA:-e017c91ee12984393a28ba246075c65f69cde3bf}"
 
 # Serialized build inputs, one `NAME=value` per line. A deliberately

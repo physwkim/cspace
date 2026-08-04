@@ -109,6 +109,22 @@
 #include <moveit/robot_model/floating_joint_model.hpp>
 #include <moveit/robot_model/planar_joint_model.hpp>
 
+// The `pilz_trajectory` op's three generators. Unlike every other planner in
+// this file these are reached by direct construction, not through pluginlib:
+// `TrajectoryGeneratorPTP`/`LIN`/`CIRC` all export their
+// `(RobotModelConstPtr, LimitsContainer, group_name)` constructor and inherit
+// the one public entry point `TrajectoryGenerator::generate`, all four `T` in
+// the installed shared objects (verified by `nm -DC`, PORTING-PLAN.md §130).
+// So this costs a widened MOVEIT2_PACKAGES but no rclcpp::Node.
+#include <moveit/kinematic_constraints/utils.hpp>
+#include <moveit/kinematics_base/kinematics_base.hpp>
+#include <moveit/robot_state/conversions.hpp>
+#include <pilz_industrial_motion_planner/joint_limits_container.hpp>
+#include <pilz_industrial_motion_planner/limits_container.hpp>
+#include <pilz_industrial_motion_planner/trajectory_generator_circ.hpp>
+#include <pilz_industrial_motion_planner/trajectory_generator_lin.hpp>
+#include <pilz_industrial_motion_planner/trajectory_generator_ptp.hpp>
+
 using json = nlohmann::json;
 
 namespace
@@ -907,6 +923,8 @@ public:
       return plan(request);
     if (op == "ruckig_filter")
       return ruckigFilter(request);
+    if (op == "pilz_trajectory")
+      return pilzTrajectory(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -4760,6 +4778,300 @@ private:
                  { "problems", problems_out } };
   }
 
+  /// Ground truth for Phase 8's pilz completion condition: LIN/PTP/CIRC
+  /// trajectories matching this port within `1e-6`. Requested by p1-joints
+  /// after they ported `trajectory_functions` and `trajectory_generator`.
+  ///
+  /// One op for all three generators, selected by `generator`
+  /// (`"ptp"`/`"lin"`/`"circ"`), because the three share a constructor shape
+  /// and a single inherited entry point -- `TrajectoryGenerator::generate`,
+  /// which each subclass specializes only through the private
+  /// `extractMotionPlanInfo`/`plan` overrides. Three ops would have been
+  /// three copies of the same request assembly.
+  ///
+  /// # Why the limits ride in the request
+  ///
+  /// p1-joints' request spec asked for the opposite: leave
+  /// `LimitsContainer` out of the JSON and have both sides read the same
+  /// `joint_limits.yaml`/`pilz_cartesian_limits.yaml`. That rests on a
+  /// premise that does not hold here -- those files exist only under
+  /// `third_party/moveit_resources/`, which is gitignored. A fixture whose
+  /// meaning depends on a gitignored external checkout is precisely what
+  /// `tools/ci/verify-clean-checkout.sh` exists to catch, and neither side
+  /// has a YAML reader to begin with (`moveit-planners-pilz`'s `limits.rs`
+  /// builds `JointLimitsContainer` programmatically; this file has
+  /// nlohmann_json and nothing else).
+  ///
+  /// Carrying them in the request is also the stronger of the two against
+  /// the divergence p1-joints was guarding against. Their worry was a
+  /// typo'd limit; but one request drives *both* sides, so a typo lands
+  /// identically on each. It can make a case less interesting than
+  /// intended -- it cannot manufacture a disagreement. Two independent
+  /// readers of one YAML file is the arrangement that can.
+  ///
+  /// `joint_limits` mirrors `moveit_planners_pilz`'s own `JointLimit`
+  /// field-for-field (the union of `joint_limits::JointLimits` and pilz's
+  /// `joint_limits_interface::JointLimits` extension), so the port's
+  /// `limits::JointLimit` deserializes it without a translation table.
+  ///
+  /// # Response shape
+  ///
+  /// Per waypoint: `positions`, `velocities`, `accelerations` (all
+  /// joint-name keyed) and `time_from_start` -- not positions alone.
+  /// p1-joints' round 18 found two real bugs (`is_state_colliding`'s
+  /// inverted return, `push_way_point`'s missing reference-state seed) that
+  /// a positions-only trace cannot see: the second corrupts a floating
+  /// joint's *state* rather than its interpolated position, and the
+  /// backward-difference velocity/acceleration chain is arithmetic no
+  /// positions-only fixture exercises at all.
+  ///
+  /// `sampling_time` is a required request field rather than defaulted.
+  /// `generate()`'s C++ default is `0.1` and this port's
+  /// `generate_joint_trajectory` runs the same `t += sampling_time`
+  /// accumulation, so a `1e-6` comparison is only meaningful if both sides
+  /// used one value; requiring it here means neither side's default can
+  /// drift the two apart silently.
+  /// Attaches `kdl_kinematics_plugin/KDLKinematicsPlugin` to `group_name`,
+  /// once per group, and reports whether the group now has a solver.
+  ///
+  /// PTP never needs this -- its goal is joint-space. LIN and CIRC do:
+  /// `extractMotionPlanInfo` runs IK on the Cartesian goal, and a model
+  /// built from URDF+SRDF alone carries no solver, so both returned
+  /// `NO_IK_SOLUTION` (`-31`) before this existed. That is worth stating
+  /// plainly because PORTING-PLAN.md §122 concluded "no pluginlib
+  /// workaround needed" -- true of the three *generators*, which this file
+  /// constructs directly, and measured as such in §130. LIN/CIRC's IK
+  /// dependency is a separate requirement that conclusion never covered,
+  /// and it surfaced only because PTP passing was not accepted as evidence
+  /// for the other two.
+  ///
+  /// A consequence to carry into any LIN/CIRC comparison: the oracle's
+  /// waypoints now depend on *this* KDL solver, while the port's
+  /// `compute_pose_ik` depends on `moveit-kinematics`. Whatever those two
+  /// disagree by is inside the `1e-6` budget before the trajectory code is
+  /// reached at all, so a LIN/CIRC divergence is not attributable to the
+  /// trajectory port until Phase 4's IK parity is subtracted out.
+  ///
+  /// The `ParamListener` reads `robot_description_kinematics.<group>` off
+  /// the node; generate_parameter_library declares every one of those with
+  /// a default, so an otherwise-empty node yields the plugin's documented
+  /// defaults rather than failing.
+  bool ensureKinematicsSolver(const std::string& group_name)
+  {
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (group == nullptr)
+      return false;
+    if (group->getSolverInstance() != nullptr)
+      return true;
+
+    const std::vector<const moveit::core::LinkModel*>& tips = group->getLinkModels();
+    if (tips.empty())
+      return false;
+
+    if (!rclcpp::ok())
+      rclcpp::init(0, nullptr);
+    static int node_counter = 0;
+    auto node = std::make_shared<rclcpp::Node>("pilz_ik_oracle_" + std::to_string(node_counter++));
+
+    auto loader = std::make_shared<pluginlib::ClassLoader<kinematics::KinematicsBase>>("moveit_core", "kinematics::"
+                                                                                                      "KinematicsBase");
+    std::shared_ptr<kinematics::KinematicsBase> solver =
+        loader->createSharedInstance("kdl_kinematics_plugin/KDLKinematicsPlugin");
+    if (!solver->initialize(node, *model_, group_name, model_->getRootLinkName(), { tips.back()->getName() },
+                            /*search_discretization=*/0.005))
+      return false;
+
+    // The loader must outlive every instance it created, and the node must
+    // outlive the plugin that captured it -- both are kept alive here for
+    // the process's lifetime rather than at block scope.
+    kinematics_loaders_.push_back(loader);
+    kinematics_nodes_.push_back(node);
+
+    // Keyed by group *name*: `setKinematicsAllocators` takes
+    // `std::map<std::string, SolverAllocatorFn>`, not a pointer-keyed map.
+    std::map<std::string, moveit::core::SolverAllocatorFn> allocators;
+    allocators[group_name] = [solver](const moveit::core::JointModelGroup*) { return solver; };
+    model_->setKinematicsAllocators(allocators);
+    return group->getSolverInstance() != nullptr;
+  }
+
+  json pilzTrajectory(const json& request)
+  {
+    namespace pilz = pilz_industrial_motion_planner;
+
+    const std::string generator = request.at("generator").get<std::string>();
+    const std::string group_name = request.at("group_name").get<std::string>();
+    const double sampling_time = request.at("sampling_time").get<double>();
+
+    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    if (group == nullptr)
+      throw std::runtime_error("unknown joint model group: " + group_name);
+
+    pilz::JointLimitsContainer joint_limits;
+    for (const auto& [joint_name, limit_json] : request.at("joint_limits").items())
+    {
+      pilz::JointLimit limit;
+      limit.has_position_limits = limit_json.value("has_position_limits", false);
+      limit.min_position = limit_json.value("min_position", 0.0);
+      limit.max_position = limit_json.value("max_position", 0.0);
+      limit.has_velocity_limits = limit_json.value("has_velocity_limits", false);
+      limit.max_velocity = limit_json.value("max_velocity", 0.0);
+      limit.has_acceleration_limits = limit_json.value("has_acceleration_limits", false);
+      limit.max_acceleration = limit_json.value("max_acceleration", 0.0);
+      limit.has_deceleration_limits = limit_json.value("has_deceleration_limits", false);
+      limit.max_deceleration = limit_json.value("max_deceleration", 0.0);
+      limit.has_jerk_limits = limit_json.value("has_jerk_limits", false);
+      limit.max_jerk = limit_json.value("max_jerk", 0.0);
+      limit.has_effort_limits = limit_json.value("has_effort_limits", false);
+      limit.max_effort = limit_json.value("max_effort", 0.0);
+      limit.angle_wraparound = limit_json.value("angle_wraparound", false);
+      if (!joint_limits.addLimit(joint_name, limit))
+        throw std::runtime_error("JointLimitsContainer::addLimit rejected joint " + joint_name);
+    }
+
+    pilz::LimitsContainer limits;
+    limits.setJointLimits(joint_limits);
+    if (request.contains("cartesian_limits"))
+    {
+      const json& cart = request.at("cartesian_limits");
+      cartesian_limits::Params params;
+      params.max_trans_vel = cart.at("max_trans_vel").get<double>();
+      params.max_trans_acc = cart.at("max_trans_acc").get<double>();
+      params.max_trans_dec = cart.at("max_trans_dec").get<double>();
+      params.max_rot_vel = cart.at("max_rot_vel").get<double>();
+      limits.setCartesianLimits(params);
+    }
+
+    // The scene's current state IS the start state: `generate()` reads it
+    // back out through `scene->getCurrentState()` and `checkStartState`
+    // validates it against `group_name`'s active joints, so seeding the
+    // model default here instead would validate a state the request never
+    // asked for.
+    auto scene = std::make_shared<planning_scene::PlanningScene>(model_);
+    moveit::core::RobotState start_state(*state_);
+    for (const auto& [variable, value] : request.at("start_state").items())
+      start_state.setVariablePosition(variable, value.get<double>());
+    start_state.update();
+    scene->setCurrentState(start_state);
+
+    planning_interface::MotionPlanRequest req;
+    req.group_name = group_name;
+    req.max_velocity_scaling_factor = request.at("max_velocity_scaling_factor").get<double>();
+    req.max_acceleration_scaling_factor = request.at("max_acceleration_scaling_factor").get<double>();
+    moveit::core::robotStateToRobotStateMsg(start_state, req.start_state);
+
+    // A discriminated goal, not upstream's `Constraints` list.
+    // `checkGoalConstraints` (`trajectory_generator.cpp:221-254`) accepts
+    // exactly one constraint of exactly one kind, so this shape produces
+    // the identical accepted set without a JSON encoding of the ambiguous
+    // multi-list message.
+    const json& goal = request.at("goal");
+    const std::string goal_kind = goal.at("kind").get<std::string>();
+    if (goal_kind == "joint")
+    {
+      moveit::core::RobotState goal_state(*state_);
+      for (const auto& [variable, value] : goal.at("joints").items())
+        goal_state.setVariablePosition(variable, value.get<double>());
+      goal_state.update();
+      req.goal_constraints.push_back(kinematic_constraints::constructGoalConstraints(goal_state, group));
+    }
+    else if (goal_kind == "cartesian")
+    {
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header.frame_id = model_->getModelFrame();
+      const auto position = goal.at("position").get<std::array<double, 3>>();
+      const auto orientation = goal.at("orientation").get<std::array<double, 4>>();
+      pose.pose.position.x = position[0];
+      pose.pose.position.y = position[1];
+      pose.pose.position.z = position[2];
+      pose.pose.orientation.x = orientation[0];
+      pose.pose.orientation.y = orientation[1];
+      pose.pose.orientation.z = orientation[2];
+      pose.pose.orientation.w = orientation[3];
+      req.goal_constraints.push_back(kinematic_constraints::constructGoalConstraints(
+          goal.at("link_name").get<std::string>(), pose, goal.value("tolerance_position", 1e-4),
+          goal.value("tolerance_angle", 1e-4)));
+    }
+    else
+    {
+      throw std::runtime_error("unsupported goal kind: " + goal_kind);
+    }
+
+    // CIRC alone needs a path constraint to name its interim/centre point;
+    // the other two never read `path_constraints`.
+    if (request.contains("path_constraint"))
+    {
+      const json& path = request.at("path_constraint");
+      moveit_msgs::msg::Constraints constraint;
+      constraint.name = path.at("name").get<std::string>();  // "interim" or "center"
+      moveit_msgs::msg::PositionConstraint position_constraint;
+      position_constraint.link_name = path.at("link_name").get<std::string>();
+      const auto point = path.at("position").get<std::array<double, 3>>();
+      geometry_msgs::msg::Pose primitive_pose;
+      primitive_pose.position.x = point[0];
+      primitive_pose.position.y = point[1];
+      primitive_pose.position.z = point[2];
+      primitive_pose.orientation.w = 1.0;
+      position_constraint.constraint_region.primitive_poses.push_back(primitive_pose);
+      constraint.position_constraints.push_back(position_constraint);
+      req.path_constraints = constraint;
+    }
+
+    // PTP is deliberately excluded: attaching a solver it never consults
+    // would still perturb the shared `model_` for every later op in the
+    // same process.
+    if ((generator == "lin" || generator == "circ") && !ensureKinematicsSolver(group_name))
+      throw std::runtime_error("no kinematics solver could be attached to group " + group_name +
+                               ", which " + generator + " needs for its Cartesian goal");
+
+    std::unique_ptr<pilz::TrajectoryGenerator> trajectory_generator;
+    if (generator == "ptp")
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorPTP>(model_, limits, group_name);
+    else if (generator == "lin")
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorLIN>(model_, limits, group_name);
+    else if (generator == "circ")
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorCIRC>(model_, limits, group_name);
+    else
+      throw std::runtime_error("unsupported generator: " + generator);
+
+    planning_interface::MotionPlanResponse res;
+    trajectory_generator->generate(scene, req, res, sampling_time);
+
+    json out{ { "error_code", res.error_code.val }, { "planning_time", res.planning_time } };
+
+    // A non-SUCCESS `generate()` clears the trajectory rather than throwing
+    // (`unittest_trajectory_generator_ptp.cpp:207-214`), so a null
+    // `waypoints` here is a real, comparable outcome -- the port must
+    // reject the same requests -- not a capture failure.
+    if (res.trajectory == nullptr || res.trajectory->empty())
+    {
+      out["waypoints"] = nullptr;
+      return out;
+    }
+
+    json waypoints_out = json::array();
+    for (std::size_t i = 0; i < res.trajectory->getWayPointCount(); ++i)
+    {
+      const moveit::core::RobotState& waypoint = res.trajectory->getWayPoint(i);
+      json positions = json::object();
+      json velocities = json::object();
+      json accelerations = json::object();
+      for (const std::string& variable : group->getVariableNames())
+      {
+        positions[variable] = waypoint.getVariablePosition(variable);
+        velocities[variable] = waypoint.getVariableVelocity(variable);
+        accelerations[variable] = waypoint.getVariableAcceleration(variable);
+      }
+      waypoints_out.push_back(json{ { "positions", positions },
+                                    { "velocities", velocities },
+                                    { "accelerations", accelerations },
+                                    { "time_from_start", res.trajectory->getWayPointDurationFromStart(i) } });
+    }
+    out["waypoints"] = waypoints_out;
+    out["group_variable_names"] = group->getVariableNames();
+    return out;
+  }
+
   moveit::core::RobotModelPtr model_;
   std::unique_ptr<moveit::core::RobotState> state_;
 
@@ -4779,6 +5091,13 @@ private:
   // this records whether that has already happened. See `plan()`'s
   // Determinism section.
   bool ompl_seeded_ = false;
+
+  // For `ensureKinematicsSolver` only: a pluginlib loader unloads its
+  // library on destruction, which would leave the group's cached solver
+  // pointing into unmapped code, and KDLKinematicsPlugin holds the node it
+  // was initialized with. Both outlive the call that made them.
+  std::vector<std::shared_ptr<pluginlib::ClassLoader<kinematics::KinematicsBase>>> kinematics_loaders_;
+  std::vector<rclcpp::Node::SharedPtr> kinematics_nodes_;
 };
 
 }  // namespace

@@ -32,6 +32,10 @@ find_package(pluginlib REQUIRED)
 # to MOVEIT2_PACKAGES -- see oracle.cpp's `plan()` for why it links plain OMPL
 # rather than moveit_planners_ompl.
 find_package(ompl REQUIRED)
+# For the pilz_trajectory op's three generators. Unlike ompl this is a moveit2
+# package, so it is built from source and rides MOVEIT2_PACKAGES -- see
+# src-digest.sh's own comment on that line.
+find_package(pilz_industrial_motion_planner REQUIRED)
 
 add_executable(moveit_oracle
   src/oracle.cpp
@@ -70,6 +74,21 @@ target_link_libraries(moveit_oracle
     rclcpp::rclcpp
     pluginlib::pluginlib
     ${OMPL_LIBRARIES}
+    # `planning_context_loader_{ptp,lin,circ}` carry the three generator
+    # constructors (each ships its own `trajectory_generator_*.cpp`);
+    # `trajectory_generation_common` carries the inherited
+    # `TrajectoryGenerator::generate`; `joint_limits_common` carries
+    # `LimitsContainer`/`JointLimitsContainer`;
+    # `cartesian_limits_parameters` carries `cartesian_limits::Params`,
+    # generated at build time by generate_parameter_library and therefore
+    # not findable as a plain header. Verified against the export set in
+    # `pilz_industrial_motion_plannerTargetsExport.cmake`.
+    pilz_industrial_motion_planner::planning_context_loader_ptp
+    pilz_industrial_motion_planner::planning_context_loader_lin
+    pilz_industrial_motion_planner::planning_context_loader_circ
+    pilz_industrial_motion_planner::trajectory_generation_common
+    pilz_industrial_motion_planner::joint_limits_common
+    pilz_industrial_motion_planner::cartesian_limits_parameters
 )
 # octomap ships old-style CMake variables (OCTOMAP_INCLUDE_DIRS/LIBRARIES),
 # not an imported target, per its own octomap-config.cmake. orocos_kdl and
