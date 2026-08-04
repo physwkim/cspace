@@ -403,7 +403,7 @@ fn main() {
 /// own `README.md` for provenance. Unlike `collision_parity.rs`'s
 /// `fixture_mesh_search_paths` (which points at the small, committed subset
 /// under `fixtures/meshes/` so `cargo test` needs no submodule), this tool
-/// already requires `third_party/` for `tools/ci/run-oracle-sweep.sh`'s own
+/// already requires `third_party/` for `tools/ci/verify-oracle-sweep.sh`'s own
 /// fixture-provenance check, and is never run in CI (see that script's own
 /// module doc), so pointing directly at the full vendored tree costs nothing
 /// extra here and additionally covers pr2, which `fixtures/meshes/` does not.
