@@ -12534,3 +12534,68 @@ bounds 적용 **뒤에** "waypoints/durations_from_previous length mismatch"로 
 - committed fixture는 전부 자기 프로세스에서 캡처됐으므로 이번 누수에 오염되지
   않았다(43/43 identical이 그 증거다). 오염될 수 있었던 것은 **한 프로세스에 여러
   op을 보내는 실행** — `moveit-diff`, 그리고 캡처를 batch로 돌릴 경우다.
+
+## §158 `ros/`가 72커밋 동안 main에서 컴파일되지 않았다 — 같은 경계, 두 번째
+
+§144가 기록한 것과 **같은 경계에서 같은 모양으로** 다시 깨졌다. 이번에는 값을
+쟀다.
+
+### 158.1 측정
+
+p9-ros 라운드 4를 병합(`5e71b54`)한 직후 `sg docker -c 'ros/verify-ros-interop.sh'`:
+
+```
+error[E0063]: missing field `start_state` in initializer of
+              `moveit_planning::PlanningResponse<'_>`
+  --> src/planning.rs:266:12   및   :439:19
+```
+
+`start_state`를 넣은 커밋은 `26c0442`(p1-fixtures 라운드 22)이고, 그 시점부터
+main에 **72커밋**이 쌓였다. `ros/moveit-ros`는 그 72커밋 내내 컴파일되지 않는
+상태였고, 어떤 게이트도 그것을 보지 않았다. p9-ros 라운드 4의 게이트가 초록이었던
+것은 거짓 보고가 아니다 — 그 브랜치는 main보다 **49커밋 뒤**였고, 자기 base에
+대해서는 실제로 통과했다. 브랜치 게이트는 자기 base에 대한 진술이지 main에 대한
+진술이 아니다.
+
+### 158.2 왜 아무도 못 봤나
+
+D5로 `ros/moveit-ros`는 루트 워크스페이스 **밖**에 있다. 따라서
+`cargo nextest run --workspace`도 `cargo clippy --workspace`도 이 크레이트를
+컴파일하지 않는다. 컴파일하는 것은 `ros/verify-ros-interop.sh` 하나뿐인데, 이건
+r2r → ROS 헤더 → docker가 필요해서 `check-*.sh` glob(러너에 docker 없음)에 들어갈
+수 없다. 이름이 `verify-*`인 것은 맞는 분류다(§143). 문제는 **`verify-*`를 아무도
+자동으로 돌리지 않는다**는 것이다.
+
+### 158.3 규칙 — 조건 없이 병합마다 돌린다
+
+측정된 비용: **9.9초**(warm cache, 97 tests). 조건부 규칙("crates/ 공개 API가
+바뀐 병합에서만")은 판단을 요구하고, 판단은 이번에 실패한 바로 그 지점이다.
+9.9초면 판단을 없애는 편이 싸다:
+
+> **병합자는 모든 병합 뒤 `sg docker -c 'ros/verify-ros-interop.sh'`를 돌린다.
+> 예외 없음.** 마지막 줄이 정확히 `all gates passed`인지로 판정한다 —
+> `sg docker -c`가 종료코드를 가린다.
+
+이것이 **관례이지 게이트가 아니라는 점을 명시해 둔다.** §157에서 관례로 막아둔
+불변식이 어떻게 무너지는지 방금 봤다. 여기서 구조적으로 닫지 못하는 이유는
+분명하다: ros/를 컴파일하려면 docker+ROS가 필요하고, 그건 지금 CI 러너에 없다.
+만료 조건(§153.1) — **레지스트리/원격이 생겨 ci.yml이 실제로 돌기 시작하면**,
+docker 있는 러너에서 이 스크립트를 job으로 돌릴 수 있고 그때 관례는 게이트로
+승격된다. §144.2가 추적 중인 그 항목이다.
+
+### 158.4 이번에 고친 것
+
+`c8dd883`. `PlanningResponse::start_state`의 wire 대응물은
+`MotionPlanResponse.trajectory_start`이고, `RobotStateMsg`/`RobotStateMsgOut`
+변환기는 이미 있었다. 그래서 양방향 모두 실제로 옮긴다 — msg→core는
+`trajectory_start`를 디코드하고, core→msg는 `start_state`를 싣는다. 기본값으로
+채우는 것은 선택지가 아니었다: `start_state`는 호출자가 궤적에서 다시 유도할 수
+없는 유일한 상태라 기본값은 **조용한 날조**가 된다.
+
+round-trip 테스트는 시작 상태를 궤적 첫 waypoint와 **다른 값**(`j1= -0.7` vs
+`0.3`)으로 두었다. 같게 두면 `start_state`를 궤적에서 재구성하는 잘못된 구현도
+통과한다.
+
+`trajectory_start`를 "대응 필드 없음"으로 적어둔 doc도 고쳤다. `group_name`/
+`planning_time`/`error_code`는 여전히 대응물이 없고, `planning_time`은
+p1-fixtures가 근거를 대는 중이라 만료 조건을 같이 적었다.
