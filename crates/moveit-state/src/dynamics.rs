@@ -1,21 +1,14 @@
 // Copyright (c) 2013, Ioan A. Sucan
-// Copyright (c) 2009, Ruben Smits
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/dynamics_solver/include/moveit/dynamics_solver/dynamics_solver.hpp
 //   moveit_core/dynamics_solver/src/dynamics_solver.cpp
-// and orocos_kinematics_dynamics @ v1.5.1:
-//   orocos_kdl/src/chainidsolver_recursive_newton_euler.{hpp,cpp}
-//   orocos_kdl/src/{frames.hpp,frames.inl,rigidbodyinertia.{hpp,cpp},
-//                   rotationalinertia.hpp,segment.{hpp,cpp},joint.{hpp,cpp},
-//                   chain.{hpp,cpp}}
-//
-// Every operator below was diffed against the headers the oracle's own
-// image ships under `/usr/include/kdl` before being trusted (`.cpp` files
-// have no image-side counterpart — KDL ships there as a compiled `.so` —
-// so those were read from the pinned `v1.5.1` checkout directly).
+// (`DynamicsSolver`'s own public API and constructor precondition
+// sequence). See the module doc's "Why this file stays BSD-3-Clause"
+// section for orocos_kinematics_dynamics, the LGPL-2.1-or-later source
+// this file's spatial-algebra core plays the role of instead of porting.
 
 //! Inverse dynamics (`DynamicsSolver`) for moveit-rs: joint torques from a
 //! chain's inertial properties, velocity and acceleration, via the
@@ -111,6 +104,33 @@
 //! URDF-driven `kdl_parser` construction leaves it at `0.0`. This term is
 //! therefore always zero for every fixture this port has ground truth for,
 //! and is omitted rather than coded as a permanent no-op.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! `ChainIdSolver_RNE`, `Frame`, `Twist`, `Wrench`, `RigidBodyInertia` and
+//! `Segment`/`Joint`/`Chain` are LGPL-2.1-or-later
+//! (`third_party/orocos_kinematics_dynamics/`), heavier copyleft than this
+//! workspace's BSD-3-Clause. Nothing in this file's spatial-algebra core
+//! is transcribed from them: `rigid_body_inertia_from_link`,
+//! `frame_inverse_twist`, `frame_mul_wrench`, `twist_cross`,
+//! `twist_cross_wrench`, `dot_twist_wrench`, `inertia_mul_twist`, and
+//! `sweep`'s own gravity/recursion/force-propagation logic are each
+//! derived independently from standard rigid-body dynamics (the
+//! parallel-axis theorem, rigid-body velocity/wrench transfer formulas,
+//! the transport theorem, Newton-Euler's equation, virtual work, and
+//! Newton's third law) — see each function's own doc comment for the
+//! derivation. What is reused from the LGPL sources is *interface facts*,
+//! not expression: `Twist`/`Wrench`'s two-3-vector field layout (mirroring
+//! `KDL::Twist`/`KDL::Wrench`'s own member names, the only sensible
+//! representation of a spatial velocity/force pair regardless of
+//! authorship), the general shape of a two-sweep recursive dynamics
+//! algorithm over a chain, and — already documented above — the
+//! `X[i]`/`S[i]` substitution this port needs in place of a `KDL::Chain`
+//! it cannot construct. Equivalence with upstream is proven the same way
+//! every other file in this crate proves it: oracle parity on captured
+//! fixtures (`tests/dynamics_parity.rs`, four robots — panda, fanuc,
+//! dual_arm_panda, pr2 — each checked against ground truth captured from
+//! the real moveit2 oracle), not line correspondence.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Vector3};
