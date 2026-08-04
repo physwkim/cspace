@@ -3516,6 +3516,82 @@ mod tests {
         );
     }
 
+    /// This function's own doc claims [`mesh_world_obb_aabb`] fits `mesh`'s
+    /// oriented box from `mesh.triangles()`'s flattened per-*corner* points
+    /// (FCL's `getCovariance`, `geometry-inl.h:1349-1379`), weighting a
+    /// shared vertex once per incident triangle rather than once per unique
+    /// vertex. Every other test of this function uses a mesh where each
+    /// vertex is incident to exactly one triangle, so per-corner and
+    /// per-vertex weighting coincide there and neither this claim nor a
+    /// regression to `mesh.vertices()` (deduplicated) would show up.
+    ///
+    /// This test would catch that regression: `v0` is the apex of a
+    /// 5-triangle fan, so it carries 5 corner copies against 2 apiece for
+    /// `v1..v5` -- a weighting only the per-corner scheme produces. Both
+    /// candidate fits are computed independently here, via the exact same
+    /// `parry3d_f64::utils::obb` this function calls, once on the real
+    /// per-corner list and once on the deduplicated vertex list, so this
+    /// does not just re-derive [`mesh_world_obb_aabb`]'s own computation.
+    ///
+    /// What this pins: the weighting scheme (per-corner vs. per-vertex).
+    /// What it would not catch: a change to a *different* per-corner-weighted
+    /// fit (e.g. a different eigensolver or point-projection convention)
+    /// that still weights `v0` 5x -- the claim-audit entry for
+    /// `parry3d_f64::utils::obb` itself already covers that the algorithm
+    /// used is PCA-via-covariance, not bit-identical to FCL's own.
+    #[test]
+    fn mesh_world_obb_aabb_weights_by_triangle_corner_not_deduplicated_vertex() {
+        let verts = vec![
+            ParryVector::new(0.0, 0.0, 0.0),
+            ParryVector::new(10.0, 0.0, 0.0),
+            ParryVector::new(10.0, 8.0, 0.0),
+            ParryVector::new(2.0, 10.0, 0.0),
+            ParryVector::new(-8.0, 6.0, 0.0),
+            ParryVector::new(-6.0, -6.0, 0.0),
+        ];
+        let tris: [[u32; 3]; 5] = [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 5], [0, 5, 1]];
+        let mesh_pose = to_pose(Isometry3::identity());
+        let mesh = TriMesh::new(verts.clone(), tris.to_vec()).unwrap();
+
+        let weighted_corners: Vec<ParryVector> = tris
+            .iter()
+            .flat_map(|t| t.iter().map(|&i| verts[i as usize]))
+            .collect();
+        let (weighted_pose, weighted_cuboid) = parry3d_f64::utils::obb(&weighted_corners);
+        let weighted_aabb = weighted_cuboid.compute_aabb(&(mesh_pose * weighted_pose));
+
+        let (dedup_pose, dedup_cuboid) = parry3d_f64::utils::obb(&verts);
+        let dedup_aabb = dedup_cuboid.compute_aabb(&(mesh_pose * dedup_pose));
+
+        let actual = mesh_world_obb_aabb(&mesh_pose, &mesh);
+
+        assert_point_close(
+            [actual.mins.x, actual.mins.y, actual.mins.z],
+            [
+                weighted_aabb.mins.x,
+                weighted_aabb.mins.y,
+                weighted_aabb.mins.z,
+            ],
+        );
+        assert_point_close(
+            [actual.maxs.x, actual.maxs.y, actual.maxs.z],
+            [
+                weighted_aabb.maxs.x,
+                weighted_aabb.maxs.y,
+                weighted_aabb.maxs.z,
+            ],
+        );
+        assert!(
+            (actual.mins.x - dedup_aabb.mins.x).abs() > 0.1
+                || (actual.mins.y - dedup_aabb.mins.y).abs() > 0.1
+                || (actual.maxs.x - dedup_aabb.maxs.x).abs() > 0.1
+                || (actual.maxs.y - dedup_aabb.maxs.y).abs() > 0.1,
+            "actual {actual:?} should differ from the deduplicated-vertex fit {dedup_aabb:?} by \
+             more than fitting noise -- if it did not, this mesh would fail to distinguish the \
+             two weighting schemes and this test would not be pinning anything"
+        );
+    }
+
     #[test]
     fn mesh_shape_cost_sources_no_intersection_is_empty() {
         let mesh_pose = to_pose(Isometry3::identity());

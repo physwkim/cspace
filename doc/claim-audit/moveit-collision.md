@@ -132,3 +132,28 @@ point that receives a `CollisionRequest`/`DistanceRequest` but bypasses
 `distance_robot` (e.g. a batched or continuous variant), that entry
 point needs its own `active_group_links`/`pair_in_active_group` wiring —
 not assumed inherited from this fix.
+
+## `mesh_world_obb_aabb`'s per-corner weighting is now pinned by a test (round with commit pending)
+
+The OBB-fit round's own citation (`geometry-inl.h:1349-1379`, `getCovariance`
+sums over each triangle's 3 vertices individually) was never contradicted by
+any existing test: every mesh fixture in this file gives each vertex exactly
+one incident triangle, so a regression to `mesh.vertices()` (deduplicated)
+would pass every one of them unnoticed — the exact failure mode §167.5 and
+the `moveit-error` `Display` audit already caught once each, a citation
+correct when written and never re-checked as the surrounding code moved.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| new test `mesh_world_obb_aabb_weights_by_triangle_corner_not_deduplicated_vertex` | a mesh where one vertex (`v0`) is incident to 5 triangles against 2 for each other vertex measurably distinguishes per-corner-weighted fitting from deduplicated-vertex fitting | CONFIRMED, by construction | fit computed both ways with the actual `parry3d_f64::utils::obb` this crate calls; AABBs differ by `~0.2`-`0.5` per component, run in `python3` first (pure-Python 2D PCA, no dependency available) before committing to the Rust construction |
+| same test | this test fails if `mesh_world_obb_aabb` is changed to fit `mesh.vertices()` (deduplicated) instead of the per-corner flattening | CONFIRMED | temporarily edited the function to `mesh.vertices().to_vec()`, ran the test, watched it fail (`component 0: actual -10.87... vs expected -11.21...`) while the pre-existing rotation test kept passing under the same edit, then reverted and re-ran to confirm both pass again |
+
+Explicit boundary (what this test does and does not catch, since an
+unstated boundary is exactly what let deviation 1 sit uncorrected above):
+catches a regression to deduplicated-vertex fitting, or to any other
+scheme that would weight `v0` differently from a 5:2 ratio against
+`v1..v5`. Does not catch a change to a *different* per-corner-weighted
+algorithm (a different eigensolver, a different point-projection
+convention) that still preserves that 5:2 weighting — `parry3d_f64::utils::obb`'s
+own fit is already audited above as PCA-via-covariance, not claimed
+bit-identical to FCL's `FitImpl<S, OBB<S>>::run`.
