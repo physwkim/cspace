@@ -1961,6 +1961,7 @@ mod tests {
     use std::sync::Arc;
 
     use moveit_collision::{AllowedCollisionType, LinkPaddingScale, ParryCollisionEnv};
+    use moveit_constraints::{Constraint, JointConstraint};
     use moveit_geometry::Cuboid;
     use moveit_model::MeshSearchPaths;
     use moveit_srdf::SrdfModel;
@@ -2972,6 +2973,50 @@ mod tests {
         let result = scene.check_collision(&env, &CollisionRequest::default());
 
         assert!(result.collision);
+    }
+
+    #[test]
+    fn is_path_valid_collects_every_invalid_waypoint_not_just_the_first() {
+        // Measures the type doc's claim on `PathValidity` ("this port always
+        // computes the full set") and `is_path_valid`'s own claim ("Invalid
+        // waypoint indices are collected, not short-circuited on the first
+        // failure") -- neither had a regression test: every existing
+        // `is_path_valid` case (`is_state_valid_parity.rs`'s fixture) has at
+        // most one invalid waypoint per path, which cannot distinguish
+        // "collects all" from "stops at the first hit" -- both produce the
+        // same one-element `invalid_waypoints`. Two waypoints here, `joint_q`
+        // moved to `x = 5.0` and `x = 6.0` (both collision-free per
+        // `is_state_colliding_is_false_when_links_are_apart`, so collision
+        // cannot be the thing failing either one), against a path constraint
+        // neither position satisfies (`trans_x == 0.0 ± 0.01`) -- a
+        // short-circuiting implementation would report only `[0]`.
+        let model = build_collision_model();
+        let scene = PlanningScene::new(&model, &srdf());
+        let mut waypoint_0 = scene.current_state().clone();
+        waypoint_0
+            .set_joint_transform("joint_q", &Isometry3::translation(5.0, 0.0, 0.0))
+            .unwrap();
+        let mut waypoint_1 = scene.current_state().clone();
+        waypoint_1
+            .set_joint_transform("joint_q", &Isometry3::translation(6.0, 0.0, 0.0))
+            .unwrap();
+        let mut scene = scene;
+        let mut path_constraints = KinematicConstraintSet::new();
+        path_constraints.push(Constraint::Joint(
+            JointConstraint::new(&model, "joint_q/trans_x", 0.0, 0.01, 0.01, 1.0).unwrap(),
+        ));
+        let env = ParryCollisionEnv::default();
+
+        let result = scene.is_path_valid(
+            &env,
+            &CollisionRequest::default(),
+            &[waypoint_0, waypoint_1],
+            Some(&path_constraints),
+            &[],
+        );
+
+        assert!(!result.valid);
+        assert_eq!(result.invalid_waypoints, vec![0, 1]);
     }
 
     #[test]
