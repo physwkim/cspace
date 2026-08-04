@@ -323,16 +323,43 @@ const CORNER112_ACCELERATION_TOLERANCE: f64 = 2e-6;
 /// geometry chosen there so the value is inconsequential.
 const CHECK_SELF_COLLISION: bool = true;
 
-/// `velocity_tolerance`/`acceleration_tolerance` are passed explicitly,
-/// not read from the module-level constants, because case E
-/// (`panda_blend_corner112`) measures a genuinely larger divergence at
-/// `blend_trajectory`'s interior waypoints than cases A/B/C/D's shared
-/// budget covers -- see [`CORNER112_VELOCITY_TOLERANCE`]. Threading the
-/// tolerance through the call keeps that a separately-documented,
-/// separately-measured number rather than a silent widening of
-/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`], which would loosen
-/// A/B/C's own tighter measured precision to match case E's.
-#[allow(clippy::too_many_arguments)]
+/// The four tolerances a case is compared under, as one value.
+///
+/// They travel together because a case's precision is one property of that
+/// case, not four independent knobs: case E (`panda_blend_corner112`)
+/// measures a genuinely larger divergence at `blend_trajectory`'s interior
+/// waypoints than cases A/B/C/D's shared budget covers, and carrying its own
+/// set keeps that a separately-documented, separately-measured number rather
+/// than a silent widening of [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`]
+/// that would loosen A/B/C's own tighter measured precision to match it (see
+/// [`CORNER112_VELOCITY_TOLERANCE`]).
+///
+/// All four live here, including the two no case has yet needed to vary.
+/// Threading only the two that differ, and reading the other two from the
+/// module constants inside the comparison, would split one value class across
+/// two mechanisms -- and the next case needing its own `POSITION_TOLERANCE`
+/// would have to re-plumb rather than fill in a field. That split is also
+/// what put eight parameters on `compare_segment` and an
+/// `#[allow(clippy::too_many_arguments)]` above it, which
+/// `tools/ci/check-no-lint-suppression.sh` rejects.
+#[derive(Debug, Clone, Copy)]
+struct Tolerances {
+    time: f64,
+    position: f64,
+    velocity: f64,
+    acceleration: f64,
+}
+
+impl Tolerances {
+    /// Cases A-D's shared, measured budget.
+    const SHARED: Self = Self {
+        time: TIME_TOLERANCE,
+        position: POSITION_TOLERANCE,
+        velocity: VELOCITY_TOLERANCE,
+        acceleration: ACCELERATION_TOLERANCE,
+    };
+}
+
 fn compare_segment(
     label: &str,
     case: &str,
@@ -343,8 +370,7 @@ fn compare_segment(
     // a constant `sampling_time` offset between the port's and the oracle's
     // `time_from_start` values.
     expected_time_offset: f64,
-    velocity_tolerance: f64,
-    acceleration_tolerance: f64,
+    tol: Tolerances,
 ) {
     assert_eq!(
         actual.way_point_count(),
@@ -355,7 +381,7 @@ fn compare_segment(
         let actual_dt = actual.way_point_duration_from_start(i);
         let expected_dt = exp.time_from_start - expected_time_offset;
         assert!(
-            (actual_dt - expected_dt).abs() < TIME_TOLERANCE,
+            (actual_dt - expected_dt).abs() < tol.time,
             "{case}/{label} waypoint {i} time_from_start: {actual_dt} != {expected_dt} (oracle {}, offset {expected_time_offset})",
             exp.time_from_start
         );
@@ -364,21 +390,21 @@ fn compare_segment(
         for (name, &expected_pos) in &exp.positions {
             let actual_pos = state.variable_position(name).unwrap();
             assert!(
-                (actual_pos - expected_pos).abs() < POSITION_TOLERANCE,
+                (actual_pos - expected_pos).abs() < tol.position,
                 "{case}/{label} waypoint {i} position[{name}]: {actual_pos} != {expected_pos} (oracle)"
             );
         }
         for (name, &expected_vel) in &exp.velocities {
             let actual_vel = state.variable_velocity(name).unwrap();
             assert!(
-                (actual_vel - expected_vel).abs() < velocity_tolerance,
+                (actual_vel - expected_vel).abs() < tol.velocity,
                 "{case}/{label} waypoint {i} velocity[{name}]: {actual_vel} != {expected_vel} (oracle)"
             );
         }
         for (name, &expected_acc) in &exp.accelerations {
             let actual_acc = state.variable_acceleration(name).unwrap();
             assert!(
-                (actual_acc - expected_acc).abs() < acceleration_tolerance,
+                (actual_acc - expected_acc).abs() < tol.acceleration,
                 "{case}/{label} waypoint {i} acceleration[{name}]: {actual_acc} != {expected_acc} (oracle)"
             );
         }
@@ -503,10 +529,10 @@ fn drive_case<R>(
 }
 
 fn run_case(case: &str) {
-    run_case_with_tolerances(case, VELOCITY_TOLERANCE, ACCELERATION_TOLERANCE)
+    run_case_with_tolerances(case, Tolerances::SHARED)
 }
 
-fn run_case_with_tolerances(case: &str, velocity_tolerance: f64, acceleration_tolerance: f64) {
+fn run_case_with_tolerances(case: &str, tol: Tolerances) {
     let response: ResponseFixture =
         load_json::<OracleResponseEnvelope<ResponseFixture>>(&format!("{case}_response.json"))
             .result;
@@ -547,8 +573,7 @@ fn run_case_with_tolerances(case: &str, velocity_tolerance: f64, acceleration_to
                 &blend_response.first_trajectory,
                 &response.first_trajectory,
                 0.0,
-                velocity_tolerance,
-                acceleration_tolerance,
+                tol,
             );
             compare_segment(
                 "blend_trajectory",
@@ -569,8 +594,7 @@ fn run_case_with_tolerances(case: &str, velocity_tolerance: f64, acceleration_to
                 // trajectory, whose own waypoint 0 duration really was `0.0`
                 // upstream too.
                 request.sampling_time,
-                velocity_tolerance,
-                acceleration_tolerance,
+                tol,
             );
             compare_segment(
                 "second_trajectory",
@@ -587,8 +611,7 @@ fn run_case_with_tolerances(case: &str, velocity_tolerance: f64, acceleration_to
                 // `duration_from_previous` is copied unchanged, so the missing
                 // correction is a constant offset through the whole segment.
                 request.sampling_time,
-                velocity_tolerance,
-                acceleration_tolerance,
+                tol,
             );
         },
     )
@@ -713,7 +736,10 @@ fn blend_panda_arm_corner150_is_rejected_like_the_oracle() {
 fn blend_panda_arm_corner112_matches_the_oracle() {
     run_case_with_tolerances(
         "panda_blend_corner112",
-        CORNER112_VELOCITY_TOLERANCE,
-        CORNER112_ACCELERATION_TOLERANCE,
+        Tolerances {
+            velocity: CORNER112_VELOCITY_TOLERANCE,
+            acceleration: CORNER112_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
     );
 }
