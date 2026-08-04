@@ -1,3 +1,4 @@
+// Copyright (c) 2011, Willow Garage, Inc.
 // Copyright (c) 2019, Bielefeld University
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
