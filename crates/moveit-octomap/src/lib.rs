@@ -179,14 +179,21 @@
 //! **Tests.**
 //!
 //! ```text
-//! cargo nextest run -p moveit-octomap --no-fail-fast   # 30 tests run: 30 passed, 0 skipped
+//! cargo nextest run -p moveit-octomap --no-fail-fast   # 31 tests run: 31 passed, 0 skipped
 //! rg -c '#\[test\]' crates/moveit-octomap/src/*.rs      # sums to 28
 //! ```
 //!
-//! 30 total: 28 unit tests inside `src/` (per-invariant-boundary, e.g.
+//! **Stale count fixed this round (round 27).** This section previously
+//! read "30 total ... plus 2 oracle-backed integration tests", left
+//! unreconciled since round 21 added a second `leaves_parity.rs` test
+//! (`leaves_in_bbx_matches_liboctomap_leaf_bbx_iterator_order_and_fields`,
+//! see "`LeavesInBbx` split, round 21" below) without updating this
+//! earlier-written total -- caught only because item 1(a)/1(b)'s own gate
+//! run this round surfaced 31, not the 30 this section still claimed. 31
+//! total: 28 unit tests inside `src/` (per-invariant-boundary, e.g.
 //! [`OcTree`]'s own clamp/threshold/prune boundary tests, plus round 16
 //! item 1's `set_prob_hit_below_half_panics_in_debug`/
-//! `set_prob_miss_above_half_panics_in_debug`) plus 2 oracle-backed
+//! `set_prob_miss_above_half_panics_in_debug`) plus 3 oracle-backed
 //! integration tests. The first,
 //! `octomap_matches_liboctomap_for_every_boundary_scenario`
 //! (`tests/octomap_parity.rs`), which replays
@@ -220,6 +227,12 @@
 //! pre-order node walk). `getTreeType()` is not ported as a callable symbol
 //! at all (see the symbol-by-symbol audit above), so there is nothing there
 //! for an oracle op to confirm.
+//!
+//! The third, `leaves_in_bbx_matches_liboctomap_leaf_bbx_iterator_order_and_fields`
+//! (`tests/leaves_parity.rs`, round 21), closes [`OcTree::leaves_in_bbx`]'s
+//! own leaf-to-leaf order and field parity the same way the second test
+//! does for the unrestricted walk; see "`LeavesInBbx` split, round 21"
+//! below for the full gap this closed and how the fixture was captured.
 //!
 //! **Round 19, item 3 -- re-surveyed exhaustively, not re-answered with the
 //! same one item.** `octree_points`'s `leaves` field closes exactly the one
