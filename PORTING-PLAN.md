@@ -12968,3 +12968,59 @@ replay **44/44 identical**, combined 5그룹 + single 1건 — 기존 fixture �
 - p3-acm: 그 결과가 나오면 deviation 6(b)의 mesh-construction 후보가 확정
   또는 배제된다. 삼각형 인덱스까지 일치하면 이 후보는 닫히고, 잔여 3건의
   원인은 BVH 분할/순회 쪽으로 좁혀진다.
+
+## §165 CONE constraint region — 이 포트가 거부하는 자리에서 upstream은 죽는다
+
+p9-ros 라운드 5가 `SolidPrimitive::CONE`이 `PositionConstraint::new`에서 무조건
+거부된다는 것을 찾아 문서화하고 테스트를 붙였다(`4192e1d`). 그리고 "`Body`에
+Cone variant가 없는 것은 `moveit-geometry` 소관"이라고 다른 소유자에게
+넘겼다. **넘길 필요가 없다 — 고칠 것이 없다.** §160으로 `geometric_shapes`
+소스가 읽히게 돼서 확인할 수 있었다.
+
+### 165.1 upstream 경로 전체
+
+```
+SolidPrimitive::CONE
+  -> shapes::constructShapeFromMsg          (shape_operations.cpp:101-106)
+       CONE 분기가 있다. new Cone(radius, height) 를 정상 반환한다.
+  -> PositionConstraint::configure          (kinematic_constraint.cpp:411-412)
+       const bodies::BodyPtr body(bodies::createEmptyBodyFromShapeType(shape->type));
+       body->setDimensionsDirty(shape.get());        // null 검사 없음
+  -> bodies::createEmptyBodyFromShapeType   (body_operations.cpp:40-58)
+       BOX / SPHERE / CYLINDER / MESH 네 개만 case가 있다.
+       CONE 은 default: 로 떨어져 로그만 찍고 nullptr 을 반환한다.
+```
+
+즉 shape 생성은 성공하고, body 생성은 `nullptr`을 돌려주고, 그 다음 줄이
+검사 없이 역참조한다. **CONE constraint region이 들어오면 upstream moveit2는
+널 역참조로 죽는다.** `bodies.h`가 선언하는 Body 서브클래스는 `Sphere`(:286),
+`Cylinder`(:339), `Box`(:402), `ConvexMesh`(:465) 넷뿐이고 Cone은 없다.
+
+### 165.2 이 포트
+
+`Body::from_shape`(`bodies.rs:3065`)가
+`Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None`으로 처리하고,
+`PositionConstraint::new`가 그 `None`을 거부로 바꾼다. 크래시가 아니라 타입
+있는 거부다.
+
+따라서 이것은 **포팅 갭이 아니다.** `bodies::Cone`을 새로 만드는 것은 upstream
+파리티를 맞추는 것이 아니라 **upstream에 없는 것을 발명하는 것**이고, 동시에
+upstream이 죽는 입력을 이 포트만 성공시키는 의도적 이탈이 된다. 하지 마라.
+
+`Shape::compute_volume`/`get_dimensions`가 `Cone`에 `None`을 주는 것도 같은
+이유로 이미 맞다(`shapes.rs:72-73`이 "There is no `bodies::Cone`"이라고
+적어둔 것이 정확했다 — 다만 그 문장은 upstream의 널 역참조까지는 몰랐다).
+
+### 165.3 §153.1 만료 조건
+
+upstream `geometric_shapes`가 `bodies::Cone`을 추가하고 `PositionConstraint`가
+그것을 쓰게 되면 만료된다. 그 전까지 "CONE은 거부"는 파리티이고, 바꾸는 것이
+이탈이다.
+
+### 165.4 이렇게 확인할 수 있게 된 경위
+
+이 판정은 `third_party/geometric_shapes`의 `body_operations.cpp`와
+`shape_operations.cpp`를 열어야 나온다. 오늘 아침까지 이 저장소는 이 머신에
+없었고(§160), 컨테이너에는 헤더만 있어 `.cpp`의 `default:` 분기를 볼 수
+없었다. 조달이 없었으면 "다른 크레이트 소유자가 판단할 사항"으로 남았을
+항목이다.
