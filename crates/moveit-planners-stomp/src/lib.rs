@@ -72,6 +72,7 @@
 
 use moveit_error::{Error, Result};
 
+pub mod composable_task;
 pub mod conversion_functions;
 pub mod filter_functions;
 
