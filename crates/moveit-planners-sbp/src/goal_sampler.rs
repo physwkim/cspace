@@ -90,8 +90,19 @@ pub fn sample_goal<C>(
 where
     C: StateValidityChecker<JointModelGroupSpace>,
 {
+    // `state` is cloned from `template` once, then reused (mutated in
+    // place) across every attempt below -- matching upstream
+    // `ConstrainedGoalSampler::work_state_`, a member initialised once and
+    // never reset between `sampleUsingConstraintSampler` calls
+    // (`constrained_goal_sampler.cpp:66,124-147`). An IK-backed
+    // `constrained_sampler` seeds attempt 0 from `state`'s own current
+    // group values (`IKConstraintSampler::sampleHelper`'s `use_as_seed`),
+    // so resetting to `template` every attempt -- this function's own
+    // design before this fix -- threw that warm start away on every draw;
+    // see `crate::constrained_sampler::GroupConstraintSampler`'s doc
+    // comment for the full measurement this shares its cause with.
+    let mut state = template.clone();
     for _ in 0..max_goal_sampling_attempts {
-        let mut state = template.clone();
         let sampled = match constrained_sampler {
             Some(sampler) => sampler.sample(&mut state, rng),
             None => {
@@ -117,11 +128,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::fs;
 
     use moveit_collision::ParryCollisionEnv;
     use moveit_constraints::{Constraint, JointConstraint, select_default_sampler};
-    use moveit_model::{MeshSearchPaths, RobotModel};
+    use moveit_model::{JointModelGroup, MeshSearchPaths, RobotModel};
     use moveit_scene::PlanningScene;
     use moveit_srdf::SrdfModel;
     use rand::SeedableRng;
@@ -139,6 +151,83 @@ mod tests {
             RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("fixture model must build");
         (model, srdf)
+    }
+
+    /// A [`ConstraintSampler`] that records `panda_joint1`'s incoming value
+    /// on every [`ConstraintSampler::sample`] call and writes back a
+    /// deterministically different value -- the same recorder
+    /// `constrained_sampler::tests::RecordingSampler` uses, duplicated here
+    /// rather than shared across a private test boundary between the two
+    /// modules.
+    struct RecordingSampler {
+        group: JointModelGroup,
+        seen: RefCell<Vec<f64>>,
+    }
+
+    impl ConstraintSampler for RecordingSampler {
+        fn joint_model_group(&self) -> &JointModelGroup {
+            &self.group
+        }
+
+        fn frame_dependency(&self) -> &[String] {
+            &[]
+        }
+
+        fn sample(&self, state: &mut RobotState<'_>, _rng: &mut dyn Rng) -> bool {
+            let incoming = state.variable_position("panda_joint1").unwrap();
+            self.seen.borrow_mut().push(incoming);
+            state
+                .set_variable_position("panda_joint1", incoming + 0.01)
+                .unwrap();
+            true
+        }
+    }
+
+    /// Proves [`sample_goal`]'s `state` is upstream's `work_state_`, not
+    /// `template` reset per attempt -- the goal-sampling half of the same
+    /// fix `constrained_sampler::tests::try_sample_carries_the_previous_draws_result_forward_as_the_next_seed`
+    /// proves for path sampling. A checker that always rejects forces
+    /// [`sample_goal`] to spend its whole budget, so all three attempts'
+    /// incoming `panda_joint1` values are recorded; they must be
+    /// `[0.0, 0.01, 0.02]` -- each attempt's own previous output -- not
+    /// `[0.0, 0.0, 0.0]`, which is what resetting to `template` every
+    /// attempt (this function's behaviour before the fix this test guards)
+    /// would have produced.
+    #[test]
+    fn sample_goal_carries_the_previous_draws_result_forward_as_the_next_seed() {
+        let (model, _srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let mut template = RobotState::new(&model);
+        template.set_variable_position("panda_joint1", 0.0).unwrap();
+
+        let recorder = RecordingSampler {
+            group: model.joint_model_group("panda_arm").unwrap().clone(),
+            seen: RefCell::new(Vec::new()),
+        };
+        let goal_constraints = KinematicConstraintSet::new();
+        let never_valid = |_: &Vec<CompoundValue>| false;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let result = sample_goal(
+            &space,
+            &never_valid,
+            &goal_constraints,
+            &template,
+            Some(&recorder),
+            &mut rng,
+            3,
+        );
+        assert!(
+            result.is_none(),
+            "a checker that always rejects must exhaust sample_goal's whole budget"
+        );
+
+        assert_eq!(
+            *recorder.seen.borrow(),
+            vec![0.0, 0.01, 0.02],
+            "each attempt's incoming panda_joint1 value must be the previous attempt's own \
+             output (upstream's work_state_ semantics), not a fixed template value every time"
+        );
     }
 
     /// Proves [`sample_goal`]'s constrained branch is load-bearing, not
