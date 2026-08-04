@@ -253,6 +253,40 @@
 //!    below, so that question is still open and is not resolved by anything
 //!    in this doc.
 //!
+//!    Round 15 re-measured the caster-wheel-vs-`base_link` split this
+//!    question was originally raised against (`PORTING-PLAN.md`'s round-12
+//!    62-case sweep, never committed as a fixture and so not revisitable by
+//!    index) from a fresh, independently reproduced two-seed sample: of the
+//!    21 caster-wheel self-pair same-pair cases across both pr2 sweeps
+//!    above, 5 have this backend's depth exceeding the smaller of the two
+//!    contacting links' own bounding radius (`link_bounding_radius`) by
+//!    more than 2x — the same "geometrically implausible" bound
+//!    `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` already
+//!    tests for the oracle side — versus 16 within that bound; the
+//!    round-12 sweep's own 3-of-10/7-of-10 split is the same shape at a
+//!    different sample size, not a coincidence this round's independent
+//!    reproduction should be read as contradicting. The blocker for the
+//!    16-within-bound remainder is unchanged: confirming whether FCL's own
+//!    EPA search *within a triangle pair it does examine* converges to a
+//!    shallower-than-true answer requires reading FCL/libccd's own
+//!    penetration-depth source, not `moveit2`'s (the `distanceCallback`
+//!    call site read at
+//!    `~/work/moveit2/moveit_core/collision_detection_fcl/src/collision_common.cpp:471`
+//!    only confirms the *caller's* `num_max_contacts = 200` budget is not
+//!    the explanation — comfortably above `base_link`'s 96 triangles, so
+//!    contact-budget censoring is ruled out, but the search behavior
+//!    *inside* a single narrow-phase call is FCL's own code). No local
+//!    checkout of FCL itself (as opposed to `moveit2`, which depends on
+//!    it) was found on this machine, so per this project's own
+//!    reference-source rule this is reported as a blocker rather than
+//!    guessed at: closing this question needs either a local FCL/libccd
+//!    checkout or an oracle extension exposing FCL's per-contact
+//!    candidate depths (not just the max it already returns) for this
+//!    pair at a fixed state — the latter is not requested here, since no
+//!    upstream *header* was checked to confirm such a field is reachable
+//!    without patching FCL itself, and this crate does not own
+//!    `tools/moveit-oracle/`.
+//!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
 //!    different depths for the one pair.** The same seed-20260804 pr2

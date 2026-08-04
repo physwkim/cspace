@@ -1592,6 +1592,17 @@ fn load_self_wheel_oracle_points() -> Vec<SelfWheelOraclePoint> {
 /// still has no fixed external reference the way `floor_env`'s box gives
 /// `deepest_vertex_under_floor`, so the oracle side of the remaining 7
 /// still needs a case-by-case investigation this test does not attempt.
+///
+/// Round 15 re-ran the same op against today's tree with two seeds
+/// (20260804/999002, the 62-case round-12 sweep was never committed as a
+/// fixture and so cannot be re-selected by index) and found the same split
+/// at a larger, independently reproduced sample: 5 of 21 caster-wheel
+/// same-pair cases exceed the `0.1534m` bound, 16 stay within it. The
+/// within-bound remainder's oracle side is still not adjudicated: closing
+/// it needs FCL/libccd's own penetration-depth source, which is not
+/// present locally (`~/work/moveit2` is `moveit2`, which depends on FCL,
+/// not FCL itself) -- see `parry.rs`'s deviation-6(b) doc for the full
+/// blocker writeup.
 #[test]
 fn pr2_self_wheel_same_pair_oracle_magnitude_is_implausible() {
     let model = build_model("pr2.urdf", "pr2.srdf");
