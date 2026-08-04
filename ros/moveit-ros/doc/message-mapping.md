@@ -397,18 +397,20 @@ noted):
 Structural gaps (no reachable `PlanningScene`-level API, named rather than
 patched around):
 
-- **World-object subframes (ADD/APPEND) and MOVE's per-shape repose:
-  waiting on `moveit-scene`, not a permanent gap.** `World` has
-  `set_subframes_of_object`/`move_shapes_in_object`, but
-  `PlanningScene::world()` only returns `&World` (read-only) — by design,
-  the same as `add_shape`/`move_object`/`remove_object`/`remove_all_objects`
-  each being a scene-level wrapper rather than exposing `&mut World`
-  directly, so a `World`-mutating call can feed its notification back into
-  scene state. `PORTING-PLAN.md` §150.1 tracks the missing two wrappers on
-  p1-fixtures (`moveit-scene`'s owner); `set_world_object_subframes`/
-  `move_world_object_shapes` (`src/scene/collision_object.rs`) are the two
-  call sites already wired up to receive them — once the wrappers land,
-  only those two function bodies change, not their callers.
+- ~~World-object subframes (ADD/APPEND) and MOVE's per-shape repose:
+  waiting on `moveit-scene`, not a permanent gap.~~ **Resolved round 6.**
+  `PlanningScene::move_shapes_in_object`/`set_subframes_of_object`
+  (`scene.rs:1025`/`:1048`) landed on p1-fixtures round 23 (`de8886a`,
+  `PORTING-PLAN.md` §150.1 closed) — plain `bool` returns, no outcome enum
+  needed, since p1-fixtures read `World::moveShapesInObject`/
+  `setSubframesOfObject`'s bodies (`world.cpp:262-278`/`:365-378`) and found
+  every failure mode collapses to one case (unlike `moveObject`, there is no
+  "found but unchanged" branch), and none of the five call sites these
+  reach (`planning_scene.cpp:393, 1201, 1743, 1927, 2004`) touch ACM/color/
+  type as a side effect of the assignment/repose itself. `set_world_object_subframes`/
+  `move_world_object_shapes` (`src/scene/collision_object.rs`) now call
+  through to them directly, and ADD/APPEND's subframe setter call is
+  unconditional again, matching upstream's own always-call behavior.
 - AttachedCollisionObject's own MOVE: rejected, matching upstream, which
   has no MOVE branch in `processAttachedCollisionObjectMsg` either.
 - **`Octomap.data`'s binary payload: decided round 5, belongs to
