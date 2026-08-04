@@ -142,6 +142,24 @@
 //! not for its own doc header) and blank string-literal contents before
 //! scanning; every count in this file and in `shapes.rs`/`bodies.rs`/
 //! `tree.rs` was re-run against the fixed scripts and is unchanged.
+//!
+//! **§79 recount (round 19, item 2).** Re-run fresh against the fixed
+//! script rather than trusting round 18's number:
+//!
+//! ```text
+//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-geometry/src/*.rs
+//! both=9 epsilon_only=0 max_relative_only=0 neither=0
+//! ```
+//!
+//! Unchanged from round 18. p3-acm disposed its own 51 sites this round (41
+//! `epsilon`-only + 10 `neither`, all bit-identical once bisected, converted
+//! to `assert_eq!`) -- this crate has 0 in either bucket to dispose the same
+//! way; all 9 are `both`, and none is a disposal candidate: each carries its
+//! own one-line reason already, in its own doc comment at the call site
+//! (`bodies.rs`'s three pairs and one single call, round 14's §79 sweep;
+//! `transforms.rs`'s three calls, round 16 item 3) -- a measured non-zero
+//! floor above `epsilon = 0.0`, not an unmeasured carryover, so keeping
+//! `assert_relative_eq!` there is correct, not merely unreviewed.
 
 pub mod bodies;
 mod octree_collision;

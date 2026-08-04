@@ -246,6 +246,16 @@
 //! and the fix, since the `.pl` script lives there and this crate's copy of
 //! the `.sh` script is byte-identical. Neither bug changed any count already
 //! committed in this file or in `tree.rs`.
+//!
+//! **§79 recount (round 19, item 2).** Re-run fresh against the fixed
+//! script:
+//!
+//! ```text
+//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-octomap/src/*.rs
+//! both=0 epsilon_only=0 max_relative_only=0 neither=0
+//! ```
+//!
+//! Unchanged: still 0 in every bucket, nothing to dispose.
 
 mod iter;
 mod key;
