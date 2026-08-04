@@ -603,3 +603,226 @@ against this shape (e.g. Jacobian conditioning or null-space geometry
 local to panda_arm's posture at this specific corner), so per this
 round's own instruction: **unexplained**, with the numbers above, rather
 than a second untested plausible mechanism replacing the first.
+
+## Case G: velocity and acceleration are not independent channels
+
+The round that produced Case F's sweep table separately noticed the two
+channels' extrema sit at different angles — velocity peaks at 75°,
+acceleration peaks at 112° (see `blend_panda_arm_corner75_matches_the_oracle`'s
+and `blend_panda_arm_corner100_matches_the_oracle`'s own doc comments,
+corrected in `6e776dc` to say which channel each claim is about). Before
+treating that gap as a discriminator between causal mechanisms, this
+section checks how each channel is actually computed — by reading, not
+guessing, per the standing instruction.
+
+**Port side.** `generate_joint_trajectory_from_cartesian`
+(`crates/moveit-planners-pilz/src/trajectory_functions.rs:505-514`)
+computes both from the IK-solved position sequence, chained through one
+backward-difference loop:
+
+```rust
+let mut velocities = HashMap::new();
+let mut accelerations = HashMap::new();
+for (name, &value) in &ik_solution {
+    let velocity = (value - ik_solution_last[name]) / duration_current;
+    accelerations.insert(
+        name.clone(),
+        (velocity - joint_velocity_last[name]) / (duration_current + duration_last) * 2.0,
+    );
+    velocities.insert(name.clone(), velocity);
+}
+```
+
+**Upstream side.** `generateJointTrajectory`
+(`moveit_planners/pilz_industrial_motion_planner/src/trajectory_functions.cpp:393-400`,
+in `/home/stevek/work/moveit2`) uses the identical formula on the
+identical structure -- confirming the port is faithful in mechanism, not
+just in this case's numeric output:
+
+```cpp
+double joint_velocity = (ik_solution.at(joint_name) - ik_solution_last.at(joint_name)) / duration_current;
+waypoint_joint.velocities.push_back(joint_velocity);
+waypoint_joint.accelerations.push_back((joint_velocity - joint_velocity_last.at(joint_name)) /
+                                       (duration_current + duration_last) * 2);
+joint_velocity_last[joint_name] = joint_velocity;
+```
+
+**Oracle wrapper side.** `serializePilzWaypoints`
+(`tools/moveit-oracle/src/oracle.cpp:5764-5786`) does no post-processing
+of its own -- it reads `getVariableVelocity`/`getVariableAcceleration`
+directly off the `RobotState`s upstream's own `blend()` already produced
+(line `5777`-`5778`), so the fixture's `velocities`/`accelerations`
+fields are upstream's own finite-difference output, not a value this
+document's tooling derived.
+
+**So velocity is a first backward difference of position, and
+acceleration is a first backward difference of *that already-computed
+velocity array* -- algebraically a second difference of the same
+position sequence, not a second independent measurement.** Writing
+`D(θ, i) = p_port(θ, i) - p_oracle(θ, i)` for one joint's position
+divergence at waypoint `i`, both sides differencing against the same
+fixed `sampling_time`:
+
+```
+velocity divergence(θ, i)     = (D(θ, i) - D(θ, i-1)) / dt
+acceleration divergence(θ, i) = 2 * (velocity divergence(θ, i) - velocity divergence(θ, i-1)) / (dt_i + dt_{i-1})
+```
+
+**What this does and does not change about "the channels peak at
+different angles."** It is not meaningless -- but it is not what last
+round's item 1 assumed either. If the *shape* of the per-waypoint
+divergence profile were fixed and only its overall size varied with θ
+(`D(θ, i) = f(θ) * g(i)` for some fixed `g`), then both channels would
+be `f(θ)` times a fixed constant (`Δg`'s own max, `Δ²g`'s own max
+respectively) -- proportional to each other, so their θ-argmax would
+have to coincide *exactly*, for any such fixed-shape mechanism. They do
+not coincide (`75°` vs `112°`). That is a real, algebraically forced
+conclusion: **the per-waypoint divergence profile's shape, not just its
+magnitude, changes with θ.** It rules out any mechanism that scales one
+fixed waypoint-profile uniformly as the corner sharpens or shallows.
+It does not, by itself, identify a replacement mechanism -- see Case H
+below for the falsifiable, cheaper-to-test consequence of this finding.
+
+This also revises Case F's own verdict text above: "the two channels
+do not peak at the same angle" is restated there as a fact about the
+sweep, which it still is, but it should not be read as two independent
+physical measurements disagreeing -- it is one position-divergence
+signal observed through two different finite-difference operators. The
+"unexplained" conclusion stands; what is unexplained is now stated more
+precisely as a shape change in `D(θ, i)`, not a channel disagreement.
+
+## Case H: a falsifiable prediction from Case G's shape-change conclusion
+
+Case G proved, algebraically, that a fixed-shape amplitude-only
+mechanism is excluded: any `D(θ, i) = f(θ) * g(i)` would force velocity-
+and acceleration-divergence to peak at the same θ, and they do not. That
+conclusion is about the *shape* of the per-waypoint divergence profile,
+not just its two derived channels, so it makes a prediction about the
+one signal underneath both of them -- `D(θ, i)`, position divergence
+itself -- that is checkable directly, with no new oracle round trip: all
+nine `panda_blend_{symmetric,corner{30,60,75,100,105,110,112},corner112_radius03}`
+fixtures already carry both sides' full waypoint position arrays. This
+section states the prediction before computing it, per this round's own
+"file it first" instruction.
+
+**Prediction.** Let `i*(θ) = argmax_i |D(θ, i)|` be the `blend_trajectory`
+waypoint index (`0..7`, across whichever joint attains it -- not fixed to
+one joint in advance) where position divergence between this port and
+the oracle is largest, for each of the nine sweep angles.
+
+- **Quantity:** `i*(θ)`, the argmax waypoint index of `max_joint |D(θ, i)|`.
+- **Direction:** `i*(θ)` is *not* constant across the nine θ values -- it
+  must vary, because a constant `i*` across θ is only possible (though
+  not sufficient on its own) under something close to the fixed-shape
+  form Case G already excluded.
+- **Refuted by:** `i*(θ)` measuring identical at all nine angles. Unlike
+  Case F's prediction, this would not be a clean "mechanism wrong"
+  result -- it would contradict Case G's own algebra (constant-shape
+  `D` forces coincident channel peaks, which are *not* coincident), so a
+  refutation here means re-examining the Case G derivation or this
+  measurement's own correctness before accepting it, not filing a new
+  "unexplained."
+- **Not refuted by:** `i*(θ)` flipping between adjacent waypoints only at
+  angles where the top two waypoints' divergence is within about 10% of
+  each other (a near-tie in the noise floor, not a real shape change) --
+  this applies mainly near the 90-100° dip, where overall divergence is
+  smallest and ties are most likely.
+- **Supporting exhibit, not a separate prediction:** 60° and 105°
+  measure nearly identical overall velocity divergence (`6.4188e-8` vs
+  `6.6526e-8`, Case F's own table) -- if `i*` and the general per-waypoint
+  profile shape differ between these two despite matching magnitude,
+  that is a more direct demonstration of shape-change than magnitude
+  alone could give, though it is read as illustrative, not as a second
+  falsifiable claim in its own right.
+
+**Measured (existing fixtures, no new oracle round trip; a temporary
+probe iterating `drive_case` over all nine cases, run and reverted).**
+`max_d` is `max_joint |D(θ, i*)|` in metres; `profile` is `max_joint
+|D(θ, i)|` at every waypoint, smallest to be transparent about how far
+the argmax sits above its runner-up (the "not refuted by" tie exception
+above):
+
+| θ | `i*` | joint at `i*` | runner-up ratio |
+|---:|---:|---|---:|
+| 30° | 7 | `panda_joint1` | 70% (i=6: `4.023e-9` vs `5.736e-9`) |
+| 60° | 4 | `panda_joint7` | 61% (i=1: `3.600e-9` vs `5.864e-9`) |
+| 75° | 7 | `panda_joint7` | 64% (i=5: `5.377e-9` vs `8.464e-9`) |
+| 90° (case A) | 7 | `panda_joint5` | 56% (i=5: `1.267e-9` vs `2.278e-9`) |
+| 100° | 1 | `panda_joint1` | 53% (i=7: `7.436e-10` vs `1.416e-9`) |
+| 105° | 5 | `panda_joint5` | 30% (i=1: `2.067e-9` vs `6.890e-9`) |
+| 110° | 5 | `panda_joint5` | 33% (i=1: `2.655e-9` vs `8.128e-9`) |
+| 112° (case E) | 5 | `panda_joint5` | 34% (i=1: `2.868e-9` vs `8.484e-9`) |
+| 112°, r=0.03 | 5 | `panda_joint5` | 65% (i=1: `5.549e-9` vs `8.493e-9`) |
+
+Every runner-up sits at 30-70% of the argmax -- nowhere near the ~10%
+near-tie band the prediction's own "not refuted by" clause carved out,
+so every one of these nine argmax values is a clean read, not a
+coin-flip in the noise floor.
+
+**Verdict: not refuted, and by more than the minimum the prediction
+asked for.** `i*(θ)` takes four different values across the sweep
+(`7, 4, 7, 7, 1, 5, 5, 5, 5`) -- not the single constant value a
+fixed-shape mechanism would need, consistent with Case G's algebra. It
+goes further than "the waypoint index moves": **the dominant joint
+itself changes** -- `panda_joint1`/`panda_joint7` own the shallow
+angles (30-75°) and 100°'s own local minimum, `panda_joint5` owns 90°
+and the whole 105-112° climb. A mechanism that is genuinely one thing
+across the sweep (redundant-kinematics IK divergence or otherwise)
+would need to explain not just a shifting timing within one joint's
+error, but *which joint the redundant-kinematics null-space choice
+diverges on* changing with corner angle -- a mechanism with real
+structure, not a single scalar "how much."
+
+The 60°/105° supporting exhibit lands cleanly: matched overall velocity
+divergence (`6.4188e-8` vs `6.6526e-8`, within 4% of each other) pairs
+with completely different profiles -- different dominant joint
+(`panda_joint7` vs `panda_joint5`) and different waypoint (`4` vs `5`).
+Two cases that look identical through the velocity channel's single
+scalar are not, in the underlying signal that channel is derived from.
+
+This does not identify what the mechanism is -- Case G already noted
+that identifying one was out of scope for what has been measured so
+far. It sharpens what "unexplained" means one step further: not "an
+unmeasured amount of a known mechanism," but a divergence whose
+*location* (which joint, which point in the blend) itself depends on
+corner angle in a way no fixture generated so far isolates from angle,
+radius, or arm posture individually.
+
+## Tolerance audit: does any per-case override widen a channel that did not need it
+
+Case F's sweep produced seven per-case tolerance constants (case E's own
+two, `CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE`,
+predate Case F and are not part of this count). Each is meant to replace
+[`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] only where the case's
+own measured max actually exceeds the shared constant -- an override
+that is *looser* than the shared constant for a case that already
+passed under the shared constant is not tightening anything; it is
+strictly reducing the test's power to catch a regression in that
+channel for that one case, for no reason tied to what was measured.
+Auditing all seven against [`VELOCITY_TOLERANCE`] (`8e-8`) /
+[`ACCELERATION_TOLERANCE`] (`1.2e-6`):
+
+| case | channel | measured | shared | override | needed? |
+|---|---|---:|---:|---:|---|
+| 60° | velocity | `6.4188e-8` | `8e-8` | *(none)* | no -- under shared |
+| 60° | acceleration | `1.1279e-6` | `1.2e-6` | ~~`1.35e-6`~~ *(removed)* | **no -- was a hole** |
+| 75° | velocity | `8.9525e-8` | `8e-8` | `1.1e-7` | yes -- exceeds shared |
+| 75° | acceleration | `1.4818e-6` | `1.2e-6` | `1.8e-6` | yes -- exceeds shared |
+| 105° | velocity | `6.6526e-8` | `8e-8` | *(none)* | no -- under shared |
+| 105° | acceleration | `1.3293e-6` | `1.2e-6` | `1.6e-6` | yes -- exceeds shared |
+| 110° | velocity | `7.9133e-8` | `8e-8` | ~~`9.5e-8`~~ *(removed)* | **no -- was a hole** |
+| 110° | acceleration | `1.5797e-6` | `1.2e-6` | `1.9e-6` | yes -- exceeds shared |
+| 112°, r=0.03 | velocity | `9.2596e-8` | `8e-8` | `1.11e-7` | yes -- exceeds shared |
+| 112°, r=0.03 | acceleration | `9.2747e-7` | `1.2e-6` | *(none)* | no -- under shared |
+
+Two holes found: `CORNER60_ACCELERATION_TOLERANCE` (`1.35e-6`, looser
+than the `1.2e-6` shared ceiling the case's own `1.1279e-6` already
+passed under) and `CORNER110_VELOCITY_TOLERANCE` (`9.5e-8`, looser than
+the `8e-8` shared ceiling the case's own `7.9133e-8` already passed
+under, by a thin but real and fully-reproducible ~1%). Both were removed
+in this round's fix: `blend_panda_arm_corner60_matches_the_oracle` now
+runs on `Tolerances::SHARED` with no override in either channel, and
+`blend_panda_arm_corner110_matches_the_oracle` keeps only its
+acceleration override. The other five overrides all correspond to a
+case's own measured max genuinely exceeding the shared constant, so no
+further holes exist in this table.
