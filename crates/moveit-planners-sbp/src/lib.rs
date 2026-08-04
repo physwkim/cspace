@@ -153,6 +153,74 @@
 //! no C++ baseline at all — it is scored purely against the port's own
 //! output — and is untouched by this round.
 //!
+//! # Round 19: the set re-validated at scale, then all three conditions judged
+//!
+//! Round 18's `floor_wall`/`cage` selection was made from an n=20 median —
+//! one sample, and choosing a benchmark config from a single small sample's
+//! median is the same shape of mistake as drawing a population conclusion
+//! from n=1, just at n=20 instead. Re-measured at the real n=250 (same
+//! seeds `900001`/`900002` as the final set): `floor_wall`'s median
+//! `ptc_evaluations` collapsed `6 -> 1` (indistinguishable from the four
+//! configs the round-18 sweep already showed measure nothing); `cage`'s held
+//! (`68 -> 31`). The set was **not** discarded over this: `floor_wall`'s
+//! quantiles (`iters_p75=214`, `iters_p90=779`, `iters_max=1553`) show real
+//! difficulty the collapsed median hides — half the config's problems are
+//! trivial one-iteration straight-line connections pulling the median down,
+//! the other half is not. `benches/sweep_baseline.sh`'s own doc comment
+//! ("# n=20 was not enough to select on", "# The hard subset, and the bias
+//! it deliberately introduces") has the full re-measurement, the
+//! quantile-reporting addition (`quantile_report`, p50/p75/p90/max for
+//! length and iterations — §5's official condition-3 statistic stays
+//! median, this is diagnostic alongside it), and the hard-subset definition
+//! (C++ `ptc_evaluations >= 227`, the combined set's own p75 — 125/500
+//! problems, 60 `floor_wall` + 65 `cage`) with its selection-bias caveat
+//! spelled out there rather than repeated here.
+//!
+//! With the set validated, `examples/plan_benchmark_port.rs` (new this
+//! round) runs this crate's own [`registry::RrtConnectManager`] over the
+//! identical request JSON the C++ baseline consumed — no oracle needed for
+//! the port side, since the request JSON already carries every obstacle and
+//! problem. See that file's own doc comment for why condition 2's
+//! collision-check re-interpolates each RRT edge at the same resolution
+//! [`validity::DiscreteMotionValidator`] used during planning (an
+//! independent-code-path cross-check against a planner-side plumbing bug,
+//! not a search for finer-than-planning collision gaps).
+//!
+//! **Port measurement, same 500 problems, same obstacles (port RNG seeded
+//! independently per problem — see that file's own doc comment for why the
+//! oracle's `seed` field has no meaning here):** `499/500` solved (`99.8%`),
+//! median length `2.7085`, and every one of the 499 solved paths (`499/499`)
+//! passes condition 2's `is_path_valid` check at `motion_resolution`
+//! interpolation.
+//!
+//! **Phase 7's three completion conditions, judged against the full 500:**
+//!
+//! - Condition 1 (success rate ≥90% of C++'s): 90% of C++'s `99.6%` is
+//!   `89.64%`; the port's `99.8%` clears it (and exceeds C++'s own raw rate)
+//!   — **pass**.
+//! - Condition 2 (100% of produced paths pass `moveit-scene`'s checks):
+//!   `499/499` — **pass**.
+//! - Condition 3 (median length within 1.3x of C++'s): `1.3 * 2.6598 =
+//!   3.4577`; the port's `2.7085` is a `1.018x` ratio — **pass**.
+//!
+//! **Same three conditions, judged again on the hard subset (supplementary,
+//! not official — see `sweep_baseline.sh`'s bias caveat: this subset is
+//! selected by C++'s own iteration count, so it is a diagnostic on the
+//! port's behavior where C++ struggled, not an independent difficulty
+//! measure):** C++ `123/125` solved (`98.4%`), median length `5.2590`; port
+//! `124/125` solved (`99.2%`), median length `5.1548`, `124/124` condition-2
+//! passes. Condition 1: `99.2%` (port) vs. `88.56%` threshold (`90%` of
+//! `98.4%`) — pass. Condition 2: `124/124` — pass. Condition 3: `1.3 *
+//! 5.2590 = 6.8368`; port ratio `0.980x` — pass. All three conditions pass
+//! on both the official full set and the supplementary hard subset.
+//!
+//! One shared data point worth naming rather than folding into the
+//! aggregate: `cage` problem id `182` is the one problem neither side
+//! solved exactly (C++: `"Approximate solution"`, not `exact`; port:
+//! `IterationsExhausted`) — a genuinely hard problem both implementations
+//! struggle with at this iteration budget, not an artifact of either side's
+//! own RNG or plumbing.
+//!
 //! ## Round 18: tolerance-floor survey
 //!
 //! `70a6b31` fixed the workspace's `serde_json` float parser because 8.1% of
