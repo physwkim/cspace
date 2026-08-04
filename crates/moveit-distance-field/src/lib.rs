@@ -23,18 +23,29 @@
 //!
 //! This crate ports `moveit_core/distance_field` in full, plus
 //! `moveit_core/collision_distance_field`'s body-decomposition,
-//! cache-entry-construction, and per-group-state machinery:
-//! `collision_distance_field_types` (no `RobotModel` dependency),
-//! `collision_common_distance_field`'s `RobotState`/`RobotModel`-dependent
-//! half plus its [`DistanceFieldCacheEntry`]/[`GroupStateRepresentation`]
-//! structs, and `collision_env_distance_field`'s construction/query slice
-//! (`addLinkBodyDecompositions`, `generateDistanceFieldCacheEntry`,
-//! `getDistanceFieldCacheEntry`, `getGroupStateRepresentation`,
-//! `updateGroupStateRepresentationState`). The collision *checker* itself
-//! (`CollisionEnvDistanceField::checkCollision` and friends, plus its own
-//! persistent cache-owner role -- `generateCollisionCheckingStructures`)
-//! belongs to a later phase; see `PORTING-PLAN.md` §3 and
-//! `collision_env_distance_field.rs`'s own module doc comment for specifics.
+//! cache-entry-construction, per-group-state, and collision-checking
+//! machinery: `collision_distance_field_types` (no `RobotModel`
+//! dependency), `collision_common_distance_field`'s `RobotState`/
+//! `RobotModel`-dependent half plus its [`DistanceFieldCacheEntry`]/
+//! [`GroupStateRepresentation`] structs, and `collision_env_distance_field`'s
+//! construction/query/checking slice (`addLinkBodyDecompositions`,
+//! `generateDistanceFieldCacheEntry`, `getDistanceFieldCacheEntry`,
+//! `getGroupStateRepresentation`, `updateGroupStateRepresentationState`,
+//! its persistent cache-owner role -- `generateCollisionCheckingStructures`
+//! -- and, as of round 21, `checkSelfCollision`/`checkCollision`/
+//! `checkRobotCollision`/`getCollisionGradients`/`getAllCollisions` as
+//! [`DistanceFieldCollisionCache`] methods). What remains out of scope is
+//! narrower than "the collision checker": `CollisionEnvDistanceField` as a
+//! `World`-observing type (its constructors, `initialize`, `setWorld`,
+//! `notifyObjectChange`, `updateDistanceObject`,
+//! `generateDistanceFieldCacheEntryWorld`), the two continuous-state
+//! `checkRobotCollision` overloads (upstream itself stubs both to "not
+//! implemented"), the header-inline `distanceSelf`/`distanceRobot` stubs,
+//! and `createCollisionModelMarker` (out of scope under D1). See
+//! `PORTING-PLAN.md` §3 and `collision_env_distance_field.rs`'s own module
+//! doc comment (its "Round 21" section carries the full difference table
+//! against upstream's seven `check*`/`getCollisionGradients`/
+//! `getAllCollisions` call sites) for specifics.
 //!
 //! - [`VoxelGrid`] — the generic dense grid, with the world↔cell coordinate
 //!   conversion whose rounding convention is load-bearing (see its `impl`
@@ -159,11 +170,24 @@
 //! **What is still missing, and why it is not a gap in the above:** every
 //! item is already named individually in the two symbol-audit sections below
 //! with its own reason; this is the roll-up. `CollisionEnvDistanceField`
-//! itself (the collision *checker* — `checkCollision`/`checkSelfCollision`/
-//! `checkRobotCollision`/`distanceSelf`/`distanceRobot` and its persistent
-//! cache-owner role) is entirely unported, a later phase per
-//! `PORTING-PLAN.md` §3 — see `collision_env_distance_field.rs`'s module doc,
-//! "Still blocked, and why". `CollisionEnvHybrid` and both
+//! itself is no longer entirely unported: round 21 ports its five real
+//! (non-continuous) collision-checking entry points --
+//! `checkSelfCollision`/`checkCollision`/`checkRobotCollision`/
+//! `getCollisionGradients`/`getAllCollisions` -- as
+//! [`DistanceFieldCollisionCache`] methods (see the `collision_env_distance_field.hpp`
+//! symbol-audit section below for the full accounting). What remains
+//! unported is narrower: the class's construction/`World`-observation surface
+//! (3 constructors, `initialize`, `setWorld`, `getDistanceField`,
+//! `notifyObjectChange`, `updateDistanceObject`,
+//! `generateDistanceFieldCacheEntryWorld`, the nested
+//! `DistanceFieldCacheEntryWorld` struct), `checkRobotCollision`'s 2
+//! continuous-state overloads (upstream itself stubs both to "not
+//! implemented"), the header-inline `distanceSelf`/`distanceRobot` stubs
+//! (never reach the `gsr`-cache machinery at all), and
+//! `createCollisionModelMarker` (D1) -- see
+//! `collision_env_distance_field.rs`'s module doc, "Round 21" section, for
+//! the difference table against all seven upstream call sites this round
+//! reads and ports individually. `CollisionEnvHybrid` and both
 //! `CollisionDetectorAllocator*` classes are D-decision-excluded (D1's
 //! FCL/Bullet replacement, D4's compile-time-trait plugin model). The
 //! `AttachedBody`-dependent decomposition functions
@@ -436,26 +460,37 @@
 //! which assertion actually tripped, since a file can mix a real gate with
 //! trapped ones behind the same `epsilon = 0.0` run.
 //!
-//! **Recounted (round 19), with the same reproducible command
-//! `moveit-geometry`'s audit script now uses** (that script strips block
-//! comments and string literals before counting — this crate has neither
-//! inside a macro call, so the fix changes nothing here, but the command
-//! form is what changed, not just the number):
+//! **Recounted (round 21), with the same reproducible command
+//! `moveit-geometry`'s audit script now uses**:
 //!
 //! ```text
 //! perl tools/ci/count-relative-eq.pl \
 //!   $(find crates/moveit-distance-field -name '*.rs' | sort)
-//! both=27 epsilon_only=3 max_relative_only=0 neither=0
+//! both=45 epsilon_only=3 max_relative_only=0 neither=0
 //! ```
 //!
-//! `neither=0`, unchanged from before the script fix. The 3 `epsilon_only`
-//! sites are `upstream_parity.rs`'s three `epsilon = RESOLUTION`
-//! comparisons — already bisected and shown immune by construction (each
-//! compares against an exact-zero component, where `max_relative`'s
-//! implicit term reduces to `|a| <= max_relative * |a|`, false for any
-//! `max_relative < 1`), see that file's own module doc, "The 3 `epsilon =
-//! RESOLUTION` sites are a real gate". Nothing to dispose of this round —
-//! recount confirms the prior disposal, it does not change it.
+//! `both` moved twice since the round 19 count (`27`), for two unrelated
+//! reasons, neither a real behavior change: first to `44`, a pure
+//! measurement fix — `count-relative-eq.pl` mishandled a Rust
+//! line-continuation string literal (`"...\` + newline) elsewhere in the
+//! workspace, undercounting real calls that happen to follow one; the fix
+//! (`c9780c7`) changed the *script*, not this crate, and the corrected
+//! count already reflected this file's state before round 21 started. Then
+//! to `45`, this round's own addition:
+//! `check_self_collision_reuses_the_distance_field_cache_entry_fixture` in
+//! `collision_env_distance_field_parity.rs` adds one more
+//! `assert_relative_eq!(epsilon = TOL, max_relative = TOL)` call, the same
+//! shape as every other `both` site in that file. `epsilon_only=3` and
+//! `neither=0` are unchanged by both the fix and this round's addition.
+//!
+//! The 3 `epsilon_only` sites are `upstream_parity.rs`'s three
+//! `epsilon = RESOLUTION` comparisons — already bisected and shown immune
+//! by construction (each compares against an exact-zero component, where
+//! `max_relative`'s implicit term reduces to `|a| <= max_relative * |a|`,
+//! false for any `max_relative < 1`), see that file's own module doc, "The
+//! 3 `epsilon = RESOLUTION` sites are a real gate". Nothing to dispose of
+//! this round for that group either — recount confirms the prior disposal,
+//! it does not change it.
 //!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
@@ -569,35 +604,56 @@
 //! ## `collision_env_distance_field.hpp`
 //!
 //! `DEFAULT_SIZE_X`/`_Y`/`_Z`, `DEFAULT_USE_SIGNED_DISTANCE_FIELD`,
-//! `DEFAULT_RESOLUTION`, `DEFAULT_COLLISION_TOLERANCE`,
-//! `DEFAULT_MAX_PROPOGATION_DISTANCE` — unported: every one is a default
-//! constructor argument of `CollisionEnvDistanceField` itself (unported,
-//! below); `DEFAULT_COLLISION_TOLERANCE` specifically backs
-//! `collision_tolerance_`, read only by checker-level methods
-//! (`checkSelfCollision`, `getSelfProximityGradients`, ...), none of which
-//! are ported — not a gap in [`DistanceFieldConfig`], which already carries
-//! every field the functions this crate *does* port actually consume.
+//! `DEFAULT_RESOLUTION`, `DEFAULT_MAX_PROPOGATION_DISTANCE` — unported: every
+//! one is a default constructor argument of `CollisionEnvDistanceField`
+//! itself (unported, below), a type this crate has no constructor for.
+//! `DEFAULT_COLLISION_TOLERANCE` differs as of round 21: its value now backs
+//! `collision_tolerance`, [`DistanceFieldCollisionCache`]'s field, read by
+//! [`DistanceFieldCollisionCache::check_self_collision`] and its four
+//! siblings below — but it is not ported as a *named* constant either, any
+//! more than the other four `DEFAULT_*` are; every
+//! [`DistanceFieldCollisionCache::new`] call site supplies the value as an
+//! explicit `f64` argument, the same way [`DistanceFieldConfig`]'s own
+//! fields are always explicit rather than defaulted.
 //!
-//! `CollisionEnvDistanceField` (class) — unported in its entirety: the
-//! collision *checker* itself, a later phase (see "Still blocked, and why"
-//! in `collision_env_distance_field.rs`'s module doc). This covers every
-//! public method not listed as ported below (3 constructors, `initialize`,
-//! `checkSelfCollision` ×4, `checkCollision` ×4, `checkRobotCollision` ×6,
-//! `distanceSelf` ×3, `distanceRobot` ×3 — the `DistanceRequest` overloads
-//! of both are themselves stubbed upstream to
-//! `RCLCPP_ERROR("Not implemented")` — `setWorld`, `getDistanceField`,
-//! `getLastGroupStateRepresentation`, `getCollisionGradients`,
-//! `getAllCollisions`, `getLastDistanceFieldEntry`, the nested
-//! `DistanceFieldCacheEntryWorld` struct, and the destructor;
-//! `createCollisionModelMarker` additionally falls under D1) and every
-//! protected method not listed as ported below (`getSelfProximityGradients`,
-//! `getIntraGroupProximityGradients`, `getSelfCollisions`,
-//! `getIntraGroupCollisions`, `checkSelfCollisionHelper`,
-//! `updatedPaddingOrScaling` (a no-op override of the `CollisionEnv`
-//! interface), `generateDistanceFieldCacheEntryWorld`, `updateDistanceObject`,
-//! `getEnvironmentCollisions`, `getEnvironmentProximityGradients`,
-//! `notifyObjectChange` — the last six specifically `World`-dependent, a
-//! dependency this crate deliberately does not take).
+//! `CollisionEnvDistanceField` (class) — construction, `World`-observation,
+//! and continuous-collision checking remain unported; round 21 ports its
+//! five real (non-continuous) collision-checking entry points as
+//! [`DistanceFieldCollisionCache`] methods (below), narrowing what
+//! "unported" covers from the whole class to specifically its construction/
+//! `World`/continuous-checking surface. Still unported: 3 constructors,
+//! `initialize`, `setWorld`, `getDistanceField`,
+//! `getLastGroupStateRepresentation`, `getLastDistanceFieldEntry`, the
+//! nested `DistanceFieldCacheEntryWorld` struct, the destructor,
+//! `checkRobotCollision`'s 2 continuous-state overloads (upstream itself
+//! stubs both to `RCLCPP_ERROR("Continuous collision checking not
+//! implemented")` — see [`DistanceFieldCollisionCache::check_robot_collision`]'s
+//! own doc comment), `distanceSelf` ×3/`distanceRobot` ×3 (header-inline
+//! stubs that unconditionally return `0.0` or log
+//! `RCLCPP_ERROR("Not implemented")`, never reaching the `gsr`-cache
+//! machinery at all — see `collision_env_distance_field.rs`'s "Round 21"
+//! module doc section for why no `distance*` counterpart to the five ported
+//! methods below exists to port), and `createCollisionModelMarker` (D1).
+//!
+//! Now ported, as [`DistanceFieldCollisionCache`] methods rather than
+//! methods of the still-unported class — see that module's own "Round 21"
+//! doc section for the full difference table against all seven upstream
+//! call sites, including why none threads a caller-owned
+//! `GroupStateRepresentationPtr& gsr` the way every one of the seven does:
+//!
+//! - `checkSelfCollisionHelper` (all 4 `checkSelfCollision` overloads
+//!   collapsed into it via `acm: Option<&AllowedCollisionMatrix>`) — ported
+//!   as [`DistanceFieldCollisionCache::check_self_collision`].
+//! - `checkCollision`'s 2 real (`gsr`-threading-collapsed) overloads — ported
+//!   as [`DistanceFieldCollisionCache::check_collision`].
+//! - `checkRobotCollision`'s 2 real (non-continuous) overloads — ported as
+//!   [`DistanceFieldCollisionCache::check_robot_collision`].
+//! - `getCollisionGradients` — ported as
+//!   [`DistanceFieldCollisionCache::get_collision_gradients`] (its upstream
+//!   `res` parameter is commented `/*res*/`, never read or written, so not
+//!   ported).
+//! - `getAllCollisions` — ported as
+//!   [`DistanceFieldCollisionCache::get_all_collisions`].
 //!
 //! Of `CollisionEnvDistanceField`'s protected methods, these ARE ported —
 //! as free functions or a [`DistanceFieldCollisionCache`] method rather than
@@ -624,6 +680,28 @@
 //! - `compareCacheEntryToState` — ported as [`compare_cache_entry_to_state`].
 //! - `compareCacheEntryToAllowedCollisionMatrix` — ported as
 //!   [`compare_cache_entry_to_allowed_collision_matrix`].
+//! - `getSelfCollisions` — ported (round 21) as the module-private free
+//!   function `get_self_collisions` in `collision_env_distance_field.rs`,
+//!   called from `check_self_collision`/`check_collision`/
+//!   `get_all_collisions`.
+//! - `getSelfProximityGradients` — ported (round 21) as the module-private
+//!   free function `get_self_proximity_gradients`.
+//! - `getIntraGroupCollisions` — ported (round 21) as the module-private
+//!   free function `get_intra_group_collisions`.
+//! - `getIntraGroupProximityGradients` — ported (round 21) as the
+//!   module-private free function `get_intra_group_proximity_gradients`.
+//! - `getEnvironmentCollisions` — ported (round 21) as the module-private
+//!   free function `get_environment_collisions`, taking
+//!   `env_distance_field: &dyn DistanceField` as an explicit parameter in
+//!   place of reading `distance_field_cache_entry_world_->distance_field_`
+//!   off the `World` this crate does not depend on.
+//! - `getEnvironmentProximityGradients` — ported (round 21) the same way, as
+//!   the module-private free function `get_environment_proximity_gradients`.
+//! - `updatedPaddingOrScaling` — unported: a no-op override of the
+//!   `CollisionEnv` interface upstream itself (`return;`, no body).
+//! - `generateDistanceFieldCacheEntryWorld`, `updateDistanceObject`,
+//!   `notifyObjectChange` — unported: specifically `World`-dependent, a
+//!   dependency this crate deliberately does not take.
 //!
 //! Member fields:
 //!
@@ -631,8 +709,9 @@
 //!   `max_propogation_distance_` — ported as [`DistanceFieldConfig`]'s
 //!   fields (`origin_`/`size_` additionally require the center-to-corner
 //!   shift documented on [`DistanceFieldConfig::geometry`]).
-//! - `collision_tolerance_` — unported; see the `DEFAULT_COLLISION_TOLERANCE`
-//!   note above.
+//! - `collision_tolerance_` — ported (round 21) as
+//!   [`DistanceFieldCollisionCache`]'s `collision_tolerance` field; see the
+//!   `DEFAULT_COLLISION_TOLERANCE` note above.
 //! - `link_body_decomposition_vector_`/`link_body_decomposition_index_map_`
 //!   — ported as the `LinkBodyDecompositions` pair
 //!   [`add_link_body_decompositions`] returns.

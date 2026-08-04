@@ -66,10 +66,10 @@ use approx::assert_relative_eq;
 use nalgebra::Vector3;
 use serde::Deserialize;
 
-use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale};
+use moveit_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale};
 use moveit_distance_field::{
-    DistanceField, DistanceFieldConfig, GridGeometry, add_link_body_decompositions,
-    generate_distance_field_cache_entry, group_state_representation,
+    DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+    add_link_body_decompositions, generate_distance_field_cache_entry, group_state_representation,
 };
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
@@ -483,6 +483,159 @@ fn generate_distance_field_cache_entry_matches_the_oracle() {
             expected.distance_queries.len(),
             "fixture's own request/response distance_queries length mismatch"
         );
+        for (point, expected_distance) in request
+            .distance_queries
+            .iter()
+            .zip(&expected.distance_queries)
+        {
+            let actual_distance = field.distance(point[0], point[1], point[2]);
+            assert_relative_eq!(
+                actual_distance,
+                *expected_distance,
+                epsilon = TOL,
+                max_relative = TOL
+            );
+        }
+    }
+}
+
+/// Round 21 asks whether the `distance_field_cache_entry` fixture above is
+/// evidence for anything on the [`DistanceFieldCollisionCache::check_self_collision`]
+/// code path this round ports, or only for [`generate_distance_field_cache_entry`]
+/// called directly. It is: the oracle's `distance_field_cache_entry` op is
+/// itself driven by `CollisionEnvDistanceField::checkSelfCollision(req, res,
+/// state)` followed by `getLastDistanceFieldEntry()` (see this test module's
+/// own doc comment), and `check_self_collision` is this port's entry point
+/// for exactly that upstream call -- `generate_distance_field_cache_entry`
+/// is a step *inside* it, reached through
+/// [`DistanceFieldCollisionCache::generate_collision_checking_structures`],
+/// not an alternate path the oracle happens to resemble. This test drives
+/// the same three request/response fixture cases through
+/// `check_self_collision` instead of calling `generate_distance_field_cache_entry`
+/// directly, and checks the resulting [`moveit_distance_field::GroupStateRepresentation::dfce`]
+/// against the same expected fields -- proving the fixture is evidence for
+/// the newly ported method, not merely for the free function it happens to
+/// share a name with.
+///
+/// Every fixture case has `has_field: true` (checked below), matching
+/// `check_self_collision`'s unconditional `generate_distance_field = true`
+/// (see that method's own doc comment) -- so this fixture cannot exercise
+/// the `generate_distance_field = false` path `check_robot_collision`'s
+/// no-acm overload uses; that path has no oracle fixture and is covered
+/// only by this crate's own unit tests.
+#[test]
+fn check_self_collision_reuses_the_distance_field_cache_entry_fixture() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+
+    let requests: Vec<DfceRequest> =
+        serde_json::from_str(&read_fixture("distance_field_cache_entry_request.json"))
+            .expect("parse distance_field_cache_entry_request.json");
+    let responses: Vec<DfceResponseEntry> =
+        serde_json::from_str(&read_fixture("distance_field_cache_entry_response.json"))
+            .expect("parse distance_field_cache_entry_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert!(!requests.is_empty(), "fixture must carry at least one case");
+    assert!(model.diagnostics().is_empty());
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected = &response.result;
+        assert!(
+            expected.has_field,
+            "check_self_collision always requests a distance field; a \
+             fixture case without one would not be evidence for this path"
+        );
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values for {}: {e}", request.group));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+
+        // A fresh cache per case: `check_self_collision` caches its
+        // `DistanceFieldCacheEntry` across calls, and this test's point is
+        // "does one `check_self_collision` call reproduce the oracle
+        // entry", not "does the cache-reuse path also reproduce it" (that
+        // is `generate_collision_checking_structures_agrees_with_a_fresh_generate_and_represent_call`'s
+        // job, in `collision_env_distance_field.rs`).
+        let mut cache = DistanceFieldCollisionCache::new(
+            link_body_decompositions.clone(),
+            oracle_default_distance_field_config(),
+            0.0,
+        );
+        let req = CollisionRequest {
+            group_name: Some(request.group.clone()),
+            ..CollisionRequest::default()
+        };
+        let (_res, gsr) = cache
+            .check_self_collision(&req, &posed, acm_arg, &[])
+            .unwrap_or_else(|e| panic!("check_self_collision({}): {e}", request.group));
+        let entry = gsr.dfce;
+
+        assert_eq!(entry.group_name, expected.group_name, "group_name");
+        assert_eq!(entry.link_names, expected.link_names, "link_names");
+        assert_eq!(
+            entry.link_state_indices, expected.link_state_indices,
+            "link_state_indices"
+        );
+        assert_eq!(
+            entry.attached_body_names, expected.attached_body_names,
+            "attached_body_names"
+        );
+        assert_eq!(
+            entry.attached_body_link_state_indices, expected.attached_body_link_state_indices,
+            "attached_body_link_state_indices"
+        );
+        assert_eq!(
+            entry.state_check_indices, expected.state_check_indices,
+            "state_check_indices"
+        );
+        assert_eq!(
+            entry.state_values.len(),
+            expected.state_values.len(),
+            "state_values length"
+        );
+
+        for (i, link_name) in entry.link_names.iter().enumerate() {
+            assert_eq!(
+                entry.link_has_geometry[i], expected.link_has_geometry[i],
+                "link_has_geometry[{i}] ({link_name}, group {})",
+                request.group
+            );
+            assert_eq!(
+                entry.link_body_indices[i], expected.link_body_indices[i],
+                "link_body_indices[{i}] ({link_name}, group {})",
+                request.group
+            );
+            assert_eq!(
+                entry.self_collision_enabled[i], expected.self_collision_enabled[i],
+                "self_collision_enabled[{i}] ({link_name}, group {})",
+                request.group
+            );
+            assert_eq!(
+                entry.intra_group_collision_enabled[i], expected.intra_group_collision_enabled[i],
+                "intra_group_collision_enabled[{i}] ({link_name}, group {})",
+                request.group
+            );
+        }
+
+        assert_eq!(
+            entry.distance_field.is_some(),
+            expected.has_field,
+            "has_field"
+        );
+        let field = entry
+            .distance_field
+            .as_ref()
+            .expect("every fixture case requests generate_distance_field");
         for (point, expected_distance) in request
             .distance_queries
             .iter()
