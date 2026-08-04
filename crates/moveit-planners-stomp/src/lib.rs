@@ -9,16 +9,17 @@
 //! ROS-independent headers: matrix<->trajectory conversion
 //! ([`conversion_functions`]) and trajectory filters ([`filter_functions`]).
 //!
-//! # Not ported: `stomp`, the optimizer core (upstream, out of this workspace)
+//! # `stomp`, the optimizer core: ported, but into `moveit-stomp-core`, not here
 //!
 //! STOMP's actual optimization loop lives in the separate upstream
-//! repository `ros-industrial/stomp`, not in `moveit2`. That repository was
-//! searched for on this machine and is genuinely absent: `find / -xdev
-//! -iname "*stomp*"` (excluding the `moveit2`/`moveit-rs` trees themselves)
-//! and `find /opt -iname "*stomp*"` both turned up nothing but unrelated Qt6
-//! filename substring matches (`qquickdesignercustomparserobject_p.h`,
-//! `qqmlcustomparser_p.h`) -- no genuine STOMP-optimizer source. This was
-//! reported to the user rather than fabricated. Consequently:
+//! repository `ros-industrial/stomp`, not in `moveit2` -- see
+//! `moveit-stomp-core`'s own module doc for how that source was obtained
+//! and verified, and for the one-crate-one-upstream reasoning behind
+//! keeping it in its own crate rather than here. This crate now depends on
+//! it and calls `moveit_stomp_core::generate_smoothing_matrix` from
+//! `filter_functions::simple_smoothing_matrix`.
+//!
+//! Not ported into either crate:
 //!
 //! - `cost_functions.hpp` (collision/validity cost) is deferred to a later
 //!   round: it needs `moveit-scene`'s collision surface, out of this

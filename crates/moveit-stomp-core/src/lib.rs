@@ -10,19 +10,20 @@
 //! `ros-industrial/stomp` (not `moveit2`) -- see "Why a separate crate and a
 //! separate upstream" below.
 //!
-//! # Round scope: `utils.cpp` only
+//! # Round scope: all of `stomp.cpp`/`task.h`/`utils.h` except `bodies::Body`-adjacent glue
 //!
 //! `ros-industrial/stomp` @ `b1a87c80f7338caae25a5c689b876da15492aa75` is
 //! 1,551 lines across `src/stomp.cpp` (800), `src/utils.cpp` (179),
 //! `include/stomp/{stomp,task,utils}.h` (572); confirmed ROS-independent by
-//! grepping for `ros/ros.h`, `rclcpp`, and `ros::` across `src/utils.cpp`
-//! and `include/stomp/utils.h` (zero matches) -- pure C++/Eigen, matching
-//! PORTING-PLAN.md's D1. This round ports exactly `utils.h`/`utils.cpp`
-//! (see [`utils`]'s own module doc for what that excludes even within
-//! `utils.h` -- `Rollout`, `StompConfiguration`,
-//! `TrajectoryInitializations`). The 800-line `stomp.cpp` optimizer loop
-//! (`StompOptimizer`/`Stomp`, built on top of `utils.cpp`'s primitives) is
-//! deferred to a following round.
+//! grepping for `ros/ros.h`, `rclcpp`, and `ros::` across every file this
+//! crate ports (zero matches) -- pure C++/Eigen, matching PORTING-PLAN.md's
+//! D1. An earlier round ported `utils.h`/`utils.cpp`'s free functions; this
+//! round adds the rest of `utils.h` ([`utils::Rollout`],
+//! [`utils::StompConfiguration`], [`utils::TrajectoryInitialization`]),
+//! `task.h` in full ([`task::Task`]), and `stomp.cpp`/the remainder of
+//! `stomp.h` in full ([`stomp::Stomp`], [`stomp::CancelHandle`]) -- see each
+//! module's own doc for translation-level detail and preserved upstream
+//! quirks.
 //!
 //! # Why a separate crate and a separate upstream
 //!
@@ -36,11 +37,9 @@
 //! `moveit-planners-stomp` would put two upstreams (`moveit2` and
 //! `ros-industrial/stomp`) in one crate and silently break that premise.
 //! `moveit-stomp-core` exists so the one-crate-one-upstream invariant keeps
-//! holding, and `moveit-planners-stomp` depends on it once
-//! `filter_functions::simple_smoothing_matrix` is wired up (a following
-//! round -- see `moveit-planners-stomp`'s own module doc for its current
-//! "not ported: `stomp`, the optimizer core" note, written before this
-//! upstream became available).
+//! holding; `moveit-planners-stomp` now depends on it and calls
+//! `generate_smoothing_matrix` from `filter_functions::simple_smoothing_matrix`
+//! -- see `moveit-planners-stomp`'s own module doc.
 //!
 //! # License: `Apache-2.0`, not this workspace's `BSD-3-Clause`
 //!
@@ -92,8 +91,19 @@
 /// what's deferred.
 pub mod utils;
 
+/// `task.h` -- see this module's own doc for the `Task` trait's
+/// out-parameter shape split.
+pub mod task;
+
+/// `stomp.h`/`stomp.cpp` -- see this module's own doc for `Stomp`'s
+/// preserved upstream quirks and `CancelHandle`'s thread-safety rationale.
+pub mod stomp;
+
+pub use stomp::{CancelHandle, Stomp};
+pub use task::Task;
 pub use utils::{
     DerivativeOrder, FINITE_CENTRAL_DIFF_COEFFS, FINITE_DIFF_RULE_LENGTH,
-    FINITE_FORWARD_DIFF_COEFFS, differentiate, generate_finite_difference_matrix,
-    generate_smoothing_matrix, matrix_to_string, rows_to_string, to_vector, vector_to_string,
+    FINITE_FORWARD_DIFF_COEFFS, Rollout, StompConfiguration, TrajectoryInitialization,
+    differentiate, generate_finite_difference_matrix, generate_smoothing_matrix, matrix_to_string,
+    rows_to_string, to_vector, vector_to_string,
 };
