@@ -1659,12 +1659,19 @@ fn get_self_collisions(
 /// see [`AllowedCollisionType`]), then from the group's aggregate
 /// `gsr.dfce.distance_field`.
 ///
-/// # Deviation from upstream (KNOWN GAP, not yet ported)
+/// # Deviation from upstream
 ///
-/// Same gap as [`get_self_collisions`]: the `is_link`/attached-body branch
-/// is not ported, so attached-body spheres never contribute a
-/// self-proximity gradient. See [`get_self_collisions`]'s own doc comment
-/// for the full explanation and cross-references.
+/// Unlike [`get_self_collisions`], this one is a *faithful* port with no
+/// attached-body gap: upstream's own loop condition here is `i <
+/// link_names_.size()` (`:359`), not `i < link_names_.size() +
+/// attached_body_names_.size()` like [`get_self_collisions`] (`:278`) --
+/// so the `is_link` computed at `:362` is always `true` and upstream's own
+/// `is_link`-false branch (`:373-377`) is unreachable dead code in the C++
+/// itself, correctly omitted here rather than ported unreachable. (Round 22
+/// mistakenly grouped this function with [`get_self_collisions`]'s real
+/// gap; round 23's fresh read of the loop bound found the two are not
+/// alike -- see [`get_environment_proximity_gradients`] for the same
+/// pattern on the environment side.)
 ///
 /// # Panics
 ///
