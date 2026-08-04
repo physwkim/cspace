@@ -1,0 +1,57 @@
+# moveit-ros type-b claim audit
+
+Every doc-comment in `ros/moveit-ros/src` asserting something about
+upstream (moveit2 @ `e017c91ee12984393a28ba246075c65f69cde3bf`,
+checked out at `$HOME/work/moveit2`), verified by opening the cited
+upstream range directly — not by reasoning from the port. §175 format
+(PORTING-PLAN.md `b76e4d4`): one row per item, appended as found, not
+batched. This file is the full flush of the round-8 audit that had
+been sitting only in conversation context.
+
+`verdict` uses the prescribed three values (CONFIRMED / EXPIRED /
+UNVERIFIABLE(reason)); rows where the port's own citation line is
+wrong but the claimed substance is independently confirmed true are
+still `CONFIRMED`, with the discrepancy spelled out in the row so it
+isn't hidden by the verdict — `evidence` always holds the real
+upstream location, not the port's (possibly wrong) cited one.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `scene/collision_object.rs:19-21` | `processCollisionObjectMsg` signature `(&mut PlanningScene, &CollisionObject) -> bool` | CONFIRMED | `planning_scene.cpp` processCollisionObjectMsg definition | |
+| `scene/collision_object.rs:39-41` | `OCTOMAP_NS` constant matches upstream's | CONFIRMED | `planning_scene.hpp:113` | |
+| `scene/collision_object.rs:39-41,294-295` | rejected before dispatch in `processCollisionObjectMsg` (cites `:1758`) | CONFIRMED (citation-line wrong: cites `:1758`, actual `:1774`) | `planning_scene.cpp:1774` (`grep -n "^bool PlanningScene::processCollisionObjectMsg"`) | |
+| `scene/collision_object.rs:50-52` | ADD=0/REMOVE=1/APPEND=2/MOVE=3 | CONFIRMED | `third_party/moveit_msgs/msg/CollisionObject.msg` | |
+| `scene/collision_object.rs:85-89` | `isEmpty(Pose)` literal `==0.0`/`==1.0` field comparisons | CONFIRMED | `message_checks.cpp:77-79` | |
+| `scene/collision_object.rs:102-104` | `treat_shape_vectors` lambda (cites `planning_scene.cpp:1852`) | CONFIRMED (citation-line wrong: cites `:1852`, actual `:1855`) | `planning_scene.cpp:1855` | |
+| `scene/collision_object.rs:108-111` | upfront length checks reject poses>shapes, one RCLCPP_ERROR per array | CONFIRMED | `planning_scene.cpp:1805-1818` | |
+| `scene/collision_object.rs:145-146` | `shapesAndPosesFromCollisionObjectMessage` at `:1800` | CONFIRMED | `planning_scene.cpp:1800` | |
+| `scene/collision_object.rs:151-152` | "matching upstream's own out-param name `header_to_pose_transform`" | EXPIRED (never true — fabricated) | `planning_scene.cpp:1801`: actual formal parameter name is `object_pose`; `header_to_pose_transform` is only a caller-local variable at the `processCollisionObjectAdd` call site | |
+| `scene/collision_object.rs:157-159` | single-shape pose-swap mechanism | CONFIRMED | `planning_scene.cpp:1823-1852` (declaration `:1825`, append lambda `:1837`) | |
+| `scene/collision_object.rs:208-214` | subframe_names[]/subframe_poses[] exact-length-only; upstream has no length check at all on either the world-object or attached path | CONFIRMED | `planning_scene.cpp` `processCollisionObjectAdd:1921/1924`, `processAttachedCollisionObjectMsg:1612/1615` — both exact | |
+| `scene/collision_object.rs:313-315` | `processCollisionObjectAdd` handles ADD/APPEND, differing only in whether existing object is removed first | CONFIRMED | `planning_scene.cpp:1887` | |
+| `scene/collision_object.rs:356-358` | `knowsFrameTransform` checked before world touched | CONFIRMED | `planning_scene.cpp:1889` | |
+| `scene/collision_object.rs:396-402` | `setSubframesOfObject` called unconditionally even with empty map | CONFIRMED | `planning_scene.cpp:1927` | |
+| `scene/collision_object.rs:408-409` | `processCollisionObjectRemove` | CONFIRMED | `planning_scene.cpp:1931` | |
+| `scene/collision_object.rs:427-432` | `processCollisionObjectMove`, pose always applied unconditionally even if shape-repose fails later | CONFIRMED | `planning_scene.cpp:1953` | |
+| `scene/collision_object.rs:489-491` | `poseMsgToEigen` parses all poses before `moveShapesInObject` repose call (cites `:1985-1998`) | CONFIRMED (citation range short: cited end `:1998`, conversion loop actually ends `:2002`, call is at `:2004`) | `planning_scene.cpp:1987-2002` (loop), `:2004` (`moveShapesInObject` call) | |
+| `scene/planning_scene.rs:38-43` | `GeometricShapesPlanningSceneMsgConversions` cited as evidence core has no "am I a diff" query | EXPIRED (never true — fabricated class name) | `grep -rni GeometricShapesPlanningSceneMsgConversions` over full moveit2 tree: 0 hits. Underlying conclusion separately CONFIRMED via `planning_scene.hpp` (no `isDiff()`-style method; `parent_` field at `:970`) | |
+| `scene/planning_scene.rs:48-51` | `robot_model_name` mismatch is `RCLCPP_WARN` not hard error, empty name skips check (cites `:1370`) | CONFIRMED (citation-line wrong: `:1370` is the preceding `RCLCPP_DEBUG`, actual check `:1373`) | `planning_scene.cpp:1373` | |
+| `scene/planning_scene.rs:57-62` | `processPlanningSceneWorldMsg`'s `result &=` ANDs across all collision objects, keeps going on failure | CONFIRMED | `planning_scene.cpp:1396` | |
+| `scene/planning_scene.rs:76-82` | `processOctomapMsg(OctomapWithPose&)` early-returns on empty octomap.data | CONFIRMED | `planning_scene.cpp:1478` (signature), `:1483` (early return) | |
+| `geometry.rs:16-19` | tf2_eigen treats both `Point` and `Vector3` as `Eigen::Vector3d` | CONFIRMED | `/opt/ros/rolling/include/tf2_eigen/tf2_eigen/tf2_eigen.hpp:204` (`fromMsg(Point&, Vector3d&)`), `:231` (`fromMsg(Vector3&, Vector3d&)`); `planning_scene.cpp` includes `tf2_eigen/tf2_eigen.hpp` | |
+| `geometry.rs:96-99` | quaternion unconditionally normalized, no zero/NaN guard | CONFIRMED (method-name imprecision: claims `.normalized()`, actual `.normalize()`) | `tf2_eigen.hpp:336-340` (`fromMsg(Quaternion&, Quaterniond&)`), `:493-503` (embedded Pose conversion) | |
+| `constraints/context.rs:20-22` | non-fixed frame resolves mobile, re-decided against current state every `decide()` call | CONFIRMED | `kinematic_constraint.cpp:382-391` (`isFixedFrame` gate sets `mobile_frame_`), `:528-532` (`decide()` re-transform when `mobile_frame_`) | |
+| `constraints/visibility.rs:36-37` (defers to `crates/moveit-constraints/src/visibility.rs`) | `axis_column()` matches upstream `col(2 - sensor_view_direction_)`, with SENSOR_Z=0/SENSOR_Y=1/SENSOR_X=2 | CONFIRMED | `kinematic_constraint.cpp:1058` (`col(2 - sensor_view_direction_)`), `:1077-1078` (upstream's own comment: "necessary to do subtraction as SENSOR_Z is 0 and SENSOR_X is 2") | |
+| `scene/attached.rs:19-21` | `AttachedBody` has no `weight` field, port drops it | CONFIRMED | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp`: 0 hits for a weight field | |
+| `scene/attached.rs:19-24` | `detach_posture` "never reads back" inside `planning_scene.cpp`'s own processing | EXPIRED (partially false as literally worded) | `planning_scene.cpp:1675`: `object.detach_posture.joint_names.empty() ? ab->getDetachPosture() : object.detach_posture;` — it IS read back on APPEND to carry the old value forward when the message doesn't supply a new one. The narrower claim "no invariant branches on its content" still holds (nothing decides behavior based on the trajectory's contents), but "never reads back" is false as stated | |
+| `scene/attached.rs:65-69` | MOVE not implemented, exact `RCLCPP_ERROR` quote | CONFIRMED | `planning_scene.cpp:1764`: `RCLCPP_ERROR(getLogger(), "Move for attached objects not yet implemented");` — exact string match | |
+| `scene/attached.rs:74-77` | ADD/APPEND shared-path gate condition (cites `:1567-1622`) | CONFIRMED (citation range wrong: cited range is an earlier `if (link_model)` block, actual gate `object.operation == ADD \|\| !hasAttachedBody(id)` is elsewhere) | `planning_scene.cpp:1648-1649` | |
+| `scene/attached.rs:96-98` | world-object promotion gate (cites `:1576`, a comment line) | CONFIRMED (citation-line wrong: `:1576` is a comment, actual condition starts `:1579`) | `planning_scene.cpp:1579-1580` | |
+| `scene/attached.rs:148-152` | "APPEND onto an existing attached body: merge" (cites `:1602-1622`) | CONFIRMED (citation range wrong — points at a different code block entirely: `:1602-1622` is STEP-1's message-contents-fill branch, shared by ADD and APPEND when the object isn't already in the world; the actual APPEND-merge-with-old-attached-body logic is a separate STEP-3 `else` block) | `planning_scene.cpp:1663-1686` (`else // APPEND: augment to existing attached object`) | |
+| `scene/attached.rs:161-165` | duplicate subframe names: message's value wins over old attached body's, via `std::map::insert` keep-first semantics (cites `:1611`/`:1612` as the insert call) | CONFIRMED (citation-mechanism wrong: `:1611`-`:1615` is `operator[]` assignment filling the map from the message, not an `insert()` call; the actual `std::map::insert(first,last)` call carrying keep-first semantics — and thus the mechanism that makes the message win — is uncited) | `planning_scene.cpp:1611-1617` (message fill via `subframe_poses[name] = subframe_pose;`), `:1673` (`subframe_poses.insert(ab->getSubframes().begin(), ab->getSubframes().end());` — the real insert call) | |
+| `scene/attached.rs:247-250,618-621` | return expression `!attached_bodies.empty() \|\| object.object.id.empty()` (cites `:1665`) | CONFIRMED (citation-line wrong: cites `:1665`, actual `:1759`) | `planning_scene.cpp:1759` | |
+| `scene/attached.rs:256-259` | `link_name.empty() ? nullptr : ...` filter / match-everything branches (cites `:1633` and `:1636`) | CONFIRMED (citation-lines wrong: cites `:1633`/`:1636`, actual `:1701` and `:1704/1708`) | `planning_scene.cpp:1701` (nullptr ternary), `:1704-1708` (filter vs match-all branches) | |
+| `constraints/joint.rs:44-46` | `joint_variable_name()` is the exact wire-form string upstream expects, per `moveit_constraints::joint`'s own doc | DEFERRED — second-hand citation, not independently opened against moveit2 this round; verification owned by `crates/moveit-constraints` | (none opened this round) | |
+| `constraints/set.rs:7-14` | `KinematicConstraintSet` has no `name` field, per `moveit-constraints`'s own doc (re-checked their round 5) | DEFERRED — second-hand citation, not independently opened against moveit2 this round; verification owned by `crates/moveit-constraints` | (none opened this round) | |
+| `planning.rs:242-253` | `planning_time` unported, per `crates/moveit-planning/src/response.rs:39-68`'s own conclusion | DEFERRED — second-hand citation; one of the sibling crate's own cited sites spot-checked | `ompl_interface/src/model_based_planning_context.cpp:799` (`res.planning_time = ptime;`) — spot-check CONFIRMED; `planning_pipeline.cpp` confirmed 0 hits for `planning_time` as claimed | |
+| (crate-wide, §172 boundary, not this round's new work) | `rclcpp::Duration::from_seconds` — upstream narrowing behavior for negative/non-finite/>i32::MAX inputs | UNVERIFIABLE(source absent both on host and in `moveit-rs/ros-dev:latest` docker image — only `duration.hpp`'s declaration at `:135` exists anywhere on this machine, no `.cpp` implementation) | `duration.hpp:135` (declaration only) | (rejected at the boundary instead, see PORTING-PLAN.md §172.4, `929a25c`) |

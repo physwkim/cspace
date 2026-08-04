@@ -413,10 +413,26 @@ patched around):
   unconditional again, matching upstream's own always-call behavior.
 - AttachedCollisionObject's own MOVE: rejected, matching upstream, which
   has no MOVE branch in `processAttachedCollisionObjectMsg` either.
-- **`Octomap.data`'s binary payload: decided round 5, belongs to
-  `moveit-octomap` (p3-shapes), not `ros/`.** Requirements spec for
-  `moveit-octomap`'s owner (doc only, this crate does not implement it):
-  Upstream: `moveit_core`'s
+- ~~`Octomap.data`'s binary payload: decided round 5, belongs to
+  `moveit-octomap` (p3-shapes), not `ros/`.~~ **Resolved round 8.**
+  `OcTree::read_binary_data`/`read_data` (`crates/moveit-octomap/src/tree.rs:1244`/`:1272`)
+  landed (`7eb794c`); `apply_octomap` (`src/scene/planning_scene.rs`) now
+  dispatches on `map.octomap.binary`, decodes into a freshly-constructed
+  `OcTree::new(map.octomap.resolution)`, and inserts the result via
+  `PlanningScene::add_shape` the same way every other shape kind is
+  inserted. Round-7's own dispatch plan (`ea686a6`) had flagged one risk
+  before it could be checked against a real decoder: whether the existing
+  `vec![1, 2, 3]` "malformed payload" test fixture would turn out to be a
+  degenerate but *valid* bitstream once a real decoder existed. It is --
+  `read_binary_node` decodes the first two bytes into two leaf children
+  (no `(1, 1)` "has children" code in either byte) and returns `Ok`
+  without ever consuming the third, matching `read_binary_data`'s own
+  documented "trailing bytes are not an error." That fixture is now
+  exercised as a **success** case (`binary_octree_payload_is_decoded_and_inserted`);
+  the rejection case (`truncated_octree_payload_is_rejected`) uses a
+  genuinely truncated one-byte payload instead. Requirements spec below
+  kept for the historical record of what was asked for and why. Upstream:
+  `moveit_core`'s
   `createOctomap` (`planning_scene.cpp:1416-1433`) always constructs a
   concrete `octomap::OcTree` -- `AbstractOcTree`'s runtime-type
   registry/factory (`createTree`) is never on this call path -- then for
@@ -492,7 +508,7 @@ the two small `is_diff`/`robot_model_name` helpers.
 | `allowed_collision_matrix` | `AllowedCollisionMatrix` | **not read this round** — defined in `moveit-collision`, out of this survey's scope per the round-1 brief's crate list; its own mapping table is follow-up work, not attempted here (the wire type itself was pulled above, §-adjacent, for completeness only) |
 | `link_padding[]`/`link_scale[]` | **no field on `PlanningScene` at all** | **Genuine gap, not yet a documented one anywhere else.** These live on `moveit_collision::LinkPaddingScale` (re-checked this round, `crates/moveit-collision/src/env.rs:329-351` — still a standalone struct, not a `PlanningScene` field), passed as a separate argument to collision-checking calls, not stored on the scene. A `TryFrom<PlanningScene msg> for moveit_scene::PlanningScene` cannot round-trip this data through the scene type at all — it would need to return a second value (`(PlanningScene, LinkPaddingScale)`) alongside the scene, or drop it, and either choice needs sign-off since it changes the shape of the conversion's return type, not just its error cases. Expires if `PlanningScene` grows a field carrying `LinkPaddingScale` (or the sign-off above picks the second-return-value shape and someone implements it here); `moveit-scene`'s call either way. |
 | `object_colors: ObjectColor[]` | **D1-excluded entirely** | Re-checked this round against `crates/moveit-scene/src/scene.rs:1942` — `moveit-scene`'s own doc comment still states this needs `std_msgs::msg::ColorRGBA` and is out of scope by D1 (core is ROS-independent) — msg→core always drops this array; there is no core representation to build it back from on core→msg either. Permanent by design, not a pending-implementation gap: only resolves if D1 itself is revisited (core stops being ROS-independent), which is a project-wide decision, not something this crate or `moveit-scene` can trigger unilaterally. |
-| `world: PlanningSceneWorld{collision_objects[], octomap}` | `World` (`moveit-collision`, used via `PlanningScene::world()`) | `collision_objects[]` mapping is `CollisionObject`, below. `octomap: octomap_msgs/OctomapWithPose`: **[R3]** an empty `octomap.data` is a correct no-op (`apply_planning_scene_world`, `src/scene/planning_scene.rs`); a non-empty payload names a structural gap instead of converting — see the "Structural gaps" list above (**[R4]**, measured) for why the binary-payload decoder belongs on `moveit_octomap::OcTree` (p3-shapes), not here. |
+| `world: PlanningSceneWorld{collision_objects[], octomap}` | `World` (`moveit-collision`, used via `PlanningScene::world()`) | `collision_objects[]` mapping is `CollisionObject`, below. `octomap: octomap_msgs/OctomapWithPose`: **[R3]** an empty `octomap.data` is a correct no-op (`apply_planning_scene_world`, `src/scene/planning_scene.rs`); a non-empty payload is decoded via `moveit_octomap::OcTree::read_binary_data`/`read_data` and inserted as a `Shape::OcTree` — **[R8]** see the "Structural gaps" list above for the decoder's landing and this crate's dispatch. |
 | `is_diff: bool` | **not a stored field — structural** | `parent: Option<Arc<PlanningScene>>` being `Some` **is** "is a diff" on the core side. msg→core: `is_diff=true` implies the conversion must be handed a parent scene to attach to (again, more context than the message alone carries); core→msg: derive as `scene.parent().is_some()`, a pure function of the core value, no loss. |
 
 `CollisionObject` (nested inside `PlanningSceneWorld.collision_objects[]`,
