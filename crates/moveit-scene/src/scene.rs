@@ -56,10 +56,14 @@ pub struct PathValidity {
 /// (`initialize`, the `CollisionDetector` struct, the process-*Add/Remove/Move
 /// helpers, data fields) are implementation detail, not audited here.
 ///
-/// Re-walked symbol-by-symbol this round against the current
-/// `planning_scene.hpp` (`public:` block, its current lines 93-926):
-/// 60 audit bullets below, every one already landing in one of the four
-/// buckets above — zero `unported, in scope` gaps survived the walk. Every
+/// Re-walked symbol-by-symbol this round (round 21) against the current
+/// `planning_scene.hpp` (`public:` block, its current lines 93-926) and
+/// against the current tree, not just the header: 60 audit bullets below,
+/// every one landing in one of the four buckets above. This is a change
+/// from the previous round's "zero `unported, in scope` gaps" claim — see
+/// `getCostSources`'s bullet below, reclassified this round from `blocked`
+/// to `unported, in scope` now that p3-acm's `6890fdd` (merged to `main`
+/// since) closed the backend gap that classification rested on. Every
 /// overload count already recorded here (`checkCollision`/`checkSelfCollision`/
 /// `getCollidingLinks`/`getCollidingPairs` at 6 each, `distanceToCollision`/
 /// `distanceToCollisionUnpadded`/`isStateConstrained`/`getCostSources` at 4
@@ -513,94 +517,32 @@ pub struct PathValidity {
 ///
 /// ## Cost sources and diagnostics
 ///
-/// - `getCostSources` (all four overloads) — blocked, not merely deferred.
-///   Every Rust-side type this needs already exists in `moveit-collision`
-///   ([`moveit_collision::CostSource`],
-///   [`moveit_collision::CollisionResult::cost_sources`],
-///   [`moveit_collision::remove_cost_sources`],
-///   [`moveit_collision::remove_overlapping`], and `CostSource`'s `Ord`
-///   already reproduces `fcl::CostSource::operator<`'s tie-break chain
-///   exactly), but `moveit_collision::ParryCollisionEnv`'s collision
-///   callback hardcodes `cost_sources: None` regardless of
-///   [`CollisionRequest::cost`] — contradicting `CollisionResult::cost_sources`'s
-///   own doc ("present exactly when `CollisionRequest::cost` was set").
-///
-///   Traced this round (`collision_detection_fcl/collision_common.hpp`'s
-///   `fcl2costsource`, and FCL's own `narrowphase/cost_source-inl.h` +
-///   `detail/traversal/collision/*_traversal_node-inl.h`, read from the
-///   image's vendored `/usr/include/fcl`): a `CostSource` is `{ aabb_min,
-///   aabb_max, cost: cost_density }`, `cost_density` is a per-`CollisionGeometry`
-///   field FCL defaults to `1.0` and **no code anywhere in `moveit2` ever
-///   sets to anything else** (`rg cost_density moveit_core` finds only the
-///   read side) -- so in every collision check this workspace's oracle can
-///   produce, `cost_density` is the constant `1.0`, and the entire feature
-///   reduces to "the AABB(s) of what collided, ranked by volume". The two
-///   shape kinds split cleanly:
-///   - **Non-mesh pairs**: upstream's source is `aabb1.overlap(aabb2)` --
-///     the *intersection* of each shape's own world-space AABB, from
-///     `computeBV` (`shape_collision_traversal_node-inl.h:114-120`). This
-///     is a small fill-in, not new backend work: at the exact site that
-///     hardcodes `cost_sources: None` (`parry.rs`, the `checkCollision`
-///     callback), `a_shape`/`b_shape`/`a_pose`/`b_pose` are already in
-///     scope, and `parry3d_f64::shape::Shape::compute_aabb` is the same
-///     call `parry3d-f64` already uses for broad-phase -- no new geometry
-///     algorithm, just wiring already-available data into the already-built
-///     `CostSource`/`CollisionResult::cost_sources` machinery above.
-///   - **Mesh pairs**: upstream's source is a *different* AABB per
-///     colliding *triangle-leaf pair* inside FCL's BVH traversal
-///     (`mesh_collision_traversal_node-inl.h`), many small AABBs per shape
-///     pair, not one. `parry3d_f64::query::contact` -- the single
-///     closest-point call this backend's whole pipeline is built on (see
-///     this crate's own module doc on `ParryCollisionEnv`) -- returns one
-///     `Contact` per pair and exposes no per-triangle-leaf overlap
-///     enumeration. **This is not a backend wall, though** -- an earlier
-///     version of this doc said it needed "`parry3d-f64`'s lower-level
-///     BVH/`Qbvh` traversal API, which nothing in `moveit-collision` calls
-///     today" and called that "the genuine backend limitation"; `Qbvh` is a
-///     name from an older `parry` release and does not exist in
-///     `parry3d-f64` 0.30 (`rg -l Qbvh` over the vendored crate source is
-///     zero hits), and the data the mesh case actually needs is public on
-///     the type this crate already builds meshes with:
-///     - `TriMesh::bvh() -> &Bvh` (`trimesh.rs:1808`) -- each mesh's own
-///       BVH.
-///     - `Bvh::intersect_aabb(&Aabb) -> impl Iterator<Item = u32>`
-///       (`bvh_queries.rs:203`) or `Bvh::leaves(check_node)`
-///       (`bvh_traverse.rs:103`) -- enumerate leaf node indices.
-///     - `BvhNode::leaf_data() -> Option<u32>` (`bvh_tree.rs:567`) and
-///       `BvhNode::aabb()` (`bvh_tree.rs:721`) -- recover a leaf's triangle
-///       index and world-space AABB.
-///     - `TriMesh::triangle(i) -> Triangle` (`trimesh.rs:1881`) -- recover
-///       the triangle itself from that index.
-///
-///     For a mesh-involving pair, the per-leaf-pair AABBs are the
-///     world-space `aabb()` of each `BvhNode` one mesh's `Bvh::leaves`/
-///     `intersect_aabb` finds overlapping the other shape's AABB (or the
-///     other mesh's own leaf AABBs) -- a second, explicit traversal one
-///     level below the whole-shape `query::contact` this backend calls
-///     today, not new geometry and not missing capability.
-///
-///     What is still unresolved, and is p3-acm's to design rather than a
-///     fill-in: **traversal order.** FCL enumerates colliding leaf pairs in
-///     its own BVTT (bounding-volume test tree) walk, and
-///     `CollisionRequest::max_cost_sources` truncates the result --
-///     `CostSource`'s `Ord` (this crate's doc above) sorts what survives
-///     truncation for the final ranking, but *which* candidates survive
-///     truncation in the first place depends on the order the pairs were
-///     visited, which depends on the order the two BVHs happen to be
-///     walked. Reaching bit-parity needs walking the leaf-pair
-///     intersections in FCL's BVTT order (or showing the visit order does
-///     not change which pairs survive truncation for the cases this
-///     workspace's oracle produces), not just gathering the same leaf AABBs
-///     in whatever order `parry`'s `Bvh` API happens to yield them.
-///
-///   So the fix splits differently than "small fill-in vs. backend
-///   limitation": both halves are reachable with today's `parry3d-f64` --
-///   the non-mesh half is wiring, already-in-scope data into
-///   already-built machinery; the mesh half is a second BVH-leaf-pair
-///   traversal built on the public `Bvh` API above, plus reproducing (or
-///   ruling out the need to reproduce) FCL's BVTT visitation order under
-///   `max_cost_sources` truncation. Neither needs a capability
-///   `parry3d-f64` lacks.
+/// - `getCostSources` (all four overloads) — reclassified this round from
+///   `blocked` to **unported, in scope**. The backend gap the `blocked`
+///   verdict rested on (`moveit_collision::ParryCollisionEnv`'s collision
+///   callback hardcoding `cost_sources: None`) is gone: p3-acm's `6890fdd`
+///   ("moveit-collision: implement cost_sources instead of documenting it
+///   as blocked", merged to `main` via `044a788f`, confirmed present on this
+///   branch after this round's rebase) made
+///   `crates/moveit-collision/src/parry.rs::accumulate_collision` compute
+///   real `[CostSource]`s through `cost_sources_for_part_pair` (mesh/mesh,
+///   mesh/shape, and shape/shape cases all handled, `CollisionRequest::cost`
+///   respected, `max_cost_sources` truncation applied) instead of the
+///   hardcoded `None` this bullet used to cite. That backend work is
+///   `moveit-collision`'s own (not re-verified here — out of this crate's
+///   ownership and this round's scope) — what remains for `moveit-scene`
+///   itself is porting `PlanningScene::getCostSources` as a thin wrapper,
+///   confirmed mechanical by reading `planning_scene.cpp:2451-2506`: build a
+///   [`CollisionRequest`] with `cost: true`/`max_cost_sources` set, call
+///   [`PlanningScene::check_collision`] (per-waypoint, for the two
+///   trajectory-taking overloads — matching `is_path_valid`'s own precedent
+///   above of taking `&[RobotState<'m>]` rather than a
+///   `moveit_trajectory::RobotTrajectory`, a dependency-boundary choice, not
+///   a new one), and run [`moveit_collision::remove_cost_sources`]/
+///   [`moveit_collision::remove_overlapping`] on the accumulated
+///   [`moveit_collision::CollisionResult::cost_sources`] — no new algorithm,
+///   every piece it calls already exists and is already exercised by other
+///   callers.
 /// - `printKnownObjects` — distinct: `std::ostream` debug formatting with
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
