@@ -11363,3 +11363,83 @@ void CollisionEnvHybrid::getCollisionGradients(...) const
 §137과 묶어서: UNFIXED의 사유가 *구조적 제약*일 때(의존성, 순환, 계층, 상속,
 "포팅 불가") 그 제약을 재현한 명령과 그 출력을 함께 적어라. 재현 없이 적힌 제약은
 다음 라운드가 전제로 삼고, 그 다음 라운드는 그 전제 위에 설계를 얹는다.
+
+## 140. D8 — 레지스트리는 새 크레이트로, 단 진짜 문제는 타입이 둘인 것이다
+
+p1-fixtures 라운드 20이 레지스트리 위치를 조사하고 **새 별도 크레이트**를
+추천했다. 근거를 확인했고 받아들인다 — 다만 조사가 부수적으로 드러낸 더 큰 문제가
+있어서 그것부터 적는다.
+
+### 140.1 확인한 근거
+
+세 주장을 직접 재현했다:
+
+- **`unsafe_code` 완화 범위.** `linkme::distributed_slice`를 호스팅하려면
+  `unsafe_code = "allow"`가 필요하고, 기존 두 사례
+  (`crates/moveit-kinematics/Cargo.toml:54`,
+  `crates/moveit-planners-sbp/Cargo.toml:43`)가 실제로 그렇게 하면서 완화를
+  **호스팅 크레이트 자신에 국한**시켰다. 루트 `Cargo.toml:85`는
+  `unsafe_code = "forbid"`다. 레지스트리를 `moveit-planning`에 얹으면 어댑터
+  체인과 캐노니컬 타입까지 통째로 `allow`로 내려간다 — 무관한 코드에 lint 완화를
+  강제하는 것이라, 새 크레이트가 맞다.
+- **dev-dependency 순환.** 격리된 사본에서 `moveit-planners-sbp`에
+  `moveit-planning` normal dep을 실제로 추가해 `cargo metadata`(exit 0),
+  `cargo tree`, `cargo check --workspace`(17.04s), `cargo test --doc`(2 passed)까지
+  돌렸다. cargo는 dev-dep 순환을 정상 처리한다 — 추측이 아니라 실측.
+- **`moveit-planning`은 루트 `[workspace.dependencies]`에 없다.** 확인했다.
+  플래너 크레이트가 이걸 normal dep으로 붙이려면 그 파일에 등록이 필요하다.
+
+### 140.2 진짜 문제: `PlanningRequest`/`PlanningResponse`가 각각 둘이다
+
+조사 (a)에서 "트레이트 시그니처가 sbp 자신의 로컬 `PlanningRequest`/
+`PlanningResponse`를 참조하므로 단순 이동이 아니다"라고 적혔는데, 그게 위치
+문제보다 상위의 결함이다. `rg -n 'pub struct PlanningRequest|pub struct PlanningResponse' crates/`:
+
+```
+crates/moveit-planning/src/request.rs:60      pub struct PlanningRequest
+crates/moveit-planning/src/response.rs:44     pub struct PlanningResponse<'m>
+crates/moveit-planners-sbp/src/registry.rs:136  pub struct PlanningRequest
+crates/moveit-planners-sbp/src/registry.rs:163  pub struct PlanningResponse<'m>
+```
+
+같은 이름이 어느 크레이트에서 보느냐에 따라 다른 타입을 뜻한다. 이게
+[Structural fix vs. clever patch]가 말하는 dual meaning이고, 파이프라인과 플래너
+사이 모든 이음매가 번역을 끼워야 하는 이유다 — 라운드 20의 `pipeline::Planner`가
+레지스트리를 못 쓰고 클로저를 받게 된 것도, 레지스트리 이동이 "파일 옮기기"가
+아니게 된 것도 전부 여기서 나온다. 레지스트리 위치는 이 문제의 하위 증상이다.
+
+sbp 로컬 타입이 갈라진 이유는 그 `goal`이 `Vec<CompoundValue>` — 제약이 아니라
+구체 상태 — 이기 때문이고, upstream `MotionPlanRequest`는 goal *constraints*를
+싣는다. 그 간극을 메우는 작업이 지금 p1-robotmodel 라운드 20에서 진행 중인
+`ConstraintSamplerManager`의 `rrt_connect` 배선이다.
+
+### 140.3 D8
+
+- **`moveit-planner-registry`** 를 새 워크스페이스 멤버로 만든다.
+  `PlannerRegistration`/`PLANNER_MANAGERS`(`linkme` 슬라이스)와
+  `PlannerManager`/`PlanningContext` 트레이트를 담고, `unsafe_code = "allow"`는
+  이 크레이트에만 건다.
+- 그 트레이트 시그니처는 **`moveit-planning`의 캐노니컬
+  `PlanningRequest`/`PlanningResponse`** 로 쓴다. 따라서
+  `moveit-planner-registry` → `moveit-planning` 의존이 생기고,
+  `moveit-planning`을 루트 `[workspace.dependencies]`에 등록해야 한다.
+- `moveit-planners-sbp`의 로컬 `PlanningRequest`/`PlanningResponse`는 **삭제**하고
+  `rrt_connect`가 캐노니컬 타입을 받는다. 이름 하나가 한 가지만 뜻하게 되는 것이
+  이 결정의 요점이고, 레지스트리를 옮길 수 있게 만드는 전제다.
+- 그러면 `pipeline::generate_plan`의 클로저형 `Planner` 트레이트는 레지스트리의
+  `PlannerManager`로 대체되고 사라진다.
+
+**선행 조건:** p1-robotmodel 라운드 20의 `ConstraintSamplerManager` 배선이
+착지해야 한다 — 그게 sbp의 구체-상태 goal을 불필요하게 만드는 작업이고, 그 전에
+타입을 합치면 goal 표현을 두 번 고치게 된다. 그 라운드가 병합되기 전에는
+착수하지 않는다. 이건 구조적 해결을 미루는 게 아니라 순서다: 지금 하면 같은
+파일을 두 라운드가 동시에 고친다.
+
+### 140.4 커밋 관행 한 건
+
+라운드 20이 `cargo doc`을 깨뜨린 intra-doc link 3건을 새 커밋 대신
+`git commit --amend`로 `pipeline.rs` 커밋에 합쳤고, 규칙 위반이라고 스스로
+보고했다. 위반이 아니다 — "finding 하나당 커밋 하나"의 finding은 *리뷰에서
+지적된 결함*이고, 같은 라운드에서 자기가 방금 쓴 코드가 게이트를 통과하지 못한
+것은 별개 finding이 아니라 아직 완성되지 않은 같은 작업이다. push 전 로컬
+커밋을 다듬는 것은 그 규칙이 막으려는 대상이 아니다.
