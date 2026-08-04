@@ -14325,3 +14325,73 @@ family 규칙이 이미 요구하는 것이고, 이번에는 소유권 경계가
 라운드 늦췄다.** 소유자 규칙과 결함 가족 규칙이 부딪히는 자리이며, 답은
 라우팅이지 월권이 아니다 — 다만 라우팅된 항목은 다음 라운드의 브리프에
 들어가야 하고 UNFIXED 목록에서 조용히 늙으면 안 된다.
+
+## §183 D6가 Phase 9 완료 조건과 부딪히는 자리를 하나 찾았다
+
+p9-ros 라운드 9가 `apply_octomap`에서 자기 결함을 찾아 고쳤다 —
+`map.origin`은 `map.header.frame_id` 기준인데 그것을 월드 좌표로 쓰고
+있었다(`0e3f706`). 상류 `planning_scene.cpp:1494-1497`의
+`p = t * p`가 맞고, 같은 크레이트의 `collision_object.rs:358`,
+`attached.rs:221`이 이미 쓰던 패턴이다. 회귀 테스트를 직접 검증했다:
+합성을 걷어내면 정확히 하나가 빨개진다.
+
+```text
+FAILED scene::planning_scene::tests::
+    octomap_origin_is_composed_with_the_header_frame_transform
+  left:  rotation [0, 0, 0, 1]
+  right: rotation [0, 0, 0.24740395925452294, 0.9689124217106447]
+test result: FAILED. 117 passed; 1 failed
+```
+
+기존 삽입 테스트 셋이 전부 `model.model_frame()`(항등)을 쓰고 있어서
+이 결함을 못 잡았다는 그 패널의 진단도 맞다.
+
+### 183.1 같은 감사가 부수적으로 찾아낸 것이 더 크다
+
+그 패널은 `OctomapWithPose` 오버로드가 빈 `header.frame_id`에도
+`getFrameTransform`을 무조건 부른다는 것을 발견하고, 이 포트의
+`frame_transform`이 D6에 따라 `Err`를 내므로 "결함이 아니라 D6 정책의
+발현"으로 분류해 deviation 행만 적었다. 분류의 전제를 상류에서 직접
+확인했다.
+
+`planning_scene.cpp:1452-1460` — 평범한 `Octomap` 오버로드에는 빈 문자열
+가드가 있다. `:1477-1499`의 `OctomapWithPose` 오버로드에는 **없다.** 그
+패널의 관찰은 정확하다. 그런데 그 다음이 문제다:
+
+```text
+Transforms::getTransform (transforms.cpp:110-125)
+  if (!from_frame.empty()) { ... }
+  RCLCPP_ERROR("Unable to transform ... Returning identity.");
+  static const Eigen::Isometry3d IDENTITY = ...;
+  return IDENTITY;
+```
+
+상류는 빈 프레임에서 **로그를 남기고 항등을 돌려주며 성공한다.** 이
+포트는 `Err`로 메시지를 거절한다. 즉 상류가 받아들이는 메시지를 이 포트가
+거절한다.
+
+### 183.2 이것은 정책 표명이 아니라 완료 조건 위반이다
+
+§5 Phase 9의 완료 조건은 "기존 C++ `MoveGroupInterface` 클라이언트가
+**코드 변경 없이** `moveit-ros` 노드에 요청을 보내 유효한 궤적을 받는다"
+이다. 옥토맵이 이미 월드 좌표계에 있을 때 `header.frame_id`를 비워
+보내는 것은 예외적 입력이 아니라 그 메시지의 통상적 사용이다. D6가
+그것을 거절하면 완료 조건이 그 경로에서 성립하지 않는다.
+
+**해소 방향: D6를 바꾸지 않고, 이 한 진입점에서 메시지 의미를 따른다.**
+`OctomapWithPose`의 빈 `header.frame_id`는 "월드"라는 뜻이고, 그것은
+미해결 이름이 아니라 명시된 기본값이다 — D6가 막으려던 것(오타난 프레임
+이름이 조용히 항등으로 흡수되는 것)과 다른 경우다. 빈 문자열은 분기해서
+항등을 쓰고, 비어 있지 않은데 해석되지 않는 이름은 지금처럼 `Err`로
+남긴다. 그러면 D6의 실제 목적은 유지되고 완료 조건도 성립한다.
+
+이 구분을 코드에 적어 두지 않으면 다음 라운드가 "빈 프레임도 Err여야
+정책 일관성"이라고 되돌린다. 빈 문자열과 미해결 이름은 같은 것이 아니다.
+
+### 183.3 이 계열을 다시 훑어야 한다
+
+`OctomapWithPose`만 이런 것이 아닐 수 있다. 상류에서 빈 `frame_id` 가드가
+있는 오버로드와 없는 오버로드가 갈리는 자리를 전부 세야 한다 —
+`collision_object.rs`, `attached.rs`가 이미 같은 패턴을 쓰고 있으므로
+그쪽 진입점들도 같은 질문을 받는다. 한 자리를 고치고 나머지를 안 세면
+CLAUDE.md의 defect-family 규칙 위반이다.
