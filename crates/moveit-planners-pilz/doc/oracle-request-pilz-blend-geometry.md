@@ -603,3 +603,90 @@ against this shape (e.g. Jacobian conditioning or null-space geometry
 local to panda_arm's posture at this specific corner), so per this
 round's own instruction: **unexplained**, with the numbers above, rather
 than a second untested plausible mechanism replacing the first.
+
+## Case G: velocity and acceleration are not independent channels
+
+The round that produced Case F's sweep table separately noticed the two
+channels' extrema sit at different angles — velocity peaks at 75°,
+acceleration peaks at 112° (see `blend_panda_arm_corner75_matches_the_oracle`'s
+and `blend_panda_arm_corner100_matches_the_oracle`'s own doc comments,
+corrected in `6e776dc` to say which channel each claim is about). Before
+treating that gap as a discriminator between causal mechanisms, this
+section checks how each channel is actually computed — by reading, not
+guessing, per the standing instruction.
+
+**Port side.** `generate_joint_trajectory_from_cartesian`
+(`crates/moveit-planners-pilz/src/trajectory_functions.rs:505-514`)
+computes both from the IK-solved position sequence, chained through one
+backward-difference loop:
+
+```rust
+let mut velocities = HashMap::new();
+let mut accelerations = HashMap::new();
+for (name, &value) in &ik_solution {
+    let velocity = (value - ik_solution_last[name]) / duration_current;
+    accelerations.insert(
+        name.clone(),
+        (velocity - joint_velocity_last[name]) / (duration_current + duration_last) * 2.0,
+    );
+    velocities.insert(name.clone(), velocity);
+}
+```
+
+**Upstream side.** `generateJointTrajectory`
+(`moveit_planners/pilz_industrial_motion_planner/src/trajectory_functions.cpp:393-400`,
+in `/home/stevek/work/moveit2`) uses the identical formula on the
+identical structure -- confirming the port is faithful in mechanism, not
+just in this case's numeric output:
+
+```cpp
+double joint_velocity = (ik_solution.at(joint_name) - ik_solution_last.at(joint_name)) / duration_current;
+waypoint_joint.velocities.push_back(joint_velocity);
+waypoint_joint.accelerations.push_back((joint_velocity - joint_velocity_last.at(joint_name)) /
+                                       (duration_current + duration_last) * 2);
+joint_velocity_last[joint_name] = joint_velocity;
+```
+
+**Oracle wrapper side.** `serializePilzWaypoints`
+(`tools/moveit-oracle/src/oracle.cpp:5764-5786`) does no post-processing
+of its own -- it reads `getVariableVelocity`/`getVariableAcceleration`
+directly off the `RobotState`s upstream's own `blend()` already produced
+(line `5777`-`5778`), so the fixture's `velocities`/`accelerations`
+fields are upstream's own finite-difference output, not a value this
+document's tooling derived.
+
+**So velocity is a first backward difference of position, and
+acceleration is a first backward difference of *that already-computed
+velocity array* -- algebraically a second difference of the same
+position sequence, not a second independent measurement.** Writing
+`D(θ, i) = p_port(θ, i) - p_oracle(θ, i)` for one joint's position
+divergence at waypoint `i`, both sides differencing against the same
+fixed `sampling_time`:
+
+```
+velocity divergence(θ, i)     = (D(θ, i) - D(θ, i-1)) / dt
+acceleration divergence(θ, i) = 2 * (velocity divergence(θ, i) - velocity divergence(θ, i-1)) / (dt_i + dt_{i-1})
+```
+
+**What this does and does not change about "the channels peak at
+different angles."** It is not meaningless -- but it is not what last
+round's item 1 assumed either. If the *shape* of the per-waypoint
+divergence profile were fixed and only its overall size varied with θ
+(`D(θ, i) = f(θ) * g(i)` for some fixed `g`), then both channels would
+be `f(θ)` times a fixed constant (`Δg`'s own max, `Δ²g`'s own max
+respectively) -- proportional to each other, so their θ-argmax would
+have to coincide *exactly*, for any such fixed-shape mechanism. They do
+not coincide (`75°` vs `112°`). That is a real, algebraically forced
+conclusion: **the per-waypoint divergence profile's shape, not just its
+magnitude, changes with θ.** It rules out any mechanism that scales one
+fixed waypoint-profile uniformly as the corner sharpens or shallows.
+It does not, by itself, identify a replacement mechanism -- see Case H
+below for the falsifiable, cheaper-to-test consequence of this finding.
+
+This also revises Case F's own verdict text above: "the two channels
+do not peak at the same angle" is restated there as a fact about the
+sweep, which it still is, but it should not be read as two independent
+physical measurements disagreeing -- it is one position-divergence
+signal observed through two different finite-difference operators. The
+"unexplained" conclusion stands; what is unexplained is now stated more
+precisely as a shape change in `D(θ, i)`, not a channel disagreement.
