@@ -917,8 +917,9 @@ mod tests {
     /// genuinely *not* bit-exact against upstream's literal: measured diff
     /// `8.893e-9` (`1922.14184275348748` actual vs `1922.1418427445944`
     /// expected, ≈20000 ULP at this magnitude). `epsilon = 1e-6` (~2 orders
-    /// of headroom over the measured floor) predates this round and was
-    /// already tight enough to have caught a masked `max_relative`-only
+    /// of headroom over the measured floor) predates round 12 (see "Root
+    /// cause of the `8.893e-9` (round 12)" below) and was already tight
+    /// enough to have caught a masked `max_relative`-only
     /// pass. `max_relative` is pinned to `f64::EPSILON` explicitly -- i.e.
     /// the same value it would silently default to -- rather than to
     /// `epsilon` the way the sibling parity files in this sweep pin it:
@@ -952,7 +953,7 @@ mod tests {
     /// 1/3/4 (straight lines and a 4-waypoint path with no circular blend
     /// tight enough to matter) are exact; only this waypoint set, which
     /// blends three intermediate waypoints into `CircularPathSegment`s via
-    /// `acos`/`sin`/`cos`/`tan`, diverges. Every other candidate this round
+    /// `acos`/`sin`/`cos`/`tan`, diverges. Every other candidate round 12
     /// checked came back negative:
     ///
     /// - **Accumulation order**: [`Trajectory::create`]'s timing loop,
@@ -1018,14 +1019,14 @@ mod tests {
     /// [`Trajectory::integrate_backward`] performs at each backward/
     /// forward splice. This cannot be confirmed further without an
     /// intermediate-value dump from a live C++ run, which is out of this
-    /// crate's reach this round (`tools/moveit-oracle/` is not owned
-    /// here) -- see PORTING-PLAN.md's round-12 report for the exact
+    /// crate's reach (`tools/moveit-oracle/` is not owned by this crate,
+    /// in any round) -- see PORTING-PLAN.md's round-12 report for the exact
     /// oracle query requested: per-`CircularPathSegment` `start_dot_end`,
     /// `angle`, `radius`, `center`/`x`/`y` for this waypoint set, so a
     /// future round can bit-compare them directly against this port's own
     /// values and find the first point of disagreement. Until then,
-    /// `epsilon`/`max_relative` above stay as measured; the property this
-    /// round adds is that the `8.893e-9` floor is specific to
+    /// `epsilon`/`max_relative` above stay as measured; the property round
+    /// 12 adds is that the `8.893e-9` floor is specific to
     /// `CircularPathSegment` geometry, not a generic property of
     /// `Trajectory::create`'s iteration.
     ///
@@ -1164,7 +1165,7 @@ mod tests {
     /// measurably different ones, or finds a different number of interior
     /// switching points here cannot be confirmed from this crate -- the
     /// same header-privacy boundary round 12's original request hit. Per
-    /// this round's brief (confirm a symbol is header-public before
+    /// round 14's brief (confirm a symbol is header-public before
     /// requesting an oracle extension), no such request follows from this
     /// finding; the mechanism is identified as far as the public surface
     /// allows.
@@ -1351,9 +1352,9 @@ mod tests {
     ///
     /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
     /// …, 0.1)` transcribed verbatim (upstream lines 594/595) -- excluded
-    /// from this round's bisection per PORTING-PLAN.md's round-12 report.
+    /// from round 12's bisection per PORTING-PLAN.md's round-12 report.
     /// The other two `EXPECT_NEAR` sites, both `1e-3` in upstream (duration
-    /// line 589, acceleration lines 604/608), were bisected this round
+    /// line 589, acceleration lines 604/608), were bisected in round 12
     /// (`1e-6 → 1e-9 → 1e-12 → 1e-15 → 0.0`, `--no-fail-fast`, one constant
     /// at a time) rather than assumed identical just because the *value*
     /// matches upstream's literal:

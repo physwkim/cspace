@@ -309,7 +309,7 @@ fn build_seed_trajectory<'m>(
 
 /// Ported from `ChompPlanner::solve` (`chomp_planner.cpp:63-306`). See this
 /// module's doc comment for the field-coverage measurement behind porting
-/// this round, and [`ChompRequest`]'s doc for why `planning_scene`/
+/// it (`eb4fa4e`), and [`ChompRequest`]'s doc for why `planning_scene`/
 /// `moveit_planning` are not parameters here.
 ///
 /// # Errors

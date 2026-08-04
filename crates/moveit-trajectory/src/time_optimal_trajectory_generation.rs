@@ -238,8 +238,9 @@
 //!   `max_velocity.len() == max_acceleration.len() ==
 //!   group.variable_names().len()` before calling
 //!   `crate::trajectory::Trajectory::create` and returns [`Error::other`]
-//!   naming the mismatch instead — the conversion this round's task
-//!   description asked for explicitly. In practice this means
+//!   naming the mismatch instead, per this crate's standing "failure is a
+//!   value" policy (see [`crate::Path::create`]'s entry in the crate's own
+//!   module doc). In practice this means
 //!   [`compute_time_stamps`]/[`compute_time_stamps_with_limits`] reject
 //!   every mimic-joint group outright; there is no upstream behaviour for a
 //!   *successful* mimic-joint-group call to port, since upstream never
@@ -798,12 +799,17 @@ mod tests {
 
     /// Upstream `testCustomLimits` (test file lines 209-240): explicit
     /// per-joint velocity/acceleration limits succeed against real
-    /// `panda_arm` fixture data — sidestepping the acceleration-bounds
-    /// environmental gap the scaling-only overload cannot reach against any
-    /// fixture in this workspace (see this round's report; upstream's own
-    /// `setAccelerationLimits` test helper works around the identical gap
-    /// in its own test URDF by mutating `JointModel` bounds after
-    /// construction, an API this port's `moveit-model` does not expose).
+    /// `panda_arm` fixture data, the same way upstream's own
+    /// `setAccelerationLimits` test helper does it — by mutating
+    /// `JointModel` bounds after construction, rather than depending on the
+    /// URDF loader ever setting `acceleration_bounded` (it never does; see
+    /// this module's own doc, "`dynamics_solver`: ported, in
+    /// `moveit-state`" section, point 1). Unlike that section's history,
+    /// this call site never needed the mutation API to close a gap: it
+    /// takes explicit `max_velocity`/`max_acceleration` vectors directly
+    /// (`compute_time_stamps_with_limits`) rather than reading them off the
+    /// model, so `RobotModel::joint_model_mut` is unused here — this test
+    /// simply mirrors upstream's own test structure.
     #[test]
     fn upstream_test_custom_limits() {
         let model = panda();

@@ -37,18 +37,20 @@
 //! collapse, the `Isometry3d * Vector3d` point-vs-vector transform, and
 //! more) — not repeated here.
 //!
-//! The functions below `ChompOptimizer` in this file were already ported
-//! before this round, when they were the only symbols judged portable at
-//! all (they touch only already-ported types —
+//! The functions below `ChompOptimizer` in this file were already ported in
+//! `b0e4826`, before `ChompOptimizer` (the class itself) was ported in
+//! `77738b9`, when they were the only symbols judged portable at all (they
+//! touch only already-ported types —
 //! [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`],
 //! [`crate::parameters::ChompParameters`], `moveit_model`'s joint tree — and
 //! needed no collision backend). Upstream declares each as a private
 //! `ChompOptimizer` method reading `this`
 //! (`chomp_optimizer.hpp:84,200,202,204,207,209`); they stay free functions
 //! here rather than becoming `ChompOptimizer` methods retroactively, since
-//! nothing about this round's port requires that shape and every existing
-//! call site (including `ChompOptimizer`'s own) already passes their state
-//! in explicitly.
+//! no call site needs that shape — every existing call site (including
+//! `ChompOptimizer`'s own) already passes their state in explicitly, and
+//! that remains true after `77738b9` added `ChompOptimizer` itself as a
+//! caller.
 //!
 //! ## Precondition: `group_trajectory` must already be `DIFF_RULE_LENGTH`-padded
 //!
@@ -70,15 +72,31 @@
 //! (`num_vars_free_ = group_trajectory_.getNumFreePoints(); free_vars_start_
 //! = group_trajectory_.getStartIndex(); free_vars_end_ =
 //! group_trajectory_.getEndIndex();`) alongside `ChompCost`'s own
-//! constructor: upstream's real call path (`chomp_planner.cpp`, not ported
-//! this round) always constructs `group_trajectory_` via the padding
-//! constructor before handing it to `ChompOptimizer`, which is the only
-//! reason these two independently-computed free-variable counts agree at
-//! all — a plain `from_num_points` trajectory has no such guarantee, and
-//! every function below returns a typed error rather than a silently wrong
-//! answer if `joint_costs`' dimension does not match `group_trajectory`'s
-//! free block. Every test in this module builds its fixture through the
-//! padding constructor for exactly this reason.
+//! constructor: in this port, [`crate::optimizer::ChompOptimizer::new`]
+//! (below) is the sole place `group_trajectory` is ever produced for
+//! [`crate::optimizer::ChompOptimizer`] to hold — it always builds it via the padding
+//! constructor ([`ChompTrajectory::from_source_trajectory`]) from the
+//! caller's `full_trajectory` argument, regardless of whether that argument
+//! was itself already padded, which is the only reason these two
+//! independently-computed free-variable counts agree at all. (Upstream
+//! guarantees the same thing one layer up instead: `chomp_planner.cpp`
+//! always constructs its `group_trajectory_` via the padding constructor
+//! before handing it to `ChompOptimizer`'s constructor, which then trusts
+//! it rather than re-padding. This port's sole production call site,
+//! [`crate::planner::solve`] (`chomp_planner.cpp:63-306`, ported), actually
+//! passes an *unpadded* seed trajectory -- see `planner::build_seed_trajectory`
+//! (private) -- relying on
+//! [`crate::optimizer::ChompOptimizer::new`]'s own padding rather than reproducing upstream's
+//! pre-padded-caller invariant. Should a future caller ever construct
+//! `ChompOptimizer` by hand with a pre-padded `full_trajectory`, this still
+//! holds: `from_source_trajectory` shrinks back to a no-op padding when the
+//! source already has enough margin, per its own doc.) A plain
+//! `from_num_points` trajectory passed as `group_trajectory` directly
+//! (bypassing `ChompOptimizer::new`) has no such guarantee, and every
+//! function below returns a typed error rather than a silently wrong answer
+//! if `joint_costs`' dimension does not match `group_trajectory`'s free
+//! block. Every test in this module builds its fixture through the padding
+//! constructor for exactly this reason.
 //!
 //! ## Ported (this module)
 //!
@@ -120,7 +138,7 @@
 //!   `RevoluteJoint::is_continuous`) — all already dependencies of this
 //!   crate, no collision environment involved.
 //!
-//! ## Ported as `ChompOptimizer` methods (this round)
+//! ## Ported as `ChompOptimizer` methods (`77738b9`)
 //!
 //! - `ChompOptimizer` (the class itself) and its constructor →
 //!   [`crate::optimizer::ChompOptimizer`]/[`crate::optimizer::ChompOptimizer::new`]. `initialize()` upstream is
@@ -179,8 +197,16 @@
 //!   [`moveit_sampling::MultivariateGaussian`] per joint (matching
 //!   upstream's `multivariate_gaussian_.emplace_back(...)`, which also
 //!   exists only to feed this dead path) but nothing ever samples it.
-//! - `chomp_planner.cpp` (the `ChompPlanner` entry point) — out of this
-//!   round's scope; see this crate's top-level module doc.
+//! - `ChompPlanner` (the class itself, its ROS-typed
+//!   `solve(PlanningContext, MotionPlanDetailedResponse)` entry point, and
+//!   `PlanningContext` conformance) — excluded (D1): a ROS-facing wrapper
+//!   with `moveit_msgs`-typed signatures throughout, none of which this
+//!   crate depends on (see this crate's top-level module doc for the
+//!   dependency check). Its model-independent numeric core, by contrast,
+//!   *is* ported — as the free function [`crate::planner::solve`]
+//!   (`eb4fa4e`); see this crate's top-level module doc's
+//!   `chomp_planner.{hpp,cpp}` symbol audit for the full field-by-field
+//!   account.
 //!
 //! ## Closed API gap: `GradientInfo::sphere_locations` (rounds 19-26)
 //!
@@ -235,8 +261,8 @@
 //! consider. This crate's substitutions (sourcing sphere positions from
 //! `link_body_decompositions[..].sphere_centers()` instead of
 //! `sphere_locations`, and sizing per-link iteration from
-//! `gradients.len()` instead of `sphere_locations.len()`) are removed this
-//! round: [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
+//! `gradients.len()` instead of `sphere_locations.len()`) are removed in
+//! `5293abd`: [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
 //! and the private `resolve_collision_point_joint_index` now read
 //! `sphere_locations` directly, matching upstream's own indexing with no
 //! substitution — see their own doc comments for the exact change, and
@@ -780,9 +806,9 @@ fn resolve_collision_point_joint_index(
 /// - **`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an injected
 ///   closure**, not a method backed by `planning_scene_->isPathValid`.
 ///   **Round 20: approved** (`PORTING-PLAN.md` §154's review) --
-///   wiring this as a method today would make `moveit-planners-chomp` (this
-///   round's brief, and the `hy_env_`/`getCollisionGradients` evidence
-///   backing it) depend on two crates it has never carried:
+///   wiring this as a method today would make `moveit-planners-chomp` --
+///   per round 20's brief, and the `hy_env_`/`getCollisionGradients`
+///   evidence backing it -- depend on two crates it has never carried:
 ///   `moveit-scene` (for `PlanningScene::is_path_valid`,
 ///   `scene.rs:1695`) and `moveit-collision` (for `ParryCollisionEnv`,
 ///   `parry.rs:1611` -- the only existing implementer of the
@@ -827,9 +853,11 @@ fn resolve_collision_point_joint_index(
 ///   `mesh_to_mesh_collision_free` collapses from an injected closure into a
 ///   real call to `scene.is_path_valid(env, request,
 ///   best_group_trajectory_as_states, path_constraints, goal_constraints)`.
-///   Not attempted this round: adding those two dependencies and the
-///   trajectory-to-`&[RobotState]` conversion `is_path_valid` needs is a
-///   design decision of its own, not implied by this round's brief.
+///   Not attempted in `77738b9` (the commit that ported `ChompOptimizer`):
+///   adding those two dependencies and the trajectory-to-`&[RobotState]`
+///   conversion `is_path_valid` needs is a design decision of its own, not
+///   implied by anything else that commit did. See (b) above for what
+///   exactly would need to change for this to be attempted.
 /// - **`dynamic_cast<const CollisionEnvHybrid*>` and its null check
 ///   disappear.** [`ChompCollisionContext::cache`] is already statically
 ///   typed as [`moveit_distance_field::DistanceFieldCollisionCache`]; Rust
