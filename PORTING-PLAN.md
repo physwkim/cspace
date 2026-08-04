@@ -15146,3 +15146,70 @@ group 필터링 미구현이었다. `#[ignore]`가 사라져 `cost_sources_parit
 답이 아니다 — 그건 §196의 공허한 통과를 새로 만든다. 저장소가 이미 쓰는
 방식대로 `tools/ci/` 스크립트가 `third_party/moveit_resources` 존재를 보고
 `--run-ignored all`로 이 둘을 돌리는 쪽이 맞다.
+
+## §198 `cargo doc`는 자기가 문서화하는 항목까지만 검사한다 — 테스트 모듈의 doc은 어떤 게이트에도 없다
+
+내가 p6-totg에 16개 자리의 bare `` [`Error`] ``를
+`` [`Error`](moveit_error::Error) ``로 한정하라고 지시했다. 그 지시는
+빌드되지 않는다. 워커가 커밋 대신 충돌을 보고했고, 옳았다.
+
+직접 재현했다. `ruckig_filter.rs:124` 한 자리만 바꿔도:
+
+```
+error: redundant explicit link target
+    = note: `-D rustdoc::redundant-explicit-links` implied by `-D warnings`
+```
+
+`redundant_explicit_links`는 bare 링크가 **이미 올바르게 해석될 때** 발동한다.
+즉 내 지시의 전제("이 자리들에서 bare가 동작한다")가 바로 그 지시를
+불가능하게 만드는 조건이다. `abd7bd5`가 `planner.rs:106`에서 유효했던 이유가
+정확히 뒤집힌 것이다 — 거기서는 bare가 해석에 실패했으므로 명시 대상이
+잉여가 아니었다.
+
+그래서 16개 자리에 대한 결정은 **아무것도 바꾸지 않는다**이다. §178이
+적었듯 `cargo doc`이 rustdoc 린트에 닿는 유일한 게이트이고, 깨진 intra-doc
+링크는 `-D warnings`에서 에러다. 13개 자리는 이미 그 게이트가 지킨다 —
+ambient import가 사라지면 조용히 깨지는 것이 아니라 `cargo doc`이 실패한다.
+없는 결함군이었다.
+
+### 198.1 그런데 나머지 3개가 진짜를 가리키고 있었다
+
+워커가 "3개 자리는 어느 쪽으로도 진단이 안 나온다(private/test 항목이라
+rustdoc이 `--no-deps`에서 린트하지 않는다)"고 적었다. 그 문장이 이 절의
+본문이다. 확인해봤다 — `ruckig_filter.rs:423`의 test 항목 doc에 **어디에도
+없는 타입** 링크를 넣고 세 게이트를 전부 돌렸다:
+
+```
+cargo doc -p moveit-smoothing --no-deps            → 진단 0건
+cargo clippy -p moveit-smoothing --all-targets     → 진단 0건
+cargo nextest run -p moveit-smoothing              → 31/31 통과
+```
+
+존재하지 않는 타입을 가리키는 doc 링크가 **어떤 게이트에도 걸리지 않는다.**
+§178은 "`cargo doc`만이 rustdoc 린트에 닿는다"였는데, 정확히는 **`cargo doc`이
+문서화하는 항목까지만** 닿는다. `#[cfg(test)]` 항목은 doc 빌드에서 cfg가
+켜지지 않으므로 존재하지 않고, private 항목은 기본적으로 문서화되지 않는다.
+
+### 198.2 값싼 닫는 방법을 찾지 못했다
+
+- `--document-private-items` — 여전히 진단 0건 (cfg(test)가 문제이지
+  가시성이 문제가 아니다)
+- `RUSTDOCFLAGS="--cfg test" cargo doc --document-private-items` — doc
+  빌드는 dev-dependency를 링크하지 않으므로 `use moveit_srdf::SrdfModel`에서
+  `E0432`로 실패한다. 크레이트 자체가 문서화되지 않는다.
+
+노출 규모를 셌다(거친 추정 — `#[cfg(test)]`/`mod tests` 표식 이후의 `///`를
+전부 세는 방식이고, tests 모듈이 파일 끝에 오는 관례에 기댄다):
+
+```
+표식 이후 /// 을 가진 파일:  61
+그 /// 줄 수:              3649
+그중 [..] 링크를 포함한 줄:  350
+```
+
+`[[checkers-fail-toward-silence]]`가 기록한 것과 같은 계열이다 — 검사기가
+검사하지 못하는 입력을 만나면 실패가 아니라 침묵을 낸다. 이번에는 검사기가
+그 입력을 **존재하지 않는 것으로 취급**한다는 점만 다르다.
+
+닫는 방법은 이번 라운드에 없다. 350줄을 손으로 감사하는 것은 361번째 줄을
+막지 못하므로 답이 아니다. UNFIXED로 남기고, 이 절이 그 근거다.
