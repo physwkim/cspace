@@ -122,6 +122,26 @@ self-checking response, since it's derivable from `num_points` but a
 mismatch there would itself be informative (would mean `DIFF_RULE_LENGTH`
 or the boundary formula diverged from what this port assumes).
 
+## Verified (round 18): the branch boundary claim above is correct
+
+Re-checked directly against the vendored source for the exact `nalgebra`
+version this workspace pins (`Cargo.lock`: `nalgebra 0.35.0`), not assumed
+from the crate's public docs:
+`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nalgebra-0.35.0/src/linalg/inverse.rs`,
+`SquareMatrix::try_inverse_mut`'s `match dim { ... }`:
+
+- `0` — trivial `true` (an empty matrix "inverts" to itself; not a case in
+  this request, since `num_vars_free` starts at 1 below).
+- `1` — closed form, `1 / determinant`.
+- `2` — closed form, 2×2 adjugate/determinant.
+- `3` — closed form, 3×3 cofactor expansion.
+- `4` — closed form, `do_inverse4` (a loop-unrolled MESA-derived cofactor
+  expansion, a distinct code path from cases 1-3 but still not LU).
+- `_` (i.e. `>= 5`) — `lu::try_invert_to`, partial-pivoted LU.
+
+So the boundary is exactly `1..=4` closed-form vs. `>=5` LU, confirming
+the table below needed no correction.
+
 ## Cases needed: 5, one per side of the algorithm-branch boundary
 
 | `num_points` | `num_vars_free` | Algorithm (nalgebra side) |
