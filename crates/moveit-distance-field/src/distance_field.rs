@@ -378,6 +378,43 @@ pub trait DistanceField {
         // `double`-to-`int` narrowing conversion, so casting through it
         // here reproduces upstream's truncated multiplier bit-for-bit
         // instead of only matching it by coincidence at two resolutions.
+        //
+        // This is genuine parity, not a residual bug, all the way down to
+        // the boundary where the truncated multiplier goes to zero:
+        // `resolution >= 0.51` gives `1.0/(2.0*resolution) < 1.0`, so `as
+        // i32` truncates to `0` and every returned gradient is identically
+        // zero on all three axes -- upstream does the same (its `int`
+        // multiplier is also `0` there), so a distance field built at a
+        // coarse-enough resolution silently produces no gradient at all on
+        // both sides of the port. See
+        // `distance_gradient_multiplier_is_one_at_the_zero_boundary`/
+        // `distance_gradient_multiplier_is_zero_just_past_the_boundary`
+        // below, pinned at `resolution = 0.5`/`0.51` exactly (`1.0/(2.0*r)`
+        // is `1.0`/`0.980392...`).
+        //
+        // One further boundary does NOT match upstream, and is
+        // deliberately left that way (PORTING-PLAN.md §153.1 -- expires if
+        // upstream ever changes `inv_twice_resolution_`'s declared type
+        // away from `int`, which would remove the narrowing conversion this
+        // whole note is about): for `resolution < 1.0 / (2.0 * i32::MAX)`
+        // (`resolution` below about `2.328e-10`), `1.0/(2.0*resolution)`
+        // exceeds `i32::MAX` (`2147483647`). Rust's `as i32` on an
+        // out-of-range `f64` **saturates** to `i32::MAX` -- well-defined,
+        // guaranteed since Rust 1.45. C++'s `double`-to-`int` narrowing
+        // conversion on an out-of-range value is instead **undefined
+        // behaviour** per the C++ standard: in practice, whatever a given
+        // compiler/platform/optimization level happens to produce, with no
+        // portable guarantee at all. There is no single upstream value this
+        // port could reproduce here even in principle -- "matching
+        // upstream's actual behaviour" has no well-defined target once
+        // upstream's own behavior is undefined. This crate's own tests and
+        // oracle fixtures never exercise a resolution anywhere near this
+        // range (the smallest used anywhere in this crate is two orders of
+        // magnitude larger), so it is undocumented-and-unreachable in
+        // practice today, not silently wrong in a reachable case -- but a
+        // future caller passing a pathologically small resolution would hit
+        // this divergence, so it is recorded here rather than left for the
+        // next audit to rediscover.
         let inv_twice_resolution = (1.0 / (2.0 * self.resolution())) as i32 as f64;
 
         let gradient = Vector3::new(
@@ -1179,6 +1216,45 @@ mod tests {
         assert_eq!(
             gradient.gradient.x, 10.0,
             "2.0 * (1.0 / (2.0 * 0.1)) = 2.0 * 5.0 = 10.0"
+        );
+    }
+
+    /// Boundary pin (follow-up to the truncation fix above): at
+    /// `resolution = 0.5`, `1.0 / (2.0 * 0.5) = 1.0` exactly, so the
+    /// truncated multiplier is still `1`, one step above the boundary where
+    /// it goes to zero. Paired with the `0.51` case below to pin both sides
+    /// of that boundary.
+    #[test]
+    fn distance_gradient_multiplier_is_one_at_the_zero_boundary() {
+        let field = FixedXGradientField { resolution: 0.5 };
+
+        let gradient = field.distance_gradient(50.0, 50.0, 50.0);
+
+        assert_eq!(
+            gradient.gradient.x, 2.0,
+            "2.0 * (1.0 / (2.0 * 0.5)) = 2.0 * 1.0 = 2.0"
+        );
+    }
+
+    /// The other side of the boundary above: at `resolution = 0.51`,
+    /// `1.0 / (2.0 * 0.51) = 0.980392...`, which `as i32` truncates to `0`
+    /// -- the gradient is identically zero on every axis, for both this
+    /// port and upstream (upstream's own `int inv_twice_resolution_` is `0`
+    /// there too, per `distance_field.cpp:67`'s identical narrowing
+    /// conversion). This is genuine parity: a distance field built at a
+    /// coarse-enough resolution silently returns no gradient at all,
+    /// matching upstream's actual behaviour rather than the numerically
+    /// "more correct" non-zero value an untruncated computation would give.
+    #[test]
+    fn distance_gradient_multiplier_is_zero_just_past_the_boundary() {
+        let field = FixedXGradientField { resolution: 0.51 };
+
+        let gradient = field.distance_gradient(50.0, 50.0, 50.0);
+
+        assert_eq!(
+            gradient.gradient.x, 0.0,
+            "1.0 / (2.0 * 0.51) = 0.980392... truncates to 0 like upstream's int field, \
+             zeroing the gradient entirely"
         );
     }
 }
