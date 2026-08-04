@@ -4,11 +4,12 @@
 # it needs docker, and tools/ci/'s `check-*.sh` glob is run by CI runners
 # that don't have it (PORTING-PLAN.md §129.4).
 #
-# Not run automatically by anything yet -- there is no CI hook for `ros/`
-# this round (D5: ros/moveit-ros is outside the root workspace, so nothing
-# in tools/ci/ walks into it). This script is how a human (or a future CI
-# job explicitly opted into needing docker) reproduces this round's gate
-# results locally.
+# Run by `tools/ci/verify-ros-interop.sh`, a thin caller that puts this
+# script under `tools/ci/verify-all.sh`'s glob -- this script itself must
+# stay outside `tools/ci/` (D5: ros/moveit-ros is its own `[workspace]`,
+# and this needs docker, which `check-*.sh`'s CI runners do not have), but
+# round 17's audit found it with no caller anywhere, which is the same
+# never-runs shape as a gate no glob reaches, one level up.
 #
 # What this checks (all inside ros/Dockerfile's image, against
 # ros/moveit-ros's own `[workspace]`, not the root workspace):
