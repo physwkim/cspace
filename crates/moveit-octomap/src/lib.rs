@@ -334,6 +334,102 @@
 //! ```
 //!
 //! Unchanged: still 0 in every bucket, nothing to dispose.
+//!
+//! **`LeavesInBbx` split, round 21 (PORTING-PLAN.md §123.2).**
+//! `p3-distance-field` confirmed the precise gap: `octree_points`'s
+//! consumer (`distance_field.rs`) reads only three of [`Leaf`]'s eight
+//! accessors (`is_occupied`, `coordinate`, `size`); its own emission-order
+//! *transfer* question (does this crate's `push_children` output what
+//! `octree_points` expects) is closed on that side. Two pieces remained
+//! here:
+//!
+//! 1. **Does [`LeavesInBbx`]'s leaf-to-leaf order match upstream
+//!    `leaf_bbx_iterator`'s?** **Closed this round.** The "oracle extension
+//!    request" paragraph above already named this gap; re-confirmed this
+//!    round with a precise citation fix -- `begin_leafs_bbx`/`end_leafs_bbx`
+//!    are declared `public` at `OcTreeBaseImpl.h:337-345` (not merely
+//!    "public in `OcTreeIterator.hxx`", the file that defines
+//!    `leaf_bbx_iterator` itself but not the tree-side entry points a
+//!    caller reaches it through), confirmed by reading the header directly,
+//!    satisfying PORTING-PLAN.md §107.3 before asking. Reading
+//!    `leaf_bbx_iterator::singleIncrement` directly (same file) shows its
+//!    descent is `leaf_iterator`'s exact reverse-index child-push order
+//!    with one added guard -- a per-child bounding-box overlap test -- so
+//!    it was tempting to derive the expected bbx-restricted order by
+//!    filtering `leaves_parity.rs`'s already-oracle-captured id-2 leaf list
+//!    client-side instead of waiting on a new oracle capture. Deliberately
+//!    **not done that way**: this project's own repeated position is that
+//!    reading upstream source and reasoning from it is not a substitute
+//!    for a real `liboctomap.so` execution (this round's own
+//!    `moveit-planners-stomp` citation mistake is a fresh instance of that
+//!    exact failure mode), so a real capture was requested via a
+//!    `caucus signal note --kind question` instead, restating the same
+//!    optional `bbx: {min: [f64;3], max: [f64;3]}` field on `octree_points`
+//!    (emitting a `leaves_bbx` field shaped like `leaves`) and proposing
+//!    the concrete capture: mirror `leaves_request.json`'s id-2 actions
+//!    (four octant leaves, 0.1 resolution) under a new id with `bbx.min =
+//!    (-0.5, -0.5, -0.5)`, `bbx.max = (-0.02, 0.5, 0.5)` -- clear of every
+//!    leaf's own voxel boundary (each spans exactly `[-0.1, 0.0]` or `[0.0,
+//!    0.1]` per axis), so the two leaves with x-center `-0.05` overlap and
+//!    the two with x-center `0.05` do not, with no rounding-boundary
+//!    ambiguity for either side to disagree on. The orchestrator implemented
+//!    exactly that request against the real oracle (`octree_points`'s
+//!    `bbx`/`leaves_bbx` fields via `begin_leafs_bbx`/`end_leafs_bbx`,
+//!    verifying the same `OcTreeBaseImpl.h:337-345` `public` declaration
+//!    independently inside the built image) and captured the proposed
+//!    geometry as id 3, oracle stamp `cd8ee2c1bdcf7148` →
+//!    `8ed8a9395b730b08`: `leaves` (unfiltered) emits all four leaves in the
+//!    same order as id 2; `leaves_bbx` emits only the two `x < 0` leaves,
+//!    `(-0.05,-0.05,-0.05)` then `(-0.05,0.05,0.05)`, in that same relative
+//!    order -- both the filter and the order are exercised by one capture.
+//!    Landed as id 3 of `leaves_request.json`/`leaves_response.json` and
+//!    checked by
+//!    `leaves_parity.rs::leaves_in_bbx_matches_liboctomap_leaf_bbx_iterator_order_and_fields`,
+//!    which also guards against a vacuous order check: it asserts the two
+//!    `leaves_bbx` leaves have distinct coordinates (or an indexed pairwise
+//!    comparison couldn't distinguish their order at all) and confirms, by
+//!    swapping the expected pair and checking the comparison then fails,
+//!    that an order-reversing regression in [`OcTree::leaves_in_bbx`] would
+//!    actually be caught.
+//!
+//! 2. **`key()`/`index_key()`/`depth()`/`log_odds()`/`occupancy()` have no
+//!    consumer anywhere in this workspace -- is fixture coverage for them
+//!    on [`Leaf`] worth adding anyway?** Decided **no** this round, for a
+//!    reason stronger than "no consumer, skip" alone (PORTING-PLAN.md's own
+//!    framing of that answer requires the reason, not just the absence of
+//!    a caller): all five are non-virtual, non-overridden accessors on
+//!    upstream's own shared `iterator_base` base class (`getKey`,
+//!    `getIndexKey`, `getDepth`) or on the dereferenced `OcTreeNode` itself
+//!    (`getLogOdds`, `getOccupancy` via `operator*`) -- read directly in
+//!    `OcTreeIterator.hxx`: neither `leaf_iterator` nor `leaf_bbx_iterator`
+//!    nor `tree_iterator` redefines any of them. That is a materially
+//!    different situation from `leaf_iterator`/`tree_iterator`'s emission
+//!    *order*, which each subclass genuinely reimplements in its own
+//!    `singleIncrement` -- the exact reason §123.2 refused to let one
+//!    iterator's pinned order stand in for the other's. `depth()`,
+//!    `log_odds()`, and `occupancy()` are already oracle-pinned, field by
+//!    field, on [`TreeNode`] (structurally the same three accessors, over
+//!    the same `OcTree`/`Node` data) via `octomap_parity.rs`'s `tree_walk`
+//!    case; because upstream's implementation is the identical shared
+//!    method regardless of which concrete iterator produced the node, that
+//!    coverage transfers to [`Leaf`]'s copies directly -- unlike the
+//!    §123.2 case, this is not an inference from this port's own code
+//!    reuse, it is upstream's own code being literally the same function.
+//!    `key()` has no oracle field on *either* type (neither `tree_walk` nor
+//!    `octree_points` emits raw keys), but is evidenced indirectly:
+//!    [`Leaf::coordinate`]/[`TreeNode::coordinate`] (both oracle-pinned)
+//!    compute `key_to_coord_at_depth(key, depth)` directly from the same
+//!    `key`/`depth` pair, so a wrong `key()` would need to be wrong in a
+//!    way `key_to_coord`'s specific arithmetic happens not to expose --
+//!    named here as the one residual, non-airtight gap in this reasoning,
+//!    not hidden. `index_key()` calls `key::compute_index_key`, which is
+//!    verified directly against upstream's literal formula (`mask =
+//!    65535 << level`, `OcTreeKey.h:227-236`) by
+//!    `compute_index_key_masks_low_bits` in `key.rs` -- a pure integer
+//!    mask operation with no cross-language floating-point ambiguity, so a
+//!    translation-fidelity unit test against the read formula is adequate
+//!    ground truth here without needing an oracle round-trip. No new
+//!    fixture added for any of the five.
 
 mod iter;
 mod key;

@@ -79,5 +79,87 @@
         ]
       ]
     }
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "result": {
+      "count": 3,
+      "leaves": [
+        {
+          "coordinate": [
+            -0.05,
+            -0.05,
+            -0.05
+          ],
+          "occupied": false,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            0.05,
+            -0.05,
+            -0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            -0.05,
+            0.05,
+            0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            0.05,
+            0.05,
+            0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        }
+      ],
+      "leaves_bbx": [
+        {
+          "coordinate": [
+            -0.05,
+            -0.05,
+            -0.05
+          ],
+          "occupied": false,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            -0.05,
+            0.05,
+            0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        }
+      ],
+      "points": [
+        [
+          0.05,
+          -0.05,
+          -0.05
+        ],
+        [
+          -0.05,
+          0.05,
+          0.05
+        ],
+        [
+          0.05,
+          0.05,
+          0.05
+        ]
+      ]
+    }
   }
 ]
