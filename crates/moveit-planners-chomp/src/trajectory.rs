@@ -717,6 +717,22 @@ mod tests {
         assert!(matches!(err, Error::Other(_)));
     }
 
+    /// A negative `discretization` paired with a negative `duration`
+    /// divides to a positive, in-range `raw_num_points`: neither the
+    /// `!raw_num_points.is_finite()` check nor
+    /// [`MAX_FROM_DURATION_POINTS`] would catch this on its own, unlike
+    /// [`from_duration_rejects_negative_discretization`] above (positive
+    /// `duration`), where `raw_num_points` is negative and saturates to a
+    /// `num_points < 2` downstream rejection regardless of the explicit
+    /// `discretization <= 0.0` guard. Only the explicit guard rejects this
+    /// case, so this is the one that actually detects its reversion.
+    #[test]
+    fn from_duration_rejects_negative_discretization_that_divides_positive() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, -3.0, -0.03, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
     /// A `discretization` positive and finite but small enough that
     /// `duration / discretization` would need more than
     /// [`MAX_FROM_DURATION_POINTS`] points must still be rejected: the
