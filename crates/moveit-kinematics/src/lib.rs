@@ -372,12 +372,64 @@
 //!     re-run FK against, and nothing in this port constructs one
 //!     standalone to call it against)
 //!
-//!   `IKCacheMap`'s 6 (`IKEntry`/`Pose` aliases, ctor, dtor,
-//!   `getBestApproximateIKSolution`, `updateCache`) and
+//!   `IKCacheMap`'s 6 and `CachedMultiTipIKKinematicsPlugin`'s 6: not
+//!   "multi-tip, out of scope" as a class-level label — each of the 12
+//!   checked individually against `moveit2/moveit_kinematics/` in full
+//!   (`grep -rn IKCacheMap`/`grep -rn CachedMultiTipIKKinematicsPlugin`,
+//!   both re-run 2026-08-04, restricted to `*.cpp`/`*.hpp`/`*.h`) for (a)
+//!   whether the member's value/effect is a branch condition elsewhere and
+//!   (b) whether upstream has a real production caller — the same two
+//!   questions that caught `setGroupStateValidityCallback`'s
+//!   misclassification elsewhere in this port (a header-only setter that
+//!   turned out to gate IK-solution acceptance in its `.cpp`). Neither
+//!   question changes the verdict here, but for a different reason each
+//!   time:
+//!
+//!   `IKCacheMap`'s 6 (`IKEntry`/`Pose` aliases, `IKCacheMap()`,
+//!   `~IKCacheMap()`, `getBestApproximateIKSolution`, `updateCache`) —
+//!   **(b) fails first, so (a) is moot.** `IKCacheMap` ("a container of IK
+//!   caches for cases where there is no fixed base frame",
+//!   `cached_ik_kinematics_plugin.hpp:160`) is declared and defined
+//!   (`ik_cache.cpp:295-345`) but never constructed: the grep's only hits
+//!   are the class's own declaration and its own method definitions, in
+//!   those same two files. No `.cpp` anywhere under `moveit_kinematics/`
+//!   (or the rest of `moveit2/`, checked the same way) ever writes
+//!   `IKCacheMap `/`new IKCacheMap`/`IKCacheMap<`. In particular,
+//!   `CachedMultiTipIKKinematicsPlugin` -- upstream's only multi-tip
+//!   consumer, and so the one place `IKCacheMap` might plausibly be used
+//!   -- holds a plain `IKCache` (`CachedIKKinematicsPlugin::cache_`,
+//!   inherited) and calls straight into `IKCache`'s own multi-tip
+//!   overloads (`getBestApproximateIKSolution(const vector<Pose>&)`,
+//!   `updateCache(nearest, vector<Pose>&, config)`,
+//!   `cached_ik_kinematics_plugin-inl.hpp:206,219`) -- not `IKCacheMap` at
+//!   all. With zero construction sites, none of the 6 members ever
+//!   executes, so none can be a branch condition for anything: not a
+//!   defect this crate is declining to port, upstream's own class is dead
+//!   code.
+//!
 //!   `CachedMultiTipIKKinematicsPlugin`'s 6 (`Pose`/`IKEntry`/
 //!   `IKCallbackFn`/`KinematicsQueryOptions` aliases, `initialize`,
-//!   `searchPositionIK`): entirely multi-tip, entirely out of scope, same
-//!   reason every time — neither block has a single ported member.
+//!   `searchPositionIK`) — **(b) fails the same way, but (a) is worth
+//!   stating separately for the two methods**, since their shape (a
+//!   `bool` returned from a `KinematicsBase` override) is exactly the
+//!   shape that was a gate, not a setter, in the
+//!   `setGroupStateValidityCallback` case. `CachedMultiTipIKKinematicsPlugin`
+//!   is a template (`cached_ik_kinematics_plugin.hpp:346`, bodies in
+//!   `-inl.hpp:73,196`); grepping all of `moveit2/` for the class name
+//!   finds only that declaration and those two definitions -- no `.cpp`
+//!   anywhere instantiates it as `CachedMultiTipIKKinematicsPlugin<
+//!   SomeConcretePlugin>` (contrast `cached_ik_kinematics_plugin.cpp`,
+//!   which does instantiate the single-tip `CachedIKKinematicsPlugin<
+//!   KDLKinematicsPlugin>`/`<TracIKKinematicsPlugin>`/... — no sibling
+//!   file does the analogous thing for the multi-tip class). So yes,
+//!   `initialize`'s and `searchPositionIK`'s returned `bool`s *would* gate
+//!   a real caller's control flow if this template were ever
+//!   instantiated -- but it never is, anywhere in upstream, so that gate
+//!   has no reachable caller to matter to. Excluded per
+//!   [`crate::registry::KinematicsSolver`]'s own documented deviation 1
+//!   (this crate ports exactly the single-tip shape `kdl_kinematics_
+//!   plugin` — the solver it actually wraps — exercises), not merely
+//!   restated as "multi-tip".
 //!
 //!   `CachedIKKinematicsPlugin`'s 12, by name:
 //!
