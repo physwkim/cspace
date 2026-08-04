@@ -26,3 +26,19 @@ Upstream root for this crate: `/home/stevek/work/moveit2` (pinned
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `crates/moveit-planners-stomp/src/lib.rs:5-11` (post-`0ca9158`) | Still the directory+indented-filenames shape (six files named under two directory lines), not a bare directory with nothing indented beneath it -- the newly-closed parser hole does not apply here | CONFIRMED, no regression | Read in this tree; `tools/ci/verify-upstream-license-provenance.sh` run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
+
+## §172 row 1 (round 33) backed with a measured boundary test, per PORTING-PLAN.md §172
+
+The round-33 row above classified `kernel_start`/`kernel_end` as "no
+reachable divergence" without a test pinning what "reachable" actually
+bounds. That gap is closed here: `kernel_start`/`kernel_end`'s bound
+computation was extracted to a private `kernel_bounds(mu, sigma,
+num_timesteps) -> (usize, usize)` (`cost_functions.rs`, no behavior
+change -- same six lines, same order, same casts) so it can be called
+directly with `start`/`end`/`num_timesteps` extremes without needing to
+allocate a `DMatrix` large enough to reach them.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-planners-stomp/src/cost_functions.rs` `kernel_bounds` (`cost_functions::tests::kernel_bounds_truncates_sigma_before_multiplying_by_four`) | The truncate-`sigma`-then-multiply-by-4 order actually matters (not just present in the source): for `sigma = 1.5`, truncate-first gives `sigma_offset = 4`, multiply-first (`(sigma * 4.0) as i64`) gives `6` -- a different, observable `kernel_bounds` result (`(2, 10)` vs a wider window). A rewrite to pure-`f64` arithmetic would silently change the returned bounds and fail this test | CONFIRMED, cast order pinned by a differential assertion inside the test itself | Computed directly in the test, both formulas evaluated and asserted unequal before asserting the production result | `6d1b9dc` |
+| `crates/moveit-planners-stomp/src/cost_functions.rs` `kernel_bounds` (`cost_functions::tests::kernel_bounds_at_the_dmatrix_allocation_ceiling_does_not_overflow`) | The round-33 "no reachable divergence" claim rests on "`sigma`/`mu` ... always finite/non-negative/far under `i64::MAX`" without stating what bounds `sigma`. The actual reachable ceiling is not `usize::MAX`/`i64::MAX`: `num_timesteps = values.ncols()`, and a `DMatrix<f64>`'s backing `Vec<f64>` cannot allocate past `isize::MAX` bytes, so `num_timesteps <= isize::MAX / size_of::<f64>() = 1_152_921_504_606_846_975` for any real (single-row, maximally generous) trajectory. `sigma_offset` (`(sigma as i64) * 4`) only overflows `i64` once `sigma > i64::MAX / 4 ~= 2.305e18`, which requires `num_timesteps > ~4.611e18` -- about 4x past the allocation ceiling. Measured directly (not asserted in prose): calling `kernel_bounds` with `start = 0`, `end = max_reachable_num_timesteps - 1` under nextest's default dev profile (`overflow-checks = true`) does not panic, and a `checked_mul(4)` computed alongside it returns `Some` | CONFIRMED, no reachable divergence -- measured against the actual `DMatrix` allocation ceiling, not asserted | `crates/moveit-planners-stomp/src/cost_functions.rs` `kernel_bounds`; `std::mem::size_of::<f64>()`/`isize::MAX` are the same limits `Vec`'s allocator enforces (`alloc::raw_vec`, capacity check against `isize::MAX` bytes) | `6d1b9dc` |
