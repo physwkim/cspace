@@ -375,6 +375,69 @@ mod tests {
         }
     }
 
+    /// Every string upstream's `errorCodeToString` returns, keyed by the code
+    /// it returns it for, transcribed from
+    /// `moveit_core/utils/include/moveit/utils/moveit_error_code.hpp:86-147`.
+    ///
+    /// Kept as its own table rather than derived from [`UPSTREAM`]: deriving
+    /// the expected string from the variant name would test the derivation,
+    /// not the port. `MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE` and
+    /// `UNABLE_TO_AQUIRE_SENSOR_DATA` (upstream's spelling of "acquire") are
+    /// exactly the entries such a derivation would get wrong.
+    const UPSTREAM_STRINGS: &[(i32, &str)] = &[
+        (1, "SUCCESS"),
+        (0, "UNDEFINED"),
+        (99999, "FAILURE"),
+        (-1, "PLANNING_FAILED"),
+        (-2, "INVALID_MOTION_PLAN"),
+        (-3, "MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE"),
+        (-4, "CONTROL_FAILED"),
+        (-5, "UNABLE_TO_AQUIRE_SENSOR_DATA"),
+        (-6, "TIMED_OUT"),
+        (-7, "PREEMPTED"),
+        (-10, "START_STATE_IN_COLLISION"),
+        (-11, "START_STATE_VIOLATES_PATH_CONSTRAINTS"),
+        (-26, "START_STATE_INVALID"),
+        (-12, "GOAL_IN_COLLISION"),
+        (-13, "GOAL_VIOLATES_PATH_CONSTRAINTS"),
+        (-14, "GOAL_CONSTRAINTS_VIOLATED"),
+        (-27, "GOAL_STATE_INVALID"),
+        (-28, "UNRECOGNIZED_GOAL_TYPE"),
+        (-15, "INVALID_GROUP_NAME"),
+        (-16, "INVALID_GOAL_CONSTRAINTS"),
+        (-17, "INVALID_ROBOT_STATE"),
+        (-18, "INVALID_LINK_NAME"),
+        (-19, "INVALID_OBJECT_NAME"),
+        (-21, "FRAME_TRANSFORM_FAILURE"),
+        (-22, "COLLISION_CHECKING_UNAVAILABLE"),
+        (-23, "ROBOT_STATE_STALE"),
+        (-24, "SENSOR_INFO_STALE"),
+        (-25, "COMMUNICATION_FAILURE"),
+        (-29, "CRASH"),
+        (-30, "ABORT"),
+        (-31, "NO_IK_SOLUTION"),
+    ];
+
+    #[test]
+    fn display_matches_upstream_error_code_to_string() {
+        for &(raw, expected) in UPSTREAM_STRINGS {
+            assert_eq!(
+                MoveItErrorCode::from(raw).to_string(),
+                expected,
+                "Display for code {raw}"
+            );
+        }
+        // The two tables must cover the same codes, or one of them is stale
+        // and the coverage this test claims is smaller than it looks.
+        assert_eq!(UPSTREAM_STRINGS.len(), UPSTREAM.len());
+        for &(raw, _) in UPSTREAM {
+            assert!(
+                UPSTREAM_STRINGS.iter().any(|&(other, _)| other == raw),
+                "code {raw} has a discriminant pinned but no string pinned"
+            );
+        }
+    }
+
     #[test]
     fn round_trips_through_i32() {
         for &(raw, _) in UPSTREAM {
