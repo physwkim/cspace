@@ -13,7 +13,7 @@ moveit-error.workspace = true
 moveit-model.workspace = true
 moveit-state.workspace = true
 nalgebra.workspace = true
-moveit-trajectory = { path = "../moveit-trajectory", version = "0.1.0" }
+moveit-trajectory.workspace = true
 
 [dev-dependencies]
 approx.workspace = true

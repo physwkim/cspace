@@ -37,10 +37,14 @@ moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
 moveit-kinematics = { path = "crates/moveit-kinematics", version = "0.1.0" }
 moveit-model = { path = "crates/moveit-model", version = "0.1.0" }
 moveit-octomap = { path = "crates/moveit-octomap", version = "0.1.0" }
+moveit-planners-sbp = { path = "crates/moveit-planners-sbp", version = "0.1.0" }
 moveit-sampling = { path = "crates/moveit-sampling", version = "0.1.0" }
+moveit-scene = { path = "crates/moveit-scene", version = "0.1.0" }
+moveit-smoothing = { path = "crates/moveit-smoothing", version = "0.1.0" }
 moveit-srdf = { path = "crates/moveit-srdf", version = "0.1.0" }
 moveit-stomp-core = { path = "crates/moveit-stomp-core", version = "0.1.0" }
 moveit-state = { path = "crates/moveit-state", version = "0.1.0" }
+moveit-trajectory = { path = "crates/moveit-trajectory", version = "0.1.0" }
 
 nalgebra = { version = "0.35", features = ["serde-serialize"] }
 roxmltree = "0.21"

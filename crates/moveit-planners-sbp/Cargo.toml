@@ -18,7 +18,7 @@ moveit-state.workspace = true
 moveit-collision.workspace = true
 moveit-constraints.workspace = true
 moveit-error.workspace = true
-moveit-scene = { path = "../moveit-scene", version = "0.1.0" }
+moveit-scene.workspace = true
 
 [dev-dependencies]
 moveit-geometry.workspace = true

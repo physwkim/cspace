@@ -15,7 +15,7 @@ moveit-state.workspace = true
 # Not yet in the workspace's shared [workspace.dependencies] aliases (root
 # Cargo.toml is the orchestrator's, not touched here) -- a direct path
 # dependency instead of `.workspace = true`.
-moveit-trajectory = { path = "../moveit-trajectory", version = "0.1.0" }
+moveit-trajectory.workspace = true
 nalgebra.workspace = true
 
 [dev-dependencies]
