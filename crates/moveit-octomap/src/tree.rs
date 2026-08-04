@@ -2019,15 +2019,30 @@ mod tests {
     #[test]
     fn read_binary_data_garbage_input_is_not_a_panic() {
         // Not a real octree encoding, just bytes -- must return an error,
-        // never panic, regardless of what those bytes happen to spell.
+        // never panic, regardless of what those bytes happen to spell. For
+        // this exact 3-byte input, tracing `read_binary_node` shows only one
+        // reachable `DecodeError`: two `read_u8` calls succeed (the root's
+        // own `child1to4`/`child5to8` bytes, both `0xff`, decoding as "every
+        // child has children"), then the recursion into child 0 reads its
+        // `child1to4` byte from the third and last input byte and fails
+        // reading `child5to8` with `UnexpectedEof`. `TreeAlreadyPopulated` is
+        // excluded (fresh tree) and `MaxDepthExceeded` is unreachable (3
+        // bytes cannot recurse to depth 16).
         let mut tree = OcTree::new(0.1);
-        assert!(tree.read_binary_data(&[0xff; 3]).is_err());
+        assert_eq!(
+            tree.read_binary_data(&[0xff; 3]),
+            Err(DecodeError::UnexpectedEof)
+        );
     }
 
     #[test]
     fn read_data_garbage_input_is_not_a_panic() {
+        // Same reasoning as `read_binary_data_garbage_input_is_not_a_panic`:
+        // `read_data_node`'s first read, `cursor.read_f32_le()?`, needs 4
+        // bytes and this input has 3, so `UnexpectedEof` fires immediately,
+        // before any other `DecodeError` site is reachable.
         let mut tree = OcTree::new(0.1);
-        assert!(tree.read_data(&[0xff; 3]).is_err());
+        assert_eq!(tree.read_data(&[0xff; 3]), Err(DecodeError::UnexpectedEof));
     }
 
     #[test]
