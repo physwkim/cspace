@@ -1,48 +1,101 @@
-// Copyright (c) 2013, Sachin Chitta, Willow Garage
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
-//   moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp
+// Used by moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf's
+//   moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp
+// (`KDLKinematicsPlugin::CartToJnt`'s `ik_solver.CartToJnt(...)` call, line
+// 467 — the Newton iteration this crate ports as
+// [`crate::cart_to_jnt::cart_to_jnt`]). See the module doc's "Why this file
+// stays BSD-3-Clause" section for `chainiksolver_vel_mimic_svd.{hpp,cpp}`,
+// the LGPL-2.1-or-later source this file's velocity solve plays the role of
+// instead of porting.
+
+//! The velocity-IK step: mimic-fold a Jacobian, weight it, solve the
+//! weighted least-squares problem by SVD, unweight, and expand the mimic
+//! fold back out. Plays the role of upstream's
+//! `ChainIkSolverVelMimicSVD::CartToJnt` (the weighted overload) —
+//! `moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp`,
+//! moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf — but that file is
+//! LGPL-2.1-or-later (`third_party/orocos_kinematics_dynamics/`
+//! `chainiksolver_vel_mimic_svd.hpp`'s own header: `Copyright (C) 2007 Ruben
+//! Smits`, `URL: http://www.orocos.org/kdl`, LGPL-2.1-or-later; modified for
+//! mimic joints under `Copyright (C) 2013 Sachin Chitta, Willow Garage`,
+//! inside that same LGPL file, so under the same license), heavier copyleft
+//! than this workspace's BSD-3-Clause.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! Nothing below is transcribed from `chainiksolver_vel_mimic_svd.cpp`; each
+//! piece is derived independently from its own mathematical definition:
+//!
+//! - [`reduction_matrix`]/[`fold_jacobian`]/[`expand_to_full`]: the mimic
+//!   constraint `full_value = multiplier * reduced_value + offset` is
+//!   ordinary affine-function differentiation (`offset` vanishes under
+//!   `d/dt`), and representing "gather each reduced-space value into its
+//!   full-space slot, scaled" as a matrix and folding/expanding by
+//!   multiplying by it (on the right for a Jacobian's columns, on the left
+//!   for a vector) is the standard linear-algebra way to apply the same
+//!   linear map to two different objects.
+//! - `solve_velocity`'s per-element weighting is the standard weighted
+//!   least-squares reduction (multiply the rows/columns being weighted by
+//!   the weights before solving the now-unweighted problem) — see that
+//!   function's own `# Deviation` section for its `pinv`/SVD-reconstruction
+//!   shape, which is independently justified there against
+//!   `nalgebra::SVD`'s public API rather than against upstream's `Eigen`
+//!   usage.
+//!
+//! What is reused from the LGPL source is *interface facts*: which method
+//! this module's `solve_velocity` corresponds to (`CartToJnt`, named above,
+//! for readers cross-referencing the two codebases — a pointer, not
+//! expression), the 6-row linear/angular twist convention (an interface
+//! fact of the `Twist` type every caller must already agree on to pass
+//! valid data), and [`crate::chain::ChainInfo`]'s own `map_index`/
+//! `multiplier` field names, which are this crate's own vocabulary
+//! (`chain.rs`, ported from moveit2's own BSD `kdl_kinematics_plugin.cpp`)
+//! and not LGPL-file-derived at all.
 
 use nalgebra::{DMatrix, DVector, SVD};
 
 use crate::chain::ChainInfo;
 
-/// `jacToJacReduced`: fold every full-space column into its reduced-space
-/// (active-joint) column, scaled by [`ChainInfo::multiplier`] — `1.0` for an
-/// active joint's own column, the mimic factor for a mimic's. A mimic's
-/// [`ChainInfo::multiplier`]-scaled contribution accumulates into the same
-/// column as its master's own (unscaled) contribution, exactly as upstream's
-/// `result = vel1 + multiplier * vel2` accumulation does. (The mimic
-/// *offset* has no part in this: differentiating `mimic_value = factor *
-/// master_value + offset` against `master_value` leaves only `factor`.)
-fn fold_jacobian(chain: &ChainInfo, jacobian_full: &DMatrix<f64>) -> DMatrix<f64> {
-    let mut reduced = DMatrix::<f64>::zeros(jacobian_full.nrows(), chain.reduced_dimension());
+/// The linear map from reduced (active-joint) space to full (every joint,
+/// mimic included) space implied by [`ChainInfo`]'s mimic table: column
+/// `map_index[i]` of row `i` is `multiplier[i]`, every other entry `0.0`.
+/// This is the differential of the mimic constraint itself —
+/// `full_value[i] = multiplier[i] * reduced_value[map_index[i]] + offset[i]`
+/// (an active joint is its own trivial mimic, `map_index[i] == i`,
+/// `multiplier[i] == 1.0`) has `offset[i]` vanish under `d/dt`, leaving
+/// exactly this matrix as `d(full)/d(reduced)`. [`fold_jacobian`] and
+/// [`expand_to_full`] are then both just multiplication by it, on opposite
+/// sides.
+fn reduction_matrix(chain: &ChainInfo) -> DMatrix<f64> {
+    let mut m = DMatrix::<f64>::zeros(chain.dimension(), chain.reduced_dimension());
     for i in 0..chain.dimension() {
-        let column = chain.map_index[i];
-        let factor = chain.multiplier[i];
-        for row in 0..jacobian_full.nrows() {
-            reduced[(row, column)] += factor * jacobian_full[(row, i)];
-        }
+        m[(i, chain.map_index[i])] = chain.multiplier[i];
     }
-    reduced
+    m
 }
 
-/// The inverse of [`fold_jacobian`] for a velocity result: full-space entry
-/// `i`'s own rate is its master's reduced-space rate scaled by
-/// [`ChainInfo::multiplier`] — `qdot_out(i) = qdot_out_reduced[map_index[i]]
-/// * multiplier[i]`, matching upstream's own expansion at the end of
-/// `ChainIkSolverVelMimicSVD::CartToJnt`.
+/// Folds a full-space Jacobian into reduced space. Given `qdot_full =
+/// M * qdot_reduced` ([`reduction_matrix`]'s defining identity) and
+/// `twist = jacobian_full * qdot_full`, substituting gives `twist =
+/// (jacobian_full * M) * qdot_reduced` — so `jacobian_full * M` is exactly
+/// the Jacobian that maps reduced-space joint rates to the same twist.
+fn fold_jacobian(chain: &ChainInfo, jacobian_full: &DMatrix<f64>) -> DMatrix<f64> {
+    jacobian_full * reduction_matrix(chain)
+}
+
+/// The inverse of [`fold_jacobian`] for a velocity result: `qdot_full = M *
+/// qdot_reduced`, [`reduction_matrix`]'s own defining identity, applied
+/// directly.
 fn expand_to_full(chain: &ChainInfo, reduced: &DVector<f64>) -> DVector<f64> {
-    DVector::from_fn(chain.dimension(), |i, _| {
-        reduced[chain.map_index[i]] * chain.multiplier[i]
-    })
+    reduction_matrix(chain) * reduced
 }
 
-/// `ChainIkSolverVelMimicSVD::CartToJnt` (the velocity step): given the
-/// current full-space geometric Jacobian and a desired Cartesian twist, mimic
-/// fold, weight, SVD-solve, unweight, and expand back to full space. `pinv`
+/// The velocity-IK step (see the module doc for which upstream method this
+/// plays the role of): given the current full-space geometric Jacobian and
+/// a desired Cartesian twist, mimic-fold, weight, SVD-solve the weighted
+/// least-squares problem, unweight, and expand back to full space. `pinv`
 /// turns one singular value (plus the largest singular value, for a relative
 /// threshold) into its pseudo-inverse scalar — truncated for
 /// [`crate::NewtonRaphsonSolver`], Tikhonov-damped for
