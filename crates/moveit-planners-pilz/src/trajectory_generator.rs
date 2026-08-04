@@ -808,6 +808,13 @@ mod tests {
     // -- check_start_state: position-limit boundary, velocity-tolerance
     // boundary --
 
+    /// `check_start_state` has three `Error::` sites over two codes (`rg -c
+    /// 'Error::' trajectory_generator.rs` scoped to the function body: 3):
+    /// group lookup -> `InvalidGroupName`, position and velocity violation
+    /// -> `InvalidRobotState` (both the same code -- no caller-visible fact
+    /// distinguishes them, so the code is the discrimination this test
+    /// needs). A bare `.is_err()` could not tell "bad group" from "bad
+    /// state"; checked on the structured code instead.
     #[test]
     fn start_state_position_within_limit_accepted_beyond_limit_rejected() {
         let model = load_panda();
@@ -823,9 +830,16 @@ mod tests {
             position: HashMap::from([("panda_joint1".to_string(), 2.9 + 1e-6)]),
             velocity: HashMap::new(),
         };
-        assert!(check_start_state(&model, &beyond, "panda_arm", &limits).is_err());
+        let err = check_start_state(&model, &beyond, "panda_arm", &limits).unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidRobotState)),
+            "expected Error::Code(InvalidRobotState), got {err:?}"
+        );
     }
 
+    /// Same three-site function as
+    /// `start_state_position_within_limit_accepted_beyond_limit_rejected`;
+    /// see that test's doc comment.
     #[test]
     fn start_state_velocity_at_tolerance_accepted_beyond_it_rejected() {
         let model = load_panda();
@@ -841,28 +855,52 @@ mod tests {
             position: HashMap::new(),
             velocity: HashMap::from([("panda_joint1".to_string(), VELOCITY_TOLERANCE * 2.0)]),
         };
-        assert!(check_start_state(&model, &beyond_tolerance, "panda_arm", &limits).is_err());
+        let err = check_start_state(&model, &beyond_tolerance, "panda_arm", &limits).unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidRobotState)),
+            "expected Error::Code(InvalidRobotState), got {err:?}"
+        );
     }
 
+    /// Same three-site function; see
+    /// `start_state_position_within_limit_accepted_beyond_limit_rejected`'s
+    /// doc comment.
     #[test]
     fn start_state_rejects_an_unknown_group() {
         let model = load_panda();
         let limits = panda_joint_limits();
         let state = StartState::default();
-        assert!(check_start_state(&model, &state, "no_such_group", &limits).is_err());
+        let err = check_start_state(&model, &state, "no_such_group", &limits).unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidGroupName)),
+            "expected Error::Code(InvalidGroupName), got {err:?}"
+        );
     }
 
     // -- check_joint_goal: joint-in-group vs joint-outside-group, within
     // limit vs beyond it --
 
+    /// `check_joint_goal` has three `Error::` sites over two codes (`rg -c
+    /// 'Error::' trajectory_generator.rs` scoped to the function body: 3):
+    /// group lookup -> `InvalidGroupName`, joint-not-in-group and
+    /// joint-beyond-limit -> `InvalidGoalConstraints` (same code -- no
+    /// caller-visible fact distinguishes those two). Checked on the
+    /// structured code, which does distinguish from the group-lookup
+    /// sibling.
     #[test]
     fn joint_goal_rejects_a_joint_outside_the_group() {
         let model = load_panda();
         let limits = panda_joint_limits();
         let goal = HashMap::from([("no_such_joint".to_string(), 0.0)]);
-        assert!(check_joint_goal(&model, &goal, "panda_arm", &limits).is_err());
+        let err = check_joint_goal(&model, &goal, "panda_arm", &limits).unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidGoalConstraints)),
+            "expected Error::Code(InvalidGoalConstraints), got {err:?}"
+        );
     }
 
+    /// Same three-site function; see
+    /// `joint_goal_rejects_a_joint_outside_the_group`'s doc comment.
     #[test]
     fn joint_goal_within_limit_accepted_beyond_limit_rejected() {
         let model = load_panda();
@@ -872,15 +910,28 @@ mod tests {
         assert!(check_joint_goal(&model, &within, "panda_arm", &limits).is_ok());
 
         let beyond = HashMap::from([("panda_joint1".to_string(), 10.0)]);
-        assert!(check_joint_goal(&model, &beyond, "panda_arm", &limits).is_err());
+        let err = check_joint_goal(&model, &beyond, "panda_arm", &limits).unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidGoalConstraints)),
+            "expected Error::Code(InvalidGoalConstraints), got {err:?}"
+        );
     }
 
     // -- check_cartesian_goal: empty link name, matching tip, non-tip link --
 
+    /// `check_cartesian_goal` has two `Error::` sites with two distinct
+    /// codes (`rg -c 'Error::' trajectory_generator.rs` scoped to the
+    /// function body: 2): empty link name -> `InvalidGoalConstraints`, no
+    /// solver for the link -> `NoIkSolution`. A bare `.is_err()` could not
+    /// tell them apart; checked on the structured code.
     #[test]
     fn cartesian_goal_rejects_an_empty_link_name() {
         let model = load_panda();
-        assert!(check_cartesian_goal(&model, "panda_arm", "").is_err());
+        let err = check_cartesian_goal(&model, "panda_arm", "").unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidGoalConstraints)),
+            "expected Error::Code(InvalidGoalConstraints), got {err:?}"
+        );
     }
 
     #[test]
@@ -892,10 +943,17 @@ mod tests {
         assert!(check_cartesian_goal(&model, "panda_arm", "panda_link8").is_ok());
     }
 
+    /// Same two-site function as
+    /// `cartesian_goal_rejects_an_empty_link_name`; see that test's doc
+    /// comment.
     #[test]
     fn cartesian_goal_rejects_a_non_tip_link() {
         let model = load_panda();
-        assert!(check_cartesian_goal(&model, "panda_arm", "panda_link4").is_err());
+        let err = check_cartesian_goal(&model, "panda_arm", "panda_link4").unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::NoIkSolution)),
+            "expected Error::Code(NoIkSolution), got {err:?}"
+        );
     }
 
     // -- PORTING-PLAN.md §177: the solver every generator resolves to is a
@@ -932,7 +990,24 @@ mod tests {
         // A name nothing registers must fail closed (`UnknownName`), not
         // silently fall through to whichever registration happens to
         // construct first -- the exact defect this API replaces.
-        assert!(resolve_solver(&model, "panda_arm", "not_a_registered_solver", &params).is_err());
+        //
+        // `resolve_solver` has exactly one `Error::` constructor in its own
+        // body (`rg -c 'Error::' registry.rs` scoped to the function: 1);
+        // the sibling is not internal but delegated -- whatever
+        // `SolverRegistration::construct` itself returns when a name *is*
+        // registered but cannot build. `Error::UnknownName` carries
+        // structured fields, so this checks them rather than just the
+        // variant, per the doc comment's own stated intent.
+        let err = resolve_solver(&model, "panda_arm", "not_a_registered_solver", &params)
+            .err()
+            .unwrap();
+        match err {
+            Error::UnknownName { kind, name } => {
+                assert_eq!(kind, "kinematics solver");
+                assert_eq!(name, "not_a_registered_solver");
+            }
+            other => panic!("expected Error::UnknownName, got {other:?}"),
+        }
     }
 
     // -- validate_request: a fully valid request passes end to end; an
