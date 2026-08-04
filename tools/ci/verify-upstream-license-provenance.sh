@@ -99,7 +99,14 @@ FILENAME = re.compile(r"\.(?:cpp|hpp|h|cc|cxx|c|py)$")
 SPDX = re.compile(r"^//\s*SPDX-License-Identifier:\s*(.+?)\s*$")
 # Paths after this marker are the opposite of a citation: they name what was
 # read and deliberately left unported, so their licence cannot reach this file.
-NOT_PORTED = re.compile(r"not ported|deliberately not", re.I)
+#
+# The marker has to be the line that *introduces* such a list, so it is pinned
+# to the shape the two files using it share: a `//` header line (not a `//!` or
+# `///` doc line) whose last words are `not ported:`. Matching the phrase
+# anywhere instead made prose end the citation list -- `key.rs` explains "what
+# was and was not ported" one line above its only citation, and that citation
+# was never opened.
+NOT_PORTED = re.compile(r"^//(?![!/])[^\n]*\bnot ported:\s*$", re.I)
 # Matched against the cited file's own header, not against a repo-level LICENSE.
 COPYLEFT = re.compile(r"GNU Lesser General Public|GNU General Public|LGPL|GPL-", re.I)
 # Identifiers this workspace uses that a copyleft upstream cannot support.
@@ -140,7 +147,7 @@ for path in tracked:
         match = SPDX.match(line)
         if match:
             spdx = match.group(1)
-        if NOT_PORTED.search(line):
+        if NOT_PORTED.match(line):
             break
         match = CITATION.match(line)
         if not match:
