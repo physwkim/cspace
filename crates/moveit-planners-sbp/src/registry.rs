@@ -115,7 +115,7 @@
 //! [`crate::space::StateSpace::sample_uniform`] every attempt — not
 //! incorrect (`goal_constraints.decide()` still gates acceptance), just
 //! practically unable to find a tight Cartesian region by chance within
-//! [`DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS`] tries. A caller wanting a
+//! `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` tries. A caller wanting a
 //! reliable pose goal must still resolve it to a concrete
 //! [`Goal::State`] via `moveit-kinematics` itself, exactly as this section
 //! already says for path constraints.
@@ -240,11 +240,11 @@ pub enum Goal {
     /// express even with [`Goal::Constraints`] available alongside it
     /// (namely: this variant remains the only way to reach a state a
     /// sampler cannot find on its own, e.g. because no
-    /// [`moveit_kinematics::KinematicsSolver`] was supplied for an
+    /// `moveit_kinematics::KinematicsSolver` was supplied for an
     /// IK-backed pose goal).
     State(Vec<CompoundValue>),
     /// A goal region expressed as constraints, resolved to one concrete
-    /// state by [`crate::goal_sampler::sample_goal`] before
+    /// state by `goal_sampler::sample_goal` before
     /// [`crate::rrt_connect::rrt_connect`] runs. See that function's own
     /// module doc comment for exactly which parts of
     /// `ompl_interface::ConstrainedGoalSampler` this reproduces, and which
@@ -281,7 +281,7 @@ pub struct PlanningRequest {
 /// A successful plan: one [`RobotState`] per waypoint, in order, first
 /// equal to the request's start (`scene.current_state()`) and last equal to
 /// [`PlanningRequest::goal`] — the concrete state itself for
-/// [`Goal::State`], or whatever [`crate::goal_sampler::sample_goal`]
+/// [`Goal::State`], or whatever `crate::goal_sampler::sample_goal`
 /// resolved for [`Goal::Constraints`].
 #[derive(Debug, Clone)]
 pub struct PlanningResponse<'m> {
@@ -302,7 +302,7 @@ pub enum PlanError {
     #[error("planning failed: {0}")]
     Failed(#[from] PlanningFailure),
     /// [`Goal::Constraints`] could not be resolved to a single concrete
-    /// state within [`DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS`] attempts.
+    /// state within `DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS` attempts.
     /// Mirrors `ConstrainedGoalSampler::sampleUsingConstraintSampler`
     /// returning `false` after `attempts_so_far >= max_attempts`
     /// (`constrained_goal_sampler.cpp:102-103`) — upstream surfaces that
