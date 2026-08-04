@@ -1237,10 +1237,36 @@ impl OcTree {
     /// max of its children after that recursion returns, via the private
     /// `update_occupancy_from_children`), `00` absent. **A leaf's
     /// true log-odds is not preserved -- only which side of the
-    /// occupied/free split it fell on.** Trailing bytes after a complete
-    /// decode are not an error: upstream's own `writeBinaryData` never
-    /// prepends a length, so nothing on either side of this format expects
-    /// the consumed length to equal `bytes.len()`.
+    /// occupied/free split it fell on.**
+    ///
+    /// # Trailing bytes are accepted, matching upstream's message path
+    ///
+    /// Neither this function nor upstream's `readBinaryNode` checks that the
+    /// cursor/stream is exhausted once the recursive decode returns --
+    /// `vec![1, 2, 3]` decodes as two leaves from the first 2 bytes and
+    /// returns `Ok`, silently ignoring byte 3, and this is exact parity, not
+    /// a gap. `octomap_msgs::readTree`
+    /// (`/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h`,
+    /// the `moveit_msgs::Octomap` message path this decodes for) writes
+    /// `msg.data` straight into a `std::stringstream` and calls
+    /// `octree->readBinaryData(datastream)` with no length header and no
+    /// exhaustion check of its own. Upstream *does* have an integrity check
+    /// -- `AbstractOccupancyOcTree::readBinary`
+    /// (`third_party/octomap/octomap/src/AbstractOccupancyOcTree.cpp:172-176`)
+    /// compares `size != this->size()` -- but `size` there comes from the
+    /// `.bt` *file* header (`# Octomap OcTree binary file` plus a node
+    /// count line), which the message path never has: a
+    /// `moveit_msgs::Octomap` carries no analogous count field. So the file
+    /// path can detect a short read and the message path structurally
+    /// cannot, upstream included -- this function has no less information
+    /// than `readBinaryNode` does, it is simply never given a count to
+    /// check against in the first place.
+    ///
+    /// **§153.1 expiry:** if a future round decides to reject trailing
+    /// bytes here, that is a deliberate *deviation* from upstream's
+    /// documented message-path behavior, not a bug fix -- it needs sign-off
+    /// and a doc update here and on [`Self::read_data`], not a silent
+    /// "hardening".
     pub fn read_binary_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
@@ -1269,6 +1295,22 @@ impl OcTree {
     /// recurse in index order). Every node's exact log-odds survives this
     /// format's round trip; nothing here is quantized the way
     /// [`Self::read_binary_data`]'s leaves are.
+    ///
+    /// # Trailing bytes are accepted, for the same reason as `read_binary_data`
+    ///
+    /// This function does not check that the cursor is exhausted once the
+    /// recursive decode returns either -- 5 real bytes plus 32 bytes of
+    /// junk still decodes `Ok`. `octomap_msgs::fullMsgToMap`
+    /// (`/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h`,
+    /// the `msg.binary == false` counterpart to `readTree`) writes
+    /// `msg.data` into a `std::stringstream` and calls
+    /// `tree->readData(datastream)` directly, with the same absence of a
+    /// length header or exhaustion check -- see [`Self::read_binary_data`]'s
+    /// doc for the full citation and why the file-path integrity check
+    /// (`AbstractOccupancyOcTree::readBinary`'s `size != this->size()`) has
+    /// no counterpart on this message path. Same §153.1 expiry: rejecting
+    /// trailing bytes here would be a deviation requiring sign-off, not a
+    /// fix.
     pub fn read_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
@@ -1907,6 +1949,18 @@ mod tests {
     }
 
     #[test]
+    fn read_binary_data_ignores_trailing_bytes_after_a_complete_decode() {
+        // Same 2-byte complete record as the test above, plus 3 bytes that
+        // are not part of any node -- matching upstream's own `readTree`,
+        // which never tells `readBinaryData` how many bytes to expect. See
+        // this function's own doc for the citation.
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&[0x01, 0x00, 0xff, 0xff, 0xff])
+            .unwrap();
+        assert_eq!(tree.num_nodes(), 2);
+    }
+
+    #[test]
     fn read_data_round_trips_a_two_node_chain_s_exact_log_odds() {
         // Root's record: an arbitrary (non-clamp) log-odds, one child (bit 0
         // of the children byte) -- then the child's own record: a
@@ -1924,6 +1978,22 @@ mod tests {
         // where an arbitrary, non-clamp value is meaningful ground truth.
         let leaf = tree.leaves().next().unwrap();
         assert_eq!(leaf.log_odds(), -3.5);
+    }
+
+    #[test]
+    fn read_data_ignores_trailing_bytes_after_a_complete_decode() {
+        // A minimal complete record: one f32 log-odds, one children byte
+        // (0x00 = no children), then bytes that are not part of any node --
+        // matching upstream's own `fullMsgToMap`, which never tells
+        // `readData` how many bytes to expect. See this function's own doc
+        // for the citation.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.25f32.to_le_bytes());
+        bytes.push(0x00);
+        bytes.extend_from_slice(&[0xff; 32]);
+        let mut tree = OcTree::new(0.1);
+        tree.read_data(&bytes).unwrap();
+        assert_eq!(tree.num_nodes(), 1);
     }
 
     /// `has_children_levels` pairs of (child 0 has children), followed by

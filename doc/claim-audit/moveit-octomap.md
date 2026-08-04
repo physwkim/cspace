@@ -21,3 +21,16 @@ Upstream root for this crate: `third_party/octomap/octomap/` (octomap
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | Every `Ported from` header in this crate (`lib.rs:5,25`, `key.rs:5`, `iter.rs:5`, `tree.rs:5`, `node.rs:5`) | None cite a bare package/directory line with no filenames indented beneath it -- every citation lists explicit headers (`OcTreeKey.h`, `OcTreeIterator.hxx`, `OcTreeBaseImpl.h`/`.hxx`, etc.) | CONFIRMED, 0 hits of the shape the parser now closes | Read all six headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
+
+## Trailing-byte acceptance in `read_binary_data`/`read_data` (found by p9-ros, this round)
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-octomap/src/tree.rs` `read_binary_data`/`read_data` (neither checks the cursor is exhausted after the recursive decode returns) | Exact parity with `octomap_msgs::readTree`/`fullMsgToMap`, which write `msg.data` into a `std::stringstream` with no length header and call `readBinaryData`/`readData` with no exhaustion check of their own; upstream's own integrity check (`size != this->size()` in `AbstractOccupancyOcTree::readBinary`) only exists on the `.bt` file path, which has a node-count header the message path never carries -- so the message path cannot detect a short/over-long read, upstream included | CONFIRMED parity, inherited weakness named -- not a bug, see §153.1 expiry below | `/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h` (`readTree` writes to a stringstream then calls `readBinaryData` with no size field; `fullMsgToMap` does the same via `readData`), read inside `moveit-rs/oracle:latest`; `third_party/octomap/octomap/src/AbstractOccupancyOcTree.cpp:172-176` (`if (size != this->size()) { ... }`), read in this tree -- confirms `size` is file-header-derived and has no message-path counterpart | (none; doc-only, `read_binary_data_ignores_trailing_bytes_after_a_complete_decode`/`read_data_ignores_trailing_bytes_after_a_complete_decode` added to lock the behavior in) |
+
+**§153.1 expiry:** if a future round decides to reject trailing bytes on
+either function, that is a deliberate *deviation* from upstream's
+message-path behavior requiring sign-off -- not a bug fix, and not
+something to "harden" silently. The two boundary tests above exist so
+that decision has to be made explicitly, by breaking a named test,
+rather than by accident.
