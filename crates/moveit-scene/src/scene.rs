@@ -1993,7 +1993,7 @@ impl<'m> PlanningScene<'m> {
     /// this port carries (`object_colors_`/`object_types_` are not ported —
     /// see the type's scope doc; `scene_transforms_` is layered like
     /// `robot_state_`/`acm_` and is materialized here alongside them,
-    /// matching upstream `planning_scene.cpp:343-344`).
+    /// matching upstream `planning_scene.cpp:1260-1264`).
     pub fn decouple_parent(&mut self) {
         if self.parent.is_none() {
             return;
@@ -2557,8 +2557,8 @@ mod tests {
 
         // The child's copy was materialized at `decouple_parent` time, so
         // the parent's later mutation of "map" is not observed -- upstream
-        // `planning_scene.cpp:344`'s `scene_transforms_` copy, matching
-        // `robot_state`/`acm`'s existing decouple treatment above.
+        // `planning_scene.cpp:1260-1264`'s `scene_transforms_` copy,
+        // matching `robot_state`/`acm`'s existing decouple treatment above.
         assert_eq!(
             child.frame_transform("map").unwrap(),
             Isometry3::translation(1.0, 0.0, 0.0)
