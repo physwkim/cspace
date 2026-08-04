@@ -243,8 +243,14 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     /// [`PlanningResponse`] field (see that type's own doc comment:
     /// `error_code` is this crate's `Result` instead) -- dropped, not
     /// rejected, since none of them are trajectory content the conversion
-    /// could silently corrupt. `planning_time` expires as a drop when
-    /// `moveit-planning` grows the field p1-fixtures is grounding.
+    /// could silently corrupt. `planning_time` stays unported by
+    /// p1-fixtures' own conclusion (`crates/moveit-planning/src/response.rs:39-68`):
+    /// every upstream fill site sits inside a `PlanningContext`-equivalent's
+    /// `solve()`, never the pipeline this crate ports, and no crate in this
+    /// workspace implements [`moveit_planning::pipeline::Planner`] yet --
+    /// there is no reachable site to fill it from. Expires the moment any
+    /// crate implements `Planner` for a concrete planner; `moveit-planning`'s
+    /// call, not this crate's.
     ///
     /// `planner_id` has **no** wire counterpart on this message:
     /// `moveit-planning`'s own doc comment on
