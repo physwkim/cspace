@@ -71,18 +71,22 @@
 //! not a measurement-sized tolerance -- this crate has no
 //! randomized/empirical test this round to size a tolerance from.
 //!
-//! One caveat for whoever next runs `count-relative-eq.pl` against a file in
-//! this crate: its string-literal stripping (`"(?:[^"\\]|\\.)*"`, no `/s`)
-//! cannot cross a `\`-newline line-continuation inside a Rust string literal
-//! (`\\.` needs a non-newline character after the backslash). A string
-//! literal written with that continuation style makes the regex's match
-//! attempt fail at the real closing quote and instead run on to the *next*
-//! unrelated quote anywhere later in the file, silently blanking every real
-//! call in between -- this crate's own first draft of
-//! [`utils::rows_to_string`]'s panic message hit exactly this and briefly
-//! reported `epsilon_only=0`. Fixed here by not wrapping that string across
-//! lines; not a `count-relative-eq.pl` change, since that script is
-//! `tools/`-owned and this crate's problem to avoid, not fix upstream.
+//! This crate's own first draft of [`utils::rows_to_string`]'s panic
+//! message used a `\`-newline line continuation inside a Rust string
+//! literal, which briefly made `count-relative-eq.pl` misreport
+//! `epsilon_only=0` for this file (its string-stripping regex lacked `/s`,
+//! so it could not cross the continuation and ran on to an unrelated later
+//! quote, blanking the real calls in between). That was a bug in the
+//! shared script, not in this crate's code, and it is now fixed at the
+//! source (`c9780c7`, added the missing `/s`) rather than worked around
+//! per-crate -- the fix moved workspace `both=` from 94 to 112, correcting
+//! undercounts in `moveit-collision` (2 to 3) and `moveit-distance-field`
+//! (27 to 44); this crate's own `epsilon_only=6` re-counts the same either
+//! way. It was catchable at all only because `count-relative-eq.pl` has one
+//! canonical copy (`tools/ci/`, enforced by
+//! `check-audit-scripts-not-copied.sh`) -- six per-crate copies would have
+//! made six different undercounts look like six different crates'
+//! baselines instead of one shared bug.
 
 /// `utils.h`/`utils.cpp` -- see this module's own doc for what's ported and
 /// what's deferred.
