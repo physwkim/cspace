@@ -469,9 +469,12 @@ dependencies = [
 name = "moveit-planners-stomp"
 version = "0.1.0"
 dependencies = [
+ "moveit-collision",
+ "moveit-constraints",
  "moveit-error",
  "moveit-model",
  "moveit-sampling",
+ "moveit-scene",
  "moveit-srdf",
  "moveit-state",
  "moveit-stomp-core",

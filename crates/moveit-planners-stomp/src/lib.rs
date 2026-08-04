@@ -35,13 +35,6 @@
 //! - [`cost_functions::cost_function_from_state_validator`]/[`cost_functions::sum`]
 //!   (`costs::getCostFunctionFromStateValidator`/`costs::sum`) -- generic
 //!   over a caller-supplied [`cost_functions::StateValidatorFn`].
-//!   **Not ported**: `costs::getCollisionCostFunction`/
-//!   `costs::getConstraintsCostFunction`, the two factories that *build* a
-//!   `StateValidatorFn` from a `PlanningScene`. Neither `moveit-scene` nor
-//!   `moveit-collision` is a dependency of this crate this round -- a
-//!   caller of [`planner::plan`] supplies its own
-//!   [`cost_functions::StateValidatorFn`]-backed [`composable_task::CostFn`]
-//!   instead.
 //! - [`noise_generators::normal_distribution_generator`]
 //!   (`noise::getNormalDistributionGenerator`) -- no `PlanningScene`
 //!   dependency at all, fully ported.
@@ -50,6 +43,21 @@
 //!   `NoiseGeneratorFn`/`CostFn`/`PostIterationFn`/`DoneFn` join `FilterFn`
 //!   (already carried in from an earlier round, see `filter_functions`'
 //!   module doc) as the pieces of that header this crate needs.
+//!
+//! # Round 24: `costs::getCollisionCostFunction`/`costs::getConstraintsCostFunction`, the `PlanningScene`-backed half
+//!
+//! Round 23 left these two factories unported, reasoning that
+//! `moveit-scene`/`moveit-collision` were out of this crate's dependency
+//! reach. That was checked and found false: neither was actually blocked by
+//! any rule, just not yet listed in `Cargo.toml`, and the sibling planner
+//! crate `moveit-planners-sbp` already depends on both without a cycle
+//! (`cargo tree -p moveit-scene -e normal`/`cargo tree -p moveit-collision
+//! -e normal` neither lists `stomp`). Both are now `[workspace.dependencies]`
+//! entries here too, and [`cost_functions::get_collision_cost_function`]/
+//! [`cost_functions::get_constraints_cost_function`] are ported -- see that
+//! module's own doc for the `RefCell<&mut PlanningScene>` bridge pattern
+//! (reused from `moveit-planners-sbp::planning_scene_validity`'s existing
+//! precedent) and the two documented deviations from upstream.
 //!
 //! # Not ported: the ROS/task-engine layer (D1/D2 exclusion)
 //!
