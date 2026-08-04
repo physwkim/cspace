@@ -1439,10 +1439,11 @@ mod tests {
 
     /// Invariant boundary: [`PosedBodyPointDecomposition::update_pose`] is a
     /// no-op when there is no [`BodyDecomposition`] to re-derive points from
-    /// (upstream's `if (body_decomposition_)` guard) -- only reachable in
-    /// this port via direct construction, since every public constructor
-    /// this crate carries sets `Some` (the octree constructor that would
-    /// leave it `None` upstream is not ported; see this module's doc).
+    /// (upstream's `if (body_decomposition_)` guard). This is also reachable
+    /// via [`PosedBodyPointDecomposition::from_octree`] (see
+    /// `from_octree_update_pose_is_a_no_op` below); this test pins the same
+    /// boundary via direct construction instead, so it isn't entangled with
+    /// `from_octree`'s own octree-walking behaviour.
     #[test]
     fn posed_body_point_decomposition_update_pose_is_noop_without_body_decomposition() {
         let original_points = vec![Vector3::new(1.0, 2.0, 3.0)];
