@@ -1804,14 +1804,18 @@ mod tests {
             "path_constraints_end_to_end_wired_vs_unwired: unwired {unwired_successes}/5, \
              wired {wired_successes}/5 (self-motion distance {best_distance} rad)"
         );
+        // `PORTING-PLAN.md` §195: this doc comment's own "Measured after
+        // the fix: unwired 1/5, wired 5/5" was, until now, backed only by
+        // `wired_successes > unwired_successes` -- weaker than the cited
+        // number, and silently satisfiable by e.g. unwired 3/5. Both seed
+        // counts are `ChaCha8Rng`-deterministic, so pinned exactly; this is
+        // the same scenario `path_constraints_four_scenario_wired_vs_unwired_sweep`'s
+        // scenario 1 now pins independently, and the two are expected to
+        // agree since they share the same geometry and budget.
         assert_eq!(
-            wired_successes, 5,
-            "wired must solve every seed at this budget (measured: {wired_successes}/5)"
-        );
-        assert!(
-            wired_successes > unwired_successes,
-            "the fix's point is that wired now reliably beats unwired here, not merely ties it \
-             (measured: unwired {unwired_successes}/5, wired {wired_successes}/5)"
+            (unwired_successes, wired_successes),
+            (1, 5),
+            "moved off the documented unwired 1/5, wired 5/5"
         );
     }
 
