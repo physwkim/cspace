@@ -54,12 +54,16 @@
 //!
 //! # Upstream test coverage
 //!
-//! `test/test_collision_distance_field.cpp` has five `TEST_F` cases, and
-//! every one of them builds a `RobotState`/`RobotModel` and a
-//! `CollisionEnvDistanceField` in `SetUp()` -- there is no case in that file
-//! that exercises this slice without a `RobotModel`. Nothing from it is
-//! ported. Verification instead relies on the `collision_distance_field_types`
-//! oracle op (`tests/collision_distance_field_types_parity.rs`) plus
+//! `test/test_collision_distance_field.cpp` has six `TEST_F` cases (round 26:
+//! corrected from a prior count of five). `SetUp()` (`:58-66`) builds a
+//! `RobotModel`/`AllowedCollisionMatrix`/`CollisionEnvDistanceField`, but not
+//! a `RobotState` -- each `TEST_F` constructs its own
+//! `moveit::core::RobotState robot_state(robot_model_)` locally instead
+//! (e.g. `:85`). The underlying conclusion stands regardless of that detail:
+//! there is no case in that file that exercises this slice without a
+//! `RobotModel`. Nothing from it is ported. Verification instead relies on
+//! the `collision_distance_field_types` oracle op
+//! (`tests/collision_distance_field_types_parity.rs`) plus
 //! invariant-boundary unit tests below.
 
 use std::collections::HashMap;
