@@ -283,6 +283,22 @@
 //! ("`getTreeType()` is not ported as a callable symbol at all ... nothing
 //! there for an oracle op to confirm") was already correct and still is.
 //!
+//! **Tolerance-floor re-measurement mandate, this crate: none.** Commit
+//! `70a6b31` fixed the workspace's `serde_json` to `float_roundtrip`
+//! because the default parser returned 6,859/84,221 (8.1%) committed
+//! fixture float literals one ULP off, and "tolerances hide it... it sets
+//! the floor every bisection here measures against" (that commit's own
+//! body). This crate has zero `assert_relative_eq!`/`relative_eq!` calls
+//! (previous paragraph) -- nothing bisected in `src/` to re-check. The one
+//! place this crate compares against `serde_json`-parsed oracle data is
+//! `tests/octomap_parity.rs`'s `LOG_ODDS_EPS`/`OCCUPANCY_EPS`, unchanged
+//! since their introduction commit (`git log -p --follow` on that file,
+//! checked this round) and each with a stated analytic rationale (`f32`
+//! log-odds rounding; `f64` `probability()` arithmetic propagating that
+//! same rounding) rather than an empirically bisected minimum -- not "the
+//! floor every bisection measures against" in the sense `70a6b31` warns
+//! about. Nothing to re-measure.
+//!
 //! **`assert_relative_eq!` reckoning (round 18, item 2).** This crate has
 //! **zero** calls, not counted by `rg -c` (which mixes doc-comment mentions
 //! into the total, the exact class PORTING-PLAN.md §73.1/§83.3/§92/§104.1
