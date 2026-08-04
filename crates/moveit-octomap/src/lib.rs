@@ -179,15 +179,15 @@
 //! **Tests.**
 //!
 //! ```text
-//! cargo nextest run -p moveit-octomap --no-fail-fast   # 29 tests run: 29 passed, 0 skipped
+//! cargo nextest run -p moveit-octomap --no-fail-fast   # 30 tests run: 30 passed, 0 skipped
 //! rg -c '#\[test\]' crates/moveit-octomap/src/*.rs      # sums to 28
 //! ```
 //!
-//! 29 total: 28 unit tests inside `src/` (per-invariant-boundary, e.g.
+//! 30 total: 28 unit tests inside `src/` (per-invariant-boundary, e.g.
 //! [`OcTree`]'s own clamp/threshold/prune boundary tests, plus round 16
 //! item 1's `set_prob_hit_below_half_panics_in_debug`/
-//! `set_prob_miss_above_half_panics_in_debug`) plus exactly 1 oracle-backed
-//! integration test,
+//! `set_prob_miss_above_half_panics_in_debug`) plus 2 oracle-backed
+//! integration tests. The first,
 //! `octomap_matches_liboctomap_for_every_boundary_scenario`
 //! (`tests/octomap_parity.rs`), which replays
 //! `python3 -c "import json; print(len(json.load(open('tests/fixtures/octomap_request.json'))))"`
@@ -201,6 +201,25 @@
 //! (docker-gated, not part of this count) independently confirms the
 //! committed fixture still reproduces against a freshly built oracle image
 //! rather than only against a stale capture.
+//!
+//! The second, `leaves_matches_liboctomap_leaf_iterator_order_and_fields`
+//! (`tests/leaves_parity.rs`, round 18 item 3), closes the one audit item
+//! this round's survey found still closed only by argument rather than
+//! measurement: [`OcTree::leaves`]'s pre-order sibling ordering was inferred
+//! from sharing `push_children` with [`OcTree::tree_nodes`] (whose own order
+//! *is* oracle-measured via `tree_walk`), not measured against upstream's
+//! actual `leaf_iterator` class itself. The new `octree_points` oracle op
+//! (added this round for `moveit-distance-field`) exposes a `leaves` field
+//! that is exactly a `tree.begin_leafs()` walk, independent of that op's own
+//! distance-field-specific purpose -- cheap ground truth this crate did not
+//! have to ask the orchestrator to add. Surveyed and found already
+//! measured, not argued: `isNodeOccupied`'s threshold
+//! ([`OcTree::is_node_occupied_log_odds`], pinned via `octomap_parity.rs`'s
+//! `set_occupancy_thres` scenario) and every field `tree_walk` already
+//! covers (coordinate/size/depth/is_leaf/log_odds/occupancy for the full
+//! pre-order node walk). `getTreeType()` is not ported as a callable symbol
+//! at all (see the symbol-by-symbol audit above), so there is nothing there
+//! for an oracle op to confirm.
 //!
 //! **`assert_relative_eq!` reckoning (round 18, item 2).** This crate has
 //! **zero** calls, not counted by `rg -c` (which mixes doc-comment mentions

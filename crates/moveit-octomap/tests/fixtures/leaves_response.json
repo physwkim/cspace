@@ -1,0 +1,83 @@
+[
+  {
+    "id": 1,
+    "ok": true,
+    "result": {
+      "count": 0,
+      "leaves": [
+        {
+          "coordinate": [
+            -32667.0,
+            -32667.0,
+            -32667.0
+          ],
+          "occupied": true,
+          "size": 2.0
+        }
+      ],
+      "points": []
+    }
+  },
+  {
+    "id": 2,
+    "ok": true,
+    "result": {
+      "count": 3,
+      "leaves": [
+        {
+          "coordinate": [
+            -0.05,
+            -0.05,
+            -0.05
+          ],
+          "occupied": false,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            0.05,
+            -0.05,
+            -0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            -0.05,
+            0.05,
+            0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        },
+        {
+          "coordinate": [
+            0.05,
+            0.05,
+            0.05
+          ],
+          "occupied": true,
+          "size": 0.1
+        }
+      ],
+      "points": [
+        [
+          0.05,
+          -0.05,
+          -0.05
+        ],
+        [
+          -0.05,
+          0.05,
+          0.05
+        ],
+        [
+          0.05,
+          0.05,
+          0.05
+        ]
+      ]
+    }
+  }
+]
