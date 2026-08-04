@@ -12,6 +12,7 @@ authors.workspace = true
 moveit-collision.workspace = true
 moveit-constraints.workspace = true
 moveit-error.workspace = true
+moveit-kinematics.workspace = true
 moveit-model.workspace = true
 moveit-sampling.workspace = true
 moveit-scene.workspace = true
@@ -22,6 +23,7 @@ nalgebra.workspace = true
 rand.workspace = true
 
 [dev-dependencies]
+moveit-geometry.workspace = true
 moveit-srdf.workspace = true
 rand_chacha.workspace = true
 urdf-rs.workspace = true

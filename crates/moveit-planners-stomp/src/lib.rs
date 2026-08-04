@@ -84,19 +84,41 @@
 //!
 //! # Not ported: the ROS/task-engine layer (D1/D2 exclusion)
 //!
-//! `stomp_moveit_planning_context.{hpp,cpp}`'s ROS-specific pieces (goal
-//! constraint sampling, seed-trajectory extraction from a `MotionPlanRequest`,
-//! the `allowed_planning_time` timeout watcher thread, pluginlib
-//! registration) and `trajectory_visualization.hpp` are not ported -- see
-//! [`planner`]'s own module doc for exactly which lines of
-//! `stomp_moveit_planning_context.cpp` this crate's [`planner::plan`] ports
-//! and which it leaves out. Per PORTING-PLAN.md's D1 ("final form: a
-//! ROS-independent Rust motion-planning library") and D2 ("ROS 2 bindings
-//! isolated to an optional `moveit-ros` crate"), this crate carries only
-//! the ROS-independent computational core; the
-//! `planning_interface::PlanningContext` plugin glue and the `rclcpp`-visible
-//! visualization types belong to a ROS integration layer this workspace
-//! does not port into `moveit-planners-stomp` itself.
+//! Two items round 23/24 listed here -- goal constraint sampling and
+//! seed-trajectory extraction from a `MotionPlanRequest` -- turned out not
+//! to be ROS coupling at all; round 25 ported both as
+//! [`planner::sample_goal_state`]/[`planner::extract_seed_trajectory`] (see
+//! [`planner`]'s own "Round 25: two false exclusions, ported" for the
+//! reproducing `rg` command and its output). The `allowed_planning_time`
+//! timeout watcher thread, also grouped here through round 24, was found
+//! the same round to use no ROS type either -- but it needs no port at all,
+//! since round 24's own [`moveit_stomp_core::CancelHandle`] plus an
+//! existing test already cover the capability (same section, same doc).
+//! What remains excluded, each genuinely ROS for the reason stated:
+//!
+//! - Pluginlib registration: not in `stomp_moveit_planning_context.cpp` at
+//!   all (`rg -n "PLUGINLIB_EXPORT_CLASS|CLASS_LOADER_REGISTER_CLASS"
+//!   moveit_planners/stomp/src/stomp_moveit_planning_context.cpp` finds
+//!   nothing) -- the real
+//!   `CLASS_LOADER_REGISTER_CLASS(stomp_moveit::StompPlannerManager,
+//!   planning_interface::PlannerManager)` is in the sibling file
+//!   `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp:144`, whose
+//!   `initialize()` takes an `rclcpp::Node::SharedPtr` and reads a ROS 2
+//!   `generate_parameter_library` `ParamListener` -- a ROS-hosted plugin
+//!   entry point, not a computation this crate could port independently of
+//!   `rclcpp`.
+//! - `trajectory_visualization.hpp`: its own includes are
+//!   `visualization_msgs::msg::MarkerArray`/`Marker`,
+//!   `std_msgs::msg::ColorRGBA`, `tf2_eigen/tf2_eigen.hpp` -- ROS message
+//!   and `tf2` types are the function signatures themselves, not an
+//!   incidental dependency.
+//!
+//! Per PORTING-PLAN.md's D1 ("final form: a ROS-independent Rust
+//! motion-planning library") and D2 ("ROS 2 bindings isolated to an
+//! optional `moveit-ros` crate"), these two stay excluded; both are
+//! ROS-hosted glue (a plugin entry point taking an `rclcpp::Node`, and
+//! message/tf2-typed publisher signatures), not ROS-independent computation
+//! this crate's dependency reach was merely never extended to.
 //!
 //! # Round 23: reconciled with `moveit-planning`'s `AddTimeOptimalParameterization`
 //!
@@ -113,9 +135,16 @@
 //! output for that adapter's test to have been reproducing since round 21;
 //! its doc is stale, though its actual behavior (re-time whatever
 //! `RobotTrajectory` it is given) is unaffected by that staleness. This
-//! crate does not depend on `moveit-planning` (nor vice versa -- confirmed
-//! via that crate's own `response.rs` doc, "No `Option`", and its `lib.rs`),
-//! so this is a documentation-only mismatch, not a compile-time or runtime
+//! crate still does not depend on `moveit-planning`, nor vice versa --
+//! re-verified round 25 against the current tree, which by then also
+//! carries round 24's `moveit-scene`/`moveit-collision`/`moveit-constraints`
+//! and round 25's own `moveit-kinematics`/`moveit-geometry` (dev-only)
+//! additions: `cargo tree -p moveit-planners-stomp -e normal,dev,build
+//! --prefix none | sort -u | grep -i planning` and `cargo tree -p
+//! moveit-planning -e normal,dev,build --prefix none --invert | grep -i
+//! stomp` both print nothing. None of this crate's dependencies (nor their
+//! own transitive dependencies) reach back to `moveit-planning`, so this is
+//! still a documentation-only mismatch, not a compile-time or runtime
 //! conflict; not fixed here since `moveit-planning` belongs to a different
 //! round's worker.
 //!
@@ -163,10 +192,13 @@
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!
-//! Run for real against the tree as committed this round. Zero calls: this
-//! crate's tests compare exact-integer-representable f64 values (bound
-//! clamps, waypoint counts, matrix round-trips through the same arithmetic
-//! on both sides) with `assert_eq!`/`assert_ne!`, never a tolerance-bearing
+//! Re-run round 25 against the tree as committed this round (unchanged from
+//! round 24's own reckoning, including the new
+//! `extract_seed_trajectory`/`sample_goal_state` tests this round adds).
+//! Zero calls: this crate's tests compare exact-integer-representable f64
+//! values (bound clamps, waypoint counts, matrix round-trips through the
+//! same arithmetic on both sides, and the new tests' clamped joint
+//! positions) with `assert_eq!`/`assert_ne!`, never a tolerance-bearing
 //! float comparison. Nothing to classify, nothing to bisect, no tolerance
 //! floor to re-measure.
 
