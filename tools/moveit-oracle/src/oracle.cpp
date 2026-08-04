@@ -1302,14 +1302,33 @@ private:
     return out;
   }
 
-  /// Apply the request's joint values on top of the model defaults.
+  /// Reset `*state_` to the model defaults, then apply the request's joint
+  /// values on top.
   ///
   /// Reset first: leaving the previous case's values in place would make a
   /// result depend on request order, which would quietly hide a disagreement
   /// on any variable the request omits.
+  ///
+  /// `clearAttachedBodies()` is part of that reset and not the caller's job.
+  /// `setToDefaultValues()` resets joint positions but -- verified by reading
+  /// it -- never touches the attached-body list, and `state_` outlives every
+  /// request, so an attachment installed by one request is still there for the
+  /// next one. Two ops (`collision`, `frameTransform`) used to clear it
+  /// themselves right after calling this; the other eight callers did not, and
+  /// nothing distinguished the two groups except that someone had thought
+  /// about it. Clearing here makes "after `applyJointValues`, `*state_` is the
+  /// model defaults with nothing attached" true on every path instead of on
+  /// the paths that remembered, so an op that attaches nothing cannot observe
+  /// one that does. Ops that *do* attach still attach after this returns,
+  /// unchanged.
+  ///
+  /// `isStateValid` is not in that group: it clears the attached bodies of a
+  /// `PlanningScene`'s own `getCurrentStateNonConst()`, which it constructs
+  /// per call, so that state has no cross-request lifetime to leak through.
   void applyJointValues(const json& request)
   {
     state_->setToDefaultValues();
+    state_->clearAttachedBodies();
     const json& values = request.at("joint_values");
     for (auto it = values.begin(); it != values.end(); ++it)
     {
@@ -1968,12 +1987,9 @@ private:
   /// `request["attached_bodies"]` (optional, defaults to none) is applied to
   /// `*state_` via `attachBody` before any check runs, ground truth for
   /// `moveit_scene::AttachedBody`/`moveit_collision::AttachedBodyGeometry`.
-  /// `state_` is a long-lived member reused across requests, so previously
-  /// attached bodies are cleared first -- `applyJointValues`'s
-  /// `setToDefaultValues()` resets joint positions but, verified by reading
-  /// `RobotState::setToDefaultValues()`, never touches attached-body state,
-  /// so a stale attachment from an earlier request would otherwise leak into
-  /// this one. `attachBody`'s own `pose` parameter (the transform from the
+  /// No clearing is needed here: `applyJointValues` has already left `*state_`
+  /// with nothing attached, on every path rather than only this one -- see its
+  /// doc for why that moved. `attachBody`'s own `pose` parameter (the transform from the
   /// link to the attached body's own frame, upstream's separate level
   /// between the link and its shapes) is always identity here, matching
   /// `moveit_scene::AttachedBody`'s one-level design where `shape_poses` are
@@ -2013,7 +2029,6 @@ private:
   {
     applyJointValues(request);
 
-    state_->clearAttachedBodies();
     for (const auto& attached_json : request.value("attached_bodies", json::array()))
     {
       const std::string id = attached_json.at("id").get<std::string>();
@@ -2211,7 +2226,6 @@ private:
   {
     applyJointValues(request);
 
-    state_->clearAttachedBodies();
     for (const auto& attached_json : request.value("attached_bodies", json::array()))
     {
       const std::string id = attached_json.at("id").get<std::string>();
