@@ -134,8 +134,101 @@ pub fn normal_distribution_generator<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moveit_stomp_core::DerivativeOrder;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+
+    /// The actual conditioning behind
+    /// `num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`'s
+    /// non-contiguous coverage above `n = 60` (`1..=60` contiguous, then
+    /// `80`/`100`/`150`/`200` sampled -- see that test's own doc). "A Gram
+    /// matrix's inverse is PD whenever the Gram matrix is invertible" is
+    /// exact-arithmetic reasoning; `Cholesky::new` runs in `f64`, where a
+    /// pivot can round to non-positive well before a matrix is
+    /// mathematically singular. This measures how far `acceleration^T *
+    /// acceleration`'s actual conditioning is from that failure mode at
+    /// this test's own two edges, `n = 60` (the largest `num_timesteps`
+    /// any real fixture in this workspace uses) and `n = 200` (the
+    /// largest sampled point).
+    ///
+    /// Measured via `nalgebra`'s `symmetric_eigenvalues` (the matrix is
+    /// symmetric by construction, `A^T * A`): at `n = 60`, `min_eig ~=
+    /// 7.11e-6`, `max_eig ~= 28.4`, condition number `~= 4.00e6`. At `n =
+    /// 200`, `min_eig ~= 5.99e-8`, `max_eig ~= 28.4` (essentially
+    /// unchanged -- the largest eigenvalue is set by the stencil's own
+    /// fixed coefficients, not `n`), condition number `~= 4.75e8`.
+    /// Growth from `n = 60` to `n = 200` (a 3.33x increase in `n`) is a
+    /// ~119x increase in condition number -- `log(119)/log(3.33) ~= 4.0`,
+    /// consistent with the known `O(n^4)` conditioning growth of a
+    /// second-derivative finite-difference Gram matrix (`k = 2` =>
+    /// `O(n^{2k})`).
+    ///
+    /// **Distance from the failure zone.** A backward-stable Cholesky's
+    /// pivots are corrupted by rounding error roughly of order `n times
+    /// f64::EPSILON times max_eig`; a pivot risks rounding to
+    /// non-positive once `min_eig` drops below roughly that size, i.e.
+    /// once the condition number approaches roughly `1 / (n *
+    /// f64::EPSILON)`. At `n = 200` that threshold works out to roughly
+    /// `2.25e13` -- the measured `4.75e8` sits about four to five orders
+    /// of magnitude below it, not close. Extrapolating the measured
+    /// `O(n^4)` growth law to find where conditioning would reach that
+    /// threshold (`n^4 * (4.75e8 / 200^4)` equal to roughly `2.25e13`)
+    /// gives `n` around `2950` -- about 15x past the largest sampled
+    /// point and about 49x past the largest `num_timesteps` any real
+    /// fixture in this workspace uses. Per the round that asked for this
+    /// measurement: if the conditioning were close to the failure
+    /// threshold at `n = 60`/`200`, the four points sampled above `60`
+    /// would not be enough and the sweep would need to be contiguous
+    /// where conditioning actually changes fastest, not merely where it
+    /// is cheap to check. It is not close -- four to five orders of
+    /// magnitude of headroom at the densest point checked, growing wider
+    /// (in absolute pivot-risk terms) as `n` shrinks back toward this
+    /// workspace's real usage -- so the existing non-contiguous coverage
+    /// is not under-covering a region where conditioning is actually a
+    /// live risk.
+    ///
+    /// This test pins the two measured numbers as a regression guard: if
+    /// a future change to `generate_finite_difference_matrix` or this
+    /// function's normalization unexpectedly worsens conditioning by
+    /// orders of magnitude, this fails before `Cholesky::new` starts
+    /// intermittently rejecting real trajectories.
+    #[test]
+    fn acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure() {
+        // (n, expected order-of-magnitude condition number, generous
+        // relative tolerance -- these pin the measurement, not a precise
+        // physical constant, so the tolerance only needs to catch a
+        // regression of orders of magnitude, not float noise).
+        let cases = [(60usize, 4.00e6, 0.05), (200usize, 4.75e8, 0.05)];
+        for (n, expected_cond, tolerance) in cases {
+            let acceleration =
+                generate_finite_difference_matrix(n, DerivativeOrder::Acceleration, 1.0);
+            let raw_covariance = acceleration.transpose() * &acceleration;
+            let eigenvalues = raw_covariance.symmetric_eigenvalues();
+            let min_eig = eigenvalues.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max_eig = eigenvalues
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
+            let cond = max_eig / min_eig;
+
+            // The failure-risk threshold a backward-stable Cholesky
+            // approaches, per this test's own doc.
+            let failure_threshold = 1.0 / (n as f64 * f64::EPSILON);
+            assert!(
+                cond < failure_threshold / 1e4,
+                "n={n}: condition number {cond:e} is within 1e4x of the estimated Cholesky \
+                 failure zone {failure_threshold:e} -- the sampled-point coverage above n=60 \
+                 in num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects \
+                 needs to become contiguous, not just this assertion"
+            );
+            assert!(
+                (cond - expected_cond).abs() < expected_cond * tolerance,
+                "n={n}: measured condition number {cond:e}, expected ~{expected_cond:e} -- if \
+                 this genuinely moved, re-derive this test's doc comment's margin numbers, \
+                 don't just widen the tolerance"
+            );
+        }
+    }
 
     #[test]
     fn generated_noise_pins_the_first_and_last_timestep_to_zero() {

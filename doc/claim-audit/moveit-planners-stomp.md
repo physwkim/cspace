@@ -140,11 +140,16 @@ test-module note already documents for the same `A^T * A` shape
 (`filter_functions.rs:142-152`, "no realistic `(num_timesteps, dt)`
 input... makes it singular"). Backed empirically here too, not just
 asserted: `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
-sweeps `num_timesteps` 1..=200 (dense 1..=60, checkpoints to 200 --
-an order of magnitude past the largest `num_timesteps` any test or
-fixture in this workspace uses, `solve_with_60_timesteps_converges`'s
-60) and confirms `MultivariateGaussian::new` never returns `None` in
-that range.
+checks `num_timesteps` `1..=60` **contiguously** (past the largest
+`num_timesteps` any test or fixture in this workspace uses,
+`solve_with_60_timesteps_converges`'s `60`), plus the four sampled
+points `80`, `100`, `150`, `200` -- **not** a contiguous sweep to 200;
+`61..=199` other than those four points is not checked. (Corrected
+here per `8351f8d`, which fixed the identical over-broad "1..=200"
+wording in this test's own doc comment; this paragraph restated the
+same claim in a second place and was not caught by that fix.) See
+Item 3 below for the conditioning numbers behind why this coverage was
+judged sufficient without being contiguous all the way to 200.
 
 **Conclusion:** not the same defect family as D14. There is no
 upstream-accepted wire value this port's stricter `new` silently
@@ -158,3 +163,52 @@ carried forward as an open risk.
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `crates/moveit-planners-stomp/src/noise_generators.rs:106` (`MultivariateGaussian::new`'s one production call site) | `stddev` cannot reach `covariance` (structurally disconnected); `num_timesteps` cannot produce a `covariance` `MultivariateGaussian::new` rejects, for any value this workspace uses | CONFIRMED closed, not D14's shape | `rg 'MultivariateGaussian::new'` workspace-wide (1 production site); `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`, `cargo nextest run -p moveit-planners-stomp` | (pending, see report) |
+
+## Item 3: floating-point conditioning behind the Gram-matrix-PD argument (this round)
+
+The paragraph above rests on "a Gram matrix's inverse is
+positive-definite whenever the Gram matrix is invertible" -- true in
+exact arithmetic, not automatically true once nalgebra's
+`Cholesky::new` (the function `MultivariateGaussian::new` actually
+calls to reject) runs in `f64`. Read directly from
+`nalgebra-0.35.0/src/linalg/cholesky.rs:190-265` this round: `new`
+returns `None` when an in-place Cholesky-Crout pivot's Schur
+complement is exactly zero or its square root fails -- a
+floating-point rounding failure mode that depends on conditioning, not
+a literal "any eigenvalue <= 0" check. So the PD argument's actual
+question is empirical: how far is the measured conditioning from that
+rounding-failure zone at the `num_timesteps` this crate checks?
+
+**Measured**, via a new permanent test,
+`noise_generators::tests::acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`
+(`generate_finite_difference_matrix(n, DerivativeOrder::Acceleration,
+1.0)`, `raw_covariance = acceleration^T * acceleration`,
+`raw_covariance.symmetric_eigenvalues()`):
+
+- `n = 60`: `min_eig ~= 7.107e-6`, `max_eig ~= 28.397`, condition
+  number `~= 3.996e6`.
+- `n = 200`: `min_eig ~= 5.986e-8`, `max_eig ~= 28.440`, condition
+  number `~= 4.751e8`.
+
+**Distance from the failure zone.** A pivot risks rounding to
+non-positive once the condition number approaches roughly `1 / (n *
+f64::EPSILON)`. At `n = 200` that threshold works out to roughly
+`2.25e13` -- the measured `4.751e8` is about four to five orders of
+magnitude below it, not close. The measured growth from `n = 60` to
+`n = 200` is consistent with the known `O(n^4)` conditioning-growth
+law for a second-derivative finite-difference Gram matrix; extrapolating
+that law to find where conditioning would reach the failure threshold
+gives `n` around `2950` -- about 15x past the largest sampled point
+(`200`) and about 49x past the largest `num_timesteps` any real
+fixture in this workspace uses (`60`).
+
+**Conclusion for the coordinator's explicit conditional:** it does not
+trigger. The conditioning at `n = 60` and `n = 200` is not close to
+Cholesky's practical failure zone, so the non-contiguous four-point
+coverage above `n = 60` in
+`num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
+remains adequate; it does not need to become contiguous.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-planners-stomp/src/noise_generators.rs` (Gram-matrix-PD argument, floating-point conditioning) | Condition number of `acceleration^T * acceleration` is `~3.996e6` at `n=60`, `~4.751e8` at `n=200` -- four to five orders of magnitude below the estimated Cholesky rounding-failure threshold, not close enough to require the sampled coverage above `n=60` to become contiguous | CONFIRMED, measured not assumed | `noise_generators::tests::acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`, `cargo nextest run -p moveit-planners-stomp`; `nalgebra-0.35.0/src/linalg/cholesky.rs:190-265` read for the actual failure condition | (pending, see report) |
