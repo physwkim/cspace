@@ -354,33 +354,45 @@ for members in groups.values():
     crates = len({member["crate"] for member in members})
     label = f"{model}: {len(members)} fixtures, {len(requests)} requests, {crates} crate(s)"
 
-    with tempfile.TemporaryDirectory() as scratch:
-        request_path = os.path.join(scratch, "combined_request.json")
-        response_path = os.path.join(scratch, "combined_response.json")
-        with open(request_path, "w") as handle:
-            json.dump(requests, handle)
-        with open(response_path, "w") as handle:
-            json.dump(expected, handle)
-        proc = subprocess.run(
-            [
-                sys.executable, replay_one, run_oracle,
-                members[0]["urdf"], members[0]["srdf"],
-                request_path, response_path, json.dumps(ignore),
-                str(120 * len(members)),
-            ],
-            capture_output=True,
-            text=True,
-        )
+    def replay(ordered):
+        with tempfile.TemporaryDirectory() as scratch:
+            request_path = os.path.join(scratch, "combined_request.json")
+            response_path = os.path.join(scratch, "combined_response.json")
+            with open(request_path, "w") as handle:
+                json.dump(ordered, handle)
+            with open(response_path, "w") as handle:
+                json.dump(expected, handle)
+            return subprocess.run(
+                [
+                    sys.executable, replay_one, run_oracle,
+                    members[0]["urdf"], members[0]["srdf"],
+                    request_path, response_path, json.dumps(ignore),
+                    str(120 * len(members)),
+                ],
+                capture_output=True,
+                text=True,
+            )
 
-    if proc.returncode == 0:
-        print(f"combined    {label}")
-        continue
+    # Two orders, not one. A leak from request i into request j only shows up
+    # when i precedes j, so a single walk exonerates exactly half the ordered
+    # pairs and reports the other half as passing. Reversal is the one
+    # permutation that inverts every pair at once, so the two runs together
+    # put every ordered pair under test. `replay_one` matches by id rather
+    # than position (see its own comment), so `expected` is order-free and
+    # the same file serves both directions. This is not full coverage of
+    # n! orders: it catches leaks between any two requests, not one that
+    # needs a specific third request sitting between them.
+    for order, ordered in (("combined", requests), ("reversed", requests[::-1])):
+        proc = replay(ordered)
+        if proc.returncode == 0:
+            print(f"{order:<12}{label}")
+            continue
 
-    status = 1
-    sys.stderr.write(f"COMBINED    {label} -- {proc.stdout.strip()}\n")
-    for line in ranges:
-        sys.stderr.write(f"            {line}\n")
-    sys.stderr.write(proc.stderr)
+        status = 1
+        sys.stderr.write(f"{order.upper():<12}{label} -- {proc.stdout.strip()}\n")
+        for line in ranges:
+            sys.stderr.write(f"            {line}\n")
+        sys.stderr.write(proc.stderr)
 
 sys.exit(status)
 PYEOF
