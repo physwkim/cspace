@@ -2434,6 +2434,10 @@ mod tests {
 
     #[test]
     fn calculate_total_increments_rejects_column_count_mismatch() {
+        // `calculate_total_increments` has 3 `Error::other` sites (column
+        // count vs. joint_costs, row count mismatch between the two
+        // increment matrices, and a per-joint quadratic_cost_inverse shape
+        // guard); "columns" appears only in this one's message.
         let traj = trajectory(20);
         let costs = joint_costs(&traj, 1e-6);
         let num_free = traj.num_free_points();
@@ -2442,7 +2446,7 @@ mod tests {
         let parameters = ChompParameters::default();
         let err =
             calculate_total_increments(&costs, &smoothness, &collision, &parameters).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("columns"));
     }
 
     #[test]
