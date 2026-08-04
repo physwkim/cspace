@@ -12255,3 +12255,60 @@ p1-joints 라운드 21에 발주한 함수 단위 측정은 그대로 진행한�
 
 §151의 차단은 D11이 **완료될 때까지** 유효하다. 방향이 정해진 것과 결함이
 닫힌 것은 다르다.
+
+## §153 존재하지 않는 의존성을 이유로 든 제외는 의존성이 생긴 뒤에도 아무도 다시 읽지 않는다
+
+p3-shapes 라운드 26을 검증하다 발견했다. 이번 라운드가 만든 결함은 아니고,
+아무도 다시 읽지 않아서 남은 것이다.
+
+`crates/moveit-collision/src/lib.rs:26-35`(그리고 `env.rs:55`의 같은 문단):
+
+> `collision_plugin_cache.*` (pluginlib backend selection),
+> `collision_octomap_filter.*` and `occupancy_map.*` (both need an octomap
+> dependency and a `RobotState`) are out of scope entirely — … the latter
+> two have no `RobotState`-free piece to port at all.
+
+`collision_octomap_filter`에 대해서는 **사실이 아니다.** 원본
+(`moveit_core/collision_detection/src/collision_octomap_filter.cpp`, 318줄,
+moveit2 `e017c91e`)을 직접 확인했다:
+
+```
+grep -c 'RobotState' collision_octomap_filter.cpp   → 0
+```
+
+`RobotState` 참조가 **0건**이다. 공개 진입점은
+`refineContactNormals(const World::ObjectConstPtr& object, CollisionResult& res,
+...)`(`:67`)로, 인자가 `World::Object`와 `CollisionResult` — 둘 다 이
+워크스페이스에 이미 있다(`moveit_collision::World`, `CollisionResult`).
+ROS include는 `rclcpp/logger.hpp`, `rclcpp/logging.hpp` 둘뿐이고 전부 로깅이다.
+나머지 include는 `octomap/*`와 `geometric_shapes/shapes.h`다.
+
+"octomap 의존성이 필요하다"는 부분은 **쓰였을 당시엔 참이었을 수 있지만 지금은
+아니다** — `crates/moveit-octomap`이 2633줄로 존재한다. 즉 이 제외의 두 근거
+중 하나는 처음부터 거짓이고, 다른 하나는 그 사이에 만료됐다.
+
+### 153.1 규칙
+
+제외 사유가 **부재**(의존성이 없다 / 타입이 없다 / 층이 아직 없다)일 때는
+그 부재가 해소되는 순간 사유가 만료된다. 그런데 제외 문구는 코드가 아니라
+주석이라 컴파일러가 만료를 알려주지 않고, 그 파일을 다시 여는 유일한 계기는
+누군가 그 기능을 필요로 할 때뿐이다 — 그때는 이미 "out of scope"라고 적혀
+있으니 아무도 다시 묻지 않는다.
+
+따라서:
+
+- **부재를 사유로 적을 때는 무엇이 생기면 만료되는지 같이 적는다.** "octomap
+  의존성이 없어서"가 아니라 "`moveit-octomap`이 생기면 이 제외는 만료된다".
+- **원본에 대고 세지 않은 제외 사유는 쓰지 않는다.** "`RobotState`-free한
+  조각이 없다"는 `grep -c 'RobotState'` 한 번이면 반증되는 주장이었다.
+- 브리프에서 어떤 항목이 제외 문구에 기대고 있으면 **그 문구를 다시 읽고
+  원본에 대고 확인한 뒤에** 항목을 쓴다.
+
+### 153.2 처리
+
+`collision_octomap_filter.cpp`(318줄)는 포팅 가능한 대상이다 — 소유자는
+`moveit-collision`을 가진 p3-acm이고, `moveit-octomap` 쪽 준비는 p3-shapes
+라운드 27의 감사가 답한다. p3-acm의 현재 라운드(FK 측정)가 끝난 뒤 다음
+라운드 항목으로 넘긴다. `occupancy_map.*`와 `collision_plugin_cache.*`는
+같은 방식으로 재확인되지 않았으므로 그 제외는 아직 유효한지 미상이며, 같은
+라운드에서 함께 세게 한다.
