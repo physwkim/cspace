@@ -1,0 +1,6 @@
+{
+  "chomp_quad_cost_inverse": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}

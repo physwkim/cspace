@@ -122,6 +122,26 @@ self-checking response, since it's derivable from `num_points` but a
 mismatch there would itself be informative (would mean `DIFF_RULE_LENGTH`
 or the boundary formula diverged from what this port assumes).
 
+## Verified (round 18): the branch boundary claim above is correct
+
+Re-checked directly against the vendored source for the exact `nalgebra`
+version this workspace pins (`Cargo.lock`: `nalgebra 0.35.0`), not assumed
+from the crate's public docs:
+`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/nalgebra-0.35.0/src/linalg/inverse.rs`,
+`SquareMatrix::try_inverse_mut`'s `match dim { ... }`:
+
+- `0` — trivial `true` (an empty matrix "inverts" to itself; not a case in
+  this request, since `num_vars_free` starts at 1 below).
+- `1` — closed form, `1 / determinant`.
+- `2` — closed form, 2×2 adjugate/determinant.
+- `3` — closed form, 3×3 cofactor expansion.
+- `4` — closed form, `do_inverse4` (a loop-unrolled MESA-derived cofactor
+  expansion, a distinct code path from cases 1-3 but still not LU).
+- `_` (i.e. `>= 5`) — `lu::try_invert_to`, partial-pivoted LU.
+
+So the boundary is exactly `1..=4` closed-form vs. `>=5` LU, confirming
+the table below needed no correction.
+
 ## Cases needed: 5, one per side of the algorithm-branch boundary
 
 | `num_points` | `num_vars_free` | Algorithm (nalgebra side) |
@@ -151,3 +171,20 @@ parity finding, not a rounding footnote — and this port would then need to
 decide whether `nalgebra`'s cofactor path needs to be bypassed (e.g. forcing
 `nalgebra`'s own LU path even for small matrices) to match upstream, which
 is a decision to bring back to the orchestrator, not to make unilaterally.
+
+## Closed (round 18)
+
+`chomp_quad_cost_inverse` was built (op stamp `6797447ac4dc46e9`), linking
+the real upstream `ChompCost` rather than a transcription, per this
+document's own packaging preference. All 5 cases run against the live
+oracle and compared element-by-element in
+`crates/moveit-planners-chomp/tests/chomp_quad_cost_inverse_parity.rs`:
+agreement, not a divergence — measured maxima from `1.78e-15`
+(`num_vars_free == 1`) to `2.68e-11` (`num_vars_free == 8`), growing with
+matrix size rather than jumping at the `1..=4`/`>=5` branch boundary, i.e.
+accumulated rounding from two differently-ordered decompositions, not a
+genuine algorithm disagreement. `nalgebra`'s cofactor path needs no bypass.
+`num_vars_free` also matched this document's table for every case, so
+`DIFF_RULE_LENGTH`/the free-point boundary formula are confirmed to agree
+between the two ports as a side effect. See the parity test's own doc
+comment for the full per-case numbers and the `1e-7` tolerance they justify.

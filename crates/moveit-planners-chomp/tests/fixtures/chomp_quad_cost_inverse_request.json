@@ -1,0 +1,62 @@
+[
+  {
+    "derivative_costs": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "discretization": 0.1,
+    "id": 0,
+    "num_points": 13,
+    "op": "chomp_quad_cost_inverse",
+    "ridge_factor": 1e-06
+  },
+  {
+    "derivative_costs": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "discretization": 0.1,
+    "id": 1,
+    "num_points": 14,
+    "op": "chomp_quad_cost_inverse",
+    "ridge_factor": 1e-06
+  },
+  {
+    "derivative_costs": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "discretization": 0.1,
+    "id": 2,
+    "num_points": 15,
+    "op": "chomp_quad_cost_inverse",
+    "ridge_factor": 1e-06
+  },
+  {
+    "derivative_costs": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "discretization": 0.1,
+    "id": 3,
+    "num_points": 16,
+    "op": "chomp_quad_cost_inverse",
+    "ridge_factor": 1e-06
+  },
+  {
+    "derivative_costs": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "discretization": 0.1,
+    "id": 4,
+    "num_points": 20,
+    "op": "chomp_quad_cost_inverse",
+    "ridge_factor": 1e-06
+  }
+]
