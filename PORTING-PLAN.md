@@ -11716,3 +11716,67 @@ fixture *파일* 하나당 오라클 프로세스 하나를 띄워 그 파일의
 바꿔 말하면 이 커밋은 현재 corpus에 대해 동작 변화가 0이다. 값어치는 다음에 추가될
 op — 특히 첨부 바디가 실제로 충돌 검사에 참여하게 만드는 작업(p3-distance-field
 라운드 23) — 이 같은 함정을 다시 밟지 못한다는 데 있다.
+
+## §144 `ros/moveit-ros`가 main에서 깨져 있었고, 어떤 게이트도 보지 않았다
+
+병합 후 main에 대고 `sg docker -c ros/verify-ros-interop.sh`를 돌려서 발견했다.
+
+```
+error[E0063]: missing fields `planner_id` and `trajectory_constraints`
+              in initializer of `moveit_planning::PlanningRequest`
+  --> src/planning.rs:160:12
+error[E0063]: missing field `planner_id`
+              in initializer of `moveit_planning::PlanningResponse<'_>`
+  --> src/planning.rs:223:12  및  :387:19
+```
+
+p1-fixtures 라운드 20이 `moveit-planning`에 `PlanningRequest::{trajectory_constraints,
+planner_id}`와 `PlanningResponse::planner_id`를 추가했고, p9-ros 라운드 2의
+`src/planning.rs`는 그 이전 모양으로 쓰여 있었다.
+
+**두 라운드 다 자기 게이트를 통과했다.** 루트 워크스페이스는 `ros/`를 멤버로 갖지
+않으므로(D5) `cargo clippy --workspace`도 `cargo nextest run --workspace`도 저기까지
+가지 않고, `ros/verify-ros-interop.sh`는 자기 헤더에 이렇게 적혀 있다:
+
+> Not run automatically by anything yet -- there is no CI hook for `ros/` this
+> round (D5: ros/moveit-ros is outside the root workspace, so nothing in
+> tools/ci/ walks into it).
+
+즉 누구의 실수도 아니고 **경계를 보는 게이트가 없다**는 것이 원인이다. 오늘 같은
+계열을 오라클에서 두 번 구조적으로 닫았다(§138 pilz 모델, §143 첨부 바디) — 둘 다
+"가드를 하나 더 잘 두자"가 아니라 "기억에 의존하는 상태를 없애자"였다. 여기도 같은
+기준을 적용해야 한다. 병합 루틴에 `verify-ros-interop.sh`를 넣는 것은 **오케스트레이터가
+기억하는 가드**이므로 해결이 아니다.
+
+### 144.1 D10 후보 — 변환 계층을 워크스페이스 안으로
+
+`ros/moveit-ros`를 둘로 나눈다:
+
+- **변환 계층** — 코어 타입 ↔ 메시지 모양의 평범한 Rust 구조체 변환. r2r도 ROS도
+  필요 없다. 루트 워크스페이스 멤버가 될 수 있고, 그러면 `cargo clippy --workspace`가
+  push마다 타입 체크한다 — 오늘 같은 필드 추가가 그 자리에서 빨개진다.
+- **전송 계층** — r2r에 의존하는 부분만. 지금처럼 워크스페이스 밖, D5 경계 유지.
+
+D1/D5를 깨지 않는다: 변환 계층에 ROS 의존이 없으므로 `check-dep-direction.sh`가
+그대로 통과한다(그 스크립트는 워크스페이스 멤버가 ROS 클라이언트 라이브러리에
+의존하는지를 본다).
+
+**아직 결정하지 않았다.** p9-ros 라운드 3에 조사를 시켰다: `ros/moveit-ros/src/`에서
+파일별 r2r 참조 줄 수, 변환 코드와 전송 코드가 파일 단위로 이미 갈라져 있는지,
+아니면 무엇이 섞여 있는지. 그 숫자를 보고 확정한다. §137·§139·STOMP 제외·§141.1이
+전부 "세지 않고 단정한" 사례였으므로, 여기서도 분리 가능/불가능을 세기 전에 말하지
+않는다.
+
+### 144.2 남은 CI 커버리지 구멍
+
+같은 뿌리에서 나오는 것 둘을 여기 적어둔다.
+
+- `tools/ci/verify-*.sh` 4개(`verify-clean-checkout.sh`, `verify-continuous-reseed-wrap.sh`,
+  `verify-fixture-provenance.sh`, `verify-fixture-replay.sh`)는 docker가 필요해서
+  `check-*.sh` glob 밖에 있고, 사람이 기억할 때만 돈다.
+- `ros/verify-ros-interop.sh`도 같다.
+
+둘 다 막는 것은 같은 하나다: 오라클/ROS 이미지가 레지스트리에 발행돼 있지 않아
+러너가 끌어올 수 없다. `ci.yml` 꼬리 주석이 오라클 job에 대해 이미 같은 말을 한다.
+발행 자체가 원격 저장소를 요구하므로(아직 push한 적이 없다) 지금은 UNFIXED로 둔다 —
+`ros/moveit-ros` 쪽만은 §144.1이 이미지 없이 닫을 수 있는 유일한 길이다.
