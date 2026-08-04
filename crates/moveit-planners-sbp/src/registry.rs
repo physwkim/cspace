@@ -1034,20 +1034,26 @@ mod tests {
     /// so RRT-Connect's own bias toward short, near-direct paths in an
     /// obstacle-free space finds one by chance often enough that "the
     /// control fails" was not a reliable property, only a lucky seed. The
-    /// swept combination actually used below (`+/-0.005`, 20 iterations)
-    /// scored 30/30 unwired failures *and* 30/30 wired successes across
-    /// seeds `0..30` — see this round's git history for the sweep.
+    /// swept combination actually used below (`+/-0.005`, 20 iterations) is
+    /// re-measured directly by this test's own loop over seeds `0..30`,
+    /// asserted exactly (`PORTING-PLAN.md` §195: the same claim, once with
+    /// an uncommitted, un-rerunnable "see this round's git history for the
+    /// sweep" pointer that no longer resolves to anything, was the same
+    /// defect round 24's own sweep left behind) — **30/30 unwired
+    /// failures, 30/30 wired successes**.
     ///
     /// - **Unwired control**: [`rrt_connect`] called directly with
     ///   [`Sampler::unconstrained`] but the *same* constrained `checker` —
     ///   this is exactly what [`RrtConnectContext::solve`] would do if the
-    ///   round 20 wiring did not exist. Must fail within the budget.
+    ///   round 20 wiring did not exist. Must fail within the budget, every
+    ///   seed.
     /// - **Wired**: the exact same query through the real
     ///   [`RrtConnectManager::get_planning_context`] -> `solve()` path,
-    ///   same seed, same budget. Must succeed, and every waypoint's
-    ///   `panda_joint1` must sit inside the window — proving the registry's
-    ///   sampler wiring, not the checker alone, is what turns a budget the
-    ///   checker-only search exhausts into one the search solves within.
+    ///   same seed, same budget. Must succeed, every seed, and every
+    ///   waypoint's `panda_joint1` must sit inside the window — proving the
+    ///   registry's sampler wiring, not the checker alone, is what turns a
+    ///   budget the checker-only search exhausts into one the search solves
+    ///   within.
     #[test]
     fn path_constraint_sampler_is_load_bearing_not_merely_invoked() {
         use moveit_constraints::{Constraint, JointConstraint};
@@ -1072,11 +1078,6 @@ mod tests {
         }
         let goal = space.read_robot_state(&goal_state);
 
-        let joint_constraint = JointConstraint::new(&model, "panda_joint1", 0.0, 0.005, 0.005, 1.0)
-            .expect("valid joint constraint");
-        let mut path_constraints = KinematicConstraintSet::new();
-        path_constraints.push(Constraint::Joint(joint_constraint));
-
         let small_budget = RrtConnectParams {
             step_size: 0.5,
             goal_bias: 0.0,
@@ -1084,65 +1085,76 @@ mod tests {
             nn_degree: 8,
         };
 
-        // Unwired control: same checker (constrained), plain uniform
-        // sampling only.
-        let mut control_scene = PlanningScene::new(&model, &srdf);
-        let control_env = ParryCollisionEnv::default();
-        let control_checker = PlanningSceneValidityChecker::new(
-            &mut control_scene,
-            &control_env,
-            CollisionRequest::default(),
-            Some(&path_constraints),
-            &space,
-        );
-        let control_mv = DiscreteMotionValidator::new(&control_checker, 0.05);
-        let mut default_state = RobotState::new(&model);
-        default_state.set_to_default_values();
-        let control_start = space.read_robot_state(&default_state);
-        let control_result = rrt_connect(
-            &space,
-            &control_checker,
-            &control_mv,
-            control_start,
-            goal.clone(),
-            Sampler::unconstrained(&mut ChaCha8Rng::seed_from_u64(3)),
-            &small_budget,
-        );
-        assert_eq!(
-            control_result,
-            Err(PlanningFailure::IterationsExhausted),
-            "the unwired control (checker-only, no sampler) must NOT find the path the wired \
-             search below finds within the same iteration budget"
-        );
+        for seed in 0..30u64 {
+            let joint_constraint =
+                JointConstraint::new(&model, "panda_joint1", 0.0, 0.005, 0.005, 1.0)
+                    .expect("valid joint constraint");
+            let mut path_constraints = KinematicConstraintSet::new();
+            path_constraints.push(Constraint::Joint(joint_constraint));
 
-        // Wired: the real registry path.
-        let mut scene = PlanningScene::new(&model, &srdf);
-        let env = ParryCollisionEnv::default();
-        let manager = RrtConnectManager;
-        let request = PlanningRequest {
-            group_name: "panda_arm".to_string(),
-            goal: Goal::State(goal),
-            path_constraints: Some(path_constraints),
-            resolution: 0.05,
-            seed: 3,
-            params: small_budget,
-            solver: None,
-        };
-        let mut context = manager
-            .get_planning_context(&mut scene, &env, request)
-            .expect("panda_arm is a real group");
-        let response = context.solve().expect(
-            "the wired search must solve within the same iteration budget the unwired control \
-             above exhausts",
-        );
-        drop(context);
-
-        for (index, waypoint) in response.trajectory.iter().enumerate() {
-            let value = waypoint.variable_position("panda_joint1").unwrap();
-            assert!(
-                (-0.005..=0.005).contains(&value),
-                "waypoint {index}: panda_joint1 = {value} escaped the +/-0.005 constraint window"
+            // Unwired control: same checker (constrained), plain uniform
+            // sampling only.
+            let mut control_scene = PlanningScene::new(&model, &srdf);
+            let control_env = ParryCollisionEnv::default();
+            let control_checker = PlanningSceneValidityChecker::new(
+                &mut control_scene,
+                &control_env,
+                CollisionRequest::default(),
+                Some(&path_constraints),
+                &space,
             );
+            let control_mv = DiscreteMotionValidator::new(&control_checker, 0.05);
+            let mut default_state = RobotState::new(&model);
+            default_state.set_to_default_values();
+            let control_start = space.read_robot_state(&default_state);
+            let control_result = rrt_connect(
+                &space,
+                &control_checker,
+                &control_mv,
+                control_start,
+                goal.clone(),
+                Sampler::unconstrained(&mut ChaCha8Rng::seed_from_u64(seed)),
+                &small_budget,
+            );
+            assert_eq!(
+                control_result,
+                Err(PlanningFailure::IterationsExhausted),
+                "seed {seed}: the unwired control (checker-only, no sampler) must NOT find the \
+                 path the wired search below finds within the same iteration budget"
+            );
+
+            // Wired: the real registry path.
+            let mut scene = PlanningScene::new(&model, &srdf);
+            let env = ParryCollisionEnv::default();
+            let manager = RrtConnectManager;
+            let request = PlanningRequest {
+                group_name: "panda_arm".to_string(),
+                goal: Goal::State(goal.clone()),
+                path_constraints: Some(path_constraints),
+                resolution: 0.05,
+                seed,
+                params: small_budget.clone(),
+                solver: None,
+            };
+            let mut context = manager
+                .get_planning_context(&mut scene, &env, request)
+                .expect("panda_arm is a real group");
+            let response = context.solve().unwrap_or_else(|e| {
+                panic!(
+                    "seed {seed}: the wired search must solve within the same iteration budget \
+                     the unwired control above exhausts; got {e:?}"
+                )
+            });
+            drop(context);
+
+            for (index, waypoint) in response.trajectory.iter().enumerate() {
+                let value = waypoint.variable_position("panda_joint1").unwrap();
+                assert!(
+                    (-0.005..=0.005).contains(&value),
+                    "seed {seed}: waypoint {index}: panda_joint1 = {value} escaped the \
+                     +/-0.005 constraint window"
+                );
+            }
         }
     }
 
@@ -1551,17 +1563,20 @@ mod tests {
     ///
     /// **Measured after the fix: unwired 1/5, wired 5/5** (`step_size:
     /// 0.03`, `goal_bias: 0.0`, `Iterations(20)`) -- the reverse of the
-    /// pre-fix regression this scenario's ancestor recorded, at a budget
-    /// tight enough to be discriminating (a looser budget, e.g. `step_size:
-    /// 0.2`/`Iterations(20)` tried first, let *both* wired and unwired
-    /// solve 5/5: 0.8 rad is close enough, and this region's local geometry
-    /// well-behaved enough, that a nearly-direct connect attempt stays
-    /// inside tolerance regardless of sampler at a coarser step size, so
-    /// that budget does not exercise this fix at all). This is one
+    /// pre-fix regression this scenario's ancestor recorded. This is one
     /// scenario, not the four-scenario sweep the pre-fix measurement used
     /// (that sweep was never committed as code to re-run) -- reported as
     /// what it is, a single re-measurement showing the fix reversing the
-    /// specific regression it targeted, not a full re-sweep.
+    /// specific regression it targeted, not a full re-sweep. `PORTING-PLAN.md`
+    /// §187's own committed rebuild of that sweep,
+    /// `path_constraints_four_scenario_wired_vs_unwired_sweep` (below),
+    /// found this exact scenario still discriminating at looser budgets
+    /// too (`step_size: 0.2`/`Iterations(200)`: unwired 0/5, wired 5/5) --
+    /// an earlier version of this comment claimed a looser budget made
+    /// *both* solve 5/5, which does not hold for the scenario actually
+    /// committed here; that claim was never re-checked against this exact
+    /// code before being written down, the same failure §187 records for
+    /// round 24's own uncommitted sweep.
     ///
     /// The self-motion separation is found empirically, not fabricated:
     /// independent random-restart IK (tried first) converged to distant,
@@ -1789,14 +1804,779 @@ mod tests {
             "path_constraints_end_to_end_wired_vs_unwired: unwired {unwired_successes}/5, \
              wired {wired_successes}/5 (self-motion distance {best_distance} rad)"
         );
+        // `PORTING-PLAN.md` §195: this doc comment's own "Measured after
+        // the fix: unwired 1/5, wired 5/5" was, until now, backed only by
+        // `wired_successes > unwired_successes` -- weaker than the cited
+        // number, and silently satisfiable by e.g. unwired 3/5. Both seed
+        // counts are `ChaCha8Rng`-deterministic, so pinned exactly; this is
+        // the same scenario `path_constraints_four_scenario_wired_vs_unwired_sweep`'s
+        // scenario 1 now pins independently, and the two are expected to
+        // agree since they share the same geometry and budget.
         assert_eq!(
-            wired_successes, 5,
-            "wired must solve every seed at this budget (measured: {wired_successes}/5)"
+            (unwired_successes, wired_successes),
+            (1, 5),
+            "moved off the documented unwired 1/5, wired 5/5"
         );
+    }
+
+    /// `PORTING-PLAN.md` §187: round 24 measured **wired 0/5 vs unwired
+    /// 5/5** -- the opposite direction from
+    /// `path_constraints_end_to_end_wired_vs_unwired`'s **unwired 1/5,
+    /// wired 5/5** -- across a four-scenario sweep that was never committed
+    /// as reusable code (`doc/claim-audit/moveit-planners-sbp.md`'s round-24
+    /// row), so that number could not be re-run or checked against
+    /// anything. This rebuilds that sweep as committed, runnable code, with
+    /// four scenarios varied enough to cover more than the single
+    /// `Goal::State` shape `path_constraints_end_to_end_wired_vs_unwired`
+    /// uses (scenario 2's goal is `Goal::Constraints`) -- and reports each
+    /// scenario's wired/unwired success counts rather than asserting a
+    /// predetermined direction. Which direction each scenario shows *is*
+    /// the measurement here, not a regression to guard: this test asserts
+    /// only that each scenario's setup is well-formed (a reachable target,
+    /// a nontrivial self-motion separation), never which of wired/unwired
+    /// won.
+    ///
+    /// 1. **Self-motion path corridor, `Goal::State`.** Identical geometry
+    ///    and budget to `path_constraints_end_to_end_wired_vs_unwired`,
+    ///    included here for side-by-side comparison under the same harness.
+    /// 2. **Cartesian `Goal::Constraints`, no path corridor.** The goal
+    ///    itself needs IK-backed sampling to be reachable at all (mirrors
+    ///    `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable`'s
+    ///    shape); no `path_constraints`.
+    /// 3. **Orientation-only path corridor, free position.** No
+    ///    `PositionConstraint` at all -- translation along the corridor is
+    ///    entirely free, only orientation is held, modelling an
+    ///    unconstrained approach axis.
+    /// 4. **Budget crossover sweep.** Scenario 1's own geometry, re-run at
+    ///    three budgets from tight to loose, to see where (if anywhere) a
+    ///    wired/unwired gap closes.
+    ///
+    /// # Measured
+    ///
+    /// ```text
+    /// scenario 1 (self-motion, Goal::State):          unwired 1/5, wired 5/5
+    /// scenario 2 (Goal::Constraints, no corridor):     unwired 0/5, wired 5/5
+    /// scenario 3 (orientation-only corridor):          unwired 5/5, wired 5/5
+    /// scenario 4, tight  (0.03/Iterations(20)):        unwired 1/5, wired 5/5
+    /// scenario 4, medium (0.1 /Iterations(20)):        unwired 0/5, wired 5/5
+    /// scenario 4, loose  (0.2 /Iterations(200)):       unwired 0/5, wired 5/5
+    /// ```
+    ///
+    /// Reproduced identically across repeated runs (deterministic seeds
+    /// throughout). Three readings, none smoothed over:
+    ///
+    /// - Round 24's direction (wired *worse* than unwired) does not
+    ///   reproduce anywhere in this sweep. Every scenario has wired >=
+    ///   unwired; most have wired strictly better. Round 24's number was
+    ///   either scenario-specific in a way none of these four scenarios
+    ///   happen to recreate, or wrong -- this sweep cannot distinguish
+    ///   those two without round 24's own scenario, which no longer exists
+    ///   as re-runnable code.
+    /// - Scenario 3 (orientation-only corridor) is the one scenario where
+    ///   wired does *not* beat unwired -- both solve 5/5. An orientation-only
+    ///   corridor with position entirely free is, per this measurement,
+    ///   easy enough for uniform joint-space sampling alone that an
+    ///   IK-backed sampler has nothing to add.
+    /// - Scenario 4 corrects a stale claim: an earlier version of
+    ///   `path_constraints_end_to_end_wired_vs_unwired`'s own doc comment
+    ///   asserted that a looser budget (`step_size: 0.2`) made *both* wired
+    ///   and unwired solve 5/5 for scenario 1's exact geometry -- checked
+    ///   directly against that committed test with the loose budget
+    ///   substituted in, both `Iterations(200)` and `Iterations(20)` in
+    ///   fact measure unwired 0/5, matching this sweep. That claim was
+    ///   itself an uncommitted-measurement casualty of the kind `PORTING-PLAN.md`
+    ///   §187 exists to prevent; both doc comments are corrected together
+    ///   in the commit that added this sweep.
+    #[test]
+    fn path_constraints_four_scenario_wired_vs_unwired_sweep() {
+        use moveit_constraints::{
+            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
+        use moveit_geometry::{Sphere, Transforms, Vector3};
+        use moveit_kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
+
+        const PANDA_ARM_JOINTS: [&str; 7] = [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ];
+
+        fn fk_pose(model: &RobotModel, values: &[f64]) -> Isometry3 {
+            let mut state = RobotState::new(model);
+            state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(values) {
+                state.set_variable_position(name, v).unwrap();
+            }
+            state.update().global_link_transform("panda_link8").unwrap()
+        }
+
+        /// Runs `num_seeds` wired and `num_seeds` unwired `solve()`s for one
+        /// scenario, returning `(wired_successes, unwired_successes)`.
+        /// `goal`/`path_constraints` are factories, not values, because
+        /// `PlanningRequest` cannot derive `Clone` (`solver` is `Option<Box<dyn
+        /// KinematicsSolver>>`) -- each of the `2 * num_seeds` requests built
+        /// needs its own independently owned copy.
+        fn run_scenario(
+            model: &RobotModel,
+            srdf: &SrdfModel,
+            start_values: &[f64],
+            goal: impl Fn() -> Goal,
+            path_constraints: impl Fn() -> Option<KinematicConstraintSet>,
+            budget: &RrtConnectParams,
+            num_seeds: u64,
+        ) -> (u32, u32) {
+            let set_start = |scene: &mut PlanningScene<'_>| {
+                scene.current_state_mut().set_to_default_values();
+                for (name, &v) in PANDA_ARM_JOINTS.iter().zip(start_values) {
+                    scene
+                        .current_state_mut()
+                        .set_variable_position(name, v)
+                        .unwrap();
+                }
+            };
+            let env = ParryCollisionEnv::default();
+            let manager = RrtConnectManager;
+            let mut wired_successes = 0u32;
+            let mut unwired_successes = 0u32;
+            for seed in 0..num_seeds {
+                let mut unwired_scene = PlanningScene::new(model, srdf);
+                set_start(&mut unwired_scene);
+                let unwired_request = PlanningRequest {
+                    group_name: "panda_arm".to_string(),
+                    goal: goal(),
+                    path_constraints: path_constraints(),
+                    resolution: 0.05,
+                    seed,
+                    params: budget.clone(),
+                    solver: None,
+                };
+                let mut unwired_context = manager
+                    .get_planning_context(&mut unwired_scene, &env, unwired_request)
+                    .expect("panda_arm is a real group");
+                if unwired_context.solve().is_ok() {
+                    unwired_successes += 1;
+                }
+                drop(unwired_context);
+
+                let mut wired_scene = PlanningScene::new(model, srdf);
+                set_start(&mut wired_scene);
+                let wired_solver: Box<dyn KinematicsSolver> = Box::new(
+                    NewtonRaphsonSolver::new(model, "panda_arm", &SolverParams::default())
+                        .expect("panda_arm is a chain"),
+                );
+                let wired_request = PlanningRequest {
+                    group_name: "panda_arm".to_string(),
+                    goal: goal(),
+                    path_constraints: path_constraints(),
+                    resolution: 0.05,
+                    seed,
+                    params: budget.clone(),
+                    solver: Some(wired_solver),
+                };
+                let mut wired_context = manager
+                    .get_planning_context(&mut wired_scene, &env, wired_request)
+                    .expect("panda_arm is a real group");
+                if wired_context.solve().is_ok() {
+                    wired_successes += 1;
+                }
+                drop(wired_context);
+            }
+            (wired_successes, unwired_successes)
+        }
+
+        let (model, srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let tf = Transforms::new("world").unwrap();
+
+        // --- Scenario 1: self-motion path corridor, Goal::State ---
+        // Identical construction to `path_constraints_end_to_end_wired_vs_unwired`.
+        let true_values = [0.3, -0.4, 0.2, -1.9, 0.1, 1.2, 0.5];
+        let target_pose = fk_pose(&model, &true_values);
+        let pc1 = PositionConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[(Shape::Sphere(Sphere::new(0.008).unwrap()), target_pose)],
+            1.0,
+        )
+        .unwrap();
+        let oc1 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.03,
+                y: 0.03,
+                z: 0.03,
+            },
+            1.0,
+        )
+        .unwrap();
+        let mut walk_solver = NewtonRaphsonSolver::new(
+            &model,
+            "panda_arm",
+            &SolverParams {
+                max_restarts: 0,
+                ..SolverParams::default()
+            },
+        )
+        .expect("panda_arm is a chain");
+        let mut current = true_values;
+        let mut walk_rng = ChaCha8Rng::seed_from_u64(7);
+        for _ in 0..600u32 {
+            let seed: Vec<f64> = current
+                .iter()
+                .map(|&v| v + walk_rng.random_range(-0.05..0.05))
+                .collect();
+            let mut options = SolveOptions::default();
+            let Some(solution) = walk_solver.solve_with_options(&seed, &target_pose, &mut options)
+            else {
+                continue;
+            };
+            let step_dist: f64 = seed
+                .iter()
+                .zip(&solution)
+                .map(|(s, v)| (s - v).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            if step_dist > 0.15 {
+                continue;
+            }
+            let mut candidate_state = RobotState::new(&model);
+            candidate_state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&solution) {
+                candidate_state.set_variable_position(name, v).unwrap();
+            }
+            let candidate_posed = candidate_state.update();
+            if pc1.decide(&candidate_posed).satisfied && oc1.decide(&candidate_posed).satisfied {
+                current = solution.try_into().unwrap();
+            }
+        }
+        let scenario1_distance: f64 = true_values
+            .iter()
+            .zip(&current)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f64>()
+            .sqrt();
         assert!(
-            wired_successes > unwired_successes,
-            "the fix's point is that wired now reliably beats unwired here, not merely ties it \
-             (measured: unwired {unwired_successes}/5, wired {wired_successes}/5)"
+            scenario1_distance > 0.3,
+            "scenario 1: walking panda_arm's self-motion manifold from true_values did not \
+             reach a nontrivial separation ({scenario1_distance} rad)"
+        );
+        let scenario1_goal_values = current;
+        let scenario1_budget = RrtConnectParams {
+            step_size: 0.03,
+            goal_bias: 0.0,
+            termination: Termination::Iterations(20),
+            nn_degree: 8,
+        };
+        let scenario1_goal = || {
+            let mut goal_state = RobotState::new(&model);
+            goal_state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&scenario1_goal_values) {
+                goal_state.set_variable_position(name, v).unwrap();
+            }
+            Goal::State(space.read_robot_state(&goal_state))
+        };
+        let scenario1_path_constraints = || {
+            let mut set = KinematicConstraintSet::new();
+            set.push(Constraint::Position(pc1.clone()));
+            set.push(Constraint::Orientation(oc1.clone()));
+            Some(set)
+        };
+        let (scenario1_wired, scenario1_unwired) = run_scenario(
+            &model,
+            &srdf,
+            &true_values,
+            scenario1_goal,
+            scenario1_path_constraints,
+            &scenario1_budget,
+            5,
+        );
+
+        // --- Scenario 2: Cartesian Goal::Constraints, no path corridor ---
+        let scenario2_start = [0.0f64; 7];
+        let target_pose2 = fk_pose(&model, &[0.1, -0.3, 0.4, -1.6, 0.2, 1.0, 0.7]);
+        let pc2 = PositionConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[(Shape::Sphere(Sphere::new(0.02).unwrap()), target_pose2)],
+            1.0,
+        )
+        .unwrap();
+        let oc2 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose2.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.1,
+                y: 0.1,
+                z: 0.1,
+            },
+            1.0,
+        )
+        .unwrap();
+        let scenario2_goal = || {
+            let mut set = KinematicConstraintSet::new();
+            set.push(Constraint::Position(pc2.clone()));
+            set.push(Constraint::Orientation(oc2.clone()));
+            Goal::Constraints(set)
+        };
+        let scenario2_budget = RrtConnectParams {
+            step_size: 0.5,
+            goal_bias: 0.05,
+            termination: Termination::Iterations(2000),
+            nn_degree: 8,
+        };
+        let (scenario2_wired, scenario2_unwired) = run_scenario(
+            &model,
+            &srdf,
+            &scenario2_start,
+            scenario2_goal,
+            || None,
+            &scenario2_budget,
+            5,
+        );
+
+        // --- Scenario 3: orientation-only path corridor, free position ---
+        let mut target_pose3 = target_pose;
+        target_pose3.translation.vector.x += 0.15;
+        let mut oc3_solver =
+            NewtonRaphsonSolver::new(&model, "panda_arm", &SolverParams::default())
+                .expect("panda_arm is a chain");
+        let mut oc3_options = SolveOptions::default();
+        let scenario3_goal_values = oc3_solver
+            .solve_with_options(&true_values, &target_pose3, &mut oc3_options)
+            .expect(
+                "scenario 3: target_pose3 (target_pose shifted +0.15m along world X, same \
+                 orientation) must be IK-reachable from true_values",
+            );
+        let oc3 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.05,
+                y: 0.05,
+                z: 0.05,
+            },
+            1.0,
+        )
+        .unwrap();
+        {
+            let mut goal_check_state = RobotState::new(&model);
+            goal_check_state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&scenario3_goal_values) {
+                goal_check_state.set_variable_position(name, v).unwrap();
+            }
+            let posed = goal_check_state.update();
+            assert!(
+                oc3.decide(&posed).satisfied,
+                "scenario 3: the IK-solved goal must itself satisfy the orientation-only \
+                 corridor it is the target of"
+            );
+        }
+        let scenario3_goal = || {
+            let mut goal_state = RobotState::new(&model);
+            goal_state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&scenario3_goal_values) {
+                goal_state.set_variable_position(name, v).unwrap();
+            }
+            Goal::State(space.read_robot_state(&goal_state))
+        };
+        let scenario3_path_constraints = || {
+            let mut set = KinematicConstraintSet::new();
+            set.push(Constraint::Orientation(oc3.clone()));
+            Some(set)
+        };
+        let (scenario3_wired, scenario3_unwired) = run_scenario(
+            &model,
+            &srdf,
+            &true_values,
+            scenario3_goal,
+            scenario3_path_constraints,
+            &scenario1_budget,
+            5,
+        );
+
+        // --- Scenario 4: budget crossover sweep, scenario 1's own geometry ---
+        let crossover_budgets = [
+            (
+                "tight (0.03/Iterations(20))",
+                RrtConnectParams {
+                    step_size: 0.03,
+                    goal_bias: 0.0,
+                    termination: Termination::Iterations(20),
+                    nn_degree: 8,
+                },
+            ),
+            (
+                "medium (0.1/Iterations(20))",
+                RrtConnectParams {
+                    step_size: 0.1,
+                    goal_bias: 0.0,
+                    termination: Termination::Iterations(20),
+                    nn_degree: 8,
+                },
+            ),
+            (
+                "loose (0.2/Iterations(200))",
+                RrtConnectParams {
+                    step_size: 0.2,
+                    goal_bias: 0.0,
+                    termination: Termination::Iterations(200),
+                    nn_degree: 8,
+                },
+            ),
+        ];
+        let scenario4_results: Vec<(&str, u32, u32)> = crossover_budgets
+            .iter()
+            .map(|(label, budget)| {
+                let (wired, unwired) = run_scenario(
+                    &model,
+                    &srdf,
+                    &true_values,
+                    scenario1_goal,
+                    scenario1_path_constraints,
+                    budget,
+                    5,
+                );
+                (*label, wired, unwired)
+            })
+            .collect();
+
+        eprintln!(
+            "path_constraints_four_scenario_wired_vs_unwired_sweep:\n\
+             \x20 scenario 1 (self-motion, Goal::State):        unwired {scenario1_unwired}/5, wired {scenario1_wired}/5\n\
+             \x20 scenario 2 (Goal::Constraints, no corridor):   unwired {scenario2_unwired}/5, wired {scenario2_wired}/5\n\
+             \x20 scenario 3 (orientation-only corridor):        unwired {scenario3_unwired}/5, wired {scenario3_wired}/5\n\
+             \x20 scenario 4 (budget crossover, scenario 1 geometry):"
+        );
+        for (label, wired, unwired) in &scenario4_results {
+            eprintln!("    {label}: unwired {unwired}/5, wired {wired}/5");
+        }
+
+        // `PORTING-PLAN.md` §195: a number cited in this test's own doc
+        // comment (the "# Measured" table above) or in
+        // `doc/claim-audit/moveit-planners-sbp.md` is a claim, not merely an
+        // observation, the moment something else depends on it -- and
+        // nothing kept these six true until now (verified: routing the
+        // wired branch's solver to `None` inside `run_scenario`, deleting
+        // the entire effect this sweep exists to measure, left this test
+        // green). All seeds are `ChaCha8Rng`-deterministic, so every number
+        // is pinned exactly rather than left as an inequality: either
+        // direction moving is a real change to what this sweep reports, not
+        // noise to tolerate. Scenario 3's `(5, 5)` is asserted too, even
+        // though wired and unwired are equal there -- that equality is
+        // itself the scenario's finding (see this test's doc comment and
+        // `doc/claim-audit/moveit-planners-sbp.md`), and is exactly as
+        // capable of silently drifting as the other five.
+        assert_eq!(
+            (scenario1_unwired, scenario1_wired),
+            (1, 5),
+            "scenario 1 (self-motion, Goal::State) moved off the documented unwired 1/5, wired 5/5"
+        );
+        assert_eq!(
+            (scenario2_unwired, scenario2_wired),
+            (0, 5),
+            "scenario 2 (Goal::Constraints, no corridor) moved off the documented unwired 0/5, wired 5/5"
+        );
+        assert_eq!(
+            (scenario3_unwired, scenario3_wired),
+            (5, 5),
+            "scenario 3 (orientation-only corridor) moved off the documented unwired 5/5, wired 5/5 tie"
+        );
+        let expected_scenario4 = [
+            ("tight (0.03/Iterations(20))", 5u32, 1u32),
+            ("medium (0.1/Iterations(20))", 5u32, 0u32),
+            ("loose (0.2/Iterations(200))", 5u32, 0u32),
+        ];
+        assert_eq!(
+            scenario4_results.len(),
+            expected_scenario4.len(),
+            "scenario 4's budget count changed -- zip below would silently drop the extra \
+             budgets' assertions otherwise"
+        );
+        for ((label, wired, unwired), (expected_label, expected_wired, expected_unwired)) in
+            scenario4_results.iter().zip(&expected_scenario4)
+        {
+            assert_eq!(
+                label, expected_label,
+                "scenario 4's budget ordering/labels changed"
+            );
+            assert_eq!(
+                (*unwired, *wired),
+                (*expected_unwired, *expected_wired),
+                "scenario 4 {label} moved off the documented unwired {expected_unwired}/5, wired {expected_wired}/5"
+            );
+        }
+    }
+
+    /// `PORTING-PLAN.md` §195/§196: scenario 3's `(5, 5)` tie above is the
+    /// sweep's most interesting result, and until this test existed it was
+    /// only inferred from *plan* success, never measured at the sample
+    /// level. Two readings were proposed, both consistent with a tie and
+    /// with different consequences for what the wiring is worth: (a)
+    /// uniform joint-space sampling already satisfies the orientation-only
+    /// corridor often enough that an IK-backed sampler has real headroom to
+    /// help elsewhere but none here, or (b) the corridor as built is close
+    /// to *vacuous* for `panda_arm` at this pose -- satisfied by nearly
+    /// every configuration -- so a tie says nothing about the wiring at all
+    /// (§196: "the constraint was never binding" from another panel this
+    /// round, same failure shape). Measuring directly, at two different
+    /// granularities, shows **neither reading survives as originally
+    /// posed** -- the real explanation is a third thing, also measured
+    /// here rather than argued.
+    ///
+    /// # Measurement 1: global rate -- inconclusive, and that is itself the finding
+    ///
+    /// The fraction of independent uniform `panda_arm` joint-space draws
+    /// ([`crate::space::StateSpace::sample_uniform`] via
+    /// [`JointModelGroupSpace`], the same draw RRT-Connect's own
+    /// unconstrained branch takes) that satisfy each path constraint on its
+    /// own, no search involved:
+    ///
+    /// ```text
+    /// scenario 1 (position 0.008 sphere + orientation +/-0.03 rad): 0/20,000 satisfied
+    /// scenario 3 (orientation-only corridor, +/-0.05 rad, free position): 2/200,000 satisfied
+    /// ```
+    ///
+    /// This refutes (b): a vacuous corridor satisfied by nearly every
+    /// configuration would not need 200,000 draws to find 2 hits. It does
+    /// *not* clearly support (a) either -- scenario 3's rate (~1e-5) is not
+    /// reliably higher than scenario 1's (bounded above by roughly `3/20,000`
+    /// at zero hits, the standard rule-of-thumb upper bound), so an
+    /// independent global sample cannot explain why scenario 3 solves 5/5
+    /// unwired while scenario 1 solves only 1/5: by this measurement the two
+    /// corridors are comparably, vanishingly rare, yet the plan-level
+    /// outcomes differ by 4/5. Global sample density is the wrong quantity
+    /// to explain RRT-Connect's actual behavior with.
+    ///
+    /// # Measurement 2: local step acceptance -- the quantity that actually matches RRT-Connect
+    ///
+    /// [`crate::rrt_connect::rrt_connect`]'s own `extend` never draws an
+    /// independent global sample and asks whether *it* satisfies the
+    /// corridor; it takes a `step_size`-bounded step from an *existing tree
+    /// node already inside the corridor* toward a random target, and only
+    /// that bounded step needs to stay valid. This measures exactly that:
+    /// starting at `true_values` (`target_pose`'s own joint configuration,
+    /// so it trivially satisfies both scenarios' constraints at 0
+    /// deviation, a valid interior point for either without extra IK
+    /// solving), one `step_size = 0.03` (`scenario1_budget`'s own value)
+    /// random joint perturbation per draw, checked against the same
+    /// scenario's constraint:
+    ///
+    /// ```text
+    /// scenario 1: 1,837/20,000 accepted (9.2%)
+    /// scenario 3: 16,586/20,000 accepted (83.0%)
+    /// ```
+    ///
+    /// This is the number that actually explains the tie. Locally, a
+    /// scenario-3 step stays inside the corridor roughly 9x more often than
+    /// a scenario-1 step -- position pins the corridor to a 0.008-radius
+    /// ball in 3 more dimensions than orientation alone constrains, so a
+    /// random `step_size`-sized move is far more likely to wander back out
+    /// of scenario 1's corridor than out of scenario 3's. That is reading
+    /// (a) -- uniform local exploration genuinely has more headroom in
+    /// scenario 3 -- but the *global* draw rate (measurement 1) does not
+    /// show it; only the *local*, already-inside-the-corridor rate does,
+    /// because that is what tree growth actually samples against. 83% also
+    /// refutes (b) precisely: a vacuous constraint would accept close to
+    /// 100% of local steps, not 83% -- the orientation window is genuinely
+    /// binding, just far less so locally than scenario 1's tighter
+    /// position+orientation window. Reading (a) is correct, but the
+    /// evidence for it is measurement 2, not measurement 1 -- a caution
+    /// against inferring "the sampler has no headroom" from a global rate
+    /// when the search itself never actually draws globally once inside a
+    /// region.
+    #[test]
+    fn scenario3_orientation_only_corridor_sample_level_satisfaction_rate() {
+        use moveit_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
+        use moveit_geometry::{Sphere, Transforms, Vector3};
+        use moveit_state::Posed;
+
+        const PANDA_ARM_JOINTS: [&str; 7] = [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ];
+
+        fn fk_pose(model: &RobotModel, values: &[f64]) -> Isometry3 {
+            let mut state = RobotState::new(model);
+            state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(values) {
+                state.set_variable_position(name, v).unwrap();
+            }
+            state.update().global_link_transform("panda_link8").unwrap()
+        }
+
+        fn satisfaction_rate(
+            model: &RobotModel,
+            space: &JointModelGroupSpace,
+            n: u32,
+            seed: u64,
+            check: impl Fn(&Posed) -> bool,
+        ) -> u32 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let mut satisfied = 0u32;
+            for _ in 0..n {
+                let candidate = space.sample_uniform(&mut rng);
+                let mut state = RobotState::new(model);
+                state.set_to_default_values();
+                space.write_robot_state(&candidate, &mut state);
+                let posed = state.update();
+                if check(&posed) {
+                    satisfied += 1;
+                }
+            }
+            satisfied
+        }
+
+        let (model, _srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let tf = Transforms::new("world").unwrap();
+        // Scenario 1's own rate is already unmeasurably rare at 20,000
+        // draws (see below); scenario 3's needs more draws for the count
+        // itself to be a stable estimate rather than noise on a single hit.
+        let n1 = 20_000u32;
+        let n3 = 200_000u32;
+
+        // Scenario 1's own path constraint, rebuilt identically (same
+        // target_pose, same tolerances) to the sweep above.
+        let true_values = [0.3, -0.4, 0.2, -1.9, 0.1, 1.2, 0.5];
+        let target_pose = fk_pose(&model, &true_values);
+        let pc1 = PositionConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[(Shape::Sphere(Sphere::new(0.008).unwrap()), target_pose)],
+            1.0,
+        )
+        .unwrap();
+        let oc1 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.03,
+                y: 0.03,
+                z: 0.03,
+            },
+            1.0,
+        )
+        .unwrap();
+        let scenario1_satisfied = satisfaction_rate(&model, &space, n1, 11, |posed| {
+            pc1.decide(posed).satisfied && oc1.decide(posed).satisfied
+        });
+
+        // Scenario 3's own path constraint, rebuilt identically
+        // (orientation-only, position free).
+        let oc3 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.05,
+                y: 0.05,
+                z: 0.05,
+            },
+            1.0,
+        )
+        .unwrap();
+        let scenario3_satisfied =
+            satisfaction_rate(&model, &space, n3, 12, |posed| oc3.decide(posed).satisfied);
+
+        // Second measurement: not "does an independent global draw land in
+        // the corridor" but "starting from a point already known to be
+        // inside it, does one step_size-sized random joint perturbation
+        // stay inside" -- the quantity RRT-Connect's own tree growth
+        // actually depends on (`extend`'s `step_size`-bounded move from an
+        // existing tree node), not one-shot global sampling. `true_values`
+        // is exactly `target_pose`'s own joint configuration, so it
+        // trivially satisfies both scenarios' constraints (0 deviation)
+        // and is a valid interior point for both without extra IK solving.
+        fn local_step_acceptance_rate(
+            model: &RobotModel,
+            n: u32,
+            seed: u64,
+            interior: &[f64],
+            step_size: f64,
+            check: impl Fn(&Posed) -> bool,
+        ) -> u32 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let mut accepted = 0u32;
+            for _ in 0..n {
+                let step: Vec<f64> = interior
+                    .iter()
+                    .map(|&v| v + rng.random_range(-step_size..step_size))
+                    .collect();
+                let mut state = RobotState::new(model);
+                state.set_to_default_values();
+                for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&step) {
+                    state.set_variable_position(name, v).unwrap();
+                }
+                let posed = state.update();
+                if check(&posed) {
+                    accepted += 1;
+                }
+            }
+            accepted
+        }
+
+        let step_size = 0.03; // scenario1_budget's own step_size in the sweep above.
+        let n_local = 20_000u32;
+        let scenario1_local_accepted =
+            local_step_acceptance_rate(&model, n_local, 21, &true_values, step_size, |posed| {
+                pc1.decide(posed).satisfied && oc1.decide(posed).satisfied
+            });
+        let scenario3_local_accepted =
+            local_step_acceptance_rate(&model, n_local, 21, &true_values, step_size, |posed| {
+                oc3.decide(posed).satisfied
+            });
+
+        eprintln!(
+            "scenario3_orientation_only_corridor_sample_level_satisfaction_rate:\n\
+             \x20 global uniform draw:  scenario 1: {scenario1_satisfied}/{n1}, \
+             scenario 3: {scenario3_satisfied}/{n3}\n\
+             \x20 local step (from true_values, step_size {step_size}): \
+             scenario 1: {scenario1_local_accepted}/{n_local}, \
+             scenario 3: {scenario3_local_accepted}/{n_local}"
+        );
+
+        assert_eq!(
+            (
+                scenario1_satisfied,
+                scenario3_satisfied,
+                scenario1_local_accepted,
+                scenario3_local_accepted
+            ),
+            (0, 2, 1837, 16586),
+            "moved off the documented sample-level rates"
         );
     }
 

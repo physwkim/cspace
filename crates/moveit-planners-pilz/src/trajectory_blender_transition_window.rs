@@ -520,8 +520,14 @@ mod tests {
     use moveit_srdf::SrdfModel;
     use moveit_state::RobotState;
 
+    use moveit_geometry::{UnitQuaternion, Vector3};
+
     use super::*;
     use crate::limits::{CartesianLimits, JointLimit, JointLimitsContainer};
+    use crate::trajectory_generator::{
+        Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
+    };
+    use crate::trajectory_generator_lin::TrajectoryGeneratorLin;
 
     fn load_panda() -> (RobotModel, SrdfModel) {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
@@ -609,6 +615,64 @@ mod tests {
         traj
     }
 
+    /// One Cartesian-space LIN segment from `start` to `goal_pos`, fixed
+    /// orientation (the SRDF `"ready"` pose's own orientation -- the same
+    /// value `doc/oracle-request-pilz-blend.md`'s case A/B and
+    /// `doc/oracle-request-pilz-blend-geometry.md`'s case C/D use), used by
+    /// the `search_intersection_points` geometry tests below to build real
+    /// Cartesian corners without going through `blend()`/end-to-end
+    /// generator machinery each time.
+    fn gen_lin_segment<'m>(
+        model: &'m RobotModel,
+        limits: &LimitsContainer,
+        ctx: &IkContext<'_, 'm, ParryCollisionEnv>,
+        start: &HashMap<String, f64>,
+        goal_pos: [f64; 3],
+        scaling: f64,
+        sampling_time: f64,
+    ) -> RobotTrajectory<'m> {
+        let base = TrajectoryGenerator::new(model, limits.clone());
+        let generator = TrajectoryGeneratorLin::new(base, "panda_arm");
+        let goal = Goal::Cartesian {
+            link_name: "panda_link8".to_string(),
+            position: Vector3::new(goal_pos[0], goal_pos[1], goal_pos[2]),
+            orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                3.2004117663522442e-12,
+                0.9239556994689483,
+                -0.38249949727920757,
+                1.324932583900579e-12,
+            )),
+            target_point_offset: Vector3::new(0.0, 0.0, 0.0),
+        };
+        let req = MotionPlanRequest {
+            group_name: "panda_arm".to_string(),
+            start_state: StartState {
+                position: start.clone(),
+                velocity: HashMap::new(),
+            },
+            goal,
+            max_velocity_scaling_factor: scaling,
+            max_acceleration_scaling_factor: scaling,
+            path_constraints: None,
+        };
+        let response = generator.generate(ctx, &req, sampling_time);
+        response
+            .trajectory
+            .unwrap_or_else(|| panic!("LIN segment must succeed, got {:?}", response.error_code))
+    }
+
+    /// `blend_radius`/Cartesian limits shared by every
+    /// `search_intersection_points` geometry test below -- the exact values
+    /// `doc/oracle-request-pilz-blend.md`'s case A/B request.
+    fn blend_geometry_cartesian_limits() -> CartesianLimits {
+        CartesianLimits {
+            max_trans_vel: 1.0,
+            max_trans_acc: 2.25,
+            max_trans_dec: -5.0,
+            max_rot_vel: 1.57,
+        }
+    }
+
     fn panda_joint_limits() -> JointLimitsContainer {
         let mut limits = JointLimitsContainer::default();
         for joint in [
@@ -678,11 +742,21 @@ mod tests {
     #[test]
     fn validate_request_rejects_blend_radius_at_or_below_zero() {
         let (model, _) = load_panda();
+        // A chained pair (unlike an earlier version of this test, which
+        // paired a sweep with an independent, non-chained copy of itself):
+        // first_trajectory's last waypoint must equal second_trajectory's
+        // first, or the boundary-mismatch check a few lines above the
+        // blend_radius check would also fire and reject the request for a
+        // second, unrelated reason -- masking whether the blend_radius
+        // check on its own actually did anything. Mutation testing this
+        // round caught exactly that: with the blend_radius check deleted,
+        // this test still passed, because the earlier, non-chained version
+        // of this fixture failed the boundary check instead.
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
             first_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
-            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
+            second_trajectory: panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1),
             blend_radius: 0.0,
         };
         assert!(matches!(
@@ -811,18 +885,267 @@ mod tests {
         assert!(second_index < req.second_trajectory.way_point_count());
     }
 
+    // The two calls in search_intersection_points are independently
+    // `?`-chained (first_trajectory's inverse-order search, then
+    // second_trajectory's forward search against the same center). A test
+    // that makes both fail to cross at once cannot tell which call actually
+    // produced the Err -- forcing either one to succeed still leaves the
+    // other failing, so the overall outcome never changes and the mutation
+    // that broke only one of the two calls survives. These two tests each
+    // keep the OTHER trajectory a known crosser (the geometry from
+    // search_intersection_points_finds_both_crossings_within_radius above)
+    // so only the trajectory under test can be the cause of the Err.
+
     #[test]
-    fn search_intersection_points_rejects_a_radius_larger_than_either_trajectory_reaches() {
+    fn search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius() {
         let (model, _) = load_panda();
-        // A tiny joint sweep keeps panda_link8 within a small Cartesian
-        // radius of the boundary pose -- a blend_radius far larger than any
-        // sample's distance from the center is never crossed.
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
             first_trajectory: panda_joint1_sweep(&model, -0.005, 0.0, 10, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        assert!(matches!(
+            search_intersection_points(&mut req),
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
+        ));
+    }
+
+    #[test]
+    fn search_intersection_points_rejects_when_second_trajectory_never_reaches_the_blend_radius() {
+        let (model, _) = load_panda();
+        let mut req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.005, 10, 0.05),
-            blend_radius: 10.0,
+            blend_radius: 0.05,
+        };
+        assert!(matches!(
+            search_intersection_points(&mut req),
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
+        ));
+    }
+
+    // -- search_intersection_points: real Cartesian-corner geometry, not
+    // just the joint-space sweeps above -- doc/oracle-request-pilz-blend-geometry.md's
+    // case C (blend_radius) and case D (corner angle) predictions, pinned as
+    // permanent tests rather than left in that document's prose. See
+    // doc/mutation-audit-trajectory-blender.md's "Rows 13-15" for the
+    // mutation that confirms the angle-invariance test below actually
+    // detects a direction-dependent regression.
+
+    #[test]
+    fn search_intersection_points_indices_are_invariant_to_the_corners_angle() {
+        let (model, srdf) = load_panda();
+        let scene = Arc::new(PlanningScene::new(&model, &srdf));
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: true,
+        };
+        let mut limits = LimitsContainer::new();
+        limits.set_joint_limits(panda_joint_limits());
+        limits.set_cartesian_limits(blend_geometry_cartesian_limits());
+
+        // Segment 1: identical to doc/oracle-request-pilz-blend.md's case
+        // A/B (ready pose, +0.1m/+x).
+        let corner = [
+            0.40701957005161055,
+            -5.221329615610066e-12,
+            0.5902695582766445,
+        ];
+        let seg1 = gen_lin_segment(&model, &limits, &ctx, &ready_positions(), corner, 0.1, 0.1);
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let boundary = seg1.last_way_point().unwrap();
+        let mut chained = HashMap::new();
+        for name in group.active_joint_names() {
+            chained.insert(name.clone(), boundary.variable_position(name).unwrap());
+        }
+
+        // Baseline: case A's own known indices (8, 7), corner at +0.1m/+y
+        // (a 90 degree turn from segment 1's +x direction).
+        let mut baseline_req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: seg1.clone(),
+            second_trajectory: gen_lin_segment(
+                &model,
+                &limits,
+                &ctx,
+                &chained,
+                [corner[0], 0.1, corner[2]],
+                0.1,
+                0.1,
+            ),
+            blend_radius: 0.05,
+        };
+        let baseline = search_intersection_points(&mut baseline_req).unwrap();
+        assert_eq!(
+            baseline,
+            (8, 7),
+            "case A's own already-oracle-verified indices"
+        );
+
+        // Same blend_radius, same segment-2 travel distance and speed, only
+        // the corner's included angle changes (45/120/150 degrees from
+        // segment 1's +x direction, vs case A's 90 degrees). Per
+        // doc/oracle-request-pilz-blend-geometry.md's case D argument:
+        // first_intersection_index depends only on first_trajectory's own
+        // waypoints' distance to circ_pose (:387-393, computed from
+        // first_trajectory's own last waypoint before segment 2 exists at
+        // all); second_intersection_index depends only on
+        // second_trajectory's own waypoints' distance to that same fixed
+        // point (:404-411). Neither ever reads the other trajectory's
+        // direction, so a pure angle change with distance/speed held fixed
+        // must not move either index.
+        for angle_deg in [45.0_f64, 120.0, 150.0] {
+            let goal = [
+                corner[0] + 0.1 * angle_deg.to_radians().cos(),
+                0.1 * angle_deg.to_radians().sin(),
+                corner[2],
+            ];
+            let mut req = TrajectoryBlendRequest {
+                group_name: "panda_arm".to_string(),
+                link_name: "panda_link8".to_string(),
+                first_trajectory: seg1.clone(),
+                second_trajectory: gen_lin_segment(&model, &limits, &ctx, &chained, goal, 0.1, 0.1),
+                blend_radius: 0.05,
+            };
+            let indices = search_intersection_points(&mut req).unwrap();
+            assert_eq!(
+                indices, baseline,
+                "corner angle {angle_deg} degrees must not move the indices \
+                 (radius and speed held fixed at case A's values)"
+            );
+        }
+    }
+
+    #[test]
+    fn search_intersection_points_radius_sweep_moves_the_indices_but_not_the_branch() {
+        let (model, srdf) = load_panda();
+        let scene = Arc::new(PlanningScene::new(&model, &srdf));
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: true,
+        };
+        let mut limits = LimitsContainer::new();
+        limits.set_joint_limits(panda_joint_limits());
+        limits.set_cartesian_limits(blend_geometry_cartesian_limits());
+
+        // Case A's exact corner and (symmetric) speed -- only blend_radius
+        // varies below, per doc/oracle-request-pilz-blend-geometry.md's case
+        // C.
+        let corner = [
+            0.40701957005161055,
+            -5.221329615610066e-12,
+            0.5902695582766445,
+        ];
+        let seg1 = gen_lin_segment(&model, &limits, &ctx, &ready_positions(), corner, 0.1, 0.1);
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let boundary = seg1.last_way_point().unwrap();
+        let mut chained = HashMap::new();
+        for name in group.active_joint_names() {
+            chained.insert(name.clone(), boundary.variable_position(name).unwrap());
+        }
+        let seg2 = gen_lin_segment(
+            &model,
+            &limits,
+            &ctx,
+            &chained,
+            [corner[0], 0.1, corner[2]],
+            0.1,
+            0.1,
+        );
+
+        // Measured locally (probe written, run, reverted) against this exact
+        // fixture. Symmetric-speed segments have identical waypoint density
+        // by construction, so the alignment branch stays `else`
+        // (way_point_count_1 == way_point_count_2) at every radius here --
+        // case B already covers the other branch -- but the index values
+        // themselves move across a real range, exercising
+        // linear_search_intersection_point's walk arithmetic at values other
+        // than case A/B's pinned 8/7.
+        for (radius, expected) in [
+            (0.02, (11, 4)),
+            (0.03, (10, 5)),
+            (0.08, (5, 10)),
+            (0.1, (1, 14)),
+        ] {
+            let mut req = TrajectoryBlendRequest {
+                group_name: "panda_arm".to_string(),
+                link_name: "panda_link8".to_string(),
+                first_trajectory: seg1.clone(),
+                second_trajectory: seg2.clone(),
+                blend_radius: radius,
+            };
+            let indices = search_intersection_points(&mut req).unwrap();
+            assert_eq!(indices, expected, "blend_radius {radius}");
+
+            let (first_index, second_index) = indices;
+            let way_point_count_1 = req.first_trajectory.way_point_count() - first_index;
+            let way_point_count_2 = second_index + 1;
+            assert_eq!(
+                way_point_count_1, way_point_count_2,
+                "blend_radius {radius} must stay in the else branch on this symmetric geometry"
+            );
+        }
+    }
+
+    #[test]
+    fn search_intersection_points_rejects_a_radius_that_exceeds_this_corners_reach() {
+        let (model, srdf) = load_panda();
+        let scene = Arc::new(PlanningScene::new(&model, &srdf));
+        let env =
+            ParryCollisionEnv::new(moveit_collision::World::new(), LinkPaddingScale::default());
+        let ctx = IkContext {
+            scene: &scene,
+            env: &env,
+            check_self_collision: true,
+        };
+        let mut limits = LimitsContainer::new();
+        limits.set_joint_limits(panda_joint_limits());
+        limits.set_cartesian_limits(blend_geometry_cartesian_limits());
+
+        // Same corner/speed as the radius sweep above. 0.12 is the smallest
+        // value found (locally, by 0.01 steps from the sweep's largest
+        // accepted 0.1) at which neither trajectory has enough length left
+        // to cross -- pinning where this specific corner's blend_radius
+        // stops fitting, not an arbitrary large number.
+        let corner = [
+            0.40701957005161055,
+            -5.221329615610066e-12,
+            0.5902695582766445,
+        ];
+        let seg1 = gen_lin_segment(&model, &limits, &ctx, &ready_positions(), corner, 0.1, 0.1);
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let boundary = seg1.last_way_point().unwrap();
+        let mut chained = HashMap::new();
+        for name in group.active_joint_names() {
+            chained.insert(name.clone(), boundary.variable_position(name).unwrap());
+        }
+        let seg2 = gen_lin_segment(
+            &model,
+            &limits,
+            &ctx,
+            &chained,
+            [corner[0], 0.1, corner[2]],
+            0.1,
+            0.1,
+        );
+
+        let mut req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: seg1,
+            second_trajectory: seg2,
+            blend_radius: 0.12,
         };
         assert!(matches!(
             search_intersection_points(&mut req),
@@ -939,6 +1262,25 @@ mod tests {
             max_rot_vel: 1.0,
         });
 
+        // Ground truth for the response segment lengths: an independent
+        // search_intersection_points call over the same geometry, so the
+        // assertions below can check the copy loops in `blend` produce
+        // exactly `first_intersection_index` and
+        // `second_count - (second_intersection_index + 1)` waypoints, not
+        // just "no more than the original" -- a bound loose enough to miss
+        // an off-by-one in either loop, which mutation testing confirmed by
+        // extending `blend`'s first-segment copy loop by one waypoint
+        // without failing this test.
+        let mut probe_req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        let (first_intersection_index, second_intersection_index) =
+            search_intersection_points(&mut probe_req).expect("same geometry as req below");
+
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -946,21 +1288,19 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
             blend_radius: 0.05,
         };
+        let second_count = req.second_trajectory.way_point_count();
 
         let response =
             blend(&ctx, &planner_limits, &mut req).expect("well-formed request must blend");
 
         assert!(!response.blend_trajectory.is_empty());
-        // The three segments together must cover strictly less than the two
-        // original trajectories' combined waypoint count (some waypoints
-        // near the boundary are replaced by the blend), but each of the
-        // three non-blend segments is non-empty-or-absent consistently with
-        // where the crossing indices landed.
-        assert!(
-            response.first_trajectory.way_point_count() <= req.first_trajectory.way_point_count()
+        assert_eq!(
+            response.first_trajectory.way_point_count(),
+            first_intersection_index
         );
-        assert!(
-            response.second_trajectory.way_point_count() <= req.second_trajectory.way_point_count()
+        assert_eq!(
+            response.second_trajectory.way_point_count(),
+            second_count - (second_intersection_index + 1)
         );
     }
 }

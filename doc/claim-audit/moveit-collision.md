@@ -94,3 +94,226 @@ algorithm (a different eigensolver, a different point-projection
 convention), or a future oracle rebuild changes any of the above cited
 FCL/moveit_core lines, this table's measured-accuracy numbers must be
 re-measured, not assumed to still hold.
+
+## Deviation 1 was wrong: `group_name` is not inert upstream (round with commit pending)
+
+Corrects both this file's line above ("a `moveit-scene` group-filter
+defect, not `moveit-collision`'s") and the module doc's former deviation
+1 ("this backend does not filter by group either, matching upstream's
+real (if surprising) behavior"). Both were written from `env.rs`'s
+default `check_collision` (which indeed never touches `group_name`) and
+never opened `collision_env_fcl.cpp`'s `checkSelfCollisionHelper`/
+`checkRobotCollisionHelper` bodies to check whether *they* do.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| former module doc deviation 1 | `checkSelfCollision`/`checkRobotCollision` never call `enableGroup`/read `active_components_only_` | REFUTED | `collision_env_fcl.cpp:281` and `:336`: `checkSelfCollisionHelper`/`checkRobotCollisionHelper` both call `cd.enableGroup(getRobotModel())` unconditionally, every call |
+| new module doc deviation 1 | `CollisionData::enableGroup` resolves `req_->group_name` to `JointModelGroup::getUpdatedLinkModelsSet()` when the model has that group, else `nullptr` | CONFIRMED | `collision_common.cpp:1012-1022` |
+| new module doc deviation 1 | `collisionCallback` skips a pair only when *neither* side resolves to an active link (world objects never resolve to one, so a robot-vs-world pair is kept iff the robot link is active; a self-pair is kept iff *either* link is) | CONFIRMED | `collision_common.cpp:79-94` |
+| new module doc deviation 1 | `distanceCallback` reads the identical `active_components_only` from `DistanceRequest`, so `distance_self`/`distance_robot` need the same filter even though `distanceSelf`/`distanceRobot` themselves never call `enableGroup` (their caller is expected to have already populated it) | CONFIRMED | `collision_common.cpp:482-500` (callback); `collision_env_fcl.cpp:288-290`/`345-347` (the caller populating it before calling `distanceSelf`/`distanceRobot`) |
+| new module doc deviation 1 | `JointModelGroup::getUpdatedLinkModelsSet()` is the union of every joint root's descendant links (fixed-joint descendants included), and `moveit-model`'s already-ported `JointModelGroup::updated_link_names` computes the identical set | CONFIRMED | `moveit_core/robot_model/src/joint_model_group.cpp:250-260`; `crates/moveit-model/src/joint_model_group.rs:315-334` (own crate, pre-existing, ported correctly — the bug was only in `moveit-collision` never calling it) |
+
+Measured (this crate's `parry::tests::check_robot_collision_group_name_*`/
+`check_self_collision_group_name_*`/`distance_robot_group_name_*`, own
+fixtures, no oracle needed — the OR-vs-AND filter shape and the
+unknown-group fallback are structural, not numeric): fixed. Isolated via
+`git stash` on `src/parry.rs` alone against `moveit-scene`'s (untouched)
+`panda_cost_sources_blocked_by_mesh_shape_cost_sources`: without this
+round's fix the test fails exactly as filed, `case id 5: count mismatch
+left: 9 right: 2`; with it, all cases in that test (`#[ignore]`d,
+`moveit-scene`'s own bookkeeping to remove) pass at the existing `1e-9`
+threshold. So was `panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`,
+already-fixed by a prior round's OBB fit, not this one — isolated the same
+way, confirmed unaffected by this round's `parry.rs` change alone.
+
+Expires (§153.1): if a future round adds a `moveit-collision` entry
+point that receives a `CollisionRequest`/`DistanceRequest` but bypasses
+`check_self_collision`/`check_robot_collision`/`distance_self`/
+`distance_robot` (e.g. a batched or continuous variant), that entry
+point needs its own `active_group_links`/`pair_in_active_group` wiring —
+not assumed inherited from this fix.
+
+## `mesh_world_obb_aabb`'s per-corner weighting is now pinned by a test (round with commit pending)
+
+The OBB-fit round's own citation (`geometry-inl.h:1349-1379`, `getCovariance`
+sums over each triangle's 3 vertices individually) was never contradicted by
+any existing test: every mesh fixture in this file gives each vertex exactly
+one incident triangle, so a regression to `mesh.vertices()` (deduplicated)
+would pass every one of them unnoticed — the exact failure mode §167.5 and
+the `moveit-error` `Display` audit already caught once each, a citation
+correct when written and never re-checked as the surrounding code moved.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| new test `mesh_world_obb_aabb_weights_by_triangle_corner_not_deduplicated_vertex` | a mesh where one vertex (`v0`) is incident to 5 triangles against 2 for each other vertex measurably distinguishes per-corner-weighted fitting from deduplicated-vertex fitting | CONFIRMED, by construction | fit computed both ways with the actual `parry3d_f64::utils::obb` this crate calls; AABBs differ by `~0.2`-`0.5` per component, run in `python3` first (pure-Python 2D PCA, no dependency available) before committing to the Rust construction |
+| same test | this test fails if `mesh_world_obb_aabb` is changed to fit `mesh.vertices()` (deduplicated) instead of the per-corner flattening | CONFIRMED | temporarily edited the function to `mesh.vertices().to_vec()`, ran the test, watched it fail (`component 0: actual -10.87... vs expected -11.21...`) while the pre-existing rotation test kept passing under the same edit, then reverted and re-ran to confirm both pass again |
+
+Explicit boundary (what this test does and does not catch, since an
+unstated boundary is exactly what let deviation 1 sit uncorrected above):
+catches a regression to deduplicated-vertex fitting, or to any other
+scheme that would weight `v0` differently from a 5:2 ratio against
+`v1..v5`. Does not catch a change to a *different* per-corner-weighted
+algorithm (a different eigensolver, a different point-projection
+convention) that still preserves that 5:2 weighting — `parry3d_f64::utils::obb`'s
+own fit is already audited above as PCA-via-covariance, not claimed
+bit-identical to FCL's `FitImpl<S, OBB<S>>::run`.
+
+## Correcting my own over-claim: the `group_name` fix explains id 5 and the path-op cases, not the 115 `visibility_cone` mismatches (round 21)
+
+My own prior report claimed the `group_name` fix above (deviation 1) "is
+the direct cause of 105 of 115 pr2 `visibility_cone` depth mismatches per
+`PORTING-PLAN.md` §119.1/§120.1". `PORTING-PLAN.md` §119.1 says the
+opposite: it *refutes* a traversal-order explanation for those 115 and
+names the cause as `moveit-collision`'s deviation 6, already documented —
+two independent penetration-depth approximations for the same touching
+pair disagreeing, not a pair the group filter kept or dropped. §120.1's
+`105/115` is the size of the `touching == 1` sub-population within a
+285-case cross-tab (`touching | n | pass | fail`: `1 | 129 | 24 | 105`,
+`>=2 | | 4 | 10`), not an attribution to any fix — and structurally
+cannot be one: a group filter can only keep or drop a *pair*, never
+change a kept pair's own reported *depth*.
+
+Verified structurally, not merely re-asserted: `VisibilityConstraint::
+cone_collision_result` (`crates/moveit-constraints/src/visibility.rs`)
+builds its `CollisionRequest` as `CollisionRequest { contacts: true,
+max_contacts, ..Default::default() }` — `group_name` is never set on that
+struct anywhere in the file (`rg -n group_name
+crates/moveit-constraints/src/visibility.rs`, 0 hits), and
+`CollisionRequest::default()` (`common.rs:267-283`) sets `group_name:
+None` explicitly. This round's own `active_group_links` (`parry.rs`)
+returns `None` whenever its `group_name: Option<&str>` argument is `None`
+(the leading `group_name?`), and every one of the four `CollisionEnv`
+methods short-circuits its filter with `active.as_ref().is_none_or(...)`
+when that is `None` — no candidate pair is ever dropped. So the
+`group_name` fix is provably inert on every path `decide_cone` can reach,
+not merely unlikely to matter; no before/after count is needed because
+there is no code path for the fix to change.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this section | `VisibilityConstraint::cone_collision_result` never sets `CollisionRequest::group_name` | CONFIRMED | `crates/moveit-constraints/src/visibility.rs`, `rg -n group_name`, 0 hits in that file |
+| this section | `CollisionRequest::default().group_name == None` | CONFIRMED | `crates/moveit-collision/src/common.rs:267-283` |
+| this section | `active_group_links(state, None)` returns `None`, and every filtered `CollisionEnv` method treats `None` as "no filtering" | CONFIRMED | `crates/moveit-collision/src/parry.rs`, this round's own `585a79e` |
+
+Current status of the 115, superseding §119.1/§120.1's own "10 residual,
+not yet closed" (their own later round, not mine): `PORTING-PLAN.md` §169
+closed the `touching >= 2` question — 0 such cases across a fresh
+2,400-case sweep, and geometrically unreachable under the current
+generator + `pr2.urdf` fixture (tightest link pair needs `0.0232` reach,
+the generator's own max possible reach is `0.0150`). Reproduced
+independently this round, not merely cited: `cargo run --release --example
+visibility_cone_depth_sweep -p moveit-constraints -- --seed 20260805
+--cases 600` gives `touching==0: 300, touching==1: 300, touching>=2: 0`;
+the same binary's `--geometry-gaps` flag gives the identical `0.0232`/
+`0.0150` figures §169 reports. So every currently-reproducible
+`visibility_cone` mismatch — not just the `touching==1` `105/115` — is
+explained by deviation 6 alone; see deviation 6(b)'s own module doc
+(round 21) for the direct confirmation on case 104 specifically.
+
+Expires (§153.1): if the visibility-cone generator's `target_radius`
+range or `sensor_offset` ever grows past `0.0232` (this population's own
+tightest-pair reach), or `pr2.urdf`'s caster-wheel geometry changes,
+§169's geometric-unreachability argument must be re-measured, not assumed
+to still hold.
+
+## Deviation 6(b)'s narrow-phase magnitude bias also explains `visibility_cone` case 104 (round 21)
+
+Extends round 16/17's own base_link-vs-caster-wheel finding (this file's
+`mesh_shape_cost_sources` OBB-fit section above and `parry.rs`'s deviation
+6(b) own doc) to a second, independent mesh. Full method, numbers, and the
+one caught-and-fixed methodology error (misapplied parry's own Y-axis
+`axis_fix` to libccd's `ccd_cyl_t`, which is natively Z-axis per
+`testsuites/support.c`) are in `parry.rs`'s deviation 6(b) doc itself,
+round 21's own paragraph — not duplicated here.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| `parry.rs` deviation 6(b), round 21 | case 104's own winning cone-mesh triangle, reconstructed from `tools/moveit-diff`'s captured spec and this crate's own `RobotModel`/`RobotState` FK, reproduces this backend's already-captured reference depth (`2.08696987934593702e-2`) | CONFIRMED | live probe this round (`crates/moveit-collision/tests/collision_parity.rs`, temporary, not committed — see this file's own precedent of external repros not becoming committed tests): `2.08696987934592244e-2`, `~1.5e-14` relative to the captured reference |
+| same | the real, unmodified `ccdMPRPenetration` (libccd `v2.1`, `CCD_DOUBLE`, round 16/17's own build) on that exact triangle/cylinder pair reproduces the oracle's own reported depth for case 104 | CONFIRMED | `7.47919999515277989e-2` vs oracle's `7.47914550966356367e-2`, `5.4e-7` absolute / `~7.3ppm` relative |
+| same | `ccd_cyl_t`'s own support function uses the cylinder's real (Z) axis directly, not parry's Y-axis convention | CONFIRMED | `/home/stevek/work/libccd/src/testsuites/support.c:62,68` (`ccdVec3Z(&dir)`); cross-checked against round 16's own `gen_cases.py`, which already used the same Z convention |
+
+Expires (§153.1): re-open if a future moveit2 pin changes FCL/libccd's own
+narrow-phase algorithm (deviation 6(b)'s own expiry condition, inherited
+directly since this is the same mechanism, not a new one).
+
+## Round 21's own case-104 finding, measured across a sample instead of one case (round 25)
+
+The coordinator's round-24 feedback flagged that the section above rests
+on one measured case and asked whether "the winning-triangle identification
+and the vertex-1-at-centroid observation" generalize. Committed as an
+in-tree test rather than left as prose:
+`crates/moveit-collision/tests/collision_parity.rs`'s
+`visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid`,
+15 `(joint_state, target_radius, cone_sides)` combinations (3 real pr2
+joint states from `load_self_wheel_oracle_points` × 5 `(radius,
+cone_sides)` pairs spanning `visibility_cone_depth_sweep.rs`'s own
+near-branch ranges).
+
+Measuring it split what looked like one claim into two:
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this test | every sampled near-placement's cone vertices stay inside the touched cylinder's own inscribed sphere and interpenetrate through its centroid by construction | CONFIRMED, generalizes | all 15/15: target-center vertex within `1e-9` of the cylinder's own local origin, `depth < 0.0` |
+| this test | the *winning* (max-depth) triangle specifically contains the target-center vertex, the way case 104's own `[5, 1, 6]` did | REFUTED as a general rule | true in only 4/15 sampled combinations; the rest won through a triangle sharing the sensor vertex instead |
+
+Case 104 was this mechanism's most visible instance, not its typical
+shape. The claim that still holds and that deviation 6(b)'s doc actually
+needs — every such case interpenetrates through the link's own centroid,
+which is why this population's magnitudes are unusually large — does not
+depend on which vertex the winning triangle happens to share, so this
+refinement narrows the evidence without reopening the 115's own closure
+above.
+
+Expires (§153.1): if a future round changes `load_self_wheel_oracle_points`'s
+joint states, `visibility_cone_depth_sweep.rs`'s near-branch
+`target_radius`/`cone_sides` ranges, or pr2's caster-wheel geometry, the
+4/15 rate must be re-measured, not assumed to still hold — the test's own
+`assert_eq!(winning_triangle_had_vertex_one, 4, ...)` will fail loudly if
+it moves.
+
+## The out-of-tree libccd comparison harness is committed (round 26)
+
+Round 25's committed harness (`tools/mpr-vs-epa/`) replaces this section's
+own earlier round-25 draft, which pointed at an uncommitted scratch file
+(§201: a C program that produced the number closing deviation 6 is
+evidence for a claim this file depends on, not disposable scaffolding —
+it belongs in-tree). Two pieces, one reconstruction:
+
+- `crates/moveit-collision/examples/case104_mpr_input.rs` (this crate):
+  reconstructs case 104 (pr2 FK from `tools/moveit-diff`'s own captured
+  `joint_values`, `VisibilityConstraint::cone_mesh`'s formula reproduced
+  the same way `collision_parity.rs`'s own generalization test reproduces
+  it, this backend's own deepest-triangle-vs-cylinder search) and prints
+  the winning triangle plus cylinder geometry to stdout — self-checked
+  against the captured reference depth on every run (`assert!` against
+  `-2.08696987934593702e-2`), so a future drift in either copy of the
+  `cone_mesh` formula fails loudly instead of emitting silently-stale
+  numbers.
+- `tools/mpr-vs-epa/mpr_case104.c` + `build.sh`: takes that reconstruction
+  on stdin and runs the real, unmodified `ccdMPRPenetration` (libccd `v2.1`,
+  `CCD_DOUBLE`, `build.sh` pins and verifies the tag) on it — never
+  re-deriving the triangle itself, exactly the `parry.rs` deviation-6(b)
+  doc's own worked example, now reproducible from source instead of prose.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this harness | end-to-end (`cargo run --release --example case104_mpr_input -p moveit-collision \| tools/mpr-vs-epa/build/mpr_case104`) reproduces both previously-reported numbers | CONFIRMED | stdout `mpr_depth=7.47919999515277989e-02`, stderr EPA depth `-0.020869698793459224` — both match round 21/25's own reported figures exactly |
+
+`tools/ci/` itself belongs to the orchestrator, not this panel (task
+brief, standing scope rule) — `tools/ci/verify-mpr-vs-epa.sh` is not
+written here. Spec for whoever writes it:
+
+- Detect libccd the same way `build.sh` does: `git -C "$LIBCCD_SRC"
+  describe --tags --exact-match` must read `v2.1`; default `LIBCCD_SRC` to
+  `/home/stevek/work/libccd`, override via env var elsewhere.
+- On found: `tools/mpr-vs-epa/build.sh`, then run the pipeline in this
+  file's own table above. Assert `ccdMPRPenetration`'s depth is within
+  some small relative tolerance of the oracle's own captured
+  `7.47914550966356367e-2` (this round's own measurement: `~7.3ppm`; a
+  tolerance in the `1e-5`–`1e-4` relative range gives margin without being
+  vacuous) and print both numbers and their ratio.
+- On not found: print a clearly-labeled `SKIP` line (not silence — §196)
+  naming exactly what was not checked, and exit success. A CI system that
+  reads only the exit code must not be able to mistake this for a real
+  pass; the printed line is the only thing standing between "skipped" and
+  "passed" for a human reading the log.

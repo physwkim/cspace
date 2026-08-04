@@ -103,6 +103,31 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// design insufficient; only then does the added complexity of tracking
 /// tree locality pay for itself.
 ///
+/// # Round 28: does round 24's original regression still exist?
+///
+/// `PORTING-PLAN.md` §187 required checking directly, since row 8's
+/// four-scenario sweep that first measured wired *worse* than unwired
+/// (0/5 vs 5/5, the motivation for this section) was never committed and
+/// could not be re-run. Its replacement,
+/// `crate::registry::tests::path_constraints_four_scenario_wired_vs_unwired_sweep`,
+/// re-measures on today's code (this persistence fix *and* the wiring
+/// extension both in place) across 4 scenarios / 6 configurations,
+/// including a `Goal::Constraints` scenario that is not subject to the
+/// `Goal::State` tautology `PORTING-PLAN.md` §187.1 raised against the
+/// single-scenario test discussed below. Result: wired is never worse
+/// than unwired in any configuration — one scenario ties (5/5 both), the
+/// rest have wired strictly ahead. Round 24's regression does not
+/// reproduce under today's code. This does not, by itself, satisfy this
+/// section's `PORTING-PLAN.md` §153.1 expiry condition above — that
+/// condition requires a measurement showing this persistence design
+/// *underperforms* unwired, and round 28 found the opposite in every
+/// scenario it tried — but it does mean the regression that originally
+/// motivated floating tree-locality re-anchoring is not something
+/// today's code reproduces, so that original motivation cannot be cited
+/// to justify the work going forward without a fresh measurement.
+/// `doc/claim-audit/moveit-planners-sbp.md` records the six measured
+/// configurations in full.
+///
 /// # What `path_constraints_end_to_end_wired_vs_unwired` actually shows
 ///
 /// `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`

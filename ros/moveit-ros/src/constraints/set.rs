@@ -207,15 +207,18 @@ mod tests {
     // round, not just `JointConstraint`) -- that crate owns the D14 fix,
     // not this one.
     //
-    // These four tests assert the CURRENT (wrong) `Err` behavior, not the
-    // desired one, so they are green today and go automatically RED the
-    // moment D14 lands (a `#[ignore]`d test asserting the desired behavior
-    // would instead stay silently green either way -- exactly the shape
-    // §184/§197.3 already closed once in this session). When one goes red,
-    // replace that test with `assert_eq!(c.weight(), 1.0)` on the
-    // corresponding `Constraint` variant, per D14.
+    // The tripwire fired. These four tests were written asserting the
+    // CURRENT (wrong) `Err` behavior precisely so they would go red the
+    // moment D14 landed rather than sit `#[ignore]`d and silently green
+    // either way (§184/§197.3, the shape this session closed twice). D14
+    // landed in `551b719`; all four went red on the first merge gate, and
+    // each `Ok` value carried `weight: 1.0`. They now assert that value --
+    // which is what makes them a wire-path check and not a duplicate of
+    // `crates/moveit-constraints`'s own boundary tests: nothing else covers
+    // a `weight` field that arrives `0.0` because a publisher never set it,
+    // travelling the whole `TryFrom` chain into the constructor.
     #[test]
-    fn unspecified_joint_weight_is_currently_rejected_not_normalized() {
+    fn unspecified_joint_weight_is_normalized_to_one_not_rejected() {
         let model = one_joint_model();
         let mut unspecified_weight = joint_msg("j1");
         unspecified_weight.weight = 0.0; // wire default: never set by the publisher
@@ -226,9 +229,12 @@ mod tests {
             orientation_constraints: vec![],
             visibility_constraints: vec![],
         };
-        let err =
-            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg })
+            .expect("D14: an unset wire `weight` normalizes to 1.0, it does not reject");
+        match &set.constraints()[0] {
+            Constraint::Joint(c) => assert_eq!(c.weight(), 1.0),
+            other => panic!("expected Joint, got {other:?}"),
+        }
     }
 
     fn identity_pose() -> r2r::geometry_msgs::msg::Pose {
@@ -248,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn unspecified_position_weight_is_currently_rejected_not_normalized() {
+    fn unspecified_position_weight_is_normalized_to_one_not_rejected() {
         let model = one_joint_model();
         let msg = moveit_msgs::Constraints {
             name: "unspecified_weight".to_string(),
@@ -275,13 +281,16 @@ mod tests {
             orientation_constraints: vec![],
             visibility_constraints: vec![],
         };
-        let err =
-            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg })
+            .expect("D14: an unset wire `weight` normalizes to 1.0, it does not reject");
+        match &set.constraints()[0] {
+            Constraint::Position(c) => assert_eq!(c.weight(), 1.0),
+            other => panic!("expected Position, got {other:?}"),
+        }
     }
 
     #[test]
-    fn unspecified_orientation_weight_is_currently_rejected_not_normalized() {
+    fn unspecified_orientation_weight_is_normalized_to_one_not_rejected() {
         let model = one_joint_model();
         let msg = moveit_msgs::Constraints {
             name: "unspecified_weight".to_string(),
@@ -307,13 +316,16 @@ mod tests {
             }],
             visibility_constraints: vec![],
         };
-        let err =
-            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg })
+            .expect("D14: an unset wire `weight` normalizes to 1.0, it does not reject");
+        match &set.constraints()[0] {
+            Constraint::Orientation(c) => assert_eq!(c.weight(), 1.0),
+            other => panic!("expected Orientation, got {other:?}"),
+        }
     }
 
     #[test]
-    fn unspecified_visibility_weight_is_currently_rejected_not_normalized() {
+    fn unspecified_visibility_weight_is_normalized_to_one_not_rejected() {
         let model = one_joint_model();
         let identity = identity_pose();
         let msg = moveit_msgs::Constraints {
@@ -344,9 +356,12 @@ mod tests {
                 weight: 0.0, // wire default: never set by the publisher
             }],
         };
-        let err =
-            KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg })
+            .expect("D14: an unset wire `weight` normalizes to 1.0, it does not reject");
+        match &set.constraints()[0] {
+            Constraint::Visibility(c) => assert_eq!(c.weight(), 1.0),
+            other => panic!("expected Visibility, got {other:?}"),
+        }
     }
 
     #[test]

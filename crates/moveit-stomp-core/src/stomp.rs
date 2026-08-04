@@ -398,6 +398,13 @@ pub struct Stomp<'a> {
     control_cost_matrix_r_padded: DMatrix<f64>,
     control_cost_matrix_r: DMatrix<f64>,
     inv_control_cost_matrix_r: DMatrix<f64>,
+
+    /// Test-only regression hook, absent from release builds. See
+    /// `tests::each_convergence_test_fails_if_the_parameter_update_is_disabled`
+    /// for what it reproduces and why it exists as a permanent field rather
+    /// than a temporary source edit.
+    #[cfg(test)]
+    disable_accept_update_for_test: bool,
 }
 
 impl<'a> Stomp<'a> {
@@ -417,6 +424,14 @@ impl<'a> Stomp<'a> {
     /// (accept an already-built handle rather than build-and-immediately-
     /// discard one internally, which was this crate's round-23 UNFIXED
     /// gap).
+    ///
+    /// If `cancel_handle` was already cancelled before this call, the
+    /// `Stomp` returned here is already-cancelled too: [`Self::solve`]
+    /// exits before running any iteration. See
+    /// `Stomp::reset_variables`'s own "Deviation: does not touch
+    /// `proceed`" for the bug this guarantee once had (construction
+    /// silently un-cancelled a pre-cancelled handle) and why it does not
+    /// anymore.
     pub fn with_cancel_handle(
         config: StompConfiguration,
         task: Box<dyn Task + 'a>,
@@ -443,21 +458,33 @@ impl<'a> Stomp<'a> {
             control_cost_matrix_r_padded: DMatrix::zeros(0, 0),
             control_cost_matrix_r: DMatrix::zeros(0, 0),
             inv_control_cost_matrix_r: DMatrix::zeros(0, 0),
+            #[cfg(test)]
+            disable_accept_update_for_test: false,
         };
         stomp.reset_variables();
         stomp
     }
 
     /// `setConfig`: replaces the configuration and re-derives every
-    /// internal matrix from it.
+    /// internal matrix from it. Also un-cancels `proceed`, matching
+    /// upstream's own `setConfig` -> `resetVariables` -> `proceed_ = true`
+    /// (`stomp.cpp:176-180,289`): reconfiguring an existing `Stomp` for
+    /// reuse is a deliberate restart, so any earlier cancellation --
+    /// same-thread [`Stomp::cancel`] or a [`CancelHandle::cancel`] this
+    /// `Stomp` shares -- is intentionally forgotten. See
+    /// `Stomp::reset_variables`'s own doc for why the un-cancel is not
+    /// inside `reset_variables` itself.
     pub fn set_config(&mut self, config: StompConfiguration) {
         self.config = config;
+        self.proceed.store(true, Ordering::SeqCst);
         self.reset_variables();
     }
 
     /// `clear`: resets all internal variables without changing the
-    /// configuration.
+    /// configuration. Also un-cancels `proceed` -- see [`Stomp::set_config`]'s
+    /// doc for why.
     pub fn clear(&mut self) {
+        self.proceed.store(true, Ordering::SeqCst);
         self.reset_variables();
     }
 
@@ -575,8 +602,31 @@ impl<'a> Stomp<'a> {
     }
 
     /// `resetVariables`.
+    ///
+    /// # Deviation: does not touch `proceed`
+    ///
+    /// Upstream's `resetVariables` unconditionally sets `proceed_ = true`
+    /// (`stomp.cpp:289`), and every upstream caller -- the constructor,
+    /// `clear`, `setConfig` -- is fine with that because `proceed_` is a
+    /// private member no other code can set before those calls run. This
+    /// port added [`Stomp::with_cancel_handle`] (round 24, not upstream),
+    /// which lets a caller cancel a [`CancelHandle`] *before* the `Stomp`
+    /// that shares its flag is even constructed -- and
+    /// `with_cancel_handle`'s constructor calls this function too. An
+    /// unconditional `proceed = true` here silently un-cancels that
+    /// caller-supplied flag the moment construction finishes, defeating the
+    /// one thing `with_cancel_handle` exists to allow (found by mutation-
+    /// testing `cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed`
+    /// in `moveit_planners_stomp::planner`: even *without* any mutation,
+    /// cancelling before `plan()` still let a full iteration run, because
+    /// this line reset the very flag the test had just cancelled). Callers
+    /// that genuinely want a fresh, uncancelled `proceed` -- [`Stomp::clear`],
+    /// [`Stomp::set_config`] -- now set it explicitly themselves, matching
+    /// upstream's actual intent (an existing `Stomp` object being
+    /// deliberately restarted) without stomping on a handle's
+    /// pre-construction state that upstream never had a way to set in the
+    /// first place.
     fn reset_variables(&mut self) {
-        self.proceed.store(true, Ordering::SeqCst);
         self.parameters_total_cost = 0.0;
         self.parameters_valid = false;
         self.num_active_rollouts = 0;
@@ -1005,6 +1055,10 @@ impl<'a> Stomp<'a> {
             return false;
         }
 
+        #[cfg(test)]
+        if self.disable_accept_update_for_test {
+            return true;
+        }
         self.parameters_optimized += &self.parameters_updates;
         true
     }
@@ -1061,6 +1115,7 @@ mod tests {
     use nalgebra::DVector;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+    use std::sync::atomic::AtomicUsize;
 
     const NUM_DIMENSIONS: usize = 3;
     const NUM_TIMESTEPS: usize = 20;
@@ -1085,6 +1140,7 @@ mod tests {
         noise_generators: Vec<MultivariateGaussian>,
         rng: ChaCha8Rng,
         smoothing_m: DMatrix<f64>,
+        rollout_call_count: Arc<AtomicUsize>,
     }
 
     impl DummyTask {
@@ -1113,7 +1169,21 @@ mod tests {
                 noise_generators,
                 rng: ChaCha8Rng::seed_from_u64(seed),
                 smoothing_m,
+                rollout_call_count: Arc::new(AtomicUsize::new(0)),
             }
+        }
+
+        /// A handle onto this task's per-rollout call counter, incremented
+        /// once per `compute_noisy_costs` call (one call per rollout, see
+        /// `run_single_iteration`). Must be cloned off before the task is
+        /// moved into `Box<dyn Task>`/`Stomp::new`, mirroring
+        /// `moveit-planners-stomp::planner`'s `call_count`/`AtomicUsize`
+        /// cancellation-detection pattern -- direct-equality assertions on
+        /// solved output cannot distinguish "cancellation stopped the
+        /// solver" from "the solver's own early-break logic stopped it for
+        /// an unrelated reason", but a near-zero rollout call count can.
+        fn rollout_call_count_handle(&self) -> Arc<AtomicUsize> {
+            Arc::clone(&self.rollout_call_count)
         }
     }
 
@@ -1144,6 +1214,7 @@ mod tests {
             _iteration_number: i32,
             _rollout_number: i32,
         ) -> Option<(DVector<f64>, bool)> {
+            self.rollout_call_count.fetch_add(1, Ordering::SeqCst);
             let mut costs = DVector::zeros(num_timesteps);
             let mut validity = true;
             for t in 0..num_timesteps {
@@ -1409,6 +1480,208 @@ mod tests {
         assert!(compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD));
     }
 
+    /// Reproducible evidence for the claim (`doc/claim-audit/
+    /// moveit-stomp-core.md`'s mutation-probe row) that the five
+    /// `solve_*_converges` tests above genuinely assert on
+    /// `update_parameters`'s accept-path accumulation
+    /// (`self.parameters_optimized += &self.parameters_updates;`,
+    /// `stomp.rs:1049` at the time this was written) rather than being
+    /// satisfied by the seed alone -- i.e. that disabling that one line
+    /// makes each of them fail. `Stomp::disable_accept_update_for_test`
+    /// (`#[cfg(test)]`-only, absent from release builds) skips exactly
+    /// that line; this is the same effect as commenting it out by hand,
+    /// made permanent and re-runnable instead of a one-time source edit.
+    ///
+    /// This was found the manual way first: the coordinator disabled that
+    /// line by hand and re-ran the crate's tests, and independently so did
+    /// this worker. Both runs agreed on the same five failures reproduced
+    /// here. Neither of us predicted `solve_with_40_timesteps_converges`
+    /// would be one of the five -- its `num_iterations: 100` override
+    /// suggested many iterations run, so a one-line accumulation change
+    /// looked like it should be masked the same way `num_iterations_after_valid:
+    /// 0` masked cancellation in earlier rounds. It was not: like every
+    /// other test in this family, `solve`'s loop breaks after exactly one
+    /// real iteration regardless of `num_iterations`, because the seed is
+    /// already `parameters_valid` before the loop even starts (see
+    /// `cancelling_before_solve_stops_before_num_iterations_completes`'s
+    /// own doc, "this task's seed is already within `BIAS_THRESHOLD`").
+    /// That one iteration still writes and then (on this reject-branch
+    /// path) partially un-writes `parameters_optimized`, and it is that
+    /// single iteration's arithmetic, not iteration count, that each of
+    /// these five assertions actually depends on.
+    ///
+    /// This probe does **not** cover all 9 `create_3dof_configuration`
+    /// call sites in this module. The other four:
+    ///
+    /// - `construction_does_not_panic`: never calls `solve`/`solve_from_endpoints`
+    ///   at all -- there is no `compare_diff` assertion for this line to
+    ///   threaten.
+    /// - `cancelling_before_solve_stops_before_num_iterations_completes`:
+    ///   raises `num_iterations_after_valid` itself and asserts on
+    ///   `DummyTask`'s rollout call count, not on `compare_diff` -- already
+    ///   independently regression-tested against a mutated `CancelHandle::cancel`,
+    ///   not this line.
+    /// - `second_solve_call_ignores_its_initial_parameters_argument`: asserts
+    ///   `assert_ne!` between two `solve` outputs, not `compare_diff` against
+    ///   a bias trajectory -- a different invariant.
+    /// - `solve_with_60_timesteps_converges`: **is** a `compare_diff`
+    ///   convergence assertion in the same family as the five covered here,
+    ///   but this specific probe does not reliably fail it -- see
+    ///   `solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe`
+    ///   immediately below for the measured reason and why this worker did
+    ///   not force it into the covered set.
+    #[test]
+    fn each_convergence_test_fails_if_the_accept_path_update_is_disabled() {
+        fn disabled(mut stomp: Stomp<'_>) -> Stomp<'_> {
+            stomp.disable_accept_update_for_test = true;
+            stomp
+        }
+
+        let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias.clone(),
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            1,
+        ));
+        let mut stomp = disabled(Stomp::new(create_3dof_configuration(NUM_TIMESTEPS), task));
+        let (_, optimized) = stomp.solve_from_endpoints(&START_POS, &END_POS);
+        assert!(
+            !compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD),
+            "solve_default_converges_to_the_bias_trajectory_from_endpoints' scenario still \
+             converged with the accept-path update disabled"
+        );
+
+        let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias.clone(),
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            2,
+        ));
+        let mut config = create_3dof_configuration(NUM_TIMESTEPS);
+        config.initialization_method = TrajectoryInitialization::LinearInterpolation;
+        let mut stomp = disabled(Stomp::new(config, task));
+        let (_, optimized) = stomp.solve(&trajectory_bias);
+        assert!(
+            !compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD),
+            "solve_with_linear_interpolated_initial_trajectory_converges' scenario still \
+             converged with the accept-path update disabled"
+        );
+
+        let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias.clone(),
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            3,
+        ));
+        let mut config = create_3dof_configuration(NUM_TIMESTEPS);
+        config.initialization_method = TrajectoryInitialization::CubicPolynomialInterpolation;
+        let mut stomp = disabled(Stomp::new(config, task));
+        let (_, optimized) = stomp.solve(&trajectory_bias);
+        assert!(
+            !compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD),
+            "solve_with_cubic_polynomial_initial_trajectory_converges' scenario still \
+             converged with the accept-path update disabled"
+        );
+
+        let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias.clone(),
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            4,
+        ));
+        let mut config = create_3dof_configuration(NUM_TIMESTEPS);
+        config.initialization_method = TrajectoryInitialization::MinimumControlCost;
+        let mut stomp = disabled(Stomp::new(config, task));
+        let (_, optimized) = stomp.solve(&trajectory_bias);
+        assert!(
+            !compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD),
+            "solve_with_minimum_control_cost_initial_trajectory_converges' scenario still \
+             converged with the accept-path update disabled"
+        );
+
+        let num_timesteps = 40;
+        let trajectory_bias = interpolate(&START_POS, &END_POS, num_timesteps);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias.clone(),
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            5,
+        ));
+        let mut config = create_3dof_configuration(num_timesteps);
+        config.initialization_method = TrajectoryInitialization::LinearInterpolation;
+        config.num_iterations = 100;
+        let mut stomp = disabled(Stomp::new(config, task));
+        let (_, optimized) = stomp.solve_from_endpoints(&START_POS, &END_POS);
+        assert!(
+            !compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD),
+            "solve_with_40_timesteps_converges' scenario still converged with the \
+             accept-path update disabled"
+        );
+    }
+
+    /// Companion to `each_convergence_test_fails_if_the_accept_path_update_is_disabled`,
+    /// same probe applied to `solve_with_60_timesteps_converges`'s exact
+    /// scenario (seed 6, 60 timesteps). Measured, not assumed: with
+    /// `disable_accept_update_for_test` set, this scenario's single real
+    /// iteration (see the sibling test's doc for why it is only ever one)
+    /// still produces `compare_diff(&optimized, &trajectory_bias,
+    /// &BIAS_THRESHOLD) == true` -- the assertion does not fail.
+    ///
+    /// Root cause, traced with `eprintln!` instrumentation on
+    /// `update_parameters`/`compute_optimized_cost` (removed before this
+    /// commit, not kept as permanent tracing): with the update disabled,
+    /// `parameters_optimized` ends up shifted from the seed by exactly
+    /// `parameters_updates` (the reject branch's `-=` still fires against
+    /// the real, nonzero update; only the accept-path `+=` is skipped).
+    /// The magnitude of that shift is this scenario's noise draw --
+    /// seeded by `DummyTask::new`'s `seed: u64` and diluted across
+    /// `num_timesteps` columns -- and for seed 6 / 60 timesteps that
+    /// shift's per-element magnitude measured under `BIAS_THRESHOLD`'s
+    /// 0.05, where for seed 5 / 40 timesteps
+    /// (`solve_with_40_timesteps_converges`, covered above) it measured
+    /// over it. Both are the same mechanism; only the fixed seed and
+    /// column count differ, and those happen to land on opposite sides of
+    /// the threshold.
+    ///
+    /// This is a genuine, honestly-reported gap, not a defect in
+    /// `solve_with_60_timesteps_converges` the production test: that
+    /// test's `compare_diff` assertion is real signal (it does depend on
+    /// the seed actually landing close to the bias trajectory), it is just
+    /// weak signal against *this one* mutation, for *this one* fixed seed.
+    /// Picking a different seed to force a failure here would be
+    /// p-hacking a coincidence, not fixing anything -- left open rather
+    /// than papered over. See `doc/claim-audit/moveit-stomp-core.md` for
+    /// the same statement recorded outside this file.
+    #[test]
+    fn solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe() {
+        let num_timesteps = 60;
+        let trajectory_bias = interpolate(&START_POS, &END_POS, num_timesteps);
+        let task = Box::new(DummyTask::new(
+            trajectory_bias.clone(),
+            &BIAS_THRESHOLD,
+            &STD_DEV,
+            6,
+        ));
+        let mut config = create_3dof_configuration(num_timesteps);
+        config.num_iterations = 100;
+        let mut stomp = Stomp::new(config, task);
+        stomp.disable_accept_update_for_test = true;
+        let (_, optimized) = stomp.solve_from_endpoints(&START_POS, &END_POS);
+        assert!(
+            compare_diff(&optimized, &trajectory_bias, &BIAS_THRESHOLD),
+            "solve_with_60_timesteps_converges' scenario no longer converges with the \
+             accept-path update disabled -- if this now fails, the known gap this test \
+             pins has closed on its own (a different ChaCha8Rng draw, a changed \
+             BIAS_THRESHOLD, or similar); update this test's doc and \
+             doc/claim-audit/moveit-stomp-core.md to match rather than just relaxing the \
+             assertion"
+        );
+    }
+
     /// Not from upstream's own suite: a boundary test for
     /// [`CancelHandle`], upstream's `Stomp::cancel()` thread-safety
     /// contract this port had to restructure into a separate handle type
@@ -1418,17 +1691,38 @@ mod tests {
     /// -- the boundary is "cancellation observed on the very first check",
     /// not a race with a background thread (which a deterministic unit
     /// test cannot assert on).
+    ///
+    /// # Structural fix: dimensions-only assertion could not fail
+    ///
+    /// The original version of this test asserted only `optimized.nrows()`/
+    /// `.ncols()` against the expected shape -- a shape `solve` returns
+    /// regardless of how many iterations actually ran, cancelled or not, so
+    /// the assertion could not have failed even with `CancelHandle::cancel`
+    /// mutated to a no-op. Mutation-testing `CancelHandle::cancel` (empty
+    /// body) confirmed this: the test still passed, in 0.012s, for a second,
+    /// independent reason on top of that -- `create_3dof_configuration`'s
+    /// `num_iterations_after_valid: 0` makes `Stomp::solve`'s own loop break
+    /// after exactly one valid iteration regardless of `proceed`, since this
+    /// task's seed is already within `BIAS_THRESHOLD`. Both gaps are closed
+    /// here the same way `cancelling_from_another_thread_stops_a_plan_call_already_in_flight`
+    /// (`moveit-planners-stomp::planner`) closes the identical pair: raise
+    /// `num_iterations_after_valid` so the early-valid break cannot fire
+    /// before `num_iterations` does, and assert on
+    /// `DummyTask`'s per-rollout call count instead of on output shape, so
+    /// the assertion actually depends on how much work `solve` did.
     #[test]
     fn cancelling_before_solve_stops_before_num_iterations_completes() {
         let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
-        let task = Box::new(DummyTask::new(
-            trajectory_bias,
-            &BIAS_THRESHOLD,
-            &STD_DEV,
-            7,
-        ));
+        let task = DummyTask::new(trajectory_bias, &BIAS_THRESHOLD, &STD_DEV, 7);
+        let rollout_call_count = task.rollout_call_count_handle();
+        let task = Box::new(task);
         let mut config = create_3dof_configuration(NUM_TIMESTEPS);
         config.num_iterations = 1_000_000;
+        // See this test's own doc: without this, `solve`'s early-valid
+        // break exits after one iteration on its own, masking whether
+        // cancellation did anything.
+        config.num_iterations_after_valid = config.num_iterations;
+        let num_rollouts = config.num_rollouts;
         let mut stomp = Stomp::new(config, task);
         let cancel = stomp.cancel_handle();
         cancel.cancel();
@@ -1437,6 +1731,16 @@ mod tests {
 
         assert_eq!(optimized.nrows(), NUM_DIMENSIONS);
         assert_eq!(optimized.ncols(), NUM_TIMESTEPS);
+
+        let calls = rollout_call_count.load(Ordering::SeqCst);
+        let plausible_uncancelled_calls = 1_000_000 * num_rollouts;
+        assert!(
+            calls * 1000 < plausible_uncancelled_calls,
+            "DummyTask::compute_noisy_costs was called {calls} times; an uncancelled run \
+             would call it up to {plausible_uncancelled_calls} times -- {calls} is not \
+             orders of magnitude below that, so cancellation may not have actually taken \
+             effect before the first rollout"
+        );
     }
 
     /// Invariant-boundary test for `Stomp::solve`'s seed-ignoring quirk

@@ -117,3 +117,23 @@ Round 17: see `moveit-metrics.md`'s sibling section for the full
 writeup — the command covers both crates together. This crate's own
 call (`tests/frame_transform_parity.rs:148`) is `both` (`epsilon` and
 `max_relative` set); 0 `epsilon`-only or neither-set sites here.
+
+## Defect attribution audit
+
+Not a citation-vs-upstream row (this table's usual subject), but the same
+`where`/`claim`/`verdict`/`evidence`/`commit` shape applies to a claim
+about *where a defect lives*, and this file is the right place to record
+one going stale, per §175.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-scene/tests/cost_sources_parity.rs` (`panda_cost_sources_blocked_by_mesh_shape_cost_sources`'s `#[ignore]` reason) | state-op id 5 (`group_name="hand"`, `9` actual vs `2` expected) is a group-filtering defect in `PlanningScene::cost_sources`, this crate's own code | EXPIRED | Independently isolated, not relayed: reverting only the `parry.rs` hunk of `moveit-collision`'s `585a79e` and rerunning reproduces the exact `count mismatch left: 9 right: 2`; restoring it passes, and `cargo nextest run -p moveit-scene --run-ignored all` gives 86/86. The defect was `group_name` filtering being entirely unimplemented in `moveit-collision`'s `check_self_collision`/`check_robot_collision`/`distance_self`/`distance_robot` — all four received the field and never read it, against that crate's own module doc claiming the omission matched upstream (it does not: `cd.enableGroup(getRobotModel())` is unconditional at `collision_env_fcl.cpp:281,336`). `PlanningScene::cost_sources` never had a bug; it correctly passed `group_name` down to a backend that silently dropped it. | `585a79e` (fix, `moveit-collision`) |
+
+The attribution was made from outside the crate that held the defect, by
+reasoning about which layer *should* own group filtering rather than by a
+count or a probe against either crate — the same shape as `PORTING-PLAN.md`
+§139, §185, and §186 (an inheritance/dependency *relationship* used to
+conclude a call count, refuted each time by actually counting). Here the
+relationship was architectural ownership rather than inheritance, but the
+failure mode is the same: a relationship stood in for a measurement, and
+the measurement said otherwise.

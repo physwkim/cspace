@@ -531,82 +531,13 @@
 //!
 //! ## Whole-file exclusions
 //!
-//! - `collision_env_hybrid.hpp`/`.cpp` (`CollisionEnvHybrid`) — **measured,
-//!   round 28; not excluded, not ported.** The previous text here read
-//!   "extends `collision_detection::CollisionEnvFCL` directly, so nothing
-//!   depending on it can be ported" -- an inheritance-graph argument of the
-//!   same shape PORTING-PLAN.md's own §139 already found false once (an
-//!   "unportable" verdict that survived until someone counted the actual
-//!   calls and found one forwarding call). Counted here instead of
-//!   inferred: `CollisionEnvHybrid` has 22 members total (3 constructors,
-//!   12 `check{Self,Robot,}CollisionDistanceField` overloads, `setWorld`,
-//!   `getCollisionGradients`, `getAllCollisions`,
-//!   `initializeRobotDistanceField`, 2 `cenv_distance_` accessor getters, 1
-//!   empty destructor -- `collision_env_hybrid.hpp:53-150`,
-//!   `collision_env_hybrid.cpp:44-184`). Of those 22, exactly 4 touch the
-//!   `CollisionEnvFCL` base at all:
-//!
-//!   - The 3 constructors' base-init-list calls
-//!     (`collision_env_hybrid.cpp:49,61,69`) construct `CollisionEnvFCL`
-//!     with `(robot_model)`, `(robot_model, world, padding, scale)`, and
-//!     `(other, world)`, plus two `getWorld()` calls (`:51,63`).
-//!     `getWorld()`/the two-argument constructor's `(world, padding,
-//!     scale)` state are declared on `CollisionEnv` itself
-//!     (`collision_detection/collision_env.hpp:237,240,246`), not on
-//!     `CollisionEnvFCL` -- generic `CollisionEnv` state every backend
-//!     needs, not FCL-specific behavior.
-//!   - `setWorld` (`collision_env_hybrid.cpp:163-170`) makes the one
-//!     genuinely FCL-*behavioral* base call: an explicit
-//!     `CollisionEnvFCL::setWorld(world)` (`:169`), whose body
-//!     (`collision_env_fcl.cpp:417-438`) clears `manager_`/`fcl_objs_` (FCL's
-//!     persistent broadphase cache) and rewires `World` observers -- work
-//!     that exists only because FCL caches a broadphase structure that a
-//!     world swap invalidates. [`moveit_collision::ParryCollisionEnv`] has
-//!     no such structure to invalidate: it owns `World` directly
-//!     (`parry.rs:1771-1772`) and every `check_*` call rebuilds its
-//!     collision bodies fresh from `self.world`
-//!     (`world_bodies(&self.world, ...)`, `parry.rs:1840`) rather than
-//!     consulting a cached broadphase manager, so the Rust equivalent of
-//!     this call is not "port `setWorld`'s rebuild logic," it is "there is
-//!     nothing to rebuild" -- swapping the field IS the update.
-//!
-//!   The other 18 members never call the FCL base at all: all 12
-//!   `check*DistanceField` overloads and `getCollisionGradients`/
-//!   `getAllCollisions`/`initializeRobotDistanceField` forward straight to
-//!   `cenv_distance_` (a `CollisionEnvDistanceField`, this crate's own
-//!   [`DistanceFieldCollisionCache`]); the 2 accessors return
-//!   `cenv_distance_`; the destructor is empty.
-//!
-//!   Conclusion: the previous exclusion conflated "the base class is
-//!   unported" with "the base class's behaviour is unavailable" -- they are
-//!   different claims here, and the second one is false. Every behaviour
-//!   `CollisionEnvHybrid` actually draws from `CollisionEnvFCL` (robot
-//!   model/world/padding/scale storage, a world accessor, and a
-//!   broadphase-rebuild-on-world-swap that this port's `ParryCollisionEnv`
-//!   doesn't need because it never caches that structure) already exists on
-//!   [`moveit_collision::CollisionEnv`]/[`moveit_collision::ParryCollisionEnv`],
-//!   and the type's other half -- distance-field self/robot-collision
-//!   checking -- is exactly [`DistanceFieldCollisionCache`], already ported
-//!   in this crate. `CollisionEnvHybrid` is portable: a thin struct pairing
-//!   a `ParryCollisionEnv` (or `impl CollisionEnv<State>`, generically) with
-//!   a [`DistanceFieldCollisionCache`], with the 12 `check*DistanceField`
-//!   overloads collapsing the same way this crate's own two-overload
-//!   upstream methods already do elsewhere (`link_spheres_override`-style
-//!   `Option` parameters instead of arity-duplicated methods), a world-swap
-//!   method that is just replacing the held `World`/rebuilding no cache, and
-//!   `getCollisionGradients`/`getAllCollisions` as direct passthroughs.
-//!   Rough size: comparable to or smaller than `collision_env_hybrid.cpp`'s
-//!   own 185 lines once the arity collapse and this crate's existing
-//!   [`DistanceFieldCollisionCache`] do the real work.
-//!
-//!   **Not ported this round.** `moveit-distance-field` already depends on
-//!   `moveit-collision` (one-way; `moveit-collision` does not depend back —
-//!   `Cargo.toml`), so a combinator type is buildable without a new
-//!   dependency edge, but it would be the first type in this crate whose
-//!   *public shape* is defined by pairing a `moveit-collision` backend type
-//!   with this crate's own cache type -- a cross-crate design choice
-//!   `moveit-collision`'s owner needs to sign off on before the diff exists,
-//!   not after. Reported for that sign-off; port on explicit go-ahead only.
+//! - `collision_env_hybrid.hpp`/`.cpp` (`CollisionEnvHybrid`) — **not
+//!   excluded.** Ported as [`HybridCollisionEnv`] (round 29); see that
+//!   type's own module doc for the shape and the §186 measurement that
+//!   found the previous "extends `CollisionEnvFCL`, so unportable"
+//!   exclusion false (the third exclusion this session justified by a
+//!   relationship rather than a call count, after §139 and
+//!   `plan_components_builder`).
 //! - `collision_detector_allocator_distance_field.hpp`
 //!   (`CollisionDetectorAllocatorDistanceField`) and
 //!   `collision_detector_allocator_hybrid.hpp`
@@ -614,8 +545,13 @@
 //!   `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime
 //!   plugin registrations. D-decision: D4 (this port's plugin model is a
 //!   compile-time trait + `linkme` registry, not a runtime allocator
-//!   class). Each also depends on its (separately excluded) `CollisionEnv*`
-//!   type.
+//!   class) -- independent of whether either type's own `CollisionEnv*` is
+//!   ported (`CollisionDetectorAllocatorDistanceField`'s
+//!   `CollisionEnvDistanceField` is not ported as a `World`-owning type at
+//!   all, see this module's doc on that; `CollisionDetectorAllocatorHybrid`'s
+//!   `CollisionEnvHybrid` is ported, as [`HybridCollisionEnv`] above,
+//!   but the pluginlib-style allocator wrapping it still is not, for this
+//!   D4 reason alone).
 //!
 //! ## `collision_common_distance_field.hpp`
 //!
@@ -1160,6 +1096,7 @@
 mod collision_common_distance_field;
 mod collision_distance_field_types;
 mod collision_env_distance_field;
+mod collision_env_hybrid;
 mod distance_field;
 mod find_internal_points;
 mod propagation;
@@ -1183,7 +1120,142 @@ pub use collision_env_distance_field::{
     generate_distance_field_cache_entry, get_distance_field_cache_entry,
     group_state_representation, update_group_state_representation_state,
 };
+pub use collision_env_hybrid::HybridCollisionEnv;
 pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};
 pub use propagation::{NearestCell, PropDistanceFieldVoxel, PropagationDistanceField};
 pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
+
+/// §196 structural close: a fixture-construction-time gate against the
+/// vacuous-collision-assertion defect family. A group can look fine by
+/// `link_names()`/`joint_names()` yet still resolve to zero *updated* links
+/// (the set every group-scoped check in this crate actually walks) whenever
+/// none of its joints are active -- see `collision_env_distance_field.rs`'s
+/// `generate_distance_field_cache_entry` (the `updated_link_names()`
+/// consumer) and `collision_env_hybrid.rs`'s doc comments for where that
+/// bit this crate (§196). Every fixture builder in this crate's test
+/// modules that constructs a model meant to exercise self/robot-collision
+/// checking calls [`test_support::assert_group_has_updated_links`] right
+/// after construction, so a future edit that collapses a fixture's group to
+/// zero active joints fails loudly here instead of downstream as a
+/// silently-passing `assert!(!result.collision)`.
+///
+/// # §189: workspace-wide sweep behind this gate
+///
+/// `type="fixed"` is where the symptom was first spotted (§191), not the
+/// defect itself -- the defect is "a group resolves to an empty
+/// `updated_link_names()` set and an assertion is built on it" (§196), and a
+/// fixed joint is one route in, not the only one. This sweep enumerates the
+/// actual `type="fixed"` fixture population and, separately, measures which
+/// of its groups are actually empty -- rather than assuming from the joint
+/// type alone.
+///
+/// `rg -n 'type="fixed"' --type rust -g '*.rs'` over the whole workspace
+/// found 34 sites (a starting population, not a verdict) at the time of this
+/// sweep. 24 are `virtual_joint` world-attachment boilerplate or
+/// SRDF-parse-only/doc-comment sites -- `virtual_joint` never enters a
+/// `<group>`'s joint list, so none of those can affect group resolution at
+/// all. The remaining 10 are real `<joint type="fixed">` elements inside a
+/// URDF fixture:
+///
+/// - `moveit-model/src/robot_model.rs:2007,2010,2013,2016`
+///   (`chain_between_two_branches_finds_the_common_ancestor`, group
+///   `"cross"`, all 4 joints fixed) -- **measured EMPTY**
+///   (`updated_link_names() == []`, confirmed by running the real
+///   `RobotModel`/`SrdfModel` code against this fixture's exact XML, not by
+///   reading it) but the test only asserts `joint_names()`, never
+///   `updated_link_names()` -- not the risk pattern.
+/// - `moveit-model/src/robot_model.rs:2477,2480` (`end_effector_test_urdf`,
+///   groups `"hand"` = `[j4]` and `"other"` = `[j5]`, each one fixed joint)
+///   -- **measured EMPTY** for both, confirmed the same way. Every
+///   assertion built on `"hand"`/`"other"` in that fixture's ~10 dependent
+///   tests is end-effector metadata (`is_end_effector`, `end_effector_name`,
+///   `end_effector_parent`, `attached_end_effector_names`), never
+///   `updated_link_names()`/`link_names()` -- not the risk pattern.
+/// - `moveit-model/src/robot_model.rs:2155,2158` (`no_root_link_errors`,
+///   joints `j1`/`j2` form a 2-link cycle with no root) -- **run**: feeding
+///   this exact fixture through `RobotModel::from_urdf_and_srdf` returns
+///   `Err`, confirming no group ever resolves; not applicable.
+/// - `moveit-model/src/robot_model.rs:2802`
+///   (`is_chain_true_across_an_unlisted_fixed_joint`, joint `mid_fixed`) --
+///   not a member of the fixture's `"arm"` group at all (`"arm"` is
+///   `[j1, j2]`, both revolute); measured non-empty as a control. Not at
+///   risk.
+/// - `moveit-scene/src/scene.rs:2077` (`hand_joint`, the `attach`/`detach`
+///   fixture) -- **run**: building this exact SRDF and reading
+///   `RobotModel::joint_model_group_names()` back gives `[]`; the fixture
+///   defines no `<group>` element whatsoever, so there is no group to be
+///   empty.
+///
+/// A fresh `rg -n
+/// 'updated_link_names\(\)|updated_link_indices\(\)|updated_link_with_geometry_names\(\)|updated_link_with_geometry_indices\(\)'
+/// --type rust -g '*.rs'` (the actual consumers of the set this gate
+/// guards, run fresh rather than trusted from an earlier round) turned up
+/// exactly: this crate's own two now-gated fixtures plus
+/// `collision_env_distance_field.rs:3117`'s PR2-`"right_arm"`-based test
+/// (a real robot, non-empty); `moveit-model`'s own
+/// `updated_link_names_filters_to_geometry_bearing_links` test (correct,
+/// non-vacuous, revolute joints); `moveit-model/tests/robot_model_parity.rs`
+/// (compares our `updated_link_names()` to the oracle's own value
+/// group-by-group -- an empty-vs-empty agreement there is validating a real
+/// semantic property against ground truth, not a vacuously-passing
+/// presence/absence check, so it is not the same defect even where the
+/// oracle's own answer happens to be empty); `moveit-constraints/src/
+/// sampler.rs`'s `order_samplers` (a subset-comparison with a handled
+/// `frame_dependency` fallback, not a presence/absence assertion); and
+/// `moveit-planners-chomp/src/optimizer.rs`'s
+/// `build_fixed_link_resolution_map` (a CHOMP trajectory-optimization input
+/// that structurally requires active joints already, so a zero-active-joint
+/// group is not a realistic input rather than an untested one).
+///
+/// Conclusion: within this crate, the defect existed only in the two
+/// fixtures now gated below (§196 closes them). No other crate's test
+/// suite was found to combine an empty-`updated_link_names()` group with a
+/// presence/absence assertion built on it. Those other crates are out of
+/// this crate's edit scope; this sweep is reported, not silently acted on.
+///
+/// # Correction to commit `d9c7078`'s body
+///
+/// That commit's body reads "a group with an active joint can still resolve
+/// zero *updated* links". That is not this doc's claim above (which reads
+/// "whenever none of its joints are active") and it is not true -- it was a
+/// wording slip when the commit was written, not a second, wider finding.
+/// Disproof, both by construction and by attempted counterexample:
+///
+/// - By construction, from `RobotModel::group_joint_roots`/
+///   `group_updated_links`/`descendant_link_indices` (`robot_model.rs`):
+///   `group_joint_roots` selects every one of a group's
+///   `active_joint_indices()` that has no group-member active ancestor: on
+///   a tree topology that selection is never empty when
+///   `active_joint_indices()` isn't, since the topologically-highest active
+///   member can never have a group-member active ancestor. `descendant_link_indices`
+///   inserts a joint's own child link unconditionally on its very first
+///   stack iteration, before its cycle guard (`seen_joints`) can ever skip
+///   anything. So a nonempty `joint_roots` always yields a nonempty
+///   `updated_link_indices`, and `updated_link_names()` is empty exactly
+///   when a group's active joints are none -- never otherwise.
+/// - By attempted counterexample: a group with one active joint (`j1`) plus
+///   an unlisted-consequence-free fixed member (`j_fixed`) and a mimic
+///   member (`j_mimic`, `mimic="j1"`) all declared as group joints still
+///   resolves `updated_link_names() == ["mid", "tip", "mimic_tip"]`,
+///   measured the same way as the rest of this sweep -- no shape of "active
+///   joint present" was found that still empties the set.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use moveit_model::RobotModel;
+
+    pub(crate) fn assert_group_has_updated_links(model: &RobotModel, group_name: &str) {
+        let group = model
+            .joint_model_group(group_name)
+            .unwrap_or_else(|e| panic!("test fixture group {group_name:?} must resolve: {e}"));
+        assert!(
+            !group.updated_link_names().is_empty(),
+            "test fixture group {group_name:?} has an empty updated_link_names() -- every \
+             self/robot-collision check in this crate walks exactly this set, so any \
+             assertion built on it (e.g. `assert!(!result.collision)`) would pass \
+             vacuously with nothing actually checked. This usually means the group's \
+             connecting joint(s) are all `type=\"fixed\"`/have no active DOF -- give the \
+             fixture at least one active (e.g. revolute) joint."
+        );
+    }
+}

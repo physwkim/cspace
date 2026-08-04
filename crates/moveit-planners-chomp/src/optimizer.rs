@@ -1660,8 +1660,31 @@ mod tests {
 "#;
         let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
         let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
-            .expect("two_link_chomp model must build")
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("two_link_chomp model must build");
+        // PORTING-PLAN.md §196: an SRDF chain group over a fixed joint
+        // resolves to `link_names() == []` with no error and no warning, so
+        // every test built on this fixture would pass vacuously. Both `j1`
+        // and `j2` above are `revolute`, not `fixed`, but assert the group
+        // actually has links rather than trusting that stays true.
+        //
+        // `updated_link_names()`, not `link_names()`: the checks this
+        // fixture feeds (`CollisionRequest::group_name` above, line 1747)
+        // resolve through the group's *updated* link set, not its raw
+        // joint-child set -- see `ParryCollisionEnv::active_group_links`.
+        // The two sets agree on this fixture's simple chain, but
+        // `updated_link_names()` is the one that actually gates whether the
+        // collision checks below see anything.
+        assert!(
+            !model
+                .joint_model_group(CHOMP_COLLISION_GROUP)
+                .expect("chain group exists")
+                .updated_link_names()
+                .is_empty(),
+            "chain group must have non-empty updated_link_names, or every test using this fixture passes vacuously (§196)"
+        );
+        model
     }
 
     /// A grid covering `chomp_collision_model`'s 0.6 m-long chain, at a

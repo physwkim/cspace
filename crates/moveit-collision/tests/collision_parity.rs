@@ -1945,3 +1945,192 @@ fn pr2_self_wheel_same_pair_frozen_constant_is_a_plateau_not_a_global_invariant(
          to theta=0 so this test still exercises the ramp, not the plateau"
     );
 }
+
+/// Replicates `moveit-constraints`' `VisibilityConstraint::cone_mesh` exact
+/// vertex/triangle formula (see that method's own doc comment: vertex `0`
+/// sensor origin, vertex `1` target center, vertices `2..cone_sides+2` the
+/// disc rim) so this crate can drive the same mesh through its own
+/// `parry3d_f64::query::contact` without a dependency on
+/// `moveit-constraints` -- that crate already depends on this one
+/// (`Cargo.toml`), so the reverse edge would be a cycle.
+fn visibility_cone_mesh_world(
+    world_to_sensor: &Isometry3,
+    world_to_target: &Isometry3,
+    target_radius: f64,
+    cone_sides: usize,
+) -> (Vec<nalgebra::Vector3<f64>>, Vec<[u32; 3]>) {
+    let mut vertices = Vec::with_capacity(cone_sides + 2);
+    vertices.push(world_to_sensor.translation.vector);
+    vertices.push(world_to_target.translation.vector);
+    let delta = 2.0 * std::f64::consts::PI / cone_sides as f64;
+    for i in 0..cone_sides {
+        let a = delta * i as f64;
+        let rim_point_in_target =
+            nalgebra::Vector3::new(a.sin() * target_radius, a.cos() * target_radius, 0.0);
+        vertices.push((world_to_target * nalgebra::Point3::from(rim_point_in_target)).coords);
+    }
+
+    let mut triangles = Vec::with_capacity(cone_sides * 2);
+    for i in 1..cone_sides {
+        triangles.push([(i + 1) as u32, 0, (i + 2) as u32]);
+        triangles.push([(i + 1) as u32, 1, (i + 2) as u32]);
+    }
+    triangles.push([(cone_sides + 1) as u32, 0, 2]);
+    triangles.push([(cone_sides + 1) as u32, 1, 2]);
+    (vertices, triangles)
+}
+
+/// Same triangle-vs-cylinder query [`native_deepest_triangle_vs_cylinder`]
+/// runs for a URDF mesh link's own STL, but against an in-memory cone mesh
+/// ([`visibility_cone_mesh_world`]) instead -- so a visibility-cone
+/// near-placement case can be probed the same way without going through
+/// `moveit-constraints`/`tools/moveit-diff`. Returns the winning triangle's
+/// depth and indices, plus the target-center vertex (mesh vertex `1`)
+/// expressed in the cylinder's own local frame, for the caller to check it
+/// landed at the local origin.
+fn deepest_cone_triangle_vs_cylinder(
+    cyl_frame: &Isometry3,
+    cylinder: &moveit_geometry::Cylinder,
+    vertices: &[nalgebra::Vector3<f64>],
+    triangles: &[[u32; 3]],
+) -> (f64, [u32; 3], nalgebra::Point3<f64>) {
+    let to_cyl = cyl_frame.inverse();
+    let local_vertices: Vec<parry3d_f64::math::Vector> = vertices
+        .iter()
+        .map(|v| {
+            let p = to_cyl.transform_point(&nalgebra::Point3::from(*v));
+            parry3d_f64::math::Vector::new(p.x, p.y, p.z)
+        })
+        .collect();
+    let target_center_local = to_cyl.transform_point(&nalgebra::Point3::from(vertices[1]));
+
+    let parry_cylinder = parry3d_f64::shape::Cylinder::new(cylinder.length * 0.5, cylinder.radius);
+    let axis_fix: parry3d_f64::math::Pose =
+        nalgebra::Isometry3::rotation(nalgebra::Vector3::x() * std::f64::consts::FRAC_PI_2).into();
+    let identity: parry3d_f64::math::Pose = nalgebra::Isometry3::identity().into();
+
+    let mut best = f64::INFINITY;
+    let mut best_tri = [0u32; 3];
+    for tri in triangles {
+        let p0 = local_vertices[tri[0] as usize];
+        let p1 = local_vertices[tri[1] as usize];
+        let p2 = local_vertices[tri[2] as usize];
+        let triangle = parry3d_f64::shape::Triangle::new(p0, p1, p2);
+        let Ok(Some(contact)) =
+            parry3d_f64::query::contact(&identity, &triangle, &axis_fix, &parry_cylinder, 0.0)
+        else {
+            continue;
+        };
+        if contact.dist < best {
+            best = contact.dist;
+            best_tri = *tri;
+        }
+    }
+    (best, best_tri, target_center_local)
+}
+
+/// Round 25 (`PORTING-PLAN.md`): generalizes case 104's own single-case
+/// finding across a sample of `(target_radius, cone_sides)` pairs spanning
+/// `visibility_cone_depth_sweep.rs`'s own near-branch ranges (`target_radius`
+/// in `0.005..0.015`, `cone_sides` in `3..=8`, `build_case`'s
+/// `Some(link_name)` arm) crossed with all three of
+/// [`load_self_wheel_oracle_points`]'s real pr2 joint states (two
+/// `br_caster_l_wheel_link` poses, one `fl_caster_l_wheel_link` pose) -- 15
+/// combinations, not only case 104's one.
+///
+/// Two claims were on the table; measuring all 15 splits them:
+///
+/// - The near-placement's own construction (`build_case`/`tools/moveit-diff`'s
+///   `build_constraint_case`: target pose exactly at `link_fk *
+///   shape.origin_transform`) puts the cone's vertex 1 (the target-center
+///   vertex) at the cylinder's own local origin, and keeps every cone vertex
+///   inside the cylinder's own inscribed sphere (`target_radius`'s sampled
+///   `0.005..=0.015` stays under every sampled wheel's own `min(radius,
+///   length / 2)`), guaranteeing real penetration regardless of orientation.
+///   **This generalizes**: measured exactly (`target_center_local` within
+///   float noise of the origin, `depth < 0.0`) in all 15 combinations below,
+///   matching `parry.rs`'s deviation-6(b) doc's "every such case
+///   interpenetrates through the link's own centroid by construction".
+/// - That the *winning* (max-depth) triangle specifically contains vertex 1,
+///   the way case 104's own `[5, 1, 6]` did. **This does not generalize**:
+///   measured true in only 4 of these 15 combinations (both wins are pinned
+///   below by the total, not by which specific `(joint_state, radius,
+///   cone_sides)` triples they were, since that triple set is not itself a
+///   stable fact worth freezing) -- the rest won through a triangle sharing
+///   the *sensor* vertex (vertex 0) instead. Case 104's own `[5, 1, 6]` was
+///   this mechanism's most visible instance, not its general shape; not
+///   asserted here as a per-case rule because it is false as one.
+#[test]
+fn visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid() {
+    const ORIGIN_TOLERANCE: f64 = 1e-9;
+    const SENSOR_OFFSET: f64 = 0.005;
+    const SAMPLES: &[(f64, usize)] = &[(0.005, 3), (0.0075, 4), (0.01, 5), (0.0125, 6), (0.015, 8)];
+
+    let model = build_model("pr2.urdf", "pr2.srdf");
+    let mut cases_checked = 0;
+    let mut winning_triangle_had_vertex_one = 0;
+
+    for point in load_self_wheel_oracle_points() {
+        let mut state = build_state(&model, &point.joint_values);
+        let posed = state.update();
+
+        let link = model
+            .link_model(&point.wheel_link_name)
+            .unwrap_or_else(|e| panic!("{}: {e}", point.wheel_link_name));
+        let shape = &link.shapes()[0];
+        let Shape::Cylinder(cylinder) = &shape.shape else {
+            panic!("{} shape[0] is not a cylinder", point.wheel_link_name);
+        };
+        let cyl_frame = posed
+            .global_link_transform(&point.wheel_link_name)
+            .unwrap_or_else(|e| panic!("{}: {e}", point.wheel_link_name))
+            * shape.origin_transform;
+        let anchor = cyl_frame.translation.vector;
+        let world_to_target =
+            Isometry3::from_parts(anchor.into(), nalgebra::UnitQuaternion::identity());
+        let world_to_sensor = Isometry3::from_parts(
+            (anchor + nalgebra::Vector3::new(0.0, 0.0, SENSOR_OFFSET)).into(),
+            nalgebra::UnitQuaternion::identity(),
+        );
+
+        for &(target_radius, cone_sides) in SAMPLES {
+            let (vertices, triangles) = visibility_cone_mesh_world(
+                &world_to_sensor,
+                &world_to_target,
+                target_radius,
+                cone_sides,
+            );
+            let (depth, winning_triangle, target_center_local) =
+                deepest_cone_triangle_vs_cylinder(&cyl_frame, cylinder, &vertices, &triangles);
+
+            assert!(
+                target_center_local.coords.norm() < ORIGIN_TOLERANCE,
+                "{}: target-center vertex {target_center_local:?} did not land at the \
+                 cylinder's own local origin (radius={target_radius}, cone_sides={cone_sides})",
+                point.wheel_link_name
+            );
+            assert!(
+                depth < 0.0,
+                "{}: expected a real penetration, got depth {depth} (radius={target_radius}, \
+                 cone_sides={cone_sides})",
+                point.wheel_link_name
+            );
+            if winning_triangle.contains(&1) {
+                winning_triangle_had_vertex_one += 1;
+            }
+            cases_checked += 1;
+        }
+    }
+
+    assert_eq!(
+        cases_checked,
+        load_self_wheel_oracle_points().len() * SAMPLES.len(),
+        "sanity: every joint-state x (radius, cone_sides) combination above ran"
+    );
+    assert_eq!(
+        winning_triangle_had_vertex_one, 4,
+        "the winning-triangle-contains-vertex-1 rate moved from this round's measured 4/15 -- \
+         update this test's own doc comment (and any claim-audit prose citing it) to match, it \
+         is describing a measured fact, not an enforced invariant"
+    );
+}

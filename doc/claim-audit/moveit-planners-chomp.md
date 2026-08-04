@@ -77,6 +77,48 @@ report time.
 | `tests/chomp_quad_cost_inverse_parity.rs` module doc, `Eigen::MatrixXd::inverse()` is always `PartialPivLU` | same fact already recorded under `src/cost.rs` module doc's decomposition-family note above — not re-verified as a separate claim, cross-referenced instead | CONFIRMED (TYPE_A) — duplicate of the `src/cost.rs` row above | (see `src/cost.rs` decomposition-family row) | (uncommitted) |
 | `tests/chomp_quad_cost_inverse_parity.rs` module doc, "Tolerance" section's measured per-case maxima (`num_points` 13→`1.78e-15` … 20→`2.68e-11`) and "Ground truth was re-run directly against the live oracle when this test was written" | Both are claims about this test's own authoring-time process/instrumentation (a removed `eprintln!`, a one-time oracle re-run) — not independently reproducible without reinstating that instrumentation, which would mean modifying test source, out of this audit's scope. Re-running the test as committed today (`cargo test -p moveit-planners-chomp --test chomp_quad_cost_inverse_parity`) passes with the stated `TOL = 1e-7`, consistent with but not proof of the exact historical per-case figures | UNVERIFIABLE (historical instrumentation removed; current pass is consistent-but-not-confirming evidence) | `tests/chomp_quad_cost_inverse_parity.rs:51-74` (claim text); test re-run directly: `1 passed; 0 failed` | (uncommitted) |
 
+| `src/lib.rs` module doc, `chomp_planner.{hpp,cpp}` symbol audit, `ChompPlanner` (class) has no fields and no custom constructor | upstream's `ChompPlanner` class body is exactly `ChompPlanner() = default; virtual ~ChompPlanner() = default; void solve(...) const;` — no member fields, no non-default constructor, so nothing is lost by not giving it a Rust struct | CONFIRMED (TYPE_A) | `chomp_planner.hpp:47-56` (full class body) read directly | (uncommitted) |
+| `src/lib.rs` module doc, `chomp_planner.{hpp,cpp}` symbol audit, `#include <tf2/...>`/`tf2_eigen`/`tf2_geometry_msgs` are vestigial | none of `tf2::`, `tf2_geometry`, or `tf2::doTransform` appears anywhere in `chomp_planner.cpp` outside the include lines themselves (`:43,45,47,48`, all before `solve` starts at `:63`) — the includes bring in no symbol `solve` (or anything else in the file) uses | CONFIRMED (TYPE_A) | `chomp_planner.cpp:43-48` (includes) and `grep -n 'tf2::\|tf2_geometry\|tf2::doTransform' chomp_planner.cpp` (single hit: the `tf2_geometry_msgs` include line itself, matched by its own path substring — no usage site) read directly | (uncommitted) |
+
+## Re-verified, unchanged (round following §196 guard work)
+
+Independently re-derived without first reading this file's existing
+rows, then cross-checked against them — all three already-recorded
+verdicts hold, and two are strengthened from file-scoped to
+workspace-wide absence checks:
+
+- **`destroy()` not ported** (existing row above): re-confirmed.
+  `destroy()`'s body is exactly `{ // Nothing for now. }`
+  (`chomp_optimizer.hpp:68-71`); it *is* called, from
+  `~ChompOptimizer()` (`chomp_optimizer.cpp:246-248`) — an empty-body
+  RAII hook, which is what makes it structurally replaceable by `Drop`
+  rather than something dropped silently. Falsifier that would have
+  overturned this: any statement inside `destroy()`'s body, or any
+  other call site outside the destructor. Neither exists.
+- **`debugCost` confirmed dead** (existing row above): re-confirmed,
+  strengthened. `rg -rn debugCost` across the *entire* `moveit2`
+  checkout (not just `chomp_motion_planner/`) returns exactly two
+  hits — the declaration (`chomp_optimizer.hpp:206`) and the
+  definition (`chomp_optimizer.cpp:668`) — zero call sites anywhere in
+  the workspace. Falsifier: any third hit, anywhere, that isn't inside
+  a comment.
+- **HMC path confirmed dead** (existing row above): re-confirmed,
+  strengthened. Workspace-wide `rg` for all four symbols
+  (`perturbTrajectory`, `getRandomMomentum`, `updateMomentum`,
+  `updatePositionFromMomentum`) again finds only the four header
+  declarations, the three commented-out calls at `:359-361`
+  (`getRandomMomentum`/`updateMomentum`/`updatePositionFromMomentum`,
+  inside the `// hamiltonian monte carlo updates:` block under the
+  `/// TODO: HMC BASED COMMENTED CODE BELOW` marker), the one
+  commented-out call at `:442` (`perturbTrajectory`), and
+  `perturbTrajectory`'s own real-but-unreachable definition
+  (`:959-990`) — confirming the claim's careful asymmetry (only
+  `perturbTrajectory` has a body; the other three don't, anywhere).
+  Falsifier: an active, uncommented call to any of the four outside
+  `chomp_optimizer.cpp:959-990` itself, anywhere in the workspace, or
+  a definition of `getRandomMomentum`/`updateMomentum`/
+  `updatePositionFromMomentum` anywhere.
+
 ## Background-agent audit — see `moveit-trajectory.md`
 
 The Item-4 background agent's aggregate "3 TYPE_B / 7 TYPE_A out of 60
