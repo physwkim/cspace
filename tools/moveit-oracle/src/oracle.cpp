@@ -3077,6 +3077,21 @@ private:
   /// the new logic surface, without re-deriving `PropagationDistanceField`
   /// correctness a second time.
   ///
+  /// `request["objects"]` (optional, defaults to none) populates the
+  /// environment the check runs against, using the same single-shape schema
+  /// as `collision` (see `addRequestObjects`). Without it the environment
+  /// distance field is empty, so every environment branch -- including the
+  /// `"environment"` sentinel contact and `getEnvironmentProximityGradients`
+  /// -- is unreachable from a fixture.
+  ///
+  /// The world-taking constructor is used unconditionally rather than only
+  /// when `objects` is non-empty. That it is equivalent for the empty case
+  /// is measured, not assumed: all 43 committed fixture pairs replay
+  /// identical across the change, and the four `distance_field_cache_entry`
+  /// / `group_state_representation` pairs among them send no `objects` at
+  /// all. A conditional would have been a second code path reachable only by
+  /// fixtures that do not exist yet.
+  ///
   /// `request["attached_bodies"]` (optional, defaults to none) is attached
   /// before the check, so the attached-body half of the group's
   /// `DistanceFieldCacheEntry` is reachable at all -- without it
@@ -3134,7 +3149,9 @@ private:
     const bool use_acm = request.value("use_acm", true);
     collision_detection::AllowedCollisionMatrix acm = buildAcm();
 
-    collision_detection::CollisionEnvDistanceField env(model_);
+    collision_detection::WorldPtr world = std::make_shared<collision_detection::World>();
+    addRequestObjects(*world, request);
+    collision_detection::CollisionEnvDistanceField env(model_, world);
 
     collision_detection::CollisionRequest req;
     req.group_name = group_name;
@@ -3263,6 +3280,22 @@ private:
   /// state `initialize()` built it at. There is no defined upstream value
   /// here to dump or compare against, so it is omitted rather than captured
   /// misleadingly.
+  ///
+  /// `request["objects"]` (optional, defaults to none) populates the
+  /// environment the check runs against, using the same single-shape schema
+  /// as `collision` (see `addRequestObjects`). Without it the environment
+  /// distance field is empty, so every environment branch -- including the
+  /// `"environment"` sentinel contact and `getEnvironmentProximityGradients`
+  /// -- is unreachable from a fixture.
+  ///
+  /// The world-taking constructor is used unconditionally rather than only
+  /// when `objects` is non-empty. That it is equivalent for the empty case
+  /// is measured, not assumed: all 43 committed fixture pairs replay
+  /// identical across the change, and the four `distance_field_cache_entry`
+  /// / `group_state_representation` pairs among them send no `objects` at
+  /// all. A conditional would have been a second code path reachable only by
+  /// fixtures that do not exist yet.
+  ///
   /// `request["attached_bodies"]` (optional, defaults to none) is attached
   /// before the check, so the attached-body half of the group's
   /// `DistanceFieldCacheEntry` is reachable at all -- without it
@@ -3320,7 +3353,9 @@ private:
     const bool use_acm = request.value("use_acm", true);
     collision_detection::AllowedCollisionMatrix acm = buildAcm();
 
-    collision_detection::CollisionEnvDistanceField env(model_);
+    collision_detection::WorldPtr world = std::make_shared<collision_detection::World>();
+    addRequestObjects(*world, request);
+    collision_detection::CollisionEnvDistanceField env(model_, world);
 
     collision_detection::CollisionRequest req;
     req.group_name = group_name;
