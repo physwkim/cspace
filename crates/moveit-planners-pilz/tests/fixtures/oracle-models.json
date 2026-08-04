@@ -3,11 +3,39 @@
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "panda_blend_corner100": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_blend_corner105": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_blend_corner110": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_blend_corner112": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "panda_blend_corner112_radius03": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_blend_corner150": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_blend_corner30": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_blend_corner60": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_blend_corner75": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },

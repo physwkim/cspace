@@ -31,6 +31,18 @@
 //! and `CORNER112_VELOCITY_TOLERANCE` for a genuine growing-divergence
 //! finding this case surfaces that cases A-D do not.
 //!
+//! Case E's report attributed that growth to "corner sharpness driving
+//! redundant-kinematics IK divergence" -- plausible, and a one-data-point
+//! claim. Case F turns that into a falsifiable prediction (divergence
+//! monotone in corner angle, radius and per-segment speed fixed) and tests
+//! it with an 8-point angle sweep (`panda_blend_corner{30,60,75,100,105,110}`
+//! plus cases A/E as the 90°/112° anchors) and a radius control
+//! (`panda_blend_corner112_radius03`, case E's own 112° with `blend_radius`
+//! dropped to `0.03`). The prediction is refuted: 90°/100° measure the
+//! *lowest* divergence of the whole sweep, not a monotone function of angle
+//! -- see `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for
+//! the full table and the radius control's own result.
+//!
 //! # No `blend_align_index` field, by design -- see PORTING-PLAN.md §188
 //!
 //! The request document asked for `blend_align_index` alongside the two
@@ -317,6 +329,56 @@ const CORNER112_VELOCITY_TOLERANCE: f64 = 1e-7;
 /// `blend_trajectory` waypoint 6, `panda_joint5` -- above
 /// [`ACCELERATION_TOLERANCE`] by about 38%. Set with the same ~1.2x margin.
 const CORNER112_ACCELERATION_TOLERANCE: f64 = 2e-6;
+
+/// Case F's acceleration sweep point at 60 degrees measures `1.1279e-6`,
+/// inside [`ACCELERATION_TOLERANCE`] (`1.2e-6`) but by only about 6% --
+/// close enough to the shared ceiling that reusing [`ACCELERATION_TOLERANCE`]
+/// here would make the test unable to see a regression case A/B/C's own
+/// wider margin still would. Set from this case's own measured max with the
+/// same ~1.2x margin as [`CORNER112_ACCELERATION_TOLERANCE`]. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
+const CORNER60_ACCELERATION_TOLERANCE: f64 = 1.35e-6;
+
+/// Case F's sweep point at 75 degrees measures `8.9525e-8` velocity /
+/// `1.4818e-6` acceleration, both above [`VELOCITY_TOLERANCE`] /
+/// [`ACCELERATION_TOLERANCE`]. Set from this case's own measured max with a
+/// ~1.2x margin, same as [`CORNER112_VELOCITY_TOLERANCE`]. This is the sweep
+/// point the case-F prediction did not anticipate needing an override at all
+/// -- 75 degrees is shallower than case A's 90, where the "sharper corner"
+/// story predicts *less* divergence than case A, not more. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for the
+/// full sweep table and refutation verdict.
+const CORNER75_VELOCITY_TOLERANCE: f64 = 1.1e-7;
+/// See [`CORNER75_VELOCITY_TOLERANCE`].
+const CORNER75_ACCELERATION_TOLERANCE: f64 = 1.8e-6;
+
+/// Case F's sweep point at 105 degrees measures `1.3293e-6` acceleration,
+/// above [`ACCELERATION_TOLERANCE`]; its velocity (`6.6526e-8`) stays inside
+/// [`VELOCITY_TOLERANCE`] with a comfortable ~20% margin. Set from this
+/// case's own measured max with a ~1.2x margin. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
+const CORNER105_ACCELERATION_TOLERANCE: f64 = 1.6e-6;
+
+/// Case F's sweep point at 110 degrees measures `7.9133e-8` velocity --
+/// inside [`VELOCITY_TOLERANCE`] (`8e-8`) by only about 1%, too thin a
+/// margin to trust against a deterministic pipeline's own rounding -- and
+/// `1.5797e-6` acceleration, above [`ACCELERATION_TOLERANCE`] outright. Both
+/// set from this case's own measured max with a ~1.2x margin. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
+const CORNER110_VELOCITY_TOLERANCE: f64 = 9.5e-8;
+/// See [`CORNER110_VELOCITY_TOLERANCE`].
+const CORNER110_ACCELERATION_TOLERANCE: f64 = 1.9e-6;
+
+/// Case F's radius control: case E's own 112 degree corner with
+/// `blend_radius` lowered from `0.05` to `0.03`, angle and per-segment speed
+/// held fixed. Measures `9.2596e-8` velocity, above [`VELOCITY_TOLERANCE`];
+/// its acceleration (`9.2747e-7`) stays inside [`ACCELERATION_TOLERANCE`]
+/// with a ~29% margin. That radius alone -- with angle fixed at case E's own
+/// 112 degrees -- moves acceleration divergence from case E's `1.6513e-6`
+/// down to `9.2747e-7` (a ~1.8x drop) is the control result
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section reports
+/// against the redundant-IK/angle-only attribution.
+const CORNER112_RADIUS03_VELOCITY_TOLERANCE: f64 = 1.11e-7;
 
 /// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
 /// comment -- this fixture's poses are the identical "ready, +x, +y corner"
@@ -739,6 +801,113 @@ fn blend_panda_arm_corner112_matches_the_oracle() {
         Tolerances {
             velocity: CORNER112_VELOCITY_TOLERANCE,
             acceleration: CORNER112_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+/// Case F: an 8-point corner-angle sweep (30/60/75/90(A)/100/105/110/112(E)
+/// degrees, `blend_radius`/per-segment speed held fixed at case A's own
+/// values) built to test the case E doc's own prediction that divergence is
+/// monotone in corner angle. It is not: 90° and 100° measure the *lowest*
+/// divergence of the whole sweep, well below both their shallower (75°,
+/// 60°) and sharper (105°, 110°, 112°) neighbors. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for the
+/// full measured table, the radius control, and the refutation verdict.
+///
+/// Case F's own 30 degree sweep point: measures `4.0972e-8` velocity /
+/// `7.7099e-7` acceleration, both comfortably inside
+/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] -- no override needed.
+#[test]
+fn blend_panda_arm_corner30_matches_the_oracle() {
+    run_case("panda_blend_corner30");
+}
+
+/// Case F's 60 degree sweep point. See [`CORNER60_ACCELERATION_TOLERANCE`];
+/// velocity (`6.4188e-8`) stays inside [`VELOCITY_TOLERANCE`] with a
+/// comfortable ~25% margin, no override needed.
+#[test]
+fn blend_panda_arm_corner60_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner60",
+        Tolerances {
+            acceleration: CORNER60_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+/// Case F's 75 degree sweep point -- the sweep's actual local maximum, and
+/// the point that refutes the "monotone in angle" prediction outright: 75°
+/// is shallower than case A's 90°, yet measures higher divergence than case
+/// A, case E (112°), and every sweep point up to 110°. See
+/// [`CORNER75_VELOCITY_TOLERANCE`]/[`CORNER75_ACCELERATION_TOLERANCE`] and
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
+#[test]
+fn blend_panda_arm_corner75_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner75",
+        Tolerances {
+            velocity: CORNER75_VELOCITY_TOLERANCE,
+            acceleration: CORNER75_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+/// Case F's 100 degree sweep point: measures `1.5487e-8` velocity /
+/// `2.9642e-7` acceleration -- the sweep's own minimum, both comfortably
+/// inside [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`], no override
+/// needed. Sits right next to case A (90°, `1.9582e-8`/`2.9061e-7`) at the
+/// bottom of the dip the case-F prediction did not anticipate.
+#[test]
+fn blend_panda_arm_corner100_matches_the_oracle() {
+    run_case("panda_blend_corner100");
+}
+
+/// Case F's 105 degree sweep point. See
+/// [`CORNER105_ACCELERATION_TOLERANCE`]; velocity (`6.6526e-8`) stays inside
+/// [`VELOCITY_TOLERANCE`] with a comfortable ~20% margin, no override
+/// needed.
+#[test]
+fn blend_panda_arm_corner105_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner105",
+        Tolerances {
+            acceleration: CORNER105_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+/// Case F's 110 degree sweep point. See
+/// [`CORNER110_VELOCITY_TOLERANCE`]/[`CORNER110_ACCELERATION_TOLERANCE`].
+#[test]
+fn blend_panda_arm_corner110_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner110",
+        Tolerances {
+            velocity: CORNER110_VELOCITY_TOLERANCE,
+            acceleration: CORNER110_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+/// Case F's radius control: case E's exact 112 degree corner with
+/// `blend_radius` lowered from `0.05` to `0.03`, angle and per-segment speed
+/// held fixed -- the discriminating case the round asked for, isolating
+/// radius from angle. See [`CORNER112_RADIUS03_VELOCITY_TOLERANCE`] and
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for what
+/// this control measures against the angle-only attribution. Acceleration
+/// (`9.2747e-7`) stays inside [`ACCELERATION_TOLERANCE`] with a ~29% margin,
+/// no override needed there.
+#[test]
+fn blend_panda_arm_corner112_radius03_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius03",
+        Tolerances {
+            velocity: CORNER112_RADIUS03_VELOCITY_TOLERANCE,
             ..Tolerances::SHARED
         },
     );

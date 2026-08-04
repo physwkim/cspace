@@ -1,0 +1,748 @@
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "blend_trajectory": [
+      {
+        "accelerations": {
+          "panda_joint1": 4.3616970662975565e-13,
+          "panda_joint2": 0.19919584616839847,
+          "panda_joint3": -2.1939677621381223e-12,
+          "panda_joint4": 0.21904840304292073,
+          "panda_joint5": 6.583973165002533e-13,
+          "panda_joint6": -0.019852556874533356,
+          "panda_joint7": -3.552713678800501e-13
+        },
+        "positions": {
+          "panda_joint1": 6.823102421226328e-13,
+          "panda_joint2": -0.602503493221836,
+          "panda_joint3": -1.4952568946742165e-12,
+          "panda_joint4": -2.2388806103391543,
+          "panda_joint5": 2.8023996898862536e-13,
+          "panda_joint6": 1.636377117117318,
+          "panda_joint7": 0.785000000000816
+        },
+        "time_from_start": 0.1,
+        "velocities": {
+          "panda_joint1": 1.1652758005204449e-12,
+          "panda_joint2": 0.33068885297655504,
+          "panda_joint3": -2.8273926128659212e-12,
+          "panda_joint4": 0.23175825006795492,
+          "panda_joint5": 5.691673638447983e-13,
+          "panda_joint6": 0.09893060290860012,
+          "panda_joint7": 1.2045919817182948e-12
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.007183994044550761,
+          "panda_joint2": 0.592414991285517,
+          "panda_joint3": 0.017133785392969482,
+          "panda_joint4": 0.5279489542925564,
+          "panda_joint5": 0.009170285969867221,
+          "panda_joint6": 0.06446195375822139,
+          "panda_joint7": 0.020975248868493335
+        },
+        "positions": {
+          "panda_joint1": 7.183994124434543e-05,
+          "panda_joint2": -0.5635104580113254,
+          "panda_joint3": 0.00017133785215169868,
+          "panda_joint4": -2.2104252957894333,
+          "panda_joint5": 9.170286003582893e-05,
+          "panda_joint6": 1.6469147969457603,
+          "panda_joint7": 0.7852097524896214
+        },
+        "time_from_start": 0.2,
+        "velocities": {
+          "panda_joint1": 0.0007183994056203519,
+          "panda_joint2": 0.38993035210510674,
+          "panda_joint3": 0.0017133785364695558,
+          "panda_joint4": 0.28455314549721056,
+          "panda_joint5": 0.0009170285975558895,
+          "panda_joint6": 0.10537679828442226,
+          "panda_joint7": 0.0020975248880539255
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.06205242022760147,
+          "panda_joint2": -0.029821704924769547,
+          "panda_joint3": 0.14393097518969497,
+          "panda_joint4": 0.09986194213409462,
+          "panda_joint5": 0.07127241026601985,
+          "panda_joint6": -0.12961019167538876,
+          "panda_joint7": 0.18104953092676906
+        },
+        "positions": {
+          "panda_joint1": 0.0007642040840823952,
+          "panda_joint2": -0.5248156398500624,
+          "panda_joint3": 0.0017819854576956035,
+          "panda_joint4": -2.1809713618183713,
+          "panda_joint5": 0.0008961298224516162,
+          "panda_joint6": 1.6561563748574486,
+          "panda_joint7": 0.7872300002876945
+        },
+        "time_from_start": 0.30000000000000004,
+        "velocities": {
+          "panda_joint1": 0.006923641428380499,
+          "panda_joint2": 0.3869481816126298,
+          "panda_joint3": 0.01610647605543905,
+          "panda_joint4": 0.29453933971062,
+          "panda_joint5": 0.008044269624157874,
+          "panda_joint6": 0.09241577911688338,
+          "panda_joint7": 0.02020247798073083
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.16973678844786458,
+          "panda_joint2": -1.1737652588265057,
+          "panda_joint3": 0.37568177610058273,
+          "panda_joint4": -0.8202073468631013,
+          "panda_joint5": 0.17278100110722858,
+          "panda_joint6": -0.35267428164376147,
+          "panda_joint7": 0.4873506408393011
+        },
+        "positions": {
+          "panda_joint1": 0.0031539361113990918,
+          "panda_joint2": -0.4978584742770645,
+          "panda_joint3": 0.007149450824245338,
+          "panda_joint4": -2.1597195013159403,
+          "panda_joint5": 0.0034283667959396904,
+          "panda_joint6": 1.6618712099526993,
+          "panda_joint7": 0.7941237544941606
+        },
+        "time_from_start": 0.4,
+        "velocities": {
+          "panda_joint1": 0.023897320273166957,
+          "panda_joint2": 0.2695716557299792,
+          "panda_joint3": 0.05367465366549733,
+          "panda_joint4": 0.2125186050243099,
+          "panda_joint5": 0.025322369734880733,
+          "panda_joint6": 0.05714835095250723,
+          "panda_joint7": 0.06893754206466093
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.27301019465690896,
+          "panda_joint2": -1.5986094800764612,
+          "panda_joint3": 0.5681201864239672,
+          "panda_joint4": -1.2362919385899385,
+          "panda_joint5": 0.2590633361998244,
+          "panda_joint6": -0.35778112025004444,
+          "panda_joint7": 0.7544091324717345
+        },
+        "positions": {
+          "panda_joint1": 0.008273770085284876,
+          "panda_joint2": -0.4868874035048312,
+          "panda_joint3": 0.01819811805503474,
+          "panda_joint4": -2.1508305601994087,
+          "panda_joint5": 0.008551237131426007,
+          "panda_joint6": 1.6640082338454496,
+          "panda_joint7": 0.808561600025344
+        },
+        "time_from_start": 0.5,
+        "velocities": {
+          "panda_joint1": 0.05119833973885785,
+          "panda_joint2": 0.10971070772233307,
+          "panda_joint3": 0.11048667230789405,
+          "panda_joint4": 0.08888941116531603,
+          "panda_joint5": 0.051228703354863174,
+          "panda_joint6": 0.021370238927502786,
+          "panda_joint7": 0.14437845531183438
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.26712376732298215,
+          "panda_joint2": -1.095194044215159,
+          "panda_joint3": 0.5291303905012513,
+          "panda_joint4": -0.8641564341602684,
+          "panda_joint5": 0.2552755732833704,
+          "panda_joint6": -0.21959099157418124,
+          "panda_joint7": 0.7083372881855126
+        },
+        "positions": {
+          "panda_joint1": 0.01606484173240048,
+          "panda_joint2": -0.48686827317474946,
+          "panda_joint3": 0.03453808919083665,
+          "panda_joint4": -2.1505831834244797,
+          "panda_joint5": 0.016226863199746026,
+          "panda_joint6": 1.663949347822458,
+          "panda_joint7": 0.8300828184383826
+        },
+        "time_from_start": 0.6,
+        "velocities": {
+          "panda_joint1": 0.07791071647115606,
+          "panda_joint2": 0.00019130330081718055,
+          "panda_joint3": 0.16339971135801917,
+          "panda_joint4": 0.0024737677492892023,
+          "panda_joint5": 0.07675626068320021,
+          "panda_joint6": -0.0005888602299153335,
+          "panda_joint7": 0.21521218413038562
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.038777639963301365,
+          "panda_joint2": -0.34222175658916737,
+          "panda_joint3": 0.06074491453968629,
+          "panda_joint4": -0.25956229854067214,
+          "panda_joint5": 0.04357515290568507,
+          "panda_joint6": -0.07070069684722571,
+          "panda_joint7": 0.0823548365776361
+        },
+        "positions": {
+          "panda_joint1": 0.024243689779149098,
+          "panda_joint2": -0.4902713604105594,
+          "panda_joint3": 0.05148550947203543,
+          "panda_joint4": -2.1529314296349575,
+          "panda_joint5": 0.024338240797122896,
+          "panda_joint6": 1.6631834548309943,
+          "panda_joint7": 0.8524275852171975
+        },
+        "time_from_start": 0.7,
+        "velocities": {
+          "panda_joint1": 0.0817884804674862,
+          "panda_joint2": -0.03403087235809955,
+          "panda_joint3": 0.1694742028119878,
+          "panda_joint4": -0.02348246210477801,
+          "panda_joint5": 0.08111377597376872,
+          "panda_joint6": -0.007658929914637904,
+          "panda_joint7": 0.22344766778814923
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.10809041252326841,
+          "panda_joint2": 0.0608387109897915,
+          "panda_joint3": -0.22381870431983855,
+          "panda_joint4": 0.05759831444920338,
+          "panda_joint5": -0.10032772831519651,
+          "panda_joint6": 0.008855559796283682,
+          "panda_joint7": -0.29824741062325566
+        },
+        "positions": {
+          "panda_joint1": 0.03134163370066504,
+          "panda_joint2": -0.49306606053647145,
+          "panda_joint3": 0.06619474271003584,
+          "panda_joint4": -2.1547036927009433,
+          "panda_joint5": 0.03144634111134781,
+          "panda_joint6": 1.6625061174374933,
+          "panda_joint7": 0.8717898778897799
+        },
+        "time_from_start": 0.7999999999999999,
+        "velocities": {
+          "panda_joint1": 0.07097943921515935,
+          "panda_joint2": -0.027947001259120394,
+          "panda_joint3": 0.14709233238000394,
+          "panda_joint4": -0.017722630659857668,
+          "panda_joint5": 0.07108100314224906,
+          "panda_joint6": -0.006773373935009535,
+          "panda_joint7": 0.19362292672582365
+        }
+      }
+    ],
+    "error_code": 1,
+    "first_intersection_index": 8,
+    "first_trajectory": [
+      {
+        "accelerations": {
+          "panda_joint1": 0.0,
+          "panda_joint2": 0.0,
+          "panda_joint3": 0.0,
+          "panda_joint4": 0.0,
+          "panda_joint5": 0.0,
+          "panda_joint6": 0.0,
+          "panda_joint7": 0.0
+        },
+        "positions": {
+          "panda_joint1": 0.0,
+          "panda_joint2": -0.785,
+          "panda_joint3": 0.0,
+          "panda_joint4": -2.356,
+          "panda_joint5": 0.0,
+          "panda_joint6": 1.571,
+          "panda_joint7": 0.785
+        },
+        "time_from_start": 0.0,
+        "velocities": {
+          "panda_joint1": 0.0,
+          "panda_joint2": 0.0,
+          "panda_joint3": 0.0,
+          "panda_joint4": 0.0,
+          "panda_joint5": 0.0,
+          "panda_joint6": 0.0,
+          "panda_joint7": 0.0
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 1.4254769423160515e-12,
+          "panda_joint2": 0.35459736819648535,
+          "panda_joint3": -2.7665505945552534e-12,
+          "panda_joint4": 0.20224053770547812,
+          "panda_joint5": 4.991219874806415e-13,
+          "panda_joint6": 0.15235683049099613,
+          "panda_joint7": 1.920685832601521e-12
+        },
+        "positions": {
+          "panda_joint1": 1.4254769423160516e-14,
+          "panda_joint2": -0.7814540263180352,
+          "panda_joint3": -2.7665505945552535e-14,
+          "panda_joint4": -2.353977594622945,
+          "panda_joint5": 4.991219874806415e-15,
+          "panda_joint6": 1.57252356830491,
+          "panda_joint7": 0.7850000000000192
+        },
+        "time_from_start": 0.1,
+        "velocities": {
+          "panda_joint1": 1.4254769423160515e-13,
+          "panda_joint2": 0.035459736819648535,
+          "panda_joint3": -2.7665505945552534e-13,
+          "panda_joint4": 0.020224053770547812,
+          "panda_joint5": 4.991219874806415e-14,
+          "panda_joint6": 0.015235683049099613,
+          "panda_joint7": 1.9206858326015208e-13
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 2.8225871305970776e-12,
+          "panda_joint2": 0.7082217087217568,
+          "panda_joint3": -5.5373891535903124e-12,
+          "panda_joint4": 0.4117034125251884,
+          "panda_joint5": 1.0040853288481146e-12,
+          "panda_joint6": 0.29651829619659065,
+          "panda_joint7": 3.796962744218035e-12
+        },
+        "positions": {
+          "panda_joint1": 5.6735410152291806e-14,
+          "panda_joint2": -0.7708258355488528,
+          "panda_joint3": -1.1070490342700819e-13,
+          "panda_joint4": -2.3478381551206384,
+          "panda_joint5": 2.002329303809398e-14,
+          "panda_joint6": 1.5770123195717858,
+          "panda_joint7": 0.7850000000000764
+        },
+        "time_from_start": 0.2,
+        "velocities": {
+          "panda_joint1": 4.248064072913129e-13,
+          "panda_joint2": 0.10628190769182422,
+          "panda_joint3": -8.303939748145566e-13,
+          "panda_joint4": 0.06139439502306665,
+          "panda_joint5": 1.5032073163287562e-13,
+          "panda_joint6": 0.04488751266875868,
+          "panda_joint7": 5.717648576819556e-13
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 2.7379815264677767e-12,
+          "panda_joint2": 0.7061523379901513,
+          "panda_joint3": -5.6255034136243325e-12,
+          "panda_joint4": 0.42653696200045665,
+          "panda_joint5": 1.0028807837084413e-12,
+          "panda_joint6": 0.27961537598966135,
+          "panda_joint7": 3.5416114485542494e-12
+        },
+        "positions": {
+          "panda_joint1": 1.2659586614610086e-13,
+          "panda_joint2": -0.7531361213997688,
+          "panda_joint3": -2.499993350447072e-13,
+          "panda_joint4": -2.337433345998327,
+          "panda_joint5": 4.508417403846596e-14,
+          "panda_joint6": 1.5842972245985583,
+          "panda_joint7": 0.785000000000169
+        },
+        "time_from_start": 0.30000000000000004,
+        "velocities": {
+          "panda_joint1": 6.986045599380906e-13,
+          "panda_joint2": 0.17689714149083935,
+          "panda_joint3": -1.3929443161769899e-12,
+          "panda_joint4": 0.10404809122311232,
+          "panda_joint5": 2.5060881000371977e-13,
+          "panda_joint6": 0.07284905026772481,
+          "panda_joint7": 9.259260025373806e-13
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 2.596343061544965e-12,
+          "panda_joint2": 0.7021915293957126,
+          "panda_joint3": -5.767058047798566e-12,
+          "panda_joint4": 0.4538026135353146,
+          "panda_joint5": 1.0274300531714796e-12,
+          "panda_joint6": 0.24838891586043133,
+          "panda_joint7": 3.0975222387041867e-12
+        },
+        "positions": {
+          "panda_joint1": 2.2241975275535958e-13,
+          "panda_joint2": -0.7284244919567278,
+          "panda_joint3": -4.469643471403918e-13,
+          "panda_joint4": -2.322490510740663,
+          "panda_joint5": 8.041935557055273e-14,
+          "panda_joint6": 1.594066018783935,
+          "panda_joint7": 0.7850000000002926
+        },
+        "time_from_start": 0.4,
+        "velocities": {
+          "panda_joint1": 9.58238866092587e-13,
+          "panda_joint2": 0.2471162944304106,
+          "panda_joint3": -1.9696501209568464e-12,
+          "panda_joint4": 0.14942835257664377,
+          "panda_joint5": 3.5335181532086773e-13,
+          "panda_joint6": 0.09768794185376795,
+          "panda_joint7": 1.2356782264077992e-12
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 2.0099747154050895e-12,
+          "panda_joint2": 0.5880763933537536,
+          "panda_joint3": -5.075208900066036e-12,
+          "panda_joint4": 0.4217731912845579,
+          "panda_joint5": 9.47034156851743e-13,
+          "panda_joint6": 0.16630320206916238,
+          "panda_joint7": 1.9984014443252818e-12
+        },
+        "positions": {
+          "panda_joint1": 3.383433865186692e-13,
+          "panda_joint2": -0.6978320985801492,
+          "panda_joint3": -6.946814482367368e-13,
+          "panda_joint4": -2.303329943570153,
+          "panda_joint5": 1.2522487867115694e-13,
+          "panda_joint6": 1.6054978449900035,
+          "panda_joint7": 0.7850000000004361
+        },
+        "time_from_start": 0.5,
+        "velocities": {
+          "panda_joint1": 1.159236337633096e-12,
+          "panda_joint2": 0.30592393376578597,
+          "panda_joint3": -2.47717101096345e-12,
+          "panda_joint4": 0.19160567170509957,
+          "panda_joint5": 4.4805523100604204e-13,
+          "panda_joint6": 0.11431826206068418,
+          "panda_joint7": 1.4355183708403274e-12
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -6.502411971374237e-14,
+          "panda_joint2": 0.059039984810749235,
+          "panda_joint3": -9.319500389331578e-13,
+          "panda_joint4": 0.1127600077326818,
+          "panda_joint5": 2.960067612907087e-13,
+          "panda_joint6": -0.05372002292192146,
+          "panda_joint7": -8.104628079763643e-13
+        },
+        "positions": {
+          "panda_joint1": 4.5361677908484137e-13,
+          "panda_joint2": -0.6666493053554631,
+          "panda_joint3": -9.517180497224134e-13,
+          "panda_joint4": -2.283041776322316,
+          "panda_joint5": 1.7299046938466823e-13,
+          "panda_joint6": 1.6163924709668527,
+          "panda_joint7": 0.7850000000005716
+        },
+        "time_from_start": 0.6,
+        "velocities": {
+          "panda_joint1": 1.1527339256617218e-12,
+          "panda_joint2": 0.3118279322468609,
+          "panda_joint3": -2.570366014856766e-12,
+          "panda_joint4": 0.20288167247836775,
+          "panda_joint5": 4.776559071351129e-13,
+          "panda_joint6": 0.10894625976849204,
+          "panda_joint7": 1.354472090042691e-12
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -3.1075095804252463e-13,
+          "panda_joint2": -0.010586638871457055,
+          "panda_joint3": -3.7629821795343184e-13,
+          "panda_joint4": 0.06971737285295099,
+          "panda_joint5": 2.5671725059660015e-13,
+          "panda_joint6": -0.08030401172438584,
+          "panda_joint7": -1.1435297153639112e-12
+        },
+        "positions": {
+          "panda_joint1": 5.657826620705883e-13,
+          "panda_joint2": -0.6355723785194916,
+          "panda_joint3": -1.2125176333876243e-12,
+          "panda_joint4": -2.26205643534595,
+          "panda_joint5": 2.2332323260414553e-13,
+          "panda_joint6": 1.626484056826458,
+          "panda_joint7": 0.7850000000006956
+        },
+        "time_from_start": 0.7,
+        "velocities": {
+          "panda_joint1": 1.1216588298574693e-12,
+          "panda_joint2": 0.3107692683597152,
+          "panda_joint3": -2.607995836652109e-12,
+          "panda_joint4": 0.20985340976366285,
+          "panda_joint5": 5.033276321947729e-13,
+          "panda_joint6": 0.10091585859605345,
+          "panda_joint7": 1.2401191185062999e-12
+        }
+      }
+    ],
+    "first_trajectory_input_waypoint_count": 16,
+    "group_variable_names": [
+      "panda_joint1",
+      "panda_joint2",
+      "panda_joint3",
+      "panda_joint4",
+      "panda_joint5",
+      "panda_joint6",
+      "panda_joint7"
+    ],
+    "sampling_time": 0.1,
+    "second_intersection_index": 7,
+    "second_trajectory": [
+      {
+        "accelerations": {
+          "panda_joint1": -0.0005440856442759379,
+          "panda_joint2": 0.06374920508250836,
+          "panda_joint3": 0.004932256078797048,
+          "panda_joint4": 0.06255250907294396,
+          "panda_joint5": 0.0037587135790125015,
+          "panda_joint6": 0.00913635808386104,
+          "panda_joint7": 0.003382456679157375
+        },
+        "positions": {
+          "panda_joint1": 0.038522022675774384,
+          "panda_joint2": -0.49503610657695946,
+          "panda_joint3": 0.07973577290968716,
+          "panda_joint4": -2.1557404327703535,
+          "panda_joint5": 0.038006393576032145,
+          "panda_joint6": 1.661967934669915,
+          "panda_joint7": 0.890257227102304
+        },
+        "time_from_start": 0.1,
+        "velocities": {
+          "panda_joint1": 0.06686621210835852,
+          "panda_joint2": -0.019851726188297447,
+          "panda_joint3": 0.13920139641902057,
+          "panda_joint4": -0.010352903502957034,
+          "panda_joint5": 0.06740820879505789,
+          "panda_joint6": -0.005448198593742681,
+          "panda_joint7": 0.18291025562948038
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.001628572883127788,
+          "panda_joint2": 0.06402639675487376,
+          "panda_joint3": 0.004842907846215605,
+          "panda_joint4": 0.06250525427553555,
+          "panda_joint5": 0.0012830408240266378,
+          "panda_joint6": 0.0095069849569418,
+          "panda_joint7": 0.0036276324685724504
+        },
+        "positions": {
+          "panda_joint1": 0.04519235815777896,
+          "panda_joint2": -0.49638101522824046,
+          "panda_joint3": 0.09370434163005137,
+          "panda_joint4": -2.156150670577894,
+          "panda_joint5": 0.0447600448637782,
+          "panda_joint6": 1.6615181846601101,
+          "panda_joint7": 0.9085845289899378
+        },
+        "time_from_start": 0.2,
+        "velocities": {
+          "panda_joint1": 0.06670335482004575,
+          "panda_joint2": -0.013449086512810071,
+          "panda_joint3": 0.13968568720364213,
+          "panda_joint4": -0.004102378075403479,
+          "panda_joint5": 0.06753651287746056,
+          "panda_joint6": -0.004497500098048501,
+          "panda_joint7": 0.18327301887633762
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.002730987813399227,
+          "panda_joint2": 0.06426205695923004,
+          "panda_joint3": 0.004762706684104112,
+          "panda_joint4": 0.062456198129146046,
+          "panda_joint5": -0.0012112410856725264,
+          "panda_joint6": 0.009799412211397573,
+          "panda_joint7": 0.003871451808001858
+        },
+        "positions": {
+          "panda_joint1": 0.05183538376164954,
+          "panda_joint2": -0.49708330330992917,
+          "panda_joint3": 0.10772053741725662,
+          "panda_joint4": -2.155936346404143,
+          "panda_joint5": 0.05150158374066753,
+          "panda_joint6": 1.6611664287724193,
+          "panda_joint7": 0.9269505453956516
+        },
+        "time_from_start": 0.30000000000000004,
+        "velocities": {
+          "panda_joint1": 0.06643025603870582,
+          "panda_joint2": -0.007022880816887067,
+          "panda_joint3": 0.14016195787205254,
+          "panda_joint4": 0.0021432417375111257,
+          "panda_joint5": 0.0674153887688933,
+          "panda_joint6": -0.003517558876908744,
+          "panda_joint7": 0.1836601640571378
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.07793278900313227,
+          "panda_joint2": 0.0618815796764538,
+          "panda_joint3": -0.1537361393286002,
+          "panda_joint4": 0.049861286781016645,
+          "panda_joint5": -0.07887636901061368,
+          "panda_joint6": 0.012336676383628564,
+          "panda_joint7": -0.20318079387076082
+        },
+        "positions": {
+          "panda_joint1": 0.0576990814754888,
+          "panda_joint2": -0.49716677559485334,
+          "panda_joint3": 0.12019937181117588,
+          "panda_joint4": -2.1552234093625815,
+          "panda_joint5": 0.057454358927450724,
+          "panda_joint6": 1.6609380396485647,
+          "panda_joint7": 0.9432847538626578
+        },
+        "time_from_start": 0.4,
+        "velocities": {
+          "panda_joint1": 0.058636977138392596,
+          "panda_joint2": -0.0008347228492416869,
+          "panda_joint3": 0.12478834393919253,
+          "panda_joint4": 0.00712937041561279,
+          "panda_joint5": 0.059527751867831935,
+          "panda_joint6": -0.0022838912385458876,
+          "panda_joint7": 0.16334208467006173
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.15110067272628147,
+          "panda_joint2": 0.03527610552060967,
+          "panda_joint3": -0.31397192663267237,
+          "panda_joint4": 0.013945525226155553,
+          "panda_joint5": -0.1538793777536393,
+          "panda_joint6": 0.01099016853738366,
+          "panda_joint7": -0.41188745015967587
+        },
+        "positions": {
+          "panda_joint1": 0.062051772462065245,
+          "panda_joint2": -0.4968974868245714,
+          "panda_joint3": 0.1295384869387684,
+          "panda_joint4": -2.1543710170687587,
+          "panda_joint5": 0.061868340336697525,
+          "panda_joint6": 1.660819552210084,
+          "panda_joint7": 0.9555000878280672
+        },
+        "time_from_start": 0.5000000010000001,
+        "velocities": {
+          "panda_joint1": 0.04352690986576445,
+          "panda_joint2": 0.00269288770281928,
+          "panda_joint3": 0.09339115127592529,
+          "panda_joint4": 0.008523922938228345,
+          "panda_joint5": 0.044139814092468005,
+          "panda_joint6": -0.0011848743848075216,
+          "panda_joint7": 0.12215333965409414
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.1491416924089689,
+          "panda_joint2": 0.006416122309854666,
+          "panda_joint3": -0.3160683692293026,
+          "panda_joint4": -0.013952102073977457,
+          "panda_joint5": -0.15170548084188773,
+          "panda_joint6": 0.006475613882384046,
+          "panda_joint7": -0.4137754885850775
+        },
+        "positions": {
+          "panda_joint1": 0.064913046524552,
+          "panda_joint2": -0.49656403683119094,
+          "panda_joint3": 0.1357169183740679,
+          "panda_joint4": -2.1536581457956756,
+          "panda_joint5": 0.06476526693752545,
+          "panda_joint6": 1.660765820910427,
+          "panda_joint7": 0.9635776669076258
+        },
+        "time_from_start": 0.6000000010000001,
+        "velocities": {
+          "panda_joint1": 0.028612740624867558,
+          "panda_joint2": 0.0033344999338047465,
+          "panda_joint3": 0.06178431435299503,
+          "panda_joint4": 0.0071287127308306,
+          "panda_joint5": 0.028969266008279232,
+          "panda_joint6": -0.000537312996569117,
+          "panda_joint7": 0.08077579079558639
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": -0.14742883694315104,
+          "panda_joint2": -0.014141009965534801,
+          "panda_joint3": -0.3175304208679036,
+          "panda_joint4": -0.03376572906002018,
+          "panda_joint5": -0.14937346308661476,
+          "panda_joint6": 0.003237604241257408,
+          "panda_joint7": -0.41520584451449905
+        },
+        "positions": {
+          "panda_joint1": 0.06630003221760725,
+          "panda_joint2": -0.4963719969374658,
+          "panda_joint3": 0.13872004560068837,
+          "panda_joint4": -2.1532829318131927,
+          "panda_joint5": 0.06616845890748722,
+          "panda_joint6": 1.6607444656531827,
+          "panda_joint7": 0.9675031875420395
+        },
+        "time_from_start": 0.700000001,
+        "velocities": {
+          "panda_joint1": 0.013869856930552454,
+          "panda_joint2": 0.0019203989372512664,
+          "panda_joint3": 0.030031272266204667,
+          "panda_joint4": 0.003752139824828582,
+          "panda_joint5": 0.014031919699617756,
+          "panda_joint6": -0.00021355257244337622,
+          "panda_joint7": 0.039255206344136484
+        }
+      },
+      {
+        "accelerations": {
+          "panda_joint1": 0.0,
+          "panda_joint2": 0.0,
+          "panda_joint3": 0.0,
+          "panda_joint4": 0.0,
+          "panda_joint5": 0.0,
+          "panda_joint6": 0.0,
+          "panda_joint7": 0.0
+        },
+        "positions": {
+          "panda_joint1": 0.06644347410547662,
+          "panda_joint2": -0.4963342372135638,
+          "panda_joint3": 0.13903530461411248,
+          "panda_joint4": -2.1532266871560193,
+          "panda_joint5": 0.06631273026606084,
+          "panda_joint6": 1.6607450211970018,
+          "panda_joint7": 0.9679149988429007
+        },
+        "time_from_start": 0.74444447,
+        "velocities": {
+          "panda_joint1": 0.0,
+          "panda_joint2": 0.0,
+          "panda_joint3": 0.0,
+          "panda_joint4": 0.0,
+          "panda_joint5": 0.0,
+          "panda_joint6": 0.0,
+          "panda_joint7": 0.0
+        }
+      }
+    ],
+    "second_trajectory_input_waypoint_count": 16,
+    "stage": "blend"
+  }
+}
