@@ -436,7 +436,10 @@ mod tests {
         let mut sc = scene(&model);
         let msg = base_attached(OCTOMAP_NS, "tip", model.model_frame(), 0);
         let err = apply_attached_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `apply_attached_collision_object` has 4 more
+        // sibling Error::Other sites (`move_is_rejected` below and the two
+        // no-geometry checks `assert_err_mentions`-tested further down).
+        assert!(err.to_string().contains("name reserved"), "got: {err:?}");
     }
 
     #[test]
@@ -445,7 +448,11 @@ mod tests {
         let mut sc = scene(&model);
         let msg = base_attached("box", "tip", model.model_frame(), 3);
         let err = apply_attached_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: sibling of `octomap_ns_is_rejected` above.
+        assert!(
+            err.to_string().contains("not yet implemented"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -598,7 +605,14 @@ mod tests {
         msg.object.subframe_names = vec!["a".to_string(), "b".to_string()];
         msg.object.subframe_poses = vec![identity_pose()];
         let err = apply_attached_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `shapes_and_poses_from_collision_object`
+        // (`parallel_shapes`, imported from `collision_object.rs`) is a
+        // sibling Error::Construct site, reachable through the same
+        // `shapes_from_message_geometry` call.
+        assert!(
+            err.to_string().contains("subframe_names has length"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -628,7 +642,14 @@ mod tests {
             base_attached("box", "tip", model.model_frame(), 1),
         )
         .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `PlanningScene::detach`'s own "world already
+        // has an object with that name" site, and `apply_detach`'s own
+        // link-name-mismatch site (`detach_link_name_mismatch_is_rejected`
+        // below), are siblings.
+        assert!(
+            err.to_string().contains("no attached body named"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -645,7 +666,12 @@ mod tests {
             base_attached("box", "mid", model.model_frame(), 1),
         )
         .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: sibling of `detach_unknown_id_is_rejected`
+        // above.
+        assert!(
+            err.to_string().contains("is actually attached to"),
+            "got: {err:?}"
+        );
         assert!(
             sc.has_attached_body("box"),
             "rejected detach must leave the body attached"

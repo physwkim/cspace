@@ -629,7 +629,13 @@ mod tests {
             let mut sc = scene(&model);
             let msg = base_object(OCTOMAP_NS, model.model_frame(), op);
             let err = apply_collision_object(&mut sc, msg).unwrap_err();
-            assert!(matches!(err, Error::Other(_)), "op={op}, got: {err:?}");
+            // Not just the variant: `apply_add`'s own no-shapes check (hit by
+            // `add_with_no_geometry_is_rejected` below) is a sibling
+            // Error::Other site.
+            assert!(
+                err.to_string().contains("name reserved"),
+                "op={op}, got: {err:?}"
+            );
         }
     }
 
@@ -698,7 +704,13 @@ mod tests {
         msg.primitives = vec![];
         msg.primitive_poses = vec![];
         let err = apply_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `apply_collision_object`'s own OCTOMAP_NS
+        // check (hit by `octomap_ns_is_rejected_for_every_operation` above)
+        // is a sibling Error::Other site.
+        assert!(
+            err.to_string().contains("no shapes specified"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -708,7 +720,16 @@ mod tests {
         let mut msg = base_object("box", model.model_frame(), ADD);
         msg.primitive_poses.push(identity_pose());
         let err = apply_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `subframes_from_parallel_arrays` (hit by
+        // `add_with_mismatched_subframe_array_lengths_is_rejected` below) and
+        // the generic Pose conversion (hit by
+        // `move_shape_repose_with_malformed_pose_is_rejected` below) are
+        // sibling Error::Construct sites.
+        assert!(
+            err.to_string()
+                .contains("CollisionObject.primitives has length"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -809,7 +830,14 @@ mod tests {
         let mut sc = scene(&model);
         let err = apply_collision_object(&mut sc, base_object("box", model.model_frame(), REMOVE))
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `apply_collision_object`'s own OCTOMAP_NS
+        // check, `apply_add`'s own no-shapes check, and `apply_move`'s two
+        // sites are sibling Error::Other sites reachable through the same
+        // entry point via other operations/inputs.
+        assert!(
+            err.to_string().contains("tried to remove world object"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -971,7 +999,15 @@ mod tests {
         msg.subframe_names = vec!["a".to_string(), "b".to_string()];
         msg.subframe_poses = vec![identity_pose()];
         let err = apply_collision_object(&mut sc, msg).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `parallel_shapes` (hit by
+        // `more_poses_than_primitives_is_rejected` above) and the generic
+        // Pose conversion (hit by
+        // `move_shape_repose_with_malformed_pose_is_rejected` below) are
+        // sibling Error::Construct sites.
+        assert!(
+            err.to_string().contains("subframe_names has length"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -1002,6 +1038,15 @@ mod tests {
             },
         }];
         let err = apply_collision_object(&mut sc, mv).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `parallel_shapes` (hit by
+        // `more_poses_than_primitives_is_rejected` above) and
+        // `subframes_from_parallel_arrays` (hit by
+        // `add_with_mismatched_subframe_array_lengths_is_rejected` above) are
+        // sibling Error::Construct sites.
+        assert!(
+            err.to_string()
+                .contains("too close to zero (or non-finite) to have a unit-norm representative"),
+            "got: {err:?}"
+        );
     }
 }
