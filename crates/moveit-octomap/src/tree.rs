@@ -265,15 +265,25 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `computeDiscreteUpdate(...)` -- distinct: no moveit2 sensor updater
 ///   calls it, both hand-roll their own key-set bookkeeping using the
 ///   lower-level primitives this crate does port instead.
-/// - `readBinaryData(std::istream&)` -- distinct, binary stream IO
-///   (octrees enter this workspace only via ROS messages, never
-///   `.bt`/`.ot` files).
-/// - `readBinaryNode(std::istream&, NODE*)` -- distinct, same IO
-///   reasoning.
+/// - `readBinaryData(std::istream&)` -- distinct: not yet ported. Commit
+///   `91bec85`'s framing here ("octrees enter this workspace only via ROS
+///   messages, never `.bt`/`.ot` files") had the ROS-message case exactly
+///   backwards -- checked against `octomap_msgs/conversions.h` (ROS
+///   rolling, `octomap_msgs` 2.0.1) this round: `binaryMapToMsg`/`readTree`
+///   call `writeBinaryData`/`readBinaryData` directly on a header-less
+///   stringstream to fill `moveit_msgs::Octomap.data` whenever `msg.binary
+///   == true`. This *is* the algorithm an `Octomap.data` decoder needs, not
+///   something only `.bt` files use. See `lib.rs`, "Round 27, item 1(a)"
+///   for the byte format itself and why nothing is ported yet. Reopens when
+///   a caller in this workspace needs to decode/encode
+///   `moveit_msgs::Octomap.data` -- p9-ros is such a caller, currently
+///   blocked on exactly this (round 27).
+/// - `readBinaryNode(std::istream&, NODE*)` -- distinct, same correction
+///   and reopening condition.
 /// - `writeBinaryNode(std::ostream&, const NODE*) const` -- distinct, same
-///   IO reasoning.
-/// - `writeBinaryData(std::ostream&) const` -- distinct, same IO
-///   reasoning.
+///   correction and reopening condition.
+/// - `writeBinaryData(std::ostream&) const` -- distinct, same correction
+///   and reopening condition.
 /// - `updateInnerOccupancy()` -- ported as
 ///   [`OcTree::update_inner_occupancy`].
 /// - `integrateHit(NODE*) const` -- distinct, inlined into
@@ -392,9 +402,14 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `computeRay(const point3d&, const point3d&, std::vector<point3d>&)`
 ///   -- distinct: zero consumer, and upstream's own doc says "use the
 ///   faster computeRayKeys method if possible".
-/// - `readData(std::istream&)` -- distinct, binary stream IO, same
-///   reasoning as `readBinaryData` above.
-/// - `writeData(std::ostream&) const` -- distinct, same IO reasoning.
+/// - `readData(std::istream&)` -- distinct: not yet ported, same correction
+///   as `readBinaryData` above -- `octomap_msgs/conversions.h`'s
+///   `fullMapToMsg`/`fullMsgToMap` call `writeData`/`readData` directly
+///   (via `OcTreeBaseImpl`) to fill `moveit_msgs::Octomap.data` when
+///   `msg.binary == false`, the full (non-quantized) counterpart of the
+///   binary path above. Same reopening condition.
+/// - `writeData(std::ostream&) const` -- distinct, same correction and
+///   reopening condition.
 /// - `typedef leaf_iterator iterator` / `begin(unsigned char) const` --
 ///   ported as [`OcTree::leaves`] (upstream's default iterator *is*
 ///   `leaf_iterator`, the same primitive `begin_leafs` below returns).

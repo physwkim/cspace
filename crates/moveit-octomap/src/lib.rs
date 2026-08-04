@@ -431,6 +431,132 @@
 //!    ground truth here without needing an oracle round-trip. No new
 //!    fixture added for any of the five.
 
+//! # Round 27, item 1(a): `moveit_msgs::Octomap.data`'s wire format
+//!
+//! p9-ros is blocked on decoding `moveit_msgs::Octomap.data` (empty-payload
+//! no-op, error on non-empty, "별도 기능 규모" -- an unmeasured sizing
+//! judgment). This crate owns octomap; answering it is this round's item
+//! 1(a). The `readBinaryData`/`writeBinaryData`/`readBinaryNode`/
+//! `writeBinaryNode`/`readData`/`writeData` bullets in [`OcTree`]'s own
+//! audit above were, until this round, classified `distinct` on the
+//! premise "octrees enter this workspace only via ROS messages, never
+//! `.bt`/`.ot` files" -- backwards, corrected in place there. What follows
+//! is what was actually read to correct it.
+//!
+//! **Source.** `octomap/OccupancyOcTreeBase.hxx` and
+//! `octomap/OcTreeBaseImpl.hxx` are not in either header cache this crate
+//! has used before (`OccupancyOcTreeBase.h` only forward-declares these
+//! methods and `#include`s the `.hxx` at its own line 506 for the template
+//! body) -- fetched fresh this round from inside the `moveit-rs` oracle
+//! container (`moveit-rs/oracle:a75076d8ca13d25b`,
+//! `/usr/include/octomap/{OccupancyOcTreeBase,OcTreeBaseImpl,OcTreeDataNode}.hxx`),
+//! same package already pinned by this crate (`dpkg -s liboctomap-dev` in
+//! that container: `1.9.7+dfsg-3.1build3`, matching `key.rs`'s existing
+//! provenance exactly, not a new version to verify). The ROS-side wiring
+//! (`octomap_msgs::msg::Octomap`, `octomap_msgs/conversions.h`) is a
+//! citation this crate has not made before: same container,
+//! `/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h`,
+//! package `ros-rolling-octomap-msgs 2.0.1-1noble.20260113.095330`
+//! (`dpkg -s`), matching `package.xml`'s `<version>2.0.1</version>`.
+//!
+//! **`Octomap.msg`:**
+//!
+//! ```text
+//! std_msgs/Header header
+//! bool binary        # true: compact free/occupied only (.bt); false: full probabilities (.ot)
+//! string id          # octree class, e.g. "OcTree" or "ColorOcTree"
+//! float64 resolution
+//! int8[] data         # see below -- header-less, no magic bytes, no length prefix
+//! ```
+//!
+//! `conversions.h`'s `binaryMapToMsg`/`fullMapToMsg` (the functions that
+//! actually fill this message, not the also-present but message-unused
+//! `binaryMapToMsgData`/`fullMapToMsgData` pair that wrap a file-style
+//! header via `writeBinaryConst`/`write`) set `id`/`resolution`/`binary`
+//! from separate accessors and write `data` as the *raw* output of
+//! `writeBinaryData`/`writeData` with **no header, no magic bytes, no
+//! length prefix, no root value for the binary case** -- every byte of
+//! `data` is tree structure, decodable only in the context of `resolution`
+//! and `id` the sibling fields already carry.
+//!
+//! **`binary == true` (`writeBinaryData`/`readBinaryData`,
+//! `OccupancyOcTreeBase.hxx:930-1086`):** the root node's own value is
+//! never written; `writeBinaryData` calls `writeBinaryNode(s, root)`
+//! directly. `writeBinaryNode` emits exactly 2 bytes per node it is called
+//! on: 8 children packed 2 bits each (`std::bitset<8>` split into two
+//! `char`s, children 0-3 then 4-7), each pair meaning `00` no child, `10`
+//! child is a free leaf, `01` child is an occupied leaf, `11` child has its
+//! own children (recurse into it *after* this node's own 2 bytes, depth
+//! first, same child-index order 0..7). A child classified free/occupied
+//! is reconstructed on read as exactly `clamping_thres_min`/
+//! `clamping_thres_max` -- **the actual log-odds value is not preserved,
+//! only which side of the occupied/free split it fell on**; a child with
+//! grandchildren is read back with a `-200.` sentinel log-odds, corrected
+//! after its subtree is read to `getMaxChildLogOdds()` (its own children's
+//! max, `Node::update_occupancy_from_children`'s exact upstream
+//! counterpart). `readBinaryData` refuses to read into a tree that already
+//! has a root (`this->root` non-null is an error, not silently merged).
+//!
+//! **`binary == false` (`writeData`/`readData`, `OcTreeBaseImpl.hxx:762-836`
+//! plus `OcTreeDataNode.hxx:114-127`):** per node, depth first: the node's
+//! raw `value` (`f32`, `sizeof(float)` bytes, a direct `s.write((char*)
+//! &value, sizeof(value))` memory dump -- native/host-endian, which on
+//! every platform this workspace's CI or the oracle container runs on is
+//! little-endian, so `f32::from_le_bytes` is the correct read regardless of
+//! upstream's lack of an explicit endianness contract), then 1 byte with 1
+//! bit per child (bit set = child exists, recurse into existing children in
+//! index order after the byte). No 2-bit quantization here: every node's
+//! exact log-odds survives the round trip, at the cost of `sizeof(float) +
+//! 1` bytes per node instead of a shared 2 bytes per *parent*.
+//!
+//! **Can [`OcTree`]/`Node` hold what's decoded?** Yes, at
+//! the type level, for both variants, with no new field: `Node`
+//! is already exactly `{ log_odds: f32, children: Option<Box<[Option<Node>;
+//! 8]>> }` (`node.rs`) -- the same shape both formats serialize (a per-node
+//! `f32` plus up to 8 present/absent children), and [`OcTree`] already
+//! carries `resolution`/`clamping_thres_min`/`clamping_thres_max` as its
+//! own fields (needed by the binary-path reconstruction above). The actual
+//! gap is not representation, it is that **no decode/encode function
+//! exists** -- and that a decoder for the binary path specifically must
+//! live inside this crate (not e.g. `moveit-ros`), because it needs to call
+//! `Node::create_child` and set `log_odds` directly, and
+//! both are `pub(crate)`, not exported (`lib.rs`'s `pub use` list has
+//! neither `Node` nor a way to construct an [`OcTree`] from an
+//! already-built tree). A decoder would also need to reject `id !=
+//! "OcTree"` (`"ColorOcTree"` is not ported, see "What was deliberately not
+//! ported" above) -- note this only matters for the `binary == false` path:
+//! `ColorOcTreeNode::writeData` appends 3 extra color bytes per node beyond
+//! `OcTreeDataNode::writeData`'s `f32`, but the `binary == true` path never
+//! touches node color at all, so a plain-`OcTree` binary decoder happens to
+//! read a `ColorOcTree`'s compact payload correctly regardless of `id`
+//! (structure-only, not verified for the full-data path).
+//!
+//! **Size estimate for a decoder in this crate, with basis stated (not
+//! "별도 기능 규모"):** the upstream algorithm just read is small --
+//! `readBinaryData`/`writeBinaryData`/`readBinaryNode`/`writeBinaryNode`
+//! together are ~150 non-blank C++ lines (`OccupancyOcTreeBase.hxx:930-1086`),
+//! `writeNodesRecurs`/`readNodesRecurs`/`writeData`/`readData` another ~55
+//! (`OcTreeBaseImpl.hxx:762-836`), `OcTreeDataNode::readData`/`writeData`
+//! another ~10 (`OcTreeDataNode.hxx:114-127`) -- **~215 lines of upstream
+//! C++ algorithm** for both variants combined. This crate's own established
+//! ratio of Rust source to that source (`node.rs`: 132 lines of
+//! implementation, matching ~40 lines of the upstream headers it ports) is
+//! roughly 3:1 once `Result`-based error handling (upstream silently
+//! leaves a truncated read as a `std::istream` fail-bit the caller may
+//! never check; a Rust decoder over `&[u8]` must return `Result` at every
+//! recursive step instead of panicking on a short buffer) and this crate's
+//! own doc-comment density are counted -- giving **roughly 400-500 lines**
+//! of implementation and docs for both the binary and full decode/encode
+//! paths together. Using `node.rs`'s own measured test-to-implementation
+//! ratio (81 lines of test code against 132 lines of implementation,
+//! ~0.6:1) for per-invariant-boundary coverage (empty tree, single leaf,
+//! one full 8-child level, nested recursion, truncated buffer, wrong `id`,
+//! and an oracle-captured golden fixture round-trip comparable to
+//! `octomap_parity.rs`'s existing pattern) adds **roughly 250-300 more
+//! lines**. Total: **roughly 650-800 lines**, stated as a range because it
+//! has not been built -- not a single unmeasured number, and not "별도
+//! 기능 규모".
+//!
 mod iter;
 mod key;
 mod node;
