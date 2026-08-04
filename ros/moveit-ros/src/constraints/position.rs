@@ -300,7 +300,12 @@ mod tests {
             polygon: Default::default(),
         };
         let err = Shape::try_from(SolidPrimitiveMsg(msg)).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `dim()`'s one physical Error::Construct
+        // statement is called from up to 8 sites with a different `field`
+        // per call, and the `type_` catch-all (:95) is a second, textually
+        // distinct Construct site -- both reachable through this same
+        // `Shape::try_from`.
+        assert!(err.to_string().contains("BOX_Y"), "got: {err:?}");
     }
 
     fn valid_msg(model: &RobotModel) -> moveit_msgs::PositionConstraint {
