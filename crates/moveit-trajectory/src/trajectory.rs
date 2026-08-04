@@ -515,9 +515,10 @@ impl Trajectory {
     ///
     /// Upstream `Trajectory::integrateForward`. Always called with
     /// `self.trajectory` as both the list read from and the list pushed to
-    /// (as upstream's own two call sites do — both pass `output.trajectory_`),
-    /// so this port takes no separate list parameter, unlike upstream's
-    /// signature; upstream's own body reflects the same fact once, at
+    /// (upstream's sole call site, `.cpp:370`, passes `output.trajectory_`
+    /// for both), so this port takes no separate list parameter, unlike
+    /// upstream's signature; upstream's own body reflects the same fact
+    /// once, at
     /// `getMinMaxPhaseSlope(trajectory.back().path_pos_, trajectory_.back().path_vel_, ...)`
     /// (`.cpp:680`), which reads the *parameter* `trajectory` and the
     /// *member* `trajectory_` in the same expression — meaningless unless
