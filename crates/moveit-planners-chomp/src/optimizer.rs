@@ -136,8 +136,9 @@
 //!   — populates every `collision_point_*` field via
 //!   [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
 //!   (upstream: `hy_env_->getCollisionGradients(...)`); the only caller of
-//!   [`crate::optimizer::get_potential`]. See its own doc comment for the
-//!   `GradientInfo::sphere_locations` API-gap deviation (summarized below).
+//!   [`crate::optimizer::get_potential`]. See the "closed API gap" section
+//!   below for the `GradientInfo::sphere_locations` history this function's
+//!   doc comment used to carry as a live deviation.
 //! - `getCollisionCost`, `getTrajectoryCost` → private `get_collision_cost`/
 //!   [`crate::optimizer::ChompOptimizer::get_trajectory_cost`] — read `collision_point_*`
 //!   populated by `perform_forward_kinematics`.
@@ -181,7 +182,7 @@
 //! - `chomp_planner.cpp` (the `ChompPlanner` entry point) — out of this
 //!   round's scope; see this crate's top-level module doc.
 //!
-//! ## API gap surfaced by this round: `GradientInfo::sphere_locations`
+//! ## Closed API gap: `GradientInfo::sphere_locations` (rounds 19-26)
 //!
 //! **Round 20 correction (`PORTING-PLAN.md` §154):** round 19 recorded this
 //! gap's cause as "upstream only fills `sphere_locations` on the `gsr_`
@@ -207,33 +208,42 @@
 //! upstream's own behavior; round 19's "gsr_-reuse-only" framing described a
 //! mechanism upstream doesn't actually have.
 //!
-//! The gap itself is real, just for a different reason:
+//! Round 20 concluded the gap was real for a different reason —
 //! `moveit_distance_field::DistanceFieldCollisionCache` has no equivalent of
-//! upstream's `initialize()` pregeneration step, so it only ever has the
-//! truly-fresh branch to run — the one upstream itself only reaches once
-//! per group, before any real caller ever sees it. Every call through
-//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
-//! is therefore in the state upstream considers transient construction-time
-//! plumbing, not steady-state behavior — a genuine gap in
-//! `moveit-distance-field`, reported not fixed here (owned by
-//! p3-distance-field; ported by them per that crate's own round 25 item 1,
-//! not touched in this crate). **Expires** (§153.1) once
+//! upstream's `initialize()` pregeneration step, so it only ever runs the
+//! truly-fresh branch — and stated a falsifier: **expires once
 //! `moveit-distance-field` builds a pregenerated `GroupStateRepresentation`
 //! per `JointModelGroup` at cache-construction time, matching upstream's
-//! `initialize()` — at that point every call here also lands on the
-//! populated branch and this substitution can be deleted outright, not just
-//! left dormant.
+//! `initialize()`.**
 //!
-//! The substitution itself is unchanged from round 19 and stays: with no
-//! pregenerated-GSR path to rely on, sourcing sphere positions from
-//! `GroupStateRepresentation::link_body_decompositions[..].sphere_centers()`
-//! (reliably populated on both paths) instead of `sphere_locations`, and
-//! sizing per-link iteration from `GradientInfo::distances`/`gradients`
-//! (also reliably populated) rather than `sphere_locations`, is still the
-//! only correct code while the gap stands — see
-//! [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`] and the
-//! private `resolve_collision_point_joint_index`'s own "Deviation from
-//! upstream" doc sections for the exact substitutions.
+//! **Round 26: closed, but not by that mechanism.** `moveit-distance-field`
+//! round 25 (`f5328da`) did not port the cache-reuse/pregeneration
+//! mechanism the falsifier above named — `GroupStateRepresentation` still
+//! borrows its `dfce` rather than owning/sharing it, so a self-referential
+//! pregenerated map would still need pinning/unsafe or an external crate
+//! (see `moveit_distance_field::DistanceFieldCollisionCache::new`'s own doc
+//! comment, which now carries that remaining, purely-performance gap and
+//! its own falsifier). Instead, `group_state_representation`'s fresh-build
+//! branch was changed to read `sphere_centers()` directly right after
+//! posing each link's decomposition — closing the *value* gap without the
+//! *mechanism* the falsifier predicted, because the pregenerated branch's
+//! only field-level difference (`:1224`) never depended on which branch
+//! computed it, only on the same posed decomposition both branches already
+//! shared. The falsifier's predicted mechanism was wrong; the outcome it
+//! was written to justify ("sphere_locations becomes reliable") arrived
+//! anyway, by a simpler route this crate's own round-20 doc did not
+//! consider. This crate's substitutions (sourcing sphere positions from
+//! `link_body_decompositions[..].sphere_centers()` instead of
+//! `sphere_locations`, and sizing per-link iteration from
+//! `gradients.len()` instead of `sphere_locations.len()`) are removed this
+//! round: [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
+//! and the private `resolve_collision_point_joint_index` now read
+//! `sphere_locations` directly, matching upstream's own indexing with no
+//! substitution — see their own doc comments for the exact change, and
+//! `get_collision_gradients_sphere_locations_matches_link_body_decompositions`
+//! (this module's test suite) for the live-API proof that the substituted
+//! and direct values were identical before the removal, so the removal
+//! changes no computed output.
 //!
 //! ## `optimize()`'s termination condition
 //!
@@ -700,26 +710,27 @@ fn build_fixed_link_resolution_map(
 /// construction time, never re-read per trajectory point `i` in this
 /// specific loop.
 ///
-/// # Deviation from upstream: sized/gated by `gradients.len()`, not `sphere_locations.len()`
+/// # Sized by `sphere_locations.len()`, matching upstream literally
 ///
-/// Same root cause as [`ChompOptimizer::perform_forward_kinematics`]'s own
-/// "Deviation from upstream" doc: `GradientInfo::sphere_locations` is empty
-/// for every link through this crate's only access path
+/// Round 20 through round 25 gated this function's per-link entry count on
+/// `gradients.len()` instead of upstream's own `for (k = 0; k <
+/// info.sphere_locations.size(); ++k)`, because `GradientInfo::sphere_locations`
+/// was empty for every link through this crate's only access path
 /// ([`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]'s
-/// always-fresh-build), so gating this function's per-link entry count on
-/// it -- as upstream's own `for (k = 0; k < info.sphere_locations.size();
-/// ++k)` literally does -- would make it return a zero-length vector
-/// regardless of `gradients`'s real per-link sphere counts. Upstream's
-/// container, by contrast, is *pre-sized* to `num_collision_points_`
-/// before that loop ever runs (`chomp_optimizer.cpp:153`,
-/// `std::vector<std::string>(num_collision_points_)`), so reproducing
-/// upstream's real *length* here requires counting from a field that is
-/// reliably sized regardless of `sphere_locations` -- `gradients.len()`,
-/// the same field [`ChompOptimizer::new`] already sums for
-/// `num_collision_points`. `GradientInfo::joint_name` (what this function
-/// actually resolves) is a per-link, not per-sphere, field and is set
-/// unconditionally in the fresh-build path -- unlike `sphere_locations`,
-/// it was never gated by the API gap in the first place.
+/// always-fresh-build) -- gating on it would have returned a zero-length
+/// vector regardless of the real per-link sphere counts. `moveit-distance-field`
+/// round 25 (`f5328da`) closed that gap in `group_state_representation`
+/// itself, not by porting the cache-reuse mechanism the crate's own module
+/// doc originally predicted as the closing condition, but by reading
+/// `sphere_centers()` directly in the fresh-build branch -- the same value,
+/// reached a different way (see this crate's module doc, "closed API gap"
+/// section, for why the original falsifier prediction was wrong in its
+/// mechanism but right in its outcome). `sphere_locations` is now sized
+/// identically to `gradients`/`distances`/`sphere_radii` on every call
+/// (proved directly against the live API by
+/// `get_collision_gradients_sphere_locations_matches_link_body_decompositions`
+/// in this module's test suite), so this function now matches upstream's
+/// literal indexing with no substitution needed.
 fn resolve_collision_point_joint_index(
     robot_model: &RobotModel,
     resolution_map: &HashMap<usize, usize>,
@@ -732,7 +743,7 @@ fn resolve_collision_point_joint_index(
             .iter()
             .position(|name| name == &info.joint_name);
         let resolved = joint_index.and_then(|idx| resolution_map.get(&idx).copied());
-        for _ in 0..info.gradients.len() {
+        for _ in 0..info.sphere_locations.len() {
             collision_point_joint_index.push(resolved);
         }
     }
@@ -1166,47 +1177,35 @@ impl<'m> ChompOptimizer<'m> {
 
     /// Ported from `performForwardKinematics` (`chomp_optimizer.cpp:862-940`).
     ///
-    /// # Deviation from upstream: collision-point positions read from
-    /// `link_body_decompositions`, not `GradientInfo::sphere_locations`
+    /// # `sphere_locations` gap closed (round 26)
     ///
-    /// Upstream's own `getCollisionGradients` (`collision_env_distance_field.cpp:1517-1536`)
-    /// takes the group's `GroupStateRepresentationPtr& gsr` as an in/out
-    /// reference: on the *first* call (`gsr == nullptr`) it fresh-builds via
-    /// `generateCollisionCheckingStructures`/`getGroupStateRepresentation`,
-    /// whose non-pregenerated branch (`collision_env_distance_field.cpp:1157-1213`)
-    /// never assigns `gradients_[i].sphere_locations` for a link -- upstream's
-    /// own code, not a porting gap. Every *subsequent* call, because
-    /// `chomp_optimizer.cpp` keeps its `gsr_` alive as a class member across
-    /// the whole `optimize()` loop, instead takes the
-    /// `updateGroupStateRepresentationState` branch
-    /// (`collision_env_distance_field.cpp:1119`), which does assign it from
-    /// `link_body_decompositions_[i]->getSphereCenters()`. So upstream's
-    /// `sphere_locations` is reliably populated only because the caller
-    /// threads one long-lived `gsr_` through the whole loop.
+    /// Rounds 20 through 25 read collision-point positions from
+    /// `GroupStateRepresentation::link_body_decompositions[link_index].sphere_centers()`
+    /// instead of `GradientInfo::sphere_locations`, because
+    /// `DistanceFieldCollisionCache::get_collision_gradients` always takes
+    /// the fresh-build path (no long-lived `gsr_` to reuse the way
+    /// `chomp_optimizer.cpp` does), and that path left `sphere_locations`
+    /// empty for every link. `moveit-distance-field` round 25 (`f5328da`)
+    /// closed the gap directly in the fresh-build branch itself -- see
+    /// `resolve_collision_point_joint_index`'s doc comment (private to this
+    /// module) for the same fact and why the fix landed differently than
+    /// this crate's own module doc originally predicted. `sphere_locations`
+    /// is now read directly, matching upstream's own indexing
+    /// (`info.sphere_locations[k]`,
+    /// `collision_env_distance_field.cpp:920` in upstream's equivalent
+    /// loop) with no substitution.
     ///
-    /// `moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`
-    /// has no such in/out parameter -- every call is a fresh
-    /// [`moveit_distance_field::group_state_representation`] build, so
-    /// `GradientInfo::sphere_locations` is empty for every link on every
-    /// call (matching upstream's own *first*-call behaviour, permanently).
-    /// `update_group_state_representation_state` is exported and would
-    /// populate it, but the three gradient functions that must run after it
-    /// (`get_self_proximity_gradients`/`get_intra_group_proximity_gradients`/
-    /// `get_environment_proximity_gradients`) are module-private to
-    /// `moveit-distance-field`, so there is no public way to reuse a
-    /// `GroupStateRepresentation` across calls the way upstream does. This
-    /// is an API gap in `moveit-distance-field` for this crate's access
-    /// pattern, reported rather than fixed (that crate is owned elsewhere).
-    ///
-    /// Working around it: `GroupStateRepresentation::link_body_decompositions`
-    /// is a public field, and its `PosedBodySphereDecomposition::sphere_centers`
-    /// is the exact value upstream's update path would have copied into
-    /// `sphere_locations` (`collision_env_distance_field.cpp:1119`) -- so
-    /// this port reads sphere centers from there instead, and loops over
-    /// `info.distances.len()` (populated on every call, fresh or not) rather
-    /// than `info.sphere_locations.len()`. The distances/gradients/radii
-    /// themselves are unaffected by any of this; only the position source
-    /// changes, to the value upstream itself would have produced.
+    /// This also removes a latent indexing hazard the old workaround
+    /// carried: `link_body_decompositions` has one entry per
+    /// `dfce.link_names` only, while `gradients` (what `link_index` here
+    /// ranges over) has one entry per link *followed by* one per
+    /// `dfce.attached_body_names` -- so `link_body_decompositions[link_index]`
+    /// would have gone out of bounds for any attached-body gradient entry.
+    /// Never triggered in practice (this crate always calls
+    /// `get_collision_gradients` with `current_attached_bodies: &[]`, so
+    /// `dfce.attached_body_names` stays empty), but `sphere_locations`
+    /// indexes 1:1 with `gradients` unconditionally, so the hazard cannot
+    /// recur regardless of that call-site fact holding.
     pub fn perform_forward_kinematics(
         &mut self,
         collision: &mut ChompCollisionContext<'_, 'm>,
@@ -1239,23 +1238,14 @@ impl<'m> ChompOptimizer<'m> {
             )?;
 
             let mut j = 0;
-            for (link_index, info) in gsr.gradients.iter().enumerate() {
-                let sphere_centers = gsr.link_body_decompositions[link_index]
-                    .as_ref()
-                    .map(|bd| bd.sphere_centers());
-                for k in 0..info.distances.len() {
+            for info in gsr.gradients.iter() {
+                for k in 0..info.sphere_locations.len() {
                     if j >= self.num_collision_points {
                         return Err(Error::other(
                             "performForwardKinematics: gradients produced more collision points than new() found",
                         ));
                     }
-                    let sphere_center = sphere_centers.and_then(|centers| centers.get(k)).ok_or_else(|| {
-                        Error::other(
-                            "performForwardKinematics: link_body_decompositions missing a sphere center \
-                             its own gradients entry accounts for",
-                        )
-                    })?;
-                    self.collision_point_pos_eigen[i][j] = *sphere_center;
+                    self.collision_point_pos_eigen[i][j] = info.sphere_locations[k];
                     self.collision_point_potential[i][j] = get_potential(
                         info.distances[k],
                         info.sphere_radii[k],
@@ -1687,6 +1677,66 @@ mod tests {
     fn chomp_full_trajectory(model: &RobotModel, num_points: usize) -> ChompTrajectory {
         ChompTrajectory::from_num_points(model, num_points, 0.1, CHOMP_COLLISION_GROUP)
             .expect("valid num_points")
+    }
+
+    /// Proves the invariant [`ChompOptimizer::perform_forward_kinematics`]
+    /// and [`resolve_collision_point_joint_index`] now rely on directly,
+    /// rather than working around: as of `moveit-distance-field` round 25
+    /// (`f5328da`), every [`GradientInfo`] this crate's only access path
+    /// (`DistanceFieldCollisionCache::get_collision_gradients`) returns has
+    /// `sphere_locations` populated, and it is element-for-element identical
+    /// to `link_body_decompositions[i].sphere_centers()` -- the exact value
+    /// the pre-round-26 workaround read instead. If `moveit-distance-field`
+    /// ever regresses `sphere_locations` back to empty (or lets it diverge
+    /// from `link_body_decompositions`), this test fails first, before
+    /// [`ChompOptimizer::perform_forward_kinematics`]'s own tests would
+    /// (whose obstacle-placement assertions are self-consistent regardless
+    /// of which array positions are sourced from, so cannot by themselves
+    /// catch a sourcing regression).
+    #[test]
+    fn get_collision_gradients_sphere_locations_matches_link_body_decompositions() {
+        let model = chomp_collision_model();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut start_state = RobotState::new(&model);
+        let posed = start_state.update();
+        let req = CollisionRequest {
+            group_name: Some(CHOMP_COLLISION_GROUP.to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let gsr = cache
+            .get_collision_gradients(&req, &posed, None, &[], &field)
+            .unwrap();
+
+        assert_eq!(
+            gsr.link_body_decompositions.len(),
+            gsr.gradients.len(),
+            "chomp_collision_model has no attached bodies, so gradients must have exactly one \
+             entry per link, matching link_body_decompositions 1:1"
+        );
+        let mut checked_a_geometry_bearing_link = false;
+        for (link_index, link_bd) in gsr.link_body_decompositions.iter().enumerate() {
+            let Some(link_bd) = link_bd else { continue };
+            checked_a_geometry_bearing_link = true;
+            let info = &gsr.gradients[link_index];
+            assert_eq!(
+                info.sphere_locations.len(),
+                info.gradients.len(),
+                "sphere_locations must be sized identically to gradients/distances/sphere_radii, \
+                 since group_state_representation pushes all of them from the same sphere_count"
+            );
+            assert_eq!(
+                info.sphere_locations,
+                link_bd.sphere_centers(),
+                "sphere_locations must equal link_body_decompositions[..].sphere_centers() -- the \
+                 value the pre-round-26 workaround read instead of sphere_locations"
+            );
+        }
+        assert!(
+            checked_a_geometry_bearing_link,
+            "chomp_collision_model's chain group must have at least one geometry-bearing link"
+        );
     }
 
     #[test]
