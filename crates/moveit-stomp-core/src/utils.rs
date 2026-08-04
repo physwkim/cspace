@@ -5,13 +5,156 @@
 // Ported from ros-industrial/stomp @ b1a87c80f7338caae25a5c689b876da15492aa75:
 //   include/stomp/utils.h
 //   src/utils.cpp
-//
-// `Rollout`, `StompConfiguration`, and `TrajectoryInitializations` (also
-// declared in utils.h) are not ported here: they are pure data types with no
-// implementation of their own in utils.cpp, and every consumer of them is in
-// stomp.cpp's optimizer, next round's scope -- see this crate's `lib.rs`.
 
 use nalgebra::{DMatrix, DVector};
+
+/// `TrajectoryInitializations::TrajectoryInitialization`. Upstream's
+/// `StompConfiguration::initialization_method` stores this as a raw `int`
+/// (there is no C++ enum class here, just a C-style `enum` implicitly
+/// converted); this port uses the enum type itself in
+/// [`StompConfiguration::initialization_method`] rather than an `int`
+/// discriminant, so an invalid value cannot be constructed at all -- see
+/// `stomp`'s module doc for how `Stomp::compute_initial_trajectory`
+/// dispatches on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrajectoryInitialization {
+    /// `LINEAR_INTERPOLATION = 1`.
+    LinearInterpolation = 1,
+    /// `CUBIC_POLYNOMIAL_INTERPOLATION`.
+    CubicPolynomialInterpolation = 2,
+    /// `MININUM_CONTROL_COST` (upstream's own spelling).
+    MinimumControlCost = 3,
+}
+
+/// `StompConfiguration`. A plain data struct in upstream too (no
+/// constructor, no default member values), so this port carries no
+/// `Default` impl either; use struct-literal syntax.
+///
+/// Upstream's own `test/stomp_3dof.cpp::create3DOFConfiguration()` does
+/// *not* actually set every field -- `exponentiated_cost_sensitivity` is
+/// left untouched on a stack-allocated `StompConfiguration c;`, which C++
+/// leaves as uninitialized memory (genuine UB, unconditionally read back as
+/// `h` in both `Stomp::generateNoisyRollouts` and
+/// `Stomp::computeProbabilities`). This port's own test
+/// ([`crate::stomp`]'s test module) cannot reproduce that -- Rust has no
+/// uninitialized-memory equivalent to assign -- and uses `0.5` instead,
+/// `moveit2`'s own documented default for this field
+/// (`moveit_planners/stomp/res/stomp_moveit.yaml`'s
+/// `exponentiated_cost_sensitivity.default_value`), not a value read out of
+/// `ros-industrial/stomp` itself.
+#[derive(Debug, Clone, Copy)]
+pub struct StompConfiguration {
+    /// Maximum number of iterations allowed.
+    pub num_iterations: usize,
+    /// STOMP stops optimizing this many iterations after finding a valid
+    /// solution.
+    pub num_iterations_after_valid: usize,
+    /// Number of timesteps.
+    pub num_timesteps: usize,
+    /// Parameter dimensionality.
+    pub num_dimensions: usize,
+    /// Time change between consecutive points.
+    pub delta_t: f64,
+    /// See [`TrajectoryInitialization`].
+    pub initialization_method: TrajectoryInitialization,
+    /// Default exponentiated cost sensitivity coefficient.
+    pub exponentiated_cost_sensitivity: f64,
+    /// Number of noisy trajectories generated per iteration.
+    pub num_rollouts: usize,
+    /// The combined number of new and reused rollouts during each iteration
+    /// should not exceed this value.
+    pub max_rollouts: usize,
+    /// Percentage of the trajectory acceleration cost applied in the total
+    /// cost calculation.
+    pub control_cost_weight: f64,
+}
+
+/// `Rollout`: a single noisy trajectory sample and its costs.
+///
+/// Upstream's C-style struct leaves every field default-constructed with no
+/// user-provided constructor; `total_cost` in particular is never assigned
+/// a value in `Stomp::resetVariables`'s own template rollout (unlike
+/// `importance_weight`, which upstream sets explicitly there) -- reading it
+/// before `Stomp::computeNoisyRolloutsCosts` fills it in for real would be
+/// reading uninitialized memory in C++. This port's [`Rollout::new`] sets it
+/// to `0.0` instead, a harmless placeholder never observed before being
+/// overwritten in any real code path, since every element of
+/// `Stomp`'s `noisy_rollouts`/`reused_rollouts` is scanned across
+/// `0..num_active_rollouts` -- always populated for real before that range
+/// is ever read.
+#[derive(Debug, Clone)]
+pub struct Rollout {
+    /// Random noise applied to the parameters, `[num_dimensions][num_timesteps]`.
+    pub noise: DMatrix<f64>,
+    /// Parameters + noise, `[num_dimensions][num_timesteps]`.
+    pub parameters_noise: DMatrix<f64>,
+    /// Cost at each timestep, `[num_timesteps]`.
+    pub state_costs: DVector<f64>,
+    /// Control cost for each parameter at every timestep,
+    /// `[num_dimensions][num_timesteps]`.
+    pub control_costs: DMatrix<f64>,
+    /// `total_costs[d] = state_costs + control_costs[d]`,
+    /// `[num_dimensions][num_timesteps]`.
+    pub total_costs: DMatrix<f64>,
+    /// Probability for each parameter at every timestep,
+    /// `[num_dimensions][num_timesteps]`.
+    pub probabilities: DMatrix<f64>,
+    /// Probabilities for the full trajectory, one per dimension.
+    pub full_probabilities: Vec<f64>,
+    /// `full_costs[d] = state_costs.sum() + control_costs[d].sum()`, one per
+    /// dimension.
+    pub full_costs: Vec<f64>,
+    /// Importance sampling weight.
+    pub importance_weight: f64,
+    /// Combined state + control cost over the entire trajectory, all
+    /// dimensions. See this type's own doc for why it starts at `0.0`
+    /// rather than mirroring an uninitialized C++ field.
+    pub total_cost: f64,
+}
+
+impl Rollout {
+    /// `Stomp::resetVariables`'s per-rollout template: every matrix sized
+    /// `(num_dimensions, num_timesteps)` (`state_costs`: `num_timesteps`)
+    /// and zeroed, `importance_weight` at upstream's
+    /// `DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT`.
+    pub fn new(num_dimensions: usize, num_timesteps: usize) -> Self {
+        Self {
+            noise: DMatrix::zeros(num_dimensions, num_timesteps),
+            parameters_noise: DMatrix::zeros(num_dimensions, num_timesteps),
+            state_costs: DVector::zeros(num_timesteps),
+            control_costs: DMatrix::zeros(num_dimensions, num_timesteps),
+            total_costs: DMatrix::zeros(num_dimensions, num_timesteps),
+            probabilities: DMatrix::zeros(num_dimensions, num_timesteps),
+            full_probabilities: vec![0.0; num_dimensions],
+            full_costs: vec![0.0; num_dimensions],
+            importance_weight: DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT,
+            total_cost: 0.0,
+        }
+    }
+}
+
+/// `DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT` (`stomp.cpp`, file-local upstream;
+/// [`Rollout::new`] is this port's one consumer, so it lives here rather
+/// than in `stomp.rs`).
+pub(crate) const DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT: f64 = 1.0;
+
+/// Inverts a square control-cost-shaped matrix (`R = dt * A^T * A` for some
+/// finite-difference `A`), sharing one fix between this module's
+/// [`generate_smoothing_matrix`] and `stomp::Stomp::reset_variables`, which
+/// independently builds the same shape of matrix upstream (`resetVariables`
+/// computes its own `R`/`R^-1`, not by calling `generateSmoothingMatrix`).
+/// `nalgebra`'s `FullPivLU::is_invertible` computes `nrows() - 1`
+/// unconditionally, underflowing a `usize` and panicking for a 0x0 matrix,
+/// where Eigen inverts an empty matrix without complaint -- see
+/// [`generate_smoothing_matrix`]'s own "`num_timesteps == 0`" doc section
+/// for the full reasoning. `pub(crate)`: an implementation detail this port
+/// introduces to keep that fix in one place, not upstream API surface.
+pub(crate) fn full_piv_lu_try_inverse_or_empty(m: DMatrix<f64>) -> Option<DMatrix<f64>> {
+    if m.nrows() == 0 {
+        return Some(DMatrix::zeros(0, 0));
+    }
+    m.full_piv_lu().try_inverse()
+}
 
 /// `DerivativeOrders::DerivativeOrder`. The discriminant doubles as both the
 /// row index into [`FINITE_CENTRAL_DIFF_COEFFS`]/[`FINITE_FORWARD_DIFF_COEFFS`]
@@ -138,6 +281,21 @@ pub fn generate_finite_difference_matrix(
 /// // Exact by construction -- see this function's own tests for why.
 /// assert!((m[(3, 3)] - 0.1).abs() < 1e-9);
 /// ```
+///
+/// # `num_timesteps == 0`
+///
+/// Handled by `full_piv_lu_try_inverse_or_empty` before reaching
+/// `full_piv_lu()`, not a case that flows through the general path.
+/// Upstream's `int num_timesteps` lets Eigen invert a 0x0
+/// `control_cost_matrix_R` without complaint (empty matrices are trivially
+/// invertible, and its scaling loop's `for (t = 0; t < 0; t++)` never
+/// runs). nalgebra's `FullPivLU::is_invertible` instead computes
+/// `self.lu.nrows() - 1` unconditionally on a `usize`, which underflows for
+/// a 0-dimension matrix and panics -- a `nalgebra` limitation on the 0x0
+/// case, not a singular-`R` case this port's `Option` return is meant to
+/// signal. Returning the empty matrix directly is the correct value for
+/// this input either way, so it is special-cased rather than routed through
+/// a library call that cannot express it.
 pub fn generate_smoothing_matrix(num_timesteps: usize, dt: f64) -> Option<DMatrix<f64>> {
     let start_index_padded = FINITE_DIFF_RULE_LENGTH - 1;
     let num_timesteps_padded = num_timesteps + 2 * (FINITE_DIFF_RULE_LENGTH - 1);
@@ -156,7 +314,7 @@ pub fn generate_smoothing_matrix(num_timesteps: usize, dt: f64) -> Option<DMatri
             (num_timesteps, num_timesteps),
         )
         .into_owned();
-    let mut projection_matrix_m = control_cost_matrix_r.full_piv_lu().try_inverse()?;
+    let mut projection_matrix_m = full_piv_lu_try_inverse_or_empty(control_cost_matrix_r)?;
 
     for t in 0..num_timesteps {
         let max = projection_matrix_m[(t, t)];
@@ -385,6 +543,17 @@ mod tests {
         let m = generate_smoothing_matrix(8, 0.05).unwrap();
         assert_eq!(m.nrows(), 8);
         assert_eq!(m.ncols(), 8);
+    }
+
+    #[test]
+    fn smoothing_matrix_for_zero_timesteps_is_the_empty_matrix_not_a_panic() {
+        // nalgebra's FullPivLU::is_invertible computes `nrows() - 1`
+        // unconditionally, which underflows a usize for a 0x0 matrix; this
+        // boundary is handled before that call is reached (see this
+        // function's own "num_timesteps == 0" doc section).
+        let m = generate_smoothing_matrix(0, 0.1).expect("0x0 is trivially invertible");
+        assert_eq!(m.nrows(), 0);
+        assert_eq!(m.ncols(), 0);
     }
 
     #[test]

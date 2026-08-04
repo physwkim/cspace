@@ -8,16 +8,13 @@
 //! Trajectory-update filters STOMP applies to its waypoint matrix each
 //! iteration.
 //!
-//! # Not ported this round: `simpleSmoothingMatrix`
+//! # `simpleSmoothingMatrix`, round 22
 //!
-//! Upstream's `simpleSmoothingMatrix` calls `stomp::generateSmoothingMatrix`
-//! (`<stomp/utils.h>`), from the separate upstream `ros-industrial/stomp`
-//! optimizer repository -- not `moveit2`. That repository was searched for
-//! and is not present on this machine (`/home/stevek/work`, `/opt/ros`, and
-//! the rest of the filesystem; reported to the user, see this crate's
-//! `lib.rs`). This port does not guess at `generateSmoothingMatrix`'s
-//! finite-difference construction: `simple_smoothing_matrix` is not
-//! implemented here. Reopens once that source is available.
+//! Round 21's note here said `ros-industrial/stomp` (the separate upstream
+//! `stomp::generateSmoothingMatrix` lives in) was absent from this machine.
+//! It is now vendored at `/home/stevek/work/stomp` and ported as
+//! [`moveit_stomp_core::generate_smoothing_matrix`]; [`simple_smoothing_matrix`]
+//! below calls it, closing this gap.
 //!
 //! # `FilterFn`'s home
 //!
@@ -29,7 +26,7 @@
 use moveit_model::{JointModelGroup, RobotModel};
 use nalgebra::DMatrix;
 
-use moveit_error::Result;
+use moveit_error::{Error, Result};
 
 use crate::require_single_variable;
 
@@ -47,6 +44,45 @@ pub type FilterFn<'a> = Box<dyn Fn(&DMatrix<f64>, &mut DMatrix<f64>) -> bool + '
 /// the returned closure captures nothing and needs no lifetime bound.
 pub fn no_filter() -> FilterFn<'static> {
     Box::new(|_values, _filtered_values| true)
+}
+
+/// `simpleSmoothingMatrix`: builds `stomp::generateSmoothingMatrix` once,
+/// for `dt = 1.0` (upstream's own hardcoded placeholder -- a finite-
+/// difference step for approximating acceleration, unrelated to waypoint
+/// timing; see `conversion_functions`' module doc, "Deviation:
+/// unparameterized-by-construction"), and returns a filter that overwrites
+/// `filtered_values` in place with that matrix applied to each of its rows.
+///
+/// Upstream's closure signature is `(const Eigen::MatrixXd& /*values*/,
+/// Eigen::MatrixXd& filtered_values)` -- the first argument is unused, and
+/// upstream applies the smoothing matrix to whatever `filtered_values`
+/// already holds when the filter runs, not to `values`. This port reproduces
+/// that exactly: `values` is ignored here too. Per row `r` (one joint's
+/// values across all timesteps), upstream computes `r^T := M * r^T`; over
+/// the whole matrix that is `filtered_values := filtered_values * M^T`,
+/// which this port computes directly rather than looping per row.
+///
+/// # Errors
+///
+/// [`Error::Other`] if [`moveit_stomp_core::generate_smoothing_matrix`]'s
+/// control-cost matrix `R` is not invertible for `num_timesteps` -- upstream
+/// has no such check (`generateSmoothingMatrix` calls C++'s unchecked
+/// `FullPivLU::inverse()`); see `moveit_stomp_core`'s own module doc for why
+/// this port makes that failure explicit instead of propagating a garbage
+/// matrix.
+pub fn simple_smoothing_matrix(num_timesteps: usize) -> Result<FilterFn<'static>> {
+    let smoothing_matrix = moveit_stomp_core::generate_smoothing_matrix(num_timesteps, 1.0)
+        .ok_or_else(|| {
+            Error::Other(format!(
+                "generate_smoothing_matrix({num_timesteps}, 1.0): control cost matrix R is \
+                 not invertible"
+            ))
+        })?;
+    let smoothing_matrix_transpose = smoothing_matrix.transpose();
+    Ok(Box::new(move |_values, filtered_values| {
+        *filtered_values = &*filtered_values * &smoothing_matrix_transpose;
+        true
+    }))
 }
 
 /// `enforcePositionBounds`: a filter that clips every waypoint's active-joint
@@ -102,6 +138,68 @@ mod tests {
     use moveit_model::MeshSearchPaths;
     use moveit_srdf::SrdfModel;
     use std::fs;
+
+    // `R` (the control cost matrix `generate_smoothing_matrix` inverts) is
+    // `dt * A^T * A` for a finite-difference matrix `A` -- positive
+    // semi-definite by construction, and STOMP's literature assumes it is
+    // positive *definite* (invertible) for any `num_timesteps >= 1, dt >
+    // 0`; that is the premise the whole algorithm relies on, which is
+    // exactly why upstream never checks it. There is no realistic
+    // `(num_timesteps, dt)` input through this public API that makes it
+    // singular, so unlike `MultivariateGaussian::new` (which takes a
+    // caller-supplied covariance and so can be handed a genuinely
+    // indefinite one directly), `simple_smoothing_matrix`'s `Err` branch
+    // has no reachable test input and is not exercised here.
+
+    #[test]
+    fn simple_smoothing_matrix_applies_the_smoothing_matrix_to_each_row() {
+        let num_timesteps = 4;
+        let filter = simple_smoothing_matrix(num_timesteps).unwrap();
+        let expected_m = moveit_stomp_core::generate_smoothing_matrix(num_timesteps, 1.0)
+            .expect("control_cost_matrix_R is invertible for num_timesteps=4, dt=1.0");
+
+        // Two joint rows, num_timesteps columns each -- distinct values per
+        // row so a row-transposition bug would show up as a mismatch.
+        let filtered_before = DMatrix::from_row_slice(
+            2,
+            num_timesteps,
+            &[1.0, 2.0, 3.0, 4.0, -1.0, 0.5, 2.5, -3.0],
+        );
+        let values = DMatrix::zeros(2, num_timesteps); // must be ignored, see next test
+        let mut filtered_values = filtered_before.clone();
+        assert!(filter(&values, &mut filtered_values));
+
+        let expected = &filtered_before * expected_m.transpose();
+        assert_eq!(filtered_values, expected);
+    }
+
+    #[test]
+    fn simple_smoothing_matrix_ignores_the_values_argument() {
+        // Upstream's own closure signature marks its first parameter
+        // `/*values*/` -- unread. The filter must transform whatever
+        // `filtered_values` already holds, regardless of what `values` is.
+        let filter = simple_smoothing_matrix(3).unwrap();
+        let filtered_before = DMatrix::from_row_slice(1, 3, &[1.0, 2.0, 3.0]);
+
+        let mut via_zero_values = filtered_before.clone();
+        assert!(filter(&DMatrix::zeros(1, 3), &mut via_zero_values));
+
+        let mut via_other_values = filtered_before.clone();
+        assert!(filter(
+            &DMatrix::from_row_slice(1, 3, &[100.0, -50.0, 7.0]),
+            &mut via_other_values
+        ));
+
+        assert_eq!(via_zero_values, via_other_values);
+    }
+
+    #[test]
+    fn simple_smoothing_matrix_for_zero_timesteps_matches_the_dimension_not_a_panic() {
+        let filter = simple_smoothing_matrix(0).unwrap();
+        let mut filtered_values = DMatrix::<f64>::zeros(2, 0);
+        assert!(filter(&DMatrix::zeros(2, 0), &mut filtered_values));
+        assert_eq!(filtered_values.shape(), (2, 0));
+    }
 
     fn fixture_path(file_name: &str) -> String {
         format!(

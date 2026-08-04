@@ -473,6 +473,7 @@ dependencies = [
  "moveit-model",
  "moveit-srdf",
  "moveit-state",
+ "moveit-stomp-core",
  "moveit-trajectory",
  "nalgebra",
  "urdf-rs",
@@ -571,7 +572,10 @@ name = "moveit-stomp-core"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-sampling",
  "nalgebra",
+ "rand",
+ "rand_chacha",
 ]
 
 [[package]]
