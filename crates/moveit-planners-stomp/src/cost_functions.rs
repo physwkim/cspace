@@ -580,6 +580,15 @@ mod tests {
     /// Port of `test_cost_functions.cpp`'s `testGetCostFunctionAllValidStates`
     /// -- upstream's exact `TIMESTEPS=100`, `VARIABLES=6` literals, not this
     /// module's usual small synthetic fixtures.
+    ///
+    /// # Margin/reachability audit (round: margin audit): no bound, no shadowing
+    ///
+    /// Both assertions are exact equality checks (`validity` a bool,
+    /// `costs.sum() == 0.0` deterministic for an always-valid validator) --
+    /// no inequality-against-a-threshold bound to measure a margin for.
+    /// Only two closely-coupled assertions, not a distinctive claim behind
+    /// generic ones as in `upstream_test_get_cost_function_invalid_states`
+    /// (see that test's own doc): no reordering/split needed.
     #[test]
     fn upstream_test_get_cost_function_all_valid_states() {
         const TIMESTEPS: usize = 100;
