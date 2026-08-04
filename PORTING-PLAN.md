@@ -14065,3 +14065,66 @@ tools/ci/check-*.sh (8) + verify-upstream-license-provenance.sh
 하나 더 추가할 게 아니라, 왜 "전부 돌리는 명령 하나"가 아직 없는지를 먼저
 물어야 한다. §174가 답의 절반이다 — 그런 명령을 쓸 자리(CI)가 이 저장소에는
 돌지 않는다.
+
+## §179 "나중 라운드"와 "언급 없음" — 둘 다 미포팅인데 하나만 보인다
+
+두 유휴 패널에 라운드를 주려고 상류 디렉터리를 포트와 파일 단위로
+맞춰 세어 봤다. 감사(§175)는 *포팅된 코드가 상류를 맞게 말하는가*를
+검사하지 어떤 상류 파일이 아예 안 왔는지는 검사하지 않는다. 그래서
+포팅되지 않은 파일은 감사 표에 행이 생기지 않는다 — **빠진 것은 틀린
+것으로 나타나지 않고, 아무것으로도 나타나지 않는다.**
+
+### 179.1 pilz — 선언된 미포팅
+
+`crates/moveit-planners-pilz/src/lib.rs:90-91`:
+
+```text
+Not yet in scope, planned for later rounds:
+`trajectory_blender_transition_window`.
+```
+
+§5의 Phase 8 범위 줄은 "LIN/PTP/CIRC + sequence blending"이다. 즉 이
+파일은 완료 조건 **안쪽**이지 옆이 아니다. 상류 `src/` 22개 중 포트가
+가진 것은 12개이고, D1/D2로 명시 제외된 다섯을 빼면 남는 in-scope
+미포팅은 이 하나다. 선언되어 있었으므로 잃어버린 것은 아니지만, "later
+rounds"에는 만료조건이 없어서 라운드가 30번 도는 동안 아무도 그 문장을
+다시 읽지 않았다. p1-joints에 배정.
+
+### 179.2 planning_pipeline_interfaces — 언급조차 없음
+
+이쪽이 더 나쁘다. 상류
+`moveit_ros/planning/planning_pipeline_interfaces/src/`의 네 파일
+(`planning_pipeline_interfaces`, `plan_responses_container`,
+`solution_selection_functions`, `stopping_criterion_function`)은
+`crates/moveit-planning/`에 포팅되지도, 제외되지도 않았다. 실측:
+
+```console
+$ rg -ni 'PlanResponsesContainer|solution_selection|stopping_criterion|parallel' \
+    crates/moveit-planning/src/
+crates/moveit-planning/src/response.rs:29:  ... a parallel `Vec<f64>` of durations ...
+```
+
+한 건, 그리고 무관한 주석이다. `lib.rs`는 같은 상위 디렉터리의
+`planning_pipeline.cpp`는 `:186`/`:437`에서 인용하고
+`display_motion_path.cpp`는 `:154`에서 D1로 제외한다. 즉 이 크레이트는
+이웃 파일들에 대해서는 판정을 내렸고 이 네 개에 대해서만 침묵한다.
+**침묵은 제외가 아니다.** p1-fixtures에 배정하며, 네 파일을 하나로
+묶어 판정하지 말 것을 조건으로 달았다 — `planWithParallelPipelines`가
+`rclcpp::Node`를 받는다고 해서 `solution_selection_functions`까지
+ROS 결합인 것은 아니고, 그 구분이 "제외 하나"와 "간극 셋"을 가른다.
+
+### 179.3 규칙
+
+제외는 §153.1대로 만료조건을 달아야 하고, **연기(deferral)도 제외의
+일종이다.** "planned for later rounds"는 만료조건 없는 제외문이며 그
+점에서 "의존성이 없어서 제외"와 같은 계열이다. 앞으로 미포팅 상류
+파일은 세 상태 중 하나로만 존재한다:
+
+1. 포팅됨 — 감사 표에 행이 있다
+2. 제외됨 — `lib.rs`에 근거 심볼과 만료조건이 있다
+3. 간극 — 위 둘 중 어느 것도 아니면 간극이고, 간극은 라운드에 배정된다
+
+세 번째 상태가 이번에 두 건 나왔다. 크레이트 감사가 아무리 촘촘해도
+이 상태는 안 잡힌다. 잡으려면 **상류 디렉터리 대 포트 디렉터리를 파일
+단위로 세는 별도 검사**가 필요하고, 지금 그것은 조율자가 손으로 한
+것 말고는 없다.
