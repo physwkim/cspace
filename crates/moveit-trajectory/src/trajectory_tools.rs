@@ -66,8 +66,10 @@ use moveit_error::Result;
 ///
 /// # Errors
 ///
-/// Same as
-/// [`compute_time_stamps`](time_optimal_trajectory_generation::compute_time_stamps).
+/// [`moveit_error::Error`] if `resample_dt` is not finite or not positive (see
+/// [`TotgOptions::with_resample_dt`]), or for any of the reasons
+/// [`compute_time_stamps`](time_optimal_trajectory_generation::compute_time_stamps)
+/// can fail.
 pub fn apply_totg_time_parameterization(
     trajectory: &mut RobotTrajectory<'_>,
     velocity_scaling_factor: f64,
@@ -76,16 +78,15 @@ pub fn apply_totg_time_parameterization(
     resample_dt: f64,
     min_angle_change: f64,
 ) -> Result<()> {
-    time_optimal_trajectory_generation::compute_time_stamps(
-        trajectory,
-        &TotgOptions {
-            path_tolerance,
-            resample_dt,
-            min_angle_change,
-            max_velocity_scaling_factor: velocity_scaling_factor,
-            max_acceleration_scaling_factor: acceleration_scaling_factor,
-        },
-    )
+    let options = TotgOptions {
+        path_tolerance,
+        min_angle_change,
+        max_velocity_scaling_factor: velocity_scaling_factor,
+        max_acceleration_scaling_factor: acceleration_scaling_factor,
+        ..Default::default()
+    }
+    .with_resample_dt(resample_dt)?;
+    time_optimal_trajectory_generation::compute_time_stamps(trajectory, &options)
 }
 
 /// `applyRuckigSmoothing` (cpp:70-76).
