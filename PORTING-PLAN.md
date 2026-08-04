@@ -12893,3 +12893,78 @@ p1-robotmodel 라운드 22의 측정 보고 `doc/d12-solver-none-structural-meas
 `moveit-planners-sbp`는 직접 의존자가 아니다 — `Cargo.toml`의 언급은 주석 한
 줄이고(`:32`), `src/`의 `moveit_kinematics` 언급 4건도 전부 doc comment다.
 워커가 잡아냈고 내가 `rg`로 재확인했다.
+
+## §164 deviation 6(b) 잔여 후보 — 정점 순서는 반증됐고, 삼각형은 잴 수단이 없었다
+
+p3-acm이 `e3a4571`로 padding/scale 절반을 반증하면서 다음 후보를 하나로 좁혔다:
+**repro가 손으로 만든 `BVHModel`이 `CollisionEnvFCL`이 같은 STL에서 실제로
+싣는 것과 같은가.** 그 후보를 두 조각으로 나눠 하나는 반증하고, 다른 하나는
+잴 수 있게 만들었다.
+
+### 164.1 upstream이 무엇으로 mesh를 만드는지
+
+`collision_common.cpp:902-920` — `BVHModel<OBBRSSd>`를 **두 배열**로 만든다:
+
+```cpp
+std::vector<fcl::Triangle> tri_indices(mesh->triangle_count);
+  tri_indices[i] = fcl::Triangle(mesh->triangles[3*i], ..[3*i+1], ..[3*i+2]);
+std::vector<fcl::Vector3d> points(mesh->vertex_count);
+  points[i] = fcl::Vector3d(mesh->vertices[3*i], ..[3*i+1], ..[3*i+2]);
+g->beginModel(); g->addSubModel(points, tri_indices); g->endModel();
+```
+
+`points`는 `shapes::Mesh`가 저장한 **순서 그대로**이고 `tri_indices`는 그
+순서를 **인덱싱**한다. 따라서 정점 집합이 같아도 순서가 다르거나 삼각형
+인덱스가 다르면 BVH가 달라지고, 순회 순서가 달라지고, 보고되는 최심점이
+달라진다 — deviation 6이 기록한 잔여가 정확히 그 형태다.
+
+그 배열을 만드는 로더도 이제 읽을 수 있다(§160):
+`third_party/geometric_shapes/src/mesh_operations.cpp:250-252`가 assimp를
+`aiProcess_Triangulate | aiProcess_JoinIdenticalVertices | aiProcess_SortByPType
+| aiProcess_RemoveComponent`로 부르고 `:266`에서 `aiProcess_OptimizeMeshes |
+aiProcess_OptimizeGraph`를 더 건다. 즉 **정점 병합은 assimp가 한다.**
+`createMeshFromVertices`(2인자 판, `:112`)는 병합하지 않고 복사만 한다.
+
+### 164.2 기존 테스트가 재는 것과 재지 않는 것
+
+`crates/moveit-geometry/tests/mesh_parity.rs`가 이미 있고 통과한다. 그런데
+무엇을 재는지 보면:
+
+- 정점 **개수** — 잰다
+- 정점 **집합** — 잰다. 다만 `HashSet<[i64;3]>`로 비교하므로 **순서를 버린다**
+- 삼각형 **개수** — 잰다
+- 삼각형 **인덱스** — **전혀 재지 않는다.** fixture에 아예 없다
+  (`mesh_parity.json`의 키는 `resource`/`scale`/`triangle_count`/
+  `vertex_count`/`vertices`뿐)
+
+정점 순서를 버리고 삼각형 인덱스를 안 보는 테스트는, BVH가 달라지는 바로 그
+차이를 통과시킨다. 통과하는 테스트가 있다는 것이 그 후보를 배제하지 않는다.
+
+### 164.3 정점 순서는 반증했다 — 36/36 일치
+
+fixture는 정점을 **순서대로 전부** 갖고 있다(테스트가 버릴 뿐이다). 그래서
+오라클을 건드리지 않고 바로 잴 수 있었다. 임시 프로브로 36개 mesh 전부에 대해
+`mesh_from_bytes`의 정점 순서를 fixture 순서와 원소별로(1e-12) 비교했다:
+
+> **36개 중 0개가 정점 순서에서 다르다.**
+
+정점 순서 절반은 후보에서 빠진다.
+
+### 164.4 삼각형 인덱스는 ground truth가 없었다 — 오라클을 넓혔다
+
+남은 절반은 **잴 수단 자체가 없었다.** `meshOp`이 `vertex_count`/
+`triangle_count`/`vertices`만 내보내고 삼각형 인덱스는 안 내보냈기 때문이다.
+`mesh` op에 `triangles`를 추가했다. 확인: `finger.stl` → `triangle_count` 32,
+`triangles` 32건, 첫 항목 `[0,1,2]`.
+
+§149 확인: 스탬프 `c88557f4058892e9` → **`552427488cc040a2`**, 재빌드 후
+replay **44/44 identical**, combined 5그룹 + single 1건 — 기존 fixture 무변동.
+
+### 164.5 다음
+
+- p3-shapes(`moveit-geometry` 소유): `mesh_parity`를 순서 비교와 삼각형 인덱스
+  비교로 강화하고 fixture를 재생성해라. `HashSet` 비교는 **순서를 버린다는
+  사실을 doc에 적고** 남길지 없앨지 판단해라.
+- p3-acm: 그 결과가 나오면 deviation 6(b)의 mesh-construction 후보가 확정
+  또는 배제된다. 삼각형 인덱스까지 일치하면 이 후보는 닫히고, 잔여 3건의
+  원인은 BVH 분할/순회 쪽으로 좁혀진다.

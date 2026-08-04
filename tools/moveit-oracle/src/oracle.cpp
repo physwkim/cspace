@@ -2989,9 +2989,21 @@ private:
   /// does for a URDF `<mesh>` element -- real Assimp, real
   /// `aiProcess_JoinIdenticalVertices` merging, real `package://` resolution
   /// against this image's colcon-built `moveit_resources` workspace -- so a
-  /// resource path and scale go in and the vertex/triangle counts and
-  /// vertex positions Assimp actually produced come out, with no
-  /// `RobotModel` construction involved on either side of this op.
+  /// resource path and scale go in and the vertex/triangle counts, vertex
+  /// positions and triangle indices Assimp actually produced come out, with
+  /// no `RobotModel` construction involved on either side of this op.
+  ///
+  /// `triangles` is emitted because vertex data alone cannot settle what it
+  /// looked like it settled. `collision_common.cpp:902-920` builds the FCL
+  /// mesh as `BVHModel<OBBRSSd>` from *both* arrays -- `points[i]` in the
+  /// order `shapes::Mesh` stores them, and `tri_indices` indexing into that
+  /// order -- so two meshes agreeing on the vertex set, the vertex count and
+  /// even the vertex order can still build different BVHs, traverse in a
+  /// different order, and report a different deepest point. That is exactly
+  /// the residual `parry.rs`'s deviation 6 documents. The vertex order half
+  /// is already measured and agrees (36 of 36 meshes, see PORTING-PLAN.md
+  /// §164); the triangle half had no ground truth to measure against at all
+  /// until this field.
   json meshOp(const json& request) const
   {
     const std::string resource = request.at("resource").get<std::string>();
@@ -3009,9 +3021,17 @@ private:
                                             mesh->vertices[3 * i + 2] }));
     }
 
+    json triangles_out = json::array();
+    for (unsigned int i = 0; i < mesh->triangle_count; ++i)
+    {
+      triangles_out.push_back(json::array(
+          { mesh->triangles[3 * i], mesh->triangles[3 * i + 1], mesh->triangles[3 * i + 2] }));
+    }
+
     return json{ { "vertex_count", mesh->vertex_count },
                  { "triangle_count", mesh->triangle_count },
-                 { "vertices", vertices_out } };
+                 { "vertices", vertices_out },
+                 { "triangles", triangles_out } };
   }
 
   /// Ground truth for `collision_distance_field_types.{hpp,cpp}`: the two
