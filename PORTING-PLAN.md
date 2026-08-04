@@ -15789,3 +15789,56 @@ EPA는 `-0.020869698793459224`. `384f80c`의 `verify-mpr-vs-epa.sh`가 두 값�
 p3-acm에 N개로 확장하고 부호가 뒤집히는 케이스를 찾으라고 넘겼다 — MPR이
 EPA보다 얕은 케이스가 하나라도 있으면 "by construction"이라는 절반이
 반증된다.
+
+## §209 §198의 "값싼 닫기 없음"이 틀렸다 — 절반은 플래그 하나였다
+
+§198은 `cargo doc`가 자기가 문서화하는 항목까지만 검사한다는 것을 기록하고,
+노출 규모(61파일 / 3649줄 / 링크 있는 350줄)를 적은 뒤 **값싼 기계적 닫기가
+없다**고 결론냈다. 그 결론의 절반이 틀렸다.
+
+`RUSTDOCFLAGS="--document-private-items" cargo doc --workspace --no-deps`
+한 번이 **깨진 링크 36개**를 즉시 뱉는다. 원인은 단순하다:
+`crates/moveit-collision/src/lib.rs:76`은 `mod parry;`이지 `pub mod`가
+아니다. 그래서 `parry.rs`의 모듈 헤더 — 이 저장소에서 가장 긴 doc 중
+하나이고 deviation 1~11이 전부 거기 산다 — 는 렌더링된 적도, 링크가
+검사된 적도 없다. 다른 private 모듈도 전부 같다.
+
+발견된 것(모두 `0463136`에서 수정):
+
+- unresolved 36: 대부분 다른 크레이트 타입을 import 없이 bare로 링크
+  (`[`JointModelGroup`]`), 존재하지 않는 경로
+  (`moveit_model::PlanarJoint::…` — 실제로는 `moveit_model::joint::PlanarJoint`),
+  private 테스트 이름 링크, 그리고 `crate::iter::Leaf`처럼 아예 없는 모듈.
+- ambiguous 8+4: `KINEMATICS_SOLVERS`(static이자 macro),
+  `query::contact`(함수이자 모듈), `rrt_connect`(함수이자 모듈).
+- redundant explicit target 4개.
+
+### §209.1 고치는 과정에서 내가 두 개를 새로 만들었다
+
+`[`Compound`]`을 `[`parry3d_f64::shape::Compound`]`로 일괄 치환했더니
+이미 명시적 타깃을 달고 있던
+`[`Compound`](parry3d_f64::shape::Compound)` 한 자리가
+`[`X`](X)` 꼴이 되어 redundant 오류가 났다. 또
+`[`crate::rrt_connect`]`를 `mod@`로 명확화했더니 이번엔 **private 모듈을
+public doc이 링크한다**는 다른 오류로 바뀌었다(모듈이 `mod rrt_connect;`,
+공개된 것은 `pub use`된 항목들뿐). 둘 다 코드 스팬으로 되돌렸다.
+
+일괄 치환이 자기가 만든 새 오류를 남기는 것 — 게이트가 없었으면 둘 다 다음
+라운드까지 보이지 않았을 종류다. 게이트를 먼저 세우고 고쳤기 때문에 같은
+자리에서 잡혔다.
+
+### §209.2 `#[cfg(test)]` 절반은 여전히 열려 있고, 왜 열려 있는지가 중요하다
+
+`--cfg test`를 RUSTDOCFLAGS에 더하면 rustdoc이 `#[cfg(test)]` 모듈을
+보긴 한다. 그러나 doc 빌드는 dev-dependency를 링크하지 않으므로
+`approx`, `rand_chacha`, `moveit_sampling` 등의 import에서 컴파일이
+깨진다. 즉 이 절반은 플래그 하나로 닫히지 않는다 — §198의 결론은 이쪽에
+대해서는 맞았다. `verify-private-doc-links.sh`(`eda6f46`) 헤더에 이
+사실과 "플래그를 지우고 닫혔다고 부르지 말 것"을 적어뒀다.
+
+### §209.3 규칙
+
+"값싼 닫기가 없다"는 결론은 **시도한 명령을 적지 않으면** 검증 불가능한
+주장이다. §198은 노출 규모는 숫자로 적었지만 무엇을 시도해봤는지는 적지
+않았다. 다음에 같은 형태의 결론을 쓸 때는 시도한 명령과 그 출력이 함께
+가야 한다 — 그것이 §189가 측정에 대해 요구하는 것과 같은 요구다.
