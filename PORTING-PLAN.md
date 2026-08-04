@@ -11900,3 +11900,56 @@ $ git -C /home/stevek/work/stomp rev-list --count b1a87c80...HEAD
 이 포트에 upstream이 무엇을 옳다고 여기는지에 대한 **외부 기준**이 없다는 문제를
 겨냥한 것이다 — 자체 일관성 테스트는 우리 구현끼리의 동의만 증명한다. 라이선스는
 양쪽 다 Apache-2.0이라 §141(D9)의 LGPL 건과 다르다.
+
+## §147 헤더의 default argument와 실제 호출부가 넘기는 값은 다르다
+
+p1-robotmodel 라운드 21이 자기 라운드 20 결과를 다시 재서 뒤집었다. 라운드 20이
+path-constraint 샘플링 호출부에 `moveit-constraints::DEFAULT_MAX_SAMPLING_ATTEMPTS`
+(= 2)를 넘겼는데, 그 상수는 upstream
+`ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`(`constraint_sampler.hpp:64`)이고
+**upstream에서는 두 `sample()` 오버로드의 default argument로만 쓰인다** — 이 포트의
+`ConstraintSampler` 트레이트가 이미 접어버린 오버로드들이다. 살아 있는 호출부 중
+2를 받는 것은 하나도 없다.
+
+실제 호출부(`constrained_sampler.cpp:69-70`,
+`constrained_goal_sampler.cpp:137`)는 전부 `getMaximumStateSamplingAttempts()`를
+넘기고, 그 값은 **4**다. 내가 직접 확인했다:
+
+```
+$ sed -n '255,262p' moveit_planners/ompl/ompl_interface/src/planning_context_manager.cpp
+  , max_goal_samples_(10)
+  , max_state_sampling_attempts_(4)
+  , max_goal_sampling_attempts_(1000)
+  , max_planning_threads_(4)
+  , max_solution_segment_length_(0.0)
+```
+
+인용이 정확하다. 커밋 `9b74b6d`가 `registry.rs`에 그 인용에서 온
+`DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS = 4`를 두고 호출부를 바꿨고,
+`moveit-constraints`의 "real production call site" 서술도 되돌렸다.
+
+### 147.1 인용은 표본이지 모집단이 아니다
+
+같은 생성자가 다섯 개를 한꺼번에 초기화한다(`:258-262`, 위 인용). 포트에서
+`rg -n 'max_goal_samples|max_goal_sampling_attempts|max_state_sampling_attempts|max_solution_segment_length' crates/`
+→ **0건**. 즉 `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS`가 이 계열의 첫 사례이고,
+나머지는 아직 아무도 손대지 않았다.
+
+지금 진행 중인 goal constraint sampling에 직접 걸리는 것을 확인해뒀다:
+
+| upstream 사이트 | 값 | 무엇 |
+|---|---|---|
+| `constrained_goal_sampler.cpp:137` | **4** | `sample()`의 attempts — path 샘플러와 같은 노브 |
+| `constrained_goal_sampler.cpp:98` | **1000** | `getMaximumGoalSamplingAttempts()` |
+| `constrained_goal_sampler.cpp:106` | **10** | `getMaximumGoalSamples()`, `gls->getStateCount()` 상한 |
+
+첫 번째는 그대로 4를 써야 한다 — goal 경로에 다시 2를 넣으면 같은 실수의 반복이다.
+뒤의 둘은 "goal 상태를 몇 개까지 모으고 몇 번까지 시도하는가"를 정하는 별개 노브고,
+`getStateCount()`가 OMPL `GoalLazySamples`의 상태라 그 층 없이는 그대로 옮길 수
+없다. 셋 다 이번 라운드에 구현하라고 하지 않았다 — 각각 **구현했는지, 아니면 어느
+층에 속해서 미뤘는지**를 파일:라인과 함께 명시하라고 했다. 조용히 빠지는 것이
+이 계열이 재발하는 경로다.
+
+규칙으로 적어둔다: upstream 상수를 포트의 호출부에 넣을 때는, 그 상수가 헤더의
+default argument인지 실제 호출부가 넘기는 configured 값인지 먼저 구분한다. 이름이
+같아도 값이 다르고, 컴파일도 테스트도 그 차이를 잡지 않는다.
