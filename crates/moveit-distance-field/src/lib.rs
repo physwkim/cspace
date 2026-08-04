@@ -707,20 +707,32 @@
 //! - `getSelfCollisions` — ported (round 21) as the module-private free
 //!   function `get_self_collisions` in `collision_env_distance_field.rs`,
 //!   called from `check_self_collision`/`check_collision`/
-//!   `get_all_collisions`.
+//!   `get_all_collisions`. **Known gap (exposed round 22):** its loop never
+//!   reads `attached_body_names`/`attached_body_decompositions`, so an
+//!   attached body's spheres are never checked for self-collision, even now
+//!   that those fields can be non-empty — see that function's own "Deviation
+//!   from upstream" for the full explanation.
 //! - `getSelfProximityGradients` — ported (round 21) as the module-private
-//!   free function `get_self_proximity_gradients`.
+//!   free function `get_self_proximity_gradients`. Same known
+//!   attached-body gap as `getSelfCollisions`.
 //! - `getIntraGroupCollisions` — ported (round 21) as the module-private
-//!   free function `get_intra_group_collisions`.
+//!   free function `get_intra_group_collisions`. Same known attached-body
+//!   gap (no link-vs-attached or attached-vs-attached pair is ever checked).
 //! - `getIntraGroupProximityGradients` — ported (round 21) as the
 //!   module-private free function `get_intra_group_proximity_gradients`.
+//!   Same known attached-body gap as `getIntraGroupCollisions`.
 //! - `getEnvironmentCollisions` — ported (round 21) as the module-private
 //!   free function `get_environment_collisions`, taking
 //!   `env_distance_field: &dyn DistanceField` as an explicit parameter in
 //!   place of reading `distance_field_cache_entry_world_->distance_field_`
-//!   off the `World` this crate does not depend on.
+//!   off the `World` this crate does not depend on. Same known
+//!   attached-body gap as `getSelfCollisions`.
 //! - `getEnvironmentProximityGradients` — ported (round 21) the same way, as
 //!   the module-private free function `get_environment_proximity_gradients`.
+//!   Unlike its five siblings above, this one has **no** attached-body gap:
+//!   upstream's own loop bound here (`collision_env_distance_field.cpp:1649`)
+//!   never advances past `link_names_.size()`, so its attached-body branch
+//!   is dead code in the C++ itself.
 //! - `updatedPaddingOrScaling` — unported: a no-op override of the
 //!   `CollisionEnv` interface upstream itself (`return;`, no body).
 //! - `generateDistanceFieldCacheEntryWorld`, `updateDistanceObject`,

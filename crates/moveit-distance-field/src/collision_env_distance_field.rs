@@ -1542,14 +1542,24 @@ impl<'m> DistanceFieldCollisionCache<'m> {
 /// soon as either a collision is found with `req.contacts` unset, or
 /// `req.max_contacts` is reached with it set.
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
 /// Upstream's loop bound is `link_names_.size() + attached_body_names_.size()`,
 /// with an `is_link` branch selecting `link_body_decompositions_` or
-/// `attached_body_decompositions_` per index. `attached_body_names_` is
-/// always empty in this port (see [`DistanceFieldCacheEntry`]'s "Deviations
-/// from upstream"), so the `!is_link` half of every branch is dead code,
-/// omitted here rather than ported as an unreachable branch.
+/// `attached_body_decompositions_` per index, reporting attached-body
+/// self-collisions with `body_type_1 = BodyTypes::ROBOT_ATTACHED` instead of
+/// `ROBOT_LINK`. This function's loop only covers `0..gsr.dfce.link_names.len()`
+/// and never reads `gsr.dfce.attached_body_names`/`gsr.attached_body_decompositions`
+/// at all: an attached body's collision spheres are never checked for
+/// self-collision here. This was believed dead code as long as
+/// `attached_body_names_` stayed permanently empty in this port; as of round
+/// 22, [`generate_distance_field_cache_entry`] populates it for real (see
+/// [`DistanceFieldCacheEntry::attached_body_names`]), so this is now a live,
+/// unfixed functional gap, not an unreachable branch. See this crate's round
+/// 22 report for the full anchor/sites/classify audit across
+/// [`get_self_proximity_gradients`], [`get_intra_group_collisions`],
+/// [`get_intra_group_proximity_gradients`], [`get_environment_collisions`],
+/// and [`get_environment_proximity_gradients`], all of which share it.
 ///
 /// # Panics
 ///
@@ -1649,10 +1659,12 @@ fn get_self_collisions(
 /// see [`AllowedCollisionType`]), then from the group's aggregate
 /// `gsr.dfce.distance_field`.
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
-/// Same as [`get_self_collisions`]: the `is_link`/attached-body branch is
-/// dead code here (`attached_body_names_` always empty) and is omitted.
+/// Same gap as [`get_self_collisions`]: the `is_link`/attached-body branch
+/// is not ported, so attached-body spheres never contribute a
+/// self-proximity gradient. See [`get_self_collisions`]'s own doc comment
+/// for the full explanation and cross-references.
 ///
 /// # Panics
 ///
@@ -1743,17 +1755,20 @@ fn get_self_proximity_gradients(
 /// spheres intersect ([`do_bounding_spheres_intersect`]), the same
 /// contacts/early-exit shape as [`get_self_collisions`].
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
 /// Upstream's loop covers `link_names_.size() + attached_body_names_.size()`
 /// indices with `i_is_link`/`j_is_link` branches selecting between
-/// `link_body_decompositions_`/`attached_body_decompositions_`, plus an
-/// `i == j` guard that can never trigger (the inner loop already starts at
-/// `j = i + 1`). `attached_body_names_` is always empty here (see
-/// [`DistanceFieldCacheEntry`]'s "Deviations from upstream"), so both the
-/// `i_is_link && j_is_link` branch is the only reachable one and the `i ==
-/// j` guard is dead in upstream too -- both are omitted rather than ported
-/// as unreachable code.
+/// `link_body_decompositions_`/`attached_body_decompositions_` per side of
+/// the pair (link-vs-attached and attached-vs-attached pairs both possible),
+/// plus an `i == j` guard that can never trigger (the inner loop already
+/// starts at `j = i + 1`, so that guard is dead in upstream regardless of
+/// attached bodies and is correctly omitted here). This function's loop
+/// covers only `0..gsr.dfce.link_names.len()` on both sides and never reads
+/// `gsr.dfce.attached_body_names`/`gsr.attached_body_decompositions`: no
+/// pair involving an attached body is ever checked for intra-group
+/// collision. See [`get_self_collisions`]'s own doc comment for why this was
+/// believed dead code and is not anymore as of round 22.
 fn get_intra_group_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
@@ -1841,14 +1856,15 @@ fn get_intra_group_collisions(
 /// sphere's nearest opposing-sphere distance into that sphere's
 /// [`GradientInfo`] slot whenever it improves on what is already there.
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
-/// Same dead-code omission as [`get_intra_group_collisions`] (attached
-/// bodies, the unreachable `i == j` guard). Upstream's own `in_collision`
-/// local is declared, never written, and returned as-is -- always `false`;
-/// ported faithfully rather than changed to `-> ()`, since upstream's own
-/// caller (`getCollisionGradients`) discards this return value too, and
-/// keeping the `bool` shape matches this function's siblings
+/// Same attached-body gap as [`get_intra_group_collisions`] (the unreachable
+/// `i == j` guard is correctly omitted; the attached-body pairs are not).
+/// Upstream's own `in_collision` local is declared, never written, and
+/// returned as-is -- always `false`; ported faithfully rather than changed
+/// to `-> ()`, since upstream's own caller (`getCollisionGradients`)
+/// discards this return value too, and keeping the `bool` shape matches this
+/// function's siblings
 /// ([`get_self_proximity_gradients`]/[`get_environment_proximity_gradients`]).
 fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_>) -> bool {
     let num_links = gsr.dfce.link_names.len();
@@ -1902,9 +1918,10 @@ fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_
 /// -- `World`-sourced state this crate does not own (see this module's doc
 /// comment).
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
-/// Same dead attached-body branch omission as [`get_self_collisions`].
+/// Same attached-body gap as [`get_self_collisions`]: an attached body's
+/// spheres are never checked against `env_distance_field` here either.
 fn get_environment_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
@@ -1988,6 +2005,17 @@ fn get_environment_collisions(
 /// [`get_self_proximity_gradients`]'s final (non-ACM) half: folds
 /// `env_distance_field` gradients into every geometry-bearing link's
 /// [`GradientInfo`] slot.
+///
+/// # Deviation from upstream
+///
+/// Unlike its five siblings ([`get_self_collisions`],
+/// [`get_self_proximity_gradients`], [`get_intra_group_collisions`],
+/// [`get_intra_group_proximity_gradients`], [`get_environment_collisions`]),
+/// this one is a *faithful* port with no attached-body gap: upstream's own
+/// loop condition here is `i < link_names_.size()` (`:1649`), not `i <
+/// link_names_.size() + attached_body_names_.size()` like the other five --
+/// so upstream's own `is_link`-false branch is unreachable dead code in the
+/// C++ too, correctly omitted here rather than ported unreachable.
 fn get_environment_proximity_gradients(
     env_distance_field: &dyn DistanceField,
     gsr: &mut GroupStateRepresentation<'_, '_>,

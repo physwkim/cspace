@@ -379,7 +379,11 @@ pub struct DistanceFieldCacheEntry<'m> {
     /// [`DistanceFieldCacheEntry::link_names`] followed by one per
     /// [`DistanceFieldCacheEntry::attached_body_names`] (populated for real
     /// as of round 22, per-ACM-entry, when `attached_body_names` is
-    /// non-empty).
+    /// non-empty). Note: this data is computed correctly, but as of round 22
+    /// the attached-body slots it describes are not yet read by
+    /// `get_self_collisions`/`get_self_proximity_gradients` in
+    /// `collision_env_distance_field.rs` -- see that module's doc comment
+    /// for the known gap.
     pub self_collision_enabled: Vec<bool>,
     /// `intra_group_collision_enabled_`: a square matrix, same indexing as
     /// [`DistanceFieldCacheEntry::self_collision_enabled`] on both axes.
@@ -439,7 +443,12 @@ pub struct GroupStateRepresentation<'a, 'm> {
     /// [`GroupStateRepresentation::link_body_decompositions`].
     pub link_distance_fields: Vec<Option<PosedDistanceField>>,
     /// `gradients_`, one entry per `dfce.link_names` followed by one per
-    /// `dfce.attached_body_names`.
+    /// `dfce.attached_body_names`. Note: the attached-body slots are
+    /// allocated and kept in sync by [`crate::group_state_representation`]/
+    /// [`crate::update_group_state_representation_state`], but as of round
+    /// 22 are not yet written to by the collision-checking functions in
+    /// `collision_env_distance_field.rs` -- see that module's doc comment
+    /// for the known gap.
     pub gradients: Vec<GradientInfo>,
 }
 
