@@ -183,7 +183,7 @@ pub struct NearestCell<'a> {
 ///   silently truncated into the `int` fields. [`PropagationDistanceField::new`]
 ///   returns [`moveit_error::Error::Construct`] instead. Round 26: the same
 ///   guard also rejects a finite, positive `max_distance_sq` once it exceeds
-///   `i32::MAX` -- see [`checked_max_distance_sq`]'s own doc.
+///   `i32::MAX` -- see the private `checked_max_distance_sq` helper's own doc.
 pub struct PropagationDistanceField {
     propagate_negative: bool,
     voxel_grid: VoxelGrid<PropDistanceFieldVoxel>,
