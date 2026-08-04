@@ -975,7 +975,15 @@ mod tests {
             .unwrap();
         assert!(source.group().is_none());
         let err = traj.fill_in_from_trajectory(&source).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        // `fill_in_from_trajectory` reaches several `Error::other` sites:
+        // its own group guard, `RobotTrajectory::way_point`'s index guard,
+        // and `assign_chomp_trajectory_point_from_robot_state`'s two
+        // guards. A bare matches!(err, Error::Other(_)) cannot tell them
+        // apart.
+        assert!(
+            err.to_string()
+                .contains("requires trajectory.group() to be Some")
+        );
     }
 
     #[test]
