@@ -46,17 +46,51 @@ use nalgebra::Unit;
 
 use crate::velocity_profile::KDL_EPSILON;
 
-/// `KDL::Vector::Normalize`: normalizes in place and returns the original
-/// norm, except a norm below `eps` yields the unit X axis and a returned
-/// norm of `0.0` (upstream's zero-length convention, not IEEE `NaN`).
+/// Normalizes `v`, returning `(unit direction, original norm)`.
 ///
-/// `pub(crate)`: also used by [`crate::path_circle::PathCircle`], which
-/// needs the identical `KDL::Vector::Normalize` convention for its own
-/// plane-normal and radius computations.
+/// # Not transcribed from `KDL::Vector::Normalize`
+///
+/// A norm below `eps` is elementary-math-undefined for the "direction"
+/// half of the answer: division by (numerically) zero has no direction to
+/// recover, so this port reports the direction as the zero vector rather
+/// than picking an arbitrary nonzero axis, and reports the norm as exactly
+/// `0.0` (the honest value once the magnitude is indistinguishable from
+/// numerical noise, not a near-zero float or IEEE `NaN`). This is a
+/// genuinely different choice from `Vector::Normalize`'s own degenerate
+/// branch (which returns the unit X axis, `frames.cpp:147-156`), not a
+/// restatement of it, and it does not change any currently reachable
+/// observable output of this crate's callers:
+///
+/// - [`PathLine::new`]'s `scale_lin`/`path_length` derivation multiplies
+///   this direction by a coefficient that is itself provably `0.0`
+///   whenever the norm-`0.0` branch fires here (see that function's own
+///   doc comment).
+/// - [`get_rot_angle`]'s own internal call never actually reaches this
+///   branch: the vector it normalizes has a norm that is provably at
+///   least `eps` by the time that call executes, given the singularity
+///   check earlier in the same function already excluded the case where
+///   it would not be.
+/// - [`crate::path_circle::PathCircle::new`]'s `radius`-producing call
+///   returns an error immediately upon seeing `norm < eps`, before its
+///   direction is ever read.
+/// - The one caller that does not gate on the norm before reading the
+///   direction back out — `PathCircle::new`'s auxiliary-point
+///   normalization, whose result feeds a subsequent cross product before
+///   *that* result's own norm is checked — collapses deterministically to
+///   `z_norm == 0.0 < eps` (an immediate rejection) with a zero-vector
+///   direction here, a defensible degenerate answer for a construction
+///   request whose auxiliary point coincides with its own center. It does
+///   not reproduce `Vector::Normalize`'s own value-dependent behavior for
+///   that specific malformed input (which depends on the incidental
+///   alignment between the caller's other axis and the arbitrary unit-X
+///   fallback), but no fixture in this crate exercises that input.
+///
+/// `pub(crate)`: also used by [`crate::path_circle::PathCircle`] as
+/// itemized above.
 pub(crate) fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
     let norm = v.norm();
     if norm < eps {
-        (Vector3::new(1.0, 0.0, 0.0), 0.0)
+        (Vector3::zeros(), 0.0)
     } else {
         (v / norm, norm)
     }
