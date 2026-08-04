@@ -1,0 +1,91 @@
+[
+  {
+    "contacts": true,
+    "distance_queries": [],
+    "group": "right_arm",
+    "id": 1,
+    "joint_values": {},
+    "max_contacts": 100,
+    "max_contacts_per_pair": 5,
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  },
+  {
+    "attached_bodies": [
+      {
+        "id": "payload",
+        "link_name": "r_wrist_roll_link",
+        "shape_poses": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "shapes": [
+          {
+            "radius": 0.5,
+            "type": "sphere"
+          }
+        ],
+        "touch_links": [
+          "r_wrist_roll_link",
+          "r_gripper_palm_link"
+        ]
+      }
+    ],
+    "contacts": true,
+    "distance_queries": [],
+    "group": "right_arm",
+    "id": 2,
+    "joint_values": {},
+    "max_contacts": 100,
+    "max_contacts_per_pair": 5,
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  },
+  {
+    "contacts": false,
+    "distance_queries": [],
+    "group": "right_arm",
+    "id": 3,
+    "joint_values": {},
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  },
+  {
+    "contacts": true,
+    "distance_queries": [],
+    "group": "right_arm",
+    "id": 4,
+    "joint_values": {},
+    "max_contacts": 50,
+    "max_contacts_per_pair": 5,
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  },
+  {
+    "contacts": true,
+    "distance_queries": [],
+    "group": "right_arm",
+    "id": 5,
+    "joint_values": {},
+    "max_contacts": 100,
+    "max_contacts_per_pair": 1,
+    "op": "distance_field_cache_entry",
+    "use_acm": true
+  }
+]

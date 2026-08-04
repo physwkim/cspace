@@ -59,18 +59,24 @@
 //! `distance_queries` -- is asserted by plain equality, no per-link
 //! mesh-gap narrowing.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
+use std::sync::Arc;
 
 use approx::assert_relative_eq;
-use nalgebra::Vector3;
+use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
 use serde::Deserialize;
 
-use moveit_collision::{AllowedCollisionMatrix, CollisionRequest, LinkPaddingScale};
+use moveit_collision::{
+    AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionRequest, ContactData,
+    LinkPaddingScale,
+};
 use moveit_distance_field::{
     DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
-    add_link_body_decompositions, generate_distance_field_cache_entry, group_state_representation,
+    PropagationDistanceField, add_link_body_decompositions, generate_distance_field_cache_entry,
+    group_state_representation,
 };
+use moveit_geometry::{Isometry3, Shape, Sphere};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
@@ -954,6 +960,635 @@ fn group_state_representation_matches_the_oracle() {
                 "distances ({}, group {})",
                 expected_link.link_name, request.group
             );
+        }
+    }
+}
+
+// --- distance_field_cache_entry / group_state_representation: attached
+// bodies + contacts (round 24) ---
+//
+// Both ops gained `attached_bodies`/`contacts`/`max_contacts`/
+// `max_contacts_per_pair` request fields in `tools/moveit-oracle/src/
+// oracle.cpp` commit `5be5f72` (`applyAttachedBodies`, shared with
+// `collision`/`frame_transform`; see `oracle.cpp:1343-1400`). Round 23's
+// `ebd7ebc` closed a real gap in `get_self_collisions`/
+// `get_intra_group_collisions`/`get_intra_group_proximity_gradients`/
+// `get_environment_collisions`: each had stopped its loop bound at
+// `link_names_.size()` instead of `link_names_.size() +
+// attached_body_names_.size()`, so an attached body's own collision
+// spheres were silently skipped. The fixtures above never exercised that
+// widened bound (none carry `attached_bodies`) and never exercised
+// `contacts`/`max_contacts`/`max_contacts_per_pair` either (every case
+// omits them, so the oracle's default -- `contacts: false` -- applies
+// throughout) -- the two fixtures below are the first oracle ground truth
+// for both.
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ContactsShapeSpec {
+    Sphere { radius: f64 },
+}
+
+impl ContactsShapeSpec {
+    fn to_shape(&self) -> Shape {
+        match self {
+            Self::Sphere { radius } => Shape::Sphere(Sphere::new(*radius).unwrap()),
+        }
+    }
+}
+
+/// Row-major 4x4, matching `fromRowMajor4x4` in `oracle.cpp`.
+fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
+    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
+    let translation = Translation3::new(m[3], m[7], m[11]);
+    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
+}
+
+#[derive(Deserialize)]
+struct AttachedBodySpec {
+    id: String,
+    link_name: String,
+    shapes: Vec<ContactsShapeSpec>,
+    shape_poses: Vec<[f64; 16]>,
+    #[serde(default)]
+    touch_links: Vec<String>,
+}
+
+/// Owned storage for one fixture case's attached bodies, so the borrowed
+/// [`AttachedBodyGeometry`] handed to `check_self_collision`/
+/// `check_collision` can outlive the per-case loop body that builds it.
+struct OwnedAttachedBody {
+    id: String,
+    link_name: String,
+    shapes: Vec<Arc<Shape>>,
+    shape_poses: Vec<Isometry3>,
+    touch_links: BTreeSet<String>,
+}
+
+impl AttachedBodySpec {
+    fn to_owned_body(&self) -> OwnedAttachedBody {
+        OwnedAttachedBody {
+            id: self.id.clone(),
+            link_name: self.link_name.clone(),
+            shapes: self.shapes.iter().map(|s| Arc::new(s.to_shape())).collect(),
+            shape_poses: self
+                .shape_poses
+                .iter()
+                .map(isometry_from_row_major)
+                .collect(),
+            touch_links: self.touch_links.iter().cloned().collect(),
+        }
+    }
+}
+
+impl OwnedAttachedBody {
+    fn geometry(&self) -> AttachedBodyGeometry<'_> {
+        AttachedBodyGeometry {
+            id: &self.id,
+            link_name: &self.link_name,
+            shapes: &self.shapes,
+            shape_poses: &self.shape_poses,
+            touch_links: &self.touch_links,
+        }
+    }
+}
+
+fn default_max_contacts() -> usize {
+    100
+}
+
+fn default_max_contacts_per_pair() -> usize {
+    1
+}
+
+fn parse_body_type(s: &str) -> BodyType {
+    match s {
+        "robot_link" => BodyType::RobotLink,
+        "robot_attached" => BodyType::RobotAttached,
+        "world_object" => BodyType::WorldObject,
+        other => panic!("unknown body_type {other}"),
+    }
+}
+
+/// One `contacts` array entry, `allContactsToJson`'s 7-field shape
+/// (`oracle.cpp:2230-2261`). `shape_kinds_1`/`shape_kinds_2` are not
+/// deserialized: [`moveit_collision::Contact`] carries no shape-kind field
+/// at all (this port's `Contact` is a synthesized "collision found" record
+/// derived from a sphere-vs-field query, not a real per-shape FCL contact),
+/// so there is nothing on the port side to compare them against.
+#[derive(Deserialize)]
+struct ContactJson {
+    body_name_1: String,
+    body_type_1: String,
+    body_name_2: String,
+    body_type_2: String,
+    depth: f64,
+}
+
+/// Reduces a `contacts` array to (pair -> (body types, contact count)),
+/// the level this module's contact fixtures are actually comparable at:
+/// every contact in a given pair carries the same two body types and
+/// `depth: 0.0` (see [`ContactJson`]'s own doc and this round's report --
+/// `depth` is a default member initializer, not a real penetration
+/// measurement, per `collision_common.hpp:84`), so distinguishing
+/// individual same-pair entries beyond their count would compare noise.
+fn contacts_by_pair_from_json(
+    contacts: &[ContactJson],
+) -> BTreeMap<(String, String), (BodyType, BodyType, usize)> {
+    let mut map: BTreeMap<(String, String), (BodyType, BodyType, usize)> = BTreeMap::new();
+    for c in contacts {
+        assert_eq!(c.depth, 0.0, "depth ({}, {})", c.body_name_1, c.body_name_2);
+        let entry = map
+            .entry((c.body_name_1.clone(), c.body_name_2.clone()))
+            .or_insert((
+                parse_body_type(&c.body_type_1),
+                parse_body_type(&c.body_type_2),
+                0,
+            ));
+        entry.2 += 1;
+    }
+    map
+}
+
+fn contacts_by_pair_from_result(
+    contacts: &ContactData,
+) -> BTreeMap<(String, String), (BodyType, BodyType, usize)> {
+    contacts
+        .by_pair
+        .iter()
+        .map(|(pair, cs)| {
+            let first = cs.first().expect("by_pair never stores an empty Vec");
+            assert!(
+                cs.iter().all(|c| c.depth == 0.0
+                    && c.body_type_1 == first.body_type_1
+                    && c.body_type_2 == first.body_type_2),
+                "pair {pair:?}: every Contact for one pair must share body types and depth 0.0"
+            );
+            (
+                pair.clone(),
+                (first.body_type_1, first.body_type_2, cs.len()),
+            )
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+struct DfceContactsRequest {
+    id: u64,
+    group: String,
+    #[serde(default)]
+    joint_values: HashMap<String, f64>,
+    use_acm: bool,
+    #[serde(default)]
+    attached_bodies: Vec<AttachedBodySpec>,
+    #[serde(default)]
+    contacts: bool,
+    #[serde(default = "default_max_contacts")]
+    max_contacts: usize,
+    #[serde(default = "default_max_contacts_per_pair")]
+    max_contacts_per_pair: usize,
+}
+
+#[derive(Deserialize)]
+struct DfceContactsResult {
+    attached_body_names: Vec<String>,
+    #[serde(default)]
+    collision: Option<bool>,
+    #[serde(default)]
+    contacts: Option<Vec<ContactJson>>,
+}
+
+#[derive(Deserialize)]
+struct DfceContactsResponseEntry {
+    result: DfceContactsResult,
+}
+
+/// External, oracle-backed verification for the four functions round 23's
+/// `ebd7ebc` closed a real gap in
+/// (`get_self_collisions`/`get_intra_group_collisions`/
+/// `get_intra_group_proximity_gradients`/`get_environment_collisions`) --
+/// specifically the two of those four this op can reach,
+/// `get_self_collisions`/`get_intra_group_collisions`, via
+/// [`DistanceFieldCollisionCache::check_self_collision`]. Round 23's own 12
+/// boundary tests only proved this port's pieces agree with each other;
+/// this is the first fixture where an independent implementation (upstream
+/// C++, via the oracle) checks the same attached-body-widened loop and the
+/// same `contacts`/`max_contacts`/`max_contacts_per_pair` branches.
+///
+/// All five cases share `right_arm`, `joint_values: {}` (upstream's own
+/// safety-controller-midpoint defaults --
+/// [`generate_distance_field_cache_entry_matches_the_oracle`]'s own doc
+/// comment explains why `set_to_default_values` alone reproduces them) and
+/// `use_acm: true`. That combination is already self-colliding at 25
+/// distinct link/attached pairs (measured directly against the oracle,
+/// `max_contacts: 100, max_contacts_per_pair: 5`), including both the
+/// `"self"` sentinel path (`get_self_collisions`) and real link-vs-link
+/// intra-group pairs (`get_intra_group_collisions`) in the same response --
+/// so no case needs a hand-tuned joint configuration to exercise both
+/// collision paths at once.
+///
+/// - id 1: no attached body, `contacts: true, max_contacts: 100,
+///   max_contacts_per_pair: 5` -- baseline. 25 pairs, several already at
+///   the 5-contact-per-pair cap, total 100 (this id also happens to hit
+///   `max_contacts: 100`, but id 4 below is the case that isolates that
+///   boundary on purpose).
+/// - id 2: same, plus a 0.5m sphere attached to `r_wrist_roll_link`
+///   (`touch_links: [r_wrist_roll_link, r_gripper_palm_link]`). The
+///   `use_acm: true` gate on `attached_body_names_` population
+///   (`collision_env_distance_field.cpp:775`) is already satisfied by every
+///   case in this fixture, so id 1 vs id 2 isolates attached-body-absent
+///   vs -present at an otherwise identical joint configuration and request.
+/// - id 3: `contacts: false`, same joint configuration as id 1. The oracle
+///   omits `collision`/`contacts` from the response entirely when
+///   `contacts` is false (measured directly; see this test's `None` match
+///   arm below), so there is no oracle boolean to compare here -- what this
+///   case checks is that the port's own `res.collision` is still `true`
+///   under `contacts: false` even though no `Contact` gets recorded
+///   (`get_self_collisions`'s `else` branch at
+///   `collision_env_distance_field.rs:1653-1656` sets `res.collision = true`
+///   before returning, same as the `if` branch, just without touching
+///   `gsr.gradients` or `res.contacts`).
+/// - id 4: `max_contacts: 50` -- the `contacts.count() >= req.max_contacts`
+///   early-return boundary (`collision_env_distance_field.rs:1641-1643`,
+///   `:1933-1935`); measured directly against the oracle: exactly 50
+///   contacts back, not 49 or 51.
+/// - id 5: `max_contacts_per_pair: 1` -- every pair capped at exactly one
+///   contact; 32 distinct pairs at this joint configuration (more than at
+///   `max_contacts_per_pair: 5`, since fewer contacts per pair are consumed
+///   before the scan naturally exhausts every pair), all under the
+///   `max_contacts: 100` cap -- so id 5's total (32) is driven by pair
+///   count, not by hitting the cap the way id 1 and id 4 do.
+#[test]
+fn check_self_collision_matches_the_oracle_with_contacts_and_attached_bodies() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+
+    let requests: Vec<DfceContactsRequest> = serde_json::from_str(&read_fixture(
+        "distance_field_cache_entry_contacts_request.json",
+    ))
+    .expect("parse distance_field_cache_entry_contacts_request.json");
+    let responses: Vec<DfceContactsResponseEntry> = serde_json::from_str(&read_fixture(
+        "distance_field_cache_entry_contacts_response.json",
+    ))
+    .expect("parse distance_field_cache_entry_contacts_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert_eq!(
+        requests.len(),
+        5,
+        "this fixture's five ids are each a distinct boundary -- see this test's own doc comment"
+    );
+    assert!(model.diagnostics().is_empty());
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected = &response.result;
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values (id {}): {e}", request.id));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+
+        let owned_bodies: Vec<OwnedAttachedBody> = request
+            .attached_bodies
+            .iter()
+            .map(AttachedBodySpec::to_owned_body)
+            .collect();
+        let attached: Vec<AttachedBodyGeometry<'_>> = owned_bodies
+            .iter()
+            .map(OwnedAttachedBody::geometry)
+            .collect();
+
+        let mut cache = DistanceFieldCollisionCache::new(
+            link_body_decompositions.clone(),
+            oracle_default_distance_field_config(),
+            0.0,
+        );
+        let req = CollisionRequest {
+            group_name: Some(request.group.clone()),
+            contacts: request.contacts,
+            max_contacts: request.max_contacts,
+            max_contacts_per_pair: request.max_contacts_per_pair,
+            ..CollisionRequest::default()
+        };
+
+        let (res, gsr) = cache
+            .check_self_collision(&req, &posed, acm_arg, &attached)
+            .unwrap_or_else(|e| panic!("check_self_collision (id {}): {e}", request.id));
+
+        assert_eq!(
+            gsr.dfce.attached_body_names, expected.attached_body_names,
+            "attached_body_names (id {})",
+            request.id
+        );
+
+        match expected.collision {
+            Some(expected_collision) => assert_eq!(
+                res.collision, expected_collision,
+                "collision (id {})",
+                request.id
+            ),
+            None => assert!(
+                res.collision,
+                "id {}: contacts:false, so the oracle omits `collision` from its response -- \
+                 but this fixture's id 3 shares id 1's known-colliding joint configuration, and \
+                 get_self_collisions' contacts:false branch still sets res.collision before \
+                 returning early, so this must still be true (see this test's own doc comment)",
+                request.id
+            ),
+        }
+
+        match (&expected.contacts, &res.contacts) {
+            (None, None) => {}
+            (None, Some(_)) => panic!(
+                "id {}: oracle reported no contacts field but the port returned one",
+                request.id
+            ),
+            (Some(_), None) => panic!(
+                "id {}: oracle reported a contacts field but the port returned none",
+                request.id
+            ),
+            (Some(expected_contacts), Some(actual_contacts)) => {
+                let expected_pairs = contacts_by_pair_from_json(expected_contacts);
+                let actual_pairs = contacts_by_pair_from_result(actual_contacts);
+                assert_eq!(
+                    actual_pairs, expected_pairs,
+                    "contact pairs (id {})",
+                    request.id
+                );
+                assert_eq!(
+                    actual_contacts.count(),
+                    expected_contacts.len(),
+                    "total contact count (id {})",
+                    request.id
+                );
+                for (pair, (_, _, count)) in &actual_pairs {
+                    assert!(
+                        *count <= request.max_contacts_per_pair,
+                        "pair {pair:?} (id {}) exceeds max_contacts_per_pair={}",
+                        request.id,
+                        request.max_contacts_per_pair
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GsrContactsRequest {
+    id: u64,
+    group: String,
+    #[serde(default)]
+    joint_values: HashMap<String, f64>,
+    use_acm: bool,
+    #[serde(default)]
+    attached_bodies: Vec<AttachedBodySpec>,
+    #[serde(default)]
+    contacts: bool,
+    #[serde(default = "default_max_contacts")]
+    max_contacts: usize,
+    #[serde(default = "default_max_contacts_per_pair")]
+    max_contacts_per_pair: usize,
+}
+
+#[derive(Deserialize)]
+struct GsrContactsGradient {
+    closest_distance: f64,
+    collision: bool,
+    types: Vec<i32>,
+    distances: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+struct GsrContactsLink {
+    has_link_decomposition: bool,
+    gradient: Option<GsrContactsGradient>,
+}
+
+#[derive(Deserialize)]
+struct GsrContactsResult {
+    links: Vec<GsrContactsLink>,
+    #[serde(default)]
+    collision: Option<bool>,
+    #[serde(default)]
+    contacts: Option<Vec<ContactJson>>,
+}
+
+#[derive(Deserialize)]
+struct GsrContactsResponseEntry {
+    result: GsrContactsResult,
+}
+
+/// `group_state_representation`'s op (`oracle.cpp:3183-3393`) drives
+/// `CollisionEnvDistanceField::checkCollision`, not `checkSelfCollision` --
+/// unlike [`check_self_collision_matches_the_oracle_with_contacts_and_attached_bodies`]
+/// above, it also runs the environment phase ([`moveit_distance_field::get_environment_collisions`],
+/// round 23's fourth closed gap), even though neither op builds a `World`
+/// so that phase can never actually *find* an environment collision through
+/// either op (both construct `CollisionEnvDistanceField(model_)` with the
+/// single-argument, no-world constructor -- see this round's report). This
+/// test drives the port's [`DistanceFieldCollisionCache::check_collision`]
+/// against an empty [`PropagationDistanceField`] to match that, so it
+/// verifies `get_environment_collisions` runs without corrupting the
+/// self/intra-group result, not that it can find a real environment
+/// collision -- that remains unverified against the oracle (see this
+/// round's UNFIXED).
+///
+/// Unlike [`group_state_representation_matches_the_oracle`] above (which
+/// drives *construction-only* `group_state_representation`, so its
+/// `collision`/`types`/`distances` per-link fields never reflect a real
+/// query and that test enforces `collision: false` as a precondition before
+/// trusting them), this test's `gsr` comes from `check_collision`, which
+/// genuinely runs `get_self_collisions`/`get_intra_group_collisions`/
+/// `get_environment_collisions` -- so every link's `gradient.collision`/
+/// `types`/`distances`/`closest_distance` is real collision-detection
+/// output on both sides, and this test compares every link regardless of
+/// whether it collided.
+///
+/// Three ids, the same `right_arm`/`joint_values: {}`/`use_acm: true`
+/// colliding configuration as `distance_field_cache_entry_contacts` above:
+///
+/// - id 1: no attached body, `contacts: true` -- 13/22 links show
+///   `gradient.collision: true` (measured directly).
+/// - id 2: `payload` sphere attached to `r_wrist_roll_link`, `contacts:
+///   true` -- same 13/22 link split, plus the attached body itself
+///   participates in `result.contacts`. It never appears in `links[]`:
+///   that array is link-indexed only (`oracle.cpp:3336`, `for (i = 0; i <
+///   gsr->dfce_->link_names_.size(); ++i)`), so an attached body's own
+///   gradient slot is unreachable from this op's per-link dump regardless
+///   of `contacts` -- a distinct, narrower gap from the one this round's
+///   UNFIXED reports for `get_intra_group_proximity_gradients` (that one is
+///   about neither op ever calling `getCollisionGradients` at all; this one
+///   is about the dump loop even if it did).
+/// - id 3: `contacts: false`, same joint configuration as id 1 -- 0/22
+///   links show `gradient.collision: true`, matching
+///   `get_self_collisions`/`get_intra_group_collisions`'s `contacts: false`
+///   branches never touching `gsr.gradients` before returning
+///   (`collision_env_distance_field.rs:1653-1656`, `:1936-1938`). This is
+///   the oracle ground truth for the "`contacts` is not an output-only
+///   switch" fact this round's brief measured: id 1 vs id 3 is the same
+///   joint configuration with only `contacts` toggled.
+#[test]
+fn check_collision_matches_the_oracle_with_contacts_and_attached_bodies() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+
+    let requests: Vec<GsrContactsRequest> = serde_json::from_str(&read_fixture(
+        "group_state_representation_contacts_request.json",
+    ))
+    .expect("parse group_state_representation_contacts_request.json");
+    let responses: Vec<GsrContactsResponseEntry> = serde_json::from_str(&read_fixture(
+        "group_state_representation_contacts_response.json",
+    ))
+    .expect("parse group_state_representation_contacts_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert_eq!(
+        requests.len(),
+        3,
+        "this fixture's three ids are each a distinct boundary -- see this test's own doc comment"
+    );
+    assert!(model.diagnostics().is_empty());
+
+    let config = oracle_default_distance_field_config();
+    let empty_env = PropagationDistanceField::new(
+        config.geometry,
+        config.max_propagation_distance,
+        config.use_signed_distance_field,
+    )
+    .expect("empty environment field");
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected = &response.result;
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values (id {}): {e}", request.id));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+
+        let owned_bodies: Vec<OwnedAttachedBody> = request
+            .attached_bodies
+            .iter()
+            .map(AttachedBodySpec::to_owned_body)
+            .collect();
+        let attached: Vec<AttachedBodyGeometry<'_>> = owned_bodies
+            .iter()
+            .map(OwnedAttachedBody::geometry)
+            .collect();
+
+        let mut cache =
+            DistanceFieldCollisionCache::new(link_body_decompositions.clone(), config, 0.0);
+        let req = CollisionRequest {
+            group_name: Some(request.group.clone()),
+            contacts: request.contacts,
+            max_contacts: request.max_contacts,
+            max_contacts_per_pair: request.max_contacts_per_pair,
+            ..CollisionRequest::default()
+        };
+
+        let (res, gsr) = cache
+            .check_collision(&req, &posed, acm_arg, &attached, &empty_env)
+            .unwrap_or_else(|e| panic!("check_collision (id {}): {e}", request.id));
+
+        assert_eq!(
+            gsr.dfce.link_names.len(),
+            expected.links.len(),
+            "link count (id {})",
+            request.id
+        );
+
+        for (i, expected_link) in expected.links.iter().enumerate() {
+            assert_eq!(
+                gsr.dfce.link_has_geometry[i], expected_link.has_link_decomposition,
+                "has_link_decomposition[{i}] (id {})",
+                request.id
+            );
+            if !gsr.dfce.link_has_geometry[i] {
+                continue;
+            }
+            let expected_gradient = expected_link
+                .gradient
+                .as_ref()
+                .expect("has_link_decomposition implies a gradient entry");
+            assert_eq!(
+                gsr.gradients[i].collision, expected_gradient.collision,
+                "gradient.collision[{i}] (id {})",
+                request.id
+            );
+            let actual_types: Vec<i32> = gsr.gradients[i].types.iter().map(|t| *t as i32).collect();
+            assert_eq!(
+                actual_types, expected_gradient.types,
+                "gradient.types[{i}] (id {})",
+                request.id
+            );
+            assert_eq!(
+                gsr.gradients[i].distances, expected_gradient.distances,
+                "gradient.distances[{i}] (id {})",
+                request.id
+            );
+            assert_eq!(
+                gsr.gradients[i].closest_distance, expected_gradient.closest_distance,
+                "gradient.closest_distance[{i}] (id {})",
+                request.id
+            );
+        }
+
+        match expected.collision {
+            Some(expected_collision) => assert_eq!(
+                res.collision, expected_collision,
+                "collision (id {})",
+                request.id
+            ),
+            None => assert!(
+                res.collision,
+                "id {}: contacts:false, so the oracle omits `collision` from its response -- \
+                 but this fixture's id 3 shares id 1's known-colliding joint configuration (see \
+                 this test's own doc comment)",
+                request.id
+            ),
+        }
+
+        match (&expected.contacts, &res.contacts) {
+            (None, None) => {}
+            (None, Some(_)) => panic!(
+                "id {}: oracle reported no contacts field but the port returned one",
+                request.id
+            ),
+            (Some(_), None) => panic!(
+                "id {}: oracle reported a contacts field but the port returned none",
+                request.id
+            ),
+            (Some(expected_contacts), Some(actual_contacts)) => {
+                let expected_pairs = contacts_by_pair_from_json(expected_contacts);
+                let actual_pairs = contacts_by_pair_from_result(actual_contacts);
+                assert_eq!(
+                    actual_pairs, expected_pairs,
+                    "contact pairs (id {})",
+                    request.id
+                );
+                assert_eq!(
+                    actual_contacts.count(),
+                    expected_contacts.len(),
+                    "total contact count (id {})",
+                    request.id
+                );
+            }
         }
     }
 }

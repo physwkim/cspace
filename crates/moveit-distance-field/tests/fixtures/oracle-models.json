@@ -27,11 +27,19 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "distance_field_cache_entry_contacts": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "distance_field_negative": {
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
   "group_state_representation": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
+  "group_state_representation_contacts": {
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },

@@ -1,0 +1,66 @@
+[
+  {
+    "contacts": true,
+    "group": "right_arm",
+    "id": 1,
+    "joint_values": {},
+    "max_contacts": 100,
+    "max_contacts_per_pair": 5,
+    "op": "group_state_representation",
+    "use_acm": true
+  },
+  {
+    "attached_bodies": [
+      {
+        "id": "payload",
+        "link_name": "r_wrist_roll_link",
+        "shape_poses": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "shapes": [
+          {
+            "radius": 0.5,
+            "type": "sphere"
+          }
+        ],
+        "touch_links": [
+          "r_wrist_roll_link",
+          "r_gripper_palm_link"
+        ]
+      }
+    ],
+    "contacts": true,
+    "group": "right_arm",
+    "id": 2,
+    "joint_values": {},
+    "max_contacts": 100,
+    "max_contacts_per_pair": 5,
+    "op": "group_state_representation",
+    "use_acm": true
+  },
+  {
+    "contacts": false,
+    "group": "right_arm",
+    "id": 3,
+    "joint_values": {},
+    "op": "group_state_representation",
+    "use_acm": true
+  }
+]
