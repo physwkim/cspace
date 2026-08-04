@@ -11313,3 +11313,53 @@ p1-joints가 이미 캡처한 pilz fixture 3개(`panda_ptp_response.json`,
 `panda_lin_response.json`, `panda_lin_scaling05_rejected_response.json`)는
 `planning_time`을 담고 있으므로 재캡처가 필요하다 — 값은 안 변하니 tolerance
 재측정은 불필요하다는 점과 함께 전달했다.
+
+## 139. 두 번째 거짓 blocker: 상속 관계를 보고 호출 관계를 결론냈다
+
+§137에서 "의존성이 안 닿는다"는 UNFIXED를 반려한 데 이어, 같은 세션에서 같은
+계열의 두 번째 사례가 나왔다. 이쪽이 더 비쌌다 — 그대로 뒀으면 Phase 8의 CHOMP가
+optimizer 없는 비용함수 라이브러리로 끝났을 것이다.
+
+p6-totg 라운드 18이 `ChompOptimizer`를 이렇게 적었다: `hy_env_`
+(`const collision_detection::CollisionEnvHybrid*`)는 `CollisionEnvFCL`을 직접
+상속하는데 D4.5가 FCL/Bullet을 parry3d-f64로 통째 교체하므로 `CollisionEnvHybrid`는
+영원히 포팅되지 않는다, 따라서 literal port는 **permanently impossible**이고,
+포팅하려면 collision-cost 경로를 재설계하는 semantic change라 sign-off가 필요하다.
+
+상속 관계에 대한 서술은 전부 맞다. 결론이 틀렸다. pinned commit `e017c91e`에서
+`rg -n 'hy_env_|CollisionEnvHybrid' moveit_planners/chomp/chomp_motion_planner/`는
+전체 5 hit이고, 그중 실제 호출은 둘뿐이다:
+
+- `chomp_optimizer.hpp:133` 필드 선언
+- `chomp_optimizer.cpp:76,78` `dynamic_cast` + null 체크
+- `chomp_optimizer.cpp:102` `hy_env_->getCollisionGradients(req, res, state_, &planning_scene_->getAllowedCollisionMatrix(), gsr_)`
+- `chomp_optimizer.cpp:890` `hy_env_->getCollisionGradients(req, res, state_, nullptr, gsr_)`
+
+그리고 `collision_env_hybrid.cpp`의 그 메서드는 한 줄이다:
+
+```cpp
+void CollisionEnvHybrid::getCollisionGradients(...) const
+{
+  cenv_distance_->getCollisionGradients(req, res, state, acm, gsr);
+}
+```
+
+`CollisionEnvHybrid`가 `CollisionEnvFCL`을 상속하는 것은 CHOMP가 **한 번도 부르지
+않는** 나머지 메서드들 때문이고, CHOMP가 지나가는 경로는 곧장
+`CollisionEnvDistanceField`로 간다 — 그리고 그건 이미
+`crates/moveit-distance-field/src/collision_env_distance_field.rs:1277`에
+`get_collision_gradients`로 포팅돼 있다. 시그니처 차이는 upstream이 in/out
+파라미터로 넘기던 `gsr_`을 반환값으로 바꾼 것 하나뿐이고, 그 함수 doc이 이미
+"upstream's own caller가 하는 것과 같은 방식"이라고 적어놨는데 그 유일한 caller가
+바로 `ChompOptimizer`다.
+
+**규칙 (139):** "이 타입은 포팅 불가능하므로 이 타입을 쓰는 코드도 불가능하다"는
+결론을 적으려면, **그 코드가 그 타입에 실제로 무엇을 호출하는지 세어라.**
+`rg`로 호출 지점을 전부 뽑고, 각 호출의 upstream 구현이 무엇으로 내려가는지 한 단계
+따라가라. 상속 그래프는 무엇이 *가능한지*를 말하지 무엇이 *쓰이는지*를 말하지
+않는다. 이 사례에서 5 hit 중 2개만 호출이었고, 그 2개는 같은 메서드였고, 그
+메서드는 forward 한 줄이었다 — `rg` 한 번과 `sed` 한 번으로 뒤집혔다.
+
+§137과 묶어서: UNFIXED의 사유가 *구조적 제약*일 때(의존성, 순환, 계층, 상속,
+"포팅 불가") 그 제약을 재현한 명령과 그 출력을 함께 적어라. 재현 없이 적힌 제약은
+다음 라운드가 전제로 삼고, 그 다음 라운드는 그 전제 위에 설계를 얹는다.
