@@ -73,7 +73,7 @@
 //!   memory, the same shape as `moveit-trajectory`'s `resample_dt` finding
 //!   this note mirrors. `from_duration` now rejects a non-finite or
 //!   non-positive `discretization`, and separately rejects a resulting
-//!   point count above [`MAX_FROM_DURATION_POINTS`] (a resource bound this
+//!   point count above `MAX_FROM_DURATION_POINTS` (a resource bound this
 //!   port adds; upstream has none), both before the cast rather than after
 //!   it. **Expires** if upstream adds its own `discretization` validation,
 //!   at which point this note should instead record whatever bound
