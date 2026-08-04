@@ -1,0 +1,6 @@
+{
+  "panda_arm_plan_distance_probes": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}

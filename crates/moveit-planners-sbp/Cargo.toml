@@ -23,6 +23,8 @@ moveit-scene = { path = "../moveit-scene", version = "0.1.0" }
 [dev-dependencies]
 moveit-geometry.workspace = true
 moveit-srdf.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 urdf-rs.workspace = true
 
 # Not `[lints] workspace = true`: this crate's PlannerManager registry
