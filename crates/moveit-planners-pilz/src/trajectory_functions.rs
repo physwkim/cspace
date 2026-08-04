@@ -215,9 +215,13 @@ where
 /// Compute the pose of `link_name` at `joint_state`.
 ///
 /// Upstream `computeLinkFK(RobotState&, ..., const map<string,double>&, ...)`.
-/// The two-`Vec` overload (`joint_names`/`joint_positions` in lockstep) is not
-/// ported separately: it is a thin adapter that zips its two vectors into the
-/// same map this overload already takes, with no logic of its own.
+/// A second overload taking `joint_names`/`joint_positions` as two lockstep
+/// `Vec`s is declared in `trajectory_functions.hpp` but has no definition
+/// anywhere in upstream and is never called (every call site in
+/// `trajectory_generator_{circ,lin,polyline}.cpp` passes a
+/// `std::map<std::string, double>`, matching the overload ported here) — it
+/// is dead upstream code, not a forwarding adapter, so there is nothing to
+/// port.
 pub fn compute_link_fk<'m>(
     robot_state: &mut RobotState<'m>,
     link_name: &str,
