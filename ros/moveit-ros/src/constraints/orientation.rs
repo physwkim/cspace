@@ -187,7 +187,15 @@ mod tests {
         let err =
             CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
                 .unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `UnitQuaternion::try_from(OrientationConstraintQuaternion(..))`
+        // runs before `tolerance_from_wire` in the same function and is a
+        // sibling Error::Construct site (the two `degenerate_*`/`norm_2_*`
+        // tests below), indistinguishable from this one by variant alone.
+        assert!(
+            err.to_string()
+                .contains("is neither XYZ_EULER_ANGLES(0) nor ROTATION_VECTOR(1)"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -203,7 +211,13 @@ mod tests {
         let err =
             CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
                 .unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `tolerance_from_wire` (above in this file) has
+        // a sibling Error::Construct site, hit by
+        // `invalid_parameterization_is_rejected`.
+        assert!(
+            err.to_string().contains("more than 1e-3 from 1.0"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -224,7 +238,13 @@ mod tests {
         let err =
             CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
                 .unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `tolerance_from_wire` (above in this file) has
+        // a sibling Error::Construct site, hit by
+        // `invalid_parameterization_is_rejected`.
+        assert!(
+            err.to_string().contains("more than 1e-3 from 1.0"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -235,7 +255,14 @@ mod tests {
         let err =
             CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
                 .unwrap_err();
-        assert!(matches!(err, Error::UnknownName { .. }), "got: {err:?}");
+        // Not just the variant: `OrientationConstraint::new` (moveit-constraints)
+        // has a sibling `Error::UnknownName` site (`model.link_model(link_name)`,
+        // kind "link") -- only the `kind` field tells this test apart from an
+        // unknown `link_name` instead of an unknown `frame_id`.
+        assert!(
+            matches!(&err, Error::UnknownName { kind, .. } if *kind == "frame"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
