@@ -352,6 +352,17 @@ discard any hit outside a `#[cfg(test)]` module before diffing the
 remaining lines against the table, then still hand-read for the
 interpolation-duplication sub-shape separately.
 
+**Re-run confirmation (round: margin audit follow-up).** Ran again on
+this round's tree: still 19 lines, same file:line set as enumerated
+above -- no drift since the anchor was recorded. This round added one
+assertion inside an already-classified test
+(`upstream_test_get_cost_function_invalid_states`'s concentration
+fraction, `cost_functions.rs`) and split that same test into four; both
+changes are inside `cost_functions.rs`, which this anchor's three
+helpers do not touch at all (that file has zero hits in the 19 above),
+so the zero-drift result is expected, not a coincidence worth
+investigating further.
+
 This is a maintained allowlist, not a closed-form detector: it only
 finds tests routing through helpers already on the `-e` list. Extend
 the list whenever a new shared numerical helper crosses either crate's

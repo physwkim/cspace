@@ -1140,7 +1140,59 @@ mod tests {
     /// (`each_convergence_test_fails_if_the_accept_path_update_is_disabled`'s
     /// doc), whose own `max_abs_diff` measured ~= 0.0317 against the same
     /// `0.05` -- only ~1.58x, a genuinely tight case that this same probe's
-    /// doc already documents as a known gap.
+    /// doc already documents as a known gap; see that test's own doc for a
+    /// fragility read on this specific margin.
+    ///
+    /// # Reclassified (round: margin audit follow-up): smoke test, not a bound
+    ///
+    /// The astronomical margins above are not a loose-but-real bound, the
+    /// way `0.681`/`PENALTY` in `cost_functions.rs` turned out to be (see
+    /// that test's own doc for the fraction reading that gave it power) --
+    /// there is no hidden tighter reading of the same quantity to add here,
+    /// because the six tests below never exercise a multi-iteration search
+    /// in the first place. Measured directly
+    /// (`stomp.current_iteration` after `solve`/`solve_from_endpoints`
+    /// returns, all four `initialization_method` variants, `#[cfg(test)]`
+    /// probe run and reverted this round): every one of them runs **exactly
+    /// one** real iteration, `current_iteration == 1`. Root cause:
+    /// `create_3dof_configuration`'s `num_iterations_after_valid: 0` --
+    /// upstream's own literal (`test/stomp_3dof.cpp:208`, used by all six of
+    /// upstream's own equivalent tests too, not a port invention) -- breaks
+    /// `Stomp::solve`'s loop as soon as one valid iteration completes, and
+    /// every one of these six starts `parameters_optimized` at or
+    /// bit-adjacent to `trajectory_bias` itself (either `solve(&trajectory_bias)`
+    /// seeding it directly via `solve`'s zero-check shortcut -- itself
+    /// reproducing upstream's own `Stomp::solve(const Eigen::MatrixXd&,
+    /// ...)` overload, `src/stomp.cpp:208-215`, so `initialization_method`
+    /// is dead in three of these six tests in upstream too, not a port bug
+    /// -- or `solve_from_endpoints`'s `compute_linear_interpolation` landing
+    /// within float-roundoff of the test's own independently-implemented
+    /// `interpolate`). Starting at/near the cost function's own minimum
+    /// means the single real iteration's noisy update almost always gets
+    /// rejected regardless of its content, and the reject path's `-=`
+    /// against the same `+=`'d value round-trips `parameters_optimized`
+    /// back to within floating-point noise of where it started -- which is
+    /// exactly what the ~1e-16-scale measurements above are: round-trip
+    /// float noise, not search convergence.
+    ///
+    /// Confirmed with a targeted mutation distinct from the existing
+    /// `each_convergence_test_fails_if_the_accept_path_update_is_disabled`
+    /// probe (a `#[cfg(test)]`-only flag): flipped the sign of
+    /// `compute_probabilities`'s softmax exponent (`-h * ...` to `h * ...`,
+    /// `stomp.rs`'s own `compute_probabilities`) -- a realistic
+    /// production-code bug that inverts which rollouts the optimizer
+    /// prefers, not a test-only escape hatch. Run and reverted this round
+    /// (`git diff` confirmed clean before committing): of the 84 tests
+    /// across both crates, exactly **one** reddened --
+    /// `moveit-planners-stomp::planner::tests::plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle`.
+    /// None of the six `solve_*_converges` tests here caught it. A bug that
+    /// inverts the optimizer's core search preference is invisible to every
+    /// one of these six -- the strongest evidence that they are smoke tests
+    /// ("does `solve` run and return something plausible") rather than
+    /// convergence bounds, and, per the standing rule against tightening
+    /// upstream-ported values/configs, not something this port can fix by
+    /// tightening `BIAS_THRESHOLD` or `num_iterations_after_valid` without
+    /// deviating from upstream's own test design.
     const BIAS_THRESHOLD: [f64; 3] = [0.050, 0.050, 0.050];
     const STD_DEV: [f64; 3] = [1.0, 1.0, 1.0];
 
@@ -1675,6 +1727,44 @@ mod tests {
     /// p-hacking a coincidence, not fixing anything -- left open rather
     /// than papered over. See `doc/claim-audit/moveit-stomp-core.md` for
     /// the same statement recorded outside this file.
+    ///
+    /// # Fragility of the 1.58x margin (round: margin audit follow-up)
+    ///
+    /// Measured this round: `compare_diff`'s `max_abs_diff` here is ~=
+    /// 0.0317 against `BIAS_THRESHOLD`'s `0.05` -- ~1.58x, the only
+    /// genuinely tight margin among the seven `compare_diff` sites in this
+    /// module (the other six are reclassified as smoke tests, no
+    /// meaningful margin at all -- see `BIAS_THRESHOLD`'s own doc). That
+    /// 1.58x is **not** margin against float rounding: this measurement's
+    /// float noise floor is the ~1e-16-scale round-trip error the other six
+    /// tests measure, twelve orders of magnitude below 0.0317, so ordinary
+    /// arithmetic-order changes (a different summation order, a `nalgebra`
+    /// point release) cannot move this number by anything close to 1.58x.
+    /// What *can* move it by a full re-draw's worth -- easily clearing this
+    /// margin in either direction -- is anything that shifts which values
+    /// this scenario's `ChaCha8Rng` (seeded `6`) draws land on:
+    /// adding/removing/reordering a call to `sample_with_covariance` per
+    /// dimension or per rollout in `generate_noisy_rollouts`, changing
+    /// `num_rollouts`/`max_rollouts` in `create_3dof_configuration`,
+    /// changing `exponentiated_cost_sensitivity`, or an upstream
+    /// `rand`/`rand_chacha` version bump that changes the byte stream for
+    /// the same seed. None of those are float-precision drift; each is a
+    /// discrete jump to a different draw, and this test's own root-cause
+    /// paragraph above already traces the mechanism precisely enough to see
+    /// that no continuity argument protects 1.58x against it. This margin
+    /// is fragile: it is one otherwise-unremarkable refactor to
+    /// `generate_noisy_rollouts`'s call order or rollout count away from
+    /// silently flipping which side of `BIAS_THRESHOLD` this specific
+    /// seed/timestep-count combination lands on -- this test currently
+    /// asserts convergence *survives* the disabled update (the known gap:
+    /// this one seed's shift happens to undershoot `0.05`), and a shift of
+    /// its RNG draw could just as easily flip it to fail like its five
+    /// siblings do, or a siblings' shift could flip to pass like this one
+    /// does. Either direction is a silent behavior change in what this
+    /// probe demonstrates, not a compile error or an obvious diff. A future
+    /// round touching RNG call order or rollout counts in `stomp.rs` should
+    /// re-measure this margin before trusting this test to still mean what
+    /// it currently documents.
     #[test]
     fn solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe() {
         let num_timesteps = 60;
