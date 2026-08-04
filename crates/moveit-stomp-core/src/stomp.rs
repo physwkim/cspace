@@ -417,6 +417,14 @@ impl<'a> Stomp<'a> {
     /// (accept an already-built handle rather than build-and-immediately-
     /// discard one internally, which was this crate's round-23 UNFIXED
     /// gap).
+    ///
+    /// If `cancel_handle` was already cancelled before this call, the
+    /// `Stomp` returned here is already-cancelled too: [`Self::solve`]
+    /// exits before running any iteration. See
+    /// `Stomp::reset_variables`'s own "Deviation: does not touch
+    /// `proceed`" for the bug this guarantee once had (construction
+    /// silently un-cancelled a pre-cancelled handle) and why it does not
+    /// anymore.
     pub fn with_cancel_handle(
         config: StompConfiguration,
         task: Box<dyn Task + 'a>,
@@ -449,15 +457,25 @@ impl<'a> Stomp<'a> {
     }
 
     /// `setConfig`: replaces the configuration and re-derives every
-    /// internal matrix from it.
+    /// internal matrix from it. Also un-cancels `proceed`, matching
+    /// upstream's own `setConfig` -> `resetVariables` -> `proceed_ = true`
+    /// (`stomp.cpp:176-180,289`): reconfiguring an existing `Stomp` for
+    /// reuse is a deliberate restart, so any earlier cancellation --
+    /// same-thread [`Stomp::cancel`] or a [`CancelHandle::cancel`] this
+    /// `Stomp` shares -- is intentionally forgotten. See
+    /// `Stomp::reset_variables`'s own doc for why the un-cancel is not
+    /// inside `reset_variables` itself.
     pub fn set_config(&mut self, config: StompConfiguration) {
         self.config = config;
+        self.proceed.store(true, Ordering::SeqCst);
         self.reset_variables();
     }
 
     /// `clear`: resets all internal variables without changing the
-    /// configuration.
+    /// configuration. Also un-cancels `proceed` -- see [`Stomp::set_config`]'s
+    /// doc for why.
     pub fn clear(&mut self) {
+        self.proceed.store(true, Ordering::SeqCst);
         self.reset_variables();
     }
 
@@ -575,8 +593,31 @@ impl<'a> Stomp<'a> {
     }
 
     /// `resetVariables`.
+    ///
+    /// # Deviation: does not touch `proceed`
+    ///
+    /// Upstream's `resetVariables` unconditionally sets `proceed_ = true`
+    /// (`stomp.cpp:289`), and every upstream caller -- the constructor,
+    /// `clear`, `setConfig` -- is fine with that because `proceed_` is a
+    /// private member no other code can set before those calls run. This
+    /// port added [`Stomp::with_cancel_handle`] (round 24, not upstream),
+    /// which lets a caller cancel a [`CancelHandle`] *before* the `Stomp`
+    /// that shares its flag is even constructed -- and
+    /// `with_cancel_handle`'s constructor calls this function too. An
+    /// unconditional `proceed = true` here silently un-cancels that
+    /// caller-supplied flag the moment construction finishes, defeating the
+    /// one thing `with_cancel_handle` exists to allow (found by mutation-
+    /// testing `cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed`
+    /// in `moveit_planners_stomp::planner`: even *without* any mutation,
+    /// cancelling before `plan()` still let a full iteration run, because
+    /// this line reset the very flag the test had just cancelled). Callers
+    /// that genuinely want a fresh, uncancelled `proceed` -- [`Stomp::clear`],
+    /// [`Stomp::set_config`] -- now set it explicitly themselves, matching
+    /// upstream's actual intent (an existing `Stomp` object being
+    /// deliberately restarted) without stomping on a handle's
+    /// pre-construction state that upstream never had a way to set in the
+    /// first place.
     fn reset_variables(&mut self) {
-        self.proceed.store(true, Ordering::SeqCst);
         self.parameters_total_cost = 0.0;
         self.parameters_valid = false;
         self.num_active_rollouts = 0;
@@ -1061,6 +1102,7 @@ mod tests {
     use nalgebra::DVector;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+    use std::sync::atomic::AtomicUsize;
 
     const NUM_DIMENSIONS: usize = 3;
     const NUM_TIMESTEPS: usize = 20;
@@ -1085,6 +1127,7 @@ mod tests {
         noise_generators: Vec<MultivariateGaussian>,
         rng: ChaCha8Rng,
         smoothing_m: DMatrix<f64>,
+        rollout_call_count: Arc<AtomicUsize>,
     }
 
     impl DummyTask {
@@ -1113,7 +1156,21 @@ mod tests {
                 noise_generators,
                 rng: ChaCha8Rng::seed_from_u64(seed),
                 smoothing_m,
+                rollout_call_count: Arc::new(AtomicUsize::new(0)),
             }
+        }
+
+        /// A handle onto this task's per-rollout call counter, incremented
+        /// once per `compute_noisy_costs` call (one call per rollout, see
+        /// `run_single_iteration`). Must be cloned off before the task is
+        /// moved into `Box<dyn Task>`/`Stomp::new`, mirroring
+        /// `moveit-planners-stomp::planner`'s `call_count`/`AtomicUsize`
+        /// cancellation-detection pattern -- direct-equality assertions on
+        /// solved output cannot distinguish "cancellation stopped the
+        /// solver" from "the solver's own early-break logic stopped it for
+        /// an unrelated reason", but a near-zero rollout call count can.
+        fn rollout_call_count_handle(&self) -> Arc<AtomicUsize> {
+            Arc::clone(&self.rollout_call_count)
         }
     }
 
@@ -1144,6 +1201,7 @@ mod tests {
             _iteration_number: i32,
             _rollout_number: i32,
         ) -> Option<(DVector<f64>, bool)> {
+            self.rollout_call_count.fetch_add(1, Ordering::SeqCst);
             let mut costs = DVector::zeros(num_timesteps);
             let mut validity = true;
             for t in 0..num_timesteps {
@@ -1418,17 +1476,38 @@ mod tests {
     /// -- the boundary is "cancellation observed on the very first check",
     /// not a race with a background thread (which a deterministic unit
     /// test cannot assert on).
+    ///
+    /// # Structural fix: dimensions-only assertion could not fail
+    ///
+    /// The original version of this test asserted only `optimized.nrows()`/
+    /// `.ncols()` against the expected shape -- a shape `solve` returns
+    /// regardless of how many iterations actually ran, cancelled or not, so
+    /// the assertion could not have failed even with `CancelHandle::cancel`
+    /// mutated to a no-op. Mutation-testing `CancelHandle::cancel` (empty
+    /// body) confirmed this: the test still passed, in 0.012s, for a second,
+    /// independent reason on top of that -- `create_3dof_configuration`'s
+    /// `num_iterations_after_valid: 0` makes `Stomp::solve`'s own loop break
+    /// after exactly one valid iteration regardless of `proceed`, since this
+    /// task's seed is already within `BIAS_THRESHOLD`. Both gaps are closed
+    /// here the same way `cancelling_from_another_thread_stops_a_plan_call_already_in_flight`
+    /// (`moveit-planners-stomp::planner`) closes the identical pair: raise
+    /// `num_iterations_after_valid` so the early-valid break cannot fire
+    /// before `num_iterations` does, and assert on
+    /// `DummyTask`'s per-rollout call count instead of on output shape, so
+    /// the assertion actually depends on how much work `solve` did.
     #[test]
     fn cancelling_before_solve_stops_before_num_iterations_completes() {
         let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
-        let task = Box::new(DummyTask::new(
-            trajectory_bias,
-            &BIAS_THRESHOLD,
-            &STD_DEV,
-            7,
-        ));
+        let task = DummyTask::new(trajectory_bias, &BIAS_THRESHOLD, &STD_DEV, 7);
+        let rollout_call_count = task.rollout_call_count_handle();
+        let task = Box::new(task);
         let mut config = create_3dof_configuration(NUM_TIMESTEPS);
         config.num_iterations = 1_000_000;
+        // See this test's own doc: without this, `solve`'s early-valid
+        // break exits after one iteration on its own, masking whether
+        // cancellation did anything.
+        config.num_iterations_after_valid = config.num_iterations;
+        let num_rollouts = config.num_rollouts;
         let mut stomp = Stomp::new(config, task);
         let cancel = stomp.cancel_handle();
         cancel.cancel();
@@ -1437,6 +1516,16 @@ mod tests {
 
         assert_eq!(optimized.nrows(), NUM_DIMENSIONS);
         assert_eq!(optimized.ncols(), NUM_TIMESTEPS);
+
+        let calls = rollout_call_count.load(Ordering::SeqCst);
+        let plausible_uncancelled_calls = 1_000_000 * num_rollouts;
+        assert!(
+            calls * 1000 < plausible_uncancelled_calls,
+            "DummyTask::compute_noisy_costs was called {calls} times; an uncancelled run \
+             would call it up to {plausible_uncancelled_calls} times -- {calls} is not \
+             orders of magnitude below that, so cancellation may not have actually taken \
+             effect before the first rollout"
+        );
     }
 
     /// Invariant-boundary test for `Stomp::solve`'s seed-ignoring quirk
