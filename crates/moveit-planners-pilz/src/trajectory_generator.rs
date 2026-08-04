@@ -85,7 +85,7 @@
 //! diffed-scene-plus-resolved-goal bundle upstream's nested class is,
 //! constructed the same way (`scene->diff()`, apply `req.start_state`, read
 //! back `start_joint_position` from the group's active joints) via
-//! [`MotionPlanInfo::new`], called once by [`PilzGenerator::generate`] itself
+//! `MotionPlanInfo::new`, called once by [`PilzGenerator::generate`] itself
 //! rather than by each concrete generator. [`MotionPlanResponse`] replaces
 //! `planning_interface::MotionPlanResponse`, restricted to the two fields any
 //! caller here reads (`error_code`, `trajectory`) — `planning_time` is not
@@ -267,7 +267,7 @@ impl<'m> TrajectoryGenerator<'m> {
 /// Information extracted from a [`MotionPlanRequest`], needed to plan.
 ///
 /// Upstream `TrajectoryGenerator::MotionPlanInfo`. [`Self::start_scene`] is a
-/// [`PlanningScene::diff`] of the scene [`Self::new`] was built from, with
+/// [`PlanningScene::diff`] of the scene `Self::new` was built from, with
 /// `req.start_state` applied — every concrete generator's `plan` runs against
 /// this scene, not the original.
 ///
@@ -287,7 +287,7 @@ pub struct MotionPlanInfo<'m> {
     /// `link_name`.
     pub link_name: String,
     /// The Cartesian goal's link's pose at the start state. Upstream
-    /// `start_pose`; left [`Isometry3::identity`] by [`Self::new`] — only a
+    /// `start_pose`; left [`Isometry3::identity`] by `Self::new` — only a
     /// Cartesian-goal generator's `extractMotionPlanInfo` fills it in.
     pub start_pose: Isometry3,
     /// The Cartesian goal pose, or [`Isometry3::identity`] for a joint-space
@@ -299,7 +299,7 @@ pub struct MotionPlanInfo<'m> {
     /// Per-joint goal position, over the group's active joints. Upstream
     /// `goal_joint_position`.
     pub goal_joint_position: HashMap<String, f64>,
-    /// The scene planning runs against: [`Self::new`]'s input scene, diffed
+    /// The scene planning runs against: `Self::new`'s input scene, diffed
     /// and with `req.start_state` applied. Upstream `start_scene`.
     pub start_scene: Arc<PlanningScene<'m>>,
 }
@@ -461,7 +461,7 @@ where
     /// Upstream `generate`'s `try { validateRequest; cmdSpecificRequestValidation;
     /// extractMotionPlanInfo; plan } catch (const MoveItErrorCodeException& ex)
     /// { ...; setFailureResponse(...); return; }` — each stage's error
-    /// short-circuits straight to [`MotionPlanResponse::failure`], matching
+    /// short-circuits straight to `MotionPlanResponse::failure`, matching
     /// upstream's one-exception-at-a-time short-circuit.
     fn generate(
         &self,
