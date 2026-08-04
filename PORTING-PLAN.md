@@ -11158,3 +11158,59 @@ no-change 리빌드(CVE-2024-3094 대응, liboctomap1.9t64 재링크)뿐 —
 이건 §107.3(요청 전에 upstream *헤더*에서 심볼 도달 가능성 확인)과 같은
 계열의 규칙이다: **원본을 읽기 전에, 읽으려는 리비전이 오라클이 링크하는
 리비전인지 먼저 확인해라.** 로컬에 소스가 있다는 사실만으로는 부족하다.
+
+## 136. `ci.yml`을 커밋된 파일만의 트리에서 실제로 돌렸다
+
+"`.github/workflows/ci.yml`은 GitHub Actions에서 한 번도 돌아본 적이 없다"는
+UNFIXED 항목을 원격 없이 닫을 수 있는 만큼 닫았다. `git archive HEAD`로 추적
+중인 파일만(459개, 13MB) 새 디렉터리에 풀고, 캐시 없는 target에서 `ci.yml`의
+`rust` job 스텝을 순서대로 그대로 실행했다.
+
+| 스텝 | 결과 |
+|---|---|
+| `cargo fmt --all -- --check` | rc=0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | rc=0 |
+| `cargo nextest run --workspace` | rc=0 |
+| `cargo test --doc --workspace` | rc=0 |
+| `cargo doc --workspace --no-deps` | rc=0 |
+| `check-*.sh` glob | 8개 매치, 8개 전부 rc=0 |
+
+추가로 `cargo check --workspace --locked` rc=0 — `Cargo.lock`이 매니페스트와
+어긋나 있지 않다(락 드리프트는 CI에서만 터지는 대표적 실패 모드다).
+
+즉 **커밋된 내용만으로 job이 통과한다**. 워크트리에만 있는 파일이나
+gitignore된 산출물에 의존하는 테스트는 없다. `nextest`가 건너뛰는 2개는
+`moveit-diff`의 `visibility_cone_ambiguity_diagnostic`
+(`a_real_mismatching_case_touches_exactly_one_link`,
+`near_placement_never_touches_more_than_one_link_at_once`)로,
+`third_party/moveit_resources`가 필요해 `#[ignore]`된 것 — 이 호스트에서도
+CI에서도 똑같이 건너뛴다.
+
+### 136.1 이 실험이 증명하지 못한 것
+
+셋 다 남아 있다. "CI를 검증했다"로 뭉뚱그리지 않기 위해 적어둔다.
+
+1. **Actions 자체는 여전히 미검증.** `actions/checkout@v4`,
+   `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2`,
+   `taiki-e/install-action@nextest` 네 개는 실행된 적이 없다. 원격이 없으므로
+   이건 원격이 생기기 전엔 닫을 수 없다.
+2. **crates.io 신규 해석은 미검증.** 드라이런은 호스트의 `~/.cargo` 레지스트리
+   캐시를 재사용했다. `--locked`가 통과했으니 락 파일 자체는 정합하지만,
+   빈 캐시에서 네트워크로 받아오는 경로는 안 돌아봤다.
+3. **툴체인이 떠 있다.** 드라이런은 호스트의 `rustc 1.97.0`을 썼고, CI는
+   `dtolnay/rust-toolchain@stable`로 그날의 stable을 받는다.
+   `rust-toolchain.toml`이 없어 고정돼 있지 않은데, `[workspace.lints.rust]`가
+   `warnings = "deny"`라서 **새 rustc가 우리 코드에 새 린트를 켜면 리포지터리가
+   그대로인 채로 빌드가 깨진다.** `ci.yml` 상단 주석이 `RUSTFLAGS: -D warnings`를
+   거부한 근거("우리가 고칠 수 없는 서드파티 경고")는 워크스페이스 멤버에는
+   적용되지 않으므로, 이 실패 모드는 그 주석이 막아주지 않는다. 고정할지
+   말지는 트레이드오프가 있는 결정이라(고정하면 새 린트를 놓친다) 여기
+   기록만 하고 바꾸지 않았다.
+
+### 136.2 드라이런이 찾아낸 실제 결함 하나
+
+`ci.yml`의 test 스텝이 `cargo nextest run --workspace`였다 — `--no-fail-fast`가
+없다. 모든 워커의 로컬 게이트는 `--no-fail-fast`로 돌리므로, 같은 이름의
+"test 스텝"이 두 곳에서 다른 것을 뜻하고 있었다: 테스트 3개를 깬 push가 CI에선
+1개만 보고하고 나머지는 다음 실행에서야 드러난다. 규칙을 한쪽에 맞추는 게
+구조적 해결이라 CI 쪽에 `--no-fail-fast`를 붙였다(`0830ce5`).
