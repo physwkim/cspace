@@ -10297,3 +10297,115 @@ tests/**이고 다섯 다 이미 두 게이트를 같은 상수로 핀하고 있
 `next_velocity_switching_point`의 EPS 이분 탐색으로 좁혔고, 상류
 `getNextVelocitySwitchingPoint`/`trajectory_`가 private이라 오라클로
 확인할 수 없다는 것을 **헤더에서 직접 확인하고** 요청하지 않았다(§107.3).
+
+## 121. visibility_cone 거리 비교를 접었다, 그리고 Phase 8을 병렬로 연다 (2026-08-04)
+
+`p1-joints` 16, `p1-robotmodel` 17, `p3-shapes` 19-후속 라운드를 병합했다
+(6커밋). 실측: `fmt --check` 통과, clippy `--workspace --all-targets
+-D warnings` 0건, `cargo nextest run --workspace --no-fail-fast`
+**1110/1110**(25.4초, 벽시계 28.4초), `cargo test --doc --workspace` 통과,
+`check-*.sh` **4건** OK, `verify-fixture-provenance.sh` /
+`verify-continuous-reseed-wrap.sh` OK, `verify-fixture-replay.sh`
+**35/35 identical**.
+
+### 121.1 115/2201은 허용오차로 닫을 수 없다 — 그래서 비교를 좁혔다
+
+§117.2 이래 열려 있던 `visibility_cone`의 115/2201 불일치가 처분됐다.
+`p1-joints`가 115건 전부를 재측정했다(시드 4, `--group right_arm
+--cases 100 --constraints 2000`, 스탬프 `cd8ee2c1bdcf7148`):
+
+```
+max |diff|  5.42e-2
+median      3.57e-3
+min         3.93e-5
+sign flips  25/115 (깊이가 0 근처인 구간)
+```
+
+**세 자릿수에 걸쳐 퍼져 있고 바닥이 없다.** "backend 잡음"과 "진짜 결함"을
+가르는 문턱이 분포 안에 존재하지 않는다. 전부를 잠재우려면 ~5.4e-2가
+필요한데, 그것은 비교 대상 깊이 자체보다 큰 값이 많아서 진짜 회귀도 같이
+잠재운다. **허용오차로는 닫히지 않는 종류의 불일치다.**
+
+그래서 넓히는 대신 좁혔다: `compare_constraints`가 `kind ==
+"visibility_cone"`일 때 `distance` 비교만 건너뛴다. `satisfied`는 그대로
+비교한다.
+
+**포기한 것을 정확히 적는다** — near/far 문턱을 넘지 않을 만큼 작으면서
+깊이 *값*은 틀리는 결함. 그보다 큰 결함은 `satisfied`가 잡는다.
+
+이 문장을 말로 두지 않고 **섭동으로 확인했다**(§82.1). `decide_cone`의
+`!result.collision`을 `result.collision`으로 뒤집으면 —
+
+```
+passed: 1916   failed: 285
+  142x  satisfied mismatch rust=false oracle=true
+  143x  satisfied mismatch rust=true oracle=false
+```
+
+좁힌 뒤에도 285건이 `satisfied`로 잡힌다. 좁히기 전의 sweep은 내가
+직접 다시 돌려 **2201/2201**을 확인했다 — 담당의 숫자를 옮기지 않았다.
+
+나머지 여섯 종류는 `distance`를 그대로 비교한다. 그 여섯은 충돌 검출에
+도달하지 않고 지금까지 한 건도 어긋난 적이 없다.
+
+### 121.2 담당이 자기 측정을 되찾았고, 남은 10건을 크기로 갈랐다
+
+§120.2에서 돌려보낸 것 — `p1-robotmodel`이 `f111dfb`를 뒤집어 자기
+285케이스 스윕을 복원하고 `cone_touching_link_count`를 되살렸다.
+그리고 내가 요청한 크기 비교를 했다:
+
+- touching >= 2인 실패 **10건**: 2.3e-4 ~ 3.6e-3
+- touching == 1인 실패 **105건**: 3.9e-5 ~ 5.4e-2
+
+**10건의 범위가 105건 안에 통째로 들어간다**(41% 직접 중첩, 평균이 105건
+분포의 30 백분위). 별개의 군집이 아니다. touching >= 2가 실패를 함의하지도
+않는다(14건 중 4건 통과), 실패율이 touching == 1보다 높지도 않다.
+
+**닫지 않고 좁혔다**고 적은 것이 맞는 처리다. 그 10건에 깰 동점이 구조적으로
+존재하는 것은 사실이고, 다만 **측정된 어떤 것도 순회 순서를 deviation 6보다
+지지하지 않는다.** "증거 없음"을 "없음"으로 쓰지 않았다 — §120.2가 지적한
+바로 그 실수의 반대 방향이다.
+
+### 121.3 Phase 8을 Phase 7 완료 전에 연다 — 명시적으로
+
+§5는 "조건을 만족하지 못하면 다음 단계로 넘어가지 않는다"고 적혀 있다.
+Phase 7의 완료 조건(500문제 벤치마크)은 아직 열려 있다. 그럼에도
+`moveit-planners-chomp` 이식을 지금 시작한다. 이유 두 가지:
+
+1. **의존이 없다.** CHOMP의 core(`chomp_motion_planner`)는 Phase 1~6에만
+   의존하고 그 여섯은 전부 닫혔다. Phase 7의 RRT/PRM 결과를 쓰는 부분이
+   없다.
+2. **인력을 더 붙일 수 없다.** Phase 7에 남은 것은 벤치마크 세트 하나이고
+   소유자가 한 명(`p1-robotmodel`)이다. 나머지 패널을 놀리는 것과
+   병렬화의 교환이 아니라, 놀리는 것과 진행의 교환이다.
+
+**규칙은 유지된다: Phase 8의 완료 조건은 Phase 7이 닫히기 전에 선언하지
+않는다.** 이식은 진행하되 단계 완료 판정은 순서를 지킨다. §5를 고치는 것이
+아니라 이 한 번의 예외를 근거와 함께 남긴다.
+
+`chomp_interface/`는 이식하지 않는다 — ROS 플러그인이고 D1/D2가 그것을
+배제한다. 상류 3,771 LOC 중 core 7모듈이 대상이고, 이번 라운드 범위는
+`chomp_parameters`·`chomp_utils`·`chomp_trajectory` 셋이다. 옵티마이저가
+가장 어렵고 그 앞의 자료구조가 틀리면 전부 다시 하기 때문에 한 라운드에
+몰지 않는다.
+
+### 121.4 나머지 두 라운드
+
+**p1-joints `ed97930`** — §79 계수를 `count_relative_eq.pl`로 재현 가능하게
+만들었다(p3-acm의 형태를 가져왔다). `moveit-kinematics`/`tools/moveit-diff`/
+`moveit-state/tests/invariants.rs`에 대해 both=0 epsilon_only=2
+max_relative_only=0 neither=0. 앞의 둘은 `assert_relative_eq!` 호출이
+**아예 0건**이라 처분할 것이 없다는 것이 근거와 함께 나왔다.
+
+**p1-joints `5efda3a`** — §119.2의 공허한 통과 구멍을 구조적으로 닫았다.
+`touched_link_counts`를 조건부로 채우는 대신 측정 지점에서 `touched > 0`을
+단언하고 무조건 push한다 — 사후 집계 검사가 아니라 **구성상** 성립한다.
+`is_empty()`/`len()==0`/`count()==` 앵커로 세 대상을 훑어 같은 모양이
+이 자리 하나뿐임을 확인했고, 나머지 네 자리는 각각 왜 다른지 적었다.
+
+**p3-shapes 2커밋** — `float_roundtrip` 바닥 명령(§115)에 대해 두 크레이트를
+훑었고 해당 없음. `moveit-geometry`의 이분된 9자리는 전부 rustc가 파싱하는
+Rust 소스 리터럴과 비교하며 두 파일 다 `serde_json`을 import조차 하지 않는다
+— 없다를 근거로 적었다. `moveit-octomap`은 `assert_relative_eq!` 0건.
+그리고 §113.3대로 `getTreeType()` 간극을 **라운드 17 커밋 메시지를 믿지 않고**
+현재 트리에 대해 다시 셌다(159 불릿 그대로).
