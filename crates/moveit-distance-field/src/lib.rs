@@ -747,7 +747,9 @@
 //!   real gap that round 23 closed — see each function's own doc comment for
 //!   its exact upstream loop-bound citation.
 //! - `updatedPaddingOrScaling` — unported: a no-op override of the
-//!   `CollisionEnv` interface upstream itself (`return;`, no body).
+//!   `CollisionEnv` interface upstream itself (`collision_env_distance_field.hpp:270`:
+//!   `void updatedPaddingOrScaling(...) override{};`, an empty `{}` body,
+//!   round 26: corrected from a prior misquote of it as `return;`).
 //! - `generateDistanceFieldCacheEntryWorld`, `updateDistanceObject`,
 //!   `notifyObjectChange` — unported: specifically `World`-dependent, a
 //!   dependency this crate deliberately does not take.
