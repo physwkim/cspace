@@ -89,7 +89,12 @@ use crate::voxel_grid::GridGeometry;
 /// (non-homogeneous) `Dim`-vector applies the full affine transform,
 /// translation included -- confirmed by reading
 /// `Eigen/src/Geometry/Transform.h`'s `transform_right_product_impl<..., 2,
-/// 1>` (`res = T.linear() * other + T.translation()`), not inferred. This
+/// RhsCols>` (`res = T.linear() * other + T.translation()`) -- round 26:
+/// corrected from a prior citation of the more specific `<..., 2, 1>`
+/// specialization Eigen actually dispatches to for a `Vector3d` rhs, which
+/// computes the identical result a different way (`T.matrix() * [other; 1]`
+/// in homogeneous coordinates, then drops the last row), not via this
+/// literal formula. Same conclusion either way, not inferred. This
 /// holds even where the vector being transformed is conceptually a
 /// direction rather than a point (see [`PosedDistanceField::distance_gradient`]'s
 /// doc comment) -- Eigen's operator does not distinguish the two.
