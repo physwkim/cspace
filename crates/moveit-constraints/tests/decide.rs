@@ -15,7 +15,7 @@
 use std::fs;
 
 use moveit_error::Error;
-use moveit_geometry::{Isometry3, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
+use moveit_geometry::{Isometry3, Mesh, Shape, Sphere, Transforms, UnitQuaternion, Vector3};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
@@ -418,6 +418,67 @@ mod position {
                  error, not drop the region"
             );
         }
+    }
+
+    /// Distinct from `new_rejects_a_shape_with_no_body_counterpart` above:
+    /// that test pins `Body::from_shape`'s `Ok(None)` case (a shape type
+    /// with no `bodies::` counterpart at all). This test pins the other
+    /// half of the same `Body::from_shape(shape)?` line -- a shape type
+    /// that *does* have a counterpart, but whose construction genuinely
+    /// fails. `Shape::Mesh` with zero vertices is the deterministic way to
+    /// trigger that: `ConvexMesh::new`'s own doc comment (`bodies.rs`)
+    /// says upstream's matching branch is `bodies.cpp`'s
+    /// `ConvexMesh::useDimensions`, which does not crash on this input --
+    /// on `mesh->vertex_count == 0` the qhull call still runs (upstream
+    /// never checks vertex count before calling in), and on the broader
+    /// qhull-failure branch (`bodies.cpp:936-943`) it logs a warning and
+    /// returns, leaving `mesh_data_` in its default-constructed (empty,
+    /// always-non-containing) state -- a silent degradation, not a null
+    /// deref. This port chooses to hard-error there instead (`bodies.rs`'s
+    /// `ConvexMesh::new` doc comment, "this port surfaces the failure
+    /// instead of building a body that can never contain anything") -- a
+    /// deliberate divergence, not a defect, but one with no test at this
+    /// crate's boundary before this: `moveit-geometry`'s own
+    /// `convex_mesh_zero_vertex_is_an_error` pins `ConvexMesh::new` in
+    /// isolation, not that the error actually propagates out through
+    /// `PositionConstraint::new` rather than being swallowed somewhere in
+    /// between.
+    ///
+    /// Reachability: a zero-vertex mesh specifically cannot arrive via a
+    /// real `moveit_msgs::PositionConstraint` -- `constructShapeFromMsg`'s
+    /// `Mesh` overload (`shape_operations.cpp:56-59`) already rejects an
+    /// empty `vertices`/`triangles` array before a `Shape` object exists,
+    /// the same type-exclusion `new_rejects_a_shape_with_no_body_counterpart`
+    /// already documents for `:417-418`. This test is exercising what the
+    /// port's own `Shape::Mesh` variant allows to be constructed directly
+    /// (nothing enforces non-empty vertices on the struct itself), not a
+    /// wire-reachable case -- same relationship the existing test has to
+    /// `Shape::Plane`/`Shape::OcTree`.
+    #[test]
+    fn new_rejects_a_mesh_whose_body_construction_fails() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let region = (
+            Shape::Mesh(Mesh {
+                vertices: Vec::new(),
+                triangles: Vec::new(),
+                triangle_normals: None,
+                vertex_normals: None,
+            }),
+            Isometry3::identity(),
+        );
+        assert!(
+            PositionConstraint::new(
+                &model,
+                &transforms,
+                "panda_link8",
+                model.model_frame(),
+                Vector3::zeros(),
+                &[region],
+                1.0,
+            )
+            .is_err()
+        );
     }
 
     #[test]
