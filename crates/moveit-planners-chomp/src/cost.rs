@@ -382,9 +382,13 @@ mod tests {
 
     #[test]
     fn new_rejects_more_derivative_costs_than_diff_rules_rows() {
+        // `ChompCost::new` has 3 `Error::other` sites (derivative_costs vs.
+        // DIFF_RULES length, boundary point count, singular quad_cost); a
+        // bare `matches!(err, Error::Other(_))` cannot tell them apart, so
+        // this checks the message names *this* guard specifically.
         let traj = trajectory(20);
         let err = ChompCost::new(&traj, &[1.0, 1.0, 1.0, 1.0], 0.0).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("DIFF_RULES rows"));
     }
 
     #[test]
@@ -392,9 +396,12 @@ mod tests {
         // boundary = 2 * (DIFF_RULE_LENGTH - 1) = 12; 11 points is one
         // short of it and would give a negative getNumFreePoints()-style
         // block size upstream.
+        //
+        // See `new_rejects_more_derivative_costs_than_diff_rules_rows` for
+        // why this checks the message rather than just the variant.
         let traj = trajectory(11);
         let err = ChompCost::new(&traj, &[1.0], 0.0).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("DIFF_RULE_LENGTH-1"));
     }
 
     #[test]
@@ -421,9 +428,12 @@ mod tests {
     fn new_rejects_a_singular_quad_cost() {
         // All derivative costs zero and no ridge factor: quad_cost_full_
         // stays the zero matrix, so its free-variable block is singular.
+        //
+        // See `new_rejects_more_derivative_costs_than_diff_rules_rows` for
+        // why this checks the message rather than just the variant.
         let traj = trajectory(20);
         let err = ChompCost::new(&traj, &[0.0, 0.0, 0.0], 0.0).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("singular"));
     }
 
     #[test]
