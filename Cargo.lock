@@ -538,6 +538,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-stomp-core"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "nalgebra",
+]
+
+[[package]]
 name = "moveit-trajectory"
 version = "0.1.0"
 dependencies = [
