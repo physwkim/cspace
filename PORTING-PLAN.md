@@ -13663,3 +13663,47 @@ id 대응이 유지되어 실패를 맞는 fixture(4001-4012)에 귀속시킨다
 
 `2m04.7s` → `2m22.7s`, **+18초**. 오라클 프로세스 기동이 combined 그룹당
 두 배가 되지만 per-file pass가 전체 시간을 지배하므로 두 배가 되지 않는다.
+
+## §174 §172 적용 — `DiscreteMotionValidator::is_motion_valid`의 `steps` 좁힘 (moveit-planners-sbp)
+
+§172 포트 쪽 앵커(`as u64`가 `f64` 식을 받는 자리)를 moveit-planners-sbp에
+돌려 `validity.rs:123`을 찾았다: `(dist / self.resolution).ceil() as u64`.
+상류 대응은 OMPL `StateSpace::validSegmentCount`
+(`ompl/base/src/StateSpace.cpp:851`,
+`(unsigned int)ceil(distance / longestValidSegment_)`) — 좁힘 모양은
+같지만 폭이 다르고(상류 `unsigned int`, 포트 `u64`), 상류 호출부
+(`DiscreteMotionValidator.cpp:54,103`)가 그 `unsigned int`를 다시 부호 있는
+`int nd`로 한 번 더 좁혀서, 오버플로로 음수 wrap되면 내부 보간 검사를
+통째로 건너뛸 수 있다(둘 다 C++ 좁힘 변환 UB/구현정의).
+
+`resolution`은 생성자(`DiscreteMotionValidator::new`)에서
+`finite && > 0.0`만 검증하고, 실제 호출 시점의 `dist`에 비해 얼마나
+작은지는 검증하지 않는다. `resolution`이 `dist`에 비해 병적으로 작으면
+(예: 오설정된 `PlanningRequest::resolution`) `step_count`가 `u32::MAX`
+(4,294,967,295)를 훌쩍 넘는다. 고치기 전 코드는 그 값을 그대로 `as u64`로
+담았고, `check_range`의 총 호출 수는 `O(step_count)`이므로 사실상 무한
+hang이 된다 — §172.1 사례 2(`max_distance_sq`)와 같은 계열, 메모리가
+아니라 CPU가 고갈되는 모양만 다르다. `NaN` 거리(상태에 `NaN` 성분이
+섞여 들어온 경우 `RealVectorSpace::distance`가 그대로 전파한다)는
+`NaN.ceil() as u64 == 0`으로 새므로 `steps - 1`이 release 빌드에서 조용히
+`u64::MAX`로 wrap한다 — §172 표의 "`NaN` → 0" 행 그대로.
+
+고침: `steps`로 좁히기 전에
+`step_count.is_finite() && step_count <= u32::MAX as f64`를 단언한다.
+`u32::MAX`는 임의 값이 아니라 `validSegmentCount` 자신이 반환하는 폭이다
+— 상류 자신의 표현으로도 담을 수 없었을 값만 거부한다. 상류가 이
+구간에서 UB이므로 오라클로 판정할 수 없고(§172), 유일한 방법은 경계를
+거부하는 것이다.
+
+### 174.1 경계 (§153.1)
+
+거부 구간은 `dist/resolution > u32::MAX`(정상적인 관절 공간 거리에 비해
+`resolution`이 병적으로 작을 때만 도달) 또는 `dist`가 `NaN`/무한(state에
+비유한 값이 섞여 들어왔을 때만 도달)이다. 둘 다 정상적인
+`PlanningRequest`/`RobotState` 구성에서는 발생하지 않는다. 만료 조건:
+상류가 `validSegmentCount`/`checkMotion`에 자체 검증을 추가하면(현재는
+없음) 이 절을 다시 확인한다.
+
+Tests: `resolution_far_smaller_than_distance_panics_instead_of_hanging`,
+`nan_distance_panics_instead_of_silently_producing_a_degenerate_range`
+(`crates/moveit-planners-sbp/src/validity.rs`).
