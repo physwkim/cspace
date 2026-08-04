@@ -273,8 +273,16 @@ impl From<MoveItErrorCode> for i32 {
 }
 
 impl fmt::Display for MoveItErrorCode {
-    /// Matches the strings produced by upstream `MoveItErrorCode::toString()`
-    /// in `moveit_core/utils/src/moveit_error_code.cpp`.
+    /// Matches the strings produced by upstream `errorCodeToString`, an
+    /// `inline` free function in
+    /// `moveit_core/utils/include/moveit/utils/moveit_error_code.hpp:82`.
+    ///
+    /// The citation this replaces named
+    /// `moveit_core/utils/src/moveit_error_code.cpp` and a member
+    /// `MoveItErrorCode::toString()`. Neither exists: that directory's only
+    /// `toString` is `moveit::core::toString(double)` in `lexical_casts.cpp`,
+    /// an unrelated float formatter, and there is no `.cpp` for this header at
+    /// all.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             Self::Undefined => "UNDEFINED",
