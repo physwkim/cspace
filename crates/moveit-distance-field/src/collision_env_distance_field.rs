@@ -2281,10 +2281,12 @@ fn get_environment_proximity_gradients(
 /// below instead of pre-filtering `robot_model.link_models()` first. Same
 /// observable set, but as a consequence -- upstream's own, not introduced
 /// here -- an attached body on a non-group link with *no* collision
-/// geometry of its own is invisible to this field too, exactly like
-/// [`generate_distance_field_cache_entry`]'s `attached_body_names`
-/// (`collision_env_distance_field.cpp:910-925`): the outer loop `continue`s
-/// before the inner attached-body loop ever runs for that link.
+/// geometry of its own is invisible to this field too: such a link is
+/// excluded from `getLinkModelsWithCollisionGeometry()` itself
+/// (`collision_env_distance_field.cpp:910`), so upstream's own loop body
+/// (and its attached-body sub-loop, `:927`) never runs for it at all --
+/// the exclusion is the pre-filtered iteration source, not an in-loop
+/// `continue`.
 fn build_non_group_distance_field<'a>(
     robot_model: &RobotModel,
     state: &Posed<'_, '_>,
