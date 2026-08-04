@@ -580,6 +580,15 @@ mod tests {
     /// Port of `test_cost_functions.cpp`'s `testGetCostFunctionAllValidStates`
     /// -- upstream's exact `TIMESTEPS=100`, `VARIABLES=6` literals, not this
     /// module's usual small synthetic fixtures.
+    ///
+    /// # Margin/reachability audit (round: margin audit): no bound, no shadowing
+    ///
+    /// Both assertions are exact equality checks (`validity` a bool,
+    /// `costs.sum() == 0.0` deterministic for an always-valid validator) --
+    /// no inequality-against-a-threshold bound to measure a margin for.
+    /// Only two closely-coupled assertions, not a distinctive claim behind
+    /// generic ones as in `upstream_test_get_cost_function_invalid_states`
+    /// (see that test's own doc): no reordering/split needed.
     #[test]
     fn upstream_test_get_cost_function_all_valid_states() {
         const TIMESTEPS: usize = 100;
@@ -599,19 +608,50 @@ mod tests {
     /// and the `0.681 * PENALTY` two-sigma concentration claim. Interpolation
     /// is disabled (`0.0`), matching upstream, so `state_validator_fn` is
     /// called exactly once per timestep in timestep order -- the counter
-    /// below stands in for upstream's `timestep_counter` and is checked to
-    /// equal `TIMESTEPS` afterward, same as upstream's own
-    /// `EXPECT_EQ(timestep_counter, 100u)`.
-    #[test]
-    fn upstream_test_get_cost_function_invalid_states() {
+    /// stands in for upstream's `timestep_counter`.
+    ///
+    /// # Split into four cases, not one: `assert!` short-circuits
+    ///
+    /// Upstream's test body makes five independent claims in sequence
+    /// (validity, call count, `costs.maxCoeff() <= PENALTY`,
+    /// `costs.minCoeff() >= 0.0`, the sum-preservation identity, and the
+    /// `0.681` concentration bound). As one `#[test]` with five `assert!`s,
+    /// `assert!` stops at the first failure -- a mutation that breaks an
+    /// early claim (e.g. `validity`) never exercises whether a later claim
+    /// (e.g. the `0.681` concentration bound) still holds, because the test
+    /// never reaches that line. A round-24 bite-check confirmed this
+    /// concretely: perturbing `sigma`/`mu` in `kernel_bounds` reddened this
+    /// test on `costs.sum()` or `costs.max() <= PENALTY`, never once on the
+    /// `0.681` line, even though that line is the test's most distinctive
+    /// claim (see "Measured margins" below -- it is also the loosest bound,
+    /// so it is the claim least likely to be caught incidentally by the
+    /// others). Splitting each claim into its own `#[test]` (sharing
+    /// [`run_upstream_invalid_states_scenario`] for setup) makes every claim
+    /// independently reachable: a mutation that breaks only the
+    /// concentration bound now reddens exactly one test, regardless of
+    /// whether it also breaks an earlier claim.
+    ///
+    /// # Measured margins (round: margin audit)
+    ///
+    /// `costs.max() <= PENALTY` (upstream's own `EXPECT_LE`): measured
+    /// `costs.max() = 0.9444393030890911` against `PENALTY = 1.0` --
+    /// margin ~1.06x (~6% headroom), a genuinely tight bound.
+    /// `costs.min() >= 0.0`: structural, not a probabilistic margin -- a
+    /// penalty-only cost function cannot produce a negative value by
+    /// construction, so this is an exact-equality-at-the-floor check, not
+    /// something with a "margin" to measure.
+    /// `invalid_costs_sum >= 0.681 * PENALTY` (upstream's own `EXPECT_GE`):
+    /// measured `invalid_costs_sum = 12.37895087036898` against a bound of
+    /// `0.681` -- margin ~18.2x. Not a documentation defect in the bound
+    /// itself (it is upstream's own literal, reproduced exactly, and
+    /// upstream's own assertion is equally loose since upstream's `costs`
+    /// sum to `PENALTY * 18` too) -- the defect was this doc comment
+    /// reading as though `0.681` pinned something tight, now corrected.
+    fn run_upstream_invalid_states_scenario() -> (DVector<f64>, bool, usize) {
         const TIMESTEPS: usize = 100;
         const VARIABLES: usize = 6;
-        const PENALTY: f64 = 1.0;
-        let invalid_timesteps: [usize; 18] = [
-            0, 10, 11, 12, 25, 26, 27, 46, 63, 64, 65, 66, 67, 68, 69, 97, 98, 99,
-        ];
         let invalid_set: std::collections::HashSet<usize> =
-            invalid_timesteps.iter().copied().collect();
+            UPSTREAM_INVALID_TIMESTEPS.iter().copied().collect();
 
         let counter = std::rc::Rc::new(RefCell::new(0usize));
         let counter_captured = counter.clone();
@@ -619,7 +659,7 @@ mod tests {
             let t = *counter_captured.borrow();
             *counter_captured.borrow_mut() += 1;
             if invalid_set.contains(&t) {
-                PENALTY
+                UPSTREAM_INVALID_STATES_PENALTY
             } else {
                 0.0
             }
@@ -629,14 +669,53 @@ mod tests {
             col as f64 / (TIMESTEPS - 1) as f64
         });
         let (costs, validity) = cost_fn(&values).unwrap();
+        (costs, validity, *counter.borrow())
+    }
 
+    const UPSTREAM_INVALID_STATES_TIMESTEPS: usize = 100;
+    const UPSTREAM_INVALID_STATES_PENALTY: f64 = 1.0;
+    const UPSTREAM_INVALID_TIMESTEPS: [usize; 18] = [
+        0, 10, 11, 12, 25, 26, 27, 46, 63, 64, 65, 66, 67, 68, 69, 97, 98, 99,
+    ];
+
+    #[test]
+    fn upstream_test_get_cost_function_invalid_states_marks_the_trajectory_invalid_and_visits_every_timestep()
+     {
+        let (_costs, validity, counter) = run_upstream_invalid_states_scenario();
         assert!(!validity);
-        assert_eq!(*counter.borrow(), TIMESTEPS);
-        assert!(costs.max() <= PENALTY);
+        assert_eq!(counter, UPSTREAM_INVALID_STATES_TIMESTEPS);
+    }
+
+    #[test]
+    fn upstream_test_get_cost_function_invalid_states_costs_stay_within_penalty_bounds() {
+        let (costs, _validity, _counter) = run_upstream_invalid_states_scenario();
+        // measured costs.max() = 0.9444393030890911, ~1.06x margin -- tight.
+        assert!(costs.max() <= UPSTREAM_INVALID_STATES_PENALTY);
+        // structural: a penalty-only cost function cannot go negative.
         assert!(costs.min() >= 0.0);
-        assert!((costs.sum() - PENALTY * invalid_timesteps.len() as f64).abs() < 1e-9);
-        let invalid_costs_sum: f64 = invalid_timesteps.iter().map(|&i| costs[i]).sum();
-        assert!(invalid_costs_sum >= 0.681 * PENALTY);
+    }
+
+    #[test]
+    fn upstream_test_get_cost_function_invalid_states_total_cost_equals_penalty_times_invalid_count()
+     {
+        let (costs, _validity, _counter) = run_upstream_invalid_states_scenario();
+        assert!(
+            (costs.sum()
+                - UPSTREAM_INVALID_STATES_PENALTY * UPSTREAM_INVALID_TIMESTEPS.len() as f64)
+                .abs()
+                < 1e-9
+        );
+    }
+
+    #[test]
+    fn upstream_test_get_cost_function_invalid_states_concentrates_at_least_0681_of_penalty_at_invalid_timesteps()
+     {
+        let (costs, _validity, _counter) = run_upstream_invalid_states_scenario();
+        let invalid_costs_sum: f64 = UPSTREAM_INVALID_TIMESTEPS.iter().map(|&i| costs[i]).sum();
+        // measured invalid_costs_sum = 12.37895087036898, ~18.2x margin
+        // against 0.681 -- upstream's own bound is this loose too (see the
+        // doc comment on `run_upstream_invalid_states_scenario`).
+        assert!(invalid_costs_sum >= 0.681 * UPSTREAM_INVALID_STATES_PENALTY);
     }
 }
 

@@ -891,6 +891,24 @@ mod tests {
     /// early-break path entirely, so `proceed` going false is the only exit
     /// this test's `solve` call can take before exhausting all 1,000,000
     /// iterations, which is what actually exercises cancellation.
+    ///
+    /// # Measured margin (round: margin audit): loose on purpose, unlike its same-crate sibling
+    ///
+    /// `calls * 1000 < plausible_uncancelled_calls` measured across three
+    /// consecutive runs at `calls=33`, `calls=49`, `calls=33` against
+    /// `plausible_uncancelled_calls / 1000 = 15_000` -- run-to-run variance
+    /// confirming this genuinely is a race (the watcher thread's `yield_now`
+    /// spin can observe anywhere from `2 * num_rollouts` calls upward before
+    /// it wins the race to call `.cancel()`), unlike
+    /// `cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed`
+    /// above, whose own doc already establishes an exact `calls == 1` for
+    /// the single-threaded cancel-before-`plan` case, and unlike
+    /// `moveit-stomp-core::stomp::tests::cancelling_before_solve_stops_before_num_iterations_completes`,
+    /// whose equivalent `* 1000` bound this round tightened to an exact
+    /// count for the same reason (that one has no race either). This test's
+    /// `* 1000` multiplier stays as-is: a real OS-thread race has no fixed
+    /// count to assert exactly, and this order-of-magnitude check is the
+    /// correct tool for it, not a defect this port should tighten.
     #[test]
     fn cancelling_from_another_thread_stops_a_plan_call_already_in_flight() {
         let model = panda_model();

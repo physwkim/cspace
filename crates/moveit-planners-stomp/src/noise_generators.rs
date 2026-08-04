@@ -374,6 +374,22 @@ mod tests {
     /// under a hypothetical all-zero-noise bug -- upstream's
     /// `EXPECT_NE(noise, NOISE)` (`NOISE` is the all-zero matrix passed in
     /// as the out-parameter) is reproduced explicitly here.
+    ///
+    /// # Margin/reachability audit (round: margin audit): no bound, no shadowing
+    ///
+    /// All six assertions here are exact equality/inequality checks
+    /// (`assert_eq!`/`assert_ne!`), not inequality-against-a-threshold
+    /// checks -- there is no "measured value vs. bound" margin to compute,
+    /// unlike `cost_functions.rs`'s `0.681`/`PENALTY` bounds. Checked
+    /// separately for the shadowed-assertion defect that motivated splitting
+    /// `upstream_test_get_cost_function_invalid_states`
+    /// (`cost_functions.rs`): the three leading `assert_ne!`s only fail
+    /// under an all-zero-noise bug, and under that specific bug the trailing
+    /// loop's `assert_eq!`s would pass vacuously anyway (`values ==
+    /// noisy_values` trivially holds everywhere, not just at the pinned
+    /// start/end indices) -- so an earlier `assert_ne!` failing never hides
+    /// information the loop would otherwise have reported. No reordering or
+    /// split needed here.
     #[test]
     fn upstream_test_start_end_unchanged() {
         const TIMESTEPS: usize = 100;

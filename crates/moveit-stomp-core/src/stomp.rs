@@ -1122,6 +1122,25 @@ mod tests {
     const DELTA_T: f64 = 0.1;
     const START_POS: [f64; 3] = [1.4, 1.4, 0.5];
     const END_POS: [f64; 3] = [-1.25, 1.0, -0.26];
+    /// Upstream's own literal (`test/stomp_3dof.cpp:39`,
+    /// `const std::vector<double> BIAS_THRESHOLD = { 0.050, 0.050, 0.050 };`)
+    /// -- not tightened here even though this port's own deterministic
+    /// `ChaCha8Rng` draws converge far inside it. Measured `compare_diff`'s
+    /// `max_abs_diff` (round: margin audit) for each of the six
+    /// `solve_*_converges` tests below against this `0.05` threshold:
+    /// `solve_default_converges_to_the_bias_trajectory_from_endpoints` ~=
+    /// 1.11e-16 (~4.5e14x), `solve_with_linear_interpolated_initial_trajectory_converges`
+    /// ~= 2.78e-17 (~1.8e15x), `solve_with_cubic_polynomial_initial_trajectory_converges`
+    /// ~= 2.22e-16 (~2.25e14x), `solve_with_minimum_control_cost_initial_trajectory_converges`
+    /// ~= 5.55e-17 (~9.0e14x), `solve_with_40_timesteps_converges` ~=
+    /// 5.55e-17 (~9.0e14x), `solve_with_60_timesteps_converges` ~= 5.55e-17
+    /// (~9.0e14x) -- all effectively floating-point-noise-level convergence,
+    /// not a meaningfully close call against `BIAS_THRESHOLD`. Contrast
+    /// `solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe`
+    /// (`each_convergence_test_fails_if_the_accept_path_update_is_disabled`'s
+    /// doc), whose own `max_abs_diff` measured ~= 0.0317 against the same
+    /// `0.05` -- only ~1.58x, a genuinely tight case that this same probe's
+    /// doc already documents as a known gap.
     const BIAS_THRESHOLD: [f64; 3] = [0.050, 0.050, 0.050];
     const STD_DEV: [f64; 3] = [1.0, 1.0, 1.0];
 
@@ -1710,6 +1729,30 @@ mod tests {
     /// before `num_iterations` does, and assert on
     /// `DummyTask`'s per-rollout call count instead of on output shape, so
     /// the assertion actually depends on how much work `solve` did.
+    ///
+    /// # Tightened (round: margin audit): exact count, not an order-of-magnitude bound
+    ///
+    /// This test cancels on the calling thread *before* `solve_from_endpoints`
+    /// is invoked at all -- unlike its sibling
+    /// `cancelling_from_another_thread_stops_a_plan_call_already_in_flight`
+    /// (`moveit-planners-stomp::planner`), there is no second thread and no
+    /// race: `solve`'s pre-loop `compute_optimized_cost()` call
+    /// (`Stomp::solve`'s own doc) always runs exactly once regardless of
+    /// `proceed`, and `run_single_iteration` checks `proceed` before doing
+    /// anything else, so the `while` loop body never executes once
+    /// cancelled. `calls` is therefore deterministically `1`, not merely
+    /// "orders of magnitude below" some uncancelled-run estimate -- measured
+    /// at `calls=1` against the previous `calls * 1000 <
+    /// plausible_uncancelled_calls` bound (`plausible_uncancelled_calls =
+    /// 20_000_000`), a ~20,000x margin for a value with zero variance. That
+    /// `* 1000` heuristic was this port's own invention (not from upstream,
+    /// which has no equivalent test), copied from the genuinely racy sibling
+    /// test above where a loose multiplier is the correct tool; here it hid
+    /// the real invariant behind an unnecessarily wide bound. Asserting the
+    /// exact count both tightens the check and states the invariant this
+    /// test can actually prove: cancelling before `solve` is called permits
+    /// precisely the one unconditional pre-loop cost evaluation and nothing
+    /// else.
     #[test]
     fn cancelling_before_solve_stops_before_num_iterations_completes() {
         let trajectory_bias = interpolate(&START_POS, &END_POS, NUM_TIMESTEPS);
@@ -1722,7 +1765,6 @@ mod tests {
         // break exits after one iteration on its own, masking whether
         // cancellation did anything.
         config.num_iterations_after_valid = config.num_iterations;
-        let num_rollouts = config.num_rollouts;
         let mut stomp = Stomp::new(config, task);
         let cancel = stomp.cancel_handle();
         cancel.cancel();
@@ -1733,13 +1775,12 @@ mod tests {
         assert_eq!(optimized.ncols(), NUM_TIMESTEPS);
 
         let calls = rollout_call_count.load(Ordering::SeqCst);
-        let plausible_uncancelled_calls = 1_000_000 * num_rollouts;
-        assert!(
-            calls * 1000 < plausible_uncancelled_calls,
-            "DummyTask::compute_noisy_costs was called {calls} times; an uncancelled run \
-             would call it up to {plausible_uncancelled_calls} times -- {calls} is not \
-             orders of magnitude below that, so cancellation may not have actually taken \
-             effect before the first rollout"
+        assert_eq!(
+            calls, 1,
+            "DummyTask::compute_noisy_costs was called {calls} times; cancelling before \
+             solve_from_endpoints is called permits exactly one call, from solve's \
+             unconditional pre-loop compute_optimized_cost -- any other count means \
+             cancellation was not observed at the expected point"
         );
     }
 
