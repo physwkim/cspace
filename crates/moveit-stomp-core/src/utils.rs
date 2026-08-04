@@ -138,7 +138,25 @@ pub fn generate_finite_difference_matrix(
 /// // Exact by construction -- see this function's own tests for why.
 /// assert!((m[(3, 3)] - 0.1).abs() < 1e-9);
 /// ```
+///
+/// # `num_timesteps == 0`
+///
+/// Handled before reaching `full_piv_lu()`, not a case that flows through
+/// the general path. Upstream's `int num_timesteps` lets Eigen invert a 0x0
+/// `control_cost_matrix_R` without complaint (empty matrices are trivially
+/// invertible, and its scaling loop's `for (t = 0; t < 0; t++)` never
+/// runs). nalgebra's `FullPivLU::is_invertible` instead computes
+/// `self.lu.nrows() - 1` unconditionally on a `usize`, which underflows for
+/// a 0-dimension matrix and panics -- a `nalgebra` limitation on the 0x0
+/// case, not a singular-`R` case this port's `Option` return is meant to
+/// signal. Returning the empty matrix directly is the correct value for
+/// this input either way, so it is special-cased rather than routed through
+/// a library call that cannot express it.
 pub fn generate_smoothing_matrix(num_timesteps: usize, dt: f64) -> Option<DMatrix<f64>> {
+    if num_timesteps == 0 {
+        return Some(DMatrix::zeros(0, 0));
+    }
+
     let start_index_padded = FINITE_DIFF_RULE_LENGTH - 1;
     let num_timesteps_padded = num_timesteps + 2 * (FINITE_DIFF_RULE_LENGTH - 1);
     let finite_diff_matrix_a_padded =
@@ -385,6 +403,17 @@ mod tests {
         let m = generate_smoothing_matrix(8, 0.05).unwrap();
         assert_eq!(m.nrows(), 8);
         assert_eq!(m.ncols(), 8);
+    }
+
+    #[test]
+    fn smoothing_matrix_for_zero_timesteps_is_the_empty_matrix_not_a_panic() {
+        // nalgebra's FullPivLU::is_invertible computes `nrows() - 1`
+        // unconditionally, which underflows a usize for a 0x0 matrix; this
+        // boundary is handled before that call is reached (see this
+        // function's own "num_timesteps == 0" doc section).
+        let m = generate_smoothing_matrix(0, 0.1).expect("0x0 is trivially invertible");
+        assert_eq!(m.nrows(), 0);
+        assert_eq!(m.ncols(), 0);
     }
 
     #[test]
