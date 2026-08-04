@@ -59,7 +59,7 @@ and no divergence class exists to test a boundary against.
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| `crates/moveit-stomp-core/src/{stomp,utils}.rs` full anchor re-enumeration | 16 casts (not 12), 0 float-derived; no boundary test is owed because int-to-int/enum-to-int narrowing has no Rust/C++ divergence class to begin with | CONFIRMED distinct, 16/16 sites enumerated and classified above | `rg` anchor search + type of every cast's source read in this tree | `<pending, see report>` |
+| `crates/moveit-stomp-core/src/{stomp,utils}.rs` full anchor re-enumeration | 16 casts (not 12), 0 float-derived; no boundary test is owed because int-to-int/enum-to-int narrowing has no Rust/C++ divergence class to begin with | CONFIRMED distinct, 16/16 sites enumerated and classified above | `rg` anchor search + type of every cast's source read in this tree | `3a0e278` |
 
 ## §167.6 bare-directory-citation sweep (this round)
 
