@@ -47,8 +47,14 @@ pub const OCTOMAP_NS: &str = "<octomap>";
 /// bindgen-derived type (`moveit_msgs::CollisionObject::ADD: _bindgen_ty_404`
 /// etc, one anonymous single-variant `#[repr(u32)]` enum per constant) --
 /// referencing those instead of re-declaring the numbers here means a
-/// `third_party/moveit_msgs` repin that ever renumbers these is a compile
-/// error, not a silent value mismatch (PORTING-PLAN.md §191).
+/// `third_party/moveit_msgs` repin that renumbers one of these is followed
+/// automatically (`as u8` just casts whatever the new discriminant is), not
+/// a silent divergence from a stale local literal. It is *not* the case
+/// that renumbering becomes a compile error -- `as u8` accepts any value the
+/// enum's single variant carries. Only deleting or renaming the constant
+/// itself would fail to compile (PORTING-PLAN.md §191, corrected by the
+/// coordinator: the previous wording of this comment claimed the wrong
+/// benefit).
 const ADD: u8 = moveit_msgs::CollisionObject::ADD as u8;
 const REMOVE: u8 = moveit_msgs::CollisionObject::REMOVE as u8;
 const APPEND: u8 = moveit_msgs::CollisionObject::APPEND as u8;

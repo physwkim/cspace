@@ -139,6 +139,12 @@ impl<'m> TryFrom<JointTrajectoryMsg<'m>> for RobotTrajectory<'m> {
             // == 0.0`; a nonzero first `time_from_start` has no core
             // representation and must be rejected, not silently zeroed (D6) --
             // see doc/message-mapping.md §10.
+            //
+            // Expiry (PORTING-PLAN.md §153.1): not a missing field, so a new
+            // `moveit_trajectory::RobotTrajectory` field cannot clear this --
+            // it expires only if that crate's own invariant changes to allow
+            // a nonzero start-time offset, a redesign of `RobotTrajectory`
+            // itself, not this conversion.
             if i == 0 && t != 0.0 {
                 return Err(Error::construct(format!(
                     "JointTrajectoryPoint[0].time_from_start is {t}s, not 0s; \

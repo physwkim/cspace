@@ -127,6 +127,12 @@ impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest {
     fn try_from(wrapped: PlanningRequestMsg<'m>) -> Result<Self, Self::Error> {
         let PlanningRequestMsg { model, msg } = wrapped;
 
+        // Expiry (PORTING-PLAN.md §153.1): both rejections below clear only
+        // if `moveit_planning::PlanningRequest` itself gains the matching
+        // field (`start_state`/seed trajectories) -- neither is blocked on
+        // anything outside `moveit-planning`, unlike `RobotState`'s
+        // `attached_collision_objects`/`is_diff` gap in `state.rs`, which
+        // needs a new *conversion entry point* here, not a new core field.
         if !robot_state_msg_is_default(&msg.start_state) {
             return Err(Error::other(
                 "MotionPlanRequest.start_state is not representable: \
