@@ -289,3 +289,85 @@ previously (incorrectly, found by this same bite-check) claimed the
 latter too -- corrected in `noise_generators.rs` to state precisely
 which mutation class it does and does not catch, backed by the
 mutation classes above rather than by both being merely asserted.
+
+## Phase 8 STOMP-side completeness audit, directory-count first (this round)
+
+A file never ported produces no audit row -- a list built from what the
+port already cites cannot find it. Counted the two upstream
+directories directly instead:
+
+```
+$ find /home/stevek/work/stomp -type f | wc -l
+9
+$ find /home/stevek/work/moveit2/moveit_planners/stomp -type f | wc -l
+26
+```
+
+### `/home/stevek/work/stomp` (9 files) -- `moveit-stomp-core`
+
+All 9 accounted for, all with a stated reason, no gap found:
+
+| file | status |
+|---|---|
+| `include/stomp/stomp.h`, `src/stomp.cpp` | ported (`stomp.rs`, 47 symbols enumerated in its own "Completeness audit") |
+| `include/stomp/task.h` | ported (`task.rs`, 10 symbols) |
+| `include/stomp/utils.h`, `src/utils.cpp` | ported (`utils.rs`, 14 symbols; `utils.cpp` adds nothing beyond `utils.h`'s own declarations, per `lib.rs`) |
+| `test/stomp_3dof.cpp` | ported as an acceptance test, not library code -- `stomp.rs`'s own "No upstream reference test with value assertions, closing the gap with `test/stomp_3dof.cpp`" section, re-verified line-by-line round 26 |
+| `test/utest.cpp` | deliberately excluded, reason stated (`stomp.rs:36`, "gtest boilerplate") |
+| `examples/simple_optimization_task.h`, `examples/stomp_example.cpp` | deliberately excluded, reason stated (`lib.rs:113-115`, "outside this audit's scope") |
+
+### `/home/stevek/work/moveit2/moveit_planners/stomp` (26 files) -- `moveit-planners-stomp` + `moveit-sampling`
+
+| file | status |
+|---|---|
+| `CHANGELOG.rst`, `CMakeLists.txt`, `package.xml`, `res/stomp_moveit.yaml`, `stomp_moveit_plugin_description.xml`, `test/CMakeLists.txt` | non-code, N/A |
+| `conversion_functions.hpp` | ported (`conversion_functions.rs`) |
+| `cost_functions.hpp` | ported (`cost_functions.rs`) |
+| `filter_functions.hpp` | ported (`filter_functions.rs`) |
+| `noise_generators.hpp` | ported (`noise_generators.rs`) |
+| `stomp_moveit_task.hpp` | ported (`composable_task.rs`) |
+| `conversion_functions.h`, `cost_functions.h`, `filter_functions.h`, `noise_generators.h`, `stomp_moveit_task.h`, `stomp_moveit_planning_context.h` | deprecation stubs (`create_deprecated_headers.py`-generated, `#pragma message` + one `#include` of the `.hpp` twin, confirmed by reading all 6 this round -- **but not previously stated anywhere in this crate's own docs**, unlike `moveit-sampling`'s explicit stub-check of its own two `.h` twins. Documentation gap, not a functional one: the substance (stub, contributes nothing) is now confirmed, just never written down before this round) |
+| `math/multivariate_gaussian.h`, `math/multivariate_gaussian.hpp` | ported, but via `moveit-sampling`, not this crate (already fully audited there) |
+| `src/stomp_moveit_planning_context.cpp` | partially ported -- `extract_seed_trajectory`/`sample_goal_state` extracted as free functions (round 25); `StompPlanningContext::solve`'s own inline logic remains D1/D2-unported (existing `MultivariateGaussian::new` row above, "itself unported (D1/D2)") |
+| `src/stomp_moveit_planner_plugin.cpp` | deliberately excluded, reason stated (`lib.rs:105-115`, ROS-hosted plugin entry point taking `rclcpp::Node::SharedPtr`) |
+| `trajectory_visualization.hpp` | deliberately excluded, reason stated (`lib.rs:116-120`, ROS message/tf2-typed signatures) |
+| `stomp_moveit_planning_context.hpp` | **missing** -- see below |
+| `test/test_cost_functions.cpp` | **missing** -- see below |
+| `test/test_noise_generator.cpp` | **missing** -- see below |
+
+**Three genuine gaps, next round's work, named here rather than fixed
+this round:**
+
+1. `stomp_moveit_planning_context.hpp` was never cited or explicitly
+   classified in this crate's own docs, unlike its sibling `.cpp` (partially
+   ported, reasoned above) and unlike the plugin/`trajectory_visualization`
+   exclusions (both explicitly named). Read this round:
+   `class StompPlanningContext : public planning_interface::PlanningContext`,
+   every method signature ROS-typed (`MotionPlanResponse`,
+   `MotionPlanDetailedResponse`, `rclcpp::Publisher<visualization_msgs::msg::MarkerArray>`)
+   -- substantively the same D1/D2 exclusion already applied to its `.cpp`
+   twin's `solve()` body and to the plugin file, nothing found this round
+   that looks portable. Not fixed this round because "substantively the
+   same reason" is this round's read, not a citation -- the crate's own
+   citation list should say so explicitly, the way it does for its two
+   siblings.
+2. `test/test_cost_functions.cpp` (upstream `testGetCostFunctionAllValidStates`/
+   `testGetCostFunctionInvalidStates`) was never opened or cross-referenced
+   against this crate's own `cost_functions.rs` tests. By name, the
+   invariants line up (`a_fully_valid_trajectory_has_zero_cost_and_is_valid`,
+   `an_invalid_waypoint_is_penalized_and_marks_the_trajectory_invalid`,
+   `interpolation_catches_an_invalid_state_between_two_valid_waypoints`),
+   but exact-value parity was never checked -- upstream asserts
+   `EXPECT_GE(costs(invalid_timesteps_vec).sum(), 0.681 * PENALTY)` at a
+   specific tolerance; this port's own test was never diffed against that
+   literal.
+3. `test/test_noise_generator.cpp` (upstream `testStartEndUnchanged`) was
+   never opened or cross-referenced either. By name,
+   `generated_noise_pins_the_first_and_last_timestep_to_zero` covers the
+   same invariant, but again unverified against the upstream test's exact
+   assertions.
+
+Unlike `moveit-stomp-core`'s treatment of `test/stomp_3dof.cpp` (explicit
+section, re-verified line-by-line), these two upstream test files were
+never read this session at all -- the apparent coverage above is a
+name-match, not a checked one.
