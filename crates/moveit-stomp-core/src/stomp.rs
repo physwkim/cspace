@@ -1727,6 +1727,44 @@ mod tests {
     /// p-hacking a coincidence, not fixing anything -- left open rather
     /// than papered over. See `doc/claim-audit/moveit-stomp-core.md` for
     /// the same statement recorded outside this file.
+    ///
+    /// # Fragility of the 1.58x margin (round: margin audit follow-up)
+    ///
+    /// Measured this round: `compare_diff`'s `max_abs_diff` here is ~=
+    /// 0.0317 against `BIAS_THRESHOLD`'s `0.05` -- ~1.58x, the only
+    /// genuinely tight margin among the seven `compare_diff` sites in this
+    /// module (the other six are reclassified as smoke tests, no
+    /// meaningful margin at all -- see `BIAS_THRESHOLD`'s own doc). That
+    /// 1.58x is **not** margin against float rounding: this measurement's
+    /// float noise floor is the ~1e-16-scale round-trip error the other six
+    /// tests measure, twelve orders of magnitude below 0.0317, so ordinary
+    /// arithmetic-order changes (a different summation order, a `nalgebra`
+    /// point release) cannot move this number by anything close to 1.58x.
+    /// What *can* move it by a full re-draw's worth -- easily clearing this
+    /// margin in either direction -- is anything that shifts which values
+    /// this scenario's `ChaCha8Rng` (seeded `6`) draws land on:
+    /// adding/removing/reordering a call to `sample_with_covariance` per
+    /// dimension or per rollout in `generate_noisy_rollouts`, changing
+    /// `num_rollouts`/`max_rollouts` in `create_3dof_configuration`,
+    /// changing `exponentiated_cost_sensitivity`, or an upstream
+    /// `rand`/`rand_chacha` version bump that changes the byte stream for
+    /// the same seed. None of those are float-precision drift; each is a
+    /// discrete jump to a different draw, and this test's own root-cause
+    /// paragraph above already traces the mechanism precisely enough to see
+    /// that no continuity argument protects 1.58x against it. This margin
+    /// is fragile: it is one otherwise-unremarkable refactor to
+    /// `generate_noisy_rollouts`'s call order or rollout count away from
+    /// silently flipping which side of `BIAS_THRESHOLD` this specific
+    /// seed/timestep-count combination lands on -- this test currently
+    /// asserts convergence *survives* the disabled update (the known gap:
+    /// this one seed's shift happens to undershoot `0.05`), and a shift of
+    /// its RNG draw could just as easily flip it to fail like its five
+    /// siblings do, or a siblings' shift could flip to pass like this one
+    /// does. Either direction is a silent behavior change in what this
+    /// probe demonstrates, not a compile error or an obvious diff. A future
+    /// round touching RNG call order or rollout counts in `stomp.rs` should
+    /// re-measure this margin before trusting this test to still mean what
+    /// it currently documents.
     #[test]
     fn solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe() {
         let num_timesteps = 60;
