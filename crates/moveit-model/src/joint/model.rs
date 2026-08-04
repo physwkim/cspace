@@ -1116,7 +1116,10 @@ mod tests {
     fn fixed_dispatch_is_a_transform_identity_noop() {
         let joint = JointModel::new_fixed("j");
         let transform = joint.compute_transform(&[]);
-        assert_relative_eq!(transform.translation.vector.norm(), 0.0);
+        // A fixed joint's transform is the identity; the zero vector's own
+        // norm is exactly 0.0 under IEEE 754, not a value measured for this
+        // input alone.
+        assert_eq!(transform.translation.vector.norm(), 0.0);
         assert_eq!(joint.distance(&[], &[]), 0.0);
         assert_eq!(joint.maximum_extent(), 0.0);
     }

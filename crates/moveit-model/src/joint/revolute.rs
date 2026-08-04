@@ -236,7 +236,11 @@ mod tests {
     fn set_axis_normalizes() {
         let mut joint = RevoluteJoint::default();
         joint.set_axis(Vector3::new(0.0, 0.0, 5.0));
-        assert_relative_eq!(joint.axis().norm(), 1.0);
+        // normalize() divides an axis-aligned vector by its own exact norm
+        // (5.0), giving (0.0, 0.0, 1.0) exactly; its norm is sqrt(1.0) = 1.0
+        // exactly under IEEE 754 -- a structural identity, not a value
+        // measured for this input alone.
+        assert_eq!(joint.axis().norm(), 1.0);
     }
 
     #[test]
@@ -313,7 +317,10 @@ mod tests {
     #[test]
     fn interpolate_is_linear_when_bounded() {
         let (joint, _bounds) = bounded();
-        assert_relative_eq!(joint.interpolate(0.0, 1.0, 0.5), 0.5);
+        // Non-continuous branch is `from + (to - from) * t`; 0.0 + (1.0 -
+        // 0.0) * 0.5 = 0.5 exactly under IEEE 754, not a value measured for
+        // this input alone.
+        assert_eq!(joint.interpolate(0.0, 1.0, 0.5), 0.5);
     }
 
     #[test]
@@ -325,7 +332,10 @@ mod tests {
     #[test]
     fn distance_is_linear_when_bounded() {
         let (joint, _bounds) = bounded();
-        assert_relative_eq!(joint.distance(-1.0, 1.0), 2.0);
+        // Non-continuous branch is `(value1 - value2).abs()`; (-1.0 -
+        // 1.0).abs() = 2.0 exactly under IEEE 754, not a value measured for
+        // this input alone.
+        assert_eq!(joint.distance(-1.0, 1.0), 2.0);
     }
 
     #[test]

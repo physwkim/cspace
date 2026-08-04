@@ -119,7 +119,10 @@ mod tests {
     fn set_axis_does_not_normalize() {
         let mut joint = PrismaticJoint::default();
         joint.set_axis(Vector3::new(0.0, 0.0, 5.0));
-        assert_relative_eq!(joint.axis().norm(), 5.0);
+        // Prismatic does not normalize, so this is sqrt(0^2+0^2+5.0^2) =
+        // sqrt(25.0) = 5.0 exactly under IEEE 754's correctly-rounded sqrt --
+        // a structural identity, not a value measured for this input alone.
+        assert_eq!(joint.axis().norm(), 5.0);
     }
 
     #[test]
@@ -158,7 +161,9 @@ mod tests {
             min_position: -3.0,
             ..Default::default()
         };
-        assert_relative_eq!(PrismaticJoint::maximum_extent(&own, &other), 8.0);
+        // `own.max_position - other.min_position` = 5.0 - (-3.0) = 8.0
+        // exactly under IEEE 754, not a value measured for this input alone.
+        assert_eq!(PrismaticJoint::maximum_extent(&own, &other), 8.0);
     }
 
     #[test]

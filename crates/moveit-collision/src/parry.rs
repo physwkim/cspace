@@ -1615,9 +1615,12 @@ mod tests {
             -0.5,
         );
         let c = to_contact(&pc, "a", BodyType::RobotLink, "b", BodyType::WorldObject);
-        assert_relative_eq!(c.pos, Vector3::new(0.5, 0.0, 0.0));
-        assert_relative_eq!(c.normal, Vector3::new(1.0, 0.0, 0.0));
-        assert_relative_eq!(c.depth, 0.5);
+        // Every input here is exactly representable and every step (midpoint,
+        // copy, negate-and-clamp) is exact under IEEE 754, so this is a
+        // structural identity, not a value measured for this input alone.
+        assert_eq!(c.pos, Vector3::new(0.5, 0.0, 0.0));
+        assert_eq!(c.normal, Vector3::new(1.0, 0.0, 0.0));
+        assert_eq!(c.depth, 0.5);
         assert_eq!(c.body_name_1, "a");
         assert_eq!(c.body_type_1, BodyType::RobotLink);
         assert_eq!(c.body_name_2, "b");
@@ -1634,7 +1637,10 @@ mod tests {
         let shape = Shape::Cuboid(Cuboid::new(2.0, 2.0, 2.0).unwrap());
         let scaled = scaled_padded_shape(&shape, 2.0, 0.5);
         match scaled {
-            Shape::Cuboid(c) => assert_relative_eq!(c.size[0], 5.0),
+            // `size[0] * scale + padding * 2.0` on exactly-representable
+            // operands (2.0 * 2.0 + 0.5 * 2.0 = 5.0) is exact under IEEE
+            // 754, not a value measured for this input alone.
+            Shape::Cuboid(c) => assert_eq!(c.size[0], 5.0),
             other => panic!("expected Cuboid, got {other:?}"),
         }
     }
