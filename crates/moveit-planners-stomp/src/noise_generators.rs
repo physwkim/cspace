@@ -224,14 +224,21 @@ mod tests {
     /// backs that argument the same way `filter_functions::simple_smoothing_matrix`'s
     /// own sibling premise (`filter_functions.rs`'s test module, "no
     /// realistic `(num_timesteps, dt)` input... makes it singular") is
-    /// backed there: not proof for every `usize`, but a swept range wide
-    /// enough to catch a floating-point-conditioning failure if the
-    /// mathematical argument were wrong in practice, not just in theory.
-    /// 1..=200 covers every `num_timesteps` this workspace's own STOMP
-    /// tests and fixtures use (an order of magnitude past the largest,
-    /// `solve_with_60_timesteps_converges`'s 60) without the `O(n^3)`
-    /// `full_piv_lu`/Cholesky cost of a much larger sweep making this test
-    /// itself the slow one in the suite.
+    /// backed there: not proof for every `usize`, but wide enough to catch
+    /// a floating-point-conditioning failure if the mathematical argument
+    /// were wrong in practice, not just in theory.
+    ///
+    /// What is actually covered, exactly: `1..=60` **contiguously**, plus
+    /// the four sampled points `80`, `100`, `150`, `200`. The contiguous
+    /// part covers every `num_timesteps` this workspace's own STOMP tests
+    /// and fixtures use (the largest is
+    /// `solve_with_60_timesteps_converges`'s `60`); the four sampled points
+    /// probe an order of magnitude further without paying `O(n^3)`
+    /// `full_piv_lu`/Cholesky cost at every intermediate `n` and making
+    /// this test the slow one in the suite. `61..=199` other than those
+    /// four is **not** checked -- stated because "1..=200" reads as a
+    /// contiguous sweep and is not one (PORTING-PLAN.md §189: prose that
+    /// describes a measurement more broadly than the measurement).
     ///
     /// **Conclusion for D14/§199's shape:** no caller -- real or synthetic
     /// -- can reach a `covariance` `MultivariateGaussian::new` rejects
