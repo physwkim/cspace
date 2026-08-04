@@ -124,3 +124,53 @@ correct fix, not a patch standing in for a deferred structural one.
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `crates/moveit-stomp-core/src/stomp.rs`, all 9 `create_3dof_configuration` call sites | Only 1 of 9 is cancellation/iteration-count sensitive; the helper's default should not change | CONFIRMED, 9/9 sites enumerated and classified above | Read every call site's body in this tree | (pending, see report) |
+
+## §194 port-only API sweep (this round): `moveit-stomp-core`
+
+Reviewer's ask, after `a682f63` confirmed `Stomp::with_cancel_handle`
+broke an upstream invariant (`resetVariables`'s `proceed_ = true`
+assumed no caller could reach `proceed_` before construction --
+true in upstream, false once this port added a pre-construction
+handle) that a code-level transcription check could not have caught:
+enumerate every public constructor/setter/handle-accepting API in
+this crate with no upstream counterpart, and judge whether each one
+makes any *other* upstream-private, upstream-invariant-protected
+state newly reachable.
+
+**Anchor:** every `pub fn`/`pub struct` in `crates/moveit-stomp-core/src/{stomp,task,utils}.rs`
+(`rg '^\s*pub fn|^\s*pub struct'`), cross-referenced against
+`/home/stevek/work/stomp` for an upstream counterpart.
+
+| API | port-only? | upstream state newly reachable | invariant at risk? |
+|---|---|---|---|
+| `CancelHandle::new()` | yes (round 24) -- upstream's `proceed_` is a private `Stomp` member; nothing upstream can construct a handle to it before a `Stomp` exists | a cancellation flag, settable before any `Stomp` exists | **yes -- confirmed, fixed in `a682f63`** (see `Stomp::with_cancel_handle` below) |
+| `CancelHandle::cancel(&self)` | yes, but only as a method on the port-only handle type above -- the flag it stores into is the same one `Stomp::cancel()` stores into in upstream, no new state of its own | none beyond `CancelHandle::new()`'s | no, covered by the row above |
+| `Stomp::with_cancel_handle(config, task, cancel_handle)` | yes (round 24) -- upstream's constructor takes only `(config, task)`; this port's second constructor is the entry point that let a pre-cancelled `CancelHandle::new()` reach `resetVariables`'s unconditional `proceed_ = true` | the already-flagged-false `proceed` state, at construction time | **yes -- confirmed, fixed in `a682f63`** |
+| `Stomp::cancel_handle(&self)` (obtain a handle *after* construction) | yes -- upstream has no way to hand a `proceed_`-sharing handle to another thread; only `stomp->cancel()` from whoever holds `&Stomp` | a clone of the same `Arc<AtomicBool>` `Stomp::cancel()` already writes | no -- mirrors upstream's own established contract exactly: upstream's own `stomp_moveit_planning_context.cpp:247-257` watcher thread already calls `stomp->cancel()` concurrently with `solve()` running on another thread, so `proceed_` being externally, concurrently settable while `solve()` runs is upstream-intended behavior, not new state this port opened up; `Arc<AtomicBool>` gives the identical thread-safety property `std::atomic<bool>` already provided |
+| `Stomp::new(config, task)` | no -- matches upstream's constructor signature; routes through `with_cancel_handle` with `CancelHandle::new()`, which starts at `true`, same as upstream's own `resetVariables`-driven `proceed_ = true` at construction | none new -- behaviorally identical to upstream both before and after `a682f63`'s fix | no |
+| `Stomp::set_config`/`Stomp::clear` | no -- direct ports of upstream `setConfig`/`clear`, both routing through `resetVariables` in upstream too | none new; `a682f63` made the `proceed = true` reset *explicit* in these two rather than implicit in every `resetVariables` caller, matching upstream's actual intent more precisely, not granting new reach | no |
+
+**Considered and rejected as a finding:** a `CancelHandle` obtained
+via `Stomp::cancel_handle()` and held by a background thread can
+race, at the `AtomicBool` level, against a same-instant
+`Stomp::clear()`/`Stomp::set_config()` call resetting `proceed` back
+to `true` from the owning thread. Not treated as a defect: upstream
+itself has the analogous ambiguity for concurrent `clear()`/`cancel()`
+already (`config_`, `parameters_optimized_` etc. are plain,
+non-atomic members with no documented thread-safety contract against
+a concurrent `clear()`/`setConfig()`), so no upstream invariant
+depended on this being unreachable -- it already wasn't guaranteed
+safe upstream, and `Arc<AtomicBool>`'s "last store wins" is
+well-defined, not a soundness gap, just an ambiguity upstream never
+resolved either.
+
+**Conclusion:** `Stomp::with_cancel_handle` (via `CancelHandle::new()`)
+is the only port-only API in this crate that made an upstream
+invariant-protected state reachable that upstream's own design kept
+structurally unreachable, and it is now fixed. Every other port-only
+surface in this crate either carries no new capability or mirrors an
+upstream-established concurrency contract exactly.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-stomp-core/src/stomp.rs`, every `pub fn`/`pub struct` | `with_cancel_handle` is the only port-only entry point that broke an upstream invariant; the rest carry no new risk | CONFIRMED, 6 APIs enumerated and classified above | Read every public item in this tree, cross-referenced against `/home/stevek/work/stomp/include/stomp/stomp.h`, `src/stomp.cpp` | (pending, see report) |

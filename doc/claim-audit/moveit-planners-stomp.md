@@ -68,3 +68,28 @@ If any of these lands, `kernel_bounds`'s two boundary tests
 and the ceiling arithmetic in its doc comment) must be re-derived
 against the new ceiling before this row can be re-asserted CONFIRMED --
 do not carry it forward unchanged.
+
+## §194 port-only API sweep (this round): `moveit-planners-stomp`
+
+This crate's share of the cross-crate sweep triggered by `a682f63`
+(full rationale and `moveit-stomp-core`'s own rows in that crate's
+claim-audit doc). Anchor and method identical: every `pub fn`/`pub
+struct` in `crates/moveit-planners-stomp/src/*.rs`, cross-referenced
+against `moveit2 moveit_planners/stomp/` for an upstream counterpart.
+
+| API | port-only? | upstream state newly reachable | invariant at risk? |
+|---|---|---|---|
+| `ComposableTask::new(...)` | no -- direct port of upstream `stomp_moveit::ComposableTask`'s constructor (see `composable_task.rs`'s own module doc) | none | no |
+| `UnparameterizedTrajectory` (public `way_point_count`/`into_uniformly_timed`, private wrapped `RobotTrajectory`) | yes -- no upstream type; invented this port's own "Deviation: unparameterized-by-construction" (round 21) | none -- the opposite direction: this type exists specifically to make an upstream footgun (reading the placeholder `dt = 0.1` as if it were real timing) *unreachable*, not to open new state | no -- protective, not permissive |
+| `PlanRequest` (plain public-field struct, no methods) | yes -- a Rust named-argument idiom for `plan`'s parameter list, no upstream counterpart | none -- every field is a reference of a type (`&RobotState`, `&JointModelGroup`, `Option<&RobotTrajectory>`) already public to any caller holding it; bundling grants no new capability | no |
+| `plan(config, cost_fn, request, rng, cancel_handle)` | yes (round 24) -- upstream's equivalent logic is inline inside `StompPlanningContext::solve`, itself unported (D1/D2) | `cancel_handle: CancelHandle` is taken and forwarded unmodified into `Stomp::with_cancel_handle` (`planner.rs:466`) -- this *is* the surface `a682f63` already fixed at its root; `plan` adds no cancellation entry point of its own beyond that one | no -- covered by `moveit-stomp-core`'s fix, not a second instance |
+
+**Conclusion:** no port-only API in this crate opens new
+upstream-invariant-protected state on its own; `plan`'s
+`cancel_handle` parameter is the same already-fixed surface as
+`moveit-stomp-core::Stomp::with_cancel_handle`, not an independent
+finding.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-planners-stomp/src/*.rs`, every `pub fn`/`pub struct` | No port-only API in this crate carries independent invariant risk; `plan`'s cancellation surface is `with_cancel_handle`'s, already fixed | CONFIRMED, 4 APIs enumerated and classified above | Read every public item in this tree, cross-referenced against `/home/stevek/work/moveit2/moveit_planners/stomp/` | (pending, see report) |
