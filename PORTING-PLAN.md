@@ -11953,3 +11953,48 @@ $ sed -n '255,262p' moveit_planners/ompl/ompl_interface/src/planning_context_man
 규칙으로 적어둔다: upstream 상수를 포트의 호출부에 넣을 때는, 그 상수가 헤더의
 default argument인지 실제 호출부가 넘기는 configured 값인지 먼저 구분한다. 이름이
 같아도 값이 다르고, 컴파일도 테스트도 그 차이를 잡지 않는다.
+
+## §148 10건 잔여를 닫는 결정적 실험 — 기계는 이미 있다
+
+§121.2가 touching >= 2인 실패 10건을 "닫지 않고 좁혔다"로 남겼다. 좁힌 근거는
+크기 분포였다 — 10건(2.3e-4 ~ 3.6e-3)이 105건(3.9e-5 ~ 5.4e-2) 안에 통째로 들어가고
+별개 군집이 아니라는 것. 그 처리는 옳았다. 다만 **크기 분포는 정황이고, 순회 순서를
+직접 배제하지 못한다.**
+
+직접 배제하는 실험이 있다. `VisibilityConstraint::cone_touching_link_count`의 doc이
+그 열쇠를 이미 적어놨다:
+
+> `decide`'s own reported depth continues to come from whichever single contact
+> `cone_collision_result(state, 1)` happens to find first
+
+즉 `decide`는 여러 접촉 중 **먼저 찾은 하나**의 깊이를 보고한다. 그렇다면 10건
+각각에 대해 `cone_collision_result(state, usize::MAX)`로 **모든** 접촉의 깊이를
+뽑아 오라클 값과 대조하면 답이 갈린다:
+
+- 오라클 깊이가 그중 **어느 하나와 일치**한다 → 첫 번째가 아닌 다른 접촉이 정답이었다는
+  뜻이고, **순회 순서가 그 10건의 원인이다.** deviation 6이 아니다.
+- 오라클 깊이가 **어느 것과도 일치하지 않는다** → 어느 접촉을 골랐든 틀렸다는 뜻이고,
+  순회 순서는 배제된다. deviation 6만 남는다.
+
+두 결과 모두 결론이고, 어느 쪽이든 §121.2의 "증거 없음"이 "있음" 또는 "배제됨"으로
+바뀐다.
+
+비용이 거의 없다. `cone_collision_result`는 이미 `max_contacts` 인자를 받고
+(`visibility.rs:504-508`), `cone_touching_link_count`가 이미 `usize::MAX`로 부른다
+(`:553-556`) — 세는 대신 깊이를 돌려주는 진단 하나를 같은 자리에 더하면 된다.
+새 기계도, 오라클 확장도 필요 없다.
+
+주의할 점 두 가지:
+
+1. 비교는 `assert` 톨러런스가 아니라 **측정된 수치의 나열**이어야 한다. "일치한다/
+   안 한다"를 어떤 임계로 판정할지부터가 결론을 바꾸므로, 10건 × 접촉 수만큼의
+   깊이를 오라클 값과 나란히 표로 적고, 차이의 크기를 그대로 보여라. §121.2가
+   크기 분포를 그렇게 다뤘던 방식 그대로.
+2. touching >= 2이면서 **통과**한 4건도 같이 재라. 통과 케이스에서 여러 접촉의
+   깊이가 어떻게 분포하는지가 대조군이다 — 실패 10건만 보면 "여러 접촉이 있으면
+   원래 이렇다"와 "이 10건이 특별하다"를 가를 수 없다.
+
+`crates/moveit-constraints`는 p1-robotmodel 소유고 지금 goal constraint sampling
+(§147.1)으로 차 있다. 다음 라운드 항목으로 돌린다. 여기 적어두는 이유는 이 실험이
+설계된 적이 없어서 — UNFIXED가 "원인 불명"으로 남아 있었지 "이렇게 하면 갈린다"로
+남아 있지 않았다.
