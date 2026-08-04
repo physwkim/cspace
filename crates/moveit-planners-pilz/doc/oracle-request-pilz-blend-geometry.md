@@ -787,3 +787,42 @@ unmeasured amount of a known mechanism," but a divergence whose
 *location* (which joint, which point in the blend) itself depends on
 corner angle in a way no fixture generated so far isolates from angle,
 radius, or arm posture individually.
+
+## Tolerance audit: does any per-case override widen a channel that did not need it
+
+Case F's sweep produced seven per-case tolerance constants (case E's own
+two, `CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE`,
+predate Case F and are not part of this count). Each is meant to replace
+[`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] only where the case's
+own measured max actually exceeds the shared constant -- an override
+that is *looser* than the shared constant for a case that already
+passed under the shared constant is not tightening anything; it is
+strictly reducing the test's power to catch a regression in that
+channel for that one case, for no reason tied to what was measured.
+Auditing all seven against [`VELOCITY_TOLERANCE`] (`8e-8`) /
+[`ACCELERATION_TOLERANCE`] (`1.2e-6`):
+
+| case | channel | measured | shared | override | needed? |
+|---|---|---:|---:|---:|---|
+| 60° | velocity | `6.4188e-8` | `8e-8` | *(none)* | no -- under shared |
+| 60° | acceleration | `1.1279e-6` | `1.2e-6` | ~~`1.35e-6`~~ *(removed)* | **no -- was a hole** |
+| 75° | velocity | `8.9525e-8` | `8e-8` | `1.1e-7` | yes -- exceeds shared |
+| 75° | acceleration | `1.4818e-6` | `1.2e-6` | `1.8e-6` | yes -- exceeds shared |
+| 105° | velocity | `6.6526e-8` | `8e-8` | *(none)* | no -- under shared |
+| 105° | acceleration | `1.3293e-6` | `1.2e-6` | `1.6e-6` | yes -- exceeds shared |
+| 110° | velocity | `7.9133e-8` | `8e-8` | ~~`9.5e-8`~~ *(removed)* | **no -- was a hole** |
+| 110° | acceleration | `1.5797e-6` | `1.2e-6` | `1.9e-6` | yes -- exceeds shared |
+| 112°, r=0.03 | velocity | `9.2596e-8` | `8e-8` | `1.11e-7` | yes -- exceeds shared |
+| 112°, r=0.03 | acceleration | `9.2747e-7` | `1.2e-6` | *(none)* | no -- under shared |
+
+Two holes found: `CORNER60_ACCELERATION_TOLERANCE` (`1.35e-6`, looser
+than the `1.2e-6` shared ceiling the case's own `1.1279e-6` already
+passed under) and `CORNER110_VELOCITY_TOLERANCE` (`9.5e-8`, looser than
+the `8e-8` shared ceiling the case's own `7.9133e-8` already passed
+under, by a thin but real and fully-reproducible ~1%). Both were removed
+in this round's fix: `blend_panda_arm_corner60_matches_the_oracle` now
+runs on `Tolerances::SHARED` with no override in either channel, and
+`blend_panda_arm_corner110_matches_the_oracle` keeps only its
+acceleration override. The other five overrides all correspond to a
+case's own measured max genuinely exceeding the shared constant, so no
+further holes exist in this table.

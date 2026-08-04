@@ -330,15 +330,6 @@ const CORNER112_VELOCITY_TOLERANCE: f64 = 1e-7;
 /// [`ACCELERATION_TOLERANCE`] by about 38%. Set with the same ~1.2x margin.
 const CORNER112_ACCELERATION_TOLERANCE: f64 = 2e-6;
 
-/// Case F's acceleration sweep point at 60 degrees measures `1.1279e-6`,
-/// inside [`ACCELERATION_TOLERANCE`] (`1.2e-6`) but by only about 6% --
-/// close enough to the shared ceiling that reusing [`ACCELERATION_TOLERANCE`]
-/// here would make the test unable to see a regression case A/B/C's own
-/// wider margin still would. Set from this case's own measured max with the
-/// same ~1.2x margin as [`CORNER112_ACCELERATION_TOLERANCE`]. See
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
-const CORNER60_ACCELERATION_TOLERANCE: f64 = 1.35e-6;
-
 /// Case F's sweep point at 75 degrees measures `8.9525e-8` velocity /
 /// `1.4818e-6` acceleration, both above [`VELOCITY_TOLERANCE`] /
 /// [`ACCELERATION_TOLERANCE`]. Set from this case's own measured max with a
@@ -359,14 +350,16 @@ const CORNER75_ACCELERATION_TOLERANCE: f64 = 1.8e-6;
 /// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
 const CORNER105_ACCELERATION_TOLERANCE: f64 = 1.6e-6;
 
-/// Case F's sweep point at 110 degrees measures `7.9133e-8` velocity --
-/// inside [`VELOCITY_TOLERANCE`] (`8e-8`) by only about 1%, too thin a
-/// margin to trust against a deterministic pipeline's own rounding -- and
-/// `1.5797e-6` acceleration, above [`ACCELERATION_TOLERANCE`] outright. Both
-/// set from this case's own measured max with a ~1.2x margin. See
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
-const CORNER110_VELOCITY_TOLERANCE: f64 = 9.5e-8;
-/// See [`CORNER110_VELOCITY_TOLERANCE`].
+/// Case F's sweep point at 110 degrees measures `1.5797e-6` acceleration,
+/// above [`ACCELERATION_TOLERANCE`] outright; its velocity (`7.9133e-8`)
+/// stays inside [`VELOCITY_TOLERANCE`] (`8e-8`), by only about 1% -- thin,
+/// but real and fully reproducible on this deterministic pipeline, so it is
+/// left on [`VELOCITY_TOLERANCE`] rather than given a wider case-specific
+/// constant that this case does not need (see the "Tolerance audit" section
+/// of `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for why
+/// two earlier overrides here and at 60 degrees were removed on that
+/// reasoning). Acceleration set from this case's own measured max with a
+/// ~1.2x margin.
 const CORNER110_ACCELERATION_TOLERANCE: f64 = 1.9e-6;
 
 /// Case F's radius control: case E's own 112 degree corner with
@@ -823,18 +816,18 @@ fn blend_panda_arm_corner30_matches_the_oracle() {
     run_case("panda_blend_corner30");
 }
 
-/// Case F's 60 degree sweep point. See [`CORNER60_ACCELERATION_TOLERANCE`];
-/// velocity (`6.4188e-8`) stays inside [`VELOCITY_TOLERANCE`] with a
-/// comfortable ~25% margin, no override needed.
+/// Case F's 60 degree sweep point: measures `6.4188e-8` velocity /
+/// `1.1279e-6` acceleration, both inside
+/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] (~25%/~6% margin) -- no
+/// override needed. The acceleration margin is thin but real and fully
+/// reproducible on this deterministic pipeline; a prior round gave this case
+/// its own wider `CORNER60_ACCELERATION_TOLERANCE` anyway, which was a hole
+/// (a channel this case did not need widened, widened past the shared
+/// ceiling) -- see `doc/oracle-request-pilz-blend-geometry.md`'s "Case F"
+/// section, "Tolerance audit".
 #[test]
 fn blend_panda_arm_corner60_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner60",
-        Tolerances {
-            acceleration: CORNER60_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner60");
 }
 
 /// Case F's 75 degree sweep point -- the sweep's **velocity** maximum
@@ -888,13 +881,17 @@ fn blend_panda_arm_corner105_matches_the_oracle() {
 }
 
 /// Case F's 110 degree sweep point. See
-/// [`CORNER110_VELOCITY_TOLERANCE`]/[`CORNER110_ACCELERATION_TOLERANCE`].
+/// [`CORNER110_ACCELERATION_TOLERANCE`]; velocity (`7.9133e-8`) stays inside
+/// [`VELOCITY_TOLERANCE`] (`8e-8`) by only about 1% but is left there rather
+/// than given its own wider constant -- see
+/// [`CORNER110_ACCELERATION_TOLERANCE`]'s own doc comment and
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section,
+/// "Tolerance audit".
 #[test]
 fn blend_panda_arm_corner110_matches_the_oracle() {
     run_case_with_tolerances(
         "panda_blend_corner110",
         Tolerances {
-            velocity: CORNER110_VELOCITY_TOLERANCE,
             acceleration: CORNER110_ACCELERATION_TOLERANCE,
             ..Tolerances::SHARED
         },
