@@ -3051,9 +3051,22 @@ impl Body {
     /// 1.0, no padding. Upstream `bodies::createBodyFromShape`.
     ///
     /// Returns `Ok(None)` for [`Shape::Cone`], [`Shape::Plane`] and
-    /// [`Shape::OcTree`], which have no `bodies::` counterpart upstream
-    /// (upstream's `createBodyFromShape` returns `nullptr` for these, after
-    /// logging an error).
+    /// [`Shape::OcTree`], which have no `bodies::` counterpart upstream:
+    /// `createEmptyBodyFromShapeType` (`body_operations.cpp:38-61`) has no
+    /// arm for any of the three, so it logs an error and returns `nullptr`.
+    ///
+    /// Upstream's `createBodyFromShape` does **not** hand that `nullptr`
+    /// back to its caller — it calls `body->setDimensions(shape)` on it
+    /// first (`body_operations.cpp:68-69`), unguarded. Same shape one level
+    /// up in `kinematic_constraints`: `kinematic_constraint.cpp:412-413`
+    /// takes `createEmptyBodyFromShapeType(shape->type)` straight into
+    /// `body->setDimensionsDirty(shape.get())`. So the upstream behaviour
+    /// this `None` stands in for is a null dereference, not a returned
+    /// `nullptr`, and it is reachable: `constraint_region.primitives` is a
+    /// `shape_msgs/SolidPrimitive[]`, `SolidPrimitive::CONE` is one of the
+    /// four types `constructShapeFromMsg` builds
+    /// (`shape_operations.cpp:101-106`), and nothing between the two filters
+    /// it out.
     ///
     /// # Errors
     ///

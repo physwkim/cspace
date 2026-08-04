@@ -362,41 +362,62 @@ mod position {
         );
     }
 
-    /// `kinematic_constraint.cpp:401-419` drops a primitive that fails to
-    /// build a `shapes::Shape` (warn, `continue`, constraint stays valid if
-    /// any region remains) — this port hard-errors the whole constraint
-    /// instead (`position.rs`'s "Deviation from upstream" doc comment on
-    /// [`Error::Construct`]). `Shape::Plane` has no `bodies::Body`
-    /// counterpart (`Body::from_shape` returns `Ok(None)` for it, matching
-    /// upstream's own `createBodyFromShape` returning `nullptr`), so it is
-    /// the shape upstream itself cannot build a body from either — proving
-    /// the port surfaces that failure as an error, not a silently-dropped
-    /// region.
+    /// A shape with no `bodies::Body` counterpart — `Body::from_shape`
+    /// returns `Ok(None)` for [`Shape::Cone`], [`Shape::Plane`] and
+    /// [`Shape::OcTree`] — makes [`PositionConstraint::new`] error rather
+    /// than drop the region.
+    ///
+    /// The upstream branch this pins is **not** `:401-419`'s
+    /// warn-and-`continue`. Those two skips are a pose array shorter than
+    /// the shape array (`:400-403`, type-excluded here: `ConstraintRegion`
+    /// pairs shape and pose in one `Vec`) and `constructShapeFromMsg`
+    /// returning null on a malformed message (`:417-418`, also type-excluded
+    /// here: a `Shape` value always exists). The branch that corresponds to
+    /// this test is `:412-413`, which takes
+    /// `createEmptyBodyFromShapeType(shape->type)` straight into
+    /// `body->setDimensionsDirty(shape.get())` with no null check — so
+    /// upstream does not skip a bodyless shape, it dereferences null on one.
+    ///
+    /// `Shape::Cone` is the variant that makes the comparison a real one:
+    /// `constraint_region.primitives` is a `shape_msgs/SolidPrimitive[]`,
+    /// `SolidPrimitive::CONE` is one of the four types
+    /// `constructShapeFromMsg` builds (`shape_operations.cpp:101-106`), and
+    /// nothing between it and `:412` filters it out, so a client can send a
+    /// cone region and crash upstream. `Shape::Plane` and `Shape::OcTree`
+    /// take the same port-side branch but cannot arrive on that upstream
+    /// path at all (neither is a `SolidPrimitive` or a `Mesh`); they are
+    /// asserted here because they are the same `from_shape` `None`, not
+    /// because upstream has a matching case.
     #[test]
     fn new_rejects_a_shape_with_no_body_counterpart() {
         let model = panda_model();
         let transforms = tf(&model);
-        let unconstructible = (
+        let bodyless = [
+            Shape::Cone(moveit_geometry::Cone::new(0.1, 0.2).unwrap()),
             Shape::Plane(moveit_geometry::Plane {
                 a: 0.0,
                 b: 0.0,
                 c: 1.0,
                 d: 0.0,
             }),
-            Isometry3::identity(),
-        );
-        assert!(
-            PositionConstraint::new(
-                &model,
-                &transforms,
-                "panda_link8",
-                model.model_frame(),
-                Vector3::zeros(),
-                &[unconstructible],
-                1.0,
-            )
-            .is_err()
-        );
+        ];
+        for shape in bodyless {
+            let region = (shape.clone(), Isometry3::identity());
+            assert!(
+                PositionConstraint::new(
+                    &model,
+                    &transforms,
+                    "panda_link8",
+                    model.model_frame(),
+                    Vector3::zeros(),
+                    &[region],
+                    1.0,
+                )
+                .is_err(),
+                "{shape:?} has no bodies::Body counterpart; the constraint must \
+                 error, not drop the region"
+            );
+        }
     }
 
     #[test]

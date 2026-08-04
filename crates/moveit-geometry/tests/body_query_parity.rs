@@ -41,9 +41,22 @@
 //! This project has no `bodies::Cone` to port: upstream's
 //! `createEmptyBodyFromShapeType` (`body_operations.cpp`) has no `CONE`
 //! case (falls to `default:`, logs an error, returns `nullptr`; the caller
-//! then unconditionally calls `setDimensions` on that null body -- a latent,
-//! moot upstream bug, since nothing upstream constructs a Cone body). There
-//! is nothing named "Cone" in the `bodies::` namespace to test here.
+//! then unconditionally calls `setDimensions` on that null body). There is
+//! nothing named "Cone" in the `bodies::` namespace to test here.
+//!
+//! That null dereference was recorded here as "moot, since nothing upstream
+//! constructs a Cone body". That half is false and is corrected rather than
+//! deleted, because the reasoning it stood on is the reusable part: an
+//! absence claim about upstream needs the callers enumerated, not the
+//! definition read. `kinematic_constraint.cpp:412-413` constructs a body
+//! from every entry of `constraint_region.primitives`, which is a
+//! `shape_msgs/SolidPrimitive[]`; `SolidPrimitive::CONE` is one of the four
+//! types `constructShapeFromMsg` builds (`shape_operations.cpp:101-106`),
+//! and nothing between the two filters it out. A `PositionConstraint`
+//! carrying a cone region therefore dereferences null upstream. The port
+//! returns `Ok(None)` from `Body::from_shape` and the caller turns that into
+//! an error -- see `moveit-constraints`'
+//! `new_rejects_a_shape_with_no_body_counterpart`.
 
 use std::fs;
 
