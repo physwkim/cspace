@@ -162,7 +162,9 @@ pub struct HybridCollisionEnv<'m> {
     /// returns [`Result`]), and a mutation that already landed in
     /// [`Self::world`] cannot be undone just because its field-sync failed --
     /// so the id is recorded here instead of silently leaving `env_field`
-    /// wrong. See [`Self::mutate_world`] and [`Self::check_env_field_synced`].
+    /// wrong. See [`Self::mutate_world`], the write-side half of the same
+    /// invariant; the read side is the private sync check every
+    /// `*_distance_field` method runs before touching `env_field`.
     ///
     /// # Deviation from upstream
     ///
@@ -285,7 +287,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// consumer -- the return-value equivalent of upstream's
     /// `notifyObserverAllObjects`. [`Self::mutate_world`] is that consumer:
     /// every mutator call it forwards feeds its `Notification`(s) straight
-    /// into [`Self::apply_notification`], which applies the same
+    /// into the private notification-applying helper, which applies the same
     /// `CREATE`/`ADD_SHAPE` (add only) vs. `MOVE_SHAPE`/`REMOVE_SHAPE`
     /// (remove old points, add current points) vs. `DESTROY` (remove only)
     /// branching upstream's own `notifyObjectChange`
@@ -313,7 +315,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// fragments after the fact -- removing object A's points must not
     /// disturb object B's, which only holds if removal and addition are
     /// applied to the *one* shared field precisely, not recomputed from a
-    /// per-object cache. That is what [`Self::apply_notification`] does
+    /// per-object cache. That is what the notification-applying helper does
     /// with [`PropagationDistanceField::add_points_to_field`]/
     /// [`PropagationDistanceField::remove_points_from_field`] instead --
     /// `env_field_points` is the per-object *tracking* map `OctreeCache`
@@ -413,9 +415,10 @@ impl<'m> HybridCollisionEnv<'m> {
     /// Returns an error if `f` mutates or creates an object whose current
     /// shapes cannot be decomposed into collision points -- the world
     /// mutation itself always lands (there is no way to "undo" it once `f`
-    /// has run), but see [`Self::desynced_objects`]'s doc for what that
-    /// means for `env_field`'s consistency and how it is surfaced instead of
-    /// silently swallowed.
+    /// has run), but the id is recorded internally and every subsequent
+    /// `*_distance_field` / `get_collision_gradients` / `get_all_collisions`
+    /// call on this env then fails naming it, rather than silently reading a
+    /// field that no longer reflects the world.
     pub fn mutate_world<F, R>(&mut self, f: F) -> Result<R>
     where
         F: FnOnce(&mut World) -> R,
@@ -545,8 +548,11 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::check_env_field_synced`] and
-    /// [`DistanceFieldCollisionCache::check_collision`].
+    /// Returns an error naming every desynced object id if `env_field` does
+    /// not currently reflect every object in [`Self::world`] -- see
+    /// [`Self::mutate_world`] for how an object becomes desynced and why the
+    /// stale field is reported rather than silently used. Also propagates
+    /// [`DistanceFieldCollisionCache::check_collision`]'s own errors.
     pub fn check_collision_distance_field<'s>(
         &'s mut self,
         req: &CollisionRequest,
@@ -572,8 +578,11 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::check_env_field_synced`] and
-    /// [`DistanceFieldCollisionCache::check_robot_collision`].
+    /// Returns an error naming every desynced object id if `env_field` does
+    /// not currently reflect every object in [`Self::world`] -- see
+    /// [`Self::mutate_world`] for how an object becomes desynced and why the
+    /// stale field is reported rather than silently used. Also propagates
+    /// [`DistanceFieldCollisionCache::check_robot_collision`]'s own errors.
     pub fn check_robot_collision_distance_field<'s>(
         &'s mut self,
         req: &CollisionRequest,
@@ -598,8 +607,11 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::check_env_field_synced`] and
-    /// [`DistanceFieldCollisionCache::get_collision_gradients`].
+    /// Returns an error naming every desynced object id if `env_field` does
+    /// not currently reflect every object in [`Self::world`] -- see
+    /// [`Self::mutate_world`] for how an object becomes desynced and why the
+    /// stale field is reported rather than silently used. Also propagates
+    /// [`DistanceFieldCollisionCache::get_collision_gradients`]'s own errors.
     pub fn get_collision_gradients<'s>(
         &'s mut self,
         req: &CollisionRequest,
@@ -624,8 +636,11 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See [`Self::check_env_field_synced`] and
-    /// [`DistanceFieldCollisionCache::get_all_collisions`].
+    /// Returns an error naming every desynced object id if `env_field` does
+    /// not currently reflect every object in [`Self::world`] -- see
+    /// [`Self::mutate_world`] for how an object becomes desynced and why the
+    /// stale field is reported rather than silently used. Also propagates
+    /// [`DistanceFieldCollisionCache::get_all_collisions`]'s own errors.
     pub fn get_all_collisions<'s>(
         &'s mut self,
         req: &CollisionRequest,
