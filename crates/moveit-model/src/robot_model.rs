@@ -107,7 +107,7 @@ struct JointNode {
 ///    construction. `getRoot()` itself is `urdf::ModelInterface`
 ///    (urdfdom), which has no source available on this machine (only
 ///    `liburdfdom-headers-dev` and the compiled `.so`, same absence already
-///    recorded for Assimp in [`crate::stl`]'s module doc) — `buildModel` has
+///    recorded for Assimp in [`moveit_geometry::stl`]'s module doc) — `buildModel` has
 ///    no code path at all for *multiple* roots, so whether urdfdom itself
 ///    already rejects that case during XML parsing, before `RobotModel` ever
 ///    runs, is unverified. This port's `root_candidates.as_slice()` match
