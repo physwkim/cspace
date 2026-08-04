@@ -1356,34 +1356,79 @@ fn triangle_world_aabb(pose: &Pose, tri: &ParryTriangle) -> Aabb {
 /// a pair the predicate goes on to silently accept still contributes cost
 /// sources, matching upstream exactly.
 ///
-/// Three shape-kind combinations, matching the three FCL traversal-node
-/// files that call `addCostSource` (`detail/traversal/collision/`):
-/// - **mesh vs mesh** (`mesh_collision_traversal_node-inl.h`): one
-///   [`CostSource`] per pair of triangles confirmed to intersect —
-///   [`mesh_mesh_cost_sources`].
-/// - **mesh vs anything else** (`mesh_shape_collision_traversal_node-inl.h`):
-///   one per `mesh`-side triangle confirmed to intersect the other side,
-///   overlapped against that side's own *whole-shape* AABB, not a
-///   triangle-vs-triangle box — [`mesh_shape_cost_sources`].
-/// - **neither is a mesh** (`shape_collision_traversal_node-inl.h`): at most
-///   one, over both shapes' own whole-shape AABBs from
-///   [`ParryShape::compute_aabb`] — the same call already named as the
-///   non-mesh half of this fill-in by `moveit-scene`'s own doc audit.
+/// The granularity of that cost is not decided by the traversal node alone
+/// — it is gated by `fcl::CollisionRequest`'s `use_approximate_cost` flag,
+/// whose constructor default is `true`
+/// (`fcl/include/fcl/narrowphase/collision_request.h:101`, byte-identical
+/// between FCL tag `0.7.0` and the checkout's current HEAD for this file)
+/// and which `moveit_core` never overrides: all three
+/// `fcl::CollisionRequestd(...)` call sites pass exactly 4 positional
+/// arguments, never a 5th
+/// (`collision_detection_fcl/src/collision_common.cpp:227,303,364`, moveit2
+/// pin `e017c91e`). So every request this crate's oracle actually issues has
+/// `use_approximate_cost == true`. `collision_func_matrix-inl.h` reads that
+/// flag in exactly four places — OcTree↔BVH (`:184`), BVH↔OcTree (`:237`),
+/// `BVHShapeCollider::collide` (`:330`), and `orientedBVHShapeCollide`
+/// (`:391`) — and all four share one shape: a cost-disabled traversal
+/// computes contacts first, then a *single* `Box` built from the mesh
+/// side's BV(0) root (`constructBox(obj->getBV(0).bv, ...)`) stands in for
+/// the whole mesh in a second, cost-only pass against the other side.
+/// `MeshShapeCollisionTraversalNode::leafTesting`'s per-triangle
+/// `addCostSource` (`mesh_shape_collision_traversal_node-inl.h:112,123`) is
+/// unreached code under moveit — it only runs when `use_approximate_cost ==
+/// false`, which `moveit_core` never requests. Expires (§153.1) the moment
+/// any `fcl::CollisionRequestd(...)` call in `moveit_core` gains a 5th
+/// positional argument — anchor: `rg -n 'CollisionRequestd\(' moveit_core/`.
 ///
-/// Every case does its candidate search BVH-pruned on the mesh side(s)
+/// Three shape-kind combinations, matching what upstream's dispatch actually
+/// does once `use_approximate_cost == true` is accounted for:
+/// - **mesh vs mesh** (`mesh_collision_traversal_node-inl.h`, reached via
+///   `BVHCollide`/`orientedMeshCollide`, which never read
+///   `use_approximate_cost` at all): one [`CostSource`] per pair of
+///   triangles confirmed to intersect — [`mesh_mesh_cost_sources`].
+/// - **mesh vs anything else** (`BVHShapeCollider`/`orientedBVHShapeCollide`):
+///   one [`CostSource`] — the mesh's own BVH-root world AABB overlapped
+///   against the other side's whole-shape world AABB —
+///   [`mesh_shape_cost_sources`]. Measured, not assumed, that those are the
+///   same box in this port: `parry3d_f64::shape::TriMesh::aabb` is defined
+///   as `self.bvh.root_aabb().transform_by(pos)` (`trimesh.rs:1748-1749`,
+///   parry3d-f64 `0.30.0`), and `Shape::compute_aabb` for `TriMesh` calls
+///   that identical method (`shape.rs:1101-1103`) — so a mesh's BVH-root
+///   box and its [`ParryShape::compute_aabb`] are the same value by
+///   construction, not merely coincidentally close for any mesh sampled so
+///   far.
+/// - **neither is a mesh** (`shape_collision_traversal_node-inl.h`, no
+///   `use_approximate_cost` branch either): at most one, over both shapes'
+///   own whole-shape AABBs from [`ParryShape::compute_aabb`] — the same
+///   call already named as the non-mesh half of this fill-in by
+///   `moveit-scene`'s own doc audit.
+///
+/// The mesh-mesh case still does its candidate search BVH-pruned
 /// (`TriMesh::bvh`/[`parry3d_f64::partitioning::Bvh::intersect_aabb`]) and
-/// then confirms with an exact geometric test
-/// ([`query::intersection_test`]) before emitting anything — the same
-/// broad/narrow two-stage structure FCL's own BVH traversal performs, not an
-/// AABB-overlap approximation of it. A [`Compound`](parry3d_f64::shape::Compound)
-/// built from an octree (deviation 11) is not a [`TriMesh`], so it always
-/// takes the whole-shape-AABB path above — one cost source per colliding
-/// octree pair, not per occupied leaf. FCL's own octree narrowphase
-/// (`octree_solver-inl.h`) *does* cost per leaf, so this is a real, if minor,
-/// further deviation on top of deviation 11's own Cuboid-per-leaf
-/// [`Compound`] choice, not a new one this backend didn't already carry:
-/// once occupied leaves are flattened into one compound shape, no
-/// finer-than-the-compound granularity survives to cost separately.
+/// confirms with an exact geometric test ([`query::intersection_test`])
+/// before emitting anything, matching the one traversal-node path it
+/// actually takes upstream.
+///
+/// A [`Compound`](parry3d_f64::shape::Compound) built from an octree
+/// (deviation 11) is not a [`TriMesh`], so it always takes the
+/// whole-shape-AABB path — one cost source per colliding octree pair, not
+/// per occupied leaf. This is a real deviation, and a stricter one than
+/// previously documented here: `octree_solver-inl.h` never reads
+/// `use_approximate_cost` anywhere in the file (confirmed absent by reading
+/// it in full — not merely `rg`-absent), so FCL's octree-side leaf
+/// recursion (`OcTreeSolver::OcTreeShapeIntersectRecurse`, `:332-354`) calls
+/// `addCostSource` once per occupied leaf unconditionally. That holds even
+/// in the mesh↔octree case: once the *mesh* side has been collapsed to one
+/// box above, the *octree* side still walks down to its individual occupied
+/// leaves against that box, because the second, cost-only pass in
+/// `OcTreeBVHCollide`/`BVHOcTreeCollide`
+/// (`collision_func_matrix-inl.h:189-206`/`242-259`) is itself
+/// `OcTreeShapeCollide`/`ShapeOcTreeCollide` — the same per-leaf octree
+/// solver, called with the mesh's box as its shape argument, not a
+/// whole-octree AABB test. Once this port's occupied leaves are flattened
+/// into one [`Compound`] at construction time, no finer-than-the-compound
+/// granularity survives to cost separately — this closes the measurement
+/// §171.4 left open, confirming the deviation rather than retracting it.
 fn cost_sources_for_part_pair(
     a_pose: &Pose,
     a_shape: &dyn ParryShape,
@@ -1444,32 +1489,52 @@ fn mesh_mesh_cost_sources(
     sources
 }
 
-/// One [`CostSource`] per `mesh`-side triangle confirmed to intersect
-/// `other` (a non-mesh shape), the triangle's own world AABB overlapped
+/// At most one [`CostSource`]: `mesh`'s own BVH-root world AABB overlapped
 /// against `other`'s whole-shape world AABB — matching
-/// `mesh_shape_collision_traversal_node-inl.h`'s `AABB<S>(p1, p2,
-/// p3).overlap(shape_aabb, ...)`, `shape_aabb` there being `other`'s own
-/// `computeBV` result, not a per-feature box of `other`.
+/// `BVHShapeCollider`/`orientedBVHShapeCollide`'s second, cost-only pass
+/// (`collision_func_matrix-inl.h:330-355`), which replaces the whole mesh
+/// with `constructBox(obj1->getBV(0).bv, ...)` before colliding it against
+/// `other`. `mesh.aabb(mesh_pose)` *is* that root box: `TriMesh::aabb` is
+/// `self.bvh.root_aabb().transform_by(pos)` (parry3d-f64 `0.30.0`,
+/// `trimesh.rs:1748-1749`) and `Shape::compute_aabb` for `TriMesh` calls
+/// that same method (`shape.rs:1101-1103`) — read directly from the
+/// dependency source, not assumed. The `cost_density` this carries
+/// (`cost_source_from_aabb`'s constant `1.0`) is already the mesh's own:
+/// every `CollisionGeometry` in this crate's oracle-reachable population
+/// carries that same default, so there is no second value to pick between.
+///
+/// This closes the granularity gap (one box, not one per triangle) but not
+/// necessarily a bounds gap, measured directly against
+/// `moveit-scene/tests/fixtures/panda_cost_sources_response.json` (oracle,
+/// `moveit-rs/oracle:c88557f4058892e9`), not assumed: id 8's single pair
+/// matches the oracle's box to 1e-13 (ULP-level), but ids 2/3/4/6's nine
+/// mesh-vs-floor pairs land 0.003-0.07m from their nearest oracle box —
+/// real, not noise. `mesh.aabb`'s root box comes from `parry3d_f64`'s own
+/// AABB-only `Bvh` (deviation 6's BVH investigation), never
+/// `fcl::OBBRSSd`'s *oriented* root bound `constructBox` actually uses; an
+/// AABB re-fit around a mesh and an oriented box tightly fit to the same
+/// mesh only coincide in world space when the mesh's principal axes already
+/// line up with its local frame (plausibly id 8's case, apparently not the
+/// other nine's). Volume, not bounds, is what this granularity fix is
+/// answerable for (`cost_sources_for_part_pair`'s own doc, mesh-vs-mesh vs.
+/// mesh-vs-shape ranges): ids 2/3/4/6's fixed output measures
+/// `2.7e-05..6.3e-03`, link-scale like the oracle's `8.6e-05..1.0e-02`, not
+/// triangle-scale like deviation-11's `6.6e-09..4.4e-05` id-1 population —
+/// the dispatch branch is confirmed correct even though the box bounds are
+/// not byte-identical. Reproducing `fcl::OBBRSSd`'s exact fit is a separate,
+/// larger undertaking this function does not attempt.
 fn mesh_shape_cost_sources(
     mesh_pose: &Pose,
     mesh: &TriMesh,
     other_pose: &Pose,
     other: &dyn ParryShape,
 ) -> Vec<CostSource> {
+    let mesh_world_aabb = mesh.aabb(mesh_pose);
     let other_world_aabb = other.compute_aabb(other_pose);
-    let query_aabb_in_mesh = other_world_aabb.transform_by(&mesh_pose.inverse());
-    let mut sources = Vec::new();
-    for i in mesh.bvh().intersect_aabb(&query_aabb_in_mesh) {
-        let tri = mesh.triangle(i);
-        if !query::intersection_test(mesh_pose, &tri, other_pose, other).unwrap_or(false) {
-            continue;
-        }
-        let tri_world_aabb = triangle_world_aabb(mesh_pose, &tri);
-        if let Some(overlap) = tri_world_aabb.intersection(&other_world_aabb) {
-            sources.push(cost_source_from_aabb(overlap));
-        }
-    }
-    sources
+    mesh_world_aabb
+        .intersection(&other_world_aabb)
+        .map(|overlap| vec![cost_source_from_aabb(overlap)])
+        .unwrap_or_default()
 }
 
 /// The `ROBOT_LINK`/`ROBOT_ATTACHED` half of `collisionCallback`'s/
@@ -3046,18 +3111,46 @@ mod tests {
         .unwrap()
     }
 
+    /// Two triangles far apart, each with a small local AABB, so the mesh's
+    /// combined (BVH-root) AABB is much larger than either one alone: a
+    /// query shape can sit inside the combined AABB while missing both
+    /// individual triangle AABBs entirely. This is the case that
+    /// distinguishes coarse (root-box) granularity from per-triangle
+    /// granularity — the two would disagree on it (empty vs. one source).
+    fn two_far_apart_triangles() -> TriMesh {
+        TriMesh::new(
+            vec![
+                ParryVector::new(0.0, 0.0, 0.0),
+                ParryVector::new(1.0, 0.0, 0.0),
+                ParryVector::new(0.0, 1.0, 0.0),
+                ParryVector::new(9.0, 9.0, 0.0),
+                ParryVector::new(10.0, 9.0, 0.0),
+                ParryVector::new(9.0, 10.0, 0.0),
+            ],
+            vec![[0, 1, 2], [3, 4, 5]],
+        )
+        .unwrap()
+    }
+
     #[test]
-    fn mesh_shape_cost_sources_is_one_triangle_aabb_overlapped_with_the_whole_shape_aabb() {
+    fn mesh_shape_cost_sources_is_the_whole_mesh_aabb_overlapped_with_the_whole_shape_aabb() {
         let mesh_pose = to_pose(Isometry3::identity());
-        let mesh = big_flat_triangle();
-        let other_pose = to_pose(Isometry3::translation(0.0, -2.0, 0.0));
-        let other = ParryCuboid::new(ParryVector::new(0.1, 0.1, 0.1));
+        let mesh = two_far_apart_triangles();
+        // Centered in the gap between the two triangles: outside both of
+        // their individual AABBs (x in [0,1] and x in [9,10]), but inside
+        // the mesh's combined AABB (x in [0,10]).
+        let other_pose = to_pose(Isometry3::translation(5.0, 5.0, 0.0));
+        let other = ParryCuboid::new(ParryVector::new(2.0, 2.0, 2.0));
 
         let sources = mesh_shape_cost_sources(&mesh_pose, &mesh, &other_pose, &other);
 
-        assert_eq!(sources.len(), 1);
-        assert_point_close(sources[0].aabb_min, [-0.1, -2.1, 0.0]);
-        assert_point_close(sources[0].aabb_max, [0.1, -1.9, 0.0]);
+        assert_eq!(
+            sources.len(),
+            1,
+            "one coarse box, not zero (per-triangle would find no intersection here)"
+        );
+        assert_point_close(sources[0].aabb_min, [3.0, 3.0, 0.0]);
+        assert_point_close(sources[0].aabb_max, [7.0, 7.0, 0.0]);
         assert_eq!(sources[0].cost, 1.0);
     }
 
@@ -3065,12 +3158,11 @@ mod tests {
     fn mesh_shape_cost_sources_no_intersection_is_empty() {
         let mesh_pose = to_pose(Isometry3::identity());
         let mesh = big_flat_triangle();
-        // Well outside the triangle's footprint, even though its AABB (a
-        // huge flat square, z ranging only over [0, 0]) still overlaps the
-        // cuboid's own AABB in x/y -- this exercises the exact geometric
-        // `query::intersection_test` gate, not merely a bounding-box check.
-        let other_pose = to_pose(Isometry3::translation(-4.9, 4.9, 5.0));
-        let other = ParryCuboid::new(ParryVector::new(0.05, 0.05, 0.05));
+        // The mesh's whole AABB is a flat square (z ranging only over
+        // [0, 0]); placed far enough along z that even the coarse whole-mesh
+        // AABB does not reach the cuboid's AABB.
+        let other_pose = to_pose(Isometry3::translation(0.0, -2.0, 5.0));
+        let other = ParryCuboid::new(ParryVector::new(0.1, 0.1, 0.1));
 
         assert!(mesh_shape_cost_sources(&mesh_pose, &mesh, &other_pose, &other).is_empty());
     }
