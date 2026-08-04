@@ -888,6 +888,11 @@ mod tests {
 
     #[test]
     fn assign_chomp_trajectory_point_rejects_group_column_mismatch() {
+        // `assign_chomp_trajectory_point_from_robot_state` has 2
+        // `Error::other` sites (active-joint-count guard, multi-DOF-joint
+        // guard); a bare matches!(err, Error::Other(_)) cannot say which
+        // fired — the exact defect this brief cites
+        // (assertion-discrimination-round2.md sec. 2).
         let model = panda_model();
         let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
         let other_group = model.joint_model_group("hand").unwrap();
@@ -896,7 +901,10 @@ mod tests {
         let err = traj
             .assign_chomp_trajectory_point_from_robot_state(&state, 1, other_group)
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("active joints, but this ChompTrajectory has")
+        );
     }
 
     #[test]
@@ -934,7 +942,12 @@ mod tests {
         let err = traj
             .assign_chomp_trajectory_point_from_robot_state(&state, 1, group)
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        // See `assign_chomp_trajectory_point_rejects_group_column_mismatch`
+        // for why this checks the message rather than just the variant.
+        assert!(
+            err.to_string()
+                .contains("variables; ChompTrajectory requires every active joint")
+        );
     }
 
     #[test]
