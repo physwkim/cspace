@@ -13347,3 +13347,49 @@ touching >= 2 케이스가 **이번 스윕 2,400건 중 0건**이고, **그 생�
 측정과의 모순(§169.3)은 별개로 기록해뒀다 — 이 판정을 무효화하지 않는다,
 그 10건은 재현 불가능한 임시 계측의 산물이었고 §169.2가 재현 가능한 두 개의
 불변량(생성기 경계, fixture)으로 그 자리를 대체했기 때문이다.
+
+## §170 doc example은 어떤 크레이트 범위 게이트에도 보이지 않는다 (`0c44eb6`)
+
+일곱 개 워커 브랜치를 한 번에 병합한 뒤 `cargo test --doc --workspace`가
+red였다. 각 브랜치는 자기 게이트를 통과했고, 병합 자체도 충돌 없이 됐다.
+
+p1-robotmodel의 `9796b2c`가 `moveit_planners_sbp::PlanningRequest`에 public
+필드 `solver: Option<Box<dyn KinematicsSolver>>`를 추가했다. `Box<dyn _>`는
+`Default`를 파생하지 않으므로 이 struct의 **모든** 구성 자리가 필드를 명시해야
+한다. 크레이트 안(`registry.rs` 테스트 6곳, `examples/plan_benchmark_port.rs`)은
+같은 커밋이 전부 갱신했다. 크레이트 **밖**의 유일한 구성 자리는
+`crates/moveit-planning/src/lib.rs:351`의 doc example이었고, 그것은 p1-fixtures
+소유 크레이트라 p1-robotmodel의 `-p moveit-planners-sbp` 범위에 없었다.
+
+### §170.1 구멍은 실수가 아니라 게이트 범위다
+
+세 도구 전부가 doc example을 보지 못한다:
+
+- `cargo nextest run`은 doctest를 **실행하지 않는다.** nextest의 알려진
+  성질이고 CLAUDE.md도 "Doctests are not covered by nextest"라고 적고 있다.
+- `cargo clippy --all-targets`는 lib/bin/test/bench/example을 덮지만
+  doctest는 덮지 않는다. `--all-targets`라는 이름이 이 자리에서 오해를 부른다.
+- `-p <crate>` 범위는 다른 크레이트의 doctest를 애초에 컴파일하지 않는다.
+
+즉 **다른 크레이트의 doc example은 `cargo test --doc --workspace` 외에
+어떤 경로로도 컴파일되지 않는다.** 이 워크스페이스에서 그 명령을 돌리는 자리는
+`.github/workflows/ci.yml:51` 한 곳뿐이고, CI는 아직 GitHub Actions에서
+한 번도 실행된 적이 없다(누적 UNFIXED). 그래서 병합 시점의 나 말고는
+아무도 이걸 볼 수 없었다.
+
+### §170.2 규칙
+
+**public 타입의 필드 또는 enum 변형을 추가·제거·개명하면
+`cargo test --doc --workspace`를 돌린다.** `-p` 범위로는 잡히지 않는다.
+CLAUDE.md의 escalation 규칙("changed public API → `--workspace`")이 이미
+요구하는 것이지만, 그 규칙을 읽고도 clippy/nextest만 workspace로 올리고
+doctest를 빠뜨리는 것이 실제로 일어난 실패이므로 doctest를 명시한다.
+
+새 check 스크립트는 만들지 않는다 — 명령은 이미 `ci.yml`에 있고, 없는 것은
+스크립트가 아니라 CI 실행이다. 스크립트를 추가하면 같은 명령이 두 곳에서
+관리되는 대신 실행되지 않는 자리가 하나 더 생길 뿐이다.
+
+### §170.3 만료 조건 (§153.1)
+
+CI가 GitHub Actions에서 실제로 돌기 시작하면 §170.2의 수동 규칙은
+게이트로 대체된다 — 그때 이 절은 "왜 그 스텝이 있는지"의 근거로만 남는다.
