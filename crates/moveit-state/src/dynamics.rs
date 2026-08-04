@@ -596,7 +596,17 @@ impl<'m> DynamicsSolver<'m> {
             )));
         }
 
-        // ag = -Twist(gravity, 0): ChainIdSolver_RNE's constructor.
+        // Gravity folded into a virtual base acceleration: a rigid body
+        // sitting in a uniform gravitational field g experiences the same
+        // relative dynamics as one with no gravity but whose base is
+        // instead given a rigid acceleration of -g (d'Alembert's
+        // principle -- a uniform field is indistinguishable, force-wise,
+        // from an accelerating, non-inertial reference frame). Injecting
+        // this as the root link's own acceleration in the forward sweep
+        // below (its `k == 0` special case) makes every downstream link's
+        // ordinary inertial coupling automatically produce the correct
+        // `-m*g` gravitational force, without a separate gravity term
+        // anywhere else in this function.
         let ag = Twist {
             vel: -self.gravity,
             rot: Vector3::zeros(),
@@ -652,6 +662,28 @@ impl<'m> DynamicsSolver<'m> {
             };
             let xk = *link.joint_origin_transform() * joint_transform;
 
+            // Forward velocity/acceleration recursion across the chain:
+            // each link's spatial velocity/acceleration is the parent's
+            // own velocity/acceleration transported into this link's
+            // frame (`frame_inverse_twist`, the rigid-body transfer
+            // formula across a fixed offset) plus this joint's own local
+            // contribution. `vj = S_k*qdot` is the velocity contributed
+            // by this joint's own motion (this file's own `S[i]`/`vj`
+            // derivation, module doc). For the root link (`k == 0`) there
+            // is no parent to transport from; the velocity recursion
+            // simply starts at `vj` (a base not itself moving relative to
+            // the world), and the acceleration recursion starts from
+            // gravity's virtual base acceleration `ag` instead.
+            //
+            // The acceleration recursion additionally needs
+            // `twist_cross(v, vj)`: `vj` is defined in this joint's own
+            // (generally rotating) frame, so differentiating it a second
+            // time to get an acceleration contribution picks up exactly
+            // the transport-theorem correction `twist_cross` computes
+            // (see that function's own doc comment) -- the standard
+            // Coriolis/centripetal term any serial-chain acceleration
+            // recursion needs when a joint's velocity is expressed in its
+            // own moving frame.
             let vj = sk.scale(qdot);
             let v = if k == 0 {
                 vj
@@ -668,6 +700,20 @@ impl<'m> DynamicsSolver<'m> {
                     .add(twist_cross(v, vj))
             };
 
+            // Newton-Euler's equation in spatial-vector form: net spatial
+            // force = inertia*acceleration, plus a velocity-product
+            // "gyroscopic" term, minus any externally applied force.
+            // `twist_cross_wrench(v, inertia_mul_twist(&inertia, v))` is
+            // the spatial generalization of the classical rigid-body
+            // (Euler's) equation `torque = I*alpha + omega x (I*omega)`:
+            // the inertia's own spatial momentum
+            // `inertia_mul_twist(&inertia, v)` is being differentiated
+            // while expressed in this link's own moving frame, so --
+            // exactly as with the velocity recursion's `twist_cross` term
+            // above -- its true rate of change picks up a transport-
+            // theorem correction, which is what `twist_cross_wrench`
+            // computes for a momentum quantity rather than a plain
+            // vector.
             let inertia = rigid_body_inertia_from_link(link);
             let fk = inertia_mul_twist(&inertia, a)
                 .add(twist_cross_wrench(v, inertia_mul_twist(&inertia, v)))
@@ -687,9 +733,27 @@ impl<'m> DynamicsSolver<'m> {
             let joint = self.model.joint_model_at(joint_indices[k]);
             if joint.joint_type() != moveit_model::joint::JointType::Fixed {
                 j -= 1;
+                // Generalized force by virtual work: a 1-DOF joint's
+                // torque is exactly the component of the joint's net
+                // spatial force doing work against that joint's one
+                // allowed direction of motion -- the projection of
+                // `f[k]` onto the joint's own motion subspace `s[k]`,
+                // i.e. the power pairing `dot_twist_wrench` already
+                // defines (standard generalized-force-by-virtual-work
+                // reasoning, not specific to this algorithm).
                 torques[j] = dot_twist_wrench(s[k], f[k]);
             }
             if k != 0 {
+                // Force propagation up the chain: by Newton's third law,
+                // the force a child link exerts back on its parent
+                // through their shared joint equals -- transported into
+                // the parent's own frame via `frame_mul_wrench` -- the
+                // net spatial force the child itself needs to satisfy its
+                // own Newton-Euler equation above. Summing every child's
+                // back-reaction into the parent's own `f` is how a
+                // backward sweep accumulates a chain's forces from the
+                // tip toward the root, one rigid joint connection at a
+                // time.
                 f[k - 1] = f[k - 1].add(frame_mul_wrench(&x[k], f[k]));
             }
         }
