@@ -1,4 +1,8 @@
 {
+  "decode": {
+    "srdf": "fanuc.srdf",
+    "urdf": "fanuc.urdf"
+  },
   "leaves": {
     "srdf": "fanuc.srdf",
     "urdf": "fanuc.urdf"

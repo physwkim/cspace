@@ -44,8 +44,12 @@
 //!   sensor-model update (`update_node`/`update_node_log_odds`, both by
 //!   point and by key), Amanatides & Woo ray casting (`compute_ray_keys`),
 //!   the batch free/occupied key computation behind `insertPointCloud`
-//!   (`compute_update`), `insert_ray`, tree-wide `prune`, and the
-//!   lazy-eval companion `update_inner_occupancy`.
+//!   (`compute_update`), `insert_ray`, tree-wide `prune`, the lazy-eval
+//!   companion `update_inner_occupancy`, and (round 33)
+//!   `moveit_msgs::Octomap.data` decode for both wire formats
+//!   ([`OcTree::read_binary_data`], [`OcTree::read_data`]).
+//! - `error` (crate-private module): [`DecodeError`], the typed failure of
+//!   the two decode entry points above.
 //! - `iter` (crate-private module): full-tree leaf iteration
 //!   (`OcTree::leaves`) and bounding-box-limited leaf iteration
 //!   (`OcTree::leaves_in_bbx`), yielding [`Leaf`]/[`Leaves`]/[`LeavesInBbx`].
@@ -100,12 +104,17 @@
 //! count mechanically rather than trusting a judgment call.
 //!
 //! ```text
-//! ported                55
+//! ported                58
 //! unported, in scope     8
-//! distinct               88
+//! distinct               85
 //! ------------------------
 //! total                 151
 //! ```
+//!
+//! (Round 33: `readBinaryData`/`readBinaryNode`/`readData` moved from
+//! `distinct` to `ported`, 55 -> 58 / 88 -> 85; see [`OcTree`]'s own doc for
+//! the three updated bullets and "Round 27, item 1(a)" below for the format
+//! these three decode.)
 //!
 //! See [`OcTree`]'s doc, "Symbol-by-symbol audit against upstream's public
 //! surface (round 16, item 2)", for the full per-declaration walk and every
@@ -173,8 +182,11 @@
 //! line range reproduces **159** bullets (8 of them are non-symbols or
 //! cross-references to a declaration already tallied elsewhere in the
 //! walk, see [`OcTree`]'s doc for which); the remaining 151 audited
-//! bullets are 55 ported, 8 unported-in-scope (all named there, each with
-//! the concrete call site it would need), 88 architecturally distinct.
+//! bullets are, as of round 33, 58 ported, 8 unported-in-scope (all named
+//! there, each with the concrete call site it would need), 85
+//! architecturally distinct (round 16's original count was 55/8/88; round
+//! 33 moved `readBinaryData`/`readBinaryNode`/`readData` from `distinct` to
+//! `ported`, see "Round 27, item 1(a)" below).
 //! That walk found two symbols no prior table ever classified at all --
 //! round 12's table never named `isNodeAtThreshold` (both overloads),
 //! and round 16's own fresh table never named `OcTreeBaseImpl`'s own
@@ -185,9 +197,14 @@
 //! **Tests.**
 //!
 //! ```text
-//! cargo nextest run -p moveit-octomap --no-fail-fast   # 31 tests run: 31 passed, 0 skipped
-//! rg -c '#\[test\]' crates/moveit-octomap/src/*.rs      # sums to 28
+//! cargo nextest run -p moveit-octomap --no-fail-fast   # 48 tests run: 48 passed, 0 skipped
+//! rg -c '#\[test\]' crates/moveit-octomap/src/*.rs      # sums to 44
 //! ```
+//!
+//! **Round 33.** 44 in-source unit tests (up from 28: round 33 added
+//! [`OcTree::read_binary_data`]/[`OcTree::read_data`]'s own boundary tests)
+//! plus 4 oracle-backed integration tests (`octomap_parity`, two in
+//! `leaves_parity`, and the new `decode_parity`) is the 48 nextest reports.
 //!
 //! **Stale count fixed this round (round 27).** This section previously
 //! read "30 total ... plus 2 oracle-backed integration tests", left
@@ -550,13 +567,14 @@
 //! `f32` plus up to 8 present/absent children), and [`OcTree`] already
 //! carries `resolution`/`clamping_thres_min`/`clamping_thres_max` as its
 //! own fields (needed by the binary-path reconstruction above). The actual
-//! gap is not representation, it is that **no decode/encode function
-//! exists** -- and that a decoder for the binary path specifically must
-//! live inside this crate (not e.g. `moveit-ros`), because it needs to call
-//! `Node::create_child` and set `log_odds` directly, and
-//! both are `pub(crate)`, not exported (`lib.rs`'s `pub use` list has
-//! neither `Node` nor a way to construct an [`OcTree`] from an
-//! already-built tree). A decoder would also need to reject `id !=
+//! gap was not representation, it was that **no decode function existed**
+//! -- closed round 33, [`OcTree::read_binary_data`]/[`OcTree::read_data`]
+//! (encode is still unported, see [`OcTree`]'s own audit). The decoder
+//! lives inside this crate (not e.g. `moveit-ros`), because it needs to
+//! call `Node::create_child` and set `log_odds` directly, and both are
+//! `pub(crate)`, not exported (`lib.rs`'s `pub use` list has neither
+//! `Node` nor a way to construct an [`OcTree`] from an already-built
+//! tree). A decoder would also need to reject `id !=
 //! "OcTree"` (`"ColorOcTree"` is not ported, see "What was deliberately not
 //! ported" above) -- note this only matters for the `binary == false` path:
 //! `ColorOcTreeNode::writeData` appends 3 extra color bytes per node beyond
@@ -645,11 +663,13 @@
 //! than merely expired: it was checked against every octomap call the file
 //! makes, not just the entry point's obvious ones, and none is missing.
 //!
+mod error;
 mod iter;
 mod key;
 mod node;
 mod tree;
 
+pub use error::DecodeError;
 pub use iter::{Leaf, Leaves, LeavesInBbx, TreeNode, TreeNodes};
 pub use key::{KeyRay, KeySet, KeyType, OcTreeKey};
 pub use tree::OcTree;

@@ -3,7 +3,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
-//   moveit_planners/stomp/
+//   moveit_planners/stomp/include/stomp_moveit/
+//     stomp_moveit_task.hpp
+//     conversion_functions.hpp
+//     cost_functions.hpp
+//     filter_functions.hpp
+//     noise_generators.hpp
+//   moveit_planners/stomp/src/stomp_moveit_planning_context.cpp
 
 //! STOMP planner support types, ported from `moveit_planners/stomp/`'s
 //! ROS-independent headers: matrix<->trajectory conversion

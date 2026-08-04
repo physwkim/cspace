@@ -6,6 +6,9 @@
 // version was matched):
 //   include/octomap/OcTreeBaseImpl.h, OcTreeBaseImpl.hxx
 //   include/octomap/OccupancyOcTreeBase.h, OccupancyOcTreeBase.hxx
+//   include/octomap/OcTreeDataNode.h, OcTreeDataNode.hxx (`readData` only,
+//     fused into this file's own `read_data_node`; the rest of
+//     `OcTreeDataNode` is ported in node.rs)
 //   include/octomap/AbstractOccupancyOcTree.h
 //   include/octomap/octomap_utils.h (logodds / probability)
 //   include/octomap/OcTree.h (the concrete, non-template `OcTree`; its
@@ -16,6 +19,7 @@
 
 use nalgebra::{Point3, Vector3};
 
+use crate::error::DecodeError;
 use crate::key::{KeyRay, KeySet, KeyType, OcTreeKey, compute_child_idx};
 use crate::node::Node;
 
@@ -265,25 +269,25 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `computeDiscreteUpdate(...)` -- distinct: no moveit2 sensor updater
 ///   calls it, both hand-roll their own key-set bookkeeping using the
 ///   lower-level primitives this crate does port instead.
-/// - `readBinaryData(std::istream&)` -- distinct: not yet ported. Commit
-///   `91bec85`'s framing here ("octrees enter this workspace only via ROS
-///   messages, never `.bt`/`.ot` files") had the ROS-message case exactly
-///   backwards -- checked against `octomap_msgs/conversions.h` (ROS
-///   rolling, `octomap_msgs` 2.0.1) this round: `binaryMapToMsg`/`readTree`
-///   call `writeBinaryData`/`readBinaryData` directly on a header-less
+/// - `readBinaryData(std::istream&)` -- ported as
+///   [`OcTree::read_binary_data`] (round 33). Commit `91bec85`'s framing
+///   here ("octrees enter this workspace only via ROS messages, never
+///   `.bt`/`.ot` files") had the ROS-message case exactly backwards --
+///   checked against `octomap_msgs/conversions.h` (ROS rolling,
+///   `octomap_msgs` 2.0.1): `binaryMapToMsg`/`readTree` call
+///   `writeBinaryData`/`readBinaryData` directly on a header-less
 ///   stringstream to fill `moveit_msgs::Octomap.data` whenever `msg.binary
 ///   == true`. This *is* the algorithm an `Octomap.data` decoder needs, not
 ///   something only `.bt` files use. See `lib.rs`, "Round 27, item 1(a)"
-///   for the byte format itself and why nothing is ported yet. Reopens when
-///   a caller in this workspace needs to decode/encode
-///   `moveit_msgs::Octomap.data` -- p9-ros is such a caller, currently
-///   blocked on exactly this (round 27).
-/// - `readBinaryNode(std::istream&, NODE*)` -- distinct, same correction
-///   and reopening condition.
-/// - `writeBinaryNode(std::ostream&, const NODE*) const` -- distinct, same
-///   correction and reopening condition.
-/// - `writeBinaryData(std::ostream&) const` -- distinct, same correction
-///   and reopening condition.
+///   for the byte format derivation.
+/// - `readBinaryNode(std::istream&, NODE*)` -- ported as the private
+///   recursive helper `read_binary_node`, called from
+///   [`OcTree::read_binary_data`].
+/// - `writeBinaryNode(std::ostream&, const NODE*) const` -- distinct: the
+///   encode direction is still unported (round 33's brief scoped decode
+///   only). Reopens when a caller in this workspace needs to *encode*
+///   `moveit_msgs::Octomap.data`, not just decode it.
+/// - `writeBinaryData(std::ostream&) const` -- distinct, same reasoning.
 /// - `updateInnerOccupancy()` -- ported as
 ///   [`OcTree::update_inner_occupancy`].
 /// - `integrateHit(NODE*) const` -- distinct, inlined into
@@ -402,14 +406,15 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `computeRay(const point3d&, const point3d&, std::vector<point3d>&)`
 ///   -- distinct: zero consumer, and upstream's own doc says "use the
 ///   faster computeRayKeys method if possible".
-/// - `readData(std::istream&)` -- distinct: not yet ported, same correction
-///   as `readBinaryData` above -- `octomap_msgs/conversions.h`'s
+/// - `readData(std::istream&)` -- ported as [`OcTree::read_data`] (round
+///   33), fused with `readNodesRecurs`/`OcTreeDataNode::readData` into the
+///   private `read_data_node` helper -- `octomap_msgs/conversions.h`'s
 ///   `fullMapToMsg`/`fullMsgToMap` call `writeData`/`readData` directly
 ///   (via `OcTreeBaseImpl`) to fill `moveit_msgs::Octomap.data` when
 ///   `msg.binary == false`, the full (non-quantized) counterpart of the
-///   binary path above. Same reopening condition.
-/// - `writeData(std::ostream&) const` -- distinct, same correction and
-///   reopening condition.
+///   binary path above.
+/// - `writeData(std::ostream&) const` -- distinct: the encode direction is
+///   still unported, same reasoning as `writeBinaryData` above.
 /// - `typedef leaf_iterator iterator` / `begin(unsigned char) const` --
 ///   ported as [`OcTree::leaves`] (upstream's default iterator *is*
 ///   `leaf_iterator`, the same primitive `begin_leafs` below returns).
@@ -588,10 +593,14 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// `AbstractOcTree.h`) -- neither group is counted again. The remaining
 /// **151** audited bullets:
 ///
+/// **Round 33 update:** `readBinaryData`/`readBinaryNode`/`readData` moved
+/// from `distinct` to `ported` (3 bullets); their `write*` counterparts
+/// stay `distinct`, the encode direction remains out of scope.
+///
 /// ```text
-/// ported                55
+/// ported                58
 /// unported, in scope     8
-/// distinct               88
+/// distinct               85
 /// ------------------------
 /// total                 151
 /// ```
@@ -796,14 +805,35 @@ impl OcTree {
     }
 
     /// Upstream `coordToKeyChecked(double, key_type&)` for one axis.
+    ///
+    /// **Deviation (§172, §153.1):** upstream narrows the scaled coordinate
+    /// to `int` unconditionally (`(int) floor(...)`) before its own bounds
+    /// check; for a NaN, infinite, or merely huge-but-finite `coord`, that
+    /// `double -> int` narrowing is undefined behaviour in C++, so there is
+    /// no upstream "correct" answer to reproduce, only a boundary to reject
+    /// cleanly. A direct transcription (`.floor() as i64 + ...`) is *not*
+    /// equivalent here: Rust's `as` saturates out-of-range floats and turns
+    /// NaN into `0` (never UB), so a naive port would silently accept
+    /// `coord = NaN` as the tree's exact center key (`0 as i64` lands
+    /// in-bounds after the `+ TREE_MAX_VAL` offset) and would arithmetic-
+    /// overflow-panic on `coord = +inf` or any `coord` whose scaled
+    /// magnitude exceeds `i64::MAX` (`i64::MAX + TREE_MAX_VAL` overflows).
+    /// Bounding `scaled_f` in `f64` space -- both finiteness and the tree's
+    /// actual representable range -- before ever narrowing to `i64` closes
+    /// both failure modes at the one place both originate, rather than
+    /// guarding each call site. **Expiry condition:** reopens if upstream
+    /// ever adds its own finite/range check to `coordToKeyChecked`, at
+    /// which point this becomes a plain transcription instead of a
+    /// deviation.
     fn coord_to_key_checked_axis(&self, coord: f64) -> Option<KeyType> {
-        let scaled =
-            (self.resolution_factor * coord).floor() as i64 + i64::from(Self::TREE_MAX_VAL);
-        if scaled >= 0 && scaled < 2 * i64::from(Self::TREE_MAX_VAL) {
-            Some(scaled as KeyType)
-        } else {
-            None
+        let scaled_f = (self.resolution_factor * coord).floor();
+        let min = -f64::from(Self::TREE_MAX_VAL);
+        let max = f64::from(Self::TREE_MAX_VAL);
+        if !(scaled_f.is_finite() && scaled_f >= min && scaled_f < max) {
+            return None;
         }
+        let scaled = scaled_f as i64 + i64::from(Self::TREE_MAX_VAL);
+        Some(scaled as KeyType)
     }
 
     /// Upstream `coordToKeyChecked(const point3d&, OcTreeKey&)`. `None` if
@@ -1191,6 +1221,64 @@ impl OcTree {
         self.update_node(end, true, lazy_eval);
         true
     }
+
+    /// Upstream `readBinaryData`/`readBinaryNode`: decode the compact,
+    /// lossy wire format `moveit_msgs::Octomap.data` carries when
+    /// `msg.binary == true` (`writeBinaryData`'s exact inverse; see
+    /// `lib.rs`'s "Round 27, item 1(a)" for the full format derivation).
+    /// `self` must be a freshly constructed, empty tree -- matching
+    /// upstream's own refusal to decode into a tree that already has a
+    /// root, see [`DecodeError::TreeAlreadyPopulated`].
+    ///
+    /// Each node's own 2-byte record packs its 8 children 2 bits each: `10`
+    /// free leaf (read back as exactly [`Self::clamping_thres_min_log`]),
+    /// `01` occupied leaf (exactly [`Self::clamping_thres_max_log`]), `11`
+    /// has children (recurse; the child's own log-odds is corrected to the
+    /// max of its children after that recursion returns, via the private
+    /// `update_occupancy_from_children`), `00` absent. **A leaf's
+    /// true log-odds is not preserved -- only which side of the
+    /// occupied/free split it fell on.** Trailing bytes after a complete
+    /// decode are not an error: upstream's own `writeBinaryData` never
+    /// prepends a length, so nothing on either side of this format expects
+    /// the consumed length to equal `bytes.len()`.
+    pub fn read_binary_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
+        if self.root.is_some() {
+            return Err(DecodeError::TreeAlreadyPopulated);
+        }
+        let params = BinaryReadParams {
+            clamp_min: self.clamping_thres_min,
+            clamp_max: self.clamping_thres_max,
+        };
+        let mut cursor = Cursor::new(bytes);
+        let mut root = Node::new();
+        read_binary_node(&mut cursor, &mut root, 0, &params)?;
+        self.root = Some(Box::new(root));
+        Ok(())
+    }
+
+    /// Upstream `OcTreeBaseImpl::readData`/`readNodesRecurs` +
+    /// `OcTreeDataNode::readData`: decode the full, lossless wire format
+    /// `moveit_msgs::Octomap.data` carries when `msg.binary == false`
+    /// (`writeData`'s exact inverse; see `lib.rs`'s "Round 27, item 1(a)").
+    /// `self` must be a freshly constructed, empty tree, for the same
+    /// reason as [`Self::read_binary_data`].
+    ///
+    /// Each node is written depth-first as its own raw `f32` log-odds (a
+    /// direct little-endian read, see the private `Cursor::read_f32_le`'s
+    /// doc for why) followed by 1 byte with 1 bit per child (bit set = child exists,
+    /// recurse in index order). Every node's exact log-odds survives this
+    /// format's round trip; nothing here is quantized the way
+    /// [`Self::read_binary_data`]'s leaves are.
+    pub fn read_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
+        if self.root.is_some() {
+            return Err(DecodeError::TreeAlreadyPopulated);
+        }
+        let mut cursor = Cursor::new(bytes);
+        let mut root = Node::new();
+        read_data_node(&mut cursor, &mut root, 0)?;
+        self.root = Some(Box::new(root));
+        Ok(())
+    }
 }
 
 /// Upstream `computeChildKey`'s `+/-1` step on one axis, in `OcTreeKey`
@@ -1255,6 +1343,161 @@ fn update_node_recurs(
         node.log_odds =
             (node.log_odds + params.log_odds_update).clamp(params.clamp_min, params.clamp_max);
     }
+}
+
+/// A read cursor over a byte slice, for [`read_binary_node`]/
+/// [`read_data_node`]. Not an upstream type -- upstream reads directly from
+/// a `std::istream`, whose short-read behaviour
+/// ([`crate::error::DecodeError`]'s doc comment) this port replaces with an
+/// explicit `Result` at every read.
+struct Cursor<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+
+    fn read_u8(&mut self) -> Result<u8, DecodeError> {
+        let byte = *self.bytes.get(self.pos).ok_or(DecodeError::UnexpectedEof)?;
+        self.pos += 1;
+        Ok(byte)
+    }
+
+    /// Upstream `s.read((char*)&value, sizeof(value))`: a raw memory dump,
+    /// so a direct byte-for-byte read with no framing to validate --
+    /// native-endian on the machine that wrote it. **Deviation (§153.1):**
+    /// upstream has zero explicit endianness handling anywhere in
+    /// `third_party/octomap` (`rg -ni endian` across `include/octomap/` and
+    /// `src/` finds no hits), so there is no contract to read, only the
+    /// native-endian fact the memory dump implies. This port hardcodes
+    /// `from_le_bytes` because every producer in this workspace's actual
+    /// reach -- the CI runners and the oracle container this crate's own
+    /// fixtures are captured against -- is little-endian x86_64/aarch64.
+    /// **Expiry condition:** a big-endian `octomap_msgs::Octomap` producer
+    /// (e.g. a big-endian ROS 2 node on the wire) would decode every
+    /// log-odds value wrong with no error raised -- silently, since a valid
+    /// `f32` bit pattern read byte-swapped is still a valid, merely wrong,
+    /// `f32`. That is a known limitation of this port, not a bug in it.
+    fn read_f32_le(&mut self) -> Result<f32, DecodeError> {
+        let end = self.pos + 4;
+        let slice = self
+            .bytes
+            .get(self.pos..end)
+            .ok_or(DecodeError::UnexpectedEof)?;
+        self.pos = end;
+        Ok(f32::from_le_bytes(
+            slice.try_into().expect("slice length checked above"),
+        ))
+    }
+}
+
+/// A node whose grandchildren-not-yet-read state [`read_binary_node`] must
+/// distinguish from "already resolved to a real clamp value" -- upstream
+/// `getNodeChild(node, i)->setLogOdds(-200.)`, `readBinaryNode`'s own
+/// comment: "child is unkown, we leave it uninitialized" until its own
+/// subtree has been read.
+const UNKNOWN_SENTINEL_LOG_ODDS: f32 = -200.0;
+
+/// Bundles [`OcTree::read_binary_data`]'s clamp thresholds for
+/// [`read_binary_node`], matching [`UpdateParams`]'s reasoning for grouping
+/// per-call constants into one value instead of adding parameters.
+struct BinaryReadParams {
+    clamp_min: f32,
+    clamp_max: f32,
+}
+
+/// Sets `node`'s children 0..4 (if `base_idx == 0`) or 4..8 (if `base_idx ==
+/// 4`) from one packed byte: bit `2*i` and `2*i+1` (LSB first) are child
+/// `base_idx + i`'s 2-bit code. Upstream `readBinaryNode`'s two near-
+/// identical `for` loops (children 0-3 from `child1to4`, 4-7 from
+/// `child5to8`), fused into one since the only difference between them is
+/// which byte and which base index, matching this crate's usual "same
+/// shape, one axis fused" style ([`OcTreeKey::new`]'s callers, for one).
+fn create_binary_children(node: &mut Node, base_idx: u8, byte: u8, params: &BinaryReadParams) {
+    for i in 0..4u8 {
+        let low = (byte >> (i * 2)) & 1;
+        let high = (byte >> (i * 2 + 1)) & 1;
+        let idx = (base_idx + i) as usize;
+        match (low, high) {
+            (1, 0) => node.create_child(idx).log_odds = params.clamp_min, // free leaf
+            (0, 1) => node.create_child(idx).log_odds = params.clamp_max, // occupied leaf
+            (1, 1) => node.create_child(idx).log_odds = UNKNOWN_SENTINEL_LOG_ODDS, // has children
+            _ => {}                                                       // (0, 0): no child
+        }
+    }
+}
+
+/// Upstream `OccupancyOcTreeBase::readBinaryNode`. `depth` is `node`'s own
+/// depth (root: 0), matching [`update_node_recurs`]'s convention.
+fn read_binary_node(
+    cursor: &mut Cursor,
+    node: &mut Node,
+    depth: u32,
+    params: &BinaryReadParams,
+) -> Result<(), DecodeError> {
+    let child1to4 = cursor.read_u8()?;
+    let child5to8 = cursor.read_u8()?;
+
+    // Upstream: "inner nodes default to occupied" -- set unconditionally,
+    // before children are even inspected. A recursed-into child gets this
+    // corrected below once its own subtree is read
+    // ([`Node::update_occupancy_from_children`]); the outermost root never
+    // does (`readBinaryData` never revisits it after this call returns), so
+    // a decoded tree's root log-odds is always `clamp_max` regardless of
+    // its actual content -- a faithfully-ported upstream quirk, not
+    // something this port introduces.
+    node.log_odds = params.clamp_max;
+
+    create_binary_children(node, 0, child1to4, params);
+    create_binary_children(node, 4, child5to8, params);
+
+    for i in 0..8usize {
+        if let Some(child) = node.child_mut(i)
+            && child.log_odds == UNKNOWN_SENTINEL_LOG_ODDS
+        {
+            // A depth-15 node's children live at depth 16, the finest
+            // representable level (a 16-bit key has no bit left to split
+            // further) -- so a "has children" code on one of THOSE children
+            // describes a node this format cannot legally contain. Checked
+            // before recursing, not inside the next call, so a crafted
+            // input hits `MaxDepthExceeded` instead of growing the call
+            // stack past the one depth a real tree can ever reach.
+            if depth + 1 >= OcTree::TREE_DEPTH {
+                return Err(DecodeError::MaxDepthExceeded);
+            }
+            read_binary_node(cursor, child, depth + 1, params)?;
+            child.update_occupancy_from_children();
+        }
+    }
+    Ok(())
+}
+
+/// Upstream `OcTreeBaseImpl::readNodesRecurs` + `OcTreeDataNode::readData`
+/// (the latter is exactly `node.log_odds = cursor.read_f32_le()?`, fused in
+/// here rather than kept as a separate one-line function). `depth` is
+/// `node`'s own depth, same convention as [`read_binary_node`].
+fn read_data_node(cursor: &mut Cursor, node: &mut Node, depth: u32) -> Result<(), DecodeError> {
+    node.log_odds = cursor.read_f32_le()?;
+    let children = cursor.read_u8()?;
+
+    for i in 0..8usize {
+        if (children >> i) & 1 == 1 {
+            // Unlike `read_binary_node`, a depth-16 node here DOES get its
+            // own record (this format has no per-parent quantization to
+            // pack leaves into) -- the invalid case is a depth-16 node's
+            // own bitset claiming a depth-17 child, so the guard compares
+            // against `depth`, not `depth + 1`.
+            if depth >= OcTree::TREE_DEPTH {
+                return Err(DecodeError::MaxDepthExceeded);
+            }
+            let child = node.create_child(i);
+            read_data_node(cursor, child, depth + 1)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1411,6 +1654,78 @@ mod tests {
     }
 
     #[test]
+    fn coord_to_key_checked_axis_accepts_the_last_value_inside_range() {
+        let tree = OcTree::new(1.0);
+        // resolution_factor == 1.0, so scaled_f == coord.floor(). The last
+        // value for which scaled_f < TREE_MAX_VAL (32768) holds.
+        assert_eq!(tree.coord_to_key_checked_axis(32767.5), Some(u16::MAX));
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_the_first_value_outside_range() {
+        let tree = OcTree::new(1.0);
+        // scaled_f == 32768.0 == TREE_MAX_VAL, which fails the `< max` half
+        // of the bound (upstream's own coordToKeyChecked also rejects this
+        // key, so this is the shared boundary, not the deviation).
+        assert_eq!(tree.coord_to_key_checked_axis(32768.0), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_accepts_the_negative_range_boundary() {
+        let tree = OcTree::new(1.0);
+        // scaled_f == -32768.0 == -TREE_MAX_VAL, the `>= min` boundary.
+        assert_eq!(tree.coord_to_key_checked_axis(-32768.0), Some(0));
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_just_past_the_negative_boundary() {
+        let tree = OcTree::new(1.0);
+        assert_eq!(tree.coord_to_key_checked_axis(-32768.5), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_accepts_the_tree_center() {
+        let tree = OcTree::new(1.0);
+        assert_eq!(tree.coord_to_key_checked_axis(0.0), Some(32768));
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_nan_instead_of_returning_the_center_key() {
+        // The §172 same-defect case: a naive `as i64` cast turns NaN into
+        // `0`, which after the `+ TREE_MAX_VAL` offset lands in-bounds as
+        // key 32768 -- the tree's exact center -- silently, with no error.
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(f64::NAN), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_positive_infinity_without_overflowing() {
+        // The other §172 same-defect case: `f64::INFINITY as i64` saturates
+        // to `i64::MAX`, and the following `+ TREE_MAX_VAL` then overflows
+        // and panics under overflow checks. Must be rejected before either
+        // cast runs.
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(f64::INFINITY), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_negative_infinity() {
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(f64::NEG_INFINITY), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_a_huge_finite_coordinate_without_overflowing() {
+        // Finite but large enough that `resolution_factor * coord` is far
+        // outside `i64`'s range once narrowed -- must be caught by the
+        // `f64`-space range check, not by narrowing first and hoping the
+        // subsequent `+ TREE_MAX_VAL` doesn't overflow.
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(1e300), None);
+        assert_eq!(tree.coord_to_key_checked_axis(-1e300), None);
+    }
+
+    #[test]
     fn leaves_yields_every_leaf_with_its_coordinate_and_value() {
         let mut tree = OcTree::new(1.0);
         let hit_point = Point3::new(10.5, 0.5, 0.5);
@@ -1479,5 +1794,200 @@ mod tests {
     fn set_prob_miss_above_half_panics_in_debug() {
         let mut tree = OcTree::new(0.1);
         tree.set_prob_miss(0.7);
+    }
+
+    // `read_binary_data`/`read_data`, round 33 item 1. Cases are picked at
+    // invariant boundaries (empty input, one byte short, the deepest
+    // decodable tree, one level past it), not narrative scenarios -- see
+    // `tests/decode_parity.rs` for the oracle-backed structural/leaf-value
+    // parity check these unit tests don't attempt.
+
+    #[test]
+    fn read_binary_data_rejects_a_tree_that_already_has_a_root() {
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
+        assert_eq!(
+            tree.read_binary_data(&[]),
+            Err(DecodeError::TreeAlreadyPopulated)
+        );
+    }
+
+    #[test]
+    fn read_data_rejects_a_tree_that_already_has_a_root() {
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.05, 0.05, 0.05), true, false);
+        assert_eq!(tree.read_data(&[]), Err(DecodeError::TreeAlreadyPopulated));
+    }
+
+    #[test]
+    fn read_binary_data_empty_input_is_unexpected_eof() {
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(tree.read_binary_data(&[]), Err(DecodeError::UnexpectedEof));
+    }
+
+    #[test]
+    fn read_data_empty_input_is_unexpected_eof() {
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(tree.read_data(&[]), Err(DecodeError::UnexpectedEof));
+    }
+
+    #[test]
+    fn read_binary_data_one_byte_short_of_the_root_record_is_unexpected_eof() {
+        // A root's own 2-byte record needs both bytes; one byte is a
+        // truncated stream, not a valid empty-children record.
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(
+            tree.read_binary_data(&[0x00]),
+            Err(DecodeError::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn read_data_truncated_mid_log_odds_is_unexpected_eof() {
+        // A root's own record starts with a 4-byte f32; 3 bytes is short.
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(
+            tree.read_data(&[0x00, 0x00, 0x00]),
+            Err(DecodeError::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn read_data_truncated_before_the_children_byte_is_unexpected_eof() {
+        // A complete 4-byte f32 but no trailing children-bitset byte.
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(
+            tree.read_data(&1.0f32.to_le_bytes()),
+            Err(DecodeError::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn read_binary_data_garbage_input_is_not_a_panic() {
+        // Not a real octree encoding, just bytes -- must return an error,
+        // never panic, regardless of what those bytes happen to spell.
+        let mut tree = OcTree::new(0.1);
+        assert!(tree.read_binary_data(&[0xff; 3]).is_err());
+    }
+
+    #[test]
+    fn read_data_garbage_input_is_not_a_panic() {
+        let mut tree = OcTree::new(0.1);
+        assert!(tree.read_data(&[0xff; 3]).is_err());
+    }
+
+    #[test]
+    fn read_binary_data_decodes_a_single_occupied_leaf() {
+        // Root's own record: child 0 is an occupied leaf (low=0, high=1 at
+        // bits 0,1 of child1to4 -> 0b10 = 0x02), every other child absent.
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&[0x02, 0x00]).unwrap();
+        assert_eq!(tree.num_nodes(), 2); // root + the one leaf
+        let leaf = tree.leaves().next().unwrap();
+        assert_eq!(leaf.log_odds(), tree.clamping_thres_max_log());
+        assert!(leaf.is_occupied());
+        // Root's own log-odds is unconditionally the "default to occupied"
+        // clamp value upstream sets before it ever inspects a child --
+        // never corrected for the outermost root (only a recursed-into
+        // child is), see `read_binary_node`'s doc comment. `root()` is
+        // `pub(crate)`, reachable here since this test lives inside
+        // `tree.rs` itself.
+        assert_eq!(tree.root().unwrap().log_odds, tree.clamping_thres_max_log());
+    }
+
+    #[test]
+    fn read_binary_data_decodes_a_single_free_leaf() {
+        // child 0 is a free leaf: low=1, high=0 -> 0b01 = 0x01.
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&[0x01, 0x00]).unwrap();
+        assert_eq!(tree.num_nodes(), 2);
+        let leaf = tree.leaves().next().unwrap();
+        assert_eq!(leaf.log_odds(), tree.clamping_thres_min_log());
+        assert!(!leaf.is_occupied());
+    }
+
+    #[test]
+    fn read_data_round_trips_a_two_node_chain_s_exact_log_odds() {
+        // Root's record: an arbitrary (non-clamp) log-odds, one child (bit 0
+        // of the children byte) -- then the child's own record: a
+        // different arbitrary log-odds, no children.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.25f32.to_le_bytes());
+        bytes.push(0x01); // child 0 exists
+        bytes.extend_from_slice(&(-3.5f32).to_le_bytes());
+        bytes.push(0x00); // leaf, no children
+        let mut tree = OcTree::new(0.1);
+        tree.read_data(&bytes).unwrap();
+        assert_eq!(tree.num_nodes(), 2);
+        // Full-format log-odds survive exactly -- not quantized to a clamp
+        // the way `read_binary_data`'s leaves are, so this is the one case
+        // where an arbitrary, non-clamp value is meaningful ground truth.
+        let leaf = tree.leaves().next().unwrap();
+        assert_eq!(leaf.log_odds(), -3.5);
+    }
+
+    /// `has_children_levels` pairs of (child 0 has children), followed by
+    /// one terminal pair (child 0 is an occupied leaf). Not an oracle
+    /// fixture -- a hand-built chain exercising exactly the recursion-depth
+    /// boundary [`DecodeError::MaxDepthExceeded`] exists for.
+    fn binary_child0_chain(has_children_levels: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for _ in 0..has_children_levels {
+            bytes.extend_from_slice(&[0x03, 0x00]);
+        }
+        bytes.extend_from_slice(&[0x02, 0x00]);
+        bytes
+    }
+
+    #[test]
+    fn read_binary_data_accepts_the_deepest_representable_chain() {
+        // 15 "has children" levels (depths 0..14) plus the terminal record
+        // at depth 15 describing a real depth-16 leaf -- the deepest chain
+        // this format can represent under a 16-bit key.
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&binary_child0_chain(15)).unwrap();
+        assert_eq!(tree.num_nodes(), 17); // 16 recorded nodes + 1 leaf
+    }
+
+    #[test]
+    fn read_binary_data_rejects_one_level_past_the_deepest_chain() {
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(
+            tree.read_binary_data(&binary_child0_chain(16)),
+            Err(DecodeError::MaxDepthExceeded)
+        );
+    }
+
+    /// `recurse_levels` records with "child 0 exists", followed by one
+    /// terminal record with no children. Same purpose as
+    /// [`binary_child0_chain`] for the full-format decoder.
+    fn data_child0_chain(recurse_levels: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for _ in 0..recurse_levels {
+            bytes.extend_from_slice(&0.0f32.to_le_bytes());
+            bytes.push(0x01);
+        }
+        bytes.extend_from_slice(&0.0f32.to_le_bytes());
+        bytes.push(0x00);
+        bytes
+    }
+
+    #[test]
+    fn read_data_accepts_the_deepest_representable_chain() {
+        // 16 records claiming a child (depths 0..15) plus the terminal
+        // record at depth 16 itself -- unlike the binary format, every
+        // depth including 16 gets its own record here.
+        let mut tree = OcTree::new(0.1);
+        tree.read_data(&data_child0_chain(16)).unwrap();
+        assert_eq!(tree.num_nodes(), 17);
+    }
+
+    #[test]
+    fn read_data_rejects_one_level_past_the_deepest_chain() {
+        let mut tree = OcTree::new(0.1);
+        assert_eq!(
+            tree.read_data(&data_child0_chain(17)),
+            Err(DecodeError::MaxDepthExceeded)
+        );
     }
 }
