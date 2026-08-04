@@ -10563,3 +10563,79 @@ CHOMP는 그중 하나만 부른다 — 즉 CHOMP 쪽에는 분기가 아예 없
 잰다 — 이 문서가 §113.3으로 이미 한 번 겪은 실패다. 크레이트 doc이
 자리다(`PORTING-PLAN.md`는 내 파일이므로 패널이 쓰지 않는다). 라운드 20의
 1항으로 돌려보냈다.
+
+## 124. Phase 7이 이름만 적어 둔 크레이트를 만든다 (2026-08-04)
+
+네 패널이 동시에 유휴로 돌아왔다. 배정하면서 두 가지가 드러났다.
+
+### 124.1 `moveit-planning`은 §5가 이름을 적고 만들지 않았다
+
+§5 Phase 7은 크레이트를 둘 적는다 — `moveit-planning`,
+`moveit-planners-sbp`. 뒤의 것만 존재한다. 그리고 Phase 7의 항목 셋 중
+"요청·응답 어댑터 체인"은 워크스페이스 어디에도 없다.
+`PlannerManager`/`PlanningContext` 트레이트는
+`moveit-planners-sbp::registry`가 D4 형태로 이미 갖고 있어서, 없는 것은
+어댑터 체인 하나뿐이다.
+
+상류에서 그 체인이 `moveit_ros/planning/` 아래에 산다는 것이 지금까지
+누락된 이유로 보인다 — 경로만 보면 Phase 9다. 그러나 파일을 열면
+`check_start_state_bounds`(208줄), `check_start_state_collision`(113),
+`check_for_stacked_constraints`(100), `resolve_constraint_frames`(83),
+`validate_workspace_bounds`(103), `validate_path`(157)은 전부 씬·상태·
+제약·궤적 위의 코어 로직이고, `rclcpp`/`moveit_msgs` 등장은 파일당
+2~8회에 그친다. **경로가 아니라 내용이 단계를 정한다.** §5가 이것을
+Phase 7에 적어 둔 것이 맞다.
+
+`display_motion_path`는 rviz 퍼블리시라 D1이 배제한다.
+`add_ruckig_traj_smoothing`/`add_time_optimal_parameterization`은
+`moveit-smoothing`/`moveit-trajectory`를 의존만 하면 되므로 함께 넣는다.
+
+**이것이 열려 있는 결함 하나를 닫는다.** §123.2에 적은
+`fill_robot_trajectory`의 `dt = 0.1` — 상류에서 그 값을 덮어쓰는 것이
+바로 `add_time_optimal_parameterization`이고, 이 포트에 그것이 없다는
+것이 구멍의 원인이었다. 체인이 서면 닫힌다. p1-fixtures에게 주석이
+아니라 테스트로 보이라고 요구했다.
+
+### 124.2 계층을 거꾸로 세우지 않기 위해 순서를 나눴다
+
+`PlanningRequest`/`PlanningResponse`/`PlanningContext`/`PlannerManager`가
+지금 플래너 크레이트에 있다. 주인은 `moveit-planning`이어야 하고
+`moveit-planners-sbp`가 그것을 의존해야 한다. 그런데 그 크레이트에서
+p1-robotmodel이 Phase 7 벤치마크를 돌리는 중이다.
+
+두 선택지 중 **의도적으로 틀린 계층을 먼저 세우는 쪽(플래닝 크레이트가
+플래너 크레이트를 의존)은 택하지 않았다.** 그건 "구조 대신 패치"이고,
+되돌리는 비용이 처음부터 옳게 세우는 비용보다 크다. 대신 순서를 나눴다:
+이번 라운드에 `moveit-planning`이 **정본이 될 타입**을 정의하고 어댑터를
+그 위에 세운다, `moveit-planners-sbp`의 재배치는 p1-robotmodel 병합 후
+다음 라운드에 같은 패널이 한다. 보고서에 UNFIXED가 아니라 "다음 라운드
+예정, 선행조건: p1-robotmodel 병합"으로 적으라고 했다 — 미해결이 아니라
+일정이기 때문이다.
+
+### 124.3 낡은 문장 둘을 각 소유자에게 돌려보냈다
+
+- `moveit-planners-sbp/src/registry.rs`가 *"`constraint_samplers` itself
+  has never been ported"* 라고 적고 있다. 지금은 사실이 아니다 —
+  `moveit-constraints`에 `constraint_sampler_manager.rs`/`ik_sampler.rs`/
+  `sampler.rs`가 있다. p1-fixtures에게 이 문장을 고치라고 하지 않고
+  (남의 크레이트다) **그 사실이 `moveit-planning` 설계에 무엇을 바꾸는지**
+  판단해서 답하라고 했다: 포즈 목표를 요청에 실을 수 있게 되었는지,
+  아니면 샘플러는 있는데 플래너까지 잇는 선이 여전히 없는지.
+- `moveit-distance-field/src/lib.rs`의 롤업이 아직
+  `CollisionEnvDistanceField`를 "entirely unported"로 적는데, 라운드 21이
+  그 진입점들을 이식한다. §113.3의 재발이므로 라운드 안에서 롤업을
+  갱신하라고 명시했다.
+
+### 124.4 나머지 두 배정
+
+p1-joints는 pilz `trajectory_functions`/`trajectory_generator` 기반으로
+가되, **오라클 요청서를 이번 라운드에 쓴다.** §5 Phase 8의 완료 조건이
+`1e-6` 궤적 일치이고 §122에 비용을 이미 재 뒀으므로, 남은 것은 어떤
+상류 타입을 부르고 응답에 무엇을 실을지다. 재빌드는 스탬프를 바꿔 전
+패널에 영향을 주므로 요청서가 확정된 뒤 내가 한 번에 만든다.
+
+p6-totg는 CHOMP `chomp_cost` — 유한차분 미분 행렬과 그 역행렬이 본체다.
+경계에서 미분 규칙이 잘리는 방식이 결과를 바꾸고 잘못 옮겨도 중간
+구간은 맞으므로, 경계값마다 케이스 하나를 요구했다.
+`multivariate_gaussian`은 p3-shapes가 `moveit-sampling`으로 이미
+이식했으니 다시 만들지 말라고 명시했다(§123.1).
