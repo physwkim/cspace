@@ -137,12 +137,27 @@
 //!    pair as globally deepest among several simultaneously-interpenetrating
 //!    candidates, `|d|` two orders of magnitude smaller than panda's outlier
 //!    and well inside each pair's own bounding radius. The robot-vs-world
-//!    side shows the same presentation at scale: a seed-20260804, 3000-case
-//!    pr2 `right_arm` sweep (`PORTING-PLAN.md` §60) finds `robot_distance`
-//!    disagreeing with the oracle on 2647 of 3000 cases, of which 7 are this
-//!    presentation — a pair-ranking flip that also exceeds tolerance,
-//!    tallied separately by `tools/moveit-diff`'s
-//!    `robot_pair_flip_and_value_diverges`.
+//!    side shows the same presentation at scale, and — cross-robot — at a
+//!    far larger one too. Round 15 re-ran this crate's own `--collision` op
+//!    directly against today's tree (`PORTING-PLAN.md` §60/§67's own
+//!    command, which predates this module's own opening doc's pr2
+//!    `<mesh>` collision geometry even being compared): a seed-20260804,
+//!    3000-case pr2 `right_arm` sweep finds `robot_distance` pair-
+//!    disagreeing with the oracle on 2644 of 3000 cases (a second,
+//!    independent seed-999002 sweep: 2642/3000) — this presentation, not
+//!    (c)'s same-pair-and-diverges population below, is what actually
+//!    carries pr2's robot-vs-world side: of the *same-pair* population
+//!    disjoint from this flip count, only 2 of 356 (seed 20260804) / 0 of
+//!    358 (seed 999002) exceed `PORTING-PLAN.md` §5's `1e-4` policy
+//!    tolerance, the rest floating-point-scale noise (median `~3e-13`) on
+//!    an already-agreed positive clearance. A `panda_arm` cross-robot sweep
+//!    (seed 20260804, 2000 cases) shows the far-larger-magnitude instance
+//!    of this same presentation this doc already cited as one example
+//!    (`panda_link0`/`floor`, oracle ≈ `-1.9m` vs this backend ≈ `-0.1m`)
+//!    is in fact typical for that pair, not an outlier: it disagrees (any
+//!    magnitude) on 1360 of 2000 cases and exceeds the policy tolerance on
+//!    1261 of those (63%), median `|d| = 1.84m`, oracle consistently the
+//!    deeper side.
 //!
 //!    **(b) A magnitude plateau, for one pair both backends already agree
 //!    is deepest, across a range of states**: this backend's own answer for
@@ -241,11 +256,15 @@
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
 //!    different depths for the one pair.** The same seed-20260804 pr2
-//!    `right_arm` sweep that supplies (a)'s 7 pair-flip count has 2 cases
-//!    of this presentation instead (`tools/moveit-diff`'s
-//!    `robot_same_pair_and_value_diverges`, structurally disjoint from the
-//!    pair-flip tally by construction — a pair either matches or it does
-//!    not): `l_gripper_l_finger_tip_link`/`floor` and
+//!    `right_arm` sweep that supplies (a)'s pair-flip count has 2 cases of
+//!    this presentation instead, past `PORTING-PLAN.md` §5's `1e-4` policy
+//!    tolerance (`tools/moveit-diff`'s `robot_same_pair_and_value_diverges`,
+//!    structurally disjoint from the pair-flip tally by construction — a
+//!    pair either matches or it does not; round 15 reproduces this exactly
+//!    on today's tree, and an independent seed-999002 sweep of the same
+//!    size finds 0 — this presentation is a small, seed-sensitive
+//!    population on pr2, not a stable count):
+//!    `l_gripper_l_finger_tip_link`/`floor` and
 //!    `l_gripper_r_finger_tip_link`/`floor`, both with this backend
 //!    *deeper* (oracle -0.011274/-0.009943 vs this backend
 //!    -0.015686/-0.012375). Confirmed deeper-and-correct, not merely
