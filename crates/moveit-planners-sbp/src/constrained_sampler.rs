@@ -24,23 +24,25 @@ use crate::rrt_connect::ConstrainedStateSampler;
 ///
 /// # `working` persists across attempts: this is upstream's `work_state_`, not a bug
 ///
-/// Round 24 (`PORTING-PLAN.md` §163.3's follow-up) originally cloned a fixed
-/// `template` fresh on *every* [`try_sample`](Self::try_sample) call and
-/// measured the result: a wired path sampler using that reset-per-attempt
-/// design scored 0/5 successful `solve()`s against 5/5 unwired, in the
-/// tightest of four scenarios tried at matched `step_size`/iteration budget
-/// on `panda_arm`. The cause, read from upstream rather than guessed: both
-/// `ompl_interface::ConstrainedSampler` (`constrained_sampler.cpp`) and
-/// `ConstrainedGoalSampler` (`constrained_goal_sampler.cpp`) hold their
-/// working `RobotState` — `work_state_` — as a member initialised once at
-/// construction and *never reset* between calls; each call's `IKConstraintSampler::sampleHelper`
+/// Through round 24, this type cloned a fixed `template` fresh on *every*
+/// [`try_sample`](Self::try_sample) call. Read from upstream rather than
+/// guessed: both `ompl_interface::ConstrainedSampler`
+/// (`constrained_sampler.cpp`) and `ConstrainedGoalSampler`
+/// (`constrained_goal_sampler.cpp`) hold their working `RobotState` —
+/// `work_state_` — as a member initialised once at construction and *never
+/// reset* between calls; each call's `IKConstraintSampler::sampleHelper`
 /// seeds attempt 0's IK search from whatever `work_state_` already holds
 /// for the group (`callIK`'s `use_as_seed` branch,
 /// `default_constraint_samplers.cpp:670-673`), i.e. the *previous* accepted
 /// (or even failed — see below) sample, not a fixed start state. A
-/// reset-every-attempt design throws that warm start away and always
-/// IK-solves from the same distant seed, which is the "teleport" the
-/// measurement above caught.
+/// reset-every-attempt design throws that warm start away every call. This
+/// upstream reading is why `working` below is correct on its own terms; it
+/// is not corroborated by round 24's own "0/5 wired vs 5/5 unwired" ad hoc
+/// measurement (four scenarios, never committed as reusable code) the way
+/// an earlier version of this comment implied — `PORTING-PLAN.md` §181
+/// found that a committed re-measurement of this exact change does not
+/// reproduce that flip; see "What `path_constraints_end_to_end_wired_vs_unwired`
+/// actually shows," below, for what does.
 ///
 /// `working` reproduces upstream's member exactly: cloned from `template`
 /// once at construction, then mutated in place by every subsequent
@@ -78,11 +80,50 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// this narrower gap expires if a caller ever builds a mobile-reference-frame
 /// constraint whose reference link sits inside the sampled group.
 ///
-/// # Measured after the fix
+/// # Deferred: re-anchoring the seed to tree locality
 ///
-/// See `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
-/// for the same tightest scenario, re-measured against this persistent
-/// `working` design.
+/// A different design was floated when round 24 first measured the
+/// reset-per-attempt regression, and never built: instead of carrying
+/// forward whatever the *previous draw* produced (upstream's own
+/// `work_state_` behaviour, implemented above), seed each attempt from the
+/// *specific tree node* `rrt_connect` is extending from, so an IK search
+/// starts near where the tree currently is rather than near wherever the
+/// sampler happened to leave off last. Upstream does not do this —
+/// `work_state_` has no notion of "the current tree node" at all, so this
+/// would be a deliberate improvement beyond upstream, not a parity
+/// requirement — and `PORTING-PLAN.md` §181 found no measurement showing
+/// the upstream-matching persistence design above underperforms once
+/// `resolve_constraint_sampler`'s own wiring gap (`registry.rs`,
+/// `PORTING-PLAN.md` §163.3) is also fixed. `PORTING-PLAN.md` §153.1: this
+/// stays deferred until a measurement in the shape of
+/// `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
+/// — a wired path sampler, run at some budget or tolerance, where *this*
+/// persistence design itself measurably underperforms unwired, not merely
+/// fails to beat it by as much as hoped — shows the simpler persistence
+/// design insufficient; only then does the added complexity of tracking
+/// tree locality pay for itself.
+///
+/// # What `path_constraints_end_to_end_wired_vs_unwired` actually shows
+///
+/// `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
+/// measures unwired 1/5, wired 5/5 for one `panda_arm` self-motion
+/// scenario — but that 5/5 is *not* evidence this persistence fix works,
+/// even though it was added in the same round. `PORTING-PLAN.md` §181
+/// traced which of this round's two changes actually produces it: reverting
+/// this persistence fix alone (`working` back to a per-attempt
+/// `template.clone()`) leaves the numbers unchanged at 1/5 vs 5/5; reverting
+/// instead the `resolve_constraint_sampler` wiring extension that lets a
+/// solver reach the `path_constraints` call site at all
+/// (`registry.rs`'s `PlanningRequest::solver` doc, `PORTING-PLAN.md`
+/// §163.3) collapses wired to 1/5, identical to unwired. That test's goal
+/// is a `Goal::State`, so without that wiring no `select_default_sampler`
+/// call anywhere in the request ever sees a solver — wired and unwired
+/// become behaviourally identical *by construction*, not merely by
+/// coincidence of measurement. The wiring extension, not this persistence
+/// fix, is what that test's 5/5 depends on. This fix's own effect is what
+/// `try_sample_carries_the_previous_draws_result_forward_as_the_next_seed`
+/// (below) measures directly, and reverting this fix alone reddens exactly
+/// that one test.
 pub struct GroupConstraintSampler<'a, 'm> {
     space: &'a JointModelGroupSpace,
     sampler: &'a dyn ConstraintSampler,
