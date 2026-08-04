@@ -11827,3 +11827,76 @@ query가 만드는 수십만 호출 각각에 full-state clone을 하나씩 더 
 doctest **5**; `doc --workspace --no-deps` 통과; `check-*.sh` 8/8;
 `ros/verify-ros-interop.sh`의 `error[E0063]` **3건 그대로**(§144의 기존 건, 새로
 늘지 않음 — 이번 라운드는 그 두 타입에 필드를 더하지 않고 doc만 더했다).
+
+## §146 STOMP의 네 "D1 제외"는 둘이 거짓, 하나가 층 착오, 하나만 진짜였다
+
+p3-shapes 라운드 25가 `moveit-planners-stomp`의 `# Not ported: the ROS/task-engine
+layer (D1/D2 exclusion)` 네 항목을 전부 재검토했다. 결과:
+
+| # | 항목 | 판정 |
+|---|---|---|
+| 1 | goal constraint sampling | **거짓 제외** — 포팅함 (`sample_goal_state`) |
+| 2 | seed-trajectory extraction | **거짓 제외** — 포팅함 (`extract_seed_trajectory`) |
+| 3 | `allowed_planning_time` 워처 스레드 | ROS 결합 아님, 목록에서 제거 |
+| 4 | pluginlib 등록 + `trajectory_visualization.hpp` | 진짜 ROS, 유지 |
+
+1·2의 근거는 `rg -n 'rclcpp|node_|Logger|RCLCPP'`가 `stomp_moveit_planning_context.cpp`
+전체에서 **7 hit**이고, 그 7개가 각각 무엇인지 줄 번호별로 확인된 것이다 — 60·62는
+`getLogger()` 헬퍼, 115·126은 `extractSeedTrajectory` 자신의 실패 분기에서 찍는
+`RCLCPP_WARN`(알고리즘의 의존이 아니라 로깅), 283은 미구현 오버로드, 305·310은
+`setPathPublisher`/`getPathPublisher`의 `rclcpp::Publisher`. 두 함수 본문 어디에도
+ROS가 없다. 4번은 유지하되 인용 파일이 틀렸던 것을 정정했다
+(`stomp_moveit_planner_plugin.cpp:144`).
+
+세션 통산 다섯 번째 "재현하지 않은 사유" 반증이다(§137 의존성, §139 상속, §141.1
+커밋 귀속, §145 계약/결함 혼동, 그리고 이번 D1 제외 둘).
+
+### 146.1 3번은 갭이 없는 게 아니라 다른 층에 있다
+
+라운드 25가 3번에 대해 이렇게 맺었다:
+
+> Removed from the exclusion list entirely rather than re-justified within it:
+> there is no gap here for a future round to close.
+
+앞부분은 맞다 — 워처 본문은 `std::condition_variable`/`std::mutex`/`std::async`/
+`std::chrono`와 `stomp->cancel()`뿐이고, 라운드 24의 `CancelHandle::new`/`.clone()`
++ `std::thread::spawn`이 caller에게 같은 모양을 만들 재료를 이미 준다.
+
+**"no gap"만 한 칸 과하다.** upstream에서 그 워처는 `StompPlanningContext::solve`
+안에 있다 — `allowed_planning_time`을 받으면 플래너가 스스로 취소하는 것이
+PlanningContext 층의 동작이고, 이 포트에서는 그 층이 아직 없다. 그리고 그 갭은
+이미 다른 문서에 기록돼 있다: p1-fixtures 라운드 21의 `MotionPlanRequest.msg`
+16필드 감사가 `allowed_planning_time`을 `unported, in scope`로 분류하며
+"downstream `PlanningContext`/`PlannerManager` 몫"이라고 적었다.
+
+두 문서가 실질적으로 같은 말을 하는데 `planner.rs`만 따로 읽으면 "아무도 갚을 게
+없다"로 읽힌다. §145와 같은 계열의 정밀도 문제다 — 사실은 맞는데 결론의 층이
+어긋났다. 라운드 26 항목 0으로 상호 참조를 넣게 했다.
+
+### 146.2 병합과 다음 대상
+
+라운드 25 커밋 2개(`cf1ce23`, `2d9b2c4`) 병합. 병합 후: `nextest --workspace
+--no-fail-fast` **1362 passed, 2 skipped**; doctest **5**; `doc --workspace
+--no-deps` 통과; `check-*.sh` 8/8.
+
+이로써 `moveit-planners-stomp`는 upstream `moveit_planners/stomp`에서 pluginlib
+등록과 `trajectory_visualization.hpp`만 남긴다(`composable_task.rs`가
+`stomp_moveit_task.hpp`를, 나머지 네 모듈이 각 헤더를 이미 덮는다).
+
+다음 대상은 `moveit-stomp-core`다. 이 워크스페이스에서 유일하게 다른
+upstream(ros-industrial/stomp)과 다른 라이선스(Apache-2.0)를 갖는 크레이트인데
+`moveit-scene`의 60항목 롤업 같은 심볼 단위 감사를 받은 적이 없다. 레퍼런스는
+로컬에 있고 핀과 정확히 일치한다:
+
+```
+$ git -C /home/stevek/work/stomp log --oneline -1
+b1a87c8 Merge pull request #18 from mosfet80/patch-3
+$ git -C /home/stevek/work/stomp rev-list --count b1a87c80...HEAD
+0
+```
+
+라운드 26에 (a) `stomp.h/cpp`·`task.h`·`utils.h/cpp`의 심볼 단위 완결성 감사와
+(b) upstream 자신의 인수 테스트 `test/stomp_3dof.cpp`(445줄) 포팅을 시켰다. (b)는
+이 포트에 upstream이 무엇을 옳다고 여기는지에 대한 **외부 기준**이 없다는 문제를
+겨냥한 것이다 — 자체 일관성 테스트는 우리 구현끼리의 동의만 증명한다. 라이선스는
+양쪽 다 Apache-2.0이라 §141(D9)의 LGPL 건과 다르다.
