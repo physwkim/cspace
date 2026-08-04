@@ -960,7 +960,17 @@ mod tests {
     /// `hand` is a joint-list group, not a chain — every method must reject
     /// it as [`Error::Other`], matching upstream's `isChain()` guard (which
     /// upstream conflates into a `false` return; this port keeps it as a
-    /// distinct error, see this module's doc comment).
+    /// distinct error, see this module's doc comment). The exact message is
+    /// asserted, not just the variant: `manipulability_index`'s own
+    /// `self.group(group, "manipulability index")?` binds `group_model` for
+    /// later use in `joint_limits_penalty`, so unlike
+    /// `manipulability_ellipsoid` (see
+    /// `manipulability_ellipsoid_rejects_the_same_bad_groups`'s doc comment)
+    /// the call can't be neutralized to `let _ = ...` without a compile
+    /// error -- but a variant-only assertion still wouldn't catch a
+    /// copy-paste bug that passed the wrong caller string (e.g.
+    /// `"manipulability ellipsoid"`) into this call site, since `Err(Other(_))`
+    /// matches regardless of the message text.
     #[test]
     fn non_chain_group_is_rejected() {
         let model = build_model();
@@ -970,14 +980,22 @@ mod tests {
         let metrics = KinematicsMetrics::new(&model);
 
         assert!(model.joint_model_group("hand").is_ok_and(|g| !g.is_chain()));
-        assert!(matches!(
-            metrics.manipulability_index(&posed, "hand", false),
-            Err(Error::Other(_))
-        ));
+        match metrics.manipulability_index(&posed, "hand", false) {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'hand' is not a chain; cannot compute manipulability index"
+            ),
+            other => panic!("expected Error::Other, got {other:?}"),
+        }
     }
 
     /// An unknown group name must surface as [`Error::UnknownName`], not a
-    /// bare upstream-style `false`.
+    /// bare upstream-style `false`. Exercised through `manipulability`, not
+    /// `manipulability_index`: the two share `KinematicsMetrics::group`'s
+    /// `self.model.joint_model_group(group)?` call verbatim (no
+    /// caller-specific text in the `UnknownName` message, unlike the
+    /// `Other`/non-chain case above), so this one test pins both callers'
+    /// unknown-name path.
     #[test]
     fn unknown_group_is_unknown_name() {
         let model = build_model();
@@ -990,6 +1008,34 @@ mod tests {
             metrics.manipulability(&posed, "no_such_group", false),
             Err(Error::UnknownName { .. })
         ));
+        assert!(matches!(
+            metrics.manipulability_index(&posed, "no_such_group", false),
+            Err(Error::UnknownName { .. })
+        ));
+    }
+
+    /// `manipulability`'s own non-chain path (`self.group(group,
+    /// "manipulability")?` returning `Err`) had no test at all before this
+    /// one -- `non_chain_group_is_rejected` exercises `manipulability_index`
+    /// with `"hand"`, and `unknown_group_is_unknown_name` exercises
+    /// `manipulability` but only with an unknown name, never a non-chain
+    /// one. The message is asserted, not just the variant, for the same
+    /// reason as `non_chain_group_is_rejected`.
+    #[test]
+    fn manipulability_rejects_a_non_chain_group() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let metrics = KinematicsMetrics::new(&model);
+
+        match metrics.manipulability(&posed, "hand", false) {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'hand' is not a chain; cannot compute manipulability"
+            ),
+            other => panic!("expected Error::Other, got {other:?}"),
+        }
     }
 
     /// `manipulability_ellipsoid`'s own `self.group(group, "manipulability
