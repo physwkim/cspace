@@ -1,7 +1,11 @@
 #!/bin/bash
 # Every committed `*_request.json`/`*_response.json` oracle-fixture pair must
 # still reproduce its committed response when replayed against the live
-# oracle.
+# oracle -- twice: once in a process of its own, and once sharing a process
+# with every other fixture captured against the same robot model. The second
+# pass is documented where it runs, at the bottom of this file; it exists
+# because a per-file replay cannot see one op leaving state behind for the
+# next.
 #
 # The 925 parity tests in `cargo nextest run` compare *Rust against a
 # committed response*; none of them compare *the current oracle against that
@@ -56,17 +60,23 @@ trap 'rm -f "$REPLAY_ONE"' EXIT
 cat >"$REPLAY_ONE" <<'PYEOF'
 # Replays one fixture pair against the live oracle.
 #
-# Usage: _replay_one.py <run_oracle.sh> <urdf> <srdf> <request.json> <response.json> <ignore_json>
+# Usage: _replay_one.py <run_oracle.sh> <urdf> <srdf> <request.json> <response.json> <ignore_json> [timeout_s]
 # <ignore_json> is the fixture's `ignore_result_fields_by_id` manifest entry
 # (a JSON object mapping string request id -> list of top-level `result`
 # field names to exclude), or "{}" if the fixture has none.
 # Prints "identical"/"DRIFTED <n diffs>"/"ORACLE-FAIL <reason>" to stdout,
 # a unified diff to stderr on drift, and exits 0 only on an exact match.
+#
+# The request file need not be a committed fixture: the combined pass below
+# feeds it a concatenation of every fixture sharing one robot model, which is
+# why the timeout is a parameter rather than the fixed 120s a single fixture
+# needs.
 import json
 import subprocess
 import sys
 
 run_oracle, urdf, srdf, request_path, response_path, ignore_json = sys.argv[1:7]
+timeout_s = int(sys.argv[7]) if len(sys.argv) > 7 else 120
 ignore_result_fields_by_id = json.loads(ignore_json)
 
 def as_list(parsed):
@@ -94,10 +104,10 @@ try:
         input=ndjson_in,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=timeout_s,
     )
 except subprocess.TimeoutExpired:
-    print("ORACLE-FAIL replay timed out after 120s")
+    print(f"ORACLE-FAIL replay timed out after {timeout_s}s")
     sys.exit(1)
 
 if proc.returncode != 0:
@@ -247,6 +257,133 @@ if [[ "$found_manifest" -eq 0 ]]; then
   echo "no crates/*/tests/fixtures/oracle-models.json found -- did the layout change?" >&2
   exit 1
 fi
+
+# Second pass: every fixture that shares a robot model, through ONE oracle
+# process.
+#
+# The loop above starts a fresh container per fixture, so a request only ever
+# sees the ops from its own file. But the oracle is a long-lived object holding
+# mutable state -- `state_`, the RobotModel, the GroupStateRepresentation map
+# `initialize()` pregenerates -- and `main()` reads requests in a loop from one
+# stdin, so an op that leaves state behind changes the answer of whatever op
+# runs after it. Within a fixture file that is exercised already. Across files
+# it is structurally invisible: no run ever puts two files in one process
+# (PORTING-PLAN.md §143.1). `oracle.cpp` is shared by every panel, which is
+# where such a leak would come from in the first place.
+#
+# Grouping is by the *content* of the urdf/srdf pair, not the path: the same
+# panda is copied under seven crates' fixture directories, and a leak crossing
+# crates is the case worth covering. It also costs less than the pass above
+# rather than more -- 43 fixtures are 6 models, so 6 container starts replace
+# 43. A group of one adds nothing the per-file pass did not already do and is
+# skipped rather than paid for.
+#
+# The comparison is not reimplemented here: request ids are renumbered to
+# `fixture_index * 1000 + original_id` (ids are integers, max 12 across the
+# corpus, so 1000 cannot collide), the `ignore_result_fields_by_id` maps are
+# merged under the same renumbering, and _replay_one.py is handed the
+# concatenation as if it were a single fixture. A drift is therefore compared,
+# reported and diffed by exactly the code the per-file pass uses. The renumbered
+# id ranges are printed on failure so a diff line points back at a fixture.
+python3 - "$REPO_ROOT" "$RUN_ORACLE" "$REPLAY_ONE" <<'PYEOF' || status=1
+import collections
+import glob
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+repo_root, run_oracle, replay_one = sys.argv[1:4]
+
+def digest(path):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+def as_list(parsed):
+    return parsed if isinstance(parsed, list) else [parsed]
+
+fixtures = []
+for manifest_path in sorted(
+    glob.glob(os.path.join(repo_root, "crates/*/tests/fixtures/oracle-models.json"))
+):
+    fixtures_dir = os.path.dirname(manifest_path)
+    crate = os.path.basename(os.path.dirname(os.path.dirname(fixtures_dir)))
+    manifest = json.load(open(manifest_path))
+    for stem in sorted(manifest):
+        entry = manifest[stem]
+        fixture = {
+            "label": f"{crate}/{stem}",
+            "crate": crate,
+            "urdf": os.path.join(fixtures_dir, entry["urdf"]),
+            "srdf": os.path.join(fixtures_dir, entry["srdf"]),
+            "request": os.path.join(fixtures_dir, f"{stem}_request.json"),
+            "response": os.path.join(fixtures_dir, f"{stem}_response.json"),
+            "ignore": entry.get("ignore_result_fields_by_id", {}),
+        }
+        # A missing file is already reported as MISSING by the per-file pass,
+        # which owns that failure; grouping it here would only turn the same
+        # fact into a traceback.
+        if all(os.path.isfile(fixture[k]) for k in ("urdf", "srdf", "request", "response")):
+            fixtures.append(fixture)
+
+groups = collections.OrderedDict()
+for fixture in fixtures:
+    groups.setdefault((digest(fixture["urdf"]), digest(fixture["srdf"])), []).append(fixture)
+
+status = 0
+for members in groups.values():
+    model = os.path.basename(members[0]["urdf"])
+    if len(members) < 2:
+        print(f"single      {members[0]['label']} -- only fixture on {model}, per-file pass covers it")
+        continue
+
+    requests, expected, ignore, ranges = [], [], {}, []
+    for index, member in enumerate(members):
+        base = index * 1000
+        member_requests = as_list(json.load(open(member["request"])))
+        for request in member_requests:
+            requests.append({**request, "id": base + request["id"]})
+        for response in as_list(json.load(open(member["response"]))):
+            expected.append({**response, "id": base + response["id"]})
+        for request_id, fields in member["ignore"].items():
+            ignore[str(base + int(request_id))] = fields
+        ids = [base + r["id"] for r in member_requests]
+        ranges.append(f"ids {min(ids)}-{max(ids)}  {member['label']}")
+
+    crates = len({member["crate"] for member in members})
+    label = f"{model}: {len(members)} fixtures, {len(requests)} requests, {crates} crate(s)"
+
+    with tempfile.TemporaryDirectory() as scratch:
+        request_path = os.path.join(scratch, "combined_request.json")
+        response_path = os.path.join(scratch, "combined_response.json")
+        with open(request_path, "w") as handle:
+            json.dump(requests, handle)
+        with open(response_path, "w") as handle:
+            json.dump(expected, handle)
+        proc = subprocess.run(
+            [
+                sys.executable, replay_one, run_oracle,
+                members[0]["urdf"], members[0]["srdf"],
+                request_path, response_path, json.dumps(ignore),
+                str(120 * len(members)),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    if proc.returncode == 0:
+        print(f"combined    {label}")
+        continue
+
+    status = 1
+    sys.stderr.write(f"COMBINED    {label} -- {proc.stdout.strip()}\n")
+    for line in ranges:
+        sys.stderr.write(f"            {line}\n")
+    sys.stderr.write(proc.stderr)
+
+sys.exit(status)
+PYEOF
 
 if [[ $status -ne 0 ]]; then
   echo "fixture replay check failed" >&2
