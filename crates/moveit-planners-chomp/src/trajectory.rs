@@ -900,6 +900,44 @@ mod tests {
     }
 
     #[test]
+    fn assign_chomp_trajectory_point_rejects_a_multi_dof_active_joint() {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="planar_chomp_trajectory">
+  <link name="base"/>
+  <link name="tip"/>
+  <joint name="j1" type="planar">
+    <parent link="base"/>
+    <child link="tip"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="planar_chomp_trajectory">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("planar_chomp_trajectory model must build");
+        let group = model.joint_model_group("chain").unwrap();
+        assert_eq!(
+            group.active_joint_indices().len(),
+            1,
+            "a planar joint is one active joint index despite carrying 3 variables"
+        );
+        let mut traj = ChompTrajectory::from_num_points(&model, 4, 0.1, "chain").unwrap();
+        let state = RobotState::new(&model);
+        let err = traj
+            .assign_chomp_trajectory_point_from_robot_state(&state, 1, group)
+            .unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    #[test]
     fn fill_in_from_trajectory_rejects_fewer_than_two_waypoints() {
         let model = panda_model();
         let group = model.joint_model_group(GROUP).unwrap();
