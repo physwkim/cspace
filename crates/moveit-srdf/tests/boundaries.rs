@@ -35,13 +35,18 @@ fn group_names(model: &SrdfModel) -> Vec<&str> {
 
 // ------------------------------------------------------- fatal vs. not ----
 
+// Assertion-discrimination sweep (round 2): `parse()` has two
+// `Error::Parse` sites (`parse.rs:27` for malformed XML, `parse.rs:37` for
+// a non-`robot` root), both carrying the same `source_kind: SRDF` constant
+// -- checking `source_kind` alone cannot tell them apart, so this is the
+// same shape as an `Error::Code` shared across sibling guards. Fixed to
+// check `message` instead, which does differ (roxmltree's own text vs
+// this crate's "expected a `robot` root element"); see
+// `a_root_element_other_than_robot_is_an_error` below for that sibling.
 #[test]
 fn malformed_xml_is_an_error() {
     let err = SrdfModel::parse_str("<robot name=\"a\">").unwrap_err();
-    assert!(
-        matches!(&err, moveit_error::Error::Parse { source_kind, .. } if *source_kind == "SRDF"),
-        "{err}"
-    );
+    assert!(err.to_string().contains("opened but never closed"), "{err}");
 }
 
 #[test]
