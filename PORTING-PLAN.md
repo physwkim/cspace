@@ -13475,3 +13475,71 @@ OcTree↔BVH는 `:184`/`:237`의 근사 경로를 타므로 이 주장은 그대
 `moveit_core`가 `use_approximate_cost`를 명시적으로 넘기기 시작하면
 §171 전체가 만료된다. 앵커: `rg -n 'CollisionRequestd\(' moveit_core/`가
 5개 이상의 위치 인자를 가진 호출을 내놓는 순간.
+
+### 171.6 절단 규칙은 "가장 비싼 것을 남긴다" — fixture로 확인했다
+
+`max_costs`가 실제로 무엇을 남기는지는 §171의 dispatch와 별개의 규칙이고,
+p1-fixtures가 캡처한 fixture가 그것을 이미 담고 있다. 내가 직접 대조했다.
+
+FCL: `CostSource::total_cost = cost_density * (Δx·Δy·Δz)`
+(`cost_source-inl.h:51-63`), `operator<`는 `total_cost`가 **클수록 앞**으로
+가도록 뒤집혀 있다(`:86-103`). `CollisionResult::addCostSource`는
+`cost_sources.insert(c)` 후 `while(size > cap) erase(--end())`
+(`collision_result-inl.h:66-72`) — 즉 **가장 싼 것부터 버린다.**
+
+moveit_core도 같은 모양을 한 번 더 한다: 자기
+`CostSource::operator<`가 `cost * getVolume()` 내림차순이고
+(`collision_common.hpp:128-141`), `collision_common.cpp:286-287`,
+`:352-353`, `:389-390`이 `while(size > max_cost_sources) erase(--end())`를
+반복한다. **절단은 두 번 일어나고 두 번 다 같은 규칙이다.**
+
+fixture에서 확인:
+
+```
+id 3 (max_costs=9)  -> 9개
+id 2 (max_costs=5)  -> id 3의 부피 상위 5개와 **정확히 일치**
+id 4 (max_costs=50) -> id 3과 **동일** (참 개수 9가 상한 아래)
+id 5 (group=hand)   -> id 3의 부분집합 2개
+id 6 (group=panda_arm) -> id 3의 부분집합 9개
+```
+
+이 fixture의 모든 `cost`가 `1.0`이므로 `cost × volume` 순서가 부피 순서와
+같고, `id2 == top-5-by-volume(id3)`가 정확히 성립한다. **`max_costs`는
+임의의 N개가 아니라 가장 비싼 N개를 남긴다.** group 필터가 부분집합을
+낸다는 것도 같이 확인됐다 — 필터는 쌍을 고를 뿐 cost를 다시 계산하지 않는다.
+
+동점 처리에 함정이 하나 있다. moveit의 `operator<`는 마지막 비교를
+`aabb_min < other.aabb_min`으로 끝낸다(`std::array<double,3>`이므로
+사전식 전순서다) — **`aabb_max`는 비교하지 않는다.** 따라서
+`cost × volume`, `cost`, `aabb_min`이 모두 같고 `aabb_max`만 다른 두
+cost source는 `std::set`에서 **같은 원소로 취급되어 하나가 조용히
+사라진다.** 이 포트가 순서만 맞추고 이 축약을 재현하지 않으면 개수가
+어긋난다.
+
+### 171.7 §171로 설명되지 않는 잔여 — path id 3
+
+p1-fixtures가 `#[ignore]`를 떼고 돌린 결과에서 state 쪽은 전부 이 포트가
+**더 많이** 낸다(id 8: 20 vs 1, id 4: 50 vs 9) — §171이 예측하는 방향이다.
+그런데 path id 3은 **3 vs 5**로 이 포트가 **더 적게** 낸다. 방향이 반대다.
+
+state op은 `removeCostSources`/`removeOverlapping` pass를 돌지 않고 path op은
+돈다는 것이 p1-fixtures의 관찰이므로, path 쪽 불일치에는 §171 위에 **또
+하나의 원인**이 얹혀 있다. §171을 고친 뒤에도 path id 3-6이 남으면 그것이
+독립된 결함이고, 같이 닫히면 `max_costs=2` 절단이 waypoint별로 일어나는
+순서 문제였다는 뜻이다. **어느 쪽인지 지금 단정하지 않는다** — §171 수정
+후의 재측정이 판정한다.
+
+### 171.8 부피 크기 자체가 dispatch 증거다
+
+같은 fixture 안에서 두 모집단의 cost source 부피가 겹치지 않는다:
+
+```
+id 1 (mesh↔mesh, 삼각형별)      부피 6.591e-09 ~ 4.436e-05
+id 3/4/6 (mesh↔shape, 근사)     부피 8.616e-05 ~ 1.024e-02
+id 8 (mesh↔shape, 단일)         부피 4.795e-04
+```
+
+삼각형 규모와 링크 규모가 두 자리에서 여섯 자리까지 떨어져 있다. 만약
+mesh↔shape도 삼각형별 경로를 탔다면 id 3의 최소 부피가 id 1의 범위 안에
+들어와야 한다. 들어오지 않는다 — §171.1의 dispatch 분기가 실제로 갈린다는
+독립 증거다.
