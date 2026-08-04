@@ -291,12 +291,26 @@ const POSITION_TOLERANCE: f64 = 1e-8;
 /// `VELOCITY_TOLERANCE` documents. Measured max divergence across the three
 /// succeeding fixture cases: `1.96e-8` (case A; case C measures `1.95e-8`,
 /// case B `2.95e-10`). Set with a roughly 4x margin.
+///
+/// Before tightening this: `panda_blend_corner110` runs its velocity
+/// channel directly on this constant (no override) at `7.9133e-8`
+/// measured, a margin of only `1.011x` -- the thinnest of any case that
+/// does not carry its own `*_VELOCITY_TOLERANCE`. It breaks first. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Tolerance audit"
+/// subsection (under "Case F") for the full table this margin comes from.
 const VELOCITY_TOLERANCE: f64 = 8e-8;
 
 /// The same backward-difference chain's acceleration term divides by
 /// `sampling_time` again. Measured max divergence across the three
 /// succeeding fixture cases: `2.91e-7` (case A; case C measures `1.01e-7`,
 /// case B `2.53e-9`). Set with a roughly 4x margin.
+///
+/// Before tightening this: `panda_blend_corner60` runs its acceleration
+/// channel directly on this constant (no override) at `1.1279e-6`
+/// measured, a margin of only `1.064x` -- the thinnest of any case that
+/// does not carry its own `*_ACCELERATION_TOLERANCE`. It breaks first. See
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Tolerance audit"
+/// subsection (under "Case F") for the full table this margin comes from.
 const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
 
 /// Case E (`panda_blend_corner112`, 112° corner) measures `8.276e-8` at
@@ -1106,4 +1120,3 @@ fn blend_panda_arm_corner112_radius08_needs_its_own_acceleration_tolerance() {
         },
     );
 }
-

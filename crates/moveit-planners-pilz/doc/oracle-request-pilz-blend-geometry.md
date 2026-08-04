@@ -872,6 +872,27 @@ above, and `check-pilz-tolerance-overrides.sh` (see "Mechanizing the
 tolerance-hole audit" below) keeps that true for whatever is added
 next.
 
+**Which case breaks first if `VELOCITY_TOLERANCE`/`ACCELERATION_TOLERANCE`
+were tightened.** Restricting to cases that run a channel on the shared
+constant directly (no override in that channel, so tightening the shared
+constant is the only way that case's own pass/fail line moves):
+
+| channel | tightest case | measured | shared | margin (shared / measured) |
+|---|---|---:|---:|---:|
+| velocity | 110° | `7.9133e-8` | `8e-8` | **1.011x** |
+| acceleration | 60° | `1.1279e-6` | `1.2e-6` | **1.064x** |
+
+`panda_blend_corner110` would be the first casualty of any
+`VELOCITY_TOLERANCE` tightening -- its own margin is already under
+1.2%, thinner than every other no-override case in the sweep.
+`panda_blend_corner60` is the equivalent pinch point for
+`ACCELERATION_TOLERANCE`. **Nothing in-tree currently said this before
+this round** -- `VELOCITY_TOLERANCE`'s and `ACCELERATION_TOLERANCE`'s own
+doc comments in `pilz_blend_parity.rs` documented how each was measured
+and margined when first set, but neither named which
+currently-shared-tolerance case was closest to the edge. Both doc
+comments now carry that warning directly, not just this section.
+
 ## Case I: does the case C near-tie come from radius, from angle, or from neither alone
 
 Four fixtures now give three radius/angle combinations at the two
