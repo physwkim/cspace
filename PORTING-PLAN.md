@@ -15997,3 +15997,54 @@ Pose 경로의 유일한 테스트 `pose_with_degenerate_orientation_fails`가 �
 
 **가드의 문턱이 매크로에서 오면 매크로를 연다.** `ASSERT_ISOMETRY`는
 검사처럼 읽히고 릴리스에서 `(void)sizeof(x)`로 컴파일된다.
+
+### §211.6 매크로만 열고 그 앞의 함수는 안 열었다 -- 세 규칙이 아니라 두 규칙이었다
+
+p9-ros가 §211.2의 표를 오라클 이미지 안 실제 헤더로 재검증했다. `ASSERT_ISOMETRY`에
+대한 §211.2의 서술(`check_isometry.h`, `NDEBUG`면 `(void)sizeof(x)`)은
+정확했고 그대로 확인된다. 그런데 §211.2는 그 매크로 **앞에서 호출되는
+함수 자체**는 열어보지 않고 "검사 없음"이라고 결론냈다 -- 그 함수가
+`tf2_eigen.hpp`의 `fromMsg(const geometry_msgs::msg::Pose&,
+Eigen::Isometry3d&)`(`:493-505`)이고, 본문이 이렇다:
+
+```cpp
+void fromMsg(const geometry_msgs::msg::Pose & msg, Eigen::Isometry3d & out)
+{
+  Eigen::Quaterniond quat(msg.orientation.w, msg.orientation.x,
+                          msg.orientation.y, msg.orientation.z);
+  quat.normalize();
+  out = Eigen::Isometry3d(Eigen::Translation3d(...) * quat);
+}
+```
+
+조건 없는 `quat.normalize()`다 -- `planning_scene.cpp`의
+`utilities::poseMsgToEigen`과 **똑같은 규칙**이다. `position.rs:161`/
+`visibility.rs:114,115`가 실제로 여기 닿는다는 것은
+`kinematic_constraint.hpp:875,877`의 `Eigen::Isometry3d sensor_pose_,
+target_pose_;` 선언으로 확인된다 (`t`/`target_pose_`/`sensor_pose_`가
+전부 `Isometry3d`이므로 오버로드 해석이 이 함수를 정확히 고른다).
+`ASSERT_ISOMETRY`는 이 정규화 **다음에** 실행되는 중복 안전장치이고,
+릴리스에서 아무것도 하지 않는다는 §211.2의 관찰은 맞지만 그로부터
+"그러니 정규화도 없다"는 따라 나오지 않는다.
+
+즉 열 개 소비자가 닿는 상류 규칙은 세 개가 아니라 **두 개**다:
+
+1. **일반 규칙** (9곳: `orientation.rs`를 제외한 전부) -- 조건 없이
+   정규화, 절대 실패하지 않음. `poseMsgToEigen`과 `tf2_eigen::fromMsg`
+   둘 다 이 규칙 하나로 수렴한다.
+2. **`OrientationConstraint::configure`의 의심 규칙** (1곳:
+   `orientation.rs:85`만) -- `\|norm-1\|>1e-3`이면 항등원으로 치환.
+
+§211.3이 요구한 "이중 의미 제거"는 그대로 유효하다 -- 다만 이름을 줘야
+할 규칙이 셋이 아니라 둘이었다. p9-ros가 `geometry.rs`에
+`OrientationConstraintQuaternion`(전용 타입, 자기 규칙만 구현)을 새로
+만들고 기존 `TryFrom<Quaternion> for UnitQuaternion`을 문턱
+`norm <= f64::EPSILON`로 되돌려 아홉 곳의 일반 규칙으로 되돌렸다.
+`Eigen::MatrixBase::normalize()`(`Eigen/src/Core/Dot.h:145-151`)가
+`if (z > RealScalar(0))`로 가드하므로 정확히 0인 노름은 상류에서도
+그대로 남는다는 것까지 오라클 이미지의 실제 헤더로 확인했다 -- 이
+지점만은 D6이 남는다(`nalgebra::UnitQuaternion`이 표현할 수 없는 값이므로).
+
+**규칙 (§211.5에 추가):** 매크로를 열었으면 그 매크로가 감싸는 *이전*
+문장도 열어라. 가드 앞에 이미 부작용이 있으면, 가드가 no-op이라는 사실만으로
+"그 지점의 상류 동작은 없음"이라고 결론 내릴 수 없다.
