@@ -624,6 +624,20 @@
 //! second `gap`.
 //!
 //! 18 + 23 + 8 + 6 + 11 = 66.
+//!
+//! # Assert-relative-eq inventory (round 15, this crate's own count)
+//!
+//! `grep -rn 'assert_relative_eq!(' crates/moveit-constraints/ --include=*.rs
+//! | grep -vE ':[0-9]+:\s*(///|//!)'` — the call pattern with its doc-comment
+//! lines (`///`/`//!`) filtered back out, so a doc paragraph that names the
+//! macro without invoking it (this very paragraph, once written, is one, and
+//! the filter is what keeps this command self-consistent rather than
+//! self-inflating) cannot count itself; the workspace has already been
+//! bitten four times, §73.1/§83.3/§92/§104.1, by trusting a raw occurrence
+//! count over a real macro-invocation scan. Returns **0** matches, exit
+//! code 1, across `src/`, `tests/`, and `Cargo.toml`. No `epsilon`-only,
+//! `max_relative`-only, both-present, or neither-present site exists in
+//! this crate to classify or bisect.
 
 mod constraint_sampler_manager;
 mod ik_sampler;
