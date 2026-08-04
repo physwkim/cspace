@@ -1863,10 +1863,13 @@ fn get_self_proximity_gradients(
 /// per-sub-decomposition) bounding sphere.
 ///
 /// One upstream bug is *not* reproduced: its contact-reporting branch
-/// (`:534`) unconditionally reads `con.pos =
+/// (`:601`) unconditionally reads `con.pos =
 /// gsr->link_body_decompositions_[i]->getSphereCenters()[k]`, never
-/// branching on `i_is_link` the way `body_type_1` two lines below it does
-/// (`:537-544`) -- when `i` is an attached-body index this indexes
+/// branching on `i_is_link` the way `body_type_1` immediately below it does
+/// (`:604-611`, round 26: corrected from a prior citation of `:534`/`:537-544`,
+/// which point at the unrelated `req.contacts` header a few lines earlier --
+/// the underlying bug claim itself was always correct) -- when `i` is an
+/// attached-body index this indexes
 /// `link_body_decompositions_` (sized `num_links`) out of bounds, undefined
 /// behaviour in C++ that safe Rust cannot reproduce. `centers_1[k]` (already
 /// correctly sourced from whichever side `i` actually is, matching every
