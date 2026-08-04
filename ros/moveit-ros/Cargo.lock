@@ -633,11 +633,13 @@ name = "moveit-ros"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-collision",
  "moveit-constraints",
  "moveit-error",
  "moveit-geometry",
  "moveit-model",
  "moveit-planning",
+ "moveit-scene",
  "moveit-srdf",
  "moveit-state",
  "moveit-trajectory",
