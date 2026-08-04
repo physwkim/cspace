@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Ioan A. Sucan
+// Copyright (c) 2012, Willow Garage, Inc.
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
