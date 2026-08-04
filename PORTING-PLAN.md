@@ -12676,3 +12676,71 @@ upstream 체크아웃이 필요하고 CI 러너에는 없다. 인용을 **열지
   파리티 유지 확인)이다.
 - 만료 조건(§153.1): `geometric_shapes`/`srdfdom`/`octomap` 체크아웃이 생기면
   미해소 24건이 실제 판정으로 바뀐다. 그 전까지 "clean"이라고 말할 수 없다.
+
+## §160 §159.4의 만료 조건이 발동했다 — 세 upstream을 `third_party/`로 조달 (`b5d5680`)
+
+§159.4는 "`geometric_shapes`/`srdfdom`/`octomap` 체크아웃이 생기면 미해소 24건이
+실제 판정으로 바뀐다"를 만료 조건으로 적어뒀다. 그 조건이 충족됐다.
+
+### 160.1 먼저 반증한 것 — 컨테이너로는 안 된다
+
+오라클 컨테이너 안에 세 패키지가 있다는 것을 근거로 "경로 요청은 이제 불필요하다"고
+적었는데, **그 진술은 중요한 부분에서 틀렸다.** 컨테이너가 갖고 있는 것은 설치된
+헤더뿐이다:
+
+```
+/opt/ros/rolling/include/geometric_shapes/geometric_shapes/*.h   (12개)
+/opt/ros/rolling/include/srdfdom/srdfdom/{model,srdf_writer,...}.h
+/usr/include/octomap/*.h
+```
+
+`.cpp`와 `test/`는 컨테이너 어디에도 없다(`find / -name bodies.cpp` → 0건). Debian
+패키지는 헤더와 컴파일된 `.so`만 싣는다. 24건 중 컨테이너로 해소되는 것은 9건이고,
+나머지 13건은 그대로 남는다. 패키지 단위 라이선스 표로 때우는 선택지는 §159.2가
+이미 배제했다 — moveit2가 BSD인데 LGPL 파일을 vendoring한 것이 D11의 결함이었다.
+
+### 160.2 구조적 원인 — 재현 불가능한 provenance 기록
+
+인용 자체는 날조가 아니었다. `moveit-geometry`/`moveit-srdf`의 헤더는 버전을
+못박고 출처를 서술한다. `shapes.rs`는 커밋 `192801ce`까지 적어두고, 헤더는 Debian
+패키지와 `diff`로, `.cpp`는 `libgeometric_shapes.so.2.3.3`의 문자열 테이블에 있는
+6개 리터럴로 대조했다고 기록한다. 실제로 읽고 대조한 것이 맞다.
+
+문제는 **읽은 트리가 남지 않았다**는 것이다. 소스 tarball은 그 라운드 동안만
+존재했고, 그 뒤로는 디스크의 어떤 것도 그 주장을 다시 열어볼 수 없다.
+
+> **다시 열 수 없는 provenance 기록은 트리의 속성이 아니라 누군가 한 번 한 일의
+> 기록이다.**
+
+`third_party/moveit_resources`가 같은 문제를 이미 이 방식으로 풀고 있다(§1359).
+게이트가 요구하는 것은 조달이지 신뢰가 아니다.
+
+### 160.3 조달과 검증
+
+`third_party/`에 태그 고정 shallow clone (gitignore 대상, §841과 동일한 취급):
+
+| 패키지 | 태그 | 해소된 커밋 |
+|---|---|---|
+| `geometric_shapes` | `2.3.3` | `192801cebacc07d0e9f719576cdd1c9b36d0bc28` |
+| `srdfdom` | `2.0.8` | `58ee1eccd1c34498f67022eb2080daec5e8bc162` |
+| `octomap` | `v1.9.7` | `aa6372b87eaf7e89bb1c9421f61d58bd634477cb` |
+
+세 버전 모두 인용한 헤더가 적어둔 것과 일치하고, 컨테이너의 dpkg 버전
+(`ros-rolling-geometric-shapes 2.3.3-...`, `ros-rolling-srdfdom 2.0.8-...`,
+`liboctomap-dev 1.9.7+dfsg-3.1build3`)과도 일치한다. **geometric_shapes의 태그
+`2.3.3`이 `shapes.rs`가 미리 못박아둔 커밋 `192801ce`로 정확히 해소된다** — 그
+provenance 주장의 독립 검증이다.
+
+라이선스는 표가 아니라 **인용된 파일 자체**에서 읽었다: `bodies.cpp` "Copyright 2008
+Willow Garage, Inc." + BSD 3절, `srdfdom/src/model.cpp` "Software License Agreement
+(BSD License)", `OcTreeNode.h` "License: New BSD". 셋 다 permissive다.
+
+### 160.4 게이트 상태
+
+`octomap`의 인용은 패키지 상대 경로(`include/octomap/...`)이고 저장소가 패키지를 한
+단계 아래 두므로 자기 루트가 필요하다(`third_party/octomap/octomap`). 나머지 둘은
+clone 디렉터리 이름으로 인용하므로 `third_party/` 자체가 루트다.
+
+검사 인용 **250건 → 274건**, 미해소 **24건 → 0건**. 남은 실패는 §159.1의 실제 결함
+5건뿐이다 — 게이트가 이제 진짜 결함에서만 빨갛다. **`git push` 차단은 계속 유효하다**
+(p1-joints 라운드 22 진행 중).
