@@ -182,11 +182,16 @@ mod tests {
 
     #[test]
     fn robot_state_to_array_rejects_an_unknown_group_name_as_a_typed_error() {
+        // `robot_state_to_array` reaches two `Error::UnknownName` sites
+        // (group lookup, per-joint lookup); matching the bare variant
+        // shape can't tell them apart, so this checks `kind` too
+        // (assertion-discrimination-round2.md sec. 1's `UnknownName`
+        // exception).
         let model = one_joint_model();
         let state = RobotState::new(&model);
         let mut out = [0.0; 1];
         let err = robot_state_to_array(&state, "no_such_group", &mut out).unwrap_err();
-        assert!(matches!(err, Error::UnknownName { .. }));
+        assert!(matches!(err, Error::UnknownName { kind, .. } if kind == "group"));
     }
 
     #[test]

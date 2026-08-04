@@ -702,9 +702,17 @@ mod tests {
     /// wrapping (release) on the following `+ 1`. Now rejected up front.
     #[test]
     fn from_duration_rejects_zero_discretization() {
+        // `ChompTrajectory::from_duration` reaches 3 `Error::other` sites
+        // (its own discretization guard, its own point-count-bound guard,
+        // and `from_num_points`'s num_points<2 guard); a bare
+        // matches!(err, Error::Other(_)) cannot say which fired (confirmed
+        // by printing each error before converting these checks).
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, 3.0, 0.0, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// Same boundary, negative side: `discretization < 0.0` is rejected the
@@ -712,9 +720,14 @@ mod tests {
     /// happens to carry.
     #[test]
     fn from_duration_rejects_negative_discretization() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant.
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, 3.0, -0.03, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// A negative `discretization` paired with a negative `duration`
@@ -728,9 +741,14 @@ mod tests {
     /// case, so this is the one that actually detects its reversion.
     #[test]
     fn from_duration_rejects_negative_discretization_that_divides_positive() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant.
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, -3.0, -0.03, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// A `discretization` positive and finite but small enough that
@@ -740,9 +758,12 @@ mod tests {
     /// point count.
     #[test]
     fn from_duration_rejects_an_unreasonable_point_count() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant; this case hits
+        // the point-count bound instead of the discretization guard.
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, 3.0, 1e-300, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("would require more than"));
     }
 
     #[test]
@@ -888,6 +909,11 @@ mod tests {
 
     #[test]
     fn assign_chomp_trajectory_point_rejects_group_column_mismatch() {
+        // `assign_chomp_trajectory_point_from_robot_state` has 2
+        // `Error::other` sites (active-joint-count guard, multi-DOF-joint
+        // guard); a bare matches!(err, Error::Other(_)) cannot say which
+        // fired — the exact defect this brief cites
+        // (assertion-discrimination-round2.md sec. 2).
         let model = panda_model();
         let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
         let other_group = model.joint_model_group("hand").unwrap();
@@ -896,7 +922,10 @@ mod tests {
         let err = traj
             .assign_chomp_trajectory_point_from_robot_state(&state, 1, other_group)
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("active joints, but this ChompTrajectory has")
+        );
     }
 
     #[test]
@@ -934,7 +963,12 @@ mod tests {
         let err = traj
             .assign_chomp_trajectory_point_from_robot_state(&state, 1, group)
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        // See `assign_chomp_trajectory_point_rejects_group_column_mismatch`
+        // for why this checks the message rather than just the variant.
+        assert!(
+            err.to_string()
+                .contains("variables; ChompTrajectory requires every active joint")
+        );
     }
 
     #[test]
@@ -962,7 +996,15 @@ mod tests {
             .unwrap();
         assert!(source.group().is_none());
         let err = traj.fill_in_from_trajectory(&source).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        // `fill_in_from_trajectory` reaches several `Error::other` sites:
+        // its own group guard, `RobotTrajectory::way_point`'s index guard,
+        // and `assign_chomp_trajectory_point_from_robot_state`'s two
+        // guards. A bare matches!(err, Error::Other(_)) cannot tell them
+        // apart.
+        assert!(
+            err.to_string()
+                .contains("requires trajectory.group() to be Some")
+        );
     }
 
     #[test]

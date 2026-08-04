@@ -211,15 +211,40 @@ mod tests {
 
     #[test]
     fn fewer_than_two_waypoints_is_rejected() {
-        assert!(Path::create(&[v(&[0.0])], DEFAULT_PATH_TOLERANCE).is_err());
-        assert!(Path::create(&[], DEFAULT_PATH_TOLERANCE).is_err());
+        // `Path::create` has 3 `Error::construct` sites (waypoint count,
+        // max_deviation, 180-degree turn); a bare `.is_err()` cannot say
+        // which one fired (assertion-discrimination-round2.md sec. 3).
+        assert!(
+            Path::create(&[v(&[0.0])], DEFAULT_PATH_TOLERANCE)
+                .unwrap_err()
+                .to_string()
+                .contains("at least 2 waypoints")
+        );
+        assert!(
+            Path::create(&[], DEFAULT_PATH_TOLERANCE)
+                .unwrap_err()
+                .to_string()
+                .contains("at least 2 waypoints")
+        );
     }
 
     #[test]
     fn zero_max_deviation_is_rejected() {
+        // See `fewer_than_two_waypoints_is_rejected` for why this checks
+        // the message rather than just `.is_err()`.
         let waypoints = [v(&[0.0, 0.0]), v(&[1.0, 0.0])];
-        assert!(Path::create(&waypoints, 0.0).is_err());
-        assert!(Path::create(&waypoints, -1.0).is_err());
+        assert!(
+            Path::create(&waypoints, 0.0)
+                .unwrap_err()
+                .to_string()
+                .contains("max_deviation must be greater than 0.0")
+        );
+        assert!(
+            Path::create(&waypoints, -1.0)
+                .unwrap_err()
+                .to_string()
+                .contains("max_deviation must be greater than 0.0")
+        );
     }
 
     #[test]
@@ -288,7 +313,14 @@ mod tests {
             v(&[1.0, 0.0, 0.0]),
             v(&[0.0, 0.0, 0.0]),
         ];
-        assert!(Path::create(&waypoints, 0.01).is_err());
+        // See `fewer_than_two_waypoints_is_rejected` for why this checks
+        // the message rather than just `.is_err()`.
+        assert!(
+            Path::create(&waypoints, 0.01)
+                .unwrap_err()
+                .to_string()
+                .contains("180 deg")
+        );
     }
 
     #[test]

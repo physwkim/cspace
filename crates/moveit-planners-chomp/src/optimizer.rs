@@ -2370,10 +2370,14 @@ mod tests {
 
     #[test]
     fn calculate_smoothness_increments_rejects_joint_costs_length_mismatch() {
+        // `calculate_smoothness_increments` reaches two `Error::other`
+        // sites: its own joint_costs-length guard, and `ChompCost::
+        // derivative`'s joint_trajectory-length guard. A bare
+        // matches!(err, Error::Other(_)) cannot tell them apart.
         let traj = trajectory(20);
         let costs = joint_costs(&traj, 1e-6);
         let err = calculate_smoothness_increments(&costs[..costs.len() - 1], &traj).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("joint_costs has"));
     }
 
     #[test]
@@ -2430,6 +2434,10 @@ mod tests {
 
     #[test]
     fn calculate_total_increments_rejects_column_count_mismatch() {
+        // `calculate_total_increments` has 3 `Error::other` sites (column
+        // count vs. joint_costs, row count mismatch between the two
+        // increment matrices, and a per-joint quadratic_cost_inverse shape
+        // guard); "columns" appears only in this one's message.
         let traj = trajectory(20);
         let costs = joint_costs(&traj, 1e-6);
         let num_free = traj.num_free_points();
@@ -2438,7 +2446,7 @@ mod tests {
         let parameters = ChompParameters::default();
         let err =
             calculate_total_increments(&costs, &smoothness, &collision, &parameters).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("columns"));
     }
 
     #[test]

@@ -502,13 +502,22 @@ fn add_prefix_way_point_always_lands_at_a_zero_duration() {
 
 #[test]
 fn insert_way_point_at_zero_rejects_a_nonzero_dt() {
+    // `insert_way_point` has 2 `Error::other` sites (out-of-range index,
+    // nonzero dt at index 0); a bare `.is_err()` cannot say which fired
+    // (assertion-discrimination-round2.md sec. 3).
     let model = panda();
     let mut state = RobotState::new(&model);
     state.set_to_default_values();
     let mut trajectory = RobotTrajectory::new(&model);
     trajectory.add_suffix_way_point(state.clone(), 0.0).unwrap();
 
-    assert!(trajectory.insert_way_point(0, state.clone(), 0.2).is_err());
+    assert!(
+        trajectory
+            .insert_way_point(0, state.clone(), 0.2)
+            .unwrap_err()
+            .to_string()
+            .contains("duration_from_previous[0] must be 0.0")
+    );
     assert!(trajectory.insert_way_point(0, state, 0.0).is_ok());
 }
 
@@ -662,7 +671,15 @@ fn out_of_range_index_access_is_a_typed_error() {
 
     let mut state = RobotState::new(&model);
     state.set_to_default_values();
-    assert!(trajectory.insert_way_point(len + 1, state, 0.1).is_err());
+    // See `insert_way_point_at_zero_rejects_a_nonzero_dt` for why this
+    // checks the message rather than just `.is_err()`.
+    assert!(
+        trajectory
+            .insert_way_point(len + 1, state, 0.1)
+            .unwrap_err()
+            .to_string()
+            .contains("out of bounds")
+    );
     // exactly one past the end is a valid insertion point (matches Vec::insert)
     let mut state = RobotState::new(&model);
     state.set_to_default_values();

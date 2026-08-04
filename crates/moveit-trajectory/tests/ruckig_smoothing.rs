@@ -197,7 +197,16 @@ fn no_group_set_is_an_error() {
         .unwrap();
 
     assert!(trajectory.group().is_none());
-    assert!(apply_smoothing(&mut trajectory, &SmoothingOptions::default()).is_err());
+    // `apply_smoothing` has 3 reachable `Error::other` sites (missing
+    // group, ruckig calculate failure, ruckig smoothing-result failure); a
+    // bare `.is_err()` cannot say which fired
+    // (assertion-discrimination-round2.md sec. 3).
+    assert!(
+        apply_smoothing(&mut trajectory, &SmoothingOptions::default())
+            .unwrap_err()
+            .to_string()
+            .contains("did not set the group")
+    );
 }
 
 #[test]
