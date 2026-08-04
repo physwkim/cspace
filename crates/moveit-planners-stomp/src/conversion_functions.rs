@@ -36,8 +36,63 @@
 //! `stomp_moveit_planning_context.cpp` passes a concrete group; this port
 //! requires `&JointModelGroup` explicitly rather than reproducing a
 //! whole-robot fallback branch STOMP itself never exercises.
+//!
+//! # Deviation: unparameterized-by-construction (round 21 correction)
+//!
+//! **A round-20 mistake, corrected here.** This module's doc previously
+//! claimed upstream's `fillRobotTrajectory` placeholder `dt = 0.1` carries a
+//! comment "the actual timestep duration will be computed by a planner
+//! adapter after solving". That sentence does not exist at
+//! `conversion_functions.hpp`'s `addSuffixWayPoint(waypoint, 0.1 /*
+//! placeholder dt */)` call -- the comment there is only `/* placeholder dt
+//! */`. The quoted sentence is real, but it is attached to a *different*
+//! `dt` in a different file: `filter_functions.hpp`'s `simpleSmoothingMatrix`
+//! passes `dt = 1.0` to `stomp::generateSmoothingMatrix` as the finite-
+//! difference step for approximating waypoint *acceleration*, not a
+//! waypoint duration. Confirmed by reading both sites directly, moveit2 @
+//! `e017c91ee12984393a28ba246075c65f69cde3bf`. The two `0.1`/`1.0` values
+//! are unrelated in both meaning and in the code path that touches them.
+//!
+//! Fixing the citation is not sufficient by itself. What the (wrongly
+//! quoted) sentence would have guaranteed -- "some later stage computes the
+//! real timestep duration, so the placeholder is harmless" -- has no
+//! equivalent anywhere in this port. Upstream's own guarantee, even where
+//! it does apply (to `simpleSmoothingMatrix`'s `dt`, not this function's),
+//! comes from a "planner adapter" that lives in the ROS integration layer
+//! (`move_group`'s planning-response-adapter pipeline), which this
+//! workspace does not port (D1/D2). Read `stomp_moveit_planning_context.cpp`
+//! directly to confirm: `solveWithStomp` calls `fillRobotTrajectory` and
+//! hands the result straight to `res.trajectory` with no time-
+//! parameterization step in between anywhere in that file. So even
+//! upstream's real behaviour is "whatever ROS pipeline the caller has
+//! configured might fix this timing, or might not" -- and this port has no
+//! such pipeline at all. A `0.1`-per-waypoint duration silently leaving
+//! [`fill_robot_trajectory`] as if it were real timing is exactly the
+//! "wrong value flows out uncaught" shape this project's structural-fix
+//! doctrine targets; a doc comment saying "don't trust this" is not
+//! enforcement.
+//!
+//! [`fill_robot_trajectory`] and [`matrix_to_robot_trajectory`] therefore
+//! return [`UnparameterizedTrajectory`], not a bare [`RobotTrajectory`]. The
+//! wrapper exposes waypoint *positions* ([`UnparameterizedTrajectory::way_point_count`])
+//! but no duration accessor, so there is no way to read a placeholder
+//! duration off of it by mistake. The only way to obtain a real
+//! [`RobotTrajectory`] is [`UnparameterizedTrajectory::into_uniformly_timed`],
+//! which requires the caller to name an explicit `dt` -- the caller is
+//! visibly asserting "a uniform discretization at this rate is acceptable
+//! for my use", instead of silently inheriting a value this port picked for
+//! an unrelated reason. (Depending on `moveit-trajectory`/`moveit-smoothing`'s
+//! TOTG to compute a real time parameterization here was considered and
+//! rejected for this round: STOMP's own upstream never calls a time-
+//! parameterization algorithm itself either, so pulling one in here would
+//! be adding behaviour upstream never had, not porting behaviour that
+//! exists. Type-enforcing the caller's choice is the smaller, faithful
+//! fix.) Every waypoint's duration is set to an inert `0.0` internally
+//! during construction, not upstream's `0.1` -- nothing can observe that
+//! value before [`UnparameterizedTrajectory::into_uniformly_timed`]
+//! overwrites it, so there is nothing for it to faithfully reproduce.
 
-use moveit_model::JointModelGroup;
+use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::RobotState;
 use moveit_trajectory::RobotTrajectory;
 use nalgebra::{DMatrix, DVector};
@@ -45,6 +100,37 @@ use nalgebra::{DMatrix, DVector};
 use moveit_error::Result;
 
 use crate::require_single_variable;
+
+/// The output of [`fill_robot_trajectory`]/[`matrix_to_robot_trajectory`]: a
+/// [`RobotTrajectory`] whose waypoint positions are STOMP's solved matrix,
+/// but whose per-waypoint durations are not yet real timing. See this
+/// module's "Deviation: unparameterized-by-construction".
+pub struct UnparameterizedTrajectory<'m>(RobotTrajectory<'m>);
+
+impl<'m> UnparameterizedTrajectory<'m> {
+    fn for_group(robot_model: &'m RobotModel, group: Option<&'m JointModelGroup>) -> Self {
+        Self(RobotTrajectory::for_group(robot_model, group))
+    }
+
+    /// The number of waypoints. Position data only -- no duration accessor
+    /// is exposed by this type.
+    pub fn way_point_count(&self) -> usize {
+        self.0.way_point_count()
+    }
+
+    /// Consumes this trajectory, assigning every waypoint after the first a
+    /// uniform `dt` (waypoint 0's duration stays structurally `0.0`, per
+    /// [`RobotTrajectory`]'s own invariant), and returns the now
+    /// genuinely-timed [`RobotTrajectory`]. See this module's "Deviation:
+    /// unparameterized-by-construction" for why this must be an explicit
+    /// call rather than a default this port picks silently.
+    pub fn into_uniformly_timed(mut self, dt: f64) -> Result<RobotTrajectory<'m>> {
+        for i in 1..self.0.way_point_count() {
+            self.0.set_way_point_duration_from_previous(i, dt)?;
+        }
+        Ok(self.0)
+    }
+}
 
 /// `getPositions`: `group`'s active-joint position vector, read from
 /// `state`.
@@ -86,20 +172,10 @@ pub fn set_positions(
 
 /// `fillRobotTrajectory`: overwrites `trajectory` with one waypoint per
 /// column of `trajectory_values`, cloning `reference_state` for every
-/// waypoint's non-`group` joint values.
-///
-/// # Deviation: waypoint 0's duration is `0.0`, not upstream's placeholder `0.1`
-///
-/// Upstream pushes a placeholder `dt = 0.1` for every waypoint, including
-/// the first, with a comment noting "the actual timestep duration will be
-/// computed by a planner adapter after solving" -- i.e. this placeholder is
-/// always overwritten downstream and its value is not load-bearing.
-/// `moveit-trajectory`'s own [`RobotTrajectory::add_suffix_way_point`]
-/// already establishes a stricter invariant than upstream ever enforced --
-/// `duration_from_previous[0]` is structurally `0.0`, since waypoint 0 has
-/// no previous waypoint to measure a gap from -- and rejects a nonzero
-/// value there. This port satisfies that invariant instead of fighting it:
-/// waypoint 0's `dt` is `0.0`, every later waypoint's is upstream's `0.1`.
+/// waypoint's non-`group` joint values. See this module's "Deviation:
+/// unparameterized-by-construction" for why `trajectory`'s type carries no
+/// duration guarantee until [`UnparameterizedTrajectory::into_uniformly_timed`]
+/// is called.
 ///
 /// # Errors
 ///
@@ -114,9 +190,9 @@ pub fn fill_robot_trajectory<'m>(
     trajectory_values: &DMatrix<f64>,
     reference_state: &RobotState<'m>,
     group: &JointModelGroup,
-    trajectory: &mut RobotTrajectory<'m>,
+    trajectory: &mut UnparameterizedTrajectory<'m>,
 ) -> Result<()> {
-    trajectory.clear();
+    trajectory.0.clear();
     let names = group.active_joint_names();
     assert_eq!(
         trajectory_values.nrows(),
@@ -130,20 +206,21 @@ pub fn fill_robot_trajectory<'m>(
             (0..names.len()).map(|i| trajectory_values[(i, timestep)]),
         );
         set_positions(&column, group, &mut waypoint)?;
-        let dt = if timestep == 0 { 0.0 } else { 0.1 };
-        trajectory.add_suffix_way_point(waypoint, dt)?;
+        // Inert: no accessor on `UnparameterizedTrajectory` exposes this
+        // value before `into_uniformly_timed` overwrites it.
+        trajectory.0.add_suffix_way_point(waypoint, 0.0)?;
     }
     Ok(())
 }
 
-/// `matrixToRobotTrajectory`: builds a fresh [`RobotTrajectory`] for `group`
-/// from `trajectory_values`.
+/// `matrixToRobotTrajectory`: builds a fresh [`UnparameterizedTrajectory`]
+/// for `group` from `trajectory_values`.
 pub fn matrix_to_robot_trajectory<'m>(
     trajectory_values: &DMatrix<f64>,
     reference_state: &RobotState<'m>,
     group: &'m JointModelGroup,
-) -> Result<RobotTrajectory<'m>> {
-    let mut trajectory = RobotTrajectory::for_group(reference_state.model(), Some(group));
+) -> Result<UnparameterizedTrajectory<'m>> {
+    let mut trajectory = UnparameterizedTrajectory::for_group(reference_state.model(), Some(group));
     fill_robot_trajectory(trajectory_values, reference_state, group, &mut trajectory)?;
     Ok(trajectory)
 }
@@ -234,14 +311,33 @@ mod tests {
             }
         }
 
-        let trajectory = matrix_to_robot_trajectory(&values, &reference, group).unwrap();
-        assert_eq!(trajectory.way_point_count(), 3);
+        let unparameterized = matrix_to_robot_trajectory(&values, &reference, group).unwrap();
+        assert_eq!(unparameterized.way_point_count(), 3);
+
+        let trajectory = unparameterized.into_uniformly_timed(0.1).unwrap();
         assert_eq!(trajectory.way_point_duration_from_previous(0), 0.0);
         assert_eq!(trajectory.way_point_duration_from_previous(1), 0.1);
         assert_eq!(trajectory.way_point_duration_from_previous(2), 0.1);
 
         let round_tripped = robot_trajectory_to_matrix(&trajectory, group).unwrap();
         assert_eq!(round_tripped, values);
+    }
+
+    #[test]
+    fn into_uniformly_timed_leaves_way_point_zero_at_structurally_zero() {
+        // `set_way_point_duration_from_previous` skips index 0 entirely --
+        // `RobotTrajectory`'s own invariant (`duration_from_previous[0]` is
+        // always `0.0`) is preserved, not fought, by never touching it.
+        let model = panda_model();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut reference = RobotState::new(&model);
+        reference.set_to_default_values();
+        let n = group.active_joint_names().len();
+
+        let values = DMatrix::zeros(n, 1);
+        let unparameterized = matrix_to_robot_trajectory(&values, &reference, group).unwrap();
+        let trajectory = unparameterized.into_uniformly_timed(0.25).unwrap();
+        assert_eq!(trajectory.way_point_duration_from_previous(0), 0.0);
     }
 
     #[test]
