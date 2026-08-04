@@ -16110,3 +16110,37 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
 (`700e7be54cb0a61f`)다. 커밋은 발견 단위로 나뉘고 검증은 트리 단위로
 이뤄진다는 뜻이며, 중간 커밋 하나만 체크아웃해 오라클을 돌리려는
 사람은 자기 손으로 빌드해야 한다.
+
+## §213 "인용 하나-소비자 열 개" 검사를 크레이트 전체로 확장 — 갈라진 곳은 §211 하나뿐이었다
+
+### §213.1 앵커와 방법
+
+앵커: `rg -n '^impl(<[^>]*>)? (TryFrom|From)<' ros/moveit-ros/src` (39개
+매치). 각 impl의 프로덕션 콜사이트는 파일별 `#[cfg(test)] mod tests`
+시작 줄을 경계로 `rg -n '::try_from\(|\.try_into\(\)'` 결과를 나눠 셌다
+— 테스트 안에서만 불리는 것은 소비자로 세지 않았다.
+
+콜사이트가 1개뿐인 impl은 애초에 "공유"가 아니므로 갈릴 위험이 없다.
+2개 이상인 impl만 아래 표에 올렸고, 각각을 실제 상류 C++ 소스
+(`/home/stevek/work/moveit2`, `third_party/geometric_shapes`)를 열어
+확인했다 — §211.6과 같은 방법, 인용을 재사용하지 않고 직접 다시 열었다.
+
+### §213.2 표
+
+| impl | 프로덕션 콜사이트 | 상류 도달 경로 | 판정 |
+|---|---|---|---|
+| `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `position.rs:161`, `visibility.rs:114`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
+| `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `position.rs:160`(BoundingVolume), `collision_object.rs:183`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
+| `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:310`(processCollisionObjectMsg), `attached.rs:62`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
+| `TryFrom<ConstraintsMsg> for KinematicConstraintSet` | 3곳 — `planning.rs`의 `goal_constraints`/`path_constraints`/`trajectory_constraints` | 셋 다 `KinematicConstraintSet::add(const moveit_msgs::msg::Constraints&, const Transforms&)` (`kinematic_constraint.cpp:1294`) 단 하나 — 이 함수는 호출자가 `MotionPlanRequest`의 어느 필드에서 왔는지 알지 못한다 | 균일. 편집 불필요 |
+| `TryFrom<Point>`/`TryFrom<Vector3> for CoreVector3` 및 그 역방향(`Point`/`Vector3`/`Pose`/`Quaternion` 출력) | 여러 곳 (`position.rs`, `planning.rs`×2, `shapes.rs` 등) | 실패 분기 자체가 없음 — `geometry.rs`의 기존 doc comment가 이미 "Total in practice"라고 명시하며, 이번 스윕은 그 주장을 소스가 아니라 impl 본문 자체(항상 `Ok`)로 재확인했다 | 균일 — 구조적으로 갈릴 수 없음 |
+| 나머지 전부: `JointLimits`, `JointConstraint`/`PositionConstraint`/`OrientationConstraint`/`VisibilityConstraint`의 msg<->core 양방향, `RobotState`, `RobotTrajectory`/`JointTrajectory`, `MeshMsg`/`PlaneMsg` -> `Shape`/`Plane` | 각 1곳 | 해당 없음 | 애초에 공유 impl이 아님 — 대상 아님 |
+
+### §213.3 결론
+
+`f2a7847`의 Quaternion/Pose 분리가 이 크레이트에서 "한 impl이 서로 다른
+상류 규칙에 닿는 소비자를 가진" 유일한 사례였다. 갈림 위험이 있던
+나머지 셋(`SolidPrimitiveMsg`, `CollisionObjectOperation`,
+`ConstraintsMsg`)은 소비자가 2곳 이상이지만 전부 실제로 같은 상류 함수
+하나에 닿는다는 것을 인용 없이 직접 소스를 열어 확인했다 — 이번
+라운드에서 이 크레이트에 추가로 쪼갤 곳은 없다.
