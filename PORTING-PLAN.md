@@ -14914,3 +14914,61 @@ tolerance가 아니라 오프셋으로 처리한다** — tolerance는 모르는
 각각 **한 값에서만** 고정됐고, `determine_trajectory_alignment`는 두 분기가
 고정됐을 뿐 인덱스 범위에 걸친 산술은 아니다. 다음 라운드에 `blend_radius`와
 코너 각도를 움직이는 3·4번 케이스를 요청 문서로 받기로 했다.
+
+## §194 포트가 만든 API가 상류에 없던 버그를 만들었다 — 그리고 변이 테스트가 그것을 찾았다
+
+p3-shapes가 §180.1 절차대로 취소 테스트를 변이시켰고, 결과가 테스트 결함이
+아니라 **프로덕션 버그**였다(`a682f63`).
+
+`Stomp::with_cancel_handle`는 `reset_variables()`를 부르고, 그것이 무조건
+`proceed = true`를 썼다. 그래서 호출자가 `Stomp`를 만들기 **전에**
+`CancelHandle::cancel`로 취소해 둔 상태가 생성 즉시 지워졌다. 테스트는
+통과하고 있었다.
+
+**상류에는 이 버그가 없고, 없을 수가 없다.** upstream의 `resetVariables`도
+`proceed_ = true`를 쓰지만 `proceed_`는 `Stomp`의 private 멤버라서 생성 전에
+어떤 호출자도 건드릴 수 없다. `with_cancel_handle`은 라운드 24에 이 포트가
+만든 API이고(상류에 대응 없음), 그것이 "생성 전 취소"라는 새 상태를 표현
+가능하게 만들었는데 생성 경로가 그 상태를 존중하지 않았다.
+
+**포트가 상류에 없는 API를 추가하면, 상류의 불변식이 그 API 아래에서
+성립하는지는 별도로 확인해야 한다.** 상류 코드를 정확히 옮겼다는 것은 그
+코드가 새 진입점에서도 옳다는 뜻이 아니다 — 상류의 정확성이 그쪽에서는
+접근 불가능성에 기대고 있었을 수 있고, 여기서는 그 접근이 열렸다.
+
+구조적으로 고쳤다: `reset_variables`는 이제 `proceed`를 아예 만지지 않고,
+상류가 실제로 재시작을 의도하는 `Stomp::clear`/`Stomp::set_config`가 자기가
+직접 설정한다. `Stomp::new`/`with_cancel_handle`은 호출자가 준
+`CancelHandle`의 상태를 덮어쓰지 않는다. 런타임 가드를 하나 더 넣는 대신
+그 필드를 쓰는 자리를 재시작을 의도하는 자리로 제한한 것이다.
+
+직접 재현했다: `reset_variables`에 `self.proceed.store(true, ...)`를 다시
+넣으면 `cancelling_before_plan_is_called_returns_the_unmodified_linear_
+interpolation_seed`가 실패한다. 버그도 수정도 테스트도 전부 실재한다.
+
+### 194.1 변이가 살아남았을 때 무엇을 의심할지 — 세 번째 갈래
+
+§180.1은 변이가 살아남으면 먼저 그 변이가 경로에 도달했는지 확인하라고
+적었다(내가 엉뚱한 메서드를 비우고 테스트가 약하다고 결론냈던 건). 이번
+라운드가 세 번째 갈래를 추가한다:
+
+1. 변이가 경로에 도달하지 않았다 — 변이 지점이 틀렸다
+2. 변이가 도달했는데 테스트가 약하다 — 테스트를 고친다
+3. **변이가 도달했고 테스트도 옳은데, 변이 없이도 이미 틀린 값이 나오고
+   있었다 — 프로덕션 버그다**
+
+3번이 이번 것이다. 계수 단언을 넣자 취소 전에도 `cost_fn`이 17번 불렸다 —
+변이와 무관하게. 변이 테스트의 산출물이 항상 테스트 수정인 것은 아니다.
+
+### 194.2 부수적으로: 두 테스트가 각각 두 개의 마스크를 갖고 있었다
+
+`cancelling_before_solve_stops_before_num_iterations_completes`(`788cc3f`)는
+마스크가 둘이었다. 단언이 `optimized`의 **모양**만 봤는데 `solve`는 반복
+횟수와 무관하게 같은 모양을 돌려주고, 게다가 `create_3dof_configuration`의
+`num_iterations_after_valid: 0`이 early-valid break로 한 번 만에 빠져나가게
+했다. 라운드 34에 같은 결함군을 한 번 고쳤던 자리다 — 같은 fixture 설정이
+다른 테스트에서 다시 마스크로 작동했다.
+
+수정 후 같은 변이를 다시 걸었더니 300초에서 TERMINATING/TIMEOUT이 났다.
+§180의 `.config/nextest.toml`이 없었으면 이것은 실패가 아니라 무한 정지로
+나타났을 것이다.
