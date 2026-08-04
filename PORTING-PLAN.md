@@ -15406,3 +15406,51 @@ docker도, 픽스처도 필요 없다 — 순수 in-tree 테스트다. 지울 �
 §200이 libccd 하니스를 요구한 것은 트리 밖 의존성 때문이었고, §197.3이
 `third_party/moveit_resources`에 스크립트를 붙인 것도 같은 이유였다. 여기엔
 그 장애물조차 없다.
+
+## §202 §196의 구조적 닫기가 한 크레이트에서만 닫혔다 — 그리고 커밋 메시지가 자기 doc보다 더 크게 말했다
+
+p3-distance-field가 fallback 마감에 잘렸지만 세 커밋이 들어왔다.
+
+`d9c7078`이 §196.2가 요구한 구조적 닫기다. 감사 대신 fixture가 거절한다:
+`test_support::assert_group_has_updated_links`가 그룹의 `updated_link_names()`가
+비면 **fixture 구성 시점에** 패닉하고, 이 크레이트의 두 합성 fixture가
+모델을 만든 직후 그것을 호출한다.
+
+직접 확인했다. `collision_env_hybrid.rs:475`의 `mid_to_tip`을 `revolute`에서
+`fixed`로 되돌리면 두 테스트가 공허하게 통과하는 대신 fixture 시점에
+실패하고, 메시지가 원인과 고치는 법을 함께 말한다.
+
+앵커 교정도 옳다. 내가 준 앵커는 "fixed joint 때문에 빈 그룹"이었고, 실제로
+검사가 걷는 집합은 `link_names()`가 아니라 `updated_link_names()`다 —
+`generate_distance_field_cache_entry`가 그것을 소비한다. `link_names()`로
+멀쩡해 보이는 그룹이 여전히 공허할 수 있다. §191이 말한 "앵커가 증상을
+가리킨다"의 또 한 사례이고, 이번엔 워커가 내 앵커를 고쳤다.
+
+`ad02f78`은 §196.3을 코드 옆에 옮겨 적었고, `6a6e665`는 내가 `80412b6`으로
+고친 것과 같은 private intra-doc 링크를 독립적으로 찾아 같은 방식으로
+고쳤다 — 링크를 없애되 헬퍼의 가시성은 넓히지 않는 쪽. 같은 판단이다.
+
+### 202.1 커밋 메시지가 자기 코드의 doc보다 강하게 말한다
+
+`d9c7078`의 본문: "a group with an active joint can still resolve zero
+*updated* links."
+
+같은 커밋이 넣은 `lib.rs`의 doc: "...yet still resolve to zero *updated*
+links **whenever none of its joints are active**."
+
+둘이 다르다. doc은 "활성 관절이 없을 때"라는 안전한 주장이고, 커밋 본문은
+"활성 관절이 있어도"라는 더 강한 주장인데 근거가 없다. §192가 기록한
+모양(커밋은 맞는데 서술이 넘쳤다)의 반대 방향이다 — 여기선 doc이 맞고
+커밋 본문이 넘쳤다.
+
+강한 쪽이 참이라면 그것이 진짜 앵커이고 훨씬 중요하다. 참이 아니라면
+철회해야 한다. 어느 쪽이든 시연이 필요하다.
+
+### 202.2 한 크레이트만 닫혔다
+
+헬퍼는 `#[cfg(test)] pub(crate)`이고 `moveit-distance-field` 안에서만 산다.
+§196이 센 35개 fixture 자리 중 나머지는 그대로다. "36번째가 같은 방식으로
+들어오는 것을 막는다"는 목표가 이 크레이트에 대해서만 달성됐다.
+
+워크스페이스 전체로 넓히려면 헬퍼가 공용 테스트 지원 자리로 올라가야 하고,
+그건 크레이트 경계를 넘는 변경이라 별도 결정이다. 지금은 UNFIXED다.
