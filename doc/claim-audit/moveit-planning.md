@@ -38,8 +38,64 @@ That was wrong; recorded here so the mistake doesn't repeat.
   fixed velocity-bounds one) are queued for remediation, one commit per
   finding, this same round
 
-## §172 narrowing sweep (separate exercise)
+## §172 narrowing sweep
 
-Not yet run against `moveit-planning` as its own declared scope — the
-prior round's §172 sweep only covered `moveit-scene`/`moveit-metrics`
-(the ownership error meant `moveit-planning` wasn't included). Owed.
+Run this round, both directions, corrected ordering (upstream-first).
+
+- Upstream-first: swept every upstream file this crate provenances that
+  carries real ported numeric logic — `planning_response_adapter_plugins/src/{add_ruckig_traj_smoothing,add_time_optimal_parameterization,display_motion_path,validate_path}.cpp`,
+  `planning_request_adapter_plugins/src/{check_for_stacked_constraints,check_start_state_bounds,check_start_state_collision,resolve_constraint_frames,validate_workspace_bounds}.cpp`,
+  `planning_pipeline/src/planning_pipeline.cpp`,
+  `planning_pipeline/include/.../planning_pipeline.hpp`,
+  `planning_interface/include/.../planning_response.hpp` — for
+  `int`/`unsigned`/`size_t`/`std::size_t`/`long`/`uint32_t`/`int32_t`
+  declarations or `static_cast<...>` narrowing a floating-point
+  initializer. 1 hit: `validate_path.cpp:93`,
+  `std::size_t state_count = res.trajectory->getWayPointCount();` — a
+  waypoint count, a true integer quantity, `distinct`. **0 real
+  narrowing sites.**
+  Excluded from the sweep, one-line doc-citation-only sites (cited for a
+  single field/message claim, not files whose numeric logic this crate
+  ports): `kinematic_constraint/src/utils.cpp`,
+  `ompl_interface/src/model_based_planning_context.cpp:799`,
+  `chomp/chomp_interface/src/chomp_planning_context.cpp:62`,
+  `stomp/src/stomp_moveit_planning_context.cpp:277`,
+  `move_group_sequence_service.cpp:128`,
+  `move_group_sequence_action.cpp:264`,
+  `trajectory_generator.cpp:267,277`, `trajectory_tools.cpp:70-76`.
+- Port-side: `rg '\bas\s+(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize)\b'`
+  across `crates/moveit-planning/src` — **0 hits**.
+- Both directions swept, both zero, no fix needed.
+
+## Addendum: `add_time_optimal_parameterization.rs:91`'s `resample_dt`, checked and not a moveit-planning defect
+
+The orchestrator flagged `resample_dt: f64` as "stored unvalidated" in
+`AddTimeOptimalParameterization::new` and passed through to
+`apply_totg_time_parameterization`, citing a guard supposedly at
+`moveit-trajectory`'s `time_optimal_trajectory_generation.rs:737`.
+Checked directly, not accepted on citation: this worktree's branch point
+is `d8608ae`, and `git log --oneline HEAD..main -- crates/moveit-trajectory`
+shows `main` is ahead by several commits including `01cc605 fix(trajectory):
+reject invalid resample_dt instead of hanging or truncating` and
+`92625bb moveit-trajectory: close resample_dt boundary coverage, verify
+totg_compute_time_stamps parity` — p6-totg's fix for exactly this defect
+already landed on `main`, just not yet merged into this worktree. Line
+`:737` in this worktree's stale copy is inside a test helper
+(`fixture_path`), not a guard — the guard exists on `main`, not here.
+
+Given that, the question actually in `moveit-planning`'s scope is
+narrower: does `AddTimeOptimalParameterization::new` itself need to
+validate eagerly, or is deferring to `.adapt()`'s `Result` enough? Checked
+`crates/moveit-planning/src/error.rs:62`:
+`#[error("{adapter}: failed to compute a trajectory: {source}")]` — the
+top-level message already names `"AddTimeOptimalParameterization"`, the
+adapter the caller actually called; the underlying `moveit_trajectory`
+error is `source`, not the whole message. So "a caller gets the error
+from a crate it did not call" does not hold once `main`'s fix is merged
+in: the error is correctly labeled at the point of the actual call.
+Every other constructor in this crate (`ValidateWorkspaceBounds::new`,
+`CheckStartStateBounds::new`) is also an infallible builder that defers
+validation to `.adapt()`'s `Result`, so eagerly validating only this one
+constructor would be inconsistent with the crate's own established
+convention, not a fix for a live defect. No `moveit-planning` change
+made; recorded here instead of silently dropped.
