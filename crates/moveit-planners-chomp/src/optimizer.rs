@@ -183,28 +183,54 @@
 //!
 //! ## API gap surfaced by this round: `GradientInfo::sphere_locations`
 //!
-//! `moveit_distance_field::GradientInfo::sphere_locations` is populated for
-//! a link only on the *reuse* path
-//! (`update_group_state_representation_state`, itself never called by
-//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]).
-//! Upstream gets away with this because `ChompOptimizer` keeps `gsr_` alive
-//! as a class member across the whole `optimize()` loop, so
-//! `getCollisionGradients` takes the reuse path on every call after the
-//! first (`collision_env_distance_field.cpp:1517-1536`). This crate's
-//! `gsr_` equivalent is never stored (see [`crate::optimizer::ChompOptimizer`]'s own doc
-//! comment for why), so every call here takes the fresh-build path, where
-//! `sphere_locations` is unconditionally empty
-//! (`collision_env_distance_field.cpp:1157-1213`, confirmed on both the
-//! upstream C++ and this crate's own Rust port). This is a genuine gap in
-//! `moveit-distance-field`'s public API (its own gradient-computation
-//! functions that run after the reuse-path update are module-private, so
-//! nothing outside that crate can reproduce upstream's reuse pattern) —
-//! reported, not fixed, since that crate is another worker's scope this
-//! round. Worked around here by sourcing sphere positions from
+//! **Round 20 correction (`PORTING-PLAN.md` §154):** round 19 recorded this
+//! gap's cause as "upstream only fills `sphere_locations` on the `gsr_`
+//! reuse path, and this crate never stores `gsr_`". That upstream claim is
+//! wrong, refuted by the oracle's own committed output (its
+//! `group_state_representation_response.json` fixture calls
+//! `getCollisionGradients` with a null `GroupStateRepresentationPtr` — not
+//! the reuse path — yet returns non-empty `sphere_locations`, 1-9 entries
+//! per link, summing to exactly `types`/`distances`' own length). The real
+//! mechanism: `DistanceFieldCollisionCache::initialize()`
+//! (`collision_env_distance_field.cpp:126`, called by **both**
+//! constructors) walks every `JointModelGroup` and pre-builds a
+//! `GroupStateRepresentation` for it up front (`:140-154`), stashing each
+//! one on its `DistanceFieldCacheEntry`
+//! (`pregenerated_group_state_representation_map_`, wired into
+//! `dfce->pregenerated_group_state_representation_` at `:868-871`).
+//! `getGroupStateRepresentation`'s truly-fresh branch (`:1161`) therefore
+//! only ever executes *once per group, inside `initialize()` itself* — every
+//! call after construction, reused-`gsr_` or not, takes the **pregenerated**
+//! branch (`:1224`), which unconditionally sets `sphere_locations`
+//! (`:1246` also sets it, unconditionally, for attached bodies). Whether the
+//! caller keeps `gsr_` alive across `optimize()`'s loop is irrelevant to
+//! upstream's own behavior; round 19's "gsr_-reuse-only" framing described a
+//! mechanism upstream doesn't actually have.
+//!
+//! The gap itself is real, just for a different reason:
+//! `moveit_distance_field::DistanceFieldCollisionCache` has no equivalent of
+//! upstream's `initialize()` pregeneration step, so it only ever has the
+//! truly-fresh branch to run — the one upstream itself only reaches once
+//! per group, before any real caller ever sees it. Every call through
+//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+//! is therefore in the state upstream considers transient construction-time
+//! plumbing, not steady-state behavior — a genuine gap in
+//! `moveit-distance-field`, reported not fixed here (owned by
+//! p3-distance-field; ported by them per that crate's own round 25 item 1,
+//! not touched in this crate). **Expires** (§153.1) once
+//! `moveit-distance-field` builds a pregenerated `GroupStateRepresentation`
+//! per `JointModelGroup` at cache-construction time, matching upstream's
+//! `initialize()` — at that point every call here also lands on the
+//! populated branch and this substitution can be deleted outright, not just
+//! left dormant.
+//!
+//! The substitution itself is unchanged from round 19 and stays: with no
+//! pregenerated-GSR path to rely on, sourcing sphere positions from
 //! `GroupStateRepresentation::link_body_decompositions[..].sphere_centers()`
-//! (reliably populated on both paths) instead, and by sizing per-link
-//! iteration from `GradientInfo::distances`/`gradients` (also reliably
-//! populated) rather than `sphere_locations` — see
+//! (reliably populated on both paths) instead of `sphere_locations`, and
+//! sizing per-link iteration from `GradientInfo::distances`/`gradients`
+//! (also reliably populated) rather than `sphere_locations`, is still the
+//! only correct code while the gap stands — see
 //! [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`] and the
 //! private `resolve_collision_point_joint_index`'s own "Deviation from
 //! upstream" doc sections for the exact substitutions.
