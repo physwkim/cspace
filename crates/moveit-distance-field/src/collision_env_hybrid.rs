@@ -393,12 +393,16 @@ impl<'m> HybridCollisionEnv<'m> {
     ///         .unwrap();
     ///     let _ = (result, gsr); // both dropped at the end of this block
     /// }
-    /// env.mutate_world(|_w| {}); // fine: no live borrow from the check above remains
+    /// // `clear_objects` rather than a no-op closure: `mutate_world` bounds its
+    /// // closure's return type by `AsNotifications`, which `()` deliberately does
+    /// // not implement (see that trait's doc), so a no-op closure would fail to
+    /// // compile for a reason that has nothing to do with the borrow shown here.
+    /// env.mutate_world(|w| w.clear_objects()).unwrap(); // fine: no live borrow remains
     /// ```
     ///
     /// This does not:
     ///
-    /// ```compile_fail
+    /// ```compile_fail,E0499
     /// # use moveit_collision::{CollisionRequest, LinkPaddingScale, World};
     /// # use moveit_distance_field::{DistanceFieldConfig, GridGeometry, HybridCollisionEnv, add_link_body_decompositions};
     /// # use moveit_model::{MeshSearchPaths, RobotModel};
@@ -423,7 +427,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// let (result, gsr) = env
     ///     .check_self_collision_distance_field(&CollisionRequest::default(), &posed, None, &[])
     ///     .unwrap();
-    /// env.mutate_world(|_w| {}); // `gsr` below is still live -- must not compile
+    /// env.mutate_world(|w| w.clear_objects()).unwrap(); // `gsr` still live -- must not compile
     /// let _ = (result, gsr);
     /// ```
     ///
