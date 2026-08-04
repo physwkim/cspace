@@ -102,8 +102,6 @@ impl PrismaticJoint {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     fn bounds() -> VariableBounds {
@@ -172,11 +170,9 @@ mod tests {
         joint.set_axis(Vector3::new(0.0, 1.0, 0.0));
         for value in [-1.5_f64, 0.0, 2.0] {
             let transform = joint.compute_transform(value);
-            assert_relative_eq!(
-                joint.compute_variable_position(&transform),
-                value,
-                epsilon = 1e-12
-            );
+            // Measured exact for these inputs; not asserted as a general
+            // property of the round trip.
+            assert_eq!(joint.compute_variable_position(&transform), value);
         }
     }
 }

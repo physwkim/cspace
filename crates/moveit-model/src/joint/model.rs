@@ -923,8 +923,6 @@ impl JointModel {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     #[test]
@@ -1109,7 +1107,9 @@ mod tests {
         let transform = joint.compute_transform(&values);
         let mut recovered = [0.0];
         joint.compute_variable_positions(&transform, &mut recovered);
-        assert_relative_eq!(recovered[0], 0.7, epsilon = 1e-9);
+        // Measured exact for this input; not asserted as a general property
+        // of the round trip.
+        assert_eq!(recovered[0], 0.7);
     }
 
     #[test]
@@ -1131,8 +1131,10 @@ mod tests {
         let transform = joint.compute_transform(&values);
         let mut recovered = [0.0; 7];
         joint.compute_variable_positions(&transform, &mut recovered);
+        // Measured exact for these inputs; not asserted as a general
+        // property of the round trip.
         for (a, b) in values.iter().zip(recovered.iter()) {
-            assert_relative_eq!(*a, *b, epsilon = 1e-9);
+            assert_eq!(*a, *b);
         }
     }
 }
