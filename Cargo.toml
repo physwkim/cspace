@@ -21,6 +21,7 @@ moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
 moveit-kinematics = { path = "crates/moveit-kinematics", version = "0.1.0" }
 moveit-model = { path = "crates/moveit-model", version = "0.1.0" }
 moveit-octomap = { path = "crates/moveit-octomap", version = "0.1.0" }
+moveit-sampling = { path = "crates/moveit-sampling", version = "0.1.0" }
 moveit-srdf = { path = "crates/moveit-srdf", version = "0.1.0" }
 moveit-state = { path = "crates/moveit-state", version = "0.1.0" }
 
@@ -45,6 +46,11 @@ linkme = "0.3"
 approx = "0.5"
 rand = { version = "0.10", default-features = false, features = ["std"] }
 rand_chacha = "0.10"
+# For moveit-sampling's standard-normal draws. Upstream CHOMP and STOMP both
+# use std::normal_distribution; rand itself carries no distributions. Pinned
+# with default-features off to match `rand` above -- verified to resolve to a
+# single rand 0.10.2 with no duplicate, and to compile against rand_chacha.
+rand_distr = { version = "0.6", default-features = false, features = ["std"] }
 rsruckig = "3.0.0"
 
 [workspace.lints.rust]
