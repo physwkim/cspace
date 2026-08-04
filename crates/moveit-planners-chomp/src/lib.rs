@@ -31,45 +31,58 @@
 //! `chomp_interface/` is algorithmic; it only adapts `ChompPlanner` (see
 //! below) to ROS parameters and a live `PlanningScene`.
 //!
-//! # Scope so far: 6 of 8 upstream files, one (`chomp_optimizer`) partially
+//! # Scope so far: 7 of 8 upstream files
 //!
 //! `chomp_motion_planner/` has 8 header/source (or header-only) units.
 //! Round 15 ported and audited 3: `chomp_parameters`, `chomp_utils`,
 //! `chomp_trajectory`. Round 16 added a 4th: `chomp_cost`. Round 17 added a
 //! 5th, `chomp_optimizer`, but only its model/collision-independent numeric
-//! core — see [`optimizer`]'s own module doc for exactly which methods were
-//! portable and which were not, and why. Round 18 added a 6th,
-//! `multivariate_gaussian` — see below for why it is this crate's own copy,
-//! not a dependency on `moveit-sampling`. `chomp_planner` remains **not yet
-//! audited**, deliberately deferred (round 17's brief, Item 3): porting it
-//! before the optimizer it drives was solid risked redoing it.
+//! core. Round 19 ported the remaining `chomp_optimizer` symbols — the
+//! `ChompOptimizer` struct itself, `optimize()`, and its collision-coupled
+//! methods — once it was established that its only collision-backend
+//! dependency, `getCollisionGradients`, was already ported; see
+//! [`optimizer`]'s own module doc for the full account of what changed and
+//! why round 17's "collision-coupled, not portable" classification did not
+//! hold up. `multivariate_gaussian.hpp` (round 18's 6th file) is not this
+//! crate's own copy: it depends on `moveit-sampling::MultivariateGaussian`
+//! — see below. `chomp_planner` remains **not yet audited**, deliberately
+//! deferred (round 17's brief, Item 3): porting it before the optimizer it
+//! drives was solid risked redoing it.
 //!
-//! # `multivariate_gaussian.hpp`: this crate's own copy, not `moveit-sampling`
+//! # `multivariate_gaussian.hpp`: depends on `moveit-sampling`, not a local copy
 //!
-//! `multivariate_gaussian.hpp` is algorithmically the same class as
-//! upstream's `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`
-//! (`p3-shapes` ported STOMP's copy into a shared `moveit-sampling` crate).
-//! Round 18 decided *against* `moveit-planners-chomp` depending on that
-//! crate: `ros-industrial/stomp` (STOMP's upstream) is Apache-2.0, `moveit2`
-//! (CHOMP's upstream) is BSD-3-Clause, and a single struct ported from both
-//! headers under one `SPDX-License-Identifier` necessarily mislabels one
-//! side — see [`multivariate_gaussian`]'s own module doc for the full
-//! reasoning, including the `tools/ci/check-license-matches-upstream.sh`
-//! gate this avoids running afoul of. This crate now carries its own
-//! transcription, [`multivariate_gaussian::MultivariateGaussian`], ported
-//! only from CHOMP's own header, BSD-3-Clause end to end.
+//! Round 18 gave this crate its own transcription of
+//! `chomp::MultivariateGaussian`, reasoning that upstream's algorithmically
+//! identical STOMP sibling class lived in `ros-industrial/stomp`
+//! (Apache-2.0) while CHOMP's upstream is BSD-3-Clause — and that porting
+//! both under one `SPDX-License-Identifier` in a shared `moveit-sampling`
+//! crate would mislabel one side. **That premise was wrong.** The actual
+//! upstream path for STOMP's copy that `moveit-sampling` ports from is
+//! `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`
+//! — a file inside the `moveit2` tree itself (confirmed by reading its
+//! header: `Software License Agreement (BSD License)`, `Copyright (c) 2009,
+//! Willow Garage, Inc.`), not a file from the separate `ros-industrial/stomp`
+//! Apache-2.0 repository. Both upstream headers `moveit-sampling` ports from
+//! are therefore BSD-3-Clause end to end, and a shared struct under
+//! `SPDX-License-Identifier: BSD-3-Clause` mislabels nothing. Round 19
+//! deleted this crate's local copy and switched to `moveit-sampling`'s
+//! [`MultivariateGaussian`] (re-exported here), after proving byte-for-byte
+//! that `MultivariateGaussian::sample_with_covariance` consumes the RNG in
+//! the same order/count and produces the same output as the deleted local
+//! `sample` — same standard-normal draw loop, same
+//! `mean + covariance_cholesky * draws` combination, for the same seeded
+//! `ChaCha8Rng`.
 //!
-//! It has no live consumer yet: `chomp_optimizer.cpp`'s one construction
-//! site, `MultivariateGaussian(Eigen::VectorXd::Zero(...),
-//! joint_costs_[i].getQuadraticCostInverse())` in `initialize()`, feeds
-//! exclusively the Hamiltonian-Monte-Carlo perturbation path
-//! (`perturbTrajectory`/`getRandomMomentum`/`updateMomentum`/
+//! It has no live consumer yet in this crate beyond `ChompOptimizer`'s
+//! `initialize()`, which constructs one per joint
+//! (`MultivariateGaussian(Eigen::VectorXd::Zero(...),
+//! joint_costs_[i].getQuadraticCostInverse())`) but never samples it: that
+//! construction exclusively feeds the Hamiltonian-Monte-Carlo perturbation
+//! path (`perturbTrajectory`/`getRandomMomentum`/`updateMomentum`/
 //! `updatePositionFromMomentum`), and every call site of that path in
 //! `optimize()` is commented out upstream — see [`optimizer`]'s module doc
-//! for the full account, including that three of those four methods have
-//! no implementation anywhere in `chomp_optimizer.cpp` at all. It is ported
-//! now, ahead of that need, per round 18's placement decision — not because
-//! `initialize()` or the HMC path is ported yet; they are not.
+//! for the full account, including that three of those four methods have no
+//! implementation anywhere in `chomp_optimizer.cpp` at all.
 //!
 //! # Symbol audit: `chomp_parameters.{hpp,cpp}`
 //!
@@ -198,22 +211,16 @@
 //! # Symbol audit: `multivariate_gaussian.hpp`
 //!
 //! - `MultivariateGaussian` (class) — ported as
-//!   [`multivariate_gaussian::MultivariateGaussian`]. The constructor is
-//!   ported as [`multivariate_gaussian::MultivariateGaussian::new`], made
-//!   fallible — see that module's own doc comment, "Deviation: construction
-//!   can fail". `sample` is ported as
-//!   [`multivariate_gaussian::MultivariateGaussian::sample`] with no
-//!   behavioral change (upstream has no `use_covariance` branch to reconcile
-//!   — that is STOMP's sibling class, not this one). `size_` is exposed as
-//!   [`multivariate_gaussian::MultivariateGaussian::size`], derived from
-//!   `mean`'s length rather than stored separately (redundant state upstream
-//!   keeps in sync by convention; this port removes the possibility of it
-//!   drifting). `mean_`/`covariance_cholesky_` are kept as private fields;
-//!   `covariance_` itself (the pre-decomposition matrix) is not retained —
-//!   upstream never reads it again after computing `covariance_cholesky_` in
-//!   the constructor, and `gaussian_` (the `std::normal_distribution` object)
-//!   has no state to port, since `rand_distr::StandardNormal` is a stateless
-//!   distribution sampled fresh at each draw.
+//!   `moveit_sampling::`[`MultivariateGaussian`] (re-exported here), not a
+//!   symbol local to this crate — see the "depends on `moveit-sampling`"
+//!   section above for why. `sample` is ported as
+//!   [`MultivariateGaussian::sample_with_covariance`]: CHOMP's `sample` has
+//!   no `use_covariance` branch to reconcile (that is STOMP's sibling class),
+//!   so it maps onto the one of `moveit-sampling`'s two named methods that
+//!   always applies the covariance. See `moveit-sampling`'s own module doc
+//!   for its full symbol mapping and deviations (fallible construction,
+//!   `size_` derived rather than stored, etc.) — not re-documented here,
+//!   since that crate owns the port.
 //!
 //! # Completion condition
 //!
@@ -240,8 +247,9 @@
 //! [`optimizer`]'s weighted-combination and joint-limit-repair formulas,
 //! each checked against a hand-rolled recomputation of the same upstream
 //! formula, not merely "it runs" — and
-//! [`multivariate_gaussian::MultivariateGaussian`]'s shape/positive-definite
-//! rejection and empirical mean/variance/correlation convergence. This
+//! `moveit-sampling`'s own [`MultivariateGaussian`] shape/positive-definite
+//! rejection and empirical mean/variance/correlation convergence (that
+//! crate's tests, not this one's — see above). This
 //! section does not cover `chomp_planner` — it is out of scope this round,
 //! not implicitly satisfied by anything here.
 
@@ -265,11 +273,7 @@ pub mod cost;
 /// `chomp_optimizer.{hpp,cpp}` entry.
 pub mod optimizer;
 
-/// `MultivariateGaussian` — CHOMP's own copy, see the module doc's
-/// `multivariate_gaussian.hpp` entry for why it is not shared with STOMP's.
-pub mod multivariate_gaussian;
-
 pub use cost::ChompCost;
-pub use multivariate_gaussian::MultivariateGaussian;
+pub use moveit_sampling::MultivariateGaussian;
 pub use parameters::ChompParameters;
 pub use trajectory::ChompTrajectory;

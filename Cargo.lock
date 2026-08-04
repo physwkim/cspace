@@ -415,8 +415,12 @@ name = "moveit-planners-chomp"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "moveit-collision",
+ "moveit-distance-field",
  "moveit-error",
+ "moveit-geometry",
  "moveit-model",
+ "moveit-sampling",
  "moveit-srdf",
  "moveit-state",
  "moveit-trajectory",
