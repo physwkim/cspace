@@ -51,11 +51,24 @@
 //! scope, deliberately, so `PlanningScene` stays the sole owner -- see
 //! `moveit-scene`'s `attached_body` module doc), and
 //! [`generate_distance_field_cache_entry`] takes a bare `RobotState`, not a
-//! `PlanningScene`. Both new functions' own doc comments cover the resulting
-//! deviation: upstream's attached-body comparison is vacuously true here,
-//! since a bare `RobotState` genuinely has none to compare, matching
-//! [`crate::DistanceFieldCacheEntry`]'s own "always empty" attached-body
-//! fields.
+//! `PlanningScene`.
+//!
+//! **Stale as of a later round, corrected here:** the paragraph above used
+//! to end by claiming upstream's attached-body comparison stays "vacuously
+//! true" in this port, since a bare `RobotState` has no attached bodies to
+//! compare. That was true only as long as [`crate::DistanceFieldCacheEntry`]'s
+//! own attached-body fields stayed permanently empty. They no longer do:
+//! [`compare_cache_entry_to_state`]'s own signature grew a
+//! `current_attached_bodies: &[AttachedBodyGeometry<'_>]` parameter (see its
+//! own doc comment) precisely so the comparison could become real, sourced
+//! from the caller-supplied [`AttachedBodyGeometry`] slice this crate
+//! threads through every collision-checking entry point instead of reading
+//! attached bodies off a `RobotState`/`PlanningScene` this crate does not
+//! carry them on -- see [`AttachedBodySnapshot`]'s own doc comment for why
+//! that parameter closes a real cache-invalidation gap, not a cosmetic one.
+//! Round 22 extends the same explicit-parameter pattern to
+//! `getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`
+//! themselves (see "Still blocked, and why" below, now "Round 22" instead).
 //!
 //! # `generateCollisionCheckingStructures` and its cache-owner type
 //!
@@ -128,12 +141,29 @@
 //!   equivalent `PosedBodySphereDecomposition`/`PosedBodyPointDecomposition`
 //!   constructor call directly rather than through a same-crate,
 //!   single-call-site wrapper -- see those functions' own doc comments.
-//! - **`AttachedBody`-dependent methods** (`getAttachedBodySphereDecomposition`/
-//!   `getAttachedBodyPointDecomposition`, in `collision_common_distance_field.cpp`).
-//!   `AttachedBody` now exists (`moveit-scene`), but is unreachable from a
-//!   bare `RobotState` -- see the paragraph above -- and these two take a
-//!   `moveit::core::AttachedBody*` directly, which this workspace has no
-//!   equivalent standalone type for outside `moveit-scene`'s ownership of it.
+//!
+//! **Round 22: `AttachedBody`-dependent methods, no longer blocked.**
+//! `getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`
+//! (in `collision_common_distance_field.cpp`) used to be listed above as
+//! blocked on the same "`AttachedBody` lives on `PlanningScene`, unreachable
+//! from a bare `RobotState`" premise as [`compare_cache_entry_to_state`]'s
+//! own attached-body comparison (see the "Scope" section above) -- true, but
+//! it turned out irrelevant: this crate does not need a `RobotState` to
+//! *see* attached bodies at all, since [`AttachedBodyGeometry`] already
+//! threads them through every collision-checking entry point as an explicit
+//! caller-supplied parameter, the same pattern
+//! [`compare_cache_entry_to_state`] already used. Round 22 ports both
+//! functions as [`attached_body_sphere_decomposition`]/
+//! [`attached_body_point_decomposition`] in
+//! `collision_common_distance_field.rs` against that same parameter, and
+//! wires their sole upstream callers -- `getGroupStateRepresentation`
+//! (`:1239`) and `generateDistanceFieldCacheEntry`'s non-group-link loop
+//! (`:928`) -- into [`group_state_representation`] and the private
+//! `build_non_group_distance_field` respectively, plus the
+//! [`generate_distance_field_cache_entry`] population loop that decides
+//! which attached bodies belong to which (`collision_env_distance_field.cpp:844-919`).
+//! See `collision_common_distance_field.rs`'s own "Round 22" doc section for
+//! the two functions themselves.
 //!
 //! # Round 21: the seven collision-check entry points
 //!
@@ -297,7 +327,7 @@ use moveit_collision::{
     AllowedCollisionMatrix, AllowedCollisionType, AttachedBodyGeometry, BodyType, CollisionRequest,
     CollisionResult, Contact, ContactData, LinkPaddingScale,
 };
-use moveit_error::Result;
+use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
 use moveit_model::RobotModel;
 use moveit_state::Posed;
@@ -305,6 +335,7 @@ use nalgebra::Vector3;
 
 use crate::collision_common_distance_field::{
     AttachedBodySnapshot, DistanceFieldCacheEntry, GroupStateRepresentation,
+    attached_body_point_decomposition, attached_body_sphere_decomposition,
 };
 use crate::collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
@@ -471,6 +502,12 @@ pub struct DistanceFieldConfig {
 ///   comment -- so `attached_bodies` captures an owned snapshot of `state`'s
 ///   attached bodies at generation time instead, from the `attached_bodies`
 ///   parameter below.
+/// - **`attached_body_names`/`attached_body_link_state_indices` (round 22)
+///   are real, not always-empty** -- ported faithfully from upstream's own
+///   per-link loop, including the upstream quirk that this population only
+///   runs when `acm` is `Some` (see this function's body for the `rg`-cited
+///   line numbers): an `acm: None` call never sees any attached body, by
+///   upstream's own construction, not a gap this port introduces.
 ///
 /// # Errors
 ///
@@ -492,13 +529,15 @@ pub fn generate_distance_field_cache_entry<'m>(
 
     let link_indices = group.updated_link_indices();
     let link_names: Vec<String> = group.updated_link_names().to_vec();
-    let total = link_names.len(); // + attached_body_names.len(), always 0 here.
+    let total = link_names.len() + attached_bodies.len();
 
     let mut link_has_geometry = Vec::with_capacity(link_names.len());
     let mut link_body_indices = Vec::with_capacity(link_names.len());
     let mut link_state_indices = Vec::with_capacity(link_names.len());
     let mut self_collision_enabled = vec![true; total];
     let mut intra_group_collision_enabled = vec![Vec::new(); total];
+    let mut attached_body_names: Vec<String> = Vec::new();
+    let mut attached_body_link_state_indices: Vec<usize> = Vec::new();
 
     for (i, (&link_index, link_name)) in link_indices.iter().zip(link_names.iter()).enumerate() {
         let link = model.link_model_at(link_index);
@@ -526,9 +565,30 @@ pub fn generate_distance_field_cache_entry<'m>(
                         row[j] = false;
                     }
                 }
-                // No attached bodies exist in this workspace (see
-                // `DistanceFieldCacheEntry`'s "Deviations from upstream"),
-                // so upstream's per-attached-body loop here is a no-op.
+                // Upstream populates `attached_body_names_` here too, but
+                // only inside this `if (acm)` branch
+                // (`collision_env_distance_field.cpp:844-` vs its `else` at
+                // `:920`) -- when no ACM is supplied, upstream never
+                // enumerates attached bodies at all, so
+                // `attached_body_names_` (and every attached body's
+                // decomposition downstream) stays empty whenever `acm` is
+                // `None`. Faithfully reproduced, not "fixed": see this
+                // function's own "Deviations from upstream".
+                for attached in attached_bodies
+                    .iter()
+                    .filter(|ab| ab.link_name == link_name.as_str())
+                {
+                    attached_body_names.push(attached.id.to_string());
+                    attached_body_link_state_indices.push(i);
+                    let att_index = link_names.len() + attached_body_names.len() - 1;
+                    if is_always_allowed(acm, link_name, attached.id) {
+                        row[att_index] = false;
+                    }
+                    // Touch links take priority over the ACM entry.
+                    if attached.touch_links.contains(link_name) {
+                        row[att_index] = false;
+                    }
+                }
             }
             intra_group_collision_enabled[i] = row;
         } else {
@@ -538,8 +598,22 @@ pub fn generate_distance_field_cache_entry<'m>(
             intra_group_collision_enabled[i] = vec![false; total];
         }
     }
-    // Upstream's second loop, over `attached_body_names_`, is a no-op here
-    // for the same reason: this port never populates that vector.
+
+    for i in 0..attached_body_names.len() {
+        let row_index = link_names.len() + i;
+        let mut row = vec![true; total];
+        if let Some(acm) = acm {
+            if is_always_allowed(acm, &attached_body_names[i], &attached_body_names[i]) {
+                self_collision_enabled[row_index] = false;
+            }
+            for (j, other) in attached_body_names.iter().enumerate().skip(i + 1) {
+                if is_always_allowed(acm, &attached_body_names[i], other) {
+                    row[link_names.len() + j] = false;
+                }
+            }
+        }
+        intra_group_collision_enabled[row_index] = row;
+    }
 
     let active_variable_names: HashSet<&str> = group
         .active_joint_indices()
@@ -565,6 +639,7 @@ pub fn generate_distance_field_cache_entry<'m>(
                 link_names.iter().map(String::as_str),
                 link_body_decomposition_vector,
                 link_body_decomposition_index_map,
+                attached_bodies,
                 config,
             )
         })
@@ -581,8 +656,8 @@ pub fn generate_distance_field_cache_entry<'m>(
         link_has_geometry,
         link_body_indices,
         link_state_indices,
-        attached_body_names: Vec::new(),
-        attached_body_link_state_indices: Vec::new(),
+        attached_body_names,
+        attached_body_link_state_indices,
         attached_bodies: attached_bodies
             .iter()
             .map(AttachedBodySnapshot::from_geometry)
@@ -771,13 +846,18 @@ pub fn get_distance_field_cache_entry<'e, 'm>(
 ///   construction path, and it does not add a field to
 ///   [`DistanceFieldCacheEntry`] or a branch here. See `lib.rs`'s module doc
 ///   for the falsifier condition that would change this.
-/// - **Attached bodies are always skipped**, same reasoning as this module's
-///   own `build_non_group_distance_field`: this workspace has no `AttachedBody`
-///   reachable from a bare `RobotState`. Upstream's own trailing
-///   attached-body loop (`collision_env_distance_field.cpp:1229-` onward) is
-///   accordingly not ported; `dfce.attached_body_names` is always empty (see
-///   [`DistanceFieldCacheEntry`]'s "Deviations from upstream"), so that loop
-///   would iterate zero times regardless.
+/// - **Attached bodies (round 22): upstream's trailing attached-body loop
+///   (`collision_env_distance_field.cpp:1229-1251`) is now ported**, using
+///   [`attached_body_sphere_decomposition`] to build each attached body's
+///   posed decomposition and, unlike the link loop above,
+///   `sphere_locations` *is* set at fresh-build time here -- upstream itself
+///   sets it in this loop (`:1249`) but not the link loop above, a real
+///   upstream asymmetry this port preserves rather than smooths over. Each
+///   `dfce.attached_body_names[i]` is looked up by id in the caller-supplied
+///   `attached_bodies` slice (see this function's own signature) -- the same
+///   explicit-parameter pattern this crate already uses everywhere a
+///   `RobotState` this crate does not carry attached bodies on would
+///   otherwise be needed (see [`AttachedBodyGeometry`]'s own doc comment).
 /// - **`gradients[i].gradients` is seeded with `Vector3::zeros()`, not left
 ///   uninitialized.** Upstream's fresh-build branch writes
 ///   `gradients_[i].gradients.resize(n)` with no fill argument --
@@ -803,8 +883,18 @@ pub fn get_distance_field_cache_entry<'e, 'm>(
 ///
 /// [`moveit_error::Error::UnknownName`] if `state`'s model has no link named
 /// by some entry of `dfce.link_names` (propagated from
-/// [`Posed::global_link_transform`]). See [`PosedDistanceField::new`] for
-/// errors building a link's own distance field.
+/// [`Posed::global_link_transform`]), or if `attached_bodies` has no entry
+/// matching some name in `dfce.attached_body_names`. Upstream's own
+/// equivalent lookup, `state.getAttachedBody(dfce->attached_body_names_[i])`
+/// (`collision_env_distance_field.cpp:1239`), has *no* null check at all in
+/// this fresh-build path -- unlike
+/// [`update_group_state_representation_state`]'s own attached-body loop,
+/// which does check and log-then-`continue` -- so a name mismatch here
+/// upstream dereferences a null pointer, undefined behaviour this port
+/// cannot reproduce in safe Rust. A hard error is the closest safe
+/// equivalent, not a deviation invented for convenience. See
+/// [`PosedDistanceField::new`] for errors building a link's own distance
+/// field.
 pub fn group_state_representation<'a, 'm>(
     dfce: &'a DistanceFieldCacheEntry<'m>,
     state: &Posed<'_, 'm>,
@@ -812,6 +902,7 @@ pub fn group_state_representation<'a, 'm>(
     resolution: f64,
     max_propagation_distance: f64,
     use_signed_distance_field: bool,
+    attached_bodies: &[AttachedBodyGeometry<'_>],
 ) -> Result<GroupStateRepresentation<'a, 'm>> {
     let mut link_body_decompositions = Vec::with_capacity(dfce.link_names.len());
     let mut link_distance_fields = Vec::with_capacity(dfce.link_names.len());
@@ -862,10 +953,36 @@ pub fn group_state_representation<'a, 'm>(
         link_distance_fields.push(Some(field));
     }
 
+    let mut attached_body_decompositions = Vec::with_capacity(dfce.attached_body_names.len());
+    for (i, name) in dfce.attached_body_names.iter().enumerate() {
+        let link_index = dfce.attached_body_link_state_indices[i];
+        let link_name = &dfce.link_names[link_index];
+        let attached = attached_bodies
+            .iter()
+            .find(|ab| ab.id == name.as_str())
+            .ok_or_else(|| Error::unknown_name("attached body", name.clone()))?;
+        let link_transform = state.global_link_transform(link_name)?;
+        let decomposition =
+            attached_body_sphere_decomposition(attached, link_transform, resolution)?;
+
+        let sphere_count = decomposition.collision_spheres().len();
+        let joint_index = state.model().link_model(link_name)?.parent_joint_index();
+        gradients.push(GradientInfo {
+            types: vec![CollisionType::None; sphere_count],
+            distances: vec![f64::MAX; sphere_count],
+            gradients: vec![Vector3::zeros(); sphere_count],
+            sphere_locations: decomposition.sphere_centers().to_vec(),
+            sphere_radii: decomposition.sphere_radii().to_vec(),
+            joint_name: state.model().joint_model_at(joint_index).name().to_string(),
+            ..GradientInfo::default()
+        });
+        attached_body_decompositions.push(decomposition);
+    }
+
     Ok(GroupStateRepresentation {
         dfce,
         link_body_decompositions,
-        attached_body_decompositions: Vec::new(),
+        attached_body_decompositions,
         link_distance_fields,
         gradients,
     })
@@ -879,11 +996,14 @@ pub fn group_state_representation<'a, 'm>(
 ///
 /// # Deviation from upstream
 ///
-/// Upstream's trailing attached-body loop is not ported: `gsr.dfce.attached_body_names`
-/// is always empty (see [`DistanceFieldCacheEntry`]'s "Deviations from
-/// upstream"), so that loop would iterate zero times regardless -- same
-/// reasoning as [`group_state_representation`]'s own attached-body
-/// deviation.
+/// Upstream's trailing attached-body loop (round 22) is now ported too --
+/// re-posing each attached-body decomposition's shapes and resetting its
+/// [`GradientInfo`] slot, mirroring [`group_state_representation`]'s own
+/// attached-body build. It also faithfully reproduces upstream's own
+/// suspicious count check (`collision_env_distance_field.cpp:1132-1137`,
+/// upstream's own comment: `TODO: This logic for checking attached body
+/// count might be incorrect`) rather than "fixing" it -- see this function's
+/// body for exactly what it compares.
 ///
 /// Unlike [`group_state_representation`]'s fresh-build path, this reset
 /// *is* upstream-deterministic: `gradients_[i].gradients.assign(n,
@@ -895,10 +1015,19 @@ pub fn group_state_representation<'a, 'm>(
 ///
 /// [`moveit_error::Error::UnknownName`] if `state`'s model has no link named
 /// by some entry of `gsr.dfce.link_names` (propagated from
-/// [`Posed::global_link_transform`]).
+/// [`Posed::global_link_transform`]), or if `attached_bodies` has no entry
+/// matching some name in `gsr.dfce.attached_body_names` -- unlike upstream,
+/// whose own null check here logs and `continue`s (this is the one
+/// attached-body loop in this module that *does* have a defensive check;
+/// compare [`group_state_representation`]'s own "Errors" doc). This port
+/// still prefers a hard error over silently skipping, for the same
+/// "caller's slice and the cache entry disagree" reasoning, and to keep one
+/// error-handling style across this module's two attached-body loops rather
+/// than one strict and one lenient for no functional reason.
 pub fn update_group_state_representation_state(
     state: &Posed<'_, '_>,
     gsr: &mut GroupStateRepresentation<'_, '_>,
+    attached_bodies: &[AttachedBodyGeometry<'_>],
 ) -> Result<()> {
     for (i, link_name) in gsr.dfce.link_names.iter().enumerate() {
         if !gsr.dfce.link_has_geometry[i] {
@@ -925,6 +1054,45 @@ pub fn update_group_state_representation_state(
             sphere_radii: gsr.gradients[i].sphere_radii.clone(),
             joint_name: gsr.gradients[i].joint_name.clone(),
             sphere_locations: link_bd.sphere_centers().to_vec(),
+        };
+    }
+
+    for (i, name) in gsr.dfce.attached_body_names.iter().enumerate() {
+        let link_index = gsr.dfce.attached_body_link_state_indices[i];
+        let link_name = &gsr.dfce.link_names[link_index];
+        let attached = attached_bodies
+            .iter()
+            .find(|ab| ab.id == name.as_str())
+            .ok_or_else(|| Error::unknown_name("attached body", name.clone()))?;
+
+        // Upstream's own suspicious count check
+        // (`collision_env_distance_field.cpp:1132-1137`): compares the
+        // *outer* vector's length (total attached body count for this
+        // group) against *this one* attached body's shape count, not this
+        // decomposition's own shape count against itself. Faithfully
+        // reproduced, not fixed -- see this function's doc comment.
+        if gsr.attached_body_decompositions.len() != attached.shapes.len() {
+            continue;
+        }
+
+        let link_transform = state.global_link_transform(link_name)?;
+        for (j, shape_pose) in attached.shape_poses.iter().enumerate() {
+            gsr.attached_body_decompositions[i].update_pose(j, link_transform * *shape_pose);
+        }
+
+        let decomposition = &gsr.attached_body_decompositions[i];
+        let sphere_count = decomposition.collision_spheres().len();
+        gsr.gradients[i + gsr.dfce.link_names.len()] = GradientInfo {
+            closest_distance: f64::MAX,
+            collision: false,
+            types: vec![CollisionType::None; sphere_count],
+            distances: vec![f64::MAX; sphere_count],
+            gradients: vec![Vector3::zeros(); sphere_count],
+            sphere_locations: decomposition.sphere_centers().to_vec(),
+            sphere_radii: decomposition.sphere_radii().to_vec(),
+            joint_name: gsr.gradients[i + gsr.dfce.link_names.len()]
+                .joint_name
+                .clone(),
         };
     }
     Ok(())
@@ -1040,6 +1208,7 @@ impl<'m> DistanceFieldCollisionCache<'m> {
             self.distance_field_config.geometry.resolution,
             self.distance_field_config.max_propagation_distance,
             self.distance_field_config.use_signed_distance_field,
+            current_attached_bodies,
         )
     }
 
@@ -1373,14 +1542,24 @@ impl<'m> DistanceFieldCollisionCache<'m> {
 /// soon as either a collision is found with `req.contacts` unset, or
 /// `req.max_contacts` is reached with it set.
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
 /// Upstream's loop bound is `link_names_.size() + attached_body_names_.size()`,
 /// with an `is_link` branch selecting `link_body_decompositions_` or
-/// `attached_body_decompositions_` per index. `attached_body_names_` is
-/// always empty in this port (see [`DistanceFieldCacheEntry`]'s "Deviations
-/// from upstream"), so the `!is_link` half of every branch is dead code,
-/// omitted here rather than ported as an unreachable branch.
+/// `attached_body_decompositions_` per index, reporting attached-body
+/// self-collisions with `body_type_1 = BodyTypes::ROBOT_ATTACHED` instead of
+/// `ROBOT_LINK`. This function's loop only covers `0..gsr.dfce.link_names.len()`
+/// and never reads `gsr.dfce.attached_body_names`/`gsr.attached_body_decompositions`
+/// at all: an attached body's collision spheres are never checked for
+/// self-collision here. This was believed dead code as long as
+/// `attached_body_names_` stayed permanently empty in this port; as of round
+/// 22, [`generate_distance_field_cache_entry`] populates it for real (see
+/// [`DistanceFieldCacheEntry::attached_body_names`]), so this is now a live,
+/// unfixed functional gap, not an unreachable branch. See this crate's round
+/// 22 report for the full anchor/sites/classify audit across
+/// [`get_self_proximity_gradients`], [`get_intra_group_collisions`],
+/// [`get_intra_group_proximity_gradients`], [`get_environment_collisions`],
+/// and [`get_environment_proximity_gradients`], all of which share it.
 ///
 /// # Panics
 ///
@@ -1480,10 +1659,12 @@ fn get_self_collisions(
 /// see [`AllowedCollisionType`]), then from the group's aggregate
 /// `gsr.dfce.distance_field`.
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
-/// Same as [`get_self_collisions`]: the `is_link`/attached-body branch is
-/// dead code here (`attached_body_names_` always empty) and is omitted.
+/// Same gap as [`get_self_collisions`]: the `is_link`/attached-body branch
+/// is not ported, so attached-body spheres never contribute a
+/// self-proximity gradient. See [`get_self_collisions`]'s own doc comment
+/// for the full explanation and cross-references.
 ///
 /// # Panics
 ///
@@ -1574,17 +1755,20 @@ fn get_self_proximity_gradients(
 /// spheres intersect ([`do_bounding_spheres_intersect`]), the same
 /// contacts/early-exit shape as [`get_self_collisions`].
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
 /// Upstream's loop covers `link_names_.size() + attached_body_names_.size()`
 /// indices with `i_is_link`/`j_is_link` branches selecting between
-/// `link_body_decompositions_`/`attached_body_decompositions_`, plus an
-/// `i == j` guard that can never trigger (the inner loop already starts at
-/// `j = i + 1`). `attached_body_names_` is always empty here (see
-/// [`DistanceFieldCacheEntry`]'s "Deviations from upstream"), so both the
-/// `i_is_link && j_is_link` branch is the only reachable one and the `i ==
-/// j` guard is dead in upstream too -- both are omitted rather than ported
-/// as unreachable code.
+/// `link_body_decompositions_`/`attached_body_decompositions_` per side of
+/// the pair (link-vs-attached and attached-vs-attached pairs both possible),
+/// plus an `i == j` guard that can never trigger (the inner loop already
+/// starts at `j = i + 1`, so that guard is dead in upstream regardless of
+/// attached bodies and is correctly omitted here). This function's loop
+/// covers only `0..gsr.dfce.link_names.len()` on both sides and never reads
+/// `gsr.dfce.attached_body_names`/`gsr.attached_body_decompositions`: no
+/// pair involving an attached body is ever checked for intra-group
+/// collision. See [`get_self_collisions`]'s own doc comment for why this was
+/// believed dead code and is not anymore as of round 22.
 fn get_intra_group_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
@@ -1672,14 +1856,15 @@ fn get_intra_group_collisions(
 /// sphere's nearest opposing-sphere distance into that sphere's
 /// [`GradientInfo`] slot whenever it improves on what is already there.
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
-/// Same dead-code omission as [`get_intra_group_collisions`] (attached
-/// bodies, the unreachable `i == j` guard). Upstream's own `in_collision`
-/// local is declared, never written, and returned as-is -- always `false`;
-/// ported faithfully rather than changed to `-> ()`, since upstream's own
-/// caller (`getCollisionGradients`) discards this return value too, and
-/// keeping the `bool` shape matches this function's siblings
+/// Same attached-body gap as [`get_intra_group_collisions`] (the unreachable
+/// `i == j` guard is correctly omitted; the attached-body pairs are not).
+/// Upstream's own `in_collision` local is declared, never written, and
+/// returned as-is -- always `false`; ported faithfully rather than changed
+/// to `-> ()`, since upstream's own caller (`getCollisionGradients`)
+/// discards this return value too, and keeping the `bool` shape matches this
+/// function's siblings
 /// ([`get_self_proximity_gradients`]/[`get_environment_proximity_gradients`]).
 fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_>) -> bool {
     let num_links = gsr.dfce.link_names.len();
@@ -1733,9 +1918,10 @@ fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_
 /// -- `World`-sourced state this crate does not own (see this module's doc
 /// comment).
 ///
-/// # Deviation from upstream
+/// # Deviation from upstream (KNOWN GAP, not yet ported)
 ///
-/// Same dead attached-body branch omission as [`get_self_collisions`].
+/// Same attached-body gap as [`get_self_collisions`]: an attached body's
+/// spheres are never checked against `env_distance_field` here either.
 fn get_environment_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
@@ -1819,6 +2005,17 @@ fn get_environment_collisions(
 /// [`get_self_proximity_gradients`]'s final (non-ACM) half: folds
 /// `env_distance_field` gradients into every geometry-bearing link's
 /// [`GradientInfo`] slot.
+///
+/// # Deviation from upstream
+///
+/// Unlike its five siblings ([`get_self_collisions`],
+/// [`get_self_proximity_gradients`], [`get_intra_group_collisions`],
+/// [`get_intra_group_proximity_gradients`], [`get_environment_collisions`]),
+/// this one is a *faithful* port with no attached-body gap: upstream's own
+/// loop condition here is `i < link_names_.size()` (`:1649`), not `i <
+/// link_names_.size() + attached_body_names_.size()` like the other five --
+/// so upstream's own `is_link`-false branch is unreachable dead code in the
+/// C++ too, correctly omitted here rather than ported unreachable.
 fn get_environment_proximity_gradients(
     env_distance_field: &dyn DistanceField,
     gsr: &mut GroupStateRepresentation<'_, '_>,
@@ -1857,16 +2054,31 @@ fn get_environment_proximity_gradients(
 /// The `generate_distance_field: true` branch of upstream
 /// `generateDistanceFieldCacheEntry`: a fresh [`PropagationDistanceField`]
 /// seeded with every collision-bearing link's points *outside* the group
-/// (`in_group_names`), posed at `state`'s current global link transforms.
-/// Attached-body points are always skipped -- this workspace has no
-/// `AttachedBody` to enumerate (see [`DistanceFieldCacheEntry`]'s
-/// "Deviations from upstream").
+/// (`in_group_names`), posed at `state`'s current global link transforms,
+/// plus (round 22) every such link's attached bodies' points, via
+/// [`attached_body_point_decomposition`] -- upstream's own
+/// `non_group_attached_body_decompositions` loop
+/// (`collision_env_distance_field.cpp:945-950`).
+///
+/// # Deviation from upstream
+///
+/// Upstream iterates `robot_model_->getLinkModelsWithCollisionGeometry()`
+/// (a pre-filtered list), not every link; this port folds that same filter
+/// into the `link.shapes().is_empty()` half of the combined skip condition
+/// below instead of pre-filtering `robot_model.link_models()` first. Same
+/// observable set, but as a consequence -- upstream's own, not introduced
+/// here -- an attached body on a non-group link with *no* collision
+/// geometry of its own is invisible to this field too, exactly like
+/// [`generate_distance_field_cache_entry`]'s `attached_body_names`
+/// (`collision_env_distance_field.cpp:910-925`): the outer loop `continue`s
+/// before the inner attached-body loop ever runs for that link.
 fn build_non_group_distance_field<'a>(
     robot_model: &RobotModel,
     state: &Posed<'_, '_>,
     in_group_names: impl Iterator<Item = &'a str>,
     link_body_decomposition_vector: &[Arc<BodyDecomposition>],
     link_body_decomposition_index_map: &HashMap<String, usize>,
+    attached_bodies: &[AttachedBodyGeometry<'_>],
     config: DistanceFieldConfig,
 ) -> Result<PropagationDistanceField> {
     let in_group: HashSet<&str> = in_group_names.collect();
@@ -1883,8 +2095,15 @@ fn build_non_group_distance_field<'a>(
             pose,
         );
         all_points.extend_from_slice(posed.collision_points());
-        // Attached bodies on this link: always none, see this function's
-        // doc comment.
+
+        for attached in attached_bodies
+            .iter()
+            .filter(|ab| ab.link_name == link.name())
+        {
+            let decomposition =
+                attached_body_point_decomposition(attached, pose, config.geometry.resolution)?;
+            all_points.extend(decomposition.collision_points());
+        }
     }
 
     let mut field = PropagationDistanceField::new(
@@ -2546,6 +2765,228 @@ mod tests {
         );
     }
 
+    // --- generate_distance_field_cache_entry: attached-body population (round 22) ---
+
+    #[test]
+    fn generate_distance_field_cache_entry_populates_attached_body_names_when_acm_is_some() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            // Population only runs inside the `if !link.shapes().is_empty()`
+            // branch (see this function's own doc comment) -- under this
+            // fixture's `MeshSearchPaths::none()`, every right_arm link but
+            // this one resolves to zero shapes (mesh-only collision
+            // geometry, unresolved), so this is the one link that can
+            // exercise the attached-body population path at all.
+            link_name: "r_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+
+        assert_eq!(dfce.attached_body_names, vec!["gripped_box".to_string()]);
+        let link_index = dfce
+            .link_names
+            .iter()
+            .position(|n| n == "r_gripper_motor_accelerometer_link")
+            .expect("r_gripper_motor_accelerometer_link must be one of right_arm's updated links");
+        assert_eq!(dfce.attached_body_link_state_indices, vec![link_index]);
+    }
+
+    #[test]
+    fn generate_distance_field_cache_entry_never_populates_attached_bodies_when_acm_is_none() {
+        let model = pr2_model();
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let dfce = generate_distance_field_cache_entry(
+            "right_arm",
+            &posed,
+            None,
+            &link_body_decompositions,
+            None,
+            &[attached],
+        )
+        .unwrap();
+
+        assert!(
+            dfce.attached_body_names.is_empty(),
+            "upstream only enumerates attached bodies inside the `if (acm)` \
+             branch (collision_env_distance_field.cpp:844 vs the `else` at \
+             :920) -- acm: None must leave attached_body_names empty even \
+             though an attached body was supplied"
+        );
+    }
+
+    #[test]
+    fn generate_distance_field_cache_entry_excludes_an_attached_body_on_a_non_group_link() {
+        let model = pr2_model();
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "left_hand_box",
+            link_name: "l_gripper_palm_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let dfce = generate_distance_field_cache_entry(
+            "right_arm",
+            &posed,
+            Some(&acm),
+            &link_body_decompositions,
+            None,
+            &[attached],
+        )
+        .unwrap();
+
+        assert!(
+            !dfce.link_names.iter().any(|n| n == "l_gripper_palm_link"),
+            "test precondition: l_gripper_palm_link must not be one of \
+             right_arm's updated links"
+        );
+        assert!(
+            dfce.attached_body_names.is_empty(),
+            "an attached body on a link outside the group's own updated-link \
+             set must never be enumerated into attached_body_names"
+        );
+    }
+
+    // --- build_non_group_distance_field: attached-body obstacle points (round 22) ---
+
+    #[test]
+    fn build_non_group_distance_field_includes_a_non_group_attached_body_as_an_obstacle() {
+        let model = pr2_model();
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, link_body_decomposition_index_map) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let group = model.joint_model_group("right_arm").unwrap();
+        let in_group_names: Vec<String> = group.updated_link_names().to_vec();
+
+        // Upstream's own equivalent loop iterates
+        // `getLinkModelsWithCollisionGeometry()`, not every link -- an
+        // attached body on a link with no resolved collision geometry of
+        // its own (most of pr2.urdf's arm links, under this fixture's
+        // `MeshSearchPaths::none()`) is never visited at all, faithfully
+        // reproduced by this port's own combined `link.shapes().is_empty()
+        // || in_group.contains(...)` skip (collision_env_distance_field.cpp:910-925).
+        // `l_gripper_motor_accelerometer_link` is one of the few left-arm
+        // links with real (non-mesh) collision geometry, so it is the one
+        // that can exercise this path.
+        assert!(
+            !model
+                .link_model("l_gripper_motor_accelerometer_link")
+                .unwrap()
+                .shapes()
+                .is_empty(),
+            "test precondition: l_gripper_motor_accelerometer_link must have \
+             resolved collision geometry of its own, or this test cannot \
+             reach the attached-body sub-loop at all"
+        );
+        let link_transform = posed
+            .global_link_transform("l_gripper_motor_accelerometer_link")
+            .unwrap();
+        // Offset well clear of the link's own origin, so the probe measures
+        // the attached body's own contribution, not the link's own
+        // (already-included-in-baseline) collision geometry.
+        let shape_pose = Isometry3::from_parts(
+            nalgebra::Translation3::new(0.3, 0.3, 0.3),
+            nalgebra::UnitQuaternion::identity(),
+        );
+        let probe = (link_transform * shape_pose).translation.vector;
+        // A grid centered on the probe point itself, so coverage does not
+        // depend on where l_gripper_palm_link happens to sit relative to the
+        // robot's own origin.
+        let size = Vector3::new(1.0, 1.0, 1.0);
+        let config = DistanceFieldConfig {
+            geometry: GridGeometry::new(size, probe - 0.5 * size, 0.05).unwrap(),
+            max_propagation_distance: 0.25,
+            use_signed_distance_field: false,
+        };
+
+        let baseline = build_non_group_distance_field(
+            &model,
+            &posed,
+            in_group_names.iter().map(String::as_str),
+            &link_body_decomposition_vector,
+            &link_body_decomposition_index_map,
+            &[],
+            config,
+        )
+        .unwrap();
+        let baseline_distance = baseline.distance(probe.x, probe.y, probe.z);
+        assert_eq!(
+            baseline_distance, config.max_propagation_distance,
+            "test precondition: with no attached body, `probe` must read back \
+             as the field's own uninitialized/max distance -- otherwise some \
+             other non-group link's own geometry already occupies this \
+             point, and this test cannot isolate the attached body's own \
+             contribution"
+        );
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![shape_pose];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "left_hand_box",
+            link_name: "l_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let with_attached = build_non_group_distance_field(
+            &model,
+            &posed,
+            in_group_names.iter().map(String::as_str),
+            &link_body_decomposition_vector,
+            &link_body_decomposition_index_map,
+            &[attached],
+            config,
+        )
+        .unwrap();
+        let with_attached_distance = with_attached.distance(probe.x, probe.y, probe.z);
+
+        assert!(
+            with_attached_distance < baseline_distance,
+            "an attached body on a non-group link must add obstacle points \
+             at its own posed location, shrinking the distance there \
+             relative to a field built with no attached bodies at all \
+             (baseline {baseline_distance}, with attached body \
+             {with_attached_distance})"
+        );
+    }
+
     // --- group_state_representation / update_group_state_representation_state ---
 
     #[test]
@@ -2573,10 +3014,11 @@ mod tests {
             0.05,
             0.25,
             false,
+            &[],
         )
         .unwrap();
 
-        update_group_state_representation_state(&posed, &mut gsr).unwrap();
+        update_group_state_representation_state(&posed, &mut gsr, &[]).unwrap();
 
         for (i, &has_geometry) in dfce.link_has_geometry.iter().enumerate() {
             if !has_geometry {
@@ -2615,6 +3057,7 @@ mod tests {
             0.05,
             0.25,
             false,
+            &[],
         )
         .unwrap();
 
@@ -2629,8 +3072,8 @@ mod tests {
         moved.set_to_default_values();
         moved.set_variable_position(&in_group_var, 0.3).unwrap();
         let moved_posed = moved.update();
-        update_group_state_representation_state(&moved_posed, &mut gsr).unwrap();
-        update_group_state_representation_state(&default_posed, &mut gsr).unwrap();
+        update_group_state_representation_state(&moved_posed, &mut gsr, &[]).unwrap();
+        update_group_state_representation_state(&default_posed, &mut gsr, &[]).unwrap();
 
         let rebuilt = group_state_representation(
             &dfce,
@@ -2639,6 +3082,7 @@ mod tests {
             0.05,
             0.25,
             false,
+            &[],
         )
         .unwrap();
 
@@ -2662,6 +3106,319 @@ mod tests {
                 ),
             }
         }
+    }
+
+    // --- group_state_representation / update_group_state_representation_state: attached bodies (round 22) ---
+
+    #[test]
+    fn group_state_representation_builds_a_gradient_slot_for_an_attached_body() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            // See `generate_distance_field_cache_entry_populates_attached_body_names_when_acm_is_some`
+            // for why this must be a geometry-bearing link.
+            link_name: "r_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let gsr = group_state_representation(
+            &dfce,
+            &posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[attached],
+        )
+        .unwrap();
+
+        assert_eq!(gsr.attached_body_decompositions.len(), 1);
+        assert_eq!(
+            gsr.gradients.len(),
+            dfce.link_names.len() + 1,
+            "the attached body's GradientInfo slot must be appended after \
+             every link's own slot"
+        );
+        let attached_gradient = gsr.gradients.last().unwrap();
+        assert!(
+            !attached_gradient.sphere_locations.is_empty(),
+            "unlike the link loop above it, group_state_representation's \
+             attached-body loop must set sphere_locations at fresh-build \
+             time (collision_env_distance_field.cpp:1249) -- a real upstream \
+             asymmetry this port preserves"
+        );
+        assert_eq!(
+            attached_gradient.sphere_locations.len(),
+            gsr.attached_body_decompositions[0].sphere_centers().len()
+        );
+    }
+
+    #[test]
+    fn group_state_representation_attached_body_with_multiple_shapes_at_distinct_poses() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape(), sample_shape()];
+        let shape_poses = vec![
+            Isometry3::identity(),
+            Isometry3::from_parts(
+                nalgebra::Translation3::new(0.2, 0.0, 0.0),
+                nalgebra::UnitQuaternion::identity(),
+            ),
+        ];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "two_part_tool",
+            link_name: "r_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let gsr = group_state_representation(
+            &dfce,
+            &posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[attached],
+        )
+        .unwrap();
+
+        let decomposition = &gsr.attached_body_decompositions[0];
+        assert_eq!(
+            decomposition.collision_spheres().len(),
+            gsr.gradients.last().unwrap().sphere_locations.len()
+        );
+        // Both shapes are identical spheres a resolution apart; a
+        // decomposition that dropped the second shape's pose (e.g. by
+        // reusing the first shape's pose for both) would still produce
+        // exactly one shape's worth of spheres, all clustered at the first
+        // pose.
+        let centers = decomposition.sphere_centers();
+        assert!(
+            centers.iter().any(|c| (c - centers[0]).norm() > 0.05),
+            "a two-shape attached body posed a resolution apart must \
+             produce spheres spread across both poses, not all clustered at \
+             one"
+        );
+    }
+
+    #[test]
+    fn group_state_representation_errors_when_attached_bodies_slice_is_missing_a_tracked_id() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+        assert_eq!(
+            dfce.attached_body_names.len(),
+            1,
+            "test precondition: dfce must actually track the attached body, \
+             or the lookup this test targets never runs"
+        );
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let result = group_state_representation(
+            &dfce,
+            &posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[],
+        );
+
+        assert!(
+            result.is_err(),
+            "dfce.attached_body_names names a body the caller-supplied slice \
+             no longer carries -- upstream's own equivalent lookup has no \
+             null check at all here (collision_env_distance_field.cpp:1239) \
+             and would dereference null; this port's closest safe equivalent \
+             is a hard error, not a silent skip"
+        );
+    }
+
+    #[test]
+    fn update_group_state_representation_state_agrees_with_a_fresh_rebuild_for_an_attached_body() {
+        let model = pr2_model();
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped_box",
+            link_name: "r_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let (in_group_var, _out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let default_posed = state.update();
+
+        let mut gsr = group_state_representation(
+            &dfce,
+            &default_posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[attached],
+        )
+        .unwrap();
+
+        let mut moved = moveit_state::RobotState::new(&model);
+        moved.set_to_default_values();
+        moved.set_variable_position(&in_group_var, 0.3).unwrap();
+        let moved_posed = moved.update();
+        update_group_state_representation_state(&moved_posed, &mut gsr, &[attached]).unwrap();
+        update_group_state_representation_state(&default_posed, &mut gsr, &[attached]).unwrap();
+
+        let rebuilt = group_state_representation(
+            &dfce,
+            &default_posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[attached],
+        )
+        .unwrap();
+
+        assert_eq!(
+            gsr.attached_body_decompositions[0].sphere_centers(),
+            rebuilt.attached_body_decompositions[0].sphere_centers(),
+            "the attached body disagreed between update-to-and-fro and a \
+             fresh rebuild"
+        );
+    }
+
+    #[test]
+    fn update_group_state_representation_state_reproduces_upstreams_suspicious_attached_body_count_check()
+     {
+        let model = pr2_model();
+        let shapes = vec![sample_shape(), sample_shape()];
+        let shape_poses = vec![
+            Isometry3::identity(),
+            Isometry3::from_parts(
+                nalgebra::Translation3::new(0.2, 0.0, 0.0),
+                nalgebra::UnitQuaternion::identity(),
+            ),
+        ];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "two_part_tool",
+            link_name: "r_gripper_motor_accelerometer_link",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let dfce = right_arm_cache_entry_with_attached(&model, &[attached]);
+        // Precondition for upstream's own bug to trip: exactly one attached
+        // body (the outer vector's length, `gsr->attached_body_decompositions_.size()`)
+        // whose own shape count (2) differs from that outer length --
+        // upstream's own suspicious check
+        // (`collision_env_distance_field.cpp:1132-1137`, upstream's own
+        // comment: "TODO: This logic for checking attached body count might
+        // be incorrect") compares those two unrelated counts, not this
+        // decomposition's own shape count against itself.
+        assert_eq!(dfce.attached_body_names.len(), 1);
+        assert_eq!(attached.shapes.len(), 2);
+
+        let padding = LinkPaddingScale::new();
+        let (link_body_decomposition_vector, _) =
+            add_link_body_decompositions(&model, 0.05, &padding, None).unwrap();
+        let (in_group_var, _out_of_group_var) =
+            one_in_group_and_one_out_of_group_variable(&model, "right_arm");
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let default_posed = state.update();
+
+        let mut gsr = group_state_representation(
+            &dfce,
+            &default_posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[attached],
+        )
+        .unwrap();
+        let before = gsr.attached_body_decompositions[0]
+            .sphere_centers()
+            .to_vec();
+
+        let mut moved = moveit_state::RobotState::new(&model);
+        moved.set_to_default_values();
+        moved.set_variable_position(&in_group_var, 0.5).unwrap();
+        let moved_posed = moved.update();
+
+        let fresh_at_moved = group_state_representation(
+            &dfce,
+            &moved_posed,
+            &link_body_decomposition_vector,
+            0.05,
+            0.25,
+            false,
+            &[attached],
+        )
+        .unwrap();
+        assert_ne!(
+            fresh_at_moved.attached_body_decompositions[0].sphere_centers(),
+            before.as_slice(),
+            "test precondition: moving {in_group_var} must actually change \
+             r_gripper_motor_accelerometer_link's transform, or this test \
+             cannot distinguish 'the buggy check skipped the update' from \
+             'the update was a no-op anyway'"
+        );
+
+        update_group_state_representation_state(&moved_posed, &mut gsr, &[attached]).unwrap();
+
+        assert_eq!(
+            gsr.attached_body_decompositions[0].sphere_centers(),
+            before.as_slice(),
+            "1 (outer attached-body count) != 2 (this attached body's own \
+             shape count) must trip upstream's suspicious `continue` and \
+             skip the re-pose entirely, even though the joint actually moved"
+        );
     }
 
     // --- DistanceFieldCollisionCache::generate_collision_checking_structures ---
@@ -2858,6 +3615,7 @@ mod tests {
             config.geometry.resolution,
             config.max_propagation_distance,
             config.use_signed_distance_field,
+            &[],
         )
         .unwrap();
 

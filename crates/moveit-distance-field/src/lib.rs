@@ -192,10 +192,26 @@
 //! FCL/Bullet replacement, D4's compile-time-trait plugin model). The
 //! `AttachedBody`-dependent decomposition functions
 //! (`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`)
-//! are unported because a bare `moveit_state::State` structurally cannot see
-//! attached bodies (they live on `moveit_scene::PlanningScene`, which this
-//! crate does not depend on — see `moveit-state`'s `State::frame_transform`
-//! doc). The octree-backed `PosedBodyPointDecomposition` constructor is now
+//! are now ported too, as of round 22, as
+//! [`attached_body_sphere_decomposition`]/[`attached_body_point_decomposition`]
+//! — the premise this bullet used to state (a bare `moveit_state::State`
+//! structurally cannot see attached bodies, since they live on
+//! `moveit_scene::PlanningScene`, which this crate does not depend on) is
+//! still true, but it turned out irrelevant: this crate had already solved
+//! the same problem a different way for a different symbol
+//! ([`AttachedBodySnapshot`]'s explicit `AttachedBodyGeometry` parameter,
+//! threaded through every collision-checking entry point below), and round
+//! 22 extended that existing pattern to these two decomposition functions
+//! rather than adding a new dependency. Their sole upstream callers —
+//! `CollisionEnvDistanceField::getGroupStateRepresentation`
+//! (`collision_env_distance_field.cpp:1239`) and
+//! `generateDistanceFieldCacheEntry`'s non-group-link loop (`:928`) — are
+//! [`group_state_representation`] and the private `build_non_group_distance_field`
+//! respectively, both already ported and both now threading
+//! `attached_bodies: &[AttachedBodyGeometry<'_>]` through to these two
+//! functions. See `collision_common_distance_field.rs`'s own "Round 22"
+//! doc section for the full account. The octree-backed
+//! `PosedBodyPointDecomposition` constructor is now
 //! ported, as [`PosedBodyPointDecomposition::from_octree`], against a
 //! `moveit-octomap` dependency this crate added for it — see that method's
 //! own doc comment for the faithfully-reproduced upstream behaviour
@@ -536,11 +552,19 @@
 //! - `DistanceFieldCacheEntry` (struct) — ported as [`DistanceFieldCacheEntry`].
 //! - `getBodyDecompositionCacheEntry` — ported as [`get_body_decomposition_cache_entry`].
 //! - `getCollisionObjectPointDecomposition` — ported as [`collision_object_point_decomposition`].
-//! - `getAttachedBodySphereDecomposition` — unported: takes a
-//!   `moveit::core::AttachedBody*` and builds a real posed decomposition of
-//!   its geometry; unreachable from a bare `RobotState` (see
-//!   `collision_common_distance_field.rs`'s module doc, "Deferred, and why").
-//! - `getAttachedBodyPointDecomposition` — unported, same reason.
+//! - `getAttachedBodySphereDecomposition` — ported as
+//!   [`attached_body_sphere_decomposition`] (round 22). Its sole upstream
+//!   caller, `getGroupStateRepresentation` (`collision_env_distance_field.cpp:1239`),
+//!   is [`group_state_representation`], threading an explicit
+//!   `attached_bodies: &[AttachedBodyGeometry<'_>]` parameter rather than
+//!   reading attached bodies off a `RobotState` this crate does not carry
+//!   them on — see `collision_common_distance_field.rs`'s "Round 22" doc
+//!   section.
+//! - `getAttachedBodyPointDecomposition` — ported as
+//!   [`attached_body_point_decomposition`] (round 22), same reasoning. Its
+//!   sole upstream caller, `generateDistanceFieldCacheEntry`'s non-group-link
+//!   loop (`collision_env_distance_field.cpp:928`), is the private
+//!   `build_non_group_distance_field`.
 //! - `getBodySphereVisualizationMarkers` — D-decision excludes it: D1 (no
 //!   ROS message types / renderer outside the optional `moveit-ros` crate).
 //!
@@ -683,20 +707,32 @@
 //! - `getSelfCollisions` — ported (round 21) as the module-private free
 //!   function `get_self_collisions` in `collision_env_distance_field.rs`,
 //!   called from `check_self_collision`/`check_collision`/
-//!   `get_all_collisions`.
+//!   `get_all_collisions`. **Known gap (exposed round 22):** its loop never
+//!   reads `attached_body_names`/`attached_body_decompositions`, so an
+//!   attached body's spheres are never checked for self-collision, even now
+//!   that those fields can be non-empty — see that function's own "Deviation
+//!   from upstream" for the full explanation.
 //! - `getSelfProximityGradients` — ported (round 21) as the module-private
-//!   free function `get_self_proximity_gradients`.
+//!   free function `get_self_proximity_gradients`. Same known
+//!   attached-body gap as `getSelfCollisions`.
 //! - `getIntraGroupCollisions` — ported (round 21) as the module-private
-//!   free function `get_intra_group_collisions`.
+//!   free function `get_intra_group_collisions`. Same known attached-body
+//!   gap (no link-vs-attached or attached-vs-attached pair is ever checked).
 //! - `getIntraGroupProximityGradients` — ported (round 21) as the
 //!   module-private free function `get_intra_group_proximity_gradients`.
+//!   Same known attached-body gap as `getIntraGroupCollisions`.
 //! - `getEnvironmentCollisions` — ported (round 21) as the module-private
 //!   free function `get_environment_collisions`, taking
 //!   `env_distance_field: &dyn DistanceField` as an explicit parameter in
 //!   place of reading `distance_field_cache_entry_world_->distance_field_`
-//!   off the `World` this crate does not depend on.
+//!   off the `World` this crate does not depend on. Same known
+//!   attached-body gap as `getSelfCollisions`.
 //! - `getEnvironmentProximityGradients` — ported (round 21) the same way, as
 //!   the module-private free function `get_environment_proximity_gradients`.
+//!   Unlike its five siblings above, this one has **no** attached-body gap:
+//!   upstream's own loop bound here (`collision_env_distance_field.cpp:1649`)
+//!   never advances past `link_names_.size()`, so its attached-body branch
+//!   is dead code in the C++ itself.
 //! - `updatedPaddingOrScaling` — unported: a no-op override of the
 //!   `CollisionEnv` interface upstream itself (`return;`, no body).
 //! - `generateDistanceFieldCacheEntryWorld`, `updateDistanceObject`,
@@ -1021,6 +1057,7 @@ mod voxel_grid;
 
 pub use collision_common_distance_field::{
     AttachedBodySnapshot, DistanceFieldCacheEntry, GroupStateRepresentation,
+    attached_body_point_decomposition, attached_body_sphere_decomposition,
     collision_object_point_decomposition, get_body_decomposition_cache_entry,
 };
 pub use collision_distance_field_types::{

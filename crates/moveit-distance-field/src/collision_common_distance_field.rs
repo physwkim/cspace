@@ -15,7 +15,10 @@
 //!
 //! Ported: [`get_body_decomposition_cache_entry`] (upstream
 //! `getBodyDecompositionCacheEntry`), [`collision_object_point_decomposition`]
-//! (upstream `getCollisionObjectPointDecomposition`), and
+//! (upstream `getCollisionObjectPointDecomposition`),
+//! [`attached_body_sphere_decomposition`]/[`attached_body_point_decomposition`]
+//! (upstream `getAttachedBodySphereDecomposition`/
+//! `getAttachedBodyPointDecomposition` -- round 22, see below), and
 //! [`DistanceFieldCacheEntry`] itself, now that `moveit-model`'s
 //! `JointModelGroup::updated_link_names`/`updated_link_with_geometry_names`
 //! close the dependency gap this file's previous doc comment recorded here
@@ -46,23 +49,34 @@
 //! [`crate::compare_cache_entry_to_state`] had left open: see
 //! [`AttachedBodySnapshot`]'s doc comment.
 //!
+//! # Round 22: `getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`
+//!
+//! Ported as [`attached_body_sphere_decomposition`]/
+//! [`attached_body_point_decomposition`]. Previously deferred (see prior
+//! revisions of this doc comment) as blocked on "no `AttachedBody` reachable
+//! from a bare `RobotState`" -- the same premise [`AttachedBodySnapshot`]
+//! already disproves for cache-key comparison: [`AttachedBodyGeometry`] is
+//! an explicit, caller-supplied parameter (not read off `RobotState`), and
+//! every one of this crate's collision-checking entry points already
+//! threads a `&[AttachedBodyGeometry<'_>]` slice through for exactly that
+//! reason. The blocker was stale, not structural -- these two functions
+//! only needed the same parameter their sibling already had.
+//!
+//! Real, in-scope caller confirmed by `rg` before porting (not a
+//! caller-less symbol; see this crate's completion rollup in `lib.rs`):
+//! upstream `getAttachedBodySphereDecomposition`'s only caller is
+//! `CollisionEnvDistanceField::getGroupStateRepresentation`
+//! (`collision_env_distance_field.cpp:1239`), ported as
+//! [`crate::group_state_representation`], which now calls
+//! [`attached_body_sphere_decomposition`] for real (see that function's own
+//! doc comment). `getAttachedBodyPointDecomposition`'s only caller is
+//! `generateDistanceFieldCacheEntry`'s non-group-link loop
+//! (`collision_env_distance_field.cpp:928`), ported as
+//! `build_non_group_distance_field` in `collision_env_distance_field.rs`,
+//! which now calls [`attached_body_point_decomposition`] the same way.
+//!
 //! Deferred, and why:
 //!
-//! - **`getAttachedBodySphereDecomposition`/`getAttachedBodyPointDecomposition`.**
-//!   Both take a `moveit::core::AttachedBody*` and build a *real* posed
-//!   sphere/point decomposition from its shapes -- unlike
-//!   [`AttachedBodySnapshot`] (identity/membership only, for cache
-//!   invalidation), this needs the attached body's actual geometry posed
-//!   into a decomposition, which [`GroupStateRepresentation`]'s own
-//!   attached-body loop (still a documented no-op; see
-//!   `collision_env_distance_field.rs`'s doc on
-//!   [`crate::group_state_representation`]) would need. Not named among
-//!   this round's four target functions
-//!   (`GroupStateRepresentation`/`getDistanceFieldCacheEntry`/
-//!   `generateCollisionCheckingStructures`/
-//!   `updateGroupStateRepresentationState`), so extending attached-body
-//!   *decomposition* support stays out of this round's scope rather than
-//!   added speculatively alongside it.
 //! - **`getBodySphereVisualizationMarkers`.** Builds a
 //!   `visualization_msgs::msg::MarkerArray` for RViz. PORTING-PLAN.md D1
 //!   keeps ROS message types out of every crate but the optional
@@ -181,7 +195,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use moveit_collision::{AllowedCollisionMatrix, AttachedBodyGeometry, Object};
 use moveit_error::Result;
-use moveit_geometry::Shape;
+use moveit_geometry::{Isometry3, Shape};
 use moveit_state::RobotState;
 
 use crate::PropagationDistanceField;
@@ -279,13 +293,14 @@ impl AttachedBodySnapshot {
 ///   why upstream's pregenerated-reuse branch is provably unreachable), so
 ///   there is nothing for this field to ever hold.
 /// - `attached_body_names_`/`attached_body_link_state_indices_` are plain
-///   `Vec`s, always empty, not an `Option`/sentinel encoding "no attached
-///   bodies in the group": this port never builds a
-///   [`crate::GroupStateRepresentation`] with attached bodies (see that
-///   type's own "Deviations from upstream"), so both fields are always
-///   empty on every `DistanceFieldCacheEntry` this port can construct.
-///   Distinct from [`DistanceFieldCacheEntry::attached_bodies`] below, which
-///   *is* populated: these two track only the bodies attached within the
+///   `Vec`s, not an `Option`/sentinel encoding "no attached bodies in the
+///   group": empty [`Vec`]s already represent that case exactly. As of round
+///   22, [`crate::generate_distance_field_cache_entry`] populates both
+///   fields for real, one entry per attached body found on a geometry-
+///   bearing, ACM-tracked link (see this function's own doc comment) --
+///   they are no longer permanently empty. Distinct from
+///   [`DistanceFieldCacheEntry::attached_bodies`] below, which tracks a
+///   different set: these two track only the bodies attached within the
 ///   cached group, `attached_bodies` tracks the entire robot state's
 ///   attached bodies (what upstream's cache-invalidation check actually
 ///   needs, regardless of group membership).
@@ -318,8 +333,10 @@ pub struct DistanceFieldCacheEntry<'m> {
     /// plain value rather than an `Option`.
     pub acm: AllowedCollisionMatrix,
     /// `distance_field_`: the distance field of every link *not* in the
-    /// group (and its attached bodies -- always none, see this type's
-    /// "Deviations from upstream"). `None` when
+    /// group, including (as of round 22) the points of any attached body on
+    /// such a link -- see `build_non_group_distance_field`'s own (module-
+    /// private, `collision_env_distance_field.rs`) "Deviation from upstream"
+    /// for the geometry-bearing-link precondition this inherits. `None` when
     /// [`generate_distance_field_cache_entry`](crate::generate_distance_field_cache_entry)
     /// was called with `generate_distance_field: None`, matching upstream's
     /// null `distance_field_` in that case.
@@ -343,11 +360,11 @@ pub struct DistanceFieldCacheEntry<'m> {
     /// port computes it directly instead of re-deriving it with a search
     /// that can never disagree.
     pub link_state_indices: Vec<usize>,
-    /// `attached_body_names_`. Always empty; see this type's "Deviations
-    /// from upstream".
+    /// `attached_body_names_`. See this type's "Deviations from upstream"
+    /// for what populates this and when it is empty.
     pub attached_body_names: Vec<String>,
-    /// `attached_body_link_state_indices_`. Always empty; see this type's
-    /// "Deviations from upstream".
+    /// `attached_body_link_state_indices_`. See this type's "Deviations from
+    /// upstream" for what populates this and when it is empty.
     pub attached_body_link_state_indices: Vec<usize>,
     /// Not an upstream field by this name -- see [`AttachedBodySnapshot`]'s
     /// doc comment for what this closes and why it exists as a field here
@@ -360,7 +377,13 @@ pub struct DistanceFieldCacheEntry<'m> {
     pub attached_bodies: Vec<AttachedBodySnapshot>,
     /// `self_collision_enabled_`, one entry per
     /// [`DistanceFieldCacheEntry::link_names`] followed by one per
-    /// [`DistanceFieldCacheEntry::attached_body_names`] (always empty here).
+    /// [`DistanceFieldCacheEntry::attached_body_names`] (populated for real
+    /// as of round 22, per-ACM-entry, when `attached_body_names` is
+    /// non-empty). Note: this data is computed correctly, but as of round 22
+    /// the attached-body slots it describes are not yet read by
+    /// `get_self_collisions`/`get_self_proximity_gradients` in
+    /// `collision_env_distance_field.rs` -- see that module's doc comment
+    /// for the known gap.
     pub self_collision_enabled: Vec<bool>,
     /// `intra_group_collision_enabled_`: a square matrix, same indexing as
     /// [`DistanceFieldCacheEntry::self_collision_enabled`] on both axes.
@@ -390,11 +413,13 @@ pub struct DistanceFieldCacheEntry<'m> {
 ///   matching the same "no in-scope aliasing need" reasoning
 ///   [`crate::PosedBodySphereDecompositionVector`]'s own doc comment already
 ///   applies to its elements.
-/// - `attached_body_decompositions_` is always empty: building a real posed
-///   decomposition from an attached body's geometry needs
-///   `getAttachedBodySphereDecomposition`, still deferred (see this module's
-///   doc comment) -- distinct from [`AttachedBodySnapshot`], which only
-///   identifies an attached body for cache invalidation, not its geometry.
+/// - `attached_body_decompositions_`: as of round 22, populated by
+///   [`crate::group_state_representation`] via
+///   [`crate::attached_body_sphere_decomposition`] (ported
+///   `getAttachedBodySphereDecomposition`) -- one entry per
+///   `dfce.attached_body_names`, distinct from [`AttachedBodySnapshot`],
+///   which only identifies an attached body for cache invalidation, not its
+///   geometry.
 /// - Upstream's custom copy constructor (deep-cloning
 ///   `link_body_decompositions_`/`attached_body_decompositions_`, shallow-
 ///   copying `link_distance_fields_` via `assign`) exists only to support the
@@ -410,15 +435,20 @@ pub struct GroupStateRepresentation<'a, 'm> {
     /// for a link without geometry, matching upstream's null
     /// `PosedBodySphereDecompositionPtr` for the same case.
     pub link_body_decompositions: Vec<Option<PosedBodySphereDecomposition>>,
-    /// `attached_body_decompositions_`. Always empty; see this type's
-    /// "Deviations from upstream".
+    /// `attached_body_decompositions_`, one entry per `dfce.attached_body_names`.
+    /// See this type's "Deviations from upstream".
     pub attached_body_decompositions: Vec<PosedBodySphereDecompositionVector>,
     /// `link_distance_fields_`, one entry per `dfce.link_names`. `None` for
     /// a link without geometry, matching
     /// [`GroupStateRepresentation::link_body_decompositions`].
     pub link_distance_fields: Vec<Option<PosedDistanceField>>,
     /// `gradients_`, one entry per `dfce.link_names` followed by one per
-    /// `dfce.attached_body_names` (always empty here).
+    /// `dfce.attached_body_names`. Note: the attached-body slots are
+    /// allocated and kept in sync by [`crate::group_state_representation`]/
+    /// [`crate::update_group_state_representation_state`], but as of round
+    /// 22 are not yet written to by the collision-checking functions in
+    /// `collision_env_distance_field.rs` -- see that module's doc comment
+    /// for the known gap.
     pub gradients: Vec<GradientInfo>,
 }
 
@@ -511,6 +541,63 @@ pub fn collision_object_point_decomposition(
         result.add_to_vector(PosedBodyPointDecomposition::with_pose(
             body_decomposition,
             shape_entry.global_pose(),
+        ));
+    }
+    Ok(result)
+}
+
+/// Upstream free function `getAttachedBodySphereDecomposition`: one
+/// [`PosedBodySphereDecomposition`] per shape in `attached.shapes`, each
+/// posed into the frame `link_transform` names.
+///
+/// Upstream reads `att->getGlobalCollisionBodyTransforms()[i]` -- each
+/// shape's pose already resolved into the world frame by the `RobotState`
+/// this crate does not carry attached bodies on. This port's
+/// [`AttachedBodyGeometry::shape_poses`] is link-relative instead (see that
+/// field's own doc comment), so the caller supplies `link_transform` (the
+/// attached-to link's own global transform) explicitly and this function
+/// composes `link_transform * shape_poses[i]` to land on the same global
+/// pose upstream reads directly.
+///
+/// # Errors
+///
+/// [`moveit_error::Error::Construct`] if any of `attached.shapes` has no
+/// `bodies::` counterpart -- see [`get_body_decomposition_cache_entry`]/
+/// [`BodyDecomposition::new`].
+pub fn attached_body_sphere_decomposition(
+    attached: &AttachedBodyGeometry<'_>,
+    link_transform: Isometry3,
+    resolution: f64,
+) -> Result<PosedBodySphereDecompositionVector> {
+    let mut result = PosedBodySphereDecompositionVector::new();
+    for (shape, shape_pose) in attached.shapes.iter().zip(attached.shape_poses) {
+        let body_decomposition = get_body_decomposition_cache_entry(shape, resolution)?;
+        let mut pbd = PosedBodySphereDecomposition::new(body_decomposition);
+        pbd.update_pose(link_transform * *shape_pose);
+        result.add_to_vector(pbd);
+    }
+    Ok(result)
+}
+
+/// Upstream free function `getAttachedBodyPointDecomposition`. See
+/// [`attached_body_sphere_decomposition`]'s doc comment for why this port
+/// takes `link_transform` explicitly to compose the global pose upstream
+/// reads directly off `att->getGlobalCollisionBodyTransforms()`.
+///
+/// # Errors
+///
+/// Same as [`attached_body_sphere_decomposition`].
+pub fn attached_body_point_decomposition(
+    attached: &AttachedBodyGeometry<'_>,
+    link_transform: Isometry3,
+    resolution: f64,
+) -> Result<PosedBodyPointDecompositionVector> {
+    let mut result = PosedBodyPointDecompositionVector::new();
+    for (shape, shape_pose) in attached.shapes.iter().zip(attached.shape_poses) {
+        let body_decomposition = get_body_decomposition_cache_entry(shape, resolution)?;
+        result.add_to_vector(PosedBodyPointDecomposition::with_pose(
+            body_decomposition,
+            link_transform * *shape_pose,
         ));
     }
     Ok(result)
