@@ -103,7 +103,7 @@
 //! `TotgOptions::resample_dt` is; see `moveit-trajectory`'s
 //! `time_optimal_trajectory_generation` module for that precedent). [`solve`]
 //! rejects `planning_time_limit + 5.0` outside `[i32::MIN, i32::MAX]` (as an
-//! `f64` comparison, before any cast) with a typed [`Error`] rather than
+//! `f64` comparison, before any cast) with a typed [`Error`](moveit_error::Error) rather than
 //! reproducing C++'s UB via Rust's saturating `as`, which has no "right
 //! answer" to match here. This deviation is scoped to exactly that rejected
 //! range and expires if upstream adds its own validation to

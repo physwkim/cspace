@@ -217,11 +217,16 @@ fn totg_robot_trajectory_matches_the_oracle() {
                 .unwrap_or_else(|e| panic!("case {case_index}: add_suffix_way_point: {e}"));
         }
 
-        let options = TotgOptions {
-            max_velocity_scaling_factor: case.max_velocity_scaling_factor.unwrap_or(1.0),
-            max_acceleration_scaling_factor: case.max_acceleration_scaling_factor.unwrap_or(1.0),
-            ..Default::default()
-        };
+        // Not struct-update syntax: `TotgOptions::resample_dt` is
+        // `pub(crate)` (see its doc comment), and functional update syntax
+        // requires every field to be nameable from the call site even when
+        // not explicitly listed — which an integration test, compiled as
+        // its own external crate, cannot do. Direct assignment to these two
+        // still-`pub` fields sidesteps that.
+        let mut options = TotgOptions::default();
+        options.max_velocity_scaling_factor = case.max_velocity_scaling_factor.unwrap_or(1.0);
+        options.max_acceleration_scaling_factor =
+            case.max_acceleration_scaling_factor.unwrap_or(1.0);
 
         let result = compute_time_stamps_with_limits(
             &mut trajectory,
