@@ -1,4 +1,6 @@
 // Copyright 2008 Willow Garage, Inc.
+// Copyright 2013 Willow Garage, Inc.
+// Copyright 2019 Bielefeld University
 // Copyright 2019 Open Robotics
 // Copyright 2024 Open Robotics
 // Copyright (c) 2026, moveit-rs contributors
