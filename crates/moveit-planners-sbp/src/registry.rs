@@ -144,13 +144,13 @@
 //! [`PlanningRequest::solver`]'s own doc comment for why `Rc<RefCell<>>` was
 //! chosen over `Arc` and over splitting the field in two.
 //!
-//! Boundary-tested at the `resolve_constraint_sampler` level, not
-//! end-to-end, for `path_constraints` specifically:
-//! `path_constraints_solver_wiring_matches_the_call_site` (this module's
-//! tests). An end-to-end `solve()`/`rrt_connect` test cannot discriminate
-//! here — `constrained_sampler::GroupConstraintSampler`'s own doc
-//! comment records a confirmed, separate architectural gap in how it seeds
-//! IK attempts that a wired path sampler does not reliably overcome.
+//! Boundary-tested at the `resolve_constraint_sampler` level
+//! (`path_constraints_solver_wiring_matches_the_call_site`, this module's
+//! tests) *and*, since round 25's seeding-gap fix
+//! (`constrained_sampler::GroupConstraintSampler`'s own doc comment),
+//! end-to-end (`path_constraints_end_to_end_wired_vs_unwired`): a wired
+//! path sampler now measurably beats an unwired one on a Cartesian-corridor
+//! query tight enough to be discriminating.
 //!
 //! [`PlanningRequest::path_constraints`] *is* carried directly as a
 //! [`KinematicConstraintSet`], because path constraints are evaluated
@@ -331,24 +331,25 @@ pub struct PlanningRequest {
     /// site's behavior before this field existed) remains fully valid and
     /// keeps producing identical results.
     ///
-    /// **What is, and is not, verified for the `path_constraints` call
-    /// site specifically:** `registry.rs`'s
+    /// **What is verified for the `path_constraints` call site
+    /// specifically:** `registry.rs`'s
     /// `path_constraints_solver_wiring_matches_the_call_site` test proves
     /// `resolve_constraint_sampler` (the function both call sites now share)
     /// builds no sampler for a Cartesian-only region when this field is
     /// `None`, and a real IK-backed sampler producing constraint-satisfying
-    /// draws when it is `Some(..)`. It does not prove a full RRT-Connect
-    /// path search through a Cartesian-constrained corridor succeeds
-    /// end-to-end — `constrained_sampler::GroupConstraintSampler`'s
-    /// doc comment records a confirmed, separate architectural gap (its
-    /// per-attempt IK seed is not re-anchored to tree locality) that a wired
-    /// path sampler does not reliably overcome, and in the most tightly
-    /// measured scenario, actively worsened (0/5 vs. 5/5 success at matched
-    /// step size and budget). Setting this field is safe and correctly
-    /// wired either way — `checker` still enforces `path_constraints` on
-    /// every candidate regardless of whether a sampler helped find one —
-    /// but it is not, by itself, a fix for path-constrained planning
-    /// reliability.
+    /// draws when it is `Some(..)`. `path_constraints_end_to_end_wired_vs_unwired`
+    /// additionally proves a full RRT-Connect path search through a
+    /// Cartesian-constrained corridor benefits end-to-end, on a budget tight
+    /// enough to be discriminating — round 24 had originally measured the
+    /// *opposite* here (wiring made `solve()` worse, 0/5 vs. 5/5 at matched
+    /// step size and budget), traced to `constrained_sampler::GroupConstraintSampler`'s
+    /// per-attempt IK seed not being re-anchored between draws; round 25
+    /// fixed that (see that type's own doc comment) and this field's
+    /// end-to-end behavior for `path_constraints` now matches its
+    /// already-verified behavior for [`Goal::Constraints`]. Setting this
+    /// field is always safe either way — `checker` still enforces
+    /// `path_constraints` on every candidate regardless of whether a
+    /// sampler helped find one.
     ///
     /// # Why `Option<Box<dyn KinematicsSolver>>`, not `Rc`/`Arc`/two fields
     ///
@@ -788,6 +789,7 @@ mod tests {
     use moveit_geometry::{Cuboid, Isometry3, Shape};
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
+    use rand::RngExt;
 
     use super::*;
     use crate::rrt_connect::Termination;
@@ -1366,17 +1368,21 @@ mod tests {
     /// sites through the shared `resolve_constraint_sampler` helper above.
     ///
     /// This is deliberately **not** an end-to-end `solve()`/`rrt_connect`
-    /// test: `crate::constrained_sampler::GroupConstraintSampler`'s own doc
-    /// comment records a confirmed, separate architectural gap (its `template`
-    /// is a fixed per-attempt seed, not re-anchored to tree locality) that
-    /// makes a wired path sampler *not* reliably improve — and in the
-    /// tightest measured scenario, actively worsen — full RRT-Connect
-    /// success for path-constrained corridors. A `solve()`-level test would
-    /// therefore measure that confound, not this round's change. Instead
-    /// this calls `resolve_constraint_sampler` directly, with the exact
-    /// arguments `solve()`'s `path_constraints` branch passes it
-    /// (`group_name`, `subgroup_solvers: vec![]`,
-    /// `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS`).
+    /// test, even though one now exists
+    /// (`path_constraints_end_to_end_wired_vs_unwired`, below `PlanningRequest::solver`'s
+    /// own uses): at the time this test was written,
+    /// `crate::constrained_sampler::GroupConstraintSampler`'s per-attempt IK
+    /// seed was not re-anchored between draws, which made a wired path
+    /// sampler *not* reliably improve — and in the tightest measured
+    /// scenario, actively worsen — full RRT-Connect success for
+    /// path-constrained corridors, so a `solve()`-level test would have
+    /// measured that confound, not this round's wiring change. Round 25
+    /// fixed the seeding gap itself (see that type's own doc comment); this
+    /// test stays boundary-scoped anyway, since it targets the wiring at
+    /// `resolve_constraint_sampler` specifically and needs no IK-quality
+    /// confound either way. Called with the exact arguments `solve()`'s
+    /// `path_constraints` branch passes it (`group_name`,
+    /// `subgroup_solvers: vec![]`, `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS`).
     ///
     /// **What this test proves:** `resolve_constraint_sampler` builds no
     /// sampler for a Cartesian-only region when `solver: None` — the red
@@ -1531,6 +1537,267 @@ mod tests {
                 "draw {i}: sample escaped the orientation tolerance"
             );
         }
+    }
+
+    /// Re-measures `constrained_sampler::GroupConstraintSampler`'s
+    /// tightest, most goal-region-analogous scenario (its own doc comment:
+    /// 0/5 wired vs. 5/5 unwired, matched `step_size`/budget, before the
+    /// persistent-`working` fix) against the *current* code: a
+    /// position+orientation region on `panda_arm`'s `panda_link8`, start
+    /// and goal both inside it but 0.8 rad apart (found by walking the
+    /// pose's self-motion manifold -- see below), full RRT-Connect
+    /// `solve()`, 5 seeds, matched `step_size`/iteration budget between
+    /// wired and unwired.
+    ///
+    /// **Measured after the fix: unwired 1/5, wired 5/5** (`step_size:
+    /// 0.03`, `goal_bias: 0.0`, `Iterations(20)`) -- the reverse of the
+    /// pre-fix regression this scenario's ancestor recorded, at a budget
+    /// tight enough to be discriminating (a looser budget, e.g. `step_size:
+    /// 0.2`/`Iterations(20)` tried first, let *both* wired and unwired
+    /// solve 5/5: 0.8 rad is close enough, and this region's local geometry
+    /// well-behaved enough, that a nearly-direct connect attempt stays
+    /// inside tolerance regardless of sampler at a coarser step size, so
+    /// that budget does not exercise this fix at all). This is one
+    /// scenario, not the four-scenario sweep the pre-fix measurement used
+    /// (that sweep was never committed as code to re-run) -- reported as
+    /// what it is, a single re-measurement showing the fix reversing the
+    /// specific regression it targeted, not a full re-sweep.
+    ///
+    /// The self-motion separation is found empirically, not fabricated:
+    /// independent random-restart IK (tried first) converged to distant,
+    /// disconnected branches 6-7 rad away even with a tight per-seed
+    /// acceptance filter -- an infeasible query regardless of sampler, not
+    /// a corridor. Walking instead -- repeatedly re-solving IK for the same
+    /// `target_pose` from a small random nudge of the *current* point, kept
+    /// only if the result stayed close to that nudge and still satisfied
+    /// `pc`/`oc` -- traces the actual connected manifold. If the walk does
+    /// not reach a nontrivial separation, this test reports that honestly
+    /// (`assert!` on the reached distance) rather than silently falling
+    /// back to a near-identical, easy pair.
+    #[test]
+    fn path_constraints_end_to_end_wired_vs_unwired() {
+        use moveit_constraints::{
+            Constraint, OrientationConstraint, OrientationTolerance, PositionConstraint,
+        };
+        use moveit_geometry::{Sphere, Transforms, Vector3};
+        use moveit_kinematics::{NewtonRaphsonSolver, SolveOptions, SolverParams};
+
+        const PANDA_ARM_JOINTS: [&str; 7] = [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ];
+
+        let (model, srdf) = load_panda();
+
+        let true_values = [0.3, -0.4, 0.2, -1.9, 0.1, 1.2, 0.5];
+        let mut fk_state = RobotState::new(&model);
+        fk_state.set_to_default_values();
+        for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&true_values) {
+            fk_state.set_variable_position(name, v).unwrap();
+        }
+        let target_pose = fk_state
+            .update()
+            .global_link_transform("panda_link8")
+            .unwrap();
+
+        let tf = Transforms::new("world").unwrap();
+        let pc = PositionConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[(Shape::Sphere(Sphere::new(0.008).unwrap()), target_pose)],
+            1.0,
+        )
+        .unwrap();
+        let oc = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.03,
+                y: 0.03,
+                z: 0.03,
+            },
+            1.0,
+        )
+        .unwrap();
+
+        // Trace the self-motion manifold by many small connected steps
+        // instead of independent random restarts: independent restarts
+        // (tried first) converged to distant, disconnected IK branches even
+        // with `max_restarts: 0` and a tight per-seed acceptance filter
+        // (measured: still 6-7 rad away, an infeasible query regardless of
+        // sampler). Walking accumulates a large, but genuinely *connected*,
+        // displacement -- each step re-solves IK from a small random nudge
+        // of the *current* point (not `true_values`), accepts it only if
+        // Newton-Raphson stayed close to that nudge (not a distant
+        // attractor) and the result still satisfies `pc`/`oc`, then moves
+        // `current` there before the next step.
+        let mut solver = NewtonRaphsonSolver::new(
+            &model,
+            "panda_arm",
+            &SolverParams {
+                max_restarts: 0,
+                ..SolverParams::default()
+            },
+        )
+        .expect("panda_arm is a chain");
+        let mut current = true_values;
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        for _ in 0..600u32 {
+            let seed: Vec<f64> = current
+                .iter()
+                .map(|&v| v + rng.random_range(-0.05..0.05))
+                .collect();
+            let mut options = SolveOptions::default();
+            let Some(solution) = solver.solve_with_options(&seed, &target_pose, &mut options)
+            else {
+                continue;
+            };
+            let step_dist: f64 = seed
+                .iter()
+                .zip(&solution)
+                .map(|(s, v)| (s - v).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            if step_dist > 0.15 {
+                continue;
+            }
+            let mut candidate_state = RobotState::new(&model);
+            candidate_state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&solution) {
+                candidate_state.set_variable_position(name, v).unwrap();
+            }
+            let posed = candidate_state.update();
+            if pc.decide(&posed).satisfied && oc.decide(&posed).satisfied {
+                current = solution.try_into().unwrap();
+            }
+        }
+
+        let best_distance: f64 = true_values
+            .iter()
+            .zip(&current)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        assert!(
+            best_distance > 0.3,
+            "walking panda_arm's self-motion manifold from true_values did not reach a \
+             nontrivial separation ({best_distance} rad) -- this scenario cannot exercise \
+             self-motion within the corridor"
+        );
+
+        let start_values = true_values;
+        let goal_values = current;
+
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+
+        let mut goal_state = RobotState::new(&model);
+        goal_state.set_to_default_values();
+        for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&goal_values) {
+            goal_state.set_variable_position(name, v).unwrap();
+        }
+        let goal = space.read_robot_state(&goal_state);
+
+        // Matched small budget, same shape as
+        // `path_constraint_sampler_is_load_bearing_not_merely_invoked`'s
+        // own `small_budget` -- large enough that an unconstrained straight
+        // line could plausibly succeed, small enough that a search
+        // struggling to stay in a narrow corridor visibly fails within it.
+        let small_budget = RrtConnectParams {
+            step_size: 0.03,
+            goal_bias: 0.0,
+            termination: Termination::Iterations(20),
+            nn_degree: 8,
+        };
+
+        let build_path_constraints = || {
+            let mut path_constraints = KinematicConstraintSet::new();
+            path_constraints.push(Constraint::Position(pc.clone()));
+            path_constraints.push(Constraint::Orientation(oc.clone()));
+            path_constraints
+        };
+
+        let set_start = |scene: &mut PlanningScene<'_>| {
+            scene.current_state_mut().set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&start_values) {
+                scene
+                    .current_state_mut()
+                    .set_variable_position(name, v)
+                    .unwrap();
+            }
+        };
+
+        let mut unwired_successes = 0;
+        let mut wired_successes = 0;
+        for seed in 0..5u64 {
+            let mut unwired_scene = PlanningScene::new(&model, &srdf);
+            set_start(&mut unwired_scene);
+            let env = ParryCollisionEnv::default();
+            let manager = RrtConnectManager;
+            let unwired_request = PlanningRequest {
+                group_name: "panda_arm".to_string(),
+                goal: Goal::State(goal.clone()),
+                path_constraints: Some(build_path_constraints()),
+                resolution: 0.05,
+                seed,
+                params: small_budget.clone(),
+                solver: None,
+            };
+            let mut unwired_context = manager
+                .get_planning_context(&mut unwired_scene, &env, unwired_request)
+                .expect("panda_arm is a real group");
+            if unwired_context.solve().is_ok() {
+                unwired_successes += 1;
+            }
+            drop(unwired_context);
+
+            let mut wired_scene = PlanningScene::new(&model, &srdf);
+            set_start(&mut wired_scene);
+            let wired_solver: Box<dyn KinematicsSolver> = Box::new(
+                NewtonRaphsonSolver::new(&model, "panda_arm", &SolverParams::default())
+                    .expect("panda_arm is a chain"),
+            );
+            let wired_request = PlanningRequest {
+                group_name: "panda_arm".to_string(),
+                goal: Goal::State(goal.clone()),
+                path_constraints: Some(build_path_constraints()),
+                resolution: 0.05,
+                seed,
+                params: small_budget.clone(),
+                solver: Some(wired_solver),
+            };
+            let mut wired_context = manager
+                .get_planning_context(&mut wired_scene, &env, wired_request)
+                .expect("panda_arm is a real group");
+            if wired_context.solve().is_ok() {
+                wired_successes += 1;
+            }
+            drop(wired_context);
+        }
+
+        eprintln!(
+            "path_constraints_end_to_end_wired_vs_unwired: unwired {unwired_successes}/5, \
+             wired {wired_successes}/5 (self-motion distance {best_distance} rad)"
+        );
+        assert_eq!(
+            wired_successes, 5,
+            "wired must solve every seed at this budget (measured: {wired_successes}/5)"
+        );
+        assert!(
+            wired_successes > unwired_successes,
+            "the fix's point is that wired now reliably beats unwired here, not merely ties it \
+             (measured: unwired {unwired_successes}/5, wired {wired_successes}/5)"
+        );
     }
 
     /// The D8 equivalence determination this round's brief asked for:
