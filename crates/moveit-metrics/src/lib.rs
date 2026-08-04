@@ -548,7 +548,12 @@ mod tests {
     /// removed, `distance()` to an infinite bound would make `range`
     /// infinite too, and `lower*upper/(range*range)` would be an
     /// `inf*inf/(inf*inf)` indeterminate form -- `NaN`, which fails this
-    /// equality outright (`NaN != NaN`) rather than merely drifting.
+    /// equality outright (`NaN != NaN`) rather than merely drifting. Measured
+    /// this round, not just argued: neutralizing the `JointType::Floating`
+    /// branch in `joint_limits_penalty` (`if false &&` guard, compiling but
+    /// never taking the skip) makes this exact test fail with `left: NaN,
+    /// right: NaN` -- this test already is the regression test for that
+    /// claim, it just hadn't been fired at the production branch before.
     #[test]
     fn floating_joint_is_skipped_in_joint_limits_penalty() {
         let model = build_model_with_panda_base_group();
