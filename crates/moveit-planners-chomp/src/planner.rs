@@ -513,8 +513,8 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
     use moveit_distance_field::{
-        DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry, PropagationDistanceField,
-        add_link_body_decompositions,
+        DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
+        PropagationDistanceField, add_link_body_decompositions,
     };
     use moveit_geometry::Vector3;
     use moveit_model::MeshSearchPaths;
@@ -913,6 +913,89 @@ mod tests {
         let last = solution.trajectory.last_way_point().unwrap();
         assert_relative_eq!(last.variable_position("j1").unwrap(), 0.5, epsilon = 1e-12);
         assert_relative_eq!(last.variable_position("j2").unwrap(), 1.0, epsilon = 1e-12);
+    }
+
+    /// Item 3 (this round): upstream's `chomp_moveit_test_rrbot.cpp`
+    /// `collisionAtEndOfPath` (target `[M_PI/2.0, 0]`, blocked by a fixed
+    /// obstacle link the URDF places in the arm's path) drives
+    /// `MotionPlanResponse::error_code == INVALID_MOTION_PLAN` -- the one
+    /// upstream integration-test outcome no `solve_*` test here had
+    /// exercised (the other four rrbot/panda cases either match an
+    /// existing `solve_rejects_*`/`solve_succeeds_*` test already, or are
+    /// `move_group`'s own pre-planning state validation, not
+    /// `chomp_motion_planner`'s -- see `doc/claim-audit/moveit-planners-chomp.md`).
+    ///
+    /// `M_PI/2.0` itself is rrbot-URDF-specific (link lengths, obstacle
+    /// placement) and not portable, matching the precedent already set for
+    /// `ChompGoal`'s "joint-only by construction" deviation: what upstream's
+    /// test actually pins is the *mechanism* -- `solve` returns
+    /// `Err(InvalidMotionPlan)` when [`ChompOptimizer::is_collision_free`]
+    /// is `false` after `optimize()` returns (`planner.rs`'s own
+    /// `if !optimizer.is_collision_free()` check, ported from
+    /// `chomp_planner.cpp:270-273`) -- not the specific joint values that
+    /// happen to trigger it on rrbot's geometry.
+    ///
+    /// # Why the goal cannot simply sit on the obstacle
+    ///
+    /// The first attempt at this test used `start == goal ==` the model's
+    /// identity pose with an obstacle on the (stationary) tip -- and
+    /// failed, `solve` returning `Ok`. [`ChompOptimizer::get_collision_cost`]
+    /// (`chomp_optimizer.cpp:942-963`) weights every point's collision
+    /// potential by `collision_point_vel_mag`, that point's *velocity*
+    /// along the trajectory -- CHOMP's obstacle cost is a swept cost (work
+    /// done moving through a field), not a static-occupancy cost. A
+    /// perfectly stationary trajectory has zero velocity everywhere, so
+    /// `c_cost` is exactly `0.0` regardless of penetration depth, which is
+    /// always `< collision_threshold`; `optimize()`'s collision-threshold
+    /// branch (this file's `d10b014` deviation note on `optimize()`) then
+    /// forces `is_collision_free = true` on that same pass, unconditionally
+    /// overwriting whatever [`ChompOptimizer::perform_forward_kinematics`]'s
+    /// own per-point check had just found. So the goal must actually be
+    /// *approached through* the obstacle, not merely coincide with it.
+    ///
+    /// This test instead starts at `j1 == -0.8` and targets `j1 == 0.8`
+    /// (`j2` fixed at `0.0` throughout), sweeping `tip` directly through
+    /// `(0.6, 0, 0)` -- `tip`'s own position at `j1 == 0.0` (two `0.3 0 0`
+    /// joint origins from `base`, see `two_joint_chain_model`'s doc
+    /// comment) -- where the obstacle point sits. With `max_iterations: 1`
+    /// and the default `trajectory_initialization_method`
+    /// (`"quintic-spline"`), the single `perform_forward_kinematics` pass
+    /// sees nonzero velocity at the obstacle crossing, so `c_cost` clears
+    /// `collision_threshold` and the mask above does not fire;
+    /// `is_collision_free` survives the pass as `false`.
+    #[test]
+    fn solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision() {
+        let model = two_joint_chain_model();
+        let mut start_state = RobotState::new(&model);
+        start_state.set_variable_position("j1", -0.8).unwrap();
+        let params = ChompParameters {
+            max_iterations: 1,
+            ..ChompParameters::default()
+        };
+        let mut cache = collision_cache(&model);
+        let mut field = empty_env_field();
+        // `tip`'s position at `j1 == 0.0`, directly on the swept path from
+        // `j1 == -0.8` to `j1 == 0.8` -- see this test's doc comment.
+        field.add_points_to_field(&[Vector3::new(0.6, 0.0, 0.0)]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let goal = ChompGoal {
+            joint_constraints: vec![joint_goal("j1", 0.8), joint_goal("j2", 0.0)],
+        };
+        let request = ChompRequest {
+            start_state: &start_state,
+            group_name: GROUP,
+            goal_constraints: std::slice::from_ref(&goal),
+            params: &params,
+            seed_trajectory: None,
+        };
+
+        let result = solve(&request, &mut collision, None, &mut |_, _| false, &mut rng);
+
+        assert_code(&result, MoveItErrorCode::InvalidMotionPlan);
     }
 
     #[test]
