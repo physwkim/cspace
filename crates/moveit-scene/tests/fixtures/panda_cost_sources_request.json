@@ -1,0 +1,419 @@
+[
+  {
+    "attached_bodies": [],
+    "id": 1,
+    "joint_values": {},
+    "max_costs": 500,
+    "objects": [],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "id": 2,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 5,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "id": 3,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 9,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "id": 4,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 50,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "group_name": "hand",
+    "id": 5,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 50,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "group_name": "panda_arm",
+    "id": 6,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 50,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [],
+    "id": 7,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 50,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          -2.05,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [
+      {
+        "id": "cube",
+        "link_name": "panda_hand",
+        "shape_poses": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "shapes": [
+          {
+            "size": [
+              0.05,
+              0.05,
+              0.05
+            ],
+            "type": "box"
+          }
+        ],
+        "subframes": {},
+        "touch_links": [
+          "panda_hand",
+          "panda_leftfinger",
+          "panda_rightfinger"
+        ]
+      }
+    ],
+    "id": 8,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 50,
+    "objects": [],
+    "op": "cost_sources"
+  },
+  {
+    "attached_bodies": [
+      {
+        "id": "cube",
+        "link_name": "panda_hand",
+        "shape_poses": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ]
+        ],
+        "shapes": [
+          {
+            "size": [
+              0.05,
+              0.05,
+              0.05
+            ],
+            "type": "box"
+          }
+        ],
+        "subframes": {},
+        "touch_links": [
+          "panda_hand",
+          "panda_leftfinger",
+          "panda_rightfinger",
+          "panda_link7"
+        ]
+      }
+    ],
+    "id": 9,
+    "joint_values": {
+      "panda_finger_joint1": 0.03870284711942077,
+      "panda_finger_joint2": 0.03870284711942077,
+      "panda_joint1": 1.7963031968139114,
+      "panda_joint2": -1.367045416675508,
+      "panda_joint3": 0.5202098102540242,
+      "panda_joint4": -2.7952401106926845,
+      "panda_joint5": -2.5815944557785055,
+      "panda_joint6": 3.6457397275674155,
+      "panda_joint7": 2.039502041528095
+    },
+    "max_costs": 50,
+    "objects": [],
+    "op": "cost_sources"
+  }
+]

@@ -1,5 +1,13 @@
 {
+  "panda_cost_sources": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_frame_transform": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_path_cost_sources": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   }

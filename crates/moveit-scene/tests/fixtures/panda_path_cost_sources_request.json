@@ -1,0 +1,300 @@
+[
+  {
+    "attached_bodies": [],
+    "id": 1,
+    "joint_values": {},
+    "max_costs": 10,
+    "objects": [],
+    "op": "path_cost_sources",
+    "overlap_fraction": 0.5,
+    "waypoints": [
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      },
+      {}
+    ]
+  },
+  {
+    "attached_bodies": [],
+    "id": 2,
+    "joint_values": {},
+    "max_costs": 10,
+    "objects": [],
+    "op": "path_cost_sources",
+    "overlap_fraction": 0.5,
+    "waypoints": [
+      {},
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      }
+    ]
+  },
+  {
+    "attached_bodies": [],
+    "id": 3,
+    "joint_values": {},
+    "max_costs": 2,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "path_cost_sources",
+    "overlap_fraction": 0.9,
+    "waypoints": [
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      },
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 0.3,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      }
+    ]
+  },
+  {
+    "attached_bodies": [],
+    "id": 4,
+    "joint_values": {},
+    "max_costs": 2,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "path_cost_sources",
+    "overlap_fraction": 0.8,
+    "waypoints": [
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      },
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 0.3,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      }
+    ]
+  },
+  {
+    "attached_bodies": [],
+    "id": 5,
+    "joint_values": {},
+    "max_costs": 2,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "path_cost_sources",
+    "overlap_fraction": 0.1,
+    "waypoints": [
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      },
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 0.3,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      }
+    ]
+  },
+  {
+    "attached_bodies": [],
+    "id": 6,
+    "joint_values": {},
+    "max_costs": 3,
+    "objects": [
+      {
+        "id": "floor",
+        "pose": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0.4,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "size": [
+            4,
+            4,
+            0.1
+          ],
+          "type": "box"
+        }
+      }
+    ],
+    "op": "path_cost_sources",
+    "overlap_fraction": 0.8,
+    "waypoints": [
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 1.7963031968139114,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      },
+      {
+        "panda_finger_joint1": 0.03870284711942077,
+        "panda_finger_joint2": 0.03870284711942077,
+        "panda_joint1": 0.3,
+        "panda_joint2": -1.367045416675508,
+        "panda_joint3": 0.5202098102540242,
+        "panda_joint4": -2.7952401106926845,
+        "panda_joint5": -2.5815944557785055,
+        "panda_joint6": 3.6457397275674155,
+        "panda_joint7": 2.039502041528095
+      }
+    ]
+  }
+]
