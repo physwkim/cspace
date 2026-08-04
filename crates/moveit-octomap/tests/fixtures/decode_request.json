@@ -1,0 +1,187 @@
+[
+  {
+    "actions": [],
+    "id": 1,
+    "op": "octomap",
+    "queries": [
+      {
+        "type": "serialize"
+      },
+      {
+        "type": "tree_walk"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "key": [
+          32768,
+          32768,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      }
+    ],
+    "id": 2,
+    "op": "octomap",
+    "queries": [
+      {
+        "type": "serialize"
+      },
+      {
+        "type": "tree_walk"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "key": [
+          32768,
+          32768,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32768,
+          32768,
+          32769
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32768,
+          32769,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32768,
+          32769,
+          32769
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32769,
+          32768,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32769,
+          32768,
+          32769
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32769,
+          32769,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32769,
+          32769,
+          32769
+        ],
+        "occupied": true,
+        "type": "update_key"
+      }
+    ],
+    "id": 3,
+    "op": "octomap",
+    "queries": [
+      {
+        "type": "serialize"
+      },
+      {
+        "type": "tree_walk"
+      }
+    ],
+    "resolution": 0.1
+  },
+  {
+    "actions": [
+      {
+        "key": [
+          32768,
+          32768,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32768,
+          32768,
+          32769
+        ],
+        "occupied": false,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32768,
+          32769,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32768,
+          32769,
+          32769
+        ],
+        "occupied": false,
+        "type": "update_key"
+      },
+      {
+        "key": [
+          32769,
+          32768,
+          32768
+        ],
+        "occupied": true,
+        "type": "update_key"
+      }
+    ],
+    "id": 4,
+    "op": "octomap",
+    "queries": [
+      {
+        "type": "serialize"
+      },
+      {
+        "type": "tree_walk"
+      }
+    ],
+    "resolution": 0.1
+  }
+]

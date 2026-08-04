@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 nalgebra.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 serde.workspace = true
