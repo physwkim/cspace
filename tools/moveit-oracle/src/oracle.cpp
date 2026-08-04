@@ -2597,6 +2597,20 @@ private:
   /// two implementations can agree on how many points they produce and still
   /// disagree on which, and the count alone would not distinguish "the last
   /// face is missing" from "the whole grid is shifted by one step".
+  ///
+  /// An optional `bbx: {min: [x,y,z], max: [x,y,z]}` adds a `leaves_bbx`
+  /// array in the same `{coordinate, size, occupied}` shape as `leaves`,
+  /// walked with `begin_leafs_bbx(point3d, point3d)` /
+  /// `end_leafs_bbx()` (`octomap/OcTreeBaseImpl.h:337-345`, public).
+  /// Requested by p3-shapes. `leaves` above walks `leaf_iterator`, which is
+  /// a *different* upstream class from `leaf_bbx_iterator`: pinning one says
+  /// nothing about the other's emission order, exactly the reasoning
+  /// `leaves_parity.rs` used to justify measuring `leaf_iterator` instead of
+  /// inferring it from `tree_iterator`. The port's only consumer of
+  /// `leaves_in_bbx` reads three of `Leaf`'s eight accessors, so this op
+  /// emits the same three -- `key`/`index_key`/`depth`/`log_odds`/
+  /// `occupancy` have no consumer in any crate and no fixture here would
+  /// have a reader to compare against.
   json octreePoints(const json& request) const
   {
     struct PointExposer : distance_field::PropagationDistanceField
@@ -2631,7 +2645,28 @@ private:
                                  { "occupied", tree.isNodeOccupied(*it) } });
     }
 
-    return json{ { "points", points_out }, { "count", points.size() }, { "leaves", leaves_out } };
+    json out{ { "points", points_out }, { "count", points.size() }, { "leaves", leaves_out } };
+
+    if (request.contains("bbx"))
+    {
+      const json& bbx = request.at("bbx");
+      const auto bbx_min = bbx.at("min").get<std::array<double, 3>>();
+      const auto bbx_max = bbx.at("max").get<std::array<double, 3>>();
+      const octomap::point3d min(bbx_min[0], bbx_min[1], bbx_min[2]);
+      const octomap::point3d max(bbx_max[0], bbx_max[1], bbx_max[2]);
+
+      json bbx_leaves_out = json::array();
+      for (octomap::OcTree::leaf_bbx_iterator it = tree.begin_leafs_bbx(min, max), end = tree.end_leafs_bbx();
+           it != end; ++it)
+      {
+        bbx_leaves_out.push_back(json{ { "coordinate", json::array({ it.getX(), it.getY(), it.getZ() }) },
+                                       { "size", it.getSize() },
+                                       { "occupied", tree.isNodeOccupied(*it) } });
+      }
+      out["leaves_bbx"] = bbx_leaves_out;
+    }
+
+    return out;
   }
 
   /// Ground truth for `find_internal_points_convex`
