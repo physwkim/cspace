@@ -62,6 +62,9 @@
 //! implemented for arbitrary types`) were both run inside `ros/`'s
 //! container -- see this round's report for the exact command and output.
 
+#[cfg(test)]
+mod conversion_coverage;
+
 pub mod constraints;
 pub mod geometry;
 pub mod model;
