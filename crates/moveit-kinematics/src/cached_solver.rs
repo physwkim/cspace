@@ -59,6 +59,31 @@ use crate::registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolveOptions, Solver
 /// [`crate::LevenbergMarquardtSolver`] call would, not a
 /// budget-constrained fraction of one call's worth.
 ///
+/// # Why a caching solver must never be an implicit default
+///
+/// A [`CachedIkSolver`] is not a transparent drop-in for its wrapped
+/// solver: for the same `(pose, seed)` query it can return a *different*
+/// solution than calling the wrapped solver directly, even when the
+/// caller's own `seed` is already exact. This is not a bug in this port --
+/// it is upstream's own approximate-nearest-neighbor cache design. With an
+/// empty cache, upstream's `IKCache::getBestApproximateIKSolution`
+/// (`cached_ik_kinematics_plugin/src/ik_cache.cpp:159-168`) returns a
+/// `static` all-zero dummy entry as the "nearest" match:
+/// `std::make_pair(std::vector<Pose>(1, pose), std::vector<double>(num_joints_, 0.))`.
+/// That all-zero seed is tried *first*, before the caller's own `seed`
+/// (only tried as the fallback -- see the "no elapsed-time timeout budget"
+/// deviation above for where that fallback is invoked from). A solver
+/// that resolves each new IK request against a cold, empty cache -- which
+/// is exactly what a caller doing one-shot resolution by name, rather than
+/// holding onto a long-lived warmed instance, always does -- will silently
+/// take a different solution branch than an uncached solver even when
+/// nothing about the query changed. Anything that must match an uncached
+/// solver's (or an external oracle's) output, or that resolves a solver
+/// fresh per call rather than keeping one warm across many queries, must
+/// not resolve to a `_cached` registration (see
+/// [`crate::registry::DEFAULT_SOLVER_NAME`]'s own doc comment, which
+/// points back here).
+///
 /// # Why this type has no oracle fixture
 ///
 /// This crate's IK correctness (`newton_raphson`/`lma`) is checked
