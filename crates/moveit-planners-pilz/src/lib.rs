@@ -39,9 +39,17 @@
 //!
 //! - [`trajectory_generator_ptp`] — `trajectory_generator_ptp.{hpp,cpp}`: the
 //!   concrete point-to-point generator.
+//! - [`velocity_profile_trap`] — `velocityprofile_trap.{hpp,cpp}` (vendored
+//!   orocos_kdl, not Pilz's own tree): the symmetric trapezoidal profile
+//!   `LIN`/`CIRC` use to time-parametrize Cartesian arc length.
+//! - [`path_line`] — `path_line.{hpp,cpp}` and
+//!   `rotational_interpolation_sa.{hpp,cpp}` (vendored orocos_kdl): the
+//!   straight-line Cartesian path `LIN` samples.
+//! - [`trajectory_generator_lin`] — `trajectory_generator_lin.{hpp,cpp}`: the
+//!   concrete straight-line generator.
 //!
-//! Not yet in scope, planned for later rounds: the concrete `_lin`/`_circ`
-//! generators and `trajectory_blender_transition_window`.
+//! Not yet in scope, planned for later rounds: the concrete `_circ`
+//! generator and `trajectory_blender_transition_window`.
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -94,7 +102,10 @@
 pub mod cartesian_trajectory;
 pub mod limits;
 pub mod path_circle;
+pub mod path_line;
 pub mod trajectory_functions;
 pub mod trajectory_generator;
+pub mod trajectory_generator_lin;
 pub mod trajectory_generator_ptp;
 pub mod velocity_profile;
+pub mod velocity_profile_trap;
