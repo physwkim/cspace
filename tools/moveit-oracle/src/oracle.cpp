@@ -881,6 +881,10 @@ public:
       return frameTransform(request);
     if (op == "is_state_valid")
       return isStateValid(request);
+    if (op == "cost_sources")
+      return costSources(request);
+    if (op == "path_cost_sources")
+      return pathCostSources(request);
     if (op == "octree_points")
       return octreePoints(request);
     if (op == "distance_field")
@@ -2389,6 +2393,114 @@ private:
     }
 
     return json{ { "queries", queries_out } };
+  }
+
+  /// One `CostSource` as JSON. Shared by both cost-source ops so the pair
+  /// cannot drift into two spellings of the same three fields.
+  ///
+  /// `getVolume()` is not emitted: it is `(aabb_max - aabb_min)`'s product,
+  /// derivable from what is here, and emitting a derived quantity would let
+  /// a fixture agree on the product while disagreeing on the bounds.
+  json costSourceToJson(const collision_detection::CostSource& cs) const
+  {
+    return json{ { "aabb_min", cs.aabb_min }, { "aabb_max", cs.aabb_max }, { "cost", cs.cost } };
+  }
+
+  /// `std::set<CostSource>` in iteration order, which is already
+  /// most-costly-first: `CostSource::operator<` sorts on `cost * getVolume()`
+  /// descending, tie-breaking on `cost` then `aabb_min`
+  /// (`collision_common.hpp:128-141`). The order is emitted as-is rather than
+  /// re-sorted here, so a Rust-side container whose ordering disagrees shows
+  /// up as a fixture mismatch instead of being normalised away.
+  json costSourcesToJson(const std::set<collision_detection::CostSource>& costs) const
+  {
+    json out = json::array();
+    for (const collision_detection::CostSource& cs : costs)
+      out.push_back(costSourceToJson(cs));
+    return out;
+  }
+
+  /// Ground truth for `PlanningScene::cost_sources` -- upstream's
+  /// `PlanningScene::getCostSources(const RobotState&, std::size_t, const
+  /// std::string&, std::set<CostSource>&)` (`planning_scene.cpp:2492-2506`).
+  ///
+  /// This is the `state` half of the four overloads, and it is deliberately
+  /// *not* symmetric with the trajectory half: it runs one `checkCollision`
+  /// with `creq.cost = true` and swaps the result out, with no
+  /// `removeCostSources`/`removeOverlapping` pass. p1-fixtures found that
+  /// asymmetry by reading the two bodies rather than assuming the pairs
+  /// matched; this op exists so the Rust port's copy of it is checked against
+  /// upstream instead of against that reading.
+  ///
+  /// `group_name` is optional and defaults to `""`, which upstream's own
+  /// two-argument overload passes to mean "the complete robot"
+  /// (`collision_common.hpp:149-150`) -- so the omitted case exercises the
+  /// same path the omitting overload does, and no separate op is needed for
+  /// it. `objects`/`attached_bodies` read the same schemas as `collision`.
+  json costSources(const json& request)
+  {
+    planning_scene::PlanningScene scene(model_);
+    addRequestObjects(*scene.getWorldNonConst(), request);
+
+    applyJointValues(request);
+    applyAttachedBodies(*state_, request);
+
+    const auto max_costs = request.at("max_costs").get<std::size_t>();
+    const std::string group_name = request.value("group_name", std::string());
+
+    std::set<collision_detection::CostSource> costs;
+    scene.getCostSources(*state_, max_costs, group_name, costs);
+
+    return json{ { "cost_sources", costSourcesToJson(costs) } };
+  }
+
+  /// Ground truth for `PlanningScene::path_cost_sources` -- upstream's
+  /// trajectory overload (`planning_scene.cpp:2457-2490`).
+  ///
+  /// The three steps after the per-waypoint union are order-dependent and
+  /// reproduced in upstream's order: truncate the union to `max_costs`,
+  /// then `removeCostSources(costs, cs_start, overlap_fraction)` against the
+  /// *first waypoint's* sources alone, then `removeOverlapping(costs,
+  /// overlap_fraction)` (`:2483-2489`). `cs_start` is captured by `swap` at
+  /// `i == 0`, so it is the first waypoint's set and not a copy of the
+  /// running union -- a distinction only a trajectory whose first waypoint
+  /// collides can show, which is why `waypoints` is a required field with no
+  /// default rather than something this op will synthesise.
+  ///
+  /// Every waypoint carries the same attached bodies and the same world, for
+  /// the reason `isStateValid` gives at its own doc: attachments here live on
+  /// the state, and a waypoint state is a copy of `*state_` with only the
+  /// named joint variables overwritten.
+  json pathCostSources(const json& request)
+  {
+    planning_scene::PlanningScene scene(model_);
+    addRequestObjects(*scene.getWorldNonConst(), request);
+
+    applyJointValues(request);
+    applyAttachedBodies(*state_, request);
+
+    robot_trajectory::RobotTrajectory trajectory(model_);
+    for (const auto& wp_json : request.at("waypoints"))
+    {
+      moveit::core::RobotState waypoint_state(*state_);
+      for (auto it = wp_json.begin(); it != wp_json.end(); ++it)
+      {
+        if (!hasVariable(it.key()))
+          throw std::runtime_error("unknown joint variable: " + it.key());
+        waypoint_state.setVariablePosition(it.key(), it.value().get<double>());
+      }
+      waypoint_state.update();
+      trajectory.addSuffixWayPoint(waypoint_state, 0.1);
+    }
+
+    const auto max_costs = request.at("max_costs").get<std::size_t>();
+    const std::string group_name = request.value("group_name", std::string());
+    const double overlap_fraction = request.at("overlap_fraction").get<double>();
+
+    std::set<collision_detection::CostSource> costs;
+    scene.getCostSources(trajectory, max_costs, group_name, costs, overlap_fraction);
+
+    return json{ { "cost_sources", costSourcesToJson(costs) } };
   }
 
   /// Ground truth for `PlanningScene::is_state_valid`/`is_state_constrained`/
