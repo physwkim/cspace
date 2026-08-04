@@ -283,11 +283,15 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// - `readBinaryNode(std::istream&, NODE*)` -- ported as the private
 ///   recursive helper `read_binary_node`, called from
 ///   [`OcTree::read_binary_data`].
-/// - `writeBinaryNode(std::ostream&, const NODE*) const` -- distinct: the
-///   encode direction is still unported (round 33's brief scoped decode
-///   only). Reopens when a caller in this workspace needs to *encode*
-///   `moveit_msgs::Octomap.data`, not just decode it.
-/// - `writeBinaryData(std::ostream&) const` -- distinct, same reasoning.
+/// - `writeBinaryNode(std::ostream&, const NODE*) const` -- ported as the
+///   private recursive helper `write_binary_node` (this round), the exact
+///   inverse of `read_binary_node`, called from
+///   [`OcTree::write_binary_data`]. Round 33's brief scoped decode only;
+///   this round's brief made encode in-scope too.
+/// - `writeBinaryData(std::ostream&) const` -- ported as
+///   [`OcTree::write_binary_data`] (this round). Pinned byte-for-byte
+///   against the oracle's own `serialize` output, not just round-tripped
+///   through this crate's own decoder -- see `tests/encode_parity.rs`.
 /// - `updateInnerOccupancy()` -- ported as
 ///   [`OcTree::update_inner_occupancy`].
 /// - `integrateHit(NODE*) const` -- distinct, inlined into
@@ -413,8 +417,10 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///   (via `OcTreeBaseImpl`) to fill `moveit_msgs::Octomap.data` when
 ///   `msg.binary == false`, the full (non-quantized) counterpart of the
 ///   binary path above.
-/// - `writeData(std::ostream&) const` -- distinct: the encode direction is
-///   still unported, same reasoning as `writeBinaryData` above.
+/// - `writeData(std::ostream&) const` -- ported as [`OcTree::write_data`]
+///   (this round), fused with `writeNodesRecurs`/`OcTreeDataNode::writeData`
+///   into the private `write_data_node` helper, same reasoning and same
+///   oracle-byte pinning as `writeBinaryData` above.
 /// - `typedef leaf_iterator iterator` / `begin(unsigned char) const` --
 ///   ported as [`OcTree::leaves`] (upstream's default iterator *is*
 ///   `leaf_iterator`, the same primitive `begin_leafs` below returns).
@@ -595,12 +601,18 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///
 /// **Round 33 update:** `readBinaryData`/`readBinaryNode`/`readData` moved
 /// from `distinct` to `ported` (3 bullets); their `write*` counterparts
-/// stay `distinct`, the encode direction remains out of scope.
+/// stayed `distinct` at the time, the encode direction being out of scope
+/// for that round.
+///
+/// **This round's update:** `writeBinaryData`/`writeBinaryNode`/`writeData`
+/// (the `write*` counterparts round 33 left `distinct`) moved to `ported`
+/// too (3 more bullets) -- encode is in scope this round, see
+/// [`OcTree::write_binary_data`]/[`OcTree::write_data`].
 ///
 /// ```text
-/// ported                58
+/// ported                61
 /// unported, in scope     8
-/// distinct               85
+/// distinct               82
 /// ------------------------
 /// total                 151
 /// ```
@@ -1237,10 +1249,36 @@ impl OcTree {
     /// max of its children after that recursion returns, via the private
     /// `update_occupancy_from_children`), `00` absent. **A leaf's
     /// true log-odds is not preserved -- only which side of the
-    /// occupied/free split it fell on.** Trailing bytes after a complete
-    /// decode are not an error: upstream's own `writeBinaryData` never
-    /// prepends a length, so nothing on either side of this format expects
-    /// the consumed length to equal `bytes.len()`.
+    /// occupied/free split it fell on.**
+    ///
+    /// # Trailing bytes are accepted, matching upstream's message path
+    ///
+    /// Neither this function nor upstream's `readBinaryNode` checks that the
+    /// cursor/stream is exhausted once the recursive decode returns --
+    /// `vec![1, 2, 3]` decodes as two leaves from the first 2 bytes and
+    /// returns `Ok`, silently ignoring byte 3, and this is exact parity, not
+    /// a gap. `octomap_msgs::readTree`
+    /// (`/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h`,
+    /// the `moveit_msgs::Octomap` message path this decodes for) writes
+    /// `msg.data` straight into a `std::stringstream` and calls
+    /// `octree->readBinaryData(datastream)` with no length header and no
+    /// exhaustion check of its own. Upstream *does* have an integrity check
+    /// -- `AbstractOccupancyOcTree::readBinary`
+    /// (`third_party/octomap/octomap/src/AbstractOccupancyOcTree.cpp:172-176`)
+    /// compares `size != this->size()` -- but `size` there comes from the
+    /// `.bt` *file* header (`# Octomap OcTree binary file` plus a node
+    /// count line), which the message path never has: a
+    /// `moveit_msgs::Octomap` carries no analogous count field. So the file
+    /// path can detect a short read and the message path structurally
+    /// cannot, upstream included -- this function has no less information
+    /// than `readBinaryNode` does, it is simply never given a count to
+    /// check against in the first place.
+    ///
+    /// **§153.1 expiry:** if a future round decides to reject trailing
+    /// bytes here, that is a deliberate *deviation* from upstream's
+    /// documented message-path behavior, not a bug fix -- it needs sign-off
+    /// and a doc update here and on [`Self::read_data`], not a silent
+    /// "hardening".
     pub fn read_binary_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
@@ -1269,6 +1307,22 @@ impl OcTree {
     /// recurse in index order). Every node's exact log-odds survives this
     /// format's round trip; nothing here is quantized the way
     /// [`Self::read_binary_data`]'s leaves are.
+    ///
+    /// # Trailing bytes are accepted, for the same reason as `read_binary_data`
+    ///
+    /// This function does not check that the cursor is exhausted once the
+    /// recursive decode returns either -- 5 real bytes plus 32 bytes of
+    /// junk still decodes `Ok`. `octomap_msgs::fullMsgToMap`
+    /// (`/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h`,
+    /// the `msg.binary == false` counterpart to `readTree`) writes
+    /// `msg.data` into a `std::stringstream` and calls
+    /// `tree->readData(datastream)` directly, with the same absence of a
+    /// length header or exhaustion check -- see [`Self::read_binary_data`]'s
+    /// doc for the full citation and why the file-path integrity check
+    /// (`AbstractOccupancyOcTree::readBinary`'s `size != this->size()`) has
+    /// no counterpart on this message path. Same §153.1 expiry: rejecting
+    /// trailing bytes here would be a deviation requiring sign-off, not a
+    /// fix.
     pub fn read_data(&mut self, bytes: &[u8]) -> Result<(), DecodeError> {
         if self.root.is_some() {
             return Err(DecodeError::TreeAlreadyPopulated);
@@ -1278,6 +1332,38 @@ impl OcTree {
         read_data_node(&mut cursor, &mut root, 0)?;
         self.root = Some(Box::new(root));
         Ok(())
+    }
+
+    /// Upstream `OccupancyOcTreeBase::writeBinaryData`: the exact inverse of
+    /// [`Self::read_binary_data`], encoding this tree into the compact,
+    /// lossy wire format `moveit_msgs::Octomap.data` carries when
+    /// `msg.binary == true`. Upstream's own `if (this->root) ...` guard
+    /// (`writeBinaryData` never writes when the tree is empty) is preserved
+    /// exactly -- an empty tree encodes to an empty `Vec`, which is *not*
+    /// itself decodable by [`Self::read_binary_data`] (that always needs at
+    /// least the root's own 2-byte record); this is upstream's own
+    /// asymmetry, not one this port introduces.
+    pub fn write_binary_data(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if let Some(root) = &self.root {
+            write_binary_node(self, root, &mut out);
+        }
+        out
+    }
+
+    /// Upstream `OcTreeBaseImpl::writeData`: the exact inverse of
+    /// [`Self::read_data`], encoding this tree into the full, lossless wire
+    /// format `moveit_msgs::Octomap.data` carries when `msg.binary ==
+    /// false`. Same empty-tree asymmetry as [`Self::write_binary_data`]:
+    /// upstream's `if (root) writeNodesRecurs(root, s);` writes nothing for
+    /// an empty tree, and that empty output does not round-trip through
+    /// [`Self::read_data`] either.
+    pub fn write_data(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if let Some(root) = &self.root {
+            write_data_node(root, &mut out);
+        }
+        out
     }
 }
 
@@ -1498,6 +1584,74 @@ fn read_data_node(cursor: &mut Cursor, node: &mut Node, depth: u32) -> Result<()
         }
     }
     Ok(())
+}
+
+/// Sets child `base_idx + i`'s 2-bit code in `byte` (bit `2*i` low, `2*i+1`
+/// high, matching [`create_binary_children`]'s read-side convention exactly
+/// so the two are inverses): `00` absent, `10` free leaf, `01` occupied
+/// leaf, `11` has children. Upstream `writeBinaryNode`'s two near-identical
+/// `for` loops (children 0-3 into `child1to4`, 4-7 into `child5to8`), fused
+/// the same way [`create_binary_children`] fuses the read side.
+fn set_binary_child_bits(tree: &OcTree, byte: &mut u8, i: u8, child: Option<&Node>) {
+    let (low, high) = match child {
+        None => (0u8, 0u8),
+        Some(c) if c.has_children() => (1, 1),
+        Some(c) if tree.is_node_occupied_log_odds(c.log_odds) => (0, 1),
+        Some(_) => (1, 0),
+    };
+    *byte |= low << (i * 2);
+    *byte |= high << (i * 2 + 1);
+}
+
+/// Upstream `OccupancyOcTreeBase::writeBinaryNode`, the exact inverse of
+/// [`read_binary_node`]. `node`'s own `log_odds` is never written -- like
+/// the read side, only which of its *children* are present/free/
+/// occupied/branching is encoded; a root's real value is not part of this
+/// format on either side of the round trip.
+fn write_binary_node(tree: &OcTree, node: &Node, out: &mut Vec<u8>) {
+    let mut child1to4 = 0u8;
+    let mut child5to8 = 0u8;
+    for i in 0..4u8 {
+        set_binary_child_bits(tree, &mut child1to4, i, node.child(i as usize));
+    }
+    for i in 0..4u8 {
+        set_binary_child_bits(tree, &mut child5to8, i, node.child((i + 4) as usize));
+    }
+    out.push(child1to4);
+    out.push(child5to8);
+
+    for i in 0..8usize {
+        if let Some(child) = node.child(i)
+            && child.has_children()
+        {
+            write_binary_node(tree, child, out);
+        }
+    }
+}
+
+/// Upstream `OcTreeBaseImpl::writeNodesRecurs` + `OcTreeDataNode::writeData`
+/// (the latter is exactly `out.extend(node.log_odds.to_le_bytes())`, fused
+/// in here rather than kept separate, matching [`read_data_node`]'s own
+/// fusion of the read-side pair). Same little-endian §153.1 deviation as
+/// [`Cursor::read_f32_le`]: a raw memory dump with no endianness contract in
+/// upstream, hardcoded little-endian here to match every producer/consumer
+/// this workspace actually reaches.
+fn write_data_node(node: &Node, out: &mut Vec<u8>) {
+    out.extend_from_slice(&node.log_odds.to_le_bytes());
+
+    let mut children = 0u8;
+    for i in 0..8usize {
+        if node.child(i).is_some() {
+            children |= 1 << i;
+        }
+    }
+    out.push(children);
+
+    for i in 0..8usize {
+        if let Some(child) = node.child(i) {
+            write_data_node(child, out);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1907,6 +2061,50 @@ mod tests {
     }
 
     #[test]
+    fn read_binary_data_ignores_trailing_bytes_after_a_complete_decode() {
+        // Same 2-byte complete record as the test above, plus 3 bytes that
+        // are not part of any node -- matching upstream's own `readTree`,
+        // which never tells `readBinaryData` how many bytes to expect. See
+        // this function's own doc for the citation.
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&[0x01, 0x00, 0xff, 0xff, 0xff])
+            .unwrap();
+        assert_eq!(tree.num_nodes(), 2);
+    }
+
+    #[test]
+    fn write_binary_data_of_an_empty_tree_is_empty() {
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.write_binary_data(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn write_binary_data_is_the_exact_inverse_of_read_binary_data_for_a_single_free_leaf() {
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&[0x01, 0x00]).unwrap();
+        assert_eq!(tree.write_binary_data(), vec![0x01, 0x00]);
+    }
+
+    #[test]
+    fn write_binary_data_is_the_exact_inverse_of_read_binary_data_for_all_eight_children() {
+        // Every one of the root's 8 children a free leaf: each 2-bit code
+        // is `10` (low=1, high=0), four pairs per byte -> 0b01010101 = 0x55.
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&[0x55, 0x55]).unwrap();
+        assert_eq!(tree.write_binary_data(), vec![0x55, 0x55]);
+    }
+
+    #[test]
+    fn write_binary_data_re_encodes_a_nested_has_children_record() {
+        // Root: child 0 has children (`11` = 0x03 in the low byte). Child
+        // 0's own record: child 0 is an occupied leaf (`01` = 0x01).
+        let bytes = vec![0x03, 0x00, 0x01, 0x00];
+        let mut tree = OcTree::new(0.1);
+        tree.read_binary_data(&bytes).unwrap();
+        assert_eq!(tree.write_binary_data(), bytes);
+    }
+
+    #[test]
     fn read_data_round_trips_a_two_node_chain_s_exact_log_odds() {
         // Root's record: an arbitrary (non-clamp) log-odds, one child (bit 0
         // of the children byte) -- then the child's own record: a
@@ -1924,6 +2122,44 @@ mod tests {
         // where an arbitrary, non-clamp value is meaningful ground truth.
         let leaf = tree.leaves().next().unwrap();
         assert_eq!(leaf.log_odds(), -3.5);
+    }
+
+    #[test]
+    fn write_data_of_an_empty_tree_is_empty() {
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.write_data(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn write_data_is_the_exact_inverse_of_read_data_for_a_two_node_chain() {
+        // Same bytes as `read_data_round_trips_a_two_node_chain_s_exact_log_odds`
+        // above: this format has no lossy quantization on either side, so
+        // the exact f32 bit pattern (not just the value) must survive the
+        // decode-then-re-encode round trip.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.25f32.to_le_bytes());
+        bytes.push(0x01); // child 0 exists
+        bytes.extend_from_slice(&(-3.5f32).to_le_bytes());
+        bytes.push(0x00); // leaf, no children
+        let mut tree = OcTree::new(0.1);
+        tree.read_data(&bytes).unwrap();
+        assert_eq!(tree.write_data(), bytes);
+    }
+
+    #[test]
+    fn read_data_ignores_trailing_bytes_after_a_complete_decode() {
+        // A minimal complete record: one f32 log-odds, one children byte
+        // (0x00 = no children), then bytes that are not part of any node --
+        // matching upstream's own `fullMsgToMap`, which never tells
+        // `readData` how many bytes to expect. See this function's own doc
+        // for the citation.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.25f32.to_le_bytes());
+        bytes.push(0x00);
+        bytes.extend_from_slice(&[0xff; 32]);
+        let mut tree = OcTree::new(0.1);
+        tree.read_data(&bytes).unwrap();
+        assert_eq!(tree.num_nodes(), 1);
     }
 
     /// `has_children_levels` pairs of (child 0 has children), followed by

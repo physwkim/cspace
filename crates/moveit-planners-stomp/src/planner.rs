@@ -810,11 +810,43 @@ mod tests {
     /// handed to a second thread can stop a `plan` call already in flight
     /// on the calling thread -- the real motivating case (upstream's own
     /// `allowed_planning_time` watcher thread, cpp:247-257), not just the
-    /// same-thread "cancel before" case above. `num_iterations` is set high
-    /// enough that an uninterrupted run would not plausibly finish within
-    /// this test's bound; a clean, prompt return is only possible if the
-    /// second thread's `cancel()` actually reached the `plan` call in
-    /// flight.
+    /// same-thread "cancel before" case above.
+    ///
+    /// **Round 34: no sleep, no wall-clock assertion.** The original version
+    /// of this test had the watcher thread `sleep(20ms)` then `cancel()`,
+    /// and asserted `elapsed < 5s` as proof cancellation reached the
+    /// in-flight call. That pins how fast *this machine* happens to be, not
+    /// whether cancellation actually did anything: a machine fast enough to
+    /// finish `num_iterations` rollouts of a trivial zero-cost task within
+    /// 20ms (or within 5s regardless of the sleep) makes the test pass by
+    /// finishing on its own, never exercising the cancel path the test
+    /// exists to cover. Counting cost-function calls instead of measuring
+    /// time removes both: the watcher spins on the call count itself (a
+    /// deterministic rendezvous with the solver's actual progress, not a
+    /// guess about how much progress a fixed sleep buys), and the assertion
+    /// is that the total call count stays orders of magnitude below what
+    /// completing `num_iterations` would require -- true on any machine,
+    /// since it is a count of work actually performed, not elapsed time.
+    ///
+    /// This surfaced a second, sharper instance of the same defect: the
+    /// original test also left `num_iterations_after_valid` at `0`. A
+    /// zero-cost `cost_fn` is valid from the first iteration, and
+    /// `Stomp::solve`'s own loop (`stomp.rs`, `solve`) breaks as soon as
+    /// `valid_iterations > num_iterations_after_valid` -- with `0` that is
+    /// true after exactly one iteration, every run, cancellation or not.
+    /// The old test would have reported success with cancellation deleted
+    /// entirely: `elapsed < 5s` holds either way, because `solve` was never
+    /// going to run past iteration 1 regardless of what the watcher thread
+    /// did. Confirmed by instrumenting the call-count version with the
+    /// original `num_iterations_after_valid = 0`: the watcher's own spin
+    /// loop hung indefinitely because `solve` returned after ~17 total
+    /// calls (one pre-loop `compute_optimized_cost` plus one iteration's
+    /// 15 rollouts + 1) and never produced the 2 * num_rollouts calls the
+    /// watcher was waiting to see -- the *test*, not the solver, was stuck.
+    /// Setting `num_iterations_after_valid` to `num_iterations` removes the
+    /// early-break path entirely, so `proceed` going false is the only exit
+    /// this test's `solve` call can take before exhausting all 1,000,000
+    /// iterations, which is what actually exercises cancellation.
     #[test]
     fn cancelling_from_another_thread_stops_a_plan_call_already_in_flight() {
         let model = panda_model();
@@ -827,19 +859,39 @@ mod tests {
         let num_timesteps = 8;
         let mut config = base_config(num_timesteps, group.active_joint_names().len());
         config.num_iterations = 1_000_000;
-        config.num_iterations_after_valid = 0;
+        // Not 0: `Stomp::solve`'s own loop breaks as soon as
+        // `valid_iterations > num_iterations_after_valid`, and a zero-cost
+        // task is valid from iteration 1 -- with 0 here the solve breaks
+        // after exactly one iteration on its own, every time, regardless of
+        // whether cancellation ever fires. Set far above anything this test
+        // reaches so the *only* way `solve` exits early is `proceed`
+        // going false, which is what this test exists to exercise.
+        config.num_iterations_after_valid = config.num_iterations;
+        let num_rollouts = config.num_rollouts;
+
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let call_count_in_cost_fn = std::sync::Arc::clone(&call_count);
+        let cost_fn: CostFn<'_> = Box::new(move |values: &DMatrix<f64>| {
+            call_count_in_cost_fn.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some((DVector::zeros(values.ncols()), true))
+        });
 
         let cancel_handle = CancelHandle::new();
         let watcher_handle = cancel_handle.clone();
+        let call_count_in_watcher = std::sync::Arc::clone(&call_count);
         let watcher = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            // Wait for a few rollouts to have actually run -- a rendezvous
+            // with real solver progress, not a guessed sleep duration.
+            while call_count_in_watcher.load(std::sync::atomic::Ordering::SeqCst) < 2 * num_rollouts
+            {
+                std::thread::yield_now();
+            }
             watcher_handle.cancel();
         });
 
-        let start_time = std::time::Instant::now();
         let result = plan(
             config,
-            no_cost_fn(),
+            cost_fn,
             PlanRequest {
                 start_state: &start,
                 goal_state: &goal,
@@ -849,17 +901,23 @@ mod tests {
             ChaCha8Rng::seed_from_u64(5),
             cancel_handle,
         );
-        let elapsed = start_time.elapsed();
         watcher.join().unwrap();
 
         result.unwrap().expect(
             "a zero-cost task must still report success on the trajectory in progress \
                       when cancellation lands",
         );
+
+        let calls = call_count.load(std::sync::atomic::Ordering::SeqCst);
+        let plausible_uncancelled_calls = config.num_iterations * num_rollouts;
         assert!(
-            elapsed < std::time::Duration::from_secs(5),
-            "plan() took {elapsed:?} -- with num_iterations=1_000_000 and no cancellation ever \
-             reaching it, this call would not plausibly return this quickly on its own"
+            calls * 1000 < plausible_uncancelled_calls,
+            "cost_fn was called {calls} times; an uncancelled run of \
+             num_iterations={} * num_rollouts={num_rollouts} would call it up to \
+             {plausible_uncancelled_calls} times -- {calls} is not orders of magnitude \
+             below that, so cancellation may not have actually reached the in-flight \
+             call rather than the run merely finishing early",
+            config.num_iterations,
         );
     }
 

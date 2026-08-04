@@ -186,7 +186,7 @@ mod tests {
 
     fn adapter() -> AddTimeOptimalParameterization {
         let d = TotgOptions::default();
-        AddTimeOptimalParameterization::new(d.path_tolerance, d.resample_dt, d.min_angle_change)
+        AddTimeOptimalParameterization::new(d.path_tolerance, d.resample_dt(), d.min_angle_change)
     }
 
     #[test]

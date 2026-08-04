@@ -37,6 +37,7 @@ use moveit_scene::PlanningScene;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::collision_object::{OCTOMAP_NS, apply_collision_object};
+use super::header_frame_transform;
 use crate::geometry::Pose;
 
 /// `PlanningScene.is_diff`'s exact meaning: this scene has a parent it is
@@ -100,6 +101,23 @@ pub fn apply_planning_scene_world(
 /// before either entry point sees it -- `octomap_msgs::readTree`/`readData`
 /// treat the wire bytes as raw octets, not signed values; the `i8` on the
 /// Rust side is purely `r2r`'s message binding, not a semantic sign.
+///
+/// `map.origin` is relative to `map.header.frame_id`, not the world --
+/// upstream composes `t = getFrameTransform(map.header.frame_id)` with the
+/// converted origin (`p = t * p`, `:1494-1497`) before inserting, the same
+/// header-to-world resolution `apply_collision_object`/`apply_attached_object`
+/// already do for `CollisionObject.header`/`AttachedCollisionObject.object.header`
+/// (`src/scene/collision_object.rs:358`, `src/scene/attached.rs:221`) --
+/// `OctomapWithPose` is not a special case of that pattern, just another
+/// message carrying a header-relative pose.
+///
+/// Resolved via [`super::header_frame_transform`], not
+/// [`PlanningScene::frame_transform`] directly: upstream's `:1494` call has
+/// no `knowsFrameTransform` guard in front of it (unlike
+/// `processCollisionObjectAdd`'s `:1905`, which does), so an empty
+/// `header.frame_id` reaches `getFrameTransform` and resolves to identity
+/// through its own silent fallback rather than being rejected as an
+/// unresolved name (PORTING-PLAN.md §183).
 fn apply_octomap(
     scene: &mut PlanningScene<'_>,
     map: r2r::octomap_msgs::msg::OctomapWithPose,
@@ -125,7 +143,8 @@ fn apply_octomap(
     };
     decode_result.map_err(|e| Error::other(format!("octomap payload decode failed: {e}")))?;
 
-    let origin = Isometry3::try_from(Pose(map.origin))?;
+    let header_transform = header_frame_transform(scene, &map.header.frame_id)?;
+    let origin = header_transform * Isometry3::try_from(Pose(map.origin))?;
     let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(tree)));
     scene.add_shape(OCTOMAP_NS, Arc::new(shape), origin);
     Ok(())
@@ -162,11 +181,15 @@ mod tests {
 
     fn octomap_with_pose(
         id: &str,
+        frame_id: &str,
         binary: bool,
         data: Vec<i8>,
     ) -> r2r::octomap_msgs::msg::OctomapWithPose {
         r2r::octomap_msgs::msg::OctomapWithPose {
-            header: Default::default(),
+            header: r2r::std_msgs::msg::Header {
+                frame_id: frame_id.to_string(),
+                ..Default::default()
+            },
             origin: identity_pose(),
             octomap: r2r::octomap_msgs::msg::Octomap {
                 header: Default::default(),
@@ -205,7 +228,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let world = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("OcTree", true, vec![]),
+            octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![]),
         };
         apply_planning_scene_world(&mut scene, world).unwrap();
         assert!(scene.world().is_empty());
@@ -218,7 +241,7 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let world = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("ColorOcTree", true, vec![1]),
+            octomap: octomap_with_pose("ColorOcTree", model.model_frame(), true, vec![1]),
         };
         let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "got: {err:?}");
@@ -249,7 +272,7 @@ mod tests {
             // then fails reading `child5to8` -- a real `UnexpectedEof`, not
             // a chosen-to-look-malformed value like the retired
             // `vec![1, 2, 3]` fixture turned out to be.
-            octomap: octomap_with_pose("OcTree", true, vec![1]),
+            octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1]),
         };
         let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "got: {err:?}");
@@ -266,7 +289,7 @@ mod tests {
             // the exact bit-level derivation of what these two bytes decode
             // to: root's child 0 a free leaf, child 4 an occupied leaf, no
             // recursion.
-            octomap: octomap_with_pose("OcTree", true, vec![1, 2]),
+            octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1, 2]),
         };
         apply_planning_scene_world(&mut scene, world).unwrap();
 
@@ -304,7 +327,7 @@ mod tests {
             // `read_data_node`: 4-byte little-endian f32 root log-odds
             // (0.5f32 == 0x3F00_0000, LE bytes 0x00 0x00 0x00 0x3F), then a
             // 1-byte child bitmap of 0 -- a single-node tree, no children.
-            octomap: octomap_with_pose("OcTree", false, vec![0, 0, 0, 63, 0]),
+            octomap: octomap_with_pose("OcTree", model.model_frame(), false, vec![0, 0, 0, 63, 0]),
         };
         apply_planning_scene_world(&mut scene, world).unwrap();
 
@@ -329,13 +352,13 @@ mod tests {
         let mut scene = PlanningScene::new(&model, &srdf);
         let first = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("OcTree", true, vec![1, 2]),
+            octomap: octomap_with_pose("OcTree", model.model_frame(), true, vec![1, 2]),
         };
         apply_planning_scene_world(&mut scene, first).unwrap();
 
         let second = moveit_msgs::PlanningSceneWorld {
             collision_objects: vec![],
-            octomap: octomap_with_pose("OcTree", false, vec![0, 0, 0, 63, 0]),
+            octomap: octomap_with_pose("OcTree", model.model_frame(), false, vec![0, 0, 0, 63, 0]),
         };
         apply_planning_scene_world(&mut scene, second).unwrap();
 
@@ -354,5 +377,100 @@ mod tests {
         // `scene.remove_object(OCTOMAP_NS)` actually discarded the first
         // tree rather than accumulating shapes across calls.
         assert_eq!(tree.leaves().count(), 1, "got: {:?}", scene.world());
+    }
+
+    /// `octomap_with_pose`'s other tests all cite the model frame as
+    /// `header.frame_id`, which for `one_joint_model()`'s `base_link` root
+    /// resolves to identity -- so those tests would pass identically
+    /// whether or not `apply_octomap` actually composes
+    /// `scene.frame_transform(&map.header.frame_id)`, the exact gap this
+    /// crate's own claim audit caught (`doc/claim-audit/moveit-ros.md`,
+    /// the `apply_octomap`/`getFrameTransform` row). This test rotates
+    /// `j1` away from zero so `"tip"`'s global transform is not identity,
+    /// then asserts the inserted shape's pose is the *composed* transform,
+    /// not the bare `origin` -- a case that fails on the pre-fix code
+    /// (which used `map.origin` directly) and passes on the fixed one.
+    #[test]
+    fn octomap_origin_is_composed_with_the_header_frame_transform() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        // 0.5 rad, inside `j1`'s `limit lower="-1" upper="1"` (`one_joint_model`'s URDF).
+        scene
+            .current_state_mut()
+            .set_variable_position("j1", 0.5)
+            .unwrap();
+        let expected_tip_transform = scene
+            .current_state_mut()
+            .update()
+            .global_link_transform("tip")
+            .unwrap();
+        assert_ne!(
+            expected_tip_transform,
+            Isometry3::identity(),
+            "the fixture must actually exercise a non-identity frame, or this test cannot \
+             distinguish composing the transform from skipping it"
+        );
+
+        let world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", "tip", true, vec![1, 2]),
+        };
+        apply_planning_scene_world(&mut scene, world).unwrap();
+
+        let object = scene
+            .world()
+            .get_object(OCTOMAP_NS)
+            .expect("octomap must be inserted at OCTOMAP_NS");
+        let shapes = object.shapes();
+        assert_eq!(shapes.len(), 1, "got: {shapes:?}");
+        // origin is identity (`octomap_with_pose`'s own `identity_pose()`),
+        // so the composed pose is exactly `expected_tip_transform` -- if
+        // `apply_octomap` used `map.origin` bare, this would be identity
+        // instead and the assertion below would fail.
+        assert_eq!(shapes[0].global_pose(), expected_tip_transform);
+    }
+
+    /// An empty `header.frame_id` is upstream's own "already in world
+    /// coordinates" default (PORTING-PLAN.md §183), not an unresolved name
+    /// -- `processOctomapMsg(OctomapWithPose)` has no `knowsFrameTransform`
+    /// guard before `getFrameTransform`, so this succeeds upstream via
+    /// `Transforms::getTransform`'s empty-string-to-identity fallback. Before
+    /// `header_frame_transform` existed, this message was rejected with
+    /// `Err(UnknownName)` -- a real client sending a world-frame octomap
+    /// with no `frame_id` set (the message's ordinary use, per §183.2) would
+    /// have had every request refused.
+    #[test]
+    fn empty_header_frame_id_is_accepted_as_the_world_frame() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", "", true, vec![1, 2]),
+        };
+        apply_planning_scene_world(&mut scene, world).unwrap();
+
+        let object = scene
+            .world()
+            .get_object(OCTOMAP_NS)
+            .expect("octomap must be inserted at OCTOMAP_NS");
+        assert_eq!(object.shapes()[0].global_pose(), Isometry3::identity());
+    }
+
+    /// A non-empty but unresolvable `frame_id` is still rejected -- the
+    /// empty-string carve-out in `header_frame_transform` must not swallow
+    /// every unresolved name, only the specific "no frame stated" case.
+    #[test]
+    fn unresolvable_non_empty_header_frame_id_is_still_rejected() {
+        let model = one_joint_model();
+        let srdf = empty_srdf();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let world = moveit_msgs::PlanningSceneWorld {
+            collision_objects: vec![],
+            octomap: octomap_with_pose("OcTree", "no-such-frame", true, vec![1, 2]),
+        };
+        let err = apply_planning_scene_world(&mut scene, world).unwrap_err();
+        assert!(matches!(err, Error::UnknownName { .. }), "got: {err:?}");
     }
 }

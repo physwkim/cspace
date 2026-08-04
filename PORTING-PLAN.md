@@ -14065,3 +14065,601 @@ tools/ci/check-*.sh (8) + verify-upstream-license-provenance.sh
 하나 더 추가할 게 아니라, 왜 "전부 돌리는 명령 하나"가 아직 없는지를 먼저
 물어야 한다. §174가 답의 절반이다 — 그런 명령을 쓸 자리(CI)가 이 저장소에는
 돌지 않는다.
+
+## §179 "나중 라운드"와 "언급 없음" — 둘 다 미포팅인데 하나만 보인다
+
+두 유휴 패널에 라운드를 주려고 상류 디렉터리를 포트와 파일 단위로
+맞춰 세어 봤다. 감사(§175)는 *포팅된 코드가 상류를 맞게 말하는가*를
+검사하지 어떤 상류 파일이 아예 안 왔는지는 검사하지 않는다. 그래서
+포팅되지 않은 파일은 감사 표에 행이 생기지 않는다 — **빠진 것은 틀린
+것으로 나타나지 않고, 아무것으로도 나타나지 않는다.**
+
+### 179.1 pilz — 선언된 미포팅
+
+`crates/moveit-planners-pilz/src/lib.rs:90-91`:
+
+```text
+Not yet in scope, planned for later rounds:
+`trajectory_blender_transition_window`.
+```
+
+§5의 Phase 8 범위 줄은 "LIN/PTP/CIRC + sequence blending"이다. 즉 이
+파일은 완료 조건 **안쪽**이지 옆이 아니다. 상류 `src/` 22개 중 포트가
+가진 것은 12개이고, D1/D2로 명시 제외된 다섯을 빼면 남는 in-scope
+미포팅은 이 하나다. 선언되어 있었으므로 잃어버린 것은 아니지만, "later
+rounds"에는 만료조건이 없어서 라운드가 30번 도는 동안 아무도 그 문장을
+다시 읽지 않았다. p1-joints에 배정.
+
+### 179.2 planning_pipeline_interfaces — 언급조차 없음
+
+이쪽이 더 나쁘다. 상류
+`moveit_ros/planning/planning_pipeline_interfaces/src/`의 네 파일
+(`planning_pipeline_interfaces`, `plan_responses_container`,
+`solution_selection_functions`, `stopping_criterion_function`)은
+`crates/moveit-planning/`에 포팅되지도, 제외되지도 않았다. 실측:
+
+```console
+$ rg -ni 'PlanResponsesContainer|solution_selection|stopping_criterion|parallel' \
+    crates/moveit-planning/src/
+crates/moveit-planning/src/response.rs:29:  ... a parallel `Vec<f64>` of durations ...
+```
+
+한 건, 그리고 무관한 주석이다. `lib.rs`는 같은 상위 디렉터리의
+`planning_pipeline.cpp`는 `:186`/`:437`에서 인용하고
+`display_motion_path.cpp`는 `:154`에서 D1로 제외한다. 즉 이 크레이트는
+이웃 파일들에 대해서는 판정을 내렸고 이 네 개에 대해서만 침묵한다.
+**침묵은 제외가 아니다.** p1-fixtures에 배정하며, 네 파일을 하나로
+묶어 판정하지 말 것을 조건으로 달았다 — `planWithParallelPipelines`가
+`rclcpp::Node`를 받는다고 해서 `solution_selection_functions`까지
+ROS 결합인 것은 아니고, 그 구분이 "제외 하나"와 "간극 셋"을 가른다.
+
+### 179.3 규칙
+
+제외는 §153.1대로 만료조건을 달아야 하고, **연기(deferral)도 제외의
+일종이다.** "planned for later rounds"는 만료조건 없는 제외문이며 그
+점에서 "의존성이 없어서 제외"와 같은 계열이다. 앞으로 미포팅 상류
+파일은 세 상태 중 하나로만 존재한다:
+
+1. 포팅됨 — 감사 표에 행이 있다
+2. 제외됨 — `lib.rs`에 근거 심볼과 만료조건이 있다
+3. 간극 — 위 둘 중 어느 것도 아니면 간극이고, 간극은 라운드에 배정된다
+
+세 번째 상태가 이번에 두 건 나왔다. 크레이트 감사가 아무리 촘촘해도
+이 상태는 안 잡힌다. 잡으려면 **상류 디렉터리 대 포트 디렉터리를 파일
+단위로 세는 별도 검사**가 필요하고, 지금 그것은 조율자가 손으로 한
+것 말고는 없다.
+
+## §180 회귀가 실패가 아니라 정지로 나타나면 게이트는 영원히 기다린다
+
+p3-shapes 라운드 34가 `cancelling_from_another_thread_stops_a_plan_call_
+already_in_flight`를 다시 썼다. 옛 판은 `sleep(20ms)` 뒤 `elapsed < 5s`를
+주장했고, 그 패널 자신이 그것을 반증했다 — `num_iterations_after_valid`
+기본값이 `0`이라 `Stomp::solve`는 유효 반복 하나 뒤에 스스로 빠져나오고,
+따라서 **취소를 통째로 지워도 그 테스트는 통과했다.** 새 판은 시간 대신
+`cost_fn` 호출 수를 세고 `num_iterations = 1_000_000`,
+`num_iterations_after_valid = num_iterations`로 두어 `proceed`가 false가
+되는 것 외에 빠져나갈 길을 없앴다. 옳은 방향이다.
+
+### 180.1 실측 — 변이는 통과하지 않았지만 실패하지도 않았다
+
+`CancelHandle::cancel`의 본문을 비우고 돌렸다.
+
+```console
+$ timeout 240 cargo nextest run -p moveit-planners-stomp cancelling_from_another_thread
+Terminated
+EXIT=143
+```
+
+통과는 안 했다(옛 판이었으면 통과했다). 그런데 실패도 안 했다 — 240초
+동안 아무것도 출력하지 않고 돌았다. 취소가 유일한 탈출구라는 것이 곧
+**취소가 깨지면 탈출구가 없다**는 뜻이고, 회귀 신호가 무한 정지로
+나타난다.
+
+주의: 첫 변이는 `Stomp::cancel`을 비운 것이었고 테스트는 0.017초에
+통과했다. 그 자리가 아니었다 — 테스트는 `CancelHandle::cancel`을 부른다.
+변이가 살아남으면 테스트를 의심하기 전에 **변이가 실제로 그 경로를 건드렸는지**
+먼저 확인해야 한다. §167.5에서 한 번, 여기서 두 번째다.
+
+### 180.2 구조적 해결 — 테스트가 아니라 러너에 걸었다
+
+이 테스트를 시간 제한으로 되돌리는 것은 방금 없앤 결함을 다시 넣는 것이다.
+고칠 자리는 테스트가 아니라 **정지를 실패로 바꾸는 것이 아무 데도 없다는
+사실**이다. nextest의 기본 `slow-timeout`은 경고만 하고
+`terminate-after`가 없으면 아무도 죽이지 않는다. §174에 따라 바깥에서
+한도를 거는 CI도 없다.
+
+`159d703` — `.config/nextest.toml`:
+
+```toml
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
+```
+
+변이를 그대로 둔 채 재측정:
+
+```text
+TIMEOUT [ 300.007s] (1/1) moveit-planners-stomp planner::tests::
+    cancelling_from_another_thread_stops_a_plan_call_already_in_flight
+Summary [ 300.009s] 1 test run: 0 passed, 1 timed out, 50 skipped
+error: test run failed
+```
+
+300초는 현재 워크스페이스 최장 테스트(28.9초,
+`moveit-distance-field::collision_env_distance_field_parity`)의 10배가
+넘으므로 느린 테스트에는 발화하지 않는다. 패널 여덟이 동시에 컴파일하는
+부하까지 감안한 여유다.
+
+### 180.3 §178의 "네 번째 사례" 지시에 대한 답
+
+§178은 네 번째가 나오면 게이트를 더할 게 아니라 왜 "전부 돌리는 명령
+하나"가 없는지를 먼저 물으라고 했다. **이건 그 계열이 아니다.** §170/§174/
+§178은 전부 *검사를 포함하는 명령이 없다*였다. 여기서는 명령이 있고
+돌았다 — 신호가 도착하지 않았을 뿐이다. 그래서 여섯 번째 명령을 더하지
+않았고, 이미 도는 명령의 출력이 유한해지도록 러너를 고쳤다. 게이트 목록은
+§178의 다섯 그대로다.
+
+계열이 다르므로 다음 검사도 다르다: **테스트가 회귀를 실패가 아니라
+정지로 표현할 수 있는 자리가 또 있는가.** 무한 반복 상한을 두고 조기
+탈출 조건 하나에 의존하는 테스트가 그 모양이다. 지금 워크스페이스에서
+`num_iterations = 1_000_000` 같은 상한은 이 한 건뿐이지만, 세어 본 것이
+아니라 이 라운드에 눈에 띈 것이 하나라는 뜻이다.
+
+## §181 시딩 수정은 단위 테스트가 지키고 있고, end-to-end 측정은 그것을 재지 않는다
+
+p1-robotmodel 라운드 26이 `GroupConstraintSampler`의 `working`을 호출
+사이에 유지하도록 고쳤다(상류 `work_state_`와 같은 모양,
+`f8c7af0`). 같은 라운드가 `path_constraints_end_to_end_wired_vs_unwired`를
+추가해 **unwired 1/5, wired 5/5**를 측정했고, 라운드 24의 **wired 0/5 vs
+unwired 5/5**가 뒤집힌 것을 시딩 수정의 결과로 서술했다.
+
+### 181.1 실측 — 수정을 되돌려도 숫자가 같다
+
+`try_sample`에 라운드 24의 매-호출 초기화(`*state = template.clone()`)를
+되돌려 넣고 그대로 돌렸다.
+
+```text
+path_constraints_end_to_end_wired_vs_unwired:
+    unwired 1/5, wired 5/5 (self-motion distance 0.803693435403718 rad)
+```
+
+수정 전과 **자릿수까지 동일하다.** 변이가 그 경로에 닿지 않은 것이
+아니다 — `try_sample`에 `eprintln!`을 넣어 세어 보니 이 테스트 한 번에
+**11회** 불린다(§180.1의 교훈대로 변이 도달을 먼저 확인했다). 11회면
+solve당 두 번 남짓이고, 호출 간 지속성이 지속시킬 것이 거의 없다.
+
+따라서 0/5 → 5/5 뒤집힘의 원인은 시딩 수정이 아니다. 남은 후보는 같은
+라운드의 `resolve_constraint_sampler` 추출(§163.3의 goal 전용 `.take()`
+결함을 닫은 것)과, 커밋 메시지 자신이 밝힌 시나리오 차이 — 라운드 24는
+네 시나리오 스윕이었고 이번은 한 시나리오다. 둘 중 어느 것인지는 아직
+안 쟀다.
+
+### 181.2 그러나 수정은 지켜지고 있다
+
+같은 변이로 크레이트 전체를 돌리면 정확히 하나가 빨개진다:
+
+```text
+FAIL constrained_sampler::tests::
+    try_sample_carries_the_previous_draws_result_forward_as_the_next_seed
+Summary: 106 tests run: 105 passed, 1 failed
+```
+
+즉 시딩 수정에는 가드가 있다. **없는 것은 가드가 아니라 귀속의 근거다** —
+단위 테스트는 "이전 결과가 다음 시드가 된다"를 지키고, end-to-end 측정은
+"그것이 성공률을 바꾼다"를 지지하지 않는다. 두 주장은 다르고, 라운드
+보고는 앞엣것의 증거로 뒤엣것을 말했다.
+
+### 181.3 규칙
+
+수정 A와 측정 B가 같은 라운드에 들어오면 **B에서 A를 되돌려 보기 전에는
+A가 B를 움직였다고 쓰지 않는다.** 같은 라운드에 다른 수정이 함께
+들어왔다면 특히 그렇다 — 이번에 함께 들어온 것이 하나 더 있었고, 그쪽이
+남은 후보다. §127의 "관례로만 지켜지던 것"과 같은 자리다: 인과는 관례로
+지켜지지 않는다.
+
+이것은 메모리의 `record-causes-as-falsifiable-predictions`가 예측한 그대로
+발생했다 — 일관되지만 측정되지 않은 원인이 반증 가능한 형태로 적혀 있었고,
+되돌려 보니 반증됐다.
+
+## §182 다섯 명령이 처음으로 동시에 초록이다 — 그리고 같은 결함이 한 크레이트 건너에 남았다
+
+p6-totg 라운드 33이 §178이 만든 붉은 줄을 닫았다. §178 이후 처음으로
+병합 게이트 다섯이 한 커밋에서 전부 통과한다:
+
+```console
+$ cargo fmt --all -- --check                    # clean
+$ cargo clippy --workspace --all-targets -- -D warnings   # clean
+$ cargo nextest run --workspace --no-fail-fast  # 1543 passed, 4 skipped
+$ cargo test --doc --workspace                  # ok
+$ cargo doc --workspace --no-deps               # Generated ... 21 other files
+```
+
+패널 보고에 "pilz 3건 known-red per §177" 같은 문장이 더 이상 유효하지
+않다. §177은 닫혔고 `cargo doc`도 닫혔다. 앞으로 자기 브랜치에서 빨간
+것을 보면 그것은 자기 것이다.
+
+### 182.1 구조적 수정은 경계별로 물린다
+
+`TotgOptions::resample_dt`를 `pub(crate)` + 검증하는
+`with_resample_dt` + 읽기 전용 `resample_dt()`로 바꾼 것이
+구조적인지 실측했다. `with_resample_dt`의 검증을 `if false`로 죽이면
+정확히 다섯이 빨개진다:
+
+```text
+resample_dt_nan_is_rejected
+resample_dt_negative_is_rejected_not_silently_truncated
+resample_dt_positive_infinity_is_rejected
+resample_dt_negative_infinity_is_rejected
+resample_dt_zero_is_rejected_not_hung
+```
+
+시나리오당 하나가 아니라 **경계당 하나**다 — NaN, 음수, ±무한, 0. 이것이
+"Replace the primitive" 절이 요구하는 모양이고, 서사형 테스트였으면 다섯
+중 하나만 물었을 것이다.
+
+크레이트 안의 쓰기 자리는 둘뿐이다: `Default`(0.1, 유효)와
+`with_resample_dt`(검증됨). 구조체 리터럴 생성은 `Default` 하나뿐이므로
+지금은 우회로가 없다. 다만 `pub(crate)`이므로 **같은 크레이트 안에서**
+새 리터럴을 쓰면 우회가 가능하다 — 타입으로 막힌 것이 아니라 생성 자리가
+하나뿐이어서 막힌 것이다. 이 구분을 문서에 적어 두지 않으면 다음 라운드가
+"unrepresentable"을 액면 그대로 읽는다.
+
+### 182.2 같은 결함이 한 크레이트 건너에 그대로 있다
+
+p6-totg가 UNFIXED로 올렸고, 병합 후 확인했다.
+`crates/moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs`:
+
+```text
+:83   resample_dt: f64,
+:91   pub fn new(path_tolerance: f64, resample_dt: f64, min_angle_change: f64) -> Self
+:94       resample_dt,
+:117      self.resample_dt,
+```
+
+`new`는 아무것도 검증하지 않고 저장하며, 잘못된 값은 `adapt()`가 돌 때에야
+`Err`로 나타난다. 방금 `TotgOptions`에서 닫은 것과 **같은 이중 의미**다 —
+필드가 "검증된 값"과 "아직 검증 안 된 값" 둘 다를 뜻한다. p6-TOTG는 이
+크레이트를 소유하지 않으므로 옳게 라우팅했다.
+
+**"고친 자리의 이웃 크레이트에 같은 결함이 있는가"는 CLAUDE.md의 defect-
+family 규칙이 이미 요구하는 것이고, 이번에는 소유권 경계가 그것을 한
+라운드 늦췄다.** 소유자 규칙과 결함 가족 규칙이 부딪히는 자리이며, 답은
+라우팅이지 월권이 아니다 — 다만 라우팅된 항목은 다음 라운드의 브리프에
+들어가야 하고 UNFIXED 목록에서 조용히 늙으면 안 된다.
+
+## §183 D6가 Phase 9 완료 조건과 부딪히는 자리를 하나 찾았다
+
+p9-ros 라운드 9가 `apply_octomap`에서 자기 결함을 찾아 고쳤다 —
+`map.origin`은 `map.header.frame_id` 기준인데 그것을 월드 좌표로 쓰고
+있었다(`0e3f706`). 상류 `planning_scene.cpp:1494-1497`의
+`p = t * p`가 맞고, 같은 크레이트의 `collision_object.rs:358`,
+`attached.rs:221`이 이미 쓰던 패턴이다. 회귀 테스트를 직접 검증했다:
+합성을 걷어내면 정확히 하나가 빨개진다.
+
+```text
+FAILED scene::planning_scene::tests::
+    octomap_origin_is_composed_with_the_header_frame_transform
+  left:  rotation [0, 0, 0, 1]
+  right: rotation [0, 0, 0.24740395925452294, 0.9689124217106447]
+test result: FAILED. 117 passed; 1 failed
+```
+
+기존 삽입 테스트 셋이 전부 `model.model_frame()`(항등)을 쓰고 있어서
+이 결함을 못 잡았다는 그 패널의 진단도 맞다.
+
+### 183.1 같은 감사가 부수적으로 찾아낸 것이 더 크다
+
+그 패널은 `OctomapWithPose` 오버로드가 빈 `header.frame_id`에도
+`getFrameTransform`을 무조건 부른다는 것을 발견하고, 이 포트의
+`frame_transform`이 D6에 따라 `Err`를 내므로 "결함이 아니라 D6 정책의
+발현"으로 분류해 deviation 행만 적었다. 분류의 전제를 상류에서 직접
+확인했다.
+
+`planning_scene.cpp:1452-1460` — 평범한 `Octomap` 오버로드에는 빈 문자열
+가드가 있다. `:1477-1499`의 `OctomapWithPose` 오버로드에는 **없다.** 그
+패널의 관찰은 정확하다. 그런데 그 다음이 문제다:
+
+```text
+Transforms::getTransform (transforms.cpp:110-125)
+  if (!from_frame.empty()) { ... }
+  RCLCPP_ERROR("Unable to transform ... Returning identity.");
+  static const Eigen::Isometry3d IDENTITY = ...;
+  return IDENTITY;
+```
+
+상류는 빈 프레임에서 **로그를 남기고 항등을 돌려주며 성공한다.** 이
+포트는 `Err`로 메시지를 거절한다. 즉 상류가 받아들이는 메시지를 이 포트가
+거절한다.
+
+### 183.2 이것은 정책 표명이 아니라 완료 조건 위반이다
+
+§5 Phase 9의 완료 조건은 "기존 C++ `MoveGroupInterface` 클라이언트가
+**코드 변경 없이** `moveit-ros` 노드에 요청을 보내 유효한 궤적을 받는다"
+이다. 옥토맵이 이미 월드 좌표계에 있을 때 `header.frame_id`를 비워
+보내는 것은 예외적 입력이 아니라 그 메시지의 통상적 사용이다. D6가
+그것을 거절하면 완료 조건이 그 경로에서 성립하지 않는다.
+
+**해소 방향: D6를 바꾸지 않고, 이 한 진입점에서 메시지 의미를 따른다.**
+`OctomapWithPose`의 빈 `header.frame_id`는 "월드"라는 뜻이고, 그것은
+미해결 이름이 아니라 명시된 기본값이다 — D6가 막으려던 것(오타난 프레임
+이름이 조용히 항등으로 흡수되는 것)과 다른 경우다. 빈 문자열은 분기해서
+항등을 쓰고, 비어 있지 않은데 해석되지 않는 이름은 지금처럼 `Err`로
+남긴다. 그러면 D6의 실제 목적은 유지되고 완료 조건도 성립한다.
+
+이 구분을 코드에 적어 두지 않으면 다음 라운드가 "빈 프레임도 Err여야
+정책 일관성"이라고 되돌린다. 빈 문자열과 미해결 이름은 같은 것이 아니다.
+
+### 183.3 이 계열을 다시 훑어야 한다
+
+`OctomapWithPose`만 이런 것이 아닐 수 있다. 상류에서 빈 `frame_id` 가드가
+있는 오버로드와 없는 오버로드가 갈리는 자리를 전부 세야 한다 —
+`collision_object.rs`, `attached.rs`가 이미 같은 패턴을 쓰고 있으므로
+그쪽 진입점들도 같은 질문을 받는다. 한 자리를 고치고 나머지를 안 세면
+CLAUDE.md의 defect-family 규칙 위반이다.
+
+## §184 §171 종결 — 그리고 "둘 다 통과"는 자기 UNFIXED와 모순이었다
+
+p3-acm이 `mesh_shape_cost_sources`의 mesh 비용원 루트 박스를 축정렬
+`Bvh` AABB로 맞추던 것을 지향 OBB로 바꿨다(`1e25683`). 근거를 포트
+쪽에서 서술하지 않고 FCL 원본에서 읽었다 — `moveit_core`는 항상
+`fcl::BVHModel<fcl::OBBRSSd>`를 만들고 `constructBox`가 그것을 `obb`
+성분으로 줄인다(`fcl/include/fcl/geometry/shape/utility-inl.h:1083-1088`),
+그리고 점 집합은 `geometry-inl.h:1349-1379`의 삼각형 꼭짓점 가중 방식이다.
+`parry3d_f64::utils::obb`에 같은 점 집합을 먹여 `mesh_world_obb_aabb`로
+교체했다.
+
+요청한 이등분도 그대로 재현해 왔다: path id 3에서
+`pre_remove_cost_sources n=2` → `post_remove_cost_sources n=5` →
+`post_remove_overlapping n=5`. **`remove_cost_sources`의 축별 분할은
+처음부터 결함이 아니었다.** p1-fixtures가 지목한 용의자가 아니라 그
+위쪽 박스 적합이 원인이었고, 나는 그 용의자를 "측정이 아니라 추론"이라고
+표시해서 넘겼으므로 이 결과는 절차가 의도대로 작동한 경우다.
+
+### 184.1 보고의 두 문장이 서로 모순이다
+
+보고서 본문: "both `#[ignore]`d tests now pass in full at the existing
+`1e-9` threshold". 같은 보고서 UNFIXED: "State-op id 5 (group-filter):
+`9 actual vs 2 expected`". **두 문장은 같은 테스트에 대한 것이고 동시에
+참일 수 없다.** 병합 후 `--run-ignored all`로 실측:
+
+```text
+PASS  moveit-scene::cost_sources_parity
+        panda_path_cost_sources_blocked_by_mesh_shape_cost_sources
+FAIL  moveit-scene::cost_sources_parity
+        panda_cost_sources_blocked_by_mesh_shape_cost_sources
+  cost_sources_parity.rs:510: case id 5: count mismatch
+    left: 9   right: 2
+```
+
+즉 **하나는 진짜로 통과하고, 하나는 여전히 실패한다.** 실패의 원인은 그
+패널이 UNFIXED에 스스로 적어 둔 id 5다. 수정 자체는 진짜다 — id 2가
+`2.69e-2`에서 통과로 바뀌었기 때문에 테스트가 id 5까지 **도달**한 것이고,
+이전에는 id 2에서 멈췄다. 진전이 실패를 앞으로 밀어낸 것이지 없앤 것이
+아니다.
+
+### 184.2 결과적으로 `#[ignore]` 두 개의 상태가 갈렸다
+
+- `panda_path_cost_sources_blocked_by_mesh_shape_cost_sources` — 이제
+  통과한다. `#[ignore]`는 만료됐고 지워야 한다. 남겨 두면 통과하는
+  테스트가 영원히 안 돌고, 회귀가 나도 아무도 모른다.
+- `panda_cost_sources_blocked_by_mesh_shape_cost_sources` — 계속
+  `#[ignore]`이되 **이유 문자열이 틀렸다.** 지금 문구는 id 2의
+  `2.69e-2` 거리 간극을 말하는데 그 간극은 사라졌다. id 5 그룹 필터로
+  다시 써야 한다.
+
+둘 다 `crates/moveit-scene/`이라 p1-fixtures 소유다. p3-acm은 옳게
+라우팅했고, 라우팅된 항목이 UNFIXED 목록에서 늙지 않도록 §182.2와 같이
+다음 브리프에 넣는다.
+
+### 184.3 검증
+
+`sg docker -c tools/ci/verify-fixture-replay.sh` — 47/47 identical,
+DRIFTED 0. 기하 적합을 바꿨는데 오라클 fixture가 한 바이트도 안 움직였다
+(§149). 워크스페이스 1544/1544, 다섯 게이트 명령 전부 초록.
+
+## §185 블렌더 966줄이 들어왔고, 그것을 잴 오라클 op이 없다
+
+p1-joints 라운드 32가 `trajectory_blender_transition_window`를 포팅했다
+(`b3e39c3`, 966줄). §179.1이 연 항목이고, 이로써 §5 Phase 8 범위 줄의
+"LIN/PTP/CIRC + sequence blending" 중 마지막 항이 코드로는 닫혔다.
+lib.rs의 "Not yet in scope, planned for later rounds" 문장도 사라졌다.
+
+item 4의 측정은 내가 상류에서 직접 확인했다. 기존 제외 사유
+("`plan_components_builder`는 `command_list_manager`의 요청 타입에
+의존한다")는 **좁은 것이 아니라 틀렸다**:
+
+```console
+$ rg 'command_list_manager|CommandListManager' \
+    include/.../plan_components_builder.hpp src/plan_components_builder.cpp
+(no hits)
+$ rg 'PlanComponentsBuilder' include/.../command_list_manager.hpp
+222:  PlanComponentsBuilder plan_comp_builder_;
+```
+
+의존은 반대 방향이다. `moveit_msgs` 등장은 4회뿐이고 전부
+`CREATE_MOVEIT_ERROR_CODE_EXCEPTION(..., MoveItErrorCodes::FAILURE)`의
+매크로 인자다 — 요청 마샬링이 아니다. §153이 말한 그대로, 의존성을
+근거로 든 제외가 의존성을 확인하지 않은 채 여러 라운드를 살아남았다.
+
+### 185.1 그런데 이 966줄은 상류와 비교된 적이 없다
+
+블렌더의 테스트는 9개이고 전부 자기 일관성 검사다 — `validate_request`의
+거부 조건 다섯, `determine_trajectory_alignment` 둘,
+`search_intersection_points` 둘, 그리고 경계 연속성 하나. **상류 출력과
+대조하는 것은 하나도 없다.** LIN/PTP/CIRC는 `pilz_trajectory` op으로
+1e-6 이내를 재고 있는데(§132), 블렌드는 잴 수단이 없다.
+
+Phase 8의 완료 조건은 "LIN/PTP/CIRC 궤적이 오라클과 1e-6 이내"라고
+쓰여 있어서 문자 그대로는 블렌드를 요구하지 않는다. 그러나 범위 줄이
+블렌딩을 포함하는 이상, **범위에는 있는데 완료 조건이 안 재는 부분**이
+생긴 것이고 그것은 조건 문구의 결함이지 면제가 아니다.
+
+### 185.2 비용은 이미 치러져 있다
+
+§122가 pilz 오라클의 비용을 12패키지 확장으로 미리 쟀고, §132가 그것을
+치렀다. 지금 `tools/moveit-oracle/CMakeLists.txt:92`가 이미 링크한다:
+
+```cmake
+pilz_industrial_motion_planner::trajectory_generation_common
+```
+
+§122.3이 확인한 대로 이 타겟이 곧
+`trajectory_functions` + `trajectory_generator` +
+`trajectory_blender_transition_window`다. 즉 **블렌드 op을 추가하는 데
+새 패키지도, 이미지 확장도 필요 없다.** 드는 비용은 오라클 소스 변경으로
+스탬프가 바뀌는 것뿐이고, 그것은 §149가 이미 규정한 절차다 — 새 능력을
+더할 때 기존 fixture가 한 바이트도 안 움직이는 것이 조건이며
+`verify-fixture-replay.sh`가 그것을 검사한다.
+
+절차는 §107/§155/§156과 같다: 소유자 패널이 요청서를 쓰고 조율자가 op을
+만든다. `tools/moveit-oracle/`는 조율자 소유다.
+
+## §186 §139의 세 번째 사례 — 상속 그래프로 내린 제외가 또 틀렸다
+
+p3-distance-field 라운드 28이 `CollisionEnvHybrid` 제외를 측정으로
+바꿨다(`ddd5ff0`). 기존 사유는 "`CollisionEnvFCL`을 직접 상속하는데
+D4.5로 `CollisionEnvFCL`이 포팅되지 않으므로 그것에 의존하는 것도 될 수
+없다"였다. 상류에서 직접 세어 확인했다:
+
+```console
+$ rg -n 'CollisionEnvFCL' src/collision_env_hybrid.cpp
+49:  : CollisionEnvFCL(robot_model)
+61:  : CollisionEnvFCL(robot_model, world, padding, scale)
+69:  : CollisionEnvFCL(other, world)
+169:  CollisionEnvFCL::setWorld(world);
+```
+
+멤버 22개 중 기반 클래스를 건드리는 것은 **4개**뿐이고, 그 중 셋은
+생성자 base-init이며 넘기는 것(`getWorld()`, `(world, padding, scale)`)은
+전부 `CollisionEnv` 자신에 선언된 것이지 FCL 고유가 아니다. 남은
+하나 `setWorld`가 하는 실제 일은 FCL의 지속 broadphase 캐시
+(`manager_`/`fcl_objs_`)를 월드 교체 시 재구축하는 것인데,
+`ParryCollisionEnv`에는 그 캐시 자체가 없다 — 매 `check_*` 호출마다
+`self.world`에서 바디를 새로 계산한다(`parry.rs:1840`). 나머지 18개는
+전부 `cenv_distance_`로의 통과 호출, 즉 이 크레이트가 이미 가진
+`DistanceFieldCollisionCache`다.
+
+**§139, §185의 `plan_components_builder`, 그리고 이것 — 같은 계열 세
+번째다.** 세 번 다 "관계를 보고 호출을 결론냈다"이고, 세 번 다 실제로
+세어 보니 호출이 한 줌이었다. 제외 사유가 *관계*(상속, 의존, 포함)를
+가리키면 그 자체가 재측정 신호다. 관계는 호출 수를 말해 주지 않는다.
+
+### 186.1 이번에는 소유권 경계에서 멈춘 것이 옳았다
+
+그 패널은 포팅하지 않고 추정치만 냈다. 조합기가 살 자리는
+`moveit-distance-field`(이미 `moveit-collision`에 단방향 의존)이지만
+공개 형태를 `moveit-collision`의 백엔드 타입이 정하므로 그쪽 소유자의
+결정이라는 이유다. 브리프가 "추정치를 먼저 달라, 디프를 만들지 마라"고
+요구한 그대로다 — §182.2가 라우팅을 한 라운드 늦춘 것과 달리, 여기서는
+늦춘 것이 비용이 아니라 정확히 필요한 조율이었다.
+
+**판단: 포팅한다.** 근거는 셋이다. (1) 두 반쪽이 모두 이미 있고
+연결만 없다. (2) D4.5는 FCL *백엔드*를 대체했지 `CollisionEnv` 인터페이스를
+지운 것이 아니며, 이 제외는 그 둘을 혼동한 것이 원인이었다. (3) distance-field
+자기충돌 + 범용 월드충돌이라는 조합은 상류에서 실제로 쓰이는 구성이다.
+자리는 `moveit-distance-field`, 공개 형태는 `moveit-collision` 소유자가
+검토한다.
+
+## §187 §181 종결 — 그리고 설계를 바꾼 측정이 코드로 남지 않았다
+
+p1-robotmodel 라운드 27이 §181의 질문에 되돌림 실험 두 개로 답했다.
+두 번째를 직접 재현했다 — `resolve_constraint_sampler`의
+`path_constraints` 호출부를 `None`으로 되돌리면:
+
+```text
+path_constraints_end_to_end_wired_vs_unwired: unwired 1/5, wired 1/5
+```
+
+wired가 5/5에서 1/5로 무너져 unwired와 같아진다. 시딩 수정을 되돌렸을
+때는 숫자가 자릿수까지 그대로였다(§181.1). 따라서 그 테스트의 5/5는
+§163.3의 배선 확장이 만든 것이고, 시딩 수정이 만든 것이 아니다.
+`doc/claim-audit/moveit-planners-sbp.md`의 라운드 24·25 행은 EXPIRED로,
+새 행은 CONFIRMED로 정리됐다.
+
+### 187.1 두 번째 실험이 무엇을 보이고 무엇을 안 보이는지
+
+그 패널이 스스로 적었고, 그 정직함이 이 항목의 핵심이다: 테스트의 목표는
+`Goal::State`이므로 goal 분기는 `select_default_sampler`를 아예 부르지
+않는다(`Goal::State(_) => None`). 배선까지 `None`으로 되돌리면 어느
+호출부도 solver를 못 보고, wired와 unwired가 **구성상** 동일해진다.
+
+즉 실험 (2)가 보이는 것은 "이 테스트는 배선에 대해 판별한다"이고,
+"배선이 플래닝을 일반적으로 낫게 한다"가 아니다. 후자를 주장하려면 다른
+시나리오가 필요하다. 되돌림 실험이 항진명제에 가까워지는 자리가 있다는
+것 — 테스트가 토글하는 바로 그것을 되돌리면 토글이 무의미해진다 — 을
+기록해 둔다.
+
+### 187.2 진짜 남은 구멍: 라운드 24의 측정은 다시 돌릴 수 없다
+
+라운드 24는 네 시나리오 스윕에서 **wired 0/5 vs unwired 5/5**, 즉
+지금과 반대 방향을 쟀다. 지금 배선을 빼면 wired는 1/5이지 5/5가 아니므로,
+두 측정은 그대로는 양립하지 않는다. 그런데 어느 쪽이 맞는지 판정할 수가
+없다 — **그 스윕은 재사용 가능한 코드로 커밋된 적이 없다.** 감사 행이
+그것을 명시한다: "that sweep was never committed as reusable code, so it
+could not be re-run."
+
+설계 결정을 바꾼 측정이 산문으로만 남으면, 그 결정을 뒤집을 근거도 같이
+사라진다. 라운드 24의 숫자는 `template`을 트리 지역성에 재고정하는
+작업을 연기시켰고, 그 연기는 지금도 유효한데 근거는 재현 불가능하다.
+**규칙: 설계를 바꾸거나 작업을 연기시키는 측정은 커밋된 실행 가능한
+코드여야 한다.** 보고서의 표는 그 코드의 출력이지 그 자체가 증거가 아니다.
+
+## §188 오라클이 볼 수 없는 값을 오라클이 계산하면, 그건 오라클이 아니다
+
+§185가 연 구멍 — 블렌더 966줄에 상류 대조가 하나도 없다 — 을 `pilz_blend`
+op으로 닫았다(`b63171d`). p1-joints의 요청 문서가 정수 필드 세 개를 요구했고,
+그 중 둘만 넣었다. 뺀 하나가 이 항목이다.
+
+`searchIntersectionPoints`와 `determineTrajectoryAlignment`는 둘 다
+`TrajectoryBlenderTransitionWindow`의 **private** 멤버라서 바깥에서 부를 수
+없다. 그런데 앞의 두 인덱스는 여전히 진짜 상류 산출물이다 — `blend()`가
+응답 궤적을 정확히 그 인덱스에서 자르고, 그 자름이 근사가 아니라 정확하기
+때문이다. `[0, first_intersection_index)` 복사 루프는
+`res.first_trajectory`의 waypoint 수를 `first_intersection_index`와 **같게**
+만들고, `[second_intersection_index + 1, count)` 루프는
+`res.second_trajectory`의 수를 입력 수에서 `second_intersection_index + 1`을
+뺀 값으로 만든다. 정확한 복사 루프 두 개를 역산하는 것은 상류가 계산한 값을
+*복원*하는 것이지 *재계산*하는 것이 아니다.
+
+`blend_align_index`에는 그런 증인이 없다. 그것은 `blendTrajectoryCartesian`의
+샘플링 산술로만 흘러들어가고 응답 모양에 살아남는 경계를 하나도 결정하지
+않는다. 그래서 그 필드를 넣으려면 `determineTrajectoryAlignment`의 여섯 줄을
+**오라클 쪽에서** 다시 돌려야 하고, 그러면 포트는 상류의 실행이 아니라
+`oracle.cpp`의 재구현과 비교된다. 그건 픽스처가 자기 헬퍼를 재는 것이고,
+오라클이 존재하는 이유가 정확히 그것을 하지 않기 위해서다.
+
+**규칙: 오라클은 상류가 산출한 값만 방출한다. 상류가 내부에 감춘 값을
+오라클이 유도해서 내보내면, 그 필드는 대조가 아니라 두 번째 구현이다.**
+감춰진 값이 필요하면 그것이 실제로 결과를 바꾸는 자리에서 재라 — 여기서는
+`blend_trajectory`의 waypoint들이고, 요청 문서의 케이스 B가 바로 그 분기가
+출력을 바꾸도록 만들려고 존재한다.
+
+### 188.1 역산이 맞는지는 상류 자신의 로그가 확인해줬다
+
+운 좋게도 `searchIntersectionPoints`가 찾은 인덱스를 `RCLCPP_INFO`로 찍는다.
+두 케이스를 돌린 로그가 `index: 8` / `index: 7`, `index: 8` / `index: 3`이고,
+복사 루프 역산으로 얻은 값과 정확히 일치했다. 역산이 옳다는 것을 추론이 아니라
+독립 관측으로 확인한 셈이다. 다만 이 로그는 계약이 아니다 — 상류가 로그 한 줄을
+지우면 사라진다. 그래서 역산을 로그에 의존시키지 않았고, 이 확인은 일회성
+교차검증으로만 기록한다.
+
+### 188.2 첫 실행에서 정수는 전부 일치했다
+
+| 항목 | 케이스 A (대칭 0.1) | 케이스 B (비대칭 0.3) |
+|---|---:|---:|
+| 세그먼트 1 / 2 입력 waypoint | 16 / 16 | 16 / 9 |
+| `first_intersection_index` | 8 | 8 |
+| `second_intersection_index` | 7 | 3 |
+| 출력 first / blend / second | 8 / 8 / 8 | 8 / 8 / 5 |
+| `determineTrajectoryAlignment` 분기 | `else` (8 == 8) | `way_point_count_1 > way_point_count_2` (8 > 4) |
+
+포트가 요청 문서에 자기 값으로 적어둔 숫자와 전부 같다 — 두 분기 모두, 두
+인덱스 모두, 입출력 waypoint 수 모두. 분기 커버리지 구멍은 이것으로 닫혔다.
+
+아직 대조되지 않은 것은 waypoint의 **수치**다. 정수가 맞았다고 수치가 맞는 것은
+아니고, 여기에 붙일 tolerance는 아직 모른다 — 실제 응답이 생긴 지금 측정해서
+정해야 하며 LIN의 숫자를 그대로 가져다 쓰면 안 된다(CLAUDE.md의 tolerance 규칙).
+그 측정이 p1-joints의 다음 작업이다.
+
+오라클 스탬프는 `3537df47121b8c7f` → `043ed31a2186fe4e`로 올랐고,
+`verify-fixture-replay.sh`는 49/49 identical, 0 DRIFTED다 — 헬퍼 세 개를
+`pilzTrajectory`에서 들어낸 리팩터가 기존 픽스처를 한 바이트도 바꾸지 않았다(§149).

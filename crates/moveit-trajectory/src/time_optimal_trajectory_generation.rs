@@ -271,10 +271,10 @@
 //!   cpp:964-965), a cosmetic copy-paste bug in a value never used for
 //!   anything but a log string this port drops anyway.** This port's
 //!   [`Error::other`] messages name the variable actually at fault.
-//! - **`resample_dt` is validated where `do_time_parameterization_calculations`
-//!   consumes it (§153.1/§172), even though [`TotgOptions::resample_dt`]
-//!   stays a `pub`, unvalidated `f64` field.** Upstream's constructor stores
-//!   `resample_dt` as-is (cpp:918-920) and later narrows
+//! - **`resample_dt` is validated at construction for every caller outside
+//!   this crate, making an invalid [`TotgOptions`] unconstructible from
+//!   outside this crate (§153.1/§172).** Upstream's constructor
+//!   stores `resample_dt` as-is (cpp:918-920) and later narrows
 //!   `parameterized->getDuration() / resample_dt_` from `double` to `size_t`
 //!   with an unchecked `static_cast` (cpp:1245) — undefined behaviour in C++
 //!   outside a well-behaved input range, so there is no upstream ground
@@ -285,20 +285,48 @@
 //!   `0..=sample_count` resample loop; `resample_dt < 0.0` casts to `0`,
 //!   silently producing a one-point trajectory with no error. Neither is
 //!   caught by comparing against the oracle, since the oracle has no defined
-//!   answer for either input. This port rejects non-finite or non-positive
-//!   `resample_dt`, and separately rejects a resulting sample count above
-//!   [`MAX_RESAMPLE_SAMPLE_COUNT`] (a resource bound this port adds; upstream
-//!   has none), both at the single point `resample_dt` is read rather than
-//!   at every caller. A validating constructor that made an invalid
-//!   `resample_dt` unrepresentable was considered and rejected: the field is
-//!   read directly by `moveit-planning`
+//!   answer for either input.
+//!
+//!   A single validating call site (rather than a validating constructor)
+//!   was tried first and rejected on a later round: `resample_dt` is a
+//!   `pub` field also read directly by `moveit-planning`
 //!   (`response_adapters/add_time_optimal_parameterization.rs`), a crate
-//!   this one does not own, so narrowing its type would force a cross-crate
-//!   edit outside this change's scope (see `PORTING-PLAN.md` §170 on exactly
-//!   that blast radius) — a single validating call site closes the same gap
-//!   without it. **Expires** if upstream adds its own `resample_dt`
-//!   validation, at which point this note should instead record whatever
-//!   bound upstream chose.
+//!   this one does not own, and the field was believed to have enough
+//!   readers there to make narrowing its type a real cross-crate blast
+//!   radius (`PORTING-PLAN.md` §170). Measured, not assumed, on this round:
+//!   `rg -n resample_dt` against `moveit-planning` found exactly one
+//!   non-production reader — a test helper reading `TotgOptions::default()`'s
+//!   field to forward it positionally into
+//!   `AddTimeOptimalParameterization::new`. That is a one-line
+//!   field-read-to-getter-call fix, not a blast radius, so the structural
+//!   fix was authorized and done: `resample_dt` is now `pub(crate)`
+//!   (not private outright — see [`TotgOptions::resample_dt`]'s field doc
+//!   for why), with [`TotgOptions::with_resample_dt`] as the only way to
+//!   set it from outside this crate; it validates finite-and-positive
+//!   before storing. Every *production* construction site in this crate
+//!   (including `totg_compute_time_stamps`'s internally-recomputed
+//!   `new_resample_dt`, cpp:1147/`:586` below) goes through it — there is
+//!   no remaining production path that stores an invalid `resample_dt`
+//!   anywhere, but this is an audited fact about today's one production
+//!   struct-literal site ([`TotgOptions::default`]), not a guarantee the
+//!   type itself enforces in-crate: `pub(crate)` still lets same-crate code
+//!   write a raw struct literal that skips the validator (one test does
+//!   this on purpose, see
+//!   `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+//!   doc for why).
+//!
+//!   `do_time_parameterization_calculations`'s separate rejection of a
+//!   resulting sample count above `MAX_RESAMPLE_SAMPLE_COUNT` (a resource
+//!   bound this port adds; upstream has none) is **not** redundant with the
+//!   constructor check and stays exactly where it was: it depends on
+//!   `parameterized.duration()`, known only at consumption time, not at
+//!   `TotgOptions` construction time. Confirmed independently load-bearing
+//!   by mutation: removing the constructor-level check leaves exactly one
+//!   test failing (the negative-`resample_dt` case, which produces a small
+//!   negative sample count the bound alone waves through); removing the
+//!   sample-count bound instead hangs the suite. **Expires** if upstream
+//!   adds its own `resample_dt` validation, at which point this note should
+//!   instead record whatever bound upstream chose.
 
 use std::collections::HashMap;
 
@@ -340,7 +368,23 @@ pub struct TotgOptions {
     /// `path_tolerance`, passed to `Path::create`.
     pub path_tolerance: f64,
     /// `resample_dt`: the output trajectory's resampling period.
-    pub resample_dt: f64,
+    /// `pub(crate)` rather than private outright, so sibling modules in
+    /// this crate (e.g. `crate::trajectory_tools`) can still use
+    /// struct-update syntax against [`TotgOptions::default`] — but not
+    /// `pub`: no code outside this crate can name or set this field
+    /// directly, so no caller outside this crate can construct an invalid
+    /// [`TotgOptions`] — that guarantee is type-level and unconditional.
+    /// Inside this crate, `pub(crate)` still permits a raw struct literal
+    /// that bypasses [`TotgOptions::with_resample_dt`] entirely (one test
+    /// deliberately does this, see
+    /// `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+    /// doc); the in-crate invariant "no construction site stores an invalid
+    /// value" is an audited fact about today's one production struct-literal
+    /// site ([`TotgOptions::default`]'s `resample_dt: 0.1`), not something
+    /// the type forbids. See [`TotgOptions::with_resample_dt`] and this
+    /// module's "Deviations from upstream" note (§172/§153.1) for the rest
+    /// of that argument.
+    pub(crate) resample_dt: f64,
     /// `min_angle_change`: the minimum per-joint change between consecutive
     /// waypoints for the later one to be kept as distinct, rather than
     /// collapsed into the former (see
@@ -366,6 +410,35 @@ impl Default for TotgOptions {
             max_velocity_scaling_factor: DEFAULT_SCALING_FACTOR,
             max_acceleration_scaling_factor: DEFAULT_SCALING_FACTOR,
         }
+    }
+}
+
+impl TotgOptions {
+    /// `resample_dt`: the output trajectory's resampling period.
+    pub fn resample_dt(&self) -> f64 {
+        self.resample_dt
+    }
+
+    /// Sets `resample_dt`, validating it first — the only way to set this
+    /// field from outside this crate (the field is `pub(crate)`, not
+    /// `pub`), so no external caller can construct a [`TotgOptions`] with
+    /// an invalid `resample_dt`. See [`TotgOptions::resample_dt`]'s field
+    /// doc for the weaker, audited-not-type-level guarantee this leaves for
+    /// in-crate callers, and this module's "Deviations from upstream" note
+    /// (§172/§153.1) for why this diverges from upstream's constructor,
+    /// which stores whatever it is given.
+    ///
+    /// # Errors
+    ///
+    /// [`Error`] if `resample_dt` is not finite or not positive.
+    pub fn with_resample_dt(mut self, resample_dt: f64) -> Result<Self> {
+        if !resample_dt.is_finite() || resample_dt <= 0.0 {
+            return Err(Error::other(format!(
+                "resample_dt must be finite and positive, got {resample_dt}"
+            )));
+        }
+        self.resample_dt = resample_dt;
+        Ok(self)
     }
 }
 
@@ -574,9 +647,10 @@ pub fn totg_compute_time_stamps(
         ));
     }
 
+    // `resample_dt` here is always the crate default (`0.1`), already valid
+    // — `..Default::default()` inherits it without naming it, so this needs
+    // no `with_resample_dt` call.
     let default_options = TotgOptions {
-        path_tolerance: DEFAULT_PATH_TOLERANCE,
-        resample_dt: 0.1,
         max_velocity_scaling_factor,
         max_acceleration_scaling_factor,
         ..Default::default()
@@ -585,12 +659,33 @@ pub fn totg_compute_time_stamps(
     let optimal_duration = trajectory.duration();
     let new_resample_dt = optimal_duration / (num_waypoints - 1) as f64;
 
-    let resample_options = TotgOptions {
-        path_tolerance: DEFAULT_PATH_TOLERANCE,
-        resample_dt: new_resample_dt,
+    let base_options = TotgOptions {
         max_velocity_scaling_factor,
         max_acceleration_scaling_factor,
         ..Default::default()
+    };
+    // `new_resample_dt` can be exactly `0.0` here: `optimal_duration` is
+    // `0.0` precisely when the first `compute_time_stamps` call above
+    // already collapsed `trajectory` to a single waypoint (see
+    // `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+    // doc comment on `do_time_parameterization_calculations` for the exact
+    // mechanism). In that case the second `compute_time_stamps` call below
+    // will see that same collapsed trajectory and take the identical early
+    // return *again*, before `resample_dt` is ever read — matching
+    // upstream's own doubled early-return structure at `cpp:1219-1226`
+    // (verified directly; see
+    // `totg_compute_time_stamps_silently_collapses_duplicate_waypoints_matching_upstream`).
+    // Any valid `resample_dt` is equivalent on that path since it is
+    // provably unread, so falling back to `base_options`'s already-valid
+    // default here preserves that upstream-matching `Ok` result instead of
+    // introducing an `Err` upstream's own degenerate-input contract does
+    // not have.
+    let resample_options = if new_resample_dt.is_finite() && new_resample_dt > 0.0 {
+        base_options
+            .with_resample_dt(new_resample_dt)
+            .expect("just checked new_resample_dt.is_finite() && new_resample_dt > 0.0")
+    } else {
+        base_options
     };
     compute_time_stamps(trajectory, &resample_options)
 }
@@ -731,15 +826,15 @@ fn do_time_parameterization_calculations(
     let path = Path::create(&points, options.path_tolerance)?;
     let parameterized = Trajectory::create(path, max_velocity, max_acceleration, DEFAULT_TIMESTEP)?;
 
-    // Compute sample count. See this module's "Deviations from upstream"
-    // note on `resample_dt` validation (§172/§153.1) for why this checks
-    // what upstream's unchecked `static_cast<size_t>` does not.
-    if !options.resample_dt.is_finite() || options.resample_dt <= 0.0 {
-        return Err(Error::other(format!(
-            "resample_dt must be finite and positive, got {}",
-            options.resample_dt
-        )));
-    }
+    // Compute sample count. `options.resample_dt` is always finite and
+    // positive here — [`TotgOptions::with_resample_dt`] is the only way to
+    // set it, so there is no remaining path that reaches this point with an
+    // invalid value; no re-check needed. What upstream's unchecked
+    // `static_cast<size_t>` does not do, and this port still must, is bound
+    // the resulting sample count — see this module's "Deviations from
+    // upstream" note (§172/§153.1) for why this check is independently
+    // load-bearing (confirmed by mutation) and not redundant with the
+    // constructor's validation.
     let raw_sample_count = (parameterized.duration() / options.resample_dt).ceil();
     if !raw_sample_count.is_finite() || raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT as f64 {
         return Err(Error::other(format!(
@@ -923,20 +1018,15 @@ mod tests {
         trajectory
     }
 
-    /// §172/§153.1: `resample_dt == 0.0` with a positive-duration trajectory
-    /// used to saturate `(duration / 0.0).ceil() as usize` to `usize::MAX`,
-    /// hanging (then exhausting memory) in the `0..=sample_count` resample
-    /// loop. Now rejected before the loop runs.
+    /// §172/§153.1: `resample_dt == 0.0` used to saturate
+    /// `(duration / 0.0).ceil() as usize` to `usize::MAX` at the point of
+    /// consumption, hanging (then exhausting memory) in the
+    /// `0..=sample_count` resample loop. Now rejected at construction: a
+    /// `TotgOptions` holding `resample_dt = 0.0` cannot exist at all, so
+    /// there is nothing downstream left to hang.
     #[test]
     fn resample_dt_zero_is_rejected_not_hung() {
-        let model = panda();
-        let mut trajectory = two_waypoint_trajectory(&model);
-        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: 0.0,
-            ..Default::default()
-        };
-        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        let result = TotgOptions::default().with_resample_dt(0.0);
         assert!(
             result.is_err(),
             "resample_dt = 0.0 must be rejected: {result:?}"
@@ -944,18 +1034,12 @@ mod tests {
     }
 
     /// Same boundary, negative side: `resample_dt < 0.0` used to cast to `0`
-    /// (Rust's `as usize` saturates a negative float to zero), producing a
-    /// silent one-point trajectory with no error, crash, or log.
+    /// (Rust's `as usize` saturates a negative float to zero) at the point
+    /// of consumption, producing a silent one-point trajectory with no
+    /// error, crash, or log. Now rejected at construction.
     #[test]
     fn resample_dt_negative_is_rejected_not_silently_truncated() {
-        let model = panda();
-        let mut trajectory = two_waypoint_trajectory(&model);
-        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: -0.01,
-            ..Default::default()
-        };
-        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        let result = TotgOptions::default().with_resample_dt(-0.01);
         assert!(
             result.is_err(),
             "resample_dt < 0.0 must be rejected, not silently truncated: {result:?}"
@@ -963,18 +1047,19 @@ mod tests {
     }
 
     /// A `resample_dt` that is positive and finite but small enough that
-    /// `duration / resample_dt` approaches `usize::MAX` must still be
-    /// rejected: the `resample_dt > 0.0` check alone does not bound the
-    /// resulting sample count, only [`MAX_RESAMPLE_SAMPLE_COUNT`] does.
+    /// `duration / resample_dt` approaches `usize::MAX` passes construction
+    /// (`with_resample_dt` only checks finite-and-positive) but must still
+    /// be rejected downstream: the constructor's `> 0.0` check alone does
+    /// not bound the resulting sample count, only [`MAX_RESAMPLE_SAMPLE_COUNT`]
+    /// does, and that bound lives in `do_time_parameterization_calculations`
+    /// (it depends on `duration`, unknown at construction time) — this is
+    /// still an end-to-end test for exactly that reason.
     #[test]
     fn resample_dt_producing_an_unreasonable_sample_count_is_rejected() {
         let model = panda();
         let mut trajectory = two_waypoint_trajectory(&model);
         let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: 1e-300,
-            ..Default::default()
-        };
+        let options = TotgOptions::default().with_resample_dt(1e-300).unwrap();
         let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
         assert!(
             result.is_err(),
@@ -983,9 +1068,10 @@ mod tests {
     }
 
     /// A subnormal `resample_dt` (below [`f64::MIN_POSITIVE`]) is finite and
-    /// positive, so it passes the `is_finite() && > 0.0` check, but drives
-    /// `raw_sample_count` far past [`MAX_RESAMPLE_SAMPLE_COUNT`] — the same
-    /// rejection path as `resample_dt_producing_an_unreasonable_sample_count_is_rejected`,
+    /// positive, so it passes `with_resample_dt`'s `is_finite() && > 0.0`
+    /// check, but drives `raw_sample_count` far past
+    /// [`MAX_RESAMPLE_SAMPLE_COUNT`] downstream — the same rejection path as
+    /// `resample_dt_producing_an_unreasonable_sample_count_is_rejected`,
     /// exercised at the true subnormal boundary rather than merely a small
     /// normal value.
     #[test]
@@ -993,11 +1079,10 @@ mod tests {
         let model = panda();
         let mut trajectory = two_waypoint_trajectory(&model);
         let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: 5e-324, // f64::from_bits(1), the smallest positive subnormal
-            ..Default::default()
-        };
-        assert!(options.resample_dt > 0.0 && options.resample_dt < f64::MIN_POSITIVE);
+        // f64::from_bits(1), the smallest positive subnormal.
+        let subnormal = 5e-324;
+        assert!(subnormal > 0.0 && subnormal < f64::MIN_POSITIVE);
+        let options = TotgOptions::default().with_resample_dt(subnormal).unwrap();
         let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
         assert!(
             result.is_err(),
@@ -1005,39 +1090,26 @@ mod tests {
         );
     }
 
-    /// `resample_dt = NaN` fails `is_finite()` directly -- distinct from the
+    /// `resample_dt = NaN` fails `with_resample_dt`'s `is_finite()` check
+    /// directly at construction -- distinct from the
     /// `duration == 0.0 && resample_dt == 0.0` NaN documented below, which
     /// arises from division rather than being passed in directly.
     #[test]
     fn resample_dt_nan_is_rejected() {
-        let model = panda();
-        let mut trajectory = two_waypoint_trajectory(&model);
-        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: f64::NAN,
-            ..Default::default()
-        };
-        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        let result = TotgOptions::default().with_resample_dt(f64::NAN);
         assert!(
             result.is_err(),
             "resample_dt = NaN must be rejected: {result:?}"
         );
     }
 
-    /// `resample_dt = +inf` fails `is_finite()`; `duration / +inf == 0.0`
-    /// would otherwise `.ceil()` to a harmless-looking `0`, so this must be
-    /// caught by the finiteness check specifically, not the sample-count
-    /// bound.
+    /// `resample_dt = +inf` fails `with_resample_dt`'s `is_finite()` check
+    /// at construction; `duration / +inf == 0.0` would otherwise `.ceil()`
+    /// to a harmless-looking `0` downstream, so this must be caught by the
+    /// finiteness check specifically, not the sample-count bound.
     #[test]
     fn resample_dt_positive_infinity_is_rejected() {
-        let model = panda();
-        let mut trajectory = two_waypoint_trajectory(&model);
-        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: f64::INFINITY,
-            ..Default::default()
-        };
-        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        let result = TotgOptions::default().with_resample_dt(f64::INFINITY);
         assert!(
             result.is_err(),
             "resample_dt = +inf must be rejected: {result:?}"
@@ -1045,17 +1117,10 @@ mod tests {
     }
 
     /// `resample_dt = -inf` fails both the finiteness and the `<= 0.0`
-    /// check.
+    /// check in `with_resample_dt`.
     #[test]
     fn resample_dt_negative_infinity_is_rejected() {
-        let model = panda();
-        let mut trajectory = two_waypoint_trajectory(&model);
-        let limits = panda_arm_limits([1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3]);
-        let options = TotgOptions {
-            resample_dt: f64::NEG_INFINITY,
-            ..Default::default()
-        };
-        let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
+        let result = TotgOptions::default().with_resample_dt(f64::NEG_INFINITY);
         assert!(
             result.is_err(),
             "resample_dt = -inf must be rejected: {result:?}"
@@ -1063,11 +1128,12 @@ mod tests {
     }
 
     /// A `resample_dt` deliberately sized so `duration / resample_dt` lands
-    /// in the immediate vicinity of `usize::MAX` (not just "very large") is
-    /// still rejected by [`MAX_RESAMPLE_SAMPLE_COUNT`] before the `as usize`
-    /// cast, and does not attempt to loop -- this is checked by asserting
-    /// rejection, never by actually driving the `0..=sample_count` loop
-    /// anywhere near that count.
+    /// in the immediate vicinity of `usize::MAX` (not just "very large")
+    /// passes construction but is still rejected downstream by
+    /// [`MAX_RESAMPLE_SAMPLE_COUNT`] before the `as usize` cast, and does
+    /// not attempt to loop -- this is checked by asserting rejection, never
+    /// by actually driving the `0..=sample_count` loop anywhere near that
+    /// count.
     #[test]
     fn resample_dt_targeting_the_usize_max_boundary_is_rejected() {
         let model = panda();
@@ -1076,10 +1142,9 @@ mod tests {
         let approx_duration = 10.0;
         let resample_dt = approx_duration / (usize::MAX as f64);
         assert!(resample_dt.is_finite() && resample_dt > 0.0);
-        let options = TotgOptions {
-            resample_dt,
-            ..Default::default()
-        };
+        let options = TotgOptions::default()
+            .with_resample_dt(resample_dt)
+            .unwrap();
         let result = compute_time_stamps_with_limits(&mut trajectory, &limits, &limits, &options);
         assert!(
             result.is_err(),
@@ -1097,6 +1162,16 @@ mod tests {
     /// takes positive time under finite velocity/acceleration limits. This
     /// is reasoned from the control flow (there is no reachable nonzero-point
     /// zero-duration path to construct), not measured against one.
+    ///
+    /// Constructs `TotgOptions { resample_dt: 0.0, .. }` via the
+    /// `pub(crate)`-visible field directly, bypassing
+    /// [`TotgOptions::with_resample_dt`] on purpose: that constructor would
+    /// otherwise make this exact scenario impossible to set up at all
+    /// (`resample_dt = 0.0` is rejected at construction everywhere outside
+    /// this crate). This white-box test exists to pin the *control-flow*
+    /// invariant — the early return fires before consumption, independent
+    /// of the value — as a second, independent guarantee alongside the
+    /// constructor's type-level one.
     ///
     /// This also covers [`totg_compute_time_stamps`]'s internal two-call
     /// chain (see

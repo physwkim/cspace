@@ -531,11 +531,82 @@
 //!
 //! ## Whole-file exclusions
 //!
-//! - `collision_env_hybrid.hpp` (`CollisionEnvHybrid`) — extends
-//!   `collision_detection::CollisionEnvFCL` directly. D-decision:
-//!   `PORTING-PLAN.md`'s FCL/Bullet → `parry3d-f64` backend replacement
-//!   (lines 232–233) means `CollisionEnvFCL` itself is never ported, so
-//!   nothing depending on it directly can be either.
+//! - `collision_env_hybrid.hpp`/`.cpp` (`CollisionEnvHybrid`) — **measured,
+//!   round 28; not excluded, not ported.** The previous text here read
+//!   "extends `collision_detection::CollisionEnvFCL` directly, so nothing
+//!   depending on it can be ported" -- an inheritance-graph argument of the
+//!   same shape PORTING-PLAN.md's own §139 already found false once (an
+//!   "unportable" verdict that survived until someone counted the actual
+//!   calls and found one forwarding call). Counted here instead of
+//!   inferred: `CollisionEnvHybrid` has 22 members total (3 constructors,
+//!   12 `check{Self,Robot,}CollisionDistanceField` overloads, `setWorld`,
+//!   `getCollisionGradients`, `getAllCollisions`,
+//!   `initializeRobotDistanceField`, 2 `cenv_distance_` accessor getters, 1
+//!   empty destructor -- `collision_env_hybrid.hpp:53-150`,
+//!   `collision_env_hybrid.cpp:44-184`). Of those 22, exactly 4 touch the
+//!   `CollisionEnvFCL` base at all:
+//!
+//!   - The 3 constructors' base-init-list calls
+//!     (`collision_env_hybrid.cpp:49,61,69`) construct `CollisionEnvFCL`
+//!     with `(robot_model)`, `(robot_model, world, padding, scale)`, and
+//!     `(other, world)`, plus two `getWorld()` calls (`:51,63`).
+//!     `getWorld()`/the two-argument constructor's `(world, padding,
+//!     scale)` state are declared on `CollisionEnv` itself
+//!     (`collision_detection/collision_env.hpp:237,240,246`), not on
+//!     `CollisionEnvFCL` -- generic `CollisionEnv` state every backend
+//!     needs, not FCL-specific behavior.
+//!   - `setWorld` (`collision_env_hybrid.cpp:163-170`) makes the one
+//!     genuinely FCL-*behavioral* base call: an explicit
+//!     `CollisionEnvFCL::setWorld(world)` (`:169`), whose body
+//!     (`collision_env_fcl.cpp:417-438`) clears `manager_`/`fcl_objs_` (FCL's
+//!     persistent broadphase cache) and rewires `World` observers -- work
+//!     that exists only because FCL caches a broadphase structure that a
+//!     world swap invalidates. [`moveit_collision::ParryCollisionEnv`] has
+//!     no such structure to invalidate: it owns `World` directly
+//!     (`parry.rs:1771-1772`) and every `check_*` call rebuilds its
+//!     collision bodies fresh from `self.world`
+//!     (`world_bodies(&self.world, ...)`, `parry.rs:1840`) rather than
+//!     consulting a cached broadphase manager, so the Rust equivalent of
+//!     this call is not "port `setWorld`'s rebuild logic," it is "there is
+//!     nothing to rebuild" -- swapping the field IS the update.
+//!
+//!   The other 18 members never call the FCL base at all: all 12
+//!   `check*DistanceField` overloads and `getCollisionGradients`/
+//!   `getAllCollisions`/`initializeRobotDistanceField` forward straight to
+//!   `cenv_distance_` (a `CollisionEnvDistanceField`, this crate's own
+//!   [`DistanceFieldCollisionCache`]); the 2 accessors return
+//!   `cenv_distance_`; the destructor is empty.
+//!
+//!   Conclusion: the previous exclusion conflated "the base class is
+//!   unported" with "the base class's behaviour is unavailable" -- they are
+//!   different claims here, and the second one is false. Every behaviour
+//!   `CollisionEnvHybrid` actually draws from `CollisionEnvFCL` (robot
+//!   model/world/padding/scale storage, a world accessor, and a
+//!   broadphase-rebuild-on-world-swap that this port's `ParryCollisionEnv`
+//!   doesn't need because it never caches that structure) already exists on
+//!   [`moveit_collision::CollisionEnv`]/[`moveit_collision::ParryCollisionEnv`],
+//!   and the type's other half -- distance-field self/robot-collision
+//!   checking -- is exactly [`DistanceFieldCollisionCache`], already ported
+//!   in this crate. `CollisionEnvHybrid` is portable: a thin struct pairing
+//!   a `ParryCollisionEnv` (or `impl CollisionEnv<State>`, generically) with
+//!   a [`DistanceFieldCollisionCache`], with the 12 `check*DistanceField`
+//!   overloads collapsing the same way this crate's own two-overload
+//!   upstream methods already do elsewhere (`link_spheres_override`-style
+//!   `Option` parameters instead of arity-duplicated methods), a world-swap
+//!   method that is just replacing the held `World`/rebuilding no cache, and
+//!   `getCollisionGradients`/`getAllCollisions` as direct passthroughs.
+//!   Rough size: comparable to or smaller than `collision_env_hybrid.cpp`'s
+//!   own 185 lines once the arity collapse and this crate's existing
+//!   [`DistanceFieldCollisionCache`] do the real work.
+//!
+//!   **Not ported this round.** `moveit-distance-field` already depends on
+//!   `moveit-collision` (one-way; `moveit-collision` does not depend back —
+//!   `Cargo.toml`), so a combinator type is buildable without a new
+//!   dependency edge, but it would be the first type in this crate whose
+//!   *public shape* is defined by pairing a `moveit-collision` backend type
+//!   with this crate's own cache type -- a cross-crate design choice
+//!   `moveit-collision`'s owner needs to sign off on before the diff exists,
+//!   not after. Reported for that sign-off; port on explicit go-ahead only.
 //! - `collision_detector_allocator_distance_field.hpp`
 //!   (`CollisionDetectorAllocatorDistanceField`) and
 //!   `collision_detector_allocator_hybrid.hpp`

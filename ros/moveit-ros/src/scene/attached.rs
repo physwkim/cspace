@@ -46,6 +46,7 @@ use super::collision_object::{
     CollisionObjectOperation, OCTOMAP_NS, shapes_and_poses_from_collision_object,
     subframes_from_parallel_arrays,
 };
+use super::header_frame_transform;
 
 /// Apply one `AttachedCollisionObject` command. Upstream
 /// `processAttachedCollisionObjectMsg` (`planning_scene.cpp:1536`).
@@ -188,6 +189,14 @@ type LinkRelativeGeometry = (Vec<Arc<Shape>>, Vec<Isometry3>, BTreeMap<String, I
 /// composing `header_frame -> world -> link` in one step, mirroring
 /// `PlanningScene::attach`'s own `link_transform.inverse() * object_pose *
 /// s.pose()` (`scene.rs:1150`).
+///
+/// `header_frame_id` is resolved via [`super::header_frame_transform`], not
+/// [`moveit_scene::PlanningScene::frame_transform`] directly: upstream's
+/// `getFrameTransform(object.object.header.frame_id)` call here
+/// (`planning_scene.cpp:1606`) has no `knowsFrameTransform` guard in front
+/// of it, so an empty `header.frame_id` resolves to identity through
+/// `getFrameTransform`'s own silent fallback rather than being rejected
+/// (PORTING-PLAN.md §183).
 #[allow(clippy::too_many_arguments)]
 fn shapes_from_message_geometry(
     scene: &mut PlanningScene<'_>,
@@ -218,7 +227,7 @@ fn shapes_from_message_geometry(
         subframe_poses,
     )?;
 
-    let world_to_header = scene.frame_transform(header_frame_id)?;
+    let world_to_header = header_frame_transform(scene, header_frame_id)?;
     let link_transform = {
         let posed = scene.current_state_mut().update();
         posed.global_link_transform(link_name)?
@@ -424,6 +433,23 @@ mod tests {
         let model = two_link_model();
         let mut sc = scene(&model);
         let msg = base_attached("box", "tip", model.model_frame(), 0);
+        apply_attached_collision_object(&mut sc, msg).unwrap();
+        let body = sc.attached_body("box").unwrap();
+        assert_eq!(body.link_name(), "tip");
+        assert_eq!(body.shapes().len(), 1);
+    }
+
+    /// An empty `object.header.frame_id` is accepted as the world frame
+    /// (PORTING-PLAN.md §183) -- `processAttachedCollisionObjectMsg`'s
+    /// not-in-world branch has no `knowsFrameTransform` guard before
+    /// `getFrameTransform` (`planning_scene.cpp:1606`). Before
+    /// `header_frame_transform` existed, this would have been rejected with
+    /// `Err(UnknownName)`.
+    #[test]
+    fn add_from_message_geometry_accepts_empty_header_frame_id() {
+        let model = two_link_model();
+        let mut sc = scene(&model);
+        let msg = base_attached("box", "tip", "", 0);
         apply_attached_collision_object(&mut sc, msg).unwrap();
         let body = sc.attached_body("box").unwrap();
         assert_eq!(body.link_name(), "tip");

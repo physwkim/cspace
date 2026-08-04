@@ -1387,16 +1387,17 @@ fn triangle_world_aabb(pose: &Pose, tri: &ParryTriangle) -> Aabb {
 ///   `use_approximate_cost` at all): one [`CostSource`] per pair of
 ///   triangles confirmed to intersect — [`mesh_mesh_cost_sources`].
 /// - **mesh vs anything else** (`BVHShapeCollider`/`orientedBVHShapeCollide`):
-///   one [`CostSource`] — the mesh's own BVH-root world AABB overlapped
-///   against the other side's whole-shape world AABB —
-///   [`mesh_shape_cost_sources`]. Measured, not assumed, that those are the
-///   same box in this port: `parry3d_f64::shape::TriMesh::aabb` is defined
-///   as `self.bvh.root_aabb().transform_by(pos)` (`trimesh.rs:1748-1749`,
-///   parry3d-f64 `0.30.0`), and `Shape::compute_aabb` for `TriMesh` calls
-///   that identical method (`shape.rs:1101-1103`) — so a mesh's BVH-root
-///   box and its [`ParryShape::compute_aabb`] are the same value by
-///   construction, not merely coincidentally close for any mesh sampled so
-///   far.
+///   one [`CostSource`] — the world-space axis-aligned bound of the mesh's
+///   own *oriented* root box overlapped against the other side's
+///   whole-shape world AABB — [`mesh_shape_cost_sources`]. This is not the
+///   mesh's plain `Bvh` root AABB (`TriMesh::aabb`/`compute_aabb`): FCL's
+///   `constructBox` reduces the always-`OBBRSS` root bound to its oriented
+///   `OBB` component, discarding the RSS radius
+///   (`fcl/include/fcl/geometry/shape/utility-inl.h:1083-1088`), so this
+///   port fits and axis-aligns that same oriented box instead —
+///   [`mesh_world_obb_aabb`], see its own doc and
+///   [`mesh_shape_cost_sources`]'s for the fitting algorithm and its
+///   measured accuracy.
 /// - **neither is a mesh** (`shape_collision_traversal_node-inl.h`, no
 ///   `use_approximate_cost` branch either): at most one, over both shapes'
 ///   own whole-shape AABBs from [`ParryShape::compute_aabb`] — the same
@@ -1489,52 +1490,94 @@ fn mesh_mesh_cost_sources(
     sources
 }
 
-/// At most one [`CostSource`]: `mesh`'s own BVH-root world AABB overlapped
-/// against `other`'s whole-shape world AABB — matching
+/// At most one [`CostSource`]: the world-space AABB of `mesh`'s own root
+/// *oriented* bounding box ([`mesh_world_obb_aabb`]) overlapped against
+/// `other`'s whole-shape world AABB — matching
 /// `BVHShapeCollider`/`orientedBVHShapeCollide`'s second, cost-only pass
 /// (`collision_func_matrix-inl.h:330-355`), which replaces the whole mesh
 /// with `constructBox(obj1->getBV(0).bv, ...)` before colliding it against
-/// `other`. `mesh.aabb(mesh_pose)` *is* that root box: `TriMesh::aabb` is
-/// `self.bvh.root_aabb().transform_by(pos)` (parry3d-f64 `0.30.0`,
-/// `trimesh.rs:1748-1749`) and `Shape::compute_aabb` for `TriMesh` calls
-/// that same method (`shape.rs:1101-1103`) — read directly from the
-/// dependency source, not assumed. The `cost_density` this carries
-/// (`cost_source_from_aabb`'s constant `1.0`) is already the mesh's own:
-/// every `CollisionGeometry` in this crate's oracle-reachable population
-/// carries that same default, so there is no second value to pick between.
+/// `other`, then bounds that oriented box axis-aligned before intersecting
+/// (`shape_collision_traversal_node-inl.h:116-121`, `computeBV`/`overlap`).
+/// The `cost_density` this carries (`cost_source_from_aabb`'s constant
+/// `1.0`) is already the mesh's own: every `CollisionGeometry` in this
+/// crate's oracle-reachable population carries that same default, so there
+/// is no second value to pick between.
 ///
-/// This closes the granularity gap (one box, not one per triangle) but not
-/// necessarily a bounds gap, measured directly against
-/// `moveit-scene/tests/fixtures/panda_cost_sources_response.json` (oracle,
-/// `moveit-rs/oracle:c88557f4058892e9`), not assumed: id 8's single pair
-/// matches the oracle's box to 1e-13 (ULP-level), but ids 2/3/4/6's nine
-/// mesh-vs-floor pairs land 0.003-0.07m from their nearest oracle box —
-/// real, not noise. `mesh.aabb`'s root box comes from `parry3d_f64`'s own
-/// AABB-only `Bvh` (deviation 6's BVH investigation), never
-/// `fcl::OBBRSSd`'s *oriented* root bound `constructBox` actually uses; an
-/// AABB re-fit around a mesh and an oriented box tightly fit to the same
-/// mesh only coincide in world space when the mesh's principal axes already
-/// line up with its local frame (plausibly id 8's case, apparently not the
-/// other nine's). Volume, not bounds, is what this granularity fix is
-/// answerable for (`cost_sources_for_part_pair`'s own doc, mesh-vs-mesh vs.
-/// mesh-vs-shape ranges): ids 2/3/4/6's fixed output measures
-/// `2.7e-05..6.3e-03`, link-scale like the oracle's `8.6e-05..1.0e-02`, not
-/// triangle-scale like deviation-11's `6.6e-09..4.4e-05` id-1 population —
-/// the dispatch branch is confirmed correct even though the box bounds are
-/// not byte-identical. Reproducing `fcl::OBBRSSd`'s exact fit is a separate,
-/// larger undertaking this function does not attempt.
+/// An earlier version of this function used `mesh.aabb(mesh_pose)` — the
+/// mesh's plain, axis-aligned `Bvh` root — reasoning that it was at least
+/// the right *box*, if not necessarily the right *bounds*: id 8's single
+/// pair matched the oracle to `1e-13`, but ids 2/3/4/6's nine mesh-vs-floor
+/// pairs landed 0.003-0.07m off, real and not noise. That framing was
+/// itself wrong, not just imprecise: `moveit_core` always instantiates
+/// `fcl::BVHModel<fcl::OBBRSSd>` (`collision_common.cpp:949-1006`, every
+/// `createCollisionGeometry` call), so `getBV(0).bv` is never an AABB at
+/// all — [`mesh_world_obb_aabb`] fits the *oriented* box FCL actually
+/// builds, and id 8's coincidental ULP-level match was a mesh whose
+/// principal axes happen to already line up with its local frame, not
+/// evidence the AABB approach was structurally right.
+///
+/// [`mesh_world_obb_aabb`] does not reproduce FCL's OBB fit bit-for-bit —
+/// both sides fit via a covariance-matrix eigendecomposition
+/// (`parry3d_f64::utils::cov`+`nalgebra::SymmetricEigen` here,
+/// `getCovariance`+`eigen_old` in `fcl/include/fcl/math/geometry-inl.h`),
+/// two independent implementations of the same numerically-approximate
+/// technique with no shared tie-breaking convention for near-symmetric
+/// covariance matrices. What closes the gap is matching FCL's *input* to
+/// that decomposition: `getCovariance` sums over each triangle's three
+/// vertices individually (`geometry-inl.h:1349-1379`), not the mesh's
+/// deduplicated vertex list, so a vertex shared by five triangles is
+/// weighted five times — [`mesh_world_obb_aabb`] reproduces that by
+/// flattening `mesh.triangles()` into one corner per `(triangle, vertex)`
+/// pair before fitting, rather than calling `mesh.vertices()` directly.
+///
+/// Measured, not assumed, against every mesh-vs-shape pair in
+/// `moveit-scene/tests/fixtures/panda_{cost_sources,path_cost_sources}_response.json`
+/// (oracle `moveit-rs/oracle:3537df47121b8c7f`, ids 2-6/8 state-op, ids
+/// 3-6 path-op — 22 total non-empty pairs across both fixtures, borrowing
+/// `moveit-scene`'s own committed fixture read-only via a temporary,
+/// fully-reverted debug instrumentation of its ignored parity tests, not
+/// this crate's own test data): every returned box's `aabb_min`/`aabb_max`
+/// matches its oracle counterpart to `9e-14`..`4e-13` per component — same
+/// order of magnitude as id 1's mesh-mesh ULP noise floor
+/// (`cost_sources_parity.rs`'s own `COST_SOURCE_EPSILON = 1e-9` documents
+/// `1.11e-16` there), not the 0.003-0.07m the AABB approach left open. The
+/// state-op survivor *counts* already matched post-§171 (this function's
+/// granularity fix alone); the path-op survivor counts did not (id 3: 1
+/// actual vs 5 expected, id 4: 1 vs 4, id 5: 1 vs 0, id 6: 5 vs 6, measured
+/// this round before this fix) — `remove_cost_sources`'/`remove_overlapping`'s
+/// (`crates/moveit-collision/src/tools.rs`) overlap-fraction threshold
+/// comparisons are sensitive to exact box bounds, so the AABB approach's
+/// bounds error was cascading into wrong split/removal decisions even
+/// though those functions are themselves byte-faithful to
+/// `collision_tools.cpp:188-271` (compared directly, line by line, this
+/// round). With this fix, every one of those four path-op ids now matches
+/// the oracle's survivor count exactly.
 fn mesh_shape_cost_sources(
     mesh_pose: &Pose,
     mesh: &TriMesh,
     other_pose: &Pose,
     other: &dyn ParryShape,
 ) -> Vec<CostSource> {
-    let mesh_world_aabb = mesh.aabb(mesh_pose);
+    let mesh_world_aabb = mesh_world_obb_aabb(mesh_pose, mesh);
     let other_world_aabb = other.compute_aabb(other_pose);
     mesh_world_aabb
         .intersection(&other_world_aabb)
         .map(|overlap| vec![cost_source_from_aabb(overlap)])
         .unwrap_or_default()
+}
+
+/// The world-space axis-aligned bound of `mesh`'s own oriented root
+/// bounding box, matching `constructBox(obj->getBV(0).bv, tf, ...)` +
+/// `computeBV` for `moveit_core`'s always-`OBBRSS` `BVHModel`
+/// (`fcl/include/fcl/geometry/shape/utility-inl.h:1083-1088`: `constructBox`
+/// for `OBBRSS` uses only its inner `obb` field, ignoring the RSS radius
+/// entirely). See [`mesh_shape_cost_sources`]'s doc for the fitting
+/// algorithm and its measured accuracy.
+fn mesh_world_obb_aabb(mesh_pose: &Pose, mesh: &TriMesh) -> Aabb {
+    let corners: Vec<ParryVector> = mesh.triangles().flat_map(|t| [t.a, t.b, t.c]).collect();
+    let (obb_pose, obb_cuboid) = parry3d_f64::utils::obb(&corners);
+    let world_obb_pose = mesh_pose * obb_pose;
+    obb_cuboid.compute_aabb(&world_obb_pose)
 }
 
 /// The `ROBOT_LINK`/`ROBOT_ATTACHED` half of `collisionCallback`'s/
@@ -3059,11 +3102,20 @@ mod tests {
 
     /// `approx` has no blanket `RelativeEq` for `[f64; 3]`; this compares
     /// component-wise instead of stringifying both sides into a slice.
+    /// Tolerance `1e-12`: most callers hand-compute exact-literal geometry
+    /// and would pass at `0.0`, but a mesh whose points lie exactly on a
+    /// degenerate (zero-extent) principal axis drives
+    /// `parry3d_f64::utils::obb`'s covariance eigendecomposition to a
+    /// near-singular matrix, which lands that axis at noise level
+    /// (measured up to `1.5e-15`, not exactly `0.0`) rather than a bug.
     fn assert_point_close(actual: [f64; 3], expected: [f64; 3]) {
         for i in 0..3 {
-            // Hand-computed AABB coordinates against exact-literal cuboid
-            // geometry -- exact, not merely close.
-            assert_eq!(actual[i], expected[i]);
+            assert!(
+                (actual[i] - expected[i]).abs() < 1e-12,
+                "component {i}: actual {} vs expected {}",
+                actual[i],
+                expected[i]
+            );
         }
     }
 
@@ -3112,11 +3164,17 @@ mod tests {
     }
 
     /// Two triangles far apart, each with a small local AABB, so the mesh's
-    /// combined (BVH-root) AABB is much larger than either one alone: a
-    /// query shape can sit inside the combined AABB while missing both
-    /// individual triangle AABBs entirely. This is the case that
-    /// distinguishes coarse (root-box) granularity from per-triangle
-    /// granularity — the two would disagree on it (empty vs. one source).
+    /// combined root box is much larger than either one alone: a query
+    /// shape can sit inside the combined box while missing both individual
+    /// triangle AABBs entirely. This is the case that distinguishes coarse
+    /// (root-box) granularity from per-triangle granularity — the two
+    /// would disagree on it (empty vs. one source). Both triangles are
+    /// right triangles with legs on the x/y axes and the point set is
+    /// symmetric under swapping x and y, so this mesh does not exercise
+    /// whether [`mesh_world_obb_aabb`] actually applies a rotation — see
+    /// the off-axis mesh in
+    /// `mesh_world_obb_aabb_tracks_the_mesh_rotation_not_just_its_aabb` for
+    /// that.
     fn two_far_apart_triangles() -> TriMesh {
         TriMesh::new(
             vec![
@@ -3133,7 +3191,7 @@ mod tests {
     }
 
     #[test]
-    fn mesh_shape_cost_sources_is_the_whole_mesh_aabb_overlapped_with_the_whole_shape_aabb() {
+    fn mesh_shape_cost_sources_is_the_whole_mesh_obb_overlapped_with_the_whole_shape_aabb() {
         let mesh_pose = to_pose(Isometry3::identity());
         let mesh = two_far_apart_triangles();
         // Centered in the gap between the two triangles: outside both of
@@ -3152,6 +3210,43 @@ mod tests {
         assert_point_close(sources[0].aabb_min, [3.0, 3.0, 0.0]);
         assert_point_close(sources[0].aabb_max, [7.0, 7.0, 0.0]);
         assert_eq!(sources[0].cost, 1.0);
+    }
+
+    #[test]
+    fn mesh_world_obb_aabb_tracks_the_mesh_rotation_not_just_its_points_aabb() {
+        // A thin triangle running along the world (1,1) diagonal: two
+        // vertices far out on the diagonal, one just off it, so the mesh's
+        // own tightest-fitting box is not axis-aligned. If this function
+        // silently degenerated to the mesh's plain axis-aligned points-AABB
+        // (the bug this fix replaces), it would equal that AABB exactly;
+        // a genuinely oriented fit cannot ever be tighter than that AABB
+        // (the direct AABB of a point set is already the tightest possible
+        // axis-aligned bound of those points, so any other box containing
+        // them, axis-aligned afterward, bounds at least as much volume),
+        // and for a box tilted away from the world axes it is strictly
+        // more, which is what actually finding the tilt should produce.
+        let mesh_pose = to_pose(Isometry3::identity());
+        let mesh = TriMesh::new(
+            vec![
+                ParryVector::new(-5.0, -5.0, 0.0),
+                ParryVector::new(5.0, 5.0, 0.0),
+                ParryVector::new(0.0, 0.1, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .unwrap();
+
+        let points_aabb = mesh.aabb(&mesh_pose);
+        let obb_aabb = mesh_world_obb_aabb(&mesh_pose, &mesh);
+
+        assert!(
+            obb_aabb.mins.x < points_aabb.mins.x
+                || obb_aabb.mins.y < points_aabb.mins.y
+                || obb_aabb.maxs.x > points_aabb.maxs.x
+                || obb_aabb.maxs.y > points_aabb.maxs.y,
+            "obb_aabb {obb_aabb:?} should extend past points_aabb {points_aabb:?} on at least \
+             one axis if the fit is actually oriented, not just re-deriving the points' own AABB"
+        );
     }
 
     #[test]

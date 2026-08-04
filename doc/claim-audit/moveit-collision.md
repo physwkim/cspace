@@ -60,3 +60,37 @@ declaration with a floating-point initializer to any file above, or a new
 upstream file citing floating-point-narrowing joins this crate's cited
 set, this table's `CONFIRMED (absent)` rows must be re-swept, not assumed
 to still hold.
+
+## `mesh_shape_cost_sources` OBB-fit citations (round with commit pending)
+
+Closes the AABB-vs-OBBRSS bounds gap `c6161b9`'s dispatch fix left open
+(id 8 matched to 1e-13, ids 2/3/4/6 were 0.003-0.07m off): the mesh's
+root bound was fit as a plain axis-aligned `Bvh` root, but
+`moveit_core` always builds `fcl::BVHModel<fcl::OBBRSSd>`, whose root
+bound is *oriented*. [`mesh_world_obb_aabb`] fits and axis-aligns that
+oriented box instead, via `parry3d_f64::utils::obb`.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| `src/parry.rs` (`cost_sources_for_part_pair`/`mesh_shape_cost_sources` doc) | `moveit_core` always instantiates `fcl::BVHModel<fcl::OBBRSSd>` for collision geometry, never a plain-AABB BV type | CONFIRMED | `moveit_core/collision_detection_fcl/src/collision_common.cpp:949-1006`, every `createCollisionGeometry<...>` call site |
+| `src/parry.rs` (same doc) | `constructBox` for `OBBRSS` uses only the inner `obb` field, discarding the RSS radius entirely | CONFIRMED | `fcl/include/fcl/geometry/shape/utility-inl.h:1083-1088` and `:1156-1163` (two overloads, same reduction) |
+| `src/parry.rs` (`mesh_shape_cost_sources` doc) | FCL's own OBB fit (`FitImpl<S, OBB<S>>::run`) derives axis via `getCovariance`+`eigen_old`, center/extent via a separate `getExtentAndCenter` call using that axis | CONFIRMED | `fcl/include/fcl/geometry/bvh/detail/BV_fitter-inl.h:301-324` |
+| `src/parry.rs` (same doc) | `getCovariance` sums over each triangle's 3 vertices individually (not deduplicated mesh vertices), weighting a shared vertex once per incident triangle | CONFIRMED | `fcl/include/fcl/math/geometry-inl.h:1349-1379` |
+| `src/parry.rs` (same doc) | the final cost-source AABB is `computeBV` (axis-aligned bound of the oriented box) intersected with the other shape's own AABB via `overlap_part`, matching this port's `.intersection(&other_world_aabb)` | CONFIRMED | `fcl/include/fcl/narrowphase/detail/traversal/collision/shape_collision_traversal_node-inl.h:116-133` |
+| `src/parry.rs` (`mesh_world_obb_aabb` doc) | `parry3d_f64::utils::obb(pts)` fits via `crate::utils::cov` + `nalgebra::SymmetricEigen`, projecting all points onto the resulting axes for center/extent — a PCA fit structurally analogous to FCL's but not bit-identical (no shared eigenvector tie-break convention) | CONFIRMED | `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parry3d-f64-0.30.0/src/utils/obb.rs` (full file read) |
+
+Measured accuracy (this crate's own instrumentation of
+`moveit-scene/tests/cost_sources_parity.rs`'s two `#[ignore]`d tests,
+read-only, fully reverted after — not this crate's own fixture data,
+oracle `moveit-rs/oracle:3537df47121b8c7f`): state-op ids 2/3/4/6/8 all
+match the oracle's `aabb_min`/`aabb_max` to `9e-14`..`4e-13` (previously
+0.003-0.07m off); path-op ids 3/4/5/6's survivor counts now match the
+oracle exactly (previously 1v5/1v4/1v0/5v6). State-op id 5 (9 actual vs
+2 expected) is unaffected and unrelated — a `moveit-scene`
+group-filter defect, not `moveit-collision`'s.
+
+Expires (§153.1): if `parry3d_f64` changes `utils::obb`'s fitting
+algorithm (a different eigensolver, a different point-projection
+convention), or a future oracle rebuild changes any of the above cited
+FCL/moveit_core lines, this table's measured-accuracy numbers must be
+re-measured, not assumed to still hold.

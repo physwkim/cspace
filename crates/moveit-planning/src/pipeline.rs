@@ -17,7 +17,7 @@
 //!
 //! Upstream resolves `pipeline_parameters_.planning_plugins` (a list of
 //! names) against `planner_map_`, a `pluginlib`-populated
-//! `unordered_map<string, PlannerManagerPtr>` (`planning_pipeline.hpp:259`).
+//! `unordered_map<string, PlannerManagerPtr>` (`planning_pipeline.hpp:263`).
 //! This workspace's D4 compile-time equivalent — the `PLANNER_MANAGERS`
 //! `distributed_slice` and the `PlannerManager`/`PlanningContext` traits —
 //! currently lives in `moveit-planners-sbp::registry`. Depending on it from
@@ -49,15 +49,22 @@
 //!
 //! `pipeline_parameters_.planning_plugins` can name more than one planner,
 //! run in sequence — not a fallback chain (try the next on failure), a
-//! *pipeline* (every planner must succeed). Before calling the second and
-//! every later planner, upstream overwrites the mutable request:
-//! `mutable_request.trajectory_constraints.constraints =
-//! getTrajectoryConstraints(res.trajectory)` (cpp:301) — the *next*
-//! planner's request is built from the *previous* planner's successful
-//! trajectory, not from the original caller-supplied request. [`generate_plan`]
-//! below reproduces this with a private `trajectory_constraints_for` helper
-//! (porting `getTrajectoryConstraints`, `planning_pipeline.cpp:57-73`) called between
-//! successive [`Planner::plan`] calls, never before the first. See
+//! *pipeline* (every planner must succeed). Before calling *every* planner,
+//! upstream checks `if (res.trajectory)` (cpp:299) and, only if it's set,
+//! overwrites the mutable request: `mutable_request.trajectory_constraints.constraints
+//! = getTrajectoryConstraints(res.trajectory)` (cpp:301) — the gate is on
+//! whether `res` (a caller-supplied `MotionPlanResponse&`, not locally
+//! constructed) already carries a trajectory, not on loop position. In the
+//! normal case a freshly-called pipeline's `res` starts empty, so this is a
+//! no-op for the first planner and fires from the second one on, once a
+//! prior planner has succeeded — but a caller who pre-populates `res.trajectory`
+//! before calling would make it fire on the first planner too.
+//! [`generate_plan`] below reproduces the same state-based trigger with a
+//! private `trajectory_constraints_for` helper (porting
+//! `getTrajectoryConstraints`, `planning_pipeline.cpp:57-73`) called between
+//! successive [`Planner::plan`] calls, never before the first — this port's
+//! `response` starts empty on every call, so the two conditions coincide
+//! here even though upstream's gate is not itself positional. See
 //! "Semantic-1 tests" below for the two-planner regression that proves the
 //! second request is actually rewritten, not merely eligible to be.
 //!
@@ -195,10 +202,14 @@
 //! # Decided after registry relocation, not dropped
 //!
 //! `getPlannerPluginNames`/`getRequestAdapterPluginNames`/
-//! `getResponseAdapterPluginNames`/`getName`/`getPlannerManager`
-//! (`planning_pipeline.hpp:193-236`) all read out of `pipeline_parameters_`
-//! or `planner_map_` — state a name-to-implementation registry owns, not
-//! state this call-scoped function has anywhere to keep between calls. Once
+//! `getResponseAdapterPluginNames` (`hpp:193-208`) read `pipeline_parameters_`,
+//! and `getPlannerManager` (`hpp:229-236`) reads `planner_map_` — state a
+//! name-to-implementation registry owns, not state this call-scoped
+//! function has anywhere to keep between calls. `getName` (`hpp:222-226`)
+//! is a separate case: it returns `parameter_namespace_`, a third field
+//! this port also has no long-lived home for, so it belongs with this group
+//! for the same "not part of `generate_plan`'s scope today" reason even
+//! though it does not read either container. Once
 //! the registry relocates out of `moveit-planners-sbp::registry` (see this
 //! round's separate item-2 report), whichever type ends up owning a named
 //! planner chain is where these belong; they are not part of
@@ -300,7 +311,7 @@ pub enum PipelineError {
 /// # Weight and tolerance: the effective value, not the literal one
 ///
 /// Upstream builds a default-constructed `moveit_msgs::msg::JointConstraint`
-/// per joint and sets only `joint_name`/`position` (cpp:68-70); every other
+/// per joint and sets only `joint_name`/`position` (cpp:71-73); every other
 /// field — `tolerance_above`/`tolerance_below`/`weight` — stays at the ROS
 /// message default of `0.0`. That literal `0.0` is not what a
 /// `kinematic_constraints::JointConstraint` actually evaluates once
@@ -312,11 +323,20 @@ pub enum PipelineError {
 /// error"), so passing the literal `0.0` here would make every feedforward
 /// call fail — this function passes `1.0`, the value upstream's own
 /// substitution already arrives at, so the constraint this port builds
-/// evaluates identically to upstream's, not merely compiles. Tolerances have
-/// no such substitution upstream — `JointConstraint::configure` only
+/// evaluates identically to upstream's, not merely compiles. Tolerances are
+/// only *rejected* by one substitution path upstream — `JointConstraint::configure`
 /// rejects a *negative* tolerance (`kinematic_constraint.cpp:146-151`), and
-/// `0.0` is not negative — so `0.0` is passed through unchanged, an exact
-/// port with nothing to reconcile.
+/// `0.0` is not negative, so that path leaves `0.0` alone. A second, uncited
+/// path can still rewrite it: if the waypoint's own position plus/minus the
+/// (here, zero) tolerance falls outside the joint's bounds,
+/// `configure` silently substitutes `tolerance_above_`/`tolerance_below_`
+/// to `f64::EPSILON` and clamps the position to the bound
+/// (`kinematic_constraint.cpp:243-260`). For a trajectory whose every
+/// waypoint already satisfies its own joint bounds — the only kind
+/// [`trajectory_constraints_for`] is ever called on — that branch's guard
+/// is false at every call, so `0.0` still passes through unchanged in
+/// practice; the claim that upstream has *no* tolerance substitution at all
+/// was wrong, not the claim that this function's own behavior matches it.
 fn trajectory_constraints_for(
     scene: &PlanningScene<'_>,
     trajectory: &RobotTrajectory<'_>,

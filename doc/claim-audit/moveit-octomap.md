@@ -15,3 +15,29 @@ Upstream root for this crate: `third_party/octomap/octomap/` (octomap
 | `crates/moveit-octomap/src/tree.rs:325` (`coordToKeyChecked(double, unsigned depth, key_type&)` overload, doc bullet) | Same narrowing shape as the ported overload above, but this depth-parameterized overload itself is unported (no depth-write caller in this crate) | CONFIRMED not-applicable (no port exists to carry the defect) | `third_party/octomap/octomap/include/octomap/OcTreeBaseImpl.hxx:325-336` -- identical `(int) floor(...)` narrowing, confirmed same pattern | (none) |
 | `crates/moveit-octomap/src/tree.rs:402-403` (doc bullet: `getUnknownLeafCenters` unported) | `getUnknownLeafCenters` narrows `floor(diff[i]/step_size)` to `unsigned int` via `static_cast`; port correctly excludes the whole function (zero consumer) rather than reproducing or silently dropping the narrowing | CONFIRMED not-applicable | `third_party/octomap/octomap/include/octomap/OcTreeBaseImpl.hxx:1060` -- `steps[i] = static_cast<unsigned int>(floor(diff[i] / step_size));` | (none) |
 | `crates/moveit-octomap/src/*.rs` (port-side anchor: `as i8..u128/usize` receiving an `f64` expr) | Every remaining `as usize`/`as i64` in this crate narrows an already-integer quantity (child index, key offset), not a real-valued one | CONFIRMED distinct, 3 sites (`iter.rs:46`, `tree.rs:869`, `tree.rs:1320`, `tree.rs:1423`) | Read in this tree only -- each narrows `compute_child_idx(...)`/a loop index, never a float | (none) |
+
+## §167.6 bare-directory-citation sweep (this round)
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| Every `Ported from` header in this crate (`lib.rs:5,25`, `key.rs:5`, `iter.rs:5`, `tree.rs:5`, `node.rs:5`) | None cite a bare package/directory line with no filenames indented beneath it -- every citation lists explicit headers (`OcTreeKey.h`, `OcTreeIterator.hxx`, `OcTreeBaseImpl.h`/`.hxx`, etc.) | CONFIRMED, 0 hits of the shape the parser now closes | Read all six headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
+
+## Trailing-byte acceptance in `read_binary_data`/`read_data` (found by p9-ros, this round)
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-octomap/src/tree.rs` `read_binary_data`/`read_data` (neither checks the cursor is exhausted after the recursive decode returns) | Exact parity with `octomap_msgs::readTree`/`fullMsgToMap`, which write `msg.data` into a `std::stringstream` with no length header and call `readBinaryData`/`readData` with no exhaustion check of their own; upstream's own integrity check (`size != this->size()` in `AbstractOccupancyOcTree::readBinary`) only exists on the `.bt` file path, which has a node-count header the message path never carries -- so the message path cannot detect a short/over-long read, upstream included | CONFIRMED parity, inherited weakness named -- not a bug, see §153.1 expiry below | `/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h` (`readTree` writes to a stringstream then calls `readBinaryData` with no size field; `fullMsgToMap` does the same via `readData`), read inside `moveit-rs/oracle:latest`; `third_party/octomap/octomap/src/AbstractOccupancyOcTree.cpp:172-176` (`if (size != this->size()) { ... }`), read in this tree -- confirms `size` is file-header-derived and has no message-path counterpart | (none; doc-only, `read_binary_data_ignores_trailing_bytes_after_a_complete_decode`/`read_data_ignores_trailing_bytes_after_a_complete_decode` added to lock the behavior in) |
+
+**§153.1 expiry:** if a future round decides to reject trailing bytes on
+either function, that is a deliberate *deviation* from upstream's
+message-path behavior requiring sign-off -- not a bug fix, and not
+something to "harden" silently. The two boundary tests above exist so
+that decision has to be made explicitly, by breaking a named test,
+rather than by accident.
+
+## `write_binary_data`/`write_data` (encode direction, this round)
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-octomap/src/tree.rs` `write_binary_data`/`write_binary_node`/`write_data`/`write_data_node` | Ports upstream `OccupancyOcTreeBase::writeBinaryData`/`writeBinaryNode` and `OcTreeBaseImpl::writeData`/`writeNodesRecurs` + `OcTreeDataNode::writeData` exactly: root's own value never written (only children encoded, binary path); 2-bit child code convention (`10` free, `01` occupied, `11` has children, `00` absent) identical to and inverse of `read_binary_node`'s; full-format path is a raw little-endian `f32` dump plus a 1-bit-per-child bitset, no quantization | CONFIRMED | `third_party/octomap/octomap/include/octomap/OccupancyOcTreeBase.hxx:944-1086` (`writeBinaryData`/`writeBinaryNode`) and `third_party/octomap/octomap/include/octomap/OcTreeBaseImpl.hxx:762-770` (`writeData`/`writeNodesRecurs`) plus `OcTreeDataNode.hxx:121-124` (`writeData`), all read in full in this tree | `2bef2de` |
+| Round-trip alone is not sufficient ground truth (both directions could share a mistake and still agree) | Encode output must match the oracle's own `serialize` bytes exactly, not just this crate's own decoder's output | CONFIRMED, byte-for-byte | `crates/moveit-octomap/tests/encode_parity.rs`: decodes the oracle's own `binary`/`full` hex payloads (`tests/fixtures/decode_request.json`/`decode_response.json`, already independently verified structurally correct against `tree_walk` by `decode_parity.rs`), re-encodes, and asserts byte-for-byte equality against the oracle's original bytes -- passes for every non-empty fixture | `2bef2de` |

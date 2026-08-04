@@ -14,3 +14,9 @@ Upstream root for this crate: `/home/stevek/work/moveit2` (pinned
 |---|---|---|---|---|
 | `moveit2 moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`, `moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/multivariate_gaussian.{h,hpp}` | No float-derived `int`/`unsigned`/`size_t` narrowing anywhere in either upstream `multivariate_gaussian` header this crate ports (nor its stray `.h` twin, checked though not cited) | CONFIRMED, 0 hits | Full-file grep of all three files, read in this tree; zero matches for `static_cast<int-family>`, C-style int-family casts, or float-initialized int-family declarations | (none) |
 | `crates/moveit-sampling/src/*.rs` (port-side anchor: `as i8..u128/usize` receiving `f64`) | Zero occurrences of the anchor pattern anywhere in this crate | CONFIRMED, 0 hits (run, not skipped) | Read in this tree only | (none) |
+
+## §167.6 bare-directory-citation sweep (this round)
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| Every `Ported from` header in this crate (`lib.rs:5`, `multivariate_gaussian.rs:5`) | Neither cites a bare package/directory line with no filenames indented beneath it -- both list the two `multivariate_gaussian.hpp` files explicitly | CONFIRMED, 0 hits of the shape the parser now closes | Read both headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |

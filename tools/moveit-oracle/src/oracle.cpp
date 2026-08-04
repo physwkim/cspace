@@ -134,6 +134,16 @@
 #include <pilz_industrial_motion_planner/trajectory_generator_lin.hpp>
 #include <pilz_industrial_motion_planner/trajectory_generator_ptp.hpp>
 
+// The `pilz_blend` op. Same story as the three generators above: `blend` is
+// the one public entry point and `TrajectoryBlenderTransitionWindow` exports
+// its `(const LimitsContainer&)` constructor, both already inside
+// `pilz_industrial_motion_planner::trajectory_generation_common`, which
+// CMakeLists.txt has linked since the `pilz_trajectory` op landed. No new
+// link target and no rclcpp::Node.
+#include <pilz_industrial_motion_planner/trajectory_blend_request.hpp>
+#include <pilz_industrial_motion_planner/trajectory_blend_response.hpp>
+#include <pilz_industrial_motion_planner/trajectory_blender_transition_window.hpp>
+
 using json = nlohmann::json;
 
 namespace
@@ -996,6 +1006,8 @@ public:
       return ruckigFilter(request);
     if (op == "pilz_trajectory")
       return pilzTrajectory(request);
+    if (op == "pilz_blend")
+      return pilzBlend(request);
     if (op == "chomp_quad_cost_inverse")
       return chompQuadCostInverse(request);
     throw std::runtime_error("unsupported op: " + op);
@@ -5482,40 +5494,7 @@ private:
     if (group == nullptr)
       throw std::runtime_error("unknown joint model group: " + group_name);
 
-    pilz::JointLimitsContainer joint_limits;
-    for (const auto& [joint_name, limit_json] : request.at("joint_limits").items())
-    {
-      pilz::JointLimit limit;
-      limit.has_position_limits = limit_json.value("has_position_limits", false);
-      limit.min_position = limit_json.value("min_position", 0.0);
-      limit.max_position = limit_json.value("max_position", 0.0);
-      limit.has_velocity_limits = limit_json.value("has_velocity_limits", false);
-      limit.max_velocity = limit_json.value("max_velocity", 0.0);
-      limit.has_acceleration_limits = limit_json.value("has_acceleration_limits", false);
-      limit.max_acceleration = limit_json.value("max_acceleration", 0.0);
-      limit.has_deceleration_limits = limit_json.value("has_deceleration_limits", false);
-      limit.max_deceleration = limit_json.value("max_deceleration", 0.0);
-      limit.has_jerk_limits = limit_json.value("has_jerk_limits", false);
-      limit.max_jerk = limit_json.value("max_jerk", 0.0);
-      limit.has_effort_limits = limit_json.value("has_effort_limits", false);
-      limit.max_effort = limit_json.value("max_effort", 0.0);
-      limit.angle_wraparound = limit_json.value("angle_wraparound", false);
-      if (!joint_limits.addLimit(joint_name, limit))
-        throw std::runtime_error("JointLimitsContainer::addLimit rejected joint " + joint_name);
-    }
-
-    pilz::LimitsContainer limits;
-    limits.setJointLimits(joint_limits);
-    if (request.contains("cartesian_limits"))
-    {
-      const json& cart = request.at("cartesian_limits");
-      cartesian_limits::Params params;
-      params.max_trans_vel = cart.at("max_trans_vel").get<double>();
-      params.max_trans_acc = cart.at("max_trans_acc").get<double>();
-      params.max_trans_dec = cart.at("max_trans_dec").get<double>();
-      params.max_rot_vel = cart.at("max_rot_vel").get<double>();
-      limits.setCartesianLimits(params);
-    }
+    pilz::LimitsContainer limits = buildPilzLimits(request);
 
     // The scene's current state IS the start state: `generate()` reads it
     // back out through `scene->getCurrentState()` and `checkStartState`
@@ -5535,42 +5514,7 @@ private:
     req.max_acceleration_scaling_factor = request.at("max_acceleration_scaling_factor").get<double>();
     moveit::core::robotStateToRobotStateMsg(start_state, req.start_state);
 
-    // A discriminated goal, not upstream's `Constraints` list.
-    // `checkGoalConstraints` (`trajectory_generator.cpp:221-254`) accepts
-    // exactly one constraint of exactly one kind, so this shape produces
-    // the identical accepted set without a JSON encoding of the ambiguous
-    // multi-list message.
-    const json& goal = request.at("goal");
-    const std::string goal_kind = goal.at("kind").get<std::string>();
-    if (goal_kind == "joint")
-    {
-      moveit::core::RobotState goal_state(*pilz_state_);
-      for (const auto& [variable, value] : goal.at("joints").items())
-        goal_state.setVariablePosition(variable, value.get<double>());
-      goal_state.update();
-      req.goal_constraints.push_back(kinematic_constraints::constructGoalConstraints(goal_state, group));
-    }
-    else if (goal_kind == "cartesian")
-    {
-      geometry_msgs::msg::PoseStamped pose;
-      pose.header.frame_id = pilz_model->getModelFrame();
-      const auto position = goal.at("position").get<std::array<double, 3>>();
-      const auto orientation = goal.at("orientation").get<std::array<double, 4>>();
-      pose.pose.position.x = position[0];
-      pose.pose.position.y = position[1];
-      pose.pose.position.z = position[2];
-      pose.pose.orientation.x = orientation[0];
-      pose.pose.orientation.y = orientation[1];
-      pose.pose.orientation.z = orientation[2];
-      pose.pose.orientation.w = orientation[3];
-      req.goal_constraints.push_back(kinematic_constraints::constructGoalConstraints(
-          goal.at("link_name").get<std::string>(), pose, goal.value("tolerance_position", 1e-4),
-          goal.value("tolerance_angle", 1e-4)));
-    }
-    else
-    {
-      throw std::runtime_error("unsupported goal kind: " + goal_kind);
-    }
+    req.goal_constraints.push_back(buildPilzGoalConstraints(request.at("goal"), group, pilz_model));
 
     // CIRC alone needs a path constraint to name its interim/centre point;
     // the other two never read `path_constraints`.
@@ -5635,10 +5579,109 @@ private:
       return out;
     }
 
-    json waypoints_out = json::array();
-    for (std::size_t i = 0; i < res.trajectory->getWayPointCount(); ++i)
+    out["waypoints"] = serializePilzWaypoints(*res.trajectory, group);
+    out["group_variable_names"] = group->getVariableNames();
+    return out;
+  }
+
+  /// `joint_limits`/`cartesian_limits` -> `LimitsContainer`, shared by
+  /// `pilz_trajectory` and `pilz_blend`.
+  ///
+  /// Extracted rather than copied when `pilz_blend` landed: the blender
+  /// takes the same `LimitsContainer` its generators do
+  /// (`TrajectoryBlenderTransitionWindow`'s only constructor argument), and
+  /// two independent readers of one JSON shape is exactly the arrangement
+  /// `pilzTrajectory`'s own "Why the limits ride in the request" note
+  /// rejects for the two *sides* of a comparison -- the same argument
+  /// applies to two ops on this side.
+  static pilz_industrial_motion_planner::LimitsContainer buildPilzLimits(const json& request)
+  {
+    namespace pilz = pilz_industrial_motion_planner;
+
+    pilz::JointLimitsContainer joint_limits;
+    for (const auto& [joint_name, limit_json] : request.at("joint_limits").items())
     {
-      const moveit::core::RobotState& waypoint = res.trajectory->getWayPoint(i);
+      pilz::JointLimit limit;
+      limit.has_position_limits = limit_json.value("has_position_limits", false);
+      limit.min_position = limit_json.value("min_position", 0.0);
+      limit.max_position = limit_json.value("max_position", 0.0);
+      limit.has_velocity_limits = limit_json.value("has_velocity_limits", false);
+      limit.max_velocity = limit_json.value("max_velocity", 0.0);
+      limit.has_acceleration_limits = limit_json.value("has_acceleration_limits", false);
+      limit.max_acceleration = limit_json.value("max_acceleration", 0.0);
+      limit.has_deceleration_limits = limit_json.value("has_deceleration_limits", false);
+      limit.max_deceleration = limit_json.value("max_deceleration", 0.0);
+      limit.has_jerk_limits = limit_json.value("has_jerk_limits", false);
+      limit.max_jerk = limit_json.value("max_jerk", 0.0);
+      limit.has_effort_limits = limit_json.value("has_effort_limits", false);
+      limit.max_effort = limit_json.value("max_effort", 0.0);
+      limit.angle_wraparound = limit_json.value("angle_wraparound", false);
+      if (!joint_limits.addLimit(joint_name, limit))
+        throw std::runtime_error("JointLimitsContainer::addLimit rejected joint " + joint_name);
+    }
+
+    pilz::LimitsContainer limits;
+    limits.setJointLimits(joint_limits);
+    if (request.contains("cartesian_limits"))
+    {
+      const json& cart = request.at("cartesian_limits");
+      cartesian_limits::Params params;
+      params.max_trans_vel = cart.at("max_trans_vel").get<double>();
+      params.max_trans_acc = cart.at("max_trans_acc").get<double>();
+      params.max_trans_dec = cart.at("max_trans_dec").get<double>();
+      params.max_rot_vel = cart.at("max_rot_vel").get<double>();
+      limits.setCartesianLimits(params);
+    }
+    return limits;
+  }
+
+  /// A discriminated goal, not upstream's `Constraints` list.
+  /// `checkGoalConstraints` (`trajectory_generator.cpp:221-254`) accepts
+  /// exactly one constraint of exactly one kind, so this shape produces the
+  /// identical accepted set without a JSON encoding of the ambiguous
+  /// multi-list message.
+  moveit_msgs::msg::Constraints buildPilzGoalConstraints(const json& goal,
+                                                         const moveit::core::JointModelGroup* group,
+                                                         const moveit::core::RobotModelPtr& pilz_model) const
+  {
+    const std::string goal_kind = goal.at("kind").get<std::string>();
+    if (goal_kind == "joint")
+    {
+      moveit::core::RobotState goal_state(*pilz_state_);
+      for (const auto& [variable, value] : goal.at("joints").items())
+        goal_state.setVariablePosition(variable, value.get<double>());
+      goal_state.update();
+      return kinematic_constraints::constructGoalConstraints(goal_state, group);
+    }
+    if (goal_kind == "cartesian")
+    {
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header.frame_id = pilz_model->getModelFrame();
+      const auto position = goal.at("position").get<std::array<double, 3>>();
+      const auto orientation = goal.at("orientation").get<std::array<double, 4>>();
+      pose.pose.position.x = position[0];
+      pose.pose.position.y = position[1];
+      pose.pose.position.z = position[2];
+      pose.pose.orientation.x = orientation[0];
+      pose.pose.orientation.y = orientation[1];
+      pose.pose.orientation.z = orientation[2];
+      pose.pose.orientation.w = orientation[3];
+      return kinematic_constraints::constructGoalConstraints(goal.at("link_name").get<std::string>(), pose,
+                                                             goal.value("tolerance_position", 1e-4),
+                                                             goal.value("tolerance_angle", 1e-4));
+    }
+    throw std::runtime_error("unsupported goal kind: " + goal_kind);
+  }
+
+  /// One waypoint array in `pilz_trajectory`'s established per-waypoint
+  /// shape. `pilz_blend` emits three of these, so the shape is defined once.
+  static json serializePilzWaypoints(const robot_trajectory::RobotTrajectory& trajectory,
+                                     const moveit::core::JointModelGroup* group)
+  {
+    json waypoints_out = json::array();
+    for (std::size_t i = 0; i < trajectory.getWayPointCount(); ++i)
+    {
+      const moveit::core::RobotState& waypoint = trajectory.getWayPoint(i);
       json positions = json::object();
       json velocities = json::object();
       json accelerations = json::object();
@@ -5651,10 +5694,208 @@ private:
       waypoints_out.push_back(json{ { "positions", positions },
                                     { "velocities", velocities },
                                     { "accelerations", accelerations },
-                                    { "time_from_start", res.trajectory->getWayPointDurationFromStart(i) } });
+                                    { "time_from_start", trajectory.getWayPointDurationFromStart(i) } });
     }
-    out["waypoints"] = waypoints_out;
+    return waypoints_out;
+  }
+
+  /// One `pilz_blend` segment: build the generator named by
+  /// `segment["generator"]` and run it from whatever state `scene` currently
+  /// holds.
+  ///
+  /// The start state is the scene's, never a field of `segment` -- that is
+  /// what makes chaining possible (see `pilzBlend`'s doc comment for why
+  /// segment 2 must start from segment 1's own last waypoint rather than
+  /// from an independently supplied pose).
+  planning_interface::MotionPlanResponse
+  generatePilzSegment(const planning_scene::PlanningScenePtr& scene, const moveit::core::RobotModelPtr& pilz_model,
+                      const moveit::core::JointModelGroup* group, const std::string& group_name,
+                      const pilz_industrial_motion_planner::LimitsContainer& limits, const json& segment,
+                      double sampling_time)
+  {
+    namespace pilz = pilz_industrial_motion_planner;
+
+    const std::string generator = segment.at("generator").get<std::string>();
+
+    planning_interface::MotionPlanRequest req;
+    req.group_name = group_name;
+    req.max_velocity_scaling_factor = segment.at("max_velocity_scaling_factor").get<double>();
+    req.max_acceleration_scaling_factor = segment.at("max_acceleration_scaling_factor").get<double>();
+    moveit::core::robotStateToRobotStateMsg(scene->getCurrentState(), req.start_state);
+    req.goal_constraints.push_back(buildPilzGoalConstraints(segment.at("goal"), group, pilz_model));
+
+    if ((generator == "lin" || generator == "circ") && !ensureKinematicsSolver(group_name))
+      throw std::runtime_error("no kinematics solver could be attached to group " + group_name + ", which " +
+                               generator + " needs for its Cartesian goal");
+
+    std::unique_ptr<pilz::TrajectoryGenerator> trajectory_generator;
+    if (generator == "ptp")
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorPTP>(pilz_model, limits, group_name);
+    else if (generator == "lin")
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorLIN>(pilz_model, limits, group_name);
+    else if (generator == "circ")
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorCIRC>(pilz_model, limits, group_name);
+    else
+      throw std::runtime_error("unsupported generator: " + generator);
+
+    planning_interface::MotionPlanResponse res;
+    trajectory_generator->generate(scene, req, res, sampling_time);
+    return res;
+  }
+
+  /// `TrajectoryBlenderTransitionWindow::blend` -- the transition-window
+  /// blender's only external measurement.
+  ///
+  /// Requested by p1-joints in
+  /// `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend.md` after
+  /// they ported the 966-line blender with twelve tests, none of which
+  /// compares a single number against upstream (PORTING-PLAN.md §185).
+  ///
+  /// # Segment 2 starts from segment 1's own last waypoint
+  ///
+  /// The request carries one `start_state` and a two-entry `segments` array,
+  /// not a start state per segment, because upstream's real call sequence
+  /// chains: `plan_components_builder.cpp:75-105` sets
+  /// `blend_request.first_trajectory = traj_tail_`, the literal trajectory a
+  /// prior planning step produced. Two independently-solved IK results for
+  /// the same Cartesian corner can differ by more than `validateRequest`'s
+  /// `isRobotStateEqual` boundary check tolerates on `panda_arm`'s redundant
+  /// kinematics -- the request document measured `5.7e-6` per joint between
+  /// two solvers converging on one pose. Chaining removes that failure mode
+  /// by construction instead of by choosing parameters careful enough to
+  /// dodge it.
+  ///
+  /// # Why there is no `blend_align_index` field
+  ///
+  /// The request document asked for three integer fields:
+  /// `first_intersection_index`, `second_intersection_index`, and
+  /// `blend_align_index`. Two of the three are emitted; the third is not,
+  /// and the difference is not an oversight.
+  ///
+  /// `searchIntersectionPoints` and `determineTrajectoryAlignment` are both
+  /// **private** members of `TrajectoryBlenderTransitionWindow`, so no
+  /// caller can read their outputs directly. But the first two indices are
+  /// still genuine upstream products, because `blend()` truncates its
+  /// response trajectories at exactly those indices and the truncation is
+  /// exact, not approximate (`trajectory_blender_transition_window.cpp`):
+  /// the `[0, first_intersection_index)` copy loop makes
+  /// `res.first_trajectory`'s waypoint count *equal*
+  /// `first_intersection_index`, and the
+  /// `[second_intersection_index + 1, count)` copy loop makes
+  /// `res.second_trajectory`'s count equal the input's count minus
+  /// `second_intersection_index + 1`. Inverting two exact copy loops
+  /// recovers what upstream computed; it does not recompute it.
+  ///
+  /// `blend_align_index` has no such witness. It reaches only
+  /// `blendTrajectoryCartesian`'s sampling arithmetic and never determines a
+  /// boundary that survives into the response shape. Emitting it would mean
+  /// running `determineTrajectoryAlignment`'s six lines *here*, in this
+  /// file, from the two indices and a waypoint count -- and then the port
+  /// would be compared against this file's re-implementation rather than
+  /// against upstream's execution. That is a fixture measuring its own
+  /// helper, which is the one thing an oracle exists not to do. The Rust
+  /// side derives `blend_align_index` with its own
+  /// `determine_trajectory_alignment` from the two indices emitted here, as
+  /// the request document's own stated alternative allows, and the branch it
+  /// chose is checked where it actually has consequences: through
+  /// `blend_trajectory`'s waypoints, which are compared in full. The request
+  /// document's case B exists precisely to make that branch change the
+  /// output.
+  ///
+  /// `first_trajectory_input_waypoint_count` and
+  /// `second_trajectory_input_waypoint_count` are emitted so the Rust side
+  /// can perform that derivation, and so a segment-generation divergence
+  /// (different waypoint counts before blending) reads as its own finding
+  /// rather than as a blend mismatch.
+  json pilzBlend(const json& request)
+  {
+    namespace pilz = pilz_industrial_motion_planner;
+
+    const std::string group_name = request.at("group_name").get<std::string>();
+    const std::string link_name = request.at("link_name").get<std::string>();
+    const double sampling_time = request.at("sampling_time").get<double>();
+    const double blend_radius = request.at("blend_radius").get<double>();
+
+    const moveit::core::RobotModelPtr& pilz_model = ensurePilzModel();
+    const moveit::core::JointModelGroup* group = pilz_model->getJointModelGroup(group_name);
+    if (group == nullptr)
+      throw std::runtime_error("unknown joint model group: " + group_name);
+
+    const json& segments = request.at("segments");
+    if (segments.size() != 2)
+      throw std::runtime_error("pilz_blend needs exactly 2 segments, got " + std::to_string(segments.size()));
+
+    const pilz::LimitsContainer limits = buildPilzLimits(request);
+
+    auto scene = std::make_shared<planning_scene::PlanningScene>(pilz_model);
+    moveit::core::RobotState start_state(*pilz_state_);
+    for (const auto& [variable, value] : request.at("start_state").items())
+      start_state.setVariablePosition(variable, value.get<double>());
+    start_state.update();
+    scene->setCurrentState(start_state);
+
+    // A failure before the blend is not a finding about the blender, so the
+    // response says which stage failed rather than reporting a bare
+    // non-SUCCESS code the port would have to guess the origin of.
+    planning_interface::MotionPlanResponse first =
+        generatePilzSegment(scene, pilz_model, group, group_name, limits, segments.at(0), sampling_time);
+    if (first.error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS || first.trajectory == nullptr ||
+        first.trajectory->empty())
+      return json{ { "error_code", first.error_code.val }, { "stage", "segment1" } };
+
+    // The chaining step: segment 2 plans from segment 1's own last waypoint,
+    // not from a re-derived pose. See this function's doc comment.
+    scene->setCurrentState(first.trajectory->getLastWayPoint());
+    planning_interface::MotionPlanResponse second =
+        generatePilzSegment(scene, pilz_model, group, group_name, limits, segments.at(1), sampling_time);
+    if (second.error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS || second.trajectory == nullptr ||
+        second.trajectory->empty())
+      return json{ { "error_code", second.error_code.val }, { "stage", "segment2" } };
+
+    const std::size_t first_input_count = first.trajectory->getWayPointCount();
+    const std::size_t second_input_count = second.trajectory->getWayPointCount();
+
+    pilz::TrajectoryBlendRequest blend_request;
+    blend_request.group_name = group_name;
+    blend_request.link_name = link_name;
+    blend_request.first_trajectory = first.trajectory;
+    blend_request.second_trajectory = second.trajectory;
+    blend_request.blend_radius = blend_radius;
+
+    pilz::TrajectoryBlenderTransitionWindow blender(limits);
+    pilz::TrajectoryBlendResponse blend_response;
+    const bool blended = blender.blend(scene, blend_request, blend_response);
+
+    json out{ { "first_trajectory_input_waypoint_count", first_input_count },
+              { "second_trajectory_input_waypoint_count", second_input_count } };
+
+    // `blend()` sets `res.error_code.val` on every path it takes -- SUCCESS
+    // at `trajectory_blender_transition_window.cpp:141`, and a specific
+    // rejection code in `validateRequest`, the blend-radius-too-large
+    // branch, and `generateJointTrajectory`'s failure -- so the field is
+    // read directly rather than reconstructed from the bool. The bool is
+    // still checked, because agreement between the two is upstream's
+    // invariant, not this file's assumption.
+    out["error_code"] = blend_response.error_code.val;
+    out["stage"] = "blend";
+    if (!blended)
+      return out;
+    out["sampling_time"] = sampling_time;
     out["group_variable_names"] = group->getVariableNames();
+
+    // Recovered by inverting `blend()`'s two exact copy loops, not
+    // recomputed -- see this function's doc comment for why that is a
+    // genuine upstream measurement while `blend_align_index` would not be.
+    const std::size_t first_intersection_index = blend_response.first_trajectory->getWayPointCount();
+    const std::size_t second_kept = blend_response.second_trajectory->getWayPointCount();
+    if (second_kept > second_input_count)
+      throw std::runtime_error("blend kept more second-trajectory waypoints than it was given");
+    out["first_intersection_index"] = first_intersection_index;
+    out["second_intersection_index"] = second_input_count - second_kept - 1;
+
+    out["first_trajectory"] = serializePilzWaypoints(*blend_response.first_trajectory, group);
+    out["blend_trajectory"] = serializePilzWaypoints(*blend_response.blend_trajectory, group);
+    out["second_trajectory"] = serializePilzWaypoints(*blend_response.second_trajectory, group);
     return out;
   }
 

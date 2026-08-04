@@ -70,8 +70,36 @@
 //! `sigma * 4.0` (no truncation) is a different number whenever `sigma`
 //! is not already an integer (`sigma = max(1.0, 0.5 * window_size)` is
 //! fractional for any even `window_size`). This port reproduces both
-//! truncations with explicit `as i64` casts rather than computing in `f64`
-//! throughout -- see [`cost_function_from_state_validator`]'s body.
+//! truncations with explicit `as i64` casts, split out into
+//! `kernel_bounds` rather than computing in `f64` throughout.
+//!
+//! # No reachable input overflows the `i64` narrowing, measured not assumed
+//!
+//! `sigma`/`mu` derive only from `start`/`end` (`0 <= start <= end <
+//! num_timesteps = values.ncols()`), and `sigma_offset = (sigma as i64) *
+//! 4` only overflows `i64` once `num_timesteps` exceeds ~4.611e18. A
+//! `DMatrix<f64>` cannot reach that: its backing `Vec<f64>` refuses to
+//! allocate past `isize::MAX` bytes, capping any real (single-row, most
+//! generous) trajectory's `num_timesteps` at `isize::MAX /
+//! size_of::<f64>() ~= 1.153e18` -- about 4x below the overflow
+//! threshold. `kernel_bounds`'s tests call the production arithmetic
+//! directly at that ceiling (no `DMatrix` allocation needed) and confirm
+//! it does not overflow under nextest's default `overflow-checks = true`
+//! dev profile, rather than asserting the ceiling comparison in prose
+//! alone.
+//!
+//! # Expiry (§153.1): this is a property of `DMatrix`, not of the algorithm
+//!
+//! The 4x margin above comes entirely from `values: &DMatrix<f64>` being
+//! backed by a single contiguous `Vec<f64>`, whose own allocator caps
+//! `num_timesteps` at `isize::MAX` bytes. `kernel_bounds` itself has no
+//! such cap -- it takes a plain `usize`. If `cost_function_from_state_validator`
+//! or its caller ever stops deriving `num_timesteps` from a
+//! `Vec`-backed `DMatrix` (a memory-mapped or chunked trajectory
+//! representation, a lazy/streamed column count, or widening the index
+//! type past 64 bits), the margin this doc claims no longer holds and
+//! the overflow becomes reachable -- re-run this module's `kernel_bounds`
+//! tests against the new ceiling before relying on this claim again.
 
 use std::cell::RefCell;
 
@@ -185,15 +213,8 @@ pub fn cost_function_from_state_validator<'a>(
             let sigma = (1.0_f64).max(0.5 * window_size);
             let mu = 0.5 * (start as f64 + end as f64);
 
-            // See this module's doc, "`long` truncation in the Gaussian-
-            // smoothing kernel bounds": truncate `sigma` to an integer
-            // before multiplying by 4, then truncate the offset `mu` result
-            // to an integer again.
-            let sigma_offset = (sigma as i64) * 4;
-            let kernel_start = (mu - sigma_offset as f64) as i64;
-            let kernel_end = (mu + sigma_offset as f64) as i64;
-            let bounded_kernel_start = kernel_start.max(0) as usize;
-            let bounded_kernel_end = kernel_end.min(num_timesteps as i64 - 1).max(0) as usize;
+            let (bounded_kernel_start, bounded_kernel_end) =
+                kernel_bounds(mu, sigma, num_timesteps);
 
             for j in bounded_kernel_start..=bounded_kernel_end {
                 costs[j] = (-((j as f64 - mu).powi(2)) / (2.0 * sigma.powi(2))).exp()
@@ -211,6 +232,26 @@ pub fn cost_function_from_state_validator<'a>(
 
         Some((costs, validity))
     })
+}
+
+/// The `+/- 4*sigma` kernel bounds for one invalid window, clamped to
+/// `0..num_timesteps`. Split out from
+/// [`cost_function_from_state_validator`]'s body so the truncation sequence
+/// documented in this module's doc ("`long` truncation in the
+/// Gaussian-smoothing kernel bounds") can be pinned directly against
+/// `start`/`end`'s reachable extremes -- see this function's tests -- without
+/// needing to allocate a `DMatrix` large enough to reach them.
+///
+/// See this module's doc, "`long` truncation in the Gaussian-smoothing
+/// kernel bounds": truncate `sigma` to an integer before multiplying by 4,
+/// then truncate the offset `mu` result to an integer again.
+fn kernel_bounds(mu: f64, sigma: f64, num_timesteps: usize) -> (usize, usize) {
+    let sigma_offset = (sigma as i64) * 4;
+    let kernel_start = (mu - sigma_offset as f64) as i64;
+    let kernel_end = (mu + sigma_offset as f64) as i64;
+    let bounded_kernel_start = kernel_start.max(0) as usize;
+    let bounded_kernel_end = kernel_end.min(num_timesteps as i64 - 1).max(0) as usize;
+    (bounded_kernel_start, bounded_kernel_end)
 }
 
 /// `costs::getCollisionCostFunction(planning_scene, group, collision_penalty)`
@@ -363,6 +404,88 @@ mod tests {
                 0.0
             }
         })
+    }
+
+    // `kernel_bounds`: pinning the truncation sequence and its reachable
+    // input extremes (PORTING-PLAN.md §172). `start`/`end` are `usize`
+    // timestep indices with `0 <= start <= end < num_timesteps =
+    // values.ncols()`, so `mu`/`sigma` are bounded by whatever `num_timesteps`
+    // a real `DMatrix<f64>` can actually report.
+
+    #[test]
+    fn kernel_bounds_truncates_sigma_before_multiplying_by_four() {
+        // window_size = 3 (odd) => sigma = max(1.0, 1.5) = 1.5, a
+        // non-integer. Truncate-first (upstream, and this port):
+        // `(1.5 as i64) * 4 == 4`. Multiply-first (what a naive all-f64
+        // rewrite would compute instead): `(1.5 * 4.0) as i64 == 6`. These
+        // must differ for this test to actually pin the cast order rather
+        // than merely re-deriving whatever the code currently does.
+        let sigma = 1.5_f64;
+        let truncate_first = (sigma as i64) * 4;
+        let multiply_first = (sigma * 4.0) as i64;
+        assert_ne!(
+            truncate_first, multiply_first,
+            "test fixture no longer exercises a truncation-sensitive sigma"
+        );
+
+        let mu = 6.0; // (start + end) / 2 for start=5, end=7
+        let num_timesteps = 100;
+        let (bounded_start, bounded_end) = kernel_bounds(mu, sigma, num_timesteps);
+        assert_eq!((bounded_start, bounded_end), (2, 10), "mu - 4, mu + 4");
+    }
+
+    #[test]
+    fn kernel_bounds_clamps_a_kernel_that_spans_the_whole_trajectory() {
+        // The window itself is the entire (small) trajectory: kernel_start
+        // and kernel_end both fall outside [0, num_timesteps - 1] and must
+        // be clamped, not merely computed.
+        let (bounded_start, bounded_end) = kernel_bounds(2.0, 1.0, 5);
+        assert_eq!((bounded_start, bounded_end), (0, 4));
+    }
+
+    #[test]
+    fn kernel_bounds_at_the_dmatrix_allocation_ceiling_does_not_overflow() {
+        // The reachable extreme of `num_timesteps` is not `usize::MAX`: it
+        // is bounded by however many `f64` columns a `DMatrix` can actually
+        // hold before nalgebra's backing `Vec<f64>` refuses to allocate,
+        // which is `isize::MAX / size_of::<f64>()` elements (Rust caps a
+        // single allocation's size at `isize::MAX` bytes). This is the most
+        // generous possible reachable value (a real trajectory also carries
+        // >= 1 joint per column, i.e. nrows > 1, which only lowers the
+        // ceiling further) -- if `sigma_offset`'s `* 4` doesn't overflow
+        // `i64` even here, it cannot overflow for any input this crate's
+        // public API can actually construct.
+        let max_reachable_num_timesteps = isize::MAX as usize / std::mem::size_of::<f64>();
+
+        // Verify the ceiling is actually below the overflow threshold,
+        // rather than asserting it in prose: this is the "measurement" the
+        // audit claim is pinned on. If a future change moves the
+        // multiplier (`* 4`) or narrows the target further, this bound
+        // shifts and this assertion is what would catch a claim that no
+        // longer holds.
+        let sigma_at_ceiling = 0.5 * max_reachable_num_timesteps as f64;
+        assert!(
+            (sigma_at_ceiling as i64).checked_mul(4).is_some(),
+            "the reachable DMatrix ceiling ({max_reachable_num_timesteps}) is large enough to \
+             overflow i64 in sigma_offset -- the 'no reachable divergence' claim in \
+             doc/claim-audit/moveit-planners-stomp.md is false, this is a defect"
+        );
+
+        // A window spanning the full (hypothetical, maximally reachable)
+        // trajectory: start = 0, end = num_timesteps - 1. This calls the
+        // exact production arithmetic (plain `*`, not `wrapping_mul`/
+        // `checked_mul`) at that ceiling; under nextest's default dev
+        // profile (`overflow-checks = true`), an actual overflow here
+        // panics this test rather than silently wrapping.
+        let start = 0usize;
+        let end = max_reachable_num_timesteps - 1;
+        let window_size = (end - start) as f64 + 1.0;
+        let sigma = (1.0_f64).max(0.5 * window_size);
+        let mu = 0.5 * (start as f64 + end as f64);
+
+        let (bounded_start, bounded_end) = kernel_bounds(mu, sigma, max_reachable_num_timesteps);
+        assert!(bounded_start <= bounded_end);
+        assert_eq!(bounded_end, max_reachable_num_timesteps - 1);
     }
 
     #[test]
