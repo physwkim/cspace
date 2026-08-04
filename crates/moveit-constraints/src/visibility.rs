@@ -147,9 +147,19 @@ impl FramedPose {
 /// only the angle pair — the same defect family, so the same fix applies
 /// here rather than leaving one of the three sentinel-zero fields
 /// unrepaired. [`VisibilityConstraint::new`] takes all three as `Option<f64>`
-/// and normalizes a `Some` value at or below `f64::EPSILON` to `None`, so
-/// `Some` always means "this criterion is active" with no runtime
-/// re-checking required at read time.
+/// and normalizes a `Some` at or below `f64::EPSILON` to `None`, so `Some`
+/// always means "this criterion is active" with no runtime re-checking
+/// required at read time.
+///
+/// The three are not normalized identically, matching an asymmetry already
+/// present upstream: `target_radius_` is assigned `fabs(vc.target_radius)`
+/// (`kinematic_constraint.cpp:818`), so a negative wire value still
+/// activates the criterion at its magnitude; `max_view_angle_`/
+/// `max_range_angle_` are assigned straight from the message with no
+/// `fabs()` (`:879-880`), so a negative wire value fails the `> eps` gate
+/// and leaves the criterion inactive. See `normalize_target_radius`/
+/// `normalize_angle_criterion` (private, this module) for exactly this
+/// split.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VisibilityConstraint {
     sensor: FramedPose,
@@ -162,8 +172,23 @@ pub struct VisibilityConstraint {
     weight: f64,
 }
 
-fn normalize_criterion(value: Option<f64>) -> Option<f64> {
+/// `target_radius_ = fabs(vc.target_radius)` (`kinematic_constraint.cpp:818`)
+/// is always non-negative going in, then gated by `enabled()`/`decide()`'s
+/// `target_radius_ > eps` check — so a negative wire value still activates
+/// the criterion, at its magnitude.
+fn normalize_target_radius(value: Option<f64>) -> Option<f64> {
     value.map(f64::abs).filter(|v| *v > EPS)
+}
+
+/// `max_view_angle_`/`max_range_angle_` are assigned straight from the
+/// message with no `fabs()` (`:879-880`, unlike `target_radius_` above),
+/// then gated by the same `> eps` check (`:1081`, `:1109`) -- so a negative
+/// wire value fails that gate and the criterion is inactive, not active at
+/// its magnitude. Deliberately not the same function as
+/// [`normalize_target_radius`]: applying `.abs()` here would flip a
+/// upstream-inactive negative value into an active positive threshold.
+fn normalize_angle_criterion(value: Option<f64>) -> Option<f64> {
+    value.filter(|v| *v > EPS)
 }
 
 /// Where the sensor is, and which of its own axes points along its view
@@ -238,9 +263,9 @@ impl VisibilityConstraint {
             sensor_view_direction: sensor.view_direction,
             target: FramedPose::new(model, tf, target.frame_id, target.pose)?,
             cone_sides: cone_sides.max(3),
-            target_radius: normalize_criterion(criteria.target_radius),
-            max_view_angle: normalize_criterion(criteria.max_view_angle),
-            max_range_angle: normalize_criterion(criteria.max_range_angle),
+            target_radius: normalize_target_radius(criteria.target_radius),
+            max_view_angle: normalize_angle_criterion(criteria.max_view_angle),
+            max_range_angle: normalize_angle_criterion(criteria.max_range_angle),
             weight,
         })
     }

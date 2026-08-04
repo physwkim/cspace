@@ -901,6 +901,55 @@ mod visibility {
     }
 
     #[test]
+    fn negative_target_radius_activates_at_its_magnitude_but_negative_angles_stay_inactive() {
+        // kinematic_constraint.cpp:818 fabs()'s target_radius_ before the
+        // >eps gate (a negative wire value still activates the criterion,
+        // at |value|); :879-880 assigns max_view_angle_/max_range_angle_
+        // straight from the message with no fabs() before the same gate (a
+        // negative wire value fails ">eps" and leaves the criterion
+        // inactive). The two must not be normalized identically.
+        let model = panda_model();
+        let transforms = tf(&model);
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+                view_direction: SensorViewDirection::SensorZ,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+            },
+            8,
+            VisibilityCriteria {
+                target_radius: Some(-0.5),
+                max_view_angle: Some(-0.1),
+                max_range_angle: Some(-0.2),
+            },
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(
+            c.target_radius(),
+            Some(0.5),
+            "negative target_radius should activate at its magnitude"
+        );
+        assert_eq!(
+            c.max_view_angle(),
+            None,
+            "negative max_view_angle should stay inactive, not activate at its magnitude"
+        );
+        assert_eq!(
+            c.max_range_angle(),
+            None,
+            "negative max_range_angle should stay inactive, not activate at its magnitude"
+        );
+        assert!(c.enabled(), "target_radius alone should still enable it");
+    }
+
+    #[test]
     fn cone_sides_below_three_is_clamped() {
         let model = panda_model();
         let transforms = tf(&model);
