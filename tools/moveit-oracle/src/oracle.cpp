@@ -2199,7 +2199,7 @@ private:
       { "self_collision", self_res.collision },
       { "self_distance", self_dres.minimum_distance.distance },
       { "self_distance_pair", distancePairToJson(self_dres.minimum_distance, *world) },
-      { "self_contacts", contactsToJson(self_res.contacts, *world) },
+{ "self_contacts", contactsToJson(self_res.contacts, *world) },
       { "robot_collision", robot_res.collision },
       { "robot_distance", robot_dres.minimum_distance.distance },
       { "robot_distance_pair", distancePairToJson(robot_dres.minimum_distance, *world) },
@@ -3580,6 +3580,24 @@ private:
   /// measurement. And `body_name_2` is frequently not a body: see
   /// `shapeKindsFor`'s doc for the `"self"`/`"environment"` sentinels and the
   /// `null` `shape_kinds` they produce.
+  ///
+  /// `mode` (optional, `"collision"` by default, `"robot_only"` the only
+  /// other value) selects `checkRobotCollision` instead of `checkCollision`.
+  /// Requested by `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md`:
+  /// `checkRobotCollision` had never been called through any op, so
+  /// `getEnvironmentCollisions`' distance/contact-recording logic had no
+  /// oracle evidence behind it at all, in either direction. Absent, the
+  /// dispatch is byte-for-byte the one every pre-existing fixture ran, which
+  /// is what `verify-fixture-replay.sh` checks after the rebuild this field
+  /// forced.
+  ///
+  /// `mode` is not orthogonal to `use_acm` on this path and a fixture author
+  /// has to know that. `checkRobotCollision`'s no-acm overload calls
+  /// `generateCollisionCheckingStructures(..., gsr, false)` and the acm
+  /// overload passes `true` (`collision_env_distance_field.cpp:1462` vs
+  /// `:1489`) -- the last argument is `generate_distance_field`, so dropping
+  /// the acm also drops a structure, not just a filter. `checkCollision`'s own
+  /// two overloads do not differ that way.
   json groupStateRepresentation(const json& request)
   {
     applyJointValues(request);
@@ -3610,11 +3628,50 @@ private:
       throw std::runtime_error("gradients and contacts are mutually exclusive: getCollisionGradients "
                                "discards its CollisionResult (collision_env_distance_field.cpp:1517)");
 
+    // `mode` selects which of `CollisionEnvDistanceField`'s entry points this
+    // op drives. Absent (the default) is `checkCollision`, i.e. every fixture
+    // committed before this field existed; `"robot_only"` is
+    // `checkRobotCollision`, upstream's own name for "against the environment
+    // only". Named after the method rather than given as a boolean so a third
+    // entry point does not have to break the shape later.
+    //
+    // Mutually exclusive with `gradients` for the same reason that field is
+    // already exclusive with `contacts`: `getCollisionGradients` and
+    // `checkRobotCollision` are different upstream calls, not two flags on one
+    // call. Rejected rather than silently ordered, so a request that asks for
+    // both gets an error instead of whichever branch happens to be tested
+    // first.
+    //
+    // Both `checkRobotCollision` overloads set `last_gsr_`
+    // (`collision_env_distance_field.cpp:1468,1497`), so the response-dumping
+    // code below needs no change to serve this branch --
+    // `getLastGroupStateRepresentation()` is populated either way. They are
+    // not otherwise symmetric and this op cannot hide that: the no-acm form
+    // reaches `generateCollisionCheckingStructures(..., gsr, false)` while the
+    // acm form passes `true` for that last argument (`:1462` vs `:1489`), so
+    // `use_acm` selects more than whether the matrix is consulted.
+    const std::string mode = request.value("mode", std::string("collision"));
+    if (mode != "collision" && mode != "robot_only")
+      throw std::runtime_error("unknown mode: " + mode + " (expected \"collision\" or \"robot_only\")");
+    const bool robot_only = mode == "robot_only";
+    if (robot_only && want_gradients)
+      throw std::runtime_error("mode=robot_only and gradients are mutually exclusive: checkRobotCollision "
+                               "and getCollisionGradients are different upstream calls "
+                               "(collision_env_distance_field.cpp:1454,1527)");
+
     collision_detection::CollisionResult res;
     if (want_gradients)
     {
       collision_detection::GroupStateRepresentationPtr fresh;
       env.getCollisionGradients(req, res, *state_, use_acm ? &acm : nullptr, fresh);
+    }
+    else if (robot_only && use_acm)
+    {
+      env.checkRobotCollision(req, res, *state_, acm);
+    }
+    else if (robot_only)
+    {
+      env.checkRobotCollision(req, res, *state_);
     }
     else if (use_acm)
     {
