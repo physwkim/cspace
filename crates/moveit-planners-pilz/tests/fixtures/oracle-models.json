@@ -1,0 +1,22 @@
+{
+  "panda_circ": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_circ_noplane_rejected": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_lin": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_lin_scaling05_rejected": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_ptp": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  }
+}

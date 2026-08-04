@@ -1,4 +1,5 @@
 {
+  "generator": "ptp",
   "goal": {
     "joints": {
       "panda_joint1": 0.5,
@@ -12,6 +13,7 @@
     "kind": "joint"
   },
   "group_name": "panda_arm",
+  "id": 0,
   "joint_limits": {
     "panda_joint1": {
       "has_acceleration_limits": true,
@@ -93,6 +95,7 @@
   },
   "max_acceleration_scaling_factor": 0.5,
   "max_velocity_scaling_factor": 0.5,
+  "op": "pilz_trajectory",
   "sampling_time": 0.1,
   "start_state": {
     "panda_joint1": 0.0,

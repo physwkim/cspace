@@ -155,6 +155,17 @@ struct ResponseFixture {
     waypoints: Option<Vec<WaypointFixture>>,
 }
 
+/// The committed fixture files are full oracle wire responses
+/// (`{"id":.., "ok":.., "result": {..}}`, verbatim from `oracle.cpp`'s
+/// stdout) so `verify-fixture-replay.sh` can replay the committed
+/// `*_request.json` and diff byte-for-byte against this file -- see that
+/// script's own module doc for why replay needs the exact wire shape, not a
+/// curated subset. `ResponseFixture` above only cares about `result`.
+#[derive(Deserialize)]
+struct OracleResponseEnvelope<T> {
+    result: T,
+}
+
 fn fixture_path(file_name: &str) -> String {
     format!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
@@ -224,7 +235,8 @@ const CHECK_SELF_COLLISION: bool = true;
 #[test]
 fn lin_panda_arm_matches_the_oracle() {
     let request: RequestFixture = load_json("panda_lin_request.json");
-    let response: ResponseFixture = load_json("panda_lin_response.json");
+    let response: ResponseFixture =
+        load_json::<OracleResponseEnvelope<ResponseFixture>>("panda_lin_response.json").result;
     assert_eq!(
         response.error_code, 1,
         "fixture's own oracle run must have succeeded"
@@ -342,7 +354,10 @@ fn lin_panda_arm_matches_the_oracle() {
 #[test]
 fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
     let request: RequestFixture = load_json("panda_lin_scaling05_rejected_request.json");
-    let response: ResponseFixture = load_json("panda_lin_scaling05_rejected_response.json");
+    let response: ResponseFixture = load_json::<OracleResponseEnvelope<ResponseFixture>>(
+        "panda_lin_scaling05_rejected_response.json",
+    )
+    .result;
     assert_eq!(
         response.error_code, -1,
         "fixture's own oracle run must have failed with PLANNING_FAILED"

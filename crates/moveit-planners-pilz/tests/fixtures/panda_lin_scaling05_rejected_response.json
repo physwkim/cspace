@@ -1,4 +1,8 @@
 {
-  "error_code": -1,
-  "waypoints": null
+  "id": 0,
+  "ok": true,
+  "result": {
+    "error_code": -1,
+    "waypoints": null
+  }
 }
