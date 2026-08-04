@@ -372,7 +372,7 @@ impl VisibilityConstraint {
     /// (not yet built by this port) or any collision state the caller
     /// might be tracking elsewhere.
     ///
-    /// # Round 15/16: the pr2 115/2,201 depth mismatch, and a corrected cause
+    /// # Round 15/16/17: the pr2 115/2,201 depth mismatch, cause and residual
     ///
     /// Re-run fresh against the current tree and oracle (`moveit-diff
     /// --urdf crates/moveit-constraints/tests/fixtures/pr2.urdf --srdf
@@ -408,33 +408,71 @@ impl VisibilityConstraint {
     /// closed outright, specifically because nobody had measured whether
     /// pr2 cone placements actually produce such ties.
     ///
-    /// p1-joints measured it (`d26916d`, `tools/moveit-diff`'s
-    /// `visibility_cone_ambiguity_diagnostic` module,
+    /// Round 16 measured it directly against the 285-case sweep above,
+    /// with [`VisibilityConstraint::cone_touching_link_count`]
+    /// (`max_contacts: usize::MAX`, so every touching link is counted, not
+    /// just the one `max_contacts: 1` stores) run against a temporary,
+    /// git-reverted instrumentation patch to `tools/moveit-diff` correlating
+    /// touching-link count with each case's real pass/fail verdict:
+    ///
+    /// | touching | n   | pass | fail |
+    /// |----------|-----|------|------|
+    /// | 0        | 142 | 142  | 0    |
+    /// | 1        | 129 | 24   | 105  |
+    /// | 2        | 13  | 4    | 9    |
+    /// | 3        | 1   | 0    | 1    |
+    ///
+    /// The prediction ("all 115 failures are touching ≥ 2") is refuted for
+    /// the dominant majority: 105/115 (91.3%) failures have `touching == 1`
+    /// — one candidate pair, so `max_contacts: 1` storage picks it
+    /// regardless of iteration order, ruling out a tie structurally, not
+    /// just empirically. That majority's cause is `moveit-collision`'s
+    /// already-documented deviation 6: independent penetration-depth
+    /// *approximation* between this port's backend and upstream's FCL for
+    /// the same single, unambiguous contact (case 104: oracle depth within
+    /// 7ppm of `bl_caster_l_wheel_link`'s own cylinder radius, this port's
+    /// is not; some near-zero cases disagree even in sign). That
+    /// approximation lives in `moveit-collision`, owned by p3-acm — not
+    /// fixable from this crate.
+    ///
+    /// The remaining 10/115 (8.7%) failures do have `touching >= 2` — a
+    /// real tie for `max_contacts: 1` to break, unlike the majority above.
+    /// p1-joints separately measured `tools/moveit-diff`'s own
+    /// `visibility_cone_ambiguity_diagnostic` module (`d26916d`,
     /// `#[ignore]`d — needs `third_party/moveit_resources`, run with
     /// `cargo test -p moveit-diff --release
-    /// visibility_cone_ambiguity_diagnostic:: -- --ignored --nocapture`)
-    /// and refuted it; reproduced independently here with the same
-    /// command:
+    /// visibility_cone_ambiguity_diagnostic:: -- --ignored --nocapture`),
+    /// finding pr2's 17 parry-representable links touch the cone at most
+    /// once each at pr2's *default* pose, and that case 104 specifically
+    /// touches only one pair. Reproduced independently here with the same
+    /// command, same result. That is a **different sample** from the sweep
+    /// above (one fixed default pose versus 285 real random-pose cases) and
+    /// does not by itself rule out ties among the sweep's other cases — an
+    /// earlier revision of this comment (`f111dfb`) incorrectly used it to
+    /// claim no ties exist anywhere in the 115, contradicting this crate's
+    /// own 285-case measurement; that claim is retracted, not this one.
     ///
-    /// - `near_placement_never_touches_more_than_one_link_at_once`: of
-    ///   pr2's 17 parry-representable links, all 17 near-placements touch
-    ///   the cone, and **zero** touch more than one link at once — no tie
-    ///   for `max_contacts: 1` to ever break.
-    /// - `a_real_mismatching_case_touches_exactly_one_link`: case 104 from
-    ///   the sweep above (a real distance mismatch) touches exactly one
-    ///   pair, `("bl_caster_l_wheel_link", "cone")` — the actual failing
-    ///   case is not a tie either.
+    /// Numeric evidence on whether the residual 10 are traversal-order- or
+    /// deviation-6-caused: their magnitude distribution (n=10, range
+    /// `[2.319e-4, 3.607e-3]`, mean `1.985e-3`) sits entirely inside the
+    /// `touching == 1` failures' own range (n=105, range
+    /// `[3.935e-5, 5.425e-2]`, mean `1.161e-2`) — 43/105 (41.0%) of the
+    /// `touching == 1` failures fall in that same narrow band, and the
+    /// residual 10's mean sits at only the 30th percentile of the
+    /// `touching == 1` distribution. No separate cluster or characteristic
+    /// magnitude distinguishes the `touching >= 2` failures from an
+    /// ordinary sample of the deviation-6 family; nothing here positively
+    /// supports treating them as traversal-order-caused. This is
+    /// distributional evidence, not a per-pair confirmation (that would
+    /// need oracle-side FCL pair instrumentation this crate has no access
+    /// to), so it narrows rather than closes the residual: a real tie
+    /// exists structurally for these 10, but every measurement made so far
+    /// is at least as consistent with deviation 6 as with traversal order.
     ///
-    /// With no ties possible, pair-traversal order cannot be the cause of
-    /// any of the 115 mismatches; the paragraph above is retracted, not
-    /// narrowed. The real cause is `moveit-collision`'s already-documented
-    /// deviation 6: independent penetration-depth *approximation* between
-    /// this port's backend and upstream's FCL for the same single,
-    /// unambiguous contact. For case 104, the oracle's reported depth is
-    /// within 7ppm of `bl_caster_l_wheel_link`'s own cylinder radius and
-    /// this port's is not; some near-zero cases even disagree in sign.
-    /// That approximation lives in `moveit-collision`, owned by p3-acm —
-    /// not fixable from this crate.
+    /// Also: `touching >= 2` does not imply failure. 4/14 `touching >= 2`
+    /// cases pass; the `touching >= 2` fail rate (10/14, 71.4%) is not
+    /// higher than `touching == 1`'s (105/129, 81.4%) — touching count
+    /// alone is a weak predictor of failure once `touching >= 1`.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let Some(result) = self.decide_by_angle(state) else {
             return self.decide_cone(state);
@@ -443,6 +481,31 @@ impl VisibilityConstraint {
     }
 
     fn decide_cone(&self, state: &Posed) -> ConstraintEvaluationResult {
+        let result = self.cone_collision_result(state, 1);
+
+        let depth = result
+            .contacts
+            .as_ref()
+            .and_then(|contacts| contacts.by_pair.values().next())
+            .and_then(|pair| pair.first())
+            .map_or(0.0, |contact| contact.depth);
+        ConstraintEvaluationResult::new(
+            !result.collision,
+            if result.collision { depth } else { 0.0 },
+        )
+    }
+
+    /// Shared setup between [`VisibilityConstraint::decide_cone`] and
+    /// [`VisibilityConstraint::cone_touching_link_count`]: build the cone,
+    /// its throwaway local environment, and run the same collision check
+    /// `decide_cone` runs, but with a caller-chosen `max_contacts` budget
+    /// instead of `decide_cone`'s own hardcoded `1` (matching upstream's
+    /// `req.max_contacts = 1`).
+    fn cone_collision_result(
+        &self,
+        state: &Posed,
+        max_contacts: usize,
+    ) -> moveit_collision::CollisionResult {
         let world_to_sensor = self.sensor.resolve(state);
         let world_to_target = self.target.resolve(state);
         let cone = self.cone_mesh(world_to_sensor, world_to_target);
@@ -462,21 +525,34 @@ impl VisibilityConstraint {
 
         let request = CollisionRequest {
             contacts: true,
-            max_contacts: 1,
+            max_contacts,
             ..Default::default()
         };
-        let result = env.check_robot_collision(&request, state, &[], Some(&acm));
+        env.check_robot_collision(&request, state, &[], Some(&acm))
+    }
 
-        let depth = result
+    /// Diagnostic-only: the number of distinct robot links whose collision
+    /// geometry touches the visibility cone at `state`, ignoring
+    /// [`VisibilityConstraint::decide`]'s own `max_contacts: 1` storage
+    /// budget entirely (`max_contacts: usize::MAX` here, so every
+    /// disallowed contact gets a bucket, not just the first found).
+    ///
+    /// Not part of upstream's `VisibilityConstraint` API and not used by
+    /// [`VisibilityConstraint::decide`] itself — `decide`'s own reported
+    /// depth continues to come from whichever single contact
+    /// `cone_collision_result(state, 1)` happens to find first, unchanged.
+    ///
+    /// This is the only tool in this repository that can re-measure the
+    /// touching-link count of a real random-pose sweep case (as opposed to
+    /// p1-joints' `tools/moveit-diff` diagnostic, which only covers pr2's
+    /// *default* pose — see [`VisibilityConstraint::decide`]'s own doc
+    /// comment for why that is a different sample, not a superset or
+    /// substitute). Deleting this would make the ~10-case residual
+    /// unmeasurable again from this tree.
+    pub fn cone_touching_link_count(&self, state: &Posed) -> usize {
+        self.cone_collision_result(state, usize::MAX)
             .contacts
-            .as_ref()
-            .and_then(|contacts| contacts.by_pair.values().next())
-            .and_then(|pair| pair.first())
-            .map_or(0.0, |contact| contact.depth);
-        ConstraintEvaluationResult::new(
-            !result.collision,
-            if result.collision { depth } else { 0.0 },
-        )
+            .map_or(0, |contacts| contacts.by_pair.len())
     }
 }
 
