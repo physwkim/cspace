@@ -10673,3 +10673,60 @@ BSD-3-Clause로 일치한다. 게이트는 통과하며, 섭동 4건으로 실�
 매니페스트와 다름(규칙 3 — `moveit-stomp-core`의 실제 사례),
 SPDX 헤더 누락(규칙 1), 매니페스트에 license가 아예 없음.
 `check-*.sh`는 5건에서 6건이 됐다.
+
+## 126. `cargo test --doc`는 게이트로 보고돼 왔지만 한 건을 검사한다 (2026-08-04)
+
+원격이 없어 `.github/workflows/ci.yml`이 한 번도 실행된 적 없다는 것이
+계속 UNFIXED에 있었다. 로컬에서 답할 수 있는 만큼은 답했다: HEAD를
+clean clone 해서(`third_party/`는 gitignore라 체크아웃에 없다 — CI
+러너와 같은 상태) ci.yml의 다섯 단계를 그대로 돌렸다.
+
+```
+fmt           OK
+ci checks     6/6 OK (globbed, ci.yml과 같은 방식)
+clippy        --workspace --all-targets -D warnings, 통과
+test          1189/1189 pass, 2 skipped, 21.9s
+doctests      통과
+docs          cargo doc --workspace --no-deps, 20개 크레이트 생성
+```
+
+**남은 미지는 러너 환경(툴체인 버전, 네트워크)뿐이고 저장소 내용이
+아니다.** 특히 `third_party/`가 없어도 1189건이 전부 통과한다 — 테스트가
+쓰는 URDF/SRDF 50개와 메시 35개가 전부 커밋돼 있고, `third_party/`를
+읽는 코드는 `tools/moveit-diff` 하나이며 그 두 테스트는 `#[ignore]`다.
+(그 둘도 `third_party/`가 있는 로컬에서는 통과한다 — 24/24, 각각 17.9초·
+18.5초.)
+
+### 126.1 그런데 doctests 단계가 사실상 비어 있다
+
+`cargo test --doc --workspace`가 19개 크레이트에서 보고하는 총합은
+**passed=1, failed=0, ignored=0** 이다. 추적되는 `.rs` 177개를 훑으면
+doc 코드 블록이 30개인데 **29개가 ```` ```text ````이고 컴파일되는
+```` ```rust ```` 블록은 1개다.
+
+```
+files scanned: 177 / doc code blocks: 30 / text 29 / bare(=rust doctest) 1
+```
+
+```` ```text ````가 틀린 것은 아니다 — 이 저장소의 doc 블록은 대부분
+`rg` 명령, 상류 C++ 인용, 감사 출력이고 그건 실행 대상이 아니다.
+문제는 **보고**다. 매 라운드 게이트 줄에 `cargo test --doc --workspace —
+pass`가 적히고, 그 줄은 doc 예제가 검증됐다는 뜻으로 읽힌다. 실제로는
+한 건이다. §119.2의 vacuous-pass를 CI 단계 하나 전체에 적용한 꼴이다.
+
+`cargo doc --workspace --no-deps` 단계는 다르다 — rustdoc 링크 lint를
+실제로 잡고(ci.yml 주석이 8건까지 쌓였던 것을 기록한다) 비어 있지 않다.
+
+### 126.2 규칙 하나를 추가한다
+
+전면적으로 doctest를 채우라는 뜻이 아니다. 그건 잡일이고, 위 29개를
+```` ```rust ````로 바꾸는 것은 애초에 틀린 일이다. 비례하는 규칙은
+이것이다:
+
+**공개 API에 사용 예제를 doc으로 붙일 때, 그 예제는 컴파일되는
+```` ```rust ```` 블록이어야 한다.** 셸 명령·상류 인용·측정 출력은
+```` ```text ````가 맞다. 예제가 컴파일되지 않으면 그것은 문서가 아니라
+주장이고, 이 저장소는 주장과 측정을 구분하는 것으로 서 있다.
+
+그리고 라운드 보고서의 doctests 줄에는 **통과 여부가 아니라 건수**를
+적는다. 1이 1이라고 적히면 아무도 그것을 커버리지로 읽지 않는다.
