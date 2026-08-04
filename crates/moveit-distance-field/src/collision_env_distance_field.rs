@@ -361,7 +361,13 @@ use crate::{DistanceField, GridGeometry, PropagationDistanceField};
 /// Upstream's `link_body_decomposition_vector_` paired with
 /// `link_body_decomposition_index_map_`: every link's [`BodyDecomposition`],
 /// in `RobotModel::link_models()` order, and a name-to-index lookup into it.
-type LinkBodyDecompositions = (Vec<Arc<BodyDecomposition>>, HashMap<String, usize>);
+///
+/// `pub(crate)`, not private: [`crate::HybridCollisionEnv::new`] takes this
+/// same type as a constructor parameter, matching upstream
+/// `CollisionEnvHybrid`'s constructor, which takes the identical
+/// `link_body_decompositions` map upstream `CollisionEnvDistanceField`'s own
+/// constructor does.
+pub(crate) type LinkBodyDecompositions = (Vec<Arc<BodyDecomposition>>, HashMap<String, usize>);
 
 /// Upstream's two `CollisionEnvDistanceField::addLinkBodyDecompositions`
 /// overloads (see this module's doc comment for why they are one function
