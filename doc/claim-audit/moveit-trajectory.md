@@ -194,7 +194,31 @@ report time.
 | `src/robot_trajectory.rs:31-37` (cited by `tests/robot_trajectory.rs:9,730-734`) | TYPE_A: upstream's `RobotTrajectory(model, group)` calls `getJointModelGroup`, which logs and returns `nullptr` for an unknown name — trajectory silently becomes whole-robot | CONFIRMED (duplicate of `lib.rs:374-381` row above, independently re-confirmed by this second agent) | `robot_trajectory.cpp:65`; `robot_model.cpp:512-521` — `RCLCPP_ERROR` + `return nullptr`; `robot_trajectory.cpp:88-94` — `getGroupName()` returns empty string when `group_` is null | (uncommitted) |
 | `tests/fixtures/totg_synthetic.urdf:18-22` | TYPE_B: "moveit-model's URDF loader never reads bounds for a multi-DOF joint... matching upstream's `RobotModel::buildJointInfo`, which likewise never calls `jointBoundsFromURDF`... for planar/floating joints" | CONFIRMED (fixture consumed by `totg_synthetic_parity.rs`/`totg_robot_trajectory_parity.rs`, outside this file's primary scope, checked per instruction to look "briefly") | `robot_model.cpp:895-925` (`jointBoundsFromURDF`) is only invoked from `constructJointModel`'s `REVOLUTE`/`CONTINUOUS`/`PRISMATIC` cases (lines 947,956,965); the `FLOATING`/`PLANAR` cases never call it | (uncommitted) |
 
-## Background-agent audit — lost to compaction, not re-verifiable as given
+## Cross-crate finding — not fixed, `moveit-planning` is `p1-fixtures`' crate
+
+`crates/moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:91`
+(`AddTimeOptimalParameterization::new`) stores its `resample_dt: f64` argument
+with no validation, and `:117` passes that unvalidated value straight into
+[`apply_totg_time_parameterization`](../../crates/moveit-trajectory/src/trajectory_tools.rs)
+at `adapt()`'s call site. This is the same §172-family dual-meaning problem
+`TotgOptions::resample_dt` had before this round's structural fix
+(construction-time value, no invariant enforced until first use) — one crate
+over, now that `TotgOptions` itself can no longer hold an invalid
+`resample_dt`. It is not a live hang: `apply_totg_time_parameterization`
+calls `TotgOptions { .. }.with_resample_dt(resample_dt)?` (added this round),
+so an invalid value from `AddTimeOptimalParameterization::new` surfaces as an
+`Err` at `adapt()` time, not silent truncation or a hang. But
+`AddTimeOptimalParameterization`'s own public constructor still accepts and
+stores the invalid value before that point, which is the defect: a caller
+building the adapter cannot tell it is invalid until `adapt()` runs.
+
+Per `doc/crate-ownership.md`, `moveit-planning` belongs to `p1-fixtures`, not
+`p6-totg`. **Not fixed here** — reported so it is not lost; `p1-fixtures`
+should apply the same validate-at-construction structural fix (or route
+`AddTimeOptimalParameterization::new` through `TotgOptions::with_resample_dt`
+and store the validated `TotgOptions` instead of three loose `f64` fields).
+
+## Background-agent audit — lost to compaction, superseded by the re-run above
 
 An earlier background agent in this session (Item 4 of the governing
 task: "audit upstream claim used as basis, type-b vs type-a") reported
@@ -203,13 +227,16 @@ candidates examined** across this crate, `moveit-planners-chomp`, and
 `moveit-smoothing`. The itemized list (file:line, claim text, proposed
 verdict) was in conversation context only and did not survive a
 subsequent context compaction — exactly the failure mode §175
-describes. No item from that list is recorded here as `CONFIRMED` or
-`EXPIRED`; treating the surviving aggregate counts ("3 TYPE_B, 7
-TYPE_A") as evidence without the underlying file:line/claim/evidence
-triple would be citing a conclusion with no reproducible basis.
+describes. No item from that list was ever recorded here as
+`CONFIRMED` or `EXPIRED`; the surviving aggregate counts ("3 TYPE_B, 7
+TYPE_A") were never usable as evidence without the underlying
+file:line/claim/evidence triple.
 
-**Verdict: UNVERIFIABLE(itemized list lost to context compaction before
-independent verification; only the two rows above were independently
-re-derived and verified this session).** Re-running that background
-audit and appending each item here *as found* (not batched) is the
-correct way to close this gap in a future round.
+**Superseded, not merely UNVERIFIABLE:** the table above this section
+is a full fresh re-run of the same audit (this crate's own claims,
+184 rows), appended row-by-row as found rather than batched, closing
+the gap this section originally flagged. The lost aggregate counts
+above are not reconciled against the fresh run's counts (166
+CONFIRMED / 14 EXPIRED / 5 UNVERIFIABLE) — they were never granular
+enough to reconcile against anything — so this section is kept only
+as a record of the failure mode, not as an open item.
