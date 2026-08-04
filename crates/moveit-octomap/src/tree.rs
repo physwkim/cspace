@@ -126,6 +126,46 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 /// One bullet per declaration: `ported as <symbol>` / `unported, in scope
 /// (<reason>)` / `distinct (<reason>)`.
 ///
+/// **Reproducible raw counts (round 18, item 1).** Every raw count named
+/// above and in each header's own section below was produced by running
+/// `crates/moveit-octomap/audit/count_public_declarations.sh <header>
+/// <ClassName>` against a fresh oracle fetch, not eyeballed -- the script
+/// strips `//`/`/* */` comments first (so a doc-comment's `@code` example
+/// or prose can't be mistaken for a declaration, the bug this round found
+/// in a first draft of it against `AbstractOcTree.h`'s `read()` doc
+/// comment) and counts one unit per semicolon-terminated statement or
+/// complete inline `{ ... }` body at the named class's own brace depth,
+/// nested classes/structs excluded. It reports the **raw textual** count;
+/// the "expected" number after applying this section's own exclusions
+/// (non-most-derived ctor/dtor, forward-declared nested classes) is a
+/// judgment call spelled out in prose, not something the script decides.
+/// Re-run against the current stamp:
+///
+/// ```text
+/// $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /usr/include/octomap/OcTree.h'" > /tmp/OcTree.h
+/// $ crates/moveit-octomap/audit/count_public_declarations.sh /tmp/OcTree.h OcTree
+/// 5
+/// $ ... OccupancyOcTreeBase.h OccupancyOcTreeBase
+/// 49
+/// $ ... OcTreeBaseImpl.h OcTreeBaseImpl
+/// 77
+/// $ ... AbstractOccupancyOcTree.h AbstractOccupancyOcTree
+/// 34
+/// $ ... AbstractOcTree.h AbstractOcTree
+/// 25
+/// ```
+///
+/// All five match this section's already-stated raw counts exactly --
+/// `OcTreeBaseImpl.h`'s 77 in particular reconciles bullet-for-bullet with
+/// the 69 bullets in that section once its 3 excluded non-most-derived
+/// special members and 5 multi-declaration folds (the `coordToKey`
+/// pairs, `typedef leaf_iterator iterator` + `begin`) are accounted for:
+/// 77 - 3 - 5 = 69. `AbstractOcTree.h`'s 25 raw minus the one
+/// forward-declared `iterator_base` (excluded per this section's own
+/// rule) is 24, the figure already cross-checked bullet-for-bullet
+/// against that section below. No new gap found this round beyond the
+/// `getTreeType()` one round 17 already fixed.
+///
 /// ## `OcTree.h`
 ///
 /// - `OcTree(double resolution)` -- ported as [`OcTree::new`].

@@ -246,6 +246,51 @@
 //!
 //! ## `bodies.h` `Body`-base and `ConvexMesh`-extra symbol audit (round 8)
 //!
+//! **Counting convention.** Unlike `shapes.rs`'s and `moveit-octomap`'s
+//! `tree.rs`'s single audit list, this crate documents `bodies.h` symbols
+//! at their point of definition throughout this file (one doc comment per
+//! ported method) rather than in one monolithic table; this section
+//! supplements that with only the members not already named at their own
+//! definition (`Body`'s dirty-setter half and the members [`Body`]'s own
+//! variant dispatch subsumes) or in `body_operations.h`'s three sections
+//! above.
+//!
+//! **Reproducible raw counts, spot-check (round 18, item 1).** Per-class
+//! raw `public:` declaration counts from
+//! `crates/moveit-geometry/audit/count_public_declarations.sh` against a
+//! fresh oracle fetch of `bodies.h`:
+//!
+//! ```text
+//! $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/bodies.h'" > /tmp/bodies.h
+//! $ for c in Body Sphere Cylinder Box ConvexMesh BodyVector; do
+//! >   echo "$c: $(crates/moveit-geometry/audit/count_public_declarations.sh /tmp/bodies.h "$c")"
+//! > done
+//! Body: 28
+//! Sphere: 16
+//! Cylinder: 16
+//! Box: 16
+//! ConvexMesh: 20
+//! BodyVector: 12
+//! ```
+//!
+//! Every raw declaration in every one of the six lists was matched by
+//! name against a method doc comment somewhere in this file (`getType`
+//! through `updateInternalData`, all four `Body::` accessor pairs, every
+//! `Sphere`/`Cylinder`/`Box`/`ConvexMesh` override, `BodyVector`'s own
+//! twelve) except `Body()`/`~Body()` and each concrete class's own
+//! constructor/destructor pair, all covered by the D4 design section
+//! below the same way `shapes.rs`'s D4 section covers `Shape`'s base
+//! ctor/dtor -- with one difference this round confirmed rather than
+//! assumed: unlike `shapes::Mesh::~Mesh()`, every `bodies::` destructor
+//! (`Sphere`/`Cylinder`/`Box`/`ConvexMesh`) is `= default` upstream, doing
+//! no real cleanup work a `Vec`-based port would need to account for
+//! separately -- the destructor gap this round found and fixed in
+//! `shapes.rs` does not recur here. `EIGEN_MAKE_ALIGNED_OPERATOR_NEW`
+//! (a bare macro invocation, not a declaration) is excluded by the
+//! counting script itself, the same way a `using`/preprocessor line is.
+//! No gap found; this is the deliverable for this header, per "맞으면
+//! 표 자체가 결과물이다."
+//!
 //! Members not already named above, classified:
 //!
 //! - `Body::getType()` — **subsumed by D4.** A caller matches on [`Body`]'s
@@ -297,6 +342,18 @@
 //!   zero callers anywhere in the pinned tree.
 //!
 //! ## `body_operations.h` symbol audit (round 8)
+//!
+//! **Reproducible raw count (round 18, item 1).** Free functions at
+//! namespace scope; verified with a signature-line grep against a fresh
+//! oracle fetch, the same recipe `shapes.rs` uses for `shape_operations.h`:
+//!
+//! ```text
+//! $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/body_operations.h'" > /tmp/body_operations.h
+//! $ grep -c '^[A-Za-z].*(\|^  .*(' /tmp/body_operations.h
+//! 11
+//! ```
+//!
+//! Matches this section's stated 11 exactly.
 //!
 //! The remaining 4 of `body_operations.h`'s 11 declarations, classified:
 //!
