@@ -161,45 +161,66 @@
 //!
 //! Read in full (both the 219-line header and the 992-line source) against
 //! the pinned SHA. Every symbol is classified below; see [`optimizer`]'s
-//! own module doc for the full reasoning behind each classification.
+//! own module doc for the full reasoning behind each classification,
+//! including why round 17's "collision-coupled, not portable" verdict on
+//! `ChompOptimizer` itself did not hold up.
 //!
-//! - Ported as free functions in [`optimizer`] (not as a `ChompOptimizer`
-//!   struct — see [`optimizer`]'s module doc for why a faithful struct port
-//!   is impossible in this crate): the inline `getPotential` →
-//!   [`optimizer::get_potential`]; `calculateSmoothnessIncrements` →
+//! - Ported as free functions in [`optimizer`] (kept as free functions, not
+//!   folded into `ChompOptimizer` methods, even though `ChompOptimizer` is
+//!   now ported too — see [`optimizer`]'s module doc for why): the inline
+//!   `getPotential` → [`optimizer::get_potential`];
+//!   `calculateSmoothnessIncrements` →
 //!   [`optimizer::calculate_smoothness_increments`];
 //!   `calculateTotalIncrements` → [`optimizer::calculate_total_increments`]
-//!   (this round's weighted-combination callout — see [`optimizer`]'s doc
+//!   (round 17's weighted-combination callout — see [`optimizer`]'s doc
 //!   for the exact [`parameters::ChompParameters`] field-name mapping);
 //!   `addIncrementsToTrajectory` → [`optimizer::add_increments_to_trajectory`];
 //!   `getSmoothnessCost` → [`optimizer::get_smoothness_cost`];
 //!   `handleJointLimits` → [`optimizer::handle_joint_limits`].
-//! - Not ported, collision/kinematics-coupled: `ChompOptimizer` itself
-//!   (struct, constructor, `optimize()`, `destroy()`, `isInitialized()`,
-//!   `isCollisionFree()`), `performForwardKinematics`, `getCollisionCost`,
-//!   `getTrajectoryCost`, `calculateCollisionIncrements`,
-//!   `calculatePseudoInverse`, `getJacobian`, `computeJointProperties`,
-//!   `setRobotStateFromPoint`, `registerParents`, the private `isParent`,
-//!   `isCurrentTrajectoryMeshToMeshCollisionFree`. `optimize()`'s
-//!   termination condition — this round's other callout — is transcribed as
-//!   a specification (not executable code) in [`optimizer`]'s module doc.
-//!   Round 18 re-checked this against `moveit-collision`/`moveit-distance-field`'s
-//!   progress this session (per that round's Item 3): `GroupStateRepresentation`
-//!   is now ported (`moveit_distance_field::GroupStateRepresentation`), which
-//!   covers this struct's `gsr_` field, but `hy_env_`
-//!   (`const collision_detection::CollisionEnvHybrid*`) has no path forward at
-//!   all — `moveit-distance-field`'s own module doc lists `CollisionEnvHybrid`
-//!   as a **whole-file exclusion**, D-decision: `PORTING-PLAN.md`'s FCL/Bullet
-//!   → `parry3d-f64` backend replacement means `CollisionEnvHybrid` (which
-//!   extends `CollisionEnvFCL` directly) is never ported, full stop, not
-//!   "not yet". A literal port of this struct is therefore permanently
-//!   impossible, not merely blocked on more infrastructure landing. A port
-//!   *is* possible, but only by redesigning the collision-cost path against
-//!   `moveit_collision::CollisionEnv<State>`/`moveit_scene::PlanningScene`'s
-//!   generic environment parameter instead of upstream's concrete
-//!   `CollisionEnvHybrid*` field — a semantic change to what "the same
-//!   struct" means, per this port's own guidance on structural fixes needing
-//!   sign-off before the rewrite, not after. Not attempted this round.
+//! - Ported as `ChompOptimizer` itself, this round (round 19): the struct,
+//!   constructor, `isInitialized()`, `isCollisionFree()` →
+//!   [`optimizer::ChompOptimizer`],
+//!   [`optimizer::ChompOptimizer::new`],
+//!   [`optimizer::ChompOptimizer::is_initialized`],
+//!   [`optimizer::ChompOptimizer::is_collision_free`]; `optimize()` →
+//!   [`optimizer::ChompOptimizer::optimize`] (its termination condition —
+//!   round 17's other callout — is now real, executed code, transcribed in
+//!   full in [`optimizer`]'s module doc rather than left a specification);
+//!   `performForwardKinematics` →
+//!   [`optimizer::ChompOptimizer::perform_forward_kinematics`];
+//!   `getCollisionCost`, `getTrajectoryCost` → private `get_collision_cost`,
+//!   [`optimizer::ChompOptimizer::get_trajectory_cost`];
+//!   `calculateCollisionIncrements`, `calculatePseudoInverse`, `getJacobian`
+//!   → private `calculate_collision_increments`, `calculate_pseudo_inverse`,
+//!   `get_jacobian`; `computeJointProperties`, `setRobotStateFromPoint` →
+//!   private `compute_joint_properties`, `set_robot_state_from_point`;
+//!   `registerParents`/the private `isParent` → collapsed into one
+//!   stateless private helper, `ChompOptimizer::is_ancestor_or_self`;
+//!   `isCurrentTrajectoryMeshToMeshCollisionFree` → an injected
+//!   `mesh_to_mesh_collision_free` closure parameter on `optimize()`, not a
+//!   method (a design decision needing sign-off — see [`optimizer`]'s
+//!   module doc). `destroy()` is not ported: its upstream body is a no-op
+//!   RAII hook, structurally unnecessary once `Drop` exists (PORTING-PLAN.md
+//!   D1). This became possible once it was established (this round) that
+//!   `hy_env_`/`CollisionEnvHybrid` — round 18's cited blocker — has exactly
+//!   5 references in `chomp_motion_planner/`, and the only method ever
+//!   called on it, `getCollisionGradients`, is `CollisionEnvHybrid`'s own
+//!   one-line forward to `CollisionEnvDistanceField::getCollisionGradients`,
+//!   already ported as
+//!   [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`].
+//!   `hy_env_`/`planning_scene_`/`full_trajectory_`/`gsr_` are not stored as
+//!   struct fields at all in this port — see
+//!   [`optimizer::ChompCollisionContext`] and [`optimizer`]'s module doc for
+//!   the external-resource-as-parameter design and why `gsr_` is always
+//!   function-local. That last choice has one real consequence, surfaced
+//!   and documented, not silently absorbed: `moveit-distance-field`'s public
+//!   API has no way to reproduce upstream's `gsr_`-reuse pattern, which
+//!   leaves `GradientInfo::sphere_locations` permanently empty through this
+//!   crate's only access path — a genuine API gap in `moveit-distance-field`
+//!   (another worker's crate), reported not fixed, worked around here via
+//!   already-public fields instead. See [`optimizer`]'s module doc, "API gap
+//!   surfaced by this round", for the full account with upstream/downstream
+//!   line citations.
 //! - Not ported, confirmed dead in upstream itself (not merely out of
 //!   scope): `debugCost` (unused `std::cout` helper, no call site anywhere
 //!   in `chomp_optimizer.cpp`); `perturbTrajectory`, `getRandomMomentum`,

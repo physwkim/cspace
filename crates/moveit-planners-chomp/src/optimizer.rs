@@ -6,36 +6,49 @@
 //   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_optimizer.hpp
 //   moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp
 
-//! The model/collision-independent numeric core of `chomp::ChompOptimizer`.
+//! The numeric core of `chomp::ChompOptimizer`, including the struct itself.
 //!
-//! # Scope: free functions, not a `ChompOptimizer` struct
+//! # Round 19: `ChompOptimizer` is ported
 //!
-//! Upstream's `ChompOptimizer` is one class whose constructor requires a
-//! live `planning_scene::PlanningSceneConstPtr` and whose central method,
-//! `optimize()`, is a single loop that inseparably interleaves two costs:
-//! smoothness (a pure function of the trajectory, already portable via
-//! [`crate::cost::ChompCost`]) and collision (a function of
-//! `collision_detection::CollisionEnvHybrid`/`GroupStateRepresentation` —
-//! types with no counterpart in `moveit-collision`/`moveit-scene`, which
-//! this crate does not and must not depend on; those crates are other
-//! workers' scope this round). This is not a missing-dependency situation
-//! `moveit-collision` could plug in later without a semantic change: the
-//! *struct itself* stores per-collision-point bookkeeping
-//! (`collision_point_pos_eigen_`, `_vel_eigen_`, `_acc_eigen_`,
-//! `_potential_`, `_potential_gradient_`, `joint_axes_`, `joint_positions_`,
-//! `state_is_in_collision_`, `point_is_in_collision_`) that has no meaning
-//! without a live collision environment, so a faithful `ChompOptimizer`
-//! port cannot be constructed at all without one.
+//! Round 17 classified `ChompOptimizer` (the struct, `optimize()`, and every
+//! collision-coupled method) as permanently unportable, reasoning that its
+//! only collision backend, `collision_detection::CollisionEnvHybrid`
+//! (`hy_env_`), was a whole-file D-decision exclusion in
+//! `moveit-distance-field` with no path forward at all. That reasoning did
+//! not survive a direct read of `hy_env_`'s real use in
+//! `chomp_motion_planner/`: it has exactly 5 references, and the only method
+//! ever called on it, `getCollisionGradients`, is `CollisionEnvHybrid`'s own
+//! one-line forward to `CollisionEnvDistanceField::getCollisionGradients` —
+//! already ported as
+//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`].
+//! `ChompOptimizer` never touches `CollisionEnvHybrid`'s FCL/Bullet-backed
+//! narrow-phase at all; round 17 excluded the whole struct on the strength
+//! of a field whose only real behavior was already portable.
 //!
-//! Rather than invent a stub collision environment (not upstream's design)
-//! or silently drop the whole file, every one of `ChompOptimizer`'s private
-//! methods was read and classified individually. The ones that touch only
-//! already-ported types ([`crate::trajectory::ChompTrajectory`],
-//! [`crate::cost::ChompCost`], [`crate::parameters::ChompParameters`],
-//! `moveit_model`'s joint tree) are ported here as free functions, each
-//! taking exactly the state it needs rather than a `&ChompOptimizer` that
-//! cannot exist in this crate. The rest are named below, not silently
-//! absent.
+//! This round ports `ChompOptimizer` for real: the struct
+//! ([`crate::optimizer::ChompOptimizer`]), its constructor ([`crate::optimizer::ChompOptimizer::new`]),
+//! `optimize()` ([`crate::optimizer::ChompOptimizer::optimize`]), `isInitialized()`/
+//! `isCollisionFree()` ([`crate::optimizer::ChompOptimizer::is_initialized`]/
+//! [`crate::optimizer::ChompOptimizer::is_collision_free`]), and every method `optimize()`
+//! calls transitively. [`crate::optimizer::ChompOptimizer`]'s own doc comment carries the full
+//! list of deviations from upstream (external-resource-as-parameter instead
+//! of stored `hy_env_`/`planning_scene_`/`full_trajectory_` fields, the
+//! mesh-to-mesh check becoming an injected closure, the ancestor-query
+//! collapse, the `Isometry3d * Vector3d` point-vs-vector transform, and
+//! more) — not repeated here.
+//!
+//! The functions below `ChompOptimizer` in this file were already ported
+//! before this round, when they were the only symbols judged portable at
+//! all (they touch only already-ported types —
+//! [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`],
+//! [`crate::parameters::ChompParameters`], `moveit_model`'s joint tree — and
+//! needed no collision backend). Upstream declares each as a private
+//! `ChompOptimizer` method reading `this`
+//! (`chomp_optimizer.hpp:84,200,202,204,207,209`); they stay free functions
+//! here rather than becoming `ChompOptimizer` methods retroactively, since
+//! nothing about this round's port requires that shape and every existing
+//! call site (including `ChompOptimizer`'s own) already passes their state
+//! in explicitly.
 //!
 //! ## Precondition: `group_trajectory` must already be `DIFF_RULE_LENGTH`-padded
 //!
@@ -107,31 +120,49 @@
 //!   `RevoluteJoint::is_continuous`) — all already dependencies of this
 //!   crate, no collision environment involved.
 //!
-//! ## Not ported: collision-coupled (need `moveit-collision`/`moveit-scene`)
+//! ## Ported as `ChompOptimizer` methods (this round)
 //!
-//! Named individually, not silently absent — every one of these appears in
-//! `chomp_optimizer.{hpp,cpp}` and was read in full:
-//!
-//! - `ChompOptimizer` (the class itself), its constructor, `optimize()`,
-//!   `destroy()`, `isInitialized()`, `isCollisionFree()` — `optimize()`'s
-//!   termination condition (this round's other callout) is documented
-//!   below in full, as a specification, since it cannot be executed without
-//!   the collision half it depends on.
-//! - `performForwardKinematics` — populates every `collision_point_*`
-//!   field via `hy_env_->getCollisionGradients(...)`; the only caller of
-//!   [`crate::optimizer::get_potential`] upstream.
-//! - `getCollisionCost`, `getTrajectoryCost` — read `collision_point_*`
-//!   populated by `performForwardKinematics`.
+//! - `ChompOptimizer` (the class itself) and its constructor →
+//!   [`crate::optimizer::ChompOptimizer`]/[`crate::optimizer::ChompOptimizer::new`]. `initialize()` upstream is
+//!   not a separate step — folded into `new` the way
+//!   [`crate::trajectory::ChompTrajectory`]'s own constructors already
+//!   fold in upstream's private `init`.
+//! - `optimize()` → [`crate::optimizer::ChompOptimizer::optimize`] — see the "termination
+//!   condition" section below for the exact early-exit logic, now real,
+//!   executed code rather than a specification.
+//! - `isInitialized()`, `isCollisionFree()` →
+//!   [`crate::optimizer::ChompOptimizer::is_initialized`]/[`crate::optimizer::ChompOptimizer::is_collision_free`].
+//! - `performForwardKinematics` → [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
+//!   — populates every `collision_point_*` field via
+//!   [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+//!   (upstream: `hy_env_->getCollisionGradients(...)`); the only caller of
+//!   [`crate::optimizer::get_potential`]. See its own doc comment for the
+//!   `GradientInfo::sphere_locations` API-gap deviation (summarized below).
+//! - `getCollisionCost`, `getTrajectoryCost` → private `get_collision_cost`/
+//!   [`crate::optimizer::ChompOptimizer::get_trajectory_cost`] — read `collision_point_*`
+//!   populated by `perform_forward_kinematics`.
 //! - `calculateCollisionIncrements`, `calculatePseudoInverse`, `getJacobian`
-//!   — collision-point Jacobian computation.
-//! - `computeJointProperties`, `setRobotStateFromPoint` — forward kinematics
-//!   against a live `moveit::core::RobotState`, feeding `getJacobian`.
+//!   → private `calculate_collision_increments`/`calculate_pseudo_inverse`/
+//!   `get_jacobian` — collision-point Jacobian computation.
+//! - `computeJointProperties`, `setRobotStateFromPoint` → private
+//!   `compute_joint_properties`/`set_robot_state_from_point` — forward
+//!   kinematics against [`moveit_state::RobotState`], feeding
+//!   `get_jacobian`.
 //! - `registerParents`, the private `isParent` (inline) and
-//!   `joint_parent_map_` — built once by the constructor solely to answer
-//!   `getJacobian`'s "is this joint an ancestor of this collision point's
-//!   link" query; no other consumer.
-//! - `isCurrentTrajectoryMeshToMeshCollisionFree` — calls
-//!   `planning_scene_->isPathValid(...)`.
+//!   `joint_parent_map_` → collapsed into one stateless helper,
+//!   [`crate::optimizer::ChompOptimizer`]'s private `is_ancestor_or_self` — see
+//!   [`crate::optimizer::ChompOptimizer`]'s own doc comment for the ancestor-resolution
+//!   subtlety this collapse must still reproduce.
+//! - `isCurrentTrajectoryMeshToMeshCollisionFree` → an injected
+//!   `mesh_to_mesh_collision_free` closure parameter on
+//!   [`crate::optimizer::ChompOptimizer::optimize`], not a method — see [`crate::optimizer::ChompOptimizer`]'s
+//!   own doc comment for why (needs sign-off).
+//!
+//! ## Genuinely not ported
+//!
+//! - `destroy()` — upstream body is `{ // Nothing for now. }`
+//!   (`chomp_optimizer.hpp:68-71`), an explicit no-op RAII hook; `Drop`
+//!   makes it structurally unnecessary (PORTING-PLAN.md D1).
 //! - `debugCost` — confirmed dead: not called anywhere in
 //!   `chomp_optimizer.cpp` (a `std::cout` debug helper, same formula as
 //!   [`crate::optimizer::get_smoothness_cost`] but unweighted and unused).
@@ -142,17 +173,50 @@
 //!   CODE...`), and `getRandomMomentum`/`updateMomentum`/
 //!   `updatePositionFromMomentum` have **no implementation anywhere in
 //!   `chomp_optimizer.cpp`** — declared in the header (lines 212-214) and
-//!   never defined, which only compiles because nothing calls them. This is
-//!   why this crate does not depend on `moveit-sampling` this round despite
-//!   the round-16 dispatch's `MultivariateGaussian` note: the one call site
-//!   (`multivariate_gaussian_` in `initialize()`, feeding exactly this dead
-//!   HMC path) has no live consumer to port it against.
+//!   never defined, which only compiles because nothing calls them.
+//!   [`crate::optimizer::ChompOptimizer::new`] still constructs one
+//!   [`moveit_sampling::MultivariateGaussian`] per joint (matching
+//!   upstream's `multivariate_gaussian_.emplace_back(...)`, which also
+//!   exists only to feed this dead path) but nothing ever samples it.
+//! - `chomp_planner.cpp` (the `ChompPlanner` entry point) — out of this
+//!   round's scope; see this crate's top-level module doc.
 //!
-//! ## `optimize()`'s termination condition (specification only)
+//! ## API gap surfaced by this round: `GradientInfo::sphere_locations`
 //!
-//! Transcribed from `chomp_optimizer.cpp:290-518` for the record, since
-//! this round's brief calls it out specifically, even though it cannot be
-//! executed here. The loop runs `iteration_` from `0` to
+//! `moveit_distance_field::GradientInfo::sphere_locations` is populated for
+//! a link only on the *reuse* path
+//! (`update_group_state_representation_state`, itself never called by
+//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]).
+//! Upstream gets away with this because `ChompOptimizer` keeps `gsr_` alive
+//! as a class member across the whole `optimize()` loop, so
+//! `getCollisionGradients` takes the reuse path on every call after the
+//! first (`collision_env_distance_field.cpp:1517-1536`). This crate's
+//! `gsr_` equivalent is never stored (see [`crate::optimizer::ChompOptimizer`]'s own doc
+//! comment for why), so every call here takes the fresh-build path, where
+//! `sphere_locations` is unconditionally empty
+//! (`collision_env_distance_field.cpp:1157-1213`, confirmed on both the
+//! upstream C++ and this crate's own Rust port). This is a genuine gap in
+//! `moveit-distance-field`'s public API (its own gradient-computation
+//! functions that run after the reuse-path update are module-private, so
+//! nothing outside that crate can reproduce upstream's reuse pattern) —
+//! reported, not fixed, since that crate is another worker's scope this
+//! round. Worked around here by sourcing sphere positions from
+//! `GroupStateRepresentation::link_body_decompositions[..].sphere_centers()`
+//! (reliably populated on both paths) instead, and by sizing per-link
+//! iteration from `GradientInfo::distances`/`gradients` (also reliably
+//! populated) rather than `sphere_locations` — see
+//! [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`] and the
+//! private `resolve_collision_point_joint_index`'s own "Deviation from
+//! upstream" doc sections for the exact substitutions.
+//!
+//! ## `optimize()`'s termination condition
+//!
+//! Transcribed from `chomp_optimizer.cpp:290-518` and now real, executed
+//! code ([`crate::optimizer::ChompOptimizer::optimize`]), pinned by
+//! `optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out`,
+//! `optimize_breaks_out_immediately_when_max_iterations_after_collision_free_is_zero`,
+//! and `optimize_collision_threshold_break_is_a_strict_less_than` in this
+//! module's test suite. The loop runs `iteration_` from `0` to
 //! [`crate::parameters::ChompParameters::max_iterations`] (exclusive),
 //! computing `cost = collision_cost + smoothness_cost` each iteration and
 //! tracking the minimum-cost trajectory seen (`best_group_trajectory_`,
@@ -162,8 +226,9 @@
 //! in this order:
 //!
 //! 1. Every 10th iteration (`iteration_ % 10 == 0`), a full mesh-to-mesh
-//!    collision check
-//!    ([`isCurrentTrajectoryMeshToMeshCollisionFree`](#not-ported-collision-coupled-need-moveit-collision-moveit-scene))
+//!    collision check (upstream `isCurrentTrajectoryMeshToMeshCollisionFree`,
+//!    here [`crate::optimizer::ChompOptimizer::optimize`]'s injected
+//!    `mesh_to_mesh_collision_free` closure parameter)
 //!    against the *current* trajectory (not `best_group_trajectory_`); a
 //!    pass sets `num_collision_free_iterations_ = 0` (break on the very
 //!    next check below).
@@ -199,10 +264,18 @@
 use crate::cost::ChompCost;
 use crate::parameters::ChompParameters;
 use crate::trajectory::ChompTrajectory;
+use crate::utils::{DIFF_RULE_LENGTH, DIFF_RULES};
+use moveit_collision::{AllowedCollisionMatrix, CollisionRequest};
+use moveit_distance_field::{DistanceField, DistanceFieldCollisionCache, GradientInfo};
 use moveit_error::{Error, Result};
+use moveit_geometry::Vector3;
 use moveit_model::joint::JointType;
 use moveit_model::{JointModelGroup, RobotModel};
-use nalgebra::DMatrix;
+use moveit_state::RobotState;
+use nalgebra::{DMatrix, Matrix3, Point3};
+use rand::{Rng, RngExt};
+use std::collections::HashMap;
+use std::time::Instant;
 
 /// The CHOMP potential function: a 3-branch scalar penalty for a collision
 /// point at `field_distance` from the nearest obstacle, with a sphere of
@@ -471,6 +544,929 @@ pub fn handle_joint_limits(
     Ok(())
 }
 
+/// Borrows the two pieces of collision-checking state `ChompOptimizer`
+/// needs from a caller-owned distance field, replacing upstream's
+/// `hy_env_`/`planning_scene_` pair for the one call both of them actually
+/// make: `getCollisionGradients`.
+///
+/// Neither field is stored on `ChompOptimizer` itself -- see the module
+/// doc's "external-resource-as-parameter" note.
+pub struct ChompCollisionContext<'a, 'm> {
+    /// Upstream's `hy_env_`, narrowed to the one type it forwards to --
+    /// see this module's doc comment for the `getCollisionGradients`
+    /// one-line-forward evidence.
+    pub cache: &'a mut DistanceFieldCollisionCache<'m>,
+    /// The `PropagationDistanceField`-shaped backend `cache` checks
+    /// against, threaded through the same way
+    /// [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+    /// itself requires.
+    pub env_distance_field: &'a dyn DistanceField,
+}
+
+/// Builds, once per [`ChompOptimizer::new`] call, the reverse joint/link
+/// lookups upstream reads directly off `JointModel::getParentLinkModel`/
+/// `getChildLinkModel` -- neither is exposed by [`moveit_model::joint::JointModel`]
+/// (it only carries a `parent_link_index` internally), so this port derives
+/// both by scanning [`RobotModel::link_models`] once: a link's
+/// [`moveit_model::LinkModel::parent_joint_index`] is that joint's *child*
+/// link, and every entry of the link's own
+/// [`moveit_model::LinkModel::child_joint_indices`] has that link as its
+/// *parent* link.
+///
+/// Sized to `robot_model.joint_names().len()`; entries for joints outside
+/// the group being optimized are simply never read.
+fn joint_link_maps(robot_model: &RobotModel) -> (Vec<Option<usize>>, Vec<usize>) {
+    let num_joints = robot_model.joint_names().len();
+    let mut parent_link_of_joint = vec![None; num_joints];
+    let mut child_link_of_joint = vec![0usize; num_joints];
+    for (link_index, link) in robot_model.link_models().iter().enumerate() {
+        child_link_of_joint[link.parent_joint_index()] = link_index;
+        for &child_joint in link.child_joint_indices() {
+            parent_link_of_joint[child_joint] = Some(link_index);
+        }
+    }
+    (parent_link_of_joint, child_link_of_joint)
+}
+
+/// Ported from `initialize`'s `fixed_link_resolution_map` construction
+/// (`chomp_optimizer.cpp:198-227`): resolves every joint a collision
+/// gradient can be reported against to the joint whose Jacobian column it
+/// should drive.
+///
+/// Transcribed as the exact three passes upstream runs, not collapsed into
+/// one uniform walk -- they are NOT equivalent:
+///
+/// - Every active joint maps to itself.
+/// - Every *fixed* joint maps to exactly **one** step up
+///   (`getParentLinkModel()->getParentJointModel()`), regardless of whether
+///   that lands on an active joint. If it doesn't, the fixed joint is left
+///   resolved to a non-active joint permanently -- loop 3 below skips
+///   anything already present in the map, so it never re-walks that entry
+///   to find a real active ancestor.
+/// - Every other "updated link" owner walks **multiple** steps up until it
+///   reaches an active joint or the root.
+///
+/// This has an observable consequence reproduced deliberately, not fixed:
+/// [`is_ancestor_or_self`] (this port's `isParent`) treats a joint index
+/// resolved to a non-active joint as having **no** registered ancestors at
+/// all (upstream's `joint_parent_map_` is only ever populated by
+/// `registerParents` for active joints, so `isParent`'s map lookup fails
+/// silently for a non-active `childLink` and returns `false` for every
+/// candidate) -- a collision point owned by such a joint contributes a
+/// zero Jacobian column to every joint, discarding its gradient from the
+/// optimization entirely.
+///
+/// Keyed and valued by joint index rather than upstream's joint name
+/// (`std::map<std::string, std::string>`) -- indices are this port's
+/// canonical joint identity throughout, avoiding a name lookup on every
+/// resolution.
+fn build_fixed_link_resolution_map(
+    robot_model: &RobotModel,
+    joint_model_group: &JointModelGroup,
+    parent_link_of_joint: &[Option<usize>],
+) -> HashMap<usize, usize> {
+    let mut map = HashMap::new();
+    for &active_idx in joint_model_group.active_joint_indices() {
+        map.insert(active_idx, active_idx);
+    }
+    for &fixed_idx in joint_model_group.fixed_joint_indices() {
+        let Some(parent_link) = parent_link_of_joint[fixed_idx] else {
+            continue;
+        };
+        let one_up = robot_model.link_model_at(parent_link).parent_joint_index();
+        map.insert(fixed_idx, one_up);
+    }
+    for &link_idx in joint_model_group.updated_link_indices() {
+        let owner_joint = robot_model.link_model_at(link_idx).parent_joint_index();
+        if map.contains_key(&owner_joint) {
+            continue;
+        }
+        let mut parent_model = owner_joint;
+        while let Some(parent_link) = parent_link_of_joint[parent_model] {
+            parent_model = robot_model.link_model_at(parent_link).parent_joint_index();
+            if joint_model_group
+                .active_joint_indices()
+                .contains(&parent_model)
+            {
+                break;
+            }
+        }
+        map.insert(owner_joint, parent_model);
+    }
+    map
+}
+
+/// Resolves every collision gradient's `joint_name` (upstream
+/// `GradientInfo::joint_name_`) to the joint index [`get_jacobian`] should
+/// treat it as owned by, via `resolution_map`
+/// ([`build_fixed_link_resolution_map`]'s output). `None` if the name
+/// isn't in `resolution_map` at all, matching upstream's
+/// `RCLCPP_ERROR("Couldn't find joint %s!")` silent-failure path -- see
+/// this function's caller for why an unresolved point is numerically
+/// equivalent to upstream's default-constructed empty-string fallback.
+///
+/// Ported from the `for (i = free_vars_start_..=free_vars_end_)` /
+/// `collision_point_joint_names_[i][j]` loop at the end of `initialize`
+/// (`chomp_optimizer.cpp:229-247`). Flattened to one entry per collision
+/// point rather than upstream's `num_vars_all_ x num_collision_points_`
+/// grid: every row upstream writes is identical, since the loop body only
+/// ever reads `gsr_->gradients_` -- a single snapshot taken once at
+/// construction time, never re-read per trajectory point `i` in this
+/// specific loop.
+///
+/// # Deviation from upstream: sized/gated by `gradients.len()`, not `sphere_locations.len()`
+///
+/// Same root cause as [`ChompOptimizer::perform_forward_kinematics`]'s own
+/// "Deviation from upstream" doc: `GradientInfo::sphere_locations` is empty
+/// for every link through this crate's only access path
+/// ([`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]'s
+/// always-fresh-build), so gating this function's per-link entry count on
+/// it -- as upstream's own `for (k = 0; k < info.sphere_locations.size();
+/// ++k)` literally does -- would make it return a zero-length vector
+/// regardless of `gradients`'s real per-link sphere counts. Upstream's
+/// container, by contrast, is *pre-sized* to `num_collision_points_`
+/// before that loop ever runs (`chomp_optimizer.cpp:153`,
+/// `std::vector<std::string>(num_collision_points_)`), so reproducing
+/// upstream's real *length* here requires counting from a field that is
+/// reliably sized regardless of `sphere_locations` -- `gradients.len()`,
+/// the same field [`ChompOptimizer::new`] already sums for
+/// `num_collision_points`. `GradientInfo::joint_name` (what this function
+/// actually resolves) is a per-link, not per-sphere, field and is set
+/// unconditionally in the fresh-build path -- unlike `sphere_locations`,
+/// it was never gated by the API gap in the first place.
+fn resolve_collision_point_joint_index(
+    robot_model: &RobotModel,
+    resolution_map: &HashMap<usize, usize>,
+    gradients: &[GradientInfo],
+) -> Vec<Option<usize>> {
+    let mut collision_point_joint_index = Vec::new();
+    for info in gradients {
+        let joint_index = robot_model
+            .joint_names()
+            .iter()
+            .position(|name| name == &info.joint_name);
+        let resolved = joint_index.and_then(|idx| resolution_map.get(&idx).copied());
+        for _ in 0..info.gradients.len() {
+            collision_point_joint_index.push(resolved);
+        }
+    }
+    collision_point_joint_index
+}
+
+/// A single CHOMP optimization run over one planning group's trajectory.
+///
+/// Ported from `chomp::ChompOptimizer`.
+///
+/// # Deviations from upstream
+///
+/// - **No `hy_env_`/`planning_scene_`/`full_trajectory_` fields.** Upstream
+///   stores the collision backend, planning scene, and the full-robot
+///   trajectory it writes results back into as struct fields set once at
+///   construction. This port threads all three through as explicit
+///   borrowed parameters to [`ChompOptimizer::new`]/
+///   [`ChompOptimizer::optimize`] instead, following the precedent already
+///   established in `moveit-distance-field` (`env_distance_field: &dyn
+///   DistanceField` is threaded the same way through
+///   [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+///   itself) -- this removes lifetime-parameter proliferation from the
+///   struct (only `'m`, the robot model's lifetime, remains) at the cost
+///   of a few more call-site arguments.
+/// - **`gsr_`/`GroupStateRepresentation` is never stored.** Its accessor,
+///   [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`],
+///   mutably borrows the collision cache for the `GroupStateRepresentation`'s
+///   lifetime; storing it as a field would block every later mutable
+///   reborrow of that same cache. Upstream's own usage never needs `gsr_`
+///   to survive past copying its `gradients_` out into this type's
+///   per-trajectory-point `Vec`s, so here it is always a function-local,
+///   scoped to [`ChompOptimizer::new`]/
+///   [`ChompOptimizer::perform_forward_kinematics`].
+/// - **`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an injected
+///   closure**, not a method backed by `planning_scene_->isPathValid`.
+///   Porting a mesh-to-mesh check faithfully needs
+///   `moveit_scene::PlanningScene` + a parry3d-f64 collision environment --
+///   an architecturally distinct backend from the `DistanceFieldCollisionCache`
+///   this round's brief (and the `hy_env_`/`getCollisionGradients`
+///   evidence backing it) actually authorizes. [`ChompOptimizer::optimize`]
+///   instead takes a `mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState,
+///   &DMatrix<f64>) -> bool` closure, called with `self.start_state` and
+///   `self.best_group_trajectory` (matching upstream's own data source: the
+///   check reads `best_group_trajectory_`'s *values* at
+///   `group_trajectory_`'s *shape*, not the just-`updateFullTrajectory`'d
+///   current iterate -- see `chomp_optimizer.cpp:520-537`). This is a design
+///   decision that needs sign-off, not a settled port; a caller that hasn't
+///   wired up the mesh-to-mesh backend can pass `&mut |_, _| false` and get
+///   upstream's `collision_threshold_`-only behavior.
+/// - **`dynamic_cast<const CollisionEnvHybrid*>` and its null check
+///   disappear.** [`ChompCollisionContext::cache`] is already statically
+///   typed as [`moveit_distance_field::DistanceFieldCollisionCache`]; Rust
+///   has no equivalent of constructing a `ChompOptimizer` against a
+///   differently-typed, incompatible collision environment for the caller
+///   to fail at runtime.
+/// - **`destroy()` is not ported.** Its upstream body is `{ // Nothing for
+///   now. }` (`chomp_optimizer.hpp:68-71`) -- an explicit no-op RAII hook,
+///   which `Drop` makes structurally unnecessary here (see PORTING-PLAN.md
+///   D1).
+/// - **The joint-ancestor query (`isParent`/`joint_parent_map_`/
+///   `registerParents`) collapses into one stateless helper,
+///   `ChompOptimizer::is_ancestor_or_self`**, computed by a direct
+///   `RobotModel::parent_joint_index` chain-walk at call time rather than a
+///   `HashMap` built once and consulted later. See this module's private
+///   `build_fixed_link_resolution_map` for the one behavioral subtlety
+///   this collapse must still reproduce (a resolved-to-non-active joint
+///   has no ancestors at all, not "walk further to find one").
+/// - **The `Eigen::Isometry3d * Eigen::Vector3d` in `computeJointProperties`'s
+///   `axis = joint_transform * axis;` (`chomp_optimizer.cpp:733`) is ported
+///   as a point transform, not a vector transform.** Eigen does not
+///   distinguish "point" from "free vector" for a bare `Vector3d`, so that
+///   multiplication applies the joint transform's translation *and*
+///   rotation to `axis`. `nalgebra`'s `Isometry3<f64> * Vector3<f64>`
+///   applies rotation only (nalgebra correctly distinguishes a `Vector3`
+///   direction from a `Point3` position) -- a direct `joint_transform *
+///   axis` port would silently drop the translation upstream actually
+///   applies. This port instead computes `(joint_transform *
+///   Point3::from(axis)).coords`, matching upstream's real (if unusual)
+///   numeric behavior rather than the more "correct"-looking
+///   rotation-only read of the same source line.
+/// - **`rsl::uniform_real(0., 1.)` (`calculateCollisionIncrements`'s
+///   stochastic-descent start point,
+///   `chomp_motion_planner/src/chomp_optimizer.cpp:567`) becomes
+///   `rng.random_range(0.0..1.0)`** on a caller-supplied `impl Rng`, the
+///   same injected-RNG convention already established for
+///   `moveit_sampling::MultivariateGaussian` in this crate; `rsl` itself is
+///   not ported (D1: not a numeric-core dependency).
+/// - **`calculateCollisionIncrements`'s two independent `should_break_out`
+///   conditions in `optimize` (the `iteration_ % 10 == 0` mesh-to-mesh
+///   check and the `!filter_mode_` collision-threshold check) are kept as
+///   two separate, unconditionally-evaluated `if` blocks, not collapsed
+///   into `if / else if`.** Both can fire in the same pass
+///   (`chomp_optimizer.cpp:367-410`): if the first increments `iteration_`
+///   and sets `num_collision_free_iterations_ = 0`, the second can
+///   still fire afterward, incrementing `iteration_` a second time in one
+///   loop pass and overwriting `num_collision_free_iterations_` with
+///   `max_iterations_after_collision_free_`. This looks like it could be
+///   an upstream bug, but the brief for this port is to transcribe the
+///   numerics as written, not to "fix" behavior no test here contradicts.
+/// - **Dead/write-only upstream fields are not ported at all**, verified
+///   via `rg` across the whole `chomp_motion_planner` package, not just
+///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
+///   fully-commented-out HMC-perturbation code), `state_is_in_collision_`
+///   (written every `performForwardKinematics` call, never read anywhere),
+///   the *stored* `point_is_in_collision_` 2D field (its one read is
+///   inside a `/* */`-commented block -- the *value* computed at
+///   assignment time is still live, since it drives `is_collision_free_`,
+///   so that computation survives as an inline local `bool` in
+///   [`ChompOptimizer::perform_forward_kinematics`], just not as a
+///   persisted field), and the entire dead-HMC-path field set already
+///   established in round 18's [`crate::optimizer`] work
+///   (`random_state_`, `joint_state_velocities_`, `momentum_`,
+///   `random_momentum_`, `random_joint_momentum_`, `multivariate_gaussian_`,
+///   `stochasticity_factor_`).
+/// - **`smoothness_derivative_`/`jacobian_`/`jacobian_pseudo_inverse_`/
+///   `jacobian_jacobian_tranpose_` are plain locals, not struct fields.**
+///   Upstream's own header comment calls them "temporary variables for all
+///   functions" (`chomp_optimizer.hpp:170`): every one is fully overwritten
+///   before use in every call, so nothing is lost by not persisting them.
+pub struct ChompOptimizer<'m> {
+    num_joints: usize,
+    num_vars_free: usize,
+    num_vars_all: usize,
+    num_collision_points: usize,
+    free_vars_start: usize,
+    free_vars_end: usize,
+    iteration: i32,
+    collision_free_iteration: u32,
+
+    robot_model: &'m RobotModel,
+    planning_group: String,
+    parameters: ChompParameters,
+    group_trajectory: ChompTrajectory,
+    state: RobotState<'m>,
+    start_state: RobotState<'m>,
+    joint_model_group: &'m JointModelGroup,
+
+    joint_costs: Vec<ChompCost>,
+    initialized: bool,
+
+    joint_names: Vec<String>,
+    collision_point_joint_index: Vec<Option<usize>>,
+    parent_link_of_joint: Vec<Option<usize>>,
+    child_link_of_joint: Vec<usize>,
+
+    collision_point_pos_eigen: Vec<Vec<Vector3>>,
+    collision_point_vel_eigen: Vec<Vec<Vector3>>,
+    collision_point_acc_eigen: Vec<Vec<Vector3>>,
+    collision_point_potential: Vec<Vec<f64>>,
+    collision_point_vel_mag: Vec<Vec<f64>>,
+    collision_point_potential_gradient: Vec<Vec<Vector3>>,
+    joint_axes: Vec<Vec<Vector3>>,
+    joint_positions: Vec<Vec<Vector3>>,
+
+    best_group_trajectory: DMatrix<f64>,
+    best_group_trajectory_cost: f64,
+    last_improvement_iteration: i32,
+    num_collision_free_iterations: u32,
+
+    is_collision_free: bool,
+    worst_collision_cost_state: i64,
+}
+
+impl<'m> ChompOptimizer<'m> {
+    /// Ported from the `ChompOptimizer` constructor plus `initialize`
+    /// (`chomp_optimizer.cpp:63-247`). Unlike upstream, initialization
+    /// cannot silently fail into an unusable, `is_initialized() == false`
+    /// object: upstream's constructor returns early (leaving `initialized_
+    /// == false`) only when `dynamic_cast<const CollisionEnvHybrid*>`
+    /// fails, a case this port's static typing (see this type's
+    /// "Deviations from upstream") makes unreachable, so every other
+    /// upstream failure this constructor can hit (a missing group, a
+    /// degenerate padded trajectory, a singular quadratic cost matrix) is
+    /// a typed `Err` instead.
+    pub fn new(
+        full_trajectory: &ChompTrajectory,
+        planning_group: &str,
+        parameters: &ChompParameters,
+        start_state: &RobotState<'m>,
+        collision: &mut ChompCollisionContext<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+    ) -> Result<Self> {
+        let robot_model = start_state.model();
+        let joint_model_group = robot_model.joint_model_group(planning_group)?;
+        let group_trajectory = ChompTrajectory::from_source_trajectory(
+            full_trajectory,
+            planning_group,
+            DIFF_RULE_LENGTH,
+        )?;
+
+        let num_vars_free = group_trajectory.num_free_points();
+        let num_vars_all = group_trajectory.num_points();
+        let num_joints = group_trajectory.num_joints();
+        let free_vars_start = group_trajectory.start_index();
+        let free_vars_end = group_trajectory.end_index();
+
+        let mut state = start_state.clone();
+        let req = CollisionRequest {
+            group_name: Some(planning_group.to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let (parent_link_of_joint, child_link_of_joint) = joint_link_maps(robot_model);
+        let resolution_map =
+            build_fixed_link_resolution_map(robot_model, joint_model_group, &parent_link_of_joint);
+
+        let (num_collision_points, collision_point_joint_index) = {
+            let posed = state.update();
+            let gsr = collision.cache.get_collision_gradients(
+                &req,
+                &posed,
+                acm,
+                &[],
+                collision.env_distance_field,
+            )?;
+            let num_collision_points = gsr.gradients.iter().map(|g| g.gradients.len()).sum();
+            let collision_point_joint_index =
+                resolve_collision_point_joint_index(robot_model, &resolution_map, &gsr.gradients);
+            (num_collision_points, collision_point_joint_index)
+        };
+
+        // `joint_cost` is always 1.0: upstream's `nh.param("joint_costs/" +
+        // name, joint_cost, 1.0)` ROS-param lookup is commented out
+        // (`chomp_optimizer.cpp:112`), so `derivative_costs` is identical
+        // for every joint and every `ChompCost` built below is identical
+        // too -- upstream's own redundancy, kept faithfully rather than
+        // deduplicated away.
+        let mut joint_costs = Vec::with_capacity(num_joints);
+        let mut max_cost_scale = 0.0f64;
+        for _ in 0..num_joints {
+            let derivative_costs = [
+                parameters.smoothness_cost_velocity,
+                parameters.smoothness_cost_acceleration,
+                parameters.smoothness_cost_jerk,
+            ];
+            let cost = ChompCost::new(
+                &group_trajectory,
+                &derivative_costs,
+                parameters.ridge_factor,
+            )?;
+            let scale = cost.max_quad_cost_inv_value()?;
+            if scale > max_cost_scale {
+                max_cost_scale = scale;
+            }
+            joint_costs.push(cost);
+        }
+        for cost in &mut joint_costs {
+            cost.scale(max_cost_scale);
+        }
+
+        let best_group_trajectory = group_trajectory.trajectory_matrix().clone();
+
+        let joint_names: Vec<String> = joint_model_group
+            .active_joint_indices()
+            .iter()
+            .map(|&idx| robot_model.joint_model_at(idx).name().to_string())
+            .collect();
+
+        let zeros_vec3 = |n| vec![Vector3::zeros(); n];
+
+        Ok(Self {
+            num_joints,
+            num_vars_free,
+            num_vars_all,
+            num_collision_points,
+            free_vars_start,
+            free_vars_end,
+            iteration: 0,
+            collision_free_iteration: 0,
+            robot_model,
+            planning_group: planning_group.to_string(),
+            parameters: parameters.clone(),
+            group_trajectory,
+            state,
+            start_state: start_state.clone(),
+            joint_model_group,
+            joint_costs,
+            initialized: true,
+            joint_names,
+            collision_point_joint_index,
+            parent_link_of_joint,
+            child_link_of_joint,
+            collision_point_pos_eigen: vec![zeros_vec3(num_collision_points); num_vars_all],
+            collision_point_vel_eigen: vec![zeros_vec3(num_collision_points); num_vars_all],
+            collision_point_acc_eigen: vec![zeros_vec3(num_collision_points); num_vars_all],
+            collision_point_potential: vec![vec![0.0; num_collision_points]; num_vars_all],
+            collision_point_vel_mag: vec![vec![0.0; num_collision_points]; num_vars_all],
+            collision_point_potential_gradient: vec![
+                zeros_vec3(num_collision_points);
+                num_vars_all
+            ],
+            joint_axes: vec![zeros_vec3(num_joints); num_vars_all],
+            joint_positions: vec![zeros_vec3(num_joints); num_vars_all],
+            best_group_trajectory,
+            best_group_trajectory_cost: 0.0,
+            last_improvement_iteration: -1,
+            num_collision_free_iterations: 0,
+            is_collision_free: false,
+            worst_collision_cost_state: -1,
+        })
+    }
+
+    /// Ported from `isInitialized`.
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Ported from `isCollisionFree`.
+    pub fn is_collision_free(&self) -> bool {
+        self.is_collision_free
+    }
+
+    /// `isParent`, computed by chain-walk rather than a `HashMap` built by
+    /// `registerParents` -- see this module's doc comment on
+    /// `ChompOptimizer` and on [`build_fixed_link_resolution_map`] for the
+    /// non-active-`child` quirk this must still reproduce.
+    fn is_ancestor_or_self(&self, child: usize, candidate: usize) -> bool {
+        if child == candidate {
+            return true;
+        }
+        if !self
+            .joint_model_group
+            .active_joint_indices()
+            .contains(&child)
+        {
+            return false;
+        }
+        let mut current = child;
+        while let Some(parent) = self.robot_model.parent_joint_index(current) {
+            if parent == candidate {
+                return true;
+            }
+            current = parent;
+        }
+        false
+    }
+
+    /// Ported from `setRobotStateFromPoint`. Sets each active joint's
+    /// single variable individually via
+    /// [`moveit_state::RobotState::set_joint_positions`] rather than
+    /// upstream's one batched `setJointGroupActivePositions` call -- this
+    /// port's `RobotState` has no group-batched setter, and setting the
+    /// same variables to the same values one joint at a time reaches the
+    /// identical end state.
+    fn set_robot_state_from_point(&mut self, trajectory_point: usize) {
+        let point = self.group_trajectory.trajectory_point(trajectory_point);
+        for (j, name) in self.joint_names.iter().enumerate() {
+            // Every active joint has exactly 1 variable -- ChompTrajectory
+            // itself enforces this (see its module doc's "Reachable
+            // invariant violations" note), so this can't fail.
+            self.state
+                .set_joint_positions(name, &point[j..=j])
+                .expect("ChompTrajectory guarantees every active joint has exactly 1 variable");
+        }
+    }
+
+    /// Ported from `computeJointProperties`. See this type's doc comment
+    /// for the `Eigen::Isometry3d * Eigen::Vector3d` point-vs-vector
+    /// deviation this applies to `axis`.
+    fn compute_joint_properties(&mut self, trajectory_point: usize) -> Result<()> {
+        let posed = self.state.update();
+        for j in 0..self.num_joints {
+            let joint_index = self.joint_model_group.active_joint_indices()[j];
+            let joint_model = self.robot_model.joint_model_at(joint_index);
+
+            let parent_link = self.parent_link_of_joint[joint_index].ok_or_else(|| {
+                Error::other(format!(
+                    "joint {:?} has no parent link model; it cannot be the group's root joint",
+                    joint_model.name()
+                ))
+            })?;
+
+            let joint_origin_transform = *self
+                .robot_model
+                .link_model_at(self.child_link_of_joint[joint_index])
+                .joint_origin_transform();
+            let joint_transform = posed.global_link_transform_at(parent_link)
+                * (joint_origin_transform * posed.joint_transform(joint_model.name())?);
+
+            let axis = if let Some(revolute) = joint_model.as_revolute() {
+                revolute.axis()
+            } else if let Some(prismatic) = joint_model.as_prismatic() {
+                prismatic.axis()
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            };
+            let axis = (joint_transform * Point3::from(axis)).coords;
+
+            self.joint_axes[trajectory_point][j] = axis;
+            self.joint_positions[trajectory_point][j] = joint_transform.translation.vector;
+        }
+        Ok(())
+    }
+
+    /// Ported from `performForwardKinematics` (`chomp_optimizer.cpp:862-940`).
+    ///
+    /// # Deviation from upstream: collision-point positions read from
+    /// `link_body_decompositions`, not `GradientInfo::sphere_locations`
+    ///
+    /// Upstream's own `getCollisionGradients` (`collision_env_distance_field.cpp:1517-1536`)
+    /// takes the group's `GroupStateRepresentationPtr& gsr` as an in/out
+    /// reference: on the *first* call (`gsr == nullptr`) it fresh-builds via
+    /// `generateCollisionCheckingStructures`/`getGroupStateRepresentation`,
+    /// whose non-pregenerated branch (`collision_env_distance_field.cpp:1157-1213`)
+    /// never assigns `gradients_[i].sphere_locations` for a link -- upstream's
+    /// own code, not a porting gap. Every *subsequent* call, because
+    /// `chomp_optimizer.cpp` keeps its `gsr_` alive as a class member across
+    /// the whole `optimize()` loop, instead takes the
+    /// `updateGroupStateRepresentationState` branch
+    /// (`collision_env_distance_field.cpp:1119`), which does assign it from
+    /// `link_body_decompositions_[i]->getSphereCenters()`. So upstream's
+    /// `sphere_locations` is reliably populated only because the caller
+    /// threads one long-lived `gsr_` through the whole loop.
+    ///
+    /// `moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`
+    /// has no such in/out parameter -- every call is a fresh
+    /// [`moveit_distance_field::group_state_representation`] build, so
+    /// `GradientInfo::sphere_locations` is empty for every link on every
+    /// call (matching upstream's own *first*-call behaviour, permanently).
+    /// `update_group_state_representation_state` is exported and would
+    /// populate it, but the three gradient functions that must run after it
+    /// (`get_self_proximity_gradients`/`get_intra_group_proximity_gradients`/
+    /// `get_environment_proximity_gradients`) are module-private to
+    /// `moveit-distance-field`, so there is no public way to reuse a
+    /// `GroupStateRepresentation` across calls the way upstream does. This
+    /// is an API gap in `moveit-distance-field` for this crate's access
+    /// pattern, reported rather than fixed (that crate is owned elsewhere).
+    ///
+    /// Working around it: `GroupStateRepresentation::link_body_decompositions`
+    /// is a public field, and its `PosedBodySphereDecomposition::sphere_centers`
+    /// is the exact value upstream's update path would have copied into
+    /// `sphere_locations` (`collision_env_distance_field.cpp:1119`) -- so
+    /// this port reads sphere centers from there instead, and loops over
+    /// `info.distances.len()` (populated on every call, fresh or not) rather
+    /// than `info.sphere_locations.len()`. The distances/gradients/radii
+    /// themselves are unaffected by any of this; only the position source
+    /// changes, to the value upstream itself would have produced.
+    pub fn perform_forward_kinematics(
+        &mut self,
+        collision: &mut ChompCollisionContext<'_, 'm>,
+    ) -> Result<()> {
+        let inv_time = 1.0 / self.group_trajectory.discretization();
+        let inv_time_sq = inv_time * inv_time;
+
+        let (start, end) = if self.iteration == 0 {
+            (0, self.num_vars_all - 1)
+        } else {
+            (self.free_vars_start, self.free_vars_end)
+        };
+
+        self.is_collision_free = true;
+
+        let req = CollisionRequest {
+            group_name: Some(self.planning_group.clone()),
+            ..CollisionRequest::default()
+        };
+
+        for i in start..=end {
+            self.set_robot_state_from_point(i);
+            let posed = self.state.update();
+            let gsr = collision.cache.get_collision_gradients(
+                &req,
+                &posed,
+                None,
+                &[],
+                collision.env_distance_field,
+            )?;
+
+            let mut j = 0;
+            for (link_index, info) in gsr.gradients.iter().enumerate() {
+                let sphere_centers = gsr.link_body_decompositions[link_index]
+                    .as_ref()
+                    .map(|bd| bd.sphere_centers());
+                for k in 0..info.distances.len() {
+                    if j >= self.num_collision_points {
+                        return Err(Error::other(
+                            "performForwardKinematics: gradients produced more collision points than new() found",
+                        ));
+                    }
+                    let sphere_center = sphere_centers.and_then(|centers| centers.get(k)).ok_or_else(|| {
+                        Error::other(
+                            "performForwardKinematics: link_body_decompositions missing a sphere center \
+                             its own gradients entry accounts for",
+                        )
+                    })?;
+                    self.collision_point_pos_eigen[i][j] = *sphere_center;
+                    self.collision_point_potential[i][j] = get_potential(
+                        info.distances[k],
+                        info.sphere_radii[k],
+                        self.parameters.min_clearance,
+                    );
+                    self.collision_point_potential_gradient[i][j] = info.gradients[k];
+
+                    let point_is_in_collision =
+                        info.distances[k] - info.sphere_radii[k] < info.sphere_radii[k];
+                    if point_is_in_collision {
+                        self.is_collision_free = false;
+                    }
+                    j += 1;
+                }
+            }
+            drop(gsr);
+            self.compute_joint_properties(i)?;
+        }
+
+        for i in self.free_vars_start..=self.free_vars_end {
+            for j in 0..self.num_collision_points {
+                let mut vel = Vector3::zeros();
+                let mut acc = Vector3::zeros();
+                for (k, (&d0, &d1)) in DIFF_RULES[0].iter().zip(DIFF_RULES[1].iter()).enumerate() {
+                    let offset = k as i64 - (DIFF_RULE_LENGTH as i64 / 2);
+                    let idx = (i as i64 + offset) as usize;
+                    vel += (inv_time * d0) * self.collision_point_pos_eigen[idx][j];
+                    acc += (inv_time_sq * d1) * self.collision_point_pos_eigen[idx][j];
+                }
+                self.collision_point_vel_eigen[i][j] = vel;
+                self.collision_point_acc_eigen[i][j] = acc;
+                self.collision_point_vel_mag[i][j] = vel.norm();
+            }
+        }
+        Ok(())
+    }
+
+    /// `getJacobian`, restricted to `collision_point_joint_index`'s
+    /// already-resolved owner (see [`resolve_collision_point_joint_index`]);
+    /// an unresolved owner (`None`) produces an all-zero Jacobian, matching
+    /// upstream's default-constructed-empty-string fallback (see that
+    /// function's doc for why the two are numerically equivalent).
+    fn get_jacobian(
+        &self,
+        trajectory_point: usize,
+        collision_point_pos: &Vector3,
+        owner_joint_index: Option<usize>,
+    ) -> DMatrix<f64> {
+        let mut jacobian = DMatrix::<f64>::zeros(3, self.num_joints);
+        let Some(owner_joint_index) = owner_joint_index else {
+            return jacobian;
+        };
+        for j in 0..self.num_joints {
+            let candidate = self.joint_model_group.active_joint_indices()[j];
+            if self.is_ancestor_or_self(owner_joint_index, candidate) {
+                let column = self.joint_axes[trajectory_point][j]
+                    .cross(&(collision_point_pos - self.joint_positions[trajectory_point][j]));
+                jacobian[(0, j)] = column.x;
+                jacobian[(1, j)] = column.y;
+                jacobian[(2, j)] = column.z;
+            }
+        }
+        jacobian
+    }
+
+    /// Ported from `calculatePseudoInverse`. `.inverse()`'s silent garbage
+    /// on a singular matrix becomes a typed `Err`, matching this port's
+    /// established `try_inverse()` convention (see [`crate::cost`]'s
+    /// `calculate_pseudo_inverse` for the same substitution).
+    fn calculate_pseudo_inverse(
+        jacobian: &DMatrix<f64>,
+        ridge_factor: f64,
+    ) -> Result<DMatrix<f64>> {
+        let jjt = jacobian * jacobian.transpose() + DMatrix::<f64>::identity(3, 3) * ridge_factor;
+        let jjt_inv = jjt
+            .try_inverse()
+            .ok_or_else(|| Error::other("jacobian_jacobian_tranpose is singular"))?;
+        Ok(jacobian.transpose() * jjt_inv)
+    }
+
+    /// Ported from `calculateCollisionIncrements`
+    /// (`chomp_optimizer.cpp:548-623`). See this type's doc comment for the
+    /// `rsl::uniform_real` -> `rng.random_range` substitution.
+    fn calculate_collision_increments(&self, rng: &mut impl Rng) -> Result<DMatrix<f64>> {
+        let mut collision_increments = DMatrix::<f64>::zeros(self.num_vars_free, self.num_joints);
+
+        let (start_point, end_point) = if self.parameters.use_stochastic_descent {
+            let raw = rng.random_range(0.0..1.0)
+                * (self.free_vars_end as f64 - self.free_vars_start as f64)
+                + self.free_vars_start as f64;
+            let mut start_point = raw as i64;
+            if start_point < self.free_vars_start as i64 {
+                start_point = self.free_vars_start as i64;
+            }
+            if start_point > self.free_vars_end as i64 {
+                start_point = self.free_vars_end as i64;
+            }
+            (start_point as usize, start_point as usize)
+        } else {
+            (self.free_vars_start, self.free_vars_end)
+        };
+
+        for i in start_point..=end_point {
+            for j in 0..self.num_collision_points {
+                let potential = self.collision_point_potential[i][j];
+                if potential < 0.0001 {
+                    continue;
+                }
+                let potential_gradient = -self.collision_point_potential_gradient[i][j];
+                let vel = self.collision_point_vel_eigen[i][j];
+                let vel_mag = self.collision_point_vel_mag[i][j];
+                let vel_mag_sq = vel_mag * vel_mag;
+                let normalized_velocity = vel / vel_mag;
+                let orthogonal_projector = Matrix3::<f64>::identity()
+                    - normalized_velocity * normalized_velocity.transpose();
+                let curvature_vector =
+                    (orthogonal_projector * self.collision_point_acc_eigen[i][j]) / vel_mag_sq;
+                let cartesian_gradient = vel_mag
+                    * (orthogonal_projector * potential_gradient - potential * curvature_vector);
+
+                let owner = self.collision_point_joint_index[j];
+                let jacobian = self.get_jacobian(i, &self.collision_point_pos_eigen[i][j], owner);
+
+                let delta = if self.parameters.use_pseudo_inverse {
+                    let pinv = Self::calculate_pseudo_inverse(
+                        &jacobian,
+                        self.parameters.pseudo_inverse_ridge_factor,
+                    )?;
+                    pinv * cartesian_gradient
+                } else {
+                    jacobian.transpose() * cartesian_gradient
+                };
+                let row = i - self.free_vars_start;
+                for c in 0..self.num_joints {
+                    collision_increments[(row, c)] -= delta[c];
+                }
+            }
+        }
+        Ok(collision_increments)
+    }
+
+    /// Ported from `getCollisionCost`.
+    fn get_collision_cost(&mut self) -> f64 {
+        let mut collision_cost = 0.0;
+        let mut worst_collision_cost = 0.0;
+        self.worst_collision_cost_state = -1;
+
+        for i in self.free_vars_start..=self.free_vars_end {
+            let mut state_collision_cost = 0.0;
+            for j in 0..self.num_collision_points {
+                state_collision_cost +=
+                    self.collision_point_potential[i][j] * self.collision_point_vel_mag[i][j];
+            }
+            collision_cost += state_collision_cost;
+            if state_collision_cost > worst_collision_cost {
+                worst_collision_cost = state_collision_cost;
+                self.worst_collision_cost_state = i as i64;
+            }
+        }
+        self.parameters.obstacle_cost_weight * collision_cost
+    }
+
+    /// Ported from `getTrajectoryCost`.
+    pub fn get_trajectory_cost(&mut self) -> Result<f64> {
+        Ok(get_smoothness_cost(
+            &self.joint_costs,
+            &self.group_trajectory,
+            self.parameters.smoothness_cost_weight,
+        )? + self.get_collision_cost())
+    }
+
+    /// Ported from `ChompOptimizer::optimize` (`chomp_optimizer.cpp:289-518`).
+    /// See this type's doc comment for the closure `mesh_to_mesh_collision_free`
+    /// replaces, and for why its two `should_break_out` conditions are kept
+    /// as two independent `if` blocks rather than collapsed.
+    pub fn optimize(
+        &mut self,
+        full_trajectory: &mut ChompTrajectory,
+        collision: &mut ChompCollisionContext<'_, 'm>,
+        mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState<'m>, &DMatrix<f64>) -> bool,
+        rng: &mut impl Rng,
+    ) -> Result<bool> {
+        let start_time = Instant::now();
+
+        self.iteration = 0;
+        while self.iteration < self.parameters.max_iterations {
+            self.perform_forward_kinematics(collision)?;
+            let c_cost = self.get_collision_cost();
+            let s_cost = get_smoothness_cost(
+                &self.joint_costs,
+                &self.group_trajectory,
+                self.parameters.smoothness_cost_weight,
+            )?;
+            let cost = c_cost + s_cost;
+
+            if self.iteration == 0 || cost < self.best_group_trajectory_cost {
+                self.best_group_trajectory = self.group_trajectory.trajectory_matrix().clone();
+                self.best_group_trajectory_cost = cost;
+                self.last_improvement_iteration = self.iteration;
+            }
+
+            let smoothness_increments =
+                calculate_smoothness_increments(&self.joint_costs, &self.group_trajectory)?;
+            let collision_increments = self.calculate_collision_increments(rng)?;
+            let final_increments = calculate_total_increments(
+                &self.joint_costs,
+                &smoothness_increments,
+                &collision_increments,
+                &self.parameters,
+            )?;
+            add_increments_to_trajectory(
+                &mut self.group_trajectory,
+                &final_increments,
+                self.parameters.joint_update_limit,
+            )?;
+
+            handle_joint_limits(
+                self.robot_model,
+                self.joint_model_group,
+                &mut self.group_trajectory,
+                &self.joint_costs,
+            )?;
+            full_trajectory.update_from_group_trajectory(&self.group_trajectory);
+
+            let mut should_break_out = false;
+
+            if self.iteration % 10 == 0
+                && mesh_to_mesh_collision_free(&self.start_state, &self.best_group_trajectory)
+            {
+                self.num_collision_free_iterations = 0;
+                self.is_collision_free = true;
+                self.iteration += 1;
+                should_break_out = true;
+            }
+
+            if !self.parameters.filter_mode && c_cost < self.parameters.collision_threshold {
+                self.num_collision_free_iterations =
+                    self.parameters.max_iterations_after_collision_free as u32;
+                self.is_collision_free = true;
+                self.iteration += 1;
+                should_break_out = true;
+            }
+
+            if start_time.elapsed().as_secs_f64() > self.parameters.planning_time_limit {
+                break;
+            }
+
+            if should_break_out {
+                self.collision_free_iteration += 1;
+                // Both upstream arms are a bare `break;` (the second also guards
+                // dead, commented-out logging) -- one condition reaches the same
+                // outcome without an empty branch for clippy::if_same_then_else.
+                if self.num_collision_free_iterations == 0
+                    || self.collision_free_iteration > self.num_collision_free_iterations
+                {
+                    break;
+                }
+            }
+
+            self.iteration += 1;
+        }
+
+        let optimization_result = self.is_collision_free;
+
+        for i in 0..self.num_vars_all {
+            let row: Vec<f64> = self.best_group_trajectory.row(i).iter().copied().collect();
+            self.group_trajectory.set_trajectory_point(i, &row);
+        }
+        full_trajectory.update_from_group_trajectory(&self.group_trajectory);
+
+        Ok(optimization_result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,6 +1506,405 @@ mod tests {
         (0..traj.num_joints())
             .map(|_| ChompCost::new(traj, &[0.0, 1.0, 0.0], ridge_factor).unwrap())
             .collect()
+    }
+
+    // --- ChompOptimizer ---
+
+    use moveit_collision::LinkPaddingScale;
+    use moveit_distance_field::{
+        DistanceFieldConfig, GridGeometry, PropagationDistanceField, add_link_body_decompositions,
+    };
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    const CHOMP_COLLISION_GROUP: &str = "chain";
+
+    /// A synthetic two-joint revolute chain with primitive (`<box>`)
+    /// collision geometry, matching the construction idiom
+    /// `moveit-distance-field`'s own `get_collision_gradients` tests use
+    /// (`two_link_model_and_srdf` in
+    /// `collision_env_distance_field.rs`). `panda.urdf`'s `<collision>`
+    /// tags are all `<mesh>` references, which `MeshSearchPaths::none()`
+    /// (this crate's own test setup) skips entirely per
+    /// `moveit_model::MeshSearchPaths::none`'s own doc comment -- so
+    /// `panda_model()` has zero collision spheres for every link, and the
+    /// tests below need real spheres. Unlike `two_link_model_and_srdf`
+    /// (whose `mid`/`tip` are deliberately coincident, for *self*-collision
+    /// tests), each joint here carries a `0.3 0 0` `<origin>`, spacing
+    /// `base`/`mid`/`tip`'s 0.1 m collision boxes well apart at the default
+    /// pose -- `get_collision_gradients` runs self- and intra-group
+    /// proximity before the environment check
+    /// (`collision_env_distance_field.rs`'s own `get_collision_gradients`),
+    /// and only overwrites `GradientInfo::distances[i]` when a later check
+    /// finds something *closer*; a coincident fixture's self-collision
+    /// distance (~0) would permanently win over this crate's own
+    /// environment-obstacle tests, which need the environment distance to
+    /// be the one that lands in `distances[i]`. The smoothness/free-function
+    /// tests above this section are unaffected and keep using
+    /// `panda_model()`.
+    fn chomp_collision_model() -> RobotModel {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="two_link_chomp">
+  <link name="base">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <link name="mid">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <link name="tip">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <joint name="j1" type="revolute">
+    <parent link="base"/>
+    <child link="mid"/>
+    <origin xyz="0.3 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <origin xyz="0.3 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="two_link_chomp">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("two_link_chomp model must build")
+    }
+
+    /// A grid covering `chomp_collision_model`'s 0.6 m-long chain, at a
+    /// coarser resolution than production for test speed -- these tests
+    /// exercise `ChompOptimizer`'s collision-gradient plumbing, not
+    /// distance-field accuracy.
+    fn chomp_collision_field_config() -> DistanceFieldConfig {
+        let size = Vector3::new(3.0, 3.0, 3.0);
+        let origin_center = Vector3::new(0.0, 0.0, 0.0);
+        DistanceFieldConfig {
+            geometry: GridGeometry::new(size, origin_center - 0.5 * size, 0.02).unwrap(),
+            max_propagation_distance: 0.3,
+            use_signed_distance_field: false,
+        }
+    }
+
+    fn chomp_collision_cache(model: &RobotModel) -> DistanceFieldCollisionCache<'_> {
+        let padding = LinkPaddingScale::new();
+        let decompositions = add_link_body_decompositions(model, 0.02, &padding, None).unwrap();
+        DistanceFieldCollisionCache::new(decompositions, chomp_collision_field_config(), 0.0)
+    }
+
+    fn env_field_with_points(points: &[Vector3]) -> PropagationDistanceField {
+        let config = chomp_collision_field_config();
+        let mut field = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+        if !points.is_empty() {
+            field.add_points_to_field(points);
+        }
+        field
+    }
+
+    /// An unpadded source trajectory -- [`ChompOptimizer::new`] pads it
+    /// internally via [`ChompTrajectory::from_source_trajectory`], unlike
+    /// this module's other tests which pad up front to exercise the free
+    /// functions directly.
+    fn chomp_full_trajectory(model: &RobotModel, num_points: usize) -> ChompTrajectory {
+        ChompTrajectory::from_num_points(model, num_points, 0.1, CHOMP_COLLISION_GROUP)
+            .expect("valid num_points")
+    }
+
+    #[test]
+    fn perform_forward_kinematics_reports_collision_free_with_no_obstacle_in_env_field() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters::default();
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .expect("ChompOptimizer::new succeeds");
+        assert!(
+            optimizer.num_collision_points > 0,
+            "the chain group must have at least one collision sphere"
+        );
+
+        optimizer
+            .perform_forward_kinematics(&mut collision)
+            .unwrap();
+
+        assert!(optimizer.is_collision_free());
+        assert_relative_eq!(optimizer.get_collision_cost(), 0.0, epsilon = EPS);
+    }
+
+    #[test]
+    fn perform_forward_kinematics_flags_the_point_an_obstacle_sits_on() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let parameters = ChompParameters::default();
+
+        let obstacle_point = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            assert!(optimizer.num_collision_points > 0);
+            optimizer.collision_point_pos_eigen[optimizer.free_vars_start][0]
+        };
+
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[obstacle_point]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        optimizer
+            .perform_forward_kinematics(&mut collision)
+            .unwrap();
+
+        assert!(!optimizer.is_collision_free());
+        assert!(
+            optimizer.collision_point_potential[optimizer.free_vars_start][0] > 0.0,
+            "an obstacle placed exactly on this collision sphere's center must register nonzero potential"
+        );
+    }
+
+    #[test]
+    fn get_trajectory_cost_is_smoothness_only_when_collision_cost_is_zero() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters::default();
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        optimizer
+            .perform_forward_kinematics(&mut collision)
+            .unwrap();
+
+        let expected_smoothness = get_smoothness_cost(
+            &optimizer.joint_costs,
+            &optimizer.group_trajectory,
+            parameters.smoothness_cost_weight,
+        )
+        .unwrap();
+
+        assert_relative_eq!(
+            optimizer.get_trajectory_cost().unwrap(),
+            expected_smoothness,
+            epsilon = EPS
+        );
+    }
+
+    #[test]
+    fn optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 3,
+            filter_mode: true,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        assert_eq!(
+            optimizer.iteration, 3,
+            "filter_mode disables the only reachable should_break_out path, so the loop must run to max_iterations"
+        );
+    }
+
+    #[test]
+    fn optimize_breaks_out_immediately_when_max_iterations_after_collision_free_is_zero() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+        let mut full = source.clone();
+        let mut cache = chomp_collision_cache(&model);
+        let field = env_field_with_points(&[]);
+        let mut collision = ChompCollisionContext {
+            cache: &mut cache,
+            env_distance_field: &field,
+        };
+        let parameters = ChompParameters {
+            max_iterations: 50,
+            max_iterations_after_collision_free: 0,
+            ..ChompParameters::default()
+        };
+        let mut optimizer = ChompOptimizer::new(
+            &source,
+            CHOMP_COLLISION_GROUP,
+            &parameters,
+            &start_state,
+            &mut collision,
+            None,
+        )
+        .unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        let result = optimizer
+            .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+            .unwrap();
+
+        assert!(result, "an empty env field never puts a point in collision");
+        assert_eq!(
+            optimizer.iteration, 1,
+            "num_collision_free_iterations == 0 must break out on the very first should_break_out pass"
+        );
+        assert!(optimizer.iteration < parameters.max_iterations);
+    }
+
+    #[test]
+    fn optimize_collision_threshold_break_is_a_strict_less_than() {
+        let model = chomp_collision_model();
+        let source = chomp_full_trajectory(&model, 10);
+        let start_state = RobotState::new(&model);
+
+        // Measure the actual collision cost an empty env field produces --
+        // expected to be exactly 0.0, but measured rather than assumed.
+        let measured_c_cost = {
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let parameters = ChompParameters::default();
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            optimizer
+                .perform_forward_kinematics(&mut collision)
+                .unwrap();
+            optimizer.get_collision_cost()
+        };
+
+        let run = |collision_threshold: f64| -> i32 {
+            let mut full = source.clone();
+            let mut cache = chomp_collision_cache(&model);
+            let field = env_field_with_points(&[]);
+            let mut collision = ChompCollisionContext {
+                cache: &mut cache,
+                env_distance_field: &field,
+            };
+            let parameters = ChompParameters {
+                max_iterations: 3,
+                max_iterations_after_collision_free: 0,
+                collision_threshold,
+                ..ChompParameters::default()
+            };
+            let mut optimizer = ChompOptimizer::new(
+                &source,
+                CHOMP_COLLISION_GROUP,
+                &parameters,
+                &start_state,
+                &mut collision,
+                None,
+            )
+            .unwrap();
+            let mut rng = ChaCha8Rng::seed_from_u64(1);
+            optimizer
+                .optimize(&mut full, &mut collision, &mut |_, _| false, &mut rng)
+                .unwrap();
+            optimizer.iteration
+        };
+
+        assert_eq!(
+            run(measured_c_cost),
+            3,
+            "c_cost < collision_threshold must be strict: c_cost == threshold must not break out, \
+             so the loop runs to max_iterations"
+        );
+        assert_eq!(
+            run(measured_c_cost + f64::EPSILON.max(1e-12)),
+            1,
+            "a threshold strictly above the measured c_cost must break out on the first pass"
+        );
     }
 
     // get_potential: one case per branch plus both boundaries.
