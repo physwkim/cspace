@@ -645,3 +645,143 @@ current `moveit-planning`.
 | `planning_time: float64` | **no field** | **Concluded round 6, not just re-checked.** p1-fixtures grounded this (`crates/moveit-planning/src/response.rs:39-68`): every upstream fill site sits inside a `PlanningContext`-equivalent's own `solve()` (`ompl_interface`/`chomp`/`stomp`/`pilz`, all cited by file:line there), never `PlanningPipeline::generatePlan` itself, and no crate in this workspace implements `moveit_planning::pipeline::Planner` yet -- there is no reachable fill site to port to. Dropped, not rejected. Expires the moment any crate implements `Planner` for a concrete planner; `moveit-planning`'s call, not this crate's. |
 | `error_code: MoveItErrorCodes` | **no field** (`PlanningResponse`'s own doc comment: `error_code` is this crate's `Result` return instead — a `PlanningResponse` value only ever exists once a solve already succeeded) | msg→core: dropped (a `PlanningResponse` cannot represent a failure `error_code` at all — a message carrying a failure code has to be handled by the caller *before* attempting this `TryFrom`, not by it); core→msg: synthesizes `SUCCESS` (`val=1`), since a `PlanningResponse` value existing at all already implies success — structural (the whole type only exists post-success), not an absence pending future work, so no expiry condition applies |
 | **no field** | `planner_id: String` | **[R3, genuine gap the other direction]** `moveit-planning`'s own doc comment on `PlanningResponse::planner_id` claims it matches "an unset `moveit_msgs::msg::MotionPlanResponse::planner_id`" — checked against both `third_party/moveit_msgs/msg/MotionPlanResponse.msg` and the r2r-generated struct (fields: `trajectory_start`/`group_name`/`trajectory`/`planning_time`/`error_code` only): **`MotionPlanResponse` has no `planner_id` field at all.** This is a core-only field with nowhere on *this* message to go — msg→core always produces `""`; core→msg always drops it, regardless of what the `PlanningResponse` value carries. Named here as a documentation correction for `moveit-planning`'s owner, not worked around by inventing a wire field. |
+
+## 17. Schema-drift risk classification (round 10, PORTING-PLAN.md §183's follow-up)
+
+Judgment only, no gate: for every `moveit_msgs` field §1-16 above already
+documents as touched (read or written, not dropped/rejected-only), which
+ones are the kind that can silently change *meaning* under a
+`third_party/moveit_msgs` repin without breaking compilation. §183's own
+defect (an empty `frame_id` meaning "world") is the concrete instance of
+one of these categories that has already materialized once.
+
+**Anchor:** every field access enumerated by re-reading `src/model.rs`,
+`src/state.rs`, `src/planning.rs`, `src/constraints/{joint,position,
+orientation,visibility,set}.rs`, `src/scene/{collision_object,attached,
+planning_scene}.rs` against the r2r-generated struct definitions
+(`target/debug/build/r2r-*/out/moveit_msgs.rs`, `octomap_msgs.rs`) —
+not `rg` alone, since a struct-destructure pattern (`let X { a, b, .. } =
+msg`) doesn't textually contain every field name it drops.
+
+Four categories, in the order §183 asked for:
+
+| Category | What can drift without a compile break |
+|---|---|
+| **unit-bearing scalar** | Same `f64`, different physical meaning (radians↔degrees, seconds↔nanoseconds, a scale factor's reference point) |
+| **frame-relative pose** | Interpretation depends on a `header.frame_id`/`Header` this port may or may not resolve the same way upstream does — §183's own category |
+| **enum integer value** | A `u8`/`i32` whose meaning is a wire-declared named constant, not the type system — silently wrong if the port hardcodes the number instead of the generated constant and the constant is ever renumbered |
+| **default-has-meaning** | A "zero"/"empty" value that is itself a valid, meaningful input (not "unset") — §183's exact defect shape |
+
+### 17.1 Touched-field counts by type
+
+Counting only fields this crate actually reads or writes per §1-16 (not
+fields checked-and-rejected-if-non-default, e.g. `RobotState.is_diff`,
+and not fields dropped outright, e.g. `AttachedCollisionObject.weight`):
+
+| Type (§ above) | Total fields | Touched | Untouched (dropped/rejected-guard) |
+|---|---|---|---|
+| `JointLimits` (§3) | 10 | 10 | 0 |
+| `JointConstraint` (§4) | 5 | 5 | 0 |
+| `PositionConstraint` (§5) | 5 | 5 | 0 (`constraint_region: BoundingVolume`'s 4 nested fields also touched) |
+| `OrientationConstraint` (§6) | 8 | 8 | 0 |
+| `VisibilityConstraint` (§7) | 8 | 8 | 0 |
+| `Constraints` (§8) | 5 | 4 | 1 (`name`, never read, always `""` on write) |
+| `RobotState` (§9) | 4 | 1 fully (`joint_state`) | 3 checked-and-rejected-if-non-default, not converted (`is_diff`, `attached_collision_objects`, `multi_dof_joint_state`) |
+| `RobotTrajectory` (§10) | 2 | 1 (`joint_trajectory`) | 1 checked-and-rejected (`multi_dof_joint_trajectory`) |
+| `CollisionObject` (§11) | 13 | 12 | 1 (`type_: ObjectType`, D1-dropped) |
+| `AttachedCollisionObject` (§11) | 5 | 3 (`link_name`, `object`, `touch_links`) | 2 dropped (`weight`, `detach_posture`) |
+| `PlanningSceneWorld` (§11) | 2 | 2 | 0 |
+| `PlanningScene` top-level (§11) | 10 | 2 (`is_diff` via `is_diff()`, `robot_model_name` via `robot_model_name_matches()`) | 8 (the rest is the module doc's own named scope gap: `robot_state`, `fixed_frame_transforms`, `allowed_collision_matrix`, `link_padding`/`link_scale`, `object_colors`, `name`, `world` is separately counted above) |
+| `MotionPlanRequest` (§16) | 16 | 8 | 8 (6 planner-tuning fields dropped, `start_state`/`reference_trajectories` rejected-if-non-default) |
+| `WorkspaceParameters` (nested in above) | 3 | 2 (`min_corner`/`max_corner`) | 1 (`header`, confirmed genuinely inert this round — see 17.3) |
+| `MotionPlanResponse` (§16) | 5 | 3 (`trajectory_start`, `trajectory`, `error_code` write-only) | 2 dropped (`group_name`, `planning_time`) |
+| `MoveItErrorCodes` (§2) | 3 | 1 (`val`) | 2 dropped (`message`, `source`) |
+| `Octomap`/`OctomapWithPose` (octomap_msgs, §183's own scope) | 5 + 3 | all 8 | 0 |
+
+**Totals: 109 fields across 17 types, 75 touched, 34 dropped or
+guard-checked-only.**
+
+### 17.2 Touched fields by risk category
+
+- **frame-relative pose** (12 sites): `CollisionObject.header`(×2 call
+  sites, `collision_object.rs:358,457`), `AttachedCollisionObject.object.
+  header`(`attached.rs:221`), `OctomapWithPose.header`(`planning_scene.rs`,
+  §183, already fixed), `PositionConstraint.header`/`OrientationConstraint.
+  header`(captured as a string and handed to `crates/moveit-constraints`
+  for lazy per-`decide()` resolution — that crate's own frame-resolution
+  code is the boundary to check next, not re-verified against upstream
+  this round), `VisibilityConstraint.sensor_pose.header`/`.target_pose.
+  header`(same deferred-to-`moveit-constraints` shape). Of these, only the
+  four resolved directly by `scene::header_frame_transform` are verified
+  against upstream's own guard-vs-no-guard split (§183); the constraint
+  family's three sites are UNVERIFIED this round — flagged, not fixed.
+
+- **default-has-meaning** (2 confirmed, 1 already fixed): the `frame_id`
+  empty-string case (§183, fixed `aa45d37`); `CollisionObject.operation`
+  bare `u8` has no "unset" value at all (always one of the four), so it
+  is not in this category despite being adjacent.
+
+- **enum integer value** (2 findings, both currently correct but fragile):
+  - `planning.rs`: `error_code: moveit_msgs::MoveItErrorCodes { val: 1, ..
+    }` hardcodes the literal `1` for `SUCCESS` instead of referencing the
+    r2r-generated `moveit_msgs::msg::MoveItErrorCodes::SUCCESS` constant
+    (confirmed generated: `target/.../moveit_msgs.rs:6473`, one of 29
+    named constants per §2's own audit). Correct today; a repin that
+    renumbered `SUCCESS` would silently make every successful response
+    report the wrong code, with no compile error.
+  - `collision_object.rs:46-49`: local `const ADD: u8 = 0`/`REMOVE = 1`/
+    `APPEND = 2`/`MOVE = 3` duplicate the r2r-generated `moveit_msgs::msg::
+    CollisionObject::{ADD,REMOVE,APPEND,MOVE}` constants (confirmed
+    generated: `target/.../moveit_msgs.rs:4935-4938`) instead of
+    referencing them. Lower real-world risk than `SUCCESS` above — these
+    four are long-lived public API every C++ `MoveGroupInterface` consumer
+    depends on, so renumbering them would break far more than this crate —
+    but it is the same category, and the doc comment at `collision_object.
+    rs:51-52` already independently re-derived the same four values from
+    the `.msg` text rather than importing them.
+  - `VisibilityConstraint.sensor_view_direction` (§175's own claim-audit
+    row, `constraints/visibility.rs:36-37`) and `OrientationConstraint.
+    parameterization` (deferred to `crates/moveit-constraints/src/
+    orientation.rs:74`, which cites its own upstream line) are the same
+    category but **already independently verified against upstream this
+    session/crate** — not new findings, listed here only for completeness
+    of the count.
+
+- **unit-bearing scalar** (≈20 sites: every `min_position`/`max_velocity`/
+  `max_acceleration`/`max_jerk`/`tolerance_above`/`tolerance_below`/
+  `absolute_*_axis_tolerance`/`target_radius`/`max_view_angle`/
+  `max_range_angle`/`weight`/`max_velocity_scaling_factor`/
+  `max_acceleration_scaling_factor`). No evidence of current drift found
+  (every one of these is a 1:1 same-name-same-type field per §1-16's
+  existing per-field audit) — flagged as the largest category by count,
+  not because any specific one is suspected wrong.
+
+### 17.3 One row re-checked, not reopened
+
+§16's existing `header dropped (metadata, same treatment as §1)` row for
+`WorkspaceParameters.header` was re-verified against upstream this round
+(not previously checked at the call-site level, only asserted by analogy
+to §1): `ompl_interface/src/model_based_planning_context.cpp:433-449`
+(`setPlanningVolume`) uses only `min_corner`/`max_corner`, never
+`wparams.header` — confirmed genuinely inert upstream too, not a live
+drift risk. Included here to show the check was run, not skipped, given
+this doc's own frame-relative-pose category made it the most likely
+candidate for a second §183-shaped surprise.
+
+### 17.4 What a real gate would need (estimate only, not built)
+
+To catch a future repin's silent field-meaning change (not just a
+compile break), a gate would need, per touched field: (1) the exact
+upstream `.msg` comment/semantics at the pinned commit, snapshotted; (2)
+a diff against the same field's comment/semantics at the new pin; (3) a
+human or an LLM judgment call on whether the diff is cosmetic or
+meaning-changing, since `.msg` comments are prose, not a machine-checkable
+contract. Building steps (1)-(2) is mechanical (a script diffing
+`third_party/moveit_msgs/msg/*.msg` comments across the two pinned
+commits, ~75 touched fields to diff); step (3) is not mechanizable — it
+is exactly the by-hand judgment this section just did once. Estimate: a
+day to build the mechanical diff-and-flag script, and this section's
+own depth of re-review (roughly a day, per this round) every time the
+pin actually moves and the script flags something. Not proposed as a
+merge gate — repins are rare and reviewable by hand at the time; a
+standing script would mostly diff nothing.
