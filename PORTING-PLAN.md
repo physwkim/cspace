@@ -15938,6 +15938,13 @@ p9-ros가 `4ff563d`에서 `ros/moveit-ros/src/geometry.rs`의
 
 ### §211.2 상류에는 규칙이 하나가 아니라 셋이다
 
+> **이 절의 결론은 §211.6이 뒤집었다. 규칙은 셋이 아니라 둘이다.** 아래
+> 표의 `tf2::fromMsg` + `ASSERT_ISOMETRY` 두 행은 별개의 세 번째 규칙이
+> 아니라 일반 규칙(무조건 `quaternion.normalize()`)의 일부다 —
+> `tf2_eigen.hpp:493-505`의 `fromMsg` 본문 자체가 조건 없이 정규화하고,
+> `ASSERT_ISOMETRY`는 그 *다음에* 온다. 표와 그 아래 "하나."의 논증은
+> 라운드 15가 이 결론에 도달한 경로로 남겨 두고, 사실관계는 §211.6을 읽어라.
+
 | 포트 지점 | 상류 도달 경로 | 상류 규칙 |
 |---|---|---|
 | `constraints/orientation.rs:85` | `OrientationConstraint::configure` :609-615 | `\|norm-1\|>1e-3` → 경고 후 항등원 치환 |
