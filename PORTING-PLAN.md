@@ -11443,3 +11443,110 @@ sbp 로컬 타입이 갈라진 이유는 그 `goal`이 `Vec<CompoundValue>` — 
 지적된 결함*이고, 같은 라운드에서 자기가 방금 쓴 코드가 게이트를 통과하지 못한
 것은 별개 finding이 아니라 아직 완성되지 않은 같은 작업이다. push 전 로컬
 커밋을 다듬는 것은 그 규칙이 막으려는 대상이 아니다.
+
+## §141 D9 — orocos_kdl `Path_Circle`은 옮기지 않고 유도한다
+
+Pilz CIRC(`TrajectoryGeneratorCirc::plan`)는 `KDL::Path_Circle`을 쓴다. p1-joints
+라운드 19가 그 소스가 worktree에 없다고 막혀서 물었고, 세션 루트의
+`third_party/orocos_kinematics_dynamics`를 그 worktree에 심볼릭 링크로 넣어줬다.
+소스는 이제 읽히지만 **읽는 것과 옮기는 것은 다르다.**
+
+`orocos_kdl/src/path_circle.hpp` 헤더가 **LGPL-2.1-or-later**다. 이 워크스페이스는
+BSD-3-Clause이고, `tools/ci/check-license-matches-upstream.sh`가 정확히 이 사고를
+막으려고 존재한다 — 크레이트의 선언 라이선스와 소스 파일의 SPDX 헤더가 어긋나면
+실패한다. `moveit-stomp-core`가 Apache-2.0 upstream 때문에 `license.workspace = true`를
+못 쓰는 것과 같은 계열인데, LGPL은 정적 링크되는 라이브러리에서 하위 사용자에게
+copyleft가 전파되므로 훨씬 무겁다.
+
+`moveit-kinematics`가 BSD인 채로 KDL을 잔뜩 인용하는 것과 헷갈리면 안 된다. 그
+크레이트는 MoveIt 자신의 `KDLKinematicsPlugin`(BSD, `moveit_kinematics` 패키지)을
+포팅하면서 KDL 타입을 *동작 설명*으로 인용한 것이지 orocos 소스를 옮긴 게 아니다.
+`crates/moveit-kinematics/src/` 어디에도 orocos 파일:라인 인용이 없다.
+
+**D9: `Path_Circle`은 줄 단위로 옮기지 않고 원호 기하로 독립 유도한다.**
+
+근거는 두 가지다. 첫째, 원호 보간은 초등 기하다 — 중심·축·시작 반경 벡터·회전각이면
+`Pos(s)`/`Vel(s)`/`Acc(s)`/`PathLength()`가 나온다. 표현을 빌릴 필요가 없다. 둘째,
+정확성 증명 수단이 line correspondence보다 강한 게 이미 있다: CIRC 오라클 파리티다.
+포트가 upstream과 같은 수를 내는지는 fixture가 답하지 검사자의 눈이 답하지 않는다.
+
+가져와도 되는 것은 표현이 아니라 **인터페이스 사실**이다. 구체적으로:
+
+- 생성자 인자 의미 — `F_base_start`, `V_base_center`, `V_base_p`(원 평면을 정하는
+  세 번째 점), `F_base_end`의 회전, `RotationalInterpolation*`, `eqradius`, `aggregate`.
+- **`eqradius`(equivalent radius) 규약** — 병진 경로길이와 회전 경로길이를 하나의
+  스칼라 `s`로 섞는 KDL 고유의 스케일링. Pilz CIRC 결과가 여기 직접 의존하므로 이
+  규약 자체는 재현해야 한다. 규약은 인터페이스 사실이지 저작 표현이 아니다.
+- `RotationalInterpolation_SingleAxis`의 단일축 회전 보간 규약.
+- 퇴화 입력(세 점 공선, 반경 0 등)에서 KDL이 던지는 조건과, Pilz가 그것을 어떤
+  error code로 바꾸는지 — 이게 파리티 대상이다.
+
+포팅한 파일 상단에 왜 이 파일이 BSD인지 한 문단으로 남긴다: orocos_kdl
+`Path_Circle`(LGPL-2.1+)의 코드를 옮긴 것이 아니라 그 인터페이스 규약(특히
+`eqradius`)에 맞춰 원호 기하를 독립 유도했고 등가성은 오라클 파리티로 증명한다는
+취지로, 인용은 파일:라인이 아니라 규약 이름으로.
+
+줄 단위 포팅이 불가피하다고 판단되면 코드를 쓰기 전에 멈추고 물어야 한다. 그 경우
+별도 크레이트 + LGPL 선언이라는 무거운 결정이 필요하고, 그건 사용자 승인 사안이다.
+
+### 141.1 커밋 귀속은 `git merge-base`로 확인한다
+
+p1-joints 라운드 19가 `cargo doc --workspace --no-deps` 실패 5건을
+`crates/moveit-planners-pilz/src/trajectory_generator.rs`의 "pre-existing" 결함으로
+분류하고 "out of this round's change scope"로 UNFIXED에 넣었다. 근거로 든 것은
+"last touched in `c0b8ab7`, not part of any LIN/fixture commit this round"였다.
+
+`c0b8ab7`이 어느 라운드 커밋인지는 확인되지 않았다. 확인하면:
+
+```
+$ git merge-base --is-ancestor c0b8ab7 main   → false
+$ git log -1 --format='%s' c0b8ab7
+moveit-planners-pilz: port TrajectoryGenerator::generate orchestration + PTP
+```
+
+main에 없다 — 그 라운드 자신의 첫 커밋이다(rebase 후 `b98d6c6`). 그리고 병합 후
+main에서 `cargo doc --workspace --no-deps`는 통과한다. 즉 그 5건은 브랜치에만
+있고, 이번 라운드가 만든 것이다.
+
+§137·§139·STOMP 제외에 이어 네 번째 같은 계열이다. 앞의 셋은 "의존성이 안 닿는다",
+"상속 구조상 불가능", "ROS 결합이라 D1 제외"였고 전부 `rg` 한 번에 뒤집혔다. 이번
+것은 "이전 라운드 것"이었고 `git merge-base --is-ancestor <sha> main` 한 번에
+뒤집혔다. 공통점은 사유의 종류가 아니라 **사유를 재현하지 않았다**는 것이다.
+
+규칙에 한 줄을 더한다: 결함을 "이전 라운드/범위 밖"으로 분류할 때는 그 커밋이
+main의 조상인지 확인한 명령과 출력을 붙인다. 브랜치에만 있는 커밋은 이번 라운드다.
+
+### 141.2 이번 병합 라운드
+
+`cd8e262`(p3-shapes 라운드 24) 위에 네 브랜치를 병합했다. 충돌 없음.
+
+| 패널 | 라운드 | 커밋 | 주 내용 |
+|---|---|---|---|
+| p1-robotmodel | 20 | 2 | `path_constraints` 샘플러를 `rrt_connect`의 uniform step에 배선, `Sampler<'a,S,R>` 도입 |
+| p3-acm | 16 | 1 | caster-wheel narrowphase 가설 반증 (560 pose 스윕, 409 접촉 중 215 불일치 전부 MPR≥parry) |
+| p3-distance-field | 22 | 2 | 첨부 바디 분해 2종 포팅 + 배선 4곳, 6개 함수의 "dead code" 서술을 "known gap"으로 정정 |
+| p9-ros | 2 | 11 | D7 r2r rev-pin, `moveit_msgs` 변환 계층 우선순위 1~4, 랜드마인 2건 |
+
+병합 후 내가 직접 측정한 기준선: `nextest --workspace --no-fail-fast` **1354 passed,
+2 skipped**; `test --doc --workspace` **5 passed**; `doc --workspace --no-deps` 통과;
+`check-*.sh` 8/8 통과(rc가 아니라 출력 내용으로 판정 — `sg docker -c`가 rc를 가린다).
+`git diff --stat cd8e262..HEAD -- '*fixtures/*' tools/moveit-oracle/`가 비어 있어
+docker replay verify 3종은 돌리지 않았다.
+
+p1-joints는 병합하지 않았다 — `cargo doc`이 깨진 상태이고, 그게 §141.1의 건이다.
+
+### 141.3 CHOMP의 `MultivariateGaussian` 중복
+
+p6-totg가 STOMP와 CHOMP의 `MultivariateGaussian`을 대조하고 어디에 둘지 물었다.
+답은 "이미 있다"다. `crates/moveit-sampling/src/multivariate_gaussian.rs:69`가 공용
+구현이고, p6-totg가 찾아낸 STOMP의 `bool use_covariance` 분기는 거기서 bool이 아니라
+두 메서드로 갈라져 있다 — `sample_with_covariance`(102), `sample_without_covariance`(113).
+그리고 `crates/moveit-planners-chomp/src/multivariate_gaussian.rs`(251줄)가 그것의
+중복 사본이다.
+
+`moveit-sampling`의 dependencies는 nalgebra/rand/rand_distr 뿐이라 사이클이 없고,
+루트 `[workspace.dependencies]`에 이미 등록돼 있다. chomp는 한 줄 추가로 쓴다.
+
+다만 갈아끼우기 전에 두 구현이 난수를 같은 순서·횟수로 소비하는지 같은 seed로
+바이트 비교해야 한다 — CHOMP 파리티 fixture가 난수열에 걸려 있으므로, 여기서
+"알고리즘이 같다"는 충분조건이 아니다.
