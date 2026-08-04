@@ -59,6 +59,18 @@
 //! (reused from `moveit-planners-sbp::planning_scene_validity`'s existing
 //! precedent) and the two documented deviations from upstream.
 //!
+//! # Round 24: cancellation lifted to the caller, and `PlanRequest`
+//!
+//! [`planner::plan`] now takes a [`moveit_stomp_core::CancelHandle`]
+//! parameter instead of building and discarding one internally -- see
+//! [`planner`]'s own "Round 24: cancellation, lifted to the caller" for the
+//! full reasoning and why `PlanningContext` is deliberately not introduced
+//! here. Adding that parameter pushed [`planner::plan`] to eight arguments;
+//! [`planner::PlanRequest`] bundles the four that form one motion query
+//! (`start_state`/`goal_state`/`group`/`input_trajectory`) back down to a
+//! single parameter, a plain data grouping with no behavior of its own, not
+//! a step toward that same trait.
+//!
 //! # Not ported: the ROS/task-engine layer (D1/D2 exclusion)
 //!
 //! `stomp_moveit_planning_context.{hpp,cpp}`'s ROS-specific pieces (goal
@@ -104,8 +116,9 @@
 //! requires, confirmed by reading that field's type directly rather than
 //! assuming it -- is [`conversion_functions::UnparameterizedTrajectory::into_uniformly_timed`],
 //! which forces the caller to name an explicit `dt`. A STOMP-backed
-//! `PlanningContext::solve` (not built this round -- see [`planner`]'s own
-//! "UNFIXED" note) would call `into_uniformly_timed(config.delta_t)`:
+//! `PlanningContext::solve` (that trait is not introduced in this crate --
+//! see [`planner`]'s own "Round 24: cancellation, lifted to the caller" for
+//! why) would call `into_uniformly_timed(config.delta_t)`:
 //! `delta_t` is STOMP's own optimization timestep, a physically meaningful
 //! choice, not an arbitrary placeholder. `AddTimeOptimalParameterization`
 //! running afterward, as a separate response-adapter-pipeline stage over

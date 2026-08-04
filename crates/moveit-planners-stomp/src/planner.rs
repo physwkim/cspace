@@ -24,35 +24,54 @@
 //!   instead.
 //! - The goal-state constraint sampler (cpp:224-234,
 //!   `constraint_samplers::ConstraintSamplerManager`) and the
-//!   `allowed_planning_time` timeout watcher thread (cpp:247-257): both
-//!   ROS-request-specific. A caller that wants mid-solve cancellation still
-//!   has [`Stomp::cancel_handle`], obtained before calling [`plan`] (which
-//!   owns construction of the `Stomp` this round, so a handle cannot yet be
-//!   obtained *during* a `plan` call -- see this module's own "UNFIXED"
-//!   note below).
+//!   `allowed_planning_time` timeout watcher thread itself (cpp:247-257):
+//!   both ROS-request-specific (the thread's own timeout is read from a
+//!   `MotionPlanRequest`). What that thread *does* -- call
+//!   `stomp->cancel()` from a second thread while `solve()` runs on the
+//!   first -- is wired: see "Round 24: cancellation, lifted to the caller"
+//!   below.
 //! - `visualization::getIterationPathPublisher`/`getSuccessTrajectoryPublisher`
 //!   (cpp:179-182): `rclcpp::Publisher`-backed, ROS-only.
 //!
-//! # UNFIXED: no timeout/cancellation wiring inside `plan`
+//! # Round 24: cancellation, lifted to the caller
 //!
-//! Upstream's `solve` starts an async watcher thread that calls
-//! `stomp->cancel()` after `req.allowed_planning_time` elapses
-//! (cpp:247-257) -- directly backed by [`Stomp::cancel_handle`] in this
-//! port (built round 22 for exactly this). [`plan`] does not wire this: it
-//! constructs and owns the `Stomp` for the duration of one synchronous
-//! call, so there is no point before `solve_with_stomp` runs at which a
-//! caller could obtain a handle to race against it. Deferred to whatever
-//! future round gives this crate a persistent `PlanningContext`-shaped
-//! object (a `moveit-planners-sbp`-style registry entry) that can expose
-//! `cancel_handle()` to a caller before `solve` is invoked, the same shape
-//! upstream's own `StompPlanningContext` has via its `stomp_` member.
+//! Round 23 left this UNFIXED: [`plan`] built its `Stomp` and called
+//! `solve_with_stomp` in the same synchronous call, so there was no point
+//! at which a caller could obtain a [`moveit_stomp_core::CancelHandle`] --
+//! `Stomp::cancel_handle` only existed as a method on an already-constructed
+//! `Stomp`, and `plan` never let one escape. That was a `plan`-shaped gap,
+//! not a missing capability in `Stomp`: `Stomp` itself always *had* a
+//! cancellable `proceed` flag, `plan` just built it internally and gave no
+//! one else a way to reach it before construction. The fix is structural,
+//! not a special-cased seam: [`moveit_stomp_core::CancelHandle::new`] (new
+//! this round) lets a caller build a handle *before* any `Stomp` exists,
+//! and [`moveit_stomp_core::Stomp::with_cancel_handle`] (new this round,
+//! alongside `Stomp::new`) constructs a `Stomp` that shares that handle's
+//! flag instead of minting a private, unreachable one. [`plan`] takes a
+//! `cancel_handle: CancelHandle` parameter and passes it straight through
+//! -- it does not construct one itself and discard it, which is the
+//! pattern round 23's brief explicitly asked not to leave in place. A
+//! caller that wants to cancel `plan` mid-call builds the handle, clones it
+//! to a second thread (matching upstream's own timeout-watcher shape,
+//! cpp:247-257), and calls `plan` with the original on the calling thread;
+//! a caller that does not care about cancellation still has to build one
+//! (`CancelHandle::new()`, one `Arc` allocation) and simply never calls
+//! `.cancel()` on it -- no `Option` to thread through, matching how
+//! `Stomp::new` itself never made this optional either.
+//!
+//! `PlanningContext` itself (a trait exposing `cancel_handle()` to a caller
+//! before `solve` runs) is *not* introduced here -- `moveit-planners-sbp`
+//! already owns that trait shape and its `PLANNER_MANAGERS` registry, and
+//! whether it moves is an open question for a different round
+//! (`p1-fixtures` round 20 item 2). Committing to a shape here would mean
+//! fixing it twice.
 
 use rand::Rng;
 
 use moveit_error::Result;
 use moveit_model::JointModelGroup;
 use moveit_state::RobotState;
-use moveit_stomp_core::{Stomp, StompConfiguration, TrajectoryInitialization};
+use moveit_stomp_core::{CancelHandle, Stomp, StompConfiguration, TrajectoryInitialization};
 use moveit_trajectory::RobotTrajectory;
 
 use crate::composable_task::{ComposableTask, CostFn};
@@ -112,10 +131,32 @@ pub fn solve_with_stomp<'m>(
     )?))
 }
 
+/// The motion query half of [`plan`]'s parameters -- `start_state`,
+/// `goal_state`, `group`, and the optional seed `input_trajectory` -- bundled
+/// so `plan` stays under clippy's `too_many_arguments` threshold without an
+/// `#[allow(...)]`. Not a step toward `PlanningContext`: this is a plain data
+/// bundle with no behavior of its own, not a trait: see [`plan`]'s own doc
+/// for why introducing that trait here is explicitly out of scope this
+/// round.
+pub struct PlanRequest<'a, 'm> {
+    /// The trajectory's first waypoint.
+    pub start_state: &'a RobotState<'m>,
+    /// The trajectory's last waypoint.
+    pub goal_state: &'a RobotState<'m>,
+    /// The joint group being planned for; determines `config.num_dimensions`.
+    pub group: &'m JointModelGroup,
+    /// A seed trajectory to initialize from, if any -- see [`plan`]'s own
+    /// doc, "Construction order" step 2, for when its waypoint count
+    /// overrides `config.num_timesteps`.
+    pub input_trajectory: Option<&'a RobotTrajectory<'m>>,
+}
+
 /// `getStompConfig` + `createStompTask` + `Stomp::new` +
 /// [`solve_with_stomp`] -- `StompPlanningContext::solve`'s STOMP-specific
 /// core (cpp:236-245, cpp:260). See this module's own doc for what's
-/// deliberately left out (D1/D2, the ROS/task-engine layer).
+/// deliberately left out (D1/D2, the ROS/task-engine layer), and "Round 24:
+/// cancellation, lifted to the caller" for why `cancel_handle` is a
+/// parameter here instead of a value `plan` builds and discards.
 ///
 /// # Construction order (cited: `stomp_moveit_planning_context.cpp:236-245`)
 ///
@@ -152,12 +193,17 @@ pub fn solve_with_stomp<'m>(
 pub fn plan<'m>(
     mut config: StompConfiguration,
     cost_fn: CostFn<'m>,
-    start_state: &RobotState<'m>,
-    goal_state: &RobotState<'m>,
-    group: &'m JointModelGroup,
-    input_trajectory: Option<&RobotTrajectory<'m>>,
+    request: PlanRequest<'_, 'm>,
     rng: impl Rng + 'm,
+    cancel_handle: CancelHandle,
 ) -> Result<Option<UnparameterizedTrajectory<'m>>> {
+    let PlanRequest {
+        start_state,
+        goal_state,
+        group,
+        input_trajectory,
+    } = request;
+
     config.num_dimensions = group.active_joint_names().len();
     config.initialization_method = TrajectoryInitialization::LinearInterpolation;
     if let Some(trajectory) = input_trajectory {
@@ -180,7 +226,7 @@ pub fn plan<'m>(
         Box::new(|_success, _total_iterations, _final_cost, _parameters| {}),
     );
 
-    let mut stomp = Stomp::new(config, Box::new(task));
+    let mut stomp = Stomp::with_cancel_handle(config, Box::new(task), cancel_handle);
     solve_with_stomp(&mut stomp, start_state, goal_state, group, input_trajectory)
 }
 
@@ -277,11 +323,14 @@ mod tests {
         let result = plan(
             config,
             no_cost_fn(),
-            &start,
-            &goal,
-            group,
-            None,
+            PlanRequest {
+                start_state: &start,
+                goal_state: &goal,
+                group,
+                input_trajectory: None,
+            },
             ChaCha8Rng::seed_from_u64(2),
+            CancelHandle::new(),
         )
         .unwrap()
         .expect("a zero-cost task must always report success");
@@ -317,11 +366,14 @@ mod tests {
         let result = plan(
             config,
             no_cost_fn(),
-            &start,
-            &goal,
-            group,
-            Some(&seed),
+            PlanRequest {
+                start_state: &start,
+                goal_state: &goal,
+                group,
+                input_trajectory: Some(&seed),
+            },
             ChaCha8Rng::seed_from_u64(3),
+            CancelHandle::new(),
         )
         .unwrap()
         .expect("a zero-cost task must always report success");
@@ -430,6 +482,147 @@ mod tests {
             optimized_cost < initial_cost,
             "optimized cost {optimized_cost} must be lower than the initial trajectory's cost \
              {initial_cost}"
+        );
+    }
+
+    /// `cost_function_from_state_validator`'s own linear-interpolation seed
+    /// formula (`stomp.rs`'s private `compute_linear_interpolation`,
+    /// replicated here because it is not `pub`) -- the exact trajectory a
+    /// `plan` call cancelled before its first iteration must return
+    /// unmodified, since [`Stomp::solve`]'s only pre-loop mutation is
+    /// seeding `parameters_optimized` from this.
+    fn linear_interpolation(
+        start: &DVector<f64>,
+        goal: &DVector<f64>,
+        num_timesteps: usize,
+    ) -> DMatrix<f64> {
+        let n = start.len();
+        let mut matrix = DMatrix::zeros(n, num_timesteps);
+        for i in 0..n {
+            let dtheta = (goal[i] - start[i]) / (num_timesteps as f64 - 1.0);
+            for t in 0..num_timesteps {
+                matrix[(i, t)] = start[i] + t as f64 * dtheta;
+            }
+        }
+        matrix
+    }
+
+    /// Item 2, round 24: a [`CancelHandle`] obtained *before* `plan` is
+    /// called can still stop it, now that `plan` takes one as a parameter
+    /// instead of building and discarding one internally (round 23's
+    /// UNFIXED gap -- see this module's own "Round 24: cancellation, lifted
+    /// to the caller"). Cancelling before `plan` runs means
+    /// [`Stomp::solve`]'s iteration loop never executes even once (its
+    /// `while` condition checks `proceed` via `run_single_iteration` before
+    /// doing any rollout work) -- the only state-changing step that already
+    /// ran is the linear-interpolation seed, so the *exact* returned
+    /// trajectory (not just its shape) must equal that seed, bit for bit.
+    #[test]
+    fn cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed() {
+        let model = panda_model();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut start = RobotState::new(&model);
+        start.set_to_default_values();
+        let mut goal = start.clone();
+        goal.set_joint_positions("panda_joint1", &[0.6]).unwrap();
+
+        let num_timesteps = 8;
+        let mut config = base_config(num_timesteps, group.active_joint_names().len());
+        config.num_iterations = 1_000_000;
+
+        let cancel_handle = CancelHandle::new();
+        cancel_handle.cancel();
+        let result = plan(
+            config,
+            no_cost_fn(),
+            PlanRequest {
+                start_state: &start,
+                goal_state: &goal,
+                group,
+                input_trajectory: None,
+            },
+            ChaCha8Rng::seed_from_u64(4),
+            cancel_handle,
+        )
+        .unwrap()
+        .expect(
+            "the seed trajectory is valid under a zero-cost task even with zero iterations run",
+        );
+
+        let start_positions = positions(&start, group).unwrap();
+        let goal_positions = positions(&goal, group).unwrap();
+        let expected = linear_interpolation(&start_positions, &goal_positions, num_timesteps);
+        let trajectory = result.into_uniformly_timed(config.delta_t).unwrap();
+        for t in 0..num_timesteps {
+            for (i, name) in group.active_joint_names().iter().enumerate() {
+                assert_eq!(
+                    trajectory
+                        .way_point(t)
+                        .unwrap()
+                        .joint_position(name)
+                        .unwrap()[0],
+                    expected[(i, t)],
+                    "waypoint {t}, joint {name}: cancelling before plan() runs must leave the \
+                     linear-interpolation seed untouched by any rollout"
+                );
+            }
+        }
+    }
+
+    /// Item 2, round 24, the multi-thread half: a [`CancelHandle`] clone
+    /// handed to a second thread can stop a `plan` call already in flight
+    /// on the calling thread -- the real motivating case (upstream's own
+    /// `allowed_planning_time` watcher thread, cpp:247-257), not just the
+    /// same-thread "cancel before" case above. `num_iterations` is set high
+    /// enough that an uninterrupted run would not plausibly finish within
+    /// this test's bound; a clean, prompt return is only possible if the
+    /// second thread's `cancel()` actually reached the `plan` call in
+    /// flight.
+    #[test]
+    fn cancelling_from_another_thread_stops_a_plan_call_already_in_flight() {
+        let model = panda_model();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut start = RobotState::new(&model);
+        start.set_to_default_values();
+        let mut goal = start.clone();
+        goal.set_joint_positions("panda_joint1", &[0.6]).unwrap();
+
+        let num_timesteps = 8;
+        let mut config = base_config(num_timesteps, group.active_joint_names().len());
+        config.num_iterations = 1_000_000;
+        config.num_iterations_after_valid = 0;
+
+        let cancel_handle = CancelHandle::new();
+        let watcher_handle = cancel_handle.clone();
+        let watcher = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            watcher_handle.cancel();
+        });
+
+        let start_time = std::time::Instant::now();
+        let result = plan(
+            config,
+            no_cost_fn(),
+            PlanRequest {
+                start_state: &start,
+                goal_state: &goal,
+                group,
+                input_trajectory: None,
+            },
+            ChaCha8Rng::seed_from_u64(5),
+            cancel_handle,
+        );
+        let elapsed = start_time.elapsed();
+        watcher.join().unwrap();
+
+        result.unwrap().expect(
+            "a zero-cost task must still report success on the trajectory in progress \
+                      when cancellation lands",
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "plan() took {elapsed:?} -- with num_iterations=1_000_000 and no cancellation ever \
+             reaching it, this call would not plausibly return this quickly on its own"
         );
     }
 }
