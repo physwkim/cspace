@@ -20,10 +20,6 @@
 //! `qqmlcustomparser_p.h`) -- no genuine STOMP-optimizer source. This was
 //! reported to the user rather than fabricated. Consequently:
 //!
-//! - `filter_functions::simple_smoothing_matrix` (upstream
-//!   `simpleSmoothingMatrix`) is not implemented -- it calls
-//!   `stomp::generateSmoothingMatrix` from `<stomp/utils.h>`, which is not
-//!   available to read. See `filter_functions`' module doc.
 //! - `cost_functions.hpp` (collision/validity cost) is deferred to a later
 //!   round: it needs `moveit-scene`'s collision surface, out of this
 //!   crate's dependency reach this round.

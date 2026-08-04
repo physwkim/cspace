@@ -12,6 +12,7 @@ authors.workspace = true
 moveit-error.workspace = true
 moveit-model.workspace = true
 moveit-state.workspace = true
+moveit-stomp-core.workspace = true
 moveit-trajectory.workspace = true
 nalgebra.workspace = true
 

@@ -464,6 +464,7 @@ dependencies = [
  "moveit-model",
  "moveit-srdf",
  "moveit-state",
+ "moveit-stomp-core",
  "moveit-trajectory",
  "nalgebra",
  "urdf-rs",
