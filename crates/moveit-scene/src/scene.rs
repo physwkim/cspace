@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use moveit_collision::{
     Action, AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionEnv, CollisionRequest,
-    CollisionResult, Contact, DistanceRequest, MoveObjectOutcome, Notification, World,
+    CollisionResult, Contact, CostSource, DistanceRequest, MoveObjectOutcome, Notification, World,
+    remove_cost_sources, remove_overlapping,
 };
 use moveit_constraints::KinematicConstraintSet;
 use moveit_error::{Error, Result};
@@ -56,14 +57,16 @@ pub struct PathValidity {
 /// (`initialize`, the `CollisionDetector` struct, the process-*Add/Remove/Move
 /// helpers, data fields) are implementation detail, not audited here.
 ///
-/// Re-walked symbol-by-symbol this round (round 21) against the current
+/// Re-walked symbol-by-symbol this round (round 22) against the current
 /// `planning_scene.hpp` (`public:` block, its current lines 93-926) and
 /// against the current tree, not just the header: 60 audit bullets below,
-/// every one landing in one of the four buckets above. This is a change
-/// from the previous round's "zero `unported, in scope` gaps" claim — see
-/// `getCostSources`'s bullet below, reclassified this round from `blocked`
-/// to `unported, in scope` now that p3-acm's `6890fdd` (merged to `main`
-/// since) closed the backend gap that classification rested on. Every
+/// every one landing in one of the four buckets above — zero `unported, in
+/// scope` gaps survive the walk. Round 21 reclassified `getCostSources`
+/// from `blocked` to `unported, in scope` once p3-acm's `6890fdd` closed
+/// the backend gap that `blocked` verdict rested on, and flagged the
+/// then-standing "zero gaps" claim as false as of that reclassification;
+/// this round closes that last gap by porting `getCostSources` itself — see
+/// its bullet below, now `ported`. Every
 /// overload count already recorded here (`checkCollision`/`checkSelfCollision`/
 /// `getCollidingLinks`/`getCollidingPairs` at 6 each, `distanceToCollision`/
 /// `distanceToCollisionUnpadded`/`isStateConstrained`/`getCostSources` at 4
@@ -517,32 +520,23 @@ pub struct PathValidity {
 ///
 /// ## Cost sources and diagnostics
 ///
-/// - `getCostSources` (all four overloads) — reclassified this round from
-///   `blocked` to **unported, in scope**. The backend gap the `blocked`
-///   verdict rested on (`moveit_collision::ParryCollisionEnv`'s collision
-///   callback hardcoding `cost_sources: None`) is gone: p3-acm's `6890fdd`
-///   ("moveit-collision: implement cost_sources instead of documenting it
-///   as blocked", merged to `main` via `044a788f`, confirmed present on this
-///   branch after this round's rebase) made
-///   `crates/moveit-collision/src/parry.rs::accumulate_collision` compute
-///   real `[CostSource]`s through `cost_sources_for_part_pair` (mesh/mesh,
-///   mesh/shape, and shape/shape cases all handled, `CollisionRequest::cost`
-///   respected, `max_cost_sources` truncation applied) instead of the
-///   hardcoded `None` this bullet used to cite. That backend work is
-///   `moveit-collision`'s own (not re-verified here — out of this crate's
-///   ownership and this round's scope) — what remains for `moveit-scene`
-///   itself is porting `PlanningScene::getCostSources` as a thin wrapper,
-///   confirmed mechanical by reading `planning_scene.cpp:2451-2506`: build a
-///   [`CollisionRequest`] with `cost: true`/`max_cost_sources` set, call
-///   [`PlanningScene::check_collision`] (per-waypoint, for the two
-///   trajectory-taking overloads — matching `is_path_valid`'s own precedent
-///   above of taking `&[RobotState<'m>]` rather than a
-///   `moveit_trajectory::RobotTrajectory`, a dependency-boundary choice, not
-///   a new one), and run [`moveit_collision::remove_cost_sources`]/
-///   [`moveit_collision::remove_overlapping`] on the accumulated
-///   [`moveit_collision::CollisionResult::cost_sources`] — no new algorithm,
-///   every piece it calls already exists and is already exercised by other
-///   callers.
+/// - `getCostSources` (all four overloads) — ported this round as
+///   [`PlanningScene::cost_sources`] (the `state`-taking pair,
+///   `planning_scene.cpp:2493-2506`) and [`PlanningScene::path_cost_sources`]
+///   (the `trajectory`-taking pair, `planning_scene.cpp:2451-2489`), each
+///   collapsing its own group_name-defaulting overload into one method the
+///   same way [`PlanningScene::is_state_valid`]/[`PlanningScene::is_path_valid`]
+///   already do (`group_name: Option<&str>`, `None` for upstream's default
+///   `std::string()`). The `trajectory`-taking overloads take
+///   `&[RobotState<'m>]`, not a `moveit_trajectory::RobotTrajectory` —
+///   [`PlanningScene::is_path_valid`]'s own already-documented
+///   dependency-boundary choice, not a new one. See both methods' own doc
+///   comments for the per-line body citation and the load-bearing
+///   `remove_cost_sources`-then-`remove_overlapping` call order.
+///   Previously `blocked` (p3-acm's `6890fdd`, merged to `main` via
+///   `044a788f`, replaced `moveit_collision::ParryCollisionEnv`'s hardcoded
+///   `cost_sources: None` with real computation — round 21 reclassified to
+///   `unported, in scope` once that landed).
 /// - `printKnownObjects` — distinct: `std::ostream` debug formatting with
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
@@ -1732,6 +1726,115 @@ impl<'m> PlanningScene<'m> {
             valid: invalid_waypoints.is_empty(),
             invalid_waypoints,
         }
+    }
+
+    /// Upstream's `getCostSources(state, max_costs, costs)`/`getCostSources(state,
+    /// max_costs, group_name, costs)` (`planning_scene.cpp:2493-2506`),
+    /// collapsed into one method the way [`PlanningScene::is_state_valid`]
+    /// already collapses its own group_name-defaulting overload pair —
+    /// `group_name: None` is upstream's default-constructed `std::string()`,
+    /// matching [`CollisionRequest::group_name`]'s own `Option` convention.
+    ///
+    /// Unlike [`PlanningScene::path_cost_sources`], upstream's single-state
+    /// overload does not call `removeCostSources`/`removeOverlapping` at
+    /// all — confirmed from its body, which only ever does `checkCollision`
+    /// then `cres.cost_sources.swap(costs)`. Returned in [`CostSource`]'s
+    /// `Ord` order (most-costly-first, matching `std::set<CostSource>`'s own
+    /// iteration order), truncated to `max_costs` by
+    /// [`CollisionRequest::max_cost_sources`] at the collision-check layer.
+    pub fn cost_sources<E>(
+        &mut self,
+        env: &E,
+        group_name: Option<&str>,
+        max_costs: usize,
+    ) -> BTreeSet<CostSource>
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let request = CollisionRequest {
+            group_name: group_name.map(str::to_string),
+            cost: true,
+            max_cost_sources: max_costs,
+            ..Default::default()
+        };
+        self.check_collision(env, &request)
+            .cost_sources
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    }
+
+    /// Upstream's `getCostSources(trajectory, max_costs, costs, overlap_fraction)`/
+    /// `getCostSources(trajectory, max_costs, group_name, costs, overlap_fraction)`
+    /// (`planning_scene.cpp:2451-2489`), collapsed the same way
+    /// [`PlanningScene::cost_sources`] collapses its own pair.
+    ///
+    /// Ported faithfully from the body, not re-derived:
+    /// - Every waypoint's [`PlanningScene::cost_sources`] (same `request`,
+    ///   built once, reused for every `checkCollision` call — matching
+    ///   upstream building `creq` once outside its loop) is unioned into the
+    ///   running set (`cs.insert(cres.cost_sources.begin(), cres.cost_sources.end())`,
+    ///   cpp:2465), regardless of waypoint index — including the first.
+    /// - The *first* waypoint's own cost sources are captured a second time,
+    ///   separately, as `cs_start` (`cs_start.swap(cres.cost_sources)`,
+    ///   cpp:2467-2468) — not removed from the union, just also kept aside.
+    /// - The union is truncated to `max_costs`, keeping the first `max_costs`
+    ///   entries in [`CostSource`]'s `Ord` (most-costly-first) order
+    ///   (cpp:2471-2481) — matching [`PlanningScene::cost_sources`]'s own
+    ///   truncation, but this time over the union across all waypoints
+    ///   rather than one `checkCollision` call.
+    /// - [`moveit_collision::remove_cost_sources`] runs first, against
+    ///   `cs_start` (cpp:2483) — drops truncated-union entries that overlap
+    ///   the *start* state's own cost sources by at least `overlap_fraction`
+    ///   (see that function's own doc for the split-not-drop behavior on a
+    ///   sub-threshold overlap, ported as-is).
+    /// - [`moveit_collision::remove_overlapping`] runs second (cpp:2484),
+    ///   deduplicating what survives against *itself*. This order is
+    ///   load-bearing, not incidental: swapping it would let a source that
+    ///   `remove_cost_sources` was about to drop first eliminate a mutually
+    ///   overlapping sibling via `remove_overlapping`, changing which one
+    ///   survives — upstream's two-call sequence is reproduced in the same
+    ///   order here.
+    ///
+    /// Every waypoint is installed as [`PlanningScene::current_state_mut`]
+    /// in turn and the original is restored before returning — the same
+    /// mechanism and the same restore-before-return contract
+    /// [`PlanningScene::is_path_valid`]'s own doc already documents, for the
+    /// same reason (this port's only avenue to check an arbitrary state is
+    /// the scene's current state; upstream's overload never touches
+    /// `current_state_` at all, taking `trajectory.getWayPoint(i)` directly).
+    pub fn path_cost_sources<E>(
+        &mut self,
+        env: &E,
+        waypoints: &[RobotState<'m>],
+        group_name: Option<&str>,
+        max_costs: usize,
+        overlap_fraction: f64,
+    ) -> BTreeSet<CostSource>
+    where
+        E: for<'s> CollisionEnv<Posed<'s, 'm>>,
+    {
+        let saved_state = self.current_state().clone();
+        let mut cs = BTreeSet::new();
+        let mut cs_start = BTreeSet::new();
+        for (i, waypoint) in waypoints.iter().enumerate() {
+            self.set_current_state(waypoint.clone());
+            let sources = self.cost_sources(env, group_name, max_costs);
+            if i == 0 {
+                cs_start = sources.clone();
+            }
+            cs.extend(sources);
+        }
+        self.set_current_state(saved_state);
+
+        let costs: BTreeSet<CostSource> = if cs.len() <= max_costs {
+            cs
+        } else {
+            cs.into_iter().take(max_costs).collect()
+        };
+
+        let costs = remove_cost_sources(&costs, &cs_start, overlap_fraction);
+        remove_overlapping(&costs, overlap_fraction)
     }
 
     // ---- diff / decouple ----------------------------------------------------
@@ -2994,5 +3097,161 @@ mod tests {
         let mut links = scene.colliding_links(&env);
         links.sort();
         assert_eq!(links, vec!["p".to_string(), "q".to_string()]);
+    }
+
+    // ---- cost sources -------------------------------------------------------
+
+    // `p` stays at the identity transform throughout (box spans [-0.5, 0.5]^3
+    // on every axis); every case below only moves `q` via `joint_q`, so an
+    // overlap box's AABB is exactly computable by hand from `q`'s translation.
+
+    #[test]
+    fn cost_sources_is_empty_when_nothing_collides() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(100.0, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let sources = scene.cost_sources(&env, None, 10);
+
+        assert!(sources.is_empty());
+    }
+
+    #[test]
+    fn cost_sources_reports_the_one_overlap_box() {
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let sources: Vec<CostSource> = scene.cost_sources(&env, None, 10).into_iter().collect();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].aabb_min, [0.0, -0.5, -0.5]);
+        assert_eq!(sources[0].aabb_max, [0.5, 0.5, 0.5]);
+        assert_eq!(sources[0].cost, 1.0);
+    }
+
+    fn waypoint_with_q_at<'m>(scene: &PlanningScene<'m>, dx: f64, dy: f64) -> RobotState<'m> {
+        let mut state = scene.current_state().clone();
+        state
+            .set_joint_transform("joint_q", &Isometry3::translation(dx, dy, 0.0))
+            .unwrap();
+        state
+    }
+
+    #[test]
+    fn path_cost_sources_unions_non_overlapping_sources_across_waypoints() {
+        // Start waypoint has `q` far away (empty `cs_start`); the two later
+        // waypoints put `q` on opposite sides of `p`, each producing a
+        // disjoint overlap box (a gap between x = 0.0 and x = 0.25), so both
+        // survive `remove_overlapping` untouched.
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let start = waypoint_with_q_at(&scene, 100.0, 0.0);
+        let left = waypoint_with_q_at(&scene, -0.5, 0.0);
+        let right = waypoint_with_q_at(&scene, 0.75, 0.0);
+        let env = ParryCollisionEnv::default();
+
+        let sources: Vec<CostSource> = scene
+            .path_cost_sources(&env, &[start, left, right], None, 10, 0.5)
+            .into_iter()
+            .collect();
+
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].aabb_min, [-0.5, -0.5, -0.5]);
+        assert_eq!(sources[0].aabb_max, [0.0, 0.5, 0.5]);
+        assert_eq!(sources[1].aabb_min, [0.25, -0.5, -0.5]);
+        assert_eq!(sources[1].aabb_max, [0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn path_cost_sources_merges_a_fully_overlapping_pair_into_the_more_costly_one() {
+        // `q` at `dx = 0.5` gives a volume-0.5 box; `q` at `dx = 0.6` gives a
+        // volume-0.4 box that is a strict subset of the first
+        // (x in [0.1, 0.5] vs [0.0, 0.5]) -- a full overlap relative to the
+        // smaller box's own volume, so `remove_overlapping` drops it and
+        // keeps only the more costly (bigger) one.
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let start = waypoint_with_q_at(&scene, 100.0, 0.0);
+        let bigger = waypoint_with_q_at(&scene, 0.5, 0.0);
+        let smaller = waypoint_with_q_at(&scene, 0.6, 0.0);
+        let env = ParryCollisionEnv::default();
+
+        let sources: Vec<CostSource> = scene
+            .path_cost_sources(&env, &[start, bigger, smaller], None, 10, 0.5)
+            .into_iter()
+            .collect();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].aabb_min, [0.0, -0.5, -0.5]);
+        assert_eq!(sources[0].aabb_max, [0.5, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn path_cost_sources_keeps_a_partial_overlap_below_threshold() {
+        // `q` at `dx = -0.2` (volume 0.8) and `dx = 0.3` (volume 0.7) overlap
+        // by 0.5 -- below `0.8 * overlap_fraction (0.9) = 0.72`, so neither
+        // is dropped: both survive as distinct, still-overlapping sources.
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let start = waypoint_with_q_at(&scene, 100.0, 0.0);
+        let a = waypoint_with_q_at(&scene, 0.3, 0.0);
+        let b = waypoint_with_q_at(&scene, -0.2, 0.0);
+        let env = ParryCollisionEnv::default();
+
+        let sources = scene.path_cost_sources(&env, &[start, a, b], None, 10, 0.9);
+
+        assert_eq!(sources.len(), 2);
+    }
+
+    #[test]
+    fn path_cost_sources_truncates_to_max_costs_keeping_the_most_costly() {
+        // Same disjoint pair as the "non-overlapping" case (volumes 0.5 and
+        // 0.3), but `max_costs = 1`: the union truncation
+        // (`cs.into_iter().take(max_costs)`) keeps only the more costly one.
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let start = waypoint_with_q_at(&scene, 100.0, 0.0);
+        let bigger = waypoint_with_q_at(&scene, -0.5, 0.0);
+        let smaller = waypoint_with_q_at(&scene, 0.7, 0.0);
+        let env = ParryCollisionEnv::default();
+
+        let sources: Vec<CostSource> = scene
+            .path_cost_sources(&env, &[start, bigger, smaller], None, 1, 0.5)
+            .into_iter()
+            .collect();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].aabb_min, [-0.5, -0.5, -0.5]);
+        assert_eq!(sources[0].aabb_max, [0.0, 0.5, 0.5]);
+    }
+
+    #[test]
+    fn path_cost_sources_keeps_all_sources_when_fewer_than_max_costs() {
+        // A single real cost source (`q` at `dx = 0.5`) against
+        // `max_costs = 10`: `cs.len() <= max_costs` takes the no-truncation
+        // branch, so the one source is returned untouched.
+        let model = build_collision_model();
+        let mut scene = PlanningScene::new(&model, &srdf());
+        let start = waypoint_with_q_at(&scene, 100.0, 0.0);
+        let colliding = waypoint_with_q_at(&scene, 0.5, 0.0);
+        let env = ParryCollisionEnv::default();
+
+        let sources: Vec<CostSource> = scene
+            .path_cost_sources(&env, &[start, colliding], None, 10, 0.5)
+            .into_iter()
+            .collect();
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].aabb_min, [0.0, -0.5, -0.5]);
+        assert_eq!(sources[0].aabb_max, [0.5, 0.5, 0.5]);
     }
 }
