@@ -12432,3 +12432,105 @@ p1-fixtures 라운드 22의 요청(§107.3 경로)을 그대로 구현했다. �
 (`removeOverlapping`이 load-bearing). 첫 waypoint가 충돌하면 `cs_start`가
 union과 같아져 결과가 **0**개 — `cs_start`가 running union의 복사본이 아니라
 첫 waypoint의 집합이라는 사실이 이 케이스에서만 드러난다.
+
+## §157 파일 간 순서 blind spot을 실제로 열어보니 오라클에 상태 누수가 있었다
+
+§143.1이 `verify-fixture-replay.sh`의 한계를 적어두고, "지금 corpus가 그 순서를
+우연히 밟지 않았을 뿐"이라고 했다. **그 문장이 틀렸다.** corpus는 그 순서를 이미
+갖고 있었고, 다만 그것을 한 프로세스에 넣어보는 실행이 존재하지 않았을 뿐이다.
+
+### 157.1 combined pass — 같은 로봇 모델을 쓰는 fixture를 한 프로세스에 넣는다
+
+`verify-fixture-replay.sh`에 두 번째 pass를 붙였다(`9a976fe`). 기존 pass는
+fixture 하나당 컨테이너 하나라 요청은 자기 파일의 op만 본다. 새 pass는 urdf/srdf를
+**경로가 아니라 내용(sha256)으로** 묶어 각 그룹의 요청을 한 스트림으로 이어
+붙인다. 경로로 묶으면 안 되는 이유가 핵심이다 — 같은 panda가 7개 크레이트의
+fixture 디렉터리에 복사돼 있고, 크레이트를 건너뛰는 누수가 정확히 보고 싶은
+경우다(`oracle.cpp`는 모든 패널이 공유한다).
+
+43 fixture = **6개 content-distinct 모델**이라 컨테이너 기동이 43 → 6으로 줄어든다.
+즉 이 pass는 위 pass보다 **싸다**. 그룹 크기 1(`totg_synthetic`)은 per-file pass가
+이미 한 일이라 건너뛴다 — 42/43이 새로 덮인다.
+
+비교 로직은 재구현하지 않았다. 요청 id를 `fixture_index * 1000 + 원래 id`로
+재번호(코퍼스 전체 id가 정수, 최대 12라 1000이면 충돌 불가)하고
+`ignore_result_fields_by_id`도 같은 규칙으로 병합해서, 이어붙인 것을 fixture 하나인
+것처럼 `_replay_one.py`에 넘긴다. drift는 per-file pass와 **완전히 같은 코드로**
+비교·보고·diff된다. 실패 시 재번호 구간표를 같이 찍어서 diff 라인이 어느 fixture로
+되돌아가는지 보이게 했다.
+
+### 157.2 첫 실행에서 바로 걸린 것
+
+per-file 43/43 identical인 상태에서 combined이 `panda.urdf` 그룹(16 fixture, 7
+크레이트, 31 요청)에서 **DRIFTED 342 line(s)**. 범인은 `moveit-trajectory/ruckig`
+하나. 선행 fixture를 하나씩 붙여 이분한 결과 세 개가 재현시켰다:
+
+```
+moveit-smoothing/acceleration_filter                 DRIFT
+moveit-smoothing/ruckig_filter                       DRIFT
+moveit-trajectory/totg_robot_trajectory_scaling_only DRIFT
+(나머지 12개는 전부 ok, 단독 실행도 ok)
+```
+
+정확히 그 셋이 `joint_model->setVariableBounds(limits)`로 **공유 `model_`을
+수정하는** op들이다(`totgRobotTrajectoryCase`, `accelerationFilterCase`,
+`setJointAccelerationVelocityJerkBounds`). 그리고 `ruckigCase`는 RobotModel-bounds
+overload를 쓰므로 덮어써진 바로 그 필드를 읽는다. `group`이 없는 평범한 `totg`가
+범인이 아닌 것도 이것으로 설명된다 — 그 경로엔 bounds 적용이 없다.
+
+`totgRobotTrajectoryCase`의 doc은 이 성질을 **이미 알고 적어두고 있었다**: "the
+mutation ... persists for the rest of this oracle process -- deliberately kept to
+its own isolated fixture, never mixed into a fixture another case in the same file
+also relies on." 즉 방어책이 **관례**였고, 한 프로세스에 두 파일이 들어가는 순간
+관례는 지켜지지 않았다. 규칙대로 관례가 아니라 구조로 닫아야 하는 자리다.
+
+### 157.3 구조적 수정 — override를 요청 하나의 수명으로 묶는다
+
+`de020fa`. 세 호출부를 전부 `applyJointBounds(joint_model, limits)`로 돌리고, 그것이
+교체 전 bounds를 `replaced_bounds_`에 기록한다. `handle`은 모든 op이 지나가는
+단일 dispatcher이므로 거기에 `ScopedJointBounds` RAII를 두어 요청이 끝날 때
+역순으로 되돌린다. 소유자가 하나라서 **나중에 추가될 op이 이 규칙을 몰라도
+상속한다.**
+
+- **Invariant:** 어떤 요청도 `model_`의 variable bounds를 바꾼 채로 끝날 수 없다.
+- **Owner/Gate:** `Oracle::handle`의 `ScopedJointBounds` (복원은
+  `restoreJointBounds`).
+- **Bypass audit:** anchor `rg -n 'setVariableBounds' tools/moveit-oracle/src/
+  oracle.cpp` → 호출 3곳(`:3985` 계열 totg, acceleration filter, ruckig filter)
+  전부 owner 경유로 전환. 나머지 hit는 `applyJointBounds`/`restoreJointBounds`
+  자신과 doc 문장.
+- **범위 선택:** case가 아니라 **요청** 단위로 묶었다. 한 요청 안의 case들이
+  override를 공유하는 것은 기존 캡처 동작이고, 그걸 바꾸면 committed fixture가
+  달라진다. 파일 경계를 넘는 누수만 없애는 것이 최소이자 정확한 경계다.
+
+되돌림이 역순인 이유: 한 요청이 같은 joint를 두 번 덮으면 처음 항목만이 요청
+시작 시점의 bounds를 갖는다.
+
+### 157.4 실측
+
+새 stamp **`f209092a3c432394`** (이전 `9a5a1b33f255ea23`).
+
+```
+verify-fixture-replay.sh  per-file  → identical 43줄 / 43 (§149 준수, 변화 0)
+                          combined  → 5개 그룹 전부 identical, single 1
+이분 재실행                          → 세 DRIFT 선행 fixture 전부 ok
+throw 경로 (bounds 적용 후 예외)     → 사전 이미지 DRIFTED / 사후 identical
+check-*.sh 8개                       → OK
+```
+
+throw 경로는 별도로 쟀다. `totg` 요청의 `durations_from_previous`를 하나 잘라
+bounds 적용 **뒤에** "waypoints/durations_from_previous length mismatch"로 던지게
+만들고, 이어서 `ruckig` 요청을 보냈다. `9a5a1b33f255ea23` 이미지에서는 DRIFTED,
+`f209092a3c432394`에서는 identical — RAII가 예외 경로를 덮는다는 것이 값으로
+확인된다. `sg docker -c`가 종료코드를 가리므로 전부 출력 내용으로 판정했다.
+
+### 157.5 남는 것
+
+- combined pass는 **한 가지 순서**(그룹 내 crate/stem 정렬)만 밟는다. 역순이나
+  임의 순열은 밟지 않는다. 누수가 남아 있어도 이 순서에서 관측되지 않으면 여전히
+  안 보인다.
+- 그룹 크기 1(`totg_synthetic`)은 영원히 이 pass의 사각지대다. 같은 모델을 쓰는
+  fixture가 하나 더 생기면 만료된다(§153.1).
+- committed fixture는 전부 자기 프로세스에서 캡처됐으므로 이번 누수에 오염되지
+  않았다(43/43 identical이 그 증거다). 오염될 수 있었던 것은 **한 프로세스에 여러
+  op을 보내는 실행** — `moveit-diff`, 그리고 캡처를 batch로 돌릴 경우다.
