@@ -100,7 +100,12 @@
 //! Absolute paths only -- relative paths fail inside the oracle container
 //! (same requirement as `visibility_cone_depth_sweep.rs`). `--mpr-binary`
 //! defaults to `tools/mpr-vs-epa/build/mpr_case104` relative to the current
-//! directory; build it first with `tools/mpr-vs-epa/build.sh`.
+//! directory; build it first with `tools/mpr-vs-epa/build.sh`. `--dump-case
+//! <idx>` prints one case's exact fed geometry (the bytes this program
+//! would otherwise pipe to `mpr_case104`) and exits; `--dump-contacts
+//! <idx>`, usually paired with `--max-contacts-per-pair <N>`, prints every
+//! contact the oracle returned for that case's touched pair and exits --
+//! see `tools/mpr-vs-epa/README.md`'s own sections on both.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -156,6 +161,8 @@ enum Op {
     Collision {
         joint_values: BTreeMap<String, f64>,
         objects: Vec<ObjectWire>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_contacts_per_pair: Option<usize>,
     },
 }
 
@@ -420,6 +427,23 @@ fn deepest_triangle_vs_cylinder(
     (best, best_tri, local_vertices)
 }
 
+/// The 11-number stdin format `mpr_case104.c` (and `case104_mpr_input.rs`)
+/// reads -- factored out of [`run_mpr`] so [`Args::dump_case`] prints the
+/// exact bytes this program would otherwise pipe to the MPR binary itself,
+/// not a second, possibly-drifting copy of the same format string.
+fn mpr_stdin(
+    p0: parry3d_f64::math::Vector,
+    p1: parry3d_f64::math::Vector,
+    p2: parry3d_f64::math::Vector,
+    radius: f64,
+    length: f64,
+) -> String {
+    format!(
+        "{:.17e} {:.17e} {:.17e}\n{:.17e} {:.17e} {:.17e}\n{:.17e} {:.17e} {:.17e}\n{:.17e} {:.17e}",
+        p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, radius, length
+    )
+}
+
 /// Runs the already-committed, already-generic
 /// `tools/mpr-vs-epa/build/mpr_case104` binary once on `(p0, p1, p2,
 /// radius, length)` -- the same 11-number stdin format
@@ -446,12 +470,8 @@ fn run_mpr(
             .stdin
             .as_mut()
             .ok_or_else(|| format!("{binary} stdin unavailable"))?;
-        writeln!(
-            stdin,
-            "{:.17e} {:.17e} {:.17e}\n{:.17e} {:.17e} {:.17e}\n{:.17e} {:.17e} {:.17e}\n{:.17e} {:.17e}",
-            p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, radius, length
-        )
-        .map_err(|e| format!("writing {binary} stdin: {e}"))?;
+        writeln!(stdin, "{}", mpr_stdin(p0, p1, p2, radius, length))
+            .map_err(|e| format!("writing {binary} stdin: {e}"))?;
     }
     let output = child
         .wait_with_output()
@@ -480,6 +500,9 @@ struct Args {
     cases: usize,
     oracle: Vec<String>,
     mpr_binary: String,
+    dump_case: Option<usize>,
+    dump_contacts: Option<usize>,
+    max_contacts_per_pair: Option<usize>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -489,6 +512,9 @@ fn parse_args() -> Result<Args, String> {
     let mut cases = 300usize;
     let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
     let mut mpr_binary = "tools/mpr-vs-epa/build/mpr_case104".to_owned();
+    let mut dump_case = None;
+    let mut dump_contacts = None;
+    let mut max_contacts_per_pair = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -510,6 +536,27 @@ fn parse_args() -> Result<Args, String> {
                     .map_err(|e| format!("--cases: {e}"))?
             }
             "--mpr-binary" => mpr_binary = want("--mpr-binary")?,
+            "--dump-case" => {
+                dump_case = Some(
+                    want("--dump-case")?
+                        .parse()
+                        .map_err(|e| format!("--dump-case: {e}"))?,
+                )
+            }
+            "--dump-contacts" => {
+                dump_contacts = Some(
+                    want("--dump-contacts")?
+                        .parse()
+                        .map_err(|e| format!("--dump-contacts: {e}"))?,
+                )
+            }
+            "--max-contacts-per-pair" => {
+                max_contacts_per_pair = Some(
+                    want("--max-contacts-per-pair")?
+                        .parse()
+                        .map_err(|e| format!("--max-contacts-per-pair: {e}"))?,
+                )
+            }
             "--oracle" => {
                 oracle = args.by_ref().collect();
                 if oracle.is_empty() {
@@ -528,6 +575,9 @@ fn parse_args() -> Result<Args, String> {
         cases,
         oracle,
         mpr_binary,
+        dump_case,
+        dump_contacts,
+        max_contacts_per_pair,
     })
 }
 
@@ -675,6 +725,7 @@ fn main() -> Result<(), String> {
                     triangles: triangles.clone(),
                 },
             }],
+            max_contacts_per_pair: args.max_contacts_per_pair,
         })? {
             OracleResult::Collision(c) => c,
             _ => return Err("expected collision".to_owned()),
@@ -692,6 +743,20 @@ fn main() -> Result<(), String> {
                 }
             })
             .collect();
+
+        if args.dump_contacts == Some(idx) {
+            let named: Vec<(&str, f64)> = cone_contacts
+                .iter()
+                .filter(|(name, _)| *name == link_name.as_str())
+                .copied()
+                .collect();
+            println!(
+                "case[{idx}] link={link_name} max_contacts_per_pair={:?} contacts={named:?}",
+                args.max_contacts_per_pair
+            );
+            return Ok(());
+        }
+
         let touching_count = cone_contacts.len();
         // Upstream's own "not colliding" sentinel (`kinematic_constraint.cpp`
         // `ConstraintEvaluationResult(true, 0.0)` path) when the target link
@@ -703,6 +768,20 @@ fn main() -> Result<(), String> {
 
         let (best, best_tri, local_vertices) =
             deepest_triangle_vs_cylinder(&cyl_frame, cylinder, &vertices, &triangles);
+
+        if args.dump_case == Some(idx) {
+            if !best.is_finite() {
+                return Err(format!("case[{idx}] has no EPA contact, nothing to dump"));
+            }
+            let p0 = local_vertices[best_tri[0] as usize];
+            let p1 = local_vertices[best_tri[1] as usize];
+            let p2 = local_vertices[best_tri[2] as usize];
+            print!(
+                "{}",
+                mpr_stdin(p0, p1, p2, cylinder.radius, cylinder.length)
+            );
+            return Ok(());
+        }
 
         if !best.is_finite() {
             no_epa_contact += 1;
