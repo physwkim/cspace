@@ -54,19 +54,59 @@ fully.
 Not a citation audit, but recorded here for the same compaction-risk
 reason §175 flags — see `moveit-metrics.md` for the sibling record.
 
-- Upstream-first direction: swept the 7 upstream files that provenance
-  this crate's citations — `planning_scene/src/planning_scene.cpp`,
-  `planning_scene/include/.../planning_scene.hpp`, `robot_state/src/robot_state.cpp`,
-  `robot_state/include/.../attached_body.hpp`, `robot_state/src/attached_body.cpp`,
-  `collision_detection/src/world.cpp`, `collision_detection/include/.../world.hpp`,
-  `kinematic_constraints/src/kinematic_constraint.cpp` — for `int`/`unsigned`/
-  `size_t`/`std::size_t`/`long`/`uint32_t`/`int32_t` declarations or
-  `static_cast<...>` narrowing a floating-point initializer. Hits: 19
-  across `planning_scene.cpp` (loop counters bound by `.size()`, waypoint
-  counts, shape counts), 1 in `attached_body.cpp` (loop counter), 2 in
-  `robot_state.cpp` (`static_cast<std::size_t>(s.rows())`, an Eigen row
-  count, not a float). Every hit is a real integer quantity — **0 real
-  narrowing sites**, all `distinct`.
+Round 17: this section's prior figures (a hand sweep reporting 19+1+2=22
+hits total) were never actually mechanical — running the convention as a
+script (`tools/ci/count-narrowing-sweep.sh`, committed this round) finds
+**140** raw hits across the same 8 upstream files (the file list above
+this round also corrects an off-by-one: it names 8 files, not 7). The
+old count undercounted every file except `attached_body.cpp` and
+`attached_body.hpp` (1 and 0, both still correct) and `kinematics_metrics.cpp`
+in the sibling crate (`moveit-metrics.md`, still exactly 4 — unaffected).
+The gap is largest in `robot_state.cpp` (2 claimed vs. 76 actual): the
+old sweep's own claim text ("2 ... `static_cast<std::size_t>(s.rows())`")
+describes only that file's 2 `static_cast` hits and silently omitted
+every plain declaration in it, most likely because the file is large and
+was undercounted rather than actually swept in full — this is why the
+convention needed to become a command rather than staying prose.
+
+- Upstream-first direction: `tools/ci/count-narrowing-sweep.sh` against
+  the 8 upstream files that provenance this crate's citations —
+  `planning_scene/src/planning_scene.cpp`,
+  `planning_scene/include/.../planning_scene.hpp`,
+  `robot_state/src/robot_state.cpp`,
+  `robot_state/include/.../attached_body.hpp`,
+  `robot_state/src/attached_body.cpp`,
+  `collision_detection/src/world.cpp`,
+  `collision_detection/include/.../world.hpp`,
+  `kinematic_constraints/src/kinematic_constraint.cpp` — for `int`/
+  `unsigned`/`size_t`/`std::size_t`/`long`/`uint32_t`/`int32_t`
+  declarations or `static_cast<...>` to one of those types. Per-file raw
+  hit counts: `planning_scene.cpp` 24, `planning_scene.hpp` 4,
+  `robot_state.cpp` 76 (74 declarations + 2 `static_cast`),
+  `attached_body.hpp` 0, `attached_body.cpp` 1, `world.cpp` 10,
+  `world.hpp` 4, `kinematic_constraint.cpp` 21. Total **140**.
+  - 2 of the 140 are false-positive text matches, not real
+    declarations: `world.hpp:138` (`std::size_t size() const` — a
+    method whose *return type* is `std::size_t`, not a declaration
+    named `size`) and `kinematic_constraint.cpp:947` (`new unsigned
+    int[m->triangle_count * 3]` — an array-new expression, not a
+    declaration named `int`). The script cannot tell these apart from a
+    real declaration by text alone; noted here per the script's own
+    documented limitation.
+  - A further ~13 are bare function-signature parameters or class
+    fields with no initializer at all (e.g. the `getCostSources`
+    overloads' `std::size_t max_costs` parameter, repeated across both
+    `planning_scene.cpp` and `planning_scene.hpp`; `world.hpp`'s
+    `int shape_index`/`Action(int v)`/`int action_`) — nothing to
+    narrow into, since there is no initializer.
+  - Every remaining hit's initializer (where present) draws from an
+    integer-typed source: `.size()`, `.rows()`, `.getVariableCount()`,
+    `.getFirstVariableIndex()`/`.getVariableIndex()`/`.getLinkIndex()`/
+    `.getJointIndex()`, other integer variables, integer literals, a
+    ternary between two integer literals, or an enum constant
+    (`ADD_SHAPE`). Checked every non-`for`-loop hit's source line
+    individually this round — none narrows a floating-point value.
+  - **0 real narrowing sites**, all `distinct`.
 - Port-side direction: `rg '\bas\s+(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize)\b'`
   across `crates/moveit-scene` (src + tests) — **0 hits**.
 - Both directions swept, both zero, no fix needed.

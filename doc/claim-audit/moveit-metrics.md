@@ -20,11 +20,13 @@ Not a citation audit, but recorded here since it also swept this crate
 exhaustively and is worth keeping off the compaction-risk conversation
 context per §175's same reasoning.
 
-- Upstream-first direction: swept `moveit_core/kinematics_metrics/src/kinematics_metrics.cpp`
-  (the only upstream file this crate ports) for `int`/`unsigned`/`size_t`/
-  `std::size_t`/`long`/`uint32_t`/`int32_t` declarations or `static_cast<...>`
-  narrowing an initializer that is itself a floating-point expression.
-  4 hits, all `for (unsigned int i = 0; i < singular_values.rows(); ++i)` /
+- Upstream-first direction: Round 17 made this convention a command,
+  `tools/ci/count-narrowing-sweep.sh` (see `moveit-scene.md`'s sibling
+  section for the full writeup and the discrepancy it found there).
+  Run against `moveit_core/kinematics_metrics/src/kinematics_metrics.cpp`
+  (the only upstream file this crate ports) it reports **4** hits,
+  reproducing this section's existing figure exactly — all
+  `for (unsigned int i = 0; i < singular_values.rows(); ++i)` /
   `for (int i = 0; i < singular_values.rows(); ++i)` style loop counters —
   `.rows()` on an Eigen matrix returns an integer row count (`Eigen::Index`),
   not a float. **0 real narrowing sites** (all 4 hits are `distinct`: true
