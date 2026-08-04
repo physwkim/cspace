@@ -678,11 +678,21 @@ mod tests {
     #[test]
     fn validate_request_rejects_blend_radius_at_or_below_zero() {
         let (model, _) = load_panda();
+        // A chained pair (unlike an earlier version of this test, which
+        // paired a sweep with an independent, non-chained copy of itself):
+        // first_trajectory's last waypoint must equal second_trajectory's
+        // first, or the boundary-mismatch check a few lines above the
+        // blend_radius check would also fire and reject the request for a
+        // second, unrelated reason -- masking whether the blend_radius
+        // check on its own actually did anything. Mutation testing this
+        // round caught exactly that: with the blend_radius check deleted,
+        // this test still passed, because the earlier, non-chained version
+        // of this fixture failed the boundary check instead.
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
             first_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
-            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
+            second_trajectory: panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1),
             blend_radius: 0.0,
         };
         assert!(matches!(
