@@ -730,6 +730,7 @@ pub fn check_cartesian_goal(
 mod tests {
     use std::fs;
 
+    use moveit_kinematics::{DEFAULT_SOLVER_NAME, resolve_solver};
     use moveit_model::{MeshSearchPaths, RobotModel};
 
     use super::*;
@@ -895,6 +896,43 @@ mod tests {
     fn cartesian_goal_rejects_a_non_tip_link() {
         let model = load_panda();
         assert!(check_cartesian_goal(&model, "panda_arm", "panda_link4").is_err());
+    }
+
+    // -- PORTING-PLAN.md §177: the solver every generator resolves to is a
+    // name in the source, never `KINEMATICS_SOLVERS`' linker-decided
+    // iteration order --
+
+    #[test]
+    fn default_solver_name_is_the_upstream_faithful_port_not_the_ports_own_addition() {
+        // `newton_raphson` ports `kdl_kinematics_plugin`'s own
+        // `ChainIkSolverVelMimicSVD` as-is (see `NewtonRaphsonSolver`'s own
+        // doc comment) -- the solver every oracle fixture (`kinematics.yaml`:
+        // `kdl_kinematics_plugin/KDLKinematicsPlugin`) actually used. `lma`
+        // is this port's own addition upstream never ships; a `_cached`
+        // wrapper deliberately returns a different (still valid) IK solution
+        // than its wrapped solver on an empty cache -- see
+        // `CachedIkSolver`'s doc comment. Pinning the constant's *value*
+        // means a future rename of the `newton_raphson` registration without
+        // updating this constant fails here (`UnknownName`, at selection),
+        // not as a numeric parity drift three crates away.
+        assert_eq!(DEFAULT_SOLVER_NAME, "newton_raphson");
+    }
+
+    #[test]
+    fn resolve_solver_picks_by_name_not_by_construction_order() {
+        let model = load_panda();
+        let params = SolverParams::default();
+
+        // The name every pilz call site actually resolves to must exist and
+        // build for panda_arm.
+        let solver = resolve_solver(&model, "panda_arm", DEFAULT_SOLVER_NAME, &params)
+            .expect("DEFAULT_SOLVER_NAME must resolve for panda_arm");
+        assert_eq!(solver.tip_frame(), "panda_link8");
+
+        // A name nothing registers must fail closed (`UnknownName`), not
+        // silently fall through to whichever registration happens to
+        // construct first -- the exact defect this API replaces.
+        assert!(resolve_solver(&model, "panda_arm", "not_a_registered_solver", &params).is_err());
     }
 
     // -- validate_request: a fully valid request passes end to end; an

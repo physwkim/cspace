@@ -61,7 +61,7 @@
 use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::Isometry3;
-use moveit_kinematics::{KINEMATICS_SOLVERS, SolverParams};
+use moveit_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
 use moveit_model::RobotModel;
 use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
@@ -107,8 +107,8 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::Failure`] if `req.goal` is a joint-space target and
-    /// no [`KINEMATICS_SOLVERS`] entry can be built for `req.group_name`
-    /// (upstream's `getSolverTipFrame` failure). [`MoveItErrorCode::NoIkSolution`]
+    /// no [`moveit_kinematics::KINEMATICS_SOLVERS`] entry can be built for
+    /// `req.group_name` (upstream's `getSolverTipFrame` failure). [`MoveItErrorCode::NoIkSolution`]
     /// if `req.goal` is a Cartesian target with no reachable IK solution.
     fn extract_motion_plan_info(
         &self,
@@ -142,14 +142,11 @@ where
                 info.goal_pose = constraint_pose(position, orientation, target_point_offset);
 
                 let params = SolverParams::default();
-                let mut solver = KINEMATICS_SOLVERS
-                    .iter()
-                    .find_map(|registration| {
-                        (registration.construct)(robot_model, &req.group_name, &params)
-                            .ok()
-                            .filter(|solver| solver.tip_frame() == link_name.as_str())
-                    })
-                    .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                let mut solver =
+                    resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+                        .ok()
+                        .filter(|solver| solver.tip_frame() == link_name.as_str())
+                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 compute_pose_ik(
                     ctx,
@@ -177,8 +174,8 @@ where
     ///
     /// # Errors
     ///
-    /// [`MoveItErrorCode::NoIkSolution`] if no [`KINEMATICS_SOLVERS`] entry can
-    /// be built for `req.group_name` with `info.link_name` as its tip.
+    /// [`MoveItErrorCode::NoIkSolution`] if no [`moveit_kinematics::KINEMATICS_SOLVERS`]
+    /// entry can be built for `req.group_name` with `info.link_name` as its tip.
     /// Otherwise, see [`generate_joint_trajectory`].
     fn plan(
         &self,
@@ -214,13 +211,9 @@ where
 
         let robot_model = self.base.robot_model();
         let params = SolverParams::default();
-        let mut solver = KINEMATICS_SOLVERS
-            .iter()
-            .find_map(|registration| {
-                (registration.construct)(robot_model, &req.group_name, &params)
-                    .ok()
-                    .filter(|solver| solver.tip_frame() == info.link_name.as_str())
-            })
+        let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+            .ok()
+            .filter(|solver| solver.tip_frame() == info.link_name.as_str())
             .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         generate_joint_trajectory(
@@ -261,16 +254,12 @@ impl CartesianPath for LinSegment {
 ///
 /// # Errors
 ///
-/// [`MoveItErrorCode::Failure`] if no [`KINEMATICS_SOLVERS`] entry can be
-/// built for `group_name` (upstream's `NoSolverException`).
+/// [`MoveItErrorCode::Failure`] if no [`moveit_kinematics::KINEMATICS_SOLVERS`]
+/// entry can be built for `group_name` (upstream's `NoSolverException`).
 fn solver_tip_frame(robot_model: &RobotModel, group_name: &str) -> Result<String> {
     let params = SolverParams::default();
-    KINEMATICS_SOLVERS
-        .iter()
-        .find_map(|registration| {
-            (registration.construct)(robot_model, group_name, &params)
-                .ok()
-                .map(|solver| solver.tip_frame().to_string())
-        })
+    resolve_solver(robot_model, group_name, DEFAULT_SOLVER_NAME, &params)
+        .ok()
+        .map(|solver| solver.tip_frame().to_string())
         .ok_or(Error::Code(MoveItErrorCode::Failure))
 }
