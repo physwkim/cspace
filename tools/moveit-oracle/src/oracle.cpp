@@ -843,11 +843,11 @@ public:
     if (!urdf_model_)
       throw std::runtime_error("failed to parse URDF at " + urdf_path);
 
-    auto srdf_model = std::make_shared<srdf::Model>();
-    if (!srdf_model->initString(*urdf_model_, srdf_xml))
+    srdf_model_ = std::make_shared<srdf::Model>();
+    if (!srdf_model_->initString(*urdf_model_, srdf_xml))
       throw std::runtime_error("failed to parse SRDF at " + srdf_path);
 
-    model_ = std::make_shared<moveit::core::RobotModel>(urdf_model_, srdf_model);
+    model_ = std::make_shared<moveit::core::RobotModel>(urdf_model_, srdf_model_);
     state_ = std::make_unique<moveit::core::RobotState>(model_);
     state_->setToDefaultValues();
     state_->update();
@@ -4914,7 +4914,8 @@ private:
   /// defaults rather than failing.
   bool ensureKinematicsSolver(const std::string& group_name)
   {
-    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    const moveit::core::RobotModelPtr& pilz_model = ensurePilzModel();
+    const moveit::core::JointModelGroup* group = pilz_model->getJointModelGroup(group_name);
     if (group == nullptr)
       return false;
     if (group->getSolverInstance() != nullptr)
@@ -4933,7 +4934,8 @@ private:
                                                                                                       "KinematicsBase");
     std::shared_ptr<kinematics::KinematicsBase> solver =
         loader->createSharedInstance("kdl_kinematics_plugin/KDLKinematicsPlugin");
-    if (!solver->initialize(node, *model_, group_name, model_->getRootLinkName(), { tips.back()->getName() },
+    if (!solver->initialize(node, *pilz_model, group_name, pilz_model->getRootLinkName(),
+                            { tips.back()->getName() },
                             /*search_discretization=*/0.005))
       return false;
 
@@ -4947,8 +4949,42 @@ private:
     // `std::map<std::string, SolverAllocatorFn>`, not a pointer-keyed map.
     std::map<std::string, moveit::core::SolverAllocatorFn> allocators;
     allocators[group_name] = [solver](const moveit::core::JointModelGroup*) { return solver; };
-    model_->setKinematicsAllocators(allocators);
+    pilz_model->setKinematicsAllocators(allocators);
     return group->getSolverInstance() != nullptr;
+  }
+
+  /// The `pilz_trajectory` op's own `RobotModel`, parsed from the same URDF
+  /// and SRDF as `model_` but never shared with any other op.
+  ///
+  /// `ensureKinematicsSolver` attaches a solver by calling
+  /// `setKinematicsAllocators`, which mutates the model in place and has no
+  /// inverse -- once a group has a solver, every later op in the same
+  /// process sees a model that answers `getSolverInstance()` differently
+  /// than it did before. Ops that branch on that (constraint-sampler
+  /// selection is the clearest) would then depend on whether a LIN or CIRC
+  /// request happened to precede them in the same NDJSON stream, which is
+  /// an ordering dependence no fixture records and no replay would
+  /// reproduce.
+  ///
+  /// A private model removes the question instead of answering it: `model_`
+  /// is never mutated, so there is no order-dependent state to measure. The
+  /// earlier version excluded PTP from attaching a solver for exactly this
+  /// reason; that exclusion is now about not doing pointless work rather
+  /// than about protecting shared state.
+  ///
+  /// Built on first use, not in the constructor: most oracle runs never
+  /// issue a pilz request, and a second `RobotModel` costs a full URDF/SRDF
+  /// walk.
+  const moveit::core::RobotModelPtr& ensurePilzModel()
+  {
+    if (!pilz_model_)
+    {
+      pilz_model_ = std::make_shared<moveit::core::RobotModel>(urdf_model_, srdf_model_);
+      pilz_state_ = std::make_unique<moveit::core::RobotState>(pilz_model_);
+      pilz_state_->setToDefaultValues();
+      pilz_state_->update();
+    }
+    return pilz_model_;
   }
 
   json pilzTrajectory(const json& request)
@@ -4959,7 +4995,10 @@ private:
     const std::string group_name = request.at("group_name").get<std::string>();
     const double sampling_time = request.at("sampling_time").get<double>();
 
-    const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+    // Every model/state reference below is the op's private pair, never the
+    // shared `model_`/`state_` -- see `ensurePilzModel`'s doc comment.
+    const moveit::core::RobotModelPtr& pilz_model = ensurePilzModel();
+    const moveit::core::JointModelGroup* group = pilz_model->getJointModelGroup(group_name);
     if (group == nullptr)
       throw std::runtime_error("unknown joint model group: " + group_name);
 
@@ -5003,8 +5042,8 @@ private:
     // validates it against `group_name`'s active joints, so seeding the
     // model default here instead would validate a state the request never
     // asked for.
-    auto scene = std::make_shared<planning_scene::PlanningScene>(model_);
-    moveit::core::RobotState start_state(*state_);
+    auto scene = std::make_shared<planning_scene::PlanningScene>(pilz_model);
+    moveit::core::RobotState start_state(*pilz_state_);
     for (const auto& [variable, value] : request.at("start_state").items())
       start_state.setVariablePosition(variable, value.get<double>());
     start_state.update();
@@ -5025,7 +5064,7 @@ private:
     const std::string goal_kind = goal.at("kind").get<std::string>();
     if (goal_kind == "joint")
     {
-      moveit::core::RobotState goal_state(*state_);
+      moveit::core::RobotState goal_state(*pilz_state_);
       for (const auto& [variable, value] : goal.at("joints").items())
         goal_state.setVariablePosition(variable, value.get<double>());
       goal_state.update();
@@ -5034,7 +5073,7 @@ private:
     else if (goal_kind == "cartesian")
     {
       geometry_msgs::msg::PoseStamped pose;
-      pose.header.frame_id = model_->getModelFrame();
+      pose.header.frame_id = pilz_model->getModelFrame();
       const auto position = goal.at("position").get<std::array<double, 3>>();
       const auto orientation = goal.at("orientation").get<std::array<double, 4>>();
       pose.pose.position.x = position[0];
@@ -5073,20 +5112,20 @@ private:
       req.path_constraints = constraint;
     }
 
-    // PTP is deliberately excluded: attaching a solver it never consults
-    // would still perturb the shared `model_` for every later op in the
-    // same process.
+    // PTP is excluded because it never consults a solver, not because
+    // attaching one would leak: `ensurePilzModel` gives this op a private
+    // model, so nothing outside it can observe the attachment.
     if ((generator == "lin" || generator == "circ") && !ensureKinematicsSolver(group_name))
       throw std::runtime_error("no kinematics solver could be attached to group " + group_name +
                                ", which " + generator + " needs for its Cartesian goal");
 
     std::unique_ptr<pilz::TrajectoryGenerator> trajectory_generator;
     if (generator == "ptp")
-      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorPTP>(model_, limits, group_name);
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorPTP>(pilz_model, limits, group_name);
     else if (generator == "lin")
-      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorLIN>(model_, limits, group_name);
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorLIN>(pilz_model, limits, group_name);
     else if (generator == "circ")
-      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorCIRC>(model_, limits, group_name);
+      trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorCIRC>(pilz_model, limits, group_name);
     else
       throw std::runtime_error("unsupported generator: " + generator);
 
@@ -5131,8 +5170,18 @@ private:
   moveit::core::RobotModelPtr model_;
   std::unique_ptr<moveit::core::RobotState> state_;
 
-  // For the `ik` op only.
+  // The `pilz_trajectory` op's private pair, built on first use by
+  // `ensurePilzModel` -- see that function's doc comment for why this op
+  // does not share `model_`.
+  moveit::core::RobotModelPtr pilz_model_;
+  std::unique_ptr<moveit::core::RobotState> pilz_state_;
+
+  // `urdf_model_` is the `ik` op's parsed URDF and `ensurePilzModel`'s
+  // input; both are kept so a second `RobotModel` can be built without
+  // re-reading and re-parsing the files the constructor already read.
   urdf::ModelInterfaceSharedPtr urdf_model_;
+  srdf::ModelSharedPtr srdf_model_;
+  // For the `ik` op only.
   KDL::Tree kdl_tree_;
   // Reseed draws between `ik` restart attempts (see `ik()`'s own doc
   // comment). Fixed-seeded for a reproducible oracle run; Phase 4's
