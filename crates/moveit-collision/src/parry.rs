@@ -137,12 +137,27 @@
 //!    pair as globally deepest among several simultaneously-interpenetrating
 //!    candidates, `|d|` two orders of magnitude smaller than panda's outlier
 //!    and well inside each pair's own bounding radius. The robot-vs-world
-//!    side shows the same presentation at scale: a seed-20260804, 3000-case
-//!    pr2 `right_arm` sweep (`PORTING-PLAN.md` §60) finds `robot_distance`
-//!    disagreeing with the oracle on 2647 of 3000 cases, of which 7 are this
-//!    presentation — a pair-ranking flip that also exceeds tolerance,
-//!    tallied separately by `tools/moveit-diff`'s
-//!    `robot_pair_flip_and_value_diverges`.
+//!    side shows the same presentation at scale, and — cross-robot — at a
+//!    far larger one too. Round 15 re-ran this crate's own `--collision` op
+//!    directly against today's tree (`PORTING-PLAN.md` §60/§67's own
+//!    command, which predates this module's own opening doc's pr2
+//!    `<mesh>` collision geometry even being compared): a seed-20260804,
+//!    3000-case pr2 `right_arm` sweep finds `robot_distance` pair-
+//!    disagreeing with the oracle on 2644 of 3000 cases (a second,
+//!    independent seed-999002 sweep: 2642/3000) — this presentation, not
+//!    (c)'s same-pair-and-diverges population below, is what actually
+//!    carries pr2's robot-vs-world side: of the *same-pair* population
+//!    disjoint from this flip count, only 2 of 356 (seed 20260804) / 0 of
+//!    358 (seed 999002) exceed `PORTING-PLAN.md` §5's `1e-4` policy
+//!    tolerance, the rest floating-point-scale noise (median `~3e-13`) on
+//!    an already-agreed positive clearance. A `panda_arm` cross-robot sweep
+//!    (seed 20260804, 2000 cases) shows the far-larger-magnitude instance
+//!    of this same presentation this doc already cited as one example
+//!    (`panda_link0`/`floor`, oracle ≈ `-1.9m` vs this backend ≈ `-0.1m`)
+//!    is in fact typical for that pair, not an outlier: it disagrees (any
+//!    magnitude) on 1360 of 2000 cases and exceeds the policy tolerance on
+//!    1261 of those (63%), median `|d| = 1.84m`, oracle consistently the
+//!    deeper side.
 //!
 //!    **(b) A magnitude plateau, for one pair both backends already agree
 //!    is deepest, across a range of states**: this backend's own answer for
@@ -238,14 +253,52 @@
 //!    below, so that question is still open and is not resolved by anything
 //!    in this doc.
 //!
+//!    Round 15 re-measured the caster-wheel-vs-`base_link` split this
+//!    question was originally raised against (`PORTING-PLAN.md`'s round-12
+//!    62-case sweep, never committed as a fixture and so not revisitable by
+//!    index) from a fresh, independently reproduced two-seed sample: of the
+//!    21 caster-wheel self-pair same-pair cases across both pr2 sweeps
+//!    above, 5 have this backend's depth exceeding the smaller of the two
+//!    contacting links' own bounding radius (`link_bounding_radius`) by
+//!    more than 2x — the same "geometrically implausible" bound
+//!    `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` already
+//!    tests for the oracle side — versus 16 within that bound; the
+//!    round-12 sweep's own 3-of-10/7-of-10 split is the same shape at a
+//!    different sample size, not a coincidence this round's independent
+//!    reproduction should be read as contradicting. The blocker for the
+//!    16-within-bound remainder is unchanged: confirming whether FCL's own
+//!    EPA search *within a triangle pair it does examine* converges to a
+//!    shallower-than-true answer requires reading FCL/libccd's own
+//!    penetration-depth source, not `moveit2`'s (the `distanceCallback`
+//!    call site read at
+//!    `~/work/moveit2/moveit_core/collision_detection_fcl/src/collision_common.cpp:471`
+//!    only confirms the *caller's* `num_max_contacts = 200` budget is not
+//!    the explanation — comfortably above `base_link`'s 96 triangles, so
+//!    contact-budget censoring is ruled out, but the search behavior
+//!    *inside* a single narrow-phase call is FCL's own code). No local
+//!    checkout of FCL itself (as opposed to `moveit2`, which depends on
+//!    it) was found on this machine, so per this project's own
+//!    reference-source rule this is reported as a blocker rather than
+//!    guessed at: closing this question needs either a local FCL/libccd
+//!    checkout or an oracle extension exposing FCL's per-contact
+//!    candidate depths (not just the max it already returns) for this
+//!    pair at a fixed state — the latter is not requested here, since no
+//!    upstream *header* was checked to confirm such a field is reachable
+//!    without patching FCL itself, and this crate does not own
+//!    `tools/moveit-oracle/`.
+//!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
 //!    different depths for the one pair.** The same seed-20260804 pr2
-//!    `right_arm` sweep that supplies (a)'s 7 pair-flip count has 2 cases
-//!    of this presentation instead (`tools/moveit-diff`'s
-//!    `robot_same_pair_and_value_diverges`, structurally disjoint from the
-//!    pair-flip tally by construction — a pair either matches or it does
-//!    not): `l_gripper_l_finger_tip_link`/`floor` and
+//!    `right_arm` sweep that supplies (a)'s pair-flip count has 2 cases of
+//!    this presentation instead, past `PORTING-PLAN.md` §5's `1e-4` policy
+//!    tolerance (`tools/moveit-diff`'s `robot_same_pair_and_value_diverges`,
+//!    structurally disjoint from the pair-flip tally by construction — a
+//!    pair either matches or it does not; round 15 reproduces this exactly
+//!    on today's tree, and an independent seed-999002 sweep of the same
+//!    size finds 0 — this presentation is a small, seed-sensitive
+//!    population on pr2, not a stable count):
+//!    `l_gripper_l_finger_tip_link`/`floor` and
 //!    `l_gripper_r_finger_tip_link`/`floor`, both with this backend
 //!    *deeper* (oracle -0.011274/-0.009943 vs this backend
 //!    -0.015686/-0.012375). Confirmed deeper-and-correct, not merely
@@ -259,6 +312,43 @@
 //!    cheap escape. So here the oracle's own re-collide-and-take-max-depth
 //!    search still misses this mesh's true deepest point; this backend's
 //!    independent EPA does not.
+//!
+//!    **Measured, not merely described, across three robots (round 15).**
+//!    Two independent pr2 `right_arm` sweeps (seeds 20260804/999002, 3000
+//!    cases each), one `panda_arm` sweep (2000 cases) and one fanuc
+//!    `manipulator` sweep (1500 cases), all via `tools/moveit-diff
+//!    --collision --tol-distance 0.0` (reports every case with any nonzero
+//!    disagreement, not only ones past a chosen tolerance), give this
+//!    deviation's actual shape on same-pair magnitude divergence (ranking
+//!    flips like (a) excluded, since those are a different presentation):
+//!    - **Never a `collision: bool` flip.** `self_collision`/
+//!      `robot_collision` matched the oracle in all 9500 cases sampled
+//!      across all four sweeps — this deviation only ever changes *how
+//!      deep*, never *whether*.
+//!    - **Never a sign flip either.** Zero of 108 (pr2 self-side, both
+//!      seeds, past the `1e-4` policy tolerance) / 179 (panda self-side) /
+//!      513 (fanuc self-side) same-pair-diverging cases disagree on the
+//!      sign of the reported distance — both backends always agree a
+//!      penetrating pair is penetrating.
+//!    - **Magnitude spans multiple orders and has no floor.** pr2 self-side
+//!      (both seeds combined): max `1.374e-1`, median `~5.0e-2`; panda
+//!      self-side: max `8.13e-2`, median `9.35e-3`; fanuc self-side: max
+//!      `2.15e-1`, median `1.77e-2` — the module doc's opening claim ("the
+//!      two numbers do not converge under any tolerance") with actual
+//!      medians and maxima, not only the hand-picked example pairs cited
+//!      above.
+//!    - **Oracle depth does not generally match the contacting link's own
+//!      radius.** The one documented instance of that (a different sweep,
+//!      `PORTING-PLAN.md` §119.1's case 104, `bl_caster_l_wheel_link`
+//!      within 7ppm of its own cylinder radius) does not generalize: of
+//!      this crate's own 65 pr2 self-side same-pair cases (seed 20260804),
+//!      0 have an oracle `|depth|` within even 40% of either contacting
+//!      link's own bounding radius (`link_bounding_radius`, same helper
+//!      `collision_parity.rs` already uses) — the wheel-family cases
+//!      (10/65) are all `>12%` off (`5.9e5`–`1.4e6` ppm), the
+//!      `base_bellow_link`/`torso_lift_link` family (55/65) all `>40%`
+//!      off. Case 104's near-exact match is that state's own coincidence,
+//!      not a signature of this deviation.
 //!
 //!    None of the three presentations comes from a different code path on
 //!    the robot-vs-world side: [`distance_self`]/[`distance_robot`] both
