@@ -252,10 +252,13 @@ mod tests {
     /// | 0.005  | 20     | 30/30         | 30/30          |
     ///
     /// `(0.01, 5)` — the smallest budget in the sweep that still scored
-    /// 30/30 unwired failures — is used below. Every value in this table
-    /// came from actually running the sweep against this crate's real
-    /// `sample_goal`, `select_default_sampler`, and `PlanningSceneValidityChecker`,
-    /// not derived from the uniform-sampling probability alone.
+    /// 30/30 unwired failures — is used below, and that row is what this
+    /// test's own loop re-measures and asserts exactly.
+    /// `window_budget_sweep_matches_the_documented_table` (below) commits
+    /// the whole table as runnable code, not just the selected row —
+    /// `PORTING-PLAN.md` §195: leaving the other four rows as prose citing
+    /// a sweep nothing kept true is the same defect round 24's own
+    /// four-scenario sweep left behind, just smaller.
     #[test]
     fn constrained_branch_is_load_bearing_not_merely_invoked() {
         let (model, srdf) = load_panda();
@@ -332,6 +335,97 @@ mod tests {
                 (-window..=window).contains(&value),
                 "seed {seed}: wired sample's panda_joint1 = {value} escaped the +/-{window} \
                  window sample_goal was supposed to enforce"
+            );
+        }
+    }
+
+    /// Commits the full parameter-selection table from
+    /// `constrained_branch_is_load_bearing_not_merely_invoked`'s own doc
+    /// comment as runnable code: all five `(window, budget)` pairs, 30
+    /// seeds each, tallying the same two counts that test's loop already
+    /// asserts for its one selected row. `PORTING-PLAN.md` §195 -- a number
+    /// cited in a doc comment is a claim, not an observation, the moment
+    /// something (here, the choice of `(0.01, 5)`) depends on it, and
+    /// nothing kept the other four rows true until this test existed.
+    #[test]
+    fn window_budget_sweep_matches_the_documented_table() {
+        let (model, srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let mut default_state = RobotState::new(&model);
+        default_state.set_to_default_values();
+
+        // (window, budget, expected unwired-fail count, expected wired-success count)
+        let cases = [
+            (0.05, 50u32, 14u32, 30u32),
+            (0.05, 5, 29, 30),
+            (0.01, 10, 30, 30),
+            (0.01, 5, 30, 30),
+            (0.005, 20, 30, 30),
+        ];
+
+        for (window, budget, expected_unwired_fail, expected_wired_success) in cases {
+            let mut unwired_fail = 0u32;
+            let mut wired_success = 0u32;
+
+            for seed in 0..30u64 {
+                let constraint =
+                    JointConstraint::new(&model, "panda_joint1", 0.0, window, window, 1.0).unwrap();
+                let mut goal_constraints = KinematicConstraintSet::new();
+                goal_constraints.push(Constraint::Joint(constraint));
+
+                let mut scene = PlanningScene::new(&model, &srdf);
+                let env = ParryCollisionEnv::default();
+                let checker = PlanningSceneValidityChecker::new(
+                    &mut scene,
+                    &env,
+                    Default::default(),
+                    None,
+                    &space,
+                );
+
+                let mut unwired_rng = ChaCha8Rng::seed_from_u64(seed);
+                let unwired = sample_goal(
+                    &space,
+                    &checker,
+                    &goal_constraints,
+                    &default_state,
+                    None,
+                    &mut unwired_rng,
+                    budget,
+                );
+                if unwired.is_none() {
+                    unwired_fail += 1;
+                }
+
+                let sampler = select_default_sampler(
+                    &model,
+                    "panda_arm",
+                    goal_constraints.constraints(),
+                    None,
+                    vec![],
+                    4,
+                )
+                .expect("no subgroup_solvers, so select_default_sampler cannot error here")
+                .expect("a single JointConstraint always yields a JointConstraintSampler");
+                let mut wired_rng = ChaCha8Rng::seed_from_u64(seed);
+                let wired = sample_goal(
+                    &space,
+                    &checker,
+                    &goal_constraints,
+                    &default_state,
+                    Some(sampler.as_ref()),
+                    &mut wired_rng,
+                    budget,
+                );
+                if wired.is_some() {
+                    wired_success += 1;
+                }
+            }
+
+            assert_eq!(
+                (unwired_fail, wired_success),
+                (expected_unwired_fail, expected_wired_success),
+                "window {window}, budget {budget}: moved off the documented table"
             );
         }
     }
