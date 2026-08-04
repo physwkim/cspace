@@ -1,4 +1,4 @@
-// Copyright (c) 2020, PickNik Inc.
+// Copyright (c) 2023, PickNik Inc.
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //

@@ -2,7 +2,13 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from octomap 1.9.7 (Debian package liboctomap-dev 1.9.7+dfsg-3.1build3).
+// Ported from octomap 1.9.7 (Debian package liboctomap-dev 1.9.7+dfsg-3.1build3,
+// version confirmed by octomap-config.cmake's OCTOMAP_VERSION inside the
+// moveit-rs oracle container). This crate root re-exports iter/key/node/tree
+// and carries no ported logic of its own -- see each module's own provenance
+// comment for its exact octomap header citations; this one names the header
+// shared by the whole crate's addressing scheme:
+//   include/octomap/OcTreeKey.h
 
 //! A probabilistic occupancy octree, the moveit-rs counterpart of the
 //! `octomap` C++ library moveit2 depends on.
@@ -460,17 +466,23 @@
 //! `octomap/OcTreeBaseImpl.hxx` are not in either header cache this crate
 //! has used before (`OccupancyOcTreeBase.h` only forward-declares these
 //! methods and `#include`s the `.hxx` at its own line 506 for the template
-//! body) -- fetched fresh this round from inside the `moveit-rs` oracle
-//! container (`moveit-rs/oracle:a75076d8ca13d25b`,
-//! `/usr/include/octomap/{OccupancyOcTreeBase,OcTreeBaseImpl,OcTreeDataNode}.hxx`),
-//! same package already pinned by this crate (`dpkg -s liboctomap-dev` in
-//! that container: `1.9.7+dfsg-3.1build3`, matching `key.rs`'s existing
-//! provenance exactly, not a new version to verify). The ROS-side wiring
-//! (`octomap_msgs::msg::Octomap`, `octomap_msgs/conversions.h`) is a
-//! citation this crate has not made before: same container,
-//! `/opt/ros/rolling/include/octomap_msgs/octomap_msgs/conversions.h`,
-//! package `ros-rolling-octomap-msgs 2.0.1-1noble.20260113.095330`
-//! (`dpkg -s`), matching `package.xml`'s `<version>2.0.1</version>`.
+//! body) -- originally fetched from inside the `moveit-rs` oracle container
+//! (`moveit-rs/oracle:a75076d8ca13d25b`,
+//! `/usr/include/octomap/{OccupancyOcTreeBase,OcTreeBaseImpl,OcTreeDataNode}.hxx`,
+//! same package already pinned by this crate: `dpkg -s liboctomap-dev` in
+//! that container gave `1.9.7+dfsg-3.1build3`, matching `key.rs`'s existing
+//! provenance). octomap 1.9.7 (tag `v1.9.7`) is now vendored at
+//! `third_party/octomap/octomap/` and every citation below has been
+//! re-opened and re-measured directly against that checkout, not carried
+//! forward from the container fetch on trust -- paths below are
+//! repo-relative from there. The ROS-side wiring
+//! (`octomap_msgs::msg::Octomap`, `octomap_msgs/conversions.h`) is not
+//! vendored (`third_party/` has `geometric_shapes`, `srdfdom`, `octomap`,
+//! not `octomap_msgs`), so that half of this citation still comes from the
+//! oracle container: `/opt/ros/rolling/include/octomap_msgs/octomap_msgs/
+//! conversions.h`, package `ros-rolling-octomap-msgs
+//! 2.0.1-1noble.20260113.095330` (`dpkg -s`), matching `package.xml`'s
+//! `<version>2.0.1</version>`.
 //!
 //! **`Octomap.msg`:**
 //!
@@ -492,8 +504,11 @@
 //! `data` is tree structure, decodable only in the context of `resolution`
 //! and `id` the sibling fields already carry.
 //!
-//! **`binary == true` (`writeBinaryData`/`readBinaryData`,
-//! `OccupancyOcTreeBase.hxx:930-1086`):** the root node's own value is
+//! **`binary == true` (`third_party/octomap/octomap/include/octomap/
+//! OccupancyOcTreeBase.hxx`: `readBinaryData` 931-943, `writeBinaryData`
+//! 946-951, `readBinaryNode` 954-1022, `writeBinaryNode` 1025-1086 --
+//! function-body boundaries taken by brace depth, not by eyeballed line
+//! range):** the root node's own value is
 //! never written; `writeBinaryData` calls `writeBinaryNode(s, root)`
 //! directly. `writeBinaryNode` emits exactly 2 bytes per node it is called
 //! on: 8 children packed 2 bits each (`std::bitset<8>` split into two
@@ -510,13 +525,19 @@
 //! counterpart). `readBinaryData` refuses to read into a tree that already
 //! has a root (`this->root` non-null is an error, not silently merged).
 //!
-//! **`binary == false` (`writeData`/`readData`, `OcTreeBaseImpl.hxx:762-836`
-//! plus `OcTreeDataNode.hxx:114-127`):** per node, depth first: the node's
-//! raw `value` (`f32`, `sizeof(float)` bytes, a direct `s.write((char*)
-//! &value, sizeof(value))` memory dump -- native/host-endian, which on
-//! every platform this workspace's CI or the oracle container runs on is
-//! little-endian, so `f32::from_le_bytes` is the correct read regardless of
-//! upstream's lack of an explicit endianness contract), then 1 byte with 1
+//! **`binary == false` (`third_party/octomap/octomap/include/octomap/
+//! OcTreeBaseImpl.hxx`: `writeData` 763-768, `writeNodesRecurs` 771-798,
+//! `readData` 801-821, `readNodesRecurs` 824-844; `OcTreeDataNode.hxx`:
+//! `readData` 114-117, `writeData` 121-124):** per node, depth first: the
+//! node's raw `value` (`f32`, `sizeof(float)` bytes, a direct
+//! `s.write((char*) &value, sizeof(value))` memory dump -- native-endian.
+//! Checked, not assumed: `rg -ni endian third_party/octomap/octomap/
+//! include/octomap/ third_party/octomap/octomap/src/` has zero hits
+//! anywhere in upstream octomap, so there genuinely is no explicit
+//! endianness contract to read, only the native-endian fact the memory
+//! dump itself implies -- every platform this workspace's CI or the oracle
+//! container runs on is little-endian, so `f32::from_le_bytes` is the
+//! correct read), then 1 byte with 1
 //! bit per child (bit set = child exists, recurse into existing children in
 //! index order after the byte). No 2-bit quantization here: every node's
 //! exact log-odds survives the round trip, at the cost of `sizeof(float) +
@@ -544,31 +565,49 @@
 //! read a `ColorOcTree`'s compact payload correctly regardless of `id`
 //! (structure-only, not verified for the full-data path).
 //!
-//! **Size estimate for a decoder in this crate, with basis stated (not
-//! "별도 기능 규모"):** the upstream algorithm just read is small --
-//! `readBinaryData`/`writeBinaryData`/`readBinaryNode`/`writeBinaryNode`
-//! together are ~150 non-blank C++ lines (`OccupancyOcTreeBase.hxx:930-1086`),
-//! `writeNodesRecurs`/`readNodesRecurs`/`writeData`/`readData` another ~55
-//! (`OcTreeBaseImpl.hxx:762-836`), `OcTreeDataNode::readData`/`writeData`
-//! another ~10 (`OcTreeDataNode.hxx:114-127`) -- **~215 lines of upstream
-//! C++ algorithm** for both variants combined. This crate's own established
-//! ratio of Rust source to that source (`node.rs`: 132 lines of
-//! implementation, matching ~40 lines of the upstream headers it ports) is
-//! roughly 3:1 once `Result`-based error handling (upstream silently
-//! leaves a truncated read as a `std::istream` fail-bit the caller may
-//! never check; a Rust decoder over `&[u8]` must return `Result` at every
-//! recursive step instead of panicking on a short buffer) and this crate's
-//! own doc-comment density are counted -- giving **roughly 400-500 lines**
-//! of implementation and docs for both the binary and full decode/encode
-//! paths together. Using `node.rs`'s own measured test-to-implementation
-//! ratio (81 lines of test code against 132 lines of implementation,
-//! ~0.6:1) for per-invariant-boundary coverage (empty tree, single leaf,
-//! one full 8-child level, nested recursion, truncated buffer, wrong `id`,
-//! and an oracle-captured golden fixture round-trip comparable to
-//! `octomap_parity.rs`'s existing pattern) adds **roughly 250-300 more
-//! lines**. Total: **roughly 650-800 lines**, stated as a range because it
-//! has not been built -- not a single unmeasured number, and not "별도
-//! 기능 규모".
+//! **Size estimate, corrected (§161): state the unit, not just a number.**
+//! The paragraph below originally gave "~215 lines of upstream C++" from
+//! eyeballed ranges and a "roughly 650-800 lines" Rust-implementation
+//! estimate, placed next to p9-ros's own "~130 lines" as if the two were
+//! the same measurement -- they were never commensurable (upstream
+//! algorithm size versus estimated Rust output including tests and error
+//! handling), and presenting them side by side read as a size
+//! disagreement that was not actually one. With `third_party/octomap` now
+//! vendored, the upstream number is exact rather than eyeballed: the
+//! *read* path this crate needs first (`readBinaryData` 13 +
+//! `readBinaryNode` 69 + `OcTreeBaseImpl::readData` 21 +
+//! `readNodesRecurs` 21 + `OcTreeDataNode::readData` 4, brace-depth
+//! function-body boundaries, see the two paragraphs above for exact
+//! line ranges) is **128 lines of upstream C++** -- matching p9-ros's own
+//! ~130 exactly, now confirmed rather than coincidental. Adding the write
+//! path (`writeBinaryData` 6 + `writeBinaryNode` 62 +
+//! `OcTreeBaseImpl::writeData` 6 + `writeNodesRecurs` 28 +
+//! `OcTreeDataNode::writeData` 4) gives **234 lines of upstream C++** for
+//! both directions combined.
+//!
+//! Separately, and not comparable to the number above: this crate's own
+//! established ratio of Rust source to the upstream it ports (`node.rs`:
+//! 132 lines of implementation against ~40 lines of the upstream headers
+//! it ports, roughly 3:1) applied to the 234-line upstream figure, once
+//! `Result`-based error handling is counted (upstream silently leaves a
+//! truncated read as a `std::istream` fail-bit the caller may never
+//! check; a Rust decoder over `&[u8]` must return `Result` at every
+//! recursive step instead of panicking on a short buffer), gives
+//! **roughly 400-500 lines** of Rust implementation and docs for both
+//! decode and encode paths together. Using `node.rs`'s own measured
+//! test-to-implementation ratio (81 lines of test code against 132 lines
+//! of implementation, ~0.6:1) for per-invariant-boundary coverage (empty
+//! tree, single leaf, one full 8-child level, nested recursion, truncated
+//! buffer, wrong `id`, and an oracle-captured golden fixture round-trip
+//! comparable to `octomap_parity.rs`'s existing pattern) adds **roughly
+//! 250-300 more lines** of test code. Total: **roughly 650-800 lines of
+//! Rust** (implementation + docs + tests), a distinct unit from the
+//! 128/234-line upstream C++ figures above, both stated as ranges because
+//! neither has been built -- not a single unmeasured number, and not
+//! "별도 기능 규모". §157's decision stands: the decoder lives in this
+//! crate, `Node`/`OcTree::root` do not become public; 128-234 lines of
+//! upstream algorithm is a size this crate absorbs directly, not a reason
+//! to change that boundary.
 //!
 //! # Round 27, item 1(b): `refineContactNormals`'s octomap operations
 //!
