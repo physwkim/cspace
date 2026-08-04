@@ -14602,3 +14602,64 @@ could not be re-run."
 작업을 연기시켰고, 그 연기는 지금도 유효한데 근거는 재현 불가능하다.
 **규칙: 설계를 바꾸거나 작업을 연기시키는 측정은 커밋된 실행 가능한
 코드여야 한다.** 보고서의 표는 그 코드의 출력이지 그 자체가 증거가 아니다.
+
+## §188 오라클이 볼 수 없는 값을 오라클이 계산하면, 그건 오라클이 아니다
+
+§185가 연 구멍 — 블렌더 966줄에 상류 대조가 하나도 없다 — 을 `pilz_blend`
+op으로 닫았다(`b63171d`). p1-joints의 요청 문서가 정수 필드 세 개를 요구했고,
+그 중 둘만 넣었다. 뺀 하나가 이 항목이다.
+
+`searchIntersectionPoints`와 `determineTrajectoryAlignment`는 둘 다
+`TrajectoryBlenderTransitionWindow`의 **private** 멤버라서 바깥에서 부를 수
+없다. 그런데 앞의 두 인덱스는 여전히 진짜 상류 산출물이다 — `blend()`가
+응답 궤적을 정확히 그 인덱스에서 자르고, 그 자름이 근사가 아니라 정확하기
+때문이다. `[0, first_intersection_index)` 복사 루프는
+`res.first_trajectory`의 waypoint 수를 `first_intersection_index`와 **같게**
+만들고, `[second_intersection_index + 1, count)` 루프는
+`res.second_trajectory`의 수를 입력 수에서 `second_intersection_index + 1`을
+뺀 값으로 만든다. 정확한 복사 루프 두 개를 역산하는 것은 상류가 계산한 값을
+*복원*하는 것이지 *재계산*하는 것이 아니다.
+
+`blend_align_index`에는 그런 증인이 없다. 그것은 `blendTrajectoryCartesian`의
+샘플링 산술로만 흘러들어가고 응답 모양에 살아남는 경계를 하나도 결정하지
+않는다. 그래서 그 필드를 넣으려면 `determineTrajectoryAlignment`의 여섯 줄을
+**오라클 쪽에서** 다시 돌려야 하고, 그러면 포트는 상류의 실행이 아니라
+`oracle.cpp`의 재구현과 비교된다. 그건 픽스처가 자기 헬퍼를 재는 것이고,
+오라클이 존재하는 이유가 정확히 그것을 하지 않기 위해서다.
+
+**규칙: 오라클은 상류가 산출한 값만 방출한다. 상류가 내부에 감춘 값을
+오라클이 유도해서 내보내면, 그 필드는 대조가 아니라 두 번째 구현이다.**
+감춰진 값이 필요하면 그것이 실제로 결과를 바꾸는 자리에서 재라 — 여기서는
+`blend_trajectory`의 waypoint들이고, 요청 문서의 케이스 B가 바로 그 분기가
+출력을 바꾸도록 만들려고 존재한다.
+
+### 188.1 역산이 맞는지는 상류 자신의 로그가 확인해줬다
+
+운 좋게도 `searchIntersectionPoints`가 찾은 인덱스를 `RCLCPP_INFO`로 찍는다.
+두 케이스를 돌린 로그가 `index: 8` / `index: 7`, `index: 8` / `index: 3`이고,
+복사 루프 역산으로 얻은 값과 정확히 일치했다. 역산이 옳다는 것을 추론이 아니라
+독립 관측으로 확인한 셈이다. 다만 이 로그는 계약이 아니다 — 상류가 로그 한 줄을
+지우면 사라진다. 그래서 역산을 로그에 의존시키지 않았고, 이 확인은 일회성
+교차검증으로만 기록한다.
+
+### 188.2 첫 실행에서 정수는 전부 일치했다
+
+| 항목 | 케이스 A (대칭 0.1) | 케이스 B (비대칭 0.3) |
+|---|---:|---:|
+| 세그먼트 1 / 2 입력 waypoint | 16 / 16 | 16 / 9 |
+| `first_intersection_index` | 8 | 8 |
+| `second_intersection_index` | 7 | 3 |
+| 출력 first / blend / second | 8 / 8 / 8 | 8 / 8 / 5 |
+| `determineTrajectoryAlignment` 분기 | `else` (8 == 8) | `way_point_count_1 > way_point_count_2` (8 > 4) |
+
+포트가 요청 문서에 자기 값으로 적어둔 숫자와 전부 같다 — 두 분기 모두, 두
+인덱스 모두, 입출력 waypoint 수 모두. 분기 커버리지 구멍은 이것으로 닫혔다.
+
+아직 대조되지 않은 것은 waypoint의 **수치**다. 정수가 맞았다고 수치가 맞는 것은
+아니고, 여기에 붙일 tolerance는 아직 모른다 — 실제 응답이 생긴 지금 측정해서
+정해야 하며 LIN의 숫자를 그대로 가져다 쓰면 안 된다(CLAUDE.md의 tolerance 규칙).
+그 측정이 p1-joints의 다음 작업이다.
+
+오라클 스탬프는 `3537df47121b8c7f` → `043ed31a2186fe4e`로 올랐고,
+`verify-fixture-replay.sh`는 49/49 identical, 0 DRIFTED다 — 헬퍼 세 개를
+`pilzTrajectory`에서 들어낸 리팩터가 기존 픽스처를 한 바이트도 바꾸지 않았다(§149).
