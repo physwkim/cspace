@@ -20,3 +20,9 @@ Upstream root for this crate: `/home/stevek/work/moveit2` (pinned
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `crates/moveit-planners-stomp/src/lib.rs:5-6` (pre-fix) | Citation `moveit_planners/stomp/` (bare directory) resolves to 20 upstream files but the license gate's `len(resolved) == 1` branch skips retention checking for it entirely -- not a compliance miss (checked: the only file among those 20 with a different (year, holder) pair, `multivariate_gaussian.{h,hpp}` 2009 Willow Garage, is not ported by this crate and is already retained by moveit-sampling), but an unchecked citation | CONFIRMED, narrowed | `/home/stevek/work/moveit2/moveit_planners/stomp/` directory listing (20 files) cross-referenced against this crate's own per-module citations, which name exactly 6 of them | `0ca9158` |
+
+## §167.6 re-check (this round)
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-planners-stomp/src/lib.rs:5-11` (post-`0ca9158`) | Still the directory+indented-filenames shape (six files named under two directory lines), not a bare directory with nothing indented beneath it -- the newly-closed parser hole does not apply here | CONFIRMED, no regression | Read in this tree; `tools/ci/verify-upstream-license-provenance.sh` run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
