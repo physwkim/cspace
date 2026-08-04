@@ -697,16 +697,16 @@ impl DistanceField for PropagationDistanceField {
     ///
     /// Upstream sorts the old/new point sets with a comparator ordering by
     /// `(z, y, x)` (`CompareEigenVector3i`), for cache locality of the
-    /// `std::set` it builds — not for correctness: the resulting
-    /// `old_not_new`/`new_not_old` sets feed `addNewObstacleVoxels`, whose
-    /// output is a fixed point over the whole batch regardless of the order
-    /// voxels are seeded in (ties in propagation distance only affect which
-    /// of several equidistant obstacle points is recorded as
-    /// `closest_point_`, never the recorded *distance* — exactly the
-    /// invariant upstream's own `areDistanceFieldsDistancesEqual` test
-    /// helper checks, by comparing `distance_square_` and
-    /// `negative_distance_square_` only). This port uses a plain
-    /// `(x, y, z)`-ordered `BTreeSet` instead.
+    /// `std::set` it builds — not for correctness: `old_not_new` feeds
+    /// `removeObstacleVoxels` and the (occupancy-filtered) `new_not_old`
+    /// feeds `addNewObstacleVoxels`, and each of those propagation passes is
+    /// a fixed point over its whole batch regardless of the order voxels are
+    /// seeded in (ties in propagation distance only affect which of several
+    /// equidistant obstacle points is recorded as `closest_point_`, never
+    /// the recorded *distance* — exactly the invariant upstream's own
+    /// `areDistanceFieldsDistancesEqual` test helper checks, by comparing
+    /// `distance_square_` and `negative_distance_square_` only). This port
+    /// uses a plain `(x, y, z)`-ordered `BTreeSet` instead.
     fn update_points_in_field(&mut self, old_points: &[Vector3<f64>], new_points: &[Vector3<f64>]) {
         let mut old_set = BTreeSet::new();
         for point in old_points {
