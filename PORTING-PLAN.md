@@ -14259,3 +14259,69 @@ A가 B를 움직였다고 쓰지 않는다.** 같은 라운드에 다른 수정�
 이것은 메모리의 `record-causes-as-falsifiable-predictions`가 예측한 그대로
 발생했다 — 일관되지만 측정되지 않은 원인이 반증 가능한 형태로 적혀 있었고,
 되돌려 보니 반증됐다.
+
+## §182 다섯 명령이 처음으로 동시에 초록이다 — 그리고 같은 결함이 한 크레이트 건너에 남았다
+
+p6-totg 라운드 33이 §178이 만든 붉은 줄을 닫았다. §178 이후 처음으로
+병합 게이트 다섯이 한 커밋에서 전부 통과한다:
+
+```console
+$ cargo fmt --all -- --check                    # clean
+$ cargo clippy --workspace --all-targets -- -D warnings   # clean
+$ cargo nextest run --workspace --no-fail-fast  # 1543 passed, 4 skipped
+$ cargo test --doc --workspace                  # ok
+$ cargo doc --workspace --no-deps               # Generated ... 21 other files
+```
+
+패널 보고에 "pilz 3건 known-red per §177" 같은 문장이 더 이상 유효하지
+않다. §177은 닫혔고 `cargo doc`도 닫혔다. 앞으로 자기 브랜치에서 빨간
+것을 보면 그것은 자기 것이다.
+
+### 182.1 구조적 수정은 경계별로 물린다
+
+`TotgOptions::resample_dt`를 `pub(crate)` + 검증하는
+`with_resample_dt` + 읽기 전용 `resample_dt()`로 바꾼 것이
+구조적인지 실측했다. `with_resample_dt`의 검증을 `if false`로 죽이면
+정확히 다섯이 빨개진다:
+
+```text
+resample_dt_nan_is_rejected
+resample_dt_negative_is_rejected_not_silently_truncated
+resample_dt_positive_infinity_is_rejected
+resample_dt_negative_infinity_is_rejected
+resample_dt_zero_is_rejected_not_hung
+```
+
+시나리오당 하나가 아니라 **경계당 하나**다 — NaN, 음수, ±무한, 0. 이것이
+"Replace the primitive" 절이 요구하는 모양이고, 서사형 테스트였으면 다섯
+중 하나만 물었을 것이다.
+
+크레이트 안의 쓰기 자리는 둘뿐이다: `Default`(0.1, 유효)와
+`with_resample_dt`(검증됨). 구조체 리터럴 생성은 `Default` 하나뿐이므로
+지금은 우회로가 없다. 다만 `pub(crate)`이므로 **같은 크레이트 안에서**
+새 리터럴을 쓰면 우회가 가능하다 — 타입으로 막힌 것이 아니라 생성 자리가
+하나뿐이어서 막힌 것이다. 이 구분을 문서에 적어 두지 않으면 다음 라운드가
+"unrepresentable"을 액면 그대로 읽는다.
+
+### 182.2 같은 결함이 한 크레이트 건너에 그대로 있다
+
+p6-totg가 UNFIXED로 올렸고, 병합 후 확인했다.
+`crates/moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs`:
+
+```text
+:83   resample_dt: f64,
+:91   pub fn new(path_tolerance: f64, resample_dt: f64, min_angle_change: f64) -> Self
+:94       resample_dt,
+:117      self.resample_dt,
+```
+
+`new`는 아무것도 검증하지 않고 저장하며, 잘못된 값은 `adapt()`가 돌 때에야
+`Err`로 나타난다. 방금 `TotgOptions`에서 닫은 것과 **같은 이중 의미**다 —
+필드가 "검증된 값"과 "아직 검증 안 된 값" 둘 다를 뜻한다. p6-TOTG는 이
+크레이트를 소유하지 않으므로 옳게 라우팅했다.
+
+**"고친 자리의 이웃 크레이트에 같은 결함이 있는가"는 CLAUDE.md의 defect-
+family 규칙이 이미 요구하는 것이고, 이번에는 소유권 경계가 그것을 한
+라운드 늦췄다.** 소유자 규칙과 결함 가족 규칙이 부딪히는 자리이며, 답은
+라우팅이지 월권이 아니다 — 다만 라우팅된 항목은 다음 라운드의 브리프에
+들어가야 하고 UNFIXED 목록에서 조용히 늙으면 안 된다.
