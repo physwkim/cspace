@@ -71,6 +71,17 @@
 //! single parameter, a plain data grouping with no behavior of its own, not
 //! a step toward that same trait.
 //!
+//! # Round 24: the `into_uniformly_timed` invariant now carries its own test
+//!
+//! Round 23 asserted that [`conversion_functions::UnparameterizedTrajectory`]
+//! rules out two sides silently time-parameterizing the same trajectory,
+//! because the only path to a real `RobotTrajectory` is
+//! `into_uniformly_timed`. That claim rested on prose alone. It now carries
+//! a `compile_fail` doctest on `UnparameterizedTrajectory` itself,
+//! demonstrating that the wrapped `RobotTrajectory` cannot be reached any
+//! other way -- not by convention, but because the field is private and no
+//! other public method exposes it.
+//!
 //! # Not ported: the ROS/task-engine layer (D1/D2 exclusion)
 //!
 //! `stomp_moveit_planning_context.{hpp,cpp}`'s ROS-specific pieces (goal
