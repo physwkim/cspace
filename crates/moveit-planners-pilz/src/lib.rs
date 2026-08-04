@@ -24,7 +24,10 @@
 //!   trapezoidal/triangular velocity profile shared by every Pilz trajectory
 //!   type.
 //! - [`path_circle`] — `path_circle_generator.{hpp,cpp}`: three-point and
-//!   center-plus-two-point circle solving for `CIRC` motions.
+//!   center-plus-two-point circle solving for `CIRC` motions, plus
+//!   [`path_circle::PathCircle`], the interpolated arc that consumes that
+//!   geometry (independently derived from LGPL-2.1-or-later `orocos_kdl`, not
+//!   line-ported — see that type's own module doc).
 //! - [`limits`] — `joint_limits_container.{hpp,cpp}`,
 //!   `joint_limits_extension.hpp`, `limits_container.{hpp,cpp}`: per-joint
 //!   and Cartesian limit storage and fusion.
@@ -47,9 +50,13 @@
 //!   straight-line Cartesian path `LIN` samples.
 //! - [`trajectory_generator_lin`] — `trajectory_generator_lin.{hpp,cpp}`: the
 //!   concrete straight-line generator.
+//! - [`trajectory_generator_circ`] — `trajectory_generator_circ.{hpp,cpp}`:
+//!   the concrete circular-arc generator, composed with [`path_circle`]'s
+//!   [`path_circle::PathCircle`] — independently derived, not a line-by-line
+//!   port; see that type's own module doc for why.
 //!
-//! Not yet in scope, planned for later rounds: the concrete `_circ`
-//! generator and `trajectory_blender_transition_window`.
+//! Not yet in scope, planned for later rounds:
+//! `trajectory_blender_transition_window`.
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -105,6 +112,7 @@ pub mod path_circle;
 pub mod path_line;
 pub mod trajectory_functions;
 pub mod trajectory_generator;
+pub mod trajectory_generator_circ;
 pub mod trajectory_generator_lin;
 pub mod trajectory_generator_ptp;
 pub mod velocity_profile;

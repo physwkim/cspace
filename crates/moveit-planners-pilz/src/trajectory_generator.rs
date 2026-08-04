@@ -8,8 +8,8 @@
 
 //! Request validation shared by every Pilz trajectory generator
 //! (`PTP`/`LIN`/`CIRC`, all three now in this crate's scope — see
-//! [`crate::trajectory_generator_ptp`]/[`crate::trajectory_generator_lin`]
-//! and this crate's own `trajectory_generator_circ` module).
+//! [`crate::trajectory_generator_ptp`]/[`crate::trajectory_generator_lin`]/
+//! [`crate::trajectory_generator_circ`]).
 //!
 //! Upstream `TrajectoryGenerator`'s body is dominated by the
 //! `validateRequest`/`checkXxx` family, validating a
@@ -108,8 +108,8 @@
 //!   [`crate::velocity_profile::VelocityProfileAtrap`]) is ported as
 //!   [`crate::velocity_profile_trap::VelocityProfileTrap`] — see that type's
 //!   own module doc — and used by both
-//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] and this
-//!   crate's own `trajectory_generator_circ::TrajectoryGeneratorCirc`.
+//!   [`crate::trajectory_generator_lin::TrajectoryGeneratorLin`] and
+//!   [`crate::trajectory_generator_circ::TrajectoryGeneratorCirc`].
 //! - `setMaxCartesianSpeed` reads an optional per-request Cartesian speed
 //!   override (`req.max_cartesian_speed`, a Pilz-specific `moveit_msgs`
 //!   extension field) with a fallback to `cartesian_limits.max_trans_vel`.
@@ -207,9 +207,9 @@ pub enum CircPathConstraintKind {
 pub struct CircPathConstraint {
     /// Upstream `req.path_constraints.name`.
     pub kind: CircPathConstraintKind,
-    /// The link `point` is expressed for. Only read by this crate's own
-    /// `trajectory_generator_circ::TrajectoryGeneratorCirc`'s joint-space
-    /// goal branch, matching upstream's own
+    /// The link `point` is expressed for. Only read by
+    /// [`crate::trajectory_generator_circ::TrajectoryGeneratorCirc`]'s
+    /// joint-space goal branch, matching upstream's own
     /// `extractMotionPlanInfo`, which resolves `info.link_name` from here
     /// rather than from the (absent, for a joint goal) Cartesian goal
     /// constraint. Upstream
@@ -366,10 +366,10 @@ pub struct MotionPlanInfo<'m> {
     /// and with `req.start_state` applied. Upstream `start_scene`.
     pub start_scene: Arc<PlanningScene<'m>>,
     /// `CIRC`'s resolved auxiliary point (kind plus its final position, after
-    /// a Cartesian goal's `target_point_offset` is applied — see this
-    /// crate's own `trajectory_generator_circ` module doc for that
-    /// adjustment). `None` for `PTP`/`LIN`, whose `extract_motion_plan_info`
-    /// never writes it. Upstream `circ_path_point`.
+    /// a Cartesian goal's `target_point_offset` is applied — see
+    /// [`crate::trajectory_generator_circ`]'s own doc for that adjustment).
+    /// `None` for `PTP`/`LIN`, whose `extract_motion_plan_info` never writes
+    /// it. Upstream `circ_path_point`.
     pub circ_aux_point: Option<CircPathConstraint>,
 }
 
