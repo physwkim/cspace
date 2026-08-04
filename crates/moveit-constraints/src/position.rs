@@ -138,18 +138,21 @@ impl PositionConstraint {
     /// mobile (poses are kept relative to `frame_id` and resolved fresh on
     /// every `decide()`).
     ///
+    /// `weight <= f64::EPSILON` (including negative weights) normalizes to
+    /// `1.0` rather than erroring — see
+    /// [`crate::JointConstraint::new`]'s "Weight normalization" doc section
+    /// for the full rationale and the D6/D14 boundary this is not D6.
+    ///
     /// # Errors
     ///
     /// [`Error::UnknownName`] if `link_name` is not in `model`.
-    /// [`Error::Construct`] if `frame_id` is empty, if `weight` is not
-    /// strictly positive (see [`crate::JointConstraint::new`]'s deviation
-    /// note on the same point), if a shape fails to build a [`Body`] (a
-    /// [`Shape::Cone`], [`Shape::Plane`] or [`Shape::OcTree`] region, or a
-    /// malformed mesh — upstream instead logs a warning and drops just that
-    /// region, keeping the constraint valid as long as one region remains;
-    /// this port treats a region the caller cannot even construct as an
-    /// input error rather than silently narrowing the constraint), or if no
-    /// regions were given at all.
+    /// [`Error::Construct`] if `frame_id` is empty, if a shape fails to
+    /// build a [`Body`] (a [`Shape::Cone`], [`Shape::Plane`] or
+    /// [`Shape::OcTree`] region, or a malformed mesh — upstream instead logs
+    /// a warning and drops just that region, keeping the constraint valid
+    /// as long as one region remains; this port treats a region the caller
+    /// cannot even construct as an input error rather than silently
+    /// narrowing the constraint), or if no regions were given at all.
     pub fn new(
         model: &RobotModel,
         tf: &Transforms,
@@ -165,11 +168,7 @@ impl PositionConstraint {
                 "no frame specified for position constraint",
             ));
         }
-        if weight <= EPS {
-            return Err(Error::construct(
-                "PositionConstraint weight must be strictly positive",
-            ));
-        }
+        let weight = if weight <= EPS { 1.0 } else { weight };
         if shapes.is_empty() {
             return Err(Error::construct(
                 "PositionConstraint needs at least one constraint region",

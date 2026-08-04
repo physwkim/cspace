@@ -79,14 +79,31 @@ impl JointConstraint {
     /// [`moveit_model::RobotModel::variable_names`] itself names multi-DOF
     /// variables.
     ///
+    /// # Weight normalization
+    ///
+    /// `weight <= f64::EPSILON` normalizes to `1.0` rather than erroring —
+    /// `kinematic_constraint.cpp:263`, `PORTING-PLAN.md` D14. Upstream's
+    /// guard is `<= epsilon`, not `< 0.0`, so this also normalizes a
+    /// negative weight to `1.0`, not just zero; following upstream rather
+    /// than arguing a negative weight should be treated differently.
+    ///
+    /// This is not D6 ("surface silent substitution as an error"). D6
+    /// governs an *unresolvable lookup* — a frame name with no answer,
+    /// where silently substituting identity would let "cannot answer"
+    /// masquerade as an answer (see `Transforms::transform`'s deviation 1).
+    /// A weight of `0.0` is not unanswerable: it is a value upstream's own
+    /// constructor deliberately gives the meaning "unset, use the
+    /// default," and always has an answer for (`1.0`). Reproducing what
+    /// upstream's own constructor does with its own input is not the
+    /// silent-substitution failure mode D6 exists to prevent; splitting
+    /// normalization out to only the wire-message call site would instead
+    /// create it, by giving a Rust call and a wire message different
+    /// answers to the same `0.0` input.
+    ///
     /// # Errors
     ///
     /// [`Error::Construct`] if `tolerance_above`/`tolerance_below` are
-    /// negative, or `weight` is not strictly positive (upstream instead
-    /// warns and substitutes `1.0` for a non-positive weight; substituting a
-    /// value silently for invalid input is the failure mode `moveit-rs`
-    /// prefers to surface as an error — see `Transforms`'s deviation 1 for
-    /// the same call elsewhere in this port).
+    /// negative.
     /// [`Error::UnknownName`] if `joint_name` does not resolve to a joint (or
     /// a local variable of one) in `model`.
     /// [`Error::Other`] if the joint has zero variables (fixed joint) or,
@@ -105,11 +122,11 @@ impl JointConstraint {
                 "JointConstraint tolerance values must be positive",
             ));
         }
-        if weight <= EPS {
-            return Err(Error::construct(
-                "JointConstraint weight must be strictly positive",
-            ));
-        }
+        // Upstream: `<= epsilon` (not `< 0.0`), so this also normalizes a
+        // negative weight to 1.0, not just zero — matching
+        // `kinematic_constraint.cpp:263` (`RCLCPP_WARN` dropped per D1, no
+        // logging facade; see `joint_name`'s doc for the D6/D14 boundary).
+        let weight = if weight <= EPS { 1.0 } else { weight };
 
         // Upstream: `joint_variable_name_` is always the caller's full input
         // string, whether or not it turns out to name a local variable of a
