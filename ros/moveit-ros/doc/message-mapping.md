@@ -29,6 +29,11 @@ inline) after `moveit_msgs` became available to check them against.
 plus `PlanningScene.is_diff`/`robot_model_name` (`src/scene/planning_scene.rs`).
 §3 remains **TABLE ONLY** (lowest priority, not reached this round).
 
+**Round 4 update**: §3 is now **CODED** (`src/model.rs`) — confirmed
+against the actual `moveit_msgs/msg/JointLimits.msg` (10 fields, `ros2`/
+`humble` branches of `moveit/moveit_msgs`), not just the round-1 table.
+No field was added or dropped versus the round-1 design.
+
 **Status legend**
 
 - **CODED** — real `TryFrom` impl exists in `src/`, container-verified
@@ -86,7 +91,7 @@ delegating `val` to the existing `From<i32>`/`as_i32()` (emitting
 a later round needs — the correction is to this doc's completeness claim,
 not to the conversion's difficulty.
 
-## 3. `JointLimits` — **TABLE ONLY**, ready to code once `moveit_msgs` is in the image
+## 3. `JointLimits` — **CODED** (`src/model.rs`)
 
 | `moveit_msgs/JointLimits` field | `moveit_model::JointLimits` field | 1:1? |
 |---|---|---|
@@ -99,9 +104,15 @@ not to the conversion's difficulty.
 Field-name and field-type identical, confirmed against
 `crates/moveit-model/src/joint/bounds.rs:85-111`
 (`JointModel::variable_bounds_msg()` already builds this shape from a
-`VariableBounds`, per `crates/moveit-model`'s own survey). This is a total
-`From`-shaped conversion in both directions in practice; still `TryFrom` per
-D6's uniform surface.
+`VariableBounds`, per `crates/moveit-model`'s own survey) **and, this
+round, against the wire message itself** (`moveit/moveit_msgs`, `ros2`
+and `humble` branches, `msg/JointLimits.msg`): exactly the 10 fields in
+the table above, no `has_effort_limits`/`max_effort` or anything else —
+zero fields on either side left unaccounted for. This is a total
+`From`-shaped conversion in both directions in practice; still `TryFrom`
+per D6's uniform surface. Coded as `JointLimitsMsg`/`JointLimitsMsgOut`
+(`src/model.rs`), the same orphan-rule wrapper pair every other
+conversion in this crate uses (§0).
 
 ## 4. `JointConstraint` — **CODED** (`src/constraints/joint.rs`)
 
