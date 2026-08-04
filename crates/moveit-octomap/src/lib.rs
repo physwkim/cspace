@@ -557,6 +557,42 @@
 //! has not been built -- not a single unmeasured number, and not "별도
 //! 기능 규모".
 //!
+//! # Round 27, item 1(b): `refineContactNormals`'s octomap operations
+//!
+//! p3-acm will next port `collision_octomap_filter.cpp`
+//! (`moveit_core/collision_detection/src/collision_octomap_filter.cpp`,
+//! moveit2 `e017c91e`, 318 lines) -- `moveit-collision`'s exclusion note for
+//! it cites "needs an octomap dependency and `RobotState`"
+//! (PORTING-PLAN.md §153), which §153 already found half wrong (zero
+//! `RobotState` references) and half expired (`moveit-octomap` now exists).
+//! §153.2 asks this crate's owner to check whether the octomap operations
+//! `refineContactNormals` actually calls already exist here. They do, in
+//! full -- reading the whole file (not just the entry point) turns up
+//! exactly four octomap-touching calls, all in `refineContactNormals`
+//! itself (`:67-160`); its other three free functions
+//! (`getMetaballSurfaceProperties`, `findSurface`, `sampleCloud`, the
+//! Wyvill-metaball implicit-surface math, `:162-318`) take
+//! `octomap::point3d_list`/`octomath::Vector3` by value and call no octomap
+//! API at all -- pure numerical porting, not an octomap-surface question:
+//!
+//! - `octree->getResolution()` (`:113`) -- [`OcTree::resolution`].
+//! - `octree->begin_leafs_bbx(bbx_min, bbx_max)` /
+//!   `octree->end_leafs_bbx()` (`:120-123`, the `point3d`-bounded overload,
+//!   default depth 0) -- [`OcTree::leaves_in_bbx`] /
+//!   [`crate::iter::LeavesInBbx`]'s `Iterator` impl.
+//! - `it.getCoordinate()` (`:125`) -- [`crate::iter::Leaf::coordinate`].
+//! - `octree->isNodeOccupied(*it)` (`:127`) -- [`crate::iter::Leaf::is_occupied`].
+//!
+//! Zero missing. `leaves_in_bbx` returns `Option<LeavesInBbx>` (`None` for
+//! an out-of-range corner, see its own tests in `tree.rs`) where upstream's
+//! `begin_leafs_bbx` cannot fail that way -- a detail for whoever ports
+//! this function to handle (treat `None` as an empty result, matching
+//! upstream's own empty-iterator behavior when a bbx has no leaves), not a
+//! missing operation. This exclusion ("collision_octomap_filter needs
+//! octomap operations not yet available") is now closed as false rather
+//! than merely expired: it was checked against every octomap call the file
+//! makes, not just the entry point's obvious ones, and none is missing.
+//!
 mod iter;
 mod key;
 mod node;
