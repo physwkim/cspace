@@ -140,28 +140,30 @@ test-module note already documents for the same `A^T * A` shape
 (`filter_functions.rs:142-152`, "no realistic `(num_timesteps, dt)`
 input... makes it singular"). Backed empirically here too, not just
 asserted: `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
-checks `num_timesteps` `1..=60` **contiguously**, plus the four sampled
-points `80`, `100`, `150`, `200` -- **not** a contiguous sweep to 200;
-`61..=199` other than those four points is not checked. (Corrected
-here per `8351f8d`, which fixed the identical over-broad "1..=200"
-wording in this test's own doc comment; this paragraph restated the
-same claim in a second place and was not caught by that fix.) `60`
-itself is not tied to any real usage -- checked this round (Item 1
-below) and found the doc's prior justification ("past the largest
-`num_timesteps` any test or fixture in this workspace uses,
-`solve_with_60_timesteps_converges`'s `60`") was itself an instance of
-the same over-broad-claim shape: `cost_functions.rs:432` uses
-`num_timesteps = 100` in this crate's own tests, and
-`solve_with_60_timesteps_converges` doesn't even exercise this
-function's covariance path (its `MultivariateGaussian::new` call is a
-different, diagonal-and-trivially-PD covariance in
+checks `num_timesteps` `1..=200` **contiguously**, no gap. Not always
+true: this round found and closed two problems in how this coverage
+was previously described and justified. First (§189, corrected in
+`8351f8d` and again here): the coverage used to be `1..=60`
+contiguous plus four sampled points (`80`, `100`, `150`, `200`), and
+both this doc and the test's own doc comment described it more
+broadly than that. Second (found by this round's own §189 sweep): the
+stated reason for sampling instead of covering contiguously --
+"past the largest `num_timesteps` any test or fixture in this
+workspace uses, `solve_with_60_timesteps_converges`'s `60`" -- was
+itself an over-broad claim, false on both counts
+(`cost_functions.rs:432` uses `num_timesteps = 100` in this crate's
+own tests; `solve_with_60_timesteps_converges` doesn't even exercise
+this function's covariance path, its `MultivariateGaussian::new` call
+is a different, diagonal-and-trivially-PD covariance in
 `moveit-stomp-core`'s own `DummyTask::new`, not the
 acceleration-Gram-matrix-inverse shape `normal_distribution_generator`
-builds). The real largest `num_timesteps` any call to this function
-makes anywhere in this workspace's own tests is `planner.rs`'s `15`;
-`60` is a round number chosen well past that, nothing more. See Item 3
-below for the conditioning numbers behind why the resulting coverage
-was judged sufficient without being contiguous all the way to 200.
+builds). The actual reason coverage was non-contiguous was cost, not
+usage: a full contiguous `1..=200` sweep's `O(n^3)`
+`full_piv_lu`/Cholesky cost measured past 100s under the workspace's
+then-`opt-level = 0` dev profile. `e733f19` raised the dev profile to
+`opt-level = 1`; under that profile the full contiguous sweep measures
+`0.7s` -- see Item 3 below for the conditioning numbers that motivated
+re-measuring the cost, and the closed gap that followed from it.
 
 **Conclusion:** not the same defect family as D14. There is no
 upstream-accepted wire value this port's stricter `new` silently
@@ -214,13 +216,27 @@ gives `n` around `2950` -- about 15x past the largest sampled point
 (`200`) and about 49x past the largest `num_timesteps` any real
 fixture in this workspace uses (`60`).
 
-**Conclusion for the coordinator's explicit conditional:** it does not
-trigger. The conditioning at `n = 60` and `n = 200` is not close to
-Cholesky's practical failure zone, so the non-contiguous four-point
-coverage above `n = 60` in
+**Conclusion for the coordinator's original conditional (prior
+round):** it did not trigger -- the conditioning at `n = 60` and
+`n = 200` is not close to Cholesky's practical failure zone, so the
+non-contiguous four-point coverage above `n = 60` was not, on that
+question alone, inadequate.
+
+**But that measurement also closes a question it left open (this
+round):** the earlier round's reason for leaving coverage
+non-contiguous was `O(n^3)` cost under the workspace's then-current
+dev profile, not the conditioning question above -- and cost is a
+number that can go stale independently of conditioning. `e733f19`
+(this round, unrelated to this test) raised the workspace dev profile
+from `opt-level = 0` to `opt-level = 1`; re-measured under the new
+profile, the full `1..=200` contiguous sweep costs `0.7s`, the single
+slowest test in this crate but not by a margin that matters. The
+stale-cost reason for sampling no longer holds, so
 `num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
-remains adequate; it does not need to become contiguous.
+now covers `1..=200` contiguously with no gap, closing the question
+rather than re-justifying the old gap with the (still true, but no
+longer load-bearing) conditioning margin.
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| `crates/moveit-planners-stomp/src/noise_generators.rs` (Gram-matrix-PD argument, floating-point conditioning) | Condition number of `acceleration^T * acceleration` is `~3.996e6` at `n=60`, `~4.751e8` at `n=200` -- four to five orders of magnitude below the estimated Cholesky rounding-failure threshold, not close enough to require the sampled coverage above `n=60` to become contiguous | CONFIRMED, measured not assumed | `noise_generators::tests::acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`, `cargo nextest run -p moveit-planners-stomp`; `nalgebra-0.35.0/src/linalg/cholesky.rs:190-265` read for the actual failure condition | (pending, see report) |
+| `crates/moveit-planners-stomp/src/noise_generators.rs` (Gram-matrix-PD argument, floating-point conditioning) | Condition number of `acceleration^T * acceleration` is `~3.996e6` at `n=60`, `~4.751e8` at `n=200` -- four to five orders of magnitude below the estimated Cholesky rounding-failure threshold; conditioning alone did not require contiguous coverage, but re-measuring the sampling reason (cost) under the new dev profile did -- coverage is now contiguous `1..=200`, not sampled | CONFIRMED, measured not assumed | `noise_generators::tests::acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`, `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects` (now `1..=200` contiguous, `0.7s`), `cargo nextest run -p moveit-planners-stomp`; `nalgebra-0.35.0/src/linalg/cholesky.rs:190-265` read for the actual failure condition | (pending, see report) |

@@ -140,8 +140,7 @@ mod tests {
 
     /// The actual conditioning behind
     /// `num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`'s
-    /// non-contiguous coverage above `n = 60` (`1..=60` contiguous, then
-    /// `80`/`100`/`150`/`200` sampled -- see that test's own doc). "A Gram
+    /// rejection-reachability argument (see that test's own doc). "A Gram
     /// matrix's inverse is PD whenever the Gram matrix is invertible" is
     /// exact-arithmetic reasoning; `Cholesky::new` runs in `f64`, where a
     /// pivot can round to non-positive well before a matrix is
@@ -173,19 +172,12 @@ mod tests {
     /// of magnitude below it, not close. Extrapolating the measured
     /// `O(n^4)` growth law to find where conditioning would reach that
     /// threshold (`n^4 * (4.75e8 / 200^4)` equal to roughly `2.25e13`)
-    /// gives `n` around `2950` -- about 15x past the largest sampled
-    /// point and about 49x past the largest `num_timesteps` any real
-    /// fixture in this workspace uses. Per the round that asked for this
-    /// measurement: if the conditioning were close to the failure
-    /// threshold at `n = 60`/`200`, the four points sampled above `60`
-    /// would not be enough and the sweep would need to be contiguous
-    /// where conditioning actually changes fastest, not merely where it
-    /// is cheap to check. It is not close -- four to five orders of
-    /// magnitude of headroom at the densest point checked, growing wider
-    /// (in absolute pivot-risk terms) as `n` shrinks back toward this
-    /// workspace's real usage -- so the existing non-contiguous coverage
-    /// is not under-covering a region where conditioning is actually a
-    /// live risk.
+    /// gives `n` around `2950` -- about 15x past the largest point
+    /// checked and about 49x past the largest `num_timesteps` any real
+    /// fixture in this workspace uses. Not close -- four to five orders
+    /// of magnitude of headroom at the densest point checked, growing
+    /// wider (in absolute pivot-risk terms) as `n` shrinks back toward
+    /// this workspace's real usage.
     ///
     /// This test pins the two measured numbers as a regression guard: if
     /// a future change to `generate_finite_difference_matrix` or this
@@ -321,24 +313,26 @@ mod tests {
     /// a floating-point-conditioning failure if the mathematical argument
     /// were wrong in practice, not just in theory.
     ///
-    /// What is actually covered, exactly: `1..=60` **contiguously**, plus
-    /// the four sampled points `80`, `100`, `150`, `200`. `60` is not tied
-    /// to any specific real usage -- the largest `num_timesteps` any call
-    /// to *this function* makes anywhere in this workspace's own tests is
-    /// `planner.rs`'s `15`
-    /// (`plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle`);
-    /// `60` is a round number chosen well past that,
-    /// not a value read off `solve_with_60_timesteps_converges`, whose
-    /// `MultivariateGaussian::new` call is a different, diagonal-and-
-    /// trivially-PD covariance (`moveit-stomp-core`'s own
-    /// `DummyTask::new`), not the acceleration-Gram-matrix-inverse shape
-    /// this function builds. The four sampled points probe an order of
-    /// magnitude further without paying `O(n^3)` `full_piv_lu`/Cholesky
-    /// cost at every intermediate `n` and making this test the slow one in
-    /// the suite. `61..=199` other than those four is **not** checked --
-    /// stated because "1..=200" reads as a contiguous sweep and is not one
-    /// (PORTING-PLAN.md §189: prose that describes a measurement more
-    /// broadly than the measurement).
+    /// What is actually covered, exactly: `1..=200` **contiguously**, no
+    /// gap. This used to be `1..=60` contiguous plus four sampled points
+    /// (`80`, `100`, `150`, `200`) -- non-contiguous because the
+    /// `O(n^3)` `full_piv_lu`/Cholesky cost of a full contiguous sweep to
+    /// 200 was measured (this crate's earlier rounds) to time out past
+    /// 100s under the workspace's then-`opt-level = 0` dev profile.
+    /// `e733f19` raised the workspace dev profile to `opt-level = 1`;
+    /// under that profile this test's full `1..=200` contiguous body
+    /// measures `0.7s` (`cargo nextest run -p moveit-planners-stomp --
+    /// num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`),
+    /// the single slowest test in this crate but not by a margin that
+    /// matters -- the reason for sampling instead of a full sweep no
+    /// longer holds, so the gap is closed rather than left justified by a
+    /// stale cost. (`60` itself was never tied to real usage in this
+    /// workspace -- the largest `num_timesteps` any call to *this
+    /// function* makes anywhere in this workspace's own tests is
+    /// `planner.rs`'s `15`; `solve_with_60_timesteps_converges`'s `60`
+    /// exercises `moveit-stomp-core`'s own `DummyTask::new`, a different,
+    /// diagonal-and-trivially-PD covariance, not the
+    /// acceleration-Gram-matrix-inverse shape this function builds.)
     ///
     /// **Conclusion for D14/§199's shape:** no caller -- real or synthetic
     /// -- can reach a `covariance` `MultivariateGaussian::new` rejects
@@ -347,13 +341,7 @@ mod tests {
     /// constructor silently drops on the floor.
     #[test]
     fn num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects() {
-        for n in 1..=60usize {
-            match normal_distribution_generator(n, vec![1.0], ChaCha8Rng::seed_from_u64(1)) {
-                Ok(_) => {}
-                Err(e) => panic!("num_timesteps={n} failed: {e:?}"),
-            }
-        }
-        for n in [80usize, 100, 150, 200] {
+        for n in 1..=200usize {
             match normal_distribution_generator(n, vec![1.0], ChaCha8Rng::seed_from_u64(1)) {
                 Ok(_) => {}
                 Err(e) => panic!("num_timesteps={n} failed: {e:?}"),
