@@ -851,3 +851,168 @@ runs on `Tolerances::SHARED` with no override in either channel, and
 acceleration override. The other five overrides all correspond to a
 case's own measured max genuinely exceeding the shared constant, so no
 further holes exist in this table.
+
+## Case I: does the case C near-tie come from radius, from angle, or from neither alone
+
+Four fixtures now give three radius/angle combinations at the two
+angles the port has actually probed for `i*`:
+
+| θ | `blend_radius` | `i*` | runner-up ratio |
+|---:|---:|---|---|
+| 90° (case A) | `0.05` | `7` | 56% (clean) |
+| 90° (case C) | `0.08` | unreadable | 99.7% (near-tie) |
+| 112° (case E) | `0.05` | `5` | 34% (clean) |
+| 112° (radius03) | `0.03` | `5` (unchanged) | 65% (clean) |
+
+Radius moved 90°'s profile from a clean read to a near-tie
+(`0.05→0.08`). Radius left 112°'s `i*` completely unchanged
+(`0.05→0.03`, same index, still a clean read). Two of the three
+variables differ between these two comparisons at once, though: the
+*angle* (90° vs 112°) and the *direction/magnitude* of the radius
+change (`+0.03` at 90° vs `-0.02` at 112°). Nothing measured so far
+holds angle fixed while repeating case C's own `+0.03`-to-`0.08`
+perturbation, so the asymmetry cannot yet be attributed to either
+variable alone.
+
+**Prediction, filed before generating anything.** A new fixture at
+112°, `blend_radius: 0.08` (case E's exact geometry, only the radius
+changed to match case C's own value) discriminates two hypotheses:
+
+- **H-angle:** the near-tie is a property of the shallower/90° region
+  specifically (something about that geometry, not the radius value
+  itself, makes the profile fragile to a radius increase). Sharper
+  corners are comparatively robust. **Predicts:** 112°/r=0.08 stays a
+  clean read -- runner-up ratio well under the ~90% near-tie band
+  (comparable to 112°'s existing two clean reads, 34%/65%).
+- **H-radius:** `blend_radius: 0.08` (or a radius increase from `0.05`
+  generally) itself flattens the divergence profile near a tie,
+  independent of angle. **Predicts:** 112°/r=0.08 also lands in the
+  near-tie band (runner-up ratio ≥90%, matching case C's 99.7%).
+
+Both outcomes are informative; this is a genuine discriminator, not a
+one-sided refutation test. **What this one fixture does not settle:**
+it matches case C's radius *value* and *direction of change*
+(`0.05→0.08`, an increase) but not the *magnitude* of change relative
+to case E's own baseline -- case E's control moved radius by `-0.02`
+(`0.05→0.03`), not `+0.03`. If 112°/r=0.08 comes out clean (supporting
+H-angle), a further open question survives: whether 90°/r=0.03 (the
+magnitude- and direction-matched mirror of the 112° control, not yet
+generated) would also stay clean, which would isolate the direction of
+the radius change (increase vs decrease) as a further candidate
+variable this fixture alone cannot rule out. That fixture is not
+generated in this round; flagged here rather than silently left
+untested.
+
+**Measured.** `panda_blend_corner112_radius08` (112°, `blend_radius:
+0.08`) built from case E's own request with only `blend_radius`
+changed, generated through the port's local pipeline first (waypoint
+counts 5/11/5, matching case E's own structure exactly), then sent to
+the live oracle (`moveit-rs/oracle:700e7be54cb0a61f`): `error_code: 1`
+(SUCCESS), `first_intersection_index: 5`, `second_intersection_index:
+10`, matching the local prediction exactly.
+
+`i* = 8`, dominant joint `panda_joint5`, runner-up ratio **49.85%**
+(profile `[4.552e-15, 1.005e-9, 2.092e-10, 5.571e-10, 1.517e-9,
+6.138e-9, 2.353e-9, 2.332e-9, 1.231e-8, 2.654e-9, 2.771e-9]`).
+
+| θ | `blend_radius` | `i*` | runner-up ratio |
+|---:|---:|---|---|
+| 90° (case A) | `0.05` | `7` | 56% (clean) |
+| 90° (case C) | `0.08` | unreadable | 99.7% (near-tie) |
+| 112° (case E) | `0.05` | `5` | 34% (clean) |
+| 112° (radius03) | `0.03` | `5` (unchanged) | 65% (clean) |
+| 112° (radius08) | `0.08` | `8` | **49.85% (clean)** |
+
+**Verdict: not refuted, and by a wide margin.** 49.85% sits well
+inside the clean band both existing 112° readings occupy (34%/65%),
+nowhere near the ~90% near-tie threshold case C's 99.7% defines. This
+directly refutes **H-radius** (`blend_radius: 0.08` alone does not
+flatten the profile toward a tie) and is consistent with **H-angle**
+(the near-tie is a property of the shallower 90° geometry, not of the
+radius value). `i*` itself also moved, `5→8`, which H-angle does not
+predict either way -- the hypothesis is about the *shape* of the
+near-tie phenomenon (runner-up ratio), not about which waypoint index
+dominates, so the index shift is not evidence against it, but it is
+not something H-angle explained in advance either.
+
+**What this does not settle**, as filed above: the 90°/r=0.03 mirror
+that would isolate the *direction* of the radius change from its
+presence at 90° at all. H-angle is not refuted, but "the near-tie is a
+property of 90° specifically" and "the near-tie is a property of an
+*increase* in radius specifically, which only ever landed on the 90°
+fixtures so far" remain both consistent with everything measured. That
+fixture is still not generated.
+
+**A finding the prediction did not anticipate.** This fixture is the
+first case in the file to need its own `POSITION_TOLERANCE` override:
+measured max position divergence `1.2312e-8` at the same `i*=8`
+waypoint, more than double the shared constant's own deliberately
+tight `1.8x`-margin ceiling (`1e-8`, set from case C's `5.46e-9`). The
+prediction was about the velocity/acceleration-derived runner-up
+ratio; it made no claim about the position channel's own magnitude,
+and this is a genuinely new data point: raising `blend_radius` at a
+sharp corner can push position divergence itself higher than any
+prior fixture measured, independent of the tie/no-tie question. See
+`CORNER112_RADIUS08_POSITION_TOLERANCE` in `pilz_blend_parity.rs`.
+
+## Mechanizing the tolerance-hole audit
+
+The prior round's audit rule has a crisp shape: a per-case tolerance
+constant that is *looser* than the shared constant it overrides, for
+a channel the case's own measured max already passes under the
+shared constant, is a hole -- it turns off regression detection for
+no reason tied to anything measured. That audit was done by hand: read
+each override constant's doc comment, read the measured-max number
+recorded there in prose, compare it to the shared constant.
+
+**Whether a `tools/ci/check-*.sh` can re-run that audit depends on
+what it is allowed to trust.** The measured-max numbers live only in
+rustdoc prose (`` `8.276e-8` at `blend_trajectory` waypoint 5 ``-style
+sentences), not in any machine-readable form. A checker that parses
+those sentences for a number and a comparison would be parsing
+English, and it would fail exactly the way this repo's own "Checkers
+fail toward silence" lesson describes: the day someone rephrases a
+comment, reorders the "measures `X`... above `Y`" clause, or adds a
+sentence the regex does not anticipate, the parse silently misses and
+the checker still prints OK, having checked nothing. **That version is
+not written**, for that reason.
+
+**What is written instead is the same invariant expressed as
+execution rather than prose.** `pilz_blend_parity.rs` now carries one
+`#[should_panic]` test per override constant, each named
+`blend_panda_arm_<case>_needs_its_own_<channel>_tolerance`: it runs
+the case with that one channel dropped back to
+`Tolerances::SHARED` (every other tolerance the case actually needs
+held fixed) and asserts the comparison then fails. A green run of
+that test, under `cargo nextest run -p moveit-planners-pilz`, *is* the
+audit -- checked against the port's and the oracle's real output on
+every test invocation, not a number transcribed into a comment once
+and never re-verified. All ten of today's overrides have this
+companion test; all ten pass, confirming (by execution, independent of
+this round's own prose re-derivation above) that none of the ten is a
+hole.
+
+That leaves one gap a should_panic test alone cannot close: nothing
+stops a future override from being added *without* its companion
+test. `tools/ci/check-pilz-tolerance-overrides.sh` closes that gap,
+and it is the part that genuinely is mechanizable soundly, because it
+does not need the measured-max number at all -- it only needs to know
+whether a companion test *exists*. For every per-case `*_TOLERANCE`
+constant (everything `Tolerances::SHARED`'s own field list does not
+name, read structurally out of that block rather than off a hardcoded
+list), it derives the expected companion test's name from the
+constant's own name and checks that a function with that exact name
+exists and carries `#[should_panic]`. That is a structural
+existence-and-attribute check, not a semantic one -- it cannot tell
+whether the companion test asserts the *right* thing (that is what
+code review is for, same as any other test), but it cannot silently
+pass on a missing companion either: verified against three induced
+failures (a renamed companion test, a companion test with the
+`#[should_panic]` attribute stripped, and a brand-new override
+constant added with no companion test at all), each reported by name
+with exit 1. It needs no docker and no fixture, so it is a `check-*.sh`
+script: `.github/workflows/ci.yml`'s own `tools/ci/check-*.sh` glob
+picks it up automatically, the same glob every other no-docker checker
+in this directory already relies on -- no `verify-all.sh` edit needed,
+since that script's glob is `verify-*.sh` and is reserved for the
+docker/oracle-dependent scripts specifically (see its own header).

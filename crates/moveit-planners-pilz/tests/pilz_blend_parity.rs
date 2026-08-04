@@ -373,6 +373,26 @@ const CORNER110_ACCELERATION_TOLERANCE: f64 = 1.9e-6;
 /// against the redundant-IK/angle-only attribution.
 const CORNER112_RADIUS03_VELOCITY_TOLERANCE: f64 = 1.11e-7;
 
+/// Case I's discriminator: case E's exact 112 degree corner with
+/// `blend_radius` raised from `0.05` to `0.08` -- case C's own radius value,
+/// angle and per-segment speed held fixed. `doc/oracle-request-pilz-blend-geometry.md`'s
+/// "Case I" section files the two-hypothesis prediction this fixture
+/// discriminates before this fixture's numbers existed: H-angle predicted a
+/// clean read (runner-up ratio well under the ~90% near-tie band); H-radius
+/// predicted a near-tie matching case C's `99.7%`. Measured runner-up ratio
+/// `49.85%` -- a clean read, refuting H-radius. All three channels also
+/// exceed case E's own `CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE`
+/// (position had no case-specific override before this fixture -- the first
+/// case to need one, at more than double [`POSITION_TOLERANCE`]'s own
+/// deliberately tight `1.8x` margin), so this case gets its own trio with
+/// the same ~1.2x margin rather than reusing case E's or widening the
+/// shared constants.
+const CORNER112_RADIUS08_POSITION_TOLERANCE: f64 = 1.5e-8;
+/// See [`CORNER112_RADIUS08_POSITION_TOLERANCE`]. Measured max `1.1429e-7`.
+const CORNER112_RADIUS08_VELOCITY_TOLERANCE: f64 = 1.4e-7;
+/// See [`CORNER112_RADIUS08_POSITION_TOLERANCE`]. Measured max `2.2703e-6`.
+const CORNER112_RADIUS08_ACCELERATION_TOLERANCE: f64 = 2.8e-6;
+
 /// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
 /// comment -- this fixture's poses are the identical "ready, +x, +y corner"
 /// geometry chosen there so the value is inconsequential.
@@ -916,3 +936,174 @@ fn blend_panda_arm_corner112_radius03_matches_the_oracle() {
         },
     );
 }
+
+/// Case I's discriminator: case E's exact 112 degree corner with
+/// `blend_radius` raised from `0.05` to `0.08`. See
+/// [`CORNER112_RADIUS08_POSITION_TOLERANCE`] and
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case I" section: a clean
+/// `49.85%` runner-up ratio at the argmax waypoint, refuting H-radius in
+/// favor of H-angle -- radius alone did not reproduce case C's near-tie at
+/// this angle.
+#[test]
+fn blend_panda_arm_corner112_radius08_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius08",
+        Tolerances {
+            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
+            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
+            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+// Every override constant above exists because a case's own measured max
+// exceeds the shared constant it would otherwise use -- that is the "no
+// hole" invariant the round's tolerance audit checked by reading doc prose
+// and a measured-max number recorded there. The tests below check the same
+// invariant by execution instead: each drops exactly one case's one channel
+// from its override back to the shared constant, holding every other
+// tolerance the case actually needs, and asserts the comparison then FAILS.
+// A passing run here is proof the case's own real divergence exceeds
+// `Tolerances::SHARED` in that channel -- the override is necessary, not a
+// hole -- without trusting a doc comment to still be accurate.
+//
+// `tools/ci/check-pilz-tolerance-overrides.sh` enforces the companion side
+// of this: every `const *_TOLERANCE` above that is not one of the four
+// `Tolerances::SHARED` fields must be referenced by at least one
+// `#[should_panic]` test in this file. That check is purely structural (a
+// constant name must appear inside a `#[should_panic]` test body) -- it
+// does not parse or trust any measured-max number, so it cannot go stale
+// the way a prose audit can; adding a new override without its necessity
+// test is what it catches.
+
+#[test]
+#[should_panic(expected = "velocity[")]
+fn blend_panda_arm_corner112_needs_its_own_velocity_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner112",
+        Tolerances {
+            velocity: VELOCITY_TOLERANCE,
+            acceleration: CORNER112_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "acceleration[")]
+fn blend_panda_arm_corner112_needs_its_own_acceleration_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner112",
+        Tolerances {
+            velocity: CORNER112_VELOCITY_TOLERANCE,
+            acceleration: ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "velocity[")]
+fn blend_panda_arm_corner75_needs_its_own_velocity_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner75",
+        Tolerances {
+            velocity: VELOCITY_TOLERANCE,
+            acceleration: CORNER75_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "acceleration[")]
+fn blend_panda_arm_corner75_needs_its_own_acceleration_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner75",
+        Tolerances {
+            velocity: CORNER75_VELOCITY_TOLERANCE,
+            acceleration: ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "acceleration[")]
+fn blend_panda_arm_corner105_needs_its_own_acceleration_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner105",
+        Tolerances {
+            acceleration: ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "acceleration[")]
+fn blend_panda_arm_corner110_needs_its_own_acceleration_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner110",
+        Tolerances {
+            acceleration: ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "velocity[")]
+fn blend_panda_arm_corner112_radius03_needs_its_own_velocity_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius03",
+        Tolerances {
+            velocity: VELOCITY_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "position[")]
+fn blend_panda_arm_corner112_radius08_needs_its_own_position_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius08",
+        Tolerances {
+            position: POSITION_TOLERANCE,
+            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
+            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "velocity[")]
+fn blend_panda_arm_corner112_radius08_needs_its_own_velocity_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius08",
+        Tolerances {
+            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
+            velocity: VELOCITY_TOLERANCE,
+            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "acceleration[")]
+fn blend_panda_arm_corner112_radius08_needs_its_own_acceleration_tolerance() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius08",
+        Tolerances {
+            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
+            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
+            acceleration: ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
