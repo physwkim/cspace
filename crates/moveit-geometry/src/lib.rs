@@ -110,6 +110,38 @@
 //! argument to classify, being a different pattern (a bare tolerance
 //! literal) than the `assert_relative_eq!`/`relative_eq!` macro family this
 //! item covers.
+//!
+//! **Audit scripts checked against themselves (round 19, item 1).** Both
+//! `audit/count_relative_eq.pl` and `audit/count_public_declarations.sh` are
+//! now committed files, so a sibling panel's own source tree includes them
+//! once copied -- `PORTING-PLAN.md` §117.4's trap (a paragraph's own text
+//! changing the count the paragraph cites). Run against themselves:
+//!
+//! ```text
+//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-geometry/audit/count_relative_eq.pl
+//! both=0 epsilon_only=0 max_relative_only=0 neither=0   # after this round's fix; was both=2 before it
+//! bash crates/moveit-geometry/audit/count_public_declarations.sh crates/moveit-geometry/audit/count_public_declarations.sh count_public_declarations
+//! 0   # a bash script has no `class` to match; unaffected by the fix below
+//! ```
+//!
+//! Before the fix, `count_relative_eq.pl` counted 2 false calls from its own
+//! `#`-Perl-comment doc header (it only stripped `//`-style comments, so
+//! running it against itself -- a Perl file -- stripped nothing); a
+//! synthetic `.rs` fixture with a fake call inside a `/* */` block comment
+//! and inside a `"..."` string literal reproduced the same false-positive
+//! class against real Rust syntax. `count_public_declarations.sh` never
+//! stripped string-literal contents at all, so a `"..."` containing a bare
+//! `{`/`}` corrupts its brace-depth counter; a synthetic header with such a
+//! literal reproduced this (3 real members undercounted to 1). Neither bug
+//! changed any count already committed above or in `shapes.rs`/`bodies.rs`/
+//! `tree.rs`: `grep -no '"[^"]*[{}][^"]*"'` against every header those counts
+//! were taken from finds no braced string literal, and none of this crate's
+//! `.rs` files has a `/* */` block comment or a string literal containing
+//! `assert_relative_eq!`/`relative_eq!`-shaped text. Both scripts now strip
+//! `/* */` block comments (the perl one already did for header text; it did
+//! not for its own doc header) and blank string-literal contents before
+//! scanning; every count in this file and in `shapes.rs`/`bodies.rs`/
+//! `tree.rs` was re-run against the fixed scripts and is unchanged.
 
 pub mod bodies;
 mod octree_collision;

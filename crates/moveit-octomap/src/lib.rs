@@ -238,6 +238,14 @@
 //!
 //! Nothing to classify into epsilon-only/max_relative-only/both/neither;
 //! nothing to bisect.
+//!
+//! **Round 19, item 1.** `count_relative_eq.pl` and
+//! `audit/count_public_declarations.sh` (this crate's own copy) both had a
+//! doc-comment/string-literal filtering gap this round found and fixed --
+//! see `moveit-geometry`'s completion statement for the self-count evidence
+//! and the fix, since the `.pl` script lives there and this crate's copy of
+//! the `.sh` script is byte-identical. Neither bug changed any count already
+//! committed in this file or in `tree.rs`.
 
 mod iter;
 mod key;

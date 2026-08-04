@@ -19,10 +19,18 @@
 # macro invocation (no trailing `;`, geometric_shapes's `bodies.h`
 # idiom for over-aligned Eigen members) is skipped the same way a
 # preprocessor directive is -- it is not itself a member declaration.
+#
+# Round 19 item 1: a `"..."` string literal containing a bare `{` or `}`
+# (confirmed absent from every header this script has actually been run
+# against so far -- `grep -no '"[^"]*[{}][^"]*"'` on each finds nothing)
+# would corrupt the brace-depth counter below, which counts every `{`/`}`
+# character in a line textually. String literal contents are blanked for
+# the same reason comments are stripped first, not because this repo's
+# headers have hit it yet.
 set -euo pipefail
 header="$1"
 cls="$2"
-perl -0777 -pe 's{/\*.*?\*/}{}gs; s{//[^\n]*}{}g' "$header" | awk -v cls="$cls" '
+perl -0777 -pe 's{/\*.*?\*/}{}gs; s{//[^\n]*}{}g; s{"(?:[^"\\]|\\.)*"}{""}g' "$header" | awk -v cls="$cls" '
 BEGIN { depth=-1; in_target=0; access="private"; pending=0; entered_brace=0; count=0 }
 {
   line = $0
