@@ -1,0 +1,20 @@
+# A regression that makes a test *hang* must be reported as a failure, not
+# left to stall the suite forever.
+#
+# `crates/moveit-planners-stomp/src/planner.rs`'s
+# `cancelling_from_another_thread_stops_a_plan_call_already_in_flight` sets
+# `num_iterations = 1_000_000` deliberately, so that `proceed` going false is
+# the only exit its `solve` call can take. That is the right shape for the
+# test -- but it means the test detects "cancellation stopped working" by
+# never terminating rather than by failing. Measured: neutering
+# `CancelHandle::cancel` leaves it running past 240s with no output.
+#
+# nextest's default `slow-timeout` only *warns*; without `terminate-after`
+# nothing ever kills a hung test, and this repository has no CI
+# (PORTING-PLAN.md §174) to impose an outer bound. 60s x 5 = 300s is a little
+# over 10x the slowest test currently in the workspace (28.9s,
+# `moveit-distance-field::collision_env_distance_field_parity`), so it
+# cannot fire on a merely slow test while still turning any hang into a
+# named failure.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
