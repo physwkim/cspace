@@ -1094,6 +1094,81 @@ mod tests {
     /// there through the rest of the switching-point search and Euler
     /// integration out to the `8.893e-9` seen at `duration()`.
     ///
+    /// # Round 14: `Path` cleared at the exact onset; the mechanism inside
+    /// `Trajectory` identified
+    ///
+    /// Round 13 narrowed the onset to `s ≈ 1123.8 → 1127.2`. Two further
+    /// cuts:
+    ///
+    /// **`Path` itself, sampled densely across that exact window.** The
+    /// `totg_path` op (`tests/totg_path_parity.rs`) takes
+    /// `sample_arc_lengths` verbatim, so 13 points evenly spaced across
+    /// `s ∈ [1110, 1140]` were compared against this port's own
+    /// `config`/`tangent`/`curvature` there (temporary diagnostic,
+    /// removed before commit per this crate's convention). Every point
+    /// stays at the same `~1e-13`-to-`~1e-17` floor `totg_path_parity.rs`
+    /// measures everywhere else in this waypoint set -- no elevated diff
+    /// anywhere in the window, including straddling `1123.8`/`1127.2`
+    /// themselves. This is the fork round 13 set up: `Path` does *not*
+    /// jump where `Trajectory` does, so the divergence is confirmed
+    /// integration-side, not geometry-side, specifically at this location
+    /// (geometry is still the *root* cause via blend 3's few-ULP curvature
+    /// disagreement, per round 12 -- this cuts where it first becomes
+    /// visible in `Trajectory`'s own output from where in `Path`'s).
+    ///
+    /// **What `Trajectory::create` does at that `s`.** Dumping this port's
+    /// own `self.trajectory` step list (temporary diagnostic, same
+    /// removed-before-commit convention) around blend 3 shows every step
+    /// exactly `time_step = 10.0` apart -- except two: `path_pos =
+    /// 1125.2819523785` at `time = 1576.1789565519` (`5.32` after the
+    /// previous step, not `10.0`) and `path_pos = 1127.6924377958` at
+    /// `time = 1583.2376500221` (`7.06` after that) -- both squarely
+    /// inside round 13's onset bracket, before the cadence returns to
+    /// `10.0`-apart from `1131.07` on. [`Trajectory::integrate_forward`]'s
+    /// loop (this file, `switching_points` variable) only special-cases
+    /// `path.switching_points()` entries marked `discontinuity = true`
+    /// (cpp `getNextAccelerationSwitchingPoint`'s discontinuity branch) --
+    /// and `Path`'s own switching-point list for this waypoint set has no
+    /// entry strictly inside blend 3's `[1084.8016572321708,
+    /// 1163.3414735719157]` span (confirmed against
+    /// `totg_path_parity.rs`'s fixture). So these two irregular steps are
+    /// not that. [`Trajectory::next_velocity_switching_point`] (this
+    /// file, upstream `getNextVelocitySwitchingPoint`,
+    /// `time_optimal_trajectory_generation.cpp:830-873`) is a live root-
+    /// find instead: a `VELOCITY_SWITCHING_SCAN_STEP` scan for where
+    /// `min_max_phase_slope(...) ≥ velocity_max_path_velocity_deriv(...)`
+    /// flips, refined by bisection down to `EPS`. `velocity_max_path_
+    /// velocity`/its derivative are built from `path.tangent(s)` against
+    /// the per-joint `max_velocity` vector -- and unlike curvature
+    /// *magnitude* (constant through a true circular arc, which is why
+    /// `radius` is recoverable at all, per round 13's `totg_path`
+    /// writeup), tangent *direction* sweeps continuously through blend 3,
+    /// so this bound can have a genuine interior local minimum unrelated
+    /// to anything in `Path`'s own switching-point list. A live bisection
+    /// converging on a derivative sign-change of a function built from
+    /// `tangent(s)` -- already measured (round 13's `totg_path` fixture)
+    /// to disagree from upstream by up to `~1.05e-15` (`~19` ULP) inside
+    /// this exact blend -- landing at a slightly different `path_pos`, or
+    /// firing on one side and not the other near a shallow extremum, is a
+    /// plausible, evidence-consistent mechanism: this one switching
+    /// point's exact position/velocity then seeds every subsequent Euler
+    /// step, compounding to the `8.893e-9` seen at `duration()`.
+    ///
+    /// **What this does not close.** `getNextVelocitySwitchingPoint`,
+    /// `getVelocityMaxPathVelocity`/its deriv, and `trajectory_` itself
+    /// are all `private` on upstream's `Trajectory` (header lines 143-183
+    /// -- checked directly, not assumed); nothing public exposes the
+    /// oracle's own switching-point step list or its intermediate
+    /// `velocity_max_path_velocity` values at this resolution, so whether
+    /// upstream's search lands at the same two `path_pos` values, at
+    /// measurably different ones, or finds a different number of interior
+    /// switching points here cannot be confirmed from this crate -- the
+    /// same header-privacy boundary round 12's original request hit. Per
+    /// this round's brief (confirm a symbol is header-public before
+    /// requesting an oracle extension), no such request follows from this
+    /// finding; the mechanism is identified as far as the public surface
+    /// allows.
+    ///
     /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
     /// …, 0.1)` transcribed verbatim (upstream lines 156/157) -- excluded
     /// from round 12's `trajectory.rs` epsilon bisection per
