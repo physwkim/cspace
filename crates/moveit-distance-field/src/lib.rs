@@ -1135,10 +1135,26 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 /// consumer) and `collision_env_hybrid.rs`'s doc comments for where that
 /// bit this crate (§196). Every fixture builder in this crate's test
 /// modules that constructs a model meant to exercise self/robot-collision
-/// checking calls [`test_support::assert_group_has_updated_links`] right
-/// after construction, so a future edit that collapses a fixture's group to
-/// zero active joints fails loudly here instead of downstream as a
+/// checking calls `moveit_test_support::assert_group_has_updated_links`
+/// right after construction, so a future edit that collapses a fixture's
+/// group to zero active joints fails loudly here instead of downstream as a
 /// silently-passing `assert!(!result.collision)`.
+///
+/// The gate itself moved out of this crate: it started as a
+/// `#[cfg(test)] pub(crate) mod test_support` here, then
+/// `moveit-planners-chomp` independently wrote the same check inline in two
+/// fixtures (`8e632d8`), anchored on the same `updated_link_names()` symbol.
+/// Two crates re-deriving one guard is the sign the guard belongs to
+/// neither -- both now call `moveit_test_support::assert_group_has_updated_links`
+/// (crate `moveit-test-support`, `[dev-dependencies]` only) instead. A
+/// `#[cfg(test)]` module cannot be imported across a crate boundary at all,
+/// so lifting it required either a small always-compiled crate or a `pub`
+/// item behind a feature flag on `moveit-model`; the feature route was
+/// rejected because a non-default feature is exactly the shape that escapes
+/// a crate-scoped `cargo clippy -p moveit-model --all-targets` / `cargo doc
+/// -p moveit-model` gate, so a regression behind it would pass every gate
+/// this repo actually runs per-crate. See `moveit-test-support`'s own crate
+/// doc for the full reasoning.
 ///
 /// # §189: workspace-wide sweep behind this gate
 ///
@@ -1241,21 +1257,4 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 ///   measured the same way as the rest of this sweep -- no shape of "active
 ///   joint present" was found that still empties the set.
 #[cfg(test)]
-pub(crate) mod test_support {
-    use moveit_model::RobotModel;
-
-    pub(crate) fn assert_group_has_updated_links(model: &RobotModel, group_name: &str) {
-        let group = model
-            .joint_model_group(group_name)
-            .unwrap_or_else(|e| panic!("test fixture group {group_name:?} must resolve: {e}"));
-        assert!(
-            !group.updated_link_names().is_empty(),
-            "test fixture group {group_name:?} has an empty updated_link_names() -- every \
-             self/robot-collision check in this crate walks exactly this set, so any \
-             assertion built on it (e.g. `assert!(!result.collision)`) would pass \
-             vacuously with nothing actually checked. This usually means the group's \
-             connecting joint(s) are all `type=\"fixed\"`/have no active DOF -- give the \
-             fixture at least one active (e.g. revolute) joint."
-        );
-    }
-}
+mod vacuous_group_gate_history {}

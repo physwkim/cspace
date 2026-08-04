@@ -1,0 +1,20 @@
+[package]
+name = "moveit-test-support"
+description = "Shared test-fixture assertions for moveit-rs crates (dev-dependency only; no upstream counterpart)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+moveit-model.workspace = true
+
+[dev-dependencies]
+moveit-srdf.workspace = true
+urdf-rs.workspace = true
+
+[lints]
+workspace = true

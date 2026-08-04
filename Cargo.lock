@@ -324,6 +324,7 @@ dependencies = [
  "moveit-octomap",
  "moveit-srdf",
  "moveit-state",
+ "moveit-test-support",
  "nalgebra",
  "serde",
  "serde_json",
@@ -425,6 +426,7 @@ dependencies = [
  "moveit-sampling",
  "moveit-srdf",
  "moveit-state",
+ "moveit-test-support",
  "moveit-trajectory",
  "nalgebra",
  "rand",
@@ -596,6 +598,15 @@ dependencies = [
  "nalgebra",
  "rand",
  "rand_chacha",
+]
+
+[[package]]
+name = "moveit-test-support"
+version = "0.1.0"
+dependencies = [
+ "moveit-model",
+ "moveit-srdf",
+ "urdf-rs",
 ]
 
 [[package]]

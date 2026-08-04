@@ -1664,26 +1664,15 @@ mod tests {
             RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("two_link_chomp model must build");
         // PORTING-PLAN.md §196: an SRDF chain group over a fixed joint
-        // resolves to `link_names() == []` with no error and no warning, so
-        // every test built on this fixture would pass vacuously. Both `j1`
-        // and `j2` above are `revolute`, not `fixed`, but assert the group
-        // actually has links rather than trusting that stays true.
-        //
-        // `updated_link_names()`, not `link_names()`: the checks this
-        // fixture feeds (`CollisionRequest::group_name` above, line 1747)
-        // resolve through the group's *updated* link set, not its raw
-        // joint-child set -- see `ParryCollisionEnv::active_group_links`.
-        // The two sets agree on this fixture's simple chain, but
-        // `updated_link_names()` is the one that actually gates whether the
-        // collision checks below see anything.
-        assert!(
-            !model
-                .joint_model_group(CHOMP_COLLISION_GROUP)
-                .expect("chain group exists")
-                .updated_link_names()
-                .is_empty(),
-            "chain group must have non-empty updated_link_names, or every test using this fixture passes vacuously (§196)"
-        );
+        // resolves to `updated_link_names() == []` with no error and no
+        // warning, so every test built on this fixture would pass
+        // vacuously -- the checks this fixture feeds
+        // (`CollisionRequest::group_name` above, line 1747) resolve through
+        // that set, not the raw `link_names()`/`joint_names()` topology
+        // (see `ParryCollisionEnv::active_group_links`). Both `j1` and `j2`
+        // above are `revolute`, not `fixed`, but assert the group actually
+        // has updated links rather than trusting that stays true.
+        moveit_test_support::assert_group_has_updated_links(&model, CHOMP_COLLISION_GROUP);
         model
     }
 

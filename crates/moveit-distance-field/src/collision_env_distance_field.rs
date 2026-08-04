@@ -2642,7 +2642,7 @@ mod tests {
         let model =
             RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("two_link model must build");
-        crate::test_support::assert_group_has_updated_links(&model, "chain");
+        moveit_test_support::assert_group_has_updated_links(&model, "chain");
         (model, srdf)
     }
 

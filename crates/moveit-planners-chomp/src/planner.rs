@@ -572,26 +572,16 @@ mod tests {
             RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("two_joint_chomp_planner model must build");
         // PORTING-PLAN.md §196: an SRDF chain group over a fixed joint
-        // resolves to `link_names() == []` with no error and no warning, so
-        // every test built on this fixture would pass vacuously. Both `j1`
-        // and `j2` above are active joints, not `fixed`, but assert the
-        // group actually has links rather than trusting that stays true.
-        //
-        // `updated_link_names()`, not `link_names()`: every check below
-        // that reads this group (the many `group_name: GROUP` collision
-        // requests, `RobotTrajectory::for_group_name`) resolves through the
-        // group's *updated* link set, not its raw joint-child set -- see
-        // `ParryCollisionEnv::active_group_links`. The two sets agree on
-        // this fixture's simple chain, but `updated_link_names()` is the
-        // one that actually gates whether those checks see anything.
-        assert!(
-            !model
-                .joint_model_group(GROUP)
-                .expect("chain group exists")
-                .updated_link_names()
-                .is_empty(),
-            "chain group must have non-empty updated_link_names, or every test using this fixture passes vacuously (§196)"
-        );
+        // resolves to `updated_link_names() == []` with no error and no
+        // warning, so every test built on this fixture would pass
+        // vacuously -- every check below that reads this group (the many
+        // `group_name: GROUP` collision requests,
+        // `RobotTrajectory::for_group_name`) resolves through that set, not
+        // the raw `link_names()`/`joint_names()` topology (see
+        // `ParryCollisionEnv::active_group_links`). Both `j1` and `j2`
+        // above are active joints, not `fixed`, but assert the group
+        // actually has updated links rather than trusting that stays true.
+        moveit_test_support::assert_group_has_updated_links(&model, GROUP);
         model
     }
 
