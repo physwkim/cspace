@@ -440,6 +440,17 @@ mod tests {
         assert_eq!(mesh.triangles.len(), 1);
     }
 
+    // Assertion-discrimination sweep (round 2): `mesh_from_bytes` has two
+    // `?` sites (`parse_triangles`, then `Mesh::new`), so `.is_err()`
+    // alone can't say which one rejected empty input. Verified
+    // single-branch for this specific input by disabling
+    // `parse_ascii_triangles`'s `flat_vertices.is_empty()` guard (the
+    // site that actually fires here -- `parse_binary_triangles` bails
+    // out immediately on a too-short buffer, falling through to the
+    // ASCII path, which finds no `vertex` tokens): the assertion then
+    // flips to `Ok`, proving `Mesh::new` never independently rejects an
+    // empty triangle list reached this way. Mutation reverted (`git
+    // diff` empty) before this comment was written.
     #[test]
     fn empty_input_is_rejected() {
         assert!(mesh_from_bytes(&[], Vector3::new(1.0, 1.0, 1.0)).is_err());

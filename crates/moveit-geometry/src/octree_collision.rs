@@ -108,6 +108,12 @@ mod tests {
         assert_eq!(aabb.maxs.z, 0.1);
     }
 
+    // Assertion-discrimination sweep (round 2): `compound_from_octree`
+    // has exactly one `None`-producing site (`if leaf_shapes.is_empty()
+    // { return None; }`) -- verdict `single-branch`, established by
+    // reading the whole function body (lines 48-74): the only other
+    // return is the unconditional trailing `Some(..)`. Both tests below
+    // share that verdict.
     #[test]
     fn empty_tree_has_no_occupied_leaves() {
         let tree = OcTree::new(0.1);
