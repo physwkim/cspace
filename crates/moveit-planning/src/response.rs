@@ -36,13 +36,36 @@ use moveit_trajectory::RobotTrajectory;
 /// - `trajectory` (`RobotTrajectoryPtr`) — ported as
 ///   [`PlanningResponse::trajectory`] (see "No `Option`" below for why this
 ///   port drops the null case).
-/// - `planning_time` (`double`) — unported, in scope, parity-incomparable:
-///   adding the field is legitimate, but PORTING-PLAN.md §138.3 removed
-///   wall-clock timing from every oracle response (`oracle.cpp`'s `plan`/
-///   `pilzTrajectory`, commit `c0838b4`) precisely because a C++ stopwatch
-///   and a Rust stopwatch can never be differentially compared — so this
-///   port cannot gain a comparable value for this field even if it added
-///   one, and adding an uncomparable one has no test that could use it.
+/// - `planning_time` (`double`) — unported, in scope: every upstream fill
+///   site sits inside a `PlanningContext`-equivalent's own `solve()`, never
+///   `PlanningPipeline::generatePlan` itself — checked both ways, pinned
+///   `e017c91e`: `rg -n '\.planning_time\s*=' moveit_core moveit_ros
+///   moveit_planners moveit_py` finds it set in
+///   `ompl_interface/src/model_based_planning_context.cpp:799`,
+///   `chomp/chomp_interface/src/chomp_planning_context.cpp:62`,
+///   `stomp/src/stomp_moveit_planning_context.cpp:277`, and
+///   `pilz_industrial_motion_planner`'s `move_group_sequence_service.cpp:128`/
+///   `move_group_sequence_action.cpp:264`/`trajectory_generator.cpp:267,277`;
+///   `rg -n planning_time moveit_ros/planning/planning_pipeline/src/planning_pipeline.cpp`
+///   finds nothing. This is the same structural class as
+///   [`crate::request::PlanningRequest`]'s own doc comment's
+///   `allowed_planning_time` bullet: a value a concrete planner owns, not
+///   this crate's pipeline. Unlike [`PlanningResponse::start_state`] (round
+///   22), there is no in-workspace consumer today to force the question,
+///   and no crate
+///   implements [`crate::pipeline::Planner`] at all yet — `rg -n
+///   "impl.*Planner<'m>.*for" crates/` finds zero hits outside this crate's
+///   own test fixtures, and none of `moveit-planners-sbp`/`-chomp`/`-pilz`/
+///   `-stomp`'s `Cargo.toml`s depend on `moveit-planning`. Per
+///   PORTING-PLAN.md §153.1, this exclusion expires the moment any crate
+///   implements [`crate::pipeline::Planner`] for a concrete planner — that
+///   impl is where `planning_time` belongs and gets filled, mirroring the
+///   upstream sites above, not [`crate::pipeline::generate_plan`], which
+///   (like `PlanningPipeline::generatePlan`) never touches it. Also
+///   parity-incomparable regardless of ownership: PORTING-PLAN.md §138.3
+///   removed wall-clock timing from every oracle response (`oracle.cpp`'s
+///   `plan`/`pilzTrajectory`, commit `c0838b4`), so no test could compare
+///   this port's stopwatch to the oracle's even once a fill site exists.
 /// - `error_code` (`moveit::core::MoveItErrorCode`) — distinct: replaced by
 ///   `Result<PlanningResponse, PipelineError>`'s own `Err`, matching
 ///   `crate::error`'s existing convention of using `Result` instead of a
