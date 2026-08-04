@@ -87,6 +87,19 @@
 //! it does not overflow under nextest's default `overflow-checks = true`
 //! dev profile, rather than asserting the ceiling comparison in prose
 //! alone.
+//!
+//! # Expiry (§153.1): this is a property of `DMatrix`, not of the algorithm
+//!
+//! The 4x margin above comes entirely from `values: &DMatrix<f64>` being
+//! backed by a single contiguous `Vec<f64>`, whose own allocator caps
+//! `num_timesteps` at `isize::MAX` bytes. `kernel_bounds` itself has no
+//! such cap -- it takes a plain `usize`. If `cost_function_from_state_validator`
+//! or its caller ever stops deriving `num_timesteps` from a
+//! `Vec`-backed `DMatrix` (a memory-mapped or chunked trajectory
+//! representation, a lazy/streamed column count, or widening the index
+//! type past 64 bits), the margin this doc claims no longer holds and
+//! the overflow becomes reachable -- re-run this module's `kernel_bounds`
+//! tests against the new ceiling before relying on this claim again.
 
 use std::cell::RefCell;
 
