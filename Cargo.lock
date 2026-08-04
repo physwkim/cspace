@@ -479,6 +479,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-planning"
+version = "0.1.0"
+dependencies = [
+ "moveit-collision",
+ "moveit-constraints",
+ "moveit-error",
+ "moveit-geometry",
+ "moveit-model",
+ "moveit-planners-sbp",
+ "moveit-scene",
+ "moveit-srdf",
+ "moveit-state",
+ "moveit-trajectory",
+ "rand",
+ "rand_chacha",
+ "thiserror 2.0.19",
+ "urdf-rs",
+]
+
+[[package]]
 name = "moveit-sampling"
 version = "0.1.0"
 dependencies = [

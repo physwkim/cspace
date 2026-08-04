@@ -1,0 +1,30 @@
+[package]
+name = "moveit-planning"
+description = "Planner-agnostic planning request/response types and the default request/response adapter chain for moveit-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+moveit-collision.workspace = true
+moveit-constraints.workspace = true
+moveit-error.workspace = true
+moveit-geometry.workspace = true
+moveit-model.workspace = true
+moveit-scene.workspace = true
+moveit-state.workspace = true
+moveit-trajectory.workspace = true
+
+[dev-dependencies]
+moveit-srdf.workspace = true
+urdf-rs.workspace = true
+moveit-planners-sbp.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+
+[lints]
+workspace = true
