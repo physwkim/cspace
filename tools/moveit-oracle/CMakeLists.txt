@@ -36,6 +36,9 @@ find_package(ompl REQUIRED)
 # package, so it is built from source and rides MOVEIT2_PACKAGES -- see
 # src-digest.sh's own comment on that line.
 find_package(pilz_industrial_motion_planner REQUIRED)
+# For the chomp_quad_cost_inverse op's real ChompCost -- see oracle.cpp's
+# include comment for why the upstream class and not a transcription.
+find_package(chomp_motion_planner REQUIRED)
 
 add_executable(moveit_oracle
   src/oracle.cpp
@@ -89,6 +92,7 @@ target_link_libraries(moveit_oracle
     pilz_industrial_motion_planner::trajectory_generation_common
     pilz_industrial_motion_planner::joint_limits_common
     pilz_industrial_motion_planner::cartesian_limits_parameters
+    chomp_motion_planner::chomp_motion_planner
 )
 # octomap ships old-style CMake variables (OCTOMAP_INCLUDE_DIRS/LIBRARIES),
 # not an imported target, per its own octomap-config.cmake. orocos_kdl and

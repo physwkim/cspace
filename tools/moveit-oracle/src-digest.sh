@@ -88,7 +88,11 @@ ORACLE_BASE_IMAGE="${ORACLE_BASE_IMAGE:-moveit/moveit2@sha256:7c394edd1faac3eb2d
 # both run IK on their Cartesian goal, and a URDF+SRDF-only RobotModel has no
 # solver, so both returned NO_IK_SOLUTION until `ensureKinematicsSolver`
 # could load `kdl_kinematics_plugin/KDLKinematicsPlugin` by name.
-ORACLE_MOVEIT2_PACKAGES="${ORACLE_MOVEIT2_PACKAGES:-moveit_core moveit_resources_fanuc_description pilz_industrial_motion_planner moveit_kinematics}"
+#
+# chomp_motion_planner is here for the `chomp_quad_cost_inverse` op, which
+# links the real `ChompCost` so the comparison it feeds measures Eigen's
+# inverse and nothing else.
+ORACLE_MOVEIT2_PACKAGES="${ORACLE_MOVEIT2_PACKAGES:-moveit_core moveit_resources_fanuc_description pilz_industrial_motion_planner moveit_kinematics chomp_motion_planner}"
 ORACLE_MOVEIT2_SHA="${ORACLE_MOVEIT2_SHA:-e017c91ee12984393a28ba246075c65f69cde3bf}"
 
 # Serialized build inputs, one `NAME=value` per line. A deliberately

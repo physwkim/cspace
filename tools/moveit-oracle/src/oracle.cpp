@@ -119,6 +119,14 @@
 #include <moveit/kinematic_constraints/utils.hpp>
 #include <moveit/kinematics_base/kinematics_base.hpp>
 #include <moveit/robot_state/conversions.hpp>
+
+// The `chomp_quad_cost_inverse` op. The real upstream `ChompCost` rather
+// than a transcription of its constructor: the question this op answers is
+// whether Eigen's inverse differs from nalgebra's, so any hand-copied
+// matrix assembly would put a second, untested variable in the comparison
+// and a transcription slip would read as a decomposition difference.
+#include <chomp_motion_planner/chomp_cost.hpp>
+#include <chomp_motion_planner/chomp_trajectory.hpp>
 #include <pilz_industrial_motion_planner/joint_limits_container.hpp>
 #include <pilz_industrial_motion_planner/limits_container.hpp>
 #include <pilz_industrial_motion_planner/trajectory_generator_circ.hpp>
@@ -925,6 +933,8 @@ public:
       return ruckigFilter(request);
     if (op == "pilz_trajectory")
       return pilzTrajectory(request);
+    if (op == "chomp_quad_cost_inverse")
+      return chompQuadCostInverse(request);
     throw std::runtime_error("unsupported op: " + op);
   }
 
@@ -4831,6 +4841,52 @@ private:
   /// accumulation, so a `1e-6` comparison is only meaningful if both sides
   /// used one value; requiring it here means neither side's default can
   /// drift the two apart silently.
+  /// Ground truth for `ChompCost::getQuadraticCostInverse()`, requested by
+  /// p6-totg in `crates/moveit-planners-chomp/doc/oracle-request-quad-cost-
+  /// inv.md`.
+  ///
+  /// The full inverse matrix, element by element, not a residual. Round 16
+  /// already checked residuals (`0.0` on the cofactor path, `1.78e-15` on
+  /// the LU path) and that is precisely what cannot settle the question:
+  /// Eigen's `MatrixXd` is `Dynamic`, so `.inverse()` is always
+  /// `PartialPivLU`, while nalgebra's `try_inverse_mut` switches to a
+  /// closed-form cofactor expansion for dimensions `1..=4` and only reaches
+  /// `lu::try_invert_to` at `>= 5` (p6-totg verified that boundary against
+  /// the pinned nalgebra 0.35.0 source, not its public docs). Two different
+  /// decompositions can each produce a small residual and still disagree in
+  /// the last bits, which is the whole comparison.
+  ///
+  /// `ChompCost`'s constructor reads only `getNumPoints()` and
+  /// `getDiscretization()` off the trajectory -- no robot model, group, or
+  /// joint values -- so the model this oracle already carries serves, and
+  /// `joint_number` is passed as 0 because upstream never reads it.
+  json chompQuadCostInverse(const json& request) const
+  {
+    const auto num_points = request.at("num_points").get<std::size_t>();
+    const double discretization = request.at("discretization").get<double>();
+    const auto derivative_costs = request.at("derivative_costs").get<std::vector<double>>();
+    const double ridge_factor = request.at("ridge_factor").get<double>();
+
+    const std::string group_name = request.value("group_name", std::string("panda_arm"));
+    const chomp::ChompTrajectory trajectory(model_, num_points, discretization, group_name);
+    const chomp::ChompCost cost(trajectory, /*joint_number=*/0, derivative_costs, ridge_factor);
+
+    const Eigen::MatrixXd& inverse = cost.getQuadraticCostInverse();
+    json rows = json::array();
+    for (Eigen::Index r = 0; r < inverse.rows(); ++r)
+    {
+      json row = json::array();
+      for (Eigen::Index c = 0; c < inverse.cols(); ++c)
+        row.push_back(inverse(r, c));
+      rows.push_back(row);
+    }
+
+    // Echoed rather than left implicit: it is derivable from `num_points`,
+    // but a mismatch would mean DIFF_RULE_LENGTH or the boundary formula
+    // diverged, which is itself the more interesting finding.
+    return json{ { "num_vars_free", static_cast<std::int64_t>(inverse.rows()) }, { "quad_cost_inverse", rows } };
+  }
+
   /// Attaches `kdl_kinematics_plugin/KDLKinematicsPlugin` to `group_name`,
   /// once per group, and reports whether the group now has a solver.
   ///
