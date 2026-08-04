@@ -733,6 +733,53 @@
 //!    population is unusually large) does not depend on which vertex the
 //!    winning triangle happens to share.
 //!
+//!    **Round 27 falsified the "always deeper" half of the sentence above
+//!    ("Structurally inherent... libccd's MPR overestimates relative to
+//!    this backend's own EPA for this triangle too") on a real sample, not
+//!    the single case 104 that sentence generalized from.**
+//!    `examples/visibility_cone_mpr_sweep.rs` extends case 104's own
+//!    single-case comparison to every `visibility_cone` case, in one
+//!    1000-case pr2 sweep (seed 4), where this backend's own EPA depth
+//!    disagrees with the oracle's own reported depth by more than `1e-4`:
+//!    945 such mismatches got a real `ccdMPRPenetration` reading on their
+//!    own winning triangle. **853 (90.3%) are deeper, as round 21's single
+//!    case predicted; 83 (8.8%) match EPA within float noise (`<1e-9`); but
+//!    9 (0.95%) are genuinely *shallower*, by `0.0088`–`0.0147m`, four
+//!    orders of magnitude past the noise floor — MPR is not deeper than EPA
+//!    "by construction" for this pair shape.** `pearson(gap, epa_depth) =
+//!    0.107`, `pearson(gap, triangle_size) = -0.182` — the gap magnitude is
+//!    not strongly explained by penetration depth or triangle size alone.
+//!
+//!    All 9 shallow cases share a distinct signature the 853 deep cases
+//!    never show: `mpr_depth` reads `1.700000e-2` to six significant
+//!    figures in 8 of the 9 (the 9th, an incompletely-resolved outlier
+//!    below). pr2's wheel collision cylinders are `<cylinder
+//!    length="0.034" radius="0.074792"/>` (`fixtures/pr2.urdf`) —
+//!    `0.034 / 2 == 0.017` exactly, the cylinder's own half-length.
+//!    `mpr_case104` is fed the exact winning triangle this backend's own
+//!    EPA search already names as deepest (not a different, shallower
+//!    triangle some other selection picked), so this is not a wrong-pair or
+//!    wrong-triangle artifact: `ccdMPRPenetration` itself, called on the
+//!    true deepest triangle, sometimes converges to the cylinder's own
+//!    half-length instead of the true penetration depth — a portal-
+//!    refinement local minimum consistent with the search finding a
+//!    witness on the cylinder's flat end-cap edge (a real geometric feature
+//!    at exactly that offset from the cylinder's own center) rather than on
+//!    the curved side. One case (of the 1000) does not reproduce this
+//!    cleanly: case 623 has the oracle's own `collision` op reporting
+//!    `7.479e-2` (a normal deep MPR value) for the same (cone, link) pair
+//!    where this backend's own direct `mpr_case104` call on its own winning
+//!    triangle reads the plateau value `1.700000e-2` — i.e. the oracle's
+//!    FCL pipeline and this backend's own exhaustive deepest-triangle
+//!    search may have tested different triangles for that one state.
+//!    `CollisionRequest::max_contacts_per_pair` defaults to `1`
+//!    (`collision_common.hpp:176`, confirmed by reading the oracle's own
+//!    vendored copy), so FCL's own per-pair contact is whichever single
+//!    triangle its own narrow-phase traversal happened to report first, not
+//!    necessarily this backend's own deepest — consistent with, but not
+//!    proof of, case 623's discrepancy; not fully characterized, and
+//!    unresolved as of round 27.
+//!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
 //!    different depths for the one pair.** The same seed-20260804 pr2
