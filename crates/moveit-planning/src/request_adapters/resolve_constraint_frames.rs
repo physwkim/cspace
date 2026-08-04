@@ -123,6 +123,7 @@ mod tests {
             workspace_bounds: Default::default(),
             max_velocity_scaling_factor: 1.0,
             max_acceleration_scaling_factor: 1.0,
+            ..Default::default()
         };
 
         let adapter = ResolveConstraintFrames;

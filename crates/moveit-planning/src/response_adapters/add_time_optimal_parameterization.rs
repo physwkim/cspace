@@ -180,6 +180,7 @@ mod tests {
             workspace_bounds: Default::default(),
             max_velocity_scaling_factor: 1.0,
             max_acceleration_scaling_factor: 1.0,
+            ..Default::default()
         }
     }
 
@@ -202,7 +203,10 @@ mod tests {
         let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
         trajectory.add_suffix_way_point(start, 0.0).unwrap();
         trajectory.add_suffix_way_point(goal, 0.0).unwrap();
-        let mut response = PlanningResponse { trajectory };
+        let mut response = PlanningResponse {
+            trajectory,
+            planner_id: String::new(),
+        };
 
         assert_eq!(adapter().description(), "AddTimeOptimalParameterization");
         adapter()
@@ -243,7 +247,10 @@ mod tests {
             "test setup must produce a uniform dt = 0.1 profile exactly"
         );
 
-        let mut response = PlanningResponse { trajectory };
+        let mut response = PlanningResponse {
+            trajectory,
+            planner_id: String::new(),
+        };
         adapter()
             .adapt(&mut scene, &env, &request(), &mut response)
             .expect("a five-segment panda_arm move must reparameterize successfully");

@@ -226,6 +226,7 @@
 //!     workspace_bounds: WorkspaceBounds::default(),
 //!     max_velocity_scaling_factor: 1.0,
 //!     max_acceleration_scaling_factor: 1.0,
+//!     ..Default::default()
 //! };
 //! let request_chain: Vec<Box<dyn PlanningRequestAdapter>> = vec![
 //!     Box::new(CheckForStackedConstraints),
@@ -254,7 +255,10 @@
 //! let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
 //! trajectory.add_suffix_way_point(start, 0.0).unwrap();
 //! trajectory.add_suffix_way_point(goal, 0.0).unwrap();
-//! let mut response = PlanningResponse { trajectory };
+//! let mut response = PlanningResponse {
+//!     trajectory,
+//!     planner_id: String::new(),
+//! };
 //!
 //! let response_chain: Vec<Box<dyn PlanningResponseAdapter>> =
 //!     vec![Box::new(AddRuckigTrajectorySmoothing), Box::new(ValidateSolution)];
@@ -369,12 +373,14 @@
 //! ```
 
 pub mod error;
+pub mod pipeline;
 pub mod request;
 pub mod request_adapters;
 pub mod response;
 pub mod response_adapters;
 
 pub use error::{RequestAdapterError, ResponseAdapterError};
+pub use pipeline::{PipelineError, PlanError, Planner, generate_plan};
 pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
 

@@ -44,4 +44,12 @@ use moveit_trajectory::RobotTrajectory;
 pub struct PlanningResponse<'m> {
     /// The solved trajectory, waypoints and per-waypoint timing alike.
     pub trajectory: RobotTrajectory<'m>,
+    /// Which planner produced this response. A planner that does not fill
+    /// this in gets it backfilled from the request's
+    /// [`crate::PlanningRequest::planner_id`] by
+    /// [`crate::pipeline::generate_plan`] — see that module's doc, "Semantic
+    /// 4: `planner_id` fallback". `""` (the same value
+    /// [`Default::default`] gives a plain `String`) means "not yet set",
+    /// matching an unset `moveit_msgs::msg::MotionPlanResponse::planner_id`.
+    pub planner_id: String,
 }

@@ -50,7 +50,13 @@ impl Default for WorkspaceBounds {
 /// `Vec<KinematicConstraintSet>` rather than a concrete state, and why
 /// planner-specific tuning (RRT-Connect's step size, STOMP's iteration
 /// count, ...) is deliberately not a field here.
-#[derive(Debug, Clone)]
+///
+/// `Default` fills [`PlanningRequest::trajectory_constraints`] with an empty
+/// `Vec` and [`PlanningRequest::planner_id`] with `""`, matching an unset
+/// `moveit_msgs::msg::MotionPlanRequest` field for both — the same
+/// unset-means-default reading [`WorkspaceBounds::default`] already
+/// documents for [`PlanningRequest::workspace_bounds`].
+#[derive(Debug, Clone, Default)]
 pub struct PlanningRequest {
     /// The [`moveit_model::JointModelGroup`] to plan for.
     pub group_name: String,
@@ -77,4 +83,20 @@ pub struct PlanningRequest {
     /// A factor in `(0, 1]` scaling every joint's acceleration limit. Same
     /// readers as [`PlanningRequest::max_velocity_scaling_factor`].
     pub max_acceleration_scaling_factor: f64,
+    /// Per-waypoint joint-position constraints a planner chain feeds
+    /// forward from one planner's successful trajectory into the next
+    /// planner's request — see [`crate::pipeline`]'s module doc, "Semantic
+    /// 1: planner-chain feedforward". Empty unless [`crate::pipeline::generate_plan`]
+    /// (or a caller replicating it) has already run at least one planner.
+    /// Not read by any request adapter in this crate; upstream's identically
+    /// named `MotionPlanRequest::trajectory_constraints` is the same shape
+    /// for the same reason.
+    pub trajectory_constraints: Vec<KinematicConstraintSet>,
+    /// Which planner produced (or should produce) [`crate::PlanningResponse`].
+    /// Read by [`crate::pipeline::generate_plan`] only as the fallback value
+    /// for [`crate::PlanningResponse::planner_id`] when a planner leaves
+    /// that field empty — see [`crate::pipeline`]'s module doc, "Semantic 4:
+    /// `planner_id` fallback". Not otherwise interpreted by this crate: which
+    /// string names which planner is a caller/registry concern.
+    pub planner_id: String,
 }
