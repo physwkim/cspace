@@ -1424,9 +1424,31 @@ mod tests {
         let waypoints = [v(&[0.0, 0.0]), v(&[1.0, 1.0])];
         let path = Path::create(&waypoints, DEFAULT_PATH_TOLERANCE).unwrap();
 
-        assert!(Trajectory::create(path.clone(), &max_velocity, &v(&[0.0, 1.0]), 0.001).is_err());
-        assert!(Trajectory::create(path.clone(), &max_velocity, &v(&[1.0, 0.0]), 0.001).is_err());
-        assert!(Trajectory::create(path, &max_velocity, &v(&[0.0, 0.0]), 0.001).is_err());
+        // `Trajectory::create` has 3 `Error::construct` sites (time_step,
+        // invalid after integrateForward/integrateBackward, invalid after
+        // the second integrateBackward); a bare `.is_err()` cannot say
+        // which fired (assertion-discrimination-round2.md sec. 3). All 3
+        // calls below hit the integrateForward/integrateBackward guard
+        // (confirmed by printing each error before converting this check).
+        const DISTINGUISHING_PHRASE: &str = "after integrateForward and integrateBackward";
+        assert!(
+            Trajectory::create(path.clone(), &max_velocity, &v(&[0.0, 1.0]), 0.001)
+                .unwrap_err()
+                .to_string()
+                .contains(DISTINGUISHING_PHRASE)
+        );
+        assert!(
+            Trajectory::create(path.clone(), &max_velocity, &v(&[1.0, 0.0]), 0.001)
+                .unwrap_err()
+                .to_string()
+                .contains(DISTINGUISHING_PHRASE)
+        );
+        assert!(
+            Trajectory::create(path, &max_velocity, &v(&[0.0, 0.0]), 0.001)
+                .unwrap_err()
+                .to_string()
+                .contains(DISTINGUISHING_PHRASE)
+        );
     }
 
     /// Upstream `TEST(time_optimal_trajectory_generation, testIrrelevantZeroMaxAccelerationsDontInvalidateTrajectory)`.
@@ -1444,8 +1466,16 @@ mod tests {
     /// Upstream `TEST(time_optimal_trajectory_generation, testTimeStepZeroMakesTrajectoryInvalid)`.
     #[test]
     fn upstream_test_time_step_zero_makes_trajectory_invalid() {
+        // See `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory`
+        // for why this checks the message; `time_step == 0.0` is caught by
+        // `Trajectory::create`'s first guard, before any integration runs.
         let path = Path::create(&[v(&[0.0, 0.0]), v(&[1.0, 1.0])], DEFAULT_PATH_TOLERANCE).unwrap();
-        assert!(Trajectory::create(path, &v(&[1.0, 1.0]), &v(&[1.0, 1.0]), 0.0).is_err());
+        assert!(
+            Trajectory::create(path, &v(&[1.0, 1.0]), &v(&[1.0, 1.0]), 0.0)
+                .unwrap_err()
+                .to_string()
+                .contains("the time step is <= 0.0")
+        );
     }
 
     // ---- Boundary-condition tests (not from the upstream suite) --------
