@@ -12133,3 +12133,77 @@ p9-ros의 UNFIXED 중 하나를 원본에 대고 확인했다. 사실이고, 막
 부수적으로, p9-ros가 "upstream 자체가 미구현"이라 적은 AttachedCollisionObject의
 MOVE도 원본에서 확인했다: `planning_scene.cpp:1762-1765`가 통째로
 `RCLCPP_ERROR("Move for attached objects not yet implemented")`다. 정확한 진술이다.
+
+## §151 D9를 CIRC에만 적용하고 가족을 훑지 않았다 — LGPL 파생물 3개가 BSD 헤더로 main에 있다
+
+**push 전에 반드시 닫아야 한다. 아직 아무것도 push하지 않았으므로 배포는
+일어나지 않았고, 따라서 지금은 결함이지 침해가 아니다.** LGPL 의무는 배포
+시점에 발생한다.
+
+### 151.1 무엇을 찾았나
+
+§141에서 D9를 결정할 때 나는 CIRC — 인용된 지점 — 에만 적용하고 같은 위험을
+가진 **기존 파일을 찾지 않았다.** 「Fixes from reported defects」가 금지하는
+바로 그 패턴이다: 인용은 표본이지 모집단이 아니다.
+
+**Anchor:** `Ported from orocos` / `orocos_kdl/src/` 인용을 가진 `.rs`
+
+**Sites** (`rg -l 'orocos_kdl|orocos_kinematics_dynamics' crates/ ros/ tools/ --glob '*.rs'`, 6건):
+
+| 파일 | 줄 | 분류 |
+|---|---|---|
+| `moveit-planners-pilz/src/path_line.rs` | 272 | **같은 결함** |
+| `moveit-planners-pilz/src/velocity_profile_trap.rs` | 197 | **같은 결함** |
+| `moveit-state/src/dynamics.rs` | 581 | **같은 결함** |
+| `moveit-planners-pilz/src/path_circle.rs` | 560 | distinct — D9 준수. "not transcribed … derived independently from elementary vector algebra"를 명시하고 LGPL 상태도 적었다 |
+| `moveit-planners-pilz/src/lib.rs` | — | distinct — 위 파일들을 설명하는 모듈 doc. 결과로 문구가 바뀔 뿐 독립 결함 아님 |
+| `moveit-planners-pilz/src/velocity_profile.rs` | — | distinct — `utilities/utility.cxx`를 `KDL::epsilon`의 **값**(`1e-6`) 하나 때문에 인용. 단일 수치 상수는 저작 표현이 아니다 |
+
+같은 결함 3건은 전부 이 형태다:
+
+```
+// Copyright (c) 2004-2005, Erwin Aertbelien, ...   ← KDL 저자 (dynamics.rs는 Ruben Smits)
+// SPDX-License-Identifier: BSD-3-Clause            ← 그런데 BSD로 선언
+//
+// Ported from orocos_kinematics_dynamics @ v1.5.1:
+//   orocos_kdl/src/path_line.{hpp,cpp}             ← 이 파일들이 LGPL-2.1-or-later
+```
+
+인용된 orocos 파일의 라이선스를 전부 헤더에서 직접 확인했다 —
+`path_line.{hpp,cpp}`, `velocityprofile_trap.{hpp,cpp}`,
+`rotational_interpolation_sa.hpp`, `path_circle.hpp`,
+`chainidsolver_recursive_newton_euler.{hpp,cpp}`, `frames.{hpp,inl}`,
+`rigidbodyinertia.{hpp,cpp}` — **모두 "GNU Lesser General Public License …
+version 2.1 … or (at your option) any later version"**. 예외 조항도, 듀얼
+라이선스도 없다(`path_line.hpp:11-25` 전문 확인).
+
+### 151.2 upstream이 괜찮은 이유가 우리에게는 적용되지 않는다
+
+moveit2의 pilz는 BSD인데 KDL을 쓴다. 문제없는 이유는 **링크하기 때문**이다:
+`pilz_industrial_motion_planner/CMakeLists.txt:28`이 `find_package(orocos_kdl
+REQUIRED)`, `:87,109`가 `${orocos_kdl_LIBRARIES}`를 링크한다. LGPL이 GPL과
+다른 지점이 정확히 이것 — 다른 라이선스의 코드에서 라이브러리를 링크하는
+것을 허용한다.
+
+우리는 링크하지 않고 **소스를 Rust로 번역**했다. 번역은 파생물이다. upstream이
+안전한 근거가 그대로 오지 않는다.
+
+### 151.3 남은 결정과 진행
+
+두 갈래이고, 하나는 내 결정이 아니다:
+
+- **(A) D9 방식으로 다시 유도** — `path_circle.rs`가 이미 그 기준을 통과했으므로
+  가능함이 실증되어 있다. 세 파일 다 다시 쓰고, BSD 유지.
+- **(B) `moveit-planners-pilz`/`moveit-state`를 LGPL-2.1-or-later로 재선언** —
+  포트는 그대로 두되 파생물임을 인정. 라이브러리 전체의 라이선스 성격이 바뀌므로
+  **사용자 결정 사항**이다.
+
+두 갈래 어느 쪽이든 먼저 필요한 것은 같다: **각 파일이 실제로 어디까지
+전사(transcription)이고 어디부터 독립 유도 가능한지 함수 단위 측정.**
+`dynamics.rs`의 헤더는 "Every operator below was diffed against the headers"라고
+적어 동작 확인 목적의 읽기를 시사하고, `path_line.rs`는 "Ported from"이라고
+적었다 — 두 문구가 같은 것을 뜻하는지 재보지 않았다. 측정을 p1-joints
+라운드 21로 발주했다. (B)를 고르면 재작성은 불필요해지지만 측정은 어느 쪽이든
+필요하다.
+
+**차단 사항: 이 항목이 열려 있는 동안 `git push` / `cargo publish` 금지.**
