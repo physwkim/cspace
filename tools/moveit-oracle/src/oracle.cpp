@@ -3280,8 +3280,10 @@ private:
   ///
   /// The world-taking constructor is used unconditionally rather than only
   /// when `objects` is non-empty. That it is equivalent for the empty case
-  /// is measured, not assumed: all 43 committed fixture pairs replay
-  /// identical across the change, and the four `distance_field_cache_entry`
+  /// is measured, not assumed: all 43 fixture pairs committed at the time of
+  /// that change replay identical across it (the corpus has grown since --
+  /// this is the measurement's scope, not a running count), and the four
+  /// `distance_field_cache_entry`
   /// / `group_state_representation` pairs among them send no `objects` at
   /// all. A conditional would have been a second code path reachable only by
   /// fixtures that do not exist yet.
@@ -3492,8 +3494,10 @@ private:
   ///
   /// The world-taking constructor is used unconditionally rather than only
   /// when `objects` is non-empty. That it is equivalent for the empty case
-  /// is measured, not assumed: all 43 committed fixture pairs replay
-  /// identical across the change, and the four `distance_field_cache_entry`
+  /// is measured, not assumed: all 43 fixture pairs committed at the time of
+  /// that change replay identical across it (the corpus has grown since --
+  /// this is the measurement's scope, not a running count), and the four
+  /// `distance_field_cache_entry`
   /// / `group_state_representation` pairs among them send no `objects` at
   /// all. A conditional would have been a second code path reachable only by
   /// fixtures that do not exist yet.
