@@ -173,6 +173,63 @@ workspace-wide absence checks:
   a definition of `getRandomMomentum`/`updateMomentum`/
   `updatePositionFromMomentum` anywhere.
 
+## Stationary in-collision start-state gap (this round)
+
+`get_collision_cost` weights every point's collision potential by that
+point's velocity along the trajectory (`optimizer.rs`, ported from
+`getCollisionCost`, `chomp_optimizer.cpp:942-963`): a perfectly
+stationary trajectory (identical start and goal, as CHOMP's own
+"stuck at the start" recovery-loop retries can produce) scores exactly
+`0.0` here regardless of penetration depth, so
+`optimize()`'s collision-threshold branch (`c_cost < collision_threshold`)
+marks a stationary in-collision trajectory `is_collision_free_`. This
+was found by accident building
+`solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision`
+(commit `ea5142b`) and documented on `get_collision_cost` itself; this
+round's item 2 traces it up the chain to whether anything else guards
+against it.
+
+**Upstream has no guard for this inside `chomp_planner.cpp` either.**
+`ChompPlanner::solve` (`chomp_planner.cpp:80`) checks only
+`start_state.satisfiesBounds()` before planning — no
+`planning_scene->isStateColliding(start_state, ...)` or equivalent
+collision check on the start state anywhere in that file. Upstream's
+actual guard against this (and against a silently-wrong-but-`SUCCESS`
+response generally) is one layer up, in `move_group`'s planning
+pipeline: `default_planning_response_adapters::ValidateSolution`
+(`moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp:101`)
+re-checks *every* waypoint of the returned trajectory — including
+waypoint 0 — via `planning_scene->isPathValid`, a real
+`checkCollision`-backed check independent of CHOMP's own
+velocity-weighted internal metric, downgrading the response to
+`INVALID_MOTION_PLAN` if any waypoint fails.
+
+**This port already has that component**: it is ported as
+[`moveit_planning::response_adapters::ValidateSolution`]
+(`crates/moveit-planning/src/response_adapters/validate_path.rs`),
+built on `moveit_scene::PlanningScene::is_path_valid`, a real
+collision check. The gap is composition, not a missing component:
+`moveit-planners-chomp::solve` is a bespoke function outside
+`moveit-planning`'s adapter pipeline (this crate's own `# Deviation:
+no moveit-scene, no moveit-planning dependency` module-doc note), so
+nothing in this workspace currently routes a CHOMP response through
+`ValidateSolution` before a caller treats it as accepted — the same
+missing dispatcher `ChompGoal`'s own doc comment already names as not
+existing yet. This matches upstream's own architecture exactly:
+`chomp_planner.cpp` alone has this identical gap and only closes it
+when composed inside `move_group`'s pipeline, so this is not a port
+regression, but it is a real, currently-unclosed gap in this
+workspace's own CHOMP-to-response-adapter wiring, worth naming
+explicitly here rather than leaving as a note on one function. Closing
+it belongs in a future planner-dispatcher crate wiring
+`moveit-planners-chomp::solve`'s output through
+`moveit-planning::response_adapters::ValidateSolution`, not in
+`get_collision_cost` or `optimize()`.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `src/optimizer.rs`, `get_collision_cost`'s velocity-weighted cost has no separate upstream start-state-collision guard | `chomp_planner.cpp:80` checks only `start_state.satisfiesBounds()`; upstream's real guard against a stationary in-collision (or otherwise silently-wrong) response is `default_planning_response_adapters::ValidateSolution`, a `move_group` planning-pipeline response adapter, not anything inside `chomp_planner.cpp`/`chomp_optimizer.cpp` | CONFIRMED | `chomp_planner.cpp:75-91` (start-state handling, only `satisfiesBounds()`) and `moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp:79-104` (`ValidateSolution::adapt`, `isPathValid` over the full trajectory) read directly | (this round, doc-only) |
+
 ## Background-agent audit — see `moveit-trajectory.md`
 
 The Item-4 background agent's aggregate "3 TYPE_B / 7 TYPE_A out of 60

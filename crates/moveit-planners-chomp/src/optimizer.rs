@@ -1424,6 +1424,38 @@ impl<'m> ChompOptimizer<'m> {
     /// `planner.rs`'s `solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision`
     /// doc comment for the consequence this has on `optimize()`'s
     /// collision-threshold branch.
+    ///
+    /// This is not a gap upstream closes inside `chomp_planner.cpp`
+    /// either: `ChompPlanner::solve` (`chomp_planner.cpp:80`) only calls
+    /// `start_state.satisfiesBounds()` before planning -- no
+    /// `planning_scene->isStateColliding(start_state, ...)` or equivalent.
+    /// Upstream's actual guard against a stationary in-collision start
+    /// (or any other silently-wrong-but-`SUCCESS`-flagged response) lives
+    /// one layer up, in `move_group`'s planning pipeline:
+    /// `default_planning_response_adapters::ValidateSolution`
+    /// (`moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp`)
+    /// re-checks *every* waypoint of the returned trajectory -- including
+    /// waypoint 0, the start state -- via `planning_scene->isPathValid`,
+    /// a real `checkCollision` call independent of CHOMP's own
+    /// velocity-weighted internal metric, and downgrades the response to
+    /// `INVALID_MOTION_PLAN` if any waypoint fails. This port already has
+    /// that adapter: `moveit_planning::response_adapters::ValidateSolution`
+    /// (`crates/moveit-planning/src/response_adapters/validate_path.rs`;
+    /// not a dependency of this crate, hence a plain path here, not a
+    /// doc-link). The gap is composition, not a missing component:
+    /// [`crate::solve`]
+    /// is a bespoke function outside `moveit-planning`'s adapter pipeline
+    /// (see this crate's `# Deviation: no moveit-scene, no moveit-planning
+    /// dependency` note), so nothing currently routes its response through
+    /// `ValidateSolution` before a caller treats it as accepted -- matching
+    /// upstream's own architecture, where `chomp_planner.cpp` alone has
+    /// this exact same gap and only closes it when composed inside
+    /// `move_group`'s pipeline. A future dispatcher wiring
+    /// `moveit-planners-chomp::solve`'s output through
+    /// `moveit-planning::response_adapters::ValidateSolution` (the same
+    /// missing dispatcher [`crate::planner::ChompGoal`]'s doc comment
+    /// already names) is
+    /// where this should be closed, not a change to this function.
     fn get_collision_cost(&mut self) -> f64 {
         let mut collision_cost = 0.0;
         let mut worst_collision_cost = 0.0;
