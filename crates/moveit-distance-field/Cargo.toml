@@ -22,32 +22,7 @@ approx.workspace = true
 moveit-srdf.workspace = true
 nalgebra.workspace = true
 serde.workspace = true
-# `raw_value`, not the workspace default feature set: serde_json 1.0.151's
-# f64 parser (used for any typed `f64`/`[f64; N]` field, and for
-# `serde_json::Value` too) is not correctly rounded for some
-# 17-significant-digit literals -- confirmed directly,
-# `serde_json::from_str::<f64>("10.049999999999999")` yields the f64 for
-# `10.05`, a different, wrong neighbor, while `"10.049999999999999".parse::<f64>()`
-# (std, correctly rounded) and Python's `json` module both agree on the
-# right one. This crate's oracle-parity fixtures compare floating-point
-# coordinates bit-exactly (PORTING-PLAN.md's `max_relative` trap section
-# already established `assert_eq!` over any tolerance as this crate's
-# house style), so a silently mis-rounded expected value is exactly the
-# kind of false result that discipline exists to catch. `arbitrary_precision`
-# was tried first and rejected: it also routes `serde_json::Value` through
-# the standard library's correctly-rounded parser, but it additionally
-# breaks `#[serde(tag = "...")]` internally-tagged enum deserialization
-# crate-wide (confirmed: it broke `tests/shape_points_parity.rs`'s
-# `ShapeSpec` and `tests/collision_distance_field_types_parity.rs`'s
-# equivalent with "invalid type: map, expected f64", a known
-# serde/serde_json incompatibility between `arbitrary_precision`'s number
-# representation and `serde::private::de::Content`'s tag-sniffing buffer).
-# `raw_value` gives the same correctly-rounded outcome -- deserialize the
-# field as `Box<serde_json::value::RawValue>` and parse its `.get()` text
-# with `str::parse::<f64>()` -- without that conflict (confirmed: an
-# internally-tagged enum deserializes correctly alongside a `RawValue`
-# field with this feature enabled).
-serde_json = { workspace = true, features = ["raw_value"] }
+serde_json.workspace = true
 urdf-rs.workspace = true
 
 [lints]

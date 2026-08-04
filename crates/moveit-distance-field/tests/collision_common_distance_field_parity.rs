@@ -85,13 +85,24 @@ use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 /// neighbour, never checked against what this file's own assertions
 /// actually see. Bisected directly against every `assert_relative_eq!` call
 /// in this file, with `max_relative` already pinned explicitly (see below)
-/// so no implicit `approx` default can mask the true floor: `1e-16` fails on
+/// so no implicit `approx` default can mask the true floor.
+///
+/// **Re-bisected under `float_roundtrip` (PORTING-PLAN.md §115) -- the
+/// original floor was contaminated.** The original bisection (before
+/// `float_roundtrip`) found `1e-16` failing on
 /// `collision_object_point_decomposition_matches_the_oracle`
-/// (`actual.y = 1.8499999999999999` vs `expected[1] = 1.85`); `3e-16`
-/// passes, on both this test and `link_body_decomposition_matches_the_oracle`.
-/// `TOL = 1e-12` keeps roughly three orders of margin above that `3e-16`
-/// boundary, the same order of margin used for
-/// `collision_distance_field_types_parity.rs`'s own bisected constant.
+/// (`actual.y = 1.8499999999999999` vs `expected[1] = 1.85`); with
+/// `float_roundtrip` fixing `serde_json`'s fixture-literal parsing, that
+/// site no longer differs at all, and a lower, genuine floor appears
+/// instead: `8e-17` fails, `9e-17` passes, both now on
+/// `link_body_decomposition_matches_the_oracle`
+/// (`actual.y = 0.12843162208335596` vs
+/// `expected_center[1] = 0.12843162208335598`, real float
+/// non-associativity between the two implementations' arithmetic, not a
+/// parsing artifact). `TOL = 1e-13` keeps roughly three orders of margin
+/// above that `9e-17` boundary -- tightened from the old `1e-12`, which was
+/// margin measured against the contaminated `3e-16` floor and is no longer
+/// the right anchor now that the floor itself moved down.
 ///
 /// `max_relative = TOL` is passed explicitly alongside the `epsilon`
 /// argument at every call below, for the same structural reason as in
@@ -102,7 +113,7 @@ use nalgebra::{Matrix3, Translation3, UnitQuaternion};
 /// to sit above that floor (unlike `collision_env_distance_field_parity.rs`'s
 /// `RADIUS_TOL`), but pinning `max_relative` here too keeps that from ever
 /// becoming true silently in a future round.
-const TOL: f64 = 1e-12;
+const TOL: f64 = 1e-13;
 
 fn fixture_path(file_name: &str) -> String {
     format!(

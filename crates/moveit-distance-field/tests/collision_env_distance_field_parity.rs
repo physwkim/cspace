@@ -80,16 +80,26 @@ use moveit_state::RobotState;
 /// this crate, never checked against what this file's own assertions
 /// actually see. Bisected directly against every `assert_relative_eq!` call
 /// in this file (with `max_relative` already pinned explicitly, so no
-/// implicit `approx` default can hide the true floor -- see [`RADIUS_TOL`]'s
-/// doc for what happens when it is not): `1e-16` fails first on
-/// `bounding_sphere_center.z` (`left = 0.9616420264076277`, `right =
-/// 0.9616420264076276`); `3e-16` still fails, on the `field_pose` quaternion
-/// rotation check's `TOL * TOL` quadratic gate (`r_wrist_roll_link`, group
-/// `right_arm`: expected `[0.46547879812158294, 0.6080129633451752,
-/// -0.5383633189200836, 0.35187307618636826]` up to sign, got
-/// `[0.46547879812158266, 0.6080129633451752, -0.5383633189200835,
-/// 0.3518730761863682]`); `5e-16` passes. `TOL = 1e-12` keeps roughly three
-/// orders of margin above that `5e-16` boundary.
+/// implicit `approx` default can hide the true floor).
+///
+/// **Re-bisected under `float_roundtrip` (PORTING-PLAN.md §115) -- part of
+/// the original floor was contaminated.** The original `bounding_sphere_center.z`
+/// binding site (`1e-16` fails, `left = 0.9616420264076277`, `right =
+/// 0.9616420264076276`) no longer differs at all -- that was a fixture
+/// parsing artifact (see the `sphere_radii` comparison below for the same
+/// effect on a bit-exact scale). A different, genuine `bounding_sphere_center.z`
+/// site now binds at the same order: `1e-16` fails
+/// (`left = 1.1670184264413426`, `right = 1.1670184264413423`), `3.2e-16`
+/// still fails. The `field_pose` quaternion rotation check's `TOL * TOL`
+/// quadratic gate is unaffected by the parsing fix (identical values before
+/// and after): `right_arm`'s `r_wrist_roll_link` gives `expected
+/// [0.46547879812158294, 0.6080129633451752, -0.5383633189200836,
+/// 0.35187307618636826]` up to sign, `got [0.46547879812158266,
+/// 0.6080129633451752, -0.5383633189200835, 0.3518730761863682]`, and binds
+/// the combined floor at `3.2e-16` fails / `3.5e-16` passes. `TOL = 5e-13`
+/// keeps roughly three orders of margin above that `3.5e-16` boundary --
+/// tightened from the old `1e-12`, `5e-16` boundary, which had rounded up
+/// to `5e-16` partly on the strength of the now-fixed parsing artifact.
 ///
 /// `max_relative = TOL` is passed explicitly alongside `epsilon` at every
 /// `assert_relative_eq!` call below (the `TOL * TOL` quaternion check is a
@@ -98,37 +108,20 @@ use moveit_state::RobotState;
 /// `approx` falls back to `max_relative = f64::EPSILON` (~2.22e-16)
 /// whenever none is given, silently becoming the binding term for any
 /// `epsilon` below `largest_operand * f64::EPSILON`.
-const TOL: f64 = 1e-12;
+const TOL: f64 = 5e-13;
 
-/// Measured-margin tolerance, like [`TOL`] -- not a structural bucket size
-/// like `shape_points_parity.rs`'s `POINT_EPS`. Applies to `sphere_radii`
-/// alone, and deliberately three orders tighter than [`TOL`].
-///
-/// These radii are not the product of a long geometric pipeline the way
-/// `distance_queries` is — the two sides disagree only by float
-/// non-associativity in the mesh decomposition's arithmetic. Measured, not
-/// assumed: across the 24 radii that differ at all, the largest deviation is
-/// `3.469e-18` absolute / `1.436e-16` relative, i.e. one ulp at these
-/// magnitudes.
-///
-/// Bisecting the bare named constant by itself, with no explicit
-/// `max_relative`, is misleading here: with the `epsilon`-only call this
-/// file used to make, `0.0`, `1e-16`, `1e-17`, and `1e-18` all pass, which
-/// looks like a bit-exact result, but it is not one -- it is `approx`'s
-/// implicit `max_relative = f64::EPSILON` default silently covering the
-/// measured `3.469e-18` deviation (radius magnitudes are ~0.024, so the
-/// implicit floor is `0.024 * 2.22e-16 ≈ 5.33e-18`, comfortably above the
-/// measurement) regardless of how low the named constant is bisected. Once
-/// `max_relative = RADIUS_TOL` is passed explicitly, removing that hidden
-/// floor, the real binding point reappears between `1e-18` (fails --
-/// `left = 0.024157498379465722`, `right = 0.02415749837946572`, on a
-/// `group_state_representation` sphere radius) and `1e-17` (passes),
-/// consistent with the measured `3.469e-18` absolute deviation.
-/// `RADIUS_TOL = 1e-12` keeps roughly five orders of margin above `1e-17`,
-/// not the twelve orders a naive reading of the old `1e-4` neighbour value
-/// would have suggested, and not the effectively unbounded headroom a
-/// `epsilon`-only `0.0` bisection would have implied either.
-const RADIUS_TOL: f64 = 1e-12;
+// `sphere_radii` used to need its own `RADIUS_TOL` here: measured (not
+// assumed) at `3.469e-18` absolute / `1.436e-16` relative across the 24
+// radii that differed at all -- one ulp at these magnitudes, real float
+// non-associativity in the mesh-decomposition arithmetic, not a fixture
+// literal. Re-bisected under `float_roundtrip` (PORTING-PLAN.md §115):
+// `RADIUS_TOL = 0.0` (`max_relative` and `epsilon` both zero, effectively
+// `assert_eq!`) now passes. The one ULP was `serde_json`'s fixture-parsing
+// error, not a real difference between the two implementations'
+// arithmetic -- with correct rounding, every radius matches bit-for-bit.
+// Compares with plain `assert_eq!` now, per this crate's own convention
+// (`collision_sphere_free_functions_parity.rs`'s doc: "a constant nothing
+// can violate is not a gate").
 
 fn fixture_path(file_name: &str) -> String {
     format!(
@@ -768,12 +761,7 @@ fn group_state_representation_matches_the_oracle() {
                 .iter()
                 .zip(&expected_gradient.sphere_radii)
             {
-                assert_relative_eq!(
-                    *actual_radius,
-                    *expected_radius,
-                    epsilon = RADIUS_TOL,
-                    max_relative = RADIUS_TOL
-                );
+                assert_eq!(*actual_radius, *expected_radius);
             }
             assert_eq!(
                 gsr.gradients[i].joint_name, expected_gradient.joint_name,

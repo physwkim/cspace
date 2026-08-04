@@ -665,77 +665,20 @@ mod tests {
         );
     }
 
-    /// `serde_json` 1.0.151's direct `f64`-typed deserialization (whether
-    /// into a bare `f64` field, a `[f64; N]` array, `serde_json::Value`, or
-    /// a tuple struct) is not correctly rounded for some 17-significant-digit
-    /// literals -- confirmed directly:
-    /// `serde_json::from_str::<[f64; 3]>("[0,0,10.049999999999999]")`
-    /// yields the `f64` for `10.05`, a different, wrong neighbor. This
-    /// crate's fixtures compare floating-point coordinates bit-exactly, so
-    /// a silently mis-rounded expected value is exactly the false result
-    /// that discipline exists to catch. The fix is to never let
-    /// `serde_json` parse these literals into a float itself: deserialize
-    /// the source text verbatim via `serde_json::value::RawValue` (this
-    /// crate's `raw_value` feature, see `Cargo.toml`) and hand it to
-    /// Rust's own correctly-rounded `str::parse::<f64>` -- confirmed
-    /// against both `str::parse::<f64>` directly and Python's `json`
-    /// module. (`arbitrary_precision` also fixes `serde_json::Value`'s
-    /// rounding, but was rejected: it breaks `#[serde(tag = "...")]`
-    /// internally-tagged enum deserialization crate-wide, which broke
-    /// `tests/shape_points_parity.rs`'s `ShapeSpec` and
-    /// `tests/collision_distance_field_types_parity.rs`'s equivalent.)
-    /// Every float-bearing field in these fixture structs therefore goes
-    /// through [`de_f64`]/[`de_f64_3`]/[`de_f64_3_vec`] rather than
-    /// deriving `Deserialize` directly on `f64`/`[f64; 3]`/`Vec<[f64; 3]>`.
-    fn de_f64<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<f64, D::Error> {
-        let raw = <Box<serde_json::value::RawValue>>::deserialize(deserializer)?;
-        raw.get()
-            .parse()
-            .map_err(|_| serde::de::Error::custom("expected a JSON number"))
-    }
-
-    fn de_f64_3<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<[f64; 3], D::Error> {
-        let raw: [Box<serde_json::value::RawValue>; 3] = Deserialize::deserialize(deserializer)?;
-        let mut out = [0.0; 3];
-        for (slot, value) in out.iter_mut().zip(raw.iter()) {
-            *slot = value
-                .get()
-                .parse()
-                .map_err(|_| serde::de::Error::custom("expected a JSON number"))?;
-        }
-        Ok(out)
-    }
-
-    fn de_f64_3_vec<'de, D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Vec<[f64; 3]>, D::Error> {
-        let raw: Vec<[Box<serde_json::value::RawValue>; 3]> =
-            Deserialize::deserialize(deserializer)?;
-        raw.iter()
-            .map(|triple| {
-                let mut out = [0.0; 3];
-                for (slot, value) in out.iter_mut().zip(triple.iter()) {
-                    *slot = value
-                        .get()
-                        .parse()
-                        .map_err(|_| serde::de::Error::custom("expected a JSON number"))?;
-                }
-                Ok(out)
-            })
-            .collect()
-    }
-
+    /// `serde_json`'s default f64 parser is not correctly rounded for some
+    /// 17-significant-digit literals; this crate's fixtures compare
+    /// floating-point coordinates bit-exactly, so a silently mis-rounded
+    /// expected value would be a false result no tolerance would catch.
+    /// Correctly rounded parsing (confirmed 0/84221 fixture literals
+    /// misrounded, PORTING-PLAN.md §115) is a workspace-wide
+    /// `serde_json` `float_roundtrip` feature (`Cargo.toml`, root), not a
+    /// per-crate concern -- these structs derive `Deserialize` directly on
+    /// `f64`/`[f64; 3]`/`Vec<[f64; 3]>` rather than routing through a
+    /// local `RawValue` + `str::parse` shell.
     #[derive(Deserialize)]
     struct OracleGeometry {
-        #[serde(deserialize_with = "de_f64_3")]
         size: [f64; 3],
-        #[serde(deserialize_with = "de_f64_3")]
         origin: [f64; 3],
-        #[serde(deserialize_with = "de_f64")]
         resolution: f64,
     }
 
@@ -743,7 +686,6 @@ mod tests {
     struct OracleAction {
         #[serde(rename = "type")]
         action_type: String,
-        #[serde(deserialize_with = "de_f64_3")]
         point: [f64; 3],
         occupied: bool,
     }
@@ -752,16 +694,13 @@ mod tests {
     struct OracleRequest {
         id: u64,
         geometry: OracleGeometry,
-        #[serde(deserialize_with = "de_f64")]
         octree_resolution: f64,
         actions: Vec<OracleAction>,
     }
 
     #[derive(Deserialize)]
     struct OracleLeaf {
-        #[serde(deserialize_with = "de_f64_3")]
         coordinate: [f64; 3],
-        #[serde(deserialize_with = "de_f64")]
         size: f64,
         occupied: bool,
     }
@@ -770,7 +709,6 @@ mod tests {
     struct OracleResult {
         count: usize,
         leaves: Vec<OracleLeaf>,
-        #[serde(deserialize_with = "de_f64_3_vec")]
         points: Vec<[f64; 3]>,
     }
 
