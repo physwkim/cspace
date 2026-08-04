@@ -1,0 +1,499 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
+//! `TrajectoryBlenderTransitionWindow::blend` parity test against the
+//! moveit2 C++ oracle's `pilz_blend` op. Closes the gap
+//! `doc/oracle-request-pilz-blend.md` filed and PORTING-PLAN.md §188
+//! records the op landing for (`b63171d`): the twelve unit tests in
+//! `trajectory_blender_transition_window.rs` check this port's own logic
+//! against itself, never against upstream's actual numeric output.
+//!
+//! Ground truth is `tests/fixtures/panda_blend_{symmetric,asymmetric}_{request,response}.json`
+//! -- two LIN segments (SRDF `"ready"` pose, `+0.1m` along `+x`, then
+//! `+0.1m` along `+y` from that corner, a genuine direction change) blended
+//! at `blend_radius: 0.05`. The two cases differ only in segment 2's
+//! `max_velocity_scaling_factor`/`max_acceleration_scaling_factor` (`0.1` vs
+//! `0.3`), chosen so `determine_trajectory_alignment`'s two branches are each
+//! exercised by a real oracle response: symmetric hits the `else` branch
+//! (`8 == 8`), asymmetric hits `way_point_count_1 > way_point_count_2`
+//! (`8 > 4`) -- see PORTING-PLAN.md §188.2 for both cases' measured indices.
+//!
+//! # No `blend_align_index` field, by design -- see PORTING-PLAN.md §188
+//!
+//! The request document asked for `blend_align_index` alongside the two
+//! intersection indices. It is not in the response fixture, deliberately:
+//! `determineTrajectoryAlignment` is a private member of
+//! `TrajectoryBlenderTransitionWindow`, unreachable from `oracle.cpp` without
+//! reimplementing its six lines there -- which would make this fixture
+//! compare the port against a second oracle-side implementation of the same
+//! branch, not against upstream's own execution. The two intersection
+//! indices survive as real oracle output because `blend()`'s own copy loops
+//! truncate the response trajectories at exactly those indices: the same
+//! recovery this file performs on the *port's* side below via
+//! `blend_response.first_trajectory.way_point_count()` and
+//! `second_trajectory_input_waypoint_count - blend_response.second_trajectory.way_point_count() - 1`,
+//! since `search_intersection_points` is a private `fn` in
+//! `trajectory_blender_transition_window.rs` and not reachable from this
+//! integration test either. The alignment branch itself is not asserted
+//! directly (there is no witness for it independent of the waypoints), but
+//! it is exercised: the asymmetric case's numeric divergence check below is
+//! precisely what would catch a branch inverted, output coincidentally
+//! similar" bug, per that document's own "Why the alignment branch needs its
+//! own field" section.
+//!
+//! Every waypoint's `positions`/`velocities`/`accelerations`/`time_from_start`
+//! is compared across all three response segments (`first_trajectory`,
+//! `blend_trajectory`, `second_trajectory`), not `blend_trajectory` alone --
+//! `first_trajectory`/`second_trajectory`'s waypoint counts are themselves
+//! the intersection-index witness described above, so comparing only
+//! `blend_trajectory` would silently drop that check.
+
+use std::collections::HashMap;
+use std::fs;
+use std::sync::Arc;
+
+use serde::Deserialize;
+
+use moveit_collision::{LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_geometry::{UnitQuaternion, Vector3};
+use moveit_model::{MeshSearchPaths, RobotModel};
+use moveit_planners_pilz::limits::{
+    CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
+};
+use moveit_planners_pilz::trajectory_blender_transition_window::{TrajectoryBlendRequest, blend};
+use moveit_planners_pilz::trajectory_functions::IkContext;
+use moveit_planners_pilz::trajectory_generator::{
+    Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
+};
+use moveit_planners_pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
+use moveit_scene::PlanningScene;
+use moveit_srdf::SrdfModel;
+use moveit_trajectory::RobotTrajectory;
+
+#[derive(Deserialize)]
+struct FixtureJointLimit {
+    #[serde(default)]
+    has_position_limits: bool,
+    #[serde(default)]
+    min_position: f64,
+    #[serde(default)]
+    max_position: f64,
+    #[serde(default)]
+    has_velocity_limits: bool,
+    #[serde(default)]
+    max_velocity: f64,
+    #[serde(default)]
+    has_acceleration_limits: bool,
+    #[serde(default)]
+    max_acceleration: f64,
+    #[serde(default)]
+    has_deceleration_limits: bool,
+    #[serde(default)]
+    max_deceleration: f64,
+}
+
+impl From<FixtureJointLimit> for JointLimit {
+    fn from(f: FixtureJointLimit) -> Self {
+        JointLimit {
+            has_position_limits: f.has_position_limits,
+            min_position: f.min_position,
+            max_position: f.max_position,
+            has_velocity_limits: f.has_velocity_limits,
+            max_velocity: f.max_velocity,
+            has_acceleration_limits: f.has_acceleration_limits,
+            max_acceleration: f.max_acceleration,
+            has_deceleration_limits: f.has_deceleration_limits,
+            max_deceleration: f.max_deceleration,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct FixtureCartesianLimits {
+    max_trans_vel: f64,
+    max_trans_acc: f64,
+    max_trans_dec: f64,
+    max_rot_vel: f64,
+}
+
+impl From<FixtureCartesianLimits> for CartesianLimits {
+    fn from(f: FixtureCartesianLimits) -> Self {
+        CartesianLimits {
+            max_trans_vel: f.max_trans_vel,
+            max_trans_acc: f.max_trans_acc,
+            max_trans_dec: f.max_trans_dec,
+            max_rot_vel: f.max_rot_vel,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GoalFixture {
+    kind: String,
+    link_name: String,
+    position: [f64; 3],
+    orientation: [f64; 4],
+}
+
+fn goal_from_fixture(g: &GoalFixture) -> Goal {
+    assert_eq!(g.kind, "cartesian");
+    let [x, y, z, w] = g.orientation;
+    Goal::Cartesian {
+        link_name: g.link_name.clone(),
+        position: Vector3::new(g.position[0], g.position[1], g.position[2]),
+        orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
+        target_point_offset: Vector3::new(0.0, 0.0, 0.0),
+    }
+}
+
+#[derive(Deserialize)]
+struct SegmentFixture {
+    max_velocity_scaling_factor: f64,
+    max_acceleration_scaling_factor: f64,
+    goal: GoalFixture,
+}
+
+#[derive(Deserialize)]
+struct RequestFixture {
+    group_name: String,
+    link_name: String,
+    sampling_time: f64,
+    blend_radius: f64,
+    joint_limits: HashMap<String, FixtureJointLimit>,
+    cartesian_limits: FixtureCartesianLimits,
+    start_state: HashMap<String, f64>,
+    segments: Vec<SegmentFixture>,
+}
+
+#[derive(Deserialize)]
+struct WaypointFixture {
+    positions: HashMap<String, f64>,
+    velocities: HashMap<String, f64>,
+    accelerations: HashMap<String, f64>,
+    time_from_start: f64,
+}
+
+#[derive(Deserialize)]
+struct ResponseFixture {
+    error_code: i32,
+    first_intersection_index: usize,
+    second_intersection_index: usize,
+    first_trajectory: Vec<WaypointFixture>,
+    blend_trajectory: Vec<WaypointFixture>,
+    second_trajectory: Vec<WaypointFixture>,
+}
+
+/// See `pilz_trajectory_lin_parity.rs`'s identical wrapper for why the
+/// fixture files are full oracle wire envelopes.
+#[derive(Deserialize)]
+struct OracleResponseEnvelope<T> {
+    result: T,
+}
+
+fn fixture_path(file_name: &str) -> String {
+    format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        file_name
+    )
+}
+
+fn load_json<T: serde::de::DeserializeOwned>(file_name: &str) -> T {
+    let path = fixture_path(file_name);
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+}
+
+fn load_panda() -> (RobotModel, SrdfModel) {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+    let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+    let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+    let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+    let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+    let mesh_paths = MeshSearchPaths::new([(
+        "moveit_resources_panda_description",
+        format!("{meshes_root}/panda_description"),
+    )]);
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_paths)
+        .expect("fixture model must build");
+    (model, srdf)
+}
+
+/// Measured against both fixture cases (after accounting for the
+/// documented `blend_trajectory`/`second_trajectory` waypoint-0 offset
+/// above): max divergence `1.0e-9`. `first_trajectory`/`second_trajectory`
+/// carry no new IK solve at all (they are truncated copies of waypoints the
+/// segment-generation step already solved), and `blend_trajectory`'s own
+/// closed-form quintic-smoothstep sampling has no separate wall-clock or
+/// solver-iteration source of drift, so this is tighter than LIN's own
+/// `TIME_TOLERANCE` and not copied from it -- see `CLAUDE.md`'s "Size test
+/// tolerances from measurement".
+const TIME_TOLERANCE: f64 = 1e-6;
+
+/// Measured max divergence across both fixture cases: `2.28e-9`. Unlike
+/// `pilz_trajectory_lin_parity.rs`'s `POSITION_TOLERANCE` (`1.26e-5`
+/// measured, budgeting for panda_arm's redundant-kinematics IK-solver
+/// divergence), `first_trajectory`/`second_trajectory` here are truncated
+/// copies of waypoints a LIN segment already solved (no second independent
+/// IK solve to diverge from), and `blend_trajectory`'s own IK solves
+/// converge far more tightly on this fixture's geometry. Set with a
+/// roughly 4x margin over the measured maximum, not copied from LIN's
+/// number.
+const POSITION_TOLERANCE: f64 = 1e-8;
+
+/// Backward-difference velocity amplifies [`POSITION_TOLERANCE`] by roughly
+/// `1 / sampling_time` (`0.1` here), the same chain LIN's own
+/// `VELOCITY_TOLERANCE` documents. Measured max divergence across both
+/// fixture cases: `1.96e-8`. Set with a roughly 4x margin.
+const VELOCITY_TOLERANCE: f64 = 8e-8;
+
+/// The same backward-difference chain's acceleration term divides by
+/// `sampling_time` again. Measured max divergence across both fixture
+/// cases: `2.91e-7`. Set with a roughly 4x margin.
+const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
+
+/// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
+/// comment -- this fixture's poses are the identical "ready, +x, +y corner"
+/// geometry chosen there so the value is inconsequential.
+const CHECK_SELF_COLLISION: bool = true;
+
+fn compare_segment(
+    label: &str,
+    case: &str,
+    actual: &RobotTrajectory<'_>,
+    expected: &[WaypointFixture],
+    // Non-zero only for `blend_trajectory`/`second_trajectory` -- see the
+    // call sites below for why those two, and not `first_trajectory`, carry
+    // a constant `sampling_time` offset between the port's and the oracle's
+    // `time_from_start` values.
+    expected_time_offset: f64,
+) {
+    assert_eq!(
+        actual.way_point_count(),
+        expected.len(),
+        "{case}/{label} waypoint count must match the oracle exactly"
+    );
+    for (i, exp) in expected.iter().enumerate() {
+        let actual_dt = actual.way_point_duration_from_start(i);
+        let expected_dt = exp.time_from_start - expected_time_offset;
+        assert!(
+            (actual_dt - expected_dt).abs() < TIME_TOLERANCE,
+            "{case}/{label} waypoint {i} time_from_start: {actual_dt} != {expected_dt} (oracle {}, offset {expected_time_offset})",
+            exp.time_from_start
+        );
+
+        let state = actual.way_point(i).unwrap();
+        for (name, &expected_pos) in &exp.positions {
+            let actual_pos = state.variable_position(name).unwrap();
+            assert!(
+                (actual_pos - expected_pos).abs() < POSITION_TOLERANCE,
+                "{case}/{label} waypoint {i} position[{name}]: {actual_pos} != {expected_pos} (oracle)"
+            );
+        }
+        for (name, &expected_vel) in &exp.velocities {
+            let actual_vel = state.variable_velocity(name).unwrap();
+            assert!(
+                (actual_vel - expected_vel).abs() < VELOCITY_TOLERANCE,
+                "{case}/{label} waypoint {i} velocity[{name}]: {actual_vel} != {expected_vel} (oracle)"
+            );
+        }
+        for (name, &expected_acc) in &exp.accelerations {
+            let actual_acc = state.variable_acceleration(name).unwrap();
+            assert!(
+                (actual_acc - expected_acc).abs() < ACCELERATION_TOLERANCE,
+                "{case}/{label} waypoint {i} acceleration[{name}]: {actual_acc} != {expected_acc} (oracle)"
+            );
+        }
+    }
+}
+
+fn run_case(case: &str) {
+    let request: RequestFixture = load_json(&format!("{case}_request.json"));
+    let response: ResponseFixture =
+        load_json::<OracleResponseEnvelope<ResponseFixture>>(&format!("{case}_response.json"))
+            .result;
+    assert_eq!(
+        response.error_code, 1,
+        "{case}: fixture's own oracle run must have succeeded"
+    );
+    assert_eq!(
+        request.segments.len(),
+        2,
+        "{case}: this fixture shape always carries exactly two segments"
+    );
+
+    let (model, srdf) = load_panda();
+
+    let mut joint_limits = JointLimitsContainer::default();
+    for (name, limit) in request.joint_limits {
+        assert!(
+            joint_limits.add_limit(name.clone(), limit.into()),
+            "{case}: duplicate or invalid joint limit for {name} in fixture"
+        );
+    }
+    let mut limits = LimitsContainer::new();
+    limits.set_joint_limits(joint_limits);
+    limits.set_cartesian_limits(request.cartesian_limits.into());
+
+    let base = TrajectoryGenerator::new(&model, limits.clone());
+    let generator = TrajectoryGeneratorLin::new(base, &request.group_name);
+
+    let scene = Arc::new(PlanningScene::new(&model, &srdf));
+    let env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+    let ctx = IkContext {
+        scene: &scene,
+        env: &env,
+        check_self_collision: CHECK_SELF_COLLISION,
+    };
+
+    let segment1_request = MotionPlanRequest {
+        group_name: request.group_name.clone(),
+        start_state: StartState {
+            position: request.start_state.clone(),
+            velocity: HashMap::new(),
+        },
+        goal: goal_from_fixture(&request.segments[0].goal),
+        max_velocity_scaling_factor: request.segments[0].max_velocity_scaling_factor,
+        max_acceleration_scaling_factor: request.segments[0].max_acceleration_scaling_factor,
+        path_constraints: None,
+    };
+    let segment1_response = generator.generate(&ctx, &segment1_request, request.sampling_time);
+    let first_trajectory = segment1_response.trajectory.unwrap_or_else(|| {
+        panic!(
+            "{case}: segment 1 must also reach SUCCESS on the fixture's own accepted request, got {:?}",
+            segment1_response.error_code
+        )
+    });
+
+    // Chain segment 2 onto segment 1's own actual last waypoint, not an
+    // independently re-planned start -- see this module's own doc comment
+    // and doc/oracle-request-pilz-blend.md's "Request JSON shape" section
+    // for why two independently-solved IK results for the same corner can
+    // fail validate_request's boundary check on panda_arm's redundant
+    // kinematics.
+    let group = model
+        .joint_model_group(&request.group_name)
+        .expect("fixture group must exist");
+    let boundary = first_trajectory
+        .last_way_point()
+        .expect("segment 1 trajectory must be non-empty");
+    let mut chained_position = HashMap::new();
+    let mut chained_velocity = HashMap::new();
+    for name in group.active_joint_names() {
+        chained_position.insert(name.clone(), boundary.variable_position(name).unwrap());
+        chained_velocity.insert(name.clone(), boundary.variable_velocity(name).unwrap());
+    }
+
+    let segment2_request = MotionPlanRequest {
+        group_name: request.group_name.clone(),
+        start_state: StartState {
+            position: chained_position,
+            velocity: chained_velocity,
+        },
+        goal: goal_from_fixture(&request.segments[1].goal),
+        max_velocity_scaling_factor: request.segments[1].max_velocity_scaling_factor,
+        max_acceleration_scaling_factor: request.segments[1].max_acceleration_scaling_factor,
+        path_constraints: None,
+    };
+    let segment2_response = generator.generate(&ctx, &segment2_request, request.sampling_time);
+    let second_trajectory = segment2_response.trajectory.unwrap_or_else(|| {
+        panic!(
+            "{case}: segment 2 must also reach SUCCESS on the fixture's own accepted request, got {:?}",
+            segment2_response.error_code
+        )
+    });
+    let second_trajectory_input_waypoint_count = second_trajectory.way_point_count();
+
+    let mut blend_request = TrajectoryBlendRequest {
+        group_name: request.group_name.clone(),
+        link_name: request.link_name.clone(),
+        first_trajectory,
+        second_trajectory,
+        blend_radius: request.blend_radius,
+    };
+    let blend_response = blend(&ctx, &limits, &mut blend_request).unwrap_or_else(|e| {
+        panic!("{case}: blend must also succeed on the fixture's own accepted request, got {e:?}")
+    });
+
+    // See this module's own doc comment on why there is no `blend_align_index`
+    // field to compare directly: recover the port's own intersection indices
+    // from the exact truncation-loop witness `blend()` leaves in its
+    // response, the same recovery PORTING-PLAN.md §188 records the oracle
+    // side performing.
+    let port_first_intersection_index = blend_response.first_trajectory.way_point_count();
+    let port_second_intersection_index = second_trajectory_input_waypoint_count
+        - blend_response.second_trajectory.way_point_count()
+        - 1;
+
+    assert_eq!(
+        port_first_intersection_index, response.first_intersection_index,
+        "{case}: first_intersection_index (recovered from first_trajectory's exact truncation length) must match the oracle exactly"
+    );
+    assert_eq!(
+        port_second_intersection_index, response.second_intersection_index,
+        "{case}: second_intersection_index (recovered from second_trajectory's exact truncation length) must match the oracle exactly"
+    );
+
+    compare_segment(
+        "first_trajectory",
+        case,
+        &blend_response.first_trajectory,
+        &response.first_trajectory,
+        0.0,
+    );
+    compare_segment(
+        "blend_trajectory",
+        case,
+        &blend_response.blend_trajectory,
+        &response.blend_trajectory,
+        // Same structural offset as `second_trajectory` below:
+        // `blend_trajectory` is a fresh `RobotTrajectory` whose first
+        // Cartesian sample's own real elapsed time is `sampling_time`
+        // (`generate_joint_trajectory_from_cartesian`'s `duration_current`
+        // for `i == 0` is `point.time_from_start`, not `0.0`), but
+        // `moveit-trajectory`'s own documented invariant --
+        // `duration_from_previous[0]` is always `0.0`, enforced
+        // structurally, not just by convention (`robot_trajectory.rs`'s own
+        // `# Deviations`, "New invariant") -- makes it structurally
+        // impossible to store that value at waypoint 0. `first_trajectory`
+        // does not need this: it is a genuine prefix of the original LIN
+        // trajectory, whose own waypoint 0 duration really was `0.0`
+        // upstream too.
+        request.sampling_time,
+    );
+    compare_segment(
+        "second_trajectory",
+        case,
+        &blend_response.second_trajectory,
+        &response.second_trajectory,
+        // See this module's own doc comment: `second_trajectory`'s waypoint 0
+        // duration is always `0.0` on this port's side, never
+        // `sampling_time` -- a permanent, documented deviation
+        // (`trajectory_blender_transition_window.rs`'s own module doc,
+        // "`response.second_trajectory`'s waypoint-0 duration is always
+        // `0.0`" section), not a bug this test should paper over with a
+        // loose blanket tolerance. Every later waypoint's
+        // `duration_from_previous` is copied unchanged, so the missing
+        // correction is a constant offset through the whole segment.
+        request.sampling_time,
+    );
+}
+
+/// Case A: segment 2 shares segment 1's `max_velocity_scaling_factor`
+/// (`0.1`), producing symmetric intersection counts and
+/// `determine_trajectory_alignment`'s `else` branch (`8 == 8`) -- see
+/// PORTING-PLAN.md §188.2.
+#[test]
+fn blend_panda_arm_symmetric_matches_the_oracle() {
+    run_case("panda_blend_symmetric");
+}
+
+/// Case B: segment 2's `max_velocity_scaling_factor`/
+/// `max_acceleration_scaling_factor` raised to `0.3`, breaking the symmetry
+/// and flipping `determine_trajectory_alignment` to its
+/// `way_point_count_1 > way_point_count_2` branch (`8 > 4`) -- the branch
+/// case A's geometry never reaches. See PORTING-PLAN.md §188.2.
+#[test]
+fn blend_panda_arm_asymmetric_matches_the_oracle() {
+    run_case("panda_blend_asymmetric");
+}
