@@ -1597,11 +1597,15 @@ impl<'m> PlanningScene<'m> {
 
     /// Whether `self`'s current state satisfies `constraints`. Upstream
     /// `isStateConstrained(state, KinematicConstraintSet, verbose)`
-    /// (`planning_scene.cpp:2277`) — the `moveit_msgs::Constraints`
-    /// overload (`:2245`/`:2269`) is a construct-then-delegate wrapper
-    /// around this one (build a `KinematicConstraintSet` from the message,
-    /// then call this exact method, confirmed from source) and is not
-    /// ported: D1 has no `moveit_msgs` type to build one from. `verbose`'s
+    /// (`planning_scene.cpp:2277`) — upstream's `moveit_msgs::Constraints`
+    /// overload (`:2245`, message state, message constraints) delegates to
+    /// a native-state/message-constraints overload (`:2253`) that builds a
+    /// `KinematicConstraintSet` from the message and calls this exact
+    /// method; that chain is not ported: D1 has no `moveit_msgs` type to
+    /// build one from. (`:2269` is a distinct overload — message state,
+    /// already-native `KinematicConstraintSet` — that converts only the
+    /// state and never builds a constraint set from a message; it is not
+    /// part of this chain.) `verbose`'s
     /// `RCLCPP_INFO` diagnostics are dropped for the same reason
     /// [`moveit_constraints::KinematicConstraintSet::decide`] itself
     /// carries no `verbose` parameter.
