@@ -1,9 +1,41 @@
 // Copyright (c) 2018, Pilz GmbH & Co. KG
+// Copyright 2020, PAL Robotics S.L.
 // Copyright (c) 2026, moveit-rs contributors
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
-//   moveit_planners/pilz_industrial_motion_planner/
+//   moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/
+//     cartesian_trajectory.hpp
+//     cartesian_trajectory_point.hpp
+//     joint_limits_container.hpp
+//     joint_limits_extension.hpp
+//     limits_container.hpp
+//     path_circle_generator.hpp
+//     trajectory_functions.hpp
+//     trajectory_generator.hpp
+//     trajectory_generator_circ.hpp
+//     trajectory_generator_lin.hpp
+//     trajectory_generator_ptp.hpp
+//     velocity_profile_atrap.hpp
+//   moveit_planners/pilz_industrial_motion_planner/include/joint_limits_copy/
+//     joint_limits.hpp  (Apache-2.0, PAL Robotics; vendored upstream)
+//   moveit_planners/pilz_industrial_motion_planner/src/
+//     cartesian_limits_parameters.yaml
+//     joint_limits_container.cpp
+//     limits_container.cpp
+//     path_circle_generator.cpp
+//     trajectory_functions.cpp
+//     trajectory_generator.cpp
+//     trajectory_generator_circ.cpp
+//     trajectory_generator_lin.cpp
+//     trajectory_generator_ptp.cpp
+//     velocity_profile_atrap.cpp
+//
+// This crate-level citation is the union of what every module below cites in
+// its own header; the two vendored orocos_kdl stems (path_line,
+// velocity_profile_trap) are independently derived, not ported, and cite
+// their upstream call sites with `Used by` in their own file headers instead
+// — see those modules' own doc comments for why.
 
 //! The Pilz industrial motion planner: analytical, deterministic LIN/PTP/CIRC
 //! trajectory generation, ported from `pilz_industrial_motion_planner`.
