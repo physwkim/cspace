@@ -373,6 +373,26 @@ const CORNER110_ACCELERATION_TOLERANCE: f64 = 1.9e-6;
 /// against the redundant-IK/angle-only attribution.
 const CORNER112_RADIUS03_VELOCITY_TOLERANCE: f64 = 1.11e-7;
 
+/// Case I's discriminator: case E's exact 112 degree corner with
+/// `blend_radius` raised from `0.05` to `0.08` -- case C's own radius value,
+/// angle and per-segment speed held fixed. `doc/oracle-request-pilz-blend-geometry.md`'s
+/// "Case I" section files the two-hypothesis prediction this fixture
+/// discriminates before this fixture's numbers existed: H-angle predicted a
+/// clean read (runner-up ratio well under the ~90% near-tie band); H-radius
+/// predicted a near-tie matching case C's `99.7%`. Measured runner-up ratio
+/// `49.85%` -- a clean read, refuting H-radius. All three channels also
+/// exceed case E's own `CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE`
+/// (position had no case-specific override before this fixture -- the first
+/// case to need one, at more than double [`POSITION_TOLERANCE`]'s own
+/// deliberately tight `1.8x` margin), so this case gets its own trio with
+/// the same ~1.2x margin rather than reusing case E's or widening the
+/// shared constants.
+const CORNER112_RADIUS08_POSITION_TOLERANCE: f64 = 1.5e-8;
+/// See [`CORNER112_RADIUS08_POSITION_TOLERANCE`]. Measured max `1.1429e-7`.
+const CORNER112_RADIUS08_VELOCITY_TOLERANCE: f64 = 1.4e-7;
+/// See [`CORNER112_RADIUS08_POSITION_TOLERANCE`]. Measured max `2.2703e-6`.
+const CORNER112_RADIUS08_ACCELERATION_TOLERANCE: f64 = 2.8e-6;
+
 /// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
 /// comment -- this fixture's poses are the identical "ready, +x, +y corner"
 /// geometry chosen there so the value is inconsequential.
@@ -916,3 +936,24 @@ fn blend_panda_arm_corner112_radius03_matches_the_oracle() {
         },
     );
 }
+
+/// Case I's discriminator: case E's exact 112 degree corner with
+/// `blend_radius` raised from `0.05` to `0.08`. See
+/// [`CORNER112_RADIUS08_POSITION_TOLERANCE`] and
+/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case I" section: a clean
+/// `49.85%` runner-up ratio at the argmax waypoint, refuting H-radius in
+/// favor of H-angle -- radius alone did not reproduce case C's near-tie at
+/// this angle.
+#[test]
+fn blend_panda_arm_corner112_radius08_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner112_radius08",
+        Tolerances {
+            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
+            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
+            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
+}
+
