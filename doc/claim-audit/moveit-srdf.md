@@ -52,10 +52,11 @@ known gap. This pass closes it for `src/`.
 - The upstream source is present locally (`third_party/srdfdom/`), so nothing
   in this crate falls under the "source absent" bucket that forces
   UNVERIFIABLE elsewhere.
-- Still unaudited: the 17 `upstream` mentions in `tests/boundaries.rs` and
-  `tests/fixtures.rs`. Those describe what a test pins rather than asserting
-  upstream behaviour independently, but they have not been opened, and that
-  is a gap rather than a pass.
+- The test-side mentions are now audited too; see "Third pass" below. The
+  count in this line used to read "17 `upstream` mentions in
+  `tests/boundaries.rs` and `tests/fixtures.rs`" and was wrong in both parts:
+  `rg -o upstream` gives 8 occurrences on 7 lines in `boundaries.rs` and 0 in
+  `fixtures.rs`. A hand-carried number about a set nobody had opened.
 
 ## Two bounded differences found while verifying (neither is a defect)
 
@@ -86,3 +87,27 @@ known gap. This pass closes it for `src/`.
   crate performs no integer casts at all.
 - Both anchors run, both zero. Per §172 a zero from one anchor is not a
   zero; both are recorded.
+
+## Third pass — the test-side claims
+
+The gap the summary above recorded. Same standard as the first two passes:
+every verdict comes from opening `third_party/srdfdom/src/model.cpp`, not
+from reading the port. All 8 occurrences (7 lines) in
+`crates/moveit-srdf/tests/boundaries.rs`; `tests/fixtures.rs` has none.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| `tests/boundaries.rs:6-9` | every expected value was confirmed against `libsrdfdom.so.2.0.8` with a probe built on it | CONFIRMED by re-derivation, with a caveat | The probe is not in the tree, so the claim as written cannot be re-run — the §201 shape. Every expectation it covers is re-derivable from `third_party/srdfdom/src/model.cpp`, which is what the rows below do; the header's own promise ("the upstream behaviour is stated at each") is what makes that possible. If a future round changes an expected value, re-derive from the source rather than citing this line. |
+| `tests/boundaries.rs:13-14` | upstream tests a null `const char*`, so `attr=""` is a present attribute | CONFIRMED | Every attribute guard in `model.cpp` is `const char* x = xml->Attribute("x"); if (!x) { log; continue; }` — `:99,109,111,127,148,405-413,436,444,606,644-647`. `Attribute()` returns `nullptr` only when the attribute is absent; `attr=""` returns a pointer to an empty string, which passes every one of those guards |
+| `tests/boundaries.rs:15-16` | upstream walks siblings and never descends | CONFIRMED | Every element loop is `parent->FirstChildElement(tag)` / `NextSiblingElement(tag)` on the immediate parent — `:85,140,154,173,192,250,311,345,397,455,476,552,574,603,637`. Same evidence as the first pass's `src/parse.rs:494-496` row, restated here because the test asserts the consequence rather than the mechanism |
+| `tests/boundaries.rs:140` | upstream stores an absent `parent_group` and `parent_group=""` identically, both as the empty string | CONFIRMED | `model.cpp:444-448` — the assignment is inside `if (parent_group)`, and `EndEffector::parent_group_` is a default-constructed `std::string`; the present-but-empty case assigns `""` and trims it to `""`. The port's `None` vs `Some("")` is the deliberate deviation the test pins, and it is stated at the site as the module header requires |
+| `tests/boundaries.rs:148-150` | `panda.srdf` writes a `<passive_joint>` inside a group, and upstream therefore reports no passive joints at all | CONFIRMED | `loadPassiveJoints` (`model.cpp:601-622`) iterates `robot_xml->FirstChildElement("passive_joint")`; `fixtures/panda.srdf:80` is the file's only `<passive_joint>` and it sits inside `<group name="hand">` (`:73-81`). The port pins the consequence in `tests/fixtures.rs:195` (`panda_has_no_passive_joints`), so this is not a doc-only claim |
+| `tests/boundaries.rs:468` | the positive-radius threshold is strict, `radius > std::numeric_limits<double>::epsilon()` | CONFIRMED | `model.cpp:527`, verbatim. Also covered by the first pass's `src/model.rs:352-365` row; kept because the test asserts the boundary value itself (`f64::EPSILON` is not positive) rather than the branch structure |
+| `tests/boundaries.rs:598-599` | the two fields upstream stores without trimming are exactly the two that are free text | CONFIRMED, exhaustively | Enumerated rather than sampled. Every stored string in `model.cpp` is materialised at one of 26 sites: 15 through `boost::trim_copy` (`:102,163,182,207,208,259,328,329,360,467,561,585×2,613,649,650`) and 11 as `std::string(...)` followed on the next line by `boost::trim` (`:118,128,130,132,150,415,417,436,446,678`). That leaves exactly two untrimmed: `reason` in the `CollisionPair` aggregate (`:586`) and `jp.value_` (`:651`) — the two free-text fields the claim names |
+
+**Result: 8 claims, 8 CONFIRMED, 0 EXPIRED, 0 UNVERIFIABLE.** The
+`boundaries.rs:6-9` row carries a caveat rather than a different verdict:
+the probe that originally produced the numbers is gone, but the numbers are
+re-derivable from an upstream source that is in the tree, which is the
+condition §201 actually asks for. With this pass `crates/moveit-srdf` has no
+unaudited `upstream` assertion in `src/` or `tests/`.
