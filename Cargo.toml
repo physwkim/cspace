@@ -31,7 +31,16 @@ glamx = { version = "0.3", default-features = false, features = ["nalgebra"] }
 urdf-rs = "0.9"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip`, not the default feature set. serde_json's own f64 parser
+# is fast but not correctly rounded: it reads `10.049999999999999` as the f64
+# nearest `10.05`, one ULP away from what `str::parse::<f64>` (and the C++
+# oracle that wrote the literal) mean by it. Measured across every committed
+# fixture, 6859 of 84221 float literals -- 8.1%, in 29 files across 9 crates --
+# came back one ULP wrong; with the feature on, 0 do. That is invisible under a
+# tolerance and fatal under `assert_eq!`, and worse, it silently sets the floor
+# every tolerance bisection in this repo measures against. Pinned by
+# tools/ci/check-serde-float-roundtrip.sh.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 linkme = "0.3"
 approx = "0.5"
 rand = { version = "0.10", default-features = false, features = ["std"] }
