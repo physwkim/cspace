@@ -1,4 +1,5 @@
 // Copyright (c) 2013, Willow Garage, Inc.
+// Copyright (c) 2021, PickNik Inc.
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
