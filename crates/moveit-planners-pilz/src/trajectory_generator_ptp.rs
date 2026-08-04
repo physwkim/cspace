@@ -131,7 +131,7 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::NoIkSolution`] if `req.goal` is a Cartesian target
-    /// and either no [`moveit_kinematics::KINEMATICS_SOLVERS`] entry can be
+    /// and either no [`static@moveit_kinematics::KINEMATICS_SOLVERS`] entry can be
     /// built for `req.group_name` with `link_name` as its tip, or IK does not
     /// converge for the resolved goal pose.
     fn extract_motion_plan_info(

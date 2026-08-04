@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! The bridge from a [`moveit_constraints::ConstraintSampler`] to
-//! [`rrt_connect::ConstrainedStateSampler`]: [`GroupConstraintSampler`]
+//! [`crate::rrt_connect::ConstrainedStateSampler`]: [`GroupConstraintSampler`]
 //! writes each attempt into a scratch [`RobotState`] and reads the result
 //! back out through a [`JointModelGroupSpace`], mirroring
 //! [`crate::planning_scene_validity::PlanningSceneValidityChecker`]'s own
@@ -19,7 +19,7 @@ use crate::joint_model_group_space::JointModelGroupSpace;
 use crate::rrt_connect::ConstrainedStateSampler;
 
 /// Adapts a [`moveit_constraints::ConstraintSampler`] (which samples into a
-/// [`RobotState`]) to [`rrt_connect::ConstrainedStateSampler`] (which
+/// [`RobotState`]) to [`crate::rrt_connect::ConstrainedStateSampler`] (which
 /// samples a [`JointModelGroupSpace`] state).
 ///
 /// # `working` persists across attempts: this is upstream's `work_state_`, not a bug

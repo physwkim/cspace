@@ -242,7 +242,7 @@ where
     /// `info.circ_aux_point` cannot be constructed (upstream
     /// `CircleNoPlane`/`CircleToSmall`/`CenterPointDifferentRadius` — see the
     /// [module docs](self)'s `Error::Construct` narrowing note).
-    /// [`MoveItErrorCode::NoIkSolution`] if no [`moveit_kinematics::KINEMATICS_SOLVERS`]
+    /// [`MoveItErrorCode::NoIkSolution`] if no [`static@moveit_kinematics::KINEMATICS_SOLVERS`]
     /// entry can be built for `req.group_name` with `info.link_name` as its tip.
     /// Otherwise, see [`generate_joint_trajectory`].
     fn plan(

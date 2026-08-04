@@ -58,7 +58,7 @@
 //! unchanged and still real general-purpose behavior — reparameterizing
 //! timing on whatever trajectory this crate's response chain sees, from any
 //! planner — it just no longer plays a STOMP-specific corrective role. See
-//! [`tests::totg_overwrites_a_uniform_placeholder_duration`] for a
+//! `totg_overwrites_a_uniform_placeholder_duration` for a
 //! regression test that TOTG genuinely replaces a uniform, non-time-optimal
 //! duration profile with a real one; it no longer references STOMP's own
 //! (removed) placeholder shape.

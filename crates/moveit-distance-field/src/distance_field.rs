@@ -104,7 +104,7 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 ///
 /// # Exactly what this function reads from a leaf, and what "in emission order" above actually pins
 ///
-/// This function reads exactly 3 of [`crate::iter::Leaf`]'s 8 accessors —
+/// This function reads exactly 3 of [`moveit_octomap::Leaf`]'s 8 accessors —
 /// `is_occupied()`, `coordinate()`, `size()` — and never `key()`,
 /// `index_key()`, `depth()`, `log_odds()`, or `occupancy()`. Those five have
 /// no consumer anywhere in this crate, so no fixture here could pin them

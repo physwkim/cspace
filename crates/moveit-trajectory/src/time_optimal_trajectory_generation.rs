@@ -340,7 +340,7 @@ use crate::robot_trajectory::RobotTrajectory;
 use crate::trajectory::Trajectory;
 
 /// `DEFAULT_TIMESTEP`, cpp:53. Distinct from
-/// [`crate::trajectory::VELOCITY_SWITCHING_SCAN_STEP`] (round 3's own doc
+/// `trajectory::VELOCITY_SWITCHING_SCAN_STEP` (round 3's own doc
 /// comment on that constant already flags the coincidence): this one is the
 /// `time_step` `do_time_parameterization_calculations` passes to
 /// `Trajectory::create`, the other is an unrelated scan-step epsilon inside

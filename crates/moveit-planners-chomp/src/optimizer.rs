@@ -669,7 +669,7 @@ fn joint_link_maps(robot_model: &RobotModel) -> (Vec<Option<usize>>, Vec<usize>)
 ///   reaches an active joint or the root.
 ///
 /// This has an observable consequence reproduced deliberately, not fixed:
-/// [`is_ancestor_or_self`] (this port's `isParent`) treats a joint index
+/// [`ChompOptimizer::is_ancestor_or_self`] (this port's `isParent`) treats a joint index
 /// resolved to a non-active joint as having **no** registered ancestors at
 /// all (upstream's `joint_parent_map_` is only ever populated by
 /// `registerParents` for active joints, so `isParent`'s map lookup fails
@@ -719,7 +719,7 @@ fn build_fixed_link_resolution_map(
 }
 
 /// Resolves every collision gradient's `joint_name` (upstream
-/// `GradientInfo::joint_name_`) to the joint index [`get_jacobian`] should
+/// `GradientInfo::joint_name_`) to the joint index [`ChompOptimizer::get_jacobian`] should
 /// treat it as owned by, via `resolution_map`
 /// ([`build_fixed_link_resolution_map`]'s output). `None` if the name
 /// isn't in `resolution_map` at all, matching upstream's

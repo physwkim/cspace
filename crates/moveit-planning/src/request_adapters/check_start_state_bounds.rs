@@ -39,7 +39,7 @@
 //! order:
 //!
 //! 1. If revolute *and* continuous: wrapped into `[-pi, pi]` via
-//!    [`moveit_model::JointModel::enforce_position_bounds`] — safe to call
+//!    [`moveit_model::joint::JointModel::enforce_position_bounds`] — safe to call
 //!    unconditionally only for a continuous joint, since that variant of
 //!    `enforce_position_bounds` never clamps (see `moveit-model`'s
 //!    `revolute.rs`, `enforce_position_bounds_wraps_when_continuous`); this
@@ -48,11 +48,11 @@
 //!    calls the per-joint dispatcher only inside this `is_continuous()`
 //!    guard, exactly mirroring cpp:112's own guard.
 //! 2. If planar: `values[2]` (yaw) renormalized via
-//!    [`moveit_model::PlanarJoint::normalize_rotation`] (cpp:129).
+//!    [`moveit_model::joint::PlanarJoint::normalize_rotation`] (cpp:129).
 //! 3. If floating: the quaternion renormalized via
-//!    [`moveit_model::FloatingJoint::normalize_rotation`] (cpp:141).
+//!    [`moveit_model::joint::FloatingJoint::normalize_rotation`] (cpp:141).
 //! 4. Regardless of type: checked against its own bounds via
-//!    [`moveit_model::JointModel::satisfies_position_bounds`] with
+//!    [`moveit_model::joint::JointModel::satisfies_position_bounds`] with
 //!    `margin = 0.0`. Upstream's own default here is not
 //!    `satisfiesPositionBounds` in isolation but
 //!    `RobotState::satisfiesBounds(jmodel, margin)`
@@ -61,7 +61,7 @@
 //!    satisfiesVelocityBounds(joint, margin))`. A prior version of this
 //!    port called only the position half, silently accepting a start state
 //!    whose velocities were set and out of bounds. Fixed: step 4 now also
-//!    checks [`moveit_model::JointModel::satisfies_velocity_bounds`]
+//!    checks [`moveit_model::joint::JointModel::satisfies_velocity_bounds`]
 //!    against [`moveit_state::RobotState::joint_velocity`] whenever
 //!    [`moveit_state::RobotState::has_velocities`] is true, mirroring the
 //!    `has_velocity_` conditional exactly — [`moveit_state::RobotState`]

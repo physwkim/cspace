@@ -24,8 +24,8 @@
 //! reproduce that split. Instead it uses two facts that hold regardless of
 //! that split:
 //!
-//! - **`X[i]` (`Segment::pose(q)`) is exactly [`LinkModel::joint_origin_transform`]
-//!   composed with [`JointModel::compute_transform`].** Both describe the
+//! - **`X[i]` (`Segment::pose(q)`) is exactly [`moveit_model::LinkModel::joint_origin_transform`]
+//!   composed with [`moveit_model::joint::JointModel::compute_transform`].** Both describe the
 //!   same physical quantity — link i's pose relative to link i-1 as a
 //!   function of the joint variable — and there is only one physically
 //!   correct answer for a URDF revolute/prismatic joint. This port's own
@@ -53,7 +53,7 @@
 //! Upstream's `DynamicsSolver` reads mass/inertia from the raw URDF a
 //! second time via `kdl_parser`, bypassing `RobotModel`/`LinkModel`
 //! entirely (`moveit::core::LinkModel` has no such field). This port reads
-//! [`LinkModel::mass`]/[`LinkModel::center_of_mass`]/[`LinkModel::inertia`]
+//! [`moveit_model::LinkModel::mass`]/[`moveit_model::LinkModel::center_of_mass`]/[`moveit_model::LinkModel::inertia`]
 //! instead — see that type's doc comment, deviation 5.
 //!
 //! # Deviation from upstream: `max_torques` is an explicit parameter

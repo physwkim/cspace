@@ -107,7 +107,7 @@
 //! [`get_body_decomposition_cache_entry`] preserves a genuine, upstream-
 //! acknowledged defect: the cache is keyed *solely* on shape identity, but
 //! the cached [`BodyDecomposition`] value also depends on `resolution` (it
-//! is threaded into [`find_internal_points_convex`] via
+//! is threaded into [`crate::find_internal_points::find_internal_points_convex`] via
 //! [`BodyDecomposition::from_shapes`], which changes the interior point
 //! sampling). Upstream's own comment in `getBodyDecompositionCacheEntry`
 //! is literally `// TODO - deal with changing resolution?` -- the gap is

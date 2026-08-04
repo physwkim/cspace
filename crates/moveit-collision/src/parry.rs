@@ -42,14 +42,14 @@
 //!
 //! # Deviations from upstream
 //!
-//! 1. **`group_name` restricts a pair to links [`JointModelGroup`] updates,
+//! 1. **`group_name` restricts a pair to links [`moveit_model::JointModelGroup`] updates,
 //!    OR'd across the pair, not ANDed.** `checkSelfCollisionHelper`/
 //!    `checkRobotCollisionHelper` (`collision_env_fcl.cpp:274-297`/
 //!    `328-359`) both call `cd.enableGroup(getRobotModel())` unconditionally,
 //!    which resolves `req_->group_name` to
 //!    `JointModelGroup::getUpdatedLinkModelsSet()` (every link a joint in
 //!    that group moves, including fixed-joint descendants —
-//!    [`JointModelGroup::updated_link_names`] is the same set, already
+//!    [`moveit_model::JointModelGroup::updated_link_names`] is the same set, already
 //!    ported) and `collisionCallback` (`collision_common.cpp:79-94`) then
 //!    skips a pair only when *neither* side resolves to an active link — a
 //!    world object never resolves to one on its own, so a robot-vs-world
@@ -65,7 +65,7 @@
 //!    calling `distanceSelf`). [`active_group_links`] reproduces the
 //!    `enableGroup` resolution and [`pair_in_active_group`] the callbacks'
 //!    filter predicate, applied in [`ParryCollisionEnv::check_self_collision`]/
-//!    [`check_robot_collision`]/[`distance_self`]/[`distance_robot`].
+//!    [`CollisionEnv::check_robot_collision`]/[`CollisionEnv::distance_self`]/[`CollisionEnv::distance_robot`].
 //! 2. **World objects are never padded or scaled.** Verified from
 //!    `constructFCLObjectWorld` (calls the two-argument
 //!    `createCollisionGeometry(shape, obj)` overload, no scale/padding) versus
@@ -227,7 +227,7 @@
 //!    *different* wheel, and a dense sweep of `*_caster_rotation_joint`
 //!    (whose axis is vertical, nowhere near the wheel's own horizontal
 //!    roll axis) shows the true picture is not even a global invariant:
-//!    [`query::contact`] against a [`TriMesh`] visits every triangle
+//!    [`fn@query::contact`] against a [`TriMesh`] visits every triangle
 //!    overlapping the other shape and keeps the deepest
 //!    (`contact_composite_shape_shape`, see
 //!    `panda_worst_sweep_deviation_is_not_a_missed_deeper_contact`'s own doc
@@ -411,19 +411,19 @@
 //!    reproduction, not round 15's original 16 (never committed as a
 //!    fixture, not revisitable by index): a standalone scratch client
 //!    (not `tools/moveit-diff`, not committed — `tools/moveit-diff` never
-//!    surfaces [`Op::RandomStates`]'s own per-case joint values, only
+//!    surfaces `Op::RandomStates`'s own per-case joint values, only
 //!    aggregate pass/fail) spoke the oracle's wire protocol directly for
 //!    one whole-model `random_states` sweep (seed `20260817`, `8000`
 //!    cases) followed by one `collision` request per case, both ops
 //!    already used elsewhere in this repo, landing on 467 self same-pair
 //!    `base_link`/`*_caster_*_wheel_link` cases, of which 16 sit within the
 //!    same `2x` smaller-link-bounding-radius plausibility bound
-//!    [`pr2_self_wheel_same_pair_oracle_magnitude_is_implausible`] already
+//!    `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` already
 //!    tests for — 16 by this sweep's own count, not forced to match round
 //!    15's.
 //!
 //!    Every case's `base_link`/wheel poses came from this port's own FK
-//!    (the same `RobotState`/`Posed` [`distance_self`] itself uses), fed
+//!    (the same `RobotState`/`Posed` [`CollisionEnv::distance_self`] itself uses), fed
 //!    identically to both the C++ repro and this backend's own exhaustive
 //!    per-triangle search. That identical construction is the actual basis
 //!    for the result below, not merely supporting color: whatever this
@@ -797,9 +797,9 @@
 //!      not a signature of this deviation.
 //!
 //!    None of the three presentations comes from a different code path on
-//!    the robot-vs-world side: [`distance_self`]/[`distance_robot`] both
+//!    the robot-vs-world side: [`CollisionEnv::distance_self`]/[`CollisionEnv::distance_robot`] both
 //!    call the same [`accumulate_distance`] over the same per-part
-//!    [`query::contact`] call and threshold logic, differing only in which
+//!    [`fn@query::contact`] call and threshold logic, differing only in which
 //!    [`PosedBody`] list supplies the pairs ([`self_pairs`] permutes one
 //!    robot body list against itself; [`cross_pairs`] takes the robot list
 //!    against [`world_bodies`]'s). The one structural asymmetry between the
@@ -832,14 +832,14 @@
 //!    has no well-defined half-space to build, so [`convert_shape`] excludes
 //!    it from collision geometry rather than construct a `HalfSpace` with a
 //!    zero-length (and therefore un-normalizable) normal.
-//! 10. **`check_robot_collision_continuous` returns [`Error`](moveit_error::Error).** See
+//! 10. **`check_robot_collision_continuous` returns [`Error`].** See
 //!     [`crate::CollisionEnv::check_robot_collision_continuous`]'s own doc:
 //!     upstream's FCL backend does not implement this case either, silently
 //!     leaving `res` untouched; this backend has no swept/conservative-
 //!     advancement query wired up, and returns an explicit error rather than
 //!     an approximation that would misreport a real path collision as clear.
 //! 11. **[`Shape::OcTree`] converts to a `Cuboid`-per-occupied-leaf
-//!     [`Compound`], not a native octree.** `parry3d-f64` has no equivalent of
+//!     [`parry3d_f64::shape::Compound`], not a native octree.** `parry3d-f64` has no equivalent of
 //!     FCL's `fcl::OcTreed` (`PORTING-PLAN.md` records no mature Rust octree-
 //!     collision-shape crate was found); [`compound_from_octree`] builds one
 //!     `Cuboid` per occupied leaf instead. Measured, not merely described:
@@ -883,7 +883,7 @@
 //! "Same object" pairs (upstream's `cd1->sameObject(*cd2)`, the first check
 //! in both callbacks) need no code here: [`self_pairs`]/[`cross_pairs`]
 //! never produce `(x, x)`, and every [`PosedBody`] is already one body's
-//! *entire* geometry combined into a single [`Compound`] (this module's own
+//! *entire* geometry combined into a single [`parry3d_f64::shape::Compound`] (this module's own
 //! design, above), so there is no second, distinct `PosedBody` sharing an
 //! identity with the first for that check to ever need to catch.
 
@@ -996,7 +996,7 @@ fn from_parry_vector(v: ParryVector) -> Vector3 {
 /// here; nothing else needs telling. A caller that rebuilds-and-replaces one
 /// `World` object's octree every sensor scan therefore holds at most one
 /// stale entry at a time (the just-replaced tree, until the very next
-/// [`CollisionEnv`](crate::CollisionEnv) call prunes it), not one accumulated
+/// [`CollisionEnv`] call prunes it), not one accumulated
 /// per scan. The entry [`Self::get_or_compute`] is about to look up can never
 /// be the one pruned: its caller is holding the `Arc` being queried, so that
 /// entry's `strong_count()` is at least 1 at the moment of the prune.
@@ -1093,7 +1093,7 @@ impl OctreeCache {
 /// A [`Shape::OcTree`] with an occupied leaf converts through
 /// [`compound_from_octree`], memoized by [`OctreeCache`] (see its own doc) so
 /// that repeated calls for the same tree — one per
-/// [`CollisionEnv`](crate::CollisionEnv) query — do not rebuild the same
+/// [`CollisionEnv`] query — do not rebuild the same
 /// `Compound` from scratch every time. Oracle-verified end-to-end against a
 /// real `CollisionEnvFCL` in
 /// `crates/moveit-collision/tests/octree_world_collision_parity.rs`; this is
@@ -1548,7 +1548,7 @@ fn triangle_world_aabb(pose: &Pose, tri: &ParryTriangle) -> Aabb {
 /// before emitting anything, matching the one traversal-node path it
 /// actually takes upstream.
 ///
-/// A [`Compound`](parry3d_f64::shape::Compound) built from an octree
+/// A [`parry3d_f64::shape::Compound`] built from an octree
 /// (deviation 11) is not a [`TriMesh`], so it always takes the
 /// whole-shape-AABB path — one cost source per colliding octree pair, not
 /// per occupied leaf. This is a real deviation, and a stricter one than
@@ -1565,7 +1565,7 @@ fn triangle_world_aabb(pose: &Pose, tri: &ParryTriangle) -> Aabb {
 /// `OcTreeShapeCollide`/`ShapeOcTreeCollide` — the same per-leaf octree
 /// solver, called with the mesh's box as its shape argument, not a
 /// whole-octree AABB test. Once this port's occupied leaves are flattened
-/// into one [`Compound`] at construction time, no finer-than-the-compound
+/// into one [`parry3d_f64::shape::Compound`] at construction time, no finer-than-the-compound
 /// granularity survives to cost separately — this closes the measurement
 /// §171.4 left open, confirming the deviation rather than retracting it.
 fn cost_sources_for_part_pair(

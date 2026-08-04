@@ -2458,7 +2458,7 @@ fn from_parry(v: parry3d_f64::math::Vector3) -> Vector3 {
 }
 
 /// The convex-hull data a [`ConvexMesh`] is built from: the shape-dependent
-/// half of upstream `ConvexMesh::MeshData`, shared behind an [`Arc`] so
+/// half of upstream `ConvexMesh::MeshData`, shared behind an [`std::sync::Arc`] so
 /// [`ConvexMesh::clone_at`] is a cheap pointer copy — upstream's own reason
 /// for keeping this in one PIMPL struct (`bodies.h`'s comment on
 /// `mesh_data_`).

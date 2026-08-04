@@ -31,7 +31,7 @@
 //! port's single-rooted goal tree imposes, not an oversight — see the
 //! round 21 report for the "does a concrete goal state losslessly become a
 //! `JointConstraint` set" determination this interacts with (if it does,
-//! most callers never need [`Goal::Constraints`]'s multi-solution
+//! most callers never need [`crate::registry::Goal::Constraints`]'s multi-solution
 //! generality in the first place).
 //!
 //! # What else is not ported

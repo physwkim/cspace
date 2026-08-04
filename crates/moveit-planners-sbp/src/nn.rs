@@ -37,7 +37,7 @@
 use crate::space::StateSpace;
 
 /// A GNAT-family nearest-neighbour index over `S::State`, each entry
-/// carrying a caller-supplied payload `T` (in [`crate::rrt_connect`], a
+/// carrying a caller-supplied payload `T` (in `rrt_connect`, a
 /// tree-node index).
 pub struct Gnat<S: StateSpace, T> {
     root: Option<Node<S::State, T>>,

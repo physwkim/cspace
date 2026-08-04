@@ -272,7 +272,7 @@ pub struct ChompRequest<'a, 'm> {
 /// `group_trajectory` `ChompOptimizer` builds from this one via
 /// `from_source_trajectory` has a different free range that does include
 /// its own copies of the start/goal rows, per
-/// [`crate::optimizer::ChompTrajectory::num_free_points`]'s doc -- but that
+/// [`crate::trajectory::ChompTrajectory::num_free_points`]'s doc -- but that
 /// range is never written back past this outer trajectory's own
 /// `start_index`/`end_index` bounds.)
 fn build_seed_trajectory<'m>(
