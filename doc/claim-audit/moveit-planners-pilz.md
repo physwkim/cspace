@@ -18,3 +18,43 @@ transcribed from a source that turns out not to say what the citation implies.
 adapter / dispatch shape (`PlannerManager|planner_manager|registerPlannerType|
 createPlanningContext|planning_context|adapter`). No hits outside the three
 rows above.
+
+Note on row 11 above (`src/lib.rs`, `# Deliberately not ported`): its
+parenthetical "(`TrajectoryBlenderTransitionWindow`, already flagged in
+this crate's own doc as 'not yet in scope, planned for later rounds')" is
+now stale — this crate ported `TrajectoryBlenderTransitionWindow` in
+`b3e39c3` (this round), so `plan_components_builder.cpp:75-105`'s
+`blender_->blend(...)` call now targets a type this crate does port. The
+row's own CONFIRMED claim (these five files never compute a trajectory
+themselves) still holds; only that one parenthetical is out of date. Not
+re-marked EXPIRED since the claim itself is unaffected — flagged here so
+a future pass does not cite the stale parenthetical as current.
+
+## §172 two-anchor narrowing sweep — negative result on anchor 1, one anchor-2 hit classified `distinct`
+
+Anchor 1 (upstream, run first per §172): `static_cast<int|size_t|unsigned|
+long|short>`, C-style `(int)`/`(size_t)`/`(unsigned)`/`(long)` casts, an
+`int`/`size_t`/`unsigned`/`long`/`short` declaration whose RHS is a float
+literal or a division, and `floor`/`ceil`/`round`/`sqrt`/`pow` near an
+integer declaration — swept via `rg` against every upstream file this
+crate's `lib.rs` header and each module's own header cite (the 27-file set
+listed in `lib.rs`'s crate-level citation, including this round's four new
+files: `trajectory_blender.hpp`, `trajectory_blender_transition_window.{hpp,cpp}`,
+`trajectory_blend_request.hpp`, `trajectory_blend_response.hpp`), each
+file present and read at the path cited. All four sweep patterns: 0 hits
+across the whole set.
+
+Anchor 2 (port side): `as (i8|i16|i32|i64|isize|u8|u16|u32|u64|usize)` in
+`crates/moveit-planners-pilz/src/`, enumerated on screen: exactly one hit.
+
+| where (anchor) | claim | verdict | evidence |
+|---|---|---|---|
+| upstream set (27 files, anchor 1) | no int/size_t/unsigned/long/short decl or cast with a floating-point initializer, in any cited file | CONFIRMED (absent) | every file opened, `rg` swept, 0 hits |
+| `src/velocity_profile.rs:423` (anchor 2) | `((x > 0.0) as i32 - (x < 0.0) as i32) as f64`, upstream's `sign(x) = (x > 0) - (x < 0)` | `distinct` — not a float→int narrowing site. `(x > 0.0)`/`(x < 0.0)` are `bool`, so `as i32` casts a boolean to exactly `0`/`1` (no fractional value, no UB/saturation ambiguity between C++ and Rust — that ambiguity only exists for `double`-to-integer casts). The final `as f64` casts an already-exact small `i32` (`-1`/`0`/`1`) to `f64`, which is always lossless. Neither cast receives a floating-point *value* being truncated. |
+
+Expires (§153.1): if a future round adds an int/size_t/unsigned/long/short
+declaration with a floating-point initializer to any file in the upstream
+set, adds a new upstream file citing floating-point narrowing to this
+crate's cited set, or adds an `as iNN/uNN/usize/isize` cast in
+`crates/moveit-planners-pilz/src/` that receives a non-boolean `f64`
+expression, this table's rows must be re-swept, not assumed to still hold.
