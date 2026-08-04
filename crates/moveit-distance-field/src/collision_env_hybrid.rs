@@ -65,12 +65,16 @@
 //! later call) when that type was ported, so there is no post-construction
 //! initialize step left to wrap.
 
+use std::collections::{HashMap, HashSet};
+
 use moveit_collision::{
-    AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest, CollisionResult,
-    DistanceRequest, DistanceResult, LinkPaddingScale, ParryCollisionEnv, World,
+    Action, AllowedCollisionMatrix, AttachedBodyGeometry, CollisionEnv, CollisionRequest,
+    CollisionResult, DistanceRequest, DistanceResult, LinkPaddingScale, MoveObjectOutcome,
+    Notification, ParryCollisionEnv, World,
 };
-use moveit_error::Result;
+use moveit_error::{Error, Result};
 use moveit_state::Posed;
+use nalgebra::Vector3;
 
 use crate::collision_env_distance_field::LinkBodyDecompositions;
 use crate::{
@@ -78,18 +82,99 @@ use crate::{
     PropagationDistanceField, collision_object_point_decomposition,
 };
 
+/// What [`HybridCollisionEnv::mutate_world`] can turn a `World` mutator's
+/// return value into: zero or more [`Notification`]s to apply to
+/// `env_field`. Every `World` mutator returns one of the four shapes
+/// implemented below (or `()`, for a closure that reads but does not
+/// mutate); this trait is the uniform interface
+/// [`HybridCollisionEnv::mutate_world`] needs to stay generic over all of
+/// them without a bespoke wrapper method per `World` mutator.
+pub trait AsNotifications {
+    /// The notifications this value describes, borrowing rather than
+    /// consuming so the caller of `mutate_world` still gets the original
+    /// value back.
+    fn as_notifications(&self) -> Vec<Notification>;
+}
+
+impl AsNotifications for () {
+    fn as_notifications(&self) -> Vec<Notification> {
+        Vec::new()
+    }
+}
+
+impl AsNotifications for Notification {
+    fn as_notifications(&self) -> Vec<Notification> {
+        vec![self.clone()]
+    }
+}
+
+impl AsNotifications for Option<Notification> {
+    fn as_notifications(&self) -> Vec<Notification> {
+        self.iter().cloned().collect()
+    }
+}
+
+impl AsNotifications for Vec<Notification> {
+    fn as_notifications(&self) -> Vec<Notification> {
+        self.clone()
+    }
+}
+
+impl AsNotifications for MoveObjectOutcome {
+    fn as_notifications(&self) -> Vec<Notification> {
+        match self {
+            MoveObjectOutcome::Moved(notification) => vec![notification.clone()],
+            MoveObjectOutcome::NotFound | MoveObjectOutcome::NoChange => Vec::new(),
+        }
+    }
+}
+
 /// Upstream `CollisionEnvHybrid`. See this module's doc comment for the
 /// public shape and the §186 measurement that unblocked porting it.
 pub struct HybridCollisionEnv<'m> {
     parry: ParryCollisionEnv,
     distance_field: DistanceFieldCollisionCache<'m>,
     /// Kept alongside `distance_field` (whose own copy is private to
-    /// `collision_env_distance_field`) so `build_env_distance_field`
-    /// can rebuild an environment field with the same geometry/propagation
-    /// settings [`Self::distance_field`]'s own self-collision field uses --
-    /// matching upstream, whose single `CollisionEnvDistanceField`
-    /// constructor argument set builds both fields.
+    /// `collision_env_distance_field`) so [`Self::apply_notification`] can
+    /// build/extend `env_field` with the same geometry/propagation settings
+    /// [`Self::distance_field`]'s own self-collision field uses -- matching
+    /// upstream, whose single `CollisionEnvDistanceField` constructor
+    /// argument set builds both fields.
     distance_field_config: DistanceFieldConfig,
+    /// The environment [`PropagationDistanceField`], maintained
+    /// incrementally. Upstream `cenv_distance_->distance_field_cache_entry_world_->distance_field_`.
+    /// See [`Self::mutate_world`] for how this is kept in step with
+    /// [`Self::world`].
+    env_field: PropagationDistanceField,
+    /// The points last synced into `env_field` for each object id, keyed by
+    /// [`moveit_collision::World`] object id. Upstream
+    /// `posed_body_point_decompositions_`, minus the intermediate
+    /// `PosedBodyPointDecomposition` wrapper -- this port only ever needs
+    /// the flat point list back out of it, never the wrapper's own methods.
+    env_field_points: HashMap<String, Vec<Vector3<f64>>>,
+    /// Object ids whose `env_field_points` entry does not reflect the
+    /// object's current shapes, because
+    /// [`collision_object_point_decomposition`] errored the last time
+    /// [`Self::apply_notification`] tried to resync them. Upstream's
+    /// `updateDistanceObject` has no equivalent: its point decomposition is
+    /// infallible C++, so upstream never has anything to desync. This port's
+    /// decomposition is fallible ([`collision_object_point_decomposition`]
+    /// returns [`Result`]), and a mutation that already landed in
+    /// [`Self::world`] cannot be undone just because its field-sync failed --
+    /// so the id is recorded here instead of silently leaving `env_field`
+    /// wrong. See [`Self::mutate_world`] and [`Self::check_env_field_synced`].
+    ///
+    /// # Deviation from upstream
+    ///
+    /// Every `check_*_distance_field`/`get_collision_gradients`/
+    /// `get_all_collisions` method below returns [`Error::construct`] while
+    /// this set is non-empty, rather than upstream's silent "the field is
+    /// whatever the last successful sync left it as." This is the illegal
+    /// state -- a field inconsistent with its world -- described in this
+    /// crate's own house rules: erroring here makes it unrepresentable to a
+    /// caller, rather than trusting every caller of [`Self::mutate_world`] to
+    /// notice and handle a swallowed decomposition failure itself.
+    desynced_objects: HashSet<String>,
 }
 
 impl<'m> HybridCollisionEnv<'m> {
@@ -103,14 +188,38 @@ impl<'m> HybridCollisionEnv<'m> {
     /// constructor either (`Clone`-if-needed is the idiomatic Rust answer,
     /// and `DistanceFieldCollisionCache`'s `cache_entry` field is not
     /// `Clone` -- see that type's own doc).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configured grid geometry is invalid (see
+    /// [`PropagationDistanceField::new`]) or if any object already in
+    /// `world` cannot be decomposed into collision points -- unlike a later
+    /// [`Self::mutate_world`] call hitting the same problem, a decomposition
+    /// failure at construction time has no already-landed mutation to
+    /// reconcile against, so it is reported here as a hard error rather than
+    /// recorded in `desynced_objects`.
     pub fn new(
         world: World,
         padding_scale: LinkPaddingScale,
         link_body_decompositions: LinkBodyDecompositions,
         distance_field_config: DistanceFieldConfig,
         collision_tolerance: f64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let mut env_field = PropagationDistanceField::new(
+            distance_field_config.geometry,
+            distance_field_config.max_propagation_distance,
+            distance_field_config.use_signed_distance_field,
+        )?;
+        let resolution = distance_field_config.geometry.resolution;
+        let mut env_field_points = HashMap::new();
+        for (id, object) in world.iter() {
+            let points =
+                collision_object_point_decomposition(object, resolution)?.collision_points();
+            env_field.add_points_to_field(&points);
+            env_field_points.insert(id.clone(), points);
+        }
+
+        Ok(Self {
             parry: ParryCollisionEnv::new(world, padding_scale),
             distance_field: DistanceFieldCollisionCache::new(
                 link_body_decompositions,
@@ -118,7 +227,10 @@ impl<'m> HybridCollisionEnv<'m> {
                 collision_tolerance,
             ),
             distance_field_config,
-        }
+            env_field,
+            env_field_points,
+            desynced_objects: HashSet::new(),
+        })
     }
 
     /// Upstream's inherited (from `CollisionEnv`) `getWorld() const`.
@@ -142,51 +254,97 @@ impl<'m> HybridCollisionEnv<'m> {
     /// what "the world" even is, not just about whether something in it
     /// collides.
     ///
-    /// # §196.3: why this type has no `set_world` at all, not just a safe one
+    /// # §196.3/§231: why this type has no `set_world` at all, not just a safe one
     ///
     /// [`HybridCollisionEnv`] holds exactly *one* `World` value -- inside
     /// `self.parry` (see this type's own field list). `self.distance_field`
     /// (a [`DistanceFieldCollisionCache`]) holds no `World` reference of its
-    /// own; `build_env_distance_field` derives its environment field by
-    /// reading `self.parry.world()` fresh on every call instead. So "the
-    /// two halves disagree about what the world is" is not a state this
-    /// type can reach -- not because a second world is kept carefully in
-    /// sync by some guard, but because there is only ever one `World` value
-    /// to begin with. `world_mut` below is the *only* way in or out for it,
-    /// for both halves at once by construction; there is no second entry
-    /// point for a caller to update selectively and no invariant to state,
-    /// because there is nothing left for two updates to disagree about.
+    /// own; `self.env_field` is not a second `World`, it is a derived
+    /// structure kept in step with the one `World` value by
+    /// [`Self::mutate_world`] below. So "the two halves disagree about what
+    /// the world is" is not a state this type can reach -- not because a
+    /// second world is kept carefully in sync by some guard, but because
+    /// there is only ever one `World` value to begin with. `mutate_world` is
+    /// the *only* way in or out for it, for both halves at once by
+    /// construction; there is no second entry point for a caller to update
+    /// selectively and no invariant to state, because there is nothing left
+    /// for two updates to disagree about.
     ///
-    /// The remaining question upstream's override also answers -- does a
-    /// world swap actually take effect on the *next* call, or does some
-    /// cache need invalidating first -- is a separate, narrower claim, since
-    /// having one `World` value doesn't by itself guarantee every reader of
-    /// it is cache-free. [`ParryCollisionEnv`] has no persistent structure
-    /// to invalidate: every `check_*` call rebuilds its collision bodies
-    /// fresh from `self.world` (`parry.rs:1884`,
-    /// `world_bodies(&self.world, ...)`), and `build_env_distance_field`
-    /// does the same for the distance-field half (see that method's own
-    /// doc). See the
-    /// `check_robot_collision_distance_field_reflects_a_world_swap_on_the_next_call`
-    /// test in this module for the empirical check backing that narrower
-    /// claim, including its own §153.1 expiry note -- that expiry is about
-    /// *this* claim (no cache to invalidate), not the structural one above,
-    /// which holds regardless of whether either backend ever grows a cache.
+    /// # §231: replaces upstream's `addObserver`, matches upstream's incrementality
+    ///
+    /// A previous round of this doc argued `env_field`'s predecessor
+    /// (`build_env_distance_field`) had to rebuild from scratch every call
+    /// because [`moveit_collision::World`] "deliberately has no
+    /// observer/notify mechanism." That argument was measured false: `World`
+    /// genuinely has no *callback* registration (that type's own module doc,
+    /// deviation 4), but every mutator returns the
+    /// [`moveit_collision::Notification`] describing what changed instead of
+    /// pushing it to a registered observer, and
+    /// [`moveit_collision::World::all_objects_as_notifications`] exists
+    /// specifically to replay every current object to a newly-attached
+    /// consumer -- the return-value equivalent of upstream's
+    /// `notifyObserverAllObjects`. [`Self::mutate_world`] is that consumer:
+    /// every mutator call it forwards feeds its `Notification`(s) straight
+    /// into [`Self::apply_notification`], which applies the same
+    /// `CREATE`/`ADD_SHAPE` (add only) vs. `MOVE_SHAPE`/`REMOVE_SHAPE`
+    /// (remove old points, add current points) vs. `DESTROY` (remove only)
+    /// branching upstream's own `notifyObjectChange`
+    /// (`collision_env_distance_field.cpp:1704-1724`) uses. `env_field` is
+    /// therefore maintained incrementally, matching upstream's own design,
+    /// not rebuilt per call.
+    ///
+    /// # §231: not `OctreeCache`'s pattern, and concretely why not
+    ///
+    /// [`ParryCollisionEnv::world_mut`] safely returns a raw `&mut World`
+    /// because [`ParryCollisionEnv`] keeps no persistent world-derived
+    /// structure to invalidate -- every `check_*` call rebuilds its
+    /// collision bodies fresh (`parry.rs:1884`,
+    /// `world_bodies(&self.world, ...)`). Its `OctreeCache`
+    /// (`parry.rs:1125-1236`) is a pure per-key memoization table -- one
+    /// independent shape conversion (octree leaves -> parry `Compound`) per
+    /// octree `Arc`, pruned by `Weak::strong_count() == 0` -- with no
+    /// ordering or accumulation dependency between entries, so
+    /// prune-and-recompute is sufficient on its own with no mediation of
+    /// `World` mutation needed at all. `env_field` cannot use that pattern
+    /// unchanged: a [`PropagationDistanceField`] is one shared aggregate
+    /// whose cell distances depend jointly on every obstacle point
+    /// currently in it via the propagation sweep, so there is no
+    /// independent per-object fragment to memoize and no cheap way to union
+    /// fragments after the fact -- removing object A's points must not
+    /// disturb object B's, which only holds if removal and addition are
+    /// applied to the *one* shared field precisely, not recomputed from a
+    /// per-object cache. That is what [`Self::apply_notification`] does
+    /// with [`PropagationDistanceField::add_points_to_field`]/
+    /// [`PropagationDistanceField::remove_points_from_field`] instead --
+    /// `env_field_points` is the per-object *tracking* map `OctreeCache`
+    /// suggested (Arc/id identity as the signal for "this object changed"),
+    /// applied to accumulate-into/retract-from one shared structure rather
+    /// than to memoize independent ones.
+    ///
+    /// Note this per-object remove-then-add scheme has the same limit
+    /// upstream's own `notifyObjectChange` has: [`PropagationDistanceField`]
+    /// is a binary occupancy grid with no per-cell reference count
+    /// (`propagation.rs`, `remove_obstacle_voxels`), so if two objects
+    /// decompose to a point in the same voxel and one is later removed, that
+    /// voxel is marked empty even though the other object still occupies
+    /// it. This is not a new gap this port introduces -- upstream's
+    /// `PropagationDistanceField` has the identical single flat grid with no
+    /// occupancy count, and `updateDistanceObject` performs the identical
+    /// per-object remove/add without checking for a shared voxel either.
     ///
     /// # Proof: the reverse direction is a compile error, not a discipline
     ///
-    /// The remaining question is the mirror of the one above: could
-    /// [`Self::world_mut`] be called *while* a distance-field check's result
-    /// is still alive and being read, mutating the world out from under it?
-    /// No -- and provably so, not by convention: every
+    /// Could [`Self::mutate_world`] be called *while* a distance-field
+    /// check's result is still alive and being read, mutating the world out
+    /// from under it? No -- and provably so, not by convention: every
     /// `check_*_distance_field` method takes `&'s mut self` and returns a
     /// value borrowing that same `'s` ([`GroupStateRepresentation`]`<'s,
     /// 'm>`, via its `dfce: &'a DistanceFieldCacheEntry<'m>` field), so the
     /// exclusive borrow used to produce the result stays alive for as long
     /// as the result itself is in scope. A second `&mut self` call -- which
-    /// [`Self::world_mut`] requires -- cannot coexist with that borrow; the
-    /// borrow checker rejects it before the question of *correctness* even
-    /// arises. This compiles:
+    /// [`Self::mutate_world`] requires -- cannot coexist with that borrow;
+    /// the borrow checker rejects it before the question of *correctness*
+    /// even arises. This compiles:
     ///
     /// ```no_run
     /// # use moveit_collision::{CollisionRequest, LinkPaddingScale, World};
@@ -206,7 +364,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// #     max_propagation_distance: 0.5,
     /// #     use_signed_distance_field: false,
     /// # };
-    /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0);
+    /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0).unwrap();
     /// # let mut state = moveit_state::RobotState::new(&model);
     /// # state.set_to_default_values();
     /// # let posed = state.update();
@@ -216,7 +374,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///         .unwrap();
     ///     let _ = (result, gsr); // both dropped at the end of this block
     /// }
-    /// env.world_mut(); // fine: no live borrow from the check above remains
+    /// env.mutate_world(|_w| {}); // fine: no live borrow from the check above remains
     /// ```
     ///
     /// This does not:
@@ -239,18 +397,81 @@ impl<'m> HybridCollisionEnv<'m> {
     /// #     max_propagation_distance: 0.5,
     /// #     use_signed_distance_field: false,
     /// # };
-    /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0);
+    /// # let mut env = HybridCollisionEnv::new(World::new(), padding, decompositions, config, 0.0).unwrap();
     /// # let mut state = moveit_state::RobotState::new(&model);
     /// # state.set_to_default_values();
     /// # let posed = state.update();
     /// let (result, gsr) = env
     ///     .check_self_collision_distance_field(&CollisionRequest::default(), &posed, None, &[])
     ///     .unwrap();
-    /// env.world_mut(); // `gsr` below is still live -- must not compile
+    /// env.mutate_world(|_w| {}); // `gsr` below is still live -- must not compile
     /// let _ = (result, gsr);
     /// ```
-    pub fn world_mut(&mut self) -> &mut World {
-        self.parry.world_mut()
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `f` mutates or creates an object whose current
+    /// shapes cannot be decomposed into collision points -- the world
+    /// mutation itself always lands (there is no way to "undo" it once `f`
+    /// has run), but see [`Self::desynced_objects`]'s doc for what that
+    /// means for `env_field`'s consistency and how it is surfaced instead of
+    /// silently swallowed.
+    pub fn mutate_world<F, R>(&mut self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut World) -> R,
+        R: AsNotifications,
+    {
+        let result = f(self.parry.world_mut());
+        for notification in result.as_notifications() {
+            self.apply_notification(&notification);
+        }
+        if let Some(id) = self.desynced_objects.iter().next() {
+            return Err(Error::construct(format!(
+                "HybridCollisionEnv::mutate_world: object '{id}' could not be decomposed into \
+                 collision points; env_field no longer reflects it (see \
+                 HybridCollisionEnv::desynced_objects)"
+            )));
+        }
+        Ok(result)
+    }
+
+    /// Applies one [`Notification`] to `env_field`/`env_field_points`,
+    /// mirroring upstream `CollisionEnvDistanceField::notifyObjectChange`
+    /// (`collision_env_distance_field.cpp:1704-1724`). See
+    /// [`Self::mutate_world`]'s doc comment for the branch-by-`Action`
+    /// rationale and why this cannot use [`ParryCollisionEnv`]'s
+    /// `OctreeCache` pattern unchanged.
+    fn apply_notification(&mut self, notification: &Notification) {
+        let id = notification.object.id().to_string();
+
+        if notification.action.contains(Action::DESTROY) {
+            if let Some(points) = self.env_field_points.remove(&id) {
+                self.env_field.remove_points_from_field(&points);
+            }
+            self.desynced_objects.remove(&id);
+            return;
+        }
+
+        let resolution = self.distance_field_config.geometry.resolution;
+        let new_points =
+            match collision_object_point_decomposition(&notification.object, resolution) {
+                Ok(decomposition) => decomposition.collision_points(),
+                Err(_) => {
+                    self.desynced_objects.insert(id);
+                    return;
+                }
+            };
+
+        if notification.action.contains(Action::MOVE_SHAPE)
+            || notification.action.contains(Action::REMOVE_SHAPE)
+        {
+            if let Some(old_points) = self.env_field_points.get(&id) {
+                self.env_field.remove_points_from_field(old_points);
+            }
+        }
+        self.env_field.add_points_to_field(&new_points);
+        self.env_field_points.insert(id.clone(), new_points);
+        self.desynced_objects.remove(&id);
     }
 
     /// Upstream `getCollisionRobotDistanceField`/`getCollisionWorldDistanceField`
@@ -291,107 +512,40 @@ impl<'m> HybridCollisionEnv<'m> {
             .check_self_collision(req, state, acm, current_attached_bodies)
     }
 
-    /// Builds a fresh environment [`PropagationDistanceField`] from every
-    /// [`moveit_collision::Object`] currently in [`Self::world`], at the
-    /// same geometry/propagation settings [`Self::distance_field`]'s own
-    /// self-collision field uses -- matching upstream's single
-    /// `CollisionEnvDistanceField` constructor argument set building both
-    /// fields (`collision_env_hybrid.cpp:50-52`).
-    ///
-    /// Upstream's `cenv_distance_` maintains this same field incrementally,
-    /// updated on every `World` change via `distance_field_cache_entry_world_`/
-    /// `generateDistanceFieldCacheEntryWorld`/`updateDistanceObject`
-    /// (`collision_env_distance_field.hpp:59-309`) -- machinery this port
-    /// cannot replicate because [`moveit_collision::World`] deliberately has
-    /// no observer/notify mechanism for a crate outside `moveit-collision`
-    /// to hook (that type's own module doc, deviation list). Rebuilding
-    /// fresh on every call instead matches [`ParryCollisionEnv`]'s own
-    /// design, which recomputes its collision bodies fresh from `self.world`
-    /// every `check_*` call with no persistent broadphase cache
-    /// (`parry.rs:1884`, `world_bodies(&self.world, ...)`), and this crate's
-    /// own established "recompute over cache-and-invalidate" precedent (see
-    /// this module's doc comment). See
-    /// `check_robot_collision_distance_field_reflects_a_world_swap_on_the_next_call`
-    /// below for the empirical check that this actually stays in sync with
-    /// [`Self::world_mut`].
-    ///
-    /// # Cost: measured, not argued
-    ///
-    /// The "rebuild on every call" choice above is a real O(world) cost per
-    /// call, not just an assertion that it "cannot go stale" -- so it was
-    /// measured rather than only argued for. In-process
-    /// `std::time::Instant` timing of
-    /// [`HybridCollisionEnv::check_robot_collision_distance_field`] (which
-    /// calls this method once per call), on the `two_link_gap_model` test
-    /// fixture and this module's `test_distance_field_config` grid (a 2x2x2m
-    /// box at 0.05m resolution, 64,000 cells), 5 warmup calls then 100 timed
-    /// calls averaged, world objects placed clear of the robot so no run
-    /// hits the collision-found short-circuit in
-    /// [`DistanceFieldCollisionCache::check_robot_collision`]:
-    ///
-    /// | world objects | dev profile (opt-level 1/2) | `--release` |
-    /// |---:|---:|---:|
-    /// | 1    | ~0.91 ms/call | ~0.89 ms/call |
-    /// | 10   | ~1.00 ms/call | ~0.83 ms/call |
-    /// | 100  | ~1.41 ms/call | ~1.11 ms/call |
-    /// | 1000 | ~2.39 ms/call | ~1.80 ms/call |
-    ///
-    /// Two things this measurement settles: first, the 1-object cost (~0.9ms
-    /// both profiles) is already most of the 1000-object cost -- grid
-    /// allocation and the propagation sweep in [`PropagationDistanceField::new`]
-    /// plus [`Self::build_env_distance_field`]'s own `add_points_to_field`
-    /// dominate over per-object [`collision_object_point_decomposition`]
-    /// cost at this grid size; the marginal cost of the 999 additional
-    /// objects is under 1.5ms combined. Second, the fixed per-call cost this
-    /// method pays is set by the grid (cell count, i.e.
-    /// `geometry.size / geometry.resolution` cubed) the caller configures via
-    /// [`DistanceFieldConfig`], not by how many objects are in
-    /// [`Self::world`] -- so a caller with a coarser grid or fewer cells pays
-    /// less per call regardless of world size, and a caller calling this at
-    /// interactive rates with a fine grid is the one who should reach for
-    /// [`Self::world_mut`]'s caching alternative (keeping a
-    /// [`PropagationDistanceField`] around and calling
-    /// [`PropagationDistanceField::add_points_to_field`]/
-    /// [`PropagationDistanceField::remove_points_from_field`] directly
-    /// instead of this method), not one who changes little between calls in
-    /// how many world objects exist. This is a measurement, not a
-    /// recommendation to add that cache here: no caller of this crate has
-    /// asked for it, and adding an unused cache would be exactly the
-    /// speculative-configurability this session's own house rules ban.
+    /// Guard called by every `check_*_distance_field`/
+    /// `get_collision_gradients`/`get_all_collisions` method below before it
+    /// reads `env_field`. See [`Self::desynced_objects`]'s doc for why a
+    /// stale `env_field` must be reported here rather than silently used --
+    /// this is the read-side half of that invariant; [`Self::mutate_world`]
+    /// is the write-side half.
     ///
     /// # Errors
     ///
-    /// Returns an error if the configured grid geometry is invalid (see
-    /// [`PropagationDistanceField::new`]) or if any world object's shape
-    /// cannot be decomposed into collision points (see
-    /// [`collision_object_point_decomposition`]).
-    fn build_env_distance_field(&self) -> Result<PropagationDistanceField> {
-        let mut field = PropagationDistanceField::new(
-            self.distance_field_config.geometry,
-            self.distance_field_config.max_propagation_distance,
-            self.distance_field_config.use_signed_distance_field,
-        )?;
-        let resolution = self.distance_field_config.geometry.resolution;
-        let mut points = Vec::new();
-        for (_, object) in self.parry.world().iter() {
-            let decomposition = collision_object_point_decomposition(object, resolution)?;
-            points.extend(decomposition.collision_points());
+    /// Names every desynced object id if `env_field` does not currently
+    /// reflect every object in [`Self::world`].
+    fn check_env_field_synced(&self) -> Result<()> {
+        if self.desynced_objects.is_empty() {
+            return Ok(());
         }
-        field.add_points_to_field(&points);
-        Ok(field)
+        let mut ids: Vec<&str> = self.desynced_objects.iter().map(String::as_str).collect();
+        ids.sort_unstable();
+        Err(Error::construct(format!(
+            "HybridCollisionEnv: env_field does not reflect object(s) {ids:?} -- the last \
+             mutate_world call that touched them could not decompose their current shapes"
+        )))
     }
 
     /// Upstream `CollisionEnvHybrid::checkCollisionDistanceField`'s four
     /// overloads (`collision_env_hybrid.cpp:107-133`), all
-    /// `cenv_distance_->checkCollision(...)`. See
-    /// `build_env_distance_field` for why the environment field
-    /// argument is built fresh here rather than read off a cache, and this
-    /// module's doc comment for why that is not a new arity-collapse
-    /// decision on top of [`DistanceFieldCollisionCache::check_collision`].
+    /// `cenv_distance_->checkCollision(...)`. See [`Self::mutate_world`]'s
+    /// doc for why `env_field` is read directly here rather than rebuilt,
+    /// and this module's doc comment for why that is not a new
+    /// arity-collapse decision on top of
+    /// [`DistanceFieldCollisionCache::check_collision`].
     ///
     /// # Errors
     ///
-    /// See `build_env_distance_field` and
+    /// See [`Self::check_env_field_synced`] and
     /// [`DistanceFieldCollisionCache::check_collision`].
     pub fn check_collision_distance_field<'s>(
         &'s mut self,
@@ -400,13 +554,13 @@ impl<'m> HybridCollisionEnv<'m> {
         acm: Option<&AllowedCollisionMatrix>,
         current_attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
-        let env_distance_field = self.build_env_distance_field()?;
+        self.check_env_field_synced()?;
         self.distance_field.check_collision(
             req,
             state,
             acm,
             current_attached_bodies,
-            &env_distance_field,
+            &self.env_field,
         )
     }
 
@@ -418,7 +572,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See `build_env_distance_field` and
+    /// See [`Self::check_env_field_synced`] and
     /// [`DistanceFieldCollisionCache::check_robot_collision`].
     pub fn check_robot_collision_distance_field<'s>(
         &'s mut self,
@@ -427,13 +581,13 @@ impl<'m> HybridCollisionEnv<'m> {
         acm: Option<&AllowedCollisionMatrix>,
         current_attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
-        let env_distance_field = self.build_env_distance_field()?;
+        self.check_env_field_synced()?;
         self.distance_field.check_robot_collision(
             req,
             state,
             acm,
             current_attached_bodies,
-            &env_distance_field,
+            &self.env_field,
         )
     }
 
@@ -444,7 +598,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See `build_env_distance_field` and
+    /// See [`Self::check_env_field_synced`] and
     /// [`DistanceFieldCollisionCache::get_collision_gradients`].
     pub fn get_collision_gradients<'s>(
         &'s mut self,
@@ -453,13 +607,13 @@ impl<'m> HybridCollisionEnv<'m> {
         acm: Option<&AllowedCollisionMatrix>,
         current_attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> Result<GroupStateRepresentation<'s, 'm>> {
-        let env_distance_field = self.build_env_distance_field()?;
+        self.check_env_field_synced()?;
         self.distance_field.get_collision_gradients(
             req,
             state,
             acm,
             current_attached_bodies,
-            &env_distance_field,
+            &self.env_field,
         )
     }
 
@@ -470,7 +624,7 @@ impl<'m> HybridCollisionEnv<'m> {
     ///
     /// # Errors
     ///
-    /// See `build_env_distance_field` and
+    /// See [`Self::check_env_field_synced`] and
     /// [`DistanceFieldCollisionCache::get_all_collisions`].
     pub fn get_all_collisions<'s>(
         &'s mut self,
@@ -479,13 +633,13 @@ impl<'m> HybridCollisionEnv<'m> {
         acm: Option<&AllowedCollisionMatrix>,
         current_attached_bodies: &[AttachedBodyGeometry<'_>],
     ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
-        let env_distance_field = self.build_env_distance_field()?;
+        self.check_env_field_synced()?;
         self.distance_field.get_all_collisions(
             req,
             state,
             acm,
             current_attached_bodies,
-            &env_distance_field,
+            &self.env_field,
         )
     }
 }
@@ -667,7 +821,8 @@ mod tests {
             link_body_decompositions,
             test_distance_field_config(),
             -0.1,
-        );
+        )
+        .unwrap();
         let mut state = moveit_state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
@@ -696,35 +851,16 @@ mod tests {
         );
     }
 
-    /// # §153.1: this test's premise expires if `ParryCollisionEnv` ever
-    /// gains a persistent, world-derived cache
-    ///
-    /// [`HybridCollisionEnv::world_mut`] has no override that rebuilds
-    /// anything, on the measured claim that neither backend keeps a
-    /// world-derived cache to invalidate: [`ParryCollisionEnv`] recomputes
-    /// its collision bodies from `self.world` on every call
-    /// (`parry.rs:1884`), and [`HybridCollisionEnv::build_env_distance_field`]
-    /// does the same for the distance-field half. This test is the
-    /// empirical check backing that claim for the distance-field half: if a
-    /// future round adds a cache to either backend for performance, this
-    /// test is what must start failing -- grep this crate for `§153.1`
-    /// before adding one, and update this test's premise rather than
-    /// patching around a new failure here.
-    ///
     /// # Mutation-tested, not merely asserted
     ///
     /// This test's `res_after.collision` assertion is the discriminator for
     /// the "stale second world" bug upstream's `setWorld` override exists to
-    /// prevent (see [`HybridCollisionEnv::world_mut`]'s §196.3 doc): if
-    /// `build_env_distance_field` read from anything other than
-    /// `self.parry.world()` fresh -- a snapshot taken at construction, a
-    /// cached copy never updated by `world_mut` -- the environment field
-    /// would never see the `add_shape` below, and `res_after.collision`
-    /// would stay `false`. Confirmed by temporarily changing
-    /// `build_env_distance_field`'s source loop from `self.parry.world()` to
-    /// a fresh, permanently-empty `World::new()` (the shape a stale second
-    /// world would take, since it would never observe the swap either) and
-    /// re-running: this test failed, at exactly this assertion, with the
+    /// prevent (see [`HybridCollisionEnv::mutate_world`]'s §196.3/§231 doc):
+    /// if [`HybridCollisionEnv::apply_notification`] were never called, or
+    /// were called with a stale `Notification`, `env_field` would never see
+    /// the `add_shape` below, and `res_after.collision` would stay `false`.
+    /// Confirmed by temporarily making `apply_notification`'s body a no-op
+    /// and re-running: this test failed, at exactly this assertion, with the
     /// expected message. Reverted before commit; `git diff` on that revert
     /// showed no residual change.
     #[test]
@@ -739,7 +875,8 @@ mod tests {
             link_body_decompositions,
             test_distance_field_config(),
             0.0,
-        );
+        )
+        .unwrap();
         let mut state = moveit_state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
@@ -756,21 +893,104 @@ mod tests {
             "an empty World has no environment points to collide with"
         );
 
-        env.world_mut().add_shape(
-            "obstacle",
-            Arc::new(Shape::Cuboid(Cuboid::new(0.3, 0.3, 0.3).unwrap())),
-            Isometry3::identity(),
-        );
+        env.mutate_world(|w| {
+            w.add_shape(
+                "obstacle",
+                Arc::new(Shape::Cuboid(Cuboid::new(0.3, 0.3, 0.3).unwrap())),
+                Isometry3::identity(),
+            )
+        })
+        .unwrap();
 
         let (res_after, _gsr2) = env
             .check_robot_collision_distance_field(&req, &posed, None, &[])
             .unwrap();
         assert!(
             res_after.collision,
-            "the very next check_robot_collision_distance_field call after world_mut() must \
+            "the very next check_robot_collision_distance_field call after mutate_world() must \
              see the swap: a 0.3 m cube at the origin overlaps mid's own 0.1 m box there, and \
-             build_env_distance_field rebuilds from the current World on every call, so there \
-             is no stale cache to explain a miss here"
+             mutate_world's apply_notification call keeps env_field in step with every \
+             mutation, so there is no stale field to explain a miss here"
         );
+    }
+
+    /// The strongest test this crate's own role brief names for the
+    /// incremental primitives [`PropagationDistanceField::add_points_to_field`]/
+    /// [`PropagationDistanceField::remove_points_from_field`] themselves,
+    /// applied here to [`HybridCollisionEnv::mutate_world`]'s use of them:
+    /// after a sequence of adds/moves/removes, `env_field` must be in the
+    /// same state a fresh [`HybridCollisionEnv::new`] over the same final
+    /// [`World`] would build directly -- proving the per-mutation
+    /// remove-then-add bookkeeping in
+    /// [`HybridCollisionEnv::apply_notification`] never drifts from "what a
+    /// clean rebuild would produce," not just that *some* change is visible
+    /// (that narrower claim is
+    /// [`check_robot_collision_distance_field_reflects_a_world_swap_on_the_next_call`]'s
+    /// job, above).
+    #[test]
+    fn env_field_after_incremental_churn_matches_a_fresh_rebuild_of_the_same_world() {
+        let (model, _gap) = two_link_gap_model();
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(&model, 0.02, &padding, None).unwrap();
+        let config = test_distance_field_config();
+
+        let mut env = HybridCollisionEnv::new(
+            World::new(),
+            padding.clone(),
+            link_body_decompositions.clone(),
+            config,
+            0.0,
+        )
+        .unwrap();
+
+        let shape_a = Arc::new(Shape::Cuboid(Cuboid::new(0.2, 0.2, 0.2).unwrap()));
+        env.mutate_world(|w| w.add_shape("a", shape_a, Isometry3::translation(0.5, 0.0, 0.0)))
+            .unwrap();
+        let shape_b = Arc::new(Shape::Cuboid(Cuboid::new(0.1, 0.1, 0.1).unwrap()));
+        env.mutate_world(|w| w.add_shape("b", shape_b, Isometry3::translation(-0.5, 0.0, 0.0)))
+            .unwrap();
+        env.mutate_world(|w| w.move_object("a", Isometry3::translation(0.1, 0.0, 0.0)))
+            .unwrap();
+        env.mutate_world(|w| w.remove_object("b")).unwrap();
+        let shape_c = Arc::new(Shape::Cuboid(Cuboid::new(0.15, 0.15, 0.15).unwrap()));
+        env.mutate_world(|w| w.add_shape("c", shape_c, Isometry3::translation(0.0, 0.5, 0.0)))
+            .unwrap();
+
+        let fresh = HybridCollisionEnv::new(
+            env.world().clone(),
+            padding,
+            link_body_decompositions,
+            config,
+            0.0,
+        )
+        .unwrap();
+
+        assert_eq!(
+            field_distances(&env.env_field),
+            field_distances(&fresh.env_field),
+            "env_field after incremental add/move/remove churn must equal a fresh rebuild over \
+             the same final World -- a mismatch here means apply_notification's per-object \
+             remove-then-add bookkeeping left env_field in a state no clean rebuild could reach"
+        );
+    }
+
+    /// Every cell's positive distance, in `(x, y, z)` order -- enough to
+    /// compare two [`PropagationDistanceField`]s for equality the way
+    /// upstream's own `areDistanceFieldsDistancesEqual` test helper does
+    /// (see [`PropagationDistanceField::update_points_in_field`]'s "Deviation
+    /// from upstream" doc). `test_distance_field_config` sets
+    /// `use_signed_distance_field: false`, so the negative field is never
+    /// populated and comparing it would add nothing.
+    fn field_distances(field: &PropagationDistanceField) -> Vec<f64> {
+        let mut out = Vec::new();
+        for x in 0..field.num_cells_x() {
+            for y in 0..field.num_cells_y() {
+                for z in 0..field.num_cells_z() {
+                    out.push(field.distance_cell(x, y, z));
+                }
+            }
+        }
+        out
     }
 }

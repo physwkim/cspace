@@ -158,18 +158,32 @@ request, it exists and is wired today.
 
 ## What `build_env_distance_field` replaces
 
+**Note (post-round-31 correction, kept for the historical record; this
+document's own conclusions below are unaffected):** the "no observer hook"
+claim in this section's original text was refuted. `moveit_collision::World`
+has no *callback* registration, but every mutator returns a `Notification`
+describing what changed, and `World::all_objects_as_notifications` exists
+to replay every current object to a new consumer — the mechanism this
+document assumed did not exist. `HybridCollisionEnv::build_env_distance_field`
+(the per-call rebuild described below) no longer exists as of this crate's
+own `mutate_world`/`apply_notification`/`env_field` redesign
+(`collision_env_hybrid.rs`), which maintains one persistent environment
+field incrementally, matching upstream's own `notifyObjectChange`. This
+does not change any conclusion below about oracle coverage: the sequence
+`self.parry.world().iter()` → `collision_object_point_decomposition` →
+`add_points_to_field` this section describes is still exactly what runs,
+just once per mutation instead of once per call, so the oracle-coverage
+reasoning that follows still applies unchanged to `apply_notification`
+in place of `build_env_distance_field`.
+
 Upstream's `CollisionEnvDistanceField` maintains
 `distance_field_cache_entry_world_` incrementally, updated by `setWorld`/
 `addToObject`/`removeObject` observer callbacks
-(`collision_env_distance_field.hpp:59-309`) — machinery this port cannot
-replicate because `moveit_collision::World` has no observer hook for a
-crate outside `moveit-collision` (documented deviation,
-`collision_env_hybrid.rs:294-323`'s own doc comment).
-`HybridCollisionEnv::build_env_distance_field` rebuilds the same
-information fresh on every call instead: `self.parry.world().iter()` →
-`collision_object_point_decomposition` (per object) →
-`add_points_to_field`. This is not new logic to verify against upstream
-on its own terms — it is the identical sequence
+(`collision_env_distance_field.hpp:59-309`). `HybridCollisionEnv`'s
+original port rebuilt the same information fresh on every call instead:
+`self.parry.world().iter()` → `collision_object_point_decomposition` (per
+object) → `add_points_to_field`. This is not new logic to verify against
+upstream on its own terms — it is the identical sequence
 `group_state_representation_gradients_matches_the_oracle` already
 performs by hand to build its comparison field (cited above), and
 `collision_object_point_decomposition` itself has its own dedicated

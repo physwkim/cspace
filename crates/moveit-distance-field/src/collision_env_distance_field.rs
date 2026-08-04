@@ -3942,18 +3942,81 @@ mod tests {
         field
     }
 
+    /// Unlike [`two_link_model_and_srdf`] (mid/tip coincident by
+    /// construction -- deliberately used for the collision fixtures above),
+    /// this model's joints each carry a `<origin xyz="0.3 0 0">`, so "base",
+    /// "mid", and "tip" sit 0.3m apart along x at the all-zero default pose
+    /// -- three times each link's own 0.1m box, comfortably non-overlapping,
+    /// and still well inside [`small_distance_field_config`]'s 3x3x4m grid
+    /// (`x` in `[-1.5, 1.5]`).
+    ///
+    /// [`check_self_collision_reports_no_collision_for_a_well_separated_group`]
+    /// used to build this fixture from a real pr2 "right_arm" group instead,
+    /// built with `MeshSearchPaths::none()`. Every pr2 arm/gripper link's
+    /// collision geometry is mesh-only, so `MeshSearchPaths::none()` left
+    /// every link in that group with zero loaded collision shapes -- the
+    /// assertion passed vacuously, nothing was checked, not because "the PR2
+    /// right arm's default pose has no overlapping links" as the old doc
+    /// comment claimed. It does not: pr2's own SRDF is chronically
+    /// self-colliding at every sampled default-pose joint configuration
+    /// under real geometry (measured directly, 230/230 samples; see
+    /// `doc/claim-audit/moveit-distance-field.md`'s `fixtures/pr2.srdf`
+    /// row), so no pr2 configuration exists to make that claim true.
+    fn well_separated_two_link_model_and_srdf() -> (RobotModel, moveit_srdf::SrdfModel) {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="well_separated_two_link">
+  <link name="base">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <link name="mid">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <link name="tip">
+    <collision><geometry><box size="0.1 0.1 0.1"/></geometry></collision>
+  </link>
+  <joint name="j1" type="revolute">
+    <parent link="base"/>
+    <child link="mid"/>
+    <origin xyz="0.3 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <parent link="mid"/>
+    <child link="tip"/>
+    <origin xyz="0.3 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="well_separated_two_link">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = moveit_srdf::SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("well_separated_two_link model must build");
+        moveit_test_support::assert_group_has_updated_links(&model, "chain");
+        (model, srdf)
+    }
+
     #[test]
     fn check_self_collision_reports_no_collision_for_a_well_separated_group() {
-        let model = pr2_model();
-        let mut cache = right_arm_collision_cache(&model);
-        let srdf = pr2_srdf();
+        let (model, srdf) = well_separated_two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
         let acm = AllowedCollisionMatrix::from_srdf(&srdf);
         let mut state = moveit_state::RobotState::new(&model);
         state.set_to_default_values();
         let posed = state.update();
 
         let req = CollisionRequest {
-            group_name: Some("right_arm".to_string()),
+            group_name: Some("chain".to_string()),
             ..CollisionRequest::default()
         };
 
@@ -3962,8 +4025,9 @@ mod tests {
             .unwrap();
         assert!(
             !res.collision,
-            "the PR2 right arm's default pose has no overlapping links, and pr2.srdf's own \
-             disable_collisions entries cover every pair that would otherwise be flagged"
+            "base/mid/tip sit 0.3m apart along x at the all-zero default pose -- their 0.1m \
+             boxes cannot overlap, real collision geometry included (see this fixture's own \
+             doc comment for why pr2 cannot stand in for this case)"
         );
     }
 
