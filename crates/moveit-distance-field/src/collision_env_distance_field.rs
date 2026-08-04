@@ -161,7 +161,11 @@
 //! (`:928`) -- into [`group_state_representation`] and the private
 //! `build_non_group_distance_field` respectively, plus the
 //! [`generate_distance_field_cache_entry`] population loop that decides
-//! which attached bodies belong to which (`collision_env_distance_field.cpp:844-919`).
+//! which attached bodies belong to which (`collision_env_distance_field.cpp:775`
+//! `if (acm)`, population at `:798`, its `else` at `:825` -- round 26: the
+//! upstream-absence audit found this citation previously pointed at
+//! `:844-919`, an unrelated later block; corrected here and at every other
+//! site in this file citing the same wrong range).
 //! See `collision_common_distance_field.rs`'s own "Round 22" doc section for
 //! the two functions themselves.
 //!
@@ -249,8 +253,17 @@
 //! `distanceSelf`/`distanceRobot` stubs described above, `updateDistanceObject`,
 //! `generateDistanceFieldCacheEntryWorld`, `notifyObjectChange`, and the
 //! `CollisionEnvDistanceField` type itself (a `CollisionEnv` implementor
-//! wrapping a `World` observer and a `planning_scene::PlanningScene` this
-//! workspace does not have yet either) -- remains out of scope regardless
+//! wrapping a `World` observer this crate still has no counterpart for --
+//! `moveit-collision`'s own `World` doc explicitly documents "No
+//! addObserver/removeObserver/notify" as a deliberate, still-current
+//! omission) -- remains out of scope regardless. Round 26: the
+//! upstream-absence audit found the prior text here also claimed a
+//! `planning_scene::PlanningScene` counterpart didn't exist in this
+//! workspace either; `moveit_scene::PlanningScene` (referenced two
+//! paragraphs up) landed before this file's own round-22 commits and does
+//! exist -- `CollisionEnvDistanceField` staying unported is a real,
+//! separate gap (the `CollisionEnv`/`World`-observer wiring, not
+//! `PlanningScene` itself), not evidence the workspace lacks the type.
 //! ("do not try to land all of it in one round") and is not addressed here.
 //! [`DistanceFieldCollisionCache`] is not that type and does not become it:
 //! it owns only the one cache slot `generateCollisionCheckingStructures`
@@ -567,8 +580,8 @@ pub fn generate_distance_field_cache_entry<'m>(
                 }
                 // Upstream populates `attached_body_names_` here too, but
                 // only inside this `if (acm)` branch
-                // (`collision_env_distance_field.cpp:844-` vs its `else` at
-                // `:920`) -- when no ACM is supplied, upstream never
+                // (`collision_env_distance_field.cpp:775` vs its `else` at
+                // `:825`) -- when no ACM is supplied, upstream never
                 // enumerates attached bodies at all, so
                 // `attached_body_names_` (and every attached body's
                 // decomposition downstream) stays empty whenever `acm` is
@@ -1850,10 +1863,13 @@ fn get_self_proximity_gradients(
 /// per-sub-decomposition) bounding sphere.
 ///
 /// One upstream bug is *not* reproduced: its contact-reporting branch
-/// (`:534`) unconditionally reads `con.pos =
+/// (`:601`) unconditionally reads `con.pos =
 /// gsr->link_body_decompositions_[i]->getSphereCenters()[k]`, never
-/// branching on `i_is_link` the way `body_type_1` two lines below it does
-/// (`:537-544`) -- when `i` is an attached-body index this indexes
+/// branching on `i_is_link` the way `body_type_1` immediately below it does
+/// (`:604-611`, round 26: corrected from a prior citation of `:534`/`:537-544`,
+/// which point at the unrelated `req.contacts` header a few lines earlier --
+/// the underlying bug claim itself was always correct) -- when `i` is an
+/// attached-body index this indexes
 /// `link_body_decompositions_` (sized `num_links`) out of bounds, undefined
 /// behaviour in C++ that safe Rust cannot reproduce. `centers_1[k]` (already
 /// correctly sourced from whichever side `i` actually is, matching every
@@ -3027,8 +3043,8 @@ mod tests {
         assert!(
             dfce.attached_body_names.is_empty(),
             "upstream only enumerates attached bodies inside the `if (acm)` \
-             branch (collision_env_distance_field.cpp:844 vs the `else` at \
-             :920) -- acm: None must leave attached_body_names empty even \
+             branch (collision_env_distance_field.cpp:775 vs the `else` at \
+             :825) -- acm: None must leave attached_body_names empty even \
              though an attached body was supplied"
         );
     }
@@ -4299,7 +4315,7 @@ mod tests {
         assert!(
             gsr.dfce.attached_body_names.is_empty(),
             "generate_distance_field_cache_entry's per-link loop only ever visits \"chain\"'s \
-             own updated links (:844-919) -- \"base\" is never one of them, so \"gripped\" must \
+             own updated links (:775-825) -- \"base\" is never one of them, so \"gripped\" must \
              never be enumerated into attached_body_names"
         );
         if let Some(contacts) = &res.contacts {
@@ -4348,7 +4364,7 @@ mod tests {
         assert!(
             gsr.dfce.attached_body_names.is_empty(),
             "upstream only enumerates attached bodies inside the `if (acm)` branch \
-             (collision_env_distance_field.cpp:844 vs its `else` at :920) -- acm: None must \
+             (collision_env_distance_field.cpp:775 vs its `else` at :825) -- acm: None must \
              leave attached_body_names empty even for an attached body on an in-group link"
         );
         if let Some(contacts) = &res.contacts {

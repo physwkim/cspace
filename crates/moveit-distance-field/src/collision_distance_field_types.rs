@@ -54,12 +54,16 @@
 //!
 //! # Upstream test coverage
 //!
-//! `test/test_collision_distance_field.cpp` has five `TEST_F` cases, and
-//! every one of them builds a `RobotState`/`RobotModel` and a
-//! `CollisionEnvDistanceField` in `SetUp()` -- there is no case in that file
-//! that exercises this slice without a `RobotModel`. Nothing from it is
-//! ported. Verification instead relies on the `collision_distance_field_types`
-//! oracle op (`tests/collision_distance_field_types_parity.rs`) plus
+//! `test/test_collision_distance_field.cpp` has six `TEST_F` cases (round 26:
+//! corrected from a prior count of five). `SetUp()` (`:58-66`) builds a
+//! `RobotModel`/`AllowedCollisionMatrix`/`CollisionEnvDistanceField`, but not
+//! a `RobotState` -- each `TEST_F` constructs its own
+//! `moveit::core::RobotState robot_state(robot_model_)` locally instead
+//! (e.g. `:85`). The underlying conclusion stands regardless of that detail:
+//! there is no case in that file that exercises this slice without a
+//! `RobotModel`. Nothing from it is ported. Verification instead relies on
+//! the `collision_distance_field_types` oracle op
+//! (`tests/collision_distance_field_types_parity.rs`) plus
 //! invariant-boundary unit tests below.
 
 use std::collections::HashMap;
@@ -85,7 +89,12 @@ use crate::voxel_grid::GridGeometry;
 /// (non-homogeneous) `Dim`-vector applies the full affine transform,
 /// translation included -- confirmed by reading
 /// `Eigen/src/Geometry/Transform.h`'s `transform_right_product_impl<..., 2,
-/// 1>` (`res = T.linear() * other + T.translation()`), not inferred. This
+/// RhsCols>` (`res = T.linear() * other + T.translation()`) -- round 26:
+/// corrected from a prior citation of the more specific `<..., 2, 1>`
+/// specialization Eigen actually dispatches to for a `Vector3d` rhs, which
+/// computes the identical result a different way (`T.matrix() * [other; 1]`
+/// in homogeneous coordinates, then drops the last row), not via this
+/// literal formula. Same conclusion either way, not inferred. This
 /// holds even where the vector being transformed is conceptually a
 /// direction rather than a point (see [`PosedDistanceField::distance_gradient`]'s
 /// doc comment) -- Eigen's operator does not distinguish the two.
@@ -477,6 +486,32 @@ impl PosedDistanceField {
 /// input made *safe* rather than a behaviour this port can currently
 /// validate against upstream.
 ///
+/// # §153.1: `cyl.radius == 0.0` diverges from upstream, and cannot be
+/// adjudicated against it
+///
+/// `ceil(length / (radius / 2.0))` is a `double` expression narrowed into
+/// `num_points`' `unsigned int` (PORTING-PLAN.md §172's float-to-integer
+/// narrowing family). `cyl.radius == 0.0` with `cyl.length > 0.0` -- a real,
+/// constructible input: `Body::Cuboid::compute_bounding_cylinder` sets
+/// `radius = (a * a + b * b).sqrt()` from two of the box's three
+/// half-extents, so a box with two zero half-extents and a nonzero third
+/// (e.g. a URDF box `size="0 0 1"`) produces `radius = 0.0` exactly -- makes
+/// the ratio `+inf`. `(f64::INFINITY).ceil() as u32` **saturates** to
+/// `u32::MAX` in Rust; C++'s `(unsigned int)ceil(HUGE_VAL)` is **UB**, so
+/// there is no upstream value this port could match even in principle. This
+/// port guards it explicitly (`ratio.is_finite()`, below) rather than
+/// letting the saturated `u32::MAX` reach `num_points.saturating_sub(1)` and
+/// turn the sphere-emission loop below into a ~4-billion-iteration
+/// `Vec`-growing loop -- the same OOM shape as PORTING-PLAN.md §172.1's
+/// `max_distance_sq` case, reached here by a degenerate box rather than an
+/// extreme resolution. `NaN` (both `length == 0.0` and `radius == 0.0`) and
+/// any finite-negative ratio already collapse to `num_points == 0` for free
+/// under Rust's `as u32` semantics (NaN and negative-finite floats cast to
+/// `0u32`), so this guard only needs to catch the two infinite cases. This
+/// section expires if upstream adds its own `radius == 0.0` check to
+/// `determineCollisionSpheres` -- at that point compare against upstream's
+/// chosen behavior instead of this port's independent guard.
+///
 /// # `relative_transform` is left untouched on the sphere branch
 ///
 /// Matching upstream, the `body: Body::Sphere(_)` branch never writes
@@ -498,7 +533,12 @@ pub fn determine_collision_spheres(
         ));
     } else {
         let cyl = body.compute_bounding_cylinder();
-        let num_points = (cyl.length / (cyl.radius / 2.0)).ceil() as u32;
+        let ratio = cyl.length / (cyl.radius / 2.0);
+        let num_points = if ratio.is_finite() {
+            ratio.ceil() as u32
+        } else {
+            0
+        };
         let spacing = cyl.length / (f64::from(num_points) - 1.0);
         *relative_transform = cyl.pose;
 
@@ -1206,7 +1246,7 @@ mod tests {
     use nalgebra::{Translation3, UnitQuaternion};
 
     use super::*;
-    use moveit_geometry::{Cylinder, Sphere};
+    use moveit_geometry::{Cuboid, Cylinder, Sphere};
 
     fn sphere_body(radius: f64, translation: Vector3<f64>) -> Body {
         let mut body = Body::from_shape(&Shape::Sphere(Sphere::new(radius).unwrap()))
@@ -1280,6 +1320,58 @@ mod tests {
             body.compute_bounding_cylinder().pose,
             "cylinder branch must write relative_transform to the bounding cylinder's pose"
         );
+    }
+
+    /// PORTING-PLAN.md §172 boundary: a `Cuboid` with two zero half-extents
+    /// (a real, constructible input -- `Cuboid::new` only rejects negative
+    /// dimensions) gives `compute_bounding_cylinder().radius == 0.0` exactly.
+    /// `cyl.length / (cyl.radius / 2.0)` is then `1.0 / 0.0 == +inf`, and
+    /// without the `ratio.is_finite()` guard `(+inf).ceil() as u32` would
+    /// saturate to `u32::MAX` -- turning the sphere-emission loop below into
+    /// a ~4-billion-iteration, `Vec`-growing OOM instead of the empty
+    /// cylinder-sphere list this test pins.
+    #[test]
+    fn determine_collision_spheres_zero_radius_bounding_cylinder_yields_no_spheres_not_oom() {
+        let mut body = Body::from_shape(&Shape::Cuboid(Cuboid::new(0.0, 0.0, 1.0).unwrap()))
+            .unwrap()
+            .unwrap();
+        body.set_padding(0.0).unwrap();
+        let cyl = body.compute_bounding_cylinder();
+        assert_eq!(
+            cyl.radius, 0.0,
+            "test setup must reach the zero-radius case"
+        );
+        assert!(
+            cyl.length > 0.0,
+            "test setup must reach the +inf ratio, not 0/0 = NaN"
+        );
+        let mut relative_transform = Isometry3::identity();
+
+        let spheres = determine_collision_spheres(&body, &mut relative_transform);
+
+        assert_eq!(spheres.len(), 0);
+    }
+
+    /// The immediately adjacent boundary: `cyl.length == 0.0` too (both
+    /// operands zero) gives ratio `0.0 / 0.0 == NaN`, which already
+    /// collapses to `num_points == 0` for free under Rust's `as u32`
+    /// semantics -- pinned separately from the `+inf` case above so a future
+    /// change to the guard's condition can't accidentally regress one while
+    /// fixing the other.
+    #[test]
+    fn determine_collision_spheres_zero_length_and_radius_yields_no_spheres() {
+        let mut body = Body::from_shape(&Shape::Cuboid(Cuboid::new(0.0, 0.0, 0.0).unwrap()))
+            .unwrap()
+            .unwrap();
+        body.set_padding(0.0).unwrap();
+        let cyl = body.compute_bounding_cylinder();
+        assert_eq!(cyl.radius, 0.0);
+        assert_eq!(cyl.length, 0.0);
+        let mut relative_transform = Isometry3::identity();
+
+        let spheres = determine_collision_spheres(&body, &mut relative_transform);
+
+        assert_eq!(spheres.len(), 0);
     }
 
     /// Upstream `GradientInfo::clear()` asymmetry, ported as-is (see

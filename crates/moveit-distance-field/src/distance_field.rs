@@ -47,9 +47,18 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
     Ok(body)
 }
 
-/// Upstream `DistanceField::getOcTreePoints` (protected — no caller outside
-/// [`DistanceField::add_octree_to_field`], so this stays a private free
-/// function rather than a trait method).
+/// Upstream `DistanceField::getOcTreePoints` (protected). Upstream itself
+/// has two callers — `addOcTreeToField` (`distance_field.cpp:289`) and
+/// `getShapePoints`'s `shapes::OCTREE` branch (`:211-220`, reached from
+/// `addShapeToField`) — round 26's upstream-absence audit found the prior
+/// text here claiming a single caller was wrong. This port's own
+/// `octree_points` still has exactly one caller,
+/// [`DistanceField::add_octree_to_field`]: [`DistanceField::add_shape_to_field`]'s
+/// `Shape::OcTree` branch (see that trait's "Deviations from upstream")
+/// delegates to `add_octree_to_field` rather than calling `octree_points`
+/// directly, so the single-caller property upstream's `getOcTreePoints`
+/// lacks is still true for this free function, and it stays one rather
+/// than becoming a trait method.
 ///
 /// `bbx_min`/`bbx_max` are `grid_to_world(0, 0, 0)` and
 /// `grid_to_world(num_cells_x, num_cells_y, num_cells_z)` — the latter one

@@ -30,14 +30,30 @@ pub enum Dimension {
 /// transposes a size and an origin compiles silently into a corrupt grid.
 /// Bundling `size` and `origin` into [`Vector3`] fields makes them
 /// distinguishable by type-shape at the call site instead.
+///
+/// # Fields are `pub(crate)`, not `pub`
+///
+/// PORTING-PLAN.md §172.3's rule 2: a validating constructor is only a real
+/// guarantee if nothing can construct the value without going through it.
+/// Every field here is numeric and every one of [`GridGeometry::new`]'s
+/// checks exists to keep [`VoxelGrid::new`] (below) infallible -- if the
+/// fields were `pub`, any crate could build a `GridGeometry { .. }` struct
+/// literal directly, skip `new`'s validation entirely, and hand
+/// `VoxelGrid::new` exactly the unchecked input its own doc comment claims
+/// cannot reach it. `rg -n 'GridGeometry\s*\{'` against this crate and its
+/// two external consumers (`moveit-planners-chomp`) turns up only this
+/// definition and `VoxelGrid::new`'s own destructuring pattern match --
+/// nothing constructs one by struct literal today -- so narrowing to
+/// `pub(crate)` (still freely readable/destructurable anywhere in this
+/// crate) breaks no call site while closing the gap for good.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridGeometry {
     /// World-space extent along x, y, z.
-    pub size: Vector3<f64>,
+    pub(crate) size: Vector3<f64>,
     /// World-space location of cell `(0, 0, 0)`'s corner.
-    pub origin: Vector3<f64>,
+    pub(crate) origin: Vector3<f64>,
     /// The edge length of one (cubic) cell.
-    pub resolution: f64,
+    pub(crate) resolution: f64,
 }
 
 impl GridGeometry {
@@ -48,20 +64,50 @@ impl GridGeometry {
     /// `resolution` or a negative `size` divides/multiplies silently into
     /// infinite or NaN cell counts upstream.
     ///
+    /// # §153.1: the `size / resolution > i32::MAX` check
+    ///
+    /// PORTING-PLAN.md §172 (float-to-integer narrowing family):
+    /// [`VoxelGrid::new`] computes each axis of `num_cells` by multiplying
+    /// that axis of `size` by `1.0 / resolution` and casting the result to
+    /// `i32` -- upstream's own per-axis assignment (`int num_cells_ =
+    /// size_ * oo_resolution_;`), a `double` expression narrowed into an
+    /// `int` field, transcribed exactly. A finite, positive `size` and a
+    /// finite, positive `resolution` (both already required above) do not
+    /// bound that ratio: `size = 1.0, resolution = 1e-10` passes every
+    /// check above and yields `1e10`, past `i32::MAX` (`2147483647`). Past
+    /// that point Rust's `as i32` **saturates**; C++'s `(int)(double)`
+    /// narrowing of an out-of-range value is **UB**, so there is no
+    /// upstream value to compare against. Unlike `inv_twice_resolution_`'s
+    /// saturation boundary (PORTING-PLAN.md §172.1), an ordinary
+    /// `size`/`resolution` ratio reaches this one, and `VoxelGrid::new`
+    /// sizes its cell storage (via `num_cells_total`) from the saturated
+    /// result -- a resource exhaustion, not merely a wrong value, the same
+    /// shape as §172.1's `max_distance_sq` case. This section expires if
+    /// upstream adds its own bound check to `VoxelGrid::initialize`.
+    ///
     /// # Errors
     ///
-    /// [`Error::Construct`] when `resolution` is not finite and positive, or
-    /// any `size` component is not finite and non-negative.
+    /// [`Error::Construct`] when `resolution` is not finite and positive,
+    /// when any `size` component is not finite and non-negative, or when
+    /// `size[i] / resolution` would exceed `i32::MAX` along any axis.
     pub fn new(size: Vector3<f64>, origin: Vector3<f64>, resolution: f64) -> Result<Self> {
         if !(resolution.is_finite() && resolution > 0.0) {
             return Err(Error::construct(format!(
                 "resolution must be finite and positive, got {resolution}"
             )));
         }
+        let oo_resolution = 1.0 / resolution;
         for (name, value) in [("size.x", size.x), ("size.y", size.y), ("size.z", size.z)] {
             if !(value.is_finite() && value >= 0.0) {
                 return Err(Error::construct(format!(
                     "{name} must be finite and non-negative, got {value}"
+                )));
+            }
+            let num_cells = value * oo_resolution;
+            if num_cells > f64::from(i32::MAX) {
+                return Err(Error::construct(format!(
+                    "{name} / resolution must fit in i32, got {name}={value}, \
+                     resolution={resolution} ({num_cells} cells)"
                 )));
             }
         }
@@ -263,8 +309,37 @@ impl<T: Clone> VoxelGrid<T> {
     /// (`origin_minus = origin - 0.5 * resolution`) for speed. Both forms are
     /// algebraically identical; this port keeps upstream's pre-shifted-origin
     /// form rather than the documented formula so the two can never drift.
+    ///
+    /// # §153.1: a non-finite `loc` returns a deliberately-invalid cell
+    ///
+    /// PORTING-PLAN.md §172 (float-to-integer narrowing family): the
+    /// computed cell coordinate is a `double` expression narrowed into
+    /// `i32` by `.floor() as i32`, upstream's own
+    /// `static_cast<int>(floor(...))` transcribed exactly. Without a guard,
+    /// `loc == f64::INFINITY`/`f64::NEG_INFINITY` are safe *by accident*
+    /// (Rust's `as i32` saturates those to `i32::MAX`/`i32::MIN`, and every
+    /// caller's `is_cell_valid` already rejects both), but `NaN` is not:
+    /// `f64::NAN as i32` is `0` in Rust, a valid cell index along any axis
+    /// with at least one cell — a `NaN` world coordinate would silently
+    /// resolve to the grid's origin cell and pass `is_cell_valid` instead
+    /// of being rejected. C++'s `(int)floor(NaN)` is UB, so there is no
+    /// upstream value to match here either. This port rejects the general
+    /// case (`!value.is_finite()`, covering `NaN` and both infinities
+    /// uniformly, ahead of the `.floor() as i32` that would otherwise treat
+    /// them differently) rather than special-casing only `NaN` — one
+    /// predicate instead of an infinity-shaped carve-out — and returns
+    /// `i32::MIN` for all of them: a sentinel every caller's
+    /// `is_cell_valid` already rejects, matching upstream's own "the
+    /// returned indices will be computed even if they are invalid"
+    /// contract (this still always returns *some* index, just one
+    /// guaranteed invalid). This section expires if upstream adds its own
+    /// `isfinite` check to `getCellFromLocation`.
     pub fn cell_from_location(&self, dim: Dimension, loc: f64) -> i32 {
-        ((loc - self.origin_minus[dim as usize]) * self.oo_resolution).floor() as i32
+        let value = (loc - self.origin_minus[dim as usize]) * self.oo_resolution;
+        if !value.is_finite() {
+            return i32::MIN;
+        }
+        value.floor() as i32
     }
 
     /// Upstream `VoxelGrid::getLocationFromCell`: the world-space center of
@@ -368,6 +443,36 @@ mod tests {
         assert!(GridGeometry::new(size, Vector3::zeros(), -0.1).is_err());
     }
 
+    /// PORTING-PLAN.md §172 boundary: `size / resolution` at exactly
+    /// `i32::MAX` cells must still be accepted -- this is the last value
+    /// [`VoxelGrid::new`]'s `as i32` cast represents without saturating, and
+    /// upstream's own `int` narrowing is still well-defined here too.
+    #[test]
+    fn new_accepts_size_over_resolution_at_the_i32_boundary() {
+        let size = Vector3::new(f64::from(i32::MAX), 1.0, 1.0);
+        assert!(GridGeometry::new(size, Vector3::zeros(), 1.0).is_ok());
+    }
+
+    /// The immediately adjacent boundary: one cell past `i32::MAX` must be
+    /// rejected. Past this point Rust's `as i32` saturates while C++'s
+    /// `(int)(double)` narrowing of the same out-of-range value is UB, so
+    /// there is no upstream value this port could match by letting it
+    /// through -- see [`GridGeometry::new`]'s own §153.1 doc section.
+    #[test]
+    fn new_rejects_size_over_resolution_one_past_the_i32_boundary() {
+        let size = Vector3::new(f64::from(i32::MAX) + 1.0, 1.0, 1.0);
+        assert!(GridGeometry::new(size, Vector3::zeros(), 1.0).is_err());
+    }
+
+    /// The same boundary reached via `resolution` shrinking rather than
+    /// `size` growing, and on a different axis than the two tests above --
+    /// pins that the guard applies per-axis, not just to `size.x`.
+    #[test]
+    fn new_rejects_a_pathologically_fine_resolution_on_the_y_axis() {
+        let size = Vector3::new(1.0, 1.0, 1.0);
+        assert!(GridGeometry::new(size, Vector3::zeros(), 1e-10).is_err());
+    }
+
     #[test]
     fn cell_from_location_rounds_to_nearest_cell_center() {
         // resolution 1.0, origin 0.0: cell k covers world [k-0.5, k+0.5).
@@ -387,6 +492,34 @@ mod tests {
         let (valid, x, y, z) = vg.world_to_grid(&Vector3::new(1000.0, 1000.0, 1000.0));
         assert!(!valid);
         assert!(x > 0 && y > 0 && z > 0);
+    }
+
+    /// PORTING-PLAN.md §172 boundary: every non-finite `loc` -- both
+    /// infinities included, not just `NaN` -- returns the same `i32::MIN`
+    /// sentinel via the `!value.is_finite()` guard, ahead of the
+    /// `.floor() as i32` that would otherwise treat them differently
+    /// (`as i32` would saturate the infinities to `i32::MAX`/`i32::MIN` but
+    /// collapse `NaN` to `0`, a valid cell index -- see
+    /// [`VoxelGrid::cell_from_location`]'s own doc comment). Pinned as one
+    /// uniform boundary rather than three separate cases so a future
+    /// refactor can't accidentally special-case one non-finite value
+    /// differently from the others.
+    #[test]
+    fn cell_from_location_of_any_non_finite_value_is_the_invalid_sentinel() {
+        let vg = VoxelGrid::new(cube_geometry(10.0, 1.0), 0);
+        for loc in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(vg.cell_from_location(Dimension::X, loc), i32::MIN);
+        }
+    }
+
+    /// The end-to-end consequence of the sentinel above: a `NaN` component
+    /// anywhere in a [`VoxelGrid::world_to_grid`] query must report
+    /// `valid == false`, not silently resolve to a real cell.
+    #[test]
+    fn world_to_grid_of_a_nan_component_is_invalid() {
+        let vg = VoxelGrid::new(cube_geometry(10.0, 1.0), 0);
+        let (valid, ..) = vg.world_to_grid(&Vector3::new(f64::NAN, 1.0, 1.0));
+        assert!(!valid);
     }
 
     #[test]
