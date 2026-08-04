@@ -9893,3 +9893,143 @@ CI가 자동으로 집는다(도커 불필요).
 `check-*.sh` **4건** OK, `verify-fixture-provenance.sh` OK,
 `verify-continuous-reseed-wrap.sh` OK(42.6000% > 35.1222%),
 `verify-fixture-replay.sh` **33/33 identical**.
+
+## 118. Phase 7의 완료 조건에는 C++ 기준선이 필요했고, 그것이 없었다 (2026-08-04)
+
+`32114d5`. 오라클에 `plan` 연산을 추가했다. 코드 변경은
+`tools/moveit-oracle/`만이고 Rust 트리는 건드리지 않았다.
+
+### 118.1 막혀 있던 것은 감사가 아니라 계획이었다
+
+일곱 패널이 전부 파리티 라운드를 돌고 있는 동안, §5의 Phase 7 완료
+조건은 아무도 손댈 수 없는 상태였다:
+
+> - 벤치마크 문제 500건에서 성공률이 C++ OMPL RRTConnect의 90% 이상
+> - 산출 경로 100%가 `moveit-scene`의 충돌 검사와 제약을 통과
+> - 경로 길이 중앙값이 C++ OMPL 대비 1.3배 이내
+
+1번과 3번은 **C++ 쪽 숫자가 있어야 성립한다.** 오라클에는 플래닝
+연산이 하나도 없었다(33개 연산 전부 모델·상태·충돌·IK·제약·궤적).
+`moveit-planners-sbp`는 5,239줄로 RRT-Connect까지 착지해 있지만,
+비교 대상이 없으니 완료 조건을 만족했는지 **판정할 수단 자체가 없었다.**
+오라클은 내 것이므로 이 조각은 내가 막고 있던 것이다.
+
+### 118.2 패키지 목록을 넓히지 않아도 됐다
+
+`moveit_planners_ompl`을 빌드하면 `moveit_ros_planning`과 그
+`rclcpp`/`tf2_ros` 트리가 colcon 빌드로 딸려 들어온다. Dockerfile 주석의
+"Later phases widen this list"가 가리키던 자리다.
+
+그런데 재 보니 넓힐 필요가 없었다 — **OMPL 1.7이 베이스 이미지에 이미
+있다.** 헤더, `libompl.so`, `omplConfig.cmake` 전부
+`/opt/ros/${ROS_DISTRO}` 아래에 있다. 그래서 `find_package(ompl REQUIRED)`
+한 줄로 끝났고 `MOVEIT2_PACKAGES`는 그대로다. 스탬프는
+`e7d32225310d3278` → `cd8ee2c1bdcf7148`로, 오라클 소스 변경분만큼만
+움직였다.
+
+### 118.3 왜 `ModelBasedStateSpace`가 아니라 공간을 다시 짓는가
+
+완료 조건 3번은 "경로 길이 중앙값이 1.3배 이내"다. **두 길이가 같은
+미터법으로 재어지지 않으면 이 비율은 아무 뜻도 없다.**
+
+`moveit_planners_ompl`의 `ModelBasedStateSpace`는 가중
+`CompoundStateSpace`를 만들지 않는다 — 평평한 배열 위에서
+`JointModelGroup::distance`에 위임한다. 이 포트의
+`JointModelGroupSpace`는 부분공간마다 `1/extent`로 정규화한 진짜 가중
+합성이다(그 차이는 `joint_model_group_space.rs`가 이미 기록해 둔
+의도적 이탈이다). 그래서 `plan`은 상류 브리지를 빌려 오지 않고
+**관절 단위로 같은 공간을 다시 짓는다** — 유계 revolute/prismatic은
+`1/(max-min)` 가중 1축 `RealVectorStateSpace`, 연속 revolute는
+`1/(2π)` 가중 `SO2StateSpace`, planar은 x·y 축에 `angular_distance_weight/(2π)`
+가중 theta, floating은 `1/extent` 가중 `RealVector(3)+SO3` 합성.
+
+확인은 주장하지 않고 쟀다. panda_arm에서 joint1만 1.0 rad 다른 두
+상태의 공간 거리가 `0.1725744658820281`로 나왔고, 이는
+`1/(2 × 2.8973)`이다 — 포트의 가중 규칙과 정확히 같다. 요청의
+`distance_probes` 필드가 그 표면이고, 플래너 출력은 시드 의존이라
+**Rust 쪽이 비트 수준으로 걸 수 있는 유일한 자리**다.
+
+### 118.4 OMPL의 SO3 거리 규약은 읽을 소스가 없어서 측정했다
+
+`Se3Space::distance`는 **전체** 회전각에 가중한다(`rotation_distance`가
+`2*acos(|dot|)`의 atan2 chord 형태 — 그 함수 주석에 한 번 반각으로
+잘못 갔던 이력이 남아 있다). OMPL의 `SO3StateSpace::distance`는 헤더에
+공식이 없고 이 이미지에는 OMPL `.cpp`가 없다.
+
+그래서 하드코딩하지 않고 **링크된 라이브러리에서 읽었다.** 알려진 각
+`π/2`의 회전에 대해 `distance`를 부르고 그 값으로 가중치를 보정한다.
+실측값은 `0.7853981633974483` = `π/4`, 즉 OMPL은 반각 규약이고
+보정 계수는 2다. 이 값(`space.so3_quarter_turn_distance`)은 응답에
+그대로 실려 나가므로, 규약이 바뀌면 조용히 틀리는 게 아니라 숫자가
+바뀐다.
+
+§107.3(상류 헤더에서 닿는지 먼저 확인)의 반대 방향 사례다 — 닿을 수
+없는 것을 요청하는 대신, 읽을 수 없는 상수를 실행 시점에 재서 얻었다.
+
+### 118.5 OMPL은 stdout으로 로그를 쓴다
+
+이 프로토콜은 stdout 한 줄에 응답 하나다. OMPL의 기본 콘솔 핸들러는
+INFO/WARN을 **stdout으로** 쓴다. 로그 한 줄이면 그 뒤의 모든 응답이
+요청과 어긋난다. `ompl::msg::noOutputHandler()`는 미관 문제가 아니라
+프로토콜 문제다.
+
+§55·§116 계열("검사가 아무것도 세지 않고도 통과처럼 보이는 자리")의
+사촌이다: 여기서는 **응답이 다른 요청의 답인데도 형식은 멀쩡한** 자리였다.
+
+### 118.6 반복 예산은 이름만큼 강한 레버가 아니다 — 이것도 쟀다
+
+OMPL 1.7에는 반복 기반 종료 조건이 없다(`PlannerTerminationCondition.h`가
+선언하는 것은 timed / non / always / and / or / exact-solution뿐).
+그래서 `std::function<bool()>` 형태로 세는 조건을 만들었고, 그 단위가
+포트의 `Termination::Iterations`와 같은지 **주장하지 않고 스윕했다.**
+
+panda_arm에 상자 장애물을 두고 예산 `0,1,2,3,5,10,50,200,5000`:
+
+```
+예산 0     → 미해결, status=Timeout,       ptc_evaluations=1
+예산 1 이상 → 전부 해결,                    ptc_evaluations=1
+```
+
+두 가지가 나왔다. 하나는 **오프셋이 0**이라는 것 — 예산 `n`은 반복 `n`회를
+허용하고 종료 평가가 `n+1`번째다. 포트의 `for _ in 0..max_iterations`와
+같은 의미이고, 예산 0에서 양쪽 다 반복을 한 번도 돌지 않는다.
+
+다른 하나는 처음에 내가 쓰려던 주석이 틀렸다는 것이다. 나는 "grow 반복마다
+한 번 + `Planner::solve` 자체의 소수 고정 횟수"라고 적었다가 스윕 결과로
+고쳤다. 그리고 더 중요한 사실이 같이 나왔다 — **0이 아닌 모든 예산이
+1회 반복으로 풀린다.** RRTConnect의 `connect`가 탐욕적이고 무한이라
+7자유도 팔에서는 한 반복이 간극 전체를 닫는다. **반복 예산만으로 벤치마크
+난이도를 조절하면 사실상 아무것도 재지 않게 된다.** 500문제 설계는 이
+사실 위에서 해야 한다.
+
+### 118.7 이 기준선이 아닌 것
+
+`og::RRTConnect` 그 자체이지, `moveit_planners_ompl`의
+`ModelBasedPlanningContext`가 아니다. projection evaluator, 경로 단순화,
+요청 어댑터 체인이 전부 없다. 이 연산의 성공률과 경로 길이는 **이 공간
+위의 RRTConnect에 대한 진술**이지 `move_group`이 무엇을 돌려줄지에
+대한 진술이 아니다. 연산 주석에 그렇게 적었다.
+
+결정론도 한계가 있다. `ompl::RNG::setSeed`는 프로세스 전역이고 RNG
+인스턴스가 하나라도 생긴 뒤에는 OMPL이 거부하므로, 시드는 프로세스당
+최대 한 번 적용된다(`seed_applied`가 그것을 알려 준다). **요청 스트림
+전체를 순서대로 새 프로세스에 재생하면 재현되고**(실측: 같은 스트림
+두 번, `planning_time_s` 빼고 전부 동일), 문제 하나만 따로 다시 돌리면
+재현되지 않는다. 앞의 것이 `verify-fixture-replay.sh`가 하는 일이므로
+픽스처로서는 충분하다.
+
+### 118.8 픽스처는 일부러 커밋하지 않았다
+
+`a640c98` 이후 커밋된 요청/응답 쌍은 전부 재생 대상이고 등록되지 않으면
+실패한다(§116). `plan` 픽스처를 지금 넣으면 **소비하는 Rust 테스트가
+없는 채로** 게이트만 하나 늘어난다 — §112.2·§116.4가 반복해서 잡아 온
+"커버리지처럼 보이지만 아무것도 세지 않는 자리"를 내가 직접 만드는 셈이다.
+`moveit-planners-sbp`는 p1-robotmodel 것이므로 픽스처 포착은 그쪽 라운드에
+맡긴다.
+
+### 118.9 실측
+
+스탬프 `cd8ee2c1bdcf7148`. `check-*.sh` 4건 OK,
+`verify-fixture-provenance.sh` OK, `verify-fixture-replay.sh` **33/33
+identical**. Rust 트리 무변경이므로 cargo 게이트는 이 커밋의 범위가
+아니다.
