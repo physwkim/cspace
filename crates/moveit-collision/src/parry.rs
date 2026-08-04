@@ -844,7 +844,8 @@
 //!    `length/2` case stands as measured; what does not follow from it is
 //!    that a non-axis-locked `dir` implies a genuine depth. Whether the
 //!    radius plateau has its own degenerate branch in `support.c` (the
-//!    `zdist` computation's other side) was not traced.
+//!    `zdist` computation's other side) was not traced this round — round
+//!    30 traces it directly, after the case-623 paragraph below.
 //!
 //!    **What is still unexplained after this**, stated plainly rather than
 //!    folded into a tidier-sounding claim: *why* the portal Phase-1/2
@@ -896,6 +897,158 @@
 //!    observed through an oracle response that, at the old default, could
 //!    only ever show one of the several candidate triangles actually in
 //!    contact.
+//!
+//!    **Round 30 recounts the whole population exactly instead of through
+//!    case 623 alone (round 29's own range was `n=624`, `mpr` readings
+//!    `n=587`).** Re-run at `--cases 1000` (same seed 4, same oracle image),
+//!    `examples/visibility_cone_mpr_sweep.rs` now classifies every reading
+//!    against its own case's cylinder dimensions and prints exact counts
+//!    (`print_plateau_histogram`, one call per channel; `(n=...)` appended to
+//!    the Pearson line) instead of leaving that count to be done by hand from
+//!    raw output:
+//!
+//!    - oracle: `axial(length/2)` in **619 of 1000** (61.9%), `radial
+//!      (radius)` in **0 of 1000**, `other` in **381 of 1000** — FCL's own
+//!      reported depth is exactly the cylinder's own half-length in a
+//!      majority of cases, never exactly the radius.
+//!    - epa (this backend's own): `axial`/`radial` in **0 of 1000** each,
+//!      `other` in **1000 of 1000** — this backend's own EPA never lands on
+//!      either plateau, in any of the 1000 sampled cases, a stronger and
+//!      more exact claim than round 29's "no modal value."
+//!    - mpr (the 945 mismatches with a real reading): `axial(length/2)` in
+//!      **9 of 945** (1.0%, exactly the 9 sign-flip cases above), `radial
+//!      (radius)` in **153 of 945** (16.2%), `other` in **783 of 945**
+//!      (82.9%).
+//!    - `pearson(gap, epa_depth) = 0.1066`, `pearson(gap, triangle_size) =
+//!      -0.1823` (`n=945`, re-derived from the full population — round 27
+//!      first reported these figures without stating `n`).
+//!
+//!    The 624-case range round 29 counted by hand is consistent with this
+//!    fuller run at the same point (`101 of 586` there vs `101 of 587` /
+//!    `381 of 623` vs `381 of 624` here, off by round 29's own 0-vs-1
+//!    indexing) — it was not wrong, only smaller than the population the
+//!    same tool already covers.
+//!
+//!    **Is there a second degenerate branch in `support.c` producing the
+//!    radial(radius) plateau the way `ccdIsZero(zdist)` produces the
+//!    axial(length/2) one? Measured on 20 of the 153 radial-plateau cases
+//!    (first 20 by index — 4, 5, 17, 28, 51, 60, 71, 98, 110, 116, 134, 141,
+//!    147, 161, 162, 166, 167, 173, 181, 182, including case 4, round 29's
+//!    own flagged contrast case) plus a 10-case contrast sample (first 10
+//!    `other`-bucket mismatches by index — 0, 1, 2, 6, 7, 8, 9, 10, 11, 12),
+//!    instrumented the same `-DMPR_DIAG` way as round 28: no, not the same
+//!    mechanism.** All 20/20 radial-plateau traces show genuine
+//!    multi-iteration convergence (`iterations` 15 or 16 in every one, never
+//!    0), the tolerance gap (`dv4 - dv{1,2,3}`, `portalReachTolerance`'s own
+//!    computation, `mpr.c:511-534`) shrinking geometrically across
+//!    iterations of the `while(1)` loop at `mpr.c:317` (`portalDir`/
+//!    `__ccdSupport` per iteration, `:319-320`) to below `mpr_tolerance`
+//!    (case 4: `2.545e-2` at iteration 0, `6.852e-10` at iteration 13,
+//!    `1.713e-10` at 14, `4.283e-11` at the iteration-15 stop, crossing
+//!    `1e-10` naturally) rather than hitting the exact `0.0` a degenerate
+//!    branch returning the same point twice produces — that exact-`0.0`
+//!    value never appears in any of the 20 traces. `dir`'s own `z` component
+//!    converges toward, but never reaches, exactly `0`: case 4 goes from
+//!    `-0.6946` at iteration 0 to `-3.97e-9` at iteration 13 to `-8.30e-10`
+//!    at the iteration-15 stop — `ccdSign`'s own `val < CCD_EPS` tie
+//!    (`vec3.h:206-219`, the literal `ccdSign(0)==0` case) never fires;
+//!    `zdist` (`support.c:58-59`) stays well clear of `ccdIsZero`'s
+//!    threshold throughout.
+//!
+//!    What actually produces the radial(radius) value is a structural
+//!    property of `ccdSupport`'s cylinder branch, not a bug in it. A solid
+//!    capped cylinder is a disc x interval product domain, so the exact
+//!    analytic support point along any direction `d=(dx,dy,dz)` maximizes
+//!    the radial and axial terms of the linear functional independently —
+//!    `support.c:54-69`'s two branches both compute this correctly, and
+//!    *both* set `z = ccdSign(dz) * height/2` (`:62` in the `ccdIsZero
+//!    (zdist)` branch, `:68` in the general one): whenever `dz != 0`,
+//!    however small, the true maximizing `z` is exactly one rim, never an
+//!    intermediate point on the smooth curved belt between the caps. The
+//!    belt is *never* a reachable MPR support point except at the exact tie
+//!    `dz==0`, and every one of the 20 sampled traces' final portal vertices
+//!    sit almost exactly on the two rim circles (radius match to 9-10
+//!    significant figures; `z` exactly `+height/2` on some vertices and
+//!    exactly `-height/2` on others within the *same* converged triangle —
+//!    case 4's final `v1.z=-0.017, v2.z=+0.017, v3.z=-0.017`).
+//!
+//!    That converged triangle exists because of how the near-placement
+//!    generator builds the cone mesh, not because of anything in libccd:
+//!    `visibility_cone_mpr_sweep.rs:766` sets `anchor =
+//!    cyl_frame.translation.vector` (the touched cylinder's own local-frame
+//!    origin in world coordinates) and `:776` builds the cone's own "target"
+//!    vertex (mesh vertex index 1) at exactly that point
+//!    (`Isometry3::from_parts(anchor.into(), ...)`); transformed into the
+//!    cylinder's own local frame for the MPR feed (`:391-392`'s `to_cyl =
+//!    cyl_frame.inverse()`), that vertex lands at exactly `(0.0, 0.0, 0.0)` —
+//!    confirmed in the dump, not asserted: all 20/20 sampled radial-plateau
+//!    cases' fed geometry has one vertex at bit-exact `(0,0,0)`; the 10-case
+//!    contrast sample splits 4/10 with that vertex present and 6/10 without.
+//!    When the winning triangle has a vertex exactly on the cylinder's own
+//!    axis, the true nearest boundary feature for that vertex is symmetric
+//!    between the two rims and independent of height — the portal's
+//!    refinement genuinely (not degenerately) converges its outward normal
+//!    toward purely radial (`dir.z -> 0`) to represent that symmetry using
+//!    only the rim points `ccdSupport` can ever return, and the resulting
+//!    depth converges to the radius because that genuinely is the distance
+//!    from an on-axis point to the cylinder's own curved boundary.
+//!
+//!    The 4/10 contrast cases (0, 6, 7, 9) that also have the axis vertex
+//!    but land in the `other` bucket show a *different*, already-
+//!    characterized mechanism instead: `dir` locks to *exactly*
+//!    `(0,0,+/-1)` (the discrete `ccdIsZero(zdist)` freeze round 28 traced
+//!    for the axial plateau) but *after* 3-5 real iterations rather than at
+//!    iteration 0 (cases 0, 6, 7, 9: `iterations` 4, 3, 3, 5), so the frozen
+//!    triangle carries real pre-freeze structure and the resulting depth
+//!    (`6.286e-2`, `3.677e-2`, `3.196e-2`, `6.585e-2`) is neither plateau —
+//!    the same freeze mechanism, a different stopping point, a value that
+//!    lands nowhere near either named dimension. The remaining 6/10 contrast
+//!    cases (no axis vertex) show a continuum rather than a hard boundary: 4
+//!    of them (cases 2, 8, 10, 12) converge over 20-24 real iterations to
+//!    depths `0.0703`-`0.0734`, close to but outside the plateau's `1e-6`
+//!    relative tolerance around `0.074792` — near-but-not-exact axis
+//!    proximity produces a near-but-not-exact radius reading, consistent
+//!    with a genuine geometric limit rather than a discrete branch; the
+//!    other 2 (cases 1, 11) converge in 2 iterations to depths (`0.0189`,
+//!    `0.0337`) unrelated to either dimension.
+//!
+//!    This mechanism is distinct in kind from the axial(length/2) one: no
+//!    degenerate branch fires, no iteration-0 freeze, no exact tie — it is
+//!    `ccdSupport`'s own exact, correct, rim-only range for a cylinder
+//!    support function, combined with the generator's own construction
+//!    always placing one cone vertex exactly on the touched cylinder's own
+//!    axis, converging MPR toward a real but misleading number: that one
+//!    vertex's own radial escape distance, not the true minimum-translation
+//!    depth of the whole triangle, which this backend's own EPA (operating
+//!    on all three vertices together) reports correctly and almost always
+//!    smaller — see the 853/945 "MPR deeper" figure above.
+//!
+//!    **Deviation 6(b), re-scoped to what the counts actually show.** This
+//!    block's framing through round 29 was "libccd's MPR reads deeper than
+//!    this backend's own EPA for the `visibility_cone` pair, by construction
+//!    except for 9 shallow outliers." That framing survives for the
+//!    majority of the 945-case mismatch population (853/945 deeper, the
+//!    round-16/17/21 magnitude-bias mechanism), but it is not a complete
+//!    description of the *plateau* fraction: on the oracle side, 619 of
+//!    every 1000 `visibility_cone` cases (61.9%) report a depth that is
+//!    exactly the touched cylinder's own `length/2`, not a real narrow-phase
+//!    penetration measurement, and on the MPR side 162 of 945 mismatches (9
+//!    axial + 153 radial, 17.1%) plateau on one of the cylinder's own two
+//!    dimensions rather than converging to a real depth — this backend's own
+//!    EPA never plateaus on either dimension, in 1000 sampled cases. So for
+//!    a majority of oracle readings and a material minority of MPR readings,
+//!    this is not "two algorithms disagreeing about one shape pair's
+//!    depth" — it is "FCL's own narrow-phase and libccd's own
+//!    `ccdMPRPenetration`, independently, sometimes degenerate to reporting
+//!    one of the cylinder's own dimensions instead of a depth, on different
+//!    fractions of the population and via mechanisms that are not the same
+//!    mechanism (FCL's own internal cause was not traced this round — FCL's
+//!    own source is out of this crate's scope to instrument), while this
+//!    backend's own EPA is the one of the three channels that never does."
+//!    The "by construction, MPR deeper" claim is not false; it is
+//!    incomplete: true for the 82.9%-of-mismatches `other` fraction where a
+//!    real MPR convergence happened, silent about the ~17% where neither
+//!    side computed a depth at all.
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two

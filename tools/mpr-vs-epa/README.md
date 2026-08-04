@@ -125,3 +125,24 @@ invocation of this binary is byte-unaffected). `--dump-contacts <idx>`
 prints every contact the oracle returned for the touched pair at that
 case index and exits, instead of running the usual EPA/MPR comparison.
 See `doc/claim-audit/moveit-collision.md`'s round 29 for the result.
+
+## Round 30: plateau histograms
+
+Round 29 found the sweep's own `oracle=`/`mpr=` readings plateau on the
+touched cylinder's own `radius` or `length/2` in a majority of cases,
+counted by hand from raw output. `visibility_cone_mpr_sweep.rs` now
+classifies every oracle/EPA/MPR reading itself, against its own case's
+cylinder dimensions at a `1e-6` relative tolerance, and prints the count —
+every run of the sweep (no new flags needed) ends with:
+
+```
+oracle plateau histogram (n=1000): axial(length/2)=619 (61.9%)  radial(radius)=0 (0.0%)  other=381 (38.1%)
+epa plateau histogram (n=1000): axial(length/2)=0 (0.0%)  radial(radius)=0 (0.0%)  other=1000 (100.0%)
+mpr plateau histogram (n=945): axial(length/2)=9 (1.0%)  radial(radius)=153 (16.2%)  other=783 (82.9%)
+```
+
+plus `(n=...)` appended to the existing Pearson-correlation line. This is a
+number to read off the run from here on, not one to recount from raw
+`println!` output by hand. See `doc/claim-audit/moveit-collision.md`'s
+round 30 for the full population recount and the mechanism traced for the
+`radial(radius)` bucket.
