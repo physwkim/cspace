@@ -24,6 +24,20 @@
 # `\"` escapes; this repo's real call sites use no raw (`r"..."`) or byte
 # (`b"..."`) string literals, confirmed by `rg`, so those forms are not
 # handled), then finds every remaining `assert_relative_eq!(` /
+#
+# The string-blanking substitution needs `/s`, and its absence was a real
+# undercount, not a hypothetical one: `\\.` cannot match a backslash-newline,
+# so Rust's line-continuation form
+#
+#     assert!(cond, "a long message: \
+#              continued here");
+#
+# made the match fail at that string's opening quote. Perl then resumed at
+# the *closing* quote and paired it with the next literal's opening quote --
+# blanking the real code in between. p3-shapes hit this in
+# `moveit-stomp-core`: 6 genuine `epsilon =` call sites were reported as 0.
+# Reproduced here on a 3-call fixture (reported 1 before the flag, 3 after)
+# before the flag was added, and the workspace counts are unchanged by it.
 # `relative_eq!(` call by bracket-matching parens from the macro name to the
 # matching close, and classifies each by whether `epsilon =` and/or
 # `max_relative =` appear inside that call's own argument text.
@@ -37,7 +51,7 @@ for my $file (@ARGV) {
     close $fh;
     $text =~ s{/\*.*?\*/}{}gs;
     $text =~ s{//[^\n]*}{}g;
-    $text =~ s{"(?:[^"\\]|\\.)*"}{""}g;
+    $text =~ s{"(?:[^"\\]|\\.)*"}{""}gs;
     while ($text =~ /\b(?:assert_relative_eq|relative_eq)!\s*\(/g) {
         my $open = rindex($text, '(', pos($text) - 1);
         my $depth = 0;
