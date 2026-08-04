@@ -591,8 +591,8 @@ current `moveit-planning`.
 
 | `MotionPlanResponse` field | `PlanningResponse` field | 1:1? |
 |---|---|---|
-| `trajectory_start: RobotState` | **no field** | dropped — `PlanningResponse` carries only the solved trajectory, not the state it started from |
-| `group_name: string` | **no field** | dropped |
+| `trajectory_start: RobotState` | `start_state: RobotState<'m>` | **[R5 CORRECTION — EXPIRED]** This row said "no field, dropped" through round 4. `PlanningResponse::start_state` landed in `moveit-planning` in the same merge that broke this crate's build (round 4→5 merge, `crates/moveit-planning/src/response.rs:121`); the "no field" claim went stale at that instant and nobody re-checked it before this round. Fixed at the merge point (`c8dd883`, not redone here): mapped via §9's `RobotStateMsg`/`RobotStateMsgOut` both ways, round-trip tested with a start state distinct from the trajectory's own first waypoint so a wrong implementation that reconstructs `start_state` from the trajectory instead of decoding `trajectory_start` cannot pass. See `src/planning.rs`'s `TryFrom<PlanningResponseMsg>` doc comment for the full note. |
+| `group_name: string` | **no field** | dropped — leave as is (round 5 brief: already known, not re-litigated) |
 | `trajectory: moveit_msgs/RobotTrajectory` | `trajectory: RobotTrajectory<'m>` | via §10's `RobotTrajectoryMsg`/`RobotTrajectoryMsgOut` (rejects non-empty `multi_dof_joint_trajectory`) |
 | `planning_time: float64` | **no field** | dropped |
 | `error_code: MoveItErrorCodes` | **no field** (`PlanningResponse`'s own doc comment: `error_code` is this crate's `Result` return instead — a `PlanningResponse` value only ever exists once a solve already succeeded) | msg→core: dropped (a `PlanningResponse` cannot represent a failure `error_code` at all — a message carrying a failure code has to be handled by the caller *before* attempting this `TryFrom`, not by it); core→msg: synthesizes `SUCCESS` (`val=1`), since a `PlanningResponse` value existing at all already implies success |
