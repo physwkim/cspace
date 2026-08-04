@@ -28,9 +28,18 @@
 //! `smoother_.applySmoothing(*res.trajectory,
 //! req.max_velocity_scaling_factor, req.max_acceleration_scaling_factor)`
 //! (cpp:81) becomes [`moveit_trajectory::ruckig_smoothing::apply_smoothing`]
-//! — already ported in `moveit-trajectory`, not re-implemented here — via
-//! the same [`moveit_trajectory::trajectory_tools::apply_ruckig_smoothing`]
-//! convenience wrapper upstream's own `trajectory_tools.cpp:70-76` uses,
+//! — already ported in `moveit-trajectory`, not re-implemented here — called
+//! via [`moveit_trajectory::trajectory_tools::apply_ruckig_smoothing`]'s
+//! convenience wrapper. Upstream's own `add_ruckig_traj_smoothing.cpp:81`
+//! does *not* call that wrapper — it calls `smoother_.applySmoothing`
+//! directly on its own long-lived `RuckigSmoothing smoother_` member;
+//! `trajectory_tools.cpp:70-76`'s free function `applyRuckigSmoothing`
+//! (which constructs its own local `RuckigSmoothing time_param`) is a
+//! separate convenience entry point upstream offers other callers, not one
+//! this adapter itself uses. This port reuses `apply_ruckig_smoothing` here
+//! purely for its own convenience (one call instead of constructing
+//! [`moveit_trajectory::ruckig_smoothing::SmoothingOptions`] by hand), not
+//! to reproduce this specific upstream file's call shape,
 //! with [`moveit_trajectory::ruckig_smoothing::SmoothingOptions::mitigate_overshoot`]/
 //! `overshoot_threshold` left at upstream's own defaults (`false`/`0.01`,
 //! `RuckigSmoothing`'s two-argument constructor upstream's

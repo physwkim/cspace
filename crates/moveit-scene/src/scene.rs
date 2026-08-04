@@ -374,7 +374,7 @@ pub struct PathValidity {
 ///   explicit-ACM overloads not ported, same reasoning as `checkCollision`.
 /// - `distanceToCollisionUnpadded` (4 overloads) — distinct: same
 ///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it
-///   (`planning_scene.cpp:461-509`: each overload only forwards to
+///   (`planning_scene.hpp:553-609`: each overload only forwards to
 ///   `getCollisionEnvUnpadded()->distanceRobot(...)`, no branch of its own
 ///   beyond the const/non-const `updateCollisionBodyTransforms()` forward
 ///   already reproduced by `PlanningScene::distance_to_collision`'s own
@@ -659,8 +659,8 @@ pub struct PlanningScene<'m> {
     world_diff: Option<WorldDiff>,
     acm: Layered<AllowedCollisionMatrix>,
     /// The extra-fixed-frame map: this scene's own, or the parent's.
-    /// Upstream `scene_transforms_`, a `SceneTransformsPtr` reset at
-    /// [`PlanningScene::diff`] time (`planning_scene.cpp:1264`) exactly like
+    /// Upstream `scene_transforms_`, a `SceneTransformsPtr` reset in
+    /// `clearDiffs()` (`planning_scene.cpp:331`) exactly like
     /// [`PlanningScene::current_state`] and
     /// [`PlanningScene::allowed_collision_matrix`] above, so it gets the
     /// same [`Layered`] treatment.
@@ -818,9 +818,10 @@ impl<'m> PlanningScene<'m> {
     /// the frame [`PlanningScene::frame_transform`] resolves everything
     /// against. Upstream `getPlanningFrame`, which returns the target frame
     /// the scene's `SceneTransforms` was constructed with -- always the
-    /// robot model's frame, since that is the only value
-    /// `PlanningScene::initialize` ever passes to it
-    /// (`planning_scene.cpp:192`).
+    /// robot model's frame, because `SceneTransforms`'s own constructor
+    /// hardcodes `scene->getRobotModel()->getModelFrame()`
+    /// (`planning_scene.cpp:114`) regardless of which of its 4 call sites
+    /// (`:192, 686, 1263, 1333`) constructs it.
     pub fn planning_frame(&self) -> &str {
         self.transforms().target_frame()
     }
@@ -1596,11 +1597,15 @@ impl<'m> PlanningScene<'m> {
 
     /// Whether `self`'s current state satisfies `constraints`. Upstream
     /// `isStateConstrained(state, KinematicConstraintSet, verbose)`
-    /// (`planning_scene.cpp:2277`) — the `moveit_msgs::Constraints`
-    /// overload (`:2245`/`:2269`) is a construct-then-delegate wrapper
-    /// around this one (build a `KinematicConstraintSet` from the message,
-    /// then call this exact method, confirmed from source) and is not
-    /// ported: D1 has no `moveit_msgs` type to build one from. `verbose`'s
+    /// (`planning_scene.cpp:2277`) — upstream's `moveit_msgs::Constraints`
+    /// overload (`:2245`, message state, message constraints) delegates to
+    /// a native-state/message-constraints overload (`:2253`) that builds a
+    /// `KinematicConstraintSet` from the message and calls this exact
+    /// method; that chain is not ported: D1 has no `moveit_msgs` type to
+    /// build one from. (`:2269` is a distinct overload — message state,
+    /// already-native `KinematicConstraintSet` — that converts only the
+    /// state and never builds a constraint set from a message; it is not
+    /// part of this chain.) `verbose`'s
     /// `RCLCPP_INFO` diagnostics are dropped for the same reason
     /// [`moveit_constraints::KinematicConstraintSet::decide`] itself
     /// carries no `verbose` parameter.
@@ -1620,10 +1625,10 @@ impl<'m> PlanningScene<'m> {
     /// pairs (see the type doc's "Collision checking" section). `group`
     /// lives on `request.group_name` rather than as a separate parameter,
     /// matching how every other method here threads
-    /// [`CollisionRequest`] through — upstream's own version overwrites
-    /// whatever `group_name` a caller-built request carried with its
-    /// separate `group` argument, which this signature has no way to do by
-    /// construction. `verbose` is dropped for the same reason the rest of
+    /// [`CollisionRequest`] through — upstream's own version takes no
+    /// request at all, only a bare `group` string, and always builds its
+    /// own local `CollisionRequest` internally (`planning_scene.cpp:2219`)
+    /// to carry it. `verbose` is dropped for the same reason the rest of
     /// this family drops it: `CollisionRequest::verbose` is itself a
     /// stored-but-never-read field in this port (confirmed: no backend
     /// consults it), matching upstream's own `RCLCPP_INFO`-only use.
@@ -1812,7 +1817,7 @@ impl<'m> PlanningScene<'m> {
 
     /// Upstream's `getCostSources(trajectory, max_costs, costs, overlap_fraction)`/
     /// `getCostSources(trajectory, max_costs, group_name, costs, overlap_fraction)`
-    /// (`planning_scene.cpp:2451-2489`), collapsed the same way
+    /// (`planning_scene.cpp:2451-2490`), collapsed the same way
     /// [`PlanningScene::cost_sources`] collapses its own pair.
     ///
     /// Ported faithfully from the body, not re-derived:
@@ -1820,21 +1825,21 @@ impl<'m> PlanningScene<'m> {
     ///   built once, reused for every `checkCollision` call — matching
     ///   upstream building `creq` once outside its loop) is unioned into the
     ///   running set (`cs.insert(cres.cost_sources.begin(), cres.cost_sources.end())`,
-    ///   cpp:2465), regardless of waypoint index — including the first.
+    ///   cpp:2472), regardless of waypoint index — including the first.
     /// - The *first* waypoint's own cost sources are captured a second time,
     ///   separately, as `cs_start` (`cs_start.swap(cres.cost_sources)`,
-    ///   cpp:2467-2468) — not removed from the union, just also kept aside.
+    ///   cpp:2474) — not removed from the union, just also kept aside.
     /// - The union is truncated to `max_costs`, keeping the first `max_costs`
     ///   entries in [`CostSource`]'s `Ord` (most-costly-first) order
-    ///   (cpp:2471-2481) — matching [`PlanningScene::cost_sources`]'s own
+    ///   (cpp:2477-2487) — matching [`PlanningScene::cost_sources`]'s own
     ///   truncation, but this time over the union across all waypoints
     ///   rather than one `checkCollision` call.
     /// - [`moveit_collision::remove_cost_sources`] runs first, against
-    ///   `cs_start` (cpp:2483) — drops truncated-union entries that overlap
+    ///   `cs_start` (cpp:2489) — drops truncated-union entries that overlap
     ///   the *start* state's own cost sources by at least `overlap_fraction`
     ///   (see that function's own doc for the split-not-drop behavior on a
     ///   sub-threshold overlap, ported as-is).
-    /// - [`moveit_collision::remove_overlapping`] runs second (cpp:2484),
+    /// - [`moveit_collision::remove_overlapping`] runs second (cpp:2490),
     ///   deduplicating what survives against *itself*. This order is
     ///   load-bearing, not incidental: swapping it would let a source that
     ///   `remove_cost_sources` was about to drop first eliminate a mutually
@@ -1988,7 +1993,7 @@ impl<'m> PlanningScene<'m> {
     /// this port carries (`object_colors_`/`object_types_` are not ported —
     /// see the type's scope doc; `scene_transforms_` is layered like
     /// `robot_state_`/`acm_` and is materialized here alongside them,
-    /// matching upstream `planning_scene.cpp:343-344`).
+    /// matching upstream `planning_scene.cpp:1260-1264`).
     pub fn decouple_parent(&mut self) {
         if self.parent.is_none() {
             return;
@@ -2552,8 +2557,8 @@ mod tests {
 
         // The child's copy was materialized at `decouple_parent` time, so
         // the parent's later mutation of "map" is not observed -- upstream
-        // `planning_scene.cpp:344`'s `scene_transforms_` copy, matching
-        // `robot_state`/`acm`'s existing decouple treatment above.
+        // `planning_scene.cpp:1260-1264`'s `scene_transforms_` copy,
+        // matching `robot_state`/`acm`'s existing decouple treatment above.
         assert_eq!(
             child.frame_transform("map").unwrap(),
             Isometry3::translation(1.0, 0.0, 0.0)
