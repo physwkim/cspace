@@ -8,6 +8,16 @@
 //! CONE) -- `constraint_region.meshes[]` is rejected explicitly (`Error::Other`,
 //! not silently dropped), matching this round's brief (`moveit-collision`'s
 //! own mesh-shape mapping is out of the requested crate survey).
+//!
+//! **CONE is parseable but not usable end-to-end** (round 5, previously
+//! undocumented): [`TryFrom<SolidPrimitiveMsg> for Shape`] below happily
+//! builds a [`Shape::Cone`], but `moveit_constraints::PositionConstraint::new`
+//! then calls `Body::from_shape`, which returns `Ok(None)` for
+//! [`Shape::Cone`] (`moveit_geometry::bodies::Body` has no `Cone` variant),
+//! so every `CONE`-typed constraint region fails there instead. This has
+//! been true since round 2; see `doc/message-mapping.md` §5's `SolidPrimitive`
+//! table for the full citation. Expires if `moveit_geometry::Body` grows a
+//! `Cone` variant -- `moveit-geometry`'s call, not this crate's.
 
 use moveit_error::Error;
 use moveit_geometry::bodies::Body;
@@ -252,6 +262,26 @@ mod tests {
     }
 
     #[test]
+    fn solid_primitive_cone_dimension_order_is_height_then_radius() {
+        // wire: [CONE_HEIGHT=0, CONE_RADIUS=1] = [2.0, 5.0] means
+        // height=2.0, radius=5.0 -- not radius=2.0, height=5.0. Same
+        // landmine as CYLINDER above; never had a test until round 5.
+        let msg = shape_msgs::SolidPrimitive {
+            type_: CONE,
+            dimensions: vec![2.0, 5.0],
+            polygon: Default::default(),
+        };
+        let shape = Shape::try_from(SolidPrimitiveMsg(msg)).unwrap();
+        match shape {
+            Shape::Cone(c) => {
+                assert_eq!(c.radius, 5.0);
+                assert_eq!(c.length, 2.0);
+            }
+            other => panic!("expected Cone, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn prism_is_rejected() {
         let msg = shape_msgs::SolidPrimitive {
             type_: PRISM,
@@ -304,6 +334,28 @@ mod tests {
         })
         .unwrap();
         assert_eq!(c.constraint_regions().len(), 1);
+    }
+
+    #[test]
+    fn cone_constraint_region_is_rejected_end_to_end() {
+        // Shape::try_from succeeds for CONE (see the dimension-order test
+        // above), but moveit_geometry::Body has no Cone variant --
+        // Body::from_shape returns Ok(None), which PositionConstraint::new
+        // turns into an error. This is the previously-undocumented gap
+        // named in this module's doc comment, not a regression.
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.constraint_region.primitives = vec![shape_msgs::SolidPrimitive {
+            type_: CONE,
+            dimensions: vec![1.0, 1.0],
+            polygon: Default::default(),
+        }];
+        let err = moveit_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
     }
 
     #[test]
