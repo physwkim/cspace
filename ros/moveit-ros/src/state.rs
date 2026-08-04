@@ -14,6 +14,18 @@
 //! absorbed into a silent default" D6 exists to prevent. A caller that needs
 //! those fields has to compose with `moveit-scene`/`moveit-state` directly,
 //! one level up from what a bare `&RobotModel` conversion can see.
+//!
+//! # Expiry conditions (PORTING-PLAN.md §153.1: name what clears each gap)
+//!
+//! - `multi_dof_joint_state`: expires if `moveit_state::RobotState` (or a
+//!   sibling type) gains a way to represent multi-DOF joint values --
+//!   today its variable space comes entirely from `moveit_model::RobotModel`'s
+//!   single-DOF variables.
+//! - `attached_collision_objects`/`is_diff`: **not** a missing core type --
+//!   `PlanningScene` already carries attached bodies and parent-diffing.
+//!   These expire if this crate adds a conversion entry point that takes
+//!   `&mut PlanningScene` alongside the message (the composed conversion
+//!   named above, not attempted this round), not if `moveit-state` changes.
 
 use moveit_error::Error;
 use moveit_model::RobotModel;

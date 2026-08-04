@@ -840,14 +840,24 @@ upstream function line-by-line.
   reject a *non-default* value because there is no core field to carry
   it (a structural gap, `RobotState`'s own doc comment), the opposite
   polarity from §183 (which rejected the *default*). Matches D6's
-  intended behavior, not a defect.
+  intended behavior, not a defect. Each of the three now carries its
+  own expiry condition (PORTING-PLAN.md §153.1, `state.rs`'s module
+  doc): `multi_dof_joint_state` clears if `moveit_state::RobotState`
+  gains multi-DOF support; `attached_collision_objects`/`is_diff`
+  clear only if this crate adds a `&mut PlanningScene`-aware
+  conversion entry point, not if `moveit-state` changes.
 - `trajectory.rs:142` (`JointTrajectoryPoint[0].time_from_start`
   nonzero) — same opposite-polarity shape as `state.rs` above:
   rejects a non-default value `RobotTrajectory` cannot represent, not
-  a rejected default.
+  a rejected default. Expiry noted inline (§153.1): only
+  `moveit_trajectory::RobotTrajectory`'s own `duration_from_previous[0]
+  == 0.0` invariant changing clears this, not a new field anywhere.
 - `planning.rs:130,138` (`start_state`/`reference_trajectories`
   non-default) — same opposite-polarity shape again, already named
-  D6-consistent in this module's own doc comment.
+  D6-consistent in this module's own doc comment. Expiry noted inline
+  (§153.1): both clear if `moveit_planning::PlanningRequest` gains the
+  matching field, unlike `state.rs`'s gap above which needs a new
+  conversion entry point instead.
 
 Every site above already has a boundary test proving the behavior
 checked here (see the test names cited inline) — this sweep did not
