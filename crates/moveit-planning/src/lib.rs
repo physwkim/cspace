@@ -360,6 +360,10 @@
 //!         termination: Termination::Iterations(20_000),
 //!         nn_degree: 8,
 //!     },
+//!     // A `Goal::State` never reaches `select_default_sampler`, so this
+//!     // field is inert here; it is spelled out because `PlanningRequest`
+//!     // holds a `Box<dyn KinematicsSolver>` and so derives no `Default`.
+//!     solver: None,
 //! };
 //!
 //! let manager = RrtConnectManager;
