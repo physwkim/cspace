@@ -429,6 +429,7 @@ mod tests {
             goal: Goal::Joint(HashMap::new()),
             max_velocity_scaling_factor: scaling,
             max_acceleration_scaling_factor: scaling,
+            path_constraints: None,
         }
     }
 
@@ -608,6 +609,7 @@ mod tests {
             goal: Goal::Joint(goal.clone()),
             max_velocity_scaling_factor: 0.5,
             max_acceleration_scaling_factor: 0.5,
+            path_constraints: None,
         };
 
         let ctx = IkContext {
@@ -643,6 +645,7 @@ mod tests {
             goal: Goal::Joint(HashMap::new()),
             max_velocity_scaling_factor: 0.5,
             max_acceleration_scaling_factor: 0.5,
+            path_constraints: None,
         };
         let ctx = IkContext {
             scene: &scene,

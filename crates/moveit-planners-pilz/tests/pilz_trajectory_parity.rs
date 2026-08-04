@@ -189,6 +189,7 @@ fn ptp_panda_arm_matches_the_oracle() {
         goal,
         max_velocity_scaling_factor: request.max_velocity_scaling_factor,
         max_acceleration_scaling_factor: request.max_acceleration_scaling_factor,
+        path_constraints: None,
     };
 
     let scene = Arc::new(PlanningScene::new(&model, &_srdf));
