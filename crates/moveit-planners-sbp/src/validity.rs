@@ -120,7 +120,37 @@ where
         if dist <= self.resolution {
             return true;
         }
-        let steps = (dist / self.resolution).ceil() as u64;
+        let step_count = (dist / self.resolution).ceil();
+        // §172 (PORTING-PLAN.md): `resolution` is validated finite/positive
+        // at construction (`new`, above), but not bounded away from zero
+        // relative to whatever `dist` a caller later hands in -- a
+        // misconfigured (pathologically small) resolution against an
+        // ordinary joint-space `dist` makes `step_count` huge. Unlike
+        // OMPL's `StateSpace::validSegmentCount`
+        // (`ompl/base/src/StateSpace.cpp`, `(unsigned int)ceil(distance /
+        // longestValidSegment_)`), where an out-of-range narrowing is C++
+        // UB with no defined outcome (and whose caller then narrows the
+        // `unsigned int` again into a signed `int nd`, so an overflow can
+        // even wrap negative and silently skip interior checking
+        // entirely -- `ompl/base/src/DiscreteMotionValidator.cpp`), a bare
+        // `as u64` here would saturate rather than panic, and
+        // `check_range`'s recursion is `O(step_count)` -- not a crash, but
+        // an effectively unbounded hang, the same shape as §172.1's
+        // `max_distance_sq` OOM, just CPU instead of memory. There is no
+        // upstream value to match in this range (upstream's own is
+        // UB/implementation-defined), so this rejects the input outright
+        // rather than silently accepting or hanging on it. `u32::MAX` is
+        // not an arbitrary limit: it is the width `validSegmentCount`
+        // itself returns, so this refuses only what upstream's own
+        // representation could never have held either.
+        assert!(
+            step_count.is_finite() && step_count <= u32::MAX as f64,
+            "DiscreteMotionValidator: motion needs {step_count} interior samples (distance \
+             {dist}, resolution {}) -- resolution is almost certainly misconfigured relative to \
+             this motion's length",
+            self.resolution
+        );
+        let steps = step_count as u64;
         // `steps >= 2` here: `dist > resolution` was just established, and
         // `ceil` of anything greater than 1 is at least 2, so interior
         // indices `1 ..= steps - 1` are always non-empty.
@@ -170,6 +200,32 @@ mod tests {
         let checker = |state: &Vec<f64>| (state[0] - 9.0).abs() > 1e-9;
         let mv = DiscreteMotionValidator::new(&checker, 1.0);
         assert!(!mv.is_motion_valid(&s, &vec![0.0], &vec![10.0]));
+    }
+
+    #[test]
+    #[should_panic(expected = "interior samples")]
+    fn resolution_far_smaller_than_distance_panics_instead_of_hanging() {
+        let s = space();
+        let always = |_: &Vec<f64>| true;
+        // resolution 1e-9 against a distance of 5.0 needs ~5e9 interior
+        // samples -- past `u32::MAX` (§172, PORTING-PLAN.md), the width
+        // upstream OMPL's own `validSegmentCount` returns. Must panic
+        // before `check_range` ever recurses, not hang computing it.
+        let mv = DiscreteMotionValidator::new(&always, 1e-9);
+        let _ = mv.is_motion_valid(&s, &vec![0.0], &vec![5.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "interior samples")]
+    fn nan_distance_panics_instead_of_silently_producing_a_degenerate_range() {
+        let s = space();
+        let always = |_: &Vec<f64>| true;
+        let mv = DiscreteMotionValidator::new(&always, 1.0);
+        // A NaN state makes `RealVectorSpace::distance` return NaN.
+        // `NaN.ceil() as u64` would silently saturate to 0 rather than
+        // panic; the point being tested is that this is rejected before
+        // the `steps - 1` subtraction that value would otherwise underflow.
+        let _ = mv.is_motion_valid(&s, &vec![f64::NAN], &vec![0.0]);
     }
 
     #[test]
