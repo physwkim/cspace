@@ -55,6 +55,8 @@ moveit-state = { path = "../../crates/moveit-state" }
 moveit-trajectory = { path = "../../crates/moveit-trajectory" }
 moveit-constraints = { path = "../../crates/moveit-constraints" }
 moveit-planning = { path = "../../crates/moveit-planning" }
+moveit-scene = { path = "../../crates/moveit-scene" }
+moveit-collision = { path = "../../crates/moveit-collision" }
 
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
 # UnitQuaternion::new_normalize): moveit-geometry re-exports nalgebra's types

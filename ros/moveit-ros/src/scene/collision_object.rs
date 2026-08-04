@@ -1,0 +1,689 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   moveit_core/planning_scene/src/planning_scene.cpp
+//     (processCollisionObjectMsg:1758, shapesAndPosesFromCollisionObjectMessage:1800,
+//      processCollisionObjectAdd:1887, processCollisionObjectRemove:1931,
+//      processCollisionObjectMove:1953)
+//   moveit_core/utils/src/message_checks.cpp (isEmpty(Pose):77)
+
+//! `moveit_msgs/msg::CollisionObject` <-> world objects on
+//! [`moveit_scene::PlanningScene`]. See `doc/message-mapping.md` §11.
+//!
+//! Unlike every other conversion in this crate, this is not a `TryFrom` in
+//! both directions (D6's usual shape): `CollisionObject` is an imperative
+//! *command* (ADD/REMOVE/APPEND/MOVE) applied to an existing scene, not a
+//! value with a core-side isomorph to convert to and from. Upstream itself
+//! reflects this -- `processCollisionObjectMsg` takes `(&mut PlanningScene,
+//! &CollisionObject)` and returns `bool`, not a constructed value -- so
+//! [`apply_collision_object`] takes the same shape: `&mut PlanningScene`
+//! plus the message, `Result<()>` back.
+
+use std::sync::Arc;
+
+use moveit_error::{Error, Result};
+use moveit_geometry::{Isometry3, Plane, Shape};
+use moveit_scene::PlanningScene;
+use r2r::geometry_msgs::msg as geometry_msgs;
+use r2r::moveit_msgs::msg as moveit_msgs;
+use r2r::shape_msgs::msg as shape_msgs;
+
+use super::shapes::{MeshMsg, PlaneMsg};
+use crate::constraints::position::SolidPrimitiveMsg;
+use crate::geometry::Pose;
+
+/// Upstream `PlanningScene::OCTOMAP_NS` (`planning_scene.hpp:113`): a
+/// reserved collision-object id. `processCollisionObjectMsg` (`:1758`)
+/// rejects it for every operation (ADD/REMOVE/APPEND/MOVE alike) --
+/// *not* just ADD/APPEND, confirmed by reading the dispatcher, not assumed.
+pub const OCTOMAP_NS: &str = "<octomap>";
+
+const ADD: u8 = 0;
+const REMOVE: u8 = 1;
+const APPEND: u8 = 2;
+const MOVE: u8 = 3;
+
+/// `CollisionObject.operation`. Upstream compares the raw `u8` against four
+/// named byte constants (`CollisionObject::ADD` etc, all `.msg`-declared
+/// `byte` constants happening to be sequential from 0 -- a positional `u8`
+/// cast would not currently misbehave, but matching by name keeps this
+/// immune to the constants ever being renumbered, the same defensive
+/// convention `constraints::position`'s `SolidPrimitiveMsg` already uses for
+/// `SolidPrimitive.type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollisionObjectOperation {
+    /// `CollisionObject::ADD` (0).
+    Add,
+    /// `CollisionObject::REMOVE` (1).
+    Remove,
+    /// `CollisionObject::APPEND` (2).
+    Append,
+    /// `CollisionObject::MOVE` (3).
+    Move,
+}
+
+impl TryFrom<u8> for CollisionObjectOperation {
+    type Error = Error;
+
+    fn try_from(operation: u8) -> Result<Self> {
+        match operation {
+            ADD => Ok(Self::Add),
+            REMOVE => Ok(Self::Remove),
+            APPEND => Ok(Self::Append),
+            MOVE => Ok(Self::Move),
+            other => Err(Error::construct(format!(
+                "CollisionObject.operation={other} is none of ADD(0)/REMOVE(1)/APPEND(2)/MOVE(3)"
+            ))),
+        }
+    }
+}
+
+/// Upstream `moveit::core::isEmpty(const geometry_msgs::msg::Pose&)`
+/// (`message_checks.cpp:77-79`): exactly the wire-default identity pose,
+/// checked on the *raw* message fields -- not via a round trip through
+/// [`Isometry3`], so this matches upstream's literal `== 0.0`/`== 1.0`
+/// comparisons instead of comparing two already-parsed isometries.
+fn is_empty_pose(pose: &geometry_msgs::Pose) -> bool {
+    pose.position.x == 0.0
+        && pose.position.y == 0.0
+        && pose.position.z == 0.0
+        && pose.orientation.x == 0.0
+        && pose.orientation.y == 0.0
+        && pose.orientation.z == 0.0
+        && pose.orientation.w == 1.0
+}
+
+/// One `(shapes, shape_poses)` array pair from `CollisionObject`
+/// (`primitives`/`primitive_poses`, `meshes`/`mesh_poses`,
+/// `planes`/`plane_poses`), converted and reconciled to a common length.
+/// Upstream `shapesAndPosesFromCollisionObjectMessage`'s `treat_shape_vectors`
+/// lambda (`planning_scene.cpp:1852`).
+///
+/// # The asymmetric length rule
+///
+/// `items.len() < poses.len()` (more poses than shapes) is **rejected** --
+/// upstream's separate upfront check (`:1805-1818`, one `RCLCPP_ERROR` per
+/// array). `items.len() > poses.len()` (more shapes than poses) is
+/// **tolerated**: missing trailing poses default to identity
+/// (`:1852-1862`, "Assuming identity"). This is *not* the same rule as
+/// `constraints::position`'s `BoundingVolume.primitives`/`primitive_poses`
+/// check, which rejects on any length mismatch at all -- a real landmine if
+/// this module had copy-pasted that convention instead of reading
+/// `planning_scene.cpp` directly.
+fn parallel_shapes<T>(
+    items_field: &'static str,
+    items: Vec<T>,
+    poses_field: &'static str,
+    poses: Vec<geometry_msgs::Pose>,
+    convert: impl Fn(T) -> Result<Shape>,
+) -> Result<Vec<(Arc<Shape>, Isometry3)>> {
+    if items.len() < poses.len() {
+        return Err(Error::construct(format!(
+            "CollisionObject.{items_field} has length {} but {poses_field} has length {} \
+             (more poses than shapes; shapesAndPosesFromCollisionObjectMessage rejects this)",
+            items.len(),
+            poses.len()
+        )));
+    }
+    let mut poses = poses.into_iter();
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let shape = convert(item)?;
+        let pose = match poses.next() {
+            Some(p) => Isometry3::try_from(Pose(p))?,
+            None => Isometry3::identity(),
+        };
+        out.push((Arc::new(shape), pose));
+    }
+    Ok(out)
+}
+
+/// Upstream `shapesAndPosesFromCollisionObjectMessage` (`planning_scene.cpp:1800`):
+/// converts every geometry array (in primitive/mesh/plane order -- "order
+/// matters", the same order [`apply_move`] concatenates pose arrays in) into
+/// `(object_pose, shapes, shape_poses)`, where `shape_poses` are relative to
+/// `object_pose`. `object_pose` here is still in the message's own `header`
+/// frame -- callers compose it with the header frame's transform themselves
+/// (see [`apply_add`]/`attached::shapes_from_message_geometry`), matching
+/// upstream's own out-param name `header_to_pose_transform`.
+///
+/// # The single-shape pose swap
+///
+/// If there is exactly one shape total *and* `object.pose` is
+/// [`is_empty_pose`], upstream promotes that one shape's own message pose to
+/// be `object_pose`, and that shape's local pose becomes identity
+/// (`:1823-1852`, `switch_object_pose_and_shape_pose`) -- not merely "assume
+/// identity object pose", a landmine if read from the doc comment alone
+/// rather than the lambda body.
+pub(super) fn shapes_and_poses_from_collision_object(
+    object_pose_msg: geometry_msgs::Pose,
+    primitives: Vec<shape_msgs::SolidPrimitive>,
+    primitive_poses: Vec<geometry_msgs::Pose>,
+    meshes: Vec<shape_msgs::Mesh>,
+    mesh_poses: Vec<geometry_msgs::Pose>,
+    planes: Vec<shape_msgs::Plane>,
+    plane_poses: Vec<geometry_msgs::Pose>,
+) -> Result<(Isometry3, Vec<Arc<Shape>>, Vec<Isometry3>)> {
+    let is_empty_object_pose = is_empty_pose(&object_pose_msg);
+
+    let mut all = parallel_shapes(
+        "primitives",
+        primitives,
+        "primitive_poses",
+        primitive_poses,
+        |p| Shape::try_from(SolidPrimitiveMsg(p)),
+    )?;
+    all.extend(parallel_shapes(
+        "meshes",
+        meshes,
+        "mesh_poses",
+        mesh_poses,
+        |m| Shape::try_from(MeshMsg(m)),
+    )?);
+    all.extend(parallel_shapes(
+        "planes",
+        planes,
+        "plane_poses",
+        plane_poses,
+        |p| Plane::try_from(PlaneMsg(p)).map(Shape::Plane),
+    )?);
+
+    let (shapes, mut shape_poses): (Vec<Arc<Shape>>, Vec<Isometry3>) = all.into_iter().unzip();
+
+    let object_pose = if shapes.len() == 1 && is_empty_object_pose {
+        let promoted = shape_poses[0];
+        shape_poses[0] = Isometry3::identity();
+        promoted
+    } else {
+        Isometry3::try_from(Pose(object_pose_msg))?
+    };
+
+    Ok((object_pose, shapes, shape_poses))
+}
+
+/// Apply one `CollisionObject` command to `scene`'s world. Upstream
+/// `processCollisionObjectMsg` (`planning_scene.cpp:1758`).
+pub fn apply_collision_object(
+    scene: &mut PlanningScene<'_>,
+    msg: moveit_msgs::CollisionObject,
+) -> Result<()> {
+    if msg.id == OCTOMAP_NS {
+        return Err(Error::other(format!(
+            "the ID '{OCTOMAP_NS}' cannot be used for collision objects (name reserved)"
+        )));
+    }
+    match CollisionObjectOperation::try_from(msg.operation)? {
+        CollisionObjectOperation::Add => apply_add(scene, msg, true),
+        CollisionObjectOperation::Append => apply_add(scene, msg, false),
+        CollisionObjectOperation::Remove => apply_remove(scene, &msg.id),
+        CollisionObjectOperation::Move => apply_move(scene, msg),
+    }
+}
+
+/// ADD/APPEND, both funnel through here -- upstream `processCollisionObjectAdd`
+/// (`planning_scene.cpp:1887`) handles both operations in one function,
+/// differing only in whether an existing object is removed first.
+fn apply_add(
+    scene: &mut PlanningScene<'_>,
+    msg: moveit_msgs::CollisionObject,
+    replace_if_exists: bool,
+) -> Result<()> {
+    let moveit_msgs::CollisionObject {
+        header,
+        pose,
+        id,
+        type_: _, // D1 (object_recognition_msgs::msg::ObjectType); moveit-scene has no
+        // object-type map to receive this either (its own `hasObjectType`/etc
+        // bullets are D1), so there is nothing here to lose that a later
+        // consumer would recover.
+        primitives,
+        primitive_poses,
+        meshes,
+        mesh_poses,
+        planes,
+        plane_poses,
+        subframe_names,
+        subframe_poses,
+        ..
+    } = msg;
+
+    if primitives.is_empty() && meshes.is_empty() && planes.is_empty() {
+        return Err(Error::other(
+            "there are no shapes specified in the collision object message (processCollisionObjectAdd)",
+        ));
+    }
+    if !subframe_names.is_empty() || !subframe_poses.is_empty() {
+        return Err(Error::other(
+            "CollisionObject.subframe_names/subframe_poses has no PlanningScene-level \
+             setter -- moveit_scene::PlanningScene::world() only exposes &World \
+             (read-only); moveit_collision::World::set_subframes_of_object exists but \
+             is unreachable through PlanningScene's public API (doc/message-mapping.md §11)",
+        ));
+    }
+
+    // Resolved before any mutation -- upstream checks `knowsFrameTransform`
+    // before touching the world at all (`:1889`).
+    let header_transform = scene.frame_transform(&header.frame_id)?;
+
+    if replace_if_exists && scene.world().has_object(&id) {
+        scene.remove_object(&id);
+    }
+    let creating_fresh = replace_if_exists || !scene.world().has_object(&id);
+
+    let (local_object_pose, shapes, shape_poses) = shapes_and_poses_from_collision_object(
+        pose,
+        primitives,
+        primitive_poses,
+        meshes,
+        mesh_poses,
+        planes,
+        plane_poses,
+    )?;
+
+    for (shape, shape_pose) in shapes.into_iter().zip(shape_poses) {
+        // `PlanningScene::add_shape` always creates at an identity object
+        // pose and discards the pose argument on an already-existing object
+        // (`World::add_to_object`'s own deviation 9) -- exactly APPEND's
+        // "existing object keeps its pose" semantics, and exactly what a
+        // fresh ADD/APPEND-creates-new-object needs before the pose is set
+        // below.
+        scene.add_shape(&id, shape, shape_pose);
+    }
+
+    if creating_fresh {
+        // The object was just created at identity pose above; composing
+        // `header_transform * local_object_pose` with `move_object`
+        // (`new_pose = transform * old_pose`, `old_pose = identity`) sets it
+        // directly to the desired absolute pose -- see this module's own
+        // doc for the general "delta from a known old pose" trick this
+        // reproduces, forced by `PlanningScene` having no
+        // add-with-a-real-object-pose entry point (only `World` does).
+        scene.move_object(&id, header_transform * local_object_pose);
+    }
+
+    Ok(())
+}
+
+/// REMOVE. Upstream `processCollisionObjectRemove` (`planning_scene.cpp:1931`).
+///
+/// An empty `id` means "remove every object", **not** "remove the object
+/// named the empty string" -- a real landmine if read from the field name
+/// alone.
+fn apply_remove(scene: &mut PlanningScene<'_>, id: &str) -> Result<()> {
+    if id.is_empty() {
+        scene.remove_all_objects();
+        return Ok(());
+    }
+    if scene.remove_object(id) {
+        Ok(())
+    } else {
+        Err(Error::other(format!(
+            "tried to remove world object '{id}', but it does not exist in this scene"
+        )))
+    }
+}
+
+/// MOVE. Upstream `processCollisionObjectMove` (`planning_scene.cpp:1953`).
+///
+/// The object's absolute pose is **always** applied (unconditionally, even
+/// if the shape-repose step below then fails) -- upstream itself has this
+/// exact partial-effect shape: `setObjectPose` runs before the shape-count
+/// check, with no rollback on that check's failure.
+fn apply_move(scene: &mut PlanningScene<'_>, msg: moveit_msgs::CollisionObject) -> Result<()> {
+    let moveit_msgs::CollisionObject {
+        header,
+        pose,
+        id,
+        primitives,
+        primitive_poses,
+        meshes,
+        mesh_poses,
+        planes,
+        plane_poses,
+        ..
+    } = msg;
+
+    if !scene.world().has_object(&id) {
+        return Err(Error::other(format!("'{id}' does not exist. Cannot move.")));
+    }
+
+    // Geometry is ignored on MOVE (upstream logs a warning and proceeds,
+    // `:1958-1962`); this crate has no logging framework wired up (see
+    // `moveit_geometry::Plane::scale_and_padd`'s own no-op precedent), so it
+    // is silently ignored the same way.
+    let _ = (primitives, meshes, planes);
+
+    let header_transform = scene.frame_transform(&header.frame_id)?;
+    let new_object_pose = header_transform * Isometry3::try_from(Pose(pose))?;
+    let old_pose = scene
+        .world()
+        .get_object(&id)
+        .expect("has_object just confirmed this id exists")
+        .pose();
+    scene.move_object(&id, new_object_pose * old_pose.inverse());
+
+    let mut shape_poses_msgs = primitive_poses;
+    shape_poses_msgs.extend(mesh_poses);
+    shape_poses_msgs.extend(plane_poses);
+    if shape_poses_msgs.is_empty() {
+        return Ok(());
+    }
+
+    let current_shape_count = scene
+        .world()
+        .get_object(&id)
+        .expect("has_object just confirmed this id exists")
+        .shapes()
+        .len();
+    if shape_poses_msgs.len() != current_shape_count {
+        return Err(Error::other(format!(
+            "move operation for object '{id}' must have same number of geometry poses \
+             ({} supplied, {current_shape_count} shape(s) exist). Cannot move. \
+             (the object's pose was still updated above, matching upstream's own \
+             partial-effect behavior on this path)",
+            shape_poses_msgs.len()
+        )));
+    }
+
+    Err(Error::other(format!(
+        "move operation for object '{id}' supplied a matching count of geometry \
+         poses, but per-shape repose has no PlanningScene-level setter -- \
+         moveit_collision::World::move_shapes_in_object exists but is unreachable \
+         through PlanningScene's public API (doc/message-mapping.md §11). The \
+         object's pose was still updated above."
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::tests::one_joint_model;
+    use moveit_srdf::SrdfModel;
+
+    fn scene(model: &moveit_model::RobotModel) -> PlanningScene<'_> {
+        let srdf =
+            SrdfModel::parse_str("<?xml version=\"1.0\"?><robot name=\"one_joint\"></robot>")
+                .expect("empty SRDF must parse");
+        PlanningScene::new(model, &srdf)
+    }
+
+    fn identity_pose() -> geometry_msgs::Pose {
+        geometry_msgs::Pose {
+            position: geometry_msgs::Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            orientation: geometry_msgs::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        }
+    }
+
+    fn posed(x: f64, y: f64, z: f64) -> geometry_msgs::Pose {
+        geometry_msgs::Pose {
+            position: geometry_msgs::Point { x, y, z },
+            orientation: geometry_msgs::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        }
+    }
+
+    fn sphere_primitive(radius: f64) -> shape_msgs::SolidPrimitive {
+        shape_msgs::SolidPrimitive {
+            type_: 2, // SPHERE
+            dimensions: vec![radius],
+            polygon: Default::default(),
+        }
+    }
+
+    fn base_object(id: &str, model_frame: &str, operation: u8) -> moveit_msgs::CollisionObject {
+        moveit_msgs::CollisionObject {
+            header: r2r::std_msgs::msg::Header {
+                frame_id: model_frame.to_string(),
+                ..Default::default()
+            },
+            pose: identity_pose(),
+            id: id.to_string(),
+            type_: Default::default(),
+            primitives: vec![sphere_primitive(0.1)],
+            primitive_poses: vec![identity_pose()],
+            meshes: vec![],
+            mesh_poses: vec![],
+            planes: vec![],
+            plane_poses: vec![],
+            subframe_names: vec![],
+            subframe_poses: vec![],
+            operation,
+        }
+    }
+
+    #[test]
+    fn octomap_ns_is_rejected_for_every_operation() {
+        let model = one_joint_model();
+        for op in [ADD, REMOVE, APPEND, MOVE] {
+            let mut sc = scene(&model);
+            let msg = base_object(OCTOMAP_NS, model.model_frame(), op);
+            let err = apply_collision_object(&mut sc, msg).unwrap_err();
+            assert!(matches!(err, Error::Other(_)), "op={op}, got: {err:?}");
+        }
+    }
+
+    #[test]
+    fn add_creates_object_with_shape_and_pose() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.pose = posed(1.0, 2.0, 3.0);
+        apply_collision_object(&mut sc, msg).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        assert_eq!(obj.pose(), Isometry3::translation(1.0, 2.0, 3.0));
+        assert_eq!(obj.shapes().len(), 1);
+    }
+
+    #[test]
+    fn add_replaces_existing_object() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut second = base_object("box", model.model_frame(), ADD);
+        second.primitives = vec![sphere_primitive(0.2), sphere_primitive(0.3)];
+        second.primitive_poses = vec![identity_pose(), identity_pose()];
+        apply_collision_object(&mut sc, second).unwrap();
+        assert_eq!(sc.world().get_object("box").unwrap().shapes().len(), 2);
+    }
+
+    #[test]
+    fn append_onto_existing_object_keeps_old_pose_and_adds_shapes() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut first = base_object("box", model.model_frame(), ADD);
+        first.pose = posed(1.0, 0.0, 0.0);
+        apply_collision_object(&mut sc, first).unwrap();
+
+        let mut second = base_object("box", model.model_frame(), APPEND);
+        // A real, non-identity pose here must be ignored -- APPEND onto an
+        // existing object never repositions it (World::add_to_object,
+        // deviation 9).
+        second.pose = posed(99.0, 99.0, 99.0);
+        apply_collision_object(&mut sc, second).unwrap();
+
+        let obj = sc.world().get_object("box").unwrap();
+        assert_eq!(obj.pose(), Isometry3::translation(1.0, 0.0, 0.0));
+        assert_eq!(obj.shapes().len(), 2);
+    }
+
+    #[test]
+    fn append_onto_nonexistent_object_creates_it() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), APPEND);
+        msg.pose = posed(1.0, 0.0, 0.0);
+        apply_collision_object(&mut sc, msg).unwrap();
+        assert_eq!(
+            sc.world().get_object("box").unwrap().pose(),
+            Isometry3::translation(1.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn add_with_no_geometry_is_rejected() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitives = vec![];
+        msg.primitive_poses = vec![];
+        let err = apply_collision_object(&mut sc, msg).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn more_poses_than_primitives_is_rejected() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitive_poses.push(identity_pose());
+        let err = apply_collision_object(&mut sc, msg).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn more_primitives_than_poses_defaults_missing_to_identity() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitives.push(sphere_primitive(0.2));
+        // primitive_poses still has only one entry.
+        apply_collision_object(&mut sc, msg).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        assert_eq!(obj.shapes().len(), 2);
+        assert_eq!(obj.shapes()[1].pose(), Isometry3::identity());
+    }
+
+    #[test]
+    fn single_shape_with_empty_object_pose_promotes_shape_pose_to_object_pose() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.pose = identity_pose(); // empty
+        msg.primitive_poses = vec![posed(1.0, 2.0, 3.0)]; // the one shape's own pose
+        apply_collision_object(&mut sc, msg).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        assert_eq!(obj.pose(), Isometry3::translation(1.0, 2.0, 3.0));
+        assert_eq!(obj.shapes()[0].pose(), Isometry3::identity());
+    }
+
+    #[test]
+    fn two_shapes_with_empty_object_pose_does_not_swap() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.pose = identity_pose();
+        msg.primitives = vec![sphere_primitive(0.1), sphere_primitive(0.1)];
+        msg.primitive_poses = vec![posed(1.0, 0.0, 0.0), posed(0.0, 1.0, 0.0)];
+        apply_collision_object(&mut sc, msg).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        assert_eq!(obj.pose(), Isometry3::identity());
+        assert_eq!(
+            obj.shapes()[0].pose(),
+            Isometry3::translation(1.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn remove_specific_id() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), REMOVE)).unwrap();
+        assert!(!sc.world().has_object("box"));
+    }
+
+    #[test]
+    fn remove_unknown_id_is_rejected() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let err = apply_collision_object(&mut sc, base_object("box", model.model_frame(), REMOVE))
+            .unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn remove_empty_id_removes_everything() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("a", model.model_frame(), ADD)).unwrap();
+        apply_collision_object(&mut sc, base_object("b", model.model_frame(), ADD)).unwrap();
+        apply_collision_object(&mut sc, base_object("", model.model_frame(), REMOVE)).unwrap();
+        assert!(sc.world().is_empty());
+    }
+
+    #[test]
+    fn move_requires_existing_object() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let err = apply_collision_object(&mut sc, base_object("box", model.model_frame(), MOVE))
+            .unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn move_sets_absolute_pose_and_ignores_geometry() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", model.model_frame(), MOVE);
+        mv.pose = posed(5.0, 0.0, 0.0);
+        mv.primitive_poses = vec![]; // no shape repose requested
+        apply_collision_object(&mut sc, mv).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        assert_eq!(obj.pose(), Isometry3::translation(5.0, 0.0, 0.0));
+        assert_eq!(obj.shapes().len(), 1, "MOVE must not touch geometry");
+    }
+
+    #[test]
+    fn move_with_mismatched_pose_count_is_rejected_but_still_moves_the_object() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", model.model_frame(), MOVE);
+        mv.pose = posed(5.0, 0.0, 0.0);
+        mv.primitive_poses = vec![identity_pose(), identity_pose()]; // object has 1 shape
+        let err = apply_collision_object(&mut sc, mv).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Upstream's own partial-effect: the pose move already happened.
+        assert_eq!(
+            sc.world().get_object("box").unwrap().pose(),
+            Isometry3::translation(5.0, 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn move_shape_repose_with_matching_count_names_the_structural_gap() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", model.model_frame(), MOVE);
+        mv.primitive_poses = vec![posed(0.0, 0.0, 1.0)]; // matches the 1 existing shape
+        let err = apply_collision_object(&mut sc, mv).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn add_with_subframes_names_the_structural_gap() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.subframe_names = vec!["tip".to_string()];
+        msg.subframe_poses = vec![identity_pose()];
+        let err = apply_collision_object(&mut sc, msg).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+}

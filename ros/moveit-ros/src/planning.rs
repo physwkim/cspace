@@ -14,18 +14,28 @@
 //! deliberately excludes planner-selection/tuning concerns. Of
 //! `MotionPlanRequest`'s remaining wire fields:
 //!
-//! - `pipeline_id`/`planner_id`/`num_planning_attempts`/
-//!   `allowed_planning_time`/`cartesian_speed_limited_link`/
-//!   `max_cartesian_speed`/`smoothness_level` are planner-orchestration
-//!   metadata with no `PlanningRequest` field to land in, by the same
-//!   documented design choice as the tuning fields above -- dropped, not
-//!   rejected (there is no invariant a dropped tuning knob could violate).
-//! - `start_state`/`trajectory_constraints`/`reference_trajectories` are
-//!   genuine *content* (an assumed robot state, waypoint constraints, seed
-//!   trajectories) that `PlanningRequest` has nowhere to put -- msg->core
-//!   **rejects** a message that sets any of these non-default, per D6 (same
-//!   rule as `RobotState`'s `is_diff`/`attached_collision_objects`/
-//!   `multi_dof_joint_state` in `state.rs`).
+//! - `pipeline_id`/`num_planning_attempts`/`allowed_planning_time`/
+//!   `cartesian_speed_limited_link`/`max_cartesian_speed`/`smoothness_level`
+//!   are planner-orchestration metadata with no `PlanningRequest` field to
+//!   land in, by the same documented design choice as the tuning fields
+//!   above -- dropped, not rejected (there is no invariant a dropped tuning
+//!   knob could violate).
+//! - `start_state`/`reference_trajectories` are genuine *content* (an
+//!   assumed robot state, seed trajectories) that `PlanningRequest` has
+//!   nowhere to put -- msg->core **rejects** a message that sets either of
+//!   these non-default, per D6 (same rule as `RobotState`'s
+//!   `is_diff`/`attached_collision_objects`/`multi_dof_joint_state` in
+//!   `state.rs`).
+//! - `planner_id` and `trajectory_constraints` **are** representable
+//!   (`PlanningRequest::{planner_id, trajectory_constraints}`, added to
+//!   `moveit-planning` after this crate's round 2) -- mapped directly, not
+//!   dropped or rejected. `trajectory_constraints` is `Vec<Constraints>` on
+//!   the wire and `Vec<KinematicConstraintSet>` on the core side, i.e. the
+//!   exact same per-element conversion as `goal_constraints` above, just a
+//!   different field. [`PlanningResponse::planner_id`] (also added after
+//!   round 2) has **no** counterpart on `MotionPlanResponse` at all --
+//!   see the `TryFrom<PlanningResponseMsg>` impl below for the confirmed
+//!   `.msg` text this corrects.
 //!
 //! `WorkspaceParameters.header` (frame_id/stamp) has no [`WorkspaceBounds`]
 //! field either -- dropped as metadata, not content, matching this round's
@@ -124,12 +134,6 @@ impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest {
                  would change what the plan actually solves for",
             ));
         }
-        if !msg.trajectory_constraints.constraints.is_empty() {
-            return Err(Error::other(
-                "MotionPlanRequest.trajectory_constraints has no \
-                 PlanningRequest field this round",
-            ));
-        }
         if !msg.reference_trajectories.is_empty() {
             return Err(Error::other(
                 "MotionPlanRequest.reference_trajectories has no \
@@ -157,6 +161,15 @@ impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest {
             max_corner: CoreVector3::try_from(Vector3(msg.workspace_parameters.max_corner))?,
         };
 
+        let mut trajectory_constraints =
+            Vec::with_capacity(msg.trajectory_constraints.constraints.len());
+        for constraints_msg in msg.trajectory_constraints.constraints {
+            trajectory_constraints.push(KinematicConstraintSet::try_from(ConstraintsMsg {
+                model,
+                msg: constraints_msg,
+            })?);
+        }
+
         Ok(PlanningRequest {
             group_name: msg.group_name,
             goal_constraints,
@@ -164,6 +177,8 @@ impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest {
             workspace_bounds,
             max_velocity_scaling_factor: msg.max_velocity_scaling_factor,
             max_acceleration_scaling_factor: msg.max_acceleration_scaling_factor,
+            trajectory_constraints,
+            planner_id: msg.planner_id,
         })
     }
 }
@@ -180,6 +195,10 @@ impl TryFrom<PlanningRequest> for PlanningRequestMsgOut {
             Some(set) => ConstraintsMsgOut::try_from(set)?.0,
             None => Default::default(),
         };
+        let mut trajectory_constraints_msg = Vec::with_capacity(req.trajectory_constraints.len());
+        for set in req.trajectory_constraints {
+            trajectory_constraints_msg.push(ConstraintsMsgOut::try_from(set)?.0);
+        }
         Ok(PlanningRequestMsgOut(moveit_msgs::MotionPlanRequest {
             workspace_parameters: moveit_msgs::WorkspaceParameters {
                 min_corner: Vector3::try_from(req.workspace_bounds.min_corner)?.0,
@@ -191,6 +210,10 @@ impl TryFrom<PlanningRequest> for PlanningRequestMsgOut {
             group_name: req.group_name,
             max_velocity_scaling_factor: req.max_velocity_scaling_factor,
             max_acceleration_scaling_factor: req.max_acceleration_scaling_factor,
+            trajectory_constraints: moveit_msgs::TrajectoryConstraints {
+                constraints: trajectory_constraints_msg,
+            },
+            planner_id: req.planner_id,
             ..Default::default()
         }))
     }
@@ -214,13 +237,36 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     /// `error_code` is this crate's `Result` instead) -- dropped, not
     /// rejected, since none of them are trajectory content the conversion
     /// could silently corrupt.
+    ///
+    /// `planner_id` has **no** wire counterpart on this message:
+    /// `moveit-planning`'s own doc comment on
+    /// [`PlanningResponse::planner_id`] claims it matches "an unset
+    /// `moveit_msgs::msg::MotionPlanResponse::planner_id`", but
+    /// `third_party/moveit_msgs/msg/MotionPlanResponse.msg` (confirmed
+    /// against both the `.msg` text and the r2r-generated struct, whose
+    /// only fields are `trajectory_start`/`group_name`/`trajectory`/
+    /// `planning_time`/`error_code`) has no `planner_id` field at all --
+    /// only `MotionPlanRequest` does. This is a genuine, previously
+    /// undocumented gap the other direction from `MoveItErrorCodes.val`
+    /// (§2): a core-only field with nowhere on *this* wire message to go.
+    /// msg->core has no source, so `planner_id` is always `""` (unset,
+    /// matching `PlanningRequest`/`PlanningResponse`'s shared "empty string
+    /// means unset" convention); core->msg has nowhere to put a non-empty
+    /// value, so it is dropped, not rejected -- rejecting would make this
+    /// conversion fail on every response a real planner produces, since
+    /// `moveit-planning`'s own `pipeline::generate_plan` always fills
+    /// `planner_id` in (backfilled from the request if the planner left it
+    /// blank -- never itself empty in practice).
     fn try_from(wrapped: PlanningResponseMsg<'m>) -> Result<Self, Self::Error> {
         let PlanningResponseMsg { model, msg } = wrapped;
         let trajectory = RobotTrajectory::try_from(RobotTrajectoryMsg {
             model,
             msg: msg.trajectory,
         })?;
-        Ok(PlanningResponse { trajectory })
+        Ok(PlanningResponse {
+            trajectory,
+            planner_id: String::new(),
+        })
     }
 }
 
@@ -319,14 +365,20 @@ mod tests {
     }
 
     #[test]
-    fn nonempty_trajectory_constraints_is_rejected() {
+    fn trajectory_constraints_and_planner_id_are_mapped_not_dropped() {
         let model = one_joint_model();
         let mut msg = valid_request(&model);
         msg.trajectory_constraints
             .constraints
             .push(joint_goal("j1", 0.0));
-        let err = PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        msg.planner_id = "RRTConnectkConfigDefault".to_string();
+        let req = PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }).unwrap();
+        assert_eq!(req.trajectory_constraints.len(), 1);
+        assert_eq!(req.planner_id, "RRTConnectkConfigDefault");
+
+        let back = PlanningRequestMsgOut::try_from(req).unwrap().0;
+        assert_eq!(back.trajectory_constraints.constraints.len(), 1);
+        assert_eq!(back.planner_id, "RRTConnectkConfigDefault");
     }
 
     #[test]
@@ -384,10 +436,17 @@ mod tests {
         let mut state = moveit_state::RobotState::new(&model);
         state.set_variable_position("j1", 0.3).unwrap();
         traj.add_suffix_way_point(state, 0.0).unwrap();
-        let res = PlanningResponse { trajectory: traj };
+        let res = PlanningResponse {
+            trajectory: traj,
+            planner_id: "STOMP".to_string(),
+        };
         let msg = PlanningResponseMsgOut::try_from(res).unwrap().0;
         assert_eq!(msg.error_code.val, 1);
         let back = PlanningResponse::try_from(PlanningResponseMsg { model: &model, msg }).unwrap();
+        // `planner_id` has no wire counterpart on `MotionPlanResponse` (see
+        // the `TryFrom<PlanningResponseMsg>` impl's doc) -- "STOMP" is
+        // dropped on the way out, not preserved.
+        assert_eq!(back.planner_id, "");
         assert_eq!(
             back.trajectory
                 .way_point(0)

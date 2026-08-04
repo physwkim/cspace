@@ -65,6 +65,7 @@
 pub mod constraints;
 pub mod geometry;
 pub mod planning;
+pub mod scene;
 pub mod state;
 pub mod trajectory;
 
