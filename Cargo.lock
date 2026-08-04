@@ -264,6 +264,7 @@ dependencies = [
  "moveit-octomap",
  "moveit-srdf",
  "moveit-state",
+ "moveit-test-support",
  "nalgebra",
  "parry3d-f64",
  "serde",
@@ -606,6 +607,7 @@ version = "0.1.0"
 dependencies = [
  "moveit-model",
  "moveit-srdf",
+ "nalgebra",
  "urdf-rs",
 ]
 

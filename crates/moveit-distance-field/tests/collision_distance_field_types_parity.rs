@@ -73,7 +73,8 @@ use moveit_distance_field::{
     CollisionType, DistanceField, GradientInfo, PosedDistanceField, SphereGradientQuery,
 };
 use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
-use nalgebra::{Matrix3, Point3, Translation3, UnitQuaternion, Vector3};
+use moveit_test_support::isometry_from_row_major;
+use nalgebra::{Point3, Vector3};
 
 /// Measured-margin tolerance (~4 orders above the bisected binding point,
 /// `1e-16`..`3e-16`). See the module doc's "Tolerance" section.
@@ -210,13 +211,6 @@ fn load_responses() -> Vec<OracleResponse> {
     let raw = read_fixture("collision_distance_field_types_response.json");
     serde_json::from_str(&raw)
         .unwrap_or_else(|e| panic!("parse collision_distance_field_types_response.json: {e}"))
-}
-
-/// Row-major 4x4, matching `toRowMajor4x4`/`fromRowMajor4x4` in `oracle.cpp`.
-fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Translation3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
 }
 
 /// `pose * v` treating `v` as a point (Eigen's `Isometry3d * Vector3d`
