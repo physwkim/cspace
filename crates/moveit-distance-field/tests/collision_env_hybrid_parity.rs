@@ -2,34 +2,47 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 //! Parity tests for [`HybridCollisionEnv::check_robot_collision_distance_field`]
-//! against the oracle's `group_state_representation` op with `mode:
-//! "robot_only"`, exercising the one thing no other file in this crate
-//! reaches: a populated environment [`PropagationDistanceField`] built by
-//! [`HybridCollisionEnv::build_env_distance_field`] itself (via
-//! `self.parry.world()`), not one constructed by hand and passed in as an
-//! argument. See `doc/oracle-request-hybrid-collision-env-distance-field.md`'s
+//! and [`HybridCollisionEnv::check_collision_distance_field`] against the
+//! oracle's `group_state_representation` op, exercising the one thing no
+//! other file in this crate reaches: a populated environment
+//! [`PropagationDistanceField`] built by [`HybridCollisionEnv::build_env_distance_field`]
+//! itself (via `self.parry.world()`), not one constructed by hand and passed
+//! in as an argument. See `doc/oracle-request-hybrid-collision-env-distance-field.md`'s
 //! "How this port will use the response" section: this is what proves
 //! `build_env_distance_field`'s own reachability, not just the lower-level
 //! [`moveit_distance_field::DistanceFieldCollisionCache`] primitives it
 //! composes (already covered by `collision_env_distance_field_parity.rs`,
 //! always against an explicit, hand-built `env_distance_field` argument).
 //!
-//! `group_state_representation_robot_only` (`mode: "robot_only"`,
-//! `oracle.cpp:3660-3712`) drives `checkRobotCollision`, which -- unlike
-//! `checkCollision` -- calls only `getEnvironmentCollisions`
-//! (`collision_env_distance_field.cpp:1447-1500`, both overloads read in
-//! full: no `getSelfCollisions`/`getIntraGroupCollisions` call exists on
-//! either path). pr2's `right_arm` self-collides at every joint
-//! configuration under its own upstream-shipped SRDF fixture, so at the
-//! default `checkCollision` mode self/intra would report a collision on
-//! every case in this file regardless of whether the environment branch ran
-//! at all -- `mode: "robot_only"` is what isolates the environment branch's
-//! own contribution. Three ids: F1 (a sphere placed clear of every
-//! `right_arm` link -- `collision: false` expected), F2 (a sphere placed to
-//! overlap `right_arm`'s mesh geometry -- `collision: true` expected, with
-//! the specific 7-link set this case's own doc history got wrong on the
-//! first prediction pass, see below), F4 (both spheres together -- the
-//! union of F2's colliding links with F1's non-effect).
+//! Two request sets, two problems:
+//!
+//! - **`group_state_representation_robot_only`** (`mode: "robot_only"`,
+//!   `oracle.cpp:3660-3712`): drives `checkRobotCollision`, which -- unlike
+//!   `checkCollision` -- calls only `getEnvironmentCollisions`
+//!   (`collision_env_distance_field.cpp:1447-1500`, both overloads read in
+//!   full: no `getSelfCollisions`/`getIntraGroupCollisions` call exists on
+//!   either path). pr2's `right_arm` self-collides at every joint
+//!   configuration under its own upstream-shipped SRDF fixture, so at the
+//!   default `checkCollision` mode self/intra would report a collision on
+//!   every case in this file regardless of whether the environment branch ran
+//!   at all -- `mode: "robot_only"` is what isolates the environment branch's
+//!   own contribution. Three ids: F1 (a sphere placed clear of every
+//!   `right_arm` link -- `collision: false` expected), F2 (a sphere placed to
+//!   overlap `right_arm`'s mesh geometry -- `collision: true` expected, with
+//!   the specific 7-link set this case's own doc history got wrong on the
+//!   first prediction pass, see below), F4 (both spheres together -- the
+//!   union of F2's colliding links with F1's non-effect).
+//! - **`group_state_representation_environment_branch`** (default mode,
+//!   `checkCollision`: self + intra + environment): a paired control at the
+//!   identical joint state and ACM, run once with F2's sphere in the world
+//!   and once with an empty world. Self/intra contributions are identical
+//!   between the two runs by construction (same robot state, same ACM), so
+//!   they cancel in a per-link diff; every `gradient.types`/`collision`
+//!   difference between the two runs is the environment branch's own output.
+//!   `tools/ci/verify-fixture-replay.sh` only replays each fixture
+//!   independently against a live oracle -- it has no notion of asserting
+//!   two fixtures differ from each other -- so that difference is asserted
+//!   directly in this file's own test, not left to the replay gate.
 //!
 //! **F1/F2/F4 prediction outcome** (`doc/f1-f2-f4-predictions.md`, committed
 //! before this file, before the `mode` branch existed to test against): F1's
@@ -198,7 +211,13 @@ struct RobotOnlyResponseEntry {
 }
 
 /// F2/F4's confirmed 7-link colliding set -- see this module's doc comment
-/// for the prediction-vs-oracle history.
+/// for the prediction-vs-oracle history. Cross-checked directly against
+/// [`check_collision_distance_field_environment_branch_paired_control`]
+/// below: that test's paired diff (self/intra held fixed, only the
+/// environment branch's own contribution varies) names the exact same seven
+/// links independently, through a different oracle op and a different
+/// request (`use_acm: true`, no `mode` field, `checkCollision` rather than
+/// `checkRobotCollision`).
 const F2_COLLIDING_LINKS: [&str; 7] = [
     "r_forearm_link",
     "r_gripper_l_finger_link",
@@ -336,4 +355,188 @@ fn check_robot_collision_distance_field_matches_the_oracle_robot_only_mode() {
             other => panic!("unexpected id {other}"),
         }
     }
+}
+
+// --- group_state_representation_environment_branch: F3 paired control ---
+
+#[derive(Deserialize)]
+struct EnvironmentBranchRequest {
+    id: u64,
+    group: String,
+    #[serde(default)]
+    joint_values: HashMap<String, f64>,
+    use_acm: bool,
+    #[serde(default)]
+    objects: Vec<ObjectSpec>,
+}
+
+#[derive(Deserialize)]
+struct EnvironmentBranchGradient {
+    collision: bool,
+    types: Vec<i32>,
+}
+
+#[derive(Deserialize)]
+struct EnvironmentBranchLink {
+    has_link_decomposition: bool,
+    gradient: Option<EnvironmentBranchGradient>,
+    link_name: String,
+}
+
+#[derive(Deserialize)]
+struct EnvironmentBranchResult {
+    links: Vec<EnvironmentBranchLink>,
+}
+
+#[derive(Deserialize)]
+struct EnvironmentBranchResponseEntry {
+    result: EnvironmentBranchResult,
+}
+
+/// F3's paired control (this module's own doc comment): id 1 carries F2's
+/// overlapping sphere, id 2 is the identical joint state/ACM with an empty
+/// world. Both run through [`HybridCollisionEnv::check_collision_distance_field`]
+/// (default mode, `checkCollision`: self + intra + environment) rather than
+/// [`check_robot_collision_distance_field_matches_the_oracle_robot_only_mode`]'s
+/// `checkRobotCollision`, so self/intra collisions are present in both runs
+/// -- the point is not that either run is collision-free, but that the two
+/// runs' *difference* isolates the environment branch's own contribution.
+#[test]
+fn check_collision_distance_field_environment_branch_paired_control() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+    assert!(model.diagnostics().is_empty());
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+
+    let requests: Vec<EnvironmentBranchRequest> = serde_json::from_str(&read_fixture(
+        "group_state_representation_environment_branch_request.json",
+    ))
+    .expect("parse group_state_representation_environment_branch_request.json");
+    let responses: Vec<EnvironmentBranchResponseEntry> = serde_json::from_str(&read_fixture(
+        "group_state_representation_environment_branch_response.json",
+    ))
+    .expect("parse group_state_representation_environment_branch_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert_eq!(
+        requests.len(),
+        2,
+        "this fixture's two ids are the paired control: id 1 sphere, id 2 empty -- see this module's own doc comment"
+    );
+
+    let config = oracle_default_distance_field_config();
+
+    // (link_name, collision, types) per run, in link order -- collected
+    // while checking each run against its own oracle response, then
+    // diffed against each other below.
+    let mut runs: Vec<Vec<(String, bool, Vec<i32>)>> = Vec::new();
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected = &response.result;
+
+        let world = world_from_objects(&request.objects);
+        let mut env = HybridCollisionEnv::new(
+            world,
+            padding.clone(),
+            link_body_decompositions.clone(),
+            config,
+            0.0,
+        );
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values (id {}): {e}", request.id));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+        let req = CollisionRequest {
+            group_name: Some(request.group.clone()),
+            contacts: true,
+            max_contacts: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (_res, gsr) = env
+            .check_collision_distance_field(&req, &posed, acm_arg, &[])
+            .unwrap_or_else(|e| panic!("check_collision_distance_field (id {}): {e}", request.id));
+
+        assert_eq!(
+            gsr.dfce.link_names.len(),
+            expected.links.len(),
+            "link count (id {})",
+            request.id
+        );
+
+        let mut run: Vec<(String, bool, Vec<i32>)> = Vec::new();
+        for (i, expected_link) in expected.links.iter().enumerate() {
+            assert_eq!(
+                gsr.dfce.link_has_geometry[i], expected_link.has_link_decomposition,
+                "has_link_decomposition[{i}] (id {})",
+                request.id
+            );
+            if !gsr.dfce.link_has_geometry[i] {
+                continue;
+            }
+            let expected_gradient = expected_link
+                .gradient
+                .as_ref()
+                .expect("has_link_decomposition implies a gradient entry");
+            assert_eq!(
+                gsr.gradients[i].collision, expected_gradient.collision,
+                "gradient.collision[{i}] (id {})",
+                request.id
+            );
+            let actual_types: Vec<i32> = gsr.gradients[i].types.iter().map(|t| *t as i32).collect();
+            assert_eq!(
+                actual_types, expected_gradient.types,
+                "gradient.types[{i}] (id {})",
+                request.id
+            );
+            run.push((
+                expected_link.link_name.clone(),
+                gsr.gradients[i].collision,
+                actual_types,
+            ));
+        }
+        runs.push(run);
+    }
+
+    let (sphere_run, empty_run) = (&runs[0], &runs[1]);
+    assert_eq!(
+        sphere_run.len(),
+        empty_run.len(),
+        "both runs must report the same link set (same group, same joint state)"
+    );
+
+    let mut differing_links: Vec<&str> = sphere_run
+        .iter()
+        .zip(empty_run)
+        .filter(|(s, e)| s != e)
+        .map(|(s, _)| s.0.as_str())
+        .collect();
+    // Compared as a set (sorted), not a sequence -- see the same choice in
+    // `check_robot_collision_distance_field_matches_the_oracle_robot_only_mode`.
+    differing_links.sort_unstable();
+
+    assert_eq!(
+        differing_links, F2_COLLIDING_LINKS,
+        "the paired-control diff must name exactly the environment branch's own \
+         contribution -- and, as this module's doc comment notes, exactly the \
+         same 7-link set group_state_representation_robot_only's F2 case names \
+         independently through checkRobotCollision instead of checkCollision"
+    );
+
+    // The second, free refuting result this round's brief calls out: if the
+    // two runs were identical, the environment branch never fired and this
+    // case would need re-posing. `differing_links` above already proves
+    // that did not happen, but assert it as its own explicit boundary too.
+    assert!(
+        !differing_links.is_empty(),
+        "sphere and empty runs must differ somewhere, or the environment branch never fired"
+    );
 }

@@ -43,6 +43,10 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "group_state_representation_environment_branch": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "group_state_representation_gradients": {
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
