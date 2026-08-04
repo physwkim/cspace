@@ -412,9 +412,19 @@ mod tests {
             "scene.transforms() alone does not know about world objects, so \"table\" must not \
              resolve as a reference frame",
         );
+        // PositionConstraint::new has two Error::UnknownName sites (an
+        // unknown link_name, an unknown frame_id); matching only the variant
+        // cannot tell them apart, so this checks `kind` too -- message-swap
+        // bite-checked against the link_name site.
         assert!(
-            matches!(err, moveit_error::Error::UnknownName { .. }),
-            "expected UnknownName, got {err:?}"
+            matches!(
+                err,
+                moveit_error::Error::UnknownName {
+                    kind: "frame",
+                    ref name
+                } if name == "table"
+            ),
+            "expected UnknownName{{kind: \"frame\", name: \"table\"}}, got {err:?}"
         );
 
         let with_objects = scene.transforms_with_world_objects();
