@@ -13203,3 +13203,57 @@ moveit2는 `Copyright (c) 2008, Willow Garage, Inc.`로 쓰는데 둘은 같게
 정규화가 살려주지 **않는** 것은 이름 철자다. 상류는 움라우트를 쓰지 않고
 ASCII로 `Universitaet Hamburg`라고 적는다
 (`moveit_core/utils/src/message_checks.cpp:4`).
+
+## §168 이탈 6(b)의 mesh 구성 후보 — 닫힘. 그리고 §161 닫힘
+
+### 168.1 두 반쪽 다 36/36 일치
+
+§164에서 이탈 6(b)의 mesh-구성 후보를 두 반쪽으로 갈랐다: **정점 순서**와
+**삼각형 인덱스**. 둘 다 닫혔다.
+
+- **정점 순서** — 비용 0으로 반증됐다. fixture는 오라클의 방출 순서를
+  그대로 담고 있었고(재정렬된 적이 없다), 테스트가 그것을 `HashSet`으로
+  버리고 있었을 뿐이다. 인덱스 대 인덱스로 비교하니 **36/36 일치**.
+- **삼각형 인덱스** — 어떤 테스트도 잰 적이 없었다. `f5950d5`가 오라클
+  `meshOp`에 `triangles`를 추가해 처음으로 측정 가능해졌고, p3-shapes가
+  스탬프 `552427488cc040a2`로 fixture를 재생성해 비교했다. **36/36
+  전 인덱스 일치**.
+
+`collision_common.cpp:902-920`이 `BVHModel<OBBRSSd>`를 두 배열로 *함께*
+만들기 때문에, 정점 집합만 맞고 순서나 인덱스가 다르면 BVH가 달라지고
+최심 관통점이 달라진다. 그래서 집합 비교만으로는 이 후보를 배제할 수
+없었다. 이제 배제된다 — **이탈 6(b)의 원인은 mesh 구성이 아니다.**
+
+측정한 것이 맞는지 직접 확인했다(테스트가 공허하게 통과하지 않는가):
+fixture에서 삼각형 하나의 winding을 뒤집으면 `triangle indices disagree`로,
+정점 두 개를 바꾸면 `vertex 0`에서 각각 실패한다. 두 assertion 다 판별력이
+있다.
+
+### 168.2 §161 닫힘
+
+p3-shapes가 `third_party/octomap`을 직접 열어 brace-depth로 재측정했다:
+읽기 경로 **128줄**(`readBinaryData` 13 + `readBinaryNode` 69 +
+`OcTreeBaseImpl::readData` 21 + `readNodesRecurs` 21 +
+`OcTreeDataNode::readData` 4), 쓰기 경로 106줄, 합계 **234줄**.
+
+내가 독립적으로 재측정해 확인했다: `readBinaryData` 13,
+`readBinaryNode` 69, `readNodesRecurs` 21 — 같은 값이다. p9-ros의 ~130도
+같은 것을 재고 있었다. §161이 기록한 불일치의 원인은 확정됐다: 두 패널이
+**다른 단위**를 재고 있었고(상류 C++ 줄 수 vs Rust 구현+테스트 줄 수)
+어느 쪽도 단위를 명시하지 않았다. 이제 둘 다 명시적으로 따로 적힌다.
+
+덤으로, "native-endian이고 상류는 언급하지 않는다"는 **검증되지 않은
+가정**이었던 것이 근거를 갖게 됐다 — `rg -ni endian` 0건. 내가 다시 돌려
+확인했다. §162.2가 `newton_raphson.rs`에서 요구한 것과 같은 규율이고,
+이번에는 부재 주장이 성립한다.
+
+### 168.3 §166/§167 진행
+
+p3-shapes가 자기 몫 14건(UNJUSTIFIED 6 + UNRETAINED 8)을 전부 닫았다.
+`moveit-geometry`/`moveit-octomap`/`moveit-planners-stomp`는 양쪽 목록에서
+사라졌다. 남은 것은 **34건**(UNJUSTIFIED 10 + UNRETAINED 24).
+
+`bodies.rs`가 두 규칙이 서로를 보완한다는 것을 보여준 사례다: 권리자
+둘을 한 줄에 합쳐 놓아 §166(불일치)과 §167(다섯 표기 누락)에 동시에
+걸렸고, 상류가 적은 대로 줄마다 하나씩 푸는 **한 번의 고침**으로 둘 다
+닫혔다.
