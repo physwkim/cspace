@@ -2,7 +2,13 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from octomap 1.9.7 (Debian package liboctomap-dev 1.9.7+dfsg-3.1build3).
+// Ported from octomap 1.9.7 (Debian package liboctomap-dev 1.9.7+dfsg-3.1build3,
+// version confirmed by octomap-config.cmake's OCTOMAP_VERSION inside the
+// moveit-rs oracle container). This crate root re-exports iter/key/node/tree
+// and carries no ported logic of its own -- see each module's own provenance
+// comment for its exact octomap header citations; this one names the header
+// shared by the whole crate's addressing scheme:
+//   include/octomap/OcTreeKey.h
 
 //! A probabilistic occupancy octree, the moveit-rs counterpart of the
 //! `octomap` C++ library moveit2 depends on.
