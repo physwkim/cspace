@@ -1,0 +1,428 @@
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
+//! `TrajectoryGeneratorLin` parity test against the moveit2 C++ oracle's
+//! `pilz_trajectory` op (`generator: "lin"`).
+//!
+//! Ground truth is captured verbatim into
+//! `tests/fixtures/panda_lin_{request,response}.json` — a `panda_arm`
+//! Cartesian goal for `panda_link8`: start at the SRDF `"ready"` pose (a
+//! known non-self-colliding panda configuration -- see
+//! `crate::trajectory_functions`'s own test fixtures), goal 0.1m further
+//! along `+x` at the identical orientation (a pure-translation LIN motion,
+//! so `PathLine`'s `angle == 0` branch is what this fixture exercises; the
+//! `angle == PI` singularity in `path_line`'s `get_rot_angle` is covered by
+//! that module's own unit tests instead, since a same-orientation-both-ends
+//! goal can never reach it here).
+//! `sampling_time` `0.1`, `max_velocity_scaling_factor`/
+//! `max_acceleration_scaling_factor` `0.1`, `cartesian_limits` transcribed
+//! from `third_party/moveit_resources/panda_moveit_config/config/pilz_cartesian_limits.yaml`.
+//!
+//! Every waypoint's `positions`/`velocities`/`accelerations`/`time_from_start`
+//! is compared, not positions alone -- see `pilz_trajectory_parity.rs`'s own
+//! module doc for why (round 18's two real bugs were invisible to a
+//! positions-only trace).
+//!
+//! # A known IkContext-level self-collision deviation, sidestepped by this
+//! fixture's own choice of pose, not fixed
+//!
+//! Upstream's `TrajectoryGeneratorLIN::extractMotionPlanInfo` calls
+//! `computePoseIK` for its Cartesian-goal reachability check with
+//! `check_self_collision`'s *default* (`true`), while its `plan` calls
+//! `generateJointTrajectory` with *that* overload's default (`false`) --
+//! two different defaults for two different calls in the same generator.
+//! This port's `IkContext` carries one `check_self_collision` flag shared by
+//! both call sites (`PilzGenerator::generate` threads the same
+//! `ctx.check_self_collision` value through `extract_motion_plan_info` and
+//! into `plan`'s `plan_ctx`), so no single flag value reproduces upstream's
+//! per-call split exactly. This fixture's start/goal pose is not
+//! self-colliding at any point along the path, so `CHECK_SELF_COLLISION`'s
+//! value is inconsequential for this comparison -- chosen so the fixture
+//! cannot silently depend on which of upstream's two defaults it happens to
+//! match. Restructuring `IkContext` (or `PilzGenerator::generate`) to carry
+//! two independent flags is a separate, larger change than "port LIN" and is
+//! not made here.
+
+use std::collections::HashMap;
+use std::fs;
+use std::sync::Arc;
+
+use serde::Deserialize;
+
+use moveit_collision::{LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_geometry::{UnitQuaternion, Vector3};
+use moveit_model::{MeshSearchPaths, RobotModel};
+use moveit_planners_pilz::limits::{
+    CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
+};
+use moveit_planners_pilz::trajectory_functions::IkContext;
+use moveit_planners_pilz::trajectory_generator::{
+    Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
+};
+use moveit_planners_pilz::trajectory_generator_lin::TrajectoryGeneratorLin;
+use moveit_scene::PlanningScene;
+use moveit_srdf::SrdfModel;
+
+#[derive(Deserialize)]
+struct FixtureJointLimit {
+    #[serde(default)]
+    has_position_limits: bool,
+    #[serde(default)]
+    min_position: f64,
+    #[serde(default)]
+    max_position: f64,
+    #[serde(default)]
+    has_velocity_limits: bool,
+    #[serde(default)]
+    max_velocity: f64,
+    #[serde(default)]
+    has_acceleration_limits: bool,
+    #[serde(default)]
+    max_acceleration: f64,
+    #[serde(default)]
+    has_deceleration_limits: bool,
+    #[serde(default)]
+    max_deceleration: f64,
+}
+
+impl From<FixtureJointLimit> for JointLimit {
+    fn from(f: FixtureJointLimit) -> Self {
+        JointLimit {
+            has_position_limits: f.has_position_limits,
+            min_position: f.min_position,
+            max_position: f.max_position,
+            has_velocity_limits: f.has_velocity_limits,
+            max_velocity: f.max_velocity,
+            has_acceleration_limits: f.has_acceleration_limits,
+            max_acceleration: f.max_acceleration,
+            has_deceleration_limits: f.has_deceleration_limits,
+            max_deceleration: f.max_deceleration,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct FixtureCartesianLimits {
+    max_trans_vel: f64,
+    max_trans_acc: f64,
+    max_trans_dec: f64,
+    max_rot_vel: f64,
+}
+
+impl From<FixtureCartesianLimits> for CartesianLimits {
+    fn from(f: FixtureCartesianLimits) -> Self {
+        CartesianLimits {
+            max_trans_vel: f.max_trans_vel,
+            max_trans_acc: f.max_trans_acc,
+            max_trans_dec: f.max_trans_dec,
+            max_rot_vel: f.max_rot_vel,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct GoalFixture {
+    kind: String,
+    link_name: String,
+    position: [f64; 3],
+    orientation: [f64; 4],
+}
+
+#[derive(Deserialize)]
+struct RequestFixture {
+    group_name: String,
+    sampling_time: f64,
+    joint_limits: HashMap<String, FixtureJointLimit>,
+    cartesian_limits: FixtureCartesianLimits,
+    start_state: HashMap<String, f64>,
+    max_velocity_scaling_factor: f64,
+    max_acceleration_scaling_factor: f64,
+    goal: GoalFixture,
+}
+
+#[derive(Deserialize)]
+struct WaypointFixture {
+    positions: HashMap<String, f64>,
+    velocities: HashMap<String, f64>,
+    accelerations: HashMap<String, f64>,
+    time_from_start: f64,
+}
+
+#[derive(Deserialize)]
+struct ResponseFixture {
+    error_code: i32,
+    waypoints: Option<Vec<WaypointFixture>>,
+}
+
+/// The committed fixture files are full oracle wire responses
+/// (`{"id":.., "ok":.., "result": {..}}`, verbatim from `oracle.cpp`'s
+/// stdout) so `verify-fixture-replay.sh` can replay the committed
+/// `*_request.json` and diff byte-for-byte against this file -- see that
+/// script's own module doc for why replay needs the exact wire shape, not a
+/// curated subset. `ResponseFixture` above only cares about `result`.
+#[derive(Deserialize)]
+struct OracleResponseEnvelope<T> {
+    result: T,
+}
+
+fn fixture_path(file_name: &str) -> String {
+    format!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/{}"),
+        file_name
+    )
+}
+
+fn load_json<T: serde::de::DeserializeOwned>(file_name: &str) -> T {
+    let path = fixture_path(file_name);
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {path}: {e}"))
+}
+
+fn load_panda() -> (RobotModel, SrdfModel) {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+    let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+    let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+    let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+    let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+    let mesh_paths = MeshSearchPaths::new([(
+        "moveit_resources_panda_description",
+        format!("{meshes_root}/panda_description"),
+    )]);
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_paths)
+        .expect("fixture model must build");
+    (model, srdf)
+}
+
+/// `time_from_start` comes only from `VelocityProfileTrap::duration` plus
+/// `sampling_time` accumulation -- no IK anywhere in that chain -- so it gets
+/// the same tight budget PTP's fixture uses. Measured max divergence on this
+/// fixture: `1e-9`.
+const TIME_TOLERANCE: f64 = 1e-6;
+
+/// Unlike PTP (closed-form joint interpolation, no IK in the loop), every LIN
+/// waypoint is an independent IK solve: this port's `compute_pose_ik`
+/// (`moveit-kinematics`) against the oracle's `kdl_kinematics_plugin`.
+/// `panda_arm` is a 7-DOF, kinematically redundant chain, so two different
+/// solvers converging on the same target pose can land on two different
+/// points of the one-parameter null-space manifold -- confirmed directly for
+/// this fixture: FK(oracle's waypoint-1 joint solution) and FK(this port's
+/// waypoint-1 joint solution) agree to a translation norm of `1.76e-6` and a
+/// rotation angle of `7.1e-8` (i.e. both solutions really do land on the same
+/// Cartesian pose), while the joint-space solutions themselves differ by up
+/// to `5.7e-6` per joint. `POSITION_TOLERANCE` is set from the measured
+/// per-fixture maximum (`1.26e-5`) with a roughly 4x margin, not copied from
+/// PTP's `1e-6` -- see `CLAUDE.md`'s "Size test tolerances from measurement".
+const POSITION_TOLERANCE: f64 = 5e-5;
+
+/// [`generate_joint_trajectory`]'s backward-difference velocity
+/// (`Δposition / sampling_time`) amplifies [`POSITION_TOLERANCE`] by roughly
+/// `1 / sampling_time` (`0.1` here). Measured per-fixture maximum: `1.24e-4`;
+/// set with a roughly 4x margin.
+const VELOCITY_TOLERANCE: f64 = 5e-4;
+
+/// The same backward-difference chain's acceleration term divides by
+/// `sampling_time` again, amplifying [`VELOCITY_TOLERANCE`] by roughly
+/// another `1 / sampling_time`. Measured per-fixture maximum: `1.26e-3`; set
+/// with a roughly 4x margin.
+const ACCELERATION_TOLERANCE: f64 = 5e-3;
+
+/// See this module's `# A known IkContext-level self-collision deviation`
+/// doc section for why this fixture's own choice of pose makes the value
+/// here inconsequential.
+const CHECK_SELF_COLLISION: bool = true;
+
+#[test]
+fn lin_panda_arm_matches_the_oracle() {
+    let request: RequestFixture = load_json("panda_lin_request.json");
+    let response: ResponseFixture =
+        load_json::<OracleResponseEnvelope<ResponseFixture>>("panda_lin_response.json").result;
+    assert_eq!(
+        response.error_code, 1,
+        "fixture's own oracle run must have succeeded"
+    );
+    let expected_waypoints = response
+        .waypoints
+        .expect("SUCCESS response fixture must carry waypoints");
+
+    let (model, srdf) = load_panda();
+
+    let mut joint_limits = JointLimitsContainer::default();
+    for (name, limit) in request.joint_limits {
+        assert!(
+            joint_limits.add_limit(name.clone(), limit.into()),
+            "duplicate or invalid joint limit for {name} in fixture"
+        );
+    }
+    let mut limits = LimitsContainer::new();
+    limits.set_joint_limits(joint_limits);
+    limits.set_cartesian_limits(request.cartesian_limits.into());
+
+    let base = TrajectoryGenerator::new(&model, limits);
+    let generator = TrajectoryGeneratorLin::new(base, &request.group_name);
+
+    assert_eq!(request.goal.kind, "cartesian");
+    let [x, y, z, w] = request.goal.orientation;
+    let goal = Goal::Cartesian {
+        link_name: request.goal.link_name,
+        position: Vector3::new(
+            request.goal.position[0],
+            request.goal.position[1],
+            request.goal.position[2],
+        ),
+        orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
+        target_point_offset: Vector3::new(0.0, 0.0, 0.0),
+    };
+    let plan_request = MotionPlanRequest {
+        group_name: request.group_name,
+        start_state: StartState {
+            position: request.start_state,
+            velocity: HashMap::new(),
+        },
+        goal,
+        max_velocity_scaling_factor: request.max_velocity_scaling_factor,
+        max_acceleration_scaling_factor: request.max_acceleration_scaling_factor,
+        path_constraints: None,
+    };
+
+    let scene = Arc::new(PlanningScene::new(&model, &srdf));
+    let env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+    let ctx = IkContext {
+        scene: &scene,
+        env: &env,
+        check_self_collision: CHECK_SELF_COLLISION,
+    };
+
+    let response = generator.generate(&ctx, &plan_request, request.sampling_time);
+    let trajectory = response.trajectory.unwrap_or_else(|| {
+        panic!(
+            "this port must also reach SUCCESS on the fixture's own accepted request, got {:?}",
+            response.error_code
+        )
+    });
+
+    assert_eq!(
+        trajectory.way_point_count(),
+        expected_waypoints.len(),
+        "waypoint count must match the oracle exactly"
+    );
+
+    for (i, expected) in expected_waypoints.iter().enumerate() {
+        let actual_dt = trajectory.way_point_duration_from_start(i);
+        assert!(
+            (actual_dt - expected.time_from_start).abs() < TIME_TOLERANCE,
+            "waypoint {i} time_from_start: {actual_dt} != {} (oracle)",
+            expected.time_from_start
+        );
+
+        let state = trajectory.way_point(i).unwrap();
+        for (name, &expected_pos) in &expected.positions {
+            let actual_pos = state.variable_position(name).unwrap();
+            assert!(
+                (actual_pos - expected_pos).abs() < POSITION_TOLERANCE,
+                "waypoint {i} position[{name}]: {actual_pos} != {expected_pos} (oracle)"
+            );
+        }
+        for (name, &expected_vel) in &expected.velocities {
+            let actual_vel = state.variable_velocity(name).unwrap();
+            assert!(
+                (actual_vel - expected_vel).abs() < VELOCITY_TOLERANCE,
+                "waypoint {i} velocity[{name}]: {actual_vel} != {expected_vel} (oracle)"
+            );
+        }
+        for (name, &expected_acc) in &expected.accelerations {
+            let actual_acc = state.variable_acceleration(name).unwrap();
+            assert!(
+                (actual_acc - expected_acc).abs() < ACCELERATION_TOLERANCE,
+                "waypoint {i} acceleration[{name}]: {actual_acc} != {expected_acc} (oracle)"
+            );
+        }
+    }
+}
+
+/// A genuine Pilz rejection, not a capture failure: the same start/goal as
+/// [`lin_panda_arm_matches_the_oracle`], but `max_velocity_scaling_factor`/
+/// `max_acceleration_scaling_factor` raised from `0.1` to `0.5`. The oracle's
+/// own log for this fixture (captured alongside it, not reproduced here)
+/// names the cause directly: `panda_joint2`'s acceleration reaches `3.52375`
+/// against a `1.875` limit at `t=0.2s`. Upstream's `generateJointTrajectory`
+/// throws `LinTrajectoryConversionFailure` wrapping `PLANNING_FAILED` (`-1`)
+/// for this; this port's [`moveit_planners_pilz::trajectory_functions::generate_joint_trajectory`]
+/// returns [`moveit_error::Error::Code`]`(`[`moveit_error::MoveItErrorCode::PlanningFailed`]`)`
+/// for the identical reason -- `crate::trajectory_functions::verify_sample_joint_limits`
+/// rejecting a backward-difference acceleration sample.
+#[test]
+fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
+    let request: RequestFixture = load_json("panda_lin_scaling05_rejected_request.json");
+    let response: ResponseFixture = load_json::<OracleResponseEnvelope<ResponseFixture>>(
+        "panda_lin_scaling05_rejected_response.json",
+    )
+    .result;
+    assert_eq!(
+        response.error_code, -1,
+        "fixture's own oracle run must have failed with PLANNING_FAILED"
+    );
+    assert!(
+        response.waypoints.is_none(),
+        "a PLANNING_FAILED response fixture must carry no waypoints"
+    );
+
+    let (model, srdf) = load_panda();
+
+    let mut joint_limits = JointLimitsContainer::default();
+    for (name, limit) in request.joint_limits {
+        assert!(
+            joint_limits.add_limit(name.clone(), limit.into()),
+            "duplicate or invalid joint limit for {name} in fixture"
+        );
+    }
+    let mut limits = LimitsContainer::new();
+    limits.set_joint_limits(joint_limits);
+    limits.set_cartesian_limits(request.cartesian_limits.into());
+
+    let base = TrajectoryGenerator::new(&model, limits);
+    let generator = TrajectoryGeneratorLin::new(base, &request.group_name);
+
+    assert_eq!(request.goal.kind, "cartesian");
+    let [x, y, z, w] = request.goal.orientation;
+    let goal = Goal::Cartesian {
+        link_name: request.goal.link_name,
+        position: Vector3::new(
+            request.goal.position[0],
+            request.goal.position[1],
+            request.goal.position[2],
+        ),
+        orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
+        target_point_offset: Vector3::new(0.0, 0.0, 0.0),
+    };
+    let plan_request = MotionPlanRequest {
+        group_name: request.group_name,
+        start_state: StartState {
+            position: request.start_state,
+            velocity: HashMap::new(),
+        },
+        goal,
+        max_velocity_scaling_factor: request.max_velocity_scaling_factor,
+        max_acceleration_scaling_factor: request.max_acceleration_scaling_factor,
+        path_constraints: None,
+    };
+
+    let scene = Arc::new(PlanningScene::new(&model, &srdf));
+    let env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+    let ctx = IkContext {
+        scene: &scene,
+        env: &env,
+        check_self_collision: CHECK_SELF_COLLISION,
+    };
+
+    let response = generator.generate(&ctx, &plan_request, request.sampling_time);
+    assert!(
+        response.trajectory.is_none(),
+        "this port must also reject the fixture's own rejected request"
+    );
+    assert_eq!(
+        response.error_code,
+        moveit_error::MoveItErrorCode::PlanningFailed,
+        "rejection reason must match the oracle's PLANNING_FAILED"
+    );
+}

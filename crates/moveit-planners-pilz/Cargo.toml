@@ -17,11 +17,13 @@ moveit-model.workspace = true
 moveit-scene.workspace = true
 moveit-state.workspace = true
 moveit-trajectory.workspace = true
+nalgebra.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
 moveit-srdf.workspace = true
-nalgebra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 urdf-rs.workspace = true
 
 [lints]

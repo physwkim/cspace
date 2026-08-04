@@ -298,7 +298,7 @@ pub fn verify_sample_joint_limits(
 /// raw `0.0` — is wrong for any joint whose zero is not a valid default: a
 /// floating joint's quaternion at all-zero is not a unit quaternion, and FK
 /// through it is NaN.
-fn push_way_point<'m>(
+pub(crate) fn push_way_point<'m>(
     trajectory: &mut RobotTrajectory<'m>,
     reference_state: &RobotState<'m>,
     positions: &HashMap<String, f64>,
