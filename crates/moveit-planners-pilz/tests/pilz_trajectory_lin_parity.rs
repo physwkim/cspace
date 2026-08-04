@@ -326,3 +326,86 @@ fn lin_panda_arm_matches_the_oracle() {
         }
     }
 }
+
+/// A genuine Pilz rejection, not a capture failure: the same start/goal as
+/// [`lin_panda_arm_matches_the_oracle`], but `max_velocity_scaling_factor`/
+/// `max_acceleration_scaling_factor` raised from `0.1` to `0.5`. The oracle's
+/// own log for this fixture (captured alongside it, not reproduced here)
+/// names the cause directly: `panda_joint2`'s acceleration reaches `3.52375`
+/// against a `1.875` limit at `t=0.2s`. Upstream's `generateJointTrajectory`
+/// throws `LinTrajectoryConversionFailure` wrapping `PLANNING_FAILED` (`-1`)
+/// for this; this port's [`moveit_planners_pilz::trajectory_functions::generate_joint_trajectory`]
+/// returns [`moveit_error::Error::Code`]`(`[`moveit_error::MoveItErrorCode::PlanningFailed`]`)`
+/// for the identical reason -- `crate::trajectory_functions::verify_sample_joint_limits`
+/// rejecting a backward-difference acceleration sample.
+#[test]
+fn lin_panda_arm_rejects_the_same_request_the_oracle_rejects() {
+    let request: RequestFixture = load_json("panda_lin_scaling05_rejected_request.json");
+    let response: ResponseFixture = load_json("panda_lin_scaling05_rejected_response.json");
+    assert_eq!(
+        response.error_code, -1,
+        "fixture's own oracle run must have failed with PLANNING_FAILED"
+    );
+    assert!(
+        response.waypoints.is_none(),
+        "a PLANNING_FAILED response fixture must carry no waypoints"
+    );
+
+    let (model, srdf) = load_panda();
+
+    let mut joint_limits = JointLimitsContainer::default();
+    for (name, limit) in request.joint_limits {
+        assert!(
+            joint_limits.add_limit(name.clone(), limit.into()),
+            "duplicate or invalid joint limit for {name} in fixture"
+        );
+    }
+    let mut limits = LimitsContainer::new();
+    limits.set_joint_limits(joint_limits);
+    limits.set_cartesian_limits(request.cartesian_limits.into());
+
+    let base = TrajectoryGenerator::new(&model, limits);
+    let generator = TrajectoryGeneratorLin::new(base, &request.group_name);
+
+    assert_eq!(request.goal.kind, "cartesian");
+    let [x, y, z, w] = request.goal.orientation;
+    let goal = Goal::Cartesian {
+        link_name: request.goal.link_name,
+        position: Vector3::new(
+            request.goal.position[0],
+            request.goal.position[1],
+            request.goal.position[2],
+        ),
+        orientation: UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(w, x, y, z)),
+        target_point_offset: Vector3::new(0.0, 0.0, 0.0),
+    };
+    let plan_request = MotionPlanRequest {
+        group_name: request.group_name,
+        start_state: StartState {
+            position: request.start_state,
+            velocity: HashMap::new(),
+        },
+        goal,
+        max_velocity_scaling_factor: request.max_velocity_scaling_factor,
+        max_acceleration_scaling_factor: request.max_acceleration_scaling_factor,
+    };
+
+    let scene = Arc::new(PlanningScene::new(&model, &srdf));
+    let env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+    let ctx = IkContext {
+        scene: &scene,
+        env: &env,
+        check_self_collision: CHECK_SELF_COLLISION,
+    };
+
+    let response = generator.generate(&ctx, &plan_request, request.sampling_time);
+    assert!(
+        response.trajectory.is_none(),
+        "this port must also reject the fixture's own rejected request"
+    );
+    assert_eq!(
+        response.error_code,
+        moveit_error::MoveItErrorCode::PlanningFailed,
+        "rejection reason must match the oracle's PLANNING_FAILED"
+    );
+}
