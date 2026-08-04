@@ -15842,3 +15842,79 @@ public doc이 링크한다**는 다른 오류로 바뀌었다(모듈이 `mod rrt
 주장이다. §198은 노출 규모는 숫자로 적었지만 무엇을 시도해봤는지는 적지
 않았다. 다음에 같은 형태의 결론을 쓸 때는 시도한 명령과 그 출력이 함께
 가야 한다 — 그것이 §189가 측정에 대해 요구하는 것과 같은 요구다.
+
+## §210 테스트가 느렸던 것이 아니라 프로파일이 없었다 — 그리고 "휴면 중"으로 분류한 결함군을 닫았다
+
+p1-fixtures 라운드가 두 가지를 보고했다. 하나는 재현된 결함, 하나는
+재현하지 못한 패턴. 조율자 소유 파일이라 셋 다 내가 적용했고, 그 과정에서
+분류 자체가 한 번 뒤집혔다.
+
+### §210.1 게이트 15개 중 1개만 "실증 가능"이었는데, 나머지도 고쳤다
+
+`verify-clean-checkout.sh:51`이 `mapfile -t steps < <(python3 ...)` 꼴이다.
+`mapfile`은 producer의 종료 상태를 전파하지 않고 `set -e`도 그것을 보지
+못하므로, 파서 자신의 `sys.exit("no run: steps found in the workflow")`가
+stderr에 찍힌 채로 스크립트는 0으로 끝나며 "every ci.yml step passes"를
+출력한다 — 0개를 돌리고서. 합성 workflow(‌`run:` 없음)로 양방향 재현했다:
+수정 전 rc=0, 수정 후 rc=1 (`a1a0b8f`).
+
+나머지 다섯 스크립트는 p1-fixtures가 "실증 불가(not demonstrable)"로
+분류했다. `git ls-files`/glob 목록이 비면 루프가 0회 돌고 그대로 OK를
+찍지만, 현재 트리에서는 목록이 비지 않으므로 재현할 수 없다는 것이다.
+분류는 정확했다. 그러나 **결론이 틀렸다**: 그 목록들이 파일시스템에서
+유도되는 이유가 바로 아무도 유지보수하지 않기 위해서이고, 같은 성질이
+경로 규약이 바뀌는 순간 목록을 조용히 비게 만든다. `verify-vendored-
+fixture-tests.sh`와 `verify-all.sh`는 각자 자기 목록에 대해 이 가드를
+**사후에** 붙였다 — 두 번 다 같은 실패를 겪고 나서.
+
+`tools/ci/gate-lib.sh`의 `require_nonempty`가 그 규칙을 한 자리에 둔다
+(`fd1bc04`). 호출부 7개: `check-license-matches-upstream.sh`,
+`check-lints-not-silently-dropped.sh`,
+`check-workspace-dep-inheritance.sh`(2),
+`verify-fixture-provenance.sh`(3), 그리고
+`verify-upstream-license-provenance.sh`는 파이썬 쪽 `tracked`/`checked`
+카운터에 같은 규칙을 적었다. 각 가드는 자기 glob을 아무것도 매치하지 않는
+경로로 돌려 **개별적으로 물려봤다** — 7/7 rc=1.
+
+`check-audit-scripts-not-copied.sh`는 제외했다. 매치 0이 곧 통과인 부정
+단언이라 emptiness 가드가 의미를 뒤집는다.
+
+### §210.2 스위트 24.2초 중 22초는 최적화 없이 컴파일된 수치 코드였다
+
+p1-fixtures가 가장 느린 10개를 재고, 그중 `gripper_pair_contact_is_
+prediction_invariant`를 단독으로 dev 20.1초 / `--release` 1.076초로
+측정했다 — 19배. 그 테스트가 하는 일은 PR2 모델을 만들고 parry contact
+질의 3번을 돌리는 것뿐이다. 루트 `Cargo.toml`에 `[profile...]` 섹션이
+하나도 없었다.
+
+내가 잰 것(이 머신, 96코어):
+
+| 프로파일 | 그 테스트 | 워크스페이스 전체 | cold build |
+|---|---|---|---|
+| 기본(opt-level 0) | 18.4s | 24.2s | 25s |
+| deps만 opt-level 2 | 14.1s | — | — |
+| workspace 1 + deps 2 | **0.9s** | **2.0s** | 39s |
+
+deps만 올리면 1.3배밖에 안 준다. 비용의 대부분은 이 저장소 자신의
+크레이트에 있었다. `[profile.dev] opt-level = 1` + `[profile.dev.package."*"]
+opt-level = 2`가 `e733f19`이고, 일회성 빌드 비용 +14초는 첫 테스트 실행에서
+회수된다.
+
+`debug-assertions`와 `overflow-checks`는 `opt-level`과 독립이라 그대로
+켜져 있다. **가정하지 않고 확인했다**: `--print cfg`가 여전히
+`debug_assertions`를 내보내고, `-C opt-level=1 -C debug-assertions=on`으로
+컴파일한 `u8` 오버플로가 여전히 패닉한다. 스위트의 벽시계를 커버리지와
+바꾸는 프로파일이었다면 이 변경은 손해다.
+
+### §210.3 규칙 두 개
+
+하나. **"현재 트리에서 재현 불가"는 "결함 아님"이 아니다.** 재현 가능성은
+결함의 성질이 아니라 지금 트리 상태의 성질이다. 파일시스템에서 유도되는
+목록은 유지보수를 없애는 대신 조용히 비어질 경로를 연다 — 그 둘은 같은
+성질의 앞뒷면이다.
+
+둘. **비용을 잰다는 것은 테스트를 재는 것이 아니라 무엇이 비용을 지배하는지
+재는 것이다.** 라운드마다 "가장 느린 N개" 표를 만들었지만 그 표의 어느
+행도 "이 비용은 테스트가 아니라 빌드 설정에서 온다"를 말할 수 없다. 그것을
+말한 것은 한 테스트를 dev와 release 양쪽에서 **각각 재본** 한 번의 측정
+이었다. 표는 순위를 주고 원인은 대조가 준다.
