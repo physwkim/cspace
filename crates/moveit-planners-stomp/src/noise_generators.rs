@@ -179,11 +179,27 @@ mod tests {
     /// wider (in absolute pivot-risk terms) as `n` shrinks back toward
     /// this workspace's real usage.
     ///
-    /// This test pins the two measured numbers as a regression guard: if
-    /// a future change to `generate_finite_difference_matrix` or this
-    /// function's normalization unexpectedly worsens conditioning by
-    /// orders of magnitude, this fails before `Cholesky::new` starts
-    /// intermittently rejecting real trajectories.
+    /// **What this test does and does not guard, checked by mutation, not
+    /// asserted.** This test pins the two measured numbers as a
+    /// regression guard on `generate_finite_difference_matrix`'s
+    /// `DerivativeOrder::Acceleration` coefficients specifically --
+    /// mutating one coefficient (`FINITE_CENTRAL_DIFF_COEFFS`'s
+    /// acceleration row, `-30.0/12.0` to `-30.5/12.0`) reddens only this
+    /// test (plus one unrelated, already-fragile `moveit-stomp-core`
+    /// convergence probe as collateral); no test that checks this
+    /// function's actual noise/covariance output catches it. It does
+    /// **not** guard this function's own use of that matrix: this test
+    /// recomputes `acceleration^T * acceleration` directly from
+    /// `generate_finite_difference_matrix`, the same two lines this
+    /// function's body computes, rather than calling this function --
+    /// mutating this function's own call (`DerivativeOrder::Acceleration`
+    /// to `DerivativeOrder::Velocity`, a wrong-derivative-order bug) does
+    /// **not** redden this test at all; six *other* tests
+    /// (`num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
+    /// and five output-checking tests in this module and `planner.rs`)
+    /// catch that class of bug instead. A prior version of this doc
+    /// claimed protection against "this function's normalization" too --
+    /// that was untested and wrong, per this same bite-check.
     #[test]
     fn acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure() {
         // (n, expected order-of-magnitude condition number, generous

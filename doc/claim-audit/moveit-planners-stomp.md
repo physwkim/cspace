@@ -240,3 +240,52 @@ longer load-bearing) conditioning margin.
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `crates/moveit-planners-stomp/src/noise_generators.rs` (Gram-matrix-PD argument, floating-point conditioning) | Condition number of `acceleration^T * acceleration` is `~3.996e6` at `n=60`, `~4.751e8` at `n=200` -- four to five orders of magnitude below the estimated Cholesky rounding-failure threshold; conditioning alone did not require contiguous coverage, but re-measuring the sampling reason (cost) under the new dev profile did -- coverage is now contiguous `1..=200`, not sampled | CONFIRMED, measured not assumed | `noise_generators::tests::acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`, `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects` (now `1..=200` contiguous, `0.7s`), `cargo nextest run -p moveit-planners-stomp`; `nalgebra-0.35.0/src/linalg/cholesky.rs:190-265` read for the actual failure condition | (pending, see report) |
+
+### Bite-check: does the pinned test add signal, checked by mutation (this round)
+
+A pinned measurement is only a real regression guard if some concrete
+mutation reddens it independently. Two mutations run against this
+worktree, gated, then reverted (`git diff` confirmed clean before
+committing):
+
+1. **`FINITE_CENTRAL_DIFF_COEFFS`'s acceleration row**
+   (`crates/moveit-stomp-core/src/utils.rs`), `-30.0 / 12.0` to
+   `-30.5 / 12.0`. `cargo nextest run -p moveit-stomp-core -p
+   moveit-planners-stomp`: 2 of 78 tests reddened --
+   `acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`
+   itself (its pinned `expected_cond` assertion), and, as unrelated
+   collateral (the same coefficient table feeds `Stomp::solve`'s own
+   differentiation, not anything under test here),
+   `moveit-stomp-core::stomp::tests::each_convergence_test_fails_if_the_accept_path_update_is_disabled`.
+   No test that checks `normal_distribution_generator`'s actual
+   noise/covariance *output* caught this mutation -- confirming this
+   pinned test adds signal a coefficient-table regression would
+   otherwise slip past.
+2. **`normal_distribution_generator`'s own call**
+   (`noise_generators.rs:94`), `DerivativeOrder::Acceleration` to
+   `DerivativeOrder::Velocity` -- a wrong-derivative-order bug in the
+   function this test's own doc comment used to claim protecting.
+   Same command: 6 of 78 tests reddened --
+   `noise_generators::tests::{noisy_values_equal_values_plus_noise,
+   repeated_calls_draw_fresh_noise_via_advancing_rng_state,
+   num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects,
+   stddev_scales_the_noise_magnitude}`,
+   `planner::tests::{plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle,
+   plan_overrides_num_timesteps_from_a_nonempty_seed_trajectory}` --
+   and the pinned conditioning test was **not** among them; it stayed
+   green. It cannot catch this class of bug: it recomputes
+   `acceleration^T * acceleration` directly from
+   `generate_finite_difference_matrix`, the same two lines this
+   function's own body runs, rather than calling
+   `normal_distribution_generator` itself, so a bug in how *this
+   function* uses that matrix is invisible to it.
+
+**Conclusion:** the pinned test is a real, non-redundant regression
+guard against one specific class of mutation (a coefficient-magnitude
+change to the shared `generate_finite_difference_matrix`), where it is
+the *only* test in the workspace that reddens. It is not a guard
+against this function's own construction bugs, and its own doc comment
+previously (incorrectly, found by this same bite-check) claimed the
+latter too -- corrected in `noise_generators.rs` to state precisely
+which mutation class it does and does not catch, backed by the
+mutation classes above rather than by both being merely asserted.
