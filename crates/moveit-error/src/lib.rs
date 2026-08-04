@@ -46,8 +46,8 @@
 //!
 //! The structured form already exists where the discriminating information
 //! is itself structured rather than prose: [`Error::UnknownName`] carries
-//! `{ kind, name }` and is used at 42 sites (20 `Error::unknown_name(...)`
-//! calls, 22 `Error::UnknownName { .. }` matches), including
+//! `{ kind, name }` and is used at 36 sites (20 `Error::unknown_name(...)`
+//! calls, 16 `Error::UnknownName { .. }` matches), including
 //! `constraint_sampler_manager.rs`'s own branch discrimination, which needs
 //! no string matching at all. That is the rule to apply when adding a
 //! variant — structure the error when the thing that distinguishes it is
