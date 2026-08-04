@@ -24,6 +24,13 @@
 //! `object_recognition_msgs::ObjectType` (`crate::scene::collision_object`'s
 //! own `type_` field, dropped the same way) -- so these are dropped rather
 //! than rejected.
+//!
+//! Re-checked round 5 against `crates/moveit-scene/src/attached_body.rs:56-63`
+//! -- `AttachedBody`'s field list is still `id`/`link_name`/`shapes`/
+//! `shape_poses`/`touch_links`/`subframes`, no `weight`. `weight` expires if
+//! `AttachedBody` grows that field (`moveit-scene`'s call); `detach_posture`
+//! is D1-permanent, not pending-implementation -- it expires only on a
+//! project-wide D1 revisit, same as `type_`'s `ObjectType` gap below.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

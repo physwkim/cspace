@@ -75,17 +75,28 @@ pub fn apply_planning_scene_world(
 /// Upstream `processOctomapMsg(const octomap_msgs::msg::OctomapWithPose&)`
 /// (`planning_scene.cpp:1478`).
 ///
-/// # Structural gap: octomap binary payload decoding is unported
+/// # Structural gap: octomap binary payload decoding belongs to `moveit-octomap`
 ///
 /// An empty `octomap.data` is a correct, real no-op -- upstream's own early
 /// return (`:1483`) once the previous octomap has been cleared. A
 /// **non-empty** payload requires decoding octomap's binary tree
 /// serialization (`octomap_msgs::readTree` / `OcTree::readData`) into a
-/// [`moveit_octomap::OcTree`] to construct -- `moveit_octomap::OcTree` has
-/// no such decoder (confirmed absent from its public surface: only
-/// `OcTree::new(resolution)` builds an empty tree). This is a real,
-/// separately-sized feature (a binary format parser), not a message-field
-/// mapping, so it is named as a gap rather than attempted here.
+/// [`moveit_octomap::OcTree`] -- confirmed absent from that type's public
+/// surface (only `OcTree::new(resolution)` builds an empty tree; `Node` is
+/// `pub(crate)` and `OcTree::root` is private, so `ros/` cannot reach the
+/// primitives a decoder would need even if it wanted to).
+///
+/// **Decided round 5: this decoder is `moveit-octomap`'s (p3-shapes'), not
+/// `ros/`'s.** octomap's binary serialization is octomap's own format, not a
+/// ROS format -- `octomap_msgs::readTree`/`readData` write `msg.data`
+/// straight into `OcTree::readBinaryData`/`readData`, bypassing any file
+/// header or the `AbstractOcTree` registry entirely. Deserializing a type's
+/// own format is that type's owning crate's job; exposing `Node`/`root` as
+/// `pub` just so `ros/` could decode here would invert encapsulation for
+/// `ros/`'s convenience. See `doc/message-mapping.md` §11's "Structural
+/// gaps" list for the full requirements spec this crate has written for
+/// `moveit-octomap`'s owner (API signature, upstream file:line citations,
+/// this call site, and the verification approach) -- not implemented here.
 fn apply_octomap(
     scene: &mut PlanningScene<'_>,
     map: r2r::octomap_msgs::msg::OctomapWithPose,
