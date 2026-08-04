@@ -950,6 +950,22 @@ mod tests {
     }
 
     #[test]
+    fn fill_in_from_trajectory_rejects_a_trajectory_with_no_group() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
+        let mut source = RobotTrajectory::new(model);
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.0)
+            .unwrap();
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.1)
+            .unwrap();
+        assert!(source.group().is_none());
+        let err = traj.fill_in_from_trajectory(&source).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    #[test]
     fn free_trajectory_block_mut_covers_exactly_the_free_rows_all_columns() {
         let model = panda_model();
         let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
