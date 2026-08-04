@@ -21,6 +21,26 @@
 # files without anyone updating a list, and the same property makes them go
 # quietly empty if a path convention changes. The guard is what turns that
 # into a failure instead of a pass.
+#
+# What this guard does NOT cover, and which gate needs what:
+#
+#   - An empty list because the *producer* failed. `mapfile -t x < <(cmd)`
+#     throws away `cmd`'s exit status and `set -e` cannot see it, so a broken
+#     `git ls-files` yields an empty array with no error anywhere. Where a
+#     non-empty list is the failure condition, `require_nonempty` catches that
+#     as a side effect -- the list is empty either way and the gate fails
+#     either way. That is the only reason those sites are safe.
+#   - Where an *empty* list is the pass condition, `require_nonempty` is not
+#     applicable and there is nothing left to notice the producer's failure.
+#     `check-audit-scripts-not-copied.sh` was the one such gate here and it
+#     passed vacuously in a `.git`-less tree until it was rewritten to read the
+#     list through a checked command substitution.
+#
+# So: `require_nonempty` asserts what the gate expected to find, not that the
+# command that produced it worked. Read every list with `x="$(cmd)"` (under
+# `set -e` and `pipefail`, that propagates) or an explicit `if ! x="$(cmd)"`,
+# and use `require_nonempty` for the separate question of whether the result
+# should have been non-empty.
 require_nonempty() {
   local count="$1" what="$2"
   if [ "$count" -eq 0 ]; then
