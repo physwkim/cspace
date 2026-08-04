@@ -716,6 +716,31 @@ mod tests {
         // against 0.681 -- upstream's own bound is this loose too (see the
         // doc comment on `run_upstream_invalid_states_scenario`).
         assert!(invalid_costs_sum >= 0.681 * UPSTREAM_INVALID_STATES_PENALTY);
+
+        // The line above is the port of upstream's literal and stays exactly
+        // as upstream wrote it. It has no power: shifting this cost
+        // function's Gaussian centre by 20 timesteps -- mis-centring the
+        // entire kernel -- leaves it passing, because 12.379 has to fall by
+        // 18x before a bound of 0.681 notices.
+        //
+        // Read the same number as a *fraction* and the 18x margin turns into
+        // 1.0099x: `costs.sum()` is `PENALTY * 18 == 18.0` here, so the
+        // invalid timesteps carry `12.37895087036898 / 18.0 ==
+        // 0.6877194927982767` of the total, one percent above `0.681`. A
+        // ratio landing within 1% of the literal is not plausibly a
+        // coincidence at this n; upstream almost certainly meant "at least
+        // 68.1% of the cost concentrates on the invalid timesteps" and wrote
+        // `0.681 * PENALTY` where the total, not the per-timestep penalty,
+        // was the intended scale. This assertion is the reading that has
+        // power -- it is this port's own, not a second port of upstream's
+        // line, and its margin is measured rather than inherited. The
+        // mis-centring mutation above drives it to 0.5745452302710986 and it
+        // fails, which is the whole difference between the two readings.
+        let concentration = invalid_costs_sum / costs.sum();
+        assert!(
+            concentration >= 0.681,
+            "invalid timesteps carry {concentration} of the total cost, below the measured 0.6877194927982767"
+        );
     }
 }
 
