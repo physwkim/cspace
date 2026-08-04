@@ -61,6 +61,28 @@
 //!   branch or the coarser boxes now feeding it, inside `moveit-collision` --
 //!   not at this crate's orchestration.
 //!
+//! # Oracle-verified coverage for the split branch already exists in this fixture
+//!
+//! [`PlanningScene::path_cost_sources`] truncates `cs` to `max_costs`
+//! *before* calling `remove_cost_sources`, and `remove_overlapping` (the
+//! only stage after it) never adds -- it only drops a later entry that
+//! overlaps an earlier one past `overlap_fraction`. So a final count
+//! *larger* than `max_costs` is only reachable if `remove_cost_sources`'s
+//! per-axis split branch fired and added split pieces. Two ids in this same
+//! fixture are exactly that, oracle-sourced and unambiguous: id 4
+//! (`max_costs=2`, oracle's expected final count `4`) and id 6
+//! (`max_costs=3`, oracle's expected final count `6`) -- both mathematically
+//! impossible under a pure-truncate-then-drop pipeline, so both are direct
+//! proof the split branch is real and is expected to grow the set past the
+//! cap. This is coverage this crate already has, not a gap to fill with a
+//! new self-collision scenario -- it is only unreachable through the
+//! asserted regression suite because ids 3-6 share the same `objects=1`
+//! mesh-vs-shape shape as id 3's still-open box-geometry defect above, so
+//! they are gated behind the same `#[ignore]`. Un-ignoring
+//! `panda_path_cost_sources_blocked_by_mesh_shape_cost_sources` once that
+//! `moveit-collision` defect is fixed exercises this split-growth proof
+//! directly, with no new fixture needed.
+//!
 //! Neither residual defect is a stale-oracle artifact (both numbers
 //! reproduced against the same fixed `moveit-rs/oracle:c88557f4058892e9`
 //! image this round) and neither is fixable from `moveit-scene`:
@@ -570,7 +592,12 @@ fn panda_path_cost_sources_matches_the_oracle() {
 /// past the truncation cap -- this port collapses to `1`, undershooting
 /// even that cap, pointing at that split branch or the coarser boxes now
 /// feeding it. A `moveit-collision` defect, not this crate's orchestration.
-/// Remove this `#[ignore]` once `moveit-collision` is fixed.
+/// Ids 4 (`max_costs=2` -> expected `4`) and 6 (`max_costs=3` -> expected
+/// `6`) in this same loop are oracle-sourced proof the split branch is
+/// real and does grow past the cap -- see the module doc's "Oracle-verified
+/// coverage for the split branch already exists in this fixture" section;
+/// this test already carries that coverage, it is only gated behind this
+/// `#[ignore]`. Remove this `#[ignore]` once `moveit-collision` is fixed.
 #[test]
 #[ignore = "blocked on a moveit-collision defect, distinct from the now-fixed §171: id 3 (max_costs=2, expected 5 after remove_cost_sources's per-axis split) collapses to 1 survivor instead, in crates/moveit-collision/src/tools.rs (remove_cost_sources/remove_overlapping) or the coarser mesh_shape_cost_sources boxes feeding them"]
 fn panda_path_cost_sources_blocked_by_mesh_shape_cost_sources() {
