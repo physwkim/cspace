@@ -27,14 +27,21 @@ use crate::registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolveOptions, Solver
 /// The singular-value pseudo-inverse this solver's velocity step uses is
 /// *truncated*, not damped — a singular value at or below
 /// `params.svd_threshold * largest_singular_value` is treated as exactly
-/// zero. This is Eigen's own public, documented `JacobiSVD::setThreshold`,
-/// RELATIVE mode contract (upstream's constructor sets it to RELATIVE): not
-/// a rule `chainiksolver_vel_mimic_svd.{hpp,cpp}` states anywhere in its own
-/// text — that LGPL-2.1-or-later file only calls `setThreshold`/`solve`, and
-/// the truncation rule itself lives inside Eigen's (MPL2-licensed)
-/// `JacobiSVD` implementation, which this crate has never read. Register
-/// this solver under `"newton_raphson"` in [`KINEMATICS_SOLVERS`], or
-/// construct it directly with [`NewtonRaphsonSolver::new`].
+/// zero. This is Eigen's own public, documented `JacobiSVD::setThreshold`
+/// RELATIVE contract: singular values above `threshold * |largest|` are the
+/// nonzero ones.
+///
+/// The LGPL-2.1-or-later `chainiksolver_vel_mimic_svd.hpp` does describe a
+/// truncation rule in its own text, at `:59` — but an *absolute* one
+/// ("`@param threshold` if a singular value is below this value, its inverse
+/// is set to zero"), which is not what its own `.cpp:62` `setThreshold` call
+/// does. So this port does not restate that file: it implements the relative
+/// contract Eigen documents, which that file's prose gets wrong. The rule
+/// itself lives inside Eigen's (MPL2-licensed) `JacobiSVD`, which this crate
+/// has never read.
+///
+/// Register this solver under `"newton_raphson"` in [`KINEMATICS_SOLVERS`],
+/// or construct it directly with [`NewtonRaphsonSolver::new`].
 pub struct NewtonRaphsonSolver {
     model: RobotModel,
     chain: ChainInfo,
