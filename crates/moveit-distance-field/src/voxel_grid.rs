@@ -436,11 +436,28 @@ mod tests {
         }
     }
 
+    /// A bare `.is_err()` does not discriminate here: with the resolution
+    /// guard no-opped, `resolution = 0.0` still errors, but via the
+    /// unrelated `size / resolution` overflow guard (`1.0 / 0.0 =
+    /// f64::INFINITY`, which trips `num_cells > i32::MAX`), so the
+    /// `resolution = 0.0` case previously passed for the wrong reason.
+    /// `resolution = -0.1` does not share that accident (`1.0 / -0.1 = -10.0`
+    /// never overflows), so it alone would have caught the guard's removal.
+    /// Both bites confirmed by mutation: no-opping the resolution guard
+    /// fails only the `-0.1` assertion under the old `.is_err()` form; the
+    /// message check below fails both, since the overflow guard's message
+    /// never contains "must be finite and positive".
     #[test]
     fn rejects_non_positive_resolution() {
         let size = Vector3::new(1.0, 1.0, 1.0);
-        assert!(GridGeometry::new(size, Vector3::zeros(), 0.0).is_err());
-        assert!(GridGeometry::new(size, Vector3::zeros(), -0.1).is_err());
+        let zero_err = GridGeometry::new(size, Vector3::zeros(), 0.0).unwrap_err();
+        assert!(zero_err.to_string().contains("must be finite and positive"));
+        let negative_err = GridGeometry::new(size, Vector3::zeros(), -0.1).unwrap_err();
+        assert!(
+            negative_err
+                .to_string()
+                .contains("must be finite and positive")
+        );
     }
 
     /// PORTING-PLAN.md §172 boundary: `size / resolution` at exactly
