@@ -9479,3 +9479,264 @@ p1-joints·p1-robotmodel·p1-fixtures·p3-shapes·p3-acm 다섯 브랜치를
 `verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK
 (42.6000% > 35.1222%), `verify-fixture-replay.sh` **30/30 identical**.
 스탬프 `e7d32225310d3278`.
+
+## 113. p6-totg 라운드 13 머지 — 8.893e-9이 블렌드 3 안으로 좁혀졌다
+
+2커밋(`793ef28`, `b05c2f1`).
+
+### 113.1 `totg_path` 픽스처의 허용오차는 측정으로 정해졌다
+
+§107.3에서 내가 만든 op의 픽스처를 담당이 잡았다. 허용오차가 추측이
+아니라 측정된 바닥 위에 얹혔다:
+
+```
+CONFIG_TOL    1e-9    측정 바닥 2.27e-13   (약 3.64자리 여유)
+TANGENT_TOL   1e-11   측정 바닥 1.05e-15   (약 3.98자리)
+CURVATURE_TOL 1e-13   측정 바닥 2.17e-17   (약 3.66자리)
+length                비트 정확 → assert_eq!
+```
+
+세 상수 모두 `±0.0001%` 양방향 섭동으로 여전히 판별력이 있는지 확인한
+뒤 커밋됐다. §85.3과 §101.2가 요구한 형태 그대로다.
+
+### 113.2 편차가 나는 자리가 시간축에서 좁혀졌다
+
+새 op 없이 기존 `totg`의 `sample_times`만으로 이분했다.
+
+```
+t < 1571.75          position/velocity 차가 Path 자체의 바닥(~1e-13 / 1e-16)
+t 1571.75 → 1581.76  차가 약 500배로 점프
+                     호길이 s ≈ 1123.8 → 1127.2
+```
+
+`s ∈ [1084.80, 1163.34]`, **블렌드 3 내부다.** §107.4에서 내가 ULP로
+잰 것과 같은 자리다 — 세 블렌드 중 곡률이 어긋난 유일한 블렌드가
+블렌드 3(`+2, +3, +2` ULP)이었고, 시간축 이분이 독립적으로 같은 곳을
+가리켰다. 초기 조건 버그도, 전환점 경계 인공물도 아니라는 것이 이것으로
+배제된다.
+
+남은 것은 그 안에서 왜 500배가 되는가다. 열려 있다.
+
+### 113.3 내 브리프 3항이 이미 끝난 일을 시켰다
+
+브리프에 "`TimeOptimalTrajectoryGeneration` 어댑터는 라운드마다
+유예되고 있다. 이번 라운드에 처분을 확정해라"라고 적었다. **이미
+이식돼 있었다.**
+
+```
+f03a46e  moveit-trajectory: port TimeOptimalTrajectoryGeneration's
+         RobotTrajectory adapter
+git merge-base --is-ancestor f03a46e HEAD  →  ancestor: yes
+```
+
+내가 확인했다. 생성자, 메시지 아닌 `computeTimeStamps` 오버로드 둘,
+`totgComputeTimeStamps`, 비공개 헬퍼 전부가 들어와 있고 `lib.rs`에
+심볼 감사도 돼 있으며 `todo!`/`unimplemented!`가 없다.
+
+출처는 담당의 **라운드 12 UNFIXED 항목**이었고("deliberately deferred
+per this round's ownership boundary, unchanged from prior rounds"),
+나는 그것을 트리에 대조하지 않고 브리프로 옮겼다.
+
+**§106.1과 같은 결함이 두 번째다.** 그때는 워커의 보고서 *문장*을
+트리에 있는 것처럼 인용했고, 이번에는 워커의 UNFIXED *상태*를 확인
+없이 지시로 옮겼다. 뿌리는 하나다 — 검증하지 않은 전제 위에 지시를
+쌓았다. 규칙으로 굳힌다:
+
+> 워커의 UNFIXED를 다음 라운드 항목으로 옮기기 전에, 그 항목이
+> **지금 트리에서도 미해결인지** 확인해라. UNFIXED는 그 라운드
+> 시점의 서술이고, 그 사이에 자기 자신이나 형제 패널이 닫았을 수
+> 있다. `git log`/`git merge-base --is-ancestor`로 확인하는 데 드는
+> 비용은 초 단위다.
+
+## 114. p3-distance-field 라운드 17 머지 — 그리고 `serde_json`이 f64를 1 ULP 틀리게 읽는다
+
+5커밋(`30fdc3f`, `e779325`, `9410db8`, `d529de8`, `3fbefd4`).
+
+### 114.1 세분 루프의 `<=`가 마침내 물었다
+
+§99.3에서 두 라운드 열려 있던 것이다. 내가 §99에서 준 이분법 —
+2의 거듭제곱 해상도로 `start`/`end`/누산을 정확하게 만드는 케이스 —
+가 그대로 먹었다. `<=`와 `<`가 갈린다(27 대 8). 담당이 재현하고
+테스트로 고정했다.
+
+### 114.2 존재하지 않는 절 5건이 고쳐졌고 계수도 이름으로 다시 나왔다
+
+§99.5의 잘못된 `§97.x` 인용 5건이 실제 절로 바뀌었고, 커버리지 계수가
+자기가 적어 둔 기준에 맞춰 이름 단위로 다시 세졌다.
+
+### 114.3 `octree_points` 픽스처가 잡혔고, 그 과정에서 진짜 결함이 나왔다
+
+§102의 op에 대한 픽스처가 세 경계 케이스(1000/180/27점) 전부에 대해
+개수가 아니라 **배열 전체와 리프 전체의 동등성**으로 잡혔다. 재생은
+30 → **31**로 늘었다.
+
+첫 실행이 케이스 B에서 55/180 불일치로 실패했고, **담당이 그것을 액면가로
+받지 않고 원인까지 갔다.** 원시 바이트 검사로 좁힌 결론:
+`serde_json`의 f64 파서가 일부 17유효자리 리터럴에서 올바르게 반올림하지
+않는다.
+
+### 114.4 나는 그 주장을 재현했고, 노출 범위는 이 크레이트가 아니다
+
+주장이 크니 직접 쟀다. `serde_json = "=1.0.151"`, `raw_value` 기능:
+
+```
+"10.049999999999999"
+  serde_json  10.05                     0x402419999999999a
+  str::parse  10.049999999999999        0x4024199999999999   DISAGREE
+  Value       10.05                     0x402419999999999a   DISAGREE
+
+"2.2250738585072011e-308"
+  serde_json  2.2250738585072014e-308   0x10000000000000
+  str::parse  2.225073858507201e-308    0x0fffffffffffff     DISAGREE
+```
+
+**버전 특정이 아니다.** 담당의 `Cargo.toml` 주석은 이것을 "1.0.151의"
+파서라고 적었는데, 같은 리터럴로 1.0.140 / 1.0.145 / 1.0.150 /
+1.0.151을 각각 돌려 봤고 **넷 다 같게 틀린다.** 회귀가 아니라 오래된
+동작이므로 **버전 고정은 해법이 아니다.** 그 주석은 고쳐야 한다.
+
+그리고 **노출은 이 크레이트에 국한되지 않는다.** 커밋된 픽스처
+101개의 모든 float 리터럴을 `serde_json::from_str::<f64>`와
+`str::parse::<f64>`로 각각 읽어 비트를 비교했다:
+
+```
+  6859 / 84221 리터럴이 1 ULP 어긋난다  (8.1%)
+  29개 파일, 9개 크레이트
+```
+
+크레이트별로 (오차 있는 파일만):
+
+```
+moveit-geometry     bodies_probe 10/293, mesh_parity 4036/33327,
+                    octree_in_world_response 1/138
+moveit-metrics      panda_arm_5dof …_response 28/441,
+                    panda_kinematics_metrics_response 29/441
+moveit-model        dual_arm_panda 12/547, fanuc 4/178, panda 6/298, pr2 19/1264
+moveit-octomap      octomap_response 1/270
+moveit-scene        panda_frame_transform_response 2/144,
+                    panda_is_state_valid 8/92
+moveit-smoothing    ruckig_filter_response 14/987
+moveit-state        dual_arm_panda_dynamics 9/335, dual_arm_panda_fk 92/1654,
+                    fanuc_dynamics 11/294, fanuc_fk 26/594,
+                    panda_dynamics 12/335, panda_fk 57/816,
+                    pr2_dynamics 16/343, pr2_fk 499/6224
+moveit-trajectory   large_accel_waypoints 4/39, totg_path_request 2/30,
+                    totg_path_response 8/138, totg_request 3/88,
+                    totg_response 10/141, totg_robot_trajectory_response 57/594,
+                    …_scaling_only_response 22/198, totg_synthetic_response 117/752
+```
+
+**이것이 계열이고, 인용된 크레이트는 표본이다.** 담당은 자기
+크레이트만 `raw_value` + `RawValue` 텍스트 파싱으로 고쳤다. 범위를
+지킨 것은 맞지만 나머지 8개 크레이트는 그대로다.
+
+왜 지금까지 안 보였나: 허용오차가 1 ULP를 흡수한다. 보이는 자리는 둘
+뿐이다 — (1) 비트 정확 비교(`assert_eq!`), (2) **이분으로 잰 "측정
+바닥"**. 바닥이 픽스처 파싱 오차로 오염되면 그 바닥은 포트의 오차가
+아니다. §79 스윕 전체가 이 위에 서 있다.
+
+처분은 §115다 — 크레이트마다 `raw_value` 껍데기를 반복하는 것은 지역
+패치이고, 워크스페이스 한 줄로 닫히는 구조적 해법이 있었다.
+
+### 114.5 두 가지를 더 잡았다
+
+- `arbitrary_precision`을 먼저 시도했다가 `#[serde(tag = "...")]`
+  역직렬화가 크레이트 전역에서 깨졌고(`shape_points_parity.rs`,
+  `collision_distance_field_types_parity.rs`), **새 테스트만이 아니라
+  크레이트 전체 스위트를 커밋 전에 돌려서** 잡았다.
+- `verify-fixture-replay.sh`는 `oracle-models.json`에 적힌 stem만
+  재생한다. 새 픽스처가 목록에 없으면 **재생 커버리지에서 조용히
+  빠진다.** `3fbefd4`가 등록했고, 등록 전에 pr2로 재생해 커밋된 응답과
+  바이트 단위로 대조했다.
+
+## 115. `float_roundtrip` — §114.4의 계열을 워크스페이스 한 줄로 닫았다
+
+`70a6b31`.
+
+### 115.1 해법은 껍데기가 아니라 기능 플래그였다
+
+§114.4에서 노출을 9개 크레이트 6,859 리터럴로 재고 나서 처음 떠오른
+것은 공유 헬퍼 크레이트였다 — `RawValue`로 읽고 `str::parse`로 넘기는
+newtype을 만들어 모든 픽스처 구조체의 `f64`를 갈아 끼우는 것. 그것은
+9개 크레이트의 필드를 전부 건드리는 큰 변경이고, 각 패널의 소유 영역을
+가로지른다.
+
+**그럴 필요가 없었다.** `serde_json`에 이 목적의 기능이 이미 있다.
+
+```
+[workspace.dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }
+```
+
+같은 측정기를 다시 돌렸다:
+
+```
+기능 없음:  6859 / 84221 리터럴이 1 ULP 어긋남
+기능 있음:     0 / 84221
+```
+
+**전부 0이다.** 커밋된 픽스처 101개, 84,221개 리터럴 전수다.
+
+기능은 `[workspace.dependencies]`에 한 번 선언한다. Cargo가 그래프
+전체에서 기능을 합집합으로 잡으므로, 자기 기능 목록을 따로 쓰는 멤버
+(`moveit-distance-field`의 `raw_value`)도 `workspace = true`를 통하는
+한 이것을 물려받는다. 확인했다:
+
+```
+cargo tree -e features -i serde_json --workspace
+  serde_json feature "default"
+  serde_json feature "float_roundtrip"
+  serde_json feature "raw_value"
+  serde_json feature "std"
+```
+
+### 115.2 버전 고정은 해법이 아니었다
+
+§114.4에 적었듯 이것은 회귀가 아니다. 같은 리터럴로 1.0.140 / 1.0.145 /
+1.0.150 / 1.0.151을 각각 돌렸고 **넷 다 같게 틀린다.** 그러므로
+`moveit-distance-field`의 `Cargo.toml` 주석이 이 성질을 "1.0.151의"
+파서라고 특정한 것은 고쳐야 한다. 그 주석과 `raw_value` 껍데기 자체가
+이제 불필요한지도 그 크레이트가 판단할 일이다 — 담당에게 넘긴다.
+
+### 115.3 주석이 아니라 검사로 못박았다
+
+기능 플래그는 다음 사람이 조용히 지울 수 있고, 지워져도 **어떤 테스트도
+실패하지 않는다** — 허용오차가 1 ULP를 흡수하기 때문이다. 정확히 그래서
+기계적 검사가 필요하다. `tools/ci/check-serde-float-roundtrip.sh`가
+해결된 기능 목록을 보고 없으면 실패한다. `check-*.sh` 글롭에 들어가므로
+CI가 자동으로 집는다(도커 불필요).
+
+양방향으로 쟀다:
+
+```
+기능 있음  →  OK: serde_json resolves with "float_roundtrip"      exit 0
+기능 제거  →  FAIL the workspace resolves serde_json without …    exit 1
+```
+
+`cargo tree`를 파이프 머리에 두지 않은 이유는 `check-dep-direction.sh`
+와 같다 — 파이프로 넘기면 해결 실패가 빈 입력으로 `grep`에 도달해
+"기능 없음"과 같은 종료 상태를 내지만 전혀 다른 사실이다.
+
+### 115.4 실측
+
+기능을 켠 뒤 `cargo nextest run --workspace --no-fail-fast`(§112.2의
+1017초 테스트 제외) **1103/1103 통과, 회귀 0건.** 즉 지금까지 이
+파싱 오차에 **의존하던** 테스트는 하나도 없었다 — 오차는 허용오차
+아래에 잠겨 있었고, 드러난 자리는 `octree_points` 픽스처처럼 비트
+정확 비교를 하는 곳뿐이었다.
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`check-*.sh` **4건**(새 검사 포함) OK.
+
+### 115.5 계열로 적는다
+
+이번 건의 모양은 §85.3·§103.4와 같다. **허용오차가 결함을 흡수하면
+결함은 사라지지 않고 보이지 않게 된다.** 세 사례가 같은 뿌리다:
+
+- §103.4 — 기본 `max_relative`가 `epsilon` 이분을 가린다
+- §110.2 — 재지 않은 doc 주장이 틀린 주장이었다(`NaN`이 나왔다)
+- §114.4 — 픽스처 파싱 오차가 이분이 재는 "바닥"을 오염시킨다
+
+셋 다 "통과했으니 맞다"가 성립하지 않는 자리다. §79 스윕에서 지금까지
+잰 바닥들은 이 기능이 꺼진 상태에서 잰 것이므로, **1 ULP 규모의 바닥을
+근거로 고른 상수는 다시 재야 한다.** 다음 라운드 세트에 배정한다.
