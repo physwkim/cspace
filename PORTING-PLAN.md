@@ -15025,3 +15025,58 @@ scenario 4 loose  (0.2 /Iterations(200)):    unwired 0/5, wired 5/5
 숫자가 조용히 거짓이 된 사례다 — 그리고 그것을 발견한 같은 라운드가 새 표
 여섯 줄을 같은 방식으로 남겼다. 스윕의 scenario 4 loose 행이 그 정정을
 독립적으로 재현한다는 점은 별개로 옳다.
+
+## §196 빈 그룹은 실패하지 않는다 — SRDF 체인 그룹이 비면 그 위의 모든 단언이 공허하게 통과한다
+
+라운드 29가 `HybridCollisionEnv`를 올렸다(`69044f5`, `5e18441`). 상류
+`CollisionEnvHybrid`는 `CollisionEnvFCL`을 상속하고 `cenv_distance_`를
+멤버로 들고, 접미사 없는 `checkCollision`/`checkSelfCollision`/
+`checkRobotCollision`은 재정의하지 않는다 — 직접 헤더를 열어 확인했다
+(`collision_env_hybrid.hpp:48`, 선언된 것은 접미사 붙은 12개뿐).
+
+부수적으로 나온 것이 이 절의 본문이다. 테스트 fixture를 만들다가 발견한
+사실: `RobotModel`의 SRDF 체인 그룹 해석은 **active joint**를 따라 걷는다.
+두 링크 사이가 fixed joint면 그룹은 `link_names == []`로 해석되고, 오류도
+경고도 나지 않는다. 그 그룹 위에 세운 충돌 검사 테스트는 검사할 링크가
+하나도 없으니 전부 통과한다 — 통과의 이유가 "충돌이 없어서"가 아니라
+"볼 것이 없어서"인데, 결과는 초록으로 같다.
+
+해당 fixture는 기본값 0인 revolute joint로 바꿔 실재하게 만들었고, 두
+테스트 모두 내가 직접 무력화해 물리는 것을 확인했다: `build_env_distance_field`의
+world 순회를 `.take(0)`으로 비우면 world-swap 테스트가 실패하고(자기 충돌
+테스트는 world를 쓰지 않으므로 통과 — 올바른 변별), `collision_tolerance`를
+`-0.1`에서 `0.0`으로 되돌리면 불일치 테스트가 실패한다.
+
+### 196.1 이것은 fixture 하나의 문제가 아니다
+
+`[[delete-what-a-test-tests]]`가 기록한 것과 같은 계열이다 — 테스트의
+대상이 사라져도 테스트는 초록이다. 다만 그때는 대상을 지워야 드러났고,
+이번은 **처음부터** 대상이 없었는데 아무도 알 수 없었다. 후자가 더 나쁘다:
+지운 적이 없으니 지워보는 검증으로도 걸리지 않는다.
+
+앵커는 `type="fixed"`가 아니다. 그것은 증상이 나타난 자리다(§191). 결함은
+"SRDF 그룹이 빈 링크 집합으로 해석되는데 그 위에 단언이 세워져 있다"이고,
+fixed joint는 그렇게 되는 여러 경로 중 하나일 뿐이다. 크레이트 전체에서
+`type="fixed"`를 포함하는 인라인 SRDF/URDF fixture는 35군데다 — 세어봤을
+뿐, 그중 몇이 실제로 빈 그룹을 만드는지는 아직 모른다.
+
+### 196.2 구조적 답은 감사가 아니라 fixture가 거절하는 것이다
+
+35군데를 한 번 감사해도 36번째가 같은 방식으로 들어온다. 빈 그룹을 조용히
+쓸 수 없게 만드는 쪽이 닫는 방법이다 — 그룹을 돌려주는 테스트 헬퍼가
+`link_names().is_empty()`를 거절하면 이 결함군은 새로 생길 수 없다.
+상류가 빈 그룹을 허용하고 경고만 찍는다는 사실은 `RobotModel`의 동작을
+바꿀 이유가 아니다. 바꿔야 하는 것은 **테스트가 그것을 모른 채 지나갈 수
+있다**는 쪽이다.
+
+### 196.3 이 포트는 상류보다 world 하나를 덜 갖는다
+
+상류 `CollisionEnvHybrid::setWorld`(`collision_env_hybrid.cpp:163`)는
+`cenv_distance_->setWorld`와 `CollisionEnvFCL::setWorld` **양쪽**에
+전파한다. world를 두 벌 들고 재정의 하나로 동기화를 유지하는 구조이고,
+`CollisionEnvFCL::setWorld`에 직접 닿는 경로가 있으면 그 동기화는 우회된다.
+
+포트는 world를 `parry` 한 곳만 들고 거리장을 매 호출 그것에서 유도한다.
+두 world가 어긋나는 상태가 방어되는 것이 아니라 **표현 불가능**하다.
+그래서 `setWorld` 대응물이 없는 것이 누락이 아니라 결과다 — 그 이유가
+doc에 적혀 있지 않으면 다음 라운드가 누락으로 읽는다.
