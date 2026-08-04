@@ -3,8 +3,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
-//   moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp
-//   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.hpp
+//   moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp
+//   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/kdl_kinematics_plugin.hpp
+// (`KDLKinematicsPlugin::initialize`'s solver-construction tail: resolved
+// joint weights, RNG). This file's `pinv` truncation rule is *not* ported
+// from `chainiksolver_vel_mimic_svd.{hpp,cpp}` — see [`NewtonRaphsonSolver`]'s
+// own doc comment for why citing that LGPL-2.1-or-later file would be wrong
+// even as an interface-fact pointer.
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -19,13 +24,17 @@ use crate::chain::ChainInfo;
 use crate::params::SolverParams;
 use crate::registry::{KINEMATICS_SOLVERS, KinematicsSolver, SolveOptions, SolverRegistration};
 
-/// Ports `ChainIkSolverVelMimicSVD` as upstream actually ships it: the
-/// singular-value pseudo-inverse is *truncated*, not damped — a singular
-/// value at or below `params.svd_threshold * largest_singular_value` is
-/// treated as exactly zero (Eigen's `JacobiSVD::setThreshold`, RELATIVE
-/// mode, which is what upstream's constructor sets it to). Register this
-/// under `"newton_raphson"` in [`KINEMATICS_SOLVERS`], or construct it
-/// directly with [`NewtonRaphsonSolver::new`].
+/// The singular-value pseudo-inverse this solver's velocity step uses is
+/// *truncated*, not damped — a singular value at or below
+/// `params.svd_threshold * largest_singular_value` is treated as exactly
+/// zero. This is Eigen's own public, documented `JacobiSVD::setThreshold`,
+/// RELATIVE mode contract (upstream's constructor sets it to RELATIVE): not
+/// a rule `chainiksolver_vel_mimic_svd.{hpp,cpp}` states anywhere in its own
+/// text — that LGPL-2.1-or-later file only calls `setThreshold`/`solve`, and
+/// the truncation rule itself lives inside Eigen's (MPL2-licensed)
+/// `JacobiSVD` implementation, which this crate has never read. Register
+/// this solver under `"newton_raphson"` in [`KINEMATICS_SOLVERS`], or
+/// construct it directly with [`NewtonRaphsonSolver::new`].
 pub struct NewtonRaphsonSolver {
     model: RobotModel,
     chain: ChainInfo,
