@@ -29,23 +29,35 @@
 //! use a primitive shape), so any world object or attached body that
 //! genuinely collides with the robot exercises
 //! `moveit-collision::parry::mesh_shape_cost_sources`
-//! (`crates/moveit-collision/src/parry.rs:1368-1388`). That function
-//! reports one `CostSource` per intersecting mesh-side triangle, but real
-//! oracle ground truth (recaptured this round against a freshly rebuilt
+//! (`crates/moveit-collision/src/parry.rs:1368-1388`). That function reports
+//! one `CostSource` per intersecting mesh-side triangle, but real oracle
+//! ground truth (recaptured this round against a freshly rebuilt
 //! `moveit-rs/oracle:c88557f4058892e9`) reports exactly one coarse box per
 //! colliding mesh-link/shape pair -- e.g. id 8 below (a 0.05m cube attached
 //! to `panda_hand`, colliding with `panda_link7`) gets 20 triangle-level
-//! boxes from this crate's own `cost_sources()` against 1 from the oracle,
-//! and the union of those 20 matches the oracle's single box almost
-//! exactly. Not a stale-oracle artifact (reproduced against a fresh image)
-//! and not a `removeCostSources`/`removeOverlapping` bug (the state op
-//! never runs that pass, and the same mismatch recurs on the trajectory
-//! op's floor cases). See
-//! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] and
-//! [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`] for the
-//! full citation and the exact numbers; those two tests are `#[ignore]`d
-//! for that reason and are not part of this crate's regression coverage
-//! until `moveit-collision` fixes the underlying function.
+//! boxes from this crate's own `cost_sources()` against 1 from the oracle.
+//! The union of those 20 boxes is *not* a close approximation of the
+//! oracle's one box, it is properly contained by it on two of three axes
+//! (measured: union `y` spans `[0.0585,0.1147]` inside the oracle's
+//! `[0.0508,0.1292]`, union `z_min` is `0.4234` against the oracle's
+//! `0.4154`) -- structural, not coincidental: per `PORTING-PLAN.md` §171,
+//! `fcl::CollisionRequest::use_approximate_cost_` defaults `true` and
+//! `moveit_core` never overrides it, so real upstream mesh-vs-shape cost
+//! computation never reaches the per-triangle traversal this function
+//! implements at all. It instead takes a `checkCollision`-cost-only pass
+//! against the *mesh's BVH root AABB* (`collision_func_matrix-inl.h:330-355`)
+//! -- necessarily a superset of the true per-triangle union, since a BVH
+//! root bound is a conservative bound, not a tight one. Not a stale-oracle
+//! artifact (reproduced against a fresh image) and not a
+//! `removeCostSources`/`removeOverlapping` bug (the state op never runs
+//! that pass, and the same mismatch recurs on the trajectory op's floor
+//! cases). See [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`]
+//! and [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`] for
+//! the full citation and the exact numbers; those two tests are
+//! `#[ignore]`d for that reason and are not part of this crate's regression
+//! coverage until `moveit-collision` fixes the underlying function -- §171
+//! names the fix as reproducing FCL's two-stage dispatch (exact-traversal
+//! contact, BVH-root-box-vs-shape cost), not merging the 20 boxes into one.
 //!
 //! `panda_cost_sources_matches_the_oracle`/
 //! `panda_path_cost_sources_matches_the_oracle` below therefore only run
@@ -393,24 +405,39 @@ fn panda_cost_sources_matches_the_oracle() {
 /// `moveit-collision::parry::mesh_shape_cost_sources`
 /// (`crates/moveit-collision/src/parry.rs:1368-1388`) instead reports one
 /// `CostSource` per intersecting mesh-side triangle -- 20 small boxes for
-/// that same id-8 pair, whose union matches the oracle's single box almost
-/// exactly. Raw upstream FCL (`mesh_shape_collision_traversal_node-inl.h`,
-/// checked locally against `/home/stevek/work/fcl`) calls `addCostSource`
-/// once per intersecting `(triangle, shape)` pair with no merge step in
-/// `CollisionResult::addCostSource`/`getCostSources`, so the per-triangle
-/// design this function's own doc comment describes is what raw FCL's
-/// header says -- yet the oracle, driven through
-/// `CollisionDetectorAllocatorFCL` exactly as the doc comment there
-/// describes, does not produce that many entries. Something between BVH
-/// leaf culling and `query::intersection_test` in the Rust port disagrees
-/// with FCL's narrowphase about how many triangles genuinely intersect the
-/// query shape; this crate cannot isolate which without instrumenting
-/// `moveit-collision` internals, which is out of scope here. Tracked as an
-/// UNFIXED cross-crate blocker in the p1-fixtures round-24 report; remove
-/// this `#[ignore]` once `moveit-collision` is fixed and confirm it passes
-/// with the existing `COST_SOURCE_EPSILON`.
+/// that same id-8 pair, whose union (measured: `[-0.226,0.059,0.423]..
+/// [-0.146,0.115,0.491]`) sits strictly inside the oracle's box on `y` and
+/// `z_min`, not a close approximation of it.
+///
+/// Root cause, per `PORTING-PLAN.md` §171: `fcl::CollisionRequest`'s
+/// `use_approximate_cost_` defaults `true`
+/// (`fcl/include/fcl/narrowphase/collision_request.h:101`) and
+/// `moveit_core` never overrides it
+/// (`collision_detection_fcl/src/collision_common.cpp:228,303,364` all
+/// call the 4-positional-argument constructor). Under that flag,
+/// `collision_func_matrix-inl.h`'s mesh-vs-shape dispatch
+/// (`:330-355`/`:391`) never reaches
+/// `MeshShapeCollisionTraversalNode::leafTesting`'s per-triangle
+/// `addCostSource` -- that is dead code on every path `moveit_core`
+/// actually drives. It instead runs the exact traversal for *contact*
+/// only (`enable_cost=false`), then separately builds one box from the
+/// mesh's BVH root bound (`constructBox(obj1->getBV(0).bv, ...)`) and
+/// collides that single box against the shape for *cost*. mesh-vs-mesh has
+/// no such branch (`BVHCollide`/`orientedMeshCollide` never read
+/// `use_approximate_cost_`), which is why id 1's 75 mesh-vs-mesh entries
+/// match this port exactly while every mesh-vs-shape id here does not: two
+/// different upstream dispatch paths, not one path measured two different
+/// ways. So `mesh_shape_cost_sources`'s per-triangle output is not
+/// "too fine" in isolation -- it is what FCL's own exact cost path would
+/// produce, wired to a branch `moveit_core` never takes. The fix is
+/// reproducing FCL's two-stage dispatch (exact-traversal contact,
+/// BVH-root-box-vs-shape cost), not merging the 20 boxes into one; §171
+/// assigns it to `moveit-collision`'s owner. Tracked as an UNFIXED
+/// cross-crate blocker in the p1-fixtures round report; remove this
+/// `#[ignore]` once `moveit-collision` is fixed and confirm it passes with
+/// the existing `COST_SOURCE_EPSILON`.
 #[test]
-#[ignore = "blocked on a moveit-collision defect: mesh_shape_cost_sources over-reports per-triangle instead of matching the oracle's one coarse box per colliding pair (crates/moveit-collision/src/parry.rs:1368-1388)"]
+#[ignore = "blocked on a moveit-collision defect (PORTING-PLAN.md §171): mesh_shape_cost_sources is wired to FCL's per-triangle exact-cost path, but moveit_core's use_approximate_cost_==true default routes mesh-vs-shape cost through a coarse BVH-root-box dispatch this port never takes (crates/moveit-collision/src/parry.rs:1368-1388)"]
 fn panda_cost_sources_blocked_by_mesh_shape_cost_sources() {
     let model = build_model();
     let srdf = srdf();
@@ -524,7 +551,7 @@ fn panda_path_cost_sources_matches_the_oracle() {
 /// [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`]. Remove this
 /// `#[ignore]` alongside that one once `moveit-collision` is fixed.
 #[test]
-#[ignore = "blocked on a moveit-collision defect: mesh_shape_cost_sources over-reports per-triangle instead of matching the oracle's one coarse box per colliding pair (crates/moveit-collision/src/parry.rs:1368-1388)"]
+#[ignore = "blocked on a moveit-collision defect (PORTING-PLAN.md §171): mesh_shape_cost_sources is wired to FCL's per-triangle exact-cost path, but moveit_core's use_approximate_cost_==true default routes mesh-vs-shape cost through a coarse BVH-root-box dispatch this port never takes (crates/moveit-collision/src/parry.rs:1368-1388)"]
 fn panda_path_cost_sources_blocked_by_mesh_shape_cost_sources() {
     let model = build_model();
     let srdf = srdf();
