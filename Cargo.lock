@@ -411,6 +411,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-planners-chomp"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+ "moveit-model",
+ "moveit-srdf",
+ "moveit-state",
+ "moveit-trajectory",
+ "nalgebra",
+ "serde",
+ "serde_json",
+ "urdf-rs",
+]
+
+[[package]]
 name = "moveit-planners-pilz"
 version = "0.1.0"
 dependencies = [

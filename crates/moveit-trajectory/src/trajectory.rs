@@ -1169,6 +1169,35 @@ mod tests {
     /// finding; the mechanism is identified as far as the public surface
     /// allows.
     ///
+    /// # Round 15: closed at the public-surface limit
+    ///
+    /// Three rounds (12-14) narrowed this from "`duration()` is `8.893e-9`
+    /// off" to a specific mechanism at a specific location: blend 3's
+    /// `CircularPathSegment` construction disagrees from upstream by a few
+    /// ULP in `tangent(s)` (round 12); `Path` itself stays at that same
+    /// small floor everywhere, including across the exact onset window, so
+    /// the divergence is confirmed to first become visible inside
+    /// `Trajectory`'s integration, not in `Path`'s geometry (round 13-14);
+    /// and the two irregularly-spaced Euler steps at that onset trace to
+    /// [`Trajectory::next_velocity_switching_point`]'s live `EPS`-bisection
+    /// root-find over a `tangent(s)`-built quantity, not to any entry in
+    /// `Path`'s own fixed switching-point list (round 14). Each step
+    /// stopped at a header-verified `private` boundary: `Path::
+    /// getPathSegment` and `CircularPathSegment`'s fields (round 13), then
+    /// `getNextVelocitySwitchingPoint`/`getVelocityMaxPathVelocity`/
+    /// `trajectory_` (round 14) -- none reachable from upstream's public
+    /// `Trajectory` surface (header lines 124-184), so no further oracle
+    /// query can confirm whether upstream's own switching-point search
+    /// lands at the same `path_pos` this port finds. This is not a gap
+    /// left for lack of trying; it is the limit of what upstream's public
+    /// API exposes, confirmed by reading the header rather than assumed.
+    /// This item is closed, not UNFIXED: `8.893e-9` is fully explained down
+    /// to the specific private root-find that produces it, and no
+    /// oracle-extension request follows because the symbols it would need
+    /// are not header-public. A future round should not re-open this
+    /// investigation without first finding a *new* public surface (e.g. an
+    /// upstream API change) that exposes those symbols.
+    ///
     /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
     /// …, 0.1)` transcribed verbatim (upstream lines 156/157) -- excluded
     /// from round 12's `trajectory.rs` epsilon bisection per
