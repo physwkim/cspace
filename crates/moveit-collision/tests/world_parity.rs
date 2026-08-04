@@ -41,7 +41,7 @@ use serde::Deserialize;
 
 use moveit_collision::World;
 use moveit_geometry::{Isometry3, Shape, Sphere};
-use nalgebra::{Matrix3, Translation3, UnitQuaternion};
+use moveit_test_support::isometry_from_row_major;
 
 #[derive(Deserialize)]
 struct RequestObject {
@@ -116,13 +116,6 @@ fn load_response() -> WorldDump {
     let response: OracleResponse =
         serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse world_response.json: {e}"));
     response.result
-}
-
-/// Row-major 4x4, matching `toRowMajor4x4`/`fromRowMajor4x4` in `oracle.cpp`.
-fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Translation3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
 }
 
 fn assert_isometry_eq(actual: Isometry3, expected_row_major: &[f64; 16]) {

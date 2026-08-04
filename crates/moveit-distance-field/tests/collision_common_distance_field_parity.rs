@@ -77,7 +77,7 @@ use moveit_geometry::{Isometry3, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
-use nalgebra::{Matrix3, Translation3, UnitQuaternion};
+use moveit_test_support::isometry_from_row_major;
 
 /// Measured-margin tolerance, not policy: this constant used to pin `1e-4`,
 /// PORTING-PLAN.md §5 Phase 3's stated distance tolerance, matching
@@ -125,13 +125,6 @@ fn fixture_path(file_name: &str) -> String {
 fn read_fixture(file_name: &str) -> String {
     let path = fixture_path(file_name);
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
-}
-
-/// Row-major 4x4, matching the oracle's `toRowMajor4x4`/`fromRowMajor4x4`.
-fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Translation3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
 }
 
 fn build_pr2_model() -> RobotModel {

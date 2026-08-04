@@ -1,21 +1,24 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! Shared test-fixture assertions for moveit-rs crates.
+//! Shared test-fixture helpers for moveit-rs crates -- assertions that guard
+//! against a specific fixture defect, and small conversions oracle-parity
+//! fixtures need on both sides of a comparison.
 //!
-//! Not a port of any upstream file -- upstream has no equivalent, since this
-//! guards against a defect specific to *this* port's test fixtures, not
-//! upstream's own (`RobotModel::updated_link_names()` is this port's own
-//! accessor; nothing in moveit2 needs a matching test-side gate). See
-//! [`assert_group_has_updated_links`]'s own doc for the defect it closes.
+//! Not a port of any upstream file -- upstream has no equivalent test-side
+//! machinery of its own. See [`assert_group_has_updated_links`]'s and
+//! [`isometry_from_row_major`]'s own docs for what each closes.
 //!
 //! Listed under `[dev-dependencies]` only, never `[dependencies]`: every
 //! function here exists to be called from a `#[cfg(test)]` fixture builder.
-//! It was first written independently in two places --
-//! `moveit-distance-field`'s own `#[cfg(test)] mod test_support` and inline
-//! `assert!`s in `moveit-planners-chomp`'s `optimizer.rs`/`planner.rs` --
-//! before being lifted here so both route through one definition instead of
-//! two copies drifting apart.
+//! Each was first written independently in more than one crate --
+//! [`assert_group_has_updated_links`] in `moveit-distance-field`'s own
+//! `#[cfg(test)] mod test_support` and inline `assert!`s in
+//! `moveit-planners-chomp`'s `optimizer.rs`/`planner.rs`;
+//! [`isometry_from_row_major`] byte-for-byte identically in five
+//! oracle-parity test files across `moveit-distance-field` and
+//! `moveit-collision` -- before being lifted here so every call site routes
+//! through one definition instead of copies drifting apart.
 //!
 //! A `#[cfg(test)]`-gated module in one crate cannot be imported by another
 //! crate's tests at all, so some cross-crate boundary was unavoidable once a
@@ -30,6 +33,20 @@
 //! moveit-test-support` gate always sees it.
 
 use moveit_model::RobotModel;
+use nalgebra::{Isometry3, Matrix3, Translation3, UnitQuaternion};
+
+/// Row-major 4x4 -> [`nalgebra::Isometry3`], matching the oracle's own
+/// `toRowMajor4x4`/`fromRowMajor4x4` (`oracle.cpp`) -- the shape every
+/// oracle-parity fixture's pose fields are dumped in. Independently
+/// reimplemented byte-for-byte identically in five oracle-parity test files
+/// across `moveit-distance-field` and `moveit-collision` before being lifted
+/// here; see this crate's module doc for why a shared crate, not a shared
+/// `#[cfg(test)]` module, is what closes that kind of duplication.
+pub fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3<f64> {
+    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
+    let translation = Translation3::new(m[3], m[7], m[11]);
+    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
+}
 
 /// Fails loudly, at fixture-construction time, if `group_name`'s
 /// `updated_link_names()` is empty -- the set every group-scoped

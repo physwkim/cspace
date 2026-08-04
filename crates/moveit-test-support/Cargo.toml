@@ -11,6 +11,7 @@ publish = false
 
 [dependencies]
 moveit-model.workspace = true
+nalgebra.workspace = true
 
 [dev-dependencies]
 moveit-srdf.workspace = true
