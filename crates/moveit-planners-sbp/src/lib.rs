@@ -40,7 +40,7 @@
 //!   from a [`joint_model_group_space::JointModelGroupSpace`] sample to a
 //!   real `moveit_scene::PlanningScene` collision/constraint check.
 //! - [`nn`] — [`Gnat`], the nearest-neighbour index.
-//! - [`rrt_connect`] — bidirectional RRT-Connect.
+//! - `rrt_connect` — bidirectional RRT-Connect.
 //! - [`registry`] — [`registry::PlannerManager`]/[`registry::PlanningContext`]
 //!   and the [`registry::PLANNER_MANAGERS`] compile-time registry (D4),
 //!   plus [`registry::RrtConnectManager`], the one registered planner.
@@ -277,7 +277,7 @@
 //! separately:
 //!
 //! - The state-space/algorithm modules ([`space`], [`so2`], [`se3`],
-//!   [`compound`], [`nn`], [`rrt_connect`]) have **no upstream C++ file at
+//!   [`compound`], [`nn`], `rrt_connect`) have **no upstream C++ file at
 //!   all** (D3, see the top-of-file comment) — there is no OMPL header in
 //!   this workspace to audit them against, so they are out of scope for a
 //!   symbol-closure audit by construction, not by omission.

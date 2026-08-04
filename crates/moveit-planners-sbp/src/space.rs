@@ -25,7 +25,7 @@ use crate::sampling::{sample_ball_radius_fraction, sample_unit_vector};
 /// (shortest arc, not linear difference, see [`crate::so2::So2Space`]) or an
 /// SO(3) orientation (geodesic, not linear blend, see
 /// [`crate::se3::Se3Space`]) without changing anything in [`crate::nn`] or
-/// [`crate::rrt_connect`] — both are written only against this trait.
+/// `rrt_connect` — both are written only against this trait.
 ///
 /// # Object safety
 ///

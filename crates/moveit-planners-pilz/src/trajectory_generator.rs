@@ -67,7 +67,7 @@
 //! `associated_fixed_transforms_`/rigidly-connected-parent search either
 //! (both are documented absences in `moveit-model`/`moveit-state`, not gaps
 //! this crate can quietly work around). [`check_cartesian_goal`] instead
-//! scans [`moveit_kinematics::KINEMATICS_SOLVERS`], attempts to build each
+//! scans [`static@moveit_kinematics::KINEMATICS_SOLVERS`], attempts to build each
 //! registered solver for `(robot_model, group_name)`, and accepts the goal if
 //! any constructed solver's [`moveit_kinematics::KinematicsSolver::tip_frame`]
 //! equals the requested link exactly. There is no fixed-transform-chain
@@ -703,7 +703,7 @@ pub fn check_joint_goal(
 /// # Errors
 ///
 /// [`MoveItErrorCode::InvalidGoalConstraints`] if `link_name` is empty.
-/// [`MoveItErrorCode::NoIkSolution`] if no [`KINEMATICS_SOLVERS`] entry can
+/// [`MoveItErrorCode::NoIkSolution`] if no [`static@KINEMATICS_SOLVERS`] entry can
 /// be built for `group_name` with `link_name` as its tip.
 pub fn check_cartesian_goal(
     robot_model: &RobotModel,

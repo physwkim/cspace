@@ -58,7 +58,7 @@ pub(crate) fn sample_ball_radius_fraction(rng: &mut dyn Rng, dim: usize) -> f64 
 }
 
 /// `n` nonnegative fractions summing to `1.0`, drawn uniformly from the
-/// `(n - 1)`-simplex -- e.g. [`crate::compound::CompoundSpace::sample_near`]
+/// `(n - 1)`-simplex -- e.g. `CompoundSpace`'s own `sample_near`
 /// splitting a radius budget fairly across a heterogeneous set of subspaces.
 ///
 /// `n` independent `Exponential(1)` draws (`-ln(uniform)`), normalized to

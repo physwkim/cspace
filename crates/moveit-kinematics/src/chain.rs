@@ -104,7 +104,7 @@ pub(crate) struct ChainInfo {
     /// ([`moveit_model::joint::RevoluteJoint::is_continuous`]). Copied here
     /// rather than looked up through a live model reference at solve time,
     /// the same way [`ChainInfo::active_min`]/[`ChainInfo::active_max`] are:
-    /// [`crate::cart_to_jnt::near_by_configuration`] needs it to reproduce
+    /// `cart_to_jnt::near_by_configuration` needs it to reproduce
     /// `RevoluteJointModel::getVariableRandomPositionsNearBy`'s own
     /// `continuous_` branch (`revolute_joint_model.cpp:122-136`), which
     /// samples `near ± limit` unclamped and wraps into range instead of

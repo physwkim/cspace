@@ -15720,3 +15720,125 @@ row 14(`radius_sweep`)도 함께 붉어진다 — 패널이 "14/15는 별도 bit
 
 `verify-fixture-replay.sh` 49/49 → 51/51 identical. 오라클 스탬프
 `043ed31a2186fe4e` 불변.
+
+## §208 트립와이어가 처음으로 울린 라운드, 그리고 손으로 적은 목록 두 개를 지운 라운드
+
+여덟 패널이 모두 idle이 되어 여섯 브랜치 11개 커밋을 한 번에 병합했다.
+`--workspace` 게이트 전부 green(1598/1598), `check-*.sh` 8종, `verify-*.sh`
+7종, `ros/verify-ros-interop.sh` 4/4.
+
+### §208.1 §205의 트립와이어가 실제로 값을 냈다
+
+p9-ros(`cd425e9`)는 네 개의 wire-path 테스트를 **현재의 (틀린) 거부 동작을
+assert하도록** 썼다. `#[ignore]`가 아니라 green인 채로 두어, D14가 착지하는
+순간 자동으로 붉어지게 한 것이다. 같은 병합 라운드에 p1-robotmodel의
+D14(`551b719`)가 들어왔고, 네 개가 전부 붉어졌다. 각 `Ok` 값이
+`weight: 1.0`을 달고 있었다 — D14가 `TryFrom` 체인 전체를 통과해 네 타입
+모두에서 동작한다는 것을, 읽어서가 아니라 실행해서 알았다. 전환은
+`932b7bf`.
+
+전환이 쉬웠던 이유는 패널이 주석에 "울리면 무엇을 하라"까지 적어뒀기
+때문이다(`replace that test with assert_eq!(c.weight(), 1.0)`). 울릴 조건만
+적힌 트립와이어는 다음 사람에게 붉은 테스트 하나를 남길 뿐이다.
+
+`#[ignore]`였다면 D14 착지 사실은 아무 신호도 내지 않았고, 테스트는
+"원하는 동작"을 assert한 채 영원히 skip되었을 것이다 — §184/§197.3이
+두 번 닫은 그 모양 그대로.
+
+### §208.2 손으로 적은 목록은 두 층 모두에서 같은 방향으로 실패한다
+
+p1-fixtures가 두 가지를 찾았고 둘 다 `tools/ci`(내 소유)였다.
+
+1. `verify-vendored-fixture-tests.sh`의 `TESTS` 배열이 손으로 유지된다.
+   새 `#[ignore = "needs third_party/moveit_resources"]` 테스트는 배열에
+   추가되지 않고 **그냥 안 돈다** — 이 스크립트가 닫으려던 never-runs
+   결함이 한 층 위에서 재현된 것. `81e6867`이 attribute 자체에서
+   `mapfile`로 유도하고 `attr_count` 자기검사를 붙였다. 세 번째
+   `#[ignore]` 테스트를 넣어 실행 수가 스크립트 수정 없이 3으로 가는 것을
+   확인했다.
+2. **어떤 `verify-*.sh`를 매 라운드 돌릴지가 산문으로 손에 적혀 있었다.**
+   내 라운드-17 브리프는 당시 여섯 중 셋만 이름 붙였다. 같은 결함,
+   한 층 위. `1a9fc39`의 `tools/ci/verify-all.sh`가 glob으로 열거를
+   대체한다(자기 자신 제외, 하나 실패해도 전부 실행, 실패를 모아 보고).
+   `sg docker -c ./tools/ci/verify-all.sh` 하나가 이제 게이트다.
+
+`--type rust` 제약이 하중을 받는다: 없으면 `attr_count`가 스크립트 자신의
+주석에 인용된 attribute까지 세어 **틀린 이유로 통과한다**. 패널이 양쪽 다
+돌려서 잡았다.
+
+### §208.3 측정을 넓게 서술하는 것은 부정 주장에서 특히 비싸다
+
+p3-shapes(`b9a64bb`)의 doc이 "1..=200 covers every num_timesteps"라고
+쓰는데 코드는 `1..=60` 연속 + `[80, 100, 150, 200]` 네 점이다. `61..=199`의
+나머지는 검사되지 않는다. §189의 모양 그대로지만, 이 경우 **doc이 그
+측정에서 끌어내는 결론이 부정 주장**("어떤 호출자도 생성자가 거부하는
+covariance에 도달할 수 없다")이라는 점이 다르다. 부정 주장은 실제로 훑은
+집합만큼만 강하다. `8351f8d`에서 양쪽을 다 적고 빈 구간을 명시했다.
+커밋 메시지의 같은 문장은 이미 history에 있어 고칠 수 없다.
+
+### §208.4 deviation 6의 숫자가 이 저장소에서 재현 가능해졌다 — §200.1 닫힘
+
+p3-acm의 `34480c8`을 읽지 않고 돌렸다. `build.sh`가 libccd v2.1을
+`CCD_DOUBLE`로 소스 빌드하고, Rust 예제가 재구성한 기하를 파이프로 먹여
+`mpr_depth=7.47919999515277989e-02` — README가 주장하는 숫자와 정확히 같다.
+EPA는 `-0.020869698793459224`. `384f80c`의 `verify-mpr-vs-epa.sh`가 두 값을
+1e-9 상대오차로 게이트하고, v2.1 체크아웃이 없으면 **큰 소리로** SKIP한다.
+어느 쪽 값이든 그 이상 흔들면 실패하는 것을 확인했다.
+
+다만 이것으로 deviation 6이 **클래스로서** 닫힌 것은 아니다. 케이스 하나다.
+p3-acm에 N개로 확장하고 부호가 뒤집히는 케이스를 찾으라고 넘겼다 — MPR이
+EPA보다 얕은 케이스가 하나라도 있으면 "by construction"이라는 절반이
+반증된다.
+
+## §209 §198의 "값싼 닫기 없음"이 틀렸다 — 절반은 플래그 하나였다
+
+§198은 `cargo doc`가 자기가 문서화하는 항목까지만 검사한다는 것을 기록하고,
+노출 규모(61파일 / 3649줄 / 링크 있는 350줄)를 적은 뒤 **값싼 기계적 닫기가
+없다**고 결론냈다. 그 결론의 절반이 틀렸다.
+
+`RUSTDOCFLAGS="--document-private-items" cargo doc --workspace --no-deps`
+한 번이 **깨진 링크 36개**를 즉시 뱉는다. 원인은 단순하다:
+`crates/moveit-collision/src/lib.rs:76`은 `mod parry;`이지 `pub mod`가
+아니다. 그래서 `parry.rs`의 모듈 헤더 — 이 저장소에서 가장 긴 doc 중
+하나이고 deviation 1~11이 전부 거기 산다 — 는 렌더링된 적도, 링크가
+검사된 적도 없다. 다른 private 모듈도 전부 같다.
+
+발견된 것(모두 `0463136`에서 수정):
+
+- unresolved 36: 대부분 다른 크레이트 타입을 import 없이 bare로 링크
+  (`[`JointModelGroup`]`), 존재하지 않는 경로
+  (`moveit_model::PlanarJoint::…` — 실제로는 `moveit_model::joint::PlanarJoint`),
+  private 테스트 이름 링크, 그리고 `crate::iter::Leaf`처럼 아예 없는 모듈.
+- ambiguous 8+4: `KINEMATICS_SOLVERS`(static이자 macro),
+  `query::contact`(함수이자 모듈), `rrt_connect`(함수이자 모듈).
+- redundant explicit target 4개.
+
+### §209.1 고치는 과정에서 내가 두 개를 새로 만들었다
+
+`[`Compound`]`을 `[`parry3d_f64::shape::Compound`]`로 일괄 치환했더니
+이미 명시적 타깃을 달고 있던
+`[`Compound`](parry3d_f64::shape::Compound)` 한 자리가
+`[`X`](X)` 꼴이 되어 redundant 오류가 났다. 또
+`[`crate::rrt_connect`]`를 `mod@`로 명확화했더니 이번엔 **private 모듈을
+public doc이 링크한다**는 다른 오류로 바뀌었다(모듈이 `mod rrt_connect;`,
+공개된 것은 `pub use`된 항목들뿐). 둘 다 코드 스팬으로 되돌렸다.
+
+일괄 치환이 자기가 만든 새 오류를 남기는 것 — 게이트가 없었으면 둘 다 다음
+라운드까지 보이지 않았을 종류다. 게이트를 먼저 세우고 고쳤기 때문에 같은
+자리에서 잡혔다.
+
+### §209.2 `#[cfg(test)]` 절반은 여전히 열려 있고, 왜 열려 있는지가 중요하다
+
+`--cfg test`를 RUSTDOCFLAGS에 더하면 rustdoc이 `#[cfg(test)]` 모듈을
+보긴 한다. 그러나 doc 빌드는 dev-dependency를 링크하지 않으므로
+`approx`, `rand_chacha`, `moveit_sampling` 등의 import에서 컴파일이
+깨진다. 즉 이 절반은 플래그 하나로 닫히지 않는다 — §198의 결론은 이쪽에
+대해서는 맞았다. `verify-private-doc-links.sh`(`eda6f46`) 헤더에 이
+사실과 "플래그를 지우고 닫혔다고 부르지 말 것"을 적어뒀다.
+
+### §209.3 규칙
+
+"값싼 닫기가 없다"는 결론은 **시도한 명령을 적지 않으면** 검증 불가능한
+주장이다. §198은 노출 규모는 숫자로 적었지만 무엇을 시도해봤는지는 적지
+않았다. 다음에 같은 형태의 결론을 쓸 때는 시도한 명령과 그 출력이 함께
+가야 한다 — 그것이 §189가 측정에 대해 요구하는 것과 같은 요구다.

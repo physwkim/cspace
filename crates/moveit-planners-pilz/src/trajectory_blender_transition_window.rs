@@ -216,7 +216,7 @@ pub struct TrajectoryBlendResponse<'m> {
 /// [`MoveItErrorCode::InvalidMotionPlan`] if `req.blend_radius` is too
 /// large for either trajectory to have a crossing point (upstream's
 /// "Blend radius too large"). [`MoveItErrorCode::NoIkSolution`] if no
-/// [`moveit_kinematics::KINEMATICS_SOLVERS`] entry can be built for
+/// [`static@moveit_kinematics::KINEMATICS_SOLVERS`] entry can be built for
 /// `req.group_name` with `req.link_name` as its tip, or the blended
 /// Cartesian path is not reachable from it.
 /// [`MoveItErrorCode::PlanningFailed`] if a blended sample violates a

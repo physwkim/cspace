@@ -107,7 +107,7 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::Failure`] if `req.goal` is a joint-space target and
-    /// no [`moveit_kinematics::KINEMATICS_SOLVERS`] entry can be built for
+    /// no [`static@moveit_kinematics::KINEMATICS_SOLVERS`] entry can be built for
     /// `req.group_name` (upstream's `getSolverTipFrame` failure). [`MoveItErrorCode::NoIkSolution`]
     /// if `req.goal` is a Cartesian target with no reachable IK solution.
     fn extract_motion_plan_info(
@@ -174,7 +174,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`MoveItErrorCode::NoIkSolution`] if no [`moveit_kinematics::KINEMATICS_SOLVERS`]
+    /// [`MoveItErrorCode::NoIkSolution`] if no [`static@moveit_kinematics::KINEMATICS_SOLVERS`]
     /// entry can be built for `req.group_name` with `info.link_name` as its tip.
     /// Otherwise, see [`generate_joint_trajectory`].
     fn plan(
@@ -254,7 +254,7 @@ impl CartesianPath for LinSegment {
 ///
 /// # Errors
 ///
-/// [`MoveItErrorCode::Failure`] if no [`moveit_kinematics::KINEMATICS_SOLVERS`]
+/// [`MoveItErrorCode::Failure`] if no [`static@moveit_kinematics::KINEMATICS_SOLVERS`]
 /// entry can be built for `group_name` (upstream's `NoSolverException`).
 fn solver_tip_frame(robot_model: &RobotModel, group_name: &str) -> Result<String> {
     let params = SolverParams::default();
