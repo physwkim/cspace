@@ -200,6 +200,29 @@ mod tests {
     /// catch that class of bug instead. A prior version of this doc
     /// claimed protection against "this function's normalization" too --
     /// that was untested and wrong, per this same bite-check.
+    ///
+    /// # Not the same shape as a smoke test (round: margin audit follow-up)
+    ///
+    /// This test body has two separate assertions per `n`, and only one of
+    /// them is loose. `cond < failure_threshold / 1e4` is the wide-margin
+    /// claim (four to five orders of magnitude, see above) -- deliberately
+    /// loose, matching this test's own name, and not meant to be tight: it
+    /// answers "are we anywhere near Cholesky failure," not "is the
+    /// coefficient table exactly right." `(cond - expected_cond).abs() <
+    /// expected_cond * tolerance` (`tolerance = 0.05`) is the tight
+    /// companion: it pins the measured condition number to within 5% of a
+    /// specific expected value, and it is this assertion, not the wide one,
+    /// that the bite-check above actually exercises -- re-run this round
+    /// (`FINITE_CENTRAL_DIFF_COEFFS`'s acceleration row, `-30.0/12.0` to
+    /// `-30.5/12.0`, reverted, `git diff` confirmed clean before
+    /// committing): this test still reddens on `expected_cond`, unchanged
+    /// from the prior round's result. So unlike
+    /// `moveit-stomp-core::stomp::tests`' six `solve_*_converges` tests
+    /// (see `BIAS_THRESHOLD`'s own doc, reclassified this round as smoke
+    /// tests with no hidden tight reading), a wide margin on one assertion
+    /// here does not mean the test lacks power -- it means the power lives
+    /// in the *other* assertion, which this bite-check already confirmed
+    /// catches a real regression.
     #[test]
     fn acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure() {
         // (n, expected order-of-magnitude condition number, generous
