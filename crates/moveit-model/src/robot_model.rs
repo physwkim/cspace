@@ -932,6 +932,24 @@ fn construct_shape(
 /// [`crate::Diagnostic::UnsupportedLinkGeometry`] `detail` rather than
 /// collapsed into one "mesh" reason, so a residual sweep disagreement names
 /// its cause instead of just "mesh".
+///
+/// # Deviation from upstream: an unreadable mesh file aborts the whole model,
+/// unlike this function's other failure modes
+///
+/// Verified against `robot_model.cpp:1256-1291`: `constructShape`'s `MESH`
+/// case calls `shapes::createMeshFromResource`, which returns `nullptr` on a
+/// read failure (`mesh_operations.cpp`'s `CONSOLE_BRIDGE_logWarn` +
+/// `return nullptr` paths); the caller (`robot_model.cpp:1189-1191`,
+/// `if (s) { shapes.push_back(s); ... }`) then just skips that one shape —
+/// no error, no diagnostic, the link ends up with fewer collision shapes.
+/// This function's own unresolvable-path and unparseable-STL branches
+/// (above) already reproduce that graceful-degradation behavior via
+/// [`ShapeOrUnsupported::Unsupported`]. The `std::fs::read` failure branch
+/// below does not: it returns `Err`, which `apply_link_geometry`'s `?`
+/// propagates all the way out of [`RobotModel::from_urdf_and_srdf`], aborting
+/// construction of the entire model over one link's one unreadable mesh
+/// file — an inconsistency with this function's own stated design, not a
+/// deliberate choice; flagged here rather than silently left undocumented.
 fn construct_mesh_shape(
     filename: &str,
     scale: Option<urdf_rs::Vec3>,
