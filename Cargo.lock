@@ -471,11 +471,14 @@ version = "0.1.0"
 dependencies = [
  "moveit-error",
  "moveit-model",
+ "moveit-sampling",
  "moveit-srdf",
  "moveit-state",
  "moveit-stomp-core",
  "moveit-trajectory",
  "nalgebra",
+ "rand",
+ "rand_chacha",
  "urdf-rs",
 ]
 
