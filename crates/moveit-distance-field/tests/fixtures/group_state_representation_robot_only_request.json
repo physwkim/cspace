@@ -1,0 +1,135 @@
+[
+  {
+    "contacts": true,
+    "group": "right_arm",
+    "id": 1,
+    "joint_values": {},
+    "mode": "robot_only",
+    "objects": [
+      {
+        "id": "env_sphere_clear",
+        "pose": [
+          1,
+          0,
+          0,
+          0.55,
+          0,
+          1,
+          0,
+          1.0,
+          0,
+          0,
+          1,
+          1.28,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "radius": 0.05,
+          "type": "sphere"
+        }
+      }
+    ],
+    "op": "group_state_representation",
+    "use_acm": true
+  },
+  {
+    "contacts": true,
+    "group": "right_arm",
+    "id": 2,
+    "joint_values": {},
+    "mode": "robot_only",
+    "objects": [
+      {
+        "id": "env_sphere",
+        "pose": [
+          1,
+          0,
+          0,
+          0.5713817184580412,
+          0,
+          1,
+          0,
+          -0.188,
+          0,
+          0,
+          1,
+          1.2808756763013027,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "radius": 0.05,
+          "type": "sphere"
+        }
+      }
+    ],
+    "op": "group_state_representation",
+    "use_acm": true
+  },
+  {
+    "contacts": true,
+    "group": "right_arm",
+    "id": 3,
+    "joint_values": {},
+    "mode": "robot_only",
+    "objects": [
+      {
+        "id": "env_sphere",
+        "pose": [
+          1,
+          0,
+          0,
+          0.5713817184580412,
+          0,
+          1,
+          0,
+          -0.188,
+          0,
+          0,
+          1,
+          1.2808756763013027,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "radius": 0.05,
+          "type": "sphere"
+        }
+      },
+      {
+        "id": "env_sphere_clear",
+        "pose": [
+          1,
+          0,
+          0,
+          0.55,
+          0,
+          1,
+          0,
+          1.0,
+          0,
+          0,
+          1,
+          1.28,
+          0,
+          0,
+          0,
+          1
+        ],
+        "shape": {
+          "radius": 0.05,
+          "type": "sphere"
+        }
+      }
+    ],
+    "op": "group_state_representation",
+    "use_acm": true
+  }
+]

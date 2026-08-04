@@ -852,6 +852,47 @@ acceleration override. The other five overrides all correspond to a
 case's own measured max genuinely exceeding the shared constant, so no
 further holes exist in this table.
 
+**Case E's own two constants, excluded above as predating Case F, checked
+against the same rule** (not part of the seven-constant count, but not
+an unexamined gap either):
+
+| case | channel | measured | shared | override | needed? |
+|---|---|---:|---:|---:|---|
+| 112° (case E) | velocity | `8.276e-8` | `8e-8` | `1e-7` | yes -- exceeds shared |
+| 112° (case E) | acceleration | `1.6513e-6` | `1.2e-6` | `2e-6` | yes -- exceeds shared |
+| 112°, r=0.08 (Case I) | position | `1.2312e-8` | `1e-8` | `1.5e-8` | yes -- exceeds shared |
+| 112°, r=0.08 (Case I) | velocity | `1.1429e-7` | `8e-8` | `1.4e-7` | yes -- exceeds shared |
+| 112°, r=0.08 (Case I) | acceleration | `2.2703e-6` | `1.2e-6` | `2.8e-6` | yes -- exceeds shared |
+
+Both of case E's own constants are genuine excesses over the shared
+ceiling, same as the seven Case F added and the three Case I added
+later in this file -- no hole in either. Every override constant this
+file has ever carried is now accounted for in one of the two tables
+above, and `check-pilz-tolerance-overrides.sh` (see "Mechanizing the
+tolerance-hole audit" below) keeps that true for whatever is added
+next.
+
+**Which case breaks first if `VELOCITY_TOLERANCE`/`ACCELERATION_TOLERANCE`
+were tightened.** Restricting to cases that run a channel on the shared
+constant directly (no override in that channel, so tightening the shared
+constant is the only way that case's own pass/fail line moves):
+
+| channel | tightest case | measured | shared | margin (shared / measured) |
+|---|---|---:|---:|---:|
+| velocity | 110° | `7.9133e-8` | `8e-8` | **1.011x** |
+| acceleration | 60° | `1.1279e-6` | `1.2e-6` | **1.064x** |
+
+`panda_blend_corner110` would be the first casualty of any
+`VELOCITY_TOLERANCE` tightening -- its own margin is already under
+1.2%, thinner than every other no-override case in the sweep.
+`panda_blend_corner60` is the equivalent pinch point for
+`ACCELERATION_TOLERANCE`. **Nothing in-tree currently said this before
+this round** -- `VELOCITY_TOLERANCE`'s and `ACCELERATION_TOLERANCE`'s own
+doc comments in `pilz_blend_parity.rs` documented how each was measured
+and margined when first set, but neither named which
+currently-shared-tolerance case was closest to the edge. Both doc
+comments now carry that warning directly, not just this section.
+
 ## Case I: does the case C near-tie come from radius, from angle, or from neither alone
 
 Four fixtures now give three radius/angle combinations at the two
@@ -1016,3 +1057,87 @@ picks it up automatically, the same glob every other no-docker checker
 in this directory already relies on -- no `verify-all.sh` edit needed,
 since that script's glob is `verify-*.sh` and is reserved for the
 docker/oracle-dependent scripts specifically (see its own header).
+
+## Crate-wide sweep for the same defect family, beyond tolerances
+
+**Anchor:** a named constant that overrides a shared constant of the
+same kind, in the direction that weakens what a check can catch
+(a wider tolerance, a looser bound, a disabled validation), for a
+specific case rather than for a demonstrated general need. The
+tolerance-hole audit above is one instance of this shape, not its
+definition -- widened here to cover any constant, not just
+`*_TOLERANCE` ones, and any file in the crate, not just
+`pilz_blend_parity.rs`.
+
+**Sites:** every top-level `const` in `crates/moveit-planners-pilz/`
+(`rg -n '^\s*(pub )?const [A-Z0-9_]+\s*:' crates/moveit-planners-pilz/ --glob '*.rs'`,
+27 hits) plus every `..Default::default()` partial-struct-init site
+(`rg -n '\.\.Default::default\(\)' crates/moveit-planners-pilz/ --glob '*.rs'`,
+26 hits, all in `src/`, none in a test file outside the four
+`*_parity.rs` fixture builders already covered by the anchor's own
+tolerance family):
+
+- `pilz_blend_parity.rs`: `TIME_TOLERANCE`, `POSITION_TOLERANCE`,
+  `VELOCITY_TOLERANCE`, `ACCELERATION_TOLERANCE` (shared) plus ten
+  per-case overrides, `CHECK_SELF_COLLISION`.
+- `pilz_trajectory_parity.rs`: `TOLERANCE`.
+- `pilz_trajectory_lin_parity.rs`: `TIME_TOLERANCE`,
+  `POSITION_TOLERANCE`, `VELOCITY_TOLERANCE`, `ACCELERATION_TOLERANCE`,
+  `CHECK_SELF_COLLISION`.
+- `pilz_trajectory_circ_parity.rs`: same four tolerance names,
+  `CHECK_SELF_COLLISION`.
+- `src/trajectory_generator.rs`: `MIN_SCALING_FACTOR`,
+  `MAX_SCALING_FACTOR`, `VELOCITY_TOLERANCE`.
+- `src/velocity_profile.rs`: `KDL_EPSILON`, a function-local `EPSILON`.
+- `src/trajectory_generator_ptp.rs`: `MIN_MOVEMENT`,
+  `PANDA_ARM_JOINTS`.
+- `src/trajectory_blender_transition_window.rs`: `EPSILON`.
+- `src/path_circle.rs`: `MAX_RADIUS_DIFF`, `MAX_COLINEAR_NORM`.
+- `src/trajectory_functions.rs`: two function-local `EPSILON`
+  constants (`10e-6`, `10e-06` -- same value, different functions).
+
+**Same defect at:** none. The ten `pilz_blend_parity.rs` overrides
+already found and closed above are the only instance of a named
+constant standing in for a shared constant of the same kind in a
+specific case.
+
+**Distinct, skip:**
+
+- `pilz_trajectory_parity.rs`/`pilz_trajectory_lin_parity.rs`/`pilz_trajectory_circ_parity.rs`'s
+  own `TIME_TOLERANCE`/`POSITION_TOLERANCE`/`VELOCITY_TOLERANCE`/`ACCELERATION_TOLERANCE`
+  share names with `pilz_blend_parity.rs`'s but are four independent
+  files' own single flat tolerance sets, each used uniformly by every
+  test in that file -- there is no per-case override *within* any of
+  these three files for the anchor to find; a name collision across
+  files is not the same constant being overridden.
+- `src/trajectory_generator.rs`'s `VELOCITY_TOLERANCE`,
+  `src/velocity_profile.rs`'s `KDL_EPSILON`, `src/path_circle.rs`'s
+  `MAX_RADIUS_DIFF`/`MAX_COLINEAR_NORM`, `src/trajectory_generator_ptp.rs`'s
+  `MIN_MOVEMENT`, `src/trajectory_blender_transition_window.rs`'s
+  `EPSILON`: each is a single named constant used everywhere it
+  applies, ported from one specific upstream numeric literal, with no
+  second, case-specific variant anywhere that overrides it.
+- `src/trajectory_functions.rs`'s two function-local `EPSILON`
+  constants: each is private to its own function, ported from a
+  distinct upstream function's own local constant (same value by
+  coincidence of both being "a small numerical epsilon" upstream chose,
+  not one overriding the other).
+- Every `..Default::default()` site (26 hits, `src/limits.rs`,
+  `src/trajectory_generator_ptp.rs`, `src/trajectory_generator.rs`,
+  `src/trajectory_functions.rs`, `src/trajectory_blender_transition_window.rs`,
+  and the four `tests/*_parity.rs` fixture builders): ordinary partial
+  struct construction, not a named override of a named shared
+  constant -- none loosens a tolerance, bound, or validation relative
+  to a sibling case; each just fills unset fields with `Default`'s
+  values for that one struct literal.
+- `CHECK_SELF_COLLISION` (three files, always `true`): one value, no
+  per-case exception anywhere -- see each file's own doc comment for
+  why `false` was never needed.
+
+**Widened anchor.** As filed above, the anchor did widen from
+"per-case `*_TOLERANCE` constant" (the shape the prior round's manual
+audit already found and fixed) to "any named constant overriding a
+shared constant of the same kind, loosening direction, any file in the
+crate" -- the wider form found nothing beyond what the narrower form
+had already found, which is the sweep confirming closure, not the
+sweep finding new work.

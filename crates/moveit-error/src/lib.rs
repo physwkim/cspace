@@ -26,6 +26,31 @@
 //! unrecoverable paths. This port returns `Result<_, Error>` instead; nothing
 //! panics on malformed robot descriptions. [`Error::Construct`] is the variant
 //! that corresponds to `ConstructException`.
+//!
+//! # Why [`Error::Construct`]/[`Error::Other`] are not split per failure mode
+//!
+//! Asked and decided deliberately, not left undone. Tests that need to pin
+//! *which* branch of a call rejected them currently match on the rendered
+//! message (`assert_err_mentions` in `moveit-constraints/tests/decide.rs`),
+//! because two sibling branches of one call can both produce
+//! [`Error::Construct`] and a bare `.is_err()` cannot tell them apart. The
+//! obvious structural answer — give each branch its own variant — is the
+//! wrong one here, on counts: [`Error::Construct`] has 139 construction
+//! sites and [`Error::Other`] 78, spread across every crate as deliberate
+//! message-carrying catch-alls for exactly the two upstream types named
+//! above. Per-branch variants would mean hundreds of them, and the enum
+//! would stop describing a hierarchy and start listing call sites.
+//!
+//! The structured form already exists where the discriminating information
+//! is itself structured rather than prose: [`Error::UnknownName`] carries
+//! `{ kind, name }` and is used at 91 sites, including
+//! `constraint_sampler_manager.rs`'s own branch discrimination, which needs
+//! no string matching at all. That is the rule to apply when adding a
+//! variant — structure the error when the thing that distinguishes it is
+//! data a caller would want to read, not merely when a test would find it
+//! convenient. Where the distinguishing fact is only "which sentence
+//! explains this", the sentence is the right carrier and a test asserting
+//! on it is matching the real contract.
 
 use std::fmt;
 

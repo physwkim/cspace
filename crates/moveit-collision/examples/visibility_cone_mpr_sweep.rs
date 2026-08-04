@@ -640,6 +640,66 @@ struct MprRecord {
     triangle_size: f64,
 }
 
+/// One numeric depth reading (oracle, EPA, or MPR), carried with the
+/// touched cylinder's own dimensions so [`plateau_kind`] can classify it
+/// against *that reading's own* link, not a hardcoded constant -- pr2's 8
+/// wheel links happen to share one radius/length (`fixtures/pr2.urdf`),
+/// but nothing here assumes that stays true of every fixture this binary
+/// is ever pointed at.
+#[derive(Clone, Copy)]
+struct Reading {
+    value: f64,
+    radius: f64,
+    half_length: f64,
+}
+
+/// Round 29's own correction (`f8cbacd`) found that a "9 of 945 shallow"
+/// framing hid a much larger population of readings sitting on one of the
+/// cylinder's own two characteristic dimensions rather than a genuine
+/// contact depth -- not by counting three sampled cases, but by counting
+/// every reading. `REL_TOL` is far tighter than the two dimensions could
+/// ever coincidentally collide at (pr2's own `radius=0.074792` and
+/// `length/2=0.017` differ by more than 4x), so a reading landing inside
+/// it is the plateau, not noise.
+const PLATEAU_REL_TOL: f64 = 1e-6;
+
+fn plateau_kind(r: Reading) -> &'static str {
+    if (r.value - r.radius).abs() <= PLATEAU_REL_TOL * r.radius {
+        "radial(radius)"
+    } else if (r.value - r.half_length).abs() <= PLATEAU_REL_TOL * r.half_length {
+        "axial(length/2)"
+    } else {
+        "other"
+    }
+}
+
+/// Prints the exact counts a distributional claim about `readings` should
+/// cite -- this is the histogram item 4 of round 29's own charge asked
+/// for, so the next round reads a count off this program's own output
+/// rather than grepping and tallying printed lines by hand.
+fn print_plateau_histogram(label: &str, readings: &[Reading]) {
+    let n = readings.len();
+    if n == 0 {
+        println!("{label} plateau histogram: n=0, nothing to classify");
+        return;
+    }
+    let axial = readings
+        .iter()
+        .filter(|r| plateau_kind(**r) == "axial(length/2)")
+        .count();
+    let radial = readings
+        .iter()
+        .filter(|r| plateau_kind(**r) == "radial(radius)")
+        .count();
+    let other = n - axial - radial;
+    println!(
+        "{label} plateau histogram (n={n}): axial(length/2)={axial} ({:.1}%)  radial(radius)={radial} ({:.1}%)  other={other} ({:.1}%)",
+        100.0 * axial as f64 / n as f64,
+        100.0 * radial as f64 / n as f64,
+        100.0 * other as f64 / n as f64,
+    );
+}
+
 fn main() -> Result<(), String> {
     let args = parse_args()?;
     let model = build_rust_model(&args.urdf, &args.srdf)?;
@@ -672,6 +732,13 @@ fn main() -> Result<(), String> {
     let mut collision_zero: Vec<usize> = Vec::new();
     let mut mpr_errors: Vec<usize> = Vec::new();
     let mut records: Vec<MprRecord> = Vec::new();
+    // Every case that prints an `oracle=`/`epa=` reading (AGREE or
+    // MISMATCH, including MPR collision=0) feeds these -- see
+    // `print_plateau_histogram`'s own doc for why this is a population
+    // count, not a sample.
+    let mut oracle_readings: Vec<Reading> = Vec::new();
+    let mut epa_readings: Vec<Reading> = Vec::new();
+    let mut mpr_readings: Vec<Reading> = Vec::new();
 
     for (idx, joint_values) in states.iter().enumerate() {
         let expected_fk = match oracle.ask(Op::Fk {
@@ -797,6 +864,17 @@ fn main() -> Result<(), String> {
         // comparing against the oracle's own positive-convention distance.
         let epa_depth = (-best).max(0.0);
         let diff = (oracle_distance - epa_depth).abs();
+        let half_length = cylinder.length / 2.0;
+        oracle_readings.push(Reading {
+            value: oracle_distance,
+            radius: cylinder.radius,
+            half_length,
+        });
+        epa_readings.push(Reading {
+            value: epa_depth,
+            radius: cylinder.radius,
+            half_length,
+        });
 
         if diff <= MISMATCH_THRESHOLD {
             agreeing += 1;
@@ -823,6 +901,11 @@ fn main() -> Result<(), String> {
                     "case[{idx}] link={link_name} MISMATCH oracle={oracle_distance:.6e} epa={epa_depth:.6e} mpr={mpr_depth:.6e} gap(mpr-epa)={:.6e} tri_size={triangle_size:.4e} touching_count={touching_count}",
                     mpr_depth - epa_depth
                 );
+                mpr_readings.push(Reading {
+                    value: mpr_depth,
+                    radius: cylinder.radius,
+                    half_length,
+                });
                 records.push(MprRecord {
                     idx,
                     link: link_name.clone(),
@@ -866,6 +949,14 @@ fn main() -> Result<(), String> {
         println!("  case indices: {mpr_errors:?}");
     }
 
+    println!();
+    println!(
+        "plateau histograms -- does this reading sit on one of the cylinder's own two dimensions rather than a real contact depth? (round 29's own correction, f8cbacd)"
+    );
+    print_plateau_histogram("oracle", &oracle_readings);
+    print_plateau_histogram("epa", &epa_readings);
+    print_plateau_histogram("mpr", &mpr_readings);
+
     if records.is_empty() {
         println!(
             "verdict: 0 mismatches produced a real MPR reading -- report this as a fact, not chase a different seed to force a nonzero count"
@@ -902,9 +993,10 @@ fn main() -> Result<(), String> {
     );
     println!("gap min={min_gap:.6e} max={max_gap:.6e} mean={mean_gap:.6e}");
     println!(
-        "pearson(gap, epa_depth)={:.4}  pearson(gap, triangle_size)={:.4}",
+        "pearson(gap, epa_depth)={:.4}  pearson(gap, triangle_size)={:.4}  (n={})",
         pearson(&gaps, &epa_depths),
-        pearson(&gaps, &triangle_sizes)
+        pearson(&gaps, &triangle_sizes),
+        gaps.len()
     );
 
     if mpr_shallower > 0 {
