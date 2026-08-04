@@ -794,6 +794,63 @@ mod tests {
         assert_eq!(actual_penalty, expected_penalty);
     }
 
+    /// Each of the six literal `||` terms in the planar branch is its own
+    /// independent gate, not exercised except in the x/y-four-at-once and
+    /// theta-two-at-once combinations
+    /// `planar_xy_infinite_bounds_still_skip_despite_finite_theta` and
+    /// `planar_theta_bound_at_pi_literal_still_skips_despite_finite_translation`
+    /// use above. Six cases, one sentinel condition true at a time, the
+    /// other five held at ordinary finite non-boundary values -- confirming
+    /// the `||` really does gate on any one condition alone, not on some
+    /// pair or on all four/two of a variable's conditions together.
+    #[test]
+    fn each_planar_sentinel_condition_independently_skips_the_joint() {
+        let neg_inf = f64::NEG_INFINITY;
+        let inf = f64::INFINITY;
+        let pi = std::f64::consts::PI;
+        // (x_min, x_max, y_min, y_max, theta_min, theta_max), one sentinel
+        // value per row, everything else finite and off any boundary.
+        let cases: [(f64, f64, f64, f64, f64, f64, &str); 6] = [
+            (neg_inf, 1.0, -1.0, 1.0, -1.0, 1.0, "x.min == NEG_INFINITY"),
+            (-1.0, inf, -1.0, 1.0, -1.0, 1.0, "x.max == INFINITY"),
+            (-1.0, 1.0, neg_inf, 1.0, -1.0, 1.0, "y.min == NEG_INFINITY"),
+            (-1.0, 1.0, -1.0, inf, -1.0, 1.0, "y.max == INFINITY"),
+            (-1.0, 1.0, -1.0, 1.0, -pi, 1.0, "theta.min == -PI"),
+            (-1.0, 1.0, -1.0, 1.0, -1.0, pi, "theta.max == PI"),
+        ];
+
+        for (x_min, x_max, y_min, y_max, theta_min, theta_max, label) in cases {
+            let mut model = build_pr2_model();
+            let joint = model.joint_model_mut("world_joint").unwrap();
+            for (var, min_position, max_position) in [
+                ("world_joint/x", x_min, x_max),
+                ("world_joint/y", y_min, y_max),
+                ("world_joint/theta", theta_min, theta_max),
+            ] {
+                joint
+                    .set_variable_bounds(
+                        var,
+                        moveit_model::joint::VariableBounds {
+                            min_position,
+                            max_position,
+                            position_bounded: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+            }
+
+            let mut metrics = KinematicsMetrics::new(&model);
+            metrics.set_penalty_multiplier(1.5);
+            let group = model.joint_model_group("base").unwrap();
+            let state = RobotState::new(&model);
+            let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
+            let expected_penalty = 1.0 - (-1.5_f64).exp();
+
+            assert_eq!(actual_penalty, expected_penalty, "sentinel: {label}");
+        }
+    }
+
     /// All four public metrics compute finite values for a real chain group
     /// at the default (all-zero) configuration, and agree with each other's
     /// documented relationship: `manipulability_index(translation=false)`
