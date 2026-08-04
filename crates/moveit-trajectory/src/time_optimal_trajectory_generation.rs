@@ -1504,7 +1504,21 @@ mod tests {
             0.1,
         );
 
-        assert!(totg_compute_time_stamps(1, &mut trajectory, 1.0, 1.0).is_err());
-        assert!(totg_compute_time_stamps(0, &mut trajectory, 1.0, 1.0).is_err());
+        // `totg_compute_time_stamps` reaches more than one `Error::other`
+        // site (its own num_waypoints guard, plus everything
+        // `compute_time_stamps` can fail with); a bare `.is_err()` cannot
+        // say which fired (assertion-discrimination-round2.md sec. 3).
+        assert!(
+            totg_compute_time_stamps(1, &mut trajectory, 1.0, 1.0)
+                .unwrap_err()
+                .to_string()
+                .contains("num_waypoints > 1")
+        );
+        assert!(
+            totg_compute_time_stamps(0, &mut trajectory, 1.0, 1.0)
+                .unwrap_err()
+                .to_string()
+                .contains("num_waypoints > 1")
+        );
     }
 }
