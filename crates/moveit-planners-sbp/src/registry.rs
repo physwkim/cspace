@@ -2290,6 +2290,12 @@ mod tests {
             ("medium (0.1/Iterations(20))", 5u32, 0u32),
             ("loose (0.2/Iterations(200))", 5u32, 0u32),
         ];
+        assert_eq!(
+            scenario4_results.len(),
+            expected_scenario4.len(),
+            "scenario 4's budget count changed -- zip below would silently drop the extra \
+             budgets' assertions otherwise"
+        );
         for ((label, wired, unwired), (expected_label, expected_wired, expected_unwired)) in
             scenario4_results.iter().zip(&expected_scenario4)
         {
