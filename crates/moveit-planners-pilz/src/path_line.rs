@@ -139,21 +139,32 @@ pub(crate) fn kdl_normalize(v: Vector3, eps: f64) -> (Vector3, f64) {
 ///
 /// The one remaining singularity (`angle < eps`, generalizing exact
 /// `angle == 0` to "close enough that the axis is dominated by rounding
-/// noise") is handled by substituting a fixed placeholder axis, the same
-/// way [`kdl_normalize`] substitutes a fixed placeholder direction for a
-/// vector too short to have one — see that function's doc comment for why
-/// a fixed placeholder here does not change any observable output of this
-/// crate's callers: [`PathLine::new`]'s `scale_rot` is itself `0.0`
-/// whenever `angle == 0`, so [`PathLine::pos`]'s `theta` is always exactly
-/// `0.0` there regardless of which axis this returns.
+/// noise") is handled by substituting a fixed placeholder axis rather than
+/// an undefined one — unlike [`kdl_normalize`]'s placeholder *direction*
+/// (which this port deliberately changed to the zero vector, a genuinely
+/// different choice from upstream's, see that function's doc comment),
+/// this placeholder *axis* must actually be a unit vector: the return type
+/// is `Unit<Vector3>`, so there is no representable "not a unit vector"
+/// value to fall back to, and every caller (`UnitQuaternion::from_axis_angle`)
+/// requires one regardless of the angle it is paired with. `Vector3::z_axis()`
+/// is used here — the same constant upstream's own `GetRotAngle` returns in
+/// this branch (`frames.cpp`'s `Choose 0, 0, 1`) — reused as the interface
+/// fact it is (a numeric constant, not expression; this port's own
+/// `moveit-scene`-style bucket-3 classification), not a restatement of
+/// upstream's derivation. This does not change any observable output of
+/// this crate's callers at any tolerance they check: [`PathLine::new`]'s
+/// `scale_rot` is itself `0.0` whenever `angle == 0`, so [`PathLine::pos`]'s
+/// `theta` is `0.0` there in the one caller that reaches `angle == 0`
+/// exactly, and see that function's own doc comment for the one caller
+/// that reaches a nonzero-but-negligible `theta` in this branch instead.
 ///
 /// `pub(crate)`: also used by [`crate::path_circle::PathCircle`], whose
 /// `RotationalInterpolation_SingleAxis` component is the identical
 /// convention `PathLine` folds in — see that type's own module doc.
-pub(crate) fn get_rot_angle(rotation: &UnitQuaternion, eps: f64) -> (f64, Vector3) {
+pub(crate) fn get_rot_angle(rotation: &UnitQuaternion, eps: f64) -> (f64, Unit<Vector3>) {
     match rotation.axis_angle() {
-        Some((axis, angle)) if angle >= eps => (angle, axis.into_inner()),
-        _ => (0.0, Vector3::zeros()),
+        Some((axis, angle)) if angle >= eps => (angle, axis),
+        _ => (0.0, Vector3::z_axis()),
     }
 }
 
@@ -164,7 +175,7 @@ pub(crate) fn get_rot_angle(rotation: &UnitQuaternion, eps: f64) -> (f64, Vector
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathLine {
     orient_start: UnitQuaternion,
-    rot_axis: Vector3,
+    rot_axis: Unit<Vector3>,
     v_base_start: Vector3,
     v_start_end: Vector3,
     path_length: f64,
@@ -203,8 +214,27 @@ impl PathLine {
     /// exactly when `s` reaches `path_length`. When both extents are zero
     /// (`start` and `goal` coincide, including in orientation), `path_length`
     /// is `0.0` and there is nothing to divide by — `scale_lin`/`scale_rot`
-    /// are left at a placeholder `1.0`, unobservable since [`PathLine::pos`]
-    /// is then only ever evaluated at `s == 0.0`.
+    /// are left at a placeholder `1.0`. This placeholder is *not* only ever
+    /// read at `s == 0.0`: `TrajectoryGeneratorLIN`'s own zero-length
+    /// fallback (`trajectory_generator_lin.rs`) substitutes
+    /// `set_profile(0.0, f64::EPSILON)` in this case, so [`PathLine::pos`]
+    /// is evaluated across `s` in `[0.0, f64::EPSILON]` (~`2.22e-16`), not
+    /// just at the one point. The placeholder is still unobservable there,
+    /// but for a floating-point-magnitude reason, not a "never reached"
+    /// one: `theta = s * scale_rot` reaches that same `~2.22e-16` scale, and
+    /// `cos(theta/2)` rounds to exactly `1.0` in `f64` (the argument is far
+    /// below the precision needed to perturb `1.0`) regardless of
+    /// `scale_rot`'s placeholder value, while `v_start_end` (this
+    /// degenerate case's `kdl_normalize` result) is exactly
+    /// `Vector3::zeros()`, so the translation term `v_start_end * s *
+    /// scale_lin` is exactly zero for any `s`/`scale_lin` regardless of the
+    /// placeholder either. `sin(theta/2)` at this scale is *not* exactly
+    /// zero (it rounds to the same `~1e-16` magnitude as `theta/2` itself),
+    /// so the resulting rotation is not bit-identical to the identity
+    /// quaternion — but a rotation of order `1e-16` radians is many orders
+    /// below every fixture's comparison tolerance in this crate (`1e-9` or
+    /// looser) and below any physically meaningful distinction, which is
+    /// the sense in which this placeholder is unobservable.
     pub fn new(start: &Isometry3, goal: &Isometry3, eqradius: f64) -> Self {
         let (v_start_end, dist) = kdl_normalize(
             goal.translation.vector - start.translation.vector,
@@ -239,8 +269,7 @@ impl PathLine {
     /// Upstream `Pos`.
     pub fn pos(&self, s: f64) -> Isometry3 {
         let theta = s * self.scale_rot;
-        let rotation = self.orient_start
-            * UnitQuaternion::from_axis_angle(&Unit::new_unchecked(self.rot_axis), theta);
+        let rotation = self.orient_start * UnitQuaternion::from_axis_angle(&self.rot_axis, theta);
         let translation = self.v_base_start + self.v_start_end * s * self.scale_lin;
         Isometry3::from_parts(translation.into(), rotation)
     }
@@ -386,7 +415,7 @@ mod tests {
     fn assert_get_rot_angle_round_trips(rotation: UnitQuaternion) {
         let (angle, axis) = get_rot_angle(&rotation, KDL_EPSILON);
         assert!((0.0..=std::f64::consts::PI).contains(&angle), "{angle}");
-        let reconstructed = UnitQuaternion::from_axis_angle(&Unit::new_unchecked(axis), angle);
+        let reconstructed = UnitQuaternion::from_axis_angle(&axis, angle);
         let same_rotation =
             (reconstructed.quaternion().coords - rotation.quaternion().coords).norm() < 1e-9
                 || (reconstructed.quaternion().coords + rotation.quaternion().coords).norm() < 1e-9;
@@ -400,7 +429,7 @@ mod tests {
     fn get_rot_angle_at_identity_is_zero_with_a_well_defined_axis() {
         let (angle, axis) = get_rot_angle(&UnitQuaternion::identity(), KDL_EPSILON);
         assert_relative_eq!(angle, 0.0);
-        assert!(axis.iter().all(|c| c.is_finite()));
+        assert_relative_eq!(axis.into_inner().norm(), 1.0);
     }
 
     #[test]
