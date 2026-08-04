@@ -172,6 +172,7 @@ mod tests {
             .add_suffix_way_point(scene.current_state().clone(), 0.0)
             .unwrap();
         let mut response = PlanningResponse {
+            start_state: scene.current_state().clone(),
             trajectory,
             planner_id: String::new(),
         };
@@ -200,6 +201,7 @@ mod tests {
             .add_suffix_way_point(scene.current_state().clone(), 0.0)
             .unwrap();
         let mut response = PlanningResponse {
+            start_state: scene.current_state().clone(),
             trajectory,
             planner_id: String::new(),
         };

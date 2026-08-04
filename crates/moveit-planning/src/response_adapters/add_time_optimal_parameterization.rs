@@ -201,9 +201,11 @@ mod tests {
         goal.set_joint_positions("panda_joint1", &[0.4]).unwrap();
 
         let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
+        let start_state = start.clone();
         trajectory.add_suffix_way_point(start, 0.0).unwrap();
         trajectory.add_suffix_way_point(goal, 0.0).unwrap();
         let mut response = PlanningResponse {
+            start_state,
             trajectory,
             planner_id: String::new(),
         };
@@ -248,6 +250,7 @@ mod tests {
         );
 
         let mut response = PlanningResponse {
+            start_state: state,
             trajectory,
             planner_id: String::new(),
         };
