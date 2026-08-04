@@ -29,6 +29,52 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// input — [`try_sample`](Self::try_sample) instead clones `template` fresh
 /// each attempt, so every attempt starts from the same known-good state and
 /// a failure discards exactly what it wrote, nothing more.
+///
+/// # Known gap: `template` is a fixed seed, not re-anchored to tree locality
+///
+/// Every attempt starts IK from the *same* `template`, regardless of where
+/// in the search tree this particular sample is being drawn for. For a
+/// **goal** region this is fine — [`crate::goal_sampler::sample_goal`] only
+/// needs one Cartesian-compliant joint-space point, reachable from anywhere.
+/// For a **path**-constrained corridor sampled during tree growth
+/// ([`crate::registry::RrtConnectContext::solve`]'s `path_constraints`
+/// branch), it is not: an IK solution seeded from a fixed, possibly-distant
+/// `template` can land anywhere in the corridor consistent with that seed,
+/// independent of the tree node the new sample is meant to extend from —
+/// [`crate::validity::DiscreteMotionValidator`]'s resolution-checked linear
+/// interpolation between that tree node and the IK "teleport" then routinely
+/// leaves the Cartesian region before reaching the destination, failing
+/// validation.
+///
+/// Measured (round 24, `PORTING-PLAN.md` §163.3's follow-up): four scenarios
+/// were tried against a wired vs. unwired `path_constraints` region on
+/// `panda_arm` at matched `step_size`/iteration budget — a far-apart
+/// self-motion position+orientation pair, an orientation-only region with a
+/// free approach axis, a region built around an already IK-reachable nearby
+/// goal, and a `step_size`/budget sweep looking for any crossover point. In
+/// no scenario did wiring a solver reliably improve `solve()`'s success
+/// rate for the region; in the tightest, most goal-region-analogous
+/// scenario, wired performed *worse* than unwired (0/5 vs. 5/5 successful
+/// solves at matched `step_size` and iteration budget) — the IK "teleports"
+/// this gap describes are more disruptive to tree growth than plain uniform
+/// sampling is. This is why
+/// `crate::registry::tests::path_constraints_solver_wiring_matches_the_call_site`
+/// tests `resolve_constraint_sampler` directly rather than `solve()`
+/// end-to-end: an end-to-end test would measure this gap, not the wiring
+/// change it was written to verify.
+///
+/// **Disposition:** re-anchoring `template` to tree locality (e.g. seeding
+/// IK from the tree node being extended, not a fixed pre-search state) is
+/// scheduled as its own round, not rejected or unknown — it is deferred
+/// because it also touches goal sampling
+/// ([`crate::goal_sampler::sample_goal`]) and joint-constraint sampling
+/// (`moveit_constraints::JointConstraintSampler`), both of which currently
+/// rely on the same "fixed template, group-local draw" shape this gap
+/// describes, and reworking one without the others risks introducing a
+/// second, differently-shaped inconsistency (see `PORTING-PLAN.md`'s
+/// §153.1 convention). This note expires when that round lands and
+/// `template` is re-anchored — at which point the measurement above should
+/// be re-run, not assumed to still hold.
 pub struct GroupConstraintSampler<'a, 'm> {
     space: &'a JointModelGroupSpace,
     sampler: &'a dyn ConstraintSampler,
