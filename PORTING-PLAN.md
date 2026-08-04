@@ -12312,3 +12312,92 @@ ROS include는 `rclcpp/logger.hpp`, `rclcpp/logging.hpp` 둘뿐이고 전부 로
 라운드 항목으로 넘긴다. `occupancy_map.*`와 `collision_plugin_cache.*`는
 같은 방식으로 재확인되지 않았으므로 그 제외는 아직 유효한지 미상이며, 같은
 라운드에서 함께 세게 한다.
+
+## §154 `GradientInfo::sphere_locations`는 gsr 재사용 전용이 아니다 — 생성자가 이미 pregenerated GSR을 만든다
+
+p6-totg 라운드 19가 `moveit-planners-chomp`의 `ChompOptimizer`를 포팅하면서
+UNFIXED로 남긴 전제:
+
+> Upstream의 `getCollisionGradients`는 `gsr_` 재사용 경로에서만
+> `sphere_locations`를 채운다. 이 크레이트는 `gsr_`를 보관하지 않으므로
+> 항상 fresh-build 경로만 타고, 거기서 `sphere_locations`는 무조건 비어
+> 있다.
+
+**측정으로 반증된다.** 오라클은 `getCollisionGradients`에 매번 null
+`GroupStateRepresentationPtr`를 넘긴다(재사용 경로가 아니다). 그런데
+`sphere_locations`는 링크당 1~9개로 채워져 돌아온다 — 그리고 이 사실은
+이번 라운드가 만든 것이 아니라 `group_state_representation_response.json`
+(gradients 필드가 생기기 전에 커밋된 fixture)에 이미 들어 있었다.
+
+`sphere_locations`에 쓰는 곳은 upstream 전체에서 네 군데뿐이다
+(`rg sphere_locations moveit_core/collision_distance_field/`):
+
+- `collision_env_distance_field.cpp:1119` / `:1152` —
+  `updateGroupStateRepresentationState`, 즉 gsr 재사용 경로
+- `:1224` — `getGroupStateRepresentation`의 **else** 분기
+  (`dfce->pregenerated_group_state_representation_`가 있을 때)
+- `:1246` — 첨부 바디 루프 (if/else 뒤에서 무조건 실행)
+
+오라클은 null gsr을 넘기므로 재사용 경로(`:1119`)는 배제된다. 그런데
+`sphere_locations`가 비어 있지 않다 ⟹ `:1224`가 실행됐다 ⟹
+`pregenerated_group_state_representation_`가 non-null이다. 닫힌 연역이다.
+
+**왜 non-null인가.** `initialize()`(`:126`)는 두 생성자 모두가 부르고,
+그 안에서 모든 JointModelGroup을 돌며
+`getGroupStateRepresentation(dfce, state, pregenerated_group_state_representation_map_[jm->getName()])`
+를 호출한다(`:140-154`). `getDistanceFieldCacheEntry`는 그 맵에서 찾아
+`dfce->pregenerated_group_state_representation_`에 꽂는다(`:868-871`).
+즉 **fresh-build 분기(`:1161`)는 `initialize()` 안에서 그룹당 한 번만
+실행되고, 그 뒤의 모든 호출은 pregenerated 분기를 탄다** — 호출자가
+`gsr_`를 살려두든 말든 무관하다.
+
+따라서:
+
+- `sphere_locations`가 비는 것은 upstream의 성질이 아니라 **이 포트의
+  갭**이다. `moveit-distance-field`가 pregenerated GSR을 만들지 않기
+  때문에 항상 fresh 분기에 해당하는 상태로 남는다.
+- p6-totg가 `resolve_collision_point_joint_index`/`perform_forward_kinematics`
+  에서 `sphere_locations` 대신 `gradients`/`distances`/`sphere_centers()`로
+  치환한 것은 갭을 우회한 workaround이며, UNFIXED에 적힌 해법(재사용 경로
+  함수를 export 하라)은 원인을 잘못 짚었다. export가 아니라 pregenerated
+  GSR을 만드는 것이 upstream과 같아지는 길이다.
+- 검증 수단은 이미 있다: 오라클의 `sphere_locations_count`가 기대값이다.
+  링크 15개(geometry 있는 것)에 대해 `{5:2, 2:4, 9:1, 3:4, 6:1, 4:2, 1:1}`,
+  합계 54 — `types`/`distances` 길이와 정확히 같다.
+
+이 항목은 `verify-brief-premises`의 세 번째 사례이자 방향이 반대인 사례다.
+worker가 upstream을 읽고 세운 전제를, 그 worker가 손댈 수 없는 도구(오라클)의
+이미 커밋된 출력이 반증했다. worker UNFIXED에 적힌 원인 진단은 병합자가
+독립적으로 재측정하기 전까지 가설로 취급한다.
+
+## §155 오라클 distance-field 두 op에 world와 gradients가 생겼다
+
+p3-distance-field 라운드 24의 UNFIXED 2건에 대응한다. 커밋 `bc14b80`,
+`84f5565`.
+
+- `objects` (기본값 없음 = 빈 world): `distance_field_cache_entry`와
+  `group_state_representation` 둘 다 `collision` op과 같은 단일 shape
+  스키마 `{id, pose, shape}`를 읽는다. 이것이 없으면 environment distance
+  field가 항상 비어 있어 `"environment"` sentinel contact도
+  `getEnvironmentProximityGradients`도 fixture에서 도달 불가능했다.
+  world를 받는 생성자는 조건 없이 쓴다 — 빈 world 등가성은 43/43 replay
+  identical로 **측정**했고, 조건 분기는 아직 없는 fixture만 도달할 수 있는
+  두 번째 경로가 됐을 것이다.
+- `gradients` (기본 false): `getCollisionGradients`를 태운다. 오라클
+  전체에서 이 함수를 부르는 곳이 하나도 없었으므로
+  `get_self_proximity_gradients` / `get_intra_group_proximity_gradients` /
+  `get_environment_proximity_gradients` 세 함수는 어떤 ground truth도 갖고
+  있지 않았다.
+- `attached_body_gradients`: `links` 덤프는 `link_names_.size()`로 도는
+  link-indexed 루프라 첨부 바디의 gradient 슬롯은 구조적으로 노출될 수
+  없었다. 인덱스 `link_names_.size()..gradients_.size()` 구간을 별도 배열로
+  낸다.
+- `gradients`와 `contacts`는 상호 배타이며 위반 시 명시적으로 throw 한다.
+  `getCollisionGradients`의 시그니처가 `CollisionResult& /*res*/` — 받은
+  결과를 버린다(`collision_env_distance_field.cpp:1517`). 조용히 낡은
+  `res`를 돌려주는 대신 거절한다.
+
+실측(pr2, `right_arm`): `gradients:true`만으로 type 히스토그램
+`{SELF:6, INTRA_GROUP:48}`, `objects` 추가 시 `{SELF:6, INTRA:44, ENV:4}`,
+`attached_bodies` 추가 시 `attached_body_gradients`에 `payload` 1건.
+`use_acm:false`(null ACM)도 크래시 없이 같은 히스토그램.
