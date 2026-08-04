@@ -1034,20 +1034,26 @@ mod tests {
     /// so RRT-Connect's own bias toward short, near-direct paths in an
     /// obstacle-free space finds one by chance often enough that "the
     /// control fails" was not a reliable property, only a lucky seed. The
-    /// swept combination actually used below (`+/-0.005`, 20 iterations)
-    /// scored 30/30 unwired failures *and* 30/30 wired successes across
-    /// seeds `0..30` — see this round's git history for the sweep.
+    /// swept combination actually used below (`+/-0.005`, 20 iterations) is
+    /// re-measured directly by this test's own loop over seeds `0..30`,
+    /// asserted exactly (`PORTING-PLAN.md` §195: the same claim, once with
+    /// an uncommitted, un-rerunnable "see this round's git history for the
+    /// sweep" pointer that no longer resolves to anything, was the same
+    /// defect round 24's own sweep left behind) — **30/30 unwired
+    /// failures, 30/30 wired successes**.
     ///
     /// - **Unwired control**: [`rrt_connect`] called directly with
     ///   [`Sampler::unconstrained`] but the *same* constrained `checker` —
     ///   this is exactly what [`RrtConnectContext::solve`] would do if the
-    ///   round 20 wiring did not exist. Must fail within the budget.
+    ///   round 20 wiring did not exist. Must fail within the budget, every
+    ///   seed.
     /// - **Wired**: the exact same query through the real
     ///   [`RrtConnectManager::get_planning_context`] -> `solve()` path,
-    ///   same seed, same budget. Must succeed, and every waypoint's
-    ///   `panda_joint1` must sit inside the window — proving the registry's
-    ///   sampler wiring, not the checker alone, is what turns a budget the
-    ///   checker-only search exhausts into one the search solves within.
+    ///   same seed, same budget. Must succeed, every seed, and every
+    ///   waypoint's `panda_joint1` must sit inside the window — proving the
+    ///   registry's sampler wiring, not the checker alone, is what turns a
+    ///   budget the checker-only search exhausts into one the search solves
+    ///   within.
     #[test]
     fn path_constraint_sampler_is_load_bearing_not_merely_invoked() {
         use moveit_constraints::{Constraint, JointConstraint};
@@ -1072,11 +1078,6 @@ mod tests {
         }
         let goal = space.read_robot_state(&goal_state);
 
-        let joint_constraint = JointConstraint::new(&model, "panda_joint1", 0.0, 0.005, 0.005, 1.0)
-            .expect("valid joint constraint");
-        let mut path_constraints = KinematicConstraintSet::new();
-        path_constraints.push(Constraint::Joint(joint_constraint));
-
         let small_budget = RrtConnectParams {
             step_size: 0.5,
             goal_bias: 0.0,
@@ -1084,65 +1085,76 @@ mod tests {
             nn_degree: 8,
         };
 
-        // Unwired control: same checker (constrained), plain uniform
-        // sampling only.
-        let mut control_scene = PlanningScene::new(&model, &srdf);
-        let control_env = ParryCollisionEnv::default();
-        let control_checker = PlanningSceneValidityChecker::new(
-            &mut control_scene,
-            &control_env,
-            CollisionRequest::default(),
-            Some(&path_constraints),
-            &space,
-        );
-        let control_mv = DiscreteMotionValidator::new(&control_checker, 0.05);
-        let mut default_state = RobotState::new(&model);
-        default_state.set_to_default_values();
-        let control_start = space.read_robot_state(&default_state);
-        let control_result = rrt_connect(
-            &space,
-            &control_checker,
-            &control_mv,
-            control_start,
-            goal.clone(),
-            Sampler::unconstrained(&mut ChaCha8Rng::seed_from_u64(3)),
-            &small_budget,
-        );
-        assert_eq!(
-            control_result,
-            Err(PlanningFailure::IterationsExhausted),
-            "the unwired control (checker-only, no sampler) must NOT find the path the wired \
-             search below finds within the same iteration budget"
-        );
+        for seed in 0..30u64 {
+            let joint_constraint =
+                JointConstraint::new(&model, "panda_joint1", 0.0, 0.005, 0.005, 1.0)
+                    .expect("valid joint constraint");
+            let mut path_constraints = KinematicConstraintSet::new();
+            path_constraints.push(Constraint::Joint(joint_constraint));
 
-        // Wired: the real registry path.
-        let mut scene = PlanningScene::new(&model, &srdf);
-        let env = ParryCollisionEnv::default();
-        let manager = RrtConnectManager;
-        let request = PlanningRequest {
-            group_name: "panda_arm".to_string(),
-            goal: Goal::State(goal),
-            path_constraints: Some(path_constraints),
-            resolution: 0.05,
-            seed: 3,
-            params: small_budget,
-            solver: None,
-        };
-        let mut context = manager
-            .get_planning_context(&mut scene, &env, request)
-            .expect("panda_arm is a real group");
-        let response = context.solve().expect(
-            "the wired search must solve within the same iteration budget the unwired control \
-             above exhausts",
-        );
-        drop(context);
-
-        for (index, waypoint) in response.trajectory.iter().enumerate() {
-            let value = waypoint.variable_position("panda_joint1").unwrap();
-            assert!(
-                (-0.005..=0.005).contains(&value),
-                "waypoint {index}: panda_joint1 = {value} escaped the +/-0.005 constraint window"
+            // Unwired control: same checker (constrained), plain uniform
+            // sampling only.
+            let mut control_scene = PlanningScene::new(&model, &srdf);
+            let control_env = ParryCollisionEnv::default();
+            let control_checker = PlanningSceneValidityChecker::new(
+                &mut control_scene,
+                &control_env,
+                CollisionRequest::default(),
+                Some(&path_constraints),
+                &space,
             );
+            let control_mv = DiscreteMotionValidator::new(&control_checker, 0.05);
+            let mut default_state = RobotState::new(&model);
+            default_state.set_to_default_values();
+            let control_start = space.read_robot_state(&default_state);
+            let control_result = rrt_connect(
+                &space,
+                &control_checker,
+                &control_mv,
+                control_start,
+                goal.clone(),
+                Sampler::unconstrained(&mut ChaCha8Rng::seed_from_u64(seed)),
+                &small_budget,
+            );
+            assert_eq!(
+                control_result,
+                Err(PlanningFailure::IterationsExhausted),
+                "seed {seed}: the unwired control (checker-only, no sampler) must NOT find the \
+                 path the wired search below finds within the same iteration budget"
+            );
+
+            // Wired: the real registry path.
+            let mut scene = PlanningScene::new(&model, &srdf);
+            let env = ParryCollisionEnv::default();
+            let manager = RrtConnectManager;
+            let request = PlanningRequest {
+                group_name: "panda_arm".to_string(),
+                goal: Goal::State(goal.clone()),
+                path_constraints: Some(path_constraints),
+                resolution: 0.05,
+                seed,
+                params: small_budget.clone(),
+                solver: None,
+            };
+            let mut context = manager
+                .get_planning_context(&mut scene, &env, request)
+                .expect("panda_arm is a real group");
+            let response = context.solve().unwrap_or_else(|e| {
+                panic!(
+                    "seed {seed}: the wired search must solve within the same iteration budget \
+                     the unwired control above exhausts; got {e:?}"
+                )
+            });
+            drop(context);
+
+            for (index, waypoint) in response.trajectory.iter().enumerate() {
+                let value = waypoint.variable_position("panda_joint1").unwrap();
+                assert!(
+                    (-0.005..=0.005).contains(&value),
+                    "seed {seed}: waypoint {index}: panda_joint1 = {value} escaped the \
+                     +/-0.005 constraint window"
+                );
+            }
         }
     }
 
