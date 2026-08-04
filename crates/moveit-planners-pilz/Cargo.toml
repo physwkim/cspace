@@ -22,6 +22,8 @@ moveit-trajectory.workspace = true
 approx.workspace = true
 moveit-srdf.workspace = true
 nalgebra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 urdf-rs.workspace = true
 
 [lints]
