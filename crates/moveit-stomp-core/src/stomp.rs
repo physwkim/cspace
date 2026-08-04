@@ -48,6 +48,123 @@
 //! PRNG stream. The assertion this port keeps from upstream is the
 //! meaningful one: `solve()` converges to within `BIAS_THRESHOLD` of the
 //! bias trajectory it was scored against.
+//!
+//! # Completeness audit (round 26): `stomp.h` + `stomp.cpp`
+//!
+//! `stomp.h`'s `class Stomp` has 7 `public:` members (the constructor plus 6
+//! methods), 11 `protected:` methods, and 21 `protected:` data members;
+//! `stomp.cpp` additionally defines 7 file-local symbols (3 constants, 2
+//! `static` helpers, and 2 non-`static`-but-header-undeclared free
+//! functions) not declared in any header. "public 심볼만" would leave
+//! `Stomp`'s entire computational core (all 11 protected methods) and every
+//! `.cpp`-local helper unaudited, so this walk covers all three tiers —
+//! `public:`, `protected:`, and file-local — explicitly, not just
+//! `public:`. `protected:` has no meaningful Rust translation here (`Stomp`
+//! is not subclassed anywhere in this port, matching D4: no virtual
+//! inheritance), so every protected method is a private (non-`pub`) `fn`
+//! below; that access-level narrowing is not called out per-symbol.
+//!
+//! Public (7, plus the class itself = 8):
+//! - `class Stomp` — ported as [`Stomp<'a>`]; the `'a` lifetime is a round-23
+//!   addition with no upstream equivalent (`TaskPtr` is a `shared_ptr` with
+//!   no borrow to track) — see this type's own doc.
+//! - `Stomp(config, task)` — ported as [`Stomp::new`].
+//! - `solve(std::vector<double>, std::vector<double>, Eigen::MatrixXd&)` —
+//!   ported as [`Stomp::solve_from_endpoints`].
+//! - `solve(Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd&)` — distinct:
+//!   upstream needs a second overload only because `std::vector<double>` and
+//!   `Eigen::VectorXd` are unrelated container types; `&[f64]` covers both
+//!   call shapes in Rust, so [`Stomp::solve_from_endpoints`] is this
+//!   overload too, not a separate symbol.
+//! - `solve(Eigen::MatrixXd, Eigen::MatrixXd&)` — ported as [`Stomp::solve`].
+//! - `setConfig` — ported as [`Stomp::set_config`].
+//! - `cancel` — ported as [`Stomp::cancel`]; see this module's own doc for
+//!   why [`CancelHandle`] exists alongside it.
+//! - `clear` — ported as [`Stomp::clear`].
+//!
+//! Protected (11):
+//! - `resetVariables` — ported as `Stomp::reset_variables`.
+//! - `computeInitialTrajectory` — ported as `Stomp::compute_initial_trajectory`.
+//! - `runSingleIteration` — ported as `Stomp::run_single_iteration`.
+//! - `generateNoisyRollouts` — ported as `Stomp::generate_noisy_rollouts`.
+//! - `filterNoisyRollouts` — ported as `Stomp::filter_noisy_rollouts`.
+//! - `computeNoisyRolloutsCosts` — ported as `Stomp::compute_noisy_rollouts_costs`.
+//! - `computeRolloutsStateCosts` — ported as `Stomp::compute_rollouts_state_costs`.
+//! - `computeRolloutsControlCosts` — ported as `Stomp::compute_rollouts_control_costs`.
+//! - `computeProbabilities` — ported as `Stomp::compute_probabilities`.
+//! - `updateParameters` — ported as `Stomp::update_parameters`.
+//! - `computeOptimizedCost` — ported as `Stomp::compute_optimized_cost`.
+//!
+//! Protected data members (21, `rg -c '_;\s*(/\*\*<)?' stomp.h` restricted to
+//! the member block confirms 21):
+//! - `proceed_` — ported as `Stomp::proceed`; type widened from
+//!   `std::atomic<bool>` to `Arc<AtomicBool>` so [`CancelHandle`] can share
+//!   it across threads (see this module's own doc).
+//! - `task_` — ported as `Stomp::task` (`Box<dyn Task + 'a>`).
+//! - `config_` — ported as `Stomp::config`.
+//! - `current_iteration_` — ported as `Stomp::current_iteration`; stored as
+//!   `i32` not `unsigned int` — every read of it flows into a `Task` method
+//!   parameter typed `iteration_number: int` (`task.h`, signed) at every
+//!   call site, so this port stores the type its data actually flows into
+//!   rather than casting at each of those calls.
+//! - `parameters_valid_` — ported as `Stomp::parameters_valid`.
+//! - `parameters_valid_prev_` — ported as `Stomp::parameters_valid_prev`.
+//! - `parameters_total_cost_` — ported as `Stomp::parameters_total_cost`.
+//! - `current_lowest_cost_` — ported as `Stomp::current_lowest_cost`; seeded
+//!   at construction with the value upstream only assigns inside `solve()`
+//!   (upstream leaves it uninitialized until then) — see the field's own
+//!   doc comment.
+//! - `parameters_optimized_` — ported as `Stomp::parameters_optimized`.
+//! - `parameters_updates_` — ported as `Stomp::parameters_updates`.
+//! - `parameters_state_costs_` — ported as `Stomp::parameters_state_costs`.
+//! - `parameters_control_costs_` — ported as `Stomp::parameters_control_costs`.
+//! - `noisy_rollouts_` — ported as `Stomp::noisy_rollouts`.
+//! - `reused_rollouts_` — ported as `Stomp::reused_rollouts`.
+//! - `num_active_rollouts_` — ported as `Stomp::num_active_rollouts`.
+//! - `num_timesteps_padded_` — distinct: `stomp.cpp:357` assigns it and
+//!   `:359` reads it back immediately, both inside `resetVariables`; no
+//!   other line in `stomp.cpp` ever reads it (confirmed by
+//!   `rg -n 'num_timesteps_padded_' src/stomp.cpp`, 2 hits, both in
+//!   `resetVariables`). This port keeps the computation but not the
+//!   storage: a local `num_timesteps_padded` inside `reset_variables`
+//!   (below), not a struct field — dead cross-method state in upstream,
+//!   so nothing downstream can observe the difference.
+//! - `start_index_padded_` — ported as `Stomp::start_index_padded`.
+//! - `finite_diff_matrix_A_padded_` — ported as `Stomp::finite_diff_matrix_a_padded`.
+//! - `control_cost_matrix_R_padded_` — ported as `Stomp::control_cost_matrix_r_padded`.
+//! - `control_cost_matrix_R_` — ported as `Stomp::control_cost_matrix_r`.
+//! - `inv_control_cost_matrix_R_` — ported as `Stomp::inv_control_cost_matrix_r`.
+//!
+//! `stomp.cpp` file-local, not declared in any header (7):
+//! - `DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT` (`:36`) — ported as
+//!   `utils::DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT`, relocated to `utils.rs`
+//!   (its one consumer, `Rollout::new`, lives there) — see that constant's
+//!   own doc comment.
+//! - `MIN_COST_DIFFERENCE` (`:37`) — ported as `MIN_COST_DIFFERENCE` below
+//!   (private, not linkable from this module-level doc -- see the constant
+//!   itself just below this doc block).
+//! - `MIN_CONTROL_COST_WEIGHT` (`:38`) — ported as `MIN_CONTROL_COST_WEIGHT`
+//!   below, same as above.
+//! - `computeLinearInterpolation` (`static`, `:47`) — ported as
+//!   `compute_linear_interpolation` (private free function, below).
+//! - `computeCubicInterpolation` (`static`, `:71`) — ported as
+//!   `compute_cubic_interpolation` (private free function, below).
+//! - `computeMinCostTrajectory` (non-`static`, global namespace,
+//!   header-undeclared, `:103`) — ported as `compute_min_cost_trajectory`
+//!   (private free function, below).
+//! - `computeParametersControlCosts` (non-`static`, global namespace,
+//!   header-undeclared, `:152`) — ported as `compute_parameters_control_costs`
+//!   (private free function, below).
+//!
+//! Sum: 8 (public, incl. the class) + 11 (protected methods) + 21 (protected
+//! data, 20 `ported as` + 1 `distinct`) + 7 (`stomp.cpp` file-local) = 47,
+//! matching `stomp.h`'s 40 (`rg` above) + `stomp.cpp`'s 7 file-local symbols.
+//! Zero `unported, in scope` and zero `D1 exclusion` in this file: every
+//! upstream symbol in `stomp.h`/`stomp.cpp` has a Rust counterpart. Beyond
+//! upstream, not counted in the 47 above: [`CancelHandle`] (struct + `new` +
+//! `cancel` + `Default`) and [`Stomp::with_cancel_handle`]/
+//! [`Stomp::cancel_handle`] — round 24's cancellation-handle split, no
+//! upstream symbol to correspond to.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -464,6 +581,9 @@ impl<'a> Stomp<'a> {
         self.parameters_optimized = DMatrix::zeros(d, t);
 
         self.start_index_padded = FINITE_DIFF_RULE_LENGTH - 1;
+        // Upstream's `num_timesteps_padded_` is a struct field, but this is
+        // its only write and only read (`stomp.cpp:357,359`) -- see this
+        // module's own completeness-audit doc for `num_timesteps_padded_`.
         let num_timesteps_padded = t + 2 * (FINITE_DIFF_RULE_LENGTH - 1);
         self.finite_diff_matrix_a_padded = generate_finite_difference_matrix(
             num_timesteps_padded,

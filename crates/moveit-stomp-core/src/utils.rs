@@ -6,6 +6,74 @@
 //   include/stomp/utils.h
 //   src/utils.cpp
 
+//! # Completeness audit (round 26): `utils.h` + `utils.cpp`
+//!
+//! `utils.h` has 14 top-level symbols (2 structs, 2 enums, 3 constants, 7
+//! free functions); struct fields and enum variants are not itemized as
+//! separate bullets here, matching `moveit-scene`'s precedent of not
+//! itemizing private/protected data members individually (both
+//! [`Rollout`]'s 10 fields and [`StompConfiguration`]'s 10 fields are
+//! confirmed 1:1 against `utils.h:38-58`/`:88-106` below, just not bulleted
+//! one-by-one). `utils.cpp` adds nothing beyond `utils.h`'s own
+//! declarations — confirmed by
+//! `rg -n '^(static |bool |void |double |std::string )' src/utils.cpp`
+//! matching only the 7 already-declared functions' definitions, no
+//! additional file-local statics or helpers.
+//!
+//! - `struct Rollout` — ported as [`Rollout`]; all 10 fields present
+//!   (`noise`, `parameters_noise`, `state_costs`, `control_costs`,
+//!   `total_costs`, `probabilities`, `full_probabilities`, `full_costs`,
+//!   `importance_weight`, `total_cost`).
+//! - `DerivativeOrders::DerivativeOrder` (4 variants) — ported as
+//!   [`DerivativeOrder`] (`Position`/`Velocity`/`Acceleration`/`Jerk`, same
+//!   4 discriminants `0`-`3`).
+//! - `TrajectoryInitializations::TrajectoryInitialization` (3 variants) —
+//!   ported as [`TrajectoryInitialization`]
+//!   (`LinearInterpolation`/`CubicPolynomialInterpolation`/`MinimumControlCost`,
+//!   same 3 discriminants `1`-`3`).
+//! - `struct StompConfiguration` — ported as [`StompConfiguration`]; all 10
+//!   fields present (`num_iterations`, `num_iterations_after_valid`,
+//!   `num_timesteps`, `num_dimensions`, `delta_t`, `initialization_method`,
+//!   `exponentiated_cost_sensitivity`, `num_rollouts`, `max_rollouts`,
+//!   `control_cost_weight`); `initialization_method` is the enum type
+//!   itself here, not upstream's raw `int` discriminant — see the struct's
+//!   own doc comment.
+//! - `FINITE_DIFF_RULE_LENGTH` — ported as [`FINITE_DIFF_RULE_LENGTH`].
+//! - `FINITE_CENTRAL_DIFF_COEFFS` — ported as [`FINITE_CENTRAL_DIFF_COEFFS`].
+//! - `FINITE_FORWARD_DIFF_COEFFS` — ported as [`FINITE_FORWARD_DIFF_COEFFS`].
+//! - `generateFiniteDifferenceMatrix` — ported as
+//!   [`generate_finite_difference_matrix`] (returns `DMatrix<f64>` rather
+//!   than writing through the `diff_matrix` out-parameter).
+//! - `differentiate` — ported as [`differentiate`].
+//! - `generateSmoothingMatrix` — ported as [`generate_smoothing_matrix`];
+//!   upstream returns `void` unconditionally and assumes the smoothing
+//!   matrix it builds is always invertible, but this port returns
+//!   `Option<DMatrix<f64>>` and makes that assumption an explicit,
+//!   checkable fallibility instead of an unstated one (see the function's
+//!   own doc comment) — same computation, honest about its one partial
+//!   case.
+//! - `toVector` — ported as [`to_vector`].
+//! - `toString(const std::vector<Eigen::VectorXd>&)` — ported as [`rows_to_string`].
+//! - `toString(const Eigen::VectorXd&)` — ported as [`vector_to_string`].
+//! - `toString(const Eigen::MatrixXd&)` — ported as [`matrix_to_string`].
+//!
+//! Sum: 2 (structs) + 2 (enums) + 3 (constants) + 7 (functions) = 14,
+//! matching `rg -c '^(struct Rollout|enum DerivativeOrder|enum
+//! TrajectoryInitialization|struct StompConfiguration|static const (int|
+//! double) FINITE|void generateFiniteDifferenceMatrix|void differentiate\(|
+//! void generateSmoothingMatrix|void toVector|std::string toString)'
+//! include/stomp/utils.h` = 14. Zero `unported, in scope`, zero `D1
+//! exclusion`. Beyond upstream, not counted in the 14 above:
+//! [`Rollout::new`] (upstream's `Rollout` has no constructor),
+//! [`full_piv_lu_try_inverse_or_empty`] (works around a `nalgebra`-specific
+//! 0x0-matrix panic Eigen doesn't have — `pub`, not `pub(crate)`, because
+//! `moveit_planners_stomp` needs the identical fix), and
+//! `DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT` (upstream: `stomp.cpp`-file-local;
+//! relocated here because [`Rollout::new`] is its one consumer — see that
+//! constant's own doc comment, and `stomp.rs`'s completeness-audit doc for
+//! the `stomp.cpp`-file-local accounting this relocation is subtracted
+//! from).
+
 use nalgebra::{DMatrix, DVector};
 
 /// `TrajectoryInitializations::TrajectoryInitialization`. Upstream's
