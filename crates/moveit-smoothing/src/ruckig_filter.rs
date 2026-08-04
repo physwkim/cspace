@@ -525,16 +525,18 @@ mod tests {
 
     #[test]
     fn do_smoothing_rejects_a_mismatched_length() {
+        // `matches!` alone cannot tell this apart from do_smoothing's
+        // sibling ruckig-update-failure site, also an Error::Other;
+        // message-swap bite-checked against it.
         let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5];
         let mut velocities = [0.0];
         let mut accelerations = [0.0];
-        assert!(
-            filter
-                .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
-                .is_err()
-        );
+        let err = filter
+            .do_smoothing(&mut positions, &mut velocities, &mut accelerations)
+            .unwrap_err();
+        assert!(err.to_string().contains("must each have length"), "{err}");
     }
 
     #[test]
