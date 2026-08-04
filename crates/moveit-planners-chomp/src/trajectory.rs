@@ -18,9 +18,9 @@
 //!   ([`ChompTrajectory::trajectory_point`] returns `Vec<f64>`,
 //!   [`ChompTrajectory::joint_trajectory`] likewise), not a live
 //!   `Eigen::MatrixXd::RowXpr`/`ColXpr` view. Every call site in this
-//!   round's ported code either reads a row/column once or overwrites one
-//!   wholesale ([`ChompTrajectory::set_trajectory_point`]); nothing needs a
-//!   view that stays live across further matrix mutation.
+//!   crate either reads a row/column once or overwrites one wholesale
+//!   ([`ChompTrajectory::set_trajectory_point`]); nothing needs a view that
+//!   stays live across further matrix mutation.
 //! - **`getFreeTrajectoryBlock`/`getFreeJointTrajectoryBlock` are ported as
 //!   [`ChompTrajectory::free_trajectory_block_mut`]/
 //!   [`ChompTrajectory::free_joint_trajectory_block_mut`]**, returning

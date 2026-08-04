@@ -93,8 +93,10 @@
 //!   since they carry no header declaration to audit against).
 //! - `Path` (class) — ported as [`Path`]:
 //!   - `create` (static, `std::optional<Path>`) — ported as [`Path::create`]
-//!     (`Result<Self>`, per this round's task instruction to keep failure a
-//!     value rather than a panic).
+//!     (`Result<Self>`: this crate's standing policy, set by this session's
+//!     original task brief, is that upstream returning `std::optional` means
+//!     failure is a value, and stays a value here rather than becoming a
+//!     panic).
 //!   - Copy constructor — subsumed by `#[derive(Clone)]` on [`Path`] (a
 //!     consequence of `path_segment::PathSegment` being a plain enum instead
 //!     of a `Vec<Box<dyn Trait>>`, which needs no hand-written deep copy).
@@ -134,8 +136,11 @@
 //!     `integrate_forward`/`integrate_backward`/`min_max_path_acceleration`/
 //!     `min_max_phase_slope`/`acceleration_max_path_velocity`/
 //!     `velocity_max_path_velocity`/`acceleration_max_path_velocity_deriv`/
-//!     `velocity_max_path_velocity_deriv` — the numerics transcribed as-is
-//!     per this round's task instruction, not rewritten.
+//!     `velocity_max_path_velocity_deriv` — the numerics transcribed as-is,
+//!     not rewritten: this session's original task brief called for
+//!     transcribing the delicate switching-point-search numerics rather than
+//!     rewriting them into something cleaner, and that standing policy is
+//!     applied here.
 //!   - `getTrajectorySegment` (with its `cached_time_`/
 //!     `cached_trajectory_segment_` forward-scan cache) — ported as the
 //!     private `Trajectory::segment_index`, *without* the cache: see

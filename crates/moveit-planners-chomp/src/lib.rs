@@ -121,8 +121,9 @@
 //!   constructor as [`trajectory::ChompTrajectory::from_source_trajectory`].
 //!   The `trajectory_msgs::msg::JointTrajectory`-typed constructor is
 //!   excluded (D1): its signature carries a ROS message type directly, and
-//!   nothing else in this round's scope constructs a `ChompTrajectory` from
-//!   one. `operator()` (both overloads) is ported as
+//!   this crate has no dependency on any ROS message crate at all (see this
+//!   crate's `Cargo.toml`), so nothing anywhere in it constructs a
+//!   `ChompTrajectory` from one. `operator()` (both overloads) is ported as
 //!   `impl `[`std::ops::Index`]`/`[`std::ops::IndexMut`]` for
 //!   `[`trajectory::ChompTrajectory`]` on `(usize, usize)``. All other
 //!   accessors and the three `fillIn*` methods, `fillInFromTrajectory`,
@@ -205,8 +206,10 @@
 //!   method (a design decision needing sign-off — see [`optimizer`]'s
 //!   module doc). `destroy()` is not ported: its upstream body is a no-op
 //!   RAII hook, structurally unnecessary once `Drop` exists (PORTING-PLAN.md
-//!   D1). This became possible once it was established (this round) that
-//!   `hy_env_`/`CollisionEnvHybrid` — round 18's cited blocker — has exactly
+//!   D1). This became possible once it was established, round 19 (the same
+//!   round `ChompOptimizer` itself was ported, per this section's own
+//!   heading above), that `hy_env_`/`CollisionEnvHybrid` — round 18's cited
+//!   blocker — has exactly
 //!   5 references in `chomp_motion_planner/`, and the only method ever
 //!   called on it, `getCollisionGradients`, is `CollisionEnvHybrid`'s own
 //!   one-line forward to `CollisionEnvDistanceField::getCollisionGradients`,
@@ -262,7 +265,7 @@
 //!   instead.
 //! - `ChompPlanner::solve` — ported as [`planner::solve`]. See that
 //!   function's own module doc for the field-coverage measurement behind
-//!   porting it this round, and its own doc comment for the exact
+//!   porting it (`eb4fa4e`), and its own doc comment for the exact
 //!   `chomp_planner.cpp` line ported at each step, every `MoveItErrorCode`
 //!   mapping, and the two named deviations
 //!   ([`planner::GoalJointConstraint`]'s "not `moveit_constraints::JointConstraint`",

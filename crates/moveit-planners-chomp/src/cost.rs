@@ -228,8 +228,10 @@ impl ChompCost {
     /// output view (`Eigen::MatrixBase<Derived>&`) so the result can alias
     /// an existing buffer; here it is always a fresh, owned [`DVector`],
     /// matching this crate's "owned copies, not live views" convention
-    /// (see [`crate::trajectory`]'s module doc) since this round has no
-    /// call site that needs write-through aliasing.
+    /// (see [`crate::trajectory`]'s module doc): no call site in this crate
+    /// needs write-through aliasing (the only caller,
+    /// [`crate::optimizer::calculate_smoothness_increments`], only reads the
+    /// returned vector).
     ///
     /// Ported from `getDerivative`.
     pub fn derivative(&self, joint_trajectory: &[f64]) -> Result<DVector<f64>> {

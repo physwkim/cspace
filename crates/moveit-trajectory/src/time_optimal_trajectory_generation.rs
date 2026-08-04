@@ -238,8 +238,9 @@
 //!   `max_velocity.len() == max_acceleration.len() ==
 //!   group.variable_names().len()` before calling
 //!   `crate::trajectory::Trajectory::create` and returns [`Error::other`]
-//!   naming the mismatch instead — the conversion this round's task
-//!   description asked for explicitly. In practice this means
+//!   naming the mismatch instead, per this crate's standing "failure is a
+//!   value" policy (see [`crate::Path::create`]'s entry in the crate's own
+//!   module doc). In practice this means
 //!   [`compute_time_stamps`]/[`compute_time_stamps_with_limits`] reject
 //!   every mimic-joint group outright; there is no upstream behaviour for a
 //!   *successful* mimic-joint-group call to port, since upstream never

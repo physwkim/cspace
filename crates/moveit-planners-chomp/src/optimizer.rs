@@ -37,18 +37,20 @@
 //! collapse, the `Isometry3d * Vector3d` point-vs-vector transform, and
 //! more) — not repeated here.
 //!
-//! The functions below `ChompOptimizer` in this file were already ported
-//! before this round, when they were the only symbols judged portable at
-//! all (they touch only already-ported types —
+//! The functions below `ChompOptimizer` in this file were already ported in
+//! `b0e4826`, before `ChompOptimizer` (the class itself) was ported in
+//! `77738b9`, when they were the only symbols judged portable at all (they
+//! touch only already-ported types —
 //! [`crate::trajectory::ChompTrajectory`], [`crate::cost::ChompCost`],
 //! [`crate::parameters::ChompParameters`], `moveit_model`'s joint tree — and
 //! needed no collision backend). Upstream declares each as a private
 //! `ChompOptimizer` method reading `this`
 //! (`chomp_optimizer.hpp:84,200,202,204,207,209`); they stay free functions
 //! here rather than becoming `ChompOptimizer` methods retroactively, since
-//! nothing about this round's port requires that shape and every existing
-//! call site (including `ChompOptimizer`'s own) already passes their state
-//! in explicitly.
+//! no call site needs that shape — every existing call site (including
+//! `ChompOptimizer`'s own) already passes their state in explicitly, and
+//! that remains true after `77738b9` added `ChompOptimizer` itself as a
+//! caller.
 //!
 //! ## Precondition: `group_trajectory` must already be `DIFF_RULE_LENGTH`-padded
 //!
@@ -136,7 +138,7 @@
 //!   `RevoluteJoint::is_continuous`) — all already dependencies of this
 //!   crate, no collision environment involved.
 //!
-//! ## Ported as `ChompOptimizer` methods (this round)
+//! ## Ported as `ChompOptimizer` methods (`77738b9`)
 //!
 //! - `ChompOptimizer` (the class itself) and its constructor →
 //!   [`crate::optimizer::ChompOptimizer`]/[`crate::optimizer::ChompOptimizer::new`]. `initialize()` upstream is
@@ -259,8 +261,8 @@
 //! consider. This crate's substitutions (sourcing sphere positions from
 //! `link_body_decompositions[..].sphere_centers()` instead of
 //! `sphere_locations`, and sizing per-link iteration from
-//! `gradients.len()` instead of `sphere_locations.len()`) are removed this
-//! round: [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
+//! `gradients.len()` instead of `sphere_locations.len()`) are removed in
+//! `5293abd`: [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`]
 //! and the private `resolve_collision_point_joint_index` now read
 //! `sphere_locations` directly, matching upstream's own indexing with no
 //! substitution — see their own doc comments for the exact change, and
@@ -804,9 +806,9 @@ fn resolve_collision_point_joint_index(
 /// - **`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an injected
 ///   closure**, not a method backed by `planning_scene_->isPathValid`.
 ///   **Round 20: approved** (`PORTING-PLAN.md` §154's review) --
-///   wiring this as a method today would make `moveit-planners-chomp` (this
-///   round's brief, and the `hy_env_`/`getCollisionGradients` evidence
-///   backing it) depend on two crates it has never carried:
+///   wiring this as a method today would make `moveit-planners-chomp` --
+///   per round 20's brief, and the `hy_env_`/`getCollisionGradients`
+///   evidence backing it -- depend on two crates it has never carried:
 ///   `moveit-scene` (for `PlanningScene::is_path_valid`,
 ///   `scene.rs:1695`) and `moveit-collision` (for `ParryCollisionEnv`,
 ///   `parry.rs:1611` -- the only existing implementer of the
@@ -851,9 +853,11 @@ fn resolve_collision_point_joint_index(
 ///   `mesh_to_mesh_collision_free` collapses from an injected closure into a
 ///   real call to `scene.is_path_valid(env, request,
 ///   best_group_trajectory_as_states, path_constraints, goal_constraints)`.
-///   Not attempted this round: adding those two dependencies and the
-///   trajectory-to-`&[RobotState]` conversion `is_path_valid` needs is a
-///   design decision of its own, not implied by this round's brief.
+///   Not attempted in `77738b9` (the commit that ported `ChompOptimizer`):
+///   adding those two dependencies and the trajectory-to-`&[RobotState]`
+///   conversion `is_path_valid` needs is a design decision of its own, not
+///   implied by anything else that commit did. See (b) above for what
+///   exactly would need to change for this to be attempted.
 /// - **`dynamic_cast<const CollisionEnvHybrid*>` and its null check
 ///   disappear.** [`ChompCollisionContext::cache`] is already statically
 ///   typed as [`moveit_distance_field::DistanceFieldCollisionCache`]; Rust
