@@ -11123,3 +11123,38 @@ p1-joints에게 첫 스탬프를 알린 뒤 chomp op 때문에 다시 바뀌어 
 넣어라. 스탬프를 먼저 알리면 그 사이에 캡처된 fixture가 어느 이미지에서
 나왔는지 추적할 수 없어진다 — `run-oracle.sh`의 스탬프 검사가 다음 실행을
 막아주긴 하지만, 이미 디스크에 있는 response 파일은 막아주지 못한다.
+
+## 135. FCL / libccd 원본 소스가 로컬에 들어왔다 — 반드시 태그에서 읽어라
+
+사용자가 `~/work/fcl`, `~/work/libccd` 두 소스를 체크아웃해 뒀다. p3-acm의
+caster-wheel 질문이 "원본이 로컬에 없다"는 이유로 라운드를 넘겨온 것이
+이걸로 풀린다.
+
+**체크아웃 상태와 오라클이 실제로 링크하는 것이 다르다.** 이걸 확인하지
+않고 HEAD를 읽으면 오라클이 돌리지 않는 알고리즘을 문서화하게 된다.
+
+| | 로컬 체크아웃 | 오라클 이미지 |
+|---|---|---|
+| fcl | `e5efcc4`, `0.7.0-17-ge5efcc4` | `libfcl-dev 0.7.0-3build2` |
+| libccd | `7931e76`, `v2.1` | `libccd-dev 2.1-2` |
+
+이미지 안의 `changelog.Debian.gz`를 직접 읽어서 확인한 것: fcl
+`0.7.0-3build2`는 upstream 0.7.0 위에 sparc64 패치 하나(amd64와 무관)와
+no-change 리빌드(CVE-2024-3094 대응, liboctomap1.9t64 재링크)뿐 —
+`0.7.0-1`의 "Remove all patches, they were merged upstream" 이후로 코드
+패치가 없다. 즉 **오라클은 순수 upstream 0.7.0을 돌린다.** libccd
+`2.1-2`도 packaging 전용 변경(debhelper, standards bump)뿐이라 로컬 `v2.1`과
+정확히 일치하고, 이미지의 `/usr/include/ccd/config.h`는 `CCD_DOUBLE`이
+정의되어 있고 `CCD_SINGLE`은 undef다 — 배정밀도로 돈다.
+
+**그래서 fcl은 `0.7.0` 태그에서 읽어야 한다.** 체크아웃 HEAD는 태그보다 17
+커밋 앞서 있고, 그 구간이
+`include/fcl/narrowphase/detail/convexity_based_algorithm/gjk_libccd-inl.h`를
+447줄 고쳤다 — `3c2b993`("Fix EPA, use a more robust ccdVec3PointTriDist2")와
+`da430b1`("Correct doSimplex4() testing tolerances"). convex-convex 접촉이
+지나가는 바로 그 경로다. HEAD를 읽고 생긴 불일치는 포트의 결함으로
+오귀속된다. `git -C ~/work/fcl show 0.7.0:<path>` 또는 태그 워크트리를 써라.
+
+이건 §107.3(요청 전에 upstream *헤더*에서 심볼 도달 가능성 확인)과 같은
+계열의 규칙이다: **원본을 읽기 전에, 읽으려는 리비전이 오라클이 링크하는
+리비전인지 먼저 확인해라.** 로컬에 소스가 있다는 사실만으로는 부족하다.
