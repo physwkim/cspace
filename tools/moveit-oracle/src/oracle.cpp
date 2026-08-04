@@ -2147,6 +2147,29 @@ private:
   /// looks up `*state_` (attached bodies are per-request, applied in
   /// `collision()` before either check runs) rather than `model_`, since an
   /// attached body has no `LinkModel`.
+  /// `null` when `name` does not denote a body, an array of shape kinds when
+  /// it does -- including the empty array, which means a real body that has
+  /// no collision geometry (several pr2 links are like that). The two are
+  /// deliberately different values: one meaning per value, so a fixture
+  /// reader can tell "no shapes" from "no such body" without knowing which
+  /// op produced it.
+  ///
+  /// Not every `Contact` names a body on both sides.
+  /// `CollisionEnvDistanceField` compares each link against one aggregated
+  /// distance field rather than against another body, so there is no second
+  /// body to name and it writes a sentinel instead: `"self"` typed
+  /// `ROBOT_LINK` (`collision_env_distance_field.cpp:326-327`) and
+  /// `"environment"` typed `WORLD_OBJECT` (`:1615-1616`). Neither exists in
+  /// the model or the world, and the type tag is part of the sentinel, not a
+  /// promise -- so dispatching on the type alone and dereferencing the
+  /// lookup, which is what this did before, killed the process on the first
+  /// such contact (`getLinkModel("self")` returns null after logging).
+  ///
+  /// The guard is a presence test rather than a comparison against those two
+  /// literals on purpose: it is the same rule for every op and every body
+  /// type, so a third sentinel added upstream lands as `null` in a fixture
+  /// instead of as a crash, and no op needs a boundary case for the ops that
+  /// emit sentinels.
   json shapeKindsFor(collision_detection::BodyType type, const std::string& name,
                       const collision_detection::World& world) const
   {
@@ -2154,14 +2177,20 @@ private:
     switch (type)
     {
       case collision_detection::BodyTypes::ROBOT_LINK:
+        if (!model_->hasLinkModel(name))
+          return nullptr;
         for (const shapes::ShapeConstPtr& shape : model_->getLinkModel(name)->getShapes())
           kinds.push_back(shapeTypeName(shape->type));
         break;
       case collision_detection::BodyTypes::ROBOT_ATTACHED:
+        if (!state_->getAttachedBody(name))
+          return nullptr;
         for (const shapes::ShapeConstPtr& shape : state_->getAttachedBody(name)->getShapes())
           kinds.push_back(shapeTypeName(shape->type));
         break;
       case collision_detection::BodyTypes::WORLD_OBJECT:
+        if (!world.hasObject(name))
+          return nullptr;
         for (const shapes::ShapeConstPtr& shape : world.getObject(name)->shapes_)
           kinds.push_back(shapeTypeName(shape->type));
         break;
@@ -2190,16 +2219,43 @@ private:
       const std::vector<collision_detection::Contact>& contact_list = entry.second;
       if (contact_list.empty())
         continue;
-      const collision_detection::Contact& c = contact_list.front();
-      out.push_back(json{
-        { "body_name_1", c.body_name_1 },
-        { "body_type_1", bodyTypeName(c.body_type_1) },
-        { "shape_kinds_1", shapeKindsFor(c.body_type_1, c.body_name_1, world) },
-        { "body_name_2", c.body_name_2 },
-        { "body_type_2", bodyTypeName(c.body_type_2) },
-        { "shape_kinds_2", shapeKindsFor(c.body_type_2, c.body_name_2, world) },
-        { "depth", c.depth },
-      });
+      out.push_back(contactToJson(contact_list.front(), world));
+    }
+    return out;
+  }
+
+  /// One `Contact` as JSON. Split out of `contactsToJson` so that
+  /// `allContactsToJson` reports the same object shape rather than a second
+  /// hand-written copy of these seven fields.
+  json contactToJson(const collision_detection::Contact& c, const collision_detection::World& world) const
+  {
+    return json{
+      { "body_name_1", c.body_name_1 },
+      { "body_type_1", bodyTypeName(c.body_type_1) },
+      { "shape_kinds_1", shapeKindsFor(c.body_type_1, c.body_name_1, world) },
+      { "body_name_2", c.body_name_2 },
+      { "body_type_2", bodyTypeName(c.body_type_2) },
+      { "shape_kinds_2", shapeKindsFor(c.body_type_2, c.body_name_2, world) },
+      { "depth", c.depth },
+    };
+  }
+
+  /// Every contact of every pair, not just each pair's first.
+  ///
+  /// `contactsToJson` reports `contact_list.front()` alone, and its callers'
+  /// committed fixtures assert that shape; changing it would rewrite them.
+  /// The distance-field ops need the whole list instead -- their
+  /// `max_contacts_per_pair` request field exists precisely to make a pair
+  /// carry more than one contact, and a front-only dump would make that
+  /// field unobservable.
+  json allContactsToJson(const collision_detection::CollisionResult::ContactMap& contacts,
+                         const collision_detection::World& world) const
+  {
+    json out = json::array();
+    for (const auto& entry : contacts)
+    {
+      for (const collision_detection::Contact& c : entry.second)
+        out.push_back(contactToJson(c, world));
     }
     return out;
   }
@@ -3012,15 +3068,55 @@ private:
   /// the new logic surface, without re-deriving `PropagationDistanceField`
   /// correctness a second time.
   ///
-  /// `attached_body_names_`/`attached_body_link_state_indices_` are always
-  /// empty on the oracle side too, for the same reason `moveit-state`'s own
-  /// `frame_transform` doc gives: this workspace has no `AttachedBody`
-  /// fixture to attach, so both ports observe the same "no attached bodies"
-  /// state rather than one port faking a nonexistent case the other cannot
-  /// produce.
+  /// `request["attached_bodies"]` (optional, defaults to none) is attached
+  /// before the check, so the attached-body half of the group's
+  /// `DistanceFieldCacheEntry` is reachable at all -- without it
+  /// `attached_body_names_` is always empty and every attached-body branch
+  /// below it is untestable.
+  ///
+  /// It only becomes non-empty with `use_acm` *true*, and that is upstream's
+  /// behaviour rather than this op's: the whole attached-body enumeration
+  /// sits inside `generateDistanceFieldCacheEntry`'s `if (acm)`
+  /// (`collision_env_distance_field.cpp:775`, the pushes at `:801-802`), so a
+  /// null ACM leaves `attached_body_names_` empty no matter what is attached
+  /// to the state. Measured, not inferred: the same request with `use_acm`
+  /// false returns `attached_body_names: []` and with it true returns
+  /// `["payload"]`.
+  ///
+  /// `request["contacts"]` (optional, defaults to `false`) selects upstream's
+  /// contact-enumerating path and, when true, adds `collision` and `contacts`
+  /// to the response. It is a request field rather than always-on because
+  /// `req.contacts` is not an output-only switch upstream: the `true` branch
+  /// of `getSelfCollisions` (`collision_env_distance_field.cpp:298-338`)
+  /// writes `gsr->gradients_[i].types[col] = SELF` and
+  /// `gradients_[i].collision = true` and keeps scanning, while the `false`
+  /// branch (`:341-349`) returns on the first colliding link and writes
+  /// neither. Those two fields are already dumped by this op, so flipping the
+  /// switch would silently change what every existing fixture asserts.
+  /// Making it a request field keeps old fixtures byte-identical and puts the
+  /// mode in the fixture that asked for it. `max_contacts` /
+  /// `max_contacts_per_pair` are exposed for the same reason -- the branch's
+  /// scan bound is `std::min(req.max_contacts_per_pair, req.max_contacts -
+  /// res.contact_count)`, so a fixture that cannot set them cannot reach the
+  /// multi-contact shape at all.
+  ///
+  /// The difference is measurable rather than argued: one `contacts`-true
+  /// request against pr2's `right_arm` reports `collision` on 5 of 22 links'
+  /// gradients and `SELF` in one link's `types`, and the identical request
+  /// with `contacts` absent reports 0 and 0.
+  ///
+  /// Two caveats for whoever writes the fixtures. Contact `depth` is always
+  /// `0.0` on these paths -- upstream sets only `pos` and the two body
+  /// identities (`:308-327`, `:1600-1616`), and `Contact::depth`'s `= 0.0`
+  /// default member initializer (`collision_common.hpp:84`) is what supplies
+  /// the value, so it is reproducible but carries no penetration
+  /// measurement. And `body_name_2` is frequently not a body: see
+  /// `shapeKindsFor`'s doc for the `"self"`/`"environment"` sentinels and the
+  /// `null` `shape_kinds` they produce.
   json distanceFieldCacheEntry(const json& request)
   {
     applyJointValues(request);
+    applyAttachedBodies(*state_, request);
 
     const std::string group_name = request.at("group").get<std::string>();
     if (!model_->hasJointModelGroup(group_name))
@@ -3033,6 +3129,13 @@ private:
 
     collision_detection::CollisionRequest req;
     req.group_name = group_name;
+    const bool want_contacts = request.value("contacts", false);
+    if (want_contacts)
+    {
+      req.contacts = true;
+      req.max_contacts = request.value("max_contacts", static_cast<std::size_t>(100));
+      req.max_contacts_per_pair = request.value("max_contacts_per_pair", static_cast<std::size_t>(1));
+    }
     collision_detection::CollisionResult res;
     if (use_acm)
       env.checkSelfCollision(req, res, *state_, acm);
@@ -3067,6 +3170,12 @@ private:
       }
     }
     out["distance_queries"] = distance_queries_out;
+
+    if (want_contacts)
+    {
+      out["collision"] = res.collision;
+      out["contacts"] = allContactsToJson(res.contacts, *env.getWorld());
+    }
 
     return out;
   }
@@ -3145,9 +3254,55 @@ private:
   /// state `initialize()` built it at. There is no defined upstream value
   /// here to dump or compare against, so it is omitted rather than captured
   /// misleadingly.
+  /// `request["attached_bodies"]` (optional, defaults to none) is attached
+  /// before the check, so the attached-body half of the group's
+  /// `DistanceFieldCacheEntry` is reachable at all -- without it
+  /// `attached_body_names_` is always empty and every attached-body branch
+  /// below it is untestable.
+  ///
+  /// It only becomes non-empty with `use_acm` *true*, and that is upstream's
+  /// behaviour rather than this op's: the whole attached-body enumeration
+  /// sits inside `generateDistanceFieldCacheEntry`'s `if (acm)`
+  /// (`collision_env_distance_field.cpp:775`, the pushes at `:801-802`), so a
+  /// null ACM leaves `attached_body_names_` empty no matter what is attached
+  /// to the state. Measured, not inferred: the same request with `use_acm`
+  /// false returns `attached_body_names: []` and with it true returns
+  /// `["payload"]`.
+  ///
+  /// `request["contacts"]` (optional, defaults to `false`) selects upstream's
+  /// contact-enumerating path and, when true, adds `collision` and `contacts`
+  /// to the response. It is a request field rather than always-on because
+  /// `req.contacts` is not an output-only switch upstream: the `true` branch
+  /// of `getSelfCollisions` (`collision_env_distance_field.cpp:298-338`)
+  /// writes `gsr->gradients_[i].types[col] = SELF` and
+  /// `gradients_[i].collision = true` and keeps scanning, while the `false`
+  /// branch (`:341-349`) returns on the first colliding link and writes
+  /// neither. Those two fields are already dumped by this op, so flipping the
+  /// switch would silently change what every existing fixture asserts.
+  /// Making it a request field keeps old fixtures byte-identical and puts the
+  /// mode in the fixture that asked for it. `max_contacts` /
+  /// `max_contacts_per_pair` are exposed for the same reason -- the branch's
+  /// scan bound is `std::min(req.max_contacts_per_pair, req.max_contacts -
+  /// res.contact_count)`, so a fixture that cannot set them cannot reach the
+  /// multi-contact shape at all.
+  ///
+  /// The difference is measurable rather than argued: one `contacts`-true
+  /// request against pr2's `right_arm` reports `collision` on 5 of 22 links'
+  /// gradients and `SELF` in one link's `types`, and the identical request
+  /// with `contacts` absent reports 0 and 0.
+  ///
+  /// Two caveats for whoever writes the fixtures. Contact `depth` is always
+  /// `0.0` on these paths -- upstream sets only `pos` and the two body
+  /// identities (`:308-327`, `:1600-1616`), and `Contact::depth`'s `= 0.0`
+  /// default member initializer (`collision_common.hpp:84`) is what supplies
+  /// the value, so it is reproducible but carries no penetration
+  /// measurement. And `body_name_2` is frequently not a body: see
+  /// `shapeKindsFor`'s doc for the `"self"`/`"environment"` sentinels and the
+  /// `null` `shape_kinds` they produce.
   json groupStateRepresentation(const json& request)
   {
     applyJointValues(request);
+    applyAttachedBodies(*state_, request);
 
     const std::string group_name = request.at("group").get<std::string>();
     if (!model_->hasJointModelGroup(group_name))
@@ -3160,6 +3315,13 @@ private:
 
     collision_detection::CollisionRequest req;
     req.group_name = group_name;
+    const bool want_contacts = request.value("contacts", false);
+    if (want_contacts)
+    {
+      req.contacts = true;
+      req.max_contacts = request.value("max_contacts", static_cast<std::size_t>(100));
+      req.max_contacts_per_pair = request.value("max_contacts_per_pair", static_cast<std::size_t>(1));
+    }
     collision_detection::CollisionResult res;
     if (use_acm)
       env.checkCollision(req, res, *state_, acm);
@@ -3221,7 +3383,13 @@ private:
       links_out.push_back(link_out);
     }
 
-    return json{ { "group_name", group_name }, { "links", links_out } };
+    json out{ { "group_name", group_name }, { "links", links_out } };
+    if (want_contacts)
+    {
+      out["collision"] = res.collision;
+      out["contacts"] = allContactsToJson(res.contacts, *env.getWorld());
+    }
+    return out;
   }
 
   /// Ground truth for `collision_common_distance_field.{hpp,cpp}`'s
