@@ -1660,8 +1660,23 @@ mod tests {
 "#;
         let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
         let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
-            .expect("two_link_chomp model must build")
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("two_link_chomp model must build");
+        // PORTING-PLAN.md §196: an SRDF chain group over a fixed joint
+        // resolves to `link_names() == []` with no error and no warning, so
+        // every test built on this fixture would pass vacuously. Both `j1`
+        // and `j2` above are `revolute`, not `fixed`, but assert the group
+        // actually has links rather than trusting that stays true.
+        assert!(
+            !model
+                .joint_model_group(CHOMP_COLLISION_GROUP)
+                .expect("chain group exists")
+                .link_names()
+                .is_empty(),
+            "chain group must have non-empty link_names, or every test using this fixture passes vacuously (§196)"
+        );
+        model
     }
 
     /// A grid covering `chomp_collision_model`'s 0.6 m-long chain, at a
