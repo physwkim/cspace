@@ -432,22 +432,46 @@ mod tests {
 
     // -- constructor: missing limit dimensions are each rejected --
 
+    /// Boundary: no joint limits set at all, checked before `group_name` is
+    /// even looked up.
+    ///
+    /// `TrajectoryGeneratorPtp::new` has six `Error::construct` sites (`rg
+    /// -c 'Error::' trajectory_generator_ptp.rs` restricted to the function
+    /// body: 6), so a bare `.is_err()` cannot say which fired. Checked on
+    /// the message against its sibling guards below (message-swap bite).
     #[test]
     fn constructor_rejects_missing_joint_limits() {
         let (model, _) = load_panda();
         let base = TrajectoryGenerator::new(&model, LimitsContainer::new());
-        assert!(TrajectoryGeneratorPtp::new(base, "panda_arm").is_err());
+        let err = TrajectoryGeneratorPtp::new(base, "panda_arm")
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string().contains("joint limit not set"),
+            "expected the no-joint-limits message, got {err}"
+        );
     }
 
+    /// Boundary: joint limits are set, but `group_name` names no group.
+    /// Same six-site function as above; see that test's doc comment.
     #[test]
     fn constructor_rejects_unknown_group() {
         let (model, _) = load_panda();
         let mut limits = LimitsContainer::new();
         limits.set_joint_limits(panda_joint_limits());
         let base = TrajectoryGenerator::new(&model, limits);
-        assert!(TrajectoryGeneratorPtp::new(base, "no_such_group").is_err());
+        let err = TrajectoryGeneratorPtp::new(base, "no_such_group")
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string().contains("invalid group"),
+            "expected the invalid-group message, got {err}"
+        );
     }
 
+    /// Boundary: the group's fused limit has a velocity limit but no
+    /// acceleration limit. Same six-site function; see
+    /// `constructor_rejects_missing_joint_limits`'s doc comment.
     #[test]
     fn constructor_rejects_a_group_missing_an_acceleration_limit() {
         let (model, _) = load_panda();
@@ -465,7 +489,13 @@ mod tests {
         let mut limits = LimitsContainer::new();
         limits.set_joint_limits(limits_container);
         let base = TrajectoryGenerator::new(&model, limits);
-        assert!(TrajectoryGeneratorPtp::new(base, "panda_arm").is_err());
+        let err = TrajectoryGeneratorPtp::new(base, "panda_arm")
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string().contains("acceleration limit not set"),
+            "expected the missing-acceleration-limit message, got {err}"
+        );
     }
 
     #[test]
@@ -560,6 +590,15 @@ mod tests {
         assert!(total_duration > 0.0);
     }
 
+    /// Boundary: `req.group_name` names no group in `scene`'s robot model.
+    ///
+    /// `plan_ptp` has four fallible sites, each with its own
+    /// [`MoveItErrorCode`] (`InvalidGroupName` at the `RobotTrajectory`
+    /// construction, two `PlanningFailed`, one `Error::Construct` for the
+    /// sync-failed case -- `rg -n 'Error::' trajectory_generator_ptp.rs`
+    /// scoped to `plan_ptp`'s body: 4). A bare `.is_err()` cannot say which
+    /// fired; checked on the structured [`Error::Code`] variant instead,
+    /// which the other three sites in this function cannot produce.
     #[test]
     fn plan_ptp_rejects_an_unknown_group() {
         let (model, srdf) = load_panda();
@@ -576,7 +615,11 @@ mod tests {
         let start = HashMap::from([("panda_joint1".to_string(), 0.0)]);
         let goal = HashMap::from([("panda_joint1".to_string(), 1.0)]);
         let req = ptp_request("no_such_group", 0.5);
-        assert!(plan_ptp(&limit, &start, &goal, &req, 0.1, &scene).is_err());
+        let err = plan_ptp(&limit, &start, &goal, &req, 0.1, &scene).unwrap_err();
+        assert!(
+            matches!(err, Error::Code(MoveItErrorCode::InvalidGroupName)),
+            "expected Error::Code(InvalidGroupName), got {err:?}"
+        );
     }
 
     // -- PilzGenerator::generate: end-to-end joint-space goal, and a

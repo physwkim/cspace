@@ -523,6 +523,16 @@ mod tests {
     /// a hand-built [`CircleGeometry`], bypassing
     /// `circle_from_center`/`circle_from_interim`, since neither solver can
     /// itself produce a zero-radius geometry from non-degenerate inputs.
+    ///
+    /// `PathCircle::new` has two `Error::construct` sites (`rg -c
+    /// 'Error::' path_circle.rs` restricted to the function body: 2), so a
+    /// bare `.is_err()` cannot say which fired -- worse, here it would not
+    /// even prove *this* guard fired at all: with `x_axis` zeroed by the
+    /// zero-radius guard, the colinear-plane guard below it would also see
+    /// a zero cross product and independently error too, so no-opping the
+    /// radius guard alone does not flip `.is_err()` to `false` (checked
+    /// directly: it stays `true`, driven by the other guard). Only the
+    /// message discriminates -- checked below.
     #[test]
     fn zero_radius_is_rejected() {
         let start = identity_pose(Vector3::new(0.0, 0.0, 0.0));
@@ -534,7 +544,11 @@ mod tests {
             aux_point: Vector3::new(0.0, 1.0, 0.0),
         };
         let result = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM);
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("too small"),
+            "expected the zero-radius message, got {err}"
+        );
     }
 
     /// Boundary: a half circle solved via [`circle_from_center`] succeeds at
@@ -543,6 +557,14 @@ mod tests {
     /// colinear with the start-to-center radius vector, leaving the circle's
     /// plane undetermined (`Error_MotionPlanning_Circle_No_Plane`) -- the
     /// documented reason [`circle_from_center`] cannot express a half circle.
+    ///
+    /// `PathCircle::new`'s other `Error::construct` site is the zero-radius
+    /// guard (see [`zero_radius_is_rejected`]'s own doc comment); `radius`
+    /// here is `1.0`, so that guard cannot fire and there is no sibling-guard
+    /// ambiguity in the other direction the way there is there. Checked on
+    /// the message anyway, for the same reason every site in this family
+    /// is: a future change to guard order or a shared early return should
+    /// not let this test start passing for the wrong guard silently.
     #[test]
     fn half_circle_from_center_has_no_determinable_plane() {
         let start = identity_pose(Vector3::new(1.0, 0.0, 0.0));
@@ -554,6 +576,10 @@ mod tests {
         )
         .unwrap();
         let result = PathCircle::new(&start, &goal, &geom, 1.0, MAX_COLINEAR_NORM);
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("colinear"),
+            "expected the colinear-plane message, got {err}"
+        );
     }
 }
