@@ -364,4 +364,35 @@ mod tests {
             }
         }
     }
+
+    /// Port of `test_noise_generator.cpp`'s `testStartEndUnchanged` --
+    /// upstream's exact `TIMESTEPS=100`, `VARIABLES=6`, `STDDEV=0.2`
+    /// literals, not this module's usual small synthetic fixtures. Also
+    /// closes a gap this round's value-level cross-reference found:
+    /// `stddev_scales_the_noise_magnitude` above never independently checks
+    /// that generated noise is actually nonzero, so it would pass trivially
+    /// under a hypothetical all-zero-noise bug -- upstream's
+    /// `EXPECT_NE(noise, NOISE)` (`NOISE` is the all-zero matrix passed in
+    /// as the out-parameter) is reproduced explicitly here.
+    #[test]
+    fn upstream_test_start_end_unchanged() {
+        const TIMESTEPS: usize = 100;
+        const VARIABLES: usize = 6;
+        let stddev = vec![0.2; VARIABLES];
+        let mut generate =
+            normal_distribution_generator(TIMESTEPS, stddev, ChaCha8Rng::seed_from_u64(1)).unwrap();
+        let values = DMatrix::from_element(VARIABLES, TIMESTEPS, 1.0);
+        let (noisy_values, noise) = generate(&values).unwrap();
+
+        assert_ne!(noise, DMatrix::zeros(VARIABLES, TIMESTEPS));
+        assert_ne!(noisy_values, DMatrix::zeros(VARIABLES, TIMESTEPS));
+        assert_ne!(values, noisy_values);
+        for row in 0..VARIABLES {
+            assert_eq!(values[(row, 0)], noisy_values[(row, 0)]);
+            assert_eq!(
+                values[(row, TIMESTEPS - 1)],
+                noisy_values[(row, TIMESTEPS - 1)]
+            );
+        }
+    }
 }

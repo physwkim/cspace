@@ -332,8 +332,8 @@ All 9 accounted for, all with a stated reason, no gap found:
 | `src/stomp_moveit_planner_plugin.cpp` | deliberately excluded, reason stated (`lib.rs:105-115`, ROS-hosted plugin entry point taking `rclcpp::Node::SharedPtr`) |
 | `trajectory_visualization.hpp` | deliberately excluded, reason stated (`lib.rs:116-120`, ROS message/tf2-typed signatures) |
 | `stomp_moveit_planning_context.hpp` | deliberately excluded, classified this round -- see below |
-| `test/test_cost_functions.cpp` | **missing** -- see below |
-| `test/test_noise_generator.cpp` | **missing** -- see below |
+| `test/test_cost_functions.cpp` | ported this round, by value -- see below |
+| `test/test_noise_generator.cpp` | ported this round, by value -- see below |
 
 **`stomp_moveit_planning_context.hpp`, classified this round (closes
 gap 1 of 3 named last round).** Read the full file (76 lines): one
@@ -360,27 +360,55 @@ ROS-hosted-glue exclusion already applied to this file's `.cpp` twin
 (`solve()`'s body) and to the sibling plugin file -- now written down
 explicitly rather than left as "never cited."
 
-**Two genuine gaps remain, next round's work, named here rather than
-fixed this round (see this round's value-level cross-reference below
-for why they are not yet closed):**
+**`test/test_cost_functions.cpp` and `test/test_noise_generator.cpp`,
+cross-referenced by value this round (closes gaps 2 and 3 named last
+round).** Both files were previously covered only by name-match
+(`a_fully_valid_trajectory_has_zero_cost_and_is_valid` "looks like"
+`testGetCostFunctionAllValidStates`, etc.) -- never opened, never
+diffed against this port's own tests literal-for-literal. Both were
+read in full this round and every pinned constant extracted:
+`test_cost_functions.cpp`'s `TIMESTEPS=100`, `VARIABLES=6`,
+`PENALTY=1.0`, the 18-element `INVALID_TIMESTEPS` set (`{0, 10, 11,
+12, 25, 26, 27, 46, 63, 64, 65, 66, 67, 68, 69, 97, 98, 99}`),
+`costs.sum() == PENALTY * 18 == 18.0` (exact), and
+`costs(invalid_timesteps_vec).sum() >= 0.681 * PENALTY`;
+`test_noise_generator.cpp`'s `TIMESTEPS=100`, `VARIABLES=6`,
+`STDDEV=[0.2; 6]`, and `EXPECT_NE(noise, NOISE)`/`EXPECT_NE(noisy_values,
+NOISY_VALUES)` (noise is actually nonzero, not merely shaped correctly).
 
-1. `test/test_cost_functions.cpp` (upstream `testGetCostFunctionAllValidStates`/
-   `testGetCostFunctionInvalidStates`) was never opened or cross-referenced
-   against this crate's own `cost_functions.rs` tests. By name, the
-   invariants line up (`a_fully_valid_trajectory_has_zero_cost_and_is_valid`,
-   `an_invalid_waypoint_is_penalized_and_marks_the_trajectory_invalid`,
-   `interpolation_catches_an_invalid_state_between_two_valid_waypoints`),
-   but exact-value parity was never checked -- upstream asserts
-   `EXPECT_GE(costs(invalid_timesteps_vec).sum(), 0.681 * PENALTY)` at a
-   specific tolerance; this port's own test was never diffed against that
-   literal.
-2. `test/test_noise_generator.cpp` (upstream `testStartEndUnchanged`) was
-   never opened or cross-referenced either. By name,
-   `generated_noise_pins_the_first_and_last_timestep_to_zero` covers the
-   same invariant, but again unverified against the upstream test's exact
-   assertions.
+None of these literals appeared anywhere in this port's own tests --
+every existing test in `cost_functions.rs` and `noise_generators.rs`
+uses small, differently-valued synthetic fixtures (5-waypoint
+trajectories, `stddev` of `0.1`/`10.0`/`1.0`, seeds unrelated to
+upstream's RNG), which exercise the same *invariants* (a fully-valid
+trajectory has zero cost, an invalid waypoint is penalized, the first
+and last columns are pinned to zero noise) but never reproduce
+upstream's exact numbers for the exact same input. Per this round's
+brief, each unreproduced literal is closed by porting the case rather
+than left as a documented gap:
+
+1. `upstream_test_get_cost_function_all_valid_states` and
+   `upstream_test_get_cost_function_invalid_states`
+   (`cost_functions.rs`, new this round) port
+   `testGetCostFunctionAllValidStates`/`testGetCostFunctionInvalidStates`
+   using upstream's exact `TIMESTEPS`/`VARIABLES`/`PENALTY`/
+   `INVALID_TIMESTEPS` literals and reproduce every one of upstream's
+   assertions, including the `0.681 * PENALTY` two-sigma concentration
+   claim and `costs.sum() == 18.0` exactly. Both pass against this
+   port's own `cost_function_from_state_validator`.
+2. `upstream_test_start_end_unchanged` (`noise_generators.rs`, new
+   this round) ports `testStartEndUnchanged` using upstream's exact
+   `TIMESTEPS`/`VARIABLES`/`STDDEV` literals, and additionally closes a
+   gap this cross-reference found independently of the literal check:
+   no existing test in this file asserted generated noise is actually
+   nonzero (`stddev_scales_the_noise_magnitude`'s ratio assertion would
+   pass trivially under a hypothetical all-zero-noise bug, `0 - 100*0
+   == 0`). The new test reproduces upstream's `EXPECT_NE(noise, NOISE)`/
+   `EXPECT_NE(noisy_values, NOISY_VALUES)`/`EXPECT_NE(VALUES,
+   noisy_values)` explicitly.
 
 Unlike `moveit-stomp-core`'s treatment of `test/stomp_3dof.cpp` (explicit
 section, re-verified line-by-line), these two upstream test files were
-never read this session at all -- the apparent coverage above is a
-name-match, not a checked one.
+never read at all before this round -- the apparent coverage claimed
+previously was a name-match, not a checked one. It is a checked one
+now.

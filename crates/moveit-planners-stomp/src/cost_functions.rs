@@ -576,6 +576,68 @@ mod tests {
         let values = DMatrix::zeros(1, 2);
         assert!(summed(&values).is_none());
     }
+
+    /// Port of `test_cost_functions.cpp`'s `testGetCostFunctionAllValidStates`
+    /// -- upstream's exact `TIMESTEPS=100`, `VARIABLES=6` literals, not this
+    /// module's usual small synthetic fixtures.
+    #[test]
+    fn upstream_test_get_cost_function_all_valid_states() {
+        const TIMESTEPS: usize = 100;
+        const VARIABLES: usize = 6;
+        let always_valid: StateValidatorFn<'static> = Box::new(|_state: &DVector<f64>| 0.0);
+        let mut cost_fn = cost_function_from_state_validator(always_valid, 0.1);
+        let values = DMatrix::from_fn(VARIABLES, TIMESTEPS, |_row, col| {
+            col as f64 / (TIMESTEPS - 1) as f64
+        });
+        let (costs, validity) = cost_fn(&values).unwrap();
+        assert!(validity);
+        assert_eq!(costs.sum(), 0.0);
+    }
+
+    /// Port of `test_cost_functions.cpp`'s `testGetCostFunctionInvalidStates`
+    /// -- upstream's exact `INVALID_TIMESTEPS` set (18 entries), `PENALTY`,
+    /// and the `0.681 * PENALTY` two-sigma concentration claim. Interpolation
+    /// is disabled (`0.0`), matching upstream, so `state_validator_fn` is
+    /// called exactly once per timestep in timestep order -- the counter
+    /// below stands in for upstream's `timestep_counter` and is checked to
+    /// equal `TIMESTEPS` afterward, same as upstream's own
+    /// `EXPECT_EQ(timestep_counter, 100u)`.
+    #[test]
+    fn upstream_test_get_cost_function_invalid_states() {
+        const TIMESTEPS: usize = 100;
+        const VARIABLES: usize = 6;
+        const PENALTY: f64 = 1.0;
+        let invalid_timesteps: [usize; 18] = [
+            0, 10, 11, 12, 25, 26, 27, 46, 63, 64, 65, 66, 67, 68, 69, 97, 98, 99,
+        ];
+        let invalid_set: std::collections::HashSet<usize> =
+            invalid_timesteps.iter().copied().collect();
+
+        let counter = std::rc::Rc::new(RefCell::new(0usize));
+        let counter_captured = counter.clone();
+        let validator: StateValidatorFn<'static> = Box::new(move |_state: &DVector<f64>| {
+            let t = *counter_captured.borrow();
+            *counter_captured.borrow_mut() += 1;
+            if invalid_set.contains(&t) {
+                PENALTY
+            } else {
+                0.0
+            }
+        });
+        let mut cost_fn = cost_function_from_state_validator(validator, 0.0);
+        let values = DMatrix::from_fn(VARIABLES, TIMESTEPS, |_row, col| {
+            col as f64 / (TIMESTEPS - 1) as f64
+        });
+        let (costs, validity) = cost_fn(&values).unwrap();
+
+        assert!(!validity);
+        assert_eq!(*counter.borrow(), TIMESTEPS);
+        assert!(costs.max() <= PENALTY);
+        assert!(costs.min() >= 0.0);
+        assert!((costs.sum() - PENALTY * invalid_timesteps.len() as f64).abs() < 1e-9);
+        let invalid_costs_sum: f64 = invalid_timesteps.iter().map(|&i| costs[i]).sum();
+        assert!(invalid_costs_sum >= 0.681 * PENALTY);
+    }
 }
 
 #[cfg(test)]
