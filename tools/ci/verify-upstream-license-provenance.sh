@@ -95,7 +95,10 @@ search_roots = upstream_roots + [repo_root]
 # reported them as nothing to check rather than as unchecked. The closing paren
 # is not required, because a few of these run onto the following line.
 CITATION = re.compile(r"^//(\s{2,})(\S+?)(?:\s+\(.*)?\s*$")
-FILENAME = re.compile(r"\.(?:cpp|hpp|h|cc|cxx|c|py)$")
+# `.hxx` is octomap's extension for its header-inlined template bodies, which
+# is where `OcTreeIterator.hxx` -- the whole subject of `moveit-octomap`'s
+# `iter.rs` -- lives.
+FILENAME = re.compile(r"\.(?:cpp|hpp|hxx|h|cc|cxx|c|py)$")
 SPDX = re.compile(r"^//\s*SPDX-License-Identifier:\s*(.+?)\s*$")
 # Paths after this marker are the opposite of a citation: they name what was
 # read and deliberately left unported, so their licence cannot reach this file.
