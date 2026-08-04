@@ -159,10 +159,23 @@ mod joint {
     }
 
     #[test]
-    fn new_rejects_non_positive_weight() {
+    fn new_normalizes_non_positive_weight_to_one() {
         let model = panda_model();
-        assert!(JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, 0.0).is_err());
-        assert!(JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, -1.0).is_err());
+        // PORTING-PLAN.md D14/§199 boundary cases: 0.0, EPS itself, and a
+        // negative weight all normalize (upstream's own guard is `<=
+        // epsilon`, not `< 0.0`); a value just above EPS passes through
+        // unchanged.
+        for weight in [0.0, f64::EPSILON, -1.0] {
+            let c = JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, weight).unwrap();
+            assert_eq!(c.weight(), 1.0, "weight {weight} should normalize to 1.0");
+        }
+        let above_eps = f64::EPSILON * 2.0;
+        let c = JointConstraint::new(&model, "panda_joint1", 0.0, 0.1, 0.1, above_eps).unwrap();
+        assert_eq!(
+            c.weight(),
+            above_eps,
+            "weight just above EPS should pass through unchanged"
+        );
     }
 
     #[test]
@@ -367,6 +380,46 @@ mod position {
             .is_err()
         );
     }
+
+    #[test]
+    fn new_normalizes_non_positive_weight_to_one() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        // PORTING-PLAN.md D14/§199 boundary cases: 0.0, EPS itself, and a
+        // negative weight all normalize; a value just above EPS passes
+        // through unchanged.
+        for weight in [0.0, f64::EPSILON, -1.0] {
+            let region = sphere_region(0.01, Isometry3::identity());
+            let c = PositionConstraint::new(
+                &model,
+                &transforms,
+                "panda_link8",
+                model.model_frame(),
+                Vector3::zeros(),
+                &[region],
+                weight,
+            )
+            .unwrap();
+            assert_eq!(c.weight(), 1.0, "weight {weight} should normalize to 1.0");
+        }
+        let above_eps = f64::EPSILON * 2.0;
+        let region = sphere_region(0.01, Isometry3::identity());
+        let c = PositionConstraint::new(
+            &model,
+            &transforms,
+            "panda_link8",
+            model.model_frame(),
+            Vector3::zeros(),
+            &[region],
+            above_eps,
+        )
+        .unwrap();
+        assert_eq!(
+            c.weight(),
+            above_eps,
+            "weight just above EPS should pass through unchanged"
+        );
+    }
 }
 
 mod orientation {
@@ -522,11 +575,14 @@ mod orientation {
     }
 
     #[test]
-    fn new_rejects_non_positive_weight() {
+    fn new_normalizes_non_positive_weight_to_one() {
         let model = panda_model();
         let transforms = tf(&model);
-        assert!(
-            OrientationConstraint::new(
+        // PORTING-PLAN.md D14/§199 boundary cases: 0.0, EPS itself, and a
+        // negative weight all normalize; a value just above EPS passes
+        // through unchanged.
+        for weight in [0.0, f64::EPSILON, -1.0] {
+            let c = OrientationConstraint::new(
                 &model,
                 &transforms,
                 "panda_link8",
@@ -537,9 +593,30 @@ mod orientation {
                     y: 0.01,
                     z: 0.01,
                 },
-                0.0,
+                weight,
             )
-            .is_err()
+            .unwrap();
+            assert_eq!(c.weight(), 1.0, "weight {weight} should normalize to 1.0");
+        }
+        let above_eps = f64::EPSILON * 2.0;
+        let c = OrientationConstraint::new(
+            &model,
+            &transforms,
+            "panda_link8",
+            model.model_frame(),
+            UnitQuaternion::identity(),
+            OrientationTolerance::XyzEuler {
+                x: 0.01,
+                y: 0.01,
+                z: 0.01,
+            },
+            above_eps,
+        )
+        .unwrap();
+        assert_eq!(
+            c.weight(),
+            above_eps,
+            "weight just above EPS should pass through unchanged"
         );
     }
 }
@@ -845,6 +922,58 @@ mod visibility {
         )
         .unwrap();
         assert_eq!(c.cone_sides(), 3);
+    }
+
+    #[test]
+    fn new_normalizes_non_positive_weight_to_one() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        // PORTING-PLAN.md D14/§199 boundary cases: 0.0, EPS itself, and a
+        // negative weight all normalize; a value just above EPS passes
+        // through unchanged.
+        for weight in [0.0, f64::EPSILON, -1.0] {
+            let c = VisibilityConstraint::new(
+                &model,
+                &transforms,
+                SensorSpec {
+                    frame_id: model.model_frame(),
+                    pose: Isometry3::identity(),
+                    view_direction: SensorViewDirection::SensorZ,
+                },
+                TargetSpec {
+                    frame_id: model.model_frame(),
+                    pose: Isometry3::identity(),
+                },
+                8,
+                VisibilityCriteria::default(),
+                weight,
+            )
+            .unwrap();
+            assert_eq!(c.weight(), 1.0, "weight {weight} should normalize to 1.0");
+        }
+        let above_eps = f64::EPSILON * 2.0;
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+                view_direction: SensorViewDirection::SensorZ,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: Isometry3::identity(),
+            },
+            8,
+            VisibilityCriteria::default(),
+            above_eps,
+        )
+        .unwrap();
+        assert_eq!(
+            c.weight(),
+            above_eps,
+            "weight just above EPS should pass through unchanged"
+        );
     }
 }
 

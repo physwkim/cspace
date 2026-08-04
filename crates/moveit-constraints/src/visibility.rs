@@ -214,11 +214,15 @@ impl VisibilityConstraint {
     /// `cone_sides` below 3 is raised to 3, matching upstream's own
     /// `configure()` (a real geometric floor, not a sentinel to repair).
     ///
+    /// `weight <= f64::EPSILON` (including negative weights) normalizes to
+    /// `1.0` rather than erroring — see
+    /// [`crate::JointConstraint::new`]'s "Weight normalization" doc section
+    /// for the full rationale and the D6/D14 boundary this is not D6.
+    ///
     /// # Errors
     ///
     /// [`Error::UnknownName`] if `sensor.frame_id`/`target.frame_id` are
     /// empty and not the model frame or a link name.
-    /// [`Error::Construct`] if `weight` is not strictly positive.
     pub fn new(
         model: &RobotModel,
         tf: &Transforms,
@@ -228,11 +232,7 @@ impl VisibilityConstraint {
         criteria: VisibilityCriteria,
         weight: f64,
     ) -> Result<Self> {
-        if weight <= EPS {
-            return Err(Error::construct(
-                "VisibilityConstraint weight must be strictly positive",
-            ));
-        }
+        let weight = if weight <= EPS { 1.0 } else { weight };
         Ok(Self {
             sensor: FramedPose::new(model, tf, sensor.frame_id, sensor.pose)?,
             sensor_view_direction: sensor.view_direction,

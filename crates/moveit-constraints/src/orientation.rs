@@ -182,12 +182,16 @@ pub struct OrientationConstraint {
 impl OrientationConstraint {
     /// Build and resolve an orientation constraint against `model`.
     ///
+    /// `weight <= f64::EPSILON` (including negative weights) normalizes to
+    /// `1.0` rather than erroring — see
+    /// [`crate::JointConstraint::new`]'s "Weight normalization" doc section
+    /// for the full rationale and the D6/D14 boundary this is not D6.
+    ///
     /// # Errors
     ///
     /// [`Error::UnknownName`] if `link_name` is not in `model`, or if
     /// `frame_id` is empty and not the model frame or a link name (see this
     /// type's doc comment).
-    /// [`Error::Construct`] if `weight` is not strictly positive.
     pub fn new(
         model: &RobotModel,
         tf: &Transforms,
@@ -198,11 +202,7 @@ impl OrientationConstraint {
         weight: f64,
     ) -> Result<Self> {
         let link = model.link_model(link_name)?;
-        if weight <= EPS {
-            return Err(Error::construct(
-                "OrientationConstraint weight must be strictly positive",
-            ));
-        }
+        let weight = if weight <= EPS { 1.0 } else { weight };
 
         let desired_r_in_frame_id = orientation.to_rotation_matrix();
 
