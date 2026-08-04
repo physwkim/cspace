@@ -32,6 +32,7 @@ use r2r::geometry_msgs::msg as geometry_msgs;
 use r2r::moveit_msgs::msg as moveit_msgs;
 use r2r::shape_msgs::msg as shape_msgs;
 
+use super::header_frame_transform;
 use super::shapes::{MeshMsg, PlaneMsg};
 use crate::constraints::position::SolidPrimitiveMsg;
 use crate::geometry::Pose;
@@ -354,7 +355,14 @@ fn apply_add(
     )?;
 
     // Resolved before any mutation -- upstream checks `knowsFrameTransform`
-    // before touching the world at all (`:1889`).
+    // before touching the world at all (`:1889`). Deliberately calls
+    // `frame_transform` directly, not `header_frame_transform`: upstream's
+    // own guard already rejects an empty `header.frame_id` here (an empty
+    // string resolves no link/attached-body/world-transform tier, so
+    // `knowsFrameTransform("")` is false), matching `frame_transform`'s
+    // `Err` exactly -- unlike `apply_move`/`shapes_from_message_geometry`/
+    // `apply_octomap`, upstream's ADD path has no silent-identity-on-empty
+    // behavior to preserve here (PORTING-PLAN.md §183.3).
     let header_transform = scene.frame_transform(&header.frame_id)?;
 
     if replace_if_exists && scene.world().has_object(&id) {
@@ -430,6 +438,14 @@ fn apply_remove(scene: &mut PlanningScene<'_>, id: &str) -> Result<()> {
 /// if the shape-repose step below then fails) -- upstream itself has this
 /// exact partial-effect shape: `setObjectPose` runs before the shape-count
 /// check, with no rollback on that check's failure.
+///
+/// `header.frame_id` is resolved via [`super::header_frame_transform`], not
+/// [`PlanningScene::frame_transform`] directly: unlike `apply_add`'s
+/// `knowsFrameTransform`-guarded call below, upstream's
+/// `getFrameTransform(object.header.frame_id)` here (`:1964`) has no guard
+/// in front of it, so an empty `header.frame_id` resolves to identity
+/// through `getFrameTransform`'s own silent fallback rather than being
+/// rejected (PORTING-PLAN.md §183).
 fn apply_move(scene: &mut PlanningScene<'_>, msg: moveit_msgs::CollisionObject) -> Result<()> {
     let moveit_msgs::CollisionObject {
         header,
@@ -454,7 +470,7 @@ fn apply_move(scene: &mut PlanningScene<'_>, msg: moveit_msgs::CollisionObject) 
     // is silently ignored the same way.
     let _ = (primitives, meshes, planes);
 
-    let header_transform = scene.frame_transform(&header.frame_id)?;
+    let header_transform = header_frame_transform(scene, &header.frame_id)?;
     let new_object_pose = header_transform * Isometry3::try_from(Pose(pose))?;
     let old_pose = scene
         .world()
@@ -748,6 +764,26 @@ mod tests {
         let obj = sc.world().get_object("box").unwrap();
         assert_eq!(obj.pose(), Isometry3::translation(5.0, 0.0, 0.0));
         assert_eq!(obj.shapes().len(), 1, "MOVE must not touch geometry");
+    }
+
+    /// An empty `header.frame_id` on MOVE is accepted as the world frame
+    /// (PORTING-PLAN.md §183) -- `processCollisionObjectMove` has no
+    /// `knowsFrameTransform` guard before `getFrameTransform`, unlike ADD's
+    /// `:1889`. Before `header_frame_transform` existed, this would have
+    /// been rejected with `Err(UnknownName)`.
+    #[test]
+    fn move_with_empty_header_frame_id_is_accepted_as_the_world_frame() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", "", MOVE);
+        mv.pose = posed(5.0, 0.0, 0.0);
+        mv.primitive_poses = vec![];
+        apply_collision_object(&mut sc, mv).unwrap();
+        assert_eq!(
+            sc.world().get_object("box").unwrap().pose(),
+            Isometry3::translation(5.0, 0.0, 0.0)
+        );
     }
 
     #[test]
