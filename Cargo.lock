@@ -411,6 +411,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "moveit-planners-pilz"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "moveit-error",
+ "moveit-geometry",
+]
+
+[[package]]
 name = "moveit-planners-sbp"
 version = "0.1.0"
 dependencies = [

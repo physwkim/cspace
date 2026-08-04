@@ -1,0 +1,87 @@
+// Copyright (c) 2018, Pilz GmbH & Co. KG
+// Copyright (c) 2026, moveit-rs contributors
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   moveit_planners/pilz_industrial_motion_planner/
+
+//! The Pilz industrial motion planner: analytical, deterministic LIN/PTP/CIRC
+//! trajectory generation, ported from `pilz_industrial_motion_planner`.
+//!
+//! Unlike the sampling-based planners in `moveit-planners-sbp`, Pilz's
+//! trajectories are closed-form, so they can be compared to the upstream
+//! oracle bit-for-bit within a tight numeric tolerance rather than only
+//! statistically. That determinism is also why this crate exists separately
+//! from `moveit-planners-sbp`: the two families have nothing in common at the
+//! API level once you get past "both produce a `RobotTrajectory`".
+//!
+//! # Scope: analytical core only
+//!
+//! This crate ports only the analytical core (three source directories'
+//! worth of pure computation, no ROS node in sight):
+//!
+//! - [`velocity_profile`] — `velocity_profile_atrap.{hpp,cpp}`: the
+//!   trapezoidal/triangular velocity profile shared by every Pilz trajectory
+//!   type.
+//! - [`path_circle`] — `path_circle_generator.{hpp,cpp}`: three-point and
+//!   center-plus-two-point circle solving for `CIRC` motions.
+//! - [`limits`] — `joint_limits_container.{hpp,cpp}`,
+//!   `joint_limits_extension.hpp`, `limits_container.{hpp,cpp}`: per-joint
+//!   and Cartesian limit storage and fusion.
+//!
+//! Not yet in scope, planned for later rounds once the above land:
+//! `trajectory_functions`, `trajectory_generator` (base) plus its
+//! `_ptp`/`_lin`/`_circ` specializations, and
+//! `trajectory_blender_transition_window`.
+//!
+//! # Deliberately not ported: the ROS layer (D1/D2)
+//!
+//! The following upstream files are the ROS-facing shell around the
+//! analytical core above and are excluded by PORTING-PLAN.md's D1 (no ROS
+//! dependency) and D2 (no MoveGroup/action-server layer):
+//!
+//! - `move_group_sequence_action.{hpp,cpp}`,
+//!   `move_group_sequence_service.{hpp,cpp}` — `actionlib`/`rclcpp` action
+//!   and service servers wrapping the planner for `move_group`; nothing here
+//!   computes a trajectory, they only marshal ROS requests into calls on the
+//!   types below.
+//! - `planning_context_loader*.{hpp,cpp}` — a `pluginlib`-loaded factory that
+//!   builds a `planning_interface::PlanningContext` per motion command type;
+//!   its entire job is ROS plugin registration, not planning math.
+//! - `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager`
+//!   plugin itself, i.e. the `move_group` entry point.
+//! - `command_list_manager.{hpp,cpp}` — sequences multiple motion commands
+//!   (`MotionSequenceRequest`) and manages blending between them at the
+//!   `moveit_msgs` request level; this is orchestration over the trajectory
+//!   generators, not trajectory generation.
+//! - `plan_components_builder.{hpp,cpp}` — assembles per-command
+//!   `RobotTrajectory` segments (produced by the generators this crate does
+//!   port) into one blended `RobotTrajectory` for a command list; depends on
+//!   `command_list_manager`'s request types.
+//!
+//! None of these five compute a LIN/PTP/CIRC trajectory; they route
+//! `moveit_msgs` requests to the analytical types this crate ports. A future
+//! `moveit-ros` (or equivalent) crate is the right home for a Rust
+//! equivalent, if one is ever built.
+//!
+//! # ROS dependencies found, and how each was resolved
+//!
+//! Every one of the nine upstream analytical-core source files was checked
+//! individually for `rclcpp`/`moveit_msgs`/`tf2_ros` usage. Across this
+//! round's three files (`velocity_profile_atrap`, `path_circle_generator`,
+//! `joint_limits_container` + `limits_container`):
+//!
+//! - `velocity_profile_atrap.{hpp,cpp}` and `path_circle_generator.{hpp,cpp}`
+//!   have no ROS dependency at all (KDL types only).
+//! - `joint_limits_container.cpp` uses `rclcpp::Logger`/`RCLCPP_ERROR_STREAM`
+//!   exclusively for logging inside `addLimit`'s two rejection branches.
+//! - `limits_container.cpp` uses `rclcpp::Logger`/`RCLCPP_DEBUG` exclusively
+//!   for logging inside `printCartesianLimits()`.
+//!
+//! No computation depends on ROS in any of the three files this round ports;
+//! every logging call site above is replaced with a native `Result`/`bool`
+//! return instead of a log-and-continue.
+
+pub mod limits;
+pub mod path_circle;
+pub mod velocity_profile;
