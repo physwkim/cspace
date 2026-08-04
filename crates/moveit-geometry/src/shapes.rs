@@ -160,6 +160,64 @@
 //! `shape_operations.h`, classified so the next audit re-runs this instead of
 //! re-deriving it.
 //!
+//! **Counting convention (stated explicitly, round 18 item 1; the D4
+//! design section and the numbered deviations above already implied this
+//! but never named it as a counting rule the way `moveit-octomap`'s
+//! `tree.rs` does).** One bullet per raw `public:` declaration in each of
+//! `shapes.h`'s eight classes, with the following collapses, each
+//! justified by [D4](#design-enum-not-a-trait-object-hierarchy-d4) rather
+//! than by convenience: every concrete class's own `scaleAndPadd(double,
+//! double)` override (the pure-virtual `scaleAndPadd`'s uniform 2-arg
+//! signature) collapses into the one base-class bullet, since D4 makes
+//! this literally one `match` statement, not eight separate functions;
+//! same for every concrete `clone()` override (one `Clone` impl, not
+//! eight); `STRING_NAME` across all seven concrete classes collapses into
+//! one bullet (one `match` in [`ShapeType::as_str`]); the seven
+//! concrete-class constructors collapse into one bullet (each is a direct
+//! field-for-field `new`, no shared logic to separately explain); same for
+//! the concrete classes' own data fields. Anything upstream expresses as a
+//! per-subclass virtual override this port expresses as one `match` arm
+//! set, so audited *once* against the base-class or free-function bullet
+//! that names the whole match, not once per overriding subclass -- the
+//! opposite of `tree.rs`'s convention, where each override gets its own
+//! bullet because C++ virtual dispatch keeps them as distinct callable
+//! declarations upstream. `using Base::method;` visibility declarations
+//! and namespace-scope type aliases are not counted (no new symbol).
+//!
+//! **Reproducible raw counts (round 18, item 1).** Per-class raw
+//! `public:` declaration counts, from
+//! `crates/moveit-geometry/audit/count_public_declarations.sh <header>
+//! <ClassName>` against a fresh oracle fetch (same script and comment/
+//! brace-depth handling `moveit-octomap`'s `tree.rs` uses, copied into
+//! this crate so a `moveit-geometry`-only audit doesn't need to reach into
+//! a sibling crate's directory):
+//!
+//! ```text
+//! $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/shapes.h'" > /tmp/shapes.h
+//! $ for c in Shape Sphere Cylinder Cone Box Mesh Plane OcTree; do
+//! >   echo "$c: $(crates/moveit-geometry/audit/count_public_declarations.sh /tmp/shapes.h "$c")"
+//! > done
+//! Shape: 9
+//! Sphere: 7
+//! Cylinder: 13
+//! Cone: 13
+//! Box: 12
+//! Mesh: 21
+//! Plane: 8
+//! OcTree: 8
+//! ```
+//!
+//! 91 raw declarations across the 8 classes, plus 4 at namespace scope
+//! (`ShapeType`, `operator<<`, `ShapePtr`, `ShapeConstPtr`) = 95 total.
+//! Every one of the 95 is accounted for by a bullet below except the one
+//! genuine gap this round found and fixed -- `Mesh::~Mesh() override`, see
+//! its own bullet -- confirmed by listing each class's raw declarations
+//! (same script, no `<ClassName>` argument collapsing) and matching each
+//! by name against this section's prose rather than trusting the bullet
+//! count alone (bullets here bundle multiple raw declarations by design,
+//! per the convention above, so a bullet-count-vs-raw-count arithmetic
+//! check the way `tree.rs` uses would not by itself prove completeness).
+//!
 //! `shapes.h`:
 //!
 //! - `ShapeType` enum and its `operator<<` — **ported** as [`ShapeType`]/
@@ -233,6 +291,30 @@
 //!   shadowing rule to work around: [`Shape::scale`]/[`Shape::padd`] and
 //!   each variant's `scale_axes`/`padd_axes` are just differently-named
 //!   methods, not overloads competing for the same name.
+//! - `Mesh::~Mesh() override` — **subsumed by Rust ownership.** The only
+//!   concrete class that declares its own destructor at all (every other
+//!   variant relies on the base's trivial virtual `~Shape()`, already
+//!   covered above); upstream's version frees the four raw
+//!   `new double[]`/`new unsigned int[]` allocations deviation 2 replaces
+//!   with `Vec`s, so there is no manual free left to port — `Mesh`'s
+//!   `#[derive(Clone)]` field-by-field `Drop` already does exactly this
+//!   work. **Addition, round 18 item 1:** absent from every walk through
+//!   round 8/17 as its own bullet, found by the same raw-declaration-count
+//!   reconciliation as the constructors/fields bullet above (`Mesh`'s own
+//!   21 raw `public:` declarations minus the 20 already named elsewhere in
+//!   this section left exactly this one unaccounted for).
+//!
+//! **Reproducible raw count, `shape_operations.h` (round 18, item 1).**
+//! Free functions at namespace scope, not class members, so
+//! `count_public_declarations.sh` (a `class`-body counter) does not apply;
+//! verified instead with a signature-line grep, run against a fresh
+//! oracle fetch:
+//!
+//! ```text
+//! $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/shape_operations.h'" > /tmp/shape_operations.h
+//! $ grep -c '^[A-Za-z].*(\|^  .*(' /tmp/shape_operations.h
+//! 12
+//! ```
 //!
 //! `shape_operations.h`, the 12 free functions:
 //!
