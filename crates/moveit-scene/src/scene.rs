@@ -1817,7 +1817,7 @@ impl<'m> PlanningScene<'m> {
 
     /// Upstream's `getCostSources(trajectory, max_costs, costs, overlap_fraction)`/
     /// `getCostSources(trajectory, max_costs, group_name, costs, overlap_fraction)`
-    /// (`planning_scene.cpp:2451-2489`), collapsed the same way
+    /// (`planning_scene.cpp:2451-2490`), collapsed the same way
     /// [`PlanningScene::cost_sources`] collapses its own pair.
     ///
     /// Ported faithfully from the body, not re-derived:
@@ -1825,21 +1825,21 @@ impl<'m> PlanningScene<'m> {
     ///   built once, reused for every `checkCollision` call — matching
     ///   upstream building `creq` once outside its loop) is unioned into the
     ///   running set (`cs.insert(cres.cost_sources.begin(), cres.cost_sources.end())`,
-    ///   cpp:2465), regardless of waypoint index — including the first.
+    ///   cpp:2472), regardless of waypoint index — including the first.
     /// - The *first* waypoint's own cost sources are captured a second time,
     ///   separately, as `cs_start` (`cs_start.swap(cres.cost_sources)`,
-    ///   cpp:2467-2468) — not removed from the union, just also kept aside.
+    ///   cpp:2474) — not removed from the union, just also kept aside.
     /// - The union is truncated to `max_costs`, keeping the first `max_costs`
     ///   entries in [`CostSource`]'s `Ord` (most-costly-first) order
-    ///   (cpp:2471-2481) — matching [`PlanningScene::cost_sources`]'s own
+    ///   (cpp:2477-2487) — matching [`PlanningScene::cost_sources`]'s own
     ///   truncation, but this time over the union across all waypoints
     ///   rather than one `checkCollision` call.
     /// - [`moveit_collision::remove_cost_sources`] runs first, against
-    ///   `cs_start` (cpp:2483) — drops truncated-union entries that overlap
+    ///   `cs_start` (cpp:2489) — drops truncated-union entries that overlap
     ///   the *start* state's own cost sources by at least `overlap_fraction`
     ///   (see that function's own doc for the split-not-drop behavior on a
     ///   sub-threshold overlap, ported as-is).
-    /// - [`moveit_collision::remove_overlapping`] runs second (cpp:2484),
+    /// - [`moveit_collision::remove_overlapping`] runs second (cpp:2490),
     ///   deduplicating what survives against *itself*. This order is
     ///   load-bearing, not incidental: swapping it would let a source that
     ///   `remove_cost_sources` was about to drop first eliminate a mutually
