@@ -82,12 +82,14 @@ pub struct ChompParameters {
     /// `ChompPlanner::solve` (`if
     /// (params.trajectory_initialization_method_.compare("quintic-spline")
     /// == 0)` / `"linear"` / `"cubic"` / `"fillTrajectory"`, plus a
-    /// `.c_str()` diagnostic), is not in this round's port scope, so there is
-    /// no real call site yet to design an enum's match arms against. An enum
-    /// with illegal states unrepresentable is the better shape once
-    /// `chomp_planner` is ported and that consumer is visible; redesigning
-    /// this field then, with the real match in hand, is preferred over
-    /// guessing its shape now.
+    /// `.c_str()` diagnostic), is now ported as [`crate::planner::solve`]
+    /// (round 20) — matched there with a plain `match ... .as_str()` over
+    /// the same four string literals. An enum with illegal states
+    /// unrepresentable would still be the better shape, but redesigning
+    /// this field is a change to every existing caller of this crate's
+    /// already-ported round-15 API, not something this port makes silently
+    /// alongside an unrelated round's finding; left as `String` pending a
+    /// dedicated decision.
     pub trajectory_initialization_method: String,
     /// If `true`, CHOMP tries to vary certain parameters to try and find a
     /// path if an initial path is not found with the specified CHOMP

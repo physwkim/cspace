@@ -183,28 +183,54 @@
 //!
 //! ## API gap surfaced by this round: `GradientInfo::sphere_locations`
 //!
-//! `moveit_distance_field::GradientInfo::sphere_locations` is populated for
-//! a link only on the *reuse* path
-//! (`update_group_state_representation_state`, itself never called by
-//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]).
-//! Upstream gets away with this because `ChompOptimizer` keeps `gsr_` alive
-//! as a class member across the whole `optimize()` loop, so
-//! `getCollisionGradients` takes the reuse path on every call after the
-//! first (`collision_env_distance_field.cpp:1517-1536`). This crate's
-//! `gsr_` equivalent is never stored (see [`crate::optimizer::ChompOptimizer`]'s own doc
-//! comment for why), so every call here takes the fresh-build path, where
-//! `sphere_locations` is unconditionally empty
-//! (`collision_env_distance_field.cpp:1157-1213`, confirmed on both the
-//! upstream C++ and this crate's own Rust port). This is a genuine gap in
-//! `moveit-distance-field`'s public API (its own gradient-computation
-//! functions that run after the reuse-path update are module-private, so
-//! nothing outside that crate can reproduce upstream's reuse pattern) —
-//! reported, not fixed, since that crate is another worker's scope this
-//! round. Worked around here by sourcing sphere positions from
+//! **Round 20 correction (`PORTING-PLAN.md` §154):** round 19 recorded this
+//! gap's cause as "upstream only fills `sphere_locations` on the `gsr_`
+//! reuse path, and this crate never stores `gsr_`". That upstream claim is
+//! wrong, refuted by the oracle's own committed output (its
+//! `group_state_representation_response.json` fixture calls
+//! `getCollisionGradients` with a null `GroupStateRepresentationPtr` — not
+//! the reuse path — yet returns non-empty `sphere_locations`, 1-9 entries
+//! per link, summing to exactly `types`/`distances`' own length). The real
+//! mechanism: `DistanceFieldCollisionCache::initialize()`
+//! (`collision_env_distance_field.cpp:126`, called by **both**
+//! constructors) walks every `JointModelGroup` and pre-builds a
+//! `GroupStateRepresentation` for it up front (`:140-154`), stashing each
+//! one on its `DistanceFieldCacheEntry`
+//! (`pregenerated_group_state_representation_map_`, wired into
+//! `dfce->pregenerated_group_state_representation_` at `:868-871`).
+//! `getGroupStateRepresentation`'s truly-fresh branch (`:1161`) therefore
+//! only ever executes *once per group, inside `initialize()` itself* — every
+//! call after construction, reused-`gsr_` or not, takes the **pregenerated**
+//! branch (`:1224`), which unconditionally sets `sphere_locations`
+//! (`:1246` also sets it, unconditionally, for attached bodies). Whether the
+//! caller keeps `gsr_` alive across `optimize()`'s loop is irrelevant to
+//! upstream's own behavior; round 19's "gsr_-reuse-only" framing described a
+//! mechanism upstream doesn't actually have.
+//!
+//! The gap itself is real, just for a different reason:
+//! `moveit_distance_field::DistanceFieldCollisionCache` has no equivalent of
+//! upstream's `initialize()` pregeneration step, so it only ever has the
+//! truly-fresh branch to run — the one upstream itself only reaches once
+//! per group, before any real caller ever sees it. Every call through
+//! [`moveit_distance_field::DistanceFieldCollisionCache::get_collision_gradients`]
+//! is therefore in the state upstream considers transient construction-time
+//! plumbing, not steady-state behavior — a genuine gap in
+//! `moveit-distance-field`, reported not fixed here (owned by
+//! p3-distance-field; ported by them per that crate's own round 25 item 1,
+//! not touched in this crate). **Expires** (§153.1) once
+//! `moveit-distance-field` builds a pregenerated `GroupStateRepresentation`
+//! per `JointModelGroup` at cache-construction time, matching upstream's
+//! `initialize()` — at that point every call here also lands on the
+//! populated branch and this substitution can be deleted outright, not just
+//! left dormant.
+//!
+//! The substitution itself is unchanged from round 19 and stays: with no
+//! pregenerated-GSR path to rely on, sourcing sphere positions from
 //! `GroupStateRepresentation::link_body_decompositions[..].sphere_centers()`
-//! (reliably populated on both paths) instead, and by sizing per-link
-//! iteration from `GradientInfo::distances`/`gradients` (also reliably
-//! populated) rather than `sphere_locations` — see
+//! (reliably populated on both paths) instead of `sphere_locations`, and
+//! sizing per-link iteration from `GradientInfo::distances`/`gradients`
+//! (also reliably populated) rather than `sphere_locations`, is still the
+//! only correct code while the gap stands — see
 //! [`crate::optimizer::ChompOptimizer::perform_forward_kinematics`] and the
 //! private `resolve_collision_point_joint_index`'s own "Deviation from
 //! upstream" doc sections for the exact substitutions.
@@ -742,20 +768,57 @@ fn resolve_collision_point_joint_index(
 ///   [`ChompOptimizer::perform_forward_kinematics`].
 /// - **`isCurrentTrajectoryMeshToMeshCollisionFree` becomes an injected
 ///   closure**, not a method backed by `planning_scene_->isPathValid`.
-///   Porting a mesh-to-mesh check faithfully needs
-///   `moveit_scene::PlanningScene` + a parry3d-f64 collision environment --
-///   an architecturally distinct backend from the `DistanceFieldCollisionCache`
-///   this round's brief (and the `hy_env_`/`getCollisionGradients`
-///   evidence backing it) actually authorizes. [`ChompOptimizer::optimize`]
-///   instead takes a `mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState,
+///   **Round 20: approved** (`PORTING-PLAN.md` §154's review) --
+///   wiring this as a method today would make `moveit-planners-chomp` (this
+///   round's brief, and the `hy_env_`/`getCollisionGradients` evidence
+///   backing it) depend on two crates it has never carried:
+///   `moveit-scene` (for `PlanningScene::is_path_valid`,
+///   `scene.rs:1695`) and `moveit-collision` (for `ParryCollisionEnv`,
+///   `parry.rs:1611` -- the only existing implementer of the
+///   `CollisionEnv<Posed>` bound `is_path_valid` requires;
+///   `DistanceFieldCollisionCache` does not implement it).
+///   [`ChompOptimizer::optimize`] instead takes a
+///   `mesh_to_mesh_collision_free: &mut dyn FnMut(&RobotState,
 ///   &DMatrix<f64>) -> bool` closure, called with `self.start_state` and
 ///   `self.best_group_trajectory` (matching upstream's own data source: the
 ///   check reads `best_group_trajectory_`'s *values* at
 ///   `group_trajectory_`'s *shape*, not the just-`updateFullTrajectory`'d
-///   current iterate -- see `chomp_optimizer.cpp:520-537`). This is a design
-///   decision that needs sign-off, not a settled port; a caller that hasn't
-///   wired up the mesh-to-mesh backend can pass `&mut |_, _| false` and get
-///   upstream's `collision_threshold_`-only behavior.
+///   current iterate -- see `chomp_optimizer.cpp:520-537`).
+///
+///   **(a) What a caller passing `&mut |_, _| false` does not get.**
+///   Upstream's early-exit condition 1 (the every-10th-iteration mesh check,
+///   see this module's "termination condition" doc) becomes permanently
+///   unreachable, so `is_collision_free_` can only ever become `true`
+///   through condition 2, the sphere/distance-field-approximated
+///   `collision_cost < collision_threshold_` comparison -- and only when
+///   [`ChompParameters::filter_mode`] is unset. Two concrete upstream
+///   behaviors are therefore lost, not merely "the mesh check is skipped":
+///   (i) with `filter_mode` set, `optimize()` here can never report
+///   collision-free early at all, only by exhausting `max_iterations`
+///   (pinned by
+///   `optimize_runs_exactly_max_iterations_when_filter_mode_and_mesh_to_mesh_never_break_out`);
+///   (ii) even with `filter_mode` unset, a trajectory that is genuinely
+///   mesh-collision-free but whose sphere-decomposition `collision_cost`
+///   still sits at or above `collision_threshold_` -- a real case, since the
+///   sphere decomposition is a padded over-approximation of the real mesh,
+///   not merely a hypothetical one -- is caught early by upstream's mesh
+///   check and is not caught early here.
+///
+///   **(b) What would need to exist for this to become a method.** The
+///   underlying capability already exists elsewhere in this workspace --
+///   `moveit_scene::PlanningScene::is_path_valid` is ported and generic over
+///   `E: CollisionEnv<Posed>`, and `moveit_collision::ParryCollisionEnv`
+///   already implements that bound. What is missing is specifically this
+///   crate depending on both of them and threading a
+///   `&mut PlanningScene`/`&ParryCollisionEnv` pair through
+///   [`ChompOptimizer::optimize`] the same way [`ChompCollisionContext`]
+///   already threads `DistanceFieldCollisionCache` -- at which point
+///   `mesh_to_mesh_collision_free` collapses from an injected closure into a
+///   real call to `scene.is_path_valid(env, request,
+///   best_group_trajectory_as_states, path_constraints, goal_constraints)`.
+///   Not attempted this round: adding those two dependencies and the
+///   trajectory-to-`&[RobotState]` conversion `is_path_valid` needs is a
+///   design decision of its own, not implied by this round's brief.
 /// - **`dynamic_cast<const CollisionEnvHybrid*>` and its null check
 ///   disappear.** [`ChompCollisionContext::cache`] is already statically
 ///   typed as [`moveit_distance_field::DistanceFieldCollisionCache`]; Rust

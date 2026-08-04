@@ -31,7 +31,7 @@
 //! `chomp_interface/` is algorithmic; it only adapts `ChompPlanner` (see
 //! below) to ROS parameters and a live `PlanningScene`.
 //!
-//! # Scope so far: 7 of 8 upstream files
+//! # Scope so far: 8 of 8 upstream files
 //!
 //! `chomp_motion_planner/` has 8 header/source (or header-only) units.
 //! Round 15 ported and audited 3: `chomp_parameters`, `chomp_utils`,
@@ -45,9 +45,13 @@
 //! why round 17's "collision-coupled, not portable" classification did not
 //! hold up. `multivariate_gaussian.hpp` (round 18's 6th file) is not this
 //! crate's own copy: it depends on `moveit-sampling::MultivariateGaussian`
-//! — see below. `chomp_planner` remains **not yet audited**, deliberately
-//! deferred (round 17's brief, Item 3): porting it before the optimizer it
-//! drives was solid risked redoing it.
+//! — see below. Round 17 deliberately deferred the 8th, `chomp_planner`,
+//! reasoning it should wait until the optimizer it drives was solid; round
+//! 19 re-deferred it as "ROS-message-shaped, out of scope" without
+//! measuring it. Round 20 measured it (`rg -n 'req\.' chomp_planner.cpp`
+//! against its two upstream parameter types, `PORTING-PLAN.md` §154's
+//! review) and ported it as [`planner::solve`] — see that module's own doc
+//! for the field-by-field count.
 //!
 //! # `multivariate_gaussian.hpp`: depends on `moveit-sampling`, not a local copy
 //!
@@ -243,15 +247,39 @@
 //!   `size_` derived rather than stored, etc.) — not re-documented here,
 //!   since that crate owns the port.
 //!
+//! # Symbol audit: `chomp_planner.{hpp,cpp}`
+//!
+//! Read in full (57-line header, 309-line source) against the pinned SHA.
+//!
+//! - `ChompPlanner` (class) — has no Rust struct: upstream's class exists
+//!   only to hold one method, `solve`, with no fields and no constructor of
+//!   its own (the default one). Ported as the free function [`planner::solve`]
+//!   instead.
+//! - `ChompPlanner::solve` — ported as [`planner::solve`]. See that
+//!   function's own module doc for the field-coverage measurement behind
+//!   porting it this round, and its own doc comment for the exact
+//!   `chomp_planner.cpp` line ported at each step, every `MoveItErrorCode`
+//!   mapping, and the two named deviations
+//!   ([`planner::GoalJointConstraint`]'s "not `moveit_constraints::JointConstraint`",
+//!   [`planner::ChompGoal`]'s "joint-only by construction").
+//! - The anonymous-namespace `getLogger()` helper and every `RCLCPP_*` call
+//!   site — not ported: no logging framework exists anywhere in this
+//!   workspace (D1), matching every other crate's convention.
+//! - `#include <tf2/...>`, `tf2_eigen`, `tf2_geometry_msgs` — read and
+//!   confirmed vestigial: `grep -n 'tf2::\|tf2_geometry\|tf2::doTransform'
+//!   chomp_planner.cpp` (pinned SHA) has zero hits inside `solve`'s body;
+//!   the includes bring in no symbol `solve` actually uses.
+//!
 //! # Completion condition
 //!
 //! Stated as a check on the files audited so far, not a claim about the
 //! crate: `chomp_parameters.{hpp,cpp}`, `chomp_utils.hpp`,
 //! `chomp_trajectory.{hpp,cpp}`, `chomp_cost.{hpp,cpp}`,
-//! `chomp_optimizer.{hpp,cpp}`, and `multivariate_gaussian.hpp` are each
-//! read in full against the pinned SHA and every symbol in them is
-//! classified above as ported (with its Rust name), D-decision-excluded
-//! (with the decision), or confirmed dead upstream (with the evidence).
+//! `chomp_optimizer.{hpp,cpp}`, `multivariate_gaussian.hpp`, and
+//! `chomp_planner.{hpp,cpp}` are each read in full against the pinned SHA
+//! and every symbol in them is classified above as ported (with its Rust
+//! name), D-decision-excluded (with the decision), or confirmed dead
+//! upstream (with the evidence).
 //! Phase 8's completion condition otherwise uses property-based
 //! verification (`PORTING-PLAN.md` §5), not a trajectory oracle, and CHOMP
 //! specifically is not the one Phase-8 planner (`moveit-planners-pilz`) with
@@ -270,9 +298,12 @@
 //! formula, not merely "it runs" — and
 //! `moveit-sampling`'s own [`MultivariateGaussian`] shape/positive-definite
 //! rejection and empirical mean/variance/correlation convergence (that
-//! crate's tests, not this one's — see above). This
-//! section does not cover `chomp_planner` — it is out of scope this round,
-//! not implicitly satisfied by anything here.
+//! crate's tests, not this one's — see above). [`planner::solve`] is pinned
+//! by boundary-condition unit tests (bad start/goal state, wrong goal
+//! count, non-joint goal, every `trajectory_initialization_method`
+//! variant, the continuous-joint wraparound fix) rather than a trajectory
+//! oracle, for the same reason the rest of this crate is: CHOMP has no
+//! directly comparable deterministic output.
 
 /// `ChompParameters` and its trajectory-initialization-method validation —
 /// see the module doc's `chomp_parameters.{hpp,cpp}` entry.
@@ -294,7 +325,12 @@ pub mod cost;
 /// `chomp_optimizer.{hpp,cpp}` entry.
 pub mod optimizer;
 
+/// `ChompPlanner::solve` — see the module doc's `chomp_planner.{hpp,cpp}`
+/// entry.
+pub mod planner;
+
 pub use cost::ChompCost;
 pub use moveit_sampling::MultivariateGaussian;
 pub use parameters::ChompParameters;
+pub use planner::{ChompGoal, ChompRequest, ChompSolution, GoalJointConstraint, solve};
 pub use trajectory::ChompTrajectory;
