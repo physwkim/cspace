@@ -119,8 +119,29 @@
 //!   generators, not trajectory generation.
 //! - `plan_components_builder.{hpp,cpp}` — assembles per-command
 //!   `RobotTrajectory` segments (produced by the generators this crate does
-//!   port) into one blended `RobotTrajectory` for a command list; depends on
-//!   `command_list_manager`'s request types.
+//!   port) into one blended `RobotTrajectory` for a command list.
+//!   §153.1 (measured 2026-08-04, re-check before trusting this exclusion
+//!   again): this file has **zero** symbols from `command_list_manager` —
+//!   the dependency this note previously claimed runs the other way
+//!   (`command_list_manager.hpp:222` holds a `PlanComponentsBuilder
+//!   plan_comp_builder_` member, not the reverse). Its own includes are
+//!   `trajectory_blend_request.hpp`/`trajectory_blender.hpp` (ported this
+//!   round as [`trajectory_blender_transition_window::TrajectoryBlendRequest`]/
+//!   [`trajectory_blender_transition_window::blend`]), `trajectory_functions.hpp`
+//!   (`isRobotStateEqual`, already ported), `moveit_core`'s
+//!   `robot_model`/`robot_trajectory`/`planning_interface` (already used
+//!   throughout this crate), `tip_frame_getter.hpp` (`getSolverTipFrame`,
+//!   already have an equivalent lookup via `resolve_solver`), and
+//!   `trajectory_generation_exceptions.hpp`'s
+//!   `CREATE_MOVEIT_ERROR_CODE_EXCEPTION` macro — whose only `moveit_msgs`
+//!   usage anywhere in the file is 4 occurrences of
+//!   `moveit_msgs::msg::MoveItErrorCodes::FAILURE` as that macro's
+//!   error-code argument. There is no request marshalling in this file for
+//!   the blending assembly to be inseparable from: `PlanComponentsBuilder::
+//!   append`/`blend`/`appendWithStrictTimeIncrease`/`build` is fully
+//!   separable, and every dependency it needs is already ported somewhere
+//!   in this crate. It stays excluded only because no round has ported it
+//!   yet, not because of an actual `command_list_manager` coupling.
 //!
 //! None of these five compute a LIN/PTP/CIRC trajectory; they route
 //! `moveit_msgs` requests to the analytical types this crate ports. A future
