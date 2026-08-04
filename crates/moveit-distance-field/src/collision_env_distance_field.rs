@@ -161,7 +161,11 @@
 //! (`:928`) -- into [`group_state_representation`] and the private
 //! `build_non_group_distance_field` respectively, plus the
 //! [`generate_distance_field_cache_entry`] population loop that decides
-//! which attached bodies belong to which (`collision_env_distance_field.cpp:844-919`).
+//! which attached bodies belong to which (`collision_env_distance_field.cpp:775`
+//! `if (acm)`, population at `:798`, its `else` at `:825` -- round 26: the
+//! upstream-absence audit found this citation previously pointed at
+//! `:844-919`, an unrelated later block; corrected here and at every other
+//! site in this file citing the same wrong range).
 //! See `collision_common_distance_field.rs`'s own "Round 22" doc section for
 //! the two functions themselves.
 //!
@@ -567,8 +571,8 @@ pub fn generate_distance_field_cache_entry<'m>(
                 }
                 // Upstream populates `attached_body_names_` here too, but
                 // only inside this `if (acm)` branch
-                // (`collision_env_distance_field.cpp:844-` vs its `else` at
-                // `:920`) -- when no ACM is supplied, upstream never
+                // (`collision_env_distance_field.cpp:775` vs its `else` at
+                // `:825`) -- when no ACM is supplied, upstream never
                 // enumerates attached bodies at all, so
                 // `attached_body_names_` (and every attached body's
                 // decomposition downstream) stays empty whenever `acm` is
@@ -3027,8 +3031,8 @@ mod tests {
         assert!(
             dfce.attached_body_names.is_empty(),
             "upstream only enumerates attached bodies inside the `if (acm)` \
-             branch (collision_env_distance_field.cpp:844 vs the `else` at \
-             :920) -- acm: None must leave attached_body_names empty even \
+             branch (collision_env_distance_field.cpp:775 vs the `else` at \
+             :825) -- acm: None must leave attached_body_names empty even \
              though an attached body was supplied"
         );
     }
@@ -4299,7 +4303,7 @@ mod tests {
         assert!(
             gsr.dfce.attached_body_names.is_empty(),
             "generate_distance_field_cache_entry's per-link loop only ever visits \"chain\"'s \
-             own updated links (:844-919) -- \"base\" is never one of them, so \"gripped\" must \
+             own updated links (:775-825) -- \"base\" is never one of them, so \"gripped\" must \
              never be enumerated into attached_body_names"
         );
         if let Some(contacts) = &res.contacts {
@@ -4348,7 +4352,7 @@ mod tests {
         assert!(
             gsr.dfce.attached_body_names.is_empty(),
             "upstream only enumerates attached bodies inside the `if (acm)` branch \
-             (collision_env_distance_field.cpp:844 vs its `else` at :920) -- acm: None must \
+             (collision_env_distance_field.cpp:775 vs its `else` at :825) -- acm: None must \
              leave attached_body_names empty even for an attached body on an in-group link"
         );
         if let Some(contacts) = &res.contacts {
