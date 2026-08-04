@@ -15842,3 +15842,213 @@ public doc이 링크한다**는 다른 오류로 바뀌었다(모듈이 `mod rrt
 주장이다. §198은 노출 규모는 숫자로 적었지만 무엇을 시도해봤는지는 적지
 않았다. 다음에 같은 형태의 결론을 쓸 때는 시도한 명령과 그 출력이 함께
 가야 한다 — 그것이 §189가 측정에 대해 요구하는 것과 같은 요구다.
+
+## §210 테스트가 느렸던 것이 아니라 프로파일이 없었다 — 그리고 "휴면 중"으로 분류한 결함군을 닫았다
+
+p1-fixtures 라운드가 두 가지를 보고했다. 하나는 재현된 결함, 하나는
+재현하지 못한 패턴. 조율자 소유 파일이라 셋 다 내가 적용했고, 그 과정에서
+분류 자체가 한 번 뒤집혔다.
+
+### §210.1 게이트 15개 중 1개만 "실증 가능"이었는데, 나머지도 고쳤다
+
+`verify-clean-checkout.sh:51`이 `mapfile -t steps < <(python3 ...)` 꼴이다.
+`mapfile`은 producer의 종료 상태를 전파하지 않고 `set -e`도 그것을 보지
+못하므로, 파서 자신의 `sys.exit("no run: steps found in the workflow")`가
+stderr에 찍힌 채로 스크립트는 0으로 끝나며 "every ci.yml step passes"를
+출력한다 — 0개를 돌리고서. 합성 workflow(‌`run:` 없음)로 양방향 재현했다:
+수정 전 rc=0, 수정 후 rc=1 (`a1a0b8f`).
+
+나머지 다섯 스크립트는 p1-fixtures가 "실증 불가(not demonstrable)"로
+분류했다. `git ls-files`/glob 목록이 비면 루프가 0회 돌고 그대로 OK를
+찍지만, 현재 트리에서는 목록이 비지 않으므로 재현할 수 없다는 것이다.
+분류는 정확했다. 그러나 **결론이 틀렸다**: 그 목록들이 파일시스템에서
+유도되는 이유가 바로 아무도 유지보수하지 않기 위해서이고, 같은 성질이
+경로 규약이 바뀌는 순간 목록을 조용히 비게 만든다. `verify-vendored-
+fixture-tests.sh`와 `verify-all.sh`는 각자 자기 목록에 대해 이 가드를
+**사후에** 붙였다 — 두 번 다 같은 실패를 겪고 나서.
+
+`tools/ci/gate-lib.sh`의 `require_nonempty`가 그 규칙을 한 자리에 둔다
+(`fd1bc04`). 호출부 7개: `check-license-matches-upstream.sh`,
+`check-lints-not-silently-dropped.sh`,
+`check-workspace-dep-inheritance.sh`(2),
+`verify-fixture-provenance.sh`(3), 그리고
+`verify-upstream-license-provenance.sh`는 파이썬 쪽 `tracked`/`checked`
+카운터에 같은 규칙을 적었다. 각 가드는 자기 glob을 아무것도 매치하지 않는
+경로로 돌려 **개별적으로 물려봤다** — 7/7 rc=1.
+
+`check-audit-scripts-not-copied.sh`는 제외했다. 매치 0이 곧 통과인 부정
+단언이라 emptiness 가드가 의미를 뒤집는다.
+
+### §210.2 스위트 24.2초 중 22초는 최적화 없이 컴파일된 수치 코드였다
+
+p1-fixtures가 가장 느린 10개를 재고, 그중 `gripper_pair_contact_is_
+prediction_invariant`를 단독으로 dev 20.1초 / `--release` 1.076초로
+측정했다 — 19배. 그 테스트가 하는 일은 PR2 모델을 만들고 parry contact
+질의 3번을 돌리는 것뿐이다. 루트 `Cargo.toml`에 `[profile...]` 섹션이
+하나도 없었다.
+
+내가 잰 것(이 머신, 96코어):
+
+| 프로파일 | 그 테스트 | 워크스페이스 전체 | cold build |
+|---|---|---|---|
+| 기본(opt-level 0) | 18.4s | 24.2s | 25s |
+| deps만 opt-level 2 | 14.1s | — | — |
+| workspace 1 + deps 2 | **0.9s** | **2.0s** | 39s |
+
+deps만 올리면 1.3배밖에 안 준다. 비용의 대부분은 이 저장소 자신의
+크레이트에 있었다. `[profile.dev] opt-level = 1` + `[profile.dev.package."*"]
+opt-level = 2`가 `e733f19`이고, 일회성 빌드 비용 +14초는 첫 테스트 실행에서
+회수된다.
+
+`debug-assertions`와 `overflow-checks`는 `opt-level`과 독립이라 그대로
+켜져 있다. **가정하지 않고 확인했다**: `--print cfg`가 여전히
+`debug_assertions`를 내보내고, `-C opt-level=1 -C debug-assertions=on`으로
+컴파일한 `u8` 오버플로가 여전히 패닉한다. 스위트의 벽시계를 커버리지와
+바꾸는 프로파일이었다면 이 변경은 손해다.
+
+### §210.3 규칙 두 개
+
+하나. **"현재 트리에서 재현 불가"는 "결함 아님"이 아니다.** 재현 가능성은
+결함의 성질이 아니라 지금 트리 상태의 성질이다. 파일시스템에서 유도되는
+목록은 유지보수를 없애는 대신 조용히 비어질 경로를 연다 — 그 둘은 같은
+성질의 앞뒷면이다.
+
+둘. **비용을 잰다는 것은 테스트를 재는 것이 아니라 무엇이 비용을 지배하는지
+재는 것이다.** 라운드마다 "가장 느린 N개" 표를 만들었지만 그 표의 어느
+행도 "이 비용은 테스트가 아니라 빌드 설정에서 온다"를 말할 수 없다. 그것을
+말한 것은 한 테스트를 dev와 release 양쪽에서 **각각 재본** 한 번의 측정
+이었다. 표는 순위를 주고 원인은 대조가 준다.
+
+## §211 인용 하나가 소비자 열 개를 대변할 수 없다 — 상류 규칙 세 개를 한 규칙으로 덮은 라운드
+
+### §211.1 시작점: 워커의 근거는 맞았지만 그 근거가 닿는 곳이 하나였다
+
+p9-ros가 `4ff563d`에서 `ros/moveit-ros/src/geometry.rs`의
+`TryFrom<Quaternion> for UnitQuaternion` 문턱을 `norm <= f64::EPSILON`에서
+`|norm - 1.0| > 1e-3`으로 좁혔다. 근거로 든 것은
+`kinematic_constraint.cpp:609-615` — `OrientationConstraint::configure`가
+`fabs(q.norm() - 1.0) > 1e-3`을 "probably incorrect"로 보고 항등원으로
+치환하는 분기다. 그 인용 자체는 **확인했고 정확하다**. 같은 라운드의
+`cone_sides` 판정도 `:822-829`과 헤더 `:878`(`unsigned int cone_sides_;`)에서
+그대로 성립한다 — 상류 자신의 가드 순서가 int→unsigned 감김을 이미 막고
+있어서 `msg.cone_sides.max(0) as usize`는 정확히 옳다.
+
+문제는 근거가 아니라 **그 근거가 닿는 호출 지점의 수**였다. 이 impl의
+소비자는 열 개다. `configure`에 닿는 것은 그중 하나다.
+
+### §211.2 상류에는 규칙이 하나가 아니라 셋이다
+
+| 포트 지점 | 상류 도달 경로 | 상류 규칙 |
+|---|---|---|
+| `constraints/orientation.rs:85` | `OrientationConstraint::configure` :609-615 | `\|norm-1\|>1e-3` → 경고 후 항등원 치환 |
+| `constraints/position.rs:161` | `PositionConstraint::configure` :405-406, :433-434 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
+| `constraints/visibility.rs:114,115` | `VisibilityConstraint::configure` :845-846, :858-859 | `tf2::fromMsg` + `ASSERT_ISOMETRY` |
+| `scene/collision_object.rs:142,207,239,478,515` | `planning_scene.cpp` `utilities::poseMsgToEigen` | 무조건 `quaternion.normalize()` |
+| `scene/planning_scene.rs:147` | `planning_scene.cpp:1496` 같은 헬퍼 | 무조건 `quaternion.normalize()` |
+
+두 가지가 이 표를 만들었다.
+
+하나. **`ASSERT_ISOMETRY`는 검사처럼 보이지만 릴리스에서 아무것도 하지
+않는다.** `third_party/geometric_shapes`의 `check_isometry.h`에서 `NDEBUG`이면
+`(void)sizeof(transform);`로 전개된다. 아니면 `checkIsometry`를
+`Eigen::NumTraits<double>::dummy_precision()`(1e-12)로 부르고
+`assert(!"Invalid isometry transform")`으로 죽는다. 즉 이 세 지점에서
+출하되는 상류의 동작은 "검사 없음"이고, 디버그 상류의 동작은
+"1e-12에서 abort"다. 1e-3은 그 어느 쪽도 아니다.
+
+둘. **`planning_scene.cpp:76-82`의 `utilities::poseMsgToEigen`은 정규화가
+목적인 헬퍼다.** 독스트링이 "convert Pose msg to Eigen::Isometry,
+**normalizing the quaternion part if necessary**"이고 본문은 조건 없는
+`quaternion.normalize()`다. 여섯 지점이 여기로 간다. `norm == 2.0`은 상류가
+**의도적으로 받아들이는** 값이고, D14의 시험("상류가 의미를 정의하는가")이
+성립한다 — 정의된 의미가 "정규화한다"이다. 그 여섯 지점에 D6은 닿지 않는다.
+
+### §211.3 균일함이 목표가 아니었다
+
+이 라운드에서 처음에 떠오른 교정은 "경계에 규칙 하나"였다 — 이 문서가
+반복해서 선호해 온 형태다. 그것이 틀린 이유는 **상류가 균일하지 않기
+때문**이다. 균일한 규칙은 미러링하는 대상이 균일할 때만 기본값이다. 세
+규칙을 하나로 덮는 것은 정리가 아니라 동작 변경이고, 정리처럼 보이기
+때문에 리뷰를 통과한다.
+
+구조적 교정은 문턱을 옮기는 것이 아니라 **이중 의미를 없애는 것**이다.
+현재 `TryFrom<Quaternion>`은 한 지점에서 "방향 제약의 의심 규칙"을,
+아홉 지점에서 "일반 포즈 규칙"을 뜻한다. 각 상류 규칙에 자기 이름을 주고
+`Pose → Isometry3`가 어느 규칙을 적용하는지 호출자에게 보이게 해야 한다.
+p9-ros에 이 형태로 넘겼고, `ASSERT_ISOMETRY` 세 지점은 어느 규칙을
+택할지 **접지 말고 판정해서 근거와 함께 보고**하도록 명시했다.
+
+### §211.4 문서가 코드보다 먼저 낡았다
+
+`TryFrom<Pose> for Isometry3`의 독스트링은 `4ff563d` 이후에도 "Fails exactly
+when the embedded orientation does (`Quaternion::try_from`'s
+**zero/non-finite-norm** case)"라고 말한다. 이제 `norm == 2.0`에서도 실패한다.
+Pose 경로의 유일한 테스트 `pose_with_degenerate_orientation_fails`가 전부-0
+케이스만 덮고 있어서 — 즉 **낡은 문서가 말하는 그 케이스만** 덮고 있어서 —
+어긋남을 아무것도 잡지 못했다. 테스트가 문서와 같은 범위를 가지면 문서의
+낡음을 테스트로 검출할 수 없다.
+
+### §211.5 규칙
+
+**공유 헬퍼의 상류 규칙을 인용하기 전에 소비자를 센다.** 인용 하나에
+소비자 열이면 그 자체가 신호다. 헬퍼는 호출자 하나가 시야에 있는 동안
+쓰이고, 그 호출자의 상류 규칙이 헬퍼의 규칙으로 기록된다. 이후의 모든
+호출자는 누구도 자기 몫으로 다시 유도하지 않은 정당화를 상속한다.
+
+**가드의 문턱이 매크로에서 오면 매크로를 연다.** `ASSERT_ISOMETRY`는
+검사처럼 읽히고 릴리스에서 `(void)sizeof(x)`로 컴파일된다.
+
+## §212 스탬프를 12일 만에 움직인 라운드 — 그리고 그 움직임을 재생 게이트가 증명하게 한 방법
+
+### §212.1 두 패널이 같은 이미지에서 막혀 있었다
+
+p3-distance-field는 `HybridCollisionEnv`의 네 `*DistanceField` 진입점 중
+F1/F2/F4에 `"mode": "robot_only"`가 필요하다고 요청 문서에 적었고,
+p3-acm은 case 623을 가르기 위해 `collision` op의
+`max_contacts_per_pair`를 요청했다. 둘 다 코디네이터 소유
+(`tools/moveit-oracle/`)이고, 둘 다 이미지 재빌드를 뜻한다.
+
+한 번의 재빌드로 둘 다 처리했다. 재빌드 비용은 실측 36초 —
+`moveit_core`는 캐시되고 오라클 자신의 C++만 다시 컴파일된다. 즉
+"스탬프를 움직이지 않는다"를 지켜온 이유는 빌드 비용이 아니라
+**기존 픽스처가 조용히 달라질 위험**이었고, 그 위험은 재빌드 횟수가
+아니라 변경의 모양으로 결정된다.
+
+스탬프: `043ed31a2186fe4e` → `700e7be54cb0a61f`.
+
+### §212.2 두 변경 모두 "기본값에서 오늘과 바이트 단위로 같다"를 구조로 보장했다
+
+`mode` (신규, 기본 `"collision"`): 없으면 `checkCollision` — 이 필드가
+생기기 전 모든 픽스처가 탄 바로 그 분기다. `"robot_only"`는
+`checkRobotCollision`. 두 오버로드 모두 `last_gsr_`를 설정하므로
+(`collision_env_distance_field.cpp:1468,1497`) 응답 덤프 코드는 손대지
+않았다.
+
+`max_contacts_per_pair` (신규, 기본 `1`): 여기서 갈림길이 있었다.
+`contactsToJson`는 쌍마다 `front()` 하나, `allContactsToJson`은 전부를
+같은 `ContactMap` 순회 순서로 내보낸다. **요청 값에 따라 둘 중 하나를
+고르는 분기**를 두는 대신 항상 `allContactsToJson`을 쓴다 — 기본값
+`1`에서는 어떤 쌍의 리스트도 원소가 둘 이상일 수 없으므로 두 함수의
+출력이 **구성상** 동일하기 때문이다. 규칙이 하나 남는다: "쌍마다
+`max_contacts_per_pair`개까지 보고한다." 요청 값에 따라 응답의 의미가
+달라지는 형태를 만들지 않았다.
+
+### §212.3 증명은 논증이 아니라 재생이었다
+
+두 변경 모두 "기본 경로는 안 건드렸다"고 **주장**할 수 있었다. 대신
+새 이미지에 대해 `verify-fixture-replay.sh`를 돌렸다: **52/52
+identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스탬프
+이동을 정당화한 유일한 증거다.
+
+이것이 스탬프 게이트가 존재하는 이유의 역방향 사용이다. 게이트는
+평소에는 "낡은 이미지로 픽스처를 만들지 마라"를 강제하지만, 재빌드가
+불가피한 라운드에서는 **"새 이미지가 옛 픽스처를 재현하는가"를 묻는
+유일한 도구**가 된다. 재빌드를 미루면 이 질문을 던질 기회 자체가 없다.
+
+### §212.4 남은 것
+
+`b1ef9a8`(mode 분기)만 담긴 중간 트리의 이미지는 빌드하지 않았다 —
+빌드하고 재생을 확인한 것은 두 변경이 모두 들어간 최종 트리
+(`700e7be54cb0a61f`)다. 커밋은 발견 단위로 나뉘고 검증은 트리 단위로
+이뤄진다는 뜻이며, 중간 커밋 하나만 체크아웃해 오라클을 돌리려는
+사람은 자기 손으로 빌드해야 한다.

@@ -33,14 +33,14 @@
 //! `Eigen::Isometry3d::matrix() = m` (nalgebra stores rotation as a
 //! [`nalgebra::UnitQuaternion`], so a general rotation matrix is
 //! reconstructed through a quaternion round-trip -- see
-//! `isometry_from_row_major` below), which can perturb a coordinate by a few
-//! ULPs relative to the oracle's direct matrix assignment. Comparing the
-//! coordinates gridded onto [`POINT_EPS`] absorbs that expected noise while
-//! still catching a real disagreement: a genuine off-by-one grid defect
-//! moves a point by a whole `resolution`, many orders of magnitude past
-//! [`POINT_EPS`]. The comparison is exact set equality on those gridded
-//! keys, so a missing or extra point is reported as such rather than
-//! being matched to a near neighbour.
+//! `moveit_test_support::isometry_from_row_major`), which can perturb a
+//! coordinate by a few ULPs relative to the oracle's direct matrix
+//! assignment. Comparing the coordinates gridded onto [`POINT_EPS`] absorbs
+//! that expected noise while still catching a real disagreement: a genuine
+//! off-by-one grid defect moves a point by a whole `resolution`, many orders
+//! of magnitude past [`POINT_EPS`]. The comparison is exact set equality on
+//! those gridded keys, so a missing or extra point is reported as such
+//! rather than being matched to a near neighbour.
 //!
 //! Unlike this crate's other parity tests' `TOL`/`DISTANCE_TOL`, a coarser
 //! [`POINT_EPS`] is the safe direction here (it can only turn a real defect
@@ -60,8 +60,9 @@ use serde::Deserialize;
 
 use moveit_distance_field::find_internal_points_convex;
 use moveit_geometry::bodies::Body;
-use moveit_geometry::{Cuboid, Cylinder, Isometry3, Mesh, Shape, Sphere};
-use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
+use moveit_geometry::{Cuboid, Cylinder, Mesh, Shape, Sphere};
+use moveit_test_support::isometry_from_row_major;
+use nalgebra::Vector3;
 
 /// Kind: a structurally-safe grid-bucket size, not a measured-margin
 /// tolerance like this crate's other parity files' `TOL`/`DISTANCE_TOL`/
@@ -157,13 +158,6 @@ fn load_requests() -> Vec<RequestFixture> {
 fn load_responses() -> Vec<OracleResponse> {
     let raw = read_fixture("shape_points_response.json");
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse shape_points_response.json: {e}"))
-}
-
-/// Row-major 4x4, matching `toRowMajor4x4`/`fromRowMajor4x4` in `oracle.cpp`.
-fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Translation3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
 }
 
 fn point_key(p: [f64; 3]) -> [i64; 3] {

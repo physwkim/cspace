@@ -362,6 +362,64 @@ mod position {
         );
     }
 
+    /// A shape with no `bodies::Body` counterpart — `Body::from_shape`
+    /// returns `Ok(None)` for [`Shape::Cone`], [`Shape::Plane`] and
+    /// [`Shape::OcTree`] — makes [`PositionConstraint::new`] error rather
+    /// than drop the region.
+    ///
+    /// The upstream branch this pins is **not** `:401-419`'s
+    /// warn-and-`continue`. Those two skips are a pose array shorter than
+    /// the shape array (`:400-403`, type-excluded here: `ConstraintRegion`
+    /// pairs shape and pose in one `Vec`) and `constructShapeFromMsg`
+    /// returning null on a malformed message (`:417-418`, also type-excluded
+    /// here: a `Shape` value always exists). The branch that corresponds to
+    /// this test is `:412-413`, which takes
+    /// `createEmptyBodyFromShapeType(shape->type)` straight into
+    /// `body->setDimensionsDirty(shape.get())` with no null check — so
+    /// upstream does not skip a bodyless shape, it dereferences null on one.
+    ///
+    /// `Shape::Cone` is the variant that makes the comparison a real one:
+    /// `constraint_region.primitives` is a `shape_msgs/SolidPrimitive[]`,
+    /// `SolidPrimitive::CONE` is one of the four types
+    /// `constructShapeFromMsg` builds (`shape_operations.cpp:101-106`), and
+    /// nothing between it and `:412` filters it out, so a client can send a
+    /// cone region and crash upstream. `Shape::Plane` and `Shape::OcTree`
+    /// take the same port-side branch but cannot arrive on that upstream
+    /// path at all (neither is a `SolidPrimitive` or a `Mesh`); they are
+    /// asserted here because they are the same `from_shape` `None`, not
+    /// because upstream has a matching case.
+    #[test]
+    fn new_rejects_a_shape_with_no_body_counterpart() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let bodyless = [
+            Shape::Cone(moveit_geometry::Cone::new(0.1, 0.2).unwrap()),
+            Shape::Plane(moveit_geometry::Plane {
+                a: 0.0,
+                b: 0.0,
+                c: 1.0,
+                d: 0.0,
+            }),
+        ];
+        for shape in bodyless {
+            let region = (shape.clone(), Isometry3::identity());
+            assert!(
+                PositionConstraint::new(
+                    &model,
+                    &transforms,
+                    "panda_link8",
+                    model.model_frame(),
+                    Vector3::zeros(),
+                    &[region],
+                    1.0,
+                )
+                .is_err(),
+                "{shape:?} has no bodies::Body counterpart; the constraint must \
+                 error, not drop the region"
+            );
+        }
+    }
+
     #[test]
     fn new_rejects_unresolvable_mobile_frame() {
         let model = panda_model();
@@ -562,6 +620,38 @@ mod orientation {
                 &transforms,
                 "panda_link8",
                 "no_such_frame",
+                UnitQuaternion::identity(),
+                OrientationTolerance::XyzEuler {
+                    x: 0.01,
+                    y: 0.01,
+                    z: 0.01,
+                },
+                1.0,
+            )
+            .is_err()
+        );
+    }
+
+    /// `kinematic_constraint.cpp:618-619` only warns on an empty
+    /// `frame_id` and falls through to build a constraint anyway (its
+    /// `decide()` then resolves the frame to identity every time via
+    /// `getFrameTransform("")`) -- this port rejects it instead (this
+    /// type's "Deviation from upstream" doc comment). An empty string is
+    /// not merely "unresolvable" the way `new_rejects_unresolvable_frame`'s
+    /// `"no_such_frame"` is: upstream itself branches on `.empty()`
+    /// specifically, separately from its general fixed/mobile frame
+    /// resolution, so this needs its own case to prove the port's reject
+    /// covers that exact branch, not just the general one.
+    #[test]
+    fn new_rejects_empty_frame_id() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        assert!(
+            OrientationConstraint::new(
+                &model,
+                &transforms,
+                "panda_link8",
+                "",
                 UnitQuaternion::identity(),
                 OrientationTolerance::XyzEuler {
                     x: 0.01,

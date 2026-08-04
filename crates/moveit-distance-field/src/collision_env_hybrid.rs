@@ -315,6 +315,50 @@ impl<'m> HybridCollisionEnv<'m> {
     /// below for the empirical check that this actually stays in sync with
     /// [`Self::world_mut`].
     ///
+    /// # Cost: measured, not argued
+    ///
+    /// The "rebuild on every call" choice above is a real O(world) cost per
+    /// call, not just an assertion that it "cannot go stale" -- so it was
+    /// measured rather than only argued for. In-process
+    /// `std::time::Instant` timing of
+    /// [`HybridCollisionEnv::check_robot_collision_distance_field`] (which
+    /// calls this method once per call), on the `two_link_gap_model` test
+    /// fixture and this module's `test_distance_field_config` grid (a 2x2x2m
+    /// box at 0.05m resolution, 64,000 cells), 5 warmup calls then 100 timed
+    /// calls averaged, world objects placed clear of the robot so no run
+    /// hits the collision-found short-circuit in
+    /// [`DistanceFieldCollisionCache::check_robot_collision`]:
+    ///
+    /// | world objects | dev profile (opt-level 1/2) | `--release` |
+    /// |---:|---:|---:|
+    /// | 1    | ~0.91 ms/call | ~0.89 ms/call |
+    /// | 10   | ~1.00 ms/call | ~0.83 ms/call |
+    /// | 100  | ~1.41 ms/call | ~1.11 ms/call |
+    /// | 1000 | ~2.39 ms/call | ~1.80 ms/call |
+    ///
+    /// Two things this measurement settles: first, the 1-object cost (~0.9ms
+    /// both profiles) is already most of the 1000-object cost -- grid
+    /// allocation and the propagation sweep in [`PropagationDistanceField::new`]
+    /// plus [`Self::build_env_distance_field`]'s own `add_points_to_field`
+    /// dominate over per-object [`collision_object_point_decomposition`]
+    /// cost at this grid size; the marginal cost of the 999 additional
+    /// objects is under 1.5ms combined. Second, the fixed per-call cost this
+    /// method pays is set by the grid (cell count, i.e.
+    /// `geometry.size / geometry.resolution` cubed) the caller configures via
+    /// [`DistanceFieldConfig`], not by how many objects are in
+    /// [`Self::world`] -- so a caller with a coarser grid or fewer cells pays
+    /// less per call regardless of world size, and a caller calling this at
+    /// interactive rates with a fine grid is the one who should reach for
+    /// [`Self::world_mut`]'s caching alternative (keeping a
+    /// [`PropagationDistanceField`] around and calling
+    /// [`PropagationDistanceField::add_points_to_field`]/
+    /// [`PropagationDistanceField::remove_points_from_field`] directly
+    /// instead of this method), not one who changes little between calls in
+    /// how many world objects exist. This is a measurement, not a
+    /// recommendation to add that cache here: no caller of this crate has
+    /// asked for it, and adding an unused cache would be exactly the
+    /// speculative-configurability this session's own house rules ban.
+    ///
     /// # Errors
     ///
     /// Returns an error if the configured grid geometry is invalid (see

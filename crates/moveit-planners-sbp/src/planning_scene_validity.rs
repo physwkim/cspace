@@ -58,32 +58,37 @@ use crate::validity::StateValidityChecker;
 /// `cargo run --example planning_scene_validity_bench -p moveit-planners-sbp`
 /// (panda_arm, 7 DoF, real mesh-loaded collision geometry via
 /// `fixture_mesh_search_paths`, empty world, no constraints, 50 calls;
-/// add `--release` for the optimized figure): **debug ~8-15 ms/call,
-/// release ~1-6 ms/call (mean ~2 ms)** — the debug figure is three orders
-/// of magnitude past an early no-mesh-geometry measurement this doc
-/// comment previously (wrongly) cited, because that measurement's scene
-/// had no collision shapes loaded at all (see this crate's commit history
-/// for that correction). This is a total, not a breakdown — no profiling
-/// was done to say how much is the `Vec<f64>` clone versus FK versus the
-/// real self-collision mesh checks [`moveit_collision::ParryCollisionEnv`]
-/// now actually performs.
+/// add `--release` for the optimized figure): **dev mean 2.27 ms/call
+/// (min 1.05, max 6.26), release mean 1.89 ms/call (min 0.95, max 5.16)**.
+/// This is a total, not a breakdown — no profiling was done to say how
+/// much is the `Vec<f64>` clone versus FK versus the real self-collision
+/// mesh checks [`moveit_collision::ParryCollisionEnv`] now actually
+/// performs.
 ///
-/// Release is roughly 6x faster than debug here, not the ~50x that would
-/// retire the concern below — both regimes are the same order of
-/// magnitude, so a single `Termination::Iterations(20_000)` RRT-Connect
-/// query against real panda geometry costs, by this measurement, on the
-/// order of tens of seconds at the release mean (20,000 x ~2 ms ≈ 41 s)
-/// and up into the low minutes at either regime's max-observed per-call
-/// cost (20,000 x ~6-15 ms ≈ 2-5 min) — a real planning-latency concern for
-/// real-geometry queries specifically, not merely a debug-profile
-/// artifact. No pooling scheme is built against it yet — pooling would not
+/// Those two figures used to be `debug ~8-15 ms` against `release ~1-6 ms`,
+/// and the argument below was built on the gap between them. `e733f19` gave
+/// the workspace a `[profile.dev]` (`opt-level = 1`, `2` for dependencies),
+/// which closed it: dev is now 1.20x release, not 6x, and the numbers above
+/// were re-measured under that profile rather than scaled from the old ones.
+/// (The old debug figure was itself three orders of magnitude past an even
+/// earlier no-mesh-geometry measurement this comment once cited, whose scene
+/// had no collision shapes loaded at all — see this crate's commit history.)
+///
+/// The collapse strengthens the conclusion rather than retiring it. There is
+/// now effectively one regime, so a single `Termination::Iterations(20_000)`
+/// RRT-Connect query against real panda geometry costs on the order of
+/// 20,000 x ~2 ms ≈ 40 s at the mean and 20,000 x ~5-6 ms ≈ 2 min at the
+/// max-observed per-call cost, in *either* profile — a real planning-latency
+/// concern for real-geometry queries specifically, and now measured not to
+/// be a debug-profile artifact at all, since removing the debug tax left it
+/// where it was. No pooling scheme is built against it yet — pooling would not
 /// address mesh collision cost at all (it only avoids the `Vec<f64>`
 /// clone, a small fraction of this total), and nothing here has measured
 /// what would. This module's own
 /// `is_valid_does_not_regress_by_orders_of_magnitude` test guards only
-/// against a catastrophic (~100x) regression in this cost, not against
-/// exceeding it — see that test's doc comment for why the bound it asserts
-/// is loose on purpose.
+/// against a catastrophic regression in this cost, not against exceeding
+/// it — see that test's doc comment for why the bound it asserts is loose
+/// on purpose.
 pub struct PlanningSceneValidityChecker<'a, 'm, E> {
     scene: RefCell<&'a mut PlanningScene<'m>>,
     env: &'a E,
@@ -314,13 +319,22 @@ mod tests {
 
     /// Not a timing measurement (see `examples/planning_scene_validity_bench.rs`
     /// for that) -- a regression guard. The bound is deliberately huge
-    /// relative to the measured cost (this type's own doc comment: debug
-    /// ~8-15 ms/call, release ~1-6 ms/call) so it never fails from ordinary
-    /// machine-speed variance, but still catches an accidental ~100x
-    /// blowup -- e.g. a change that makes this call quadratic in variable
-    /// count, or drops an early-out FCL/`parry` relies on -- in a normal
-    /// `cargo nextest run`, without needing anyone to remember to run the
-    /// example.
+    /// relative to the measured cost (this type's own doc comment: dev mean
+    /// 2.27 ms/call, max observed 6.26 ms) so it never fails from ordinary
+    /// machine-speed variance, but still catches an accidental
+    /// orders-of-magnitude blowup -- e.g. a change that makes this call
+    /// quadratic in variable count, or drops an early-out FCL/`parry` relies
+    /// on -- in a normal `cargo nextest run`, without needing anyone to
+    /// remember to run the example.
+    ///
+    /// The 2s bound is left where it was rather than retightened to track
+    /// the measurement. What it has to be is far above the worst legitimate
+    /// call and far below a pathological one, and it is both; tying it to a
+    /// ratio against the current mean would just make it move every time the
+    /// build profile does, which is what happened to the stale "~100x the
+    /// ~15 ms debug-profile maximum" this comment and the assertion message
+    /// used to quote (`e733f19` closed the dev/release gap and made that
+    /// figure ~320x overnight, with nothing about the code changed).
     #[test]
     fn is_valid_does_not_regress_by_orders_of_magnitude() {
         let (model, srdf) = load_panda();
@@ -343,8 +357,8 @@ mod tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed < std::time::Duration::from_secs(2),
-            "a single is_valid call took {elapsed:?}, over 100x the ~15 ms debug-profile \
-             maximum this type's doc comment measures -- see \
+            "a single is_valid call took {elapsed:?}, orders of magnitude past the \
+             ~6.3 ms worst case this type's doc comment measures -- see \
              examples/planning_scene_validity_bench.rs for a precise re-measurement"
         );
     }

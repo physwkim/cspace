@@ -3091,4 +3091,45 @@ mod tests {
         assert_eq!(group.updated_link_names(), ["mid", "tip"]);
         assert_eq!(group.updated_link_with_geometry_names(), ["tip"]);
     }
+
+    /// `joint_roots_` is seeded only from `active_joint_model_vector_`
+    /// (`joint_model_group.cpp:182-187`), which itself only ever holds
+    /// joints with `getVariableCount() > 0` (`:139-153`) — a fixed joint
+    /// (`vc == 0`) always lands in `fixed_joints_` instead (`:176-177`) and
+    /// is never a candidate root. A group made entirely of fixed joints
+    /// therefore has an empty `joint_roots_`, and since
+    /// `updated_link_model_set_` is only ever filled by iterating
+    /// `joint_roots_`'s descendants (`:256-260`), its `updated_link_names`
+    /// is empty too — not a degenerate accident of a particular fixture,
+    /// but what upstream's own algorithm produces for this shape.
+    #[test]
+    fn group_of_only_fixed_joints_has_no_joint_roots_or_updated_links() {
+        let urdf = r#"<robot name="test">
+            <link name="base"/>
+            <link name="mid"/>
+            <link name="tip">
+                <collision><geometry><box size="1 1 1"/></geometry></collision>
+            </link>
+            <joint name="j1" type="fixed">
+                <parent link="base"/><child link="mid"/>
+            </joint>
+            <joint name="j2" type="fixed">
+                <parent link="mid"/><child link="tip"/>
+            </joint>
+        </robot>"#;
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            <group name="rigid">
+                <joint name="j1"/>
+                <joint name="j2"/>
+            </group>
+        </robot>"#;
+        let model = build(urdf, srdf).expect("builds");
+
+        let group = model.joint_model_group("rigid").unwrap();
+        assert!(group.active_joint_indices().is_empty());
+        assert!(group.joint_roots().is_empty());
+        assert!(group.updated_link_names().is_empty());
+        assert!(group.updated_link_with_geometry_names().is_empty());
+    }
 }

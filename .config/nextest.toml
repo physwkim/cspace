@@ -11,10 +11,19 @@
 #
 # nextest's default `slow-timeout` only *warns*; without `terminate-after`
 # nothing ever kills a hung test, and this repository has no CI
-# (PORTING-PLAN.md §174) to impose an outer bound. 60s x 5 = 300s is a little
-# over 10x the slowest test currently in the workspace (28.9s,
-# `moveit-distance-field::collision_env_distance_field_parity`), so it
-# cannot fire on a merely slow test while still turning any hang into a
-# named failure.
+# (PORTING-PLAN.md §174) to impose an outer bound. 60s x 5 = 300s so it cannot
+# fire on a merely slow test while still turning any hang into a named
+# failure.
+#
+# The headroom this comment used to quote -- "a little over 10x the slowest
+# test (28.9s)" -- was measured before `e733f19` gave the workspace a
+# `[profile.dev]`; the slowest test is now
+# `moveit-distance-field::collision_env_distance_field_parity::group_state_representation_gradients_matches_the_oracle`
+# at 1.713s, so the same 300s is ~175x. A ratio that moves 17x on a profile
+# change is not what sizes this bound and should not be read as if it were.
+# What has to hold is only the two-sided condition: 300s is far above any
+# legitimately slow test in either profile, and far below a hang, which is
+# unbounded by definition -- the neutered-`cancel` measurement above ran past
+# 240s and would have run past any finite number.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }

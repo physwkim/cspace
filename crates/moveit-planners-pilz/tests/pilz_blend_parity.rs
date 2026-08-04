@@ -18,14 +18,18 @@
 //! (`8 == 8`), asymmetric hits `way_point_count_1 > way_point_count_2`
 //! (`8 > 4`) -- see PORTING-PLAN.md §188.2 for both cases' measured indices.
 //!
-//! Two further cases move the geometry rather than the speeds, per
+//! Three further cases move the geometry rather than the speeds, per
 //! `doc/oracle-request-pilz-blend-geometry.md`: `panda_blend_radius08`
 //! (case C) raises `blend_radius` to `0.08`, moving the intersection
 //! indices to `(5, 10)` so the two walks are exercised somewhere other than
 //! the single `(8, 7)` point A/B pin them at; `panda_blend_corner150`
 //! (case D) turns the corner through 150 degrees instead of 90, and is a
 //! *rejection* case -- see its own test's doc comment and PORTING-PLAN.md
-//! §207.
+//! §207; `panda_blend_corner112` (case E) turns the corner through 112
+//! degrees, the sharpest angle short of case D's rejection boundary at
+//! which the full pipeline still succeeds -- see its own test's doc comment
+//! and `CORNER112_VELOCITY_TOLERANCE` for a genuine growing-divergence
+//! finding this case surfaces that cases A-D do not.
 //!
 //! # No `blend_align_index` field, by design -- see PORTING-PLAN.md §188
 //!
@@ -283,10 +287,78 @@ const VELOCITY_TOLERANCE: f64 = 8e-8;
 /// case B `2.53e-9`). Set with a roughly 4x margin.
 const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
 
+/// Case E (`panda_blend_corner112`, 112° corner) measures `8.276e-8` at
+/// `blend_trajectory` waypoint 5, `panda_joint5` -- **above**
+/// [`VELOCITY_TOLERANCE`]. This is a real finding, not noise from the same
+/// source cases A-D measure: `first_trajectory`/`second_trajectory` stay
+/// far tighter on this same case (max `2.44e-14` velocity, `2.66e-13`
+/// acceleration -- both confined to `first_trajectory`, no new IK solve, as
+/// documented above), so the growth is entirely inside `blend_trajectory`'s
+/// own interior waypoints (indices 1, 2, 5, 6 all show growing divergence
+/// across `panda_joint1`/`3`/`5`/`6`, not one isolated joint or sample) --
+/// consistent with panda_arm's redundant-kinematics IK null-space selection
+/// diverging more between solvers as the corner sharpens, the same
+/// phenomenon `lin_panda_arm_matches_the_oracle`'s module doc already
+/// documents at 90°, not a slerp-direction or off-by-one bug (which would
+/// show as one outlier, not a smooth spread across multiple joints and
+/// waypoints).
+/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] are deliberately left
+/// unchanged for cases A-D rather than widened to also cover case E --
+/// doing that would hide A/B/C's own tighter true precision behind a
+/// number sized for a geometry they never exercise. Set from case E's own
+/// measured max (`8.276e-8`) with the same ~1.2x margin case C's
+/// [`POSITION_TOLERANCE`] uses, not case A/B's ~4x -- both sides are
+/// deterministic, so slack here only hides a future regression of this
+/// size. Reported to the human orchestrator as a growing-divergence
+/// finding, not resolved by loosening a shared constant.
+const CORNER112_VELOCITY_TOLERANCE: f64 = 1e-7;
+
+/// See [`CORNER112_VELOCITY_TOLERANCE`]. Measured max `1.6513e-6` at
+/// `blend_trajectory` waypoint 6, `panda_joint5` -- above
+/// [`ACCELERATION_TOLERANCE`] by about 38%. Set with the same ~1.2x margin.
+const CORNER112_ACCELERATION_TOLERANCE: f64 = 2e-6;
+
 /// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
 /// comment -- this fixture's poses are the identical "ready, +x, +y corner"
 /// geometry chosen there so the value is inconsequential.
 const CHECK_SELF_COLLISION: bool = true;
+
+/// The four tolerances a case is compared under, as one value.
+///
+/// They travel together because a case's precision is one property of that
+/// case, not four independent knobs: case E (`panda_blend_corner112`)
+/// measures a genuinely larger divergence at `blend_trajectory`'s interior
+/// waypoints than cases A/B/C/D's shared budget covers, and carrying its own
+/// set keeps that a separately-documented, separately-measured number rather
+/// than a silent widening of [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`]
+/// that would loosen A/B/C's own tighter measured precision to match it (see
+/// [`CORNER112_VELOCITY_TOLERANCE`]).
+///
+/// All four live here, including the two no case has yet needed to vary.
+/// Threading only the two that differ, and reading the other two from the
+/// module constants inside the comparison, would split one value class across
+/// two mechanisms -- and the next case needing its own `POSITION_TOLERANCE`
+/// would have to re-plumb rather than fill in a field. That split is also
+/// what put eight parameters on `compare_segment` and an
+/// `#[allow(clippy::too_many_arguments)]` above it, which
+/// `tools/ci/check-no-lint-suppression.sh` rejects.
+#[derive(Debug, Clone, Copy)]
+struct Tolerances {
+    time: f64,
+    position: f64,
+    velocity: f64,
+    acceleration: f64,
+}
+
+impl Tolerances {
+    /// Cases A-D's shared, measured budget.
+    const SHARED: Self = Self {
+        time: TIME_TOLERANCE,
+        position: POSITION_TOLERANCE,
+        velocity: VELOCITY_TOLERANCE,
+        acceleration: ACCELERATION_TOLERANCE,
+    };
+}
 
 fn compare_segment(
     label: &str,
@@ -298,6 +370,7 @@ fn compare_segment(
     // a constant `sampling_time` offset between the port's and the oracle's
     // `time_from_start` values.
     expected_time_offset: f64,
+    tol: Tolerances,
 ) {
     assert_eq!(
         actual.way_point_count(),
@@ -308,7 +381,7 @@ fn compare_segment(
         let actual_dt = actual.way_point_duration_from_start(i);
         let expected_dt = exp.time_from_start - expected_time_offset;
         assert!(
-            (actual_dt - expected_dt).abs() < TIME_TOLERANCE,
+            (actual_dt - expected_dt).abs() < tol.time,
             "{case}/{label} waypoint {i} time_from_start: {actual_dt} != {expected_dt} (oracle {}, offset {expected_time_offset})",
             exp.time_from_start
         );
@@ -317,21 +390,21 @@ fn compare_segment(
         for (name, &expected_pos) in &exp.positions {
             let actual_pos = state.variable_position(name).unwrap();
             assert!(
-                (actual_pos - expected_pos).abs() < POSITION_TOLERANCE,
+                (actual_pos - expected_pos).abs() < tol.position,
                 "{case}/{label} waypoint {i} position[{name}]: {actual_pos} != {expected_pos} (oracle)"
             );
         }
         for (name, &expected_vel) in &exp.velocities {
             let actual_vel = state.variable_velocity(name).unwrap();
             assert!(
-                (actual_vel - expected_vel).abs() < VELOCITY_TOLERANCE,
+                (actual_vel - expected_vel).abs() < tol.velocity,
                 "{case}/{label} waypoint {i} velocity[{name}]: {actual_vel} != {expected_vel} (oracle)"
             );
         }
         for (name, &expected_acc) in &exp.accelerations {
             let actual_acc = state.variable_acceleration(name).unwrap();
             assert!(
-                (actual_acc - expected_acc).abs() < ACCELERATION_TOLERANCE,
+                (actual_acc - expected_acc).abs() < tol.acceleration,
                 "{case}/{label} waypoint {i} acceleration[{name}]: {actual_acc} != {expected_acc} (oracle)"
             );
         }
@@ -456,6 +529,10 @@ fn drive_case<R>(
 }
 
 fn run_case(case: &str) {
+    run_case_with_tolerances(case, Tolerances::SHARED)
+}
+
+fn run_case_with_tolerances(case: &str, tol: Tolerances) {
     let response: ResponseFixture =
         load_json::<OracleResponseEnvelope<ResponseFixture>>(&format!("{case}_response.json"))
             .result;
@@ -496,6 +573,7 @@ fn run_case(case: &str) {
                 &blend_response.first_trajectory,
                 &response.first_trajectory,
                 0.0,
+                tol,
             );
             compare_segment(
                 "blend_trajectory",
@@ -516,6 +594,7 @@ fn run_case(case: &str) {
                 // trajectory, whose own waypoint 0 duration really was `0.0`
                 // upstream too.
                 request.sampling_time,
+                tol,
             );
             compare_segment(
                 "second_trajectory",
@@ -532,6 +611,7 @@ fn run_case(case: &str) {
                 // `duration_from_previous` is copied unchanged, so the missing
                 // correction is a constant offset through the whole segment.
                 request.sampling_time,
+                tol,
             );
         },
     )
@@ -629,4 +709,37 @@ fn blend_panda_arm_corner150_is_rejected_like_the_oracle() {
             MoveItErrorCode::from(response.error_code),
         );
     })
+}
+
+/// Case E: case A's exact `blend_radius` and speeds at a 112 degree corner
+/// instead of 90 -- the sharpest angle strictly between 90 and 150 at which
+/// the full pipeline succeeds on this port's own side (measured by
+/// bisection: succeeds through 112.6°, rejects at 112.8° on the same
+/// `panda_joint2` deceleration limit case D hits at 150°; 112.0° is filed
+/// with a margin below that boundary, not the boundary itself, so the case
+/// does not sit on a knife-edge that could flip sides from IK-solver
+/// divergence against the oracle's own solver). Replaces the interpolation
+/// comparison case D was proposed for and could not deliver -- see
+/// `doc/oracle-request-pilz-blend-geometry.md`'s case E section and
+/// PORTING-PLAN.md §207.1.
+///
+/// Both predictions from that document are confirmed on the real oracle:
+/// `first_intersection_index = 8`, `second_intersection_index = 7`,
+/// identical to case A -- a third independent confirmation that
+/// `search_intersection_points`'s walk is angle-invariant when radius and
+/// per-segment speed are held fixed. The waypoint arrays are *not* fully
+/// identical, though: see [`CORNER112_VELOCITY_TOLERANCE`] for the growing-
+/// divergence finding this case surfaces at `blend_trajectory`'s interior
+/// waypoints, which the shared `VELOCITY_TOLERANCE`/`ACCELERATION_TOLERANCE`
+/// budget (sized from cases A-D at up to 90°) does not cover.
+#[test]
+fn blend_panda_arm_corner112_matches_the_oracle() {
+    run_case_with_tolerances(
+        "panda_blend_corner112",
+        Tolerances {
+            velocity: CORNER112_VELOCITY_TOLERANCE,
+            acceleration: CORNER112_ACCELERATION_TOLERANCE,
+            ..Tolerances::SHARED
+        },
+    );
 }

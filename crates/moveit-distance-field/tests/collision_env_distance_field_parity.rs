@@ -64,7 +64,7 @@ use std::fs;
 use std::sync::Arc;
 
 use approx::assert_relative_eq;
-use nalgebra::{Matrix3, Translation3, UnitQuaternion, Vector3};
+use nalgebra::Vector3;
 use serde::Deserialize;
 
 use moveit_collision::{
@@ -80,6 +80,7 @@ use moveit_geometry::{Isometry3, Shape, Sphere};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
+use moveit_test_support::isometry_from_row_major;
 
 /// Measured-margin tolerance, not policy: this constant used to pin `1e-4`
 /// with no doc comment at all -- inherited from the other parity files in
@@ -1003,13 +1004,6 @@ impl ContactsShapeSpec {
             Self::Sphere { radius } => Shape::Sphere(Sphere::new(*radius).unwrap()),
         }
     }
-}
-
-/// Row-major 4x4, matching `fromRowMajor4x4` in `oracle.cpp`.
-fn isometry_from_row_major(m: &[f64; 16]) -> Isometry3 {
-    let rotation = Matrix3::new(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-    let translation = Translation3::new(m[3], m[7], m[11]);
-    Isometry3::from_parts(translation, UnitQuaternion::from_matrix(&rotation))
 }
 
 #[derive(Deserialize)]

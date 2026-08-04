@@ -90,22 +90,24 @@ impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for moveit_constraints::Visibility
         let VisibilityConstraintMsg { model, msg } = wrapped;
         let tf = minimal_transforms(model)?;
 
-        // `cone_sides < 0` before the `i32 -> usize` cast: a naive `as usize`
-        // on a negative value silently becomes a huge number (D6's "failure
-        // becomes a silent default", the exact bug class this guards). Note
-        // this is a *different* guard from `cone_sides < 3`: the crate's own
-        // `VisibilityConstraint::new` already clamps 0/1/2 up to 3 by design
+        // Round 14 (`kinematic_constraint.cpp:818-829`): upstream's own
+        // guard is `if (vc.cone_sides < 3)`, which clamps *any* value below
+        // 3 -- negative included -- up to 3, and never fails. That is D14's
+        // shape, not D6's: `cone_sides_` (`unsigned int`) is only ever
+        // assigned from `vc.cone_sides` in the `>= 3` branch, so upstream's
+        // own guard order already prevents an `int32 -> unsigned` wraparound
+        // on a negative value -- there is no "unresolvable input" here, just
+        // a floor upstream itself defines. Rejecting `cone_sides < 0`
+        // outright (this crate's previous behavior, before this round) was
+        // stricter than upstream *and* than this crate's own
+        // `VisibilityConstraint::new`, which already clamps 0/1/2 up to 3
         // (its own doc comment: "a real geometric floor, not a sentinel to
-        // repair") -- message-mapping.md §7's round-1 note that this
-        // `TryFrom` "must reject cone_sides < 3" was written before
-        // `moveit_msgs` was in the image to check against; corrected here.
-        if msg.cone_sides < 0 {
-            return Err(Error::construct(format!(
-                "VisibilityConstraint.cone_sides={} is negative",
-                msg.cone_sides
-            )));
-        }
-        let cone_sides = msg.cone_sides as usize;
+        // repair") -- wire-only strictness with no invariant behind it.
+        // `.max(0)` before the cast reorders this crate's guard to match
+        // upstream's: it removes the wraparound risk (`as usize` on a
+        // non-negative `i32` is always exact) without rejecting anything
+        // `VisibilityConstraint::new`'s own clamp would accept anyway.
+        let cone_sides = msg.cone_sides.max(0) as usize;
 
         let view_direction =
             SensorViewDirection::try_from(SensorViewDirectionMsg(msg.sensor_view_direction))?;
@@ -341,16 +343,62 @@ mod tests {
     }
 
     #[test]
-    fn negative_cone_sides_is_rejected() {
+    fn negative_cone_sides_is_clamped_to_three_not_rejected() {
+        // Round 14: matches kinematic_constraint.cpp:818-829's own guard
+        // order -- upstream clamps any cone_sides < 3 (negative included)
+        // rather than failing. See TryFrom<VisibilityConstraintMsg>'s own
+        // comment for why rejecting was stricter than both upstream and
+        // VisibilityConstraint::new's own clamp.
         let model = one_joint_model();
         let mut msg = valid_msg(&model);
         msg.cone_sides = -1;
-        let err = moveit_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+        let c = moveit_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
             model: &model,
             msg,
         })
-        .unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        .unwrap();
+        assert_eq!(c.cone_sides(), 3);
+    }
+
+    #[test]
+    fn negative_target_radius_activates_but_negative_angles_stay_inactive() {
+        // `0ca8916` split moveit-constraints's own normalization: negative
+        // target_radius activates at its magnitude (kinematic_constraint.cpp:818,
+        // fabs() before the >eps gate), while a negative max_view_angle/
+        // max_range_angle fails that gate and stays inactive (`:879-880`, no
+        // fabs()). This crate's wire mapping passes all three straight
+        // through with no `.abs()` anywhere (see `Some(msg.target_radius)`
+        // etc. above) -- confirming the asymmetry survives the wire
+        // boundary, not just moveit-constraints's own unit tests.
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.target_radius = -0.5;
+        msg.max_view_angle = -0.5;
+        msg.max_range_angle = -0.5;
+        let c = moveit_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap();
+        assert_eq!(c.target_radius(), Some(0.5));
+        assert_eq!(c.max_view_angle(), None);
+        assert_eq!(c.max_range_angle(), None);
+    }
+
+    #[test]
+    fn i32_min_cone_sides_does_not_wrap_around_when_cast() {
+        // Boundary of the wraparound risk `.max(0)` exists to prevent: a
+        // naive `as usize` on i32::MIN would not merely be wrong, it would
+        // silently become a huge positive count instead of clamping to 3.
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.cone_sides = i32::MIN;
+        let c = moveit_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap();
+        assert_eq!(c.cone_sides(), 3);
     }
 
     #[test]

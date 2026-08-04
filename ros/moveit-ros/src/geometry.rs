@@ -89,25 +89,49 @@ impl TryFrom<Quaternion> for UnitQuaternion {
     /// The one genuine failure case in this module. `geometry_msgs/Quaternion`
     /// can represent any four `f64`s, including the all-zero wire default
     /// (`Default::default()`, e.g. an unset field in a larger message) --
-    /// which has no unit-norm representative at all. `nalgebra`'s own
-    /// `UnitQuaternion::new_normalize` would silently divide by zero (NaN)
-    /// rather than error, so the zero/non-finite-norm case is checked here
-    /// explicitly instead of delegated. A merely *near*-unit input (the
-    /// normal case for any real wire value, given float rounding) is
-    /// silently renormalized rather than rejected -- this matches upstream
-    /// (`moveit_core`'s own msg->Eigen conversions normalize unconditionally
-    /// via `Eigen::Quaterniond::normalized()`), and is not the kind of
-    /// "failure absorbed into a silent default" D6 warns about: it is
-    /// reading a genuinely-intended unit quaternion through its wire rounding
-    /// noise, not substituting a default for missing/invalid data.
+    /// which has no unit-norm representative at all.
+    ///
+    /// # Divergence from upstream, round 14 (D6 vs. D14's "upstream defines
+    /// a meaning" test, `kinematic_constraint.cpp:609-615`)
+    ///
+    /// Upstream's own guard is `fabs(q.norm() - 1.0) > 1e-3`: anything
+    /// further than that from unit norm (including all-zero and huge
+    /// magnitudes alike) is "probably incorrect" and upstream **substitutes
+    /// identity** for it, silently continuing rather than failing the whole
+    /// constraint. Before this round, this crate's own threshold was much
+    /// narrower -- reject only `norm <= f64::EPSILON` or non-finite -- so a
+    /// quaternion upstream itself would already call "probably incorrect"
+    /// (e.g. `norm == 2.0`, `x/y/z/w` all `10.0`) fell *inside* the accepted
+    /// range here and was silently renormalized with no warning at all,
+    /// which is a narrower version of exactly the D6 shape (an
+    /// unrecoverable/untrustworthy input answered anyway) that upstream's
+    /// *own* identity substitution already is one instance of (see §183's
+    /// `getFrameTransform` precedent, the same shape one level up).
+    /// Substituting identity for a caller-supplied constraint that upstream
+    /// itself flags as almost certainly wrong is not "upstream defines what
+    /// this defaults to" (D14's test, e.g. `weight: 0.0` -> `1.0`) -- there
+    /// is no wire convention that an off-norm quaternion *means* identity,
+    /// only a best-effort fallback for input upstream cannot trust. D6
+    /// applies: this crate rejects instead, but the guard now matches
+    /// upstream's own detection threshold (`|norm - 1.0| > 1e-3`) instead of
+    /// the much looser zero/non-finite-only check, so it actually catches
+    /// what upstream itself calls suspicious. Inside that band (realistic
+    /// wire rounding noise), the value is renormalized, not rejected --
+    /// `nalgebra`'s `UnitQuaternion::new_normalize` on a *near*-unit input
+    /// reads the genuinely-intended rotation through float noise, matching
+    /// upstream's own practical trust of anything that close.
     fn try_from(msg: Quaternion) -> Result<Self, Self::Error> {
         let q = nalgebra::Quaternion::new(msg.0.w, msg.0.x, msg.0.y, msg.0.z);
         let norm = q.norm();
-        if !norm.is_finite() || norm <= f64::EPSILON {
+        if !norm.is_finite() || (norm - 1.0).abs() > 1e-3 {
             return Err(Error::construct(format!(
                 "geometry_msgs/Quaternion {{x: {}, y: {}, z: {}, w: {}}} has \
-                 zero or non-finite norm ({norm}); cannot normalize to a unit \
-                 quaternion. A common cause: the field was left at its wire \
+                 norm {norm}, more than 1e-3 from 1.0 (or non-finite); \
+                 upstream's own `OrientationConstraint::configure` \
+                 (kinematic_constraint.cpp:609) calls this \"probably \
+                 incorrect\" and substitutes identity -- this port rejects \
+                 instead (D6: an untrustworthy input, not a documented wire \
+                 default). A common cause: the field was left at its wire \
                  default (all-zero) instead of being set.",
                 msg.0.x, msg.0.y, msg.0.z, msg.0.w
             )));
@@ -222,6 +246,51 @@ mod tests {
         });
         let q = UnitQuaternion::try_from(noisy).unwrap();
         assert_relative_eq!(q.into_inner().norm(), 1.0, epsilon = 1e-12);
+    }
+
+    // PORTING-PLAN.md round 14: upstream's own suspicion threshold is
+    // `fabs(norm - 1.0) > 1e-3` (`kinematic_constraint.cpp:609`) -- boundary
+    // values on either side of it, not narrative scenarios.
+
+    #[test]
+    fn norm_just_inside_the_1e_minus_3_tolerance_is_accepted() {
+        let msg = Quaternion(geometry_msgs::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0 + 0.0009, // |norm - 1.0| = 0.0009 < 1e-3
+        });
+        UnitQuaternion::try_from(msg).unwrap();
+    }
+
+    #[test]
+    fn norm_just_outside_the_1e_minus_3_tolerance_is_rejected() {
+        let msg = Quaternion(geometry_msgs::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0 + 0.0011, // |norm - 1.0| = 0.0011 > 1e-3
+        });
+        let err = UnitQuaternion::try_from(msg).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn norm_far_from_one_is_rejected_not_silently_renormalized() {
+        // Before round 14 this crate only rejected zero/non-finite norm, so
+        // norm=2.0 (which upstream's own `configure()` already calls
+        // "probably incorrect" and replaces with identity) was silently
+        // renormalized here with no warning at all -- a narrower version of
+        // the same "unrecoverable input answered anyway" shape D6 exists to
+        // prevent, and narrower than upstream's own detection band besides.
+        let msg = Quaternion(geometry_msgs::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 2.0,
+        });
+        let err = UnitQuaternion::try_from(msg).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
     }
 
     #[test]

@@ -17,9 +17,24 @@ cd "$repo_root"
 # Anything under a crate's or tool's `audit/` directory whose name starts with
 # `count`. The canonical copies are `tools/ci/count-*`, which this does not
 # match -- `tools/ci` has no `audit/` subdirectory.
-mapfile -t copies < <(
-  git ls-files -- '*/audit/count*' | sort
-)
+#
+# Checked command substitution, not `mapfile -t copies < <(git ls-files ...)`:
+# process substitution discards the producer's exit status and `set -e` never
+# sees it. The sibling gates survive that because they run `require_nonempty`
+# and an empty list is their *failure* condition; here an empty list is the
+# pass, so a broken `git ls-files` and a clean tree are the same state and
+# nothing downstream can tell them apart. Reproduced by p1-fixtures against
+# this script unmodified: `git archive HEAD` into a `.git`-less export prints
+# `fatal: not a git repository`, then `OK: no audit command copied`, exit 0 --
+# which is exactly how the oracle image builds its context (see
+# `check-fixture-format.sh`'s header). Same mechanism as the
+# `verify-clean-checkout.sh` bug and fixed the same way.
+if ! copies_raw="$(git ls-files -- '*/audit/count*' | sort)"; then
+  echo "FAIL git ls-files failed -- nothing was checked." >&2
+  exit 1
+fi
+copies=()
+[ -n "$copies_raw" ] && mapfile -t copies <<<"$copies_raw"
 
 if [ "${#copies[@]}" -ne 0 ]; then
   echo "audit command copied back into a crate:" >&2
