@@ -98,6 +98,23 @@ struct JointNode {
 ///    exercises those paths — each has exactly one `<virtual_joint>` whose
 ///    `child_link` is the URDF root — so this port skips them silently
 ///    rather than adding a `Diagnostic` variant untested by any fixture.
+/// 7. **A missing or ambiguous root link is a hard error here; upstream
+///    degrades and continues.** `buildModel` (`robot_model.cpp:89-133`)
+///    checks `urdf_model.getRoot()`; on null it logs `RCLCPP_WARN("No root
+///    link found")` and returns, leaving `root_joint_`/`root_link_` null and
+///    skipping `buildRecursive`/`buildGroups`/`buildGroupStates` entirely —
+///    the object exists in a genuinely half-built state rather than failing
+///    construction. `getRoot()` itself is `urdf::ModelInterface`
+///    (urdfdom), which has no source available on this machine (only
+///    `liburdfdom-headers-dev` and the compiled `.so`, same absence already
+///    recorded for Assimp in [`crate::stl`]'s module doc) — `buildModel` has
+///    no code path at all for *multiple* roots, so whether urdfdom itself
+///    already rejects that case during XML parsing, before `RobotModel` ever
+///    runs, is unverified. This port's `root_candidates.as_slice()` match
+///    (`[]` / `names`, in [`RobotModel::from_urdf_and_srdf`]) returns
+///    [`Error::Construct`] for both the zero- and multiple-root cases,
+///    matching this port's D6 policy of failing construction on
+///    untrustworthy input rather than building a partially-usable object.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RobotModel {
     name: String,
