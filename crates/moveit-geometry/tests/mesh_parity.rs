@@ -31,9 +31,9 @@
 //! pr2's STLs -- which carry a different STL-writer header (`VCG`, i.e.
 //! VCGLib, versus panda/fanuc's `Export`) -- exercise the same merge/order/
 //! degenerate-triangle behavior. They do not diverge: all 18 pass the same
-//! vertex-set/count check below, captured via the oracle's `mesh` op exactly
-//! as panda's and fanuc's were (see this change's commit body for the exact
-//! resource list and how the fixture was captured).
+//! ordered vertex/triangle check below, captured via the oracle's `mesh` op
+//! exactly as panda's and fanuc's were (see this change's commit body for
+//! the exact resource list and how the fixture was captured).
 //!
 //! Not in `tests/fixtures/oracle-models.json`, deliberately:
 //! `tools/ci/verify-fixture-replay.sh` replays a `<stem>_request.json`/
@@ -41,24 +41,36 @@
 //! (each line an `{"id", "op", ...}` object in, an `{"id", "ok", "result"}`
 //! object out). This file is real oracle output but already reshaped into
 //! this test's own per-case schema (`resource`/`scale`/`vertex_count`/
-//! `triangle_count`/`vertices`, no `id`/`op` at all) before being committed,
-//! so it cannot be replayed as-is -- there is no wire-format request to send
-//! back through `run-oracle.sh`. Re-capturing it in wire format to make it
-//! replayable is a separate job from this round's audit.
+//! `triangle_count`/`vertices`/`triangles`, no `id`/`op` at all) before being
+//! committed, so it cannot be replayed as-is -- there is no wire-format
+//! request to send back through `run-oracle.sh`. Re-capturing it in wire
+//! format to make it replayable is a separate job from this round's audit.
 //!
-//! # Vertex order is not asserted
+//! # Vertex order and triangle indices are both asserted
 //!
-//! [`Mesh::merge_vertices`]'s dedup keeps each vertex at its first-occurrence
-//! index; there is no evidence (Assimp's source is unavailable, see the
-//! module doc) that `aiProcess_JoinIdenticalVertices` preserves the same
-//! order internally. Comparing vertex arrays index-for-index would be
-//! asserting an implementation detail neither side documents, so this
-//! compares vertex *sets* (`shape_points_parity.rs`'s
-//! grid-bucketed-`HashSet` pattern) instead of ordered arrays. `triangle`
-//! index arrays are consequently not compared either: they are only
-//! meaningful relative to a specific vertex order.
+//! This mesh-construction path is one of the remaining candidates for
+//! `moveit-collision`'s deviation 6(b) audit: upstream builds
+//! `fcl::BVHModel<OBBRSSd>` from *both* arrays together
+//! (`collision_common.cpp:902-920` -- `points` in [`Mesh::vertices`] order,
+//! `tri_indices` indexing that same order), so a port whose vertex set
+//! matches but whose order or triangle indices do not would build a
+//! different BVH, traverse it differently, and report a different
+//! deepest-penetration point despite passing a set-only check. An earlier
+//! version of this test compared vertex *sets*
+//! (`shape_points_parity.rs`'s grid-bucketed-`HashSet` pattern) and did not
+//! compare triangle indices at all, reasoning that
+//! [`Mesh::merge_vertices`]'s first-occurrence dedup order was an
+//! unverifiable implementation detail. That reasoning is now refuted: this
+//! fixture stores vertices in the oracle's own emission order (it was never
+//! reordered), so comparing index-for-index against [`mesh_from_bytes`]'s
+//! output needed no new capture -- all 36 meshes agree element-wise, order
+//! included. The oracle's `mesh` op now also emits `triangles`
+//! (`meshOp` in `oracle.cpp`, oracle stamp `552427488cc040a2`), so the
+//! second half -- triangle indices, which are only meaningful relative to a
+//! specific vertex order -- is compared here too. Both matching closes the
+//! mesh-construction candidate for deviation 6(b); either mismatching would
+//! have been the root cause.
 
-use std::collections::HashSet;
 use std::fs;
 
 use nalgebra::Vector3;
@@ -67,10 +79,11 @@ use serde::Deserialize;
 use moveit_geometry::mesh_from_bytes;
 
 /// Well below STL's `f32` vertex precision (~1e-7 relative for these models'
-/// centimeter-to-meter-scale coordinates) and well above nothing -- this
-/// buckets rather than tolerates, so two vertices a few ULPs apart that
-/// straddle a bucket edge read as a mismatch rather than silently passing.
-/// See `shape_points_parity.rs`'s `POINT_EPS` for the same reasoning.
+/// centimeter-to-meter-scale coordinates) and well above nothing. Unlike the
+/// bucketing this constant used before, comparison here is ordered and
+/// element-wise (see `body_query_parity.rs`'s `LINEAR_EPS`/`assert_vec_close`
+/// for the same pattern), so this is a plain absolute tolerance, not a
+/// quantization bucket.
 const VERTEX_EPS: f64 = 1e-6;
 
 #[derive(Deserialize)]
@@ -80,6 +93,7 @@ struct Case {
     vertex_count: usize,
     triangle_count: usize,
     vertices: Vec<[f64; 3]>,
+    triangles: Vec<[u32; 3]>,
 }
 
 fn load_cases() -> Vec<Case> {
@@ -125,12 +139,13 @@ fn resolve_resource(resource: &str) -> std::path::PathBuf {
     .collect()
 }
 
-fn vertex_key(v: Vector3<f64>) -> [i64; 3] {
-    [
-        (v.x / VERTEX_EPS).round() as i64,
-        (v.y / VERTEX_EPS).round() as i64,
-        (v.z / VERTEX_EPS).round() as i64,
-    ]
+fn assert_vertex_close(actual: Vector3<f64>, expected: [f64; 3], ctx: &str) {
+    assert!(
+        (actual.x - expected[0]).abs() < VERTEX_EPS
+            && (actual.y - expected[1]).abs() < VERTEX_EPS
+            && (actual.z - expected[2]).abs() < VERTEX_EPS,
+        "{ctx}: {actual:?} vs oracle {expected:?}"
+    );
 }
 
 #[test]
@@ -160,25 +175,14 @@ fn mesh_from_bytes_matches_the_oracle_for_every_panda_fanuc_and_pr2_collision_st
             case.resource
         );
 
-        let actual: HashSet<[i64; 3]> = mesh.vertices.iter().copied().map(vertex_key).collect();
-        let expected: HashSet<[i64; 3]> = case
-            .vertices
-            .iter()
-            .map(|&v| Vector3::new(v[0], v[1], v[2]))
-            .map(vertex_key)
-            .collect();
+        for (i, (&actual, &expected)) in mesh.vertices.iter().zip(&case.vertices).enumerate() {
+            assert_vertex_close(actual, expected, &format!("{}: vertex {i}", case.resource));
+        }
 
-        let missing: Vec<_> = expected.difference(&actual).collect();
-        let extra: Vec<_> = actual.difference(&expected).collect();
-        assert!(
-            missing.is_empty() && extra.is_empty(),
-            "{}: vertex sets disagree -- {} the oracle has that this port does not: {:?}; \
-             {} this port has that the oracle does not: {:?}",
-            case.resource,
-            missing.len(),
-            missing,
-            extra.len(),
-            extra
+        assert_eq!(
+            mesh.triangles, case.triangles,
+            "{}: triangle indices disagree with the oracle",
+            case.resource
         );
     }
 }
