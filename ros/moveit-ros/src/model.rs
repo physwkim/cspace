@@ -1,7 +1,7 @@
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
-//! `moveit_msgs/JointLimits` <-> [`moveit_model::JointLimits`].
+//! `moveit_msgs/JointLimits` <-> [`moveit_model::joint::JointLimits`].
 //! See `doc/message-mapping.md` §3.
 
 use moveit_error::Error;

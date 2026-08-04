@@ -169,7 +169,7 @@ impl<'m> TryFrom<RobotTrajectory<'m>> for JointTrajectoryMsgOut {
     /// `joint_names`/positions always line up -- but not total: `dt`
     /// (`RobotTrajectory::add_suffix_way_point`'s parameter, `moveit-trajectory`)
     /// carries no validation of its own, so a negative, non-finite, or
-    /// beyond-`i32::MAX`-second cumulative time can reach [`seconds_to_duration`],
+    /// beyond-`i32::MAX`-second cumulative time can reach `seconds_to_duration`,
     /// which now rejects it (PORTING-PLAN.md §172) rather than silently
     /// saturating or zeroing it into the output message.
     fn try_from(traj: RobotTrajectory<'m>) -> Result<Self, Self::Error> {

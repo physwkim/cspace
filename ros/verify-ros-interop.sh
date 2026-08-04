@@ -16,6 +16,11 @@
 #   - `cargo clippy --all-targets -- -D warnings`
 #   - `cargo test` (unit tests + doctests for ros/moveit-ros; nextest is not
 #     installed in this image -- see the `run "test"` line below)
+#   - `cargo doc --no-deps` (PORTING-PLAN.md §178: neither clippy
+#     `--all-targets` nor `cargo test --doc` reaches rustdoc's own lints --
+#     an unresolved intra-doc link or a link to a private item compiles and
+#     tests clean but fails `cargo doc`, which is exactly how main went red
+#     under the round-32 merge gate before this line existed)
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
 #   - No live ROS 2 graph: no node is ever spun up, no topic/service/action
@@ -58,5 +63,6 @@ run "clippy" bash -c "cargo clippy --all-targets -- -D warnings"
 # nextest is not installed in this image (round 1 scope); `cargo test` is
 # the brief's stated fallback (PORTING-PLAN.md's Phase 9 round-1 brief).
 run "test" bash -c "cargo test"
+run "doc" bash -c "cargo doc --no-deps"
 
 echo "all gates passed"
