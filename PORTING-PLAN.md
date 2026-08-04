@@ -11998,3 +11998,77 @@ default argument인지 실제 호출부가 넘기는 configured 값인지 먼저
 (§147.1)으로 차 있다. 다음 라운드 항목으로 돌린다. 여기 적어두는 이유는 이 실험이
 설계된 적이 없어서 — UNFIXED가 "원인 불명"으로 남아 있었지 "이렇게 하면 갈린다"로
 남아 있지 않았다.
+
+## §149 오라클에 능력을 더할 때, 기존 fixture가 한 바이트도 안 움직이는 것이 조건이다
+
+p3-distance-field 라운드 23의 UNFIXED는 두 가지를 요구했다:
+`distance_field_cache_entry`/`group_state_representation` 두 op이
+(a) `request["attached_bodies"]`를 적용하지 않고 (b) `CollisionResult`를
+전혀 덤프하지 않는다는 것. 둘 다 소스를 직접 읽어 사실로 확인했다.
+
+### 149.1 `req.contacts`는 출력 스위치가 아니다 — 그래서 request 필드로 만들었다
+
+`collision_env_distance_field.cpp:298-338`(true 분기)과 `:341-349`
+(false 분기)를 읽으면 차이가 출력에만 있지 않다. true 분기는
+`gsr->gradients_[i].types[col] = SELF`와 `gradients_[i].collision = true`를
+쓰고 계속 스캔하고, false 분기는 첫 충돌 링크에서 즉시 반환하며 그 둘을
+건드리지 않는다. 그런데 그 두 필드는 `group_state_representation` op이
+**이미 덤프하고 있다**. 그러니 `req.contacts = true`로 그냥 켰다면 기존
+fixture가 주장하던 값이 조용히 바뀐다.
+
+측정으로 확인했다. pr2 `right_arm`에 같은 요청을 두 번:
+
+```
+contacts 있음: grad_collision_links=5/22, links_with_type_SELF=1, contacts=50
+contacts 없음: grad_collision_links=0/22, links_with_type_SELF=0, contacts 키 없음
+```
+
+그래서 `contacts`(기본 false) / `max_contacts` / `max_contacts_per_pair`를
+request 필드로 노출했다. 기존 fixture는 필드를 안 보내므로 바이트 동일,
+새 fixture는 모드를 자기 요청에 적어 놓게 된다. `max_contacts_per_pair`까지
+노출한 이유는 true 분기의 스캔 상한이
+`std::min(req.max_contacts_per_pair, req.max_contacts - res.contact_count)`
+라서, 그 값을 못 정하면 pair당 다중 contact 형태 자체에 도달할 수 없기
+때문이다.
+
+**규칙**: 오라클 op에 upstream 플래그를 새로 켤 때는, 그 플래그가 op이
+이미 덤프하는 필드에 부수효과를 갖는지 upstream 소스에서 먼저 확인해라.
+갖는다면 무조건 켜지 말고 request 필드로 만들어라. 판정 기준은
+"replay가 36/36 identical인가" 하나다.
+
+### 149.2 `Contact`의 두 번째 body는 body가 아닐 수 있다
+
+`shapeKindsFor`는 `body_type`으로 분기해서 조회 결과를 그대로
+역참조하고 있었다. `CollisionEnvDistanceField`는 링크를 **집계된 거리장**
+하나와 비교하므로 이름 붙일 두 번째 body가 없고, 대신 sentinel을 쓴다:
+`"self"`(타입 `ROBOT_LINK`, `:326-327`), `"environment"`(타입
+`WORLD_OBJECT`, `:1615-1616`). 둘 다 모델에도 world에도 없고, **타입 태그가
+sentinel의 일부**지 약속이 아니다. 첫 contact에서 `getLinkModel("self")`가
+null을 반환하고 프로세스가 죽었다.
+
+고친 방식이 요점이다. `name == "self" || name == "environment"` 비교가
+아니라 **존재 확인**(`hasLinkModel` / `getAttachedBody` / `hasObject`)으로
+막았다. 규칙이 모든 op·모든 body type에 동일하게 적용되고, upstream이
+sentinel을 하나 더 늘려도 crash가 아니라 fixture의 `null`로 나타난다.
+그리고 `null`(body가 아님)과 `[]`(collision geometry 없는 진짜 링크 —
+pr2에 여럿 있다)을 서로 다른 값으로 남겼다. 값 하나에 뜻 하나.
+
+이 결함은 smoke test 없이는 안 보였다. replay 36/36 identical은 새 경로를
+한 줄도 지나지 않는다 — **기존 fixture가 안 보내는 필드로 켜지는 코드는
+기존 fixture로 검증되지 않는다.** 능력을 더한 커밋은 replay(회귀)와 수동
+1회 실행(신규 경로) 둘 다 필요하다.
+
+### 149.3 `attached_body_names_`는 ACM이 null이면 비어 있다 — upstream 동작이다
+
+smoke test에서 `use_acm: false`인 요청만 `attached_body_names: []`를
+반환했다. 포트 버그가 아니다: `generateDistanceFieldCacheEntry`의
+attached-body 열거 전체가 `if (acm)`(`:775`) 안에 있고 push는 `:801-802`다.
+ACM이 null이면 state에 무엇이 붙어 있든 목록은 빈 채로 남는다. 두 op의
+doc에 측정값과 함께 적었다.
+
+부수적으로 `Contact::depth`는 이 경로들에서 항상 `0.0`이다 — upstream이
+`pos`와 두 body 식별자만 쓰고(`:308-327`, `:1600-1616`), 값은
+`collision_common.hpp:84`의 `= 0.0` default member initializer가 준다.
+재현 가능하지만 침투 깊이를 측정한 값이 아니므로 fixture가 그렇게 읽으면
+안 된다. `gradients` 벡터(§ 이전 라운드에서 제외한, 정말 미정의인 값)와
+구분해서 기록한다.
