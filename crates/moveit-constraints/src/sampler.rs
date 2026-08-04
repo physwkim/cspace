@@ -68,6 +68,19 @@ use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::RobotState;
 use rand::{Rng, RngExt};
 
+/// Upstream `ConstraintSampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`
+/// (`constraint_sampler.hpp:64`), `2`. This module's own doc comment used
+/// to record the constant as an undeferred gap because, at the time, every
+/// caller in this crate already supplied its own concrete attempt count and
+/// no collapsed `sample()` default argument was left for it to apply to;
+/// `crate::constraint_sampler_manager::select_default_sampler`'s own
+/// `max_attempts` parameter is exactly such a caller-supplied count, and
+/// `moveit_planners_sbp::registry::RrtConnectContext::solve` is now a real
+/// production call site that needs a value to pass rather than inventing
+/// one — see this crate's `lib.rs` "`constraint_samplers/*.hpp` symbol
+/// audit" for the crate-level gap-list bookkeeping this closes.
+pub const DEFAULT_MAX_SAMPLING_ATTEMPTS: u32 = 2;
+
 use crate::JointConstraint;
 
 /// Upstream `constraint_samplers::ConstraintSampler`, the abstract base

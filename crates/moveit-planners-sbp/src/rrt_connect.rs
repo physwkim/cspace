@@ -114,6 +114,87 @@ impl RrtConnectParams {
     }
 }
 
+/// A source of constraint-satisfying candidate states for [`rrt_connect`]'s
+/// uniform-sampling step.
+///
+/// Mirrors upstream's `ompl_interface::ConstrainedSampler`
+/// (`moveit_planners/ompl/ompl_interface/{include,src}/moveit/ompl_interface/detail/constrained_sampler.{hpp,cpp}`),
+/// which wraps a `constraint_samplers::ConstraintSamplerPtr` and is
+/// installed as the OMPL state space's sampler allocator whenever a
+/// planning request carries path constraints
+/// (`model_based_planning_context.cpp`'s `configure()` /
+/// `allocPathConstrainedSampler()`) — it intercepts every uniform sample
+/// OMPL's planners draw during tree growth, not just goal sampling. This
+/// trait is the same seam on this port's side: [`rrt_connect`]'s uniform
+/// branch calls it instead of [`StateSpace::sample_uniform`] directly.
+///
+/// `try_sample` returning `None` is an ordinary "this attempt found
+/// nothing" outcome (the constraint sampler's own retry budget was
+/// exhausted), not an error — [`Sampler`]'s uniform-sampling step retries up
+/// to three times before falling back to [`StateSpace::sample_uniform`], the
+/// same reaction described in [`Sampler`]'s own doc comment.
+pub trait ConstrainedStateSampler<S: StateSpace> {
+    /// Attempts to draw one constraint-satisfying state. `None` means this
+    /// attempt failed; the caller may retry or fall back.
+    fn try_sample(&self, rng: &mut dyn Rng) -> Option<S::State>;
+}
+
+/// [`rrt_connect`]'s source of randomness, bundled with an optional
+/// constraint-driven override for its uniform-sampling step.
+///
+/// Mirrors upstream's `ConstrainedSampler` itself wrapping a plain
+/// `default_` sampler (`constrained_sampler.hpp`'s `default_` field) rather
+/// than living beside it as an unrelated argument — see
+/// [`ConstrainedStateSampler`]'s doc comment for the fuller citation. `rng`
+/// and `constrained_sampler` are grouped into one type, rather than two
+/// separate [`rrt_connect`] parameters, for the same reason: they jointly
+/// answer one question, "what state do we get when this iteration asks for
+/// a sample," and grouping keeps [`rrt_connect`]'s own parameter list from
+/// growing by one argument per sampling concern it grows in the future.
+pub struct Sampler<'a, S: StateSpace, R: Rng> {
+    /// The plain RNG. Used directly for [`RrtConnectParams::goal_bias`]'s
+    /// coin flip regardless of `constrained_sampler`, and forwarded to it
+    /// (or to [`StateSpace::sample_uniform`]) for the uniform-sampling
+    /// branch.
+    pub rng: &'a mut R,
+    /// See [`ConstrainedStateSampler`]. `None` means every uniform sample
+    /// comes from `rng` via [`StateSpace::sample_uniform`] directly — the
+    /// only behaviour that existed before this type did.
+    pub constrained_sampler: Option<&'a dyn ConstrainedStateSampler<S>>,
+}
+
+impl<'a, S: StateSpace, R: Rng> Sampler<'a, S, R> {
+    /// A [`Sampler`] with no constraint-driven override: every uniform
+    /// sample comes straight from `rng`.
+    pub fn unconstrained(rng: &'a mut R) -> Self {
+        Self {
+            rng,
+            constrained_sampler: None,
+        }
+    }
+
+    /// Draws a uniform sample for [`rrt_connect`]'s growth step, preferring
+    /// `constrained_sampler` when one is present.
+    ///
+    /// Mirrors `ConstrainedSampler::sampleUniform`
+    /// (`constrained_sampler.cpp:83-87`): up to three attempts at the
+    /// constraint sampler (`sampleC`) before falling back to a plain
+    /// uniform sample (upstream's `default_->sampleUniform`, this port's
+    /// [`StateSpace::sample_uniform`]) — verbatim,
+    /// `if (!sampleC(state) && !sampleC(state) && !sampleC(state))
+    /// default_->sampleUniform(state);`.
+    fn sample_uniform(&mut self, space: &S) -> S::State {
+        if let Some(sampler) = self.constrained_sampler {
+            for _ in 0..3 {
+                if let Some(state) = sampler.try_sample(self.rng) {
+                    return state;
+                }
+            }
+        }
+        space.sample_uniform(self.rng)
+    }
+}
+
 struct TreeNode<P> {
     state: P,
     parent: Option<usize>,
@@ -255,12 +336,16 @@ where
 ///
 /// # Determinism
 /// Two calls with equivalent `space`/`checker`/`motion_validator` and an
-/// identically-seeded `rng` produce byte-identical results when
+/// identically-seeded `sampler.rng` produce byte-identical results when
 /// `params.termination` is [`Termination::Iterations`] — that variant never
 /// reads the wall clock, so nothing in this function can make the result
 /// depend on machine speed. [`Termination::Deadline`] and
 /// [`Termination::Both`] intentionally give up this guarantee; do not use
-/// them where reproducibility matters.
+/// them where reproducibility matters. `sampler.constrained_sampler` being
+/// `None` costs this guarantee nothing: every random draw still comes from
+/// `sampler.rng` exactly as before. A `Some` constrained sampler is only as
+/// deterministic as its own `try_sample` — this function does not add or
+/// remove any determinism property from whatever was passed in.
 ///
 /// # Panics
 /// If `params` is out of range: see [`RrtConnectParams`]'s field docs.
@@ -270,7 +355,7 @@ pub fn rrt_connect<S, C, M, R>(
     motion_validator: &M,
     start: S::State,
     goal: S::State,
-    rng: &mut R,
+    mut sampler: Sampler<'_, S, R>,
     params: &RrtConnectParams,
 ) -> Result<Vec<S::State>, PlanningFailure>
 where
@@ -314,10 +399,10 @@ where
         }
 
         let other_root = if a_is_start { &goal } else { &start };
-        let sample = if rng.random_bool(params.goal_bias) {
+        let sample = if sampler.rng.random_bool(params.goal_bias) {
             other_root.clone()
         } else {
-            space.sample_uniform(rng)
+            sampler.sample_uniform(space)
         };
 
         let grown = match extend(
@@ -423,7 +508,7 @@ mod tests {
             &mv,
             start.clone(),
             goal.clone(),
-            &mut rng(1),
+            Sampler::unconstrained(&mut rng(1)),
             &params(),
         )
         .expect("open space must be solvable");
@@ -444,8 +529,16 @@ mod tests {
         let start = vec![-5.0, 0.0];
         let goal = vec![5.0, 0.0];
 
-        let path = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(2), &params())
-            .expect("gap must be findable");
+        let path = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start,
+            goal,
+            Sampler::unconstrained(&mut rng(2)),
+            &params(),
+        )
+        .expect("gap must be findable");
 
         assert!(path.len() >= 2);
         for pair in path.windows(2) {
@@ -469,8 +562,16 @@ mod tests {
         let start = vec![-5.0, 0.0];
         let goal = vec![5.0, 0.0];
 
-        let path = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(3), &params())
-            .expect("gap must be findable");
+        let path = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start,
+            goal,
+            Sampler::unconstrained(&mut rng(3)),
+            &params(),
+        )
+        .expect("gap must be findable");
 
         // The wall spans x in [-1, 1]; the path must actually pass through
         // it, and only through the gap (y in [3, 4]) while doing so. It is
@@ -499,7 +600,15 @@ mod tests {
         let mut small_cap = params();
         small_cap.termination = Termination::Iterations(2_000);
 
-        let result = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(4), &small_cap);
+        let result = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start,
+            goal,
+            Sampler::unconstrained(&mut rng(4)),
+            &small_cap,
+        );
         assert_eq!(
             result,
             Err(PlanningFailure::IterationsExhausted),
@@ -529,7 +638,7 @@ mod tests {
             &mv,
             start,
             goal,
-            &mut rng(4),
+            Sampler::unconstrained(&mut rng(4)),
             &short_deadline,
         );
         assert_eq!(result, Err(PlanningFailure::DeadlineExhausted));
@@ -546,7 +655,7 @@ mod tests {
             &mv,
             vec![-1.0],
             vec![5.0],
-            &mut rng(5),
+            Sampler::unconstrained(&mut rng(5)),
             &params(),
         );
         assert_eq!(result, Err(PlanningFailure::InvalidEndpoint));
@@ -569,12 +678,20 @@ mod tests {
             &mv,
             start.clone(),
             goal.clone(),
-            &mut rng(42),
+            Sampler::unconstrained(&mut rng(42)),
             &params(),
         )
         .expect("gap must be findable");
-        let path_2 = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(42), &params())
-            .expect("gap must be findable");
+        let path_2 = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start,
+            goal,
+            Sampler::unconstrained(&mut rng(42)),
+            &params(),
+        )
+        .expect("gap must be findable");
 
         assert_eq!(path_1, path_2);
     }
@@ -596,12 +713,20 @@ mod tests {
             &mv,
             start.clone(),
             goal.clone(),
-            &mut rng(10),
+            Sampler::unconstrained(&mut rng(10)),
             &params(),
         )
         .expect("gap must be findable");
-        let path_2 = rrt_connect(&space, &checker, &mv, start, goal, &mut rng(11), &params())
-            .expect("gap must be findable");
+        let path_2 = rrt_connect(
+            &space,
+            &checker,
+            &mv,
+            start,
+            goal,
+            Sampler::unconstrained(&mut rng(11)),
+            &params(),
+        )
+        .expect("gap must be findable");
 
         assert_ne!(path_1, path_2);
     }
@@ -631,7 +756,7 @@ mod tests {
             &mv,
             start.clone(),
             goal.clone(),
-            &mut rng(20),
+            Sampler::unconstrained(&mut rng(20)),
             &params(),
         )
         .expect("open SE(3) space must be solvable");
@@ -699,7 +824,7 @@ mod tests {
             &mv,
             start.clone(),
             goal.clone(),
-            &mut rng(21),
+            Sampler::unconstrained(&mut rng(21)),
             &params(),
         )
         .expect("open compound space must be solvable");

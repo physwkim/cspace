@@ -320,21 +320,25 @@
 //!
 //! ### `ConstraintSampler` (abstract base, `constraint_sampler.hpp`)
 //!
-//! - CS: `DEFAULT_MAX_SAMPLING_ATTEMPTS` -> gap: no equivalent default
-//!   anywhere (every caller in this crate's own tests passes its own
-//!   attempt count or samples without a retry loop at all). Round 13
-//!   evidence: upstream's only two uses (`constraint_sampler.hpp:171,202`)
-//!   are default arguments to the two `sample()` overloads this port
-//!   already collapses away (tagged `structural` above); no other
-//!   production file in `moveit_core`/`moveit_planners`/`moveit_ros`
-//!   references the constant at all. Round 14 re-check: (a) the *number*
-//!   this constant supplies does become a loop bound wherever it lands
-//!   (`for (a = 0; a < max_attempts; ++a)`), but the constant itself is
-//!   never read anywhere except as one of two now-collapsed default
-//!   arguments — every call site in this port's design already supplies
-//!   its own concrete count, so there is no omitted-argument call site left
-//!   for a default to ever apply to; (b) no production caller, per Round
-//!   13's evidence above
+//! - CS: `DEFAULT_MAX_SAMPLING_ATTEMPTS` -> ported: [`sampler::DEFAULT_MAX_SAMPLING_ATTEMPTS`].
+//!   Rounds 13/14 found this an undeferred gap (evidence retained below),
+//!   on the reasoning that every call site in this port's design already
+//!   supplied its own concrete attempt count, so there was no
+//!   omitted-argument call site for a default to ever apply to. Round 20
+//!   added the first such call site anyway:
+//!   `constraint_sampler_manager::select_default_sampler`'s own
+//!   `max_attempts` parameter is caller-supplied in exactly the same way
+//!   upstream's collapsed `sample()` overloads were, and
+//!   `moveit_planners_sbp::registry::RrtConnectContext::solve` is a real
+//!   production caller of it that needs a value to pass rather than
+//!   inventing one — so the constant moved from "nothing to port this
+//!   into" to "ported", not because the round 13/14 reasoning was wrong at
+//!   the time. Prior evidence: upstream's only two uses
+//!   (`constraint_sampler.hpp:171,202`) are default arguments to the two
+//!   `sample()` overloads this port already collapses away (tagged
+//!   `structural` above); no other production file in
+//!   `moveit_core`/`moveit_planners`/`moveit_ros` references the constant
+//!   at all.
 //! - CS: `ConstraintSampler(scene, group_name)` (ctor) -> structural:
 //!   collapsed into each concrete type's own `new()`, no base constructor to
 //!   share (traits are not constructed)
@@ -591,23 +595,25 @@
 //! with `rg -c '^//! - CS:.*-> TAG' crates/moveit-constraints/src/lib.rs`
 //! for the given `TAG`:
 //!
-//! - tag `ported` (implemented, findable under a Rust name given above): 18
+//! - tag `ported` (implemented, findable under a Rust name given above): 19
 //! - tag `structural` (collapsed constructor/configure overloads, or an
 //!   internal-state field this port's design has no use for): 23
 //! - tag `D4` (the plugin-allocator/registry mechanism, already excluded
 //!   workspace-wide): 8
 //! - tag `D1` (a ROS message or `visualization_msgs` type this crate cannot
 //!   depend on): 6
-//! - tag `gap` (real, not previously documented anywhere in this crate): 11
-//!   — `DEFAULT_MAX_SAMPLING_ATTEMPTS`, `isValid`, `getVerbose`/
-//!   `setVerbose`, `getName` (four separate declarations, one per concrete
-//!   type), `getPositionConstraint`/`getOrientationConstraint` on
+//! - tag `gap` (real, not previously documented anywhere in this crate): 10
+//!   — `isValid`, `getVerbose`/`setVerbose`, `getName` (four separate
+//!   declarations, one per concrete type),
+//!   `getPositionConstraint`/`getOrientationConstraint` on
 //!   `IkConstraintSampler`, and `countSamplesPerSecond(sampler,
 //!   reference_state)`. Round 13 re-verified each against upstream's `.cpp`
 //!   (not just the header) rather than relying on round 12's header-only
-//!   read; each bullet above now carries that evidence inline. None of
-//!   these eleven are exercised by `decide()`, this phase's own completion
-//!   condition (see this crate's introducing doc comment) — they are
+//!   read; each bullet above now carries that evidence inline. Round 20
+//!   moved `DEFAULT_MAX_SAMPLING_ATTEMPTS` from this list to `ported` (see
+//!   that bullet above) once a real caller existed for it; the other ten
+//!   are not exercised by `decide()`, this phase's own completion condition
+//!   (see this crate's introducing doc comment) — they are
 //!   debugging/diagnostic accessors or a benchmarking helper, not sampling
 //!   correctness — but they are real gaps, not deferred-on-purpose ones,
 //!   and are named here rather than left to be rediscovered.
@@ -674,7 +680,10 @@ pub use ik_sampler::{IkConstraintSampler, IkConstraintSamplerAdapter, IkSampling
 pub use joint::JointConstraint;
 pub use orientation::{OrientationConstraint, OrientationTolerance};
 pub use position::{ConstraintRegion, PositionConstraint};
-pub use sampler::{ConstraintSampler, JointConstraintSampler, UnionConstraintSampler};
+pub use sampler::{
+    ConstraintSampler, DEFAULT_MAX_SAMPLING_ATTEMPTS, JointConstraintSampler,
+    UnionConstraintSampler,
+};
 pub use set::{Constraint, KinematicConstraintSet};
 pub use visibility::{
     SensorSpec, SensorViewDirection, TargetSpec, VisibilityConstraint, VisibilityCriteria,

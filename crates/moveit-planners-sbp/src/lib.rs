@@ -191,7 +191,34 @@
 //! oracle's `seed` field has no meaning here):** `499/500` solved (`99.8%`),
 //! median length `2.7085`, and every one of the 499 solved paths (`499/499`)
 //! passes condition 2's `is_path_valid` check at `motion_resolution`
-//! interpolation.
+//! interpolation. **`seed_base = 1000001` for `floor_wall`, `1000002` for
+//! `cage`** — round 19 left this unrecorded, which meant "same `seed_base`
+//! reproduces this" (this file's own doc comment) named a procedure with no
+//! value to run it at; round 20 fixed that by writing the value down here
+//! rather than only in a shell history. Reproducing, exactly, from a repo
+//! root (needs no oracle/docker — see `plan_benchmark_port.rs`'s own doc
+//! comment for why):
+//!
+//! ```text
+//! cargo build --release --example plan_benchmark_problem_set \
+//!   --example plan_benchmark_port -p moveit-planners-sbp
+//! ./target/release/examples/plan_benchmark_problem_set floor_wall 250 900001 \
+//!   > /tmp/floor_wall.json
+//! ./target/release/examples/plan_benchmark_problem_set cage 250 900002 \
+//!   > /tmp/cage.json
+//! ./target/release/examples/plan_benchmark_port 1000001 < /tmp/floor_wall.json \
+//!   > /tmp/port_floor_wall.ndjson
+//! ./target/release/examples/plan_benchmark_port 1000002 < /tmp/cage.json \
+//!   > /tmp/port_cage.ndjson
+//! ```
+//!
+//! (`900001`/`900002` are the problem-set generator's own seeds, matching
+//! `sweep_baseline.sh`'s `run_config floor_wall 250 900001`/`run_config cage
+//! 250 900002` — reproducing the identical 500 problems the C++ baseline
+//! above was measured against; `1000001`/`1000002` are this file's own
+//! `seed_base` figures above, independent of the generator's seeds, per
+//! `plan_benchmark_port.rs`'s own doc comment.) Verified this round: this
+//! exact pipeline reproduces the cached round-19 output bit-for-bit.
 //!
 //! **Phase 7's three completion conditions, judged against the full 500:**
 //!
@@ -338,6 +365,7 @@
 //!   comment).
 
 pub mod compound;
+mod constrained_sampler;
 mod error;
 pub mod joint_model_group_space;
 pub mod nn;
@@ -361,7 +389,9 @@ pub use registry::{
     PLANNER_MANAGERS, PlanError, PlannerManager, PlannerRegistration, PlanningContext,
     PlanningRequest, PlanningResponse, RrtConnectManager,
 };
-pub use rrt_connect::{PlanningFailure, RrtConnectParams, Termination, rrt_connect};
+pub use rrt_connect::{
+    ConstrainedStateSampler, PlanningFailure, RrtConnectParams, Sampler, Termination, rrt_connect,
+};
 pub use se3::{Se3Space, Se3State};
 pub use so2::So2Space;
 pub use space::{RealVectorSpace, StateSpace};

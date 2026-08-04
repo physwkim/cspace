@@ -348,7 +348,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
 
     use super::*;
-    use crate::rrt_connect::{RrtConnectParams, Termination, rrt_connect};
+    use crate::rrt_connect::{RrtConnectParams, Sampler, Termination, rrt_connect};
     use crate::test_support::assert_metric_and_interpolation_axioms;
     use crate::validity::{DiscreteMotionValidator, MotionValidator};
 
@@ -571,7 +571,7 @@ mod tests {
             &mv,
             start.clone(),
             goal.clone(),
-            &mut rng,
+            Sampler::unconstrained(&mut rng),
             &params,
         )
         .expect("an always-valid checker over panda_arm's bounded box must be solvable");
