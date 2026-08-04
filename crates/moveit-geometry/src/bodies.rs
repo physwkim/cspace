@@ -677,6 +677,38 @@
 //!    this port's own regression-pinned positions — not the fixture's
 //!    exact positions, which have no more claim to being "correct" than
 //!    this port's under an anchor-dependent formula.
+//! 9. **A zero-vertex mesh is an error here; upstream builds a body with an
+//!    infinite bounding-cylinder radius and returns normally.**
+//!    `build_mesh_data`'s `mesh.vertices.is_empty()` guard has no upstream
+//!    counterpart at all. Upstream's `useDimensions` (`bodies.cpp:825-944`)
+//!    returns `void` and has no early exit for `vertex_count == 0`: the
+//!    min/max loop never runs, the `if (maxX < minX) maxX = minX = 0.0;`
+//!    clamps turn the untouched infinities into a zero-size box at the
+//!    origin, the cylinder-axis selection falls through both `>` tests to
+//!    the `else` arm giving `cyl_length = 0`, and then — the part that
+//!    matters — `maxdist` is *only* lowered inside the per-vertex loop, so
+//!    with no vertices it keeps its `-std::numeric_limits<double>::infinity()`
+//!    initializer and is assigned straight to
+//!    `mesh_data_->bounding_cylinder_.radius`. `qh_new_qhull` is then called
+//!    with 0 points, fails, logs `"Convex hull creation failed"` at warn
+//!    level, and `useDimensions` returns. The caller gets a fully
+//!    constructed `ConvexMesh` whose vertices, triangles and planes are
+//!    empty and whose bounding-cylinder radius is `-inf`, with nothing in
+//!    the return type to say so.
+//!
+//!    Erroring instead is this port's D6 policy (untrustworthy input returns
+//!    `Err` rather than silently falling back) applied to a case where the
+//!    silent fallback is not merely lossy but poisoned: `-inf` propagates
+//!    through every downstream bounding-volume comparison without ever
+//!    tripping a NaN check. Note the consequence for the deviation-2
+//!    quickhull swap — because the guard returns first, this port never
+//!    reaches `try_convex_hull` on an empty vertex set, so it has no
+//!    observation of how `parry3d-f64` behaves there and does not need one.
+//!    `convex_mesh_zero_vertex_is_an_error` (this crate) pins the guard, and
+//!    `new_rejects_a_mesh_whose_body_construction_fails`
+//!    (`moveit-constraints/tests/decide.rs`) pins that the `Err` survives out
+//!    through `PositionConstraint::new` rather than being swallowed on the
+//!    way.
 //!
 //! # Bounding-volume methods, checked against an external reference (round 12)
 //!
