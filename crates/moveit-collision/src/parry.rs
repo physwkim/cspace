@@ -533,7 +533,9 @@
 //!    16 already characterized does not touch this question either).
 //!    `moveit_core` never overrides it: `rg -n
 //!    'BVSplitter|setBVSplitMethod|SPLIT_METHOD'` against the pinned
-//!    `e017c91e` checkout finds 0 hits. For `fcl::OBBRSSd`, `SPLIT_METHOD_MEAN`
+//!    `e017c91e` checkout finds 0 hits — an absence, so this expires the
+//!    moment the moveit2 pin moves past a commit where `moveit_core` itself
+//!    starts specifying a split method. For `fcl::OBBRSSd`, `SPLIT_METHOD_MEAN`
 //!    picks the OBB's own principal axis
 //!    (`split_vector = bv.obb.axis.col(0)`,
 //!    `include/fcl/geometry/bvh/detail/BV_splitter-inl.h:540-546`) and splits
@@ -572,7 +574,9 @@
 //!    the binary-STL record size confirming the header, not merely echoing
 //!    it. 96 is below the 200-contact cap by construction, so the cap cannot
 //!    truncate this pair's candidate set regardless of traversal order,
-//!    whatever that order turns out to be. All 3 residual links carry the
+//!    whatever that order turns out to be — and this half expires too, if
+//!    `base_link`'s own collision mesh is ever replaced with one whose
+//!    triangle count exceeds 200. All 3 residual links carry the
 //!    identical collision geometry round 16/17's cylinder repro already
 //!    validated against (`<cylinder radius="0.074792" length="0.034">`,
 //!    `pr2.urdf`, all three of `br_caster_l_wheel_link`/
@@ -591,10 +595,16 @@
 //!    narrow-phase magnitude bias round 16/17 characterized for that
 //!    population (only 1 of the 3 — `br_caster_l_wheel_link` — was even part
 //!    of that 16-case sample, and which side of its same-triangle/
-//!    different-triangle split it fell on was not recorded) or the
-//!    still-open mesh-construction-fidelity question above: vertex order and
-//!    triangle indices. Ruling out the BVH question narrows, but does not
-//!    close, deviation 6(b)'s remaining candidates to those two.
+//!    different-triangle split it fell on was not recorded). The
+//!    mesh-construction-fidelity question above — vertex order and triangle
+//!    indices — is not a second open candidate: both halves are closed
+//!    (`PORTING-PLAN.md` §168), 36/36 exact matches on the fixture's own
+//!    oracle-emission order and on the oracle's own `triangles` field,
+//!    confirmed non-vacuous by mutation (flipping one triangle's winding or
+//!    swapping two vertices each fails its own assertion). Ruling out the
+//!    BVH question narrows deviation 6(b)'s remaining candidate to
+//!    exactly one: narrow-phase magnitude bias, not yet measured directly
+//!    for these 3 states specifically.
 //!
 //!    **Result, falsifiable and measured on all 16, not a sample: FCL names
 //!    the *same* triangle this backend's own exhaustive search names in 12
