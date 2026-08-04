@@ -219,6 +219,17 @@ mod tests {
             .expect("fixture model must build")
     }
 
+    fn pr2_model() -> RobotModel {
+        let urdf_path = fixture_path("pr2.urdf");
+        let srdf_path = fixture_path("pr2.srdf");
+        let urdf_xml =
+            fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read {urdf_path}: {e}"));
+        let urdf = urdf_rs::read_file(&urdf_path).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("fixture SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("fixture model must build")
+    }
+
     #[test]
     fn no_filter_leaves_filtered_values_untouched_and_returns_true() {
         let filter = no_filter();
@@ -275,28 +286,35 @@ mod tests {
         }
     }
 
+    // Assertion-discrimination sweep (round 2): the previous version of
+    // this test searched every fixture group at runtime for one containing
+    // a multi-variable joint, and returned early -- skipping its own
+    // assertion -- if none was found. Probing with `eprintln!` showed the
+    // panda fixture (the only one this module loaded) never has such a
+    // group, so the search always failed and the `assert!` at the bottom
+    // never ran: the test passed vacuously on every run, asserting
+    // nothing. `pr2_model` (above) loads a fixture that does have one:
+    // PR2's SRDF "base" group's sole active joint is `world_joint`, the
+    // planar virtual joint from `pr2.srdf`'s `<virtual_joint type="planar">`
+    // (3 variables). The assertion now names both the joint and the guard
+    // that must have fired -- `require_single_variable`'s only Err site --
+    // rather than a bare `.is_err()`. Reachability bite: no-op
+    // `require_single_variable`'s `variable_count != 1` check -> the
+    // now-Ok result fails `.unwrap_err()`. There is only one guard in
+    // `enforce_position_bounds`'s loop (one `require_single_variable` call
+    // per joint, no sibling branch), so no separate discrimination bite
+    // applies.
     #[test]
     fn enforce_position_bounds_rejects_a_multi_variable_joint() {
-        // `panda_arm` (the group used above) has no multi-variable joint;
-        // this fixture must have one to exercise the rejection path.
-        let model = panda_model();
-        let has_multi_variable_group = model.joint_model_group_names().find_map(|name| {
-            let group = model.joint_model_group(name).ok()?;
-            let has_one = group.active_joint_names().iter().any(|joint_name| {
-                model
-                    .joint_model(joint_name)
-                    .map(|j| j.variable_count() != 1)
-                    .unwrap_or(false)
-            });
-            has_one.then_some(group)
-        });
-        let Some(group) = has_multi_variable_group else {
-            // No fixture group happens to contain a multi-variable joint --
-            // the precondition path is still covered directly via
-            // `conversion_functions`' own tests of the same helper.
-            return;
+        let model = pr2_model();
+        let group = model.joint_model_group("base").unwrap();
+        let Err(err) = enforce_position_bounds(&model, group) else {
+            panic!("expected enforce_position_bounds to reject world_joint's 3 variables");
         };
-        assert!(enforce_position_bounds(&model, group).is_err());
+        assert!(
+            err.to_string().contains("world_joint") && err.to_string().contains("3 variables"),
+            "expected the single-variable guard to name world_joint's 3 variables, got: {err}"
+        );
     }
 
     #[test]

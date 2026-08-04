@@ -569,6 +569,11 @@ mod tests {
         assert_eq!(costs, DVector::zeros(4));
     }
 
+    // Assertion-discrimination sweep (round 2): `sum`'s closure body
+    // (lines 383-392) has exactly one place a `None` can originate, the
+    // `cost_fn(values)?` propagation on line 387 -- rg for `None|\?` over
+    // that body: one hit. `summed(&values).is_none()` is therefore
+    // single-branch; there is no sibling None site to confuse it with.
     #[test]
     fn sum_propagates_a_failing_constituent_as_none() {
         let failing: CostFn<'static> = Box::new(|_values: &DMatrix<f64>| None);

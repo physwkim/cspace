@@ -1008,6 +1008,33 @@ mod tests {
             .collect()
     }
 
+    // Assertion-discrimination sweep (round 2): `extract_seed_trajectory`
+    // (lines 262-303) has three `Ok(None)` sites -- an empty-input guard
+    // (line 268), a per-waypoint dof-count guard (line 286), and a
+    // per-joint name-mismatch guard (line 292) -- so a bare `.is_none()`
+    // cannot by itself say which one fired. Each of the three tests below
+    // constructs an input that reaches exactly one of these guards, given
+    // the function's early-return control flow: verified per test by
+    // no-opping (`if false && ...`) the guard the test's name claims,
+    // rerunning that single test, and reverting.
+    //
+    // - `..._for_zero_constraints`: empty slice, so the `for` loop at line
+    //   275 never executes -- guards 2 and 3 are structurally unreachable.
+    //   No-opping guard 1 alone: test fails (assertion, `is_none()` false).
+    // - `..._when_dof_mismatches_group`: one waypoint with `dof - 1`
+    //   joint constraints. No-opping guard 2 alone: the inner loop at line
+    //   289 indexes `joint_constraints[i]` up to `dof - 1`, out of bounds
+    //   for a `dof - 1`-length vec -- test fails via panic, not via guard 3
+    //   (which needs guard 2's length check to have already passed).
+    // - `..._when_joint_name_mismatches_group`: one waypoint, full dof
+    //   count, active-joint names reversed -- guard 2's length check
+    //   passes silently (same count, different order), so only guard 3
+    //   can fire. No-opping guard 3 alone: test fails (`Some(..)` built
+    //   from the mismatched mapping).
+    //
+    // Each guard's removal was independently observed to fail its own
+    // test and none other; all three verdicts are single-branch per-input,
+    // not per-function.
     #[test]
     fn extract_seed_trajectory_returns_none_for_zero_constraints() {
         let model = panda_model();
@@ -1164,6 +1191,20 @@ mod tests {
         }
     }
 
+    // Assertion-discrimination sweep (round 2): `sample_goal_state`
+    // (lines 343-369) has two `Ok(None)` sites -- "no sampler could be
+    // built" (line 361, a `let Some(sampler) = sampler else { .. }`) and
+    // "the sampler never converged" (line 366, `!sampler.sample(..)`).
+    // The two are mutually exclusive by construction, not just by this
+    // test's input: line 366's `sampler.sample(..)` call requires the
+    // `Box<dyn Sampler>` that only the `Some` arm of line 360's
+    // destructure produces, so it is unreachable whenever line 361 fires
+    // -- an illegal-state-unrepresentable guarantee, not a runtime race.
+    // Confirmed empirically with a temporary `eprintln!` in each branch:
+    // `..._when_no_sampler_can_be_built` (empty goal_constraints, no
+    // solver) prints only the branch-1 line; `..._when_the_only_candidate
+    // _sampler_never_converges` (below, using `NoSolutionSolver`) prints
+    // only the branch-2 line. Reverted before this comment was written.
     #[test]
     fn sample_goal_state_returns_none_when_no_sampler_can_be_built() {
         let model = panda_model();
