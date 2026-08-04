@@ -8,6 +8,8 @@
 //! [`crate::planning_scene_validity::PlanningSceneValidityChecker`]'s own
 //! sample-to-`RobotState`-and-back shape rather than inventing a second one.
 
+use std::cell::RefCell;
+
 use moveit_constraints::ConstraintSampler;
 use moveit_state::RobotState;
 use rand::Rng;
@@ -20,77 +22,83 @@ use crate::rrt_connect::ConstrainedStateSampler;
 /// [`RobotState`]) to [`rrt_connect::ConstrainedStateSampler`] (which
 /// samples a [`JointModelGroupSpace`] state).
 ///
-/// # Why `template` is cloned per attempt, not reused
+/// # `working` persists across attempts: this is upstream's `work_state_`, not a bug
 ///
-/// [`ConstraintSampler::sample`] writes into whatever [`RobotState`] it is
-/// given, including variables outside the sampled group (it starts from
-/// the state passed in). Reusing one scratch `RobotState` across attempts
-/// would let a failed attempt's partial write leak into the next attempt's
-/// input — [`try_sample`](Self::try_sample) instead clones `template` fresh
-/// each attempt, so every attempt starts from the same known-good state and
-/// a failure discards exactly what it wrote, nothing more.
+/// Round 24 (`PORTING-PLAN.md` §163.3's follow-up) originally cloned a fixed
+/// `template` fresh on *every* [`try_sample`](Self::try_sample) call and
+/// measured the result: a wired path sampler using that reset-per-attempt
+/// design scored 0/5 successful `solve()`s against 5/5 unwired, in the
+/// tightest of four scenarios tried at matched `step_size`/iteration budget
+/// on `panda_arm`. The cause, read from upstream rather than guessed: both
+/// `ompl_interface::ConstrainedSampler` (`constrained_sampler.cpp`) and
+/// `ConstrainedGoalSampler` (`constrained_goal_sampler.cpp`) hold their
+/// working `RobotState` — `work_state_` — as a member initialised once at
+/// construction and *never reset* between calls; each call's `IKConstraintSampler::sampleHelper`
+/// seeds attempt 0's IK search from whatever `work_state_` already holds
+/// for the group (`callIK`'s `use_as_seed` branch,
+/// `default_constraint_samplers.cpp:670-673`), i.e. the *previous* accepted
+/// (or even failed — see below) sample, not a fixed start state. A
+/// reset-every-attempt design throws that warm start away and always
+/// IK-solves from the same distant seed, which is the "teleport" the
+/// measurement above caught.
 ///
-/// # Known gap: `template` is a fixed seed, not re-anchored to tree locality
+/// `working` reproduces upstream's member exactly: cloned from `template`
+/// once at construction, then mutated in place by every subsequent
+/// [`try_sample`](Self::try_sample) call, so attempt *N*'s IK seed is
+/// attempt *N-1*'s result. [`RefCell`] supplies the interior mutability
+/// [`ConstrainedStateSampler::try_sample`]'s `&self` needs — matching
+/// [`moveit_constraints::IkConstraintSamplerAdapter`]'s own `RefCell` use
+/// for exactly the same "shared reference, mutable scratch" shape. A failed
+/// attempt is *not* reverted before the next one: upstream's `callIK`
+/// writes via `setJointGroupPositions` before `validate()` and never undoes
+/// it either (`ik_sampler.rs`'s own `IkConstraintSampler::sample` doc
+/// comment already documents this "wart" for attempts *within* one call;
+/// this extends the same behaviour *across* calls, since `working` is now
+/// the same persistence boundary upstream's `work_state_` is).
 ///
-/// Every attempt starts IK from the *same* `template`, regardless of where
-/// in the search tree this particular sample is being drawn for. For a
-/// **goal** region this is fine — [`crate::goal_sampler::sample_goal`] only
-/// needs one Cartesian-compliant joint-space point, reachable from anywhere.
-/// For a **path**-constrained corridor sampled during tree growth
-/// ([`crate::registry::RrtConnectContext::solve`]'s `path_constraints`
-/// branch), it is not: an IK solution seeded from a fixed, possibly-distant
-/// `template` can land anywhere in the corridor consistent with that seed,
-/// independent of the tree node the new sample is meant to extend from —
-/// [`crate::validity::DiscreteMotionValidator`]'s resolution-checked linear
-/// interpolation between that tree node and the IK "teleport" then routinely
-/// leaves the Cartesian region before reaching the destination, failing
-/// validation.
+/// # What this does not change: `template` was, and remains, the source for out-of-group variables
 ///
-/// Measured (round 24, `PORTING-PLAN.md` §163.3's follow-up): four scenarios
-/// were tried against a wired vs. unwired `path_constraints` region on
-/// `panda_arm` at matched `step_size`/iteration budget — a far-apart
-/// self-motion position+orientation pair, an orientation-only region with a
-/// free approach axis, a region built around an already IK-reachable nearby
-/// goal, and a `step_size`/budget sweep looking for any crossover point. In
-/// no scenario did wiring a solver reliably improve `solve()`'s success
-/// rate for the region; in the tightest, most goal-region-analogous
-/// scenario, wired performed *worse* than unwired (0/5 vs. 5/5 successful
-/// solves at matched `step_size` and iteration budget) — the IK "teleports"
-/// this gap describes are more disruptive to tree growth than plain uniform
-/// sampling is. This is why
-/// `crate::registry::tests::path_constraints_solver_wiring_matches_the_call_site`
-/// tests `resolve_constraint_sampler` directly rather than `solve()`
-/// end-to-end: an end-to-end test would measure this gap, not the wiring
-/// change it was written to verify.
+/// [`ConstraintSampler::sample`] only ever writes its own group's variables
+/// (`moveit_constraints`' `JointConstraintSampler`/`IkConstraintSampler`
+/// both confirmed by reading their `sample` bodies) — `working`'s
+/// out-of-group variables are set once, from `template`, at construction,
+/// and no call ever touches them again. `template` itself is *not* kept as
+/// a separate field: after seeding `working`, upstream's own reference role
+/// for `template` (the value `IKConstraintSampler::sample`'s pose-sampling
+/// step reads mobile reference frames against) is what upstream's own
+/// second parameter, `reference_state`, is for — `moveit_constraints::ik_sampler`'s
+/// module doc comment already records this port's `ConstraintSampler::sample`
+/// deliberately collapses `state`/`reference_state` into one parameter, and
+/// that a position or orientation constraint whose *reference* frame is a
+/// mobile link inside the very group being sampled (not the case for any
+/// constraint this workspace builds today, and not exercised by any test)
+/// would now read that frame from `working`'s current, evolving pose rather
+/// than a session-fixed one, which is a narrower deviation from upstream
+/// than the seeding gap this section replaces. `PORTING-PLAN.md` §153.1:
+/// this narrower gap expires if a caller ever builds a mobile-reference-frame
+/// constraint whose reference link sits inside the sampled group.
 ///
-/// **Disposition:** re-anchoring `template` to tree locality (e.g. seeding
-/// IK from the tree node being extended, not a fixed pre-search state) is
-/// scheduled as its own round, not rejected or unknown — it is deferred
-/// because it also touches goal sampling
-/// ([`crate::goal_sampler::sample_goal`]) and joint-constraint sampling
-/// (`moveit_constraints::JointConstraintSampler`), both of which currently
-/// rely on the same "fixed template, group-local draw" shape this gap
-/// describes, and reworking one without the others risks introducing a
-/// second, differently-shaped inconsistency (see `PORTING-PLAN.md`'s
-/// §153.1 convention). This note expires when that round lands and
-/// `template` is re-anchored — at which point the measurement above should
-/// be re-run, not assumed to still hold.
+/// # Measured after the fix
+///
+/// See `crate::registry::tests::path_constraints_end_to_end_wired_vs_unwired`
+/// for the same tightest scenario, re-measured against this persistent
+/// `working` design.
 pub struct GroupConstraintSampler<'a, 'm> {
     space: &'a JointModelGroupSpace,
     sampler: &'a dyn ConstraintSampler,
-    template: RobotState<'m>,
+    working: RefCell<RobotState<'m>>,
 }
 
 impl<'a, 'm> GroupConstraintSampler<'a, 'm> {
-    /// `template` seeds every sampling attempt: [`ConstraintSampler::sample`]
+    /// `template` seeds `working` once, at construction: [`ConstraintSampler::sample`]
     /// draws every variable of *its own* [`moveit_model::JointModelGroup`]
-    /// afresh (constrained ones from their tolerance window, unconstrained
-    /// ones from the joint's own bounds), so only a variable entirely
-    /// outside that group comes from `template` unchanged in the state
-    /// [`try_sample`](Self::try_sample) writes into — and even that only
-    /// matters to a caller reading `state` directly, since
-    /// [`try_sample`](Self::try_sample)'s own return value is scoped to the
-    /// group either way (see [`JointModelGroupSpace::read_robot_state`]).
+    /// (constrained ones from their tolerance window or IK, unconstrained
+    /// ones from the joint's own bounds or a random restart), so only a
+    /// variable entirely outside that group keeps `template`'s value for the
+    /// lifetime of this sampler — and even that only matters to a caller
+    /// reading `state` directly, since [`try_sample`](Self::try_sample)'s
+    /// own return value is scoped to the group either way (see
+    /// [`JointModelGroupSpace::read_robot_state`]).
     pub fn new(
         space: &'a JointModelGroupSpace,
         sampler: &'a dyn ConstraintSampler,
@@ -99,14 +107,14 @@ impl<'a, 'm> GroupConstraintSampler<'a, 'm> {
         Self {
             space,
             sampler,
-            template,
+            working: RefCell::new(template),
         }
     }
 }
 
 impl ConstrainedStateSampler<JointModelGroupSpace> for GroupConstraintSampler<'_, '_> {
     fn try_sample(&self, rng: &mut dyn Rng) -> Option<Vec<CompoundValue>> {
-        let mut state = self.template.clone();
+        let mut state = self.working.borrow_mut();
         self.sampler
             .sample(&mut state, rng)
             .then(|| self.space.read_robot_state(&state))
@@ -116,7 +124,7 @@ impl ConstrainedStateSampler<JointModelGroupSpace> for GroupConstraintSampler<'_
 #[cfg(test)]
 mod tests {
     use moveit_constraints::{JointConstraint, JointConstraintSampler};
-    use moveit_model::{MeshSearchPaths, RobotModel};
+    use moveit_model::{JointModelGroup, MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
@@ -132,6 +140,72 @@ mod tests {
             MeshSearchPaths::new(std::iter::empty::<(String, String)>());
         RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &no_meshes)
             .expect("fixture model must build")
+    }
+
+    /// A [`ConstraintSampler`] that records `panda_joint1`'s incoming value
+    /// on every [`ConstraintSampler::sample`] call and writes back a
+    /// deterministically different value, so successive calls' recorded
+    /// history reveals whether the caller re-seeded from a fixed value each
+    /// time or carried the previous call's output forward.
+    struct RecordingSampler {
+        group: JointModelGroup,
+        seen: RefCell<Vec<f64>>,
+    }
+
+    impl ConstraintSampler for RecordingSampler {
+        fn joint_model_group(&self) -> &JointModelGroup {
+            &self.group
+        }
+
+        fn frame_dependency(&self) -> &[String] {
+            &[]
+        }
+
+        fn sample(&self, state: &mut RobotState<'_>, _rng: &mut dyn Rng) -> bool {
+            let incoming = state.variable_position("panda_joint1").unwrap();
+            self.seen.borrow_mut().push(incoming);
+            state
+                .set_variable_position("panda_joint1", incoming + 0.01)
+                .unwrap();
+            true
+        }
+    }
+
+    /// Proves `working` is upstream's `work_state_`, not `template` reset
+    /// per attempt: three [`GroupConstraintSampler::try_sample`] calls
+    /// against a sampler that both records and mutates its own group's
+    /// incoming value must see `[0.0, 0.01, 0.02]` -- each call's own
+    /// previous output -- not `[0.0, 0.0, 0.0]`, which is what a
+    /// reset-to-`template`-every-attempt design (this type's design before
+    /// the fix this test guards) would have produced instead. See this
+    /// type's own doc comment for why upstream's real `work_state_` behaves
+    /// this way and what regressed without it.
+    #[test]
+    fn try_sample_carries_the_previous_draws_result_forward_as_the_next_seed() {
+        let model = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let mut template = RobotState::new(&model);
+        template.set_variable_position("panda_joint1", 0.0).unwrap();
+
+        let recorder = RecordingSampler {
+            group: model.joint_model_group("panda_arm").unwrap().clone(),
+            seen: RefCell::new(Vec::new()),
+        };
+        let bridge = GroupConstraintSampler::new(&space, &recorder, template);
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+
+        for _ in 0..3 {
+            bridge
+                .try_sample(&mut rng)
+                .expect("RecordingSampler::sample always succeeds");
+        }
+
+        assert_eq!(
+            *recorder.seen.borrow(),
+            vec![0.0, 0.01, 0.02],
+            "each call's incoming panda_joint1 value must be the previous call's own output \
+             (upstream's work_state_ semantics), not a fixed template value every time"
+        );
     }
 
     #[test]
