@@ -49,6 +49,24 @@
 //! meaningful one: `solve()` converges to within `BIAS_THRESHOLD` of the
 //! bias trajectory it was scored against.
 //!
+//! Round 26 re-verified this against `test/stomp_3dof.cpp` line-by-line
+//! rather than taking the paragraph above on faith: all 7 of upstream's
+//! `TEST(Stomp3DOF, ...)` cases (`construction`, `solve_default`,
+//! `solve_interpolated_initial`, `solve_cubic_polynomial_initial`,
+//! `solve_min_control_cost_initial`, `solve_40_timesteps`,
+//! `solve_60_timesteps`) have a 1:1 counterpart below, and every numeric
+//! constant this port's tests use (`NUM_DIMENSIONS`, `NUM_TIMESTEPS`,
+//! `DELTA_T`, `START_POS`, `END_POS`, `BIAS_THRESHOLD`, `STD_DEV`,
+//! `num_iterations`, `num_rollouts`, `max_rollouts`,
+//! `num_iterations_after_valid`, `control_cost_weight`, and each
+//! per-scenario `num_timesteps`/`num_iterations` override) matches
+//! `test/stomp_3dof.cpp`'s own literals exactly. This closes item 2 of
+//! round 26's brief -- porting upstream's own acceptance test -- which had
+//! already substantially happened in an earlier round; this round's
+//! contribution is the line-by-line re-verification above plus one real,
+//! previously-undocumented finding from it: `compare_diff`'s own doc
+//! comment below, "upstream's own `cwiseAbs()` call is dead code".
+//!
 //! # Completeness audit (round 26): `stomp.h` + `stomp.cpp`
 //!
 //! `stomp.h`'s `class Stomp` has 7 `public:` members (the constructor plus 6
@@ -1197,6 +1215,34 @@ mod tests {
     }
 
     /// `compareDiff`.
+    ///
+    /// # Round 26, found while re-verifying against upstream: upstream's own
+    /// `cwiseAbs()` call is dead code; this port is two-sided on purpose
+    ///
+    /// `test/stomp_3dof.cpp:184-186`:
+    /// ```cpp
+    /// diff.row(d) = optimized.row(d) - desired.row(d);
+    /// diff.row(d).cwiseAbs();
+    /// if ((diff.row(d).array() > thresholds[d]).any())
+    /// ```
+    /// `Eigen::MatrixBase::cwiseAbs()` returns a new expression; called as a
+    /// standalone statement with no assignment back into `diff`, its result
+    /// is discarded. So upstream's actual check is one-sided --
+    /// `optimized - desired > threshold` on the *signed* difference -- not
+    /// `|optimized - desired| > threshold` as the function's own doc comment
+    /// ("Compares whether two trajectories are close to each other") and
+    /// the dead `cwiseAbs()` call both signal was intended. A trajectory
+    /// that undershoots `desired` by an arbitrarily large negative amount
+    /// passes upstream's literal C++. This port takes the absolute value
+    /// before comparing -- the two-sided check the function's own name and
+    /// doc comment describe -- rather than reproducing a no-op method call
+    /// upstream itself does not appear to have intended (no comment nearby
+    /// explains a deliberate one-sided check, and no other STOMP quirk this
+    /// crate preserves is *test-harness-only* dead code rather than
+    /// optimizer behavior). If upstream's literal one-sided behavior turns
+    /// out to be load-bearing for some case this port's own tests don't
+    /// exercise, that would be a reason to revisit this, not a reason to
+    /// have guessed it silently either way.
     fn compare_diff(optimized: &DMatrix<f64>, desired: &DMatrix<f64>, thresholds: &[f64]) -> bool {
         for d in 0..optimized.nrows() {
             for t in 0..optimized.ncols() {
