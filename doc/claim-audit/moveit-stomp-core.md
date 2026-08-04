@@ -66,3 +66,61 @@ and no divergence class exists to test a boundary against.
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | Every `Ported from` header in this crate (`lib.rs:5`, `task.rs:5`, `stomp.rs:5`, `utils.rs:5`) | None cite a bare package/directory line with no filenames indented beneath it -- every citation lists explicit `include/stomp/*.h`/`src/*.cpp` files | CONFIRMED, 0 hits of the shape the parser now closes | Read all four headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
+
+## `create_3dof_configuration` sweep, per review of `788cc3f`
+
+`num_iterations_after_valid: 0` in `test::create_3dof_configuration`
+masked two cancellation assertions across two separate rounds
+(`cancelling_from_another_thread_stops_a_plan_call_already_in_flight`,
+round 34, a different crate/helper --
+`moveit-planners-stomp::planner::base_config` -- not this one;
+`cancelling_before_solve_stops_before_num_iterations_completes`, this
+round, `788cc3f`). Reviewer asked whether more than these two call
+sites of *this* helper are similarly sensitive, in which case the
+helper's default itself would be the structural fix rather than
+patching callers one at a time. Full enumeration, all 9 call sites:
+
+**Anchor:** `create_3dof_configuration(` (`rg`,
+`crates/moveit-stomp-core/src/stomp.rs`)
+
+| test | calls `.solve`/`.solve_from_endpoints`? | asserts on iteration count or cancellation? | classification |
+|---|---|---|---|
+| `construction_does_not_panic` | no | no | distinct -- never solves, `num_iterations_after_valid` cannot matter |
+| `solve_default_converges_to_the_bias_trajectory_from_endpoints` | yes | no -- asserts `compare_diff` (converged within `BIAS_THRESHOLD`) | distinct -- *wants* the early-valid break; that break is what "converges promptly" means here |
+| `solve_with_linear_interpolated_initial_trajectory_converges` | yes | no -- `compare_diff` only | distinct, same reason |
+| `solve_with_cubic_polynomial_initial_trajectory_converges` | yes | no -- `compare_diff` only | distinct, same reason |
+| `solve_with_minimum_control_cost_initial_trajectory_converges` | yes | no -- `compare_diff` only | distinct, same reason |
+| `solve_with_40_timesteps_converges` | yes | no -- `compare_diff` only | distinct, same reason |
+| `solve_with_60_timesteps_converges` | yes | no -- `compare_diff` only | distinct, same reason |
+| `cancelling_before_solve_stops_before_num_iterations_completes` | yes | yes | **cancellation-sensitive -- fixed in `788cc3f`** (overrides `num_iterations_after_valid = num_iterations` on its own local `config`) |
+| `second_solve_call_ignores_its_initial_parameters_argument` | yes (twice) | no -- asserts non-reseeding, not iteration count; also sets `num_iterations = 1`, which already bounds the loop tighter than the early-valid break could | distinct |
+
+**Same defect at:** none beyond the one already fixed.
+
+**Distinct, skip:** 7 of 9 -- six convergence tests whose own
+assertion (`compare_diff` against a bias trajectory) is the behavior
+`num_iterations_after_valid: 0` exists to produce, not something it
+masks; one reseeding test that neither reads iteration count nor
+lets the early-valid break matter (`num_iterations = 1` already caps
+it tighter).
+
+**Conclusion:** exactly 1 of this helper's 9 call sites was ever
+cancellation-sensitive, and it is now fixed locally. Per the
+reviewer's own stated conditional -- change the default only if more
+than the two cited tests turn out sensitive -- the count came back
+lower, not higher: only one call site of *this* helper needed the
+override, and the other two known-sensitive tests fixed across both
+rounds (round 34, this round) each live in different
+crates/fixtures anyway. Changing the default to a value that removes
+the early-valid break would only break the majority use: 7 of 9
+sites use `num_iterations_after_valid: 0` to test genuine "stops
+promptly once valid" behavior, and forcing every one of them to
+either set a very high `num_iterations_after_valid` themselves or
+accept a materially different (higher iteration count, longer)
+convergence test would be a change with no corresponding defect to
+justify it. The per-caller override applied in `788cc3f` is the
+correct fix, not a patch standing in for a deferred structural one.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-stomp-core/src/stomp.rs`, all 9 `create_3dof_configuration` call sites | Only 1 of 9 is cancellation/iteration-count sensitive; the helper's default should not change | CONFIRMED, 9/9 sites enumerated and classified above | Read every call site's body in this tree | (pending, see report) |
