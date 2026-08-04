@@ -317,3 +317,65 @@ written here. Spec for whoever writes it:
   reads only the exit code must not be able to mistake this for a real
   pass; the printed line is the only thing standing between "skipped" and
   "passed" for a human reading the log.
+
+## The "MPR always deeper" framing was one case; N=945 falsifies it (round 27)
+
+The coordinator's own round-27 charge: "One case cannot establish a
+class... feed it every `visibility_cone` case where the port and the
+oracle disagree on depth, and report the MPR-vs-EPA gap for each." Round
+21/25/26's own case 104 is one case; `examples/visibility_cone_mpr_sweep.rs`
+(new, this round) generalizes it — near-placement `visibility_cone` cases
+anchored at every pr2 cylinder-wheel link, oracle ground truth from
+`Op::Collision` (not `Op::Constraints`, see that file's own module doc for
+why), this backend's own EPA depth from the identical reconstruction
+`case104_mpr_input.rs` already uses, and `mpr_case104` fed the winning
+triangle for every case where oracle and EPA disagree past `1e-4`.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this sweep | `visibility_cone_mpr_sweep --seed 4 --cases 1000` (pr2): of 945 mismatches with a real MPR reading, how many agree with round 21's "MPR always deeper" | REFUTED as a universal rule | 853 deeper (90.3%), 83 within float noise `<1e-9` (8.8%), **9 genuinely shallower (0.95%)**, gaps `-0.0088`..`-0.0147` — four orders of magnitude past the noise floor |
+| same | gap magnitude correlated with penetration depth or triangle size | not strongly, either way | `pearson(gap, epa_depth) = 0.107`, `pearson(gap, triangle_size) = -0.182` |
+| same | the 9 shallow cases share a distinguishing signature | CONFIRMED | 8 of 9 read `mpr_depth = 1.700000e-2` to six significant figures; pr2 wheel collision cylinders are `length="0.034"` (`fixtures/pr2.urdf`), `0.034 / 2 == 0.017` exactly — the cylinder's own half-length, not an arbitrary constant |
+| same | the plateau is a wrong-triangle artifact (FCL/this reconstruction picked different winning triangles), not `ccdMPRPenetration` itself | REFUTED for 8/9 | `mpr_case104` was fed the *same* triangle this reconstruction's own EPA search names as deepest; feeding that exact triangle directly (bypassing the oracle's pipeline entirely) reproduces `1.700000e-2` independently |
+| same | case 623 (the 9th) reproduces the same plateau mechanism | NOT CONFIRMED, distinct and unresolved | oracle's own `collision` op reports `7.479e-2` (a normal deep value) for the same (cone, link) pair where this reconstruction's own deepest triangle, fed directly to `mpr_case104`, reads the plateau `1.700000e-2` — the oracle's FCL pipeline and this reconstruction's own exhaustive search may have picked *different* triangles for that one state |
+
+`parry.rs`'s deviation 6(b) doc is updated in the same commit with this
+round's own paragraph (round 27), not a separate write-up — the doc that
+made the now-falsified "by construction, always deeper" claim is the one
+that needs correcting, and duplicating the numbers here without updating
+there would leave a stale claim in the file that actually governs the
+port's own behavior.
+
+**Item 2 (what an independent witness catches and does not).**
+`case104_mpr_input.rs`'s only self-check was `CAPTURED_REFERENCE_DEPTH`, a
+constant derived by that same reconstruction the first time it ran — it
+catches a later *regression* in the formula, never a bug already present
+when the constant was captured (§188). `visibility_cone_mpr_sweep.rs`'s
+`Op::Collision` ground truth is a real independent witness for the
+*reconstruction* (wrong link, wrong joint, sign/scale error): such a bug
+would make this backend disagree with the oracle's own FCL-computed depth
+on nearly every case, not produce a plausible-looking self-consistent
+pair. But it is not a perfect witness for *narrow-phase triangle
+selection* specifically: `CollisionRequest::max_contacts_per_pair`
+defaults to `1` (`collision_common.hpp:176`, confirmed by reading the
+oracle's own vendored copy) even under `Op::Collision`, so the oracle
+reports whichever single triangle FCL's own narrow-phase traversal found
+first for a mesh-vs-shape pair, not necessarily this reconstruction's own
+deepest — case 623 above is a real, measured instance of exactly that gap,
+not a hypothetical one.
+
+**Oracle-extension request for the orchestrator** (not implemented here,
+`tools/moveit-oracle/` is out of this panel's scope): a settable
+`max_contacts_per_pair` on the `collision` op's request, or an
+all-contacts variant of `contactsToJson` for `robot_contacts` (report
+every candidate triangle's own depth for a mesh-vs-shape pair, not only
+`contact_list.front()`), would let a future round directly check whether
+case 623's oracle-reported triangle matches this reconstruction's own
+deepest-EPA pick — resolving the one open discrepancy above by
+measurement instead of leaving it as a named-but-unconfirmed possibility.
+
+Expires (§153.1): re-measure if the visibility-cone generator's
+near-placement ranges or pr2's caster-wheel cylinder geometry change (same
+expiry as round 25's own generalization test) — the `9/945` and `1.700e-2`
+figures are this seed's own sweep, not an invariant of the mechanism's
+existence.

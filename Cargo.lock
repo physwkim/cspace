@@ -266,6 +266,8 @@ dependencies = [
  "moveit-state",
  "nalgebra",
  "parry3d-f64",
+ "rand",
+ "rand_chacha",
  "serde",
  "serde_json",
  "urdf-rs",
