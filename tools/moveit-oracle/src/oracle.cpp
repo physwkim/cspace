@@ -2092,15 +2092,7 @@ private:
     collision_detection::AllowedCollisionMatrix acm = buildAcm();
 
     auto world = std::make_shared<collision_detection::World>();
-    for (const auto& object_json : request.at("objects"))
-    {
-      const std::string id = object_json.at("id").get<std::string>();
-      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
-      const json& shape_json = object_json.at("shape");
-      const std::string shape_type = shape_json.at("type").get<std::string>();
-      std::shared_ptr<shapes::Shape> shape = parseShape(shape_type, shape_json);
-      world->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
-    }
+    addRequestObjects(*world, request);
 
     collision_detection::CollisionEnvFCL env(model_, world);
 
@@ -2210,6 +2202,31 @@ private:
   /// (`collision()` only raises `max_contacts`), so `contact_list` always
   /// holds exactly one entry per pair here; guarding on `empty()` rather
   /// than assuming that stays true if a future caller changes the request.
+  /// Add `request["objects"]` (optional, defaults to none) to `world`.
+  ///
+  /// The single-shape object schema `{id, pose, shape}` that `collision`,
+  /// `is_state_valid` and the OMPL planning op all read, in one place: the
+  /// loop body was copy-pasted three times identically, and the two
+  /// distance-field ops that now need a world would have made five.
+  ///
+  /// `frameTransform`'s loop is deliberately not folded in -- it parses a
+  /// per-object `subframes` map as well, and there is no request field that
+  /// distinguishes "sent no subframes" from "sent an empty map" in a way the
+  /// other three callers would agree on. The multi-shape builders
+  /// (`collisionObjectPointDecomposition`, the octree ops) read a different
+  /// schema entirely and are untouched.
+  void addRequestObjects(collision_detection::World& world, const json& request)
+  {
+    for (const auto& object_json : request.value("objects", json::array()))
+    {
+      const std::string id = object_json.at("id").get<std::string>();
+      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+      const json& shape_json = object_json.at("shape");
+      std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+      world.addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
+    }
+  }
+
   json contactsToJson(const collision_detection::CollisionResult::ContactMap& contacts,
                        const collision_detection::World& world) const
   {
@@ -2407,15 +2424,7 @@ private:
     scene.getCurrentStateNonConst().clearAttachedBodies();
     applyAttachedBodies(scene.getCurrentStateNonConst(), request);
 
-    for (const auto& object_json : request.value("objects", json::array()))
-    {
-      const std::string id = object_json.at("id").get<std::string>();
-      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
-      const json& shape_json = object_json.at("shape");
-      const std::string shape_type = shape_json.at("type").get<std::string>();
-      std::shared_ptr<shapes::Shape> shape = parseShape(shape_type, shape_json);
-      scene.getWorldNonConst()->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
-    }
+    addRequestObjects(*scene.getWorldNonConst(), request);
 
     const moveit_msgs::msg::Constraints path_constraints_msg =
         constraintsMsgFromJson(request.value("path_constraints", json::object()));
@@ -4831,14 +4840,7 @@ private:
 
     planning_scene::PlanningScene scene(model_);
     scene.getCurrentStateNonConst() = *state_;
-    for (const auto& object_json : request.value("objects", json::array()))
-    {
-      const std::string id = object_json.at("id").get<std::string>();
-      const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
-      const json& shape_json = object_json.at("shape");
-      std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
-      scene.getWorldNonConst()->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
-    }
+    addRequestObjects(*scene.getWorldNonConst(), request);
 
     auto si = std::make_shared<ob::SpaceInformation>(plan_space.space);
     si->setStateValidityChecker(std::make_shared<PlanValidityChecker>(si, scene, plan_space.layout));
