@@ -14021,3 +14021,47 @@ pilz 2019, cristian c beltran hernandez 2021, aiman haidar 2025 등) —
 있는지 측정하지 않으면, 그 면제는 자기 아래의 구멍을 가려 준다. 면제를
 걷었을 때 아무것도 안 나오면 "깨끗하다"가 아니라 "도달하지 않는다"를 먼저
 의심해야 한다 — 변이 하나로 갈린다.
+
+## §178 병합 게이트가 `cargo doc`을 안 돌려서 main이 깨진 채로 갔다 (`a0fb9dc`)
+
+p6-totg 라운드 32를 병합할 때(`289b5d7`) fmt / clippy `--workspace
+--all-targets` / nextest `--workspace` / `cargo test --doc --workspace`를
+돌렸다. 전부 통과했다. **`cargo doc --workspace --no-deps`는 안 돌렸고**,
+그것이 깨져 있었다:
+
+```text
+error: public documentation for `time_optimal_trajectory_generation`
+       links to private item `MAX_RESAMPLE_SAMPLE_COUNT`
+error: unresolved link to `MAX_FROM_DURATION_POINTS`
+error: unresolved link to `Error`
+```
+
+내가 찾은 게 아니라 p1-robotmodel이 R24 보고의 UNFIXED에 적어 왔고, 나는
+repo root에서 재현해 확인했다. 병합한 사람이 못 본 것을 다음 라운드의
+다른 패널이 본 것이다.
+
+**이것이 세 번째다.** §170(doctest는 크레이트 범위 게이트에 안 보인다),
+§174(CI는 돌 수가 없다), 그리고 지금 rustdoc. 매번 같은 모양이다 — 검사가
+없는 게 아니라 **그 검사를 포함하는 명령이 없다.** clippy `--all-targets`는
+rustdoc lint에 닿지 않고, nextest도 닿지 않으며, `cargo test --doc`는
+doctest를 *실행*할 뿐 링크 해석 오류를 내지 않는다. 셋 다 통과하면서
+`cargo doc`만 깨질 수 있다.
+
+조율자의 병합 게이트는 이제 다음 다섯이다. 빠짐없이 전부 돌린다:
+
+```text
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo nextest run --workspace --no-fail-fast
+cargo test --doc --workspace
+cargo doc --workspace --no-deps          # ← 빠져 있던 것
+tools/ci/check-*.sh (8) + verify-upstream-license-provenance.sh
+```
+
+패널 쪽 대응은 자기 크레이트에 `cargo doc -p <crate> --no-deps`를
+추가하는 것이다. §170이 doctest에 대해 말한 것과 같은 이유다.
+
+**만료조건(§153.1) 없음, 대신 다음 검사:** 네 번째 사례가 나오면 게이트를
+하나 더 추가할 게 아니라, 왜 "전부 돌리는 명령 하나"가 아직 없는지를 먼저
+물어야 한다. §174가 답의 절반이다 — 그런 명령을 쓸 자리(CI)가 이 저장소에는
+돌지 않는다.
