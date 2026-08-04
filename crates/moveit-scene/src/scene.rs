@@ -659,8 +659,8 @@ pub struct PlanningScene<'m> {
     world_diff: Option<WorldDiff>,
     acm: Layered<AllowedCollisionMatrix>,
     /// The extra-fixed-frame map: this scene's own, or the parent's.
-    /// Upstream `scene_transforms_`, a `SceneTransformsPtr` reset at
-    /// [`PlanningScene::diff`] time (`planning_scene.cpp:1264`) exactly like
+    /// Upstream `scene_transforms_`, a `SceneTransformsPtr` reset in
+    /// `clearDiffs()` (`planning_scene.cpp:331`) exactly like
     /// [`PlanningScene::current_state`] and
     /// [`PlanningScene::allowed_collision_matrix`] above, so it gets the
     /// same [`Layered`] treatment.
