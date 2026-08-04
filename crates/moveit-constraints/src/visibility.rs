@@ -674,7 +674,7 @@ impl VisibilityConstraint {
 
     /// Diagnostic-only, §148's decisive test: every contact depth
     /// `cone_collision_result(state, usize::MAX)` finds, across every
-    /// touching pair -- not just [`VisibilityConstraint::decide_cone`]'s own
+    /// touching pair -- not just `decide_cone`'s own
     /// single reported depth (`cone_collision_result(state, 1)`'s first
     /// contact of whichever pair traversal order finds first). Order in the
     /// returned `Vec` follows `by_pair`'s `BTreeMap` iteration (link-name
