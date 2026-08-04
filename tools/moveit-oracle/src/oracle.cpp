@@ -1578,6 +1578,34 @@ private:
     return collision_detection::AllowedCollisionMatrix(*model_->getSRDF());
   }
 
+  /// One draw of `searchPositionIK`'s reseed formula
+  /// (kdl_kinematics_plugin.cpp:373-382), continuous-joint-aware
+  /// (`RevoluteJointModel::getVariableRandomPositionsNearBy`,
+  /// revolute_joint_model.cpp:122-136). Factored out so `ik()`'s real reseed
+  /// loop and its `reseed_probe` diagnostic below draw from one definition
+  /// instead of two copies that could drift apart.
+  double sampleReseed(bool continuous, double near, double limit, double min, double max)
+  {
+    if (continuous)
+    {
+      // Unclamped `near +/- limit`, then wrapped into `(-pi, pi]` -- not
+      // clamped to the joint's (here: reporting-only, [-pi, pi]) bounds.
+      // Matches this port's own fix in `near_by_configuration`
+      // (crates/moveit-kinematics/src/cart_to_jnt.rs).
+      double value = ik_rng_.uniformReal(near - limit, near + limit);
+      if (value <= -M_PI || value > M_PI)
+      {
+        value = std::fmod(value, 2.0 * M_PI);
+        if (value <= -M_PI)
+          value += 2.0 * M_PI;
+        else if (value > M_PI)
+          value -= 2.0 * M_PI;
+      }
+      return value;
+    }
+    return ik_rng_.uniformReal(std::max(min, near - limit), std::min(max, near + limit));
+  }
+
   /// Ground truth for the `ik` op (Phase 4's completion condition -- see
   /// `PORTING-PLAN.md` and `tools/moveit-diff/src/protocol.rs`'s `Op::Ik`
   /// doc comment): `KDLKinematicsPlugin::searchPositionIK`/`CartToJnt`/
@@ -1621,34 +1649,6 @@ private:
   /// exists to be oracle-comparable ground truth, not to reproduce a read
   /// past the end of a `std::vector` -- so it implements the intended
   /// check instead.
-  /// One draw of `searchPositionIK`'s reseed formula
-  /// (kdl_kinematics_plugin.cpp:373-382), continuous-joint-aware
-  /// (`RevoluteJointModel::getVariableRandomPositionsNearBy`,
-  /// revolute_joint_model.cpp:122-136). Factored out so `ik()`'s real reseed
-  /// loop and its `reseed_probe` diagnostic below draw from one definition
-  /// instead of two copies that could drift apart.
-  double sampleReseed(bool continuous, double near, double limit, double min, double max)
-  {
-    if (continuous)
-    {
-      // Unclamped `near +/- limit`, then wrapped into `(-pi, pi]` -- not
-      // clamped to the joint's (here: reporting-only, [-pi, pi]) bounds.
-      // Matches this port's own fix in `near_by_configuration`
-      // (crates/moveit-kinematics/src/cart_to_jnt.rs).
-      double value = ik_rng_.uniformReal(near - limit, near + limit);
-      if (value <= -M_PI || value > M_PI)
-      {
-        value = std::fmod(value, 2.0 * M_PI);
-        if (value <= -M_PI)
-          value += 2.0 * M_PI;
-        else if (value > M_PI)
-          value -= 2.0 * M_PI;
-      }
-      return value;
-    }
-    return ik_rng_.uniformReal(std::max(min, near - limit), std::min(max, near + limit));
-  }
-
   json ik(const json& request)
   {
     // Diagnostic-only probe: draw `count` samples from `sampleReseed` in
@@ -2190,18 +2190,6 @@ private:
     return kinds;
   }
 
-  /// One entry per contacting pair in a `CollisionResult::ContactMap` --
-  /// body names, `BodyType`s (`bodyTypeName`) and each side's shape kinds
-  /// (`shapeKindsFor`), plus the representative contact's `depth`. Added for
-  /// round-8 item 1: a case whose booleans agree and only its depth differs
-  /// (deviation 6's species, or pr2 case 7552 before this round) previously
-  /// could not be traced to a link pair after the fact at all. Deliberately
-  /// excludes `pos`/`normal`/`nearest_points`/`percent_interpolation` -- see
-  /// `collision()`'s own doc comment for why those stay outside the parity
-  /// comparison. `max_contacts_per_pair` is left at its default `1`
-  /// (`collision()` only raises `max_contacts`), so `contact_list` always
-  /// holds exactly one entry per pair here; guarding on `empty()` rather
-  /// than assuming that stays true if a future caller changes the request.
   /// One `GradientInfo` as JSON. Split out so the attached-body gradient
   /// slots report the same object shape as the per-link ones rather than a
   /// second hand-written copy.
@@ -2248,6 +2236,18 @@ private:
     }
   }
 
+  /// One entry per contacting pair in a `CollisionResult::ContactMap` --
+  /// body names, `BodyType`s (`bodyTypeName`) and each side's shape kinds
+  /// (`shapeKindsFor`), plus the representative contact's `depth`. Added for
+  /// round-8 item 1: a case whose booleans agree and only its depth differs
+  /// (deviation 6's species, or pr2 case 7552 before this round) previously
+  /// could not be traced to a link pair after the fact at all. Deliberately
+  /// excludes `pos`/`normal`/`nearest_points`/`percent_interpolation` -- see
+  /// `collision()`'s own doc comment for why those stay outside the parity
+  /// comparison. `max_contacts_per_pair` is left at its default `1`
+  /// (`collision()` only raises `max_contacts`), so `contact_list` always
+  /// holds exactly one entry per pair here; guarding on `empty()` rather
+  /// than assuming that stays true if a future caller changes the request.
   json contactsToJson(const collision_detection::CollisionResult::ContactMap& contacts,
                        const collision_detection::World& world) const
   {
@@ -3765,6 +3765,29 @@ private:
     return json{ { "cases", cases_out } };
   }
 
+  /// Re-implementation of `TimeOptimalTrajectoryGeneration::hasMixedJointTypes`
+  /// (cpp:1273-1288), which the oracle cannot call directly (it is a
+  /// private member of that class): identical logic over the same public
+  /// `JointModelGroup::getActiveJointModels()`/`JointModel::getType()`
+  /// this crate's own `has_mixed_joint_types` also uses. Exposed on every
+  /// `totgRobotTrajectoryCase` response (not just as a stderr `RCLCPP_WARN`
+  /// side effect, which upstream's own real call site at cpp:1176 is
+  /// limited to) so a mixed-joint-type group is a wire-checkable parity
+  /// case rather than a log line a test would have to scrape.
+  static bool hasMixedJointTypesForGroup(const moveit::core::JointModelGroup* group)
+  {
+    const std::vector<const moveit::core::JointModel*>& joint_models = group->getActiveJointModels();
+    const bool have_prismatic =
+        std::any_of(joint_models.cbegin(), joint_models.cend(), [](const moveit::core::JointModel* joint_model) {
+          return joint_model->getType() == moveit::core::JointModel::JointType::PRISMATIC;
+        });
+    const bool have_revolute =
+        std::any_of(joint_models.cbegin(), joint_models.cend(), [](const moveit::core::JointModel* joint_model) {
+          return joint_model->getType() == moveit::core::JointModel::JointType::REVOLUTE;
+        });
+    return have_prismatic && have_revolute;
+  }
+
   /// Ground truth for the `moveit-trajectory`
   /// `time_optimal_trajectory_generation` module -- the
   /// `TimeOptimalTrajectoryGeneration` adapter around `Path`/`Trajectory`.
@@ -3796,29 +3819,6 @@ private:
   /// of this oracle process -- deliberately kept to its own isolated
   /// `totg_robot_trajectory_scaling_only_request.json`, never mixed into a
   /// fixture another case in the same file also relies on.
-  /// Re-implementation of `TimeOptimalTrajectoryGeneration::hasMixedJointTypes`
-  /// (cpp:1273-1288), which the oracle cannot call directly (it is a
-  /// private member of that class): identical logic over the same public
-  /// `JointModelGroup::getActiveJointModels()`/`JointModel::getType()`
-  /// this crate's own `has_mixed_joint_types` also uses. Exposed on every
-  /// `totgRobotTrajectoryCase` response (not just as a stderr `RCLCPP_WARN`
-  /// side effect, which upstream's own real call site at cpp:1176 is
-  /// limited to) so a mixed-joint-type group is a wire-checkable parity
-  /// case rather than a log line a test would have to scrape.
-  static bool hasMixedJointTypesForGroup(const moveit::core::JointModelGroup* group)
-  {
-    const std::vector<const moveit::core::JointModel*>& joint_models = group->getActiveJointModels();
-    const bool have_prismatic =
-        std::any_of(joint_models.cbegin(), joint_models.cend(), [](const moveit::core::JointModel* joint_model) {
-          return joint_model->getType() == moveit::core::JointModel::JointType::PRISMATIC;
-        });
-    const bool have_revolute =
-        std::any_of(joint_models.cbegin(), joint_models.cend(), [](const moveit::core::JointModel* joint_model) {
-          return joint_model->getType() == moveit::core::JointModel::JointType::REVOLUTE;
-        });
-    return have_prismatic && have_revolute;
-  }
-
   json totgRobotTrajectoryCase(const std::string& group_name, const json& c)
   {
     if (c.contains("acceleration_bounds"))
@@ -5020,59 +5020,6 @@ private:
                  { "problems", problems_out } };
   }
 
-  /// Ground truth for Phase 8's pilz completion condition: LIN/PTP/CIRC
-  /// trajectories matching this port within `1e-6`. Requested by p1-joints
-  /// after they ported `trajectory_functions` and `trajectory_generator`.
-  ///
-  /// One op for all three generators, selected by `generator`
-  /// (`"ptp"`/`"lin"`/`"circ"`), because the three share a constructor shape
-  /// and a single inherited entry point -- `TrajectoryGenerator::generate`,
-  /// which each subclass specializes only through the private
-  /// `extractMotionPlanInfo`/`plan` overrides. Three ops would have been
-  /// three copies of the same request assembly.
-  ///
-  /// # Why the limits ride in the request
-  ///
-  /// p1-joints' request spec asked for the opposite: leave
-  /// `LimitsContainer` out of the JSON and have both sides read the same
-  /// `joint_limits.yaml`/`pilz_cartesian_limits.yaml`. That rests on a
-  /// premise that does not hold here -- those files exist only under
-  /// `third_party/moveit_resources/`, which is gitignored. A fixture whose
-  /// meaning depends on a gitignored external checkout is precisely what
-  /// `tools/ci/verify-clean-checkout.sh` exists to catch, and neither side
-  /// has a YAML reader to begin with (`moveit-planners-pilz`'s `limits.rs`
-  /// builds `JointLimitsContainer` programmatically; this file has
-  /// nlohmann_json and nothing else).
-  ///
-  /// Carrying them in the request is also the stronger of the two against
-  /// the divergence p1-joints was guarding against. Their worry was a
-  /// typo'd limit; but one request drives *both* sides, so a typo lands
-  /// identically on each. It can make a case less interesting than
-  /// intended -- it cannot manufacture a disagreement. Two independent
-  /// readers of one YAML file is the arrangement that can.
-  ///
-  /// `joint_limits` mirrors `moveit_planners_pilz`'s own `JointLimit`
-  /// field-for-field (the union of `joint_limits::JointLimits` and pilz's
-  /// `joint_limits_interface::JointLimits` extension), so the port's
-  /// `limits::JointLimit` deserializes it without a translation table.
-  ///
-  /// # Response shape
-  ///
-  /// Per waypoint: `positions`, `velocities`, `accelerations` (all
-  /// joint-name keyed) and `time_from_start` -- not positions alone.
-  /// p1-joints' round 18 found two real bugs (`is_state_colliding`'s
-  /// inverted return, `push_way_point`'s missing reference-state seed) that
-  /// a positions-only trace cannot see: the second corrupts a floating
-  /// joint's *state* rather than its interpolated position, and the
-  /// backward-difference velocity/acceleration chain is arithmetic no
-  /// positions-only fixture exercises at all.
-  ///
-  /// `sampling_time` is a required request field rather than defaulted.
-  /// `generate()`'s C++ default is `0.1` and this port's
-  /// `generate_joint_trajectory` runs the same `t += sampling_time`
-  /// accumulation, so a `1e-6` comparison is only meaningful if both sides
-  /// used one value; requiring it here means neither side's default can
-  /// drift the two apart silently.
   /// Ground truth for `ChompCost::getQuadraticCostInverse()`, requested by
   /// p6-totg in `crates/moveit-planners-chomp/doc/oracle-request-quad-cost-
   /// inv.md`.
@@ -5219,6 +5166,59 @@ private:
     return pilz_model_;
   }
 
+  /// Ground truth for Phase 8's pilz completion condition: LIN/PTP/CIRC
+  /// trajectories matching this port within `1e-6`. Requested by p1-joints
+  /// after they ported `trajectory_functions` and `trajectory_generator`.
+  ///
+  /// One op for all three generators, selected by `generator`
+  /// (`"ptp"`/`"lin"`/`"circ"`), because the three share a constructor shape
+  /// and a single inherited entry point -- `TrajectoryGenerator::generate`,
+  /// which each subclass specializes only through the private
+  /// `extractMotionPlanInfo`/`plan` overrides. Three ops would have been
+  /// three copies of the same request assembly.
+  ///
+  /// # Why the limits ride in the request
+  ///
+  /// p1-joints' request spec asked for the opposite: leave
+  /// `LimitsContainer` out of the JSON and have both sides read the same
+  /// `joint_limits.yaml`/`pilz_cartesian_limits.yaml`. That rests on a
+  /// premise that does not hold here -- those files exist only under
+  /// `third_party/moveit_resources/`, which is gitignored. A fixture whose
+  /// meaning depends on a gitignored external checkout is precisely what
+  /// `tools/ci/verify-clean-checkout.sh` exists to catch, and neither side
+  /// has a YAML reader to begin with (`moveit-planners-pilz`'s `limits.rs`
+  /// builds `JointLimitsContainer` programmatically; this file has
+  /// nlohmann_json and nothing else).
+  ///
+  /// Carrying them in the request is also the stronger of the two against
+  /// the divergence p1-joints was guarding against. Their worry was a
+  /// typo'd limit; but one request drives *both* sides, so a typo lands
+  /// identically on each. It can make a case less interesting than
+  /// intended -- it cannot manufacture a disagreement. Two independent
+  /// readers of one YAML file is the arrangement that can.
+  ///
+  /// `joint_limits` mirrors `moveit_planners_pilz`'s own `JointLimit`
+  /// field-for-field (the union of `joint_limits::JointLimits` and pilz's
+  /// `joint_limits_interface::JointLimits` extension), so the port's
+  /// `limits::JointLimit` deserializes it without a translation table.
+  ///
+  /// # Response shape
+  ///
+  /// Per waypoint: `positions`, `velocities`, `accelerations` (all
+  /// joint-name keyed) and `time_from_start` -- not positions alone.
+  /// p1-joints' round 18 found two real bugs (`is_state_colliding`'s
+  /// inverted return, `push_way_point`'s missing reference-state seed) that
+  /// a positions-only trace cannot see: the second corrupts a floating
+  /// joint's *state* rather than its interpolated position, and the
+  /// backward-difference velocity/acceleration chain is arithmetic no
+  /// positions-only fixture exercises at all.
+  ///
+  /// `sampling_time` is a required request field rather than defaulted.
+  /// `generate()`'s C++ default is `0.1` and this port's
+  /// `generate_joint_trajectory` runs the same `t += sampling_time`
+  /// accumulation, so a `1e-6` comparison is only meaningful if both sides
+  /// used one value; requiring it here means neither side's default can
+  /// drift the two apart silently.
   json pilzTrajectory(const json& request)
   {
     namespace pilz = pilz_industrial_motion_planner;
