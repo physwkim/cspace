@@ -86,7 +86,14 @@ mod tests {
         };
         let err =
             CoreJointConstraint::try_from(JointConstraintMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::UnknownName { .. }), "got: {err:?}");
+        // `kind`, not just the variant: `JointConstraint::new` has a second
+        // `UnknownName` site (an unresolved local variable name on a
+        // multi-DOF `"joint/local"` name) with `kind: "variable"` -- only
+        // the field tells this test apart from that sibling.
+        assert!(
+            matches!(&err, Error::UnknownName { kind, .. } if *kind == "joint"),
+            "got: {err:?}"
+        );
     }
 
     #[test]

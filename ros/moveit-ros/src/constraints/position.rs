@@ -300,7 +300,12 @@ mod tests {
             polygon: Default::default(),
         };
         let err = Shape::try_from(SolidPrimitiveMsg(msg)).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `dim()`'s one physical Error::Construct
+        // statement is called from up to 8 sites with a different `field`
+        // per call, and the `type_` catch-all (:95) is a second, textually
+        // distinct Construct site -- both reachable through this same
+        // `Shape::try_from`.
+        assert!(err.to_string().contains("BOX_Y"), "got: {err:?}");
     }
 
     fn valid_msg(model: &RobotModel) -> moveit_msgs::PositionConstraint {
@@ -380,7 +385,14 @@ mod tests {
             msg,
         })
         .unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `PositionConstraint::new` (moveit-constraints)
+        // has three other Error::Construct sites (empty frame_id, empty
+        // shapes, and this file's own primitives/poses length check) all
+        // reachable through the same `TryFrom<PositionConstraintMsg>`.
+        assert!(
+            err.to_string().contains("has no bodies:: counterpart"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -393,7 +405,13 @@ mod tests {
             msg,
         })
         .unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Sibling of `cone_constraint_region_is_rejected_end_to_end` above --
+        // this one must name the primitives/poses length check, not
+        // `PositionConstraint::new`'s Construct sites.
+        assert!(
+            err.to_string().contains("primitives has length"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -407,7 +425,14 @@ mod tests {
             msg,
         })
         .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `Shape::try_from`'s PRISM branch is a
+        // second Error::Other site reachable through the same
+        // `TryFrom<PositionConstraintMsg>` primitives loop (for a
+        // PRISM-typed primitive, not exercised by this test's input).
+        assert!(
+            err.to_string().contains("meshes is not supported"),
+            "got: {err:?}"
+        );
     }
 
     #[test]

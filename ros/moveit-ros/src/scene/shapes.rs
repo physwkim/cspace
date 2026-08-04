@@ -154,7 +154,14 @@ mod tests {
             }],
         };
         let err = Shape::try_from(MeshMsg(msg)).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Not just the variant: `Mesh::new` (moveit-geometry) has a sibling
+        // `Error::Construct` site (out-of-range vertex index, hit by
+        // `mesh_out_of_range_vertex_index_is_rejected` below) that a bare
+        // `matches!` cannot tell apart from this length check.
+        assert!(
+            err.to_string().contains("expected exactly 3"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -166,7 +173,13 @@ mod tests {
             }],
         };
         let err = Shape::try_from(MeshMsg(msg)).unwrap_err();
-        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+        // Sibling of `mesh_triangle_with_wrong_vertex_count_is_rejected`
+        // above -- this one must name `Mesh::new`'s own check, not this
+        // file's length check.
+        assert!(
+            err.to_string().contains("only 1 vertices exist"),
+            "got: {err:?}"
+        );
     }
 
     #[test]

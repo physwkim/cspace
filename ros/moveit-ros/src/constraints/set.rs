@@ -175,7 +175,15 @@ mod tests {
         };
         let err =
             KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::UnknownName { .. }), "got: {err:?}");
+        // `kind`, not just the variant (same as `joint.rs`'s
+        // `unknown_joint_name_is_rejected`): only `joint_constraints` is
+        // populated here, so the sole reachable `UnknownName` site is
+        // `JointConstraint::new`'s joint-lookup (`kind: "joint"`), not its
+        // sibling local-variable site (`kind: "variable"`).
+        assert!(
+            matches!(&err, Error::UnknownName { kind, .. } if *kind == "joint"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
