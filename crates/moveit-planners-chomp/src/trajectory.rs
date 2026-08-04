@@ -702,9 +702,17 @@ mod tests {
     /// wrapping (release) on the following `+ 1`. Now rejected up front.
     #[test]
     fn from_duration_rejects_zero_discretization() {
+        // `ChompTrajectory::from_duration` reaches 3 `Error::other` sites
+        // (its own discretization guard, its own point-count-bound guard,
+        // and `from_num_points`'s num_points<2 guard); a bare
+        // matches!(err, Error::Other(_)) cannot say which fired (confirmed
+        // by printing each error before converting these checks).
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, 3.0, 0.0, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// Same boundary, negative side: `discretization < 0.0` is rejected the
@@ -712,9 +720,14 @@ mod tests {
     /// happens to carry.
     #[test]
     fn from_duration_rejects_negative_discretization() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant.
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, 3.0, -0.03, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// A negative `discretization` paired with a negative `duration`
@@ -728,9 +741,14 @@ mod tests {
     /// case, so this is the one that actually detects its reversion.
     #[test]
     fn from_duration_rejects_negative_discretization_that_divides_positive() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant.
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, -3.0, -0.03, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(
+            err.to_string()
+                .contains("discretization must be finite and positive")
+        );
     }
 
     /// A `discretization` positive and finite but small enough that
@@ -740,9 +758,12 @@ mod tests {
     /// point count.
     #[test]
     fn from_duration_rejects_an_unreasonable_point_count() {
+        // See `from_duration_rejects_zero_discretization` for why this
+        // checks the message rather than just the variant; this case hits
+        // the point-count bound instead of the discretization guard.
         let model = panda_model();
         let err = ChompTrajectory::from_duration(model, 3.0, 1e-300, GROUP).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("would require more than"));
     }
 
     #[test]
