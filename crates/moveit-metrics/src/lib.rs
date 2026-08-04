@@ -155,7 +155,23 @@
 //!   f64::MIN_POSITIVE` true and skipping it through the *same* general
 //!   `range` check every other joint type is skipped through when its range
 //!   collapses — this port adds no explicit `Fixed` arm, matching upstream,
-//!   which has none either.
+//!   which has none either. Round 17: this fallthrough is pinned, not just
+//!   argued — `panda_arm` and pr2's `right_arm` (the groups
+//!   [`KinematicsMetrics::joint_limits_penalty`]'s own tests already use)
+//!   each contain a `Fixed` joint (`panda_joint8`;
+//!   `r_upper_arm_joint`/`r_forearm_joint`),
+//!   confirmed via [`moveit_model::JointModelGroup::joint_indices`], so
+//!   every test that calls [`KinematicsMetrics::joint_limits_penalty`] over
+//!   either group already exercises this exact sub-case. Measured by
+//!   narrowing the skip to exclude
+//!   `range == 0.0` specifically (leaving the `f64::MIN_POSITIVE` boundary
+//!   itself untouched) and rerunning: `manipulability_index_scales_by_joint_limits_penalty`,
+//!   `range_at_the_min_positive_boundary_still_skips`,
+//!   `continuous_revolute_joint_does_not_contribute_to_joint_limits_penalty`,
+//!   and this crate's own oracle parity test
+//!   `panda_kinematics_metrics_matches_the_oracle` all fail with `NaN` —
+//!   the same `0.0/0.0` indeterminate-form failure shape as every other
+//!   sentinel in this module, for the same reason.
 //! - Final penalty: `1.0 - exp(-penalty_multiplier * product)`.
 
 use nalgebra::{Matrix3, SVD, SymmetricEigen, Vector3};
