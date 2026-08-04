@@ -17,6 +17,10 @@
 //     trajectory_generator_lin.hpp
 //     trajectory_generator_ptp.hpp
 //     velocity_profile_atrap.hpp
+//     trajectory_blender.hpp
+//     trajectory_blender_transition_window.hpp
+//     trajectory_blend_request.hpp
+//     trajectory_blend_response.hpp
 //   moveit_planners/pilz_industrial_motion_planner/include/joint_limits_copy/
 //     joint_limits.hpp  (Apache-2.0, PAL Robotics; vendored upstream)
 //   moveit_planners/pilz_industrial_motion_planner/src/
@@ -30,6 +34,7 @@
 //     trajectory_generator_lin.cpp
 //     trajectory_generator_ptp.cpp
 //     velocity_profile_atrap.cpp
+//     trajectory_blender_transition_window.cpp
 //
 // This crate-level citation is the union of what every module below cites in
 // its own header; the two vendored orocos_kdl stems (path_line,
@@ -86,9 +91,11 @@
 //!   the concrete circular-arc generator, composed with [`path_circle`]'s
 //!   [`path_circle::PathCircle`] — independently derived, not a line-by-line
 //!   port; see that type's own module doc for why.
-//!
-//! Not yet in scope, planned for later rounds:
-//! `trajectory_blender_transition_window`.
+//! - [`trajectory_blender_transition_window`] —
+//!   `trajectory_blender.hpp`, `trajectory_blender_transition_window.{hpp,cpp}`,
+//!   `trajectory_blend_request.hpp`, `trajectory_blend_response.hpp`: blends
+//!   two consecutive trajectories across their shared boundary, completing
+//!   §5 Phase 8's "LIN/PTP/CIRC + sequence blending" scope line.
 //!
 //! # Deliberately not ported: the ROS layer (D1/D2)
 //!
@@ -137,11 +144,52 @@
 //! No computation depends on ROS in any of the three files this round ports;
 //! every logging call site above is replaced with a native `Result`/`bool`
 //! return instead of a log-and-continue.
+//!
+//! `trajectory_blender.hpp`/`trajectory_blender_transition_window.{hpp,cpp}`/
+//! `trajectory_blend_request.hpp`/`trajectory_blend_response.hpp` were
+//! checked the same way:
+//!
+//! - `<moveit/utils/logger.hpp>`'s `rclcpp::Logger` plus every
+//!   `RCLCPP_INFO`/`RCLCPP_ERROR`/`RCLCPP_DEBUG`/`RCLCPP_ERROR_STREAM`/
+//!   `RCLCPP_INFO_STREAM` call in `trajectory_blender_transition_window.cpp`
+//!   is used exclusively for logging; every one is replaced by a `Result`
+//!   return instead, matching the pattern above.
+//! - `<tf2_eigen/tf2_eigen.hpp>` is used for exactly one call,
+//!   `tf2::toMsg(blend_sample_pose)`, converting `Eigen::Isometry3d` to
+//!   `geometry_msgs::msg::Pose` for `CartesianTrajectoryPoint::pose` — a
+//!   message-shape conversion with nothing left to do, since that field is
+//!   already [`moveit_geometry::Isometry3`] here (see
+//!   [`cartesian_trajectory`]'s own `# Deviations`).
+//! - `moveit_msgs::msg::MoveItErrorCodes` (`TrajectoryBlendResponse`'s field,
+//!   and `validateRequest`'s out-parameter) is replaced by
+//!   [`moveit_error::MoveItErrorCode`] via a `Result` return — see
+//!   [`trajectory_blender_transition_window::blend`]'s own doc.
+//! - `trajectory_msgs::msg::JointTrajectory` (the message-shaped
+//!   intermediate `blend()` builds before `setRobotTrajectoryMsg`) has no
+//!   counterpart: [`trajectory_functions::generate_joint_trajectory_from_cartesian`]
+//!   already returns a [`moveit_trajectory::RobotTrajectory`] directly.
+//! - `rclcpp::Duration::from_seconds(...)` has no counterpart:
+//!   [`cartesian_trajectory::CartesianTrajectoryPoint::time_from_start`] is
+//!   already a plain `f64` in seconds.
+//!
+//! No computation in `trajectory_blender_transition_window.{hpp,cpp}`
+//! depends on ROS either; every dependency above is logging (dropped) or a
+//! message-shape conversion this crate already excludes everywhere else it
+//! appears — no unliftable ROS dependency, so no blocker to report.
+//!
+//! # Licence: `trajectory_blender*`/`trajectory_blend_{request,response}.hpp`
+//!
+//! All four files carry the identical "Software License Agreement (BSD
+//! License) ... Copyright (c) 2018, Pilz GmbH & Co. KG" header every other
+//! `pilz_industrial_motion_planner` file cited above carries (read directly
+//! from each file, not inferred) — no LGPL/Apache-2.0 surprise;
+//! `tools/ci/verify-upstream-license-provenance.sh` needs no new exemption.
 
 pub mod cartesian_trajectory;
 pub mod limits;
 pub mod path_circle;
 pub mod path_line;
+pub mod trajectory_blender_transition_window;
 pub mod trajectory_functions;
 pub mod trajectory_generator;
 pub mod trajectory_generator_circ;
