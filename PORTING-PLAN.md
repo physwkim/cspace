@@ -11550,3 +11550,78 @@ p6-totg가 STOMP와 CHOMP의 `MultivariateGaussian`을 대조하고 어디에 �
 다만 갈아끼우기 전에 두 구현이 난수를 같은 순서·횟수로 소비하는지 같은 seed로
 바이트 비교해야 한다 — CHOMP 파리티 fixture가 난수열에 걸려 있으므로, 여기서
 "알고리즘이 같다"는 충분조건이 아니다.
+
+## §142 §136.1의 세 미검증 항목 중 하나를 측정으로 닫는다
+
+§136.1이 `.github/workflows/ci.yml`에 대해 검증되지 않은 것 셋을 적었다: (a) 네
+`uses:` 액션의 실제 동작, (b) cold crates.io resolution, (c) floating
+`dtolnay/rust-toolchain@stable`이 `[workspace.lints.rust] warnings = "deny"` 아래에서
+갖는 위험. (c)를 측정했다.
+
+위험의 실체는 이렇다. 툴체인이 `@stable`로 떠 있고 워크스페이스가 warning을 error로
+승격하므로, **저장소가 아무것도 바꾸지 않아도** 새 rustc가 새 lint를 켜는 순간 CI가
+빨개진다. 이건 추측이 아니라 `ci.yml` 자신의 `env:` 주석이 `RUSTFLAGS: -D warnings`를
+거부한 근거로 든 바로 그 메커니즘이다 — 다만 그 주석은 의존성 코드에만 적용했고,
+워크스페이스 멤버에는 같은 논리가 그대로 남아 있다.
+
+측정 방법: 호스트에 설치된 nightly가 stable보다 두 릴리스 앞선다.
+
+```
+$ rustc +stable  --version   → 1.97.0 (2d8144b78 2026-07-07)
+$ rustc +nightly --version   → 1.99.0-nightly (af3d95584 2026-07-09)
+```
+
+`@stable`이 12주 뒤 도달할 지점의 근사다. 그 위에서 게이트 두 개를 돌렸다
+(`CARGO_TARGET_DIR`를 분리해 stable 캐시를 건드리지 않았다):
+
+```
+$ cargo +nightly clippy --workspace --all-targets   → Finished, exit 0
+$ cargo +nightly doc --workspace --no-deps          → Finished, exit 0
+```
+
+워크스페이스 22개 크레이트 전부 `Checking`을 거쳤고 warning/error 0줄이다.
+`warnings = "deny"`가 걸린 상태이므로 새 lint가 하나라도 발화했다면 hard error로
+멈췄을 것이다.
+
+결론: **오늘 기준으로 두 릴리스 앞의 rustc에서도 깨지지 않는다.** 이건 "위험이
+없다"가 아니라 "현재 알려진 lint 파이프라인에는 이 트리를 깨뜨리는 게 없다"이다.
+툴체인 핀은 여전히 안 박는다 — 핀을 박으면 이 신호 자체가 사라지고, 그때는 rustc가
+몇 릴리스 앞서갈 때까지 아무도 모른다. 트레이드오프는 §136.1에 적은 그대로 두되,
+근거 없는 불안이 아니라 측정된 여유가 있다는 사실을 여기 남긴다.
+
+재측정 시점: stable이 1.99로 올라가면 이 측정은 만료다. 그때 다시 nightly로 돌려라.
+
+### 142.1 커밋된 lockfile을 CI가 주장하지 않던 구멍
+
+(b)를 보다가 나온 별건이다. `Cargo.lock`은 tracked인데(`git ls-files Cargo.lock` →
+있음) `ci.yml`의 어느 단계도 `--locked`를 넘기지 않았다(`grep -c '\-\-locked'` → 0).
+그래서 manifest만 고치고 lockfile을 안 갱신한 커밋이 오면 cargo가 조용히 lockfile을
+새로 써버리고 clippy·nextest·doctest·doc 네 단계가 전부 통과한다. **CI가 초록인
+것이 트리에 커밋된 lockfile에 대해 아무것도 말해주지 않는다.**
+
+§136.2의 `--no-fail-fast` 건과 같은 계열이다 — 로컬 게이트와 CI가 "그 단계가 무엇을
+뜻하는지"에 대해 서로 다른 것을 뜻하고 있었다.
+
+**Anchor:** `cargo (build|check|clippy|test|doc|nextest|run)` in `.github/`, `tools/ci/`
+**Sites:** `ci.yml:32,38,40,48`; `check-dep-direction.sh:25,44`;
+`check-serde-float-roundtrip.sh:33`; `run-oracle-sweep.sh:50`
+**Same defect at:** `ci.yml`의 빌드 단계 4개 — 넷 다 커밋된 lockfile을 주장하지 않고
+resolve한다.
+**Distinct, skip:** `check-dep-direction.sh`/`check-serde-float-roundtrip.sh`의
+`cargo metadata`/`cargo tree` — 읽기 전용 질의이고 CI에서는 아래 주장 뒤에 실행되며,
+로컬에서는 편집 중인 트리에 대해서도 돌아야 하므로 `--locked`가 오히려 틀리다.
+`run-oracle-sweep.sh:50`의 `cargo build` — 자기 헤더가 "Not a CI step"이라고 명시.
+
+플래그를 네 군데 붙이는 대신 앞에서 한 번 주장하는 쪽을 택했다:
+
+```yaml
+- name: lockfile
+  run: cargo fetch --locked
+```
+
+주장이 성립하면 뒤 단계들에는 다시 쓸 것이 남아 있지 않다 — 한 곳에서 불변식을
+말하고, 실패 메시지도 cargo 자신의 것(드리프트한 패키지 이름 포함)이 나온다. 네
+단계에 개별로 붙이면 어느 것이 먼저 터지느냐에 따라 메시지가 달라진다.
+
+현재 트리에서 `cargo metadata --locked`와 `cargo fetch --locked` 둘 다 통과하므로
+이 커밋은 동작 변화가 없다 — 구멍만 닫는다.
