@@ -4741,15 +4741,18 @@ private:
       const ob::PlannerTerminationCondition ptc(
           [&evaluations, max_iterations]() { return ++evaluations > max_iterations; });
 
-      const auto started = std::chrono::steady_clock::now();
       const ob::PlannerStatus status = planner->solve(ptc);
-      const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
 
+      // No wall-clock field here either -- see `pilzTrajectory`'s comment on
+      // the same point. This one was latent rather than live: the single
+      // committed `plan` fixture has an empty `problems` array, so the
+      // timing never reached a response file and replay stayed clean by
+      // accident. `ptc_evaluations` is the deterministic stand-in, and it
+      // is what actually bounds the search.
       json problem_out{ { "id", problem.at("id") },
                         { "solved", static_cast<bool>(status) },
                         { "exact", pdef->hasExactSolution() },
                         { "status", status.asString() },
-                        { "planning_time_s", elapsed },
                         { "ptc_evaluations", evaluations } };
 
       // Only an exact solution is reported as a path: RRTConnect can return
@@ -5132,7 +5135,18 @@ private:
     planning_interface::MotionPlanResponse res;
     trajectory_generator->generate(scene, req, res, sampling_time);
 
-    json out{ { "error_code", res.error_code.val }, { "planning_time", res.planning_time } };
+    // `res.planning_time` is deliberately not reported. It is a wall-clock
+    // reading, so it differs on every run of the same request -- measured
+    // here as 0.001528053 then 0.001346184 for an otherwise byte-identical
+    // LIN response. A fixture that carries it drifts on every
+    // `verify-fixture-replay.sh` run, and the only way to keep it would be
+    // an `ignore_result_fields_by_id` entry on every id of every pilz
+    // fixture, now and forever. That is precisely the "trusting every
+    // future fixture author to remember" failure that script's own header
+    // rejects, so the field does not exist rather than being excluded
+    // per-fixture. Nothing consumes it: no parity test can assert a C++
+    // stopwatch against a Rust one.
+    json out{ { "error_code", res.error_code.val } };
 
     // A non-SUCCESS `generate()` clears the trajectory rather than throwing
     // (`unittest_trajectory_generator_ptp.cpp:207-214`), so a null
