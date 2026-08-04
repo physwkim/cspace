@@ -169,8 +169,18 @@ iteration is seen, and the seed itself (from `compute_initial_trajectory`,
 before any rollout/update touches it) is already `parameters_valid` at
 the pre-loop cost check for every initialization method these tests
 use -- confirmed by counting `compute_optimized_cost` calls per test:
-exactly two (the pre-loop call, then one real loop iteration), for all
-six, mutated and unmutated alike. `num_iterations`/`num_iterations_after_valid`
+exactly two (the pre-loop call, then one real loop iteration). Counted
+directly for both conditions, not inferred for one of them: the
+unmutated count came from the six production tests themselves
+(`cargo nextest run -p moveit-stomp-core` with a temporary per-call
+`eprintln!`); the mutated count came from running
+`each_convergence_test_fails_if_the_accept_path_update_is_disabled`
+(covers five of the six) and
+`solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe`
+(the sixth) the same way, with a temporary scenario marker between
+the five inline scenarios of the first so each could be counted on
+its own -- two calls, no more, in every one of the twelve
+(six tests x two conditions) runs. `num_iterations`/`num_iterations_after_valid`
 overrides of 40 or 100 on several of these tests are therefore inert:
 none of them ever run more than one real iteration regardless. That
 single iteration's reject-branch (`compute_optimized_cost`'s "cost did
