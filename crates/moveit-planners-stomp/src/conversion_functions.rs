@@ -305,6 +305,17 @@ mod tests {
         assert_eq!(after, perturbed);
     }
 
+    // Assertion-discrimination sweep (round 2): `result.is_err()` here
+    // checks `catch_unwind`'s outer Result -- did `set_positions` panic
+    // -- not the inner `Result<()>`. `set_positions`'s body (lines
+    // 176-193) contains exactly one panic-capable construct, the
+    // `assert_eq!(values.len(), names.len(), ..)` length check; every
+    // other fallible step uses `?` and returns `Err` instead of
+    // panicking, and the one array index (`values[i]`) is only reached
+    // after the length assert has already passed, so it cannot panic
+    // independently. Verdict: single-branch, established by an `rg` for
+    // `panic!|assert!|assert_eq!|unwrap\(|expect\(` over the function
+    // body, one hit.
     #[test]
     fn set_positions_panics_on_a_length_mismatch() {
         let model = panda_model();
