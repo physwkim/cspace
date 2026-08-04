@@ -678,11 +678,21 @@ mod tests {
     #[test]
     fn validate_request_rejects_blend_radius_at_or_below_zero() {
         let (model, _) = load_panda();
+        // A chained pair (unlike an earlier version of this test, which
+        // paired a sweep with an independent, non-chained copy of itself):
+        // first_trajectory's last waypoint must equal second_trajectory's
+        // first, or the boundary-mismatch check a few lines above the
+        // blend_radius check would also fire and reject the request for a
+        // second, unrelated reason -- masking whether the blend_radius
+        // check on its own actually did anything. Mutation testing this
+        // round caught exactly that: with the blend_radius check deleted,
+        // this test still passed, because the earlier, non-chained version
+        // of this fixture failed the boundary check instead.
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
             first_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
-            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.2, 4, 0.1),
+            second_trajectory: panda_joint1_sweep(&model, 0.2, 0.4, 4, 0.1),
             blend_radius: 0.0,
         };
         assert!(matches!(
@@ -811,18 +821,42 @@ mod tests {
         assert!(second_index < req.second_trajectory.way_point_count());
     }
 
+    // The two calls in search_intersection_points are independently
+    // `?`-chained (first_trajectory's inverse-order search, then
+    // second_trajectory's forward search against the same center). A test
+    // that makes both fail to cross at once cannot tell which call actually
+    // produced the Err -- forcing either one to succeed still leaves the
+    // other failing, so the overall outcome never changes and the mutation
+    // that broke only one of the two calls survives. These two tests each
+    // keep the OTHER trajectory a known crosser (the geometry from
+    // search_intersection_points_finds_both_crossings_within_radius above)
+    // so only the trajectory under test can be the cause of the Err.
+
     #[test]
-    fn search_intersection_points_rejects_a_radius_larger_than_either_trajectory_reaches() {
+    fn search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius() {
         let (model, _) = load_panda();
-        // A tiny joint sweep keeps panda_link8 within a small Cartesian
-        // radius of the boundary pose -- a blend_radius far larger than any
-        // sample's distance from the center is never crossed.
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
             first_trajectory: panda_joint1_sweep(&model, -0.005, 0.0, 10, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        assert!(matches!(
+            search_intersection_points(&mut req),
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
+        ));
+    }
+
+    #[test]
+    fn search_intersection_points_rejects_when_second_trajectory_never_reaches_the_blend_radius() {
+        let (model, _) = load_panda();
+        let mut req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.005, 10, 0.05),
-            blend_radius: 10.0,
+            blend_radius: 0.05,
         };
         assert!(matches!(
             search_intersection_points(&mut req),
@@ -939,6 +973,25 @@ mod tests {
             max_rot_vel: 1.0,
         });
 
+        // Ground truth for the response segment lengths: an independent
+        // search_intersection_points call over the same geometry, so the
+        // assertions below can check the copy loops in `blend` produce
+        // exactly `first_intersection_index` and
+        // `second_count - (second_intersection_index + 1)` waypoints, not
+        // just "no more than the original" -- a bound loose enough to miss
+        // an off-by-one in either loop, which mutation testing confirmed by
+        // extending `blend`'s first-segment copy loop by one waypoint
+        // without failing this test.
+        let mut probe_req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        let (first_intersection_index, second_intersection_index) =
+            search_intersection_points(&mut probe_req).expect("same geometry as req below");
+
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -946,21 +999,19 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
             blend_radius: 0.05,
         };
+        let second_count = req.second_trajectory.way_point_count();
 
         let response =
             blend(&ctx, &planner_limits, &mut req).expect("well-formed request must blend");
 
         assert!(!response.blend_trajectory.is_empty());
-        // The three segments together must cover strictly less than the two
-        // original trajectories' combined waypoint count (some waypoints
-        // near the boundary are replaced by the blend), but each of the
-        // three non-blend segments is non-empty-or-absent consistently with
-        // where the crossing indices landed.
-        assert!(
-            response.first_trajectory.way_point_count() <= req.first_trajectory.way_point_count()
+        assert_eq!(
+            response.first_trajectory.way_point_count(),
+            first_intersection_index
         );
-        assert!(
-            response.second_trajectory.way_point_count() <= req.second_trajectory.way_point_count()
+        assert_eq!(
+            response.second_trajectory.way_point_count(),
+            second_count - (second_intersection_index + 1)
         );
     }
 }
