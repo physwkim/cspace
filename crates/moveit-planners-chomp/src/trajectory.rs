@@ -717,6 +717,22 @@ mod tests {
         assert!(matches!(err, Error::Other(_)));
     }
 
+    /// A negative `discretization` paired with a negative `duration`
+    /// divides to a positive, in-range `raw_num_points`: neither the
+    /// `!raw_num_points.is_finite()` check nor
+    /// [`MAX_FROM_DURATION_POINTS`] would catch this on its own, unlike
+    /// [`from_duration_rejects_negative_discretization`] above (positive
+    /// `duration`), where `raw_num_points` is negative and saturates to a
+    /// `num_points < 2` downstream rejection regardless of the explicit
+    /// `discretization <= 0.0` guard. Only the explicit guard rejects this
+    /// case, so this is the one that actually detects its reversion.
+    #[test]
+    fn from_duration_rejects_negative_discretization_that_divides_positive() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, -3.0, -0.03, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
     /// A `discretization` positive and finite but small enough that
     /// `duration / discretization` would need more than
     /// [`MAX_FROM_DURATION_POINTS`] points must still be rejected: the
@@ -750,6 +766,21 @@ mod tests {
         let traj = ChompTrajectory::from_num_points(model, 2, 0.1, GROUP).unwrap();
         assert_eq!(traj.start_index(), 1);
         assert_eq!(traj.end_index(), 0);
+        assert_eq!(traj.num_free_points(), 0);
+    }
+
+    /// Neither constructor can produce `end_index + 1 < start_index` (only
+    /// `end_index + 1 == start_index`, the boundary
+    /// [`num_free_points_zero_for_inverted_range`] above covers, which
+    /// happens not to need saturation at all: `(0 + 1) - 1` does not
+    /// underflow). [`ChompTrajectory::set_start_end_index`] is ported
+    /// unchecked (`setStartEndIndex` has no guard upstream either) and lets
+    /// a caller reach the actually-underflowing case directly.
+    #[test]
+    fn num_free_points_zero_when_set_start_end_index_inverts_by_more_than_one() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 10, 0.1, GROUP).unwrap();
+        traj.set_start_end_index(5, 0);
         assert_eq!(traj.num_free_points(), 0);
     }
 
@@ -869,6 +900,44 @@ mod tests {
     }
 
     #[test]
+    fn assign_chomp_trajectory_point_rejects_a_multi_dof_active_joint() {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="planar_chomp_trajectory">
+  <link name="base"/>
+  <link name="tip"/>
+  <joint name="j1" type="planar">
+    <parent link="base"/>
+    <child link="tip"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="planar_chomp_trajectory">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("planar_chomp_trajectory model must build");
+        let group = model.joint_model_group("chain").unwrap();
+        assert_eq!(
+            group.active_joint_indices().len(),
+            1,
+            "a planar joint is one active joint index despite carrying 3 variables"
+        );
+        let mut traj = ChompTrajectory::from_num_points(&model, 4, 0.1, "chain").unwrap();
+        let state = RobotState::new(&model);
+        let err = traj
+            .assign_chomp_trajectory_point_from_robot_state(&state, 1, group)
+            .unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    #[test]
     fn fill_in_from_trajectory_rejects_fewer_than_two_waypoints() {
         let model = panda_model();
         let group = model.joint_model_group(GROUP).unwrap();
@@ -878,6 +947,22 @@ mod tests {
             .add_suffix_way_point(RobotState::new(model), 0.0)
             .unwrap();
         assert!(!traj.fill_in_from_trajectory(&source).unwrap());
+    }
+
+    #[test]
+    fn fill_in_from_trajectory_rejects_a_trajectory_with_no_group() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 4, 0.1, GROUP).unwrap();
+        let mut source = RobotTrajectory::new(model);
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.0)
+            .unwrap();
+        source
+            .add_suffix_way_point(RobotState::new(model), 0.1)
+            .unwrap();
+        assert!(source.group().is_none());
+        let err = traj.fill_in_from_trajectory(&source).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
     }
 
     #[test]

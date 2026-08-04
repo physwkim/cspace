@@ -134,9 +134,60 @@ pub fn shortest_angular_distance(start: f64, end: f64) -> f64 {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use moveit_error::Error;
+    use moveit_model::MeshSearchPaths;
+    use moveit_model::RobotModel;
+    use moveit_srdf::SrdfModel;
     use std::f64::consts::PI;
 
     const EPS: f64 = 1e-12;
+
+    /// A single-revolute-joint chain, just enough to exercise
+    /// [`robot_state_to_array`]'s group lookup and joint-position read.
+    fn one_joint_model() -> RobotModel {
+        let urdf_xml = r#"<?xml version="1.0"?>
+<robot name="one_joint_chomp_utils">
+  <link name="base"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/>
+  </joint>
+</robot>
+"#;
+        let srdf_xml = r#"<?xml version="1.0"?>
+<robot name="one_joint_chomp_utils">
+  <group name="chain">
+    <chain base_link="base" tip_link="tip"/>
+  </group>
+</robot>
+"#;
+        let urdf: urdf_rs::Robot = urdf_rs::read_from_string(urdf_xml).unwrap();
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("srdf must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("one_joint_chomp_utils model must build")
+    }
+
+    #[test]
+    fn robot_state_to_array_reads_the_active_joint_in_group_order() {
+        let model = one_joint_model();
+        let mut state = RobotState::new(&model);
+        state.set_joint_positions("j1", &[0.4]).unwrap();
+        let mut out = [0.0; 1];
+        robot_state_to_array(&state, "chain", &mut out).unwrap();
+        assert_relative_eq!(out[0], 0.4, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn robot_state_to_array_rejects_an_unknown_group_name_as_a_typed_error() {
+        let model = one_joint_model();
+        let state = RobotState::new(&model);
+        let mut out = [0.0; 1];
+        let err = robot_state_to_array(&state, "no_such_group", &mut out).unwrap_err();
+        assert!(matches!(err, Error::UnknownName { .. }));
+    }
 
     #[test]
     fn diff_rules_rows_sum_to_zero() {

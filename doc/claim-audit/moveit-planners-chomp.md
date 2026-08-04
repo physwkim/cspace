@@ -130,6 +130,7 @@ extension) returns exactly 43 files. Every one is now accounted for —
 |---|---|---|---|---|
 | `moveit_planners/chomp/` directory-level file count | an unfiltered `find . -type f` over the whole upstream directory (both subpackages) returns exactly 43 files, and every one is now classified as ported, D1/D2-excluded-with-reason, or non-code | CONFIRMED (0 missing) | `find moveit_planners/chomp -type f \| wc -l` reproduced directly (`43`); every file individually opened or its extension-class read this round or a prior round | (this doc entry) |
 | `src/parameters.rs`, `ChompParameters::default()` matches the *constructor*, not `CHOMPInterface::loadParams()`'s ROS-parameter defaults | `chomp_interface.cpp`'s `loadParams()` (`chomp_interface`, D1/D2-excluded ROS adapter) loads two fields with defaults that diverge from `chomp_parameters.cpp`'s own constructor: `planning_time_limit_` (constructor `6.0`, ROS-loader default `10.0`) and `max_iterations_` (constructor `50`, ROS-loader default `200`); all other 17 loaded fields match, and `filter_mode_` is never loaded by `loadParams()` at all (stays the constructor's `false`). The port's own `ChompParameters::default()` correctly mirrors the *constructor* (`6.0`/`50`, `src/parameters.rs:106-107`, pinned by the existing `assert_eq!(p.planning_time_limit, 6.0)` test) — this is a genuine divergence *between two upstream C++ files*, not a port defect, and out of this crate's scope since `chomp_interface` is D1/D2-excluded. `chomp_interface/test/chomp_planning.yaml` (the rrbot/panda integration tests' actual ROS param file) explicitly sets `planning_time_limit: 10.0` / `max_iterations: 200`, matching the ROS-loader defaults exactly (not the constructor) — so the two live integration tests never exercise the constructor's `6.0`/`50` at all | CONFIRMED (upstream-internal divergence, not a port defect) | `chomp_interface/src/chomp_interface.cpp` (`loadParams()`, full body read directly) vs. `chomp_motion_planner/src/chomp_parameters.cpp:43-67` (constructor) field-by-field; `chomp_interface/test/chomp_planning.yaml` read directly; `src/parameters.rs:106-107,175` cross-checked | (this doc entry) |
+| `src/parameters.rs`, `ChompParameters::default()` re-verified against **all 19** constructor fields, not just the 2 known to diverge from `loadParams()` (this round) | Re-read `chomp_parameters.cpp:43-67` and `src/parameters.rs:105-127` side by side, field by field, independent of the row above: `planning_time_limit=6.0`, `max_iterations=50`, `max_iterations_after_collision_free=5`, `smoothness_cost_weight=0.1`, `obstacle_cost_weight=1.0`, `learning_rate=0.01`, `smoothness_cost_velocity=0.0`, `smoothness_cost_acceleration=1.0`, `smoothness_cost_jerk=0.0`, `ridge_factor=0.0`, `use_pseudo_inverse=false`, `pseudo_inverse_ridge_factor=1e-4`, `joint_update_limit=0.1`, `min_clearance=0.2`, `collision_threshold=0.07`, `use_stochastic_descent=true`, `filter_mode=false`, `trajectory_initialization_method="quintic-spline"`, `enable_failure_recovery=false`, `max_recovery_attempts=5` — all 19 match the constructor exactly, not one silently picked up from `loadParams()`. Cross-checked the same 19 against `loadParams()` too: exactly the 2 already named (`planning_time_limit`, `max_iterations`) diverge; the other 17 loaded values are identical to the constructor's, so agreement with those 17 does not distinguish which side the port took — only the row above's two diverging fields do, and the port took the constructor's `6.0`/`50` on both | CONFIRMED (all 19/19 fields match the constructor byte-for-byte) | `chomp_parameters.cpp:43-67` and `src/parameters.rs:105-127` read side by side, field by field, this round; cross-checked against `chomp_interface.cpp:57-87`'s `loadParams()` defaults for the same 19 fields | (this doc entry) |
 | `src/optimizer.rs`, `optimize()`'s `num_collision_free_iterations` has the same two-independent-branches shape as the `iteration_` double-increment (`d10b014`), but the two branches write *different* values | `chomp_optimizer.cpp:373` (mesh-to-mesh) writes `0`; `:410` (collision-threshold) writes `parameters_->max_iterations_after_collision_free_` (default `5`) — same two non-`else` `if` blocks as the `iteration_` finding, confirmed by full `rg` sweep of every `++`/`+=`/persistent-field write in `moveit_planners/chomp` (only these two blocks write a field from more than one site within `optimize()`'s loop body; `is_collision_free_` is also dual-written by the same two blocks but with no observable divergence, since both write `true`). On a pass where both fire, `:410`'s write silently overwrites `:373`'s — the mesh-to-mesh branch's "break out now" (`0`) signal is discarded in favor of the threshold branch's grace period (`5`), moving the loop's actual termination from 1 `should_break_out` pass to 6 | CONFIRMED (TYPE_A-shaped, faithfully transcribed in both upstream and the port) | `chomp_optimizer.cpp:373,410` read directly; port transcribed identically at `src/optimizer.rs` (two independent `if`s, not collapsed) — pinned by `optimize_mesh_to_mesh_alone_breaks_out_after_exactly_one_should_break_out_pass` (control) and `optimize_collision_threshold_silently_discards_mesh_to_meshs_immediate_break_signal` (finding), both mutation-checked | `86e4dc8` |
 | `src/optimizer.rs`, `get_collision_cost`'s velocity-weighted potential means a *stationary* in-collision trajectory costs `0.0` | `getCollisionCost` (`chomp_optimizer.cpp:696-709`) sums `collision_point_potential_[i][j] * collision_point_vel_mag_[i][j]` — a swept (work-like) cost, not a static-occupancy cost. A trajectory with identical start and goal has zero velocity everywhere, so `c_cost == 0.0` regardless of penetration depth, always satisfying `optimize()`'s collision-threshold branch and masking `is_collision_free` back to `true`. Surfaced this round by a failed first attempt at the `InvalidMotionPlan` test below (a static in-collision goal produced `Ok`, not `Err`) | CONFIRMED (TYPE_B, faithfully transcribed, not a port defect) | `chomp_optimizer.cpp:696-709` (`getCollisionCost` body, `state_collision_cost += ... * collision_point_vel_mag_[i][j]`) read directly; port's `get_collision_cost` doc comment updated to state this; reproduced empirically via a throwaway debug test before being fixed forward into the real test | `ea5142b` |
 | `src/planner.rs`, `solve`'s `InvalidMotionPlan` path (`chomp_planner.cpp:270-273`) had no test | of `chomp_moveit_test_rrbot.cpp`'s five integration-test cases, `collisionAtEndOfPath` (target `[PI/2, 0]` → `INVALID_MOTION_PLAN`) was the one outcome no `solve_*` test exercised; `cartesianGoal` is already structurally covered by `solve_rejects_goal_with_no_joint_constraints` (`ChompGoal`'s joint-only-by-construction deviation), `jointSpaceGoodGoal`/`noStartState` are ordinary reachable-goal successes already covered by `solve_succeeds_with_no_obstacles...`, and `jointSpaceBadGoal` is `move_group`'s own pre-planning bounds validation, not `chomp_motion_planner`'s (confirmed this round by reading `rrbot.xacro`'s actual joint2 limit against the test's `2*PI/3` target) | CONFIRMED gap, now closed | `chomp_interface/test/chomp_moveit_test_rrbot.cpp` (all five cases read in full) cross-referenced against `src/planner.rs`'s nine existing `solve_*` tests by scenario, not name; closed by `solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision`, mutation-checked against `planner.rs:474`'s `if !optimizer.is_collision_free()` check | `ea5142b` |
@@ -172,6 +173,63 @@ workspace-wide absence checks:
   `chomp_optimizer.cpp:959-990` itself, anywhere in the workspace, or
   a definition of `getRandomMomentum`/`updateMomentum`/
   `updatePositionFromMomentum` anywhere.
+
+## Stationary in-collision start-state gap (this round)
+
+`get_collision_cost` weights every point's collision potential by that
+point's velocity along the trajectory (`optimizer.rs`, ported from
+`getCollisionCost`, `chomp_optimizer.cpp:942-963`): a perfectly
+stationary trajectory (identical start and goal, as CHOMP's own
+"stuck at the start" recovery-loop retries can produce) scores exactly
+`0.0` here regardless of penetration depth, so
+`optimize()`'s collision-threshold branch (`c_cost < collision_threshold`)
+marks a stationary in-collision trajectory `is_collision_free_`. This
+was found by accident building
+`solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision`
+(commit `ea5142b`) and documented on `get_collision_cost` itself; this
+round's item 2 traces it up the chain to whether anything else guards
+against it.
+
+**Upstream has no guard for this inside `chomp_planner.cpp` either.**
+`ChompPlanner::solve` (`chomp_planner.cpp:80`) checks only
+`start_state.satisfiesBounds()` before planning — no
+`planning_scene->isStateColliding(start_state, ...)` or equivalent
+collision check on the start state anywhere in that file. Upstream's
+actual guard against this (and against a silently-wrong-but-`SUCCESS`
+response generally) is one layer up, in `move_group`'s planning
+pipeline: `default_planning_response_adapters::ValidateSolution`
+(`moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp:101`)
+re-checks *every* waypoint of the returned trajectory — including
+waypoint 0 — via `planning_scene->isPathValid`, a real
+`checkCollision`-backed check independent of CHOMP's own
+velocity-weighted internal metric, downgrading the response to
+`INVALID_MOTION_PLAN` if any waypoint fails.
+
+**This port already has that component**: it is ported as
+[`moveit_planning::response_adapters::ValidateSolution`]
+(`crates/moveit-planning/src/response_adapters/validate_path.rs`),
+built on `moveit_scene::PlanningScene::is_path_valid`, a real
+collision check. The gap is composition, not a missing component:
+`moveit-planners-chomp::solve` is a bespoke function outside
+`moveit-planning`'s adapter pipeline (this crate's own `# Deviation:
+no moveit-scene, no moveit-planning dependency` module-doc note), so
+nothing in this workspace currently routes a CHOMP response through
+`ValidateSolution` before a caller treats it as accepted — the same
+missing dispatcher `ChompGoal`'s own doc comment already names as not
+existing yet. This matches upstream's own architecture exactly:
+`chomp_planner.cpp` alone has this identical gap and only closes it
+when composed inside `move_group`'s pipeline, so this is not a port
+regression, but it is a real, currently-unclosed gap in this
+workspace's own CHOMP-to-response-adapter wiring, worth naming
+explicitly here rather than leaving as a note on one function. Closing
+it belongs in a future planner-dispatcher crate wiring
+`moveit-planners-chomp::solve`'s output through
+`moveit-planning::response_adapters::ValidateSolution`, not in
+`get_collision_cost` or `optimize()`.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `src/optimizer.rs`, `get_collision_cost`'s velocity-weighted cost has no separate upstream start-state-collision guard | `chomp_planner.cpp:80` checks only `start_state.satisfiesBounds()`; upstream's real guard against a stationary in-collision (or otherwise silently-wrong) response is `default_planning_response_adapters::ValidateSolution`, a `move_group` planning-pipeline response adapter, not anything inside `chomp_planner.cpp`/`chomp_optimizer.cpp` | CONFIRMED | `chomp_planner.cpp:75-91` (start-state handling, only `satisfiesBounds()`) and `moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp:79-104` (`ValidateSolution::adapt`, `isPathValid` over the full trajectory) read directly | (this round, doc-only) |
 
 ## Background-agent audit — see `moveit-trajectory.md`
 
