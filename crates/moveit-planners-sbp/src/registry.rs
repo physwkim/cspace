@@ -2327,6 +2327,259 @@ mod tests {
         }
     }
 
+    /// `PORTING-PLAN.md` §195/§196: scenario 3's `(5, 5)` tie above is the
+    /// sweep's most interesting result, and until this test existed it was
+    /// only inferred from *plan* success, never measured at the sample
+    /// level. Two readings were proposed, both consistent with a tie and
+    /// with different consequences for what the wiring is worth: (a)
+    /// uniform joint-space sampling already satisfies the orientation-only
+    /// corridor often enough that an IK-backed sampler has real headroom to
+    /// help elsewhere but none here, or (b) the corridor as built is close
+    /// to *vacuous* for `panda_arm` at this pose -- satisfied by nearly
+    /// every configuration -- so a tie says nothing about the wiring at all
+    /// (§196: "the constraint was never binding" from another panel this
+    /// round, same failure shape). Measuring directly, at two different
+    /// granularities, shows **neither reading survives as originally
+    /// posed** -- the real explanation is a third thing, also measured
+    /// here rather than argued.
+    ///
+    /// # Measurement 1: global rate -- inconclusive, and that is itself the finding
+    ///
+    /// The fraction of independent uniform `panda_arm` joint-space draws
+    /// ([`crate::space::StateSpace::sample_uniform`] via
+    /// [`JointModelGroupSpace`], the same draw RRT-Connect's own
+    /// unconstrained branch takes) that satisfy each path constraint on its
+    /// own, no search involved:
+    ///
+    /// ```text
+    /// scenario 1 (position 0.008 sphere + orientation +/-0.03 rad): 0/20,000 satisfied
+    /// scenario 3 (orientation-only corridor, +/-0.05 rad, free position): 2/200,000 satisfied
+    /// ```
+    ///
+    /// This refutes (b): a vacuous corridor satisfied by nearly every
+    /// configuration would not need 200,000 draws to find 2 hits. It does
+    /// *not* clearly support (a) either -- scenario 3's rate (~1e-5) is not
+    /// reliably higher than scenario 1's (bounded above by roughly `3/20,000`
+    /// at zero hits, the standard rule-of-thumb upper bound), so an
+    /// independent global sample cannot explain why scenario 3 solves 5/5
+    /// unwired while scenario 1 solves only 1/5: by this measurement the two
+    /// corridors are comparably, vanishingly rare, yet the plan-level
+    /// outcomes differ by 4/5. Global sample density is the wrong quantity
+    /// to explain RRT-Connect's actual behavior with.
+    ///
+    /// # Measurement 2: local step acceptance -- the quantity that actually matches RRT-Connect
+    ///
+    /// [`crate::rrt_connect::rrt_connect`]'s own `extend` never draws an
+    /// independent global sample and asks whether *it* satisfies the
+    /// corridor; it takes a `step_size`-bounded step from an *existing tree
+    /// node already inside the corridor* toward a random target, and only
+    /// that bounded step needs to stay valid. This measures exactly that:
+    /// starting at `true_values` (`target_pose`'s own joint configuration,
+    /// so it trivially satisfies both scenarios' constraints at 0
+    /// deviation, a valid interior point for either without extra IK
+    /// solving), one `step_size = 0.03` (`scenario1_budget`'s own value)
+    /// random joint perturbation per draw, checked against the same
+    /// scenario's constraint:
+    ///
+    /// ```text
+    /// scenario 1: 1,837/20,000 accepted (9.2%)
+    /// scenario 3: 16,586/20,000 accepted (83.0%)
+    /// ```
+    ///
+    /// This is the number that actually explains the tie. Locally, a
+    /// scenario-3 step stays inside the corridor roughly 9x more often than
+    /// a scenario-1 step -- position pins the corridor to a 0.008-radius
+    /// ball in 3 more dimensions than orientation alone constrains, so a
+    /// random `step_size`-sized move is far more likely to wander back out
+    /// of scenario 1's corridor than out of scenario 3's. That is reading
+    /// (a) -- uniform local exploration genuinely has more headroom in
+    /// scenario 3 -- but the *global* draw rate (measurement 1) does not
+    /// show it; only the *local*, already-inside-the-corridor rate does,
+    /// because that is what tree growth actually samples against. 83% also
+    /// refutes (b) precisely: a vacuous constraint would accept close to
+    /// 100% of local steps, not 83% -- the orientation window is genuinely
+    /// binding, just far less so locally than scenario 1's tighter
+    /// position+orientation window. Reading (a) is correct, but the
+    /// evidence for it is measurement 2, not measurement 1 -- a caution
+    /// against inferring "the sampler has no headroom" from a global rate
+    /// when the search itself never actually draws globally once inside a
+    /// region.
+    #[test]
+    fn scenario3_orientation_only_corridor_sample_level_satisfaction_rate() {
+        use moveit_constraints::{OrientationConstraint, OrientationTolerance, PositionConstraint};
+        use moveit_geometry::{Sphere, Transforms, Vector3};
+        use moveit_state::Posed;
+
+        const PANDA_ARM_JOINTS: [&str; 7] = [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ];
+
+        fn fk_pose(model: &RobotModel, values: &[f64]) -> Isometry3 {
+            let mut state = RobotState::new(model);
+            state.set_to_default_values();
+            for (name, &v) in PANDA_ARM_JOINTS.iter().zip(values) {
+                state.set_variable_position(name, v).unwrap();
+            }
+            state.update().global_link_transform("panda_link8").unwrap()
+        }
+
+        fn satisfaction_rate(
+            model: &RobotModel,
+            space: &JointModelGroupSpace,
+            n: u32,
+            seed: u64,
+            check: impl Fn(&Posed) -> bool,
+        ) -> u32 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let mut satisfied = 0u32;
+            for _ in 0..n {
+                let candidate = space.sample_uniform(&mut rng);
+                let mut state = RobotState::new(model);
+                state.set_to_default_values();
+                space.write_robot_state(&candidate, &mut state);
+                let posed = state.update();
+                if check(&posed) {
+                    satisfied += 1;
+                }
+            }
+            satisfied
+        }
+
+        let (model, _srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+        let tf = Transforms::new("world").unwrap();
+        // Scenario 1's own rate is already unmeasurably rare at 20,000
+        // draws (see below); scenario 3's needs more draws for the count
+        // itself to be a stable estimate rather than noise on a single hit.
+        let n1 = 20_000u32;
+        let n3 = 200_000u32;
+
+        // Scenario 1's own path constraint, rebuilt identically (same
+        // target_pose, same tolerances) to the sweep above.
+        let true_values = [0.3, -0.4, 0.2, -1.9, 0.1, 1.2, 0.5];
+        let target_pose = fk_pose(&model, &true_values);
+        let pc1 = PositionConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+            &[(Shape::Sphere(Sphere::new(0.008).unwrap()), target_pose)],
+            1.0,
+        )
+        .unwrap();
+        let oc1 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.03,
+                y: 0.03,
+                z: 0.03,
+            },
+            1.0,
+        )
+        .unwrap();
+        let scenario1_satisfied = satisfaction_rate(&model, &space, n1, 11, |posed| {
+            pc1.decide(posed).satisfied && oc1.decide(posed).satisfied
+        });
+
+        // Scenario 3's own path constraint, rebuilt identically
+        // (orientation-only, position free).
+        let oc3 = OrientationConstraint::new(
+            &model,
+            &tf,
+            "panda_link8",
+            "world",
+            target_pose.rotation,
+            OrientationTolerance::RotationVector {
+                x: 0.05,
+                y: 0.05,
+                z: 0.05,
+            },
+            1.0,
+        )
+        .unwrap();
+        let scenario3_satisfied =
+            satisfaction_rate(&model, &space, n3, 12, |posed| oc3.decide(posed).satisfied);
+
+        // Second measurement: not "does an independent global draw land in
+        // the corridor" but "starting from a point already known to be
+        // inside it, does one step_size-sized random joint perturbation
+        // stay inside" -- the quantity RRT-Connect's own tree growth
+        // actually depends on (`extend`'s `step_size`-bounded move from an
+        // existing tree node), not one-shot global sampling. `true_values`
+        // is exactly `target_pose`'s own joint configuration, so it
+        // trivially satisfies both scenarios' constraints (0 deviation)
+        // and is a valid interior point for both without extra IK solving.
+        fn local_step_acceptance_rate(
+            model: &RobotModel,
+            n: u32,
+            seed: u64,
+            interior: &[f64],
+            step_size: f64,
+            check: impl Fn(&Posed) -> bool,
+        ) -> u32 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let mut accepted = 0u32;
+            for _ in 0..n {
+                let step: Vec<f64> = interior
+                    .iter()
+                    .map(|&v| v + rng.random_range(-step_size..step_size))
+                    .collect();
+                let mut state = RobotState::new(model);
+                state.set_to_default_values();
+                for (name, &v) in PANDA_ARM_JOINTS.iter().zip(&step) {
+                    state.set_variable_position(name, v).unwrap();
+                }
+                let posed = state.update();
+                if check(&posed) {
+                    accepted += 1;
+                }
+            }
+            accepted
+        }
+
+        let step_size = 0.03; // scenario1_budget's own step_size in the sweep above.
+        let n_local = 20_000u32;
+        let scenario1_local_accepted =
+            local_step_acceptance_rate(&model, n_local, 21, &true_values, step_size, |posed| {
+                pc1.decide(posed).satisfied && oc1.decide(posed).satisfied
+            });
+        let scenario3_local_accepted =
+            local_step_acceptance_rate(&model, n_local, 21, &true_values, step_size, |posed| {
+                oc3.decide(posed).satisfied
+            });
+
+        eprintln!(
+            "scenario3_orientation_only_corridor_sample_level_satisfaction_rate:\n\
+             \x20 global uniform draw:  scenario 1: {scenario1_satisfied}/{n1}, \
+             scenario 3: {scenario3_satisfied}/{n3}\n\
+             \x20 local step (from true_values, step_size {step_size}): \
+             scenario 1: {scenario1_local_accepted}/{n_local}, \
+             scenario 3: {scenario3_local_accepted}/{n_local}"
+        );
+
+        assert_eq!(
+            (
+                scenario1_satisfied,
+                scenario3_satisfied,
+                scenario1_local_accepted,
+                scenario3_local_accepted
+            ),
+            (0, 2, 1837, 16586),
+            "moved off the documented sample-level rates"
+        );
+    }
+
     /// The D8 equivalence determination this round's brief asked for:
     /// whether a concrete goal state is losslessly representable as "a set
     /// of `JointConstraint`s representing a single state," for the scalar
