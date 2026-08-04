@@ -20,7 +20,7 @@
 //! (`model.has_link_model`) resolves **mobile** (re-decided against the
 //! robot's current pose every time `decide()` runs, matching what upstream
 //! does for any frame that isn't the fixed world frame); (3) anything else
-//! is `Error::UnknownName("frame", ..)`. No wire message carries enough
+//! is `Error::UnknownName { kind: "frame", .. }`. No wire message carries enough
 //! information to register additional *fixed* frames (that needs a live
 //! `RobotState`/TF tree, not just a message) -- this is a deliberate,
 //! documented scope boundary for a message-only conversion, not an
