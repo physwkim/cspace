@@ -2202,6 +2202,27 @@ private:
   /// (`collision()` only raises `max_contacts`), so `contact_list` always
   /// holds exactly one entry per pair here; guarding on `empty()` rather
   /// than assuming that stays true if a future caller changes the request.
+  /// One `GradientInfo` as JSON. Split out so the attached-body gradient
+  /// slots report the same object shape as the per-link ones rather than a
+  /// second hand-written copy.
+  ///
+  /// `gradients` (the `std::vector<Eigen::Vector3d>` member) is deliberately
+  /// absent -- see `groupStateRepresentation`'s doc for why it holds
+  /// indeterminate bytes and cannot be compared against anything.
+  json gradientInfoToJson(const collision_detection::GradientInfo& g) const
+  {
+    json types_out = json::array();
+    for (collision_detection::CollisionType t : g.types)
+      types_out.push_back(static_cast<int>(t));
+    return json{ { "closest_distance", g.closest_distance },
+                 { "collision", g.collision },
+                 { "types", types_out },
+                 { "distances", g.distances },
+                 { "sphere_radii", g.sphere_radii },
+                 { "joint_name", g.joint_name },
+                 { "sphere_locations_count", g.sphere_locations.size() } };
+  }
+
   /// Add `request["objects"]` (optional, defaults to none) to `world`.
   ///
   /// The single-shape object schema `{id, pose, shape}` that `collision`,
@@ -3366,11 +3387,25 @@ private:
       req.max_contacts = request.value("max_contacts", static_cast<std::size_t>(100));
       req.max_contacts_per_pair = request.value("max_contacts_per_pair", static_cast<std::size_t>(1));
     }
+    const bool want_gradients = request.value("gradients", false);
+    if (want_gradients && want_contacts)
+      throw std::runtime_error("gradients and contacts are mutually exclusive: getCollisionGradients "
+                               "discards its CollisionResult (collision_env_distance_field.cpp:1517)");
+
     collision_detection::CollisionResult res;
-    if (use_acm)
+    if (want_gradients)
+    {
+      collision_detection::GroupStateRepresentationPtr fresh;
+      env.getCollisionGradients(req, res, *state_, use_acm ? &acm : nullptr, fresh);
+    }
+    else if (use_acm)
+    {
       env.checkCollision(req, res, *state_, acm);
+    }
     else
+    {
       env.checkCollision(req, res, *state_);
+    }
 
     collision_detection::GroupStateRepresentationConstPtr gsr = env.getLastGroupStateRepresentation();
     if (!gsr)
@@ -3412,22 +3447,23 @@ private:
                                                Eigen::Quaterniond(pose.linear()).x(), Eigen::Quaterniond(pose.linear()).y(),
                                                Eigen::Quaterniond(pose.linear()).z() });
 
-        const collision_detection::GradientInfo& g = gsr->gradients_[i];
-        json types_out = json::array();
-        for (collision_detection::CollisionType t : g.types)
-          types_out.push_back(static_cast<int>(t));
-        link_out["gradient"] = json{ { "closest_distance", g.closest_distance },
-                                      { "collision", g.collision },
-                                      { "types", types_out },
-                                      { "distances", g.distances },
-                                      { "sphere_radii", g.sphere_radii },
-                                      { "joint_name", g.joint_name },
-                                      { "sphere_locations_count", g.sphere_locations.size() } };
+        link_out["gradient"] = gradientInfoToJson(gsr->gradients_[i]);
       }
       links_out.push_back(link_out);
     }
 
     json out{ { "group_name", group_name }, { "links", links_out } };
+    if (want_gradients)
+    {
+      json attached_out = json::array();
+      for (std::size_t i = gsr->dfce_->link_names_.size(); i < gsr->gradients_.size(); ++i)
+      {
+        attached_out.push_back(
+            json{ { "name", gsr->dfce_->attached_body_names_.at(i - gsr->dfce_->link_names_.size()) },
+                  { "gradient", gradientInfoToJson(gsr->gradients_[i]) } });
+      }
+      out["attached_body_gradients"] = attached_out;
+    }
     if (want_contacts)
     {
       out["collision"] = res.collision;
