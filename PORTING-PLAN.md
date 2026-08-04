@@ -12072,3 +12072,64 @@ doc에 측정값과 함께 적었다.
 재현 가능하지만 침투 깊이를 측정한 값이 아니므로 fixture가 그렇게 읽으면
 안 된다. `gradients` 벡터(§ 이전 라운드에서 제외한, 정말 미정의인 값)와
 구분해서 기록한다.
+
+## §150 D10 기각 — 쪼갤 ROS-free 부분집합이 없다. 경계는 §144.2로 합친다
+
+§144.1에서 D10 후보로 적은 것은 "`ros/moveit-ros`의 ROS-비의존 conversion
+계층을 워크스페이스 멤버로 분리해서 `--workspace`가 타입 체크하게 한다"였다.
+p9-ros에게 파일별 `r2r` 참조 수를 세게 했고, 결과가 전제를 반증했다.
+
+내가 병합 후 직접 재현한 수치:
+
+```
+rg -c 'r2r' ros/moveit-ros/src/            → 14개 파일
+rg -n 'r2r::Node|r2r::Publisher|r2r::Subscriber|r2r::Client|r2r::Service|
+       r2r::ActionServer|Context::create|spin_once|create_(subscription|
+       publisher|service|client)' ros/moveit-ros/src/   → 0건
+```
+
+transport 심볼이 0건이라는 것은 "이 크레이트가 이미 ROS-free다"가 아니라
+**쪼갤 경계가 없다**는 뜻이다. 77건의 `r2r` 참조는 전부 (a) `use r2r::X::msg`
+타입 임포트와 (b) orphan rule 회피용 newtype 래퍼다. 즉 conversion 함수의
+시그니처마다 `r2r` 메시지 타입이 이름으로 등장한다 — 그게 이 크레이트의 존재
+이유다. ROS-free 부분집합은 공집합이다.
+
+그리고 이번 라운드에 경계는 **더 넓어졌다**. `ros/moveit-ros/Cargo.toml`이
+`moveit-scene`, `moveit-collision` path dep 2개를 추가해서 게이트 없는
+crates/ ↔ ros/ 경계가 6개 크레이트에서 8개로 늘었다.
+
+**결정: D10 기각.** §144.1의 갭은 닫히지 않았고, 닫는 방법은 하나뿐이다 —
+`ros/`를 실제로 컴파일하는 게이트. 그건 ROS 이미지가 필요하고, 이미지는 CI의
+docker가 필요하고, 그건 레지스트리/remote가 필요하다. 즉 §144.2와 같은
+블로커다. §144.1을 별도 항목으로 두지 않고 §144.2에 합친다.
+
+깨지는 방식 자체는 문제가 아니라는 점을 적어둔다. crates/의 구조체에 필드가
+추가되면 ros/의 생성 지점이 `error[E0063]`로 **컴파일 에러**를 낸다 — 정확히
+원하는 신호다. `..Default::default()`로 그걸 삼키는 것이 진짜 결함이고,
+라운드 3 항목 0이 그걸 제거했다. 남은 문제는 "아무도 컴파일하지 않는다" 하나뿐이며,
+우회는 사람이 매 병합마다 `sg docker -c 'ros/verify-ros-interop.sh'`를 돌리는
+것이다 — 실제로 이번 병합에서 돌렸고 `all gates passed`, 92 tests 통과.
+이건 workaround이지 구조적 닫힘이 아니다.
+
+### 150.1 `PlanningScene`에 world 변경 접근자가 없어서 ROS 연산 2개가 막혔다
+
+p9-ros의 UNFIXED 중 하나를 원본에 대고 확인했다. 사실이고, 막는 쪽은 ros/가
+아니라 **우리 crates/**다.
+
+`moveit_scene::PlanningScene::world()`(`scene.rs:951`)는 `&World`만 돌려준다.
+`world_mut`은 없다(`rg`로 확인, 0건). 그런데 필요한 두 연산은 `World`에
+`pub`으로 있다 — `move_shapes_in_object`(`world.rs:560`),
+`set_subframes_of_object`(`world.rs:690`). 즉 크레이트 밖에서 도달 불가다.
+
+`world_mut()`을 추가하는 것이 답이 **아니다**. 이 씬은 의도적으로 raw
+`&mut World`가 아니라 연산별 래퍼를 노출한다 — `add_shape`(`:974`),
+`move_object`(`:981`), `remove_object`(`:994`), `remove_all_objects`(`:1006`).
+각 래퍼는 `World`의 알림/무효화 결과를 받아 씬 상태에 반영한다. `&mut World`를
+그대로 내주면 그 경로를 우회할 수 있게 된다.
+
+**따라서 할 일은 같은 패턴의 씬 레벨 연산 2개 추가**이며, 소유자는
+`moveit-scene`을 가진 p1-fixtures다. p9-ros가 아니다. 다음 라운드 항목으로 넘긴다.
+
+부수적으로, p9-ros가 "upstream 자체가 미구현"이라 적은 AttachedCollisionObject의
+MOVE도 원본에서 확인했다: `planning_scene.cpp:1762-1765`가 통째로
+`RCLCPP_ERROR("Move for attached objects not yet implemented")`다. 정확한 진술이다.
