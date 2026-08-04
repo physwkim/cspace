@@ -221,6 +221,42 @@
 //! at all (see the symbol-by-symbol audit above), so there is nothing there
 //! for an oracle op to confirm.
 //!
+//! **Round 19, item 3 -- re-surveyed exhaustively, not re-answered with the
+//! same one item.** `octree_points`'s `leaves` field closes exactly the one
+//! gap above (`leaves_matches_liboctomap_leaf_iterator_order_and_fields`) and
+//! nothing further in this crate's own audit: every other `argued`-tagged
+//! item from round 18's survey was already re-checked and found
+//! already-measured (previous paragraph), and `rg -n "argued|not measured|
+//! inferred|by argument"` across both crates' `src/` this round surfaces no
+//! new candidate beyond what round 18 already covered.
+//!
+//! One related item surveyed and found genuinely still argued-only, but NOT
+//! closeable by `octree_points` as it exists today:
+//! [`OcTree::leaves_in_bbx`] (`LeavesInBbx`, upstream `leaf_bbx_iterator`,
+//! public in `OcTreeIterator.hxx`, reachable the same way `leaf_iterator`
+//! is). Its own unit tests
+//! (`leaves_in_bbx_only_yields_leaves_overlapping_the_box`,
+//! `leaves_in_bbx_returns_none_for_an_out_of_range_corner`) are
+//! self-consistency only. `moveit-distance-field`'s own `octree_points`
+//! function calls [`OcTree::leaves_in_bbx`] internally, and its output is
+//! oracle-verified bit-for-bit by that crate's own
+//! `octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases`
+//! -- real, but indirect: that test pins the *subdivided point list* a
+//! consumer builds from `leaves_in_bbx`'s output, not
+//! `leaves_in_bbx`'s own key/coordinate/size/occupied fields or its
+//! traversal order field-by-field, the way `leaves_parity.rs` now does for
+//! the unrestricted walk. `octree_points`'s oracle op always walks
+//! `tree.begin_leafs()`/`end_leafs()` unrestricted (`oracle.cpp`'s
+//! `octreePoints`) -- it has no bbox parameter, so it cannot directly
+//! exercise `begin_leafs_bbx()`/`end_leafs_bbx()` the way it now does for
+//! the plain walk. **Oracle extension request, text only (not applied --
+//! `tools/moveit-oracle/` is the orchestrator's):** an optional `bbx: {min:
+//! [f64;3], max: [f64;3]}` field on the `octree_points` request that, when
+//! present, walks `tree.begin_leafs_bbx(min, max)`/`end_leafs_bbx()` instead
+//! of the unrestricted walk for the `leaves` output, so a
+//! `leaves_in_bbx_parity.rs` symmetric to `leaves_parity.rs` becomes
+//! possible.
+//!
 //! **`assert_relative_eq!` reckoning (round 18, item 2).** This crate has
 //! **zero** calls, not counted by `rg -c` (which mixes doc-comment mentions
 //! into the total, the exact class PORTING-PLAN.md §73.1/§83.3/§92/§104.1
