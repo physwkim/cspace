@@ -32,6 +32,10 @@ authors = ["moveit-rs contributors"]
 [workspace.dependencies]
 moveit-collision = { path = "crates/moveit-collision", version = "0.1.0" }
 moveit-constraints = { path = "crates/moveit-constraints", version = "0.1.0" }
+# For moveit-planners-chomp's ChompOptimizer, whose only use of upstream's
+# `CollisionEnvHybrid` is a getCollisionGradients call that forwards to
+# CollisionEnvDistanceField -- see PORTING-PLAN.md §139.
+moveit-distance-field = { path = "crates/moveit-distance-field", version = "0.1.0" }
 moveit-error = { path = "crates/moveit-error", version = "0.1.0" }
 moveit-geometry = { path = "crates/moveit-geometry", version = "0.1.0" }
 moveit-kinematics = { path = "crates/moveit-kinematics", version = "0.1.0" }
