@@ -98,6 +98,85 @@ pub fn apply_planning_scene_world(
 /// gaps" list for the full requirements spec this crate has written for
 /// `moveit-octomap`'s owner (API signature, upstream file:line citations,
 /// this call site, and the verification approach) -- not implemented here.
+///
+/// # Round 7 prep: dispatch shape and test plan for when the decoder lands
+///
+/// Not implemented this round (`p3-shapes` has not yet added the two entry
+/// points) -- written down now so the decoder can be plugged in without
+/// re-deriving this shape. `moveit_scene::PlanningScene::add_shape(&mut self,
+/// id: &str, shape: Arc<Shape>, pose: Isometry3)` (`crates/moveit-scene/src/scene.rs:968`)
+/// is the existing insertion call `apply_collision_object` already uses for
+/// every other shape kind (`src/scene/collision_object.rs:382`) -- the
+/// octomap path is not a new insertion mechanism, just a new [`Shape`]
+/// variant (`Shape::OcTree`, see `crates/moveit-collision/src/octomap_filter.rs`'s
+/// own test helper `object_with_octree` for the exact construction:
+/// `OcTreeShape::from_tree(Arc::new(tree))` wrapped in `Shape::OcTree`).
+///
+/// Once `OcTree::read_binary_data(&mut self, &[u8]) -> Result<(), E>` /
+/// `read_data(&mut self, &[u8]) -> Result<(), E>` exist, the current final
+/// `Err(Error::other(...))` branch becomes:
+///
+/// ```text
+/// let mut tree = moveit_octomap::OcTree::new(map.octomap.resolution);
+/// let bytes: Vec<u8> = map.octomap.data.iter().map(|&b| b as u8).collect();
+/// let decode_result = if map.octomap.binary {
+///     tree.read_binary_data(&bytes)
+/// } else {
+///     tree.read_data(&bytes)
+/// };
+/// decode_result.map_err(|e| Error::other(format!("octomap payload decode failed: {e}")))?;
+/// let origin = Isometry3::try_from(Pose(map.origin))?;
+/// let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(tree)));
+/// scene.add_shape(OCTOMAP_NS, Arc::new(shape), origin);
+/// Ok(())
+/// ```
+///
+/// `data: Vec<i8>` (ROS has no unsigned byte array type) needs the
+/// `as u8` recast shown above before either entry point sees it --
+/// `octomap_msgs::readTree`/`readData` treat the wire bytes as raw octets,
+/// not signed values; the `i8` on the Rust side is purely `r2r`'s message
+/// binding, not a semantic sign.
+///
+/// The `map.octomap.id != "OcTree"` check stays exactly as-is above this
+/// dispatch -- unaffected by which entry point decodes the payload.
+///
+/// Test plan (`mod tests` below):
+/// - [`empty_collision_objects_and_empty_octomap_is_a_no_op`] and
+///   [`non_octree_octomap_type_is_rejected`] are unchanged: neither reaches
+///   the binary/full dispatch (empty-data early return / wrong-`id` early
+///   return both happen before it).
+/// - `nonempty_octree_payload_names_the_structural_gap` is retired under
+///   that name and that framing -- once the entry points exist, `vec![1, 2,
+///   3]` is no longer "any non-empty payload is rejected because nothing is
+///   implemented," it is *malformed* input to a real decoder. Replace it
+///   with `malformed_octree_payload_is_rejected`: same fixture bytes, same
+///   `octomap_with_pose("OcTree", vec![1, 2, 3])`, same
+///   `assert!(matches!(err, Error::Other(_)))`, but the assertion now
+///   documents "the decoder rejects a corrupt/truncated stream," not "no
+///   decoder exists." If `moveit-octomap`'s decoder happens to accept
+///   `[1, 2, 3]` as a (degenerate but valid) bitstream instead of erroring,
+///   this fixture stops being a valid malformed-payload probe and needs
+///   different bytes -- that is a real finding to report when this lands,
+///   not an assumption to bake in now.
+/// - Add `binary_octree_payload_is_decoded_and_inserted`: `binary: true`,
+///   `data` from an oracle-captured fixture (`octomap_msgs::binaryMsgFromMap`
+///   against a small tree with a handful of updated nodes, per
+///   `doc/message-mapping.md`'s "Structural gaps" list, same byte-fixture
+///   pattern as §149/§157). Assert `scene.world().get_object(OCTOMAP_NS)`
+///   exists and its `Shape::OcTree` tree's leaf occupancy (via
+///   `moveit-octomap`'s `src/iter.rs` leaf iteration, not a raw byte
+///   comparison -- the format is lossy at `clamping_thres_min`/`_max`)
+///   matches the oracle's tree.
+/// - Add `full_octree_payload_is_decoded_and_inserted`: identical shape,
+///   `binary: false`, oracle bytes from `fullMsgToMap`, decoded via
+///   `read_data` instead of `read_binary_data`.
+/// - Add `octomap_replaces_any_previous_octree_at_the_reserved_id`: two
+///   calls to `apply_planning_scene_world` with different non-empty
+///   payloads, asserting the second's tree content -- not the first's --
+///   is what `scene.world().get_object(OCTOMAP_NS)` holds afterward. This
+///   exercises the `let _ = scene.remove_object(OCTOMAP_NS);` line at the
+///   top of this function, which today only ever discards an empty world
+///   (no test yet inserts anything at `OCTOMAP_NS` to be replaced).
 fn apply_octomap(
     scene: &mut PlanningScene<'_>,
     map: r2r::octomap_msgs::msg::OctomapWithPose,
