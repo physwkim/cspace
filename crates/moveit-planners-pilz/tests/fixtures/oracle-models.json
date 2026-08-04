@@ -3,6 +3,10 @@
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "panda_blend_radius08": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_blend_symmetric": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"

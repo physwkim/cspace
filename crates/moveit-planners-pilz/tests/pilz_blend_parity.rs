@@ -18,6 +18,12 @@
 //! (`8 == 8`), asymmetric hits `way_point_count_1 > way_point_count_2`
 //! (`8 > 4`) -- see PORTING-PLAN.md §188.2 for both cases' measured indices.
 //!
+//! A third case moves the geometry rather than the speeds, per
+//! `doc/oracle-request-pilz-blend-geometry.md`: `panda_blend_radius08`
+//! (case C) raises `blend_radius` to `0.08`, moving the intersection
+//! indices to `(5, 10)` so the two walks are exercised somewhere other than
+//! the single `(8, 7)` point A/B pin them at.
+//!
 //! # No `blend_align_index` field, by design -- see PORTING-PLAN.md §188
 //!
 //! The request document asked for `blend_align_index` alongside the two
@@ -230,26 +236,36 @@ fn load_panda() -> (RobotModel, SrdfModel) {
 /// tolerances from measurement".
 const TIME_TOLERANCE: f64 = 1e-6;
 
-/// Measured max divergence across both fixture cases: `2.28e-9`. Unlike
-/// `pilz_trajectory_lin_parity.rs`'s `POSITION_TOLERANCE` (`1.26e-5`
-/// measured, budgeting for panda_arm's redundant-kinematics IK-solver
-/// divergence), `first_trajectory`/`second_trajectory` here are truncated
-/// copies of waypoints a LIN segment already solved (no second independent
-/// IK solve to diverge from), and `blend_trajectory`'s own IK solves
-/// converge far more tightly on this fixture's geometry. Set with a
-/// roughly 4x margin over the measured maximum, not copied from LIN's
-/// number.
+/// Measured max divergence across the three succeeding fixture cases:
+/// `5.46e-9`, at case C (`panda_blend_radius08`); cases A/B measure
+/// `2.28e-9`/`1.84e-9`. Unlike `pilz_trajectory_lin_parity.rs`'s
+/// `POSITION_TOLERANCE` (`1.26e-5` measured, budgeting for panda_arm's
+/// redundant-kinematics IK-solver divergence),
+/// `first_trajectory`/`second_trajectory` here are truncated copies of
+/// waypoints a LIN segment already solved (no second independent IK solve
+/// to diverge from), and `blend_trajectory`'s own IK solves converge far
+/// more tightly on this fixture's geometry.
+///
+/// The value is **not** raised to restore the roughly-4x margin it carried
+/// when only cases A/B existed; case C leaves it at about `1.8x`. Both
+/// sides are deterministic here (no sampling, no seeded search), so the
+/// margin buys nothing but blindness: widening to `2.5e-8` to keep a round
+/// multiple would make the test unable to see a real `1e-8`-scale
+/// regression that case C has just shown is within reach of this geometry.
+/// PORTING-PLAN.md §207.
 const POSITION_TOLERANCE: f64 = 1e-8;
 
 /// Backward-difference velocity amplifies [`POSITION_TOLERANCE`] by roughly
 /// `1 / sampling_time` (`0.1` here), the same chain LIN's own
-/// `VELOCITY_TOLERANCE` documents. Measured max divergence across both
-/// fixture cases: `1.96e-8`. Set with a roughly 4x margin.
+/// `VELOCITY_TOLERANCE` documents. Measured max divergence across the three
+/// succeeding fixture cases: `1.96e-8` (case A; case C measures `1.95e-8`,
+/// case B `2.95e-10`). Set with a roughly 4x margin.
 const VELOCITY_TOLERANCE: f64 = 8e-8;
 
 /// The same backward-difference chain's acceleration term divides by
-/// `sampling_time` again. Measured max divergence across both fixture
-/// cases: `2.91e-7`. Set with a roughly 4x margin.
+/// `sampling_time` again. Measured max divergence across the three
+/// succeeding fixture cases: `2.91e-7` (case A; case C measures `1.01e-7`,
+/// case B `2.53e-9`). Set with a roughly 4x margin.
 const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
 
 /// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
@@ -496,4 +512,14 @@ fn blend_panda_arm_symmetric_matches_the_oracle() {
 #[test]
 fn blend_panda_arm_asymmetric_matches_the_oracle() {
     run_case("panda_blend_asymmetric");
+}
+
+/// Case C: case A's exact geometry and speeds with `blend_radius` raised
+/// from `0.05` to `0.08`, moving both intersection indices off the single
+/// `(8, 7)` point cases A/B pin them at -- see
+/// `doc/oracle-request-pilz-blend-geometry.md`'s own case C section for why
+/// `0.08` and not one of the three other radii swept locally.
+#[test]
+fn blend_panda_arm_radius08_matches_the_oracle() {
+    run_case("panda_blend_radius08");
 }
