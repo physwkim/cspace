@@ -2146,8 +2146,10 @@ private:
   /// what parity asserts equal. `max_contacts` is raised from the
   /// default-constructed `1` so more than one simultaneously-contacting pair
   /// is nameable, not just the first the backend happens to visit;
-  /// `max_contacts_per_pair` stays at its default `1` since only one
-  /// representative contact per pair is needed to name it. Both
+  /// `max_contacts_per_pair` is a request field defaulting to `1`, raised
+  /// when a caller needs to see whether FCL's narrow phase picked a different
+  /// contact than an exhaustive search would (see its comment in the handler
+  /// body, and p3-acm's case 623). Both
   /// `DistanceRequest`s set `enable_signed_distance = true`: a request that
   /// left it `false` could never surface deviation 6 (this port's
   /// single-`query::contact()`-call signed distance versus FCL's `distance`
@@ -2171,15 +2173,30 @@ private:
 
     collision_detection::CollisionEnvFCL env(model_, world);
 
+    // Requested by p3-acm to settle case 623 of the seed-4 pr2 sweep, where
+    // this op reports a deep `robot_distance` for the same (cone, link) pair
+    // whose own deepest triangle, fed to libccd's MPR directly, reads a
+    // plateau value. The candidate explanation is that FCL's narrow phase
+    // reported a *different* triangle than the port's exhaustive search
+    // found, and at `max_contacts_per_pair = 1` -- MoveIt's own default, and
+    // this op's until now -- that is unobservable: exactly one contact per
+    // pair comes back and there is nothing to compare it against.
+    const std::size_t max_contacts_per_pair =
+        request.value("max_contacts_per_pair", static_cast<std::size_t>(1));
+    if (max_contacts_per_pair == 0)
+      throw std::runtime_error("max_contacts_per_pair must be >= 1");
+
     collision_detection::CollisionRequest self_req;
     self_req.contacts = true;
     self_req.max_contacts = 100;
+    self_req.max_contacts_per_pair = max_contacts_per_pair;
     collision_detection::CollisionResult self_res;
     env.checkSelfCollision(self_req, self_res, *state_, acm);
 
     collision_detection::CollisionRequest robot_req;
     robot_req.contacts = true;
     robot_req.max_contacts = 100;
+    robot_req.max_contacts_per_pair = max_contacts_per_pair;
     collision_detection::CollisionResult robot_res;
     env.checkRobotCollision(robot_req, robot_res, *state_, acm);
 
@@ -2199,11 +2216,23 @@ private:
       { "self_collision", self_res.collision },
       { "self_distance", self_dres.minimum_distance.distance },
       { "self_distance_pair", distancePairToJson(self_dres.minimum_distance, *world) },
-      { "self_contacts", contactsToJson(self_res.contacts, *world) },
+      // `allContactsToJson`, not `contactsToJson`, on both of these -- and
+      // that is not a fixture-rewriting change. `contactsToJson` emits one
+      // entry per non-empty pair (`contact_list.front()`); `allContactsToJson`
+      // emits every element of every list, in the same `ContactMap` iteration
+      // order. At `max_contacts_per_pair == 1` no list holds more than one
+      // element, so the two produce the identical array by construction, which
+      // is what keeps every fixture committed before this field existed
+      // byte-identical and what `verify-fixture-replay.sh` checks. Making the
+      // dump follow the field instead of branching on it keeps one rule here
+      // -- "report up to `max_contacts_per_pair` contacts per pair" -- rather
+      // than a response shape that means different things depending on a
+      // request value.
+      { "self_contacts", allContactsToJson(self_res.contacts, *world) },
       { "robot_collision", robot_res.collision },
       { "robot_distance", robot_dres.minimum_distance.distance },
       { "robot_distance_pair", distancePairToJson(robot_dres.minimum_distance, *world) },
-      { "robot_contacts", contactsToJson(robot_res.contacts, *world) },
+      { "robot_contacts", allContactsToJson(robot_res.contacts, *world) },
     };
   }
 
@@ -3580,6 +3609,24 @@ private:
   /// measurement. And `body_name_2` is frequently not a body: see
   /// `shapeKindsFor`'s doc for the `"self"`/`"environment"` sentinels and the
   /// `null` `shape_kinds` they produce.
+  ///
+  /// `mode` (optional, `"collision"` by default, `"robot_only"` the only
+  /// other value) selects `checkRobotCollision` instead of `checkCollision`.
+  /// Requested by `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md`:
+  /// `checkRobotCollision` had never been called through any op, so
+  /// `getEnvironmentCollisions`' distance/contact-recording logic had no
+  /// oracle evidence behind it at all, in either direction. Absent, the
+  /// dispatch is byte-for-byte the one every pre-existing fixture ran, which
+  /// is what `verify-fixture-replay.sh` checks after the rebuild this field
+  /// forced.
+  ///
+  /// `mode` is not orthogonal to `use_acm` on this path and a fixture author
+  /// has to know that. `checkRobotCollision`'s no-acm overload calls
+  /// `generateCollisionCheckingStructures(..., gsr, false)` and the acm
+  /// overload passes `true` (`collision_env_distance_field.cpp:1462` vs
+  /// `:1489`) -- the last argument is `generate_distance_field`, so dropping
+  /// the acm also drops a structure, not just a filter. `checkCollision`'s own
+  /// two overloads do not differ that way.
   json groupStateRepresentation(const json& request)
   {
     applyJointValues(request);
@@ -3610,11 +3657,50 @@ private:
       throw std::runtime_error("gradients and contacts are mutually exclusive: getCollisionGradients "
                                "discards its CollisionResult (collision_env_distance_field.cpp:1517)");
 
+    // `mode` selects which of `CollisionEnvDistanceField`'s entry points this
+    // op drives. Absent (the default) is `checkCollision`, i.e. every fixture
+    // committed before this field existed; `"robot_only"` is
+    // `checkRobotCollision`, upstream's own name for "against the environment
+    // only". Named after the method rather than given as a boolean so a third
+    // entry point does not have to break the shape later.
+    //
+    // Mutually exclusive with `gradients` for the same reason that field is
+    // already exclusive with `contacts`: `getCollisionGradients` and
+    // `checkRobotCollision` are different upstream calls, not two flags on one
+    // call. Rejected rather than silently ordered, so a request that asks for
+    // both gets an error instead of whichever branch happens to be tested
+    // first.
+    //
+    // Both `checkRobotCollision` overloads set `last_gsr_`
+    // (`collision_env_distance_field.cpp:1468,1497`), so the response-dumping
+    // code below needs no change to serve this branch --
+    // `getLastGroupStateRepresentation()` is populated either way. They are
+    // not otherwise symmetric and this op cannot hide that: the no-acm form
+    // reaches `generateCollisionCheckingStructures(..., gsr, false)` while the
+    // acm form passes `true` for that last argument (`:1462` vs `:1489`), so
+    // `use_acm` selects more than whether the matrix is consulted.
+    const std::string mode = request.value("mode", std::string("collision"));
+    if (mode != "collision" && mode != "robot_only")
+      throw std::runtime_error("unknown mode: " + mode + " (expected \"collision\" or \"robot_only\")");
+    const bool robot_only = mode == "robot_only";
+    if (robot_only && want_gradients)
+      throw std::runtime_error("mode=robot_only and gradients are mutually exclusive: checkRobotCollision "
+                               "and getCollisionGradients are different upstream calls "
+                               "(collision_env_distance_field.cpp:1454,1527)");
+
     collision_detection::CollisionResult res;
     if (want_gradients)
     {
       collision_detection::GroupStateRepresentationPtr fresh;
       env.getCollisionGradients(req, res, *state_, use_acm ? &acm : nullptr, fresh);
+    }
+    else if (robot_only && use_acm)
+    {
+      env.checkRobotCollision(req, res, *state_, acm);
+    }
+    else if (robot_only)
+    {
+      env.checkRobotCollision(req, res, *state_);
     }
     else if (use_acm)
     {
