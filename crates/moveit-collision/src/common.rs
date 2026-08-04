@@ -583,7 +583,6 @@ impl CollisionResult {
     pub fn merge(&mut self, other: Self) {
         self.collision |= other.collision;
         self.distance = match (self.distance.take(), other.distance) {
-            (None, None) => None,
             (a, None) => a,
             (None, b) => b,
             (Some(a), Some(b)) => Some(a.combine_closest(b)),
