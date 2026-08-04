@@ -49,15 +49,22 @@
 //!
 //! `pipeline_parameters_.planning_plugins` can name more than one planner,
 //! run in sequence — not a fallback chain (try the next on failure), a
-//! *pipeline* (every planner must succeed). Before calling the second and
-//! every later planner, upstream overwrites the mutable request:
-//! `mutable_request.trajectory_constraints.constraints =
-//! getTrajectoryConstraints(res.trajectory)` (cpp:301) — the *next*
-//! planner's request is built from the *previous* planner's successful
-//! trajectory, not from the original caller-supplied request. [`generate_plan`]
-//! below reproduces this with a private `trajectory_constraints_for` helper
-//! (porting `getTrajectoryConstraints`, `planning_pipeline.cpp:57-73`) called between
-//! successive [`Planner::plan`] calls, never before the first. See
+//! *pipeline* (every planner must succeed). Before calling *every* planner,
+//! upstream checks `if (res.trajectory)` (cpp:299) and, only if it's set,
+//! overwrites the mutable request: `mutable_request.trajectory_constraints.constraints
+//! = getTrajectoryConstraints(res.trajectory)` (cpp:301) — the gate is on
+//! whether `res` (a caller-supplied `MotionPlanResponse&`, not locally
+//! constructed) already carries a trajectory, not on loop position. In the
+//! normal case a freshly-called pipeline's `res` starts empty, so this is a
+//! no-op for the first planner and fires from the second one on, once a
+//! prior planner has succeeded — but a caller who pre-populates `res.trajectory`
+//! before calling would make it fire on the first planner too.
+//! [`generate_plan`] below reproduces the same state-based trigger with a
+//! private `trajectory_constraints_for` helper (porting
+//! `getTrajectoryConstraints`, `planning_pipeline.cpp:57-73`) called between
+//! successive [`Planner::plan`] calls, never before the first — this port's
+//! `response` starts empty on every call, so the two conditions coincide
+//! here even though upstream's gate is not itself positional. See
 //! "Semantic-1 tests" below for the two-planner regression that proves the
 //! second request is actually rewritten, not merely eligible to be.
 //!
