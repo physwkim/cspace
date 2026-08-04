@@ -300,7 +300,7 @@ pub enum PipelineError {
 /// # Weight and tolerance: the effective value, not the literal one
 ///
 /// Upstream builds a default-constructed `moveit_msgs::msg::JointConstraint`
-/// per joint and sets only `joint_name`/`position` (cpp:68-70); every other
+/// per joint and sets only `joint_name`/`position` (cpp:71-73); every other
 /// field — `tolerance_above`/`tolerance_below`/`weight` — stays at the ROS
 /// message default of `0.0`. That literal `0.0` is not what a
 /// `kinematic_constraints::JointConstraint` actually evaluates once
