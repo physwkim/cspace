@@ -204,14 +204,45 @@ pub struct DistanceGradient {
 /// above plus [`crate::find_internal_points_convex`]/`octree_points` —
 /// matching upstream's own placement of
 /// `getShapePoints`/`addShapeToField`/`moveShapeInField`/`addOcTreeToField`
-/// as non-virtual methods on the `DistanceField` base class. The shape
-/// methods accept exactly the shape variants
-/// [`moveit_geometry::bodies::Body::from_shape`] supports
-/// (`Sphere`/`Cylinder`/`Cuboid`/`Mesh`), returning
-/// [`moveit_error::Error::Construct`] for [`Shape::Cone`], [`Shape::Plane`]
-/// and [`Shape::OcTree`] rather than upstream's null-deref on those —
-/// matching upstream's own `createEmptyBodyFromShapeType`, which has no
-/// case for them. [`DistanceField::add_octree_to_field`] takes a
+/// as non-virtual methods on the `DistanceField` base class. For
+/// [`Shape::Sphere`]/[`Shape::Cylinder`]/[`Shape::Cuboid`]/[`Shape::Mesh`],
+/// all three go through [`moveit_geometry::bodies::Body::from_shape`], the
+/// same as upstream's `createEmptyBodyFromShapeType`.
+///
+/// Upstream does *not* treat [`Shape::Cone`], [`Shape::Plane`] and
+/// [`Shape::OcTree`] uniformly, so this port does not either (round 26: the
+/// exhaustive upstream-absence audit found the prior blanket claim here —
+/// that all three get [`moveit_error::Error::Construct`] "matching
+/// upstream's own null-deref" — was only true for `Cone`/`Plane`, and false
+/// for two of `OcTree`'s three call sites):
+///
+/// - [`DistanceField::add_shape_to_field`] special-cases [`Shape::OcTree`]:
+///   `distance_field.cpp:211-220`'s `getShapePoints` branches on
+///   `shape->type == shapes::OCTREE` *before* reaching
+///   `createEmptyBodyFromShapeType`, and calls `getOcTreePoints` against
+///   this field's own grid extent instead — ignoring `pose` entirely, since
+///   `getOcTreePoints` (this port's `octree_points`) never reads it either.
+///   This port's `add_shape_to_field` does the same, delegating to
+///   [`DistanceField::add_octree_to_field`]. Only a [`Shape::OcTree`] whose
+///   own `octree` payload is `None` gets [`moveit_error::Error::Construct`]
+///   — upstream's equivalent (a null `octree_->octree` shared_ptr fed into
+///   `getOcTreePoints` as a bare `nullptr`) is a null-pointer dereference,
+///   not a case this port can reproduce in safe Rust.
+/// - [`DistanceField::move_shape_in_field`] special-cases [`Shape::OcTree`]
+///   too: `distance_field.cpp:296-300` logs a warning and returns without
+///   moving anything — octrees have no pose-dependent representation in the
+///   field, matching `add_shape_to_field` ignoring `pose` for them — so
+///   this port no-ops and returns `Ok(())` rather than erroring.
+/// - [`DistanceField::remove_shape_from_field`] has no such special case
+///   upstream (`distance_field.cpp:314-324` always calls
+///   `createEmptyBodyFromShapeType`), so [`Shape::OcTree`] genuinely does
+///   null-deref there in upstream, same as [`Shape::Cone`]/[`Shape::Plane`]
+///   everywhere — this port keeps returning
+///   [`moveit_error::Error::Construct`] for all three in this one function,
+///   via [`moveit_geometry::bodies::Body::from_shape`] returning `None` for
+///   them unconditionally.
+///
+/// [`DistanceField::add_octree_to_field`] takes a
 /// [`moveit_octomap::OcTree`] directly instead, against the
 /// `moveit-octomap` dependency added for
 /// [`crate::PosedBodyPointDecomposition::from_octree`] — a different,
@@ -347,6 +378,43 @@ pub trait DistanceField {
         // `double`-to-`int` narrowing conversion, so casting through it
         // here reproduces upstream's truncated multiplier bit-for-bit
         // instead of only matching it by coincidence at two resolutions.
+        //
+        // This is genuine parity, not a residual bug, all the way down to
+        // the boundary where the truncated multiplier goes to zero:
+        // `resolution >= 0.51` gives `1.0/(2.0*resolution) < 1.0`, so `as
+        // i32` truncates to `0` and every returned gradient is identically
+        // zero on all three axes -- upstream does the same (its `int`
+        // multiplier is also `0` there), so a distance field built at a
+        // coarse-enough resolution silently produces no gradient at all on
+        // both sides of the port. See
+        // `distance_gradient_multiplier_is_one_at_the_zero_boundary`/
+        // `distance_gradient_multiplier_is_zero_just_past_the_boundary`
+        // below, pinned at `resolution = 0.5`/`0.51` exactly (`1.0/(2.0*r)`
+        // is `1.0`/`0.980392...`).
+        //
+        // One further boundary does NOT match upstream, and is
+        // deliberately left that way (PORTING-PLAN.md §153.1 -- expires if
+        // upstream ever changes `inv_twice_resolution_`'s declared type
+        // away from `int`, which would remove the narrowing conversion this
+        // whole note is about): for `resolution < 1.0 / (2.0 * i32::MAX)`
+        // (`resolution` below about `2.328e-10`), `1.0/(2.0*resolution)`
+        // exceeds `i32::MAX` (`2147483647`). Rust's `as i32` on an
+        // out-of-range `f64` **saturates** to `i32::MAX` -- well-defined,
+        // guaranteed since Rust 1.45. C++'s `double`-to-`int` narrowing
+        // conversion on an out-of-range value is instead **undefined
+        // behaviour** per the C++ standard: in practice, whatever a given
+        // compiler/platform/optimization level happens to produce, with no
+        // portable guarantee at all. There is no single upstream value this
+        // port could reproduce here even in principle -- "matching
+        // upstream's actual behaviour" has no well-defined target once
+        // upstream's own behavior is undefined. This crate's own tests and
+        // oracle fixtures never exercise a resolution anywhere near this
+        // range (the smallest used anywhere in this crate is two orders of
+        // magnitude larger), so it is undocumented-and-unreachable in
+        // practice today, not silently wrong in a reachable case -- but a
+        // future caller passing a pathologically small resolution would hit
+        // this divergence, so it is recorded here rather than left for the
+        // next audit to rediscover.
         let inv_twice_resolution = (1.0 / (2.0 * self.resolution())) as i32 as f64;
 
         let gradient = Vector3::new(
@@ -369,11 +437,23 @@ pub trait DistanceField {
     /// onto the field's resolution grid and add every point found inside it
     /// as an obstacle.
     ///
+    /// For [`Shape::OcTree`], `pose` is ignored and this delegates to
+    /// [`DistanceField::add_octree_to_field`] — see this trait's "Deviations
+    /// from upstream".
+    ///
     /// # Errors
     ///
     /// See this trait's "Deviations from upstream" for the shape variants
     /// this supports.
     fn add_shape_to_field(&mut self, shape: &Shape, pose: &Isometry3) -> Result<()> {
+        if let Shape::OcTree(oc) = shape {
+            let tree = oc
+                .octree
+                .as_deref()
+                .ok_or_else(|| Error::construct("OcTree shape has no octree payload"))?;
+            self.add_octree_to_field(tree);
+            return Ok(());
+        }
         let body = posed_body(shape, pose)?;
         let mut points = Vec::new();
         find_internal_points_convex(&body, self.resolution(), &mut points);
@@ -400,6 +480,9 @@ pub trait DistanceField {
     /// `new_pose`, via a single [`DistanceField::update_points_in_field`]
     /// call rather than a separate remove-then-add pass, matching upstream.
     ///
+    /// For [`Shape::OcTree`] this is a no-op — see this trait's "Deviations
+    /// from upstream".
+    ///
     /// # Errors
     ///
     /// See this trait's "Deviations from upstream" for the shape variants
@@ -410,6 +493,9 @@ pub trait DistanceField {
         old_pose: &Isometry3,
         new_pose: &Isometry3,
     ) -> Result<()> {
+        if matches!(shape, Shape::OcTree(_)) {
+            return Ok(());
+        }
         let old_body = posed_body(shape, old_pose)?;
         let mut old_points = Vec::new();
         find_internal_points_convex(&old_body, self.resolution(), &mut old_points);
@@ -473,6 +559,20 @@ mod tests {
         )
         .unwrap();
         PropagationDistanceField::new(geometry, 0.3, false).unwrap()
+    }
+
+    fn count_occupied(df: &PropagationDistanceField) -> usize {
+        let mut occupied = 0;
+        for x in 0..df.num_cells_x() {
+            for y in 0..df.num_cells_y() {
+                for z in 0..df.num_cells_z() {
+                    if df.cell(x, y, z).distance_square == 0 {
+                        occupied += 1;
+                    }
+                }
+            }
+        }
+        occupied
     }
 
     /// Pin for the occupancy filter in [`octree_points`]: an explicitly-free
@@ -620,17 +720,82 @@ mod tests {
 
         df.add_octree_to_field(&tree);
 
-        let mut occupied = 0;
-        for x in 0..df.num_cells_x() {
-            for y in 0..df.num_cells_y() {
-                for z in 0..df.num_cells_z() {
-                    if df.cell(x, y, z).distance_square == 0 {
-                        occupied += 1;
-                    }
-                }
-            }
-        }
+        let occupied = count_occupied(&df);
         assert_eq!(occupied, 1);
+    }
+
+    /// Round 26 (upstream-absence audit): `add_shape_to_field` must special-
+    /// case [`Shape::OcTree`] the same way `distance_field.cpp:211-220`'s
+    /// `getShapePoints` does -- delegate to the octree path (this port's
+    /// [`DistanceField::add_octree_to_field`]) rather than going through
+    /// `posed_body`/[`Body::from_shape`], which has no `OcTree` case and
+    /// would otherwise make every `Shape::OcTree` an error. `pose` must be
+    /// ignored, matching upstream never reading it in that branch either.
+    #[test]
+    fn add_shape_to_field_with_an_octree_shape_delegates_to_add_octree_to_field() {
+        use std::sync::Arc;
+
+        use moveit_geometry::shapes::OcTree as OcTreeShape;
+
+        let mut df = field();
+        let mut tree = OcTree::new(RESOLUTION);
+        tree.update_node(Point3::new(0.35, 0.35, 0.35), true, false);
+        let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(tree)));
+        let non_identity_pose = Isometry3::translation(5.0, 5.0, 5.0);
+
+        df.add_shape_to_field(&shape, &non_identity_pose).unwrap();
+
+        let occupied = count_occupied(&df);
+        assert_eq!(
+            occupied, 1,
+            "pose must be ignored for an OcTree shape, matching upstream"
+        );
+    }
+
+    /// Companion to the delegation test above: upstream's equivalent of a
+    /// [`Shape::OcTree`] whose `octree` payload is `None` is a null
+    /// `octree_->octree` shared_ptr fed straight into `getOcTreePoints` as a
+    /// bare `nullptr` -- a null-pointer dereference this port cannot
+    /// reproduce in safe Rust, so it errors instead (see this trait's
+    /// "Deviations from upstream").
+    #[test]
+    fn add_shape_to_field_with_an_octree_shape_missing_its_payload_errors() {
+        use moveit_geometry::shapes::OcTree as OcTreeShape;
+
+        let mut df = field();
+        let shape = Shape::OcTree(OcTreeShape::default());
+
+        let result = df.add_shape_to_field(&shape, &Isometry3::identity());
+
+        assert!(result.is_err());
+    }
+
+    /// Round 26 (upstream-absence audit): `move_shape_in_field` must
+    /// special-case [`Shape::OcTree`] as a no-op, matching upstream's
+    /// `distance_field.cpp:296-300` (`RCLCPP_WARN(...); return;`) rather
+    /// than going through `posed_body`, which would error on every
+    /// `Shape::OcTree` since [`Body::from_shape`] has no case for it.
+    #[test]
+    fn move_shape_in_field_with_an_octree_shape_is_a_no_op() {
+        use std::sync::Arc;
+
+        use moveit_geometry::shapes::OcTree as OcTreeShape;
+
+        let mut df = field();
+        df.add_points_to_field(&[Vector3::new(0.35, 0.35, 0.35)]);
+        let occupied_before = count_occupied(&df);
+
+        let tree = OcTree::new(RESOLUTION);
+        let shape = Shape::OcTree(OcTreeShape::from_tree(Arc::new(tree)));
+        let result = df.move_shape_in_field(
+            &shape,
+            &Isometry3::identity(),
+            &Isometry3::translation(5.0, 5.0, 5.0),
+        );
+
+        assert!(result.is_ok());
+        let occupied_after = count_occupied(&df);
+        assert_eq!(occupied_before, occupied_after, "must be a true no-op");
     }
 
     /// Pin for the subdivision loop's `<=` termination boundary
@@ -1051,6 +1216,45 @@ mod tests {
         assert_eq!(
             gradient.gradient.x, 10.0,
             "2.0 * (1.0 / (2.0 * 0.1)) = 2.0 * 5.0 = 10.0"
+        );
+    }
+
+    /// Boundary pin (follow-up to the truncation fix above): at
+    /// `resolution = 0.5`, `1.0 / (2.0 * 0.5) = 1.0` exactly, so the
+    /// truncated multiplier is still `1`, one step above the boundary where
+    /// it goes to zero. Paired with the `0.51` case below to pin both sides
+    /// of that boundary.
+    #[test]
+    fn distance_gradient_multiplier_is_one_at_the_zero_boundary() {
+        let field = FixedXGradientField { resolution: 0.5 };
+
+        let gradient = field.distance_gradient(50.0, 50.0, 50.0);
+
+        assert_eq!(
+            gradient.gradient.x, 2.0,
+            "2.0 * (1.0 / (2.0 * 0.5)) = 2.0 * 1.0 = 2.0"
+        );
+    }
+
+    /// The other side of the boundary above: at `resolution = 0.51`,
+    /// `1.0 / (2.0 * 0.51) = 0.980392...`, which `as i32` truncates to `0`
+    /// -- the gradient is identically zero on every axis, for both this
+    /// port and upstream (upstream's own `int inv_twice_resolution_` is `0`
+    /// there too, per `distance_field.cpp:67`'s identical narrowing
+    /// conversion). This is genuine parity: a distance field built at a
+    /// coarse-enough resolution silently returns no gradient at all,
+    /// matching upstream's actual behaviour rather than the numerically
+    /// "more correct" non-zero value an untruncated computation would give.
+    #[test]
+    fn distance_gradient_multiplier_is_zero_just_past_the_boundary() {
+        let field = FixedXGradientField { resolution: 0.51 };
+
+        let gradient = field.distance_gradient(50.0, 50.0, 50.0);
+
+        assert_eq!(
+            gradient.gradient.x, 0.0,
+            "1.0 / (2.0 * 0.51) = 0.980392... truncates to 0 like upstream's int field, \
+             zeroing the gradient entirely"
         );
     }
 }
