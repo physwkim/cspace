@@ -754,6 +754,34 @@ mod tests {
     /// doing any rollout work) -- the only state-changing step that already
     /// ran is the linear-interpolation seed, so the *exact* returned
     /// trajectory (not just its shape) must equal that seed, bit for bit.
+    ///
+    /// # Structural fix: trajectory equality could not fail either
+    ///
+    /// Mutation-testing `CancelHandle::cancel` (emptied its body) against
+    /// this test passed in 0.015s -- a false negative, and a different
+    /// mechanism than [`cancelling_before_solve_stops_before_num_iterations_completes`]'s
+    /// (`moveit-stomp-core::stomp`) `num_iterations_after_valid` mask.
+    /// Traced via `Stomp::compute_optimized_cost`'s own reject-on-non-
+    /// improvement logic (upstream-faithful, not a port bug): a tied cost
+    /// never counts as a strict improvement over `current_lowest_cost`, so
+    /// with [`no_cost_fn`] (always cost `0.0`) *any* update `solve` makes
+    /// gets undone before `solve` returns -- the trajectory-equality
+    /// assertion below is satisfied whether cancellation fired or the loop
+    /// ran to completion uncancelled. Kept as a real invariant (the seed
+    /// really must round-trip unmodified), but no longer the only signal:
+    /// `cost_fn`'s own call count is asserted too. Unlike
+    /// `cancelling_from_another_thread_stops_a_plan_call_already_in_flight`'s
+    /// order-of-magnitude bound (a genuine race with a background
+    /// canceller, so no exact count is knowable), cancelling *before* `plan`
+    /// is called has no race: `Stomp::solve` calls
+    /// `compute_optimized_cost` -- which calls `cost_fn` once, via
+    /// `ComposableTask::compute_costs` -- exactly once, unconditionally,
+    /// before its `proceed`-gated loop even starts (`stomp.rs`'s own
+    /// `solve`, the `if !self.compute_optimized_cost() { ... }` above the
+    /// `while` loop). So the exact expected count is `1`, not merely "small
+    /// relative to a full run": zero would mean the pre-loop call never
+    /// happened, and anything above `1` means at least one loop iteration
+    /// ran despite `proceed` already being false.
     #[test]
     fn cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed() {
         let model = panda_model();
@@ -767,11 +795,18 @@ mod tests {
         let mut config = base_config(num_timesteps, group.active_joint_names().len());
         config.num_iterations = 1_000_000;
 
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let call_count_in_cost_fn = std::sync::Arc::clone(&call_count);
+        let cost_fn: CostFn<'_> = Box::new(move |values: &DMatrix<f64>| {
+            call_count_in_cost_fn.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some((DVector::zeros(values.ncols()), true))
+        });
+
         let cancel_handle = CancelHandle::new();
         cancel_handle.cancel();
         let result = plan(
             config,
-            no_cost_fn(),
+            cost_fn,
             PlanRequest {
                 start_state: &start,
                 goal_state: &goal,
@@ -804,6 +839,15 @@ mod tests {
                 );
             }
         }
+
+        let calls = call_count.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            calls, 1,
+            "cost_fn was called {calls} times; Stomp::solve calls it exactly once via its own \
+             unconditional pre-loop compute_optimized_cost and zero times from the \
+             proceed-gated iteration loop when cancelled before plan() runs -- {calls} means \
+             either that pre-loop call didn't happen or the loop ran despite cancellation"
+        );
     }
 
     /// Item 2, round 24, the multi-thread half: a [`CancelHandle`] clone

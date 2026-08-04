@@ -417,6 +417,14 @@ impl<'a> Stomp<'a> {
     /// (accept an already-built handle rather than build-and-immediately-
     /// discard one internally, which was this crate's round-23 UNFIXED
     /// gap).
+    ///
+    /// If `cancel_handle` was already cancelled before this call, the
+    /// `Stomp` returned here is already-cancelled too: [`Self::solve`]
+    /// exits before running any iteration. See
+    /// `Stomp::reset_variables`'s own "Deviation: does not touch
+    /// `proceed`" for the bug this guarantee once had (construction
+    /// silently un-cancelled a pre-cancelled handle) and why it does not
+    /// anymore.
     pub fn with_cancel_handle(
         config: StompConfiguration,
         task: Box<dyn Task + 'a>,
@@ -449,15 +457,25 @@ impl<'a> Stomp<'a> {
     }
 
     /// `setConfig`: replaces the configuration and re-derives every
-    /// internal matrix from it.
+    /// internal matrix from it. Also un-cancels `proceed`, matching
+    /// upstream's own `setConfig` -> `resetVariables` -> `proceed_ = true`
+    /// (`stomp.cpp:176-180,289`): reconfiguring an existing `Stomp` for
+    /// reuse is a deliberate restart, so any earlier cancellation --
+    /// same-thread [`Stomp::cancel`] or a [`CancelHandle::cancel`] this
+    /// `Stomp` shares -- is intentionally forgotten. See
+    /// `Stomp::reset_variables`'s own doc for why the un-cancel is not
+    /// inside `reset_variables` itself.
     pub fn set_config(&mut self, config: StompConfiguration) {
         self.config = config;
+        self.proceed.store(true, Ordering::SeqCst);
         self.reset_variables();
     }
 
     /// `clear`: resets all internal variables without changing the
-    /// configuration.
+    /// configuration. Also un-cancels `proceed` -- see [`Stomp::set_config`]'s
+    /// doc for why.
     pub fn clear(&mut self) {
+        self.proceed.store(true, Ordering::SeqCst);
         self.reset_variables();
     }
 
@@ -575,8 +593,31 @@ impl<'a> Stomp<'a> {
     }
 
     /// `resetVariables`.
+    ///
+    /// # Deviation: does not touch `proceed`
+    ///
+    /// Upstream's `resetVariables` unconditionally sets `proceed_ = true`
+    /// (`stomp.cpp:289`), and every upstream caller -- the constructor,
+    /// `clear`, `setConfig` -- is fine with that because `proceed_` is a
+    /// private member no other code can set before those calls run. This
+    /// port added [`Stomp::with_cancel_handle`] (round 24, not upstream),
+    /// which lets a caller cancel a [`CancelHandle`] *before* the `Stomp`
+    /// that shares its flag is even constructed -- and
+    /// `with_cancel_handle`'s constructor calls this function too. An
+    /// unconditional `proceed = true` here silently un-cancels that
+    /// caller-supplied flag the moment construction finishes, defeating the
+    /// one thing `with_cancel_handle` exists to allow (found by mutation-
+    /// testing `cancelling_before_plan_is_called_returns_the_unmodified_linear_interpolation_seed`
+    /// in `moveit_planners_stomp::planner`: even *without* any mutation,
+    /// cancelling before `plan()` still let a full iteration run, because
+    /// this line reset the very flag the test had just cancelled). Callers
+    /// that genuinely want a fresh, uncancelled `proceed` -- [`Stomp::clear`],
+    /// [`Stomp::set_config`] -- now set it explicitly themselves, matching
+    /// upstream's actual intent (an existing `Stomp` object being
+    /// deliberately restarted) without stomping on a handle's
+    /// pre-construction state that upstream never had a way to set in the
+    /// first place.
     fn reset_variables(&mut self) {
-        self.proceed.store(true, Ordering::SeqCst);
         self.parameters_total_cost = 0.0;
         self.parameters_valid = false;
         self.num_active_rollouts = 0;
