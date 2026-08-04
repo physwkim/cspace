@@ -30,8 +30,12 @@ jobs:
         run: cargo fmt --all -- --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # `--no-fail-fast` matches the gate every worker runs locally. Without it
+      # nextest stops at the first failure, so a push that broke three tests
+      # reports one and the next two only surface on the next run -- and the
+      # local gate and CI would disagree about what "the test step" means.
       - name: test
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --no-fail-fast
       - name: doctests
         run: cargo test --doc --workspace
       # `warnings = "deny"` in [workspace.lints.rust] covers rustdoc's lints too,
