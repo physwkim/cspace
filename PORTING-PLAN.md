@@ -3992,7 +3992,6 @@ n_min = (3.0 / (5/13))^2 = (39/5)^2 = 60.84  →  61
 - `tools/ci/check-fixture-format.sh`: PASS
 - `tools/ci/check-no-lint-suppression.sh`: PASS
 - `tools/ci/verify-fixture-provenance.sh`: PASS
-||||||| 3a4a9c3
 
 ## 36. `resolveConstraintFrames` 이식 — 그리고 구성 시점 검증이 만든 API 형태 변경 (4라운드, 2026-08-04)
 
@@ -13837,7 +13836,6 @@ p3-distance-field 라운드 26이 UNFIXED에 이렇게 적었다 — 배경 에�
 만료조건(§153.1): `doc/claim-audit/`가 두 라운드 연속으로 비어 있으면
 이 관례는 지켜지지 않는 것이고, 그때는 관례를 강화할 게 아니라 왜 아무도
 쓰지 않는지를 먼저 물어야 한다.
-||||||| 0ad8c67
 
 ## §176 §172 적용 — `DiscreteMotionValidator::is_motion_valid`의 `steps` 좁힘 (moveit-planners-sbp)
 
