@@ -178,9 +178,12 @@ fn build_model_with_5dof_group() -> RobotModel {
 /// 10 states — several within an order of magnitude of a kinematic
 /// singularity, where the *absolute* Jacobian error both libraries carry
 /// (~1e-16, f64 rounding) becomes a much larger *relative* error in the
-/// smallest singular value — measured a worst case of `4.7503e-14` across
-/// every `manipulability_index`/`manipulability` value at both
-/// `translation` settings, all 10 states.
+/// smallest singular value — measured a worst case of `3.349367641871734e-13`
+/// across every `manipulability_index`/`manipulability` value at both
+/// `translation` settings, all 10 states (round 17 re-measurement; see
+/// below — the figure this comment carried before round 17,
+/// `4.7503e-14`, does not reproduce and was superseded, not merely
+/// refined).
 ///
 /// `SCALAR_EPSILON` is `0.0`, not a small-but-nonzero floor. `approx`'s
 /// `relative_eq` passes if `|a - b| <= epsilon` **or**
@@ -203,16 +206,31 @@ fn build_model_with_5dof_group() -> RobotModel {
 /// With `epsilon = 0.0`, `max_relative` alone decides every comparison, so
 /// its own headroom is real: re-bisected one constant at a time (`approx`'s
 /// OR means bisecting both together re-hides this exact bug), `1e-13`
-/// passes every case, `1e-14` fails on `manipulability_index_full` at a
-/// measured `4.7503e-14` relative error — reproducing the probe's global
-/// worst case exactly, which confirms that failure *is* the binding case,
-/// not a second, larger one the probe missed. `1e-10` is `1e-10 /
-/// 4.7503e-14` ≈ **2105x** that floor: this time actually the applied
-/// margin, not a claim `epsilon` silently overrode — tight enough that the
-/// perturbation tests below (reversed SVD order, no-penalty,
-/// no-translation) still fail loudly, loose enough to survive a
-/// legitimate `nalgebra`/Eigen algorithm-version difference that does not
-/// change the underlying answer.
+/// fails on `manipulability_index_full` (`panda_arm` case 3) at a measured
+/// `3.349367641871734e-13` relative error, and that exact value passes.
+/// `1e-10` is `1e-10 / 3.349367641871734e-13` ≈ **298.6x** that floor: this
+/// time actually the applied margin, not a claim `epsilon` silently
+/// overrode — tight enough that the perturbation tests below (reversed SVD
+/// order, no-penalty, no-translation) still fail loudly, loose enough to
+/// survive a legitimate `nalgebra`/Eigen algorithm-version difference that
+/// does not change the underlying answer.
+///
+/// Round 17: this floor and margin were re-measured against the current
+/// tree, per the workspace-wide mandate to recheck any tolerance figure
+/// derived under the pre-`float_roundtrip` (§115) noisy `serde_json` parse
+/// floor. The `4.7503e-14`/`2105x` this comment carried before round 17 do
+/// not reproduce — re-running the exact same probe below now finds the
+/// true global worst case at `panda_arm` case 3, not case 2 (`4.7503e-14`
+/// is still a real relative error at case 2, just not the binding one).
+/// Two candidate explanations were checked and ruled out, not assumed
+/// away: `git diff` of `manipulability_index`/`manipulability`/
+/// `joint_limits_penalty`'s bodies between the commit that introduced this
+/// figure and this one is empty (no algorithm change), and parsing case
+/// 3's literal `5.093677958973316e-10` with and without `float_roundtrip`
+/// (checked with a standalone `serde_json` build against each feature
+/// set) produces the identical `f64` bit pattern (no parse-floor change
+/// either) — the original measurement simply did not find the true worst
+/// case among the fixture's 40 scalar values.
 ///
 /// `epsilon = 0.0` is only safe because nothing in *this* fixture's
 /// expected values is exactly zero (`2.94616e-11` is the smallest). A
@@ -229,22 +247,35 @@ const SCALAR_EPSILON: f64 = 0.0;
 /// `SCALAR_MAX_RELATIVE`, applied to ellipsoid eigenvalues/eigenvectors (a
 /// different algorithm family entirely — `EigenSolver` vs.
 /// `SymmetricEigen` — so its own bisection point, not assumed to match the
-/// SVD-based methods'). Measured worst case across all 10 states,
-/// eigenvalues and eigenvector components alike: `3.5860e-13` (an
-/// eigenvector component in a near-degenerate case, where two close
-/// eigenvalues make the corresponding eigenvectors individually
-/// ill-conditioned even though the eigenspace they span is not). This
-/// fixture's smallest eigenvalue is `3.29669e-03` and smallest eigenvector
-/// component `1.62356e-03`; a former `epsilon = 1e-9` floor permitted a
-/// relative error up to `1e-9 / 1.62356e-03` ≈ `6.16e-7` there — a real
-/// margin, but one `epsilon`, not `max_relative`, was granting.
+/// SVD-based methods'). Measured worst case across all 10 states of both
+/// fixtures (`panda_arm`, `panda_arm_5dof`), eigenvalues and eigenvector
+/// components alike: `2.433246012980298e-13` (`panda_arm_5dof` case 9's
+/// smallest eigenvalue, `9.5888e-4` — small enough that the `~1e-16`
+/// absolute float-rounding difference both eigensolvers carry becomes a
+/// large relative one, the same mechanism as `SCALAR_MAX_RELATIVE`'s own
+/// floor, not the near-degenerate-eigenvector mechanism a smaller earlier
+/// sample of this fixture happened to hit). This fixture's smallest
+/// eigenvalue is `3.29669e-03` and smallest eigenvector component
+/// `1.62356e-03`; a former `epsilon = 1e-9` floor permitted a relative
+/// error up to `1e-9 / 1.62356e-03` ≈ `6.16e-7` there — a real margin, but
+/// one `epsilon`, not `max_relative`, was granting.
 ///
 /// With `epsilon = 0.0`, re-bisected the same one-constant-at-a-time way:
-/// `1e-12` passes every case, `1e-13` fails on a
-/// `manipulability_ellipsoid` eigenvector component at a measured
-/// `3.586047e-13` relative error — again reproducing the probe's global
-/// worst case exactly. `1e-9` is `1e-9 / 3.5860e-13` ≈ **2789x** that
-/// floor, this time as the actually-applied margin.
+/// `2.433246012980298e-13` passes every case, one ULP below it fails on
+/// `panda_arm_5dof` case 9's `manipulability_ellipsoid` eigenvalue at that
+/// same measured relative error. `1e-9` is `1e-9 / 2.433246012980298e-13`
+/// ≈ **4110x** that floor, this time as the actually-applied margin.
+///
+/// Round 17: re-measured against the current tree for the same reason
+/// given in `SCALAR_MAX_RELATIVE`'s own doc. The `3.586047e-13`/`2789x`
+/// this comment carried before round 17 do not reproduce either — this
+/// time in the *safer* direction (the true floor is lower, so the margin
+/// this constant actually carries, ~4110x, was understated, not
+/// overstated, by the stale figure). Same two explanations checked and
+/// ruled out as `SCALAR_MAX_RELATIVE`'s: no diff in
+/// `manipulability_ellipsoid`'s body since the introducing commit, and
+/// `float_roundtrip` does not change how this crate's fixture literals
+/// parse.
 const ELLIPSOID_MAX_RELATIVE: f64 = 1e-9;
 const ELLIPSOID_EPSILON: f64 = 0.0;
 
