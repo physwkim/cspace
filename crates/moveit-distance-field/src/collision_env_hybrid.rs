@@ -85,21 +85,38 @@ use crate::{
 /// What [`HybridCollisionEnv::mutate_world`] can turn a `World` mutator's
 /// return value into: zero or more [`Notification`]s to apply to
 /// `env_field`. Every `World` mutator returns one of the four shapes
-/// implemented below (or `()`, for a closure that reads but does not
-/// mutate); this trait is the uniform interface
+/// implemented below; this trait is the uniform interface
 /// [`HybridCollisionEnv::mutate_world`] needs to stay generic over all of
 /// them without a bespoke wrapper method per `World` mutator.
+///
+/// # `()` is deliberately not implemented — do not add it
+///
+/// It was, and it silently reopened the exact staleness this type exists to
+/// prevent. `mutate_world` keeps `env_field` in step with the world by
+/// applying whatever the closure *returns*, so a closure that mutates and
+/// then discards its own [`Notification`] leaves the field describing a
+/// world that no longer exists — and with `()` implemented as "zero
+/// notifications", that closure compiled and reported success. The trigger
+/// is a single semicolon: `|w| w.add_shape(..)` returns the notification,
+/// `|w| { w.add_shape(..); }` returns `()`. Measured, not argued —
+/// adding that one semicolon to this module's own
+/// `check_robot_collision_distance_field_reflects_a_world_swap_on_the_next_call`
+/// test compiled fine and reddened it, the field never having learned about
+/// the obstacle.
+///
+/// Every `World` mutator returns something notification-carrying
+/// ([`Notification`], `Option<Notification>`, `Vec<Notification>`,
+/// [`MoveObjectOutcome`]), so there is no legitimate mutating closure that
+/// needs `()`, and a closure that only *reads* should use
+/// [`HybridCollisionEnv::world`] instead. Leaving `()` unimplemented turns
+/// the discard from a silent desync into a compile error, which is the only
+/// version of this invariant that does not depend on the caller
+/// remembering.
 pub trait AsNotifications {
     /// The notifications this value describes, borrowing rather than
     /// consuming so the caller of `mutate_world` still gets the original
     /// value back.
     fn as_notifications(&self) -> Vec<Notification>;
-}
-
-impl AsNotifications for () {
-    fn as_notifications(&self) -> Vec<Notification> {
-        Vec::new()
-    }
 }
 
 impl AsNotifications for Notification {
