@@ -1542,24 +1542,19 @@ impl<'m> DistanceFieldCollisionCache<'m> {
 /// soon as either a collision is found with `req.contacts` unset, or
 /// `req.max_contacts` is reached with it set.
 ///
-/// # Deviation from upstream (KNOWN GAP, not yet ported)
+/// # Deviation from upstream
 ///
-/// Upstream's loop bound is `link_names_.size() + attached_body_names_.size()`,
-/// with an `is_link` branch selecting `link_body_decompositions_` or
-/// `attached_body_decompositions_` per index, reporting attached-body
-/// self-collisions with `body_type_1 = BodyTypes::ROBOT_ATTACHED` instead of
-/// `ROBOT_LINK`. This function's loop only covers `0..gsr.dfce.link_names.len()`
-/// and never reads `gsr.dfce.attached_body_names`/`gsr.attached_body_decompositions`
-/// at all: an attached body's collision spheres are never checked for
-/// self-collision here. This was believed dead code as long as
-/// `attached_body_names_` stayed permanently empty in this port; as of round
-/// 22, [`generate_distance_field_cache_entry`] populates it for real (see
-/// [`DistanceFieldCacheEntry::attached_body_names`]), so this is now a live,
-/// unfixed functional gap, not an unreachable branch. See this crate's round
-/// 22 report for the full anchor/sites/classify audit across
-/// [`get_self_proximity_gradients`], [`get_intra_group_collisions`],
-/// [`get_intra_group_proximity_gradients`], [`get_environment_collisions`],
-/// and [`get_environment_proximity_gradients`], all of which share it.
+/// None functionally. Upstream's loop bound is `link_names_.size() +
+/// attached_body_names_.size()` (`:278`), with an `is_link` branch (`:279`)
+/// selecting `link_body_decompositions_`/`link_names_` or
+/// `attached_body_decompositions_`/`attached_body_names_` per index
+/// (`:284-295`) and reporting attached-body self-collisions with
+/// `body_type_1 = BodyTypes::ROBOT_ATTACHED` instead of `ROBOT_LINK`
+/// (`:312-320`) -- ported as the `is_link` `if`/`else` below, matching that
+/// indexing exactly (round 23; the attached-body half was omitted through
+/// round 22 on the mistaken belief `attached_body_names_` stayed
+/// permanently empty in this port, corrected once round 22 itself falsified
+/// that premise).
 ///
 /// # Panics
 ///
@@ -1581,16 +1576,23 @@ fn get_self_collisions(
         "generate_collision_checking_structures always requests a distance field before \
          self-collision checks",
     );
+    let num_links = gsr.dfce.link_names.len();
+    let total = num_links + gsr.dfce.attached_body_names.len();
 
-    for i in 0..gsr.dfce.link_names.len() {
-        if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.self_collision_enabled[i] {
+    for i in 0..total {
+        let is_link = i < num_links;
+        if (is_link && !gsr.dfce.link_has_geometry[i]) || !gsr.dfce.self_collision_enabled[i] {
             continue;
         }
-        let bd = gsr.link_body_decompositions[i]
-            .as_ref()
-            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
-        let spheres = bd.collision_spheres();
-        let centers = bd.sphere_centers();
+        let (spheres, centers): (&[CollisionSphere], &[Vector3<f64>]) = if is_link {
+            let bd = gsr.link_body_decompositions[i]
+                .as_ref()
+                .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+            (bd.collision_spheres(), bd.sphere_centers())
+        } else {
+            let bd = &gsr.attached_body_decompositions[i - num_links];
+            (bd.collision_spheres(), bd.sphere_centers())
+        };
 
         if req.contacts {
             let already = res.contacts.as_ref().map_or(0, ContactData::count);
@@ -1610,20 +1612,27 @@ fn get_self_collisions(
             );
             if coll {
                 res.collision = true;
-                let link_name = gsr.dfce.link_names[i].clone();
+                let (body_name_1, body_type_1) = if is_link {
+                    (gsr.dfce.link_names[i].clone(), BodyType::RobotLink)
+                } else {
+                    (
+                        gsr.dfce.attached_body_names[i - num_links].clone(),
+                        BodyType::RobotAttached,
+                    )
+                };
                 let contacts = res.contacts.get_or_insert_with(ContactData::default);
                 for &col in &colls {
                     let con = Contact {
                         pos: centers[col as usize],
-                        body_name_1: link_name.clone(),
-                        body_type_1: BodyType::RobotLink,
+                        body_name_1: body_name_1.clone(),
+                        body_type_1,
                         body_name_2: "self".to_string(),
                         body_type_2: BodyType::RobotLink,
                         ..Contact::default()
                     };
                     contacts
                         .by_pair
-                        .entry((link_name.clone(), "self".to_string()))
+                        .entry((body_name_1.clone(), "self".to_string()))
                         .or_default()
                         .push(con);
                     gsr.gradients[i].types[col as usize] = CollisionType::SelfCollision;
@@ -1659,12 +1668,19 @@ fn get_self_collisions(
 /// see [`AllowedCollisionType`]), then from the group's aggregate
 /// `gsr.dfce.distance_field`.
 ///
-/// # Deviation from upstream (KNOWN GAP, not yet ported)
+/// # Deviation from upstream
 ///
-/// Same gap as [`get_self_collisions`]: the `is_link`/attached-body branch
-/// is not ported, so attached-body spheres never contribute a
-/// self-proximity gradient. See [`get_self_collisions`]'s own doc comment
-/// for the full explanation and cross-references.
+/// Unlike [`get_self_collisions`], this one is a *faithful* port with no
+/// attached-body gap: upstream's own loop condition here is `i <
+/// link_names_.size()` (`:359`), not `i < link_names_.size() +
+/// attached_body_names_.size()` like [`get_self_collisions`] (`:278`) --
+/// so the `is_link` computed at `:362` is always `true` and upstream's own
+/// `is_link`-false branch (`:373-377`) is unreachable dead code in the C++
+/// itself, correctly omitted here rather than ported unreachable. (Round 22
+/// mistakenly grouped this function with [`get_self_collisions`]'s real
+/// gap; round 23's fresh read of the loop bound found the two are not
+/// alike -- see [`get_environment_proximity_gradients`] for the same
+/// pattern on the environment side.)
 ///
 /// # Panics
 ///
@@ -1755,56 +1771,136 @@ fn get_self_proximity_gradients(
 /// spheres intersect ([`do_bounding_spheres_intersect`]), the same
 /// contacts/early-exit shape as [`get_self_collisions`].
 ///
-/// # Deviation from upstream (KNOWN GAP, not yet ported)
+/// # Deviation from upstream
 ///
 /// Upstream's loop covers `link_names_.size() + attached_body_names_.size()`
-/// indices with `i_is_link`/`j_is_link` branches selecting between
-/// `link_body_decompositions_`/`attached_body_decompositions_` per side of
-/// the pair (link-vs-attached and attached-vs-attached pairs both possible),
-/// plus an `i == j` guard that can never trigger (the inner loop already
-/// starts at `j = i + 1`, so that guard is dead in upstream regardless of
-/// attached bodies and is correctly omitted here). This function's loop
-/// covers only `0..gsr.dfce.link_names.len()` on both sides and never reads
-/// `gsr.dfce.attached_body_names`/`gsr.attached_body_decompositions`: no
-/// pair involving an attached body is ever checked for intra-group
-/// collision. See [`get_self_collisions`]'s own doc comment for why this was
-/// believed dead code and is not anymore as of round 22.
+/// indices (`:437`) with `i_is_link`/`j_is_link` branches (`:442-443`)
+/// selecting between `link_body_decompositions_`/`attached_body_decompositions_`
+/// per side of the pair, plus an `i == j` guard (`:440-441`) that can never
+/// trigger (the inner loop already starts at `j = i + 1`, so that guard is
+/// dead in upstream regardless of attached bodies and is correctly omitted
+/// here, as it was before round 23). Ported below (round 23) with the same
+/// three-way bounding-sphere pre-filter upstream uses (`:451-499`): both
+/// sides link uses [`do_bounding_spheres_intersect`] directly; either side
+/// attached iterates that attached body's own sub-decompositions
+/// (`PosedBodySphereDecompositionVector::getPosedBodySphereDecomposition`,
+/// `:462-497`) checking each against the other side's (possibly also
+/// per-sub-decomposition) bounding sphere.
+///
+/// One upstream bug is *not* reproduced: its contact-reporting branch
+/// (`:534`) unconditionally reads `con.pos =
+/// gsr->link_body_decompositions_[i]->getSphereCenters()[k]`, never
+/// branching on `i_is_link` the way `body_type_1` two lines below it does
+/// (`:537-544`) -- when `i` is an attached-body index this indexes
+/// `link_body_decompositions_` (sized `num_links`) out of bounds, undefined
+/// behaviour in C++ that safe Rust cannot reproduce. `centers_1[k]` (already
+/// correctly sourced from whichever side `i` actually is, matching every
+/// other read of sphere position in this same block) is the value the
+/// surrounding code's own intent requires and what `body_type_1`'s sibling
+/// branch shows was meant to be conditional; using it is the closest safe
+/// equivalent, not an invented deviation.
 fn get_intra_group_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
     gsr: &mut GroupStateRepresentation<'_, '_>,
 ) -> bool {
     let num_links = gsr.dfce.link_names.len();
-    for i in 0..num_links {
-        for j in (i + 1)..num_links {
-            if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.link_has_geometry[j] {
+    let total = num_links + gsr.dfce.attached_body_names.len();
+    for i in 0..total {
+        for j in (i + 1)..total {
+            let i_is_link = i < num_links;
+            let j_is_link = j < num_links;
+
+            if (i_is_link && !gsr.dfce.link_has_geometry[i])
+                || (j_is_link && !gsr.dfce.link_has_geometry[j])
+            {
                 continue;
             }
             if !gsr.dfce.intra_group_collision_enabled[i][j] {
                 continue;
             }
-            let bd_i = gsr.link_body_decompositions[i]
-                .as_ref()
-                .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
-            let bd_j = gsr.link_body_decompositions[j]
-                .as_ref()
-                .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
-            if !do_bounding_spheres_intersect(bd_i, bd_j) {
+
+            let bounding_spheres_disjoint = if i_is_link && j_is_link {
+                let bd_i = gsr.link_body_decompositions[i]
+                    .as_ref()
+                    .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+                let bd_j = gsr.link_body_decompositions[j]
+                    .as_ref()
+                    .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
+                !do_bounding_spheres_intersect(bd_i, bd_j)
+            } else if !i_is_link && j_is_link {
+                let bd_j = gsr.link_body_decompositions[j]
+                    .as_ref()
+                    .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
+                let attached_i = &gsr.attached_body_decompositions[i - num_links];
+                !(0..attached_i.len()).any(|k| {
+                    let sub = attached_i.get(k).expect("k < attached_i.len()");
+                    do_bounding_spheres_intersect(bd_j, sub)
+                })
+            } else if i_is_link && !j_is_link {
+                let bd_i = gsr.link_body_decompositions[i]
+                    .as_ref()
+                    .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+                let attached_j = &gsr.attached_body_decompositions[j - num_links];
+                !(0..attached_j.len()).any(|l| {
+                    let sub = attached_j.get(l).expect("l < attached_j.len()");
+                    do_bounding_spheres_intersect(bd_i, sub)
+                })
+            } else {
+                let attached_i = &gsr.attached_body_decompositions[i - num_links];
+                let attached_j = &gsr.attached_body_decompositions[j - num_links];
+                !(0..attached_i.len()).any(|k| {
+                    let sub_i = attached_i.get(k).expect("k < attached_i.len()");
+                    (0..attached_j.len()).any(|l| {
+                        let sub_j = attached_j.get(l).expect("l < attached_j.len()");
+                        do_bounding_spheres_intersect(sub_i, sub_j)
+                    })
+                })
+            };
+            if bounding_spheres_disjoint {
                 continue;
             }
 
-            let name_1 = gsr.dfce.link_names[i].clone();
-            let name_2 = gsr.dfce.link_names[j].clone();
+            let (name_1, body_type_1) = if i_is_link {
+                (gsr.dfce.link_names[i].clone(), BodyType::RobotLink)
+            } else {
+                (
+                    gsr.dfce.attached_body_names[i - num_links].clone(),
+                    BodyType::RobotAttached,
+                )
+            };
+            let (name_2, body_type_2) = if j_is_link {
+                (gsr.dfce.link_names[j].clone(), BodyType::RobotLink)
+            } else {
+                (
+                    gsr.dfce.attached_body_names[j - num_links].clone(),
+                    BodyType::RobotAttached,
+                )
+            };
             let mut num_pair = res
                 .contacts
                 .as_ref()
                 .and_then(|c| c.by_pair.get(&(name_1.clone(), name_2.clone())))
                 .map_or(0usize, Vec::len);
 
-            let spheres_1 = bd_i.collision_spheres();
-            let centers_1 = bd_i.sphere_centers();
-            let spheres_2 = bd_j.collision_spheres();
-            let centers_2 = bd_j.sphere_centers();
+            let (spheres_1, centers_1): (&[CollisionSphere], &[Vector3<f64>]) = if i_is_link {
+                let bd = gsr.link_body_decompositions[i]
+                    .as_ref()
+                    .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+                (bd.collision_spheres(), bd.sphere_centers())
+            } else {
+                let bd = &gsr.attached_body_decompositions[i - num_links];
+                (bd.collision_spheres(), bd.sphere_centers())
+            };
+            let (spheres_2, centers_2): (&[CollisionSphere], &[Vector3<f64>]) = if j_is_link {
+                let bd = gsr.link_body_decompositions[j]
+                    .as_ref()
+                    .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
+                (bd.collision_spheres(), bd.sphere_centers())
+            } else {
+                let bd = &gsr.attached_body_decompositions[j - num_links];
+                (bd.collision_spheres(), bd.sphere_centers())
+            };
 
             let mut k = 0;
             while k < spheres_1.len() && (!req.contacts || num_pair < req.max_contacts_per_pair) {
@@ -1818,9 +1914,9 @@ fn get_intra_group_collisions(
                             let con = Contact {
                                 pos: centers_1[k],
                                 body_name_1: name_1.clone(),
-                                body_type_1: BodyType::RobotLink,
+                                body_type_1,
                                 body_name_2: name_2.clone(),
-                                body_type_2: BodyType::RobotLink,
+                                body_type_2,
                                 ..Contact::default()
                             };
                             let contacts = res.contacts.get_or_insert_with(ContactData::default);
@@ -1856,34 +1952,51 @@ fn get_intra_group_collisions(
 /// sphere's nearest opposing-sphere distance into that sphere's
 /// [`GradientInfo`] slot whenever it improves on what is already there.
 ///
-/// # Deviation from upstream (KNOWN GAP, not yet ported)
+/// # Deviation from upstream
 ///
-/// Same attached-body gap as [`get_intra_group_collisions`] (the unreachable
-/// `i == j` guard is correctly omitted; the attached-body pairs are not).
-/// Upstream's own `in_collision` local is declared, never written, and
-/// returned as-is -- always `false`; ported faithfully rather than changed
-/// to `-> ()`, since upstream's own caller (`getCollisionGradients`)
-/// discards this return value too, and keeping the `bool` shape matches this
-/// function's siblings
+/// Upstream's loop bound and `i_is_link`/`j_is_link` sphere-source selection
+/// (`:650-680`) match [`get_intra_group_collisions`]'s exactly; ported the
+/// same way (round 23), minus the bounding-sphere pre-filter -- upstream
+/// itself has none here, going straight to the full pairwise sphere loop
+/// (`:681-703`). The unreachable `i == j` guard is correctly omitted, same
+/// reasoning as [`get_intra_group_collisions`]. Upstream's own
+/// `in_collision` local is declared, never written, and returned as-is --
+/// always `false`; ported faithfully rather than changed to `-> ()`, since
+/// upstream's own caller (`getCollisionGradients`) discards this return
+/// value too, and keeping the `bool` shape matches this function's siblings
 /// ([`get_self_proximity_gradients`]/[`get_environment_proximity_gradients`]).
 fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_>) -> bool {
     let num_links = gsr.dfce.link_names.len();
-    for i in 0..num_links {
-        for j in (i + 1)..num_links {
-            if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.link_has_geometry[j] {
+    let total = num_links + gsr.dfce.attached_body_names.len();
+    for i in 0..total {
+        for j in (i + 1)..total {
+            let i_is_link = i < num_links;
+            let j_is_link = j < num_links;
+
+            if (i_is_link && !gsr.dfce.link_has_geometry[i])
+                || (j_is_link && !gsr.dfce.link_has_geometry[j])
+            {
                 continue;
             }
             if !gsr.dfce.intra_group_collision_enabled[i][j] {
                 continue;
             }
-            let bd_i = gsr.link_body_decompositions[i]
-                .as_ref()
-                .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
-            let bd_j = gsr.link_body_decompositions[j]
-                .as_ref()
-                .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
-            let centers_1 = bd_i.sphere_centers();
-            let centers_2 = bd_j.sphere_centers();
+            let centers_1: &[Vector3<f64>] = if i_is_link {
+                gsr.link_body_decompositions[i]
+                    .as_ref()
+                    .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some")
+                    .sphere_centers()
+            } else {
+                gsr.attached_body_decompositions[i - num_links].sphere_centers()
+            };
+            let centers_2: &[Vector3<f64>] = if j_is_link {
+                gsr.link_body_decompositions[j]
+                    .as_ref()
+                    .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some")
+                    .sphere_centers()
+            } else {
+                gsr.attached_body_decompositions[j - num_links].sphere_centers()
+            };
 
             for (k, &c1) in centers_1.iter().enumerate() {
                 for (l, &c2) in centers_2.iter().enumerate() {
@@ -1918,10 +2031,18 @@ fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_
 /// -- `World`-sourced state this crate does not own (see this module's doc
 /// comment).
 ///
-/// # Deviation from upstream (KNOWN GAP, not yet ported)
+/// # Deviation from upstream
 ///
-/// Same attached-body gap as [`get_self_collisions`]: an attached body's
-/// spheres are never checked against `env_distance_field` here either.
+/// None functionally, same shape as [`get_self_collisions`]'s own (round
+/// 23) deviation note: upstream's loop bound is `link_names_.size() +
+/// attached_body_names_.size()` (`:1565`) with an `is_link` branch
+/// (`:1567`) selecting `link_body_decompositions_`/`attached_body_decompositions_`
+/// per index (`:1576-1587`) and reporting attached-body environment
+/// collisions with `body_type_1 = BodyTypes::ROBOT_ATTACHED` (`:1599-1607`)
+/// -- ported below. Upstream also declares a `link_name` local
+/// (`:1568`, `"attached"` placeholder for non-link indices) that is never
+/// read anywhere in the function body; not ported, matching this crate's
+/// standing practice of not carrying forward genuinely dead upstream state.
 fn get_environment_collisions(
     req: &CollisionRequest,
     res: &mut CollisionResult,
@@ -1930,15 +2051,22 @@ fn get_environment_collisions(
     max_propagation_distance: f64,
     collision_tolerance: f64,
 ) -> bool {
-    for i in 0..gsr.dfce.link_names.len() {
-        if !gsr.dfce.link_has_geometry[i] {
+    let num_links = gsr.dfce.link_names.len();
+    let total = num_links + gsr.dfce.attached_body_names.len();
+    for i in 0..total {
+        let is_link = i < num_links;
+        if is_link && !gsr.dfce.link_has_geometry[i] {
             continue;
         }
-        let bd = gsr.link_body_decompositions[i]
-            .as_ref()
-            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
-        let spheres = bd.collision_spheres();
-        let centers = bd.sphere_centers();
+        let (spheres, centers): (&[CollisionSphere], &[Vector3<f64>]) = if is_link {
+            let bd = gsr.link_body_decompositions[i]
+                .as_ref()
+                .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+            (bd.collision_spheres(), bd.sphere_centers())
+        } else {
+            let bd = &gsr.attached_body_decompositions[i - num_links];
+            (bd.collision_spheres(), bd.sphere_centers())
+        };
 
         if req.contacts {
             let already = res.contacts.as_ref().map_or(0, ContactData::count);
@@ -1958,20 +2086,27 @@ fn get_environment_collisions(
             );
             if coll {
                 res.collision = true;
-                let link_name = gsr.dfce.link_names[i].clone();
+                let (body_name_1, body_type_1) = if is_link {
+                    (gsr.dfce.link_names[i].clone(), BodyType::RobotLink)
+                } else {
+                    (
+                        gsr.dfce.attached_body_names[i - num_links].clone(),
+                        BodyType::RobotAttached,
+                    )
+                };
                 let contacts = res.contacts.get_or_insert_with(ContactData::default);
                 for &col in &colls {
                     let con = Contact {
                         pos: centers[col as usize],
-                        body_name_1: link_name.clone(),
-                        body_type_1: BodyType::RobotLink,
+                        body_name_1: body_name_1.clone(),
+                        body_type_1,
                         body_name_2: "environment".to_string(),
                         body_type_2: BodyType::WorldObject,
                         ..Contact::default()
                     };
                     contacts
                         .by_pair
-                        .entry((link_name.clone(), "environment".to_string()))
+                        .entry((body_name_1.clone(), "environment".to_string()))
                         .or_default()
                         .push(con);
                     gsr.gradients[i].types[col as usize] = CollisionType::Environment;
@@ -3968,6 +4103,537 @@ mod tests {
             gsr.gradients[mid_index].closest_distance < f64::MAX,
             "an environment point placed at mid's own coincident pose must produce a finite \
              closest_distance, not the default-initialized f64::MAX"
+        );
+    }
+
+    // --- round 23: attached-body paths through get_self_collisions /
+    //     get_intra_group_collisions / get_intra_group_proximity_gradients /
+    //     get_environment_collisions. Zero attached bodies is already
+    //     exercised throughout the tests above (every `&[]` call); these
+    //     cover one, many, in-group vs out-of-group, acm None vs Some,
+    //     link-vs-attached and attached-vs-attached pairs, touch_links, and
+    //     colliding vs not, per boundary rather than per narrative. ---
+
+    #[test]
+    fn get_self_collisions_detects_an_attached_body_on_an_in_group_link() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "mid",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached])
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        let pair = contacts
+            .by_pair
+            .get(&("gripped".to_string(), "self".to_string()))
+            .expect(
+                "an attached body coincident with the group's own aggregate field must be \
+                 reported by get_self_collisions against \"self\", same as a link would be, now \
+                 that its loop bound covers attached_body_names too",
+            );
+        assert_eq!(pair[0].body_type_1, BodyType::RobotAttached);
+    }
+
+    #[test]
+    fn get_self_collisions_ignores_an_attached_body_placed_away_from_the_self_field() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::translation(10.0, 0.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "mid",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached])
+            .unwrap();
+        if let Some(contacts) = &res.contacts {
+            assert!(
+                !contacts
+                    .by_pair
+                    .contains_key(&("gripped".to_string(), "self".to_string())),
+                "an attached body 10m from the self field's only obstacle (\"base\") must not \
+                 be reported as a self-collision"
+            );
+        }
+    }
+
+    #[test]
+    fn attached_body_on_an_out_of_group_link_is_invisible_to_collision_checks() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        // "base" is "chain"'s fixed reference link, not one of its two
+        // updated links ("mid", "tip") -- out-of-group, even though it is
+        // exactly coincident with mid/tip at the default pose.
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "base",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached])
+            .unwrap();
+        assert!(
+            gsr.dfce.attached_body_names.is_empty(),
+            "generate_distance_field_cache_entry's per-link loop only ever visits \"chain\"'s \
+             own updated links (:844-919) -- \"base\" is never one of them, so \"gripped\" must \
+             never be enumerated into attached_body_names"
+        );
+        if let Some(contacts) = &res.contacts {
+            assert!(
+                contacts
+                    .by_pair
+                    .keys()
+                    .all(|(a, b)| a != "gripped" && b != "gripped"),
+                "an attached body on an out-of-group link must never appear in a contact, even \
+                 though it is geometrically coincident with mid/tip/base and mid/tip do \
+                 genuinely self-collide"
+            );
+        }
+    }
+
+    #[test]
+    fn attached_body_is_invisible_when_acm_is_none() {
+        let (model, _srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "mid",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, gsr) = cache
+            .check_self_collision(&req, &posed, None, &[attached])
+            .unwrap();
+        assert!(
+            gsr.dfce.attached_body_names.is_empty(),
+            "upstream only enumerates attached bodies inside the `if (acm)` branch \
+             (collision_env_distance_field.cpp:844 vs its `else` at :920) -- acm: None must \
+             leave attached_body_names empty even for an attached body on an in-group link"
+        );
+        if let Some(contacts) = &res.contacts {
+            assert!(
+                contacts
+                    .by_pair
+                    .keys()
+                    .all(|(a, b)| a != "gripped" && b != "gripped"),
+                "with acm: None, \"gripped\" never enters attached_body_names, so it must never \
+                 appear in a contact even though it is on an in-group link and geometrically \
+                 coincident with mid"
+            );
+        }
+    }
+
+    #[test]
+    fn get_intra_group_collisions_detects_a_link_vs_attached_pair() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached])
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        let pair = contacts
+            .by_pair
+            .get(&("mid".to_string(), "gripped".to_string()))
+            .expect(
+                "\"gripped\" is attached to \"tip\", not \"mid\" -- a contact between \"mid\" \
+                 (a link) and \"gripped\" (an attached body on a different link) can only come \
+                 from get_intra_group_collisions's link-vs-attached branch",
+            );
+        assert_eq!(pair[0].body_type_1, BodyType::RobotLink);
+        assert_eq!(pair[0].body_type_2, BodyType::RobotAttached);
+    }
+
+    #[test]
+    fn get_intra_group_collisions_detects_an_attached_vs_attached_pair() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes_a = vec![sample_shape()];
+        let shape_poses_a = vec![Isometry3::identity()];
+        let touch_links_a = BTreeSet::new();
+        let attached_a = AttachedBodyGeometry {
+            id: "gripped_a",
+            link_name: "mid",
+            shapes: &shapes_a,
+            shape_poses: &shape_poses_a,
+            touch_links: &touch_links_a,
+        };
+        let shapes_b = vec![sample_shape()];
+        let shape_poses_b = vec![Isometry3::identity()];
+        let touch_links_b = BTreeSet::new();
+        let attached_b = AttachedBodyGeometry {
+            id: "gripped_b",
+            link_name: "tip",
+            shapes: &shapes_b,
+            shape_poses: &shape_poses_b,
+            touch_links: &touch_links_b,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached_a, attached_b])
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        let pair = contacts
+            .by_pair
+            .get(&("gripped_a".to_string(), "gripped_b".to_string()))
+            .expect(
+                "two attached bodies on different in-group links, both coincident at the \
+                 origin, can only be reported by get_intra_group_collisions's \
+                 attached-vs-attached branch",
+            );
+        assert_eq!(pair[0].body_type_1, BodyType::RobotAttached);
+        assert_eq!(pair[0].body_type_2, BodyType::RobotAttached);
+    }
+
+    #[test]
+    fn attached_body_touch_links_disables_collision_only_with_its_own_attaching_link() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let mut touch_links = BTreeSet::new();
+        touch_links.insert("tip".to_string());
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached])
+            .unwrap();
+        let contacts = res.contacts.expect("contacts requested");
+        assert!(
+            !contacts
+                .by_pair
+                .contains_key(&("tip".to_string(), "gripped".to_string())),
+            "touch_links containing \"tip\" (gripped's own attaching link) must disable \
+             intra_group_collision_enabled between them -- generate_distance_field_cache_entry's \
+             `if attached.touch_links.contains(link_name)` check is only ever reached while \
+             iterating the attaching link itself"
+        );
+        assert!(
+            contacts
+                .by_pair
+                .contains_key(&("mid".to_string(), "gripped".to_string())),
+            "touch_links only disables the pair against the attaching link itself -- \"mid\" is \
+             a different link and must still collide with the coincident attached body"
+        );
+    }
+
+    #[test]
+    fn get_intra_group_collisions_ignores_an_attached_body_placed_away_from_its_group() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::translation(10.0, 0.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[attached])
+            .unwrap();
+        if let Some(contacts) = &res.contacts {
+            assert!(
+                contacts
+                    .by_pair
+                    .keys()
+                    .all(|(a, b)| a != "gripped" && b != "gripped"),
+                "an attached body 10m from mid/tip's coincident origin must not pass the \
+                 bounding-sphere pre-filter, so get_intra_group_collisions must report no pair \
+                 involving it"
+            );
+        }
+    }
+
+    #[test]
+    fn get_environment_collisions_detects_an_attached_body_at_an_environment_point() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 100,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        // check_robot_collision only ever runs get_environment_collisions
+        // (no self/intra-group phase), isolating this assertion to that one
+        // function even though mid/tip/gripped are all also coincident with
+        // each other.
+        let (res, _gsr) = cache
+            .check_robot_collision(&req, &posed, Some(&acm), &[attached], &env)
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        let pair = contacts
+            .by_pair
+            .get(&("gripped".to_string(), "environment".to_string()))
+            .expect(
+                "an environment point at the coincident tip/gripped origin must register as an \
+                 environment collision for the attached body, now that \
+                 get_environment_collisions's loop bound covers attached_body_names too",
+            );
+        assert_eq!(pair[0].body_type_1, BodyType::RobotAttached);
+        assert_eq!(pair[0].body_type_2, BodyType::WorldObject);
+    }
+
+    #[test]
+    fn get_environment_collisions_ignores_an_attached_body_with_no_nearby_environment_point() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let config = small_distance_field_config();
+        let empty_env = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_robot_collision(&req, &posed, Some(&acm), &[attached], &empty_env)
+            .unwrap();
+        assert!(
+            !res.collision,
+            "check_robot_collision only consults env_distance_field -- the attached body is \
+             coincident with tip, but with no points in the field this must report no collision"
+        );
+    }
+
+    #[test]
+    fn get_intra_group_proximity_gradients_updates_an_attached_bodys_gradient_slot() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let gsr = cache
+            .get_collision_gradients(&req, &posed, Some(&acm), &[attached], &env)
+            .unwrap();
+        let attached_index = gsr.dfce.link_names.len()
+            + gsr
+                .dfce
+                .attached_body_names
+                .iter()
+                .position(|n| n == "gripped")
+                .expect("\"gripped\" is on \"tip\", an in-group link, with acm: Some");
+        assert!(
+            gsr.gradients[attached_index]
+                .types
+                .contains(&CollisionType::Intra),
+            "get_intra_group_proximity_gradients must fold a finite mid-vs-gripped distance \
+             into the attached body's own gradient slot, marked CollisionType::Intra -- \
+             get_self_proximity_gradients/get_environment_proximity_gradients are the faithful \
+             no-gap siblings and never touch an attached-body index, so this slot can only be \
+             written by the intra-group phase"
         );
     }
 }
