@@ -1340,6 +1340,65 @@ private:
     state_->update();
   }
 
+  /// Attach `request["attached_bodies"]` (optional, defaults to none) to
+  /// `state`, then `update()` it.
+  ///
+  /// Takes the state by reference rather than always writing `*state_`
+  /// because `isStateValid` attaches to a `PlanningScene`'s own
+  /// `getCurrentStateNonConst()`, not the shared one.
+  ///
+  /// This body used to be copy-pasted into `collision`, `frameTransform` and
+  /// `isStateValid` -- three copies of the same 25 lines, and the two
+  /// distance-field ops that also need it would otherwise have made five. Two of the
+  /// three had already drifted: only `frameTransform`'s parsed `subframes`.
+  /// The 8-argument `attachBody` with an empty `FixedTransformsMap` is
+  /// exactly the 6-argument overload (both trailing parameters are defaulted
+  /// to those same empty values), so parsing subframes when present and
+  /// passing an empty map otherwise reproduces all three call sites without
+  /// changing any of them.
+  ///
+  /// `pose` is always identity: it is the transform from the link to the
+  /// attached body's own frame, upstream's separate level between the link
+  /// and its shapes, and `moveit_scene::AttachedBody`'s one-level design has
+  /// `shape_poses` relative to the link frame directly -- see `protocol.rs`'s
+  /// `AttachedBodySpec` doc.
+  void applyAttachedBodies(moveit::core::RobotState& state, const json& request)
+  {
+    for (const auto& attached_json : request.value("attached_bodies", json::array()))
+    {
+      const std::string id = attached_json.at("id").get<std::string>();
+      const std::string link_name = attached_json.at("link_name").get<std::string>();
+      const auto& shapes_json = attached_json.at("shapes");
+      const auto& shape_poses_json = attached_json.at("shape_poses");
+      std::vector<shapes::ShapeConstPtr> shapes;
+      EigenSTL::vector_Isometry3d shape_poses;
+      for (std::size_t i = 0; i < shapes_json.size(); ++i)
+      {
+        const json& shape_json = shapes_json.at(i);
+        const std::string shape_type = shape_json.at("type").get<std::string>();
+        shapes.push_back(parseShape(shape_type, shape_json));
+        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
+      }
+      std::set<std::string> touch_links;
+      if (attached_json.contains("touch_links"))
+      {
+        for (const auto& link_json : attached_json.at("touch_links"))
+        {
+          touch_links.insert(link_json.get<std::string>());
+        }
+      }
+      moveit::core::FixedTransformsMap subframes;
+      if (attached_json.contains("subframes"))
+      {
+        for (auto it = attached_json.at("subframes").begin(); it != attached_json.at("subframes").end(); ++it)
+          subframes[it.key()] = fromRowMajor4x4(it.value());
+      }
+      state.attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links, link_name,
+                       trajectory_msgs::msg::JointTrajectory(), subframes);
+    }
+    state.update();
+  }
+
   bool hasVariable(const std::string& name) const
   {
     const std::vector<std::string>& names = model_->getVariableNames();
@@ -2028,33 +2087,7 @@ private:
   json collision(const json& request)
   {
     applyJointValues(request);
-
-    for (const auto& attached_json : request.value("attached_bodies", json::array()))
-    {
-      const std::string id = attached_json.at("id").get<std::string>();
-      const std::string link_name = attached_json.at("link_name").get<std::string>();
-      const auto& shapes_json = attached_json.at("shapes");
-      const auto& shape_poses_json = attached_json.at("shape_poses");
-      std::vector<shapes::ShapeConstPtr> shapes;
-      EigenSTL::vector_Isometry3d shape_poses;
-      for (std::size_t i = 0; i < shapes_json.size(); ++i)
-      {
-        const json& shape_json = shapes_json.at(i);
-        const std::string shape_type = shape_json.at("type").get<std::string>();
-        shapes.push_back(parseShape(shape_type, shape_json));
-        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
-      }
-      std::set<std::string> touch_links;
-      if (attached_json.contains("touch_links"))
-      {
-        for (const auto& link_json : attached_json.at("touch_links"))
-        {
-          touch_links.insert(link_json.get<std::string>());
-        }
-      }
-      state_->attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links, link_name);
-    }
-    state_->update();
+    applyAttachedBodies(*state_, request);
 
     collision_detection::AllowedCollisionMatrix acm = buildAcm();
 
@@ -2225,40 +2258,7 @@ private:
   json frameTransform(const json& request)
   {
     applyJointValues(request);
-
-    for (const auto& attached_json : request.value("attached_bodies", json::array()))
-    {
-      const std::string id = attached_json.at("id").get<std::string>();
-      const std::string link_name = attached_json.at("link_name").get<std::string>();
-      const auto& shapes_json = attached_json.at("shapes");
-      const auto& shape_poses_json = attached_json.at("shape_poses");
-      std::vector<shapes::ShapeConstPtr> shapes;
-      EigenSTL::vector_Isometry3d shape_poses;
-      for (std::size_t i = 0; i < shapes_json.size(); ++i)
-      {
-        const json& shape_json = shapes_json.at(i);
-        const std::string shape_type = shape_json.at("type").get<std::string>();
-        shapes.push_back(parseShape(shape_type, shape_json));
-        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
-      }
-      std::set<std::string> touch_links;
-      if (attached_json.contains("touch_links"))
-      {
-        for (const auto& link_json : attached_json.at("touch_links"))
-        {
-          touch_links.insert(link_json.get<std::string>());
-        }
-      }
-      moveit::core::FixedTransformsMap subframes;
-      if (attached_json.contains("subframes"))
-      {
-        for (auto it = attached_json.at("subframes").begin(); it != attached_json.at("subframes").end(); ++it)
-          subframes[it.key()] = fromRowMajor4x4(it.value());
-      }
-      state_->attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links, link_name,
-                          trajectory_msgs::msg::JointTrajectory(), subframes);
-    }
-    state_->update();
+    applyAttachedBodies(*state_, request);
 
     planning_scene::PlanningScene scene(model_);
     scene.getCurrentStateNonConst() = *state_;
@@ -2349,33 +2349,7 @@ private:
     planning_scene::PlanningScene scene(model_);
 
     scene.getCurrentStateNonConst().clearAttachedBodies();
-    for (const auto& attached_json : request.value("attached_bodies", json::array()))
-    {
-      const std::string id = attached_json.at("id").get<std::string>();
-      const std::string link_name = attached_json.at("link_name").get<std::string>();
-      const auto& shapes_json = attached_json.at("shapes");
-      const auto& shape_poses_json = attached_json.at("shape_poses");
-      std::vector<shapes::ShapeConstPtr> shapes;
-      EigenSTL::vector_Isometry3d shape_poses;
-      for (std::size_t i = 0; i < shapes_json.size(); ++i)
-      {
-        const json& shape_json = shapes_json.at(i);
-        const std::string shape_type = shape_json.at("type").get<std::string>();
-        shapes.push_back(parseShape(shape_type, shape_json));
-        shape_poses.push_back(fromRowMajor4x4(shape_poses_json.at(i)));
-      }
-      std::set<std::string> touch_links;
-      if (attached_json.contains("touch_links"))
-      {
-        for (const auto& link_json : attached_json.at("touch_links"))
-        {
-          touch_links.insert(link_json.get<std::string>());
-        }
-      }
-      scene.getCurrentStateNonConst().attachBody(id, Eigen::Isometry3d::Identity(), shapes, shape_poses, touch_links,
-                                                  link_name);
-    }
-    scene.getCurrentStateNonConst().update();
+    applyAttachedBodies(scene.getCurrentStateNonConst(), request);
 
     for (const auto& object_json : request.value("objects", json::array()))
     {
