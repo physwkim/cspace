@@ -2712,7 +2712,10 @@ private:
   /// `leaves_in_bbx` reads three of `Leaf`'s eight accessors, so this op
   /// emits the same three -- `key`/`index_key`/`depth`/`log_odds`/
   /// `occupancy` have no consumer in any crate and no fixture here would
-  /// have a reader to compare against.
+  /// have a reader to compare against. That is a statement about today's
+  /// consumers rather than about the accessors, and it expires the first
+  /// time any crate reads one of the five -- at which point this op has to
+  /// start emitting it.
   json octreePoints(const json& request) const
   {
     struct PointExposer : distance_field::PropagationDistanceField
@@ -3276,13 +3279,15 @@ private:
   ///   pipeline *after* `getGroupStateRepresentation` returns, and that
   ///   pipeline can mutate `closest_distance`/`collision`/`types`/`distances`
   ///   in place for any sphere actually found in collision -- construction
-  ///   alone (what the Rust port's own scope covers) never does. Every
-  ///   fixture case this op currently drives happens to report `collision:
-  ///   false` on every link (nothing overlaps at these joint configurations),
-  ///   so those four fields still equal what a from-scratch construction
-  ///   would report for this op's committed fixtures specifically -- but
-  ///   that is a property of the chosen joint values, not a guarantee this
-  ///   op's contract makes in general.
+  ///   alone (what the Rust port's own scope covers) never does. Those four
+  ///   fields therefore match a from-scratch construction only for a case
+  ///   where no sphere overlaps, and the committed fixtures now sit on both
+  ///   sides of that line: `group_state_representation_request.json`'s four
+  ///   cases report `collision: false` on every link, while
+  ///   `group_state_representation_contacts_request.json` ids 1 and 2 report
+  ///   `collision: true` on 13 links of 22 (id 3 on none). A consumer
+  ///   comparing construction against this dump has to gate on the per-link
+  ///   flag rather than assume the fixture it happens to read is overlap-free.
   ///
   /// Every per-link field `getGroupStateRepresentation` writes
   /// deterministically (on *either* branch) is dumped: `has_link_decomposition`
