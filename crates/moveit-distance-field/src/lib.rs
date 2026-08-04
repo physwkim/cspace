@@ -460,26 +460,37 @@
 //! which assertion actually tripped, since a file can mix a real gate with
 //! trapped ones behind the same `epsilon = 0.0` run.
 //!
-//! **Recounted (round 19), with the same reproducible command
-//! `moveit-geometry`'s audit script now uses** (that script strips block
-//! comments and string literals before counting — this crate has neither
-//! inside a macro call, so the fix changes nothing here, but the command
-//! form is what changed, not just the number):
+//! **Recounted (round 21), with the same reproducible command
+//! `moveit-geometry`'s audit script now uses**:
 //!
 //! ```text
 //! perl tools/ci/count-relative-eq.pl \
 //!   $(find crates/moveit-distance-field -name '*.rs' | sort)
-//! both=27 epsilon_only=3 max_relative_only=0 neither=0
+//! both=45 epsilon_only=3 max_relative_only=0 neither=0
 //! ```
 //!
-//! `neither=0`, unchanged from before the script fix. The 3 `epsilon_only`
-//! sites are `upstream_parity.rs`'s three `epsilon = RESOLUTION`
-//! comparisons — already bisected and shown immune by construction (each
-//! compares against an exact-zero component, where `max_relative`'s
-//! implicit term reduces to `|a| <= max_relative * |a|`, false for any
-//! `max_relative < 1`), see that file's own module doc, "The 3 `epsilon =
-//! RESOLUTION` sites are a real gate". Nothing to dispose of this round —
-//! recount confirms the prior disposal, it does not change it.
+//! `both` moved twice since the round 19 count (`27`), for two unrelated
+//! reasons, neither a real behavior change: first to `44`, a pure
+//! measurement fix — `count-relative-eq.pl` mishandled a Rust
+//! line-continuation string literal (`"...\` + newline) elsewhere in the
+//! workspace, undercounting real calls that happen to follow one; the fix
+//! (`c9780c7`) changed the *script*, not this crate, and the corrected
+//! count already reflected this file's state before round 21 started. Then
+//! to `45`, this round's own addition:
+//! `check_self_collision_reuses_the_distance_field_cache_entry_fixture` in
+//! `collision_env_distance_field_parity.rs` adds one more
+//! `assert_relative_eq!(epsilon = TOL, max_relative = TOL)` call, the same
+//! shape as every other `both` site in that file. `epsilon_only=3` and
+//! `neither=0` are unchanged by both the fix and this round's addition.
+//!
+//! The 3 `epsilon_only` sites are `upstream_parity.rs`'s three
+//! `epsilon = RESOLUTION` comparisons — already bisected and shown immune
+//! by construction (each compares against an exact-zero component, where
+//! `max_relative`'s implicit term reduces to `|a| <= max_relative * |a|`,
+//! false for any `max_relative < 1`), see that file's own module doc, "The
+//! 3 `epsilon = RESOLUTION` sites are a real gate". Nothing to dispose of
+//! this round for that group either — recount confirms the prior disposal,
+//! it does not change it.
 //!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
