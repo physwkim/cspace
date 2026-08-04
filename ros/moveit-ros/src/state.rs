@@ -26,6 +26,21 @@
 //!   These expire if this crate adds a conversion entry point that takes
 //!   `&mut PlanningScene` alongside the message (the composed conversion
 //!   named above, not attempted this round), not if `moveit-state` changes.
+//!
+//! Neither condition above can be turned into a tripwire (round 13:
+//! D14/§199 proved the pattern works -- checked here whether it applies).
+//! A tripwire needs an *existing* call path whose current answer would
+//! change; both of these name the *arrival* of a capability that has no
+//! call path yet to assert anything about:
+//! `moveit_model`/`moveit_state` have no multi-DOF-joint symbol at all
+//! today (checked: no `multi_dof`/`MultiDof` hit anywhere in
+//! `crates/moveit-model/src`), and this crate itself has no
+//! `&mut PlanningScene`-aware conversion function to call into yet. A
+//! runtime assertion cannot test for the absence of an API that does not
+//! exist -- there is nothing to invoke and watch fail. Contrast
+//! `trajectory.rs`'s nonzero-start-time gap, which *is* now tripwired,
+//! because `add_suffix_way_point` already exists and already enforces
+//! the invariant today.
 
 use moveit_error::Error;
 use moveit_model::RobotModel;

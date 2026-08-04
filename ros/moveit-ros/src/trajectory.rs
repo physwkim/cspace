@@ -140,11 +140,25 @@ impl<'m> TryFrom<JointTrajectoryMsg<'m>> for RobotTrajectory<'m> {
             // representation and must be rejected, not silently zeroed (D6) --
             // see doc/message-mapping.md §10.
             //
-            // Expiry (PORTING-PLAN.md §153.1): not a missing field, so a new
-            // `moveit_trajectory::RobotTrajectory` field cannot clear this --
-            // it expires only if that crate's own invariant changes to allow
-            // a nonzero start-time offset, a redesign of `RobotTrajectory`
-            // itself, not this conversion.
+            // Expiry (PORTING-PLAN.md §153.1, round 13 correction): not a
+            // missing field, so a new `moveit_trajectory::RobotTrajectory`
+            // field cannot clear this -- it expires only if that crate's own
+            // `add_suffix_way_point` invariant relaxes to allow a nonzero
+            // start-time offset. Unlike D14's `weight` case, this rejection
+            // is only *half* mechanically visible: `add_suffix_way_point`
+            // already enforces the identical condition
+            // (`waypoints.is_empty() && dt != 0.0`) internally, so
+            // `tests::add_suffix_way_point_rejects_a_nonzero_first_dt` below
+            // is a real tripwire on that invariant and goes red the moment
+            // it relaxes -- but this check right here does NOT go red with
+            // it, because it fires first and short-circuits before ever
+            // calling `add_suffix_way_point` (it exists only to give a
+            // wire-specific message; see the two error strings). A relaxed
+            // core invariant would go unnoticed at the wire boundary unless
+            // a person also removes or updates this `if`, purely from
+            // reading the tripwire failure -- still §153.1's memory case for
+            // *this* line, even though the underlying fact is now
+            // tripwired.
             if i == 0 && t != 0.0 {
                 return Err(Error::construct(format!(
                     "JointTrajectoryPoint[0].time_from_start is {t}s, not 0s; \
@@ -260,6 +274,26 @@ mod tests {
         };
         let err = RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }).unwrap_err();
         assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    /// Tripwire (PORTING-PLAN.md §153.1/§205) on `moveit_trajectory::
+    /// RobotTrajectory::add_suffix_way_point`'s own invariant, bypassing
+    /// this crate's `TryFrom` entirely -- see the expiry comment on the
+    /// `i == 0 && t != 0.0` check above for why the wire-level
+    /// `nonzero_start_time_is_rejected` test above cannot serve as this
+    /// tripwire (it short-circuits before ever reaching
+    /// `add_suffix_way_point`). If this goes red, `moveit_trajectory`'s
+    /// invariant relaxed to allow a nonzero first `dt` -- go update or
+    /// remove `trajectory.rs`'s own `i == 0 && t != 0.0` check to match,
+    /// since that check no longer describes a core limitation once this
+    /// fails.
+    #[test]
+    fn add_suffix_way_point_rejects_a_nonzero_first_dt() {
+        let model = one_joint_model();
+        let mut traj = RobotTrajectory::new(&model);
+        let state = RobotState::new(&model);
+        let err = traj.add_suffix_way_point(state, 1.0).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
     }
 
     #[test]

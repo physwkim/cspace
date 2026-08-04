@@ -863,24 +863,23 @@ Every site above already has a boundary test proving the behavior
 checked here (see the test names cited inline) — this sweep did not
 find a test gap either.
 
-**One cross-crate observation, not fixed here:** `crates/moveit-
-constraints/src/position.rs:163` and `joint.rs:108` reject
-`weight <= EPS` with `Err`, where upstream's `PositionConstraint::
-configure`/`JointConstraint` equivalents instead warn and substitute
-`1.0` (`kinematic_constraint.cpp:449-453`). This *is* the
-default-has-meaning shape (`weight: 0.0` is the wire default, and
-upstream treats it as "use 1.0", not "reject"). It is not fixed in
-this round because (a) it lives in `crates/moveit-constraints`, a
-different crate this panel does not own, and (b) `moveit-constraints/
-src/joint.rs:85-89`'s own doc comment shows it is an existing,
-deliberate, project-wide decision ("substituting a value silently for
-invalid input is the failure mode `moveit-rs` prefers to surface as an
-error"), not an unnoticed gap — this crate's own
-`header.frame_id`-empty check in the same functions matches upstream's
-`configure()` exactly (`kinematic_constraint.cpp:372-375`: upstream
-itself warns and returns `false` on an empty frame there too, unlike
-the `getFrameTransform` silent-identity fallback §183 was about).
-Named here so the observation is not lost, not acted on.
+**One cross-crate observation, resolved since (round 13 update):**
+this paragraph originally read `crates/moveit-constraints/src/
+position.rs:163`/`joint.rs:108` as rejecting `weight <= EPS` with
+`Err` where upstream substitutes `1.0`, and (wrongly) filed it as a
+deliberate, out-of-scope policy decision rather than the same
+default-has-meaning defect this section sweeps for — the misreading
+the coordinator caught (PORTING-PLAN.md D14/§199). All four
+constructors (`joint.rs`, `position.rs`, `orientation.rs`,
+`visibility.rs`) now normalize `weight <= EPS` to `1.0`, matching
+`kinematic_constraint.cpp:263/450/641/871` (`551b719`). This crate's
+own four `TryFrom` impls were confirmed pure pass-throughs at fix
+time (no separate wire-side check to also update), and its own
+regression coverage lives in `src/constraints/set.rs`'s four
+`unspecified_*_weight_is_normalized_to_one_not_rejected` tests —
+originally written asserting the *old* `Err` behavior as a tripwire
+(PORTING-PLAN.md §205) before `551b719` landed, confirmed to go red
+on that merge, then flipped to assert `weight() == 1.0` (`932b7bf`).
 
 **Conclusion:** no new same-defect site found in `ros/moveit-ros`
 itself. §183 was the family's only site in this crate; the anchor
@@ -921,16 +920,92 @@ corrected renumbering claim).
   `is_diff` gap is even further from compiler-visible: its expiry is
   authoring a conversion entry point that does not exist yet, so there
   is nothing for a future edit to newly fail against.
-- **`trajectory.rs:142` (nonzero `time_from_start[0]`) — requires
-  human memory.** The rejection guards `RobotTrajectory::
-  add_suffix_way_point`'s own runtime invariant
-  (`duration_from_previous[0] == 0.0`), not a type or field
-  `TryFrom<JointTrajectoryMsg>` constructs exhaustively. A future
-  change to that invariant changes behavior, not any signature this
-  file's construction sites would fail to match.
+- **`trajectory.rs:142` (nonzero `time_from_start[0]`) — not
+  compiler-enforced, but now runtime-tripwired (round 13 follow-up,
+  after D14 proved the tripwire pattern viable and the coordinator
+  asked this classification be pushed on again).** The rejection
+  guards `RobotTrajectory::add_suffix_way_point`'s own runtime
+  invariant (`duration_from_previous.is_empty() && dt != 0.0` — read
+  directly in `crates/moveit-trajectory/src/robot_trajectory.rs:261-263`),
+  not a type or field `TryFrom<JointTrajectoryMsg>` constructs
+  exhaustively, so no E0063-style compile break is possible here. But
+  unlike `state.rs`'s two conditions below, `add_suffix_way_point`
+  *already exists and already enforces the exact invariant today* —
+  there is a live call path to assert against, which is what a
+  tripwire needs. Added
+  `trajectory::tests::add_suffix_way_point_rejects_a_nonzero_first_dt`,
+  calling `add_suffix_way_point` directly (bypassing this crate's own
+  `TryFrom` and its own duplicate guard) and asserting the current
+  `Err`; it goes red the moment that invariant relaxes. One caveat
+  documented at `trajectory.rs:148`'s own expiry comment: this crate's
+  `i == 0 && t != 0.0` check fires *before* `add_suffix_way_point` is
+  ever called (it exists only to give a wire-specific message), so
+  the wire-level `nonzero_start_time_is_rejected` test would **not**
+  go red alongside the tripwire — a person still has to read the
+  tripwire's failure and separately update or remove that duplicate
+  check. Partially self-revealing, not fully: the underlying fact is
+  now mechanically caught, the crate-local duplicate is not.
+- **`state.rs:68,75,84-87` — checked whether the same runtime-tripwire
+  approach applies; it does not.** A tripwire needs an *existing* call
+  path whose current answer changes; both `multi_dof_joint_state` and
+  `attached_collision_objects`/`is_diff` name the *arrival* of a
+  capability with no call path yet to assert anything about.
+  `multi_dof`/`MultiDof` has zero hits anywhere in
+  `crates/moveit-model/src` (checked directly, not inferred) — there
+  is no symbol, field, or function whose current behavior a test could
+  pin. `attached_collision_objects`/`is_diff`'s expiry is this crate
+  *authoring* a new `&mut PlanningScene`-aware conversion function —
+  before that function exists, there is nothing to call and watch
+  fail. A tripwire cannot test for the absence of an API; it can only
+  watch an existing one change answers. Genuinely requires human
+  memory, confirmed by the same test this round's `trajectory.rs` case
+  passed and failed on: is there a call path today.
 
-Only the latter two (three sites) genuinely need §153.1's
-documented-expiry treatment — the `planning.rs` one already has a
-compiler-enforced backstop independent of the comment, though the
-comment stays since it explains *why*, which E0063's message alone
-would not.
+Net: one site is compiler-enforced (`planning.rs`), one is now
+runtime-tripwired though not fully (`trajectory.rs`, still needs a
+human to retire its own duplicate wire-side check once the tripwire
+fires), and two remain pure §153.1 documented-expiry cases with no
+mechanical backstop at all (`state.rs`). The `planning.rs` comment and
+`trajectory.rs`'s tripwire both stay alongside their mechanical
+backstops since they explain *why*, which a compile error or a failing
+assertion alone would not.
+
+### 17.7 Tripwire inventory (round 13, PORTING-PLAN.md §205)
+
+Every test in this crate currently asserting the *current, wrong*
+behavior of something outside this crate's own control, kept live so
+it goes red automatically when that changes (as opposed to `#[ignore]`,
+which this session has closed twice for staying silently green either
+way — §184, §197.3). Re-check this list whenever one fires or a new
+one is added; a tripwire with no "fires on / do this" instruction
+sitting next to it is only half-built, since the person who sees it go
+red still needs to know what to do.
+
+**Live (one):**
+
+- `trajectory::tests::add_suffix_way_point_rejects_a_nonzero_first_dt`
+  (`trajectory.rs`, added round 13). **Fires on:**
+  `moveit_trajectory::RobotTrajectory::add_suffix_way_point`'s
+  `duration_from_previous[0] == 0.0` invariant relaxing to accept a
+  nonzero first `dt`. **Do this:** the test's own doc comment says to
+  go update or remove `trajectory.rs`'s own `i == 0 && t != 0.0` check
+  (the duplicate, wire-specific-message guard one function up), since
+  it no longer describes a real core limitation once this fails.
+
+**Retired this round (four, fired and flipped already — no longer
+tripwires):** `constraints::set::tests::unspecified_{joint,position,
+orientation,visibility}_weight_is_normalized_to_one_not_rejected`.
+Written in round 13 asserting the *old* `Err` behavior; D14 (`551b719`)
+landed in the same merge round, all four went red on the gate, and the
+coordinator flipped them to assert `weight() == 1.0` (`932b7bf`). They
+are now ordinary regression tests, not tripwires — nothing further to
+watch here.
+
+**Not a tripwire, noted so it is not mistaken for one:**
+`conversion_coverage.rs`'s `ONE_DIRECTIONAL`/`TRANSITIVELY_COVERED`
+exemption lists (module doc, this file) re-verify their own premise on
+every test run, but they watch an *internal* structural invariant of
+this crate's own conversions, not an external crate's behavior this
+crate has no control over — a different, already-self-checking
+mechanism, not the "waiting on someone else's change" shape this
+section inventories.
