@@ -690,3 +690,47 @@ physical measurements disagreeing -- it is one position-divergence
 signal observed through two different finite-difference operators. The
 "unexplained" conclusion stands; what is unexplained is now stated more
 precisely as a shape change in `D(θ, i)`, not a channel disagreement.
+
+## Case H: a falsifiable prediction from Case G's shape-change conclusion
+
+Case G proved, algebraically, that a fixed-shape amplitude-only
+mechanism is excluded: any `D(θ, i) = f(θ) * g(i)` would force velocity-
+and acceleration-divergence to peak at the same θ, and they do not. That
+conclusion is about the *shape* of the per-waypoint divergence profile,
+not just its two derived channels, so it makes a prediction about the
+one signal underneath both of them -- `D(θ, i)`, position divergence
+itself -- that is checkable directly, with no new oracle round trip: all
+nine `panda_blend_{symmetric,corner{30,60,75,100,105,110,112},corner112_radius03}`
+fixtures already carry both sides' full waypoint position arrays. This
+section states the prediction before computing it, per this round's own
+"file it first" instruction.
+
+**Prediction.** Let `i*(θ) = argmax_i |D(θ, i)|` be the `blend_trajectory`
+waypoint index (`0..7`, across whichever joint attains it -- not fixed to
+one joint in advance) where position divergence between this port and
+the oracle is largest, for each of the nine sweep angles.
+
+- **Quantity:** `i*(θ)`, the argmax waypoint index of `max_joint |D(θ, i)|`.
+- **Direction:** `i*(θ)` is *not* constant across the nine θ values -- it
+  must vary, because a constant `i*` across θ is only possible (though
+  not sufficient on its own) under something close to the fixed-shape
+  form Case G already excluded.
+- **Refuted by:** `i*(θ)` measuring identical at all nine angles. Unlike
+  Case F's prediction, this would not be a clean "mechanism wrong"
+  result -- it would contradict Case G's own algebra (constant-shape
+  `D` forces coincident channel peaks, which are *not* coincident), so a
+  refutation here means re-examining the Case G derivation or this
+  measurement's own correctness before accepting it, not filing a new
+  "unexplained."
+- **Not refuted by:** `i*(θ)` flipping between adjacent waypoints only at
+  angles where the top two waypoints' divergence is within about 10% of
+  each other (a near-tie in the noise floor, not a real shape change) --
+  this applies mainly near the 90-100° dip, where overall divergence is
+  smallest and ties are most likely.
+- **Supporting exhibit, not a separate prediction:** 60° and 105°
+  measure nearly identical overall velocity divergence (`6.4188e-8` vs
+  `6.6526e-8`, Case F's own table) -- if `i*` and the general per-waypoint
+  profile shape differ between these two despite matching magnitude,
+  that is a more direct demonstration of shape-change than magnitude
+  alone could give, though it is read as illustrative, not as a second
+  falsifiable claim in its own right.
