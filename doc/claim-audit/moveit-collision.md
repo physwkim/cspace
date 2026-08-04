@@ -235,3 +235,71 @@ round 21's own paragraph — not duplicated here.
 Expires (§153.1): re-open if a future moveit2 pin changes FCL/libccd's own
 narrow-phase algorithm (deviation 6(b)'s own expiry condition, inherited
 directly since this is the same mechanism, not a new one).
+
+## Round 21's own case-104 finding, measured across a sample instead of one case (round 25)
+
+The coordinator's round-24 feedback flagged that the section above rests
+on one measured case and asked whether "the winning-triangle identification
+and the vertex-1-at-centroid observation" generalize. Committed as an
+in-tree test rather than left as prose:
+`crates/moveit-collision/tests/collision_parity.rs`'s
+`visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid`,
+15 `(joint_state, target_radius, cone_sides)` combinations (3 real pr2
+joint states from `load_self_wheel_oracle_points` × 5 `(radius,
+cone_sides)` pairs spanning `visibility_cone_depth_sweep.rs`'s own
+near-branch ranges).
+
+Measuring it split what looked like one claim into two:
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this test | every sampled near-placement's cone vertices stay inside the touched cylinder's own inscribed sphere and interpenetrate through its centroid by construction | CONFIRMED, generalizes | all 15/15: target-center vertex within `1e-9` of the cylinder's own local origin, `depth < 0.0` |
+| this test | the *winning* (max-depth) triangle specifically contains the target-center vertex, the way case 104's own `[5, 1, 6]` did | REFUTED as a general rule | true in only 4/15 sampled combinations; the rest won through a triangle sharing the sensor vertex instead |
+
+Case 104 was this mechanism's most visible instance, not its typical
+shape. The claim that still holds and that deviation 6(b)'s doc actually
+needs — every such case interpenetrates through the link's own centroid,
+which is why this population's magnitudes are unusually large — does not
+depend on which vertex the winning triangle happens to share, so this
+refinement narrows the evidence without reopening the 115's own closure
+above.
+
+Expires (§153.1): if a future round changes `load_self_wheel_oracle_points`'s
+joint states, `visibility_cone_depth_sweep.rs`'s near-branch
+`target_radius`/`cone_sides` ranges, or pr2's caster-wheel geometry, the
+4/15 rate must be re-measured, not assumed to still hold — the test's own
+`assert_eq!(winning_triangle_had_vertex_one, 4, ...)` will fail loudly if
+it moves.
+
+## Item deferred to the orchestrator: an out-of-tree libccd comparison gate (round 25)
+
+The coordinator's round-24 feedback also asked for a `tools/ci/` script
+that builds libccd when present and drives both `ccdMPRPenetration` and
+this backend's own EPA on case 104's triangle/cylinder pair, loudly
+skipping (not silently) when libccd is absent. `tools/ci/` belongs to the
+orchestrator, not this panel (task brief, standing scope rule) — not
+written here. Spec, so the orchestrator or whichever panel owns
+`tools/ci/` doesn't have to re-derive it from this file's prose:
+
+- Detect libccd the same way this round's own scratch build did: look for
+  a system install first (`pkg-config --exists ccd` or a `ccd/ccd.h`
+  header on the include path), then optionally a pinned from-source build
+  at a fixed path/tag (`v2.1`, `CCD_DOUBLE`) if the orchestrator wants
+  reproducibility independent of the host's package version.
+- On found: build and run a small C harness (round 21's own
+  `dev7/mpr_case104.c` scratch file is a working reference — not
+  committed anywhere, ask this panel for a copy if a starting point
+  helps) against case 104's fixed triangle/cylinder numbers (both already
+  committed: the triangle in this crate's
+  `visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid`/
+  case-104's own doc comment in `parry.rs`, the cylinder radius/length in
+  `pr2.urdf`'s `bl_caster_l_wheel_link`). Assert `ccdMPRPenetration`'s
+  depth is within some small relative tolerance of the oracle's own
+  captured `7.47914550966356367e-2` (this round's own measurement:
+  `~7.3ppm`; a tolerance in the `1e-5`–`1e-4` relative range gives margin
+  without being vacuous) and print both numbers and their ratio.
+- On not found: print a clearly-labeled `SKIP` line (not silence — §196)
+  naming exactly what was not checked, and exit success. A CI system that
+  reads only the exit code must not be able to mistake this for a real
+  pass; the printed line is the only thing standing between "skipped" and
+  "passed" for a human reading the log.

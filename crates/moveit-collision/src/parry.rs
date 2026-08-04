@@ -713,6 +713,22 @@
 //!    condition as round 16/17's own finding: re-open only if a future
 //!    moveit2 pin changes FCL/libccd's own narrow-phase algorithm.
 //!
+//!    Round 25's `collision_parity.rs` test
+//!    `visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid`
+//!    checks whether case 104's own mechanism generalizes across 15
+//!    `(joint_state, target_radius, cone_sides)` combinations, not just the
+//!    one measured above, and splits it into two claims: every sampled
+//!    case's cone vertices do stay inside the touched cylinder's own
+//!    inscribed sphere and interpenetrate through its centroid by
+//!    construction (confirmed, all 15), but the *winning* triangle
+//!    specifically containing the target-center vertex the way case 104's
+//!    own `[5, 1, 6]` did is **not** a general rule — measured true in only
+//!    4 of the 15. Case 104 was this mechanism's most visible instance, not
+//!    its typical shape; the rest win through a triangle sharing the sensor
+//!    vertex instead. The interpenetration claim above (why the whole
+//!    population is unusually large) does not depend on which vertex the
+//!    winning triangle happens to share.
+//!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
 //!    different depths for the one pair.** The same seed-20260804 pr2
