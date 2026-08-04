@@ -1,4 +1,8 @@
 {
+  "leaves": {
+    "srdf": "fanuc.srdf",
+    "urdf": "fanuc.urdf"
+  },
   "octomap": {
     "srdf": "fanuc.srdf",
     "urdf": "fanuc.urdf"
