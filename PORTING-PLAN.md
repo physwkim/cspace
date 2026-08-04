@@ -13608,3 +13608,47 @@ p6-totg 라운드 30의 감사는 `not ported`/`out of scope`/dead-code 마커�
    만료된다는 것.
 4. 테스트는 서사가 아니라 **경계**로: 절단이 일어나는 값과 그 직전 값,
    포화 경계, 음수, `NaN`, `0`.
+
+## §173 combined replay가 한 방향만 걷던 것 — 닫힘 (`308064e`)
+
+`verify-fixture-replay.sh`의 combined pass는 같은 URDF/SRDF를 쓰는 fixture
+전부를 **오라클 프로세스 하나**에 이어 붙여 돌린다. 목적은 요청 사이의 상태
+누수 검출이다 — fixture A가 남긴 상태가 fixture B의 결과를 바꾸면 per-file
+pass는 전부 통과하는데 combined에서만 깨진다.
+
+그런데 순서가 하나였다. `sorted(glob(...))` + `sorted(manifest)`로 정해지는
+고정 알파벳 순서 하나만 걸었다.
+
+**요청 i에서 j로의 누수는 i가 j보다 앞설 때만 관측된다.** 순서가 하나면
+순서쌍의 **절반만** 시험되고, 나머지 절반은 시험되지 않은 채 "통과"로
+보고된다. 이것이 §153.1이 경계하는 모양 그대로다 — 부재가 아니라
+**미시험**이 통과로 보고된다.
+
+역순은 모든 순서쌍을 한 번에 뒤집는 유일한 순열이다. 두 번 돌리면 모든
+순서쌍이 시험된다. `replay_one`이 위치가 아니라 id로 대응시키므로
+(그 파일 자신의 주석이 근거) 기록된 응답 파일은 양방향에 그대로 쓰인다.
+
+**완전 커버리지가 아니다.** 두 요청 사이의 누수는 잡지만, 특정 제3의 요청이
+둘 사이에 끼어야만 발생하는 누수는 여전히 못 잡는다. n! 중 2다. 그 한계를
+스크립트 주석에 적어뒀다.
+
+### 173.1 판별력 확인 — 새 pass가 실제로 도는가
+
+통과하는 새 검사는 그 자체로는 아무것도 증명하지 않는다. `octomap_response.json`
+id 1의 `log_odds`를 `3.511030673980713` → `3.5`로 바꾸고 돌렸다:
+
+```
+COMBINED    fanuc.urdf: 5 fixtures, 27 requests, 2 crate(s) -- DRIFTED 2 line(s) differ
+            ids 4001-4012  moveit-octomap/octomap
+REVERSED    fanuc.urdf: 5 fixtures, 27 requests, 2 crate(s) -- DRIFTED 2 line(s) differ
+            ids 4001-4012  moveit-octomap/octomap
+```
+
+두 줄 다 났다 — 역순 pass가 실제로 오라클을 돌리고 비교하며, 역순으로도
+id 대응이 유지되어 실패를 맞는 fixture(4001-4012)에 귀속시킨다. 되돌린 뒤
+5그룹 × 2방향 전부 통과한다.
+
+### 173.2 비용
+
+`2m04.7s` → `2m22.7s`, **+18초**. 오라클 프로세스 기동이 combined 그룹당
+두 배가 되지만 per-file pass가 전체 시간을 지배하므로 두 배가 되지 않는다.
