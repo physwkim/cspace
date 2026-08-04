@@ -105,6 +105,28 @@ use crate::require_single_variable;
 /// [`RobotTrajectory`] whose waypoint positions are STOMP's solved matrix,
 /// but whose per-waypoint durations are not yet real timing. See this
 /// module's "Deviation: unparameterized-by-construction".
+///
+/// # There is exactly one path to a real, timed `RobotTrajectory`
+///
+/// The wrapped [`RobotTrajectory`] is a private field: no code outside this
+/// module -- not even a sibling module elsewhere in this crate, such as
+/// `planner`, let alone an external caller -- can read it directly, and no
+/// public method on this type exposes it except
+/// [`into_uniformly_timed`](Self::into_uniformly_timed). This is enforced
+/// by the compiler, not by convention; a doc sentence alone does not close
+/// this invariant, so this claim carries its own `compile_fail` doctest
+/// rather than resting on prose:
+///
+/// ```compile_fail
+/// use moveit_planners_stomp::conversion_functions::UnparameterizedTrajectory;
+/// use moveit_trajectory::RobotTrajectory;
+///
+/// fn reach_around_into_uniformly_timed<'m>(
+///     trajectory: UnparameterizedTrajectory<'m>,
+/// ) -> RobotTrajectory<'m> {
+///     trajectory.0 // private field -- must not compile
+/// }
+/// ```
 pub struct UnparameterizedTrajectory<'m>(RobotTrajectory<'m>);
 
 impl<'m> UnparameterizedTrajectory<'m> {

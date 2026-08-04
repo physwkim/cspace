@@ -71,12 +71,33 @@ const MIN_CONTROL_COST_WEIGHT: f64 = 1e-8;
 pub struct CancelHandle(Arc<AtomicBool>);
 
 impl CancelHandle {
+    /// A fresh, not-yet-cancelled handle, obtainable *before* any [`Stomp`]
+    /// exists. Round 24, not upstream: `Stomp::cancel_handle` (obtain
+    /// *after* construction) is the only way upstream's `TaskPtr`/`Stomp`
+    /// shape can expose one, since `proceed_` is `Stomp`'s own member. This
+    /// port's [`Stomp::with_cancel_handle`] takes the reverse direction --
+    /// a caller builds a handle first via this constructor, keeps a clone
+    /// for itself (e.g. to hand to a timeout thread, matching upstream's
+    /// `stomp_moveit_planning_context.cpp:247-257` watcher), and passes the
+    /// original into `Stomp::with_cancel_handle` so the `Stomp` it
+    /// constructs shares that same underlying flag instead of minting its
+    /// own that nothing outside the constructor call can ever reach.
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+
     /// Requests cancellation. `solve()` checks this at the start of every
     /// iteration and, within `generate_noisy_rollouts`, before generating
     /// each noisy rollout -- the same points upstream's `proceed_` check
     /// gates.
     pub fn cancel(&self) {
         self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Default for CancelHandle {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -245,12 +266,31 @@ pub struct Stomp<'a> {
 }
 
 impl<'a> Stomp<'a> {
-    /// `Stomp(config, task)`.
+    /// `Stomp(config, task)`. Mints its own fresh, unreachable-from-outside
+    /// `proceed` flag -- see [`Stomp::with_cancel_handle`] for a
+    /// caller-supplied one a second thread can hold onto and cancel while
+    /// `solve()` is in flight.
     pub fn new(config: StompConfiguration, task: Box<dyn Task + 'a>) -> Self {
+        Self::with_cancel_handle(config, task, CancelHandle::new())
+    }
+
+    /// `Stomp(config, task)`, sharing `cancel_handle`'s underlying flag
+    /// instead of minting a private one. Round 24, not upstream: gives a
+    /// caller a handle *before* this `Stomp` exists, obtained via
+    /// [`CancelHandle::new`] -- see that constructor's own doc for why this
+    /// is the direction `moveit_planners_stomp::planner::plan` needs
+    /// (accept an already-built handle rather than build-and-immediately-
+    /// discard one internally, which was this crate's round-23 UNFIXED
+    /// gap).
+    pub fn with_cancel_handle(
+        config: StompConfiguration,
+        task: Box<dyn Task + 'a>,
+        cancel_handle: CancelHandle,
+    ) -> Self {
         let mut stomp = Self {
             task,
             config,
-            proceed: Arc::new(AtomicBool::new(true)),
+            proceed: cancel_handle.0,
             current_iteration: 0,
             parameters_valid: false,
             parameters_valid_prev: false,

@@ -35,13 +35,6 @@
 //! - [`cost_functions::cost_function_from_state_validator`]/[`cost_functions::sum`]
 //!   (`costs::getCostFunctionFromStateValidator`/`costs::sum`) -- generic
 //!   over a caller-supplied [`cost_functions::StateValidatorFn`].
-//!   **Not ported**: `costs::getCollisionCostFunction`/
-//!   `costs::getConstraintsCostFunction`, the two factories that *build* a
-//!   `StateValidatorFn` from a `PlanningScene`. Neither `moveit-scene` nor
-//!   `moveit-collision` is a dependency of this crate this round -- a
-//!   caller of [`planner::plan`] supplies its own
-//!   [`cost_functions::StateValidatorFn`]-backed [`composable_task::CostFn`]
-//!   instead.
 //! - [`noise_generators::normal_distribution_generator`]
 //!   (`noise::getNormalDistributionGenerator`) -- no `PlanningScene`
 //!   dependency at all, fully ported.
@@ -50,6 +43,44 @@
 //!   `NoiseGeneratorFn`/`CostFn`/`PostIterationFn`/`DoneFn` join `FilterFn`
 //!   (already carried in from an earlier round, see `filter_functions`'
 //!   module doc) as the pieces of that header this crate needs.
+//!
+//! # Round 24: `costs::getCollisionCostFunction`/`costs::getConstraintsCostFunction`, the `PlanningScene`-backed half
+//!
+//! Round 23 left these two factories unported, reasoning that
+//! `moveit-scene`/`moveit-collision` were out of this crate's dependency
+//! reach. That was checked and found false: neither was actually blocked by
+//! any rule, just not yet listed in `Cargo.toml`, and the sibling planner
+//! crate `moveit-planners-sbp` already depends on both without a cycle
+//! (`cargo tree -p moveit-scene -e normal`/`cargo tree -p moveit-collision
+//! -e normal` neither lists `stomp`). Both are now `[workspace.dependencies]`
+//! entries here too, and [`cost_functions::get_collision_cost_function`]/
+//! [`cost_functions::get_constraints_cost_function`] are ported -- see that
+//! module's own doc for the `RefCell<&mut PlanningScene>` bridge pattern
+//! (reused from `moveit-planners-sbp::planning_scene_validity`'s existing
+//! precedent) and the two documented deviations from upstream.
+//!
+//! # Round 24: cancellation lifted to the caller, and `PlanRequest`
+//!
+//! [`planner::plan`] now takes a [`moveit_stomp_core::CancelHandle`]
+//! parameter instead of building and discarding one internally -- see
+//! [`planner`]'s own "Round 24: cancellation, lifted to the caller" for the
+//! full reasoning and why `PlanningContext` is deliberately not introduced
+//! here. Adding that parameter pushed [`planner::plan`] to eight arguments;
+//! [`planner::PlanRequest`] bundles the four that form one motion query
+//! (`start_state`/`goal_state`/`group`/`input_trajectory`) back down to a
+//! single parameter, a plain data grouping with no behavior of its own, not
+//! a step toward that same trait.
+//!
+//! # Round 24: the `into_uniformly_timed` invariant now carries its own test
+//!
+//! Round 23 asserted that [`conversion_functions::UnparameterizedTrajectory`]
+//! rules out two sides silently time-parameterizing the same trajectory,
+//! because the only path to a real `RobotTrajectory` is
+//! `into_uniformly_timed`. That claim rested on prose alone. It now carries
+//! a `compile_fail` doctest on `UnparameterizedTrajectory` itself,
+//! demonstrating that the wrapped `RobotTrajectory` cannot be reached any
+//! other way -- not by convention, but because the field is private and no
+//! other public method exposes it.
 //!
 //! # Not ported: the ROS/task-engine layer (D1/D2 exclusion)
 //!
@@ -96,8 +127,9 @@
 //! requires, confirmed by reading that field's type directly rather than
 //! assuming it -- is [`conversion_functions::UnparameterizedTrajectory::into_uniformly_timed`],
 //! which forces the caller to name an explicit `dt`. A STOMP-backed
-//! `PlanningContext::solve` (not built this round -- see [`planner`]'s own
-//! "UNFIXED" note) would call `into_uniformly_timed(config.delta_t)`:
+//! `PlanningContext::solve` (that trait is not introduced in this crate --
+//! see [`planner`]'s own "Round 24: cancellation, lifted to the caller" for
+//! why) would call `into_uniformly_timed(config.delta_t)`:
 //! `delta_t` is STOMP's own optimization timestep, a physically meaningful
 //! choice, not an arbitrary placeholder. `AddTimeOptimalParameterization`
 //! running afterward, as a separate response-adapter-pipeline stage over
