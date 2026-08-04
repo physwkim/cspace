@@ -102,15 +102,39 @@ fn full_coverage_joint_constraints(model: &RobotModel) -> Vec<JointConstraint> {
         .collect()
 }
 
+/// With every other argument empty (as `no_constraints_and_no_solver_returns_none`
+/// below also is), Step D/E's fallthrough produces `Ok(None)` for *any*
+/// group, real or not -- so a bare `result.is_none()` here would still pass
+/// even if the unresolvable-group early return were deleted and `group_name`
+/// fell through to a real group instead. `subgroup_solvers` names a subgroup
+/// that only Step C would ever look at, and Step C errors immediately on an
+/// unresolvable name (`unresolvable_subgroup_name_is_an_error` below) -- so
+/// getting `Ok(None)` here rather than that error proves the early return
+/// fired before Step C ran, not that Step C happened to also land on `None`.
 #[test]
 fn unknown_group_name_returns_none() {
     let model = panda_model();
-    let result = select_default_sampler(&model, "no_such_group", &[], None, vec![], 1).unwrap();
-    assert!(
-        result.is_none(),
-        "matches upstream's `if (!jmg) return ConstraintSamplerPtr();` — an unresolvable \
-         group name is not an error, just nothing to sample"
+    let solver: Box<dyn KinematicsSolver> = Box::new(FakeTip::new("panda_link8"));
+    let result = select_default_sampler(
+        &model,
+        "no_such_group",
+        &[],
+        None,
+        vec![SubgroupSolver {
+            group_name: "no_such_subgroup".to_string(),
+            solver,
+            subgroup_solvers: vec![],
+        }],
+        1,
     );
+    match result {
+        Ok(None) => {}
+        Ok(Some(_)) => panic!("expected None, got a sampler"),
+        Err(e) => panic!(
+            "expected the unresolvable top-level group to short-circuit before Step C ever \
+             looked at subgroup_solvers, but got an error from there instead: {e}"
+        ),
+    }
 }
 
 #[test]
