@@ -19,6 +19,15 @@ authors = ["moveit-rs contributors"]
 # its own crate rather than folding into moveit-planners-stomp because every
 # audit command in this repo counts a crate's symbols against exactly one
 # upstream, and two upstreams in one crate would break that premise.
+#
+# That crate is also the one place `license` above does not apply.
+# ros-industrial/stomp is Apache-2.0 (`LICENSE`, `package.xml:9`, and a
+# per-file header on every source including `src/utils.cpp`); every moveit2
+# package this workspace ports is BSD-3-Clause (`moveit_core`,
+# `moveit_planners/{stomp,chomp/*,pilz_industrial_motion_planner}` package.xml
+# all read BSD-3-Clause). So moveit-stomp-core sets `license` explicitly
+# rather than `license.workspace = true` -- inheriting here would relabel
+# Apache-2.0-derived code as BSD-3-Clause.
 
 [workspace.dependencies]
 moveit-collision = { path = "crates/moveit-collision", version = "0.1.0" }
