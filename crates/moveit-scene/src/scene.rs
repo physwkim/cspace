@@ -374,7 +374,7 @@ pub struct PathValidity {
 ///   explicit-ACM overloads not ported, same reasoning as `checkCollision`.
 /// - `distanceToCollisionUnpadded` (4 overloads) — distinct: same
 ///   padded/unpadded machinery as `checkCollisionUnpadded`, D4 obsoletes it
-///   (`planning_scene.cpp:461-509`: each overload only forwards to
+///   (`planning_scene.hpp:553-609`: each overload only forwards to
 ///   `getCollisionEnvUnpadded()->distanceRobot(...)`, no branch of its own
 ///   beyond the const/non-const `updateCollisionBodyTransforms()` forward
 ///   already reproduced by `PlanningScene::distance_to_collision`'s own
