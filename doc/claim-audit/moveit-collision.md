@@ -94,3 +94,41 @@ algorithm (a different eigensolver, a different point-projection
 convention), or a future oracle rebuild changes any of the above cited
 FCL/moveit_core lines, this table's measured-accuracy numbers must be
 re-measured, not assumed to still hold.
+
+## Deviation 1 was wrong: `group_name` is not inert upstream (round with commit pending)
+
+Corrects both this file's line above ("a `moveit-scene` group-filter
+defect, not `moveit-collision`'s") and the module doc's former deviation
+1 ("this backend does not filter by group either, matching upstream's
+real (if surprising) behavior"). Both were written from `env.rs`'s
+default `check_collision` (which indeed never touches `group_name`) and
+never opened `collision_env_fcl.cpp`'s `checkSelfCollisionHelper`/
+`checkRobotCollisionHelper` bodies to check whether *they* do.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| former module doc deviation 1 | `checkSelfCollision`/`checkRobotCollision` never call `enableGroup`/read `active_components_only_` | REFUTED | `collision_env_fcl.cpp:281` and `:336`: `checkSelfCollisionHelper`/`checkRobotCollisionHelper` both call `cd.enableGroup(getRobotModel())` unconditionally, every call |
+| new module doc deviation 1 | `CollisionData::enableGroup` resolves `req_->group_name` to `JointModelGroup::getUpdatedLinkModelsSet()` when the model has that group, else `nullptr` | CONFIRMED | `collision_common.cpp:1012-1022` |
+| new module doc deviation 1 | `collisionCallback` skips a pair only when *neither* side resolves to an active link (world objects never resolve to one, so a robot-vs-world pair is kept iff the robot link is active; a self-pair is kept iff *either* link is) | CONFIRMED | `collision_common.cpp:79-94` |
+| new module doc deviation 1 | `distanceCallback` reads the identical `active_components_only` from `DistanceRequest`, so `distance_self`/`distance_robot` need the same filter even though `distanceSelf`/`distanceRobot` themselves never call `enableGroup` (their caller is expected to have already populated it) | CONFIRMED | `collision_common.cpp:482-500` (callback); `collision_env_fcl.cpp:288-290`/`345-347` (the caller populating it before calling `distanceSelf`/`distanceRobot`) |
+| new module doc deviation 1 | `JointModelGroup::getUpdatedLinkModelsSet()` is the union of every joint root's descendant links (fixed-joint descendants included), and `moveit-model`'s already-ported `JointModelGroup::updated_link_names` computes the identical set | CONFIRMED | `moveit_core/robot_model/src/joint_model_group.cpp:250-260`; `crates/moveit-model/src/joint_model_group.rs:315-334` (own crate, pre-existing, ported correctly — the bug was only in `moveit-collision` never calling it) |
+
+Measured (this crate's `parry::tests::check_robot_collision_group_name_*`/
+`check_self_collision_group_name_*`/`distance_robot_group_name_*`, own
+fixtures, no oracle needed — the OR-vs-AND filter shape and the
+unknown-group fallback are structural, not numeric): fixed. Isolated via
+`git stash` on `src/parry.rs` alone against `moveit-scene`'s (untouched)
+`panda_cost_sources_blocked_by_mesh_shape_cost_sources`: without this
+round's fix the test fails exactly as filed, `case id 5: count mismatch
+left: 9 right: 2`; with it, all cases in that test (`#[ignore]`d,
+`moveit-scene`'s own bookkeeping to remove) pass at the existing `1e-9`
+threshold. So was `panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`,
+already-fixed by a prior round's OBB fit, not this one — isolated the same
+way, confirmed unaffected by this round's `parry.rs` change alone.
+
+Expires (§153.1): if a future round adds a `moveit-collision` entry
+point that receives a `CollisionRequest`/`DistanceRequest` but bypasses
+`check_self_collision`/`check_robot_collision`/`distance_self`/
+`distance_robot` (e.g. a batched or continuous variant), that entry
+point needs its own `active_group_links`/`pair_in_active_group` wiring —
+not assumed inherited from this fix.
