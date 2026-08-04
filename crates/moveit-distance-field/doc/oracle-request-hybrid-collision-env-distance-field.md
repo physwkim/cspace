@@ -260,6 +260,54 @@ values, which was not done here. Whoever files F3 should pick a state
 and confirm no self-collision the reliable way: a `contacts: true`
 request at the same joint values reporting `collision: false`.
 
+**That requirement is unsatisfiable, and the reason is upstream's own
+fixture — do not go looking for a joint state.** `right_arm` cannot be
+posed self/intra-collision-free under this repo's `pr2.srdf`: 230
+sampled states (30 whole-model, 200 `right_arm`-scoped draws inside real
+joint limits) every one reported self-collision, and
+`collision_env_distance_field.cpp:760-850` sets
+`self_collision_enabled_`/`intra_group_collision_enabled_` purely from
+`acm->getEntry(...) == ALWAYS` with no kinematic-adjacency fallback, so
+no joint angle can substitute for a missing SRDF entry. The SRDF has
+exactly one `<disable_collisions>` entry followed by the literal comment
+`<!-- and many more disable_collisions tags -->` (panda has 34, fanuc
+10).
+
+That is not a truncation this port introduced. `fixtures/pr2.srdf` is
+**byte-identical** to `third_party/moveit_resources/pr2_description/srdf/robot.xml`
+(verified by `diff`, no output) — the file `verify-fixture-provenance.sh`
+already names as its source. Upstream's own test resource is the
+abbreviated one, comment and all, alongside a `<group_state>` whose body
+is `<!-- ... the rest of the joint values... -->`; it is an illustrative
+SRDF, not a working PR2 description, and upstream ships it as the PR2
+test fixture anyway. No complete PR2 SRDF exists on this host or in the
+oracle container to source the missing entries from.
+
+So authoring the missing entries is the wrong move twice over: it would
+make the fixture diverge from the upstream file it is checked against,
+and every pr2 oracle fixture in the tree was captured with the oracle
+loading this exact SRDF, so changing it invalidates all of them.
+
+**File F3 with a paired control instead.** The "self/intra absent"
+requirement was only ever a way to make the environment branch's
+contribution *identifiable* in the response; it is not the only way, and
+it is the one that happens to be unreachable. Run F3 twice at the
+identical joint state and identical ACM, once with the sphere and once
+with `empty_env`, and difference the two responses: the robot state is
+unchanged between them, so the self and intra-group contributions are
+identical by construction and cancel, and every per-link
+`gradient.collision`/`gradient.types` entry that *differs* is the
+environment branch's own output. This identifies the branch positively
+rather than inferring it from the absence of everything else, needs no
+SRDF change, no new group, and no image change — `mode` absent still
+selects `checkCollision`, which is what F3 exists to exercise.
+
+The F3-vs-F2 cross-check below survives this: it compares F3's
+environment verdict against F2's `robot_only` run at the same
+`objects`/state pair. With the control pair it compares F3's *difference*
+against F2's answer, which is the same comparison with the nuisance term
+removed rather than assumed away.
+
 **Refuting result, stated per case up front.** For F1: any nonzero
 `gradients[i].closest_distance` collision report or `collision: true`
 on any link refutes "clearly clear" and the case needs re-posing, not a
@@ -267,13 +315,21 @@ port defect — check this before treating a mismatch as a finding. For
 F2: `collision: false`, or a `collision: true` on a link other than the
 one the sphere was posed against, is a direct refutation of
 `get_environment_collisions`'s port — the first one possible for this
-method. For F3: `checkCollision`'s environment branch returning a
-different collision verdict than the same `objects`/state pair run
-through F2's `robot_only` mode (both should agree, since self/intra
-report nothing so `checkCollision` degrades to exactly
-`checkRobotCollision`'s answer) refutes either the branch-selection
-logic or the short-circuit condition, whichever this port's local replay
-narrows it to. For F4: the sphere marked "not overlapping" appearing in
+method. For F3: the *difference* between its two paired runs (sphere vs.
+`empty_env` at the identical state, per the control described above)
+disagreeing with the same `objects`/state pair run through F2's
+`robot_only` mode refutes either the branch-selection logic or the
+short-circuit condition, whichever this port's local replay narrows it
+to. The earlier form of this line said the two "should agree, since
+self/intra report nothing so `checkCollision` degrades to exactly
+`checkRobotCollision`'s answer" — self/intra never report nothing on
+this fixture, so the degradation it assumed does not happen and the
+comparison has to be against the difference, not against F3's raw
+verdict. A second refuting result comes free with the control: if the
+`empty_env` run and the sphere run report *identical* per-link
+`gradient.collision`/`gradient.types`, the environment branch did not
+fire at all and the case needs re-posing before anything is concluded
+from it. For F4: the sphere marked "not overlapping" appearing in
 `contacts`/lowering `closest_distance` below the true clear sphere's own
 value is cross-talk between environment objects this port's per-object
 loop should not produce.
