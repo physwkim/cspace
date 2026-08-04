@@ -359,7 +359,7 @@ for path in tracked:
             # citation that cannot carry its holders' notices should be
             # narrowed to what was really ported, which is what the two that
             # motivated the exemption ended up doing.
-            if citation in derivations and len(resolved) == 1:
+            if citation in derivations:
                 retain |= found
             if not reported and COPYLEFT.search(head) and PERMISSIVE.match(spdx):
                 # One report per citation: a package directory is cited once,
