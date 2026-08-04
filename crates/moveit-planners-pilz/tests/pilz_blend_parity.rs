@@ -837,10 +837,14 @@ fn blend_panda_arm_corner60_matches_the_oracle() {
     );
 }
 
-/// Case F's 75 degree sweep point -- the sweep's actual local maximum, and
-/// the point that refutes the "monotone in angle" prediction outright: 75°
-/// is shallower than case A's 90°, yet measures higher divergence than case
-/// A, case E (112°), and every sweep point up to 110°. See
+/// Case F's 75 degree sweep point -- the sweep's **velocity** maximum
+/// (`8.9525e-8`, above 110°'s `7.9133e-8` and case E's `8.2760e-8`), and the
+/// point that refutes the "monotone in angle" prediction outright: 75° is
+/// shallower than case A's 90°, yet measures higher divergence than case A
+/// in both channels (`1.9582e-8`/`2.9061e-7`). It is *not* the acceleration
+/// maximum -- its `1.4818e-6` sits below 110°'s `1.5797e-6` and case E's
+/// `1.6513e-6`, so the two channels do not peak at the same angle, and a
+/// claim about "the sweep's maximum" has to say which one it means. See
 /// [`CORNER75_VELOCITY_TOLERANCE`]/[`CORNER75_ACCELERATION_TOLERANCE`] and
 /// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
 #[test]
@@ -856,10 +860,13 @@ fn blend_panda_arm_corner75_matches_the_oracle() {
 }
 
 /// Case F's 100 degree sweep point: measures `1.5487e-8` velocity /
-/// `2.9642e-7` acceleration -- the sweep's own minimum, both comfortably
-/// inside [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`], no override
-/// needed. Sits right next to case A (90°, `1.9582e-8`/`2.9061e-7`) at the
-/// bottom of the dip the case-F prediction did not anticipate.
+/// `2.9642e-7` acceleration -- the sweep's **velocity** minimum, both
+/// comfortably inside [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`], no
+/// override needed. Case A (90°, `1.9582e-8`/`2.9061e-7`) holds the
+/// acceleration minimum instead, by `2%`; the two angles trade the two
+/// minima and neither holds both. They are adjacent at the bottom of the dip
+/// the case-F prediction did not anticipate, which is the refutation -- it
+/// does not need either single angle to own both channels.
 #[test]
 fn blend_panda_arm_corner100_matches_the_oracle() {
     run_case("panda_blend_corner100");
