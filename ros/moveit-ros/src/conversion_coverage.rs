@@ -94,6 +94,21 @@ const ONE_DIRECTIONAL: &[OneDirectional] = &[
                  `TryFrom<Shape> for SolidPrimitiveMsgOut` impl, which would \
                  make this pair subject to the same-file round-trip rule.",
     },
+    OneDirectional {
+        from: "OrientationConstraintQuaternion",
+        to: "UnitQuaternion",
+        reason: "round 15/§211: OrientationConstraintQuaternion exists solely \
+                 to name OrientationConstraint.orientation's own, stricter \
+                 upstream rule (kinematic_constraint.cpp:609-615) apart from \
+                 the generic Quaternion<->UnitQuaternion pair every other \
+                 site uses; the reverse direction (UnitQuaternion -> wire) \
+                 has only one shape everywhere in this crate and already \
+                 goes through the shared `TryFrom<UnitQuaternion> for \
+                 Quaternion`, tested by orientation.rs's own \
+                 round_trip_through_msg. Expires if a second msg->core \
+                 caller ever needs this same stricter rule and a core->msg \
+                 direction is added for it.",
+    },
 ];
 
 /// A bidirectional pair with no round-trip test of its own, because it is

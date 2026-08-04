@@ -13,7 +13,7 @@ use moveit_model::RobotModel;
 use r2r::moveit_msgs::msg as moveit_msgs;
 
 use super::context::minimal_transforms;
-use crate::geometry::Quaternion;
+use crate::geometry::{OrientationConstraintQuaternion, Quaternion};
 
 const XYZ_EULER_ANGLES: u8 = 0;
 const ROTATION_VECTOR: u8 = 1;
@@ -82,7 +82,15 @@ impl<'m> TryFrom<OrientationConstraintMsg<'m>> for CoreOrientationConstraint {
     fn try_from(wrapped: OrientationConstraintMsg<'m>) -> Result<Self, Self::Error> {
         let OrientationConstraintMsg { model, msg } = wrapped;
         let tf = minimal_transforms(model)?;
-        let orientation = UnitQuaternion::try_from(Quaternion(msg.orientation))?;
+        // Round 15/§211: this field's own upstream rule
+        // (`OrientationConstraint::configure`'s 1e-3 suspicion threshold,
+        // `kinematic_constraint.cpp:609-615`) is stricter than -- and
+        // different from -- the generic Pose rule every other Quaternion in
+        // this crate reaches. `OrientationConstraintQuaternion` names that
+        // difference at the type level instead of leaving the caller to
+        // pick the right threshold implicitly.
+        let orientation =
+            UnitQuaternion::try_from(OrientationConstraintQuaternion(msg.orientation))?;
         let tolerance = tolerance_from_wire(
             msg.parameterization,
             msg.absolute_x_axis_tolerance,
@@ -191,6 +199,27 @@ mod tests {
             y: 0.0,
             z: 0.0,
             w: 0.0,
+        };
+        let err =
+            CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
+                .unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose() {
+        // §211: pins which rule this wire path actually uses. A scene Pose
+        // at the same norm (`geometry.rs`'s
+        // `pose_with_norm_2_orientation_succeeds_and_normalizes`) succeeds
+        // and normalizes; this field must still reject it, since it goes
+        // through `OrientationConstraintQuaternion`, not the generic rule.
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.orientation = r2r::geometry_msgs::msg::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 2.0,
         };
         let err =
             CoreOrientationConstraint::try_from(OrientationConstraintMsg { model: &model, msg })
