@@ -43,10 +43,11 @@ if [[ ! -f "$file" ]]; then
   exit 1
 fi
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ripgrep (rg) not found" >&2
-  exit 1
-fi
+# No `command -v rg` guard here, deliberately: this script parses with awk,
+# grep and sed and never invokes ripgrep, so requiring it would abort the
+# gate on any host without ripgrep installed for a reason that has nothing
+# to do with what the gate checks. `check-no-lint-suppression.sh` keeps its
+# own guard because it really does call `rg --pcre2`.
 
 # The four base constants `Tolerances::SHARED` names -- not a hardcoded
 # list: read out of the `const SHARED: Self = Self { ... };` block itself,
