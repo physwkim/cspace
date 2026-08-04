@@ -133,37 +133,56 @@ mod tests {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
-    // Assertion-discrimination sweep (round 2): `new` has exactly two
-    // `None`-producing sites -- the shape guard at line 82 and
-    // `Cholesky::new(..)?` at line 84 -- and a bare `.is_none()` cannot
-    // say which one fired in general (`Option::None` carries no payload
-    // to swap, unlike `Error::other("msg")`). Verdict here is
-    // `single-branch`, but per-test rather than per-function: each
-    // test's specific input can reach only one of the two sites, proven
-    // empirically (not by eyeball) by no-op'ing the shape guard
-    // (`if covariance.nrows() != size || covariance.ncols() != size`
-    // -> `if false`) and re-running this cluster:
+    // Assertion-discrimination sweep (round 2, updated for brief section
+    // 3a): `new` has exactly two `None`-producing sites -- the shape guard
+    // at line 82 (guard A) and `Cholesky::new(..)?` at line 84 (guard B)
+    // -- and a bare `.is_none()` cannot say which fired in general
+    // (`Option::None` carries no payload to swap, unlike
+    // `Error::other("msg")`, so the discrimination-bite mutation from
+    // section 3 does not exist here). Per 3a's isolating mutation, run in
+    // both directions:
+    //
+    // Direction 1, neutralize guard A only (`if covariance.nrows() !=
+    // size || covariance.ncols() != size` -> `if false`):
     //   - `mismatched_covariance_shape_is_none` (3x3 identity, mean len
-    //     2): with the guard gone, `Cholesky::new` on the now-unchecked
-    //     3x3 identity succeeds (it is square and positive-definite),
-    //     so the assertion flips to `Some` and fails -- the guard was
-    //     this test's only route to `None`.
-    //   - `non_square_covariance_is_none` (2x3, mean len 2): with the
-    //     guard gone, `Cholesky::new` on a non-square matrix panics
-    //     (nalgebra: "The input matrix must be square") rather than
-    //     returning `None` -- the guard was this test's only route to
-    //     `None` too; the Cholesky site cannot substitute for it even
-    //     by accident.
-    //   - `indefinite_covariance_is_none` / the zero-covariance test
-    //     below: shapes already match (`nrows() == ncols() == size`),
-    //     so the guard's condition is false regardless of whether the
-    //     guard exists; disabling it changes nothing, and both tests
-    //     passed unaffected in the same run. Their `None` can only come
-    //     from `Cholesky::new` failing.
-    // Reachability-bite output: 2 failed (the two shape tests, one via
-    // assertion, one via panic), 2 passed unaffected (the two Cholesky
-    // tests) -- exactly the split the input construction predicts.
-    // Mutation reverted (`git diff` empty) before this comment was
+    //     2): FAILS -- `Cholesky::new` on the now-unchecked 3x3 identity
+    //     succeeds (square, positive-definite), flipping the assertion to
+    //     `Some`.
+    //   - `non_square_covariance_is_none` (2x3, mean len 2): FAILS (via
+    //     panic -- nalgebra's `Cholesky::new` requires a square matrix).
+    //   - `indefinite_covariance_is_none` / `zero_covariance_..._is_none`
+    //     (below): stay GREEN, unaffected -- both already have
+    //     `nrows() == ncols() == size`, so guard A's condition was false
+    //     regardless of whether the guard exists. This is the half that
+    //     carries the information: it rules out guard A silently covering
+    //     for guard B on these two tests' inputs.
+    //
+    // Direction 2 (mirror), neutralize guard B only (replace `Cholesky::
+    // new(covariance)?` with an infallible fallback: `Cholesky::new(
+    // covariance).unwrap_or_else(|| Cholesky::new(DMatrix::identity(size,
+    // size)).unwrap())`, forcing every input through to `Some`):
+    //   - `indefinite_covariance_is_none` / `zero_covariance_..._is_none`:
+    //     FAIL -- both previously relied solely on guard B.
+    //   - `mismatched_covariance_shape_is_none` / `non_square_covariance_
+    //     is_none`: stay GREEN, unaffected -- guard A still fires first
+    //     for both, before guard B's (now neutered) check is ever
+    //     reached. This rules out guard B silently covering for guard A.
+    //
+    // Both directions isolate cleanly (each guard's own tests fail when
+    // it is neutralized; the sibling's tests are unaffected), so this is
+    // `single-branch` per test, not `discriminating` (no message exists
+    // to assert on) and not untestable. D6 check: the two real in-tree
+    // callers (`moveit-stomp-core::stomp::BiasedSampler` construction and
+    // `noise_generators::normal_distribution_generator`) both build
+    // `mean`/`covariance` with matching dimensions by construction (a
+    // diagonal `num_timesteps x num_timesteps` covariance against a
+    // `num_timesteps`-length mean in both cases), so guard A is
+    // structurally unreachable from either call site -- confirmed against
+    // `normal_distribution_generator`'s own doc, "Neither is reachable for
+    // any `num_timesteps >= 1`". Neither caller needs to distinguish the
+    // two `None` reasons, so this is not a D6 finding.
+    //
+    // Every mutation reverted (`git diff` empty) before this comment was
     // written; no source change was needed.
     #[test]
     fn mismatched_covariance_shape_is_none() {
