@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2012, Georgia Tech Research Corporation
+// Copyright (c) 2011, Georgia Tech Research Corporation
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
