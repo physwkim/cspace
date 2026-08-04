@@ -344,16 +344,115 @@
 //!    converge to a shallower-than-true depth for this shape pair; if
 //!    anything the opposite.** So the 16-within-bound remainder's magnitude
 //!    disagreement is not explained by narrow-phase precision loss inside a
-//!    triangle pair FCL already examines. What is still open is whether
-//!    FCL's broad-phase/BVH traversal ever hands the narrow-phase a
-//!    *different, shallower* candidate triangle than this backend's own
-//!    exhaustive per-triangle search finds — a candidate-*selection*
-//!    question, not a numerical-precision one, and not answered by
-//!    anything above: it needs either FCL's BVH traversal order read
-//!    end-to-end for this pair (not done this round) or an oracle extension
-//!    exposing which triangle pair FCL's collision result actually names
-//!    (not requested here, for the same not-owning-`tools/moveit-oracle/`
-//!    reason as before).
+//!    triangle pair FCL already examines. What was still open after round
+//!    16 was whether FCL's broad-phase/BVH traversal ever hands the
+//!    narrow-phase a *different, shallower* candidate triangle than this
+//!    backend's own exhaustive per-triangle search finds — a
+//!    candidate-*selection* question, not a numerical-precision one.
+//!
+//!    Round 17 closed it, and not in the direction the question assumed.
+//!    `fcl::Contact` carries primitive indices `b1`/`b2` (the triangle id,
+//!    for a mesh) confirmed present at FCL tag `0.7.0`
+//!    (`include/fcl/narrowphase/contact.h:48-68`), but
+//!    `collision_detection::Contact`
+//!    (`moveit_core/collision_detection/include/moveit/collision_detection/collision_common.hpp:73-102`
+//!    at the pinned moveit2 commit) does not — `pos`/`normal`/`depth`/
+//!    `body_name_{1,2}`/`body_type_{1,2}`/`percent_interpolation` only — and
+//!    `collision_common.cpp` has zero references to `b1`/`b2` (`rg '\bb1\b|\bb2\b'
+//!    moveit_core/collision_detection_fcl/src/collision_common.cpp`, 0
+//!    hits), so which triangle FCL itself names is unreachable through any
+//!    MoveIt-mediated oracle op. Closing it needed the same move as round
+//!    16's libccd repro, aimed at FCL this time: a one-off C++ program,
+//!    compiled inside the oracle container against the real
+//!    `libfcl-dev 0.7.0-3build2` (`pkg-config --cflags --libs fcl` there
+//!    resolves to `-I/usr/include/eigen3 -lfcl -lccd`, confirming the
+//!    package the running image actually links, not this host's checkout),
+//!    calling `fcl::collide` directly — bypassing `CollisionEnvFCL`
+//!    entirely, so BVH traversal, candidate selection and the narrow-phase
+//!    all run for real — and reading `CollisionResult::getContact(i).b1`
+//!    back.
+//!
+//!    The request built there is the exact one `distanceCallback` itself
+//!    builds for a penetrating pair with `enable_signed_distance` set
+//!    (`collision_common.cpp:636-663` at the pinned commit — the fallback
+//!    that runs for every one of this deviation's self-collision cases,
+//!    read in full this round to confirm it's the right target before
+//!    reproducing it): `enable_contact = true`, `num_max_contacts = 200`,
+//!    `gjk_solver_type` left at `CollisionRequest`'s own default
+//!    `GST_LIBCCD` (`include/fcl/narrowphase/collision_request.h:52-98` at
+//!    FCL tag `0.7.0` — `distanceCallback` never overrides it, matching
+//!    round 16's own finding). `base_link`'s geometry is FCL's real
+//!    `BVHModel<fcl::OBBRSSd>`, moveit's own BV choice
+//!    (`createCollisionGeometry<fcl::OBBRSSd, ...>`,
+//!    `collision_common.cpp:900-922,949`; `fcl::OBBRSSd` at
+//!    `include/fcl/math/bv/OBBRSS.h:107`), built via the same
+//!    `beginModel`/`addSubModel`/`endModel` sequence
+//!    (`include/fcl/geometry/bvh/BVH_model.h:97,106,112`) from `base_link`'s
+//!    real mesh vertices/triangles, dumped live from this crate's own
+//!    `RobotModel`.
+//!
+//!    The 16-within-bound population itself is a fresh, independent
+//!    reproduction, not round 15's original 16 (never committed as a
+//!    fixture, not revisitable by index): a standalone scratch client
+//!    (not `tools/moveit-diff`, not committed — `tools/moveit-diff` never
+//!    surfaces [`Op::RandomStates`]'s own per-case joint values, only
+//!    aggregate pass/fail) spoke the oracle's wire protocol directly for
+//!    one whole-model `random_states` sweep (seed `20260817`, `8000`
+//!    cases) followed by one `collision` request per case, both ops
+//!    already used elsewhere in this repo, landing on 467 self same-pair
+//!    `base_link`/`*_caster_*_wheel_link` cases, of which 16 sit within the
+//!    same `2x` smaller-link-bounding-radius plausibility bound
+//!    [`pr2_self_wheel_same_pair_oracle_magnitude_is_implausible`] already
+//!    tests for — 16 by this sweep's own count, not forced to match round
+//!    15's.
+//!
+//!    Every case's `base_link`/wheel poses came from this port's own FK
+//!    (the same `RobotState`/`Posed` [`distance_self`] itself uses), fed
+//!    identically to both the C++ repro and this backend's own exhaustive
+//!    per-triangle search — so pose is not a second variable between the
+//!    two answers being compared. That the repro is genuinely running the
+//!    oracle's own code path, not a lookalike, is checked directly: 13 of
+//!    16 cases reproduce the oracle's actual `self_distance` magnitude to
+//!    under `1e-6` (most under `1e-15`, pure float noise). The remaining 3
+//!    (`br_caster_l_wheel_link`, and `fr_caster_l_wheel_link` twice) are off
+//!    by `1.231e-3`, `2.417e-5` and `6.803e-5` — small but real, most
+//!    plausibly this port's own FK diverging from the oracle's real FK by a
+//!    tiny amount at those specific states, not measured further this round
+//!    (UNFIXED, below).
+//!
+//!    **Result, falsifiable and measured on all 16, not a sample: FCL names
+//!    the *same* triangle this backend's own exhaustive search names in 12
+//!    of 16 cases, a *different* one in the remaining 4 — and in every one
+//!    of the 16, `fcl::Contactd::penetration_depth` for FCL's own chosen
+//!    triangle exceeds `parry3d_f64::query::contact`'s independent EPA
+//!    answer for that *identical* triangle/cylinder pair, by `0.031m` to
+//!    `0.104m` (min/median/max `0.0312/0.0619/0.1042`), never the reverse
+//!    (16/16, not 12/16 — the 4 different-triangle cases show the same
+//!    one-directional gap too).** For the 12 same-triangle cases this is
+//!    the whole story: FCL agrees with this backend on which triangle is
+//!    deepest, and diverges only in its own narrow-phase's reported depth
+//!    for it — pure narrow-phase-magnitude bias, the same sign round 16
+//!    already established (`ccdMPRPenetration ≥ parry`, never `<`), now
+//!    measured at real magnitude on real `base_link` mesh triangles instead
+//!    of round 16's synthetic sweep. For the 4 different-triangle cases,
+//!    parry's own independent depth for FCL's chosen triangle (`0.031`-
+//!    `0.046m`) is *not* larger than this backend's own winner (`0.046592m`
+//!    constant) — the alternate triangle is not genuinely deeper by any
+//!    measure both algorithms agree on. It only wins FCL's own
+//!    `max`-over-200-contacts selection because FCL's *own* inflation
+//!    happens to be larger for that triangle than for the true winner, an
+//!    uneven application of the same one-directional bias, not a
+//!    broad-phase/BVH traversal handing the narrow-phase a shallower true
+//!    candidate. **So candidate selection is not an independent cause of
+//!    this deviation: it is a downstream symptom of the same narrow-phase
+//!    magnitude bias round 16 already characterized, in the 4/16 cases
+//!    large enough (and unevenly enough distributed across candidate
+//!    triangles) to also flip the `max`-contact selection, not a defect in
+//!    BVH traversal order or a genuinely missed deeper candidate.** This
+//!    closes round 16's UNFIXED: nothing further to read in FCL's
+//!    broad-phase for this question, and no oracle extension is needed —
+//!    the whole 16-within-bound remainder is explained by narrow-phase
+//!    magnitude bias alone.
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
