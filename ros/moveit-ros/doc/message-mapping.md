@@ -22,6 +22,13 @@ claims below were corrected in the process (marked **[R2 CORRECTION]**
 inline) after `moveit_msgs` became available to check them against.
 §3/§11 remain **TABLE ONLY** — outside this round's priority list.
 
+**Round 3 update**: §11 is now **CODED** — `CollisionObject`
+(`src/scene/collision_object.rs`), `AttachedCollisionObject`
+(`src/scene/attached.rs`), `shape_msgs::{Mesh,Plane}`
+(`src/scene/shapes.rs`), and `PlanningSceneWorld`'s two named fields
+plus `PlanningScene.is_diff`/`robot_model_name` (`src/scene/planning_scene.rs`).
+§3 remains **TABLE ONLY** (lowest priority, not reached this round).
+
 **Status legend**
 
 - **CODED** — real `TryFrom` impl exists in `src/`, container-verified
@@ -306,7 +313,85 @@ the above and **rejects** a non-empty `multi_dof_joint_trajectory`
 (`Error::Other`), per the gap already named in the row above — dropped is
 not an option under D6 once the field is actually populated.
 
-## 11. `PlanningScene`/`PlanningSceneWorld`/`CollisionObject`/`AttachedCollisionObject` — **TABLE ONLY**
+## 11. `PlanningScene`/`PlanningSceneWorld`/`CollisionObject`/`AttachedCollisionObject` — **CODED** (round 3, `src/scene/`)
+
+Ported against moveit2 @ `e017c91ee12984393a28ba246075c65f69cde3bf`'s
+`moveit_core/planning_scene/src/planning_scene.cpp`. Unlike every other
+row in this document, `CollisionObject`/`AttachedCollisionObject` are not
+a `TryFrom` in both directions: upstream's own
+`processCollisionObjectMsg`/`processAttachedCollisionObjectMsg` take
+`(&mut PlanningScene, &Msg) -> bool`, an imperative command against an
+existing scene, not a value conversion — `apply_collision_object`/
+`apply_attached_collision_object` take the same shape (`&mut PlanningScene`
+in, `Result<()>` out).
+
+Landmines confirmed against the pinned source and closed with a
+regression test each (all in `src/scene/collision_object.rs` unless
+noted):
+
+- **Asymmetric parallel-array length rule** (`shapesAndPosesFromCollisionObjectMessage`,
+  `:1800-1862`): more poses than shapes is **rejected**; more shapes than
+  poses **tolerated**, missing trailing poses default to identity. Checked
+  independently per shape type (primitives/meshes/planes), before any
+  shape is constructed — not the same rule as §5's `BoundingVolume`, which
+  rejects on any mismatch at all.
+- **Single-shape object/shape pose swap** (`:1823-1852`): exactly one shape
+  total, plus an empty (identity) `object.pose`, promotes that shape's own
+  message pose to be the object pose and resets the shape's local pose to
+  identity — not merely "assume identity object pose."
+- **`OCTOMAP_NS` (`planning_scene.hpp:113`, `"<octomap>"`) rejected for
+  every operation** (ADD/REMOVE/APPEND/MOVE), checked in the top-level
+  dispatcher, plus separately in the attached-object dispatcher — not
+  just for ADD/APPEND.
+- **MOVE's own unconditional partial-effect order** (`processCollisionObjectMove`,
+  `:1953`): the object's absolute pose is applied *before* the per-shape
+  repose count is checked, so a shape-count mismatch still leaves the
+  object moved. Reproduced faithfully, not "fixed."
+- **AttachedCollisionObject ADD's world-object-promotion branch is gated
+  on `operation == ADD` specifically** (`:1576`), not APPEND — APPEND with
+  empty message geometry always fails the message-geometry path's
+  shapes-non-empty check instead.
+- **AttachedCollisionObject APPEND merges** shapes/poses (concatenated),
+  touch_links (unioned), and subframes (message value wins on a name
+  collision, matching `std::map::insert`'s keep-first semantics against
+  upstream's insertion order, `:1611-1612`) onto any existing attached body
+  of the same id.
+- **REMOVE (detach)'s two asymmetries**, neither given for free by
+  `moveit_scene::PlanningScene::detach` alone: an empty `object.id`
+  detaches every (optionally link-filtered) attached body and **always
+  succeeds even with zero matches**; a specific non-empty id that matches
+  nothing is a **failure**; a specific id whose actual `link_name` doesn't
+  match the message's stated one is a hard error (`src/scene/attached.rs`).
+- **`shape_msgs::MeshTriangle.vertex_indices`/`Plane.coef` are `Vec`, not
+  fixed arrays**, confirmed against `r2r`'s cached bindgen output (not
+  assumed from the `.msg` source's `[3]`/`[4]` syntax) — length-checked
+  rather than indexed out of bounds (`src/scene/shapes.rs`).
+- One landmine deliberately **not** reproduced: if `AttachedCollisionObject.link_name`
+  is given but names no real link, upstream's detach-filter falls back to
+  matching *every* attached body (`:1633-1636`); this port matches zero
+  instead (a bogus link name can never equal a real attached body's link),
+  documented as an intentional parity deviation in `apply_detach`'s doc
+  comment.
+
+Structural gaps (no reachable `PlanningScene`-level API, named rather than
+patched around):
+
+- World-object subframes (ADD/APPEND) and MOVE's per-shape repose: `World`
+  has `set_subframes_of_object`/`move_shapes_in_object`, but
+  `PlanningScene::world()` only returns `&World` (read-only).
+- AttachedCollisionObject's own MOVE: rejected, matching upstream, which
+  has no MOVE branch in `processAttachedCollisionObjectMsg` either.
+- `Octomap.data`'s binary payload: `moveit_octomap::OcTree` has no decoder
+  for octomap's binary tree serialization (`octomap_msgs::readTree`/
+  `OcTree::readData` unported); an empty payload is still a correct no-op,
+  matching upstream's own early return.
+
+Not attempted this round: the rest of `usePlanningSceneMsg`/`setPlanningSceneMsg`/
+`setPlanningSceneDiffMsg` (`robot_state`, `fixed_frame_transforms`,
+`allowed_collision_matrix`, `link_padding`/`link_scale`, `object_colors`,
+diff-vs-full dispatch) — each is a separately-sized conversion in its own
+right; `src/scene/planning_scene.rs` covers only `PlanningSceneWorld` and
+the two small `is_diff`/`robot_model_name` helpers.
 
 `PlanningScene` fields not already covered by `RobotState` (§9):
 
@@ -318,21 +403,21 @@ not an option under D6 once the field is actually populated.
 | `allowed_collision_matrix` | `AllowedCollisionMatrix` | **not read this round** — defined in `moveit-collision`, out of this survey's scope per the round-1 brief's crate list; its own mapping table is follow-up work, not attempted here (the wire type itself was pulled above, §-adjacent, for completeness only) |
 | `link_padding[]`/`link_scale[]` | **no field on `PlanningScene` at all** | **Genuine gap, not yet a documented one anywhere else.** These live on `moveit_collision::LinkPaddingScale`, passed as a separate argument to collision-checking calls, not stored on the scene. A `TryFrom<PlanningScene msg> for moveit_scene::PlanningScene` cannot round-trip this data through the scene type at all — it would need to return a second value (`(PlanningScene, LinkPaddingScale)`) alongside the scene, or drop it, and either choice needs sign-off since it changes the shape of the conversion's return type, not just its error cases. |
 | `object_colors: ObjectColor[]` | **D1-excluded entirely** | `moveit-scene`'s own doc comment already states this needs `std_msgs::msg::ColorRGBA` and is out of scope by D1 (core is ROS-independent) — msg→core always drops this array; there is no core representation to build it back from on core→msg either. Not new, just confirmed still true. |
-| `world: PlanningSceneWorld{collision_objects[], octomap}` | `World` (`moveit-collision`, used via `PlanningScene::world()`) | `collision_objects[]` mapping is `CollisionObject`, below; `octomap: octomap_msgs/OctomapWithPose` mapping is **not read this round** (`moveit-octomap` is out of the requested crate list) |
+| `world: PlanningSceneWorld{collision_objects[], octomap}` | `World` (`moveit-collision`, used via `PlanningScene::world()`) | `collision_objects[]` mapping is `CollisionObject`, below. `octomap: octomap_msgs/OctomapWithPose`: **[R3]** an empty `octomap.data` is a correct no-op (`apply_planning_scene_world`, `src/scene/planning_scene.rs`); a non-empty payload names a structural gap instead of converting — `moveit_octomap::OcTree` has no binary-payload decoder (`octomap_msgs::readTree`/`OcTree::readData` is unported), a separately-sized feature, not a field mapping. |
 | `is_diff: bool` | **not a stored field — structural** | `parent: Option<Arc<PlanningScene>>` being `Some` **is** "is a diff" on the core side. msg→core: `is_diff=true` implies the conversion must be handed a parent scene to attach to (again, more context than the message alone carries); core→msg: derive as `scene.parent().is_some()`, a pure function of the core value, no loss. |
 
 `CollisionObject` (nested inside `PlanningSceneWorld.collision_objects[]`,
 and inside `AttachedCollisionObject.object` below):
 
-| Wire | Core (`moveit_scene::AttachedBody` for the attached case; world objects are `moveit-collision::World`, not read this round) | 1:1? |
+| Wire | Core (`moveit_scene::AttachedBody` for the attached case; `moveit_collision::World`, reached via `PlanningScene::world()`/`add_shape`/`move_object`/`remove_object`, for world objects — **[R3]** read and used, no longer a stub) | 1:1? |
 |---|---|---|
 | `header` | dropped, same as §1's `Header` row | lossy, documented once, applies here too |
 | `pose: Pose` + `primitives[]`/`primitive_poses[]` (+ meshes, + planes) | `AttachedBody::shapes()` + `shape_poses()`, **one-level** (each shape's pose is already resolved relative to the attach link directly) | **Not 1:1 (composition collapsed).** Wire composes two levels — object pose × each primitive's own pose — core flattens to one: `shape_poses()` are relative to the link directly, per `attached_body.rs:25-33`'s own module doc (an explicit design deviation from upstream's two-level `pose_`/`shape_poses_`, already recorded there, not new). msg→core must pre-multiply `pose * primitive_poses[i]` (and `pose * mesh_poses[i]`) before storing; core→msg has no way to recover a meaningful "object pose" to factor back out (any decomposition is a `moveit-ros` policy choice, e.g. always emit `pose = identity` and put everything in `primitive_poses`/`mesh_poses` — needs naming/sign-off, not resolved here). |
-| `planes[]`/`plane_poses[]` | `moveit_geometry::Plane{a,b,c,d}` (a `Shape::Plane` variant does exist -- confirmed by reading `crates/moveit-geometry/src/shapes.rs:989-1000` directly, correcting an earlier pass over this table that assumed otherwise) | `shape_msgs/Plane` is `{coef: float64[4]}` (`coef[0..3]` = `a,b,c,d` per the `.msg`'s own comment) vs. core's 4 named fields -- 1:1 field-for-field once unpacked, **but** `coef` is IDL-fixed-size-4 while nothing in the message type stops a malformed producer from sending a different length depending on how `r2r` represents a fixed-size array (`Vec<f64>` vs `[f64; 4]` -- **not checked this round**, needs confirming against `r2r`-generated code before this row can move to CODED); if it's a `Vec`, a length check is another explicit-rejection case in the same family as `BoundingVolume`'s parallel arrays (§5). |
+| `planes[]`/`plane_poses[]` | `moveit_geometry::Plane{a,b,c,d}` (a `Shape::Plane` variant does exist -- confirmed by reading `crates/moveit-geometry/src/shapes.rs:989-1000` directly, correcting an earlier pass over this table that assumed otherwise) | `shape_msgs/Plane` is `{coef: float64[4]}` (`coef[0..3]` = `a,b,c,d` per the `.msg`'s own comment) vs. core's 4 named fields -- 1:1 field-for-field once unpacked. **[R3 CORRECTION]** `coef` is `Vec<f64>` in `r2r`'s generated bindings, not `[f64; 4]` — confirmed by reading the cached bindgen output directly, not assumed from the `.msg` source's `[4]` syntax. Length-checked (`src/scene/shapes.rs`), same family as `BoundingVolume`'s parallel arrays (§5). |
 | `id: string` | `AttachedBody::id()` | yes |
-| `type: object_recognition_msgs/ObjectType` | **no core equivalent found** | not read further this round (would need an `moveit-scene`/`moveit-collision` field search beyond this survey's scope) |
-| `subframe_names[]`/`subframe_poses[]` | `subframe_pose(name)`/`subframe_names()` | yes, but wire's parallel-array length-mismatch risk applies here too (same class as §5's `BoundingVolume`) |
-| `operation: byte` (`ADD=0/REMOVE=1/APPEND=2/MOVE=3`) | **no field — expressed as which method is called** (`PlanningScene::attach`/`attach_new`/`detach`) | **Structural, matches upstream's own `processAttachedCollisionObjectMsg` branching** (`moveit-scene`'s own doc comment cites this explicitly) — not a loss, a different encoding of the same dispatch. A `TryFrom<AttachedCollisionObject msg> for AttachedBody` alone cannot capture `operation`; it has to return an enum/tagged value telling the caller *which `PlanningScene` method to call*, not just a plain `AttachedBody`. |
+| `type: object_recognition_msgs/ObjectType` | **no core equivalent** (confirmed absent from `moveit-scene`'s full public surface, both for world objects and `AttachedBody`) | genuinely dropped, msg→core and core→msg alike; D1-shaped (orchestration/tagging metadata, no invariant to violate), same treatment as `weight` below |
+| `subframe_names[]`/`subframe_poses[]` | `subframe_pose(name)`/`subframe_names()` | yes, but **[R3 CORRECTION]** upstream itself indexes these two arrays without any length check at all (`planning_scene.cpp:1596-1599`, an out-of-bounds read if `subframe_names` is shorter) — this port rejects a length mismatch instead of reproducing that read (`src/scene/attached.rs`), a deliberate parity deviation, not an oversight. |
+| `operation: byte` (`ADD=0/REMOVE=1/APPEND=2/MOVE=3`) | **no field — expressed as which method is called** (`PlanningScene::attach`/`attach_new`/`detach`) | **Structural, matches upstream's own `processAttachedCollisionObjectMsg` branching** (`moveit-scene`'s own doc comment cites this explicitly) — not a loss, a different encoding of the same dispatch. `apply_attached_collision_object` (`src/scene/attached.rs`) is the dispatcher; it is not a plain `TryFrom<AttachedCollisionObject msg> for AttachedBody`, for exactly this reason. |
 
 `AttachedCollisionObject`-only fields (wrapping the `CollisionObject` above):
 
@@ -340,8 +425,8 @@ and inside `AttachedCollisionObject.object` below):
 |---|---|---|
 | `link_name: string` | `AttachedBody::link_name()` | yes |
 | `touch_links[]` | `AttachedBody::touch_links(): &BTreeSet<String>` | yes (`Vec` → `BTreeSet`: wire allows duplicates, core's set silently dedupes — worth a one-line note in the eventual impl doc, not a failure case) |
-| `detach_posture: trajectory_msgs/JointTrajectory` | **D1-excluded** (`attached_body.rs:45`, explicit `"D1"` in the core source) | confirmed still true, not new |
-| `weight: float64` | **no field anywhere on `AttachedBody`** | **Genuine gap, not previously documented elsewhere.** msg→core: silently dropped (there is nowhere to put it); core→msg: nothing to source it from, must default (and "if known" in the wire comment already signals upstream itself treats 0/absent as the common case, so `0.0` as the core→msg default is at least consistent with upstream's own convention — still worth a one-line comment at the call site rather than an unstated default). |
+| `detach_posture: trajectory_msgs/JointTrajectory` | **D1-excluded** (`attached_body.rs:45`, explicit `"D1"` in the core source) | confirmed still true, not new; genuinely dropped, msg→core and core→msg alike (§11's CODED note above) |
+| `weight: float64` | **no field anywhere on `AttachedBody`** | **Genuine gap.** msg→core: silently dropped (there is nowhere to put it, and upstream's own `processAttachedCollisionObjectMsg` never reads it back either — purely advisory metadata, "if known"); core→msg: not attempted (no core→msg direction exists for this message family at all, see the CODED note above), so there is no default-value question to resolve. |
 
 ## 12. Every "코어에 없는 필드" — cross-reference (brief's item 3, bullet 1)
 
@@ -401,9 +486,6 @@ Every case above where `core -> msg -> core` (or `msg -> core -> msg`) is
   whether `TryFrom<PlanningScene msg>` returns a tuple
   `(PlanningScene, LinkPaddingScale)` or drops the data, since neither is a
   "just write the obvious code" case.
-- **`moveit_geometry::Plane` vs `shape_msgs/Plane` field shape** (§11) —
-  flagged as unread this round; blocks `CollisionObject.planes[]` moving
-  from TABLE ONLY to CODED.
 - **`moveit-collision`'s `AllowedCollisionMatrix`/`World`/`LinkPaddingScale`
   field layouts** — out of this round's requested crate survey entirely;
   every row above that touches them is a stub, not a real mapping.
