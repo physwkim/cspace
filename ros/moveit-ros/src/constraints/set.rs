@@ -8,7 +8,10 @@
 //! core type is a bare `Vec<Constraint>`, see that type's own doc comment
 //! on why it dropped upstream's parallel-vector/name bookkeeping) -- msg->core
 //! drops it (documented, not silently: see the `name` field handling below),
-//! core->msg emits `String::new()`.
+//! core->msg emits `String::new()`. Re-checked round 5 against
+//! `crates/moveit-constraints/src/set.rs:47-49` -- `KinematicConstraintSet`
+//! is still exactly `{ constraints: Vec<Constraint> }`. Expires if it grows
+//! a `name` field; `moveit-constraints`'s call, not this crate's.
 
 use moveit_constraints::{Constraint, KinematicConstraintSet};
 use moveit_error::Error;
