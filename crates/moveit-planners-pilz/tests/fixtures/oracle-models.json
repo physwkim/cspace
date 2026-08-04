@@ -1,4 +1,12 @@
 {
+  "panda_blend_asymmetric": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_blend_symmetric": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_circ": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
