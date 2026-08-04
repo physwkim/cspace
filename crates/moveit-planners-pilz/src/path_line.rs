@@ -1,23 +1,17 @@
-// Copyright (c) 2004-2005, Erwin Aertbelien, Div. PMA, Dep. of Mech. Eng., K.U.Leuven
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from orocos_kinematics_dynamics @ v1.5.1 (see
-// `crates/moveit-state/src/dynamics.rs` for how this workspace pins and
-// verifies that checkout against the oracle image's compiled `liborocos-kdl`):
-//   orocos_kdl/src/path_line.{hpp,cpp}
-//   orocos_kdl/src/rotational_interpolation_sa.{hpp,cpp}
-//   orocos_kdl/src/frames.cpp (`Rotation::GetRotAngle`, `Rotation::Rot2`)
-// used by moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf's
+// Used by moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf's
 //   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_lin.cpp
 // (`TrajectoryGeneratorLIN::setPathLIN`).
 
 //! A straight-line Cartesian path with single-axis rotational interpolation
-//! ([`PathLine`]), ported from `KDL::Path_Line` composed with
+//! ([`PathLine`]), playing the role of `KDL::Path_Line` composed with
 //! `KDL::RotationalInterpolation_SingleAxis` — the only
 //! `RotationalInterpolation` upstream's `TrajectoryGeneratorLIN` ever
 //! constructs, so the two are folded into one type here rather than kept as
-//! a trait plus one implementor.
+//! a trait plus one implementor. See below for why this is *not* a
+//! line-by-line port of either.
 //!
 //! # Deviations from upstream
 //!
@@ -29,18 +23,38 @@
 //!   here. Its `SetStartEnd`/`Pos` logic is inlined into [`PathLine::new`]/
 //!   [`PathLine::pos`] directly.
 //! - **Only the `Frame`-to-`Frame` constructor, `PathLength`, and `Pos` are
-//!   ported.** The `Frame`-plus-`Twist` constructor and `Vel`/`Acc`/`Write`/
+//!   provided.** The `Frame`-plus-`Twist` constructor and `Vel`/`Acc`/`Write`/
 //!   `Clone`/`LengthToS` have no caller: `generate_joint_trajectory` (this
 //!   crate's `trajectory_functions` module) only ever calls
 //!   [`crate::trajectory_functions::CartesianPath::duration`]/`pos`, composed
 //!   from [`PathLine::path_length`]/[`PathLine::pos`] by
 //!   `TrajectoryGeneratorLIN`'s own Cartesian trajectory segment — see this
 //!   crate's `deny(warnings)` policy on dead code.
-//! - **[`get_rot_angle`]'s `eps` uses [`crate::velocity_profile::KDL_EPSILON`].**
-//!   Matches upstream's own default parameter
-//!   (`GetRotAngle(Vector&, double eps=epsilon)`, KDL's `epsilon = 1e-6`) —
-//!   see that function's own doc comment for why it needs only one epsilon,
-//!   not upstream's `eps`/`eps2` pair.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! `KDL::Path_Line`, `RotationalInterpolation_SingleAxis` and
+//! `Rotation::GetRotAngle`/`Vector::Normalize` are LGPL-2.1-or-later
+//! (`third_party/orocos_kinematics_dynamics/`), heavier copyleft than this
+//! workspace's BSD-3-Clause. Nothing in this file is transcribed from
+//! them: `kdl_normalize`, `get_rot_angle` and [`PathLine::new`] are
+//! each derived independently (elementary vector algebra, the standard
+//! quaternion axis-angle identity, and the same multi-motion
+//! synchronization already used by
+//! [`crate::trajectory_generator_ptp::TrajectoryGeneratorPtp`], respectively
+//! — see each function's own doc comment for the derivation). What is
+//! reused from the LGPL sources is *interface facts*, not expression: the
+//! `eqradius` convention balancing translational against rotational arc
+//! length into one path parameter (named here by the same convention
+//! `Path_Line`'s own constructor doc comment in
+//! `orocos_kdl/src/path_line.hpp` uses), and the general shape of a
+//! "start pose, goal pose, single rotation axis" Cartesian path — not the
+//! algorithms that fill it in. Equivalence with upstream is proven the
+//! same way every other generator in this crate proves it: oracle parity
+//! on captured fixtures (`tests/pilz_trajectory_lin_parity.rs`,
+//! `tests/pilz_trajectory_circ_parity.rs` for [`crate::path_circle::PathCircle`]'s
+//! shared use of `kdl_normalize`/`get_rot_angle`), not line
+//! correspondence.
 
 use moveit_geometry::{Isometry3, UnitQuaternion, Vector3};
 use nalgebra::Unit;
