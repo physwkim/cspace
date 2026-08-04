@@ -53,11 +53,46 @@
 //!   This port computes the same `0`-when-inverted result directly via
 //!   `(end_index + 1).saturating_sub(start_index)`, not by relying on that
 //!   coincidence — see `num_free_points_zero_for_inverted_range` below.
+//! - **[`ChompTrajectory::from_duration`] validates `discretization` and
+//!   bounds the resulting point count (§153.1/§172), instead of the
+//!   unchecked `static_cast<size_t>` upstream's `(robot_model, double
+//!   duration, double discretization, group_name)` constructor uses
+//!   (cpp: delegates to the num-points constructor via
+//!   `static_cast<size_t>(duration / discretization) + 1`).** That cast
+//!   is undefined behaviour in C++ outside a well-behaved input range;
+//!   Rust's `as usize` is always defined (saturating) instead, which turns
+//!   the same UB into two Rust-specific failures no upstream comparison can
+//!   catch: `discretization` at or near `0.0` saturates the cast to (or
+//!   near) `usize::MAX`, so the following `+ 1` panics on overflow in a
+//!   debug build (Rust's default), or wraps to a small count that
+//!   `from_num_points`'s own `num_points < 2` check happens to catch in a
+//!   release build — an accident of wraparound, not a validated rejection.
+//!   A `discretization` merely small (not zero) instead saturates to some
+//!   large-but-not-`usize::MAX` count, past `from_num_points`'s `< 2` guard
+//!   and into a `DMatrix::zeros` allocation big enough to hang and exhaust
+//!   memory, the same shape as `moveit-trajectory`'s `resample_dt` finding
+//!   this note mirrors. `from_duration` now rejects a non-finite or
+//!   non-positive `discretization`, and separately rejects a resulting
+//!   point count above [`MAX_FROM_DURATION_POINTS`] (a resource bound this
+//!   port adds; upstream has none), both before the cast rather than after
+//!   it. **Expires** if upstream adds its own `discretization` validation,
+//!   at which point this note should instead record whatever bound
+//!   upstream chose.
 use moveit_error::{Error, Result};
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::RobotState;
 use moveit_trajectory::RobotTrajectory;
 use nalgebra::DMatrix;
+
+/// Not from upstream (which has no such bound; see this module's
+/// "Deviations from upstream" note on [`ChompTrajectory::from_duration`]'s
+/// validation, §172/§153.1). A defensive resource cap on the point count
+/// `from_duration` will build a `num_points`-row `DMatrix` from: CHOMP
+/// trajectories are ordinarily tens to low thousands of points, so this
+/// stays far above any legitimate `duration`/`discretization` combination
+/// while still catching an allocation large enough to hang and exhaust
+/// memory.
+const MAX_FROM_DURATION_POINTS: usize = 100_000_000;
 
 /// A discretized joint-space trajectory for CHOMP.
 ///
@@ -92,7 +127,19 @@ impl ChompTrajectory {
         discretization: f64,
         group_name: &str,
     ) -> Result<Self> {
-        let num_points = (duration / discretization) as usize + 1;
+        if !discretization.is_finite() || discretization <= 0.0 {
+            return Err(Error::other(format!(
+                "discretization must be finite and positive, got {discretization}"
+            )));
+        }
+        let raw_num_points = duration / discretization;
+        if !raw_num_points.is_finite() || raw_num_points > MAX_FROM_DURATION_POINTS as f64 {
+            return Err(Error::other(format!(
+                "duration {duration} over discretization {discretization} would require more \
+                 than {MAX_FROM_DURATION_POINTS} points"
+            )));
+        }
+        let num_points = raw_num_points as usize + 1;
         Self::from_num_points(robot_model, num_points, discretization, group_name)
     }
 
@@ -647,6 +694,38 @@ mod tests {
         let err = ChompTrajectory::from_num_points(model, 1, 0.1, GROUP).unwrap_err();
         assert!(matches!(err, Error::Other(_)));
         let err = ChompTrajectory::from_num_points(model, 0, 0.1, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    /// §172/§153.1: `discretization == 0.0` used to saturate
+    /// `(duration / 0.0) as usize` to `usize::MAX`, panicking (debug) or
+    /// wrapping (release) on the following `+ 1`. Now rejected up front.
+    #[test]
+    fn from_duration_rejects_zero_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, 3.0, 0.0, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    /// Same boundary, negative side: `discretization < 0.0` is rejected the
+    /// same way, rather than falling through to whatever sign `duration`
+    /// happens to carry.
+    #[test]
+    fn from_duration_rejects_negative_discretization() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, 3.0, -0.03, GROUP).unwrap_err();
+        assert!(matches!(err, Error::Other(_)));
+    }
+
+    /// A `discretization` positive and finite but small enough that
+    /// `duration / discretization` would need more than
+    /// [`MAX_FROM_DURATION_POINTS`] points must still be rejected: the
+    /// `discretization > 0.0` check alone does not bound the resulting
+    /// point count.
+    #[test]
+    fn from_duration_rejects_an_unreasonable_point_count() {
+        let model = panda_model();
+        let err = ChompTrajectory::from_duration(model, 3.0, 1e-300, GROUP).unwrap_err();
         assert!(matches!(err, Error::Other(_)));
     }
 
