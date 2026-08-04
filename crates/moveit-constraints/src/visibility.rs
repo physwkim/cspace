@@ -552,6 +552,44 @@ impl VisibilityConstraint {
     /// cases pass; the `touching >= 2` fail rate (10/14, 71.4%) is not
     /// higher than `touching == 1`'s (105/129, 81.4%) — touching count
     /// alone is a weak predictor of failure once `touching >= 1`.
+    ///
+    /// # Round 23: the residual 10 do not reproduce, and cannot under the
+    /// current generator
+    ///
+    /// The 10 cases above have no recorded seed (`PORTING-PLAN.md` §148),
+    /// so they cannot be re-drawn directly. What can be re-measured is the
+    /// *mechanism*: a fresh sweep (`cargo run --release --example
+    /// visibility_cone_depth_sweep -p moveit-constraints`, this crate's
+    /// own independent oracle client, seeds 23/n=400 and 90210/n=2000,
+    /// oracle stamp `c88557f4058892e9`) found **0/2400** `touching >= 2`
+    /// cases — every near-placed case touches exactly one link, every
+    /// far-placed case touches none, no exceptions.
+    ///
+    /// That is not sampling luck: the same binary's `--geometry-gaps`
+    /// mode shows it is currently geometrically impossible. A near-placed
+    /// cone's maximum reach from its own anchor (the hit link's shape
+    /// center) is `max(target_radius, sensor_offset)` — the squared
+    /// distance from a fixed point to a segment is convex in the segment
+    /// parameter, so it maxes at an endpoint, not at the two legs'
+    /// hypotenuse — capped at `0.015` by this generator
+    /// (`tools/moveit-diff/src/main.rs:1335`). The tightest of pr2's 136
+    /// eligible-link pairs (the four caster-wheel pairs) needs `0.0232` of
+    /// reach to bridge; every pair needs more than the generator's max.
+    /// `git log -S'0.005..0.015'`/`-S'radius="0.074792"'` confirm neither
+    /// the generator's bounds nor pr2's fixture geometry have changed
+    /// since before the 10-case measurement, so this is not drift — it is
+    /// the same fact the 105-case sweep predates. `PORTING-PLAN.md` §164
+    /// has the full derivation, the resulting contradiction with the
+    /// (unreproducible) 10-case count, and `d26916d`'s independent,
+    /// same-day corroboration via a different method (scene inspection of
+    /// the actual 115 failures at `max_contacts: 64`, finding none
+    /// ambiguous).
+    ///
+    /// With no `touching >= 2` case reachable to test, there is nothing
+    /// left for traversal order to explain: deviation 6 alone accounts
+    /// for every currently-reproducible `visibility_cone` mismatch. This
+    /// closes the residual §121.2 left open, not merely narrows it
+    /// further.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let Some(result) = self.decide_by_angle(state) else {
             return self.decide_cone(state);
@@ -632,6 +670,35 @@ impl VisibilityConstraint {
         self.cone_collision_result(state, usize::MAX)
             .contacts
             .map_or(0, |contacts| contacts.by_pair.len())
+    }
+
+    /// Diagnostic-only, §148's decisive test: every contact depth
+    /// `cone_collision_result(state, usize::MAX)` finds, across every
+    /// touching pair -- not just `decide_cone`'s own
+    /// single reported depth (`cone_collision_result(state, 1)`'s first
+    /// contact of whichever pair traversal order finds first). Order in the
+    /// returned `Vec` follows `by_pair`'s `BTreeMap` iteration (link-name
+    /// order), which is itself not `decide_cone`'s traversal order -- the
+    /// point of this diagnostic is to give every candidate depth, so a
+    /// caller can check "does the oracle's reported depth match *any*
+    /// candidate", not to guess which candidate `decide_cone` would have
+    /// picked.
+    ///
+    /// Not part of upstream's `VisibilityConstraint` API, and not used by
+    /// [`VisibilityConstraint::decide`] itself, for the same reason
+    /// [`VisibilityConstraint::cone_touching_link_count`] is not.
+    pub fn cone_contact_depths(&self, state: &Posed) -> Vec<f64> {
+        self.cone_collision_result(state, usize::MAX)
+            .contacts
+            .map(|contacts| {
+                contacts
+                    .by_pair
+                    .values()
+                    .flatten()
+                    .map(|contact| contact.depth)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 

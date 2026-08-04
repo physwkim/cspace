@@ -278,6 +278,7 @@ fn main() {
                 termination: Termination::Iterations(max_iterations),
                 nn_degree: 8,
             },
+            solver: None,
         };
 
         let mut context = manager

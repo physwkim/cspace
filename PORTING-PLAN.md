@@ -13257,3 +13257,93 @@ p3-shapes가 자기 몫 14건(UNJUSTIFIED 6 + UNRETAINED 8)을 전부 닫았다.
 둘을 한 줄에 합쳐 놓아 §166(불일치)과 §167(다섯 표기 누락)에 동시에
 걸렸고, 상류가 적은 대로 줄마다 하나씩 푸는 **한 번의 고침**으로 둘 다
 닫혔다.
+
+## §169 §148 종결 — touching >= 2는 지금 기하학적으로 도달 불가능하다
+
+§121.2의 원본 10건(touching >= 2 실패)은 seed가 남지 않아 복원 불가라고
+§148이 이미 적어뒀다. 그 10건 자체를 쫓는 대신, 새 스윕을 내 seed로 두 번
+돌리고(`cargo run --release --example visibility_cone_depth_sweep -p
+moveit-constraints`, `crates/moveit-constraints/examples/
+visibility_cone_depth_sweep.rs`, 이번 라운드에 추가) 오라클 스탬프
+`c88557f4058892e9`로 측정했다:
+
+```
+seed=23    cases=400   touching==0: 200   touching==1: 200   touching>=2: 0
+seed=90210 cases=2000  touching==0: 1000  touching==1: 1000  touching>=2: 0
+```
+
+합쳐서 2,400건, **touching >= 2 0건.** near/far 분기가 정확히 반씩
+갈리고(근접 배치는 항상 touching==1, 원거리 배치는 항상 touching==0 —
+근접 케이스가 겹치는 일도, 아예 안 닿는 일도 없다), touching==1 케이스의
+`|oracle_distance - local_depth|` 최대값(이 스윕 자체의 잡음 바닥, 순회
+순서 모호성이 원천적으로 없는 표본에서 측정 — §148.5가 요구한 실측
+tolerance)은 seed 23 `1.519e-1`, seed 90210 `1.565e-1`이다.
+
+### 169.1 0건이 우연이 아니라는 증거 — 기하학적으로 불가능하다
+
+`--geometry-gaps` 플래그(같은 바이너리)가 pr2의 17개 parry-representable
+링크 전체 쌍(136쌍)에 대해 "한쪽 링크 중심에 앵커한 근접 케이스가 다른 쪽의
+충돌 형상에 닿는 데 필요한 최소 reach"를 계산한다:
+
+```
+generator max cone reach: 0.0150
+가장 타이트한 쌍: 0.0232  bl_caster_l_wheel_link <-> bl_caster_r_wheel_link
+                          (그리고 br/fl/fr 세 캐스터 쌍도 동일하게 0.0980)
+                  0.0295  head_mount_kinect_ir_link <-> head_mount_kinect_rgb_link
+```
+
+생성기가 만들 수 있는 콘의 자기 중심(근접 케이스의 앵커, 즉 타깃 링크의
+`origin_transform` 적용 후 shape 중심)으로부터의 최대 도달 거리는
+`max(target_radius, sensor_offset)`다(정점과 밑면 rim의 볼록결합 중 고정점
+까지 거리 제곱은 구간 끝점에서 최대이므로 — 이전에 썼던
+`sqrt(target_radius²+sensor_offset²)`는 느슨한 상한이었을 뿐, 진짜 상한은
+더 작다). `target_radius`의 상한은 `0.015`(`main.rs:1335`), `sensor_offset`은
+`0.005` 고정이므로 최대 도달은 **0.015**. 136쌍 전부에서 필요한 reach의
+최솟값은 **0.0232**(캐스터 휠 네 쌍) — `0.015`를 항상 초과한다. **어떤 근접
+배치도, 어떤 조인트 상태에서도, 두 번째 링크를 건드릴 수 없다.**
+
+이 결론이 포즈에 의존하지 않는다는 것은 관계적 거리 자체가 짧고 강체로
+연결된 체인(각 휠은 자기 캐스터 회전 관절 하나만 사이에 두고, kinect 세
+링크는 전부 `head_mount_link`에 고정)에서 나온다는 데서 이미 자명하지만,
+`--geometry-gaps`를 기본 포즈와 무관하게 `Op::Fk`가 반환한 순시 포즈에 대해
+계산하도록 짜여 있어 임의 상태에 대해서도 그대로 재실행 가능하다.
+
+### 169.2 이 생성기 경계와 pr2 fixture는 §121.2 이래 바뀐 적이 없다
+
+`git log -S'0.005..0.015' -- tools/moveit-diff/src/main.rs`는 `350750e`(이
+근접/원거리 분기 자체를 만든 커밋, 라운드 4) 이후 딱 한 번 더
+`d26916d`에서 같은 문자열이 **다른 테스트 모듈 안에** 나타날 뿐, 값 자체는
+한 번도 바뀌지 않았다. `git log -S'radius="0.074792"' --
+crates/moveit-constraints/tests/fixtures/pr2.urdf`도 `823dce5`(pr2 fixture를
+처음 vendor한 커밋) 단 한 번만 나온다 — 픽스처도 바뀐 적이 없다. 즉 §121.2가
+측정한 시점(같은 생성기, 같은 fixture)과 지금 사이에 이 결론을 뒤집을 수
+있는 변수가 없다.
+
+### 169.3 §121.2의 "10건"과의 모순 — 손실된 임시 계측이 원인일 가능성이 높다
+
+`2cdd452`(라운드 16, §121.2의 출처)는 "temporary, git-reverted
+instrumentation patch to `tools/moveit-diff`"로 얻은 285케이스 스윕에서
+touching >= 2가 14건(10 실패 + 4 통과) 나왔다고 적었다. 그 패치는 커밋되지
+않고 되돌려졌으므로 지금은 다시 볼 수 없다 — 이 항목이 두 라운드 밀린 바로
+그 이유(§148 서두)와 동일한 사정이다. §169.2가 생성기/fixture 불변을 확인한
+이상, 이 모순은 드리프트로 설명되지 않는다. 남는 설명은 그 임시 계측 자체의
+결함이다 — 검증 불가능하므로 확정하지 않고 후보로만 남긴다.
+
+같은 날 `tools/`쪽 패널이 독립적으로 낸 `d26916d`(`moveit-diff: clear
+visibility_cone's 115-case mismatch of both suspects`)도 방향이 같다:
+`max_contacts`를 64로 올린 `#[ignore]`d 진단으로 **실제 115건의 실패 케이스
+전부**를 조사해 "동시에 두 링크 이상이 닿는 모호한 장면은 하나도 없다"고
+결론지었다 — 방법은 다르지만(장면 단위 조사 vs 이번 라운드의 기하학적 증명 +
+2,400케이스 표본) 같은 결론이다.
+
+### 169.4 §148 판정
+
+touching >= 2 케이스가 **이번 스윕 2,400건 중 0건**이고, **그 생성기+fixture
+아래서 기하학적으로 불가능함**이 증명됐으므로, 순회 순서 가설과 deviation 6을
+가를 대상 자체가 없다. "일부 일치, 일부 불일치"로 흐릴 여지가 없는 판정:
+**순회 순서는 배제된다(적용 대상이 없어서) — 현재 재현 가능한 모든
+`visibility_cone` 불일치는 `moveit-collision`의 deviation 6만으로 설명된다.**
+§121.2의 "닫지 않고 좁혔다"를 "닫혔다(排除)"로 바꾼다. §121.2 자체의 10건
+측정과의 모순(§169.3)은 별개로 기록해뒀다 — 이 판정을 무효화하지 않는다,
+그 10건은 재현 불가능한 임시 계측의 산물이었고 §169.2가 재현 가능한 두 개의
+불변량(생성기 경계, fixture)으로 그 자리를 대체했기 때문이다.

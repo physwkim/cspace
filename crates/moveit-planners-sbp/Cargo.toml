@@ -18,6 +18,7 @@ moveit-state.workspace = true
 moveit-collision.workspace = true
 moveit-constraints.workspace = true
 moveit-error.workspace = true
+moveit-kinematics.workspace = true
 moveit-scene.workspace = true
 
 [dev-dependencies]
