@@ -90,7 +90,7 @@ use moveit_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, Wo
 use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_sbp::{
-    CompoundValue, JointModelGroupSpace, PlannerManager, PlanningRequest, RrtConnectManager,
+    CompoundValue, Goal, JointModelGroupSpace, PlannerManager, PlanningRequest, RrtConnectManager,
     RrtConnectParams, StateSpace, Termination,
 };
 use moveit_scene::PlanningScene;
@@ -268,7 +268,7 @@ fn main() {
 
         let planning_request = PlanningRequest {
             group_name: group_name.clone(),
-            goal: goal_state,
+            goal: Goal::State(goal_state),
             path_constraints: None,
             resolution,
             seed: seed_base.wrapping_add(id),

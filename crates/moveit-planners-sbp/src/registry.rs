@@ -87,15 +87,38 @@
 //!   overloads are a benchmarking helper with no test or caller needing it.
 //!
 //! Porting the sampler alone did not close the *goal* half of the
-//! capability gap above, and still has not: [`crate::rrt_connect::rrt_connect`]'s
+//! capability gap above by itself: [`crate::rrt_connect::rrt_connect`]'s
 //! `goal` parameter is one fixed `S::State`, not a region or a
-//! re-sampleable source, so even though `IkConstraintSamplerAdapter` now
-//! exists, it has nowhere in this crate to hand its (potentially many,
-//! potentially retried-on-collision) candidate states — RRT-Connect's
-//! *goal* still needs a second change, accepting something
-//! `GoalSampleableRegion`-shaped, before it could actually consume one.
-//! That second change has not been made; this disposition note describes
-//! the sampler side only.
+//! re-sampleable source, so even with `IkConstraintSamplerAdapter`
+//! available, RRT-Connect's *goal* needed a second change — something to
+//! resolve a region down to the one state `rrt_connect` takes — before it
+//! could consume a sampler's candidates at all.
+//!
+//! **Round 21** made that second change: [`Goal::Constraints`] carries a
+//! [`KinematicConstraintSet`] for the goal (mirroring
+//! `ompl_interface::ConstrainedGoalSampler`,
+//! `crate::goal_sampler::sample_goal` — see that module's own doc comment
+//! for exactly what is and is not ported), resolved to one concrete state
+//! before [`crate::rrt_connect::rrt_connect`] starts searching. This closes
+//! the joint-constraint case fully: a [`Goal::Constraints`] whose
+//! [`moveit_constraints::JointConstraint`]s cover every one of the group's
+//! variables gets a real [`moveit_constraints::JointConstraintSampler`]
+//! (`select_default_sampler`'s Step A). It does **not** close the
+//! Cartesian-pose case: exactly like `path_constraints` below,
+//! `RrtConnectContext::solve` always passes `solver: None` to
+//! `select_default_sampler` (this port has no per-request
+//! IK-solver-per-subgroup wiring — see this module's own doc comment on
+//! why `PlanningRequest` carries no such thing), so a
+//! [`moveit_constraints::PositionConstraint`]/
+//! [`moveit_constraints::OrientationConstraint`]-only [`Goal::Constraints`]
+//! builds no sampler at all and falls back to
+//! [`crate::space::StateSpace::sample_uniform`] every attempt — not
+//! incorrect (`goal_constraints.decide()` still gates acceptance), just
+//! practically unable to find a tight Cartesian region by chance within
+//! [`DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS`] tries. A caller wanting a
+//! reliable pose goal must still resolve it to a concrete
+//! [`Goal::State`] via `moveit-kinematics` itself, exactly as this section
+//! already says for path constraints.
 //!
 //! [`PlanningRequest::path_constraints`] *is* carried directly as a
 //! [`KinematicConstraintSet`], because path constraints are evaluated
@@ -106,8 +129,8 @@
 //! [`crate::rrt_connect::rrt_connect`]'s uniform-sampling step (not its
 //! fixed `goal` — see [`crate::rrt_connect::Sampler`] and
 //! [`crate::rrt_connect::ConstrainedStateSampler`], mirroring upstream's
-//! `ompl_interface::ConstrainedSampler`), a distinct seam from the
-//! still-unaddressed goal-region gap the paragraph above describes:
+//! `ompl_interface::ConstrainedSampler`), a distinct seam from the goal-region
+//! sampling the paragraph above now also describes:
 //! `RrtConnectContext::solve` builds the sampler through
 //! `crate::constrained_sampler::GroupConstraintSampler` whenever
 //! `path_constraints` is `Some`, purely as a sampling-efficiency aid —
@@ -161,6 +184,75 @@ use crate::validity::DiscreteMotionValidator;
 /// correct one instead.
 const DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS: u32 = 4;
 
+/// The outer retry budget [`crate::goal_sampler::sample_goal`] draws
+/// against: upstream `ModelBasedPlanningContext::getMaximumGoalSamplingAttempts()`,
+/// configured to `1000` by `PlanningContextManager`'s constructor
+/// (`planning_context_manager.cpp:260`, `max_goal_sampling_attempts_(1000)`)
+/// and consumed as `sampleUsingConstraintSampler`'s own `max_attempts`
+/// (`detail/constrained_goal_sampler.cpp:98,102,114`).
+const DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS: u32 = 1000;
+
+// Disposition of `PlanningContextManager`'s remaining three siblings from
+// the same constructor initializer list (`planning_context_manager.cpp:258-262`)
+// that DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS and DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS
+// above do not already cover, recorded explicitly per-constant rather than
+// silently:
+//
+// - `max_goal_samples_` (`10`, `:258`, `max_goal_samples_(10)`) — not
+//   ported. Consumed at `detail/constrained_goal_sampler.cpp:106`
+//   (`gls->getStateCount() >= planning_context_->getMaximumGoalSamples()`)
+//   to cap how many *accepted* goal states `ob::GoalLazySamples`'s
+//   background sampling thread collects before it stops growing the goal
+//   region. `getStateCount()` is `GoalLazySamples`'s own state — a
+//   multi-goal accumulation this port has no layer for, since
+//   `rrt_connect::rrt_connect` roots one goal tree on a single concrete
+//   state (see `goal_sampler::sample_goal`'s "Why one state, not a
+//   lazily-grown region" doc for the full argument).
+//   `goal_sampler::sample_goal` returns after the first accepted sample;
+//   there is nothing here for a cap to bound.
+// - `max_planning_threads_` (`4`, `:261`) — out of scope for goal
+//   sampling: it sizes OMPL's `ompl::tools::ParallelPlan` thread pool,
+//   which this port's single-threaded `rrt_connect::rrt_connect` has no
+//   equivalent of.
+// - `max_solution_segment_length_` (`0.0`, `:262`) — out of scope for
+//   goal sampling: it configures post-solve waypoint interpolation
+//   spacing (`ModelBasedPlanningContext::simplifySolution`), unrelated to
+//   how a goal state or region is sampled.
+
+/// A [`PlanningRequest`]'s goal.
+///
+/// Upstream never has this split at the `MotionPlanRequest` level — a goal
+/// is always `goal_constraints: Vec<moveit_msgs::msg::Constraints>`, and
+/// whether that ends up sampled (`ompl_interface::ConstrainedGoalSampler`)
+/// or driving the fixed-state case directly is decided deeper in the OMPL
+/// planning context, invisibly to the caller. This port's
+/// [`crate::rrt_connect::rrt_connect`] instead takes one concrete
+/// `S::State` as `goal`, so *something* has to resolve a constraint region
+/// down to that one state before the search starts — [`Goal`] is that
+/// choice, made explicit at the [`PlanningRequest`] boundary instead of
+/// buried in `solve()`.
+#[derive(Debug, Clone)]
+pub enum Goal {
+    /// A single concrete target state, in the group's own
+    /// [`crate::joint_model_group_space::JointModelGroupSpace`] shape —
+    /// this crate's only goal shape before round 21. See this module's doc
+    /// comment's "consequence" paragraph for what a caller still cannot
+    /// express even with [`Goal::Constraints`] available alongside it
+    /// (namely: this variant remains the only way to reach a state a
+    /// sampler cannot find on its own, e.g. because no
+    /// [`moveit_kinematics::KinematicsSolver`] was supplied for an
+    /// IK-backed pose goal).
+    State(Vec<CompoundValue>),
+    /// A goal region expressed as constraints, resolved to one concrete
+    /// state by [`crate::goal_sampler::sample_goal`] before
+    /// [`crate::rrt_connect::rrt_connect`] runs. See that function's own
+    /// module doc comment for exactly which parts of
+    /// `ompl_interface::ConstrainedGoalSampler` this reproduces, and which
+    /// it deliberately does not (in particular: this resolves to *one*
+    /// state, never a lazily-grown region of up to ten).
+    Constraints(KinematicConstraintSet),
+}
+
 /// A motion planning query. See this module's doc comment for why this,
 /// rather than a transcription of upstream's `MotionPlanRequest`, is the
 /// shape here.
@@ -170,11 +262,9 @@ pub struct PlanningRequest {
     /// against `scene.robot_model()` by
     /// [`RrtConnectManager::get_planning_context`].
     pub group_name: String,
-    /// The target state, in the group's own
-    /// [`crate::joint_model_group_space::JointModelGroupSpace`] shape. See
-    /// this module's doc comment for why this is a concrete state rather
-    /// than a constraint to sample from.
-    pub goal: Vec<CompoundValue>,
+    /// The target. See [`Goal`]'s own doc comment for the two shapes this
+    /// can take and why.
+    pub goal: Goal,
     /// Constraints every waypoint (not just the goal) must satisfy, mirroring
     /// upstream's `path_constraints`. `None` means unconstrained.
     pub path_constraints: Option<KinematicConstraintSet>,
@@ -190,7 +280,9 @@ pub struct PlanningRequest {
 
 /// A successful plan: one [`RobotState`] per waypoint, in order, first
 /// equal to the request's start (`scene.current_state()`) and last equal to
-/// [`PlanningRequest::goal`].
+/// [`PlanningRequest::goal`] — the concrete state itself for
+/// [`Goal::State`], or whatever [`crate::goal_sampler::sample_goal`]
+/// resolved for [`Goal::Constraints`].
 #[derive(Debug, Clone)]
 pub struct PlanningResponse<'m> {
     /// The waypoints, in traversal order.
@@ -209,6 +301,15 @@ pub enum PlanError {
     /// [`PlanningContext::solve`] ran but did not find a path.
     #[error("planning failed: {0}")]
     Failed(#[from] PlanningFailure),
+    /// [`Goal::Constraints`] could not be resolved to a single concrete
+    /// state within [`DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS`] attempts.
+    /// Mirrors `ConstrainedGoalSampler::sampleUsingConstraintSampler`
+    /// returning `false` after `attempts_so_far >= max_attempts`
+    /// (`constrained_goal_sampler.cpp:102-103`) — upstream surfaces that
+    /// through `GoalLazySamples`'s own empty-goal-region timeout deep in
+    /// OMPL; this port reports it directly instead.
+    #[error("no goal state satisfying the goal constraints was found within the sampling budget")]
+    NoGoalSample,
 }
 
 /// Replaces upstream `planning_interface::PlanningContext`: a planning
@@ -366,6 +467,30 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
             .as_deref()
             .map(|sampler| GroupConstraintSampler::new(&self.space, sampler, template.clone()));
 
+        // Same reasoning as `constraint_sampler` above, built the same way
+        // (before `checker` takes `self.scene` for the rest of this
+        // function) — `select_default_sampler`'s `Err` path is unreachable
+        // here for the identical reason. Mirrors
+        // `ompl_interface::ModelBasedPlanningContext::allocGoalSampler`,
+        // which allocates the goal's own `ConstraintSamplerPtr` the same
+        // way `allocPathConstrainedSampler` does for path constraints, just
+        // fed `goal_constraints_` instead.
+        let goal_constraint_sampler = match &self.request.goal {
+            Goal::Constraints(goal_constraints) => select_default_sampler(
+                self.scene.robot_model(),
+                &self.request.group_name,
+                goal_constraints.constraints(),
+                None,
+                vec![],
+                DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS,
+            )
+            .expect(
+                "select_default_sampler's only Err is an unresolvable subgroup_solvers name; \
+                 subgroup_solvers is always empty here, so that path can never be taken",
+            ),
+            Goal::State(_) => None,
+        };
+
         let checker = PlanningSceneValidityChecker::new(
             &mut *self.scene,
             self.env,
@@ -376,12 +501,26 @@ impl<'a, 'm> PlanningContext<'m> for RrtConnectContext<'a, 'm> {
         let motion_validator = DiscreteMotionValidator::new(&checker, self.request.resolution);
         let mut rng = ChaCha8Rng::seed_from_u64(self.request.seed);
 
+        let goal = match &self.request.goal {
+            Goal::State(state) => state.clone(),
+            Goal::Constraints(goal_constraints) => crate::goal_sampler::sample_goal(
+                &self.space,
+                &checker,
+                goal_constraints,
+                &template,
+                goal_constraint_sampler.as_deref(),
+                &mut rng,
+                DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS,
+            )
+            .ok_or(PlanError::NoGoalSample)?,
+        };
+
         let path = rrt_connect(
             &self.space,
             &checker,
             &motion_validator,
             start,
-            self.request.goal.clone(),
+            goal,
             Sampler {
                 rng: &mut rng,
                 constrained_sampler: path_sampler
@@ -468,7 +607,7 @@ mod tests {
 
         let request = PlanningRequest {
             group_name: "not_a_real_group".to_string(),
-            goal: vec![],
+            goal: Goal::State(vec![]),
             path_constraints: None,
             resolution,
             seed,
@@ -511,7 +650,7 @@ mod tests {
 
         let request = PlanningRequest {
             group_name: "panda_arm".to_string(),
-            goal: goal.clone(),
+            goal: Goal::State(goal.clone()),
             path_constraints: None,
             resolution,
             seed,
@@ -604,7 +743,7 @@ mod tests {
         let manager = RrtConnectManager;
         let request = PlanningRequest {
             group_name: "body_group".to_string(),
-            goal: goal.clone(),
+            goal: Goal::State(goal.clone()),
             path_constraints: None,
             resolution: 0.02,
             seed: 3,
@@ -747,7 +886,7 @@ mod tests {
         let manager = RrtConnectManager;
         let request = PlanningRequest {
             group_name: "panda_arm".to_string(),
-            goal,
+            goal: Goal::State(goal),
             path_constraints: Some(path_constraints),
             resolution: 0.05,
             seed: 3,
@@ -767,6 +906,176 @@ mod tests {
             assert!(
                 (-0.005..=0.005).contains(&value),
                 "waypoint {index}: panda_joint1 = {value} escaped the +/-0.005 constraint window"
+            );
+        }
+    }
+
+    /// End-to-end proof that [`Goal::Constraints`] is wired through
+    /// [`RrtConnectContext::solve`], not merely accepted and ignored: an
+    /// empty-world panda_arm query whose goal is a tight (`+/-0.001`)
+    /// `panda_joint1` window must produce a trajectory whose last waypoint
+    /// sits inside that window — impossible for
+    /// [`crate::goal_sampler::sample_goal`]'s uniform (unwired) fallback to
+    /// hit reliably within [`DEFAULT_MAX_GOAL_SAMPLING_ATTEMPTS`] by the
+    /// same measurement `goal_sampler::tests::constrained_branch_is_load_bearing_not_merely_invoked`
+    /// makes at a *looser* `+/-0.01` window and a much smaller budget, so a
+    /// solve that reliably succeeds here is only explained by the
+    /// constrained branch actually running.
+    #[test]
+    fn goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region() {
+        use moveit_constraints::{Constraint, JointConstraint};
+
+        let (model, srdf) = load_panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let manager = RrtConnectManager;
+        let (resolution, seed, params) = default_params(2);
+
+        let joint_constraint = JointConstraint::new(&model, "panda_joint1", 0.0, 0.001, 0.001, 1.0)
+            .expect("valid joint constraint");
+        let mut goal_constraints = KinematicConstraintSet::new();
+        goal_constraints.push(Constraint::Joint(joint_constraint));
+
+        let request = PlanningRequest {
+            group_name: "panda_arm".to_string(),
+            goal: Goal::Constraints(goal_constraints),
+            path_constraints: None,
+            resolution,
+            seed,
+            params,
+        };
+
+        let mut context = manager
+            .get_planning_context(&mut scene, &env, request)
+            .expect("panda_arm is a real group");
+        let response = context
+            .solve()
+            .expect("an empty-world panda_arm query with a satisfiable goal region must solve");
+        drop(context);
+
+        let value = response
+            .trajectory
+            .last()
+            .unwrap()
+            .variable_position("panda_joint1")
+            .unwrap();
+        assert!(
+            (-0.001..=0.001).contains(&value),
+            "the trajectory's last waypoint has panda_joint1 = {value}, outside the +/-0.001 \
+             goal region the request asked for"
+        );
+    }
+
+    /// The D8 equivalence determination this round's brief asked for:
+    /// whether a concrete goal state is losslessly representable as "a set
+    /// of `JointConstraint`s representing a single state," for the scalar
+    /// (non-floating) joint case every fixture group actually exercises.
+    ///
+    /// One tight (`1e-9`) `JointConstraint` per `panda_arm` variable,
+    /// centered on a real target state, covers every group variable
+    /// (`joint_coverage_is_full`, `constraint_sampler_manager.rs:321`), so
+    /// `select_default_sampler` returns a real `JointConstraintSampler`
+    /// (Step A) rather than falling through to the uniform branch —
+    /// [`crate::goal_sampler::sample_goal`]'s constrained branch then
+    /// samples *every* variable from its own `1e-9`-wide window, converging
+    /// on the target to within that same tolerance. This is a direct
+    /// measurement, not merely an architectural argument: **for scalar
+    /// joints, a concrete state and an N-`JointConstraint` set (one tight
+    /// constraint per variable) are interchangeable to the precision the
+    /// constraints are given.**
+    ///
+    /// This does not extend to a floating joint's own local variables
+    /// (`trans_x/y/z, rot_x/y/z/w`) without further work: the four rotation
+    /// components jointly satisfy a unit-quaternion constraint
+    /// (`moveit-model`'s `floating.rs` doc comment) that four independent
+    /// per-component `JointConstraint` windows do not preserve at any
+    /// nonzero tolerance — only in the tolerance-to-zero limit. This is
+    /// reasoned, not measured: no fixture group actually contains a
+    /// floating joint's variables to sample and check. Reproduced directly
+    /// against every fixture SRDF this crate has (`rg -B2 'type="floating"'
+    /// fixtures/*.srdf` finds exactly one, `panda.srdf`'s own
+    /// `virtual_joint`; `rg '<joint name="virtual_joint"' fixtures/*.srdf`
+    /// finds zero matches — no `<group>` in any fixture SRDF lists it as a
+    /// member), so the floating-joint case is an open gap this round leaves
+    /// unverified, not one it silently assumed away.
+    #[test]
+    fn full_joint_constraint_coverage_reconstructs_a_concrete_scalar_state() {
+        use moveit_constraints::{Constraint, JointConstraint, select_default_sampler};
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        use crate::goal_sampler::sample_goal;
+
+        let (model, srdf) = load_panda();
+        let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+
+        let mut target_state = RobotState::new(&model);
+        target_state.set_to_default_values();
+        let targets = [
+            ("panda_joint1", 0.3),
+            ("panda_joint2", -0.6),
+            ("panda_joint3", 0.9),
+            ("panda_joint4", -1.8),
+            ("panda_joint5", 0.4),
+            ("panda_joint6", 1.9),
+            ("panda_joint7", -0.2),
+        ];
+        for (name, value) in targets {
+            target_state.set_variable_position(name, value).unwrap();
+        }
+
+        let tolerance = 1e-9;
+        let mut goal_constraints = KinematicConstraintSet::new();
+        for (name, value) in targets {
+            let constraint =
+                JointConstraint::new(&model, name, value, tolerance, tolerance, 1.0).unwrap();
+            goal_constraints.push(Constraint::Joint(constraint));
+        }
+
+        let sampler = select_default_sampler(
+            &model,
+            "panda_arm",
+            goal_constraints.constraints(),
+            None,
+            vec![],
+            4,
+        )
+        .expect("no subgroup_solvers, so select_default_sampler cannot error here")
+        .expect(
+            "full joint coverage (one JointConstraint per group variable) must yield a real \
+             JointConstraintSampler, not None",
+        );
+
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let checker = PlanningSceneValidityChecker::new(
+            &mut scene,
+            &env,
+            CollisionRequest::default(),
+            None,
+            &space,
+        );
+
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let resolved = sample_goal(
+            &space,
+            &checker,
+            &goal_constraints,
+            &target_state,
+            Some(sampler.as_ref()),
+            &mut rng,
+            1,
+        )
+        .expect("a single attempt must succeed: full coverage guarantees every draw is accepted");
+
+        let mut resolved_state = target_state.clone();
+        space.write_robot_state(&resolved, &mut resolved_state);
+        for (name, value) in targets {
+            let got = resolved_state.variable_position(name).unwrap();
+            assert!(
+                (got - value).abs() <= tolerance,
+                "{name}: resolved {got}, target {value}, outside the {tolerance} tolerance the \
+                 constraint set encoded"
             );
         }
     }
