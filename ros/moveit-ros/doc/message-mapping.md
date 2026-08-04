@@ -863,24 +863,23 @@ Every site above already has a boundary test proving the behavior
 checked here (see the test names cited inline) — this sweep did not
 find a test gap either.
 
-**One cross-crate observation, not fixed here:** `crates/moveit-
-constraints/src/position.rs:163` and `joint.rs:108` reject
-`weight <= EPS` with `Err`, where upstream's `PositionConstraint::
-configure`/`JointConstraint` equivalents instead warn and substitute
-`1.0` (`kinematic_constraint.cpp:449-453`). This *is* the
-default-has-meaning shape (`weight: 0.0` is the wire default, and
-upstream treats it as "use 1.0", not "reject"). It is not fixed in
-this round because (a) it lives in `crates/moveit-constraints`, a
-different crate this panel does not own, and (b) `moveit-constraints/
-src/joint.rs:85-89`'s own doc comment shows it is an existing,
-deliberate, project-wide decision ("substituting a value silently for
-invalid input is the failure mode `moveit-rs` prefers to surface as an
-error"), not an unnoticed gap — this crate's own
-`header.frame_id`-empty check in the same functions matches upstream's
-`configure()` exactly (`kinematic_constraint.cpp:372-375`: upstream
-itself warns and returns `false` on an empty frame there too, unlike
-the `getFrameTransform` silent-identity fallback §183 was about).
-Named here so the observation is not lost, not acted on.
+**One cross-crate observation, resolved since (round 13 update):**
+this paragraph originally read `crates/moveit-constraints/src/
+position.rs:163`/`joint.rs:108` as rejecting `weight <= EPS` with
+`Err` where upstream substitutes `1.0`, and (wrongly) filed it as a
+deliberate, out-of-scope policy decision rather than the same
+default-has-meaning defect this section sweeps for — the misreading
+the coordinator caught (PORTING-PLAN.md D14/§199). All four
+constructors (`joint.rs`, `position.rs`, `orientation.rs`,
+`visibility.rs`) now normalize `weight <= EPS` to `1.0`, matching
+`kinematic_constraint.cpp:263/450/641/871` (`551b719`). This crate's
+own four `TryFrom` impls were confirmed pure pass-throughs at fix
+time (no separate wire-side check to also update), and its own
+regression coverage lives in `src/constraints/set.rs`'s four
+`unspecified_*_weight_is_normalized_to_one_not_rejected` tests —
+originally written asserting the *old* `Err` behavior as a tripwire
+(PORTING-PLAN.md §205) before `551b719` landed, confirmed to go red
+on that merge, then flipped to assert `weight() == 1.0` (`932b7bf`).
 
 **Conclusion:** no new same-defect site found in `ros/moveit-ros`
 itself. §183 was the family's only site in this crate; the anchor
