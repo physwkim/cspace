@@ -655,6 +655,64 @@
 //!    the whole 16-within-bound remainder is explained by narrow-phase
 //!    magnitude bias alone.
 //!
+//!    Round 21 extended this same magnitude-bias mechanism to a second,
+//!    independent mesh: `moveit-constraints`' visibility-cone check (a
+//!    `cone_sides`-gon mesh, not `base_link`'s STL) against the identical
+//!    `bl_caster_l_wheel_link` cylinder. `tools/moveit-diff`'s own captured
+//!    mismatch (`main.rs`'s `a_real_mismatching_case_touches_exactly_one_link`,
+//!    "case 104": oracle `7.47914550966356367e-2`, this backend
+//!    `2.08696987934593702e-2`) gave a full, reproducible joint-state/cone
+//!    spec to work from. Reconstructing it (this crate's own `RobotModel`/
+//!    `RobotState` FK for the wheel, the cone mesh built by the exact same
+//!    vertex/triangle formula `VisibilityConstraint::cone_mesh` uses) and
+//!    calling `parry3d_f64::query::contact` per candidate triangle the same
+//!    way `native_deepest_triangle_vs_cylinder` does for `base_link`
+//!    reproduces this backend's own `2.08696987934592244e-2` (matching the
+//!    captured reference to float noise, `~1.5e-14` relative) and names the
+//!    winning triangle: cone vertices `[5, 1, 6]`, where vertex `1` (the
+//!    cone's own base-center point) lands within `1.1e-16` of the wheel
+//!    cylinder's own local origin — the visibility-cone generator anchors a
+//!    "near" case's target pose exactly at the touched link's own shape
+//!    center (`tools/moveit-diff`'s `build_constraint_case`/
+//!    `crates/moveit-constraints/examples/visibility_cone_depth_sweep.rs`'s
+//!    `build_case`, `Some(link_name)` arm), so every such case interpenetrates
+//!    through the link's own centroid by construction, not a coincidence of
+//!    this one case.
+//!
+//!    Driving the real, unmodified `ccdMPRPenetration` (round 16/17's own
+//!    build: libccd git tag `v2.1`, `CCD_DOUBLE`) directly on that exact
+//!    triangle (in the cylinder's own local, Z-native frame — `ccd_cyl_t`'s
+//!    own support function (`testsuites/support.c`) reads `ccdVec3Z(&dir)`
+//!    directly, so unlike `parry3d_f64::shape::Cylinder` this needs no
+//!    Y-onto-Z [`axis_fix`]; applying it anyway was this round's own
+//!    first-pass error, caught by re-reading `testsuites/support.c` and
+//!    round 16's own `gen_cases.py` — which already used the plain Z
+//!    convention — before trusting the resulting number) against the same
+//!    real cylinder radius/length gives `7.47919999515277989e-2` — the
+//!    oracle's own reported depth (`7.47914550966356367e-2`) to within
+//!    `5.4e-7` absolute, `~7.3ppm` relative, the same order as round 17's own
+//!    "under `1e-6`" corroboration bound for a genuinely-reproduced code
+//!    path. **This is the same one-directional bias, not a new mechanism**:
+//!    libccd's MPR overestimates relative to this backend's own EPA for this
+//!    triangle too (`0.0748` vs `0.0209`, MPR deeper), consistent with the
+//!    16/16 base_link sample's own sign and inside its `0.0312`-`0.1042m`
+//!    magnitude band. So the `visibility_cone` population's mismatches are
+//!    not a distinct open question: they are governed by the same
+//!    already-characterized deviation 6(b) — libccd's MPR is a portal-
+//!    refinement algorithm, not exact EPA, and round 16's 560-pose sweep
+//!    already established it is not guaranteed to converge to the true
+//!    minimum penetration-depth witness the way this backend's own EPA does
+//!    — made unusually large in this population specifically because the
+//!    generator's own near-placement always drives the interpenetration
+//!    through the target link's centroid, not because the underlying
+//!    mechanism differs. Structurally inherent, not a fixable defect in this
+//!    port: matching libccd's own number here would mean re-implementing
+//!    libccd's specific, non-exact MPR early-termination behavior rather
+//!    than computing the true minimum-translation separating distance, the
+//!    wrong direction for this backend's independent EPA to go. Same expiry
+//!    condition as round 16/17's own finding: re-open only if a future
+//!    moveit2 pin changes FCL/libccd's own narrow-phase algorithm.
+//!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
 //!    different depths for the one pair.** The same seed-20260804 pr2

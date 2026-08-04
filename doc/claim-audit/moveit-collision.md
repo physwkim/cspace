@@ -157,3 +157,81 @@ algorithm (a different eigensolver, a different point-projection
 convention) that still preserves that 5:2 weighting — `parry3d_f64::utils::obb`'s
 own fit is already audited above as PCA-via-covariance, not claimed
 bit-identical to FCL's `FitImpl<S, OBB<S>>::run`.
+
+## Correcting my own over-claim: the `group_name` fix explains id 5 and the path-op cases, not the 115 `visibility_cone` mismatches (round 21)
+
+My own prior report claimed the `group_name` fix above (deviation 1) "is
+the direct cause of 105 of 115 pr2 `visibility_cone` depth mismatches per
+`PORTING-PLAN.md` §119.1/§120.1". `PORTING-PLAN.md` §119.1 says the
+opposite: it *refutes* a traversal-order explanation for those 115 and
+names the cause as `moveit-collision`'s deviation 6, already documented —
+two independent penetration-depth approximations for the same touching
+pair disagreeing, not a pair the group filter kept or dropped. §120.1's
+`105/115` is the size of the `touching == 1` sub-population within a
+285-case cross-tab (`touching | n | pass | fail`: `1 | 129 | 24 | 105`,
+`>=2 | | 4 | 10`), not an attribution to any fix — and structurally
+cannot be one: a group filter can only keep or drop a *pair*, never
+change a kept pair's own reported *depth*.
+
+Verified structurally, not merely re-asserted: `VisibilityConstraint::
+cone_collision_result` (`crates/moveit-constraints/src/visibility.rs`)
+builds its `CollisionRequest` as `CollisionRequest { contacts: true,
+max_contacts, ..Default::default() }` — `group_name` is never set on that
+struct anywhere in the file (`rg -n group_name
+crates/moveit-constraints/src/visibility.rs`, 0 hits), and
+`CollisionRequest::default()` (`common.rs:267-283`) sets `group_name:
+None` explicitly. This round's own `active_group_links` (`parry.rs`)
+returns `None` whenever its `group_name: Option<&str>` argument is `None`
+(the leading `group_name?`), and every one of the four `CollisionEnv`
+methods short-circuits its filter with `active.as_ref().is_none_or(...)`
+when that is `None` — no candidate pair is ever dropped. So the
+`group_name` fix is provably inert on every path `decide_cone` can reach,
+not merely unlikely to matter; no before/after count is needed because
+there is no code path for the fix to change.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this section | `VisibilityConstraint::cone_collision_result` never sets `CollisionRequest::group_name` | CONFIRMED | `crates/moveit-constraints/src/visibility.rs`, `rg -n group_name`, 0 hits in that file |
+| this section | `CollisionRequest::default().group_name == None` | CONFIRMED | `crates/moveit-collision/src/common.rs:267-283` |
+| this section | `active_group_links(state, None)` returns `None`, and every filtered `CollisionEnv` method treats `None` as "no filtering" | CONFIRMED | `crates/moveit-collision/src/parry.rs`, this round's own `585a79e` |
+
+Current status of the 115, superseding §119.1/§120.1's own "10 residual,
+not yet closed" (their own later round, not mine): `PORTING-PLAN.md` §169
+closed the `touching >= 2` question — 0 such cases across a fresh
+2,400-case sweep, and geometrically unreachable under the current
+generator + `pr2.urdf` fixture (tightest link pair needs `0.0232` reach,
+the generator's own max possible reach is `0.0150`). Reproduced
+independently this round, not merely cited: `cargo run --release --example
+visibility_cone_depth_sweep -p moveit-constraints -- --seed 20260805
+--cases 600` gives `touching==0: 300, touching==1: 300, touching>=2: 0`;
+the same binary's `--geometry-gaps` flag gives the identical `0.0232`/
+`0.0150` figures §169 reports. So every currently-reproducible
+`visibility_cone` mismatch — not just the `touching==1` `105/115` — is
+explained by deviation 6 alone; see deviation 6(b)'s own module doc
+(round 21) for the direct confirmation on case 104 specifically.
+
+Expires (§153.1): if the visibility-cone generator's `target_radius`
+range or `sensor_offset` ever grows past `0.0232` (this population's own
+tightest-pair reach), or `pr2.urdf`'s caster-wheel geometry changes,
+§169's geometric-unreachability argument must be re-measured, not assumed
+to still hold.
+
+## Deviation 6(b)'s narrow-phase magnitude bias also explains `visibility_cone` case 104 (round 21)
+
+Extends round 16/17's own base_link-vs-caster-wheel finding (this file's
+`mesh_shape_cost_sources` OBB-fit section above and `parry.rs`'s deviation
+6(b) own doc) to a second, independent mesh. Full method, numbers, and the
+one caught-and-fixed methodology error (misapplied parry's own Y-axis
+`axis_fix` to libccd's `ccd_cyl_t`, which is natively Z-axis per
+`testsuites/support.c`) are in `parry.rs`'s deviation 6(b) doc itself,
+round 21's own paragraph — not duplicated here.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| `parry.rs` deviation 6(b), round 21 | case 104's own winning cone-mesh triangle, reconstructed from `tools/moveit-diff`'s captured spec and this crate's own `RobotModel`/`RobotState` FK, reproduces this backend's already-captured reference depth (`2.08696987934593702e-2`) | CONFIRMED | live probe this round (`crates/moveit-collision/tests/collision_parity.rs`, temporary, not committed — see this file's own precedent of external repros not becoming committed tests): `2.08696987934592244e-2`, `~1.5e-14` relative to the captured reference |
+| same | the real, unmodified `ccdMPRPenetration` (libccd `v2.1`, `CCD_DOUBLE`, round 16/17's own build) on that exact triangle/cylinder pair reproduces the oracle's own reported depth for case 104 | CONFIRMED | `7.47919999515277989e-2` vs oracle's `7.47914550966356367e-2`, `5.4e-7` absolute / `~7.3ppm` relative |
+| same | `ccd_cyl_t`'s own support function uses the cylinder's real (Z) axis directly, not parry's Y-axis convention | CONFIRMED | `/home/stevek/work/libccd/src/testsuites/support.c:62,68` (`ccdVec3Z(&dir)`); cross-checked against round 16's own `gen_cases.py`, which already used the same Z convention |
+
+Expires (§153.1): re-open if a future moveit2 pin changes FCL/libccd's own
+narrow-phase algorithm (deviation 6(b)'s own expiry condition, inherited
+directly since this is the same mechanism, not a new one).
