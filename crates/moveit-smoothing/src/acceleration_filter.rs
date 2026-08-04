@@ -457,10 +457,17 @@ mod tests {
     /// enforces, at the granularity this port's own function split created.
     #[test]
     fn joint_acceleration_bounds_fails_without_acceleration_limits() {
+        // `matches!` alone cannot tell this apart from the sibling
+        // single-DOF-active-joint guard, also an Error::Other in this
+        // function; message-swap bite-checked against it.
         let model = panda();
         let group = model.joint_model_group("panda_arm").unwrap();
         let err = joint_acceleration_bounds(&model, group).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "{err:?}");
+        assert!(
+            err.to_string()
+                .contains("must have acceleration joint limits"),
+            "{err}"
+        );
     }
 
     #[test]
