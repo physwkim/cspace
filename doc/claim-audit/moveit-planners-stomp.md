@@ -290,6 +290,58 @@ latter too -- corrected in `noise_generators.rs` to state precisely
 which mutation class it does and does not catch, backed by the
 mutation classes above rather than by both being merely asserted.
 
+### Sweep: "test recomputes what the subject also computes", both stomp crates (this round)
+
+The bite-check above generalizes: a test whose assertion is computed
+by the test rather than read from the subject's actual call is blind
+to a bug in how the subject constructs that value. Every test in both
+crates was read for this shape -- **81 of 81** (`cargo nextest run -p
+moveit-stomp-core -p moveit-planners-stomp` reports 81), not a
+grep-filtered subset, since the anchor ("recomputes a quantity the
+subject also computes, without calling the subject") has no single
+literal pattern to `rg` for. `rg` was used to enumerate every call
+site of the shared helpers a duplicate-computation test would have to
+route through (`generate_finite_difference_matrix`,
+`generate_smoothing_matrix`, `symmetric_eigenvalues`) as a starting
+set, then every hit and every remaining test not on that list was read
+by hand.
+
+**Anchor:** a test body that reconstructs a quantity the subject also
+computes, without ever calling the subject to get it.
+
+**Sites** (`generate_finite_difference_matrix`/`generate_smoothing_matrix`/`symmetric_eigenvalues`
+call sites inside `#[cfg(test)]` modules, plus the two already-documented
+duplicate-formula test helpers):
+
+| site | classification | why |
+|---|---|---|
+| `utils.rs::finite_difference_matrix_for_position_order_is_scaled_identity` (`generate_finite_difference_matrix` at line 523) | distinct | calls the actual subject and compares its output against a hand-derived identity matrix -- not a parallel computation of the same formula |
+| `utils.rs::finite_difference_matrix_truncates_the_stencil_at_a_boundary_row_instead_of_folding_it` (line 542) | distinct | same -- subject called, output compared against the static `FINITE_CENTRAL_DIFF_COEFFS` table (a raw input constant, not a re-derived output) |
+| `utils.rs::finite_difference_matrix_of_a_single_timestep_has_only_the_center_coefficient` (line 554) | distinct | same reasoning as the previous row |
+| `utils.rs::smoothing_matrix_diagonal_is_exactly_one_over_num_timesteps_by_construction` / `smoothing_matrix_is_square_...` / `smoothing_matrix_for_zero_timesteps_...` (lines 605/618/629) | distinct | `generate_smoothing_matrix` **is** the subject under test in each of these -- there is no second call anywhere else to be blind to |
+| `stomp.rs::DummyTask::new` (line 1154, inside `mod tests`) | distinct | builds the test harness's own smoothing filter (fixture construction), never compared against `Stomp`'s internal state -- not an expected-value computation at all |
+| `filter_functions.rs::simple_smoothing_matrix_applies_the_smoothing_matrix_to_each_row` (line 158) | distinct, but closest call -- reasoned through explicitly | the test **does** call the actual subject (`filter(&values, &mut filtered_values)`) and asserts on its real return value; the `expected_m = generate_smoothing_matrix(...)` call only supplies a known-correct matrix for the test's own independently-written `filtered_before * expected_m.transpose()` formula. A bug in `simple_smoothing_matrix`'s own arithmetic (skipping the transpose, swapping multiplication order) changes the subject's *actual* output while the test's independently-written expression stays fixed, so it would be caught -- unlike the anchor case, this is "subject called, output checked", not "subject never called" |
+| `noise_generators.rs::acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure` (line 212) | **same defect, already found and closed in the prior round** | recomputes `acceleration^T * acceleration` directly from `generate_finite_difference_matrix` and never calls `normal_distribution_generator` at all -- exactly the anchor. Already bite-checked (see above): mutating `normal_distribution_generator`'s own call left this test green while 6 others reddened. Already remediated by doc correction, not by changing what the test measures (its actual subject is the Gram matrix's own conditioning, a legitimate thing to pin directly) -- re-confirmed this round as the correct, already-closed classification, not a new site |
+| `stomp.rs::interpolate` (`mod tests`, line 1276) | distinct, deliberately so | doc comment on the function itself: kept as "a second, separately-maintained copy" of `compute_linear_interpolation` *on purpose*, specifically so calling the real `compute_linear_interpolation` here would not silently mask a bug in the thing under test when scoring `LinearInterpolation`-initialized cases against it |
+| `planner.rs::linear_interpolation` (`mod tests`, line 731) | distinct, deliberately so | same shape and same reasoning, own doc comment: "replicated here because it is not `pub`" -- used to assert the subject's cancelled-early output equals this independent reference bit-for-bit, which is the correct use of a parallel implementation (verifying the subject's real output), not the anchor's failure mode (never reading the subject's output at all) |
+| `planner.rs::plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle` (inline duplicate at lines 699-705, unnamed) | distinct | same linear-interpolation formula inlined to build a known oracle *input* (the straight-line trajectory the obstacle sits across), then evaluated through `eval_cost_fn` (the real subject) for both the oracle input and `stomp`'s real output -- it is not comparing against a re-derived *output* of `stomp`/`normal_distribution_generator`, only constructing a known starting point |
+
+**Same defect at:** none newly found this round -- the one instance in
+the workspace (`acceleration_gram_matrix_conditioning_has_wide_margin_from_cholesky_failure`)
+was already identified and remediated in the prior round's bite-check
+above.
+
+**Distinct, skip:** all other sites listed, with the table's own
+per-row reasoning; the remaining 68 of 81 tests in both crates (every
+test not listed above) were read individually and call their subject,
+assert against literal/hand-derived expected values, or assert
+structural invariants (shape, call counts, `Option`/`Result`
+discriminant) -- none independently reconstruct a quantity their own
+subject also computes without calling that subject.
+
+No bite-check fix was needed this round: zero new same-defect sites
+were found to fix.
+
 ## Phase 8 STOMP-side completeness audit, directory-count first (this round)
 
 A file never ported produces no audit row -- a list built from what the
