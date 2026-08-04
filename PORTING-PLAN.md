@@ -11236,3 +11236,80 @@ round"라고 적었다. 병합 전에 확인해보니 사실이 아니었다:
 계열이다 — 확인하지 않은 제약을 사유로 적으면, 실제로는 열려 있는 작업이
 구조적으로 막힌 것처럼 기록에 남고 다음 라운드가 그걸 전제로 삼는다. 형제
 크레이트가 이미 같은 의존을 갖고 있는지 한 번 보는 것으로 대부분 판별된다.
+
+## 138. 오라클의 순서 의존성과 wall-clock 필드를 구조로 닫았다
+
+오라클 이미지를 세 번(pilz / IK / chomp) 다시 빌드한 뒤, committed fixture
+35개가 전부 `identical`로 재생되는 것을 확인했다. 그런데 그건 **프로세스 안의
+순서 의존성을 증명하지 않는다** — `verify-fixture-replay.sh`는 fixture 파일 하나당
+오라클 프로세스 하나를 띄우고 그 파일의 요청들만 한 스트림으로 넣는다. pilz
+요청은 아직 어느 committed fixture에도 없으므로, "LIN 요청이 먼저 지나간 뒤의
+op"는 그 게이트가 한 번도 밟아본 적 없는 경로다.
+
+### 138.1 측정: 실제로 오염되는가
+
+`pilz_trajectory` LIN 요청을 fixture 요청들 앞에 붙여 **같은 프로세스**에 넣고,
+붙이지 않은 실행과 비교했다. LIN이 실제로 성공했는지(`ok=true`,
+`error_code=1`, waypoint 12개)를 매번 확인해서 §119.2의 vacuous pass를 피했다 —
+taint가 적용되지 않은 실행은 결과를 세지 않았다.
+
+| fixture | taint | ids | drift |
+|---|---|---|---|
+| `moveit-constraints/panda_constraints` | applied | 12 | 0 |
+| `moveit-metrics/panda_kinematics_metrics` | applied | 1 | 0 |
+| `moveit-planners-sbp/panda_arm_plan_distance_probes` | applied | 1 | 0 |
+| `moveit-scene/panda_frame_transform` | applied | 1 | 0 |
+
+**이 표가 증명하지 않는 것**을 분명히 해둔다. 코퍼스 35개 중 panda 모델은 12개뿐이고
+나머지 23개(pr2 14, fanuc 5, 기타 4)는 LIN이 `unknown joint model group: panda_arm`으로
+실패해 taint가 적용되지 않았다 — 그 행들은 vacuous라 위 표에 넣지 않았다. 즉 이건
+**4개 op에 대한 표본**이지 코퍼스 전체 커버리지가 아니다. (측정 도중
+`collision_distance_field_types`가 오염된 것처럼 보였는데, 내 비교 스크립트가
+`ignore_result_fields_by_id`의 `relative_cylinder_pose`를 벗기지 않은 탓이었다 —
+하네스 결함이지 오염이 아니다.)
+
+### 138.2 그래서 측정을 늘리는 대신 구조로 닫았다
+
+커버리지를 채우려면 pr2·fanuc용 LIN 요청을 따로 만들어야 하는데, 그건 "위법 상태가
+관측되지 않음"을 매번 다시 재는 런타임 검사다. CLAUDE.md 기준으로 그건 패치이고,
+구조적 해결은 **위법 상태를 만들 수 없게 하는 것**이다.
+
+`ensureKinematicsSolver`가 이제 공유 `model_`이 아니라 `ensurePilzModel()`이
+같은 URDF/SRDF에서 지연 생성하는 **pilz 전용 `RobotModel`**을 변경한다
+(`e3375ee`). `setKinematicsAllocators`는 in-place이고 역연산이 없으므로 되돌릴
+수 없다 — 되돌리는 대신 애초에 공유 상태를 건드리지 않는다. PTP를 제외하던 이유도
+바뀌었다: 이제는 "공유 상태를 보호하려고"가 아니라 "쓰지도 않는 걸 붙일 이유가
+없어서"다.
+
+### 138.3 같이 드러난 결함: 응답에 들어간 stopwatch
+
+**Anchor:** `rg -n 'planning_time' tools/moveit-oracle/src/oracle.cpp`
+**Sites:** `oracle.cpp:4752`(`plan` → `planning_time_s`), `oracle.cpp:5135`
+(`pilzTrajectory` → `planning_time`) — **둘 다 같은 결함**.
+
+wall-clock 값이 바이트 비교되는 fixture에 들어가면 재생할 때마다 drift한다. 같은
+LIN 요청이 `0.001528053` → `0.001346184`로 나왔고 나머지 필드는 전부 동일했다.
+유지하려면 모든 pilz fixture의 모든 id에 `ignore_result_fields_by_id` 항목을
+영구히 달아야 하는데, 그건 `verify-fixture-replay.sh` 헤더가 명시적으로 거부하는
+"미래의 fixture 작성자가 매번 기억해주기를 믿는" 형태다. 그래서 필드를 제거했다
+(`c0838b4`). `plan` 쪽은 잠복 상태였다 — committed fixture의 `problems`가 빈
+배열이라 타이밍이 응답 파일까지 도달한 적이 없어 우연히 깨끗했을 뿐이다.
+
+소비자는 없다: 어느 파리티 테스트도 C++ 스톱워치를 Rust 스톱워치와 비교할 수 없다.
+
+### 138.4 회귀 확인
+
+- 옛 이미지(`6797447ac4dc46e9`)와 전용 모델 적용본(`5fe015a366e3ccc0`)의
+  LIN/CIRC 응답을 필드 단위로 비교: `planning_time` 외 **전부 동일**(waypoint
+  포함).
+- 최종 이미지(`9acdf82cb2e09162`)로 같은 요청을 두 번: **23086바이트 바이트 동일**.
+- committed fixture 35개 전부 최종 이미지에서 `identical`, `verify-fixture-replay.sh`
+  rc=0.
+
+**현재 스탬프: `9acdf82cb2e09162`.** §134.2대로 중간 스탬프
+(`5fe015a366e3ccc0`)는 아무에게도 알리지 않았다.
+
+p1-joints가 이미 캡처한 pilz fixture 3개(`panda_ptp_response.json`,
+`panda_lin_response.json`, `panda_lin_scaling05_rejected_response.json`)는
+`planning_time`을 담고 있으므로 재캡처가 필요하다 — 값은 안 변하니 tolerance
+재측정은 불필요하다는 점과 함께 전달했다.
