@@ -54,15 +54,19 @@
 //!   coverage for the split branch" further down for what ids 4/6 prove,
 //!   now exercised rather than only reasoned about.
 //!
-//! One state-op defect remains, distinct from both closed items above: id 5
-//! (`group_name="hand"`) returns `9` cost sources against an
-//! oracle-expected `2` -- a count mismatch the OBB fit does not touch (that
-//! fit changes a box's *geometry*, not how many boxes group filtering
-//! keeps). Attributed to [`PlanningScene::cost_sources`]'s group filtering,
-//! this crate's own code rather than `moveit-collision`'s -- see
+//! A third state-op case, id 5 (`group_name="hand"`, `9` actual vs `2`
+//! expected -- a count mismatch the OBB fit does not touch, since that fit
+//! changes a box's *geometry*, not how many boxes group filtering keeps),
+//! is closed too, but not by this crate: `group_name` filtering was
+//! entirely unimplemented in `moveit-collision`'s
+//! `check_self_collision`/`check_robot_collision`/`distance_self`/
+//! `distance_robot`, which received the field and never read it, against a
+//! module doc there that claimed the omission matched upstream. It did
+//! not -- `moveit-collision`'s owner fixed it in `585a79e`. See
 //! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] for the
-//! current `#[ignore]` reason and status; investigation is pending a probe
-//! and numbers, not yet in hand as of this commit.
+//! isolation measurement and `doc/claim-audit/moveit-scene.md` for why the
+//! earlier attribution of this defect to `PlanningScene::cost_sources` was
+//! wrong.
 //!
 //! # Oracle-verified coverage for the split branch (path ids 4, 6)
 //!
@@ -83,7 +87,7 @@
 //! passing.
 //!
 //! `panda_cost_sources_matches_the_oracle` below only runs the state-op
-//! case ids unaffected by the one remaining open defect (id 5) --
+//! case ids that were already passing before this round's fixes --
 //! self-collision (mesh-vs-mesh, unaffected: id 1's 75 entries at
 //! ULP-level distances confirm the mesh-vs-mesh path and the
 //! removal/truncation math are both correct) and the trivial all-zero
@@ -92,10 +96,12 @@
 //! exercised, unconditionally, by
 //! [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`] instead
 //! -- both functions run in this crate's regular (non-ignored) suite.
-//! State ids 2-4, 6, 8 also pass now but stay routed through
-//! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] alongside the
-//! still-failing id 5, rather than moved to the passing-ids allowlist, so
-//! that test keeps exercising them as a group until id 5 closes.
+//! State ids 2-4, 6, 8 also pass now and stay routed through
+//! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] the same way,
+//! now joined by the formerly-failing id 5 (see above) -- not moved to the
+//! passing-ids allowlist, matching the path-op split's own precedent of
+//! exercising the group together rather than folding each id in as it
+//! closes.
 //!
 //! # What each case isolates
 //!
@@ -449,18 +455,29 @@ fn panda_cost_sources_matches_the_oracle() {
 /// `6.661338147750939e-16`, see this file's module doc. Ids 3, 4, 6 pass
 /// too, unaffected by either fix.
 ///
-/// What remains is a different defect, on a different case: id 5
-/// (`group_name="hand"`) returns `9` cost sources against an
+/// Id 5 (`group_name="hand"`) used to return `9` cost sources against an
 /// oracle-expected `2` -- a count mismatch, not a nearest-match distance
-/// gap either fix above could touch. p3-acm attributes this to
-/// `PlanningScene::cost_sources`'s own group filtering
-/// (`crates/moveit-scene/src/scene.rs:1796`), this crate's code rather than
-/// `moveit-collision`'s -- relayed here as their attribution, not yet
-/// independently verified: the probe and numbers behind it have not
-/// arrived as of this commit, and investigation has not started. Remove
-/// this `#[ignore]` once id 5 is diagnosed and fixed.
+/// gap either fix above could touch. It was never a `moveit-scene` defect:
+/// `group_name` filtering was entirely unimplemented in `moveit-collision`'s
+/// `check_self_collision`/`check_robot_collision`/`distance_self`/
+/// `distance_robot` (all four received the field and never read it) while
+/// that crate's own module doc claimed the omission matched upstream. It
+/// does not -- upstream's `checkSelfCollisionHelper`/`checkRobotCollisionHelper`
+/// call `cd.enableGroup(getRobotModel())` unconditionally
+/// (`collision_env_fcl.cpp:281,336`), resolving through
+/// `getUpdatedLinkModelsSet()`, and `collisionCallback`/`distanceCallback`
+/// (`collision_common.cpp:79-94,482-500`) drop a pair only when neither side
+/// is in the active set. Fixed in `moveit-collision` by `585a79e`. Measured
+/// directly this round with `cargo nextest run -p moveit-scene
+/// --run-ignored all`: passes, 86/86. Isolated by reverting `585a79e`'s
+/// `parry.rs` hunk alone and rerunning this test: fails with the identical
+/// `count mismatch left: 9 right: 2`; restoring it passes again. No longer
+/// blocked, so the `#[ignore]` is removed -- see
+/// `doc/claim-audit/moveit-scene.md`'s row for this case, now EXPIRED, for
+/// why the earlier attribution to this crate was wrong twice over (wrong
+/// crate, and reasoned from which layer *should* own group filtering
+/// rather than from a count or a probe).
 #[test]
-#[ignore = "case id 5 (group_name=\"hand\"): count mismatch, 9 actual vs 2 expected -- a group-filtering defect p3-acm attributes to this crate's own PlanningScene::cost_sources, not yet independently investigated pending p3-acm's probe/numbers"]
 fn panda_cost_sources_blocked_by_mesh_shape_cost_sources() {
     let model = build_model();
     let srdf = srdf();

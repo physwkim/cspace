@@ -1102,7 +1102,7 @@ mod tests {
     /// `manipulability_ellipsoid`'s own `self.group(group, "manipulability
     /// ellipsoid")?` call is *mostly* dead code: `state.jacobian`, called
     /// two lines later, independently re-checks both the unknown-name and
-    /// non-chain cases and returns the same [`Error`] variants (see
+    /// non-chain cases and returns the same [`Error`](moveit_error::Error) variants (see
     /// `moveit_state::Posed::jacobian`). Measured, not assumed: replacing
     /// `self.group(...)?` with `let _ = self.group(...);` (compiles --
     /// `manipulability_ellipsoid` never binds the returned `group_model`,

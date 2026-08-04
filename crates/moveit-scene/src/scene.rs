@@ -364,8 +364,9 @@ pub struct PathValidity {
 /// - `getCollidingPairs` (6 overloads, not 5, four with `group_name` not
 ///   one — recounted this round) — ported as
 ///   [`PlanningScene::colliding_pairs`] (`group_name` dropped — see its own
-///   doc, `ParryCollisionEnv` never reads it); explicit-ACM overloads not
-///   ported, same reasoning.
+///   doc for why this is now a real, unclosed parity gap rather than the
+///   inert-parameter situation once claimed here); explicit-ACM overloads
+///   not ported, same reasoning.
 ///
 /// ## Distance
 ///
@@ -1536,11 +1537,17 @@ impl<'m> PlanningScene<'m> {
     ///
     /// # Deviation from upstream
     ///
-    /// `req.group_name` is not threaded through: `ParryCollisionEnv` never
-    /// reads [`CollisionRequest::group_name`] at all (`parry`'s module doc,
-    /// deviation 1 — group filtering needs a `RobotModel`-derived active-link
-    /// set upstream's own FCL backend never wires up either), so a
-    /// `group_name` parameter here would be inert. `req.max_contacts` is
+    /// `req.group_name` is not threaded through: this convenience method's
+    /// own signature has no `group_name` parameter to pass one through with.
+    /// This is a real, so-far-unclosed gap against upstream's group_name-
+    /// taking `getCollidingPairs` overloads (`planning_scene.hpp:492-495`),
+    /// not the inert-parameter situation an earlier version of this doc
+    /// claimed: `ParryCollisionEnv` does now read
+    /// [`CollisionRequest::group_name`] (`585a79e`, in `moveit-collision`,
+    /// wiring up `checkSelfCollisionHelper`/`checkRobotCollisionHelper`'s
+    /// `cd.enableGroup` call, `collision_env_fcl.cpp:281,336`, that upstream
+    /// always makes), so a `group_name` parameter added here would not be
+    /// inert. `req.max_contacts` is
     /// upstream's `getLinkModelsWithCollisionGeometry().size() + 1`; this
     /// port's [`RobotModel`] has no such query (see
     /// `moveit-model::robot_model`'s doc), so this uses every link with a

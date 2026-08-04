@@ -88,6 +88,25 @@ impl AddTimeOptimalParameterization {
     /// See [`moveit_trajectory::time_optimal_trajectory_generation::TotgOptions`]
     /// for what each argument means; `TotgOptions::default()`'s values match
     /// upstream's own defaults.
+    ///
+    /// # `resample_dt` is not validated here, by design
+    ///
+    /// This matches upstream, not just defers to it by accident: the real
+    /// `AddTimeOptimalParameterization::adapt` (cpp:68-92) has no persistent
+    /// `resample_dt` field at all — it re-reads `params.resample_dt` from
+    /// `ParamListener` fresh on every call (cpp:81) and passes it straight
+    /// into `TimeOptimalTrajectoryGeneration`'s constructor (cpp:82), whose
+    /// own body stores it unchecked (`time_optimal_trajectory_generation.cpp:918-920`).
+    /// There is no upstream call site, at any layer, where an invalid
+    /// `resample_dt` is rejected before use. `TotgOptions::with_resample_dt`
+    /// (see [`moveit_trajectory::trajectory_tools::apply_totg_time_parameterization`]'s
+    /// `# Errors` section) is a deviation *forward* of upstream, not a gap:
+    /// it turns upstream's silent size_t-saturating cast into a real
+    /// `Result` at the point the value is actually consumed. Rejecting here
+    /// too, at construction, would validate a value this type does not yet
+    /// know is destined for TOTG — [`Self`] is plain adapter configuration,
+    /// matching upstream's "adapter has no ctor args, reads params at call
+    /// time" shape as closely as a Rust type with stored fields can.
     pub fn new(path_tolerance: f64, resample_dt: f64, min_angle_change: f64) -> Self {
         Self {
             path_tolerance,
@@ -265,5 +284,59 @@ mod tests {
             "AddTimeOptimalParameterization must overwrite a uniform dt = 0.1 profile \
              with real time-optimal durations, not leave it in place"
         );
+    }
+
+    /// Pins the doc's "not validated here, by design" claim from the
+    /// construction side: `new` must accept every one of these invalid
+    /// `resample_dt` values without erroring or panicking.
+    #[test]
+    fn new_accepts_any_resample_dt_including_invalid_ones() {
+        for resample_dt in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let adapter = AddTimeOptimalParameterization::new(0.1, resample_dt, 0.001);
+            assert_eq!(adapter.description(), "AddTimeOptimalParameterization");
+        }
+    }
+
+    /// Pins the doc's "not validated here, by design" claim from the
+    /// consuming side: an invalid `resample_dt` that survived `new`
+    /// unchecked must be caught downstream, at `adapt` time, not silently
+    /// saturate into the multi-gigabyte resample allocation the module doc
+    /// describes.
+    #[test]
+    fn adapt_rejects_an_invalid_resample_dt_deferred_from_new() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        let mut start = RobotState::new(&model);
+        start.set_to_default_values();
+        let mut goal = start.clone();
+        goal.set_joint_positions("panda_joint1", &[0.4]).unwrap();
+
+        let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
+        let start_state = start.clone();
+        trajectory.add_suffix_way_point(start, 0.0).unwrap();
+        trajectory.add_suffix_way_point(goal, 0.0).unwrap();
+        let mut response = PlanningResponse {
+            start_state,
+            trajectory,
+            planner_id: String::new(),
+        };
+
+        let d = TotgOptions::default();
+        for resample_dt in [0.0, -1.0, f64::NAN] {
+            let bad = AddTimeOptimalParameterization::new(
+                d.path_tolerance,
+                resample_dt,
+                d.min_angle_change,
+            );
+            let err = bad
+                .adapt(&mut scene, &env, &request(), &mut response)
+                .expect_err("an invalid resample_dt must be rejected at adapt time, not accepted");
+            assert!(
+                matches!(err, ResponseAdapterError::Failed { .. }),
+                "resample_dt = {resample_dt} must fail as ResponseAdapterError::Failed, got {err:?}"
+            );
+        }
     }
 }
