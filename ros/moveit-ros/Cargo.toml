@@ -1,0 +1,60 @@
+[package]
+name = "moveit-ros"
+description = "Optional ROS 2 interop for moveit-rs: moveit_msgs <-> core-crate TryFrom conversions, plan_kinematic_path service, move_action action server (PORTING-PLAN.md Phase 9)"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "BSD-3-Clause"
+repository = "https://github.com/stevek/moveit-rs"
+authors = ["moveit-rs contributors"]
+publish = false
+
+# This crate is its own workspace root (PORTING-PLAN.md D5): an empty
+# `[workspace]` table stops Cargo's upward search at this manifest instead of
+# walking up to the repo root's `[workspace]` (whose `members = ["crates/*",
+# ...]` glob does not list this path), which would otherwise fail with
+# "current package believes it's in a workspace when it's not". Living
+# outside the root workspace is deliberate: r2r requires a local ROS 2
+# install at build time, which neither this host nor the CI runner has, and
+# the root's `members = ["crates/*"]` glob would otherwise pull this crate
+# into every `cargo build --workspace` the other seven panels and CI run.
+[workspace]
+
+[dependencies]
+# EMPIRICAL PROBE, not the final pin -- see this round's report.
+# r2r 0.9.5 (D2's named version) fails to build against this image's ROS 2
+# Rolling: `rcl_timer_init` (r2r-0.9.5/src/nodes.rs:1485) does not exist in
+# this Rolling snapshot's rcl, which only has `rcl_timer_init2`. r2r 0.9.6
+# fixes exactly this (github.com/sequenceplanner/r2r compare 0.9.5...0.9.6,
+# `nodes.rs`: adds a distro-`cfg`-gated `init_timer` wrapper that calls
+# `rcl_timer_init` on foxy/galactic/humble/iron and `rcl_timer_init2` "for
+# Jazzy, Rolling, and newer"). Testing 0.9.6 here to confirm that fix is
+# sufficient before recommending D2 be repinned.
+r2r = { git = "https://github.com/sequenceplanner/r2r", tag = "0.9.6" } # PROBE ONLY, see report -- 0.9.6 is unpublished to crates.io
+
+# Path deps to the core workspace, not `workspace = true`: this manifest is
+# its own workspace (see above), so there is no `[workspace.dependencies]`
+# table to inherit from. Depending on the core crates directly (rather than
+# mirroring their types) is the low-coupling choice noted in each crate's own
+# doc comment -- moveit-error in particular says its MoveItErrorCode is
+# wire-exact with moveit_msgs/MoveItErrorCodes specifically so a ROS interop
+# crate can reuse it without its own lookup table.
+moveit-error = { path = "../../crates/moveit-error" }
+moveit-geometry = { path = "../../crates/moveit-geometry" }
+
+# For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
+# UnitQuaternion::new_normalize): moveit-geometry re-exports nalgebra's types
+# as plain aliases (`pub type Isometry3 = nalgebra::Isometry3<f64>`), not
+# opaque wrapper structs, so building one still means calling nalgebra's own
+# API directly.
+nalgebra = "0.35"
+
+[dev-dependencies]
+approx = "0.5"
+
+[lints.rust]
+unsafe_code = "forbid"
+warnings = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
