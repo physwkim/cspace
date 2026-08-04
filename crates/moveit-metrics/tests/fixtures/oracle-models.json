@@ -1,4 +1,8 @@
 {
+  "panda_arm_5dof_kinematics_metrics": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_kinematics_metrics": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"

@@ -146,6 +146,47 @@ status=0
 found_manifest=0
 
 shopt -s nullglob
+
+# The loop below is driven by the manifest, but the invariant at the top of
+# this file is over *committed pairs*: every `*_request.json`/`*_response.json`
+# pair must still reproduce. Those two sets are not the same, and where they
+# disagree the manifest wins silently -- a pair nobody listed is simply never
+# replayed, and the run still ends with a row of `identical` lines and exit 0.
+# That is indistinguishable from coverage. It happened:
+# `moveit-metrics/panda_arm_5dof_kinematics_metrics` was committed in one
+# round and went unreplayed until a later audit counted the two sets against
+# each other (it replayed clean once registered -- the cost was the blind
+# spot, not a drift).
+#
+# So the domain of the check is derived from the pairs, and an unregistered
+# pair is a failure rather than a skip. Registering it is one manifest entry;
+# the alternative is trusting every future fixture author to remember.
+unregistered="$(python3 - "$REPO_ROOT" <<'PYEOF'
+import glob, json, os, sys
+
+repo_root = sys.argv[1]
+for fixtures_dir in sorted(glob.glob(os.path.join(repo_root, "crates/*/tests/fixtures"))):
+    crate = fixtures_dir.split(os.sep)[-3]
+    manifest = os.path.join(fixtures_dir, "oracle-models.json")
+    entries = set(json.load(open(manifest))) if os.path.exists(manifest) else set()
+    for request in sorted(glob.glob(os.path.join(fixtures_dir, "*_request.json"))):
+        stem = os.path.basename(request)[: -len("_request.json")]
+        if not os.path.exists(os.path.join(fixtures_dir, f"{stem}_response.json")):
+            continue
+        if stem not in entries:
+            print(f"{crate}/{stem}")
+PYEOF
+)"
+if [[ -n "$unregistered" ]]; then
+  while IFS= read -r pair; do
+    crate="${pair%%/*}"
+    echo "UNREGISTERED $pair -- committed fixture pair absent from" >&2
+    echo "             crates/$crate/tests/fixtures/oracle-models.json, so it is" >&2
+    echo "             never replayed against the live oracle" >&2
+  done <<<"$unregistered"
+  status=1
+fi
+
 # Absolute, not relative: `run-oracle.sh` mounts `$REPO_ROOT` into the
 # container at the same absolute path, and the container's working
 # directory is not `$REPO_ROOT`, so a relative path resolves to nothing
