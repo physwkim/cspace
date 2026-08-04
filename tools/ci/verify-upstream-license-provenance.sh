@@ -40,6 +40,30 @@
 # the licence, so reporting it as clean would be the failure mode this gate
 # exists to close.
 #
+# The second rule here (UNJUSTIFIED) exists because the first one reads only
+# citation *paths*, and a licence can enter a file without any path being
+# named. `cart_to_jnt.rs` carried `Copyright (c) 2013, Sachin Chitta, Willow
+# Garage` -- verbatim the copyright line of the LGPL-2.1-or-later
+# `chainiksolver_vel_mimic_svd.{hpp,cpp}`, and of no other file in that
+# upstream directory -- while citing only the BSD `kdl_kinematics_plugin.cpp`,
+# whose own copyright is `2012, Willow Garage, Inc.` and which names Sachin
+# Chitta as author only, in a comment. Nothing above could see it: there was no
+# LGPL path in the header to open. A human reading the file found it, which is
+# not a property of the tree.
+#
+# So every non-`moveit-rs contributors` copyright line a file asserts must be
+# reproduced by a copyright line in one of that file's own cited files, on both
+# year and holder. Attribution is a claim about provenance exactly like a
+# citation is, and it is checkable against the same sources already on disk.
+# This catches the leaked-holder case above, and equally a year that drifted
+# from the file it was copied out of -- both are one defect, a copyright line
+# no cited source supports.
+#
+# Matching is exact rather than fuzzy on purpose. A notice that does not
+# reproduce its source's wording is worth a report even when the intent is
+# obvious: the fix is to make the two agree, and a matcher lenient enough to
+# accept a reworded holder is lenient enough to accept a wrong one.
+#
 #   tools/ci/verify-upstream-license-provenance.sh
 set -euo pipefail
 
@@ -114,6 +138,52 @@ NOT_PORTED = re.compile(r"^//(?![!/])[^\n]*\bnot ported:\s*$", re.I)
 COPYLEFT = re.compile(r"GNU Lesser General Public|GNU General Public|LGPL|GPL-", re.I)
 # Identifiers this workspace uses that a copyleft upstream cannot support.
 PERMISSIVE = re.compile(r"^(BSD-|MIT|Apache-)", re.I)
+# A copyright line in either tree. The year is what anchors the match: without
+# requiring it, `@copyright Copyright (c) 2016, ...` -- how the stomp headers
+# write it -- matches at the first `Copyright` and yields the second one as the
+# holder. Upstream also writes `Copyright  (C)  2013  Sachin Chitta, Willow
+# Garage`, and this tree writes `Copyright (c) 2011-2012, Georgia Tech Research
+# Corporation`; all three reduce to the same (year, holder) pairs below.
+COPYRIGHT = re.compile(
+    r"Copyright\s*(?:\(c\)|©)?\s*((?:\d{4})[\d\s,–-]*)[,\s]+(\S[^\n]*?)\s*$",
+    re.I,
+)
+# An *assertion* is a copyright line in this tree's licence header, which is
+# `//`-prefixed and starts with the word. A `//!` doc line quoting an upstream
+# header -- `velocity.rs` and `lib.rs` both explain which LGPL notice the file
+# deliberately does not carry -- is a description of someone else's notice, and
+# reading it as this file's own claim inverts what those paragraphs say.
+ASSERTION = re.compile(r"^//\s*Copyright\b", re.I)
+# This tree's own line, which by construction has no upstream to justify it.
+OURS = re.compile(r"moveit-rs contributors", re.I)
+
+
+def copyright_claims(lines, anchored=False):
+    """(year, normalized-holder) pairs a comment block's lines carry.
+
+    `anchored` restricts to lines that assert a copyright rather than mention
+    one; upstream files are read unanchored, since every line there is theirs.
+    """
+    claims = set()
+    for line in lines:
+        if OURS.search(line):
+            continue
+        if anchored and not ASSERTION.match(line):
+            continue
+        match = COPYRIGHT.search(line)
+        if not match:
+            continue
+        # Fold to the shape the two trees share: case, punctuation, and the
+        # corporate suffix upstream applies inconsistently to one holder
+        # (`Willow Garage, Inc.` in one file, `Willow Garage` in the next).
+        holder = re.sub(r"[^a-z0-9 ]", " ", match.group(2).lower())
+        holder = re.sub(r"\s+", " ", holder).strip()
+        holder = re.sub(r"\s+(inc|llc|ltd|gmbh|corp|corporation)$", "", holder)
+        if not holder:
+            continue
+        for year in re.findall(r"\d{4}", match.group(1)):
+            claims.add((year, holder))
+    return claims
 
 BRACE = re.compile(r"^([^{}]*)\{([^{}]+)\}(.*)$")
 
@@ -181,13 +251,16 @@ def header_of(path):
 
 conflicts = []
 unresolved = []
+unjustified = []
 checked = 0
 
 for path in tracked:
     spdx = ""
     citations = []
+    header = header_of(path)
+    asserted = copyright_claims(header, anchored=True)
     prefix = None          # (indent width, directory path) of the enclosing `.../` line
-    for line in header_of(path):
+    for line in header:
         match = SPDX.match(line)
         if match:
             spdx = match.group(1)
@@ -216,24 +289,31 @@ for path in tracked:
             citations.extend(expanded)
     if prefix is not None and not prefix[2]:
         citations.append(prefix[1])
-    if not citations:
+    if not citations and not asserted:
         continue
 
+    justified = set()
     for citation in citations:
         resolved = resolve_citation(citation)
         if not resolved:
             unresolved.append((path, citation))
             continue
+        reported = False
         for member in resolved:
             checked += 1
             with open(member, encoding="utf-8", errors="replace") as handle:
                 head = handle.read(8000)
-            if COPYLEFT.search(head) and PERMISSIVE.match(spdx):
+            justified |= copyright_claims(head.splitlines())
+            if not reported and COPYLEFT.search(head) and PERMISSIVE.match(spdx):
+                # One report per citation: a package directory is cited once,
+                # however many copyleft files happen to sit under it.
                 conflicts.append((path, spdx, citation))
-                break
+                reported = True
+
+    for year, holder in sorted(asserted - justified):
+        unjustified.append((path, year, holder, tuple(citations)))
 
 status = 0
-
 if conflicts:
     status = 1
     for path, spdx, citation in conflicts:
@@ -249,8 +329,23 @@ if unresolved:
     print("Point the matching *_SRC variable at that checkout, or correct the", file=sys.stderr)
     print("citation. An unopened citation is an unchecked licence, not a clean one.", file=sys.stderr)
 
+if unjustified:
+    status = 1
+    for path, year, holder, citations in unjustified:
+        print(f"UNJUSTIFIED {path} asserts a copyright no cited file reproduces:", file=sys.stderr)
+        print(f"            {year}, {holder}", file=sys.stderr)
+        for citation in citations:
+            print(f"            cites {citation}", file=sys.stderr)
+        if not citations:
+            print("            cites nothing", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Either the line was copied out of a file this header does not cite,", file=sys.stderr)
+    print("or its year/holder drifted from the file it came from. Make the notice", file=sys.stderr)
+    print("reproduce the source it claims, or drop it.", file=sys.stderr)
+
 print(f"checked {checked} upstream file(s) cited by {len(tracked)} tracked source file(s)")
 if status == 0:
-    print("OK: no permissive-SPDX file cites a copyleft upstream file")
+    print("OK: no permissive-SPDX file cites a copyleft upstream file, and every")
+    print("    asserted upstream copyright is reproduced by a file that file cites")
 sys.exit(status)
 PYEOF
