@@ -973,6 +973,25 @@ mod tests {
             max_rot_vel: 1.0,
         });
 
+        // Ground truth for the response segment lengths: an independent
+        // search_intersection_points call over the same geometry, so the
+        // assertions below can check the copy loops in `blend` produce
+        // exactly `first_intersection_index` and
+        // `second_count - (second_intersection_index + 1)` waypoints, not
+        // just "no more than the original" -- a bound loose enough to miss
+        // an off-by-one in either loop, which mutation testing confirmed by
+        // extending `blend`'s first-segment copy loop by one waypoint
+        // without failing this test.
+        let mut probe_req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        let (first_intersection_index, second_intersection_index) =
+            search_intersection_points(&mut probe_req).expect("same geometry as req below");
+
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
@@ -980,21 +999,19 @@ mod tests {
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
             blend_radius: 0.05,
         };
+        let second_count = req.second_trajectory.way_point_count();
 
         let response =
             blend(&ctx, &planner_limits, &mut req).expect("well-formed request must blend");
 
         assert!(!response.blend_trajectory.is_empty());
-        // The three segments together must cover strictly less than the two
-        // original trajectories' combined waypoint count (some waypoints
-        // near the boundary are replaced by the blend), but each of the
-        // three non-blend segments is non-empty-or-absent consistently with
-        // where the crossing indices landed.
-        assert!(
-            response.first_trajectory.way_point_count() <= req.first_trajectory.way_point_count()
+        assert_eq!(
+            response.first_trajectory.way_point_count(),
+            first_intersection_index
         );
-        assert!(
-            response.second_trajectory.way_point_count() <= req.second_trajectory.way_point_count()
+        assert_eq!(
+            response.second_trajectory.way_point_count(),
+            second_count - (second_intersection_index + 1)
         );
     }
 }
