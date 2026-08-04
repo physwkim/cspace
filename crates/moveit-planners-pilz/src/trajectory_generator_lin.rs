@@ -37,7 +37,7 @@
 //!   `extractMotionPlanInfo` has its `bool` return value discarded for both
 //!   the goal-pose and start-pose computations; on failure `info.goal_pose`/
 //!   `info.start_pose` keep whatever they already held (`Isometry3::identity`,
-//!   from [`crate::trajectory_generator::MotionPlanInfo::new`]). This is
+//!   from `crate::trajectory_generator::MotionPlanInfo::new`). This is
 //!   reproduced verbatim rather than turned into a hard error.
 //! - **A Cartesian goal's IK solution is discarded.** Unlike
 //!   [`crate::trajectory_generator_ptp::TrajectoryGeneratorPtp`], where a
@@ -53,7 +53,7 @@
 //!   [`MoveItErrorCode::Failure`]) if that fails. This port's
 //!   [`moveit_kinematics::KinematicsSolver::tip_frame`] is already singular
 //!   (see that trait's own `# Deviations`), so "more than one tip frame" is
-//!   unrepresentable here; [`solver_tip_frame`] only has upstream's
+//!   unrepresentable here; `solver_tip_frame` only has upstream's
 //!   "no solver" case left to handle, via the same scan-`KINEMATICS_SOLVERS`
 //!   pattern [`crate::trajectory_generator::check_cartesian_goal`] already
 //!   uses.
