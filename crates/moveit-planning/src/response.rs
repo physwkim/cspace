@@ -9,6 +9,7 @@
 
 //! The canonical planning-response type.
 
+use moveit_state::RobotState;
 use moveit_trajectory::RobotTrajectory;
 
 /// A successful plan, in the shape this crate's response adapters operate
@@ -46,28 +47,43 @@ use moveit_trajectory::RobotTrajectory;
 ///   `Result<PlanningResponse, PipelineError>`'s own `Err`, matching
 ///   `crate::error`'s existing convention of using `Result` instead of a
 ///   status-code field.
-/// - `start_state` (`moveit_msgs::msg::RobotState`) — unported, in scope, a
-///   real gap, not a design choice: `moveit-planners-sbp::registry`'s own
-///   test comment (`end_to_end_solve_on_panda_arm_reaches_the_requested_goal`,
-///   `registry.rs:428-431`) already documents that
-///   `PlanningSceneValidityChecker::is_valid` "leaves the scene's current
-///   state at whatever it last checked" as a side effect — so unlike
-///   `MotionPlanRequest::start_state` (where the scene's current state
-///   reliably *is* the start, see `request.rs`'s own audit above),
-///   `scene.current_state()` read back **after** `generate_plan` returns is
-///   not reliably the state the plan actually started from. Upstream
-///   carries this field precisely to survive that same class of
-///   post-hoc-unreliability; this port has no equivalent, so a caller
-///   currently has no way to recover the true start state after the fact
-///   except capturing it themselves before calling
-///   [`crate::pipeline::generate_plan`] — exactly the workaround that same
-///   `registry.rs` test already has to use.
+/// - `start_state` (`moveit_msgs::msg::RobotState`) — ported as
+///   [`PlanningResponse::start_state`] (round 22). Round 21 called the gap a
+///   side effect "damaging" the scene's current state; that read the
+///   symptom right but stopped one step short — see
+///   `crate::pipeline::generate_plan`'s "Semantic 6" doc for the correction.
+///   `moveit-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+///   (`planning_scene_validity.rs:128-137`, read-only from here) documents
+///   this as a deliberate **contract**, not a defect: "a caller that needs
+///   the pre-planning state preserved clones it once, itself, before
+///   handing the scene to this type." [`crate::pipeline::generate_plan`] is
+///   exactly that caller, and now fulfills it — one clone per query, not
+///   per validity check.
+///
+///   Upstream's own fill site does not exist to match: exhaustively
+///   searched (`rg -n '\.start_state\s*=' moveit_core moveit_ros
+///   moveit_planners moveit_py`, pinned commit `e017c91e`) for every write
+///   to a `planning_interface::MotionPlanResponse`-typed `start_state` —
+///   zero hits. Every planner (`ompl_interface`, `chomp_motion_planner`,
+///   `stomp` `moveit_planners/stomp/src/stomp_moveit_planning_context.cpp`,
+///   `pilz_industrial_motion_planner`) and `PlanningPipeline::generatePlan`
+///   itself (`planning_pipeline.cpp`) leave it at the default member
+///   value a plain `moveit_msgs::msg::RobotState start_state;` gets — the
+///   only site touching it at all is the Python binding's read-only
+///   property getter (`moveit_py/src/moveit/moveit_core/planning_interface/planning_response.cpp:52,92`).
+///   So there is no real pre-adapter/post-adapter precedent to reproduce;
+///   this port picks the value consistent with the field's own doc comment
+///   at `planning_response.hpp:66` ("The full starting state used for
+///   planning"): captured once, after the request-adapter chain runs (an
+///   adapter can mutate `scene.current_state()`, e.g. a bounds-clamping
+///   one) and before the first planner call — the state the planner(s)
+///   this query actually ran against.
 /// - `planner_id` (`std::string`) — ported as [`PlanningResponse::planner_id`].
 /// - `operator bool` — distinct: replaced by `generate_plan`'s own
 ///   `Result`-typed return (`Ok`/`Err` is a strict superset of a bare
 ///   success/failure bool).
 ///
-/// Total: 2 ported, 2 distinct, 2 unported-in-scope = 6, matching the
+/// Total: 3 ported, 2 distinct, 1 unported-in-scope = 6, matching the
 /// member count exactly.
 ///
 /// # No `Option`
@@ -95,4 +111,12 @@ pub struct PlanningResponse<'m> {
     /// [`Default::default`] gives a plain `String`) means "not yet set",
     /// matching an unset `moveit_msgs::msg::MotionPlanResponse::planner_id`.
     pub planner_id: String,
+    /// The full state planning actually started from. Filled once by
+    /// [`crate::pipeline::generate_plan`] (see that module's doc, "Semantic
+    /// 6: `start_state` is captured once, before the planner ever runs") —
+    /// never by an individual [`crate::pipeline::Planner`] impl, since only
+    /// [`generate_plan`](crate::pipeline::generate_plan) sits at the point
+    /// where the request-adapter chain has already run but no planner has
+    /// yet touched `scene`'s current state.
+    pub start_state: RobotState<'m>,
 }

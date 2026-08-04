@@ -125,6 +125,29 @@
 //! "Structural fix vs. clever patch" guidance) looks like when the language
 //! already gives you the finalizer for free.
 //!
+//! ## 6. `start_state` is captured once, before the planner ever runs
+//!
+//! `moveit-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+//! (read-only from this crate, and not a dependency — see this module's doc,
+//! "Planners are supplied by the caller, not looked up by name") documents
+//! that it does not restore `scene`'s
+//! current state after a validity check, by design — restoring it would add
+//! a full-state clone to each of the hundreds of thousands of calls one
+//! planning query makes. Its own doc states the caller-side obligation this
+//! creates: "a caller that needs the pre-planning state preserved clones it
+//! once, itself, before handing the scene to this type."
+//! [`generate_plan`] is that caller, and fulfills the obligation here: it
+//! clones `scene.current_state()` exactly once per call — after
+//! [`run_request_adapters`] returns (a request adapter can mutate
+//! `scene.current_state()`, e.g. a bounds-clamping one, so the value
+//! captured is the state the planner(s) below actually start from, not the
+//! caller's original pre-adapter one) and before [`Planner::plan`] is
+//! called for the first time — and stores it as
+//! [`PlanningResponse::start_state`] once the response is otherwise
+//! complete. One clone for the whole query, not one per validity check, is
+//! exactly the cost `PlanningSceneValidityChecker`'s own doc says this
+//! contract is designed to avoid paying per-call.
+//!
 //! # Deviation: zero planners is `Err`, not an unset response
 //!
 //! Upstream's `res` is a caller-supplied, mutated-in-place output parameter,
@@ -344,6 +367,7 @@ pub fn generate_plan<'m>(
     };
 
     run_request_adapters(request_chain, scene, env, &mut request)?;
+    let start_state = scene.current_state().clone();
 
     let mut response =
         first_planner
@@ -368,6 +392,7 @@ pub fn generate_plan<'m>(
     if response.planner_id.is_empty() {
         response.planner_id = request.planner_id.clone();
     }
+    response.start_state = start_state;
 
     Ok(response)
 }
@@ -485,6 +510,7 @@ mod tests {
             let mut start = RobotState::new(model);
             start.set_to_default_values();
             Ok(PlanningResponse {
+                start_state: start.clone(),
                 trajectory: two_waypoint_trajectory(model, start),
                 planner_id: self.planner_id.to_string(),
             })
@@ -535,9 +561,44 @@ mod tests {
             let mut start = RobotState::new(model);
             start.set_to_default_values();
             Ok(PlanningResponse {
+                start_state: start.clone(),
                 trajectory: two_waypoint_trajectory(model, start),
                 planner_id: String::new(),
             })
+        }
+    }
+
+    /// Mutates `scene`'s current state as a side effect of planning, the
+    /// same way `moveit-planners-sbp::planning_scene_validity::PlanningSceneValidityChecker`
+    /// leaves `scene` at whatever state its last validity check posed —
+    /// see this module's doc, "Semantic 6". Used to prove
+    /// [`PlanningResponse::start_state`] is captured *before* that
+    /// mutation, not read back from a scene a planner may have since
+    /// moved.
+    struct SideEffectPlanner;
+    impl<'m> Planner<'m> for SideEffectPlanner {
+        fn description(&self) -> &'static str {
+            "SideEffectPlanner"
+        }
+        fn plan(
+            &self,
+            scene: &mut PlanningScene<'m>,
+            _env: &ParryCollisionEnv,
+            _request: &PlanningRequest,
+        ) -> Result<PlanningResponse<'m>, PlanError> {
+            let model = scene.robot_model();
+            let mut start = RobotState::new(model);
+            start.set_to_default_values();
+            let response = Ok(PlanningResponse {
+                start_state: start.clone(),
+                trajectory: two_waypoint_trajectory(model, start),
+                planner_id: String::new(),
+            });
+            scene
+                .current_state_mut()
+                .set_joint_positions("panda_joint1", &[1.0])
+                .unwrap();
+            response
         }
     }
 
@@ -697,5 +758,40 @@ mod tests {
             response.planner_id, "request-set-id",
             "an empty planner_id from the planner must fall back to the request's value"
         );
+    }
+
+    #[test]
+    fn start_state_is_the_pre_planning_state_even_after_a_planner_moves_the_scene() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let pre_planning_state = scene.current_state().clone();
+
+        let planners: Vec<Box<dyn Planner>> = vec![Box::new(SideEffectPlanner)];
+        let response = generate_plan(&mut scene, &env, &[], &planners, &[], request())
+            .expect("an unobstructed plan must succeed even though the planner moves the scene");
+
+        assert_eq!(response.start_state, pre_planning_state);
+    }
+
+    #[test]
+    fn scene_current_state_is_allowed_to_differ_from_start_state_after_generate_plan_returns() {
+        // The flip side of the case above: `PlanningSceneValidityChecker`'s
+        // documented contract is that `generate_plan` captures `start_state`
+        // itself rather than relying on `scene.current_state()` staying put
+        // -- it does not promise `scene.current_state()` is restored. This
+        // asserts the scene really is left moved, so the case above is
+        // proving `start_state` survives a real mutation, not a mutation
+        // that never happened.
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let pre_planning_state = scene.current_state().clone();
+
+        let planners: Vec<Box<dyn Planner>> = vec![Box::new(SideEffectPlanner)];
+        generate_plan(&mut scene, &env, &[], &planners, &[], request())
+            .expect("an unobstructed plan must succeed even though the planner moves the scene");
+
+        assert_ne!(scene.current_state(), &pre_planning_state);
     }
 }
