@@ -13393,3 +13393,85 @@ doctest를 빠뜨리는 것이 실제로 일어난 실패이므로 doctest를 �
 
 CI가 GitHub Actions에서 실제로 돌기 시작하면 §170.2의 수동 규칙은
 게이트로 대체된다 — 그때 이 절은 "왜 그 스텝이 있는지"의 근거로만 남는다.
+
+## §171 FCL의 cost source 입도는 traversal이 아니라 **dispatch**에서 정해진다
+
+p1-fixtures가 `bb212dd`로 `cost_sources`/`path_cost_sources` fixture를 캡처하면서
+"오라클은 콜리전 쌍당 coarse box 1개, 이 포트는 삼각형당 1개(20개)"라는
+불일치를 재서 두 테스트를 `#[ignore]` 처리하고 `moveit-collision`의
+`mesh_shape_cost_sources`(`parry.rs:1368-1388`) 결함으로 귀속시켰다.
+
+**측정은 맞고 귀속도 맞지만 성격 규정이 틀렸다.** 원인을 상류에서 찾았다.
+
+### 171.1 기전 — `use_approximate_cost`
+
+`fcl::CollisionRequest`의 5번째 생성자 인자 `use_approximate_cost_`는
+**기본값이 `true`**다(`fcl/include/fcl/narrowphase/collision_request.h:101`,
+tag `0.7.0`). `moveit_core`는 이 인자를 한 번도 넘기지 않는다 — 세 호출
+전부 4개 위치 인자만 준다(`collision_detection_fcl/src/collision_common.cpp:228`,
+`:303`, `:364`, 형태는 `fcl::CollisionRequestd(num_max_contacts,
+enable_contact, num_max_cost_sources, enable_cost)`). 따라서
+**moveit이 FCL에 보내는 모든 요청은 `use_approximate_cost == true`다.**
+
+`collision_func_matrix-inl.h`가 그 플래그를 읽는 자리는 정확히 네 곳이고,
+전부 **타입이 섞인** dispatch다:
+
+- `:184` OcTree ↔ BVH
+- `:237` BVH ↔ OcTree
+- `:330` `BVHShapeCollider::collide` (BVH ↔ primitive Shape)
+- `:391` `orientedBVHShapeCollide` (OBB/RSS/OBBRSS BVH ↔ Shape)
+
+이 네 자리는 전부 같은 2단 구조다(`:330-355`이 대표):
+
+1. `enable_cost = false`로 복사한 요청으로 **진짜 traversal**을 돌려 contact만 얻는다.
+2. `constructBox(obj1->getBV(0).bv, tf1, box, box_tf)`로 **메시의 BVH 루트
+   경계 상자 하나**를 만들고 메시의 `cost_density`를 옮겨 담는다.
+3. `ShapeShapeCollide<Box, Shape>`를 cost 전용 요청으로 돌려 **cost source
+   하나**를 만든다.
+
+즉 mesh↔shape에서 삼각형별 cost는 **애초에 계산되지 않는다.**
+`MeshShapeCollisionTraversalNode::leafTesting`의 삼각형별
+`addCostSource`(`mesh_shape_collision_traversal_node-inl.h:112,123`)는
+`use_approximate_cost == false`일 때만 도달하는 죽은 경로다 — moveit 아래서는.
+
+### 171.2 mesh↔mesh는 왜 삼각형별인가
+
+`BVHCollide`(`:558`, `:648`)와 `orientedMeshCollide`(`:572`)에는 이 분기가
+**없다.** mesh↔mesh는 언제나 traversal의 삼각형별 cost를 그대로 낸다.
+그래서 같은 fixture 안에서 id 1(panda 자기충돌, mesh↔mesh)은 오라클이
+**75개**를 내고 이 포트가 일치하는데, id 8(panda_hand에 붙인 0.05m 큐브 ↔
+`panda_link7` 메시, mesh↔shape)은 오라클이 **1개**를 낸다. 두 숫자는 모순이
+아니라 **dispatch가 다르다는 증거**다.
+
+### 171.3 그래서 고칠 대상이 바뀐다
+
+`mesh_shape_cost_sources`가 삼각형별로 내는 것 자체는 "과잉 보고"가 아니다 —
+FCL의 정확(exact) cost 경로가 하는 일과 같다. 결함은 **그 함수가 잘못된
+분기에 배선돼 있다**는 것이다. 20개를 하나로 합치는 것은 패치이고, 합치는
+규칙(합집합? 최대? 평균?)을 새로 발명해야 하므로 다음 라운드에 또 다른
+경계를 만든다. 구조적 수정은 FCL의 2단 dispatch를 그대로 재현하는 것이다:
+
+- mesh↔shape 쌍에서 **contact는 지금의 정확한 traversal 그대로**,
+- **cost는 메시의 BVH 루트 경계 상자 ↔ shape** 한 번의 shape-shape 계산으로.
+
+두 산출물이 서로 다른 기하에서 나오는 것이 upstream의 실제 모양이다.
+합치기(coalescing)로는 `cost_density`가 메시 것으로 실린다는 점도,
+루트 경계가 실제 겹친 삼각형들의 합집합보다 크다는 점도 재현되지 않는다.
+
+### 171.4 octree 경로의 doc 주장도 재측정 대상이다
+
+`parry.rs`의 `cost_sources_for_part_pair` doc이 "FCL's own octree narrowphase
+(`octree_solver-inl.h`) *does* cost per leaf, so this is a real, if minor,
+further deviation"라고 적고 있다. `use_approximate_cost == true` 아래서
+OcTree↔BVH는 `:184`/`:237`의 근사 경로를 타므로 이 주장은 그대로 성립하지
+않는다. 다만 근사 경로가 octree 쪽에서 무엇을 하는지는(`OcTreeShapeCollide`가
+메시 루트 상자에 대해 leaf별로 cost를 내는지) 별도 확인이 필요하다 —
+여기서 확정하지 않고 **측정 대상으로 남긴다.** 확실한 것은 지금 doc이
+근거로 삼은 "octree narrowphase가 leaf별로 낸다"가 moveit이 실제로 타는
+경로를 가리키고 있지 않다는 것뿐이다.
+
+### 171.5 만료 조건 (§153.1)
+
+`moveit_core`가 `use_approximate_cost`를 명시적으로 넘기기 시작하면
+§171 전체가 만료된다. 앵커: `rg -n 'CollisionRequestd\(' moveit_core/`가
+5개 이상의 위치 인자를 가진 호출을 내놓는 순간.
