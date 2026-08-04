@@ -1415,7 +1415,15 @@ impl<'m> ChompOptimizer<'m> {
         Ok(collision_increments)
     }
 
-    /// Ported from `getCollisionCost`.
+    /// Ported from `getCollisionCost`. Weights every point's collision
+    /// potential by `collision_point_vel_mag`, that point's velocity along
+    /// the trajectory (`chomp_optimizer.cpp:942-963`) -- this is a *swept*
+    /// cost, not a static-occupancy cost, so a perfectly stationary
+    /// trajectory (identical start and goal) returns exactly `0.0` here
+    /// regardless of how deeply it penetrates an obstacle. See
+    /// `planner.rs`'s `solve_returns_invalid_motion_plan_when_the_path_cannot_escape_collision`
+    /// doc comment for the consequence this has on `optimize()`'s
+    /// collision-threshold branch.
     fn get_collision_cost(&mut self) -> f64 {
         let mut collision_cost = 0.0;
         let mut worst_collision_cost = 0.0;
