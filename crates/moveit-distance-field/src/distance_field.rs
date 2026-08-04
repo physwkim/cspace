@@ -531,6 +531,66 @@ mod tests {
         );
     }
 
+    /// Whether [`octree_points`] faithfully forwards the leaf order
+    /// [`OcTree::leaves_in_bbx`] gives it — a same-language question, no
+    /// oracle needed (see [`octree_points`]'s own doc for why the existing
+    /// oracle-backed order pin does not answer this: every pinned case
+    /// there builds a single leaf). Two occupied, non-subdividing leaves at
+    /// `(0.15, 0.15, 0.15)` and `(0.85, 0.85, 0.85)`. `leaves_in_bbx` is
+    /// queried directly first, independent of [`octree_points`], to record
+    /// its own emission order as `expected`; [`octree_points`]'s output is
+    /// then compared against that same sequence, order-sensitive
+    /// (`Vec`'s `PartialEq` never sorts). The two leaves' points are
+    /// asserted disjoint — if they coincided, a swapped order would pass
+    /// exactly as well as the real one, and the test would be measuring
+    /// nothing (PORTING-PLAN.md §119.2's empty-pass class). Perturbed to
+    /// confirm this actually discriminates order, not just membership:
+    /// reversing the leaf iteration inside [`octree_points`] (temporarily,
+    /// via `.rev()`) made this test fail; reverted after confirming.
+    ///
+    /// **What this does not test**: whether that shared order matches
+    /// upstream's own `leaf_bbx_iterator` traversal — a cross-language
+    /// question this crate has no fixture for. See [`octree_points`]'s own
+    /// doc.
+    #[test]
+    fn octree_points_preserves_leaves_in_bbx_emission_order_across_multiple_leaves() {
+        let mut tree = OcTree::new(RESOLUTION);
+        tree.update_node(Point3::new(0.15, 0.15, 0.15), true, false);
+        tree.update_node(Point3::new(0.85, 0.85, 0.85), true, false);
+
+        let expected: Vec<Vector3<f64>> = tree
+            .leaves_in_bbx(Point3::from(BBX_MIN), Point3::from(BBX_MAX))
+            .expect("bbox is within the tree's representable range")
+            .map(|leaf| {
+                assert!(leaf.is_occupied(), "both inserted leaves must be occupied");
+                assert!(
+                    leaf.size() <= RESOLUTION,
+                    "test setup must not trigger subdivision, got leaf size {}",
+                    leaf.size()
+                );
+                let c = leaf.coordinate();
+                Vector3::new(c.x, c.y, c.z)
+            })
+            .collect();
+        assert_eq!(
+            expected.len(),
+            2,
+            "test setup must produce exactly the two inserted leaves"
+        );
+        assert_ne!(
+            expected[0], expected[1],
+            "the two leaves' points must be disjoint, or a swapped order would pass \
+             just as well as the real one"
+        );
+
+        let actual = octree_points(BBX_MIN, BBX_MAX, RESOLUTION, &tree);
+
+        assert_eq!(
+            actual, expected,
+            "octree_points must emit points in the same leaf order leaves_in_bbx gives it"
+        );
+    }
+
     /// [`DistanceField::add_octree_to_field`] must actually wire the field's
     /// own grid extent and resolution through to [`octree_points`] — the
     /// three tests above cover `octree_points` in isolation with
