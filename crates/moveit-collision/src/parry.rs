@@ -521,6 +521,81 @@
 //!    paragraph's refutation does not reach back into the different-triangle
 //!    interpretation two paragraphs below.
 //!
+//!    Round 20 traced the BVH-construction half of the mesh candidate above
+//!    structurally rather than by sampling: whether FCL's and this backend's
+//!    own tree-split heuristics can make either miss the true deepest
+//!    triangle. FCL's `BVHModel` constructor installs
+//!    `BVSplitter<BV>(detail::SPLIT_METHOD_MEAN)` unconditionally
+//!    (`include/fcl/geometry/bvh/BVH_model-inl.h:68` at FCL tag `0.7.0` — the
+//!    same tag round 16 established the oracle actually links; `git diff
+//!    0.7.0..e5efcc4` (the 17-commits-later tree a plain checkout lands on)
+//!    is empty for this file and for `BV_splitter-inl.h`, so the gap round
+//!    16 already characterized does not touch this question either).
+//!    `moveit_core` never overrides it: `rg -n
+//!    'BVSplitter|setBVSplitMethod|SPLIT_METHOD'` against the pinned
+//!    `e017c91e` checkout finds 0 hits. For `fcl::OBBRSSd`, `SPLIT_METHOD_MEAN`
+//!    picks the OBB's own principal axis
+//!    (`split_vector = bv.obb.axis.col(0)`,
+//!    `include/fcl/geometry/bvh/detail/BV_splitter-inl.h:540-546`) and splits
+//!    at the mean of every candidate triangle's centroid projected onto it
+//!    (`computeSplitValue_mean`, `:556-587`). This backend's own `TriMesh`
+//!    instead rebuilds an 8-bin surface-area-heuristic `Bvh`
+//!    (`BvhBuildStrategy::Binned`, `parry3d-f64` 0.30.0
+//!    `src/shape/trimesh.rs:1157`; the bin/cost/split logic at
+//!    `src/partitioning/bvh/bvh_binned_build.rs:39-95`) — a materially
+//!    different heuristic, exactly what D4.5 expects and not itself a
+//!    defect.
+//!
+//!    What the split heuristic cannot do, on either side, is make a truly
+//!    overlapping triangle unreachable. FCL fits each node's bound from its
+//!    own actual primitive range before applying the split
+//!    (`bv = bv_fitter->fit(cur_primitive_indices, num_primitives)` ahead of
+//!    `bv_splitter->computeRule`/`apply` on the same primitives,
+//!    `BVH_model-inl.h:875-925`), and this backend's `Bvh` computes every
+//!    internal node's bound as the exact merge of its children's
+//!    (`.merged(...)`, `bvh_binned_build.rs:159,178`) — both are
+//!    conservative, exact-fit hierarchies regardless of which heuristic chose
+//!    the partition, so an overlap query at either tree visits every leaf
+//!    that could possibly touch the query shape, independent of split
+//!    method. This backend's own mesh-vs-shape contact query confirms it
+//!    does exactly that, with no cap: `CompositeShapeRef::contact_with_shape`
+//!    iterates `self.0.bvh().intersect_aabb(&ls_aabb2)` over every
+//!    AABB-overlapping leaf and keeps the global minimum `dist`
+//!    (`src/query/contact/contact_composite_shape_shape.rs:24-39`) — unlike
+//!    upstream's own capped re-collide (`num_max_contacts = 200`, cited
+//!    above), but that cap only matters if a pair has more than 200 truly
+//!    overlapping candidate triangles. It does not here, measured rather
+//!    than assumed: `base_link`'s real collision mesh
+//!    (`pr2.urdf`'s `<collision>` block for `base_link` names
+//!    `base_v0/base_L.stl`) is a binary STL whose own 4-byte triangle-count
+//!    header reads `96`, and the file is exactly `84 + 96*50 = 4884` bytes —
+//!    the binary-STL record size confirming the header, not merely echoing
+//!    it. 96 is below the 200-contact cap by construction, so the cap cannot
+//!    truncate this pair's candidate set regardless of traversal order,
+//!    whatever that order turns out to be. All 3 residual links carry the
+//!    identical collision geometry round 16/17's cylinder repro already
+//!    validated against (`<cylinder radius="0.074792" length="0.034">`,
+//!    `pr2.urdf`, all three of `br_caster_l_wheel_link`/
+//!    `fr_caster_l_wheel_link`/`fr_caster_r_wheel_link`) — the same pair
+//!    family, not a different one needing its own geometric argument.
+//!
+//!    So BVH split method/traversal order is **structurally ruled out**, not
+//!    merely unmeasured, as a cause of the 3 residual `self_distance`
+//!    mismatches: neither tree can hide a genuinely deepest triangle from
+//!    its own narrow phase for this mesh, and FCL's contact cap cannot bind
+//!    on a 96-triangle mesh. This is a stronger claim than round 17's
+//!    finding for the 16-within-bound population above, which showed no
+//!    missed candidate empirically, for a sample; this one holds for every
+//!    state of this pair family, by construction. It does not, by itself,
+//!    determine whether these 3 cases' actual cause is the same
+//!    narrow-phase magnitude bias round 16/17 characterized for that
+//!    population (only 1 of the 3 — `br_caster_l_wheel_link` — was even part
+//!    of that 16-case sample, and which side of its same-triangle/
+//!    different-triangle split it fell on was not recorded) or the
+//!    still-open mesh-construction-fidelity question above: vertex order and
+//!    triangle indices. Ruling out the BVH question narrows, but does not
+//!    close, deviation 6(b)'s remaining candidates to those two.
+//!
 //!    **Result, falsifiable and measured on all 16, not a sample: FCL names
 //!    the *same* triangle this backend's own exhaustive search names in 12
 //!    of 16 cases, a *different* one in the remaining 4 — and in every one
