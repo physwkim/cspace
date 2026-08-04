@@ -202,10 +202,14 @@
 //! # Decided after registry relocation, not dropped
 //!
 //! `getPlannerPluginNames`/`getRequestAdapterPluginNames`/
-//! `getResponseAdapterPluginNames`/`getName`/`getPlannerManager`
-//! (`planning_pipeline.hpp:193-236`) all read out of `pipeline_parameters_`
-//! or `planner_map_` — state a name-to-implementation registry owns, not
-//! state this call-scoped function has anywhere to keep between calls. Once
+//! `getResponseAdapterPluginNames` (`hpp:193-208`) read `pipeline_parameters_`,
+//! and `getPlannerManager` (`hpp:229-236`) reads `planner_map_` — state a
+//! name-to-implementation registry owns, not state this call-scoped
+//! function has anywhere to keep between calls. `getName` (`hpp:222-226`)
+//! is a separate case: it returns `parameter_namespace_`, a third field
+//! this port also has no long-lived home for, so it belongs with this group
+//! for the same "not part of `generate_plan`'s scope today" reason even
+//! though it does not read either container. Once
 //! the registry relocates out of `moveit-planners-sbp::registry` (see this
 //! round's separate item-2 report), whichever type ends up owning a named
 //! planner chain is where these belong; they are not part of
