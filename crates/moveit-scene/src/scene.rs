@@ -363,10 +363,9 @@ pub struct PathValidity {
 ///   not ported, same reasoning.
 /// - `getCollidingPairs` (6 overloads, not 5, four with `group_name` not
 ///   one — recounted this round) — ported as
-///   [`PlanningScene::colliding_pairs`] (`group_name` dropped — see its own
-///   doc for why this is now a real, unclosed parity gap rather than the
-///   inert-parameter situation once claimed here); explicit-ACM overloads
-///   not ported, same reasoning.
+///   [`PlanningScene::colliding_pairs`], `group_name` folded in as
+///   `Option<&str>` (D13, see its own doc); explicit-ACM overloads not
+///   ported, same reasoning.
 ///
 /// ## Distance
 ///
@@ -1533,31 +1532,30 @@ impl<'m> PlanningScene<'m> {
     /// Every colliding pair (self- and robot-collision alike) for `self`'s
     /// current state against `env`, keyed the same way
     /// [`moveit_collision::ContactData::by_pair`] is. Upstream
-    /// `getCollidingPairs`.
+    /// `getCollidingPairs`, its four `group_name`-taking overloads
+    /// (`planning_scene.hpp:492-495`) folded into this one method the way
+    /// [`PlanningScene::cost_sources`]/[`PlanningScene::is_state_valid`]
+    /// already collapse their own group_name-defaulting overload pairs —
+    /// `group_name: None` is upstream's default-constructed `std::string()`
+    /// (D13, `PORTING-PLAN.md` §197).
     ///
     /// # Deviation from upstream
     ///
-    /// `req.group_name` is not threaded through: this convenience method's
-    /// own signature has no `group_name` parameter to pass one through with.
-    /// This is a real, so-far-unclosed gap against upstream's group_name-
-    /// taking `getCollidingPairs` overloads (`planning_scene.hpp:492-495`),
-    /// not the inert-parameter situation an earlier version of this doc
-    /// claimed: `ParryCollisionEnv` does now read
-    /// [`CollisionRequest::group_name`] (`585a79e`, in `moveit-collision`,
-    /// wiring up `checkSelfCollisionHelper`/`checkRobotCollisionHelper`'s
-    /// `cd.enableGroup` call, `collision_env_fcl.cpp:281,336`, that upstream
-    /// always makes), so a `group_name` parameter added here would not be
-    /// inert. `req.max_contacts` is
-    /// upstream's `getLinkModelsWithCollisionGeometry().size() + 1`; this
-    /// port's [`RobotModel`] has no such query (see
-    /// `moveit-model::robot_model`'s doc), so this uses every link with a
-    /// non-empty [`moveit_model::LinkModel::shapes`] instead — a superset of
-    /// links that actually convert to collision geometry (a link could still
-    /// hold only [`Shape::OcTree`]/a degenerate [`Shape::Plane`], see
-    /// `parry`'s module doc deviations 9–10), so this can only make the
-    /// budget larger than upstream's, never smaller — the ceiling this
-    /// exists to avoid hitting is never hit early.
-    pub fn colliding_pairs<E>(&mut self, env: &E) -> BTreeMap<(String, String), Vec<Contact>>
+    /// `req.max_contacts` is upstream's
+    /// `getLinkModelsWithCollisionGeometry().size() + 1`; this port's
+    /// [`RobotModel`] has no such query (see `moveit-model::robot_model`'s
+    /// doc), so this uses every link with a non-empty
+    /// [`moveit_model::LinkModel::shapes`] instead — a superset of links
+    /// that actually convert to collision geometry (a link could still hold
+    /// only [`Shape::OcTree`]/a degenerate [`Shape::Plane`], see `parry`'s
+    /// module doc deviations 9–10), so this can only make the budget larger
+    /// than upstream's, never smaller — the ceiling this exists to avoid
+    /// hitting is never hit early.
+    pub fn colliding_pairs<E>(
+        &mut self,
+        env: &E,
+        group_name: Option<&str>,
+    ) -> BTreeMap<(String, String), Vec<Contact>>
     where
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
@@ -1569,6 +1567,7 @@ impl<'m> PlanningScene<'m> {
             .count()
             + 1;
         let request = CollisionRequest {
+            group_name: group_name.map(str::to_string),
             contacts: true,
             max_contacts,
             max_contacts_per_pair: 1,
@@ -1587,7 +1586,7 @@ impl<'m> PlanningScene<'m> {
         E: for<'s> CollisionEnv<Posed<'s, 'm>>,
     {
         let mut links = Vec::new();
-        for contacts in self.colliding_pairs(env).values() {
+        for contacts in self.colliding_pairs(env, None).values() {
             for contact in contacts {
                 if contact.body_type_1 == BodyType::RobotLink {
                     links.push(contact.body_name_1.clone());
@@ -3082,6 +3081,37 @@ mod tests {
             .expect("test fixture model must build")
     }
 
+    /// Adds a third, unrelated link `r` to [`build_collision_model`]'s
+    /// `p`/`q` pair, and an SRDF group containing only `r` -- neither side
+    /// of the `p`/`q` collision pair is ever in this group, so it isolates
+    /// [`PlanningScene::colliding_pairs`]'s `group_name` parameter from its
+    /// own `None` case.
+    fn build_collision_model_with_unrelated_group() -> (RobotModel, SrdfModel) {
+        let urdf_xml = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                {p}{joint_p}{q}{joint_q}{r}{joint_r}
+            </robot>"#,
+            p = box_link("p"),
+            joint_p = floating_joint("joint_p", "base", "p"),
+            q = box_link("q"),
+            joint_q = floating_joint("joint_q", "base", "q"),
+            r = box_link("r"),
+            joint_r = floating_joint("joint_r", "base", "r"),
+        );
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
+        let srdf_xml = format!(
+            "{}{}",
+            SRDF_XML.trim_end_matches("</robot>"),
+            r#"<group name="r_only"><joint name="joint_r"/></group></robot>"#
+        );
+        let srdf = SrdfModel::parse_str(&srdf_xml).expect("test SRDF must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("test fixture model must build");
+        (model, srdf)
+    }
+
     #[test]
     fn check_self_collision_reports_overlapping_links() {
         let model = build_collision_model();
@@ -3257,13 +3287,47 @@ mod tests {
             .unwrap();
         let env = ParryCollisionEnv::default();
 
-        let pairs = scene.colliding_pairs(&env);
+        let pairs = scene.colliding_pairs(&env, None);
         assert_eq!(pairs.len(), 1);
         assert!(pairs.contains_key(&("p".to_string(), "q".to_string())));
 
         let mut links = scene.colliding_links(&env);
         links.sort();
         assert_eq!(links, vec!["p".to_string(), "q".to_string()]);
+    }
+
+    /// D13 (`PORTING-PLAN.md` §197): `group_name` must actually change what
+    /// [`PlanningScene::colliding_pairs`] returns, not merely compile. `p`
+    /// and `q` collide; `"r_only"` contains neither, so filtering by it
+    /// must drop the pair entirely, while `None` keeps it -- the same
+    /// unrelated-group setup `moveit_collision::parry`'s own
+    /// `check_self_collision_group_name_*` tests use.
+    #[test]
+    fn colliding_pairs_group_name_drops_a_pair_with_neither_side_in_the_group() {
+        let (model, srdf) = build_collision_model_with_unrelated_group();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_q", &Isometry3::translation(0.5, 0.0, 0.0))
+            .unwrap();
+        // `r` defaults to the same identity pose as `p` (both floating
+        // joints), which would otherwise coincide and collide too --  move
+        // it away so the only colliding pair is `p`/`q`.
+        scene
+            .current_state_mut()
+            .set_joint_transform("joint_r", &Isometry3::translation(10.0, 10.0, 10.0))
+            .unwrap();
+        let env = ParryCollisionEnv::default();
+
+        let unfiltered = scene.colliding_pairs(&env, None);
+        assert_eq!(unfiltered.len(), 1);
+        assert!(unfiltered.contains_key(&("p".to_string(), "q".to_string())));
+
+        let filtered = scene.colliding_pairs(&env, Some("r_only"));
+        assert!(
+            filtered.is_empty(),
+            "group_name=\"r_only\" contains neither p nor q, so the pair must be dropped, got {filtered:?}"
+        );
     }
 
     // ---- cost sources -------------------------------------------------------

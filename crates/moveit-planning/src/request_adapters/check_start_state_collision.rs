@@ -62,7 +62,7 @@ impl PlanningRequestAdapter for CheckStartStateCollision {
             return Ok(());
         }
 
-        let contacts = scene.colliding_pairs(env);
+        let contacts = scene.colliding_pairs(env, None);
         let mut detail = format!("{} contact(s) detected : ", contacts.len());
         for (a, b) in contacts.keys() {
             detail.push_str(a);
