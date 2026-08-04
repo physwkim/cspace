@@ -118,6 +118,53 @@
 //! difference invisible on every real fixture here, since binary STL has no
 //! concept of multiple solids at all.
 //!
+//! # Deviations from upstream
+//!
+//! Every error [`mesh_from_bytes`] and its helpers can return, checked
+//! against `mesh_operations.cpp`'s actual behavior (read in full — it is
+//! available even though `STLLoader.cpp` itself is not, per the Assimp
+//! source-availability note above).
+//!
+//! 1. **A malformed ASCII STL is a typed `Err` here; upstream logs and
+//!    returns `nullptr`.** `createMeshFromBinary` (`mesh_operations.cpp`)
+//!    only ever returns `Mesh*` or `nullptr` — every failure path
+//!    (`ReadFileFromMemory` returning a null `scene`; post-extraction
+//!    `scene->HasMeshes()`, `vertices.empty()`, `triangles.empty()` checks,
+//!    `mesh_operations.cpp:356-372`) is `CONSOLE_BRIDGE_logWarn` (or, for
+//!    the null-`scene` case, no log at all) followed by `return nullptr`,
+//!    never an exception. `parse_ascii_triangles`'s empty-`vertex`-line
+//!    check (this module) is this port's D6 policy applied to the same
+//!    class of malformed input `vertices.empty()` guards against — but it
+//!    fires on this port's own flat-scan result, not on an Assimp-parsed
+//!    scene, since a truly malformed ASCII file more likely fails inside
+//!    `STLLoader.cpp` itself (unreadable, see above) before ever reaching an
+//!    extraction stage this port's `vertices.empty()`-equivalent could
+//!    directly mirror.
+//! 2. **The `% 3` vertex-count check and the missing-coordinate check have
+//!    no upstream counterpart at all.** Both are consequences of the
+//!    flat-token-scan design already documented above (scanning for the
+//!    `vertex` keyword instead of tracking `facet`/`outer loop`/`endloop`
+//!    nesting the way Assimp's grammar-driven parser does): a
+//!    grammar-strict parser would fail differently (mid-facet, on a missing
+//!    `endloop`, etc.) than "the total `vertex` line count is not a
+//!    multiple of 3" or "the next token after `vertex` is missing" — but
+//!    Assimp's own grammar validation happens inside `STLLoader.cpp`, which
+//!    (as recorded above) cannot be read on this machine, so the exact
+//!    upstream failure mode for these two inputs is unverified, not merely
+//!    absent.
+//! 3. **UTF-8 validity and numeric-coordinate parsing are Rust-forced
+//!    checks with no meaningful upstream analog.** `parse_ascii_triangles`
+//!    reads `bytes` as `&str`, which requires valid UTF-8; a C++ byte-level
+//!    scanner has no equivalent step to fail at. Coordinate-token-to-`f64`
+//!    parsing failure is likewise unverified against `STLLoader.cpp`'s own
+//!    numeric-token handling for the same reason as item 2 — recorded here
+//!    rather than assumed to have no upstream failure mode at all.
+//!
+//! Every one of these is this port's general D6 stance (untrustworthy input
+//! returns `Err` rather than being silently dropped or degraded) applied to
+//! STL parsing specifically; none were previously listed anywhere in this
+//! module's doc.
+//!
 //! # `mesh_operations.h` symbol audit (round 8)
 //!
 //! Every public declaration in the oracle container's installed
