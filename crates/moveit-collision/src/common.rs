@@ -120,6 +120,17 @@ pub struct Contact {
 /// total order for every bit pattern including `NaN` — well-formed geometry
 /// never produces `NaN` here, so this only changes behavior in the already-
 /// buggy case, never in the documented one.
+///
+/// The tie-break chain intentionally ends at `aabb_min` and never reaches
+/// `aabb_max`, matching upstream's own `operator<`
+/// (`collision_common.hpp:128-141`) — confirmed against the fixture,
+/// `PORTING-PLAN.md` §171.6. So two sources with equal `cost * volume`,
+/// equal `cost`, and equal `aabb_min` but different `aabb_max` compare
+/// `Equal`, and inserting both into a [`std::collections::BTreeSet`] keeps
+/// only the first — the same silent drop `std::set::insert` performs
+/// upstream, reproduced here rather than patched around. See this module's
+/// `tests` for both the collapse case and the case where `aabb_min` does
+/// distinguish two otherwise-tied sources.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct CostSource {
     /// Minimum corner of the axis-aligned bounding box for this cost source.
@@ -595,5 +606,70 @@ impl CollisionResult {
                 Some(a)
             }
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `CostSource::cmp`'s tie-break chain ends at `aabb_min`
+    /// (`total_cmp_aabb`) and never looks at `aabb_max` — matching
+    /// upstream's own `operator<`, whose last comparison is `aabb_min <
+    /// other.aabb_min` (`collision_common.hpp:128-141`). Two sources with
+    /// equal `cost * volume`, equal `cost`, and equal `aabb_min` but
+    /// different `aabb_max` therefore compare `Equal`, and `BTreeSet`
+    /// treats an `Equal` insert as a duplicate: the second value is
+    /// silently dropped, not added alongside the first. This is the same
+    /// silent-drop `std::set::insert` performs upstream (§171.6) -- proven
+    /// here directly on `Ord`, not inferred from a passing count.
+    #[test]
+    fn ord_ties_on_aabb_min_ignore_aabb_max_and_btreeset_drops_the_second() {
+        let a = CostSource {
+            aabb_min: [0.0, 0.0, 0.0],
+            aabb_max: [1.0, 1.0, 1.0],
+            cost: 1.0,
+        };
+        let b = CostSource {
+            aabb_min: [0.0, 0.0, 0.0],
+            // Same volume (1.0) via a differently-shaped box, so `cost *
+            // volume` also ties -- only `aabb_max` differs.
+            aabb_max: [2.0, 1.0, 0.5],
+            cost: 1.0,
+        };
+        assert_eq!(a.volume(), b.volume());
+        assert_eq!(a.cmp(&b), std::cmp::Ordering::Equal);
+
+        let mut set = BTreeSet::new();
+        assert!(set.insert(a));
+        assert!(
+            !set.insert(b),
+            "an aabb_max-only difference must not be treated as distinct"
+        );
+        assert_eq!(set.len(), 1);
+    }
+
+    /// Distinct `aabb_min` values (even with everything else tied) must not
+    /// collide -- the tie-break chain is reached and does distinguish them,
+    /// so both survive.
+    #[test]
+    fn ord_distinguishes_by_aabb_min_when_cost_and_volume_tie() {
+        let a = CostSource {
+            aabb_min: [0.0, 0.0, 0.0],
+            aabb_max: [1.0, 1.0, 1.0],
+            cost: 1.0,
+        };
+        let b = CostSource {
+            aabb_min: [0.0, 0.0, 5.0],
+            aabb_max: [1.0, 1.0, 6.0],
+            cost: 1.0,
+        };
+        assert_eq!(a.volume(), b.volume());
+        assert_ne!(a.cmp(&b), std::cmp::Ordering::Equal);
+
+        let mut set = BTreeSet::new();
+        assert!(set.insert(a));
+        assert!(set.insert(b));
+        assert_eq!(set.len(), 2);
     }
 }
