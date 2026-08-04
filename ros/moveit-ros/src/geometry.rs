@@ -225,6 +225,28 @@ mod tests {
     }
 
     #[test]
+    fn point_round_trips_through_msg() {
+        let original = CoreVector3::new(1.5, -2.25, 3.75);
+        let msg = Point::try_from(original).unwrap();
+        assert_eq!(msg.0.x, 1.5);
+        assert_eq!(msg.0.y, -2.25);
+        assert_eq!(msg.0.z, 3.75);
+        let back = CoreVector3::try_from(msg).unwrap();
+        assert_eq!(original, back);
+    }
+
+    #[test]
+    fn vector3_round_trips_through_msg() {
+        let original = CoreVector3::new(-4.5, 5.125, -6.0);
+        let msg = Vector3::try_from(original).unwrap();
+        assert_eq!(msg.0.x, -4.5);
+        assert_eq!(msg.0.y, 5.125);
+        assert_eq!(msg.0.z, -6.0);
+        let back = CoreVector3::try_from(msg).unwrap();
+        assert_eq!(original, back);
+    }
+
+    #[test]
     fn quaternion_round_trips_through_msg() {
         let original = UnitQuaternion::from_euler_angles(0.1, 0.2, 0.3);
         let msg = Quaternion::try_from(original).unwrap();
