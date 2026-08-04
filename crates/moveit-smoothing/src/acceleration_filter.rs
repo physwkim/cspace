@@ -444,11 +444,17 @@ mod tests {
     }
 
     /// `panda_arm`'s URDF has no acceleration limits, so this exercises
-    /// `joint_acceleration_bounds`'s failure branch -- not a transcribed
-    /// upstream test (upstream's own bounds come from a real launch-time
-    /// `joint_limits.yaml`, never exercised missing), but this port's own
-    /// check that the same "must have every bound" contract
-    /// `AccelerationLimitedPlugin::initialize` enforces is preserved.
+    /// `joint_acceleration_bounds`'s failure branch. Upstream does exercise
+    /// this scenario -- `test_acceleration_filter.cpp`'s `FilterInitialize`
+    /// (`TEST_F(AccelerationFilterTest, FilterInitialize)`, pinned SHA lines
+    /// 80-104) calls `setLimits({})` then asserts at lines 97-98 that
+    /// `AccelerationLimitedPlugin::initialize` fails. This is not a
+    /// line-for-line transcription of that assertion, because
+    /// `joint_acceleration_bounds` is this port's own extraction of the
+    /// bound lookup `initialize` performs inline -- there is no
+    /// upstream test scoped to that narrower function. This test checks the
+    /// same "must have every bound" contract `AccelerationLimitedPlugin::initialize`
+    /// enforces, at the granularity this port's own function split created.
     #[test]
     fn joint_acceleration_bounds_fails_without_acceleration_limits() {
         let model = panda();
