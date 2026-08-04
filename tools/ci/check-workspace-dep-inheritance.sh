@@ -33,30 +33,68 @@ mapfile -t members < <(
 status=0
 
 for manifest in $(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort); do
-  while IFS= read -r line; do
-    key="${line%%=*}"
-    key="$(printf '%s' "$key" | tr -d '[:space:]')"
-    # `foo.workspace = true` arrives here as key `foo.workspace`; that is the
-    # form we want, so strip it before matching and let it pass.
-    case "$key" in
-      *.workspace) continue ;;
-    esac
-    for m in "${members[@]}"; do
-      if [ "$key" = "$m" ]; then
-        echo "$manifest: '$m' is a workspace member declared inline:" >&2
-        echo "    $line" >&2
-        echo "  Add it to [workspace.dependencies] in the root Cargo.toml and" >&2
-        echo "  write '$m.workspace = true' here." >&2
-        status=1
-      fi
-    done
+  # Cargo accepts two spellings for the same edge, so both are scanned:
+  #
+  #   [dependencies]                    <- key form
+  #   moveit-scene = { path = "..." }
+  #
+  #   [dependencies.moveit-scene]       <- sub-table form
+  #   path = "..."
+  #
+  # awk emits one `<member> <line>` record per offending declaration. The
+  # sub-table form is only reported once its whole table has been read,
+  # because `workspace = true` inside it is the accepted spelling too.
+  while IFS= read -r record; do
+    m="${record%% *}"
+    line="${record#* }"
+    echo "$manifest: '$m' is a workspace member declared inline:" >&2
+    echo "    $line" >&2
+    echo "  Add it to [workspace.dependencies] in the root Cargo.toml and" >&2
+    echo "  write '$m.workspace = true' here." >&2
+    status=1
   done < <(
-    # Dependency-table lines only: everything from a [*dependencies*] header
-    # until the next section header.
+    printf '%s\n' "${members[@]}" |
     awk '
-      /^\[/ { in_deps = ($0 ~ /dependencies\]/); next }
-      in_deps && $0 !~ /^[[:space:]]*#/ && $0 ~ /=/ { print }
-    ' "$manifest"
+      NR == FNR { member[$0] = 1; next }
+
+      # A pending sub-table ends at the next header or at EOF.
+      function flush_subtable() {
+        if (sub_member != "" && !sub_inherits)
+          print sub_member " [dependencies." sub_member "]"
+        sub_member = ""; sub_inherits = 0
+      }
+
+      /^\[/ {
+        flush_subtable()
+        in_deps = ($0 ~ /dependencies\]$/)
+        # [dependencies.<name>] / [dev-dependencies.<name>] /
+        # [target.<cfg>.dependencies.<name>]
+        if (match($0, /dependencies\.[^]]+\]$/)) {
+          name = substr($0, RSTART, RLENGTH)
+          sub(/^dependencies\./, "", name)
+          sub(/\]$/, "", name)
+          if (name in member) { sub_member = name; sub_inherits = 0 }
+          in_deps = 0
+        }
+        next
+      }
+
+      /^[[:space:]]*#/ { next }
+
+      sub_member != "" && /^[[:space:]]*workspace[[:space:]]*=[[:space:]]*true/ {
+        sub_inherits = 1; next
+      }
+
+      in_deps && /=/ {
+        key = $0
+        sub(/=.*$/, "", key)
+        gsub(/[[:space:]]/, "", key)
+        if (key ~ /\.workspace$/) next   # `foo.workspace = true` -- the wanted form
+        if (key in member) print key " " $0
+      }
+
+      END { flush_subtable() }
+    ' - "$manifest"
   )
 done
 
