@@ -456,19 +456,27 @@ mod position {
     /// half of the same `Body::from_shape(shape)?` line -- a shape type
     /// that *does* have a counterpart, but whose construction genuinely
     /// fails. `Shape::Mesh` with zero vertices is the deterministic way to
-    /// trigger that: `ConvexMesh::new`'s own doc comment (`bodies.rs`)
-    /// says upstream's matching branch is `bodies.cpp`'s
-    /// `ConvexMesh::useDimensions`, which does not crash on this input --
-    /// on `mesh->vertex_count == 0` the qhull call still runs (upstream
-    /// never checks vertex count before calling in), and on the broader
-    /// qhull-failure branch (`bodies.cpp:936-943`) it logs a warning and
-    /// returns, leaving `mesh_data_` in its default-constructed (empty,
-    /// always-non-containing) state -- a silent degradation, not a null
-    /// deref. This port chooses to hard-error there instead (`bodies.rs`'s
+    /// trigger that, but not via the qhull-failure branch this doc block
+    /// previously named: `ConvexMesh::new` has two distinct
+    /// `Error::Construct` sites (`bodies.rs`'s `build_mesh_data`), and a
+    /// zero-vertex mesh takes the first one -- an explicit
+    /// `mesh.vertices.is_empty()` guard (`bodies.rs:2508-2513`) that
+    /// returns before the convex-hull computation (`try_convex_hull`) is
+    /// ever attempted. Upstream has no equivalent pre-check:
+    /// `ConvexMesh::useDimensions` calls straight into `qh_new_qhull`
+    /// regardless of vertex count. The port's *second* `Error::Construct`
+    /// site -- `try_convex_hull` itself failing -- is the actual analog of
+    /// upstream's qhull-failure branch (`bodies.cpp:936-943`, which logs a
+    /// warning and returns, leaving `mesh_data_` in its
+    /// default-constructed empty, always-non-containing state -- a silent
+    /// degradation, not a null deref); that site is not what this test
+    /// exercises and has no test of its own yet. This port hard-errors on
+    /// both of its sites instead of upstream's silent one (`bodies.rs`'s
     /// `ConvexMesh::new` doc comment, "this port surfaces the failure
-    /// instead of building a body that can never contain anything") -- a
-    /// deliberate divergence, not a defect, but one with no test at this
-    /// crate's boundary before this: `moveit-geometry`'s own
+    /// instead of building a body that can never contain anything"); the
+    /// vertex-count guard this test pins has no upstream counterpart at
+    /// all -- a deliberate divergence, not a defect, but one with no test
+    /// at this crate's boundary before this: `moveit-geometry`'s own
     /// `convex_mesh_zero_vertex_is_an_error` pins `ConvexMesh::new` in
     /// isolation, not that the error actually propagates out through
     /// `PositionConstraint::new` rather than being swallowed somewhere in
