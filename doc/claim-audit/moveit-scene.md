@@ -110,3 +110,10 @@ convention needed to become a command rather than staying prose.
 - Port-side direction: `rg '\bas\s+(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize)\b'`
   across `crates/moveit-scene` (src + tests) — **0 hits**.
 - Both directions swept, both zero, no fix needed.
+
+## §79 count: `assert_relative_eq!`/`relative_eq!` epsilon/max_relative sites
+
+Round 17: see `moveit-metrics.md`'s sibling section for the full
+writeup — the command covers both crates together. This crate's own
+call (`tests/frame_transform_parity.rs:148`) is `both` (`epsilon` and
+`max_relative` set); 0 `epsilon`-only or neither-set sites here.

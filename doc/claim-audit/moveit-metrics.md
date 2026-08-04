@@ -76,3 +76,33 @@ One branch (`range == 0.0`, the fixed-joint fallthrough) was pinned in
 substance by four already-existing tests but had never been named as
 such — closed this round by citing them directly in `lib.rs`'s doc
 comment (see commit).
+
+## §79 count: `assert_relative_eq!`/`relative_eq!` epsilon/max_relative sites
+
+`tools/ci/count-relative-eq.pl` against every `.rs` file in both this
+crate and `moveit-scene` (`git ls-files 'crates/moveit-scene/**/*.rs'
+'crates/moveit-metrics/**/*.rs'`, 11 files): `both=7 epsilon_only=0
+max_relative_only=1 neither=0`. §79's target buckets (`epsilon`-only and
+neither-set — the ones p3-acm's 51-site round disposed of) are both
+**0** in these two crates — nothing to dispose of this round. The 7
+`both` sites (`kinematics_metrics_parity.rs:351,361,371,381,407,415`,
+`frame_transform_parity.rs:148`) already carry an explicit `max_relative`,
+and the single `max_relative_only`
+site (`lib.rs:1018`, inside `manipulability_index_scales_by_joint_limits_penalty` —
+`assert_relative_eq!(penalized, unpenalized * penalty, max_relative =
+1e-12)`) is outside §79's target buckets (`max_relative` alone, no
+`epsilon`, is not a target — an `epsilon`-only or neither-set call is
+what §79 tracks).
+
+Tolerance-floor re-measurement (workspace-wide mandate, §115): checked
+every `f64` constant in both crates chosen from a measured floor.
+`moveit-metrics`'s `SCALAR_MAX_RELATIVE`/`ELLIPSOID_MAX_RELATIVE`
+(`kinematics_metrics_parity.rs`) were already re-measured earlier this
+same round (commit `b867015`, already on `main` before this session's
+`git reset --hard main`) — the pre-`float_roundtrip` figures did not
+reproduce and were replaced. `moveit-scene`'s `COST_SOURCE_EPSILON`
+(`cost_sources_parity.rs:494`, commit `bb212dd9`, 2026-08-04 20:13) and
+`moveit-scene`'s `TOLERANCE` (`attached_collision_parity.rs:135`, a
+fixed `PORTING-PLAN.md` §5 spec value, not an empirically measured
+floor) both post-date `70a6b31` (2026-08-04 09:42, the fix) — neither
+needs re-measurement. No unmeasured floor found in either crate.
