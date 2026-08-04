@@ -218,18 +218,25 @@ float64 weight
 (`sensor_view_direction_matches_wire_constants_not_position`) that would fail under a positional/derived-discriminant cast. No existing wire-conversion helper is on `SensorViewDirection` today (`crates/moveit-constraints/src/visibility.rs` searched; none) — this is entirely `moveit-ros`'s work, per D2, not something to ask the `moveit-constraints` owner to add. |
 | `weight: float64` | `weight: f64` | yes |
 
-**core→msg is not implemented this round** — genuinely blocked on missing
-`moveit_constraints::VisibilityConstraint` public accessors, not a design
-choice. Its complete public surface (`crates/moveit-constraints/src/visibility.rs`,
-confirmed by `grep -n "pub fn "`) is only: `new`, `sensor_frame()`,
-`target_frame()`, `cone_sides()`, `enabled()`, `decide()`,
-`cone_touching_link_count()`. Missing, and needed for a full core→msg
-`TryFrom`: an accessor for `weight`, for `sensor_view_direction`, for the
-three criteria fields (`target_radius`/`max_view_angle`/`max_range_angle`),
-and for the sensor/target poses (`FramedPose` and its `pose` field are
-private to that module). **Named here as a request to `moveit-constraints`'s
-owner, per this round's scope boundary — not worked around by editing
-`crates/` from this crate.**
+**[R5 CORRECTION — EXPIRED] core→msg is now implemented.** Through round 4
+this row said core→msg was blocked on missing
+`moveit_constraints::VisibilityConstraint` public accessors, listing
+`new`/`sensor_frame()`/`target_frame()`/`cone_sides()`/`enabled()`/`decide()`/
+`cone_touching_link_count()` as the type's complete surface. That claim went
+stale without anyone re-checking it: `grep -n "pub fn "` against the
+**current** `crates/moveit-constraints/src/visibility.rs` shows `sensor()`,
+`target()`, `sensor_view_direction()`, `target_radius()`, `max_view_angle()`,
+`max_range_angle()`, and `weight()` have all since landed — exactly the
+accessor list this doc had been requesting. Fixed this round:
+`TryFrom<VisibilityConstraint> for VisibilityConstraintMsgOut`
+(`src/constraints/visibility.rs`) maps every field (`target_radius`/
+`max_view_angle`/`max_range_angle` back through wire's `0.0`-means-unconstrained
+convention via `.unwrap_or(0.0)`, the reverse of `normalize_criterion`), and
+§8's `ConstraintsMsgOut` no longer rejects a `Constraint::Visibility` member.
+Round-tripped with distinct values per field
+(`round_trip_through_msg` in `visibility.rs`) so a mixed-up accessor (e.g.
+`target_radius` read where `max_view_angle` belongs, or `sensor`/`target`
+swapped) fails the test instead of hiding behind a repeated constant.
 
 ## 8. `Constraints` (top-level, → `KinematicConstraintSet`) — **CODED** (`src/constraints/set.rs`)
 
@@ -248,14 +255,15 @@ where `Constraint` is `enum { Joint, Position, Orientation, Visibility }`
 - **`name: string` has no home on the core side at all** — `KinematicConstraintSet` carries no name field (confirmed: its whole surface is `push`/`constraints`/`is_empty`/`len`/`decide`/`decide_each`). msg→core drops it; core→msg has nothing to put there (empty string, or the caller must carry the name out-of-band if it matters for a later re-serialization — named here, not resolved, since no round-1 code depends on it).
 - msg→core: iterate all 4 arrays in order, `push`ing one `Constraint::X(...)` per element (using §4-§7's per-element conversions, any one of which can fail the whole `Constraints`).
 - core→msg: the reverse -- partition the flat `Vec<Constraint>` back into 4 arrays by variant. This is a real many-to-one/one-to-many pair: the wire's 4-array-of-arrays shape and the core's 1-array-of-sum-type shape carry the same information but the array **order across types is not preserved** by either side's natural iteration (e.g. a wire message with `[joint, position, joint]` order becomes core `[joint, joint, position]`-then-`[position]` on the way back, i.e. two joints then a position — **round-trip is not order-identical across constraint *types*, only within each type**). Worth flagging explicitly since D6 asks for exactly this kind of non-identity.
-- **Coded in round 2.** msg→core is exactly the "any element failing fails
-  the whole conversion" rule above, container-verified. core→msg additionally
-  **errors** (does not panic, does not silently drop) on any
-  `Constraint::Visibility` member, since §7's core→msg direction is not
-  implemented (missing `moveit-constraints` accessors) — a
-  `KinematicConstraintSet` containing a `VisibilityConstraint` therefore
-  cannot round-trip through a message this round, by inheritance from §7's
-  gap, not a new one.
+- **Coded in round 2; core→msg's `Visibility` gap closed round 5.** msg→core
+  is exactly the "any element failing fails the whole conversion" rule
+  above, container-verified. core→msg **[R5 CORRECTION — EXPIRED]**: through
+  round 4 this errored on any `Constraint::Visibility` member, inheriting
+  §7's then-blocked core→msg direction. §7's accessors landed in
+  `moveit-constraints` since (re-checked this round, not assumed) — a
+  `KinematicConstraintSet` containing a `VisibilityConstraint` now round-trips
+  through a message like every other variant (`visibility_member_round_trips`,
+  `src/constraints/set.rs`).
 
 ## 9. `RobotState` — **CODED, `joint_state` portion only** (`src/state.rs`)
 
@@ -544,11 +552,9 @@ Every case above where `core -> msg -> core` (or `msg -> core -> msg`) is
 - **`moveit-collision`'s `AllowedCollisionMatrix`/`World`/`LinkPaddingScale`
   field layouts** — out of this round's requested crate survey entirely;
   every row above that touches them is a stub, not a real mapping.
-- **`moveit_constraints::VisibilityConstraint` missing accessors** (§7,
-  round 2) — needs `weight()`, a `sensor_view_direction`-equivalent, the
-  three criteria accessors (`target_radius`/`max_view_angle`/
-  `max_range_angle`), and sensor/target pose accessors before core→msg can
-  be coded. Named for `moveit-constraints`'s owner; not worked around here.
+- ~~**`moveit_constraints::VisibilityConstraint` missing accessors** (§7,
+  round 2)~~ — **[R5] resolved.** The requested accessors landed in
+  `moveit-constraints`; core→msg is coded (§7/§8, `src/constraints/visibility.rs`).
 
 ## 16. `MotionPlanRequest`/`MotionPlanResponse` — **CODED** (`src/planning.rs`, round 2, lowest-priority item in this round's brief)
 

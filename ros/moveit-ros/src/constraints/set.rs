@@ -18,7 +18,7 @@ use r2r::moveit_msgs::msg as moveit_msgs;
 use super::joint::{JointConstraintMsg, JointConstraintMsgOut};
 use super::orientation::{OrientationConstraintMsg, OrientationConstraintMsgOut};
 use super::position::{PositionConstraintMsg, PositionConstraintMsgOut};
-use super::visibility::VisibilityConstraintMsg;
+use super::visibility::{VisibilityConstraintMsg, VisibilityConstraintMsgOut};
 
 /// Wraps the wire message with the `&RobotModel` needed by every element
 /// conversion (§3).
@@ -80,10 +80,10 @@ impl<'m> TryFrom<ConstraintsMsg<'m>> for KinematicConstraintSet {
 impl TryFrom<KinematicConstraintSet> for ConstraintsMsgOut {
     type Error = Error;
 
-    /// Errors on any [`Constraint::Visibility`] member: `VisibilityConstraint`
-    /// has no core->msg conversion this round (see `visibility.rs`'s module
-    /// doc comment -- missing public accessors, not a design choice). Every
-    /// other variant is total.
+    /// **[R5, EXPIRED]** Through round 4 this rejected any
+    /// [`Constraint::Visibility`] member (`VisibilityConstraint` had no
+    /// core->msg conversion -- see `visibility.rs`'s module doc comment for
+    /// the accessor list that has since landed). Every variant is now total.
     fn try_from(set: KinematicConstraintSet) -> Result<Self, Self::Error> {
         let mut out = moveit_msgs::Constraints {
             name: String::new(),
@@ -106,13 +106,9 @@ impl TryFrom<KinematicConstraintSet> for ConstraintsMsgOut {
                     out.orientation_constraints
                         .push(OrientationConstraintMsgOut::try_from(c)?.0);
                 }
-                Constraint::Visibility(_) => {
-                    return Err(Error::other(
-                        "KinematicConstraintSet contains a VisibilityConstraint; \
-                         core->msg for VisibilityConstraint is not implemented \
-                         this round (missing moveit_constraints accessors, see \
-                         visibility.rs)",
-                    ));
+                Constraint::Visibility(c) => {
+                    out.visibility_constraints
+                        .push(VisibilityConstraintMsgOut::try_from(c)?.0);
                 }
             }
         }
@@ -196,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn visibility_member_rejects_core_to_msg() {
+    fn visibility_member_round_trips() {
         let model = one_joint_model();
         let identity_pose = r2r::geometry_msgs::msg::Pose {
             position: r2r::geometry_msgs::msg::Point {
@@ -241,7 +237,10 @@ mod tests {
             visibility_constraints: vec![visibility_msg],
         };
         let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap();
-        let err = ConstraintsMsgOut::try_from(set).unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        assert!(matches!(set.constraints()[0], Constraint::Visibility(_)));
+        let back = ConstraintsMsgOut::try_from(set).unwrap().0;
+        assert_eq!(back.visibility_constraints.len(), 1);
+        assert_eq!(back.visibility_constraints[0].cone_sides, 4);
+        assert_eq!(back.visibility_constraints[0].target_radius, 0.1);
     }
 }

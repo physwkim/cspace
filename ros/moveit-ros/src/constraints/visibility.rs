@@ -5,20 +5,18 @@
 //! See `doc/message-mapping.md` §7 -- including the `sensor_view_direction`
 //! landmine this module exists specifically to close (mandatory this round).
 //!
-//! # core->msg is not implemented this round -- missing accessors, not a
-//! # design decision
+//! # core->msg, round 5: EXPIRED, now implemented
 //!
-//! `moveit_constraints::VisibilityConstraint`'s public API
-//! (`crates/moveit-constraints/src/visibility.rs`) exposes `sensor_frame()`,
-//! `target_frame()`, `cone_sides()`, `enabled()` -- and nothing else. There
-//! is no accessor for `weight`, `sensor_view_direction`, `target_radius`/
-//! `max_view_angle`/`max_range_angle`, or the sensor/target poses (`FramedPose`
-//! and its `pose` field are private to that module). A `TryFrom<VisibilityConstraint>
-//! for VisibilityConstraintMsgOut` cannot be written against the crate's
-//! current public surface -- not "hasn't been done," genuinely can't be, short
-//! of adding accessors to `moveit-constraints` (not this crate's to edit; see
-//! this round's report for the exact accessor list requested from that
-//! crate's owner). msg->core is fully implemented below.
+//! Through round 4 this module's doc comment said core->msg could not be
+//! written because `moveit_constraints::VisibilityConstraint` exposed only
+//! `sensor_frame()`, `target_frame()`, `cone_sides()`, `enabled()`. Round 5's
+//! 72-commit-drift re-audit (`doc/message-mapping.md`'s top note) re-checked
+//! that claim against current `crates/moveit-constraints/src/visibility.rs`
+//! instead of trusting it: the accessor list requested from that crate's
+//! owner already landed -- `sensor()`, `target()`, `sensor_view_direction()`,
+//! `target_radius()`, `max_view_angle()`, `max_range_angle()`, `weight()` are
+//! all present now. `TryFrom<VisibilityConstraint> for
+//! VisibilityConstraintMsgOut` below is the fix.
 
 use moveit_constraints::{SensorSpec, SensorViewDirection, TargetSpec, VisibilityCriteria};
 use moveit_error::Error;
@@ -82,6 +80,9 @@ pub struct VisibilityConstraintMsg<'m> {
     pub msg: moveit_msgs::VisibilityConstraint,
 }
 
+/// Plain local wrapper, for the core->msg direction.
+pub struct VisibilityConstraintMsgOut(pub moveit_msgs::VisibilityConstraint);
+
 impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for moveit_constraints::VisibilityConstraint {
     type Error = Error;
 
@@ -131,6 +132,43 @@ impl<'m> TryFrom<VisibilityConstraintMsg<'m>> for moveit_constraints::Visibility
             },
             msg.weight,
         )
+    }
+}
+
+impl TryFrom<moveit_constraints::VisibilityConstraint> for VisibilityConstraintMsgOut {
+    type Error = Error;
+
+    /// Total: every accessor this needs is infallible, and `Pose`'s
+    /// `TryFrom<Isometry3>` is total (see `geometry.rs`). `target_radius`/
+    /// `max_view_angle`/`max_range_angle` map `None` back to wire `0.0`,
+    /// the reverse of msg->core's `normalize_criterion` (near-zero-or-empty
+    /// treated as unconstrained on the way in).
+    fn try_from(c: moveit_constraints::VisibilityConstraint) -> Result<Self, Self::Error> {
+        let sensor_view_direction = SensorViewDirectionMsg::try_from(c.sensor_view_direction())?.0;
+        Ok(VisibilityConstraintMsgOut(
+            moveit_msgs::VisibilityConstraint {
+                target_radius: c.target_radius().unwrap_or(0.0),
+                target_pose: r2r::geometry_msgs::msg::PoseStamped {
+                    header: r2r::std_msgs::msg::Header {
+                        frame_id: c.target_frame().to_string(),
+                        ..Default::default()
+                    },
+                    pose: Pose::try_from(c.target())?.0,
+                },
+                cone_sides: c.cone_sides() as i32,
+                sensor_pose: r2r::geometry_msgs::msg::PoseStamped {
+                    header: r2r::std_msgs::msg::Header {
+                        frame_id: c.sensor_frame().to_string(),
+                        ..Default::default()
+                    },
+                    pose: Pose::try_from(c.sensor())?.0,
+                },
+                max_view_angle: c.max_view_angle().unwrap_or(0.0),
+                max_range_angle: c.max_range_angle().unwrap_or(0.0),
+                sensor_view_direction,
+                weight: c.weight(),
+            },
+        ))
     }
 }
 
@@ -225,6 +263,81 @@ mod tests {
         })
         .unwrap();
         assert_eq!(c.cone_sides(), 4);
+    }
+
+    #[test]
+    fn round_trip_through_msg() {
+        // Every numeric field gets a distinct value so a mixed-up accessor
+        // (e.g. target_radius <-> max_view_angle, or sensor_pose <->
+        // target_pose) fails this test instead of hiding behind a repeated
+        // constant -- same discipline as c8dd883's start_state round-trip.
+        let model = one_joint_model();
+        let sensor_pose = r2r::geometry_msgs::msg::Pose {
+            position: r2r::geometry_msgs::msg::Point {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            orientation: r2r::geometry_msgs::msg::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        };
+        let target_pose = r2r::geometry_msgs::msg::Pose {
+            position: r2r::geometry_msgs::msg::Point {
+                x: 0.0,
+                y: 2.0,
+                z: 0.0,
+            },
+            orientation: r2r::geometry_msgs::msg::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        };
+        let msg = moveit_msgs::VisibilityConstraint {
+            target_radius: 0.2,
+            target_pose: r2r::geometry_msgs::msg::PoseStamped {
+                header: r2r::std_msgs::msg::Header {
+                    frame_id: model.model_frame().to_string(),
+                    ..Default::default()
+                },
+                pose: target_pose,
+            },
+            cone_sides: 5,
+            sensor_pose: r2r::geometry_msgs::msg::PoseStamped {
+                header: r2r::std_msgs::msg::Header {
+                    frame_id: "tip".to_string(),
+                    ..Default::default()
+                },
+                pose: sensor_pose,
+            },
+            max_view_angle: 0.3,
+            max_range_angle: 0.4,
+            sensor_view_direction: 1, // SENSOR_Y
+            weight: 0.6,
+        };
+        let c = moveit_constraints::VisibilityConstraint::try_from(VisibilityConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap();
+        let back = VisibilityConstraintMsgOut::try_from(c).unwrap().0;
+        assert_eq!(back.target_radius, 0.2);
+        assert_eq!(back.max_view_angle, 0.3);
+        assert_eq!(back.max_range_angle, 0.4);
+        assert_eq!(back.cone_sides, 5);
+        assert_eq!(back.weight, 0.6);
+        assert_eq!(back.sensor_view_direction, 1);
+        assert_eq!(back.sensor_pose.header.frame_id, "tip");
+        assert_eq!(back.sensor_pose.pose.position.x, 1.0);
+        assert_eq!(back.sensor_pose.pose.position.y, 0.0);
+        assert_eq!(back.target_pose.header.frame_id, model.model_frame());
+        assert_eq!(back.target_pose.pose.position.x, 0.0);
+        assert_eq!(back.target_pose.pose.position.y, 2.0);
     }
 
     #[test]
