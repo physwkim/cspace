@@ -12,11 +12,15 @@
 //! collision geometry, unposed, ready for a `RobotState` to pose later;
 //! [`generate_distance_field_cache_entry`] (upstream
 //! `generateDistanceFieldCacheEntry`), which builds a
-//! [`crate::DistanceFieldCacheEntry`] for one group; and
+//! [`crate::DistanceFieldCacheEntry`] for one group;
 //! [`DistanceFieldCollisionCache`], the persistent cache-owner
 //! [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
-//! (upstream `generateCollisionCheckingStructures`) needs -- see this
-//! module's doc comment for its design.
+//! (upstream `generateCollisionCheckingStructures`) needs; and that same
+//! type's five collision-check entry points -- `check_self_collision`,
+//! `check_collision`, `check_robot_collision`, `get_collision_gradients`,
+//! `get_all_collisions` -- see this module's doc comment for the cache
+//! type's design and the "Round 21" section below for the entry points'
+//! difference table against their seven upstream call sites.
 //!
 //! # Scope: what unblocked this round, and what is still blocked
 //!
@@ -131,12 +135,88 @@
 //!   `moveit::core::AttachedBody*` directly, which this workspace has no
 //!   equivalent standalone type for outside `moveit-scene`'s ownership of it.
 //!
-//! The rest of `CollisionEnvDistanceField` -- `checkSelfCollision`,
-//! `checkCollision`, `checkRobotCollision`, the `distance*` methods,
-//! `createCollisionModelMarker` (draws `visualization_msgs::msg::MarkerArray`,
-//! out of scope under PORTING-PLAN.md D1 same as
-//! `getBodySphereVisualizationMarkers`), `getEnvironmentCollisions`/
-//! `getEnvironmentProximityGradients`, `updateDistanceObject`,
+//! # Round 21: the seven collision-check entry points
+//!
+//! `checkSelfCollisionHelper` (`:185`) and the six `check*`/`getCollisionGradients`/
+//! `getAllCollisions` bodies that guard a `gsr` in/out parameter the same way
+//! (`if (!gsr) generateCollisionCheckingStructures(...); else
+//! updateGroupStateRepresentationState(...)`, at the `if (!gsr)` lines
+//! `:1395`, `:1428`, `:1461`, `:1490`, `:1526`, `:1547`) are now ported, as
+//! [`DistanceFieldCollisionCache::check_self_collision`]/
+//! [`DistanceFieldCollisionCache::check_collision`]/
+//! [`DistanceFieldCollisionCache::check_robot_collision`]/
+//! [`DistanceFieldCollisionCache::get_collision_gradients`]/
+//! [`DistanceFieldCollisionCache::get_all_collisions`]. Sharing a common
+//! guard shape is not the same claim as sharing a body -- each of the seven
+//! was read and ported individually; the table below is the difference,
+//! not the resemblance.
+//!
+//! | Upstream site | Port | `generate_distance_field` | Collision phases run | Difference from a plain read of the shared guard |
+//! |---|---|---|---|---|
+//! | `checkSelfCollisionHelper` (`:177-198`) | [`check_self_collision`](DistanceFieldCollisionCache::check_self_collision) | always `true` | self, then (if `!done`) intra-group | 차이 없음 -- matches the guard shape exactly; no environment phase exists for self-collision. |
+//! | `checkCollision(req, res, state[, gsr])` (`:1389-1411`) | [`check_collision`](DistanceFieldCollisionCache::check_collision) | always `true` | self -> (if `!done`) intra-group -> (if `!done`) environment | 차이 없음 -- both the no-acm and acm-taking `gsr` bodies (`:1395`, `:1428`) pass `true`; no asymmetry between them, unlike `checkRobotCollision` below. |
+//! | `checkCollision(req, res, state, acm[, gsr])` (`:1414-1443`) | [`check_collision`](DistanceFieldCollisionCache::check_collision) (`acm: Some(..)`) | always `true` | self -> (if `!done`) intra-group -> (if `!done`) environment | 차이 없음 -- identical body to the no-acm overload above except the `acm` argument threaded into `generateCollisionCheckingStructures`; this port already collapses that into one `acm: Option<&AllowedCollisionMatrix>` parameter. |
+//! | `checkRobotCollision(req, res, state[, gsr])` (`:1447-1470`) | [`check_robot_collision`](DistanceFieldCollisionCache::check_robot_collision) (`acm: None`) | `false` | environment only | **Real difference, preserved:** no self/intra-group phase at all, and `generate_distance_field = false` here vs. `true` on the acm overload -- see that method's own "Deviation from upstream" doc for why this is kept observable only in what gets cached, not in this call's own result. |
+//! | `checkRobotCollision(req, res, state, acm[, gsr])` (`:1473-1499`) | [`check_robot_collision`](DistanceFieldCollisionCache::check_robot_collision) (`acm: Some(..)`) | `true` | environment only | Same phase set as the no-acm overload; only `generate_distance_field` differs, preserved via `acm.is_some()`. |
+//! | `getCollisionGradients` (`:1517-1538`) | [`get_collision_gradients`](DistanceFieldCollisionCache::get_collision_gradients) | always `true` | self, intra-group, environment **proximity gradients**, unconditionally (no `done`/early-exit at all -- gradient computation, not a yes/no check) | **Real difference:** computes gradients, not collisions; upstream's own `res` parameter is `/*res*/`, never read or written, so this port has no `res` in/out at all -- see that method's own doc. |
+//! | `getAllCollisions` (`:1540-1559`) | [`get_all_collisions`](DistanceFieldCollisionCache::get_all_collisions) | always `true` | self, intra-group, environment, **all three unconditionally** | **Real difference:** unlike `checkCollision`, upstream's own body has no `if (!done)` guard between phases here -- every phase runs and every return value is discarded. Ported as-is; see that method's own doc. |
+//!
+//! Two upstream `checkRobotCollision` overloads (`:1502-1515`) take a second
+//! `RobotState` for continuous checking; both are stubbed upstream to
+//! `RCLCPP_ERROR(logger_, "Continuous collision checking not implemented")`
+//! and return without checking anything. Not ported -- see
+//! [`DistanceFieldCollisionCache::check_robot_collision`]'s own doc comment.
+//!
+//! **Combinations that do not exist upstream, so are not invented here:**
+//! there is no self-collision overload that takes an `env_distance_field`
+//! (self-collision never touches the environment); there is no
+//! `checkRobotCollision` overload that runs a self or intra-group phase
+//! (`checkRobotCollision` only ever calls `getEnvironmentCollisions`); and
+//! the `distance` axis (`distanceSelf`/`distanceRobot`, four overloads plus
+//! two `DistanceRequest`-taking overrides, all header-inline in
+//! `collision_env_distance_field.hpp:109-199`) never reaches
+//! `generateCollisionCheckingStructures`/`gsr` at all -- every `distanceSelf`/
+//! `distanceRobot` overload either unconditionally returns `0.0` or logs
+//! `RCLCPP_ERROR(logger_, "Not implemented")`, with no cache read, no
+//! self/intra-group/environment phase, nothing this port's `gsr`-shaped
+//! functions would have anything to share with. None of the seven ported
+//! entry points is a "distance" check in that sense; the "check*/distance*"
+//! grouping in this section's own name is upstream's naming convention, not
+//! a claim that a `distance*` counterpart to `check_self_collision`/
+//! `check_collision`/`check_robot_collision` exists to port.
+//!
+//! The `gsr: GroupStateRepresentationPtr&` in/out parameter every one of the
+//! seven upstream bodies threads through is not ported as
+//! `&mut Option<GroupStateRepresentation>` -- every one of the five new
+//! methods above returns an owned `(CollisionResult,
+//! GroupStateRepresentation)` (or bare `GroupStateRepresentation` for
+//! [`get_collision_gradients`](DistanceFieldCollisionCache::get_collision_gradients),
+//! whose upstream `res` is vestigial) instead. See
+//! [`DistanceFieldCollisionCache::check_self_collision`]'s own doc comment
+//! for the full reasoning: [`GroupStateRepresentation::dfce`] is a genuine
+//! borrow into `self.cache_entry`, which makes a caller holding a `gsr` from
+//! one call across a *second* `&mut self` call a hard borrow conflict, not a
+//! stylistic one -- so the cross-call reuse half of upstream's nullable
+//! `gsr` cannot be honored by any signature shaped
+//! `fn(&mut self, ..., &mut Option<GroupStateRepresentation<'s, 'm>>)`, and a
+//! plain owned return is what survives of it.
+//!
+//! One upstream nuance with no analog here: `checkSelfCollision`'s
+//! fourth overload (`:260-272`, taking both `acm` and a caller-owned `gsr`)
+//! logs `RCLCPP_WARN(logger_, "Shouldn't be calling this function with
+//! initialized gsr - ACM will be ignored")` when `gsr` is already
+//! populated on entry, because `checkSelfCollisionHelper`'s `acm` argument
+//! only reaches `generateCollisionCheckingStructures`'s rebuild branch, not
+//! the `updateGroupStateRepresentationState` reuse branch a non-null `gsr`
+//! takes instead. Since this port has no caller-owned `gsr` parameter for a
+//! second call to arrive already-populated, this warning's situation cannot
+//! occur here at all -- not preserved, because there is nothing left for it
+//! to warn about.
+//!
+//! The rest of `CollisionEnvDistanceField` -- `createCollisionModelMarker`
+//! (draws `visualization_msgs::msg::MarkerArray`, out of scope under
+//! PORTING-PLAN.md D1 same as `getBodySphereVisualizationMarkers`), the
+//! `distanceSelf`/`distanceRobot` stubs described above, `updateDistanceObject`,
 //! `generateDistanceFieldCacheEntryWorld`, `notifyObjectChange`, and the
 //! `CollisionEnvDistanceField` type itself (a `CollisionEnv` implementor
 //! wrapping a `World` observer and a `planning_scene::PlanningScene` this
@@ -214,7 +294,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use moveit_collision::{
-    AllowedCollisionMatrix, AllowedCollisionType, AttachedBodyGeometry, LinkPaddingScale,
+    AllowedCollisionMatrix, AllowedCollisionType, AttachedBodyGeometry, BodyType, CollisionRequest,
+    CollisionResult, Contact, ContactData, LinkPaddingScale,
 };
 use moveit_error::Result;
 use moveit_geometry::Isometry3;
@@ -227,7 +308,9 @@ use crate::collision_common_distance_field::{
 };
 use crate::collision_distance_field_types::{
     BodyDecomposition, CollisionSphere, CollisionType, GradientInfo, PosedBodyPointDecomposition,
-    PosedBodySphereDecomposition, PosedDistanceField,
+    PosedBodySphereDecomposition, PosedDistanceField, SphereGradientQuery,
+    do_bounding_spheres_intersect, get_collision_sphere_collision, get_collision_sphere_collisions,
+    get_collision_sphere_gradients,
 };
 use crate::{DistanceField, GridGeometry, PropagationDistanceField};
 
@@ -856,6 +939,14 @@ pub fn update_group_state_representation_state(
 pub struct DistanceFieldCollisionCache<'m> {
     link_body_decompositions: LinkBodyDecompositions,
     distance_field_config: DistanceFieldConfig,
+    /// `collision_tolerance_`. Upstream `DEFAULT_COLLISION_TOLERANCE = 0.0`
+    /// (`collision_env_distance_field.hpp:54`). Unlike
+    /// [`DistanceFieldConfig`]'s five fields (only ever meaningful together,
+    /// at distance-field *construction* time -- see that type's own doc),
+    /// this is a collision-*checking* parameter read only by
+    /// [`get_self_collisions`] and its siblings below, so it does not belong
+    /// on that type.
+    collision_tolerance: f64,
     /// `distance_field_cache_entry_`. The only field here with no
     /// already-ported free-function equivalent -- see this module's doc
     /// comment.
@@ -874,10 +965,12 @@ impl<'m> DistanceFieldCollisionCache<'m> {
     pub fn new(
         link_body_decompositions: LinkBodyDecompositions,
         distance_field_config: DistanceFieldConfig,
+        collision_tolerance: f64,
     ) -> Self {
         Self {
             link_body_decompositions,
             distance_field_config,
+            collision_tolerance,
             cache_entry: None,
         }
     }
@@ -949,6 +1042,816 @@ impl<'m> DistanceFieldCollisionCache<'m> {
             self.distance_field_config.use_signed_distance_field,
         )
     }
+
+    /// Upstream `CollisionEnvDistanceField::checkSelfCollisionHelper`
+    /// (`collision_env_distance_field.cpp:177-200`), collapsing its four
+    /// `checkSelfCollision` overload callers (`:235-272`) into the `acm`
+    /// parameter below -- see this module's doc comment's difference table
+    /// for exactly which upstream overload each `acm` value reproduces.
+    ///
+    /// # Why this returns `(CollisionResult, GroupStateRepresentation)`, not `&mut Option<GroupStateRepresentation>`
+    ///
+    /// Every upstream overload takes `GroupStateRepresentationPtr& gsr` as an
+    /// in/out reference: `gsr == nullptr` on entry means "no cached state,
+    /// build one"; a non-null `gsr` means "reuse and cheaply re-pose the one
+    /// I already built on an earlier call" via
+    /// `updateGroupStateRepresentationState` instead of a full rebuild. That
+    /// second half -- a caller holding one `gsr` alive *across several
+    /// separate top-level calls* to reuse it -- cannot be reproduced with a
+    /// plain `&mut Option<GroupStateRepresentation<'s, 'm>>` parameter here,
+    /// and this is a hard fact about this port's existing types, not a
+    /// stylistic choice: [`GroupStateRepresentation::dfce`] is a genuine
+    /// `&'a DistanceFieldCacheEntry<'m>` borrow into `self.cache_entry`
+    /// (round 20's [`DistanceFieldCollisionCache`] design, kept as-is here --
+    /// changing it to an owned/cloned `dfce` would be a real semantic change
+    /// to a type this file and its tests already depend on throughout, and
+    /// is not what this round asked for). Because [`Self::generate_collision_checking_structures`]
+    /// takes `&'s mut self` to produce it, any `GroupStateRepresentation<'s, 'm>`
+    /// a caller is still holding keeps `self` mutably borrowed for that same
+    /// `'s` -- so a *second* call needing `&'s mut self` again (to check
+    /// `gsr.is_none()` and potentially rebuild) cannot start until the first
+    /// call's `gsr` is no longer live. A caller cannot simultaneously "still
+    /// be holding `gsr` from call 1" and "start call 2, which needs `&mut
+    /// self` again" -- the two requirements contradict outright, for *any*
+    /// signature shaped `fn(&mut self, ..., &mut Option<GroupStateRepresentation<'s, 'm>>)`.
+    /// gcc/upstream do not hit this because `GroupStateRepresentationPtr` is
+    /// a `shared_ptr` with no borrow checker watching `distance_field_cache_entry_`.
+    ///
+    /// Given that, upstream's own `Option`-like (nullable-pointer) `gsr`
+    /// varies only on *entry* -- every successful call leaves it populated on
+    /// *exit* -- and the entry-side variation is exactly the half this port
+    /// cannot honor. What survives is a plain owned return: this method
+    /// always performs the "build fresh, or reuse via the `dfce` cache" path
+    /// (matching upstream's `checkSelfCollision(req, res, state[, acm])`
+    /// overloads -- the two that pass a *local*, always-null `gsr` into the
+    /// helper -- not the two that thread a caller-owned `gsr` through), and
+    /// hands the resulting [`GroupStateRepresentation`] back so a caller can
+    /// still inspect gradients/decompositions afterward, matching the
+    /// informational value the two `gsr`-out overloads provide. A caller
+    /// that genuinely needs the cheap, `self`-free re-pose-without-rebuild
+    /// path upstream's caller-owned-`gsr` overloads exist for can still get
+    /// it directly: hold the returned `GroupStateRepresentation` and call
+    /// [`update_group_state_representation_state`]/`get_self_collisions`/
+    /// `get_intra_group_collisions` on it themselves for a new state --
+    /// none of those free functions take `self` at all, so nothing about
+    /// *that* reuse is blocked, only the convenience of doing it through one
+    /// [`DistanceFieldCollisionCache`] method call.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::generate_collision_checking_structures`].
+    pub fn check_self_collision<'s>(
+        &'s mut self,
+        req: &CollisionRequest,
+        state: &Posed<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+        current_attached_bodies: &[AttachedBodyGeometry<'_>],
+    ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
+        let max_propagation_distance = self.distance_field_config.max_propagation_distance;
+        let collision_tolerance = self.collision_tolerance;
+        let group_name = req.group_name.as_deref().unwrap_or_default();
+        let mut gsr = self.generate_collision_checking_structures(
+            group_name,
+            state,
+            acm,
+            current_attached_bodies,
+            true,
+        )?;
+
+        let mut res = CollisionResult {
+            contacts: req.contacts.then(ContactData::default),
+            ..CollisionResult::default()
+        };
+        let done = get_self_collisions(
+            req,
+            &mut res,
+            &mut gsr,
+            max_propagation_distance,
+            collision_tolerance,
+        );
+        if !done {
+            get_intra_group_collisions(req, &mut res, &mut gsr);
+        }
+        Ok((res, gsr))
+    }
+
+    /// Upstream `CollisionEnvDistanceField::checkCollision`'s four overloads
+    /// (`collision_env_distance_field.cpp:1382-1442`), collapsed the same way
+    /// as [`Self::check_self_collision`] -- see that method's doc for why
+    /// this returns `(CollisionResult, GroupStateRepresentation)` rather than
+    /// taking a caller-owned `gsr` in/out.
+    ///
+    /// Unlike [`Self::check_self_collision`], every `checkCollision` overload
+    /// also checks environment collisions, via
+    /// `distance_field_cache_entry_world_->distance_field_` -- a `World`-
+    /// sourced field this crate does not own (see this module's doc
+    /// comment). `env_distance_field` below is an explicit caller-supplied
+    /// parameter instead, the same way [`crate::PropagationDistanceField`]
+    /// is threaded through this crate wherever upstream reads it off a
+    /// `World` this port has no type for.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::generate_collision_checking_structures`].
+    pub fn check_collision<'s>(
+        &'s mut self,
+        req: &CollisionRequest,
+        state: &Posed<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+        current_attached_bodies: &[AttachedBodyGeometry<'_>],
+        env_distance_field: &dyn DistanceField,
+    ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
+        let max_propagation_distance = self.distance_field_config.max_propagation_distance;
+        let collision_tolerance = self.collision_tolerance;
+        let group_name = req.group_name.as_deref().unwrap_or_default();
+        let mut gsr = self.generate_collision_checking_structures(
+            group_name,
+            state,
+            acm,
+            current_attached_bodies,
+            true,
+        )?;
+
+        let mut res = CollisionResult {
+            contacts: req.contacts.then(ContactData::default),
+            ..CollisionResult::default()
+        };
+        let mut done = get_self_collisions(
+            req,
+            &mut res,
+            &mut gsr,
+            max_propagation_distance,
+            collision_tolerance,
+        );
+        if !done {
+            done = get_intra_group_collisions(req, &mut res, &mut gsr);
+        }
+        if !done {
+            get_environment_collisions(
+                req,
+                &mut res,
+                env_distance_field,
+                &mut gsr,
+                max_propagation_distance,
+                collision_tolerance,
+            );
+        }
+        Ok((res, gsr))
+    }
+
+    /// Upstream `CollisionEnvDistanceField::checkRobotCollision`'s two real
+    /// (non-continuous) overloads (`collision_env_distance_field.cpp:1447-1500`).
+    /// The two continuous-state overloads (`:1502`, `:1510`) are not ported:
+    /// upstream itself stubs both to `RCLCPP_ERROR(logger_, "Continuous
+    /// collision checking not implemented")` and returns without checking
+    /// anything, matching
+    /// `moveit_collision::CollisionEnv::check_robot_collision_continuous`'s
+    /// `Err`-returning convention rather than silently reporting "no
+    /// collision" for a query that was never actually run.
+    ///
+    /// # Deviation from upstream: the `generate_distance_field` asymmetry, preserved
+    ///
+    /// The no-`acm` overload (`:1447`) passes `generate_distance_field =
+    /// false` into `generateCollisionCheckingStructures`; the `acm` overload
+    /// (`:1473`) passes `true`. Neither overload's own body reads
+    /// `dfce.distance_field` -- both only ever touch the separately-sourced
+    /// `env_distance_field` -- so this makes *no difference to this call's
+    /// own observable result* either way. It changes what ends up cached in
+    /// `self.cache_entry` for a *later* call that reuses it (a subsequent
+    /// [`Self::check_self_collision`]/[`Self::check_collision`] on the same
+    /// cache would otherwise find a stale `distance_field: None` and have to
+    /// rebuild). Preserved exactly rather than unified to one value in either
+    /// direction, via `acm.is_some()` below.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::generate_collision_checking_structures`].
+    pub fn check_robot_collision<'s>(
+        &'s mut self,
+        req: &CollisionRequest,
+        state: &Posed<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+        current_attached_bodies: &[AttachedBodyGeometry<'_>],
+        env_distance_field: &dyn DistanceField,
+    ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
+        let max_propagation_distance = self.distance_field_config.max_propagation_distance;
+        let collision_tolerance = self.collision_tolerance;
+        let group_name = req.group_name.as_deref().unwrap_or_default();
+        let mut gsr = self.generate_collision_checking_structures(
+            group_name,
+            state,
+            acm,
+            current_attached_bodies,
+            acm.is_some(),
+        )?;
+
+        let mut res = CollisionResult {
+            contacts: req.contacts.then(ContactData::default),
+            ..CollisionResult::default()
+        };
+        get_environment_collisions(
+            req,
+            &mut res,
+            env_distance_field,
+            &mut gsr,
+            max_propagation_distance,
+            collision_tolerance,
+        );
+        Ok((res, gsr))
+    }
+
+    /// Upstream `CollisionEnvDistanceField::getCollisionGradients`
+    /// (`collision_env_distance_field.cpp:1517-1538`).
+    ///
+    /// # Deviation from upstream: no `res` parameter
+    ///
+    /// Upstream's `res` parameter is commented `/*res*/` in its own
+    /// signature -- never read or written anywhere in the body. Not ported;
+    /// a caller reads gradients back out of the returned
+    /// [`GroupStateRepresentation`] itself, the same way upstream's own
+    /// caller (`getCollisionGradients`'s only caller outside this file) does.
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::generate_collision_checking_structures`].
+    pub fn get_collision_gradients<'s>(
+        &'s mut self,
+        req: &CollisionRequest,
+        state: &Posed<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+        current_attached_bodies: &[AttachedBodyGeometry<'_>],
+        env_distance_field: &dyn DistanceField,
+    ) -> Result<GroupStateRepresentation<'s, 'm>> {
+        let max_propagation_distance = self.distance_field_config.max_propagation_distance;
+        let collision_tolerance = self.collision_tolerance;
+        let group_name = req.group_name.as_deref().unwrap_or_default();
+        let mut gsr = self.generate_collision_checking_structures(
+            group_name,
+            state,
+            acm,
+            current_attached_bodies,
+            true,
+        )?;
+
+        get_self_proximity_gradients(&mut gsr, collision_tolerance, max_propagation_distance);
+        get_intra_group_proximity_gradients(&mut gsr);
+        get_environment_proximity_gradients(
+            env_distance_field,
+            &mut gsr,
+            collision_tolerance,
+            max_propagation_distance,
+        );
+        Ok(gsr)
+    }
+
+    /// Upstream `CollisionEnvDistanceField::getAllCollisions`
+    /// (`collision_env_distance_field.cpp:1540-1559`).
+    ///
+    /// # Deviation from upstream: none, but note the shape versus `check_collision`
+    ///
+    /// Unlike [`Self::check_collision`], this calls
+    /// `get_self_collisions`/`get_intra_group_collisions`/
+    /// `get_environment_collisions` unconditionally: upstream's own body
+    /// has no `if (!done)` guard between them at all here (unlike
+    /// `checkCollision`), discarding every one of their return values. Ported
+    /// as-is: a caller that wants *every* collision found, not just whichever
+    /// of the three phases hits first, uses this instead of
+    /// [`Self::check_collision`].
+    ///
+    /// # Errors
+    ///
+    /// See [`Self::generate_collision_checking_structures`].
+    pub fn get_all_collisions<'s>(
+        &'s mut self,
+        req: &CollisionRequest,
+        state: &Posed<'_, 'm>,
+        acm: Option<&AllowedCollisionMatrix>,
+        current_attached_bodies: &[AttachedBodyGeometry<'_>],
+        env_distance_field: &dyn DistanceField,
+    ) -> Result<(CollisionResult, GroupStateRepresentation<'s, 'm>)> {
+        let max_propagation_distance = self.distance_field_config.max_propagation_distance;
+        let collision_tolerance = self.collision_tolerance;
+        let group_name = req.group_name.as_deref().unwrap_or_default();
+        let mut gsr = self.generate_collision_checking_structures(
+            group_name,
+            state,
+            acm,
+            current_attached_bodies,
+            true,
+        )?;
+
+        let mut res = CollisionResult {
+            contacts: req.contacts.then(ContactData::default),
+            ..CollisionResult::default()
+        };
+        get_self_collisions(
+            req,
+            &mut res,
+            &mut gsr,
+            max_propagation_distance,
+            collision_tolerance,
+        );
+        get_intra_group_collisions(req, &mut res, &mut gsr);
+        get_environment_collisions(
+            req,
+            &mut res,
+            env_distance_field,
+            &mut gsr,
+            max_propagation_distance,
+            collision_tolerance,
+        );
+        Ok((res, gsr))
+    }
+}
+
+/// Upstream `CollisionEnvDistanceField::getSelfCollisions`
+/// (`collision_env_distance_field.cpp:274-353`). Checks every
+/// geometry-bearing, self-collision-enabled link's collision spheres against
+/// `gsr.dfce.distance_field` -- the group's own aggregate distance field,
+/// built by [`generate_distance_field_cache_entry`] from every *other*
+/// link's points (see [`build_non_group_distance_field`]) -- stopping as
+/// soon as either a collision is found with `req.contacts` unset, or
+/// `req.max_contacts` is reached with it set.
+///
+/// # Deviation from upstream
+///
+/// Upstream's loop bound is `link_names_.size() + attached_body_names_.size()`,
+/// with an `is_link` branch selecting `link_body_decompositions_` or
+/// `attached_body_decompositions_` per index. `attached_body_names_` is
+/// always empty in this port (see [`DistanceFieldCacheEntry`]'s "Deviations
+/// from upstream"), so the `!is_link` half of every branch is dead code,
+/// omitted here rather than ported as an unreachable branch.
+///
+/// # Panics
+///
+/// If `gsr.dfce.distance_field` is `None`. Every caller in this file builds
+/// `gsr` through
+/// [`DistanceFieldCollisionCache::generate_collision_checking_structures`]
+/// with `generate_distance_field: true` before calling this, so the field is
+/// always present in practice -- matching upstream, which never null-checks
+/// `dfce_->distance_field_` here either (`getCollisionSphereCollision` is
+/// called directly on `.get()`).
+fn get_self_collisions(
+    req: &CollisionRequest,
+    res: &mut CollisionResult,
+    gsr: &mut GroupStateRepresentation<'_, '_>,
+    max_propagation_distance: f64,
+    collision_tolerance: f64,
+) -> bool {
+    let distance_field: &dyn DistanceField = gsr.dfce.distance_field.as_ref().expect(
+        "generate_collision_checking_structures always requests a distance field before \
+         self-collision checks",
+    );
+
+    for i in 0..gsr.dfce.link_names.len() {
+        if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.self_collision_enabled[i] {
+            continue;
+        }
+        let bd = gsr.link_body_decompositions[i]
+            .as_ref()
+            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+        let spheres = bd.collision_spheres();
+        let centers = bd.sphere_centers();
+
+        if req.contacts {
+            let already = res.contacts.as_ref().map_or(0, ContactData::count);
+            let limit = req
+                .max_contacts_per_pair
+                .min(req.max_contacts.saturating_sub(already));
+            let num_coll = u32::try_from(limit).unwrap_or(u32::MAX);
+            let mut colls = Vec::new();
+            let coll = get_collision_sphere_collisions(
+                distance_field,
+                spheres,
+                centers,
+                max_propagation_distance,
+                collision_tolerance,
+                num_coll,
+                &mut colls,
+            );
+            if coll {
+                res.collision = true;
+                let link_name = gsr.dfce.link_names[i].clone();
+                let contacts = res.contacts.get_or_insert_with(ContactData::default);
+                for &col in &colls {
+                    let con = Contact {
+                        pos: centers[col as usize],
+                        body_name_1: link_name.clone(),
+                        body_type_1: BodyType::RobotLink,
+                        body_name_2: "self".to_string(),
+                        body_type_2: BodyType::RobotLink,
+                        ..Contact::default()
+                    };
+                    contacts
+                        .by_pair
+                        .entry((link_name.clone(), "self".to_string()))
+                        .or_default()
+                        .push(con);
+                    gsr.gradients[i].types[col as usize] = CollisionType::SelfCollision;
+                }
+                gsr.gradients[i].collision = true;
+                if contacts.count() >= req.max_contacts {
+                    return true;
+                }
+            }
+        } else {
+            let coll = get_collision_sphere_collision(
+                distance_field,
+                spheres,
+                centers,
+                max_propagation_distance,
+                collision_tolerance,
+            );
+            if coll {
+                res.collision = true;
+                return true;
+            }
+        }
+    }
+    res.contacts
+        .as_ref()
+        .is_some_and(|c| c.count() >= req.max_contacts)
+}
+
+/// Upstream `CollisionEnvDistanceField::getSelfProximityGradients`
+/// (`collision_env_distance_field.cpp:355-428`). For every geometry-bearing,
+/// self-collision-enabled link, folds in gradients from every *other* link's
+/// own [`PosedDistanceField`] not ruled out by the ACM (`Never` or absent --
+/// see [`AllowedCollisionType`]), then from the group's aggregate
+/// `gsr.dfce.distance_field`.
+///
+/// # Deviation from upstream
+///
+/// Same as [`get_self_collisions`]: the `is_link`/attached-body branch is
+/// dead code here (`attached_body_names_` always empty) and is omitted.
+///
+/// # Panics
+///
+/// Same as [`get_self_collisions`].
+fn get_self_proximity_gradients(
+    gsr: &mut GroupStateRepresentation<'_, '_>,
+    collision_tolerance: f64,
+    max_propagation_distance: f64,
+) -> bool {
+    let distance_field: &dyn DistanceField = gsr.dfce.distance_field.as_ref().expect(
+        "generate_collision_checking_structures always requests a distance field before \
+         gradient queries",
+    );
+    let mut in_collision = false;
+
+    for i in 0..gsr.dfce.link_names.len() {
+        if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.self_collision_enabled[i] {
+            continue;
+        }
+        let link_name = gsr.dfce.link_names[i].clone();
+
+        if !gsr.dfce.acm.is_empty() {
+            for j in 0..gsr.dfce.link_names.len() {
+                if link_name == gsr.dfce.link_names[j] {
+                    continue;
+                }
+                let allowed = gsr
+                    .dfce
+                    .acm
+                    .allowed_collision(&link_name, &gsr.dfce.link_names[j]);
+                if let Some(entry) = allowed {
+                    if entry.kind() != AllowedCollisionType::Never {
+                        continue;
+                    }
+                }
+                let Some(field_j) = gsr.link_distance_fields[j].as_ref() else {
+                    continue;
+                };
+                let bd_i = gsr.link_body_decompositions[i]
+                    .as_ref()
+                    .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+                let query = SphereGradientQuery {
+                    collision_type: CollisionType::SelfCollision,
+                    tolerance: collision_tolerance,
+                    subtract_radii: false,
+                    maximum_value: max_propagation_distance,
+                    stop_at_first_collision: false,
+                };
+                let coll = field_j.get_collision_sphere_gradients(
+                    bd_i.collision_spheres(),
+                    bd_i.sphere_centers(),
+                    &mut gsr.gradients[i],
+                    &query,
+                );
+                if coll {
+                    in_collision = true;
+                }
+            }
+        }
+
+        let bd_i = gsr.link_body_decompositions[i]
+            .as_ref()
+            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+        let query = SphereGradientQuery {
+            collision_type: CollisionType::SelfCollision,
+            tolerance: collision_tolerance,
+            subtract_radii: false,
+            maximum_value: max_propagation_distance,
+            stop_at_first_collision: false,
+        };
+        let coll = get_collision_sphere_gradients(
+            distance_field,
+            bd_i.collision_spheres(),
+            bd_i.sphere_centers(),
+            &mut gsr.gradients[i],
+            &query,
+        );
+        if coll {
+            in_collision = true;
+        }
+    }
+    in_collision
+}
+
+/// Upstream `CollisionEnvDistanceField::getIntraGroupCollisions`
+/// (`collision_env_distance_field.cpp:430-642`). Checks every pair of
+/// geometry-bearing, intra-group-collision-enabled links whose bounding
+/// spheres intersect ([`do_bounding_spheres_intersect`]), the same
+/// contacts/early-exit shape as [`get_self_collisions`].
+///
+/// # Deviation from upstream
+///
+/// Upstream's loop covers `link_names_.size() + attached_body_names_.size()`
+/// indices with `i_is_link`/`j_is_link` branches selecting between
+/// `link_body_decompositions_`/`attached_body_decompositions_`, plus an
+/// `i == j` guard that can never trigger (the inner loop already starts at
+/// `j = i + 1`). `attached_body_names_` is always empty here (see
+/// [`DistanceFieldCacheEntry`]'s "Deviations from upstream"), so both the
+/// `i_is_link && j_is_link` branch is the only reachable one and the `i ==
+/// j` guard is dead in upstream too -- both are omitted rather than ported
+/// as unreachable code.
+fn get_intra_group_collisions(
+    req: &CollisionRequest,
+    res: &mut CollisionResult,
+    gsr: &mut GroupStateRepresentation<'_, '_>,
+) -> bool {
+    let num_links = gsr.dfce.link_names.len();
+    for i in 0..num_links {
+        for j in (i + 1)..num_links {
+            if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.link_has_geometry[j] {
+                continue;
+            }
+            if !gsr.dfce.intra_group_collision_enabled[i][j] {
+                continue;
+            }
+            let bd_i = gsr.link_body_decompositions[i]
+                .as_ref()
+                .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+            let bd_j = gsr.link_body_decompositions[j]
+                .as_ref()
+                .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
+            if !do_bounding_spheres_intersect(bd_i, bd_j) {
+                continue;
+            }
+
+            let name_1 = gsr.dfce.link_names[i].clone();
+            let name_2 = gsr.dfce.link_names[j].clone();
+            let mut num_pair = res
+                .contacts
+                .as_ref()
+                .and_then(|c| c.by_pair.get(&(name_1.clone(), name_2.clone())))
+                .map_or(0usize, Vec::len);
+
+            let spheres_1 = bd_i.collision_spheres();
+            let centers_1 = bd_i.sphere_centers();
+            let spheres_2 = bd_j.collision_spheres();
+            let centers_2 = bd_j.sphere_centers();
+
+            let mut k = 0;
+            while k < spheres_1.len() && (!req.contacts || num_pair < req.max_contacts_per_pair) {
+                let mut l = 0;
+                while l < spheres_2.len() && (!req.contacts || num_pair < req.max_contacts_per_pair)
+                {
+                    let dist = (centers_1[k] - centers_2[l]).norm();
+                    if dist < spheres_1[k].radius + spheres_2[l].radius {
+                        res.collision = true;
+                        if req.contacts {
+                            let con = Contact {
+                                pos: centers_1[k],
+                                body_name_1: name_1.clone(),
+                                body_type_1: BodyType::RobotLink,
+                                body_name_2: name_2.clone(),
+                                body_type_2: BodyType::RobotLink,
+                                ..Contact::default()
+                            };
+                            let contacts = res.contacts.get_or_insert_with(ContactData::default);
+                            contacts
+                                .by_pair
+                                .entry((name_1.clone(), name_2.clone()))
+                                .or_default()
+                                .push(con);
+                            num_pair += 1;
+                            gsr.gradients[i].types[k] = CollisionType::Intra;
+                            gsr.gradients[i].collision = true;
+                            gsr.gradients[j].types[l] = CollisionType::Intra;
+                            gsr.gradients[j].collision = true;
+                            if contacts.count() >= req.max_contacts {
+                                return true;
+                            }
+                        } else {
+                            return true;
+                        }
+                    }
+                    l += 1;
+                }
+                k += 1;
+            }
+        }
+    }
+    false
+}
+
+/// Upstream `CollisionEnvDistanceField::getIntraGroupProximityGradients`
+/// (`collision_env_distance_field.cpp:644-709`). For every pair of
+/// geometry-bearing, intra-group-collision-enabled links, folds each
+/// sphere's nearest opposing-sphere distance into that sphere's
+/// [`GradientInfo`] slot whenever it improves on what is already there.
+///
+/// # Deviation from upstream
+///
+/// Same dead-code omission as [`get_intra_group_collisions`] (attached
+/// bodies, the unreachable `i == j` guard). Upstream's own `in_collision`
+/// local is declared, never written, and returned as-is -- always `false`;
+/// ported faithfully rather than changed to `-> ()`, since upstream's own
+/// caller (`getCollisionGradients`) discards this return value too, and
+/// keeping the `bool` shape matches this function's siblings
+/// ([`get_self_proximity_gradients`]/[`get_environment_proximity_gradients`]).
+fn get_intra_group_proximity_gradients(gsr: &mut GroupStateRepresentation<'_, '_>) -> bool {
+    let num_links = gsr.dfce.link_names.len();
+    for i in 0..num_links {
+        for j in (i + 1)..num_links {
+            if !gsr.dfce.link_has_geometry[i] || !gsr.dfce.link_has_geometry[j] {
+                continue;
+            }
+            if !gsr.dfce.intra_group_collision_enabled[i][j] {
+                continue;
+            }
+            let bd_i = gsr.link_body_decompositions[i]
+                .as_ref()
+                .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+            let bd_j = gsr.link_body_decompositions[j]
+                .as_ref()
+                .expect("link_has_geometry[j] implies link_body_decompositions[j] is Some");
+            let centers_1 = bd_i.sphere_centers();
+            let centers_2 = bd_j.sphere_centers();
+
+            for (k, &c1) in centers_1.iter().enumerate() {
+                for (l, &c2) in centers_2.iter().enumerate() {
+                    let gradient = c1 - c2;
+                    let dist = gradient.norm();
+                    if dist < gsr.gradients[i].distances[k] {
+                        gsr.gradients[i].distances[k] = dist;
+                        gsr.gradients[i].gradients[k] = gradient;
+                        gsr.gradients[i].types[k] = CollisionType::Intra;
+                    }
+                    if dist < gsr.gradients[j].distances[l] {
+                        gsr.gradients[j].distances[l] = dist;
+                        gsr.gradients[j].gradients[l] = -gradient;
+                        gsr.gradients[j].types[l] = CollisionType::Intra;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Upstream `CollisionEnvDistanceField::getEnvironmentCollisions`
+/// (`collision_env_distance_field.cpp:1561-1643`). Same shape as
+/// [`get_self_collisions`], checking every geometry-bearing link's collision
+/// spheres against `env_distance_field` instead of the group's own aggregate
+/// field, and reporting contacts against a synthetic `"environment"` /
+/// [`BodyType::WorldObject`] body rather than `"self"`.
+///
+/// `env_distance_field` is an explicit parameter rather than read off `self`
+/// because it is upstream's `distance_field_cache_entry_world_->distance_field_`
+/// -- `World`-sourced state this crate does not own (see this module's doc
+/// comment).
+///
+/// # Deviation from upstream
+///
+/// Same dead attached-body branch omission as [`get_self_collisions`].
+fn get_environment_collisions(
+    req: &CollisionRequest,
+    res: &mut CollisionResult,
+    env_distance_field: &dyn DistanceField,
+    gsr: &mut GroupStateRepresentation<'_, '_>,
+    max_propagation_distance: f64,
+    collision_tolerance: f64,
+) -> bool {
+    for i in 0..gsr.dfce.link_names.len() {
+        if !gsr.dfce.link_has_geometry[i] {
+            continue;
+        }
+        let bd = gsr.link_body_decompositions[i]
+            .as_ref()
+            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+        let spheres = bd.collision_spheres();
+        let centers = bd.sphere_centers();
+
+        if req.contacts {
+            let already = res.contacts.as_ref().map_or(0, ContactData::count);
+            let limit = req
+                .max_contacts_per_pair
+                .min(req.max_contacts.saturating_sub(already));
+            let num_coll = u32::try_from(limit).unwrap_or(u32::MAX);
+            let mut colls = Vec::new();
+            let coll = get_collision_sphere_collisions(
+                env_distance_field,
+                spheres,
+                centers,
+                max_propagation_distance,
+                collision_tolerance,
+                num_coll,
+                &mut colls,
+            );
+            if coll {
+                res.collision = true;
+                let link_name = gsr.dfce.link_names[i].clone();
+                let contacts = res.contacts.get_or_insert_with(ContactData::default);
+                for &col in &colls {
+                    let con = Contact {
+                        pos: centers[col as usize],
+                        body_name_1: link_name.clone(),
+                        body_type_1: BodyType::RobotLink,
+                        body_name_2: "environment".to_string(),
+                        body_type_2: BodyType::WorldObject,
+                        ..Contact::default()
+                    };
+                    contacts
+                        .by_pair
+                        .entry((link_name.clone(), "environment".to_string()))
+                        .or_default()
+                        .push(con);
+                    gsr.gradients[i].types[col as usize] = CollisionType::Environment;
+                }
+                gsr.gradients[i].collision = true;
+                if contacts.count() >= req.max_contacts {
+                    return true;
+                }
+            }
+        } else {
+            let coll = get_collision_sphere_collision(
+                env_distance_field,
+                spheres,
+                centers,
+                max_propagation_distance,
+                collision_tolerance,
+            );
+            if coll {
+                res.collision = true;
+                return true;
+            }
+        }
+    }
+    res.contacts
+        .as_ref()
+        .is_some_and(|c| c.count() >= req.max_contacts)
+}
+
+/// Upstream `CollisionEnvDistanceField::getEnvironmentProximityGradients`
+/// (`collision_env_distance_field.cpp:1645-1681`). Same shape as
+/// [`get_self_proximity_gradients`]'s final (non-ACM) half: folds
+/// `env_distance_field` gradients into every geometry-bearing link's
+/// [`GradientInfo`] slot.
+fn get_environment_proximity_gradients(
+    env_distance_field: &dyn DistanceField,
+    gsr: &mut GroupStateRepresentation<'_, '_>,
+    collision_tolerance: f64,
+    max_propagation_distance: f64,
+) -> bool {
+    let mut in_collision = false;
+    for i in 0..gsr.dfce.link_names.len() {
+        if !gsr.dfce.link_has_geometry[i] {
+            continue;
+        }
+        let bd = gsr.link_body_decompositions[i]
+            .as_ref()
+            .expect("link_has_geometry[i] implies link_body_decompositions[i] is Some");
+        let query = SphereGradientQuery {
+            collision_type: CollisionType::Environment,
+            tolerance: collision_tolerance,
+            subtract_radii: false,
+            maximum_value: max_propagation_distance,
+            stop_at_first_collision: false,
+        };
+        let coll = get_collision_sphere_gradients(
+            env_distance_field,
+            bd.collision_spheres(),
+            bd.sphere_centers(),
+            &mut gsr.gradients[i],
+            &query,
+        );
+        if coll {
+            in_collision = true;
+        }
+    }
+    in_collision
 }
 
 /// The `generate_distance_field: true` branch of upstream
@@ -1781,7 +2684,11 @@ mod tests {
         let padding = LinkPaddingScale::new();
         let link_body_decompositions =
             add_link_body_decompositions(model, 0.05, &padding, None).unwrap();
-        DistanceFieldCollisionCache::new(link_body_decompositions, small_distance_field_config())
+        DistanceFieldCollisionCache::new(
+            link_body_decompositions,
+            small_distance_field_config(),
+            0.0,
+        )
     }
 
     #[test]
@@ -1929,7 +2836,8 @@ mod tests {
         let posed = state.update();
         let config = small_distance_field_config();
 
-        let mut cache = DistanceFieldCollisionCache::new(link_body_decompositions.clone(), config);
+        let mut cache =
+            DistanceFieldCollisionCache::new(link_body_decompositions.clone(), config, 0.0);
         let via_cache = cache
             .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
             .unwrap();
@@ -2017,6 +2925,291 @@ mod tests {
             baseline_state_values, moved_gsr.dfce.state_values,
             "moving {out_of_group_var} past STATE_CHECK_EPSILON must invalidate and rebuild \
              the cached entry rather than keep serving the pre-move state_values"
+        );
+    }
+
+    // --- DistanceFieldCollisionCache::check_self_collision / check_collision /
+    //     check_robot_collision / get_collision_gradients / get_all_collisions ---
+
+    /// `two_link_model_and_srdf`'s "mid"/"tip" links carry no `<origin>` on
+    /// either joint, so at the all-zero default pose "base", "mid", and
+    /// "tip" are all exactly coincident -- a cheap, deterministic collision
+    /// fixture, used throughout the tests below instead of trying to pose a
+    /// real PR2 arm into self-collision.
+    fn chain_collision_cache(model: &RobotModel) -> DistanceFieldCollisionCache<'_> {
+        let padding = LinkPaddingScale::new();
+        let link_body_decompositions =
+            add_link_body_decompositions(model, 0.02, &padding, None).unwrap();
+        DistanceFieldCollisionCache::new(
+            link_body_decompositions,
+            small_distance_field_config(),
+            0.0,
+        )
+    }
+
+    /// A [`PropagationDistanceField`] seeded with exactly one point, built
+    /// from the same [`small_distance_field_config`] every test below
+    /// checks the robot against.
+    fn point_environment_distance_field(point: Vector3<f64>) -> PropagationDistanceField {
+        let config = small_distance_field_config();
+        let mut field = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+        field.add_points_to_field(&[point]);
+        field
+    }
+
+    #[test]
+    fn check_self_collision_reports_no_collision_for_a_well_separated_group() {
+        let model = pr2_model();
+        let mut cache = right_arm_collision_cache(&model);
+        let srdf = pr2_srdf();
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let req = CollisionRequest {
+            group_name: Some("right_arm".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[])
+            .unwrap();
+        assert!(
+            !res.collision,
+            "the PR2 right arm's default pose has no overlapping links, and pr2.srdf's own \
+             disable_collisions entries cover every pair that would otherwise be flagged"
+        );
+    }
+
+    #[test]
+    fn check_self_collision_intra_group_collision_survives_when_the_self_check_is_disabled() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let mut acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        // Disable each link's own self_collision_enabled bit (link vs
+        // itself), isolating this assertion to `get_intra_group_collisions`
+        // (mid vs tip) rather than `get_self_collisions` (mid/tip vs the
+        // group's own aggregate field, built from "base" -- also coincident
+        // at the default pose, and would otherwise leave it ambiguous which
+        // function actually found the collision).
+        acm.set_entry("mid", "mid", true);
+        acm.set_entry("tip", "tip", true);
+
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[])
+            .unwrap();
+        assert!(
+            res.collision,
+            "mid and tip are exactly coincident at the default pose; disabling each link's own \
+             self_collision_enabled bit must not also suppress the intra-group check between \
+             them"
+        );
+    }
+
+    #[test]
+    fn check_self_collision_max_contacts_caps_the_total_recorded_across_pairs() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 1,
+            max_contacts_per_pair: 100,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_self_collision(&req, &posed, Some(&acm), &[])
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        assert!(
+            contacts.count() <= 1,
+            "req.max_contacts == 1 must cap the total number of contacts recorded, even though \
+             mid/tip being exactly coincident gives every sphere pair a contact to report"
+        );
+    }
+
+    #[test]
+    fn check_collision_short_circuits_before_checking_the_environment_once_self_collision_is_found()
+    {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
+
+        // `done` (both here and upstream) means "the contact budget is
+        // spent", not merely "a collision was found" -- with `max_contacts`
+        // set generously, `get_self_collisions` keeps accumulating contacts
+        // without becoming `done`, and `get_environment_collisions` would
+        // still run. `max_contacts: 1` makes the very first self-collision
+        // contact spend the whole budget, so `done` really does go true
+        // after the self-collision phase alone.
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 1,
+            max_contacts_per_pair: 10,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_collision(&req, &posed, Some(&acm), &[], &env)
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        assert_eq!(
+            contacts.count(),
+            1,
+            "max_contacts == 1 must cap the total recorded, whichever phase reports it"
+        );
+        assert!(
+            !contacts.by_pair.keys().any(|(_, b)| b == "environment"),
+            "get_self_collisions already spends the whole max_contacts budget, so \
+             check_collision's `if !done` guard must skip get_environment_collisions entirely \
+             -- no \"environment\" contact pair, even though the seeded env field would also \
+             collide"
+        );
+    }
+
+    #[test]
+    fn get_all_collisions_checks_the_environment_even_when_self_collision_already_found() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            contacts: true,
+            max_contacts: 10,
+            max_contacts_per_pair: 10,
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .get_all_collisions(&req, &posed, Some(&acm), &[], &env)
+            .unwrap();
+        assert!(res.collision);
+        let contacts = res.contacts.expect("contacts requested");
+        assert!(
+            contacts.by_pair.keys().any(|(_, b)| b == "environment"),
+            "unlike check_collision, get_all_collisions has no `if !done` guard between \
+             phases -- it must still record the environment contact even though a self-collision \
+             was already found"
+        );
+    }
+
+    #[test]
+    fn check_robot_collision_ignores_a_self_collision_and_only_checks_the_environment() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let config = small_distance_field_config();
+        let empty_env = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_robot_collision(&req, &posed, Some(&acm), &[], &empty_env)
+            .unwrap();
+        assert!(
+            !res.collision,
+            "mid and tip are coincident (a genuine self-collision), but check_robot_collision \
+             must only consult the environment field -- with no points in it, this must report \
+             no collision at all"
+        );
+    }
+
+    #[test]
+    fn check_robot_collision_detects_an_environment_collision() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let (res, _gsr) = cache
+            .check_robot_collision(&req, &posed, Some(&acm), &[], &env)
+            .unwrap();
+        assert!(
+            res.collision,
+            "an environment point placed exactly at the coincident mid/tip origin must \
+             register as an environment collision"
+        );
+    }
+
+    #[test]
+    fn get_collision_gradients_reports_a_finite_distance_for_a_nearby_environment_point() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let env = point_environment_distance_field(Vector3::new(0.0, 0.0, 0.0));
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let gsr = cache
+            .get_collision_gradients(&req, &posed, Some(&acm), &[], &env)
+            .unwrap();
+        let mid_index = gsr
+            .dfce
+            .link_names
+            .iter()
+            .position(|n| n == "mid")
+            .expect("\"mid\" is one of chain's updated links");
+        assert!(
+            gsr.gradients[mid_index].closest_distance < f64::MAX,
+            "an environment point placed at mid's own coincident pose must produce a finite \
+             closest_distance, not the default-initialized f64::MAX"
         );
     }
 }
