@@ -1625,10 +1625,10 @@ impl<'m> PlanningScene<'m> {
     /// pairs (see the type doc's "Collision checking" section). `group`
     /// lives on `request.group_name` rather than as a separate parameter,
     /// matching how every other method here threads
-    /// [`CollisionRequest`] through — upstream's own version overwrites
-    /// whatever `group_name` a caller-built request carried with its
-    /// separate `group` argument, which this signature has no way to do by
-    /// construction. `verbose` is dropped for the same reason the rest of
+    /// [`CollisionRequest`] through — upstream's own version takes no
+    /// request at all, only a bare `group` string, and always builds its
+    /// own local `CollisionRequest` internally (`planning_scene.cpp:2219`)
+    /// to carry it. `verbose` is dropped for the same reason the rest of
     /// this family drops it: `CollisionRequest::verbose` is itself a
     /// stored-but-never-read field in this port (confirmed: no backend
     /// consults it), matching upstream's own `RCLCPP_INFO`-only use.
