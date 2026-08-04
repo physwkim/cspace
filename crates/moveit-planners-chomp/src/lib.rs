@@ -161,16 +161,32 @@
 //!   `addIncrementsToTrajectory` → [`optimizer::add_increments_to_trajectory`];
 //!   `getSmoothnessCost` → [`optimizer::get_smoothness_cost`];
 //!   `handleJointLimits` → [`optimizer::handle_joint_limits`].
-//! - Not ported, collision/kinematics-coupled (need `moveit-collision`/
-//!   `moveit-scene`, out of this crate's scope this round): `ChompOptimizer`
-//!   itself (struct, constructor, `optimize()`, `destroy()`,
-//!   `isInitialized()`, `isCollisionFree()`), `performForwardKinematics`,
-//!   `getCollisionCost`, `getTrajectoryCost`, `calculateCollisionIncrements`,
+//! - Not ported, collision/kinematics-coupled: `ChompOptimizer` itself
+//!   (struct, constructor, `optimize()`, `destroy()`, `isInitialized()`,
+//!   `isCollisionFree()`), `performForwardKinematics`, `getCollisionCost`,
+//!   `getTrajectoryCost`, `calculateCollisionIncrements`,
 //!   `calculatePseudoInverse`, `getJacobian`, `computeJointProperties`,
 //!   `setRobotStateFromPoint`, `registerParents`, the private `isParent`,
 //!   `isCurrentTrajectoryMeshToMeshCollisionFree`. `optimize()`'s
 //!   termination condition — this round's other callout — is transcribed as
 //!   a specification (not executable code) in [`optimizer`]'s module doc.
+//!   Round 18 re-checked this against `moveit-collision`/`moveit-distance-field`'s
+//!   progress this session (per that round's Item 3): `GroupStateRepresentation`
+//!   is now ported (`moveit_distance_field::GroupStateRepresentation`), which
+//!   covers this struct's `gsr_` field, but `hy_env_`
+//!   (`const collision_detection::CollisionEnvHybrid*`) has no path forward at
+//!   all — `moveit-distance-field`'s own module doc lists `CollisionEnvHybrid`
+//!   as a **whole-file exclusion**, D-decision: `PORTING-PLAN.md`'s FCL/Bullet
+//!   → `parry3d-f64` backend replacement means `CollisionEnvHybrid` (which
+//!   extends `CollisionEnvFCL` directly) is never ported, full stop, not
+//!   "not yet". A literal port of this struct is therefore permanently
+//!   impossible, not merely blocked on more infrastructure landing. A port
+//!   *is* possible, but only by redesigning the collision-cost path against
+//!   `moveit_collision::CollisionEnv<State>`/`moveit_scene::PlanningScene`'s
+//!   generic environment parameter instead of upstream's concrete
+//!   `CollisionEnvHybrid*` field — a semantic change to what "the same
+//!   struct" means, per this port's own guidance on structural fixes needing
+//!   sign-off before the rewrite, not after. Not attempted this round.
 //! - Not ported, confirmed dead in upstream itself (not merely out of
 //!   scope): `debugCost` (unused `std::cout` helper, no call site anywhere
 //!   in `chomp_optimizer.cpp`); `perturbTrajectory`, `getRandomMomentum`,
