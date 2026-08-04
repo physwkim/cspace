@@ -3442,9 +3442,15 @@ private:
   ///   (`collision_env_distance_field.cpp:1224`) after re-posing to the
   ///   current state -- the fresh branch never touches `sphere_locations` at
   ///   all. So `sphere_locations_count` below is always the link's sphere
-  ///   count here, never `0`, while `group_state_representation`'s Rust port
-  ///   always leaves it empty. Not comparable field-by-field; see the parity
-  ///   test's own doc comment for how it handles this.
+  ///   count here, never `0`.
+  ///
+  ///   This used to be the end of it: the Rust port left the field empty, so
+  ///   the two were not comparable. That is no longer true. `moveit-rs` round
+  ///   25 closed the gap in the other direction -- its fresh-build path reads
+  ///   `link_bd.sphere_centers()` directly, reproducing the value upstream
+  ///   only produces on the pregenerated branch -- so this field now *is*
+  ///   comparable, and this op is what measures that. See the parity test's
+  ///   own doc comment.
   /// - `checkCollision` runs the full self/intra-group/environment collision
   ///   pipeline *after* `getGroupStateRepresentation` returns, and that
   ///   pipeline can mutate `closest_distance`/`collision`/`types`/`distances`
