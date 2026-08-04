@@ -578,6 +578,21 @@ mod tests {
         }
     }
 
+    /// Same shape as `posed`, but with a non-unit (norm 2.0) `w` -- the
+    /// value PORTING-PLAN.md §215's per-site table exercises at every
+    /// `Isometry3::try_from(Pose(...))` call site in this file.
+    fn posed_norm2(x: f64, y: f64, z: f64) -> geometry_msgs::Pose {
+        geometry_msgs::Pose {
+            position: geometry_msgs::Point { x, y, z },
+            orientation: geometry_msgs::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 2.0,
+            },
+        }
+    }
+
     fn sphere_primitive(radius: f64) -> shape_msgs::SolidPrimitive {
         shape_msgs::SolidPrimitive {
             type_: 2, // SPHERE
@@ -740,6 +755,46 @@ mod tests {
     }
 
     #[test]
+    fn add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes() {
+        // PORTING-PLAN.md §215's per-site table: `object_pose` at :207 (two
+        // shapes, so no single-shape pose-swap) and the shape pose at :142
+        // share the generic Pose rule with the other eight sites -- run
+        // through this call chain rather than the bare conversion alone.
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.pose = posed_norm2(1.0, 0.0, 0.0);
+        msg.primitives = vec![sphere_primitive(0.1), sphere_primitive(0.1)];
+        msg.primitive_poses = vec![posed_norm2(0.0, 1.0, 0.0), identity_pose()];
+        apply_collision_object(&mut sc, msg).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        let object_norm = obj.pose().rotation.into_inner().norm();
+        let shape_norm = obj.shapes()[0].pose().rotation.into_inner().norm();
+        assert!((object_norm - 1.0).abs() < 1e-12, "got: {object_norm}");
+        assert!((shape_norm - 1.0).abs() < 1e-12, "got: {shape_norm}");
+    }
+
+    #[test]
+    fn add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes() {
+        // PORTING-PLAN.md §215's per-site table: `subframes_from_parallel_arrays`'s
+        // `Isometry3::try_from(Pose(pose))` at :239.
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.subframe_names = vec!["tip".to_string()];
+        msg.subframe_poses = vec![posed_norm2(1.0, 2.0, 3.0)];
+        apply_collision_object(&mut sc, msg).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        let norm = obj
+            .subframe_pose("tip")
+            .unwrap()
+            .rotation
+            .into_inner()
+            .norm();
+        assert!((norm - 1.0).abs() < 1e-12, "got: {norm}");
+    }
+
+    #[test]
     fn remove_specific_id() {
         let model = one_joint_model();
         let mut sc = scene(&model);
@@ -843,6 +898,25 @@ mod tests {
             obj.shapes()[0].pose(),
             Isometry3::translation(0.0, 0.0, 1.0)
         );
+    }
+
+    #[test]
+    fn move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes() {
+        // PORTING-PLAN.md §215's per-site table: `apply_move`'s
+        // `new_object_pose` conversion at :478 and the shape-repose
+        // conversion at :515.
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", model.model_frame(), MOVE);
+        mv.pose = posed_norm2(5.0, 0.0, 0.0);
+        mv.primitive_poses = vec![posed_norm2(0.0, 0.0, 1.0)]; // matches the 1 existing shape
+        apply_collision_object(&mut sc, mv).unwrap();
+        let obj = sc.world().get_object("box").unwrap();
+        let object_norm = obj.pose().rotation.into_inner().norm();
+        let shape_norm = obj.shapes()[0].pose().rotation.into_inner().norm();
+        assert!((object_norm - 1.0).abs() < 1e-12, "got: {object_norm}");
+        assert!((shape_norm - 1.0).abs() < 1e-12, "got: {shape_norm}");
     }
 
     #[test]

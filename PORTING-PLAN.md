@@ -16193,3 +16193,61 @@ variant만 확인하던 기존 테스트 6곳을 메시지 내용 확인으로 �
 메시지를 만들어 라우팅 버그를 가릴 수 있는 경우)이 아니고, 테스트가
 그 메시지 내용을 아직 확인하지 않는 것은 커버리지 gap이지 이번 항목이
 겨냥한 판별 불가능성이 아니다.
+
+## §215 사이트별 norm 경계값 표 — norm=2.0가 회귀를 낸 지점이라 이번 라운드는 사이트별 실측을 새로 추가했다
+
+### §215.1 방법
+
+§211/§213이 세운 규칙: `f2a7847`이 쪼갠 두 규칙(generic — 유한·0이
+아니면 무조건 재정규화, strict — `OrientationConstraintQuaternion`,
+1e-3 임계값)에 열 개의 와이어 필드가 어느 규칙에 닿는지는 이미
+확인했지만, 그 소비자 열 곳 "각각"에서 norm=2.0/1.0009/1.0011/전부
+0/NaN 다섯 값이 실제로 어떤 결과를 내는지는 아직 아무도 실행한 적이
+없었다 — `geometry.rs`의 규칙 자체 단위 테스트만 있었다. 아홉 곳은
+와이어 필드에서 `Isometry3::try_from(Pose(...))` 호출까지 분기가
+전혀 없는 것을 직접 코드를 읽어 재확인했으므로(§213.1의 `rg` 앵커
+재실행), 코드 경로가 동일하다는 근거로 generic 규칙의 단위 테스트
+결과를 그 아홉 곳에 적용할 수 있다 — 다만 이것은 "이 사이트에서
+실행함"과는 다른 주장이라 `doc/message-mapping.md` §18의 표에서
+`✅site`(이 사이트 자체를 실행)와 `✅generic-fn`/`✅strict`(코드
+동일성으로 추론, 이 사이트에서 실행한 것은 아님)를 구분해서 표기했다.
+
+norm=2.0 열만은 예외로 열 곳 전부에 이 사이트 자체를 통과하는
+end-to-end 테스트를 새로 추가했다: `4ff563d`가 실제로 깨뜨린 값이라
+추론이 아니라 실측이 필요하다고 판단했다. `strict` 규칙(사이트 #2,
+`OrientationConstraint.orientation`)은 norm=2.0에서 이미 이전
+라운드에 end-to-end 테스트(`orientation_norm_2_is_rejected_end_to_end_unlike_a_scene_pose`)가
+있었고, 나머지 네 값은 `geometry.rs`의 `OrientationConstraintQuaternion`
+단위 테스트로만 커버된다 (이 사이트 자체에서 실행한 것은 아님, 표에
+그대로 명시).
+
+### §215.2 이번 라운드에 추가한 사이트별 실측 테스트
+
+- `constraints/position.rs`: `region_pose_with_norm_2_orientation_succeeds_and_normalizes`
+  (`position.rs:161`)
+- `constraints/visibility.rs`: `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize`
+  (`visibility.rs:114`/`115`, 필드 두 개를 테스트 하나로)
+- `scene/collision_object.rs`: `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
+  (`:142`/`:207`), `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes`
+  (`:239`), `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
+  (`:478`/`:515`)
+- `scene/planning_scene.rs`: `octomap_origin_with_norm_2_orientation_succeeds_and_normalizes`
+  (`:147`)
+- `geometry.rs`: `norm_just_inside_orientation_rules_1e_minus_3_tolerance_is_also_accepted_here`
+  — generic 규칙 자체가 norm=1.0009에서 정확히 실행된 적이 없었던
+  빈틈을 메움 (strict 규칙 쪽은 이미 있었음)
+
+147개였던 테스트가 154개 (신규 7개: `position.rs` 1 +
+`visibility.rs` 1 + `collision_object.rs` 3 + `planning_scene.rs` 1 +
+`geometry.rs` 1).
+
+### §215.3 아직 "실행하지 않음"으로 남긴 것
+
+없음 — 브리프의 "실행하지 않은 행이 있으면 실행하거나 명시적으로
+미검증 표시"라는 지시를 각 셀 단위로 적용했다: norm=2.0 열은 열 곳
+전부 이 사이트 자체 실행, 나머지 네 값은 코드 동일성 근거를 명시하고
+"이 사이트에서 실행한 것은 아님"이라고 표에 그대로 적었다 (숨기지
+않음). 이 근거가 깨지는 조건도 표 마지막에 명시했다: 아홉 곳 중
+하나라도 와이어 필드와 호출 사이에 분기(사이트별 기본값 대체나
+clamp 등)가 생기면 그 행의 추론 셀은 더 이상 유효하지 않고 실제
+사이트별 테스트로 다시 실행해야 한다.

@@ -333,6 +333,23 @@ mod tests {
     // unconditional `quaternion.normalize()`.
 
     #[test]
+    fn norm_just_inside_orientation_rules_1e_minus_3_tolerance_is_also_accepted_here() {
+        // PORTING-PLAN.md §215's per-site table: pairs with
+        // `orientation_norm_just_inside_the_1e_minus_3_tolerance_is_accepted`
+        // below -- this crate had never run the generic rule at exactly
+        // norm=1.0009 before (only the strict rule was pinned at this exact
+        // value); the generic rule's "no threshold at all" claim was
+        // previously reasoned from the w=2.0/w=1.0011 tests, not run here.
+        let msg = Quaternion(geometry_msgs::Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0 + 0.0009, // |norm - 1.0| = 0.0009 < 1e-3
+        });
+        UnitQuaternion::try_from(msg).unwrap();
+    }
+
+    #[test]
     fn norm_just_outside_orientation_rules_1e_minus_3_tolerance_is_still_accepted_here() {
         let msg = Quaternion(geometry_msgs::Quaternion {
             x: 0.0,

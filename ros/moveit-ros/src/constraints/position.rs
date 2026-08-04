@@ -326,6 +326,31 @@ mod tests {
     }
 
     #[test]
+    fn region_pose_with_norm_2_orientation_succeeds_and_normalizes() {
+        // §211/§213 per-site table (PORTING-PLAN.md §215): this crate's
+        // `Isometry3::try_from(Pose(...))` call at position.rs:161 shares
+        // the generic Pose rule with eight other sites -- confirmed through
+        // this site's own full call chain, not just the bare conversion in
+        // geometry.rs's own tests.
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.constraint_region.primitive_poses[0].orientation =
+            r2r::geometry_msgs::msg::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 2.0,
+            };
+        let c = moveit_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap();
+        let norm = c.constraint_regions()[0].pose.rotation.into_inner().norm();
+        assert!((norm - 1.0).abs() < 1e-12, "got: {norm}");
+    }
+
+    #[test]
     fn converts_with_model_context() {
         let model = one_joint_model();
         let c = moveit_constraints::PositionConstraint::try_from(PositionConstraintMsg {
