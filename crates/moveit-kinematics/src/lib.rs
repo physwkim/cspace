@@ -487,5 +487,6 @@ pub use lma::LevenbergMarquardtSolver;
 pub use newton_raphson::NewtonRaphsonSolver;
 pub use params::SolverParams;
 pub use registry::{
-    KINEMATICS_SOLVERS, KinematicsSolver, SolutionCallback, SolveOptions, SolverRegistration,
+    DEFAULT_SOLVER_NAME, KINEMATICS_SOLVERS, KinematicsSolver, SolutionCallback, SolveOptions,
+    SolverRegistration, resolve_solver,
 };

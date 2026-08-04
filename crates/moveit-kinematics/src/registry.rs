@@ -5,7 +5,7 @@
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_core/kinematics_base/include/moveit/kinematics_base/kinematics_base.hpp
 
-use moveit_error::Result;
+use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
 use moveit_model::RobotModel;
 
@@ -188,3 +188,83 @@ pub struct SolverRegistration {
 /// in this crate's own source.
 #[linkme::distributed_slice]
 pub static KINEMATICS_SOLVERS: [SolverRegistration];
+
+/// The [`KINEMATICS_SOLVERS`] entry a caller resolves to when it wants the
+/// solver every fixture's oracle actually used: `panda.urdf`'s and
+/// `fanuc.urdf`'s `kinematics.yaml` both configure
+/// `kdl_kinematics_plugin/KDLKinematicsPlugin`, whose velocity IK step is
+/// `KDL::ChainIkSolverVelMimicSVD` — [`crate::NewtonRaphsonSolver`]'s own
+/// doc comment already calls it "the solver that ports
+/// `ChainIkSolverVelMimicSVD` as-is". `"lma"` is this port's own addition,
+/// not a solver upstream ships; a caller that wants oracle-matching numeric
+/// output must not resolve to it, or to either `_cached` wrapper (see
+/// [`crate::CachedIkSolver`]'s doc comment for why a caching solver is never
+/// the right implicit default).
+pub const DEFAULT_SOLVER_NAME: &str = "newton_raphson";
+
+/// Resolve exactly the [`KINEMATICS_SOLVERS`] entry named `name` for
+/// `(model, group_name)`.
+///
+/// Selection is by [`SolverRegistration::name`], never by
+/// [`KINEMATICS_SOLVERS`]'s iteration order. That order is
+/// `linkme`'s link-section placement order, a function of the whole
+/// workspace's dependency graph — any crate anywhere adding an unrelated
+/// dependency can silently reorder it. A caller that picks "the first
+/// registration that constructs" is not applying a selection rule; it is
+/// letting the linker apply one it never wrote down (PORTING-PLAN.md
+/// §177).
+///
+/// # Errors
+///
+/// [`Error::UnknownName`] if no [`KINEMATICS_SOLVERS`] entry is registered
+/// under `name`. Whatever [`SolverRegistration::construct`] itself returns
+/// if a matching entry exists but cannot build for `(model, group_name)`
+/// (see `chain::ChainInfo::build`'s `# Errors`).
+pub fn resolve_solver(
+    model: &RobotModel,
+    group_name: &str,
+    name: &str,
+    params: &SolverParams,
+) -> Result<Box<dyn KinematicsSolver>> {
+    let registration = KINEMATICS_SOLVERS
+        .iter()
+        .find(|registration| registration.name == name)
+        .ok_or_else(|| Error::unknown_name("kinematics solver", name))?;
+    (registration.construct)(model, group_name, params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `KINEMATICS_SOLVERS`' membership must not depend on where `linkme`
+    /// happened to place each registration in the link section (PORTING-PLAN.md
+    /// §177) -- checked as a set, never indexed or compared as an ordered
+    /// sequence, so this test cannot itself become order-dependent.
+    #[test]
+    fn every_expected_registration_exists_regardless_of_slice_order() {
+        let names: std::collections::HashSet<&str> =
+            KINEMATICS_SOLVERS.iter().map(|r| r.name).collect();
+        for expected in [
+            "lma",
+            "newton_raphson",
+            "lma_cached",
+            "newton_raphson_cached",
+        ] {
+            assert!(names.contains(expected), "missing registration: {expected}");
+        }
+    }
+
+    /// [`DEFAULT_SOLVER_NAME`] must name a registration that actually exists
+    /// -- this is the one property [`resolve_solver`] depends on to fail
+    /// loudly (`Error::UnknownName`) rather than silently resolve nothing,
+    /// if a future rename ever drops it out of sync.
+    #[test]
+    fn default_solver_name_names_a_real_registration() {
+        assert!(
+            KINEMATICS_SOLVERS
+                .iter()
+                .any(|r| r.name == DEFAULT_SOLVER_NAME)
+        );
+    }
+}

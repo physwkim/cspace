@@ -38,7 +38,7 @@ use std::collections::HashMap;
 
 use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
-use moveit_kinematics::{KINEMATICS_SOLVERS, SolverParams};
+use moveit_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
 use moveit_scene::PlanningScene;
 use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
@@ -157,14 +157,11 @@ where
                 info.goal_pose = constraint_pose(position, orientation, target_point_offset);
 
                 let params = SolverParams::default();
-                let mut solver = KINEMATICS_SOLVERS
-                    .iter()
-                    .find_map(|registration| {
-                        (registration.construct)(robot_model, &req.group_name, &params)
-                            .ok()
-                            .filter(|solver| solver.tip_frame() == link_name.as_str())
-                    })
-                    .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                let mut solver =
+                    resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+                        .ok()
+                        .filter(|solver| solver.tip_frame() == link_name.as_str())
+                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 let solution = compute_pose_ik(
                     ctx,

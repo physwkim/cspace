@@ -61,7 +61,7 @@
 use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::{Isometry3, Vector3};
-use moveit_kinematics::{KINEMATICS_SOLVERS, SolverParams};
+use moveit_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
 use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
 
@@ -183,14 +183,11 @@ where
                 info.goal_pose = constraint_pose(position, orientation, target_point_offset);
 
                 let params = SolverParams::default();
-                let mut solver = KINEMATICS_SOLVERS
-                    .iter()
-                    .find_map(|registration| {
-                        (registration.construct)(robot_model, &req.group_name, &params)
-                            .ok()
-                            .filter(|solver| solver.tip_frame() == link_name.as_str())
-                    })
-                    .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
+                let mut solver =
+                    resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+                        .ok()
+                        .filter(|solver| solver.tip_frame() == link_name.as_str())
+                        .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
 
                 compute_pose_ik(
                     ctx,
@@ -245,8 +242,8 @@ where
     /// `info.circ_aux_point` cannot be constructed (upstream
     /// `CircleNoPlane`/`CircleToSmall`/`CenterPointDifferentRadius` — see the
     /// [module docs](self)'s `Error::Construct` narrowing note).
-    /// [`MoveItErrorCode::NoIkSolution`] if no [`KINEMATICS_SOLVERS`] entry
-    /// can be built for `req.group_name` with `info.link_name` as its tip.
+    /// [`MoveItErrorCode::NoIkSolution`] if no [`moveit_kinematics::KINEMATICS_SOLVERS`]
+    /// entry can be built for `req.group_name` with `info.link_name` as its tip.
     /// Otherwise, see [`generate_joint_trajectory`].
     fn plan(
         &self,
@@ -291,13 +288,9 @@ where
 
         let robot_model = self.base.robot_model();
         let params = SolverParams::default();
-        let mut solver = KINEMATICS_SOLVERS
-            .iter()
-            .find_map(|registration| {
-                (registration.construct)(robot_model, &req.group_name, &params)
-                    .ok()
-                    .filter(|solver| solver.tip_frame() == info.link_name.as_str())
-            })
+        let mut solver = resolve_solver(robot_model, &req.group_name, DEFAULT_SOLVER_NAME, &params)
+            .ok()
+            .filter(|solver| solver.tip_frame() == info.link_name.as_str())
             .ok_or(Error::Code(MoveItErrorCode::NoIkSolution))?;
 
         generate_joint_trajectory(
