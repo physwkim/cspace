@@ -11214,3 +11214,25 @@ CI에서도 똑같이 건너뛴다.
 "test 스텝"이 두 곳에서 다른 것을 뜻하고 있었다: 테스트 3개를 깬 push가 CI에선
 1개만 보고하고 나머지는 다음 실행에서야 드러난다. 규칙을 한쪽에 맞추는 게
 구조적 해결이라 CI 쪽에 `--no-fail-fast`를 붙였다(`0830ce5`).
+
+## 137. "의존성이 안 닿는다"는 UNFIXED는 `cargo tree` 없이는 못 적는다
+
+p3-shapes 라운드 23이 `costs::getCollisionCostFunction`/
+`getConstraintsCostFunction`를 UNFIXED로 남기며 근거를 "need
+`moveit-scene`/`moveit-collision`, out of this crate's dependency reach this
+round"라고 적었다. 병합 전에 확인해보니 사실이 아니었다:
+
+- `crates/moveit-planners-stomp/Cargo.toml`의 `[dependencies]`에 그 둘이 아직
+  적혀 있지 않을 뿐, 막는 규칙은 없다.
+- 같은 계층의 `moveit-planners-sbp`는 이미 `moveit-collision`과
+  `moveit-scene`을 정상 의존성으로 갖고 있다.
+- `cargo tree -p moveit-scene -e normal`, `cargo tree -p moveit-collision -e
+  normal` 둘 다 `stomp`를 포함하지 않는다 — 추가해도 순환이 없다.
+
+즉 "reach 밖"이 아니라 "아직 안 적었다"였다. 라운드 24로 반려했다.
+
+**규칙 (137):** UNFIXED의 사유로 의존성·순환·계층을 들려면 `cargo tree`(또는
+`cargo metadata`) 실행 결과를 함께 적어라. 이건 §119.2(vacuous pass)와 같은
+계열이다 — 확인하지 않은 제약을 사유로 적으면, 실제로는 열려 있는 작업이
+구조적으로 막힌 것처럼 기록에 남고 다음 라운드가 그걸 전제로 삼는다. 형제
+크레이트가 이미 같은 의존을 갖고 있는지 한 번 보는 것으로 대부분 판별된다.
