@@ -805,14 +805,35 @@ impl OcTree {
     }
 
     /// Upstream `coordToKeyChecked(double, key_type&)` for one axis.
+    ///
+    /// **Deviation (§172, §153.1):** upstream narrows the scaled coordinate
+    /// to `int` unconditionally (`(int) floor(...)`) before its own bounds
+    /// check; for a NaN, infinite, or merely huge-but-finite `coord`, that
+    /// `double -> int` narrowing is undefined behaviour in C++, so there is
+    /// no upstream "correct" answer to reproduce, only a boundary to reject
+    /// cleanly. A direct transcription (`.floor() as i64 + ...`) is *not*
+    /// equivalent here: Rust's `as` saturates out-of-range floats and turns
+    /// NaN into `0` (never UB), so a naive port would silently accept
+    /// `coord = NaN` as the tree's exact center key (`0 as i64` lands
+    /// in-bounds after the `+ TREE_MAX_VAL` offset) and would arithmetic-
+    /// overflow-panic on `coord = +inf` or any `coord` whose scaled
+    /// magnitude exceeds `i64::MAX` (`i64::MAX + TREE_MAX_VAL` overflows).
+    /// Bounding `scaled_f` in `f64` space -- both finiteness and the tree's
+    /// actual representable range -- before ever narrowing to `i64` closes
+    /// both failure modes at the one place both originate, rather than
+    /// guarding each call site. **Expiry condition:** reopens if upstream
+    /// ever adds its own finite/range check to `coordToKeyChecked`, at
+    /// which point this becomes a plain transcription instead of a
+    /// deviation.
     fn coord_to_key_checked_axis(&self, coord: f64) -> Option<KeyType> {
-        let scaled =
-            (self.resolution_factor * coord).floor() as i64 + i64::from(Self::TREE_MAX_VAL);
-        if scaled >= 0 && scaled < 2 * i64::from(Self::TREE_MAX_VAL) {
-            Some(scaled as KeyType)
-        } else {
-            None
+        let scaled_f = (self.resolution_factor * coord).floor();
+        let min = -f64::from(Self::TREE_MAX_VAL);
+        let max = f64::from(Self::TREE_MAX_VAL);
+        if !(scaled_f.is_finite() && scaled_f >= min && scaled_f < max) {
+            return None;
         }
+        let scaled = scaled_f as i64 + i64::from(Self::TREE_MAX_VAL);
+        Some(scaled as KeyType)
     }
 
     /// Upstream `coordToKeyChecked(const point3d&, OcTreeKey&)`. `None` if
@@ -1630,6 +1651,78 @@ mod tests {
         assert!(occupied.contains(&hit_key));
         assert!(!free.contains(&hit_key));
         assert!(!free.is_empty());
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_accepts_the_last_value_inside_range() {
+        let tree = OcTree::new(1.0);
+        // resolution_factor == 1.0, so scaled_f == coord.floor(). The last
+        // value for which scaled_f < TREE_MAX_VAL (32768) holds.
+        assert_eq!(tree.coord_to_key_checked_axis(32767.5), Some(u16::MAX));
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_the_first_value_outside_range() {
+        let tree = OcTree::new(1.0);
+        // scaled_f == 32768.0 == TREE_MAX_VAL, which fails the `< max` half
+        // of the bound (upstream's own coordToKeyChecked also rejects this
+        // key, so this is the shared boundary, not the deviation).
+        assert_eq!(tree.coord_to_key_checked_axis(32768.0), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_accepts_the_negative_range_boundary() {
+        let tree = OcTree::new(1.0);
+        // scaled_f == -32768.0 == -TREE_MAX_VAL, the `>= min` boundary.
+        assert_eq!(tree.coord_to_key_checked_axis(-32768.0), Some(0));
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_just_past_the_negative_boundary() {
+        let tree = OcTree::new(1.0);
+        assert_eq!(tree.coord_to_key_checked_axis(-32768.5), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_accepts_the_tree_center() {
+        let tree = OcTree::new(1.0);
+        assert_eq!(tree.coord_to_key_checked_axis(0.0), Some(32768));
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_nan_instead_of_returning_the_center_key() {
+        // The §172 same-defect case: a naive `as i64` cast turns NaN into
+        // `0`, which after the `+ TREE_MAX_VAL` offset lands in-bounds as
+        // key 32768 -- the tree's exact center -- silently, with no error.
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(f64::NAN), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_positive_infinity_without_overflowing() {
+        // The other §172 same-defect case: `f64::INFINITY as i64` saturates
+        // to `i64::MAX`, and the following `+ TREE_MAX_VAL` then overflows
+        // and panics under overflow checks. Must be rejected before either
+        // cast runs.
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(f64::INFINITY), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_negative_infinity() {
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(f64::NEG_INFINITY), None);
+    }
+
+    #[test]
+    fn coord_to_key_checked_axis_rejects_a_huge_finite_coordinate_without_overflowing() {
+        // Finite but large enough that `resolution_factor * coord` is far
+        // outside `i64`'s range once narrowed -- must be caught by the
+        // `f64`-space range check, not by narrowing first and hoping the
+        // subsequent `+ TREE_MAX_VAL` doesn't overflow.
+        let tree = OcTree::new(0.1);
+        assert_eq!(tree.coord_to_key_checked_axis(1e300), None);
+        assert_eq!(tree.coord_to_key_checked_axis(-1e300), None);
     }
 
     #[test]
