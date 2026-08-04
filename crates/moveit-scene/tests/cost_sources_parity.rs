@@ -23,45 +23,48 @@
 //! it only *crosses* a link's mesh boundary rather than swallowing it
 //! whole, did not fix that disagreement -- see the next section.
 //!
-//! # §171's dispatch defect is fixed; two distinct residual defects remain
+//! # §171's dispatch defect is fixed; the path-op split-branch residual has closed too
 //!
 //! §171's original defect (`moveit-collision::parry::mesh_shape_cost_sources`
 //! reporting one `CostSource` per intersecting mesh-side triangle instead of
 //! the one coarse box upstream's `use_approximate_cost_==true` dispatch
-//! produces) was fixed this round by `moveit-collision`'s owner (`c6161b9`,
-//! `2607bef`, merged `f74a2b7`): `mesh_shape_cost_sources` now reports one
-//! box per colliding mesh-link/shape pair, the whole-mesh-AABB/shape-AABB
-//! intersection, matching the *shape* of upstream's dispatch. Re-measured
-//! against the same fixture this round (both numbers below are freshly
-//! measured, not carried over from before the fix):
+//! produces) was fixed by `moveit-collision`'s owner (`c6161b9`, `2607bef`,
+//! merged `f74a2b7`): `mesh_shape_cost_sources` now reports one box per
+//! colliding mesh-link/shape pair, matching the *shape* of upstream's
+//! dispatch. That fix left two residual defects on record (id 2's state-op
+//! box-geometry gap at `2.6899575667278616e-2` against the `1e-9`
+//! threshold; id 3's path-op count mismatch, `1` actual vs `5` expected). A
+//! second, distinct `moveit-collision` fix has since closed both: fitting
+//! the mesh cost-source root box as an oriented OBB rather than an
+//! axis-aligned AABB (`54250b1`). Re-measured this round, not carried over
+//! from that fix's own report:
 //!
-//! - Id 2's state-op nearest-match distance improved from `1.311e-1` to
-//!   `2.6899575667278616e-2` -- five times closer, but still seven orders of
-//!   magnitude above the `1e-9` threshold. The routing is now right (one
-//!   coarse box, not twenty), but the box's own geometry is not bit-exact
-//!   with FCL's: this port's box is `mesh.aabb() ∩ other.compute_aabb()`
-//!   (`crates/moveit-collision/src/parry.rs`, `mesh_shape_cost_sources`),
-//!   which is not necessarily identical to FCL's own `constructBox` +
-//!   box-vs-shape narrowphase result. A `moveit-collision` defect, distinct
-//!   from §171 and still open.
-//! - Id 3's path-op count mismatch changed shape from `3` (actual) vs `5`
-//!   (expected) to `1` vs `5` -- not the same failure §171.7 flagged, so
-//!   the "wait for §171 and remeasure" premise on §171.7 has expired.
-//!   Diagnosis, from this crate's boundary: [`PlanningScene::path_cost_sources`]'s
-//!   own call sequence (union → truncate to `max_costs` → `remove_cost_sources`
-//!   against `cs_start` → `remove_overlapping`) was independently re-verified
-//!   against `planning_scene.cpp:2451-2490` this same round and matches
-//!   faithfully. Id 3's `max_costs` is `2`, yet the oracle's expected final
-//!   count is `5` -- the only mechanism in this pipeline that can grow a
-//!   truncated-to-2 set past 2 is `remove_cost_sources`'s per-axis split
-//!   branch (`crates/moveit-collision/src/tools.rs`, the `add.insert(split)`
-//!   loop for a below-threshold overlap), not `remove_overlapping` (pure
-//!   drop, never adds). This port currently collapses to 1, undershooting
-//!   even the pre-`max_costs` truncation floor, which points at that split
-//!   branch or the coarser boxes now feeding it, inside `moveit-collision` --
-//!   not at this crate's orchestration.
+//! - State-op id 2's nearest-match distance is now
+//!   `6.661338147750939e-16` (measured directly: `cargo nextest run -p
+//!   moveit-scene --test cost_sources_parity
+//!   panda_cost_sources_blocked_by_mesh_shape_cost_sources --run-ignored all
+//!   --no-capture` with a temporary `eprintln!`, output discarded, not
+//!   committed) -- an ULP-level gap indistinguishable from id 1's
+//!   already-passing mesh-vs-mesh noise floor, eight orders of magnitude
+//!   under the `1e-9` threshold, not a real disagreement.
+//! - Path-op ids 3-6 (the split-branch cases) now pass outright, measured
+//!   the same way with `--run-ignored all`:
+//!   [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`] is
+//!   green, so its `#[ignore]` is removed below -- see "Oracle-verified
+//!   coverage for the split branch" further down for what ids 4/6 prove,
+//!   now exercised rather than only reasoned about.
 //!
-//! # Oracle-verified coverage for the split branch already exists in this fixture
+//! One state-op defect remains, distinct from both closed items above: id 5
+//! (`group_name="hand"`) returns `9` cost sources against an
+//! oracle-expected `2` -- a count mismatch the OBB fit does not touch (that
+//! fit changes a box's *geometry*, not how many boxes group filtering
+//! keeps). Attributed to [`PlanningScene::cost_sources`]'s group filtering,
+//! this crate's own code rather than `moveit-collision`'s -- see
+//! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] for the
+//! current `#[ignore]` reason and status; investigation is pending a probe
+//! and numbers, not yet in hand as of this commit.
+//!
+//! # Oracle-verified coverage for the split branch (path ids 4, 6)
 //!
 //! [`PlanningScene::path_cost_sources`] truncates `cs` to `max_costs`
 //! *before* calling `remove_cost_sources`, and `remove_overlapping` (the
@@ -73,38 +76,26 @@
 //! (`max_costs=2`, oracle's expected final count `4`) and id 6
 //! (`max_costs=3`, oracle's expected final count `6`) -- both mathematically
 //! impossible under a pure-truncate-then-drop pipeline, so both are direct
-//! proof the split branch is real and is expected to grow the set past the
-//! cap. This is coverage this crate already has, not a gap to fill with a
-//! new self-collision scenario -- it is only unreachable through the
-//! asserted regression suite because ids 3-6 share the same `objects=1`
-//! mesh-vs-shape shape as id 3's still-open box-geometry defect above, so
-//! they are gated behind the same `#[ignore]`. Un-ignoring
-//! `panda_path_cost_sources_blocked_by_mesh_shape_cost_sources` once that
-//! `moveit-collision` defect is fixed exercises this split-growth proof
-//! directly, with no new fixture needed.
+//! proof the split branch is real and expected to grow the set past the
+//! cap. Previously reasoned about while gated behind an `#[ignore]` this
+//! fixture already carried; now exercised directly, not merely reasoned
+//! about, by [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`]
+//! passing.
 //!
-//! Neither residual defect is a stale-oracle artifact (both numbers
-//! reproduced against the same fixed `moveit-rs/oracle:c88557f4058892e9`
-//! image this round) and neither is fixable from `moveit-scene`:
-//! `mesh_shape_cost_sources`, `remove_cost_sources`, and `remove_overlapping`
-//! are all `moveit-collision` functions. See
-//! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] and
-//! [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`] for the
-//! full per-id detail; those two tests stay `#[ignore]`d, now for these two
-//! new reasons rather than §171's (fixed) one.
-//!
-//! `panda_cost_sources_matches_the_oracle`/
-//! `panda_path_cost_sources_matches_the_oracle` below therefore only run
-//! the case ids that do not depend on that function -- self-collision
-//! (mesh-vs-mesh, unaffected: id 1's 75 entries at ULP-level distances
-//! confirm the mesh-vs-mesh path and the removal/truncation math are both
-//! correct) and the trivial all-zero ids. The ids that need a genuinely
-//! colliding world object/attached body to demonstrate the `max_costs`
-//! below/at/above boundary and `group_name` filtering (state ids 2-6, 8)
-//! or the `overlap_fraction`/splitting behavior against real geometry
-//! (path ids 3-6) are captured in the fixture -- real, oracle-verified
-//! ground truth -- but currently only reachable through the ignored tests
-//! above, not this crate's asserted regression suite.
+//! `panda_cost_sources_matches_the_oracle` below only runs the state-op
+//! case ids unaffected by the one remaining open defect (id 5) --
+//! self-collision (mesh-vs-mesh, unaffected: id 1's 75 entries at
+//! ULP-level distances confirm the mesh-vs-mesh path and the
+//! removal/truncation math are both correct) and the trivial all-zero
+//! ids. `panda_path_cost_sources_matches_the_oracle` covers ids 1-2 the
+//! same way; every other path id (3-6, the split-branch cases) is now
+//! exercised, unconditionally, by
+//! [`panda_path_cost_sources_blocked_by_mesh_shape_cost_sources`] instead
+//! -- both functions run in this crate's regular (non-ignored) suite.
+//! State ids 2-4, 6, 8 also pass now but stay routed through
+//! [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`] alongside the
+//! still-failing id 5, rather than moved to the passing-ids allowlist, so
+//! that test keeps exercising them as a group until id 5 closes.
 //!
 //! # What each case isolates
 //!
@@ -448,28 +439,28 @@ fn panda_cost_sources_matches_the_oracle() {
 /// Ids 2-6 and 8 all put a genuinely colliding world object or attached
 /// body against a panda link, every one of which uses `<collision><mesh>`
 /// geometry (confirmed: no panda link has a primitive-shape collision
-/// geometry to fall back to). §171's original dispatch defect (routing
-/// through a per-triangle traversal instead of upstream's one-coarse-box
-/// path) is fixed this round (`c6161b9`/`2607bef`, merged `f74a2b7`) --
-/// `mesh_shape_cost_sources` now reports one box per pair, the right shape
-/// of answer. What remains, re-measured this round against the same
-/// `moveit-rs/oracle:c88557f4058892e9` fixture: id 2's nearest-match
-/// distance is `2.6899575667278616e-2` against the `1e-9` threshold --
-/// improved from the pre-fix `1.311e-1` (routing was clearly wrong before),
-/// but the box this port now computes
-/// (`mesh.aabb(pose).intersection(other.compute_aabb(pose))` in
-/// `crates/moveit-collision/src/parry.rs`, `mesh_shape_cost_sources`) is a
-/// whole-mesh/whole-shape AABB intersection, not necessarily identical to
-/// FCL's own `constructBox` + box-vs-shape narrowphase box. That geometry
-/// gap, not a routing gap, is what remains -- a `moveit-collision` defect,
-/// distinct from §171 and still open. See this file's module doc for the
-/// full writeup and the sibling path-op test's own (differently-shaped)
-/// residual defect. Tracked as an UNFIXED cross-crate blocker in the
-/// p1-fixtures round report; remove this `#[ignore]` once
-/// `moveit-collision` is fixed and confirm it passes with the existing
-/// `COST_SOURCE_EPSILON`.
+/// geometry to fall back to). §171's original dispatch defect and the
+/// state-op box-geometry gap that followed it (id 2, nearest-match distance
+/// `2.6899575667278616e-2` against the `1e-9` threshold) are both fixed:
+/// `mesh_shape_cost_sources` now reports one box per pair
+/// (`c6161b9`/`2607bef`, merged `f74a2b7`), and fitting the mesh
+/// cost-source root box as an oriented OBB rather than an axis-aligned AABB
+/// (`54250b1`) closed the geometry gap -- id 2 now measures
+/// `6.661338147750939e-16`, see this file's module doc. Ids 3, 4, 6 pass
+/// too, unaffected by either fix.
+///
+/// What remains is a different defect, on a different case: id 5
+/// (`group_name="hand"`) returns `9` cost sources against an
+/// oracle-expected `2` -- a count mismatch, not a nearest-match distance
+/// gap either fix above could touch. p3-acm attributes this to
+/// `PlanningScene::cost_sources`'s own group filtering
+/// (`crates/moveit-scene/src/scene.rs:1796`), this crate's code rather than
+/// `moveit-collision`'s -- relayed here as their attribution, not yet
+/// independently verified: the probe and numbers behind it have not
+/// arrived as of this commit, and investigation has not started. Remove
+/// this `#[ignore]` once id 5 is diagnosed and fixed.
 #[test]
-#[ignore = "blocked on a moveit-collision defect, distinct from the now-fixed §171: mesh_shape_cost_sources's one-box-per-pair AABB intersection is not bit-exact with FCL's own box-vs-shape narrowphase result (id 2 nearest-match distance 2.69e-2 against a 1e-9 threshold, crates/moveit-collision/src/parry.rs, mesh_shape_cost_sources)"]
+#[ignore = "case id 5 (group_name=\"hand\"): count mismatch, 9 actual vs 2 expected -- a group-filtering defect p3-acm attributes to this crate's own PlanningScene::cost_sources, not yet independently investigated pending p3-acm's probe/numbers"]
 fn panda_cost_sources_blocked_by_mesh_shape_cost_sources() {
     let model = build_model();
     let srdf = srdf();
@@ -578,28 +569,25 @@ fn panda_path_cost_sources_matches_the_oracle() {
 
 /// Ids 3-6 all put both waypoints against the same floor slab, so every
 /// survivor after `remove_cost_sources`/`remove_overlapping` traces back to
-/// a `mesh_shape_cost_sources` call. §171's dispatch defect is fixed this
-/// round (see [`panda_cost_sources_blocked_by_mesh_shape_cost_sources`]'s
-/// doc), so this is re-measured, not carried over: id 3's count mismatch
-/// changed from `3` (actual) vs `5` (expected) -- §171.7's reversal -- to
-/// `1` vs `5`, a different shape of mismatch, so §171.7's "wait for §171
-/// and remeasure" is expired; this is a distinct, still-open defect.
-/// [`PlanningScene::path_cost_sources`]'s own call sequence was
-/// independently re-verified against `planning_scene.cpp:2451-2490` this
-/// round (see the doc there) and is faithful; id 3's `max_costs` is `2` and
-/// the expected final count is `5`, which only `remove_cost_sources`'s
-/// per-axis split branch (`crates/moveit-collision/src/tools.rs`) can grow
-/// past the truncation cap -- this port collapses to `1`, undershooting
-/// even that cap, pointing at that split branch or the coarser boxes now
-/// feeding it. A `moveit-collision` defect, not this crate's orchestration.
+/// a `mesh_shape_cost_sources` call. §171's dispatch defect and a later,
+/// distinct box-geometry defect (id 3's count mismatch, `1` actual vs `5`
+/// expected) are both fixed now -- the second by fitting the mesh
+/// cost-source root box as an oriented OBB rather than an axis-aligned AABB
+/// (`54250b1`), per the module doc's "§171's dispatch defect is fixed" and
+/// "Oracle-verified coverage for the split branch" sections. Measured
+/// directly this round with `cargo nextest run -p moveit-scene --test
+/// cost_sources_parity panda_path_cost_sources_blocked_by_mesh_shape_cost_sources
+/// --run-ignored all`: passes. No longer blocked, so the `#[ignore]` is
+/// removed -- a passing test left `#[ignore]`d never runs again, and a
+/// regression here would go unnoticed.
+///
 /// Ids 4 (`max_costs=2` -> expected `4`) and 6 (`max_costs=3` -> expected
-/// `6`) in this same loop are oracle-sourced proof the split branch is
-/// real and does grow past the cap -- see the module doc's "Oracle-verified
-/// coverage for the split branch already exists in this fixture" section;
-/// this test already carries that coverage, it is only gated behind this
-/// `#[ignore]`. Remove this `#[ignore]` once `moveit-collision` is fixed.
+/// `6`) in this same loop are oracle-sourced proof `remove_cost_sources`'s
+/// per-axis split branch is real and does grow the set past `max_costs` --
+/// see the module doc's "Oracle-verified coverage for the split branch"
+/// section; this test now exercises that proof directly rather than only
+/// reasoning about it while gated behind an `#[ignore]`.
 #[test]
-#[ignore = "blocked on a moveit-collision defect, distinct from the now-fixed §171: id 3 (max_costs=2, expected 5 after remove_cost_sources's per-axis split) collapses to 1 survivor instead, in crates/moveit-collision/src/tools.rs (remove_cost_sources/remove_overlapping) or the coarser mesh_shape_cost_sources boxes feeding them"]
 fn panda_path_cost_sources_blocked_by_mesh_shape_cost_sources() {
     let model = build_model();
     let srdf = srdf();
