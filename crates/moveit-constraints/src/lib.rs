@@ -392,7 +392,32 @@
 //!   never having succeeded) cannot be constructed at all in this port,
 //!   because `new()` returns `Result` and a `IkConstraintSampler` value
 //!   only ever exists already-configured. Nothing is left to route the
-//!   branch to. (b) no production caller, per Round 13's evidence above
+//!   branch to. (b) no production caller, per Round 13's evidence above.
+//!   Round 15: that unreachability was believed, not yet checked as a
+//!   closed invariant — `new()` being fallible only proves *one* path is
+//!   guarded, not that it's the *only* path. Anchor
+//!   (`rg -n '\-> Self|\-> Result<Self>|Self \{' sampler.rs ik_sampler.rs`)
+//!   finds exactly one `Self { .. }` site per sampler type
+//!   (`JointConstraintSampler` sampler.rs:237, `UnionConstraintSampler`
+//!   sampler.rs:369, `IkConstraintSampler` ik_sampler.rs:185,
+//!   `IkConstraintSamplerAdapter` ik_sampler.rs:602), and every one sits
+//!   inside that type's own fallible `new()`, wrapped in `Ok(..)` — no
+//!   second constructor exists to classify. Checked and ruled out for all
+//!   four types: no `#[derive(Default)]` or hand-written `impl Default`
+//!   (an all-zero/empty default would skip `new()`'s checks entirely), no
+//!   `serde::Deserialize` impl (would reconstruct an unchecked value from
+//!   external bytes), no `pub`/`pub(crate)` field (would let struct-literal
+//!   syntax build one from outside `new()`'s own function body — every
+//!   field on all four types is private to its module, and neither module
+//!   contains a second struct-literal site to receive such a leak even if
+//!   one existed), and no `unsafe` block (no transmute/`MaybeUninit`
+//!   escape hatch). `#[derive(Clone)]` on `IkConstraintSampler` is the one
+//!   other value-producing path and is `through new()`, not a bypass: it
+//!   can only duplicate a receiver that itself already passed `new()`, so
+//!   it cannot conjure a never-configured value from nothing. Classification
+//!   for all four: `through new() (ok)`, zero bypasses — the invariant is
+//!   structural (unrepresentable by the type), not merely convention as
+//!   Round 14 had left it
 //! - CS: `getVerbose()` -> gap: no verbose/logging mode exists anywhere in
 //!   this crate. Round 13 evidence: `verbose_` only ever gates an
 //!   `RCLCPP_INFO`/`RCLCPP_WARN` call or is forwarded into
@@ -599,6 +624,20 @@
 //! second `gap`.
 //!
 //! 18 + 23 + 8 + 6 + 11 = 66.
+//!
+//! # Assert-relative-eq inventory (round 15, this crate's own count)
+//!
+//! `grep -rn 'assert_relative_eq!(' crates/moveit-constraints/ --include=*.rs
+//! | grep -vE ':[0-9]+:\s*(///|//!)'` — the call pattern with its doc-comment
+//! lines (`///`/`//!`) filtered back out, so a doc paragraph that names the
+//! macro without invoking it (this very paragraph, once written, is one, and
+//! the filter is what keeps this command self-consistent rather than
+//! self-inflating) cannot count itself; the workspace has already been
+//! bitten four times, §73.1/§83.3/§92/§104.1, by trusting a raw occurrence
+//! count over a real macro-invocation scan. Returns **0** matches, exit
+//! code 1, across `src/`, `tests/`, and `Cargo.toml`. No `epsilon`-only,
+//! `max_relative`-only, both-present, or neither-present site exists in
+//! this crate to classify or bisect.
 
 mod constraint_sampler_manager;
 mod ik_sampler;

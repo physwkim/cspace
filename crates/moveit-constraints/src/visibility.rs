@@ -371,6 +371,58 @@ impl VisibilityConstraint {
     /// `"cone"`. None of this depends on `moveit-scene`'s `PlanningScene`
     /// (not yet built by this port) or any collision state the caller
     /// might be tracking elsewhere.
+    ///
+    /// # Round 15: the pr2 115/2,201 depth mismatch is a traversal-order
+    /// property, not a defect here
+    ///
+    /// Re-run fresh against the current tree and oracle (`moveit-diff
+    /// --urdf crates/moveit-constraints/tests/fixtures/pr2.urdf --srdf
+    /// crates/moveit-constraints/tests/fixtures/pr2.srdf --group right_arm
+    /// --constraints 2000 --cases 100 --seed 4 --oracle
+    /// tools/moveit-oracle/run-oracle.sh`, 2026-08-04): `cases: 2201,
+    /// passed: 2086, failed: 115`, every failure a `visibility_cone`
+    /// *distance* mismatch; `visibility_cone: 142 satisfied, 143 violated`
+    /// on both sides, 0 boolean mismatches. Unchanged from the numbers this
+    /// port's own history already recorded once mesh collision geometry
+    /// landed (`moveit-model`/`moveit-collision` now retain and convert
+    /// pr2's STL links) — so the mismatch is not the absence of mesh
+    /// geometry.
+    ///
+    /// `decide_cone`'s own logic is not the cause: `cone_mesh` is a direct
+    /// vertex/triangle transcription of upstream's `getVisibilityCone`
+    /// (see that fn's own doc), `max_contacts: 1` here matches upstream's
+    /// `req.max_contacts = 1`
+    /// (`kinematic_constraint.cpp:1163`) exactly, and
+    /// `allow_sensor_or_target_contact` matches `decideContact` exactly.
+    /// If any of the three disagreed with upstream, the *verdict* would
+    /// disagree too on at least some cases — it never does.
+    ///
+    /// The actual cause: with `max_contacts: 1`, only the first robot-link
+    /// contact found is *stored* (`moveit-collision`'s
+    /// `accumulate_collision`, `stored_total < request.max_contacts` at
+    /// `parry.rs:1120`), even though the `collision` boolean itself is set
+    /// from every pair regardless of storage (`parry.rs`'s own doc on that
+    /// fn) — which is why the verdict always agrees but the stored depth
+    /// can still differ. Which link is "first" is traversal order:
+    /// `check_robot_collision` here iterates `cross_pairs(&robot, &world)`
+    /// (`parry.rs:1324`), itself `robot_bodies`'s
+    /// `state.model().link_models()` order (`parry.rs:765`) — a fixed URDF
+    /// array order. Upstream's equivalent (`collision_common.cpp`'s FCL
+    /// broadphase callback, budget-gated identically at
+    /// `collision_common.cpp:198`) is invoked by an FCL broadphase manager
+    /// over its own internal BVH, an order neither backend's public API
+    /// documents or guarantees. Two different collision backends
+    /// enumerating the same colliding set in two different, equally valid
+    /// orders will pick two different "first" contacts whenever more than
+    /// one robot link touches the cone at once — which on pr2's
+    /// densely-packed arm, at near cone placements, is common. This is a
+    /// property of swapping collision backends under an order-dependent
+    /// budget, not a bug in `cone_mesh`, `decide_cone`, or
+    /// `allow_sensor_or_target_contact`, and not fixable from this crate:
+    /// the only place that could change it, `moveit-collision`'s pair
+    /// traversal order, is not owned by this crate, and reproducing FCL's
+    /// undocumented internal BVH order there would not be a stable target
+    /// to port to even if it were.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let Some(result) = self.decide_by_angle(state) else {
             return self.decide_cone(state);
