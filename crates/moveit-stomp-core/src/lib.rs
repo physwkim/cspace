@@ -104,6 +104,6 @@ pub use task::Task;
 pub use utils::{
     DerivativeOrder, FINITE_CENTRAL_DIFF_COEFFS, FINITE_DIFF_RULE_LENGTH,
     FINITE_FORWARD_DIFF_COEFFS, Rollout, StompConfiguration, TrajectoryInitialization,
-    differentiate, generate_finite_difference_matrix, generate_smoothing_matrix, matrix_to_string,
-    rows_to_string, to_vector, vector_to_string,
+    differentiate, full_piv_lu_try_inverse_or_empty, generate_finite_difference_matrix,
+    generate_smoothing_matrix, matrix_to_string, rows_to_string, to_vector, vector_to_string,
 };

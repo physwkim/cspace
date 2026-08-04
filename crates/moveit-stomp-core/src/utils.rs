@@ -147,9 +147,16 @@ pub(crate) const DEFAULT_NOISY_COST_IMPORTANCE_WEIGHT: f64 = 1.0;
 /// unconditionally, underflowing a `usize` and panicking for a 0x0 matrix,
 /// where Eigen inverts an empty matrix without complaint -- see
 /// [`generate_smoothing_matrix`]'s own "`num_timesteps == 0`" doc section
-/// for the full reasoning. `pub(crate)`: an implementation detail this port
-/// introduces to keep that fix in one place, not upstream API surface.
-pub(crate) fn full_piv_lu_try_inverse_or_empty(m: DMatrix<f64>) -> Option<DMatrix<f64>> {
+/// for the full reasoning.
+///
+/// `pub`, not `pub(crate)`: round 23 gave this a second consumer outside
+/// this crate. `moveit_planners_stomp::noise_generators::
+/// normal_distribution_generator` builds the exact same shape of matrix
+/// (`getNormalDistributionGenerator`'s `acceleration.transpose() *
+/// acceleration`, also `A^T * A` for a finite-difference `A`) and needs the
+/// same 0x0-panic-safe inversion -- reusing this function keeps the fix in
+/// its one place rather than re-deriving it a second time.
+pub fn full_piv_lu_try_inverse_or_empty(m: DMatrix<f64>) -> Option<DMatrix<f64>> {
     if m.nrows() == 0 {
         return Some(DMatrix::zeros(0, 0));
     }
