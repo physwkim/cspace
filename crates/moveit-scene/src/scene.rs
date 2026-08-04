@@ -104,6 +104,104 @@ pub struct PathValidity {
 /// `ObjectColorMap`, `ObjectTypeMap`) are types referenced by member
 /// signatures, not members themselves, and are not counted.
 ///
+/// The paragraph above was incomplete: mechanically reproducing it this
+/// round (below) surfaced a second folding step it never named. Same-named
+/// overload folding alone takes the header's 151 raw `public:` declarations
+/// down to 85 distinct symbol names, not 60 — a further step, editorial
+/// clustering of *different*-named declarations that share one purpose,
+/// does the rest: `getName`/`setName` (a getter/setter pair), `OCTOMAP_NS`/
+/// `DEFAULT_SCENE_NAME` (two constants introduced together), and the
+/// six-symbol object-color and object-type accessor families each collapse
+/// onto one bullet despite having no name in common. This step was already
+/// in use throughout the list below; it just wasn't written down.
+///
+/// Reproduced this round (run from the `moveit2` checkout root):
+///
+/// ```text
+/// $ python3 - << 'EOF'
+/// import re
+/// from collections import Counter
+/// path = "moveit_core/planning_scene/include/moveit/planning_scene/planning_scene.hpp"
+/// lines = open(path).readlines()
+/// block = lines[92:926]
+/// text = "".join(block)
+/// def strip_comments_keep_lines(s):
+///     out, i, n = [], 0, len(s)
+///     while i < n:
+///         if s[i:i+2] == '/*':
+///             j = s.find('*/', i+2); j = n if j == -1 else j+2
+///             out.append('\n' * s.count('\n', i, j)); i = j
+///         else:
+///             out.append(s[i]); i += 1
+///     return ''.join(out)
+/// clean = strip_comments_keep_lines(text)
+/// clean = '\n'.join(l[:l.find('//')] if '//' in l else l for l in clean.split('\n'))
+/// depth, decls, body_stack, decl_start = 0, [], [], None
+/// for lineno, raw in enumerate(clean.split('\n'), start=1):
+///     if depth == 0 and raw.strip() and decl_start is None:
+///         decl_start = lineno
+///     for ch in raw:
+///         if ch == '{':
+///             depth += 1
+///             if depth == 1:
+///                 body_stack.append(decl_start or lineno)
+///         elif ch == '}':
+///             if depth == 1:
+///                 decls.append((body_stack.pop(), lineno)); decl_start = None
+///             depth -= 1
+///         elif ch == ';' and depth == 0:
+///             decls.append((decl_start or lineno, lineno)); decl_start = None
+/// names = []
+/// for s, e in decls:
+///     snippet = re.sub(r'\s+', ' ', ' '.join(l.strip() for l in clean.split('\n')[s-1:e] if l.strip()))
+///     if snippet.startswith('~'):
+///         names.append(snippet[:snippet.index('(')].strip()); continue
+///     if snippet.startswith('PlanningScene& operator='):
+///         names.append('operator='); continue
+///     if snippet.startswith('PlanningScene('):
+///         names.append('PlanningScene(ctor)'); continue
+///     m = re.match(r'static const std::string (\w+);', snippet)
+///     if m:
+///         names.append(m.group(1)); continue
+///     idents = [g for g in re.findall(r'([A-Za-z_]\w*)\s*\(', snippet) if g != 'deprecated']
+///     names.append(idents[0] if idents else '<static-member>')
+/// print(f"raw declarations: {len(decls)}, distinct names: {len(set(names))}")
+/// for name, cnt in sorted(Counter(names).items(), key=lambda x: (-x[1], x[0])):
+///     if cnt > 1:
+///         print(f"  {name}: {cnt} overloads")
+/// EOF
+/// raw declarations: 151, distinct names: 85
+///   isPathValid: 8 overloads
+///   checkCollision: 6 overloads
+///   checkCollisionUnpadded: 6 overloads
+///   checkSelfCollision: 6 overloads
+///   getCollidingLinks: 6 overloads
+///   getCollidingPairs: 6 overloads
+///   isStateColliding: 5 overloads
+///   isStateValid: 5 overloads
+///   distanceToCollision: 4 overloads
+///   distanceToCollisionUnpadded: 4 overloads
+///   getCostSources: 4 overloads
+///   getFrameTransform: 4 overloads
+///   isStateConstrained: 4 overloads
+///   PlanningScene(ctor): 2 overloads
+///   diff: 2 overloads
+///   getCollisionEnv: 2 overloads
+///   getCollisionEnvUnpadded: 2 overloads
+///   getPlanningSceneMsg: 2 overloads
+///   getTransforms: 2 overloads
+///   isStateFeasible: 2 overloads
+///   knowsFrameTransform: 2 overloads
+///   loadGeometryFromStream: 2 overloads
+///   processOctomapMsg: 2 overloads
+///   setCurrentState: 2 overloads
+/// ```
+///
+/// Every overload count printed above matches the count already recorded
+/// inline on its bullet below, and every one of the 85 distinct names is
+/// referenced by exactly one of the 60 bullets — the header and this list
+/// still agree.
+///
 /// ## Construction, identity, parent/child
 ///
 /// - `PlanningScene(RobotModel, World)` / `PlanningScene(urdf, srdf, World)`
