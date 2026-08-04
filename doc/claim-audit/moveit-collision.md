@@ -271,33 +271,47 @@ joint states, `visibility_cone_depth_sweep.rs`'s near-branch
 `assert_eq!(winning_triangle_had_vertex_one, 4, ...)` will fail loudly if
 it moves.
 
-## Item deferred to the orchestrator: an out-of-tree libccd comparison gate (round 25)
+## The out-of-tree libccd comparison harness is committed (round 26)
 
-The coordinator's round-24 feedback also asked for a `tools/ci/` script
-that builds libccd when present and drives both `ccdMPRPenetration` and
-this backend's own EPA on case 104's triangle/cylinder pair, loudly
-skipping (not silently) when libccd is absent. `tools/ci/` belongs to the
-orchestrator, not this panel (task brief, standing scope rule) — not
-written here. Spec, so the orchestrator or whichever panel owns
-`tools/ci/` doesn't have to re-derive it from this file's prose:
+Round 25's committed harness (`tools/mpr-vs-epa/`) replaces this section's
+own earlier round-25 draft, which pointed at an uncommitted scratch file
+(§201: a C program that produced the number closing deviation 6 is
+evidence for a claim this file depends on, not disposable scaffolding —
+it belongs in-tree). Two pieces, one reconstruction:
 
-- Detect libccd the same way this round's own scratch build did: look for
-  a system install first (`pkg-config --exists ccd` or a `ccd/ccd.h`
-  header on the include path), then optionally a pinned from-source build
-  at a fixed path/tag (`v2.1`, `CCD_DOUBLE`) if the orchestrator wants
-  reproducibility independent of the host's package version.
-- On found: build and run a small C harness (round 21's own
-  `dev7/mpr_case104.c` scratch file is a working reference — not
-  committed anywhere, ask this panel for a copy if a starting point
-  helps) against case 104's fixed triangle/cylinder numbers (both already
-  committed: the triangle in this crate's
-  `visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid`/
-  case-104's own doc comment in `parry.rs`, the cylinder radius/length in
-  `pr2.urdf`'s `bl_caster_l_wheel_link`). Assert `ccdMPRPenetration`'s
-  depth is within some small relative tolerance of the oracle's own
-  captured `7.47914550966356367e-2` (this round's own measurement:
-  `~7.3ppm`; a tolerance in the `1e-5`–`1e-4` relative range gives margin
-  without being vacuous) and print both numbers and their ratio.
+- `crates/moveit-collision/examples/case104_mpr_input.rs` (this crate):
+  reconstructs case 104 (pr2 FK from `tools/moveit-diff`'s own captured
+  `joint_values`, `VisibilityConstraint::cone_mesh`'s formula reproduced
+  the same way `collision_parity.rs`'s own generalization test reproduces
+  it, this backend's own deepest-triangle-vs-cylinder search) and prints
+  the winning triangle plus cylinder geometry to stdout — self-checked
+  against the captured reference depth on every run (`assert!` against
+  `-2.08696987934593702e-2`), so a future drift in either copy of the
+  `cone_mesh` formula fails loudly instead of emitting silently-stale
+  numbers.
+- `tools/mpr-vs-epa/mpr_case104.c` + `build.sh`: takes that reconstruction
+  on stdin and runs the real, unmodified `ccdMPRPenetration` (libccd `v2.1`,
+  `CCD_DOUBLE`, `build.sh` pins and verifies the tag) on it — never
+  re-deriving the triangle itself, exactly the `parry.rs` deviation-6(b)
+  doc's own worked example, now reproducible from source instead of prose.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this harness | end-to-end (`cargo run --release --example case104_mpr_input -p moveit-collision \| tools/mpr-vs-epa/build/mpr_case104`) reproduces both previously-reported numbers | CONFIRMED | stdout `mpr_depth=7.47919999515277989e-02`, stderr EPA depth `-0.020869698793459224` — both match round 21/25's own reported figures exactly |
+
+`tools/ci/` itself belongs to the orchestrator, not this panel (task
+brief, standing scope rule) — `tools/ci/verify-mpr-vs-epa.sh` is not
+written here. Spec for whoever writes it:
+
+- Detect libccd the same way `build.sh` does: `git -C "$LIBCCD_SRC"
+  describe --tags --exact-match` must read `v2.1`; default `LIBCCD_SRC` to
+  `/home/stevek/work/libccd`, override via env var elsewhere.
+- On found: `tools/mpr-vs-epa/build.sh`, then run the pipeline in this
+  file's own table above. Assert `ccdMPRPenetration`'s depth is within
+  some small relative tolerance of the oracle's own captured
+  `7.47914550966356367e-2` (this round's own measurement: `~7.3ppm`; a
+  tolerance in the `1e-5`–`1e-4` relative range gives margin without being
+  vacuous) and print both numbers and their ratio.
 - On not found: print a clearly-labeled `SKIP` line (not silence — §196)
   naming exactly what was not checked, and exit success. A CI system that
   reads only the exit code must not be able to mistake this for a real
