@@ -852,6 +852,26 @@ acceleration override. The other five overrides all correspond to a
 case's own measured max genuinely exceeding the shared constant, so no
 further holes exist in this table.
 
+**Case E's own two constants, excluded above as predating Case F, checked
+against the same rule** (not part of the seven-constant count, but not
+an unexamined gap either):
+
+| case | channel | measured | shared | override | needed? |
+|---|---|---:|---:|---:|---|
+| 112° (case E) | velocity | `8.276e-8` | `8e-8` | `1e-7` | yes -- exceeds shared |
+| 112° (case E) | acceleration | `1.6513e-6` | `1.2e-6` | `2e-6` | yes -- exceeds shared |
+| 112°, r=0.08 (Case I) | position | `1.2312e-8` | `1e-8` | `1.5e-8` | yes -- exceeds shared |
+| 112°, r=0.08 (Case I) | velocity | `1.1429e-7` | `8e-8` | `1.4e-7` | yes -- exceeds shared |
+| 112°, r=0.08 (Case I) | acceleration | `2.2703e-6` | `1.2e-6` | `2.8e-6` | yes -- exceeds shared |
+
+Both of case E's own constants are genuine excesses over the shared
+ceiling, same as the seven Case F added and the three Case I added
+later in this file -- no hole in either. Every override constant this
+file has ever carried is now accounted for in one of the two tables
+above, and `check-pilz-tolerance-overrides.sh` (see "Mechanizing the
+tolerance-hole audit" below) keeps that true for whatever is added
+next.
+
 ## Case I: does the case C near-tie come from radius, from angle, or from neither alone
 
 Four fixtures now give three radius/angle combinations at the two
