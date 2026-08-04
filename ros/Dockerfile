@@ -1,6 +1,8 @@
-# ROS 2 Rolling + Rust image for building/testing `ros/moveit-ros`.
+# ROS 2 Rolling + moveit_msgs + Rust image for building/testing
+# `ros/moveit-ros`.
 #
-# Deliberately separate from `tools/moveit-oracle`'s image: adding Rust there
+# Deliberately separate from `tools/moveit-oracle`'s image: adding Rust (or
+# moveit_msgs, which the oracle's own moveit_core build never needed) there
 # would change that image's stamp, and every one of the seven other panels'
 # fixture verification keys off that stamp for reasons that have nothing to
 # do with ROS interop. See PORTING-PLAN.md §129.4.
@@ -16,20 +18,34 @@
 # image too -- so this and the oracle rebuild together, not on unrelated
 # C++ changes.
 #
-# No moveit_msgs in this image (yet): building it needs the pinned
-# third_party/moveit_msgs checkout, and round 1 of Phase 9 scopes to the
-# type-conversion *design* plus proving r2r builds at all -- see
-# ros/moveit-ros/doc/message-mapping.md and PORTING-PLAN.md's Phase 9 round-1
-# brief. std_msgs/geometry_msgs/sensor_msgs/trajectory_msgs/shape_msgs/
-# object_recognition_msgs/octomap_msgs/action_msgs/builtin_interfaces all
-# ship in the base image already (verified: `docker run --rm --entrypoint
-# bash "$BASE_IMAGE" -lc 'source /opt/ros/rolling/setup.bash; ls
-# /opt/ros/rolling/share'`), which is enough surface for this round's
-# geometry_msgs conversions.
+# moveit_msgs, built from the third_party/moveit_msgs reference checkout
+# (round 2, PORTING-PLAN.md Phase 9). Its own dependencies
+# (octomap_msgs/action_msgs/sensor_msgs/geometry_msgs/trajectory_msgs/
+# shape_msgs/object_recognition_msgs/std_msgs) all ship in the base image
+# already (verified round 1: `docker run --rm --entrypoint bash "$BASE_IMAGE"
+# -lc 'source /opt/ros/rolling/setup.bash; ls /opt/ros/rolling/share'`), so
+# this is a standalone `colcon build --packages-select moveit_msgs` -- no
+# moveit_core, no C++ planning stack, none of the oracle's ~5GB build. build.sh
+# exports third_party/moveit_msgs at its committed HEAD into this image's
+# build context (git-archive, same pattern as tools/moveit-oracle/build.sh,
+# same reason: no dirty tree, no .git) rather than using the oracle's own
+# already-built /ws/install -- FROM-ing the oracle's per-round-stamped image
+# would tie this image's build to whichever worktree happened to build the
+# oracle last, exactly the staleness problem BASE_IMAGE's manifest-digest pin
+# (below) already avoids for the base layer.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR /ws/src
+COPY moveit_msgs /ws/src/moveit_msgs
+WORKDIR /ws
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+    && colcon build \
+       --packages-select moveit_msgs \
+       --cmake-args -DCMAKE_BUILD_TYPE=Release \
+       --event-handlers console_direct+
 
 # libclang-dev: r2r's build.rs (via bindgen) needs libclang.so at a
 # predictable path. The base image already carries libclang-common-18-dev/
