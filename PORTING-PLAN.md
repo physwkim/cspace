@@ -10477,3 +10477,89 @@ p6-totg가 `acceleration_filter`에서 겪은 것(모듈이 exported target set�
 가능성이 높지만, **무엇을 비교할지 모르는 채로 이미지를 12패키지 불리는
 것**이 순서가 뒤바뀐 것이다. 재빌드는 스탬프가 바뀌므로 전 패널이
 영향을 받는다.
+
+## 123. 두 건의 소유 조정 — 공유 타입과 갈라진 간극 (2026-08-04)
+
+Phase 8을 세 패널에 나눠 열자마자 소유가 갈리는 자리가 둘 나왔다. 둘 다
+패널이 스스로 발견해서 **작업을 멈추고 물어 온 것**이고, 그것이 맞는
+처리다 — 양쪽이 각자 만들었으면 중복이나 잘못된 의존 방향으로 굳었다.
+
+### 123.1 `multivariate_gaussian`은 상류에 두 벌이다
+
+`p6-totg`가 CHOMP를 시작하면서 상류 두 벌을 직접 대조했다
+(`chomp_motion_planner/multivariate_gaussian.h` vs
+`stomp_moveit/math/multivariate_gaussian.hpp`):
+
+- **같은 것**: `mean_`/`covariance_`/`covariance_cholesky_`(`llt().matrixL()`),
+  표준정규 샘플 루프
+- **다른 것**: 네임스페이스, STOMP 쪽 `shared_ptr` typedef, 그리고
+  STOMP `sample()`의 `bool use_covariance = true` 매개변수
+
+**결정: `crates/moveit-sampling` 하나에 두고 두 플래너가 의존한다.**
+소유는 `p3-shapes`(STOMP 담당) — 그쪽 라운드 범위에 이미 들어 있었고
+`p6-totg`는 이번 라운드에 보류했기 때문이다. CHOMP는 옵티마이저에
+도달하는 라운드에 같은 크레이트를 쓴다.
+
+**플래너가 형제 플래너에 의존하는 방향은 쓰지 않는다.** `chomp → stomp`도
+`stomp → chomp`도 아니다. 한쪽이 다른 쪽의 내부 결정에 묶이고,
+`check-dep-direction.sh`가 막아야 할 모양이 새 크레이트 사이에서 다시
+생긴다. 타입 하나짜리 크레이트가 과한 것 아니냐는 반론은 성립하지 않는다 —
+소비자가 **오늘 둘 다 존재한다.** 미래를 위한 추상이 아니다.
+
+**`use_covariance` bool은 옮기지 않는다.** 그것은 한 함수가 문맥에 따라
+두 가지를 뜻하게 만드는 자리이고, 이 문서가 반복해서 결함의 원인으로
+지목해 온 모양 그대로다. Rust API는 이름 붙은 메서드 둘로 가른다.
+CHOMP는 그중 하나만 부른다 — 즉 CHOMP 쪽에는 분기가 아예 없다.
+
+루트 `Cargo.toml`(내 소유)에 `moveit-sampling` 경로 항목과 `rand_distr`을
+넣었다(`639c292`). `rand`에는 분포가 없어서 표준정규를 얻으려면
+`rand_distr`이 필요하다. **핀하기 전에 실제로 확인했다**: `rand_distr 0.6`이
+`rand 0.10.2` 하나로 해소되고(중복 없음) `rand_chacha`와 컴파일된다.
+`StdRng`는 못 쓴다 — 워크스페이스가 `rand`를 `default-features = false`로
+두어 `std_rng`가 꺼져 있고, 그래서 `rand_chacha`가 따로 있는 것이다.
+
+### 123.2 `LeavesInBbx` 간극이 두 조각으로 갈라졌다
+
+§120.5에서 `p3-shapes`가 이름으로 남긴 항목을 `p3-distance-field`가
+소비자 쪽에서 확인했다. 처음으로 정확한 간극이 나왔다.
+
+`octree_points`(`distance_field.rs:95`)는 `Leaf`의 접근자 **8개 중 3개**만
+읽는다 — `is_occupied()`, `coordinate()`, `size()`. **내가 직접 확인했다.**
+읽지 않는 다섯: `key()`, `index_key()`, `depth()`, `log_odds()`,
+`occupancy()`.
+
+그리고 담당이 `p3-shapes`의 새 `leaves_parity.rs`를 **먼저 읽고**,
+그 테스트가 자기를 정당화한 논리를 그대로 적용했다:
+
+> `tree_iterator`와 `leaf_iterator`는 서로 다른 상류 클래스이므로
+> 한쪽의 검증이 다른 쪽으로 전이되지 않는다
+
+같은 논리로 `leaf_iterator`의 순서가 이제 핀됐어도 **`leaf_bbx_iterator`로
+전이되지 않는다.** 남의 커밋을 "관련 있으니 닫혔다"로 세지 않았다.
+
+**정확한 간극 두 조각**:
+
+1. 다섯 필드는 **어느 크레이트에도 소비자가 없다** → `moveit-octomap`에서만
+   닫을 수 있다. 소비자 없는 필드에 픽스처를 붙이는 것이 맞는지 자체가
+   판단할 거리이므로 그 판단도 `p3-shapes`에 넘긴다.
+2. leaf 간 방출 순서는 **어느 테스트에서도 실행되지 않는다** → 여기서
+   갈린다. `octree_points`가 받은 순서를 **충실히 전달하는가**는 같은
+   언어 안의 질문이라 오라클이 필요 없고 `p3-distance-field`가 닫는다.
+   그 순서가 상류와 **일치하는가**는 교차 언어라 `moveit-octomap` 쪽
+   `leaf_bbx_iterator` 파리티 픽스처가 필요하다.
+
+`octree_points`의 doc에 있던 "in emission order"는 **한 leaf 안의 세분
+순서**를 뜻하는데 leaf 간 순서로 읽힌다. 오해를 낳는 문구이므로 고치라고
+지시했다.
+
+### 123.3 이 라운드가 아무것도 커밋하지 않았다는 것
+
+`p3-distance-field` 19라운드는 세 항목을 전부 해내고 **커밋을 하나도
+남기지 않았다.** 결론이 보고서 안에만 있다. 다음 사람이 크레이트를 열면
+간극도, `both=27 epsilon_only=3`도, "argued-only 0건"도 볼 수 없다.
+
+**보고서는 저장소가 아니다.** 감사 라운드의 산출물은 코드 변경이 아니라
+**문장**일 때가 많고, 그 문장이 트리에 없으면 다음 라운드가 같은 것을 다시
+잰다 — 이 문서가 §113.3으로 이미 한 번 겪은 실패다. 크레이트 doc이
+자리다(`PORTING-PLAN.md`는 내 파일이므로 패널이 쓰지 않는다). 라운드 20의
+1항으로 돌려보냈다.
