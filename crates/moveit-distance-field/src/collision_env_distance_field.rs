@@ -3371,8 +3371,8 @@ mod tests {
             !attached_gradient.sphere_locations.is_empty(),
             "unlike the link loop above it, group_state_representation's \
              attached-body loop must set sphere_locations at fresh-build \
-             time (collision_env_distance_field.cpp:1249) -- a real upstream \
-             asymmetry this port preserves"
+             time (collision_env_distance_field.cpp:1246-1247) -- a real \
+             upstream asymmetry this port preserves"
         );
         assert_eq!(
             attached_gradient.sphere_locations.len(),
