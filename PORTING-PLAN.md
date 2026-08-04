@@ -9253,3 +9253,229 @@ config  최대                                      1 ulp
 `verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK
 (42.6000% > 35.1222%), `verify-fixture-replay.sh` **30/30 identical**
 (새 이미지 `e7d32225310d3278`로 재실행).
+
+## 108. p1-joints 라운드 14 머지
+
+3커밋(`c93d27d`, `985fc87`, `1f4be38`).
+
+### 108.1 비트 일치 두 자리는 `assert_eq!`가 됐다
+
+`invariants.rs:162`(`harmonize_positions` 변환)과 `:328`
+(`norm_sqr_after == 1.0`)이 `assert_relative_eq!`에서 `assert_eq!`로
+바뀌었다. 두 자리의 성격이 다르다는 것을 주석이 구분한다 — 앞은 구조적
+항등, 뒤는 **이 입력에서만** 측정된 정확값. 그 구분이 중요한 이유는
+뒤쪽이 입력이 바뀌면 깨질 수 있다는 뜻이기 때문이고, 주석에 그대로
+적혀 있다. §100.3이 지적한 p3-distance-field와의 불일치가 닫혔다.
+
+### 108.2 44 멤버를 이름으로 다 적었다
+
+`cached_ik_kinematics_plugin.hpp`의 `public:` 선언을 다시 한 줄씩 읽어
+`IKCache` 20(8 이식), `IKCacheMap` 6(0), `CachedIKKinematicsPlugin`
+12(6), `CachedMultiTipIKKinematicsPlugin` 6(0) = **44 중 14 이식**으로
+적었다. 세는 기준 네 가지가 명시됐다. 표만 있고 이름이 없던 것이
+이번에 이름으로 바뀌었다 — 검증 가능한 형태다.
+
+### 108.3 퇴화 카운터는 실제로 0을 읽고, 0이 아니게 만드는 길이 있다
+
+300케이스 실제 스윕에서 `rust_degenerate: 0, oracle_degenerate: 0`
+(297/294 성공). 브리프가 요구한 "stub 솔버로 0이 아니게 만들어라"는
+`rust_impl::IkSolver`가 구체 struct라 trait 이음매가 없어 그대로는
+안 된다 — **그러나 담당이 대신 도달 가능한 실제 경로를 찾았다.**
+목표가 이미 `FK(seed)`인 케이스는 `cart_to_jnt`의 첫 반복에서
+`q_full`을 건드리기 전에 수렴해 씨앗을 비트 그대로 돌려준다. 그것을
+`a_case_already_at_the_seed_pose_converges_to_the_seed_unmoved`로
+고정했다(`tools/moveit-diff/src/main.rs:2071`, 내가 확인했다).
+
+요구를 그대로 못 하면 **요구가 겨냥한 것을 다른 길로 달성한다** —
+"trait 이음매가 없어서 못 합니다"로 닫지 않은 것이 맞다.
+
+## 109. p1-robotmodel 라운드 14 머지
+
+3커밋(`9933635`, `4099374`, `8401fd3`).
+
+### 109.1 `registry.rs`의 처분 절이 현재 상태로 다시 쓰였다
+
+앵커 `rg -n 'not started|proposed|planned|would need|does not exist
+today' crates/moveit-planners-sbp/src crates/moveit-constraints/src`가
+3건을 냈고, 2건 same-defect(고침), 1건(`rrt_connect`의 goal-region
+파라미터 부재)은 distinct로 남겼다. 머지 후 내가 같은 앵커를 다시
+돌렸다 — 남은 히트는 새로 쓰인 문단의 `"ported, not proposed"` 하나뿐이다.
+
+### 109.2 남은 11개 `gap`을 두 질문으로 다시 봤다
+
+`setGroupStateValidityCallback`이 오분류였던 이유(헤더는 setter로
+보이지만 `.cpp`에서 게이트)를 기준으로 11건을 다시 판정했다.
+
+- `isValid()` — 상류에서 **분기 조건이 맞다.** 다만 그것이 가르는
+  상태가 이 포트에서는 생성 불가능하다(`new()`가 fallible).
+- `countSamplesPerSecond` — 유일한 호출자가 값을 검사 없이 전달한다.
+  "진단이니 무해"로 넘기지 않고 호출자를 직접 열어 확인했다.
+- 나머지 — 분기할 호출자 자체가 없다.
+
+태그 수 `18/23/8/6/11 = 66`은 그대로다. §100.2의 함정(진단으로 흘러가는
+숫자를 무해로 닫기)을 피한 처리다.
+
+### 109.3 `moveit-planners-sbp`의 §79 몫은 0이다
+
+`assert_relative_eq!` 사이트가 없다는 것을 확인하고 `lib.rs`의 완료
+서술에 적었다.
+
+## 110. p1-fixtures 라운드 15 머지
+
+3커밋(`e31eccb`, `1cba458`, `0e07656`). 새 테스트 2개.
+
+### 110.1 `moveit-scene`의 미이식 항목이 전부 `.cpp` 인용을 갖게 됐다
+
+인용이 없던 8항목(`getCollisionDetectorName`, `getCollisionEnv`/
+`getCollisionEnvUnpadded` 계열, `checkCollisionUnpadded`,
+`distanceToCollisionUnpadded`, `setAttachedBodyUpdateCallback`,
+`setCollisionObjectUpdateCallback`, `printKnownObjects`,
+`allocateCollisionDetector`)을 `planning_scene.cpp`에 대고 다시 봤다.
+재분류는 없다. 근거의 형태가 바뀐 것이 결과물이다 — 아키텍처 수준
+추론이나 유추가 아니라 항목마다 자기 인용을 갖는다.
+
+콜백 두 개가 `setGroupStateValidityCallback`과 다른 이유가 구조적으로
+적혔다: 저 둘은 `void` 반환 알림 훅(`attached_body.hpp:52`,
+`world.hpp:304`)이라 **결정을 게이트할 수가 없다.** `bool` 반환
+`IKCallbackFn`과의 차이다.
+
+### 110.2 `DBL_MAX` fall-through 주장이 드디어 측정됐다
+
+주장은 "`DBL_MAX`면 조용히 아무것도 매치하지 않고 항상 fall through"
+였고 한 번도 돌려진 적이 없었다. 실제로는 **`NaN`이 나온다.**
+
+내가 머지 후 독립적으로 재현했다 — `f64::NEG_INFINITY`/`f64::INFINITY`
+sentinel 비교 4곳을 `-f64::MAX`/`f64::MAX`로 바꾸고:
+
+```
+cargo nextest run -p moveit-metrics --no-fail-fast
+16 tests: 15 passed, 1 failed
+FAIL  planar_xy_infinite_bounds_still_skip_despite_finite_theta
+```
+
+기구는 이렇다: 스킵이 발동하지 않아 `PlanarJoint::distance`가 무한
+경계에 대해 평가되고, 관절 항이 `∞ * ∞ / ∞²` — IEEE 754의 `∞/∞`가
+된다. "항상 fall through"가 아니라 "`NaN`으로 오염된다"가 참이다.
+doc과 테스트 주석 양쪽이 고쳐졌다.
+
+**이것이 §79 계열의 본체다** — 재지 않은 주장은 틀린 주장일 수 있다.
+
+### 110.3 `f64::MIN_POSITIVE` 두 게이트는 상류와 문자 그대로 같고, 물게 만들었다
+
+둘 다 상류 `kinematics_metrics.cpp`의
+`fabs(x) <= numeric_limits<double>::min()`과 연산자·sentinel이 일치한다.
+양방향 섭동, 상수 하나씩:
+
+```
+penalty_multiplier  <= → <     14/14 무관측
+                    sentinel → 0.0    14/14 무관측
+                    sentinel → 2.0     8/14 관측
+range               <= → <     14/14 무관측
+                    sentinel → 0.0    14/14 무관측
+                    sentinel → 100.0  10/14 관측
+```
+
+무관측 두 방향은 **무는 입력이 없어서**다 — `0.0`과
+`f64::MIN_POSITIVE` 사이 약 2.2e-308 폭에 앉는 입력이 기존에 없었다.
+그래서 논증으로 닫지 않고 경계에 정확히 앉는 입력을 만들어 테스트
+둘을 넣었다: `penalty_multiplier == f64::MIN_POSITIVE`(페널티 `0.0` 대
+`1.0`으로 `<=`와 `<`를 가른다), `range == f64::MIN_POSITIVE`(`range²`가
+underflow해 `0.0/0.0`이 되므로 유한 대 `NaN`으로 가른다). §85.3이
+요구한 "물지 않으면 무는 입력을 만들어라"가 그대로 됐다.
+
+## 111. p3-shapes 라운드 17 머지
+
+3커밋(`db46abc`, `8313f91`, `0632fcc`).
+
+### 111.1 §103.3의 두 명령이 고쳐졌고, 계열 전체가 쓸렸다
+
+`tree.rs` doc의 잘못된 ripgrep replace-플래그 두 자리가 고쳐졌고,
+**두 크레이트의 문서화된 명령을 전부 다시 돌렸다** — 다른 불일치는
+없다. 인용 하나가 표본이지 전부가 아니라는 규칙대로 처리됐다.
+
+### 111.2 남은 네 octomap 헤더 대조에서 진짜 구멍이 하나 나왔다
+
+`OcTree.h`/`OccupancyOcTreeBase.h`/`AbstractOccupancyOcTree.h`는 정확히
+맞는다. `OcTreeBaseImpl.h`에 선언 하나가 빠져 있었다 — `getTreeType()
+const`. 내가 헤더에서 직접 확인했다:
+
+```
+OcTreeBaseImpl.h:104   std::string getTreeType() const {return "OcTreeBaseImpl";}
+```
+
+교차참조 항목으로 덮었고 합계가 158→159, 교차참조 5→6으로 고쳐졌다.
+`OcTree.h`의 구체 `getTreeType()`이 이것을 가린다는 것도 적혔다.
+
+### 111.3 `moveit-geometry`도 같은 감사를 받았다
+
+`geometric_shapes` 2.3.3에 대고 라운드 8의 `shapes.rs`/`bodies.rs`
+감사를 다시 봤다. 헤더는 이번에 새로 받아 바이트 동일을 확인했다.
+구멍 둘:
+
+- `shape_operations.h`의 D1 제외 항목에서 산수 오류 — "All six"가
+  실은 일곱(`constructShapeFromMsg` 오버로드 4 + 이름 다른 형제 3)
+- 각 구체 shape 클래스의 자기 생성자·데이터 필드 항목이 없었다
+  (이식은 돼 있고 열거만 안 돼 있었다 — §111.2의 `getTreeType`과
+  같은 계열)
+
+`bodies.rs`/`body_operations.h`에 같은 패턴이 있는지도 봤고 깨끗하다
+(`Body`의 구체 생성자는 `Body::from_shape`로 이미 통일돼 있고 그렇게
+문서화돼 있다).
+
+## 112. p3-acm 머지 — 그리고 테스트 하나가 스위트를 17분 늘렸다
+
+1커밋(`9dbf0c9`, 328줄). 라운드 12 이후 3시간 넘게 커밋이 0이던 패널로,
+내가 "조사 그만두고 가진 것을 커밋하고 보고해라"라고 개입한 결과다.
+
+### 112.1 캐스터 바퀴 고정 상수의 원인이 바뀌었다
+
+이 백엔드의 `base_link`/캐스터 바퀴 자기거리 `-0.046592m`이 여러 바퀴·
+여러 자세에서 비트 동일하게 나오는 것을 라운드 12는 "바퀴 회전 대칭"
+으로 적었다. 틀렸다. 실제 원인은 **`base_link` 자기 조악 충돌 메시의
+거의 평면인 한 면**이다. `parry3d_f64::query::contact`를 `base_link`의
+96 삼각형 각각에 직접 불러(파이프라인을 통하지 않고) 삼각형 `[14, 12,
+15]`이 매번 이긴다는 것, 그 셋의 `z`가 `base_link` 자기 프레임에서
+같다는 것을 테스트가 못박는다.
+
+그리고 **전역 불변량이 아니라 고원(plateau)이다** — 72점 밀집 스윕에서
+평면 후보가 관절 전 범위의 약 80%를 덮고, 나머지 약 20%는 다른 두
+삼각형(`[13,12,14]`가 `theta≈0` 부근, `[15,12,16]`이 `theta≈3.5..4.4`)
+이 이긴다. 고원이 전 범위를 덮었거나 램프 구간까지 얼어 있었다면
+그것이 진짜 결함이었을 것이고, 그 구분을 테스트가 담고 있다.
+
+프로덕션 코드는 바뀌지 않았다 — 출력은 이미 맞았고 문서와 테스트가
+틀렸거나 없었다.
+
+### 112.2 새 테스트 하나가 전체 스위트를 1017초로 늘렸다
+
+머지 후 실측에서 나온 것이다.
+
+```
+PASS [1017.400s] (1101/1101)
+  moveit-collision::collision_parity
+  pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face
+Summary [1017.414s] 1101 tests run: 1101 passed (1 slow), 0 skipped
+```
+
+**스위트 전체 벽시계가 이 테스트 하나로 결정된다.** 같은 10개 오라클
+점에 대해 같은 `distance_self`를 부르는 형제
+(`pr2_self_wheel_same_pair_oracle_magnitude_is_implausible`)는 60초
+문턱에 걸리지도 않는다. 둘의 차이는 `DistanceRequestType::Single`과
+per-삼각형 헬퍼다.
+
+담당의 보고서는 `1024/1024 pass`만 적고 이 사실을 적지 않았다. 통과
+여부만 보고하고 **비용을 보고하지 않은 것**이고, 이 저장소에서는
+그것도 보고 대상이다 — 이 테스트가 들어간 뒤로 모든 패널의 게이트가
+매번 17분씩 길어진다. 다음 라운드 1항이다.
+
+### 112.3 머지 후 실측(5개 패널 합산)
+
+p1-joints·p1-robotmodel·p1-fixtures·p3-shapes·p3-acm 다섯 브랜치를
+`--no-ff`로 연속 머지했다. 충돌 없음.
+
+`fmt --check` 통과, clippy `--workspace --all-targets -D warnings` 0건,
+`cargo nextest run --workspace --no-fail-fast` **1101/1101**,
+`cargo test --doc --workspace` 통과, `check-*.sh` 3건 OK,
+`verify-fixture-provenance.sh` OK, `verify-continuous-reseed-wrap.sh` OK
+(42.6000% > 35.1222%), `verify-fixture-replay.sh` **30/30 identical**.
+스탬프 `e7d32225310d3278`.
