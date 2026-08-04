@@ -858,8 +858,66 @@ public:
       throw std::runtime_error("failed to build a KDL::Tree from the URDF at " + urdf_path);
   }
 
+  /// Applies `limits` to `joint_model` for the rest of the current request.
+  ///
+  /// `JointModel::setVariableBounds` writes through to `model_`, which this
+  /// process builds once and every later request reads. Three ops apply a
+  /// case's limits that way -- `totgRobotTrajectoryCase`,
+  /// `accelerationFilterCase`, `setJointAccelerationVelocityJerkBounds` --
+  /// mirroring the read/mutate/write pattern `joint_limits.yaml` loaders use
+  /// upstream. The write used to simply stay: a `totg` case carrying
+  /// "acceleration_bounds" changed what a later `ruckig` request in the same
+  /// process computed, because `ruckig`'s RobotModel-bounds overload reads
+  /// exactly the field that was overwritten.
+  ///
+  /// Nothing downstream could see that. A fixture is captured and replayed one
+  /// per process, so each committed response stays self-consistent no matter
+  /// what leaks; what a leak corrupts is a run that puts several ops in one
+  /// process -- `moveit-diff`, and fixture capture if it is ever batched. It
+  /// was found by the combined pass in `tools/ci/verify-fixture-replay.sh`,
+  /// which concatenates every fixture sharing a robot model into one process
+  /// for exactly this reason.
+  ///
+  /// Recording the replaced bounds here rather than restoring at each call
+  /// site is what makes the scoping hold when an op throws part way through
+  /// applying a case's limits ("unknown joint" is reachable mid-loop), and
+  /// what makes a later op inherit it without knowing this exists.
+  void applyJointBounds(moveit::core::JointModel* joint_model,
+                        const std::vector<moveit_msgs::msg::JointLimits>& limits)
+  {
+    replaced_bounds_.emplace_back(joint_model, joint_model->getVariableBoundsMsg());
+    joint_model->setVariableBounds(limits);
+  }
+
+  /// Puts back every bound `applyJointBounds` replaced during this request.
+  ///
+  /// Most recent first, because a request may override the same joint twice
+  /// and it is the first entry that holds the bounds the request started from.
+  void restoreJointBounds()
+  {
+    for (auto it = replaced_bounds_.rbegin(); it != replaced_bounds_.rend(); ++it)
+      it->first->setVariableBounds(it->second);
+    replaced_bounds_.clear();
+  }
+
+  /// Ends every joint-bound override with the request that made it.
+  ///
+  /// Held by `handle`, the single point every op is dispatched from, so the
+  /// scoping covers the throwing paths too -- `handle`'s caller turns an
+  /// exception into an `ok: false` response and reads the next request from
+  /// the same stdin, on the same `model_`.
+  struct ScopedJointBounds
+  {
+    Oracle& oracle;
+    ~ScopedJointBounds()
+    {
+      oracle.restoreJointBounds();
+    }
+  };
+
   json handle(const json& request)
   {
+    ScopedJointBounds scoped_bounds{ *this };
     const std::string op = request.at("op").get<std::string>();
     if (op == "model_info")
       return modelInfo();
@@ -3931,11 +3989,11 @@ private:
   /// which is exactly why the scaling-only overload had no reachable test
   /// case anywhere in this workspace before `RobotModel::joint_model_mut`
   /// landed on the Rust side (see `time_optimal_trajectory_generation.rs`'s
-  /// former "Known gap" section, now closed). The mutation is applied to
-  /// `model_` itself, not scoped to the case, so it persists for the rest
-  /// of this oracle process -- deliberately kept to its own isolated
-  /// `totg_robot_trajectory_scaling_only_request.json`, never mixed into a
-  /// fixture another case in the same file also relies on.
+  /// former "Known gap" section, now closed). The mutation goes through
+  /// `applyJointBounds`, so it lasts to the end of this request and no
+  /// further; see that function for what it used to cost. It stays in its own
+  /// `totg_robot_trajectory_scaling_only_request.json` because the cases in
+  /// one request still share the override, not because the process does.
   json totgRobotTrajectoryCase(const std::string& group_name, const json& c)
   {
     if (c.contains("acceleration_bounds"))
@@ -3951,7 +4009,7 @@ private:
           limit.has_acceleration_limits = true;
           limit.max_acceleration = max_acceleration;
         }
-        joint_model->setVariableBounds(limits);
+        applyJointBounds(joint_model, limits);
       }
     }
 
@@ -4199,9 +4257,8 @@ private:
   /// "acceleration_bounds" map (joint name -> symmetric max |accel|, same
   /// convention and the same `JointModel::setVariableBounds` mutation-of-
   /// `model_` pattern as `totgRobotTrajectoryCase`'s own "acceleration_bounds"
-  /// above -- see that function's comment for why the mutation is
-  /// process-lifetime and must not be mixed into a fixture another case also
-  /// relies on). `AccelerationLimitedPlugin::initialize` fails outright if any
+  /// above, routed through `applyJointBounds` so it ends with the request and
+  /// still shared by the cases within it). `AccelerationLimitedPlugin::initialize` fails outright if any
   /// active joint in the group lacks an acceleration bound, so a case that
   /// omits a joint from "acceleration_bounds" exercises that failure path
   /// (`"initialize_ok": false`), not an unconstrained-bound case.
@@ -4255,7 +4312,7 @@ private:
         limit.has_acceleration_limits = true;
         limit.max_acceleration = max_acceleration;
       }
-      joint_model->setVariableBounds(limits);
+      applyJointBounds(joint_model, limits);
     }
 
     const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
@@ -4324,7 +4381,7 @@ private:
   /// -> symmetric max magnitude), applied to `model_` via
   /// `setJointAccelerationVelocityJerkBounds` -- same `JointModel::
   /// setVariableBounds` mutation-of-`model_` pattern, same single-DOF-joint-
-  /// group restriction, and the same process-lifetime-mutation caveat as
+  /// group restriction, and the same request-scoped lifetime as
   /// `accelerationFilter`'s own "acceleration_bounds". Missing any one of
   /// the three bound kinds for an active joint fails
   /// `RuckigFilterPlugin::initialize` outright (`getVelAccelJerkBounds`
@@ -4351,7 +4408,9 @@ private:
     return json{ { "cases", cases_out } };
   }
 
-  static void setJointAccelerationVelocityJerkBounds(const moveit::core::RobotModelPtr& model, const json& c)
+  // Not static: the bound override has to be recorded on `this` so the request
+  // that made it can put it back (see `applyJointBounds`).
+  void setJointAccelerationVelocityJerkBounds(const moveit::core::RobotModelPtr& model, const json& c)
   {
     auto apply = [&](const char* field, void (*setter)(moveit_msgs::msg::JointLimits&, double)) {
       for (const auto& [joint_name, value] : readLimitMap(c, field))
@@ -4362,7 +4421,7 @@ private:
         std::vector<moveit_msgs::msg::JointLimits> limits = joint_model->getVariableBoundsMsg();
         for (moveit_msgs::msg::JointLimits& limit : limits)
           setter(limit, value);
-        joint_model->setVariableBounds(limits);
+        applyJointBounds(joint_model, limits);
       }
     };
     apply("velocity_bounds", [](moveit_msgs::msg::JointLimits& limit, double value) {
@@ -5529,6 +5588,11 @@ private:
 
   moveit::core::RobotModelPtr model_;
   std::unique_ptr<moveit::core::RobotState> state_;
+
+  // Joint bounds the current request replaced, and what they were before, in
+  // the order they were replaced. `handle`'s `ScopedJointBounds` empties this
+  // at the end of every request; it is never non-empty across two of them.
+  std::vector<std::pair<moveit::core::JointModel*, std::vector<moveit_msgs::msg::JointLimits>>> replaced_bounds_;
 
   // The `pilz_trajectory` op's private pair, built on first use by
   // `ensurePilzModel` -- see that function's doc comment for why this op
