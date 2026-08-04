@@ -10639,3 +10639,37 @@ p6-totg는 CHOMP `chomp_cost` — 유한차분 미분 행렬과 그 역행렬이
 구간은 맞으므로, 경계값마다 케이스 하나를 요구했다.
 `multivariate_gaussian`은 p3-shapes가 `moveit-sampling`으로 이미
 이식했으니 다시 만들지 말라고 명시했다(§123.1).
+
+## 125. 라이선스가 워크스페이스 상속으로 조용히 틀릴 수 있었다 (2026-08-04)
+
+p3-shapes가 `moveit-stomp-core`를 만들면서 `license.workspace = true`를
+쓰지 않고 명시적으로 적었다. 확인해 보니 옳다 — ros-industrial/stomp는
+Apache-2.0이고(`LICENSE`, `package.xml:9`, `src/utils.cpp`를 포함한
+모든 소스의 파일별 헤더), 이 워크스페이스가 이식하는 moveit2 패키지는
+`moveit_core`/`moveit_planners/{stomp,chomp/*,pilz_industrial_motion_planner}`
+전부 BSD-3-Clause다. 상속했으면 Apache-2.0 유래 코드가 BSD-3-Clause로
+라벨된다.
+
+**패치는 루트 매니페스트에 주석을 다는 것이었다.** 그걸로는 닫히지
+않는다. 다음에 다른 상류를 이식하는 크레이트를 만드는 사람이
+`license.workspace = true`를 쓰는 순간 아무것도 이상해 보이지 않고,
+주석은 그 사람이 읽지 않은 파일에 있다. 그래서 게이트로 만들었다
+(`tools/ci/check-license-matches-upstream.sh`, 2c4d628).
+
+- **불변식:** 크레이트가 선언한 유효 license는 그 크레이트 **자기
+  소스의** `SPDX-License-Identifier`와 같아야 한다.
+- **규칙 셋:** (1) 추적되는 모든 `.rs`가 SPDX 식별자를 갖는다,
+  (2) 한 크레이트의 소스는 하나의 식별자로 일치한다, (3) 매니페스트의
+  유효 license(명시값, 없으면 상속값)가 그 식별자와 같다.
+- **상류별 표를 두지 않았다.** 표는 새 상류가 생길 때마다 갱신해야
+  하고, 갱신을 잊는 것이 정확히 이 게이트가 막으려는 실패다. 규칙은
+  트리에서 유도된다 — 새 크레이트가 어느 상류를 이식하든, 헤더와
+  매니페스트가 어긋나면 걸린다. 방향은 양쪽 다다: 헤더가 맞고
+  매니페스트가 상속인 경우와, 매니페스트가 맞고 헤더를 복사해 온 경우.
+
+현재 상태는 177개 `.rs` 전부가 SPDX를 갖고, 20개 크레이트 전부가
+BSD-3-Clause로 일치한다. 게이트는 통과하며, 섭동 4건으로 실제로
+잡는 것을 확인했다: 한 파일만 식별자가 다름(규칙 2), 크레이트 전체가
+매니페스트와 다름(규칙 3 — `moveit-stomp-core`의 실제 사례),
+SPDX 헤더 누락(규칙 1), 매니페스트에 license가 아예 없음.
+`check-*.sh`는 5건에서 6건이 됐다.
