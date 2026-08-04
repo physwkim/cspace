@@ -362,6 +362,43 @@ mod position {
         );
     }
 
+    /// `kinematic_constraint.cpp:401-419` drops a primitive that fails to
+    /// build a `shapes::Shape` (warn, `continue`, constraint stays valid if
+    /// any region remains) — this port hard-errors the whole constraint
+    /// instead (`position.rs`'s "Deviation from upstream" doc comment on
+    /// [`Error::Construct`]). `Shape::Plane` has no `bodies::Body`
+    /// counterpart (`Body::from_shape` returns `Ok(None)` for it, matching
+    /// upstream's own `createBodyFromShape` returning `nullptr`), so it is
+    /// the shape upstream itself cannot build a body from either — proving
+    /// the port surfaces that failure as an error, not a silently-dropped
+    /// region.
+    #[test]
+    fn new_rejects_a_shape_with_no_body_counterpart() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let unconstructible = (
+            Shape::Plane(moveit_geometry::Plane {
+                a: 0.0,
+                b: 0.0,
+                c: 1.0,
+                d: 0.0,
+            }),
+            Isometry3::identity(),
+        );
+        assert!(
+            PositionConstraint::new(
+                &model,
+                &transforms,
+                "panda_link8",
+                model.model_frame(),
+                Vector3::zeros(),
+                &[unconstructible],
+                1.0,
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn new_rejects_unresolvable_mobile_frame() {
         let model = panda_model();
@@ -562,6 +599,38 @@ mod orientation {
                 &transforms,
                 "panda_link8",
                 "no_such_frame",
+                UnitQuaternion::identity(),
+                OrientationTolerance::XyzEuler {
+                    x: 0.01,
+                    y: 0.01,
+                    z: 0.01,
+                },
+                1.0,
+            )
+            .is_err()
+        );
+    }
+
+    /// `kinematic_constraint.cpp:618-619` only warns on an empty
+    /// `frame_id` and falls through to build a constraint anyway (its
+    /// `decide()` then resolves the frame to identity every time via
+    /// `getFrameTransform("")`) -- this port rejects it instead (this
+    /// type's "Deviation from upstream" doc comment). An empty string is
+    /// not merely "unresolvable" the way `new_rejects_unresolvable_frame`'s
+    /// `"no_such_frame"` is: upstream itself branches on `.empty()`
+    /// specifically, separately from its general fixed/mobile frame
+    /// resolution, so this needs its own case to prove the port's reject
+    /// covers that exact branch, not just the general one.
+    #[test]
+    fn new_rejects_empty_frame_id() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        assert!(
+            OrientationConstraint::new(
+                &model,
+                &transforms,
+                "panda_link8",
+                "",
                 UnitQuaternion::identity(),
                 OrientationTolerance::XyzEuler {
                     x: 0.01,
