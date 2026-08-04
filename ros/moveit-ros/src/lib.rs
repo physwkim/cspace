@@ -64,5 +64,6 @@
 
 pub mod geometry;
 pub mod state;
+pub mod trajectory;
 
 pub use moveit_error::{Error, Result};
