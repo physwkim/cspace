@@ -235,6 +235,14 @@
 //! - Protected `decideContact(contact)` -> ported as free fn
 //!   `allow_sensor_or_target_contact` in `visibility.rs` (Round 4 tail
 //!   disposition, folded in here).
+//! - `sensor_pose_`/`sensor_view_direction_`/`target_pose_`/`target_radius_`/
+//!   `max_view_angle_`/`max_range_angle_`/`weight_` (all protected upstream,
+//!   no getters at all, `kinematic_constraint.hpp:870-882`) -> round 21
+//!   added [`VisibilityConstraint::sensor`]/[`VisibilityConstraint::sensor_view_direction`]/
+//!   [`VisibilityConstraint::target`]/[`VisibilityConstraint::target_radius`]/
+//!   [`VisibilityConstraint::max_view_angle`]/[`VisibilityConstraint::max_range_angle`]/
+//!   [`VisibilityConstraint::weight`], not-upstream accessors for the same
+//!   reason `weight()` already exists on the other three constraint types.
 //!
 //! ## `KinematicConstraintSet`
 //!
