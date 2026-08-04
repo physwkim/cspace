@@ -42,15 +42,30 @@
 //!
 //! # Deviations from upstream
 //!
-//! 1. **`group_name` is inert.** Verified by reading `collision_env_fcl.cpp`
-//!    in full: `checkSelfCollision`/`checkRobotCollision`/`distanceSelf`/
-//!    `distanceRobot` never call `enableGroup`/read `active_components_only_`
-//!    at all — that machinery is wired up only by the RobotModel-needing
-//!    convenience overloads this crate's `env` module already declines to
-//!    port (`distanceSelf(state)`, `distanceRobot(state, verbose)`, ...). So
-//!    this backend does not filter by group either, matching upstream's real
-//!    (if surprising) behavior rather than the narrower one a fresh
-//!    implementation might guess at.
+//! 1. **`group_name` restricts a pair to links [`JointModelGroup`] updates,
+//!    OR'd across the pair, not ANDed.** `checkSelfCollisionHelper`/
+//!    `checkRobotCollisionHelper` (`collision_env_fcl.cpp:274-297`/
+//!    `328-359`) both call `cd.enableGroup(getRobotModel())` unconditionally,
+//!    which resolves `req_->group_name` to
+//!    `JointModelGroup::getUpdatedLinkModelsSet()` (every link a joint in
+//!    that group moves, including fixed-joint descendants —
+//!    [`JointModelGroup::updated_link_names`] is the same set, already
+//!    ported) and `collisionCallback` (`collision_common.cpp:79-94`) then
+//!    skips a pair only when *neither* side resolves to an active link — a
+//!    world object never resolves to one on its own, so a robot-vs-world
+//!    pair is kept exactly when the robot link is active, and a self-pair is
+//!    kept when *either* link is. `distanceCallback` reads the same
+//!    `DistanceRequest::active_components_only` (`collision_common.cpp:483-500`);
+//!    `distanceSelf`/`distanceRobot` themselves never call `enableGroup` (an
+//!    earlier draft of this doc took that as proof group filtering was
+//!    unwired everywhere — it is not: the caller of `distanceSelf`/
+//!    `distanceRobot` is expected to have already populated
+//!    `active_components_only`, exactly as `checkSelfCollisionHelper`'s own
+//!    `dreq.group_name = req.group_name; dreq.enableGroup(...)` does before
+//!    calling `distanceSelf`). [`active_group_links`] reproduces the
+//!    `enableGroup` resolution and [`pair_in_active_group`] the callbacks'
+//!    filter predicate, applied in [`ParryCollisionEnv::check_self_collision`]/
+//!    [`check_robot_collision`]/[`distance_self`]/[`distance_robot`].
 //! 2. **World objects are never padded or scaled.** Verified from
 //!    `constructFCLObjectWorld` (calls the two-argument
 //!    `createCollisionGeometry(shape, obj)` overload, no scale/padding) versus
@@ -739,7 +754,7 @@
 //!    has no well-defined half-space to build, so [`convert_shape`] excludes
 //!    it from collision geometry rather than construct a `HalfSpace` with a
 //!    zero-length (and therefore un-normalizable) normal.
-//! 10. **`check_robot_collision_continuous` returns [`Error`].** See
+//! 10. **`check_robot_collision_continuous` returns [`Error`](moveit_error::Error).** See
 //!     [`crate::CollisionEnv::check_robot_collision_continuous`]'s own doc:
 //!     upstream's FCL backend does not implement this case either, silently
 //!     leaving `res` untouched; this backend has no swept/conservative-
@@ -1238,6 +1253,51 @@ fn world_bodies(world: &World, octree_cache: &OctreeCache) -> Vec<PosedBody> {
         .iter()
         .filter_map(|(id, object)| object_body(id, object, octree_cache))
         .collect()
+}
+
+/// `CollisionData::enableGroup`/`DistanceRequest::enableGroup`
+/// (`collision_common.cpp:1012-1022`, `collision_common.hpp:206-216`): the
+/// set of link names a `group_name` resolves to, or `None` for "no active
+/// group" (module doc, deviation 1) — either `group_name` is `None`, or it
+/// names a group the model does not have, matching upstream's
+/// `hasJointModelGroup` guard around both `enableGroup` overloads.
+fn active_group_links<'m>(
+    state: &Posed<'_, 'm>,
+    group_name: Option<&str>,
+) -> Option<BTreeSet<&'m str>> {
+    let group = state.model().joint_model_group(group_name?).ok()?;
+    Some(
+        group
+            .updated_link_names()
+            .iter()
+            .map(String::as_str)
+            .collect(),
+    )
+}
+
+/// The link a body counts as for group-filtering purposes: its own name for
+/// a robot link, its attached link for an attached body, and no link at all
+/// for a world object — the same three-way split `collisionCallback`'s
+/// `cd1->type ==`/`cd2->type ==` ternary makes to get `l1`/`l2`
+/// (`collision_common.cpp:80-87`).
+fn robot_link_name(body: &PosedBody) -> Option<&str> {
+    match body.body_type {
+        BodyType::RobotLink => Some(&body.name),
+        BodyType::RobotAttached => body.attached_link.as_deref(),
+        BodyType::WorldObject => None,
+    }
+}
+
+/// `collisionCallback`/`distanceCallback`'s active-group predicate
+/// (`collision_common.cpp:79-94`/`482-500`), inverted from "skip when
+/// neither side is active" to "keep when either side is": a world object
+/// never resolves to a link of its own, so a robot-vs-world pair is kept
+/// exactly when the robot link is active, and a self-pair is kept when
+/// *either* link is (matching upstream's OR, not an AND-of-both-links
+/// filter a fresh implementation might guess at).
+fn pair_in_active_group(active: &BTreeSet<&str>, a: &PosedBody, b: &PosedBody) -> bool {
+    let side_active = |body: &PosedBody| robot_link_name(body).is_some_and(|l| active.contains(l));
+    side_active(a) || side_active(b)
 }
 
 /// Every unordered pair among `bodies` (`i < j`), for self-collision.
@@ -1865,7 +1925,13 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             &self.padding_scale,
             &self.octree_cache,
         );
-        accumulate_collision(self_pairs(&bodies), request, acm)
+        let active = active_group_links(state, request.group_name.as_deref());
+        let pairs = self_pairs(&bodies).filter(|(a, b)| {
+            active
+                .as_ref()
+                .is_none_or(|g| pair_in_active_group(g, a, b))
+        });
+        accumulate_collision(pairs, request, acm)
     }
 
     fn check_robot_collision(
@@ -1882,7 +1948,13 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             &self.octree_cache,
         );
         let world = world_bodies(&self.world, &self.octree_cache);
-        accumulate_collision(cross_pairs(&robot, &world), request, acm)
+        let active = active_group_links(state, request.group_name.as_deref());
+        let pairs = cross_pairs(&robot, &world).filter(|(a, b)| {
+            active
+                .as_ref()
+                .is_none_or(|g| pair_in_active_group(g, a, b))
+        });
+        accumulate_collision(pairs, request, acm)
     }
 
     fn check_robot_collision_continuous(
@@ -1913,7 +1985,13 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             &self.padding_scale,
             &self.octree_cache,
         );
-        accumulate_distance(self_pairs(&bodies), request)
+        let active = active_group_links(state, request.group_name);
+        let pairs = self_pairs(&bodies).filter(|(a, b)| {
+            active
+                .as_ref()
+                .is_none_or(|g| pair_in_active_group(g, a, b))
+        });
+        accumulate_distance(pairs, request)
     }
 
     fn distance_robot(
@@ -1929,7 +2007,13 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
             &self.octree_cache,
         );
         let world = world_bodies(&self.world, &self.octree_cache);
-        accumulate_distance(cross_pairs(&robot, &world), request)
+        let active = active_group_links(state, request.group_name);
+        let pairs = cross_pairs(&robot, &world).filter(|(a, b)| {
+            active
+                .as_ref()
+                .is_none_or(|g| pair_in_active_group(g, a, b))
+        });
+        accumulate_distance(pairs, request)
     }
 }
 
@@ -2247,6 +2331,43 @@ mod tests {
             .expect("test fixture model must build")
     }
 
+    /// [`build_model`], plus one SRDF `<group>` naming a subset of
+    /// `link_names`' floating joints — for exercising [`active_group_links`]
+    /// (module doc, deviation 1), which [`build_model`]'s group-less SRDF
+    /// cannot reach.
+    fn build_model_with_group(
+        link_names: &[&str],
+        group_name: &str,
+        group_links: &[&str],
+    ) -> RobotModel {
+        let links_and_joints: String = link_names
+            .iter()
+            .map(|name| {
+                format!(
+                    "{}{}",
+                    box_link(name),
+                    floating_joint(&format!("joint_{name}"), "base", name)
+                )
+            })
+            .collect();
+        let urdf_xml =
+            format!(r#"<robot name="test"><link name="base"/>{links_and_joints}</robot>"#);
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("test URDF must parse");
+        let joints: String = group_links
+            .iter()
+            .map(|name| format!(r#"<joint name="joint_{name}"/>"#))
+            .collect();
+        let srdf_xml = format!(
+            r#"<robot name="test">
+                <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+                <group name="{group_name}">{joints}</group>
+            </robot>"#
+        );
+        let srdf = SrdfModel::parse_str(&srdf_xml).expect("test SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("test fixture model must build")
+    }
+
     fn state_with_links_at<'m>(
         model: &'m RobotModel,
         poses: &[(&str, Isometry3)],
@@ -2479,6 +2600,152 @@ mod tests {
         let result = env.check_robot_collision(&CollisionRequest::default(), &posed, &[], None);
 
         assert!(!result.collision);
+    }
+
+    /// Module doc, deviation 1: a robot-vs-world pair is kept exactly when
+    /// the robot link is in `group_name`'s active set. `q` overlaps the
+    /// world object but is not in `"p_only"` (whose sole member is `p`,
+    /// which does not overlap), so the pair must be dropped entirely.
+    #[test]
+    fn check_robot_collision_group_name_drops_a_pair_whose_link_is_outside_the_group() {
+        let model = build_model_with_group(&["p", "q"], "p_only", &["p"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::translation(10.0, 0.0, 0.0)),
+                ("q", Isometry3::identity()),
+            ],
+        );
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let request = CollisionRequest {
+            group_name: Some("p_only".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_robot_collision(&request, &posed, &[], None);
+
+        assert!(!result.collision);
+    }
+
+    /// The mirror of the case above: `p` is both in the active group and
+    /// overlapping the world object, so the pair must be kept.
+    #[test]
+    fn check_robot_collision_group_name_keeps_a_pair_whose_link_is_inside_the_group() {
+        let model = build_model_with_group(&["p", "q"], "p_only", &["p"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(10.0, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let request = CollisionRequest {
+            group_name: Some("p_only".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_robot_collision(&request, &posed, &[], None);
+
+        assert!(result.collision);
+    }
+
+    /// Module doc, deviation 1: a self-collision pair is kept when *either*
+    /// side is active, not only when both are — `q` is outside `"p_only"`
+    /// but `p` is inside it, and the two overlap, so the pair must still be
+    /// reported.
+    #[test]
+    fn check_self_collision_group_name_keeps_a_pair_with_only_one_side_active() {
+        let model = build_model_with_group(&["p", "q"], "p_only", &["p"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            group_name: Some("p_only".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        assert!(result.collision);
+    }
+
+    /// `RobotModel::joint_model_group` returning `Err` for an unknown name
+    /// falls back to "no active group" (`enableGroup`'s own
+    /// `hasJointModelGroup` guard, module doc deviation 1), matching
+    /// `group_name: None` rather than filtering out everything.
+    #[test]
+    fn check_robot_collision_unknown_group_name_falls_back_to_unfiltered() {
+        let model = build_model_with_group(&["p"], "p_only", &["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let request = CollisionRequest {
+            group_name: Some("does_not_exist".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_robot_collision(&request, &posed, &[], None);
+
+        assert!(result.collision);
+    }
+
+    /// [`distance_robot`] reads the same `group_name`/`active_components_only`
+    /// filter as [`check_robot_collision`] (module doc, deviation 1): `q` is
+    /// nearer the world object (gap `0.5`) but outside `"p_only"`, so the
+    /// reported minimum distance must be `p`'s (`10.0`), not `q`'s.
+    #[test]
+    fn distance_robot_group_name_ignores_a_nearer_link_outside_the_group() {
+        let model = build_model_with_group(&["p", "q"], "p_only", &["p"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::translation(-11.0, 0.0, 0.0)),
+                ("q", Isometry3::translation(1.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::identity(),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let request = DistanceRequest {
+            group_name: Some("p_only"),
+            ..DistanceRequest::default()
+        };
+
+        let result = env.distance_robot(&request, &posed, &[]);
+
+        assert_eq!(result.minimum_distance.distance, 10.0);
     }
 
     /// One occupied leaf, wrapped as a [`Shape::OcTree`] world object, at
@@ -3246,6 +3513,82 @@ mod tests {
                 || obb_aabb.maxs.y > points_aabb.maxs.y,
             "obb_aabb {obb_aabb:?} should extend past points_aabb {points_aabb:?} on at least \
              one axis if the fit is actually oriented, not just re-deriving the points' own AABB"
+        );
+    }
+
+    /// This function's own doc claims [`mesh_world_obb_aabb`] fits `mesh`'s
+    /// oriented box from `mesh.triangles()`'s flattened per-*corner* points
+    /// (FCL's `getCovariance`, `geometry-inl.h:1349-1379`), weighting a
+    /// shared vertex once per incident triangle rather than once per unique
+    /// vertex. Every other test of this function uses a mesh where each
+    /// vertex is incident to exactly one triangle, so per-corner and
+    /// per-vertex weighting coincide there and neither this claim nor a
+    /// regression to `mesh.vertices()` (deduplicated) would show up.
+    ///
+    /// This test would catch that regression: `v0` is the apex of a
+    /// 5-triangle fan, so it carries 5 corner copies against 2 apiece for
+    /// `v1..v5` -- a weighting only the per-corner scheme produces. Both
+    /// candidate fits are computed independently here, via the exact same
+    /// `parry3d_f64::utils::obb` this function calls, once on the real
+    /// per-corner list and once on the deduplicated vertex list, so this
+    /// does not just re-derive [`mesh_world_obb_aabb`]'s own computation.
+    ///
+    /// What this pins: the weighting scheme (per-corner vs. per-vertex).
+    /// What it would not catch: a change to a *different* per-corner-weighted
+    /// fit (e.g. a different eigensolver or point-projection convention)
+    /// that still weights `v0` 5x -- the claim-audit entry for
+    /// `parry3d_f64::utils::obb` itself already covers that the algorithm
+    /// used is PCA-via-covariance, not bit-identical to FCL's own.
+    #[test]
+    fn mesh_world_obb_aabb_weights_by_triangle_corner_not_deduplicated_vertex() {
+        let verts = vec![
+            ParryVector::new(0.0, 0.0, 0.0),
+            ParryVector::new(10.0, 0.0, 0.0),
+            ParryVector::new(10.0, 8.0, 0.0),
+            ParryVector::new(2.0, 10.0, 0.0),
+            ParryVector::new(-8.0, 6.0, 0.0),
+            ParryVector::new(-6.0, -6.0, 0.0),
+        ];
+        let tris: [[u32; 3]; 5] = [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 5], [0, 5, 1]];
+        let mesh_pose = to_pose(Isometry3::identity());
+        let mesh = TriMesh::new(verts.clone(), tris.to_vec()).unwrap();
+
+        let weighted_corners: Vec<ParryVector> = tris
+            .iter()
+            .flat_map(|t| t.iter().map(|&i| verts[i as usize]))
+            .collect();
+        let (weighted_pose, weighted_cuboid) = parry3d_f64::utils::obb(&weighted_corners);
+        let weighted_aabb = weighted_cuboid.compute_aabb(&(mesh_pose * weighted_pose));
+
+        let (dedup_pose, dedup_cuboid) = parry3d_f64::utils::obb(&verts);
+        let dedup_aabb = dedup_cuboid.compute_aabb(&(mesh_pose * dedup_pose));
+
+        let actual = mesh_world_obb_aabb(&mesh_pose, &mesh);
+
+        assert_point_close(
+            [actual.mins.x, actual.mins.y, actual.mins.z],
+            [
+                weighted_aabb.mins.x,
+                weighted_aabb.mins.y,
+                weighted_aabb.mins.z,
+            ],
+        );
+        assert_point_close(
+            [actual.maxs.x, actual.maxs.y, actual.maxs.z],
+            [
+                weighted_aabb.maxs.x,
+                weighted_aabb.maxs.y,
+                weighted_aabb.maxs.z,
+            ],
+        );
+        assert!(
+            (actual.mins.x - dedup_aabb.mins.x).abs() > 0.1
+                || (actual.mins.y - dedup_aabb.mins.y).abs() > 0.1
+                || (actual.maxs.x - dedup_aabb.maxs.x).abs() > 0.1
+                || (actual.maxs.y - dedup_aabb.maxs.y).abs() > 0.1,
+            "actual {actual:?} should differ from the deduplicated-vertex fit {dedup_aabb:?} by \
+             more than fitting noise -- if it did not, this mesh would fail to distinguish the \
+             two weighting schemes and this test would not be pinning anything"
         );
     }
 
