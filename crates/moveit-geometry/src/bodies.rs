@@ -4029,6 +4029,9 @@ mod tests {
     // --- negative/zero dimensions and padding inversion: invariant
     // --- boundaries ---
 
+    // Assertion-discrimination sweep (round 2): `Sphere::new` ->
+    // `set_dimensions` has exactly one `Err` site -- verdict
+    // `single-branch`, one `Error::` hit over the function body.
     #[test]
     fn sphere_negative_radius_is_an_error() {
         assert!(Sphere::new(-1.0).is_err());
@@ -4066,6 +4069,15 @@ mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 2): unlike `Cylinder`'s two
+    // sequential guards (see the doc comments above),
+    // `Cuboid::recompute` rejects all three axes through one combined
+    // `half_length < 0.0 || half_width < 0.0 || half_height < 0.0` check
+    // with a single shared message -- there is no per-axis message to
+    // confuse, so "per axis" in this test's name means "each axis can
+    // independently trip the one guard", not "each axis has its own
+    // distinguishable branch". Verdict `single-branch`, one `Error::`
+    // hit over `recompute`'s body (lines 2197-2230).
     #[test]
     fn cuboid_negative_dimension_is_an_error_per_axis() {
         assert!(Cuboid::new(-1.0, 1.0, 1.0).is_err());
@@ -4077,6 +4089,9 @@ mod tests {
     /// radius is rejected, and the sphere is left in its previous valid
     /// state (see the module docs' "no dirty/clean setter pair" design
     /// note).
+    // Assertion-discrimination sweep (round 2): `Sphere::set_padding`
+    // has exactly one `Err` site -- verdict `single-branch`, one
+    // `Error::` hit over the function body.
     #[test]
     fn sphere_padding_inversion_is_rejected_and_state_preserved() {
         let mut sphere = Sphere::new(1.0).unwrap();
@@ -4085,14 +4100,36 @@ mod tests {
         assert!(sphere.contains_point(&Vector3::new(1.0, 0.0, 0.0)));
     }
 
+    // Assertion-discrimination sweep (round 2): `Cylinder::recompute` has
+    // *two* sequential guards, "radius must be non-negative" and "length
+    // must be non-negative", each with its own message. `radius = length
+    // = 1.0` and `padding = -2.0` drives both scaled dimensions negative
+    // at once, so a bare `.is_err()` doesn't prove the radius guard is
+    // what fired -- confirmed by disabling the radius guard alone
+    // (`if false && radius_scaled < 0.0`) and re-running: the test still
+    // passed, silently covered by the length guard instead. Fixed by
+    // asserting the message names "radius" specifically, which fails
+    // correctly under that same mutation (the length guard's message
+    // does not contain "radius") and also under the discrimination bite
+    // (radius guard's message swapped to the length guard's text,
+    // condition left intact): both mutations reddened the fixed
+    // assertion. Reverted before this comment was written.
     #[test]
     fn cylinder_padding_inversion_is_rejected_and_state_preserved() {
         let mut cylinder = Cylinder::new(1.0, 1.0).unwrap();
-        assert!(cylinder.set_padding(-2.0).is_err());
+        let err = cylinder.set_padding(-2.0).unwrap_err();
+        assert!(
+            err.to_string().contains("radius"),
+            "expected the radius guard to name itself, got: {err}"
+        );
         assert_eq!(cylinder.padding(), 0.0);
         assert!(cylinder.contains_point(&Vector3::new(1.0, 0.0, 0.0)));
     }
 
+    // Assertion-discrimination sweep (round 2): `Cuboid::set_padding` ->
+    // `recompute` has the same single combined guard as
+    // `cuboid_negative_dimension_is_an_error_per_axis` above (no
+    // per-axis message to confuse) -- verdict `single-branch`.
     #[test]
     fn cuboid_padding_inversion_is_rejected_and_state_preserved() {
         let mut cuboid = Cuboid::new(1.0, 1.0, 1.0).unwrap();
@@ -4291,6 +4328,11 @@ mod tests {
         ));
     }
 
+    // Assertion-discrimination sweep (round 2): `Body::from_shape` has
+    // exactly one `None`-producing arm, `Shape::Cone(_) | Shape::Plane(_)
+    // | Shape::OcTree(_) => None`, covering all three patterns at once
+    // -- verdict `single-branch`, by direct reading of the whole `match`
+    // (lines 3109-3115): there is no second `None` anywhere in it.
     #[test]
     fn from_shape_returns_none_for_cone_plane_octree() {
         assert!(
