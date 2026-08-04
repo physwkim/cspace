@@ -48,7 +48,15 @@ fi
 # Extract `- name:` / `run:` pairs from the workflow, including block scalars.
 # Records are emitted as `<name>\034<command>`, one per line, with newlines
 # inside the command encoded as \035.
-mapfile -t steps < <(
+#
+# Command substitution, not `mapfile -t steps < <(python3 ...)`: `mapfile`
+# does not propagate the producer's exit status and `set -e` does not see it
+# either, so the parser's own `sys.exit("no run: steps found in the
+# workflow")` printed to stderr and this script then reported "OK: every
+# ci.yml step passes" having run zero steps -- reproduced by p1-fixtures on a
+# synthetic workflow with no `run:` steps. `check-dep-direction.sh`'s header
+# names the same mechanism for `cargo tree`; this is the same fix.
+if ! steps_raw="$(
   python3 - "$repo_root/$workflow" <<'PY'
 import sys
 
@@ -98,7 +106,20 @@ if not out:
 for n, c in out:
     print(n + "\034" + c.replace("\n", "\035"))
 PY
-)
+)"; then
+  echo "FAIL step extraction from $workflow failed -- nothing was checked." >&2
+  exit 1
+fi
+mapfile -t steps <<<"$steps_raw"
+
+# The parser exits nonzero rather than printing nothing, so this is
+# unreachable through it -- it is here so "green" cannot mean "ran zero
+# steps" by any route, including a future parser that returns an empty
+# success.
+if [ "${#steps[@]}" -eq 0 ] || [ -z "${steps[0]}" ]; then
+  echo "FAIL no steps extracted from $workflow -- nothing was checked." >&2
+  exit 1
+fi
 
 echo "== ${#steps[@]} steps extracted from $workflow"
 echo
