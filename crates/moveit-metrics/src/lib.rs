@@ -402,6 +402,22 @@ mod tests {
             .expect("fixture model must build")
     }
 
+    /// [`KinematicsMetrics::penalty_multiplier`] (`getPenaltyMultiplier`) had
+    /// no test at all: every other test that reads
+    /// [`KinematicsMetrics::joint_limits_penalty`]'s *effect* goes through
+    /// [`KinematicsMetrics::set_penalty_multiplier`] alone, none ever call
+    /// the getter back. Pins the constructor default and the setter's
+    /// round-trip.
+    #[test]
+    fn penalty_multiplier_getter_matches_the_constructor_default_and_the_setter() {
+        let model = build_model();
+        let mut metrics = KinematicsMetrics::new(&model);
+        assert_eq!(metrics.penalty_multiplier(), 0.0);
+
+        metrics.set_penalty_multiplier(2.5);
+        assert_eq!(metrics.penalty_multiplier(), 2.5);
+    }
+
     /// Default `penalty_multiplier` is `0.0`: [`KinematicsMetrics::joint_limits_penalty`]
     /// must return `1.0` unconditionally, upstream's `fabs(x) <=
     /// numeric_limits::min()` short-circuit.
