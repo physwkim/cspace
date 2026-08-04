@@ -991,4 +991,47 @@ mod tests {
             Err(Error::UnknownName { .. })
         ));
     }
+
+    /// `manipulability_ellipsoid`'s own `self.group(group, "manipulability
+    /// ellipsoid")?` call is *mostly* dead code: `state.jacobian`, called
+    /// two lines later, independently re-checks both the unknown-name and
+    /// non-chain cases and returns the same [`Error`] variants (see
+    /// `moveit_state::Posed::jacobian`). Measured, not assumed: replacing
+    /// `self.group(...)?` with `let _ = self.group(...);` (compiles --
+    /// `manipulability_ellipsoid` never binds the returned `group_model`,
+    /// unlike `manipulability_index`/`manipulability`, whose own
+    /// `self.group(...)?` calls stay load-bearing because the binding feeds
+    /// `joint_limits_penalty`) leaves the variant-level assertions below
+    /// unchanged in both cases.
+    ///
+    /// One divergence does survive, though: for the unknown-name case the
+    /// message is byte-identical either way (`RobotModel::joint_model_group`
+    /// builds it via `Error::unknown_name("group", name)`, a single call
+    /// site shared by both `self.group` and `jacobian`, with no caller-name
+    /// parameter to differ on). For the non-chain case the two call sites
+    /// format *different* messages -- `self.group`'s says "cannot compute
+    /// manipulability ellipsoid", `jacobian`'s says "cannot compute
+    /// Jacobian" -- so asserting the exact message, not just the `Other`
+    /// variant, is what actually pins `self.group`'s own call site rather
+    /// than merely re-confirming `jacobian`'s redundant check.
+    #[test]
+    fn manipulability_ellipsoid_rejects_the_same_bad_groups() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let metrics = KinematicsMetrics::new(&model);
+
+        match metrics.manipulability_ellipsoid(&posed, "hand") {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'hand' is not a chain; cannot compute manipulability ellipsoid"
+            ),
+            other => panic!("expected Error::Other, got {other:?}"),
+        }
+        assert!(matches!(
+            metrics.manipulability_ellipsoid(&posed, "no_such_group"),
+            Err(Error::UnknownName { .. })
+        ));
+    }
 }
