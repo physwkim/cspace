@@ -257,6 +257,48 @@
 //! `leaves_in_bbx_parity.rs` symmetric to `leaves_parity.rs` becomes
 //! possible.
 //!
+//! **`getTreeType()` gap, re-checked in the current tree (round 19, item
+//! 4).** Tagged round 17, diffed against `geometric_shapes` 2.3.3 at the
+//! time. Re-verified now rather than carried forward on last round's word
+//! (§113.3): that gap was an *audit-classification* gap, not a porting
+//! gap -- `OcTreeBaseImpl.h`'s own concrete `getTreeType() const` (header
+//! line 104) was absent from every symbol-audit walk through round 16, not
+//! a missing port. It was closed in round 17 itself, commit `8313f91`
+//! ("octomap: cross-check the remaining four headers, fix a getTreeType
+//! gap"), merged `c46b4f6`, recorded `PORTING-PLAN.md` §111.2. Confirmed
+//! still closed in the current tree, not just in that commit message:
+//!
+//! ```text
+//! rg -c '^/// - `' crates/moveit-octomap/src/tree.rs   # 159, matches §111.2's corrected total
+//! rg -n '^/// - `getTreeType' crates/moveit-octomap/src/tree.rs
+//! #  182: - `getTreeType() const` -- distinct, same registry reasoning.
+//! #  294: - `getTreeType() const` (concrete, returns `"OcTreeBaseImpl"`) -- already counted above, ...
+//! ```
+//! Both bullets classify it `distinct` (D4 rules out the `AbstractOcTree`
+//! runtime-type registry `create()`/`getTreeType()` exist for; this crate
+//! has exactly one concrete tree type), cross-referenced correctly between
+//! `OcTree.h`'s override and `OcTreeBaseImpl.h`'s shadowed base
+//! declaration, counted once. No `unported` classification appears near
+//! either bullet. Nothing to change; the round-18-era sentence above
+//! ("`getTreeType()` is not ported as a callable symbol at all ... nothing
+//! there for an oracle op to confirm") was already correct and still is.
+//!
+//! **Tolerance-floor re-measurement mandate, this crate: none.** Commit
+//! `70a6b31` fixed the workspace's `serde_json` to `float_roundtrip`
+//! because the default parser returned 6,859/84,221 (8.1%) committed
+//! fixture float literals one ULP off, and "tolerances hide it... it sets
+//! the floor every bisection here measures against" (that commit's own
+//! body). This crate has zero `assert_relative_eq!`/`relative_eq!` calls
+//! (previous paragraph) -- nothing bisected in `src/` to re-check. The one
+//! place this crate compares against `serde_json`-parsed oracle data is
+//! `tests/octomap_parity.rs`'s `LOG_ODDS_EPS`/`OCCUPANCY_EPS`, unchanged
+//! since their introduction commit (`git log -p --follow` on that file,
+//! checked this round) and each with a stated analytic rationale (`f32`
+//! log-odds rounding; `f64` `probability()` arithmetic propagating that
+//! same rounding) rather than an empirically bisected minimum -- not "the
+//! floor every bisection measures against" in the sense `70a6b31` warns
+//! about. Nothing to re-measure.
+//!
 //! **`assert_relative_eq!` reckoning (round 18, item 2).** This crate has
 //! **zero** calls, not counted by `rg -c` (which mixes doc-comment mentions
 //! into the total, the exact class PORTING-PLAN.md §73.1/§83.3/§92/§104.1

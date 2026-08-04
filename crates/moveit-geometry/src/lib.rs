@@ -160,6 +160,45 @@
 //! `transforms.rs`'s three calls, round 16 item 3) -- a measured non-zero
 //! floor above `epsilon = 0.0`, not an unmeasured carryover, so keeping
 //! `assert_relative_eq!` there is correct, not merely unreviewed.
+//!
+//! **Tolerance-floor re-measurement mandate, this crate: none.** Commit
+//! `70a6b31` fixed the workspace's `serde_json` to `float_roundtrip`
+//! because the default parser returned 6,859/84,221 (8.1%) committed
+//! fixture float literals one ULP off, and "tolerances hide it... it sets
+//! the floor every bisection here measures against" (that commit's own
+//! body). Surveyed every tolerance constant in this crate against that
+//! risk:
+//!
+//! - The 9 bisected `assert_relative_eq!` sites above (`bodies.rs`,
+//!   `transforms.rs`) each measure their floor by comparing an in-Rust-
+//!   computed `f64` against a hand-written Rust source literal (e.g.
+//!   `-0.475`, `[0.0, 1.0, 0.0]`) -- parsed by `rustc`'s own
+//!   correctly-rounded float-literal parser, never by `serde_json`. No
+//!   fixture JSON is read in any of these tests
+//!   (`rg -n serde_json crates/moveit-geometry/src/bodies.rs
+//!   crates/moveit-geometry/src/transforms.rs` -- no match, neither file
+//!   imports it). Unaffected regardless of the parser bug.
+//! - `bodies.rs`'s `OBB::overlaps` `const EPS: f64 = 1e-9` is not a
+//!   comparison tolerance at all -- Ericson's SAT numerical-stability
+//!   guard baked into the algorithm itself, added to `abs_r`'s components
+//!   before the separating-axis test, not measured against anything.
+//! - The oracle-fixture-comparison constants in `tests/*.rs`
+//!   (`LINEAR_EPS`/`VOLUME_EPS` in `body_query_parity.rs`; `LOG_ODDS_EPS`/
+//!   `OCCUPANCY_EPS`/`POSE_EPS` in `octree_in_world_parity.rs`;
+//!   `VERTEX_EPS` in `mesh_parity.rs`; `DISTANCE_EPS` in
+//!   `octree_shape_query_parity.rs`; `EPS` in `probe_parity.rs`) do
+//!   compare against `serde_json`-parsed oracle values, but none was
+//!   chosen by bisecting down to an observed floor: each has stayed at
+//!   its introduction-commit value with zero revisions since
+//!   (`git log -p --follow` on each file, checked this round), and each
+//!   with a stated rationale carries an analytic derivation from known
+//!   type precision (`f32` log-odds rounding, STL `f32` vertex
+//!   precision, `f64` arithmetic rounding) rather than an empirically
+//!   bisected minimum -- `LINEAR_EPS`/`VOLUME_EPS` alone carry no stated
+//!   rationale, but at a flat `1e-9` (roughly 1e7x a 1-ULP diff at unit
+//!   magnitude) an extra ULP of parser noise could not have driven their
+//!   choice either. Nothing here was "the floor every bisection measures
+//!   against" in the sense `70a6b31` warns about; nothing to re-measure.
 
 pub mod bodies;
 mod octree_collision;
