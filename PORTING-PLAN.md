@@ -11780,3 +11780,50 @@ D1/D5를 깨지 않는다: 변환 계층에 ROS 의존이 없으므로 `check-de
 러너가 끌어올 수 없다. `ci.yml` 꼬리 주석이 오라클 job에 대해 이미 같은 말을 한다.
 발행 자체가 원격 저장소를 요구하므로(아직 push한 적이 없다) 지금은 UNFIXED로 둔다 —
 `ros/moveit-ros` 쪽만은 §144.1이 이미지 없이 닫을 수 있는 유일한 길이다.
+
+## §145 계약과 결함을 먼저 구분한다
+
+p1-fixtures 라운드 21이 `PlanningResponse::start_state`를 "진짜 간극"으로 분류하며
+이유를 이렇게 적었다:
+
+> `PlanningSceneValidityChecker::is_valid`가 side effect로 scene 현재 상태를
+> 훼손한다 ... `generate_plan` 반환 후 `scene.current_state()`를 읽어도 실제 시작
+> 상태를 신뢰할 수 없음
+
+사실 관찰은 맞다. `planning_scene_validity.rs:138-142`의 `is_valid`는 호출마다
+`scene.current_state_mut()`에 샘플을 써넣는다. 그런데 그건 훼손이 아니라 **문서화된
+계약**이고, 같은 파일 `:128-137`이 이유와 대안까지 적어놨다 — 매 호출 복원은 한
+query가 만드는 수십만 호출 각각에 full-state clone을 하나씩 더 붙이는 비용인데 그
+성질을 그 크레이트의 planning path는 아무것도 쓰지 않는다. 그래서:
+
+> a caller that needs the pre-planning state preserved clones it once, itself,
+> before handing the scene to this type.
+
+`generate_plan`이 그 caller다. `start_state`는 막혀 있는 게 아니라 계약을 아직
+이행하지 않았을 뿐이고, 이행 비용은 호출당이 아니라 query당 clone 한 번이다 —
+위 doc이 거부한 비용과 다른 차수다.
+
+§137·§139·STOMP 제외·§141.1이 "사유를 재현하지 않은" 사례였다면 이건 한 칸
+다르다: 사실은 재현했는데 **그 사실이 계약인지 결함인지**를 묻지 않았다. 규칙에
+한 줄 더한다 — 어떤 동작을 간극의 원인으로 지목하기 전에, 그 동작이 문서화된
+계약인지 확인하고, 계약이면 "막혔다"가 아니라 "계약을 이행하면 된다"로 적는다.
+계약에는 대개 이행 방법이 같이 적혀 있다.
+
+### 145.1 p1-fixtures 라운드 21 병합
+
+커밋 2개(`1e1f916` 캐노니컬 타입 델타 감사, `e8e27d5` `getCostSources` 재분류).
+코드 로직 변경 없음, 문서·분류만.
+
+두 감사를 따로 재현했다:
+
+- `third_party/moveit_msgs/msg/MotionPlanRequest.msg`의 실제 필드 수는 주석·빈 줄
+  제외 **16**. 보고의 8+4+4=16이 파일과 일치하고, 각 항목이 실제 필드명과 하나씩
+  대응한다.
+- `rg -n 'cost_sources: None' crates/moveit-collision/src/` → **0건**. `parry.rs`에
+  `cost_sources_for_part_pair`/`mesh_mesh_cost_sources`/`mesh_shape_cost_sources`가
+  있고 테스트가 계산값을 검사한다. `blocked` → `unported, in scope` 재분류가 맞다.
+
+병합 후: `nextest --workspace --no-fail-fast` **1354 passed, 2 skipped**;
+doctest **5**; `doc --workspace --no-deps` 통과; `check-*.sh` 8/8;
+`ros/verify-ros-interop.sh`의 `error[E0063]` **3건 그대로**(§144의 기존 건, 새로
+늘지 않음 — 이번 라운드는 그 두 타입에 필드를 더하지 않고 doc만 더했다).
