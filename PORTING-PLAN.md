@@ -14972,3 +14972,56 @@ interpolation_seed`가 실패한다. 버그도 수정도 테스트도 전부 실
 수정 후 같은 변이를 다시 걸었더니 300초에서 TERMINATING/TIMEOUT이 났다.
 §180의 `.config/nextest.toml`이 없었으면 이것은 실패가 아니라 무한 정지로
 나타났을 것이다.
+
+## §195 실행 가능해졌다고 지켜지는 것은 아니다 — §187의 수정이 §187의 모양을 한 층 위에서 재현했다
+
+§187은 라운드 24의 4-시나리오 스윕이 커밋되지 않아 재실행도 검증도
+불가능하다는 것이었다. 라운드 28이 그것을 커밋된 코드로 다시 세웠다
+(`e1f2b67`, `path_constraints_four_scenario_wired_vs_unwired_sweep`). 여섯
+개 구성 전부 내가 직접 돌려 문서화된 숫자와 정확히 일치했다:
+
+```
+scenario 1 (self-motion, Goal::State):       unwired 1/5, wired 5/5
+scenario 2 (Goal::Constraints, no corridor): unwired 0/5, wired 5/5
+scenario 3 (orientation-only corridor):      unwired 5/5, wired 5/5
+scenario 4 tight  (0.03/Iterations(20)):     unwired 1/5, wired 5/5
+scenario 4 medium (0.1 /Iterations(20)):     unwired 0/5, wired 5/5
+scenario 4 loose  (0.2 /Iterations(200)):    unwired 0/5, wired 5/5
+```
+
+숫자는 맞다. 그런데 그 테스트는 여섯 숫자 중 어느 것도 단언하지 않는다 —
+`eprintln!`로 출력만 하고, 단언하는 것은 시나리오가 잘 구성되었는지
+(IK 도달 가능성, 자기운동 분리 거리)뿐이다.
+
+확인했다. `run_scenario`의 wired 분기에서 `solver: Some(wired_solver)`를
+`None`으로 바꾸면 — 즉 측정하려던 효과를 통째로 없애면 — 여섯 숫자가 전부
+바뀌는데(`5/5`가 각각 `1/5`, `0/5`, `5/5`, `1/5`, `0/5`, `0/5`로 무너진다)
+테스트는 그대로 통과한다.
+
+§187의 결함은 "측정이 재실행 불가능한 산문으로만 남았다"였다. 라운드 28의
+결과물은 측정을 재실행 가능하게 만들었지만, 그 측정에서 끌어낸 **결론**은
+여전히 아무 게이트도 지키지 않는 산문이다 — doc comment의 표, claim-audit의
+두 행, 그리고 `constrained_sampler.rs`의 유예 수정문이 전부 이 숫자들을
+근거로 인용하는데, 숫자가 뒤집혀도 실패하는 것은 없다.
+
+### 195.1 "방향은 측정이지 지켜야 할 회귀가 아니다"가 성립하지 않는 이유
+
+커밋 메시지는 어느 쪽이 이기는지는 측정이지 회귀가 아니므로 단언하지
+않았다고 적었다. 그 논리는 같은 보고서의 다른 문장이 무너뜨린다 —
+"deterministic seeds throughout, 반복 실행에서 동일하게 재현". 결정적이라면
+단언할 수 있다. 그리고 그 숫자가 유예 결정의 근거로 인용되는 순간, 그것은
+관찰이 아니라 주장이 된다. 주장은 게이트가 지켜야 한다.
+
+경계선은 "회귀인가"가 아니라 **"어딘가에서 인용되는가"**다. 인용되지 않는
+숫자는 출력만 해도 된다. 인용되는 숫자는 단언되어야 한다 — 그래야 다음
+라운드가 doc comment를 읽고 더 이상 참이 아닌 값을 근거로 쓰는 일이 없다.
+
+### 195.2 같은 라운드가 그 실패를 이미 한 번 겪었다
+
+`9d2e511`이 고친 것이 정확히 이것이다.
+`path_constraints_end_to_end_wired_vs_unwired`의 doc comment가 느슨한
+예산(`0.2`/`Iterations(200)`)에서 wired/unwired 둘 다 5/5라고 적어두었는데,
+실제로 측정하니 unwired 0/5, wired 5/5였다. 단언되지 않은 채 doc에만 적힌
+숫자가 조용히 거짓이 된 사례다 — 그리고 그것을 발견한 같은 라운드가 새 표
+여섯 줄을 같은 방식으로 남겼다. 스윕의 scenario 4 loose 행이 그 정정을
+독립적으로 재현한다는 점은 별개로 옳다.
