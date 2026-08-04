@@ -70,15 +70,31 @@
 //! (`num_vars_free_ = group_trajectory_.getNumFreePoints(); free_vars_start_
 //! = group_trajectory_.getStartIndex(); free_vars_end_ =
 //! group_trajectory_.getEndIndex();`) alongside `ChompCost`'s own
-//! constructor: upstream's real call path (`chomp_planner.cpp`, not ported
-//! this round) always constructs `group_trajectory_` via the padding
-//! constructor before handing it to `ChompOptimizer`, which is the only
-//! reason these two independently-computed free-variable counts agree at
-//! all — a plain `from_num_points` trajectory has no such guarantee, and
-//! every function below returns a typed error rather than a silently wrong
-//! answer if `joint_costs`' dimension does not match `group_trajectory`'s
-//! free block. Every test in this module builds its fixture through the
-//! padding constructor for exactly this reason.
+//! constructor: in this port, [`crate::optimizer::ChompOptimizer::new`]
+//! (below) is the sole place `group_trajectory` is ever produced for
+//! [`crate::optimizer::ChompOptimizer`] to hold — it always builds it via the padding
+//! constructor ([`ChompTrajectory::from_source_trajectory`]) from the
+//! caller's `full_trajectory` argument, regardless of whether that argument
+//! was itself already padded, which is the only reason these two
+//! independently-computed free-variable counts agree at all. (Upstream
+//! guarantees the same thing one layer up instead: `chomp_planner.cpp`
+//! always constructs its `group_trajectory_` via the padding constructor
+//! before handing it to `ChompOptimizer`'s constructor, which then trusts
+//! it rather than re-padding. This port's sole production call site,
+//! [`crate::planner::solve`] (`chomp_planner.cpp:63-306`, ported), actually
+//! passes an *unpadded* seed trajectory -- see `planner::build_seed_trajectory`
+//! (private) -- relying on
+//! [`crate::optimizer::ChompOptimizer::new`]'s own padding rather than reproducing upstream's
+//! pre-padded-caller invariant. Should a future caller ever construct
+//! `ChompOptimizer` by hand with a pre-padded `full_trajectory`, this still
+//! holds: `from_source_trajectory` shrinks back to a no-op padding when the
+//! source already has enough margin, per its own doc.) A plain
+//! `from_num_points` trajectory passed as `group_trajectory` directly
+//! (bypassing `ChompOptimizer::new`) has no such guarantee, and every
+//! function below returns a typed error rather than a silently wrong answer
+//! if `joint_costs`' dimension does not match `group_trajectory`'s free
+//! block. Every test in this module builds its fixture through the padding
+//! constructor for exactly this reason.
 //!
 //! ## Ported (this module)
 //!
@@ -179,8 +195,16 @@
 //!   [`moveit_sampling::MultivariateGaussian`] per joint (matching
 //!   upstream's `multivariate_gaussian_.emplace_back(...)`, which also
 //!   exists only to feed this dead path) but nothing ever samples it.
-//! - `chomp_planner.cpp` (the `ChompPlanner` entry point) — out of this
-//!   round's scope; see this crate's top-level module doc.
+//! - `ChompPlanner` (the class itself, its ROS-typed
+//!   `solve(PlanningContext, MotionPlanDetailedResponse)` entry point, and
+//!   `PlanningContext` conformance) — excluded (D1): a ROS-facing wrapper
+//!   with `moveit_msgs`-typed signatures throughout, none of which this
+//!   crate depends on (see this crate's top-level module doc for the
+//!   dependency check). Its model-independent numeric core, by contrast,
+//!   *is* ported — as the free function [`crate::planner::solve`]
+//!   (`eb4fa4e`); see this crate's top-level module doc's
+//!   `chomp_planner.{hpp,cpp}` symbol audit for the full field-by-field
+//!   account.
 //!
 //! ## Closed API gap: `GradientInfo::sphere_locations` (rounds 19-26)
 //!

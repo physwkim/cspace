@@ -216,15 +216,20 @@
 //!   struct fields at all in this port — see
 //!   [`optimizer::ChompCollisionContext`] and [`optimizer`]'s module doc for
 //!   the external-resource-as-parameter design and why `gsr_` is always
-//!   function-local. That last choice has one real consequence, surfaced
-//!   and documented, not silently absorbed: `moveit-distance-field`'s public
-//!   API has no way to reproduce upstream's `gsr_`-reuse pattern, which
-//!   leaves `GradientInfo::sphere_locations` permanently empty through this
-//!   crate's only access path — a genuine API gap in `moveit-distance-field`
-//!   (another worker's crate), reported not fixed, worked around here via
-//!   already-public fields instead. See [`optimizer`]'s module doc, "API gap
-//!   surfaced by this round", for the full account with upstream/downstream
-//!   line citations.
+//!   function-local. That last choice had one real consequence, surfaced
+//!   and documented rather than silently absorbed: `moveit-distance-field`
+//!   had no way to reproduce upstream's `gsr_`-reuse pattern, which left
+//!   `GradientInfo::sphere_locations` empty through this crate's only
+//!   access path (rounds 19-25) — a genuine API gap in
+//!   `moveit-distance-field` (another worker's crate), reported and worked
+//!   around here rather than fixed. `moveit-distance-field` round 25
+//!   (`f5328da`) closed the gap directly (not by porting the `gsr_`-reuse
+//!   mechanism itself, which stays unported — see
+//!   `moveit_distance_field::DistanceFieldCollisionCache::new`'s own doc
+//!   comment for that remaining, purely-performance gap); this crate's
+//!   workaround was removed the same round (`5293abd`). See [`optimizer`]'s
+//!   module doc, "Closed API gap: `GradientInfo::sphere_locations` (rounds
+//!   19-26)", for the full account with upstream/downstream line citations.
 //! - Not ported, confirmed dead in upstream itself (not merely out of
 //!   scope): `debugCost` (unused `std::cout` helper, no call site anywhere
 //!   in `chomp_optimizer.cpp`); `perturbTrajectory`, `getRandomMomentum`,
