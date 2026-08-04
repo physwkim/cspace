@@ -10730,3 +10730,65 @@ pass`가 적히고, 그 줄은 doc 예제가 검증됐다는 뜻으로 읽힌다
 
 그리고 라운드 보고서의 doctests 줄에는 **통과 여부가 아니라 건수**를
 적는다. 1이 1이라고 적히면 아무도 그것을 커버리지로 읽지 않는다.
+
+## 127. 관례로만 지켜지던 워크스페이스 규약 셋을 게이트로 바꿨다 (2026-08-04)
+
+§125의 라이선스 건은 하나짜리 사고가 아니라 **부류**였다. 인용된
+자리에서 멈추지 않고 같은 형태를 워크스페이스 전체에서 찾았다:
+*"두 형태 다 빌드되기 때문에 아무것도 드러나지 않지만, 나중에 한쪽만
+조용히 어긋나는 규약"*. 셋 나왔고 셋 다 닫았다.
+
+### 127.1 크레이트 간 의존이 루트 테이블을 우회한다 (adc2156)
+
+`moveit-planners-chomp`/`moveit-planners-stomp`가 `moveit-trajectory`를,
+`moveit-planners-sbp`가 `moveit-scene`을 인라인
+(`{ path = "...", version = "0.1.0" }`)으로 적고 있었다. 나머지 모든
+간선은 `[workspace.dependencies]`를 거친다. 버전을 올리면 테이블은 한
+번에 옮겨가고 인라인 `version = "0.1.0"`은 남아 `cargo publish`가 없는
+버전으로 해결한다. 루트 매니페스트가 크레이트 그래프의 완전한 그림이
+아니게 되는 것은 덤이다.
+
+루트 테이블에 `moveit-scene`/`moveit-trajectory`/`moveit-smoothing`/
+`moveit-planners-sbp`를 추가하고(앞의 둘은 지금 필요하고, 뒤의 둘은
+p1-fixtures의 `moveit-planning`이 이번 라운드에 필요로 한다) 세 크레이트를
+`.workspace = true`로 바꿨다. 게이트는
+`check-workspace-dep-inheritance.sh`.
+
+### 127.2 워크스페이스 lint를 크레이트가 통째로 잃을 수 있다 (1049459)
+
+`moveit-kinematics`와 `moveit-planners-sbp`는 `[lints] workspace = true`를
+쓰지 **못한다** — D4의 `linkme::distributed_slice`가 만드는 static이
+전부 `#[link_section]`이라 `unsafe_code` lint를 건드리고, 워크스페이스의
+`forbid`는 per-site `#[allow]`로 내릴 수 없다(게다가
+`check-no-lint-suppression.sh`가 그 시도를 막는다). 둘 다 지금은 옳게
+처리하고 있다: 나머지 lint를 전부 다시 적고 `unsafe_code` 하나만
+`allow`로 완화하며, 이유를 매니페스트에 적어 뒀다.
+
+문제는 **다음 크레이트**다. opt-out은 테이블 통째 교체라,
+`[lints.rust] unsafe_code = "allow"` 한 줄만 적은 크레이트는
+`warnings = "deny"`와 `missing_docs`를 조용히 잃는다. 그리고 아무것도
+실패하지 않는다 — CI의 CLI `-D warnings`가 첫 번째를 가리고, 두 번째는
+애초에 에러를 내지 않는다. 그래서 게이트가 요구하는 것은 값이 아니라
+**존재**다: opt-out 하면 워크스페이스가 정한 키를 전부 다시 적어야 한다.
+완화는 여전히 자유이고, 다만 이유가 이미 적혀 있는 자리에 명시적으로
+남는다.
+
+### 127.3 라이선스 (§125, 2c4d628)
+
+앞 절에 기록. 셋 다 같은 형태의 게이트다: **상류별/크레이트별 표를 두지
+않고 트리에서 규칙을 유도한다.** 표는 새 항목이 생길 때마다 갱신해야
+하고, 갱신을 잊는 것이 정확히 이 게이트들이 막으려는 실패다.
+
+`check-*.sh`는 5건에서 **8건**이 됐다. 셋 다 섭동으로 실제로 잡는 것을
+확인했고(각각 3~4건), 오탐도 확인했다 — 주석 처리된 인라인 의존은
+걸리지 않고, 값만 완화한 opt-out은 통과한다.
+
+### 127.4 게이트로 만들지 않은 것 하나
+
+`tools/ci/check-*.sh`는 docker를 필요로 하면 안 된다(CI 러너에 없다,
+그래서 docker가 필요한 것은 `verify-*.sh`로 이름 짓는다). 지금 여덟 건
+중 docker를 **실행**하는 것은 없다 — `rg`로 확인했고, 걸린 세 건은
+전부 "Needs no docker"라고 적은 주석이었다. 규약은 지켜지고 있고, 어긴
+순간 CI가 스스로 실패한다. 그 자기검출이 약한 이유(ci.yml이 아직 한 번도
+돌지 않았다)는 알지만, 게이트를 무한정 늘리는 것이 아니라 §126의 clean
+clone 검증을 주기적으로 다시 돌리는 쪽이 맞다고 판단했다.
