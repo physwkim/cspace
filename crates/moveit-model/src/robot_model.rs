@@ -2147,6 +2147,11 @@ mod tests {
         );
     }
 
+    /// Distinct from `multiple_root_links_errors` below: both are arms of
+    /// the very same `match root_candidates.as_slice()` (`:198-213`), so a
+    /// bare `.is_err()` cannot tell whether *this* URDF's cycle actually
+    /// took the `[]` ("no root link") arm rather than being silently routed
+    /// into the `names` ("N root links") arm instead.
     #[test]
     fn no_root_link_errors() {
         let urdf = r#"<robot name="test">
@@ -2159,16 +2164,26 @@ mod tests {
                 <parent link="b"/><child link="a"/>
             </joint>
         </robot>"#;
-        assert!(build(urdf, FIXED_BASE_SRDF).is_err());
+        let err = build(urdf, FIXED_BASE_SRDF).unwrap_err();
+        assert!(
+            err.to_string().contains("has no root link"),
+            "expected the `[]` root-candidates arm, got: {err}"
+        );
     }
 
+    /// Distinct from `no_root_link_errors` above: see that test's doc
+    /// comment.
     #[test]
     fn multiple_root_links_errors() {
         let urdf = r#"<robot name="test">
             <link name="a"/>
             <link name="b"/>
         </robot>"#;
-        assert!(build(urdf, FIXED_BASE_SRDF).is_err());
+        let err = build(urdf, FIXED_BASE_SRDF).unwrap_err();
+        assert!(
+            err.to_string().contains("root links, expected exactly one"),
+            "expected the `names` root-candidates arm, got: {err}"
+        );
     }
 
     fn link_with_geometry_urdf(link_extra: &str) -> String {
