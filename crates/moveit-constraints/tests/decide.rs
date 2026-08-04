@@ -60,6 +60,32 @@ fn sphere_region(radius: f64, pose: Isometry3) -> (Shape, Isometry3) {
     (Shape::Sphere(Sphere::new(radius).unwrap()), pose)
 }
 
+/// Asserts that a constructor failed *for the reason the test names*, not
+/// merely that it failed.
+///
+/// Several rejection tests in this file sit next to a sibling that rejects
+/// the same call from a different branch: `PositionConstraint::new`'s
+/// `Body::from_shape(shape)?` error next to the `Ok(None)` error on the very
+/// same line, an unresolvable `frame_id` next to an empty one. A bare
+/// `.is_err()` cannot tell those apart, so routing one branch into the other
+/// leaves every one of them green -- replacing that `?` with a fallback to
+/// `None` (which lands the call in the sibling's error instead) keeps
+/// `new_rejects_a_mesh_whose_body_construction_fails` passing, even though
+/// the branch it exists to pin is then never taken. Matching on the rendered
+/// error is what makes each test name the branch it actually exercises;
+/// `constraint_sampler_manager.rs`'s `UnknownName` match is the same idea
+/// where the variant alone is enough to discriminate.
+#[track_caller]
+fn assert_err_mentions<T: std::fmt::Debug>(result: Result<T, Error>, needle: &str) {
+    let rendered = result
+        .expect_err("expected this call to be rejected")
+        .to_string();
+    assert!(
+        rendered.contains(needle),
+        "expected the rejection to come from the branch that reports {needle:?}, got: {rendered}"
+    );
+}
+
 mod joint {
     use super::*;
 
@@ -330,7 +356,10 @@ mod position {
         let model = panda_model();
         let transforms = tf(&model);
         let region = sphere_region(0.01, Isometry3::identity());
-        assert!(
+        // `PositionConstraint::new`'s own `frame_id.trim().is_empty()`
+        // branch, not the general unresolvable-frame one
+        // `new_rejects_unresolvable_mobile_frame` covers.
+        assert_err_mentions(
             PositionConstraint::new(
                 &model,
                 &transforms,
@@ -339,8 +368,8 @@ mod position {
                 Vector3::zeros(),
                 &[region],
                 1.0,
-            )
-            .is_err()
+            ),
+            "no frame specified for position constraint",
         );
     }
 
@@ -348,7 +377,7 @@ mod position {
     fn new_rejects_no_regions() {
         let model = panda_model();
         let transforms = tf(&model);
-        assert!(
+        assert_err_mentions(
             PositionConstraint::new(
                 &model,
                 &transforms,
@@ -357,8 +386,8 @@ mod position {
                 Vector3::zeros(),
                 &[],
                 1.0,
-            )
-            .is_err()
+            ),
+            "needs at least one constraint region",
         );
     }
 
@@ -403,7 +432,10 @@ mod position {
         ];
         for shape in bodyless {
             let region = (shape.clone(), Isometry3::identity());
-            assert!(
+            // The `Ok(None)` half of `Body::from_shape(shape)?` -- not the
+            // construction-failure half `new_rejects_a_mesh_whose_body_construction_fails`
+            // covers, which errors on the same line with a different message.
+            assert_err_mentions(
                 PositionConstraint::new(
                     &model,
                     &transforms,
@@ -412,10 +444,8 @@ mod position {
                     Vector3::zeros(),
                     &[region],
                     1.0,
-                )
-                .is_err(),
-                "{shape:?} has no bodies::Body counterpart; the constraint must \
-                 error, not drop the region"
+                ),
+                "has no bodies:: counterpart",
             );
         }
     }
@@ -467,7 +497,7 @@ mod position {
             }),
             Isometry3::identity(),
         );
-        assert!(
+        assert_err_mentions(
             PositionConstraint::new(
                 &model,
                 &transforms,
@@ -476,8 +506,8 @@ mod position {
                 Vector3::zeros(),
                 &[region],
                 1.0,
-            )
-            .is_err()
+            ),
+            "convex mesh body requires at least one vertex",
         );
     }
 
@@ -486,7 +516,7 @@ mod position {
         let model = panda_model();
         let transforms = tf(&model);
         let region = sphere_region(0.01, Isometry3::identity());
-        assert!(
+        assert_err_mentions(
             PositionConstraint::new(
                 &model,
                 &transforms,
@@ -495,8 +525,8 @@ mod position {
                 Vector3::zeros(),
                 &[region],
                 1.0,
-            )
-            .is_err()
+            ),
+            r#"no frame named "no_such_frame""#,
         );
     }
 
@@ -675,7 +705,7 @@ mod orientation {
     fn new_rejects_unresolvable_frame() {
         let model = panda_model();
         let transforms = tf(&model);
-        assert!(
+        assert_err_mentions(
             OrientationConstraint::new(
                 &model,
                 &transforms,
@@ -688,8 +718,8 @@ mod orientation {
                     z: 0.01,
                 },
                 1.0,
-            )
-            .is_err()
+            ),
+            r#"no frame named "no_such_frame""#,
         );
     }
 
@@ -707,7 +737,14 @@ mod orientation {
     fn new_rejects_empty_frame_id() {
         let model = panda_model();
         let transforms = tf(&model);
-        assert!(
+        // Unlike `PositionConstraint`, this type has no dedicated
+        // empty-`frame_id` branch: the empty string falls through the same
+        // general resolution `new_rejects_unresolvable_frame` exercises and
+        // is reported by name. Asserting the name is what shows *which*
+        // branch answered -- the doc above claims this case proves the port
+        // covers the empty-string branch specifically, and it does so only
+        // in the sense that the general branch swallows it.
+        assert_err_mentions(
             OrientationConstraint::new(
                 &model,
                 &transforms,
@@ -720,8 +757,8 @@ mod orientation {
                     z: 0.01,
                 },
                 1.0,
-            )
-            .is_err()
+            ),
+            r#"no frame named """#,
         );
     }
 
