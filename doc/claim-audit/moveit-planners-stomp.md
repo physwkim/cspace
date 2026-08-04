@@ -331,27 +331,40 @@ All 9 accounted for, all with a stated reason, no gap found:
 | `src/stomp_moveit_planning_context.cpp` | partially ported -- `extract_seed_trajectory`/`sample_goal_state` extracted as free functions (round 25); `StompPlanningContext::solve`'s own inline logic remains D1/D2-unported (existing `MultivariateGaussian::new` row above, "itself unported (D1/D2)") |
 | `src/stomp_moveit_planner_plugin.cpp` | deliberately excluded, reason stated (`lib.rs:105-115`, ROS-hosted plugin entry point taking `rclcpp::Node::SharedPtr`) |
 | `trajectory_visualization.hpp` | deliberately excluded, reason stated (`lib.rs:116-120`, ROS message/tf2-typed signatures) |
-| `stomp_moveit_planning_context.hpp` | **missing** -- see below |
+| `stomp_moveit_planning_context.hpp` | deliberately excluded, classified this round -- see below |
 | `test/test_cost_functions.cpp` | **missing** -- see below |
 | `test/test_noise_generator.cpp` | **missing** -- see below |
 
-**Three genuine gaps, next round's work, named here rather than fixed
-this round:**
+**`stomp_moveit_planning_context.hpp`, classified this round (closes
+gap 1 of 3 named last round).** Read the full file (76 lines): one
+type, `class StompPlanningContext : public planning_interface::PlanningContext`
+-- every member is either ROS-typed in its own signature
+(`solve(planning_interface::MotionPlanResponse&)`,
+`solve(planning_interface::MotionPlanDetailedResponse&)`,
+`setPathPublisher`/`getPathPublisher` taking/returning
+`std::shared_ptr<rclcpp::Publisher<visualization_msgs::msg::MarkerArray>>`),
+or a ROS-typed private field (`stomp_moveit::Params params_` --
+`generate_parameter_library`-generated, not in this repository tree;
+`std::shared_ptr<rclcpp::Publisher<...>> path_publisher_`). No inline
+method bodies, no free-standing constants, no type this header defines
+that the `.cpp` does not already declare via the same class -- checked
+by also reading the `.cpp`'s four short bodies for `terminate()`,
+`clear()`, `setPathPublisher()`, `getPathPublisher()`, not just
+`solve()` (already the existing "partially ported" row's subject):
+`terminate()` is a two-line wrapper over `stomp_->cancel()`, already
+covered by this crate's own `Stomp::cancel`/`CancelHandle` cancellation
+surface (`a682f63` and later rounds); `clear()` is an empty body;
+`setPathPublisher`/`getPathPublisher` are a bare accessor pair over the
+ROS-typed `path_publisher_` field. Nothing left uncovered. Same D1/D2
+ROS-hosted-glue exclusion already applied to this file's `.cpp` twin
+(`solve()`'s body) and to the sibling plugin file -- now written down
+explicitly rather than left as "never cited."
 
-1. `stomp_moveit_planning_context.hpp` was never cited or explicitly
-   classified in this crate's own docs, unlike its sibling `.cpp` (partially
-   ported, reasoned above) and unlike the plugin/`trajectory_visualization`
-   exclusions (both explicitly named). Read this round:
-   `class StompPlanningContext : public planning_interface::PlanningContext`,
-   every method signature ROS-typed (`MotionPlanResponse`,
-   `MotionPlanDetailedResponse`, `rclcpp::Publisher<visualization_msgs::msg::MarkerArray>`)
-   -- substantively the same D1/D2 exclusion already applied to its `.cpp`
-   twin's `solve()` body and to the plugin file, nothing found this round
-   that looks portable. Not fixed this round because "substantively the
-   same reason" is this round's read, not a citation -- the crate's own
-   citation list should say so explicitly, the way it does for its two
-   siblings.
-2. `test/test_cost_functions.cpp` (upstream `testGetCostFunctionAllValidStates`/
+**Two genuine gaps remain, next round's work, named here rather than
+fixed this round (see this round's value-level cross-reference below
+for why they are not yet closed):**
+
+1. `test/test_cost_functions.cpp` (upstream `testGetCostFunctionAllValidStates`/
    `testGetCostFunctionInvalidStates`) was never opened or cross-referenced
    against this crate's own `cost_functions.rs` tests. By name, the
    invariants line up (`a_fully_valid_trajectory_has_zero_cost_and_is_valid`,
@@ -361,7 +374,7 @@ this round:**
    `EXPECT_GE(costs(invalid_timesteps_vec).sum(), 0.681 * PENALTY)` at a
    specific tolerance; this port's own test was never diffed against that
    literal.
-3. `test/test_noise_generator.cpp` (upstream `testStartEndUnchanged`) was
+2. `test/test_noise_generator.cpp` (upstream `testStartEndUnchanged`) was
    never opened or cross-referenced either. By name,
    `generated_noise_pins_the_first_and_last_timestep_to_zero` covers the
    same invariant, but again unverified against the upstream test's exact
