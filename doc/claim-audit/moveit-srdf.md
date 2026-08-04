@@ -27,18 +27,35 @@ from reading the port and reasoning backwards.
 | `src/model.rs:148-150` | upstream leaves `parent_group_` as `""` when the attribute is absent | CONFIRMED | `model.cpp:444-448` — the assignment is guarded by `if (parent_group)`, and `parent_group_` is a default-constructed `std::string` | |
 | `src/model.rs:352-365` | the three radius-zero rules, with "positive" meaning strictly greater than epsilon | CONFIRMED | `model.cpp:517-540` — `if (sphere.radius_ > std::numeric_limits<double>::epsilon())` clears the vector on the first positive sphere; the `else if (non_0_radius_sphere_cnt == 0)` branch collapses to one origin-centred zero sphere. `parse.rs:382-393` is the same branch structure, and `f64::EPSILON` == `std::numeric_limits<double>::epsilon()` == 2.220446049250313e-16 | |
 
+## Second pass — the structural and deviation claims
+
+The first pass covered the 12 behavioural claims and recorded the rest as a
+known gap. This pass closes it for `src/`.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `src/model.rs`, 24 sites | the upstream symbols named: the structs `Group`, `GroupState`, `VirtualJoint`, `EndEffector`, `Sphere`, `LinkSpheres`, `CollisionPair`, `JointProperty`, `PassiveJoint`, `Model`; the entry points `initXml`/`initString`/`initFile`; the accessors `getName`, `getGroups`, `getGroupStates`, `getVirtualJoints`, `getEndEffectors`, `getLinkSphereApproximations`, `getNoDefaultCollisionLinks`, `getEnabledCollisionPairs`, `getDisabledCollisionPairs`, `getPassiveJoints`, `getJointProperties` (both overloads) | CONFIRMED | checked mechanically against `include/srdfdom/model.h` — structs at `:83,117,133,150,164,176,186,199,206`, `Model` at `:59`, init at `:71-77`, accessors at `:219-292`. 24 asserted, 24 present | |
+| `src/model.rs:53` | upstream stores a chain as `std::pair<std::string, std::string>`, ordered base then tip | CONFIRMED | `model.h:105` `std::vector<std::pair<std::string, std::string>> chains_;`, and `:102-104`'s own comment says "specified as a pair of base link and tip link" — the order claim is upstream's own words, not an inference | |
+| `src/model.rs:194` | `reason` is carried verbatim, without trimming, as upstream does | CONFIRMED | `model.cpp:585-586` — `CollisionPair pair{ boost::trim_copy(link1), boost::trim_copy(link2), reason ? reason : "" }`. The asymmetry is inside one initializer: the two link names are trimmed, `reason` is not | |
+| `src/model.rs:77`, `:409` | a `BTreeMap` matches upstream's `std::map` iteration order | CONFIRMED | `model.h:160` `std::map<std::string, std::vector<double>> joint_values_;` and `:324` `std::map<std::string, std::vector<JointProperty>> joint_properties_;` — `std::map` iterates in key order, as `BTreeMap` does | |
+| `src/model.rs:252` | upstream wraps each passive joint in a struct rather than storing a bare name | CONFIRMED | `model.h:199-203` — `struct PassiveJoint { std::string name_; }` | |
+| `src/model.rs:247` (deviation 4) | upstream leaves `name_` as `""` for an SRDF with no `name` attribute, indistinguishable from `name=""` | CONFIRMED | `model.cpp:672-682` — `name_` is assigned only inside the `else`; with no attribute it stays default-constructed, and upstream logs "No name given for the robot." | |
+| `src/model.rs:326` (deviation) | upstream's failed `istringstream` extraction leaves the `double` at 0 and stores it, so `value="oops"` and `value="0"` produce the same state | CONFIRMED | `model.cpp:370-377`, the same loop as the first pass's `parse.rs:504` row. `"oops"` pushes one `0.0`; `"0"` pushes one `0.0`. Since `0.0` is a legal joint position the failure is undetectable downstream — the port's stated consequence is exact | |
+| `src/diagnostic.rs:14-22` | upstream writes these to `console_bridge` and returns a model carrying no trace; a diagnostic is never fatal; the only two fatal conditions are malformed XML and a non-`robot` root | CONFIRMED | every `loadX` in `model.cpp` returns `void` and only logs, so none can change the result. `initXml` returns `false` at exactly one place, `:669` (missing or non-`robot` root); the other two `false` returns are `initFile:722` (file could not be opened) and `initString:731` (`xml_doc.Parse != XML_SUCCESS`). Nothing else fails | |
+
 ## Summary
 
-- 12 claims verified, 12 CONFIRMED, 0 EXPIRED, 0 UNVERIFIABLE.
+- **20 claims verified across both passes, 20 CONFIRMED, 0 EXPIRED, 0
+  UNVERIFIABLE.** `crates/moveit-srdf/src` is now fully audited: every
+  `upstream`-asserting line is either covered by a row above or is a
+  cross-reference to one that is.
 - The upstream source is present locally (`third_party/srdfdom/`), so nothing
   in this crate falls under the "source absent" bucket that forces
   UNVERIFIABLE elsewhere.
-- Not exhaustive: `rg -i upstream crates/moveit-srdf/src` reports ~60 lines.
-  The 12 above are the ones that assert a *behaviour* upstream either does or
-  does not have, i.e. the ones a wrong reading would turn into a parsing
-  difference. The remainder are structural ("Upstream `srdf::Model::Group`")
-  or restate a deviation already labelled as one. Those are unaudited, and
-  that is a gap, not a pass — recorded here rather than left implicit.
+- Still unaudited: the 17 `upstream` mentions in `tests/boundaries.rs` and
+  `tests/fixtures.rs`. Those describe what a test pins rather than asserting
+  upstream behaviour independently, but they have not been opened, and that
+  is a gap rather than a pass.
 
 ## Two bounded differences found while verifying (neither is a defect)
 
