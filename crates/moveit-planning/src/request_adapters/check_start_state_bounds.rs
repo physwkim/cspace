@@ -53,8 +53,22 @@
 //!    [`moveit_model::FloatingJoint::normalize_rotation`] (cpp:141).
 //! 4. Regardless of type: checked against its own bounds via
 //!    [`moveit_model::JointModel::satisfies_position_bounds`] with
-//!    `margin = 0.0` (upstream's own default,
-//!    `moveit/robot_state/robot_state.hpp:1417`).
+//!    `margin = 0.0`. Upstream's own default here is not
+//!    `satisfiesPositionBounds` in isolation but
+//!    `RobotState::satisfiesBounds(jmodel, margin)`
+//!    (`moveit/robot_state/robot_state.hpp:1419`):
+//!    `satisfiesPositionBounds(joint, margin) && (!has_velocity_ ||
+//!    satisfiesVelocityBounds(joint, margin))`. A prior version of this
+//!    port called only the position half, silently accepting a start state
+//!    whose velocities were set and out of bounds. Fixed: step 4 now also
+//!    checks [`moveit_model::JointModel::satisfies_velocity_bounds`]
+//!    against [`moveit_state::RobotState::joint_velocity`] whenever
+//!    [`moveit_state::RobotState::has_velocities`] is true, mirroring the
+//!    `has_velocity_` conditional exactly — [`moveit_state::RobotState`]
+//!    already carries a `has_velocity`/`velocity` pair for this (ported
+//!    separately, `crates/moveit-state/src/state.rs`), so there is no
+//!    "does this port even have the concept" question to answer: the
+//!    input this adapter was missing was already there to read.
 //!
 //! `should_fix_state` (a step-1/2/3 change was made) and `is_out_of_bounds`
 //! (a step-4 check failed) are tracked exactly as cpp:99-100/119/132/144/157
@@ -143,6 +157,11 @@ impl PlanningRequestAdapter for CheckStartStateBounds {
             if !joint.satisfies_position_bounds(&values, 0.0) {
                 is_out_of_bounds = true;
             }
+            if state.has_velocities()
+                && !joint.satisfies_velocity_bounds(state.joint_velocity(&name).unwrap(), 0.0)
+            {
+                is_out_of_bounds = true;
+            }
 
             state.set_joint_positions(&name, &values).unwrap();
         }
@@ -216,6 +235,76 @@ mod tests {
         let adapter = CheckStartStateBounds::new(false);
         assert_eq!(adapter.description(), "CheckStartStateBounds");
         assert!(adapter.adapt(&mut scene, &env, &mut request()).is_ok());
+    }
+
+    /// Boundary: [`moveit_state::RobotState::has_velocities`] false (no
+    /// velocity ever set) must not spuriously fail the velocity half of
+    /// step 4 -- covered implicitly by every other test here too, since
+    /// none of them call `set_variable_velocity`, but stated as its own
+    /// case since it is the boundary the velocity check's `has_velocities()`
+    /// guard exists for.
+    #[test]
+    fn no_velocity_present_is_accepted() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        assert!(!scene.current_state().has_velocities());
+        assert!(
+            CheckStartStateBounds::new(false)
+                .adapt(&mut scene, &env, &mut request())
+                .is_ok()
+        );
+    }
+
+    /// Boundary: a velocity within `[min_velocity, max_velocity]` must not
+    /// reject a state whose position is otherwise fine.
+    #[test]
+    fn an_in_bounds_velocity_is_accepted() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let bounds = model.joint_model("panda_joint1").unwrap().variable_bounds()[0];
+        assert!(
+            bounds.velocity_bounded,
+            "fixture must have a velocity limit for this to test anything"
+        );
+        scene
+            .current_state_mut()
+            .set_variable_velocity("panda_joint1", bounds.max_velocity)
+            .unwrap();
+        assert!(scene.current_state().has_velocities());
+        assert!(
+            CheckStartStateBounds::new(false)
+                .adapt(&mut scene, &env, &mut request())
+                .is_ok()
+        );
+    }
+
+    /// Boundary: a velocity outside `[min_velocity, max_velocity]` must
+    /// reject, matching `robot_state.hpp:1419`'s
+    /// `satisfiesVelocityBounds` half of `satisfiesBounds` -- the gap this
+    /// port had before this round's fix (position-only, velocity never
+    /// checked at all).
+    #[test]
+    fn an_out_of_bounds_velocity_is_rejected() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+        let bounds = model.joint_model("panda_joint1").unwrap().variable_bounds()[0];
+        assert!(
+            bounds.velocity_bounded,
+            "fixture must have a velocity limit for this to test anything"
+        );
+        scene
+            .current_state_mut()
+            .set_variable_velocity("panda_joint1", bounds.max_velocity + 1.0)
+            .unwrap();
+        assert_eq!(
+            CheckStartStateBounds::new(false).adapt(&mut scene, &env, &mut request()),
+            Err(RequestAdapterError::StartStateInvalid {
+                adapter: "CheckStartStateBounds"
+            })
+        );
     }
 
     #[test]
