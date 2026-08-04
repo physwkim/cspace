@@ -28,6 +28,31 @@
 # vs. false-positive text match vs. genuine float-to-int narrowing -- is
 # a judgment call made in the doc prose, not by this script, matching
 # count-public-declarations.sh's and count-relative-eq.pl's convention.
+#
+# Deliberately not wired into check-*.sh or verify-*.sh: there is no exit
+# code to gate on -- the script always exits 0 and prints raw hits, and
+# whether a given hit is real narrowing or a false-positive text match is
+# the judgment call above, not something this script (or any script) can
+# assert. Its inputs are files from the upstream checkout PORTING-PLAN.md
+# pins at one fixed SHA (`e017c91e`, changed only by an explicit rebase
+# round), so there is also nothing here that would drift between two CI
+# runs for a gate to catch. Reproduce moveit-scene/moveit-metrics's own
+# recorded totals (doc/claim-audit/moveit-scene.md,
+# doc/claim-audit/moveit-metrics.md, "§172 narrowing sweep") with:
+#
+#   M2=/home/stevek/work/moveit2/moveit_core
+#   tools/ci/count-narrowing-sweep.sh \
+#     "$M2/planning_scene/src/planning_scene.cpp" \
+#     "$M2/planning_scene/include/moveit/planning_scene/planning_scene.hpp" \
+#     "$M2/robot_state/src/robot_state.cpp" \
+#     "$M2/robot_state/include/moveit/robot_state/attached_body.hpp" \
+#     "$M2/robot_state/src/attached_body.cpp" \
+#     "$M2/collision_detection/src/world.cpp" \
+#     "$M2/collision_detection/include/moveit/collision_detection/world.hpp" \
+#     "$M2/kinematic_constraints/src/kinematic_constraint.cpp" \
+#     | wc -l   # 140, matching moveit-scene.md
+#   tools/ci/count-narrowing-sweep.sh \
+#     "$M2/kinematics_metrics/src/kinematics_metrics.cpp" | wc -l   # 4, matching moveit-metrics.md
 set -euo pipefail
 
 TYPES='std::size_t|size_t|uint32_t|int32_t|unsigned int|unsigned|long|int'

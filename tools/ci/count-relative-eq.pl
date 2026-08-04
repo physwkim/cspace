@@ -41,6 +41,18 @@
 # `relative_eq!(` call by bracket-matching parens from the macro name to the
 # matching close, and classifies each by whether `epsilon =` and/or
 # `max_relative =` appear inside that call's own argument text.
+#
+# Deliberately not wired into check-*.sh or verify-*.sh: it always exits 0
+# and prints a classification breakdown, not a verdict -- whether a given
+# crate's mix of `both`/`epsilon_only`/`max_relative_only`/`neither` is
+# correct depends on what each call is actually comparing (a unitless
+# ratio wants `max_relative`, an absolute physical quantity wants
+# `epsilon`), which is a per-call-site judgment made in the citing crate's
+# own doc comment, not a workspace-wide invariant this script could assert
+# without inventing one. Reproduce moveit-geometry's own recorded figure:
+#
+#   perl tools/ci/count-relative-eq.pl crates/moveit-geometry/src/*.rs
+#   # both=9 epsilon_only=0 max_relative_only=0 neither=0
 use strict;
 use warnings;
 my ($both, $eps_only, $mr_only, $neither) = (0,0,0,0);

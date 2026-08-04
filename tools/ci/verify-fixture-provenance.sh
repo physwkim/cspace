@@ -16,7 +16,7 @@
 # and the local gate loop run, and this check needs `third_party/`, which is
 # exactly what those runners do not have. A script that always skips in CI reads
 # as coverage while providing none. This one requires the vendored tree and
-# fails when it is missing, and runs from `run-oracle-sweep.sh`, which already
+# fails when it is missing, and runs from `verify-oracle-sweep.sh`, which already
 # requires it.
 #
 #   tools/ci/verify-fixture-provenance.sh

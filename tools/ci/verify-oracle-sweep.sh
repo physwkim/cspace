@@ -4,16 +4,24 @@
 # over N random states at moveit-diff's default 1e-9, and one group's 6xN
 # jacobian at 1e-7.
 #
-# Not a CI step and not a `cargo test`: it needs docker and the
-# `moveit-rs/oracle` image, neither of which the workspace test run has.
-# `crates/moveit-state/tests/fk_parity.rs` and `tests/jacobian.rs` are the
-# committed regressions that do run everywhere -- they hold a handful of
-# captured cases per robot, which catches a port that breaks outright but not
-# one that drifts only on configurations nobody captured. This script is what
-# covers that gap, so run it after any change to joint kinematics,
-# RobotState::update, or Posed::jacobian.
+# Not a `check-*.sh` step and not a `cargo test`: it needs docker and the
+# `moveit-rs/oracle` image, neither of which a CI runner or the workspace
+# test run has. `crates/moveit-state/tests/fk_parity.rs` and
+# `tests/jacobian.rs` are the committed regressions that do run everywhere
+# -- they hold a handful of captured cases per robot, which catches a port
+# that breaks outright but not one that drifts only on configurations
+# nobody captured. This script is what covers that gap, so run it after
+# any change to joint kinematics, RobotState::update, or Posed::jacobian.
 #
-#   tools/ci/run-oracle-sweep.sh [CASES] [SEED]
+# Named `verify-*`, run by `tools/ci/verify-all.sh`'s glob rather than by
+# a hand-typed pointer in a round brief -- round 17's audit found this
+# file sitting outside both the `check-*.sh` and `verify-*.sh` globs with
+# nothing invoking it at all, the same never-runs shape §196 and
+# `verify-vendored-fixture-tests.sh` both close elsewhere. Measured at
+# ~2m24s for the default 10000 cases x 5 robots against the current tree,
+# which `verify-all.sh`'s per-round cost already absorbs.
+#
+#   tools/ci/verify-oracle-sweep.sh [CASES] [SEED]
 #
 # Exits non-zero on the first robot that disagrees.
 set -euo pipefail

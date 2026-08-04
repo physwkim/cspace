@@ -27,6 +27,27 @@
 # character in a line textually. String literal contents are blanked for
 # the same reason comments are stripped first, not because this repo's
 # headers have hit it yet.
+#
+# Deliberately not wired into check-*.sh or verify-*.sh: it prints a raw
+# integer with no pass/fail sense of its own -- whether that count matches
+# the Rust port's own public surface is a per-class judgment call made in
+# each crate's doc comment (see bodies.rs, shapes.rs, tree.rs), not
+# something this script asserts. There is also no fixed <header, class>
+# pair to run it against in CI: each new class ported gets a new
+# invocation the day it is audited, chosen by the person doing the audit,
+# not by this script. Self-check with no docker required (matches
+# moveit-geometry/src/lib.rs's recorded `0`, since a bash file has no
+# `class` to match):
+#
+#   bash tools/ci/count-public-declarations.sh \
+#     tools/ci/count-public-declarations.sh count_public_declarations
+#
+# Reproduce a real, oracle-backed count (matches bodies.rs's recorded
+# `Body: 28`):
+#
+#   sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 \
+#     -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/bodies.h'" > /tmp/bodies.h
+#   tools/ci/count-public-declarations.sh /tmp/bodies.h Body   # 28
 set -euo pipefail
 header="$1"
 cls="$2"

@@ -2,14 +2,14 @@
 # Pins the oracle's continuous-joint reseed formula (`sampleReseed`'s
 # `continuous` branch in oracle.cpp) directly against wrap-vs-clamp,
 # instead of through the aggregate IK-success-rate sweep
-# (`run-oracle-sweep.sh`) that round 6 already showed cannot see it: at
+# (`verify-oracle-sweep.sh`) that round 6 already showed cannot see it: at
 # `--ik-consistency-limit 4.0` the branch fires on ~21% of reseed draws, and
 # pr2's arm redundancy absorbs the effect before it reaches the success-rate
 # statistic (see PORTING-PLAN.md's p1-joints round 6/7 sections). If
 # `oracle.cpp` ever reverts that branch to clamping, nothing else in this
 # repo notices; this does.
 #
-# Needs docker and the moveit-rs/oracle image -- like run-oracle-sweep.sh and
+# Needs docker and the moveit-rs/oracle image -- like verify-oracle-sweep.sh and
 # verify-fixture-provenance.sh, this is deliberately not one of the
 # `check-*.sh` scripts `.github/workflows/ci.yml` and the local gate loop run,
 # and is not a `cargo test`. The name is the whole mechanism: ci.yml globs
@@ -74,7 +74,7 @@ PYEOF
 
 # Not `python3 ... | run-oracle.sh ... 2>/dev/null | tail -1`, which is how
 # this was first written and which had both of the failure modes
-# `run-oracle-sweep.sh`'s own comment warns about. The pipe made `tail` the
+# `verify-oracle-sweep.sh`'s own comment warns about. The pipe made `tail` the
 # status-reporting stage, and `2>/dev/null` threw away the only text that says
 # what went wrong -- so on a host where the caller lacks the docker group, this
 # script exited 1 having printed nothing at all, which reads as "the check is
