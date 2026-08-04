@@ -93,3 +93,68 @@ finding.
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `crates/moveit-planners-stomp/src/*.rs`, every `pub fn`/`pub struct` | No port-only API in this crate carries independent invariant risk; `plan`'s cancellation surface is `with_cancel_handle`'s, already fixed | CONFIRMED, 4 APIs enumerated and classified above | Read every public item in this tree, cross-referenced against `/home/stevek/work/moveit2/moveit_planners/stomp/` | (pending, see report) |
+
+## `MultivariateGaussian::new`'s fallibility vs. D14/§199 (this round)
+
+Mirror image of §194: `moveit-sampling::MultivariateGaussian::new`
+(not this crate, but this crate is its one production caller) is
+fallible where upstream's constructor is not -- it returns `None` for
+a non-positive-definite `covariance` that upstream would have
+"accepted" (silently producing `NaN`-poisoned sampling state; see that
+crate's own module doc, "Deviation: construction can fail"). D14
+(`moveit-constraints`, this round, §199): a wire default upstream
+assigns meaning to must not be rejected. Same shape of question here:
+does this port's stricter constructor reject an input a real caller
+(a message, a config file) can actually reach?
+
+**Call-site inventory.** `rg 'MultivariateGaussian::new'` across the
+workspace: every hit outside `moveit-sampling`'s own tests and doc
+comments is `crates/moveit-planners-stomp/src/noise_generators.rs:106`,
+inside `normal_distribution_generator`. `stomp.rs:1162`'s hit is
+`moveit-stomp-core`'s own `#[cfg(test)]` module, not production. One
+production call site in the entire workspace.
+
+**Does `stddev` (the caller/config-facing parameter) reach it?** No --
+structurally, not just "not observed to." `normal_distribution_generator`'s
+`covariance` argument to `MultivariateGaussian::new` (`noise_generators.rs:106`)
+is `full_piv_lu_try_inverse_or_empty(acceleration^T * acceleration)`,
+normalized by its own max-abs entry -- a function of `num_timesteps`
+alone. `stddev` is applied only afterward, as a per-row scale on
+already-sampled noise (`noise_generators.rs:124-126`), never touching
+`covariance`. `normal_distribution_generator`'s only production caller,
+`plan` (`planner.rs:452-453`), always builds `stddev` as
+`vec![DEFAULT_NOISE_STDDEV; config.num_dimensions]` -- a hardcoded
+constant, not read from a message field per-dimension -- but that is
+moot given `stddev` cannot reach `covariance` regardless of what a
+caller supplies.
+
+**Does `num_timesteps` (the one input that does reach it) reach it?**
+Checked, not assumed: `acceleration^T * acceleration`'s invertibility
+is already gated by this function's first `ok_or_else`
+(`noise_generators.rs:96-101`); once that passes, `covariance` is a
+positive-scalar-normalized inverse of an invertible Gram matrix, which
+is mathematically positive-definite by construction (a Gram matrix's
+inverse is PD whenever the Gram matrix is invertible). This is the
+identical premise `filter_functions::simple_smoothing_matrix`'s own
+test-module note already documents for the same `A^T * A` shape
+(`filter_functions.rs:142-152`, "no realistic `(num_timesteps, dt)`
+input... makes it singular"). Backed empirically here too, not just
+asserted: `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
+sweeps `num_timesteps` 1..=200 (dense 1..=60, checkpoints to 200 --
+an order of magnitude past the largest `num_timesteps` any test or
+fixture in this workspace uses, `solve_with_60_timesteps_converges`'s
+60) and confirms `MultivariateGaussian::new` never returns `None` in
+that range.
+
+**Conclusion:** not the same defect family as D14. There is no
+upstream-accepted wire value this port's stricter `new` silently
+drops -- `stddev` cannot reach the rejection path at all, and
+`num_timesteps` cannot produce a `covariance` upstream would treat
+differently (upstream's own `NaN`-producing path is for a genuinely
+indefinite covariance, and this port's derived covariance cannot be
+indefinite once the first invertibility check passes). Closed, not
+carried forward as an open risk.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-planners-stomp/src/noise_generators.rs:106` (`MultivariateGaussian::new`'s one production call site) | `stddev` cannot reach `covariance` (structurally disconnected); `num_timesteps` cannot produce a `covariance` `MultivariateGaussian::new` rejects, for any value this workspace uses | CONFIRMED closed, not D14's shape | `rg 'MultivariateGaussian::new'` workspace-wide (1 production site); `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`, `cargo nextest run -p moveit-planners-stomp` | (pending, see report) |
