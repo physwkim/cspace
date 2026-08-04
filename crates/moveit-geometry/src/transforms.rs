@@ -223,6 +223,10 @@ mod tests {
         assert!(t.can_transform("planning_frame"));
     }
 
+    // Assertion-discrimination sweep (round 2): `Transforms::new` has
+    // exactly one `Err` site (the `target_frame.is_empty()` guard, after
+    // trimming) -- verdict `single-branch`, an `rg` for `Error::|Err\(`
+    // over the function body (lines 59-69) has one hit.
     #[test]
     fn new_rejects_empty_target_frame() {
         // Upstream logs an error and yields an unusable object; here it fails.
@@ -239,6 +243,10 @@ mod tests {
         assert!(!Transforms::same_frame("a", ""));
     }
 
+    // Assertion-discrimination sweep (round 2): `set_transform` has
+    // exactly one `Err` site (the `from_frame.is_empty()` guard) --
+    // verdict `single-branch`, an `rg` for `Error::|Err\(` over the
+    // function body (lines 94-105) has one hit.
     #[test]
     fn set_transform_rejects_empty_name() {
         let mut t = Transforms::new("target").unwrap();
@@ -246,6 +254,20 @@ mod tests {
         assert_eq!(t.all_transforms().len(), 1);
     }
 
+    // Assertion-discrimination sweep (round 2), all three assertions:
+    // - `t.transform("nope").is_err()` / `t.transform("").is_err()`:
+    //   `transform` has exactly one `Err` site (`.ok_or_else(||
+    //   Error::unknown_name(..))`, line 137) regardless of *why*
+    //   `try_transform` returned `None` underneath it -- verdict
+    //   `single-branch`, one `Error::`/`ok_or` hit in the function body.
+    // - `t.try_transform("nope").is_none()`: `try_transform` itself has
+    //   *two* `None` sources (the explicit `from_frame.is_empty()` early
+    //   return, and the implicit `HashMap::get` miss) -- not
+    //   single-branch by a literal one-`Error::`-site count. But
+    //   "nope" is a nonempty literal, so the early-return's guard
+    //   condition is false by construction for this input; the `None`
+    //   here can only come from the `map.get` miss. Established by
+    //   reading the guard, not an eyeball on the assertion.
     #[test]
     fn unknown_frame_is_an_error_not_identity() {
         // Deviation 1: upstream returns Identity here and logs.
