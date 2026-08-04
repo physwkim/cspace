@@ -121,6 +121,57 @@ second `?`-chained check with the same fixture-driven failure, or a
 weak-enough bound) let the test pass while the mutation silently broke the
 behavior the test's own name claims to cover.
 
+## Rows 13-15: the three geometry tests added for cases C/D
+
+`doc/oracle-request-pilz-blend-geometry.md` proposed two oracle cases and,
+for case D, a structural claim this port could check without any oracle
+call at all: `search_intersection_points`'s two indices cannot depend on
+the corner's included angle when `blend_radius` and each trajectory's
+travel distance/speed are held fixed. Leaving that claim as prose in a
+request document is exactly what §189/§201 exist to prevent, so it is
+pinned here as a permanent test
+(`search_intersection_points_indices_are_invariant_to_the_corners_angle`),
+alongside two more for case C's radius sweep and its rejection boundary.
+All three were added to
+`crates/moveit-planners-pilz/src/trajectory_blender_transition_window.rs`
+in this round's test commit; row 13's bite-check below was run against
+that same commit.
+
+| # | test | mutated `file:line` → exact change | test failed? | reach-proven? |
+|---|---|---|---|---|
+| 13 | `search_intersection_points_indices_are_invariant_to_the_corners_angle` | `:394` (immediately after `circ_pose` is computed, before the two `linear_search_intersection_point` calls) → inserted `let second_last = req.second_trajectory.last_way_point_mut().unwrap().update().frame_transform(&req.link_name).unwrap(); let circ_pose = Isometry3::from_parts((circ_pose.translation.vector + (second_last.translation.vector - circ_pose.translation.vector) * 0.3).into(), circ_pose.rotation);` — makes the sphere center read `second_trajectory`'s own last waypoint, which varies with the corner's direction | **killed** — `assertion left == right failed: left: (9, 10), right: (8, 7)` at the test's own baseline check | — |
+| 14 | `search_intersection_points_radius_sweep_moves_the_indices_but_not_the_branch` | none run — see "Why rows 14/15 have no separate bite-check" below | n/a | n/a |
+| 15 | `search_intersection_points_rejects_a_radius_that_exceeds_this_corners_reach` | none run — see below | n/a | n/a |
+
+An initial attempt at row 13 used a `0.01` blend factor toward
+`second_trajectory`'s last waypoint instead of `0.3`: it compiled and ran
+but did not redden the test — the per-waypoint spacing on this fixture
+(`0.1m` over `16` waypoints, roughly `6mm`/step) is coarse enough that a
+`1%`-of-boundary-distance shift (at most about `1mm`) never crossed a
+discrete index boundary at any of the three sampled angles. `0.3` was
+the first factor tried after that which did. This is recorded because a
+"tried a mutation, it survived, moved on" step without noting the
+mutation size would be exactly the kind of unreproducible measurement
+§189 exists to prevent — the `0.01` attempt is not a second finding, it
+is why `0.3` is the value in row 13, not an arbitrarily chosen number.
+
+### Why rows 14/15 have no separate bite-check
+
+Row 13 needed a bite-check because it asserts an *invariant*
+(`assert_eq!(indices, baseline)` across three angles): a broken
+implementation that, say, always returns a hardcoded `(8, 7)` regardless
+of input would pass that assertion trivially, so the test's power to
+detect a real regression had to be demonstrated, not assumed. Rows 14 and
+15 assert *exact values* computed independently in advance
+(`assert_eq!(indices, expected)` against `(11, 4)`, `(10, 5)`, `(5, 10)`,
+`(1, 14)`, and a hard `Err` at `0.12`) — a function that does not compute
+the real walk cannot coincidentally satisfy four distinct exact integer
+pairs plus a rejection boundary, the same reasoning
+`oracle-request-pilz-blend-geometry.md`'s own case C section already gives
+for why exact-index comparison is the stronger check. No separate mutation
+was run for rows 14/15; this paragraph is the argument for why one is not
+needed, not a gap.
+
 ## Relationship to `pilz_blend_parity.rs`
 
 This mutation audit and `crates/moveit-planners-pilz/tests/pilz_blend_parity.rs`
