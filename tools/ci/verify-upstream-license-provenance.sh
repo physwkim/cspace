@@ -303,9 +303,16 @@ for path in tracked:
             # Held rather than emitted: if indented filenames follow, they are
             # what was cited. If none do, the directory itself is the citation
             # and gets emitted when the header ends.
+            #
+            # The held directory carries the `derived` flag as it stood on its
+            # own line, not as it stands whenever the flush happens. Reading
+            # the live flag would attribute a directory to whichever section
+            # the header ended in.
             if prefix is not None and not prefix[2]:
                 citations.append(prefix[1])
-            prefix = [indent, token, False]
+                if prefix[3]:
+                    derivations.add(prefix[1])
+            prefix = [indent, token, False, derived]
             continue
         expanded = [part for part in expand_braces(token) if FILENAME.search(part)]
         if not expanded:
@@ -320,6 +327,8 @@ for path in tracked:
             derivations.update(citations[-len(expanded):])
     if prefix is not None and not prefix[2]:
         citations.append(prefix[1])
+        if prefix[3]:
+            derivations.add(prefix[1])
     if not citations and not asserted:
         continue
 
@@ -337,10 +346,19 @@ for path in tracked:
                 head = handle.read(8000)
             found = copyright_claims(head.splitlines())
             justified |= found
-            # A package directory names too many holders for a file header to
-            # reproduce, so retention is asked only of a citation that resolves
-            # to one file. That is a stated limit of this rule, not a claim
-            # that a whole-package port owes nothing.
+            # Retention is asked of every ported-from citation, however many
+            # files it resolves to. The rule used to exempt a citation
+            # resolving to more than one file, on the ground that a package
+            # directory names more holders than a header can reproduce
+            # (§167.2). §167.5 measured that ground and it did not hold: the
+            # two directory citations that motivated it named 6 and 2 distinct
+            # holders, not "too many", and both have since been narrowed to
+            # the files their crates actually port (§167.5). Lifting the
+            # exemption now reports nothing, so it suppresses nothing and only
+            # waits to let the next directory citation escape silently. A
+            # citation that cannot carry its holders' notices should be
+            # narrowed to what was really ported, which is what the two that
+            # motivated the exemption ended up doing.
             if citation in derivations and len(resolved) == 1:
                 retain |= found
             if not reported and COPYLEFT.search(head) and PERMISSIVE.match(spdx):
