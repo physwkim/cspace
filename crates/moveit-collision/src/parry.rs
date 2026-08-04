@@ -379,9 +379,10 @@
 //!    read in full this round to confirm it's the right target before
 //!    reproducing it): `enable_contact = true`, `num_max_contacts = 200`,
 //!    `gjk_solver_type` left at `CollisionRequest`'s own default
-//!    `GST_LIBCCD` (`include/fcl/narrowphase/collision_request.h:52-98` at
-//!    FCL tag `0.7.0` — `distanceCallback` never overrides it, matching
-//!    round 16's own finding). `base_link`'s geometry is FCL's real
+//!    `GST_LIBCCD` (`include/fcl/narrowphase/collision_request.h:102`, the
+//!    constructor's default argument, at FCL tag `0.7.0` — `distanceCallback`
+//!    never overrides it, matching round 16's own finding). `base_link`'s
+//!    geometry is FCL's real
 //!    `BVHModel<fcl::OBBRSSd>`, moveit's own BV choice
 //!    (`createCollisionGeometry<fcl::OBBRSSd, ...>`,
 //!    `collision_common.cpp:900-922,949`; `fcl::OBBRSSd` at
@@ -409,16 +410,66 @@
 //!    Every case's `base_link`/wheel poses came from this port's own FK
 //!    (the same `RobotState`/`Posed` [`distance_self`] itself uses), fed
 //!    identically to both the C++ repro and this backend's own exhaustive
-//!    per-triangle search — so pose is not a second variable between the
-//!    two answers being compared. That the repro is genuinely running the
-//!    oracle's own code path, not a lookalike, is checked directly: 13 of
-//!    16 cases reproduce the oracle's actual `self_distance` magnitude to
-//!    under `1e-6` (most under `1e-15`, pure float noise). The remaining 3
-//!    (`br_caster_l_wheel_link`, and `fr_caster_l_wheel_link` twice) are off
-//!    by `1.231e-3`, `2.417e-5` and `6.803e-5` — small but real, most
-//!    plausibly this port's own FK diverging from the oracle's real FK by a
-//!    tiny amount at those specific states, not measured further this round
-//!    (UNFIXED, below).
+//!    per-triangle search. That identical construction is the actual basis
+//!    for the result below, not merely supporting color: whatever this
+//!    port's FK gets wrong relative to the oracle's own FK is a constant
+//!    inside this one comparison, since it lands on both the repro and the
+//!    exhaustive search alike — it cannot manufacture a one-directional gap
+//!    between FCL's own reported depth and parry's independent EPA depth
+//!    for the *same* triangle at the *same* pose. "FCL over-reports vs.
+//!    parry, 16/16, never the reverse" below holds regardless of how far
+//!    this port's FK sits from the oracle's real one.
+//!
+//!    Two secondary checks corroborate without being load-bearing. First,
+//!    that the repro is genuinely running the oracle's own code path, not
+//!    a lookalike: 13 of 16 cases reproduce the oracle's actual
+//!    `self_distance` magnitude to under `1e-6` (most under `1e-15`, pure
+//!    float noise). Second, a magnitude-separation argument that only
+//!    *narrows*, not closes, how much the remaining 3 could matter even if
+//!    they were FK-caused: the worst of the 3 (`1.231e-3`) is 25x smaller
+//!    than the smallest of the 16 narrow-phase biases measured below
+//!    (`0.0312`) — a size/majority argument alone was already shown
+//!    insufficient to close a residual once in this workspace
+//!    (`PORTING-PLAN.md` §119.1/120.1: a 91.3%-dominant-cause argument for
+//!    pr2's `visibility_cone` mismatches left 10/115 `touching >= 2` cases
+//!    unclosed until a direct 285-case cross-tab settled which population
+//!    they belonged to).
+//!
+//!    So the 3-case gap was measured directly this round rather than left
+//!    on the size argument. The FK-divergence hypothesis is **refuted**:
+//!    querying the oracle's own `frame_transform` op for `base_link` and
+//!    the wheel link at the exact joint values of all 3 mismatched states
+//!    (`br_caster_l_wheel_link`, `fr_caster_l_wheel_link` and
+//!    `fr_caster_r_wheel_link` — one case each, not `fr_caster_l_wheel_link`
+//!    twice as an earlier pass through this same data mis-stated) and
+//!    comparing component-wise (translation as Euclidean distance, rotation
+//!    as the largest single 3x3-matrix-entry difference, reported
+//!    separately so a rotation error scaled by link length would be visible
+//!    as translation rather than hidden in it) against this port's own
+//!    `Posed::global_link_transform` for the same states gives translation
+//!    error `0`-`7.9e-17m` and rotation error `0`-`3.3e-16` — both within a
+//!    small integer multiple of `f64::EPSILON` (`2.22e-16`), i.e.
+//!    floating-point noise, not a measurable gap. A control group of 4 of
+//!    the 13 well-reproduced cases run through the identical comparison
+//!    (`br_caster_l_wheel_link`, `fr_caster_l_wheel_link`,
+//!    `br_caster_r_wheel_link`, `fl_caster_r_wheel_link`) shows the same
+//!    noise level, not a smaller one — this port's FK does not measurably
+//!    diverge from the oracle's anywhere sampled in this population,
+//!    mismatched and matched cases alike. `7.9e-17m` sits roughly 12 orders
+//!    of magnitude below even the smallest of the 3 mismatches
+//!    (`2.417e-5`), so FK divergence is categorically not a candidate cause
+//!    of them. One unverified next candidate for a future round: a
+//!    mesh/padding difference between what this port's own `RobotModel`
+//!    hands the C++ repro's hand-built
+//!    `BVHModel` and what `CollisionEnvFCL` actually builds inside the
+//!    oracle before `distanceCallback` runs — not traced this round.
+//!
+//!    The 4 different-triangle cases and these 3 `self_distance` mismatches
+//!    overlap in exactly 1 of the 16 (`br_caster_l_wheel_link`, case index
+//!    4 of the within-bound population) — not a subset relationship either
+//!    way, so the two anomalies are mostly independent populations and this
+//!    paragraph's refutation does not reach back into the different-triangle
+//!    interpretation two paragraphs below.
 //!
 //!    **Result, falsifiable and measured on all 16, not a sample: FCL names
 //!    the *same* triangle this backend's own exhaustive search names in 12
