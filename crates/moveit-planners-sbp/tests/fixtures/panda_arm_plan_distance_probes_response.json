@@ -1,0 +1,92 @@
+[
+  {
+    "id": 0,
+    "ok": true,
+    "result": {
+      "distance_probes": [
+        {
+          "distance": 0.1725744658820281
+        },
+        {
+          "distance": 0.9340549303548389
+        },
+        {
+          "distance": 3.7440750614126665
+        }
+      ],
+      "problems": [],
+      "seed_applied": false,
+      "space": {
+        "dimension": 7,
+        "longest_valid_segment_length": 0.07,
+        "maximum_extent": 7.0,
+        "so3_quarter_turn_distance": 0.7853981633974483,
+        "subspaces": [
+          {
+            "bounds": [
+              -2.8973,
+              2.8973
+            ],
+            "joint": "panda_joint1",
+            "type": "real_vector",
+            "weight": 0.1725744658820281
+          },
+          {
+            "bounds": [
+              -1.7628,
+              1.7628
+            ],
+            "joint": "panda_joint2",
+            "type": "real_vector",
+            "weight": 0.28363966417063763
+          },
+          {
+            "bounds": [
+              -2.8973,
+              2.8973
+            ],
+            "joint": "panda_joint3",
+            "type": "real_vector",
+            "weight": 0.1725744658820281
+          },
+          {
+            "bounds": [
+              -3.0718,
+              0.0175
+            ],
+            "joint": "panda_joint4",
+            "type": "real_vector",
+            "weight": 0.32369792509630013
+          },
+          {
+            "bounds": [
+              -2.8973,
+              2.8973
+            ],
+            "joint": "panda_joint5",
+            "type": "real_vector",
+            "weight": 0.1725744658820281
+          },
+          {
+            "bounds": [
+              -0.0175,
+              3.7525
+            ],
+            "joint": "panda_joint6",
+            "type": "real_vector",
+            "weight": 0.26525198938992045
+          },
+          {
+            "bounds": [
+              -2.8973,
+              2.8973
+            ],
+            "joint": "panda_joint7",
+            "type": "real_vector",
+            "weight": 0.1725744658820281
+          }
+        ]
+      }
+    }
+  }
+]

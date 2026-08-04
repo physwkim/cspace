@@ -372,8 +372,7 @@ impl VisibilityConstraint {
     /// (not yet built by this port) or any collision state the caller
     /// might be tracking elsewhere.
     ///
-    /// # Round 15: the pr2 115/2,201 depth mismatch is a traversal-order
-    /// property, not a defect here
+    /// # Round 15/16: the pr2 115/2,201 depth mismatch, and a corrected cause
     ///
     /// Re-run fresh against the current tree and oracle (`moveit-diff
     /// --urdf crates/moveit-constraints/tests/fixtures/pr2.urdf --srdf
@@ -391,38 +390,51 @@ impl VisibilityConstraint {
     /// `decide_cone`'s own logic is not the cause: `cone_mesh` is a direct
     /// vertex/triangle transcription of upstream's `getVisibilityCone`
     /// (see that fn's own doc), `max_contacts: 1` here matches upstream's
-    /// `req.max_contacts = 1`
-    /// (`kinematic_constraint.cpp:1163`) exactly, and
-    /// `allow_sensor_or_target_contact` matches `decideContact` exactly.
-    /// If any of the three disagreed with upstream, the *verdict* would
-    /// disagree too on at least some cases — it never does.
+    /// `req.max_contacts = 1` (`kinematic_constraint.cpp:1163`) exactly,
+    /// and `allow_sensor_or_target_contact` matches `decideContact`
+    /// exactly. If any of the three disagreed with upstream, the *verdict*
+    /// would disagree too on at least some cases — it never does.
     ///
-    /// The actual cause: with `max_contacts: 1`, only the first robot-link
-    /// contact found is *stored* (`moveit-collision`'s
-    /// `accumulate_collision`, `stored_total < request.max_contacts` at
-    /// `parry.rs:1120`), even though the `collision` boolean itself is set
-    /// from every pair regardless of storage (`parry.rs`'s own doc on that
-    /// fn) — which is why the verdict always agrees but the stored depth
-    /// can still differ. Which link is "first" is traversal order:
-    /// `check_robot_collision` here iterates `cross_pairs(&robot, &world)`
-    /// (`parry.rs:1324`), itself `robot_bodies`'s
-    /// `state.model().link_models()` order (`parry.rs:765`) — a fixed URDF
-    /// array order. Upstream's equivalent (`collision_common.cpp`'s FCL
-    /// broadphase callback, budget-gated identically at
-    /// `collision_common.cpp:198`) is invoked by an FCL broadphase manager
-    /// over its own internal BVH, an order neither backend's public API
-    /// documents or guarantees. Two different collision backends
-    /// enumerating the same colliding set in two different, equally valid
-    /// orders will pick two different "first" contacts whenever more than
-    /// one robot link touches the cone at once — which on pr2's
-    /// densely-packed arm, at near cone placements, is common. This is a
-    /// property of swapping collision backends under an order-dependent
-    /// budget, not a bug in `cone_mesh`, `decide_cone`, or
-    /// `allow_sensor_or_target_contact`, and not fixable from this crate:
-    /// the only place that could change it, `moveit-collision`'s pair
-    /// traversal order, is not owned by this crate, and reproducing FCL's
-    /// undocumented internal BVH order there would not be a stable target
-    /// to port to even if it were.
+    /// Round 15 attributed the depth mismatch to pair-traversal-order
+    /// tie-breaking under `max_contacts: 1`: with only the first robot-link
+    /// contact *stored* (`moveit-collision`'s `accumulate_collision`,
+    /// `stored_total < request.max_contacts` at `parry.rs:1120`), which
+    /// link is "first" would depend on this crate's fixed
+    /// `cross_pairs(&robot, &world)` order (`parry.rs:1324`) versus
+    /// upstream's undocumented FCL BVH broadphase order, so two backends
+    /// enumerating the same colliding set could pick two different "first"
+    /// contacts whenever 2+ robot links touched the cone at once. That
+    /// explanation was written as a falsifiable prediction rather than
+    /// closed outright, specifically because nobody had measured whether
+    /// pr2 cone placements actually produce such ties.
+    ///
+    /// p1-joints measured it (`d26916d`, `tools/moveit-diff`'s
+    /// `visibility_cone_ambiguity_diagnostic` module,
+    /// `#[ignore]`d — needs `third_party/moveit_resources`, run with
+    /// `cargo test -p moveit-diff --release
+    /// visibility_cone_ambiguity_diagnostic:: -- --ignored --nocapture`)
+    /// and refuted it; reproduced independently here with the same
+    /// command:
+    ///
+    /// - `near_placement_never_touches_more_than_one_link_at_once`: of
+    ///   pr2's 17 parry-representable links, all 17 near-placements touch
+    ///   the cone, and **zero** touch more than one link at once — no tie
+    ///   for `max_contacts: 1` to ever break.
+    /// - `a_real_mismatching_case_touches_exactly_one_link`: case 104 from
+    ///   the sweep above (a real distance mismatch) touches exactly one
+    ///   pair, `("bl_caster_l_wheel_link", "cone")` — the actual failing
+    ///   case is not a tie either.
+    ///
+    /// With no ties possible, pair-traversal order cannot be the cause of
+    /// any of the 115 mismatches; the paragraph above is retracted, not
+    /// narrowed. The real cause is `moveit-collision`'s already-documented
+    /// deviation 6: independent penetration-depth *approximation* between
+    /// this port's backend and upstream's FCL for the same single,
+    /// unambiguous contact. For case 104, the oracle's reported depth is
+    /// within 7ppm of `bl_caster_l_wheel_link`'s own cylinder radius and
+    /// this port's is not; some near-zero cases even disagree in sign.
+    /// That approximation lives in `moveit-collision`, owned by p3-acm —
+    /// not fixable from this crate.
     pub fn decide(&self, state: &Posed) -> ConstraintEvaluationResult {
         let Some(result) = self.decide_by_angle(state) else {
             return self.decide_cone(state);

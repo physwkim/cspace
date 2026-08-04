@@ -638,6 +638,26 @@
 //! code 1, across `src/`, `tests/`, and `Cargo.toml`. No `epsilon`-only,
 //! `max_relative`-only, both-present, or neither-present site exists in
 //! this crate to classify or bisect.
+//!
+//! # Tolerance-floor re-check (round 16)
+//!
+//! `70a6b31`/§115 fixed a workspace-wide `serde_json` default-parser bug
+//! (non-round-tripping f64 parsing) that put 8.1% of committed fixture
+//! *literals* 1 ULP (~2.22e-16 relative) off before the fix. This crate's
+//! own `assert_relative_eq!` share is already confirmed 0 (round 15,
+//! above), so there is no bisectable constant of that specific shape. This
+//! round re-checked every other tolerance-shaped constant in the crate —
+//! `EPS`/`f64::EPSILON` weight/wraparound guards in `visibility.rs`,
+//! `joint.rs`, `orientation.rs`, `position.rs`; `TOLERANCE: f64 = 1e-6` in
+//! `tests/utils_parity.rs`; the ad hoc `1e-6`/`1e-9`/`1e-12` literal
+//! tolerances across `tests/*.rs` — against `git log -p` for each site. No
+//! commit ever adjusted any of them with reference to a measured
+//! comparison floor; `TOLERANCE` in particular was introduced once, at
+//! `1e-6`, and never touched since. None of these constants were chosen
+//! based on the pre-fix noisy floor: the pre-fix noise ceiling was ~1 ULP
+//! (~2.22e-16), four to ten orders of magnitude below the smallest
+//! tolerance here (`1e-12`), so even the noisiest pre-fix reading could
+//! never have driven any of these values to be loosened.
 
 mod constraint_sampler_manager;
 mod ik_sampler;

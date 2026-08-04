@@ -425,6 +425,8 @@ dependencies = [
  "moveit-state",
  "rand",
  "rand_chacha",
+ "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "urdf-rs",
 ]
