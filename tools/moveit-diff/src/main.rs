@@ -2468,9 +2468,22 @@ mod visibility_cone_ambiguity_diagnostic {
                 .contacts
                 .as_ref()
                 .map_or(0, moveit_collision::ContactData::pair_count);
-            if touched > 0 {
-                touched_link_counts.push((link_name, touched));
-            }
+            // Asserted here, per link, rather than as a post-hoc check on the
+            // collected `touched_link_counts`: this cone is built directly
+            // around `link_name`'s own collision shape, so it touching
+            // nothing means collision detection itself has regressed to
+            // returning no contacts. Filtering `touched == 0` entries out of
+            // the aggregate below and then only checking the aggregate for
+            // ambiguity would let exactly that regression go undetected --
+            // an empty `touched_link_counts` makes `ambiguous` empty too,
+            // and the test would pass vacuously instead of catching it.
+            assert!(
+                touched > 0,
+                "expected pr2 link {link_name}'s own near-placement cone to touch it at least \
+                 once -- touched 0, which would otherwise silently empty out this diagnostic's \
+                 ambiguous-link check below"
+            );
+            touched_link_counts.push((link_name, touched));
         }
 
         let ambiguous: Vec<_> = touched_link_counts
