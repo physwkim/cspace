@@ -8,6 +8,8 @@
 //   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_utils.hpp
 //   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_trajectory.hpp
 //   moveit_planners/chomp/chomp_motion_planner/src/chomp_trajectory.cpp
+//   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_cost.hpp
+//   moveit_planners/chomp/chomp_motion_planner/src/chomp_cost.cpp
 
 //! CHOMP (Covariant Hamiltonian Optimization for Motion Planning), ported
 //! from upstream's `moveit_planners/chomp` package.
@@ -26,17 +28,17 @@
 //! `chomp_interface/` is algorithmic; it only adapts `ChompPlanner` (see
 //! below) to ROS parameters and a live `PlanningScene`.
 //!
-//! # Round 15 scope: 3 of 7 upstream files
+//! # Scope so far: 4 of 7 upstream files
 //!
-//! `chomp_motion_planner/` has 7 header/source pairs. This round ports and
-//! audits exactly 3: `chomp_parameters`, `chomp_utils`, `chomp_trajectory`.
-//! The remaining 4 — `chomp_cost`, `multivariate_gaussian`,
+//! `chomp_motion_planner/` has 7 header/source pairs. Round 15 ported and
+//! audited 3: `chomp_parameters`, `chomp_utils`, `chomp_trajectory`. Round
+//! 16 adds a 4th: `chomp_cost`. The remaining 3 — `multivariate_gaussian`,
 //! `chomp_optimizer`, `chomp_planner` — are **not yet audited**, not
 //! silently absent: `chomp_optimizer` is the hardest piece and depends on
-//! the data structures ported this round being right first, so it is
-//! deliberately deferred rather than rushed in the same round. Do not infer
-//! from their absence below that they were considered and skipped; they
-//! have not been read for this crate at all yet.
+//! the data structures ported so far being right first, so it is
+//! deliberately deferred rather than rushed. Do not infer from their
+//! absence below that they were considered and skipped; they have not been
+//! read for this crate at all yet.
 //!
 //! `multivariate_gaussian.hpp` is shared, near-verbatim, with upstream's
 //! `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`.
@@ -45,18 +47,21 @@
 //! Cholesky-based sampling core (`mean_`/`covariance_`/
 //! `covariance_cholesky_` via `llt().matrixL()`,
 //! `std::normal_distribution<double>(0.0, 1.0)`) is the same algorithm.
-//! Decided (human orchestrator): one shared port lives in a new
-//! `moveit-sampling` crate, owned by `p3-shapes`, depended on by both
+//! Decided (human orchestrator): one shared port lives in `moveit-sampling`
+//! (ported by `p3-shapes`, now merged), depended on by both
 //! `moveit-planners-chomp` and `moveit-planners-stomp` rather than one
 //! planner depending on its sibling. The `use_covariance` bool is not
 //! carried over as a bool parameter — a bool that switches what a function
 //! computes is exactly the dual-meaning shape this port avoids elsewhere —
-//! `moveit-sampling` instead exposes two named methods (covariance applied /
-//! not applied); this crate calls only the covariance-applied one, matching
-//! CHOMP's own `sample()`, which has no such parameter at all. This crate
-//! does not yet depend on `moveit-sampling`: that dependency, and the actual
-//! `chomp_optimizer`/`chomp_cost` files that would use it, are out of this
-//! round's 3-file scope, added when the optimizer is ported.
+//! `moveit-sampling` instead exposes `sample_with_covariance`/
+//! `sample_without_covariance`; CHOMP would call only the former, matching
+//! its own `sample()`, which has no such parameter at all.
+//! `chomp_cost.{hpp,cpp}` (this round) does not reference
+//! `MultivariateGaussian` at all — only `chomp_optimizer.cpp` does, at
+//! `MultivariateGaussian(Eigen::VectorXd::Zero(num_vars_free_),
+//! joint_costs_[i].getQuadraticCostInverse())` — so this crate still does
+//! not depend on `moveit-sampling`; that dependency is added when the
+//! optimizer is ported.
 //!
 //! # Symbol audit: `chomp_parameters.{hpp,cpp}`
 //!
@@ -105,23 +110,50 @@
 //!   The private `init` has no separate Rust equivalent: every public
 //!   constructor allocates its matrix directly via `DMatrix::zeros` instead.
 //!
+//! # Symbol audit: `chomp_cost.{hpp,cpp}`
+//!
+//! - `ChompCost` (class) — ported as [`cost::ChompCost`]. The constructor is
+//!   ported as [`cost::ChompCost::new`], with the unused `joint_number`
+//!   parameter dropped — see that method's and the module's own doc
+//!   comments for why. `getQuadraticCostInverse`/`getQuadraticCost`/`scale`
+//!   are ported as [`cost::ChompCost::quadratic_cost_inverse`]/
+//!   [`cost::ChompCost::quadratic_cost`]/[`cost::ChompCost::scale`] with no
+//!   behavioral change. `getCost`/`getDerivative`/`getMaxQuadCostInvValue`
+//!   are ported as [`cost::ChompCost::cost`]/[`cost::ChompCost::derivative`]/
+//!   [`cost::ChompCost::max_quad_cost_inv_value`], each now fallible where
+//!   upstream would assert, silently return `NaN`, or read out of bounds —
+//!   see [`cost`]'s own module doc for the full account, including the
+//!   `quad_cost_inv_` decomposition-family check the round-16 dispatch
+//!   asked for. The private `getDiffMatrix` is ported as
+//!   [`cost::ChompCost`]'s private `diff_matrix`, transcribed tap-for-tap
+//!   including its boundary-truncation behavior (not reflected or
+//!   renormalized at the ends) — pinned by a dedicated boundary-vs-interior
+//!   unit test per the round-16 dispatch's warning that a wrong boundary
+//!   rule leaves interior rows looking correct. The default destructor
+//!   (`virtual ~ChompCost()`) has no Rust equivalent, same reasoning as
+//!   `ChompParameters`'s.
+//!
 //! # Completion condition
 //!
-//! Stated as a check on this round's 3-file scope, not a claim about the
-//! crate: `chomp_parameters.{hpp,cpp}`, `chomp_utils.hpp`, and
-//! `chomp_trajectory.{hpp,cpp}` are read in full against the pinned SHA and
-//! every symbol in them is classified above as ported (with its Rust name)
-//! or D-decision-excluded (with the decision). No numeric oracle op backs
-//! any of this round's tests — Phase 8's completion condition uses
-//! property-based verification (`PORTING-PLAN.md` §5), not a trajectory
-//! oracle, and CHOMP specifically is not the one Phase-8 planner
-//! (`moveit-planners-pilz`) with directly comparable deterministic output.
-//! What is pinned by unit test instead: [`trajectory::ChompTrajectory`]'s
-//! copy-with-padding indexing/`full_trajectory_index_` convention, which
-//! silently diverges if wrong with no compiler or oracle signal. This
-//! section does not cover `chomp_cost`, `multivariate_gaussian`,
-//! `chomp_optimizer`, or `chomp_planner` — they are out of scope this round
-//! per the section above, not implicitly satisfied by anything here.
+//! Stated as a check on the 4 files audited so far, not a claim about the
+//! crate: `chomp_parameters.{hpp,cpp}`, `chomp_utils.hpp`,
+//! `chomp_trajectory.{hpp,cpp}`, and `chomp_cost.{hpp,cpp}` are read in full
+//! against the pinned SHA and every symbol in them is classified above as
+//! ported (with its Rust name) or D-decision-excluded (with the decision).
+//! No numeric oracle op backs any of this round's tests either — Phase 8's
+//! completion condition uses property-based verification
+//! (`PORTING-PLAN.md` §5), not a trajectory oracle, and CHOMP specifically
+//! is not the one Phase-8 planner (`moveit-planners-pilz`) with directly
+//! comparable deterministic output. What is pinned by unit test instead:
+//! [`trajectory::ChompTrajectory`]'s copy-with-padding
+//! indexing/`full_trajectory_index_` convention, and [`cost::ChompCost`]'s
+//! finite-difference boundary truncation and the mathematical soundness
+//! (residual-based, not bit-for-bit-against-Eigen) of `quad_cost_inv_` in
+//! both algorithm branches nalgebra can take — see [`cost`]'s module doc
+//! for what specifically remains unverified there pending an oracle op.
+//! This section does not cover `multivariate_gaussian`, `chomp_optimizer`,
+//! or `chomp_planner` — they are out of scope this round per the section
+//! above, not implicitly satisfied by anything here.
 
 /// `ChompParameters` and its trajectory-initialization-method validation —
 /// see the module doc's `chomp_parameters.{hpp,cpp}` entry.
@@ -136,5 +168,9 @@ pub mod utils;
 /// entry.
 pub mod trajectory;
 
+/// `ChompCost` — see the module doc's `chomp_cost.{hpp,cpp}` entry.
+pub mod cost;
+
+pub use cost::ChompCost;
 pub use parameters::ChompParameters;
 pub use trajectory::ChompTrajectory;
