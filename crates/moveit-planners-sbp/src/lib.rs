@@ -367,6 +367,7 @@
 pub mod compound;
 mod constrained_sampler;
 mod error;
+mod goal_sampler;
 pub mod joint_model_group_space;
 pub mod nn;
 pub mod planning_scene_validity;
@@ -386,7 +387,7 @@ pub use joint_model_group_space::JointModelGroupSpace;
 pub use nn::Gnat;
 pub use planning_scene_validity::PlanningSceneValidityChecker;
 pub use registry::{
-    PLANNER_MANAGERS, PlanError, PlannerManager, PlannerRegistration, PlanningContext,
+    Goal, PLANNER_MANAGERS, PlanError, PlannerManager, PlannerRegistration, PlanningContext,
     PlanningRequest, PlanningResponse, RrtConnectManager,
 };
 pub use rrt_connect::{

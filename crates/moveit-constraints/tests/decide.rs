@@ -659,6 +659,51 @@ mod visibility {
     // has a real primitive (`<box size="0.05 0.37 0.3"/>`) collision shape.
 
     #[test]
+    fn accessors_report_back_every_constructor_argument() {
+        use approx::assert_relative_eq;
+
+        let model = panda_model();
+        let transforms = tf(&model);
+        let sensor_pose = Isometry3::translation(0.1, 0.2, 0.3);
+        let target_pose = Isometry3::translation(0.4, 0.5, 0.6);
+        let c = VisibilityConstraint::new(
+            &model,
+            &transforms,
+            SensorSpec {
+                frame_id: model.model_frame(),
+                pose: sensor_pose,
+                view_direction: SensorViewDirection::SensorX,
+            },
+            TargetSpec {
+                frame_id: model.model_frame(),
+                pose: target_pose,
+            },
+            8,
+            VisibilityCriteria {
+                target_radius: Some(0.05),
+                max_view_angle: Some(0.2),
+                max_range_angle: Some(0.3),
+            },
+            2.5,
+        )
+        .unwrap();
+
+        // `frame_id == model.model_frame()` on both ends, so the fixed-frame
+        // transform each pose goes through at construction is the identity
+        // -- these must come back unchanged, not merely "close".
+        assert_relative_eq!(c.sensor(), sensor_pose, epsilon = 1e-12);
+        assert_relative_eq!(c.target(), target_pose, epsilon = 1e-12);
+        // Verbatim enum, not a position-based cast back from an integer --
+        // see `SensorViewDirection`'s own doc comment on why the wire
+        // encoding is reversed relative to this enum's declaration order.
+        assert_eq!(c.sensor_view_direction(), SensorViewDirection::SensorX);
+        assert_eq!(c.target_radius(), Some(0.05));
+        assert_eq!(c.max_view_angle(), Some(0.2));
+        assert_eq!(c.max_range_angle(), Some(0.3));
+        assert_eq!(c.weight(), 2.5);
+    }
+
+    #[test]
     fn cone_far_from_the_robot_is_satisfied() {
         // Sensor and target both 10m away from base_bellow_link along +X --
         // far outside any pr2 link's reach, so the cone can't intersect one.

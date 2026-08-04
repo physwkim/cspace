@@ -98,6 +98,18 @@ impl FramedPose {
         }
     }
 
+    /// The pose as stored: for `Fixed`, already transformed into
+    /// [`FramedPose::frame`] at construction; for `Mobile`, as given
+    /// relative to `frame`, untransformed. Same split as
+    /// `orientation::OrientationTarget::{Fixed,Mobile}` — see that type's
+    /// `desired_rotation_matrix` doc comment for why neither branch needs a
+    /// live [`Posed`] to answer this.
+    fn pose(&self) -> Isometry3 {
+        match self {
+            Self::Fixed { pose, .. } | Self::Mobile { pose, .. } => *pose,
+        }
+    }
+
     fn resolve(&self, state: &Posed) -> Isometry3 {
         match self {
             Self::Fixed { pose, .. } => *pose,
@@ -256,6 +268,73 @@ impl VisibilityConstraint {
         self.target_radius.is_some()
             || self.max_view_angle.is_some()
             || self.max_range_angle.is_some()
+    }
+
+    /// Not an upstream accessor: every field below `enabled()` on this type
+    /// is `protected` upstream with no getter at all (`sensor_pose_` etc.,
+    /// `kinematic_constraint.hpp:870-882`), the same "field has no upstream
+    /// getter" gap [`crate::JointConstraint::weight`]/
+    /// [`crate::PositionConstraint::weight`]/
+    /// [`crate::OrientationConstraint::weight`] already close for `weight_`
+    /// — added here for the same reason: a caller building a
+    /// `moveit_msgs`-shaped conversion needs every field back out, not just
+    /// the ones `decide()` happens to read directly.
+    ///
+    /// The sensor pose, in [`VisibilityConstraint::sensor_frame`]. See
+    /// `FramedPose::pose` for exactly what "in `sensor_frame`" means for
+    /// the mobile-frame case.
+    pub fn sensor(&self) -> Isometry3 {
+        self.sensor.pose()
+    }
+
+    /// The target pose, in [`VisibilityConstraint::target_frame`]. See
+    /// `FramedPose::pose` for exactly what "in `target_frame`" means for
+    /// the mobile-frame case.
+    pub fn target(&self) -> Isometry3 {
+        self.target.pose()
+    }
+
+    /// `sensor_view_direction_`: which axis of [`VisibilityConstraint::sensor`]'s
+    /// own frame points out of the sensor. Returned as the core
+    /// [`SensorViewDirection`] enum, never as an integer — see that type's
+    /// own doc comment for why upstream's `SENSOR_X`/`Y`/`Z` wire encoding
+    /// (`2`/`1`/`0`) is the reverse of this enum's declaration order, which
+    /// an integer return would invite reproducing by position.
+    pub fn sensor_view_direction(&self) -> SensorViewDirection {
+        self.sensor_view_direction
+    }
+
+    /// Radius of the visibility target disc; `None` if unconstrained. See
+    /// this type's doc comment for why this is `Option<f64>` rather than
+    /// upstream's magic-zero `target_radius_`.
+    pub fn target_radius(&self) -> Option<f64> {
+        self.target_radius
+    }
+
+    /// Maximum angle between the sensor's view axis and the target's
+    /// surface normal; `None` if unconstrained. See this type's doc comment
+    /// for why this is `Option<f64>` rather than upstream's magic-zero
+    /// `max_view_angle_`.
+    pub fn max_view_angle(&self) -> Option<f64> {
+        self.max_view_angle
+    }
+
+    /// Maximum angle between the sensor's view axis and the
+    /// sensor-to-target direction; `None` if unconstrained. See this type's
+    /// doc comment for why this is `Option<f64>` rather than upstream's
+    /// magic-zero `max_range_angle_`.
+    pub fn max_range_angle(&self) -> Option<f64> {
+        self.max_range_angle
+    }
+
+    /// Not an upstream accessor (`weight_` has none there either, same as
+    /// [`crate::JointConstraint::weight`]/[`crate::PositionConstraint::weight`]/
+    /// [`crate::OrientationConstraint::weight`]): exposed for the same
+    /// reason those are — a caller building a `moveit_msgs`-shaped
+    /// conversion needs every field back out, not just the ones `decide()`
+    /// happens to read directly.
+    pub fn weight(&self) -> f64 {
+        self.weight
     }
 
     /// The view-angle and range-angle checks from upstream's `decide()`,

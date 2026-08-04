@@ -235,6 +235,14 @@
 //! - Protected `decideContact(contact)` -> ported as free fn
 //!   `allow_sensor_or_target_contact` in `visibility.rs` (Round 4 tail
 //!   disposition, folded in here).
+//! - `sensor_pose_`/`sensor_view_direction_`/`target_pose_`/`target_radius_`/
+//!   `max_view_angle_`/`max_range_angle_`/`weight_` (all protected upstream,
+//!   no getters at all, `kinematic_constraint.hpp:870-882`) -> round 21
+//!   added [`VisibilityConstraint::sensor`]/[`VisibilityConstraint::sensor_view_direction`]/
+//!   [`VisibilityConstraint::target`]/[`VisibilityConstraint::target_radius`]/
+//!   [`VisibilityConstraint::max_view_angle`]/[`VisibilityConstraint::max_range_angle`]/
+//!   [`VisibilityConstraint::weight`], not-upstream accessors for the same
+//!   reason `weight()` already exists on the other three constraint types.
 //!
 //! ## `KinematicConstraintSet`
 //!
@@ -325,20 +333,21 @@
 //!   on the reasoning that every call site in this port's design already
 //!   supplied its own concrete attempt count, so there was no
 //!   omitted-argument call site for a default to ever apply to. Round 20
-//!   added the first such call site anyway:
-//!   `constraint_sampler_manager::select_default_sampler`'s own
-//!   `max_attempts` parameter is caller-supplied in exactly the same way
-//!   upstream's collapsed `sample()` overloads were, and
-//!   `moveit_planners_sbp::registry::RrtConnectContext::solve` is a real
-//!   production caller of it that needs a value to pass rather than
-//!   inventing one — so the constant moved from "nothing to port this
-//!   into" to "ported", not because the round 13/14 reasoning was wrong at
-//!   the time. Prior evidence: upstream's only two uses
-//!   (`constraint_sampler.hpp:171,202`) are default arguments to the two
-//!   `sample()` overloads this port already collapses away (tagged
-//!   `structural` above); no other production file in
-//!   `moveit_core`/`moveit_planners`/`moveit_ros` references the constant
-//!   at all.
+//!   mistakenly added `moveit_planners_sbp::registry::RrtConnectContext::solve`
+//!   as a call site passing this constant's value (`2`) to
+//!   `constraint_sampler_manager::select_default_sampler`'s `max_attempts`
+//!   parameter; round 21 found that wrong — upstream's only two uses of
+//!   this constant (`constraint_sampler.hpp:171,202`) are default arguments
+//!   to the two `sample()` overloads this port already collapses away
+//!   (tagged `structural` above), and no other production file in
+//!   `moveit_core`/`moveit_planners`/`moveit_ros` references the constant at
+//!   all; every real upstream call site instead passes
+//!   `getMaximumStateSamplingAttempts()`'s configured default (`4`,
+//!   `planning_context_manager.cpp:259`), which `registry.rs` now sources
+//!   from its own `DEFAULT_MAX_STATE_SAMPLING_ATTEMPTS` constant instead.
+//!   This constant remains `ported` (it matches upstream's named literal
+//!   value) but, as rounds 13/14 originally found, has no real production
+//!   call site anywhere in this workspace.
 //! - CS: `ConstraintSampler(scene, group_name)` (ctor) -> structural:
 //!   collapsed into each concrete type's own `new()`, no base constructor to
 //!   share (traits are not constructed)
