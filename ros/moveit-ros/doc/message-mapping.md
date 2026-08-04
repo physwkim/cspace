@@ -409,8 +409,10 @@ patched around):
   only those two function bodies change, not their callers.
 - AttachedCollisionObject's own MOVE: rejected, matching upstream, which
   has no MOVE branch in `processAttachedCollisionObjectMsg` either.
-- **`Octomap.data`'s binary payload: measured this round, belongs to
-  `moveit-octomap` (p3-shapes), not `ros/`.** Upstream: `moveit_core`'s
+- **`Octomap.data`'s binary payload: decided round 5, belongs to
+  `moveit-octomap` (p3-shapes), not `ros/`.** Requirements spec for
+  `moveit-octomap`'s owner (doc only, this crate does not implement it):
+  Upstream: `moveit_core`'s
   `createOctomap` (`planning_scene.cpp:1416-1433`) always constructs a
   concrete `octomap::OcTree` -- `AbstractOcTree`'s runtime-type
   registry/factory (`createTree`) is never on this call path -- then for
@@ -444,10 +446,30 @@ patched around):
   shape. No external crate: no maintained octomap-format crate exists on
   crates.io (`lib.rs`'s module docs already record this), and the format
   itself carries no compression or external encoding that would justify
-  one for roughly 130 lines of recursive bit/byte-stream logic. Until
-  `moveit-octomap` adds those two entry points, an empty payload stays a
-  correct no-op (matching upstream's own early return on `msg.data.size()
-  == 0`) and a non-empty one is rejected rather than silently dropped.
+  one for roughly 130 lines of recursive bit/byte-stream logic. **Call
+  site:** `apply_octomap` (`src/scene/planning_scene.rs`), reached from
+  `apply_planning_scene_world` via `PlanningSceneWorld.octomap` --
+  `Octomap.data` arrives on the `world.octomap` field of any
+  `moveit_msgs/PlanningSceneWorld` this crate is given (`ApplyPlanningSceneWorld`
+  and the `world` half of `PlanningScene`/diff messages both carry this
+  shape); once the two entry points exist, `apply_octomap`'s current
+  `Err(Error::other(...))` branch becomes `map.octomap.data` dispatched to
+  `read_binary_data`/`read_data` based on `map.octomap.binary`, matching
+  `createOctomap`'s own dispatch. **Verification:** bytes would come from
+  the oracle -- capture a populated `octomap::OcTree` via
+  `octomap_msgs::binaryMsgFromMap`/`fullMsgToMap` (same C++ call upstream's
+  `moveit_core` itself uses to produce `Octomap.data`, `conversions.h:70-76`/
+  `:55-66`) against a small fixture tree with a handful of updated nodes, the
+  same byte-fixture pattern §149/§157 already use for other oracle
+  comparisons; compare the decoded `moveit_octomap::OcTree`'s leaf
+  occupancy/log-odds against the oracle's own tree via the existing
+  leaf-iteration surface (`moveit-octomap`'s iterators, `src/iter.rs`), not
+  a raw byte comparison (the binary format is lossy-compressed at
+  `clamping_thres_min`/`_max`, so byte-for-byte round-trip is not the right
+  invariant -- decoded-tree-content equality is). Until `moveit-octomap`
+  adds those two entry points, an empty payload stays a correct no-op
+  (matching upstream's own early return on `msg.data.size() == 0`) and a
+  non-empty one is rejected rather than silently dropped.
 
 Not attempted this round: the rest of `usePlanningSceneMsg`/`setPlanningSceneMsg`/
 `setPlanningSceneDiffMsg` (`robot_state`, `fixed_frame_transforms`,
