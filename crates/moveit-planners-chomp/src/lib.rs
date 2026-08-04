@@ -10,6 +10,8 @@
 //   moveit_planners/chomp/chomp_motion_planner/src/chomp_trajectory.cpp
 //   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_cost.hpp
 //   moveit_planners/chomp/chomp_motion_planner/src/chomp_cost.cpp
+//   moveit_planners/chomp/chomp_motion_planner/include/chomp_motion_planner/chomp_optimizer.hpp
+//   moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp
 
 //! CHOMP (Covariant Hamiltonian Optimization for Motion Planning), ported
 //! from upstream's `moveit_planners/chomp` package.
@@ -28,40 +30,31 @@
 //! `chomp_interface/` is algorithmic; it only adapts `ChompPlanner` (see
 //! below) to ROS parameters and a live `PlanningScene`.
 //!
-//! # Scope so far: 4 of 7 upstream files
+//! # Scope so far: 5 of 7 upstream files, one (`chomp_optimizer`) partially
 //!
 //! `chomp_motion_planner/` has 7 header/source pairs. Round 15 ported and
 //! audited 3: `chomp_parameters`, `chomp_utils`, `chomp_trajectory`. Round
-//! 16 adds a 4th: `chomp_cost`. The remaining 3 — `multivariate_gaussian`,
-//! `chomp_optimizer`, `chomp_planner` — are **not yet audited**, not
-//! silently absent: `chomp_optimizer` is the hardest piece and depends on
-//! the data structures ported so far being right first, so it is
-//! deliberately deferred rather than rushed. Do not infer from their
-//! absence below that they were considered and skipped; they have not been
-//! read for this crate at all yet.
+//! 16 added a 4th: `chomp_cost`. Round 17 adds a 5th, `chomp_optimizer`, but
+//! only its model/collision-independent numeric core — see
+//! [`optimizer`]'s own module doc for exactly which methods were portable
+//! and which were not, and why. `chomp_planner` remains **not yet
+//! audited**, deliberately deferred (round 17's brief, Item 3): porting it
+//! before the optimizer it drives was solid risked redoing it.
 //!
 //! `multivariate_gaussian.hpp` is shared, near-verbatim, with upstream's
-//! `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`.
-//! The two are not byte-identical — STOMP's `sample()` takes an extra `bool
-//! use_covariance = true` parameter CHOMP's does not have — but the
-//! Cholesky-based sampling core (`mean_`/`covariance_`/
-//! `covariance_cholesky_` via `llt().matrixL()`,
-//! `std::normal_distribution<double>(0.0, 1.0)`) is the same algorithm.
-//! Decided (human orchestrator): one shared port lives in `moveit-sampling`
-//! (ported by `p3-shapes`, now merged), depended on by both
-//! `moveit-planners-chomp` and `moveit-planners-stomp` rather than one
-//! planner depending on its sibling. The `use_covariance` bool is not
-//! carried over as a bool parameter — a bool that switches what a function
-//! computes is exactly the dual-meaning shape this port avoids elsewhere —
-//! `moveit-sampling` instead exposes `sample_with_covariance`/
-//! `sample_without_covariance`; CHOMP would call only the former, matching
-//! its own `sample()`, which has no such parameter at all.
-//! `chomp_cost.{hpp,cpp}` (this round) does not reference
-//! `MultivariateGaussian` at all — only `chomp_optimizer.cpp` does, at
-//! `MultivariateGaussian(Eigen::VectorXd::Zero(num_vars_free_),
-//! joint_costs_[i].getQuadraticCostInverse())` — so this crate still does
-//! not depend on `moveit-sampling`; that dependency is added when the
-//! optimizer is ported.
+//! `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp`,
+//! and was ported by `p3-shapes` into `moveit-sampling` (merged). This
+//! crate still does not depend on `moveit-sampling`: `chomp_optimizer.cpp`'s
+//! one construction site, `MultivariateGaussian(Eigen::VectorXd::Zero(...),
+//! joint_costs_[i].getQuadraticCostInverse())` in `initialize()`, feeds
+//! exclusively the Hamiltonian-Monte-Carlo perturbation path
+//! (`perturbTrajectory`/`getRandomMomentum`/`updateMomentum`/
+//! `updatePositionFromMomentum`), and every call site of that path in
+//! `optimize()` is commented out upstream — see [`optimizer`]'s module doc
+//! for the full account, including that three of those four methods have
+//! no implementation anywhere in `chomp_optimizer.cpp` at all. There is no
+//! live consumer to port `MultivariateGaussian` usage against in this
+//! crate yet.
 //!
 //! # Symbol audit: `chomp_parameters.{hpp,cpp}`
 //!
@@ -105,10 +98,13 @@
 //!   ported as their `snake_case` equivalents on
 //!   [`trajectory::ChompTrajectory`] — see that module's own doc comment for
 //!   the full name mapping and every deviation from upstream.
-//!   `getFreeTrajectoryBlock`/`getFreeJointTrajectoryBlock` are declared but
-//!   **not yet ported** — see that module doc's own deviation note for why.
-//!   The private `init` has no separate Rust equivalent: every public
-//!   constructor allocates its matrix directly via `DMatrix::zeros` instead.
+//!   `getFreeTrajectoryBlock`/`getFreeJointTrajectoryBlock` are ported
+//!   (round 17, once `chomp_optimizer`'s real call sites were known) as
+//!   [`trajectory::ChompTrajectory::free_trajectory_block_mut`]/
+//!   [`trajectory::ChompTrajectory::free_joint_trajectory_block_mut`] — see
+//!   that module doc's own deviation note. The private `init` has no
+//!   separate Rust equivalent: every public constructor allocates its
+//!   matrix directly via `DMatrix::zeros` instead.
 //!
 //! # Symbol audit: `chomp_cost.{hpp,cpp}`
 //!
@@ -133,27 +129,68 @@
 //!   (`virtual ~ChompCost()`) has no Rust equivalent, same reasoning as
 //!   `ChompParameters`'s.
 //!
+//! # Symbol audit: `chomp_optimizer.{hpp,cpp}`
+//!
+//! Read in full (both the 219-line header and the 992-line source) against
+//! the pinned SHA. Every symbol is classified below; see [`optimizer`]'s
+//! own module doc for the full reasoning behind each classification.
+//!
+//! - Ported as free functions in [`optimizer`] (not as a `ChompOptimizer`
+//!   struct — see [`optimizer`]'s module doc for why a faithful struct port
+//!   is impossible in this crate): the inline `getPotential` →
+//!   [`optimizer::get_potential`]; `calculateSmoothnessIncrements` →
+//!   [`optimizer::calculate_smoothness_increments`];
+//!   `calculateTotalIncrements` → [`optimizer::calculate_total_increments`]
+//!   (this round's weighted-combination callout — see [`optimizer`]'s doc
+//!   for the exact [`parameters::ChompParameters`] field-name mapping);
+//!   `addIncrementsToTrajectory` → [`optimizer::add_increments_to_trajectory`];
+//!   `getSmoothnessCost` → [`optimizer::get_smoothness_cost`];
+//!   `handleJointLimits` → [`optimizer::handle_joint_limits`].
+//! - Not ported, collision/kinematics-coupled (need `moveit-collision`/
+//!   `moveit-scene`, out of this crate's scope this round): `ChompOptimizer`
+//!   itself (struct, constructor, `optimize()`, `destroy()`,
+//!   `isInitialized()`, `isCollisionFree()`), `performForwardKinematics`,
+//!   `getCollisionCost`, `getTrajectoryCost`, `calculateCollisionIncrements`,
+//!   `calculatePseudoInverse`, `getJacobian`, `computeJointProperties`,
+//!   `setRobotStateFromPoint`, `registerParents`, the private `isParent`,
+//!   `isCurrentTrajectoryMeshToMeshCollisionFree`. `optimize()`'s
+//!   termination condition — this round's other callout — is transcribed as
+//!   a specification (not executable code) in [`optimizer`]'s module doc.
+//! - Not ported, confirmed dead in upstream itself (not merely out of
+//!   scope): `debugCost` (unused `std::cout` helper, no call site anywhere
+//!   in `chomp_optimizer.cpp`); `perturbTrajectory`, `getRandomMomentum`,
+//!   `updateMomentum`, `updatePositionFromMomentum` (the HMC path — every
+//!   call site in `optimize()` is commented out, and the latter three have
+//!   no implementation anywhere in the 992-line source at all, only header
+//!   declarations).
+//!
 //! # Completion condition
 //!
-//! Stated as a check on the 4 files audited so far, not a claim about the
+//! Stated as a check on the files audited so far, not a claim about the
 //! crate: `chomp_parameters.{hpp,cpp}`, `chomp_utils.hpp`,
-//! `chomp_trajectory.{hpp,cpp}`, and `chomp_cost.{hpp,cpp}` are read in full
-//! against the pinned SHA and every symbol in them is classified above as
-//! ported (with its Rust name) or D-decision-excluded (with the decision).
-//! No numeric oracle op backs any of this round's tests either — Phase 8's
-//! completion condition uses property-based verification
-//! (`PORTING-PLAN.md` §5), not a trajectory oracle, and CHOMP specifically
-//! is not the one Phase-8 planner (`moveit-planners-pilz`) with directly
-//! comparable deterministic output. What is pinned by unit test instead:
-//! [`trajectory::ChompTrajectory`]'s copy-with-padding
-//! indexing/`full_trajectory_index_` convention, and [`cost::ChompCost`]'s
-//! finite-difference boundary truncation and the mathematical soundness
-//! (residual-based, not bit-for-bit-against-Eigen) of `quad_cost_inv_` in
-//! both algorithm branches nalgebra can take — see [`cost`]'s module doc
-//! for what specifically remains unverified there pending an oracle op.
-//! This section does not cover `multivariate_gaussian`, `chomp_optimizer`,
-//! or `chomp_planner` — they are out of scope this round per the section
-//! above, not implicitly satisfied by anything here.
+//! `chomp_trajectory.{hpp,cpp}`, `chomp_cost.{hpp,cpp}`, and
+//! `chomp_optimizer.{hpp,cpp}` are each read in full against the pinned SHA
+//! and every symbol in them is classified above as ported (with its Rust
+//! name), D-decision-excluded (with the decision), or — new this round —
+//! confirmed dead upstream (with the evidence). No numeric oracle op backs
+//! any of this round's tests either — Phase 8's completion condition uses
+//! property-based verification (`PORTING-PLAN.md` §5), not a trajectory
+//! oracle, and CHOMP specifically is not the one Phase-8 planner
+//! (`moveit-planners-pilz`) with directly comparable deterministic output.
+//! What is pinned by unit test instead: [`trajectory::ChompTrajectory`]'s
+//! copy-with-padding indexing/`full_trajectory_index_` convention,
+//! [`cost::ChompCost`]'s finite-difference boundary truncation and the
+//! mathematical soundness (residual-based, not bit-for-bit-against-Eigen) of
+//! `quad_cost_inv_` in both algorithm branches nalgebra can take — see
+//! [`cost`]'s module doc for what specifically remains unverified there
+//! pending an oracle op (see also this crate's
+//! `doc/oracle-request-quad-cost-inv.md` for this round's request) — and
+//! [`optimizer`]'s weighted-combination and
+//! joint-limit-repair formulas, each checked against a hand-rolled
+//! recomputation of the same upstream formula, not merely "it runs". This
+//! section does not cover `multivariate_gaussian` (no live consumer to port
+//! against — see the scope section above) or `chomp_planner` — they are out
+//! of scope this round, not implicitly satisfied by anything here.
 
 /// `ChompParameters` and its trajectory-initialization-method validation —
 /// see the module doc's `chomp_parameters.{hpp,cpp}` entry.
@@ -170,6 +207,10 @@ pub mod trajectory;
 
 /// `ChompCost` — see the module doc's `chomp_cost.{hpp,cpp}` entry.
 pub mod cost;
+
+/// The portable numeric core of `ChompOptimizer` — see the module doc's
+/// `chomp_optimizer.{hpp,cpp}` entry.
+pub mod optimizer;
 
 pub use cost::ChompCost;
 pub use parameters::ChompParameters;

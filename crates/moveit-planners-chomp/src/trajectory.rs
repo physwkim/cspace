@@ -21,17 +21,17 @@
 //!   round's ported code either reads a row/column once or overwrites one
 //!   wholesale ([`ChompTrajectory::set_trajectory_point`]); nothing needs a
 //!   view that stays live across further matrix mutation.
-//! - **`getFreeTrajectoryBlock`/`getFreeJointTrajectoryBlock` are not
-//!   ported this round.** Both return a live, writable `Eigen::Block` view
-//!   with no call site anywhere in `chomp_trajectory.cpp` itself — every
-//!   known caller is in `chomp_optimizer.cpp`, out of this round's scope.
-//!   Unlike the row/column accessors above, an `Eigen::Block`'s usage
-//!   pattern (read-modify-write in place, aliased with other views) is not
-//!   safely guessable from the declaration alone; porting it now risks
-//!   picking a shape `chomp_optimizer.rs` cannot actually use, which is the
-//!   exact "redo it" risk this round's brief calls out for the data
-//!   structures a harder file depends on. Deferred to the round that ports
-//!   `chomp_optimizer` and can see the real call sites.
+//! - **`getFreeTrajectoryBlock`/`getFreeJointTrajectoryBlock` are ported as
+//!   [`ChompTrajectory::free_trajectory_block_mut`]/
+//!   [`ChompTrajectory::free_joint_trajectory_block_mut`]**, returning
+//!   `nalgebra`'s mutable view type (`DMatrixViewMut`) rather than the owned
+//!   copies the accessors above return — deferred in round 16 pending real
+//!   call sites, now ported against `chomp_optimizer.cpp`'s actual usage
+//!   (`addIncrementsToTrajectory`'s `getFreeTrajectoryBlock().col(i) +=
+//!   ...`, `handleJointLimits`'s `getFreeJointTrajectoryBlock(joint_i) +=
+//!   ...`): both are read-modify-write in place via `+=`, which an owned
+//!   copy cannot express without an explicit write-back step the upstream
+//!   call sites don't have.
 //! - **Reachable invariant violations are typed errors, not `assert()`/UB.**
 //!   Upstream's `assert()`s (compiled out in release builds) and unchecked
 //!   `size_t` arithmetic on caller-supplied indices are both replaced by
@@ -422,6 +422,31 @@ impl ChompTrajectory {
         }
     }
 
+    /// Gets a writable view over the free (non-boundary-padding) rows of the
+    /// trajectory matrix, all joint columns.
+    ///
+    /// Ported from `getFreeTrajectoryBlock` — see the module doc's deviation
+    /// note.
+    pub fn free_trajectory_block_mut(&mut self) -> nalgebra::DMatrixViewMut<'_, f64> {
+        let num_free = self.num_free_points();
+        self.trajectory
+            .view_mut((self.start_index, 0), (num_free, self.num_joints))
+    }
+
+    /// Gets a writable view over the free (non-boundary-padding) rows of a
+    /// single joint column.
+    ///
+    /// Ported from `getFreeJointTrajectoryBlock` — see the module doc's
+    /// deviation note.
+    pub fn free_joint_trajectory_block_mut(
+        &mut self,
+        joint: usize,
+    ) -> nalgebra::DMatrixViewMut<'_, f64> {
+        let num_free = self.num_free_points();
+        self.trajectory
+            .view_mut((self.start_index, joint), (num_free, 1))
+    }
+
     /// Updates `self` (the full trajectory) from `group_trajectory`'s free
     /// block, at `self`'s own `start_index`.
     ///
@@ -774,6 +799,43 @@ mod tests {
             .add_suffix_way_point(RobotState::new(model), 0.0)
             .unwrap();
         assert!(!traj.fill_in_from_trajectory(&source).unwrap());
+    }
+
+    #[test]
+    fn free_trajectory_block_mut_covers_exactly_the_free_rows_all_columns() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        // start_index=1, end_index=4 -> 4 free rows, N=7 columns.
+        {
+            let mut block = traj.free_trajectory_block_mut();
+            assert_eq!(block.nrows(), 4);
+            assert_eq!(block.ncols(), N);
+            block.fill(1.0);
+        }
+        assert_relative_eq!(traj[(0, 0)], 0.0, epsilon = EPS, max_relative = EPS);
+        for r in 1..=4 {
+            assert_relative_eq!(traj[(r, 0)], 1.0, epsilon = EPS, max_relative = EPS);
+        }
+        assert_relative_eq!(traj[(5, 0)], 0.0, epsilon = EPS, max_relative = EPS);
+    }
+
+    #[test]
+    fn free_joint_trajectory_block_mut_covers_exactly_the_free_rows_one_column() {
+        let model = panda_model();
+        let mut traj = ChompTrajectory::from_num_points(model, 6, 0.1, GROUP).unwrap();
+        {
+            let mut block = traj.free_joint_trajectory_block_mut(2);
+            assert_eq!(block.nrows(), 4);
+            assert_eq!(block.ncols(), 1);
+            block.fill(3.0);
+        }
+        for r in 1..=4 {
+            assert_relative_eq!(traj[(r, 2)], 3.0, epsilon = EPS, max_relative = EPS);
+        }
+        // Untouched neighboring column.
+        for r in 0..6 {
+            assert_relative_eq!(traj[(r, 1)], 0.0, epsilon = EPS, max_relative = EPS);
+        }
     }
 
     #[test]
