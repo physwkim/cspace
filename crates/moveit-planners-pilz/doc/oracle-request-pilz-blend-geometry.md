@@ -788,7 +788,32 @@ unmeasured amount of a known mechanism," but a divergence whose
 corner angle in a way no fixture generated so far isolates from angle,
 radius, or arm posture individually.
 
-## Tolerance audit: does any per-case override widen a channel that did not need it
+**The near-tie clause was needed, but not where this prediction guessed
+it would be.** The measurement above ran only the nine sweep angles, so
+it could not see the two in-tree blend fixtures outside the sweep. Run
+the same probe over all eleven and `panda_blend_radius08` -- case C,
+90°, `blend_radius` `0.08`, eleven blend waypoints -- lands squarely in
+the exempted band: `i* = 10` at `5.458927e-9` against `i = 9` at
+`5.441964e-9`, a runner-up at **99.7%** of the argmax. That is a
+coin-flip, not a read; naming an `i*` for case C would be reporting
+floating-point noise as a location. (The other non-sweep fixture,
+`panda_blend_asymmetric`, is a clean read at 136% but its whole profile
+sits at `2.568e-12`, three orders of magnitude below every other case
+here -- the second segment's `0.1` velocity scaling, not the corner.)
+
+Both halves of this section's guess about where ties would live are
+wrong. It predicted them "mainly near the 90-100° dip, where overall
+divergence is smallest": at 90° the sweep's own case A is a 56%
+runner-up, nowhere near a tie, and case C -- the actual tie -- is at
+that same 90° with *larger* position divergence than case A
+(`5.46e-9` vs `2.28e-9`), not smaller. Whatever decides how sharply the
+divergence profile peaks, it is not overall magnitude, and it tracks
+`blend_radius` here rather than angle. The verdict above is unaffected
+(case C is not a sweep angle and `i*(θ)` still takes four values across
+the nine), but the reasoning that produced the exemption clause was
+right by luck about the clause and wrong about the cause, and a later
+round widening this sweep should expect ties from the radius axis
+rather than from the angle dip.
 
 Case F's sweep produced seven per-case tolerance constants (case E's own
 two, `CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE`,
