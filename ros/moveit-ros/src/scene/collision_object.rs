@@ -20,6 +20,7 @@
 //! [`apply_collision_object`] takes the same shape: `&mut PlanningScene`
 //! plus the message, `Result<()>` back.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use moveit_error::{Error, Result};
@@ -202,6 +203,88 @@ pub(super) fn shapes_and_poses_from_collision_object(
     Ok((object_pose, shapes, shape_poses))
 }
 
+/// `subframe_names[]`/`subframe_poses[]`, exact-length only. Upstream
+/// indexes `subframe_names[i]` for `i` in `0..subframe_poses.size()` with
+/// **no length check at all**, for both world objects
+/// (`processCollisionObjectAdd:1921/1924`) and attached ones
+/// (`processAttachedCollisionObjectMsg:1612/1615`) -- a real out-of-bounds
+/// read if `subframe_names` is shorter. This port rejects the mismatch
+/// instead of reproducing that read, the same choice already made for
+/// `shape_msgs::MeshTriangle.vertex_indices`/`Plane.coef` in
+/// `crate::scene::shapes`. Shared by `crate::scene::attached`, since the
+/// wire shape and the bug it does not reproduce are identical there.
+pub(super) fn subframes_from_parallel_arrays(
+    upstream_site: &'static str,
+    subframe_names: Vec<String>,
+    subframe_poses: Vec<geometry_msgs::Pose>,
+) -> Result<BTreeMap<String, Isometry3>> {
+    if subframe_names.len() != subframe_poses.len() {
+        return Err(Error::construct(format!(
+            "subframe_names has length {} but subframe_poses has length {} (upstream indexes \
+             these without any length check at all -- {upstream_site} -- this port rejects the \
+             mismatch instead of reproducing that out-of-bounds read)",
+            subframe_names.len(),
+            subframe_poses.len()
+        )));
+    }
+    let mut map = BTreeMap::new();
+    for (name, pose) in subframe_names.into_iter().zip(subframe_poses) {
+        map.insert(name, Isometry3::try_from(Pose(pose))?);
+    }
+    Ok(map)
+}
+
+/// `CollisionObject.subframe_names`/`.subframe_poses` on a **world** object
+/// (as opposed to an attached one, which `attach_new` already supports
+/// directly via its own `subframes` parameter).
+///
+/// # Not a permanent gap -- a slot waiting for `moveit-scene`
+///
+/// `PlanningScene::world()` returns `&World` only (`scene.rs:951`); there is
+/// no `world_mut()`, by design: every other world mutation goes through a
+/// scene-level wrapper (`add_shape`/`move_object`/`remove_object`/
+/// `remove_all_objects`, `scene.rs:974/981/994/1006`) that feeds `World`'s
+/// notification back into scene state, and a raw `&mut World` would let a
+/// caller bypass that. `moveit_collision::World::set_subframes_of_object`
+/// exists (`world.rs:690`) but is unreachable through `PlanningScene`'s
+/// public surface for exactly that reason. `PORTING-PLAN.md` §150.1 tracks
+/// the missing scene-level wrapper on p1-fixtures (`moveit-scene`'s owner) —
+/// when it lands, replace this function's body with a single call to it;
+/// every call site in this module already calls through this one function,
+/// so no caller needs to change.
+fn set_world_object_subframes(
+    _scene: &mut PlanningScene<'_>,
+    _id: &str,
+    _subframes: BTreeMap<String, Isometry3>,
+) -> Result<()> {
+    Err(Error::other(
+        "world-object subframes have no PlanningScene-level setter yet -- \
+         moveit_collision::World::set_subframes_of_object exists (world.rs:690) but \
+         PlanningScene::world() only returns &World (scene.rs:951); a scene-level wrapper is \
+         tracked on moveit-scene (PORTING-PLAN.md §150.1), not attempted here",
+    ))
+}
+
+/// `CollisionObject` MOVE's per-shape repose. Same "slot waiting for
+/// `moveit-scene`" shape as [`set_world_object_subframes`]:
+/// `moveit_collision::World::move_shapes_in_object` exists (`world.rs:560`)
+/// but is unreachable through `PlanningScene`'s public surface for the same
+/// reason. `PORTING-PLAN.md` §150.1 tracks the missing scene-level wrapper
+/// on p1-fixtures — when it lands, replace this function's body with a
+/// single call to it.
+fn move_world_object_shapes(
+    _scene: &mut PlanningScene<'_>,
+    _id: &str,
+    _shape_poses: Vec<Isometry3>,
+) -> Result<()> {
+    Err(Error::other(
+        "world-object MOVE's per-shape repose has no PlanningScene-level setter yet -- \
+         moveit_collision::World::move_shapes_in_object exists (world.rs:560) but \
+         PlanningScene::world() only returns &World (scene.rs:951); a scene-level wrapper is \
+         tracked on moveit-scene (PORTING-PLAN.md §150.1), not attempted here",
+    ))
+}
+
 /// Apply one `CollisionObject` command to `scene`'s world. Upstream
 /// `processCollisionObjectMsg` (`planning_scene.cpp:1758`).
 pub fn apply_collision_object(
@@ -253,14 +336,16 @@ fn apply_add(
             "there are no shapes specified in the collision object message (processCollisionObjectAdd)",
         ));
     }
-    if !subframe_names.is_empty() || !subframe_poses.is_empty() {
-        return Err(Error::other(
-            "CollisionObject.subframe_names/subframe_poses has no PlanningScene-level \
-             setter -- moveit_scene::PlanningScene::world() only exposes &World \
-             (read-only); moveit_collision::World::set_subframes_of_object exists but \
-             is unreachable through PlanningScene's public API (doc/message-mapping.md §11)",
-        ));
-    }
+    // Length-validated up front, same as upstream's ordering (everything
+    // about the message is checked before the world is touched); the actual
+    // `set_world_object_subframes` call happens after the object exists
+    // below, matching upstream's own "add shapes, then add subframes" order
+    // (`processCollisionObjectAdd:1913-1927`).
+    let subframes = subframes_from_parallel_arrays(
+        "processCollisionObjectAdd:1921/1924",
+        subframe_names,
+        subframe_poses,
+    )?;
 
     // Resolved before any mutation -- upstream checks `knowsFrameTransform`
     // before touching the world at all (`:1889`).
@@ -300,6 +385,20 @@ fn apply_add(
         // reproduces, forced by `PlanningScene` having no
         // add-with-a-real-object-pose entry point (only `World` does).
         scene.move_object(&id, header_transform * local_object_pose);
+    }
+
+    // Upstream calls `world_->setSubframesOfObject` unconditionally, even
+    // with an empty map (`:1927`) -- on APPEND, that wholesale-replaces any
+    // existing subframes with nothing whenever the message doesn't carry
+    // its own, a real (if easy to miss) upstream behavior. This port cannot
+    // yet reproduce that clearing side of it either (same missing API), so
+    // it only calls the not-yet-available setter when there is actually
+    // subframe data to set, leaving "APPEND without subframe data preserves
+    // the old ones" as the interim behavior until §150.1 lands -- at which
+    // point this `if` should be removed and the call made unconditional to
+    // match upstream exactly.
+    if !subframes.is_empty() {
+        set_world_object_subframes(scene, &id, subframes)?;
     }
 
     Ok(())
@@ -386,13 +485,15 @@ fn apply_move(scene: &mut PlanningScene<'_>, msg: moveit_msgs::CollisionObject) 
         )));
     }
 
-    Err(Error::other(format!(
-        "move operation for object '{id}' supplied a matching count of geometry \
-         poses, but per-shape repose has no PlanningScene-level setter -- \
-         moveit_collision::World::move_shapes_in_object exists but is unreachable \
-         through PlanningScene's public API (doc/message-mapping.md §11). The \
-         object's pose was still updated above."
-    )))
+    // Parsed to `Isometry3` before the (currently unavailable) repose call,
+    // matching upstream's own ordering (`poseMsgToEigen` runs before
+    // `moveShapesInObject`, `:1985-1998`) -- a malformed pose here is a real,
+    // permanent rejection independent of §150.1's missing scene-level API.
+    let shape_poses = shape_poses_msgs
+        .into_iter()
+        .map(|p| Isometry3::try_from(Pose(p)))
+        .collect::<Result<Vec<_>>>()?;
+    move_world_object_shapes(scene, &id, shape_poses)
 }
 
 #[cfg(test)]
@@ -685,5 +786,47 @@ mod tests {
         msg.subframe_poses = vec![identity_pose()];
         let err = apply_collision_object(&mut sc, msg).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn add_with_mismatched_subframe_array_lengths_is_rejected() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.subframe_names = vec!["a".to_string(), "b".to_string()];
+        msg.subframe_poses = vec![identity_pose()];
+        let err = apply_collision_object(&mut sc, msg).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn add_without_subframes_succeeds_despite_the_missing_setter() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        assert!(sc.world().has_object("box"));
+    }
+
+    #[test]
+    fn move_shape_repose_with_malformed_pose_is_rejected_independent_of_the_missing_setter() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", model.model_frame(), MOVE);
+        mv.primitive_poses = vec![geometry_msgs::Pose {
+            position: geometry_msgs::Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            orientation: geometry_msgs::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 0.0,
+            },
+        }];
+        let err = apply_collision_object(&mut sc, mv).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
     }
 }

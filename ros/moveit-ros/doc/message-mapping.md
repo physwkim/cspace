@@ -376,9 +376,18 @@ noted):
 Structural gaps (no reachable `PlanningScene`-level API, named rather than
 patched around):
 
-- World-object subframes (ADD/APPEND) and MOVE's per-shape repose: `World`
-  has `set_subframes_of_object`/`move_shapes_in_object`, but
-  `PlanningScene::world()` only returns `&World` (read-only).
+- **World-object subframes (ADD/APPEND) and MOVE's per-shape repose:
+  waiting on `moveit-scene`, not a permanent gap.** `World` has
+  `set_subframes_of_object`/`move_shapes_in_object`, but
+  `PlanningScene::world()` only returns `&World` (read-only) — by design,
+  the same as `add_shape`/`move_object`/`remove_object`/`remove_all_objects`
+  each being a scene-level wrapper rather than exposing `&mut World`
+  directly, so a `World`-mutating call can feed its notification back into
+  scene state. `PORTING-PLAN.md` §150.1 tracks the missing two wrappers on
+  p1-fixtures (`moveit-scene`'s owner); `set_world_object_subframes`/
+  `move_world_object_shapes` (`src/scene/collision_object.rs`) are the two
+  call sites already wired up to receive them — once the wrappers land,
+  only those two function bodies change, not their callers.
 - AttachedCollisionObject's own MOVE: rejected, matching upstream, which
   has no MOVE branch in `processAttachedCollisionObjectMsg` either.
 - `Octomap.data`'s binary payload: `moveit_octomap::OcTree` has no decoder
