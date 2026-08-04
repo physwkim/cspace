@@ -851,3 +851,54 @@ runs on `Tolerances::SHARED` with no override in either channel, and
 acceleration override. The other five overrides all correspond to a
 case's own measured max genuinely exceeding the shared constant, so no
 further holes exist in this table.
+
+## Case I: does the case C near-tie come from radius, from angle, or from neither alone
+
+Four fixtures now give three radius/angle combinations at the two
+angles the port has actually probed for `i*`:
+
+| θ | `blend_radius` | `i*` | runner-up ratio |
+|---:|---:|---|---|
+| 90° (case A) | `0.05` | `7` | 56% (clean) |
+| 90° (case C) | `0.08` | unreadable | 99.7% (near-tie) |
+| 112° (case E) | `0.05` | `5` | 34% (clean) |
+| 112° (radius03) | `0.03` | `5` (unchanged) | 65% (clean) |
+
+Radius moved 90°'s profile from a clean read to a near-tie
+(`0.05→0.08`). Radius left 112°'s `i*` completely unchanged
+(`0.05→0.03`, same index, still a clean read). Two of the three
+variables differ between these two comparisons at once, though: the
+*angle* (90° vs 112°) and the *direction/magnitude* of the radius
+change (`+0.03` at 90° vs `-0.02` at 112°). Nothing measured so far
+holds angle fixed while repeating case C's own `+0.03`-to-`0.08`
+perturbation, so the asymmetry cannot yet be attributed to either
+variable alone.
+
+**Prediction, filed before generating anything.** A new fixture at
+112°, `blend_radius: 0.08` (case E's exact geometry, only the radius
+changed to match case C's own value) discriminates two hypotheses:
+
+- **H-angle:** the near-tie is a property of the shallower/90° region
+  specifically (something about that geometry, not the radius value
+  itself, makes the profile fragile to a radius increase). Sharper
+  corners are comparatively robust. **Predicts:** 112°/r=0.08 stays a
+  clean read -- runner-up ratio well under the ~90% near-tie band
+  (comparable to 112°'s existing two clean reads, 34%/65%).
+- **H-radius:** `blend_radius: 0.08` (or a radius increase from `0.05`
+  generally) itself flattens the divergence profile near a tie,
+  independent of angle. **Predicts:** 112°/r=0.08 also lands in the
+  near-tie band (runner-up ratio ≥90%, matching case C's 99.7%).
+
+Both outcomes are informative; this is a genuine discriminator, not a
+one-sided refutation test. **What this one fixture does not settle:**
+it matches case C's radius *value* and *direction of change*
+(`0.05→0.08`, an increase) but not the *magnitude* of change relative
+to case E's own baseline -- case E's control moved radius by `-0.02`
+(`0.05→0.03`), not `+0.03`. If 112°/r=0.08 comes out clean (supporting
+H-angle), a further open question survives: whether 90°/r=0.03 (the
+magnitude- and direction-matched mirror of the 112° control, not yet
+generated) would also stay clean, which would isolate the direction of
+the radius change (increase vs decrease) as a further candidate
+variable this fixture alone cannot rule out. That fixture is not
+generated in this round; flagged here rather than silently left
+untested.
