@@ -281,14 +281,14 @@ impl VisibilityConstraint {
     /// the ones `decide()` happens to read directly.
     ///
     /// The sensor pose, in [`VisibilityConstraint::sensor_frame`]. See
-    /// [`FramedPose::pose`] for exactly what "in `sensor_frame`" means for
+    /// `FramedPose::pose` for exactly what "in `sensor_frame`" means for
     /// the mobile-frame case.
     pub fn sensor(&self) -> Isometry3 {
         self.sensor.pose()
     }
 
     /// The target pose, in [`VisibilityConstraint::target_frame`]. See
-    /// [`FramedPose::pose`] for exactly what "in `target_frame`" means for
+    /// `FramedPose::pose` for exactly what "in `target_frame`" means for
     /// the mobile-frame case.
     pub fn target(&self) -> Isometry3 {
         self.target.pose()
