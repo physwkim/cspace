@@ -9,6 +9,19 @@ mapping is not 1:1 -- per the round-1 brief: "대응이 1:1이 아닌 자리를 
 `/opt/ros/rolling/share/{trajectory_msgs,sensor_msgs}/msg/*.msg` inside the
 same image -- read directly, not recalled from memory.
 
+**Round 2 update**: `moveit_msgs` is now built into `ros/`'s image
+(`ros/Dockerfile`), so every **TABLE ONLY** row from round 1 that this
+round's brief prioritized is now **CODED** — §4 (`src/constraints/joint.rs`),
+§5 (`src/constraints/position.rs`), §6 (`src/constraints/orientation.rs`),
+§7 msg→core only (`src/constraints/visibility.rs`), §8
+(`src/constraints/set.rs`), §9 (`src/state.rs`), §10's `joint_trajectory`
+field (`src/trajectory.rs`, `trajectory_msgs/JointTrajectory` directly) and
+full `moveit_msgs/RobotTrajectory` (`src/planning.rs`), and a new §16 for
+`MotionPlanRequest`/`MotionPlanResponse` (`src/planning.rs`). Two round-1
+claims below were corrected in the process (marked **[R2 CORRECTION]**
+inline) after `moveit_msgs` became available to check them against.
+§3/§11 remain **TABLE ONLY** — outside this round's priority list.
+
 **Status legend**
 
 - **CODED** — real `TryFrom` impl exists in `src/`, container-verified
@@ -40,19 +53,31 @@ applies to *every* row in every table below, including ones not yet coded.
 | `Transform{translation: Vector3, rotation: Quaternion}` | `moveit_geometry::Isometry3` | — | same shape as `Pose` | **Not coded this round** — same failure/success logic as `Pose`, just different field names on the wire side (`sensor_msgs/MultiDOFJointState.transforms` and `geometry_msgs/TransformStamped` both use this). Add when a caller needs it (§5, §6 below). |
 | `std_msgs/Header{stamp, frame_id}` | *(none)* | msg→core only, lossy | **N/A** | No core type carries a frame_id or timestamp at all (confirmed against `moveit-geometry`, `moveit-model`, `moveit-state`; see §7). Every message type that embeds a `Header` (`PositionConstraint`, `OrientationConstraint`, `CollisionObject`, `JointTrajectory`, `JointState`, ...) loses `stamp` and `frame_id` on the msg→core direction unless the caller captures them separately before calling into a core-type constructor that itself takes a `frame_id: &str` parameter (`PositionConstraint::new`, `OrientationConstraint::new`, `VisibilityConstraint`'s `SensorSpec`/`TargetSpec` all do — see §4-§6). There is no core→msg direction to speak of: nothing produces a `Header` to convert into. |
 
-## 2. `MoveItErrorCodes` — no conversion needed, already wire-exact
+## 2. `MoveItErrorCodes` — `val` needs no conversion; `message`/`source` are a genuine gap
 
 `crates/moveit-error::MoveItErrorCode` is declared (its own doc comment)
 "wire-exact with `moveit_msgs/msg/MoveItErrorCodes.msg` specifically so a ROS
 interop crate can reuse it without its own lookup table" — confirmed against
-the actual `.msg` (`val: int32` plus 29 named constants, `SUCCESS=1`,
-`FAILURE=99999`, etc.):
-`MoveItErrorCode::as_i32()`/`From<i32>` already round-trip every value,
+the actual `.msg`: `val: int32` plus 29 named constants (`SUCCESS=1`,
+`FAILURE=99999`, etc.).
+`MoveItErrorCode::as_i32()`/`From<i32>` already round-trip every `val`,
 including unrecognized ones (`Unknown(i32)` catch-all, so this direction
-alone is total, not fallible — `From`, correctly, not `TryFrom`). Wrapping
-`r2r::moveit_msgs::msg::MoveItErrorCodes` (`{val: i32}`) in a one-line local
-newtype and delegating to the existing `From<i32>`/`as_i32()` is all that a
-later round needs; no new logic.
+alone is total, not fallible — `From`, correctly, not `TryFrom`).
+
+**[R2 CORRECTION]** Round 1 stopped at `val` without checking the message
+further because `moveit_msgs` was not yet in the image. Round 2 confirmed
+(both from `third_party/moveit_msgs/msg/MoveItErrorCodes.msg` and the
+r2r-generated struct) the wire message also carries `message: string` and
+`source: string` — round 1's claim that `val` alone made this "wire-exact,
+no conversion needed" was therefore incomplete: `MoveItErrorCode` has no
+field for either string. This is a genuine, previously-undocumented gap:
+msg→core can only use `val` and must drop `message`/`source`; core→msg has
+no source for either and must emit empty strings. Wrapping
+`r2r::moveit_msgs::msg::MoveItErrorCodes` in a one-line local newtype and
+delegating `val` to the existing `From<i32>`/`as_i32()` (emitting
+`message`/`source` as `String::new()` on the way out) is still all the *code*
+a later round needs — the correction is to this doc's completeness claim,
+not to the conversion's difficulty.
 
 ## 3. `JointLimits` — **TABLE ONLY**, ready to code once `moveit_msgs` is in the image
 
@@ -71,7 +96,7 @@ Field-name and field-type identical, confirmed against
 `From`-shaped conversion in both directions in practice; still `TryFrom` per
 D6's uniform surface.
 
-## 4. `JointConstraint` — **TABLE ONLY**
+## 4. `JointConstraint` — **CODED** (`src/constraints/joint.rs`)
 
 | `moveit_msgs/JointConstraint` field | `moveit_constraints::JointConstraint` field | 1:1? |
 |---|---|---|
@@ -84,7 +109,7 @@ No `frame_id` on either side — a joint-space constraint is inherently
 frame-free, consistent with D6, and the only genuine name here (not
 frame-name).
 
-## 5. `PositionConstraint` — **TABLE ONLY**
+## 5. `PositionConstraint` — **CODED** (`src/constraints/position.rs`)
 
 ```
 std_msgs/Header header
@@ -99,14 +124,35 @@ float64 weight
 | `header.frame_id` | `reference_frame()` (inside private `ReferenceFrame::{Fixed,Mobile}`) | Not exactly 1:1: core's `Fixed`/`Mobile` split (pre-resolved-once vs. re-resolved-per-`decide()`) has **no wire representation at all** — `moveit_msgs::PositionConstraint` carries only the one `frame_id`; upstream MoveIt decides fixed-vs-mobile by checking, at construction time, whether the frame name is a known robot link and re-resolving per-call only if so. `moveit-ros`'s `TryFrom` needs the same robot-model-aware lookup, not a pure message-field read — same shape as `JointConstraint`'s `joint_name` above, i.e. this conversion also needs a `&RobotModel` in scope, not just the message. |
 | `link_name: string` | `link_name: String` | yes, but see `UnknownName` failure below |
 | `target_point_offset: Vector3` | `offset: Vector3` (core) | yes, via §1's `Vector3` conversion (total) |
-| `constraint_region: BoundingVolume` | `ConstraintRegion{body: Body, pose: Isometry3}` **inside** `Fixed`/`Mobile`'s `regions: Vec<ConstraintRegion>` | **Not 1:1 (structural, and the sharpest failure surface in this message)**. Wire `BoundingVolume` is 4 **parallel arrays** (`primitives[]`/`primitive_poses[]`, `meshes[]`/`mesh_poses[]`) that must be equal-length pairwise or the message is malformed (nothing in the IDL enforces this — the brief's "길이가 어긋난 병렬 배열" case, concretely instantiated here). Core's `ConstraintRegion` is one `{body, pose}` struct per region, `body: Body` being a sum type over sphere/cylinder/cuboid/mesh (from `moveit_geometry`). A `TryFrom` must: (a) reject `primitives.len() != primitive_poses.len()` and `meshes.len() != mesh_poses.len()` explicitly (a length mismatch is exactly the kind of malformed input `From` would silently truncate-or-panic on and `TryFrom` must reject with a named error), (b) convert each `shape_msgs/SolidPrimitive` to a `moveit_geometry::Shape`/`Body` (not scoped by this round — `moveit-collision`/`moveit-geometry`'s `shape_msgs` mapping is its own table, not attempted here), (c) `BoundingVolume` has no `planes[]` field at all (unlike `CollisionObject`, §8) so core's `Body` variants reachable from a `PositionConstraint` are a strict subset of what `CollisionObject` can carry. |
+| `constraint_region: BoundingVolume` | `ConstraintRegion{body: Body, pose: Isometry3}` **inside** `Fixed`/`Mobile`'s `regions: Vec<ConstraintRegion>` | **Not 1:1 (structural, and the sharpest failure surface in this message)**. Wire `BoundingVolume` is 4 **parallel arrays** (`primitives[]`/`primitive_poses[]`, `meshes[]`/`mesh_poses[]`) that must be equal-length pairwise or the message is malformed (nothing in the IDL enforces this — the brief's "길이가 어긋난 병렬 배열" case, concretely instantiated here). Core's `ConstraintRegion` is one `{body, pose}` struct per region, `body: Body` being a sum type over sphere/cylinder/cuboid/mesh (from `moveit_geometry`). The `TryFrom`: (a) rejects `primitives.len() != primitive_poses.len()` explicitly (`Error::Construct`), (b) rejects any non-empty `meshes[]`/`mesh_poses[]` explicitly (`Error::Other` — mesh shapes are out of scope this round, dropped-and-rejected, not silently ignored), (c) converts each `shape_msgs/SolidPrimitive` via the sub-table below. |
 | `weight: float64` | `weight: f64` | yes |
 
 No tolerance field on the wire (matches core: tolerance is expressed entirely
 by the `constraint_region`'s geometry/size on both sides — not a gap, a
 correct match).
 
-## 6. `OrientationConstraint` — **TABLE ONLY**
+**[R2 CORRECTION]** Round 1 named the `shape_msgs/SolidPrimitive` ↔
+`moveit_geometry::Shape`/`Body` sub-mapping as "not scoped by this round."
+Round 2 coded it (`src/constraints/position.rs`), and it contains its own
+landmine, same shape as §7's `sensor_view_direction`:
+
+| `SolidPrimitive.type_` | `Shape`/`Body` variant | `dimensions[]` order |
+|---|---|---|
+| `BOX=1` | `Cuboid` | `[BOX_X=0, BOX_Y=1, BOX_Z=2]` — positional, no swap (`Cuboid::new(x,y,z)`) |
+| `SPHERE=2` | `Sphere` | `[SPHERE_RADIUS=0]` |
+| `CYLINDER=3` | `Cylinder` | **`[CYLINDER_HEIGHT=0, CYLINDER_RADIUS=1]`** — the reverse of `Cylinder::new(radius, length)`'s argument order. A naive `dimensions[0]` → radius mapping silently swaps radius and length. |
+| `CONE=4` | `Cone` | same height-then-radius order/landmine as `CYLINDER` |
+| `PRISM=5` | **no counterpart** | rejected (`Error::Other`) |
+
+msg→core also guards each `dimensions[]` index with a bounds check
+(`Error::Construct` on a too-short array) rather than an `as usize`-style
+panic on out-of-range indexing — the wire's own comment only promises
+"length ≤ 3," never a minimum. core→msg uses `Body::dimensions()` with the
+equivalent swap for `Cylinder` (`[radius, length]` on the core side →
+`[length, radius]` on the wire) and explicitly rejects `Body::ConvexMesh`
+(`Error::Other`, no `SolidPrimitive` representation).
+
+## 6. `OrientationConstraint` — **CODED** (`src/constraints/orientation.rs`)
 
 ```
 std_msgs/Header header
@@ -127,7 +173,7 @@ float64 weight
 | `absolute_x/y/z_axis_tolerance` + `parameterization` (2 wire fields → 1 tagged enum) | `tolerance: OrientationTolerance::{XyzEuler{x,y,z}, RotationVector{x,y,z}}` | **Not 1:1 (needs an explicit, named decode, not a derived-discriminant cast)**. `parameterization=0` (`XYZ_EULER_ANGLES`, the *default* value of an unset `uint8` field) must map to `XyzEuler`, `parameterization=1` (`ROTATION_VECTOR`) to `RotationVector`; **any other value (2-255) is invalid and must be an explicit `TryFrom` failure**, not silently coerced to one of the two variants — the message's own comment only documents 0/1 as meaningful. |
 | `weight: float64` | `weight: f64` | yes |
 
-## 7. `VisibilityConstraint` — **TABLE ONLY**
+## 7. `VisibilityConstraint` — **CODED, msg→core only** (`src/constraints/visibility.rs`)
 
 ```
 float64 target_radius
@@ -149,11 +195,25 @@ float64 weight
 | `max_view_angle`, `max_range_angle` | same `Option<f64>` pattern | same as above |
 | `target_pose: PoseStamped` (`{header, pose}`) | `target: FramedPose::{Fixed,Mobile}{frame, pose}` | header.frame_id → Fixed/Mobile lookup (same not-1:1 shape as §5/§6), `pose` → `Pose` conversion (§1, can fail on degenerate quaternion) |
 | `sensor_pose: PoseStamped` | `sensor: FramedPose` | same as `target_pose` |
-| `cone_sides: int32` | `cone_sides: usize` | **Not 1:1**: wire allows negative or 0/1/2 (meaningless — a cone needs ≥3 sides per the message's own doc comment, `"This value should always be 3 or more"`, not enforced by the type); a `TryFrom` must reject `cone_sides < 3` explicitly (this is the exact upstream-documented-but-type-unenforced case D6 is written for) as well as reject negative values before the `i32 → usize` cast (a naive `as usize` cast on `-1i32` silently becomes `usize::MAX`, which the brief's "실패가 조용한 기본값이 된다" warns about almost verbatim). |
-| `SENSOR_Z=0`/`SENSOR_Y=1`/`SENSOR_X=2`, `sensor_view_direction: uint8` | `SensorViewDirection::{SensorX, SensorY, SensorZ}` | **Not 1:1 — a landmine, not just a gap.** The core enum's *declared* variant order is `SensorX, SensorY, SensorZ` (natural reading order), but the *wire* encoding is the reverse (`SensorZ=0, SensorY=1, SensorX=2` — confirmed both from the `.msg` constants above and from `moveit-constraints`'s own doc comment on `axis_column()`, which spells out "upstream indexes this as `col(2 - sensor_view_direction_)`"). A conversion written by matching on derived/positional discriminants (e.g. `unsafe { transmute }`, or `[SensorX, SensorY, SensorZ][val as usize]`) would silently swap X and Z. The `TryFrom` must match the three named wire constants explicitly (`0 => SensorZ, 1 => SensorY, 2 => SensorX, _ => Err(...)`), never positionally. No existing wire-conversion helper is on `SensorViewDirection` today (`crates/moveit-constraints/src/visibility.rs` searched; none) — this is entirely `moveit-ros`'s work, per D2, not something to ask the `moveit-constraints` owner to add. |
+| `cone_sides: int32` | `cone_sides: usize` | **[R2 CORRECTION]** Round 1 claimed a `TryFrom` "must reject `cone_sides < 3`" — this is **wrong**, confirmed by reading `crates/moveit-constraints/src/visibility.rs` directly once `moveit_msgs` was available to test against: `VisibilityConstraint::new` silently **clamps** via `cone_sides.max(3)`, by explicit design (its own doc comment: "a real geometric floor, not a sentinel to repair"), not an error. The coded `TryFrom` (round 2) only rejects `cone_sides < 0` before the `i32 → usize` cast (a naive `as usize` on `-1i32` silently becomes `usize::MAX` — the brief's "실패가 조용한 기본값이 된다" case) and lets 0/1/2 pass through to be clamped by core, with a test (`cone_sides_below_3_is_clamped_not_rejected`) proving the clamp, not an error. |
+| `SENSOR_Z=0`/`SENSOR_Y=1`/`SENSOR_X=2`, `sensor_view_direction: uint8` | `SensorViewDirection::{SensorX, SensorY, SensorZ}` | **Not 1:1 — a landmine, not just a gap.** The core enum's *declared* variant order is `SensorX, SensorY, SensorZ` (natural reading order), but the *wire* encoding is the reverse (`SensorZ=0, SensorY=1, SensorX=2` — confirmed both from the `.msg` constants above and from `moveit-constraints`'s own doc comment on `axis_column()`, which spells out "upstream indexes this as `col(2 - sensor_view_direction_)`"). A conversion written by matching on derived/positional discriminants (e.g. `unsafe { transmute }`, or `[SensorX, SensorY, SensorZ][val as usize]`) would silently swap X and Z. **Fixed in round 2** (mandatory this round): the coded `TryFrom` matches the three named wire constants explicitly (`0 => SensorZ, 1 => SensorY, 2 => SensorX, _ => Err(...)`), never positionally, with a dedicated test
+(`sensor_view_direction_matches_wire_constants_not_position`) that would fail under a positional/derived-discriminant cast. No existing wire-conversion helper is on `SensorViewDirection` today (`crates/moveit-constraints/src/visibility.rs` searched; none) — this is entirely `moveit-ros`'s work, per D2, not something to ask the `moveit-constraints` owner to add. |
 | `weight: float64` | `weight: f64` | yes |
 
-## 8. `Constraints` (top-level, → `KinematicConstraintSet`) — **TABLE ONLY**
+**core→msg is not implemented this round** — genuinely blocked on missing
+`moveit_constraints::VisibilityConstraint` public accessors, not a design
+choice. Its complete public surface (`crates/moveit-constraints/src/visibility.rs`,
+confirmed by `grep -n "pub fn "`) is only: `new`, `sensor_frame()`,
+`target_frame()`, `cone_sides()`, `enabled()`, `decide()`,
+`cone_touching_link_count()`. Missing, and needed for a full core→msg
+`TryFrom`: an accessor for `weight`, for `sensor_view_direction`, for the
+three criteria fields (`target_radius`/`max_view_angle`/`max_range_angle`),
+and for the sensor/target poses (`FramedPose` and its `pose` field are
+private to that module). **Named here as a request to `moveit-constraints`'s
+owner, per this round's scope boundary — not worked around by editing
+`crates/` from this crate.**
+
+## 8. `Constraints` (top-level, → `KinematicConstraintSet`) — **CODED** (`src/constraints/set.rs`)
 
 ```
 string name
@@ -170,8 +230,16 @@ where `Constraint` is `enum { Joint, Position, Orientation, Visibility }`
 - **`name: string` has no home on the core side at all** — `KinematicConstraintSet` carries no name field (confirmed: its whole surface is `push`/`constraints`/`is_empty`/`len`/`decide`/`decide_each`). msg→core drops it; core→msg has nothing to put there (empty string, or the caller must carry the name out-of-band if it matters for a later re-serialization — named here, not resolved, since no round-1 code depends on it).
 - msg→core: iterate all 4 arrays in order, `push`ing one `Constraint::X(...)` per element (using §4-§7's per-element conversions, any one of which can fail the whole `Constraints`).
 - core→msg: the reverse -- partition the flat `Vec<Constraint>` back into 4 arrays by variant. This is a real many-to-one/one-to-many pair: the wire's 4-array-of-arrays shape and the core's 1-array-of-sum-type shape carry the same information but the array **order across types is not preserved** by either side's natural iteration (e.g. a wire message with `[joint, position, joint]` order becomes core `[joint, joint, position]`-then-`[position]` on the way back, i.e. two joints then a position — **round-trip is not order-identical across constraint *types*, only within each type**). Worth flagging explicitly since D6 asks for exactly this kind of non-identity.
+- **Coded in round 2.** msg→core is exactly the "any element failing fails
+  the whole conversion" rule above, container-verified. core→msg additionally
+  **errors** (does not panic, does not silently drop) on any
+  `Constraint::Visibility` member, since §7's core→msg direction is not
+  implemented (missing `moveit-constraints` accessors) — a
+  `KinematicConstraintSet` containing a `VisibilityConstraint` therefore
+  cannot round-trip through a message this round, by inheritance from §7's
+  gap, not a new one.
 
-## 9. `RobotState` — **TABLE ONLY**, composed from multiple core sources
+## 9. `RobotState` — **CODED, `joint_state` portion only** (`src/state.rs`)
 
 ```
 sensor_msgs/JointState joint_state              # {header, name[], position[], velocity[], effort[]}
@@ -190,7 +258,22 @@ confirmed by survey, not assumed. A `TryFrom` targeting it must compose:
 | `attached_collision_objects[]` | `moveit_scene::PlanningScene::attached_bodies()` — **not on `RobotState` at all** | **Structural, not a field gap.** Upstream nests attached objects inside `RobotState`; this port deliberately keeps them on `PlanningScene` instead (module doc, `attached_body.rs:12-23`: `RobotState` "does not carry that concept yet"). A `moveit_msgs::RobotState` → core conversion is therefore not just `TryFrom<RobotState msg> for moveit_state::RobotState` — it needs a `&PlanningScene` (or at minimum a `&BTreeMap<String, AttachedBody>`) in scope too, same "conversion needs more context than the message alone" shape as §4/§5/§6's frame-lookup cases, but one level higher (crate-level, not just model-level). |
 | `is_diff: bool` | **no core equivalent on `RobotState`** | The diff/non-diff distinction exists only at `PlanningScene`'s level (`PlanningScene::parent().is_some()`, see §11) — `RobotState` itself has no notion of it. msg→core: if `is_diff` is set and the caller expects diff semantics, that has to be handled by the caller composing scenes, not by this conversion; core→msg: no source, must be supplied by the caller's context (0/false is not always the right default to invent silently). |
 
-## 10. `RobotTrajectory` — **TABLE ONLY**
+**Coded in round 2** (`joint_state` field only). msg→core resolves
+`joint_state.name[]` against `RobotModel::variable_names()` (rejecting an
+unknown name via `UnknownName`), validates `position[]`/`velocity[]`/
+`effort[]` are each either empty or exactly as long as `name[]`
+(`Error::Construct` otherwise, the "malformed parallel array" case named
+above), and **rejects** (does not silently drop) `is_diff=true`,
+non-empty `attached_collision_objects`, or a non-empty
+`multi_dof_joint_state` — all three per D6, same rule as `PlanningRequest`'s
+`start_state` guard in §16. core→msg is total. **New gap found while coding
+(not in round 1's table):** `sensor_msgs/JointState` has no `acceleration`
+field at all — core's `accelerations()` therefore has no wire home on this
+message and is silently dropped on core→msg; this is the reverse of the
+round-1 table's wire→core gaps (a core-only field with nowhere on the wire
+to go, not a wire field the core drops).
+
+## 10. `RobotTrajectory` — **CODED** (`trajectory_msgs/JointTrajectory` in `src/trajectory.rs`; full `moveit_msgs/RobotTrajectory` wrapper in `src/planning.rs`)
 
 ```
 trajectory_msgs/JointTrajectory joint_trajectory   # {header, joint_names[], points[]}
@@ -206,6 +289,22 @@ vs. `moveit_trajectory::RobotTrajectory{ waypoints: VecDeque<RobotState>, durati
 | `points[i].{positions,velocities,accelerations,effort}` | `waypoints[i]`, a **full `RobotState`** per point (not a lightweight point struct) | Same per-point mapping as `RobotState.joint_state`, applied waypoint-by-waypoint. Each of velocities/accelerations/effort is independently optional on both sides (core's `has_velocity`/`has_acceleration`/`has_effort`, wire's "may be empty") — must line up per-point, and upstream allows this to vary *point to point* within one trajectory (a real `JointTrajectory` from a real planner may have velocities on some points and not others), which core's per-`RobotState` flags can represent identically — the fiddly part is only bookkeeping through the loop, not a structural mismatch here. |
 | `points[i].time_from_start: Duration` (cumulative from trajectory start) | `duration_from_previous[i]` (**per-segment delta**, `way_point_duration_from_start(i)` computes the cumulative sum on demand) | **Not 1:1 (different accumulation basis).** msg→core: `duration_from_previous[i] = time_from_start[i] - time_from_start[i-1]` (and must be `>= 0` — a decreasing `time_from_start` across points is malformed input, another explicit-rejection case; core's own setters already enforce `duration_from_previous[0] == 0` structurally, matching wire point 0's `time_from_start` implicitly being the start). core→msg: the reverse cumulative sum, via `way_point_duration_from_start(i)` which already exists. Not lossy, just not a direct field copy — flagging so no one is tempted to copy `duration_from_previous[i]` straight into `time_from_start[i]` (an off-by-accumulation bug, not a compile error). |
 | `multi_dof_joint_trajectory` | **no core equivalent**, same reasoning as `RobotState.multi_dof_joint_state` (§9) | same gap, same fix shape (virtual-joint special case), not yet coded |
+
+**Coded in round 2.** `src/trajectory.rs`'s `JointTrajectoryMsg`/
+`JointTrajectoryMsgOut` handle `trajectory_msgs/JointTrajectory` directly
+(the bare wire type, no `moveit_msgs` wrapper): msg→core validates
+`positions.len() == joint_names.len()` per point (mandatory field),
+**rejects** a nonzero `points[0].time_from_start` and a decreasing
+`time_from_start` across points (`Error::Construct`, exactly the
+cumulative-vs-delta risk named above), then delegates velocities/
+accelerations/effort to the same length-or-empty check as §9's
+`set_parallel_array`. core→msg is total, accumulating the cumulative time
+from each waypoint's `duration_from_previous`.
+`src/planning.rs`'s `RobotTrajectoryMsg`/`RobotTrajectoryMsgOut` wrap the
+full `moveit_msgs/RobotTrajectory` message: delegates `joint_trajectory` to
+the above and **rejects** a non-empty `multi_dof_joint_trajectory`
+(`Error::Other`), per the gap already named in the row above — dropped is
+not an option under D6 once the field is actually populated.
 
 ## 11. `PlanningScene`/`PlanningSceneWorld`/`CollisionObject`/`AttachedCollisionObject` — **TABLE ONLY**
 
@@ -308,3 +407,42 @@ Every case above where `core -> msg -> core` (or `msg -> core -> msg`) is
 - **`moveit-collision`'s `AllowedCollisionMatrix`/`World`/`LinkPaddingScale`
   field layouts** — out of this round's requested crate survey entirely;
   every row above that touches them is a stub, not a real mapping.
+- **`moveit_constraints::VisibilityConstraint` missing accessors** (§7,
+  round 2) — needs `weight()`, a `sensor_view_direction`-equivalent, the
+  three criteria accessors (`target_radius`/`max_view_angle`/
+  `max_range_angle`), and sensor/target pose accessors before core→msg can
+  be coded. Named for `moveit-constraints`'s owner; not worked around here.
+
+## 16. `MotionPlanRequest`/`MotionPlanResponse` — **CODED** (`src/planning.rs`, round 2, lowest-priority item in this round's brief)
+
+`moveit_planning::PlanningRequest`'s own doc comment
+(`crates/moveit-planning/src/request.rs`) already states its scope: it
+carries only the six fields its own request adapters read (`group_name`,
+`goal_constraints`, `path_constraints`, `workspace_parameters` →
+`workspace_bounds`, `max_velocity_scaling_factor`,
+`max_acceleration_scaling_factor`) and deliberately excludes
+planner-selection/tuning concerns — this is a pre-existing, documented
+design choice in `moveit-planning`, not something this round's conversion
+invented.
+
+| `MotionPlanRequest` field | `PlanningRequest` field | 1:1? |
+|---|---|---|
+| `workspace_parameters: WorkspaceParameters{header, min_corner, max_corner}` | `workspace_bounds: WorkspaceBounds{min_corner, max_corner}` | `header` dropped (metadata, same treatment as §1); `min_corner`/`max_corner` via §1's `Vector3` conversion (total) |
+| `start_state: RobotState` | **no field** | **Rejected, not dropped**, if non-default (per D6): assuming a different start state than the one requested would change what the plan actually solves for — same reasoning as §9's `is_diff`/`attached_collision_objects` guards, applied one level up |
+| `goal_constraints: Constraints[]` | `goal_constraints: Vec<KinematicConstraintSet>` | via §8's `Constraints` conversion per element |
+| `path_constraints: Constraints` (single, wire has no "unset" state — an all-empty `Constraints` is the convention) | `path_constraints: Option<KinematicConstraintSet>` | an all-4-arrays-empty `Constraints` maps to `None`; anything else via §8 |
+| `trajectory_constraints: TrajectoryConstraints` | **no field** | **Rejected if non-empty** — real waypoint-constraint content with nowhere to go |
+| `reference_trajectories: GenericTrajectory[]` | **no field** | **Rejected if non-empty** — real seed-trajectory content with nowhere to go |
+| `pipeline_id`/`planner_id`/`num_planning_attempts`/`allowed_planning_time`/`cartesian_speed_limited_link`/`max_cartesian_speed`/`smoothness_level` | **no field** | **Dropped, not rejected** — planner-orchestration metadata, no invariant a dropped tuning knob could violate, same documented-scope reasoning as `PlanningRequest`'s own doc comment on planner-specific tuning |
+| `group_name: string` | `group_name: String` | yes |
+| `max_velocity_scaling_factor`/`max_acceleration_scaling_factor: float64` | same names | yes |
+
+`MotionPlanResponse` vs. `moveit_planning::PlanningResponse{ trajectory: RobotTrajectory<'m> }`:
+
+| `MotionPlanResponse` field | `PlanningResponse` field | 1:1? |
+|---|---|---|
+| `trajectory_start: RobotState` | **no field** | dropped — `PlanningResponse` carries only the solved trajectory, not the state it started from |
+| `group_name: string` | **no field** | dropped |
+| `trajectory: moveit_msgs/RobotTrajectory` | `trajectory: RobotTrajectory<'m>` | via §10's `RobotTrajectoryMsg`/`RobotTrajectoryMsgOut` (rejects non-empty `multi_dof_joint_trajectory`) |
+| `planning_time: float64` | **no field** | dropped |
+| `error_code: MoveItErrorCodes` | **no field** (`PlanningResponse`'s own doc comment: `error_code` is this crate's `Result` return instead — a `PlanningResponse` value only ever exists once a solve already succeeded) | msg→core: dropped (a `PlanningResponse` cannot represent a failure `error_code` at all — a message carrying a failure code has to be handled by the caller *before* attempting this `TryFrom`, not by it); core→msg: synthesizes `SUCCESS` (`val=1`), since a `PlanningResponse` value existing at all already implies success |
