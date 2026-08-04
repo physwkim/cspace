@@ -384,6 +384,7 @@
 
 pub mod error;
 pub mod pipeline;
+pub mod plan_responses;
 pub mod request;
 pub mod request_adapters;
 pub mod response;
@@ -391,6 +392,9 @@ pub mod response_adapters;
 
 pub use error::{RequestAdapterError, ResponseAdapterError};
 pub use pipeline::{PipelineError, PlanError, Planner, generate_plan};
+pub use plan_responses::{
+    PlanOutcome, PlanResponsesContainer, shortest_solution, stop_at_first_solution,
+};
 pub use request::{PlanningRequest, WorkspaceBounds};
 pub use response::PlanningResponse;
 
