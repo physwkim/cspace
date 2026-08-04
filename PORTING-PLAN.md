@@ -13024,3 +13024,105 @@ upstream `geometric_shapes`가 `bodies::Cone`을 추가하고 `PositionConstrain
 없었고(§160), 컨테이너에는 헤더만 있어 `.cpp`의 `default:` 분기를 볼 수
 없었다. 조달이 없었으면 "다른 크레이트 소유자가 판단할 사항"으로 남았을
 항목이다.
+
+## §166 저작권 표기도 인용이다 — 게이트 확장과 19건의 미정당 표기
+
+§162.3에 "라이선스 게이트는 들여쓴 인용 *경로*만 읽으므로, LGPL 파일이
+`//!` 산문에만 이름으로 등장하면 보이지 않는다"고 적고 만료조건을
+"doc 본문까지 스캔 확대"로 달아뒀다. 그 만료조건은 틀린 방향이었다.
+실제로 새는 것은 산문이 아니라 **저작권 표기 줄** 자체였다.
+
+p1-joints가 `cart_to_jnt.rs:2`에서 손으로 찾아냈다(`d6b58a6`):
+`Copyright (c) 2013, Sachin Chitta, Willow Garage` — 이것은
+LGPL-2.1-or-later인 `chainiksolver_vel_mimic_svd.{h,hpp,cpp}`의 저작권
+줄이고, 그 플러그인 디렉터리에서 **그 세 파일에만** 나온다. 정작 이
+파일이 인용하는 `kdl_kinematics_plugin.cpp`의 저작권은
+`2012, Willow Garage, Inc.`이고 Sachin Chitta는 거기서 *Author* 주석에만
+등장한다. 게이트는 열어볼 LGPL 경로가 헤더에 없었으므로 아무것도 볼 수
+없었다.
+
+### 166.1 규칙
+
+`verify-upstream-license-provenance.sh`에 두 번째 규칙을 넣었다(`7d9dfec`):
+
+> 파일이 주장하는 모든 `moveit-rs contributors` 아닌 저작권 줄은, **그
+> 파일 자신이 인용한 파일 중 하나가 연도와 권리자 둘 다 그대로 갖고
+> 있어야 한다.**
+
+저작권 표기는 인용과 똑같이 출처에 대한 주장이고, 똑같은 소스로 검사할
+수 있다. 이것이 §162.3이 달았어야 할 만료조건이다.
+
+주장(assertion)은 `//`로 시작하는 라이선스 헤더의 `Copyright` 줄로
+한정한다. `velocity.rs`/`kinematics/lib.rs`의 `//!` 문단은 "이 파일이
+일부러 달지 *않은* 표기"를 설명하는 것이라, 주장으로 읽으면 그 문단이
+말하는 바를 정확히 뒤집는다.
+
+매칭은 퍼지가 아니라 정확 일치다. 표기가 출처의 문구를 재현하지 못하면
+의도가 뻔해도 보고할 값어치가 있다 — 고치는 방향은 둘을 일치시키는
+것이고, 문구가 바뀐 권리자를 받아줄 만큼 느슨한 매처는 *틀린* 권리자도
+받아준다.
+
+### 166.2 새 규칙을 넣으려다 드러난 파서 결함 4건 (전부 기존 결함)
+
+새 규칙이 낸 51건 중 32건이 게이트 자신의 결함이었다. 넷 다 **조용히
+검사를 건너뛰는** 방향으로 틀려 있었다 — 이 게이트가 막으려고 존재하는
+바로 그 실패 양식이다.
+
+| 커밋 | 결함 | 결과 |
+|---|---|---|
+| `e8c79d7` | 인용 경로 뒤에 심볼 괄호가 붙으면 산문으로 파싱 | 24개 인용이 한 번도 안 열림 |
+| `7526012` | `not ported` 구절이 아무 데나 있으면 인용 목록이 거기서 끊김 | `moveit-octomap` 세 파일의 유일한 인용이 사라짐 |
+| `3617b0e` | `.hxx`가 파일명으로 인식 안 됨 | `OcTreeIterator.hxx`(iter.rs의 전부) 누락 |
+| `0693782` | 중괄호 형식과 맨-디렉터리 형식이 아무 파일로도 해석 안 됨 | pilz/stomp가 통째로 인용한 패키지가 미검사 |
+
+검사되는 상류 파일 수: **278 → 470**.
+
+`0693782`가 구조적인 쪽이다. 인용은 이제 **파일 집합**으로 해석된다 —
+경로면 그 파일 하나, 디렉터리면 그 아래 소스 전부 — 그래서 두 규칙이
+두 형식 모두에 같은 방식으로 적용된다. 형식별 분기가 아니다.
+
+### 166.3 남은 19건 — 소유자별
+
+게이트는 지금 **red**다. `verify-*`라 CI에는 없지만(`check-*` glob이
+아님), 손으로 돌리면 실패한다. 새로 깨진 것이 아니라 **줄곧 틀려
+있었는데 이제 보이는 것**이다.
+
+- **p3-shapes** (`moveit-geometry`, `moveit-octomap`, `moveit-planners-stomp`)
+  - `geometry/bodies.rs` 2008/2019/2024 `Willow Garage, Inc. / Open Robotics` —
+    권리자 둘을 한 줄에 합쳐 놓아 어떤 상류 줄과도 일치하지 않는다
+  - `geometry/lib.rs`, `geometry/transforms.rs` 2013 `Ioan A. Sucan` —
+    인용한 `transforms.hpp`는 `2011, Willow Garage, Inc.`
+  - `geometry/shapes.rs` 2012 `Willow Garage`
+  - `octomap/lib.rs` — 인용하는 파일이 **하나도 없다**(데비안 패키지명만
+    적혀 있다). 표기를 뒷받침할 것이 없다
+  - `planners-stomp/lib.rs` 2020 `PickNik Inc.` — 인용한 패키지의 모든
+    파일이 **2023**
+- **p1-joints** (`moveit-kinematics`)
+  - `cart_to_jnt.rs`, `newton_raphson.rs` 2008 `Willow Garage` — 둘 다
+    `kdl_kinematics_plugin.{cpp,hpp}`만 인용하고 그것은 **2012**.
+    `d6b58a6`이 같은 블록의 LGPL 줄을 지웠지만 바로 윗줄은 남아 있었다
+- **p3-acm** (`moveit-model`) — `link_model.rs` 2013 `Ioan A. Sucan`,
+  인용한 `link_model.cpp`는 `2008, Willow Garage, Inc.`
+- **p1-fixtures** (`moveit-scene`) — `attached_body.rs` 2011
+  `Willow Garage`, 인용한 `attached_body.hpp`는 **2012**
+- **p1-joints** (`moveit-state`) — `dynamics.rs` 2013 `Ioan A. Sucan`
+- **p6-totg** (`moveit-trajectory`) — `numeric.rs`,
+  `path_segment/{circular,linear}.rs`, `tests/large_accel.rs` 2012
+  `Georgia Tech Research Corporation`, 인용한
+  `time_optimal_trajectory_generation.cpp`는 **2011**
+  (`path.rs`는 `2011-2012`로 적고 `.hpp`도 인용해서 통과한다)
+- **p1-joints** (`moveit-planners-pilz`) — `cartesian_trajectory.rs` 2019
+  `Pilz GmbH & Co. KG`
+
+`Ioan A. Sucan` 계열 넷은 상류에 **실재하는** 저작권 줄이다 —
+`joint_model.hpp`/`joint_model_group.hpp`의 것이고, 이 파일들이 인용한
+파일의 것이 아니다. 그래서 두 갈래 중 하나다: 표기가 잘못 복사된
+것이거나, **인용 목록이 불완전한 것**(정말 그 파일에서 가져왔다면
+인용해야 한다). 어느 쪽인지는 소유자만 안다 — 그래서 내가 고치지 않고
+라우팅한다.
+
+### 166.4 만료조건
+
+19건이 0이 되면 이 절은 기록으로만 남는다. 게이트가 다시 red가 되는
+경우는 새 파일이 인용하지 않은 출처의 저작권을 주장할 때뿐이고, 그것이
+정확히 이 규칙이 잡으려는 것이다.
