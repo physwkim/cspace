@@ -439,28 +439,28 @@ fn panda_cost_sources_matches_the_oracle() {
 /// Ids 2-6 and 8 all put a genuinely colliding world object or attached
 /// body against a panda link, every one of which uses `<collision><mesh>`
 /// geometry (confirmed: no panda link has a primitive-shape collision
-/// geometry to fall back to). §171's original dispatch defect (routing
-/// through a per-triangle traversal instead of upstream's one-coarse-box
-/// path) is fixed this round (`c6161b9`/`2607bef`, merged `f74a2b7`) --
-/// `mesh_shape_cost_sources` now reports one box per pair, the right shape
-/// of answer. What remains, re-measured this round against the same
-/// `moveit-rs/oracle:c88557f4058892e9` fixture: id 2's nearest-match
-/// distance is `2.6899575667278616e-2` against the `1e-9` threshold --
-/// improved from the pre-fix `1.311e-1` (routing was clearly wrong before),
-/// but the box this port now computes
-/// (`mesh.aabb(pose).intersection(other.compute_aabb(pose))` in
-/// `crates/moveit-collision/src/parry.rs`, `mesh_shape_cost_sources`) is a
-/// whole-mesh/whole-shape AABB intersection, not necessarily identical to
-/// FCL's own `constructBox` + box-vs-shape narrowphase box. That geometry
-/// gap, not a routing gap, is what remains -- a `moveit-collision` defect,
-/// distinct from §171 and still open. See this file's module doc for the
-/// full writeup and the sibling path-op test's own (differently-shaped)
-/// residual defect. Tracked as an UNFIXED cross-crate blocker in the
-/// p1-fixtures round report; remove this `#[ignore]` once
-/// `moveit-collision` is fixed and confirm it passes with the existing
-/// `COST_SOURCE_EPSILON`.
+/// geometry to fall back to). §171's original dispatch defect and the
+/// state-op box-geometry gap that followed it (id 2, nearest-match distance
+/// `2.6899575667278616e-2` against the `1e-9` threshold) are both fixed:
+/// `mesh_shape_cost_sources` now reports one box per pair
+/// (`c6161b9`/`2607bef`, merged `f74a2b7`), and fitting the mesh
+/// cost-source root box as an oriented OBB rather than an axis-aligned AABB
+/// (`54250b1`) closed the geometry gap -- id 2 now measures
+/// `6.661338147750939e-16`, see this file's module doc. Ids 3, 4, 6 pass
+/// too, unaffected by either fix.
+///
+/// What remains is a different defect, on a different case: id 5
+/// (`group_name="hand"`) returns `9` cost sources against an
+/// oracle-expected `2` -- a count mismatch, not a nearest-match distance
+/// gap either fix above could touch. p3-acm attributes this to
+/// `PlanningScene::cost_sources`'s own group filtering
+/// (`crates/moveit-scene/src/scene.rs:1796`), this crate's code rather than
+/// `moveit-collision`'s -- relayed here as their attribution, not yet
+/// independently verified: the probe and numbers behind it have not
+/// arrived as of this commit, and investigation has not started. Remove
+/// this `#[ignore]` once id 5 is diagnosed and fixed.
 #[test]
-#[ignore = "blocked on a moveit-collision defect, distinct from the now-fixed §171: mesh_shape_cost_sources's one-box-per-pair AABB intersection is not bit-exact with FCL's own box-vs-shape narrowphase result (id 2 nearest-match distance 2.69e-2 against a 1e-9 threshold, crates/moveit-collision/src/parry.rs, mesh_shape_cost_sources)"]
+#[ignore = "case id 5 (group_name=\"hand\"): count mismatch, 9 actual vs 2 expected -- a group-filtering defect p3-acm attributes to this crate's own PlanningScene::cost_sources, not yet independently investigated pending p3-acm's probe/numbers"]
 fn panda_cost_sources_blocked_by_mesh_shape_cost_sources() {
     let model = build_model();
     let srdf = srdf();
