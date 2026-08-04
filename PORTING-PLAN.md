@@ -12744,3 +12744,30 @@ clone 디렉터리 이름으로 인용하므로 `third_party/` 자체가 루트�
 검사 인용 **250건 → 274건**, 미해소 **24건 → 0건**. 남은 실패는 §159.1의 실제 결함
 5건뿐이다 — 게이트가 이제 진짜 결함에서만 빨갛다. **`git push` 차단은 계속 유효하다**
 (p1-joints 라운드 22 진행 중).
+
+## §161 `Octomap.data` 디코더 규모 — 패널 간 불일치를 실측으로 종결
+
+p9-ros 라운드 4는 upstream 읽기 경로를 **약 130줄**로, p3-shapes는 **650–800줄**로
+보고했다. 5배 차이는 어느 한쪽이 틀렸다는 뜻이거나 두 쪽이 서로 다른 것을 셌다는
+뜻이다. §160.3으로 octomap 1.9.7 소스가 디스크에 생겼으므로 이제 셀 수 있다.
+
+중괄호 깊이로 함수 본문 경계를 잡아 실측한 값(`third_party/octomap/octomap`):
+
+| 파일 | 함수 | 줄 범위 | 줄 수 |
+|---|---|---|---|
+| `include/octomap/OccupancyOcTreeBase.hxx` | `readBinaryData` | 931–943 | 13 |
+| `include/octomap/OccupancyOcTreeBase.hxx` | `readBinaryNode` | 954–1022 | 69 |
+| `include/octomap/OcTreeBaseImpl.hxx` | `readData` | 801–821 | 21 |
+| `include/octomap/OcTreeBaseImpl.hxx` | `readNodesRecurs` | 824–844 | 21 |
+| `include/octomap/OcTreeDataNode.hxx` | `readData` | 114–117 | 4 |
+| | | **합계** | **128** |
+
+**p9-ros가 맞다.** 128줄이고, 그쪽 추정 130줄과 2줄 차이다.
+
+650–800은 이 경로의 C++ 줄 수일 수 없다. 두 수는 서로 다른 양이다 — 하나는
+**전사할 upstream C++**, 다른 하나는 **테스트와 오류 처리를 포함한 Rust 산출물**로
+읽어야 앞뒤가 맞는다. 둘을 같은 단위인 것처럼 나란히 두면 결정을 내리는 쪽이
+오도된다. 규모 추정을 보고할 때는 **무엇을 센 것인지**를 같이 적어야 한다.
+
+이 수치는 §157의 결정(디코더는 `moveit-octomap`이 갖는다, `Node`/`OcTree::root`를
+public으로 열지 않는다)을 바꾸지 않는다. 128줄은 그 크레이트 안에서 감당할 규모다.
