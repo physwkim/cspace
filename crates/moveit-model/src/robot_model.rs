@@ -894,8 +894,9 @@ enum ShapeOrUnsupported {
 /// # Errors
 ///
 /// [`Error::Construct`] if a `<box>`/`<cylinder>`/`<sphere>` dimension is
-/// negative, or a `<mesh>` resolves to a file this port can no longer read
-/// (see [`construct_mesh_shape`]).
+/// negative. A `<mesh>` never errors — [`construct_mesh_shape`] returns
+/// [`ShapeOrUnsupported`] rather than a [`Result`], so every mesh failure
+/// degrades to a diagnostic the way upstream's `nullptr` does.
 fn construct_shape(
     geometry: &urdf_rs::Geometry,
     mesh_search_paths: &MeshSearchPaths,
@@ -912,7 +913,7 @@ fn construct_shape(
             ShapeOrUnsupported::Shape(Shape::Cylinder(Cylinder::new(*radius, *length)?))
         }
         urdf_rs::Geometry::Mesh { filename, scale } => {
-            construct_mesh_shape(filename, *scale, mesh_search_paths)?
+            construct_mesh_shape(filename, *scale, mesh_search_paths)
         }
         urdf_rs::Geometry::Capsule { .. } => ShapeOrUnsupported::Unsupported {
             kind: "capsule",
@@ -933,28 +934,39 @@ fn construct_shape(
 /// collapsed into one "mesh" reason, so a residual sweep disagreement names
 /// its cause instead of just "mesh".
 ///
-/// # Deviation from upstream: an unreadable mesh file aborts the whole model,
-/// unlike this function's other failure modes
+/// # Why this returns [`ShapeOrUnsupported`] and not `Result<ShapeOrUnsupported>`
 ///
 /// Verified against `robot_model.cpp:1256-1291`: `constructShape`'s `MESH`
 /// case calls `shapes::createMeshFromResource`, which returns `nullptr` on a
 /// read failure (`mesh_operations.cpp`'s `CONSOLE_BRIDGE_logWarn` +
 /// `return nullptr` paths); the caller (`robot_model.cpp:1189-1191`,
 /// `if (s) { shapes.push_back(s); ... }`) then just skips that one shape —
-/// no error, no diagnostic, the link ends up with fewer collision shapes.
-/// This function's own unresolvable-path and unparseable-STL branches
-/// (above) already reproduce that graceful-degradation behavior via
-/// [`ShapeOrUnsupported::Unsupported`]. The `std::fs::read` failure branch
-/// below does not: it returns `Err`, which `apply_link_geometry`'s `?`
-/// propagates all the way out of [`RobotModel::from_urdf_and_srdf`], aborting
-/// construction of the entire model over one link's one unreadable mesh
-/// file — an inconsistency with this function's own stated design, not a
-/// deliberate choice; flagged here rather than silently left undocumented.
+/// no error, the link ends up with fewer collision shapes. Every failure
+/// here degrades the same way, with a
+/// [`crate::Diagnostic::UnsupportedLinkGeometry`] naming the cause.
+///
+/// The `std::fs::read` branch used to return `Err` instead, which
+/// `apply_link_geometry`'s `?` propagated out of
+/// [`RobotModel::from_urdf_and_srdf`] — one unreadable mesh file aborted
+/// construction of the entire model, while this function's three other
+/// failure branches degraded gracefully. Dropping the `Result` from the
+/// signature is what closes that: there is no longer an `Err` for a caller
+/// to propagate, so the graceful behavior holds by construction rather than
+/// by each branch remembering to return `Ok`. That is the shape the rest of
+/// this file already had: `apply_joint_metadata`, `resolve_mimic` and
+/// `build_groups` all report their problems as [`crate::Diagnostic`]s and
+/// none of them returns a [`Result`] at all, so none of them can abort
+/// construction. `construct_mesh_shape` was the only exception. The
+/// dimension guards in
+/// [`construct_shape`] keep their `Result` deliberately — upstream builds
+/// spheres, boxes and cylinders unvalidated and can never return `nullptr`
+/// for them, so rejecting a negative dimension is a real D6 deviation, not
+/// this inconsistency.
 fn construct_mesh_shape(
     filename: &str,
     scale: Option<urdf_rs::Vec3>,
     mesh_search_paths: &MeshSearchPaths,
-) -> Result<ShapeOrUnsupported> {
+) -> ShapeOrUnsupported {
     let unsupported = |detail: String| ShapeOrUnsupported::Unsupported {
         kind: "mesh",
         detail: Some(detail),
@@ -966,7 +978,7 @@ fn construct_mesh_shape(
         } else {
             format!("{filename:?} did not resolve against any configured mesh search path")
         };
-        return Ok(unsupported(detail));
+        return unsupported(detail);
     };
 
     let is_stl = path
@@ -974,27 +986,30 @@ fn construct_mesh_shape(
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("stl"));
     if !is_stl {
-        return Ok(unsupported(format!(
+        return unsupported(format!(
             "{filename:?} resolved to {}, which this port cannot load (only STL is supported)",
             path.display()
-        )));
+        ));
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| {
-        Error::construct(format!(
-            "mesh {filename:?} resolved to {}, but it could not be read: {e}",
-            path.display()
-        ))
-    })?;
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return unsupported(format!(
+                "mesh {filename:?} resolved to {}, but it could not be read: {e}",
+                path.display()
+            ));
+        }
+    };
 
     let scale = scale.map_or(Vector3::new(1.0, 1.0, 1.0), |s| {
         Vector3::new(s.0[0], s.0[1], s.0[2])
     });
 
-    Ok(match moveit_geometry::mesh_from_bytes(&bytes, scale) {
+    match moveit_geometry::mesh_from_bytes(&bytes, scale) {
         Ok(mesh) => ShapeOrUnsupported::Shape(Shape::Mesh(mesh)),
         Err(e) => unsupported(format!("failed to parse {} as STL: {e}", path.display())),
-    })
+    }
 }
 
 /// Which of the raw URDF's `<joint>` elements have a `<limit>` child, keyed
@@ -1124,8 +1139,9 @@ impl<'a> Building<'a> {
     ///
     /// [`Error::Construct`] if a `<collision>` shape's dimensions are
     /// negative (upstream constructs the shape unconditionally; this port's
-    /// [`Shape`] constructors validate), or see [`construct_mesh_shape`] for
-    /// a `<mesh>` element.
+    /// [`Shape`] constructors validate). A `<mesh>` element cannot produce an
+    /// error here at all — see [`construct_mesh_shape`] for why it degrades to
+    /// a [`Diagnostic::UnsupportedLinkGeometry`] instead.
     fn apply_link_geometry(&mut self, link_index: usize, urdf_link: &urdf_rs::Link) -> Result<()> {
         let mut shapes = Vec::new();
         for collision in &urdf_link.collision {
@@ -2343,6 +2359,51 @@ mod tests {
                 .as_deref()
                 .is_some_and(|d| d.contains("only STL is supported")),
             "detail was {detail:?}"
+        );
+    }
+
+    /// The fourth of `construct_mesh_shape`'s failure branches, and the one
+    /// that used to return `Err` and abort the whole model rather than skip
+    /// the one shape. Distinct from the three tests around it by the
+    /// `detail` phrase: all four produce `kind == "mesh"`, so matching only
+    /// the variant would not say which branch fired.
+    #[test]
+    fn mesh_collision_resolving_to_an_unreadable_file_is_skipped_with_a_diagnostic() {
+        let dir = mesh_test_dir();
+        let path = dir.join("unreadable.stl");
+        std::fs::write(&path, synthetic_binary_stl()).unwrap();
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o000))
+            .unwrap();
+        assert!(
+            std::fs::read(&path).is_err(),
+            "precondition: this test needs {} to be unreadable, but it read back fine \
+             (running as root?). Not skipping -- the branch under test would go unexercised.",
+            path.display()
+        );
+
+        let urdf = link_with_geometry_urdf(
+            r#"<collision><geometry><mesh filename="package://panda_description/unreadable.stl"/></geometry></collision>"#,
+        );
+        let mesh_search_paths = MeshSearchPaths::new([("panda_description", dir)]);
+        let model = build_with_mesh_paths(&urdf, FIXED_BASE_SRDF, &mesh_search_paths)
+            .expect("an unreadable mesh must not abort model construction");
+
+        let diagnostics = model.diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let Diagnostic::UnsupportedLinkGeometry { kind, detail, .. } = &diagnostics[0] else {
+            panic!("expected UnsupportedLinkGeometry, got {:?}", diagnostics[0]);
+        };
+        assert_eq!(*kind, "mesh");
+        assert!(
+            detail
+                .as_deref()
+                .is_some_and(|d| d.contains("it could not be read")),
+            "detail was {detail:?}"
+        );
+        assert!(
+            model.link_model("base").unwrap().shapes().is_empty(),
+            "the link must survive with no collision shapes, the way upstream's \
+             nullptr-skip leaves it"
         );
     }
 
