@@ -1125,3 +1125,36 @@ pub use distance_field::{DistanceField, DistanceGradient};
 pub use find_internal_points::{ConvexBody, find_internal_points_convex};
 pub use propagation::{NearestCell, PropDistanceFieldVoxel, PropagationDistanceField};
 pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
+
+/// §196 structural close: a fixture-construction-time gate against the
+/// vacuous-collision-assertion defect family. A group can look fine by
+/// `link_names()`/`joint_names()` yet still resolve to zero *updated* links
+/// (the set every group-scoped check in this crate actually walks) whenever
+/// none of its joints are active -- see `collision_env_distance_field.rs`'s
+/// `generate_distance_field_cache_entry` (the `updated_link_names()`
+/// consumer) and `collision_env_hybrid.rs`'s doc comments for where that
+/// bit this crate (§196). Every fixture builder in this crate's test
+/// modules that constructs a model meant to exercise self/robot-collision
+/// checking calls [`test_support::assert_group_has_updated_links`] right
+/// after construction, so a future edit that collapses a fixture's group to
+/// zero active joints fails loudly here instead of downstream as a
+/// silently-passing `assert!(!result.collision)`.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use moveit_model::RobotModel;
+
+    pub(crate) fn assert_group_has_updated_links(model: &RobotModel, group_name: &str) {
+        let group = model
+            .joint_model_group(group_name)
+            .unwrap_or_else(|e| panic!("test fixture group {group_name:?} must resolve: {e}"));
+        assert!(
+            !group.updated_link_names().is_empty(),
+            "test fixture group {group_name:?} has an empty updated_link_names() -- every \
+             self/robot-collision check in this crate walks exactly this set, so any \
+             assertion built on it (e.g. `assert!(!result.collision)`) would pass \
+             vacuously with nothing actually checked. This usually means the group's \
+             connecting joint(s) are all `type=\"fixed\"`/have no active DOF -- give the \
+             fixture at least one active (e.g. revolute) joint."
+        );
+    }
+}

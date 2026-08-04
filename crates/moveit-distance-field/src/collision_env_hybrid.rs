@@ -454,9 +454,11 @@ mod tests {
     /// resolution walks active joints, and a `fixed` one has none to walk
     /// (measured: switching this joint's `type` from `revolute` to `fixed`
     /// collapses `DistanceFieldCacheEntry::link_names` to `[]` and both
-    /// tests below start passing vacuously). The joint's one variable
-    /// defaults to 0, under which rotation about its own z axis is the
-    /// identity, so [`moveit_state::RobotState::set_to_default_values`]
+    /// tests below started passing vacuously, before the
+    /// `crate::test_support::assert_group_has_updated_links` call just below
+    /// existed to catch it at construction time instead, §196). The joint's
+    /// one variable defaults to 0, under which rotation about its own z axis
+    /// is the identity, so [`moveit_state::RobotState::set_to_default_values`]
     /// alone still fully determines the state -- this is a fixed pose, not
     /// a swept one.
     fn two_link_gap_model() -> (RobotModel, f64) {
@@ -493,6 +495,7 @@ mod tests {
         let model =
             RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("two_link_gap model must build");
+        crate::test_support::assert_group_has_updated_links(&model, "chain");
         (model, GAP)
     }
 
