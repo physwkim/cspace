@@ -323,11 +323,20 @@ pub enum PipelineError {
 /// error"), so passing the literal `0.0` here would make every feedforward
 /// call fail — this function passes `1.0`, the value upstream's own
 /// substitution already arrives at, so the constraint this port builds
-/// evaluates identically to upstream's, not merely compiles. Tolerances have
-/// no such substitution upstream — `JointConstraint::configure` only
+/// evaluates identically to upstream's, not merely compiles. Tolerances are
+/// only *rejected* by one substitution path upstream — `JointConstraint::configure`
 /// rejects a *negative* tolerance (`kinematic_constraint.cpp:146-151`), and
-/// `0.0` is not negative — so `0.0` is passed through unchanged, an exact
-/// port with nothing to reconcile.
+/// `0.0` is not negative, so that path leaves `0.0` alone. A second, uncited
+/// path can still rewrite it: if the waypoint's own position plus/minus the
+/// (here, zero) tolerance falls outside the joint's bounds,
+/// `configure` silently substitutes `tolerance_above_`/`tolerance_below_`
+/// to `f64::EPSILON` and clamps the position to the bound
+/// (`kinematic_constraint.cpp:243-260`). For a trajectory whose every
+/// waypoint already satisfies its own joint bounds — the only kind
+/// [`trajectory_constraints_for`] is ever called on — that branch's guard
+/// is false at every call, so `0.0` still passes through unchanged in
+/// practice; the claim that upstream has *no* tolerance substitution at all
+/// was wrong, not the claim that this function's own behavior matches it.
 fn trajectory_constraints_for(
     scene: &PlanningScene<'_>,
     trajectory: &RobotTrajectory<'_>,
