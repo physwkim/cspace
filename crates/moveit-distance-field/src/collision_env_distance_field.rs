@@ -253,8 +253,17 @@
 //! `distanceSelf`/`distanceRobot` stubs described above, `updateDistanceObject`,
 //! `generateDistanceFieldCacheEntryWorld`, `notifyObjectChange`, and the
 //! `CollisionEnvDistanceField` type itself (a `CollisionEnv` implementor
-//! wrapping a `World` observer and a `planning_scene::PlanningScene` this
-//! workspace does not have yet either) -- remains out of scope regardless
+//! wrapping a `World` observer this crate still has no counterpart for --
+//! `moveit-collision`'s own `World` doc explicitly documents "No
+//! addObserver/removeObserver/notify" as a deliberate, still-current
+//! omission) -- remains out of scope regardless. Round 26: the
+//! upstream-absence audit found the prior text here also claimed a
+//! `planning_scene::PlanningScene` counterpart didn't exist in this
+//! workspace either; `moveit_scene::PlanningScene` (referenced two
+//! paragraphs up) landed before this file's own round-22 commits and does
+//! exist -- `CollisionEnvDistanceField` staying unported is a real,
+//! separate gap (the `CollisionEnv`/`World`-observer wiring, not
+//! `PlanningScene` itself), not evidence the workspace lacks the type.
 //! ("do not try to land all of it in one round") and is not addressed here.
 //! [`DistanceFieldCollisionCache`] is not that type and does not become it:
 //! it owns only the one cache slot `generateCollisionCheckingStructures`
