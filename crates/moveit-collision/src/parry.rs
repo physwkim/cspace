@@ -692,7 +692,11 @@
 //!    oracle's own reported depth (`7.47914550966356367e-2`) to within
 //!    `5.4e-7` absolute, `~7.3ppm` relative, the same order as round 17's own
 //!    "under `1e-6`" corroboration bound for a genuinely-reproduced code
-//!    path. **This is the same one-directional bias, not a new mechanism**:
+//!    path. Round 26 committed this as a reproducible harness rather than
+//!    leaving it as prose (`tools/mpr-vs-epa/`, fed by this crate's own
+//!    `examples/case104_mpr_input.rs`) — see `doc/claim-audit/moveit-collision.md`'s
+//!    own round-26 section for the end-to-end confirmation. **This is the
+//!    same one-directional bias, not a new mechanism**:
 //!    libccd's MPR overestimates relative to this backend's own EPA for this
 //!    triangle too (`0.0748` vs `0.0209`, MPR deeper), consistent with the
 //!    16/16 base_link sample's own sign and inside its `0.0312`-`0.1042m`
