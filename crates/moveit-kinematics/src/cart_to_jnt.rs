@@ -1,5 +1,4 @@
 // Copyright (c) 2008, Willow Garage, Inc.
-// Copyright (c) 2013, Sachin Chitta, Willow Garage
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
