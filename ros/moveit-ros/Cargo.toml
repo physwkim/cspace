@@ -50,6 +50,11 @@ r2r = { git = "https://github.com/sequenceplanner/r2r", rev = "2d080c4dede3ec950
 # crate can reuse it without its own lookup table.
 moveit-error = { path = "../../crates/moveit-error" }
 moveit-geometry = { path = "../../crates/moveit-geometry" }
+moveit-model = { path = "../../crates/moveit-model" }
+moveit-state = { path = "../../crates/moveit-state" }
+moveit-trajectory = { path = "../../crates/moveit-trajectory" }
+moveit-constraints = { path = "../../crates/moveit-constraints" }
+moveit-planning = { path = "../../crates/moveit-planning" }
 
 # For nalgebra's own constructors (Isometry3::from_parts, Translation3::new,
 # UnitQuaternion::new_normalize): moveit-geometry re-exports nalgebra's types
@@ -60,6 +65,13 @@ nalgebra = "0.35"
 
 [dev-dependencies]
 approx = "0.5"
+# Test-only: building an inline RobotModel from a URDF/SRDF string to
+# exercise model-aware conversions (JointConstraint, RobotState, ...).
+# Version pinned to match the root workspace's own `urdf-rs = "0.9"`
+# (root Cargo.toml's `[workspace.dependencies]`) by hand, since this
+# manifest is its own workspace (see above) and cannot `workspace = true`.
+moveit-srdf = { path = "../../crates/moveit-srdf" }
+urdf-rs = "0.9"
 
 [lints.rust]
 unsafe_code = "forbid"
