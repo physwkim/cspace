@@ -14128,3 +14128,78 @@ ROS 결합인 것은 아니고, 그 구분이 "제외 하나"와 "간극 셋"을
 이 상태는 안 잡힌다. 잡으려면 **상류 디렉터리 대 포트 디렉터리를 파일
 단위로 세는 별도 검사**가 필요하고, 지금 그것은 조율자가 손으로 한
 것 말고는 없다.
+
+## §180 회귀가 실패가 아니라 정지로 나타나면 게이트는 영원히 기다린다
+
+p3-shapes 라운드 34가 `cancelling_from_another_thread_stops_a_plan_call_
+already_in_flight`를 다시 썼다. 옛 판은 `sleep(20ms)` 뒤 `elapsed < 5s`를
+주장했고, 그 패널 자신이 그것을 반증했다 — `num_iterations_after_valid`
+기본값이 `0`이라 `Stomp::solve`는 유효 반복 하나 뒤에 스스로 빠져나오고,
+따라서 **취소를 통째로 지워도 그 테스트는 통과했다.** 새 판은 시간 대신
+`cost_fn` 호출 수를 세고 `num_iterations = 1_000_000`,
+`num_iterations_after_valid = num_iterations`로 두어 `proceed`가 false가
+되는 것 외에 빠져나갈 길을 없앴다. 옳은 방향이다.
+
+### 180.1 실측 — 변이는 통과하지 않았지만 실패하지도 않았다
+
+`CancelHandle::cancel`의 본문을 비우고 돌렸다.
+
+```console
+$ timeout 240 cargo nextest run -p moveit-planners-stomp cancelling_from_another_thread
+Terminated
+EXIT=143
+```
+
+통과는 안 했다(옛 판이었으면 통과했다). 그런데 실패도 안 했다 — 240초
+동안 아무것도 출력하지 않고 돌았다. 취소가 유일한 탈출구라는 것이 곧
+**취소가 깨지면 탈출구가 없다**는 뜻이고, 회귀 신호가 무한 정지로
+나타난다.
+
+주의: 첫 변이는 `Stomp::cancel`을 비운 것이었고 테스트는 0.017초에
+통과했다. 그 자리가 아니었다 — 테스트는 `CancelHandle::cancel`을 부른다.
+변이가 살아남으면 테스트를 의심하기 전에 **변이가 실제로 그 경로를 건드렸는지**
+먼저 확인해야 한다. §167.5에서 한 번, 여기서 두 번째다.
+
+### 180.2 구조적 해결 — 테스트가 아니라 러너에 걸었다
+
+이 테스트를 시간 제한으로 되돌리는 것은 방금 없앤 결함을 다시 넣는 것이다.
+고칠 자리는 테스트가 아니라 **정지를 실패로 바꾸는 것이 아무 데도 없다는
+사실**이다. nextest의 기본 `slow-timeout`은 경고만 하고
+`terminate-after`가 없으면 아무도 죽이지 않는다. §174에 따라 바깥에서
+한도를 거는 CI도 없다.
+
+`159d703` — `.config/nextest.toml`:
+
+```toml
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
+```
+
+변이를 그대로 둔 채 재측정:
+
+```text
+TIMEOUT [ 300.007s] (1/1) moveit-planners-stomp planner::tests::
+    cancelling_from_another_thread_stops_a_plan_call_already_in_flight
+Summary [ 300.009s] 1 test run: 0 passed, 1 timed out, 50 skipped
+error: test run failed
+```
+
+300초는 현재 워크스페이스 최장 테스트(28.9초,
+`moveit-distance-field::collision_env_distance_field_parity`)의 10배가
+넘으므로 느린 테스트에는 발화하지 않는다. 패널 여덟이 동시에 컴파일하는
+부하까지 감안한 여유다.
+
+### 180.3 §178의 "네 번째 사례" 지시에 대한 답
+
+§178은 네 번째가 나오면 게이트를 더할 게 아니라 왜 "전부 돌리는 명령
+하나"가 없는지를 먼저 물으라고 했다. **이건 그 계열이 아니다.** §170/§174/
+§178은 전부 *검사를 포함하는 명령이 없다*였다. 여기서는 명령이 있고
+돌았다 — 신호가 도착하지 않았을 뿐이다. 그래서 여섯 번째 명령을 더하지
+않았고, 이미 도는 명령의 출력이 유한해지도록 러너를 고쳤다. 게이트 목록은
+§178의 다섯 그대로다.
+
+계열이 다르므로 다음 검사도 다르다: **테스트가 회귀를 실패가 아니라
+정지로 표현할 수 있는 자리가 또 있는가.** 무한 반복 상한을 두고 조기
+탈출 조건 하나에 의존하는 테스트가 그 모양이다. 지금 워크스페이스에서
+`num_iterations = 1_000_000` 같은 상한은 이 한 건뿐이지만, 세어 본 것이
+아니라 이 라운드에 눈에 띈 것이 하나라는 뜻이다.
