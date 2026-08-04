@@ -271,8 +271,9 @@
 //!   cpp:964-965), a cosmetic copy-paste bug in a value never used for
 //!   anything but a log string this port drops anyway.** This port's
 //!   [`Error::other`] messages name the variable actually at fault.
-//! - **`resample_dt` is validated at construction, making an invalid
-//!   [`TotgOptions`] unrepresentable (§153.1/§172).** Upstream's constructor
+//! - **`resample_dt` is validated at construction for every caller outside
+//!   this crate, making an invalid [`TotgOptions`] unconstructible from
+//!   outside this crate (§153.1/§172).** Upstream's constructor
 //!   stores `resample_dt` as-is (cpp:918-920) and later narrows
 //!   `parameterized->getDuration() / resample_dt_` from `double` to `size_t`
 //!   with an unchecked `static_cast` (cpp:1245) — undefined behaviour in C++
@@ -298,12 +299,21 @@
 //!   field to forward it positionally into
 //!   `AddTimeOptimalParameterization::new`. That is a one-line
 //!   field-read-to-getter-call fix, not a blast radius, so the structural
-//!   fix was authorized and done: `resample_dt` is now private, set only
-//!   through [`TotgOptions::with_resample_dt`], which validates
-//!   finite-and-positive before storing. Every construction site in this
-//!   crate (including `totg_compute_time_stamps`'s internally-recomputed
-//!   `new_resample_dt`, cpp:1147/`:586` below) goes through it — there is no
-//!   remaining path that stores an invalid `resample_dt` anywhere.
+//!   fix was authorized and done: `resample_dt` is now `pub(crate)`
+//!   (not private outright — see [`TotgOptions::resample_dt`]'s field doc
+//!   for why), with [`TotgOptions::with_resample_dt`] as the only way to
+//!   set it from outside this crate; it validates finite-and-positive
+//!   before storing. Every *production* construction site in this crate
+//!   (including `totg_compute_time_stamps`'s internally-recomputed
+//!   `new_resample_dt`, cpp:1147/`:586` below) goes through it — there is
+//!   no remaining production path that stores an invalid `resample_dt`
+//!   anywhere, but this is an audited fact about today's one production
+//!   struct-literal site ([`TotgOptions::default`]), not a guarantee the
+//!   type itself enforces in-crate: `pub(crate)` still lets same-crate code
+//!   write a raw struct literal that skips the validator (one test does
+//!   this on purpose, see
+//!   `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+//!   doc for why).
 //!
 //!   `do_time_parameterization_calculations`'s separate rejection of a
 //!   resulting sample count above `MAX_RESAMPLE_SAMPLE_COUNT` (a resource
@@ -362,9 +372,18 @@ pub struct TotgOptions {
     /// this crate (e.g. `crate::trajectory_tools`) can still use
     /// struct-update syntax against [`TotgOptions::default`] — but not
     /// `pub`: no code outside this crate can name or set this field
-    /// directly. See [`TotgOptions::with_resample_dt`] and this module's
-    /// "Deviations from upstream" note (§172/§153.1) for why an invalid
-    /// value cannot be stored here at all.
+    /// directly, so no caller outside this crate can construct an invalid
+    /// [`TotgOptions`] — that guarantee is type-level and unconditional.
+    /// Inside this crate, `pub(crate)` still permits a raw struct literal
+    /// that bypasses [`TotgOptions::with_resample_dt`] entirely (one test
+    /// deliberately does this, see
+    /// `resample_dt_is_unreachable_when_waypoints_collapse_to_one_point`'s
+    /// doc); the in-crate invariant "no construction site stores an invalid
+    /// value" is an audited fact about today's one production struct-literal
+    /// site ([`TotgOptions::default`]'s `resample_dt: 0.1`), not something
+    /// the type forbids. See [`TotgOptions::with_resample_dt`] and this
+    /// module's "Deviations from upstream" note (§172/§153.1) for the rest
+    /// of that argument.
     pub(crate) resample_dt: f64,
     /// `min_angle_change`: the minimum per-joint change between consecutive
     /// waypoints for the later one to be kept as distinct, rather than
@@ -401,10 +420,13 @@ impl TotgOptions {
     }
 
     /// Sets `resample_dt`, validating it first — the only way to set this
-    /// field, so a [`TotgOptions`] can never hold an invalid one. See this
-    /// module's "Deviations from upstream" note (§172/§153.1) for why this
-    /// diverges from upstream's constructor, which stores whatever it is
-    /// given.
+    /// field from outside this crate (the field is `pub(crate)`, not
+    /// `pub`), so no external caller can construct a [`TotgOptions`] with
+    /// an invalid `resample_dt`. See [`TotgOptions::resample_dt`]'s field
+    /// doc for the weaker, audited-not-type-level guarantee this leaves for
+    /// in-crate callers, and this module's "Deviations from upstream" note
+    /// (§172/§153.1) for why this diverges from upstream's constructor,
+    /// which stores whatever it is given.
     ///
     /// # Errors
     ///
