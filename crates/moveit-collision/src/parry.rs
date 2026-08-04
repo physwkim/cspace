@@ -709,13 +709,18 @@
 //!    — made unusually large in this population specifically because the
 //!    generator's own near-placement always drives the interpenetration
 //!    through the target link's centroid, not because the underlying
-//!    mechanism differs. Structurally inherent, not a fixable defect in this
-//!    port: matching libccd's own number here would mean re-implementing
+//!    mechanism differs. Not a fixable defect in this port for case 104
+//!    itself: matching libccd's own number here would mean re-implementing
 //!    libccd's specific, non-exact MPR early-termination behavior rather
 //!    than computing the true minimum-translation separating distance, the
-//!    wrong direction for this backend's independent EPA to go. Same expiry
-//!    condition as round 16/17's own finding: re-open only if a future
-//!    moveit2 pin changes FCL/libccd's own narrow-phase algorithm.
+//!    wrong direction for this backend's independent EPA to go on this one
+//!    case. Whether "MPR deeper" is the *only* direction this early
+//!    termination ever produces, for this pair shape in general, is a
+//!    separate question this single case cannot answer by itself — round
+//!    27 below measures it on 945 cases, not one, and round 28 explains the
+//!    exception mechanically rather than leaving it as a correlation. Same
+//!    expiry condition as round 16/17's own finding: re-open only if a
+//!    future moveit2 pin changes FCL/libccd's own narrow-phase algorithm.
 //!
 //!    Round 25's `collision_parity.rs` test
 //!    `visibility_cone_near_placement_interpenetrates_through_the_touched_links_own_centroid`
@@ -733,52 +738,139 @@
 //!    population is unusually large) does not depend on which vertex the
 //!    winning triangle happens to share.
 //!
-//!    **Round 27 falsified the "always deeper" half of the sentence above
-//!    ("Structurally inherent... libccd's MPR overestimates relative to
-//!    this backend's own EPA for this triangle too") on a real sample, not
-//!    the single case 104 that sentence generalized from.**
-//!    `examples/visibility_cone_mpr_sweep.rs` extends case 104's own
-//!    single-case comparison to every `visibility_cone` case, in one
-//!    1000-case pr2 sweep (seed 4), where this backend's own EPA depth
-//!    disagrees with the oracle's own reported depth by more than `1e-4`:
-//!    945 such mismatches got a real `ccdMPRPenetration` reading on their
-//!    own winning triangle. **853 (90.3%) are deeper, as round 21's single
-//!    case predicted; 83 (8.8%) match EPA within float noise (`<1e-9`); but
-//!    9 (0.95%) are genuinely *shallower*, by `0.0088`–`0.0147m`, four
-//!    orders of magnitude past the noise floor — MPR is not deeper than EPA
-//!    "by construction" for this pair shape.** `pearson(gap, epa_depth) =
-//!    0.107`, `pearson(gap, triangle_size) = -0.182` — the gap magnitude is
-//!    not strongly explained by penetration depth or triangle size alone.
+//!    **Round 27 falsified the "always deeper" half of the paragraph above
+//!    ("libccd's MPR overestimates relative to this backend's own EPA for
+//!    this triangle too") on a real sample, not the single case 104 that
+//!    sentence generalized from.** `examples/visibility_cone_mpr_sweep.rs`
+//!    extends case 104's own single-case comparison to every
+//!    `visibility_cone` case, in one 1000-case pr2 sweep (seed 4), where
+//!    this backend's own EPA depth disagrees with the oracle's own reported
+//!    depth by more than `1e-4`: 945 such mismatches got a real
+//!    `ccdMPRPenetration` reading on their own winning triangle. **853
+//!    (90.3%) are deeper, as round 21's single case predicted; 83 (8.8%)
+//!    match EPA within float noise (`<1e-9`); but 9 (0.95%) are genuinely
+//!    *shallower*, by `0.0088`–`0.0147m`, four orders of magnitude past the
+//!    noise floor — MPR is not deeper than EPA "by construction" for this
+//!    pair shape.** `pearson(gap, epa_depth) = 0.107`, `pearson(gap,
+//!    triangle_size) = -0.182` — the gap magnitude is not strongly
+//!    explained by penetration depth or triangle size alone, and (round 28
+//!    below) neither correlation is the mechanism, only a symptom that
+//!    something else was going on.
 //!
-//!    All 9 shallow cases share a distinct signature the 853 deep cases
-//!    never show: `mpr_depth` reads `1.700000e-2` to six significant
-//!    figures in 8 of the 9 (the 9th, an incompletely-resolved outlier
-//!    below). pr2's wheel collision cylinders are `<cylinder
-//!    length="0.034" radius="0.074792"/>` (`fixtures/pr2.urdf`) —
-//!    `0.034 / 2 == 0.017` exactly, the cylinder's own half-length.
-//!    `mpr_case104` is fed the exact winning triangle this backend's own
-//!    EPA search already names as deepest (not a different, shallower
-//!    triangle some other selection picked), so this is not a wrong-pair or
-//!    wrong-triangle artifact: `ccdMPRPenetration` itself, called on the
-//!    true deepest triangle, sometimes converges to the cylinder's own
-//!    half-length instead of the true penetration depth — a portal-
-//!    refinement local minimum consistent with the search finding a
-//!    witness on the cylinder's flat end-cap edge (a real geometric feature
-//!    at exactly that offset from the cylinder's own center) rather than on
-//!    the curved side. One case (of the 1000) does not reproduce this
-//!    cleanly: case 623 has the oracle's own `collision` op reporting
-//!    `7.479e-2` (a normal deep MPR value) for the same (cone, link) pair
-//!    where this backend's own direct `mpr_case104` call on its own winning
-//!    triangle reads the plateau value `1.700000e-2` — i.e. the oracle's
-//!    FCL pipeline and this backend's own exhaustive deepest-triangle
-//!    search may have tested different triangles for that one state.
-//!    `CollisionRequest::max_contacts_per_pair` defaults to `1`
-//!    (`collision_common.hpp:176`, confirmed by reading the oracle's own
-//!    vendored copy), so FCL's own per-pair contact is whichever single
-//!    triangle its own narrow-phase traversal happened to report first, not
-//!    necessarily this backend's own deepest — consistent with, but not
-//!    proof of, case 623's discrepancy; not fully characterized, and
-//!    unresolved as of round 27.
+//!    **Round 28 gets inside `ccdMPRPenetration` itself (libccd `v2.1`,
+//!    `src/mpr.c`) rather than stopping at the correlation.** All 9 shallow
+//!    cases read `mpr_depth = 1.700000e-2` to six significant figures — pr2
+//!    wheel collision cylinders are `<cylinder length="0.034"
+//!    radius="0.074792"/>` (`fixtures/pr2.urdf`), `0.034 / 2 == 0.017`
+//!    exactly, the cylinder's own half-length — and `mpr_case104` is fed
+//!    the exact winning triangle this backend's own EPA search already
+//!    names as deepest, so this is not a wrong-pair or wrong-triangle
+//!    artifact. Building libccd from the same pinned source with
+//!    `-DMPR_DIAG` (a scratch, uncommitted instrumentation pass — see below
+//!    for why nothing from this build is in the tree) added `fprintf`
+//!    tracing to `findPenetr`'s own refinement loop (`mpr.c:317-352`,
+//!    unmodified except for the added prints) and ran it, unmodified
+//!    otherwise, on all 9 shallow cases' own winning triangles plus 3
+//!    sampled deep cases (41, 4, 10) as contrast, using
+//!    `visibility_cone_mpr_sweep.rs`'s own new `--dump-case <idx>` flag to
+//!    extract each case's *exact* fed geometry (the same bytes the
+//!    committed sweep already sends to `mpr_case104`, not a fresh
+//!    reconstruction) rather than re-deriving it.
+//!
+//!    **Result, mechanical and line-cited, not argued from timing:** all
+//!    9/9 shallow cases stop at `findPenetr`'s very first iteration
+//!    (`iterations=0`), every time, with the portal face's outward normal
+//!    (`portalDir`, `mpr.c:491-501`) landing at *exactly* `(0,0,±1)` — the
+//!    cylinder's own local Z axis — and all three existing portal vertices
+//!    already sitting at `z = length/2`. `__ccdSupport` dispatches to the
+//!    cylinder's own support function (`ccd_cyl_t`'s case in
+//!    `testsuites/support.c:54-69`), and that function has a documented
+//!    degenerate branch: `zdist = sqrt(dir.x² + dir.y²)`, and when
+//!    `ccdIsZero(zdist)` — direction exactly parallel to the axis — the
+//!    support point returned is `(0, 0, sign(dir.z) * height/2)`
+//!    (`support.c:60-62`), the cap's own *center*, not a point on the rim.
+//!    Every measured shallow case's own `v4` is exactly that point. Because
+//!    `v1`/`v2`/`v3` are already at `z = length/2` too (the portal Phase-1/2
+//!    discovery, `discoverPortal`/`refinePortal`, already converged there
+//!    before `findPenetr` runs at all) and `v4` cannot go past `z =
+//!    length/2` either — the cylinder does not extend further along its own
+//!    axis — `portalReachTolerance` (`mpr.c:511-534`) measures the
+//!    candidate's *improvement strictly along `dir`* (`dv4 - dv{1,2,3}`,
+//!    the dot products with the portal's own outward normal), which comes
+//!    out exactly `0.0` in every measured case: the new point is no
+//!    "further out" along the frozen axis-aligned `dir` than the three it
+//!    already has, even though none of the four have converged in the
+//!    plane *perpendicular* to `dir` at all. `0.0 <= mpr_tolerance
+//!    (1e-10)`, so refinement reports convergence on the very first check.
+//!    `findPenetr` then computes `depth` as the point-to-triangle distance
+//!    from the Minkowski-difference origin to that frozen `v1`-`v2`-`v3`
+//!    face (`mpr.c:325-330`) — a triangle lying entirely in the
+//!    `z = length/2` plane — giving exactly the cylinder's own half-length,
+//!    regardless of where within that plane the true minimum-distance
+//!    witness actually sits. The 3 sampled deep cases (41, 4, 10) show the
+//!    opposite on every point of this chain: `portalDir`'s own `dir` at
+//!    iteration 0 is a genuine 3D direction, not axis-locked
+//!    (`(0.600,-0.572,0.560)`, `(0.707,0.135,-0.695)`,
+//!    `(0.026,-0.654,0.756)`), the tolerance gap starts at `2.3e-2`-`2.6e-2`
+//!    and shrinks geometrically over `16`-`24` real iterations before
+//!    reaching `1e-10`, and the reported depths (`0.0677`, `0.0748`,
+//!    `0.0734`) bear no simple relationship to the cylinder's own
+//!    dimensions. This is not a coincidence of one case generalized again:
+//!    it is the same mechanism, measured 9 times independently on 9
+//!    different triangle/state pairs sharing only the cylinder's own
+//!    geometry, with a 3-case contrast sample showing the mechanism does
+//!    not fire when `dir` is not axis-locked.
+//!
+//!    **What is still unexplained after this**, stated plainly rather than
+//!    folded into a tidier-sounding claim: *why* the portal Phase-1/2
+//!    discovery (`discoverPortal`/`refinePortal`, both upstream of
+//!    `findPenetr` and not instrumented this round) converges to an
+//!    exactly-axis-locked portal for these particular 9 triangle/cylinder
+//!    configurations out of 945, and not the other 936, was not traced.
+//!    The mechanism above explains why an axis-locked portal *produces* the
+//!    `length/2` plateau and stops refining immediately once it occurs; it
+//!    does not explain what makes `dir` land exactly on the axis for only
+//!    some near-placement cases. A geometric conjecture (the winning
+//!    triangle's own plane happening to be close to perpendicular to the
+//!    cylinder axis for these 9) is consistent with the numbers above but
+//!    was not measured this round and is not asserted here.
+//!
+//!    One case (of the 1000) does not fit even the confirmed mechanism:
+//!    case 623 has the oracle's own `collision` op reporting `7.479e-2` (a
+//!    normal deep MPR value) for the same (cone, link) pair where this
+//!    backend's own direct `mpr_case104` call on its own winning triangle
+//!    — instrumented the same way as the other 8 — shows the *identical*
+//!    `iterations=0`, axis-locked-`dir`, `length/2`-plateau signature. So
+//!    case 623's own winning triangle is not a different mechanism; the
+//!    oracle's own reported `7.479e-2` must come from a *different*
+//!    triangle than the one this backend's own exhaustive search names as
+//!    deepest — and this is now measured directly, not inferred. Oracle
+//!    image `moveit-rs/oracle:700e7be54cb0a61f` added a settable
+//!    `max_contacts_per_pair` on the `collision` op (this crate's own
+//!    `doc/oracle-request-collision-max-contacts-per-pair.md` requested it;
+//!    the request shipped before this doc could even finish citing it —
+//!    see that file's own note). Re-running case 623 with
+//!    `visibility_cone_mpr_sweep --dump-contacts 623
+//!    --max-contacts-per-pair 32` against that image returns *16* contacts
+//!    for the `(cone, fr_caster_r_wheel_link)` pair in one response, not
+//!    one: thirteen cluster at `~1.700e-2` (the plateau, matching this
+//!    backend's own EPA/MPR reading of its winning triangle to 4
+//!    significant figures) and three cluster at `~7.36e-2`-`7.479e-2` (the
+//!    oracle's originally-reported deep value, `0.07479153841188203` among
+//!    them, matching the `7.479e-2` figure this doc recorded earlier in
+//!    this same section to the 4 significant figures that figure was
+//!    recorded at). Both this backend's own value and the oracle's own
+//!    originally-reported value are present, simultaneously, in FCL's own
+//!    per-pair contact list for the identical robot state — confirming,
+//!    not just making plausible, that `max_contacts_per_pair = 1`
+//!    (`collision_common.hpp:176`) was reporting whichever one of at least
+//!    two genuinely-touching triangles FCL's own narrow-phase traversal
+//!    happened to place first, and that triangle was not the one this
+//!    backend's own exhaustive deepest-first search names as deepest. Case
+//!    623 is closed: it is the same 9/9 MPR mechanism as the other 8,
+//!    observed through an oracle response that, at the old default, could
+//!    only ever show one of the several candidate triangles actually in
+//!    contact.
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two

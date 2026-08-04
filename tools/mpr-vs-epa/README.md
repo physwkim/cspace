@@ -47,3 +47,81 @@ Expect `mpr_depth` near `7.47919999515277989e-2` (libccd) against
 `~-2.087e-2` (this backend's own EPA, stderr) — the oracle's own captured
 case-104 depth is `7.47914550966356367e-2`, within `~7.3ppm` of libccd's
 number and nowhere near this backend's own.
+
+## Generalizing past case 104: `visibility_cone_mpr_sweep`
+
+`case104_mpr_input.rs` is one case. `crates/moveit-collision/examples/
+visibility_cone_mpr_sweep.rs` (round 27) drives the same comparison over
+every `visibility_cone` mismatch in a real oracle sweep, and found 9 of
+945 cases where MPR is *shallower* than EPA — see that file's own module
+doc and `parry.rs`'s deviation-6(b) doc for the full numbers. Its
+`--dump-case <idx>` flag prints one specific case's exact fed geometry
+(the same bytes the sweep would otherwise pipe to `mpr_case104`) to
+stdout, so a specific historical case can be re-fed to `mpr_case104`
+without re-running the whole sweep or the oracle:
+
+```sh
+cargo run --release --example visibility_cone_mpr_sweep -p moveit-collision -- \
+    --urdf <abs>/fixtures/pr2.urdf --srdf <abs>/fixtures/pr2.srdf \
+    --seed 4 --cases <idx+1> --dump-case <idx> \
+    | ./build/mpr_case104
+```
+
+## Reproducing round 28's mechanism finding (not committed — see why below)
+
+Round 28 traced *why* those 9 cases plateau at `length/2` by building
+libccd with `-DMPR_DIAG` and tracing `mpr.c`'s `findPenetr` loop directly
+— iteration count, the portal's own outward direction, and all four
+candidate points, printed every iteration to stderr. This is not
+committed here: `mpr_case104.c`'s whole design principle is driving the
+*real, unmodified* `ccdMPRPenetration` through its public API, never
+vendoring or patching libccd's own source (see this file's own "Why this
+exists" above) — an in-tree copy of `mpr.c`, instrumented or not, is
+exactly the kind of second copy that drifts silently from the pinned
+`v2.1` source and nobody notices. The finding's own reproducibility
+instead rests on two things that *are* in the tree: `parry.rs`'s
+deviation-6(b) doc cites the exact upstream line numbers the mechanism
+runs through (`mpr.c`'s `portalDir`/`portalReachTolerance`/`findPenetr`,
+`testsuites/support.c`'s `cylSupport`), and `--dump-case` (above)
+reproduces the exact plateau *output* the mechanism predicts without
+needing the instrumented build at all. To re-derive the internal trace
+directly:
+
+```sh
+# from a clean checkout at $LIBCCD_SRC, tag v2.1
+cmake -S "$LIBCCD_SRC" -B /tmp/mpr_diag/libccd -DCCD_DOUBLE=ON \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-DMPR_DIAG
+cmake --build /tmp/mpr_diag/libccd --target ccd
+# add, inside src/mpr.c's findPenetr loop, an `#ifdef MPR_DIAG` block that
+# fprintf(stderr, ...)s: iterations, portalDir's own dir, v1/v2/v3, v4, and
+# portalReachTolerance's dv1..dv4/dot1..dot3 — every value that function
+# already computes, nothing re-derived. Rebuild, then link mpr_case104.c
+# against the resulting libccd.so exactly as build.sh does, and pipe a
+# --dump-case geometry dump into the resulting binary with stderr kept.
+git -C "$LIBCCD_SRC" diff --stat  # must be empty when done -- revert before reusing
+```
+
+## Round 29: `--dump-contacts` and `--max-contacts-per-pair`
+
+Round 28 left one case (623) explained mechanically but not yet measured
+on the oracle side: its own winning triangle plateaus exactly like the
+other 8, but the oracle's own `collision` op reported a normal deep value
+for the same pair, at the `max_contacts_per_pair = 1` default that can
+only ever return one candidate triangle per pair. Round 29 uses the
+`max_contacts_per_pair` field the coordinator added to that op
+(`47a271c`, oracle image `700e7be54cb0a61f`) to see every contact FCL
+actually found, not just the first:
+
+```sh
+cargo run --release --example visibility_cone_mpr_sweep -p moveit-collision -- \
+    --urdf <abs>/fixtures/pr2.urdf --srdf <abs>/fixtures/pr2.srdf \
+    --seed 4 --cases 624 --dump-contacts 623 --max-contacts-per-pair 32 \
+    --oracle <abs>/tools/moveit-oracle/run-oracle.sh
+```
+
+`--max-contacts-per-pair <N>` threads straight through to the `collision`
+op's own request field (omitted, not sent, when absent — every other
+invocation of this binary is byte-unaffected). `--dump-contacts <idx>`
+prints every contact the oracle returned for the touched pair at that
+case index and exits, instead of running the usual EPA/MPR comparison.
+See `doc/claim-audit/moveit-collision.md`'s round 29 for the result.

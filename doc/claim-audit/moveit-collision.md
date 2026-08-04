@@ -336,8 +336,8 @@ triangle for every case where oracle and EPA disagree past `1e-4`.
 | this sweep | `visibility_cone_mpr_sweep --seed 4 --cases 1000` (pr2): of 945 mismatches with a real MPR reading, how many agree with round 21's "MPR always deeper" | REFUTED as a universal rule | 853 deeper (90.3%), 83 within float noise `<1e-9` (8.8%), **9 genuinely shallower (0.95%)**, gaps `-0.0088`..`-0.0147` — four orders of magnitude past the noise floor |
 | same | gap magnitude correlated with penetration depth or triangle size | not strongly, either way | `pearson(gap, epa_depth) = 0.107`, `pearson(gap, triangle_size) = -0.182` |
 | same | the 9 shallow cases share a distinguishing signature | CONFIRMED | 8 of 9 read `mpr_depth = 1.700000e-2` to six significant figures; pr2 wheel collision cylinders are `length="0.034"` (`fixtures/pr2.urdf`), `0.034 / 2 == 0.017` exactly — the cylinder's own half-length, not an arbitrary constant |
-| same | the plateau is a wrong-triangle artifact (FCL/this reconstruction picked different winning triangles), not `ccdMPRPenetration` itself | REFUTED for 8/9 | `mpr_case104` was fed the *same* triangle this reconstruction's own EPA search names as deepest; feeding that exact triangle directly (bypassing the oracle's pipeline entirely) reproduces `1.700000e-2` independently |
-| same | case 623 (the 9th) reproduces the same plateau mechanism | NOT CONFIRMED, distinct and unresolved | oracle's own `collision` op reports `7.479e-2` (a normal deep value) for the same (cone, link) pair where this reconstruction's own deepest triangle, fed directly to `mpr_case104`, reads the plateau `1.700000e-2` — the oracle's FCL pipeline and this reconstruction's own exhaustive search may have picked *different* triangles for that one state |
+| same | the plateau is a wrong-triangle artifact (FCL/this reconstruction picked different winning triangles), not `ccdMPRPenetration` itself | REFUTED for 9/9 (round 28 below confirms case 623 too) | `mpr_case104` was fed the *same* triangle this reconstruction's own EPA search names as deepest; feeding that exact triangle directly (bypassing the oracle's pipeline entirely) reproduces `1.700000e-2` independently |
+| same | case 623 (the 9th) reproduces the same plateau mechanism | CONFIRMED (round 28), and the oracle-side discrepancy itself CONFIRMED (round 29) as triangle selection, not a second mechanism | oracle's own `collision` op reports `7.479e-2` (a normal deep value) for the same (cone, link) pair where this reconstruction's own deepest triangle, fed directly to `mpr_case104` and instrumented the same way as the other 8, shows the identical `iterations=0`/axis-locked/`length/2` signature; round 29 below re-queries the same pair at `max_contacts_per_pair=32` on oracle image `700e7be54cb0a61f` and gets both values back in one response, 16 contacts, not 1 |
 
 `parry.rs`'s deviation 6(b) doc is updated in the same commit with this
 round's own paragraph (round 27), not a separate write-up — the doc that
@@ -379,3 +379,157 @@ near-placement ranges or pr2's caster-wheel cylinder geometry change (same
 expiry as round 25's own generalization test) — the `9/945` and `1.700e-2`
 figures are this seed's own sweep, not an invariant of the mechanism's
 existence.
+
+## Round 28: the mechanism inside `ccdMPRPenetration`, and the exact oracle-extension request
+
+The coordinator's round-28 charge, quoting it precisely because it sets
+the bar this section has to clear: "the harness reproduces the number, it
+does not explain it... establish *mechanically* whether the depth it
+returns can be pinned to a support-point extent rather than the true
+penetration... Either confirm it with the code path named line by line,
+or refute it... Do not report the correlation again as if it were the
+mechanism." Round 27's `pearson(gap, epa_depth) = 0.107` /
+`pearson(gap, triangle_size) = -0.182` were exactly that — a correlation,
+not a mechanism — and are not re-cited here as if they explained anything.
+
+**Method.** Built libccd (`LIBCCD_SRC=/home/stevek/work/libccd`, tag
+`v2.1`, confirmed clean before and after) with `-DMPR_DIAG` in a scratch
+build directory, adding `fprintf(stderr, ...)` tracing inside
+`mpr.c`'s own `findPenetr` loop — iteration count, `portalDir`'s own
+outward normal, all three existing portal vertices, the new candidate
+`v4`, and `portalReachTolerance`'s own `dv1..dv4`/`dot1..dot3` values —
+without changing any of the algorithm's actual decision logic. Linked the
+already-committed, unmodified `mpr_case104.c` against the instrumented
+`.so`. Added `--dump-case <idx>` to `visibility_cone_mpr_sweep.rs` (this
+round, committed) so each of the 9 shallow cases' *exact* fed geometry —
+the same bytes the sweep already sends `mpr_case104` — could be re-fed to
+the instrumented binary without re-deriving anything. Ran all 9 shallow
+cases (40, 125, 179, 347, 395, 623, 862, 868, 970) plus 3 sampled deep
+cases (4, 10, 41) as a contrast sample. Reverted the libccd checkout to
+clean `v2.1` afterward (`git status`/`git diff --stat` both empty,
+verified) — see `tools/mpr-vs-epa/README.md`'s new section for why the
+instrumented copy itself is not committed (vendoring even a diagnostic
+copy of upstream's own source is exactly the drift risk this harness's
+whole design avoids).
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this round | all 9 shallow cases stop at `findPenetr`'s very first iteration | CONFIRMED, 9/9 | every case's diagnostic log is exactly 2 lines: one iteration-0 trace line, one STOP line |
+| same | the portal's own outward normal (`portalDir`) is exactly axis-locked at that first check | CONFIRMED, 9/9 | `dir=(0,0,1)` (or `(0,0,0.999999999999999889)`, float noise, for case 862) in every one of the 9 |
+| same | all three existing portal vertices, and the new candidate, already sit at `z = length/2` | CONFIRMED, 9/9 | `v1.z=v2.z=v3.z=v4.z=1.700000e-2` exactly in every one of the 9 |
+| same | `cylSupport` (`testsuites/support.c:54-69`) returns the cap's own *center*, not a rim point, when direction is exactly axial | CONFIRMED by source read | `zdist = sqrt(dir.x²+dir.y²)`; `ccdIsZero(zdist)` branch (`:60-62`) returns `(0,0,sign(dir.z)*height/2)` — matches every measured `v4` exactly |
+| same | `portalReachTolerance` measures improvement strictly along `dir`, so a frozen-`z` axial portal reads zero improvement regardless of unrefined `x,y` spread | CONFIRMED by source read + measurement | `mpr.c:511-534`; measured `min(dv4-dv{1,2,3}) = 0.0` exactly in all 9, `<= mpr_tolerance (1e-10)` |
+| same | `depth` is the point-to-triangle distance from the origin to the *frozen* portal face, not to the new candidate | CONFIRMED by source read | `mpr.c:325-330`; frozen face lies entirely in the `z=length/2` plane in all 9, giving `depth = length/2` exactly |
+| same | 3 sampled deep cases (4, 10, 41) show the opposite at every step of this chain | CONFIRMED | non-axial `dir` at iteration 0 (`(0.707,0.135,-0.695)`, `(0.026,-0.654,0.756)`, `(0.600,-0.572,0.560)`), `16`–`24` real iterations, tolerance gap shrinking geometrically from `~2.3e-2`-`2.6e-2` to `1e-10`, depths (`0.0677`/`0.0734`/`0.0748`) with no simple relationship to cylinder dimensions |
+| same | case 623's own winning triangle reproduces the identical 9/9 signature | CONFIRMED | same `iterations=0`/axis-locked/frozen-`z=length/2` trace as the other 8 — isolates case 623's own discrepancy to *which triangle* the oracle evaluated, not a second MPR mechanism (round 29 below measures that isolated question directly) |
+
+**What is still open, stated plainly rather than folded into a tidier
+claim**: *why* the portal discovery phases (`discoverPortal`/
+`refinePortal`, both upstream of `findPenetr` and not instrumented this
+round) land on an exactly-axis-locked portal for these particular 9
+triangle/cylinder configurations and not the other 936, was not traced —
+the mechanism above explains what an axis-locked portal *does*, not what
+causes one to form for only some near-placement cases. Not asserted as
+fact: a geometric conjecture that the winning triangle's own plane
+happens to be close to perpendicular to the cylinder axis for these 9 is
+consistent with the measurements but unmeasured this round.
+
+**Item 3 — is the `max_contacts_per_pair` extension still needed after
+this?** At the time this round wrote the request (`crates/moveit-
+collision/doc/oracle-request-collision-max-contacts-per-pair.md`), yes,
+and only for case 623's own question, not for the plateau mechanism (that
+question was already closed). The request shipped on `main` before this
+round's own report went out (`47a271c`, oracle image
+`700e7be54cb0a61f`, `PORTING-PLAN.md` §212) — round 29 below uses it to
+answer the question the request posed, closing case 623 by direct
+measurement rather than leaving it a named-but-unconfirmed possibility.
+
+Expires (§153.1): re-open the mechanism claim only if a future libccd pin
+changes `mpr.c`'s own portal-refinement algorithm (same expiry class as
+round 16/17/21's own finding) or `testsuites/support.c`'s `cylSupport`
+degenerate-direction branch. The "why does `dir` land axial for these 9"
+open question above has no expiry — it was never closed, so there is
+nothing to re-open.
+
+## Round 29: case 623 closed by direct measurement, on the shipped `max_contacts_per_pair` extension
+
+The coordinator built round 28's requested extension and merged it before
+this round's own report went out: `47a271c` ("moveit-oracle: let the
+collision op report every contact of a pair"), oracle image
+`moveit-rs/oracle:700e7be54cb0a61f` (stamp moved from `043ed31a2186fe4e`,
+recorded in `PORTING-PLAN.md` §212, verified byte-identical against the
+old image on the existing 52-fixture corpus by `verify-fixture-replay.sh`
+per the coordinator's own §212 note). This branch was rebased onto that
+merge (`git merge main`, fast-forward, no conflicts) before this
+section's own measurement was taken, so the number below is against
+`700e7be54cb0a61f`, not the `043ed31a2186fe4e` this crate's earlier rounds
+were captured against. Re-ran the full seed-4, 1000-case default sweep
+(no new flags) against `700e7be54cb0a61f` before trusting any of round
+27/28's own numbers under the new image rather than assuming the
+coordinator's own byte-identical claim covers this crate's own sweep too:
+identical result — 945 mismatches, 853 deeper / 83 equal-within-noise / 9
+shallower, the same 9 case indices (40, 125, 179, 347, 395, 623, 862,
+868, 970), same gap values to the printed precision. Round 27/28's own
+numbers stand unchanged under the new image; this round's own new
+measurement (case 623's 16-contact dump, below) is the only new capture
+against `700e7be54cb0a61f`.
+
+**What was measured.** Added `--max-contacts-per-pair <N>` and
+`--dump-contacts <idx>` to `visibility_cone_mpr_sweep.rs` (this round):
+the former threads a `max_contacts_per_pair` field through to the
+`collision` op's own request (new field on `Op::Collision`, omitted by
+default so every other invocation of this binary is unaffected — the
+oracle itself defaults it to `1`, unchanged); the latter, given a case
+index, prints every contact the oracle returned for the touched
+(cone, link) pair at that index and exits, instead of running the usual
+EPA/MPR comparison. Ran:
+
+```
+visibility_cone_mpr_sweep --urdf <abs>/pr2.urdf --srdf <abs>/pr2.srdf \
+    --seed 4 --cases 624 --dump-contacts 623 --max-contacts-per-pair 32 \
+    --oracle <abs>/tools/moveit-oracle/run-oracle.sh
+```
+
+against `moveit-rs/oracle:700e7be54cb0a61f` via `sg docker`. `32` was
+chosen to exceed the case's own cone mesh triangle count
+(`cone_sides = 3 + 623 % 6 = 9`, `2 * cone_sides = 18` triangles) with
+margin, so no legitimate contact could be truncated by the request field
+itself.
+
+**Result:** the `(cone, fr_caster_r_wheel_link)` pair returned **16**
+contacts in one response (`touching` was previously reported as this
+pair's single entry, at the old default of `1`), not 1:
+
+- 13 entries cluster at `1.700000e-2`-`1.700000e-2` (to 6 significant
+  figures) — the plateau, matching this backend's own EPA/MPR reading of
+  its own winning triangle.
+- 3 entries cluster at `7.359598e-2`-`7.479154e-2` — the deep value,
+  `0.07479153841188203` among them, matching `parry.rs`'s own
+  deviation-6(b) doc's recorded figure for this case (`7.479e-2`, the only
+  precision at which round 27/28 had recorded it) to 4 significant
+  figures.
+
+Both this backend's own value and the oracle's own originally-reported
+value are present, simultaneously, in FCL's own contact list for the
+identical robot state and object. This is not consistent-with; it is the
+measurement round 28's own Item 3 named as the thing that would settle
+it: `max_contacts_per_pair = 1` was reporting exactly one of at least two
+genuinely-touching triangles, and the one it reported for case 623
+happened not to be the one this backend's own exhaustive deepest-first
+search names as deepest.
+
+| where | claim | verdict | evidence |
+|---|---|---|---|
+| this round | case 623's oracle-reported depth and this backend's own reading are both real, simultaneously-touching triangles of the same pair | CONFIRMED | 16-entry contact list at `max_contacts_per_pair=32`: 13 near `1.700e-2`, 3 near `7.36e-2`-`7.479e-2`, one measurement, one oracle response |
+| same | the `max_contacts_per_pair=1` default was truncating to one of several candidates, not reporting a uniquely-correct one | CONFIRMED | both this backend's own value and the oracle's original single-reported value are members of the same 16-entry list — neither is absent from what FCL itself found |
+
+**Case 623 is closed.** It is the same 9/9 `ccdMPRPenetration` mechanism
+as the other 8 cases, observed through an oracle response that, before
+this field existed, could only ever show one of several genuinely-
+touching candidate triangles per pair. Item 3's own request is fulfilled
+and used, not merely shipped.
+
+Expires (§153.1): re-open only if `CollisionRequest::max_contacts_per_pair`'s
+own semantics change upstream, or if `oracle.cpp`'s `allContactsToJson`
+wiring is reverted or altered. Does not re-open round 28's own mechanism
+finding, which this round leaves untouched.
