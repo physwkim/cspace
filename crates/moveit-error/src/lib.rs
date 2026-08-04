@@ -283,6 +283,24 @@ impl fmt::Display for MoveItErrorCode {
     /// `toString` is `moveit::core::toString(double)` in `lexical_casts.cpp`,
     /// an unrelated float formatter, and there is no `.cpp` for this header at
     /// all.
+    ///
+    /// # Deviation from upstream
+    ///
+    /// All 31 named codes render identically. [`MoveItErrorCode::Unknown`]
+    /// does not: upstream's `switch` has no `default`, so any value outside
+    /// the 31 falls past it to
+    /// `"Unrecognized MoveItErrorCode. This should never happen!"` — one
+    /// string for every unrecognized value, discarding which value it was.
+    /// This renders `UNKNOWN(v)` instead, keeping `v`.
+    ///
+    /// The deviation is deliberate and matches what [`MoveItErrorCode`]
+    /// already does elsewhere: `Unknown(v)` exists precisely so a code this
+    /// port does not know survives a round trip through `as_i32`, and a
+    /// `Display` that dropped `v` would make the one case the variant exists
+    /// for the one case you cannot diagnose. Upstream can afford to discard it
+    /// because its own comment says the case should never happen; for a port
+    /// reading messages produced by a *newer* upstream, it is the expected
+    /// case, not the impossible one.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             Self::Undefined => "UNDEFINED",
