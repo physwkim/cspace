@@ -830,7 +830,14 @@ mod tests {
         let mut sc = scene(&model);
         let err = apply_collision_object(&mut sc, base_object("box", model.model_frame(), REMOVE))
             .unwrap_err();
-        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+        // Not just the variant: `apply_collision_object`'s own OCTOMAP_NS
+        // check, `apply_add`'s own no-shapes check, and `apply_move`'s two
+        // sites are sibling Error::Other sites reachable through the same
+        // entry point via other operations/inputs.
+        assert!(
+            err.to_string().contains("tried to remove world object"),
+            "got: {err:?}"
+        );
     }
 
     #[test]
