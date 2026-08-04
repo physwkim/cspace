@@ -69,12 +69,12 @@ use serde::Deserialize;
 
 use moveit_collision::{
     AllowedCollisionMatrix, AttachedBodyGeometry, BodyType, CollisionRequest, ContactData,
-    LinkPaddingScale,
+    LinkPaddingScale, World,
 };
 use moveit_distance_field::{
     DistanceField, DistanceFieldCollisionCache, DistanceFieldConfig, GridGeometry,
-    PropagationDistanceField, add_link_body_decompositions, generate_distance_field_cache_entry,
-    group_state_representation,
+    PropagationDistanceField, add_link_body_decompositions, collision_object_point_decomposition,
+    generate_distance_field_cache_entry, group_state_representation,
 };
 use moveit_geometry::{Isometry3, Shape, Sphere};
 use moveit_model::{MeshSearchPaths, RobotModel};
@@ -676,9 +676,7 @@ struct GsrGradient {
     distances: Vec<f64>,
     sphere_radii: Vec<f64>,
     joint_name: String,
-    // `sphere_locations_count` deliberately not deserialized: not
-    // oracle-comparable at all, see this test's own doc comment on
-    // `group_state_representation_matches_the_oracle`.
+    sphere_locations_count: usize,
 }
 
 #[derive(Deserialize)]
@@ -713,14 +711,17 @@ struct GsrResponseEntry {
 /// `CollisionEnvDistanceField(model_)`'s constructor eagerly pre-builds a
 /// `GroupStateRepresentation` per group at construction time, so every
 /// query the oracle answers actually takes upstream's **pregenerated**
-/// reuse branch instead. Two fields are consequently excluded or
-/// precondition-checked rather than compared outright:
+/// reuse branch instead. `sphere_locations_count` used to be excluded here
+/// for exactly that reason -- the pregenerated branch fills
+/// `sphere_locations` for links, the fresh branch this port implements
+/// previously never did -- until PORTING-PLAN.md §154 (round 25) measured
+/// that gap to be this port's own, not upstream's: `sphere_locations` is
+/// value-identical between the two branches (see
+/// [`group_state_representation`]'s own doc comment), so this port now sets
+/// it too, and this test compares its length against the oracle's count
+/// below rather than skipping it. One field remains precondition-checked
+/// rather than compared outright:
 ///
-/// - `sphere_locations_count` is not deserialized at all: the pregenerated
-///   branch always populates `sphere_locations`, the fresh branch this port
-///   implements never does (see [`group_state_representation`]'s own doc
-///   comment) -- there is no value on this port's side to compare it
-///   against.
 /// - `closest_distance`/`collision`/`types`/`distances` are only meaningful
 ///   to compare when the oracle's own `checkCollision` pipeline found
 ///   nothing for that link (`collision: false`): construction alone (this
@@ -927,6 +928,13 @@ fn group_state_representation_matches_the_oracle() {
                 gsr.gradients[i].joint_name, expected_gradient.joint_name,
                 "joint_name ({}, group {})",
                 expected_link.link_name, request.group
+            );
+            assert_eq!(
+                gsr.gradients[i].sphere_locations.len(),
+                expected_gradient.sphere_locations_count,
+                "sphere_locations_count ({}, group {})",
+                expected_link.link_name,
+                request.group
             );
 
             // See this test's own doc comment: only comparable when the
@@ -1591,4 +1599,351 @@ fn check_collision_matches_the_oracle_with_contacts_and_attached_bodies() {
             }
         }
     }
+}
+
+// --- group_state_representation: `gradients` (round 25) ---
+//
+// `tools/moveit-oracle/src/oracle.cpp` gained `request["gradients"]`
+// (PORTING-PLAN.md §155, commit `84f5565`): when set, `groupStateRepresentation`
+// drives `CollisionEnvDistanceField::getCollisionGradients` instead of
+// `checkCollision`, which is the first ground truth for the three functions
+// round 23 closed with no external verification at all --
+// [`get_self_proximity_gradients`]/[`get_intra_group_proximity_gradients`]/
+// [`get_environment_proximity_gradients`], reached here only through
+// [`DistanceFieldCollisionCache::get_collision_gradients`] (they are
+// module-private otherwise). `request["objects"]` (§155, commit `bc14b80`)
+// is what makes the environment branch reachable at all -- see this test's
+// own doc comment for why a real, populated environment field is built here
+// rather than reusing the empty one
+// [`check_collision_matches_the_oracle_with_contacts_and_attached_bodies`]
+// above uses.
+
+#[derive(Deserialize)]
+struct GsrGradientsObjectSpec {
+    pose: [f64; 16],
+    shape: ContactsShapeSpec,
+}
+
+#[derive(Deserialize)]
+struct GsrGradientsRequest {
+    id: u64,
+    group: String,
+    #[serde(default)]
+    joint_values: HashMap<String, f64>,
+    use_acm: bool,
+    #[serde(default)]
+    objects: Vec<GsrGradientsObjectSpec>,
+    #[serde(default)]
+    attached_bodies: Vec<AttachedBodySpec>,
+}
+
+#[derive(Deserialize)]
+struct GsrGradientsLink {
+    has_link_decomposition: bool,
+    gradient: Option<GsrGradient>,
+}
+
+#[derive(Deserialize)]
+struct AttachedBodyGradientEntry {
+    name: String,
+    gradient: GsrGradient,
+}
+
+#[derive(Deserialize)]
+struct GsrGradientsResult {
+    links: Vec<GsrGradientsLink>,
+    #[serde(default)]
+    attached_body_gradients: Vec<AttachedBodyGradientEntry>,
+}
+
+#[derive(Deserialize)]
+struct GsrGradientsResponseEntry {
+    result: GsrGradientsResult,
+}
+
+/// External, oracle-backed verification for
+/// [`get_self_proximity_gradients`]/[`get_intra_group_proximity_gradients`]/
+/// [`get_environment_proximity_gradients`], all three reached through
+/// [`DistanceFieldCollisionCache::get_collision_gradients`]. Four ids, each a
+/// distinct boundary rather than a narrative scenario:
+///
+/// - id 1: `right_arm`, `use_acm: true`, no `objects`/`attached_bodies` --
+///   self/intra-group only, no environment field populated. Measured type
+///   histogram `{SELF: 6, INTRA: 48}` (PORTING-PLAN.md §155's own reference
+///   value for this exact case).
+/// - id 2: same, plus one `objects` sphere placed on `r_wrist_roll_link`'s
+///   own first collision-sphere center (from
+///   `group_state_representation_response.json` id 1) -- close enough to
+///   guarantee an environment hit, so [`get_environment_proximity_gradients`]
+///   actually reaches its `ENVIRONMENT`-type branch, not just runs over an
+///   empty field. Unlike every other test in this file, the environment
+///   [`PropagationDistanceField`] built here is *not* empty: it is populated
+///   from `request.objects` via [`collision_object_point_decomposition`], the
+///   same free function [`check_collision_matches_the_oracle_with_contacts_and_attached_bodies`]'s
+///   own doc comment reports as the missing piece for exercising this branch
+///   against the oracle. The resulting histogram is measured directly against
+///   the oracle below, not hand-derived -- the object placement only needs to
+///   land *some* sphere in collision, not reproduce any specific split.
+/// - id 3: same as id 1, plus a `payload` sphere attached to
+///   `r_wrist_roll_link` -- exercises `attached_body_gradients`, the output
+///   array [`GroupStateRepresentation::gradients`]'s
+///   `dfce.link_names.len()..` tail that the link-indexed `links[]` dump can
+///   never reach (see [`check_collision_matches_the_oracle_with_contacts_and_attached_bodies`]'s
+///   own doc comment on that same structural gap for the `contacts` path).
+/// - id 4: same as id 1, `use_acm: false` -- the null-ACM path through
+///   [`get_self_proximity_gradients`]'s own ACM check.
+///
+/// `gradients: true` + `contacts: true` is deliberately *not* a fixture case
+/// here: `oracle.cpp`'s `groupStateRepresentation` throws for that
+/// combination before producing any `result` at all (`getCollisionGradients`
+/// discards its own `CollisionResult&` parameter,
+/// `collision_env_distance_field.cpp:1517`), so there is no successful
+/// response shape to commit -- unlike `totg_parity.rs`'s per-case `ok`/`stage`
+/// pattern, this would be a *whole-request* failure, not one case among
+/// several successful ones in the same array, and this op's other response
+/// structs above all assume `result` is always present. Confirmed live
+/// against the oracle instead (`sg docker -c 'tools/moveit-oracle/run-oracle.sh
+/// --urdf .../pr2.urdf --srdf .../pr2.srdf'`, request
+/// `{"op":"group_state_representation","group":"right_arm","gradients":true,"contacts":true}`):
+/// `{"id":5,"ok":false,"error":"gradients and contacts are mutually exclusive:
+/// getCollisionGradients discards its CollisionResult
+/// (collision_env_distance_field.cpp:1517)"}`. This port has nothing
+/// structurally comparable to reject: [`DistanceFieldCollisionCache::get_collision_gradients`]
+/// takes a `req: &CollisionRequest` for `group_name` alone (see its own "no
+/// `res` parameter" deviation doc) and never reads `req.contacts` at all, so
+/// there is no shared mutable `CollisionResult` for the two modes to race
+/// over the way `oracle.cpp`'s single combined op has to guard against --
+/// the oracle's request-schema-level exclusivity is a fact about that one op
+/// flattening two separate upstream entry points into one JSON request, not
+/// a constraint this port's typed, two-separate-methods API needs to
+/// reproduce. `get_collision_gradients_ignores_the_contacts_request_field`
+/// below asserts that directly: a `CollisionRequest { contacts: true, .. }`
+/// passed to `get_collision_gradients` succeeds normally rather than
+/// erroring, which is the structural reason no error string is depended on
+/// anywhere in this file.
+#[test]
+fn group_state_representation_gradients_matches_the_oracle() {
+    let model = build_pr2_model();
+    let srdf = build_pr2_srdf();
+    let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+
+    let requests: Vec<GsrGradientsRequest> = serde_json::from_str(&read_fixture(
+        "group_state_representation_gradients_request.json",
+    ))
+    .expect("parse group_state_representation_gradients_request.json");
+    let responses: Vec<GsrGradientsResponseEntry> = serde_json::from_str(&read_fixture(
+        "group_state_representation_gradients_response.json",
+    ))
+    .expect("parse group_state_representation_gradients_response.json");
+    assert_eq!(requests.len(), responses.len());
+    assert_eq!(
+        requests.len(),
+        4,
+        "this fixture's four ids are each a distinct boundary -- see this test's own doc comment"
+    );
+    assert!(model.diagnostics().is_empty());
+
+    let config = oracle_default_distance_field_config();
+
+    for (request, response) in requests.iter().zip(&responses) {
+        let expected = &response.result;
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        state
+            .set_variable_positions_by_name(&request.joint_values)
+            .unwrap_or_else(|e| panic!("set joint values (id {}): {e}", request.id));
+        let posed = state.update();
+
+        let acm_arg = request.use_acm.then_some(&acm);
+
+        let owned_bodies: Vec<OwnedAttachedBody> = request
+            .attached_bodies
+            .iter()
+            .map(AttachedBodySpec::to_owned_body)
+            .collect();
+        let attached: Vec<AttachedBodyGeometry<'_>> = owned_bodies
+            .iter()
+            .map(OwnedAttachedBody::geometry)
+            .collect();
+
+        let mut env_field = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .expect("environment field");
+        if !request.objects.is_empty() {
+            let mut world = World::new();
+            for object in &request.objects {
+                let shape = Arc::new(object.shape.to_shape());
+                world
+                    .add_shape("env_sphere", shape, isometry_from_row_major(&object.pose))
+                    .expect("add_shape (non-empty shapes, matching poses)");
+            }
+            let world_object = world.get_object("env_sphere").expect("just added above");
+            let points = collision_object_point_decomposition(&world_object, 0.02)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "collision_object_point_decomposition (id {}): {e}",
+                        request.id
+                    )
+                })
+                .collision_points();
+            env_field.add_points_to_field(&points);
+        }
+
+        let mut cache =
+            DistanceFieldCollisionCache::new(link_body_decompositions.clone(), config, 0.0);
+        let req = CollisionRequest {
+            group_name: Some(request.group.clone()),
+            ..CollisionRequest::default()
+        };
+
+        let gsr = cache
+            .get_collision_gradients(&req, &posed, acm_arg, &attached, &env_field)
+            .unwrap_or_else(|e| panic!("get_collision_gradients (id {}): {e}", request.id));
+
+        assert_eq!(
+            gsr.dfce.link_names.len(),
+            expected.links.len(),
+            "link count (id {})",
+            request.id
+        );
+
+        for (i, expected_link) in expected.links.iter().enumerate() {
+            assert_eq!(
+                gsr.dfce.link_has_geometry[i], expected_link.has_link_decomposition,
+                "has_link_decomposition[{i}] (id {})",
+                request.id
+            );
+            if !gsr.dfce.link_has_geometry[i] {
+                continue;
+            }
+            let expected_gradient = expected_link
+                .gradient
+                .as_ref()
+                .expect("has_link_decomposition implies a gradient entry");
+            assert_gradient_matches_oracle(
+                &gsr.gradients[i],
+                expected_gradient,
+                &format!("link[{i}] (id {})", request.id),
+            );
+        }
+
+        assert_eq!(
+            gsr.dfce.attached_body_names.len(),
+            expected.attached_body_gradients.len(),
+            "attached_body_gradients count (id {})",
+            request.id
+        );
+        for (j, expected_attached) in expected.attached_body_gradients.iter().enumerate() {
+            assert_eq!(
+                gsr.dfce.attached_body_names[j], expected_attached.name,
+                "attached_body_gradients[{j}].name (id {})",
+                request.id
+            );
+            let index = gsr.dfce.link_names.len() + j;
+            assert_gradient_matches_oracle(
+                &gsr.gradients[index],
+                &expected_attached.gradient,
+                &format!("attached_body_gradients[{j}] (id {})", request.id),
+            );
+        }
+    }
+}
+
+/// Shared by every link/attached-body slot in
+/// [`group_state_representation_gradients_matches_the_oracle`]: compares
+/// every [`GradientInfo`] field [`GsrGradient`] carries, `sphere_locations`
+/// included (round 25 closed that gap -- see
+/// [`group_state_representation`]'s own "Deviations from upstream").
+///
+/// `distances`/`closest_distance` use this file's own `TOL` rather than
+/// `assert_eq!`: unlike the construction-only fields
+/// [`group_state_representation_matches_the_oracle`] compares (fresh
+/// `DBL_MAX`/`0.0` fills, bit-exact by construction), these are real
+/// per-sphere distance-field query results computed independently on each
+/// side, and differ by a few ULP the same way this file's other genuinely
+/// computed floats do (measured directly: worst observed case here is
+/// `1.6e-14` relative, comfortably inside `TOL`'s existing margin -- see
+/// `TOL`'s own doc comment for how that margin was set).
+fn assert_gradient_matches_oracle(
+    actual: &moveit_distance_field::GradientInfo,
+    expected: &GsrGradient,
+    ctx: &str,
+) {
+    assert_eq!(actual.collision, expected.collision, "collision {ctx}");
+    let actual_types: Vec<i32> = actual.types.iter().map(|t| *t as i32).collect();
+    assert_eq!(actual_types, expected.types, "types {ctx}");
+    assert_eq!(
+        actual.distances.len(),
+        expected.distances.len(),
+        "distances length {ctx}"
+    );
+    for (a, e) in actual.distances.iter().zip(&expected.distances) {
+        assert_relative_eq!(*a, *e, epsilon = TOL, max_relative = TOL);
+    }
+    assert_relative_eq!(
+        actual.closest_distance,
+        expected.closest_distance,
+        epsilon = TOL,
+        max_relative = TOL
+    );
+    assert_eq!(
+        actual.sphere_radii, expected.sphere_radii,
+        "sphere_radii {ctx}"
+    );
+    assert_eq!(actual.joint_name, expected.joint_name, "joint_name {ctx}");
+    assert_eq!(
+        actual.sphere_locations.len(),
+        expected.sphere_locations_count,
+        "sphere_locations_count {ctx}"
+    );
+}
+
+/// See [`group_state_representation_gradients_matches_the_oracle`]'s own doc
+/// comment for why `gradients: true` + `contacts: true`'s oracle-side
+/// rejection has nothing on this port's side to reproduce: this port's
+/// [`DistanceFieldCollisionCache::get_collision_gradients`] takes
+/// `req: &CollisionRequest` for `group_name` alone and never reads
+/// `req.contacts`, unlike `oracle.cpp`'s single op, which has to guard the
+/// two modes sharing one `CollisionResult`. A request with `contacts: true`
+/// set succeeds exactly like one without it.
+#[test]
+fn get_collision_gradients_ignores_the_contacts_request_field() {
+    let model = build_pr2_model();
+    assert!(model.diagnostics().is_empty());
+
+    let padding = LinkPaddingScale::new();
+    let link_body_decompositions = add_link_body_decompositions(&model, 0.02, &padding, None)
+        .expect("add_link_body_decompositions");
+    let config = oracle_default_distance_field_config();
+    let empty_env = PropagationDistanceField::new(
+        config.geometry,
+        config.max_propagation_distance,
+        config.use_signed_distance_field,
+    )
+    .expect("empty environment field");
+
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    let posed = state.update();
+
+    let mut cache = DistanceFieldCollisionCache::new(link_body_decompositions, config, 0.0);
+    let req = CollisionRequest {
+        group_name: Some("right_arm".to_string()),
+        contacts: true,
+        max_contacts: 100,
+        max_contacts_per_pair: 1,
+        ..CollisionRequest::default()
+    };
+
+    cache
+        .get_collision_gradients(&req, &posed, None, &[], &empty_env)
+        .expect("contacts:true is not read by get_collision_gradients, so this must succeed");
 }

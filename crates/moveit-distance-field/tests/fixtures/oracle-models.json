@@ -43,6 +43,10 @@
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
   },
+  "group_state_representation_gradients": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
+  },
   "link_body_decomposition": {
     "srdf": "pr2.srdf",
     "urdf": "pr2.urdf"
