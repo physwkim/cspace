@@ -1260,7 +1260,7 @@ mod tests {
         assert_eq!(spheres.len(), 8);
         for sphere in &spheres {
             // `assert_eq!`, not `assert_relative_eq!` (PORTING-PLAN.md
-            // §97.3, workspace-wide `max_relative` audit): `sphere.radius`
+            // §92, workspace-wide `max_relative` audit): `sphere.radius`
             // is `cyl.radius`, itself `Cylinder::radius_scaled = radius *
             // scale + padding` with `scale = 1.0` (`Cylinder::new`'s
             // default, untouched here) and `padding = 0.0` (this test's own
