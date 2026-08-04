@@ -902,3 +902,55 @@ the radius change (increase vs decrease) as a further candidate
 variable this fixture alone cannot rule out. That fixture is not
 generated in this round; flagged here rather than silently left
 untested.
+
+**Measured.** `panda_blend_corner112_radius08` (112°, `blend_radius:
+0.08`) built from case E's own request with only `blend_radius`
+changed, generated through the port's local pipeline first (waypoint
+counts 5/11/5, matching case E's own structure exactly), then sent to
+the live oracle (`moveit-rs/oracle:700e7be54cb0a61f`): `error_code: 1`
+(SUCCESS), `first_intersection_index: 5`, `second_intersection_index:
+10`, matching the local prediction exactly.
+
+`i* = 8`, dominant joint `panda_joint5`, runner-up ratio **49.85%**
+(profile `[4.552e-15, 1.005e-9, 2.092e-10, 5.571e-10, 1.517e-9,
+6.138e-9, 2.353e-9, 2.332e-9, 1.231e-8, 2.654e-9, 2.771e-9]`).
+
+| θ | `blend_radius` | `i*` | runner-up ratio |
+|---:|---:|---|---|
+| 90° (case A) | `0.05` | `7` | 56% (clean) |
+| 90° (case C) | `0.08` | unreadable | 99.7% (near-tie) |
+| 112° (case E) | `0.05` | `5` | 34% (clean) |
+| 112° (radius03) | `0.03` | `5` (unchanged) | 65% (clean) |
+| 112° (radius08) | `0.08` | `8` | **49.85% (clean)** |
+
+**Verdict: not refuted, and by a wide margin.** 49.85% sits well
+inside the clean band both existing 112° readings occupy (34%/65%),
+nowhere near the ~90% near-tie threshold case C's 99.7% defines. This
+directly refutes **H-radius** (`blend_radius: 0.08` alone does not
+flatten the profile toward a tie) and is consistent with **H-angle**
+(the near-tie is a property of the shallower 90° geometry, not of the
+radius value). `i*` itself also moved, `5→8`, which H-angle does not
+predict either way -- the hypothesis is about the *shape* of the
+near-tie phenomenon (runner-up ratio), not about which waypoint index
+dominates, so the index shift is not evidence against it, but it is
+not something H-angle explained in advance either.
+
+**What this does not settle**, as filed above: the 90°/r=0.03 mirror
+that would isolate the *direction* of the radius change from its
+presence at 90° at all. H-angle is not refuted, but "the near-tie is a
+property of 90° specifically" and "the near-tie is a property of an
+*increase* in radius specifically, which only ever landed on the 90°
+fixtures so far" remain both consistent with everything measured. That
+fixture is still not generated.
+
+**A finding the prediction did not anticipate.** This fixture is the
+first case in the file to need its own `POSITION_TOLERANCE` override:
+measured max position divergence `1.2312e-8` at the same `i*=8`
+waypoint, more than double the shared constant's own deliberately
+tight `1.8x`-margin ceiling (`1e-8`, set from case C's `5.46e-9`). The
+prediction was about the velocity/acceleration-derived runner-up
+ratio; it made no claim about the position channel's own magnitude,
+and this is a genuinely new data point: raising `blend_radius` at a
+sharp corner can push position divergence itself higher than any
+prior fixture measured, independent of the tie/no-tie question. See
+`CORNER112_RADIUS08_POSITION_TOLERANCE` in `pilz_blend_parity.rs`.
