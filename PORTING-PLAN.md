@@ -10409,3 +10409,71 @@ Rust 소스 리터럴과 비교하며 두 파일 다 `serde_json`을 import조�
 — 없다를 근거로 적었다. `moveit-octomap`은 `assert_relative_eq!` 0건.
 그리고 §113.3대로 `getTreeType()` 간극을 **라운드 17 커밋 메시지를 믿지 않고**
 현재 트리에 대해 다시 셌다(159 불릿 그대로).
+
+## 122. pilz 오라클의 비용을 미리 쟀다 (2026-08-04)
+
+`p1-joints`에게 pilz 오라클 연산을 **이번 라운드에 요청하지 말라**고 한
+이유는 비용이 크기 때문이고(§121.3의 배정), 그 비용이 얼마인지는 요청이
+오기 전에 내가 알고 있어야 한다. 쟀다.
+
+### 122.1 pilz는 base image에 없다 — ompl과 다르다
+
+§118.2에서 ompl은 base image에 이미 들어 있어서 `MOVEIT2_PACKAGES` 확장이
+**0**이었다. pilz는 아니다. 스탬프 `cd8ee2c1bdcf7148` 이미지 안에서 확인:
+
+```
+/opt/ros/rolling/include/pilz*   없음
+/opt/ros/rolling/share/pilz*     없음
+/opt/ros/rolling/lib | grep pilz 없음
+```
+
+소스 빌드가 필요하다.
+
+### 122.2 콜콘 패키지 7 → 19
+
+이미지 안에서 직접 쟀다:
+
+```
+현재  (moveit_core moveit_resources_fanuc_description)         7
+pilz  (--packages-up-to pilz_industrial_motion_planner)  합집합 19
+```
+
+늘어나는 12개:
+
+```
+moveit_configs_utils                          moveit_ros_move_group
+moveit_kinematics                             moveit_ros_occupancy_map_monitor
+moveit_resources_fanuc_moveit_config          moveit_ros_planning
+moveit_resources_prbt_ikfast_manipulator_plugin
+moveit_resources_prbt_moveit_config           pilz_industrial_motion_planner
+moveit_resources_prbt_pg70_support             pilz_industrial_motion_planner_testutils
+moveit_resources_prbt_support
+```
+
+**`moveit_ros_planning`과 `moveit_ros_move_group`이 들어온다** — §118.2에서
+`moveit_planners_ompl`을 피한 바로 그 이유다. pilz에는 우회로가 없다:
+`joint_limits_common`부터가 `moveit_ros_move_group::moveit_ros_move_group`과
+`moveit_ros_planning::moveit_ros_planning`에 직접 링크한다(상류
+`CMakeLists.txt` 66~88줄). 해석적 core만 떼어 낼 수 없다.
+
+### 122.3 다만 pluginlib 우회는 필요 없다 — 직접 링크된다
+
+p6-totg가 `acceleration_filter`에서 겪은 것(모듈이 exported target set에
+없어 `pluginlib::ClassLoader`로 우회) 과 다르다. pilz는 필요한 것이 전부
+`ament_export_targets(pilz_industrial_motion_plannerTargets)`의
+`install(TARGETS ...)` 목록 안에 있다:
+
+- `trajectory_generation_common` = `trajectory_functions` +
+  `trajectory_generator` + `trajectory_blender_transition_window`
+- `joint_limits_common` = `joint_limits_aggregator`/`_container`/
+  `_validator` + `limits_container`
+- `planning_context_loader_ptp` 안에 `trajectory_generator_ptp` +
+  **`velocity_profile_atrap`**이 같이 들어 있다(`_lin`/`_circ`도 같은 모양).
+  이름은 loader지만 타겟 자체가 export되므로 링크 가능하다.
+
+**결론: 12패키지 확장을 치르면 pilz 오라클은 직접 링크로 만들 수 있다.**
+치를지 여부는 `p1-joints`가 무엇을 걸어야 하는지 확정한 뒤에 정한다 —
+§5의 완료 조건이 "LIN/PTP/CIRC 궤적이 `1e-6` 이내"이므로 결국 치르게 될
+가능성이 높지만, **무엇을 비교할지 모르는 채로 이미지를 12패키지 불리는
+것**이 순서가 뒤바뀐 것이다. 재빌드는 스탬프가 바뀌므로 전 패널이
+영향을 받는다.
