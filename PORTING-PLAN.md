@@ -10965,3 +10965,115 @@ libplanning_context_loader_circ.so    libtrajectory_generation_common.so
 더하면 파일 다이제스트가 바뀌어 어차피 또 다른 스탬프가 된다. 지금 값은
 **"빌드가 되는가"에 대한 답**이지 보관할 산출물이 아니다. 정리 대상
 이미지가 하나 늘었다(현재 89개, 정리는 사용자 승인 필요).
+
+## 131. Phase 7 판정을 독립 재현했다 (2026-08-04)
+
+p1-robotmodel 라운드 19가 Phase 7의 세 완료 조건을 전부 통과로 판정했다.
+그 판정을 **다른 seed로 처음부터 다시 돌려서** 확인했다 — 보고서를 옮겨
+적지 않는다는 이 세션의 원칙이 가장 값이 큰 자리다. 조건 하나라도
+마진이 얇았다면 seed 하나 차이로 뒤집혔을 것이고, 그건 판정이 아니라
+운이었을 것이다.
+
+### 131.1 측정치
+
+`floor_wall` 250 (seed 900001) + `cage` 250 (seed 900002), 같은 request JSON을
+양쪽에 먹였다. C++는 오라클, 포트는 `plan_benchmark_port` seed_base 424242.
+
+- C++: 500 중 498 exact (99.60%), median length 2.6597767032746464
+- 포트: 500 중 497 solved (99.40%), median 2.6680037373621920,
+  condition-2 497/497
+- 조건 1: 99.40% ≥ 89.64% (C++ 99.60%의 90%) — pass
+- 조건 2: 497/497 — pass
+- 조건 3: 2.6680 ≤ 3.4577 (1.3 × 2.6598), 비율 1.003x — pass
+
+C++ 쪽 숫자는 p1-robotmodel이 보고한 99.6% / 2.6598과 **일치**한다.
+포트 쪽은 seed가 다르니 다르다(그쪽 499/500, 2.7085).
+
+미해결 id도 재현됐다: 포트 [71,129,182], C++ non-exact [104,182],
+교집합 {182}. `cage` 182가 양쪽 다 못 푸는 문제라는 관찰은 seed를 바꿔도
+남았다 — RNG 산물이 아니라는 그쪽 주장이 실제로 버텼다.
+
+### 131.2 그런데 seed_base가 기록돼 있지 않다
+
+`plan_benchmark_port.rs`의 doc은 "같은 request 파일에 같은 `seed_base`면
+두 실행이 동일하다"고 재현성을 보장하는데, **`lib.rs`의 측정 문단에는 그
+`seed_base` 값이 없다.** 재현하려고 열었을 때 고를 값이 없어서 임의로
+424242를 썼고, 그래서 내 숫자와 그쪽 숫자가 다르다.
+
+결론은 양쪽 다 pass지만 그건 마진이 컸기 때문이지 기록이 충분해서가 아니다.
+**재현 절차를 문서화했는데 그 절차의 입력값을 안 적으면 문서화한 게 아니다.**
+p1-robotmodel 라운드 20의 선행 항목으로 돌렸다.
+
+## 132. `pilz_trajectory` op — 요청서를 두 군데서 따르지 않았다 (2026-08-04)
+
+p1-joints의 요청서(§130.2가 좁혀준 그것)를 받아 op을 구현했다.
+세 제너레이터를 한 op으로 묶고 `generator` 필드로 고른다 — 생성자 모양과
+진입점(`TrajectoryGenerator::generate`)이 셋 다 같으니 op 세 개는 같은
+request 조립 코드 세 벌이 됐을 것이다.
+
+### 132.1 limits를 request에 실었다 (요청서와 반대)
+
+요청서는 "limits를 JSON에 넣지 말고 양쪽이 같은 `joint_limits.yaml` /
+`pilz_cartesian_limits.yaml`을 읽자"였다. **그 전제가 이 저장소에서
+성립하지 않는다.** 그 YAML들은 `third_party/moveit_resources/` 아래에만
+있고 그 디렉터리는 gitignore 대상이다. gitignore된 외부 체크아웃에 의미가
+걸린 fixture는 `verify-clean-checkout.sh`가 잡으려고 존재하는 실패
+바로 그것이다(§126). 게다가 양쪽 다 YAML 파서가 없다.
+
+요청서가 막으려던 위험은 "request JSON에 limit 오타"였는데, request로 싣는
+쪽이 그 위험에 대해 **더 강하다**: 한 request가 양쪽을 다 구동하므로 오타는
+양쪽에 동일하게 적용된다. 케이스를 덜 흥미롭게 만들 수는 있어도 없는
+불일치를 만들어낼 수는 없다. 한 YAML을 두 독립 리더가 읽는 배치가 그걸
+만들 수 있는 쪽이다.
+
+### 132.2 §122의 결론이 LIN/CIRC를 덮지 못했다
+
+PTP를 먼저 돌려 SUCCESS(waypoint 14개, 마지막 `time_from_start`
+1.232450134)를 받았다. **거기서 멈추지 않고 LIN과 CIRC를 따로 돌린 것이
+이 절의 내용을 만들었다** — 둘 다 `error_code` -31, NO_IK_SOLUTION.
+
+URDF+SRDF만으로 만든 `RobotModel`에는 kinematics solver가 없고, LIN/CIRC는
+Cartesian goal에 IK를 돌린다. §122의 "pluginlib 우회가 필요 없다"는
+**제너레이터 세 개에 대해서는 참**이고 §130이 `nm -DC`로 실측까지 했다.
+LIN/CIRC의 IK 의존성은 그 결론이 다룬 적 없는 별개 요구사항이었다.
+`ensureKinematicsSolver`가 `kdl_kinematics_plugin/KDLKinematicsPlugin`을
+붙이고 `moveit_kinematics`가 MOVEIT2_PACKAGES에 들어갔다.
+
+**규칙 (132.2):** 한 진입점이 통과한 것을 형제 진입점의 근거로 삼지 마라.
+§119.2의 vacuous-pass와 같은 계열이되 방향이 다르다 — 저기는 "통과했는데
+아무것도 검사 안 했다"이고 여기는 "통과했는데 형제는 검사 안 했다"이다.
+PTP만 돌리고 op이 된다고 보고했으면 p1-joints가 두 라운드를 버렸다.
+
+### 132.3 비교에 딸려 오는 부채
+
+오라클의 LIN/CIRC waypoint는 이제 그 KDL 플러그인 IK에 의존하고, 포트의
+`compute_pose_ik`는 `moveit-kinematics`에 의존한다. **두 IK가 어긋나는 양은
+궤적 코드에 닿기 전에 이미 `1e-6` 예산 안에 들어와 있다.** LIN/CIRC 불일치를
+궤적 포팅 탓으로 돌리려면 Phase 4의 IK 파리티를 먼저 빼내야 한다.
+PTP에는 이 부채가 없다(joint-space goal). 조건 판정 때 셋을 한 덩어리로
+읽으면 안 되는 이유다.
+
+## 133. D7 — r2r은 태그가 아니라 커밋 SHA로 핀한다 (2026-08-04)
+
+p9-ros 라운드 1의 산출물: **D2가 지정한 r2r 0.9.5가 이 오라클 베이스
+이미지의 ROS 2 Rolling에서 빌드되지 않는다.** `r2r-0.9.5/src/nodes.rs:1485`가
+`rcl_timer_init`을 부르는데 이 Rolling 스냅샷의 rcl에는 `rcl_timer_init2`만
+있다. 0.9.6이 distro-cfg 분기로 고쳤으나 crates.io 미공개(GitHub 태그만).
+
+**D7: `rev = "<0.9.6 태그의 커밋 SHA>"`로 핀한다. `tag =`를 쓰지 않는다.**
+
+근거는 이 저장소가 이미 `src-digest.sh`에서 베이스 이미지에 적용한 원칙
+그대로다 — 태그는 움직인다. upstream이 `0.9.6`을 옮기면 `Cargo.lock` 없는
+소비자는 조용히 다른 코드를 빌드하고, 로컬 파일 다이제스트는 전부 그대로다.
+SHA는 옮길 수 없다. D2는 "r2r 0.9.5"를 명시했으나 그 버전이 실측으로 깨져
+있으므로 D7이 그 부분을 대체한다.
+
+### 133.1 `ALLOWED_PACKAGE` 예외가 죽어서 제거했다
+
+§129.2가 예견한 대로다. `check-dep-direction.sh`의
+`ALLOWED_PACKAGE='moveit-ros'` skip은 `moveit-ros`가 `ros/moveit-ros/`에
+자기 `[workspace]`로 앉으면서 `cargo metadata --no-deps`에 아예 안 잡히게
+됐다(실측: 멤버 22개, `moveit-ros` 미포함). 무해한 no-op으로 남기지 않고
+지웠다 — 예외가 없으면 규칙이 균일해지고, 누군가 그 크레이트를 `crates/`
+밑으로 옮기는 날 이 게이트가 실패한다. 그게 옳은 답이고, 잠자던 이름
+비교가 덮었을 답이다.
