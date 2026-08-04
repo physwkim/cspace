@@ -81,7 +81,7 @@
 //! there only bit 12 orders below the named epsilon once re-bisected per
 //! group). Re-verified with a non-panicking max-diff sweep across every
 //! case/step/joint instead of asserting: `positions` maxes at `5.55e-17`,
-//! `velocities` at `1.11e-16`, `accelerations` at `2.22e-16` -- the
+//! `velocities` at `5.55e-17`, `accelerations` at `2.22e-16` -- the
 //! `accelerations` group above (`~2.5e-16`) genuinely is the tightest of
 //! the three, so the first-failure bisection was not masking a tighter
 //! group.
@@ -95,6 +95,41 @@
 //! that this assertion has lost discriminating power; the
 //! deletion/perturbation testing in "What each case discriminates" above is
 //! what establishes that it still does.
+//!
+//! ## Round 14: `velocities`' `1.11e-16` figure above was a parser artifact
+//!
+//! `ruckig_filter_response.json` has 14 of 987 float literals the
+//! pre-`float_roundtrip` `serde_json` default parser misparsed by 1 ULP
+//! (found with the same standalone, non-workspace checker item 1 of this
+//! round used against `moveit-trajectory`'s fixtures). Re-running the
+//! max-diff sweep above under the now-fixed parser reproduces `positions`
+//! (`5.55e-17`, case 4 step 13 `panda_joint1`) and `accelerations`
+//! (`2.22e-16`, case 4 step 14 `panda_joint1`, values
+//! `0.28633902198848005`/`0.2863390219884798` -- bit-identical to the
+//! figures above) unchanged, but `velocities` drops to `5.55e-17` (case 4
+//! step 9 `panda_joint1`), not the `1.11e-16` this section previously
+//! reported. The old figure was traced to its source: the max-diff site
+//! under the buggy parser was case 4 step 13's `velocities.panda_joint1`,
+//! whose fixture literal `0.49700578537928997` the old default parser read
+//! as `4.97005785379290022e-1` instead of the correct
+//! `4.97005785379289966e-1`. This port's own computed value there,
+//! `0.4970057853792899`, diffs from the *correct* expected value by
+//! `5.551e-17` (matching the current true floor) but from the *buggy*
+//! misparsed one by `1.110e-16` -- exactly the figure this section used to
+//! cite. Fixing the parser did not change this port's arithmetic at all;
+//! it only stopped corrupting the oracle value being compared against, so
+//! the comparison at that site tightened to what it should have measured
+//! all along. `positions` and `accelerations`' max-diff sites
+//! (`0.31304484669850374` and `0.2863390219884798`) are not among the 14
+//! corrupted literals, which is why re-measuring left them untouched.
+//!
+//! `TOL` is unaffected either way -- `1e-12` still has ~3.6 orders of
+//! headroom over the loosest group (`accelerations`, unchanged at
+//! `2.22e-16`). The coupled-constant bisection boundary this section
+//! documents (`2.2e-16` fails, `2.3e-16` passes) was re-run against the
+//! fixed parser and reproduced exactly: `2.2e-16` fails on the same
+//! `accelerations[idx]` case (`0.28633902198848005` vs
+//! `0.2863390219884798`), `2.3e-16` passes.
 
 use std::collections::HashMap;
 use std::fs;

@@ -62,6 +62,24 @@
 //! `AccelerationLimitedFilter::do_smoothing` (`*p = alpha * last_p + (1.0 -
 //! alpha) * *p`) by a `1.0001` factor makes this fixture fail, confirming
 //! the assertions still discriminate.
+//!
+//! ## Round 14: re-measured under `float_roundtrip`, unchanged
+//!
+//! The standalone (non-workspace, non-`float_roundtrip`) checker built for
+//! item 1 of this round found `0` of `109` literals in
+//! `acceleration_filter_request.json` and `0` of `98` in
+//! `acceleration_filter_response.json` misparsed by the old default
+//! `serde_json` parser -- unlike `moveit-trajectory`'s and
+//! `ruckig_filter_response.json`'s fixtures, this pair has no corrupted
+//! literal to begin with, so the fix could not have moved either floor. The
+//! non-panicking max-diff sweep confirms this directly: re-run under the
+//! now-fixed workspace parser, the non-degenerate group still maxes at
+//! `1.11e-15` (case 0 `positions[panda_joint1]`,
+//! `0.9999999999999998`/`1.0000000000000009`, bit-identical to the figures
+//! above) and the degenerate case still maxes at `8.29e-4` (case 2
+//! `positions[panda_joint1]`, `0`/`0.0008294991991130152`, likewise
+//! bit-identical). The `1.1e-15`-fails/`1.2e-15`-passes bisection boundary
+//! for `TOL` was re-run against the fixed parser and reproduced exactly.
 
 use std::collections::HashMap;
 use std::fs;
