@@ -51,6 +51,7 @@ use r2r::moveit_msgs::msg as moveit_msgs;
 
 use crate::constraints::set::{ConstraintsMsg, ConstraintsMsgOut};
 use crate::geometry::Vector3;
+use crate::state::{RobotStateMsg, RobotStateMsgOut};
 use crate::trajectory::{JointTrajectoryMsg, JointTrajectoryMsgOut};
 
 fn constraints_msg_is_empty(c: &moveit_msgs::Constraints) -> bool {
@@ -232,11 +233,18 @@ pub struct PlanningResponseMsgOut(pub moveit_msgs::MotionPlanResponse);
 impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     type Error = Error;
 
-    /// `trajectory_start`/`group_name`/`planning_time`/`error_code` have no
+    /// `trajectory_start` maps to [`PlanningResponse::start_state`], which
+    /// `moveit-planning`'s `pipeline::generate_plan` fills before any planner
+    /// runs. It carried no core field until that one landed, and was listed
+    /// here as dropped; decoding it is what keeps a response that crosses the
+    /// wire twice equal to the one that never left.
+    ///
+    /// `group_name`/`planning_time`/`error_code` still have no
     /// [`PlanningResponse`] field (see that type's own doc comment:
     /// `error_code` is this crate's `Result` instead) -- dropped, not
     /// rejected, since none of them are trajectory content the conversion
-    /// could silently corrupt.
+    /// could silently corrupt. `planning_time` expires as a drop when
+    /// `moveit-planning` grows the field p1-fixtures is grounding.
     ///
     /// `planner_id` has **no** wire counterpart on this message:
     /// `moveit-planning`'s own doc comment on
@@ -263,9 +271,14 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
             model,
             msg: msg.trajectory,
         })?;
+        let start_state = moveit_state::RobotState::try_from(RobotStateMsg {
+            model,
+            msg: msg.trajectory_start,
+        })?;
         Ok(PlanningResponse {
             trajectory,
             planner_id: String::new(),
+            start_state,
         })
     }
 }
@@ -275,8 +288,10 @@ impl<'m> TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut {
 
     fn try_from(res: PlanningResponse<'m>) -> Result<Self, Self::Error> {
         let trajectory = RobotTrajectoryMsgOut::try_from(res.trajectory)?.0;
+        let trajectory_start = RobotStateMsgOut::try_from(res.start_state)?.0;
         Ok(PlanningResponseMsgOut(moveit_msgs::MotionPlanResponse {
             trajectory,
+            trajectory_start,
             error_code: moveit_msgs::MoveItErrorCodes {
                 val: 1, // SUCCESS -- see doc/message-mapping.md §2's note on
                 // MoveItErrorCodes.message/source being a separate, still-open gap
@@ -436,13 +451,20 @@ mod tests {
         let mut state = moveit_state::RobotState::new(&model);
         state.set_variable_position("j1", 0.3).unwrap();
         traj.add_suffix_way_point(state, 0.0).unwrap();
+        // Deliberately not the trajectory's own first waypoint: a conversion
+        // that reconstructed `start_state` from the trajectory instead of from
+        // `trajectory_start` would pass with the two equal.
+        let mut start = moveit_state::RobotState::new(&model);
+        start.set_variable_position("j1", -0.7).unwrap();
         let res = PlanningResponse {
             trajectory: traj,
             planner_id: "STOMP".to_string(),
+            start_state: start,
         };
         let msg = PlanningResponseMsgOut::try_from(res).unwrap().0;
         assert_eq!(msg.error_code.val, 1);
         let back = PlanningResponse::try_from(PlanningResponseMsg { model: &model, msg }).unwrap();
+        assert_eq!(back.start_state.variable_position("j1").unwrap(), -0.7);
         // `planner_id` has no wire counterpart on `MotionPlanResponse` (see
         // the `TryFrom<PlanningResponseMsg>` impl's doc) -- "STOMP" is
         // dropped on the way out, not preserved.
