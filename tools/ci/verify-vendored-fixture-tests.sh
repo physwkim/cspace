@@ -21,15 +21,39 @@ cd "$REPO_ROOT"
 
 RESOURCE_DIR='third_party/moveit_resources'
 
-# Kept in sync by hand with the `#[ignore = "needs third_party/moveit_resources"]`
-# attributes in tools/moveit-diff. Two sites as of this writing; the sweep that
-# established there are exactly two is in p1-fixtures' round-14 report. A new
-# ignored test that needs the same resource must be added here, or it inherits
-# exactly the never-runs problem this script closes.
-TESTS=(
-  near_placement_never_touches_more_than_one_link_at_once
-  a_real_mismatching_case_touches_exactly_one_link
+# Derived from the `#[ignore = "needs third_party/moveit_resources"]`
+# attributes themselves, not kept in sync by hand: a hand-typed list and the
+# attributes it shadows drift, and the drift is silent in the direction that
+# matters (a new ignored test simply never runs -- the exact never-runs
+# problem this script exists to close, one level up). The run set and the
+# derived set are now the same set by construction.
+#
+# The `--type rust` restriction is load-bearing: without it the count below
+# also matches this comment's own quotation of the attribute, and the check
+# passes for the wrong reason (found by p1-fixtures running it both ways).
+IGNORE_ATTR='ignore = "needs third_party/moveit_resources'
+mapfile -t TESTS < <(
+  rg -A1 --no-heading --no-line-number --type rust -e "$IGNORE_ATTR" . \
+    | rg -oP 'fn \K\w+(?=\()'
 )
+
+# The derivation assumes `fn` is the line right after the attribute -- true at
+# both current sites. A site with another attribute wedged between the two
+# would under-derive that one name, so the counts are compared rather than
+# trusted: an under-derivation fails here loudly instead of quietly shrinking
+# coverage.
+attr_count="$(rg -o --type rust -e "$IGNORE_ATTR" . | wc -l)"
+if [[ ${#TESTS[@]} -ne "$attr_count" ]]; then
+  echo "FAIL derived ${#TESTS[@]} test name(s) from $attr_count ignore attribute(s):" >&2
+  printf '  %s\n' "${TESTS[@]}" >&2
+  echo "FAIL an attribute is not immediately followed by its own 'fn' line." >&2
+  exit 1
+fi
+if [[ ${#TESTS[@]} -eq 0 ]]; then
+  echo "FAIL no '$IGNORE_ATTR...' attribute found at all -- the tests this script" >&2
+  echo "FAIL covers were renamed, moved, or deleted; passing here would be vacuous." >&2
+  exit 1
+fi
 
 if [[ ! -d "$RESOURCE_DIR" ]]; then
   echo "SKIP $RESOURCE_DIR not present -- ${#TESTS[@]} vendored-fixture test(s) not run:"
