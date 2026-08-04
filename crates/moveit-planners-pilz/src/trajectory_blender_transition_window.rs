@@ -821,18 +821,42 @@ mod tests {
         assert!(second_index < req.second_trajectory.way_point_count());
     }
 
+    // The two calls in search_intersection_points are independently
+    // `?`-chained (first_trajectory's inverse-order search, then
+    // second_trajectory's forward search against the same center). A test
+    // that makes both fail to cross at once cannot tell which call actually
+    // produced the Err -- forcing either one to succeed still leaves the
+    // other failing, so the overall outcome never changes and the mutation
+    // that broke only one of the two calls survives. These two tests each
+    // keep the OTHER trajectory a known crosser (the geometry from
+    // search_intersection_points_finds_both_crossings_within_radius above)
+    // so only the trajectory under test can be the cause of the Err.
+
     #[test]
-    fn search_intersection_points_rejects_a_radius_larger_than_either_trajectory_reaches() {
+    fn search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius() {
         let (model, _) = load_panda();
-        // A tiny joint sweep keeps panda_link8 within a small Cartesian
-        // radius of the boundary pose -- a blend_radius far larger than any
-        // sample's distance from the center is never crossed.
         let mut req = TrajectoryBlendRequest {
             group_name: "panda_arm".to_string(),
             link_name: "panda_link8".to_string(),
             first_trajectory: panda_joint1_sweep(&model, -0.005, 0.0, 10, 0.05),
+            second_trajectory: panda_joint1_sweep(&model, 0.0, 0.3, 20, 0.05),
+            blend_radius: 0.05,
+        };
+        assert!(matches!(
+            search_intersection_points(&mut req),
+            Err(Error::Code(MoveItErrorCode::InvalidMotionPlan))
+        ));
+    }
+
+    #[test]
+    fn search_intersection_points_rejects_when_second_trajectory_never_reaches_the_blend_radius() {
+        let (model, _) = load_panda();
+        let mut req = TrajectoryBlendRequest {
+            group_name: "panda_arm".to_string(),
+            link_name: "panda_link8".to_string(),
+            first_trajectory: panda_joint1_sweep(&model, -0.3, 0.0, 20, 0.05),
             second_trajectory: panda_joint1_sweep(&model, 0.0, 0.005, 10, 0.05),
-            blend_radius: 10.0,
+            blend_radius: 0.05,
         };
         assert!(matches!(
             search_intersection_points(&mut req),
