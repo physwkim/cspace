@@ -79,8 +79,16 @@ expected_tests="$(rg -c '^\s*#\[test\]\s*$' "$REPO_ROOT/ros/moveit-ros/src" -t r
   awk -F: '{s+=$2} END{print s+0}')"
 
 echo "=== test ==="
-test_output="$(docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "cargo test" 2>&1)"
-test_status=$?
+# `|| test_status=$?` rather than a bare assignment followed by `$?`: under
+# this script's own `set -e`, a failing command substitution aborts *at the
+# assignment*, so the next line never runs, `$test_status` is never anything
+# but 0, and the handler below is dead code. That costs the operator the
+# whole diagnosis -- `$test_output` holds cargo's compiler errors and is
+# printed on the line after the one that aborts, so a failing `cargo test`
+# here produced no output at all beyond this `=== test ===` header.
+test_status=0
+test_output="$(docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c "cargo test" 2>&1)" ||
+  test_status=$?
 printf '%s\n' "$test_output"
 if [[ $test_status -ne 0 ]]; then
   echo "FAIL cargo test failed" >&2
