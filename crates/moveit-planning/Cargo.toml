@@ -22,6 +22,9 @@ moveit-trajectory.workspace = true
 [dev-dependencies]
 moveit-srdf.workspace = true
 urdf-rs.workspace = true
+moveit-planners-sbp.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
 
 [lints]
 workspace = true

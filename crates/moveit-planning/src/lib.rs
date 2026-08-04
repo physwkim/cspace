@@ -144,6 +144,102 @@
 //! [`moveit_collision::CollisionEnv`] implementation anywhere in this
 //! workspace.
 //!
+//! # Plan once, with no ROS anywhere in the call graph
+//!
+//! §129 (Phase 9, "usable and interoperable without ROS 2") splits at this
+//! crate: `ros/moveit-ros/` (D5/D6, a new panel's crate — not this one, and
+//! not a root workspace member, since `r2r` needs ROS 2 at build time and
+//! neither this host nor CI has it) owns the ROS-facing half; this crate is
+//! the top-level pure-Rust one, so the "plan without ROS" entry point lives
+//! here. The capability already existed —
+//! `moveit-planners-sbp/examples/plan_benchmark_problem_set.rs` and
+//! `moveit-planners-sbp::registry`'s own
+//! `end_to_end_solve_on_panda_arm_reaches_the_requested_goal` test both run
+//! URDF/SRDF → [`moveit_model::RobotModel`] → [`moveit_scene::PlanningScene`]
+//! → [`moveit_collision::ParryCollisionEnv`] → RRT-Connect with no ROS
+//! anywhere — but buried inside a benchmark generator and a private test,
+//! neither reachable as a documented entry point. This is that entry point,
+//! promoted to a compiling doctest so it cannot silently rot out of date
+//! (§126: a `text` block asserting this would be exactly the unverified
+//! claim that rule exists to catch).
+//!
+//! **Type boundary, deliberately visible below, not smoothed over:** this
+//! example plans using `moveit-planners-sbp`'s own concrete
+//! `PlanningRequest`/`PlanningResponse`/`RrtConnectManager`
+//! (`moveit-planners-sbp` is a dev-dependency of this crate — for this
+//! doctest only, not [`PlanningRequest`]/[`PlanningResponse`] above, which
+//! remain sbp-independent production types), not this crate's own canonical
+//! [`PlanningRequest`]/[`PlanningResponse`]. Relocating sbp's registry onto
+//! this crate's types is next round's work, precondition the p1-robotmodel
+//! branch merging first (see "Deviation from `moveit-planners-sbp::registry`'s
+//! existing types" above) — until that lands, actually running a plan means
+//! speaking sbp's vocabulary end to end, not this crate's. That seam (sbp's
+//! `registry::PlanningRequest`/`PlanningResponse` on one side, this crate's
+//! [`PlanningRequest`]/[`PlanningResponse`] on the other) is exactly what a
+//! `TryFrom` conversion will need to bridge once the relocation lands, so
+//! it is named here rather than blurred.
+//!
+//! ```
+//! use std::fs;
+//!
+//! use moveit_collision::ParryCollisionEnv;
+//! use moveit_model::{MeshSearchPaths, RobotModel};
+//! use moveit_planners_sbp::{
+//!     JointModelGroupSpace, PlannerManager, PlanningContext,
+//!     PlanningRequest as SbpPlanningRequest, RrtConnectManager, RrtConnectParams, StateSpace,
+//!     Termination,
+//! };
+//! use moveit_scene::PlanningScene;
+//! use moveit_srdf::SrdfModel;
+//! use rand::SeedableRng;
+//! use rand_chacha::ChaCha8Rng;
+//!
+//! // Fixture URDF/SRDF loaded from disk, not a ROS parameter server or
+//! // `robot_description` topic — the whole point of this example.
+//! let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+//! let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+//! let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+//! let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+//! let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+//!     .expect("fixture model must build");
+//!
+//! let mut scene = PlanningScene::new(&model, &srdf);
+//! let env = ParryCollisionEnv::default();
+//!
+//! let space = JointModelGroupSpace::new(&model, "panda_arm").unwrap();
+//! let mut rng = ChaCha8Rng::seed_from_u64(7);
+//! let goal = space.sample_uniform(&mut rng);
+//!
+//! let request = SbpPlanningRequest {
+//!     group_name: "panda_arm".to_string(),
+//!     goal: goal.clone(),
+//!     path_constraints: None,
+//!     resolution: 0.05,
+//!     seed: 7,
+//!     params: RrtConnectParams {
+//!         step_size: 0.5,
+//!         goal_bias: 0.05,
+//!         termination: Termination::Iterations(20_000),
+//!         nn_degree: 8,
+//!     },
+//! };
+//!
+//! let manager = RrtConnectManager;
+//! let mut context = manager
+//!     .get_planning_context(&mut scene, &env, request)
+//!     .expect("panda_arm is a real group");
+//! let response = context
+//!     .solve()
+//!     .expect("an empty-world panda_arm query must be solvable");
+//!
+//! assert!(response.trajectory.len() >= 2);
+//! assert_eq!(
+//!     space.read_robot_state(response.trajectory.last().unwrap()),
+//!     goal,
+//!     "the last waypoint must equal the requested goal exactly"
+//! );
+//! ```
+
 pub mod error;
 pub mod request;
 pub mod request_adapters;
