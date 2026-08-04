@@ -326,14 +326,28 @@ pub trait DistanceField {
         }
 
         // Upstream stores this scale factor in a field mistyped as `int`
-        // (`inv_twice_resolution_` in distance_field.hpp), silently
-        // truncating it. Both of the ported upstream tests use resolutions
+        // (`inv_twice_resolution_` in distance_field.hpp,
+        // `distance_field.cpp:67`: `inv_twice_resolution_(1.0 / (2.0 *
+        // resolution_))`), silently truncating toward zero on every
+        // construction. Round 26: both ported upstream tests use resolutions
         // where 1.0/(2*resolution) happens to be an exact integer (0.1 and
-        // 0.02), so the truncation is a no-op there and invisible either
-        // way. This port never stores the intermediate at all — it is
-        // trivially derivable from `resolution()` — so the bug has no
-        // opportunity to reappear for other resolutions.
-        let inv_twice_resolution = 1.0 / (2.0 * self.resolution());
+        // 0.02), so the truncation was a no-op there and this divergence
+        // went unmeasured -- but resolution is a free parameter to every
+        // caller of this trait, and for the common case where it is not
+        // (e.g. 0.03: 16.666... vs upstream's truncated 16), the untruncated
+        // value this port used to compute here silently returned a
+        // different, more numerically "correct" gradient magnitude than
+        // upstream -- a value-level parity break with no error and no test
+        // to catch it, exactly the class of divergence this crate's
+        // mandate (matching upstream's actual behaviour, not its intent --
+        // see [`crate::get_body_decomposition_cache_entry`]'s own
+        // resolution-blind-cache doc for the same principle applied
+        // elsewhere in this crate) exists to close. `as i32` truncates
+        // toward zero for in-range values exactly like C++'s
+        // `double`-to-`int` narrowing conversion, so casting through it
+        // here reproduces upstream's truncated multiplier bit-for-bit
+        // instead of only matching it by coincidence at two resolutions.
+        let inv_twice_resolution = (1.0 / (2.0 * self.resolution())) as i32 as f64;
 
         let gradient = Vector3::new(
             (self.distance_cell(gx + 1, gy, gz) - self.distance_cell(gx - 1, gy, gz))
@@ -919,5 +933,124 @@ mod tests {
                 request.id
             );
         }
+    }
+
+    /// A minimal [`DistanceField`] whose `distance_cell` is a hand-picked
+    /// function of `x` alone, so [`DistanceField::distance_gradient`]'s
+    /// `gradient.x` isolates exactly the `inv_twice_resolution` multiplier
+    /// with no dependency on real propagation: `distance_cell(gx + 1, ..) -
+    /// distance_cell(gx - 1, ..)` is always `2.0` regardless of `gx`, so
+    /// `gradient.x == 2.0 * inv_twice_resolution` exactly.
+    struct FixedXGradientField {
+        resolution: f64,
+    }
+
+    impl DistanceField for FixedXGradientField {
+        fn size_x(&self) -> f64 {
+            10.0
+        }
+        fn size_y(&self) -> f64 {
+            10.0
+        }
+        fn size_z(&self) -> f64 {
+            10.0
+        }
+        fn origin_x(&self) -> f64 {
+            0.0
+        }
+        fn origin_y(&self) -> f64 {
+            0.0
+        }
+        fn origin_z(&self) -> f64 {
+            0.0
+        }
+        fn resolution(&self) -> f64 {
+            self.resolution
+        }
+        fn uninitialized_distance(&self) -> f64 {
+            1000.0
+        }
+        fn add_points_to_field(&mut self, _points: &[Vector3<f64>]) {}
+        fn remove_points_from_field(&mut self, _points: &[Vector3<f64>]) {}
+        fn update_points_in_field(&mut self, _old: &[Vector3<f64>], _new: &[Vector3<f64>]) {}
+        fn reset(&mut self) {}
+        fn distance(&self, _x: f64, _y: f64, _z: f64) -> f64 {
+            0.0
+        }
+        fn distance_cell(&self, x: i32, _y: i32, _z: i32) -> f64 {
+            f64::from(x)
+        }
+        fn is_cell_valid(&self, _x: i32, _y: i32, _z: i32) -> bool {
+            true
+        }
+        fn num_cells_x(&self) -> i32 {
+            100
+        }
+        fn num_cells_y(&self) -> i32 {
+            100
+        }
+        fn num_cells_z(&self) -> i32 {
+            100
+        }
+        fn grid_to_world(&self, x: i32, y: i32, z: i32) -> Vector3<f64> {
+            Vector3::new(
+                f64::from(x) * self.resolution,
+                f64::from(y) * self.resolution,
+                f64::from(z) * self.resolution,
+            )
+        }
+        fn world_to_grid(&self, _world: &Vector3<f64>) -> (bool, i32, i32, i32) {
+            (true, 50, 50, 50)
+        }
+    }
+
+    /// Pin for the `inv_twice_resolution` truncation fix (round 26,
+    /// PORTING-PLAN.md item 2): upstream stores `1.0 / (2.0 * resolution_)`
+    /// in a field mistyped `int` (`distance_field.cpp:67`), silently
+    /// truncating toward zero. At `resolution = 0.03`, the untruncated
+    /// value is `16.666...`, upstream's truncated value is `16.0` -- a
+    /// measured, not assumed, divergence (confirmed via `python3` before
+    /// writing this fix). Before round 26 this port computed the
+    /// untruncated value, so `gradient.x` here was `33.333...`; this test
+    /// pins the upstream-matching `32.0` and fails on the pre-round-26
+    /// computation.
+    #[test]
+    fn distance_gradient_truncates_inv_twice_resolution_like_upstreams_int_field() {
+        let field = FixedXGradientField { resolution: 0.03 };
+
+        let gradient = field.distance_gradient(1.5, 1.5, 1.5);
+
+        assert!(gradient.in_bounds);
+        assert_eq!(
+            gradient.gradient.x, 32.0,
+            "2.0 * (1.0 / (2.0 * 0.03)) truncated toward zero like upstream's `int` field \
+             is 2.0 * 16.0 = 32.0, not the untruncated 2.0 * 16.666... = 33.333..."
+        );
+        assert_eq!(
+            gradient.gradient.y, 0.0,
+            "distance_cell in this mock does not depend on y"
+        );
+        assert_eq!(
+            gradient.gradient.z, 0.0,
+            "distance_cell in this mock does not depend on z"
+        );
+    }
+
+    /// Companion to the truncation pin above: at a resolution where
+    /// `1.0 / (2.0 * resolution)` is already an exact integer, truncation is
+    /// a no-op, so this crate's existing fixtures (0.1, 0.02) could not have
+    /// caught a regression here -- this confirms the untruncated and
+    /// truncated multipliers only coincide at such resolutions, not in
+    /// general.
+    #[test]
+    fn distance_gradient_truncation_is_a_no_op_at_an_exact_resolution() {
+        let field = FixedXGradientField { resolution: 0.1 };
+
+        let gradient = field.distance_gradient(5.0, 5.0, 5.0);
+
+        assert_eq!(
+            gradient.gradient.x, 10.0,
+            "2.0 * (1.0 / (2.0 * 0.1)) = 2.0 * 5.0 = 10.0"
+        );
     }
 }

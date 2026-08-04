@@ -956,9 +956,11 @@
 //!   [`DistanceField::uninitialized_distance`].
 //! - `getDistanceGradient` — ported as the default trait method
 //!   [`DistanceField::distance_gradient`]; see that method's own doc for the
-//!   `inv_twice_resolution_` truncation bug this port cannot reintroduce,
-//!   and [`PosedDistanceField::get_collision_sphere_gradients`]'s
-//!   "Decision" doc section for the downstream consequence of this method's
+//!   `inv_twice_resolution_` truncation bug (round 26: reproduced
+//!   bit-for-bit via an `as i32` cast rather than left to silently diverge
+//!   at resolutions where it is not a no-op), and
+//!   [`PosedDistanceField::get_collision_sphere_gradients`]'s "Decision" doc
+//!   section for the downstream consequence of this method's
 //!   zero-on-out-of-bounds behaviour.
 //! - `writeToStream`/`readFromStream` — unported; see [`DistanceField`]'s
 //!   own doc.
@@ -978,9 +980,13 @@
 //!   back through the getter methods above rather than duplicated on the
 //!   trait.
 //! - field `inv_twice_resolution_` (mistyped `int`, silently truncating) —
-//!   unported as a stored field; see [`DistanceField::distance_gradient`]'s
-//!   own doc for why this port recomputes it from `resolution()` instead of
-//!   caching the upstream bug.
+//!   unported as a *stored* field (this port recomputes it from
+//!   `resolution()` each call instead of caching it), but its truncation is
+//!   ported: see [`DistanceField::distance_gradient`]'s own doc for the
+//!   round-26 fix that casts the recomputed value through `i32` to
+//!   reproduce upstream's narrowing bug bit-for-bit rather than only
+//!   matching it by coincidence at the two resolutions this crate's own
+//!   fixtures happen to use.
 //!
 //! ## `propagation_distance_field.hpp`
 //!
