@@ -548,7 +548,12 @@ mod tests {
     /// removed, `distance()` to an infinite bound would make `range`
     /// infinite too, and `lower*upper/(range*range)` would be an
     /// `inf*inf/(inf*inf)` indeterminate form -- `NaN`, which fails this
-    /// equality outright (`NaN != NaN`) rather than merely drifting.
+    /// equality outright (`NaN != NaN`) rather than merely drifting. Measured
+    /// this round, not just argued: neutralizing the `JointType::Floating`
+    /// branch in `joint_limits_penalty` (`if false &&` guard, compiling but
+    /// never taking the skip) makes this exact test fail with `left: NaN,
+    /// right: NaN` -- this test already is the regression test for that
+    /// claim, it just hadn't been fired at the production branch before.
     #[test]
     fn floating_joint_is_skipped_in_joint_limits_penalty() {
         let model = build_model_with_panda_base_group();
@@ -789,6 +794,63 @@ mod tests {
         assert_eq!(actual_penalty, expected_penalty);
     }
 
+    /// Each of the six literal `||` terms in the planar branch is its own
+    /// independent gate, not exercised except in the x/y-four-at-once and
+    /// theta-two-at-once combinations
+    /// `planar_xy_infinite_bounds_still_skip_despite_finite_theta` and
+    /// `planar_theta_bound_at_pi_literal_still_skips_despite_finite_translation`
+    /// use above. Six cases, one sentinel condition true at a time, the
+    /// other five held at ordinary finite non-boundary values -- confirming
+    /// the `||` really does gate on any one condition alone, not on some
+    /// pair or on all four/two of a variable's conditions together.
+    #[test]
+    fn each_planar_sentinel_condition_independently_skips_the_joint() {
+        let neg_inf = f64::NEG_INFINITY;
+        let inf = f64::INFINITY;
+        let pi = std::f64::consts::PI;
+        // (x_min, x_max, y_min, y_max, theta_min, theta_max), one sentinel
+        // value per row, everything else finite and off any boundary.
+        let cases: [(f64, f64, f64, f64, f64, f64, &str); 6] = [
+            (neg_inf, 1.0, -1.0, 1.0, -1.0, 1.0, "x.min == NEG_INFINITY"),
+            (-1.0, inf, -1.0, 1.0, -1.0, 1.0, "x.max == INFINITY"),
+            (-1.0, 1.0, neg_inf, 1.0, -1.0, 1.0, "y.min == NEG_INFINITY"),
+            (-1.0, 1.0, -1.0, inf, -1.0, 1.0, "y.max == INFINITY"),
+            (-1.0, 1.0, -1.0, 1.0, -pi, 1.0, "theta.min == -PI"),
+            (-1.0, 1.0, -1.0, 1.0, -1.0, pi, "theta.max == PI"),
+        ];
+
+        for (x_min, x_max, y_min, y_max, theta_min, theta_max, label) in cases {
+            let mut model = build_pr2_model();
+            let joint = model.joint_model_mut("world_joint").unwrap();
+            for (var, min_position, max_position) in [
+                ("world_joint/x", x_min, x_max),
+                ("world_joint/y", y_min, y_max),
+                ("world_joint/theta", theta_min, theta_max),
+            ] {
+                joint
+                    .set_variable_bounds(
+                        var,
+                        moveit_model::joint::VariableBounds {
+                            min_position,
+                            max_position,
+                            position_bounded: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+            }
+
+            let mut metrics = KinematicsMetrics::new(&model);
+            metrics.set_penalty_multiplier(1.5);
+            let group = model.joint_model_group("base").unwrap();
+            let state = RobotState::new(&model);
+            let actual_penalty = metrics.joint_limits_penalty(&state, group).unwrap();
+            let expected_penalty = 1.0 - (-1.5_f64).exp();
+
+            assert_eq!(actual_penalty, expected_penalty, "sentinel: {label}");
+        }
+    }
+
     /// All four public metrics compute finite values for a real chain group
     /// at the default (all-zero) configuration, and agree with each other's
     /// documented relationship: `manipulability_index(translation=false)`
@@ -898,7 +960,17 @@ mod tests {
     /// `hand` is a joint-list group, not a chain — every method must reject
     /// it as [`Error::Other`], matching upstream's `isChain()` guard (which
     /// upstream conflates into a `false` return; this port keeps it as a
-    /// distinct error, see this module's doc comment).
+    /// distinct error, see this module's doc comment). The exact message is
+    /// asserted, not just the variant: `manipulability_index`'s own
+    /// `self.group(group, "manipulability index")?` binds `group_model` for
+    /// later use in `joint_limits_penalty`, so unlike
+    /// `manipulability_ellipsoid` (see
+    /// `manipulability_ellipsoid_rejects_the_same_bad_groups`'s doc comment)
+    /// the call can't be neutralized to `let _ = ...` without a compile
+    /// error -- but a variant-only assertion still wouldn't catch a
+    /// copy-paste bug that passed the wrong caller string (e.g.
+    /// `"manipulability ellipsoid"`) into this call site, since `Err(Other(_))`
+    /// matches regardless of the message text.
     #[test]
     fn non_chain_group_is_rejected() {
         let model = build_model();
@@ -908,14 +980,22 @@ mod tests {
         let metrics = KinematicsMetrics::new(&model);
 
         assert!(model.joint_model_group("hand").is_ok_and(|g| !g.is_chain()));
-        assert!(matches!(
-            metrics.manipulability_index(&posed, "hand", false),
-            Err(Error::Other(_))
-        ));
+        match metrics.manipulability_index(&posed, "hand", false) {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'hand' is not a chain; cannot compute manipulability index"
+            ),
+            other => panic!("expected Error::Other, got {other:?}"),
+        }
     }
 
     /// An unknown group name must surface as [`Error::UnknownName`], not a
-    /// bare upstream-style `false`.
+    /// bare upstream-style `false`. Exercised through `manipulability`, not
+    /// `manipulability_index`: the two share `KinematicsMetrics::group`'s
+    /// `self.model.joint_model_group(group)?` call verbatim (no
+    /// caller-specific text in the `UnknownName` message, unlike the
+    /// `Other`/non-chain case above), so this one test pins both callers'
+    /// unknown-name path.
     #[test]
     fn unknown_group_is_unknown_name() {
         let model = build_model();
@@ -926,6 +1006,77 @@ mod tests {
 
         assert!(matches!(
             metrics.manipulability(&posed, "no_such_group", false),
+            Err(Error::UnknownName { .. })
+        ));
+        assert!(matches!(
+            metrics.manipulability_index(&posed, "no_such_group", false),
+            Err(Error::UnknownName { .. })
+        ));
+    }
+
+    /// `manipulability`'s own non-chain path (`self.group(group,
+    /// "manipulability")?` returning `Err`) had no test at all before this
+    /// one -- `non_chain_group_is_rejected` exercises `manipulability_index`
+    /// with `"hand"`, and `unknown_group_is_unknown_name` exercises
+    /// `manipulability` but only with an unknown name, never a non-chain
+    /// one. The message is asserted, not just the variant, for the same
+    /// reason as `non_chain_group_is_rejected`.
+    #[test]
+    fn manipulability_rejects_a_non_chain_group() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let metrics = KinematicsMetrics::new(&model);
+
+        match metrics.manipulability(&posed, "hand", false) {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'hand' is not a chain; cannot compute manipulability"
+            ),
+            other => panic!("expected Error::Other, got {other:?}"),
+        }
+    }
+
+    /// `manipulability_ellipsoid`'s own `self.group(group, "manipulability
+    /// ellipsoid")?` call is *mostly* dead code: `state.jacobian`, called
+    /// two lines later, independently re-checks both the unknown-name and
+    /// non-chain cases and returns the same [`Error`] variants (see
+    /// `moveit_state::Posed::jacobian`). Measured, not assumed: replacing
+    /// `self.group(...)?` with `let _ = self.group(...);` (compiles --
+    /// `manipulability_ellipsoid` never binds the returned `group_model`,
+    /// unlike `manipulability_index`/`manipulability`, whose own
+    /// `self.group(...)?` calls stay load-bearing because the binding feeds
+    /// `joint_limits_penalty`) leaves the variant-level assertions below
+    /// unchanged in both cases.
+    ///
+    /// One divergence does survive, though: for the unknown-name case the
+    /// message is byte-identical either way (`RobotModel::joint_model_group`
+    /// builds it via `Error::unknown_name("group", name)`, a single call
+    /// site shared by both `self.group` and `jacobian`, with no caller-name
+    /// parameter to differ on). For the non-chain case the two call sites
+    /// format *different* messages -- `self.group`'s says "cannot compute
+    /// manipulability ellipsoid", `jacobian`'s says "cannot compute
+    /// Jacobian" -- so asserting the exact message, not just the `Other`
+    /// variant, is what actually pins `self.group`'s own call site rather
+    /// than merely re-confirming `jacobian`'s redundant check.
+    #[test]
+    fn manipulability_ellipsoid_rejects_the_same_bad_groups() {
+        let model = build_model();
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+        let metrics = KinematicsMetrics::new(&model);
+
+        match metrics.manipulability_ellipsoid(&posed, "hand") {
+            Err(Error::Other(message)) => assert_eq!(
+                message,
+                "the group 'hand' is not a chain; cannot compute manipulability ellipsoid"
+            ),
+            other => panic!("expected Error::Other, got {other:?}"),
+        }
+        assert!(matches!(
+            metrics.manipulability_ellipsoid(&posed, "no_such_group"),
             Err(Error::UnknownName { .. })
         ));
     }
