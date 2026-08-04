@@ -9,8 +9,12 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+moveit-collision.workspace = true
+moveit-distance-field.workspace = true
 moveit-error.workspace = true
+moveit-geometry.workspace = true
 moveit-model.workspace = true
+moveit-sampling.workspace = true
 moveit-state.workspace = true
 nalgebra.workspace = true
 moveit-trajectory.workspace = true
