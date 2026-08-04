@@ -17,7 +17,7 @@
 //!
 //! Upstream resolves `pipeline_parameters_.planning_plugins` (a list of
 //! names) against `planner_map_`, a `pluginlib`-populated
-//! `unordered_map<string, PlannerManagerPtr>` (`planning_pipeline.hpp:259`).
+//! `unordered_map<string, PlannerManagerPtr>` (`planning_pipeline.hpp:263`).
 //! This workspace's D4 compile-time equivalent — the `PLANNER_MANAGERS`
 //! `distributed_slice` and the `PlannerManager`/`PlanningContext` traits —
 //! currently lives in `moveit-planners-sbp::registry`. Depending on it from
