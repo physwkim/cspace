@@ -309,8 +309,37 @@ impl<T: Clone> VoxelGrid<T> {
     /// (`origin_minus = origin - 0.5 * resolution`) for speed. Both forms are
     /// algebraically identical; this port keeps upstream's pre-shifted-origin
     /// form rather than the documented formula so the two can never drift.
+    ///
+    /// # §153.1: a non-finite `loc` returns a deliberately-invalid cell
+    ///
+    /// PORTING-PLAN.md §172 (float-to-integer narrowing family): the
+    /// computed cell coordinate is a `double` expression narrowed into
+    /// `i32` by `.floor() as i32`, upstream's own
+    /// `static_cast<int>(floor(...))` transcribed exactly. Without a guard,
+    /// `loc == f64::INFINITY`/`f64::NEG_INFINITY` are safe *by accident*
+    /// (Rust's `as i32` saturates those to `i32::MAX`/`i32::MIN`, and every
+    /// caller's `is_cell_valid` already rejects both), but `NaN` is not:
+    /// `f64::NAN as i32` is `0` in Rust, a valid cell index along any axis
+    /// with at least one cell — a `NaN` world coordinate would silently
+    /// resolve to the grid's origin cell and pass `is_cell_valid` instead
+    /// of being rejected. C++'s `(int)floor(NaN)` is UB, so there is no
+    /// upstream value to match here either. This port rejects the general
+    /// case (`!value.is_finite()`, covering `NaN` and both infinities
+    /// uniformly, ahead of the `.floor() as i32` that would otherwise treat
+    /// them differently) rather than special-casing only `NaN` — one
+    /// predicate instead of an infinity-shaped carve-out — and returns
+    /// `i32::MIN` for all of them: a sentinel every caller's
+    /// `is_cell_valid` already rejects, matching upstream's own "the
+    /// returned indices will be computed even if they are invalid"
+    /// contract (this still always returns *some* index, just one
+    /// guaranteed invalid). This section expires if upstream adds its own
+    /// `isfinite` check to `getCellFromLocation`.
     pub fn cell_from_location(&self, dim: Dimension, loc: f64) -> i32 {
-        ((loc - self.origin_minus[dim as usize]) * self.oo_resolution).floor() as i32
+        let value = (loc - self.origin_minus[dim as usize]) * self.oo_resolution;
+        if !value.is_finite() {
+            return i32::MIN;
+        }
+        value.floor() as i32
     }
 
     /// Upstream `VoxelGrid::getLocationFromCell`: the world-space center of
@@ -463,6 +492,34 @@ mod tests {
         let (valid, x, y, z) = vg.world_to_grid(&Vector3::new(1000.0, 1000.0, 1000.0));
         assert!(!valid);
         assert!(x > 0 && y > 0 && z > 0);
+    }
+
+    /// PORTING-PLAN.md §172 boundary: every non-finite `loc` -- both
+    /// infinities included, not just `NaN` -- returns the same `i32::MIN`
+    /// sentinel via the `!value.is_finite()` guard, ahead of the
+    /// `.floor() as i32` that would otherwise treat them differently
+    /// (`as i32` would saturate the infinities to `i32::MAX`/`i32::MIN` but
+    /// collapse `NaN` to `0`, a valid cell index -- see
+    /// [`VoxelGrid::cell_from_location`]'s own doc comment). Pinned as one
+    /// uniform boundary rather than three separate cases so a future
+    /// refactor can't accidentally special-case one non-finite value
+    /// differently from the others.
+    #[test]
+    fn cell_from_location_of_any_non_finite_value_is_the_invalid_sentinel() {
+        let vg = VoxelGrid::new(cube_geometry(10.0, 1.0), 0);
+        for loc in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(vg.cell_from_location(Dimension::X, loc), i32::MIN);
+        }
+    }
+
+    /// The end-to-end consequence of the sentinel above: a `NaN` component
+    /// anywhere in a [`VoxelGrid::world_to_grid`] query must report
+    /// `valid == false`, not silently resolve to a real cell.
+    #[test]
+    fn world_to_grid_of_a_nan_component_is_invalid() {
+        let vg = VoxelGrid::new(cube_geometry(10.0, 1.0), 0);
+        let (valid, ..) = vg.world_to_grid(&Vector3::new(f64::NAN, 1.0, 1.0));
+        assert!(!valid);
     }
 
     #[test]
