@@ -159,13 +159,38 @@ pub struct PathLine {
 }
 
 impl PathLine {
-    /// Upstream `Path_Line(F_base_start, F_base_end, orient, eqradius,
-    /// aggregate)`, `orient` fixed to `RotationalInterpolation_SingleAxis`
-    /// (see the [module docs](self)).
+    /// Builds the straight-line path from `start` to `goal`, with a
+    /// single-axis rotational interpolation folded in (see the
+    /// [module docs](self)).
     ///
     /// `eqradius` is the equivalent radius balancing rotational against
     /// translational path length — see `Path_Line`'s own constructor doc
     /// comment in `orocos_kdl/src/path_line.hpp` for the full rationale.
+    /// This is an interface fact this port reuses by name (as
+    /// [`crate::path_circle::PathCircle`] does too), not upstream
+    /// expression.
+    ///
+    /// # Not transcribed from `Path_Line`'s constructor /
+    /// `RotationalInterpolation_SingleAxis::SetStartEnd`
+    ///
+    /// A single arclength parameter `s` must drive both the translation
+    /// (over distance `dist`) and the rotation (over `angle` radians,
+    /// converted to `angle * eqradius` length-equivalent units) to
+    /// complete exactly at `s == path_length`, at whatever constant rate
+    /// each needs. This is the same "pace every independent motion to the
+    /// one that needs the longest run" problem
+    /// [`crate::trajectory_generator_ptp::TrajectoryGeneratorPtp`] already
+    /// solves by synchronizing every joint to its slowest one — here there
+    /// are only two "joints" (translation and rotation, already reduced to
+    /// one comparable unit by `eqradius`), so `path_length` is simply
+    /// whichever of the two is longer, `dist.max(angle * eqradius)`, and
+    /// each part's rate (`scale_lin`, `scale_rot`) is that part's own
+    /// extent divided by `path_length`, so it reaches its full extent
+    /// exactly when `s` reaches `path_length`. When both extents are zero
+    /// (`start` and `goal` coincide, including in orientation), `path_length`
+    /// is `0.0` and there is nothing to divide by — `scale_lin`/`scale_rot`
+    /// are left at a placeholder `1.0`, unobservable since [`PathLine::pos`]
+    /// is then only ever evaluated at `s == 0.0`.
     pub fn new(start: &Isometry3, goal: &Isometry3, eqradius: f64) -> Self {
         let (v_start_end, dist) = kdl_normalize(
             goal.translation.vector - start.translation.vector,
@@ -174,12 +199,11 @@ impl PathLine {
         let r_start_end = start.rotation.inverse() * goal.rotation;
         let (angle, rot_axis) = get_rot_angle(&r_start_end, KDL_EPSILON);
 
-        let (path_length, scale_lin, scale_rot) = if angle != 0.0 && angle * eqradius > dist {
-            (angle * eqradius, dist / (angle * eqradius), 1.0 / eqradius)
-        } else if dist != 0.0 {
-            (dist, 1.0, angle / dist)
+        let path_length = dist.max(angle * eqradius);
+        let (scale_lin, scale_rot) = if path_length > 0.0 {
+            (dist / path_length, angle / path_length)
         } else {
-            (0.0, 1.0, 1.0)
+            (1.0, 1.0)
         };
 
         Self {
@@ -280,6 +304,42 @@ mod tests {
             midpoint.translation.vector,
             Vector3::new(1.5, 2.0, 0.0),
             epsilon = 1e-12
+        );
+    }
+
+    // -- new: when the rotation's equivalent length (angle * eqradius)
+    // exceeds the translation distance, path_length is paced by the
+    // rotation, not the translation -- the boundary `pure_translation...`
+    // and `identical_start_and_goal...` above do not exercise --
+
+    #[test]
+    fn rotation_dominates_path_length_when_its_equivalent_length_is_longer() {
+        let start = Isometry3::from_parts(
+            Vector3::new(0.0, 0.0, 0.0).into(),
+            UnitQuaternion::identity(),
+        );
+        let goal = Isometry3::from_parts(
+            Vector3::new(0.01, 0.0, 0.0).into(),
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), std::f64::consts::FRAC_PI_2),
+        );
+        let path = PathLine::new(&start, &goal, 1.0);
+        // angle * eqradius == pi/2 ~= 1.57, dist == 0.01: rotation dominates.
+        assert_relative_eq!(
+            path.path_length(),
+            std::f64::consts::FRAC_PI_2,
+            epsilon = 1e-12
+        );
+
+        let at_end = path.pos(path.path_length());
+        assert_relative_eq!(
+            at_end.translation.vector,
+            goal.translation.vector,
+            epsilon = 1e-9
+        );
+        assert_relative_eq!(
+            at_end.rotation.quaternion().coords,
+            goal.rotation.quaternion().coords,
+            epsilon = 1e-9
         );
     }
 
