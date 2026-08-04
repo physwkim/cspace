@@ -181,7 +181,9 @@ pub struct NearestCell<'a> {
 ///   `resolution_` without checking either is finite or positive, which for
 ///   `resolution <= 0` produces `inf`/`NaN` cell counts that are then
 ///   silently truncated into the `int` fields. [`PropagationDistanceField::new`]
-///   returns [`moveit_error::Error::Construct`] instead.
+///   returns [`moveit_error::Error::Construct`] instead. Round 26: the same
+///   guard also rejects a finite, positive `max_distance_sq` once it exceeds
+///   `i32::MAX` -- see [`checked_max_distance_sq`]'s own doc.
 pub struct PropagationDistanceField {
     propagate_negative: bool,
     voxel_grid: VoxelGrid<PropDistanceFieldVoxel>,
@@ -192,6 +194,40 @@ pub struct PropagationDistanceField {
     sqrt_table: Vec<f64>,
     neighborhoods: Neighborhoods,
     direction_number_to_direction: [Vector3<i32>; 27],
+}
+
+/// Upstream: `max_distance_sq_ = ceil(max_distance_ / resolution_) *
+/// ceil(max_distance_ / resolution_)`, assigned into an `int` field -- the
+/// same narrowing-conversion shape as `DistanceField::distance_gradient`'s
+/// `inv_twice_resolution_` (see that method's own doc), but reached by an
+/// ordinary `max_distance`/`resolution` ratio rather than a pathologically
+/// tiny resolution, so this one is guarded rather than just documented:
+/// past `n > 46340` (`n * n > i32::MAX`), C++'s `double`-to-`int` narrowing
+/// is undefined behaviour with no upstream value to match, and unlike
+/// `inv_twice_resolution_`'s read-only multiplier,
+/// [`PropagationDistanceField::new`] sizes `bucket_queue`/
+/// `negative_bucket_queue`/`sqrt_table` from this value -- an unguarded
+/// `as i32` saturating to `i32::MAX` here would try to allocate three
+/// `2^31`-length collections instead of silently returning a wrong value.
+///
+/// A standalone function, not inlined into [`PropagationDistanceField::new`],
+/// so the boundary is testable without also allocating those
+/// `i32::MAX`-scale collections: a genuinely valid-per-this-guard value like
+/// `max_distance_sq = 46340 * 46340` (~2.1 billion) is itself far too large
+/// to actually build a field around in a test.
+fn checked_max_distance_sq(max_distance: f64, resolution: f64) -> Result<i32> {
+    let n = (max_distance / resolution).ceil();
+    let max_distance_sq_f = n * n;
+    if !(max_distance_sq_f.is_finite()
+        && max_distance_sq_f >= 0.0
+        && max_distance_sq_f <= f64::from(i32::MAX))
+    {
+        return Err(Error::construct(format!(
+            "max_distance_sq computed as {max_distance_sq_f} from max_distance={max_distance}, \
+             resolution={resolution}; must be finite and in i32 range"
+        )));
+    }
+    Ok(max_distance_sq_f as i32)
 }
 
 impl PropagationDistanceField {
@@ -229,17 +265,7 @@ impl PropagationDistanceField {
         propagate_negative_distances: bool,
     ) -> Result<Self> {
         let resolution = geometry.resolution;
-        // Upstream: `max_distance_sq_ = ceil(max_distance_ / resolution_) *
-        // ceil(max_distance_ / resolution_)`, assigned into an `int` field.
-        let n = (max_distance / resolution).ceil();
-        let max_distance_sq_f = n * n;
-        if !(max_distance_sq_f.is_finite() && max_distance_sq_f >= 0.0) {
-            return Err(Error::construct(format!(
-                "max_distance_sq computed as {max_distance_sq_f} from max_distance={max_distance}, \
-                 resolution={resolution}; must be finite and non-negative"
-            )));
-        }
-        let max_distance_sq = max_distance_sq_f as i32;
+        let max_distance_sq = checked_max_distance_sq(max_distance, resolution)?;
 
         let voxel_grid = VoxelGrid::new(geometry, PropDistanceFieldVoxel::new(max_distance_sq, 0));
 
@@ -757,5 +783,37 @@ impl DistanceField for PropagationDistanceField {
 
     fn world_to_grid(&self, world: &Vector3<f64>) -> (bool, i32, i32, i32) {
         self.voxel_grid.world_to_grid(world)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round 26 (upstream-absence audit follow-up): [`checked_max_distance_sq`]
+    /// must accept `n = ceil(max_distance / resolution)` up to and including
+    /// the last value that fits `i32` -- `n = 46340`
+    /// (`46340 * 46340 = 2147395600 <= i32::MAX`). At `resolution = 1.0`,
+    /// `max_distance = 46340.0` makes `ceil(max_distance / resolution)`
+    /// exactly `46340.0`. Calls the extracted helper directly rather than
+    /// [`PropagationDistanceField::new`]: the accepted value here is itself
+    /// ~2.1 billion, far too large to actually allocate the
+    /// `bucket_queue`/`negative_bucket_queue`/`sqrt_table` collections a
+    /// real field construction would size from it.
+    #[test]
+    fn checked_max_distance_sq_accepts_the_i32_boundary() {
+        let result = checked_max_distance_sq(46340.0, 1.0);
+
+        assert_eq!(result.unwrap(), 46340 * 46340);
+    }
+
+    /// The other side of the boundary above: `n = 46341` gives
+    /// `n * n = 2147488281 > i32::MAX`, so this must be rejected rather
+    /// than silently saturating `as i32`.
+    #[test]
+    fn checked_max_distance_sq_rejects_one_past_the_i32_boundary() {
+        let result = checked_max_distance_sq(46341.0, 1.0);
+
+        assert!(result.is_err());
     }
 }
