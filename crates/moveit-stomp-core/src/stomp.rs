@@ -203,8 +203,18 @@ fn compute_parameters_control_costs(
 }
 
 /// `stomp::Stomp`.
-pub struct Stomp {
-    task: Box<dyn Task>,
+///
+/// # `'a`: round 23, not upstream
+///
+/// `stomp::TaskPtr` is a `std::shared_ptr<Task>` with no lifetime to track.
+/// A caller building a real [`Task`] from borrowed data (a `RobotModel`, a
+/// `JointModelGroup` -- see `moveit_planners_stomp::filter_functions::
+/// enforce_position_bounds`) cannot produce a `'static` one, so `Stomp`
+/// carries the same borrow the way [`crate::task::Task`]'s own
+/// implementations already must: `Box<dyn Task + 'a>`, not an implicit
+/// `Box<dyn Task + 'static>`.
+pub struct Stomp<'a> {
+    task: Box<dyn Task + 'a>,
     config: StompConfiguration,
     proceed: Arc<AtomicBool>,
     current_iteration: i32,
@@ -234,9 +244,9 @@ pub struct Stomp {
     inv_control_cost_matrix_r: DMatrix<f64>,
 }
 
-impl Stomp {
+impl<'a> Stomp<'a> {
     /// `Stomp(config, task)`.
-    pub fn new(config: StompConfiguration, task: Box<dyn Task>) -> Self {
+    pub fn new(config: StompConfiguration, task: Box<dyn Task + 'a>) -> Self {
         let mut stomp = Self {
             task,
             config,

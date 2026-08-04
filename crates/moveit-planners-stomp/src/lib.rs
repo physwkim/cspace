@@ -7,7 +7,11 @@
 
 //! STOMP planner support types, ported from `moveit_planners/stomp/`'s
 //! ROS-independent headers: matrix<->trajectory conversion
-//! ([`conversion_functions`]) and trajectory filters ([`filter_functions`]).
+//! ([`conversion_functions`]), trajectory filters ([`filter_functions`]),
+//! a composable [`moveit_stomp_core::Task`] ([`composable_task`]), cost
+//! functions ([`cost_functions`]), noise generation ([`noise_generators`]),
+//! and the planner entry point itself ([`planner`]) that wires all of the
+//! above into a call to [`moveit_stomp_core::Stomp`].
 //!
 //! # `stomp`, the optimizer core: ported, but into `moveit-stomp-core`, not here
 //!
@@ -15,36 +19,100 @@
 //! repository `ros-industrial/stomp`, not in `moveit2` -- see
 //! `moveit-stomp-core`'s own module doc for how that source was obtained
 //! and verified, and for the one-crate-one-upstream reasoning behind
-//! keeping it in its own crate rather than here. This crate now depends on
-//! it and calls `moveit_stomp_core::generate_smoothing_matrix` from
-//! `filter_functions::simple_smoothing_matrix`.
+//! keeping it in its own crate rather than here. This crate depends on it:
+//! `filter_functions::simple_smoothing_matrix` calls
+//! `moveit_stomp_core::generate_smoothing_matrix`,
+//! `noise_generators::normal_distribution_generator` calls
+//! `moveit_stomp_core::generate_finite_difference_matrix`/
+//! `full_piv_lu_try_inverse_or_empty`, and [`planner::plan`] constructs and
+//! drives a `moveit_stomp_core::Stomp` directly.
 //!
-//! Not ported into either crate:
+//! # Round 23: `cost_functions.hpp`/`noise_generators.hpp`/`stomp_moveit_task.hpp`, the generic halves
 //!
-//! - `cost_functions.hpp` (collision/validity cost) is deferred to a later
-//!   round: it needs `moveit-scene`'s collision surface, out of this
-//!   crate's dependency reach this round.
-//! - `noise_generators.hpp` is out of this round's stated scope. Its only
-//!   `MultivariateGaussian::sample` call site (`rand_generators[i]
-//!   ->sample(*raw_noise)`, no second argument, i.e. the with-covariance
-//!   branch) was read to confirm `moveit-sampling`'s two-method split
-//!   matches STOMP's actual usage, but `noise_generators.hpp` itself is not
-//!   ported here.
+//! An earlier round deferred all three; this round ports the parts of each
+//! that do not need a `PlanningScene`:
+//!
+//! - [`cost_functions::cost_function_from_state_validator`]/[`cost_functions::sum`]
+//!   (`costs::getCostFunctionFromStateValidator`/`costs::sum`) -- generic
+//!   over a caller-supplied [`cost_functions::StateValidatorFn`].
+//!   **Not ported**: `costs::getCollisionCostFunction`/
+//!   `costs::getConstraintsCostFunction`, the two factories that *build* a
+//!   `StateValidatorFn` from a `PlanningScene`. Neither `moveit-scene` nor
+//!   `moveit-collision` is a dependency of this crate this round -- a
+//!   caller of [`planner::plan`] supplies its own
+//!   [`cost_functions::StateValidatorFn`]-backed [`composable_task::CostFn`]
+//!   instead.
+//! - [`noise_generators::normal_distribution_generator`]
+//!   (`noise::getNormalDistributionGenerator`) -- no `PlanningScene`
+//!   dependency at all, fully ported.
+//! - [`composable_task::ComposableTask`] (`stomp_moveit::ComposableTask`
+//!   from `stomp_moveit_task.hpp`) -- the `Task` implementation itself.
+//!   `NoiseGeneratorFn`/`CostFn`/`PostIterationFn`/`DoneFn` join `FilterFn`
+//!   (already carried in from an earlier round, see `filter_functions`'
+//!   module doc) as the pieces of that header this crate needs.
 //!
 //! # Not ported: the ROS/task-engine layer (D1/D2 exclusion)
 //!
-//! `stomp_moveit_planning_context.{hpp,cpp}`, `stomp_moveit_task.hpp`,
-//! `trajectory_visualization.hpp`, and the plugin registration `.cpp` are
-//! not ported. Per PORTING-PLAN.md's D1 ("final form: a ROS-independent
-//! Rust motion-planning library") and D2 ("ROS 2 bindings isolated to an
-//! optional `moveit-ros` crate"), this crate carries only the
-//! ROS-independent computational core; the `planning_interface::PlanningContext`
-//! plugin glue, the `rclcpp`-visible task/trajectory-visualization types,
-//! and pluginlib registration belong to a ROS integration layer this
-//! workspace does not port into `moveit-planners-stomp` itself. `FilterFn`
-//! is the one piece of `stomp_moveit_task.hpp` this crate does carry, since
-//! every filter function here needs the signature -- see
-//! `filter_functions`' module doc, "`FilterFn`'s home".
+//! `stomp_moveit_planning_context.{hpp,cpp}`'s ROS-specific pieces (goal
+//! constraint sampling, seed-trajectory extraction from a `MotionPlanRequest`,
+//! the `allowed_planning_time` timeout watcher thread, pluginlib
+//! registration) and `trajectory_visualization.hpp` are not ported -- see
+//! [`planner`]'s own module doc for exactly which lines of
+//! `stomp_moveit_planning_context.cpp` this crate's [`planner::plan`] ports
+//! and which it leaves out. Per PORTING-PLAN.md's D1 ("final form: a
+//! ROS-independent Rust motion-planning library") and D2 ("ROS 2 bindings
+//! isolated to an optional `moveit-ros` crate"), this crate carries only
+//! the ROS-independent computational core; the
+//! `planning_interface::PlanningContext` plugin glue and the `rclcpp`-visible
+//! visualization types belong to a ROS integration layer this workspace
+//! does not port into `moveit-planners-stomp` itself.
+//!
+//! # Round 23: reconciled with `moveit-planning`'s `AddTimeOptimalParameterization`
+//!
+//! `moveit-planning::response_adapters::AddTimeOptimalParameterization`'s
+//! own module doc claims to "close" a `fill_robot_trajectory` placeholder-`dt`
+//! gap it describes as "every waypoint after the first gets a placeholder
+//! `dt = 0.1`". That description is the *round-20* shape of
+//! `fill_robot_trajectory` -- round 21's "Deviation:
+//! unparameterized-by-construction" (see `conversion_functions`' own module
+//! doc) replaced it: `fill_robot_trajectory`/`matrix_to_robot_trajectory`
+//! return [`conversion_functions::UnparameterizedTrajectory`], which sets
+//! every waypoint's duration to an inert `0.0` and exposes no duration
+//! accessor at all. There is no `0.1` placeholder anywhere in this crate's
+//! output for that adapter's test to have been reproducing since round 21;
+//! its doc is stale, though its actual behavior (re-time whatever
+//! `RobotTrajectory` it is given) is unaffected by that staleness. This
+//! crate does not depend on `moveit-planning` (nor vice versa -- confirmed
+//! via that crate's own `response.rs` doc, "No `Option`", and its `lib.rs`),
+//! so this is a documentation-only mismatch, not a compile-time or runtime
+//! conflict; not fixed here since `moveit-planning` belongs to a different
+//! round's worker.
+//!
+//! **Resolution**: [`planner::plan`] returns an
+//! [`conversion_functions::UnparameterizedTrajectory`], never a
+//! [`moveit_trajectory::RobotTrajectory`] directly. The only way to obtain
+//! a real, timed `RobotTrajectory` -- the type
+//! `moveit_planning::response::PlanningResponse::trajectory` actually
+//! requires, confirmed by reading that field's type directly rather than
+//! assuming it -- is [`conversion_functions::UnparameterizedTrajectory::into_uniformly_timed`],
+//! which forces the caller to name an explicit `dt`. A STOMP-backed
+//! `PlanningContext::solve` (not built this round -- see [`planner`]'s own
+//! "UNFIXED" note) would call `into_uniformly_timed(config.delta_t)`:
+//! `delta_t` is STOMP's own optimization timestep, a physically meaningful
+//! choice, not an arbitrary placeholder. `AddTimeOptimalParameterization`
+//! running afterward, as a separate response-adapter-pipeline stage over
+//! that now-real `RobotTrajectory`, is not "two sides silently fighting
+//! over the same field" -- it is the standard MoveIt response-adapter
+//! architecture (a planner produces an initial valid timing; a later
+//! pipeline stage explicitly re-times it with real dynamics), and the two
+//! writes are sequential, not concurrent: `plan`'s caller is the sole
+//! writer of the *first*, uniformly-timed `RobotTrajectory`;
+//! `AddTimeOptimalParameterization::adapt` is the sole writer of the
+//! *second*, time-optimal overwrite. `UnparameterizedTrajectory`'s own type
+//! (no duration accessor until `into_uniformly_timed` is called) is what
+//! rules out a third possibility upstream's own C++ does not rule out at
+//! all: a caller reading `fill_robot_trajectory`'s placeholder duration as
+//! if it were real timing before any adapter has run.
 //!
 //! # `MultivariateGaussian`'s new home
 //!
@@ -72,8 +140,12 @@
 
 use moveit_error::{Error, Result};
 
+pub mod composable_task;
 pub mod conversion_functions;
+pub mod cost_functions;
 pub mod filter_functions;
+pub mod noise_generators;
+pub mod planner;
 
 /// The precondition `conversion_functions` and `filter_functions` both
 /// require: `name`'s joint must have exactly one variable. See

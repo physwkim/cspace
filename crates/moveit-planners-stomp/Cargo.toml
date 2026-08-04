@@ -11,13 +11,16 @@ authors.workspace = true
 [dependencies]
 moveit-error.workspace = true
 moveit-model.workspace = true
+moveit-sampling.workspace = true
 moveit-state.workspace = true
 moveit-stomp-core.workspace = true
 moveit-trajectory.workspace = true
 nalgebra.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
 moveit-srdf.workspace = true
+rand_chacha.workspace = true
 urdf-rs.workspace = true
 
 [lints]
