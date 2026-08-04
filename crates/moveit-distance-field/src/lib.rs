@@ -1173,16 +1173,19 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 ///   `end_effector_parent`, `attached_end_effector_names`), never
 ///   `updated_link_names()`/`link_names()` -- not the risk pattern.
 /// - `moveit-model/src/robot_model.rs:2155,2158` (`no_root_link_errors`,
-///   joints `j1`/`j2` form a 2-link cycle with no root) -- `build()` itself
-///   returns `Err` before any group ever resolves; not applicable.
+///   joints `j1`/`j2` form a 2-link cycle with no root) -- **run**: feeding
+///   this exact fixture through `RobotModel::from_urdf_and_srdf` returns
+///   `Err`, confirming no group ever resolves; not applicable.
 /// - `moveit-model/src/robot_model.rs:2802`
 ///   (`is_chain_true_across_an_unlisted_fixed_joint`, joint `mid_fixed`) --
 ///   not a member of the fixture's `"arm"` group at all (`"arm"` is
 ///   `[j1, j2]`, both revolute); measured non-empty as a control. Not at
 ///   risk.
 /// - `moveit-scene/src/scene.rs:2077` (`hand_joint`, the `attach`/`detach`
-///   fixture) -- its SRDF defines no `<group>` element whatsoever; there is
-///   no group to be empty.
+///   fixture) -- **run**: building this exact SRDF and reading
+///   `RobotModel::joint_model_group_names()` back gives `[]`; the fixture
+///   defines no `<group>` element whatsoever, so there is no group to be
+///   empty.
 ///
 /// A fresh `rg -n
 /// 'updated_link_names\(\)|updated_link_indices\(\)|updated_link_with_geometry_names\(\)|updated_link_with_geometry_indices\(\)'
@@ -1210,6 +1213,33 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 /// suite was found to combine an empty-`updated_link_names()` group with a
 /// presence/absence assertion built on it. Those other crates are out of
 /// this crate's edit scope; this sweep is reported, not silently acted on.
+///
+/// # Correction to commit `d9c7078`'s body
+///
+/// That commit's body reads "a group with an active joint can still resolve
+/// zero *updated* links". That is not this doc's claim above (which reads
+/// "whenever none of its joints are active") and it is not true -- it was a
+/// wording slip when the commit was written, not a second, wider finding.
+/// Disproof, both by construction and by attempted counterexample:
+///
+/// - By construction, from `RobotModel::group_joint_roots`/
+///   `group_updated_links`/`descendant_link_indices` (`robot_model.rs`):
+///   `group_joint_roots` selects every one of a group's
+///   `active_joint_indices()` that has no group-member active ancestor: on
+///   a tree topology that selection is never empty when
+///   `active_joint_indices()` isn't, since the topologically-highest active
+///   member can never have a group-member active ancestor. `descendant_link_indices`
+///   inserts a joint's own child link unconditionally on its very first
+///   stack iteration, before its cycle guard (`seen_joints`) can ever skip
+///   anything. So a nonempty `joint_roots` always yields a nonempty
+///   `updated_link_indices`, and `updated_link_names()` is empty exactly
+///   when a group's active joints are none -- never otherwise.
+/// - By attempted counterexample: a group with one active joint (`j1`) plus
+///   an unlisted-consequence-free fixed member (`j_fixed`) and a mimic
+///   member (`j_mimic`, `mimic="j1"`) all declared as group joints still
+///   resolves `updated_link_names() == ["mid", "tip", "mimic_tip"]`,
+///   measured the same way as the rest of this sweep -- no shape of "active
+///   joint present" was found that still empties the set.
 #[cfg(test)]
 pub(crate) mod test_support {
     use moveit_model::RobotModel;
