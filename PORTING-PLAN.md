@@ -13126,3 +13126,70 @@ LGPL-2.1-or-later인 `chainiksolver_vel_mimic_svd.{h,hpp,cpp}`의 저작권
 19건이 0이 되면 이 절은 기록으로만 남는다. 게이트가 다시 red가 되는
 경우는 새 파일이 인용하지 않은 출처의 저작권을 주장할 때뿐이고, 그것이
 정확히 이 규칙이 잡으려는 것이다.
+
+## §167 파생물은 출처의 표기를 유지해야 한다 — 36건
+
+§166의 규칙은 "근거 없는 저작권 주장"을 잡는다. 그 **거울상**이 남아
+있었고, 이쪽은 출처 논증이 아니라 **라이선스 조항**이 뒤를 받친다:
+BSD-3-Clause 제1항과 Apache-2.0 제4(c)항은 파생물이 출처의 저작권 표기를
+**유지**할 것을 요구한다. 근거 없는 주장은 출처 오류지만, 유지 의무를
+빠뜨린 것은 **컴플라이언스 오류**다.
+
+`9f1629a`이 세 번째 규칙을 넣었다. 결과 **36건**(25개 파일).
+
+### 167.1 `Ported from`과 `Used by`를 파서가 구분한다
+
+유지 의무는 **파생물에만** 생긴다. 이 트리는 이미 두 동사를 일관되게
+쓰고 있었다 — `Ported from` 132건, `Used by` 3건 — 그래서 새 표기법을
+만들 필요가 없었다.
+
+`velocity.rs`가 이 구분을 필수로 만드는 사례다. 그 파일이 인용하는 것은
+**포팅하지 않기로 한** LGPL 솔버를 호출했을 상류 호출부다. `Used by`를
+파생으로 읽으면 이 게이트는 그 파일에 LGPL 표기를 달라고 요구하게 된다 —
+그 파일 문단이 말하는 바를 정확히 뒤집는다. 그래서 주석이 아니라 파서에
+들어가 있다.
+
+### 167.2 명시된 한계
+
+패키지 디렉터리 인용(pilz, stomp)은 유지 검사에서 제외한다. 파일 하나로
+해석되는 인용에만 요구한다 — 130개 파일의 권리자를 헤더 하나가 재현할
+수는 없다. **이것은 "통째로 포팅한 패키지는 유지 의무가 없다"는 주장이
+아니라 이 규칙이 재지 않는 범위**이고, 만료조건은 그 두 크레이트의
+인용이 파일 단위로 구체화되는 시점이다.
+
+### 167.3 §166과 겹친다 — 소유자는 한 번에 고쳐라
+
+같은 파일이 양쪽에 걸린 경우가 많다. 가장 선명한 예:
+
+- `moveit-model/src/joint/planar.rs`, `revolute.rs`는 `2013, Ioan A. Sucan`을
+  **달아야 한다**(§167).
+- `moveit-geometry/src/lib.rs`, `transforms.rs`, `moveit-model/src/link_model.rs`,
+  `moveit-state/src/dynamics.rs`는 **같은 줄을 근거 없이 달고 있다**(§166).
+
+같은 이름이 한쪽에서는 누락이고 다른 쪽에서는 잘못된 주장이다. 두 규칙이
+서로를 보완한다는 증거이고, 소유자가 두 목록을 **같이** 보고 한 번에
+고쳐야 하는 이유다.
+
+### 167.4 소유자별 36건
+
+- **p3-shapes** — `geometry/bodies.rs`(2008 Willow Garage, 2013 Willow Garage,
+  2019 Bielefeld University, 2019 Open Robotics, 2024 Open Robotics),
+  `geometry/lib.rs`(2011 WG), `geometry/stl.rs`(2013 WG),
+  `geometry/transforms.rs`(2011 WG)
+- **p3-acm** — `moveit-collision/lib.rs`(2012 WG, 2013 WG),
+  `moveit-model/joint/{fixed,floating,model,planar,prismatic,revolute}.rs`,
+  `moveit-model/{link_model,robot_model}.rs` (대부분 2008 WG,
+  `planar`/`revolute`는 2013 Ioan A. Sucan 추가)
+- **p1-joints** — `moveit-kinematics/{cart_to_jnt,newton_raphson}.rs`(2012 WG),
+  `moveit-state/{dynamics,lib}.rs`(2012 WG)
+- **p1-fixtures** — `moveit-planning/lib.rs`(2012 WG, 2019 Bielefeld University,
+  2021 PickNik Robotics, 2023 PickNik),
+  `moveit-planning/request_adapters/resolve_constraint_frames.rs`(2011 WG),
+  `moveit-scene/{lib,world_diff}.rs`(2013 WG)
+- **p9-ros** — `ros/moveit-ros/src/scene/{attached,collision_object,planning_scene}.rs`
+  (2011 WG, `collision_object.rs`는 2019 Universität Hamburg 추가)
+- **(소유자 미지정)** — `moveit-error/src/lib.rs`(2021 PickNik)
+
+전체 목록은 `tools/ci/verify-upstream-license-provenance.sh`를 돌리면
+파일:연도:권리자로 나온다. **상류가 적은 그대로** 옮겨라 — 매칭은 정확
+일치다.
