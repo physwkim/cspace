@@ -94,7 +94,10 @@
 //! automatically.
 //!
 //! **Tests.** `cargo nextest run -p moveit-planners-sbp --no-fail-fast`:
-//! **93** tests, 93 passed. There is no oracle comparison for this crate at
+//! **94** tests, 94 passed (round 18: was 93 when this section was written,
+//! stale by one test the moment `4f870fe` added `plan_space_parity.rs` a few
+//! commits later the same round — re-verified rather than left wrong).
+//! There is no oracle comparison for this crate at
 //! all (see "Why properties, not an oracle" above) — every test is a
 //! property or boundary check instead. The one property common to every
 //! [`StateSpace`] this crate ships (`space::RealVectorSpace`, `so2::So2Space`,
