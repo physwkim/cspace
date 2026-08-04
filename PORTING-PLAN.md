@@ -12401,3 +12401,34 @@ p3-distance-field 라운드 24의 UNFIXED 2건에 대응한다. 커밋 `bc14b80`
 `{SELF:6, INTRA_GROUP:48}`, `objects` 추가 시 `{SELF:6, INTRA:44, ENV:4}`,
 `attached_bodies` 추가 시 `attached_body_gradients`에 `payload` 1건.
 `use_acm:false`(null ACM)도 크래시 없이 같은 히스토그램.
+
+## §156 오라클에 `cost_sources` / `path_cost_sources` op이 생겼다
+
+p1-fixtures 라운드 22의 요청(§107.3 경로)을 그대로 구현했다. 커밋 `7a644af`,
+스탬프 `9a5a1b33f255ea23`.
+
+- `cost_sources` — upstream `PlanningScene::getCostSources(const RobotState&,
+  std::size_t, const std::string&, std::set<CostSource>&)`
+  (`planning_scene.cpp:2492-2506`). 요청: `joint_values`, `max_costs`,
+  선택 `group_name`(기본 `""` = 전체 로봇), `objects`/`attached_bodies`는
+  `collision` op과 같은 스키마. **`removeCostSources`/`removeOverlapping`을
+  부르지 않는다** — p1-fixtures가 body를 읽어 찾아낸 비대칭이며, 이 op은 그
+  비대칭 자체를 검증 대상으로 만든다.
+- `path_cost_sources` — trajectory 오버로드(`:2457-2490`). 추가 요청 필드
+  `waypoints`(필수), `overlap_fraction`(필수). 세 단계를 upstream 순서대로
+  재현한다: union을 `max_costs`로 자르고 → `removeCostSources(costs, cs_start,
+  overlap_fraction)` → `removeOverlapping(costs, overlap_fraction)`.
+- 응답은 둘 다 `{"cost_sources": [{"aabb_min":[..],"aabb_max":[..],"cost":f}]}`.
+  `std::set` 반복 순서 그대로 내보낸다 — `CostSource::operator<`가
+  `cost * getVolume()` 내림차순이라 이미 most-costly-first다
+  (`collision_common.hpp:128-141`). 여기서 다시 정렬하지 않는 이유는, 순서가
+  다른 Rust 컨테이너를 정규화로 덮지 않고 mismatch로 드러내기 위해서다.
+  `getVolume()`은 파생값이라 내보내지 않는다 — 곱은 맞는데 bound가 틀린
+  fixture가 통과하는 것을 막는다.
+
+**세 단계가 각각 관측 가능한 것을 실측으로 확인했다**(pr2, 0.6m 박스):
+`max_costs=3` → 잘라낸 뒤 removal이 1개 더 지워 **2**개 남음(자르기가 먼저라는
+순서가 보인다). `overlap_fraction` `0.9` vs `0.1` → **28** vs **13**
+(`removeOverlapping`이 load-bearing). 첫 waypoint가 충돌하면 `cs_start`가
+union과 같아져 결과가 **0**개 — `cs_start`가 running union의 복사본이 아니라
+첫 waypoint의 집합이라는 사실이 이 케이스에서만 드러난다.
