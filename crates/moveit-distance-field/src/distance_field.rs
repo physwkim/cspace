@@ -92,6 +92,43 @@ fn posed_body(shape: &Shape, pose: &Isometry3) -> Result<Body> {
 /// backed by `tests/fixtures/octree_points_request.json`/`_response.json`).
 /// The 39% last-face-drop rate is a property of the loop both
 /// implementations run, not a divergence this port introduced.
+///
+/// # Exactly what this function reads from a leaf, and what "in emission order" above actually pins
+///
+/// This function reads exactly 3 of [`crate::iter::Leaf`]'s 8 accessors —
+/// `is_occupied()`, `coordinate()`, `size()` — and never `key()`,
+/// `index_key()`, `depth()`, `log_odds()`, or `occupancy()`. Those five have
+/// no consumer anywhere in this crate, so no fixture here could pin them
+/// without inventing a reader with no real call site — that is
+/// [`moveit_octomap`]'s question to answer, not this crate's.
+///
+/// The "matched, bit-for-bit and in emission order" claim two paragraphs up
+/// is narrower than it reads. Every one of the three oracle-pinned cases in
+/// `octree_points_matches_the_oracle_for_all_three_pinned_boundary_cases`
+/// builds a **single**-leaf octree (that test asserts exactly one
+/// `update_point` action per case), so what is actually pinned bit-for-bit
+/// there is the *sub-point* order this function's own `x`/`y`/`z`
+/// subdivision loop below produces within one oversized leaf — code this
+/// crate owns — not the order [`OcTree::leaves_in_bbx`] yields *distinct*
+/// leaves in. No test anywhere in this crate builds an octree with two or
+/// more *occupied* leaves inside the same query bounding box until
+/// `octree_points_preserves_leaves_in_bbx_emission_order_across_multiple_leaves`
+/// below, and that test is same-language only (this function forwards
+/// whatever order `leaves_in_bbx` gives it) — it does not check that order
+/// against upstream's `leaf_bbx_iterator`.
+///
+/// That cross-language question is still open. `moveit-octomap`'s own
+/// `leaves_parity.rs` pins `OcTree::leaves()` (upstream `leaf_iterator`)
+/// against the real oracle, by an argument its own doc states explicitly:
+/// `tree_iterator` and `leaf_iterator` are distinct upstream classes, so
+/// `tree_nodes`'s already-pinned order cannot be assumed to transfer to
+/// `leaves`, and must be measured on its own. The identical argument
+/// applies one class further: `leaf_bbx_iterator` (this function's
+/// [`OcTree::leaves_in_bbx`]) is a third upstream class, distinct from both
+/// `tree_iterator` and `leaf_iterator`, and `leaves_parity.rs` does not
+/// touch it. Its field values (`key`/`index_key`/`depth`/`log_odds`/
+/// `occupancy`) and its own leaf-to-leaf emission order remain unpinned
+/// against upstream anywhere in this workspace.
 fn octree_points(
     bbx_min: Vector3<f64>,
     bbx_max: Vector3<f64>,
@@ -491,6 +528,66 @@ mod tests {
             points.len(),
             1,
             "the out-of-bbox leaf must not contribute a point"
+        );
+    }
+
+    /// Whether [`octree_points`] faithfully forwards the leaf order
+    /// [`OcTree::leaves_in_bbx`] gives it — a same-language question, no
+    /// oracle needed (see [`octree_points`]'s own doc for why the existing
+    /// oracle-backed order pin does not answer this: every pinned case
+    /// there builds a single leaf). Two occupied, non-subdividing leaves at
+    /// `(0.15, 0.15, 0.15)` and `(0.85, 0.85, 0.85)`. `leaves_in_bbx` is
+    /// queried directly first, independent of [`octree_points`], to record
+    /// its own emission order as `expected`; [`octree_points`]'s output is
+    /// then compared against that same sequence, order-sensitive
+    /// (`Vec`'s `PartialEq` never sorts). The two leaves' points are
+    /// asserted disjoint — if they coincided, a swapped order would pass
+    /// exactly as well as the real one, and the test would be measuring
+    /// nothing (PORTING-PLAN.md §119.2's empty-pass class). Perturbed to
+    /// confirm this actually discriminates order, not just membership:
+    /// reversing the leaf iteration inside [`octree_points`] (temporarily,
+    /// via `.rev()`) made this test fail; reverted after confirming.
+    ///
+    /// **What this does not test**: whether that shared order matches
+    /// upstream's own `leaf_bbx_iterator` traversal — a cross-language
+    /// question this crate has no fixture for. See [`octree_points`]'s own
+    /// doc.
+    #[test]
+    fn octree_points_preserves_leaves_in_bbx_emission_order_across_multiple_leaves() {
+        let mut tree = OcTree::new(RESOLUTION);
+        tree.update_node(Point3::new(0.15, 0.15, 0.15), true, false);
+        tree.update_node(Point3::new(0.85, 0.85, 0.85), true, false);
+
+        let expected: Vec<Vector3<f64>> = tree
+            .leaves_in_bbx(Point3::from(BBX_MIN), Point3::from(BBX_MAX))
+            .expect("bbox is within the tree's representable range")
+            .map(|leaf| {
+                assert!(leaf.is_occupied(), "both inserted leaves must be occupied");
+                assert!(
+                    leaf.size() <= RESOLUTION,
+                    "test setup must not trigger subdivision, got leaf size {}",
+                    leaf.size()
+                );
+                let c = leaf.coordinate();
+                Vector3::new(c.x, c.y, c.z)
+            })
+            .collect();
+        assert_eq!(
+            expected.len(),
+            2,
+            "test setup must produce exactly the two inserted leaves"
+        );
+        assert_ne!(
+            expected[0], expected[1],
+            "the two leaves' points must be disjoint, or a swapped order would pass \
+             just as well as the real one"
+        );
+
+        let actual = octree_points(BBX_MIN, BBX_MAX, RESOLUTION, &tree);
+
+        assert_eq!(
+            actual, expected,
+            "octree_points must emit points in the same leaf order leaves_in_bbx gives it"
         );
     }
 

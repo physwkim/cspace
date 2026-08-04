@@ -190,6 +190,34 @@
 //! symbol or fixture cannot be placed in one of those buckets, this section
 //! is stale and needs re-auditing before the plan is updated to match it.
 //!
+//! **Argued-only-claim sweep (round 19): 0 found, with the anchor and
+//! method so "0" does not have to be re-derived from scratch next round.**
+//! Anchor: every `.rs` file under `crates/moveit-distance-field/`
+//! (`src/*.rs` and `tests/*.rs`), grepped case-insensitively for hedge and
+//! open-question language in both English and Korean —
+//! `unverified|not verified|presumably|likely|assumed|assume[ds]?|no
+//! evidence|open (item|question|gap)|not yet
+//! (measured|verified|checked)|in principle|theoretically|by
+//! inspection|hand-wave|without (measuring|verifying|checking)|no dedicated
+//! (test|fixture)|no test (covers|exercises|checks)|not directly
+//! (tested|verified|checked)|believed|expect(ed)? to|probably|추정|짐작` —
+//! plus a second pass for `TODO|FIXME|remains open|still open|cross-language
+//! question|not (yet )?(pinned|covered|tested|confirmed|closed)|left
+//! unported|open gap`. Every hit resolved to one of three outcomes: already
+//! measured and cross-referenced (e.g. `octree_points`'s own former "open
+//! cross-language question", closed by the `octree_points` oracle op),
+//! proven unreachable by construction (e.g.
+//! `collision_sphere_free_functions_parity.rs`'s out-of-bounds early-return
+//! guard — no fixture can trigger it, and the doc proves why, not just
+//! asserts it), or a deliberately-scoped-out deviation with a named reason
+//! (e.g. the unported `writeToStream`/`readFromStream` round trip).
+//! None were open measurement claims. The one item that did not resolve
+//! this way — `LeavesInBbx`'s unread fields and unpinned cross-leaf order —
+//! is not a claim in this crate's own doc at all; it is a gap in a
+//! *different* crate's primitive that this crate's own doc now names
+//! precisely (see `octree_points`'s own doc comment) because no fixture
+//! here could ever close it.
+//!
 //! **Numeric coverage audit (PORTING-PLAN.md §90.3).** Derived by re-reading
 //! both upstream headers directly and counting every `public:`-section
 //! member, not by trusting the classification bullets above at face value —
@@ -407,6 +435,27 @@
 //! name, not per file — and when a lowered group fails, confirm by name
 //! which assertion actually tripped, since a file can mix a real gate with
 //! trapped ones behind the same `epsilon = 0.0` run.
+//!
+//! **Recounted (round 19), with the same reproducible command
+//! `moveit-geometry`'s audit script now uses** (that script strips block
+//! comments and string literals before counting — this crate has neither
+//! inside a macro call, so the fix changes nothing here, but the command
+//! form is what changed, not just the number):
+//!
+//! ```text
+//! perl crates/moveit-geometry/audit/count_relative_eq.pl \
+//!   $(find crates/moveit-distance-field -name '*.rs' | sort)
+//! both=27 epsilon_only=3 max_relative_only=0 neither=0
+//! ```
+//!
+//! `neither=0`, unchanged from before the script fix. The 3 `epsilon_only`
+//! sites are `upstream_parity.rs`'s three `epsilon = RESOLUTION`
+//! comparisons — already bisected and shown immune by construction (each
+//! compares against an exact-zero component, where `max_relative`'s
+//! implicit term reduces to `|a| <= max_relative * |a|`, false for any
+//! `max_relative < 1`), see that file's own module doc, "The 3 `epsilon =
+//! RESOLUTION` sites are a real gate". Nothing to dispose of this round —
+//! recount confirms the prior disposal, it does not change it.
 //!
 //! # Symbol audit: every public symbol under `collision_distance_field/include/`
 //!
