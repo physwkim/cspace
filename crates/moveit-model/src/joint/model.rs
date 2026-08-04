@@ -395,6 +395,19 @@ impl JointModel {
     /// lives on [`JointModel`] rather than on [`RevoluteJoint`] itself,
     /// which does not own the bounds vector.
     ///
+    /// # Deviation from upstream: the wrong-joint-type guard has no upstream
+    /// counterpart
+    ///
+    /// `setContinuous` is declared only on `RevoluteJointModel`
+    /// (`revolute_joint_model.hpp:70`), a subclass, not on the base
+    /// `JointModel` at all — calling it on any other joint type is a compile
+    /// error in C++, so upstream has no runtime check and cannot have one.
+    /// This port collapses the whole subclass hierarchy into one
+    /// [`JointModel`] with a closed [`JointKind`] enum instead (see
+    /// [`JointKind`]'s own doc comment), which makes `set_continuous`
+    /// callable on any variant, so the type-system guarantee upstream gets
+    /// for free has to become this runtime guard.
+    ///
     /// # Errors
     ///
     /// [`Error::other`] if this is not a revolute joint.
