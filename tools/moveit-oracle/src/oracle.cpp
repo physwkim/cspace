@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -4728,6 +4729,47 @@ private:
                                  { "occupancy", it->getOccupancy() } });
         }
         results.push_back(json{ { "nodes", nodes } });
+      }
+      else if (type == "serialize")
+      {
+        // The two byte streams `octomap_msgs::msg::Octomap.data` can carry,
+        // which is what a Rust decoder has to consume.
+        //
+        // `conversions.h`'s `readTree`/`binaryMsgToMap` feed `msg.data`
+        // straight to `readBinaryData`, and `fullMsgToMap` feeds it to
+        // `readData` -- neither writes or expects a `.bt`/`.ot` file header,
+        // so `writeBinaryData`/`writeData` are the exact inverses and the
+        // exact bytes that arrive on the wire. Emitting `writeBinary` here
+        // instead would prepend a header the decoder must never see.
+        //
+        // Hex rather than base64: the fixtures are compared byte-for-byte by
+        // a human as often as by a test, and `check-serde-float-roundtrip.sh`
+        // has no float to protect here.
+        //
+        // `prune()` first, matching what upstream ships: `binaryMsgFromMap`'s
+        // callers hand it a tree that has been through `updateNode`, and an
+        // unpruned tree serialises a different node set for the same
+        // occupancy. Pruning here makes the emitted bytes the ones a decoder
+        // will actually meet.
+        tree.prune();
+        std::ostringstream binary_stream;
+        tree.writeBinaryData(binary_stream);
+        std::ostringstream full_stream;
+        tree.writeData(full_stream);
+
+        const auto to_hex = [](const std::string& raw) {
+          std::ostringstream out;
+          out << std::hex << std::setfill('0');
+          for (const unsigned char byte : raw)
+            out << std::setw(2) << static_cast<unsigned>(byte);
+          return out.str();
+        };
+
+        results.push_back(json{ { "id", tree.getTreeType() },
+                                 { "resolution", tree.getResolution() },
+                                 { "node_count", static_cast<std::uint64_t>(tree.calcNumNodes()) },
+                                 { "binary", to_hex(binary_stream.str()) },
+                                 { "full", to_hex(full_stream.str()) } });
       }
       else
       {
