@@ -241,3 +241,60 @@ miscitation itself (an LGPL file's path copy-pasted into a sibling file's
 header without checking whether that sibling's *content* actually came from
 it) propagated from `lib.rs` into `newton_raphson.rs` — both cite the LGPL
 file without ever having transcribed from it.
+
+## Addendum — `cart_to_jnt.rs`, found by the post-fix re-sweep
+
+Not in the brief's named population. Found after the three files above were
+fixed, by re-running the anchor sweep (`rg 'Sachin Chitta|Ruben Smits'
+crates/moveit-kinematics/src/`) as CLAUDE.md's "Fixes from reported
+defects" protocol requires after any citation-based fix — a citation is a
+sample, not the population, and this file's defect uses a different
+signal than the other three: it carries the LGPL file's exact copyright
+line (`Copyright (c) 2013, Sachin Chitta, Willow Garage`) with **no
+`chainiksolver_vel_mimic_svd` path citation anywhere in the file** — the
+round 22 brief's own sweep (path-citation grep) structurally cannot see a
+bare copyright string with no accompanying citation, which is why it
+surfaced only here, not in the original population.
+
+`cart_to_jnt.rs`'s `Ported from` list names only
+`kdl_kinematics_plugin.cpp` (confirmed BSD, `Copyright (c) 2012, Willow
+Garage, Inc.`, `Author: Sachin Chitta, David Lu!!, Ugo Cupcic` — Chitta is
+credited, not a copyright holder) at three accurate line ranges
+(`CartToJnt` 417-497, `clipToJointLimits` 499-522, `searchPositionIK`
+303-415). The file was read in full (798 lines, all of `cart_to_jnt`,
+`clip_to_joint_limits`, `apply_full`, `error_twist`,
+`random_configuration`, `near_by_configuration`,
+`satisfies_consistency`, `search_position_ik`, and the test module) to
+confirm this: it never calls, quotes, or paraphrases anything from
+`chainiksolver_vel_mimic_svd.{hpp,cpp}` — its only interaction with the
+LGPL-adjacent velocity solve is a black-box call to `solve_velocity`
+(fixed above, `velocity.rs`), passed as an opaque function value.
+
+**Classification: header-copyright-leak only, zero bucket-1/2/3/4
+content to account for** — there is no LGPL citation to remove from
+`Ported from` (there never was one) and no upstream-justification prose
+to strip (the file's doc comments cite only `KDLKinematicsPlugin`
+methods, all BSD). The single defect is line 2's copyright grant itself,
+which is not sourced from any file this header cites — not even from
+`kdl_kinematics_plugin.cpp`, whose own copyright is `Copyright (c) 2012,
+Willow Garage, Inc.` with no Chitta copyright line at all. This is a
+copy-paste artifact (most likely picked up from a sibling file during
+authoring, before this round's fix), not a mis-scoped citation.
+
+**Fix:** drop line 2 (`Copyright (c) 2013, Sachin Chitta, Willow
+Garage`) from the header; no other line in the file changes. Confirmed by
+re-running the anchor sweep after this fix: no remaining occurrence of
+`Sachin Chitta, Willow Garage` or `Ruben Smits` anywhere in
+`crates/moveit-kinematics/src/` outside explanatory doc prose in `lib.rs`
+and `velocity.rs`, and no remaining `chainiksolver_vel_mimic_svd`
+reference outside the three files' own "why this file stays BSD" prose
+and this document.
+
+Line 1's `Copyright (c) 2008, Willow Garage, Inc.` is left unchanged.
+This is a **distinct, pre-existing inaccuracy, not the same defect**: the
+file's actual cited source (`kdl_kinematics_plugin.cpp`) is dated 2012,
+not 2008, so the year is wrong — but the copyright holder
+(`Willow Garage, Inc.`) and license class (BSD) are both correct, so this
+is not a license-compliance defect and is outside D11/§151/§152's scope
+(LGPL-vs-BSD boundary), which is what this round's brief asked for. Not
+fixed here; noted so it is not silently carried forward as if unnoticed.
