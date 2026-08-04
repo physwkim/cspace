@@ -2370,10 +2370,14 @@ mod tests {
 
     #[test]
     fn calculate_smoothness_increments_rejects_joint_costs_length_mismatch() {
+        // `calculate_smoothness_increments` reaches two `Error::other`
+        // sites: its own joint_costs-length guard, and `ChompCost::
+        // derivative`'s joint_trajectory-length guard. A bare
+        // matches!(err, Error::Other(_)) cannot tell them apart.
         let traj = trajectory(20);
         let costs = joint_costs(&traj, 1e-6);
         let err = calculate_smoothness_increments(&costs[..costs.len() - 1], &traj).unwrap_err();
-        assert!(matches!(err, Error::Other(_)));
+        assert!(err.to_string().contains("joint_costs has"));
     }
 
     #[test]
