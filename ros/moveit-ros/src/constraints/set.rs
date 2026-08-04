@@ -194,6 +194,39 @@ mod tests {
         assert_eq!(back.joint_constraints[0].joint_name, "j1");
     }
 
+    /// PORTING-PLAN.md §199 (D14): a `weight` of `0.0` is not an
+    /// unanswerable lookup (D6's actual scope -- an unresolved frame name)
+    /// but a wire default upstream's own constructors give it meaning for --
+    /// `kinematic_constraint.cpp:263` (`JointConstraint`, and the matching
+    /// lines for `PositionConstraint`/`OrientationConstraint`/
+    /// `VisibilityConstraint`) warns and substitutes `1.0` instead of
+    /// failing. `crates/moveit-constraints::JointConstraint::new` currently
+    /// rejects it with `Err` (`weight <= EPS`), so this test is red until
+    /// that crate's own D14 fix lands -- confirmed red by running this test
+    /// without `--ignored` before adding the `#[ignore]` below. Un-ignore
+    /// once the owning panel normalizes `weight` the way upstream does.
+    #[test]
+    #[ignore = "blocked on D14/§199: crates/moveit-constraints must \
+                normalize weight<=EPS to 1.0 instead of rejecting; \
+                currently red"]
+    fn unspecified_weight_is_normalized_to_one_not_rejected() {
+        let model = one_joint_model();
+        let mut unspecified_weight = joint_msg("j1");
+        unspecified_weight.weight = 0.0; // wire default: never set by the publisher
+        let msg = moveit_msgs::Constraints {
+            name: "unspecified_weight".to_string(),
+            joint_constraints: vec![unspecified_weight],
+            position_constraints: vec![],
+            orientation_constraints: vec![],
+            visibility_constraints: vec![],
+        };
+        let set = KinematicConstraintSet::try_from(ConstraintsMsg { model: &model, msg }).unwrap();
+        match &set.constraints()[0] {
+            Constraint::Joint(c) => assert_eq!(c.weight(), 1.0),
+            other => panic!("expected Joint, got {other:?}"),
+        }
+    }
+
     #[test]
     fn visibility_member_round_trips() {
         let model = one_joint_model();
