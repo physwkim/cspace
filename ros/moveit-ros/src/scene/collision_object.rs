@@ -43,18 +43,16 @@ use crate::geometry::Pose;
 /// *not* just ADD/APPEND, confirmed by reading the dispatcher, not assumed.
 pub const OCTOMAP_NS: &str = "<octomap>";
 
-const ADD: u8 = 0;
-const REMOVE: u8 = 1;
-const APPEND: u8 = 2;
-const MOVE: u8 = 3;
-
-/// `CollisionObject.operation`. Upstream compares the raw `u8` against four
-/// named byte constants (`CollisionObject::ADD` etc, all `.msg`-declared
-/// `byte` constants happening to be sequential from 0 -- a positional `u8`
-/// cast would not currently misbehave, but matching by name keeps this
-/// immune to the constants ever being renumbered, the same defensive
-/// convention `constraints::position`'s `SolidPrimitiveMsg` already uses for
-/// `SolidPrimitive.type`).
+/// `r2r` generates each `.msg`-declared `byte`/`int32` constant as its own
+/// bindgen-derived type (`moveit_msgs::CollisionObject::ADD: _bindgen_ty_404`
+/// etc, one anonymous single-variant `#[repr(u32)]` enum per constant) --
+/// referencing those instead of re-declaring the numbers here means a
+/// `third_party/moveit_msgs` repin that ever renumbers these is a compile
+/// error, not a silent value mismatch (PORTING-PLAN.md §191).
+const ADD: u8 = moveit_msgs::CollisionObject::ADD as u8;
+const REMOVE: u8 = moveit_msgs::CollisionObject::REMOVE as u8;
+const APPEND: u8 = moveit_msgs::CollisionObject::APPEND as u8;
+const MOVE: u8 = moveit_msgs::CollisionObject::MOVE as u8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollisionObjectOperation {
     /// `CollisionObject::ADD` (0).
