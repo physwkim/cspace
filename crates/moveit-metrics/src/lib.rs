@@ -935,11 +935,39 @@ mod tests {
     /// exact multiplicative relationship
     /// (`penalized == unpenalized * joint_limits_penalty`) independent of
     /// the oracle.
+    ///
+    /// Round 17: the original version of this test posed `panda_arm` at
+    /// `set_to_default_values()` (all-zero). Measured, not assumed: at that
+    /// configuration `unpenalized` is exactly `0.0` (the all-zero pose is a
+    /// kinematic singularity for this chain, `det(J J^T) == 0.0`), which
+    /// makes `unpenalized * penalty == 0.0` regardless of `penalty`'s own
+    /// value — the exact falsification this test claims to catch (dropping
+    /// the penalty factor, i.e. always `penalty == 1.0`) still produces
+    /// `penalized == 0.0 == unpenalized * penalty`, so the assertion passed
+    /// vacuously. Confirmed by deliberately hardcoding
+    /// `joint_limits_penalty` to always return `1.0` and re-running: this
+    /// test still passed at the all-zero pose. Posing the arm away from that
+    /// singularity (values drawn from this crate's own oracle fixture,
+    /// `panda_kinematics_metrics_response.json`'s first state, so they are
+    /// a real, not hand-picked, non-singular configuration) makes
+    /// `unpenalized` nonzero, and the same hardcoded-`1.0` falsification now
+    /// fails this test as intended.
     #[test]
     fn manipulability_index_scales_by_joint_limits_penalty() {
         let model = build_model();
         let mut state = RobotState::new(&model);
         state.set_to_default_values();
+        for (name, value) in [
+            ("panda_joint1", -1.786_761_282_483_162_5),
+            ("panda_joint2", -0.954_429_279_574_379_3),
+            ("panda_joint3", 1.509_848_116_235_015_7),
+            ("panda_joint4", -2.229_931_635_927_409),
+            ("panda_joint5", 0.334_922_289_471_980_33),
+            ("panda_joint6", 1.365_463_238_975_498_8),
+            ("panda_joint7", 0.945_243_850_904_563_3),
+        ] {
+            state.set_variable_position(name, value).unwrap();
+        }
         let posed = state.update();
         let group = model.joint_model_group("panda_arm").unwrap();
 
@@ -947,6 +975,7 @@ mod tests {
         let unpenalized = metrics
             .manipulability_index(&posed, "panda_arm", false)
             .unwrap();
+        assert_ne!(unpenalized, 0.0, "pose must not be a kinematic singularity");
 
         metrics.set_penalty_multiplier(1.5);
         let penalty = metrics.joint_limits_penalty(&posed, group).unwrap();
