@@ -1590,6 +1590,14 @@ mod tests {
         assert_eq!(Sphere::new(0.0).unwrap().radius, 0.0);
     }
 
+    // Assertion-discrimination sweep (round 2), the four `*_negative_*`
+    // tests below: unlike `bodies::Cylinder::recompute` (which has two
+    // *sequential* guards with distinct "radius"/"length" messages, see
+    // `bodies.rs`), this module's `Sphere::new`/`Cylinder::new`/
+    // `Cone::new`/`Cuboid::new` each reject every axis through one
+    // combined `< 0.0 || ...` check with a single shared message --
+    // verdict `single-branch` for all four, one `Error::` hit per
+    // function body.
     #[test]
     fn sphere_negative_radius_is_an_error() {
         assert!(Sphere::new(-1.0).is_err());
@@ -1625,6 +1633,8 @@ mod tests {
 
     // --- scaleAndPadd: padding that would invert a dimension ---
 
+    // Assertion-discrimination sweep (round 2): `Sphere::scale_and_padd`
+    // has exactly one `Err` site -- verdict `single-branch`.
     #[test]
     fn sphere_padding_past_negative_is_an_error() {
         let mut s = Sphere::new(1.0).unwrap();
@@ -1633,6 +1643,13 @@ mod tests {
         assert_eq!(s.radius, 1.0);
     }
 
+    // Assertion-discrimination sweep (round 2): `Cylinder::scale_and_padd_axes`
+    // has the same single combined `radius < 0.0 || length < 0.0` guard
+    // as `Cylinder::new` above (no per-axis message) -- verdict
+    // `single-branch`, regardless of this test's own care to isolate
+    // radius from length per case (that isolation matters for verifying
+    // the *padding arithmetic*, not for discriminating an error branch
+    // that doesn't exist here).
     #[test]
     fn cylinder_padding_past_negative_is_an_error_per_axis() {
         let mut radius_case = Cylinder::new(1.0, 10.0).unwrap();
@@ -1725,6 +1742,15 @@ mod tests {
         assert_eq!(b.compute_volume(), 24.0);
     }
 
+    // Assertion-discrimination sweep (round 2): `Shape::compute_volume`
+    // and `Shape::get_dimensions` each have exactly one `None`-producing
+    // arm, `Self::Cone(_) | Self::Plane(_) | Self::Mesh(_) |
+    // Self::OcTree(_) => None`, covering all four "no upstream body"
+    // variants at once. Stronger than an `rg`-counted single-branch:
+    // each loop iteration below calls the method on a *known, concrete*
+    // `Shape` variant, so Rust's exhaustive `match` guarantees only that
+    // variant's arm can execute -- there is no other arm reachable for
+    // a given call, by the type system, not by inspection.
     #[test]
     fn shapes_with_no_upstream_body_have_no_volume_or_dimensions() {
         for shape in [
@@ -1788,6 +1814,12 @@ mod tests {
         assert_eq!(mesh.extents(), Vector3::new(1.0, 0.0, 0.0));
     }
 
+    // Assertion-discrimination sweep (round 2): `Mesh::new` has exactly
+    // one `Error::construct(..)` call site (inside the nested
+    // vertex-index-range loop) -- verdict `single-branch` for the
+    // `matches!(err, Error::Construct(_))` check, one `Error::` hit over
+    // the function body, even though that one call site can fire for
+    // different (triangle, index) pairs depending on input.
     #[test]
     fn mesh_rejects_out_of_range_triangle_index() {
         let vertices = vec![Vector3::zeros(), Vector3::new(1.0, 0.0, 0.0)];
@@ -1813,6 +1845,11 @@ mod tests {
         assert!(mesh.scale_and_padd(2.0, 1.0).is_ok());
     }
 
+    // Assertion-discrimination sweep (round 2): `scale_axes`/`padd_axes`
+    // both funnel into `scale_and_padd_axes`, whose only `Err` site is
+    // the `vertex_normals.as_ref().ok_or_else(..)` (the
+    // `vertices.is_empty()` branch returns `Ok(())`, not an error) --
+    // verdict `single-branch` for both assertions.
     #[test]
     fn mesh_padding_without_vertex_normals_is_an_error() {
         let mesh_vertices = vec![
@@ -1883,6 +1920,9 @@ mod tests {
             Vector3::new(0.0, 1.0, 0.0),
         ];
         let mut mesh = Mesh::new(vertices, vec![[0, 1, 2]]).unwrap();
+        // Assertion-discrimination sweep (round 2): reads a struct field
+        // set to a literal `None` in `Mesh::new` -- not a computed
+        // branch at all, so there is nothing to discriminate.
         assert!(mesh.triangle_normals.is_none());
         mesh.compute_vertex_normals();
         assert!(mesh.triangle_normals.is_some());
