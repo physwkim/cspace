@@ -223,23 +223,23 @@
 //! `chomp_optimizer.{hpp,cpp}`, and `multivariate_gaussian.hpp` are each
 //! read in full against the pinned SHA and every symbol in them is
 //! classified above as ported (with its Rust name), D-decision-excluded
-//! (with the decision), or confirmed dead upstream (with the evidence). No
-//! numeric oracle op backs any of this round's tests either — Phase 8's
-//! completion condition uses property-based verification
-//! (`PORTING-PLAN.md` §5), not a trajectory oracle, and CHOMP specifically
-//! is not the one Phase-8 planner (`moveit-planners-pilz`) with directly
-//! comparable deterministic output. What is pinned by unit test instead:
-//! [`trajectory::ChompTrajectory`]'s copy-with-padding
-//! indexing/`full_trajectory_index_` convention, [`cost::ChompCost`]'s
-//! finite-difference boundary truncation and the mathematical soundness
-//! (residual-based, not bit-for-bit-against-Eigen) of `quad_cost_inv_` in
-//! both algorithm branches nalgebra can take — see [`cost`]'s module doc for
-//! what specifically remains unverified there pending an oracle op (see also
-//! this crate's `doc/oracle-request-quad-cost-inv.md` for this round's
-//! request, confirmed round 18 to have needed no correction to its
-//! algorithm-branch boundary claim) — [`optimizer`]'s weighted-combination
-//! and joint-limit-repair formulas, each checked against a hand-rolled
-//! recomputation of the same upstream formula, not merely "it runs" — and
+//! (with the decision), or confirmed dead upstream (with the evidence).
+//! Phase 8's completion condition otherwise uses property-based
+//! verification (`PORTING-PLAN.md` §5), not a trajectory oracle, and CHOMP
+//! specifically is not the one Phase-8 planner (`moveit-planners-pilz`) with
+//! directly comparable deterministic output — one op is the exception:
+//! `chomp_quad_cost_inverse` (round 18, requested round 17 in
+//! `doc/oracle-request-quad-cost-inv.md`), backing
+//! `tests/chomp_quad_cost_inverse_parity.rs`'s direct element-by-element
+//! comparison of [`cost::ChompCost::quadratic_cost_inverse`] against real
+//! Eigen output, closing the decomposition-family gap round 16 could only
+//! residual-check — see [`cost`]'s module doc for the measured numbers. What
+//! else is pinned by unit test: [`trajectory::ChompTrajectory`]'s
+//! copy-with-padding indexing/`full_trajectory_index_` convention,
+//! [`cost::ChompCost`]'s finite-difference boundary truncation,
+//! [`optimizer`]'s weighted-combination and joint-limit-repair formulas,
+//! each checked against a hand-rolled recomputation of the same upstream
+//! formula, not merely "it runs" — and
 //! [`multivariate_gaussian::MultivariateGaussian`]'s shape/positive-definite
 //! rejection and empirical mean/variance/correlation convergence. This
 //! section does not cover `chomp_planner` — it is out of scope this round,

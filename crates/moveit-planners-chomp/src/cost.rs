@@ -83,23 +83,31 @@
 //!     while `nalgebra` switches to a closed-form cofactor expansion --
 //!     a genuine algorithm-family difference, not just a rounding
 //!     difference.
-//!   No oracle op answers a bit-for-bit comparison against actual Eigen
-//!   output this round (deferred per the round-16 dispatch, and running
-//!   Eigen directly is out of this round's scope), so this cannot be
-//!   closed by a numeric-parity check yet. What *is* measured here:
-//!   This crate's own test
+//!   Round 16 could not close this by a numeric-parity check: no oracle op
+//!   answered a bit-for-bit comparison against actual Eigen output yet, so
+//!   what it measured was only the residual `‖quad_cost * quad_cost_inv -
+//!   I‖` for one case in each branch (`num_vars_free == 2`, `nalgebra`'s
+//!   cofactor path; `num_vars_free == 8`, its LU path) --
 //!   `quad_cost_inv_stays_a_true_inverse_across_both_algorithm_branches`
-//!   below computes the residual `‖quad_cost * quad_cost_inv - I‖` for one
-//!   case in each branch (`num_vars_free == 2`, exercising `nalgebra`'s
-//!   cofactor path, and `num_vars_free == 8`, exercising its LU path).
-//!   Measured (not guessed): the cofactor-path case's residual is exactly
-//!   `0.0`, the LU-path case's is `1.7763568394002505e-15` (one ULP-scale
-//!   rounding error), both far inside the `1e-12` tolerance the test
-//!   asserts. This confirms `nalgebra`'s answer is a numerically sound
-//!   inverse in both branches, though it cannot confirm *bit-identical*
-//!   agreement with Eigen's `PartialPivLU`-only path in the
-//!   size-4-and-under branch specifically. That residual-vs-Eigen gap is
-//!   real and stays open until an oracle op exists for it.
+//!   below, residuals `0.0` and `1.7763568394002505e-15` respectively,
+//!   confirming a numerically sound inverse in both branches but not
+//!   *bit-identical* agreement with Eigen.
+//!
+//!   **Closed, round 18.** `crates/moveit-planners-chomp/doc/oracle-request-
+//!   quad-cost-inv.md` asked for, and got, an oracle op
+//!   (`chomp_quad_cost_inverse`) that links the real upstream `ChompCost`
+//!   directly rather than a transcription, answering the actual question:
+//!   `crates/moveit-planners-chomp/tests/chomp_quad_cost_inverse_parity.rs`
+//!   compares [`ChompCost::quadratic_cost_inverse`] element-by-element
+//!   against Eigen's own output for all 5 of the request document's
+//!   boundary cases (`num_vars_free` 1/2/3/4/8, covering both branches).
+//!   Measured maxima (not bit-exact, but not the residual-only bound either):
+//!   `1.78e-15` at `num_vars_free == 1` up to `2.68e-11` at `num_vars_free
+//!   == 8`, growing with matrix size/entry magnitude rather than jumping at
+//!   the `1..=4`/`>=5` branch boundary -- the signature of accumulated
+//!   rounding from two differently-ordered decompositions, not a genuine
+//!   algorithm disagreement. See that test's own "Tolerance" doc section for
+//!   the full measurement and the `1e-7` bound it justifies.
 use crate::trajectory::ChompTrajectory;
 use crate::utils::{self, DIFF_RULE_LENGTH};
 use moveit_error::{Error, Result};

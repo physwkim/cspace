@@ -171,3 +171,20 @@ parity finding, not a rounding footnote — and this port would then need to
 decide whether `nalgebra`'s cofactor path needs to be bypassed (e.g. forcing
 `nalgebra`'s own LU path even for small matrices) to match upstream, which
 is a decision to bring back to the orchestrator, not to make unilaterally.
+
+## Closed (round 18)
+
+`chomp_quad_cost_inverse` was built (op stamp `6797447ac4dc46e9`), linking
+the real upstream `ChompCost` rather than a transcription, per this
+document's own packaging preference. All 5 cases run against the live
+oracle and compared element-by-element in
+`crates/moveit-planners-chomp/tests/chomp_quad_cost_inverse_parity.rs`:
+agreement, not a divergence — measured maxima from `1.78e-15`
+(`num_vars_free == 1`) to `2.68e-11` (`num_vars_free == 8`), growing with
+matrix size rather than jumping at the `1..=4`/`>=5` branch boundary, i.e.
+accumulated rounding from two differently-ordered decompositions, not a
+genuine algorithm disagreement. `nalgebra`'s cofactor path needs no bypass.
+`num_vars_free` also matched this document's table for every case, so
+`DIFF_RULE_LENGTH`/the free-point boundary formula are confirmed to agree
+between the two ports as a side effect. See the parity test's own doc
+comment for the full per-case numbers and the `1e-7` tolerance they justify.
