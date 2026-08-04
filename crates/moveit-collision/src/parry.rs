@@ -226,7 +226,17 @@
 //!    constants" were one real instance of (b) plus one second instance of
 //!    the *same* plateau-then-ramp mechanism as (b), not three separate
 //!    phenomena — and the seed-1 sweep's own sampled states simply never
-//!    landed in the wheel pair's ~20% ramp region.
+//!    landed in the wheel pair's ~20% ramp region. All of the above
+//!    establishes only that *this backend's* `-0.046592m` is the correct
+//!    answer to the question its own [`TriMesh`] narrow phase asks
+//!    (`pr2_self_wheel_same_pair_frozen_constant_is_a_planar_base_link_face`
+//!    confirms this by calling `parry3d_f64::query::contact` directly, not
+//!    through this backend's own pipeline). It says nothing about whether
+//!    the oracle's FCL/libccd search misses a deeper self-side contact for
+//!    this pair family: unlike (a) and (b)'s cases, a self-side pair has no
+//!    independent geometric reference the way `floor_env`'s box gives (c),
+//!    below, so that question is still open and is not resolved by anything
+//!    in this doc.
 //!
 //!    **(c) A magnitude disagreement on a pair both backends already agree
 //!    is deepest, at a single state — no ranking flip, no plateau, just two
