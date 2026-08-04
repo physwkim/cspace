@@ -840,9 +840,16 @@ impl BodyDecomposition {
         &self.relative_collision_points
     }
 
-    /// Upstream `BodyDecomposition::getBody`. Panics if `i` is out of range,
-    /// matching this crate's established panic-not-UB stance on unchecked
-    /// upstream indexing (see e.g. `VoxelGrid::get_cell`'s doc comment).
+    /// Upstream `BodyDecomposition::getBody` delegates to
+    /// `bodies::BodyVector::getBody`, which bounds-checks and returns
+    /// `nullptr` for an out-of-range `i` rather than reading past the
+    /// vector. This port panics instead, matching `VoxelGrid::get_cell`'s
+    /// panic-not-silent-default stance elsewhere in this crate rather than
+    /// upstream's own null-return here -- see [`BodyDecomposition::body`]'s
+    /// own name for why an `Option<&Body>` return wasn't chosen: every call
+    /// site in this crate derives `i` from `bodies_count()`, so an
+    /// out-of-range `i` is a caller bug, not a data-dependent case worth
+    /// propagating through the return type.
     pub fn body(&self, i: usize) -> &Body {
         &self.bodies[i]
     }
@@ -1203,10 +1210,17 @@ impl PosedBodyPointDecompositionVector {
 /// radii) -- dimensionally inconsistent, so the two sides are comparable
 /// only by coincidence rather than by construction. This looks like
 /// upstream meant to square the right-hand side (or take `.norm()` on the
-/// left) and never caught it: `test_collision_distance_field.cpp` has no
-/// case that reaches this function at all (see this module's doc), so
-/// nothing has ever exercised it. Ported byte-for-byte, since this task's
-/// mandate is matching upstream's actual behaviour, not upstream's intent.
+/// left) and never caught it: `test_collision_distance_field.cpp`'s
+/// `LinksInCollision` case *does* reach this function (its
+/// `acm_->setEntry("base_link", "base_bellow_link", false)` leaves that
+/// pair's intra-group check enabled, and `checkSelfCollision` ->
+/// `checkSelfCollisionHelper` -> `getIntraGroupCollisions` calls this
+/// function for every enabled, geometry-bearing intra-group pair), so the
+/// defect has been exercised without ever being caught -- upstream's own
+/// test suite passes with it in place, because the pinned PR2 fixture
+/// never lands in the false-negative window described below. Ported
+/// byte-for-byte, since this task's mandate is matching upstream's actual
+/// behaviour, not upstream's intent.
 /// **Do not** "fix" this by squaring the right-hand side without raising it
 /// as its own change -- that alters what counts as intersecting, which is a
 /// semantic change, not a parity fix.
@@ -1425,10 +1439,11 @@ mod tests {
 
     /// Invariant boundary: [`PosedBodyPointDecomposition::update_pose`] is a
     /// no-op when there is no [`BodyDecomposition`] to re-derive points from
-    /// (upstream's `if (body_decomposition_)` guard) -- only reachable in
-    /// this port via direct construction, since every public constructor
-    /// this crate carries sets `Some` (the octree constructor that would
-    /// leave it `None` upstream is not ported; see this module's doc).
+    /// (upstream's `if (body_decomposition_)` guard). This is also reachable
+    /// via [`PosedBodyPointDecomposition::from_octree`] (see
+    /// `from_octree_update_pose_is_a_no_op` below); this test pins the same
+    /// boundary via direct construction instead, so it isn't entangled with
+    /// `from_octree`'s own octree-walking behaviour.
     #[test]
     fn posed_body_point_decomposition_update_pose_is_noop_without_body_decomposition() {
         let original_points = vec![Vector3::new(1.0, 2.0, 3.0)];
@@ -1445,10 +1460,10 @@ mod tests {
         assert_eq!(decomp.collision_points(), original_points.as_slice());
     }
 
-    /// Upstream `BodyDecomposition::getBody` has no bounds check (unchecked
-    /// `bodies_[i]`); this port's [`BodyDecomposition::body`] panics instead
-    /// of reading out of bounds, matching this crate's established
-    /// panic-not-UB stance (see that method's own doc comment).
+    /// Upstream `BodyDecomposition::getBody` bounds-checks and returns
+    /// `nullptr` for an out-of-range index; this port's
+    /// [`BodyDecomposition::body`] panics instead, a deliberate deviation
+    /// documented on that method itself.
     #[test]
     #[should_panic(expected = "index out of bounds")]
     fn body_decomposition_body_panics_out_of_range() {

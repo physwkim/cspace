@@ -2281,10 +2281,12 @@ fn get_environment_proximity_gradients(
 /// below instead of pre-filtering `robot_model.link_models()` first. Same
 /// observable set, but as a consequence -- upstream's own, not introduced
 /// here -- an attached body on a non-group link with *no* collision
-/// geometry of its own is invisible to this field too, exactly like
-/// [`generate_distance_field_cache_entry`]'s `attached_body_names`
-/// (`collision_env_distance_field.cpp:910-925`): the outer loop `continue`s
-/// before the inner attached-body loop ever runs for that link.
+/// geometry of its own is invisible to this field too: such a link is
+/// excluded from `getLinkModelsWithCollisionGeometry()` itself
+/// (`collision_env_distance_field.cpp:910`), so upstream's own loop body
+/// (and its attached-body sub-loop, `:927`) never runs for it at all --
+/// the exclusion is the pre-filtered iteration source, not an in-loop
+/// `continue`.
 fn build_non_group_distance_field<'a>(
     robot_model: &RobotModel,
     state: &Posed<'_, '_>,
@@ -3369,8 +3371,8 @@ mod tests {
             !attached_gradient.sphere_locations.is_empty(),
             "unlike the link loop above it, group_state_representation's \
              attached-body loop must set sphere_locations at fresh-build \
-             time (collision_env_distance_field.cpp:1249) -- a real upstream \
-             asymmetry this port preserves"
+             time (collision_env_distance_field.cpp:1246-1247) -- a real \
+             upstream asymmetry this port preserves"
         );
         assert_eq!(
             attached_gradient.sphere_locations.len(),
@@ -4664,6 +4666,84 @@ mod tests {
             !res.collision,
             "check_robot_collision only consults env_distance_field -- the attached body is \
              coincident with tip, but with no points in the field this must report no collision"
+        );
+    }
+
+    /// Round 27 item 2: measures whether this crate's own cache
+    /// (`DistanceFieldCollisionCache::cache_entry`) can serve a stale
+    /// environment-collision answer after the *same* `env_distance_field`
+    /// value is mutated in place between two calls on the *same* cache --
+    /// the Rust analog of upstream's `World`-observer concern (a
+    /// `CollisionEnvDistanceField` whose `distance_field_cache_entry_world_`
+    /// must not survive a `World` mutation stale). Unlike upstream, this
+    /// port never stores `env_distance_field` as a struct field anywhere
+    /// (see [`DistanceFieldCollisionCache::check_collision`]'s own doc: it
+    /// is threaded through as an explicit `&dyn DistanceField` parameter on
+    /// every call, "the same way [`crate::PropagationDistanceField`] is
+    /// threaded through this crate wherever upstream reads it off a `World`
+    /// this port has no type for"), so [`DistanceFieldCollisionCache`]'s own
+    /// cache-key comparison (`get_distance_field_cache_entry`) never
+    /// includes it and cannot serve stale environment data -- confirmed
+    /// here empirically, not just by re-reading that doc comment.
+    #[test]
+    fn check_robot_collision_reflects_a_field_mutated_in_place_between_calls() {
+        let (model, srdf) = two_link_model_and_srdf();
+        let mut cache = chain_collision_cache(&model);
+        let acm = AllowedCollisionMatrix::from_srdf(&srdf);
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_to_default_values();
+        let posed = state.update();
+
+        let config = small_distance_field_config();
+        let mut env = PropagationDistanceField::new(
+            config.geometry,
+            config.max_propagation_distance,
+            config.use_signed_distance_field,
+        )
+        .unwrap();
+
+        let shapes = vec![sample_shape()];
+        let shape_poses = vec![Isometry3::identity()];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "gripped",
+            link_name: "tip",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+
+        let req = CollisionRequest {
+            group_name: Some("chain".to_string()),
+            ..CollisionRequest::default()
+        };
+
+        // World state 1: an object occupies the point coincident with
+        // `gripped`/`tip`'s origin.
+        let point = Vector3::new(0.0, 0.0, 0.0);
+        env.add_points_to_field(&[point]);
+        let (res, _gsr) = cache
+            .check_robot_collision(&req, &posed, Some(&acm), &[attached], &env)
+            .unwrap();
+        assert!(
+            res.collision,
+            "first query: an environment point at the coincident tip/gripped origin must \
+             register a collision"
+        );
+
+        // World state 2: the object is removed -- same `cache`, same `env`
+        // value, mutated in place, no field rebuilt from scratch and no
+        // explicit invalidation call made to `cache`.
+        env.remove_points_from_field(&[point]);
+        let (res, _gsr) = cache
+            .check_robot_collision(&req, &posed, Some(&acm), &[attached], &env)
+            .unwrap();
+        assert!(
+            !res.collision,
+            "second query, after removing the point from the same env field instance: must \
+             reflect the mutation, not a stale collision cached from the first query -- \
+             DistanceFieldCollisionCache does not store env_distance_field, so there is no \
+             cache to go stale here"
         );
     }
 
