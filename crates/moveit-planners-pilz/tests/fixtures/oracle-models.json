@@ -3,6 +3,10 @@
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "panda_blend_corner150": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_blend_radius08": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"

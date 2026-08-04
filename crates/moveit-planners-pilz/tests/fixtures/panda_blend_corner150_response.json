@@ -1,0 +1,10 @@
+{
+  "id": 0,
+  "ok": true,
+  "result": {
+    "error_code": -1,
+    "first_trajectory_input_waypoint_count": 16,
+    "second_trajectory_input_waypoint_count": 16,
+    "stage": "blend"
+  }
+}

@@ -18,11 +18,14 @@
 //! (`8 == 8`), asymmetric hits `way_point_count_1 > way_point_count_2`
 //! (`8 > 4`) -- see PORTING-PLAN.md §188.2 for both cases' measured indices.
 //!
-//! A third case moves the geometry rather than the speeds, per
+//! Two further cases move the geometry rather than the speeds, per
 //! `doc/oracle-request-pilz-blend-geometry.md`: `panda_blend_radius08`
 //! (case C) raises `blend_radius` to `0.08`, moving the intersection
 //! indices to `(5, 10)` so the two walks are exercised somewhere other than
-//! the single `(8, 7)` point A/B pin them at.
+//! the single `(8, 7)` point A/B pin them at; `panda_blend_corner150`
+//! (case D) turns the corner through 150 degrees instead of 90, and is a
+//! *rejection* case -- see its own test's doc comment and PORTING-PLAN.md
+//! §207.
 //!
 //! # No `blend_align_index` field, by design -- see PORTING-PLAN.md §188
 //!
@@ -61,12 +64,15 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use moveit_collision::{LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_error::{Error, MoveItErrorCode, Result};
 use moveit_geometry::{UnitQuaternion, Vector3};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
-use moveit_planners_pilz::trajectory_blender_transition_window::{TrajectoryBlendRequest, blend};
+use moveit_planners_pilz::trajectory_blender_transition_window::{
+    TrajectoryBlendRequest, TrajectoryBlendResponse, blend,
+};
 use moveit_planners_pilz::trajectory_functions::IkContext;
 use moveit_planners_pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PilzGenerator, StartState, TrajectoryGenerator,
@@ -98,8 +104,8 @@ struct FixtureJointLimit {
     max_deceleration: f64,
 }
 
-impl From<FixtureJointLimit> for JointLimit {
-    fn from(f: FixtureJointLimit) -> Self {
+impl From<&FixtureJointLimit> for JointLimit {
+    fn from(f: &FixtureJointLimit) -> Self {
         JointLimit {
             has_position_limits: f.has_position_limits,
             min_position: f.min_position,
@@ -123,8 +129,8 @@ struct FixtureCartesianLimits {
     max_rot_vel: f64,
 }
 
-impl From<FixtureCartesianLimits> for CartesianLimits {
-    fn from(f: FixtureCartesianLimits) -> Self {
+impl From<&FixtureCartesianLimits> for CartesianLimits {
+    fn from(f: &FixtureCartesianLimits) -> Self {
         CartesianLimits {
             max_trans_vel: f.max_trans_vel,
             max_trans_acc: f.max_trans_acc,
@@ -188,6 +194,15 @@ struct ResponseFixture {
     first_trajectory: Vec<WaypointFixture>,
     blend_trajectory: Vec<WaypointFixture>,
     second_trajectory: Vec<WaypointFixture>,
+}
+
+/// A rejected `pilz_blend` response carries `error_code` and the two input
+/// waypoint counts and nothing else -- the oracle never reaches the fields
+/// [`ResponseFixture`] requires, so a rejected fixture cannot be read
+/// through that type at all.
+#[derive(Deserialize)]
+struct RejectedResponseFixture {
+    error_code: i32,
 }
 
 /// See `pilz_trajectory_lin_parity.rs`'s identical wrapper for why the
@@ -323,15 +338,21 @@ fn compare_segment(
     }
 }
 
-fn run_case(case: &str) {
+/// Builds the model, generates the fixture's own two chained LIN segments,
+/// calls [`blend`], and hands the raw `Result` to `check` -- which is what
+/// makes a *rejected* case expressible: a driver that unwrapped the result
+/// itself could only ever express the success path, and the rejection path
+/// is exactly where this port and upstream can disagree without either
+/// producing a comparable waypoint array (PORTING-PLAN.md §207).
+///
+/// The whole pipeline is built and consumed inside one call because
+/// [`TrajectoryBlendResponse`] borrows the [`RobotModel`] this function
+/// owns; returning it would return a borrow of a local.
+fn drive_case<R>(
+    case: &str,
+    check: impl for<'m> FnOnce(&RequestFixture, usize, Result<TrajectoryBlendResponse<'m>>) -> R,
+) -> R {
     let request: RequestFixture = load_json(&format!("{case}_request.json"));
-    let response: ResponseFixture =
-        load_json::<OracleResponseEnvelope<ResponseFixture>>(&format!("{case}_response.json"))
-            .result;
-    assert_eq!(
-        response.error_code, 1,
-        "{case}: fixture's own oracle run must have succeeded"
-    );
     assert_eq!(
         request.segments.len(),
         2,
@@ -341,7 +362,7 @@ fn run_case(case: &str) {
     let (model, srdf) = load_panda();
 
     let mut joint_limits = JointLimitsContainer::default();
-    for (name, limit) in request.joint_limits {
+    for (name, limit) in &request.joint_limits {
         assert!(
             joint_limits.add_limit(name.clone(), limit.into()),
             "{case}: duplicate or invalid joint limit for {name} in fixture"
@@ -349,7 +370,7 @@ fn run_case(case: &str) {
     }
     let mut limits = LimitsContainer::new();
     limits.set_joint_limits(joint_limits);
-    limits.set_cartesian_limits(request.cartesian_limits.into());
+    limits.set_cartesian_limits((&request.cartesian_limits).into());
 
     let base = TrajectoryGenerator::new(&model, limits.clone());
     let generator = TrajectoryGeneratorLin::new(base, &request.group_name);
@@ -427,72 +448,93 @@ fn run_case(case: &str) {
         second_trajectory,
         blend_radius: request.blend_radius,
     };
-    let blend_response = blend(&ctx, &limits, &mut blend_request).unwrap_or_else(|e| {
+    check(
+        &request,
+        second_trajectory_input_waypoint_count,
+        blend(&ctx, &limits, &mut blend_request),
+    )
+}
+
+fn run_case(case: &str) {
+    let response: ResponseFixture =
+        load_json::<OracleResponseEnvelope<ResponseFixture>>(&format!("{case}_response.json"))
+            .result;
+    assert_eq!(
+        response.error_code, 1,
+        "{case}: fixture's own oracle run must have succeeded"
+    );
+
+    drive_case(
+        case,
+        |request, second_trajectory_input_waypoint_count, result| {
+            let blend_response = result.unwrap_or_else(|e| {
         panic!("{case}: blend must also succeed on the fixture's own accepted request, got {e:?}")
     });
 
-    // See this module's own doc comment on why there is no `blend_align_index`
-    // field to compare directly: recover the port's own intersection indices
-    // from the exact truncation-loop witness `blend()` leaves in its
-    // response, the same recovery PORTING-PLAN.md §188 records the oracle
-    // side performing.
-    let port_first_intersection_index = blend_response.first_trajectory.way_point_count();
-    let port_second_intersection_index = second_trajectory_input_waypoint_count
-        - blend_response.second_trajectory.way_point_count()
-        - 1;
+            // See this module's own doc comment on why there is no `blend_align_index`
+            // field to compare directly: recover the port's own intersection indices
+            // from the exact truncation-loop witness `blend()` leaves in its
+            // response, the same recovery PORTING-PLAN.md §188 records the oracle
+            // side performing.
+            let port_first_intersection_index = blend_response.first_trajectory.way_point_count();
+            let port_second_intersection_index = second_trajectory_input_waypoint_count
+                - blend_response.second_trajectory.way_point_count()
+                - 1;
 
-    assert_eq!(
-        port_first_intersection_index, response.first_intersection_index,
-        "{case}: first_intersection_index (recovered from first_trajectory's exact truncation length) must match the oracle exactly"
-    );
-    assert_eq!(
-        port_second_intersection_index, response.second_intersection_index,
-        "{case}: second_intersection_index (recovered from second_trajectory's exact truncation length) must match the oracle exactly"
-    );
+            assert_eq!(
+                port_first_intersection_index, response.first_intersection_index,
+                "{case}: first_intersection_index (recovered from first_trajectory's exact truncation length) must match the oracle exactly"
+            );
+            assert_eq!(
+                port_second_intersection_index, response.second_intersection_index,
+                "{case}: second_intersection_index (recovered from second_trajectory's exact truncation length) must match the oracle exactly"
+            );
 
-    compare_segment(
-        "first_trajectory",
-        case,
-        &blend_response.first_trajectory,
-        &response.first_trajectory,
-        0.0,
-    );
-    compare_segment(
-        "blend_trajectory",
-        case,
-        &blend_response.blend_trajectory,
-        &response.blend_trajectory,
-        // Same structural offset as `second_trajectory` below:
-        // `blend_trajectory` is a fresh `RobotTrajectory` whose first
-        // Cartesian sample's own real elapsed time is `sampling_time`
-        // (`generate_joint_trajectory_from_cartesian`'s `duration_current`
-        // for `i == 0` is `point.time_from_start`, not `0.0`), but
-        // `moveit-trajectory`'s own documented invariant --
-        // `duration_from_previous[0]` is always `0.0`, enforced
-        // structurally, not just by convention (`robot_trajectory.rs`'s own
-        // `# Deviations`, "New invariant") -- makes it structurally
-        // impossible to store that value at waypoint 0. `first_trajectory`
-        // does not need this: it is a genuine prefix of the original LIN
-        // trajectory, whose own waypoint 0 duration really was `0.0`
-        // upstream too.
-        request.sampling_time,
-    );
-    compare_segment(
-        "second_trajectory",
-        case,
-        &blend_response.second_trajectory,
-        &response.second_trajectory,
-        // See this module's own doc comment: `second_trajectory`'s waypoint 0
-        // duration is always `0.0` on this port's side, never
-        // `sampling_time` -- a permanent, documented deviation
-        // (`trajectory_blender_transition_window.rs`'s own module doc,
-        // "`response.second_trajectory`'s waypoint-0 duration is always
-        // `0.0`" section), not a bug this test should paper over with a
-        // loose blanket tolerance. Every later waypoint's
-        // `duration_from_previous` is copied unchanged, so the missing
-        // correction is a constant offset through the whole segment.
-        request.sampling_time,
-    );
+            compare_segment(
+                "first_trajectory",
+                case,
+                &blend_response.first_trajectory,
+                &response.first_trajectory,
+                0.0,
+            );
+            compare_segment(
+                "blend_trajectory",
+                case,
+                &blend_response.blend_trajectory,
+                &response.blend_trajectory,
+                // Same structural offset as `second_trajectory` below:
+                // `blend_trajectory` is a fresh `RobotTrajectory` whose first
+                // Cartesian sample's own real elapsed time is `sampling_time`
+                // (`generate_joint_trajectory_from_cartesian`'s `duration_current`
+                // for `i == 0` is `point.time_from_start`, not `0.0`), but
+                // `moveit-trajectory`'s own documented invariant --
+                // `duration_from_previous[0]` is always `0.0`, enforced
+                // structurally, not just by convention (`robot_trajectory.rs`'s own
+                // `# Deviations`, "New invariant") -- makes it structurally
+                // impossible to store that value at waypoint 0. `first_trajectory`
+                // does not need this: it is a genuine prefix of the original LIN
+                // trajectory, whose own waypoint 0 duration really was `0.0`
+                // upstream too.
+                request.sampling_time,
+            );
+            compare_segment(
+                "second_trajectory",
+                case,
+                &blend_response.second_trajectory,
+                &response.second_trajectory,
+                // See this module's own doc comment: `second_trajectory`'s waypoint 0
+                // duration is always `0.0` on this port's side, never
+                // `sampling_time` -- a permanent, documented deviation
+                // (`trajectory_blender_transition_window.rs`'s own module doc,
+                // "`response.second_trajectory`'s waypoint-0 duration is always
+                // `0.0`" section), not a bug this test should paper over with a
+                // loose blanket tolerance. Every later waypoint's
+                // `duration_from_previous` is copied unchanged, so the missing
+                // correction is a constant offset through the whole segment.
+                request.sampling_time,
+            );
+        },
+    )
 }
 
 /// Case A: segment 2 shares segment 1's `max_velocity_scaling_factor`
@@ -522,4 +564,69 @@ fn blend_panda_arm_asymmetric_matches_the_oracle() {
 #[test]
 fn blend_panda_arm_radius08_matches_the_oracle() {
     run_case("panda_blend_radius08");
+}
+
+/// Case D: case A's exact `blend_radius` and speeds at a 150 degree corner
+/// instead of 90.
+///
+/// `doc/oracle-request-pilz-blend-geometry.md` requested this case as an
+/// interpolation test and predicted it would succeed on both sides. The
+/// oracle rejects it: `generateJointTrajectory` fails the 4th blend sample
+/// on `panda_joint2`'s deceleration limit (`-2.50863` against a `-1.875`
+/// limit). So the case is a *rejection*-parity case, and its value is that
+/// both implementations reject the same request for the same reason --
+/// which is not a weaker result than the interpolation comparison it
+/// replaces, because a port that accepted this request would be silently
+/// emitting a trajectory upstream considers dynamically infeasible.
+/// PORTING-PLAN.md §207.
+///
+/// "Same reason" is measured, not inferred from the matching error code: a
+/// temporary `eprintln!` in `verify_sample_joint_limits`'s deceleration
+/// branch and in `generate_joint_trajectory_from_cartesian`'s per-sample
+/// loop (applied, run, reverted) shows this port rejecting at sample `4` on
+/// `panda_joint2` with `acceleration_current = -2.5086292326350526` --
+/// upstream's own log line for the same request reads `Joint deceleration
+/// limit of panda_joint2 violated ... Actual joint deceleration is
+/// -2.50863` at the 4th sample. Same joint, same sample, same number to
+/// every digit upstream prints.
+#[test]
+fn blend_panda_arm_corner150_is_rejected_like_the_oracle() {
+    let response: RejectedResponseFixture = load_json::<
+        OracleResponseEnvelope<RejectedResponseFixture>,
+    >("panda_blend_corner150_response.json")
+    .result;
+    assert_eq!(
+        response.error_code, -1,
+        "panda_blend_corner150: this fixture exists because the oracle rejected it; \
+         a re-capture that now succeeds means the case changed, not that the port improved"
+    );
+
+    drive_case("panda_blend_corner150", |_request, _count, result| {
+        // `expect_err` is unavailable here: `TrajectoryBlendResponse` is not
+        // `Debug`, and making it `Debug` to satisfy one test assertion would
+        // be a production change driven by test convenience.
+        let Err(error) = result else {
+            panic!(
+                "panda_blend_corner150: the oracle rejects this blend on panda_joint2's \
+                 deceleration limit; this port accepting it would emit a trajectory upstream \
+                 considers dynamically infeasible"
+            )
+        };
+        // Compared as the raw wire `int32` the oracle actually emitted, not
+        // against a hard-coded variant: the point of the case is that both
+        // sides reject for the *same* reason, and `InvalidMotionPlan` (`-2`,
+        // what `search_intersection_points` returns when the geometry itself
+        // is unreachable) would pass a bare "it errored" check while meaning
+        // something entirely different from upstream's `-1`.
+        let Error::Code(code) = error else {
+            panic!("panda_blend_corner150: expected a MoveItErrorCode, got {error:?}")
+        };
+        assert_eq!(
+            code.as_i32(),
+            response.error_code,
+            "panda_blend_corner150: the port must reject with the oracle's own error code \
+             ({}), not merely reject",
+            MoveItErrorCode::from(response.error_code),
+        );
+    })
 }
