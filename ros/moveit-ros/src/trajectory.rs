@@ -30,12 +30,43 @@ fn duration_seconds(d: &r2r::builtin_interfaces::msg::Duration) -> f64 {
     d.sec as f64 + d.nanosec as f64 * 1e-9
 }
 
-fn seconds_to_duration(t: f64) -> r2r::builtin_interfaces::msg::Duration {
-    let sec = t.floor();
-    r2r::builtin_interfaces::msg::Duration {
-        sec: sec as i32,
-        nanosec: ((t - sec) * 1e9).round() as u32,
+/// `t` -> `builtin_interfaces/Duration {sec: i32, nanosec: u32}`.
+///
+/// PORTING-PLAN.md §172: narrowing a `double` to `int`/`unsigned` is UB in
+/// C++ for out-of-range magnitude, a negative value, and `NaN` alike, while
+/// Rust's `as` instead saturates or zeroes -- neither is "the same answer"
+/// upstream gives, and there is no upstream answer to compare against for
+/// an input in that range. §153.1: this crate has no legitimate negative,
+/// non-finite, or beyond-`i32::MAX`-second `time_from_start` (a
+/// `RobotTrajectory` spanning more than ~68 years), so those inputs are
+/// rejected here rather than silently saturated or zeroed. Expires only if
+/// a caller needs to represent a trajectory that long.
+fn seconds_to_duration(t: f64) -> moveit_error::Result<r2r::builtin_interfaces::msg::Duration> {
+    if !t.is_finite() || t < 0.0 || t > i32::MAX as f64 {
+        return Err(Error::construct(format!(
+            "time_from_start {t}s is negative, non-finite, or exceeds \
+             i32::MAX seconds; cannot represent as builtin_interfaces/Duration \
+             (PORTING-PLAN.md §172)"
+        )));
     }
+    let sec = t.floor();
+    let mut nanosec = ((t - sec) * 1e9).round();
+    let mut sec = sec as i32;
+    // `t - sec` (pre-cast `sec`) is in [0, 1) for any finite `t` (`sec` is
+    // its floor), so `nanosec` before rounding is in [0, 1e9) -- but
+    // rounding a value just under 1e9 can itself land exactly on 1e9,
+    // which is not a valid Duration.nanosec. Carry that one nanosecond
+    // into `sec` instead of emitting it: a nonzero carry means `t` had a
+    // nonzero fractional part, so `sec < t <= i32::MAX` (the guard above),
+    // meaning `sec <= i32::MAX - 1` and `sec + 1` cannot overflow `i32`.
+    if nanosec >= 1e9 {
+        nanosec -= 1e9;
+        sec += 1;
+    }
+    Ok(r2r::builtin_interfaces::msg::Duration {
+        sec,
+        nanosec: nanosec as u32,
+    })
 }
 
 fn set_point_array(
@@ -134,8 +165,13 @@ impl<'m> TryFrom<JointTrajectoryMsg<'m>> for RobotTrajectory<'m> {
 impl<'m> TryFrom<RobotTrajectory<'m>> for JointTrajectoryMsgOut {
     type Error = Error;
 
-    /// Total: every waypoint is a full [`RobotState`] over the same model,
-    /// so `joint_names`/positions always line up.
+    /// Every waypoint is a full [`RobotState`] over the same model, so
+    /// `joint_names`/positions always line up -- but not total: `dt`
+    /// (`RobotTrajectory::add_suffix_way_point`'s parameter, `moveit-trajectory`)
+    /// carries no validation of its own, so a negative, non-finite, or
+    /// beyond-`i32::MAX`-second cumulative time can reach [`seconds_to_duration`],
+    /// which now rejects it (PORTING-PLAN.md §172) rather than silently
+    /// saturating or zeroing it into the output message.
     fn try_from(traj: RobotTrajectory<'m>) -> Result<Self, Self::Error> {
         let joint_names = traj.robot_model().variable_names().to_vec();
         let mut points = Vec::with_capacity(traj.way_point_count());
@@ -161,7 +197,7 @@ impl<'m> TryFrom<RobotTrajectory<'m>> for JointTrajectoryMsgOut {
                 } else {
                     Vec::new()
                 },
-                time_from_start: seconds_to_duration(t),
+                time_from_start: seconds_to_duration(t)?,
             });
         }
         Ok(JointTrajectoryMsgOut(trajectory_msgs::JointTrajectory {
@@ -255,5 +291,75 @@ mod tests {
             back.way_point(1).unwrap().variable_position("j1").unwrap(),
             1.0
         );
+    }
+
+    // PORTING-PLAN.md §172: boundaries of `seconds_to_duration`'s f64 -> i32/u32
+    // narrowing, not narrative scenarios -- the truncation/saturation edge and
+    // the value just short of it, negative, NaN, infinity, and zero.
+
+    #[test]
+    fn seconds_to_duration_accepts_zero() {
+        let d = seconds_to_duration(0.0).unwrap();
+        assert_eq!((d.sec, d.nanosec), (0, 0));
+    }
+
+    #[test]
+    fn seconds_to_duration_accepts_i32_max_seconds() {
+        let d = seconds_to_duration(i32::MAX as f64).unwrap();
+        assert_eq!((d.sec, d.nanosec), (i32::MAX, 0));
+    }
+
+    #[test]
+    fn seconds_to_duration_rejects_just_above_i32_max_seconds() {
+        let err = seconds_to_duration(i32::MAX as f64 + 1.0).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn seconds_to_duration_rejects_negative() {
+        let err = seconds_to_duration(-0.001).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn seconds_to_duration_rejects_nan() {
+        let err = seconds_to_duration(f64::NAN).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn seconds_to_duration_rejects_infinity() {
+        let err = seconds_to_duration(f64::INFINITY).unwrap_err();
+        assert!(matches!(err, Error::Construct(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn seconds_to_duration_carries_a_rounding_tie_into_seconds() {
+        // 5.0 + 0.9999999999s: the fractional part rounds to exactly 1e9
+        // nanoseconds, which is not a valid `Duration.nanosec` -- must carry
+        // into `sec` rather than emitting `nanosec == 1_000_000_000`.
+        let d = seconds_to_duration(5.9999999999).unwrap();
+        assert_eq!((d.sec, d.nanosec), (6, 0));
+    }
+
+    #[test]
+    fn negative_cumulative_duration_from_an_unvalidated_trajectory_is_rejected() {
+        // `RobotTrajectory::add_suffix_way_point`'s `dt` has no validation of
+        // its own (`moveit-trajectory`) -- a trajectory built directly, not
+        // through `JointTrajectoryMsg`'s own `dt < 0.0` check, can carry a
+        // negative duration into this crate's msg export boundary.
+        let model = one_joint_model();
+        let mut traj = RobotTrajectory::new(&model);
+        let mut s0 = RobotState::new(&model);
+        s0.set_variable_position("j1", 0.0).unwrap();
+        traj.add_suffix_way_point(s0, 0.0).unwrap();
+        let mut s1 = RobotState::new(&model);
+        s1.set_variable_position("j1", 1.0).unwrap();
+        traj.add_suffix_way_point(s1, -1.0).unwrap();
+
+        match JointTrajectoryMsgOut::try_from(traj) {
+            Err(err) => assert!(matches!(err, Error::Construct(_)), "got: {err:?}"),
+            Ok(_) => panic!("expected a negative cumulative duration to be rejected"),
+        }
     }
 }
