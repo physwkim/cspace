@@ -125,6 +125,87 @@ correct fix, not a patch standing in for a deferred structural one.
 |---|---|---|---|---|
 | `crates/moveit-stomp-core/src/stomp.rs`, all 9 `create_3dof_configuration` call sites | Only 1 of 9 is cancellation/iteration-count sensitive; the helper's default should not change | CONFIRMED, 9/9 sites enumerated and classified above | Read every call site's body in this tree | (pending, see report) |
 
+## Mutation-probe evidence for the `create_3dof_configuration` sweep, per §201 (this round)
+
+The sweep above (rows 89-94) classified six convergence tests as
+"distinct -- *wants* the early-valid break" by reading the source, with
+no measurement backing that reading. §201: a classification that
+decides against a structural fix is a claim, and claims need
+reproducible evidence, not a one-time reasoning pass. The coordinator
+measured it by hand first -- disabling `update_parameters`'s
+accept-path accumulation (`self.parameters_optimized +=
+&self.parameters_updates;`, `stomp.rs:1049`) and re-running this
+crate's tests -- and found it fails five of the six:
+`solve_default_converges_to_the_bias_trajectory_from_endpoints`,
+`solve_with_linear_interpolated_initial_trajectory_converges`,
+`solve_with_cubic_polynomial_initial_trajectory_converges`,
+`solve_with_minimum_control_cost_initial_trajectory_converges`,
+`solve_with_40_timesteps_converges`. This worker reproduced that result
+independently and then extended it to all 9 sites, which surfaced a
+sixth case the coordinator's report did not mention either way:
+`solve_with_60_timesteps_converges` does **not** fail under the same
+mutation.
+
+That reproduction is now permanent and re-runnable, not a one-time
+hand edit: `Stomp::disable_accept_update_for_test`
+(`crates/moveit-stomp-core/src/stomp.rs`, a `#[cfg(test)]`-only field,
+absent from release builds) skips exactly the accept-path `+=`, the
+same single line disabled by hand. Two tests exercise it --
+`stomp::tests::each_convergence_test_fails_if_the_accept_path_update_is_disabled`
+(the five confirmed-sensitive scenarios, each asserted to fail with the
+line disabled) and
+`stomp::tests::solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe`
+(the sixth scenario, asserted to *still pass* with the line disabled,
+pinning the gap rather than hiding it). Both tests carry the full
+mechanism in their own doc comments; not restated here beyond the
+summary below.
+
+Root cause of the probe's differential coverage, traced with temporary
+`eprintln!` instrumentation on `solve`/`compute_optimized_cost`
+(removed before this commit): every one of these six tests, mutated or
+not, runs its optimization loop **exactly once**. `create_3dof_configuration`'s
+`num_iterations_after_valid: 0` breaks the loop as soon as one valid
+iteration is seen, and the seed itself (from `compute_initial_trajectory`,
+before any rollout/update touches it) is already `parameters_valid` at
+the pre-loop cost check for every initialization method these tests
+use -- confirmed by counting `compute_optimized_cost` calls per test:
+exactly two (the pre-loop call, then one real loop iteration), for all
+six, mutated and unmutated alike. `num_iterations`/`num_iterations_after_valid`
+overrides of 40 or 100 on several of these tests are therefore inert:
+none of them ever run more than one real iteration regardless. That
+single iteration's reject-branch (`compute_optimized_cost`'s "cost did
+not improve" path) always fires on these six unmutated too, and its
+`+=` then `-=` of the same, unmodified `parameters_updates` cancel
+exactly -- which is why the *unmutated* tests converge trivially (the
+seed alone already satisfies `BIAS_THRESHOLD`) rather than because many
+iterations of real optimization ran. Disabling only the `+=` breaks
+that cancellation: `parameters_optimized` ends up shifted from the seed
+by exactly `parameters_updates`, and whether that shift's per-element
+magnitude clears `BIAS_THRESHOLD` (0.05) depends on the fixed
+`ChaCha8Rng` seed (`DummyTask::new`'s `seed: u64` -- 5 for the
+40-timestep test, 6 for the 60-timestep test) and on how many columns
+dilute it (40 vs 60). Measured: `update_norm` (Frobenius norm of
+`parameters_updates`) was ~0.615 for the 40-timestep/seed-5 case
+(fails) and ~0.198 for the 60-timestep/seed-6 case (passes). This is
+coincidental to the fixed seed, not a difference in whether real
+optimization is exercised -- both scenarios depend on the identical
+mechanism, they just land on opposite sides of the threshold for this
+particular seed pair.
+
+**What the original sweep's classification still gets right:** all six
+tests' `compare_diff` assertions genuinely depend on the seed landing
+close to the bias trajectory, and `num_iterations_after_valid: 0`
+existing to produce that promptly (not masking anything) is confirmed,
+not just asserted, for five of six. **What it does not establish:** that
+this dependency is *reliably measurable* by this one mutation for the
+sixth (`solve_with_60_timesteps_converges`) -- that is weak, seed-lucky
+coverage, honestly left open rather than papered over by picking a
+different seed to force a fail.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-stomp-core/src/stomp.rs`, six `compare_diff`-asserting `create_3dof_configuration` sites (sweep rows 89-94) | Five genuinely depend on `update_parameters`'s accept-path accumulation, reproducibly; the sixth (`solve_with_60_timesteps_converges`) does not reliably, for a measured, seed-dependent reason, not a defect in that test | CONFIRMED for 5/6 (permanent regression tests), OPEN/known gap for 1/6 (`solve_with_60_timesteps_converges`), both pinned by tests rather than left in chat | `stomp::tests::each_convergence_test_fails_if_the_accept_path_update_is_disabled`, `stomp::tests::solve_with_60_timesteps_converges_is_a_known_gap_in_this_probe`, both run under `cargo nextest run -p moveit-stomp-core` | (pending, see report) |
+
 ## §194 port-only API sweep (this round): `moveit-stomp-core`
 
 Reviewer's ask, after `a682f63` confirmed `Stomp::with_cancel_handle`
