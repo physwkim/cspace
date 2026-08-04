@@ -14848,3 +14848,69 @@ p3-acm의 `585a79e`가 그대로 재현했다. 되돌리면 id 5가 정확히 �
 정확하다. 디스크의 산출물은 옳고 서술만 넘어갔다. 병합하는 쪽이 §119.1을
 열어보지 않았으면 그 서술에서 결론을 가져갔을 것이다 — 워커 보고를 중계하지
 말고 검증하라는 규칙이 커밋 품질과 무관하게 필요한 이유다.
+
+## §193 §185 종결 — 그리고 담요 tolerance가 삼켰을 것을 두 개의 명시적 오프셋이 드러냈다
+
+p1-joints가 `pilz_blend_parity.rs`를 넣었다(`639df34`). 블렌더는 이번 라운드에
+자기 일관성 테스트 열둘에 외부 대조 0에서, 오라클에 고정된 파리티 테스트 둘로
+갔다. §185가 연 구멍이 닫혔다.
+
+받아 적지 않고 판별력을 직접 쟀다: smoothstep의 `alpha`에 `+1e-7`을 더하면 —
+그 패널이 설정한 가속도 tolerance `1.2e-6`보다 **작은** 섭동인데도 — 두 테스트가
+모두 실패한다. tolerance 표가 측정에서 나왔다는 주장이 실제로 성립한다.
+
+| 필드 | 측정 최대 | 설정 |
+|---|---:|---:|
+| time | 1.0e-9 | 1e-6 |
+| position | 2.28e-9 | 1e-8 |
+| velocity | 1.96e-8 | 8e-8 |
+| acceleration | 2.91e-7 | 1.2e-6 |
+
+LIN 픽스처의 `POSITION_TOLERANCE`(`1.26e-5`)보다 세 자릿수 이상 빡빡하다.
+이웃 상수를 가져다 쓰지 않고 쟀기 때문에 나온 차이다.
+
+### 193.1 담요 tolerance였으면 못 봤을 것
+
+첫 측정 패스에서 `time_from_start`에 `~0.1s`(= `sampling_time`) 어긋남이
+나왔다. 그 크레이트 안에 이미 설명이 하나 있었다 — `second_trajectory`의
+"waypoint-0 duration은 항상 `0.0`"이라는 지역 deviation 주석. 거기서 멈추고
+`TIME_TOLERANCE`를 `0.2`로 잡았으면 테스트는 통과했을 것이고 아무도 몰랐을
+것이다.
+
+세그먼트별로 최대 어긋남을 따로 추적하자 `blend_trajectory`도 **같은** 오프셋을
+갖는 것이 보였고, 이유가 지역 deviation이 아니라 크레이트 전역 불변식이었다 —
+`robot_trajectory.rs`의 "New invariant" 절, `duration_from_previous[0]`은 새로
+만들어지는 **모든** `RobotTrajectory`에서 `0.0`이다. 문서화된 자리가 하나뿐이라고
+적용 범위가 하나인 것이 아니다.
+
+두 오프셋을 각각 명시하고 불변식을 인용했다. 담요 tolerance 하나로 덮었으면
+그 크기의 미래 실제 divergence도 같이 삼켰을 것이다. **오차의 원인을 알면
+tolerance가 아니라 오프셋으로 처리한다** — tolerance는 모르는 잡음의 크기이지
+아는 상수의 자리가 아니다. 오프셋을 지우면 테스트가 실패하는 것까지 확인됐다.
+
+### 193.2 변이 테스트가 찾은 셋 — 전부 마스킹 기제가 특정됐다
+
+브리프대로 열두 테스트를 변이시켰고 셋이 살아남았다. 셋 다 "테스트가 약하다"가
+아니라 **무엇이 가렸는지**가 특정됐다:
+
+- `validate_request_rejects_blend_radius_at_or_below_zero`(`5554ec1`) —
+  두 궤적을 체이닝 없이 독립 생성해서, 몇 줄 앞의 경계 상태 검사가 같은
+  `InvalidMotionPlan`으로 먼저 거부하고 있었다. 정작 시험 대상인
+  `blend_radius <= 0.0`은 지워도 통과했다. 직접 재현했다 —
+  `if false && req.blend_radius <= 0.0`으로 바꾸니 수정 후 테스트는 실패한다.
+- `search_intersection_points_rejects_a_radius_larger_than_...`(`52d597b`) —
+  fixture가 너무 작아 `?`로 엮인 두 호출이 각각 독립적으로 실패했고, 그래서
+  어느 쪽 실패인지 테스트가 구분할 수 없었다. 두 테스트로 쪼개 각각을 알려진
+  교차 궤적과 짝지었다.
+- `blend_produces_a_continuous_trajectory_through_the_shared_boundary`(`83dc4ff`)
+  — waypoint 수 단언이 비엄격 `<=`였다. 두 복사 루프의 같은 방향 off-by-one은
+  `<=`를 여전히 만족한다. **자기가 잡으라고 존재하는 오류를 잡을 수 없는
+  경계였다.**
+
+### 193.3 남은 것: 기하가 한 자리에 고정돼 있다
+
+두 케이스 모두 `first_intersection_index == 8`이고 코너 위치가 같다. 바뀌는
+것은 세그먼트 2의 속도뿐이다. 즉 `search_intersection_points`의 후방/전방 탐색은
+각각 **한 값에서만** 고정됐고, `determine_trajectory_alignment`는 두 분기가
+고정됐을 뿐 인덱스 범위에 걸친 산술은 아니다. 다음 라운드에 `blend_radius`와
+코너 각도를 움직이는 3·4번 케이스를 요청 문서로 받기로 했다.
