@@ -7,6 +7,10 @@
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "totg_path": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "totg_robot_trajectory": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"

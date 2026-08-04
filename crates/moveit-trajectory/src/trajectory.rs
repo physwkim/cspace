@@ -1029,6 +1029,71 @@ mod tests {
     /// `CircularPathSegment` geometry, not a generic property of
     /// `Trajectory::create`'s iteration.
     ///
+    /// # Round 13: the requested oracle query, and narrowing further
+    ///
+    /// The per-`CircularPathSegment` `start_dot_end`/`angle`/`radius`/
+    /// `center`/`x`/`y` query requested above could not be built as asked:
+    /// `CircularPathSegment` is declared in
+    /// `time_optimal_trajectory_generation.cpp` (not the header) and
+    /// `Path::getPathSegment` is `private`, so no public accessor reaches
+    /// them. The orchestrator's round-13 substitute, the `totg_path` oracle
+    /// op (`tests/totg_path_parity.rs`), recovers `radius` (`1 /
+    /// path.curvature(s).norm()` inside a blend) and `angle` (switching-
+    /// point arc length) through `Path`'s existing public surface, but not
+    /// `center`/`x`/`y` -- a basis choice internal to the blend's
+    /// construction, not an observable quantity. That fixture's own
+    /// measurement: `Path` output for this exact waypoint set agrees with
+    /// the oracle to `config` max `2.27e-13`, `tangent` max `1.05e-15`,
+    /// `curvature`/`curvature_norm` max `2.17e-17` -- i.e. `Path` itself is
+    /// not the site of this test's `8.893e-9` `duration()` gap, confirming
+    /// round 12's isolation from the geometry side.
+    ///
+    /// Item 2 narrows from the other direction: *when*, along the
+    /// trajectory's own timeline, does [`Trajectory::position`]/
+    /// [`Trajectory::velocity`] first depart from the oracle's values.
+    /// Measured by feeding the existing `totg` op's `sample_times` (no new
+    /// op needed) a dense grid across `[0, oracle's own duration]` for this
+    /// same waypoint set --
+    /// `sg docker -c '.../run-oracle.sh --urdf .../panda.urdf --srdf
+    /// .../panda.srdf < ndjson'`, NDJSON built the same way
+    /// `tools/ci/verify-fixture-replay.sh` does (one compact `{cases, id,
+    /// op}` object per line, not a top-level JSON array) -- then comparing
+    /// each sample's `position`/`velocity` against this port's own output
+    /// at the identical `time`, with `path_pos` (arc length `s`) read off
+    /// via [`Trajectory::position_at`] for correlation against the blend
+    /// boundaries above. A first pass (25 points) found both `position` and
+    /// `velocity` diffs sitting at [`Path`]'s own ~`1e-13`/`1e-16` floor for
+    /// every sample up to `t=1521.6956255061` (`s≈1107.18`), then visibly
+    /// larger (`pos_diff` `2.7e-12`, growing to a `2.85e-9` peak near
+    /// `s≈1187.7` before settling back toward `0` at the trajectory's end)
+    /// from `t=1601.7848689538` (`s≈1133.93`) on. A second, finer pass (9
+    /// points) inside that bracket narrowed the onset further:
+    /// `vel_diff` is still floor (`3.5e-14`) at `t=1571.7514026609`
+    /// (`s≈1123.77`) and has jumped about 500x, to `1.76e-11`, by
+    /// `t=1581.7625580919` (`s≈1127.19`) -- `pos_diff` follows one sample
+    /// later. Both bracketing `s` values (`1123.77`, `1127.19`) fall
+    /// strictly inside blend 3's span (`[1084.8016572321708,
+    /// 1163.3414735719157]`, radius ≈ 50) from round 12/13's own
+    /// measurement -- roughly 50-54% of the way through it, not at either
+    /// boundary. Two things this rules out: an initial-condition bug (the
+    /// floor holds from `t=0` through more than three-quarters of the
+    /// trajectory first) and a switching-point-discontinuity artifact (the
+    /// onset is well inside the blend, not at either of its endpoints).
+    /// What it confirms instead: blend 3 is also the one of the three
+    /// blends round 12/13's ULP measurement found carrying the largest
+    /// curvature disagreement from upstream (`+2, +3, +2` ULP, versus `0,
+    /// 0, 0` and `0, 0, -1` for blends 1/2) -- the same blend this
+    /// independent time-domain bisection now finds as the divergence's
+    /// origin. This does not identify a new root cause beyond round 12's
+    /// (still traced to `CircularPathSegment` construction, most likely
+    /// Eigen's live `dot`/`normalize` or transcendental evaluation
+    /// returning a different bit pattern than nalgebra's for this blend's
+    /// particular inputs); it narrows *where* that few-ULP geometric
+    /// difference first becomes visible in [`Trajectory`]'s own output --
+    /// partway through blend 3, not before -- and traces its growth from
+    /// there through the rest of the switching-point search and Euler
+    /// integration out to the `8.893e-9` seen at `duration()`.
+    ///
     /// The two `epsilon = 0.1` velocity checks below are `EXPECT_NEAR(0.0,
     /// …, 0.1)` transcribed verbatim (upstream lines 156/157) -- excluded
     /// from round 12's `trajectory.rs` epsilon bisection per

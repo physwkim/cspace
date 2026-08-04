@@ -257,6 +257,12 @@
 //!   per invariant boundary (below the two-waypoint minimum, duplicate
 //!   consecutive waypoints, a zero-length path, a velocity-saturating
 //!   straight line, `upstream_test2`'s general case).
+//! - `tests/totg_path_parity.rs` — the oracle's `totg_path` op:
+//!   [`Path`] geometry alone (`length`/`config`/`tangent`/`curvature`), no
+//!   [`Trajectory`] timing, against `upstream_test2`'s five waypoints
+//!   sampled strictly inside each blend segment. Isolates `Path`
+//!   construction from `Trajectory::create`'s switching-point search, so a
+//!   future regression in one does not hide inside the other's tolerance.
 //! - `tests/totg_robot_trajectory_parity.rs` — the same `totg` op's
 //!   group-driven branch (`compute_time_stamps_with_limits`, the
 //!   `RobotTrajectory` adapter) against a real `panda_arm` trajectory.
@@ -309,13 +315,13 @@
 //!   calling that function directly.
 //!
 //! Every oracle-backed fixture above is registered in
-//! `tests/fixtures/oracle-models.json` (`ruckig`, `totg`,
+//! `tests/fixtures/oracle-models.json` (`ruckig`, `totg`, `totg_path`,
 //! `totg_robot_trajectory`, `totg_robot_trajectory_scaling_only`,
 //! `totg_synthetic`, each naming the URDF/SRDF pair its request/response
 //! JSON was captured against), and every key there matches a real
-//! `op == "..."` (or, for the three `totg_*` variants, a `"group"`-key
-//! branch inside the single `op == "totg"` dispatch) in
-//! `tools/moveit-oracle/src/oracle.cpp`.
+//! `op == "..."` (`totg_path` is its own dispatch case, distinct from the
+//! `"group"`-key branches inside `op == "totg"` that the three other
+//! `totg_*` variants use) in `tools/moveit-oracle/src/oracle.cpp`.
 //!
 //! **What is still missing, and why it is not a gap in the above:** every
 //! item is already named individually in the two symbol-audit sections
