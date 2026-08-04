@@ -140,16 +140,28 @@ test-module note already documents for the same `A^T * A` shape
 (`filter_functions.rs:142-152`, "no realistic `(num_timesteps, dt)`
 input... makes it singular"). Backed empirically here too, not just
 asserted: `noise_generators::tests::num_timesteps_never_produces_a_covariance_multivariate_gaussian_new_rejects`
-checks `num_timesteps` `1..=60` **contiguously** (past the largest
-`num_timesteps` any test or fixture in this workspace uses,
-`solve_with_60_timesteps_converges`'s `60`), plus the four sampled
+checks `num_timesteps` `1..=60` **contiguously**, plus the four sampled
 points `80`, `100`, `150`, `200` -- **not** a contiguous sweep to 200;
 `61..=199` other than those four points is not checked. (Corrected
 here per `8351f8d`, which fixed the identical over-broad "1..=200"
 wording in this test's own doc comment; this paragraph restated the
-same claim in a second place and was not caught by that fix.) See
-Item 3 below for the conditioning numbers behind why this coverage was
-judged sufficient without being contiguous all the way to 200.
+same claim in a second place and was not caught by that fix.) `60`
+itself is not tied to any real usage -- checked this round (Item 1
+below) and found the doc's prior justification ("past the largest
+`num_timesteps` any test or fixture in this workspace uses,
+`solve_with_60_timesteps_converges`'s `60`") was itself an instance of
+the same over-broad-claim shape: `cost_functions.rs:432` uses
+`num_timesteps = 100` in this crate's own tests, and
+`solve_with_60_timesteps_converges` doesn't even exercise this
+function's covariance path (its `MultivariateGaussian::new` call is a
+different, diagonal-and-trivially-PD covariance in
+`moveit-stomp-core`'s own `DummyTask::new`, not the
+acceleration-Gram-matrix-inverse shape `normal_distribution_generator`
+builds). The real largest `num_timesteps` any call to this function
+makes anywhere in this workspace's own tests is `planner.rs`'s `15`;
+`60` is a round number chosen well past that, nothing more. See Item 3
+below for the conditioning numbers behind why the resulting coverage
+was judged sufficient without being contiguous all the way to 200.
 
 **Conclusion:** not the same defect family as D14. There is no
 upstream-accepted wire value this port's stricter `new` silently

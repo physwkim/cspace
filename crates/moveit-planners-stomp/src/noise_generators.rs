@@ -322,16 +322,23 @@ mod tests {
     /// were wrong in practice, not just in theory.
     ///
     /// What is actually covered, exactly: `1..=60` **contiguously**, plus
-    /// the four sampled points `80`, `100`, `150`, `200`. The contiguous
-    /// part covers every `num_timesteps` this workspace's own STOMP tests
-    /// and fixtures use (the largest is
-    /// `solve_with_60_timesteps_converges`'s `60`); the four sampled points
-    /// probe an order of magnitude further without paying `O(n^3)`
-    /// `full_piv_lu`/Cholesky cost at every intermediate `n` and making
-    /// this test the slow one in the suite. `61..=199` other than those
-    /// four is **not** checked -- stated because "1..=200" reads as a
-    /// contiguous sweep and is not one (PORTING-PLAN.md §189: prose that
-    /// describes a measurement more broadly than the measurement).
+    /// the four sampled points `80`, `100`, `150`, `200`. `60` is not tied
+    /// to any specific real usage -- the largest `num_timesteps` any call
+    /// to *this function* makes anywhere in this workspace's own tests is
+    /// `planner.rs`'s `15`
+    /// (`plan_finds_a_lower_cost_trajectory_than_the_initial_straight_line_through_an_obstacle`);
+    /// `60` is a round number chosen well past that,
+    /// not a value read off `solve_with_60_timesteps_converges`, whose
+    /// `MultivariateGaussian::new` call is a different, diagonal-and-
+    /// trivially-PD covariance (`moveit-stomp-core`'s own
+    /// `DummyTask::new`), not the acceleration-Gram-matrix-inverse shape
+    /// this function builds. The four sampled points probe an order of
+    /// magnitude further without paying `O(n^3)` `full_piv_lu`/Cholesky
+    /// cost at every intermediate `n` and making this test the slow one in
+    /// the suite. `61..=199` other than those four is **not** checked --
+    /// stated because "1..=200" reads as a contiguous sweep and is not one
+    /// (PORTING-PLAN.md §189: prose that describes a measurement more
+    /// broadly than the measurement).
     ///
     /// **Conclusion for D14/§199's shape:** no caller -- real or synthetic
     /// -- can reach a `covariance` `MultivariateGaussian::new` rejects
