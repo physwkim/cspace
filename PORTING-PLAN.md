@@ -12771,3 +12771,64 @@ p9-ros 라운드 4는 upstream 읽기 경로를 **약 130줄**로, p3-shapes는 
 
 이 수치는 §157의 결정(디코더는 `moveit-octomap`이 갖는다, `Node`/`OcTree::root`를
 public으로 열지 않는다)을 바꾸지 않는다. 128줄은 그 크레이트 안에서 감당할 규모다.
+
+## §162 D11 종결 — `moveit-kinematics` 세 파일 재유도, push 차단 해제
+
+p1-joints 라운드 22 병합(`97dc83d`..`495d958`). §159.1의 3개 파일이 처리됐고
+`verify-upstream-license-provenance.sh`가 **272건 인용, 충돌 0건**으로 통과한다.
+
+### 162.1 게이트 통과가 아니라 실제 재유도인지 확인했다
+
+게이트는 인용을 지우기만 해도 초록이 된다. 그래서 내용을 직접 봤다:
+
+- `velocity.rs`: 저작권이 `moveit-rs contributors` 단독으로 정리됐고, 인용이
+  `Ported from`이 아니라 **`Used by`** — 즉 자신을 호출하는 BSD 쪽
+  `kdl_kinematics_plugin.cpp:467`을 가리킨다. LGPL 파일은 "이 파일이 포팅하는
+  대신 그 역할을 대신하는 것"으로 산문에 명시된다. `reduction_matrix`/
+  `fold_jacobian`/`expand_to_full`/`solve_velocity` 각각에 유도 근거가 붙어 있다
+  (mimic 제약의 아핀 미분, 가중 최소자승의 표준 축약).
+- 라운드 21에서 문제였던 전사 표지(`exactly as upstream's ...`,
+  `matching upstream's own expansion at ...`)가 `moveit-kinematics/src/`에서
+  사라졌다. 남은 `ChainIkSolverVelMimicSVD`/`jacToJacReduced` 언급 5건은
+  `cart_to_jnt.rs`/`chain.rs`/`lma.rs`/`params.rs`의 것으로, BSD인
+  `kdl_kinematics_plugin.cpp`가 그 솔버를 호출한다는 **인터페이스 사실**이다
+  (`cart_to_jnt.rs:113`의 "upstream"은 그 BSD 파일의 `q_out` 버퍼다).
+
+### 162.2 부재를 근거로 삼은 논증 하나를 반증하고 고쳤다 (`900724f`)
+
+`newton_raphson.rs`는 독립성을 **부재**로 논증하고 있었다 — "truncation 규칙은
+`chainiksolver_vel_mimic_svd.{hpp,cpp}`가 자기 텍스트 어디에서도 말하지 않는다".
+원본을 열어 확인했더니 틀렸다:
+
+```
+chainiksolver_vel_mimic_svd.hpp:59
+  @param threshold if a singular value is below this value, its inverse is
+                   set to zero, default: 0.001
+```
+
+말하고 있다. 다만 **절대 임계값**으로 말하는데, 같은 파일 `.cpp:62`의
+`svd_.setThreshold(threshold)`는 Eigen의 **상대** 계약(`threshold * |largest|`)
+이라 자기 산문이 자기 구현을 틀리게 서술하고 있다. 결론(전사가 아니다)은 살아남되
+근거가 바뀐다 — 이 포트는 Eigen이 문서화한 상대 계약을 구현하고, 그것은 그 LGPL
+파일의 산문이 **틀리게 적은 것**이다. 부재보다 강한 근거다.
+
+> **부재를 근거로 한 라이선스 논증은 원본을 열어 확인하기 전까지는 논증이 아니다.**
+
+§153.1(부재로 정당화한 제외는 그 부재가 해소되면 조용히 만료된다)의 라이선스판이다.
+
+### 162.3 게이트가 못 보는 것 (알려진 한계, 만료 조건 포함)
+
+게이트는 헤더의 **들여쓴 인용 경로**만 읽는다. `velocity.rs`처럼 LGPL 파일을
+`//!` 산문으로만 언급하면 게이트에 잡히지 않는다. 이번에는 그것이 정확한 표현이지만
+(포팅하지 않았으므로), **산문 언급만 남기고 표현을 다시 들여오는 경로는 게이트가
+막지 못한다.** 이것을 닫힌 것으로 말하지 않는다.
+
+만료 조건: 헤더 인용 블록뿐 아니라 `//!`/`///` 본문의 upstream 파일명까지 훑도록
+게이트를 넓히면 이 한계가 사라진다. 오탐이 늘어날 것이므로 아직 하지 않았다.
+
+### 162.4 상태
+
+**§151/§152의 `git push`/`cargo publish` 차단을 해제한다.** 전체 워크스페이스
+게이트 실측: clippy `--workspace --all-targets -- -D warnings` 통과, nextest
+**1419 pass / 2 skipped**, doctest **5**, `check-*.sh` **8/8**,
+`ros/verify-ros-interop.sh` **`all gates passed`**, 라이선스 게이트 **272건 / 충돌 0**.
