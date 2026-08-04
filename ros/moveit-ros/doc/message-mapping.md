@@ -785,3 +785,90 @@ own depth of re-review (roughly a day, per this round) every time the
 pin actually moves and the script flags something. Not proposed as a
 merge gate — repins are rare and reviewable by hand at the time; a
 standing script would mostly diff nothing.
+
+### 17.5 The default-has-meaning family, re-swept by field property (round 12, PORTING-PLAN.md §191)
+
+§191 found that anchoring §183's fix search on `frame_transform\(` cut the
+defect family to that function's own shape, and named
+**default-has-meaning** (17.2) as the property-level anchor that should
+have been used instead. This section re-runs the sweep against that
+anchor: every field in this crate's own code (not `crates/moveit-*`,
+whose validation is a separate crate's call) where a wire default
+(empty string, `0`, an empty array, or the identity `Pose`/`Quaternion`)
+reaches a point that could reject it, checked against the matching
+upstream function line-by-line.
+
+**Sites** (file:line, upstream line, verdict):
+
+- `scene/mod.rs:43` (`header_frame_transform`) — the §183 site itself,
+  already fixed (`aa45d37`).
+- `scene/collision_object.rs:339` (`apply_add`, no shapes) —
+  `planning_scene.cpp:1894`: upstream also errors on empty
+  primitives/meshes/planes. Matches.
+- `scene/collision_object.rs:420` (`apply_remove`, empty `id`) —
+  `:1933`: upstream's `object.id.empty()` also means "remove
+  everything". Matches (and already documented + tested,
+  `remove_empty_id_removes_everything`).
+- `scene/collision_object.rs:483` (`apply_move`, empty
+  `shape_poses_msgs`) — `:1973`: upstream's
+  `!primitive_poses.empty() || ...` guard is the same "no pose data ->
+  skip the repose step, still Ok" shape. Matches.
+- `scene/attached.rs:95,100` (`apply_attach`, no-geometry world
+  promotion) — `:1563` (ADD/APPEND gate) + `:1579` (the no-geometry
+  check itself, further gated to ADD-only): exactly `is_add &&
+  no_geometry`. Matches.
+- `scene/attached.rs:142` (`apply_attach`, `shapes.is_empty()` after
+  conversion) — `:1620`: upstream's own
+  `if (shapes.empty()) return false`. Matches (already tested,
+  `add_with_no_geometry_and_no_world_object_is_rejected` covers the
+  no-world-object variant of the same check).
+- `scene/attached.rs:285,288,298` (`apply_detach`, empty `id`/
+  `link_name`) — `:1665`: upstream's `!attached_bodies.empty() ||
+  object.object.id.empty()` return expression, already reproduced and
+  documented in this module's own doc comment. Matches.
+- `scene/planning_scene.rs:59` (`robot_model_name_matches`, empty
+  name) — `setPlanningSceneMsg:1370`: upstream skips the compatibility
+  check entirely on an empty name. Matches.
+- `scene/planning_scene.rs:127` (`apply_octomap`, empty
+  `octomap.data`) — `:1483`: upstream's own early return once the
+  previous octomap is cleared. Matches.
+- `state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
+  `multi_dof_joint_state` non-default) — **not this shape**: these
+  reject a *non-default* value because there is no core field to carry
+  it (a structural gap, `RobotState`'s own doc comment), the opposite
+  polarity from §183 (which rejected the *default*). Matches D6's
+  intended behavior, not a defect.
+- `trajectory.rs:142` (`JointTrajectoryPoint[0].time_from_start`
+  nonzero) — same opposite-polarity shape as `state.rs` above:
+  rejects a non-default value `RobotTrajectory` cannot represent, not
+  a rejected default.
+- `planning.rs:130,138` (`start_state`/`reference_trajectories`
+  non-default) — same opposite-polarity shape again, already named
+  D6-consistent in this module's own doc comment.
+
+Every site above already has a boundary test proving the behavior
+checked here (see the test names cited inline) — this sweep did not
+find a test gap either.
+
+**One cross-crate observation, not fixed here:** `crates/moveit-
+constraints/src/position.rs:163` and `joint.rs:108` reject
+`weight <= EPS` with `Err`, where upstream's `PositionConstraint::
+configure`/`JointConstraint` equivalents instead warn and substitute
+`1.0` (`kinematic_constraint.cpp:449-453`). This *is* the
+default-has-meaning shape (`weight: 0.0` is the wire default, and
+upstream treats it as "use 1.0", not "reject"). It is not fixed in
+this round because (a) it lives in `crates/moveit-constraints`, a
+different crate this panel does not own, and (b) `moveit-constraints/
+src/joint.rs:85-89`'s own doc comment shows it is an existing,
+deliberate, project-wide decision ("substituting a value silently for
+invalid input is the failure mode `moveit-rs` prefers to surface as an
+error"), not an unnoticed gap — this crate's own
+`header.frame_id`-empty check in the same functions matches upstream's
+`configure()` exactly (`kinematic_constraint.cpp:372-375`: upstream
+itself warns and returns `false` on an empty frame there too, unlike
+the `getFrameTransform` silent-identity fallback §183 was about).
+Named here so the observation is not lost, not acted on.
+
+**Conclusion:** no new same-defect site found in `ros/moveit-ros`
+itself. §183 was the family's only site in this crate; the anchor
+correction (§191) widened the *search*, not the *result*.

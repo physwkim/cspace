@@ -299,8 +299,10 @@ impl<'m> TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut {
             trajectory,
             trajectory_start,
             error_code: moveit_msgs::MoveItErrorCodes {
-                val: 1, // SUCCESS -- see doc/message-mapping.md §2's note on
+                // `r2r`-generated constant, not a literal (PORTING-PLAN.md
+                // §191.2) -- see doc/message-mapping.md §2's note on
                 // MoveItErrorCodes.message/source being a separate, still-open gap
+                val: moveit_msgs::MoveItErrorCodes::SUCCESS as i32,
                 ..Default::default()
             },
             ..Default::default()
