@@ -26,6 +26,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
 
+      # Asserted once here rather than by adding `--locked` to each of the four
+      # steps below. `Cargo.lock` is tracked, so the intent is that CI builds
+      # exactly what is committed -- but without this, a manifest edit that left
+      # the lockfile stale makes cargo silently rewrite it and every step passes,
+      # and "CI is green" then says nothing about the lockfile in the tree. One
+      # up-front assertion is enough: if it holds, no later step has anything to
+      # rewrite. It fails with cargo's own message naming the drifted package,
+      # which the four steps individually would not.
+      - name: lockfile
+        run: cargo fetch --locked
+
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
