@@ -86,7 +86,7 @@
 //! next round:
 //!
 //! ```text
-//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-geometry/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/moveit-geometry/src/*.rs
 //! both=9 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!
@@ -112,15 +112,15 @@
 //! item covers.
 //!
 //! **Audit scripts checked against themselves (round 19, item 1).** Both
-//! `audit/count_relative_eq.pl` and `audit/count_public_declarations.sh` are
+//! `tools/ci/count-relative-eq.pl` and `tools/ci/count-public-declarations.sh` are
 //! now committed files, so a sibling panel's own source tree includes them
 //! once copied -- `PORTING-PLAN.md` §117.4's trap (a paragraph's own text
 //! changing the count the paragraph cites). Run against themselves:
 //!
 //! ```text
-//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-geometry/audit/count_relative_eq.pl
+//! perl tools/ci/count-relative-eq.pl tools/ci/count-relative-eq.pl
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0   # after this round's fix; was both=2 before it
-//! bash crates/moveit-geometry/audit/count_public_declarations.sh crates/moveit-geometry/audit/count_public_declarations.sh count_public_declarations
+//! bash tools/ci/count-public-declarations.sh tools/ci/count-public-declarations.sh count_public_declarations
 //! 0   # a bash script has no `class` to match; unaffected by the fix below
 //! ```
 //!
@@ -147,7 +147,7 @@
 //! script rather than trusting round 18's number:
 //!
 //! ```text
-//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-geometry/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/moveit-geometry/src/*.rs
 //! both=9 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!

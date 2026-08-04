@@ -443,7 +443,7 @@
 //! form is what changed, not just the number):
 //!
 //! ```text
-//! perl crates/moveit-geometry/audit/count_relative_eq.pl \
+//! perl tools/ci/count-relative-eq.pl \
 //!   $(find crates/moveit-distance-field -name '*.rs' | sort)
 //! both=27 epsilon_only=3 max_relative_only=0 neither=0
 //! ```

@@ -10125,8 +10125,8 @@ floating joint NaN 주장이 이미 발화 중이었음을 확인했다. 완료 
 닫힌 척하지 않았다.
 
 **p3-shapes 18라운드**(6커밋). 계수 관례를 문장이 아니라 **재현 가능한
-명령**으로 바꿨다(`audit/count_public_declarations.sh`,
-`audit/count_relative_eq.pl`). `leaf_iterator` 순서를 논증하는 대신
+명령**으로 바꿨다(`tools/ci/count-public-declarations.sh`,
+`tools/ci/count-relative-eq.pl`). `leaf_iterator` 순서를 논증하는 대신
 오라클로 쟀고(`leaves` 픽스처 신규), `oracle-models.json`에 등록했다 —
 §116의 게이트가 강제하는 그대로다. 재생이 33 → **34쌍**이 됐다.
 

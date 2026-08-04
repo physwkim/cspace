@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: count_public_declarations.sh <header.h> <ClassName>
+# Usage: tools/ci/count-public-declarations.sh <header.h> <ClassName>
 #
 # Counts raw `public:` declarations belonging to <ClassName>'s own
 # class body in an upstream C++ header, under this crate's audit

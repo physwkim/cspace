@@ -62,7 +62,7 @@
 //! # `assert_relative_eq!` reckoning (§79 convention, applied from the start)
 //!
 //! ```text
-//! perl crates/moveit-planners-stomp/audit/count_relative_eq.pl crates/moveit-planners-stomp/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/moveit-planners-stomp/src/*.rs
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!

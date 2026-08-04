@@ -310,7 +310,7 @@
 //! too:
 //!
 //! ```text
-//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-octomap/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/moveit-octomap/src/*.rs
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!
@@ -318,7 +318,7 @@
 //! nothing to bisect.
 //!
 //! **Round 19, item 1.** `count_relative_eq.pl` and
-//! `audit/count_public_declarations.sh` (this crate's own copy) both had a
+//! `tools/ci/count-public-declarations.sh` (this crate's own copy) both had a
 //! doc-comment/string-literal filtering gap this round found and fixed --
 //! see `moveit-geometry`'s completion statement for the self-count evidence
 //! and the fix, since the `.pl` script lives there and this crate's copy of
@@ -329,7 +329,7 @@
 //! script:
 //!
 //! ```text
-//! perl crates/moveit-geometry/audit/count_relative_eq.pl crates/moveit-octomap/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/moveit-octomap/src/*.rs
 //! both=0 epsilon_only=0 max_relative_only=0 neither=0
 //! ```
 //!

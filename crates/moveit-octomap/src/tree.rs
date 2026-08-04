@@ -128,7 +128,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///
 /// **Reproducible raw counts (round 18, item 1).** Every raw count named
 /// above and in each header's own section below was produced by running
-/// `crates/moveit-octomap/audit/count_public_declarations.sh <header>
+/// `tools/ci/count-public-declarations.sh <header>
 /// <ClassName>` against a fresh oracle fetch, not eyeballed -- the script
 /// strips `//`/`/* */` comments first (so a doc-comment's `@code` example
 /// or prose can't be mistaken for a declaration, the bug this round found
@@ -143,7 +143,7 @@ pub(crate) fn probability(log_odds: f64) -> f64 {
 ///
 /// ```text
 /// $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /usr/include/octomap/OcTree.h'" > /tmp/OcTree.h
-/// $ crates/moveit-octomap/audit/count_public_declarations.sh /tmp/OcTree.h OcTree
+/// $ tools/ci/count-public-declarations.sh /tmp/OcTree.h OcTree
 /// 5
 /// $ ... OccupancyOcTreeBase.h OccupancyOcTreeBase
 /// 49

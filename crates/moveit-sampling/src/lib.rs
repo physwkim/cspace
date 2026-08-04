@@ -34,7 +34,7 @@
 //! counted here from the start, not retrofitted later:
 //!
 //! ```text
-//! perl crates/moveit-sampling/audit/count_relative_eq.pl crates/moveit-sampling/src/*.rs
+//! perl tools/ci/count-relative-eq.pl crates/moveit-sampling/src/*.rs
 //! both=0 epsilon_only=6 max_relative_only=0 neither=0
 //! ```
 //!

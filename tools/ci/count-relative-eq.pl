@@ -1,15 +1,23 @@
 #!/usr/bin/env perl
-# Usage: count_relative_eq.pl <file.rs> [<file.rs> ...]
+# Usage: tools/ci/count-relative-eq.pl <file.rs> [<file.rs> ...]
 #
-# Round 19 item 1: run against `crates/moveit-geometry/audit/*` itself and
-# against a synthetic block-comment/string-literal fixture -- both found this
-# script counted its own doc-comment example as two live calls (its own `#`
-# Perl-comment lines are not `//`-stripped) and counted a fake call written
-# inside a `/* */` block comment or a `"..."` string literal as real. Neither
-# false positive changed round 18's committed geometry/octomap counts (grep
-# confirmed no `/* */` block comment or brace-bearing string literal exists
-# in the `.rs` files those counts were taken from), but both are closed here
-# so a sibling panel copying this script does not inherit them.
+# The single copy for the whole workspace. It used to live in
+# `crates/moveit-geometry/audit/` and was copied into four more crates, which
+# is how the divergence this file exists to prevent actually happened: the
+# `tools/moveit-diff/` copy never picked up the block-comment and
+# string-literal fixes below, so the same command gave two different
+# classifications depending on which crate you ran it from. Do not copy it
+# back into a crate -- run it from here, with an explicit file list.
+#
+# Those fixes came from running the script against its own `audit/` directory
+# and against a synthetic block-comment/string-literal fixture: it counted its
+# own doc-comment example as two live calls (its `#` Perl-comment lines are
+# not `//`-stripped) and counted a fake call written inside a `/* */` block
+# comment or a `"..."` string literal as real. Neither false positive changed
+# the geometry/octomap counts taken before the fix, nor p1-joints'
+# `moveit-kinematics`/`moveit-diff`/`invariants.rs` count, which was taken
+# with the unfixed copy and re-run against this one at consolidation time --
+# `both=0 epsilon_only=2 max_relative_only=0 neither=0` either way.
 #
 # Strips `/* */` block comments (including multi-line) and `//` line-comment
 # tails, then blanks the contents of every `"..."` string literal (handles

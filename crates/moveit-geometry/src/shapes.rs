@@ -186,7 +186,7 @@
 //!
 //! **Reproducible raw counts (round 18, item 1).** Per-class raw
 //! `public:` declaration counts, from
-//! `crates/moveit-geometry/audit/count_public_declarations.sh <header>
+//! `tools/ci/count-public-declarations.sh <header>
 //! <ClassName>` against a fresh oracle fetch (same script and comment/
 //! brace-depth handling `moveit-octomap`'s `tree.rs` uses, copied into
 //! this crate so a `moveit-geometry`-only audit doesn't need to reach into
@@ -195,7 +195,7 @@
 //! ```text
 //! $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/shapes.h'" > /tmp/shapes.h
 //! $ for c in Shape Sphere Cylinder Cone Box Mesh Plane OcTree; do
-//! >   echo "$c: $(crates/moveit-geometry/audit/count_public_declarations.sh /tmp/shapes.h "$c")"
+//! >   echo "$c: $(tools/ci/count-public-declarations.sh /tmp/shapes.h "$c")"
 //! > done
 //! Shape: 9
 //! Sphere: 7

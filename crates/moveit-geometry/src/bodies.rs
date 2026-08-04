@@ -257,13 +257,13 @@
 //!
 //! **Reproducible raw counts, spot-check (round 18, item 1).** Per-class
 //! raw `public:` declaration counts from
-//! `crates/moveit-geometry/audit/count_public_declarations.sh` against a
+//! `tools/ci/count-public-declarations.sh` against a
 //! fresh oracle fetch of `bodies.h`:
 //!
 //! ```text
 //! $ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:e7d32225310d3278 -c 'cat /opt/ros/rolling/include/geometric_shapes/geometric_shapes/bodies.h'" > /tmp/bodies.h
 //! $ for c in Body Sphere Cylinder Box ConvexMesh BodyVector; do
-//! >   echo "$c: $(crates/moveit-geometry/audit/count_public_declarations.sh /tmp/bodies.h "$c")"
+//! >   echo "$c: $(tools/ci/count-public-declarations.sh /tmp/bodies.h "$c")"
 //! > done
 //! Body: 28
 //! Sphere: 16
