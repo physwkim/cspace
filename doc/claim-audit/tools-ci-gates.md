@@ -127,3 +127,199 @@ Re-run both anchors together before trusting either family stayed closed:
 tools/ci/check-no-dead-status-capture.sh
 rg -n '< <\(|mapfile .* < <\(' tools/ci/*.sh tools/moveit-oracle/*.sh ros/*.sh tools/mpr-vs-epa/*.sh
 ```
+
+## §NEW `verify-all.sh` full sweep and the coverage boundary of every member
+
+Round brief: run every `verify-*.sh` including the `PHASE3_SWEEP=1` member,
+report each on its own line; then enumerate what each `check-*.sh`/`verify-*.sh`
+gate actually parses and what a failure shape would slip through it, by
+reading each script rather than trusting its header's own account of itself.
+
+### §NEW.1 Full sweep, from a worktree fast-forwarded to this round's tip
+
+| script | result |
+|---|---|
+| `verify-clean-checkout.sh` | PASS |
+| `verify-constraint-sweep.sh` | PASS (2056/2056 constraint combinations) |
+| `verify-continuous-reseed-wrap.sh` | PASS |
+| `verify-fixture-provenance.sh` | PASS -- see §NEW.2 for why this needed a worktree-local fix first |
+| `verify-fixture-replay.sh` | PASS |
+| `verify-mpr-vs-epa.sh` | PASS |
+| `verify-oracle-sweep.sh` | PASS |
+| `verify-orphan-enumeration.sh` | PASS (0 orphans) |
+| `verify-phase2-state-sweep.sh` | PASS, all 5 robots (panda/prbt/fanuc/dual_arm_panda/pr2) |
+| `verify-phase3-collision-sweep.sh` (`PHASE3_SWEEP=1`) | **UNMET, confirmed on 2 of 5 robots; run did not finish -- see §NEW.3** |
+| `verify-phase7-benchmark.sh` | not run -- opt-in, out of this round's scope, not silently counted as pass |
+| `verify-port-coverage.sh` | not independently re-run this round; not silently counted as pass |
+| `verify-private-doc-links.sh` | PASS (own documented gap: `#[cfg(test)]` unreachable, see §NEW.2 row) |
+| `verify-ros-interop.sh` | not independently re-run this round; not silently counted as pass |
+| `verify-sampler-self-validation.sh` | PASS |
+| `verify-upstream-license-provenance.sh` | PASS -- correction below |
+| `verify-vendored-fixture-tests.sh` | PASS |
+
+`verify-phase7-benchmark.sh`, `verify-port-coverage.sh`, and
+`verify-ros-interop.sh` were not run this round (the first is opt-in and
+outside this round's ask; the other two need `$MOVEIT2_SRC` / a live ROS 2
+graph this task did not ask for). Naming them here rather than omitting them
+is the point of "a member that skipped is not a member that passed" --
+silence would read as thirteen tested when eighteen exist.
+
+**Correction to an earlier round's report:** `verify-upstream-license-provenance.sh`
+was previously reported as exiting 1 because `third_party/` is "absent from
+this machine." Re-checked from this fast-forwarded worktree: `third_party/`
+is gitignored and lives at the shared session repo root
+(`~/work/moveit-rs/third_party/`), invisible from a per-worktree checkout by
+construction -- the same worktree-invisibility trap that produced a false
+"missing" claim once already this session (see
+[[untracked-dirs-are-invisible-from-worktrees]]). With
+`THIRD_PARTY_SRC=/home/stevek/work/moveit-rs/third_party` set (the env
+override this script already supports) it passes cleanly. `verify-fixture-provenance.sh`
+and `verify-vendored-fixture-tests.sh` hardcode a relative
+`third_party/moveit_resources` with no env override, so those needed a
+local, gitignored `third_party -> .../third_party` symlink in this worktree
+instead -- confirmed safe: `verify-clean-checkout.sh` clones into a fresh
+temp dir via `git clone --local`, which does not follow an untracked,
+gitignored symlink. The earlier "missing from this machine" report was a
+worktree artifact, not a regression.
+
+### §NEW.2 What each gate parses, and a concrete failure it would not catch
+
+Read every `check-*.sh` and `verify-*.sh` (32 scripts including this
+round's own new one), not sampled. Rows already fully covered by an
+existing header's own honest account of itself are marked so; the rest are
+this round's own reading.
+
+| script | parses | escapes it | concrete failure |
+|---|---|---|---|
+| `check-audit-scripts-not-copied.sh` | files under an `audit/`-named dir whose basename starts with `count` | a copy placed outside `audit/`, or renamed off `count*` | `count-relative-eq.pl` copied to `crates/foo/scripts/relative_eq.pl` re-diverges exactly like the incident this gate exists for, undetected |
+| `check-dep-direction.sh` | `cargo metadata --no-deps` from the root `[workspace]` | any crate outside that workspace | `ros/moveit-ros` has its own `[workspace]` (D2/§129) and is structurally invisible to this check, same boundary `verify-ros-interop.sh`'s header names as already having bitten once |
+| `check-fixture-format.sh` | filesystem glob of fixture files (not `git ls-files`) | -- (glob-vs-git direction only widens the check, not narrows it) | none found; noted for completeness |
+| `check-license-matches-upstream.sh` | SPDX header on every tracked `.rs` file | non-`.rs` tracked files (`.py`, `.pl` audit tools, `build.rs`... `build.rs` is `.rs` so covered; genuinely non-`.rs` sources are not) | a vendored/adapted Python audit tool carrying a different upstream license has no SPDX convention here for this check to even examine |
+| `check-lints-not-silently-dropped.sh` | *presence* of each workspace lint key in an opted-out crate's `[lints]` table -- own header: "requirement is presence, not value" | a restated key set to a **weaker** value | `[lints.rust] missing_docs = "warn"` (workspace says `"deny"`) passes this gate; that crate's missing-docs lint is now unenforced and nothing says so |
+| `check-no-lint-suppression.sh` | `^\s*#!?\[\s*(allow\|expect)\s*\(` -- an attribute anchored at line start | `#[cfg_attr(cond, allow(lint))]` -- the suppression is nested inside `cfg_attr`, never the line's own head token | verified this round: piping a synthetic `#[cfg_attr(not(test), allow(dead_code))]` through the exact pattern produces zero matches (would pass as clean); confirmed 0 current occurrences of this shape anywhere in `crates/tools/ros` -- a live, currently-unexploited gap, not an active violation |
+| `check-no-dead-status-capture.sh` | one narrow sub-shape (`var=$(cmd)` immediately followed by a bare `var=$?`) | own header lists 5 sibling blind spots explicitly (pipefail-abort family, `&&`-chain variant, process-substitution family, `set -e` disabled in a function/subshell, `$?` read >1 line after assignment) | already fully documented by the script itself |
+| `check-phase-status.sh` | the one canonical `### 완료 조건 현황표` table's row citations against `##`/`###` headings, re-scoped on ANY heading level | a phase claim made in prose *outside* that one table (an inline "§5 Phase 3 UNMET" sentence elsewhere in the file) | such a sentence can drift from the table silently; this gate only holds the table itself consistent, not every prose restatement of a verdict |
+| `check-pilz-tolerance-overrides.sh` | presence of a `#[should_panic]` companion test per `*_TOLERANCE` constant, by name pairing only | a companion test that exists and panics, but for the wrong reason / measures the wrong quantity | a `#[should_panic]` test whose assertion doesn't actually exercise the tolerance it's named for still satisfies this gate -- the [[delete-what-a-test-tests]] shape, at the constant-pairing level rather than the whole-test level |
+| `check-porting-plan-sections.sh` | `##`-`####` heading `§NNN` uniqueness in `PORTING-PLAN.md`; `§NEW` placeholder absence tree-wide | a `§NNN` **citation** elsewhere in the tree pointing at a number that was reassigned away | see §NEW.3 -- this is this round's second finding, deliberately left open rather than closed with a naive gate |
+| `check-serde-float-roundtrip.sh` | `[workspace.dependencies].serde_json` carries `float_roundtrip` | a member crate pinning its own `serde_json` version directly, bypassing the workspace table | not independently re-verified this round whether that specific escape is reachable; flagged, not asserted |
+| `check-test-doc-links.sh` (this round, new) | bracket-style intra-doc links in `crates/*/tests/*.rs` | `#[cfg(test)] mod tests` blocks embedded in `src/*.rs`; rustdoc disambiguators/glob-imports/trait-inheritance/prelude; nested-group `use` imports; `as`-aliases | own header documents all four; see §NEW.4 |
+| `check-upstream-bugs-index.sh` | `doc/upstream-bugs.md`'s `## Index` table vs its `###` entries | not independently re-audited for a new escape this round | header-level trust only |
+| `check-workspace-dep-inheritance.sh` | inter-crate (`crates/*`/`tools/*`) deps route through `[workspace.dependencies]` | the same drift shape for an *external* dependency | `check-serde-float-roundtrip.sh` covers exactly one hand-picked instance (`serde_json`); no script generalizes the rule to "every external dep resolves through the workspace table" |
+| `verify-all.sh` | each member's own exit code | a member that fails to `exit` nonzero on its own real failure | the aggregator trusts each member completely; it cannot see inside one |
+| `verify-clean-checkout.sh` | steps extracted from `ci.yml`'s `rust` job | a step living in a different `ci.yml` job block this script does not parse | not independently re-verified this round which job blocks it extracts from |
+| `verify-fixture-provenance.sh` / `verify-upstream-license-provenance.sh` / `verify-vendored-fixture-tests.sh` | `third_party/` (gitignored, worktree-relative) | a per-worktree checkout without an env override or local symlink | see §NEW.1 correction -- reproduced and fixed this round, not merely re-asserted |
+| `verify-oracle-sweep.sh` / `verify-constraint-sweep.sh` / `verify-phase2-state-sweep.sh` / `verify-phase3-collision-sweep.sh` | N random or boundary states per robot, against the live oracle | a divergence on a state none of these draws | `verify-phase2-state-sweep.sh`'s own header already makes this explicit: boundary-value sweeps and random sweeps can each miss what the other finds |
+| `verify-private-doc-links.sh` | `cargo doc --document-private-items` reachable items | `#[cfg(test)] mod tests` inside `src/*.rs` (dev-deps don't link into a doc build) | own header already states this; confirmed this round `cargo doc --help` has no `--test`/`--tests` target flag at all, so this is not presently closable via rustdoc |
+| `verify-ros-interop.sh` | thin caller into `ros/moveit-ros`'s own separate gate | own header's "what this does NOT check" section (no live ROS 2 graph) | already documented by the script itself |
+| `verify-sampler-self-validation.sh` | one named `#[ignore]`d test | a *different* test later marked `#[ignore]` for the same "nothing invokes it" reason | it is a pointer to one test, not a scan for the pattern across the tree |
+
+Every row not listed above (`verify-continuous-reseed-wrap.sh`,
+`verify-fixture-replay.sh`, `verify-mpr-vs-epa.sh`, `verify-orphan-enumeration.sh`,
+`verify-phase7-benchmark.sh`, `verify-port-coverage.sh`) was read this round
+and its own header's account of its scope matched what its body actually
+does; no new escape found in the time available. That is not the same claim
+as "no escape exists" -- it is the honest boundary of this round's reading.
+
+### §NEW.3 `verify-phase3-collision-sweep.sh`: UNMET on the two robots that finished, run incomplete
+
+Run with `PHASE3_SWEEP=1 THIRD_PARTY_SRC=... sg docker -c tools/ci/verify-phase3-collision-sweep.sh`
+(10000 cases, seed 1, the script's own default). The script's own header
+records a measured 4815s (80m15s) total wall clock across all 5 robots from
+its first full run; this round's run did not complete within the time
+available and was left running unattended rather than forced to a false
+result:
+
+| robot | `collision: bool` disagreements | `distance: f64` disagreements | verdict |
+|---|---|---|---|
+| panda | 0/10000 | 9543/10000 (95.430%) | **UNMET** (distance clause) |
+| prbt | 6854/10000 (68.540%) | 10000/10000 (100.000%) | **UNMET** (both clauses) |
+| fanuc | not finished | not finished | not measured this round |
+| dual_arm_panda | not measured | not measured | not measured this round |
+| pr2 | not measured | not measured | not measured this round |
+
+Both `panda` and `prbt` already fail the script's own pass condition
+(`bool_bad == 0 && dist_bad == 0 && errored == 0` on every robot) regardless
+of the remaining three -- §5 Phase 3's completion condition is UNMET on the
+tree as it stands today, independent of anything this round did or could fix.
+This is collision/distance-field code (`crates/moveit-collision`,
+`crates/moveit-distance-field`), outside this panel's fence
+(`moveit-scene`, `moveit-metrics` only) -- reported, not touched. The
+background run was left in place rather than killed; its log is at
+`/tmp/claude-1000/-home-stevek-work-moveit-rs--caucus-worktrees-H8F9NKVWVW-p1-fixtures-920dace3-1/b9b3e817-af83-4ec2-8008-75705b47845f/scratchpad/phase3-sweep.log`
+on this machine, but a fresh run is the reliable way to reproduce this: the
+script's sampling is seeded and reproducible per its own header.
+
+### §NEW.4 The costliest gap found and closed: `tools/ci/check-test-doc-links.sh`
+
+`verify-private-doc-links.sh` closes the "reachable via `cargo doc
+--document-private-items`" half of the doc-link coverage question; its own
+comment already states the `#[cfg(test)]` half stays open because a doc
+build never links dev-dependencies. What neither that script nor any other
+gate covers: `crates/*/tests/*.rs` integration test files are not reached by
+`cargo doc` *at all* -- confirmed this round, `cargo doc --help` lists
+`--lib`/`--bins`/`--bin`/`--examples`/`--example` as its only target
+selectors, no `--test`/`--tests` exists. 337 bracket-style intra-doc links
+(`` [`Ident`] ``) across this workspace's test files at the time this was
+written were checked by nothing: not `cargo doc`, not `cargo clippy` (link
+resolution is a rustdoc lint), not `cargo test` (a bracket link is not a
+doctest).
+
+`tools/ci/check-test-doc-links.sh` closes this without invoking rustdoc: a
+narrow, four-tier same-crate/imported-crate/fully-qualified-crate/local
+resolver over `git ls-files`-tracked `.rs` text, deliberately narrower than
+what rustdoc itself resolves (documented in the script's own header) so
+that what it cannot check reads as a skip, not a pass.
+
+**Discrimination, run this round:** the checker's first real run against the
+unmutated tree failed on `crates/moveit-planners-pilz/tests/pilz_trajectory_lin_parity.rs:361`,
+`` [`moveit_error::Error::Code`] ``. Investigated rather than dismissed as
+noise: `Error::Code(MoveItErrorCode)` is a real variant
+(`crates/moveit-error/src/lib.rs:102`), occurring exactly once in
+`moveit-error`'s entire tracked corpus -- the declaration line itself,
+referenced only from this one cross-crate doc comment. The checker's
+resolver had two tiers (a `fn/struct/enum/.../mod NAME` definition regex,
+and a "bare identifier occurs >= 2 times" fallback for what that regex
+cannot see) and neither one matches an enum variant's own declaration line
+with only one occurrence in-crate. Root cause fixed at source: a third tier
+(`VARIANT_RE_TEMPLATE`, an identifier at line-start followed by `(`, `{`, or
+`,`) added to `resolved_in()`. Re-run clean: 370 checked, 0 failures.
+Discrimination proven by planting `Error::CodeXyzzy` at the same site --
+checker fails, reports the exact site and target crate, exit 1 -- then
+reverting; `git diff --stat` on that file is empty.
+
+### §NEW.5 A gap found, deliberately not closed: `check-porting-plan-sections.sh`'s stale cross-references
+
+Its own header names the incident this round was asked to look for: a
+`§226 -> §227` renumber at merge left four `§226` references in
+`moveit-planners-pilz/src/lib.rs` pointing at a different panel's section.
+Read the script in full: `all_ids` (every numbered heading in
+`PORTING-PLAN.md`) is computed, but never compared against a `§NNN`
+citation anywhere else in the tree. The gate only prevents the
+*collision* (two sections claiming one number); a citation surviving a
+renumber unchanged is not checked by anything.
+
+A same-quality gate for this is not the small addition it looks like.
+Built and ran a citation-vs-`all_ids` cross-check this round (investigative
+only, not committed) against every tracked `.md`/`.rs` file: 4 raw hits,
+and all 4 are false positives under the naive form of this check --
+
+- `crates/moveit-geometry/src/bodies.rs:557,1065` cite `§4.4.1` of
+  *Ericson, Real-Time Collision Detection*, a textbook, unrelated to this
+  repo's numbering entirely;
+- `ros/moveit-ros/doc/message-mapping.md:888` cites `§17.5` of that
+  document's **own** independent local numbering scheme, not
+  `PORTING-PLAN.md`'s;
+- `doc/claim-audit/moveit-kinematics.md:13` cites `§177.1`, a real and
+  currently-valid citation -- `PORTING-PLAN.md:14058` has
+  `**§177.1 두 번째 사실 ...**` as a bold-text pseudo-subsection, which
+  `check-porting-plan-sections.sh`'s own heading-only regex
+  (`^(#{2,4}) `) never captures into `all_ids` in the first place.
+
+So a gate here would need to also parse bold pseudo-subsections as valid
+targets, and distinguish a `PORTING-PLAN.md`-referring `§NNN` from an
+external-literature or another-document's-own-numbering use of the same `§`
+character -- built naively, it misfires on all 4 of today's legitimate
+citations, which is a checker that "stops being read"
+(`check-pilz-tolerance-overrides.sh`'s own words for exactly this failure
+mode). Left open for a future round with this scoping already worked out,
+rather than shipped half-right this one.
