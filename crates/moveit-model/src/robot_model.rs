@@ -2699,6 +2699,22 @@ mod tests {
         assert_eq!(names, ["hand"]);
     }
 
+    /// `get_end_effector("arm")` above only exercises the case where `name`
+    /// is a real group that just isn't an end effector (`self.groups.get`
+    /// hits, `is_end_effector()` filters it out). A name that isn't a group
+    /// at all (`self.groups.get` itself misses) was never exercised by any
+    /// test, even though both cases raise the identical
+    /// `UnknownName { kind: "end effector", .. }`.
+    #[test]
+    fn get_end_effector_unknown_name_is_an_error() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="link2" group="hand"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        assert!(model.get_end_effector("no_such_group_or_effector").is_err());
+    }
+
     #[test]
     fn end_effector_prefers_explicit_valid_parent_group_over_fewest_joints_fallback() {
         let srdf = end_effector_test_srdf(
