@@ -232,3 +232,45 @@ column already gave. By crate: `moveit-trajectory` 15/16,
 No source or verdict cells changed this round. This section is the only
 diff — gate is `cargo fmt --all -- --check` per this round's brief
 (doc-only; no clippy/nextest owed).
+
+## Round 10 — `moveit-constraints` coverage gap (override, orchestrator's own fence)
+
+Not a census row: `assert_err_mentions`'s `assert!(rendered.contains(needle), ...)`
+is a `.contains()` check, not `matches!`/bare `.is_err()`/`.is_none()`, so
+this site is outside census §1's syntactic scan and adds nothing to the
+289. It is the same defect family the sweep exists to catch — a guard an
+assertion could be blind to — found as a coverage gap rather than an
+existing site's misclassification.
+
+`PositionConstraint::new`'s first fallible call, `model.link_model
+(link_name)?` (`position.rs:165`), is a sibling of `resolve_frame`'s
+frame-id guard (`position.rs:108-109`, called from `:188`): both reach
+`Error::UnknownName`, differing only in `kind` (`"link"` vs `"frame"`).
+Every one of this crate's own `PositionConstraint::new` test call sites
+used a valid `link_name`; only the frame-id branch had a rejection test
+(`new_rejects_unresolvable_mobile_frame`, `decide.rs:549`) before commit
+`2201d35` (already on `main`, merged into this branch via `git merge
+--ff-only main` before this round's work started — not written by this
+ledger's author this round) added `new_rejects_unknown_link`
+(`decide.rs:530`).
+
+The commit's own message claims a mutation-confirmed bite. Independently
+re-run this round, not relayed:
+
+| file:line | anchor | test fn | verdict | evidence |
+|---|---|---|---|---|
+| `moveit-constraints/src/position.rs:165` | `PositionConstraint::new`'s `link_model(link_name)?` guard, sibling of `resolve_frame`'s frame-id guard at `:108-109` | `new_rejects_unknown_link` | discriminating | bite (this round): `model.link_model(link_name)?` replaced with `.unwrap_or(&model.link_models()[0])` — `new_rejects_unknown_link` FAILED, `new_rejects_unresolvable_mobile_frame` stayed GREEN; reverted. Mirror: `resolve_frame`'s `if !model.has_link_model(..) && ..` gated `if false && ...` — `new_rejects_unresolvable_mobile_frame` FAILED, `new_rejects_unknown_link` stayed GREEN; reverted. `git status --short` clean before and after. |
+
+No source changes this round — the test already existed on `main`. One
+commit this round: this ledger row.
+
+## Commands run (round 10)
+
+- `cargo nextest run -p moveit-constraints -E 'test(new_rejects_unknown_link) or test(new_rejects_unresolvable_mobile_frame)'` — baseline 2/2 pass, then run again after each mutation (1 fail/1 pass both times, as tabled above), then again after each revert (2/2 pass)
+- `cargo fmt --all -- --check` — clean
+- `cargo clippy -p moveit-constraints --all-targets -- -D warnings` — clean
+- `cargo nextest run -p moveit-constraints` — 100/100 pass
+
+Gate scope: `-p moveit-constraints` (fmt + clippy --all-targets -D
+warnings + nextest), per this round's brief. No workspace-wide pass owed
+beyond the standing pre-push rule.
