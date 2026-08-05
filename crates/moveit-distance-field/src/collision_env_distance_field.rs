@@ -3258,6 +3258,14 @@ mod tests {
 
         update_group_state_representation_state(&posed, &mut gsr, &[]).unwrap();
 
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `update_group_state_representation_state`'s link loop only
+        // `continue`s past a geometry-less link (`:1086-1088`); it never
+        // writes `link_body_decompositions[i]`/`link_distance_fields[i]`
+        // for that `i`. Both `None`s below are therefore entirely
+        // attributable to `group_state_representation`'s own single
+        // `!link_has_geometry[i]` push site (`:965`/`:966`), the same one
+        // cause already established for those fields.
         for (i, &has_geometry) in dfce.link_has_geometry.iter().enumerate() {
             if !has_geometry {
                 assert!(
