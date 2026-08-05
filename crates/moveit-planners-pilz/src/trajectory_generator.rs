@@ -231,10 +231,26 @@ pub struct CircPathConstraint {
 pub struct PolylinePathConstraint {
     /// The via poses, already resolved into the planning frame.
     pub waypoints: Vec<Isometry3>,
-    /// Upstream `req.smoothness_level`, scaling the corner radius. Clamped
-    /// into `[0.01, 0.99]` by
+    /// Scaling factor for the corner radius. Clamped into `[0.01, 0.99]` by
     /// [`crate::path_polyline_generator::compute_blend_radius`], not
     /// validated here.
+    ///
+    /// **Moved.** Upstream this is `MotionPlanRequest::smoothness_level`, a
+    /// top-level field of the request message, sibling to
+    /// `max_velocity_scaling_factor`. It is read by exactly one generator
+    /// (`TrajectoryGeneratorPOLYLINE::setPathPolyline`) and is meaningless to
+    /// the other three, so at the top level it is a field every `PTP`/`LIN`/
+    /// `CIRC` request must carry and none may use — the same "one field, two
+    /// meanings by context" shape [`PathConstraints`] exists to remove.
+    /// Placing it beside the waypoints it scales makes "a smoothness level
+    /// without waypoints" unconstructible rather than merely ignored.
+    ///
+    /// The oracle bridges the two shapes: `oracle.cpp` reads
+    /// `smoothness_level` from the top level of the request JSON, because
+    /// that is where the C++ message has it, while
+    /// `pilz_trajectory_polyline_parity.rs` reads the same JSON field into
+    /// this one. The fixture is therefore in upstream's shape, and only this
+    /// struct differs.
     pub smoothness_level: f64,
 }
 
