@@ -871,7 +871,7 @@ silently dropping it.
 | `robot_model.rs:2822` (`"other"` group, `attached_end_effector_names().is_empty()`) | yes | discriminating | same test: `"arm"`/`"full_arm"` (`:2755,2762`) are the non-empty siblings; real ancestry-walk decision, not vacuous — line corrected round 17, was `:2764` |
 | `robot_model.rs:2943` (`end_effector_parent()`, `None`) | **no** (corrected round 15) | single-branch, excluded | field default, set only by `set_end_effector_parent`, never called in this fixture — see round 15's "Excluded: single guard" table below; superseded the cross-test-sibling reasoning originally in this row — line corrected round 17, was `:2885` |
 | `robot_model.rs:2944` (`attached_end_effector_names().is_empty()`, no end effector declared at all) | **no** (corrected round 16) | not-this-family | vacuous — this test's SRDF declares zero end effectors at all, so nothing ever populates this field for any group; the original cross-test-sibling reasoning here compared against a *different* test's fixture, not this test's own causal chain — see round 16 — line corrected round 17, was `:2886` |
-| `robot_model.rs:3044` (unknown-group `group_state`, ignored) | yes | discriminating, **bitten round 16** | real group-name-lookup guard, distinct decision from `:3038`'s; round 16 replaced the original reading-only cross-test-sibling evidence with an isolating mutation on `build_group_states` (`:1559` vs `:1588`) — line corrected round 17, was `:2986` |
+| `robot_model.rs:3044` (unknown-group `group_state`, ignored) | yes | discriminating, **bitten round 16** | real group-name-lookup guard, distinct decision from `:3038`'s; round 16 replaced the original reading-only cross-test-sibling evidence with an isolating mutation on `build_group_states` (`:1600` vs `:1629`) — line corrected round 17, was `:2986` |
 | `robot_model.rs:3079` (every joint value unusable, no state stored) | yes | discriminating, **bitten round 16** | real per-value dimension-mismatch guard (not vacuous — one `<group_state>` element present); round 16 isolating mutation, see above — line corrected round 17, was `:3021` |
 | `robot_model.rs:3089` (`variable_default_positions_returns_none_for_unknown_state_name`, empty srdf) | **no** | not-this-family | vacuous — `group_state_test_srdf("")` has zero `<group_state>` elements, nothing for the collection loop to iterate — line corrected round 17, was `:3031` |
 | `robot_model.rs:3468,3469,3470,3471` (fixed-joints-only group: `active_joint_indices`/`joint_roots`/`updated_link_names`/`updated_link_with_geometry_names`, all empty) | yes | **funnel, closed round 18** | round 18 isolating mutation proved this row's own "single-branch, not vacuous" call wrong — a neutralized producer left this exact test green; closed by adding a same-test `"arm"` sibling group with a real active joint whose non-empty `joint_roots`/`updated_link_names` prove `compute_group_topology`'s per-group closure ran — see the round-18 table above for the full mutation/closure evidence — line corrected round 17 (was `:3376-3379`) then round 18 (was `:3393-3396`, shifted by this round's fixture edit) |
@@ -1194,12 +1194,12 @@ verdict is site-specific.
 placed in this "structurally immune" class. The "any push flips it"
 argument only protects against a *false non-empty* result; it says nothing
 about whether *staying empty* can itself be produced by more than one
-distinct skip guard. `build_group_states` (`robot_model.rs:1557-1595`) has
-exactly two: the unknown-group early `continue` (`:1559`) and the
-empty-after-filtering skip (`:1588`) — neither ever pushes, so the "any
+distinct skip guard. `build_group_states` (`robot_model.rs:1598-1636`) has
+exactly two: the unknown-group early `continue` (`:1600`) and the
+empty-after-filtering skip (`:1629`) — neither ever pushes, so the "any
 push" argument never engages, and the two causes genuinely funnel into the
 same `is_empty() == true` outcome. The isolating mutation (neutralizing
-`:1588`) proved they are separable, which only holds because a real, in-fence
+`:1629`) proved they are separable, which only holds because a real, in-fence
 bite happened to be run on this pair — nothing in the class-level argument
 would have caught the gap on its own. `:3003`/`:3038` are excluded from the
 list above for this reason. Not re-audited this round: whether any of the
@@ -1308,8 +1308,8 @@ any of them as a pure rename rather than a real gap.
 | current file:line | old citation | old verdict | corrected verdict | why |
 |---|---|---|---|---|
 | `robot_model.rs:2944` | `:2886` | discriminating (Round 13, cross-test sibling `:2755,2762`) | **not-this-family** | Round 13's own evidence compared this test's result against a *different* test's fixture (one with an `<end_effector>` element), not this test's own causal chain — exactly the reading-vs-mutation gap Round 14 already censured. This test's SRDF (`end_effector_test_srdf("")`) declares zero end effectors at all, so `attached_end_effector_names()` has nothing to ever populate for *any* group, for the identical field-default reason Round 15 already applied one line above at `:2902` (old `:2885`). Reclassified to match, not left standing on a cross-fixture comparison |
-| `robot_model.rs:3044` | `:2986` | discriminating (Round 13, reading: "distinct decision from `:3021`'s") | discriminating, **now bitten** | Round 13's evidence was reading alone. Isolating mutation this round on `build_group_states` (`robot_model.rs:1557-1595`): neutralized the empty-state skip (`:1588`, `if !state.is_empty()` → `if true`) — `robot_model.rs:3038`'s test (all-values-unusable) failed, this site's test (`group_state_naming_an_unknown_group_is_ignored`, the unknown-group skip at `:1559`) stayed green. Confirms the two guards are genuinely separable, not just plausibly so |
-| `robot_model.rs:3079` | `:3021` | discriminating (Round 13, reading) | discriminating, **now bitten** | Sibling of the above — see the same mutation. Neutralizing `:1588` failed exactly this test (`arm.default_state_names().is_empty()` becomes false, an empty state gets inserted). Reverted; `git status --short` clean after |
+| `robot_model.rs:3044` | `:2986` | discriminating (Round 13, reading: "distinct decision from `:3021`'s") | discriminating, **now bitten** | Round 13's evidence was reading alone. Isolating mutation this round on `build_group_states` (`robot_model.rs:1598-1636`): neutralized the empty-state skip (`:1629`, `if !state.is_empty()` → `if true`) — `robot_model.rs:3038`'s test (all-values-unusable) failed, this site's test (`group_state_naming_an_unknown_group_is_ignored`, the unknown-group skip at `:1600`) stayed green. Confirms the two guards are genuinely separable, not just plausibly so |
+| `robot_model.rs:3079` | `:3021` | discriminating (Round 13, reading) | discriminating, **now bitten** | Sibling of the above — see the same mutation. Neutralizing `:1629` failed exactly this test (`arm.default_state_names().is_empty()` becomes false, an empty state gets inserted). Reverted; `git status --short` clean after |
 
 **B — genuinely new sites, already covered by a prior round's bite but never given a formal `file:line` row (4 sites)**
 
@@ -1366,7 +1366,7 @@ false-orphan trap the user warned about, not a hypothetical one.
 - `python3 tools/ci/reconcile-assertion-ledgers.py` — 698 sites, 476 matched, 222 orphans this round's live `main`, self-check `True`
 - `grep -c` on `doc/assertion-discrimination-orphans.txt` filtered to my three paths — 29
 - Isolating mutation, `get_end_effector`'s filter (`robot_model.rs:643`): `cargo nextest run -p moveit-model end_effector` — 1/7 failed (`:2796`'s test), reverted, re-ran clean (7/7)
-- Isolating mutation, `build_group_states`'s empty-state skip (`robot_model.rs:1588`): `cargo nextest run -p moveit-model group_state` — 1/6 failed (`:3038`'s test), reverted, re-ran clean (6/6)
+- Isolating mutation, `build_group_states`'s empty-state skip (`robot_model.rs:1629`): `cargo nextest run -p moveit-model group_state` — 1/6 failed (`:3038`'s test), reverted, re-ran clean (6/6)
 - Direct read: `resolve_mimic` (`robot_model.rs:1314-1382`), `robot_model.rs:1960-2130,2660-2920,2960-3060,3380-3397`, `mesh_search_paths.rs` (full file), `check_start_state_bounds.rs` (already read prior round), `robot_model_parity.rs` citations spot-checked against the fresh scan (no drift found)
 - `cargo fmt --all` — clean
 - `cargo clippy -p moveit-model --all-targets -- -D warnings` — clean
