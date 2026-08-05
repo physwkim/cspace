@@ -2110,6 +2110,28 @@ fn accumulate_collision<'a>(
             let Ok(Some(contact)) = query::contact(a_pose, a_shape, b_pose, b_shape, 0.0) else {
                 continue;
             };
+            // NOT gated on `contact.dist <= 0.0`, though the wording above
+            // ("prediction `0.0`, so only touching/penetrating pairs yield
+            // `Some`") reads as though it were. `parry` returns a contact
+            // across a small positive gap too: measured on prbt's base
+            // cylinder against a `4x4x0.1` box, a `3e-8 m` gap yields `Some`
+            // and a `1e-7 m` gap yields `None`, so the effective boundary sits
+            // near `5e-8 m` of clear air rather than at zero.
+            //
+            // Adding the sign check was tried and reverted, because upstream
+            // is not uniform at exact contact and the margin is what absorbs
+            // the difference. `fcl::collide` dispatches per shape pair:
+            // `octree_world_collision_response.json` case 4 -- an octree leaf
+            // whose `-x` face lands exactly on the robot box's `+x` face --
+            // comes back `robot_collision: true, robot_distance: -0.0`, while
+            // prbt's cylinder resting exactly on a box comes back `false` with
+            // the `-1.0` sentinel (`doc/upstream-bugs.md`,
+            // `fcl-distance-sentinel-survives-zero-contacts`). `parry` puts
+            // that octree pair a hair *above* zero, so a strict `dist > 0.0`
+            // guard turns case 4 into a parity failure while changing nothing
+            // about prbt, whose tie already lands at `-2.775558e-17`.
+            // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
+            // both ends of this as measurements rather than intentions.
             // Independent of `is_collision`, below: `collision_common.cpp`
             // computes cost sources unconditionally once a real contact is
             // found, whether or not `AllowedCollision::Conditional`'s own

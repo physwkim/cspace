@@ -120,6 +120,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `set-from-ik-subgroups-timeout-truncated-to-whole-seconds` | not-reproduced |
 | `pilz-detailed-response-pushes-null-trajectory` | not-reproduced |
 | `to-string-truncates-to-six-significant-digits` | not-reproduced |
+| `distance-callback-max-contact-depth` | not-reproduced |
 
 ---
 
@@ -1254,7 +1255,7 @@ already wrong upstream.
 (`std::size_t contacts = fcl::collide(o1, o2, coll_req, coll_res); if (contacts > 0)`),
 `:663` (`dist_result.distance = -contact.penetration_depth;`). The `if` at
 648 has no `else`.
-**Port:** `crates/moveit-collision/src/parry.rs:2217`
+**Port:** `crates/moveit-collision/src/parry.rs:2239`
 **Symptom:** For a pair FCL reports as touching or penetrating
 (`distance <= 0`) with `enable_signed_distance` set, line 613 has already
 stored `fcl_result.min_distance` — which for an in-collision pair is FCL's
@@ -1271,10 +1272,38 @@ reported minimum becomes the sentinel. `enable_signed_distance` is the flag
 whose whole purpose is to replace the sentinel with a signed depth; on this
 path it performs the zeroing half and not the replacing half.
 **Evidence:** both a read of the control flow above and an oracle run — the
-strongest pairing in this file. 10,000 seeded prbt states
+strongest pairing in this file. Sweeping the floor's top face through the
+tangency point isolates the discontinuity, `e017c91ee`, seed-free:
+
+| floor top `z` | true gap | `robot_collision` | `robot_distance` |
+|---|---|---|---|
+| `-1e-3`  | `+1e-3`  | `false` | `+1.000000000000001e-3` |
+| `-1e-7`  | `+1e-7`  | `false` | `+1.000000000028756e-7` |
+| `-1e-9`  | `+1e-9`  | `false` | `+9.999999994736568e-10` |
+| `-1e-15` | `+1e-15` | `false` | `+1.038912551220369e-15` |
+| `0`      | `0`      | `false` | **`-1.000000000000000e0`** |
+| `+1e-15` | `-1e-15` | `true`  | `-1.129411566063279e-15` |
+| `+1e-9`  | `-1e-9`  | `true`  | `-9.999999994737827e-10` |
+| `+1e-3`  | `-1e-3`  | `true`  | `-1.000000000000001e-3` |
+
+The function is continuous to `~1e-15` on both sides and jumps by `1e15` at
+the single point between them. That the jump is the sentinel and not geometry
+is confirmed by the `collision` column: at the tie upstream also reports
+`false`, which is what "zero contacts were found" means, and it is exactly the
+branch at line 648 that the zero-contact case skips.
+
+That column is *not* itself a convention the port could adopt. `fcl::collide`
+dispatches per shape pair, and the other exactly-touching pair in this
+workspace answers the other way: `octree_world_collision_response.json` case 4
+— an octree leaf whose `-x` face lands exactly on a robot box's `+x` face —
+returns `robot_collision: true` with `robot_distance: -0.0`, having found a
+contact. Same zero gap, opposite answers, and only the pair that found no
+contact leaks the sentinel.
+
+The rate is prbt-specific, not general. 10,000 seeded prbt states
 (`tools/ci/verify-phase3-collision-sweep.sh`, seed 1): the oracle's reported
 minimum robot distance is `-1.0` on `floor/prbt_base_link` in **10,000 /
-10,000** states. It is prbt-specific, not general: across the other four
+10,000** states. Across the other four
 fixtures' 29,152 disagreeing states (panda 9,543, fanuc 6,113,
 dual_arm_panda 3,508, pr2 9,988) the sentinel appears **0** times. That is
 geometry, not luck — `fixtures/prbt.urdf`'s `prbt_base_link` collision
@@ -1283,7 +1312,7 @@ cylinder (`length 0.13`, `origin z 0.065`) puts its bottom face at exactly
 `tools/moveit-diff/src/main.rs`'s scene, so every sampled state hits the
 tangency case regardless of joint values.
 **Status:** `not-reproduced`, and structurally so rather than by choice.
-`parry.rs:2217` takes `contact.dist` from `parry3d_f64::query::contact` and
+`parry.rs:2239` takes `contact.dist` from `parry3d_f64::query::contact` and
 substitutes no sentinel on any path, so `-1.0` is not constructible here.
 **Deviation:** none of `D1`..`D14` applies. This is not a policy the port
 adopted to route around the defect — parry simply has no in-collision
@@ -1298,6 +1327,11 @@ has zero contacts, and `query::contact` returns a contact at
 `dist = -2.775558e-17` for it. The number obtained would still be a sentinel
 rather than a distance, so §218.3 records this as a Phase 3 finding instead
 of moving the fixture or the floor to make it disappear.
+The reproducer above is pinned as tests in
+`crates/moveit-collision/tests/exact_tangency_boundary.rs`:
+`no_sentinel_escapes_at_the_tie` fails if this backend ever acquires the
+sentinel, and `the_tie_is_decided_below_one_ulp` measures the `-2.775558e-17`
+that the `bool` half of the disagreement turns on.
 
 ---
 
@@ -2009,3 +2043,77 @@ Recorded rather than skipped because the defect is in the *pairing* offered
 by the header — a lossy formatter beside its inverse, documented only as a
 locale fix. `toString` read alone does what its own doc comment says, so a
 reviewer looking only at `lexical_casts.cpp` would pass it.
+
+---
+
+### `distance-callback-max-contact-depth` — `distanceCallback` reports the **largest** of up to 200 contact depths as the pair's signed distance, so a penetration depth grows without bound in the *other* body's width — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:646`
+(`coll_req.num_max_contacts = 200;`), `:650-659` (`double max_dist = 0; ... if
+(contact.penetration_depth > max_dist)`), `:662-663` (`const fcl::Contactd&
+contact = coll_res.getContact(max_index); dist_result.distance =
+-contact.penetration_depth;`).
+**Port:** `crates/moveit-collision/src/parry.rs`, `accumulate_distance`
+**Symptom:** a penetration depth is the length of the shortest translation
+that separates two bodies, so it cannot depend on how *wide* the other body
+is — widening a floor slab sideways puts no new material between the robot
+and the surface it rests in. Upstream's value does depend on it. For a mesh
+link `fcl::collide` runs per triangle, and a triangle lying wholly inside a
+large box has no separating axis, so FCL reports an escape along a lateral
+direction whose length grows with the box. Lines 650-659 then select the
+**maximum** over the contact set, which promotes exactly that artifact over
+the ~200 geometrically sane contacts beside it. The result is published as
+`DistanceResultsData::distance` and, through the plain `<` in the caller,
+becomes the whole scene's `minimum_distance`.
+**Evidence:** oracle runs at `e017c91ee`, `tools/moveit-oracle/run-oracle.sh`
+with `fixtures/panda.urdf`. `panda_link0` in its default state, floor slab
+`L x L x 0.1` with its top face held at `z = +0.05` in every case, so the true
+overlap is `0.05 m` throughout and only `L` changes:
+
+| `L` (m) | oracle `robot_distance` |
+|---|---|
+| `0.4`  | `-2.252549386999574e-1` |
+| `1.0`  | `-6.442843086554950e-1` |
+| `2.0`  | `-1.349881199903309e0` |
+| `4.0`  | `-2.763223704646119e0` |
+| `8.0`  | `-3.999482770392206e0` |
+| `20.0` | `-9.999482770392206e0` |
+
+A factor of 44 across a sweep in which the overlap never moved, and for
+`L >= 8` the value is exactly `L/2 - 0.000517` — the half-width of the slab,
+which is the lateral escape rather than the vertical one. Dumping the contact
+set with `max_contacts_per_pair: 200` separates upstream's `max` selection
+from FCL's individual depths:
+
+| `L` | contacts on `panda_link0/floor` | min depth | median depth | max depth | depths above `0.309272` |
+|---|---|---|---|---|---|
+| `4.0`  | 100 | `0.041524344` | `0.049999832` | `2.763223705` | 32 of 100 |
+| `20.0` | 100 | `0.041524344` | `0.049999698` | `9.999482770` | 14 of 100 |
+
+The median is the correct `~0.05` at both widths and is itself width-invariant
+to `1.3e-7`; `0.309272` is `panda_link0`'s own diameter, measured as twice the
+largest `|vertex|` over the 200 triangles of
+`fixtures/meshes/panda_description/meshes/collision/link0.stl`. So every order
+statistic below the maximum is bounded by the geometry and the maximum is not,
+and upstream's line 655 is what selects the one that is not. That places the
+defect on the MoveIt side of the FCL boundary: taking the minimum or the
+median of the same contact set would answer correctly.
+**Status:** `not-reproduced`. This backend answers from
+`parry3d_f64::query::contact`, which returns one contact per pair carrying the
+minimum-translation distance, so there is no set to take a maximum over. Its
+measured value is `-0.05003249277506257` at `L` of `0.4`, `1.0`, `4.0` and
+`20.0` — spread exactly `0.000000e0`, and within `3.3e-5` of the oracle's own
+median contact.
+**Deviation:** none of `D1`..`D14` applies. The port is not routing around the
+defect by policy; it never accumulates a per-triangle contact set at this
+layer, so the selection rule that produces the artifact does not exist here.
+**Cost of not reproducing:** measured, and it is the entirety of the `distance`
+column that `PORTING-PLAN.md` §5 Phase 3 records as missed on panda, fanuc and
+pr2 (`2,897x`-`27,384x`). Reproducing it would mean adopting a quantity that is
+unbounded in the size of an unrelated object, and would take
+`crates/moveit-collision/tests/penetration_depth_scale_invariance.rs` —
+`depth_is_invariant_to_floor_width` and
+`depth_never_exceeds_the_links_own_diameter` — with it. Widening the clause's
+`1e-4` tolerance was never available either: at `L = 20` the divergence is
+`9.95 m`, and it grows with `L` without limit, so no fixed tolerance both
+admits it and detects anything.
