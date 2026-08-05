@@ -835,7 +835,7 @@ upstream function line-by-line.
 - `scene/planning_scene.rs:127` (`apply_octomap`, empty
   `octomap.data`) — `:1483`: upstream's own early return once the
   previous octomap is cleared. Matches.
-- `state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
+- `ros/moveit-ros/src/state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
   `multi_dof_joint_state` non-default) — **not this shape**: these
   reject a *non-default* value because there is no core field to carry
   it (a structural gap, `RobotState`'s own doc comment), the opposite
@@ -846,7 +846,7 @@ upstream function line-by-line.
   gains multi-DOF support; `attached_collision_objects`/`is_diff`
   clear only if this crate adds a `&mut PlanningScene`-aware
   conversion entry point, not if `moveit-state` changes.
-- `trajectory.rs:142` (`JointTrajectoryPoint[0].time_from_start`
+- `ros/moveit-ros/src/trajectory.rs:142` (`JointTrajectoryPoint[0].time_from_start`
   nonzero) — same opposite-polarity shape as `state.rs` above:
   rejects a non-default value `RobotTrajectory` cannot represent, not
   a rejected default. Expiry noted inline (§153.1): only
@@ -865,7 +865,7 @@ find a test gap either.
 
 **One cross-crate observation, resolved since (round 13 update):**
 this paragraph originally read `crates/moveit-constraints/src/
-position.rs:163`/`joint.rs:108` as rejecting `weight <= EPS` with
+position.rs:163`/`crates/moveit-constraints/src/joint.rs:108` as rejecting `weight <= EPS` with
 `Err` where upstream substitutes `1.0`, and (wrongly) filed it as a
 deliberate, out-of-scope policy decision rather than the same
 default-has-meaning defect this section sweeps for — the misreading
@@ -910,7 +910,7 @@ corrected renumbering claim).
   after; neither was committed). A new `PlanningRequest` field forces
   a person to this exact line without anyone needing to remember the
   comment exists.
-- **`state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
+- **`ros/moveit-ros/src/state.rs:68,75,84-87` (`is_diff`/`attached_collision_objects`/
   `multi_dof_joint_state`) — requires human memory.** Neither
   `TryFrom<RobotStateMsg>` nor `TryFrom<CoreRobotState>` builds
   `CoreRobotState` through a struct literal (`CoreRobotState::new`,
@@ -920,7 +920,7 @@ corrected renumbering claim).
   `is_diff` gap is even further from compiler-visible: its expiry is
   authoring a conversion entry point that does not exist yet, so there
   is nothing for a future edit to newly fail against.
-- **`trajectory.rs:142` (nonzero `time_from_start[0]`) — not
+- **`ros/moveit-ros/src/trajectory.rs:142` (nonzero `time_from_start[0]`) — not
   compiler-enforced, but now runtime-tripwired (round 13 follow-up,
   after D14 proved the tripwire pattern viable and the coordinator
   asked this classification be pushed on again).** The rejection
@@ -937,7 +937,7 @@ corrected renumbering claim).
   calling `add_suffix_way_point` directly (bypassing this crate's own
   `TryFrom` and its own duplicate guard) and asserting the current
   `Err`; it goes red the moment that invariant relaxes. One caveat
-  documented at `trajectory.rs:148`'s own expiry comment: this crate's
+  documented at `ros/moveit-ros/src/trajectory.rs:148`'s own expiry comment: this crate's
   `i == 0 && t != 0.0` check fires *before* `add_suffix_way_point` is
   ever called (it exists only to give a wire-specific message), so
   the wire-level `nonzero_start_time_is_rejected` test would **not**
@@ -945,7 +945,7 @@ corrected renumbering claim).
   tripwire's failure and separately update or remove that duplicate
   check. Partially self-revealing, not fully: the underlying fact is
   now mechanically caught, the crate-local duplicate is not.
-- **`state.rs:68,75,84-87` — checked whether the same runtime-tripwire
+- **`ros/moveit-ros/src/state.rs:68,75,84-87` — checked whether the same runtime-tripwire
   approach applies; it does not.** A tripwire needs an *existing* call
   path whose current answer changes; both `multi_dof_joint_state` and
   `attached_collision_objects`/`is_diff` name the *arrival* of a

@@ -247,7 +247,7 @@ independent of the baseline issue).
 
 **The tool's documented blind spot undercounts the real total further, and
 by more than the quoted 25.** `assert_err_mentions(result, needle)` is
-defined separately per file (`state.rs:192`, `trajectory.rs:248`,
+defined separately per file (`ros/moveit-ros/src/state.rs:192`, `ros/moveit-ros/src/trajectory.rs:248`,
 `planning.rs:385`, `scene/attached.rs:323`, `scene/collision_object.rs:533`
 — five independent copies, not a shared import) and renders on one line,
 asserts `rendered.contains(needle)` on the next — invisible to the tool's
@@ -321,8 +321,8 @@ not move at all.
 | `scene/planning_scene.rs:234,251,287` | in-family | CLEAN (3 sites) — `:234`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:251/:287` already sibling-documented and grep-confirmed unique |
 | `scene/attached.rs:442,452,513,532,553,554,594,612,649,671` | in-family except `:532` | `:532` **not-this-family** (clause 2/3) — ADD-path `merged_touch_links` is a straight `.collect()` with the merge branch gated `if !is_add`, i.e. never entered; the real "replace not merge" claim rides on the adjacent `shapes().len()==1` assertion instead. Everything else CLEAN (8 direct + 2 hidden `assert_err_mentions` at `:513,594`), including `:553/:554` (`BTreeSet::contains` is exact-element not substring match, and `moveit-scene`'s `attach_new`/`AttachedBody` store touch_links verbatim with no auto-inclusion of `link_name`, ruling out the fixture's own "tip" link name as a spurious source) |
 | `scene/collision_object.rs:635,710,771,880,893,900,948,1016,1050,1108,1143` | in-family (all 11) | CLEAN (9 direct + 2 hidden `assert_err_mentions` at `:900,948`), including the pair this round corrected: `:1108`/`:1143` (`move_object_pose_with_malformed_pose_is_rejected`/`move_shape_repose_with_malformed_pose_is_rejected`) replace the old single `:1089` citation, which this table had flagged as "latent risk, not a live collision" — `4c56148` ("test(ros): reach apply_move's object-pose parse, close the :1089 gap") already fixed exactly that gap by adding the first test, and its own doc comment (`:1064-1087` in the live source) states the bite-check: neutralizing `apply_move`'s object-pose parse (`:478`) alone fails only `move_object_pose_with_malformed_pose_is_rejected`, neutralizing the shape-repose parse (`:515`) alone fails only `move_shape_repose_with_malformed_pose_is_rejected`. §13 (this ledger's own round-12 write-up) checked `4c56148`'s ancestry and wrongly treated the pre-existing `:1089` row as proof this was already ledgered — it was ledgered as *unfixed*, and the fix had already landed; §13 read "a row exists" as "nothing changed" without checking whether the row's own verdict still held. Corrected here, not re-bitten (the source comment's own trail is the bite-check) |
-| `state.rs:283,307,334,357,379,394,413,432,460,478,496` | in-family (all 11) | CLEAN (11 hidden `assert_err_mentions`) — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
-| `trajectory.rs:297,314,337,360,398,421` | in-family (all 6) | CLEAN (6 hidden `assert_err_mentions`) — length-mismatch messages are `{field}`-interpolated; `:297`/`:421` share one needle by design (same branch, redundant coverage, not a collision) |
+| `ros/moveit-ros/src/state.rs:283,307,334,357,379,394,413,432,460,478,496` | in-family (all 11) | CLEAN (11 hidden `assert_err_mentions`) — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
+| `ros/moveit-ros/src/trajectory.rs:297,314,337,360,398,421` | in-family (all 6) | CLEAN (6 hidden `assert_err_mentions`) — length-mismatch messages are `{field}`-interpolated; `:297`/`:421` share one needle by design (same branch, redundant coverage, not a collision) |
 | `planning.rs:481,494,723` | in-family (all 3) | CLEAN (2 hidden `assert_err_mentions` at `:481,494` + `:723`, added this round) — `:475/:488` are `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites, already named as siblings in the function's own doc comment. `:723` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`) is a folded-operand sibling of `:710`'s already-covered `multi_dof_joint_trajectory_is_rejected_not_silently_dropped`: the guard is `!mdjt.joint_names.is_empty() \|\| !mdjt.points.is_empty()` (one guard, two operands), and the test's own comment (`:713-716` in the live source, "round 8, folded-operand audit") already states `joint_names` had a test but `points` did not before this test existed — the accepted `doc/folded-operand-guards.md` shape, matched here rather than re-derived, this is not a new finding |
 
 **Totals: 63 sites examined (62 pre-existing + `planning.rs:723`, added this
@@ -504,9 +504,9 @@ sequence of the function each test actually calls:
 | `moveit-geometry/src/bodies.rs:4066` | `"length"` | CLEAN | Same `recompute`, same two guards; unique to the second. |
 | `moveit-kinematics/src/chain.rs:469` + `tests/ik_fk_roundtrip.rs:281` | `"not a chain"` | CLEAN | `NewtonRaphsonSolver::new` -> `new_with_seed` -> `ChainInfo::build(model, group_name)?` — the exact same single guard (`chain.rs:149`) both tests reach; confirmed by reading `new_with_seed`'s body, not assumed from the doc comment alone. |
 | `moveit-kinematics/src/chain.rs:512` | `"DOF"` | CLEAN | One reachable `Err` site (`chain.rs:187`); the only other tree-wide occurrence of the substring is inside an `.expect()` panic message on an internal invariant, not a `Result` path this test's `unwrap_err()` could observe. |
-| `moveit-state/tests/jacobian.rs:140,159` | `"not a chain"` | CLEAN | `jacobian()`'s only guard is `state.rs:1127`; the crate's other `"not a chain"` message (`dynamics.rs:448`) belongs to `DynamicsSolver::new`, unreachable from `jacobian()`. |
-| `moveit-state/tests/jacobian.rs:192` | `"unsupported type"` | CLEAN | Single tree-wide producer (`state.rs:1203`). |
-| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1086,1108,1174,1564` | `"exceeding the"` | CLEAN | One producer (`:850`), gated by the function's own `raw_sample_count` bounds check. Re-derived after merging main's TOTG timing-loop upstream-bug commits, which shifted every line in this file; `:1564` (`b12b358`, "cover the NaN branch of the resample sample-count guard") is a new fourth call site added by that merge, same producer, same needle — added here rather than left uncited. |
+| `moveit-state/tests/jacobian.rs:140,159` | `"not a chain"` | CLEAN | `jacobian()`'s only guard is `crates/moveit-state/src/state.rs:1127`; the crate's other `"not a chain"` message (`dynamics.rs:448`) belongs to `DynamicsSolver::new`, unreachable from `jacobian()`. |
+| `moveit-state/tests/jacobian.rs:192` | `"unsupported type"` | CLEAN | Single tree-wide producer (`crates/moveit-state/src/state.rs:1203`). |
+| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1086,1113,1179,1569` | `"exceeding the"` | CLEAN | One producer (`:850`), gated by the function's own `raw_sample_count` bounds check. Re-derived after merging main's TOTG timing-loop upstream-bug commits, which shifted every line in this file; `:1564` (`b12b358`, "cover the NaN branch of the resample sample-count guard") is a new fourth call site added by that merge, same producer, same needle — added here rather than left uncited. |
 | `moveit-trajectory/src/trajectory.rs:1434,1440,1446` | `DISTINGUISHING_PHRASE` const | CLEAN | Pre-existing bite-check documented in the test's own comment (round-unspecified, prior to this sweep); independently re-confirmed against message #3's text (`Trajectory::create`'s three `Error::construct` sites, `:123/:165/:174`). |
 | `moveit-trajectory/src/trajectory.rs:1473` | `"the time step is <= 0.0"` | CLEAN | Unique among the same three sites. |
 | `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1435` | `"4"`/`'7'` | **N/A** | Not a branch-discrimination needle — single reachable typed error for the active-vs-full variable-count mismatch; the numbers are formatted data, not branch-selection text. |
@@ -538,14 +538,14 @@ from an unchecked one:
 - **Zero collisions in `moveit-state`.** 3 sites, all checked
   (`jacobian.rs:140,159,192` above).
 - **Zero collisions in `moveit-constraints`.** 2 `contains` sites checked
-  (`sampler.rs:78,120` above) plus all 8 `via:assert_err_mentions` sites
+  (`crates/moveit-constraints/tests/sampler.rs:78,120` above) plus all 8 `via:assert_err_mentions` sites
   (below).
 - **Zero collisions in `moveit-srdf`.** 2 sites checked (`boundaries.rs:
   49,55`); `:55` already fixed by another panel this session, re-confirmed
   clean here.
 - **Zero collisions in `moveit-planners-chomp`.** 12 sites; the 5 flagged
   (`cost.rs:436`, `optimizer.rs:2380,2449`) checked above by reading;
-  `cost.rs:391,404` and `trajectory.rs:712,727,748,766,925,968,1004` (7)
+  `cost.rs:391,404` and `crates/moveit-planners-chomp/src/trajectory.rs:712,727,748,766,925,968,1004` (7)
   unflagged/unique tree-wide, not individually re-traced beyond that.
 - **Zero collisions in `moveit-planners-pilz`.** 5 sites; `path_circle.
   rs:590` checked above; `path_circle.rs:558` and
@@ -560,13 +560,13 @@ from an unchecked one:
   re-traced.
 - **Zero collisions in `moveit-trajectory`.** 24 sites (23 pre-existing +
   `time_optimal_trajectory_generation.rs:1569`, added by main's TOTG
-  upstream-bug merge); the flagged subset (`robot_trajectory.rs:876`,
-  `time_optimal_trajectory_generation.rs:1086,1108,1174,1430,1491,1564`,
-  `trajectory.rs:1434,1440,1446,1473`,
+  upstream-bug merge); the flagged subset (`crates/moveit-trajectory/src/robot_trajectory.rs:876`,
+  `time_optimal_trajectory_generation.rs:1086,1113,1179,1435,1496,1569`,
+  `crates/moveit-trajectory/src/trajectory.rs:1434,1440,1446,1473`,
   `tests/robot_trajectory.rs:676,708,723,738`, `tests/ruckig_smoothing.
-  rs:204`) checked above; `path.rs:217,223,236,242,318` (already
+  rs:208`) checked above; `path.rs:217,223,236,242,318` (already
   doc-commented as `Path::create`'s 3-guard family, re-confirmed by
-  reading), `time_optimal_trajectory_generation.rs:1596,1597`
+  reading), `time_optimal_trajectory_generation.rs:1596,1602`
   (`"num_waypoints > 1"`, doc-commented, re-confirmed), `tests/
   robot_trajectory.rs:514` (`"duration_from_previous[0] must be 0.0"`,
   doc-commented, re-confirmed) checked; all unflagged remainder unique
@@ -576,7 +576,7 @@ from an unchecked one:
 - **Zero collisions in `moveit-model`.** 6 sites; `robot_model.rs:2287,
   2302` (root-link `[]`/`names` arms, doc-commented, re-confirmed),
   `:2635` (`"Box dimensions"` — same literal message duplicated at
-  `bodies.rs:2210` and `shapes.rs:906,930`, but byte-identical text across
+  `bodies.rs:2210` and `crates/moveit-geometry/src/shapes.rs:906,930`, but byte-identical text across
   all three, not a discrimination-defeating collision — noted as a
   code-duplication smell, not a finding), `:2472,2512,2542` (mesh-load
   `detail` trio, three distinct messages in one match arm, `:990/:999/
@@ -729,7 +729,7 @@ latent-not-live risk), `state.rs` (11 hidden `assert_err_mentions` incl.
 `:334,357,379,432,460,478,496` — the four `multi_dof_joint_state` sites'
 own comment already states isolating-mutation bite evidence: "neutralize
 one operand's clause to false... each of the four tests below fails only
-when its own operand's clause is neutralized"), `trajectory.rs:383`. Per
+when its own operand's clause is neutralized"), `ros/moveit-ros/src/trajectory.rs:383`. Per
 the standing rule not to re-audit a finished round, these are cited, not
 redone. `moveit-distance-field`'s one change (`collision_env_distance_
 field.rs`, 20 -> 19) is the sweep working: `08976b8` replaced a bare

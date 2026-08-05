@@ -395,7 +395,7 @@ independently of any bite.
 ledger-p1-robotmodel.md`): re-checked all 55 against the three clauses
 above, not just the 4 already marked `not-this-family`.
 
-- The 4 existing `not-this-family` rows (`ruckig_smoothing.rs:199`,
+- The 4 existing `not-this-family` rows (`crates/moveit-trajectory/tests/ruckig_smoothing.rs:199`,
   `moveit-planners-chomp/trajectory.rs:997` — both clause-3 failures,
   identical shape to the `fs::read` precondition case; `plan_responses.rs
   :208` — clause-3/clause-2 failure, a container passthrough;
@@ -720,8 +720,8 @@ naming, since between them they account for 20 of the 25:
   `scene.rs:2180`): the assertion checks *which* thing was built on a path
   that always succeeds. Computed dispatch, not a failure signal.
 - **clause 2, no decision to be wrong about** (`matrix.rs:660`,
-  `octomap_filter.rs:381`, `shapes.rs:1962`,
-  `constraint_sampler_manager.rs:172`): a fresh map, a field with zero
+  `octomap_filter.rs:381`, `crates/moveit-geometry/src/shapes.rs:1962`,
+  `crates/moveit-constraints/tests/constraint_sampler_manager.rs:172`): a fresh map, a field with zero
   assignment sites, a literal-initialized value, an accumulator no step
   touched. Nothing in the subject decided anything, so no mutation there
   could exercise a wrong implementation.

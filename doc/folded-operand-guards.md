@@ -4,7 +4,7 @@ A guard that folds N≥2 independently-named operands into one condition
 reaching a single construction site is **N covered branches, not one**.
 `if radius < 0.0 || length < 0.0 { return Err(Error::construct(...)) }`
 has one `Error::construct` and two branches: dropping the `radius`
-operand fails `Cylinder::new(-1.0, 1.0).is_err()` at `shapes.rs:1624`,
+operand fails `Cylinder::new(-1.0, 1.0).is_err()` at `crates/moveit-geometry/src/shapes.rs:1624`,
 dropping `length` fails `Cylinder::new(1.0, -1.0).is_err()` at `:1625`.
 
 A constructor-token count sees the one and reports `single-branch`. It is

@@ -89,7 +89,7 @@ neither-set — the ones p3-acm's 51-site round disposed of) are both
 `both` sites (`kinematics_metrics_parity.rs:351,361,371,381,407,415`,
 `frame_transform_parity.rs:148`) already carry an explicit `max_relative`,
 and the single `max_relative_only`
-site (`lib.rs:1018`, inside `manipulability_index_scales_by_joint_limits_penalty` —
+site (`crates/moveit-metrics/src/lib.rs:1018`, inside `manipulability_index_scales_by_joint_limits_penalty` —
 `assert_relative_eq!(penalized, unpenalized * penalty, max_relative =
 1e-12)`) is outside §79's target buckets (`max_relative` alone, no
 `epsilon`, is not a target — an `epsilon`-only or neither-set call is

@@ -36,7 +36,7 @@ assertion checks `kind`/`name`, not just the variant.
 `moveit-planners-chomp`'s
 `assign_chomp_trajectory_point_rejects_a_multi_dof_active_joint`
 asserts `matches!(err, Error::Other(_))`. That function
-(`trajectory.rs:558`) has **two** `Error::other` sites: the
+(`crates/moveit-planners-chomp/src/trajectory.rs:558`) has **two** `Error::other` sites: the
 active-joint-count guard at `:566` and the multi-DOF guard at `:574`.
 Swap the two messages and the test still passes — it cannot say which
 guard fired. Deleting the guard does make it fail, which is why the

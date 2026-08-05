@@ -20,7 +20,7 @@ Upstream root for this crate: `third_party/octomap/octomap/` (octomap
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| Every `Ported from` header in this crate (`lib.rs:5,25`, `key.rs:5`, `iter.rs:5`, `tree.rs:5`, `node.rs:5`) | None cite a bare package/directory line with no filenames indented beneath it -- every citation lists explicit headers (`OcTreeKey.h`, `OcTreeIterator.hxx`, `OcTreeBaseImpl.h`/`.hxx`, etc.) | CONFIRMED, 0 hits of the shape the parser now closes | Read all six headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
+| Every `Ported from` header in this crate (`crates/moveit-octomap/src/lib.rs:5,25`, `key.rs:5`, `iter.rs:5`, `tree.rs:5`, `node.rs:5`) | None cite a bare package/directory line with no filenames indented beneath it -- every citation lists explicit headers (`OcTreeKey.h`, `OcTreeIterator.hxx`, `OcTreeBaseImpl.h`/`.hxx`, etc.) | CONFIRMED, 0 hits of the shape the parser now closes | Read all six headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
 
 ## Trailing-byte acceptance in `read_binary_data`/`read_data` (found by p9-ros, this round)
 
