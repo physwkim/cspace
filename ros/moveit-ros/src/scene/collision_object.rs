@@ -297,7 +297,7 @@ fn move_world_object_shapes(
 }
 
 /// Apply one `CollisionObject` command to `scene`'s world. Upstream
-/// `processCollisionObjectMsg` (`planning_scene.cpp:1758`).
+/// `processCollisionObjectMsg` (`planning_scene.cpp:1774`).
 pub fn apply_collision_object(
     scene: &mut PlanningScene<'_>,
     msg: moveit_msgs::CollisionObject,
