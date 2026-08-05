@@ -58,7 +58,16 @@ DIFF="$REPO_ROOT/target/release/moveit-diff"
 #                   offset, and applying them in the wrong order all produce
 #                   the same numbers -- so the arithmetic was covered at the
 #                   one point in its parameter space where it cannot be wrong.
-ROBOTS=(panda prbt fanuc dual_arm_panda pr2 one_robot)
+#   prbt_pg70       the only SRDF group that names a mimic's *master* without
+#                   naming the mimic (Pilz's `gripper` group lists
+#                   `prbt_gripper_finger_left_joint` alone). That is the sole
+#                   input on which `RobotState::interpolate`'s group overload
+#                   and its whole-model overload disagree -- the group form
+#                   propagates `group->getMimicJointModels()`, which is empty
+#                   here, so the mimic must come out of the *destination*
+#                   untouched while its master moves. Every other committed
+#                   group either holds both halves of a mimic pair or neither.
+ROBOTS=(panda prbt fanuc dual_arm_panda pr2 one_robot prbt_pg70)
 
 # Before comparing anything: confirm the fixtures still are the robots they
 # name. Boundary values here are derived from the oracle's own reported

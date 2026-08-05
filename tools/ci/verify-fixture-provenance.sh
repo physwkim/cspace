@@ -84,6 +84,26 @@ $MOVEIT2_SRC/moveit_planners/test_configs/prbt_support/urdf/prbt_macro.xacro"
   [fixtures/prbt.srdf]="\
 $MOVEIT2_SRC/moveit_planners/test_configs/prbt_moveit_config/config/prbt.srdf.xacro
 $MOVEIT2_SRC/moveit_planners/test_configs/prbt_moveit_config/config/prbt_manipulator.srdf.xacro"
+  # The same two top-level xacros as prbt above, expanded with `gripper:=pg70`
+  # instead of the default empty gripper -- which is why the closures overlap
+  # and are still listed in full: `prbt.xacro` includes different files under
+  # the two argument values, so a shared entry would pin the wrong set for one
+  # of them.
+  [fixtures/prbt_pg70.urdf]="\
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_support/urdf/prbt.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_support/urdf/prbt_macro.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_support/urdf/prbt.ros2_control.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_support/urdf/simple_gripper_brackets.urdf.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/config/pg70_tcp_offset.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/urdf/pg70.urdf.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/urdf/pg70/pg70.urdf.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/urdf/common.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/urdf/pg70/pg70.gazebo.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/urdf/pg70/pg70.transmission.xacro"
+  [fixtures/prbt_pg70.srdf]="\
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_moveit_config/config/prbt.srdf.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_moveit_config/config/prbt_manipulator.srdf.xacro
+$MOVEIT2_SRC/moveit_planners/test_configs/prbt_pg70_support/config/pg70.srdf.xacro"
 )
 
 # sha256 of each `GENERATED_SOURCES` file, in the order listed there.
@@ -99,6 +119,21 @@ beb34073e5abd710351298c93865b62661b92b9e357b313f3e1ff16614a28778
   [fixtures/prbt.srdf]="\
 612170ee11201b7d958597fba1784434b5f8fffcf79efe3a6f0520ea38158995
 4fd035b0841737f130206fdfbe82006573f10653a6d568fd800b59827957f69b"
+  [fixtures/prbt_pg70.urdf]="\
+beb34073e5abd710351298c93865b62661b92b9e357b313f3e1ff16614a28778
+31ba3d0be4da797408697446cbf0d5ebc9a1ba4d1ee36ca609aad96e08e9da47
+06808a70cfd45a0fefaa1e35377f6c258339769c556c56a7011bd10e7a13b62d
+333c8f2dc696ab669b02106d8f37ac436f280409310e0a1a689157ef9214d8f1
+d51d2830bc38b3b7b7953fb2079ecca1f950ff1bfc22518052893b48c5d3c71a
+0ec5994a54bea6a22dd1378f51d0704ad9841a59a6118adcb3e234fc1096971a
+b212b6b4dc83b9830778c8f761950b67a33259e86cea2baae267648984f5bc04
+d0ee5e78ea27df61e69da787b85ba61d947fbe43e751f38989016a1b2d12c578
+6c353216bde0ed89b3c4fe67a2eab798f2c3f805bfc969240073d986a31fb1ee
+1bee3e4146f01bcc8cc00625b38a9951d41e57aa6ee1c8398ca7a265e66c4f05"
+  [fixtures/prbt_pg70.srdf]="\
+612170ee11201b7d958597fba1784434b5f8fffcf79efe3a6f0520ea38158995
+4fd035b0841737f130206fdfbe82006573f10653a6d568fd800b59827957f69b
+c29402e3bc0f082f08fdba7465fd4b84a83cc0ebf404d7b07f1087a74a68c822"
 )
 
 # Fixtures whose source is a raw-string literal inside an upstream C++ test,
@@ -118,6 +153,8 @@ declare -A GENERATED_COMMAND=(
   [fixtures/dual_arm_panda.urdf]="see commit 2bcd7cb's body (colcon-builds dual_arm_panda_moveit_config into a scratch workspace so \$(find ...) resolves, then xacro)"
   [fixtures/prbt.urdf]="sg docker -c 'docker run --rm --user \$(id -u):\$(id -g) -v <out>:<out>:rw --entrypoint bash <oracle image> -lc \"source /opt/ros/\\\$ROS_DISTRO/setup.bash && source /ws/install/setup.bash && xacro \\\$(ros2 pkg prefix moveit_resources_prbt_support)/share/moveit_resources_prbt_support/urdf/prbt.xacro\"' > fixtures/prbt.urdf"
   [fixtures/prbt.srdf]="same container/setup as fixtures/prbt.urdf, expanding \$(ros2 pkg prefix moveit_resources_prbt_moveit_config)/share/moveit_resources_prbt_moveit_config/config/prbt.srdf.xacro"
+  [fixtures/prbt_pg70.urdf]="same container/setup as fixtures/prbt.urdf, with \`gripper:=pg70\` appended to the xacro invocation"
+  [fixtures/prbt_pg70.srdf]="same container/setup as fixtures/prbt.srdf, with \`gripper:=pg70\` appended to the xacro invocation"
 )
 
 status=0
