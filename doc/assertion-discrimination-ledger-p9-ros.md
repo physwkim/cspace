@@ -308,3 +308,68 @@ re-run at the end of the round regardless, to confirm the working tree
 still gates clean after the `git merge main` fast-forward and this
 doc-only addition (fmt/clippy/`cargo test` 170/170/`cargo doc`, all pass —
 see the round's own report for the exact run).
+
+## §11. `moveit-distance-field` wide-grammar sweep (round 10)
+
+Fence for this round: `crates/moveit-distance-field` in the root
+`[workspace]` (not `ros/moveit-ros`), assigned after a two-panel collision
+on `crates/moveit-planning` was traced to a stale hand-off (a `last_note`
+read as a fresh assignment) and resolved by redrawing the round's fence
+rather than reverting the one commit already made under it. `ros/` stays
+closed at 63 per §10 unless something new merges into it.
+
+Enumerated with `python3 tools/ci/count-coarse-assertions.py
+crates/moveit-distance-field` on `main` post-`f10e1bd`/`6792ef1`
+(`contains_msg`/`contains_member` merged into one `contains` kind;
+`None`/`Err(..)` now score only as a top-level equality-macro operand,
+which silently retired 5 false-positive `eq_none`/`eq_err` tags this
+sweep hit under the pre-fix instrument — `collision_env_distance_field.rs`
+`:2740/:2751/:2769`'s `.is_none()` calls and `registry.rs`-shaped
+`matches!`/`Err(` combinations elsewhere had `None,`/`Err(` matching
+inside a function-call argument list, not a real `assert_eq!(x, None)`).
+**39 sites**, all `test` scope, 0 `helper_body`. Confirmed independently
+against a hand-derived figure (34, under the pre-merge instrument) before
+the fence redraw folded in the 5 sites a since-superseded cross-crate
+carve-out (`contains_msg`/`via:` sites anywhere in `crates/` belong to
+p1-robotmodel) had held out — `oracle_parity.rs:296,304`
+(`via:check_scenario`) and `voxel_grid.rs:454,456,512` (rendered
+error-message `contains`, now folded into the merged kind). With the crate
+under single ownership this round, that carve-out no longer has a second
+owner to route to, so all 39 are enumerated here.
+
+| file:line | kind | verdict | evidence |
+|---|---|---|---|
+| `collision_distance_field_types.rs:1410-1414` (5) | `is_empty` | **not-this-family** (clause 2) | `GradientInfo::clear()` unconditionally clears each field (`.clear()`/reassignment, no guard) — no decision, just five independent unconditional resets; `gradient_info_clear_does_not_clear_types` is a state-transition check, not a branch discrimination |
+| `collision_env_distance_field.rs:2368` | `is_empty` | **not-this-family** (clause 1) | `assert_eq!(index_map.contains_key(...), !link_model.shapes().is_empty(), ...)` compares two presence/membership booleans against an independently-computed oracle value, not a coarse fail/absence signal |
+| `collision_env_distance_field.rs:3081` (orig `:3068`) | `is_empty` | **in-family, BLIND — FIXED** (`9c42c11`) | `generate_distance_field_cache_entry_never_populates_attached_bodies_when_acm_is_none` attached its fixture to `r_gripper_palm_link`, which resolves to zero shapes under `MeshSearchPaths::none()` — the `if !link.shapes().is_empty()` gate (`:566`) already empties `attached_body_names` on its own, so the test never touched the `acm == None` gate (`:574`) it names. Bite-check: moving the attached-body population loop outside the `acm` gate left this test green. Fix: retargeted the fixture at `r_gripper_motor_accelerometer_link` (has shapes, per the sibling `acm_is_some` test's own comment) — re-ran the same mutation, now fails correctly and only this test |
+| `collision_env_distance_field.rs:3127` (orig `:3114`) | `is_empty` | in-family, CLEAN | `excludes_an_attached_body_on_a_non_group_link` — bite-checked: neutralizing the `filter(|ab| ab.link_name == link_name.as_str())` match to accept everything makes this test fail and only this test |
+| `collision_env_distance_field.rs:3158` (orig `:3145`) | `is_empty` | **not-this-family** (clause 3) | Explicitly labeled `"test precondition: ..."` in its own panic text — asserts about the fixture model, not `generate_distance_field_cache_entry` |
+| `collision_env_distance_field.rs:3414` (orig `:3401`) | `is_empty` | **not-this-family** (clause 2) | `group_state_representation`'s attached-body loop (`:1009-1033`) sets `sphere_locations` unconditionally, unlike the link loop's real `if !dfce.link_has_geometry[i]` gate — no branch governs this assertion's emptiness within the function under test |
+| `collision_env_distance_field.rs:3775` (orig `:3762`) | `is_some` | in-family, CLEAN — single-branch | Sibling of `:3770`'s `is_none()` (`generate_distance_field: false` → no field); `generate_distance_field_cache_entry` has exactly one `distance_field:` construction site (already established and bite-checked at `:3745`'s own "ASSERTION-DISCRIMINATION AUDIT (round 2)" comment) |
+| `collision_env_distance_field.rs:4451` (orig `:4438`) | `is_empty` | in-family, CLEAN | `attached_body_on_an_out_of_group_link_is_invisible_to_collision_checks`, via `check_self_collision` → same filter as `:3127`; bite-checked together (combined mutation run) — this test stayed green, confirming it's insensitive to the acm gate, sensitive only to the same filter mismatch |
+| `collision_env_distance_field.rs:4500` (orig `:4487`) | `is_empty` | in-family, CLEAN | `attached_body_is_invisible_when_acm_is_none`, via `check_self_collision`, fixture link `"mid"` has real inline-box shapes (`two_link_model_and_srdf`) unlike `:3068`'s original bug — bite-checked together with `:3127`/`:4451`: this test failed under the acm-gate mutation, the other two stayed green |
+| `collision_env_distance_field.rs:4920` (orig `:4907`) | `contains` | in-family, CLEAN | `get_intra_group_proximity_gradients_updates_an_attached_bodys_gradient_slot` — bite-checked: dropping the `types[k] = CollisionType::Intra` writes in `get_intra_group_proximity_gradients` (`:2092,2097`) failed only this test plus the downstream oracle-parity test measuring the same field, nothing else |
+| `find_internal_points.rs:91` | `is_empty` | in-family, CLEAN — single-branch | `every_returned_point_is_inside_the_body` — bite-checked: gating `body.contains_point` to always-false failed this test plus the two other tests in the same file/parity suite that also depend on `find_internal_points_convex`'s output, nothing unrelated |
+| `voxel_grid.rs:454,456` | `contains` (was `contains_msg`) | in-family, CLEAN — folded operand | `rejects_non_positive_resolution` checks zero and negative resolution both hit `GridGeometry::new`'s single `!(resolution.is_finite() && resolution > 0.0)` guard (`:94`) — one guard, one message, two invalid operands; matches `doc/folded-operand-guards.md`'s accepted shape, not a collision to fix |
+| `voxel_grid.rs:512` | `contains` (was `contains_msg`) | in-family, CLEAN | `new_rejects_a_pathologically_fine_resolution_on_the_y_axis` — already carries its own prior-round isolation trail (`:496-509`'s comments: "pins that the guard applies per-axis, not just to size.x", cross-referencing the sibling `x`-axis overflow test) |
+| `collision_common_distance_field_parity.rs:319` | `is_empty` | **not-this-family** (clause 3) | `"fixture link {} has no collision geometry on this port -- pick a different link"` — fixture-selection precondition, not a decision in the code under test |
+| `collision_env_distance_field_parity.rs:{211,403,551,758,1253,1471,1748,1920}`, `collision_env_hybrid_parity.rs:{236,410}` (10) | `is_empty` | **not-this-family** (clause 3), all 10 | `model.diagnostics().is_empty()` guards against a silently-narrowed comparison from a failed mesh resolve — a precondition for the real assertions below it, not a decision belonging to the function under test |
+| `collision_env_distance_field_parity.rs:{397,550,752}` (3) | `is_empty` | **not-this-family** (clause 3), all 3 | `"fixture must carry at least one case"` — fixture-loading precondition |
+| `collision_env_distance_field_parity.rs:479,637` | `is_some` | in-family, CLEAN, both | `assert_eq!(entry.distance_field.is_some(), expected.has_field, "has_field")` — per-request oracle-driven comparison, same single-construction-site mechanism as `:3775` |
+| `collision_env_hybrid_parity.rs:347` | `is_empty` | in-family, CLEAN | Aggregate re-statement of per-element `assert_eq!(gradient.collision, ...)` checks already run above in the same loop; redundant-by-design, not blind |
+| `collision_env_hybrid_parity.rs:540` | `is_empty` | in-family, CLEAN — pre-existing audit | Own comment names it: `"the second, free refuting result this round's brief calls out"` — deliberately kept as an explicit boundary check alongside the primary `assert_eq!(differing_links, F2_COLLIDING_LINKS, ...)`, from an earlier round of this same sweep |
+| `oracle_parity.rs:296,304` | `via:check_scenario` | in-family, CLEAN, both | Helper body (`:264,:279`, `scope: helper_body`, excluded from this count) already carries its own "ASSERTION-DISCRIMINATION AUDIT (round 2)" comment with bite-check evidence for `nearest_cell`'s five `voxel: None` sites — pre-existing, not redone |
+| `shape_points_parity.rs:209` | `is_empty` | in-family, CLEAN | `missing.is_empty() && extra.is_empty()` set-difference parity check — confirmed by the same `find_internal_points.rs:91` bite-check above (this test failed under that mutation too) |
+
+**Totals: 39 sites, 17 in-family (1 blind, fixed; 16 clean), 22
+not-this-family (5 clause-2 unconditional-reset, 1 clause-2
+unconditional-population, 1 clause-1 membership/oracle-comparison, 13
+clause-3 fixture/test preconditions), 0 unresolved.**
+
+One commit this section: `9c42c11` (the blind-fixture fix above). Gated
+`-p moveit-distance-field`: `cargo fmt --all`, `cargo clippy -p
+moveit-distance-field --all-targets -- -D warnings` (clean), `cargo
+nextest run -p moveit-distance-field` (138/138 after the fix; every
+bite-check mutation in this section was reverted before the next one and
+the working tree was clean before this commit and remains clean after
+it).
