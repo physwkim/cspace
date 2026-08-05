@@ -201,9 +201,9 @@ use rand_chacha::ChaCha8Rng;
 /// That pilot is no longer the largest observation, so the multiple it was
 /// chosen for has shrunk and the number is restated here rather than left to
 /// read as a stale 3x. Over the 500-problem sets the slowest single call is
-/// 52.31 s (fanuc `floor_wall`, `doc/phase7-benchmark-results.json`), and
-/// across three port RNG streams (`seed_base` 424242 / 20260806 / 999983) the
-/// slowest fanuc call was 58.12 / 56.06 / 54.33 s. So 120 s is 2.1x the
+/// 57.46 s (fanuc `cage`, problem 117, `doc/phase7-benchmark-results.json`),
+/// and across three port RNG streams (`seed_base` 424242 / 20260806 / 999983)
+/// the slowest fanuc call was 58.12 / 56.06 / 54.33 s. So 120 s is 2.1x the
 /// largest call measured to date, not 3x, and every one of those runs
 /// reported `timeouts: 0`.
 ///
