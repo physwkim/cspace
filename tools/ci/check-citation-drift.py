@@ -391,6 +391,18 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
     cited functions at once (`move_object`, `decouple_parent`,
     `frame_transform` in one ledger's disposition list).
 
+    Returns `(candidates, tight)`. `tight` says which rule produced them,
+    and the caller quantifies over a multi-site citation accordingly: a
+    tight pairing `` `name` (`f.rs:a,b`) `` claims BOTH a and b are inside
+    `name`, so every cited line must land; a loose rule-2 mention claims
+    only that the sites it discusses are inside the test it names, so at
+    least one must land. That distinction is what a census row needs --
+    `doc/assertion-discrimination-ledger-p9-ros.md:323` lists eleven sites
+    across `collision_object.rs` in its first column and names two tests in
+    its prose, which contain two of the eleven; the other nine live in
+    tests the row never mentions, and demanding all eleven land in those
+    two asserted something the row never said.
+
     An empty result leaves the citation unverified (bounds-only) rather
     than guessed at -- see the module docstring.
     """
@@ -412,16 +424,16 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
         if name not in candidates:
             candidates.append(name)
     if candidates:
-        return candidates
+        return candidates, True
 
     stripped = line.lstrip()
     if stripped.startswith("|"):
         pipes = [i for i, ch in enumerate(line) if ch == "|"]
         if len(pipes) >= 2 and pipes[0] < match_start < pipes[1]:
             rest_of_row = line[:match_start] + line[match_end:]
-            return _valid_idents(rest_of_row, spans, require_test=True)
+            return _valid_idents(rest_of_row, spans, require_test=True), False
 
-    return []
+    return [], False
 
 
 def resolve_path(fname_part, rs_files_by_basename, rs_files_set):
@@ -498,14 +510,14 @@ def main():
                     continue
 
                 spans = spans_for(resolved_path)
-                anchors = find_anchors(
+                anchors, tight = find_anchors(
                     line, m.start(), m.end(), spans, window_floor, is_range=m.group(3) is not None
                 )
                 if not anchors:
                     bounds_only += 1
                     continue
 
-                # Each cited line must land in SOME candidate's span -- not
+                # A cited line lands if it is in SOME candidate's span -- not
                 # all cited lines in the SAME one. A single citation can
                 # legitimately name several sibling functions at once (e.g.
                 # `robot_model.rs:2329,2344` for `no_root_link_errors`'s and
@@ -514,10 +526,20 @@ def main():
                 # exactly that shape, discovered by spot-reading this
                 # script's own output against a citation this round's fixes
                 # had just corrected.
-                in_span = all(
-                    any(start <= ln <= end for name in anchors for (start, end, _is_test) in spans[name])
+                #
+                # How many must land is set by how the anchor was attached,
+                # not by the citation: see `find_anchors`. Tight pairing =>
+                # every cited line; loose row mention => at least one. For a
+                # single-site citation the two coincide, so the loosening
+                # touches only multi-site lists -- exactly the shape whose
+                # sites can legitimately live in functions the row never
+                # names.
+                landed = [
+                    ln
                     for ln in cited_lines
-                )
+                    if any(start <= ln <= end for name in anchors for (start, end, _is_test) in spans[name])
+                ]
+                in_span = len(landed) == len(cited_lines) if tight else bool(landed)
                 if in_span:
                     anchor_verified += 1
                 else:
