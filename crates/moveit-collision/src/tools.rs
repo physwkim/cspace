@@ -260,6 +260,30 @@ mod tests {
     }
 
     #[test]
+    fn boxes_that_only_touch_on_y_do_not_intersect() {
+        // Overlaps on x and z, touches only at y == 1: isolates the
+        // `min[1] >= max[1]` operand the way the sibling test above
+        // isolates `min[0] >= max[0]`.
+        let mut a = BTreeSet::new();
+        a.insert(cost_source([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 1.0));
+        let mut b = BTreeSet::new();
+        b.insert(cost_source([0.0, 1.0, 0.0], [1.0, 2.0, 1.0], 1.0));
+        assert!(intersect_cost_sources(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn boxes_that_only_touch_on_z_do_not_intersect() {
+        // Overlaps on x and y, touches only at z == 1: isolates the
+        // `min[2] >= max[2]` operand the way the sibling tests above
+        // isolate `min[0] >= max[0]` and `min[1] >= max[1]`.
+        let mut a = BTreeSet::new();
+        a.insert(cost_source([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 1.0));
+        let mut b = BTreeSet::new();
+        b.insert(cost_source([0.0, 0.0, 1.0], [1.0, 1.0, 2.0], 1.0));
+        assert!(intersect_cost_sources(&a, &b).is_empty());
+    }
+
+    #[test]
     fn disjoint_boxes_do_not_intersect() {
         let mut a = BTreeSet::new();
         a.insert(cost_source([0.0, 0.0, 0.0], [1.0, 1.0, 1.0], 1.0));
