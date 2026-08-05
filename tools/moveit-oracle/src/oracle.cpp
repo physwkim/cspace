@@ -2782,12 +2782,30 @@ private:
   /// a diff must be built exactly the way the base scene's are (identity
   /// `pose`, `touch_links`, `subframes`), and that helper's own doc records
   /// three hand-written copies of that code having already drifted apart.
+  /// It is `attachBody` alone, touching neither the world nor the ACM, which
+  /// is upstream's ADD branch for message-carried shapes and this port's
+  /// `PlanningScene::attach_new`.
+  ///
+  /// `remove_object` and `detach` are *not* the bare `World`/`RobotState`
+  /// calls their names suggest, because the methods this op exists to check
+  /// are not bare either. `remove_object` prunes the id's ACM entry
+  /// (`processCollisionObjectRemove`, `planning_scene.cpp:1473`; this port's
+  /// `PlanningScene::remove_object`), and `detach` puts the body's geometry
+  /// back into the world at its global pose, subframes and all, *before*
+  /// clearing it off the state (the REMOVE branch at
+  /// `planning_scene.cpp:1728-1755`; this port's `PlanningScene::detach`).
+  /// A `clearAttachedBody`-only detach here would have made this op agree
+  /// with a Rust side that did the same thing and with nothing else -- the
+  /// two would have matched each other while both diverged from upstream.
   ///
   /// `remove_object`/`detach` throw on an absent id rather than returning the
   /// upstream `false` silently. Both are the point of their case: a fixture
   /// naming an id the base scene never had would otherwise capture "removed
   /// nothing" as ground truth, and a Rust side that also removed nothing
-  /// would agree with it.
+  /// would agree with it. `detach` throws on a world id collision too, where
+  /// upstream warns and drops the geometry -- this port's `detach` returns an
+  /// error there for the same reason (see its doc), so a fixture cannot
+  /// capture the silent-loss path as if it were the normal one.
   void applySceneDiff(planning_scene::PlanningScene& scene, const json& diff)
   {
     for (const auto& action_json : diff)
@@ -2806,6 +2824,7 @@ private:
         const std::string id = action_json.at("id").get<std::string>();
         if (!scene.getWorldNonConst()->removeObject(id))
           throw std::runtime_error("remove_object: no such world object: " + id);
+        scene.getAllowedCollisionMatrixNonConst().removeEntry(id);
       }
       else if (action == "attach")
       {
@@ -2815,8 +2834,14 @@ private:
       else if (action == "detach")
       {
         const std::string id = action_json.at("id").get<std::string>();
-        if (!scene.getCurrentStateNonConst().clearAttachedBody(id))
+        const moveit::core::AttachedBody* body = scene.getCurrentStateNonConst().getAttachedBody(id);
+        if (!body)
           throw std::runtime_error("detach: no such attached body: " + id);
+        if (scene.getWorldNonConst()->hasObject(id))
+          throw std::runtime_error("detach: the world already has an object named " + id);
+        scene.getWorldNonConst()->addToObject(id, body->getGlobalPose(), body->getShapes(), body->getShapePoses());
+        scene.getWorldNonConst()->setSubframesOfObject(id, body->getSubframes());
+        scene.getCurrentStateNonConst().clearAttachedBody(id);
         scene.getCurrentStateNonConst().update();
       }
       else if (action == "set_acm_entry")
