@@ -592,6 +592,8 @@ dependencies = [
  "nalgebra",
  "rand 0.10.2",
  "rand_chacha",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
