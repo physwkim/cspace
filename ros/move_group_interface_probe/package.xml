@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>move_group_interface_probe</name>
+  <version>0.0.0</version>
+  <description>
+    Drives upstream's unmodified moveit::planning_interface::MoveGroupInterface
+    against ros/moveit-ros's node, for the /move_action leg of
+    ros/verify-ros-interop.sh. Test harness: it is never installed, never
+    linked by moveit-rs, and exists only inside the probe image
+    ros/move-group-interface-probe/Dockerfile builds.
+  </description>
+  <!-- catkin_pkg validates this against a real address grammar, so the
+       reserved-TLD spelling (none@invalid) that says "do not write here"
+       most clearly is the one it rejects. example.invalid parses and is
+       still an address that cannot receive mail (RFC 2606). -->
+  <maintainer email="moveit-rs@example.invalid">moveit-rs</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>rclcpp</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
