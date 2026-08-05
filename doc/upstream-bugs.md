@@ -99,6 +99,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 | `plan-components-builder-const-build-mutates` | not-reproduced |
 | `ik-cache-read-trusts-file-header` | not-reproduced |
+| `get-best-approximate-static-dummy-stale` | not-reproduced |
 
 ---
 
@@ -879,6 +880,45 @@ checks are a separate decision, local to this one function.
 touches the cache file. The cost lands on the API instead: reading a cache
 is fallible here, so `IkCache::load` and `CachedIkSolver::from_cache_file`
 return `Result` where upstream's `initializeCache` returns `void`.
+
+---
+
+### `get-best-approximate-static-dummy-stale` — The empty-cache reply is a function-local `static`, so every later empty-cache query gets the first one's pose and joint count — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:163`
+and `:174` (the two `IKCache::getBestApproximateIKSolution` overloads), and
+`:318` (`IKCacheMap::getBestApproximateIKSolution`'s copy of the same
+shape), all verified at the pinned `e017c91e`.
+**Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::nearest`.
+**Symptom:** `static IKEntry dummy = std::make_pair(std::vector<Pose>(1,
+pose), std::vector<double>(num_joints_, 0.))` is a *function-local*
+`static`: it is constructed on the first call that finds a cache empty and
+returned by `const` reference unchanged for the life of the process, for
+every `IKCache` instance, since the storage belongs to the function and not
+to the object. Both halves then go stale. The pose half is the first
+caller's target: `getPositionIK`
+(`cached_ik_kinematics_plugin-inl.hpp:96-100`) hands the same entry to
+`updateCache`, whose novelty gate computes `nearest.first[0].distance(pose)`
+— against a fresh dummy that term is zero by construction, against the
+stale one it is the distance to an unrelated request's pose, so the gate
+that is meant to be decided by config distance alone can be opened by the
+pose term. The config half freezes the first caller's `num_joints_`, and
+`nearest.second` is passed straight to the wrapped plugin as its seed
+(`-inl.hpp:97`), so a second arm with a different DOF count is seeded with a
+vector of the wrong length.
+**Evidence:** a read of the control flow, plus a read of the one caller
+that consumes both halves. Not oracle-confirmed: reaching it needs two
+`IKCache` instances in one process, which no oracle operation sets up.
+**Status:** `not-reproduced`. `IkCache::nearest` returns an owned
+`CacheEntry` built from the query pose and the cache's own `num_joints`, so
+there is no storage to go stale and nothing shared between instances.
+**Deviation:** none of `D1`..`D14` applies. Returning an owned value rather
+than a reference into shared storage is the ownership shape Rust gives a
+value the caller then hands to `update`; it was not chosen to route around
+this defect.
+**Cost of not reproducing:** none. The all-zero seed is tried first on a
+cold cache either way — that is upstream's design, recorded as CONFIRMED in
+`doc/claim-audit/moveit-kinematics.md` — and only the staleness is dropped.
 
 ---
 
