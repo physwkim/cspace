@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Usage: tools/ci/reconcile-assertion-ledgers.py [--emit-orphans] [--emit-unresolved]
+#                                                 [--write-orphans] [--verify]
 #
 # Assertion-discrimination sweep instrument (see
 # doc/assertion-discrimination-census.md, and the p3-acm ledger's "Round 14
@@ -41,9 +42,16 @@
 # `unresolved_citations` -- reported, never silently dropped and never
 # silently guessed at. A best-effort heuristic (`classify_citation`) reads
 # the actual line the ledger cites and tags *why* automated matching
-# failed (looks like a guard/`?`-propagation line, looks like a comment,
-# or no clue at all), strictly to help a human router, never to auto-
-# resolve.
+# failed (a comment line, a `?`-propagation guard line, a `#[test]`
+# attribute or `fn` signature line the citation drifted onto, or no clue
+# at all), strictly to help a human router, never to auto-resolve.
+#
+# `--verify` re-derives the orphan set and diffs it against the committed
+# `doc/assertion-discrimination-orphans.txt`, so a merge that changes the
+# corpus and forgets to regenerate that file fails a gate instead of
+# leaving a file that reads authoritative and is wrong. `--write-orphans`
+# prints that file's exact intended contents (self-dating header plus
+# body) so regenerating it is one redirect, not a hand-typed header.
 import json
 import re
 import subprocess
@@ -53,14 +61,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCANNER = REPO_ROOT / "tools" / "ci" / "count-coarse-assertions.py"
 EQUIVALENCES_FILE = REPO_ROOT / "tools" / "ci" / "assertion-ledger-equivalences.json"
-LEDGERS = [
-    "doc/assertion-discrimination-ledger-p1-fixtures.md",
-    "doc/assertion-discrimination-ledger-p1-robotmodel.md",
-    "doc/assertion-discrimination-ledger-p3-acm.md",
-    "doc/assertion-discrimination-ledger-p9-ros.md",
-    "doc/assertion-discrimination-ledger-pilz.md",
-]
+ORPHANS_FILE = REPO_ROOT / "doc" / "assertion-discrimination-orphans.txt"
 NEARBY_WINDOW = 5
+
+
+def discover_ledgers():
+    """Every assertion-discrimination ledger, found by glob rather than a
+    hardcoded list. A fixed list silently stops covering a panel's citations
+    the moment that panel adds a new ledger file -- this is exactly what
+    happened when `p1-joints` split trajectory content into its own
+    `assertion-discrimination-ledger-moveit-trajectory.md`; a hardcoded list
+    would keep parsing four other ledgers correctly while quietly never
+    reading the fifth again, with no error to say so."""
+    return sorted(
+        str(p.relative_to(REPO_ROOT))
+        for p in (REPO_ROOT / "doc").glob("assertion-discrimination-ledger-*.md")
+    )
 
 
 # Trailing text is intentionally permitted between the line number(s) and the
@@ -71,6 +87,12 @@ NEARBY_WINDOW = 5
 FIRST_COL_RE = re.compile(
     r"^\|\s*`?((?:[\w./-]+/)?[\w.-]+\.rs):(\d+(?:\s*,\s*\d+)*)\s*`?[^|]*\|"
 )
+
+
+def current_commit():
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 def run_scanner():
@@ -118,12 +140,33 @@ def parse_ledger_citations(ledger_rel):
     return citations
 
 
+def path_matches(full_path, fname_part):
+    """True if `fname_part`'s path components appear, in order, as a
+    subsequence of `full_path`'s components, ending at the same basename.
+    A plain `endswith` misses the shorthand some ledgers use --
+    `moveit-geometry/bodies.rs` for `crates/moveit-geometry/src/bodies.rs`,
+    omitting the `src/`/`tests/` segment -- and that citation was landing
+    in `classify_citation` as "cited file not found under this root" even
+    though the site is real and already matched by a different ledger's
+    (full-path) citation of the same line. Subsequence matching, not a
+    second `endswith` variant, because the omitted segment can be `src`,
+    `tests`, or (rarer) a nested module dir -- the rule is "these
+    components occur in this order ending here", not "this one specific
+    segment is optional"."""
+    want = fname_part.split("/")
+    have = full_path.split("/")
+    if not have or have[-1] != want[-1]:
+        return False
+    it = iter(have[:-1])
+    return all(part in it for part in want[:-1])
+
+
 def resolve(fname_part, lineno, sites, basenames):
     """Exact match, else a UNIQUE match within +/- NEARBY_WINDOW lines in the
     same file. Returns (resolved_site_or_None, status) where status is one
     of "exact", "window", "ambiguous-exact", "ambiguous-window", "none"."""
     if "/" in fname_part:
-        exact = [p for (p, ln) in sites if ln == lineno and p.endswith(fname_part)]
+        exact = [p for (p, ln) in sites if ln == lineno and path_matches(p, fname_part)]
     else:
         exact = basenames.get((fname_part, lineno), [])
     exact = sorted(set(exact))
@@ -136,7 +179,7 @@ def resolve(fname_part, lineno, sites, basenames):
     for dl in range(1, NEARBY_WINDOW + 1):
         for cand_line in (lineno - dl, lineno + dl):
             if "/" in fname_part:
-                hits = [p for (p, ln) in sites if ln == cand_line and p.endswith(fname_part)]
+                hits = [p for (p, ln) in sites if ln == cand_line and path_matches(p, fname_part)]
             else:
                 hits = basenames.get((fname_part, cand_line), [])
             for h in hits:
@@ -148,13 +191,21 @@ def resolve(fname_part, lineno, sites, basenames):
     return None, "none"
 
 
+TEST_ATTR_OR_SIG_RE = re.compile(r"^(#\[test\]|#\[.*\]|fn\s+\w+|let\s|\}\s*$|\{\s*$)")
+
+
 def classify_citation(fname_part, lineno):
     """Best-effort, report-only heuristic for why a citation didn't
     resolve -- read the actual line the ledger points at and say what shape
-    it is. Never used to auto-match; only to help a human triage
-    `unresolved_citations` faster."""
-    candidates = list(REPO_ROOT.glob(f"**/{fname_part}"))
-    candidates = [c for c in candidates if "target" not in c.parts]
+    it is. Returns (category, detail); category is a stable tag for
+    aggregate counting, detail is the free-text explanation. Never used to
+    auto-match; only to help a human triage `unresolved_citations` faster."""
+    basename = fname_part.rsplit("/", 1)[-1]
+    candidates = [
+        c for c in REPO_ROOT.glob(f"**/{basename}")
+        if "target" not in c.parts
+        and path_matches(str(c.relative_to(REPO_ROOT)), fname_part)
+    ]
     for c in candidates:
         try:
             lines = c.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -163,11 +214,19 @@ def classify_citation(fname_part, lineno):
         if 0 < lineno <= len(lines):
             src = lines[lineno - 1].strip()
             if src.startswith("//") or src.startswith("///"):
-                return "cites a comment line, not an assertion"
+                return "comment-line", "cites a comment line, not an assertion"
             if re.search(r"\)\?\s*;?\s*$", src) or re.search(r"\)\?\s*[,;)]", src):
-                return "cites a `?`-propagation guard line, not an assertion -- outside the scanner's grammar by design"
-            return f"no scanner match; source there reads: {src[:80]!r}"
-    return "cited file not found under this root"
+                return (
+                    "guard-propagation-line",
+                    "cites a `?`-propagation guard line, not an assertion -- outside the scanner's grammar by design",
+                )
+            if TEST_ATTR_OR_SIG_RE.match(src):
+                return (
+                    "test-attribute-or-signature-line",
+                    f"cites a `#[test]`/`fn`/brace/`let` line, not an assertion: {src[:80]!r}",
+                )
+            return "no-scanner-site-nearby", f"no scanner match; source there reads: {src[:80]!r}"
+    return "file-not-found", "cited file not found under this root"
 
 
 def load_equivalences():
@@ -181,19 +240,21 @@ def load_equivalences():
     return out
 
 
-def main(argv):
-    emit_orphans = "--emit-orphans" in argv
-    emit_unresolved = "--emit-unresolved" in argv
-
+def reconcile():
+    """The whole reconciliation, independent of how the result is reported.
+    Returns a dict so every mode (default report, --emit-orphans,
+    --emit-unresolved, --write-orphans, --verify) computes the partition
+    exactly once, the same way."""
     sites, basenames = run_scanner()
     equivalences = load_equivalences()
+    ledgers = discover_ledgers()
 
     matched_sites = set()
     match_notes = []  # (ledger, cited_file, cited_line, resolved_site, how)
-    unresolved = []  # (ledger, cited_file, cited_line, raw_row, why)
+    unresolved = []  # (ledger, cited_file, cited_line, raw_row, status, category, detail)
     non_scope = []  # (ledger, cited_file, cited_line, reason)
 
-    for ledger in LEDGERS:
+    for ledger in ledgers:
         for fname_part, lineno, raw in parse_ledger_citations(ledger):
             resolved, status = resolve(fname_part, lineno, sites, basenames)
             if resolved is not None:
@@ -221,16 +282,121 @@ def main(argv):
                     raise ValueError(f"unknown equivalence resolution {eq['resolution']!r}")
                 continue
 
-            why = classify_citation(fname_part, lineno)
-            unresolved.append((ledger, fname_part, lineno, raw, f"{status}; {why}"))
+            category, detail = classify_citation(fname_part, lineno)
+            unresolved.append((ledger, fname_part, lineno, raw, status, category, detail))
 
     all_scanner_sites = set(sites)
     orphans = sorted(all_scanner_sites - matched_sites)
 
-    total = len(all_scanner_sites)
-    matched = len(matched_sites)
-    orphan_count = len(orphans)
+    return {
+        "sites": sites,
+        "ledgers": ledgers,
+        "total": len(all_scanner_sites),
+        "matched_count": len(matched_sites),
+        "orphans": orphans,
+        "match_notes": match_notes,
+        "unresolved": unresolved,
+        "non_scope": non_scope,
+    }
 
+
+def orphan_lines(result):
+    return [f"{path}:{line}:{result['sites'][(path, line)]}" for path, line in result["orphans"]]
+
+
+HEADER_FIELD_RE = re.compile(r"^#\s*([A-Za-z ]+?):\s*(\S+)\s*$")
+
+
+def write_orphans_header(result, commit):
+    return [
+        "# Orphan enumeration: coarse-assertion scanner sites with no accounting ledger row.",
+        "# Generated by: python3 tools/ci/reconcile-assertion-ledgers.py --write-orphans",
+        f"# Source commit: {commit}",
+        f"# Scanner sites (excl. helper_body): {result['total']}",
+        f"# Matched (some ledger row accounts for the site): {result['matched_count']}",
+        f"# Orphans (no ledger row accounts for the site): {len(result['orphans'])}",
+        "# This file goes stale the moment the corpus or a ledger changes without",
+        "# regenerating it -- run with --verify (wired into tools/ci/verify-all.sh via",
+        "# tools/ci/verify-orphan-enumeration.sh) to catch that before it ships.",
+        "# Format: file:line:kind (kind per tools/ci/count-coarse-assertions.py's classify())",
+    ]
+
+
+def read_committed_orphans():
+    if not ORPHANS_FILE.exists():
+        return None, []
+    header = {}
+    body = []
+    for line in ORPHANS_FILE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#"):
+            m = HEADER_FIELD_RE.match(line)
+            if m:
+                header[m.group(1).strip().lower()] = m.group(2)
+            continue
+        if line.strip():
+            body.append(line.strip())
+    return header, body
+
+
+def main(argv):
+    emit_orphans = "--emit-orphans" in argv
+    emit_unresolved = "--emit-unresolved" in argv
+    write_orphans = "--write-orphans" in argv
+    verify = "--verify" in argv
+
+    result = reconcile()
+    total = result["total"]
+    matched = result["matched_count"]
+    orphan_count = len(result["orphans"])
+    match_notes = result["match_notes"]
+    unresolved = result["unresolved"]
+    non_scope = result["non_scope"]
+
+    if write_orphans:
+        for line in write_orphans_header(result, current_commit()):
+            print(line)
+        for line in orphan_lines(result):
+            print(line)
+        return 0
+
+    if verify:
+        header, committed_body = read_committed_orphans()
+        if header is None:
+            print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} does not exist -- run --write-orphans first")
+            return 1
+        live_body = orphan_lines(result)
+        committed_set = set(committed_body)
+        live_set = set(live_body)
+        added = sorted(live_set - committed_set)
+        removed = sorted(committed_set - live_set)
+
+        print(f"scanner sites (excl. helper_body), live: {total}")
+        print(f"orphans, live: {orphan_count}  |  orphans, committed file: {len(committed_body)}")
+        if not added and not removed:
+            print(f"OK {ORPHANS_FILE.relative_to(REPO_ROOT)} matches the live orphan set exactly "
+                  f"({orphan_count} sites, commit {current_commit()[:12]})")
+            return 0
+
+        print(f"FAIL {ORPHANS_FILE.relative_to(REPO_ROOT)} is stale: "
+              f"{len(added)} site(s) added, {len(removed)} site(s) removed since it was generated "
+              f"(file's own header says source commit {header.get('source commit', '<missing>')})")
+        if added:
+            print(f"--- {len(added)} orphan site(s) now present but missing from the committed file ---")
+            for line in added:
+                print(f"  + {line}")
+        if removed:
+            print(f"--- {len(removed)} site(s) in the committed file that are no longer orphans ---")
+            for line in removed:
+                print(f"  - {line}")
+        print()
+        print("regenerate with: python3 tools/ci/reconcile-assertion-ledgers.py --write-orphans "
+              "> doc/assertion-discrimination-orphans.txt")
+        return 1
+
+    print(f"ledgers discovered (doc/assertion-discrimination-ledger-*.md): {len(result['ledgers'])}")
+    for ledger in result["ledgers"]:
+        print(f"  {ledger}")
+    print()
     print(f"scanner sites (excl. helper_body): {total}")
     print(f"matched (some ledger row accounts for the site): {matched}")
     print(f"orphans (no ledger row accounts for the site):    {orphan_count}")
@@ -241,21 +407,28 @@ def main(argv):
     print(f"ledger citations explained as non-scanner-scope (not gaps): {len(non_scope)}")
     for ledger, f, ln, reason in non_scope:
         print(f"  [{Path(ledger).stem}] {f}:{ln} -- {reason}")
+
     print(f"ledger citations still unresolved (reported, not guessed): {len(unresolved)}")
-    for ledger, f, ln, raw, why in unresolved:
-        print(f"  [{Path(ledger).stem}] {f}:{ln} -- {why}")
+    by_category = {}
+    for ledger, f, ln, raw, status, category, detail in unresolved:
+        by_category.setdefault(category, []).append((ledger, f, ln, detail))
+    print("  by cause:")
+    for category, items in sorted(by_category.items(), key=lambda kv: -len(kv[1])):
+        print(f"    {category}: {len(items)}")
+    for ledger, f, ln, raw, status, category, detail in unresolved:
+        print(f"  [{Path(ledger).stem}] {f}:{ln} -- {status}; {detail}")
 
     if emit_orphans:
         print()
         print(f"--- {orphan_count} orphans (file:line:kind) ---")
-        for path, line in orphans:
-            print(f"{path}:{line}:{sites[(path, line)]}")
+        for line in orphan_lines(result):
+            print(line)
 
     if emit_unresolved:
         print()
         print(f"--- {len(unresolved)} unresolved ledger citations ---")
-        for ledger, f, ln, raw, why in unresolved:
-            print(f"[{Path(ledger).stem}] {f}:{ln} :: {why}")
+        for ledger, f, ln, raw, status, category, detail in unresolved:
+            print(f"[{Path(ledger).stem}] {f}:{ln} :: {category}; {detail}")
 
     return 0
 

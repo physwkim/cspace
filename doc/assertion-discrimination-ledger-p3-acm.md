@@ -1198,3 +1198,81 @@ python3 tools/ci/reconcile-assertion-ledgers.py                  # <snapshot-dir
 python3 tools/ci/reconcile-assertion-ledgers.py --emit-orphans   # this ledger's HEAD: 697 = 469 + 228
 cargo fmt --all -- --check                                       # doc-only round, no source changed
 ```
+
+### Addendum: the 697/469/228 figures above went stale within one merge — the fix is structural, not another rewrite
+
+`p1-joints` landed a sixth ledger,
+`assertion-discrimination-ledger-moveit-trajectory.md`, and the corpus
+moved to 698 sites. The instrument's own `LEDGERS` list was a hardcoded
+five-file list — exactly the same shape of bug the census's §9d/§9f
+history already warned about (a hand-maintained enumeration of a set the
+filesystem already holds), just relocated from a markdown table into
+Python. It silently kept parsing the other five ledgers correctly while
+never reading the sixth, undercounting `matched` by the trajectory
+ledger's entire content. Fixed by `discover_ledgers()` (glob
+`doc/assertion-discrimination-ledger-*.md` instead of naming files) — the
+same fix class as `verify-all.sh`'s own glob, applied one level down.
+
+A second gap surfaced alongside it: some ledgers cite a crate-shorthand
+path (`moveit-geometry/bodies.rs:4055`, omitting `src/`) that plain
+`endswith` matching can't place, landing 18 citations under a spurious
+"cited file not found" tag even though the site is real and already
+matched via a different ledger's full-path citation of the same line.
+Fixed with `path_matches()` (subsequence-of-path-components, not a second
+`endswith` variant, since the omitted segment can be `src`, `tests`, or a
+nested module dir).
+
+**The number in this section is not the point going forward — the gate
+is.** `--verify` (wired into `tools/ci/verify-all.sh` via
+`tools/ci/verify-orphan-enumeration.sh`) now fails whenever
+`doc/assertion-discrimination-orphans.txt` no longer matches the live
+partition, and the file's own header states its source commit and the
+three counts it was generated from — a reader can see staleness without
+running anything, and CI (run by hand, per this repo's `verify-*.sh`
+convention) catches it before a stale file ships. Hand-transcribing a
+live count into this ledger's prose every round is exactly the kind of
+number this repeatedly-stale section shows cannot stay correct across
+concurrent merges; the instrument and its gate are the durable artifact,
+this prose is not.
+
+**Current figures, this ledger's own re-run at `919c982` (after merging
+`main`): 698 = 507 (matched) + 191 (orphans).** Zero of the 191 fall in
+this panel's fence. Per-fence rollup (§9f's path table, today's orphan
+list): `p9-ros` 91 (`ros/moveit-ros` 70 + `moveit-distance-field` 21),
+`p1-fixtures` 71 (`moveit-octomap` 31 + `moveit-scene` 25 +
+`moveit-smoothing` 6 + `moveit-constraints/tests/utils_parity.rs` 6 +
+`moveit-state` 3), `p1-robotmodel` 29 (`moveit-model` 25 +
+`moveit-planning` 4), `p1-joints` **0** (its new dedicated ledger now
+covers `moveit-trajectory`/`moveit-planners-pilz` in full), `p3-acm`
+**0**.
+
+**Unresolved ledger citations: 72, broken down by cause** (after the
+`path_matches` fix removed 18 that were a pure matching artifact, not
+real gaps):
+
+| cause | count |
+|---|---:|
+| no scanner site within ±5 lines (real drift, or citing supporting context) | 39 |
+| cites a `#[test]`/`fn`/brace/`let` line, not the assert | 22 |
+| cites a comment line | 10 |
+| cites a `?`-propagation guard line (outside the scanner's grammar) | 1 |
+| **total** | **72** |
+
+**This is not 73 new stale citations appearing at once.** The 15 stale
+citations and 2 non-scope explanations this round already hand-triaged
+(`tree.rs:1930/1805/1806/1807`, `robot_model.rs:2024/2025/2026`,
+`trajectory.rs:444/450/456/462`,
+`collision_env_distance_field.rs:3271/3276`, `tree.rs:1781`,
+`position.rs:165`) are **all still present, unchanged**, in the 72 above
+— re-checked directly against today's list, not assumed carried over.
+The rest were already flagged last round as "unconfirmed, other panels'
+fences" (not claimed triaged), and have grown since via `p1-robotmodel`'s
+continued rounds adding new citations of their own
+(`mesh_search_paths.rs:130`, `check_start_state_bounds.rs:302/328/377`,
+`robot_model.rs:2764/2885/2886/2986/3021/3031/3376`) — this panel does
+not fix or further triage them; the cause breakdown above is what each
+owning panel needs to tell which of theirs is which.
+
+Gate: doc + tooling only (`reconcile-assertion-ledgers.py`,
+`verify-orphan-enumeration.sh`, regenerated `orphans.txt`, this addendum)
+— `cargo fmt --all -- --check` only, no Rust source touched.
