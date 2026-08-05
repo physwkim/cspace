@@ -484,8 +484,8 @@ mod position {
     ///
     /// Reachability: a zero-vertex mesh specifically cannot arrive via a
     /// real `moveit_msgs::PositionConstraint` -- `constructShapeFromMsg`'s
-    /// `Mesh` overload (`shape_operations.cpp:56-59`) already rejects an
-    /// empty `vertices`/`triangles` array before a `Shape` object exists,
+    /// `Mesh` overload (`shape_operations.cpp:54-76`) already rejects an
+    /// empty `vertices`/`triangles` array (`:56-60`) before a `Shape` exists,
     /// the same type-exclusion `new_rejects_a_shape_with_no_body_counterpart`
     /// already documents for `:417-418`. This test is exercising what the
     /// port's own `Shape::Mesh` variant allows to be constructed directly
