@@ -814,6 +814,12 @@ mod tests {
     fn checked_max_distance_sq_rejects_one_past_the_i32_boundary() {
         let result = checked_max_distance_sq(46341.0, 1.0);
 
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `checked_max_distance_sq`'s entire body is one `if !(finite &&
+        // >= 0.0 && <= i32::MAX) { return Err(...) }` guard; there is
+        // exactly one `Err` return in the function. Reachability
+        // bite-checked: neutralizing the guard (`if false && ...`) made
+        // this assertion fail.
         assert!(result.is_err());
     }
 }

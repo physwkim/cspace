@@ -475,6 +475,16 @@ mod tests {
     /// `(int)(double)` narrowing of the same out-of-range value is UB, so
     /// there is no upstream value this port could match by letting it
     /// through -- see [`GridGeometry::new`]'s own §153.1 doc section.
+    ///
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` for this
+    /// specific input -- `size.y`/`size.z` are `1.0` at `resolution = 1.0`,
+    /// well inside the boundary, and the per-axis loop checks `x` first, so
+    /// only `size.x`'s overflow guard can ever fire here; verified by an
+    /// isolating mutation that disabled only that guard, which broke this
+    /// test alone and left the boundary-accept test above green (see the
+    /// sibling y-axis test below for the discrimination gap this same loop
+    /// structure caused when the guard was instead reached via a uniform
+    /// resolution).
     #[test]
     fn new_rejects_size_over_resolution_one_past_the_i32_boundary() {
         let size = Vector3::new(f64::from(i32::MAX) + 1.0, 1.0, 1.0);
@@ -484,10 +494,25 @@ mod tests {
     /// The same boundary reached via `resolution` shrinking rather than
     /// `size` growing, and on a different axis than the two tests above --
     /// pins that the guard applies per-axis, not just to `size.x`.
+    ///
+    /// A uniform `size = (1.0, 1.0, 1.0)` does not isolate this: `new`'s
+    /// per-axis loop shares one `oo_resolution` and checks `x` first, so a
+    /// resolution fine enough to overflow `y` also overflows `x`, and a bare
+    /// `.is_err()` cannot tell the two apart -- bite-checked by disabling
+    /// only the `x`-axis overflow branch, which left the original
+    /// `size = (1.0, 1.0, 1.0)` version of this test green, proving it had
+    /// been isolating `x`, not `y`, all along. `size.x`/`size.z` are kept
+    /// small enough here to stay within the boundary at this resolution so
+    /// only `y`'s guard can fire, and the message is matched by name since
+    /// `Error::construct` carries no structured field to match on instead.
     #[test]
     fn new_rejects_a_pathologically_fine_resolution_on_the_y_axis() {
-        let size = Vector3::new(1.0, 1.0, 1.0);
-        assert!(GridGeometry::new(size, Vector3::zeros(), 1e-10).is_err());
+        let size = Vector3::new(1e-10, 1.0, 1e-10);
+        let err = GridGeometry::new(size, Vector3::zeros(), 1e-10).unwrap_err();
+        assert!(
+            err.to_string().contains("size.y"),
+            "must name size.y specifically, not size.x or size.z; got {err}"
+        );
     }
 
     #[test]

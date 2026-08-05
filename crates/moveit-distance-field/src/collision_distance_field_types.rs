@@ -1422,6 +1422,12 @@ mod tests {
     /// Invariant boundary: an out-of-range index on
     /// [`PosedBodySphereDecompositionVector`] must report absence
     /// (`None`/`false`), not panic or silently no-op past the check.
+    ///
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+    /// [`PosedBodySphereDecompositionVector::get`] is a one-line
+    /// `self.decomp_vector.get(i)`, a direct delegation to `Vec::get` with
+    /// no branching of its own to discriminate between; the bare
+    /// `.is_none()` has exactly one cause.
     #[test]
     fn posed_body_sphere_decomposition_vector_out_of_range_is_none_and_false() {
         let mut vector = PosedBodySphereDecompositionVector::new();
@@ -1430,6 +1436,10 @@ mod tests {
     }
 
     /// Same boundary as above, for [`PosedBodyPointDecompositionVector`].
+    ///
+    /// ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch`, same
+    /// reasoning as the sibling test above -- `get` is a one-line
+    /// delegation to `Vec::get`.
     #[test]
     fn posed_body_point_decomposition_vector_out_of_range_is_none_and_false() {
         let mut vector = PosedBodyPointDecompositionVector::new();
@@ -1578,6 +1588,10 @@ mod tests {
 
         let decomposition = PosedBodyPointDecomposition::from_octree(&tree);
 
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `from_octree`'s body has zero branches; `body_decomposition: None`
+        // is an unconditional field literal, not a guard, so there is
+        // exactly one cause of this `None`.
         assert!(
             decomposition.body_decomposition.is_none(),
             "the octree constructor leaves body_decomposition_ null, matching upstream"

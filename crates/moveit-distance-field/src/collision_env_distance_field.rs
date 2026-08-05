@@ -2713,6 +2713,22 @@ mod tests {
     }
 
     // --- get_distance_field_cache_entry ---
+    //
+    // ASSERTION-DISCRIMINATION AUDIT (round 2): `get_distance_field_cache_entry`
+    // has four `None`-producing guards (`current?`, group-name mismatch,
+    // state mismatch, acm mismatch), all collapsing to a bare `None` a
+    // matches!/is_none() cannot tell apart on its own. The four tests below
+    // each isolate one guard -- `discriminating`, verified by an isolating
+    // mutation in both directions on the three guards that can be
+    // independently defeated by a compiled substitute (state-check, acm
+    // check, group-name check: neutralizing guard A alone made only test A
+    // fail, leaving the other three green, and vice versa). The `current?`
+    // guard (`returns_none_when_current_is_none`) cannot be isolated the
+    // same way -- there is no `&DistanceFieldCacheEntry` to fabricate while
+    // keeping `current: None` -- so it is justified structurally instead:
+    // the other three guards all dereference `cur` (`current?`'s Ok side),
+    // which cannot execute when `current` is `None`, so this guard's `None`
+    // can never be produced by any of the other three's code paths.
 
     #[test]
     fn get_distance_field_cache_entry_returns_none_when_current_is_none() {
@@ -3242,6 +3258,14 @@ mod tests {
 
         update_group_state_representation_state(&posed, &mut gsr, &[]).unwrap();
 
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `update_group_state_representation_state`'s link loop only
+        // `continue`s past a geometry-less link (`:1086-1088`); it never
+        // writes `link_body_decompositions[i]`/`link_distance_fields[i]`
+        // for that `i`. Both `None`s below are therefore entirely
+        // attributable to `group_state_representation`'s own single
+        // `!link_has_geometry[i]` push site (`:965`/`:966`), the same one
+        // cause already established for those fields.
         for (i, &has_geometry) in dfce.link_has_geometry.iter().enumerate() {
             if !has_geometry {
                 assert!(
@@ -3481,14 +3505,27 @@ mod tests {
             &[],
         );
 
-        assert!(
-            result.is_err(),
-            "dfce.attached_body_names names a body the caller-supplied slice \
-             no longer carries -- upstream's own equivalent lookup has no \
-             null check at all here (collision_env_distance_field.cpp:1239) \
-             and would dereference null; this port's closest safe equivalent \
-             is a hard error, not a silent skip"
-        );
+        // A bare .is_err() can't tell this guard's Error::UnknownName{kind:
+        // "attached body", ..} apart from the "link" lookups the same
+        // function's link loop and attached-body-transform lookups can also
+        // raise (:990/:995/:1017/:1022) -- bite-checked by swapping this
+        // guard's kind to "link", which left a bare is_err() green. Matching
+        // the structured kind field is what actually names this guard.
+        match &result {
+            Err(Error::UnknownName { kind, .. }) if *kind == "attached body" => {}
+            Err(other) => panic!(
+                "dfce.attached_body_names names a body the caller-supplied slice \
+                 no longer carries -- upstream's own equivalent lookup has no \
+                 null check at all here (collision_env_distance_field.cpp:1239) \
+                 and would dereference null; this port's closest safe equivalent \
+                 is a hard error, not a silent skip -- expected \
+                 UnknownName{{kind: \"attached body\", ..}}, got {other:?}"
+            ),
+            Ok(_) => panic!(
+                "dfce.attached_body_names names a body the caller-supplied slice \
+                 no longer carries, but group_state_representation succeeded"
+            ),
+        }
     }
 
     #[test]
@@ -3685,6 +3722,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(gsr.dfce.group_name, "right_arm");
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `generate_distance_field_cache_entry` has exactly one
+        // `distance_field:` construction site (`:667`), a single
+        // `generate_distance_field.map(...).transpose()?` on the `Option`
+        // parameter threaded straight from this call's `false` argument
+        // (`:1270`'s `generate_distance_field.then_some(...)`); there is no
+        // other code path that can leave it `None`. Reachability
+        // bite-checked: forcing that `.then_some` to always build `Some`
+        // made this assertion fail.
         assert!(
             gsr.dfce.distance_field.is_none(),
             "generate_distance_field: false must not build a field"
@@ -3704,6 +3750,10 @@ mod tests {
         let first = cache
             .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
             .unwrap();
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch`, same
+        // reasoning as `generate_collision_checking_structures_builds_a_fresh_entry_on_first_call`
+        // above -- this is also a first call with `generate_distance_field:
+        // false`.
         assert!(first.dfce.distance_field.is_none());
 
         let second = cache
