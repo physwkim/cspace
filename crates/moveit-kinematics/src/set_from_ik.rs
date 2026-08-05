@@ -46,8 +46,8 @@
 //!    Upstream hands the raw `RobotState*` to the
 //!    `GroupStateValidityCallbackFn` without applying the candidate first,
 //!    and every real callback applies it itself
-//!    (`kinematics_service_capability.cpp:75`'s `isIKSolutionValid`,
-//!    `trajectory_functions.cpp:581`'s `isStateColliding`, both
+//!    (`kinematics_service_capability.cpp:75-76`'s `isIKSolutionValid`,
+//!    `trajectory_functions.cpp:581-582`'s `isStateColliding`, both
 //!    `state->setJointGroupPositions(jmg, ik_solution); state->update();`).
 //!    When no candidate is ever accepted, `setFromIK` returns `false` with
 //!    the state holding the last *rejected* one. This port makes the
@@ -86,18 +86,19 @@
 //!    the first. That is upstream's own arrangement too: `KDLKinematicsPlugin`
 //!    — the solver this crate ports — fails `supportsGroup` for a multi-tip
 //!    group, which is exactly the branch that sends upstream into
-//!    `setFromIKSubgroups` (`robot_state.cpp:1836-1863`).
+//!    `setFromIKSubgroups` (`robot_state.cpp:1836-1866`).
 //!    [`set_from_ik_subgroups`] is that branch, ported.
 //!
 //! 5. **Consistency limits are one flat slice, not a vector of sets.**
 //!    Upstream takes `vector<vector<double>>` and then rejects any size
-//!    other than 0 or 1 for the single-solver path (`robot_state.cpp:1866`),
+//!    other than 0 or 1 for the single-solver path (`robot_state.cpp:1870-1877`),
 //!    so the outer vector only ever carries what an `Option` carries. In
 //!    [`set_from_ik_subgroups`], where the outer dimension would be real,
 //!    each subgroup's limits ride on its own [`SolveOptions`] instead.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::{Isometry3, Transforms};
+use moveit_model::joint::JointType;
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::{Posed, RobotState};
 
@@ -106,7 +107,7 @@ use crate::registry::{KinematicsSolver, SolveOptions};
 /// One `(pose, frame)` pair: upstream's parallel `poses_in[i]` / `tips_in[i]`.
 ///
 /// Paired rather than parallel because upstream's own first act is to check
-/// that the two vectors have the same length (`robot_state.cpp:1822`) — a
+/// that the two vectors have the same length (`robot_state.cpp:1825-1829`) — a
 /// check that cannot fail once the pair is the unit.
 #[derive(Clone, Copy, Debug)]
 pub struct IkTarget<'a> {
@@ -154,7 +155,7 @@ pub trait AttachedFrames {
     /// Names that are links are *not* this trait's business — this module
     /// asks the [`RobotModel`] first and only falls through to here, matching
     /// `getLinkModelIncludingAttachedBodies`' own order
-    /// (`robot_state.cpp:910-936`).
+    /// (`robot_state.cpp:910-937`).
     fn attached_frame(&self, frame: &str) -> Option<AttachedFrame<'_>>;
 }
 
@@ -300,7 +301,7 @@ fn frame_transform(
 
 /// Every pose `solver` needs, in [`KinematicsSolver::tip_frames`] order and
 /// in the solver's own base frame — upstream's `ik_queries` vector, built by
-/// `setFromIK`'s two loops (`robot_state.cpp:1888-2007`).
+/// `setFromIK`'s two loops (`robot_state.cpp:1889-2007`).
 ///
 /// The first loop matches each of `targets` to a solver tip it can reach:
 /// directly, when the names agree, and otherwise through the rigid
@@ -384,9 +385,9 @@ pub fn resolve_ik_queries(
     Ok(queries)
 }
 
-/// What upstream's `getKinematicsSolverJointBijection` is needed for here:
-/// that every [`KinematicsSolver::joint_names`] entry really is a variable of
-/// `group`.
+/// The group variables a solver's seed and solution vectors correspond to,
+/// slot for slot: upstream's `getKinematicsSolverJointBijection`, carried by
+/// name instead of by index.
 ///
 /// Upstream builds an index permutation, because `ikCallbackFnAdapter` scatters
 /// the solver's solution into group-variable order arithmetically. This module
@@ -394,29 +395,48 @@ pub fn resolve_ik_queries(
 /// so a mimic joint's group-variable slot has no solver entry to scatter from
 /// — and instead writes the solution into the state by name and reads the
 /// group's variables back out, which is what gives mimics their values (see
-/// this module's `# Deviations`, item 2). The permutation itself therefore has
-/// no consumer; the name check that building it performed
-/// (`joint_model_group.cpp:626-636`) still does, and it is what makes
+/// this module's `# Deviations`, item 2). These names are what that
+/// permutation's indices were: the single list [`set_from_ik`]'s seed,
+/// [`apply_and_read_group`]'s write and the final write of an accepted
+/// solution are all indexed by, so no two of them can disagree about which
+/// slot means which variable. Building it is also what makes
 /// [`apply_and_read_group`]'s writes infallible.
+///
+/// A solver joint that is a *fixed* joint of `group` contributes no slot,
+/// exactly as `computeJointVariableIndices` contributes none for it
+/// (`joint_model_group.cpp:627-637`, whose `// skip reported fixed joints`
+/// branch is 630-632): a fixed joint holds no variable, so a solver reporting
+/// one is naming a joint it does not solve, and both the seed it is handed and
+/// the solution it returns are one slot shorter than its name list.
 ///
 /// # Errors
 ///
-/// [`Error::UnknownName`] if a solver joint is not a variable of `group`.
-/// Upstream logs "group '%s' does not contain such a joint" and returns
-/// `false`.
-fn check_solver_joints_are_group_variables(
+/// [`Error::UnknownName`] if a solver joint is neither a variable of `group`
+/// nor a fixed joint of it — which includes a *multi-variable* joint of
+/// `group` named by the joint rather than by its variables, since one slot
+/// cannot carry its several values. Upstream logs "group '%s' does not contain
+/// such a joint" and returns `false`.
+fn solver_solution_variables<'j>(
+    model: &RobotModel,
     group: &JointModelGroup,
-    solver_joints: &[String],
-) -> Result<()> {
+    solver_joints: &'j [String],
+) -> Result<Vec<&'j str>> {
+    let mut variables = Vec::with_capacity(solver_joints.len());
     for name in solver_joints {
-        if !group.variable_names().iter().any(|v| v == name) {
-            return Err(Error::unknown_name("group variable", name));
+        if group.variable_names().iter().any(|v| v == name) {
+            variables.push(name.as_str());
+            continue;
         }
+        if group.has_joint_model(name) && model.joint_model(name)?.joint_type() == JointType::Fixed
+        {
+            continue;
+        }
+        return Err(Error::unknown_name("group variable", name));
     }
-    Ok(())
+    Ok(variables)
 }
 
-/// Write `solution` (in [`KinematicsSolver::joint_names`] order) into `state`,
+/// Write `solution` (slot for slot with `solution_variables`) into `state`,
 /// then read the whole group's variables back out.
 ///
 /// The read-back is not a convenience: mimic joints are group variables no
@@ -427,15 +447,15 @@ fn check_solver_joints_are_group_variables(
 /// # Panics
 ///
 /// If any name involved is not a model variable, which
-/// [`check_solver_joints_are_group_variables`] has already ruled out for
-/// `joint_names` and which cannot hold for a group's own variable list.
+/// [`solver_solution_variables`] has already ruled out for
+/// `solution_variables` and which cannot hold for a group's own variable list.
 fn apply_and_read_group(
     state: &mut RobotState<'_>,
     group: &JointModelGroup,
-    joint_names: &[String],
+    solution_variables: &[&str],
     solution: &[f64],
 ) -> Vec<f64> {
-    for (name, value) in joint_names.iter().zip(solution) {
+    for (name, value) in solution_variables.iter().zip(solution) {
         state
             .set_variable_position(name, *value)
             .expect("checked against the group's variable list before the solve");
@@ -480,7 +500,11 @@ fn apply_and_read_group(
 ///
 /// - Whatever [`resolve_ik_queries`] reports.
 /// - [`Error::UnknownName`] if the solver's group is not in the model, or a
-///   solver joint is not one of its variables.
+///   solver joint is neither one of its variables nor a fixed joint of it. A
+///   fixed joint of the group takes no seed or solution slot, the way
+///   upstream's `computeJointVariableIndices` gives it no bijection entry
+///   (`joint_model_group.cpp:630-632`); anything else the group does not hold
+///   is rejected.
 /// - [`Error::Other`] if the solver reports more than one tip frame: see this
 ///   module's `# Deviations`, item 4.
 pub fn set_from_ik<'m>(
@@ -491,7 +515,7 @@ pub fn set_from_ik<'m>(
 ) -> Result<bool> {
     let group = state.model().joint_model_group(solver.group_name())?;
     let joint_names = solver.joint_names().to_vec();
-    check_solver_joints_are_group_variables(group, &joint_names)?;
+    let solution_variables = solver_solution_variables(state.model(), group, &joint_names)?;
 
     let queries = resolve_ik_queries(state, solver, targets, ik.attached)?;
     let [target] = queries.as_slice() else {
@@ -504,7 +528,7 @@ pub fn set_from_ik<'m>(
     };
 
     let entry_positions = state.positions().to_vec();
-    let seed = joint_names
+    let seed = solution_variables
         .iter()
         .map(|name| state.variable_position(name))
         .collect::<Result<Vec<f64>>>()?;
@@ -525,7 +549,7 @@ pub fn set_from_ik<'m>(
         ),
         Some(ref mut validity) => {
             let hooked_state = &mut *state;
-            let hooked_names = &joint_names;
+            let hooked_names = &solution_variables;
             let mut hook = move |candidate: &[f64]| {
                 let group_values =
                     apply_and_read_group(hooked_state, group, hooked_names, candidate);
@@ -546,7 +570,7 @@ pub fn set_from_ik<'m>(
     let Some(solution) = solution else {
         return Ok(false);
     };
-    for (name, value) in joint_names.iter().zip(&solution) {
+    for (name, value) in solution_variables.iter().zip(&solution) {
         state.set_variable_position(name, *value)?;
     }
     Ok(true)
@@ -556,7 +580,7 @@ pub fn set_from_ik<'m>(
 /// one subgroup at a time, with `validity` judging the assembled whole.
 ///
 /// This is the branch upstream reaches when a multi-tip request meets a solver
-/// that cannot take it (`robot_state.cpp:1836-1863`) — which, for the only
+/// that cannot take it (`robot_state.cpp:1836-1866`) — which, for the only
 /// solver family this crate ships, is every multi-tip request. Each entry of
 /// `solvers` names its own subgroup through [`KinematicsSolver::group_name`]
 /// and is paired with `targets[i]`.
@@ -583,7 +607,7 @@ pub fn set_from_ik<'m>(
 /// The same one [`set_from_ik`] states, and for the same reason: on anything
 /// but `Ok(true)`, `state` holds its entry values. Upstream does not — it
 /// writes each subgroup's solution as that subgroup solves
-/// (`robot_state.cpp:2223-2227`) and rewinds neither on the `break` that
+/// (`robot_state.cpp:2229-2239`) and rewinds neither on the `break` that
 /// abandons the sweep nor on the final `return false`. Recorded as
 /// `set-from-ik-leaves-a-rejected-candidate-in-the-state` in
 /// `doc/upstream-bugs.md`.

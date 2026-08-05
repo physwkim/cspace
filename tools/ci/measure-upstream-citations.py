@@ -706,7 +706,7 @@ def part_verdict(lo, hi, span_list, file_lines, anchors, all_file_spans):
         return None
     # Not a span claim at all: a range that does not touch either boundary of
     # the named symbol AND does not contain its definition head is citing
-    # where the symbol is USED. `robot_state.cpp:1836-1863` is the branch in
+    # where the symbol is USED. `robot_state.cpp:1836-1866` is the branch in
     # `setFromIK` that forwards to `setFromIKSubgroups` (whose own body is at
     # 2049); the sentence says exactly that. The head test is what keeps this
     # from excusing `:1416-1433` for `createOctomap`, which straddles that

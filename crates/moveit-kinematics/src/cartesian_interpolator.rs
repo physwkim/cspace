@@ -78,7 +78,7 @@
 //! [`IkTarget`] naming [`CartesianInterpolator::link_name`]. What that buys
 //! this module, concretely: the requested link no longer has to *be* the
 //! solver's tip, only rigidly connected to it
-//! (`robot_state.cpp:1919-1926`, ported via
+//! (`robot_state.cpp:1922-1945`, ported via
 //! `moveit_model::RobotModel::rigidly_connected_parent_link`); an attached
 //! body or one of its subframes can be the requested frame, through
 //! [`IkContext::attached`]; and [`IkContext::validity`] is upstream's real
@@ -94,7 +94,7 @@
 //! not reachable from here, and upstream is the same: `computeCartesianPath`
 //! walks *one* link along *one* path, so its `setFromIK` call always carries
 //! exactly one pose and can never take the multi-tip branch that diverts to
-//! subgroup solvers (`robot_state.cpp:1836-1863`).
+//! subgroup solvers (`robot_state.cpp:1836-1866`).
 //!
 //! *`timeout = 0.0`.* Both upstream IK sites pass `0.0` and the deprecated
 //! overload's comment (`cartesian_interpolator.cpp:453-454`) says this means

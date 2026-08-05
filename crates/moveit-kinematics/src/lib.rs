@@ -234,7 +234,7 @@
 //! - `supportsGroup` — upstream's own base implementation is "this group is
 //!   a chain and its tip is my tip"; `setFromIK` calls it only to decide
 //!   whether to divert a multi-tip request to `setFromIKSubgroups`
-//!   (`robot_state.cpp:1836-1863`). [`fn@set_from_ik`] makes that decision from
+//!   (`robot_state.cpp:1836-1866`). [`fn@set_from_ik`] makes that decision from
 //!   [`KinematicsSolver::tip_frames`]`().len()` directly, so the predicate
 //!   has no separate call site left.
 //! - `setSearchDiscretization`/`getSearchDiscretization`/

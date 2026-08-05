@@ -18335,9 +18335,13 @@ pub trait AttachedFrames {
 `0.10000000039269835`였다.
 
 bijection을 만들면서 상류가 함께 하던 "솔버 조인트가 그룹 변수인지"
-검사(`joint_model_group.cpp:626-636`)는 남겼다 —
-`check_solver_joints_are_group_variables`. 순열 자체만 소비자가
-없어진 것이다.
+검사(`joint_model_group.cpp:627-637`)는 남겼다 —
+`solver_solution_variables`. 사라진 것은 인덱스 순열뿐이고, 그것이
+정하던 슬롯 대응은 남아 있다: 이 함수가 돌려주는 이름 목록이
+seed·훅의 쓰기·채택된 해의 쓰기가 공통으로 인덱싱하는 유일한
+목록이며, 상류가 `// skip reported fixed joints`
+(`joint_model_group.cpp:630-632`)로 bijection 항목을 주지 않던
+그룹의 fixed 조인트는 여기서도 슬롯을 받지 않는다.
 
 ### §220.6 게이트가 조용히 통과한 자리 — TIMEOUT은 FAIL이 아니다
 
