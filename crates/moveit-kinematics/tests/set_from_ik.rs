@@ -1060,6 +1060,69 @@ fn a_subgroup_that_cannot_reach_rewinds_the_one_that_could() {
     );
 }
 
+/// The other side of [`a_rejecting_group_hook_rewinds_every_sweep_it_refuses`]:
+/// on *acceptance* the answer is the sweep's, not whatever the hook left in
+/// the state on its way to saying yes.
+#[test]
+fn an_accepting_group_hooks_writes_do_not_survive_the_sweep() {
+    let model = pr2_model();
+    let mut state = pr2_arms_state(&model);
+    let mut solvers = pr2_arm_solvers(&model);
+    let entry_torso = state
+        .variable_position("torso_lift_joint")
+        .expect("fixture joint");
+
+    let left = shifted(&world_pose(&mut state, "l_wrist_roll_link"), REACHABLE_STEP);
+    let right = shifted(&world_pose(&mut state, "r_wrist_roll_link"), REACHABLE_STEP);
+
+    let mut hook = |state: &mut RobotState<'_>, _group: &JointModelGroup, _values: &[f64]| {
+        state
+            .set_variable_position("torso_lift_joint", entry_torso + 0.05)
+            .expect("fixture joint");
+        true
+    };
+    let solved = set_from_ik_subgroups(
+        &mut state,
+        "arms",
+        &mut solvers,
+        &[
+            IkTarget {
+                pose: left,
+                frame: "l_wrist_roll_link",
+            },
+            IkTarget {
+                pose: right,
+                frame: "r_wrist_roll_link",
+            },
+        ],
+        &mut IkContext {
+            attached: &NoAttachedFrames,
+            consistency_limits: None,
+            validity: Some(&mut hook),
+        },
+        1,
+    )
+    .expect("the request is well formed");
+
+    assert!(solved);
+    assert_eq!(
+        state
+            .variable_position("torso_lift_joint")
+            .expect("fixture joint"),
+        entry_torso,
+        "torso_lift_joint is outside `arms`; the accepted sweep never set it, \
+         so the hook's write must not be what the caller is left holding"
+    );
+    for (link, want) in [("l_wrist_roll_link", left), ("r_wrist_roll_link", right)] {
+        let reached = world_pose(&mut state, link);
+        assert!(
+            translation_error(&reached, &want) <= SUBGROUP_TOL_M
+                && rotation_error(&reached, &want) <= SUBGROUP_TOL_RAD,
+            "{link} reached {reached:?}, asked for {want:?}"
+        );
+    }
+}
+
 #[test]
 fn a_rejecting_group_hook_rewinds_every_sweep_it_refuses() {
     let model = pr2_model();
