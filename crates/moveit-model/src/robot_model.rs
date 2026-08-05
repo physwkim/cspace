@@ -1985,6 +1985,25 @@ mod tests {
     /// outside the j2<->j3 cycle, so the "whole model, not just the cycle"
     /// claim on `Diagnostic::MimicCycle` has a joint whose clearing is
     /// actual evidence rather than vacuously true.
+    ///
+    /// ASSERTION-DISCRIMINATION AUDIT (round 8, `7676185` follow-up): j4 had
+    /// the *same* defect this test was written to fix -- no `<mimic>` tag of
+    /// its own, so `j4.mimic().is_none()` held no matter how the clear was
+    /// scoped, exactly like j1 before `7676185`. Bite-checked with two
+    /// isolating mutations on `resolve_mimic`'s cycle-clear block: narrowing
+    /// the clear to just the two joints that formed the detected cycle
+    /// leaves j2/j3 green too (they *are* those two joints, so any correct
+    /// implementation clears them regardless of whole-model-vs-cycle-only
+    /// scope) -- only j1 (and, before this fix, would-be j4) fail. Skipping
+    /// the clear entirely fails j1, j2, and j3 alike; only j4 stayed green
+    /// even under that cruder mutation, since it never had anything to
+    /// clear in the first place. j4 now mimics a new leaf joint (j5, itself
+    /// mimic-less) the same way j1 mimics j4, giving it real content to
+    /// lose, so `j4.mimic().is_none()` is evidence again. j2/j3's own
+    /// checks are kept -- they are genuine evidence that the cycle members
+    /// themselves get cleared -- but are not evidence for the
+    /// whole-model-scope claim specifically, since a cycle-scoped clear
+    /// would also clear them.
     #[test]
     fn mimic_mutual_cycle_clears_every_mimic_in_the_model() {
         let urdf = format!(
@@ -1994,10 +2013,12 @@ mod tests {
                 <link name="mid2"/>
                 <link name="tip"/>
                 <link name="tip2"/>
+                <link name="tip3"/>
                 {j1}
                 {j2}
                 {j3}
                 {j4}
+                {j5}
             </robot>"#,
             j1 = revolute_joint(
                 "j1",
@@ -2017,7 +2038,13 @@ mod tests {
                 "tip",
                 r#"<mimic joint="j2" multiplier="1.0" offset="0.0"/>"#
             ),
-            j4 = revolute_joint("j4", "tip", "tip2", ""),
+            j4 = revolute_joint(
+                "j4",
+                "tip",
+                "tip2",
+                r#"<mimic joint="j5" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j5 = revolute_joint("j5", "tip2", "tip3", ""),
         );
         let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
 
@@ -2026,6 +2053,11 @@ mod tests {
         assert!(model.joint_model("j2").unwrap().mimic().is_none());
         assert!(model.joint_model("j3").unwrap().mimic().is_none());
         assert!(model.joint_model("j4").unwrap().mimic().is_none());
+        // j5 itself never had a `<mimic>` tag -- checking it here would
+        // repeat the exact vacuous-check defect this fixture exists to
+        // close, the same way `j4.mimic().is_none()` used to before it
+        // mimicked j5. j4's own check above is what j5's presence makes
+        // non-vacuous.
     }
 
     #[test]
