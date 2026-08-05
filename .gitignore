@@ -6,3 +6,11 @@
 *.log
 /.oracle-ctx.*
 /.ros-ctx.*
+
+# Editor artefacts. `doc/.upstream-bugs.md.swp` -- a 16 KB binary Vim swap
+# file -- reached `main` in d721ec1, so this is not hypothetical: staging a
+# whole directory picks these up, and a committed swap file for a tracked
+# document makes every later Vim session on that document open with a
+# recovery prompt for someone else's abandoned edit.
+*.sw[a-p]
+*~
