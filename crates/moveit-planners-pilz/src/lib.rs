@@ -115,11 +115,57 @@
 //!   and service servers wrapping the planner for `move_group`; nothing here
 //!   computes a trajectory, they only marshal ROS requests into calls on the
 //!   types below.
+//! - `capability_names.hpp` — the whole file is one line,
+//!   `static const std::string SEQUENCE_SERVICE_NAME = "plan_sequence_path"`,
+//!   the ROS service name under which `move_group_sequence_service.cpp:71`
+//!   advertises the sequence service. Its only production reader is that
+//!   `create_service<moveit_msgs::srv::GetMotionSequence>` call, i.e. the
+//!   bullet above; the sole other reader in the upstream tree is
+//!   `test/integration_tests/src/integrationtest_sequence_service_capability.cpp:94,97`,
+//!   which waits on and connects to the same service. A service name with no
+//!   service is nothing, so this file has zero non-ROS residue.
 //! - `planning_context_loader*.{hpp,cpp}` — a `pluginlib`-loaded factory that
 //!   builds a `planning_interface::PlanningContext` per motion command type;
 //!   its entire job is ROS plugin registration, not planning math.
+//! - `planning_context_{ptp,lin,circ,polyline}.hpp` — the four leaves of the
+//!   CRTP hierarchy those loaders build. Each is 67–69 lines holding one
+//!   `MOVEIT_CLASS_FORWARD` and one forwarding constructor: zero statements,
+//!   zero members, zero overrides. All four do is bind one command type to
+//!   one generator type, and here that binding is `impl PilzGenerator for
+//!   TrajectoryGenerator{PTP,LIN,CIRC,Polyline}` itself, so there is no
+//!   separate context type left to write. See PORTING-PLAN.md §226.2.
+//!   `planning_context_base.hpp` is *not* on this list: its one computational
+//!   statement is realized here — see §226.1 and
+//!   [`trajectory_generator::PilzGenerator::generate`].
 //! - `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager`
 //!   plugin itself, i.e. the `move_group` entry point.
+//! - `planning_exceptions.hpp` — the exception taxonomy of that plugin
+//!   registry, and of nothing else. It declares exactly two classes, both
+//!   with an empty body: `PlanningException : std::runtime_error` and
+//!   `ContextLoaderRegistrationException : PlanningException`. Across the
+//!   whole upstream tree `ContextLoaderRegistrationException` has one throw
+//!   site, `pilz_industrial_motion_planner.cpp:216` in
+//!   `CommandPlanner::registerContextLoader` — "the command […] is already
+//!   registered", i.e. two `pluginlib` factories claiming one algorithm
+//!   name — and `PlanningException` has none at all: its only other
+//!   appearance is `std::make_shared<PlanningException>("")` in
+//!   `test/unit_tests/src/unittest_pilz_industrial_motion_planner_direct.cpp:47`,
+//!   which exists to check the class is constructible. That single throw
+//!   site is inside the file on the bullet above, so this taxonomy carries
+//!   no condition this crate can reach; note also that it is a *separate*
+//!   taxonomy from `trajectory_generation_exceptions.hpp`'s — neither class
+//!   here carries a `MoveItErrorCodes` value.
+//!
+//! `trajectory_generation_exceptions.hpp` is *not* on this list either: its
+//! taxonomy is realized as [`moveit_error::Error::Code`] plus
+//! [`trajectory_generator::MotionPlanResponse`]'s private `failure`
+//! constructor, which is what the
+//! four `catch (const MoveItErrorCodeException&)` blocks in
+//! `trajectory_generator.cpp:312,324,337,350` reduce to once `ex.what()` —
+//! consumed by `RCLCPP_ERROR_STREAM` and nothing else — is dropped with the
+//! rest of the logging. PORTING-PLAN.md §226.5 maps all 46 macro-generated
+//! class names onto their port sites; §226.6 names the two that have no
+//! counterpart here.
 //!
 //! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
 //! (measured 2026-08-04) refuted its stated reason: the file has **zero**

@@ -18435,3 +18435,233 @@ end-to-end 시도는 하지 않았다 — 보낼 상대(서비스/액션 서버)
 5. 1~4가 갖춰진 뒤에야 "코드 변경 없는 기존 C++
    `MoveGroupInterface` 클라이언트가 유효한 궤적을 받는다"는 원래
    문구 그대로의 종단 시도가 가능해진다.
+
+## §227 pilz의 `PlanningContext` CRTP 계층 다섯 파일 — 계산은 한 문장이고, 그 문장은 이미 트리에 있다
+
+`doc/port-coverage.md`가 `gap`으로 세던 `planning_context_base.hpp`와
+파생 넷(`planning_context_{ptp,lin,circ,polyline}.hpp`)을 처분한다.
+질문은 "CRTP 계층 안의 생성기 로직이 ROS를 향한 기반 클래스에서 분리
+가능한가"이고, 답은 상류를 열어 문장을 세는 것으로 나온다.
+
+### §227.1 기반 클래스 안의 문장을 전부 센다
+
+`planning_context_base.hpp:87-171`(상류 `e017c91`). 멤버 함수는 넷이고,
+본문의 문장은 전부 합쳐 아래가 전부다.
+
+```cpp
+void PlanningContextBase<GeneratorT>::solve(planning_interface::MotionPlanResponse& res)
+{
+  if (terminated_) { RCLCPP_ERROR(...); res.error_code.val = PLANNING_FAILED; return; }
+  generator_.generate(getPlanningScene(), request_, res);   // <-- 계산은 이 한 줄
+}
+void PlanningContextBase<GeneratorT>::solve(planning_interface::MotionPlanDetailedResponse& res)
+{ /* 위를 부른 뒤 같은 궤적을 "plan"/"simplify"/"interpolate" 이름으로 3회 push */ }
+bool PlanningContextBase<GeneratorT>::terminate() { RCLCPP_DEBUG_STREAM(...); terminated_ = true; return true; }
+void PlanningContextBase<GeneratorT>::clear() { /* No structures that need cleaning */ return; }
+```
+
+생성자는 `planning_interface::PlanningContext(name, group)`에 이름과 그룹을
+넘기고 `generator_(model, limits_, group)`를 짓는다. 즉 이 파일이 계산에
+기여하는 것은 **생성기 하나를 `(model, limits, group)`로 짓고, 그것의
+`generate`를 부르는 것**이 전부다.
+
+두 대응물이 이미 트리에 있다.
+
+- `generator_(model, limits_, group)` →
+  `crates/moveit-planners-pilz/src/trajectory_generator.rs:352`
+  (`TrajectoryGenerator::new(robot_model, planner_limits)`)와 각 명령별
+  생성기의 `new(base, group_name)` — 예: `trajectory_generator_ptp.rs:78`.
+  상류가 CRTP 매개변수로 고정하는 `(model, limits, group)` 삼중항이 여기서는
+  같은 생성자의 인자다.
+- `generator_.generate(scene, request_, res)` →
+  `crates/moveit-planners-pilz/src/trajectory_generator.rs:606-636`
+  (`PilzGenerator::generate`), 반환값이 같은 파일 `:494-530`의
+  `MotionPlanResponse`다.
+
+### §227.2 파생 네 파일에는 문장이 0개다
+
+`planning_context_{ptp,lin,circ,polyline}.hpp`는 각각 67~69줄이고, 내용은
+`MOVEIT_CLASS_FORWARD` 한 줄과 전달 생성자 하나뿐이다. PTP를 예로:
+
+```cpp
+class PlanningContextPTP : public PlanningContextBase<TrajectoryGeneratorPTP>
+{
+public:
+  PlanningContextPTP(const std::string& name, const std::string& group,
+                     const moveit::core::RobotModelConstPtr& model, const LimitsContainer& limits)
+    : PlanningContextBase<TrajectoryGeneratorPTP>(name, group, model, limits) {}
+};
+```
+
+본문 문장 0개, 멤버 0개, 재정의 0개. 네 파일이 하는 일은 **명령 종류 하나를
+생성기 타입 하나에 묶는 것**이며, 이 포트에서 그 결합은 타입 매개변수가
+아니라 `impl PilzGenerator for TrajectoryGeneratorPTP`(및 LIN/CIRC/Polyline)
+그 자체다. 별도의 컨텍스트 타입이 존재할 자리가 없다.
+
+### §227.3 잔여분 셋을 각각 처분한다
+
+기반 클래스에서 위 두 대응물이 가져가지 않은 것은 셋이고, 셋 다 결정한다.
+
+1. **`terminated_` / `terminate()`** — D1/D4로 버린다. 상류 자신의 주석이
+   무엇인지 말한다: *"Currently will not stop a running solve but not start
+   future solves."* 즉 취소가 아니라 컨텍스트를 재사용 불가로 표시하는
+   플래그이고(`clear()`도 이것을 되돌리지 않는다), 이것을 세우는 유일한
+   호출자는 `move_group`의 액션 취소 경로다. 이 포트의 `PlanningContext`
+   대응물인 `crates/moveit-planners-sbp/src/registry.rs:542-582`가 이미 같은
+   이유로 `terminate`를 두지 않는다 — "this crate's planners are
+   synchronous"; 동기 `solve`는 상류에서도 실행 중 `terminated_`를 관측할 수
+   없다.
+2. **`solve(MotionPlanDetailedResponse&)`** — D6으로 버린다. 이 함수는
+   `undetailed_response`를 만들어 위의 `solve`에 넘긴 뒤, **같은 궤적
+   포인터를** `"plan"`/`"simplify"`/`"interpolate"` 세 이름으로 밀어 넣는다.
+   pilz에는 simplify·interpolate 단계가 없으므로 세 항목은 동일한 값이고,
+   함수 전체가 `moveit_msgs`의 `MotionPlanDetailedResponse` 모양을 채우는
+   어댑터다. 이 어댑터가 실패 경로에서 널 포인터 세 개를 밀어 넣는 점은
+   결함이며 `doc/upstream-bugs.md`의
+   `pilz-detailed-response-pushes-null-trajectory`에 적었다.
+3. **`clear()`** — 본문이 주석 한 줄과 `return;`이다. 가져올 것이 없다.
+
+따라서 다섯 파일 모두 `gap`이 아니다. 기반은 계산 한 문장이 트리에 있으므로
+`ported-elsewhere`, 파생 넷은 문장이 0개이고 그 결합을 포트가 다른 축으로
+표현하므로 `decided-non-port`다.
+
+### §227.4 이 판정이 하지 않은 것
+
+- `planning_interface::PlanningContext` 자체를 pilz로 들여오지 않았다.
+  `moveit-planners-pilz`는 `moveit-planning`에도 `moveit-planners-sbp`에도
+  의존하지 않으며, 이 라운드는 그 의존 간선을 만들지 않는다(`Cargo.toml`
+  변경은 `linkme` distributed_slice 순서를 바꾼다).
+- 따라서 이 크레이트에는 `PlanningContext`를 구현하는 타입이 없다. pilz
+  생성기를 `moveit-planners-sbp`의 레지스트리에 등록하는 것은 별개의
+  결정이고, 이 절은 그것을 하지 않는다.
+
+### §227.5 `trajectory_generation_exceptions.hpp` — 46개 예외 클래스가 8개 코드로 접힌다
+
+이 헤더는 타입 셋을 정의한다: 추상 기반 `MoveItErrorCodeException :
+std::runtime_error`(순수 가상 `getErrorCode()`), 코드를 템플릿 인자로 받는
+`TemplatedMoveItErrorCodeException<ERROR_CODE = FAILURE>`, 그리고 파생 클래스를
+찍어내는 `CREATE_MOVEIT_ERROR_CODE_EXCEPTION(NAME, CODE)` 매크로.
+
+**소비되는 방식을 먼저 센다.** 패키지 전체에서 `MoveItErrorCodeException`을
+잡는 곳은 여덟 곳이고(`trajectory_generator.cpp:312,324,337,350`,
+`move_group_sequence_service.cpp:105`,
+`move_group_sequence_action.cpp:230,287`, 그리고 `:113,238,295`의
+`std::exception` 폴백), 그 여덟 곳이 예외에서 꺼내는 것은 **정확히 둘**이다 —
+`ex.getErrorCode()`는 `res.error_code.val`로 들어가고, `ex.what()`은
+`RCLCPP_ERROR_STREAM`으로만 나간다. 즉 메시지는 로그 전용이고, 이 크레이트가
+로깅을 `Result` 반환으로 대체한다는 기존 규칙(이 파일의 "ROS dependencies
+found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
+
+**따라서 대응물은 열거형 46개 변형이 아니라 메커니즘 하나다.**
+
+| 상류 | 이 포트 |
+|---|---|
+| `MoveItErrorCodeException` (코드를 실은 예외) | `moveit_error::Error::Code(MoveItErrorCode)` — `crates/moveit-error/src/lib.rs:100-102` |
+| `catch (MoveItErrorCodeException&) { res.error_code.val = ex.getErrorCode(); }` ×4 | `MotionPlanResponse::failure` — `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517`, `PilzGenerator::generate`의 네 `Err` 분기 `:606-636` |
+| `TemplatedMoveItErrorCodeException`의 기본 `FAILURE` | `failure`의 `_ => MoveItErrorCode::Failure` 팔 |
+| `ex.what()` | 없음 — 로그 전용이므로 D-정책상 버린다 |
+
+`CREATE_MOVEIT_ERROR_CODE_EXCEPTION` 호출은 `include/` 전체에 **49회**,
+서로 다른 이름 **46개**다(50번째 매크로 출현은 정의 자신). 49−46의 차 셋은
+`trajectory_generator_lin.hpp`와 `trajectory_generator_polyline.hpp`가 같은
+이름 셋을 중복 선언하는 것이고, 이미
+`doc/upstream-bugs.md`의 `polyline-header-redeclares-lin-exceptions`다.
+`joint_limits_aggregator.hpp`의 `AggregationException` 계열과
+`planning_exceptions.hpp`의 `PlanningException` 계열은 이 매크로를 쓰지 않는
+**별개 분류 체계**이므로 46에 들지 않는다.
+
+**46개 이름 각각의 대응.** `상류 코드`는 매크로의 두 번째 인자,
+`포트 코드`는 대응 사이트가 실제로 내는 `MoveItErrorCode`다. 포트 경로는
+별도 표기가 없으면 `crates/moveit-planners-pilz/src/`.
+
+| # | 상류 클래스 | 상류 코드 | 상류 throw | 이 포트 | 포트 코드 |
+|---|---|---|---|---|---|
+| 1 | `NegativeBlendRadiusException` | INVALID_MOTION_PLAN | `command_list_manager.cpp:273` | `SequenceError::NegativeBlendRadius` (`command_list_manager.rs:111`, 발생 `:438`) | InvalidMotionPlan (`:174`) |
+| 2 | `LastBlendRadiusNotZeroException` | INVALID_MOTION_PLAN | `command_list_manager.hpp:232` | `SequenceError::LastBlendRadiusNotZero` (`:120`, 발생 `:454`) | InvalidMotionPlan |
+| 3 | `StartStateSetException` | INVALID_ROBOT_STATE | `command_list_manager.cpp:300` | `SequenceError::StartStateSet` (`:127`, 발생 `:480`) | InvalidRobotState (`:177`) |
+| 4 | `OverlappingBlendRadiiException` | INVALID_MOTION_PLAN | `command_list_manager.cpp:160` | `SequenceError::OverlappingBlendRadii` (`:138`, 발생 `:391`) | InvalidMotionPlan |
+| 5 | `PlanningPipelineException` | FAILURE | `command_list_manager.cpp:260` | `SequenceError::Planning` (`:147`, 발생 `:276`,`:281`) | 실패 아이템 자신의 코드 (`:178`) — 상류도 클래스 기본 `FAILURE`가 아니라 실패 응답의 코드를 두 번째 인자로 넘긴다 |
+| 6 | `NoBlenderSetException` | FAILURE | `plan_components_builder.cpp:80` | 표현 불가 — `PlanComponentsBuilder::new`가 블렌더가 필요한 한계를 받는다 (`plan_components_builder.rs:28-33`) | — |
+| 7 | `NoTipFrameFunctionSetException` | FAILURE | 없음 | 죽은 선언 — 패키지 어디서도 throw되지 않는다 (`plan_components_builder.rs:34-36`) | — |
+| 8 | `NoRobotModelSetException` | FAILURE | `plan_components_builder.cpp:112` | 표현 불가 — 같은 생성자가 로봇 모델을 받는다 | — |
+| 9 | `BlendingFailedException` | FAILURE | `plan_components_builder.cpp:96` | `PlanComponentsBuilder::append`가 블렌더의 오류를 그대로 전파 (`plan_components_builder.rs:110-116`) | 블렌더 자신의 코드 — 상류가 `FAILURE`로 뭉개는 것을 좁힌다 |
+| 10 | `NoSolverException` | FAILURE | `tip_frame_getter.hpp:79` | `solver_tip_frame` (`trajectory_functions.rs:808`) | Failure |
+| 11 | `MoreThanOneTipFrameException` | FAILURE | `tip_frame_getter.hpp:85` | 대응 없음 — `doc/port-coverage.md`의 `tip_frame_getter.hpp` 행이 이미 "multi-tip 분기"를 잔여분으로 기록한다 | — |
+| 12 | `CircleNoPlane` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:264` | `build_path`의 세 `map_err` (`trajectory_generator_circ.rs:324`,`:329`,`:334`) | InvalidMotionPlan |
+| 13 | `CircleToSmall` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:270` | 같음 | InvalidMotionPlan |
+| 14 | `CenterPointDifferentRadius` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:276` | 같음 | InvalidMotionPlan |
+| 15 | `CircTrajectoryConversionFailure` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:225` | `generate_joint_trajectory`의 반환을 그대로 전파 (`trajectory_generator_circ.rs:296`) | 그 함수가 낸 코드 — 상류도 `error_code.val`을 명시 인자로 실어 클래스 기본값을 덮는다 |
+| 16 | `UnknownPathConstraintName` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:79` | 표현 불가 — `CircPathConstraintKind`가 두 변형뿐 (`trajectory_generator_circ.rs:23-35`) | — |
+| 17 | `NoPositionConstraints` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:84` | 표현 불가 — 같은 문단 | — |
+| 18 | `NoPrimitivePose` | INVALID_MOTION_PLAN | `trajectory_generator_circ.cpp:89` | 표현 불가 — 같은 문단 | — |
+| 19 | `UnknownLinkNameOfAuxiliaryPoint` | INVALID_LINK_NAME | `trajectory_generator_circ.cpp:109` | `extract_motion_plan_info` (`trajectory_generator_circ.rs:157`) | InvalidLinkName |
+| 20 | `NumberOfConstraintsMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_circ.cpp:119` | 같은 함수의 관절 수 비교 (`trajectory_generator_circ.rs:163-164`) | InvalidGoalConstraints |
+| 21 | `CircInverseForGoalIncalculable` | NO_IK_SOLUTION | `trajectory_generator_circ.cpp:158` | `trajectory_generator_circ.rs:190`,`:200` | NoIkSolution |
+| 22 | `TrajectoryGeneratorInvalidLimitsException` | FAILURE | `trajectory_generator_ptp.cpp:63,71,82,86,90` | `TrajectoryGeneratorPtp::new`의 여섯 `Error::construct` (`trajectory_generator_ptp.rs:80,87,95,97,102,107`) | `MotionPlanResponse::failure`의 `_` 팔을 지나 Failure (`trajectory_generator.rs:518`이 이 대응을 명시한다) |
+| 23 | `VelocityScalingIncorrect` | INVALID_MOTION_PLAN | `trajectory_generator.cpp:96` | `check_velocity_scaling` (`trajectory_generator.rs:647`) | InvalidMotionPlan |
+| 24 | `AccelerationScalingIncorrect` | INVALID_MOTION_PLAN | `trajectory_generator.cpp:107` | `check_acceleration_scaling` (`trajectory_generator.rs:660`) | InvalidMotionPlan |
+| 25 | `UnknownPlanningGroup` | INVALID_GROUP_NAME | `trajectory_generator.cpp:117` | `check_for_valid_group_name` (`trajectory_generator.rs:673`) | InvalidGroupName |
+| 26 | `NoJointNamesInStartState` | INVALID_ROBOT_STATE | 없음 | 죽은 선언 — 상류 트리 전체에서 throw되지 않고, `unittest_trajectory_generator.cpp:70`이 생성만 한다 | — |
+| 27 | `SizeMismatchInStartState` | INVALID_ROBOT_STATE | `trajectory_generator.cpp:126` | 표현 불가 — `StartState::position`이 맵이라 이름 수와 값 수가 어긋날 수 없다 (`trajectory_generator.rs:678-681`) | — |
+| 28 | `JointsOfStartStateOutOfRange` | INVALID_ROBOT_STATE | `trajectory_generator.cpp:144` | `check_start_state`의 위치 한계 분기 (`trajectory_generator.rs:703`) | InvalidRobotState |
+| 29 | `NonZeroVelocityInStartState` | INVALID_ROBOT_STATE | `trajectory_generator.cpp:151` | 같은 함수의 속도 분기 (`trajectory_generator.rs:711`) | InvalidRobotState |
+| 30 | `NotExactlyOneGoalConstraintGiven` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:228` | 표현 불가 — `Goal`이 두 변형 열거형 (`trajectory_generator.rs:24-42`) | — |
+| 31 | `OnlyOneGoalTypeAllowed` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:234` | 표현 불가 — 같은 문단 | — |
+| 32 | `StartStateGoalStateMismatch` | INVALID_GOAL_CONSTRAINTS | 없음 | 죽은 선언 — `unittest_trajectory_generator.cpp:100`이 생성만 한다 | — |
+| 33 | `JointConstraintDoesNotBelongToGroup` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:166` | `check_joint_goal`의 `has_joint_model` 분기 (`trajectory_generator.rs:757`) | InvalidGoalConstraints |
+| 34 | `JointsOfGoalOutOfRange` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:173` | 같은 함수의 한계 분기 (`trajectory_generator.rs:760`) | InvalidGoalConstraints |
+| 35 | `PositionConstraintNameMissing` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:189` | `check_cartesian_goal`의 `link_name.is_empty()` (`trajectory_generator.rs:784`) | InvalidGoalConstraints |
+| 36 | `OrientationConstraintNameMissing` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:194` | 같은 분기 — `Goal::Cartesian`은 `link_name` 하나를 공유하므로 두 검사가 하나가 된다 | InvalidGoalConstraints |
+| 37 | `PositionOrientationConstraintNameMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:203` | 표현 불가 — 같은 이유 (`trajectory_generator.rs:767-772`) | — |
+| 38 | `NoIKSolverAvailable` | NO_IK_SOLUTION | `trajectory_generator.cpp:211` | `check_cartesian_goal`의 솔버 탐색 (`trajectory_generator.rs:794`) | NoIkSolution |
+| 39 | `NoPrimitivePoseGiven` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator.cpp:216` | 표현 불가 — `trajectory_generator.rs:24-42` | — |
+| 40 | `LinTrajectoryConversionFailure` | FAILURE | `trajectory_generator_lin.cpp:172`, `trajectory_generator_polyline.cpp:185` | `generate_joint_trajectory`의 반환을 전파 (`trajectory_generator_lin.rs:218`, `trajectory_generator_polyline.rs:250`) | 그 함수가 낸 코드 — 상류도 `error_code.val`을 명시 인자로 넘긴다 |
+| 41 | `JointNumberMismatch` | INVALID_GOAL_CONSTRAINTS | `trajectory_generator_lin.cpp:97` | **대응 없음 — §227.6** | — |
+| 42 | `LinInverseForGoalIncalculable` | NO_IK_SOLUTION | `trajectory_generator_lin.cpp:136`, `trajectory_generator_polyline.cpp:122` | `trajectory_generator_lin.rs:148`,`:158`; `trajectory_generator_polyline.rs:172`,`:182` | NoIkSolution |
+| 43 | `NoWaypointsSpecified` | INVALID_MOTION_PLAN | `trajectory_generator_polyline.cpp:221` | `cmd_specific_request_validation` (`trajectory_generator_polyline.rs:130`) | InvalidMotionPlan |
+| 44 | `ConsicutiveColinearWaypoints` | INVALID_MOTION_PLAN | `trajectory_generator_polyline.cpp:164` | `plan`의 `polyline_from_waypoints` 실패 (`trajectory_generator_polyline.rs:226`) | InvalidMotionPlan |
+| 45 | `PtpVelocityProfileSyncFailed` | FAILURE | `trajectory_generator_ptp.cpp:183` | `plan_ptp`의 동기화 실패 (`trajectory_generator_ptp.rs:301`, `Error::construct`; doc `:221`) | Failure (`_` 팔) |
+| 46 | `PtpNoIkSolutionForGoalPose` | NO_IK_SOLUTION | `trajectory_generator_ptp.cpp:261` | `extract_motion_plan_info` (`trajectory_generator_ptp.rs:164`,`:174`) | NoIkSolution |
+
+**코드 축 요약.** 46개 이름이 쓰는 상류 코드는 8종
+(FAILURE, INVALID_MOTION_PLAN, INVALID_ROBOT_STATE, INVALID_GOAL_CONSTRAINTS,
+INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자로
+덮어쓰는 경우)이고, 여덟 종 모두 `MoveItErrorCode`에 대응물이 있다.
+**코드 축에 빠진 변형은 없다.** 세 부류가 값으로 대응하지 않는데, 각각의
+이유가 다르다: 죽은 선언 3개(#7, #26, #32 — 상류 트리 어디서도 throw되지
+않는다), 타입 모양으로 표현 불가 10개(#6, #8, #16, #17, #18, #27, #30, #31,
+#37, #39), 그리고 실제 누락 2개(#11, #41).
+
+### §227.6 실제 누락 둘 — 이 라운드가 고치지 않은 것
+
+표의 46행 중 "상류가 거부하는 요청을 포트가 받아들인다"에 해당하는 것은
+둘뿐이고, 둘 다 이 라운드의 여덟 파일 밖이므로 **여기서는 기록만 한다.**
+
+1. **#41 `JointNumberMismatch`** — `trajectory_generator_lin.cpp:88-97`은
+   LIN의 관절 공간 목표에 대해
+   `goal_constraints.front().joint_constraints.size() !=
+   group->getActiveJointModelNames().size()`를 검사하고 어긋나면
+   `INVALID_GOAL_CONSTRAINTS`로 거부한다. `trajectory_generator_lin.rs:122-133`의
+   `Goal::Joint(positions)` 분기에는 그 비교가 없고, `check_joint_goal`
+   (`trajectory_generator.rs:748-765`)도 이름의 소속과 한계만 볼 뿐 개수는 세지
+   않는다. 그러므로 그룹의 활성 관절 6개 중 3개만 지정한 LIN 요청은 상류에서
+   거부되고 이 포트에서는 통과해, 지정되지 않은 관절이 현재 값에 머문 채로
+   FK가 계산된다. **같은 검사가 CIRC에는 있다** —
+   `trajectory_generator_circ.rs:163-164`가 `NumberOfConstraintsMismatch`(#20)를
+   같은 코드로 포팅했다. 즉 상류에서 동일하던 두 생성기가 이 포트에서
+   갈라져 있다.
+2. **#11 `MoreThanOneTipFrameException`** — `tip_frame_getter.hpp:85`의
+   multi-tip 분기. 이것은 새 사실이 아니라 `doc/port-coverage.md`의
+   `tip_frame_getter.hpp` 행이 이미 잔여분으로 적어 둔 것이며, 이 표가 그
+   기록과 일치함을 확인한 것이다.
+
+### §227.7 이 표가 하지 않은 것
+
+- 46개 각 행을 실행으로 확인하지 않았다. 표의 근거는 상류 throw 사이트와
+  포트 `Err` 사이트를 양쪽에서 읽은 것이고, 그것이 이 절의 증거 등급이다.
+- `trajectory_generator_{lin,circ,polyline}.hpp`의 생성자 doc 넷이
+  `@throw TrajectoryGeneratorInvalidLimitsException`이라고 적지만 그 셋의
+  생성자 본문은 `planner_limits_.printCartesianLimits()` 한 줄뿐이고 아무것도
+  throw하지 않는다(`trajectory_generator_{circ,lin,polyline}.cpp:62-76`). PTP만
+  실제로 던진다. 문서 결함이고 동작 결함이 아니므로
+  `doc/upstream-bugs.md`에 넣지 않는다.
