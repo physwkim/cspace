@@ -535,6 +535,9 @@ struct RunStats {
     worst_distance_deviation: Option<f64>,
     /// `Some` only when `--collision` ran.
     distance_pairs: Option<DistancePairStats>,
+    /// `Some` only when `--collision` ran. §5 Phase 3's two clauses,
+    /// counted apart -- see [`CollisionClauseStats`].
+    collision_clauses: Option<CollisionClauseStats>,
     /// `Some` only when `--ik` ran.
     ik: Option<IkStats>,
 }
@@ -609,6 +612,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
 
     let mut max_jacobian_dev = 0.0f64;
     let mut pair_stats = DistancePairStats::default();
+    let mut clause_stats = CollisionClauseStats::default();
     // Kept for the constraint-case generator below, which needs each state's
     // link poses to build "meaningful" (boundary-straddling) constraints
     // rather than re-asking the oracle for the same fk it already answered.
@@ -694,6 +698,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 joint_values,
                 &expected,
                 &mut pair_stats,
+                &mut clause_stats,
             );
             if dev.is_finite() {
                 max_distance_dev = max_distance_dev.max(dev);
@@ -733,6 +738,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
     if cfg.collision {
         println!("worst distance deviation: {max_distance_dev:.3e}");
+        clause_stats.report();
         pair_stats.report();
     }
 
@@ -811,6 +817,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
             worst_jacobian_deviation: cfg.group.is_some().then_some(max_jacobian_dev),
             worst_distance_deviation: cfg.collision.then_some(max_distance_dev),
             distance_pairs: cfg.collision.then_some(pair_stats),
+            collision_clauses: cfg.collision.then_some(clause_stats),
             ik: cfg.ik.then_some(ik_stats),
         };
         let json = serde_json::to_string_pretty(&stats)
@@ -1689,15 +1696,25 @@ fn distance_pair_matches(a: &Option<DistancePair>, b: &Option<DistancePair>) -> 
 /// `crates/moveit-collision/src/parry.rs`, deviations 4 and 6) in ways that
 /// would never converge under any tolerance.
 ///
-/// Also tallies `pair_stats` (see [`DistancePairStats`]): a pair
-/// disagreement never affects the returned [`Verdict`] by itself, only the
-/// scalar does, exactly as before this parameter existed.
+/// Also tallies `pair_stats` (see [`DistancePairStats`]) and `clause_stats`
+/// (see [`CollisionClauseStats`]): a pair disagreement never affects the
+/// returned [`Verdict`] by itself, only the scalar does.
 ///
-/// Returns both the verdict and the worst of the two distance deviations
-/// (even on a pass), mirroring [`compare_jacobian`]'s reporting: the number
-/// this task's parity run reports is the worst deviation across every case,
-/// not just the failures. `f64::NAN` when a boolean disagrees or Rust
-/// errored, since no distance deviation is meaningful to report then.
+/// **Both clauses are always evaluated.** §5 Phase 3's completion condition
+/// is two independent clauses -- `collision: bool` 100% and `distance: f64`
+/// within `1e-4` -- and this used to `return` on the first boolean
+/// disagreement, so on any such case the distance clause was never reached
+/// and never counted. "How many of the 10,000 states agree on `distance`"
+/// was then unanswerable for exactly the states most likely to diverge,
+/// and the two clauses shared one `failed:` total that could not be
+/// attributed to either. Every disagreement is now recorded against its own
+/// clause and the verdict names both when both broke.
+///
+/// Returns the verdict and the worst of the two distance deviations (even
+/// on a pass), mirroring [`compare_jacobian`]'s reporting: the number this
+/// task's parity run reports is the worst deviation across every case, not
+/// just the failures. `f64::NAN` only when Rust errored and there is no
+/// distance to compare at all.
 fn compare_collision(
     cfg: &Config,
     rust_model: &RobotModel,
@@ -1705,35 +1722,44 @@ fn compare_collision(
     joint_values: &BTreeMap<String, f64>,
     expected: &CollisionCheckResult,
     pair_stats: &mut DistancePairStats,
+    clause_stats: &mut CollisionClauseStats,
 ) -> (Verdict, f64) {
     let actual = match rust_impl::collision(rust_model, &fixture.env, &fixture.acm, joint_values) {
         Ok(a) => a,
-        Err(e) => return (Verdict::Fail(e), f64::NAN),
+        Err(e) => {
+            clause_stats.errored += 1;
+            return (Verdict::Fail(e), f64::NAN);
+        }
     };
 
+    let mut bool_failure = None;
+    clause_stats.bool_total += 1;
     if actual.self_collision != expected.self_collision {
-        return (
-            Verdict::Fail(format!(
-                "self_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
-                expected.self_collision,
-                expected.self_distance,
-                actual.self_collision,
-                actual.self_distance
-            )),
-            f64::NAN,
-        );
+        clause_stats.self_bool_disagrees += 1;
+        bool_failure = Some(format!(
+            "self_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
+            expected.self_collision,
+            expected.self_distance,
+            actual.self_collision,
+            actual.self_distance
+        ));
     }
     if actual.robot_collision != expected.robot_collision {
-        return (
-            Verdict::Fail(format!(
-                "robot_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
-                expected.robot_collision,
-                expected.robot_distance,
-                actual.robot_collision,
-                actual.robot_distance
-            )),
-            f64::NAN,
+        clause_stats.robot_bool_disagrees += 1;
+        let msg = format!(
+            "robot_collision differs: oracle {} (distance {:.17e}) vs rust {} (distance {:.17e})",
+            expected.robot_collision,
+            expected.robot_distance,
+            actual.robot_collision,
+            actual.robot_distance
         );
+        bool_failure = Some(match bool_failure {
+            Some(prev) => format!("{prev}; {msg}"),
+            None => msg,
+        });
+    }
+    if bool_failure.is_some() {
+        clause_stats.bool_disagrees += 1;
     }
 
     let self_dev = (expected.self_distance - actual.self_distance).abs();
@@ -1784,25 +1810,102 @@ fn compare_collision(
         }
     }
 
-    if max_dev.is_nan() || max_dev > cfg.tol_distance {
-        return (
-            Verdict::Fail(format!(
-                "distance differs: self oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={self_dev:.3e}), \
-                 robot oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={robot_dev:.3e}), tol {:.3e}",
-                expected.self_distance,
-                format_distance_pair(&expected.self_distance_pair),
-                actual.self_distance,
-                format_distance_pair(&actual.self_distance_pair),
-                expected.robot_distance,
-                format_distance_pair(&expected.robot_distance_pair),
-                actual.robot_distance,
-                format_distance_pair(&actual.robot_distance_pair),
-                cfg.tol_distance
-            )),
-            max_dev,
-        );
+    clause_stats.distance_total += 1;
+    let distance_failure = if max_dev.is_nan() || max_dev > cfg.tol_distance {
+        clause_stats.distance_disagrees += 1;
+        if self_dev.is_nan() || self_dev > cfg.tol_distance {
+            clause_stats.self_distance_disagrees += 1;
+        }
+        if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
+            clause_stats.robot_distance_disagrees += 1;
+        }
+        Some(format!(
+            "distance differs: self oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={self_dev:.3e}), \
+             robot oracle {:.17e} [{}] vs rust {:.17e} [{}] (|d|={robot_dev:.3e}), tol {:.3e}",
+            expected.self_distance,
+            format_distance_pair(&expected.self_distance_pair),
+            actual.self_distance,
+            format_distance_pair(&actual.self_distance_pair),
+            expected.robot_distance,
+            format_distance_pair(&expected.robot_distance_pair),
+            actual.robot_distance,
+            format_distance_pair(&actual.robot_distance_pair),
+            cfg.tol_distance
+        ))
+    } else {
+        None
+    };
+
+    // Both clauses in one message when both broke, rather than the first one
+    // found: `report`'s "distinct failure messages" histogram groups by
+    // message text, so dropping the second clause here would file a
+    // both-clauses-failed case under the same key as a one-clause failure.
+    match (bool_failure, distance_failure) {
+        (None, None) => (Verdict::Pass, max_dev),
+        (Some(b), None) => (Verdict::Fail(b), max_dev),
+        (None, Some(d)) => (Verdict::Fail(d), max_dev),
+        (Some(b), Some(d)) => (Verdict::Fail(format!("{b}; {d}")), max_dev),
     }
-    (Verdict::Pass, max_dev)
+}
+
+/// §5 Phase 3's completion condition split into the two clauses it actually
+/// states, counted independently.
+///
+/// The condition is `collision: bool` agreeing 100% *and* `distance: f64`
+/// agreeing within `1e-4`. Those are separate facts about the port, and a
+/// single `failed:` total cannot say which one is unmet or by how much --
+/// which is the whole content of a Phase 3 status line. `*_total` is the
+/// number of cases where the clause was *evaluated*, so `disagrees/total` is
+/// a rate whose denominator is not silently smaller than the sweep's.
+///
+/// `errored` counts cases where the Rust side could not produce a result at
+/// all; those reach neither clause, so they are excluded from both
+/// denominators rather than being scored as agreement.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+struct CollisionClauseStats {
+    bool_total: usize,
+    /// Cases where `self_collision` and/or `robot_collision` disagreed --
+    /// the `collision: bool` clause's own failure count. Not the sum of the
+    /// two per-side counts below: one case can break both sides.
+    bool_disagrees: usize,
+    self_bool_disagrees: usize,
+    robot_bool_disagrees: usize,
+    distance_total: usize,
+    /// Cases where `self_distance` and/or `robot_distance` moved past
+    /// `--tol-distance`. Again not the sum of the two per-side counts.
+    distance_disagrees: usize,
+    self_distance_disagrees: usize,
+    robot_distance_disagrees: usize,
+    errored: usize,
+}
+
+impl CollisionClauseStats {
+    /// One line per clause, each with its own denominator, in the order §5
+    /// Phase 3 states them.
+    fn report(&self) {
+        println!(
+            "clause `collision: bool`  : {}/{} states disagree ({:.3}%) [self {}, robot {}]",
+            self.bool_disagrees,
+            self.bool_total,
+            100.0 * self.bool_disagrees as f64 / self.bool_total.max(1) as f64,
+            self.self_bool_disagrees,
+            self.robot_bool_disagrees,
+        );
+        println!(
+            "clause `distance: f64`    : {}/{} states disagree ({:.3}%) [self {}, robot {}]",
+            self.distance_disagrees,
+            self.distance_total,
+            100.0 * self.distance_disagrees as f64 / self.distance_total.max(1) as f64,
+            self.self_distance_disagrees,
+            self.robot_distance_disagrees,
+        );
+        if self.errored > 0 {
+            println!(
+                "rust errored (in neither denominator): {} states",
+                self.errored
+            );
+        }
+    }
 }
 
 /// Formats a [`DistancePair`] for `compare_collision`'s `distance differs`
