@@ -779,9 +779,9 @@ matching the brief's figures exactly on independent re-derivation.
 | goal_sampler.rs:334 | contains | `constrained_branch_is_load_bearing_not_merely_invoked` | no | same reasoning as constrained_sampler.rs:305. |
 | nn.rs:244 | is_empty | `len_and_is_empty_track_insertions` | no | clause 3: reads `Gnat::new(4)`'s trivial post-construction state before any subject call — same shape as `bodies.rs:3967`. |
 | nn.rs:248 | is_empty | (same test) | yes | redundant confirmation of `insert()`'s effect, already proven by the adjacent `len()==2` assertion — same "lives one level up" shape as round-11's `matrix.rs:727`. |
-| registry.rs:1119 | eq_err | `path_constraints_four_scenario_wired_vs_unwired_sweep` | yes | `assert_eq!` pins the exact `PlanningFailure::IterationsExhausted` variant on a real `rrt_connect` call — already discriminating by construction (exact-variant match, not a bare `.is_err()`). |
-| registry.rs:1152 | contains | (same test) | no | range-plausibility check on a real trajectory waypoint value, not an error signal. |
-| registry.rs:1211 | contains | `goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region` | no | same reasoning as registry.rs:1152. |
+| registry.rs:1126 | eq_err | `path_constraints_four_scenario_wired_vs_unwired_sweep` | yes | `assert_eq!` pins the exact `PlanningFailure::IterationsExhausted` variant on a real `rrt_connect` call — already discriminating by construction (exact-variant match, not a bare `.is_err()`). |
+| registry.rs:1159 | contains | (same test) | no | range-plausibility check on a real trajectory waypoint value, not an error signal. |
+| registry.rs:1218 | contains | `goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region` | no | same reasoning as registry.rs:1152. |
 | rrt_connect.rs:105 | contains | `RrtConnectParams::assert_valid` | no | production-code precondition assert (scope `src`, not `test`) — not a test discriminating error-guard selection at all. |
 | rrt_connect.rs:579 | contains | `narrow_gap_is_crossed` | no | range-plausibility check on a real computed path point, not an error signal. |
 | rrt_connect.rs:584 | contains | (same test) | no | same reasoning as rrt_connect.rs:579. |

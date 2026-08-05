@@ -831,7 +831,7 @@ passed).
 | `chain.rs:512` | contains | in-family | "DOF" unique vs. siblings |
 | `chain.rs:558` | contains | in-family | "not itself in the group" unique vs. siblings |
 | `chain.rs:676` (`root_link_index == None`) | eq_none | in-family — confirmed by live bite | see below |
-| `registry.rs:254` | contains | in-family | set-membership loop, one descriptive message per expected name |
+| `registry.rs:271` | contains | in-family | set-membership loop, one descriptive message per expected name |
 | `ik_fk_roundtrip.rs:267` | contains | in-family | same "not a chain" text as `chain.rs:469`, one layer up through `NewtonRaphsonSolver::new` |
 
 **`chain.rs:676` bite**: this is the only direct assertion on
@@ -937,7 +937,7 @@ anchor this pass:
 | `chain.rs:512` | `ChainInfo::build` | `err` is its direct return | in-family |
 | `chain.rs:558` | `ChainInfo::build` | `err` is its direct return | in-family |
 | `chain.rs:676` | `ChainInfo::build` | `chain.root_link_index` is a field `build` itself computes and *also* uses, in the same match expression, to derive `base_frame` — there is no separate "arrange" function here the way `RobotTrajectory::new` is separate from `apply_smoothing`; `build` is both construction and decision in one call. Confirmed further by this round's live cross-crate bite (forcing `root_link_index` to always `None` failed `ik_fk_roundtrip.rs`'s pr2 tests) | in-family |
-| `registry.rs:254` | the crate's own solver registry (`KINEMATICS_SOLVERS`) | no function call to delete — the "subject" is each solver module's own `#[distributed_slice(KINEMATICS_SOLVERS)]` declaration; deleting one (e.g. `lma`'s) directly flips this assertion. Closest call in this population: it is a static aggregate, not a runtime branch, but per this crate's own documented history (`distributed_slice ordering is not a contract` — a dependency-graph change once silently flipped which solver `pilz` resolved), membership here is genuine, non-tautological production behavior a change could break | in-family, argued rather than assumed |
+| `registry.rs:271` | the crate's own solver registry (`KINEMATICS_SOLVERS`) | no function call to delete — the "subject" is each solver module's own `#[distributed_slice(KINEMATICS_SOLVERS)]` declaration; deleting one (e.g. `lma`'s) directly flips this assertion. Closest call in this population: it is a static aggregate, not a runtime branch, but per this crate's own documented history (`distributed_slice ordering is not a contract` — a dependency-graph change once silently flipped which solver `pilz` resolved), membership here is genuine, non-tautological production behavior a change could break | in-family, argued rather than assumed |
 | `ik_fk_roundtrip.rs:267` | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
 | `multivariate_gaussian.rs:213` | `MultivariateGaussian::new` | checked inline on the constructor's own return, no intermediate object | in-family |
 | `moveit-test-support/src/lib.rs:76` | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `ruckig_smoothing.rs:199`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
@@ -1028,7 +1028,7 @@ ambiguity the way multiple guards can share one negative signal.
 | `ButterworthFilter::new` | 4 (`Err::construct` × 4) | ~~1 bit directly (spot-check per instruction)~~ **all 4 bit — see Round 6** |
 | `JointConstraintSampler::sample` (`sampler.rs:194,200`) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
 | `cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213` | `is_some` positive checks | excluded (structural exemption above) |
-| `registry.rs:254` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
+| `registry.rs:271` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
 | `harness.rs:60,64,83,101` | integration tests already execute the real `moveit-diff` binary end-to-end — no separate read-vs-run gap | excluded |
 | `ruckig_filter.rs::joint_vel_accel_jerk_bounds` | 2 (`Err::other` × 2) | not independently re-bit this round — same file, same annotated-and-confirmed pattern as the sibling `joint_acceleration_bounds` bites, itself spot-checked |
 
