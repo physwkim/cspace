@@ -285,7 +285,7 @@ lookup of the kind that sank `matrix.rs:660`.
   newly excluded) — **5 excluded, 34 in-family**.
 - 47 + 34 = 81 of 89.
 
-## 2. `crates/moveit-collision` — 51 sites
+## 2. `crates/moveit-collision` — 52 sites
 
 ### `src/tools.rs` (4)
 | file:line | anchor | test fn | verdict | in-family | evidence |
@@ -369,6 +369,11 @@ guard-B site above shares one bite pair, not 10 independent ones.
 | file:line | anchor | test fn | verdict | in-family | evidence |
 |---|---|---|---|---|---|
 | world_parity.rs:226 | bare | world_matches_oracle | not-this-family | **no** | module doc (lines 4-33) + committed oracle fixture (`world_request.json`/`world_response.json`): `query.transform is None` per the oracle's own JSON dump for a specific query name — a per-query oracle-value comparison, not branch discrimination inside one function; there is no sibling branch to isolate. §9 clause 3: whatever decision produced this `None` belongs to the oracle-generating process, not to code under test this assertion exercises |
+
+### `tests/exact_tangency_is_decided_per_shape_pair.rs` (1)
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| exact_tangency_is_decided_per_shape_pair.rs:343 | is_empty | `report`, reached from `exact_tangency_collides_for_every_pair_but_sphere_on_sphere` and `a_nanometre_either_side_of_the_tie_brackets_it` | discriminating | yes | the `is_empty()` is over a list of *named differing cells*, so the failure message identifies which of the 25 shape pairs moved rather than only that one did. Isolating mutation run now: flipping the pinned `sphere x sphere` cell of `TANGENT` from `false` to `true` → FAILED with `the exact-tangency table changed in 1 of 25 cells: sphere x sphere: expected true, got false`, and the two bracketing tables stayed GREEN. A second, independent bite (deleting `scaled_padded_shape`'s `compute_vertex_normals()` call) failed the same assertion's two callers by panic instead, confirming the mesh columns are really exercised |
 
 ## 3. `crates/moveit-geometry` — 39 sites
 
