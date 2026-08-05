@@ -46,7 +46,7 @@ Append entries; do not renumber existing ones.
 **Symptom:**  what the C++ does that is wrong, concretely.
 **Evidence:** how we know — oracle run, upstream's own TODO, a read of the
               control flow. Say which; a read is the weakest.
-**Status:**   `not-reproduced` | `reproduced-pending-decision` | `reproduced-deliberately`
+**Status:**   `not-reproduced` | `reproduced-deliberately` | `reproduced-grandfathered`
 **Cost of not reproducing:** which parity tests or oracle comparisons move
               if we deviate. If none, say none.
 ```
@@ -54,9 +54,15 @@ Append entries; do not renumber existing ones.
 `reproduced-deliberately` needs a stated reason and a signature — it is the
 exception now, not the default.
 
+`reproduced-grandfathered` is closed to new entries. It marks the bugs
+already in the tree when the policy inverted, which the user decided on
+2026-08-05 to leave in place; see "Decision on the pre-policy entries"
+below. A bug found from now on is `not-reproduced` unless someone argues
+`reproduced-deliberately` for it.
+
 ---
 
-### 1. Two non-exclusive `if` blocks double-increment `iteration_` — reproduced-pending-decision
+### 1. Two non-exclusive `if` blocks double-increment `iteration_` — reproduced-grandfathered
 
 **Upstream:** `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:368-410`
 (verified at the pinned `e017c91e`: `if (iteration_ % 10 == 0)` sets
@@ -92,7 +98,7 @@ a vector sized `num_links` — undefined behaviour.
 **Status:** already not reproduced — safe Rust cannot express it.
 **Cost of not reproducing:** none. Already the shipped behaviour.
 
-### 3. Attached-body count check upstream's own comment doubts — reproduced-pending-decision
+### 3. Attached-body count check upstream's own comment doubts — reproduced-grandfathered
 
 **Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:1132`
 (verified verbatim: `// TODO: This logic for checking attached body count might
@@ -127,29 +133,60 @@ a running oracle, and the port's parity claim is built on it.
 **Cost of not reproducing:** `tests/totg_parity.rs` fails. Deviating here
 means abandoning totg parity, which is a much larger decision than a bug fix.
 
-### 5. `Path_Circle` has no both-zero guard, so `scale_rot` can be NaN — reproduced-pending-decision
+### 5. `Path_Circle` has no both-zero guard, so `scale_rot` can be NaN — reproduced-grandfathered
 
-**Upstream:** `KDL::Path_Circle` — **not verifiable locally.** The port's own
-module doc names `KDL::Path_Circle` as the origin of this arithmetic;
-orocos KDL is not present on this machine, and `moveit2`'s
-`pilz_industrial_motion_planner/src/path_circle_generator.cpp` is the
-*caller*, not the site of the missing guard. This entry's symptom is
-therefore sourced to the port's comment, not to upstream, until someone
-supplies a KDL checkout. Treat it as unconfirmed.
-**Port:** `crates/moveit-planners-pilz/src/path_circle.rs:311`
-**Symptom:** in the `else` arm, `scale_rot = oalpha / dist`. With both zero
-this is `0.0 / 0.0` = NaN, which escapes into the constructed path.
-**Evidence:** read, plus the asymmetry with `Path_Line`, which *does* guard.
+**Upstream:** `orocos_kdl/src/path_circle.cpp:91-96` in
+`orocos/orocos_kinematics_dynamics`, checked out at
+`/home/stevek/work/orocos_kinematics_dynamics` (master `c73370f0`). This is
+not the pinned reference `moveit2` builds against — KDL is a system
+dependency there — but `git log -L` dates the `Path_Circle` `else` arm to
+`d545368` (2020) and the `Path_Line` guard to at least `c6f0842` (2008), so
+both sides of the asymmetry predate any version this port could target.
+`moveit2`'s `pilz_industrial_motion_planner/src/path_circle_generator.cpp`
+is the *caller*; the missing guard is in KDL itself.
+**Port:** `crates/moveit-planners-pilz/src/path_circle.rs:312`
+**Symptom:** `Path_Circle`'s `else` arm runs whenever
+`oalpha*eqradius > dist` is false, including when both are zero, and
+computes `scalerot = oalpha/pathlength` with `pathlength = dist = 0`. That
+is `0.0/0.0` = NaN escaping into the constructed path. `radius` is guarded
+`>= epsilon` at `:66`, so reaching it needs `alpha == 0` (zero-sweep
+circle) together with an identity start/end rotation, which makes
+`oalpha == 0`.
+**Evidence:** verified verbatim in the checkout above, and the asymmetry is
+upstream's own: `orocos_kdl/src/path_line.cpp:67-83` carries the comment
+`// Only modify if non zero (prevent division by zero)` above a three-way
+guard whose third arm is commented `// both were zero`. KDL recognised this
+division and fixed it in `Path_Line`; `Path_Circle` never got the same
+treatment. That makes it an unfixed instance of a known bug rather than a
+deliberate choice.
 **Cost of not reproducing:** unmeasured. A `Path_Line`-shaped guard
 returning an error is the obvious candidate, and no pilz parity test is
 known to depend on the NaN — that needs checking, not assuming.
 
 ---
 
-## Open question
+## Decision on the pre-policy entries
 
-Entries 1, 3 and 5 are `reproduced-pending-decision`: they were ported
-faithfully under the old brief and have not been revisited. Fixing them is
-a behaviour change against an oracle-verified port, so each needs its
-cost-of-not-reproducing line filled in with a measurement rather than the
-"unmeasured" placeholders above before anything is changed.
+Asked on 2026-08-05 whether to measure-then-deviate, deviate immediately,
+or document only: **document only, code unchanged.** Entries 1, 3 and 5 are
+`reproduced-grandfathered` and stay as they are. Their
+cost-of-not-reproducing lines keep the "unmeasured"/"unknown" placeholders,
+which is now accurate rather than an outstanding task — no measurement is
+owed, because nothing is being changed.
+
+The inverted policy is **forward-looking**. It binds bugs found from here
+on; it does not reopen behaviour already ported and gated. Anyone who wants
+to move an entry off `reproduced-grandfathered` needs a fresh decision, not
+this document.
+
+Entry 4 is separately `reproduced-deliberately` — it is the one entry with
+a positive argument for reproducing (the totg oracle), so it does not
+depend on the grandfathering above.
+
+The reason for grandfathering rather than fixing is that all three are
+behaviour changes against a port whose parity is oracle-verified, and none
+of the three has a demonstrated failure in this workspace: entry 1 is a
+read of upstream control flow with no oracle run behind it, entry 3 has no
+established correct comparison to change *to*, and entry 5's NaN has no
+known reaching caller in the pilz tests. Deviating on any of them would
+trade a verified behaviour for an unverified one.
