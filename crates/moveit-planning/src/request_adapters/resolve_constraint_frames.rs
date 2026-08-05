@@ -27,7 +27,7 @@
 //! # Why this port is a structural no-op, not a shortcut
 //!
 //! Upstream's `resolveConstraintFrames(state, constraints)`
-//! (`kinematic_constraint/src/utils.cpp:623-676`) mutates a raw
+//! (`kinematic_constraints/src/utils.cpp:623-676`) mutates a raw
 //! `moveit_msgs::msg::Constraints`: for each `PositionConstraint`/
 //! `OrientationConstraint`, it looks up `c.link_name` via
 //! `state.getFrameInfo(c.link_name, robot_link, frame_found)` — a lookup

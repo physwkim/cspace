@@ -987,7 +987,7 @@ stale one it is the distance to an unrelated request's pose, so the gate
 that is meant to be decided by config distance alone can be opened by the
 pose term. The config half freezes the first caller's `num_joints_`, and
 `nearest.second` is passed straight to the wrapped plugin as its seed
-(`-inl.hpp:97`), so a second arm with a different DOF count is seeded with a
+(`cached_ik_kinematics_plugin-inl.hpp:97`), so a second arm with a different DOF count is seeded with a
 vector of the wrong length.
 **Evidence:** a read of the control flow, plus a read of the one caller
 that consumes both halves. Not oracle-confirmed: reaching it needs two
@@ -1092,7 +1092,7 @@ has no port at all (`D4` replaces pluginlib's plugin-per-group shape with
 the `KINEMATICS_SOLVERS` registry).
 **Symptom:** `std::accumulate(first, last, init)` returns the accumulated
 value and leaves `init` untouched. All three calls discard it. At
-`-inl.hpp:82`, `cache_name` is initialized to `base_frame` and the
+`cached_ik_kinematics_plugin-inl.hpp:82`, `cache_name` is initialized to `base_frame` and the
 accumulate meant to append the tip frames does nothing, so `cache_name`
 stays the bare base frame; the cache file is then named
 `robot_id + group_name + "_" + cache_name + ...` (`ik_cache.cpp:88-91`), so
@@ -1106,7 +1106,7 @@ Every distinct (fixed, active) joint-name pair therefore maps to one map
 entry and one cache.
 **Evidence:** a read of `std::accumulate`'s contract and of the three call
 sites. Reachability differs sharply between them and is unmeasured for
-both: `-inl.hpp:82` is on the live `initialize` path, while `IKCacheMap` is
+both: `cached_ik_kinematics_plugin-inl.hpp:82` is on the live `initialize` path, while `IKCacheMap` is
 constructed and called nowhere in the upstream tree — a search for the
 identifier finds only its own declaration and definitions — so `getKey` is
 dead code that would become live the moment anything used the class.
@@ -1988,7 +1988,7 @@ passes a `moveit_msgs::msg::MotionPlanResponse&` — `plan_service_capability.cp
 `planning_pipeline.cpp:245` (`progress.response`, `PipelineState.msg:5`),
 and seven pilz unit-test sites
 (`unittest_trajectory_generator_ptp.cpp:382,488,560,687,829`,
-`_lin.cpp:145`, `_circ.cpp:130`, each declaring
+`unittest_trajectory_generator_lin.cpp:145`, `unittest_trajectory_generator_circ.cpp:130`, each declaring
 `moveit_msgs::msg::MotionPlanResponse res_msg` on the preceding line) — and
 that argument does not compile against the detailed signature. So
 `MotionPlanDetailedResponse::getMessage` has **zero callers upstream, tests
