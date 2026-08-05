@@ -112,6 +112,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `check-position-bounds-multidof-adjacent-members` | not-reproduced |
 | `count-samples-per-second-returns-a-ratio` | not-reproduced |
 | `all-valid-distance-robot-hides-base-overload` | not-reproduced |
+| `distance-callback-max-contact-depth` | not-reproduced |
 
 ---
 
@@ -1642,3 +1643,77 @@ above. Within this tree the choice is pinned by
 `distance_to_collision_through_the_null_backend_is_maximum_clearance`,
 whose isolating mutation is exactly this bug's `0.0`
 (`doc/assertion-discrimination-ledger-p10-samplers.md`, M5 and M6).
+
+---
+
+### `distance-callback-max-contact-depth` — `distanceCallback` reports the **largest** of up to 200 contact depths as the pair's signed distance, so a penetration depth grows without bound in the *other* body's width — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:646`
+(`coll_req.num_max_contacts = 200;`), `:650-659` (`double max_dist = 0; ... if
+(contact.penetration_depth > max_dist)`), `:662-663` (`const fcl::Contactd&
+contact = coll_res.getContact(max_index); dist_result.distance =
+-contact.penetration_depth;`).
+**Port:** `crates/moveit-collision/src/parry.rs`, `accumulate_distance`
+**Symptom:** a penetration depth is the length of the shortest translation
+that separates two bodies, so it cannot depend on how *wide* the other body
+is — widening a floor slab sideways puts no new material between the robot
+and the surface it rests in. Upstream's value does depend on it. For a mesh
+link `fcl::collide` runs per triangle, and a triangle lying wholly inside a
+large box has no separating axis, so FCL reports an escape along a lateral
+direction whose length grows with the box. Lines 650-659 then select the
+**maximum** over the contact set, which promotes exactly that artifact over
+the ~200 geometrically sane contacts beside it. The result is published as
+`DistanceResultsData::distance` and, through the plain `<` in the caller,
+becomes the whole scene's `minimum_distance`.
+**Evidence:** oracle runs at `e017c91ee`, `tools/moveit-oracle/run-oracle.sh`
+with `fixtures/panda.urdf`. `panda_link0` in its default state, floor slab
+`L x L x 0.1` with its top face held at `z = +0.05` in every case, so the true
+overlap is `0.05 m` throughout and only `L` changes:
+
+| `L` (m) | oracle `robot_distance` |
+|---|---|
+| `0.4`  | `-2.252549386999574e-1` |
+| `1.0`  | `-6.442843086554950e-1` |
+| `2.0`  | `-1.349881199903309e0` |
+| `4.0`  | `-2.763223704646119e0` |
+| `8.0`  | `-3.999482770392206e0` |
+| `20.0` | `-9.999482770392206e0` |
+
+A factor of 44 across a sweep in which the overlap never moved, and for
+`L >= 8` the value is exactly `L/2 - 0.000517` — the half-width of the slab,
+which is the lateral escape rather than the vertical one. Dumping the contact
+set with `max_contacts_per_pair: 200` separates upstream's `max` selection
+from FCL's individual depths:
+
+| `L` | contacts on `panda_link0/floor` | min depth | median depth | max depth | depths above `0.309272` |
+|---|---|---|---|---|---|
+| `4.0`  | 100 | `0.041524344` | `0.049999832` | `2.763223705` | 32 of 100 |
+| `20.0` | 100 | `0.041524344` | `0.049999698` | `9.999482770` | 14 of 100 |
+
+The median is the correct `~0.05` at both widths and is itself width-invariant
+to `1.3e-7`; `0.309272` is `panda_link0`'s own diameter, measured as twice the
+largest `|vertex|` over the 200 triangles of
+`fixtures/meshes/panda_description/meshes/collision/link0.stl`. So every order
+statistic below the maximum is bounded by the geometry and the maximum is not,
+and upstream's line 655 is what selects the one that is not. That places the
+defect on the MoveIt side of the FCL boundary: taking the minimum or the
+median of the same contact set would answer correctly.
+**Status:** `not-reproduced`. This backend answers from
+`parry3d_f64::query::contact`, which returns one contact per pair carrying the
+minimum-translation distance, so there is no set to take a maximum over. Its
+measured value is `-0.05003249277506257` at `L` of `0.4`, `1.0`, `4.0` and
+`20.0` — spread exactly `0.000000e0`, and within `3.3e-5` of the oracle's own
+median contact.
+**Deviation:** none of `D1`..`D14` applies. The port is not routing around the
+defect by policy; it never accumulates a per-triangle contact set at this
+layer, so the selection rule that produces the artifact does not exist here.
+**Cost of not reproducing:** measured, and it is the entirety of the `distance`
+column that `PORTING-PLAN.md` §5 Phase 3 records as missed on panda, fanuc and
+pr2 (`2,897x`-`27,384x`). Reproducing it would mean adopting a quantity that is
+unbounded in the size of an unrelated object, and would take
+`crates/moveit-collision/tests/penetration_depth_scale_invariance.rs` —
+`depth_is_invariant_to_floor_width` and
+`depth_never_exceeds_the_links_own_diameter` — with it. Widening the clause's
+`1e-4` tolerance was never available either: at `L = 20` the divergence is
+`9.95 m`, and it grows with `L` without limit, so no fixed tolerance both
+admits it and detects anything.
