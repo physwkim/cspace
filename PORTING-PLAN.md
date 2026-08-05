@@ -17940,3 +17940,67 @@ C++ 쪽도 셋 다 250/248/206/200, pooled median도 셋 다 동일한 자릿수
 - PRM / RRT* / KPIECE. §5 Phase 7의 항목이지만 완료 조건은 성공률·경로
   길이를 RRTConnect 대비로만 말한다. 이 하네스는 `RrtConnectManager`만
   구동한다.
+
+## §226 `moveit_core/utils`의 테스트/문자열 유틸 일곱 파일과 `console_colors.hpp` — 갭 8건을 판정으로 바꿨다
+
+`doc/port-coverage.md`가 `gap`으로 들고 있던 8개 파일을 열어 판정했다.
+여덟 개가 전부 `decided-non-port`로 끝났는데, 이유는 파일마다 다르고 그
+차이가 중요하다 — "언어가 그 문제를 안 가진다"(§226.1), "이 포트가 같은
+일을 다른 계기로 이미 한다"(§226.3, §226.4), "소비자가 코퍼스 밖에만
+있다"(§226.2, §226.5). 근거를 뭉뚱그리면 만료 조건도 뭉뚱그려지므로 절을
+나눈다.
+
+부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에 대한
+`rg` 결과이고, 각 절이 그 명령을 적는다.
+
+한 가지 공통점은 적어 둘 값어치가 있다. `robot_model_test_utils.*`와
+`eigen_test_utils.hpp`는 **테스트 지원 코드인데 `test/` 디렉터리 밖에
+산다**(`utils/src/`, `utils/include/`). 코퍼스 계기가 걸러내는 것은 경로에
+`test`/`tests` 성분이 있는 파일이므로(`measure-port-coverage.py:90`) 이
+둘은 코퍼스 안으로 쓸려 들어왔다. 상류의 `test/` 아래 테스트들은 애초에
+코퍼스 밖이라 이런 행이 없다.
+
+### §226.1 `lexical_casts.{hpp,cpp}` — `decided-non-port`, 언어가 이 문제를 안 가진다
+
+파일의 존재 이유가 자기 헤더 doc에 적혀 있다: 시스템 로케일에 따라 소수점
+구분자가 달라지는데 "이는 내부(비사용자 대면) 목적에는 흔히 원치 않는
+것"이라, `toString`/`toDouble`/`toFloat`가 스트림에
+`std::locale::classic()`을 imbue한 뒤 `<<`/`>>`를 쓴다
+(`lexical_casts.cpp:49-52,69-72`).
+
+**그 문제는 C++ iostream의 성질이지 부동소수 변환의 성질이 아니다.**
+Rust의 `f64: Display`와 `f64: FromStr`은 로케일을 입력으로 받지 않는다 —
+`format!("{x}")`와 `"1.5".parse::<f64>()`는 언어가 정의하는 대로 항상 `.`을
+쓴다. 즉 `toStringImpl`의 본체에서 의미를 지는 유일한 줄인
+`oss.imbue(std::locale::classic())`이 이 포트에서는 기본값이다. 옮길
+알고리즘이 남지 않는다.
+
+한 걸음 더 재 봤고, 결과가 판정을 굳혔다. 두 구현을 같은 값으로 돌린
+실측(`g++ -std=c++17`로 컴파일한 상류 두 함수의 동형 모델과 `rustc -O`):
+
+```
+toString(0.12345678901230001) = "0.123457"     round-trips: NO
+format!("{v}")                = "0.1234567890123"  round-trips: yes
+```
+
+`std::ostringstream`의 기본 정밀도가 6 유효숫자이고 `toString`이 그것을
+바꾸지 않기 때문이다. Rust의 `Display`는 왕복하는 최단 표현을 낸다. 그래서
+이 포트의 기본값은 상류 함수의 대체물일 뿐 아니라, 상류가 실제로 그 함수를
+쓰는 방식(설정값을 문자열로 썼다가 도로 읽는 것)에서 더 낫다. 그 왕복
+자리는 `doc/upstream-bugs.md`의
+`to-string-truncates-to-six-significant-digits`에 따로 적었다.
+
+**호출자는 전부 코퍼스 밖이다.** 상류 전체에서 `lexical_casts.hpp`를
+include하는 파일은 셋 — `moveit_planners/ompl/ompl_interface/src/
+{ompl_interface.cpp:200, model_based_planning_context.cpp:300,315,597}`와
+`moveit_ros/benchmarks/src/BenchmarkExecutor.cpp:989,1034` — 이고,
+`CORPUS_ROOTS`(`moveit_core`, `moveit_kinematics`, chomp/stomp/pilz)는 셋 중
+어느 것도 포함하지 않는다. ompl은 D3으로 네이티브 플래너가 대체한다.
+
+**기존 인용을 바로잡는다.** 표가 이 두 행에 달고 있던 증거는
+`crates/moveit-error/src/lib.rs:312`였는데, 그 자리는 이 파일을 *포팅한다고*
+말하지 않는다 — 정반대로, `MoveItErrorCode`의 `Display`가 포팅하는 것이
+`errorCodeToString`이지 `lexical_casts.cpp`의 `toString`이 아님을 밝히려고
+"그 디렉터리의 유일한 `toString`은 무관한 float 포매터"라고 적은 자리다.
+파일을 *건드리는* 인용이지 *덮는* 인용이 아니므로, 새 행은 그 사실을 그대로
+적는다.

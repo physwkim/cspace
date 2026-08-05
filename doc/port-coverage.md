@@ -97,7 +97,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 89건 (2026-08-06 실측)
 
-`decided-non-port` 51 / `gap` 27 / `ported-elsewhere` 11.
+`decided-non-port` 53 / `gap` 25 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -135,12 +135,12 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/robot_state/src/conversions.cpp` | gap | none | same |
 | `moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_parameterization.hpp` | decided-non-port | `crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs:9-10`, `:121-160` | listed under `// Considered and deliberately not ported:` with a full `# Not ported: `TimeParameterization`` section |
 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | gap | none | `rg -n -F eigen_test_utils crates/ ros/` -> 0 hits |
-| `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | gap | `crates/moveit-error/src/lib.rs:312` | the one reference explains upstream's `toString`, it does not port it; no Rust equivalent is named |
+| `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | decided-non-port | `PORTING-PLAN.md` §226.1 | the file exists to imbue `std::locale::classic()` on an iostream (`lexical_casts.cpp:49-52,69-72`) because C++ stream `<<`/`>>` consult the imbued locale; Rust's `f64: Display`/`FromStr` take no locale, so the one meaningful line is this port's default and no algorithm is left to move. All three upstream includers (`ompl_interface.cpp`, `model_based_planning_context.cpp`, `BenchmarkExecutor.cpp`) are outside `CORPUS_ROOTS`, and ompl is D3-replaced. The previous evidence `crates/moveit-error/src/lib.rs:312` *touches* the file without covering it: it says this `toString` is an unrelated float formatter and NOT what `MoveItErrorCode: Display` ports |
 | `moveit_core/utils/include/moveit/utils/logger.hpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:162` | "`<moveit/utils/logger.hpp>`'s `rclcpp::Logger` plus every `RCLCPP_*` call" is excluded as D1 across the workspace |
 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | ported-elsewhere | `ros/moveit-ros/src/scene/collision_object.rs:11` | its `.cpp` is cited as ported (`isEmpty(Pose):77`) in `moveit-ros` |
 | `moveit_core/utils/include/moveit/utils/rclcpp_utils.hpp` | gap | none | `rg -n -F rclcpp_utils crates/ ros/` -> 0 hits. D1 by content (`rclcpp`), but no text in this repo says so |
 | `moveit_core/utils/include/moveit/utils/robot_model_test_utils.hpp` | gap | none | `rg -n -F robot_model_test_utils crates/ ros/` -> 0 hits |
-| `moveit_core/utils/src/lexical_casts.cpp` | gap | `crates/moveit-error/src/lib.rs:312` | same |
+| `moveit_core/utils/src/lexical_casts.cpp` | decided-non-port | `PORTING-PLAN.md` §226.1 | same decision; measured (not argued): `toString` leaves the `ostringstream` precision at its default 6 and does not round-trip, while `format!`/`parse` does -- see `doc/upstream-bugs.md`'s `to-string-truncates-to-six-significant-digits` |
 | `moveit_core/utils/src/logger.cpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:162` | same D1 exclusion |
 | `moveit_core/utils/src/rclcpp_utils.cpp` | gap | none | same |
 | `moveit_core/utils/src/robot_model_test_utils.cpp` | gap | none | same |
