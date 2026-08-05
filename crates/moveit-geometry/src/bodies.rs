@@ -3084,7 +3084,7 @@ impl Body {
     ///
     /// Returns `Ok(None)` for [`Shape::Cone`], [`Shape::Plane`] and
     /// [`Shape::OcTree`], which have no `bodies::` counterpart upstream:
-    /// `createEmptyBodyFromShapeType` (`body_operations.cpp:38-61`) has no
+    /// `createEmptyBodyFromShapeType` (`body_operations.cpp:37-60`) has no
     /// arm for any of the three, so it logs an error and returns `nullptr`.
     ///
     /// Upstream's `createBodyFromShape` does **not** hand that `nullptr`
