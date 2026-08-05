@@ -3,8 +3,9 @@
 Upstream is `moveit2` at `e017c91ee12984393a28ba246075c65f69cde3bf`,
 checked out at `/home/stevek/work/moveit2` (`PORTING-PLAN.md:3`). Every
 `file:line` below is repository-relative to that checkout and was read
-there. Entry 5 is the exception: its upstream is orocos KDL, a separate
-project, and it names the in-tree `third_party/` checkout instead.
+there. `kdl-path-circle-nan-scale-rot` is the exception: its upstream is
+orocos KDL, a separate project, and it names the in-tree `third_party/`
+checkout instead.
 
 A defect that exists in the C++ MoveIt sources this workspace ports from.
 Its entry belongs here, not in a code comment alone, and **the default is
@@ -32,16 +33,28 @@ to reproduce acquires a deviation class only when an existing policy is
 what makes us decline; otherwise this ledger is its whole record.
 
 Not a bug: behaviour that merely surprises. `Trajectory::velocity` being a
-step function of time reads like an oversight and is entry 4 below, but it
-is upstream's actual, oracle-confirmed behaviour — the question of whether
+step function of time reads like an oversight and is
+`totg-velocity-step-function` below, but it is upstream's actual,
+oracle-confirmed behaviour — the question of whether
 to keep it is a *parity* decision, not a defect report.
 
 ## Entry format
 
-Append entries; do not renumber existing ones.
+**Entries are identified by a slug, not a number.** The slug is kebab-case
+and names the upstream symbol plus the defect
+(`get-max-payload-index-space`), so it is unique by construction: two
+panels working in different crates cannot collide, and if they do pick the
+same slug they found the same bug and it is one entry. Append anywhere;
+never rename a slug once it is cited.
+
+This replaced sequential numbering after four panels on parallel worktrees
+each appended an "entry 6" in one round, leaving every report that cited
+"entry 6" pointing at a different bug. A number is assigned by position in
+a file that several branches append to at once; a slug is assigned by the
+subject, which is the thing that is actually unique.
 
 ```
-### N. <one-line symptom> — <status>
+### `<slug>` — <one-line symptom> — <status>
 
 **Upstream:** <file:line in the C++ source, with the version or path root>
 **Port:**     <file:line in this workspace>
@@ -62,9 +75,29 @@ already in the tree when the policy inverted, which the user decided on
 below. A bug found from now on is `not-reproduced` unless someone argues
 `reproduced-deliberately` for it.
 
+## Index
+
+| slug | status |
+|---|---|
+| `chomp-iteration-double-increment` | reproduced-grandfathered |
+| `distance-field-contact-index-oob` | not-reproduced |
+| `attached-body-count-check` | reproduced-grandfathered |
+| `totg-velocity-step-function` | reproduced-deliberately |
+| `kdl-path-circle-nan-scale-rot` | reproduced-grandfathered |
+| `inv-twice-resolution-int-truncation` | reproduced-deliberately |
+| `max-distance-sq-narrowing` | not-reproduced |
+| `get-shortest-solution-empty-deref` | not-reproduced |
+| `multivariate-gaussian-cholesky-unchecked` | not-reproduced |
+| `mimic-master-outside-group-dropped` | not-reproduced |
+| `check-consistency-index-space-mismatch` | not-reproduced |
+| `acceleration-bounds-per-joint-advance` | not-reproduced |
+| `do-smoothing-length-check-operand` | reproduced-grandfathered |
+| `get-max-payload-index-space` | reproduced-grandfathered |
+| `cost-source-nan-blind-compare` | not-reproduced |
+
 ---
 
-### 1. Two non-exclusive `if` blocks double-increment `iteration_` — reproduced-grandfathered
+### `chomp-iteration-double-increment` — Two non-exclusive `if` blocks double-increment `iteration_` — reproduced-grandfathered
 
 **Upstream:** `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:368-410`
 (verified at the pinned `e017c91e`: `if (iteration_ % 10 == 0)` sets
@@ -84,7 +117,7 @@ a *second* time in the same loop pass and overwrites
 change, so any test pinning an iteration count or a converged trajectory
 is at risk.
 
-### 2. Contact-reporting branch indexes `link_body_decompositions_` out of bounds — not-reproduced
+### `distance-field-contact-index-oob` — Contact-reporting branch indexes `link_body_decompositions_` out of bounds — not-reproduced
 
 **Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:601`
 (verified: `con.pos = gsr->link_body_decompositions_[i]->getSphereCenters()[k];`
@@ -100,7 +133,7 @@ a vector sized `num_links` — undefined behaviour.
 **Status:** already not reproduced — safe Rust cannot express it.
 **Cost of not reproducing:** none. Already the shipped behaviour.
 
-### 3. Attached-body count check upstream's own comment doubts — reproduced-grandfathered
+### `attached-body-count-check` — Attached-body count check upstream's own comment doubts — reproduced-grandfathered
 
 **Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:1132`
 (verified verbatim: `// TODO: This logic for checking attached body count might
@@ -114,7 +147,7 @@ been established here.
 **Cost of not reproducing:** unknown until the correct comparison is
 established. Do not deviate before that.
 
-### 4. `getVelocity` never re-derives its time step against the query time — reproduced-deliberately
+### `totg-velocity-step-function` — `getVelocity` never re-derives its time step against the query time — reproduced-deliberately
 
 **Upstream:** `moveit_core/trajectory_processing/src/time_optimal_trajectory_generation.cpp:881-895`
 (verified: `getPosition` re-assigns `time_step = time - previous->time_` at
@@ -135,7 +168,7 @@ a running oracle, and the port's parity claim is built on it.
 **Cost of not reproducing:** `tests/totg_parity.rs` fails. Deviating here
 means abandoning totg parity, which is a much larger decision than a bug fix.
 
-### 5. `Path_Circle` has no both-zero guard, so `scale_rot` can be NaN — reproduced-grandfathered
+### `kdl-path-circle-nan-scale-rot` — `Path_Circle` has no both-zero guard, so `scale_rot` can be NaN — reproduced-grandfathered
 
 **Upstream:** `third_party/orocos_kinematics_dynamics/orocos_kdl/src/path_circle.cpp:91-96`
 — KDL is a separate project from `moveit2`, and this workspace already
@@ -166,7 +199,7 @@ deliberate choice.
 returning an error is the obvious candidate, and no pilz parity test is
 known to depend on the NaN — that needs checking, not assuming.
 
-### 6. `inv_twice_resolution_` mistyped as `int`, silently truncating — reproduced-deliberately
+### `inv-twice-resolution-int-truncation` — `inv_twice_resolution_` mistyped as `int`, silently truncating — reproduced-deliberately
 
 **Upstream:** `moveit_core/distance_field/include/moveit/distance_field/distance_field.hpp:614`
 (`int inv_twice_resolution_;` among otherwise-`double` fields) and
@@ -220,7 +253,7 @@ magnitude larger), not silently wrong in a reachable case today, but is
 recorded here per `distance_field.rs:404-426` rather than left for the
 next audit to rediscover.
 
-### 7. `max_distance_sq_`'s narrowing would OOM if unguarded — not-reproduced
+### `max-distance-sq-narrowing` — `max_distance_sq_`'s narrowing would OOM if unguarded — not-reproduced
 
 **Upstream:** `moveit_core/distance_field/src/propagation_distance_field.cpp:88`
 (`max_distance_sq_ = ceil(max_distance_ / resolution_) *
@@ -247,7 +280,7 @@ far too large to build a field around, so the boundary is tested via the
 standalone `checked_max_distance_sq` helper rather than by actually
 constructing a field at that size.
 
-### 8. `getShortestSolution` dereferences `min_element` on a possibly-empty vector — not-reproduced
+### `get-shortest-solution-empty-deref` — `getShortestSolution` dereferences `min_element` on a possibly-empty vector — not-reproduced
 
 **Upstream:** `moveit_ros/planning/planning_pipeline_interfaces/src/
 solution_selection_functions.cpp:47-64` (`getShortestSolution`: `const
@@ -274,7 +307,7 @@ function's own doc for the strict-improvement-fold reasoning against
 "reproducing" this one is not meaningfully possible in safe Rust without
 introducing a panic where upstream has UB — not a like-for-like trade.
 
-### 9. `MultivariateGaussian`'s Cholesky factor is computed unconditionally, so a non-positive-definite covariance produces `NaN` samples with no signal — not-reproduced
+### `multivariate-gaussian-cholesky-unchecked` — `MultivariateGaussian`'s Cholesky factor is computed unconditionally, so a non-positive-definite covariance produces `NaN` samples with no signal — not-reproduced
 
 **Upstream:** `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp:86`
 (`covariance_cholesky_(covariance_.llt().matrixL())` in the constructor's
@@ -298,7 +331,7 @@ this deviation; the module doc comment is the only existing record.
 **Cost of not reproducing:** none. Already the shipped behaviour — every
 caller in this workspace already goes through the fallible constructor.
 
-### 10. An in-chain mimic joint whose master sits outside the group is silently dropped from `mimic_joints_`, desynchronising every later index into it — not-reproduced
+### `mimic-master-outside-group-dropped` — An in-chain mimic joint whose master sits outside the group is silently dropped from `mimic_joints_`, desynchronising every later index into it — not-reproduced
 
 **Upstream:** `moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp:166`
 (`dimension_ = ...getActiveJointModels().size() + ...getMimicJointModels().size()`,
@@ -312,7 +345,7 @@ after the drop point (e.g. `:339`, `:520`) walks against the wrong index.
 **Port:** `crates/moveit-kinematics/src/chain.rs:145` (`ChainInfo::build`),
 guard at `:259-263`.
 **Symptom:** desynchronised index into a same-named-but-shorter vector —
-the same "index survives past where its data does" family as entry 2
+the same "index survives past where its data does" family as `distance-field-contact-index-oob`
 above, one level higher (the collection is silently short, not silently
 wrong-length-read).
 **Evidence:** read of upstream control flow (`:166` vs `:197-226` cross-checked
@@ -328,7 +361,7 @@ upstream's silent behaviour, but cites no D-number.
 fixture in this workspace has a mimic joint on a chain whose master sits
 outside the chain's own group (per the same doc comment).
 
-### 11. `checkConsistency` loops full-space `dimension_` while indexing a reduced-space (mimic-filtered) `consistency_limits` vector — out-of-bounds — not-reproduced
+### `check-consistency-index-space-mismatch` — `checkConsistency` loops full-space `dimension_` while indexing a reduced-space (mimic-filtered) `consistency_limits` vector — out-of-bounds — not-reproduced
 
 **Upstream:** `moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp:84-93`
 (`checkConsistency`'s `for (i = 0; i < dimension_; ++i) ... consistency_limits[i]`)
@@ -354,7 +387,7 @@ mismatched-length read this port's own doc comment describes is
 impossible by construction. No D-number is cited in-source.
 **Cost of not reproducing:** none. Already the shipped behaviour.
 
-### 12. `initialize`'s acceleration-bound extraction advances its flat write index once per *joint*, not once per *variable*, silently keeping only a multi-variable joint's last variable's bound — not-reproduced
+### `acceleration-bounds-per-joint-advance` — `initialize`'s acceleration-bound extraction advances its flat write index once per *joint*, not once per *variable*, silently keeping only a multi-variable joint's last variable's bound — not-reproduced
 
 **Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:189-207`
 (`initialize`): outer loop over `joint_bounds` (one entry per active
@@ -389,7 +422,7 @@ port has no fixture with a multi-variable active joint feeding
 robot in this workspace with a multi-DOF active joint whose correct
 per-variable bound behaviour could be derived independently").
 
-### 13. `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
+### `do-smoothing-length-check-operand` — `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
 
 **Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:311-312`
 (`const size_t num_positions = velocities.size(); if (num_positions != num_joints_)`),
@@ -430,7 +463,7 @@ changing the check to read `positions.len()` directly would not currently
 break any test in this workspace. Confirming that for certain would need a
 new test for the distinguishing case first, not an assumption.
 
-### 14. `getMaxPayload` indexes `max_torques_` in the wrong joint-index space — reproduced-grandfathered
+### `get-max-payload-index-space` — `getMaxPayload` indexes `max_torques_` in the wrong joint-index space — reproduced-grandfathered
 
 **Upstream:** `moveit_core/dynamics_solver/src/dynamics_solver.cpp:126` (`num_joints_ =
 kdl_chain_.getNrOfJoints()`, active-joints-only count — KDL chains omit
@@ -439,8 +472,7 @@ iterating `joint_model_group_->getJointModelNames()`, the *full*
 fixed-joint-inclusive space, pushing `0.0` for any name with no URDF
 limits, which every fixed joint has) versus `:246-254` and `:271-284`
 (`getMaxPayload`'s two saturation/payload loops, both `for (i = 0; i <
-num_joints_; ++i)` but reading `max_torques_[i]`) — verified at the
-pinned `e017c91e`.
+num_joints_; ++i)` but reading `max_torques_[i]`).
 **Port:** `crates/moveit-state/src/dynamics.rs:75-93` (module doc,
 "Deviation from upstream: `getMaxPayload`'s indexing bug is replicated")
 and `:518` (`DynamicsSolver::max_payload`).
@@ -474,72 +506,99 @@ structural precondition this bug needs (a fixed joint preceding the
 last active one) is absent. Fanuc's all-zero pattern is not evidence of
 this bug and its cause is unestablished; do not cite it as a second
 instance without separately investigating fanuc's URDF effort limits.
-**Status:** reproduced-grandfathered. Found and already ported under the
-old brief, before the 2026-08-05 policy inversion — same class as entries
-1, 3, 5 and 13 per "Decision on the pre-policy entries" below: document
-only, code unchanged. Not a new finding to decide on.
+**Status:** reproduced-grandfathered. The only ground truth available
+to verify `max_payload` against (`pr2_dynamics.json`, captured from the
+real oracle) reflects the buggy behavior; there is no ground truth to
+verify a "fixed" version against.
 **Cost of not reproducing:** `crates/moveit-state/tests/dynamics_parity.rs::pr2_dynamics_matches_the_oracle`
 (line 217) would fail outright — all 7 `right_arm` cases' expected
 `max_payload.payload`/`joint_saturated` values were captured under the
 buggy behavior and a corrected index would change every one of them,
 and no corrected-oracle fixture exists to re-capture against.
-`fanuc_dynamics_matches_the_oracle` (line 205) is unaffected: fanuc's
-`manipulator` group's only fixed joint (`joint_6-tool0`) trails the last
-active joint rather than preceding it, so this bug's structural
-precondition is absent there; fanuc's identical-looking all-zero payload
-pattern has an unestablished, separate cause.
+`fanuc_dynamics_matches_the_oracle` (line 205) is unaffected per the
+structural check above.
+
+### `cost-source-nan-blind-compare` — `CostSource::operator<` compares `double`s with bare `<`/`>`, silently blind to `NaN` — not-reproduced
+
+**Upstream:** `collision_common.hpp:128-140`
+**Port:** `crates/moveit-collision/src/common.rs:118` (doc comment on the
+`Ord`/`Eq` impl for `CostSource`, found while sweeping the crate for
+assertion-discrimination coverage, not newly introduced this round)
+**Symptom:** `operator<` chains bare `double` `<`/`>` comparisons
+(`c1 > c2` / `c1 < c2` / `cost < other.cost` / `cost > other.cost` /
+`aabb_min < other.aabb_min`). Every comparison against `NaN` is `false`, so
+a `NaN` cost or AABB bound sorts as neither greater nor less than anything
+`std::set` compares it against — `std::set` (strict-weak-order lookup)
+would treat it as equivalent to whatever it's compared against first,
+silently coalescing a `NaN`-carrying entry with an unrelated one.
+**Evidence:** read of upstream control flow (`collision_common.hpp:128-140`,
+checked against the pinned `e017c91ee` checkout). Not oracle-confirmed —
+no test here constructs a `NaN` cost or AABB bound.
+**Status:** already not reproduced. The port's own doc comment (`common.rs
+:105-121`) states the reason: `Ord`/`Eq` are implemented with
+[`f64::total_cmp`] instead of a bare `<`/`>` chain, specifically to give a
+total order for every bit pattern including `NaN`. This was written as a
+"Deviation from upstream" in-code but has no `D`-number in `PORTING-PLAN.md`
+(searched for `CostSource`/`NaN`/`total_cmp`/`operator<` near the `D1`..`D25`
+list; none matched) — flagging that gap here rather than assigning one
+myself.
+**Cost of not reproducing:** none measured to date — well-formed geometry
+never produces `NaN` here per the same comment, and no test in this crate
+constructs a `NaN` cost or AABB bound to check what upstream's `std::set`
+would actually do with one. Unlike `distance-field-contact-index-oob`, "safe Rust cannot express it"
+does not apply: a bare `<`/`>` `Ord` impl is expressible in Rust (it would
+just panic or misbehave under `#[derive(Ord)]`/manual impl using
+`partial_cmp().unwrap()`), so this one was an active choice, not a language
+constraint.
 
 ---
 
 ## Decision on the pre-policy entries
 
 Asked on 2026-08-05 whether to measure-then-deviate, deviate immediately,
-or document only: **document only, code unchanged.** Entries 1, 3 and 5 are
-`reproduced-grandfathered` and stay as they are. Entries 13 and 14 were
-found after the decision but are the same class — already in the tree,
-ported verbatim under the old brief — so each is grandfathered on the
-same reasoning rather than treated as a new finding. Entries 1, 3 and 5's
+or document only: **document only, code unchanged.**
+`chomp-iteration-double-increment`, `attached-body-count-check` and
+`kdl-path-circle-nan-scale-rot` are `reproduced-grandfathered` and stay as
+they are. `do-smoothing-length-check-operand` and
+`get-max-payload-index-space` were found after the decision but are the
+same class — already in the tree, ported verbatim under the old brief — so
+they are grandfathered on the same reasoning rather than treated as new
+findings. Their
 cost-of-not-reproducing lines keep the "unmeasured"/"unknown" placeholders,
 which is now accurate rather than an outstanding task — no measurement is
-owed, because nothing is being changed. Entry 14 already had a measured
-cost line before this decision reached it; that measurement stands, it
-just no longer obligates anything.
+owed, because nothing is being changed.
 
 The inverted policy is **forward-looking**. It binds bugs found from here
 on; it does not reopen behaviour already ported and gated. Anyone who wants
 to move an entry off `reproduced-grandfathered` needs a fresh decision, not
 this document.
 
-Entry 4 is separately `reproduced-deliberately` — it is the one entry with
+`totg-velocity-step-function` is separately `reproduced-deliberately` — it is the one entry with
 a positive argument for reproducing (the totg oracle), so it does not
 depend on the grandfathering above.
 
 The reason for grandfathering rather than fixing is that each is a
-behaviour change against a port whose parity is oracle-verified: entry 1
-is a read of upstream control flow with no oracle run behind it, entry 3
-has no established correct comparison to change *to*, entry 5's NaN has
-no known reaching caller in the pilz tests, and entry 13's misattributed
-message text is pinned by no test that distinguishes the two operands —
-none of these four has a demonstrated failure in this workspace today.
-Entry 14 is the opposite case: it *does* have a demonstrated failure —
-`pr2_dynamics_matches_the_oracle` is pinned to the buggy output, captured
-from the real oracle, with no corrected-oracle fixture to re-derive
-against — which is the strongest version of "trade a verified behaviour
-for an unverified one" among the five.
+behaviour change against a port whose parity is oracle-verified, and none
+has a demonstrated failure in this workspace: `chomp-iteration-double-increment` is a read of upstream
+control flow with no oracle run behind it, `attached-body-count-check` has no established
+correct comparison to change *to*, `kdl-path-circle-nan-scale-rot`'s NaN has no known reaching
+caller in the pilz tests, and `do-smoothing-length-check-operand`'s misattributed message text is
+pinned by no test that distinguishes the two operands. Deviating on any of
+them would trade a verified behaviour for an unverified one.
 
 ## Still open
 
 No entry cites a `PORTING-PLAN.md` D-number, and the registry is smaller
 than this document first claimed — `D1`..`D14`, not `D1`..`D25`. Two of
-them bear directly on entry 5: **D9** (`§141`) rules that
+them bear directly on `kdl-path-circle-nan-scale-rot`: **D9** (`§141`) rules that
 `orocos_kdl`'s `Path_Circle` is *not* transcribed line by line but derived
 independently from circular geometry, and **D11** (`§152`) extends that to
 `path_line.rs`, `velocity_profile_trap.rs` and `dynamics.rs`. If the port
 derives rather than transcribes, then reproducing KDL's missing both-zero
 guard was a choice made *inside* an independent derivation, not an artefact
-of faithful porting — which is a different justification from the one entry
-5 currently gives, and the entry should say which it is.
+of faithful porting — which is a different justification from the one that
+entry currently gives, and it should say which it is.
 
-The `not-reproduced` entries (2, 7, 8, 9, 10, 11, 12) each describe
-behaviour this port structurally avoids. Whether any of those needs a D
-class or is fully recorded here is unassigned. Raised by `p1-fixtures`.
+Every `not-reproduced` entry describes behaviour this port structurally
+avoids. Whether any of them needs a D class or is fully recorded here is
+unassigned. Raised by `p1-fixtures`.
