@@ -302,6 +302,38 @@ mod tests {
     /// unchecked must be caught downstream, at `adapt` time, not silently
     /// saturate into the multi-gigabyte resample allocation the module doc
     /// describes.
+    ///
+    /// # Bite-check
+    ///
+    /// `adapt`'s single `.map_err` site (this file, `impl
+    /// PlanningResponseAdapter for AddTimeOptimalParameterization::adapt`)
+    /// wraps *any* `moveit_error::Error` `apply_totg_time_parameterization`
+    /// returns into `ResponseAdapterError::Failed` — and that function
+    /// reaches more than one such site: `TotgOptions::with_resample_dt`'s
+    /// guard (`moveit-trajectory/src/time_optimal_trajectory_generation.rs:440-444`)
+    /// for this test's inputs, but also `compute_time_stamps`'s own
+    /// per-joint velocity/acceleration-limit checks a few lines further in
+    /// the same function (`:492-526`, at least 4 more `Error::other` sites).
+    /// The old assertion here, `matches!(err, ResponseAdapterError::Failed
+    /// { .. })`, discards both `adapter` and `source` and so cannot tell
+    /// "resample_dt was rejected" apart from any of those — swapping which
+    /// guard fired would leave it green. `adapter` is already pinned by
+    /// `PipelineError::Planner`-style tests elsewhere in this crate; `source`
+    /// is what this test is actually supposed to pin, so the fix asserts on
+    /// it via `err.to_string()` (`ResponseAdapterError::Failed`'s `#[error]`
+    /// format includes `{source}`).
+    ///
+    /// `with_resample_dt`'s guard lives in `moveit-trajectory`, outside this
+    /// round's fence, so the two-mutation standard's mutation (1) (no-op the
+    /// guard, confirm the test fails) cannot be run by editing it directly.
+    /// `sibling_cause_does_not_read_as_a_resample_dt_rejection` below is the
+    /// substitute: a *real*, already-reachable second cause
+    /// (`compute_time_stamps`'s missing-acceleration-limit check, hit by
+    /// using the unpatched `panda_no_acceleration_limits` fixture rather than
+    /// mutating any guard) stands in for the sibling branch and is asserted
+    /// to reach `ResponseAdapterError::Failed` while *not* mentioning
+    /// `resample_dt` — proving `err.to_string().contains("resample_dt")`
+    /// below actually discriminates the two causes, not just "some Failed".
     #[test]
     fn adapt_rejects_an_invalid_resample_dt_deferred_from_new() {
         let (model, srdf) = panda();
@@ -337,6 +369,65 @@ mod tests {
                 matches!(err, ResponseAdapterError::Failed { .. }),
                 "resample_dt = {resample_dt} must fail as ResponseAdapterError::Failed, got {err:?}"
             );
+            let message = err.to_string();
+            assert!(
+                message.contains("resample_dt"),
+                "resample_dt = {resample_dt} must be rejected by the resample_dt guard \
+                 specifically, not by some other ResponseAdapterError::Failed cause: {message}"
+            );
         }
+    }
+
+    /// The sibling half of `adapt_rejects_an_invalid_resample_dt_deferred_from_new`'s
+    /// bite-check (see its doc comment): a *different*, already-reachable
+    /// cause of `ResponseAdapterError::Failed` — a `panda_arm` whose joints
+    /// carry no acceleration limits, the ordinary URDF case per this
+    /// module's `panda()` fixture doc — must still fail, but its message
+    /// must NOT contain `resample_dt`. If it did, the sibling test above's
+    /// `contains("resample_dt")` check would not actually be discriminating
+    /// between the two causes.
+    #[test]
+    fn sibling_cause_does_not_read_as_a_resample_dt_rejection() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+        let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("fixture model must build");
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        let mut start = RobotState::new(&model);
+        start.set_to_default_values();
+        let mut goal = start.clone();
+        goal.set_joint_positions("panda_joint1", &[0.4]).unwrap();
+
+        let mut trajectory = RobotTrajectory::for_group_name(&model, "panda_arm").unwrap();
+        let start_state = start.clone();
+        trajectory.add_suffix_way_point(start, 0.0).unwrap();
+        trajectory.add_suffix_way_point(goal, 0.0).unwrap();
+        let mut response = PlanningResponse {
+            start_state,
+            trajectory,
+            planner_id: String::new(),
+        };
+
+        let err = adapter()
+            .adapt(&mut scene, &env, &request(), &mut response)
+            .expect_err(
+                "a panda_arm with no acceleration limits must be rejected by \
+                 compute_time_stamps, not silently accepted",
+            );
+        assert!(
+            matches!(err, ResponseAdapterError::Failed { .. }),
+            "expected ResponseAdapterError::Failed, got {err:?}"
+        );
+        let message = err.to_string();
+        assert!(
+            !message.contains("resample_dt"),
+            "a missing-acceleration-limit rejection must not read as a resample_dt \
+             rejection: {message}"
+        );
     }
 }
