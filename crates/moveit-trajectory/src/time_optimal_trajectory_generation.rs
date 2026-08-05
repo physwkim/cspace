@@ -112,8 +112,9 @@
 //! sustain before its torque limit saturates" would have to invert torques
 //! against `max_torques()` themselves (e.g. by bisection). Upstream does
 //! not do this anywhere either: `rg -n 'dynamics_solver|DynamicsSolver'`
-//! across `moveit_core` outside `dynamics_solver/` returns no hits, so
-//! nothing upstream wires this package's output into
+//! across `moveit_core` outside `dynamics_solver/` returns 6 hits, all
+//! build-system/changelog noise (`CMakeLists.txt:55,83,108`,
+//! `CHANGELOG.rst:1165,1612,2018`) — none is a code call site into
 //! `trajectory_processing` or `robot_trajectory`. The "natural producer of
 //! `acceleration_bounds`" framing is an analogy between two "per-joint
 //! limit" concepts, not an existing call-graph edge.
