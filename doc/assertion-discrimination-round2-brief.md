@@ -429,6 +429,29 @@ one an unmeasured sweep will over-use, so it carries the burden of proof.
 One commit per site-family fixed, per the repo's one-commit-per-finding
 rule. Gate with `-p <crate>` scope; name the scope in your report.
 
+## 5a. The "family commits" figures in dispatch briefs are not a measure
+
+Ignore any "N sites / M family commits" figure quoted at you when you are
+handed a crate. The site count is re-measured per dispatch with
+match-start dedup and is usable; **the commit count is not**.
+
+Those commit figures were read off the handoff's §-per-panel workload
+lines, which are *per-panel totals across every crate that panel owned* —
+`p6-totg` reads "trajectory 33 + chomp 26 … 30 sites fixed across 13
+merged commits", covering two crates at once. Quoting 13 (or 14) as
+`moveit-trajectory`'s own count attributes both crates' work to one of
+them. `git log --oneline -- crates/moveit-trajectory` filtered for
+discrimination-shaped subjects returns 6 by one filter and 9 by another;
+neither is 14, and there is no definition under which it reproduces.
+
+The figure only ever influenced *prioritisation* — which crate to hand
+out next — never a verdict. But "worked repeatedly" and "zero commits"
+were being used as evidence about where blind spots hide, and that
+inference was drawn from a number with no reproducible definition.
+
+Lead with your own enumeration of the sites, and do not try to reconcile
+your findings against any commit count you were given.
+
 ## 6. Outstanding: the anchors cannot see CHOMP's convergence tests
 
 Not actionable inside this brief, recorded so it is not lost with the
