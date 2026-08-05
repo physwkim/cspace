@@ -1590,14 +1590,30 @@ mod tests {
         assert_eq!(Sphere::new(0.0).unwrap().radius, 0.0);
     }
 
-    // Assertion-discrimination sweep (round 2), the four `*_negative_*`
-    // tests below: unlike `bodies::Cylinder::recompute` (which has two
-    // *sequential* guards with distinct "radius"/"length" messages, see
-    // `bodies.rs`), this module's `Sphere::new`/`Cylinder::new`/
-    // `Cone::new`/`Cuboid::new` each reject every axis through one
-    // combined `< 0.0 || ...` check with a single shared message --
-    // verdict `single-branch` for all four, one `Error::` hit per
-    // function body.
+    // Assertion-discrimination sweep (round 2, verdict corrected this
+    // round): `Sphere::new` has one operand and one guard -- nothing for
+    // an isolating mutation to separate, so it is genuinely
+    // `single-branch`. `Cylinder::new`, `Cone::new`, and `Cuboid::new`
+    // do NOT share that verdict, despite each rejecting every axis
+    // through one combined `< 0.0 || ...` check with a single shared
+    // message (unlike `bodies::Cylinder::recompute`'s two *sequential*
+    // guards with distinct "radius"/"length" messages, see `bodies.rs`).
+    // "One `Error::` token" is not "one cause" -- see brief section 3's
+    // `search_position_ik` example. Bite-checked, both directions
+    // (comment out the sibling assertion(s) first, since `assert!`
+    // short-circuits within one test fn): neutralizing one operand's
+    // clause alone fails only the assertion whose fixture drives that
+    // operand negative and leaves the sibling assertion green.
+    // Cylinder::new confirmed both directions (radius clause neutralized
+    // -> the radius assertion fails, the length assertion stays green;
+    // length clause neutralized -> mirrors); Cone::new confirmed the
+    // radius direction (radius assertion fails, length assertion green);
+    // Cuboid::new confirmed x vs. z (x assertion fails, z assertion
+    // green). Verdict `multi-branch`, discriminating, for
+    // the `cylinder_negative_dimension_is_an_error`,
+    // `cone_negative_dimension_is_an_error`, and
+    // `cuboid_negative_dimension_is_an_error` tests below -- each
+    // per-axis assertion is its own discriminating site.
     #[test]
     fn sphere_negative_radius_is_an_error() {
         assert!(Sphere::new(-1.0).is_err());
@@ -1643,13 +1659,18 @@ mod tests {
         assert_eq!(s.radius, 1.0);
     }
 
-    // Assertion-discrimination sweep (round 2): `Cylinder::scale_and_padd_axes`
-    // has the same single combined `radius < 0.0 || length < 0.0` guard
-    // as `Cylinder::new` above (no per-axis message) -- verdict
-    // `single-branch`, regardless of this test's own care to isolate
-    // radius from length per case (that isolation matters for verifying
-    // the *padding arithmetic*, not for discriminating an error branch
-    // that doesn't exist here).
+    // Assertion-discrimination sweep (round 2, verdict corrected this
+    // round): `Cylinder::scale_and_padd_axes` has the same combined
+    // `radius < 0.0 || length < 0.0` guard as `Cylinder::new` above (no
+    // per-axis message) -- an earlier revision of this comment called
+    // that `single-branch` "regardless of this test's own care to
+    // isolate radius from length per case", reasoning the isolation only
+    // mattered for the padding arithmetic. That repeats the same "one
+    // token, so one cause" error corrected above `Cylinder::new`.
+    // Bite-checked: neutralizing the radius clause alone fails
+    // `radius_case`'s assertion and leaves `length_case`'s green;
+    // neutralizing length mirrors it. Verdict `multi-branch`,
+    // discriminating -- each case's assertion is its own site.
     #[test]
     fn cylinder_padding_past_negative_is_an_error_per_axis() {
         let mut radius_case = Cylinder::new(1.0, 10.0).unwrap();

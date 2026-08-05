@@ -4069,15 +4069,19 @@ mod tests {
         );
     }
 
-    // Assertion-discrimination sweep (round 2): unlike `Cylinder`'s two
-    // sequential guards (see the doc comments above),
-    // `Cuboid::recompute` rejects all three axes through one combined
-    // `half_length < 0.0 || half_width < 0.0 || half_height < 0.0` check
-    // with a single shared message -- there is no per-axis message to
-    // confuse, so "per axis" in this test's name means "each axis can
-    // independently trip the one guard", not "each axis has its own
-    // distinguishable branch". Verdict `single-branch`, one `Error::`
-    // hit over `recompute`'s body (lines 2197-2230).
+    // Assertion-discrimination sweep (round 2, verdict corrected this
+    // round): unlike `Cylinder`'s two sequential guards (see the doc
+    // comments above), `Cuboid::recompute` rejects all three axes
+    // through one combined `half_length < 0.0 || half_width < 0.0 ||
+    // half_height < 0.0` check with a single shared message -- an
+    // earlier revision of this comment called that `single-branch`
+    // because there is no per-axis message to confuse. "One `Error::`
+    // token" is not "one cause" (brief section 3, `search_position_ik`).
+    // Bite-checked: neutralizing the `half_length` clause alone fails
+    // this test's first assertion (length) and leaves the third
+    // (height) green; the same shape as `shapes::Cuboid::new`, corrected
+    // above. Verdict `multi-branch`, discriminating -- each axis's
+    // assertion is its own site.
     #[test]
     fn cuboid_negative_dimension_is_an_error_per_axis() {
         assert!(Cuboid::new(-1.0, 1.0, 1.0).is_err());
