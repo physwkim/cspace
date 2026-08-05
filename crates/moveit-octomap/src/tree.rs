@@ -1770,6 +1770,27 @@ mod tests {
         assert!(tree.is_occupied(p).is_none());
     }
 
+    /// `log_odds_at`'s `None` has two structurally distinct causes --
+    /// `coord_to_key_checked` rejecting an out-of-range coordinate, and
+    /// `search` finding no node at an in-range key -- and neither this test
+    /// nor `unmapped_coordinate_has_no_occupancy` nor the oracle parity
+    /// fixtures (`octomap_parity.rs`, whose query points never leave
+    /// tree bounds) previously exercised the first. Populate the key
+    /// `coord_to_key_checked` would collapse to if that guard were dropped
+    /// (the tree center, [`OcTree::root_key`]) so a version that silently
+    /// clamped an out-of-bounds point instead of rejecting it would find
+    /// this node and return `Some`, not `None`.
+    #[test]
+    fn out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped() {
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.0, 0.0, 0.0), true, false);
+        assert!(tree.log_odds_at(Point3::new(0.0, 0.0, 0.0)).is_some());
+
+        let out_of_bounds = Point3::new(1e6, 1e6, 1e6);
+        assert!(tree.log_odds_at(out_of_bounds).is_none());
+        assert!(tree.is_occupied(out_of_bounds).is_none());
+    }
+
     #[test]
     fn node_size_scales_by_depth() {
         let tree = OcTree::new(0.1);
