@@ -26,9 +26,10 @@ upstream author's own comment doubts.
 
 An upstream **deviation** is a different thing and does not belong here.
 Deviations are behaviour this port changes for reasons of language, safety
-or API shape, and they are classified `D1`..`D25` in `PORTING-PLAN.md`.
-A bug that we decline to reproduce will usually also acquire a deviation
-class; record it in both places and cross-reference.
+or API shape, and they are classified `D1`..`D14` in `PORTING-PLAN.md` —
+each a policy with its own section, not a per-site record. A bug we decline
+to reproduce acquires a deviation class only when an existing policy is
+what makes us decline; otherwise this ledger is its whole record.
 
 Not a bug: behaviour that merely surprises. `Trajectory::velocity` being a
 step function of time reads like an oversight and is entry 4 below, but it
@@ -463,8 +464,17 @@ them would trade a verified behaviour for an unverified one.
 
 ## Still open
 
-No entry cites a `PORTING-PLAN.md` D-number. The `not-reproduced` entries
-(2, 7, 8, 9, 10, 11, 12) each describe behaviour this port structurally
-avoids, which is what a deviation class records, so most of them should
-acquire one or be confirmed as not needing one. Raised by `p1-fixtures`;
-unassigned.
+No entry cites a `PORTING-PLAN.md` D-number, and the registry is smaller
+than this document first claimed — `D1`..`D14`, not `D1`..`D25`. Two of
+them bear directly on entry 5: **D9** (`§141`) rules that
+`orocos_kdl`'s `Path_Circle` is *not* transcribed line by line but derived
+independently from circular geometry, and **D11** (`§152`) extends that to
+`path_line.rs`, `velocity_profile_trap.rs` and `dynamics.rs`. If the port
+derives rather than transcribes, then reproducing KDL's missing both-zero
+guard was a choice made *inside* an independent derivation, not an artefact
+of faithful porting — which is a different justification from the one entry
+5 currently gives, and the entry should say which it is.
+
+The `not-reproduced` entries (2, 7, 8, 9, 10, 11, 12) each describe
+behaviour this port structurally avoids. Whether any of those needs a D
+class or is fully recorded here is unassigned. Raised by `p1-fixtures`.
