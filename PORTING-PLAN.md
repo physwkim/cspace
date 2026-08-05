@@ -233,6 +233,12 @@ FCL과 Bullet 백엔드 2개(3,037 + 4,278 LOC)를 `parry3d-f64` 백엔드 1개�
 대체한다. `CollisionDetectorAllocator` trait은 유지하므로 나중에 FCL FFI
 백엔드를 추가할 수 있다.
 
+**§225.4가 이 문장을 좁혔다:** 유지되는 것은 "나중에 백엔드를 추가할 수
+있다"는 목적이고, 그것은 `CollisionEnv` trait이 이미 지고 있다.
+`CollisionDetectorAllocator` 자체는 백엔드 타입을 런타임 문자열로 미루기
+위한 간접층인데 이 포트는 호출자가 타입으로 지목하므로 소비자가 없다 —
+`decided-non-port`.
+
 **알려진 차이:** parry와 FCL은 접촉점/법선 산출 알고리즘이 다르다. 차등
 테스트는 `(collision: bool)`과 `(distance: f64, 허용오차)`를 비교하고,
 접촉점 좌표의 정확한 일치는 검증 항목에서 제외한다. 이 완화는 §6.2에
@@ -16872,3 +16878,54 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
 호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
 "요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
 아니어서 고치지 않고 보고만 한다.
+
+### §225.4 `collision_detector_allocator{,_allvalid}.hpp` — `decided-non-port`, 그리고 §4.5의 좁힘
+
+두 할당자 헤더를 포팅하지 않는다. §4.5가 "`CollisionDetectorAllocator`
+trait은 유지하므로 나중에 FCL FFI 백엔드를 추가할 수 있다"고 적어 둔 것을
+이 절이 **좁힌다** — 유지되어야 할 것은 그 목적이지 그 간접층이 아니고,
+목적은 `CollisionEnv` trait 자체가 이미 지고 있다. `moveit-collision`의
+`env` 모듈 doc이 같은 판정을 그 trait 옆에 적는다.
+
+`env.rs`가 지금까지 들고 있던 것은 판정이 아니라 **유예**였다: "컴파일타임
+레지스트리는 등록자가 최소 하나는 있어야 값어치가 있는데 이 태스크는 trait만
+남기고 끝난다(parry 백엔드 아직 없음)". 그 조건은 만료했다 —
+`ParryCollisionEnv`, `AllValidCollisionEnv`,
+`moveit_distance_field::HybridCollisionEnv` 셋이 `CollisionEnv`를 구현한다.
+그래서 유예를 한 번 더 미루는 대신 여기서 결정한다.
+
+**상류 할당자가 하는 일은 백엔드의 타입을 런타임 문자열로 미루는 것이다.**
+`allocateEnv`가 `CollisionEnvPtr`을 돌려주고 `getName()`이 그 쌍에 이름을
+붙이므로, `PlanningScene::allocateCollisionDetector`가 `collision_detector_`
+맵을 그 이름으로 키잉하고 `getCollisionEnv(name)`이 찾아 쓴다
+(`planning_scene.cpp:255-311`). 이 포트는 그 결정을 반대 방향으로 한 번,
+영구히 했다: `moveit_scene::PlanningScene`의 충돌 메서드가 호출자가 주는
+`E: CollisionEnv<Posed<'_, 'm>>`에 대해 제네릭이라 백엔드는 호출 지점에서
+**타입으로** 지목된다(`scene.rs:549-557`의 `allocateCollisionDetector`
+처분). 찾을 이름도, 그 이름을 키로 쓸 맵도 없다.
+
+세 가지가 근거다.
+
+1. **소비자가 없다.** `rg -n -i 'collision_detector|detector_name' crates/
+   ros/ tools/ --glob '*.rs'`의 결과 12건이 전부 상류 심볼을 이름으로
+   부르는 doc 주석이고, 선택 지점은 하나도 없다. 레지스트리를 놓으면
+   등록자만 있고 소비자가 없다.
+2. **`linkme` 순서 위험을 이미 한 번 치렀다.** §177 — `linkme` 슬라이스
+   순서는 링커 섹션 순서이고, 워크스페이스 어딘가에 의존성 하나를 더한 것이
+   `KINEMATICS_SOLVERS` 순서를 조용히 뒤집어 pilz 패리티 테스트를 깨뜨렸다.
+   아무도 읽지 않는 슬라이스를 위해 그 위험을 다시 들일 이유가 없다.
+3. **균일한 생성 프로토콜이 세 백엔드 중 어디에도 맞지 않는다.**
+   `ParryCollisionEnv::new(world, padding_scale)`,
+   `HybridCollisionEnv::new(world, padding_scale, link_body_decompositions,
+   distance_field_config, collision_tolerance) -> Result<Self>`,
+   그리고 인자가 없는 유닛 구조체 `AllValidCollisionEnv`. 상류의
+   `allocateEnv(world, robot_model)` 세 오버로드로 이 셋을 다 부를 수 없다.
+
+`collision_detector_allocator_allvalid.hpp`는 그 템플릿의 인스턴스화 한 줄
+(`CollisionDetectorAllocatorTemplate<CollisionEnvAllValid,
+CollisionDetectorAllocatorAllValid>`)에 `NAME = "ALL_VALID"`를 붙인 것이
+전부이므로 상위 판정을 그대로 따른다. 같은 형태의
+`collision_detector_allocator_{distance_field,hybrid}.hpp` 둘은 이미 D4로
+`decided-non-port`였다(`crates/moveit-distance-field/src/lib.rs:541-553`) —
+이 절은 그 판정을 남은 두 건으로 넓히고, 그 근거를 D4의 "pluginlib 런타임
+플러그인"보다 한 단계 아래에서 다시 적는다.

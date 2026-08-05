@@ -85,8 +85,9 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
   선언하는 클래스)을 이름으로 지목해** 포팅하지 않기로 정한 경우. 표의
   증거 칸에 파일:줄을, 비고 칸에 그 문장을 인용한다.
 - **`gap`** — 그런 문장을 찾지 못한 경우. **근거를 지어내지 않는다.**
-  만료 조건이 이미 충족된 배제(예: `collision_detector_allocator.hpp`)도
-  여기 들어간다.
+  만료 조건이 이미 충족된 배제도 여기 들어간다 — 유예는 판정이 아니다.
+  `collision_detector_allocator.hpp`가 그런 경우였고, §225.4가 유예를
+  판정으로 바꾸면서 `decided-non-port`로 옮겼다.
 - **`ported-elsewhere`** — 내용이 다른 이름으로 트리 안에 있는 경우.
   증거 칸에 `.rs` 파일과 심볼을 적는다. 잔여분이 있으면 비고에 남긴다 —
   잔여분이 결정되지 않았고 파일의 대부분이 트리에 없으면 `gap`이다.
@@ -96,12 +97,12 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 93건 (2026-08-06 실측)
 
-`decided-non-port` 47 / `gap` 35 / `ported-elsewhere` 11.
+`decided-non-port` 49 / `gap` 33 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
-| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | gap | none | `rg -n -i allvalid crates/ ros/ doc/ PORTING-PLAN.md` -> 0 hits naming this file |
-| `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | gap | `crates/moveit-collision/src/env.rs:40-49` | env.rs defers it, with an expiry that has since been met: "a compile-time registry needs at least one registrant to be worth adding. This task ends with a trait and no implementation (no parry backend yet)" -- the parry backend now exists (`ParryCollisionEnv`), so the stated condition no longer holds |
+| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | decided-non-port | `PORTING-PLAN.md` §225.4; `crates/moveit-collision/src/env.rs:40-83` | the class body is one `CollisionDetectorAllocatorTemplate<CollisionEnvAllValid, CollisionDetectorAllocatorAllValid>` instantiation plus `static const std::string NAME` (verified upstream), so it follows its template's decision. §225.4 declines the allocator indirection itself: it exists to defer the backend *type* to a runtime string, and this port names the type at the call site (`E: CollisionEnv<..>`), so a registry would have registrants and no consumer |
+| `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | decided-non-port | `PORTING-PLAN.md` §225.4, §4.5; `crates/moveit-collision/src/env.rs:40-83` | env.rs used to *defer* this ("a compile-time registry needs at least one registrant to be worth adding"); that expiry was met -- three backends now implement `CollisionEnv` -- and §225.4 decided it rather than deferring again. Three grounds: `rg -n -i 'collision_detector|detector_name' crates/ ros/ tools/ --glob '*.rs'` finds 12 hits, all doc comments and no selection site; §177's `linkme` linker-order hazard; and no single `allocateEnv` signature serves `ParryCollisionEnv::new(world, padding_scale)`, `HybridCollisionEnv::new(.., link_body_decompositions, distance_field_config, collision_tolerance)` and the argument-less `AllValidCollisionEnv`. Narrows §4.5, which kept the trait for FCL-FFI extensibility -- that purpose is carried by `CollisionEnv` itself |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "`CollisionPlugin::initialize` also takes a `planning_scene::PlanningScenePtr` (`collision_plugin.hpp:93`); `PlanningScene` lives in `moveit-scene`, which already depends on `moveit-collision`, so accepting it here would be a circular crate dependency" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "its entire body is pluginlib runtime class loading ... plus `rclcpp` logging -- no algorithm exists independent of that ROS mechanism" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | ported-elsewhere | `crates/moveit-collision/src/lib.rs:17` | its `.cpp` is cited as ported; the pure `CostSource` half is `total_cost`/`intersect_cost_sources`/`remove_overlapping` in `moveit-collision`. Residual: the four `visualization_msgs`/`moveit_msgs` marker/message functions (D1) |
