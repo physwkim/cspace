@@ -18253,3 +18253,102 @@ $ rg -l --no-heading 'lockRead|unlockRead|lockWrite|unlockWrite|->reading\(\)|->
 API를 부르는 호출자가 생기면** 다시 연다. `moveit-octomap`으로 라우팅하라는
 요청은 이 판정으로 철회한다 — 보낼 내용이 `octomap::OcTree` 자체 말고는
 없기 때문이다.
+
+### §227.3 `test_collision_common_pr2.hpp` — `decided-non-port`, 단언 41건 중 옮길 수 있는 것은 3건이다
+
+기구를 물리는 근거는 §227.1의 panda 헤더와 같다(`TYPED_TEST_P` +
+`CollisionAllocatorType`). 다른 것은 **단언 쪽 결론**이다. panda는 10건 중
+9건이 옮겨졌지만 pr2는 41건 중 3건뿐이고, 나머지 38건이 왜 안 되는지가
+이 절의 내용이다. 근거 없이 "대부분 못 옮긴다"고 적지 않기 위해 41건을
+테스트별로 셌다.
+
+```console
+$ H=/home/stevek/work/moveit2/moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp
+$ rg -n '^\s*(ASSERT_|EXPECT_)' "$H" | wc -l
+41
+```
+
+| 상류 테스트 | 단언 | 판정 |
+|---|---|---|
+| `InitOK` (`:100-104`) | 1 | `upstream_pr2_harness.rs`의 `build_pr2()` `.expect` |
+| `DefaultNotInCollision` (`:105-116`) | 1 | 옮김 — 그리고 상류에서 공허하다는 측정을 같이 붙였다 |
+| `LinksInCollision` (`:117-158`) | 3 | `updateStateWithLinkAt` 미이식 |
+| `ContactReporting` (`:159-213`) | 9 | `updateStateWithLinkAt` 미이식 |
+| `ContactPositions` (`:214-284`) | 9 | `updateStateWithLinkAt` 미이식 (`:282`는 상류 자체가 공허) |
+| `AttachedBodyTester` (`:285-353`) | 6 | `updateStateWithLinkAt` 미이식 |
+| `DiffSceneTester` (`:354-407`) | 3 | 전부 `EXPECT_TIME_LT` |
+| `ConvertObjectToAttached` (`:408-475`) | 4 | 3건 `EXPECT_TIME_LT`, 실질 1건(`:461`)은 `kinect.dae` 필요 |
+| `TestCollisionMapAdditionSpeed` (`:476-494`) | 1 | `EXPECT_TIME_LT` — 실질은 옮김 |
+| `MoveMesh` (`:495-518`) | 0 | 단언이 하나도 없다 |
+| `TestChangingShapeSize` (`:519-567`) | 4 | 옮김 1건(`:543`), `:528`은 상류 자체가 공허, `:553`/`:565`는 `kinect.dae` 필요 |
+
+합 41. 표의 건수는 위 `wc -l`과 같은 스캔을 테스트 경계로 쪼개 얻었고,
+합계가 맞는다고 각 행이 맞는 것은 아니므로 행별로 줄 번호를 찍어 확인했다.
+
+못 옮기는 이유는 셋이고, 셋 다 주장이 아니라 측정이다.
+
+**하나 — `updateStateWithLinkAt`이 이식돼 있지 않다.** 11개 테스트 중 4개,
+호출 15회가 여기 걸린다. 이 함수는 링크의 전역 변환을 직접 써 넣고 자손만
+다시 푸는 것이라(`robot_state.cpp:850-871`), 상태가 자기 관절값과 **일부러**
+어긋난다 — 상류 선언이 그렇게 적어 둔다(`robot_state.hpp:1213-1220`,
+"neglecting the joint values of its parent joint ... although they do not
+match the joint values anymore"). 두 링크를 자세를 풀지 않고 접촉시키는
+수단이다. 이 포트에는 대응물이 없다.
+
+```console
+$ rg -n 'update_state_with_link_at' crates/ ros/ --glob '*.rs' \
+      --glob '!**/upstream_pr2_harness.rs'
+$ echo $?
+1
+```
+
+`RobotState`의 것이므로 `moveit-collision`이 아니라 `moveit-state`가 가질
+API다. 여기서 우회하지 않고 막힌 것으로 적는다 — 우회로(부동 관절 URDF)는
+상류 숫자가 말하는 로봇과 다른 로봇을 시험하는 것이 된다.
+
+**둘 — `kinect.dae`는 커밋된 픽스처가 아니다.** 파일은 이 기계에 있다
+(`third_party/moveit_resources/pr2_description/urdf/meshes/sensors/kinect_v0/kinect.dae`,
+164,201바이트). 그러나 `third_party/`는 gitignore된 외부 체크아웃이고, 이
+저장소의 규약은 테스트가 `fixtures/meshes/` 밑 사본을 읽는 것이다
+(`crates/moveit-geometry/tests/mesh_parity.rs:19-23`). 그 트리의
+`pr2_description`은 18개 전부 `.stl`이다.
+
+```console
+$ find fixtures/meshes/pr2_description -type f | sed 's/.*\.//' | sort | uniq -c
+     18 stl
+```
+
+그래서 이건 복사 한 번으로 끝나지 않는다. COLLADA 리더가 없고(이 포트가
+파싱하는 것은 STL이다 — `crates/moveit-geometry/src/stl.rs`), 게다가 픽스처
+출처 게이트가 STL만 훑는다(`tools/ci/verify-fixture-provenance.sh:196`,
+`mesh_fixtures=(fixtures/meshes/**/*.stl)`) — `.dae`를 넣으면 바로 그것을
+검사하라고 있는 게이트가 검사하지 않는 자리에 놓인다. 이 게이트 구멍은
+`kinect.dae`가 실제로 필요해질 때 같이 닫아야 한다.
+
+**셋 — `EXPECT_TIME_LT`는 1초 밑에서 실패할 수 없다.** 매크로는 `NDEBUG`에서
+`EXPECT_LT`, 아니면 no-op이고(`:92-96`), 비교되는 값은 전부
+`duration_cast<std::chrono::seconds>(..).count()` — 초 단위 정수다. 즉
+`EXPECT_TIME_LT(x, .05)`는 `x == 0`이면, 곧 1초 미만이면 언제나 참이다.
+호출은 7곳(`:374`, `:395`, `:405`, `:433`, `:472`, `:473`, `:489`)이고,
+이 숫자들을 그대로 옮기면 **아무 측정도 고르지 않은 허용오차**를 옮기는
+것이 된다. 대신 실질이 있는 곳은 실질을 단언하고 시간은 숫자로 보고한다:
+`TestCollisionMapAdditionSpeed`의 `EXPECT_TIME_LT(t, 5.0)` 자리에서
+`collision_map_addition_lands_every_shape_in_one_object`는 10,000개가 한
+오브젝트에 다 들어갔는지를 단언하고, 추가에 걸린 시간(1.113ms / 1.339ms /
+1.066ms, 3회)을 찍는다.
+
+옮긴 3건은 `crates/moveit-collision/tests/upstream_pr2_harness.rs`의
+`default_not_in_collision`, `changing_shape_size_keeps_the_collision`,
+`collision_map_addition_lands_every_shape_in_one_object`다.
+
+`default_not_in_collision`에는 상류에 없는 단언이 하나 더 붙어 있다. 픽스처
+ACM이 `AllowedCollisionMatrix(getLinkModelNames(), true)`, 곧 **모든 링크 쌍
+허용**이라, `checkSelfCollision`은 기하를 보기 전에 모든 쌍을 건너뛴다 —
+이 자세든 다른 어떤 자세든 `false` 말고는 나올 수 없다. 그래서 같은 상태를
+ACM 없이 한 번 더 돌려 충돌이 나오는 것을 단언한다. 상류 단언이 로봇 자세에
+대한 것이었는지 ACM에 대한 것이었는지를 기록으로 남기는 것이 목적이고,
+측정 결과는 후자다.
+
+만료 조건: `moveit-state`가 `update_state_with_link_at`을 갖게 되면 27건이
+열리고, `fixtures/meshes/`가 `kinect.dae`를 갖게 되면(게이트 glob과 함께)
+3건이 열린다. 그때 이 절을 다시 연다.
