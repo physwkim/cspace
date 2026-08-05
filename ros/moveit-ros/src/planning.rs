@@ -508,6 +508,19 @@ mod tests {
         assert!(matches!(err, Error::Other(_)), "got: {err:?}");
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit): the
+    // guard is `!mdjt.joint_names.is_empty() || !mdjt.points.is_empty()`,
+    // but only `joint_names` had a test above -- `points` was a blind
+    // operand a dropped `||` clause would not have been caught by anything.
+    #[test]
+    fn multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped() {
+        let model = one_joint_model();
+        let mut msg = moveit_msgs::RobotTrajectory::default();
+        msg.multi_dof_joint_trajectory.points = vec![Default::default()];
+        let err = RobotTrajectory::try_from(RobotTrajectoryMsg { model: &model, msg }).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "got: {err:?}");
+    }
+
     #[test]
     fn round_trip_response_through_msg() {
         let model = one_joint_model();
