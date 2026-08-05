@@ -502,11 +502,28 @@ applied and two have not:
 | `assertion-discrimination-ledger-p9-ros.md` | 67 | 58 | 9 | yes |
 | `assertion-discrimination-ledger-pilz.md` | 32 | 30 | 2 (+1 `joint-collapse`, in-family) | yes |
 | `assertion-discrimination-ledger-p1-fixtures.md` | 49 | — | — | **no** |
-| `assertion-discrimination-ledger-p3-acm.md` | 86 | — | — | **no** |
+| `assertion-discrimination-ledger-p3-acm.md` | 86 → 89 | — | — | **no** |
 
 55 + 67 + 32 + 49 + 86 = 289, reconciling exactly against §8's main-tree
 count — the five row sets partition the syntactic population with no gap
 and no double-count.
+
+**Superseded after this section was written (`d24494d`/`7b92bcc`, merged
+`37246a3`).** p3-acm's ledger §1b adds three rows for
+`moveit-collision/src/tools.rs:68` (`aabb_intersection`'s
+`min[0]>=max[0] || min[1]>=max[1] || min[2]>=max[2]`, one row per axis),
+taking its row count 86 → 89 and the partition 289 → **292**. The 289 in
+§8 is not wrong and does not move: it is what `ledger_scan.py`'s grammar
+measures, and that grammar recognizes only `matches!`-led, `.is_err()`
+and `.is_none()` assertion bodies. This site's sole assertion is
+`assert!(intersect_cost_sources(&a, &b).is_empty())` — a fourth shape the
+scanner cannot see, found by the structural-anchor sweep
+(`doc/folded-operand-guards.md`) instead. So 289 is a floor set by one
+instrument's grammar, not the syntactic population; every `.is_empty()`-
+and `assert_eq!`-shaped assertion in the workspace is still uncounted.
+Two of the three axes were blind operands and now have tests; the
+per-axis isolating mutation was re-run independently at the merge and
+each axis fails exactly one test with the other 198 green.
 
 **154 of 289 syntactic sites classified under §9. 139 of those 154 are
 in-family** (51 + 58 + 30). Both figures independently re-derived from
@@ -524,10 +541,12 @@ moveit-collision/moveit-geometry).** Neither has had census §9 applied —
 before the category had a written definition; `p3-acm`'s 86 rows have
 never been checked against it at all. Until both land, the true
 workspace-wide in-family count is not computable, only bounded: at least
-139 (the 154 already classified), at most 139 + 135 = 274 (if every
-remaining row happened to be in-family). **139/289 undercounts** the true
-figure by however many of the outstanding 135 turn out in-family — that
-number is unknown, not small-by-assumption.
+139 (the 154 already classified), at most 139 + 138 = 277 (if every
+remaining row happened to be in-family; 138 = 49 + 89 after the `tools.rs`
+correction above). **139/292 undercounts** the true figure by however many
+of the outstanding 138 turn out in-family — that number is unknown, not
+small-by-assumption. And 292 itself is a floor, for the grammar reason
+stated above.
 
 The 289 figure remains correct as the syntactic pre-filter count (§1,
 §8). It is not the sweep's in-family denominator, and no report from this

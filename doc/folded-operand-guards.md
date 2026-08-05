@@ -42,7 +42,7 @@ grammar. **The union is the population; either alone is a sample.**
 
 | site | operands | condition | owner |
 |---|---:|---|---|
-| `moveit-collision/src/tools.rs:68` | 3 | `min[i] >= max[i]` per axis | p3-acm |
+| `moveit-collision/src/tools.rs:68` | 3 | `min[i] >= max[i]` per axis | fixed, `d24494d` |
 | `moveit-constraints/src/ik_sampler.rs:134` | 2 | `position_constraint.is_none() && orientation_constraint.is_none()` | p1-fixtures |
 | `moveit-constraints/src/joint.rs:120` | 2 | `tolerance_above < 0.0 \|\| tolerance_below < 0.0` | p1-fixtures |
 | `moveit-geometry/src/bodies.rs:2209` | 3 | `half_length/half_width/half_height < 0.0` | fixed, `ab0f1ff` |
@@ -78,7 +78,8 @@ into three kinds and only the first is a sweep finding:
    constructor count — the misverdict this table exists for;
 2. a guard whose assertions exist but exercise the operands only jointly —
    a blind site (`acceleration_filter.rs:302` and `ruckig_filter.rs`'s
-   `reset`, both fixed in `3c2d72f`/`2829ca2`);
+   `reset`, both fixed in `3c2d72f`/`2829ca2`; `tools.rs:68`, whose x axis
+   was covered and whose y and z were not, fixed in `d24494d`);
 3. a guard with no assertion at all — note it, do not manufacture a
    verdict for it.
 
