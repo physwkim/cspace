@@ -742,3 +742,181 @@ sweep.
 Gate scope: doc-only round, `cargo fmt --all -- --check`. No source
 file in this fence changed, so no `-p <crate>` clippy/nextest gate is
 owed.
+
+## Round 13 — path-based fence, `f10e1bd`'s unified `contains`, census §9 membership
+
+`git merge main` (merge commit `1fa8d9f`) pulled in `f10e1bd`
+("collapse `count-coarse-assertions.py`'s `contains_msg`/`contains_member`
+split" — round 11/12's `detail`-field blind spot forced this: a
+receiver-type distinction has no regex, and the alternative rule tried
+misfiled `body.touch_links().contains(...)` at `ros/.../attached.rs:532`)
+and `6792ef1` ("score `None`/`Err` only as an operand of an equality
+macro"). The tool now emits one `contains` kind and leaves membership to
+census §9 clause 1, by reading — exactly what this round does. Fence
+reassigned by path: `robot_model.rs`, `mesh_search_paths.rs`,
+`robot_model_parity.rs`, `joint/model.rs`, `decide.rs`,
+`moveit-planning/`.
+
+### The stated 41 does not survive enumeration; the sum of the same six
+### per-path figures is 52
+
+`python3 tools/ci/count-coarse-assertions.py <the six paths> | rg -v
+'moveit-planners-pilz'` (pilz not among these paths anyway), then kept
+every hit whose `kind` is not exactly `matches`/`is_err`/`is_none` and
+whose `scope` is not `helper_body`:
+
+| path | count |
+|---|---|
+| `robot_model.rs` | 24 |
+| `mesh_search_paths.rs` | 5 |
+| `robot_model_parity.rs` | 4 |
+| `joint/model.rs` | 3 |
+| `decide.rs` | 11 |
+| `moveit-planning` (`check_start_state_bounds.rs` 3 + `check_start_state_collision.rs` 2) | 5 |
+| **total** | **52** |
+
+Every one of these six numbers matches the brief's own per-path figures
+exactly — the breakdown was right. `24+5+4+3+11+5 = 52`, not 41; the
+brief's total was a bad sum over its own correct rows, not a bad
+enumeration. One `helper_body` line excluded (`decide.rs:83`,
+`assert_err_mentions`'s own body).
+
+### Census §9 membership, per site (52 sites)
+
+**`crates/moveit-constraints/tests/decide.rs` (11)**
+
+| file:line | member? | verdict | evidence |
+|---|---|---|---|
+| `decide.rs:362,380,438,508,534,553,742,781` (`via:assert_err_mentions`) | yes | discriminating | round 11's sibling-message table, unchanged (same 8 call sites) |
+| `decide.rs:1161,1166` (`assert_eq!(..., None)` on `max_view_angle()`/`max_range_angle()`) | yes | discriminating | isolating mutation run this round: `normalize_angle_criterion`'s `.filter(\|v\| *v > EPS)` gate removed → `negative_target_radius_activates_...` and `zero_valued_criteria_normalize_to_unconstrained` both fail (2/100), no other test moves; `target_radius`'s own gate (`normalize_target_radius`, a different fn) is untouched and its sibling assertion in the same test stays green |
+| `decide.rs:1257` (`set.is_empty()`) | **no** | not-this-family | `KinematicConstraintSet::new()` is `Self::default()` (`set.rs:54-56`) — trivially empty by construction, clause 2 fails (nothing was decided) |
+
+**`crates/moveit-model/src/joint/model.rs` (3)**
+
+| file:line | member? | verdict | evidence |
+|---|---|---|---|
+| `model.rs:946` (`local_variable_names().is_empty()`, single-variable joint) | yes | discriminating | cross-test sibling `multi_variable_joints_prefix_local_names_with_the_joint_name` shows 7 non-empty names for a floating joint |
+| `model.rs:975` (`variable_names().is_empty()`, fixed joint) | yes | discriminating | cross-test siblings show 1 name (revolute, `:944`) and 7 names (floating, `:948-955`) |
+| `model.rs:976` (`variable_bounds().is_empty()`, fixed joint) | yes | discriminating | cross-test siblings index `variable_bounds()[0]` directly at `:1008,1031,1074,1087,1105` — non-empty for every other joint kind tested |
+
+**`crates/moveit-model/src/mesh_search_paths.rs` (5)**
+
+`resolve()` has four independent `None`-producing guards (`?` on
+`strip_prefix("package://")`, `?` on `split_once('/')`, `?` on
+`self.packages.get(package)`, and `candidate.is_file()` false).
+
+| file:line | member? | verdict | evidence |
+|---|---|---|---|
+| `mesh_search_paths.rs:108` (`paths.is_empty()`, on `none()`) | **no** | not-this-family | `is_empty()` on `packages.is_empty()`, `none()` on `Self::default()` — both trivial, no decision links them |
+| `mesh_search_paths.rs:109` (`none_resolves_nothing`) | yes | discriminating | empty map — isolates the `self.packages.get(package)?` guard; distinguishable from `:139/140`'s guard (see below) |
+| `mesh_search_paths.rs:130` (`unknown_package_does_not_resolve`) | yes | discriminating | map has one real entry, queried key absent — same guard as `:109` but proves it is the lookup miss, not "map empty," that fires |
+| `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) | yes | discriminating | neither input has a `"package://"` prefix — isolates `strip_prefix(...)?`, distinct guard from `:109/130` |
+
+**Not fixed, flagged rather than fabricated**: the `split_once('/')?`
+guard (malformed `package://name` with no `/`) and the
+`candidate.is_file()` guard (known package, well-formed path, file
+missing) have **no test at all** — not a blind existing assertion, an
+absent one. Writing new tests is outside "fix the blind ones"; this is
+a coverage gap, not a fix owed this round. Reporting it rather than
+silently dropping it.
+
+**`crates/moveit-model/src/robot_model.rs` (24)**
+
+| file:line | member? | verdict | evidence |
+|---|---|---|---|
+| `robot_model.rs:1972` (`mimic_chain_collapses_transitively`, diagnostics-empty) | yes | discriminating | cross-test siblings: `MimicCycle` positive at `:2051`, `MimicUnknownJoint` at `:2073`, `MimicDofMismatch` at `:2105` |
+| `robot_model.rs:2260` (`only_j1`'s `subgroup_names().is_empty()`) | yes | discriminating | real per-candidate comparison against `only_j2`/`all` (not vacuous — candidates exist); same test's `all.subgroup_names()` (`:2259`) is the non-empty sibling |
+| `robot_model.rs:2287,2302` | yes | discriminating | round 11, unchanged |
+| `robot_model.rs:2369` (box collision, diagnostics-empty) | yes | discriminating | cross-test siblings: capsule/mesh/negative-dimension diagnostic tests below it in the same file |
+| `robot_model.rs:2392` (`base.shapes().is_empty()`, link with zero `<collision>` elements) | **no** | not-this-family | vacuous — `link_with_geometry_urdf("")` has no collision element at all, nothing for the shape-construction loop to iterate; same shape as the census's `shortest_solution_is_none_on_empty_input` example |
+| `robot_model.rs:2411,2518` (mesh skipped, `shapes().is_empty()`) | yes | discriminating | real skip guard (path resolution/unreadable file), cross-test sibling `:2561-2564` shows `shapes.len()==1`, `Shape::Mesh(_)` when resolution succeeds |
+| `robot_model.rs:2472,2512,2542` | yes | discriminating | round 11, unchanged |
+| `robot_model.rs:2561` (valid stl, diagnostics-empty) | yes | discriminating | positive-case anchor for `:2411/2518/2472/2512/2542`; cross-test siblings show diagnostics populated for every failure shape |
+| `robot_model.rs:2635` | yes | discriminating, breadth caveat | round 11, unchanged |
+| `robot_model.rs:2676` (`visual_mesh_filename()`, `None`) | yes | discriminating | cross-test siblings `:2650` (`Some("visual.dae")`), `:2666` (`Some("collision.stl")`) |
+| `robot_model.rs:2764` (`"other"` group, `attached_end_effector_names().is_empty()`) | yes | discriminating | same test: `"arm"`/`"full_arm"` (`:2755,2762`) are the non-empty siblings; real ancestry-walk decision, not vacuous |
+| `robot_model.rs:2885` (`end_effector_parent()`, `None`) | yes | discriminating | cross-test siblings `:2743,2813,2832,2851,2869` all `Some(EndEffectorParent{..})` |
+| `robot_model.rs:2886` (`attached_end_effector_names().is_empty()`, no end effector declared at all) | yes | discriminating | cross-test sibling `:2755,2762` (`["grasper"]`) |
+| `robot_model.rs:2986` (unknown-group `group_state`, ignored) | yes | discriminating | cross-test sibling `:2936` (`["home"]`); real group-name-lookup guard, distinct decision from `:3021`'s |
+| `robot_model.rs:3021` (every joint value unusable, no state stored) | yes | discriminating | real per-value dimension-mismatch guard (not vacuous — one `<group_state>` element present); cross-test sibling `:2936` |
+| `robot_model.rs:3031` (`variable_default_positions_returns_none_for_unknown_state_name`, empty srdf) | **no** | not-this-family | vacuous — `group_state_test_srdf("")` has zero `<group_state>` elements, nothing for the collection loop to iterate |
+| `robot_model.rs:3376-3379` (fixed-joints-only group: `active_joint_indices`/`joint_roots`/`updated_link_names`/`updated_link_with_geometry_names`, all empty) | yes | single-branch | doc comment (`:3341-3350`) gives the causal chain explicitly; each is a real per-joint/per-root decision (not vacuous — 2 fixed joints present), but only this one fixture shape is exercised in this fence, no direct `.is_empty()`-shaped sibling asserting non-empty for the same getters |
+
+**`crates/moveit-model/tests/robot_model_parity.rs` (4)**
+
+| file:line | member? | verdict | evidence |
+|---|---|---|---|
+| `robot_model_parity.rs:316` (`build_clean_model_with_urdf`, `srdf.diagnostics().is_empty()`) | **no** | not-this-family | message says it outright: `"fixture SRDF must parse cleanly"` — a precondition on this test's own fixture file, not on `RobotModel` (the subject `assert_matches_oracle` verifies); clause 3 |
+| `robot_model_parity.rs:356` (`is_end_effector()` vs oracle's `is_some()`) | **no** | not-this-family | `is_end_effector()` is a computed classification tag compared directly to an oracle value — clause 1, same exclusion as `matches!(kind(), Fixed)` in the census's own worked example |
+| `robot_model_parity.rs:361` (`end_effector_name()`-derived `Option` vs oracle) | **no** | not-this-family | same as `:356` — oracle-parity comparison of a computed value, not a coarse fail/absence signal masking a subject decision |
+| `robot_model_parity.rs:518` (`unsupported_geometry_links.contains(name)`) | yes | discriminating | guarded by `if !group.updated_link_with_geometry_names().contains(name)` — asserts the discrepancy is explained by the unsupported-geometry diagnostic specifically, not left unexplained; message makes the discrimination explicit |
+
+**`crates/moveit-planning/` (5)**
+
+`RequestAdapterError::StartStateInvalid { adapter }` carries no detail
+field; `CheckStartStateBounds::adapt`'s final guard
+(`check_start_state_bounds.rs:169`) is `is_out_of_bounds ||
+(!fix_start_state && should_fix_state)`, itself folding two named
+operands, and `is_out_of_bounds` is set by two further independent
+guards (position bounds, velocity bounds) inside the per-joint loop —
+three real causes producing the identical `Err` value.
+
+| file:line | member? | verdict | evidence |
+|---|---|---|---|
+| `check_start_state_bounds.rs:302` (`an_out_of_bounds_velocity_is_rejected`) | yes | discriminating | **isolating mutation, run this round**: `if false && state.has_velocities() && !joint.satisfies_velocity_bounds(...)` → this test fails (`Ok(())` vs expected `Err`), `:328`'s test stays green |
+| `check_start_state_bounds.rs:328` (`a_joint_placed_outside_its_limits_is_rejected_regardless_of_fix_start_state`) | yes | discriminating | **isolating mutation, run this round**: `if false && !joint.satisfies_position_bounds(...)` → this test fails, `:302`'s test stays green |
+| `check_start_state_bounds.rs:377` (`(-PI..=PI).contains(&wrapped)`) | **no** | not-this-family | range check on a directly computed numeric result (the wrap itself), not an absence/failure signal — same exclusion as `sampler.rs`'s bounds checks in round 11 |
+| `check_start_state_collision.rs:161,162` | yes | discriminating | round 11, unchanged |
+
+`:169`'s guard actually folds a *third* operand
+(`!fix_start_state && should_fix_state`, exercised by
+`a_continuous_joint_past_pi_is_wrapped_and_accepted_only_when_fix_start_state_is_set`)
+that produces the same `Err` value but is not itself one of the 52
+enumerated sites (its own assertion is an `eq_err`-shaped check outside
+this file's three flagged lines — the wrap test's assertion is at a
+different line not in this round's `contains`/`eq_err`/`eq_none`/etc.
+grammar). Neutralized it anyway for completeness, since all three
+operands share one construction site: isolating mutation confirms it
+too fails only its own test, `:302`/`:328` staying green. All three
+mutations were applied, run with `--no-fail-fast`, confirmed, and
+reverted; `git status --short` is clean, no residual diff.
+
+### Result: 0 blind sites; 8 of 52 ruled `not-this-family`; one coverage gap flagged, not fixed
+
+44 of 52 sites are family members: **40 `discriminating`** (8 of those
+are `via:assert_err_mentions`'s call sites) and **4 `single-branch`**
+(the `group_of_only_fixed_joints` cluster, `robot_model.rs:3376-3379`).
+**8 are `not-this-family`**: `decide.rs:1257`,
+`mesh_search_paths.rs:108`, `robot_model.rs:2392,3031`,
+`robot_model_parity.rs:316,356,361`,
+`check_start_state_bounds.rs:377`. 44 + 8 = 52. No member's needle
+collided with a sibling's — 0 blind sites, so 0 fixes owed.
+
+Three isolating mutations were run empirically this round (the
+`normalize_angle_criterion` EPS gate, and two of
+`CheckStartStateBounds`'s three folded guards — position, velocity,
+and the wrap-reject operand) because their shared, detail-less
+`Err`/`None` return values made them the highest-risk sites in this
+batch: multiple real causes producing byte-identical results. All
+three isolated cleanly (guard neutralized → exactly its own test
+fails, siblings stay green), so all three are `discriminating`, not
+blind. Every other verdict rests on reading plus cross-test sibling
+citation, the same evidentiary bar round 11 used.
+
+### Commands run (round 13)
+
+- `git merge main` — merge commit `1fa8d9f`, pulled in `f10e1bd`, `6792ef1`, census §9's expanded text
+- `python3 tools/ci/count-coarse-assertions.py <six paths> > round13_raw.txt` (paths: `robot_model.rs`, `mesh_search_paths.rs`, `robot_model_parity.rs`, `joint/model.rs`, `decide.rs`, `moveit-planning`)
+- Python one-off (`re.match(r'^(.*?):(\d+):(.*?):(test|src|helper_body):(.*)$', ...)`) to split kind/scope correctly — naive `awk -F:` breaks on `via:<fn>`'s embedded colon
+- Per-file counts cross-checked against the brief's own six numbers — exact match; total re-summed by hand: 52
+- `rg 'robot_model.rs:(2472|2512|2542):'`, `check_start_state_collision.rs:(161|162):` — reconfirmed still `contains`/unresolved by `f10e1bd` in the sense that both sites are correctly members regardless of kind label now
+- Isolating mutation 1: `crates/moveit-constraints/src/visibility.rs`'s `normalize_angle_criterion` — `cargo nextest run -p moveit-constraints --no-fail-fast`, 2/100 failed, reverted
+- Isolating mutations 2-4: `crates/moveit-planning/.../check_start_state_bounds.rs`'s position guard, velocity guard, and the fold's third operand, each individually — `cargo nextest run -p moveit-planning check_start_state_bounds --no-fail-fast`, exactly one test failed each time, reverted
+- `git status --short` / `git diff --stat` — clean after every revert
+- `cargo fmt --all -- --check` — clean
+
+Gate scope: no source file left changed this round (0 fixes — all
+mutations reverted after use), so `-p moveit-model -p moveit-constraints
+-p moveit-planning` clippy/nextest were exercised only incidentally by
+the mutation-verification runs above, not as a post-fix gate. Doc-only
+commit; `cargo fmt --all -- --check` is what's owed and was run.
