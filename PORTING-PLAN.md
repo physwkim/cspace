@@ -22924,6 +22924,17 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 도형 크기는 모든 극단점이 정확히 `±0.5`에 오도록 잡았으므로 접선은 이진에서
 정확하다(근사 접선이 아니다).
 
+탐침은 `tools/fcl-tangency-probe/probe.cpp`로 트리에 넣었고
+`tools/ci/verify-fcl-tangency-dispatch.sh`가 이미지 안에서 다시 컴파일해
+돌린다(`sg docker -c ./tools/ci/verify-fcl-tangency-dispatch.sh`, `약 3s`).
+§201의 규칙 때문이다 — 발판은 지워도 되지만 트리가 기대는 주장의 근거는
+지울 수 없다. 게이트는 두 가지를 서로 독립적으로 본다: 측정한 표가 고정된
+표와 같은지, 그리고 그 표가 **이미지 안의 fcl 헤더에서 파싱한** 특수화
+집합과 일치하는지. 둘 다 지금 격리 변이로 확인했다 — 고정 표의
+`sphere × cylinder` 한 칸을 뒤집으면 그 칸 이름을 대며 실패하고, 파싱에서
+`Sphere, Cylinder` 등록 한 줄을 가리면 메커니즘 검사가 두 방향 셀을 짚어
+실패한다.
+
 ### §251.2 MoveIt 래퍼를 통과해도 같은 분할이 남는다 (48요청, `1.397s`)
 
 `tools/moveit-oracle`로 prbt 위에서 4종 × 4종 × 3오프셋을 `collision` op으로
