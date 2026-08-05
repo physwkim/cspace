@@ -107,6 +107,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `ik-cache-map-first-update-dropped` | not-reproduced |
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
+| `aggregated-limits-drops-rejected-joint-silently` | not-reproduced |
 
 ---
 
@@ -1230,6 +1231,58 @@ port returns the strictly larger parameter of the waypoint it actually
 returned. A caller that trusted upstream's fraction to be a *lower* bound on
 the trajectory keeps that guarantee; one that trusted it to be exact was
 already wrong upstream.
+
+---
+
+### `aggregated-limits-drops-rejected-joint-silently` — `getAggregatedLimits` discards `addLimit`'s `bool`, so a joint its own rule 4 made invalid vanishes from the container — not-reproduced
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/joint_limits_aggregator.cpp:109`
+(`container.addLimit(joint_model->getName(), joint_limit);`, return value
+unused), with the rejecting condition at
+`moveit_planners/pilz_industrial_motion_planner/src/joint_limits_container.cpp:55-59`
+(`if (joint_limit.has_deceleration_limits && joint_limit.max_deceleration >= 0) … return false;`)
+and the rule that produces it at `joint_limits_aggregator.cpp:102-106`.
+**Port:** `crates/moveit-planners-pilz/src/joint_limits_aggregator.rs`,
+`aggregate_limits` and `AggregationError::NonNegativeDeceleration`.
+**Symptom:** `addLimit` has two rejection causes and returns `false` for
+both — a non-negative `max_deceleration`, and a name already in the map.
+`getAggregatedLimits` calls it as a statement. The joint is then simply
+absent from the returned container, with no exception, no return code and
+nothing in the signature to say so, while the loop carries on to the next
+joint. The first cause is reachable from the aggregator's *own* rule 4:
+`:104-105` sets `max_deceleration = -max_acceleration` and
+`has_deceleration_limits = true` whenever an override gives acceleration but
+not deceleration, so an override of `max_acceleration: 0.0` produces
+`-0.0`, and `-0.0 >= 0` is true. A YAML file may hold that value: the
+parameter path (`joint_limits_rosparam.hpp`) has no negativity gate of its
+own. Upstream's own `JointLimitsAggregator.ExpectedMapSize`
+(`test/unit_tests/src/unittest_joint_limits_aggregator.cpp:79-86`) asserts
+`getActiveJointModels().size() == container.getCount()`, which is exactly
+the invariant this discarded `bool` can break; it passes only because that
+fixture's YAML has no zero acceleration in it.
+**Evidence:** a read of the two functions at the pinned sha — the unused
+return at `:109`, the `return false` at `joint_limits_container.cpp:58`,
+and rule 4 at `:102-106`. Not run against C++: reaching it needs a
+parameter server and a YAML file, neither of which exists in this
+workspace. The port side is measured:
+`a_zero_acceleration_override_is_reported_not_dropped` in
+`joint_limits_aggregator.rs` drives exactly that override and gets
+`NonNegativeDeceleration { max_deceleration: -0.0 }`,
+and mutation `A10` in
+`doc/assertion-discrimination-ledger-p10-jointlimits.md` — restoring
+upstream's discarded `bool` — fails that test and no other.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14` applies. The fix is structural rather
+than a check bolted onto the call: `has_limit` is asked *before*
+`add_limit`, so by construction a `false` from `add_limit` has only one
+possible cause left, and the two causes become two distinct variants
+(`DuplicateJoint`, `NonNegativeDeceleration`) instead of one silent drop.
+**Cost of not reproducing:** none against upstream numbers. No oracle op
+and no parity test covers `getAggregatedLimits`. The behavioural
+difference is confined to inputs upstream drops silently: where upstream
+returns a container short one joint, this port returns `Err`. A caller that
+checked the container's size — as upstream's own test does — was already
+looking for this failure.
 
 ---
 
