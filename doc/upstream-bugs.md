@@ -1,5 +1,10 @@
 # Upstream bugs
 
+Upstream is `moveit2` at `e017c91ee12984393a28ba246075c65f69cde3bf`,
+checked out at `/home/stevek/work/moveit2` (`PORTING-PLAN.md:3`). Every
+`file:line` below is repository-relative to that checkout and was read
+there; entry 5 is the exception and says so.
+
 A defect that exists in the C++ MoveIt sources this workspace ports from.
 Its entry belongs here, not in a code comment alone, and **the default is
 that the port does not reproduce it**.
@@ -53,7 +58,11 @@ exception now, not the default.
 
 ### 1. Two non-exclusive `if` blocks double-increment `iteration_` — reproduced-pending-decision
 
-**Upstream:** `chomp_motion_planner/src/chomp_optimizer.cpp:367-410`
+**Upstream:** `moveit_planners/chomp/chomp_motion_planner/src/chomp_optimizer.cpp:368-410`
+(verified at the pinned `e017c91e`: `if (iteration_ % 10 == 0)` sets
+`num_collision_free_iterations_ = 0` and `iteration_++`; the separate
+`if (!parameters_->filter_mode_)` at `:406` sets it to
+`max_iterations_after_collision_free_` and increments `iteration_` again)
 **Port:** `crates/moveit-planners-chomp/src/optimizer.rs:909`
 **Symptom:** the `iteration_ % 10 == 0` mesh-to-mesh check and the
 `!filter_mode_` collision-threshold check are two separate,
@@ -69,7 +78,9 @@ is at risk.
 
 ### 2. Contact-reporting branch indexes `link_body_decompositions_` out of bounds — not-reproduced
 
-**Upstream:** `collision_env_distance_field.cpp:601`
+**Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:601`
+(verified: `con.pos = gsr->link_body_decompositions_[i]->getSphereCenters()[k];`
+unconditional, with `if (i_is_link)` first appearing at `:604` for `body_type_1`)
 **Port:** `crates/moveit-distance-field/src/collision_env_distance_field.rs:1871`
 **Symptom:** the branch unconditionally reads
 `con.pos = gsr->link_body_decompositions_[i]->getSphereCenters()[k]`
@@ -83,8 +94,10 @@ a vector sized `num_links` — undefined behaviour.
 
 ### 3. Attached-body count check upstream's own comment doubts — reproduced-pending-decision
 
-**Upstream:** `collision_env_distance_field.cpp:1132-1137`, carrying the
-comment `TODO: This logic for checking attached body count might be incorrect`
+**Upstream:** `moveit_core/collision_distance_field/src/collision_env_distance_field.cpp:1132`
+(verified verbatim: `// TODO: This logic for checking attached body count might
+be incorrect`, guarding
+`gsr->attached_body_decompositions_.size() != att->getShapes().size()`)
 **Port:** `crates/moveit-distance-field/src/collision_env_distance_field.rs:1055`
 **Symptom:** upstream's own author flagged the comparison as possibly
 wrong and it was shipped unchanged.
@@ -95,7 +108,10 @@ established. Do not deviate before that.
 
 ### 4. `getVelocity` never re-derives its time step against the query time — reproduced-deliberately
 
-**Upstream:** `trajectory_processing`'s `Trajectory::getVelocity`
+**Upstream:** `moveit_core/trajectory_processing/src/time_optimal_trajectory_generation.cpp:881-895`
+(verified: `getPosition` re-assigns `time_step = time - previous->time_` at
+`:874` before computing `path_pos`; `getVelocity` never does, computing
+`path_pos` and `path_vel` at `:891-893` from the `:887` full-segment step)
 **Port:** `crates/moveit-trajectory/src/trajectory.rs:217`
 **Symptom:** it computes `path_pos`/`path_vel` from the *full* enclosing
 segment's step (`it->time_ - previous->time_`) rather than against the
@@ -113,8 +129,13 @@ means abandoning totg parity, which is a much larger decision than a bug fix.
 
 ### 5. `Path_Circle` has no both-zero guard, so `scale_rot` can be NaN — reproduced-pending-decision
 
-**Upstream:** pilz `path_circle`, which unlike `Path_Line` has no guard for
-`oalpha == 0.0 && dist == 0.0`
+**Upstream:** `KDL::Path_Circle` — **not verifiable locally.** The port's own
+module doc names `KDL::Path_Circle` as the origin of this arithmetic;
+orocos KDL is not present on this machine, and `moveit2`'s
+`pilz_industrial_motion_planner/src/path_circle_generator.cpp` is the
+*caller*, not the site of the missing guard. This entry's symptom is
+therefore sourced to the port's comment, not to upstream, until someone
+supplies a KDL checkout. Treat it as unconfirmed.
 **Port:** `crates/moveit-planners-pilz/src/path_circle.rs:311`
 **Symptom:** in the `else` arm, `scale_rot = oalpha / dist`. With both zero
 this is `0.0 / 0.0` = NaN, which escapes into the constructed path.
