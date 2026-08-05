@@ -309,7 +309,7 @@
 //!   (missing group, empty/single-waypoint trajectories, duplicate
 //!   waypoints).
 //! - `tests/robot_trajectory.rs` — every `test_robot_trajectory.cpp` case
-//!   except the four named in that file's own header comment
+//!   except the five named in that file's own header comment
 //!   (`RobotTrajectoryShallowCopy`, needing `shared_ptr` waypoint aliasing
 //!   this port deliberately does not have; `ChainEdits`/`DoubleReverse`,
 //!   adapted to drop the `*RobotTrajectoryMsg` steps, D1;
