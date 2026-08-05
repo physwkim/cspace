@@ -596,8 +596,9 @@ impl VisibilityConstraint {
     /// center) is `max(target_radius, sensor_offset)` — the squared
     /// distance from a fixed point to a segment is convex in the segment
     /// parameter, so it maxes at an endpoint, not at the two legs'
-    /// hypotenuse — capped at `0.015` by this generator
-    /// (`tools/moveit-diff/src/main.rs:1335`). The tightest of pr2's 136
+    /// hypotenuse — capped at `0.015` by this generator's
+    /// `rng.random_range(0.005..0.015)`
+    /// (`tools/moveit-diff/src/main.rs:2078`). The tightest of pr2's 136
     /// eligible-link pairs (the four caster-wheel pairs) needs `0.0232` of
     /// reach to bridge; every pair needs more than the generator's max.
     /// `git log -S'0.005..0.015'`/`-S'radius="0.074792"'` confirm neither
