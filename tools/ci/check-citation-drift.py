@@ -175,7 +175,11 @@ def mask_non_code(text):
 
 
 TEST_ATTR_RE = re.compile(r"^\s*#\[[^\]]*\btest\b[^\]]*\]\s*$")
-ATTR_LINE_RE = re.compile(r"^\s*#\[[^\]]*\]\s*$")
+# A function's own header: outer attributes and outer doc comments. Both are
+# part of the item they precede (`///` is sugar for `#[doc = "..."]`), so both
+# belong inside its span. Inner doc comments (`//!`) belong to the enclosing
+# module, not to the next item, and are deliberately not matched.
+ATTR_LINE_RE = re.compile(r"^\s*(?:#\[[^\]]*\]|///.*)\s*$")
 
 
 def function_spans(path):
@@ -239,9 +243,12 @@ def function_spans(path):
         # A citation to a test commonly starts at its `#[test]` (or
         # `#[rstest]`, `#[tokio::test]`, ...) line, one line above `fn` --
         # a real, common convention, not drift. Extend the span's start to
-        # include any run of single-line attributes directly above `fn`, so
-        # `` `path.rs:334-345` `` for a test whose `#[test]` sits at 334 and
-        # `fn` at 335 is judged against 334, not 335.
+        # include any run of attribute or `///` doc lines directly above
+        # `fn`, so `` `path.rs:334-345` `` for a test whose `#[test]` sits at
+        # 334 and `fn` at 335 is judged against 334, not 335 -- and so is a
+        # claim-audit row citing the tolerance rationale a test carries in
+        # its own doc comment (`` `trajectory.rs:855-877` `` for
+        # `upstream_test1`, whose body starts at 879).
         start_line = line_no
         while start_line > 1 and ATTR_LINE_RE.match(lines[start_line - 2]):
             start_line -= 1
