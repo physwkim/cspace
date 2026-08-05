@@ -690,6 +690,44 @@ upstream) that catches the NaN/`+inf` one call later and returns `Err`
 either way, so no currently-passing test asserts success past this point
 for either scenario.
 
+### `polyline-filter-waypoints-stale-index` — `filterWaypoints` compares against an index into the *input* list that counts *kept* waypoints, so after the first drop it measures against a waypoint it already dropped — reproduced-deliberately
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/path_polyline_generator.cpp:60-85`
+(`PathPolylineGenerator::filterWaypoints`). `last_added_point_indx` starts
+at `-1` and is incremented once per *kept* waypoint (`:80`), while the
+`last_point` lambda (`:71`) reads `waypoints[last_added_point_indx]` — an
+index into the *input* vector.
+**Port:** `crates/moveit-planners-pilz/src/path_polyline_generator.rs`,
+`filter_waypoints`.
+**Symptom:** the two counters agree only while nothing has been dropped.
+Each drop shifts them apart by one, so from the first waypoint kept after a
+drop onwards, the distance is measured against an earlier input waypoint —
+including against a waypoint this same filter dropped for being too close.
+The filter's whole purpose is to guarantee every surviving segment exceeds
+`MIN_SEGMENT_LENGTH` before `Path_RoundedComposite::Add` sees it; past the
+first drop it no longer does, so `Add`'s own `Not_Feasible` codes 2/3 can
+still fire on input the filter was supposed to have cleaned.
+**Evidence:** read of upstream source at the pinned sha, plus
+`filter_waypoints_compares_against_an_input_index_not_the_last_kept_pose`
+in the port, which constructs the four-waypoint case where the two
+behaviours differ (4 kept under upstream's rule, 3 under the intended one)
+and asserts upstream's outcome. Not oracle-confirmed: no `POLYLINE` oracle
+op exists yet.
+**Status:** reproduced-deliberately — the same positive argument as
+`totg-velocity-step-function`, not grandfathering. `POLYLINE`'s only
+available ground truth is the C++ implementation itself, and this bug
+changes *which waypoints reach the path*, so a corrected filter would make
+every case containing a drop diverge from the oracle by construction. That
+would leave `POLYLINE` with no comparable parity surface at all, which is a
+worse outcome than carrying a filter that under-filters in a way the
+downstream `Add` still rejects loudly.
+**Cost of reproducing:** a waypoint list with a near-duplicate followed by
+more waypoints can reach `Add` with a segment shorter than
+`MIN_SEGMENT_LENGTH` and be rejected with `Not_Feasible` code 2 or 3
+instead of being silently cleaned. That is an error return, not a wrong
+trajectory. Revisit if a `POLYLINE` oracle op lands and its fixtures show
+the divergence mattering.
+
 ---
 
 ## Decision on the pre-policy entries
