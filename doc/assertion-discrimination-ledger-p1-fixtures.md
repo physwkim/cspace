@@ -48,18 +48,118 @@ correct current denominator for this round's 7 crates, not 50.
 
 No other crate showed a disagreement.
 
+## Folded multi-operand condition audit (this round)
+
+p3-acm found 12 sites in `moveit-geometry` where a `single-branch`
+verdict rested on a constructor/producer *count* — one `Err`/one
+message — while the guard's condition itself folded two or more named
+operands into one `||`/`&&`. A count of construction sites cannot see
+that shape: it proves there is one *site*, not that there is one
+*coverable branch*. Only an isolating mutation (neutralize one
+operand's clause, confirm which assertion fails, then the mirror) can
+tell `single-branch` from `discriminating` when the condition is
+folded.
+
+Audited: the 22 rows that were `single-branch`/`structural` before the
+previous round's reclassification added 9 more into that bucket
+(`scene.rs`'s `decouple_parent`/`frame_transform` rows — themselves
+already checked against a *different* failure mode, single-producer-site,
+last round; none of those 9 fold multiple named operands into one
+condition, so they are correctly out of this audit's scope). Per-row
+disposition:
+
+- **`node.rs:153`** (moveit-octomap) — `create_child`'s guard is one
+  predicate (`self.children.as_deref()?.get(i)`) over one value (slot
+  index `i`), not a folded condition. Signature does not apply.
+- **`invariants.rs:585,586,587,588,589,594,595,596,597`** (moveit-state,
+  9 rows) — re-read all 9 accessor bodies (`state.rs:369-513`): each
+  has exactly one `?` on one named operand (`name`), no folded OR/AND.
+  Signature does not apply to any of the 9.
+- **`constraint_sampler_manager.rs:172`** (moveit-constraints) — guard
+  is `if regions.len() != 1` in `with_updated_position`, one condition
+  over one value (region count). Signature does not apply.
+- **`decide.rs:183,184`** (moveit-constraints) — **matches the
+  signature.** `JointConstraint::new`'s guard (`joint.rs:120`) is
+  `tolerance_above < 0.0 || tolerance_below < 0.0`, one `Err::construct`
+  folding two named operands. Bit both directions: neutralizing
+  `tolerance_above`'s clause alone (`if false && tolerance_above < 0.0
+  || tolerance_below < 0.0`) failed the assertion at `decide.rs:183`
+  exactly; neutralizing `tolerance_below`'s clause alone failed at
+  `decide.rs:184` exactly. The two existing test call sites
+  (`tolerance_above=-0.1,tolerance_below=0.1` at 183;
+  `tolerance_above=0.1,tolerance_below=-0.1` at 184) already isolate
+  one operand each — genuinely `discriminating`, no fix needed. `joint.rs`
+  reverted clean after each bite. **Verdict corrected below.**
+- **`utils_parity.rs:221,641,885,896,942`** (moveit-constraints, 5 rows)
+  — re-checked each guard: `221` is a single `?` on group lookup, `641`
+  is `regions.len() != 1` (one value), `885`/`896` are
+  `resolve_frame_to_link`'s single closure-result `None`, `942` is a
+  single `if` on the `XyzEuler`-tolerance-across-a-frame-change
+  condition (one boolean expression, not an OR/AND over distinct named
+  operands — `utils.rs:796-802` re-read to confirm). Signature does not
+  apply to any of the 5.
+- **`lib.rs:1068,1072`** (moveit-metrics) — `KinematicsMetrics::group`'s
+  `is_chain()` check and the `?` on `joint_model_group` are two
+  *separate* construction sites (not one folded condition); this pair
+  was already correctly split from the family these two rows test.
+  Signature does not apply.
+- **`acceleration_filter.rs:552`** (moveit-smoothing) — **matches the
+  signature**, and is the user's named live candidate. Guard is
+  `positions.len() != num_joints || velocities.len() != num_joints`,
+  one `Error::other` folding two named operands. `reset_rejects_a_mismatched_length`
+  mismatches both `positions` (len 1) and `velocities` (len 1) against
+  `num_joints=2` in one fixture — no sibling test isolates either
+  operand. Bit both directions: neutralizing `positions`'s clause alone
+  left the test PASSING (the surviving `velocities` clause alone still
+  tripped the shared error); neutralizing `velocities`'s clause alone
+  also left the test PASSING. **Neither operand's own clause was ever
+  individually exercised — a genuine blind site**, not a discrimination
+  gap. Fixed: added `reset_rejects_a_positions_only_mismatch`/
+  `reset_rejects_a_velocities_only_mismatch`, each mismatching exactly
+  one array; bite-verified each new test fails when its own clause is
+  disabled. Commit `3c2d72f`. **Verdict corrected below.**
+- **`ruckig_filter.rs:546`** (moveit-smoothing) — **matches the
+  signature**, structurally identical 3-clause OR
+  (`positions.len() != num_joints || velocities.len() != num_joints ||
+  accelerations.len() != num_joints`, `ruckig_filter.rs:326-329`).
+  Same single-fixture-mismatches-everything shape
+  (`reset_rejects_a_mismatched_length` mismatches all three arrays at
+  once). Bit all three directions individually: each left the test
+  PASSING with that operand's clause disabled — same blind site, three
+  ways. Fixed: added `reset_rejects_a_positions_only_mismatch`/
+  `reset_rejects_a_velocities_only_mismatch`/
+  `reset_rejects_an_accelerations_only_mismatch`, each mismatching
+  exactly one array; bite-verified each fails when its own clause is
+  disabled. Commit `2829ca2`. **Verdict corrected below.**
+
+**Count checked: 22. Count matching the signature: 3 guards / 4 rows**
+(`decide.rs:183/184` sharing one guard; `acceleration_filter.rs:552`;
+`ruckig_filter.rs:546`). **Outcome: `decide.rs:183/184` — genuinely
+discriminating, existing tests already isolate each operand, no source
+fix, verdict-only correction. `acceleration_filter.rs:552` and
+`ruckig_filter.rs:546` — genuine blind sites, neither existing test
+isolated any individual operand; both fixed this round with new
+isolating tests, bite-verified, gated `-p moveit-smoothing`.**
+
 ## Verdict × evidence cross-tab
 
 A first pass of this ledger used "structural" to justify `discriminating`
 in 9 rows that actually had no second producing site to discriminate
 from — a single-producer argument proves `single-branch`, never
-`discriminating`. Corrected below; see the per-row notes for which
-rows moved and why.
+`discriminating`. Corrected then; see the per-row notes for which rows
+moved and why. This round's folded-multi-operand-condition audit
+(above) corrected 4 more rows the same direction, for a different
+reason: a construction-site count cannot see a folded condition's
+independently-coverable operands, so `single-branch`/`structural` was
+also the wrong verdict for `decide.rs:183/184`,
+`acceleration_filter.rs:552`, and `ruckig_filter.rs:546` — the first
+pair by omission (a bite was owed and now exists), the latter two by
+blind site (a bite exposed unexercised operands, since fixed).
 
 | verdict | evidence | count |
 |---|---|---:|
-| single-branch | structural | 31 |
-| discriminating | bite | 10 |
+| single-branch | structural | 27 |
+| discriminating | bite | 14 |
 | single-branch | bite | 2 |
 | discriminating | structural | 2 |
 | discriminating | round-report | 1 |
@@ -154,8 +254,8 @@ finding.
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
 | constraint_sampler_manager.rs:172 | bare `.is_none()` | `no_constraints_and_no_solver_returns_none` | single-branch | structural — re-traced `select_default_sampler`/`_inner`'s full Step A/B/C/D control flow (`constraint_sampler_manager.rs:141-`); no test anywhere in the file exercises the *other* None-producer (`select_default_sampler:149-151`'s unknown-group-name early return — `rg 'select_default_sampler\('` on the test file shows every call uses a valid `"panda_arm"`/`"panda_arm_hand"` group name), so only the Step-D fallthrough is reachable and tested |
-| decide.rs:183 | bare `.is_err()` | `new_rejects_negative_tolerance` | single-branch | structural — `JointConstraint::new`'s tolerance check is one combined OR-condition (`joint.rs:120`, `tolerance_above < 0.0 \|\| tolerance_below < 0.0`), a single guard; this line and 184 cannot be discriminated from each other because the source has only one branch to hit |
-| decide.rs:184 | bare `.is_err()` | `new_rejects_negative_tolerance` | single-branch | structural — same single OR-guard as 183 |
+| decide.rs:183 | bare `.is_err()` | `new_rejects_negative_tolerance` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `JointConstraint::new`'s guard (`joint.rs:120`, `tolerance_above < 0.0 \|\| tolerance_below < 0.0`) is one `Err::construct` site but folds two named operands, which a construction-site count cannot see through. Neutralizing `tolerance_above`'s clause alone (`if false && tolerance_above < 0.0 \|\| tolerance_below < 0.0`) failed this assertion exactly. The test's own fixture (`tolerance_above=-0.1, tolerance_below=0.1`) already isolates this operand. `joint.rs` reverted clean after |
+| decide.rs:184 | bare `.is_err()` | `new_rejects_negative_tolerance` | discriminating | bite (this round) — mirror of 183: neutralizing `tolerance_below`'s clause alone (`if tolerance_above < 0.0 \|\| false && tolerance_below < 0.0`) failed this assertion exactly. The test's own fixture (`tolerance_above=0.1, tolerance_below=-0.1`) already isolates this operand. `joint.rs` reverted clean after |
 | decide.rs:210 | matches! | `new_rejects_unknown_joint` | fixed | commit `83e3c1c` — this session's own prior fix, asserts the specific `Error::UnknownName{kind:"joint",..}` variant/field rather than bare `.is_err()` |
 | utils_parity.rs:221 | matches! | `unknown_group_is_error` | single-branch | structural — `construct_goal_joint_constraints`'s only reachable guard for an unknown group name is `model.joint_model_group(group_name)?` (`utils.rs:234`); the loop body's two further `?` sites are unreached when this one fails first |
 | utils_parity.rs:641 | matches! | `multi_region_constraint_is_error` | single-branch | structural — `update_position_constraint` has exactly one `Error::Other`-producing site (`utils.rs:605-609`, converting `with_updated_position`'s `None` for a >1-region constraint) |
@@ -175,8 +275,8 @@ finding.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| acceleration_filter.rs:552 | matches! | `reset_rejects_a_mismatched_length` | single-branch | structural — `reset`'s only `Error::Other` site is one combined OR-condition (`acceleration_filter.rs:302`, `positions.len() != num_joints \|\| velocities.len() != num_joints`) |
-| ruckig_filter.rs:546 | matches! | `reset_rejects_a_mismatched_length` | single-branch | structural — same shape, `ruckig_filter.rs:326-329`, 3-clause OR-condition, still one guard |
+| acceleration_filter.rs:552 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `reset`'s guard (`acceleration_filter.rs:302`, `positions.len() != num_joints \|\| velocities.len() != num_joints`) is one `Error::Other` site folding two named operands. This test's fixture mismatches both `positions` and `velocities` at once, so neither existing test isolated either clause — bit both directions (`false && positions...`, then `positions... \|\| false && velocities...`), both left this test PASSING: a genuine blind site, not just an undercounted branch. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch` (each mismatching exactly one array), bite-verified to fail when their own clause is disabled. Commit `3c2d72f`, gated `-p moveit-smoothing` |
+| ruckig_filter.rs:546 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329`) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing` |
 
 ## moveit-srdf (2 sites)
 
@@ -187,15 +287,32 @@ finding.
 
 ## Sites needing a fix this round
 
-None. Every site in this round's 7 crates was already discriminating,
-provably single-branch by direct source read, or previously fixed —
-no blind/never-covered site was found (in contrast to round 8's
-`matrix.rs:678`/`set_entry_for_known` fixture collapse). The
-verdict/evidence review below found evidence-shape defects (a
-single-producer argument mislabeled `discriminating`, two citations I
-could not locate) but no site whose *behavior* was wrong — every
-correction landed on `single-branch` or on a fresh/stronger citation
-for `discriminating`, never on a fixture collapse.
+Two, both found by this round's folded-multi-operand-condition audit
+(see above), both fixed:
+
+- `acceleration_filter.rs:552`/`reset` (moveit-smoothing) — neither
+  the `positions` nor the `velocities` clause of the guard's OR
+  condition was individually exercised by any existing test. Fixed:
+  `reset_rejects_a_positions_only_mismatch`/
+  `reset_rejects_a_velocities_only_mismatch` added, commit `3c2d72f`.
+- `ruckig_filter.rs:546`/`reset` (moveit-smoothing) — none of the
+  `positions`/`velocities`/`accelerations` clauses of the guard's
+  3-clause OR condition was individually exercised. Fixed:
+  `reset_rejects_a_positions_only_mismatch`/
+  `reset_rejects_a_velocities_only_mismatch`/
+  `reset_rejects_an_accelerations_only_mismatch` added, commit
+  `2829ca2`.
+
+Prior to this round's folded-condition audit, every site in this
+round's 7 crates was already discriminating, provably single-branch by
+direct source read, or previously fixed — no blind/never-covered site
+was found by the earlier verdict/evidence review (in contrast to round
+8's `matrix.rs:678`/`set_entry_for_known` fixture collapse). That
+review found evidence-shape defects (a single-producer argument
+mislabeled `discriminating`, two citations I could not locate) but no
+site whose *behavior* was wrong. This round's folded-condition
+signature found two behavior-level blind sites the earlier
+count-based review structurally could not see.
 
 ## Commands run
 
@@ -224,20 +341,37 @@ cargo test -p moveit-octomap --lib -- tree::tests::unmapped_coordinate_has_no_oc
 cargo test -p moveit-state --test jacobian -- an_unknown_group_name_is_unknown_name_not_not_a_chain --nocapture
 git status --short   # empty, both before and after every mutation
 git diff --stat       # empty at end of round
+
+# --- folded multi-operand condition audit ---
+# decide.rs:183/184 — joint.rs:120's tolerance OR-guard, both directions:
+cargo test -p moveit-constraints --test decide -- new_rejects_negative_tolerance --nocapture
+# acceleration_filter.rs:552 — reset's positions/velocities OR-guard, both directions:
+cargo test -p moveit-smoothing --lib -- acceleration_filter::tests::reset_rejects_a_mismatched_length --nocapture
+# ruckig_filter.rs:546 — reset's 3-clause OR-guard, all three directions:
+cargo test -p moveit-smoothing --lib -- ruckig_filter::tests::reset_rejects_a_mismatched_length --nocapture
+# fix bite-verification, new isolating tests both crates:
+cargo test -p moveit-smoothing --lib -- acceleration_filter::tests::reset_rejects --nocapture
+cargo test -p moveit-smoothing --lib -- ruckig_filter::tests::reset_rejects --nocapture
+cargo fmt --all
+cargo clippy -p moveit-smoothing --all-targets -- -D warnings
+cargo nextest run -p moveit-smoothing
 ```
 
 ## Gate
 
-No source in any of the 7 crates was changed this round (no fix was
-needed), so no `-p <crate>` fmt/clippy/nextest gate is owed for a
-commit — there is no commit. Every bite mutation (`node.rs:143`,
-`tree.rs`'s two `search()` guards, `state.rs`'s two `jacobian` guards)
-was reverted, confirmed via `git status --short`/`git diff --stat`
-both returning empty after each one and again at the end of the round.
-This document lives under `doc/`, outside any crate, matching the
-merged census document's own precedent (no cargo gate applies to a
-doc-only deliverable) — `cargo fmt --all -- --check` run per your
-instruction, clean.
+This round's earlier verdict/evidence review changed no source (no
+fix was needed there). This round's folded-multi-operand-condition
+audit did change source: `crates/moveit-smoothing/src/acceleration_filter.rs`
+and `crates/moveit-smoothing/src/ruckig_filter.rs`, one new-test commit
+each (`3c2d72f`, `2829ca2`). Gated `-p moveit-smoothing`:
+`cargo fmt --all` (clean), `cargo clippy -p moveit-smoothing
+--all-targets -- -D warnings` (clean, zero warnings), `cargo nextest
+run -p moveit-smoothing` (36/36 passed, including the 5 new isolating
+tests). `decide.rs`'s two bites needed no fix (existing tests already
+discriminate) and `joint.rs` is confirmed reverted clean
+(`git diff --stat` empty). This document lives under `doc/`, outside
+any crate — `cargo fmt --all -- --check` run per your instruction,
+clean.
 
 ## UNFIXED
 
