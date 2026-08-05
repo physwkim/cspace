@@ -112,3 +112,17 @@ reason to conflate — not this defect shape.
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
 | `robot_model.rs:2329,2344` (`no_root_link_errors`/`multiple_root_links_errors`) | Two sibling tests, each pinning a different arm of the same `match`, asserted only `.is_err()` | CONFIRMED same-defect, fixed | See sweep note above | `fe3bd82` |
+
+## Round 10 follow-up — `rigidly_connected_parent_link`
+
+`RobotModel::getRigidlyConnectedParentLinkModel` is what
+`moveit-kinematics`' `setFromIK` port builds its whole tip-matching rule
+on (see [`doc/claim-audit/moveit-kinematics.md`](moveit-kinematics.md)),
+so its claims are audited here rather than there. Both rows were
+re-derived by opening the cited ranges in the pinned checkout
+(`e017c91ee12984393a28ba246075c65f69cde3bf`) this round.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-model/src/robot_model.rs:395-411` (`rigidly_connected_parent_link`) | Walks up from `link_index` through joints that hold the link still — fixed joints, plus joints outside `group` when a group is given — and returns the first link a movable joint controls. | CONFIRMED | `robot_model.cpp:1367-1399`, read in full. `:1383-1390` is `is_fixed_or_not_in_jmg`, whose two `return true` arms are `getType() == FIXED` and "not in the non-empty jmg"; the port's `held_still` is the same disjunction. Two differences that had to be checked rather than assumed. First, the loop shape: upstream advances `link = parent_link; joint = link->getParentJointModel(); parent_link = joint->getParentLinkModel();` (`:1394-1396`), so its next parent comes off the *joint*, while the port re-derives `parent_link_index()` off the *link* each turn — equivalent because `robot_model.cpp:861` and `:866` set the joint's and the child link's parent link to the same `parent`. Second, membership: upstream is pointer identity via `std::find` over `jmg->getJointModels()` (`:1387`), the port is `has_joint_model(joint.name())` — the same set, joint names being unique within a `RobotModel`. | |
+| `crates/moveit-model/src/robot_model.rs:389-392` (the empty-`jmg` note) | Upstream's `begin != end` guard makes an empty group contribute no membership test, and the port needs no counterpart because an empty group cannot be constructed. | CONFIRMED; the cited line was wrong and is corrected | The guard is `robot_model.cpp:1386-1388`, not `:1385` — `:1385` is the `return true` of the *fixed-joint* arm above it, so the old citation named the wrong one of the lambda's two arms. The unreachability half holds: `crates/moveit-model/src/robot_model.rs:1667` pushes `Diagnostic::EmptyGroup` rather than building the group. The nullptr case upstream handles alongside it (`:1369-1370`, `if (!link) return link`) has no counterpart either, the port taking a `usize`; its caller refuses the same input one level up, at `crates/moveit-kinematics/src/set_from_ik.rs:269-271`. | |
