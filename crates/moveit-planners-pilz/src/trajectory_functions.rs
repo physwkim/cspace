@@ -1194,6 +1194,18 @@ mod tests {
         );
     }
 
+    /// `compute_pose_ik` has five `None`-producing paths (three guards plus
+    /// two `?`s) collapsing to the identical value. This fixture's group
+    /// name and `frame_id` both satisfy their own guards (`solver.group_name()`
+    /// is `"panda_arm"`, a real group; `frame_id` is `model.model_frame()`
+    /// itself), so only the `tip_frame` guard's condition is true here.
+    /// Isolating mutation: neutralizing that guard alone
+    /// (`if false && solver.tip_frame() != link_name`) flips this test from
+    /// `None` to an actual IK solution (`Some({"panda_joint7": ...})`),
+    /// while `compute_pose_ik_round_trips_a_reachable_pose` -- whose own
+    /// `link_name` already equals the real tip frame -- is unaffected by
+    /// the same mutation, since that guard's condition was already false
+    /// for it regardless.
     #[test]
     fn compute_pose_ik_rejects_tip_frame_mismatch() {
         let (model, srdf) = load_panda();
