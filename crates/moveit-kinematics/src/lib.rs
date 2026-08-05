@@ -9,6 +9,8 @@
 //   moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp
 //   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/kdl_kinematics_plugin.hpp
 //   moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/joint_mimic.hpp
+//   moveit_core/robot_state/include/moveit/robot_state/cartesian_interpolator.hpp
+//   moveit_core/robot_state/src/cartesian_interpolator.cpp
 // See the module doc's "Why this file stays BSD-3-Clause" section for
 // chainiksolver_vel_mimic_svd.{hpp,cpp}, the LGPL-2.1-or-later source this
 // crate's velocity solve (`velocity.rs`) plays the role of instead of
@@ -495,6 +497,7 @@
 
 mod cached_solver;
 mod cart_to_jnt;
+mod cartesian_interpolator;
 mod chain;
 mod ik_cache;
 mod lma;
@@ -504,6 +507,10 @@ mod registry;
 mod velocity;
 
 pub use cached_solver::CachedIkSolver;
+pub use cartesian_interpolator::{
+    CartesianInterpolator, CartesianPrecision, JumpThreshold, MIN_STEPS_FOR_JUMP_THRESH,
+    MaxEefStep, Percentage, check_joint_space_jump, has_joint_space_jump,
+};
 pub use ik_cache::IkCacheOptions;
 pub use lma::LevenbergMarquardtSolver;
 pub use newton_raphson::NewtonRaphsonSolver;

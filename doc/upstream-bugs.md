@@ -105,6 +105,8 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `save-cache-empty-path-guard-falls-through` | not-reproduced |
 | `cached-ik-accumulate-return-discarded` | not-reproduced |
 | `ik-cache-map-first-update-dropped` | not-reproduced |
+| `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
+| `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 
 ---
 
@@ -1104,6 +1106,115 @@ has no create-on-miss path to forget to finish.
 `D4` is what removes the class it lives in.
 **Cost of not reproducing:** none. No caller, no parity test, no oracle
 operation.
+
+---
+
+### `set-from-ik-zero-timeout-is-not-single-attempt` — `computeCartesianPath` passes `timeout = 0.0` to get one deterministic IK attempt and gets 0.5 s of random re-seeding instead — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/cartesian_interpolator.cpp:453-456`
+(verified at the pinned `e017c91e`), and the same `0.0` at `:260` and `:94`.
+The reinterpretation is
+`moveit_core/robot_state/src/robot_state.cpp:2010-2011`; the value it
+substitutes is `moveit_core/robot_model/include/moveit/robot_model/joint_model_group.hpp:74`;
+what the solver then does with it is
+`moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp:369-409`.
+**Port:** `crates/moveit-kinematics/src/cartesian_interpolator.rs`,
+`PathRun::solve_link_pose`.
+**Symptom:** `cartesian_interpolator.cpp:453-454` states the intent in a
+comment — "Explicitly use a single IK attempt only (by setting a timeout of
+0.0), using the current state as the seed. Random seeding (of additional
+attempts) would create large joint-space jumps" — and then passes `0.0`.
+`setFromIK` reads that argument as a sentinel, not as a value:
+`if (timeout < std::numeric_limits<double>::epsilon()) timeout =
+jmg->getDefaultIKTimeout()`, and `KinematicsSolver::KinematicsSolver()`
+initialises `default_ik_timeout_(0.5)`. So the request reaching
+`searchPositionIK` is a 0.5-second budget, and that function's body is
+`do { ++attempt; if (attempt > 1) getRandomConfiguration(...); CartToJnt(...);
+... } while (!timedOut(start_time, timeout))` — precisely the random
+re-seeding the comment says it is avoiding, for half a second per waypoint.
+`0.0` is the one value that cannot mean "no time"; every positive value
+smaller than the default would have.
+**Evidence:** a read of the control flow across the four files cited above.
+Not oracle-confirmed — the divergence is wall-clock-dependent by
+construction (it only shows up when the first attempt fails and there is
+time left to retry), so an oracle comparison would be a race, not a
+measurement. The two facts the read rests on are single lines and were each
+read at the pinned sha: the `< epsilon` substitution and the `(0.5)` member
+initializer.
+**Status:** `not-reproduced`.
+**Deviation:** `D1` in the sense that the wall-clock timeout is not ported
+at all — `crate::SolverParams::max_restarts`, a retry *count*, replaced it
+crate-wide before this module existed, and that replacement is documented at
+`SolverParams::max_restarts` and in `moveit-kinematics`'s own crate doc
+("§4.9, no wall-clock timeout"). The consequence for this bug is structural
+rather than a fix applied to it: with no timeout parameter there is no
+sentinel value left to reinterpret, so the port cannot express the input
+that triggers this. A caller wanting the single deterministic attempt the
+upstream comment describes builds its solver with `max_restarts = 0` and
+gets exactly that; a caller leaving the default gets a *bounded, seeded,
+reproducible* retry count rather than an unbounded wall-clock one.
+**Cost of not reproducing:** none measurable. There is no oracle op for
+`computeCartesianPath`, and the reproducing behaviour is not
+deterministic, so there is no number that would move. The visible cost is
+that this port's waypoint IK is only as persistent as the caller's
+`max_restarts`: a target the upstream 0.5-second re-seeding loop would have
+eventually found from a random seed, and this port's `max_restarts = 0`
+caller will not, shortens the achieved fraction. That is the behaviour the
+upstream comment asked for.
+
+---
+
+### `validate-and-improve-interval-percentage-discarded` — the bisection computes a partial-progress fraction into a `double&` that every caller drops, so the returned fraction can understate the trajectory returned with it — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/cartesian_interpolator.cpp:63-109`
+(`validateAndImproveInterval`, `double& percentage` at `:65`), with its only
+caller at `:253-269`.
+**Port:** `crates/moveit-kinematics/src/cartesian_interpolator.rs`,
+`PathRun::validate_and_improve_interval` and `PathRun::achieved`.
+**Symptom:** `percentage` is taken by reference and written on the
+subdivision path — `:100-101` saves `old_percentage` and sets `percentage =
+percentage - half_width` before recursing into the first half, `:106`
+restores it before the second. The value that survives a *failure* is
+therefore the parameter of the deepest sub-interval that was entered, which
+is the partial progress the by-reference parameter exists to report. No
+caller reads it. In `computeCartesianPath`'s loop the call sits inside
+`if (!setFromIK(...) || !validateAndImproveInterval(..., percentage, ...))
+break;` (`:260-264`) and `last_valid_percentage = percentage` is at `:268`,
+*after* the `break` — so on every failing path the mutated value is
+discarded, and on every succeeding path `percentage` has been restored to
+the value it entered with. The parameter is dead output.
+What that costs is not just a dead parameter: `traj` is never rolled back.
+If an interval bisects, its first half validates (pushing the mid state at
+`:86`) and its second half then fails, the returned trajectory holds a
+waypoint at parameter `percentage - half_width` while the returned fraction
+is `(i - 1) / steps` — the trajectory is longer than the fraction claims,
+and the two no longer name the same point on the path.
+**Evidence:** a read of the control flow. The claim rests on three
+statements, each a single line read at the pinned sha: the by-reference
+parameter (`:65`), the `break` (`:264`) preceding the only read of
+`percentage` (`:268`), and the unconditional `traj.push_back` (`:86`) with
+no matching erase anywhere in the file. Not oracle-confirmed: there is no
+oracle op for `computeCartesianPath`, and reaching the divergent case needs
+an interval that bisects once, accepts its first half and fails its second —
+constructible in principle, not something the port can measure against C++
+here.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14` applies; this is a bug the port declines
+under the default policy, not an instance of a project-wide decision. The
+port splits the parameter's two meanings rather than patching the caller:
+`percentage` stays a by-value input (the interval's end parameter) and the
+achieved fraction becomes `PathRun::achieved`, written at the single site
+that appends a waypoint. That makes the invariant hold by construction —
+the returned fraction is the path parameter of the last waypoint in the
+returned trajectory, on success and failure alike — rather than making the
+caller remember to read an out-parameter it currently does not.
+**Cost of not reproducing:** none against upstream numbers; no oracle op and
+no parity test covers this path. The behavioural difference is confined to
+the case described above: where upstream returns `(i - 1) / steps`, this
+port returns the strictly larger parameter of the waypoint it actually
+returned. A caller that trusted upstream's fraction to be a *lower* bound on
+the trajectory keeps that guarantee; one that trusted it to be exact was
+already wrong upstream.
 
 ---
 
