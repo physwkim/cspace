@@ -12518,7 +12518,7 @@ p1-fixtures 라운드 22의 요청(§107.3 경로)을 그대로 구현했다. �
   `collision` op과 같은 스키마. **`removeCostSources`/`removeOverlapping`을
   부르지 않는다** — p1-fixtures가 body를 읽어 찾아낸 비대칭이며, 이 op은 그
   비대칭 자체를 검증 대상으로 만든다.
-- `path_cost_sources` — trajectory 오버로드(`:2457-2490`). 추가 요청 필드
+- `path_cost_sources` — trajectory 오버로드(`planning_scene.cpp:2457-2491`). 추가 요청 필드
   `waypoints`(필수), `overlap_fraction`(필수). 세 단계를 upstream 순서대로
   재현한다: union을 `max_costs`로 자르고 → `removeCostSources(costs, cs_start,
   overlap_fraction)` → `removeOverlapping(costs, overlap_fraction)`.
