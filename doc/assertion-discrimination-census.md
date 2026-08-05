@@ -554,3 +554,67 @@ sweep should quote 289 as if it were — the same substitution error §8
 caught in the 288-vs-289 worktree/main-tree mismatch, one layer further
 in: a syntactically-scanned population standing in for a semantically
 verified one.
+
+## 9c. `ledger_scan.py` was never committed — and the instrument that replaces it
+
+Every quantitative claim in §1, §8, §9b and three of the five ledgers
+attributes its number to a scanner called `ledger_scan.py`. **That file
+exists in no commit, no worktree, and no checkout.** `find` across the
+repository and `git log --all -- '*ledger_scan*'` both come back empty; it
+was written in some panel's scratch space and never landed. p1-joints
+found this when a task asked it to read the script's grammar and it could
+not locate the file.
+
+So the two things four documents assert about that scanner —
+its total (289) and its `kind` grammar (`matches!`, `.is_err()`,
+`.is_none()` only) — cannot be re-run, inspected, or disagreed with by
+anyone. This does not make them false. §8 re-derived 289 against the main
+tree by a separate route and it held, and `tools.rs:68` confirmed the
+grammar gap from the other direction (a `.is_empty()` site that no ledger
+had a row for). But an unreproducible instrument cannot carry a
+denominator, and §9b leaned on one when it said "289 is what
+`ledger_scan.py`'s grammar measures".
+
+`tools/ci/count-coarse-assertions.py` (`6a14a89`) is committed in its
+place, following the `count-*` convention already in `tools/ci/`: it lists
+raw textual hits and classifies nothing. Its grammar is deliberately wider
+— `matches`, `is_err`, `is_none`, `is_some`, `is_empty`, `contains_msg`,
+`contains_member`, `eq_none`, `eq_err` — and it masks comments, strings
+and raw strings before matching, so it sees multi-line assertions that a
+line-based `rg` cannot.
+
+**655 candidate sites** over `crates/`, `ros/` and `tools/`: 648 in test
+scope, 7 in `src` scope.
+
+| kind | sites | | kind | sites |
+|---|---:|---|---|---:|
+| `is_none` | 118 | | `matches` | 73 |
+| `is_empty` | 106 | | `eq_none` | 31 |
+| `contains_msg` | 97 | | `is_some` | 28 |
+| `is_err` | 86 | | `eq_err` | 23 |
+| `contains_member` | 76 | | (two kinds on one site) | 17 |
+
+**655 is not a corrected 289 and the two must never be subtracted.** They
+are different grammars over scopes that were never stated to be the same,
+and 655 counts sites this sweep has already ruled out by hand:
+`contains_member` is collection membership, not a failure signal, and
+fails census §9 clause 1 outright. The number's use is as a *ceiling* the
+sweep can now audit against, and as the first figure in this document
+anyone else can reproduce.
+
+Two things its first run showed that the narrow grammar could not. The
+line-based check that has been standing in for it misses multi-line
+assertions entirely — on `crates/moveit-distance-field/src/voxel_grid.rs`
+a hand `rg` finds 2 sites where the instrument finds 4, and the two it
+misses (`:456`, `:512`) are both real. And `ros/moveit-ros` comes to 67,
+exactly p9-ros's row count; that is worth *checking*, not celebrating —
+two instruments agreeing on a total is the shape that hid two
+cancelling per-crate row errors earlier in this sweep.
+
+A worked non-finding, recorded because it is the trap this kind counts
+invite: `voxel_grid.rs:454` and `:456` assert the same needle ("must be
+finite and positive") against two different inputs, which reads as blind
+from the scan output alone. It is not. The test's own doc comment records
+the mutation — the sibling overflow guard's message never contains that
+text, so the shared needle still names one branch. The scan output is the
+question, never the verdict.
