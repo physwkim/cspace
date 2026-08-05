@@ -4301,6 +4301,17 @@ mod tests {
 
     // --- Body::from_shape ---
 
+    // Assertion-discrimination sweep (round 2): each of this test's four
+    // `assert!(matches!(...))` calls names a different Some(Body::_)-producing
+    // arm of `from_shape`'s `match shape { ... }` (lines 3109-3114) --
+    // Sphere/Cylinder/Cuboid/Mesh each get their own arm, each building a
+    // different concrete `Body` variant. Verdict `single-branch` per site:
+    // like `from_shape_returns_none_for_cone_plane_octree` right below, each
+    // call passes a *known, concrete* `Shape` variant, so Rust's exhaustive
+    // match on that input already proves only the matching arm executes --
+    // there is no runtime guard for an isolating mutation to separate, and
+    // no way for e.g. the `Shape::Sphere` call to silently take the
+    // `Shape::Cylinder` arm instead.
     #[test]
     fn from_shape_builds_matching_body_variant() {
         assert!(matches!(
