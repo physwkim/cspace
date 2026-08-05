@@ -18130,3 +18130,25 @@ rg -v '^[^:]+:[0-9]+:\s*//' | wc -l`). 처음 이 절에 적었던 328/61-파일
 
 `rg -n -F eigen_test_utils crates/ ros/ tools/ doc/ PORTING-PLAN.md`와
 `rg -n -F EXPECT_EIGEN crates/ ros/ tools/`는 각각 자기 행 하나와 0건이다.
+
+### §226.5 `console_colors.hpp` — `decided-non-port`, 코퍼스 안 소비자가 하나뿐이고 그것이 없다
+
+ANSI 이스케이프 `#define` 9개가 전부다(`console_colors.hpp:39-47`). 상류에서
+이 헤더를 쓰는 곳은 셋인데, `moveit_ros/move_group/src/move_group.cpp:122-198`과
+`moveit_ros/planning_interface/test/move_group_ompl_constraints_test.cpp`은
+코퍼스 밖이고, 코퍼스 안은 하나 —
+`moveit_core/robot_state/src/robot_state.cpp:2321,2347`, 즉
+`RobotState::printStatePositionsWithJointLimits`가 관절이 한계를 벗어났을 때
+줄을 빨갛게 칠하는 자리다.
+
+그 함수가 이 포트에 없다. `rg -n -i
+'printStatePositionsWithJointLimits|print_state_positions_with_joint_limits'
+crates/ ros/ doc/ PORTING-PLAN.md`가 0건이고, 상류 `robot_state.hpp`가
+선언하는 `print*` 여섯 개(`:1643-1654`) 중 어느 것도 `crates/moveit-state`에
+없다 — 그 크레이트의 크레이트 doc이 적어 둔 범위에도 들어 있지 않다
+(`crates/moveit-state/src/lib.rs:15-31`). `std::ostream`에 사람이 읽을
+디버그 그림을 그리는 함수가 없으니, 그 그림을 칠할 색도 필요 없다.
+
+**만료 조건:** 이 포트가 사람이 읽는 상태 덤프를 갖게 되면 다시 본다. 그때도
+9개 `#define`을 옮기는 것이 답일지는 별개다 — Rust 쪽에는 같은 일을 하는
+크레이트가 있고, 이 절은 그것을 조사하지 않았다.

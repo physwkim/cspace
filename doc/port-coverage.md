@@ -97,7 +97,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 89건 (2026-08-06 실측)
 
-`decided-non-port` 58 / `gap` 20 / `ported-elsewhere` 11.
+`decided-non-port` 59 / `gap` 19 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -118,7 +118,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | decided-non-port | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | same four declarations, same decision; this is the file §225.1 quotes line numbers from (`:82,92` for the wall-clock loop bound, `:68` for the one caller) |
 | `moveit_core/exceptions/src/exceptions.cpp` | ported-elsewhere | `crates/moveit-error/src/lib.rs:21-28,64-73` | "An unrecoverable error, replacing upstream's `moveit::Exception` hierarchy" -- `moveit_error::Error`, with `Error::Construct` for `ConstructException` |
 | `moveit_core/macros/include/moveit/macros/class_forward.hpp` | decided-non-port | `crates/moveit-trajectory/src/lib.rs:51-52`, `:370` | "`MOVEIT_CLASS_FORWARD(TimeParameterization)`/`MOVEIT_CLASS_FORWARD(TimeOptimalTrajectoryGeneration)` -- both unported"; the header's whole content is `MOVEIT_CLASS_FORWARD`/`MOVEIT_STRUCT_FORWARD` (2 `#define`s, verified upstream) |
-| `moveit_core/macros/include/moveit/macros/console_colors.hpp` | gap | none | `rg -n -F console_colors crates/ ros/` -> 0 hits; 9 ANSI-escape `#define`s upstream |
+| `moveit_core/macros/include/moveit/macros/console_colors.hpp` | decided-non-port | `PORTING-PLAN.md` §226.5 | 9 ANSI-escape `#define`s (`:39-47`). Its only in-corpus consumer is `RobotState::printStatePositionsWithJointLimits` (`robot_state.cpp:2321,2347`); that function and all six `print*` declarations (`robot_state.hpp:1643-1654`) are absent from `crates/moveit-state` and from its documented scope (`src/lib.rs:15-31`), measured over `crates/ ros/ doc/ PORTING-PLAN.md`. The other two consumers are in `moveit_ros/*`, outside `CORPUS_ROOTS` |
 | `moveit_core/macros/include/moveit/macros/declare_ptr.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:873-876` | "`MOVEIT_DECLARE_PTR_MEMBER(VoxelGrid)` -- unported: a C++ smart-pointer-alias macro with no Rust equivalent needed"; the header's whole content is `MOVEIT_DECLARE_PTR`/`MOVEIT_DECLARE_PTR_MEMBER` (2 `#define`s, verified upstream) |
 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | decided-non-port | `crates/moveit-smoothing/src/lib.rs:28-37` | "excluded (D1 + D4). `SmoothingBaseClass` is a pluginlib abstract interface: `initialize` takes `rclcpp::Node::SharedPtr` in the trait itself (D1)"; `lib.rs:71-79` records the header itself as fully audited |
 | `moveit_core/online_signal_smoothing/src/smoothing_base_class.cpp` | decided-non-port | `crates/moveit-smoothing/src/lib.rs:28-37` | same sentence, plus "`.cpp` has no content to port regardless: it is a default constructor/destructor" |
