@@ -403,7 +403,7 @@ patched around):
   (`scene.rs:1055`/`:1078`) landed on p1-fixtures round 23 (`de8886a`,
   `PORTING-PLAN.md` §150.1 closed) — plain `bool` returns, no outcome enum
   needed, since p1-fixtures read `World::moveShapesInObject`/
-  `setSubframesOfObject`'s bodies (`world.cpp:262-278`/`:365-378`) and found
+  `setSubframesOfObject`'s bodies (`world.cpp:262-280`/`:365-380`) and found
   every failure mode collapses to one case (unlike `moveObject`, there is no
   "found but unchanged" branch), and none of the five call sites these
   reach (`planning_scene.cpp:393, 1201, 1743, 1927, 2004`) touch ACM/color/
@@ -433,7 +433,7 @@ patched around):
   genuinely truncated one-byte payload instead. Requirements spec below
   kept for the historical record of what was asked for and why. Upstream:
   `moveit_core`'s
-  `createOctomap` (`planning_scene.cpp:1416-1433`) always constructs a
+  `createOctomap` (`planning_scene.cpp:1417-1435`) always constructs a
   concrete `octomap::OcTree` -- `AbstractOcTree`'s runtime-type
   registry/factory (`createTree`) is never on this call path -- then for
   `map.binary==true` calls `octomap_msgs::readTree` (`octomap_msgs`
@@ -442,7 +442,8 @@ patched around):
   `octree->readBinaryData(datastream)` directly: no `.bt`-file header
   text, no id/resolution re-encoding (both are already separate message
   fields). For `map.binary==false` it calls `om->readData(datastream)`
-  the same way (`fullMsgToMap`, `conversions.h:55-66`, is the identical
+  the same way (`fullMsgToMap`, `octomap_msgs/conversions.h:55-66`, is the
+  identical
   pattern). `readBinaryData`/`readBinaryNode`
   (`OccupancyOcTreeBase.hxx:931-1022`, 82 lines) is a recursive
   2-bit-per-child bitstream (free-leaf/occupied-leaf/has-children/unknown,
@@ -478,8 +479,8 @@ patched around):
   `createOctomap`'s own dispatch. **Verification:** bytes would come from
   the oracle -- capture a populated `octomap::OcTree` via
   `octomap_msgs::binaryMsgFromMap`/`fullMsgToMap` (same C++ call upstream's
-  `moveit_core` itself uses to produce `Octomap.data`, `conversions.h:70-76`/
-  `:55-66`) against a small fixture tree with a handful of updated nodes, the
+  `moveit_core` itself uses to produce `Octomap.data`,
+  `octomap_msgs/conversions.h:70-76`/`:55-66`) against a small fixture tree with a handful of updated nodes, the
   same byte-fixture pattern §149/§157 already use for other oracle
   comparisons; compare the decoded `moveit_octomap::OcTree`'s leaf
   occupancy/log-odds against the oracle's own tree via the existing
