@@ -99,6 +99,12 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 | `plan-components-builder-const-build-mutates` | not-reproduced |
 | `extract-blend-radii-empty-list-underflow` | not-reproduced |
+| `ik-cache-read-trusts-file-header` | not-reproduced |
+| `get-best-approximate-static-dummy-stale` | not-reproduced |
+| `update-cache-capacity-as-size-limit` | not-reproduced |
+| `save-cache-empty-path-guard-falls-through` | not-reproduced |
+| `cached-ik-accumulate-return-discarded` | not-reproduced |
+| `ik-cache-map-first-update-dropped` | not-reproduced |
 
 ---
 
@@ -870,6 +876,234 @@ around this defect.
 **Cost of not reproducing:** none. There is no oracle op and no parity test on
 the sequence path, and the reproducing behaviour has no caller upstream to
 compare against.
+
+---
+
+### `ik-cache-read-trusts-file-header` — `initializeCache` sizes every buffer from unchecked file-supplied counts and never compares the file's DOF count with the solver's — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:96-141`
+(verified at the pinned `e017c91e`).
+**Port:** `crates/moveit-kinematics/src/ik_cache/format.rs`, `from_json`.
+**Symptom:** four separate ways a cache file's own header is believed.
+`last_saved_cache_size_`, `num_dofs` and `num_tips` are read with three
+unchecked `cache_file.read` calls; the latter two are uninitialized locals
+(`:101`, `:103`), so a header shorter than twelve bytes leaves them
+indeterminate and every size below is computed from whatever was on the
+stack. `bufsize` is then `num_tips * 7 * sizeof(tf2Scalar) + num_dofs *
+sizeof(double)` in `unsigned int` arithmetic and reaches `new
+char[bufsize]` (`:115`) — the products wrap rather than fail. `num_dofs` is
+never compared against the `num_joints` argument, which is not stored until
+`:143`, *after* the entries are loaded: a cache written for a different arm
+loads silently, and its configs are handed to the solver as seeds of the
+wrong length. Finally the per-entry `cache_file.read(buffer, bufsize)`
+(`:124`) is unchecked and `entry` is reused across iterations, so a
+truncated file leaves the previous entry's bytes in `buffer` and
+`push_back`s that entry once per remaining iteration, up to the count the
+file itself declared. `entry.second.resize(num_dofs)` followed by
+`memcpy(&entry.second[0], ...)` (`:118`, `:131`) also subscripts an empty
+vector when `num_dofs` is zero.
+**Evidence:** a read of the control flow. Not oracle-confirmed: no oracle
+operation reads a cache file, and this port's format is not upstream's, so
+there is nothing byte-level to compare against.
+**Status:** `not-reproduced`. `from_json` deserializes into typed documents
+— lengths come from the JSON arrays themselves, not from a declared count —
+and then rejects a document whose `num_joints` is not the solver's, an
+entry whose config is not that long, more entries than the document's own
+`max_cache_size` admits, and an orientation that is not a unit quaternion.
+A truncated file is a parse error, not a duplicated tail.
+**Deviation:** none of `D1`..`D14` applies. `PORTING-PLAN.md` §80.2 already
+rules the on-disk format a local choice rather than a port target, which
+removes the byte-layout failure modes as a side effect; the four content
+checks are a separate decision, local to this one function.
+**Cost of not reproducing:** none. No parity test and no oracle operation
+touches the cache file. The cost lands on the API instead: reading a cache
+is fallible here, so `IkCache::load` and `CachedIkSolver::from_cache_file`
+return `Result` where upstream's `initializeCache` returns `void`.
+
+---
+
+### `get-best-approximate-static-dummy-stale` — The empty-cache reply is a function-local `static`, so every later empty-cache query gets the first one's pose and joint count — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:163`
+and `:174` (the two `IKCache::getBestApproximateIKSolution` overloads), and
+`:318` (`IKCacheMap::getBestApproximateIKSolution`'s copy of the same
+shape), all verified at the pinned `e017c91e`.
+**Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::nearest`.
+**Symptom:** `static IKEntry dummy = std::make_pair(std::vector<Pose>(1,
+pose), std::vector<double>(num_joints_, 0.))` is a *function-local*
+`static`: it is constructed on the first call that finds a cache empty and
+returned by `const` reference unchanged for the life of the process, for
+every `IKCache` instance, since the storage belongs to the function and not
+to the object. Both halves then go stale. The pose half is the first
+caller's target: `getPositionIK`
+(`cached_ik_kinematics_plugin-inl.hpp:96-100`) hands the same entry to
+`updateCache`, whose novelty gate computes `nearest.first[0].distance(pose)`
+— against a fresh dummy that term is zero by construction, against the
+stale one it is the distance to an unrelated request's pose, so the gate
+that is meant to be decided by config distance alone can be opened by the
+pose term. The config half freezes the first caller's `num_joints_`, and
+`nearest.second` is passed straight to the wrapped plugin as its seed
+(`-inl.hpp:97`), so a second arm with a different DOF count is seeded with a
+vector of the wrong length.
+**Evidence:** a read of the control flow, plus a read of the one caller
+that consumes both halves. Not oracle-confirmed: reaching it needs two
+`IKCache` instances in one process, which no oracle operation sets up.
+**Status:** `not-reproduced`. `IkCache::nearest` returns an owned
+`CacheEntry` built from the query pose and the cache's own `num_joints`, so
+there is no storage to go stale and nothing shared between instances.
+**Deviation:** none of `D1`..`D14` applies. Returning an owned value rather
+than a reference into shared storage is the ownership shape Rust gives a
+value the caller then hands to `update`; it was not chosen to route around
+this defect.
+**Cost of not reproducing:** none. The all-zero seed is tried first on a
+cold cache either way — that is upstream's design, recorded as CONFIRMED in
+`doc/claim-audit/moveit-kinematics.md` — and only the staleness is dropped.
+
+---
+
+### `update-cache-capacity-as-size-limit` — `updateCache` bounds the cache by `capacity()`, which a cache file can raise above the configured `max_cache_size_` — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:183`
+and `:197` (both `IKCache::updateCache` overloads), with `:75` and `:119`
+the two `reserve` calls that set the bound, verified at the pinned
+`e017c91e`.
+**Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::update`;
+`crates/moveit-kinematics/src/ik_cache/format.rs`, `from_json`.
+**Symptom:** the insert gate is `ik_cache_.size() <
+ik_cache_.capacity()` — the limit enforced is the allocator's, not the
+`max_cache_size` the user configured. `initializeCache` establishes it with
+`ik_cache_.reserve(max_cache_size_)` (`:75`), and `reserve` guarantees only
+`capacity() >= n`, so the two coincide by implementation habit rather than
+by contract. They come apart for a concrete reason, not a hypothetical one:
+`:119` calls `ik_cache_.reserve(last_saved_cache_size_)` with the entry
+count read straight out of the cache file (see
+`ik-cache-read-trusts-file-header`), and `reserve` never shrinks a vector.
+A file declaring more entries than `max_cache_size_` therefore raises the
+effective limit above the configured one permanently, and the cache grows
+past its own maximum for the rest of the process. The save trigger cannot
+catch up either: `ik_cache_.size() == max_cache_size_` (`:189`, `:218`) is
+an equality, so once the size is past that value it never fires again and
+only the every-500-entries clause remains.
+**Evidence:** a read of the control flow, plus `reserve`'s specified
+postcondition (`capacity() >= n`, not `== n`). Not oracle-confirmed.
+**Status:** `not-reproduced`. `IkCache::update` gates on `self.entries.len()
+>= self.options.max_cache_size`, and `from_json` refuses a document holding
+more entries than its own recorded `max_cache_size` — so the loaded state
+cannot start out above the limit either. The `Vec`'s capacity is never
+consulted.
+**Deviation:** none of `D1`..`D14` applies. This is a local choice about
+which of two numbers a bound reads, plus one construction-time check in the
+reader.
+**Cost of not reproducing:** none. No parity test exercises a full cache;
+`max_cache_size` reaches nothing outside this crate.
+
+---
+
+### `save-cache-empty-path-guard-falls-through` — `saveCache`'s uninitialized-path guard logs and then runs the write anyway, subscripting a cache the guard implies is empty — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:224-257`,
+the guard at `:226-227`, verified at the pinned `e017c91e`.
+**Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::save`.
+**Symptom:** `if (cache_file_name_.empty()) RCLCPP_ERROR(getLogger(), "can't
+save cache before initialization");` has no `return`. Execution continues
+into the write: `:231` constructs an `ofstream` on the empty path, which
+fails and sets the stream's error state; `:235-236` read `ik_cache_[0]` for
+the tip count and config size; `:239-256` write to the failed stream. The
+one state the guard names — `cache_file_name_` empty, so `initializeCache`
+never ran — is also the state in which `ik_cache_` is empty, so
+`ik_cache_[0]` subscripts an empty vector. That subscript is kept in bounds
+only by the two callers' incidental non-emptiness (`~IKCache` at `:64-67`
+tests `!ik_cache_.empty()` first, and `updateCache` calls `saveCache`
+immediately after a `push_back`), not by anything in the function;
+`saveCache` is `protected` (`cached_ik_kinematics_plugin.hpp:131`, in the
+section opened at `:127`), so no third caller exists to reach it today.
+Separately, `saveCache` returns `void` and never inspects the stream, so a
+write that produced nothing — an unwritable directory, a full disk, this
+empty path — is indistinguishable from one that succeeded, including to
+`~IKCache`, whose whole body is this call.
+**Evidence:** a read of the control flow, plus a read of the two call sites
+and of the declaration's access section. Not oracle-confirmed.
+**Status:** `not-reproduced`. `IkCache::save` takes the path as an argument
+rather than holding an initialize-time member, so "saved before
+initialization" is not a representable state; it returns `Result`, and the
+`std::fs::write` error is mapped with the path in the message.
+`CachedIkSolver::save_cache` propagates it.
+**Deviation:** none of `D1`..`D14` applies. Passing the path per call and
+returning `Result` are local API-shape choices in this crate.
+**Cost of not reproducing:** none. The upstream member also carries the
+mangled filename built at `:88-91`, which this port does not have — see
+`crates/moveit-kinematics/src/ik_cache/format.rs`'s module doc for why the
+filename's `max_cache_size`/threshold components are not reproduced.
+
+---
+
+### `cached-ik-accumulate-return-discarded` — Three `std::accumulate` calls that build a cache's name throw the result away, so the name loses every component after the first — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/cached_ik_kinematics_plugin-inl.hpp:81-83`
+and `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:342-349`
+(`IKCacheMap::getKey`), verified at the pinned `e017c91e`.
+**Port:** none. `CachedIkSolver` wraps one solver for one group and takes
+its cache path from the caller, so it has no name to build; `IKCacheMap`
+has no port at all (`D4` replaces pluginlib's plugin-per-group shape with
+the `KINEMATICS_SOLVERS` registry).
+**Symptom:** `std::accumulate(first, last, init)` returns the accumulated
+value and leaves `init` untouched. All three calls discard it. At
+`-inl.hpp:82`, `cache_name` is initialized to `base_frame` and the
+accumulate meant to append the tip frames does nothing, so `cache_name`
+stays the bare base frame; the cache file is then named
+`robot_id + group_name + "_" + cache_name + ...` (`ik_cache.cpp:88-91`), so
+two initializations of one group under different tip frames — which is what
+`CachedMultiTipIKKinematicsPlugin` exists for — resolve to the same file and
+share seeds whose poses are poses of different links. In
+`IKCacheMap::getKey` the same mistake is fatal rather than partial: `key`
+starts empty, both accumulates are discarded, and the only surviving
+statement is `key += '_'`, so the function returns `"_"` for every input.
+Every distinct (fixed, active) joint-name pair therefore maps to one map
+entry and one cache.
+**Evidence:** a read of `std::accumulate`'s contract and of the three call
+sites. Reachability differs sharply between them and is unmeasured for
+both: `-inl.hpp:82` is on the live `initialize` path, while `IKCacheMap` is
+constructed and called nowhere in the upstream tree — a search for the
+identifier finds only its own declaration and definitions — so `getKey` is
+dead code that would become live the moment anything used the class.
+**Status:** `not-reproduced`. Nothing in this port derives a cache identity
+from string concatenation; `CachedIkSolver::from_cache_file` and
+`save_cache` name the file explicitly, and the joint count the file was
+written for is checked against the solver's on load rather than encoded
+into a name.
+**Deviation:** `D4` is what removes the plugin-per-group naming scheme these
+functions serve; the discarded return itself maps to no `D` class.
+**Cost of not reproducing:** none. No parity test and no oracle operation
+constructs a cache name.
+
+---
+
+### `ik-cache-map-first-update-dropped` — `IKCacheMap::updateCache` creates the missing cache and returns without storing the solution that caused it to be created — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:323-339`,
+verified at the pinned `e017c91e`.
+**Port:** none — `IKCacheMap` has no port, for the reason given under
+`cached-ik-accumulate-return-discarded`.
+**Symptom:** the function looks the key up and branches. The found branch
+forwards to `IKCache::updateCache(nearest, poses, config)`. The missing
+branch inserts a null entry, `new IKCache`s it, calls `initializeCache` on
+it — and stops. `nearest`, `poses` and `config`, the whole point of the
+call, are never used on that path, so the first solution for any key is
+always discarded and only the second onwards is cached. Two smaller things
+ride along: the new cache is initialized through the four-argument
+`initializeCache` overload, taking default `Options` rather than the
+configured ones the single-cache path passes, and the inner `auto it`
+shadows the outer one, which is what makes the missing store easy to read
+past.
+**Evidence:** a read of the control flow. Unreachable in the upstream tree
+as it stands: nothing constructs `IKCacheMap`. Not oracle-confirmed.
+**Status:** `not-reproduced`. Recorded rather than ported: this port's
+`CachedIkSolver` holds one `IkCache` for one solver, and `IkCache::update`
+has no create-on-miss path to forget to finish.
+**Deviation:** none of `D1`..`D14` applies to the dropped store itself;
+`D4` is what removes the class it lives in.
+**Cost of not reproducing:** none. No caller, no parity test, no oracle
+operation.
 
 ---
 

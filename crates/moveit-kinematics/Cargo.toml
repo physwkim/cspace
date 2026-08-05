@@ -17,11 +17,14 @@ nalgebra.workspace = true
 linkme.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+# Not test-only, unlike every other crate here that names these two: they are
+# the IK cache's on-disk format (`src/ik_cache/format.rs`, which states why
+# JSON rather than upstream's `memcpy` of host-endian doubles).
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 urdf-rs.workspace = true
 moveit-srdf.workspace = true
 
