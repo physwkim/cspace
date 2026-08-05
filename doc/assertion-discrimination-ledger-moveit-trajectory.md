@@ -77,13 +77,54 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1070` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite() \|\| > MAX` fold, tiny-`resample_dt` fixture | `resample_dt_producing_an_unreasonable_sample_count_is_rejected` | discriminating overall; `!is_finite()` operand is **structurally-redundant** | bite: `!is_finite()` alone neutralized → all tests stay green (dead); `> MAX` alone neutralized → hang (killed via `timeout`, confirmed load-bearing). Structural argument: `resample_dt` is guaranteed finite+positive on entry (doc comment, `with_resample_dt` is the only setter); the only way `raw_sample_count` goes non-finite is overflow to `+inf`, and `inf > MAX` is trivially true, so `>` always independently catches it |
+| `time_optimal_trajectory_generation.rs:1070` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite() \|\| > MAX` fold, tiny-`resample_dt` fixture | `resample_dt_producing_an_unreasonable_sample_count_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1097` | same guard, subnormal fixture | `resample_dt_subnormal_is_rejected` | same | same |
 | `time_optimal_trajectory_generation.rs:1163` | same guard, usize-max-boundary fixture | `resample_dt_targeting_the_usize_max_boundary_is_rejected` | same | same |
-| `time_optimal_trajectory_generation.rs:1421` | `do_time_parameterization_calculations`'s `max_velocity.len() != num_joints \|\| max_acceleration.len() != num_joints` fold (line 770), mimic-joint-group fixture (4 active vs 7 full variables) | `mimic_joint_group_is_a_typed_error_not_a_panic` | discriminating overall; the two `!=` operands are **structurally-redundant** with each other | bite: `max_velocity.len() != num_joints` alone neutralized → test still fails via the `max_acceleration` operand (dead confirmed). Structural argument: `max_velocity`/`max_acceleration` are always constructed with identical length by every caller in this file (`DVector::zeros(num_active)` for both, in the same call), so the two operands can never independently differ |
+| `time_optimal_trajectory_generation.rs:1421` | `do_time_parameterization_calculations`'s `max_velocity.len() != num_joints \|\| max_acceleration.len() != num_joints` fold (line 770), mimic-joint-group fixture (4 active vs 7 full variables) | `mimic_joint_group_is_a_typed_error_not_a_panic` | discriminating; `max_acceleration.len() != num_joints` operand deleted, dead by construction | **fixed this round** (`612a9b3`) — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1470` | `compute_time_stamps_with_limits`'s custom-limit-vs-bounds-fallback branch (the `acceleration_set` flag at line 590) | `a_zero_custom_limit_skips_bound_validation` | **fixed this round** (was blind) | see below |
 | `time_optimal_trajectory_generation.rs:1511` | `totg_compute_time_stamps`'s `num_waypoints < 2` guard, `num_waypoints = 1` fixture | `totg_compute_time_stamps_rejects_fewer_than_two_waypoints` | discriminating | bite (`&& !true`; both assertions in the fn fail cleanly, single guard in the function) |
 | `time_optimal_trajectory_generation.rs:1517` | same guard, `num_waypoints = 0` fixture | same fn | discriminating | same bite |
+
+**Correction — `:1070`/`:1097`/`:1163` and `:1421` (this round).** The
+prior round's verdicts above ("structurally-redundant") were reached by
+reading the constructor, not by a reachability test — exactly the census
+§9g funnel shape. Re-investigated on request:
+
+- `:1421`'s fold (`max_velocity.len() != num_joints || max_acceleration.len()
+  != num_joints`, source `:770`): confirmed dead **by construction**.
+  `do_time_parameterization_calculations` is a private `fn` with exactly
+  two call sites in this file (`compute_time_stamps`,
+  `compute_time_stamps_with_limits`), and both construct
+  `max_velocity`/`max_acceleration` as `DVector::zeros(num_active)` from
+  the *same* `num_active` binding for both vectors — the two lengths can
+  never independently differ. **Fixed by deletion** (`612a9b3`): the
+  `max_acceleration.len() != num_joints` operand is gone. Bite-reconfirmed
+  the surviving `max_velocity.len() != num_joints` operand is still
+  load-bearing (neutralizing it alone now fails
+  `mimic_joint_group_is_a_typed_error_not_a_panic` with a panic, not a
+  clean error).
+- `:1070`/`:1097`/`:1163`'s `!is_finite()` operand: **not** provably dead.
+  One NaN-producing mechanism (zero-length-path collapse) is ruled out by
+  construction via the diversity-collapse loop's push/replace invariant,
+  but a second, distinct mechanism — a moving joint carrying a custom
+  `0.0` velocity limit — was **empirically reproduced** through the real
+  public API (`compute_time_stamps_with_limits`, panda_arm, 1e-5-scale
+  path, `min_angle_change: 0.0`) and produces a NaN `duration()`, which
+  `> MAX_RESAMPLE_SAMPLE_COUNT` does **not** catch (`NaN > x` is always
+  `false`). This was a coverage gap, not dead code — per the user's own
+  rule, the answer is a test, not a deletion. **Fixed by adding**
+  `resample_dt_over_a_nan_duration_is_rejected` (commit `b12b358`);
+  bite-confirmed neutralizing `!is_finite()` alone turns this fixture into
+  a silent `Ok(())` (NaN `sample_count` saturates to `0` under `as
+  usize`) instead of the resample-bound error the rest of this guard's
+  family gets.
+
+This NaN/`+inf` behaviour is itself a faithfully-transcribed upstream bug
+(`time_optimal_trajectory_generation.cpp:405`, no zero-relative-velocity
+guard on the timing-loop division) — recorded as
+`doc/upstream-bugs.md`'s `totg-timing-zero-velocity-division`,
+`reproduced-grandfathered` per the user's 2026-08-05 decision (document
+only, code unchanged), not fixed here.
 
 **Fix — `a_zero_custom_limit_skips_bound_validation` (commit `8ca3c3f`).**
 The old assertion was `!message.contains("invalid max_acceleration")` —
@@ -115,19 +156,38 @@ fails under the same mutation.
 | `trajectory.rs:1446` | same guard, `DISTINGUISHING_PHRASE` check | same fn as :1434 | discriminating | same |
 | `trajectory.rs:1473` | `Trajectory::create`'s `time_step <= 0.0` guard | `upstream_test_time_step_zero_makes_trajectory_invalid` | discriminating | bite: guard neutralized → hung, killed via `timeout 20`, same treatment |
 
-**Uncovered, no verdict — `trajectory.rs`'s third `Error::construct`
+**Uncovered, still no verdict — `trajectory.rs`'s third `Error::construct`
 site** ("trajectory not valid after the second integrateBackward pass",
-inside `Trajectory::create`, after the second `integrate_backward`
-pass). `rg` confirms this exact message string has exactly one
-occurrence in the crate — its own definition; no test anywhere asserts
-on it. Per `doc/folded-operand-guards.md`'s doctrine, this is noted, not
-given a fabricated verdict, and not fixed: constructing a fixture that
-passes the first forward+backward pass but fails specifically the
-*second* backward pass is a nontrivial numerical-design task, not a
-mutation, and the sibling guards in this same function are demonstrated
-above to hang under mutation — raising the cost/risk of attempting it
-further. Flagged for the user's decision, not silently left out of this
-report.
+inside `Trajectory::create`, after the second `integrate_backward` pass).
+`rg` confirms this exact message string has exactly one occurrence in the
+crate — its own definition; no test anywhere asserts on it, and upstream's
+own test suite (`moveit2/moveit_core/trajectory_processing/test/
+test_time_optimal_trajectory_generation.cpp`) has no case targeting this
+branch either.
+
+This round made three bounded, `timeout`-wrapped attempts to close it and
+did not succeed:
+
+1. A sharp near-180° corner with strong acceleration asymmetry (10.0 vs
+   1e-6) — failed the *first* `!traj.valid` checkpoint instead of the
+   targeted second one.
+2. A gentler blend (tolerance 2.0, accel 10.0 vs 0.01) — passed both
+   checkpoints (`Ok`), but produced a several-thousand-step trajectory
+   (2.2MB of debug output) — an unreliable, slow fixture, not a usable
+   test; abandoned rather than committed.
+3. A third variant between the two, also failed to isolate the second
+   checkpoint specifically.
+
+All three probes were fully reverted (`git diff --stat` empty against the
+committed tree before this ledger update). This is not resolved: it
+remains a written guard with zero covering assertion anywhere in the
+crate. The blocker is that constructing a fixture which survives the
+*first* backward pass's validity check but fails specifically the
+*second* is a numerical-design search, not a mutation, and the sibling
+guards in this same function are demonstrated above to hang under
+mutation — raising the cost of further blind search. Flagged for the
+user's decision (accept as a genuine gap, or authorize further/differently
+-scoped search), not silently left out of this report.
 
 ## `tests/robot_trajectory.rs` (12)
 
@@ -157,18 +217,30 @@ report.
 ## Summary
 
 - 40/40 sites classified against census §9.
-- 1 site was blind and is **fixed** this round (`8ca3c3f`,
-  `time_optimal_trajectory_generation.rs:1470`).
-- 3 sites are discriminating overall but rest on a **structurally-dead
-  fold operand** (`:1070`/`:1097`/`:1163`'s `!is_finite()`, `:1421`'s
-  `max_velocity.len() != num_joints`, `tests/robot_trajectory.rs:329`'s
-  `waypoints.len() <= 1`) — flagged, not silently simplified; a
-  structural simplification of the source guard is the user's call, not
-  applied unilaterally per "structure over patch" needing sign-off for
-  changes beyond the requested scope.
-- 1 site is a written guard with **no covering assertion anywhere in the
-  crate** (`trajectory.rs`'s "after the second integrateBackward pass")
-  — noted, not fabricated a verdict for, not fixed.
+- 2 sites were blind and are **fixed** this round: `8ca3c3f`
+  (`time_optimal_trajectory_generation.rs:1470`, prior round) and
+  `:1421`'s fold at source `:770` — `max_acceleration.len() !=
+  num_joints` deleted, proven dead by construction, `612a9b3` (this
+  round).
+- `:1070`/`:1097`/`:1163`'s `!is_finite()` operand was previously
+  misclassified as structurally-dead by a read-only funnel-shape verdict.
+  Re-investigated this round: one NaN mechanism is dead by construction,
+  a second is live and was previously uncovered — **fixed by adding a
+  test** (`resample_dt_over_a_nan_duration_is_rejected`, `b12b358`), not
+  by deletion. See "Correction" above.
+- `tests/robot_trajectory.rs:329`'s `waypoints.len() <= 1` guard retains
+  its prior structurally-redundant verdict — **not** re-investigated this
+  round (not named in this round's request; the funnel-shape correction
+  applies to it too and it has not been re-verified against the current
+  by-construction-or-test standard).
+- 1 site remains a written guard with **no covering assertion anywhere in
+  the crate** (`trajectory.rs`'s "after the second integrateBackward
+  pass") — three bounded fixture-construction attempts this round did not
+  reach it; still noted, not fabricated a verdict for, not fixed. See
+  "Uncovered, still no verdict" above.
+- 1 finding produced a new `doc/upstream-bugs.md` entry
+  (`totg-timing-zero-velocity-division`, `reproduced-grandfathered`) for
+  the NaN/`+inf`-producing division itself, rather than a code fix.
 - 16 sites are **not-this-family** (clause 1 — `Display`/`Debug`
   success-path text, not a failure/absence signal).
 - The remaining 19 sites are **discriminating**, each confirmed this
