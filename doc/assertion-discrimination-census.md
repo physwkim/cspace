@@ -610,32 +610,52 @@ tree. §1's prose grammar, which *is* readable, says the same thing at step
 3: anything that is not `matches!` and contains neither `.is_err()` nor
 `.is_none()` is "not counted". Cite that, not the missing script.
 
-`tools/ci/count-coarse-assertions.py` (`6a14a89`) is committed in its
-place, following the `count-*` convention already in `tools/ci/`: it lists
-raw textual hits and classifies nothing. Its grammar is deliberately wider
-— `matches`, `is_err`, `is_none`, `is_some`, `is_empty`, `contains_msg`,
-`contains_member`, `eq_none`, `eq_err` — and it masks comments, strings
-and raw strings before matching, so it sees multi-line assertions that a
-line-based `rg` cannot.
+`tools/ci/count-coarse-assertions.py` is committed in its place, following
+the `count-*` convention already in `tools/ci/`: it lists raw textual hits
+and classifies nothing. Its grammar is deliberately wider — `matches`,
+`is_err`, `is_none`, `is_some`, `is_empty`, `contains`, `eq_none`,
+`eq_err` — and it masks comments, strings and raw strings before matching,
+so it sees multi-line assertions that a line-based `rg` cannot.
 
-**655 candidate sites** over `crates/`, `ros/` and `tools/`: 648 in test
-scope, 7 in `src` scope.
+**687 candidate sites** over `crates/`, `ros/` and `tools/`: 679 in test
+scope, 8 in `src` scope. Nine further hits are assertion-helper *bodies*
+(scope `helper_body`) and are excluded from that total; their 35 call
+sites are counted instead, as kind `via:<fn>`. See §9e for why that
+distinction is worth the machinery.
 
 | kind | sites | | kind | sites |
 |---|---:|---|---|---:|
-| `is_none` | 118 | | `matches` | 73 |
-| `is_empty` | 106 | | `eq_none` | 31 |
-| `contains_msg` | 97 | | `is_some` | 28 |
-| `is_err` | 86 | | `eq_err` | 23 |
-| `contains_member` | 76 | | (two kinds on one site) | 17 |
+| `contains` | 170 | | `eq_err` | 37 |
+| `is_none` | 120 | | `eq_none` | 36 |
+| `is_empty` | 105 | | `via:<fn>` | 35 |
+| `matches` | 88 | | `is_some` | 27 |
+| `is_err` | 86 | | (two kinds on one site) | 17 |
 
-**655 is not a corrected 289 and the two must never be subtracted.** They
-are different grammars over scopes that were never stated to be the same,
-and 655 counts sites this sweep has already ruled out by hand:
-`contains_member` is collection membership, not a failure signal, and
-fails census §9 clause 1 outright. The number's use is as a *ceiling* the
-sweep can now audit against, and as the first figure in this document
-anyone else can reproduce.
+This figure superseded an earlier 655 twice, and both revisions were the
+instrument getting *less* clever rather than more:
+
+- Helper bodies and their call sites (`ccac7ea`). 655 counted five copies
+  of `assert_err_mentions`'s own `assert!` as five sites and none of the
+  23 places that call it. §9e is the finding that forced this.
+- `contains_msg` / `contains_member` collapsed into one `contains`. Two
+  rules were tried for that split and both misfile real sites here: a
+  backwards look for a rendering call cannot see through a closure
+  parameter (`|d| d.contains("only STL")`, five sites in `crates/`),
+  and reading the argument instead calls
+  `body.touch_links().contains("should_not_survive")`
+  (`scene/attached.rs:532`) a message search. Which one a `.contains` is
+  depends on the receiver's *type*, and the instrument has no types. It
+  now emits one kind and leaves the call to §9 clause 1, where every
+  other kind's membership is already decided by reading.
+
+**687 is not a corrected 289 and the two must never be subtracted.** They
+are different grammars over scopes that were never stated to be the same.
+The number's use is as a *ceiling* the sweep can audit against, and as the
+first figure in this document anyone else can reproduce. It is a generous
+ceiling: a large part of the 170 `contains` sites is collection
+membership, which fails clause 1 outright — but the instrument cannot say
+which part, and no figure in this document may be derived by guessing at
+the share.
 
 Two things its first run showed that the narrow grammar could not. The
 line-based check that has been standing in for it misses multi-line
@@ -722,12 +742,21 @@ The arithmetic, reproduced at the merge:
 Both corrections are structural, not clerical, and they cut in opposite
 directions. The tool counts the helper's own `assert!(rendered.contains(
 needle), ...)` line once per file — five hits that are one assertion
-*mechanism*, not five assertion sites. And the 23 call sites it cannot see
-at all: `assert_err_mentions` renders on one line and asserts on the next,
-so the 60-byte lookback that separates `contains_msg` from
-`contains_member` finds no rendering call and files the site as neither.
-The instrument's own header states this limit; the brief quoting 41 did
-not apply it.
+*mechanism*, not five assertion sites. And the 23 call sites it could not
+see at all: a call to `assert_err_mentions` contains no assertion text, so
+nothing in the tool's grammar matched it. The instrument's own header
+stated this limit; the brief quoting 41 did not apply it.
+
+Both corrections are now in the tool (`ccac7ea`): a body that asserts on
+its own parameter is emitted as `helper_body`, and each of its call sites
+as `via:<fn>`. Running it today gives **63**, not 62, and the extra site
+is real rather than a regrading — `4c56148` ("reach `apply_move`'s
+object-pose parse") split `collision_object.rs:1089` into `:1108` and
+`:1143` after `p9-ros` measured. 62 was right at `2dd3169`; 63 is right at
+this document's HEAD. The pair is worth keeping side by side, because a
+hand count and an instrument disagreeing by one is exactly the shape that
+gets "reconciled" by adjusting the older number instead of asking what
+landed in between.
 
 The quoted 41 was also measured before `f0855c5` merged, which added five
 sites of `p9-ros`'s own already-bite-checked tests. **Two independent
