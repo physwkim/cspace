@@ -133,9 +133,9 @@
 //!   zero members, zero overrides. All four do is bind one command type to
 //!   one generator type, and here that binding is `impl PilzGenerator for
 //!   TrajectoryGenerator{PTP,LIN,CIRC,Polyline}` itself, so there is no
-//!   separate context type left to write. See PORTING-PLAN.md §226.2.
+//!   separate context type left to write. See PORTING-PLAN.md §227.2.
 //!   `planning_context_base.hpp` is *not* on this list: its one computational
-//!   statement is realized here — see §226.1 and
+//!   statement is realized here — see §227.1 and
 //!   [`trajectory_generator::PilzGenerator::generate`].
 //! - `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager`
 //!   plugin itself, i.e. the `move_group` entry point.
@@ -163,8 +163,8 @@
 //! four `catch (const MoveItErrorCodeException&)` blocks in
 //! `trajectory_generator.cpp:312,324,337,350` reduce to once `ex.what()` —
 //! consumed by `RCLCPP_ERROR_STREAM` and nothing else — is dropped with the
-//! rest of the logging. PORTING-PLAN.md §226.5 maps all 46 macro-generated
-//! class names onto their port sites; §226.6 names the two that have no
+//! rest of the logging. PORTING-PLAN.md §227.5 maps all 46 macro-generated
+//! class names onto their port sites; §227.6 names the two that have no
 //! counterpart here.
 //!
 //! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
