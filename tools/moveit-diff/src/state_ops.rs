@@ -849,18 +849,79 @@ fn floating_pairs() -> Vec<(&'static str, Vec<f64>, Vec<f64>)> {
         out[6] += d;
         out
     };
+    let nudge_x = |q: &[f64], d: f64| -> Vec<f64> {
+        let mut out = q.to_vec();
+        out[3] += d;
+        out
+    };
+
+    // `Eigen::QuaternionBase::slerp`'s own branch boundary, which is a
+    // different boundary from `FloatingJointModel::interpolate`'s
+    // `quat_diff > EPSILON` copy guard above it: Eigen lerps when the raw dot
+    // product satisfies `|d| >= 1 - EPSILON` and takes the `sin` quotient
+    // otherwise. `from` is the identity, so `d` is exactly `to`'s `w`, and
+    // these three pin `d` one ULP either side of the threshold and exactly on
+    // it. Only the exactly-on case is observable at all -- measured over
+    // `t` in 100 steps, `1 - 2^-53` and `1 - 3*2^-53` give bit-identical
+    // answers from both branches, and `1 - 2^-52` differs by `2.22e-16`. A
+    // sweep without that one value cannot tell Eigen's threshold from
+    // nalgebra's `|d| >= 1`.
+    let dot_at = |w: f64| -> Vec<f64> {
+        let x = (1.0f64 - w * w).max(0.0).sqrt();
+        vec![0.0, 0.0, 0.0, x, 0.0, 0.0, w]
+    };
+    let one_ulp_below_one = f64::from_bits(1.0f64.to_bits() - 1);
+    let two_ulp_below_one = f64::from_bits(1.0f64.to_bits() - 2);
+    let three_ulp_below_one = f64::from_bits(1.0f64.to_bits() - 3);
 
     vec![
         ("same", identity.clone(), identity.clone()),
         (
-            "within-eps",
+            "dot-at-slerp-threshold",
             identity.clone(),
-            nudge_w(&identity, f64::EPSILON / 4.0),
+            dot_at(two_ulp_below_one),
+        ),
+        (
+            "dot-1ulp-inside-slerp-threshold",
+            identity.clone(),
+            dot_at(one_ulp_below_one),
+        ),
+        (
+            "dot-1ulp-outside-slerp-threshold",
+            identity.clone(),
+            dot_at(three_ulp_below_one),
         ),
         (
             "just-over-eps",
             identity.clone(),
             nudge_w(&identity, 4.0 * f64::EPSILON),
+        ),
+        // `FloatingJointModel::interpolate`'s own guard, `quat_diff >
+        // EPSILON`, where `quat_diff` is the summed componentwise absolute
+        // difference. The difference is carried in `rot_x` rather than in
+        // `rot_w`: a nudge of `EPSILON` or less added to `1.0` rounds straight
+        // back to `1.0`, so the obvious "one ULP inside the guard" case built
+        // that way is bit-identical to `same` and tests nothing. Against `0.0`
+        // every one of these three values survives exactly.
+        (
+            "quat-diff-at-eps",
+            identity.clone(),
+            nudge_x(&identity, f64::EPSILON),
+        ),
+        (
+            "quat-diff-1ulp-under-eps",
+            identity.clone(),
+            nudge_x(&identity, f64::from_bits(f64::EPSILON.to_bits() - 1)),
+        ),
+        (
+            "quat-diff-1ulp-over-eps",
+            identity.clone(),
+            nudge_x(&identity, f64::from_bits(f64::EPSILON.to_bits() + 1)),
+        ),
+        (
+            "quat-diff-half-eps",
+            identity.clone(),
+            nudge_x(&identity, f64::EPSILON / 2.0),
         ),
         ("ninety-deg", identity.clone(), z90.clone()),
         ("one-eighty-deg", identity.clone(), z180.clone()),
