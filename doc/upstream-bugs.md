@@ -2335,12 +2335,25 @@ negative, unset or NaN, so all three of this guard's inputs are
 unconstructible rather than repaired.
 `set-from-ik-zero-timeout-is-not-single-attempt` records the same structural
 answer already applied to the other wall-clock budget in the tree.
-**Cost of not reproducing:** none. No site in `crates/` or `ros/` reads either
-field — `rg -n 'allowed_planning_time|num_planning_attempts' crates ros`
-returns 16 lines, 15 of them doc comments in `.rs` files (`--glob '*.rs'` keeps
-15, and `| rg -v ':\s*//'` on those keeps 0) and the 16th a table row in
-`ros/moveit-ros/doc/message-mapping.md:634`; not one is code — so there is no
-test, oracle comparison or number that moves. The cost is deferred rather than
-zero: the
-crate that eventually honours a planning budget owes the decision in §236 a
-re-read, and the two tripwire tests named under **Port** are what force it.
+**Cost of not reproducing:** none, and the corpus that establishes it is
+named rather than asserted.
+`rg -n 'allowed_planning_time|num_planning_attempts' crates ros`
+returns 28 lines across 9 files; `--glob '*.rs'` keeps
+27, and `| rg -v ':\s*//'` on those keeps 6. All six are in
+`ros/moveit-ros/src/planning.rs`, inside the `#[cfg(test)]` module at `:373`,
+and all six are the two tripwire tests named under **Port** — each *writes*
+the field on a `MotionPlanRequest` message and then asserts the value is not
+observable on the `PlanningRequest` built from it. The remaining 21 `.rs`
+lines are doc comments and the 28th is the table row in
+`ros/moveit-ros/doc/message-mapping.md:634`. So no production code path on
+this side reads either field, which is what §236 rests on, but "no test"
+would now be false: two exist, and they fail if the premise stops holding.
+
+This paragraph previously read `16 / 15 / 0` and concluded "there is no test,
+oracle comparison or number that moves". That measurement was taken at
+`4b51963`, the commit that added this entry; `966e3dd` added the two
+tripwires in the very next commit and updated **Port** but not this
+paragraph, leaving the entry asserting the absence of the tests it names
+eight lines earlier. The cost is deferred rather than zero: the crate that
+eventually honours a planning budget owes the decision in §236 a re-read, and
+those two tests are what force it.
