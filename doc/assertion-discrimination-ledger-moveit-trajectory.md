@@ -4,24 +4,36 @@ Produced by p1-joints, assertion-discrimination-round2. Fence:
 `crates/moveit-trajectory`. Enumerated with
 `tools/ci/count-coarse-assertions.py crates/moveit-trajectory` post-merge
 (`6792ef1`, `f10e1bd`, `ccac7ea` — helper-body scoping, collapsed
-`contains` kind, top-level-operand `eq_none`/`eq_err`). Raw scan: 56
-sites; 16 are bare `.is_err()`/`.is_none()` (excluded, old grammar); the
-remaining **40** match the orchestrator's own count and per-file
-breakdown exactly:
+`contains` kind, top-level-operand `eq_none`/`eq_err`). Raw scan at that
+time: 56 sites; 40 were tabled, and 16 bare `.is_err()`/`.is_none()`
+sites were left uncited without a documented reason — that gap
+surfaced this round as 16 of 24 "orphans" (p3-acm's closing audit
+against `tools/ci/count-coarse-assertions.py`), the other 8 being
+merge-driven line drift (7, this file, from sibling tests other panels
+inserted earlier in it) plus this round's own new test (`:1561`) not
+yet having a table row. All 24 are now resolved below (13 new
+single-branch/discriminating rows, 7 citations corrected for drift,
+1 new discriminating row, 1 reclassified not-this-family in
+`ruckig_smoothing.rs`); current raw scan (this branch, including this
+round's own new test) is **57**, all tabled:
 
 | file | sites |
 |---|---:|
 | `src/robot_trajectory.rs` | 9 |
-| `src/time_optimal_trajectory_generation.rs` | 7 |
+| `src/time_optimal_trajectory_generation.rs` | 13 |
 | `src/path.rs` | 5 |
 | `src/trajectory.rs` | 4 |
-| `tests/robot_trajectory.rs` | 12 |
-| `tests/ruckig_smoothing.rs` | 3 |
-| **total** | **40** |
+| `tests/robot_trajectory.rs` | 22 |
+| `tests/ruckig_smoothing.rs` | 4 |
+| **total** | **57** |
 
 Verdict legend: **discriminating** (bite-confirmed: neutralizing the
 guard changes the targeted test's outcome, a sibling test/fixture stays
-green), **not-this-family** (fails census §9 clause 1 — inspects a
+green), **single-branch** (exactly one possible `Error`/`None`
+construction site reaches this assertion — confirmed by reading the
+callee's full body and finding exactly one `return Err`/`ok_or_else`;
+nothing to discriminate, so no bite is needed or possible), **not-this-family**
+(fails census §9 clause 1 — inspects a
 plain success-path `Display`/`Debug`-formatted value, not a genuine
 failure/absence signal), **structurally-redundant-operand** (in-family,
 overall discriminating, but one operand of a folded `||`/`&&` guard is
@@ -77,13 +89,19 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1070` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite() \|\| > MAX` fold, tiny-`resample_dt` fixture | `resample_dt_producing_an_unreasonable_sample_count_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
-| `time_optimal_trajectory_generation.rs:1097` | same guard, subnormal fixture | `resample_dt_subnormal_is_rejected` | same | same |
-| `time_optimal_trajectory_generation.rs:1163` | same guard, usize-max-boundary fixture | `resample_dt_targeting_the_usize_max_boundary_is_rejected` | same | same |
-| `time_optimal_trajectory_generation.rs:1421` | `do_time_parameterization_calculations`'s `max_velocity.len() != num_joints \|\| max_acceleration.len() != num_joints` fold (line 770), mimic-joint-group fixture (4 active vs 7 full variables) | `mimic_joint_group_is_a_typed_error_not_a_panic` | discriminating; `max_acceleration.len() != num_joints` operand deleted, dead by construction | **fixed this round** (`612a9b3`) — see "Correction" below |
-| `time_optimal_trajectory_generation.rs:1470` | `compute_time_stamps_with_limits`'s custom-limit-vs-bounds-fallback branch (the `acceleration_set` flag at line 590) | `a_zero_custom_limit_skips_bound_validation` | **fixed this round** (was blind) | see below |
-| `time_optimal_trajectory_generation.rs:1511` | `totg_compute_time_stamps`'s `num_waypoints < 2` guard, `num_waypoints = 1` fixture | `totg_compute_time_stamps_rejects_fewer_than_two_waypoints` | discriminating | bite (`&& !true`; both assertions in the fn fail cleanly, single guard in the function) |
-| `time_optimal_trajectory_generation.rs:1517` | same guard, `num_waypoints = 0` fixture | same fn | discriminating | same bite |
+| `time_optimal_trajectory_generation.rs:1038` | `with_resample_dt`'s single `!is_finite() \|\| <= 0.0` guard, `resample_dt = 0.0` | `resample_dt_zero_is_rejected_not_hung` | single-branch | structural: `with_resample_dt` has exactly one `if`/one `return Err` in its body |
+| `time_optimal_trajectory_generation.rs:1051` | same guard, `resample_dt = -0.01` | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | same |
+| `time_optimal_trajectory_generation.rs:1078` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite() \|\| > MAX` fold, tiny-`resample_dt` fixture (cited `:1070` before merge-driven line drift) | `resample_dt_producing_an_unreasonable_sample_count_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
+| `time_optimal_trajectory_generation.rs:1105` | same guard, subnormal fixture (cited `:1097` before drift) | `resample_dt_subnormal_is_rejected` | same | same |
+| `time_optimal_trajectory_generation.rs:1120` | `with_resample_dt`'s single guard, `resample_dt = NaN` | `resample_dt_nan_is_rejected` | single-branch | structural, same as `:1038` |
+| `time_optimal_trajectory_generation.rs:1133` | same guard, `resample_dt = +inf` | `resample_dt_positive_infinity_is_rejected` | single-branch | same |
+| `time_optimal_trajectory_generation.rs:1144` | same guard, `resample_dt = -inf` | `resample_dt_negative_infinity_is_rejected` | single-branch | same |
+| `time_optimal_trajectory_generation.rs:1171` | same fold as `:1078`, usize-max-boundary fixture (cited `:1163` before drift) | `resample_dt_targeting_the_usize_max_boundary_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
+| `time_optimal_trajectory_generation.rs:1429` | `do_time_parameterization_calculations`'s `max_velocity.len() != num_joints \|\| max_acceleration.len() != num_joints` fold (line 770), mimic-joint-group fixture (4 active vs 7 full variables); cited `:1421` before drift | `mimic_joint_group_is_a_typed_error_not_a_panic` | discriminating; `max_acceleration.len() != num_joints` operand deleted, dead by construction | **fixed this round** (`612a9b3`) — see "Correction" below |
+| `time_optimal_trajectory_generation.rs:1490` | `compute_time_stamps_with_limits`'s custom-limit-vs-bounds-fallback branch (the `acceleration_set` flag at line 590); cited `:1470` before drift | `a_zero_custom_limit_skips_bound_validation` | **fixed this round** (was blind) | see below |
+| `time_optimal_trajectory_generation.rs:1561` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite()` operand isolated, custom-`0.0`-velocity-limit fixture | `resample_dt_over_a_nan_duration_is_rejected` | discriminating (new this round) | bite: `!is_finite()` alone neutralized → silent `Ok(())` with NaN `sample_count` saturating to `0`; see "Correction" above. Commit `b12b358` |
+| `time_optimal_trajectory_generation.rs:1587` | `totg_compute_time_stamps`'s `num_waypoints < 2` guard, `num_waypoints = 1` fixture; cited `:1511` before drift | `totg_compute_time_stamps_rejects_fewer_than_two_waypoints` | discriminating | bite (`&& !true`; both assertions in the fn fail cleanly, single guard in the function) |
+| `time_optimal_trajectory_generation.rs:1593` | same guard, `num_waypoints = 0` fixture; cited `:1517` before drift | same fn | discriminating | same bite |
 
 **Correction — `:1070`/`:1097`/`:1163` and `:1421` (this round).** The
 prior round's verdicts above ("structurally-redundant") were reached by
@@ -199,24 +217,64 @@ user's decision (accept as a genuine gap, or authorize further/differently
 | `tests/robot_trajectory.rs:321` | `waypoint_density`'s `length > 0.0` guard (src `:789`), 5-identical-waypoints (zero geometric length) fixture | `waypoint_density_is_none_at_zero_length_and_some_after_perturbation` | discriminating | bite (`\|\| true` forces the guard true → `Some(inf)` returned, assertion fails; sibling `smoothness` test stays green) |
 | `tests/robot_trajectory.rs:325` | same fn, post-perturbation positive-density fixture | same fn | discriminating | same bite |
 | `tests/robot_trajectory.rs:329` | `waypoint_density`'s `waypoints.len() <= 1` guard (src `:785`), post-`clear()` (0-waypoint) fixture | same fn | discriminating overall; guard is **structurally-redundant** with `length > 0.0` | bite: guard neutralized alone (`&& !true`) → all tests stay green (dead). Structural argument: `path_length()`'s accumulation loop (`for i in 1..len`) cannot execute for `len <= 1`, so `length` is provably always exactly `0.0` there, and the `length > 0.0` guard immediately below independently returns `None` for the same fixture |
+| `tests/robot_trajectory.rs:484` | `add_suffix_way_point`'s single `is_empty() && dt != 0.0` guard (src `:249`) | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | structural: `add_suffix_way_point`'s body has exactly one `if`/one `return Err` |
 | `tests/robot_trajectory.rs:514` | `insert_way_point`'s `index == 0 && dt != 0.0` guard (src, `first_duration_error`) | `insert_way_point_at_zero_rejects_a_nonzero_dt` | discriminating | bite (`&& !true`; message-unique against the sibling `index_error`) |
+| `tests/robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s single `index == 0 && value != 0.0` guard (src `:234`) | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | structural: exactly one `if`/one `return Err` in the function body |
+| `tests/robot_trajectory.rs:550` | `append`'s single `self.waypoints.is_empty() && dt != 0.0` guard (src `:338`) | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | structural: `append`'s only other early return (`start_index >= end_index`) is `Ok`, not `Err` — one `Err` site total |
+| `tests/robot_trajectory.rs:568` | `way_point`'s single `ok_or_else(index_error)` (src `:171`) | `empty_trajectory_accessors_return_typed_errors_not_panics` | single-branch | structural: one `ok_or_else` in the function body |
+| `tests/robot_trajectory.rs:569` | `first_way_point`'s single `ok_or_else(empty_error)` (src `:186`) | same fn | single-branch | same |
+| `tests/robot_trajectory.rs:570` | `last_way_point`'s single `ok_or_else(empty_error)` (src `:196`) | same fn | single-branch | same |
 | `tests/robot_trajectory.rs:590` | `is_empty()` on an emptied trajectory | `reverse_on_an_empty_trajectory_is_a_no_op` | not-this-family (clause 1) | — |
+| `tests/robot_trajectory.rs:668` | `way_point(len)`'s single `ok_or_else(index_error)` | `out_of_range_index_access_is_a_typed_error` | single-branch | same structural argument as `:568` |
+| `tests/robot_trajectory.rs:669` | `way_point_mut(len)`'s single `ok_or_else(index_error)` (src `:178`) | same fn | single-branch | structural: one `ok_or_else` in the function body |
+| `tests/robot_trajectory.rs:670` | `remove_way_point(len)`'s single `index >= len` guard (src `:314`) | same fn | single-branch | structural: exactly one `if`/one `return Err` |
 | `tests/robot_trajectory.rs:676` | `insert_way_point`'s `index > self.waypoints.len()` guard (src, `index_error`) | `out_of_range_index_access_is_a_typed_error` | discriminating | bite (`&& !true`; message-unique against `first_duration_error`) |
 | `tests/robot_trajectory.rs:708` | `Debug`-formatted `"dirty: None"` substring on a waypoint after settling | `add_suffix_way_point_settles_the_stored_waypoint` | not-this-family (clause 1 — `Debug` text on a successfully-settled value) | — |
 | `tests/robot_trajectory.rs:723` | same | `add_prefix_way_point_settles_the_stored_waypoint` | not-this-family (clause 1) | — |
 | `tests/robot_trajectory.rs:738` | same | `insert_way_point_settles_the_stored_waypoint` | not-this-family (clause 1) | — |
+| `tests/robot_trajectory.rs:749` | `for_group_name`'s single fallible call (`joint_model_group(group)?`, src `:126`) | `unknown_group_name_is_a_typed_error_not_a_silent_whole_robot_fallback` | single-branch | structural: exactly one `?`-propagated call in the function body; the external callee (`moveit-model`) is out of this crate's fence |
 
-## `tests/ruckig_smoothing.rs` (3)
+## `tests/ruckig_smoothing.rs` (4)
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
+| `tests/ruckig_smoothing.rs:199` | `trajectory.group().is_none()` — fixture precondition check (confirms no group was set), not the guard under test | `no_group_set_is_an_error` | not-this-family (clause 1 — plain success-path state, not a failure/absence signal from a decision under test) | — |
 | `tests/ruckig_smoothing.rs:204` | `validate_group`'s single `.ok_or_else` guard (src `:245-249`) | `no_group_set_is_an_error` | discriminating | bite: message text mutated (`Error::other("mutated")`) → target fails, sibling `empty_trajectory_with_a_group_is_a_no_op` (never reaches this guard) stays green |
 | `tests/ruckig_smoothing.rs:216` | `is_empty()` on a no-op-smoothed empty trajectory | `empty_trajectory_with_a_group_is_a_no_op` | not-this-family (clause 1) | — |
 | `tests/ruckig_smoothing.rs:219` | same | same fn | not-this-family (clause 1) | — |
 
 ## Summary
 
-- 40/40 sites classified against census §9.
+- 57/57 sites classified against census §9 (40 from the original sweep,
+  17 closed this round: 16 previously-uncited sites plus this round's own
+  new test).
+- Orphan reconciliation (p3-acm's closing audit, this crate's assigned
+  share): re-derived independently rather than taken on the brief's word
+  per instruction. `tools/ci/count-coarse-assertions.py crates/
+  moveit-trajectory` against this branch gives **57** raw sites (the
+  brief's premise of 56 was measured on `main` before this round's
+  `b12b358` landed here — both are correct, for different commits).
+  Diffing against this ledger's citations before this round's edits gave
+  **24** raw mismatches, not the brief's 30: 7 were pure line drift (this
+  file's `resample_dt_*`/`mimic_joint_group_*`/`a_zero_custom_limit_*`/
+  `totg_compute_time_stamps_*` rows — sibling tests another panel
+  inserted earlier in the file shifted every assert below them by 8-76
+  lines; same test, same assert, corrected citation only, no new verdict
+  needed), 1 was this round's own new test not yet tabled (`:1561`), and
+  16 were genuine gaps — assertions the original 40-site sweep never
+  gave a row, mostly single-branch `.is_err()` checks in small
+  single-purpose test functions. All 16 are single-branch by
+  construction (each callee's body has exactly one `Error`/`None`
+  construction site) except `tests/ruckig_smoothing.rs:199`, which is a
+  fixture-precondition check, not-this-family. None needed a bite: per
+  this round's standard, a bite is required to call a funnel/multi-branch
+  site discriminating, but these are not funnels — there is nothing to
+  isolate from when only one cause exists.
+- 2 sites were blind and are **fixed** this round: `8ca3c3f`
+  (`time_optimal_trajectory_generation.rs:1470`, prior round) and
+  `:1421`'s fold at source `:770` — `max_acceleration.len() !=
+  num_joints` deleted, proven dead by construction, `612a9b3` (this
+  round).
 - 2 sites were blind and are **fixed** this round: `8ca3c3f`
   (`time_optimal_trajectory_generation.rs:1470`, prior round) and
   `:1421`'s fold at source `:770` — `max_acceleration.len() !=
@@ -241,13 +299,20 @@ user's decision (accept as a genuine gap, or authorize further/differently
 - 1 finding produced a new `doc/upstream-bugs.md` entry
   (`totg-timing-zero-velocity-division`, `reproduced-grandfathered`) for
   the NaN/`+inf`-producing division itself, rather than a code fix.
-- 16 sites are **not-this-family** (clause 1 — `Display`/`Debug`
-  success-path text, not a failure/absence signal).
-- The remaining 19 sites are **discriminating**, each confirmed this
-  round by a live isolating-mutation bite (not by reading) —
-  `totg_compute_time_stamps`'s guard, `a_zero_custom_limit`'s guard
-  (before the fix), `validate_group`, and `smoothness`'s guard were
+- 17 sites are **not-this-family** (clause 1 — 16 `Display`/`Debug`
+  success-path text checks from the original sweep, plus this round's
+  `tests/ruckig_smoothing.rs:199` fixture-precondition check).
+- 15 sites are **single-branch** (all found this round): each callee has
+  exactly one `Error`/`None` construction site reachable from the
+  asserting test, confirmed by reading the full function body, not by
+  bite — there is no sibling branch to isolate from.
+- 1 site is **structurally-redundant-operand**
+  (`tests/robot_trajectory.rs:329`, unchanged from the original sweep,
+  not re-investigated this round).
+- The remaining 24 sites are **discriminating**: 23 from the original
+  sweep (each confirmed by a live isolating-mutation bite, not by
+  reading — `totg_compute_time_stamps`'s guard, `a_zero_custom_limit`'s
+  guard (before the fix), `validate_group`, and `smoothness`'s guard were
   re-verified by fresh bite specifically in response to the
-  funnel-shape/inverse-trap correction mid-round; every other
-  `discriminating` verdict in this ledger already carried bite evidence
-  from the initial sweep.
+  funnel-shape/inverse-trap correction mid-round) plus this round's new
+  `resample_dt_over_a_nan_duration_is_rejected` (`:1561`).
