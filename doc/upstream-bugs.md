@@ -110,6 +110,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `fcl-distance-sentinel-survives-zero-contacts` | not-reproduced |
 | `stream-to-robot-state-missing-variable-falls-through` | not-reproduced |
 | `robot-state-to-stream-group-lookup-unchecked` | not-reproduced |
+| `stream-to-robot-state-bypasses-dirty-flags` | not-reproduced |
 
 ---
 
@@ -1353,6 +1354,48 @@ group name to it at all.
 `Result<&JointModelGroup>` — there is no null to dereference, and
 `robot_state_to_csv_by_groups` propagates `Error::UnknownName` carrying the
 name, per group entry rather than validated once up front.
+**Cost of not reproducing:** none. No parity test or oracle comparison
+covers these functions; see
+`stream-to-robot-state-missing-variable-falls-through` for the same
+absent-caller measurement.
+
+---
+
+### `stream-to-robot-state-bypasses-dirty-flags` — `streamToRobotState` writes through the raw position pointer, so the state it loads keeps the previous state's link transforms — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:574`
+(`state.getVariablePositions()[i] = std::stod(cell);`) against
+`moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp:142-150`,
+whose doc comment on that very accessor reads "Use carefully. If you change
+these values externally you need to make sure you trigger a forced update
+for the state by calling `update(true)`."
+**Port:** `crates/moveit-state/src/conversions.rs:204`
+(`csv_to_robot_state`'s `state.set_variable_positions(&positions)`)
+**Symptom:** `streamToRobotState` replaces every variable of the state and
+sets no dirty flag, because the non-const `getVariablePositions()` is a bare
+`return position_.data()` with no bookkeeping. `RobotState` decides whether
+to recompute forward kinematics from `dirty_joint_transforms_` and
+`dirty_link_transforms_`, so a state whose transforms were already computed
+answers the next `getGlobalLinkTransform` from the positions *before* the
+load. The neighbouring `setVariablePositions(const double*)`
+(`robot_state.cpp:349-359`) does the identical `memcpy` and then fills
+`dirty_joint_transforms_` and sets `dirty_link_transforms_ =
+getRootJoint()` — the dirtying path exists, takes exactly the array this
+loop is building, and is not the one taken. The function's own doc comment
+does not repeat the accessor's `update(true)` warning, so nothing at the
+call site says the loaded state is not yet usable.
+**Evidence:** a read of the two functions and of the accessor's own
+contract, which is what makes this a violated documented precondition
+rather than an unstated assumption. Not an oracle run: `rg` over the whole
+reference checkout finds no caller of `streamToRobotState`.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. This port has no non-dirtying
+write to reach for: `moveit_state::RobotState` exposes `positions()` as
+`&[f64]` and every write path goes through a setter that marks the subtree
+dirty, so `csv_to_robot_state` cannot construct the stale state even by
+accident. Confirmed by mutation — making the field `pub(crate)` and writing
+`state.positions.copy_from_slice(...)` is what it takes, and it fails
+`reading_a_state_marks_the_transforms_dirty` and nothing else.
 **Cost of not reproducing:** none. No parity test or oracle comparison
 covers these functions; see
 `stream-to-robot-state-missing-variable-falls-through` for the same
