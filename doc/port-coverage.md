@@ -97,7 +97,19 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 89건 (2026-08-06 실측)
 
-`decided-non-port` 51 / `gap` 27 / `ported-elsewhere` 11.
+`decided-non-port` 51 / `gap` 26 / `ported-elsewhere` 12.
+
+이 세 수는 게이트가 **검사하지 않는다** — `measure-port-coverage.py --check`는
+행 집합만 대조한다(§2). 그래서 표에서 직접 센다:
+
+```console
+$ awk -F'|' '/^\| `moveit_/ {gsub(/^ +| +$/,"",$3); c[$3]++; n++} \
+             END {for (k in c) print k, c[k]; print "total", n}' doc/port-coverage.md
+decided-non-port 51
+gap 26
+ported-elsewhere 12
+total 89
+```
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -122,7 +134,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/macros/include/moveit/macros/declare_ptr.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:873-876` | "`MOVEIT_DECLARE_PTR_MEMBER(VoxelGrid)` -- unported: a C++ smart-pointer-alias macro with no Rust equivalent needed"; the header's whole content is `MOVEIT_DECLARE_PTR`/`MOVEIT_DECLARE_PTR_MEMBER` (2 `#define`s, verified upstream) |
 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | decided-non-port | `crates/moveit-smoothing/src/lib.rs:28-37` | "excluded (D1 + D4). `SmoothingBaseClass` is a pluginlib abstract interface: `initialize` takes `rclcpp::Node::SharedPtr` in the trait itself (D1)"; `lib.rs:71-79` records the header itself as fully audited |
 | `moveit_core/online_signal_smoothing/src/smoothing_base_class.cpp` | decided-non-port | `crates/moveit-smoothing/src/lib.rs:28-37` | same sentence, plus "`.cpp` has no content to port regardless: it is a default constructor/destructor" |
-| `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | gap | `crates/moveit-planners-sbp/src/registry.rs:1-12`, `lib.rs:68-95` | a D1/D4-adapted stand-in exists (`PlannerManager`/`PlanningContext` in `registry.rs`), but the crate's own 25-declaration audit leaves 22 unported and undecided |
+| `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | ported-elsewhere | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `lib.rs:300-391` (`# Round 6 symbol audit`), `lib.rs:68-106` (completion statement) | `registry.rs` names this file by path: "a D1/D4-adapted stand-in for ... (`PlannerManager`, `PlanningContext`)". The audit accounts for all **25** public declarations, and re-reading the header confirms 25 is the count (2 config + `PlanningContext`'s 12 + `PlannerManager`'s 11): **3 ported** — `solve`'s two overloads collapsed into `registry::PlanningContext::solve`, and `getPlanningContext(scene, req, error_code)` as `registry::PlannerManager::get_planning_context` — and **22** decided unported, one D-number or structural reason per declaration. Nothing is undecided, so the old note's "22 unported and **undecided**" was refuted by the very file it cited, and with it the `gap` that note was the grounds for. Residual: none at declaration granularity; the `.cpp`'s own residual is its own row below |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | ported-elsewhere | `crates/moveit-planning/src/request.rs:4-10` | "[`PlanningRequest`] replaces the fields of `moveit_msgs::msg::MotionPlanRequest` this crate's six request adapters actually read"; `WorkspaceBounds` replaces `WorkspaceParameters` minus its D1 header |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | ported-elsewhere | `crates/moveit-planning/src/lib.rs:404` | "Replaces `planning_interface::PlanningRequestAdapter`" -- the `PlanningRequestAdapter` trait in `moveit-planning` |
 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | ported-elsewhere | `crates/moveit-planning/src/response.rs:33` | cites `planning_response.hpp:48-70` for `PlanningResponse`'s field set |
