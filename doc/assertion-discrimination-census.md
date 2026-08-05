@@ -548,6 +548,28 @@ of the outstanding 138 turn out in-family — that number is unknown, not
 small-by-assumption. And 292 itself is a floor, for the grammar reason
 stated above.
 
+**`p1-fixtures` has since landed (`6c56767`, merged `30bd5b0`): 47 of its
+49 rows are in-family.** Running total **186 in-family of 203 classified**
+(51 + 58 + 30 + 47), leaving `p3-acm`'s 89 rows as the only unclassified
+set and narrowing the bound to **≥186, ≤275** against the 292 floor. Its
+two reclassifications are worth reading as worked §9 examples, because
+neither is a wrong verdict being corrected — both are right answers to the
+pre-§9 question:
+
+- `moveit-scene/src/scene.rs:2150` fails **clause 1 (mechanism)**.
+  `matches!(outcome, MoveObjectOutcome::Moved(_))` targets the
+  success-with-effect arm of a three-variant outcome
+  (`world.rs:586-595`: `NotFound`, `NoChange`, `Moved`). The sibling two
+  variants *would* satisfy clause 1; `Moved` is a success-path value, so
+  the assertion is not this family even though it does discriminate.
+- `moveit-constraints/tests/constraint_sampler_manager.rs:172` fails
+  **clause 2 (decision)**. Its fixture is empty on every axis
+  (`joints=&[]`, `solver=None`, `subgroup_solvers=vec![]`), so Steps A/B/C
+  never touch a real operand and the `None` it asserts is an untouched
+  accumulator, not a written decision. The file's own doc comment at
+  `:105-113` already says so, naming this test while arguing the opposite
+  for its neighbour.
+
 The 289 figure remains correct as the syntactic pre-filter count (§1,
 §8). It is not the sweep's in-family denominator, and no report from this
 sweep should quote 289 as if it were — the same substitution error §8
