@@ -92,7 +92,7 @@
 //!
 //! # Deviation: `planning_time_limit + 5` is validated before narrowing (`§172`/`§153.1`)
 //!
-//! Upstream's recovery loop (`chomp_planner.cpp:177-181`) computes
+//! Upstream's recovery loop (`chomp_planner.cpp:200-201`) computes
 //! `params_nonconst.planning_time_limit_ + 5` (a `double`) and passes it,
 //! with no `static_cast`, to `setRecoveryParams`'s `int planning_time_limit`
 //! parameter -- an implicit narrowing conversion that is undefined behaviour
