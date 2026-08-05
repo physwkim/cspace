@@ -1303,7 +1303,7 @@ mod tests {
     // ported as `tests/large_accel.rs`, not here: its fixture data is
     // upstream's own test literals at full `f64` precision, and one of them
     // is (coincidentally — see the fixture's `source` field and that test
-    // file's doc comment) 4550 ULPs from `FRAC_PI_4`, close enough that
+    // file's doc comment) 4038 ULPs from `FRAC_PI_4`, close enough that
     // `clippy::approx_constant` fires on the literal. Loading the data from
     // a committed JSON fixture removes the literal clippy was matching
     // entirely, rather than disguising it from the lint.
