@@ -16251,3 +16251,120 @@ end-to-end 테스트를 새로 추가했다: `4ff563d`가 실제로 깨뜨린 �
 하나라도 와이어 필드와 호출 사이에 분기(사이트별 기본값 대체나
 clamp 등)가 생기면 그 행의 추론 셀은 더 이상 유효하지 않고 실제
 사이트별 테스트로 다시 실행해야 한다.
+
+## §216 Phase 5 완료 조건 세 항목을 실제로 측정했다 — 하나는 다른 것을 재고 있었고, 둘은 계기가 없었다
+
+§5의 Phase 5 완료 조건은 세 줄이다. 시작 시점의 통념은 "1번은 충족,
+2·3번은 미착수"였는데, 셋 다 재보고 나니 그 통념이 세 항목 모두에서
+틀렸다.
+
+### 216.1 1번 — 2,000건은 돌고 있었지만 "조합"이 아니었고, 아무도 돌리지 않았다
+
+`moveit-diff --constraints 2000`은 라운드 4부터 있었고 4로봇 전부에서
+0건 불일치로 통과했다. 그런데 생성기를 열어 세어 보니 **모든 케이스가
+제약을 정확히 하나씩만** 담고 있었다 — 7종을 순환하며 로봇당 ~286건씩.
+조건이 요구하는 것은 "제약 **조합** 2,000건"이므로, 통과하던 그 숫자는
+조건이 겨냥한 것을 재고 있지 않았다. 게다가 이 명령을 실행하는 CI
+스크립트가 없었다. §11.2가 야코비안에서 적은 것과 같은 모양이다: 비교가
+존재하는 것과 실행 주체가 있는 것은 다르다.
+
+생성기를 12종 구성(단일 7 + 복합 5)으로 바꿨다. 복합 5종이 네 제약
+종류를 모두 포함하고, 최대 5개 제약이 한 케이스에 들어간다. 로봇당
+2,000 조합, 구성별 166~167건씩. 4로봇 각 `cases: 2051, passed: 2051,
+failed: 0` — 2051 = 조합 2,000 + `model_info` 1 + fk 50. 실행 주체는
+`tools/ci/verify-constraint-sweep.sh`, 4로봇 전체 **30.1초**.
+
+반증 확인: `rust_impl::constraints`의 position/orientation push 루프
+순서를 바꾸면 panda에서 `passed: 1553, failed: 498`. 498은 두 종류를
+동시에 담은 구성 3종 × 166건과 정확히 일치하고, 단일 종류 케이스는
+한 건도 실패하지 않는다 — 바꾸기 전의 단일 제약 스윕이었다면 이
+결함을 볼 수 없었다는 뜻이다.
+
+### 216.2 2번 — 계기가 아예 없었다
+
+샘플러가 낸 상태를 자기 제약의 `decide()`로 되먹이는 코드는 트리에
+없었다. `crates/moveit-constraints/tests/sampler_self_validation.rs`가
+그것이다. 7종 샘플러 구성에서 **10,000 상태 생성, 10,000 만족**
+(10,002 시도 — `ik_position_only`가 두 번 수렴에 실패했다). 구성별:
+joint_full_coverage 2000, joint_partial_coverage 1600, ik_position_only
+1600, ik_orientation_only 1600, ik_position_and_orientation 1600,
+union_hand_joint_plus_arm_ik 800, manager_partial_joint_plus_ik 800.
+**10.6초**, `tools/ci/verify-sampler-self-validation.sh`가 실행한다.
+
+루프는 고정 횟수 `for`가 아니라 할당량까지 뽑는 `while`이고 시도 상한
+(할당량 × 4)이 있다. 0건을 낸 구성은 100%로 접히지 않고
+`produced 0 of its N states -- a vacuous 100%`로 실패한다.
+
+반증 확인 두 가지. (a) 샘플 직후 `panda_joint1`에 +0.5 rad을 더하면
+7종 전부가 위반을 보고하고 총계가 `10000 produced, 2178 satisfied`로
+떨어진다. (b) `MAX_IK_ATTEMPTS = 0`이면 IK 기반 5종이 위 문구로
+실패하고 0.6초에 끝난다.
+
+정직하게 적어 둘 한계: IK 세 구성은 `IkConstraintSampler::sample`이
+받아들이기 전에 이미 자기 제약을 `validate()`로 되묻는다. 그 세
+구성에서 이 테스트는 부분적으로 동어반복이다. 진짜로 검사 없이 나오는
+경로는 joint 두 구성과 disjoint union 하나다.
+
+### 216.3 3번 — 오라클에 이 질문을 할 op이 없었다
+
+`collision`은 `PlanningScene` 없이 `CollisionEnvFCL`을 직접 만들고,
+`is_state_valid`는 scene을 만들지만 `diff()`를 부르지 않는다. 씬 diff를
+적용한 뒤의 충돌 결과를 물을 수 있는 op이 없었으므로, 이 조건은
+"미충족"이 아니라 **측정 불가능**이었다.
+
+`scene_diff_collision`을 추가했다. 요청의 joint/objects/attached로 부모
+씬을 세우고, 충돌을 재고, 상류 `PlanningScene::diff()`로 자식을 만들고,
+diff 액션을 적용하고, **자식과 부모를 다시** 잰다. 부모를 두 번 재는
+것이 핵심이다: 자식만 보고하면 올바른 copy-on-write와 부모를 망가뜨린
+diff를 구분할 수 없다.
+
+`crates/moveit-scene/tests/scene_diff_collision_parity.rs`, pr2 9케이스.
+조건이 명시한 다섯 종류를 각각 1케이스 이상 덮는다 — 월드 오브젝트
+추가(1, 6, 9), 제거(2, 8), 링크에 부착(3), 분리(4), ACM 엔트리
+변경(5, 6, 8). 나머지 4케이스는 앞의 다섯을 공허하지 않게 만드는
+장치다: 6번은 충돌 수치를 하나도 바꾸지 않으면서 월드만 바꾸고, 7번은
+빈 diff 대조군이며, 8번은 허용→제거→재추가로 `remove_object`의 ACM
+가지치기만이 볼 수 있는 차이를 만들고, 9번은 부모가 이미 가진
+오브젝트에 도형을 더해 `World::ensure_unique`를 타는 유일한 케이스다.
+`cargo nextest run -p moveit-scene` 안에서 **0.040초**라 별도 opt-in이
+없다.
+
+반증 확인 네 가지, 각각 다른 비교 대상을 겨냥한다:
+
+| 변형 | 실패한 곳 |
+|---|---|
+| `diff()`가 부모 월드를 상속하지 않음 | case 1 `world_object_ids` |
+| `remove_object`가 ACM을 가지치기하지 않음 | case 8 `robot_collision` |
+| `detach`가 기하를 월드로 되돌리지 않음 | case 4 `world_object_ids` |
+| `World::ensure_unique`가 공유 오브젝트를 복제하지 않음 | case 9만 — 1~8은 전부 통과한 뒤 9에서 패닉 |
+
+마지막 행이 이 파일의 부모 격리 단언이 무엇을 재고 무엇을 재지 않는지
+정한다. 이 포트에서 부모는 자식이 사는 동안 `Arc` 뒤에 있으므로 상태·
+ACM·transform 층은 **구조적으로** 닿을 수 없다 — 그 셋에 대해 단언은
+측정이 아니라 재확인이다. 공유 가변 경로는 `World`의 `Arc<Object>`
+copy-on-write 하나뿐이고, 그것은 부모가 이미 가진 오브젝트를 건드려야
+닿는다. case 1~8은 전부 맵 엔트리 단위 추가/제거라 거기에 닿지 않는다.
+case 9가 유일한 실측이다.
+
+C++ 쪽은 사정이 다르다. 자식이 가변 `WorldPtr`과 가변 ACM을 들고 있어
+어느 쪽으로든 써 넣을 수 있으므로, 오라클에서 `parent_after ==
+parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그것을 고정한다.
+
+같이 고친 것 하나. 처음 쓴 `remove_object`/`detach` diff 액션은 이름
+그대로 `World::removeObject`와 `RobotState::clearAttachedBody`만
+불렀다. 그런데 상류의 `processCollisionObjectRemove`는 ACM 엔트리를
+지우고, AttachedCollisionObject의 REMOVE 분기는 기하를 월드로 되돌린
+**뒤에** 상태에서 지운다. 이 포트의 `PlanningScene::remove_object`/
+`detach`는 상류를 따르므로, 고치지 않았다면 오라클과 Rust가 서로
+일치하면서 둘 다 상류에서 벗어나는 픽스처를 만들 뻔했다.
+
+### 216.4 남는 것
+
+- pr2의 `self_collision`/`self_distance`는 이 비교에서 제외했다.
+  이 포트가 메시를 싣지 않아 pr2 자기충돌면 대부분이 없고, 그 불일치가
+  diff 층의 신호를 덮는다. 오라클은 두 필드를 그대로 보고하고
+  `verify-fixture-replay.sh`가 커밋된 응답 전체를 살아 있는 오라클과
+  대조하므로, 드리프트에 대해서는 여전히 고정돼 있다.
+- 씬 diff는 `push_diffs`/`decouple_parent`/`clear_diffs`까지 있는데
+  이번 비교는 `diff()` 적용 후의 충돌 결과만 덮는다. 부모로 되밀어
+  넣는 경로는 오라클 op으로 열려 있지 않다.
