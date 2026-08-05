@@ -439,6 +439,15 @@ mod tests {
     /// -c 'Error::' trajectory_generator_ptp.rs` restricted to the function
     /// body: 6), so a bare `.is_err()` cannot say which fired. Checked on
     /// the message against its sibling guards below (message-swap bite).
+    ///
+    /// Live bite: neutralizing this guard (`if false && !has_joint_limits`)
+    /// on this fixture (empty `LimitsContainer`) falls through to
+    /// `common_limit_for` on an empty joint-limits container, which fails
+    /// its own way -- the assertion here correctly FAILS with "construction
+    /// failed: failed to compute common limit" while
+    /// `constructor_rejects_unknown_group` and
+    /// `constructor_rejects_a_group_missing_an_acceleration_limit` (whose
+    /// fixtures never reach this guard) stay GREEN. Mutation reverted.
     #[test]
     fn constructor_rejects_missing_joint_limits() {
         let (model, _) = load_panda();
@@ -454,6 +463,18 @@ mod tests {
 
     /// Boundary: joint limits are set, but `group_name` names no group.
     /// Same six-site function as above; see that test's doc comment.
+    ///
+    /// This guard is not locally bite-able: it is the sole gate on
+    /// `moveit_model::RobotModel::joint_model_group`'s own `Result`, an
+    /// external, borrowed-return lookup in `moveit-model` (out of this
+    /// crate's fence) -- there is no `&JointModelGroup` this crate can
+    /// fabricate locally to fall through with, so a `if false && ...`
+    /// neutralization here would not compile without editing another
+    /// crate. Discrimination instead rests on message uniqueness: none of
+    /// the other five `Error::construct` sites in this function can ever
+    /// render "invalid group" (checked against all six literal message
+    /// templates), so a message-based `.contains` cannot mistake a sibling
+    /// guard for this one.
     #[test]
     fn constructor_rejects_unknown_group() {
         let (model, _) = load_panda();
@@ -472,6 +493,14 @@ mod tests {
     /// Boundary: the group's fused limit has a velocity limit but no
     /// acceleration limit. Same six-site function; see
     /// `constructor_rejects_missing_joint_limits`'s doc comment.
+    ///
+    /// Live bite: neutralizing this guard (`if false &&
+    /// !has_acceleration_limits`) on this fixture (velocity set,
+    /// acceleration/deceleration both default-`false`) falls through to the
+    /// deceleration guard -- the assertion here correctly FAILS with
+    /// "construction failed: deceleration limit not set for group
+    /// panda_arm" while the other two tests (whose fixtures fail earlier
+    /// guards) stay GREEN. Mutation reverted.
     #[test]
     fn constructor_rejects_a_group_missing_an_acceleration_limit() {
         let (model, _) = load_panda();

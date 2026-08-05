@@ -800,3 +800,105 @@ One latent risk is recorded unfixed and should stay that way:
 fixture — so there is nothing live to bite-check today, and a fix would be
 a guess. A future edit touching `mv.pose` in that test would misattribute
 the failure.
+
+### 9f. The fences are paths, and the partition is checked
+
+Every round of this sweep until now fenced panels by *kind*: `contains_msg`
+sites in `crates/` were p1-robotmodel's, `is_empty`/`eq_none` sites were
+p1-fixtures', and so on. §9c records why that vocabulary no longer exists.
+The failure it caused is worth stating separately from the instrument fix,
+because it is not a counting error and no count would have shown it.
+
+A kind fence and a path fence disagree about who owns a site, and when the
+kind fence is the one a panel applies while a path fence is the one another
+panel was briefed with, sites fall through the gap. Four did:
+`moveit-geometry/src/bodies.rs:3953,4055,4066,4125`. `p3-acm` excluded them
+from its geometry table as "`contains_msg`-shaped, therefore
+p1-robotmodel's" — correct under the rule it was given — and
+p1-robotmodel's fence names `moveit-model/`, `moveit-constraints/tests/
+decide.rs` and `moveit-planning/`, which does not contain `moveit-geometry`.
+Neither panel was wrong. `rg` over `doc/` found no verdict for any of the
+four in any ledger.
+
+Two of those four are the reason this matters rather than being
+bookkeeping: `bodies.rs:4055` and `:4125` both assert `.contains("radius")`
+against a rendered error. If the two constructor guards behind them can
+each produce a message containing that substring, neither site names which
+one fired — a colliding-needle pair of exactly the shape §4 exists to find,
+sitting in the one gap where no panel was looking.
+
+The fences are now paths, and the partition is machine-checkable rather
+than argued. Over the 392 sites outside the `matches!`/`.is_err()`/
+`.is_none()` grammar:
+
+| panel | fence | sites |
+|---|---|---:|
+| `p9-ros` | `ros/moveit-ros/`, `crates/moveit-distance-field/` | 102 |
+| `p1-fixtures` | `moveit-octomap/`, `moveit-scene/`, `moveit-srdf/`, `moveit-state/`, `moveit-smoothing/`, `moveit-kinematics/`, `moveit-sampling/`, `moveit-test-support/`, `tools/moveit-diff/`, `moveit-constraints/tests/{sampler,utils_parity}.rs` | 105 |
+| `p3-acm` | `moveit-collision/`, `moveit-geometry/`, `moveit-planners-{sbp,chomp,stomp}/`, `moveit-stomp-core/` | 81 |
+| `p1-joints` | `moveit-trajectory/`, `moveit-planners-pilz/` | 52 |
+| `p1-robotmodel` | `moveit-model/`, `moveit-constraints/tests/decide.rs`, `moveit-planning/` | 52 |
+| **total** | | **392** |
+
+The check that matters is not the total — it is that every site falls in
+**exactly one** fence. Run the instrument, prefix-match each path against
+the table, and count sites matching zero fences and sites matching more
+than one. Both must be zero. When first run it reported four orphans in
+`bodies.rs` and three plus four in `moveit-constraints/tests/`, all seven of
+the latter stranded the same way; the table above is the state after those
+were assigned. A kind fence cannot be audited this way at all, which is the
+substantive argument for paths over any repair to the kind vocabulary.
+
+### 9g. A source read produced two false `discriminating` verdicts
+
+`p1-robotmodel` closed its 52-site fence with **0 blind** (§9f's partition,
+merge `1ddb2ac`), the great majority of rows verdicted by reading the
+source. It then flagged a coverage gap as explicitly out of scope: of
+`MeshSearchPaths::resolve`'s four `None`-producing guards
+(`mesh_search_paths.rs:86-89`), two had no test at all.
+
+Sent back to prove the two *tested* guards rather than supplement them, it
+found both were blind:
+
+> `:130` (`unknown_package_does_not_resolve`) and `:139,140`
+> (`non_package_uri_does_not_resolve`) were both blind — each survived
+> neutralization of the guard it was supposed to test, because neither
+> fixture had a real file at the joined path, so the chain fell through to
+> `is_file()` failing for an unrelated reason.
+
+Both had been verdicted `discriminating` one round earlier. The reading was
+not careless — the four guards reject disjoint *inputs*, which is what a
+read can see, and each test does supply an input only its own guard
+rejects. What a read cannot see is that the fixture never reached the guard
+at all: `resolve` is a chain of four `?`s returning one bare `None`, so a
+fixture that fails an *earlier* condition than the one it targets produces
+a passing test for the wrong reason. Rebuilt on a fixture with a real file
+at the joined path (`b64806d`, merged `ded3470`), all four isolate one at a
+time.
+
+Reproduced here at the merge, independently of the panel's own run:
+
+| mutation | tests failing |
+|---|---|
+| `candidate.is_file()` → `(candidate.is_file() \|\| true)` | `missing_file_does_not_resolve` only, 135 green |
+| `self.packages.get(package)` → `.or_else(\|\| self.packages.values().next())` | `unknown_package_does_not_resolve` only, 135 green |
+
+The other three tests staying green under the `is_file()` mutation is the
+half that carries the information: before `b64806d` they rode that guard,
+and now they do not.
+
+One failed attempt is worth recording, because it is the trap on this side
+of the check. Mutating `:87` to `rest.split_once('/').unwrap_or((rest,
+""))` fails no test — and that is correct, not a gap. `dir.join("")` is
+`dir`, which is never a file, so the mutation is behaviour-preserving on
+every input. **A mutation that changes no behaviour proves nothing about
+the test**, and reading a green result from one as evidence of blindness
+is the mirror image of the error this section is about.
+
+The rule this settles, for every remaining fence: a verdict of
+`discriminating` reached by reading is a hypothesis. Across the five
+ledgers, read-justified rows are already the small minority against
+bite-justified ones, which is why this surfaced as two sites rather than
+fifty. Where a function funnels several guards into one undifferentiated
+`None` or `Err`, reading cannot distinguish "this fixture targets guard B"
+from "this fixture reaches guard B", and only a mutation can.

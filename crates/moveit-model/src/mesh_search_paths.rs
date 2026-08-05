@@ -123,21 +123,76 @@ mod tests {
         );
     }
 
+    /// Isolating mutation (assertion-discrimination sweep, round 14):
+    /// `self.packages.get(package)?` (`:88`) bypassed to fall back to the
+    /// one registered package when the requested key misses. Because this
+    /// test's relative path (`meshes/link0.stl`) names a file that
+    /// genuinely exists under that one registered package, the bypass
+    /// resolves to `Some` and nothing else in the four-guard chain moves.
+    /// A prior version of this test named a package/directory pair with no
+    /// real file under it, so `candidate.is_file()` (`:89`) also failed and
+    /// this assertion passed whether or not `:88` fired at all.
     #[test]
     fn unknown_package_does_not_resolve() {
         let dir = tempfile_dir();
+        std::fs::create_dir_all(dir.join("meshes")).unwrap();
+        std::fs::write(dir.join("meshes/link0.stl"), b"stub").unwrap();
         let paths = MeshSearchPaths::new([("moveit_resources_panda_description", dir)]);
-        assert_eq!(paths.resolve("package://not_a_real_package/x.stl"), None);
+        assert_eq!(
+            paths.resolve("package://not_a_real_package/meshes/link0.stl"),
+            None
+        );
     }
 
+    /// Isolating mutation: `resource.strip_prefix("package://")?` (`:86`)
+    /// bypassed to use `resource` itself unstripped. This test's input is
+    /// exactly the registered package name and a real file's relative
+    /// path with no scheme at all, so the bypass resolves to `Some`. A
+    /// prior version of this test used inputs (`"x.stl"`,
+    /// `"file:///x.stl"`) that, once unstripped, still failed a
+    /// *different* guard (`split_once('/')` or the package lookup) before
+    /// ever reaching `is_file()` -- passing regardless of `:86`'s own
+    /// state.
     #[test]
     fn non_package_uri_does_not_resolve() {
         let dir = tempfile_dir();
-        std::fs::write(dir.join("x.stl"), b"stub").unwrap();
-
+        std::fs::create_dir_all(dir.join("meshes")).unwrap();
+        std::fs::write(dir.join("meshes/link0.stl"), b"stub").unwrap();
         let paths = MeshSearchPaths::new([("moveit_resources_panda_description", dir)]);
-        assert_eq!(paths.resolve("x.stl"), None);
-        assert_eq!(paths.resolve("file:///x.stl"), None);
+        assert_eq!(
+            paths.resolve("moveit_resources_panda_description/meshes/link0.stl"),
+            None
+        );
+    }
+
+    /// Isolating mutation: `rest.split_once('/')?` (`:87`) bypassed with a
+    /// fallback relative path matching this test's real file. A
+    /// `package://` URI naming a real, registered package but with no `/`
+    /// at all after the package name (so there is no relative path to
+    /// extract) must not resolve.
+    #[test]
+    fn malformed_package_uri_with_no_relative_path_does_not_resolve() {
+        let dir = tempfile_dir();
+        std::fs::create_dir_all(dir.join("meshes")).unwrap();
+        std::fs::write(dir.join("meshes/link0.stl"), b"stub").unwrap();
+        let paths = MeshSearchPaths::new([("moveit_resources_panda_description", dir)]);
+        assert_eq!(
+            paths.resolve("package://moveit_resources_panda_description"),
+            None
+        );
+    }
+
+    /// Isolating mutation: `candidate.is_file()` (`:89`) bypassed
+    /// unconditionally. A registered package and a well-formed relative
+    /// path whose file was never written must not resolve.
+    #[test]
+    fn missing_file_does_not_resolve() {
+        let dir = tempfile_dir();
+        let paths = MeshSearchPaths::new([("moveit_resources_panda_description", dir)]);
+        assert_eq!(
+            paths.resolve("package://moveit_resources_panda_description/meshes/link0.stl"),
+            None
+        );
     }
 
     /// A fresh, unique scratch directory per test, cleaned up on drop by
