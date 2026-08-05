@@ -93,9 +93,9 @@ against this instrument's output:
     distinct from the three the brief already recorded: it isn't a comment
     containing the assert, it's a non-matching assert whose lookahead
     window swallows a *later, unrelated* comment. Confirmed by reading
-    `bodies.rs:4037-4048`; real count is 34.
+    `bodies.rs:4037-4048`; real count is 34 (`/// single combined`).
   - **`moveit-constraints`**: `rg` reports 4, this instrument reports 5.
-    The two asserts are `utils_parity.rs:879`
+    The two asserts are `utils_parity.rs:879` (`let resolve_attached = |name: &str| {`)
     (`assert!(resolve_position_constraint_frame(...).unwrap().is_none())`,
     body 260 chars) and `:890`
     (`resolve_orientation_constraint_frame`, same shape but carrying an
@@ -191,7 +191,7 @@ misreport the sweep's own progress:
 |---|---|---:|---|---|
 | `moveit-trajectory` | 16 bare / 0 matches (this panel, hand enumeration, all 16 mutation-confirmed) | 16 / 0 | unchanged | exact match — independent confirmation |
 | `moveit-geometry` | "mine 6/35 vs p9-ros's 5/34" (orchestrator, this conversation) | 5 / 34 | matches p9-ros | orchestrator's own 6 was wrong; p9-ros's 5/34 reproduces exactly |
-| `moveit-planning` | "4 matches!, 2 bare" (orchestrator quote, dispatch) / this panel's own hand count of 5 matches! + 2 bare = 7 pre-fix | 2 / 2 | down from 7 | **not an instrument disagreement** — `c9ea56f` and `df36fab` (this session) converted 3 of the 5 `matches!` sites (`pipeline.rs:670,651,687`) into `match`/`assert_eq!` destructuring. Only `pipeline.rs:679` (`NoPlanners`, nullary variant) and `add_time_optimal_parameterization.rs:336` (single-branch) remain as `matches!`; `plan_responses.rs:208,214` remain `bare` (container-passthrough / vacuous-loop-result, no defect, not fixed). The orchestrator's quoted 4 was itself never reproduced by either enumeration — this panel's own pre-fix count was 5, not 4 — so both a corrected pre-fix baseline (5, not 4) and a fix (5→2) are folded into this one row. |
+| `moveit-planning` | "4 matches!, 2 bare" (orchestrator quote, dispatch) / this panel's own hand count of 5 matches! + 2 bare = 7 pre-fix | 2 / 2 | down from 7 | **not an instrument disagreement** — `c9ea56f` and `df36fab` (this session) converted 3 of the 5 `matches!` sites (`pipeline.rs:670,651,687` (`_env: &ParryCollisionEnv,`)) into `match`/`assert_eq!` destructuring. Only `pipeline.rs:679` (`NoPlanners`, nullary variant) and `add_time_optimal_parameterization.rs:336` (`/// below actually discriminates the two causes, not just "some Failed".`) (single-branch) remain as `matches!`; `plan_responses.rs:208,214` (`assert!(solutions[1].is_err());`) remain `bare` (container-passthrough / vacuous-loop-result, no defect, not fixed). The orchestrator's quoted 4 was itself never reproduced by either enumeration — this panel's own pre-fix count was 5, not 4 — so both a corrected pre-fix baseline (5, not 4) and a fix (5→2) are folded into this one row. |
 | `moveit-collision` | 42 bare / 0 matches (brief §4 corrected table, measured at `f6cbbb5`) | 43 / 2 | up | **not an instrument disagreement** — `git log --oneline -- crates/moveit-collision` shows 90+ commits after `f6cbbb5` (MPR-plateau investigation, `deviation 6` work, `585a79e` group_name fix, `e6c9945` new shape-absent-guard coverage). New test code landed; not a re-measurement of the same tree. |
 | `moveit-constraints` | 3 anchor1(low)/8 bare(high)/3 anchor2 at `f6cbbb5`; 4 matches/3 bare in the 712dafe superseded table | 4 / 5 | — | `f6cbbb5`'s own table gives a low/high bracket (3-8) that this census's 5 falls inside; not a fresh disagreement, and p1-robotmodel's `new_rejects_unknown_joint` fix (top-of-branch commit, this round) already changed one site's shape since either snapshot. |
 | every other crate | see brief §4 corrected table | see §4 above | mixed | not independently re-derived line-by-line here beyond the spot-reads in §3; `moveit-trajectory` and `moveit-geometry` are the two rows this panel can certify from first-hand mutation/enumeration work this round, plus its own `moveit-planning`/`moveit-collision` work above. |
@@ -280,7 +280,7 @@ verdict, `not-this-family`, to say "this site matched §1's syntax but isn't
 really one of these" — p1-robotmodel (this document's author) on 4 of 55
 rows, p9-ros on 17, p1-fixtures on 0 of 49 — and nobody had written down
 what the category meant. That gap produced a real error: p9-ros excluded
-`robot_model.rs:2025`, the exact site `7676185` (this session) proved
+`robot_model.rs:2025` (`/// This fixture instead gives j1 a real mimic on j4, a joint entirely`), the exact site `7676185` (this session) proved
 fixture-vacuous and fixed. This section is the rule, so the next reader
 gets the same answer independently of who is asking.
 
@@ -326,7 +326,7 @@ question was never applicable, and the verdict is `not-this-family`.
    empty_input` fails this clause — for an empty slice, the comparison
    logic never runs; `best` stays at its declared initial value no matter
    how that logic is changed, so there is no decision here to get wrong.
-   Contrast `nn.rs:227`'s `empty_index_has_no_nearest`: `Gnat::nearest`'s
+   Contrast `nn.rs:227` (`assert!(gnat.nearest(&space, &vec![0.0]).is_none());`)'s `empty_index_has_no_nearest`: `Gnat::nearest`'s
    `self.root.as_ref()?` is a **written** guard an engineer could have
    omitted or gotten backwards, and the bite (§ledger) confirms removing
    it changes the outcome — clause 2 holds even though, like the
@@ -397,10 +397,10 @@ ledger-p1-robotmodel.md`): re-checked all 55 against the three clauses
 above, not just the 4 already marked `not-this-family`.
 
 - The 4 existing `not-this-family` rows (`crates/moveit-trajectory/tests/ruckig_smoothing.rs:199`,
-  `moveit-planners-chomp/trajectory.rs:997` — both clause-3 failures,
+  `moveit-planners-chomp/trajectory.rs:997` (`assert!(source.group().is_none());`) — both clause-3 failures,
   identical shape to the `fs::read` precondition case; `plan_responses.rs
   :208` — clause-3/clause-2 failure, a container passthrough;
-  `plan_responses.rs:214` — clause-2 failure, a vacuous empty-input
+  `plan_responses.rs:214` (`assert!(shortest_solution(&solutions).is_none());`) — clause-2 failure, a vacuous empty-input
   accumulator) all survive re-examination under the stated clauses. None
   is moved.
 - None of the remaining 51 rows (`discriminating`, `single-branch`, or
@@ -445,7 +445,7 @@ new one in a ledger reopens the same gap one level down.
      that collapse is recorded in the code, not inferred;
   3. no caller distinguishes the branches either.
 
-  `moveit-planners-pilz`'s `trajectory_blender_transition_window.rs:1211`
+  `moveit-planners-pilz`'s `trajectory_blender_transition_window.rs:1211` (`assert!(matches!(`)
   is the only instance. It qualifies: neutralizing
   `search_intersection_points`'s first `ok_or` alone fails
   `search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius`
@@ -511,7 +511,7 @@ and no double-count.
 
 **Superseded after this section was written (`d24494d`/`7b92bcc`, merged
 `37246a3`).** p3-acm's ledger §1b adds three rows for
-`moveit-collision/src/tools.rs:68` (`aabb_intersection`'s
+`moveit-collision/src/tools.rs:68` (`if min[0] >= max[0] || min[1] >= max[1] || min[2] >= max[2] {`) (`aabb_intersection`'s
 `min[0]>=max[0] || min[1]>=max[1] || min[2]>=max[2]`, one row per axis),
 taking its row count 86 → 89 and the partition 289 → **292**. The 289 in
 §8 is not wrong and does not move: it is what `ledger_scan.py`'s grammar
@@ -557,13 +557,13 @@ two reclassifications are worth reading as worked §9 examples, because
 neither is a wrong verdict being corrected — both are right answers to the
 pre-§9 question:
 
-- `moveit-scene/src/scene.rs:2180` fails **clause 1 (mechanism)**.
+- `moveit-scene/src/scene.rs:2180` (`assert!(diff.get("box").unwrap().contains(Action::ADD_SHAPE));`) fails **clause 1 (mechanism)**.
   `matches!(outcome, MoveObjectOutcome::Moved(_))` targets the
   success-with-effect arm of a three-variant outcome
-  (`world.rs:733-742`: `NotFound`, `NoChange`, `Moved`). The sibling two
+  (`world.rs:733-742` (`pub fn move_object(&mut self, id: &str, transform: Isometry3) -> MoveObjectOutcome {`): `NotFound`, `NoChange`, `Moved`). The sibling two
   variants *would* satisfy clause 1; `Moved` is a success-path value, so
   the assertion is not this family even though it does discriminate.
-- `moveit-constraints/tests/constraint_sampler_manager.rs:172` fails
+- `moveit-constraints/tests/constraint_sampler_manager.rs:172` (`assert!(`) fails
   **clause 2 (decision)**. Its fixture is empty on every axis
   (`joints=&[]`, `solver=None`, `subgroup_solvers=vec![]`), so Steps A/B/C
   never touch a real operand and the `None` it asserts is an untouched
@@ -601,10 +601,10 @@ stands.
 
 What is in question is narrower and still real: the *grammar* claim. The
 statement that the scanner recognizes `matches!` / `.is_err()` /
-`.is_none()` and nothing else — the claim that makes `tools.rs:68`'s
+`.is_none()` and nothing else — the claim that makes `tools.rs:68` (`if min[0] >= max[0] || min[1] >= max[1] || min[2] >= max[2] {`)'s
 `.is_empty()` site invisible, and the claim §9b above leans on when it says
 "289 is what `ledger_scan.py`'s grammar measures" — is sourced to a file
-nobody can open. It is corroborated from the other direction (`tools.rs:68`
+nobody can open. It is corroborated from the other direction (`tools.rs:68` (`if min[0] >= max[0] || min[1] >= max[1] || min[2] >= max[2] {`)
 genuinely had no row in either enumeration) but it is not verifiable, and
 §9b should have said so instead of citing the script as if it were in the
 tree. §1's prose grammar, which *is* readable, says the same thing at step
@@ -651,14 +651,14 @@ the instrument getting *less* clever rather than more:
 - `None` and `Err(..)` count only as an *operand* of an equality macro.
   The rule used to scan the whole assertion body for a comma-`None`, so
   it fired on `assert!(tree.insert_ray(origin, end, None, false))`
-  (`moveit-octomap/src/tree.rs:1781`) — `None` is `max_range`, an argument
+  (`moveit-octomap/src/tree.rs:1781` (`/// clamped an out-of-bounds point instead of rejecting it would find`)) — `None` is `max_range`, an argument
   handed to the code under test, not a value asserted about. `p1-fixtures`
   found that one by reading a hit rather than deducting from a total.
 
 That last correction is why the "two kinds on one site" row is now zero
 where it was 17. Every one of those 17 was `assert!(matches!(x, Err(..)))`
 picking up a spurious second tag; the sites themselves were never at risk,
-and only `tree.rs:1781` left the census entirely.
+and only `tree.rs:1781` (`/// clamped an out-of-bounds point instead of rejecting it would find`) left the census entirely.
 
 **686 is not a corrected 289 and the two must never be subtracted.** They
 are different grammars over scopes that were never stated to be the same.
@@ -679,7 +679,7 @@ two instruments agreeing on a total is the shape that hid two
 cancelling per-crate row errors earlier in this sweep.
 
 A worked non-finding, recorded because it is the trap this kind counts
-invite: `voxel_grid.rs:454` and `:456` assert the same needle ("must be
+invite: `voxel_grid.rs:454` (`assert!(zero_err.to_string().contains("must be finite and positive"));`) and `:456` assert the same needle ("must be
 finite and positive") against two different inputs, which reads as blind
 from the scan output alone. It is not. The test's own doc comment records
 the mutation — the sibling overflow guard's message never contains that
@@ -718,11 +718,11 @@ itself is a floor. The 25 exclusions concentrate in two shapes worth
 naming, since between them they account for 20 of the 25:
 
 - **clause 1, success-path values** (`bodies.rs:4328/4332/4340/4347`,
-  `scene.rs:2180`): the assertion checks *which* thing was built on a path
+  `scene.rs:2180` (`assert!(diff.get("box").unwrap().contains(Action::ADD_SHAPE));`)): the assertion checks *which* thing was built on a path
   that always succeeds. Computed dispatch, not a failure signal.
-- **clause 2, no decision to be wrong about** (`matrix.rs:660`,
-  `octomap_filter.rs:381`, `crates/moveit-geometry/src/shapes.rs:1962`,
-  `crates/moveit-constraints/tests/constraint_sampler_manager.rs:172`): a fresh map, a field with zero
+- **clause 2, no decision to be wrong about** (`matrix.rs:660` (`assert!(acm.default_entry("a").is_none());`),
+  `octomap_filter.rs:381` (`assert!(result.contacts.is_none());`), `crates/moveit-geometry/src/shapes.rs:1962` (`assert!(mesh.triangle_normals.is_none());`),
+  `crates/moveit-constraints/tests/constraint_sampler_manager.rs:172` (`assert!(`)): a fresh map, a field with zero
   assignment sites, a literal-initialized value, an accumulator no step
   touched. Nothing in the subject decided anything, so no mutation there
   could exercise a wrong implementation.
@@ -763,7 +763,7 @@ Both corrections are now in the tool (`ccac7ea`): a body that asserts on
 its own parameter is emitted as `helper_body`, and each of its call sites
 as `via:<fn>`. Running it today gives **63**, not 62, and the extra site
 is real rather than a regrading — `4c56148` ("reach `apply_move`'s
-object-pose parse") split `collision_object.rs:1089` into `:1108` and
+object-pose parse") split `collision_object.rs:1089` (`fn move_object_pose_with_malformed_pose_is_rejected() {`) into `:1108` and
 `:1143` after `p9-ros` measured. 62 was right at `2dd3169`; 63 is right at
 this document's HEAD. The pair is worth keeping side by side, because a
 hand count and an instrument disagreeing by one is exactly the shape that
@@ -796,7 +796,7 @@ the needle, which is the correct division of labour between a needle and a
 mutation.
 
 One latent risk is recorded unfixed and should stay that way:
-`scene/collision_object.rs:1089` has two physical call sites inside
+`scene/collision_object.rs:1089` (`fn move_object_pose_with_malformed_pose_is_rejected() {`) has two physical call sites inside
 `apply_move` sharing one message, and only one is reachable by the current
 fixture — so there is nothing live to bite-check today, and a fix would be
 a guess. A future edit touching `mv.pose` in that test would misattribute
@@ -813,7 +813,7 @@ because it is not a counting error and no count would have shown it.
 A kind fence and a path fence disagree about who owns a site, and when the
 kind fence is the one a panel applies while a path fence is the one another
 panel was briefed with, sites fall through the gap. Four did:
-`moveit-geometry/src/bodies.rs:3953,4055,4066,4125`. `p3-acm` excluded them
+`moveit-geometry/src/bodies.rs:3953,4055,4066,4125` (`assert!(`). `p3-acm` excluded them
 from its geometry table as "`contains_msg`-shaped, therefore
 p1-robotmodel's" — correct under the rule it was given — and
 p1-robotmodel's fence names `moveit-model/`, `moveit-constraints/tests/
@@ -822,7 +822,7 @@ Neither panel was wrong. `rg` over `doc/` found no verdict for any of the
 four in any ledger.
 
 Two of those four are the reason this matters rather than being
-bookkeeping: `bodies.rs:4055` and `:4125` both assert `.contains("radius")`
+bookkeeping: `bodies.rs:4055` (`assert!(`) and `:4125` both assert `.contains("radius")`
 against a rendered error. If the two constructor guards behind them can
 each produce a message containing that substring, neither site names which
 one fired — a colliding-needle pair of exactly the shape §4 exists to find,
@@ -856,7 +856,7 @@ substantive argument for paths over any repair to the kind vocabulary.
 merge `1ddb2ac`), the great majority of rows verdicted by reading the
 source. It then flagged a coverage gap as explicitly out of scope: of
 `MeshSearchPaths::resolve`'s four `None`-producing guards
-(`mesh_search_paths.rs:86-89`), two had no test at all.
+(`mesh_search_paths.rs:86-89` (`let rest = resource.strip_prefix("package://")?;`)), two had no test at all.
 
 Sent back to prove the two *tested* guards rather than supplement them, it
 found both were blind:
