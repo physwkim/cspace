@@ -23,8 +23,7 @@
 #   is_none    .is_none()                        -- Option absent
 #   is_some    .is_some()                        -- Option present
 #   is_empty   .is_empty()                       -- collection empty
-#   contains_msg     .contains(..) on a rendered error -- which message
-#   contains_member  .contains(..) on a collection     -- membership
+#   contains   .contains(..)                      -- substring OR membership
 #   eq_none    assert_eq!(x, None)               -- Option absent
 #   eq_err     assert_eq!(x, Err(...))           -- Result failed
 #
@@ -46,12 +45,20 @@
 #     `.is_empty()` on a test's own fixture vector and one on the return
 #     value of the code under test are the same text to it. Census §9
 #     clause 3 (subject) separates them, by reading.
-#   * `contains_msg` vs `contains_member` is decided by looking 60 bytes
-#     back from `.contains(` for a rendering call (`to_string()`,
-#     `unwrap_err()`, `format!`, a `rendered`/`message`/`msg` binding).
-#     Within a single expression that is reliable; across statements it
-#     is not, which is why assertion helpers are handled structurally
-#     instead (below) rather than by widening the window.
+#   * It does not split `.contains(..)` into "searched a rendered error"
+#     and "tested collection membership", and must not be made to. That
+#     distinction is a property of the receiver's TYPE, and no regex over
+#     text has types. Two rules were tried and both misfile real sites in
+#     this tree. Looking backwards from `.contains(` for a rendering call
+#     misses every check reached through a closure parameter --
+#     `detail.as_deref().is_some_and(|d| d.contains("only STL"))`, where
+#     the receiver is one character long and carries no evidence at all.
+#     Reading the argument instead ("a string literal means text search")
+#     misfiles `body.touch_links().contains("should_not_survive")` at
+#     scene/attached.rs:532, which is a set lookup with a literal key.
+#     Emitting one kind keeps the miscall out of the output entirely;
+#     census §9 clause 1 decides it by reading, as it does for every
+#     other kind here.
 #   * It counts assertion SITES, not branches. A guard folding N operands
 #     into one construction site is one site here and N covered branches
 #     in fact -- see doc/folded-operand-guards.md.
@@ -203,11 +210,11 @@ def classify(body):
     for meth in ("is_err", "is_none", "is_some", "is_empty"):
         if re.search(r"\.\s*" + meth + r"\s*\(\s*\)", body):
             kinds.append(meth)
-    for m in re.finditer(r"\.\s*contains\s*\(", body):
-        recv = body[max(0, m.start() - 60) : m.start()]
-        msg = r"(to_string\s*\(\)|unwrap_err\s*\(\)|expect_err\s*\(|\.err\s*\(\)|format!|\brendered\b|\bmessage\b|\bmsg\b)"
-        kinds.append("contains_msg" if re.search(msg, recv) else "contains_member")
-        break
+    if re.search(r"\.\s*contains\s*\(", body):
+        # Deliberately ONE kind: whether this searches a rendered error or
+        # tests collection membership is a fact about the receiver's TYPE,
+        # which no regex can see. See this file's header.
+        kinds.append("contains")
     if re.search(r",\s*None\s*[,)]?\s*$", body) or re.search(r",\s*None\s*,", body):
         kinds.append("eq_none")
     if re.search(r",\s*Err\s*\(", body):
