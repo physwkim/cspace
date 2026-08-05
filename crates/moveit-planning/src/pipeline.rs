@@ -487,6 +487,24 @@ mod tests {
         }
     }
 
+    /// Always succeeds without touching `request` — used as the first
+    /// element of a 2-adapter `request_chain` to prove a later adapter's
+    /// rejection is attributed to that adapter, not silently to this one.
+    struct PassingRequestAdapter;
+    impl PlanningRequestAdapter for PassingRequestAdapter {
+        fn description(&self) -> &'static str {
+            "PassingRequestAdapter"
+        }
+        fn adapt<'m>(
+            &self,
+            _scene: &mut PlanningScene<'m>,
+            _env: &ParryCollisionEnv,
+            _request: &mut PlanningRequest,
+        ) -> Result<(), RequestAdapterError> {
+            Ok(())
+        }
+    }
+
     struct RejectingResponseAdapter;
     impl PlanningResponseAdapter for RejectingResponseAdapter {
         fn description(&self) -> &'static str {
@@ -503,6 +521,25 @@ mod tests {
                 adapter: self.description(),
                 invalid_waypoints: vec![0],
             })
+        }
+    }
+
+    /// Always succeeds without touching `response` — used as the first
+    /// element of a 2-adapter `response_chain` to prove a later adapter's
+    /// rejection is attributed to that adapter, not silently to this one.
+    struct PassingResponseAdapter;
+    impl PlanningResponseAdapter for PassingResponseAdapter {
+        fn description(&self) -> &'static str {
+            "PassingResponseAdapter"
+        }
+        fn adapt<'m>(
+            &self,
+            _scene: &mut PlanningScene<'m>,
+            _env: &ParryCollisionEnv,
+            _request: &PlanningRequest,
+            _response: &mut PlanningResponse<'m>,
+        ) -> Result<(), ResponseAdapterError> {
+            Ok(())
         }
     }
 
@@ -648,7 +685,47 @@ mod tests {
         })];
         let err = generate_plan(&mut scene, &env, &request_chain, &planners, &[], request())
             .expect_err("a rejecting request adapter must abort before planning");
-        assert!(matches!(err, PipelineError::Request(_)));
+        // `PipelineError::Request(_)` is a thin wrapper around whatever
+        // `run_request_adapters`'s loop propagates; `(_)` alone doesn't check
+        // which chain element produced it. Checking `adapter` pins this to
+        // the (only) chained adapter — see
+        // `second_request_adapter_failure_is_attributed_to_the_second_adapter`
+        // for the case where that matters.
+        match err {
+            PipelineError::Request(RequestAdapterError::StartStateInvalid { adapter }) => {
+                assert_eq!(adapter, "RejectingRequestAdapter");
+            }
+            other => panic!("expected PipelineError::Request(StartStateInvalid), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn second_request_adapter_failure_is_attributed_to_the_second_adapter() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        // First adapter passes (exercising the chain's non-terminal path),
+        // second rejects — the only element this test targets.
+        let request_chain: Vec<Box<dyn PlanningRequestAdapter>> = vec![
+            Box::new(PassingRequestAdapter),
+            Box::new(RejectingRequestAdapter),
+        ];
+        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
+            description: "FixedGoalPlanner",
+            planner_id: "fixed",
+        })];
+        let err = generate_plan(&mut scene, &env, &request_chain, &planners, &[], request())
+            .expect_err("the second request adapter's rejection must abort the pipeline");
+        match err {
+            PipelineError::Request(RequestAdapterError::StartStateInvalid { adapter }) => {
+                assert_eq!(
+                    adapter, "RejectingRequestAdapter",
+                    "the rejection must be attributed to the adapter that actually rejected"
+                );
+            }
+            other => panic!("expected PipelineError::Request(StartStateInvalid), got {other:?}"),
+        }
     }
 
     #[test]
@@ -720,7 +797,47 @@ mod tests {
             vec![Box::new(RejectingResponseAdapter)];
         let err = generate_plan(&mut scene, &env, &[], &planners, &response_chain, request())
             .expect_err("a rejecting response adapter must fail generate_plan");
-        assert!(matches!(err, PipelineError::Response(_)));
+        // Same reasoning as `request_adapter_failure_short_circuits_before_
+        // any_planner_runs`: `(_)` doesn't check which chain element fired.
+        match err {
+            PipelineError::Response(ResponseAdapterError::InvalidMotionPlan {
+                adapter, ..
+            }) => {
+                assert_eq!(adapter, "RejectingResponseAdapter");
+            }
+            other => panic!("expected PipelineError::Response(InvalidMotionPlan), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn second_response_adapter_failure_is_attributed_to_the_second_adapter() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        let planners: Vec<Box<dyn Planner>> = vec![Box::new(FixedGoalPlanner {
+            description: "FixedGoalPlanner",
+            planner_id: "fixed",
+        })];
+        // First adapter passes, second rejects — the only element this test
+        // targets.
+        let response_chain: Vec<Box<dyn PlanningResponseAdapter>> = vec![
+            Box::new(PassingResponseAdapter),
+            Box::new(RejectingResponseAdapter),
+        ];
+        let err = generate_plan(&mut scene, &env, &[], &planners, &response_chain, request())
+            .expect_err("the second response adapter's rejection must fail generate_plan");
+        match err {
+            PipelineError::Response(ResponseAdapterError::InvalidMotionPlan {
+                adapter, ..
+            }) => {
+                assert_eq!(
+                    adapter, "RejectingResponseAdapter",
+                    "the rejection must be attributed to the adapter that actually rejected"
+                );
+            }
+            other => panic!("expected PipelineError::Response(InvalidMotionPlan), got {other:?}"),
+        }
     }
 
     #[test]
