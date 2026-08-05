@@ -183,8 +183,8 @@ own test suite (`moveit2/moveit_core/trajectory_processing/test/
 test_time_optimal_trajectory_generation.cpp`) has no case targeting this
 branch either.
 
-This round made three bounded, `timeout`-wrapped attempts to close it and
-did not succeed:
+This round made three bounded, `timeout`-wrapped fixture attempts
+(recorded in a prior pass of this ledger) that did not succeed:
 
 1. A sharp near-180° corner with strong acceleration asymmetry (10.0 vs
    1e-6) — failed the *first* `!traj.valid` checkpoint instead of the
@@ -196,16 +196,81 @@ did not succeed:
 3. A third variant between the two, also failed to isolate the second
    checkpoint specifically.
 
-All three probes were fully reverted (`git diff --stat` empty against the
-committed tree before this ledger update). This is not resolved: it
-remains a written guard with zero covering assertion anywhere in the
-crate. The blocker is that constructing a fixture which survives the
-*first* backward pass's validity check but fails specifically the
-*second* is a numerical-design search, not a mutation, and the sibling
-guards in this same function are demonstrated above to hang under
-mutation — raising the cost of further blind search. Flagged for the
-user's decision (accept as a genuine gap, or authorize further/differently
--scoped search), not silently left out of this report.
+**Reachability analysis (this round, superseding the "flag for user
+decision" framing above).** Per instruction, worked as a reachability
+argument rather than a fourth fixture hunt.
+
+Control-flow parity: `moveit2 @ e017c91e`'s `Trajectory::create`
+(`time_optimal_trajectory_generation.cpp:358-395`) has an *identical*
+while-loop / two-checkpoint structure, including the same unconditional
+second `integrateBackward(trajectory_, path_.getLength(), 0.0, ...)`
+call regardless of whether the loop exited via full forward integration
+or via `getNextSwitchingPoint` finding none. This branch is therefore
+not a porting bug either way — whatever the true answer is, the port
+did not drop or add a guard relative to upstream. Upstream's own
+`RCLCPP_ERROR` for this exact case uses a distinct message from the
+first checkpoint's, and upstream's own test suite
+(`test_time_optimal_trajectory_generation.cpp`) — which explicitly
+covers the *sibling* first-checkpoint failure
+(`testRelevantZeroMaxAccelerationsInvalidateTrajectory`) — has no case
+targeting this second one either, in a file exercising this algorithm's
+edge cases for years.
+
+Mechanism found: `integrate_backward`'s deceleration-branch
+(`min_max_path_acceleration(pos, vel, false)`, `trajectory.rs:751-766`)
+has no velocity-ceiling check, unlike `integrate_forward`, which checks
+`path_vel > acceleration_max_path_velocity(path_pos) ||
+path_vel > velocity_max_path_velocity(path_pos)` on *every* step
+(`trajectory.rs:595-596`, not only at detected switching points) and
+bisection-corrects immediately, routing the correction through the
+*first* `integrate_backward` call site instead. For the *second* call
+to hit `path_vel < 0.0` (`:711-714`) or exhaust the loop without an
+intersection (`:745`), the backward-from-rest walk would need to
+compute a velocity exceeding the local ceiling at some point the
+forward pass's continuous check never touched.
+
+Two additional, mechanism-targeted probes this round tried to force
+exactly that gap open — not a repeat of the prior three's blind
+fixture search:
+
+4. A near-180° corner (radius ≈1.2e-3) placed shortly before a short
+   (~0.25-unit) straight tail at the end of the path, high `max_velocity`
+   relative to `max_acceleration` to force speed to build in the long
+   leg before the corner: `Ok`, 9376 steps.
+5. The same corner shape but with the final waypoint placed *inside*
+   the blend distance (`end_distance < deviation cap`, so the blend
+   consumes the entire final segment and `path.length()` lands exactly
+   on the arc's exit — zero straight run-out, curvature nonzero from
+   the very first backward step): `Ok`, 9101 steps.
+
+Both succeeded rather than failed: `next_switching_point`'s scan
+(`:325-376`) still located and pre-handled the corner via the *first*
+`integrate_backward` call site regardless of its proximity to
+`path.length()`, and forward integration's own continuous ceiling
+check (`:595-596`) still bisected the approach down to a decelerable
+velocity before ever leaving the arc behind at an unrecoverable speed —
+consistent with the mechanism above, i.e. it is evidence *for* the
+"forward integration's per-step ceiling check protects this branch"
+hypothesis, not proof of it.
+
+**Verdict: cannot be determined further without disproportionate
+effort.** Specific blocker: confirming unreachability requires either
+(a) a formal argument that `integrate_forward`'s continuous per-step
+ceiling check is *sufficient* — for every path/limits combination, not
+just the two probed — to guarantee the accumulated trajectory is
+decelerable-to-rest everywhere, which this round's analysis sketches
+but does not complete, or (b) a substantially larger numerical search
+over path/limit parameter space than five targeted probes (three
+fixture-shaped, two mechanism-shaped) have covered. Both probe scratch
+tests were reverted, not committed (`git diff --stat` empty against the
+tree before this update) — an always-`Ok` probe would be a test that
+passes for a reason unrelated to the branch. The branch is **not**
+removed: it is not proven dead, upstream retains the structurally
+identical branch with its own distinct diagnostic, and if it ever is
+proven unreachable, the same argument applies to upstream's copy, not
+just the port's — that determination is out of this round's scope.
+Remains: a written guard with zero covering assertion anywhere in the
+crate, UNFIXED.
 
 ## `tests/robot_trajectory.rs` (12)
 
@@ -293,9 +358,17 @@ user's decision (accept as a genuine gap, or authorize further/differently
   by-construction-or-test standard).
 - 1 site remains a written guard with **no covering assertion anywhere in
   the crate** (`trajectory.rs`'s "after the second integrateBackward
-  pass") — three bounded fixture-construction attempts this round did not
-  reach it; still noted, not fabricated a verdict for, not fixed. See
-  "Uncovered, still no verdict" above.
+  pass"). Worked this round as a reachability question, not a fixture
+  hunt: control flow is identical to upstream (not a porting bug either
+  way), a concrete mechanism was identified (`integrate_backward`'s
+  deceleration branch has no velocity-ceiling check, unlike
+  `integrate_forward`'s continuous per-step check), and two additional
+  mechanism-targeted probes both still succeeded rather than failed —
+  evidence for, not proof of, that ceiling check protecting the branch.
+  Verdict: cannot be determined further without disproportionate effort;
+  not removed (not proven dead, upstream retains the identical branch
+  with its own distinct diagnostic); UNFIXED. See "Uncovered, still no
+  verdict" above.
 - 1 finding produced a new `doc/upstream-bugs.md` entry
   (`totg-timing-zero-velocity-division`, `reproduced-grandfathered`) for
   the NaN/`+inf`-producing division itself, rather than a code fix.
