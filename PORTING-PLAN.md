@@ -16380,3 +16380,161 @@ $ ./tools/ci/measure-port-coverage.py --list-unported | grep -c 'pilz_industrial
 - `occupancy_map.hpp` → `gap`. 같은 doc이 "genuinely `RobotState`-free and
   portable"이라고 적고 `moveit-octomap`으로 보내라고만 한다. 이식하지 않기로
   한 결정이 아니라 소유 디렉터리를 옮기라는 라우팅이므로 갭이다.
+
+### §216.3 §5 Phase 완료 조건 열 개를 다시 쟀다 — 넷이 미충족
+
+Phase 완료 조건은 "만족하지 못하면 다음 단계로 넘어가지 않는다"고 §5가 적어
+둔 것이므로, 어느 것이 아직 성립하지 않는지가 남은 일 목록의 절반이다.
+아래는 조건을 원문 그대로 옮기고, 그 옆에 그것을 판정한 명령과 출력을
+붙인 것이다. 판정을 내리지 못한 항목은 MET/UNMET이 아니라 **미측정**으로
+적는다.
+
+**Phase 0 — MET.** 조건: "오라클이 panda URDF/SRDF에 대해 임의 관절값
+1,000세트의 FK를 출력하고, `moveit-diff`가 그것을 읽어 '`Rust 구현 없음`'으로
+1,000건 전부 실패 보고한다." §7이 2026-08-03 완료로 기록한다. 문자 그대로의
+증명(전건 실패)은 지금 재현할 수 없다 — Rust 구현이 존재하므로 실패가 나올
+수 없다. 하네스가 도는지는 아래 Phase 2의 `verify-oracle-sweep.sh` EXIT=0이
+대신 보인다.
+
+**Phase 1 — UNMET.** 조건: "panda / prbt / fanuc 3종에 대해 링크 수, 조인트
+수, 그룹 구성, 조인트 한계값, mimic 관계가 오라클과 완전 일치."
+
+```console
+$ ls fixtures/
+dual_arm_panda.srdf  dual_arm_panda.urdf  fanuc.srdf  fanuc.urdf  meshes
+panda.srdf  panda.urdf  pr2.srdf  pr2.urdf
+```
+
+**prbt 픽스처가 없다.** 세 로봇 중 하나에 대해서는 비교 자체가 실행된 적이
+없다. panda/fanuc는 `robot_model_parity.rs`가 오라클 `model_info`와 맞춘다.
+
+**Phase 2 — 앞의 두 항목 MET, 세 번째 UNMET.**
+
+```console
+$ sg docker -c './tools/ci/verify-oracle-sweep.sh 10000 1'   # EXIT=0
+=== panda / panda_arm ===          cases: 20001  passed: 20001  failed: 0
+=== fanuc / manipulator ===        cases: 20001  passed: 20001  failed: 0
+=== dual_arm_panda / left_panda_arm === cases: 20001  passed: 20001  failed: 0
+=== pr2 / right_arm ===            cases: 20001  passed: 20001  failed: 0
+=== pr2 / base ===                 cases: 20001  passed: 20001  failed: 0
+```
+
+FK는 `moveit-diff` 기본 `1e-9`, 야코비안은 `--tol-jacobian 1e-7`. 관측된
+최악 야코비안 편차는 2.887e-15(panda) / 1.665e-15(fanuc) /
+2.665e-15(dual_arm_panda) / 2.331e-15(pr2 right_arm) / 3.331e-16(pr2 base).
+
+세 번째 항목("관절 한계 클램핑, mimic 전파, floating/planar 조인트 보간이
+일치")은 **오라클과 맞춰 본 적이 없다.** 오라클이 구현한 op 41개 중 보간이나
+한계 강제에 해당하는 op이 없고(`rg -n 'op == "' tools/moveit-oracle/src/oracle.cpp`),
+`rg -n -i interpolat crates/moveit-state/tests/ tools/moveit-diff/src/`는 0건이다.
+`invariants.rs`의 경계 테스트는 자기 검증이지 오라클 비교가 아니다. 게다가
+FK 스윕이 쓰는 상태는 오라클의 `random_states`가 mimic 값까지 만들어 준
+것을 포트가 `set_variable_position`으로 그대로 얹는 것이므로, 포트 쪽 mimic
+전파는 그 경로에서 실행되지 않는다.
+
+**Phase 3 — 첫 항목 MET, 둘째 UNMET.** 조건: "10,000 상태 × 3로봇에서
+`collision: bool` 이 오라클과 **100% 일치**", "`distance: f64` 가 `1e-4`
+이내 일치".
+
+```console
+$ moveit-diff --cases 10000 --seed 1 --collision --oracle ...   # 로봇별
+panda:           cases 20001  passed 10458  failed 9543   worst distance 2.738e0
+fanuc:           cases 20001  passed 13888  failed 6113   worst distance 2.897e-1
+dual_arm_panda:  cases 20001  passed 16493  failed 3508   worst distance 1.882e-1
+$ grep -c 'self_collision differs\|robot_collision differs' <각 출력>
+0 / 0 / 0
+```
+
+세 로봇 30,000 상태에서 bool 불일치는 **0건**이다 — 첫 항목 MET. 실패
+19,164건은 전부 거리값이고, 요구치 `1e-4`에 대해 최악 편차가 panda에서
+2.738e0이다 — 둘째 항목 UNMET. (§43/§53/§56/§72가 추적해 온 그 군이다:
+panda `stats-json`의 `robot_same_pair_and_value_diverges` 6364건은 전부
+`floor/panda_link0` 한 쌍이다.)
+
+**Phase 4 — (a) UNMET, (b) UNMET.** 조건: "도달 가능한 목표 자세 5,000개에
+대해 (a) 성공률이 C++ KDL 플러그인 이상, (b) 성공한 해의 FK가 목표 자세와
+`1e-6` 이내 일치."
+
+```console
+$ moveit-diff --cases 5000 --seed 1 --group panda_arm --ik --tol-ik 1e-6 --oracle ...
+oracle success rate: 4921/5000 (98.4%)
+rust   success rate: 4906/5000 (98.1%)
+cases: 15002  passed: 13489  failed: 1513
+```
+
+(a) 4906 < 4921이므로 "이상"이 성립하지 않는다. (b) 1e-6에서 1,513건이
+초과한다(병진 1,112 + 회전 401). 다만 초과분의 최대는 병진 9.923e-6 /
+회전 8.758e-6이고 **`1e-5`를 넘는 것은 0건**이다 — 이는 `SolverParams::
+default().epsilon`이 `1e-5`이고 `CartToJnt`가 twist norm `<= epsilon`인
+스텝을 수렴으로 받아들이기 때문이다(`moveit-diff`의 기본 `tol_ik`가 `2e-5`인
+이유). 즉 (b)의 `1e-6`은 지금 솔버의 수렴 기준보다 엄격해서, 솔버 정확도를
+올리거나 조건의 수를 근거와 함께 바꾸지 않으면 성립할 수 없다.
+
+**Phase 5 — 첫 항목 MET, 둘째·셋째 UNMET.**
+
+```console
+$ moveit-diff --cases 100 --seed 1 --group panda_arm --constraints 2000 --oracle ...
+cases: 2201  passed: 2201  failed: 0
+```
+
+제약 조합 2,000건 `decide()` 100% 일치 — MET. 둘째("제약 샘플러가 생성한
+상태 10,000개가 전부 자기 제약을 만족")는 트리에서 가장 큰 샘플러 자기검증
+루프가 **200**이다(`crates/moveit-constraints/tests/sampler.rs:190`;
+`rg -no 'for [_a-z]+ in 0\.\.[0-9_]+' crates/moveit-constraints/`의 최대값).
+셋째("씬 diff 적용 후 충돌 결과가 오라클과 100% 일치")는 계기가 없다 —
+오라클 op 41개 중 씬 diff를 적용해 충돌을 되돌려 주는 op이 없다.
+
+**Phase 6 — MET.** 조건: "동일 waypoint 입력에 대해 TOTG 산출 시간
+파라미터화가 오라클과 `1e-6` 이내 일치."
+
+`totg_parity.rs`의 상시 허용치는 `DURATION_TOL = 2e-5`라 조건의 `1e-6`을
+그대로 검사하지 않는다. 그래서 상수를 조여 직접 쟀다(측정용, 커밋하지 않음):
+`1e-6`에서 통과, `1e-9`에서 실패하며 그때 찍히는 값이 case 4(0-based, 즉
+doc의 case 5)의 `abs diff=8.893039193935692e-9`이다. 조건의 `1e-6`보다 3자리
+작으므로 MET.
+
+**Phase 7 — 세 항목 모두 MET.** 양쪽을 이번 라운드에 다시 쟀다(C++ 쪽은
+오라클 `plan` op, 포트 쪽은 `plan_benchmark_port`, 문제 집합은 동일한
+`floor_wall 250 900001` + `cage 250 900002`):
+
+| | C++ OMPL RRTConnect | 포트 |
+|---|---|---|
+| exact 해결 | 498/500 (99.6%) | 499/500 (99.8%) |
+| 경로 길이 중앙값 | 2.6598 | 2.7085 |
+
+조건 1: 90% × 99.6% = 89.64% ≤ 99.8% — 충족. 조건 2: 해결한 499개 전부
+`condition2_valid` — 충족. 조건 3: 1.3 × 2.6598 = 3.4577, 포트 2.7085
+(비 1.018배) — 충족.
+
+**Phase 8 — pilz 항목 MET, CHOMP/STOMP 항목 미측정.** 조건: "pilz
+LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치. CHOMP/STOMP는 Phase 7과 같은
+속성 기반 검증."
+
+LIN/CIRC의 상시 허용치는 `1e-6`보다 느슨하므로(LIN 5e-5/5e-4/5e-3, CIRC
+2e-5/2e-4/4e-3) 세 파일의 위치/속도/가속 허용치를 `1e-6`으로 조여 직접
+쟀다(측정용, 커밋하지 않음): PTP는 상시 `TOLERANCE = 1e-6` 그대로 통과,
+LIN·CIRC도 `1e-6`에서 통과한다. 더 조이면 LIN은 `1e-12` 통과 / `1e-15`
+실패, CIRC는 `1e-6` 통과 / `1e-9` 실패(가속 편차 약 1.672e-9)다. 즉 조건은
+커밋된 픽스처 위에서 성립한다. **부수 소견:** LIN 허용치의 doc이 근거로
+드는 실측치(위치 1.26e-5, 속도 1.24e-4, 가속 1.26e-3)는 지금 트리에서
+재현되지 않는다 — 같은 픽스처가 `1e-12`에서 통과한다. 허용치가 실측보다
+6~7자리 느슨하다는 뜻이고, 그 크기의 회귀는 이 테스트에 걸리지 않는다.
+
+CHOMP/STOMP의 속성 기반 검증은 **미측정**이다. 두 크레이트에는 Phase 7의
+`plan_benchmark_*`에 해당하는 하네스가 없다(`crates/moveit-planners-chomp/
+{examples,benches}`, `crates/moveit-planners-stomp/{examples,benches}` 넷 다
+존재하지 않는다).
+
+**Phase 9 — UNMET.** 조건: "기존 C++ `MoveGroupInterface` 클라이언트가 코드
+변경 없이 `moveit-ros` 노드에 플래닝 요청을 보내 유효한 궤적을 받는다."
+
+`rg -n 'MoveGroupInterface' crates/ ros/ tools/ doc/ PORTING-PLAN.md`는
+**2건**이고 둘 다 이 파일 안의 조건문 자신이다(§5:727, §183.2:14375). 게이트
+스크립트 자신도 그렇게 적는다 — `ros/verify-ros-interop.sh`의 "What this
+does NOT check": "No live ROS 2 graph: no node is ever spun up, no
+topic/service/action is published or called against a real moveit2 or rclrs
+process ... Wire-format compatibility with a real moveit2 node is unverified
+by this script."
+
+**요약: UNMET 4개(Phase 1, 3, 4, 9), 부분 UNMET 2개(Phase 2의 셋째 항목,
+Phase 5의 둘째·셋째 항목), 미측정 1개(Phase 8의 CHOMP/STOMP 항목).**
