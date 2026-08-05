@@ -1080,3 +1080,57 @@ so the first row's all-green is not an artifact of a broken bite — it is
 the predicted result of an unreachable branch. Both mutations reverted;
 `diff` against the pre-bite copy clean before the next step.
 
+### `ruckig_filter.rs::joint_vel_accel_jerk_bounds` (`:128-170`) — two of four guards had zero coverage, now fixed
+
+Four sibling `Error::other` guards, all funneling into the same error
+type, exactly the shape flagged as "corroborated by pattern rather than
+independently re-bit" in Round 4's exclusions:
+
+- `:138-144` DOF ≠ 1 → `Err`
+- `:147-151` `!velocity_bounded` → `Err`
+- `:154-158` `!acceleration_bounded` → `Err`
+- `:161-165` `!jerk_bounded` → `Err`
+
+Re-checking against `main`'s current tip (post-merge, `#[test]` scan of
+the whole file): `:138-144` and `:154-158` each had a dedicated test
+(`multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`,
+`joint_vel_accel_jerk_bounds_fails_without_acceleration_limits`).
+`:147-151` and `:161-165` had **none** — `rg` for `"velocity limit
+defined"` and `"jerk limit defined"` inside `crates/moveit-smoothing/`
+matched only the guards' own `format!` calls, not any test. This was not
+"corroborated by pattern," it was untested, and unlike the `chain.rs`
+case above, both are reachable: `group.active_joint_names()`
+(`robot_model.rs:1479-1501`) admits any non-fixed, non-mimic joint
+regardless of DOF, and `panda_arm`'s own URDF already has joints with
+velocity bounds set and jerk bounds unset (the existing
+`joint_vel_accel_jerk_bounds_fails_without_acceleration_limits` test's
+own doc comment says as much) — clearing velocity, or setting
+acceleration without jerk, are both ordinary fixture mutations, not
+constructions this port makes impossible.
+
+Added `joint_vel_accel_jerk_bounds_fails_without_velocity_limits`
+(clears `has_velocity_limits` on every `panda_arm` joint via
+`set_variable_bounds_from_limits`) and
+`joint_vel_accel_jerk_bounds_fails_without_jerk_limits` (sets
+acceleration bounds only, leaving `panda_arm`'s already-absent jerk
+bounds untouched) to `ruckig_filter.rs`'s test module.
+
+Four-way isolating-mutation bite, each guard neutralized alone
+(`&& !true`), `--no-fail-fast`, reverted and diffed clean before the
+next:
+
+| Guard neutralized | Own test | Sibling guards' tests | Full suite |
+|---|---|---|---|
+| `:138-144` DOF≠1 | `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` **fails** | 3 others green | 40/41 |
+| `:147-151` velocity | `joint_vel_accel_jerk_bounds_fails_without_velocity_limits` **fails** | 3 others green | 40/41 |
+| `:154-158` acceleration | `joint_vel_accel_jerk_bounds_fails_without_acceleration_limits` **fails** (falls through to the jerk guard's message, doesn't match `"acceleration limit defined"`) | 3 others green | 40/41 |
+| `:161-165` jerk | `joint_vel_accel_jerk_bounds_fails_without_jerk_limits` **fails**, plus `ruckig_filter_parity::ruckig_filter_matches_the_oracle` **fails** (`"case 0: expected initialize to fail"` — an oracle fixture case independently depends on this guard) | 3 others green | 39/41 |
+
+All four guards are independently discriminating: each mutation kills
+exactly its own test (jerk also kills one oracle-parity case, a second,
+independent witness for the same guard — not a sibling collision) while
+the other three guards' tests, and the success-path test, stay green.
+Gate: `cargo fmt --all`; `cargo clippy -p moveit-kinematics --all-targets
+-- -D warnings` and `cargo clippy -p moveit-smoothing --all-targets --
+-D warnings`, both clean; `cargo nextest run -p moveit-kinematics`
+(35/35) and `cargo nextest run -p moveit-smoothing` (41/41), both green.
