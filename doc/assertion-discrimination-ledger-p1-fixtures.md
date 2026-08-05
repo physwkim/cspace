@@ -1020,7 +1020,7 @@ ambiguity the way multiple guards can share one negative signal.
 | Subject | Guard/Err sites | In this audit? |
 |---|---|---|
 | `JointConstraintSampler::new` | 2 (`Err::other` × 2) | bit, §Bites below |
-| `ChainInfo::build` | 5 (`?` group lookup, not-a-chain, DOF≠1, unsupported type — untested, mimic-master-outside-group) | 3 tested guards bit |
+| `ChainInfo::build` | 5 (`?` group lookup, not-a-chain, DOF≠1, unsupported type — untested, mimic-master-outside-group) | ~~3 tested guards bit~~ **all 5 accounted for — see Round 6's `Error::UnknownName` note below** |
 | `update_orientation_constraint` / `update_position_constraint` | 1 guard each (link-name match), but funnel through an **empty-loop vacuity**, not a message collision | bit — **blind, fixed** |
 | `merge_constraints` | 1 drop path for this fixture shape | excluded, see below |
 | `joint_acceleration_bounds` | 2 (`Err::other` × 2) | bit |
@@ -1041,7 +1041,7 @@ referenced under `-D warnings`, confirmed via
 pre-bite backup + `diff` before moving to the next site.
 
 - **`JointConstraintSampler::new`** (`crates/moveit-constraints/src/sampler.rs:213`,`:224`): bit each of the two `Err::other` guards (empty-intersection, no-valid-constraint-for-group) independently. Each bite failed exactly the test targeting it (`configure_fails_on_empty_intersection_between_two_constraints`, `configure_fails_when_the_only_constraint_is_on_a_joint_outside_the_group`) while the other stayed green. **Discriminating, not blind.**
-- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147`,`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267`'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196`) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed.
+- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147`,`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267`'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196`) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed. The fifth guard, the `?` group lookup (`chain.rs:146`), is exempt from needing a bite at all — see Round 6, below.
 - **`update_orientation_constraint` / `update_position_constraint`** (`crates/moveit-constraints/src/utils.rs:516`,`:597`): bit each link-name-comparison guard completely. Both `not_found_returns_false` tests (`utils_parity.rs:580`,`:602`) **stayed green** — confirmed blind. Root cause: both fixtures construct an *empty* `KinematicConstraintSet`, so `for c in constraints.constraints_mut()` never iterates and `set.is_empty()` holds regardless of what the guard decides — the census's own `shortest_solution_is_none_on_empty_input` vacuous-fixture shape. **Fixed** (commit `9b2bff6`): added `mismatched_link_name_leaves_constraint_untouched` to each boundary module, constructing one non-matching constraint so the loop body actually runs; re-biting the same guards against the new tests now fails only the new test in each module, with `not_found_returns_false` (and, for position, `multi_region_constraint_is_error`) staying green — confirmed the new tests could not have passed as a behaviour-preserving no-op, since the bite visibly flips `updated` from `false` to `true` and reconstructs the surviving constraint.
 - **`joint_acceleration_bounds`** (`crates/moveit-smoothing/src/acceleration_filter.rs:153`,`:162`): bit the single-DOF-active-joint guard directly — only `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` failed, `joint_acceleration_bounds_fails_without_acceleration_limits` (its claimed message-swap sibling) stayed green, confirming the existing "message-swap bite-checked" comment.
 - **`AccelerationLimitedFilter::do_smoothing`** (`acceleration_filter.rs:335`, the reset-before-check guard): bit directly — only `do_smoothing_before_reset_is_an_error` failed (via an index-out-of-bounds panic once the length check no longer short-circuits, still a discriminating failure), all 38 other smoothing tests stayed green.
@@ -1245,3 +1245,34 @@ Round 4) and, as of this round, load-bearing (by bite, all 4 of 4).**
 Gate: `cargo fmt --all`; `cargo clippy -p moveit-smoothing --all-targets
 -- -D warnings` clean; `cargo nextest run -p moveit-smoothing` (41/41)
 green.
+
+### `chain.rs:146`'s group-lookup guard is exempt, not untested — variant uniqueness, not just message uniqueness
+
+`ChainInfo::build`'s fifth guard, `model.joint_model_group(group_name)?`
+(`chain.rs:146`), tested at `chain.rs:488` via
+`assert!(matches!(err, Error::UnknownName { .. }))`
+(`build_reports_an_unknown_group_as_unknown_name`). `ChainInfo::build`
+contains exactly one `?` and every other exit is `Error::other(...)` —
+confirmed by reading the whole function body, not just grepping for
+`return Err`, since a missed `?` would not show up as a `return`. No
+sibling guard can construct an `Error::UnknownName`, so there is no
+guard in this function whose neutralization could make
+`chain.rs:488`'s assertion pass by accident: it is not merely that the
+guards' *messages* happen to differ (the property `is_some` and the
+message-uniqueness argument above both rest on), it is that the guards
+return different *enum variants*, and the assertion checks the variant,
+not the message. Variant uniqueness is a strictly stronger guarantee
+than message uniqueness — a future edit could accidentally duplicate a
+message string across two `Error::other(format!(...))` call sites and
+still compile, but could not accidentally return the wrong variant from
+a different `return Err(Error::other(...))` statement without changing
+that statement itself. Same class of exemption as the `is_some`
+structural exemption from Round 4's opening paragraph (a signal only
+one code path can produce needs no bite), applied here to a second,
+independent case rather than being a new rule. Not bit; no bite is
+needed for this reason to hold, and none would strengthen it further.
+
+`ChainInfo::build`'s five guards are therefore now fully accounted for:
+3 bit directly this round (`chain.rs:469,512,558`), 1 proven unreachable
+by construction (`chain.rs:193-200`, Round 5), 1 exempt by variant
+uniqueness (`chain.rs:146`/`:488`, this section).
