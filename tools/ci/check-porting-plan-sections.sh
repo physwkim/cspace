@@ -44,7 +44,7 @@ import subprocess
 import sys
 
 tracked = [p for p in subprocess.run(
-    ["git", "ls-files", "-z"], capture_output=True, check=True
+    ["git", "ls-files", "--deduplicate", "-z"], capture_output=True, check=True
 ).stdout.decode("utf-8").split("\0") if p]
 
 with open("PORTING-PLAN.md", encoding="utf-8") as handle:

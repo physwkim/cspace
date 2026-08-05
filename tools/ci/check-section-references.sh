@@ -60,7 +60,7 @@ HEADING_RE = re.compile(r"^#{2,6}\s+§?(\d+(?:\.\d+)*)\b")
 REF_RE = re.compile(r"§(\d+(?:\.\d+)*)")
 
 tracked = subprocess.run(
-    ["git", "ls-files"], capture_output=True, text=True, check=True
+    ["git", "ls-files", "--deduplicate"], capture_output=True, text=True, check=True
 ).stdout.split("\n")
 tracked = [p for p in tracked if p]
 

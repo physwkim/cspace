@@ -41,7 +41,7 @@ fi
 
 status=0
 
-mapfile -t manifests < <(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
+mapfile -t manifests < <(git ls-files --deduplicate -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
 require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
 
 for manifest in "${manifests[@]}"; do
@@ -69,7 +69,7 @@ for manifest in "${manifests[@]}"; do
   # crate with no diagnostic. The genuinely-empty case is still a silent
   # `continue`, unchanged: a manifest-only crate legitimately has nothing to
   # check here.
-  if ! sources_raw="$(git ls-files -- "$crate_dir/*.rs" | sort)"; then
+  if ! sources_raw="$(git ls-files --deduplicate -- "$crate_dir/*.rs" | sort)"; then
     echo "$manifest: git ls-files failed for $crate_dir -- nothing was checked" >&2
     status=1
     continue

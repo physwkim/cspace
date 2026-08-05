@@ -27,12 +27,12 @@ cd "$repo_root"
 # this repo keeps equal to the package name (a mismatch would show up as an
 # unrecognised dependency key below, i.e. as a miss, not a false alarm).
 mapfile -t members < <(
-  git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' |
+  git ls-files --deduplicate -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' |
     sed 's|/Cargo.toml$||' | sed 's|.*/||' | sort -u
 )
 require_nonempty "${#members[@]}" "workspace member under crates/ or tools/"
 
-mapfile -t manifests < <(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
+mapfile -t manifests < <(git ls-files --deduplicate -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
 require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
 
 status=0

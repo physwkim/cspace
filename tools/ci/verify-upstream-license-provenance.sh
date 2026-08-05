@@ -251,7 +251,7 @@ def resolve_citation(citation):
 tracked = [
     path
     for path in subprocess.run(
-        ["git", "ls-files", "--", "crates/", "tools/", "ros/"],
+        ["git", "ls-files", "--deduplicate", "--", "crates/", "tools/", "ros/"],
         cwd=repo_root, capture_output=True, text=True, check=True,
     ).stdout.split()
     if path.endswith(".rs")

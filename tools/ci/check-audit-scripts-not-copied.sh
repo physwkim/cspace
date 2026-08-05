@@ -29,7 +29,7 @@ cd "$repo_root"
 # which is exactly how the oracle image builds its context (see
 # `check-fixture-format.sh`'s header). Same mechanism as the
 # `verify-clean-checkout.sh` bug and fixed the same way.
-if ! copies_raw="$(git ls-files -- '*/audit/count*' | sort)"; then
+if ! copies_raw="$(git ls-files --deduplicate -- '*/audit/count*' | sort)"; then
   echo "FAIL git ls-files failed -- nothing was checked." >&2
   exit 1
 fi

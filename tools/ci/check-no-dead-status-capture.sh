@@ -44,7 +44,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
 mapfile -t scripts < <(
-  git ls-files -- 'tools/ci/*.sh' 'tools/moveit-oracle/*.sh' 'ros/*.sh' 'tools/mpr-vs-epa/*.sh' | sort
+  git ls-files --deduplicate -- 'tools/ci/*.sh' 'tools/moveit-oracle/*.sh' 'ros/*.sh' 'tools/mpr-vs-epa/*.sh' | sort
 )
 require_nonempty "${#scripts[@]}" "shell script under tools/ or ros/"
 

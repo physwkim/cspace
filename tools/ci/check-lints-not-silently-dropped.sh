@@ -55,7 +55,7 @@ for group in rust clippy; do
   fi
 done
 
-mapfile -t manifests < <(git ls-files -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
+mapfile -t manifests < <(git ls-files --deduplicate -- 'crates/*/Cargo.toml' 'tools/*/Cargo.toml' | sort)
 require_nonempty "${#manifests[@]}" "crate manifest under crates/ or tools/"
 
 for manifest in "${manifests[@]}"; do
