@@ -939,6 +939,12 @@ mod tests {
         traj
     }
 
+    /// `n1 < 2 && n2 < 2` folds two named operands into one guard
+    /// (`doc/folded-operand-guards.md`). This test alone cannot tell them
+    /// apart: both `n1` and `n2` are `1` here, so forcing either operand's
+    /// clause to `true` (keeping the other real) leaves this assertion
+    /// green -- checked in both directions. The two sibling tests below
+    /// isolate each operand instead, one fixture per operand.
     #[test]
     fn determine_and_check_sampling_time_needs_at_least_two_intervals_on_one_side() {
         let (model, _) = load_panda();
@@ -946,6 +952,39 @@ mod tests {
         let a = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
         let b = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
         assert_eq!(determine_and_check_sampling_time(&a, &b, 1e-6), None);
+    }
+
+    /// Isolates `n2 < 2`'s operand: `n1 = 1 < 2` here, so this can only
+    /// return `Some` because `n2 = 2` genuinely fails its own `< 2` clause.
+    /// Isolating mutation: forcing `n2 < 2`'s clause to `true` (`if n1 < 2
+    /// && true`) flips this test from `Some(0.1)` to a `None` unwrap panic;
+    /// the other five sampling-time tests, including this function's own
+    /// `n1`-isolating mirror below, stay green under the same mutation.
+    #[test]
+    fn determine_and_check_sampling_time_accepts_when_only_the_second_side_has_enough_intervals() {
+        let (model, _) = load_panda();
+        let a = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
+        let b = robot_trajectory_with_durations(&model, &[0.0, 0.1, 0.1]);
+        assert_relative_eq!(
+            determine_and_check_sampling_time(&a, &b, 1e-6).unwrap(),
+            0.1
+        );
+    }
+
+    /// Mirror of
+    /// `determine_and_check_sampling_time_accepts_when_only_the_second_side_has_enough_intervals`,
+    /// isolating `n1 < 2`'s operand instead: forcing `n1 < 2`'s clause to
+    /// `true` (`if true && n2 < 2`) flips this test from `Some(0.1)` to a
+    /// `None` unwrap panic, while the other five stay green.
+    #[test]
+    fn determine_and_check_sampling_time_accepts_when_only_the_first_side_has_enough_intervals() {
+        let (model, _) = load_panda();
+        let a = robot_trajectory_with_durations(&model, &[0.0, 0.1, 0.1]);
+        let b = robot_trajectory_with_durations(&model, &[0.0, 0.1]);
+        assert_relative_eq!(
+            determine_and_check_sampling_time(&a, &b, 1e-6).unwrap(),
+            0.1
+        );
     }
 
     #[test]
@@ -1073,6 +1112,42 @@ mod tests {
         );
     }
 
+    /// `compute_link_fk` has three `None`-producing paths collapsing to the
+    /// identical value: the `knows_frame_transform` guard above,
+    /// `set_variable_positions_by_name`'s `?`, and `frame_transform`'s own
+    /// failure. Isolating mutation: neutralizing the `knows_frame_transform`
+    /// guard alone (`if false && !robot_state.knows_frame_transform(..)`)
+    /// leaves `compute_link_fk_resolves_a_known_link_and_rejects_an_unknown_
+    /// one` green, because `"no_such_link"` independently fails
+    /// `frame_transform` too. `RobotState::knows_frame_transform`
+    /// (`has_link_model` alone) and `RobotState::frame_transform`
+    /// (`has_link_model` OR `frame_id == model_frame`) can only disagree in
+    /// the one case `moveit-state/src/state.rs:825` documents: a model
+    /// whose model frame is not itself a link name. The panda fixture's
+    /// model frame is `panda_link0` (a real link, via the no-virtual-joint
+    /// `ASSUMED_FIXED_ROOT_JOINT` fallback), so it cannot exhibit this --
+    /// this test builds a synthetic floating-virtual-joint SRDF whose model
+    /// frame (`"world"`) is not a link, to force the two paths apart.
+    #[test]
+    fn compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+        let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_str(
+            r#"<robot name="panda"><virtual_joint name="v" type="floating" parent_frame="world" child_link="panda_link0"/></robot>"#,
+        )
+        .expect("synthetic SRDF must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
+                .expect("synthetic model must build");
+        assert_eq!(model.model_frame(), "world");
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let joint_state = ready_positions();
+        assert_eq!(compute_link_fk(&mut state, "world", &joint_state), None);
+    }
+
     // -- compute_pose_ik: round-trip converges; self-collision rejects the
     // known-colliding all-zero panda configuration --
 
@@ -1119,6 +1194,18 @@ mod tests {
         );
     }
 
+    /// `compute_pose_ik` has five `None`-producing paths (three guards plus
+    /// two `?`s) collapsing to the identical value. This fixture's group
+    /// name and `frame_id` both satisfy their own guards (`solver.group_name()`
+    /// is `"panda_arm"`, a real group; `frame_id` is `model.model_frame()`
+    /// itself), so only the `tip_frame` guard's condition is true here.
+    /// Isolating mutation: neutralizing that guard alone
+    /// (`if false && solver.tip_frame() != link_name`) flips this test from
+    /// `None` to an actual IK solution (`Some({"panda_joint7": ...})`),
+    /// while `compute_pose_ik_round_trips_a_reachable_pose` -- whose own
+    /// `link_name` already equals the real tip frame -- is unaffected by
+    /// the same mutation, since that guard's condition was already false
+    /// for it regardless.
     #[test]
     fn compute_pose_ik_rejects_tip_frame_mismatch() {
         let (model, srdf) = load_panda();
