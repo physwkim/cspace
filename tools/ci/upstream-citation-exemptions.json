@@ -20,5 +20,166 @@
       "spec": "320",
       "why": "The line quotes a round brief's claim in order to correct it, and the two lines below it state the refutation in this script's own terms: kinematics_base.cpp is 210 lines and never mentions dimension_. Making the quoted citation resolvable would erase what the paragraph reports."
     }
+  ],
+  "_unresolvable_comment": [
+    "Every cited path `tools/ci/measure-upstream-citations.py` cannot resolve",
+    "against `$MOVEIT2_SRC` or a vendored `--source` root, declared with the",
+    "project it names and why this gate does not check it.",
+    "",
+    "The gate used to print these and pass. That is the same silence a skipped",
+    "check produces: an unresolvable citation is an UNVERIFIED citation, and a",
+    "list of them under a green OK line reads as coverage. So the rule is now",
+    "two-sided and both sides are hard failures:",
+    "",
+    "  - a cited path that resolves nowhere and is not declared here fails,",
+    "    which is what stops a typo or a renamed upstream file from quietly",
+    "    joining the unchecked pile;",
+    "  - a path declared here that nothing cites any more fails, which is what",
+    "    stops this file from accumulating claims about a corpus that moved.",
+    "",
+    "`paths` are matched against the cited string EXACTLY as the corpus writes",
+    "it, not against the file on disk -- that is deliberate. Two spellings of",
+    "the same file are two rows, so shortening or lengthening a citation shows",
+    "up here rather than passing silently under a neighbour's declaration.",
+    "",
+    "A declaration is not an exemption from correctness. It records that this",
+    "gate has no tree to check the citation against; the citation may still be",
+    "wrong, and `oracle` below is the proof that unchecked citations rot --",
+    "every one of its 47 was measured drifted. Anything that CAN be pointed at",
+    "a pinned checkout belongs in `verify-upstream-citations.sh`'s `--source`",
+    "list instead of here."
+  ],
+  "unresolvable": [
+    {
+      "project": "fcl",
+      "checkout": "~/work/fcl at 0.7.0-17-ge5efcc4 (PORTING-PLAN.md:11242)",
+      "why": "Not vendored and not indexed. PORTING-PLAN.md:11254 records that these line numbers are relative to tag 0.7.0, which is 17 commits behind that checkout's HEAD -- so pointing the gate at the checkout on disk would check them against a revision nobody cited, the failure mode this gate's own header calls worse than not checking. Indexing fcl needs the tag pinned first.",
+      "paths": [
+        "BVH_model-inl.h",
+        "box_box-inl.h",
+        "collision_func_matrix-inl.h",
+        "collision_geometry-inl.h",
+        "collision_geometry.h",
+        "collision_request.h",
+        "collision_result-inl.h",
+        "cost_source-inl.h",
+        "fcl/include/fcl/geometry/bvh/detail/BV_fitter-inl.h",
+        "fcl/include/fcl/geometry/shape/utility-inl.h",
+        "fcl/include/fcl/math/geometry-inl.h",
+        "fcl/include/fcl/narrowphase/collision_request.h",
+        "fcl/include/fcl/narrowphase/detail/collision_func_matrix-inl.h",
+        "fcl/include/fcl/narrowphase/detail/traversal/collision/mesh_collision_traversal_node-inl.h",
+        "fcl/include/fcl/narrowphase/detail/traversal/collision/mesh_shape_collision_traversal_node-inl.h",
+        "fcl/include/fcl/narrowphase/detail/traversal/collision/shape_collision_traversal_node-inl.h",
+        "geometry-inl.h",
+        "gjk_solver_libccd-inl.h",
+        "include/fcl/geometry/bvh/BVH_model-inl.h",
+        "include/fcl/geometry/bvh/BVH_model.h",
+        "include/fcl/geometry/bvh/detail/BV_splitter-inl.h",
+        "include/fcl/math/bv/OBBRSS.h",
+        "include/fcl/narrowphase/collision_request.h",
+        "include/fcl/narrowphase/contact.h",
+        "include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h",
+        "mesh_collision_traversal_node-inl.h",
+        "mesh_shape_collision_traversal_node-inl.h",
+        "shape_collision_traversal_node-inl.h"
+      ]
+    },
+    {
+      "project": "libccd",
+      "checkout": "~/work/libccd at 7931e76 / v2.1 (PORTING-PLAN.md:11243, tools/mpr-vs-epa/build.sh)",
+      "why": "Not vendored and not indexed. Reached only through `tools/mpr-vs-epa/`, which builds it out of tree; nothing in the workspace consumes its headers.",
+      "paths": [
+        "vec3.h"
+      ]
+    },
+    {
+      "project": "stomp",
+      "checkout": "~/work/stomp at b1a87c8 (Cargo.toml:17, doc/claim-audit/moveit-stomp-core.md:7-8)",
+      "why": "Not vendored and not indexed. `stomp/src/utils.cpp` additionally collides by basename with moveit2's own `kinematic_constraints/src/utils.cpp`, so indexing it needs a prefix decided first.",
+      "paths": [
+        "/home/stevek/work/stomp/src/utils.cpp",
+        "include/stomp/utils.h",
+        "src/stomp.cpp",
+        "stomp.cpp",
+        "stomp/src/utils.cpp",
+        "test/stomp_3dof.cpp"
+      ]
+    },
+    {
+      "project": "ompl",
+      "checkout": "none on this machine",
+      "why": "A build dependency of moveit_planners/ompl, never checked out here. No revision is recorded for it in any tracked document, so there is nothing a checkout could be pinned against.",
+      "paths": [
+        "DiscreteMotionValidator.cpp",
+        "StateSpace.cpp",
+        "ompl/base/src/StateSpace.cpp",
+        "src/ompl/base/src/PlannerTerminationCondition.cpp",
+        "src/ompl/util/Time.h"
+      ]
+    },
+    {
+      "project": "eigen",
+      "checkout": "none on this machine",
+      "why": "A header-only dependency reached through the system include path. No revision is recorded for it in any tracked document.",
+      "paths": [
+        "Eigen/src/Core/Dot.h",
+        "Eigen/src/Core/Redux.h",
+        "Eigen/src/Geometry/Quaternion.h",
+        "Eigen/src/LU/InverseImpl.h"
+      ]
+    },
+    {
+      "project": "osqp",
+      "checkout": "none on this machine",
+      "why": "Cited by doc/claim-audit/moveit-smoothing.md:30 for two constant definitions. The two paths are two RELEASES of the same constants -- `include/public/osqp_api_constants.h` current, `include/constants.h` at tag v0.6.3 -- which is why they are separate rows.",
+      "paths": [
+        "include/constants.h",
+        "include/public/osqp_api_constants.h"
+      ]
+    },
+    {
+      "project": "octomap_msgs",
+      "checkout": "none on this machine",
+      "why": "A ROS message package. `third_party/octomap` is the octomap library, not `octomap_msgs`, and holds neither path.",
+      "paths": [
+        "include/octomap_msgs/conversions.h",
+        "octomap_msgs/conversions.h"
+      ]
+    },
+    {
+      "project": "tf2_eigen",
+      "checkout": "/opt/ros/rolling (not a git checkout)",
+      "why": "Installed as a binary ROS package, not a source checkout, so it carries no revision to pin. One of the two spellings is the absolute install path, which is why they are separate rows.",
+      "paths": [
+        "/opt/ros/rolling/include/tf2_eigen/tf2_eigen/tf2_eigen.hpp",
+        "tf2_eigen.hpp"
+      ]
+    },
+    {
+      "project": "urdfdom_headers",
+      "checkout": "none on this machine",
+      "why": "A build dependency of urdfdom. No revision is recorded for it in any tracked document.",
+      "paths": [
+        "urdfdom_headers/urdf_model/joint.h"
+      ]
+    },
+    {
+      "project": "rclcpp",
+      "checkout": "/opt/ros/rolling (not a git checkout)",
+      "why": "Installed as a binary ROS package. Cited once, by doc/claim-audit/moveit-ros.md:57 for `rclcpp::Duration::from_seconds`.",
+      "paths": [
+        "duration.hpp"
+      ]
+    },
+    {
+      "project": "oracle",
+      "checkout": "this repository, tools/moveit-oracle/src/oracle.cpp",
+      "why": "NOT external -- an in-repo file, cited 47 times by line number, that no gate has ever checked. Indexing it here is one line and was tried; it is held back because the corpus behind it is wholly rotten and a green gate over it would read as coverage. Re-derivation by content (git-blame the citing line, read the cited line at that revision, locate that content today) puts 47 of 47 on a different line, and two of them are historical defect-fix records whose targets the fix deleted, so they must not be re-pointed at all. See PORTING-PLAN.md's `oracle.cpp 인용 47건` section for the per-citation table and the instrument. Landing the `--source` line is the last step of that work, not the first.",
+      "paths": [
+        "oracle.cpp",
+        "tools/moveit-oracle/src/oracle.cpp"
+      ]
+    }
   ]
 }

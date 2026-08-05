@@ -2409,7 +2409,8 @@ literal.
 **Status:** `not-reproduced`
 **Cost of not reproducing:** none. `verbose` is control-flow-neutral
 upstream — measured, not assumed: all 17 of its read sites in
-`collision_common.cpp` (`:110`, `:122`, `:138`, `:151`, `:176`, `:188`,
+`moveit_core/collision_detection_fcl/src/collision_common.cpp` (`:110`,
+`:122`, `:138`, `:151`, `:176`, `:188`,
 `:232`, `:255`, `:261`, `:320`, `:368`, `:402`, `:414`, `:514`, `:530`,
 `:544`, `:557`) open an `RCLCPP_DEBUG`/`RCLCPP_INFO` block holding exactly
 one statement, and `collision_env_fcl.cpp` never mentions the field. No
@@ -2595,7 +2596,8 @@ Through MoveIt's own `CollisionEnvFCL` on prbt (`tools/moveit-oracle`, 48
 requests, 4 kinds × 4 kinds × 3 offsets), exact tangency gives `false` for
 `box × cylinder`, `cylinder × box` and `cylinder × cylinder` and `true` for the
 other 13 — exactly the generic-libccd cells; `mesh` is `true` against everything
-because `collision_common.cpp:900-923` maps `shapes::MESH` to
+because `moveit_core/collision_detection_fcl/src/collision_common.cpp:900-923`
+maps `shapes::MESH` to
 `fcl::BVHModel<BV>`, a third traversal that is neither. At `±1e-9` all 16 cells
 are uniform (`false` at clearance, `true` at overlap), so the split is confined
 to the exact tie.

@@ -273,7 +273,8 @@ fn main() -> ExitCode {
     };
 
     // Upstream's name for this action, verbatim: `move_group::MOVE_ACTION`
-    // (`capability_names.hpp:52`) is the unqualified `"move_action"`, and
+    // (`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:52`)
+    // is the unqualified `"move_action"`, and
     // `MoveGroupInterface` resolves it with `rclcpp::names::append(namespace,
     // MOVE_ACTION)` -- so a leading slash here would put the server at
     // `/move_action` for a default-namespace client and out of reach of a

@@ -44,9 +44,15 @@
 #      the four vendored packages under `third_party/` -- geometric_shapes,
 #      srdfdom, octomap, orocos_kinematics_dynamics -- 77 times, and before
 #      those roots were indexed all 77 landed in the unresolvable list, which
-#      is reported and does not fail. An unresolvable citation is an
+#      was reported and did not fail. An unresolvable citation is an
 #      unchecked one, so that list reading as "not a failure" was the same
-#      silence a skipped check produces. A fallback would have resolved them
+#      silence a skipped check produces. What is left unresolvable now has to
+#      be DECLARED, in `upstream-citation-exemptions.json`'s `unresolvable`
+#      key, with the project it names and why no tree covers it; an undeclared
+#      path fails and so does a declaration nothing cites any more. The list
+#      still is not a pass -- a declaration says no tree covers the citation,
+#      not that the citation is right -- but it is now a list somebody signed.
+#      A fallback would have resolved them
 #      too, and would also have hidden any basename the two trees share: it
 #      answers with the first root while reading as a unique match. One index
 #      makes such a basename ambiguous, which is what it is. Four exist today
@@ -738,6 +744,32 @@ def load_exemptions():
     return {(e["doc"], e["line"], e["upstream"], e["spec"]) for e in data["exemptions"]}
 
 
+def load_unresolvable_declarations():
+    """{cited path: project} for every path that resolves against no root.
+
+    Printing these and passing is the same silence a skipped check produces:
+    an unresolvable citation is an unverified one, and a list of them under a
+    green OK line reads as coverage. Both directions are failures instead --
+    an undeclared path, so a typo or a renamed upstream file cannot quietly
+    join the pile, and a declared path nothing cites any more, so this file
+    cannot accumulate claims about a corpus that moved. Matching is on the
+    cited string exactly as the corpus writes it, so two spellings of one file
+    are two rows and shortening a citation cannot hide under a neighbour."""
+    if not EXEMPTIONS_PATH.exists():
+        return {}
+    data = json.loads(EXEMPTIONS_PATH.read_text(encoding="utf-8"))
+    out = {}
+    for group in data.get("unresolvable", []):
+        for path in group["paths"]:
+            if path in out:
+                raise SystemExit(
+                    f"FAIL `{path}` is declared twice in {EXEMPTIONS_PATH.name} "
+                    f"({out[path]} and {group['project']})"
+                )
+            out[path] = group["project"]
+    return out
+
+
 # `--deduplicate`, on both, and it is not cosmetic. During an unresolved
 # merge `git ls-files` prints a conflicted path once per stage, so a
 # three-way conflict in PORTING-PLAN.md makes this corpus read every
@@ -1026,20 +1058,54 @@ def main():
                 file=sys.stderr,
             )
 
+    declared = load_unresolvable_declarations()
+    undeclared = sorted(set(unresolved) - set(declared))
+    stale = sorted(set(declared) - set(unresolved))
+
     if unresolved:
+        by_project = {}
+        for p in unresolved:
+            by_project.setdefault(declared.get(p, "<undeclared>"), []).append(p)
         print(
-            f"--- {len(unresolved)} distinct unresolvable cited path(s) "
-            f"(reported, not a failure: outside the upstream tree or ambiguous) ---",
+            f"--- {len(unresolved)} distinct unresolvable cited path(s) across "
+            f"{len(by_project)} project(s) ---",
             file=sys.stderr,
         )
-        for p, why in sorted(unresolved.items()):
-            print(f"  `{p}` -- {why}", file=sys.stderr)
+        for project in sorted(by_project):
+            print(f"  {project}:", file=sys.stderr)
+            for p in sorted(by_project[project]):
+                print(f"    `{p}` -- {unresolved[p]}", file=sys.stderr)
 
-    if out_of_bounds or span_mismatch or obsolete_header:
+    if undeclared:
+        print(
+            f"--- {len(undeclared)} undeclared unresolvable cited path(s) ---",
+            file=sys.stderr,
+        )
+        for p in undeclared:
+            print(
+                f"FAIL `{p}` resolves against no root and is not declared in "
+                f"{EXEMPTIONS_PATH.name}. Every citation to it is unverified; "
+                f"declare which project it names and why no tree covers it, or "
+                f"pass that tree as a `--source` root.",
+                file=sys.stderr,
+            )
+    if stale:
+        print(f"--- {len(stale)} stale unresolvable declaration(s) ---", file=sys.stderr)
+        for p in stale:
+            print(
+                f"FAIL `{p}` is declared unresolvable in {EXEMPTIONS_PATH.name} "
+                f"({declared[p]}) but nothing cites it any more -- the declaration "
+                f"now vouches for a corpus that moved.",
+                file=sys.stderr,
+            )
+
+    if out_of_bounds or span_mismatch or obsolete_header or undeclared or stale:
         print(
             f"FAIL {len(out_of_bounds)} out-of-bounds + {len(obsolete_header)} "
-            f"obsolete-header + {len(span_mismatch)} span-mismatch (of {total} "
-            f"upstream citations resolved across {len(corpus)} tracked .md/.rs files)",
+            f"obsolete-header + {len(span_mismatch)} span-mismatch + "
+            f"{len(undeclared)} undeclared-unresolvable + {len(stale)} "
+            f"stale-declaration (of {total} upstream citations resolved across "
+            f"{len(corpus)} tracked .md/.rs files)",
             file=sys.stderr,
         )
         return 1
@@ -1057,8 +1123,10 @@ def main():
         f"tightly-paired symbol with a definition span), {exempted} exempted "
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
         f"total reached through a bare `:NNN` continuation, {len(unresolved)} "
-        f"distinct unresolvable paths (reported above), 0 out-of-bounds, "
-        f"0 obsolete-header, 0 span-mismatch"
+        f"distinct unresolvable paths all declared in "
+        f"{EXEMPTIONS_PATH.name} (reported above, and unverified -- a "
+        f"declaration says no tree covers them, not that they are right), "
+        f"0 out-of-bounds, 0 obsolete-header, 0 span-mismatch"
     )
     return 0
 

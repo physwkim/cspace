@@ -20704,7 +20704,9 @@ D4는 열리지 않는다. 두 필드는 포팅하지 않기로 판정했다(`b5
 `check-collision-unpadded-discards-its-own-request-copy`에 적었다.
 
 **`verbose`.** 이 필드는 상류에서 **제어 흐름을 바꾸지 않는다**. 추측이
-아니라 실측이다: `collision_common.cpp`의 17개 읽는 지점(`:110`, `:122`,
+아니라 실측이다:
+`moveit_core/collision_detection_fcl/src/collision_common.cpp`의 17개 읽는
+지점(`:110`, `:122`,
 `:138`, `:151`, `:176`, `:188`, `:232`, `:255`, `:261`, `:320`, `:368`,
 `:402`, `:414`, `:514`, `:530`, `:544`, `:557`) 전부가 `RCLCPP_DEBUG`
 또는 `RCLCPP_INFO` 한 문장만 담은 블록을 연다. `collision_env_fcl.cpp`는
@@ -22757,7 +22759,8 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
   파이프라인이 없으므로 그 분기가 이 포트가 서는 자리이고, `FAILURE`가
   이 포트가 내는 코드다.
 
-액션 이름은 상류의 `move_group::MOVE_ACTION`(`capability_names.hpp:52`)
+액션 이름은 상류의 `move_group::MOVE_ACTION`
+(`moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:52`)
 그대로 무접두 `"move_action"`이다. 클라이언트가
 `rclcpp::names::append(namespace, MOVE_ACTION)`로 푸는 이름이라, 여기에
 슬래시를 붙이면 네임스페이스를 쓰는 클라이언트에서 안 보이게 된다.
@@ -22953,7 +22956,8 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 
 `false`인 세 셀은 정확히 §251.1의 일반 libccd 셀이다. `mesh`가 모든 상대에
 `true`인 것은 MoveIt이 `shapes::MESH`를 `fcl::BVHModel<BV>`로 사상하기
-때문이고(`collision_common.cpp:900-923`), 이는 특수화도 libccd MPR도 아닌
+때문이고(`moveit_core/collision_detection_fcl/src/collision_common.cpp:900-923`),
+이는 특수화도 libccd MPR도 아닌
 세 번째 순회다. `+1e-9` 간극에서는 16셀 전부 `false`, `-1e-9` 겹침에서는
 16셀 전부 `true`이므로 분할은 정확한 동점에만 갇혀 있다. 첫 측정과 이
 재실행이 48셀 전부에서 `robot_collision`·`robot_distance` 모두 비트 단위로
@@ -23322,3 +23326,143 @@ missing/duplicated"의 의미가 그것이다).
 4. **상류 단위 테스트 벡터** — Phase 6 둘째 절이 요구하는 68건. 코퍼스
    규칙이 배제하므로 코퍼스를 넓히는 것이 아니라 별도 열거가 필요하다
    (코퍼스를 넓히면 §249의 87이 비교 불가능해진다).
+
+## §253 `oracle.cpp` 인용 47건 — 아무 게이트도 본 적이 없고, 재도출하니 47건 전부 옮겨져 있다 (2026-08-06)
+
+`tools/ci/verify-upstream-citations.sh`는 인용된 경로를 `$MOVEIT2_SRC`와
+`--source`로 넘긴 vendored 트리에서만 찾는다. `tools/moveit-oracle/src/oracle.cpp`
+는 **이 저장소 안의 파일**이라 어느 쪽에도 없고, 따라서 그 인용은 전부
+unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지는 않는, 건너뛴
+검사와 구별되지 않는 자리다.
+
+저장소 자신을 접두사 없는 `--source` 루트로 넣는 것은 한 줄이다. 넣어서
+돌려봤고, 되돌렸다. 이유는 아래 측정이다.
+
+### §253.1 재도출 방법과 그 한계
+
+인용을 "지금 그 줄에 뭐가 있나"로 판정할 수는 없다. 인용이 *쓰일 당시* 무엇을
+가리켰는지가 기준이므로:
+
+1. 인용이 적힌 줄을 `git blame -l -L n,n -- <doc>`으로 커밋을 얻고,
+2. `git show <sha>:tools/moveit-oracle/src/oracle.cpp`에서 인용된 줄의 내용을
+   읽고,
+3. 그 내용(주변 ±2~±12줄 창)을 오늘 파일에서 유일하게 찾는다.
+
+한계는 blame이 **그 줄을 마지막으로 건드린** 커밋이지 인용을 쓴 커밋이 아니라는
+것이다. 문서가 나중에 리플로우되면 blame은 엉뚱한 리비전을 가리킨다. 이 표에서
+실제로 그렇게 어긋난 다섯 건(`PORTING-PLAN.md:11391` 둘,
+`oracle-request-collision-max-contacts-per-pair.md:73`/`:85`, 그리고
+`PORTING-PLAN.md:11777`)은 blame 사상이 인용 문장의 주장과 모순되는 것으로
+드러났고, 내용으로 손수 다시 잡았다. 표의 `손:` 행이 그것이다.
+
+72개 끝점 중 61개가 기계적으로 유일하게 사상되고, 나머지는 주변 텍스트까지
+바뀐 것이라 손으로 잡았다.
+
+### §253.2 측정
+
+- 경로 형태 인용 `oracle.cpp:NNN` **47건**, 12개 파일에 걸쳐 있다.
+- 같은 줄에서 이어지는 맨 `:NNN` 연속 인용 **7건**. 이쪽은 게이트가 세지도
+  못한다 — 경로가 unresolvable이면 `base`가 `None`으로 리셋되므로 뒤따르는
+  맨 needle은 통째로 버려진다.
+- **47건 전부** 옮겨져 있다. 41건은 최소 한 끝점이 기계적으로 다른 줄에
+  사상되고, 나머지 6건은 기계 사상이 실패해 손으로 확인했으며 그 6건도 전부
+  옮겨져 있다. 같은 줄에 그대로 있는 인용은 **0건**이다.
+- 게이트가 볼 수 있는 것은 이 중 10건뿐이다. 나머지 37건은 심볼 앵커가 짝지어지지
+  않아 bounds-only로 통과한다 — 파일이 6600줄이 넘으므로 아무 숫자나 범위 안에
+  든다. 이것이 브리핑이 말한 "1560 bounds-checked only는 썩는 것을 못 본다"의
+  실물이다.
+
+### §253.3 왜 지금 고치지 않았나
+
+47건을 기계적으로 새 번호로 갈아끼우는 것은 세 부류에서 틀린 답이 된다.
+
+- **역사 기록.** §138.3의 `:4752`(`plan` → `planning_time_s`)와
+  `:5135`(`pilzTrajectory` → `planning_time`)는 `c0838b4`가 그 필드들을 지우면서
+  없어진 줄이다. 두 인용 모두 `c0838b4^`에서 정확히 일치하는 것을 확인했다
+  (`{ "planning_time_s", elapsed },` / `res.planning_time`). 오늘 줄로 옮기면
+  기록이 가리키던 결함 자체가 지워진다. `applyJointValues` 호출자 10곳을 적은
+  `PORTING-PLAN.md:11777-11779`도 같다 — `367c07a^`에서 `:2016`/`:2214`가
+  `state_->clearAttachedBodies();`이고 열 개 번호
+  `:1332,1383,1627,2014,2212,3035,3162,3316,4103,4382`가 전부 그대로 맞는다.
+  고친 커밋이 그 호출들을 옮겼으므로 오늘 대응하는 줄이 없다.
+- **이미 반영된 요청.** `oracle-request-collision-max-contacts-per-pair.md`는
+  `collision()`의 반환문에서 `contactsToJson`을 `allContactsToJson`으로 바꿔
+  달라는 요청 문서다. 그 교체는 이미 되어 있다(오늘 `:2484`/`:2488`). 번호만
+  갈아끼우면 끝난 변경을 미결로 서술하게 된다.
+- **인용된 코드 자체가 사라진 것.** `PORTING-PLAN.md:17643`이 인용하는
+  `ik_rng_{ 42 }`는 더는 없다. 오늘은 `ik_rng_(ik_rng_seed)`(`:858-859`)에
+  기본값 42이고 CLI 오버라이드(`:6571`, `:6584`)가 붙었다.
+
+그래서 이번 라운드는 **측정과 선언까지** 한다. `--source` 한 줄을 지금 넣으면
+10건이 빨개지고, 그 10건만 고치면 나머지 37건 위에 초록 OK 줄이 서게 된다 —
+커버리지로 읽히는 무검사다. `tools/ci/upstream-citation-exemptions.json`의
+`unresolvable` 키에 `oracle` 그룹으로 선언해 두었고, 그 `why`가 이 절을
+가리킨다. `--source` 줄을 넣는 것이 이 작업의 **마지막** 단계다.
+
+### §253.4 표 (인용 54건)
+
+`인용 위치`는 인용이 적힌 문서:줄, `적힌 곳`은 그 인용이 명시한 spec,
+`재도출`은 위 방법으로 오늘 파일에서 찾은 줄이다. `바로 :NNN`은 같은 줄의
+앞선 경로에 묶이는 맨 needle이다.
+
+| 인용 위치 | 적힌 곳 | 재도출 |
+| --- | --- | --- |
+| `PORTING-PLAN.md:3933` | `:1044` | `2025` |
+| `PORTING-PLAN.md:3960` | `:1144-1146` | `2125-2127` |
+| `PORTING-PLAN.md:4582` | `:1524` | `2457` |
+| `PORTING-PLAN.md:11391` | `:4752` | 손: `c0838b4^`에서 `{ "planning_time_s", elapsed },`. `c0838b4`가 그 필드를 지웠으므로 오늘 대응하는 줄이 없다 |
+| `PORTING-PLAN.md:11391` | `:5135` | 손: `c0838b4^`에서 `res.planning_time`. 같은 커밋이 지웠고 오늘 남은 것은 주석 `:6166`뿐 |
+| `PORTING-PLAN.md:11777` | `:2016` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 (수정으로 삭제) |
+| `PORTING-PLAN.md:17643` | `:6065` | 손: `ik_rng_{ 42 }` 자체가 사라졌다 — 오늘은 `ik_rng_(ik_rng_seed)` 858-859, 멤버 선언 6547 |
+| `PORTING-PLAN.md:17732` | `:1772` | `2015` |
+| `PORTING-PLAN.md:19498` | `:2191` | `2417` |
+| `PORTING-PLAN.md:20264` | `:1537` | `1546` |
+| `PORTING-PLAN.md:21397` | `:1547` | `1549` |
+| `PORTING-PLAN.md:21398` | `:2235` | `2306` |
+| `PORTING-PLAN.md:21523` | `:2188` | `2259` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:51` | `:2326` | `2579` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:65` | `:2364-2374` | `2617-2627` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:73` | `:3391-3392` | 손: `3902` — blame 사상은 depth 주석으로 가는데 인용 문장은 `max_contacts_per_pair` 대입을 가리킨다 |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:78` | `:2162-2208` | `2415-2461` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:85` | `:3361-3368` | 손: `3871-3876` — blame 사상(3842-3849)은 ACM 주석이고 인용 문장은 depth 주석을 가리킨다 |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:112` | `:2162` | `2415` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:125` | `:2202` | `2455` |
+| `crates/moveit-collision/doc/oracle-request-collision-max-contacts-per-pair.md:135` | `:2140-2142` | `2393-2395` |
+| `crates/moveit-collision/src/parry.rs:486` | `:2097` | `2363` |
+| `crates/moveit-collision/src/parry.rs:492` | `:2097` | `2363` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:58` | `:3686-3689` | `4167-4170` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:59` | `:2372-2383` | `2625-2636` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:61` | `:3774` | `4255` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:72` | `:2287-2289` | `2540-2542` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:77` | `:2275-2280` | `2528-2533` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:80` | `:2302` | `2584` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:133` | `:2184` | 손: 2454 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:190` | `:3700` | `4267` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:202` | `:3438-3583` | 손: 3948-4111 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:226` | `:3608-3611` | 손: 4136-4139 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:268` | `:3339-3348` | 손: 4063-4072 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:354` | `:3673-3690` | `4240-4257` |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:385` | `:3583` | 손: 4111 |
+| `crates/moveit-distance-field/doc/oracle-request-hybrid-collision-env-distance-field.md:390` | `:3583-3691` | 손: 4111-4258 |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:988` | `:1343-1400` | `1454-1511` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1082` | `:2230-2261` | `2625-2656` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1398` | `:3183-3393` | `3948-4258` |
+| `crates/moveit-distance-field/tests/collision_env_distance_field_parity.rs:1432` | `:3336` | `4200` |
+| `crates/moveit-distance-field/tests/collision_env_hybrid_parity.rs:20` | `:3660-3712` | `4141-4193` |
+| `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend-geometry.md:651` | `:5764-5786` | `6285-6307` |
+| `doc/claim-audit/moveit-planners-chomp.md:76` | `:129-130` | `137-138` |
+| `doc/claim-audit/moveit-smoothing.md:25` | `:4365-4368,4496-4499` | `4944-4947,5075-5078` |
+| `doc/folded-operand-guards.md:89` | `:2421` | `2674` |
+| `doc/upstream-bugs.md:633` | `:1302-1314` | `1311-1323` |
+| `PORTING-PLAN.md:11777` | 바로 `:2214` | 손: `367c07a^`에서 `state_->clearAttachedBodies();`. 오늘 그 호출은 없다 |
+| `.../oracle-request-collision-max-contacts-per-pair.md:73` | 바로 `:3605-3606` | 손: `4134` (위 `:3391-3392`와 같은 이유) |
+| `.../oracle-request-collision-max-contacts-per-pair.md:85` | 바로 `:3575-3582` | 손: `4085-4090` (위 `:3361-3368`과 같은 이유) |
+| `.../oracle-request-collision-max-contacts-per-pair.md:125` | 바로 `:2206` | `2459` |
+| `crates/moveit-distance-field/doc/f1-f2-f4-predictions.md:77` | 바로 `:268-286` | `278-296` |
+| `.../oracle-request-hybrid-collision-env-distance-field.md:133` | 바로 `:4884` | `5451` |
+| `doc/claim-audit/moveit-planners-chomp.md:76` | 바로 `:5290-5301` | `5869-5880` |
+
+재도출 도구는 커밋하지 않았다. 한 번 쓰고 버리는 것이 아니라 게이트가 되어야
+할 물건인데, 게이트로 만들면 오늘 47건이 전부 빨개진다. 그 순서 — 표를 따라
+인용을 고치고, 그 다음 `--source` 한 줄과 함께 게이트로 올리는 것 — 이
+다음 라운드의 작업이다.
