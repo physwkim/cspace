@@ -23534,3 +23534,133 @@ unresolvable 목록으로 떨어져 왔다 — 보고는 되지만 실패하지�
 할 물건인데, 게이트로 만들면 오늘 47건이 전부 빨개진다. 그 순서 — 표를 따라
 인용을 고치고, 그 다음 `--source` 한 줄과 함께 게이트로 올리는 것 — 이
 다음 라운드의 작업이다.
+
+---
+
+## §254 `/move_action`을 게이트에 올린다 — 상류 C++ `MoveGroupInterface`를 매 실행마다 다시 돌린다 (2026-08-06)
+
+§250은 무변경 `MoveGroupInterface::plan()`이 이 노드에 닿는 것을 손으로
+재고 그 결과를 산문으로 적었다. 산문은 게이트가 아니다. 이 절은 그
+왕복을 기계가 다시 돌리게 만들고, 그 게이트가 **무엇을 잡는지** 이름을
+댈 수 있음을 물어서 보인다.
+
+### §254.1 발견 — 액션 서버를 들여온 그 트리에서 게이트는 초록이었다
+
+`tools/ci/verify-ros-interop.sh`에도 `ros/verify-ros-interop.sh`에도
+`move_action`이라는 문자열이 하나도 없었다. 게이트는 도커에서 노드를
+빌드하고 `/plan_kinematic_path`를 실제 DDS로 부르고 타입 있는 응답을
+확인하고 통과했다 — §250이 액션 서버를 더한 바로 그 트리에서, 액션
+서버를 한 번도 건드리지 않고. 다음 변경도 같은 이유로 통과했을 것이다.
+
+이것은 §250이 지적한 실패 모양 그 자체다: 측정은 있었으나 재실행되지
+않는다.
+
+### §254.2 다리 둘 — 서로가 못 보는 것이 다르다
+
+`ros/verify-move-action-interop.sh` 하나에 둘을 담고,
+`ros/verify-ros-interop.sh`가 마지막 단계로 부른다.
+
+**leg A — `ros2 action send_goal`, 컨테이너 하나(ros-dev 이미지).**
+액션 이름, goal 수락, `PLANNING` 피드백, plan-only 경고, 그리고 두
+경계 각각의 정확한 `MoveItErrorCodes`를 본다. 핵심은 이 다리가
+핸들러의 유일한 분기 **양쪽**을 다 몰 수 있다는 것이다:
+
+| 경계 | goal | 도달하는 팔 | 응답 |
+|---|---|---|---|
+| `start_state` 기본값 | `{}` | 변환 성공 → 플래너 없음 | `val: 99999` + `NO_PLANNER` |
+| `start_state` 비기본값 | `{request: {start_state: {is_diff: true}}, ...}` | 변환 실패 | `val: -16` + start-state 문구 |
+
+C++ 클라이언트는 두 번째만 만들 수 있다(§250.4). 그러니 첫 번째 경계는
+leg A가 없으면 어떤 게이트도 보지 못한다.
+
+**leg B — 상류의 `moveit::planning_interface::MoveGroupInterface`,
+컨테이너 둘.** Phase 9 조건이 이름을 댄 바로 그 클라이언트가, 고정된
+moveit2 sha에서 무변경으로 컴파일돼, 정말 이 노드에 닿아 이 노드의 답을
+받아 오는지를 본다. leg A로는 답할 수 없는 질문이다 — leg A는 액션
+인터페이스를 직접 몰기 때문에, 엔드포인트가 옳지만 진짜 클라이언트가
+닿지 못하는 상태에서도 계속 초록이다. §254.3의 물린 자국 4가 그것을
+실증한다.
+
+leg B는 `start_state`의 두 철자(생성자의 빈 diff, `setStartState`의
+완전 상태) 모두를 돌린다. 서사 두 개가 아니라 같은 불변식의 두 경계값이다.
+
+### §254.3 물린 자국 — 게이트가 잡는 것에 이름을 붙인다
+
+액션 서버를 네 가지로 부러뜨리고, 매번 게이트를 돌리고, 되돌렸다
+(되돌림은 매번 `git diff --stat`이 비는 것으로 확인).
+
+| # | 부러뜨린 것 | 게이트 | 처음 붉어진 단언 |
+|---|---|---|---|
+| 1 | 액션 이름 `move_action` → `move_action_2` | exit 1 | `leg A action name: expected this exact line ... /move_action` |
+| 2 | goal을 수락만 하고 종료시키지 않음(`goal.abort` 제거) | exit 1 | `leg A default-start_state code: ... val: 99999` |
+| 3 | 거부 코드 `INVALID_GOAL_CONSTRAINTS` → `PLANNING_FAILED` | exit 1 | `leg A non-default-start_state code: ... val: -16` |
+| 4 | `group_name`이 비어 있지 않으면 다른 코드를 냄 | exit 1 | `leg B/default-start round trip: ... PROBE plan val=-16 source='moveit-ros/move_action'` |
+
+자국 2는 이름·수락·피드백 단언이 모두 통과한 뒤에 붉어졌고(출력에
+`Goal accepted with ID:` 2회, `state: PLANNING` 1회가 남아 있다),
+자국 3은 두 경계 중 비기본값 쪽만 붉어졌다. 단언들이 서로 갈라져
+있다는 뜻이다.
+
+자국 4가 두 다리를 나눈 근거다. `group_name`은 leg A의 두 goal이 모두
+비워 보내고 C++ 클라이언트만 채워 보내는 필드이므로, 이 변형에서
+**leg A는 전부 초록인 채 leg B만 붉어진다**. 진짜 클라이언트만 채우는
+필드를 특별 취급하는 핸들러는 leg A가 원리적으로 볼 수 없다.
+
+자국 1은 덤으로 단언 하나를 고치게 했다. 처음에는 부분 문자열로
+확인했는데, `ros2 action list`의 출력에 `/move_action_2`가 들어 있으면
+그것이 `/move_action`을 포함하므로 통과한다. 지금은 행 전체를 맞춘다
+(`assert_line`).
+
+### §254.4 오라클 이미지가 없을 때 — 조용히 통과하지 않는다
+
+leg B는 `moveit_ros_planning_interface`가 필요하고, 그것은 오라클
+이미지를 뜻한다(`ros/move_group_interface_probe/Dockerfile`이 왜 베이스
+이미지가 아니라 오라클인지 적는다: 베이스에는 moveit 패키지가 0개다).
+그 이미지가 없으면 `tools/ci/verify-mpr-vs-epa.sh`가 세운 모양 그대로
+크게 SKIP한다 — 무엇이 안 돌았는지, 왜 leg A만으로는 부족한지, 무엇을
+치면 돌아오는지를 적고 나간다. 실측: `ORACLE_IMAGE`를 없는 태그로
+가리키면 leg A는 통과하고 leg B는 다섯 줄의 SKIP을 낸다.
+
+이미지는 매번 `docker build`한다. `--packages-up-to` 레이어는
+`ORACLE_IMAGE`에만, 프로브 레이어는 복사된 소스에만 의존하므로 도커의
+레이어 캐시가 이미 정확히 필요한 것만 다시 짓는다. 손으로 만든 stamp는
+그것의 두 번째, 더 약한 사본이 될 뿐이다.
+
+비용 실측: 캐시가 더운 상태에서 `tools/ci/verify-ros-interop.sh` 전체가
+79초(그중 두 `/move_action` 다리가 72초), 프로브 이미지를 처음 지을 때
+`--packages-up-to moveit_ros_planning_interface`가 한 번 더 붙는다.
+
+### §254.5 곁다리 둘 — 낡은 서술과 픽스처
+
+게이트가 **자기 적용 범위를 스스로 적은 문장이 틀려 있었다.** 두 파일의
+"What this does NOT check" 목록이 "No live ROS 2 graph: no node is ever
+spun up"으로 시작했는데, §241이 `/plan_kinematic_path` 왕복을 더한
+시점에 거짓이 됐고 §250을 지나서도 그대로였다. 독자가 다시 유도하는
+대신 믿는 문장이므로, 낡은 것은 없는 것보다 나쁘다. 두 사본 모두
+고쳤고, 대신 정말로 안 보는 것을 적었다 — 아무것도 계획하지 않는다,
+두 엔드포인트 외의 어떤 토픽/서비스/액션도 지나가지 않는다.
+
+URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지의 서로
+다른 컨테이너에서 도는데, 클라이언트가 노드와 다른 로봇을 읽으면 측정
+대상과 무관한 이유로 그룹 이름이 어긋난다. heredoc 두 벌은 그 어긋남이
+생기는 방식이다.
+
+### §254.6 이 라운드가 닫지 못한 것
+
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
+  결함이 그대로다. 이제는 `ros/verify-ros-interop.sh`가 펜스 안이므로
+  소스 한 줄과 게이트 한 줄을 같이 고칠 수 있지만, 그것은 이 라운드가
+  받은 과제(`/move_action`을 게이트에 올리기)가 아니라 별도의 수정이다.
+- **바이너리 이름.** `plan_kinematic_path_server`가 여전히 두 엔드포인트를
+  서비스한다. 이름을 바꾸려면 `ros/verify-ros-interop.sh`와
+  `ros/verify-move-action-interop.sh`의 `cargo build --bin` 줄이 같이
+  움직여야 한다.
+- **`crates/moveit-planning`의 start-state 필드.** 여전히 첫 거부다.
+  게이트는 지금 그 거부를 **고정**한다 — 필드가 생기면 leg A/leg B의
+  `-16` 단언이 붉어지고, 그때 이 파일의 기대 문자열을 같이 옮겨야 한다.
+  그것이 의도다.
+- **planning scene 토픽 구독.** 여전히 부재이고, 어느 다리도 보지 않는다.
+- **게이트는 CI에서 돌지 않는다.** `tools/ci/verify-all.sh`의 glob이
+  닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
+  `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
+  변하지 않았다.
