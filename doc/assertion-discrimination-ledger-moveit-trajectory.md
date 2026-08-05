@@ -89,13 +89,13 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1038` | `with_resample_dt`'s single `!is_finite() \|\| <= 0.0` guard, `resample_dt = 0.0` | `resample_dt_zero_is_rejected_not_hung` | single-branch | structural: `with_resample_dt` has exactly one `if`/one `return Err` in its body |
-| `time_optimal_trajectory_generation.rs:1051` | same guard, `resample_dt = -0.01` | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | same |
+| `time_optimal_trajectory_generation.rs:1043` | `with_resample_dt`'s single `!is_finite() \|\| <= 0.0` guard, `resample_dt = 0.0` | `resample_dt_zero_is_rejected_not_hung` | single-branch | structural: `with_resample_dt` has exactly one `if`/one `return Err` in its body |
+| `time_optimal_trajectory_generation.rs:1056` | same guard, `resample_dt = -0.01` | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | same |
 | `time_optimal_trajectory_generation.rs:1078` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite() \|\| > MAX` fold, tiny-`resample_dt` fixture (cited `:1070` before merge-driven line drift) | `resample_dt_producing_an_unreasonable_sample_count_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1105` | same guard, subnormal fixture (cited `:1097` before drift) | `resample_dt_subnormal_is_rejected` | same | same |
-| `time_optimal_trajectory_generation.rs:1120` | `with_resample_dt`'s single guard, `resample_dt = NaN` | `resample_dt_nan_is_rejected` | single-branch | structural, same as `:1038` |
-| `time_optimal_trajectory_generation.rs:1133` | same guard, `resample_dt = +inf` | `resample_dt_positive_infinity_is_rejected` | single-branch | same |
-| `time_optimal_trajectory_generation.rs:1144` | same guard, `resample_dt = -inf` | `resample_dt_negative_infinity_is_rejected` | single-branch | same |
+| `time_optimal_trajectory_generation.rs:1125` | `with_resample_dt`'s single guard, `resample_dt = NaN` | `resample_dt_nan_is_rejected` | single-branch | structural, same as `:1043` |
+| `time_optimal_trajectory_generation.rs:1138` | same guard, `resample_dt = +inf` | `resample_dt_positive_infinity_is_rejected` | single-branch | same |
+| `time_optimal_trajectory_generation.rs:1149` | same guard, `resample_dt = -inf` | `resample_dt_negative_infinity_is_rejected` | single-branch | same |
 | `time_optimal_trajectory_generation.rs:1171` | same fold as `:1078`, usize-max-boundary fixture (cited `:1163` before drift) | `resample_dt_targeting_the_usize_max_boundary_is_rejected` | discriminating; both operands live | superseded — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1429` | `do_time_parameterization_calculations`'s `max_velocity.len() != num_joints \|\| max_acceleration.len() != num_joints` fold (line 770), mimic-joint-group fixture (4 active vs 7 full variables); cited `:1421` before drift | `mimic_joint_group_is_a_typed_error_not_a_panic` | discriminating; `max_acceleration.len() != num_joints` operand deleted, dead by construction | **fixed this round** (`612a9b3`) — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1490` | `compute_time_stamps_with_limits`'s custom-limit-vs-bounds-fallback branch (the `acceleration_set` flag at line 590); cited `:1470` before drift | `a_zero_custom_limit_skips_bound_validation` | **fixed this round** (was blind) | see below |
