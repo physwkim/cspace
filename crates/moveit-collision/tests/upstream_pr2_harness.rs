@@ -20,13 +20,21 @@
 //! | `DefaultNotInCollision` (`:105-115`) | 1 | [`default_not_in_collision`], plus the measurement that it is vacuous |
 //! | `LinksInCollision` (`:117-157`) | 3 | **not reachable**: `updateStateWithLinkAt` |
 //! | `ContactReporting` (`:159-212`) | 9 | **not reachable**: `updateStateWithLinkAt` |
-//! | `ContactPositions` (`:214-283`) | 9 | **not reachable**: `updateStateWithLinkAt` (and `:282` is vacuous upstream) |
+//! | `ContactPositions` (`:214-283`) | 9 | **not reachable**: `updateStateWithLinkAt` (and `:282` asserts on an unwritten result) |
 //! | `AttachedBodyTester` (`:285-352`) | 6 | **not reachable**: `updateStateWithLinkAt` |
 //! | `DiffSceneTester` (`:354-406`) | 3 | **no substance**: all three are `EXPECT_TIME_LT` |
 //! | `ConvertObjectToAttached` (`:408-474`) | 4 | 3 are `EXPECT_TIME_LT`; the 1 real one needs `kinect.dae` |
 //! | `TestCollisionMapAdditionSpeed` (`:476-493`) | 1 | `EXPECT_TIME_LT`; its substance is [`collision_map_addition_lands_every_shape_in_one_object`] |
 //! | `MoveMesh` (`:495-517`) | 0 | the test makes no assertion at all |
-//! | `TestChangingShapeSize` (`:519-567`) | 4 | [`changing_shape_size_keeps_the_collision`]; `:528` is vacuous upstream, `:553`/`:565` need `kinect.dae` |
+//! | `TestChangingShapeSize` (`:519-567`) | 4 | [`changing_shape_size_keeps_the_collision`]; `:528` asserts on an unwritten result, `:553`/`:565` need `kinect.dae` |
+//!
+//! The two "unwritten result" sites are an upstream defect, recorded as
+//! `pr2-collision-test-asserts-unwritten-result` in `doc/upstream-bugs.md`:
+//! both read a default-constructed `CollisionResult`, whose `collision` member
+//! is initialised `false` in-class (`collision_common.hpp:353`), so they hold
+//! however the checker behaves. They are the reason the accounting above
+//! cannot be read as "38 assertions this port does not make" -- two of the 41
+//! are assertions upstream does not make either.
 //!
 //! # The three reasons, each measured rather than asserted
 //!
@@ -180,8 +188,9 @@ fn default_not_in_collision() {
 ///
 /// Upstream's `res1` assertion (`:528`) is on a default-constructed
 /// `CollisionResult` that no call ever writes to, so it asserts nothing and is
-/// not restated. The kinect half (`:548-566`) needs a mesh fixture this
-/// repository does not carry -- see the module doc.
+/// not restated -- `doc/upstream-bugs.md`,
+/// `pr2-collision-test-asserts-unwritten-result`. The kinect half (`:548-566`)
+/// needs a mesh fixture this repository does not carry -- see the module doc.
 #[test]
 fn changing_shape_size_keeps_the_collision() {
     let model = build_pr2();
