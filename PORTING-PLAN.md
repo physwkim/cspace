@@ -18035,3 +18035,58 @@ PORTING-PLAN.md`는 `doc/port-coverage.md`의 자기 행 둘만 찾는다. 그�
 판정을 다시 한다. 그때 결정할 것은 "포팅할까"가 아니라 "r2r이 이미 주는
 이름 처리로 충분한가"이며, 그 답은 그 라운드가 r2r을 열어 보고 정해야 한다
 — 이 절은 그것을 확인하지 않았고, 확인하지 않은 것을 근거로 쓰지 않는다.
+
+### §226.3 `robot_model_test_utils.{hpp,cpp}` — `decided-non-port`, 이 포트의 대응물은 픽스처 출처 표다
+
+파일은 두 덩어리이고 각각 다른 이유로 안 옮긴다.
+
+**(a) 로더 셋 — 이 포트에는 이미 대응물이 있고, 경로 규칙까지 같다.**
+`loadModelInterface(robot_name)`는 `moveit_resources_<name>_description`
+패키지를 런타임에 ament로 찾아 `urdf/<name>.urdf`를 읽는데, `pr2`만
+`urdf/robot.xml`로 특수 분기한다(`robot_model_test_utils.cpp:136-143`).
+`loadSRDFModel`도 같은 모양으로 `pr2`는 `srdf/robot.xml`,
+나머지는 `moveit_resources_<name>_moveit_config`의
+`config/<name>.srdf`다(`:158-185`).
+
+이 포트는 같은 파일들을 빌드타임에 복사해 `fixtures/`에 커밋하고
+`RobotModel::from_urdf_and_srdf`로 읽는다 — 호출 지점 127개
+(`rg -o -F '::from_urdf_and_srdf(' crates/ ros/ --glob '*.rs' | wc -l`;
+이름 전체를 세면 140이지만 그중 1개는 정의 줄, 16개는 주석 줄이다).
+그리고 그 복사의 출처가
+`tools/ci/verify-fixture-provenance.sh`의 `SOURCE_OF` 표인데, 그 표가
+상류 로더의 분기와 **같은 매핑을 그대로 적고 있다**:
+
+```
+[fixtures/pr2.urdf]="$VENDOR/pr2_description/urdf/robot.xml"
+[fixtures/pr2.srdf]="$VENDOR/pr2_description/srdf/robot.xml"
+[fixtures/panda.urdf]="$VENDOR/panda_description/urdf/panda.urdf"
+[fixtures/panda.srdf]="$VENDOR/panda_moveit_config/config/panda.srdf"
+```
+
+pr2의 두 파일만 `robot.xml`이라는 상류의 특수 케이스가 그 스크립트 주석에도
+따로 적혀 있다("pr2's two files are both named `robot.xml` upstream, which is
+why the mapping is explicit"). 즉 상류가 런타임 패키지 조회로 하는 일을 이
+포트는 커밋된 복사본과 다이제스트로 고정된 출처 표로 하고, xacro 확장이
+필요한 둘(`dual_arm_panda.urdf`, `prbt.urdf`)은 입력 집합과 재생성 명령까지
+그 표에 적혀 있다. 옮길 것이 남지 않았다.
+
+**(b) `RobotModelBuilder`와 `loadIKPluginForGroup` — D1/D4.**
+`RobotModelBuilder`의 공개 시그니처 여섯 개
+(`addChain`, `addCollisionMesh`, `addCollisionBox`, `addVisualBox`,
+`addInertial`, `addLinkCollision`/`addLinkVisual`)가 전부
+`geometry_msgs::msg::Pose`를 받는다(`robot_model_test_utils.hpp:133-165,
+217-221`) — D1이다. 알고리즘 쪽은 더 얇다: `build()`의 본체는
+`urdf_model_->initTree`, `initRoot`, `srdf_writer_->updateSRDFModel` 세
+호출이고(`:503-531`), 셋 다 `urdfdom`/`srdfdom`의 함수라 MoveIt 알고리즘이
+아니다. `loadIKPluginForGroup`은 `rclcpp::Node::SharedPtr`와
+`pluginlib::ClassLoader<kinematics::KinematicsBase>`를 직접 쓴다(`:189-213`)
+— D1 + D4.
+
+이 포트에서 합성 모델이 필요한 자리는 테스트 안에 URDF/SRDF 문자열을 직접
+써서 채운다(`rg -l '<robot name=' crates/ ros/ tools/ --glob '*.rs'` → 24개
+파일). 빌더 없이 이미 돌아가는 방식이므로, 호출자가 생기지 않을 300줄짜리
+빌더를 옮기는 것은 죽은 코드를 만드는 일이다.
+
+`crates/moveit-test-support/src/lib.rs`의 모듈 doc이 이 판정과 짝을 이룬다 —
+이번 라운드 전까지 그 doc은 "상류에는 이에 상응하는 테스트 측 기계장치가
+없다"고 적고 있었는데, 그 문장이 부정하던 파일이 정확히 이 두 개였다.

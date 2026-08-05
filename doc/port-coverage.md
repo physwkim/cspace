@@ -97,7 +97,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 89건 (2026-08-06 실측)
 
-`decided-non-port` 55 / `gap` 23 / `ported-elsewhere` 11.
+`decided-non-port` 57 / `gap` 21 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -139,11 +139,11 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/utils/include/moveit/utils/logger.hpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:162` | "`<moveit/utils/logger.hpp>`'s `rclcpp::Logger` plus every `RCLCPP_*` call" is excluded as D1 across the workspace |
 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | ported-elsewhere | `ros/moveit-ros/src/scene/collision_object.rs:11` | its `.cpp` is cited as ported (`isEmpty(Pose):77`) in `moveit-ros` |
 | `moveit_core/utils/include/moveit/utils/rclcpp_utils.hpp` | decided-non-port | `PORTING-PLAN.md` §226.2 | NOT D1 by content, contrary to this row's previous note: the header includes only `<string>` (`:30`) and the `.cpp` only its own header (`:28`); `rclcpp::names::clean`/`append` are pure `std::string`. The ground is the consumer -- both build ROS node/topic/service names, every upstream caller is in `moveit_ros/*` (outside `CORPUS_ROOTS`), and this port's one ROS-aware crate does type conversion only (`ros/moveit-ros/src/lib.rs:17-19`), so a port would have no caller. Expires if `moveit-ros` grows name construction |
-| `moveit_core/utils/include/moveit/utils/robot_model_test_utils.hpp` | gap | none | `rg -n -F robot_model_test_utils crates/ ros/` -> 0 hits |
+| `moveit_core/utils/include/moveit/utils/robot_model_test_utils.hpp` | decided-non-port | `PORTING-PLAN.md` §226.3; `crates/moveit-test-support/src/lib.rs:8-22` | two halves. The loaders' runtime ament lookup is replaced by committed `fixtures/*.{urdf,srdf}` read through `RobotModel::from_urdf_and_srdf` (127 call sites, `rg -o -F '::from_urdf_and_srdf(' crates/ ros/ --glob '*.rs' | wc -l`), with the *same* path mapping -- including upstream's pr2 `robot.xml` special case -- encoded and digest-checked in `tools/ci/verify-fixture-provenance.sh`'s `SOURCE_OF`. `RobotModelBuilder` takes `geometry_msgs::msg::Pose` in six signatures (D1) and `loadIKPluginForGroup` takes `rclcpp::Node` + pluginlib (D1/D4); the port's synthetic-model niche is inline URDF strings in 24 files (`rg -l '<robot name=' crates/ ros/ tools/ --glob '*.rs'`) |
 | `moveit_core/utils/src/lexical_casts.cpp` | decided-non-port | `PORTING-PLAN.md` §226.1 | same decision; measured (not argued): `toString` leaves the `ostringstream` precision at its default 6 and does not round-trip, while `format!`/`parse` does -- see `doc/upstream-bugs.md`'s `to-string-truncates-to-six-significant-digits` |
 | `moveit_core/utils/src/logger.cpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:162` | same D1 exclusion |
 | `moveit_core/utils/src/rclcpp_utils.cpp` | decided-non-port | `PORTING-PLAN.md` §226.2 | same decision; `rg -n -F rclcpp_utils crates/ ros/ tools/ doc/ PORTING-PLAN.md` finds only these two rows |
-| `moveit_core/utils/src/robot_model_test_utils.cpp` | gap | none | same |
+| `moveit_core/utils/src/robot_model_test_utils.cpp` | decided-non-port | `PORTING-PLAN.md` §226.3 | same decision; `build()`'s whole body is `urdf_model_->initTree` / `initRoot` / `srdf_writer_->updateSRDFModel` (`:503-531`), all `urdfdom`/`srdfdom` calls rather than MoveIt algorithm |
 | `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/GreedyKCenters.hpp` | gap | none | `rg -n -F GreedyKCenters crates/ ros/ doc/ PORTING-PLAN.md` -> 0 hits. The GNAT decision below implies it but does not name it |
 | `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/NearestNeighbors.hpp` | gap | none | same search for `NearestNeighbors.hpp` -> 0 hits naming this file |
 | `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/NearestNeighborsGNAT.hpp` | decided-non-port | `crates/moveit-kinematics/src/lib.rs:279-287` | "A linear scan over at most 10k entries ... is microseconds, not a bottleneck worth porting `detail/NearestNeighborsGNAT.hpp` (755 lines implementing a general-purpose metric tree) to avoid" |
