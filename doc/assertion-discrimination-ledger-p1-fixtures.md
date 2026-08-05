@@ -1347,15 +1347,15 @@ unreachable.
 (`ruckig_filter.rs:176`). Reading the `rsruckig` 3.0.0 crate source
 (`~/.cargo/registry/src/.../rsruckig-3.0.0/src/rsruckig/`): every
 `Err(RuckigError::...)` construction in the whole crate
-(`error.rs:103,107`) is reached only through the error-handler type
+(`rsruckig-3.0.0/src/rsruckig/error.rs:103,107`) is reached only through the error-handler type
 parameter's `handle_calculator_error`/`handle_validation_error`
-methods (`ruckig.rs:409`, six sites in `calculator_target.rs`, one in
+methods (`rsruckig-3.0.0/src/rsruckig/ruckig.rs:409`, six sites in `calculator_target.rs`, one in
 `calculator_waypoints.rs` — all gated the same way, `rg` for
 `handle_calculator_error|handle_validation_error` across that crate's
 `src/rsruckig/` confirms no bare `Err(RuckigError` construction exists
 outside those two methods). `IgnoreErrorHandler`'s implementation of
-both (`error.rs:115-121`) unconditionally returns `Ok(())` — its own
-doc comment on the trait (`error.rs:82,94`) says `Err` propagates only
+both (`rsruckig-3.0.0/src/rsruckig/error.rs:115-121`) unconditionally returns `Ok(())` — its own
+doc comment on the trait (`rsruckig-3.0.0/src/rsruckig/error.rs:82,94`) says `Err` propagates only
 "when using `ThrowErrorHandler`". `RuckigFilter::new` never
 constructs a `ThrowErrorHandler` variant; `Ruckig<0, IgnoreErrorHandler>`
 is the only configuration this port uses. So `self.ruckig.update(...)`

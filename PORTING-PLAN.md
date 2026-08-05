@@ -6661,10 +6661,10 @@ subframe을 bare/`/`-prefixed 두 키로 접어 넣고, 로봇 링크와 attache
 버전 이름이다.
 
 그리고 결론. 필요한 데이터는 공개 API로 전부 나와 있다:
-`TriMesh::bvh() -> &Bvh`(`trimesh.rs:1808`), `Bvh::leaves`
-(`bvh_traverse.rs:103`), `Bvh::intersect_aabb -> impl Iterator<Item = u32>`
-(`bvh_queries.rs:203`), `BvhNode::aabb()`(`bvh_tree.rs:721`)와
-`leaf_data()`(`:567`), `TriMesh::triangle(i)`(`trimesh.rs:1881`).
+`TriMesh::bvh() -> &Bvh`(`parry3d-f64-0.30.0/src/shape/trimesh.rs:1808`), `Bvh::leaves`
+(`parry3d-f64-0.30.0/src/partitioning/bvh/bvh_traverse.rs:103`), `Bvh::intersect_aabb -> impl Iterator<Item = u32>`
+(`parry3d-f64-0.30.0/src/partitioning/bvh/bvh_queries.rs:203`), `BvhNode::aabb()`(`parry3d-f64-0.30.0/src/partitioning/bvh/bvh_tree.rs:721`)와
+`leaf_data()`(`:567`), `TriMesh::triangle(i)`(`parry3d-f64-0.30.0/src/shape/trimesh.rs:1881`).
 leaf 삼각형별 AABB를 얻어 겹치는 쌍의 교집합을 취하는 것이
 `fcl2costsource`가 하는 일이고, 그 재료가 다 있다.
 
@@ -14920,7 +14920,7 @@ CLAUDE.md의 결함군 규칙은 "구조적 앵커를 식별하라"고 하고 �
 17절이 하드코딩된 `MoveItErrorCodes::SUCCESS`(=1)와 지역 재선언된
 `CollisionObject`의 `ADD/REMOVE/APPEND/MOVE`를 "지금은 맞지만 repin에 취약"으로
 분류했다. 브리프가 판정만 요구했으니 거기서 멈춘 건 옳다. 다만 확인해보니
-**r2r이 그 상수들을 실제로 생성한다** — `moveit_msgs.rs:8031`의
+**r2r이 그 상수들을 실제로 생성한다** — `target/.../moveit_msgs.rs:8031`의
 `impl CollisionObject { pub const ADD: ... }`, `:9569`의 `pub const SUCCESS`.
 그러면 이건 미래 리스크가 아니라 지금 닫히는 자리다. `_bindgen_ty_404`의 실체를
 생성 파일에서 못 찾아 사용 가능 여부는 미확정이고, 컴파일이 답한다 — 안 되면
