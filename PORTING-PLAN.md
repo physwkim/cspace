@@ -16871,8 +16871,11 @@ max_acceleration: 0.0`을 주면 `max_deceleration = -0.0`이 되고 `-0.0 >= 0.
 `checkPositionBoundsThrowing`은 `joint_model->satisfiesPositionBounds(
 &joint_limit.min_position)`을 부른다. `PlanarJointModel`/`FloatingJointModel`의
 오버라이드는 `values[0..2]`/`values[0..6]`을 읽는데, 넘긴 포인터는 단일
-`double` 멤버 하나를 가리킨다 — 실제로 읽히는 것은 구조체의 다음 멤버들
-(`max_position`, `max_velocity`, ...)이다. 클래스 doc이 "Does not support
+`double` 멤버 하나를 가리킨다 — 가리킨 객체의 끝을 넘어 읽는 것이므로
+동작이 정의되지 않는다. planar(3원소)에서는 상류 구조체가 `min_position`,
+`max_position`, `max_velocity`를 그 순서로 선언하므로 읽히는 바이트가 그
+셋에 해당하지만, floating(7원소)은 선언된 `double` 여섯 개를 넘어간다.
+어느 쪽이든 그 관절의 위치·속도가 아니다. 클래스 doc이 "Does not support
 MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
 `doc/upstream-bugs.md`의 `check-position-bounds-multidof-adjacent-members`.
 
