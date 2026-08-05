@@ -2644,6 +2644,24 @@ mod tests {
         let model = build_model();
         let mut root = PlanningScene::new(&model, &srdf());
         root.add_shape("floor", cuboid_shape(), Isometry3::identity());
+        // The parent carries its own attached body and ACM entry, distinct
+        // from what the child diverges with below -- otherwise `clear_diffs`
+        // resetting `attached_bodies`/`acm` to empty (a bug) would be
+        // indistinguishable from correctly re-inheriting the parent's (then
+        // also empty) state. See `clear_diffs`'s own `parent.attached_bodies
+        // .clone()`/`Layered::Inherited` lines: this is what tells them
+        // apart from a `BTreeMap::new()`/fresh-`Own`-ACM stand-in.
+        root.attach_new(
+            "root_held",
+            "hand",
+            vec![cuboid_shape()],
+            vec![Isometry3::identity()],
+            BTreeSet::new(),
+            BTreeMap::new(),
+        )
+        .unwrap();
+        root.allowed_collision_matrix_mut()
+            .set_entry("root_a", "root_b", true);
         let root = Arc::new(root);
         let mut child = root.diff();
 
@@ -2667,7 +2685,16 @@ mod tests {
 
         assert!(child.parent().is_some());
         assert_eq!(child.world().object_ids(), vec!["floor".to_owned()]);
-        assert!(child.attached_bodies().next().is_none());
+        assert_eq!(
+            child.attached_bodies().map(|b| b.id()).collect::<Vec<_>>(),
+            vec!["root_held"]
+        );
+        assert!(
+            child
+                .allowed_collision_matrix()
+                .entry("root_a", "root_b")
+                .is_some()
+        );
         assert!(child.allowed_collision_matrix().entry("a", "b").is_none());
         let diff = child
             .world_diff
