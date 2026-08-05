@@ -195,17 +195,26 @@ use rand_chacha::ChaCha8Rng;
 /// `floor_wall`/`cage` pilots of 10-20 problems per robot, mean `solve()`
 /// time was 2.4 s on panda and 8.7-9.1 s on fanuc, with the slowest single
 /// call 9.6 s on panda and 40.4 s on fanuc -- the 6-DoF robot's larger
-/// scaled workspace, not a pathology. 120 s is ~3x that observed worst case.
+/// scaled workspace, not a pathology.
 ///
-/// The direction of the error matters, which is why the multiple is 3x and
-/// not 1.5x: a deadline that fires on a problem the planner *would* have
-/// solved converts a success into a recorded failure and understates the
-/// port against its own completion condition. The bound exists to stop an
-/// unbounded call from hanging the benchmark, not to shape the result, so it
-/// is set well clear of the legitimate hard tail. `timeouts` is reported
-/// separately from `failures` in the summary precisely so a run where this
-/// choice started to bite is visible rather than folded into the failure
-/// count.
+/// That pilot is no longer the largest observation, so the multiple it was
+/// chosen for has shrunk and the number is restated here rather than left to
+/// read as a stale 3x. Over the 500-problem sets the slowest single call is
+/// 52.31 s (fanuc `floor_wall`, `doc/phase7-benchmark-results.json`), and
+/// across three port RNG streams (`seed_base` 424242 / 20260806 / 999983) the
+/// slowest fanuc call was 58.12 / 56.06 / 54.33 s. So 120 s is 2.1x the
+/// largest call measured to date, not 3x, and every one of those runs
+/// reported `timeouts: 0`.
+///
+/// The direction of the error matters, which is why the bound is a multiple
+/// of the worst case and not a hair above it: a deadline that fires on a
+/// problem the planner *would* have solved converts a success into a recorded
+/// failure and understates the port against its own completion condition.
+/// The bound exists to stop an unbounded call from hanging the benchmark, not
+/// to shape the result, so it is set well clear of the legitimate hard tail.
+/// `timeouts` is reported separately from `failures` in the summary precisely
+/// so a run where this choice started to bite is visible rather than folded
+/// into the failure count.
 const DEFAULT_TIMEOUT_SECONDS: f64 = 120.0;
 
 /// Attempts allowed when searching for a genuinely colliding state for
