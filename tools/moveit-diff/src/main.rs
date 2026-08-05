@@ -71,12 +71,21 @@ struct Config {
     /// `CartToJnt`'s convergence check accepts any step whose twist norm is
     /// `<= epsilon` -- so a converged solution's FK error can legitimately
     /// land anywhere in `(0, epsilon]`, not just near `0`. A 5,000-case
-    /// panda_arm sweep measured this directly: with `tol_ik = 1e-6`, 2930
-    /// cases "failed" with translation errors between `7e-6` and `9.9e-6`,
-    /// none above `epsilon`'s `1e-5` bound -- expected epsilon-bounded
-    /// slack, not a solver defect. `tol_ik` only catches a real correctness
-    /// bug (branch-wrong solution, sign error, etc.) once it is set above
-    /// that bound.
+    /// panda_arm sweep measures this directly -- re-run 2026-08-05 as
+    /// `moveit-diff --cases 5000 --seed 1 --group panda_arm --ik
+    /// --tol-ik 1e-6`: 1,513 cases "failed", 1,112 on translation (spanning
+    /// `1.0034e-6` to `9.9225e-6`) and 401 on rotation (`1.0013e-6` to
+    /// `8.7583e-6`), and **none** above `epsilon`'s `1e-5` bound -- expected
+    /// epsilon-bounded slack, not a solver defect. `tol_ik` only catches a
+    /// real correctness bug (branch-wrong solution, sign error, etc.) once it
+    /// is set above that bound.
+    ///
+    /// This replaces "2930 cases with translation errors between `7e-6` and
+    /// `9.9e-6`", which the same command does not produce: the failures fill
+    /// the whole band above `1e-6` rather than clustering near `epsilon`, and
+    /// only 55 of them land in the `7e-6`..`9.9e-6` interval that number was
+    /// attached to. The conclusion it supported -- nothing above `1e-5` --
+    /// does reproduce.
     ik: bool,
     tol_ik: f64,
     ik_position_only: bool,
