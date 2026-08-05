@@ -156,6 +156,17 @@
 //!   taxonomy from `trajectory_generation_exceptions.hpp`'s — neither class
 //!   here carries a `MoveItErrorCodes` value.
 //!
+//! `trajectory_generation_exceptions.hpp` is *not* on this list either: its
+//! taxonomy is realized as [`moveit_error::Error::Code`] plus
+//! [`trajectory_generator::MotionPlanResponse`]'s private `failure`
+//! constructor, which is what the
+//! four `catch (const MoveItErrorCodeException&)` blocks in
+//! `trajectory_generator.cpp:312,324,337,350` reduce to once `ex.what()` —
+//! consumed by `RCLCPP_ERROR_STREAM` and nothing else — is dropped with the
+//! rest of the logging. PORTING-PLAN.md §226.5 maps all 46 macro-generated
+//! class names onto their port sites; §226.6 names the two that have no
+//! counterpart here.
+//!
 //! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
 //! (measured 2026-08-04) refuted its stated reason: the file has **zero**
 //! symbols from `command_list_manager`, and the dependency runs the other
