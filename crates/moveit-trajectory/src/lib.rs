@@ -50,8 +50,10 @@
 //!
 //! `MOVEIT_CLASS_FORWARD(TimeParameterization)`/
 //! `MOVEIT_CLASS_FORWARD(TimeOptimalTrajectoryGeneration)` — both unported:
-//! the macro expands to `*Ptr`/`*ConstPtr` `std::shared_ptr` typedefs: this
-//! port has no shared-ownership handle to name for either type.
+//! the macro expands to six typedefs via `MOVEIT_DECLARE_PTR` — `*Ptr`/
+//! `*ConstPtr` (`std::shared_ptr`), `*WeakPtr`/`*ConstWeakPtr`
+//! (`std::weak_ptr`), `*UniquePtr`/`*ConstUniquePtr` (`std::unique_ptr`):
+//! this port has no ownership handle to name for either type.
 //!
 //! ## `time_parameterization.hpp`
 //!
@@ -367,9 +369,11 @@
 //! (`#pragma message(".h header is obsolete...")`, one `#include`) — no
 //! independent content.
 //!
-//! `MOVEIT_CLASS_FORWARD(RobotTrajectory)` — unported: expands to
-//! `RobotTrajectoryPtr`/`ConstPtr`/`WeakPtr` `std::shared_ptr` typedefs; this
-//! port has no shared-ownership handle to name.
+//! `MOVEIT_CLASS_FORWARD(RobotTrajectory)` — unported: expands to six
+//! typedefs via `MOVEIT_DECLARE_PTR` — `RobotTrajectoryPtr`/`ConstPtr`
+//! (`std::shared_ptr`), `WeakPtr`/`ConstWeakPtr` (`std::weak_ptr`),
+//! `UniquePtr`/`ConstUniquePtr` (`std::unique_ptr`); this port has no
+//! ownership handle to name.
 //!
 //! - 3 constructors (`RobotModelConstPtr`; `+ group: const std::string&`;
 //!   `+ group: const JointModelGroup*`) — ported as
