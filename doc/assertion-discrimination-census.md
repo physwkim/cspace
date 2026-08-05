@@ -4,6 +4,12 @@ Assertion-discrimination round 2 brief §4, closure artifact. Report only —
 no source changes. Measured at `df36fab` / merge `f9c03cf` (current worktree
 HEAD at the time of this census).
 
+> **`df36fab` is a panel worktree tip, not `main`.** Everything below was
+> measured on a branch that was missing commits already merged to `main`,
+> so **288 was never the `main`-tree figure** — see §8 for the `main`
+> measurement and the per-crate deltas. The instrument analysis in §1-§3 and
+> the reconciliation in §5-§7 are unaffected; only the denominator is.
+
 Three instruments disagreed this round by 1-2 sites per crate: the
 orchestrator's `matches!`-after-`assert!` regex, p9-ros's paren-depth-tracked
 scan, and each panel's hand enumeration. This document is one instrument,
@@ -226,3 +232,39 @@ Recorded, not actioned (outside this task's scope): the new
 `rg`-swallows-a-later-comment false-positive mode in §2 is worth folding
 into the brief's own corrections list if another panel re-runs the raw
 regex commands instead of this instrument.
+
+## 8. The `main`-tree measurement
+
+The table in §4 was measured on `df36fab`, a panel worktree tip. Five
+commits that were already merged to `main` at the time are not ancestors of
+it (`git merge-base --is-ancestor <sha> df36fab` is false for each):
+`b0a9e1b`, `08976b8`, `5ea2418`, `46cd26b`, `7676185`. Two more landed
+after: `bb4c487`, `bedc8ea`. So §4's 288 is a branch figure, and four
+panels — and the round-8 ledger briefs — used it as if it were `main`'s.
+
+Re-measured on `main` at `6192370` with an independently written scanner
+implementing §1's rule from its prose (mask comments, paren-depth match,
+`matches!` priority over bare, match-start dedup):
+
+| crate | §4 (`df36fab`) | `main` @ `6192370` | delta | cause |
+|---|---:|---:|---:|---|
+| `moveit-collision` | 45 | 47 | +2 | `3c9cdca`, `7e0bb55`, `035d4b1` merged after |
+| `moveit-planners-pilz` | 31 | 32 | +1 | `bb4c487` added one `assert!(matches!(` |
+| `moveit-model` | 20 | 22 | +2 | `46cd26b`, `7676185` |
+| `ros/moveit-ros` | 28 | 27 | -1 | `b0a9e1b` converted a bare `matches!` out of the family |
+| `moveit-distance-field` | 20 | 18 | -2 | `08976b8`, `5ea2418` converted two `.is_err()` sites out |
+| `moveit-scene` | 14 | 13 | -1 | `bedc8ea` converted one `.is_none()` to `assert_eq!` |
+| all others | — | unchanged | 0 | — |
+| **TOTAL** | **288** | **289** | **+1** | |
+
+**`main` @ `6192370`: 82 `matches!` + 207 bare = 289.**
+
+Every delta is a moved tree, not an instrument disagreement — each is a
+named commit that either added a site or converted one out of the family.
+Three panels re-measured their own crates against §4 independently and
+their figures agree with this table exactly, per crate, in every case.
+
+The lesson is the one §2 already states, one level up: a census must name
+the tree it measured, and a reader must check that the tree is the one they
+care about. §4 named its tree honestly; the readers, this orchestrator
+included, did not check what that name resolved to.
