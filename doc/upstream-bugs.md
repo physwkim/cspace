@@ -2172,7 +2172,7 @@ instance of this entry.
 ### `pr2-collision-test-asserts-unwritten-result` — Two `ASSERT_FALSE`s read a `CollisionResult` no call ever wrote — not-reproduced
 
 **Upstream:** `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp:280-282`
-and `:526-528`.
+and `:525-528`.
 **Port:**     `crates/moveit-collision/tests/upstream_pr2_harness.rs:186-193`
 (the `TestChangingShapeSize` half) — the `ContactPositions` half is not
 restated at all, being blocked on `updateStateWithLinkAt`
