@@ -42,7 +42,8 @@
 //! - **Segments are an enum, not `Path*`.** Upstream's `Path_Composite` holds
 //!   `std::vector<std::pair<Path*, bool>>` — any `Path` subclass, with a
 //!   per-entry ownership flag. A rounded composite only ever adds
-//!   `Path_Line` and `Path_Circle`, so [`Segment`] names those two; the
+//!   `Path_Line` and `Path_Circle`, so this module's private `Segment` enum
+//!   names exactly those two; the
 //!   ownership flag has no meaning without raw pointers. This makes
 //!   "composite of composites" — which would re-open `LengthToS`'s
 //!   `Not_Applicable` throw as a runtime failure — unrepresentable rather

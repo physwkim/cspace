@@ -42,21 +42,21 @@ use crate::path_rounded_composite::PathRoundedComposite;
 /// Upstream `PathPolylineGenerator::MIN_SEGMENT_LENGTH` (`0.2e-3`). The
 /// filter exists so `Path_RoundedComposite::Add` is never handed the
 /// near-zero segment its own codes 2/3 would reject.
-const MIN_SEGMENT_LENGTH: f64 = 0.2e-3;
+pub const MIN_SEGMENT_LENGTH: f64 = 0.2e-3;
 
 /// Lower clamp on the smoothness factor. Upstream `MIN_SMOOTHNESS`.
-const MIN_SMOOTHNESS: f64 = 0.01;
+pub const MIN_SMOOTHNESS: f64 = 0.01;
 
 /// Upper clamp on the smoothness factor. Upstream `MAX_SMOOTHNESS`.
 ///
 /// Strictly below `1.0`: at exactly `1.0` the rounding arc of the tightest
 /// corner would consume its whole shorter leg, which is
 /// `Path_RoundedComposite::Add`'s codes 5/6.
-const MAX_SMOOTHNESS: f64 = 0.99;
+pub const MAX_SMOOTHNESS: f64 = 0.99;
 
 /// Three consecutive waypoints whose turn cross-product falls below this are
 /// treated as colinear. Upstream `MIN_COLINEAR_NORM`.
-const MIN_COLINEAR_NORM: f64 = 1e-9;
+pub const MIN_COLINEAR_NORM: f64 = 1e-9;
 
 /// Builds the rounded polyline through `start_pose` then `waypoints`.
 ///
