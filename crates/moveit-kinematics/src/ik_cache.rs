@@ -62,10 +62,21 @@ fn pose_distance(a: &Isometry3, b: &Isometry3) -> f64 {
 }
 
 /// `IKCache::configDistance2`: plain squared-Euclidean distance over joint
-/// configs, no per-joint weighting. Panics (via the slice length
-/// mismatch) if `a.len() != b.len()`, which cannot happen through this
-/// module's own callers -- every config compared here came from the same
-/// solver's `joint_names()`-length seed/solution space.
+/// configs, no per-joint weighting.
+///
+/// `zip` truncates to the shorter slice rather than panicking, so this
+/// function cannot itself detect a length disagreement -- the guarantee
+/// that it never sees one is [`IkCache`]'s, not this function's: every
+/// config that reaches an [`IkCache`] is exactly [`IkCache::num_joints`]
+/// long, enforced at each of the three ways one can get in
+/// ([`IkCache::nearest`]'s dummy is built at that length,
+/// [`IkCache::update`] asserts it, and `format::from_json` rejects a
+/// document that disagrees).
+///
+/// Upstream instead loops `i < config1.size()` while indexing `config2[i]`
+/// unchecked, so the same disagreement reads out of bounds there -- see
+/// `doc/upstream-bugs.md`, `get-best-approximate-static-dummy-stale`, for
+/// how upstream reaches it.
 fn config_distance2(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| (x - y).powi(2)).sum()
 }
@@ -102,15 +113,27 @@ fn config_distance2(a: &[f64], b: &[f64]) -> f64 {
 ///    one, not a claim of matching it bit-for-bit.
 pub(crate) struct IkCache {
     entries: Vec<CacheEntry>,
+    num_joints: usize,
     max_cache_size: usize,
     min_pose_distance: f64,
     min_config_distance2: f64,
 }
 
 impl IkCache {
-    pub(crate) fn new(options: &IkCacheOptions) -> Self {
+    /// `num_joints` is upstream's `initializeCache(..., num_joints, ...)`
+    /// argument, held as a field rather than re-supplied per query.
+    ///
+    /// Upstream holds it the same way (`num_joints_`) but only ever uses it
+    /// to size the empty-cache dummy; nothing there compares it against the
+    /// configs actually stored, which is what lets a cache file written for
+    /// a different arm be loaded and indexed out of bounds
+    /// (`doc/upstream-bugs.md`, `ik-cache-read-trusts-file-header`). Here it
+    /// is the cache's one joint count: every stored config is this long, and
+    /// every seed handed out is too.
+    pub(crate) fn new(options: &IkCacheOptions, num_joints: usize) -> Self {
         Self {
             entries: Vec::with_capacity(options.max_cache_size),
+            num_joints,
             max_cache_size: options.max_cache_size,
             min_pose_distance: options.min_pose_distance,
             min_config_distance2: options.min_config_distance * options.min_config_distance,
@@ -127,7 +150,12 @@ impl IkCache {
     /// [`IkCacheOptions::min_config_distance`] (the pose-distance half of
     /// the gate is always `0.0` on an empty cache, since the dummy's pose
     /// *is* the query pose).
-    pub(crate) fn nearest(&self, pose: &Isometry3, num_joints: usize) -> CacheEntry {
+    ///
+    /// The dummy is rebuilt on every call. Upstream's is a function-local
+    /// `static` initialized on the first call and then returned unchanged
+    /// forever after, which is a bug, not an optimization -- see
+    /// `doc/upstream-bugs.md`, `get-best-approximate-static-dummy-stale`.
+    pub(crate) fn nearest(&self, pose: &Isometry3) -> CacheEntry {
         let Some(best) = self
             .entries
             .iter()
@@ -135,7 +163,7 @@ impl IkCache {
         else {
             return CacheEntry {
                 pose: *pose,
-                config: vec![0.0; num_joints],
+                config: vec![0.0; self.num_joints],
             };
         };
         best.clone()
@@ -153,7 +181,27 @@ impl IkCache {
     /// -- an entry close in pose but far in config (or vice versa) still
     /// gets cached, since either axis of novelty is enough to justify
     /// keeping both.
+    ///
+    /// Upstream's room-to-grow half of that gate is
+    /// `ik_cache_.size() < ik_cache_.capacity()`, not `< max_cache_size_`;
+    /// see `doc/upstream-bugs.md`, `update-cache-capacity-as-size-limit`,
+    /// for why those are not the same bound.
+    ///
+    /// # Panics
+    ///
+    /// If `config.len()` is not this cache's [`IkCache::num_joints`]. That
+    /// is the invariant `config_distance2` relies on, and a violation is a
+    /// caller error in the same sense a mis-sized `seed` is to
+    /// [`crate::KinematicsSolver::solve_with_options`] -- not an outcome to
+    /// report.
     pub(crate) fn update(&mut self, nearest: &CacheEntry, pose: &Isometry3, config: &[f64]) {
+        assert_eq!(
+            config.len(),
+            self.num_joints,
+            "an IkCache holding {}-joint configs was handed a {}-joint one",
+            self.num_joints,
+            config.len()
+        );
         if self.entries.len() >= self.max_cache_size {
             return;
         }
@@ -179,26 +227,29 @@ mod tests {
 
     #[test]
     fn empty_cache_returns_the_query_pose_paired_with_an_all_zero_config() {
-        let cache = IkCache::new(&IkCacheOptions::default());
+        let cache = IkCache::new(&IkCacheOptions::default(), 4);
         let query = pose_at(3.0);
-        let nearest = cache.nearest(&query, 4);
+        let nearest = cache.nearest(&query);
         assert_eq!(nearest.pose, query);
         assert_eq!(nearest.config(), [0.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
     fn nearest_picks_the_closer_of_two_entries_by_pose_distance() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            min_pose_distance: 0.0,
-            min_config_distance: 0.0,
-            ..IkCacheOptions::default()
-        });
-        let far_seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let far_seed = cache.nearest(&pose_at(0.0));
         cache.update(&far_seed, &pose_at(10.0), &[1.0]);
-        let near_seed = cache.nearest(&pose_at(10.0), 1);
+        let near_seed = cache.nearest(&pose_at(10.0));
         cache.update(&near_seed, &pose_at(1.0), &[2.0]);
 
-        let nearest = cache.nearest(&pose_at(0.9), 1);
+        let nearest = cache.nearest(&pose_at(0.9));
         assert_eq!(nearest.config(), [2.0]);
     }
 
@@ -216,45 +267,54 @@ mod tests {
     /// isolating that term.
     #[test]
     fn nearest_picks_the_closer_of_two_entries_by_orientation_distance() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            min_pose_distance: 0.0,
-            min_config_distance: 0.0,
-            ..IkCacheOptions::default()
-        });
-        let far_seed = cache.nearest(&pose_with_yaw(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let far_seed = cache.nearest(&pose_with_yaw(0.0));
         cache.update(&far_seed, &pose_with_yaw(2.0), &[1.0]);
-        let near_seed = cache.nearest(&pose_with_yaw(2.0), 1);
+        let near_seed = cache.nearest(&pose_with_yaw(2.0));
         cache.update(&near_seed, &pose_with_yaw(0.2), &[2.0]);
 
-        let nearest = cache.nearest(&pose_with_yaw(0.1), 1);
+        let nearest = cache.nearest(&pose_with_yaw(0.1));
         assert_eq!(nearest.config(), [2.0]);
     }
 
     #[test]
     fn tie_break_keeps_the_first_inserted_entry() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            min_pose_distance: 0.0,
-            min_config_distance: 0.0,
-            max_cache_size: 5000,
-        });
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                max_cache_size: 5000,
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(1.0), &[100.0]);
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(-1.0), &[200.0]);
 
         // Both entries are exactly `1.0` away from the query pose.
-        let nearest = cache.nearest(&pose_at(0.0), 1);
+        let nearest = cache.nearest(&pose_at(0.0));
         assert_eq!(nearest.config(), [100.0]);
     }
 
     #[test]
     fn update_inserts_when_pose_distance_alone_clears_the_threshold() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            min_pose_distance: 5.0,
-            min_config_distance: 100.0,
-            ..IkCacheOptions::default()
-        });
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 5.0,
+                min_config_distance: 100.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
         // Config distance is 0 (identical config), but pose distance (10)
         // clears `min_pose_distance` (5) -- the OR must still insert.
         cache.update(&seed, &pose_at(10.0), &[0.0]);
@@ -263,12 +323,15 @@ mod tests {
 
     #[test]
     fn update_inserts_when_config_distance_alone_clears_the_threshold() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            min_pose_distance: 100.0,
-            min_config_distance: 1.0,
-            ..IkCacheOptions::default()
-        });
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 100.0,
+                min_config_distance: 1.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
         // Pose distance is 0 (identical pose), but config distance (5)
         // clears `min_config_distance` (1) -- the OR must still insert.
         cache.update(&seed, &pose_at(0.0), &[5.0]);
@@ -277,28 +340,47 @@ mod tests {
 
     #[test]
     fn update_rejects_when_neither_distance_clears_its_threshold() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            min_pose_distance: 100.0,
-            min_config_distance: 100.0,
-            ..IkCacheOptions::default()
-        });
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 100.0,
+                min_config_distance: 100.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(0.1), &[0.1]);
         assert_eq!(cache.entries.len(), 0);
     }
 
+    /// The invariant `config_distance2`'s `zip` relies on, checked at the
+    /// one place a config can enter a cache. Without the assertion the
+    /// mismatch is silent: `zip` would compare the first joint only and
+    /// store a 1-element config in a 2-joint cache, which the next
+    /// `nearest` would then hand back as a seed of the wrong length.
+    #[test]
+    #[should_panic(expected = "an IkCache holding 2-joint configs was handed a 1-joint one")]
+    fn update_rejects_a_config_that_is_not_the_caches_joint_count() {
+        let mut cache = IkCache::new(&IkCacheOptions::default(), 2);
+        let seed = cache.nearest(&pose_at(0.0));
+        cache.update(&seed, &pose_at(1.0), &[5.0]);
+    }
+
     #[test]
     fn update_refuses_once_the_cache_is_full() {
-        let mut cache = IkCache::new(&IkCacheOptions {
-            max_cache_size: 1,
-            min_pose_distance: 0.0,
-            min_config_distance: 0.0,
-        });
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                max_cache_size: 1,
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(1.0), &[1.0]);
         assert_eq!(cache.entries.len(), 1);
 
-        let seed = cache.nearest(&pose_at(50.0), 1);
+        let seed = cache.nearest(&pose_at(50.0));
         cache.update(&seed, &pose_at(50.0), &[50.0]);
         assert_eq!(
             cache.entries.len(),
@@ -331,8 +413,8 @@ mod tests {
             min_pose_distance: 1.0,
             min_config_distance: 1000.0,
         };
-        let mut cache = IkCache::new(&at_threshold);
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(&at_threshold, 1);
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(1.0), &[0.0]);
         assert_eq!(
             cache.entries.len(),
@@ -345,8 +427,8 @@ mod tests {
             min_pose_distance: f64::from_bits(1.0f64.to_bits() - 1),
             min_config_distance: 1000.0,
         };
-        let mut cache = IkCache::new(&one_ulp_under);
-        let seed = cache.nearest(&pose_at(0.0), 1);
+        let mut cache = IkCache::new(&one_ulp_under, 1);
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(1.0), &[0.0]);
         assert_eq!(
             cache.entries.len(),
@@ -375,8 +457,8 @@ mod tests {
             min_pose_distance: 1000.0,
             min_config_distance: 1.0,
         };
-        let mut cache = IkCache::new(&options);
-        let seed = cache.nearest(&pose_at(0.0), 2);
+        let mut cache = IkCache::new(&options, 2);
+        let seed = cache.nearest(&pose_at(0.0));
         cache.update(&seed, &pose_at(0.0), &[1.0, 0.0]);
         assert_eq!(
             cache.entries.len(),
@@ -384,8 +466,8 @@ mod tests {
             "config_distance2 == min_config_distance2 must not clear a strict > gate"
         );
 
-        let mut cache = IkCache::new(&options);
-        let seed = cache.nearest(&pose_at(0.0), 2);
+        let mut cache = IkCache::new(&options, 2);
+        let seed = cache.nearest(&pose_at(0.0));
         let one_ulp_past = 2f64.powi(-26);
         cache.update(&seed, &pose_at(0.0), &[1.0, one_ulp_past]);
         assert_eq!(

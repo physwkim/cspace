@@ -116,13 +116,21 @@ pub struct CachedIkSolver<S> {
     cache: IkCache,
 }
 
-impl<S> CachedIkSolver<S> {
+impl<S: KinematicsSolver> CachedIkSolver<S> {
     /// Wrap `inner` with a fresh, empty `IkCache` configured by
     /// `options`.
+    ///
+    /// The cache's joint count comes from `inner` itself
+    /// ([`KinematicsSolver::joint_names`]), which is the only count any
+    /// seed or solution passing through this wrapper can have -- upstream
+    /// reads the same number the same way
+    /// (`KinematicsPlugin::getJointNames().size()`, passed to
+    /// `initializeCache` in `cached_ik_kinematics_plugin-inl.hpp:64`).
     pub fn new(inner: S, options: IkCacheOptions) -> Self {
+        let num_joints = inner.joint_names().len();
         Self {
             inner,
-            cache: IkCache::new(&options),
+            cache: IkCache::new(&options, num_joints),
         }
     }
 }
@@ -159,7 +167,7 @@ impl<S: KinematicsSolver> KinematicsSolver for CachedIkSolver<S> {
         target: &Isometry3,
         options: &mut SolveOptions,
     ) -> Option<Vec<f64>> {
-        let nearest = self.cache.nearest(target, seed.len());
+        let nearest = self.cache.nearest(target);
         let mut solution = self
             .inner
             .solve_with_options(nearest.config(), target, options);
