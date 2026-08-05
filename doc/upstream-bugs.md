@@ -101,6 +101,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `ik-cache-read-trusts-file-header` | not-reproduced |
 | `get-best-approximate-static-dummy-stale` | not-reproduced |
 | `update-cache-capacity-as-size-limit` | not-reproduced |
+| `save-cache-empty-path-guard-falls-through` | not-reproduced |
 
 ---
 
@@ -958,6 +959,44 @@ which of two numbers a bound reads, plus one construction-time check in the
 reader.
 **Cost of not reproducing:** none. No parity test exercises a full cache;
 `max_cache_size` reaches nothing outside this crate.
+
+---
+
+### `save-cache-empty-path-guard-falls-through` — `saveCache`'s uninitialized-path guard logs and then runs the write anyway, subscripting a cache the guard implies is empty — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:224-257`,
+the guard at `:226-227`, verified at the pinned `e017c91e`.
+**Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::save`.
+**Symptom:** `if (cache_file_name_.empty()) RCLCPP_ERROR(getLogger(), "can't
+save cache before initialization");` has no `return`. Execution continues
+into the write: `:231` constructs an `ofstream` on the empty path, which
+fails and sets the stream's error state; `:235-236` read `ik_cache_[0]` for
+the tip count and config size; `:239-256` write to the failed stream. The
+one state the guard names — `cache_file_name_` empty, so `initializeCache`
+never ran — is also the state in which `ik_cache_` is empty, so
+`ik_cache_[0]` subscripts an empty vector. That subscript is kept in bounds
+only by the two callers' incidental non-emptiness (`~IKCache` at `:64-67`
+tests `!ik_cache_.empty()` first, and `updateCache` calls `saveCache`
+immediately after a `push_back`), not by anything in the function;
+`saveCache` is `protected` (`cached_ik_kinematics_plugin.hpp:131`, in the
+section opened at `:127`), so no third caller exists to reach it today.
+Separately, `saveCache` returns `void` and never inspects the stream, so a
+write that produced nothing — an unwritable directory, a full disk, this
+empty path — is indistinguishable from one that succeeded, including to
+`~IKCache`, whose whole body is this call.
+**Evidence:** a read of the control flow, plus a read of the two call sites
+and of the declaration's access section. Not oracle-confirmed.
+**Status:** `not-reproduced`. `IkCache::save` takes the path as an argument
+rather than holding an initialize-time member, so "saved before
+initialization" is not a representable state; it returns `Result`, and the
+`std::fs::write` error is mapped with the path in the message.
+`CachedIkSolver::save_cache` propagates it.
+**Deviation:** none of `D1`..`D14` applies. Passing the path per call and
+returning `Result` are local API-shape choices in this crate.
+**Cost of not reproducing:** none. The upstream member also carries the
+mangled filename built at `:88-91`, which this port does not have — see
+`crates/moveit-kinematics/src/ik_cache/format.rs`'s module doc for why the
+filename's `max_cache_size`/threshold components are not reproduced.
 
 ---
 
