@@ -549,8 +549,8 @@ four `Error::Construct` sites, in-code bite-checked at each site
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
 | `ruckig_filter.rs:388` | `acceleration limit defined` | discriminating | message-swap bite-checked against the sibling single-DOF/velocity/jerk guards |
-| `ruckig_filter.rs:465` | `planar_joint` AND `3` | discriminating | same shape as `acceleration_filter.rs:525` |
-| `ruckig_filter.rs:539` | `must each have length` | discriminating | message-swap bite-checked against the sibling ruckig-update-failure site |
+| `ruckig_filter.rs:530` | `planar_joint` AND `3` | discriminating | same shape as `acceleration_filter.rs:525` |
+| `ruckig_filter.rs:604` | `must each have length` | discriminating | message-swap bite-checked against the sibling ruckig-update-failure site |
 
 **`moveit-srdf/tests/boundaries.rs`** — `SrdfModel::parse_str`'s two
 `Error::Parse` sites, already discriminated by p1-joints this session

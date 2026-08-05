@@ -968,7 +968,7 @@ re-verifying a site whose fix-ownership ledger is someone else's:
 | `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-smoothing/src/acceleration_filter.rs:466,525,542` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-smoothing/src/butterworth.rs:153,162,172,183,200` | p1-fixtures, p1-robotmodel |
-| `crates/moveit-smoothing/src/ruckig_filter.rs:388,465` | p1-fixtures, p1-robotmodel |
+| `crates/moveit-smoothing/src/ruckig_filter.rs:388,530` | p1-fixtures, p1-robotmodel |
 | `crates/moveit-distance-field/src/voxel_grid.rs:454,456,512` | p1-robotmodel, p9-ros |
 | `crates/moveit-geometry/src/bodies.rs:3953,4055,4066,4125` | p1-robotmodel, **p3-acm** |
 | `crates/moveit-planners-chomp/src/cost.rs:391,404,436` | p1-robotmodel, **p3-acm** |
