@@ -210,6 +210,7 @@ pub mod cartesian_trajectory;
 pub mod limits;
 pub mod path_circle;
 pub mod path_line;
+pub mod path_rounded_composite;
 pub mod trajectory_blender_transition_window;
 pub mod trajectory_functions;
 pub mod trajectory_generator;

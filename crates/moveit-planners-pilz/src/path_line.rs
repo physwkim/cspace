@@ -266,6 +266,19 @@ impl PathLine {
         self.path_length
     }
 
+    /// Upstream `LengthToS`: the arc-length parameter at which this path has
+    /// travelled `length` in translation.
+    ///
+    /// Upstream divides by `scalelin` with no guard, so a rotation-only line
+    /// (`scale_lin == 0.0`) returns an infinity or a `NaN` rather than
+    /// failing — reproduced rather than turned into an error, since
+    /// [`crate::path_rounded_composite::PathRoundedComposite`], its only
+    /// caller here, has already rejected the zero-translation case (its
+    /// `Not_Feasible` codes 2 and 3) before it can reach this.
+    pub fn length_to_s(&self, length: f64) -> f64 {
+        length / self.scale_lin
+    }
+
     /// Upstream `Pos`.
     pub fn pos(&self, s: f64) -> Isometry3 {
         let theta = s * self.scale_rot;
