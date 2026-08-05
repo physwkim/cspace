@@ -112,6 +112,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `check-position-bounds-multidof-adjacent-members` | not-reproduced |
 | `count-samples-per-second-returns-a-ratio` | not-reproduced |
 | `all-valid-distance-robot-hides-base-overload` | not-reproduced |
+| `pilz-detailed-response-pushes-null-trajectory` | not-reproduced |
 
 ---
 
@@ -1609,3 +1610,74 @@ above. Within this tree the choice is pinned by
 `distance_to_collision_through_the_null_backend_is_maximum_clearance`,
 whose isolating mutation is exactly this bug's `0.0`
 (`doc/assertion-discrimination-ledger-p10-samplers.md`, M5 and M6).
+
+### `pilz-detailed-response-pushes-null-trajectory` — pilz's detailed `solve` publishes three null `RobotTrajectoryPtr`s on every failure path, and the only consumer that walks them dereferences without a null check — not-reproduced
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_base.hpp:132-153`
+(`PlanningContextBase<GeneratorT>::solve(planning_interface::MotionPlanDetailedResponse&)`,
+the three `res.trajectory.push_back(undetailed_response.trajectory)` at
+`:141`, `:146`, `:150`), against
+`moveit_core/planning_interface/src/planning_response.cpp:62-65`
+(`MotionPlanDetailedResponse::getMessage`'s loop) and its sibling at `:42`
+**Port:** none — `crates/moveit-planners-pilz/src/trajectory_generator.rs:494-530`
+carries one `MotionPlanResponse` with `trajectory: Option<RobotTrajectory>`
+and no detailed form at all; `PORTING-PLAN.md` §226.3 records the decision
+not to port the detailed adapter (D6).
+**Symptom:** the detailed overload delegates to the undetailed one and then
+pushes `undetailed_response.trajectory` three times **unconditionally**,
+under the descriptions `"plan"`, `"simplify"` and `"interpolate"`. On every
+failure path that pointer is null: `MotionPlanResponse`'s constructor
+initializes `trajectory(nullptr)`
+(`moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp:51`),
+`TrajectoryGenerator::setFailureResponse` clears it only `if (res.trajectory)`
+(`moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator.cpp:270-278`),
+and the `terminated_` early return at `planning_context_base.hpp:122-127`
+sets `error_code.val` and returns without touching it at all. So a failed
+detailed solve yields `trajectory.size() == 3` with three null pointers and
+a `description`/`processing_time` pair that agrees with them in length —
+a container that looks populated to any consumer that trusts `size()`.
+
+The one consumer that walks it does trust `size()`:
+
+```cpp
+// moveit_core/planning_interface/src/planning_response.cpp:62-65
+for (std::size_t i = 0; i < trajectory.size(); ++i)
+{
+  if (trajectory[i]->empty())
+    continue;
+```
+
+`trajectory[i]->empty()` on a null `shared_ptr` is undefined behaviour. The
+asymmetry is visible inside the same file: the `MotionPlanResponse` overload
+immediately above it guards with `if (trajectory && !trajectory->empty())`
+(`:42`), so the missing `trajectory[i] &&` is an omission, not a shared
+convention that null cannot occur. `msg.error_code = error_code` is assigned
+at `:54`, before the loop, so the error code being non-`SUCCESS` does not
+stop it either.
+
+**Evidence:** a read of the control flow at the pinned `e017c91ee` checkout.
+MoveIt was not built — this workspace has no ROS 2 toolchain — so no
+segfault was observed.
+
+Reachability was checked rather than assumed, and it is why the status is
+`not-reproduced` rather than something stronger. Every
+`MotionPlanDetailedResponse` site in the tree was read:
+`planning_pipeline.cpp:319` and `plan_service_capability.cpp:97` both use
+the **undetailed** overload, so the production path from `move_group` never
+builds one; `BenchmarkExecutor.cpp` builds its detailed responses by hand
+and pushes only `if (response.trajectory)` (`:844`, `:946`), then walks them
+at `:1000-1005` under `if (solved)`. The only callers of pilz's detailed
+`solve` are two upstream tests, `unittest_planning_context.cpp:232` and
+`:244`, and both use `getValidRequest(...)`, so neither reaches the failure
+path. The null pointers are therefore constructed today and dereferenced by
+nothing today; a third-party planning pipeline calling the detailed
+`solve` and then `getMessage` on a failed plan is what turns it into a
+crash.
+
+**Status:** `not-reproduced`.
+**Cost of not reproducing:** none. No test or oracle comparison in this tree
+reaches it: the port has no `MotionPlanDetailedResponse` counterpart to
+diverge from, because §226.3 declines the whole adapter under D6, and the
+one field it would have carried across — the error code — is already
+`MotionPlanResponse::error_code` in
+`crates/moveit-planners-pilz/src/trajectory_generator.rs:496`.
