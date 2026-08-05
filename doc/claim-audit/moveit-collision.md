@@ -49,9 +49,9 @@ division RHS) against each file below, output enumerated on screen, then
 Port-side secondary sweep (`as (i8\|i16\|i32\|i64\|isize\|u8\|u16\|u32\|u64\|usize)`
 receiving an `f64` expression, in this crate's own `src/`): 3 raw hits, all
 `distinct` — `parry.rs:957` (`Arc::as_ptr(tree) as *const () as usize`,
-pointer-to-integer, not float-derived), `parry.rs:1470`
+pointer-to-integer, not float-derived), `parry.rs:1471`
 (`mesh_a.num_triangles() as u32`, `num_triangles()` returns `usize`
-confirmed at `trimesh.rs:1833`, integer-to-integer), `parry.rs:1957` (doc
+confirmed at `trimesh.rs:1833`, integer-to-integer), `parry.rs:1958` (doc
 comment referencing the line-957 pattern, not executable code). 0 real
 hits.
 

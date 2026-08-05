@@ -181,8 +181,8 @@ read the actual guard behind every `single-branch` citation, not just
 the row's existing comment. Result: **0 misverdicts** — every guard is
 either a bare `?`/single map lookup (`tools.rs:219`, `matrix.rs:515,517,
 737`, `world.rs:1141,1216`), a single boolean flag (`octomap_filter.rs:
-300,355`, `parry.rs:4087`), an unconditional single path
-(`parry.rs:2638,2645,3494`), a sequential-fallthrough function with only
+300,355`, `parry.rs:4167`), an unconditional single path
+(`parry.rs:2718,2645,3494`), a sequential-fallthrough function with only
 one terminal `None` path and no folded clause (`world.rs:1252`), or a
 match arm that is genuinely inseparable by construction — `Never |
 Always => None` at `matrix.rs:548,549,559` shares the exact same code
@@ -337,13 +337,13 @@ guard-B site above shares one bite pair, not 10 independent ones.
 ### `src/parry.rs` (7)
 | file:line | anchor | test fn | verdict | in-family | evidence |
 |---|---|---|---|---|---|
-| parry.rs:2464 | bare | convert_shape_degenerate_plane_is_excluded | discriminating | yes | isolating mutation run now: neutralized Plane-magnitude guard → Plane test FAILED, both OcTree tests (2487, 2497) stayed GREEN |
-| parry.rs:2487 | bare | convert_shape_octree_with_no_tree_attached_is_excluded | discriminating | yes | isolating mutation run now: neutralized no-tree guard → this test FAILED, Plane + no-occupied-leaves tests stayed GREEN |
-| parry.rs:2497 | bare | convert_shape_octree_with_a_tree_but_no_occupied_leaves_is_also_excluded | discriminating | yes | isolating mutation run now: neutralized empty-tree path → this test FAILED, Plane + no-tree tests stayed GREEN |
-| parry.rs:2638 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | read: `build()` is stubbed and no cache hit is possible (fresh key each call); bite run now forcing a value regardless of `build()` → test FAILED |
-| parry.rs:2645 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | same bite/run as 2638 (one test function, one mutation covers both assertions) |
-| parry.rs:3494 | bare | check_robot_collision_continuous_returns_an_error_rather_than_approximating | single-branch | yes | read: function body is one unconditional `Err`, no guard at all; bite run now replacing it with `Ok(..)` → test FAILED. §9 clause 2: the decision (reject rather than silently approximate) is real even though it isn't syntactically a guard — the bite proves it is exercised, same standard census §9 applies to the mimic getter |
-| parry.rs:4087 | bare | check_self_collision_cost_sources_is_none_when_not_requested | single-branch | yes | read: one boolean gate (`request.cost`) controls `Some`/`None`, no sibling; bite run now forcing `Some` unconditionally → test FAILED |
+| parry.rs:2544 | bare | convert_shape_degenerate_plane_is_excluded | discriminating | yes | isolating mutation run now: neutralized Plane-magnitude guard → Plane test FAILED, both OcTree tests (2487, 2497) stayed GREEN |
+| parry.rs:2567 | bare | convert_shape_octree_with_no_tree_attached_is_excluded | discriminating | yes | isolating mutation run now: neutralized no-tree guard → this test FAILED, Plane + no-occupied-leaves tests stayed GREEN |
+| parry.rs:2577 | bare | convert_shape_octree_with_a_tree_but_no_occupied_leaves_is_also_excluded | discriminating | yes | isolating mutation run now: neutralized empty-tree path → this test FAILED, Plane + no-tree tests stayed GREEN |
+| parry.rs:2718 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | read: `build()` is stubbed and no cache hit is possible (fresh key each call); bite run now forcing a value regardless of `build()` → test FAILED |
+| parry.rs:2725 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | same bite/run as 2638 (one test function, one mutation covers both assertions) |
+| parry.rs:3574 | bare | check_robot_collision_continuous_returns_an_error_rather_than_approximating | single-branch | yes | read: function body is one unconditional `Err`, no guard at all; bite run now replacing it with `Ok(..)` → test FAILED. §9 clause 2: the decision (reject rather than silently approximate) is real even though it isn't syntactically a guard — the bite proves it is exercised, same standard census §9 applies to the mimic getter |
+| parry.rs:4167 | bare | check_self_collision_cost_sources_is_none_when_not_requested | single-branch | yes | read: one boolean gate (`request.cost`) controls `Some`/`None`, no sibling; bite run now forcing `Some` unconditionally → test FAILED |
 
 ### `src/world.rs` (15)
 | file:line | anchor | test fn | verdict | in-family | evidence |
@@ -620,14 +620,14 @@ assertion (an existing or a co-listed row testing the opposite branch of
 the same decision) or a live bite proving the current test set already
 catches the mutation; none needed a new test.
 
-### In-family (20)
+### In-family (21)
 
 | Site | Kind | Test fn | Evidence |
 |---|---|---|---|
 | matrix.rs:727 | is_empty | `len_counts_rows_not_pairs` | `!acm.is_empty()` wraps `self.entries.is_empty()`; same `set_entry`-insertion decision the test's own `len()==3` assertion (3 lines above) already exercises. §9 "lives one level up" (the branch is in `set_entry`/`set_pair`, not in `is_empty()`); redundant confirmation, not independently bitten. |
 | matrix.rs:736 | is_empty | `clear_removes_entries_and_defaults` | bite run now: commented out `self.entries.clear()` in `clear()` (kept `self.defaults.clear()`) → this assertion FAILS alone (198/199), sibling `matrix.rs:737` (`default_entry("a").is_none()`) stays GREEN — mirror-direction bite to the one already on record for 737. |
 | octomap_filter.rs:364 | is_some | `metaball_surface_properties_with_depth_reports_signed_depth` | bite run now: forced the `estimate_depth==true` arm of `metaball_surface_properties` to also return `None` → this test FAILS alone, sibling `octomap_filter.rs:355` (`without_depth`, existing row) stays GREEN. Correction: 355's existing `single-branch` verdict had no on-record discriminating partner; this row is it. |
-| parry.rs:2529 | is_some | `octree_cache_survives_shape_churn` | read + doc comment (named regression test for an `OctreeCache` pointer-identity bug): `assert_eq!(got.is_some(), occupied, ..)` alternates occupied/empty across 200 iterations, the same occupied-leaves decision already bite-proven for `parry.rs:2487`/`:2497` (existing, `None` side) plus the `.expect()`-based occupied-side test (not is_some-shaped, invisible to any grammar until now). |
+| parry.rs:2609 | is_some | `octree_cache_survives_shape_churn` | read + doc comment (named regression test for an `OctreeCache` pointer-identity bug): `assert_eq!(got.is_some(), occupied, ..)` alternates occupied/empty across 200 iterations, the same occupied-leaves decision already bite-proven for `parry.rs:2567`/`:2497` (existing, `None` side) plus the `.expect()`-based occupied-side test (not is_some-shaped, invisible to any grammar until now). |
 | shapes.rs:1964 | is_some | `compute_vertex_normals_calls_triangle_normals_when_needed` | bite run now: gated `compute_triangle_normals()`'s call behind `if false` inside `compute_vertex_normals` → this test FAILS (panics two lines later at the `.expect()`, before reaching this literal line, but the whole test — and this assertion's own precondition — depends on the guard). §9 "lives one level up": the decision belongs to `compute_vertex_normals`, not the field read (contrast the sibling `shapes.rs:1962`, not-this-family, §1c). |
 | octree_in_world_parity.rs:220 | is_some | oracle-query loop | oracle parity: `assert_eq!(mapped, actual_log_odds.is_some(), ..)` compares `moveit_octomap::OcTree::log_odds_at` against a committed oracle fixture's `mapped` field — a real per-query decision. **Fence note:** `log_odds_at` itself is implemented in `moveit-octomap`, outside this panel's fence; a blind finding here would need an out-of-fence fix. |
 | world.rs:1179 | eq_none | `set_subframes_of_object_computes_global_pose_and_replaces_old_ones` | bite run now: changed `set_subframes_of_object`'s replace (`obj.subframes = ..collect()`) to a merge (`obj.subframes.extend(..)`) → this assertion FAILS alone (198/199). Confirms the doc-commented "replaced, not merged" claim is actually tested. |
@@ -641,9 +641,10 @@ catches the mutation; none needed a new test.
 | bodies.rs:4476 | is_empty | `cylinder_ray_hits_are_symmetric_with_intersects_ray` | cross-method invariant, doc-commented as deliberate (`intersects_ray == !ray_intersections(..).is_empty()` for every body kind); tests whether `Cylinder::intersects_ray`'s own fast path agrees with the full geometric computation — a real, independently-implementable decision. |
 | body_query_parity.rs:256 | is_empty | oracle ray-query loop | oracle parity: `points = body.ray_intersections(..)` is a real subject call; `!points.is_empty()` compared to the oracle's `expected.hit`. |
 | probe_parity.rs:329 | is_empty | `check_body!` macro body | same shape as body_query_parity.rs:256: `hits = body.ray_intersections(..)`, real subject call, compared to the oracle's expected hit count. |
-| parry.rs:3828 | is_empty | `cost_sources_for_part_pair_shape_shape_disjoint_is_empty` | sibling: `cost_sources_for_part_pair_shape_shape_is_the_overlap_of_both_whole_aabbs` (existing test immediately above, non-empty case), same function, opposite outcome. |
-| parry.rs:4022 | is_empty | `mesh_shape_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
-| parry.rs:4069 | is_empty | `mesh_mesh_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+| parry.rs:3908 | is_empty | `cost_sources_for_part_pair_shape_shape_disjoint_is_empty` | sibling: `cost_sources_for_part_pair_shape_shape_is_the_overlap_of_both_whole_aabbs` (existing test immediately above, non-empty case), same function, opposite outcome. |
+| parry.rs:4102 | is_empty | `mesh_shape_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+| parry.rs:4149 | is_empty | `mesh_mesh_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+| parry.rs:4421 | is_none | `check_self_collision_distance_is_none_when_not_requested` | bite run now: deleted `attach_requested_distance`'s `if !request.distance { return; }` so the field is populated unconditionally → this assertion FAILS alone (229/230 green, `--no-fail-fast`). Its four siblings (`..._distance_reports_the_closest_separation` self and robot, `..._detailed_distance_reports_the_whole_result`, `..._distance_of_a_penetrating_pair_is_unsigned`) bite the opposite direction — an immediate `return` in the same function fails those four and leaves this one green — so the guard is on record from both sides. |
 
 ### Not-this-family (19)
 
@@ -662,8 +663,8 @@ catches the mutation; none needed a new test.
 | collision_parity.rs:1450 | contains_member | `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction` | `link_names.contains(&point.link_name)` checks *which* links a computed closest-pair names, against an oracle's identification — a computed-identity fact, not an inability signal. |
 | collision_parity.rs:1622 | contains_member | `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` | same reasoning as 1450. |
 | collision_parity.rs:1803 | contains_member | (Global-vs-Single distance-request comparison) | same reasoning as 1450/1622. |
-| parry.rs:2615 | is_some | `octree_cache_get_or_compute_invokes_build_only_once_per_key` | §9 clause 2 fails: the test's own `build` closure unconditionally returns `Some(..)`; `get_or_compute` cannot return anything but `Some` on either the cache-hit or cache-miss path here, so no engineer-implementable-wrong decision is exercised by this specific assertion (the test's real point, `calls.get()==1`, is a separate assertion outside this grammar). |
-| parry.rs:2616 | is_some | (same test) | same reasoning as 2615. |
+| parry.rs:2695 | is_some | `octree_cache_get_or_compute_invokes_build_only_once_per_key` | §9 clause 2 fails: the test's own `build` closure unconditionally returns `Some(..)`; `get_or_compute` cannot return anything but `Some` on either the cache-hit or cache-miss path here, so no engineer-implementable-wrong decision is exercised by this specific assertion (the test's real point, `calls.get()==1`, is a separate assertion outside this grammar). |
+| parry.rs:2696 | is_some | (same test) | same reasoning as 2615. |
 | world_parity.rs:241 | is_some | `world_matches_oracle` | §9 clause 3 fails: `ambiguous.transform.is_some()` reads a field straight off the deserialized oracle fixture (`QueryDump.transform: Option<[f64; 16]>`), not a value produced by calling `World`. Deleting every `world.*` call above it would not change this assertion's outcome. |
 | bodies.rs:3967 | is_empty | `mesh_with_zero_triangles_is_constructible` | §9 clause 3 fails: `mesh.triangles.is_empty()` reads back the test's own `box_mesh(2.0, 2.0, 2.0)` fixture before `ConvexMesh::new` (the actual subject) is ever called — the exact `shortest_solution`/mimic-init-value shape (§1c). |
 | shapes.rs:1848 | is_empty | `mesh_with_zero_triangles_is_constructible` | same reasoning as bodies.rs:3967: `Mesh::new(vertices, vec![])` constructed with an explicitly empty triangle list; the assertion reads that same literal input back before any subject logic runs. |

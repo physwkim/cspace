@@ -1247,7 +1247,7 @@ already wrong upstream.
 (`std::size_t contacts = fcl::collide(o1, o2, coll_req, coll_res); if (contacts > 0)`),
 `:663` (`dist_result.distance = -contact.penetration_depth;`). The `if` at
 648 has no `else`.
-**Port:** `crates/moveit-collision/src/parry.rs:2239`
+**Port:** `crates/moveit-collision/src/parry.rs:2271`
 **Symptom:** For a pair FCL reports as touching or penetrating
 (`distance <= 0`) with `enable_signed_distance` set, line 613 has already
 stored `fcl_result.min_distance` — which for an in-collision pair is FCL's
@@ -1304,7 +1304,7 @@ cylinder (`length 0.13`, `origin z 0.065`) puts its bottom face at exactly
 `tools/moveit-diff/src/main.rs`'s scene, so every sampled state hits the
 tangency case regardless of joint values.
 **Status:** `not-reproduced`, and structurally so rather than by choice.
-`parry.rs:2239` takes `contact.dist` from `parry3d_f64::query::contact` and
+`parry.rs:2271` takes `contact.dist` from `parry3d_f64::query::contact` and
 substitutes no sentinel on any path, so `-1.0` is not constructible here.
 **Deviation:** none of `D1`..`D14` applies. This is not a policy the port
 adopted to route around the defect — parry simply has no in-collision
