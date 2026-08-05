@@ -5,9 +5,21 @@
 //! against a specific fixture defect, and small conversions oracle-parity
 //! fixtures need on both sides of a comparison.
 //!
-//! Not a port of any upstream file -- upstream has no equivalent test-side
-//! machinery of its own. See [`assert_group_has_updated_links`]'s and
-//! [`isometry_from_row_major`]'s own docs for what each closes.
+//! Not a port of any upstream file. This used to add "upstream has no
+//! equivalent test-side machinery of its own", which is false: upstream
+//! ships `moveit_core/utils/include/moveit/utils/robot_model_test_utils.hpp`
+//! and `src/robot_model_test_utils.cpp` (programmatic `RobotModel`
+//! construction plus `moveit_resources` loaders) and
+//! `include/moveit/utils/eigen_test_utils.hpp` (gtest predicates over Eigen
+//! types). Both live outside a `test/` directory, so they are inside this
+//! port's measured corpus and carry their own `doc/port-coverage.md` rows.
+//!
+//! What is true is that neither is what this crate holds, because this port
+//! solves both problems elsewhere: robot models come from committed
+//! `fixtures/*.{urdf,srdf}` through [`moveit_model::RobotModel::from_urdf_and_srdf`],
+//! and Eigen-shaped equality is asserted with `approx::assert_relative_eq!`.
+//! See [`assert_group_has_updated_links`]'s and [`isometry_from_row_major`]'s
+//! own docs for what each closes.
 //!
 //! Listed under `[dev-dependencies]` only, never `[dependencies]`: every
 //! function here exists to be called from a `#[cfg(test)]` fixture builder.
