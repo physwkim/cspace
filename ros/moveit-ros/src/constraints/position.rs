@@ -435,6 +435,46 @@ mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit): the
+    // guard above is `!meshes.is_empty() || !mesh_poses.is_empty()`, but
+    // `meshes_are_rejected_not_silently_dropped` populates both operands at
+    // once -- it cannot tell which clause fired, and a mutation dropping
+    // either one from the `||` would leave that test green. These two
+    // isolate each operand: bite-checked by neutralizing one clause to
+    // `false` and confirming only the test for the *other* operand still
+    // fails.
+    #[test]
+    fn meshes_alone_is_rejected_not_silently_dropped() {
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.constraint_region.meshes.push(Default::default());
+        let err = moveit_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("meshes is not supported"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn mesh_poses_alone_is_rejected_not_silently_dropped() {
+        let model = one_joint_model();
+        let mut msg = valid_msg(&model);
+        msg.constraint_region.mesh_poses.push(identity_pose());
+        let err = moveit_constraints::PositionConstraint::try_from(PositionConstraintMsg {
+            model: &model,
+            msg,
+        })
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("meshes is not supported"),
+            "got: {err:?}"
+        );
+    }
+
     #[test]
     fn round_trip_through_msg() {
         let model = one_joint_model();

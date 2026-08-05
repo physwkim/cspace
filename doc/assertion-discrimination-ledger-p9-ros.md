@@ -218,3 +218,93 @@ in-family = total minus §9-excluded `not-this-family`. `ros/moveit-ros`:
 24/27. `moveit-distance-field`: 18/18 (zero `not-this-family` rows).
 `moveit-model`: 16/22. Combined: **58/67** in-family across the three
 crates this round covers.
+
+## §10. Wider-grammar sweep (`tools/ci/count-coarse-assertions.py`, round 9)
+
+The brief for this round asked for the `contains_msg` / `is_empty` / `eq_none`
+/ `contains_member` / `is_some` sites the census's original `matches!`/
+`.is_err()`/`.is_none()` grammar cannot see, quoting 67 total hits on `ros/`
+with 41 (listed as 29 `contains_msg` + 6 `is_empty` + 4 `eq_none` + 4
+`contains_member` + 1 `is_some` + 2 `is_none`) outside the old grammar. Two
+corrections to that framing, both load-bearing for what follows:
+
+**The 67 baseline predates this branch's own merge.** `git merge-base
+--is-ancestor` shows `6a14a89` (the instrument's commit) is not an ancestor
+of `f0855c5` (this round's own merge of the seven folded-operand-guard
+tests) — the two landed on sibling branches, and `6a14a89`'s 67 was counted
+before `f0855c5`'s tests existed. Re-running `python3
+tools/ci/count-coarse-assertions.py ros` on this branch today (after `git
+merge main`, which fast-forwarded to `91f4ebb`, `6a14a89` included) gives
+**72**, not 67. The delta of exactly 5 is my own round-8 commits: two
+`contains_msg` (`position.rs`'s `meshes_alone`/`mesh_poses_alone` tests),
+one `matches` (`planning.rs`'s `multi_dof_joint_trajectory_points` test),
+two `eq_none` (`conversion_coverage.rs`'s two `parse_conversion` unit
+tests) — all bite-checked under docker in that round, so this is not new
+uncovered ground, just an accounting update: **72 total, 44 outside the old
+grammar** (26 `matches` + 0 `is_err` + 2 `is_none` = 28 old-grammar; the
+quoted breakdown's own arithmetic — 29+6+4+4+1+2 — sums to 46, not 41,
+independent of the baseline issue).
+
+**The tool's documented blind spot undercounts the real total further, and
+by more than the quoted 25.** `assert_err_mentions(result, needle)` is
+defined separately per file (`state.rs:192`, `trajectory.rs:248`,
+`planning.rs:331`, `scene/attached.rs:323`, `scene/collision_object.rs:533`
+— five independent copies, not a shared import) and renders on one line,
+asserts `rendered.contains(needle)` on the next — invisible to the tool's
+60-byte lookback, exactly as documented. Two things the tool's own output
+additionally obscures: its 5 helper-*definition* lines (one `rendered.
+contains(needle)` per file) show up as ordinary `contains_msg` hits and are
+not real per-test assertions — they're the generic body every call site
+below delegates to. Subtracting those: 44 tool-visible new-grammar hits −
+5 helper bodies = **39 real tool-visible sites**. Grepping
+`assert_err_mentions(` call sites directly (excluding each file's own
+generic `fn assert_err_mentions<T: ...>(` definition, which never matches
+the literal `assert_err_mentions(` pattern because of the `<T: ...>`
+between the name and the paren): `state.rs` 11, `trajectory.rs` 6,
+`planning.rs` 2, `scene/attached.rs` 2, `scene/collision_object.rs` 2 —
+**23 hidden call sites**, not the quoted 25.
+
+**Real total: 39 + 23 = 62 new-grammar assertion sites**, against the
+quoted 41 (which itself undercounts by the 5-commit accounting gap above)
+and the tool's own 44 tool-visible count.
+
+### Per-site enumeration and verdicts
+
+Worked directly (`constraints/orientation.rs`, `constraints/position.rs`,
+`constraints/set.rs`, `constraints/visibility.rs` — 12 sites) plus five
+parallel forks, one per remaining file group, each independently applying
+census §9's three clauses and enumerating every sibling Err/None-producing
+site reachable from the same subject function before ruling on collision.
+
+| file | sites | in-family verdict | collision verdict |
+|---|---:|---|---|
+| `constraints/orientation.rs` | 3 (`:194,217,244`) | in-family | CLEAN — pre-existing sibling-collision comments confirmed correct by reading |
+| `constraints/position.rs` | 6 (`:308,392,411,432,456,472`) | in-family | CLEAN — `dim()`'s `{field}`-interpolated messages, `PositionConstraint::new`'s three distinct `Error::construct` texts, and the meshes-guard's shared-but-same-branch needle all verified against `crates/moveit-constraints/src/position.rs` |
+| `constraints/set.rs` | 1 (`:148`) | **not-this-family** (clause 2) | n/a — `empty_constraints_is_empty_set` is the census's own vacuous-accumulator shape verbatim: all four input vecs empty, none of the four `for` loops in `KinematicConstraintSet::try_from` iterate, `set` is never touched |
+| `constraints/visibility.rs` | 2 (`:384,385`) | in-family | CLEAN — `normalize_angle_criterion`'s `>EPS` filter is the sole physical producer of `None` for each field; wire wrapper always constructs `Some(msg.field)` first, never `None` directly |
+| `conversion_coverage.rs` | 6 (`:227,232,386,414,437,454`) | in-family (all 6) | CLEAN — `:227/:232` are my own round-8 `parse_conversion` tests (already bite-checked); `:386` self-identifies via interpolated `t.from`/`t.to`/`t.covered_by` in its panic text; `:414/437/454` populate disjoint vecs from disjoint scan logic, each panic interpolates the full offending list |
+| `scene/shapes.rs` | 2 (`:161,179`) | in-family | CLEAN — `"expected exactly 3"` is `shapes.rs`'s sole `MeshTriangle`-length format string; `"only 1 vertices exist"` traces to the single physical site `moveit-geometry/src/shapes.rs:1133`, confirmed by grep not reproduced elsewhere reachable from `TryFrom<MeshMsg>` |
+| `scene/planning_scene.rs` | 3 (`:234,251,287`) | in-family | CLEAN — `:234`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:251/:287` already sibling-documented and grep-confirmed unique |
+| `scene/attached.rs` | 8 direct (`:442,452,532,553,554,612,649,671`) + 2 hidden `assert_err_mentions` (`:513,594`) | in-family except `:532` | `:532` **not-this-family** (clause 2/3) — ADD-path `merged_touch_links` is a straight `.collect()` with the merge branch gated `if !is_add`, i.e. never entered; the real "replace not merge" claim rides on the adjacent `shapes().len()==1` assertion instead. Everything else CLEAN, including `:553/:554` (`BTreeSet::contains` is exact-element not substring match, and `moveit-scene`'s `attach_new`/`AttachedBody` store touch_links verbatim with no auto-inclusion of `link_name`, ruling out the fixture's own "tip" link name as a spurious source) |
+| `scene/collision_object.rs` | 8 direct (`:635,710,771,880,893,1016,1050,1089`) + 2 hidden `assert_err_mentions` (`:900,948`) | in-family (all 10) | CLEAN, with one flagged **latent risk, not a live collision**: `:1089`'s message is produced by two physical call sites inside `apply_move` (object-pose parse, then shape-repose parse — both delegate to the same generic quaternion-norm check), and only the shape-repose one is reachable because this test's `mv.pose` stays `identity_pose()`; a future edit that also corrupts `mv.pose` would misattribute to the wrong branch. Same accepted "generic Pose rule, one message, N callers" pattern already named elsewhere in the crate (`position.rs`/`orientation.rs`'s §211/§213 comments) — noted for `apply_move` specifically for the first time, not fixed (no live test exercises it wrong today, so there is nothing to bite-check) |
+| `state.rs` | 11 hidden `assert_err_mentions` (`:259,283,310,333,355,370,389,408,436,454,472`) | in-family (all 11) | CLEAN — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
+| `trajectory.rs` | 6 hidden `assert_err_mentions` (`:297,314,337,360,398,421`) | in-family (all 6) | CLEAN — length-mismatch messages are `{field}`-interpolated; `:297`/`:421` share one needle by design (same branch, redundant coverage, not a collision) |
+| `planning.rs` | 2 hidden `assert_err_mentions` (`:427,440`) | in-family (both) | CLEAN — `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites, already named as siblings in the function's own doc comment |
+
+**Totals: 62 sites examined, 60 in-family, 2 not-this-family
+(`constraints/set.rs:148`, `scene/attached.rs:532`), 0 collisions, 1 latent
+risk flagged but not live (`scene/collision_object.rs:1089`).**
+
+### Needles collided: 0
+
+No fix was owed under this round's instructions ("a colliding needle is a
+finding — narrow it to text unique to the target branch... Prove each fix
+the §3a way") because no needle collided. The two `not-this-family` calls
+follow the same clause-2/clause-3 reasoning the census itself already
+established for `plan_responses.rs` and `shortest_solution_is_none_on_
+empty_input` — neither is a new category, both are direct re-applications.
+No commit this section (nothing to fix); `ros/verify-ros-interop.sh` was
+re-run at the end of the round regardless, to confirm the working tree
+still gates clean after the `git merge main` fast-forward and this
+doc-only addition (fmt/clippy/`cargo test` 170/170/`cargo doc`, all pass —
+see the round's own report for the exact run).

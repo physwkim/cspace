@@ -213,6 +213,25 @@ fn parse_conversion(line: &str) -> Option<(String, String)> {
     }
 }
 
+// Assertion-discrimination sweep (round 8, folded-operand audit): the
+// no-return-value guard above is `from_base.is_empty() || to_base.is_empty()`
+// but neither operand had a direct test -- this file's own `#[test]`
+// functions only ever call `parse_conversion` indirectly, through
+// `all_edges` scanning real, always-well-formed source lines, so neither
+// branch of this `||` was ever exercised at all. These isolate each
+// operand directly: bite-checked by dropping one `is_empty()` clause from
+// the guard and confirming only the *other* operand's test still catches
+// the resulting `Some` where `None` was expected.
+#[test]
+fn parse_conversion_returns_none_for_empty_from_base() {
+    assert_eq!(parse_conversion("impl TryFrom<> for X {"), None);
+}
+
+#[test]
+fn parse_conversion_returns_none_for_empty_to_base() {
+    assert_eq!(parse_conversion("impl TryFrom<X> for {"), None);
+}
+
 fn is_round_trip_test_line(line: &str) -> bool {
     line.starts_with("fn ") && line.contains("round_trip")
 }

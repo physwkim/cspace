@@ -713,6 +713,49 @@ mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit):
+    // `apply_add`'s no-shapes guard is `primitives.is_empty() &&
+    // meshes.is_empty() && planes.is_empty()`. Before this round no test
+    // ever populated `meshes` or `planes` -- `add_with_no_geometry_is_rejected`
+    // above only ever sees them empty, so a guard weakened to check
+    // `primitives` alone would still pass every existing test. Isolating
+    // mutation (drop one operand's `is_empty()` conjunct from the `&&`
+    // chain, keep the fixture unchanged): the two tests below fail only
+    // when their own operand's conjunct is the one dropped, because
+    // dropping a conjunct makes the guard fire (reject) in *more* cases,
+    // not fewer -- an object with only that shape kind starts being
+    // rejected.
+    #[test]
+    fn add_with_only_a_mesh_is_accepted() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitives = vec![];
+        msg.primitive_poses = vec![];
+        msg.meshes = vec![shape_msgs::Mesh {
+            triangles: vec![],
+            vertices: vec![],
+        }];
+        msg.mesh_poses = vec![identity_pose()];
+        apply_collision_object(&mut sc, msg).unwrap();
+        assert!(sc.world().has_object("box"));
+    }
+
+    #[test]
+    fn add_with_only_a_plane_is_accepted() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        let mut msg = base_object("box", model.model_frame(), ADD);
+        msg.primitives = vec![];
+        msg.primitive_poses = vec![];
+        msg.planes = vec![shape_msgs::Plane {
+            coef: vec![0.0, 0.0, 1.0, 0.0],
+        }];
+        msg.plane_poses = vec![identity_pose()];
+        apply_collision_object(&mut sc, msg).unwrap();
+        assert!(sc.world().has_object("box"));
+    }
+
     #[test]
     fn more_poses_than_primitives_is_rejected() {
         let model = one_joint_model();
@@ -1018,6 +1061,57 @@ mod tests {
         assert!(sc.world().has_object("box"));
     }
 
+    // Assertion-discrimination sweep (round 9, `scene/collision_object.rs
+    // :1089` follow-up): `apply_move` parses a `Pose` at two independent
+    // call sites -- `:478`'s object-pose parse and `:515`'s shape-repose
+    // parse -- both delegating to the same generic Pose rule and sharing
+    // this exact "too close to zero..." text. Before this round no fixture
+    // in this file ever gave `:478` a malformed `mv.pose`; every MOVE test
+    // used `posed(..)`/`identity_pose()` there, so `:478`'s own error path
+    // was *unreached*, not merely untested -- the flagged risk was live,
+    // not hypothetical. The two tests below isolate each site: `:478`'s
+    // `?` short-circuits before `:515` is ever constructed, so a malformed
+    // `mv.pose` structurally cannot also exercise the shape-repose parse,
+    // and vice versa (a malformed `primitive_poses` entry is parsed only
+    // after `:478` already returned `Ok`). Bite-checked under docker:
+    // neutralizing `:478` alone (forcing it to fall back to identity
+    // instead of propagating) makes only `move_object_pose_with_
+    // malformed_pose_is_rejected` fail (wrongly succeeds); neutralizing
+    // `:515` alone makes only `move_shape_repose_with_malformed_pose_is_
+    // rejected` fail. Sharing one needle across the two is not narrowed:
+    // it is the same accepted "generic Pose rule, one message, N callers"
+    // pattern already used throughout this crate (see `position.rs`/
+    // `orientation.rs`'s §211/§213 comments and this file's own
+    // `parallel_shapes` test), and each test's fixture makes only one
+    // site reachable, so the shared text does not cost either test its
+    // ability to prove which physical site actually fired.
+    #[test]
+    fn move_object_pose_with_malformed_pose_is_rejected() {
+        let model = one_joint_model();
+        let mut sc = scene(&model);
+        apply_collision_object(&mut sc, base_object("box", model.model_frame(), ADD)).unwrap();
+        let mut mv = base_object("box", model.model_frame(), MOVE);
+        mv.pose = geometry_msgs::Pose {
+            position: geometry_msgs::Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            orientation: geometry_msgs::Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 0.0,
+            },
+        };
+        let err = apply_collision_object(&mut sc, mv).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("too close to zero (or non-finite) to have a unit-norm representative"),
+            "got: {err:?}"
+        );
+    }
+
     #[test]
     fn move_shape_repose_with_malformed_pose_is_rejected() {
         let model = one_joint_model();
@@ -1042,7 +1136,10 @@ mod tests {
         // `more_poses_than_primitives_is_rejected` above) and
         // `subframes_from_parallel_arrays` (hit by
         // `add_with_mismatched_subframe_array_lengths_is_rejected` above) are
-        // sibling Error::Construct sites.
+        // sibling Error::Construct sites -- and `move_object_pose_with_
+        // malformed_pose_is_rejected` above shares this same needle by
+        // design (see its own comment): the two are bite-checked
+        // independent, not colliding.
         assert!(
             err.to_string()
                 .contains("too close to zero (or non-finite) to have a unit-norm representative"),
