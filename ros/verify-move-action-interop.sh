@@ -66,7 +66,7 @@ echo "move_action legs: ROS_DOMAIN_ID=$DOMAIN_ID"
 # legs, so leg A and leg B cannot drift into asserting different things about
 # the same handler.
 #
-# `plan_kinematic_path_server.rs` builds them, and nothing generates them from
+# `move_group.rs` builds them, and nothing generates them from
 # there: this is a hand-kept copy, deliberately, because the point of the gate
 # is to notice when the answer changes. Deriving it from the source it checks
 # would make it assert only that the source equals itself.
@@ -121,7 +121,7 @@ echo "=== move_action (leg A: ros2 action send_goal) ==="
 # binary this produces, out of the same bind-mounted target/ directory, so it
 # is built once for both legs.
 docker run --rm -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
-  bash -c "cargo build --bin plan_kinematic_path_server" >&2
+  bash -c "cargo build --bin move_group" >&2
 
 leg_a_out="$(mktemp)"
 trap 'rm -f "$leg_a_out"' EXIT
@@ -137,7 +137,7 @@ trap 'rm -f "$leg_a_out"' EXIT
 docker run --rm -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
   set -e
-  ./target/debug/plan_kinematic_path_server '"$URDF $SRDF"' 2>/tmp/node.stderr &
+  ./target/debug/move_group '"$URDF $SRDF"' 2>/tmp/node.stderr &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
@@ -249,7 +249,7 @@ docker network create "$NET" >/dev/null
 docker run -d --rm --name "$NODE_CTR" --network "$NET" \
   -e "ROS_DOMAIN_ID=$DOMAIN_ID" \
   -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" \
-  ./target/debug/plan_kinematic_path_server "$URDF" "$SRDF" >/dev/null
+  ./target/debug/move_group "$URDF" "$SRDF" >/dev/null
 sleep 3
 
 leg_b_out="$(mktemp)"
