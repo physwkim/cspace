@@ -411,6 +411,70 @@ pub(crate) mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit):
+    // `multi_dof_joint_state`'s guard is one `||` of four named operands
+    // (joint_names, transforms, twist, wrench), a single shared
+    // `Error::other`. Only joint_names had a test before this round;
+    // transforms/twist/wrench were blind operands -- a mutation dropping
+    // any one of the three from the guard would have left every existing
+    // test green. Isolating-mutation bite (neutralize one operand's
+    // clause to `false`, keep the sibling tests' fixtures unchanged): each
+    // of the four tests below fails only when its own operand's clause is
+    // neutralized; the other three stay green.
+    #[test]
+    fn multi_dof_joint_state_transforms_is_rejected_not_silently_dropped() {
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: Default::default(),
+            multi_dof_joint_state: sensor_msgs::MultiDOFJointState {
+                transforms: vec![Default::default()],
+                ..Default::default()
+            },
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "multi_dof_joint_state has no core representation",
+        );
+    }
+
+    #[test]
+    fn multi_dof_joint_state_twist_is_rejected_not_silently_dropped() {
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: Default::default(),
+            multi_dof_joint_state: sensor_msgs::MultiDOFJointState {
+                twist: vec![Default::default()],
+                ..Default::default()
+            },
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "multi_dof_joint_state has no core representation",
+        );
+    }
+
+    #[test]
+    fn multi_dof_joint_state_wrench_is_rejected_not_silently_dropped() {
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: Default::default(),
+            multi_dof_joint_state: sensor_msgs::MultiDOFJointState {
+                wrench: vec![Default::default()],
+                ..Default::default()
+            },
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "multi_dof_joint_state has no core representation",
+        );
+    }
+
     #[test]
     fn round_trip_through_msg() {
         let model = one_joint_model();
