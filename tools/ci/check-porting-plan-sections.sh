@@ -66,6 +66,10 @@
 # rewritten or force-pushed history cannot smuggle one in. Measured cost: 2.1 s
 # for 2391 commits over 418 distinct blobs.
 #
+# The rule is applied once more to the working tree against HEAD, because the
+# history walk by construction says nothing about a merge that has not been
+# committed -- and that is the state a reviewer resolves a merge in.
+#
 # Named `check-*` so `ci.yml`'s glob runs it: needs nothing but python3, git,
 # and the tracked files. It does need real history, so `ci.yml` checks out with
 # `fetch-depth: 0`. A shallow checkout is a hard failure rather than a skip,
@@ -432,6 +436,35 @@ else:
                     f"§{section} -- the declaration outlived what it permitted "
                     f"({why[:60]})"
                 )
+
+        # The same rule against the working tree, which no commit covers yet.
+        # The history walk answers "did a commit drop a section", and CI asks it
+        # at the tip of every push, so a bad merge is caught -- after it is
+        # committed. But the moment the §250 loss was reviewable was before
+        # that: `git merge` left the resolution in the working tree, the gates
+        # were run there, and this check had nothing to say because there was no
+        # commit yet. Verified by dropping §253 twice, once uncommitted and once
+        # committed: before this block only the committed drop failed. HEAD's
+        # section set is already parsed by the walk above, so the comparison
+        # against the file this script read at the top is one set difference.
+        #
+        # No trailer can excuse this one: a declaration names a parent sha, and
+        # an uncommitted removal has no commit to carry it. A deliberate removal
+        # therefore commits with its declaration and passes both checks at once
+        # -- the tree then equals HEAD and this comparison is empty.
+        head = git("rev-parse", "HEAD").strip()
+        for section in sorted(
+            sections_of(head) - set(top_level),
+            key=lambda i: [int(p) for p in i.split(".")],
+        ):
+            failures.append(
+                f"the working tree drops top-level section §{section}, which "
+                f"HEAD ({head[:9]}) still has -- if this is a merge you are "
+                f"resolving, git took a one-sided deletion you have not seen. "
+                f"Check the whole file, not the conflict block. If the removal "
+                f"is deliberate, commit it with "
+                f"`Plan-section-removed: {section} from {head[:9]} -- <why>`"
+            )
 
         history_checked = (len(graph), edges, len(revs), len(removals), len(declared))
 
