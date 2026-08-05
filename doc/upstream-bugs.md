@@ -101,6 +101,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 | `set-from-ik-leaves-a-rejected-candidate-in-the-state` | not-reproduced |
+| `set-from-ik-subgroups-timeout-truncated-to-whole-seconds` | not-reproduced |
 
 ---
 
@@ -998,6 +999,49 @@ back out of the state after a `false` return, which no in-tree upstream
 caller does — would read the entry configuration here instead.
 
 ---
+
+### `set-from-ik-subgroups-timeout-truncated-to-whole-seconds` — the retry loop measures elapsed time in whole seconds, so every timeout under 1 s runs for about a second and the per-subgroup slice is computed from a stale zero — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:2191-2192`
+(`start`, `double elapsed = 0`), `:2229-2230` (the per-subgroup budget
+`(timeout - elapsed) / sub_groups.size()`) and `:2251` (the update
+`elapsed = duration_cast<std::chrono::seconds>(now - start).count()`),
+verified at the pinned `e017c91e`.
+**Port:** `crates/moveit-kinematics/src/set_from_ik.rs`,
+`set_from_ik_subgroups`.
+**Symptom:** `elapsed` is a `double`, but the value assigned to it is a
+`std::chrono::seconds` count — an integer number of whole seconds, floored.
+For the whole first second of the loop it is therefore exactly `0`, and the
+`do { } while (elapsed < timeout)` condition cannot become false. Any
+`timeout` in `(0, 1)` — including the sub-second values MoveIt's own
+callers pass — runs the full sweep at least twice and keeps going for about
+a second rather than for the requested fraction of one. Compounding it, the
+per-subgroup budget handed to `searchPositionIK` is
+`(timeout - elapsed) / sub_groups.size()` with `elapsed` still `0` on every
+iteration inside that first second, so the second and later attempts ask
+for the *full* per-subgroup slice again instead of for what is left.
+`steady_clock` would also have been the right clock here rather than
+`system_clock`, which is subject to wall-clock adjustment, but that is a
+second-order fault next to the truncation.
+**Evidence:** a read of the three lines cited above. The truncation is a
+property of `duration_cast<seconds>`'s return type, not of any runtime
+condition, so it does not need a run to establish; what a run would add is
+only the magnitude of the overshoot.
+**Status:** `not-reproduced`.
+**Deviation:** `D4` / `PORTING-PLAN.md` §4.9, applied structurally rather
+than as a fix to this site. This port has no wall-clock timeout anywhere in
+`moveit-kinematics`; `set_from_ik_subgroups` takes a `max_attempts: usize`
+and its loop is `for _ in 0..max_attempts`, so there is no elapsed-time
+arithmetic to truncate and no residual budget to divide. The per-subgroup
+retry budget upstream computes disappears with it: each subgroup solve gets
+its own solver's `SolverParams::max_restarts`, which is a count, is not
+shared between subgroups, and does not shrink as the sweep proceeds.
+**Cost of not reproducing:** none measurable — no oracle op covers
+`setFromIKSubgroups`. The behavioural cost is that the two functions do not
+agree on what "try harder" means: a caller porting an upstream
+`timeout = 2.0` has to choose a `max_attempts`, and no fixed conversion
+exists between the two, because the upstream number bounds wall-clock time
+across all subgroups and the port's bounds sweeps.
 
 ---
 
