@@ -20497,3 +20497,172 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 하고, 그때 필요한 가드는 `<= 0.0`이 아니라 `> 0.0`이다
 (§236.1, 그리고 상류 자신의 `MoveGroupInterface::setPlanningTime`,
 `move_group_interface.cpp:1013-1017`).
+
+## §NEW `/plan_kinematic_path` 서비스와 노드 바이너리를 지었다 — 서비스는 살아있고 와이어를 왕복하지만, `MoveGroupInterface::plan()`은 이 서비스를 아예 부르지 않는다 (2026-08-06)
+
+### §NEW.1 지은 것 — `fn main`/`r2r::Node`/서비스 등록, §226.4가 부재로 적은 조각 중 첫째와 둘째의 절반
+
+§226.4가 STEP 3에서 부재로 적은 넷 중, 이번 라운드가 지은 건: (1) `fn
+main`을 갖는 `[[bin]]` 타깃(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`,
+Cargo가 `src/bin/`을 자동 발견) — `r2r::Context::create` →
+`r2r::Node::create` → `node.spin_once` 루프, 지금까지 `ros/moveit-ros`
+어디에도 없던 것. (2) 그 위의 `/plan_kinematic_path`
+(`moveit_msgs/srv/GetMotionPlan`) 서비스 등록 — `/move_action`과
+planning scene 구독은 짓지 않았다, §NEW.4가 왜인지 적는다.
+
+r2r는 특정 async 런타임을 강제하지 않는다(README: "the library
+purposefully does not chose an async runtime") — r2r 자신의
+`examples/service.rs`가 하듯 `futures::executor::LocalPool` +
+`node.spin_once` 루프로 짰다. `moveit-ros/Cargo.toml`에 `futures =
+"0.3"`을 새로 추가했고(r2r 자신이 핀한 버전과 동일), `moveit-srdf`/`urdf-rs`를
+`[dev-dependencies]`에서 `[dependencies]`로 옮겼다(이 바이너리가 시작
+시 URDF/SRDF 파일 경로에서 `RobotModel`을 로드하는 데 쓴다 —
+`state.rs`의 테스트 헬퍼 `one_joint_model_from`과 같은 패턴).
+
+### §NEW.2 요청 변환까지만 배선했다 — 플래너를 부르지 않는다, 이 워크스페이스에 부를 게 없어서
+
+`handle_request`는 들어온 `GetMotionPlan::Request`를 이미 있는
+`TryFrom<PlanningRequestMsg> for PlanningRequest`
+(`ros/moveit-ros/src/planning.rs`)로 변환한 뒤 멈춘다 — 플래너를 부르지
+않으므로 모든 응답이 빈 궤적과 `SUCCESS`가 아닌 `error_code`를 싣는다.
+
+이건 지름길이 아니라 실측이다. `rg -n "impl.*Planner<'m>.*for"
+crates/`는 `crates/moveit-planning/src/pipeline.rs`의
+`#[cfg(test)] mod tests` 안 네 개(`FixedGoalPlanner`, `FailingPlanner`,
+`RecordingPlanner`, `SideEffectPlanner`) 말고는 0건이고,
+`crates/moveit-planning/src/response.rs:45-68`의 문서 주석이 이미 같은
+결론을 적어 뒀다(이번 라운드가 다시 확인, 문서화된 공백도 확인되지
+않은 결함일 수 있다는 이유에서). `rg -n moveit-planning
+crates/moveit-planners-{sbp,chomp,stomp,pilz}/Cargo.toml`도 0건 — 이
+워크스페이스의 플래너 크레이트 넷 중 어느 것도 `moveit-planning`에
+의존하지 않는다. 이 워크스페이스에 존재하는 유일한 구체 플래너,
+`moveit_planners_sbp::registry::RrtConnectManager`(`registry.rs:616`,
+`impl PlannerManager for RrtConnectManager`)는 `moveit-planning`의
+`PlanningRequest`/`PlanningResponse`와 이름만 같고 타입이 다른, 자기
+자신의 `PlanningRequest`/`PlanningResponse`를 쓴다
+(`registry.rs:270-340`, 이번 라운드가 다시 읽어 확인).
+
+이 둘을 잇는 어댑터를 `ros/moveit-ros` 안에 지금 짜지 않았다 — D8
+(§140)이 이미 이 둘을 하나의 크레이트(`moveit-planner-registry`)로
+합치기로 정해 뒀고("이건 구조적 해결을 미루는 게 아니라 순서다: 지금
+하면 같은 파일을 두 라운드가 동시에 고친다"), 여기서 임시 변환을 짜면
+`goal`이 크레이트 경계를 넘나들며 두 가지 다른 뜻을 갖는 채로 다음
+라운드에 넘겨진다 — CLAUDE.md의 structural-fix-over-patch 규칙이 바로
+이 모양을 patch로 이름 붙인다. `ros/moveit-ros` 펜스 밖이기도 하다 —
+`moveit-planners-sbp`에 의존을 추가하는 것과, D8이 이미 주인인 어댑터를
+여기서 짜는 것은 다른 일이다.
+
+### §NEW.3 살아있는 DDS 왕복으로 실측 — `ros2 service call`이 진짜 요청을 보내고, 서버가 진짜 타입 응답을 돌려준다
+
+와이어 변환이 실제로 라이브 DDS 위에서 도는지, in-process 구조체
+생성이 아니라: `moveit-rs/ros-dev:latest` 컨테이너 안에서 이 바이너리를
+한 조인트 URDF/SRDF fixture로 띄우고, 같은 컨테이너의 `ros2 service
+call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}"`로
+호출했다.
+
+```
+response:
+moveit_msgs.srv.GetMotionPlan_Response(motion_plan_response=moveit_msgs.msg.MotionPlanResponse(
+  ...
+  error_code=moveit_msgs.msg.MoveItErrorCodes(
+    val=-1,
+    message='moveit-ros has no moveit_planning::pipeline::Planner to call yet
+             (PORTING-PLAN.md §NEW): the request converted, but there is no
+             planner in this workspace to hand it to.',
+    source='moveit-ros/plan_kinematic_path_server')))
+```
+
+`ros2 service list`가 `/plan_kinematic_path`를 실제로 보였고, 요청은
+in-process 함수 호출이 아니라 실제 DDS 미들웨어를 왕복했다 —
+`ros/verify-ros-interop.sh` 자신의 머리말이 "No live ROS 2 graph"라
+적어 둔 공백 중 하나를 이번 라운드가 실제로 메웠다는 근거다.
+
+이 실측을 `ros/verify-ros-interop.sh`에 회귀 게이트로 옮겼다(새 `run
+"live"` 단계) — fixture URDF/SRDF를 컨테이너 안에 쓰고, 서버를
+백그라운드로 띄우고, `ros2 service call`로 호출한 뒤 응답 문자열에서
+`val=-1`과 위 메시지를 grep한다. "먼저 실패하고 나중에 통과하는지"를
+직접 쟀다 — 이번 라운드가 추가한 `ros/moveit-ros/Cargo.toml`,
+`Cargo.lock`, `src/bin/`만 `git stash`로 걷어내고 같은 스크립트를
+돌리면 `error: no bin target named
+plan_kinematic_path_server`로 확정 실패(exit 101)했고, `git stash
+pop`으로 되돌린 뒤 다시 돌리면 통과한다. 이 과정에서 스크립트 자신의
+기존 버그도 하나 찾아 고쳤다 — §NEW.5.
+
+### §NEW.4 결정적 실측 — 무변경 `MoveGroupInterface::plan()`은 `/plan_kinematic_path`를 아예 부르지 않는다
+
+"완료" 기준은 무변경 C++ `MoveGroupInterface` 클라이언트가 이 서버에
+요청을 보내 유효한 궤적을 받는 것이다. 실제로 그 클라이언트를 이
+기계에서 띄우기 전에, 상류 소스 자체가 답을 준다.
+
+`moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp`
+(상류 오라클 이미지의 `/ws/src/moveit2` 체크아웃):
+
+- `MoveGroupInterface::plan(Plan& plan)` (:1455)는 `impl_->plan(plan)`을
+  호출할 뿐이다.
+- `MoveGroupInterfaceImpl::plan(Plan& plan)` (:657)는 시작하자마자
+  `move_action_client_->action_server_is_ready()`를 검사해(:659), 준비
+  안 됐으면 **로컬에서** `MoveItErrorCode::FAILURE`를 반환하고
+  끝난다 — 아무 메시지도 나가지 않는다. 준비됐으면
+  `moveit_msgs::action::MoveGroup::Goal`을 만들어
+  `move_action_client_->async_send_goal`로 보낸다(:712) —
+  `move_action_client_`는
+  `rclcpp_action::create_client<moveit_msgs::action::MoveGroup>`(:188),
+  즉 `/move_action` 액션이다.
+- 이 파일 전체에 `GetMotionPlan`이나 `plan_kinematic_path`를 언급하는
+  줄은 0건이다(`grep -n "GetMotionPlan\|plan_kinematic_path"
+  move_group_interface.cpp` → 무매치, `create_client` 호출 다섯 건은
+  `QueryPlannerInterfaces`/`GetPlannerParams`/`SetPlannerParams`/`GetCartesianPath`뿐).
+
+즉 무변경 `MoveGroupInterface::plan()`은 `/plan_kinematic_path`를 부를
+**경로 자체가 없다** — 서비스가 완벽하게 살아 돌아가도(§NEW.3이 그걸
+증명했다) 닿지 않는다. 필요한 건 `/move_action`
+(`moveit_msgs/action/MoveGroup`) 액션 서버다. 이건 §235가 이미 "raw
+서비스 호출은 `MoveGroupInterface` 클래스 자체보다 좁다"고 산문으로
+적어 둔 우려를, 코드 인용이 있는 사실로 좁힌 것이다 — 좁을 뿐 아니라,
+그 클래스의 유일한 플래닝 경로가 아예 다른 서비스를 쓴다.
+
+**측정한 지점, 그대로:** 이 라운드가 지은 `/plan_kinematic_path`
+서비스는 살아있고, 와이어를 왕복하고, 게이트로 고정됐다. "완료" 기준을
+직접 재는 데는 미달이다 — 막힌 지점은 다음 조각이지 이번 조각의 결함이
+아니다:
+
+1. `/move_action` (`moveit_msgs::action::MoveGroup`) 액션 서버 —
+   §226.4 항목 2의 나머지 절반. `MoveGroupInterface::plan()`이 실제로
+   부르는 유일한 경로. 이번 라운드가 위임받은 "그 조각과 그것만"에
+   포함되지 않았으므로 짓지 않았다.
+2. planning scene 토픽 구독 — §226.4 항목 3, 그대로 부재.
+3. `ros-dev` 이미지에 C++ `moveit2` 스택을 얹거나, 오라클 이미지에
+   Rust/r2r 툴체인을 얹는 이미지 작업 — §226.4 항목 4, 그대로
+   미측정/미착수. `/move_action`이 지어져도 이 작업 없이는 실제
+   `MoveGroupInterface` 클라이언트를 이 기계에서 이 노드에 대고 돌릴
+   방법이 없다.
+4. 1~3이 갖춰진 뒤에야 "코드 변경 없는 기존 C++ `MoveGroupInterface`
+   클라이언트가 유효한 궤적을 받는다"는 원래 문구 그대로의 종단
+   시도가 가능하다 — 그리고 그때도 `moveit-planning`에 부를 플래너가
+   없으므로(§NEW.2) 받는 건 유효한 궤적이 아니라 `PLANNING_FAILED`일
+   것이다. D8과 플래너 배선은 그 시점 이전에 별도로 닫혀야 한다.
+
+### §NEW.5 게이트 자신의 결함 하나 — `[[bin]]` 타깃이 `verify-ros-interop.sh`의 "마지막 test result 줄" 가정을 깼다
+
+`ros/verify-ros-interop.sh`의 유닛테스트 카운트 검증은 "Doc-tests
+앞의 마지막 `test result:` 줄"을 lib의 결과로 가정했다(`tail -1`) —
+이번 라운드 전까지는 유닛테스트 바이너리가 lib 하나뿐이라 맞는
+가정이었다. `src/bin/plan_kinematic_path_server.rs`를 추가하니 `cargo
+test`가 그 바이너리용 유닛테스트 스위트를 하나 더 돌리고(테스트 0개,
+설계대로), 그 결과가 lib의 "174 passed"와 "Doc-tests" 사이에 끼어든다
+— `tail -1`이 이제 bin의 "0 passed"를 집어, 스크립트가 `cargo test
+reported 0 passing unit test(s) but ... has 174`로 **거짓 실패**했다.
+이번 라운드가 §NEW.3의 "live" 단계를 넣기 전에 전체 게이트를 먼저
+돌려 직접 겪었다.
+
+고친 방식은 patch가 아니라 가정을 일반화한 것이다 — "Doc-tests 이전의
+`test result:` 줄은 하나"가 아니라 "몇 개든 전부 더한다"로 바꿨다.
+`[[bin]]` 타깃이 몇 개로 늘어나도 성립하는 규칙이고, 이번 버그를 만든
+그 가정 자체를 제거한다.
+
+### §NEW.6 §5 표 갱신 여부
+
+Phase 9의 판정은 UNMET에서 바뀌지 않는다 — §NEW.4가 측정한 대로
+"완료" 기준(무변경 클라이언트가 유효한 궤적을 받음)에 아직 미달이다.
+사용자 지시대로 판정이 바뀔 때만 §5 표 행을 고치므로, 이 라운드는 그
+행(측정한 §: §226.4)을 건드리지 않는다.
