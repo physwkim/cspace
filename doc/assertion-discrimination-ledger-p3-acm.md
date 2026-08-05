@@ -217,7 +217,7 @@ guard shape, and the same "one token, one cause" misclassification.
 |---|---|---|---|---|
 | bodies.rs:4037 | bare | sphere_negative_radius_is_an_error | single-branch | bite run now: no-op'd `Sphere::new`'s one guard → test FAILED; exactly one `Error::construct` call in the function |
 | bodies.rs:4087 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now: neutralize `half_length` clause in `bodies::Cuboid::recompute` → 4087 (length) FAILS, 4089 (height) stays GREEN |
-| bodies.rs:4088 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | same combined 3-way guard as 4087/4089; width is symmetric with length and height (not independently bit this pass, structure identical) |
+| bodies.rs:4088 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now: neutralize `half_width` clause in `bodies::Cuboid::recompute` (2209) → panic lands exactly at 4088, proving 4087 (length) passed first and 4089 (height) was never reached; reverted, gate re-run clean |
 | bodies.rs:4089 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | mirror half of the 4087 bite pair — stayed GREEN when `half_length` was neutralized |
 | bodies.rs:4102 | bare | sphere_padding_inversion_is_rejected_and_state_preserved | single-branch | doc-comment re-read and confirmed: `Sphere::set_padding` has exactly one `Error::construct` call, one operand |
 | bodies.rs:4140 | bare | cuboid_padding_inversion_is_rejected_and_state_preserved | single-branch (as tested) | this test has exactly one assertion (no sibling axis case in this specific test), so there is nothing in *this* test to isolate against even though the underlying `recompute` guard is the same combined shape corrected at 4087-4089; not re-classified — a coverage-gap question (whether a second case should exist), not a misclassification of what is actually asserted here |
@@ -252,23 +252,23 @@ commit as this ledger update; see §1a.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| shapes.rs:1618 | bare | sphere_negative_radius_is_an_error | single-branch | `Sphere::new` has one operand, one guard — nothing to isolate |
-| shapes.rs:1623 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now, both directions: neutralize radius clause → 1623 FAILS, 1624 stays GREEN; neutralize length clause → 1624 FAILS, 1623 stays GREEN (comment out sibling per §3a protocol, since `assert!` short-circuits within the one test fn) |
-| shapes.rs:1624 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same bite pair as 1623 |
-| shapes.rs:1630 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize radius clause → 1630 FAILS, 1631 stays GREEN (identical combined-guard shape to Cylinder::new, confirmed live rather than assumed by analogy) |
-| shapes.rs:1631 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same bite as 1630 |
-| shapes.rs:1636 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize x clause → 1636 FAILS, 1638 (z) stays GREEN |
-| shapes.rs:1637 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same combined 3-way guard as 1636/1638; y is symmetric with x and z (not independently bit this pass, structure identical) |
-| shapes.rs:1638 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | mirror half of the 1636 bite pair — stayed GREEN when x was neutralized |
-| shapes.rs:1656 | bare | sphere_padding_past_negative_is_an_error | single-branch | read: `Sphere::scale_and_padd` has exactly one `Err` site, one operand |
-| shapes.rs:1676 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now, both directions: neutralize radius clause → 1676 (`radius_case`) FAILS, 1685 (`length_case`) stays GREEN; neutralize length clause → mirrors |
-| shapes.rs:1685 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | same bite pair as 1676 |
-| shapes.rs:1797 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | bite run now: split `Shape::Cone(_)` out of `compute_volume`'s combined `None` arm (`Cone\|Plane\|Mesh\|OcTree`) → FAILED exactly at the Cone iteration; matches commit `871bb9e`'s recorded correction |
-| shapes.rs:1798 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | doc-comment re-read: records the same isolating mutation for `get_dimensions`, identical combined-arm structure |
-| shapes.rs:1862 | matches | mesh_rejects_out_of_range_triangle_index | single-branch | read: `Mesh::new` has exactly one `Error::construct` call, inside the vertex-index loop |
-| shapes.rs:1898 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | read: `Mesh::scale_and_padd_axes` has one `Err` site (`vertex_normals.as_ref().ok_or_else`); the empty-vertices branch returns `Ok(())`, not an error |
-| shapes.rs:1899 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | same guard as 1898, `scale_axes`/`padd_axes` both funnel through it |
-| shapes.rs:1961 | bare | compute_vertex_normals_calls_triangle_normals_when_needed | not-this-family | doc-comment re-read and confirmed: `mesh.triangle_normals.is_none()` reads a struct field literal-initialized to `None` in `Mesh::new`, not a computed branch |
+| shapes.rs:1619 | bare | sphere_negative_radius_is_an_error | single-branch | `Sphere::new` has one operand, one guard — nothing to isolate |
+| shapes.rs:1624 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now, both directions: neutralize radius clause → 1624 FAILS, 1625 stays GREEN; neutralize length clause → 1625 FAILS, 1624 stays GREEN (comment out sibling per §3a protocol, since `assert!` short-circuits within the one test fn) |
+| shapes.rs:1625 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same bite pair as 1624 |
+| shapes.rs:1631 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize radius clause → 1631 FAILS, 1632 stays GREEN (identical combined-guard shape to Cylinder::new, confirmed live rather than assumed by analogy) |
+| shapes.rs:1632 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same bite as 1631 |
+| shapes.rs:1637 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize x clause → 1637 FAILS, 1639 (z) stays GREEN |
+| shapes.rs:1638 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize `y` clause in `shapes::Cuboid::new` (905) → panic lands exactly at 1638, proving 1637 (x) passed first; reverted, gate re-run clean |
+| shapes.rs:1639 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | mirror half of the 1637 bite pair — stayed GREEN when x was neutralized |
+| shapes.rs:1657 | bare | sphere_padding_past_negative_is_an_error | single-branch | read: `Sphere::scale_and_padd` has exactly one `Err` site, one operand |
+| shapes.rs:1677 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now, both directions: neutralize radius clause → 1677 (`radius_case`) FAILS, 1686 (`length_case`) stays GREEN; neutralize length clause → mirrors |
+| shapes.rs:1686 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | same bite pair as 1677 |
+| shapes.rs:1798 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | bite run now: split `Shape::Cone(_)` out of `compute_volume`'s combined `None` arm (`Cone\|Plane\|Mesh\|OcTree`) → FAILED exactly at the Cone iteration; matches commit `871bb9e`'s recorded correction |
+| shapes.rs:1799 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | doc-comment re-read: records the same isolating mutation for `get_dimensions`, identical combined-arm structure |
+| shapes.rs:1863 | matches | mesh_rejects_out_of_range_triangle_index | single-branch | read: `Mesh::new` has exactly one `Error::construct` call, inside the vertex-index loop |
+| shapes.rs:1899 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | read: `Mesh::scale_and_padd_axes` has one `Err` site (`vertex_normals.as_ref().ok_or_else`); the empty-vertices branch returns `Ok(())`, not an error |
+| shapes.rs:1900 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | same guard as 1899, `scale_axes`/`padd_axes` both funnel through it |
+| shapes.rs:1962 | bare | compute_vertex_normals_calls_triangle_normals_when_needed | not-this-family | doc-comment re-read and confirmed: `mesh.triangle_normals.is_none()` reads a struct field literal-initialized to `None` in `Mesh::new`, not a computed branch |
 
 The brief's own model example (`a74a310`, `Cylinder::recompute`'s two
 sequential radius/length guards with distinct messages) is in `bodies.rs`,
