@@ -578,7 +578,7 @@
 //!    does exactly that, with no cap: `CompositeShapeRef::contact_with_shape`
 //!    iterates `self.0.bvh().intersect_aabb(&ls_aabb2)` over every
 //!    AABB-overlapping leaf and keeps the global minimum `dist`
-//!    (`src/query/contact/contact_composite_shape_shape.rs:24-39`) — unlike
+//!    (`parry3d-f64-0.30.0/src/query/contact/contact_composite_shape_shape.rs:24-39`) — unlike
 //!    upstream's own capped re-collide (`num_max_contacts = 200`, cited
 //!    above), but that cap only matters if a pair has more than 200 truly
 //!    overlapping candidate triangles. It does not here, measured rather

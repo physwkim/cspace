@@ -83,13 +83,13 @@
 //!
 //! `parry3d-f64` 0.30.0 has the same structure.
 //! `DefaultQueryDispatcher::contact` routes `Ball`/`Ball` to
-//! `contact_ball_ball` (`src/query/default_query_dispatcher.rs:316`), which
+//! `contact_ball_ball` (`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:316`), which
 //! admits a pair on `if distance_squared < sum_radius_with_error *
-//! sum_radius_with_error` (`src/query/contact/contact_ball_ball.rs:16`) -- a
+//! sum_radius_with_error` (`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`) -- a
 //! *strict* `<`, so two spheres at a gap of exactly zero give `1.0 < 1.0`,
 //! `None`, no collision. Its generic support-map path is the other way round:
 //! `gjk::closest_points` rejects on `if min_bound > max_dist`
-//! (`src/query/gjk/gjk.rs:411`), also strict, so a distance of exactly
+//! (`parry3d-f64-0.30.0/src/query/gjk/gjk.rs:411`), also strict, so a distance of exactly
 //! `max_dist` *is* admitted. One library's specialisation is inclusive at the boundary
 //! and its generic path exclusive; the other's is exclusive and its generic
 //! path inclusive. Neither states a convention, and the sign of the
