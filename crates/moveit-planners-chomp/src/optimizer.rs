@@ -290,10 +290,13 @@
 //! 1. Every 10th iteration (`iteration_ % 10 == 0`), a full mesh-to-mesh
 //!    collision check (upstream `isCurrentTrajectoryMeshToMeshCollisionFree`,
 //!    here [`crate::optimizer::ChompOptimizer::optimize`]'s injected
-//!    `mesh_to_mesh_collision_free` closure parameter)
-//!    against the *current* trajectory (not `best_group_trajectory_`); a
-//!    pass sets `num_collision_free_iterations_ = 0` (break on the very
-//!    next check below).
+//!    `mesh_to_mesh_collision_free` closure parameter) against
+//!    `best_group_trajectory_`'s *values* (at `group_trajectory_`'s *shape*),
+//!    not the just-`updateFullTrajectory`'d current iterate -- despite its
+//!    name, `isCurrentTrajectoryMeshToMeshCollisionFree` never reads
+//!    `group_trajectory_`'s values (`chomp_optimizer.cpp:520-536`); a pass
+//!    sets `num_collision_free_iterations_ = 0` (break on the very next
+//!    check below).
 //! 2. Unless [`crate::parameters::ChompParameters::filter_mode`] is set, the
 //!    scalar comparison `collision_cost <
 //!    `[`crate::parameters::ChompParameters::collision_threshold`]` — an
