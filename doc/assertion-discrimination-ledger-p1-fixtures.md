@@ -864,7 +864,7 @@ No fix needed for moveit-kinematics.
 | `multivariate_gaussian.rs:213` (`positive_definite_covariance_constructs`) | is_some | in-family | the sole `is_some` case in a suite of 5 boundary tests, each a distinct negative (`is_none`) case: mismatched dims, non-square, indefinite, zero/PSD-not-PD |
 | `moveit-test-support/src/lib.rs:88` (`assert_group_has_updated_links`) | is_empty | **not-this-family** (corrected below) | fixture-precondition helper called before the calling crate's real subject; see the clause-3 re-audit table |
 
-### tools/moveit-diff (16 sites)
+### tools/moveit-diff (20 sites)
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
@@ -886,11 +886,18 @@ No fix needed for moveit-kinematics.
 | `main.rs:4003` (same test) | contains | in-family | asserts the refusal names the directory searched. Paired with `main.rs:4002` rather than redundant with it: a message naming the link but not the search root does not tell a reader that `third_party/` is what is missing, which is the actual remedy |
 | `main.rs:4007` (same test) | contains | in-family | asserts the count (7 fanuc collision meshes). Discriminates a refusal that fired on one element from one that enumerated all of them |
 | `main.rs:4037` (`a_robot_with_no_collision_mesh_still_runs_without_any_search_path`) | any / is_none | **not-this-family** (fixture precondition) | pins that prbt genuinely has no `<mesh>` collision element, which is what makes the `Ok(())` on the next line mean "no meshes to lose" rather than "meshes lost but tolerated". Same category as `main.rs:3587` |
+| `main.rs:2826` (`the_default_oracle_seed_collides_with_the_matching_case_seed`) | contains | in-family | `reject_colliding_oracle_streams` has exactly one `Err` site and one `Ok` site (`main.rs:78-92`), so the enclosing `expect_err` is single-branch and pins reachability only. This line is the discriminating half: it asserts the refusal *names the stream collision*, which is the whole reason the guard exists — a refusal that fired for some other reason would leave a caller re-running with a differently wrong seed. Replacing the message body while keeping the `Err` leaves the `expect_err` green and reddens this |
+| `main.rs:2856` (`a_negative_case_seed_is_judged_as_the_stream_it_selects`) | is_err | single-branch | structural: one `Err` site, so `.is_err()` alone cannot name a branch. It is not blind because of the `.is_ok()` on `(-1, 1)` eight lines below: the pair is what pins the `seed as u32` reinterpretation. A guard written `seed == oracle as i32` passes the `.is_ok()` and fails this line; one that waved negatives through entirely fails this line and passes the other |
+| `main.rs:2873` (`zero_is_an_ordinary_seed_on_both_sides`) | is_err | single-branch | same single-`Err` structure, same paired shape: `(0, 0)` must refuse and `(0, 42)` must not. What the pair excludes is a guard that treats `0` as "unset" and skips the comparison — that variant passes the `.is_ok()` and fails this line |
 
-No fix needed for tools/moveit-diff. Of the eight sites added this round,
-three are exact `assert_eq!`s whose scanner token lives in the perturbation
-closure rather than the predicate, three assert the *content* of a refusal
-message (its whole purpose), and two are preconditions labelled as such.
+No fix needed for tools/moveit-diff. Of the eight sites added the round
+before, three are exact `assert_eq!`s whose scanner token lives in the
+perturbation closure rather than the predicate, three assert the *content*
+of a refusal message (its whole purpose), and two are preconditions
+labelled as such. The three seed-collision sites added with the Phase 4 (a)
+fix are the paired shape their rows describe: one `Err` site means the
+`is_err` half is structural, and the discrimination lives in the `is_ok`
+sibling asserted in the same test.
 
 ### 7 stranded sites (constraints test files)
 
