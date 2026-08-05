@@ -109,7 +109,7 @@
 //! - id 1: `joint_values={}` (the established default self-colliding pose),
 //!   no world object, `group_name` omitted -- upstream's state overload runs
 //!   one `checkCollision(cost=true)` and swaps the result out with **no**
-//!   `removeCostSources`/`removeOverlapping` pass (`planning_scene.cpp:2499-2506`),
+//!   `removeCostSources`/`removeOverlapping` pass (`planning_scene.cpp:2499-2510`),
 //!   unlike the trajectory overload below. 75 raw mesh-triangle cost sources
 //!   survive uncollapsed; a port that (wrongly) ran a removal pass here would
 //!   under-count.

@@ -2774,7 +2774,7 @@ private:
 
   /// Ground truth for `PlanningScene::cost_sources` -- upstream's
   /// `PlanningScene::getCostSources(const RobotState&, std::size_t, const
-  /// std::string&, std::set<CostSource>&)` (`planning_scene.cpp:2492-2506`).
+  /// std::string&, std::set<CostSource>&)` (`planning_scene.cpp:2499-2510`).
   ///
   /// This is the `state` half of the four overloads, and it is deliberately
   /// *not* symmetric with the trajectory half: it runs one `checkCollision`
@@ -2807,13 +2807,13 @@ private:
   }
 
   /// Ground truth for `PlanningScene::path_cost_sources` -- upstream's
-  /// trajectory overload (`planning_scene.cpp:2457-2490`).
+  /// trajectory overload (`planning_scene.cpp:2457-2491`).
   ///
   /// The three steps after the per-waypoint union are order-dependent and
   /// reproduced in upstream's order: truncate the union to `max_costs`,
   /// then `removeCostSources(costs, cs_start, overlap_fraction)` against the
   /// *first waypoint's* sources alone, then `removeOverlapping(costs,
-  /// overlap_fraction)` (`:2483-2489`). `cs_start` is captured by `swap` at
+  /// overlap_fraction)` (`:2477-2490`). `cs_start` is captured by `swap` at
   /// `i == 0`, so it is the first waypoint's set and not a copy of the
   /// running union -- a distinction only a trajectory whose first waypoint
   /// collides can show, which is why `waypoints` is a required field with no
