@@ -191,3 +191,18 @@ conclude a call count, refuted each time by actually counting). Here the
 relationship was architectural ownership rather than inheritance, but the
 failure mode is the same: a relationship stood in for a measurement, and
 the measurement said otherwise.
+
+## Round 10 follow-up — `AttachedFrames for PlanningScene`
+
+The seam `set_from_ik` uses to reach attached bodies had no production
+implementor until this round; only `NoAttachedFrames` and a test double
+existed. Every claim its doc and its tests make about upstream is
+re-derived below from the pinned checkout
+(`e017c91ee12984393a28ba246075c65f69cde3bf`), opened line by line.
+
+| where | claim | verdict | evidence | commit |
+|---|---|---|---|---|
+| `crates/moveit-scene/src/scene.rs:2086-2090` | upstream `setFromIK` resolves its target frame through `getLinkModelIncludingAttachedBodies` (`robot_state.cpp:910-937`), reading the state's own `attached_body_map_` | CONFIRMED | `setFromIK` calls `getRigidlyConnectedParentLinkModel(pose_frame)` at `robot_state.cpp:1924` and `(solver_tip_frame)` at `:1931`; that overload (`:939-945`) opens with `getLinkModelIncludingAttachedBodies(frame)` at `:942`. `:910-937` is the whole of that function: link tier `:913-916`, attached-body-id tier `:919-923`, subframe tier `:926-933`, `nullptr` at `:936`. The three tiers and their order are what this impl's delegate reproduces. | this commit |
+| `crates/moveit-scene/tests/attached_frames_reach_ik.rs:8-15` | the pose half comes from `getFrameTransform` (`:1930`, `:1937`), which reaches the same map through `getFrameInfo` (`:1338-1384`) | CONFIRMED | `setFromIK` takes `pose_parent_to_frame = getFrameTransform(pose_frame)` at `:1930` and `tip_parent_to_tip = getFrameTransform(solver_tip_frame)` at `:1937`. The const overload (`:1320-1336`) forwards to `getFrameInfo` at `:1324`. `getFrameInfo` spans `:1338-1384` with four tiers — model frame `:1345-1350`, link `:1351-1355`, attached-body id `:1359-1367`, subframe `:1370-1379` — one more than `getLinkModelIncludingAttachedBodies`, which has no model-frame tier. The port keeps that same asymmetry: `moveit-kinematics`' `frame_transform` tries the model frame first, `rigid_parent_link` does not. | this commit |
+| `crates/moveit-scene/src/scene.rs:1297-1306` (delegated to by the impl) | a bare attached-body id resolves at identity in its attach link's frame | DEVIATION, deliberate | Upstream's id tier returns `jt->second->getGlobalPose()` (`robot_state.cpp:1362`), a pose the body carries in `AttachedBody::pose_`; this port's `AttachedBody` has no such field (see its module doc) and the id names the attach link's own frame. The two agree exactly when `pose_` is identity, which is what `processAttachedCollisionObjectMsg`'s ADD branch produces for message-supplied shapes. `a_bare_attached_body_id_resolves_with_no_local_offset` pins the port side so the deviation cannot drift silently. | this commit |
+| `crates/moveit-scene/src/scene.rs:2090-2094` | a `moveit-scene` -> `moveit-kinematics` dependency is legal; only the reverse would be a cycle | CONFIRMED | `crates/moveit-constraints/Cargo.toml` already depends on `moveit-kinematics`, and `moveit-scene` already depended on `moveit-constraints`, so the edge existed transitively before this round and adding it directly closes nothing new. `tools/ci/check-dep-direction.sh` passes; it bans ROS client libraries in core crates and says nothing about this pair. | this commit |

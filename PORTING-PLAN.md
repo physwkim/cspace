@@ -18256,6 +18256,26 @@ pub trait AttachedFrames {
 않는다. 상류도 둘 다 첨부된 링크로 답하고 둘 다 강체이므로,
 구분할 것이 없다.
 
+트레이트를 도입한 라운드는 구현체를 `NoAttachedFrames`와 테스트
+더블 하나로만 두고 끝냈다. 즉 그때까지는 첨부 프레임을 IK 타깃으로
+줄 수 있는 프로덕션 경로가 없었다 — 공개 API는 열려 있는데 그
+쪽으로 답할 수 있는 타입이 워크스페이스에 없는 상태였다. 이번
+라운드에 `impl moveit_kinematics::AttachedFrames for PlanningScene`
+(`crates/moveit-scene/src/scene.rs`)로 그 반쪽을 채웠고, 그 대가로
+**`moveit-scene -> moveit-kinematics` 크레이트 엣지가 하나 늘었다**
+— §220.1이 "새 크레이트 엣지는 추가하지 않았다"고 적은 것은
+`set_from_ik`의 배치에 대한 말이고, 여기서 늘어난 엣지는 그 반대
+방향이다. 사이클이 되는 것은 `moveit-kinematics -> moveit-scene`
+쪽뿐이며, 이 방향은 `moveit-scene -> moveit-constraints ->
+moveit-kinematics`로 이미 이행적으로 있던 것이라 새로 닫히는 것이
+없다.
+
+impl은 `PlanningScene::frame_transform`이 쓰는 것과 **같은** 사설
+헬퍼에 위임한다. 편의가 아니라 그게 요점이다: 같은 문자열을
+IK 타깃으로 준 것과 프레임 변환으로 물은 것이 서로 다른 곳으로
+풀리면 안 되는데, 조회 지점이 하나면 그 성질이 주장이 아니라 구조가
+된다.
+
 ### §220.3 다중 팁 — `tip_frames`를 provided 메서드로 넣고, 위임 래퍼 두 곳은 forward 했다
 
 `setFromIK`의 팁 매칭과 "호출자가 이름 대지 않은 팁 채우기"는

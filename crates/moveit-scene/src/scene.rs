@@ -2080,6 +2080,33 @@ impl<'m> PlanningScene<'m> {
     }
 }
 
+/// The attached-body half of `RobotState`'s frame resolution, which
+/// `moveit-kinematics` needs and cannot reach on its own.
+///
+/// Upstream `RobotState::setFromIK` resolves a target frame through
+/// `getLinkModelIncludingAttachedBodies` (`robot_state.cpp:910-937`), reading
+/// the state's own `attached_body_map_`. In this workspace attached bodies
+/// live here instead (see [`AttachedBody`]'s module doc), and
+/// [`moveit_kinematics::AttachedFrames`] is the seam that puts them back
+/// within reach. The edge this closes runs scene -> kinematics, which
+/// `moveit-scene` already had transitively through `moveit-constraints`; it
+/// is the reverse edge that would be a cycle, which is why the trait exists
+/// rather than a direct dependency the other way.
+///
+/// Delegating to the same private helper [`PlanningScene::frame_transform`]
+/// uses is the point, not a convenience: an IK target and a frame transform
+/// naming the same string must not resolve to two different places, and one
+/// lookup is how that is guaranteed rather than asserted.
+impl moveit_kinematics::AttachedFrames for PlanningScene<'_> {
+    fn attached_frame(&self, frame: &str) -> Option<moveit_kinematics::AttachedFrame<'_>> {
+        let (link_name, link_pose_frame) = PlanningScene::attached_frame(self, frame)?;
+        Some(moveit_kinematics::AttachedFrame {
+            link_name,
+            link_pose_frame,
+        })
+    }
+}
+
 /// Insert `name`'s pose into `snapshot` under every key `isFixedFrame`'s
 /// unstripped-then-one-leading-`/`-stripped check would resolve `name` to.
 /// See [`PlanningScene::transforms_with_world_objects`]'s doc for why the
