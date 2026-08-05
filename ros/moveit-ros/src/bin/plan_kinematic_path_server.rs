@@ -64,6 +64,21 @@
 //! the same `TryFrom` impls the wire tests exercise in-process -- and a
 //! genuine, typed failure, never a fabricated trajectory.
 //!
+//! # One error code for every conversion failure, and what that costs
+//!
+//! Both handlers below answer a failed `TryFrom<PlanningRequestMsg>` with
+//! `MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS`, whatever the conversion
+//! actually rejected. That conversion has one entry point and one
+//! `moveit_error::Error` return, so the handler cannot tell a malformed goal
+//! constraint from an unrepresentable `start_state.multi_dof_joint_state`
+//! from a `reference_trajectories` this port has nowhere to put; the
+//! `message` string names the reason and the code does not. Upstream has no
+//! counterpart to compare against -- the conversion is this port's own -- but
+//! `MoveItErrorCodes` does carry `START_STATE_INVALID`, so the code is
+//! narrower than the failure set it reports. Closing it means giving the
+//! conversion a typed error enum with one variant per rejected field, which
+//! is `moveit-ros`'s own call and a change to every one of its callers.
+//!
 //! # The two endpoints report that state with different `error_code`s
 //!
 //! `/move_action` reports it as `MoveItErrorCodes::FAILURE` and

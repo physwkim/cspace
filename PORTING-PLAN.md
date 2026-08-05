@@ -23664,3 +23664,253 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
   변하지 않았다.
+
+---
+
+## §NEW Phase 9의 첫 거부를 옮겼다 — `start_state`는 이제 표현되고, 다음 거부는 "부를 플래너가 없다"다 (2026-08-06)
+
+§250.4는 무변경 C++ `MoveGroupInterface::plan()`이 이 노드에서 받는 답을
+처음으로 실측했고, 그 답은 두 start-state 철자 모두에서 `val=-16`,
+`MotionPlanRequest.start_state is not representable: PlanningRequest has no
+start-state field ...` 였다. §254.6은 그 거부를 게이트에 **고정**하면서
+필드가 생기면 leg A/leg B의 `-16` 단언이 붉어질 것이고 그때 기대 문자열을
+같이 옮기라고 적었다.
+
+이 절이 그 이동이다. 필드를 만들었고, 거부를 지웠고, 붉어진 단언을 옮겼고,
+게이트를 다시 초록으로 돌렸다. 판정은 여전히 실패지만 **다른 이유로**
+실패한다.
+
+### §NEW.1 상류에서 `start_state`가 무엇인지 — 완전한 상태가 아니라 오버레이다
+
+가정하지 않고 읽었다. `req.start_state`를 읽는 상류 지점은 어느 하나도
+그것을 완전한 로봇 상태로 다루지 않는다. 전부 같은 두 줄을 합성한다 —
+씬의 현재 상태를 가져오고, 그 위에 메시지를 덮어쓴다.
+`check_start_state_bounds.cpp:87-88`과
+`check_start_state_collision.cpp:74-75`에 그 두 줄이 그대로 있고,
+`PlanningScene::getCurrentStateUpdated`(`planning_scene.cpp:636-641`, 같은 두
+줄)를 통해 `planning_context_manager.cpp:586`(OMPL),
+`stomp_moveit_planning_context.cpp:226`(STOMP), 그리고 다시 풀어 쓴
+`chomp_planner.cpp:77-78`(CHOMP)에 있다. 다섯 곳이다.
+
+덮어쓰기의 실체는 `robotStateMsgToRobotStateHelper`(`conversions.cpp:371-397`)
+→ `setVariableValues`(`robot_state.hpp:1125-1131`) →
+`setVariablePositions(msg.name, msg.position)`이고, 마지막 것은 **이름이 붙은
+변수만** 도는 루프다(`robot_state.cpp:395-406`). 그러므로 이름이 없는 변수는
+씬의 현재 값을 그대로 유지한다. 이것이 브리프가 물은 "빈 `start_state`는
+현재 상태를 뜻한다"는 규약이며, 상류는 그것을 저장된 플래그가 아니라
+메시지 전체에 대한 술어
+`moveit::core::isEmpty`(`message_checks.cpp:54-64`,
+`move_action_capability.cpp:159`에서 사용)로 판정한다.
+
+`is_diff`는 관절 값과 무관하다. `setVariableValues`는 그것을 읽지 않고,
+`robotStateMsgToRobotStateHelper`가 읽는 곳은 정확히 두 군데
+(`conversions.cpp:377`, `:389`)인데 둘 다 attached body 관련이다 — 비어 있고
+diff도 아닌 메시지에서 빠져나가는 경로와, `attached_collision_objects`를
+다시 적용하기 전 `clearAttachedBodies()`를 부르는 경로. 이 포트는 attached
+body를 `PlanningScene`이 갖고 상태가 갖지 않으므로 `is_diff`가 고를 것이
+남지 않는다. 그래서 **필드로 옮기지 않았다**. 값 옆의 불리언은 이 저장소가
+피하는 바로 그 조합 폭발 모양이고, 상류 코드 자체가 그 플래그는
+오버레이 동작을 고르지 않는다고 말한다.
+
+길이 규약도 읽었다. `sensor_msgs/JointState`의 주석은 "All arrays in this
+message should have the same size, or be empty"이고 상류는 이를 한 곳에서
+검사하고 두 곳에서 가정한다.
+
+- 검사: `jointStateToRobotStateImpl`(`conversions.cpp:62-74`)이
+  `name.size() != position.size()`를 거부한다. 그 결과 이름만 있고 위치가
+  빈 메시지는 상류에서 "속도만 덮어쓰기"가 아니라 **아무것도 적용하지 않는
+  것**이 된다.
+- 가정: `setVariableVelocities(names, values)`(`robot_state.cpp:422-429`)는
+  짝짓기를 맨 `assert` 하나로 지킨다. `NDEBUG`가 켜진 빌드에서 짧은
+  `velocity` 배열은 벡터 끝을 넘어 읽는다. 상류 결함 후보이며,
+  `doc/upstream-bugs.md`가 이 라운드의 펜스 밖이라 거기 적지 못했다
+  (§NEW.8).
+
+### §NEW.2 타입 — 합타입 하나, 값+플래그가 아니다
+
+`crates/moveit-planning/src/start_state.rs`:
+
+```rust
+pub enum StartState {
+    #[default]
+    CurrentState,
+    Overriding(StartStateOverride),
+}
+```
+
+`StartStateOverride`의 필드는 비공개이고 `StartStateOverride::new`가 유일한
+입구다. 그래서 다음이 **런타임 검사가 아니라 구성 불가**다.
+
+- 아무 변수도 이름하지 않는 `Overriding`. `StartState::new`가 이름이 없는
+  배정에 `CurrentState`를 돌려주므로 두 변이형이 같은 요청을 서술하는 일이
+  없다. 이것이 상류 `isEmpty` 술어를 타입으로 옮긴 것이다.
+- 이름 수와 위치 수가 다른 `Overriding`.
+- 비어 있지도 않고 이름 수와도 다른 `velocities`를 가진 `Overriding`.
+  상류가 `assert`로만 지키는 짝짓기(§NEW.1)를 이 포트는 만들 수 없게 했다.
+
+이름이 없는데 값만 실린 메시지도 조용히 `CurrentState`로 접지 않고 거부한다
+— 상류의 길이 규칙이 양방향이기 때문이다.
+
+### §NEW.3 적용은 한 번, 한 주인이 — `generate_plan`
+
+- **불변식:** `generate_plan`에 들어간 뒤로 `scene`의 현재 상태가 곧 요청된
+  시작 상태다.
+- **주인:** `crates/moveit-planning/src/pipeline.rs`의 `generate_plan`
+  단 하나. `request_chain`이 돌기 **전에** `StartState::apply_to`를
+  `scene.current_state_mut()`에 부른다. 순서가 앞인 이유는 상류의
+  `CheckStartStateBounds`가 이미 덮어써진 상태를 보고 필요하면 고치기
+  때문이다(`check_start_state_bounds.cpp:196`은 고친 상태를
+  `req.start_state`에 되쓴다; 이 포트에서는 씬에 남고, 씬이 이후 모든
+  독자가 보는 곳이다).
+- **우회 감사:** 이 크레이트에서 `PlanningRequest::start_state`를 적용하는
+  다른 지점은 없다. 어댑터도 플래너도 `&mut PlanningScene`/`&PlanningScene`를
+  이미 받고 `scene.current_state()`를 이미 읽는다
+  (`CheckStartStateBounds`, `CheckStartStateCollision`이 그렇게 한다).
+  상류의 다섯 곳 재유도(§NEW.1)를 한 곳으로 접은 것이고, 주인 없는
+  불변식을 만들지 않기 위해서다.
+- **대가:** `generate_plan`이 돌아온 뒤 `scene`은 호출자의 상태가 아니라
+  요청된 시작 상태를 들고 있다. 이미 "Semantic 6"과
+  `scene_current_state_is_allowed_to_differ_from_start_state_after_generate_plan_returns`가
+  플래너 부작용에 대해 기록한 비복원 성질이며, 한 단계 앞에서 발생하게
+  됐을 뿐이다.
+
+### §NEW.4 와이어 쪽 — 거부가 사라진 자리에 남은 거부들
+
+`ros/moveit-ros/src/planning.rs`에 `StartStateMsg`/`StartStateMsgOut` 쌍을
+두고 `MotionPlanRequest.start_state`를 그리로 보낸다. `&RobotModel`을 받지
+않는 유일한 래퍼다 — `StartState`는 인덱스가 아니라 이름을 들고 다니고,
+이름 해석은 상류가 하는 곳(`RobotModel::getVariableIndex`가 던지는
+`setVariablePositions` 안, `robot_state.cpp:395-406`)과 같은 곳,
+`StartState::apply_to`에서 한다. 여기서 또 풀면 같은 규칙에 주인이 둘이
+되고, 다른 모델을 가진 씬이라면 받았을 요청을 이 변환이 거부하게 된다.
+
+지금 통과하는 것: 빈 `start_state`(→ `CurrentState`), `is_diff`만 켠 빈
+diff(→ `CurrentState`), 이름과 위치(그리고 선택적으로 속도)를 실은
+배정(→ `Overriding`). `is_diff`는 어느 쪽에서도 관측되지 않는다.
+core→msg 방향은 두 변이형 모두 `is_diff: true`를 낸다 — 상류
+`MoveGroupCapability::clearRequestStartState`(`move_group_capability.cpp:114-116`)가
+쓰는 모양이고, `isEmpty`가 참이라고 답하는 유일한 모양이기 때문이다.
+
+지금도 거부하는 것과 그 이유:
+
+| 와이어 모양 | 메시지 | 주인 |
+| --- | --- | --- |
+| `name` 수 ≠ `position` 수 | `has N name(s) but M position(s)` | `StartStateOverride::new` (모델 불필요) |
+| `velocity`가 비지도 않고 길이도 다름 | `has N name(s) but M velocity(ies)` | 같음 |
+| 이름 없이 값만 | `names no variable but carries ...` | `StartState::new` |
+| `multi_dof_joint_state` 비어 있지 않음 | `start_state.multi_dof_joint_state has no core representation` | 변환 (D6) |
+| `attached_collision_objects` 비어 있지 않음 | `start_state.attached_collision_objects is not representable` | 변환 (D6) |
+| 모델에 없는 변수 이름 | `start_state.joint_state[i] position p for "name": ...` | `StartState::apply_to` (모델 필요) |
+
+`joint_state.effort`는 버린다. 상류도 정확히 그렇게 한다 —
+`setVariableValues(const sensor_msgs::msg::JointState&)`
+(`robot_state.hpp:1125-1131`)는 `position`과 `velocity`만 읽는다.
+
+### §NEW.5 실측 — 게이트가 지금 무엇을 답하는가
+
+`sg docker -c '.../tools/ci/verify-ros-interop.sh'`, 종료 코드 0.
+leg B(무변경 상류 C++ `MoveGroupInterface`, 고정된 moveit2 sha에서 컴파일)의
+출력 전문:
+
+| 모드 | 이 라운드 전 (§250.4) | 이 라운드 후 (실측) |
+| --- | --- | --- |
+| `default-start` (생성자의 빈 diff) | `val=-16`, `start_state is not representable` | `val=99999`, `source='moveit-ros/move_action'`, `moveit-ros has no moveit_planning::pipeline::Planner to call yet (PORTING-PLAN.md §241): the request converted, but there is no planner in this workspace to hand it to.` |
+| `explicit-start` (`setStartState`의 완전 지정 상태) | `val=-16`, 같은 문자열 | 위와 동일 |
+
+두 모드 모두 `PROBE points=0 multi_dof_points=0`,
+`PROBE verdict=NO_VALID_TRAJECTORY`.
+
+**그러므로 다음 거부의 이름은 추정이 아니라 실측으로 "부를 플래너가 없다"이다.**
+`99999`는 클라이언트가 서버를 못 찾았을 때 스스로 만드는
+`MoveItErrorCode::FAILURE`와 같은 수이므로 `val`만으로는 아무것도 구분하지
+못한다. 구분은 전적으로 `source`가 한다 — 이미 probe의 설계였고, 이제는
+그 설계가 유일한 판별자다. 게이트는 그에 맞춰
+`assert_lacks "PROBE plan val=99999 source=''"`를 그대로 들고 있다.
+"`start_state`"가 다시 나타나면 붉어지는 짝 단언은 **넣지 않았다** —
+노드는 응답 하나에 메시지 하나를 만들므로, `start_state`를 되돌려 넣는
+어떤 회귀든 위의 두 단언에서 먼저 붉어진다. 그 부정 단언이 발화하는
+경우는 무관한 rclcpp 로그가 그 이름을 언급할 때뿐이고, 이름 붙은 결함에
+대해 실패할 수 없는 검사는 검사가 아니다.
+
+leg A(`ros2 action send_goal`)는 goal 하나당 파일 하나로 바꿨다. 다섯 경계
+중 셋이 이제 같은 코드로 답하므로, 파일 전체를 `grep`하는 이전 모양은 goal
+넷이 아예 발사되지 않아도 통과한다.
+
+| goal | `start_state` | 답 |
+| --- | --- | --- |
+| `unset` | 없음 | `val: 99999`, no-planner |
+| `empty-diff` | `is_diff: true` | `val: 99999`, no-planner |
+| `override` | `name: [j1], position: [0.25]` | `val: 99999`, no-planner |
+| `length-mismatch` | `name: [j1, j2], position: [0.25]` | `val: -16`, `has 2 name(s) but 1 position(s)` |
+| `multi-dof` | `multi_dof_joint_state.joint_names: [virtual_joint]` | `val: -16`, `... has no core representation` |
+
+### §NEW.6 판별 뮤테이션 — 넷, 각각 정확히 한 군데
+
+"검사가 실패할 수 없으면 검사가 아니다"에 따라, 새 경로를 한 번에 한
+군데씩 망가뜨리고 무엇이 잡는지 봤다. 넷 모두 되돌린 뒤 다시 초록을
+확인했다.
+
+| # | 망가뜨린 곳 | 잡은 검사 | 관측된 실패 |
+| --- | --- | --- | --- |
+| M1 | `StartState::apply_to`에서 이름 `i`를 `positions[len-1-i]`와 짝지음 | `an_overlay_pairs_each_value_with_its_own_name`, `an_overlay_naming_a_variable_the_model_lacks_is_rejected_at_apply_time` | `57 tests run: 55 passed, 2 failed`; `left: -0.5, right: 0.25` |
+| M2 | msg→core 변환에서 `js.name`을 뒤집음 | `each_start_state_position_is_carried_against_its_own_joint_name`, `round_trip_start_state_through_msg` | `184 → 182 passed, 2 failed`; `left: ["j2","j1"], right: ["j1","j2"]` |
+| G1 | 변환에 라운드 이전의 포괄 거부를 되살림 | leg A / `empty-diff` | `FAIL leg A/empty-diff converted code: expected this string and did not find it: val: 99999` |
+| G2 | 변환이 `is_diff=false`인 오버레이를 다시 거부(leg A의 어느 goal도 보내지 않는 모양) | leg B / `explicit-start` | leg A 전부 통과, `FAIL leg B/explicit-start round trip: ... val=99999 source='moveit-ros/move_action'` |
+
+M1·M2와 G1·G2의 분업이 이 라운드에서 확인된 사실 하나를 그대로 드러낸다.
+**어느 다리도 시작 상태의 값이 실제로 착지했는지 볼 수 없다.**
+아무것도 계획하지 않으므로 궤적이 돌아오지 않고, 관측 가능한 것은 오류
+코드뿐인데 값을 실은 goal과 시작 상태가 아예 없는 goal이 같은 답을 받는다.
+그래서 M2(관절 순서 뒤집기)는 게이트를 전혀 붉히지 못한다 — 실측했다.
+그 검사는 in-process 테스트가 하고, 그 사실을
+`ros/verify-move-action-interop.sh` 머리말에 명시적으로 적었다. leg A가
+그나마 볼 수 있는 것은 두 배열의 **역할**이다: 길이 불일치 경계가 두 수를
+정확히 단언하므로 `position`을 `name` 자리로 읽는 변환은 붉어진다.
+
+### §NEW.7 §5 표의 Phase 9 행 — 왜 바뀌지 않는가
+
+판정은 **UNMET 그대로이고, 행을 건드리지 않았다** (근거 인용도 §250.5
+그대로다). 조건 문구는 "무변경으로 유효 궤적 수신"이고, 실측된
+`PROBE points=0`, `PROBE verdict=NO_VALID_TRAJECTORY`는 §250.4와 같다.
+궤적은 여전히 0점이다. §250.5가 그 낱말에 대해 적은 근거 — 조건 문구
+그대로의 종단 시도가 실제로 수행됐고 실패했으며 실패 지점이 기록됐다 —
+도 그대로 참이다. 바뀐 것은 **실패 지점**이고, 그것을 기록하는 것이 이
+절이다. 낱말이 같으므로 표의 낱말도 같아야 하고, 조건을 느슨하게 하거나
+허용오차를 넓힌 곳은 없다.
+
+병합 담당자가 이 절에 번호를 배정한 뒤 그 행의 근거 인용을 §250.5에서
+이 절로 옮기고 싶다면 그것은 정당하다 — §250.5가 이름으로 가리키는
+실패 지점(`start_state` 거부)은 더 이상 이 트리에 없기 때문이다.
+이 라운드가 그러지 않은 이유는 하나뿐이다: 워커 브랜치에서 그 인용을
+`§NEW.7`로 쓰면 `tools/ci/check-phase-status.sh`가 붉어진다. 그 스크립트의
+`HEADING_ID_RE`는 숫자만 받으므로 `§NEW`는 제목으로 등록되지 않는다.
+번호가 배정된 뒤에는 그 문제가 없다.
+
+이 행을 MET으로 만드는 것은 D8/§140.3이 소유한 결정 — `moveit-planning`과
+`moveit-planners-sbp::registry`의 타입 통합 — 이며 이 라운드는 그것을
+시작하지 않았다.
+
+### §NEW.8 이 라운드가 닫지 못한 것
+
+- **변환 실패 전부가 오류 코드 하나다.** `plan_kinematic_path_server.rs`는
+  어떤 변환 실패든 `MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS`(-16)로
+  답한다. `MoveItErrorCodes`에는 `START_STATE_INVALID`(-26)가 있고, 지금
+  -16으로 답하는 다섯 거부 중 넷은 start-state 거부다. 닫으려면
+  `moveit-ros`에 타입 있는 오류 enum이 필요하다 — 문자열이 아니라 종류로
+  분기해야 코드를 고를 수 있다. 바이너리 모듈 doc에 적어 뒀다.
+- **시작 상태의 값이 착지했는지는 게이트가 보지 못한다.** §NEW.6이 실측한
+  대로다. 플래너가 생겨 궤적이 돌아오기 전에는 다리 쪽에서 닫을 방법이
+  없다. 만료 조건: `moveit_planning::pipeline::Planner`가 이 워크스페이스에
+  등록되는 순간, leg B가 첫 점의 관절 값을 단언할 수 있게 된다.
+- **상류 `setVariableVelocities`의 `assert`-만 짝짓기 가드**
+  (`robot_state.cpp:422-429`). `doc/upstream-bugs.md`가 이 라운드의 펜스
+  밖이라 기록하지 못했다. 이 포트에서는 구성 불가로 막혀 있다(§NEW.2).
+- **`ros/move_group_interface_probe/src/move_group_interface_probe.cpp`의
+  낡은 주석.** 이제 존재하지 않는 `robot_state_msg_is_default`를 이름으로
+  가리킨다. 펜스 밖이라 손대지 않았다.
+- **`attached_collision_objects`와 `multi_dof_joint_state`는 여전히 거부**
+  한다. 각각 `PlanningScene`의 attached body와 다중 DOF 관절 표현이
+  필요하고, 둘 다 이 라운드의 과제가 아니다. `state.rs`와
+  `doc/message-mapping.md` §9가 같은 공백을 이미 기록한다.
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3, §254.6이 적은
+  파리티 결함 그대로다.
