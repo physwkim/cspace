@@ -103,7 +103,7 @@ disposition:
   *separate* construction sites (not one folded condition); this pair
   was already correctly split from the family these two rows test.
   Signature does not apply.
-- **`acceleration_filter.rs:552`** (moveit-smoothing) — **matches the
+- **`acceleration_filter.rs:302`** (moveit-smoothing) — **matches the
   signature**, and is the user's named live candidate. Guard is
   `positions.len() != num_joints || velocities.len() != num_joints`,
   one `Error::other` folding two named operands. `reset_rejects_a_mismatched_length`
@@ -118,7 +118,7 @@ disposition:
   `reset_rejects_a_velocities_only_mismatch`, each mismatching exactly
   one array; bite-verified each new test fails when its own clause is
   disabled. Commit `3c2d72f`. **Verdict corrected below.**
-- **`ruckig_filter.rs:546`** (moveit-smoothing) — **matches the
+- **`ruckig_filter.rs:326-329`** (moveit-smoothing) — **matches the
   signature**, structurally identical 3-clause OR
   (`positions.len() != num_joints || velocities.len() != num_joints ||
   accelerations.len() != num_joints`, `ruckig_filter.rs:326-329`).
@@ -133,11 +133,11 @@ disposition:
   disabled. Commit `2829ca2`. **Verdict corrected below.**
 
 **Count checked: 22. Count matching the signature: 3 guards / 4 rows**
-(`decide.rs:183/184` sharing one guard; `acceleration_filter.rs:552`;
-`ruckig_filter.rs:546`). **Outcome: `decide.rs:183/184` — genuinely
+(`decide.rs:183/184` sharing one guard; `acceleration_filter.rs:302`;
+`ruckig_filter.rs:326-329`). **Outcome: `decide.rs:183/184` — genuinely
 discriminating, existing tests already isolate each operand, no source
-fix, verdict-only correction. `acceleration_filter.rs:552` and
-`ruckig_filter.rs:546` — genuine blind sites, neither existing test
+fix, verdict-only correction. `acceleration_filter.rs:302` and
+`ruckig_filter.rs:326-329` — genuine blind sites, neither existing test
 isolated any individual operand; both fixed this round with new
 isolating tests, bite-verified, gated `-p moveit-smoothing`.**
 
@@ -203,7 +203,7 @@ moved and why. This round's folded-multi-operand-condition audit
 reason: a construction-site count cannot see a folded condition's
 independently-coverable operands, so `single-branch`/`structural` was
 also the wrong verdict for `decide.rs:183/184`,
-`acceleration_filter.rs:552`, and `ruckig_filter.rs:546` — the first
+`acceleration_filter.rs:302`, and `ruckig_filter.rs:326-329` — the first
 pair by omission (a bite was owed and now exists), the latter two by
 blind site (a bite exposed unexercised operands, since fixed).
 
@@ -610,12 +610,12 @@ moveit-scene above. Converted to a table; verdict unchanged.
 Two, both found by this round's folded-multi-operand-condition audit
 (see above), both fixed:
 
-- `acceleration_filter.rs:552`/`reset` (moveit-smoothing) — neither
+- `acceleration_filter.rs:302`/`reset` (moveit-smoothing) — neither
   the `positions` nor the `velocities` clause of the guard's OR
   condition was individually exercised by any existing test. Fixed:
   `reset_rejects_a_positions_only_mismatch`/
   `reset_rejects_a_velocities_only_mismatch` added, commit `3c2d72f`.
-- `ruckig_filter.rs:546`/`reset` (moveit-smoothing) — none of the
+- `ruckig_filter.rs:326-329`/`reset` (moveit-smoothing) — none of the
   `positions`/`velocities`/`accelerations` clauses of the guard's
   3-clause OR condition was individually exercised. Fixed:
   `reset_rejects_a_positions_only_mismatch`/
