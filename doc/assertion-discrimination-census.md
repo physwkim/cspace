@@ -444,7 +444,7 @@ new one in a ledger reopens the same gap one level down.
      that collapse is recorded in the code, not inferred;
   3. no caller distinguishes the branches either.
 
-  `moveit-planners-pilz`'s `trajectory_blender_transition_window.rs:1199`
+  `moveit-planners-pilz`'s `trajectory_blender_transition_window.rs:1211`
   is the only instance. It qualifies: neutralizing
   `search_intersection_points`'s first `ok_or` alone fails
   `search_intersection_points_rejects_when_first_trajectory_never_reaches_the_blend_radius`
