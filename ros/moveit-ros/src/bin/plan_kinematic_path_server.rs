@@ -11,7 +11,7 @@
 //! * `/plan_kinematic_path` (`moveit_msgs/srv/GetMotionPlan`), PORTING-PLAN.md
 //!   §241 -- upstream `move_group/src/default_capabilities/
 //!   plan_service_capability.cpp`.
-//! * `/move_action` (`moveit_msgs/action/MoveGroup`), PORTING-PLAN.md §NEW --
+//! * `/move_action` (`moveit_msgs/action/MoveGroup`), PORTING-PLAN.md §250 --
 //!   upstream `move_action_capability.cpp`. This is the endpoint an
 //!   unmodified `MoveGroupInterface::plan()` actually calls:
 //!   `move_group_interface.cpp:659` returns `FAILURE` locally without sending

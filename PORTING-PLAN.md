@@ -816,7 +816,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 7 | 경로 길이 중앙값이 C++ OMPL 대비 1.3배 이내 | MET | §219 | 2026-08-06 |
 | Phase 8 | pilz LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05 |
 | Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과 | UNMEASURED | §217.3 | 2026-08-05 |
-| Phase 9 | 기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로 유효 궤적 수신 | UNMET | §NEW.5 | 2026-08-06 |
+| Phase 9 | 기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로 유효 궤적 수신 | UNMET | §250.5 | 2026-08-06 |
 
 ---
 
@@ -18480,10 +18480,10 @@ Rust 노드를 **빌드/게이트**하는 곳(`ros-dev`)이 서로 다른 이미
 
 > **이 표는 측정 시점의 트리를 적은 것이고, 지금은 낡았다.** 넷 중 둘이
 > 그 뒤에 지어졌다 — `/plan_kinematic_path` 서비스와 노드 바이너리는
-> §241이, `/move_action` 액션 서버는 §NEW가 지었다. 아래 `rg` 앵커를
+> §241이, `/move_action` 액션 서버는 §250가 지었다. 아래 `rg` 앵커를
 > 지금 트리에서 그대로 다시 돌리면 `fn main`·`r2r::Node`·
 > `create_service`·`create_action_server`가 전부 히트한다. planning scene
-> 토픽 구독만 여전히 부재다. §NEW.1이 넷을 다시 센다.
+> 토픽 구독만 여전히 부재다. §250.1이 넷을 다시 센다.
 
 corpus: `ros/moveit-ros/src/`의 `.rs` 18개 파일 전부(`find
 ros/moveit-ros/src -name '*.rs'`), 그리고 조건 문자열 자체는
@@ -18534,11 +18534,11 @@ planning-scene subscription (deferred to a later round)." 이 절은 그
 > 실행한 것은 없다 — 읽고(STEP 1), 빌드되는지 보고(STEP 2), 서버 쪽
 > 부재를 `rg`로 확인한(STEP 3) 것이 전부다. "보낼 상대가 없으니 못
 > 받는다"는 타당한 추론이지만 시험은 아니고, UNMET은 시험해서 실패했다는
-> 뜻이다. §NEW가 그 시험을 실제로 수행했다 — 무변경 C++
+> 뜻이다. §250가 그 시험을 실제로 수행했다 — 무변경 C++
 > `MoveGroupInterface`가 이 노드에 붙어 `plan()`을 부르고, 궤적 대신
 > 이 포트가 만든 타입 오류를 받는다. 판정어는 UNMET 그대로지만, 근거는
-> 이 절에서 §NEW로 옮겨간다. 또 이 절이 "막힌 지점은 서버 쪽"이라 적은
-> 것 중 하나는 서버 쪽이 아니었다 — §NEW.4가 실행해서 찾은 첫 거부는
+> 이 절에서 §250로 옮겨간다. 또 이 절이 "막힌 지점은 서버 쪽"이라 적은
+> 것 중 하나는 서버 쪽이 아니었다 — §250.4가 실행해서 찾은 첫 거부는
 > `crates/moveit-planning`의 `PlanningRequest`에 start-state 필드가 없다는
 > 것이고, 그것은 `ros/moveit-ros` 바깥이다.
 
@@ -21997,7 +21997,7 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 
 ---
 
-## §NEW Phase 9 조건을 처음으로 **실행**했다 — `/move_action`을 짓고, 무변경 C++ `MoveGroupInterface`를 이 노드에 붙였다 (2026-08-06)
+## §250 Phase 9 조건을 처음으로 **실행**했다 — `/move_action`을 짓고, 무변경 C++ `MoveGroupInterface`를 이 노드에 붙였다 (2026-08-06)
 
 §226.4는 Phase 9 조건을 UNMET으로 적으면서 "막히는 지점은 서버 쪽"이라고
 결론했다. 그 문장은 세 가지를 구분하지 않는다 — 안 지은 포팅인지, 이
@@ -22005,7 +22005,7 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 서로 다른 뜻을 갖는다. 이 절은 셋을 갈라 재고, 그중 이 펜스 안의 것을
 짓고, 조건을 실제로 **실행**한다.
 
-### §NEW.1 §226.3의 네 조각을 지금 트리에서 다시 센다
+### §250.1 §226.3의 네 조각을 지금 트리에서 다시 센다
 
 §226.3의 표는 측정 당시의 트리다. 같은 앵커를 지금 돌린 결과:
 
@@ -22020,7 +22020,7 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 "넷 중 하나만 있다"는 이제 "넷 중 셋이 있다"이고, 그 표를 인용해 판정을
 읽으면 두 라운드 전의 트리를 읽게 된다.
 
-### §NEW.2 막힌 지점을 셋으로 가른다 — 안 지은 포팅 둘, 다른 곳의 결정 하나, 환경 제약 영
+### §250.2 막힌 지점을 셋으로 가른다 — 안 지은 포팅 둘, 다른 곳의 결정 하나, 환경 제약 영
 
 §226.4가 한 덩어리로 적은 "서버 쪽"을 실측해서 가르면 이렇게 된다.
 
@@ -22028,10 +22028,10 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
    `MoveGroupInterface::plan()`이 부르는 유일한 경로다
    (§241.4가 상류 소스로 확정, `move_group_interface.cpp:188`의
    `create_client<moveit_msgs::action::MoveGroup>`). 이 절이 지었다
-   (§NEW.3).
+   (§250.3).
 2. **`moveit_planning::PlanningRequest`에 start-state 필드가 없다 — 안 지은
    포팅, 단 `crates/moveit-planning`의 것.** 이것이 실행해 보고 나서야
-   드러난, 지금 **가장 먼저** 걸리는 거부다(§NEW.4). `ros/moveit-ros`
+   드러난, 지금 **가장 먼저** 걸리는 거부다(§250.4). `ros/moveit-ros`
    바깥이므로 이 라운드가 짓지 않았다.
 3. **부를 플래너가 없다 — 다른 곳에 기록된 결정.** §241.2가 이미 쟀고,
    D8(§140.3)이 `moveit-planning`과 `moveit-planners-sbp::registry`의
@@ -22044,9 +22044,9 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
    `MoveGroup.action`의 sha가 `third_party/moveit_msgs`의 것과 바이트
    동일하다(md5 `875ce447d8fae99251003a48acca5b4c`, 세 곳 모두). 즉
    한 이미지에 둘을 합칠 필요조차 없다: 도커 브리지 네트워크 하나에
-   두 컨테이너를 올리면 그대로 붙는다. 붙었다(§NEW.4).
+   두 컨테이너를 올리면 그대로 붙는다. 붙었다(§250.4).
 
-### §NEW.3 지은 것 — `/move_action` (`moveit_msgs/action/MoveGroup`)
+### §250.3 지은 것 — `/move_action` (`moveit_msgs/action/MoveGroup`)
 
 `plan_kinematic_path_server.rs` 한 바이너리에 얹었다. 별도 프로세스로
 가르지 않은 것은 상류를 따른 것이다 — `move_group`은 `MoveGroupPlanService`와
@@ -22086,7 +22086,7 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
 밖이라, 새 액션 쪽만 `FAILURE`로 짓고 이 불일치를 바이너리의 모듈
 문서에 이름 붙여 남겼다.
 
-### §NEW.4 실측 — 무변경 클라이언트가 DDS를 건너와, 이 포트가 만든 오류를 받는다
+### §250.4 실측 — 무변경 클라이언트가 DDS를 건너와, 이 포트가 만든 오류를 받는다
 
 계측 구성: 도커 브리지 네트워크 하나, `ROS_DOMAIN_ID=42`, 컨테이너 둘.
 한쪽은 `moveit-rs/ros-dev:latest`에서 이 노드를, 다른 쪽은 오라클 이미지
@@ -22147,7 +22147,7 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
 검사로도 보이지 않던 사실이다 — 실제 클라이언트를 붙여 본 적이 없었기
 때문이다.
 
-### §NEW.5 판정어 — UNMET이 맞다, 다만 이 라운드 전까지는 아니었다
+### §250.5 판정어 — UNMET이 맞다, 다만 이 라운드 전까지는 아니었다
 
 §226.4의 세 STEP 중 조건을 실행한 것은 없다. 읽고, 빌드되는지 보고,
 부재를 `rg`로 확인했다. "보낼 상대가 없으니 못 받는다"는 타당한
@@ -22160,22 +22160,22 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
 측정을 만들어 낱말을 참으로 만든 것이고, 조건 문구를 느슨하게 하거나
 허용오차를 넓힌 곳은 없다.
 
-### §NEW.6 이 라운드가 닫지 못한 것
+### §250.6 이 라운드가 닫지 못한 것
 
-- **`moveit_planning::PlanningRequest`의 start-state 필드.** §NEW.4가 찾은
+- **`moveit_planning::PlanningRequest`의 start-state 필드.** §250.4가 찾은
   첫 거부이고, 무변경 클라이언트의 모든 `plan()`을 막는다.
   `crates/moveit-planning`이 주인이라 이 펜스 밖이다. 만료 조건:
   `PlanningRequest`가 그 필드를 갖고 `planning.rs`의 첫 거부가 사라지면
   닫힌다.
 - **planning scene 토픽 구독.** §226.4 항목 3 그대로 부재.
-- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §NEW.3이 적은 파리티
+- **`/plan_kinematic_path`의 `PLANNING_FAILED`.** §250.3이 적은 파리티
   결함. 소스 한 줄과 `ros/verify-ros-interop.sh`의 `grep -q "val=-1"`
   한 줄을 같이 고쳐야 하고, 후자가 펜스 밖이다.
 - **`/move_action`에는 회귀 게이트가 없다.** §241이 `/plan_kinematic_path`에
   붙인 `run "live"` 단계와 같은 모양의 `ros2 action send_goal` 한 단계를
   `ros/verify-ros-interop.sh`에 더하면 되지만, 그 파일이 펜스 밖이다.
   지금은 이 절의 실측이 유일한 근거이고, 게이트로 고정돼 있지 않다.
-- **종단 시도를 게이트로 옮기지 못했다.** §NEW.4의 두 컨테이너 구성은
+- **종단 시도를 게이트로 옮기지 못했다.** §250.4의 두 컨테이너 구성은
   오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에
   기댄다. 이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
   `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다.
