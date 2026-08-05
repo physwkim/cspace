@@ -215,7 +215,7 @@ pub fn solve_with_stomp<'m>(
 /// `moveit-planning` as a dependency here would be new and unjustified this
 /// round, and once D8 (PORTING-PLAN.md §140) lands a caller can hand this
 /// function `PlanningRequest::trajectory_constraints`
-/// (`moveit-planning/src/request.rs:94`, already exactly this type)
+/// (`moveit-planning/src/request.rs:235`, already exactly this type)
 /// directly.
 ///
 /// # Deviation: `Constraint::Joint` filtered out of an interleaved `Vec`
