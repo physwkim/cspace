@@ -281,7 +281,7 @@ pub struct PathValidity {
 ///   id-only overload already delegates to the explicit-state one against
 ///   `getCurrentState()` (`planning_scene.cpp:2019`/`:2036`). Its third
 ///   tier, `getTransforms().Transforms::getTransform(frame_id)`
-///   (`:2050`), is now [`PlanningScene::frame_transform`]'s own tier 6 --
+///   (`:2053`), is now [`PlanningScene::frame_transform`]'s own tier 6 --
 ///   see that method's doc for how the non-recursion upstream's explicit
 ///   `Transforms::` qualifier enforces is reproduced structurally here.
 /// - `knowsFrameTransform` (id-only, and explicit-state) — ported as
@@ -522,8 +522,8 @@ pub struct PathValidity {
 ///
 /// - `getCostSources` (all four overloads) — ported this round as
 ///   [`PlanningScene::cost_sources`] (the `state`-taking pair,
-///   `planning_scene.cpp:2493-2506`) and [`PlanningScene::path_cost_sources`]
-///   (the `trajectory`-taking pair, `planning_scene.cpp:2451-2489`), each
+///   `planning_scene.cpp:2493-2510`) and [`PlanningScene::path_cost_sources`]
+///   (the `trajectory`-taking pair, `planning_scene.cpp:2451-2490`), each
 ///   collapsing its own group_name-defaulting overload into one method the
 ///   same way [`PlanningScene::is_state_valid`]/[`PlanningScene::is_path_valid`]
 ///   already do (`group_name: Option<&str>`, `None` for upstream's default
@@ -541,7 +541,7 @@ pub struct PathValidity {
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
 ///   [`PlanningScene::attached_bodies`]. Previously judged from the header
-///   signature alone; its body (`planning_scene.cpp:2512-2531`) is exactly
+///   signature alone; its body (`planning_scene.cpp:2512-2533`) is exactly
 ///   that — two loops over `getWorld()->getObjectIds()` and
 ///   `getCurrentState().getAttachedBodies(...)` writing `<<` to `out`, no
 ///   conditional whose outcome differs from what those two accessors
@@ -840,10 +840,13 @@ impl<'m> PlanningScene<'m> {
     /// overrides the base class to also answer `true` for a world object or
     /// object subframe (leading `/` stripped), via
     /// `knowsObjectFrame -> getWorld()->knowsTransform`. That override is
-    /// reachable because `kinematic_constraint.cpp`'s four
-    /// `configure(msg, tf)` sites receive `tf` as a plain `Transforms&` that
-    /// is *actually* a `SceneTransforms&` underneath, so `tf.isFixedFrame(...)`
-    /// dispatches polymorphically to the override.
+    /// reachable because `kinematic_constraint.cpp`'s three
+    /// `configure(msg, tf)` methods (`PositionConstraint`/
+    /// `OrientationConstraint`/`VisibilityConstraint`, four `isFixedFrame`
+    /// call sites total -- see [`PlanningScene::knows_frame_transform`]'s
+    /// doc) receive `tf` as a plain `Transforms&` that is *actually* a
+    /// `SceneTransforms&` underneath, so `tf.isFixedFrame(...)` dispatches
+    /// polymorphically to the override.
     ///
     /// [`moveit_geometry::Transforms`] has no such polymorphism -- it is one
     /// concrete, non-virtual type everywhere in this workspace, and
@@ -1292,7 +1295,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// Tier 6 closes the "no extra-fixed-frame tier" deviation §59.1/§59.2
     /// found: upstream falls through to `Transforms::getTransform`
-    /// (`planning_scene.cpp:2050`, the base class -- not the
+    /// (`planning_scene.cpp:2053`, the base class -- not the
     /// `SceneTransforms::getTransform` override tiers 3-4 above delegate to)
     /// as a final resort, and [`moveit_geometry::Transforms`] already ported
     /// that exact base class (`crates/moveit-geometry/src/transforms.rs`,
@@ -1786,7 +1789,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Upstream's `getCostSources(state, max_costs, costs)`/`getCostSources(state,
-    /// max_costs, group_name, costs)` (`planning_scene.cpp:2493-2506`),
+    /// max_costs, group_name, costs)` (`planning_scene.cpp:2493-2510`),
     /// collapsed into one method the way [`PlanningScene::is_state_valid`]
     /// already collapses its own group_name-defaulting overload pair —
     /// `group_name: None` is upstream's default-constructed `std::string()`,
@@ -2910,7 +2913,7 @@ mod tests {
         // strictly before tier 6 (the extra-fixed-frame map) in the ladder,
         // matching upstream's order (`state.getFrameTransform` before
         // `getTransforms().Transforms::getTransform`,
-        // `planning_scene.cpp:2036`/`:2050`).
+        // `planning_scene.cpp:2036`/`:2053`).
         let model = build_model();
         let mut scene = PlanningScene::new(&model, &srdf());
         scene

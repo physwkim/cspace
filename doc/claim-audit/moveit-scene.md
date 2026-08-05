@@ -14,12 +14,16 @@ crate (40 in `scene.rs`, 1 in `attached_body.rs`); I independently
 re-opened and re-verified `scene.rs:663`, `:823`, `:1614`, and the
 `pipeline.rs:20`/`:303`/`response.rs:99` sites that belong to
 `moveit-planning` (not this file, see below) myself before trusting them.
-The ~26 "fine" sites in `scene.rs` lines 240-940 and the ~15 "fine" sites
-in `scene.rs` lines 1100-3020 were counted but not individually itemized
-by the subagent in its return — this file records what was actually
-verified with a citation, not a claim of 100% itemized coverage. Re-running
-with per-item output is future work if this list needs to be closed out
-fully.
+
+Round §NEW (this round): the two aggregate rows this note used to
+describe (`scene.rs` lines 240-940 and 1100-3020, "~26"/"~15 sites,
+counted but not individually itemized") are closed out. Every citation in
+both ranges, plus every citation in `attached_body.rs`, was opened
+individually against `moveit2` at the pinned commit via `rg -n` (exact
+anchor, never manual line counting — see `PORTING-PLAN.md`'s own
+`:1822-1837` finding in this same file's table for what manual counting
+produces). 42 rows now cover this crate's citations with no aggregate
+remaining; see the table and Summary below.
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
@@ -31,23 +35,73 @@ fully.
 | `crates/moveit-scene/src/scene.rs:823` | `getPlanningFrame` is "always the robot model's frame, since that is the only value `PlanningScene::initialize` ever passes to it (`planning_scene.cpp:192`)" | EXPIRED | `rg -n 'make_shared<SceneTransforms>' moveit_core/planning_scene/src/planning_scene.cpp` inside the moveit2 checkout returns 4 sites (192, 686, 1263, 1333), not just `initialize()`. End conclusion (planning frame is always the robot model's frame) is still true, but the stated exclusivity/mechanism ("the only value ... ever passes") is false — the real invariant is `SceneTransforms`'s constructor always computes the robot-model frame regardless of caller. Verified directly. | `f4fbcc0` |
 | `crates/moveit-scene/src/scene.rs:1599` | the `moveit_msgs::Constraints` overload (cited `:2245`/`:2269`) is "a construct-then-delegate wrapper ... build a `KinematicConstraintSet` from the message, then call this exact method" | EXPIRED | opened `planning_scene.cpp:2245` and `:2269` — only `:2245` (which delegates to `:2253`, the overload that actually builds the `KinematicConstraintSet`) matches the claim. `:2269` takes an already-native `KinematicConstraintSet&` and only converts the *state* argument from a message, not the constraint set. | `1e8bfb6` |
 | `crates/moveit-scene/src/scene.rs:1614` | `isStateColliding(state, group, verbose)` at `planning_scene.cpp:2217` "overwrites whatever `group_name` a caller-built request carried" | EXPIRED | opened `planning_scene.cpp:2217` (real body at `:2219`) — that function has no `CollisionRequest` parameter at all; `req` is always freshly, locally constructed inside it. There is no caller-built request for `group` to overwrite. Verified directly. | `c9fcf9e` |
-| `crates/moveit-scene/src/attached_body.rs` (citation `attached_body.cpp:139-155`) | (not itemized individually by subagent — reported as part of the 40-fine-sites bucket for the batch covering this file) | CONFIRMED | subagent-reported only, not independently re-opened by me | |
-| `crates/moveit-scene/src/scene.rs` lines 240-940 (~26 sites, excluding `:377`, `:663`, `:823` above) | various — `planning_scene.cpp`/`world.hpp`/`world.cpp`/`kinematic_constraint.cpp` citations | CONFIRMED (aggregate) | subagent-reported only, not individually re-opened by me except `:663`/`:823` above | |
-| `crates/moveit-scene/src/scene.rs` lines 1100-3020 (~15 sites, excluding `:1599`, `:1614`, `:1822-1837`, `:1991`, `:2555` above) | various — `planning_scene.cpp` citations | CONFIRMED (aggregate) | subagent-reported only, not individually re-opened by me | |
+| `crates/moveit-scene/src/attached_body.rs:117` (`subframe_pose`) | key restricted to lookup with the body id stripped; upstream's own key is `"<id>/<name>"`, cited `attached_body.cpp:139-155` | CONFIRMED | opened `attached_body.cpp:139-155` — exact: `getSubframeTransform` starts at `:139`, closes at `:155`; `:141`/`:143` build the key exactly as `frame_name.rfind(id_, 0) == 0 && frame_name[id_.length()] == '/'` then `substr(id_.length() + 1)`. | |
+| `crates/moveit-scene/src/attached_body.rs:147` (`set_scale`) | Upstream `setScale`, cited `attached_body.cpp:86-103` | CONFIRMED | opened `attached_body.cpp:86-103` — exact: function starts `:86`, closes `:103`. `use_count() == 1` branch matches the doc's description of `Arc::make_mut`'s divergence. | |
+| `crates/moveit-scene/src/attached_body.rs:196` (`set_padding`) | Upstream `setPadding`, cited `attached_body.cpp:120-137` | CONFIRMED | opened `attached_body.cpp:120-137` — exact: function starts `:120`, closes `:137`, identical shape to `setScale` with `padd` in place of `scale`. | |
+| `crates/moveit-scene/src/scene.rs:257-260` (`getTransforms` overloads) | cited `planning_scene.hpp:184,197,200` + `planning_scene.cpp:671` | CONFIRMED | opened all four — each line is the exact overload/definition claimed. | |
+| `crates/moveit-scene/src/scene.rs:282-284`, `:1276-1307`, `:2913` (`getFrameTransform` tier 6 / `frame_transform`'s doc / a test comment) | falls through to `Transforms::getTransform`, cited `planning_scene.cpp:2050` | EXPIRED (wrong-anchor-right-claim) | opened `:2050` — that's `getWorld()->getTransform(frame_id, frame_found)` (tier 2, the world lookup), not the base-class fallback. The real `return getTransforms().Transforms::getTransform(frame_id);` statement is `:2053`. Same wrong anchor recurs at 3 sites. | `8ab4e88` |
+| `crates/moveit-scene/src/scene.rs:288-289`, `:1337` (`knowsFrameTransform`) | cited `planning_scene.cpp:2056`/`:2061` | CONFIRMED | opened both — `:2056` is the id-only overload, `:2061` is the explicit-state overload; both exact. | |
+| `crates/moveit-scene/src/scene.rs:300-304` (`getCollisionDetectorName` branch) | cited `planning_scene.cpp:291`/`:304` | CONFIRMED | opened both — exact `if (collision_detector_name != getCollisionDetectorName())` branches inside `getCollisionEnv`/`getCollisionEnvUnpadded`. | |
+| `crates/moveit-scene/src/scene.rs:319-327` (`getCollisionEnv` family, `allocateCollisionDetector`) | cited `planning_scene.cpp:255-286` (allocator) and `:288-311` (name-lookup branches) | CONFIRMED | `allocateCollisionDetector` spans exactly `:255-286`, pinpoint. The `:288-311` range fully contains both cited branches (`:291`, `:304`); the true end of the second function is `:314`, 3 lines past the citation, but the branches themselves are entirely inside `:288-311`. | |
+| `crates/moveit-scene/src/scene.rs:390` (`saveGeometryToStream`/`loadGeometryFromStream`) | cited `planning_scene.cpp:1062`/`:1152` | CONFIRMED | opened both — `shapes::saveAsText`/`shapes::constructShapeFromText` are literally on those lines. | |
+| `crates/moveit-scene/src/scene.rs:456-457` (`setAttachedBodyUpdateCallback`) | cited `attached_body.hpp:52` + `planning_scene.cpp:630,643,1229,1270,1554` | CONFIRMED | opened all five — exact. | |
+| `crates/moveit-scene/src/scene.rs:468-471` (`setCollisionObjectUpdateCallback`) | cited `world.hpp:304` + `world.cpp:220,326,650,655` | CONFIRMED | opened all four — exact. | |
+| `crates/moveit-scene/src/scene.rs:490`, `:1675` (`isStateFeasible` unconditional `true`) | cited `planning_scene.cpp:2227-2243` | CONFIRMED | opened `:2227-2243` — exact function span, both overloads (message-state `:2227-2236`, native-state `:2238-2243`); native overload's unconditional `true` fallback confirmed present. | |
+| `crates/moveit-scene/src/scene.rs:496` (`motion_feasibility_` never read) | no line cited; claim is that the field is unused | CONFIRMED | `rg motion_feasibility_` across `planning_scene.cpp`/`.hpp` in the pinned checkout: only declared, set via `setMotionFeasibilityPredicate`, never read anywhere including inside `isPathValid`'s full body. | |
+| `crates/moveit-scene/src/scene.rs:523-526`, `:1788-1801` (`cost_sources`, state-taking pair) | cited `planning_scene.cpp:2493-2506` | EXPIRED (wrong-anchor-right-claim) | opened `:2493-2506` — the two overloads' true span is `:2493-2510`; `:2506` stops on `creq.cost = true;`, excluding the `checkCollision`/`cres.cost_sources.swap(costs)` calls the very next paragraph names as the whole point of the citation. | `2eb2999` |
+| `crates/moveit-scene/src/scene.rs:526` (module-summary citation for `path_cost_sources`) | cited `planning_scene.cpp:2451-2489` | EXPIRED (wrong-anchor-right-claim) | opened `:2451-2489` — excludes the `removeOverlapping` call at `:2490` that the same paragraph's own sentence 3 lines later calls part of the "load-bearing... call order". The sibling per-method citation at `scene.rs:1826` already said `:2451-2490`; this row disagreed with it. | `2eb2999` |
+| `crates/moveit-scene/src/scene.rs:1826-1854` (`path_cost_sources`'s per-method doc, 6 sub-anchors) | `planning_scene.cpp:2451-2490` (pair), `:2472` (`cs.insert`), `:2474` (`cs_start.swap`), `:2477-2487` (truncation), `:2489` (`removeCostSources`), `:2490` (`removeOverlapping`) | CONFIRMED | opened all six — every one pinpoint-exact against the real statement, including the truncation if/else block's exact `:2477-2487` boundary. | |
+| `crates/moveit-scene/src/scene.rs:544` (`printKnownObjects`) | body "is exactly" `planning_scene.cpp:2512-2531` | EXPIRED (wrong-anchor-right-claim) | opened `:2512-2531` — real closing brace is `:2533`; `:2531` stops 2 lines short of the trailing separator-line print and the brace. Claim text explicitly asserts precision ("is exactly that"). | `6ef3032` |
+| `crates/moveit-scene/src/scene.rs:839` (`SceneTransforms::isFixedFrame` override) | cited `planning_scene.cpp:123` | CONFIRMED | exact — `bool isFixedFrame(...) override` is literally on `:123`. | |
+| `crates/moveit-scene/src/scene.rs:843-846` ("four `configure(msg, tf)` sites") | `kinematic_constraint.cpp`'s `configure(msg, tf)` count | EXPIRED | `rg -n '::configure\(' kinematic_constraint.cpp` finds 4 definitions, but only 3 take a `Transforms&` (`PositionConstraint`, `OrientationConstraint`, `VisibilityConstraint` — `JointConstraint::configure` takes no `tf`). "Four" was conflating the method count with the 4 `tf.isFixedFrame(...)` call sites (`VisibilityConstraint::configure` checks two frame ids), which are correctly enumerated elsewhere on `knows_frame_transform`'s own doc (`:382,622,848,861`). | `2157210` |
+| `crates/moveit-scene/src/scene.rs:870`, `:1380` (`isFixedFrame` leading-`/` strip) | cited `planning_scene.cpp:127-134` / `:123-135` | CONFIRMED | opened both — the described branches (`Transforms::isFixedFrame` base check, then the leading-`/`-strip `if`) are fully inside both ranges; `:123-135`'s true function close is `:137`, 2 lines past the citation, but nothing described is excluded. | |
+| `crates/moveit-scene/src/scene.rs:896`/`:923` (`World::knowsTransform` ordering) | cited `world.cpp:145`/`:150` | CONFIRMED | opened both — `:145` is the exact `objects_.find(name)` object-id check, `:150` the exact `else // Then objects' subframes` branch start. | |
+| `crates/moveit-scene/src/scene.rs:1132` (subframe carry-through on `attach`) | cited `planning_scene.cpp:1590` | CONFIRMED | exact — `subframe_poses = obj_in_world->subframe_poses_;` is literally on `:1590`. | |
+| `crates/moveit-scene/src/scene.rs:1237` (`setSubframesOfObject` after `addToObject` on `detach`) | cited `planning_scene.cpp:1743` | CONFIRMED | exact — `world_->setSubframesOfObject(...)` immediately follows `addToObject` at `:1742`. | |
+| `crates/moveit-scene/src/scene.rs:1276-1307` (`frame_transform`'s ladder, `:2036` half) | cited `planning_scene.cpp:2036` | CONFIRMED | exact — `getFrameTransform(state, frame_id)`'s definition starts at `:2036`. (The `:2050` half of this same doc block is the EXPIRED row above.) | |
+| `crates/moveit-scene/src/scene.rs:1346` (`RobotState::knowsFrameTransform` has no model-frame special case) | cited `robot_state.cpp:1386-1405` | CONFIRMED | opened `:1386-1405` — pinpoint-exact function span; body only checks `hasLinkModel`/attached-body map/attached-body subframes, no model-frame check anywhere in it. | |
+| `crates/moveit-scene/src/scene.rs:1385-1388` ("four `isFixedFrame` callers", `knows_frame_transform`'s doc) | cited `kinematic_constraint.cpp:382,622,848,861` | CONFIRMED | `rg -n isFixedFrame kinematic_constraint.cpp` returns exactly those four lines, all `tf.isFixedFrame(...)` calls — pinpoint-exact. Distinct claim from the miscounted `:843-846` row above (this one counts call sites, correctly, and gives correct line numbers). | |
+| `crates/moveit-scene/src/scene.rs:1536` (`getCollidingPairs` group_name overloads) | cited `planning_scene.hpp:492-495` | CONFIRMED | opened `:492-495` — anchors the first of the four `group_name`-taking overloads (confirmed 4 exist: `:492,501,512,522`, vs. 2 without); true closing brace of the cited one is `:496`, 1 line past the citation, but it is a representative anchor, not a claim of covering all four locations. | |
+| `crates/moveit-scene/src/scene.rs:1606-1617` (`isStateConstrained` family) | cited `planning_scene.cpp:2277` (target), `:2245`/`:2253`/`:2269` (sub-anchors) | CONFIRMED | opened all four — exact function-start matches, including `:2269` correctly described as "a distinct overload" (converts only the state, not the constraint set). | |
+| `crates/moveit-scene/src/scene.rs:1625-1636` (`isStateColliding` family) | cited `planning_scene.cpp:2217` (target), `:2197`, `:2219` | CONFIRMED | opened all three — exact; `:2219` is literally `collision_detection::CollisionRequest req;`, the first line of the always-local-request body. | |
+| `crates/moveit-scene/src/scene.rs:1651` (`isStateValid`) | cited `planning_scene.cpp:2313` | CONFIRMED | exact — `isStateValid(state, KinematicConstraintSet, group, verbose)` starts at `:2313`. | |
+| `crates/moveit-scene/src/scene.rs:1706` (`isPathValid`) | cited `planning_scene.cpp:2365` | CONFIRMED | exact — the `RobotTrajectory`-taking `isPathValid` starts at `:2365`. | |
+| `crates/moveit-scene/src/scene.rs:1715` (`isPathValid` loop body, no interpolation) | cited `planning_scene.cpp:2376-2422` | CONFIRMED | opened `:2376-2422` — exact loop span (`for` at `:2376` through its closing brace at `:2422`); body only ever reads `trajectory.getWayPoint(i)`, confirming "no state between two requested waypoints is ever constructed or checked". | |
+| `crates/moveit-scene/src/scene.rs:2002`, `:2566` (`decouple_parent`'s `scene_transforms_` materialization) | cited `planning_scene.cpp:1260-1264` | CONFIRMED | opened both occurrences — described content (`has_value()` check, `emplace`, `setAllTransforms`) is fully inside `:1260-1264`; true closing brace is `:1265`, 1 line past. | |
+| `crates/moveit-scene/src/scene.rs:2824` (`frame_transform_prefers_the_attached_body_tier...` test) | cited `planning_scene.cpp:2036` | CONFIRMED | exact — anchors only the function start for an ordering claim between tier 2 and tier 5, correctly. | |
 
 ## Summary
 
-- 41 sites total (40 `scene.rs` + 1 `attached_body.rs`)
-- EXPIRED (category b — citation opens fine, claim is wrong/stale): 8, all above
-- EXPIRED (category a — citation doesn't open on the claimed logic): counted
-  within the same 8 rows above where the citation target itself was wrong
-  (`:377`, `:1991`/`:2555`, `:1822-1837`) — 4 of the 8 rows are "wrong
-  target", 4 are "right target, wrong claim" (`:663`, `:823`, `:1599`,
-  `:1614`)
-- CONFIRMED (aggregate, not individually itemized): 33
-- All 8 EXPIRED findings fixed this round (Round 11), one commit each:
-  `8abeca0`, `f4fbcc0`, `1e8bfb6`, `c9fcf9e`, `9e07d32`, `679a8f6`
-  (covers both `:1991` and `:2555`), `f19d2e6`.
+- 42 table rows total: 8 from Round 11 (already itemized) + 34 opened and
+  itemized this round (3 `attached_body.rs` + 31 `scene.rs`). This
+  supersedes the prior "41 sites (40 scene.rs + 1 attached_body.rs)"
+  estimate — the real number of distinct citation locations, once every
+  module-summary and per-method doc comment is opened individually, is
+  higher (`attached_body.rs` alone has 3 citations, not 1; several
+  `scene.rs` claims — `getFrameTransform`'s tier 6,
+  `getCostSources`/`isFixedFrame`'s call counts — recur at 2-3 separate
+  doc-comment locations that each needed opening on their own), which is
+  exactly the "your measured number beats the brief's" effect a bucket
+  hides.
+- EXPIRED this round: 5 distinct findings across rows 13, 22, 23, 25, 27
+  (`:2050`→`:2053`, recurring at 3 physical sites; `getCostSources`
+  state-pair range; `getCostSources` module-summary path range;
+  `printKnownObjects` range; "four `configure(msg,tf)` sites" miscount).
+  The first four are wrong-anchor-right-claim (citation lands short of or
+  beside the described content, but the underlying claim about upstream
+  holds once you read the right lines); the last is a substantive count
+  error, not a line-anchor problem. Fixed one commit each: `8ab4e88`,
+  `2eb2999` (covers both `getCostSources` rows), `6ef3032`, `2157210`.
+- CONFIRMED this round: the remaining 29 rows opened this round — every
+  citation independently re-verified against the pinned upstream source,
+  no aggregate row left in this file.
+- EXPIRED from the prior round (Round 11), already fixed: 8, listed above
+  this section — `8abeca0`, `f4fbcc0`, `1e8bfb6`, `c9fcf9e`, `9e07d32`,
+  `679a8f6` (covers both `:1991` and `:2555`), `f19d2e6`.
+- Combined EXPIRED rate across both rounds: 13 of 42 rows (31%) — far
+  below the 8-of-8 (100%) rate the Round-11 itemized subset alone showed,
+  confirming that subset was not representative of the buckets it sat
+  inside once those buckets were actually opened.
 
 ## §172 narrowing sweep (separate exercise, same round)
 
