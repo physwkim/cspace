@@ -900,13 +900,23 @@ assertion-discrimination ledgers (`p1-fixtures`, `p1-robotmodel`, `p3-acm`,
 `moveit-collision`/`moveit-geometry`/the four planner crates; everything
 else here is reported, not fixed.
 
-**Pinned commit:** `461a5f10655030b6c16c51afe588cfd6d844ad4d` (`main`). The
-tree moves under any unpinned run — `python3
-tools/ci/count-coarse-assertions.py` gave 398 new-grammar sites an hour
-before this pin and 398 again at the pin, but panels were actively adding
-tests throughout, so pinning first and exporting a clean snapshot
-(`git archive 461a5f1... | tar -x`) rather than reading the live worktree
-is what makes every number below reproducible.
+**Pinned commit:** `461a5f10655030b6c16c51afe588cfd6d844ad4d` (`main`),
+used only as this section's reproducibility fixture. **Today's figures use
+this ledger's own current `HEAD`, `1145531ea104e5fc73ca39ddb57aad24349a660a`**
+(after merging `main` at `82e70d6`) — see "Today's figures" below for why
+the two numbers differ and are both correct.
+
+**This section supersedes its own first draft.** The first version of this
+closing audit (694 = 442 matched + 252 orphans) was produced by three
+uncommitted scratchpad scripts and a hand-transcribed table — exactly the
+ungrounded state the user flagged: *"a reader has the table and no way to
+re-derive it."* `tools/ci/reconcile-assertion-ledgers.py` and
+`tools/ci/assertion-ledger-equivalences.json` (committed `a73c2ff`) are
+the real, re-runnable instrument; running it turned up a real parsing gap
+the hand-rolled scripts had (below), so the honest, reproducible number is
+different from the first draft's. The old 442/252 split is retracted, not
+reconciled to — this section reports what the committed tool actually
+produces.
 
 ### The instrument's total, and why census §9d's 292 is not the baseline
 
@@ -940,8 +950,10 @@ comma-list) gives **539**, not 292:
 of fix-ownership — it re-lists 36 sites whose own fence's ledger already
 carries them. Deduplicating each ledger's own rows by `(file, line)` and
 then taking the union across all five gives the real distinct-site
-population claimed by *some* ledger: **424** by automated exact/±5-line
-matching against the scanner, before the manual corrections below.
+population claimed by *some* ledger: this round's first (hand-rolled,
+uncommitted) pass got **424** by exact/±5-line matching against the
+scanner. That number is now known to be an undercount, not a baseline —
+see "Today's figures" below.
 
 ### Cross-ledger double claims — the mirror of §9f's orphans
 
@@ -1002,10 +1014,6 @@ actually at `:500`).
 | p9-ros | `collision_env_distance_field.rs:3271` | `.../collision_env_distance_field.rs:3284` | citation points at the audit comment's opening line, not the `assert!`; +13 |
 | p9-ros | `collision_env_distance_field.rs:3276` | `.../collision_env_distance_field.rs:3289` | same convention, +13 |
 
-The p3-acm row is fixed in this commit (own fence). The other 14 are
-`p1-fixtures`'s and `p9-ros`'s own documents — reported, not edited, per
-this round's scope.
-
 ### Non-matches that are not gaps
 
 Two more unresolved citations turned out to be citations to code the
@@ -1021,36 +1029,154 @@ scanner was never going to see, by design — not gaps:
   the scanner's recognized shapes entirely (a bite-tested coverage gap,
   not an assertion-discrimination site).
 
-### 26 ledger citations still unresolved (not this panel's fence — reported for the owning panel)
+The 14 above are `p1-fixtures`'s and `p9-ros`'s own documents —
+**found-and-unfixed, reported to those panels, not edited here.** The
+`p3-acm` row is this panel's own and is already fixed (own fence).
 
-After removing the confirmed-drift and non-scanner-scope rows above, 26
-citations across three other ledgers remain unmatched to any scanner site
-within this audit's effort budget. Several show the same offset pattern as
-the confirmed cases above (`p1-robotmodel`'s `decide.rs` cluster is
-consistently ~8–14 lines before its matching `via:` call site — confirmed
-for `:372`→`assert_err_mentions` call at `:380`, pattern not individually
-re-derived for the other seven) — plausible under the same two failure
-modes, not verified line-by-line:
+### The committed instrument: `tools/ci/reconcile-assertion-ledgers.py`
 
-`p1-fixtures`: `tree.rs:1729,1762,1763,1794`, `ruckig_filter.rs:546`
-`p1-robotmodel`: `decide.rs:372,390,448,518,544,563,756,795`
-`p9-ros`: `scene/collision_object.rs:983`, `trajectory.rs:490` (ros),
-`collision_env_distance_field.rs:3734,3757`, `tests/oracle_parity.rs:264`,
-`robot_model.rs:2027,2028,2485,2700,2719,2943,2953`
+Committed `a73c2ff`, alongside `tools/ci/assertion-ledger-equivalences.json`
+and a generated `doc/assertion-discrimination-orphans.txt`. It re-derives
+the whole partition from a clean checkout with no scratchpad input:
+re-runs `count-coarse-assertions.py` itself (never reads a cached scan),
+parses all five ledgers' first-column citations, resolves each by exact
+match then a unique ±5-line window, and falls back to the equivalences
+file for the one case that pattern can't cover.
 
-**Caveat that applies to every orphan count below:** at least one ledger
-(this one) cites a shared guard's *production* line (`tools.rs:68`) rather
-than each test's assert line for a fanned-out guard — `tools.rs:259,271,
-283` looked like three orphans in `moveit-collision` until checked against
-this ledger's own §1b, which already covers them as `tools.rs:68 (x)/(y)/
-(z)`. Any owning panel checking an "orphan" below should check for this
-citation convention before treating it as a gap.
+**The trap is encoded, not just described.** This panel's own §1b case —
+`tools.rs:68 (x)/(y)/(z)` citing the shared `aabb_intersection` guard's
+production line instead of each axis-isolating test's own assert at
+`tools.rs:259/271/283` — is now a vetted entry in
+`assertion-ledger-equivalences.json`, with the ledger prose and the source
+read that justify it named inline. Building the instrument surfaced a
+second, more basic problem the hand-rolled scratchpad scripts had: the
+first-column regex required the closing `` ` | `` to follow the line
+number immediately, so any row with a trailing annotation — exactly the
+`(x)`/`(y)`/`(z)` suffixes, or `p1-fixtures`' `` `ruckig_filter.rs:539,552,
+565,578` (`do_smoothing`'s guard...) `` — was silently **not parsed as a
+citation at all**, undercounting every ledger's matched set. Fixed by
+letting the first column carry arbitrary non-`|` trailing text; verified
+by spot-reading 8 of the 61 newly-recovered rows this fix produces at the
+pinned commit and confirming each resolves to the real site its row names.
+
+Anything a ledger cites that the instrument still can't place is printed
+under `unresolved_citations` with a heuristic tag (comment line, `?`-guard
+line, or "no clue") — reported, never silently matched or dropped. `--emit-orphans`
+and `--emit-unresolved` print the full lists; the default run prints only
+counts and the unresolved lines themselves.
+
+### Today's figures (this ledger's `HEAD`, not the pin)
+
+Running the committed instrument against this ledger's own current tree —
+`1145531ea104e5fc73ca39ddb57aad24349a660a`, after merging `main` at
+`82e70d6` — instead of the historical pin:
+
+```
+scanner sites (excl. helper_body): 697
+matched (some ledger row accounts for the site): 469
+orphans (no ledger row accounts for the site):    228
+check: matched + orphans == scanner sites -> True
+ledger citations resolved via vetted equivalence: 9
+ledger citations explained as non-scanner-scope (not gaps): 0
+ledger citations still unresolved (reported, not guessed): 96
+```
+
+**697, not 694 or 706.** 694 was `461a5f1`'s count; the tree has moved
+since (3 sites, mostly this panel's own two in-fence fixes below plus
+unrelated main-branch merges). The user separately reported 706 measured
+against "today's main" with a per-crate table; this worktree's own `main`
+ref resolves to `82e70d6`, and running the scanner against a clean
+`git archive` of that exact commit gives **697**, not 706 — the same
+figure as this ledger's `HEAD` (which only adds a 1-line stray-marker
+removal on top of `82e70d6`). The two per-crate tables agree on every
+crate except four: `ros/moveit-ros` (91 here vs. 96 reported),
+`moveit-distance-field` (56 vs. 58), `moveit-constraints` (27 vs. 28),
+`moveit-stomp-core` (2 vs. 3) — a 9-site shortfall, all outside this
+panel's fence except the last. **This is reported as a discrepancy, not
+resolved**: this worktree cannot see whatever commit produced the other
+9 sites, so the honest number below is 697, from a commit this worktree
+can name and reproduce (`82e70d6`). If another panel's merge has not yet
+propagated to every worktree's shared object store, that is worth the
+orchestrator's separate attention — not something this ledger can
+diagnose from inside one fence.
+
+**Zero of the 228 orphans fall inside this panel's fence**
+(`moveit-collision`, `moveit-geometry`, `moveit-planners-{sbp,chomp,
+stomp}`, `moveit-stomp-core`) — confirmed by grepping the emitted orphan
+list against those six path prefixes, not by re-deriving the fence
+boundary by hand.
+
+Per-crate orphan breakdown, today:
+
+| crate | orphans | owning fence (§9f) |
+|---|---:|---|
+| `ros/moveit-ros` | 70 | `p9-ros` |
+| `moveit-octomap` | 31 | `p1-fixtures` |
+| `moveit-trajectory` | 27 | `p1-joints` |
+| `moveit-scene` | 25 | `p1-fixtures` |
+| `moveit-model` | 25 | `p1-robotmodel` |
+| `moveit-distance-field` | 21 | `p9-ros` |
+| `moveit-planners-pilz` | 10 | `p1-joints` |
+| `moveit-smoothing` | 6 | `p1-fixtures` |
+| `moveit-constraints` (`tests/utils_parity.rs`, all 6) | 6 | `p1-fixtures` |
+| `moveit-planning` | 4 | `p1-robotmodel` |
+| `moveit-state` | 3 | `p1-fixtures` |
+| **total** | **228** | |
+
+Rolled up by fence (§9f's path table, not this round's stale mapping):
+
+| fence | orphans |
+|---|---:|
+| `p9-ros` | 91 (70 + 21) |
+| `p1-fixtures` | 71 (31 + 25 + 6 + 6 + 3) |
+| `p1-joints` | 37 (27 + 10) |
+| `p1-robotmodel` | 29 (25 + 4) |
+| `p3-acm` (this panel) | **0** |
+| **total** | **228** |
+
+This supersedes the fence-to-orphan mapping given earlier this round
+(`p9-ros` 94, `p1-fixtures` 66, `p1-joints` 42, `p1-robotmodel` 42,
+`moveit-constraints` 8 split by file) — that mapping was checked against
+the first draft's 252, not the committed instrument's 228. All 6 of
+`moveit-constraints`' orphans are in `tests/utils_parity.rs`
+(`p1-fixtures`'s file per §9f), none in `tests/decide.rs`
+(`p1-robotmodel`'s) — confirmed by reading the emitted orphan list
+directly, not inherited from the earlier split.
+
+### Validation: the instrument reproduces the pin deterministically
+
+Copying the committed script and equivalences file into a clean
+`git archive` export of `461a5f10655030b6c16c51afe588cfd6d844ad4d` and
+running it there, unmodified:
+
+```
+scanner sites (excl. helper_body): 694
+matched (some ledger row accounts for the site): 477
+orphans (no ledger row accounts for the site):    217
+check: matched + orphans == scanner sites -> True
+ledger citations resolved via vetted equivalence: 9
+ledger citations explained as non-scanner-scope (not gaps): 0
+ledger citations still unresolved (reported, not guessed): 45
+```
+
+**694 = 477 + 217, from the same commit and the same tool every time.**
+This is a different split from the first draft's 442/252 — the regex fix
+above recovers matches the hand-rolled scripts missed at this exact
+commit too, so 477 is the more accurate figure for `461a5f1`, not a
+discrepancy to explain away.
+
+Two of the 217 pinned-commit orphans are inside this panel's own fence:
+`crates/moveit-planners-sbp/src/space.rs:247` and
+`crates/moveit-stomp-core/src/utils.rs:660` — exactly the two accounting
+gaps below, present as orphans at the pin because both fixes landed after
+it. Zero orphans in this fence at `HEAD` confirms both were closed, not
+just reclassified.
 
 ### This panel's own two accounting gaps, found and fixed (in-fence)
 
 The two failure modes the closing audit was warned to expect, both inside
-this fence, both from this round's own fixes landing after the count was
-taken:
+this fence, both from this round's own fixes landing after the pinned
+count was taken:
 
 1. **`crates/moveit-planners-sbp/src/space.rs:247`** — `bbbe0f8`'s new
    test (`non_finite_min_bound_is_rejected`) created a new scanner site
@@ -1061,61 +1187,14 @@ taken:
    same commit that created the row. Corrected above.
 
 Both are doc-only edits to this file; no source changed, so gate is
-`cargo fmt --all -- --check` only (doc-only, matching this ledger's
-established convention for census/reconciliation-only rounds).
-
-### Reconciliation table
-
-| | count |
-|---|---:|
-| scanner sites (pinned `461a5f1`, excl. `helper_body`) | **694** |
-| — old-grammar (`matches!`/`.is_err()`/`.is_none()`) | 296 |
-| — new-grammar (everything else) | 398 |
-| distinct sites matched to a ledger row (auto exact/±5-line) | 424 |
-| + confirmed stale-citation corrections (14 new + `utils.rs` already inside p3-acm's own fence) | +14 |
-| + guard-line-vs-assert-line convention match (`tools.rs:259,271,283`, already covered by `tools.rs:68 (x)/(y)/(z)`) | +3 |
-| + this panel's 1 brand-new in-fence row added this round (`space.rs:247`) | +1 |
-| **matched, total** | **442** |
-| cross-ledger double claims (subset of matched, not additional) | 36 |
-| unresolved-in-ledger, explained as non-scanner-scope (not gaps) | 2 |
-| unresolved-in-ledger, unconfirmed (other panels' fences) | 26 |
-| **orphans — no ledger row anywhere, confirmed** | **252** |
-
-**694 = 442 + 252, checked directly against the scanner set (not derived
-by subtraction alone).** The arithmetic closes because every site is
-counted exactly once: matched (442) or orphan (252) — the 36 double
-claims and 2 non-scope explanations are notes on the matched side, not a
-third bucket. This is not the same claim as "everything is accounted
-for" — 252 real orphans remain, concentrated by crate:
-
-| crate | orphans |
-|---|---:|
-| `ros/moveit-ros` | 66 |
-| `moveit-model` | 39 |
-| `moveit-trajectory` | 30 |
-| `moveit-octomap` | 29 |
-| `moveit-distance-field` | 28 |
-| `moveit-scene` | 25 |
-| `moveit-planners-pilz` | 12 |
-| `moveit-smoothing` | 9 |
-| `moveit-constraints` | 8 |
-| `moveit-planning` | 3 |
-| `moveit-state` | 3 |
-| **total** | **252** |
-
-Zero orphans remain in `moveit-collision`/`moveit-geometry`/the four
-planner crates — this panel's own fence is fully accounted for as of this
-round. None of the 252 fall inside it. The full 252-line `file:line`
-enumeration (scanner `kind` included) is preserved for the orchestrator at
-this session's scratchpad path,
-`scratchpad/orphans_truly_final.json` (not committed — reproducible from
-the pinned commit and `tools/ci/count-coarse-assertions.py` plus the
-matched-site list above).
+`cargo fmt --all -- --check` only.
 
 ### Commands run (round 14)
 
 ```
 git archive 461a5f10655030b6c16c51afe588cfd6d844ad4d | tar -x -C <snapshot-dir>
-python3 tools/ci/count-coarse-assertions.py crates/ ros/ tools/   # 694 excl. helper_body, in <snapshot-dir>
-cargo fmt --all -- --check     # doc-only round, no source changed
+cp tools/ci/reconcile-assertion-ledgers.py tools/ci/assertion-ledger-equivalences.json <snapshot-dir>/tools/ci/
+python3 tools/ci/reconcile-assertion-ledgers.py                  # <snapshot-dir>: 694 = 477 + 217
+python3 tools/ci/reconcile-assertion-ledgers.py --emit-orphans   # this ledger's HEAD: 697 = 469 + 228
+cargo fmt --all -- --check                                       # doc-only round, no source changed
 ```
