@@ -22040,7 +22040,7 @@ $ comm -13 rows99.txt rows87.txt          # 87에만 있다
 ```
 $ python3 tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2 \
     --check doc/port-coverage.md
-OK doc/port-coverage.md: 87 rows == 87 unported
+OK doc/port-coverage.md: 87 rows == 87 unported, all 4-cell
 ```
 
 ### §NEW.2 (b)를 (a)·(c)와 가르는 두 번째 계기 — 상류 인클루드 그래프
@@ -22269,7 +22269,7 @@ $ python3 ... # moveit_ros의 코퍼스 소속
 $ rg -v '^\| `moveit_core/utils/src/lexical_casts\.cpp`' doc/port-coverage.md > /tmp/doc_minus1.md
 $ python3 tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2 --check /tmp/doc_minus1.md
 MISSING ROW  moveit_core/utils/src/lexical_casts.cpp
-FAIL /tmp/doc_minus1.md: 1 missing, 0 stale, 0 duplicated
+FAIL /tmp/doc_minus1.md: 1 missing, 0 stale, 0 duplicated, 0 malformed
 exit=1
 ```
 
