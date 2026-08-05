@@ -396,7 +396,7 @@ independently of any bite.
 ledger-p1-robotmodel.md`): re-checked all 55 against the three clauses
 above, not just the 4 already marked `not-this-family`.
 
-- The 4 existing `not-this-family` rows (`crates/moveit-trajectory/tests/ruckig_smoothing.rs:199`,
+- The 4 existing `not-this-family` rows (`crates/moveit-trajectory/tests/ruckig_smoothing.rs:203` (`assert!(trajectory.group().is_none());`),
   `moveit-planners-chomp/trajectory.rs:997` (`assert!(source.group().is_none());`) — both clause-3 failures,
   identical shape to the `fs::read` precondition case; `plan_responses.rs
   :208` — clause-3/clause-2 failure, a container passthrough;
