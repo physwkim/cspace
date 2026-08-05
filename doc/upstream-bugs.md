@@ -103,6 +103,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `update-cache-capacity-as-size-limit` | not-reproduced |
 | `save-cache-empty-path-guard-falls-through` | not-reproduced |
 | `cached-ik-accumulate-return-discarded` | not-reproduced |
+| `ik-cache-map-first-update-dropped` | not-reproduced |
 
 ---
 
@@ -1039,6 +1040,35 @@ into a name.
 functions serve; the discarded return itself maps to no `D` class.
 **Cost of not reproducing:** none. No parity test and no oracle operation
 constructs a cache name.
+
+---
+
+### `ik-cache-map-first-update-dropped` — `IKCacheMap::updateCache` creates the missing cache and returns without storing the solution that caused it to be created — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:323-339`,
+verified at the pinned `e017c91e`.
+**Port:** none — `IKCacheMap` has no port, for the reason given under
+`cached-ik-accumulate-return-discarded`.
+**Symptom:** the function looks the key up and branches. The found branch
+forwards to `IKCache::updateCache(nearest, poses, config)`. The missing
+branch inserts a null entry, `new IKCache`s it, calls `initializeCache` on
+it — and stops. `nearest`, `poses` and `config`, the whole point of the
+call, are never used on that path, so the first solution for any key is
+always discarded and only the second onwards is cached. Two smaller things
+ride along: the new cache is initialized through the four-argument
+`initializeCache` overload, taking default `Options` rather than the
+configured ones the single-cache path passes, and the inner `auto it`
+shadows the outer one, which is what makes the missing store easy to read
+past.
+**Evidence:** a read of the control flow. Unreachable in the upstream tree
+as it stands: nothing constructs `IKCacheMap`. Not oracle-confirmed.
+**Status:** `not-reproduced`. Recorded rather than ported: this port's
+`CachedIkSolver` holds one `IkCache` for one solver, and `IkCache::update`
+has no create-on-miss path to forget to finish.
+**Deviation:** none of `D1`..`D14` applies to the dropped store itself;
+`D4` is what removes the class it lives in.
+**Cost of not reproducing:** none. No caller, no parity test, no oracle
+operation.
 
 ---
 
