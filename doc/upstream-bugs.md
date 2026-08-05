@@ -112,6 +112,10 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `check-position-bounds-multidof-adjacent-members` | not-reproduced |
 | `count-samples-per-second-returns-a-ratio` | not-reproduced |
 | `all-valid-distance-robot-hides-base-overload` | not-reproduced |
+| `stream-to-robot-state-missing-variable-falls-through` | not-reproduced |
+| `robot-state-to-stream-group-lookup-unchecked` | not-reproduced |
+| `stream-to-robot-state-bypasses-dirty-flags` | not-reproduced |
+| `robot-state-to-stream-default-ostream-precision` | not-reproduced |
 
 ---
 
@@ -1407,6 +1411,8 @@ this port returns `Err`.
 
 ---
 
+---
+
 ## Decision on the pre-policy entries
 
 Asked on 2026-08-05 whether to measure-then-deviate, deviate immediately,
@@ -1609,3 +1615,162 @@ above. Within this tree the choice is pinned by
 `distance_to_collision_through_the_null_backend_is_maximum_clearance`,
 whose isolating mutation is exactly this bug's `0.0`
 (`doc/assertion-discrimination-ledger-p10-samplers.md`, M5 and M6).
+
+---
+
+### `stream-to-robot-state-missing-variable-falls-through` — `streamToRobotState`'s missing-variable guard logs and then parses the cell it just called missing, throwing out of a `void` function — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:572-574`
+(`if (!std::getline(line_stream, cell, separator[0]))` /
+`  RCLCPP_ERROR(getLogger(), "Missing variable %s", ...);` /
+`state.getVariablePositions()[i] = std::stod(cell);`). The `if` has one
+statement and no `return`, and the enclosing function returns `void`.
+**Port:** `crates/moveit-state/src/conversions.rs:190` (`csv_to_robot_state`'s
+`cells.next().ok_or_else(...)`)
+**Symptom:** A line with fewer fields than the model has variables reaches
+the log at 573 and then falls straight into `std::stod(cell)` at 574.
+`std::getline` erases its output string before extracting, so on the failing
+call `cell` is empty and `std::stod("")` throws `std::invalid_argument` —
+past a diagnostic that reads as if the function recovered. The throw escapes
+`streamToRobotState`, which is `void` and has no other failure channel, so
+every caller either catches an exception the signature never advertises or
+terminates. The variables written before the short field are already in the
+state when it unwinds.
+**Evidence:** a read of the control flow above, plus the `std::getline`
+contract that clears `str` before extraction, which is what makes `cell`
+empty rather than stale. Not an oracle run: `rg` over the whole reference
+checkout finds **no caller** of `streamToRobotState` outside its own
+declaration and definition, so nothing upstream exercises the path.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. `csv_to_robot_state` returns
+`Result` and reports `Error::Parse` naming the variable that ran out, and
+collects every value before writing any, so a rejected line also leaves the
+state untouched rather than half-written.
+**Cost of not reproducing:** none. No parity test or oracle comparison
+covers these functions — they have no upstream caller to compare against,
+and this port's CSV is checked against itself
+(`crates/moveit-state/tests/csv_conversions.rs`).
+
+---
+
+### `robot-state-to-stream-group-lookup-unchecked` — `robotStateToStream`'s group overload dereferences `getJointModelGroup` without checking for null — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:535`
+(`const JointModelGroup* jmg = state.getRobotModel()->getJointModelGroup(joint_group_id);`),
+then `:540`/`:542`/`:548`/`:551`/`:553`, all of which dereference `jmg`
+with no intervening test.
+**Port:** `crates/moveit-state/src/conversions.rs:141`
+(`robot_state_to_csv_by_groups`'s `.joint_model_group(group_name)?`)
+**Symptom:** `RobotModel::getJointModelGroup(const std::string&)` returns
+`nullptr` for an unknown name (`robot_model.cpp:512-521`: an `RCLCPP_ERROR`
+naming the group and the model, then `return nullptr`). The overload takes its group names from the
+caller as free strings — a launch parameter, a config file, an operator's
+typo — and the first use of the returned pointer is
+`jmg->getVariableCount()` inside the header loop. A misspelled group name
+therefore crashes rather than reporting the name it could not find. The
+null check exists at the point of failure, in `getJointModelGroup` itself,
+which logs the exact name; this caller drops the return value it produced.
+**Evidence:** a read of the control flow above. Not an oracle run: `rg` over
+the whole reference checkout finds **no caller** of `robotStateToStream`
+outside its own declaration and definition, so no upstream code passes a
+group name to it at all.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. This port's lookup is
+`moveit_model::RobotModel::joint_model_group`, which returns
+`Result<&JointModelGroup>` — there is no null to dereference, and
+`robot_state_to_csv_by_groups` propagates `Error::UnknownName` carrying the
+name, per group entry rather than validated once up front.
+**Cost of not reproducing:** none. No parity test or oracle comparison
+covers these functions; see
+`stream-to-robot-state-missing-variable-falls-through` for the same
+absent-caller measurement.
+
+---
+
+### `stream-to-robot-state-bypasses-dirty-flags` — `streamToRobotState` writes through the raw position pointer, so the state it loads keeps the previous state's link transforms — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:574`
+(`state.getVariablePositions()[i] = std::stod(cell);`) against
+`moveit_core/robot_state/include/moveit/robot_state/robot_state.hpp:142-150`,
+whose doc comment on that very accessor reads "Use carefully. If you change
+these values externally you need to make sure you trigger a forced update
+for the state by calling `update(true)`."
+**Port:** `crates/moveit-state/src/conversions.rs:204`
+(`csv_to_robot_state`'s `state.set_variable_positions(&positions)`)
+**Symptom:** `streamToRobotState` replaces every variable of the state and
+sets no dirty flag, because the non-const `getVariablePositions()` is a bare
+`return position_.data()` with no bookkeeping. `RobotState` decides whether
+to recompute forward kinematics from `dirty_joint_transforms_` and
+`dirty_link_transforms_`, so a state whose transforms were already computed
+answers the next `getGlobalLinkTransform` from the positions *before* the
+load. The neighbouring `setVariablePositions(const double*)`
+(`robot_state.cpp:349-359`) does the identical `memcpy` and then fills
+`dirty_joint_transforms_` and sets `dirty_link_transforms_ =
+getRootJoint()` — the dirtying path exists, takes exactly the array this
+loop is building, and is not the one taken. The function's own doc comment
+does not repeat the accessor's `update(true)` warning, so nothing at the
+call site says the loaded state is not yet usable.
+**Evidence:** a read of the two functions and of the accessor's own
+contract, which is what makes this a violated documented precondition
+rather than an unstated assumption. Not an oracle run: `rg` over the whole
+reference checkout finds no caller of `streamToRobotState`.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. This port has no non-dirtying
+write to reach for: `moveit_state::RobotState` exposes `positions()` as
+`&[f64]` and every write path goes through a setter that marks the subtree
+dirty, so `csv_to_robot_state` cannot construct the stale state even by
+accident. Confirmed by mutation — making the field `pub(crate)` and writing
+`state.positions.copy_from_slice(...)` is what it takes, and it fails
+`reading_a_state_marks_the_transforms_dirty` and nothing else.
+**Cost of not reproducing:** none. No parity test or oracle comparison
+covers these functions; see
+`stream-to-robot-state-missing-variable-falls-through` for the same
+absent-caller measurement.
+
+---
+
+### `robot-state-to-stream-default-ostream-precision` — `robotStateToStream` writes joint values at the stream's default six significant digits, so its own CSV cannot round-trip a state — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:517`
+(`out << state.getVariablePositions()[i];`) and `:553`
+(`joints << group_variable_positions[i] << separator;`). Neither sets
+`std::setprecision`, `std::hexfloat` or a locale — `rg -n
+'setprecision|hexfloat|precision\('` over `conversions.cpp` returns nothing —
+and the functions take the `std::ostream` from the caller, so the format is
+whatever the caller last left configured.
+**Port:** `crates/moveit-state/src/conversions.rs:105`
+(`robot_state_to_csv`'s `.map(f64::to_string)`)
+**Symptom:** `std::basic_ios::init` sets `precision` to `6`, so an
+unconfigured stream writes six *significant* digits and `operator<<(double)`
+rounds to them. `streamToRobotState` then reads the text back with
+`std::stod`, which parses exactly what is written — the loss is entirely in
+the writer. A state written and read back is therefore not the state that
+was written, which is the one thing a serialization pair exists to
+guarantee. Values with six or fewer significant digits survive, so the
+defect is invisible on hand-written fixtures and on joint limits like
+panda's `-2.8973`, and appears on the full-precision values a planner or an
+IK solver actually produces.
+**Evidence:** measured, not read. A 12-line C++ program writing into a
+`std::stringstream` exactly as `:517` does, compiled `g++ -O0 -std=c++17`
+against this machine's libstdc++:
+
+```console
+default ostream precision: 6
+0.5123456789012345 -> 0.512346 -> 0.51234599999999997   abs err 3.211e-07
+0.78539816339744828 -> 0.785398 -> 0.78539800000000004   abs err 1.634e-07
+-2.8973 -> -2.8973 -> -2.8973                            abs err 0.000e+00
+```
+
+The third line is the six-significant-digit case that hides it.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. `f64`'s `Display` in Rust emits
+the shortest decimal that parses back to the same bit pattern, so
+`robot_state_to_csv` round-trips exactly with no precision argument to get
+wrong. `a_round_trip_returns_every_position_bit_for_bit` compares
+`positions()` with `assert_eq!` rather than a tolerance, and separately
+asserts the emitted text still carries all 16 digits.
+**Cost of not reproducing:** none for parity — no oracle comparison reads
+these functions' output. Worth stating in the other direction: reproducing
+it would put `3.2e-07` of error into any pipeline that used the CSV, which
+is 320x this crate's own FK parity tolerance
+(`crates/moveit-state/tests/fk_parity.rs:88`, `1e-9`).
