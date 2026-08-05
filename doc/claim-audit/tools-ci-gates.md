@@ -529,10 +529,59 @@ one action.
 | duplicate number / the unassigned-number placeholder unfenced in the plan / the same placeholder in another tracked file / unclosed fence / zero `##` sections, each in the working tree | FAIL, one line each — the four pre-existing guards, re-proved after the parse was factored into `scan()` |
 | the placeholder inside a fence | OK — still not a placeholder |
 
-(The placeholder token is spelled out in `check-porting-plan-sections.sh`'s
-own header and nowhere here, because the scan that finds it covers every
-tracked `.md`, and this file is one -- writing it as prose would fail the
-gate this subsection documents.)
+(The placeholder token is not spelled out anywhere in this file, because the
+scan that finds it now reads every tracked file and this is one -- writing it
+as prose would fail the gate this subsection documents. It is no longer
+spelled out in `check-porting-plan-sections.sh` either; the subsection below
+is why.)
+
+### The placeholder scan's scope, and why the token left the gate
+
+The scan used to read `.md` and `.rs` only. The justifying sentence in the
+header was mine and it is false: "sections are cited in documentation and in
+doc comments, never in build or CI scripts", against 113 section citations in
+30 tracked files that are neither -- 90 in 20 `.sh`, 11 in
+`tools/moveit-oracle/src/oracle.cpp`, 4 in 2 `.py`, 3 in 3 `.toml`, 3 in 2
+`.json`, 1 in `tools/mpr-vs-epa/mpr_case104.c`, 1 in `ros/Dockerfile`. A
+placeholder duly went through the gap: `p11-planningfailed` wrote one into a
+comment at `ros/verify-ros-interop.sh:203` and it reached the trunk in
+`a746945`. The other gate did not see it either -- `check-section-references.sh`
+does read `.sh`, but its reference pattern requires a digit after the sigil,
+so an unassigned placeholder matches nothing there by construction.
+
+The suffix list existed for exactly one real reason: the script spelled the
+token out eleven times and would have failed on itself. The file-kind rule was
+that self-exclusion in disguise, and the justification was written afterwards.
+So the token is now assembled from an escape (`PLACEHOLDER` is `"\u00a7NEW"`, the sigil
+written as its code point) and
+named in two pieces in the prose; the file's bytes no longer contain it; and
+the scan has no exception left. Every path `git ls-files` prints is read,
+`PORTING-PLAN.md` excepted only because it is scanned separately, with the
+fence rule it needs. Deliberately not a longer suffix list: widening to
+`check-section-references.sh`'s own `SCANNED_SUFFIXES` would still have missed
+`ros/Dockerfile`, which has no suffix, and the `.c`/`.cpp` citations.
+
+Matching on bytes rather than decoded text closes the other silent skip. 35
+tracked files are not valid UTF-8 -- the binary meshes under `fixtures/` -- and
+the old loop's `except UnicodeDecodeError: continue` meant a file it could not
+read was a file it did not check. Now the only way a path goes unread is an
+`OSError`, which is a failure naming the file. The number of files actually
+read is on the OK line (733 of 734 today, the plan being the 734th), and a
+scan that read none is a failure of its own.
+
+PRE is the gate at `f0aa8fe`'s parent, POST the gate as it stands. Each
+mutation is one placeholder inserted into one file, everything else clean:
+
+| mutation | PRE | POST |
+|---|---|---|
+| `a746945`'s `ros/verify-ros-interop.sh` with its assigned number (255, written here without the sigil: this branch has no such heading yet) put back to a placeholder — the bytes that reached the trunk | OK | FAIL, `ros/verify-ros-interop.sh:203` |
+| a placeholder in `.config/nextest.toml`, `.github/workflows/ci.yml`, `tools/ci/section-reference-external.json`, `tools/ci/check-citation-drift.py` | OK | FAIL, one line each |
+| a placeholder in `ros/Dockerfile` (no suffix), `tools/moveit-oracle/src/oracle.cpp`, `tools/mpr-vs-epa/mpr_case104.c` | OK | FAIL, one line each |
+| a placeholder in `doc/upstream-bugs.md` and in `crates/moveit-collision/src/lib.rs` — the kinds the old scope already covered | FAIL | FAIL, same line |
+| a placeholder inside a fence in `PORTING-PLAN.md`, then the same token outside it | — | OK, then FAIL |
+| the scan handed nothing but `PORTING-PLAN.md`, so `scanned == 0` | — | FAIL, "covered one file out of the tree" — the OK line's file count is what makes this visible |
+| `ros/Dockerfile` at mode 000 | — | FAIL naming it and the `errno`, where the old loop's `continue` said nothing |
+| today's tree, unmutated | OK | OK, 733 files read |
 
 ### Where this stops: sub-section numbers
 
