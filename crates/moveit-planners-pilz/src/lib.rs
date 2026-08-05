@@ -217,6 +217,7 @@ pub mod trajectory_functions;
 pub mod trajectory_generator;
 pub mod trajectory_generator_circ;
 pub mod trajectory_generator_lin;
+pub mod trajectory_generator_polyline;
 pub mod trajectory_generator_ptp;
 pub mod velocity_profile;
 pub mod velocity_profile_trap;
