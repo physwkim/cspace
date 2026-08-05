@@ -1743,25 +1743,29 @@ mod tests {
     }
 
     // Assertion-discrimination sweep (round 2, D6 check per brief section
-    // 3a added): `Shape::compute_volume` and `Shape::get_dimensions` each
-    // have exactly one `None`-producing arm, `Self::Cone(_) |
-    // Self::Plane(_) | Self::Mesh(_) | Self::OcTree(_) => None`, covering
-    // all four "no upstream body" variants at once. Stronger than an
-    // `rg`-counted single-branch: each loop iteration below calls the
-    // method on a *known, concrete* `Shape` variant, so Rust's exhaustive
-    // `match` guarantees only that variant's arm can execute -- there is
-    // no other arm reachable for a given call, by the type system, not by
-    // inspection. Section 3a's isolating mutation is for when a *caller*
-    // cannot tell which of several guards produced a bare `None`; here the
-    // caller (this test) already knows which variant it passed in, so
-    // there is nothing to isolate. D6 check: `rg` for
-    // `\.compute_volume\(\)|\.get_dimensions\(\)` workspace-wide shows no
-    // caller of *this* `Shape`-level method outside its own test module --
-    // `bodies.rs`'s `Body::compute_volume` (called from
-    // `body_query_parity.rs`/`probe_parity.rs`) is a different, non-Option
-    // method reached only through `Body::from_shape`'s already-narrowed
-    // `Sphere`/`Cylinder`/`Cuboid`/`ConvexMesh` variants. No caller needs
-    // to distinguish the four `None` reasons, so this is not a D6 finding.
+    // 3a added; `single-branch` verdict below corrected this round):
+    // `Shape::compute_volume` and `Shape::get_dimensions` each have
+    // exactly one `None`-producing arm, `Self::Cone(_) | Self::Plane(_) |
+    // Self::Mesh(_) | Self::OcTree(_) => None`. The original verdict
+    // argued Rust's exhaustive `match` on the loop variable's *input*
+    // variant ("only that variant's arm can execute") meant "there is
+    // nothing to isolate" -- but that only fixes which arm's *pattern*
+    // matches a given call, not what that arm's *body* returns. Splitting
+    // `Self::Cone(_)` (or `Self::Plane(_)`, confirmed separately) out of
+    // the combined arm into its own `Self::X(_) => Some(999.0)` still
+    // compiles and fails exactly that shape's loop iteration for both
+    // `compute_volume` and `get_dimensions`, leaving the other three
+    // variants' iterations green -- confirmed live. Verdict `multi-branch`,
+    // discriminating: this is a real, passing test, not an unreachable
+    // assertion. D6 check, from the actual call sites, not the signature,
+    // still stands: `rg` for `\.compute_volume\(\)|\.get_dimensions\(\)`
+    // workspace-wide shows no caller of *this* `Shape`-level method
+    // outside its own test module -- `bodies.rs`'s `Body::compute_volume`
+    // (called from `body_query_parity.rs`/`probe_parity.rs`) is a
+    // different, non-Option method reached only through
+    // `Body::from_shape`'s already-narrowed `Sphere`/`Cylinder`/`Cuboid`/
+    // `ConvexMesh` variants. No caller needs to distinguish the four
+    // `None` reasons, so this is not a D6 finding.
     #[test]
     fn shapes_with_no_upstream_body_have_no_volume_or_dimensions() {
         for shape in [
