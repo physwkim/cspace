@@ -109,6 +109,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 | `fcl-distance-sentinel-survives-zero-contacts` | not-reproduced |
 | `stream-to-robot-state-missing-variable-falls-through` | not-reproduced |
+| `robot-state-to-stream-group-lookup-unchecked` | not-reproduced |
 
 ---
 
@@ -1322,6 +1323,40 @@ state untouched rather than half-written.
 covers these functions — they have no upstream caller to compare against,
 and this port's CSV is checked against itself
 (`crates/moveit-state/tests/csv_conversions.rs`).
+
+---
+
+### `robot-state-to-stream-group-lookup-unchecked` — `robotStateToStream`'s group overload dereferences `getJointModelGroup` without checking for null — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:535`
+(`const JointModelGroup* jmg = state.getRobotModel()->getJointModelGroup(joint_group_id);`),
+then `:540`/`:542`/`:548`/`:551`/`:553`, all of which dereference `jmg`
+with no intervening test.
+**Port:** `crates/moveit-state/src/conversions.rs:141`
+(`robot_state_to_csv_by_groups`'s `.joint_model_group(group_name)?`)
+**Symptom:** `RobotModel::getJointModelGroup(const std::string&)` returns
+`nullptr` for an unknown name (`robot_model.cpp:512-521`: an `RCLCPP_ERROR`
+naming the group and the model, then `return nullptr`). The overload takes its group names from the
+caller as free strings — a launch parameter, a config file, an operator's
+typo — and the first use of the returned pointer is
+`jmg->getVariableCount()` inside the header loop. A misspelled group name
+therefore crashes rather than reporting the name it could not find. The
+null check exists at the point of failure, in `getJointModelGroup` itself,
+which logs the exact name; this caller drops the return value it produced.
+**Evidence:** a read of the control flow above. Not an oracle run: `rg` over
+the whole reference checkout finds **no caller** of `robotStateToStream`
+outside its own declaration and definition, so no upstream code passes a
+group name to it at all.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. This port's lookup is
+`moveit_model::RobotModel::joint_model_group`, which returns
+`Result<&JointModelGroup>` — there is no null to dereference, and
+`robot_state_to_csv_by_groups` propagates `Error::UnknownName` carrying the
+name, per group entry rather than validated once up front.
+**Cost of not reproducing:** none. No parity test or oracle comparison
+covers these functions; see
+`stream-to-robot-state-missing-variable-falls-through` for the same
+absent-caller measurement.
 
 ---
 
