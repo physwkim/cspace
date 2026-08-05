@@ -1328,8 +1328,8 @@ any of them as a pure rename rather than a real gap.
 | `robot_model.rs:2151` | discriminating, via same-test sibling payload | `mimic_with_mismatched_dof_is_dropped_with_a_diagnostic`'s `mimic().is_none()` is preceded by `assert_eq!(model.diagnostics(), [Diagnostic::MimicDofMismatch{..}])` in the same test — same exclusion as above |
 | `robot_model.rs:2533` | not-this-family | `std::fs::read(&path).is_err()`, message reads "precondition: this test needs {path} to be unreadable" — a check on the test's own fixture setup, not on `RobotModel`, clause 3 |
 | `robot_model.rs:2605` | not-this-family | `matches!(shapes[0].shape, Shape::Mesh(_))` — computed classification tag, same exclusion as `robot_model_parity.rs:356` |
-| `robot_model.rs:2837` | discriminating | **isolating mutation, run this round**: `get_end_effector` (`:634-645`) folds two causes into one `Error::unknown_name` construction site — `self.groups.get(name)` missing entirely vs. present-but-`.filter(is_end_effector)`-rejected. Neutralized the filter (`.filter(\|_group\| true)`) — `end_effector_wires_name_and_falls_back_to_fewest_joints_parent`'s `model.get_end_effector("arm").is_err()` (`:2796`) failed, `get_end_effector_unknown_name_is_an_error`'s test (`:2815`) stayed green. Reverted; `git status --short` clean |
-| `robot_model.rs:2856` | discriminating | mirror of `:2796` — same mutation, this test's assertion (name not a group at all) stayed green because `.get(name)` already returns `None` before the mutated filter ever runs |
+| `robot_model.rs:2837` | discriminating | **isolating mutation, run this round**: `get_end_effector` (`:675-686`) folds two causes into one `Error::unknown_name` construction site — `self.groups.get(name)` missing entirely vs. present-but-`.filter(is_end_effector)`-rejected. Neutralized the filter (`.filter(\|_group\| true)`) — `end_effector_wires_name_and_falls_back_to_fewest_joints_parent`'s `model.get_end_effector("arm").is_err()` (`:2837`) failed, `get_end_effector_unknown_name_is_an_error`'s test (`:2856`) stayed green. Reverted; `git status --short` clean |
+| `robot_model.rs:2856` | discriminating | mirror of `:2837` — same mutation, this test's assertion (name not a group at all) stayed green because `.get(name)` already returns `None` before the mutated filter ever runs |
 | `robot_model.rs:3080` | discriminating | `group_state_where_every_joint_value_is_unusable_stores_no_state_at_all`'s `variable_default_positions("empty").is_none()` — same test, same bitten cause as `:3038` |
 | `robot_model.rs:3090` | not-this-family | `variable_default_positions_returns_none_for_unknown_state_name`, `group_state_test_srdf("")` — zero `<group_state>` elements at all, vacuous, same class as `:3048` |
 
@@ -1349,8 +1349,8 @@ required editing a file I do not own. No action taken, none owed.
 
 ### Result: 29/29 real orphans closed — 0 blind sites, 1 verdict corrected, 2 sites freshly bitten, 25 by stale-citation or missing-formal-row correction
 
-No fixes to source were left in the tree — both bites this round (`:2796`/
-`:2815`'s `get_end_effector`, `:3003`/`:3038`'s `build_group_states`) were
+No fixes to source were left in the tree — both bites this round (`:2837`/
+`:2856`'s `get_end_effector`, `:3003`/`:3038`'s `build_group_states`) were
 reverted immediately after confirming isolation. The only correction that
 changes a verdict is `robot_model.rs:2903` (discriminating →
 not-this-family); everything else is a line-number fix or a formal row for
@@ -1365,7 +1365,7 @@ false-orphan trap the user warned about, not a hypothetical one.
 - `python3 tools/ci/count-coarse-assertions.py crates/moveit-model crates/moveit-planning crates/moveit-constraints/tests/decide.rs` — 85 raw lines, 84 real sites (1 `helper_body` excluded), 60/10/14 split
 - `python3 tools/ci/reconcile-assertion-ledgers.py` — 698 sites, 476 matched, 222 orphans this round's live `main`, self-check `True`
 - `grep -c` on `doc/assertion-discrimination-orphans.txt` filtered to my three paths — 29
-- Isolating mutation, `get_end_effector`'s filter (`robot_model.rs:643`): `cargo nextest run -p moveit-model end_effector` — 1/7 failed (`:2796`'s test), reverted, re-ran clean (7/7)
+- Isolating mutation, `get_end_effector`'s filter (`robot_model.rs:684`): `cargo nextest run -p moveit-model end_effector` — 1/7 failed (`:2837`'s test), reverted, re-ran clean (7/7)
 - Isolating mutation, `build_group_states`'s empty-state skip (`robot_model.rs:1629`): `cargo nextest run -p moveit-model group_state` — 1/6 failed (`:3038`'s test), reverted, re-ran clean (6/6)
 - Direct read: `resolve_mimic` (`robot_model.rs:1355-1423`), `robot_model.rs:1960-2130,2660-2920,2960-3060,3380-3397`, `mesh_search_paths.rs` (full file), `check_start_state_bounds.rs` (already read prior round), `robot_model_parity.rs` citations spot-checked against the fresh scan (no drift found)
 - `cargo fmt --all` — clean
