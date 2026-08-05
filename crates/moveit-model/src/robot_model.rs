@@ -1978,11 +1978,46 @@ mod tests {
         assert_eq!(mimic.offset, 1.6);
     }
 
+    /// `mimic_chain_urdf` always leaves j1 without a `<mimic>` tag, so
+    /// `j1.mimic().is_none()` would hold whether the cycle-clear scoped to
+    /// the whole model or only to j2/j3: it never had anything to clear.
+    /// This fixture instead gives j1 a real mimic on j4, a joint entirely
+    /// outside the j2<->j3 cycle, so the "whole model, not just the cycle"
+    /// claim on `Diagnostic::MimicCycle` has a joint whose clearing is
+    /// actual evidence rather than vacuously true.
     #[test]
     fn mimic_mutual_cycle_clears_every_mimic_in_the_model() {
-        let urdf = mimic_chain_urdf(
-            r#"<mimic joint="j3" multiplier="1.0" offset="0.0"/>"#,
-            r#"<mimic joint="j2" multiplier="1.0" offset="0.0"/>"#,
+        let urdf = format!(
+            r#"<robot name="test">
+                <link name="base"/>
+                <link name="mid"/>
+                <link name="mid2"/>
+                <link name="tip"/>
+                <link name="tip2"/>
+                {j1}
+                {j2}
+                {j3}
+                {j4}
+            </robot>"#,
+            j1 = revolute_joint(
+                "j1",
+                "base",
+                "mid",
+                r#"<mimic joint="j4" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j2 = revolute_joint(
+                "j2",
+                "mid",
+                "mid2",
+                r#"<mimic joint="j3" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j3 = revolute_joint(
+                "j3",
+                "mid2",
+                "tip",
+                r#"<mimic joint="j2" multiplier="1.0" offset="0.0"/>"#
+            ),
+            j4 = revolute_joint("j4", "tip", "tip2", ""),
         );
         let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
 
@@ -1990,6 +2025,7 @@ mod tests {
         assert!(model.joint_model("j1").unwrap().mimic().is_none());
         assert!(model.joint_model("j2").unwrap().mimic().is_none());
         assert!(model.joint_model("j3").unwrap().mimic().is_none());
+        assert!(model.joint_model("j4").unwrap().mimic().is_none());
     }
 
     #[test]
@@ -2665,6 +2701,22 @@ mod tests {
 
         let names: Vec<&str> = model.end_effectors().map(JointModelGroup::name).collect();
         assert_eq!(names, ["hand"]);
+    }
+
+    /// `get_end_effector("arm")` above only exercises the case where `name`
+    /// is a real group that just isn't an end effector (`self.groups.get`
+    /// hits, `is_end_effector()` filters it out). A name that isn't a group
+    /// at all (`self.groups.get` itself misses) was never exercised by any
+    /// test, even though both cases raise the identical
+    /// `UnknownName { kind: "end effector", .. }`.
+    #[test]
+    fn get_end_effector_unknown_name_is_an_error() {
+        let srdf = end_effector_test_srdf(
+            r#"<end_effector name="grasper" parent_link="link2" group="hand"/>"#,
+        );
+        let model = build(end_effector_test_urdf(), &srdf).expect("builds");
+
+        assert!(model.get_end_effector("no_such_group_or_effector").is_err());
     }
 
     #[test]
