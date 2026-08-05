@@ -522,8 +522,8 @@ pub struct PathValidity {
 ///
 /// - `getCostSources` (all four overloads) — ported this round as
 ///   [`PlanningScene::cost_sources`] (the `state`-taking pair,
-///   `planning_scene.cpp:2493-2506`) and [`PlanningScene::path_cost_sources`]
-///   (the `trajectory`-taking pair, `planning_scene.cpp:2451-2489`), each
+///   `planning_scene.cpp:2493-2510`) and [`PlanningScene::path_cost_sources`]
+///   (the `trajectory`-taking pair, `planning_scene.cpp:2451-2490`), each
 ///   collapsing its own group_name-defaulting overload into one method the
 ///   same way [`PlanningScene::is_state_valid`]/[`PlanningScene::is_path_valid`]
 ///   already do (`group_name: Option<&str>`, `None` for upstream's default
@@ -1786,7 +1786,7 @@ impl<'m> PlanningScene<'m> {
     }
 
     /// Upstream's `getCostSources(state, max_costs, costs)`/`getCostSources(state,
-    /// max_costs, group_name, costs)` (`planning_scene.cpp:2493-2506`),
+    /// max_costs, group_name, costs)` (`planning_scene.cpp:2493-2510`),
     /// collapsed into one method the way [`PlanningScene::is_state_valid`]
     /// already collapses its own group_name-defaulting overload pair —
     /// `group_name: None` is upstream's default-constructed `std::string()`,
