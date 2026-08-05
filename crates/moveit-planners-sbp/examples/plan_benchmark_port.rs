@@ -117,12 +117,15 @@
 //!   joint outside its tolerance band, then splices that in the same way.
 //!   Requires the request to carry a `joint_constraint`.
 //!
-//! Under either mode the summary's `condition2_pass` must come back **0**;
-//! this binary exits non-zero if it does not, so "the checker rejects an
-//! injected bad waypoint" is a build failure when untrue rather than a
-//! sentence in a report. The injected state is verified to be genuinely bad
-//! by direct query before it is spliced, so the mode cannot silently degrade
-//! into injecting a *valid* state and concluding the checker is broken.
+//! Under either mode the summary's `condition2_pass` must come back **0**
+//! *out of a non-zero `condition2_checked`*; this binary exits non-zero if
+//! either half fails, so "the checker rejects an injected bad waypoint" is a
+//! build failure when untrue rather than a sentence in a report. Both halves
+//! are load-bearing: `condition2_pass == 0` on its own is what a run that
+//! solved nothing also reports, since it never called the checker at all.
+//! The injected state is verified to be genuinely bad by direct query before
+//! it is spliced, so the mode cannot silently degrade into injecting a
+//! *valid* state and concluding the checker is broken.
 //!
 //! What that argument does **not** establish is that the collision model is
 //! right: `build_injected_state` finds its bad state by asking
@@ -800,6 +803,19 @@ fn main() {
     // non-zero so the verify script gates on it.
     if let Some(mode) = inject {
         let mode = mode.as_str();
+        // Two assertions because `condition2_pass == 0` alone is satisfied
+        // vacuously: a run that solves nothing never calls `is_path_valid`,
+        // so the count it is compared against is zero too. Before this first
+        // assertion existed, an injection run whose planner deadline was cut
+        // to 1ns printed "inject=collision rejected all 0 paths, as required"
+        // and exited 0 -- the gate that exists to prove the condition-2
+        // checker can fail, vouching for a checker it never called.
+        assert!(
+            condition2_checked > 0,
+            "inject={mode} solved no problem, so `is_path_valid` was never \
+             called -- an injection run that checks nothing cannot show that \
+             the condition-2 checker rejects a bad waypoint"
+        );
         assert_eq!(
             condition2_pass, 0,
             "inject={mode} spliced a state verified invalid by direct query into every \
