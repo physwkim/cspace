@@ -668,3 +668,44 @@ catches the mutation; none needed a new test.
   actually proves a different assertion (`world.rs:1250`) sensitive; its
   own fallthrough (shared with the new row 1251) had not been directly
   bitten until this round. Verdict unchanged.
+
+### Round 12 correction: `moveit-geometry`'s 9 was asserted, not re-derived
+
+Round 11 re-derived `moveit-collision`'s 33→30 correction from the raw
+scanner output, but carried `moveit-geometry`'s count of 9 forward from
+the brief without independently re-running the scanner against it. That
+was a gap, not a coincidence that happened to land on the right number.
+
+After merging main (`ccac7ea`, `f10e1bd`, `6792ef1` — the instrument
+changes: helper-body call sites now score as scope `helper_body`/kind
+`via:<fn>`; `contains_msg`/`contains_member` collapsed into one kind
+`contains`; `None`/`Err(..)` score only as a top-level `assert_eq!`/
+`assert_ne!` operand), `python3 tools/ci/count-coarse-assertions.py
+crates/moveit-geometry` gives **13** sites outside the 39-site old-grammar
+count (`is_empty` 7 + `contains` 4 + `is_some` 2), exactly the 13 named:
+`bodies.rs:3572,3953,3967,4055,4066,4125,4476`, `shapes.rs:1848,1964`,
+`tests/body_query_parity.rs:256`, `tests/mesh_parity.rs:154`,
+`tests/octree_in_world_parity.rs:220`, `tests/probe_parity.rs:329`.
+
+Checked all 13 against every existing `bodies.rs`/`shapes.rs` row in this
+ledger (§3) by line number: **zero are duplicates** — none of the 13
+lines match an existing row, unlike the `tools.rs:259,271,283` case in
+`moveit-collision`. The 13→9 reduction is not a duplicate-elimination;
+it is an **ownership exclusion**. `bodies.rs:3953,4055,4066,4125` are the
+same four `err.to_string().contains(("requires at least one vertex"
+| "radius" | "length" | "radius"))` message-content checks already
+identified and excluded in round 11 under the retired `contains_msg`
+label — reading their content (not their now-merged `contains` kind
+label, which no longer distinguishes message checks from collection
+membership per `f10e1bd`) confirms they are unchanged and still fall
+under the standing deconfliction instruction: `contains_msg`-shaped sites
+in `crates/` are p1-robotmodel's this round, not touched. Excluding those
+4 leaves **9**, matching round 11's table exactly:
+`bodies.rs:3572,3967,4476`, `shapes.rs:1848,1964`,
+`tests/body_query_parity.rs:256`, `tests/mesh_parity.rs:154`,
+`tests/octree_in_world_parity.rs:220`, `tests/probe_parity.rs:329` — the
+same 9 rows already carried in the in-family/not-this-family tables
+above (6 in-family, 3 not). No verdict or table content changes; this
+section only supplies the re-derivation that was owed. **Total
+new-site count is unchanged at 39** (30 `moveit-collision` + 9
+`moveit-geometry`).
