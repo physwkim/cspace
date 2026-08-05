@@ -34,6 +34,44 @@
 //! substitution [`crate::JointConstraint::new`] and friends already make,
 //! and it means this crate still needs no `moveit-scene` dependency.
 //!
+//! # `constraint_sampler.cpp`: where its two function bodies went
+//!
+//! Upstream's base-class *implementation* file is 67 lines and holds
+//! exactly two bodies. Both are accounted for here, neither as a
+//! transcription:
+//!
+//! - `ConstraintSampler::ConstraintSampler(scene, group_name)`
+//!   (`constraint_sampler.cpp:52-60`) does one substantive thing:
+//!   `jmg_ = scene->getRobotModel()->getJointModelGroup(group_name)`,
+//!   followed by an `RCLCPP_ERROR` when that lookup returns null — and then
+//!   construction proceeds anyway with a null `jmg_`, which every
+//!   `configure()` re-checks (`default_constraint_samplers.cpp:72`). That
+//!   lookup is the first line of [`JointConstraintSampler::new`] and
+//!   [`UnionConstraintSampler::new`], `model.joint_model_group(group_name)?`,
+//!   where the `?` turns log-and-continue-with-a-null into
+//!   [`Error::UnknownName`] at construction
+//!   ([`crate::IkConstraintSamplerAdapter::new`] is handed an
+//!   already-resolved `&JointModelGroup` and has no lookup to do). The
+//!   remaining three initialisers — `is_valid_(false)`, `verbose_(false)`,
+//!   `scene_(scene)` — initialise fields this port has no equivalent of;
+//!   each is dispositioned by name in this crate's
+//!   `constraint_samplers/*.hpp` symbol audit (see `crate`'s doc comment).
+//! - `ConstraintSampler::clear()` (`:62-66`) resets `is_valid_` and
+//!   `frame_depends_`. It is reached from exactly two places, both inside
+//!   `configure()`: the top of `JointConstraintSampler::configure(jc)` and
+//!   of `IKConstraintSampler::configure(sp)`
+//!   (`default_constraint_samplers.cpp:70,255`, via each type's own
+//!   `clear()` override), so a *second* `configure()` on a live sampler
+//!   starts blank; and `:121`, the "no possible values for the joint"
+//!   failure path, which must hand-undo the partial configuration it had
+//!   already written into a sampler that outlives the failure. This port
+//!   has neither caller by construction: a sampler is built whole by a
+//!   fallible `new()` with no reconfigure step, `frame_depends` is computed
+//!   once inside that `new()` and never written again, and the `:121`
+//!   failure is [`JointConstraintSampler::new`]'s `min_bound > max_bound`
+//!   `return Err(..)`, after which no partially-built value exists to
+//!   reset. Deliberately not ported — `PORTING-PLAN.md` §225.2.
+//!
 //! # `sample`'s collapsed signature: no separate `reference_state`, no `max_attempts`
 //!
 //! Upstream's virtual `sample(state, reference_state, max_attempts)` exists

@@ -16768,3 +16768,43 @@ untracked 상태로만 있다), Phase 4 (b)의 `1e-6`은 솔버 수렴 epsilon�
 합은 맞지만 `ported`와 `gap` 항이 라운드 20 이후 재도출된 적이 없어 둘 다
 1씩 틀려 있었고, 반대 방향이라 총합이 가려 주고 있었다. 항을 `rg -c`
 실측으로 바꿨다.
+
+### §225.2 `constraint_sampler.cpp` — `ported-elsewhere`, 잔여분 `clear()`는 판정
+
+이 파일은 67줄이고 함수 본문이 정확히 둘이다. 표가 이 행을 `gap`으로 들고
+있던 근거는 "선언별 감사가 `getName()`을 세 샘플러에서 미포팅으로 남긴다"
+였는데, `getName()`은 이 `.cpp`에 없다 — 헤더의 순수 가상이고 구체
+오버라이드는 `default_constraint_samplers.hpp`/`union_constraint_sampler.hpp`
+안에 인라인으로 있다. 즉 이 행의 근거는 다른 파일의 잔여분을 가리키고
+있었다. 이 절이 이 파일 자체의 두 본문을 판정한다.
+
+- **생성자 (`:52-60`).** 실질은 한 줄
+  `jmg_ = scene->getRobotModel()->getJointModelGroup(group_name)`이고,
+  실패하면 `RCLCPP_ERROR`를 찍은 뒤 **널 `jmg_`인 채로 생성이 계속된다**
+  (그래서 모든 `configure()`가 `if (!jmg_)`를 다시 본다,
+  `default_constraint_samplers.cpp:72`). 포트에서는
+  `JointConstraintSampler::new`/`UnionConstraintSampler::new`의 첫 줄
+  `model.joint_model_group(group_name)?`가 그 조회이고, `?`가 그 "로그 찍고
+  계속"을 생성 시점의 `Error::UnknownName`으로 바꾼다
+  (`crates/moveit-constraints/src/sampler.rs:184,377`).
+  `IkConstraintSamplerAdapter::new`는 이미 해결된 `&JointModelGroup`을 받아
+  조회 자체가 없다. 나머지 초기화 셋(`is_valid_`, `verbose_`, `scene_`)은
+  포트에 대응 필드가 없는 것들이고, 각각 이미
+  `crates/moveit-constraints/src/lib.rs`의 선언별 감사에 이름으로 처분이
+  붙어 있다.
+- **`clear()` (`:62-66`) — 포팅하지 않는다.** 호출 지점은 둘 다
+  `configure()` 안이다: 두 타입의 `configure()` 첫 줄
+  (`default_constraint_samplers.cpp:70,255`, 각자의 `clear()` 오버라이드
+  경유) — 살아 있는 샘플러에 `configure()`를 **두 번째로** 걸 때 백지에서
+  시작하기 위한 것 — 과 `:121`의 "no possible values for the joint" 실패
+  경로 — 실패를 넘어 살아남는 객체에 이미 써 넣은 부분 설정을 손으로
+  되돌리기 위한 것. 이 포트에는 둘 다 구조적으로 없다. 재설정 단계가
+  없고(`new()`가 통째로 짓거나 `Err`), `frame_depends`는 그 `new()` 안에서
+  한 번 계산된 뒤 다시 쓰이지 않으며, `:121`에 해당하는 실패는
+  `sampler.rs:213-221`의 `return Err(..)`이라 되돌릴 부분 구축물이 애초에
+  존재하지 않는다. 상류가 손으로 되돌려야 하는 이유는 실패한 객체가
+  살아남기 때문이고, 포트는 그 객체를 만들지 않는다.
+
+따라서 분류는 `ported-elsewhere`(내용이 다른 이름으로 트리 안에 있음),
+증거는 `sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
+모듈 doc이 같은 내용을 그 파일 옆에 적어 둔다.
