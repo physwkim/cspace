@@ -209,7 +209,7 @@ mod joint {
         let model = panda_model();
         assert!(matches!(
             JointConstraint::new(&model, "no_such_joint", 0.0, 0.1, 0.1, 1.0),
-            Err(Error::UnknownName { .. })
+            Err(Error::UnknownName { kind: "joint", .. })
         ));
     }
 
