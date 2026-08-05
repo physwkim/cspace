@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Usage: tools/ci/measure-upstream-citations.py --upstream <moveit2 checkout>
+#                                              [--source PREFIX=<checkout> ...]
 #
 # The upstream half of `tools/ci/check-citation-drift.py`. That script's own
 # header states the gap this one closes:
@@ -37,6 +38,20 @@
 #      citation in this repo that does mean it writes the `moveit_py/`
 #      prefix. A citation still matching zero or several files is reported,
 #      never guessed at.
+#
+#      Resolution is over ONE index built from every pinned source root, not
+#      over moveit2 with the vendored trees as a fallback. This corpus cites
+#      the four vendored packages under `third_party/` -- geometric_shapes,
+#      srdfdom, octomap, orocos_kinematics_dynamics -- 77 times, and before
+#      those roots were indexed all 77 landed in the unresolvable list, which
+#      is reported and does not fail. An unresolvable citation is an
+#      unchecked one, so that list reading as "not a failure" was the same
+#      silence a skipped check produces. A fallback would have resolved them
+#      too, and would also have hidden any basename the two trees share: it
+#      answers with the first root while reading as a unique match. One index
+#      makes such a basename ambiguous, which is what it is. Four exist today
+#      (`aabb.cpp`, `aabb.h`, `config.h`, `main.cpp`) and none is cited with
+#      a line number anywhere in this repository.
 #
 #   2. BOUNDS. Every line a citation names must exist in the resolved file.
 #      Out-of-bounds is unambiguous drift and always a hard failure -- it
@@ -737,23 +752,61 @@ def upstream_tracked(upstream):
     return [p for p in out.split("\0") if p.endswith((".cpp", ".hpp", ".h", ".cc", ".cxx"))]
 
 
+def source_index(roots):
+    """{path as this corpus writes it: file on disk} across every pinned root.
+
+    One namespace, not a primary root plus fallbacks: a fallback resolves
+    only what the first root missed, so a basename that exists in both would
+    silently answer with the first while reading as unique. Here every
+    ambiguity is an ambiguity, reported like any other.
+
+    The prefix is what makes the two namespaces disjoint. moveit2's files are
+    cited by their upstream-relative path and carry no prefix; a vendored
+    checkout's files are cited as `third_party/<pkg>/...`, which is where
+    they sit in this repository, so that is the name they are indexed under.
+    """
+    index = {}
+    for prefix, root in roots:
+        for rel in upstream_tracked(root):
+            index[prefix + rel] = Path(root) / rel
+    return index
+
+
+def parse_source(arg):
+    prefix, _, path = arg.partition("=")
+    if not path:
+        raise argparse.ArgumentTypeError(f"--source needs PREFIX=DIR, got {arg!r}")
+    if prefix and not prefix.endswith("/"):
+        prefix += "/"
+    return (prefix, Path(path))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--upstream", required=True)
+    ap.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        type=parse_source,
+        metavar="PREFIX=DIR",
+        help="an additional pinned source root, indexed under PREFIX "
+        "(repeatable); the wrapper passes one per vendored third_party/ package",
+    )
     args = ap.parse_args()
     upstream = Path(args.upstream)
 
-    files = upstream_tracked(upstream)
-    upstream_set = set(files)
+    index = source_index([("", upstream)] + args.source)
+    upstream_set = set(index)
     by_basename = {}
-    for p in files:
+    for p in index:
         by_basename.setdefault(p.rsplit("/", 1)[-1], []).append(p)
 
     text_cache, span_cache = {}, {}
 
     def lines_of(rel):
         if rel not in text_cache:
-            body = (upstream / rel).read_text(encoding="utf-8", errors="replace").split("\n")
+            body = index[rel].read_text(encoding="utf-8", errors="replace").split("\n")
             # A file ending in a newline splits to a trailing "" that is not a
             # line. Left in, `len()` is one too many and the bounds check
             # accepts a citation one line past the end of the file -- the
@@ -975,9 +1028,15 @@ def main():
         )
         return 1
 
+    roots = f"{upstream}" + (
+        f" + {len(args.source)} vendored root(s) "
+        f"({', '.join(p.rstrip('/') for p, _ in args.source)})"
+        if args.source
+        else " (no vendored root passed)"
+    )
     print(
         f"OK {total} upstream citations across {len(corpus)} tracked .md/.rs files "
-        f"against {upstream}: {anchor_verified} span-verified (cited lines inside "
+        f"against {roots}: {anchor_verified} span-verified (cited lines inside "
         f"the named symbol's definition), {bounds_only} bounds-checked only (no "
         f"tightly-paired symbol with a definition span), {exempted} exempted "
         f"(tools/ci/upstream-citation-exemptions.json), {inherited_checked} of the "
