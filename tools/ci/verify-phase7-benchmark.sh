@@ -729,7 +729,8 @@ summarize() {
     --argjson timeout "$TIMEOUT_SECONDS" \
     --slurpfile oracle "$WORKDIR/$tag.oracle.json" \
     --slurpfile port <(port_aggregate "$WORKDIR/$tag.slim.ndjson") \
-    --slurpfile rows <(jq -s 'map(select(.id != null))' "$WORKDIR/$tag.slim.ndjson") '
+    --slurpfile rows <(jq -s 'map(select(.id != null))' "$WORKDIR/$tag.slim.ndjson") \
+    --slurpfile req "$WORKDIR/$tag.request.json" '
     def median: sort | if length==0 then null
       elif (length%2)==1 then .[length/2|floor]
       else (.[length/2-1]+.[length/2])/2 end;
@@ -746,6 +747,16 @@ summarize() {
     # panda`s ~99% rates the two are nearly the same statistic; at fanuc`s
     # ~81% they need not be.
     ([$c[]|select(.exact==true)|.id]) as $c_ids |
+    # What each problem asked for, by id, so the C++ path can be held to the
+    # same endpoint requirement as the port path. Without this the two sides
+    # are checked asymmetrically: a baseline whose paths do not start where the
+    # problem said would still set condition 1`s bar and condition 3`s limit.
+    # `length` on a number is jq`s absolute value. An `exact` problem with an
+    # empty path makes the subtraction error out, which fails `summarize` for
+    # this set -- a skip would be the same hole in a quieter form.
+    ($req[0].problems | map({key: (.id|tostring), value: {start, goal}})
+                      | from_entries) as $asked |
+
     ([$rows[0][]|select(.outcome=="solved")|.id]) as $p_ids |
     (($c_ids - ($c_ids - $p_ids))|sort) as $both |
     {
@@ -755,6 +766,12 @@ summarize() {
       cpp_solved: $c_solved,
       cpp_rate: (if $c_n>0 then $c_solved/$c_n else null end),
       cpp_median_length: ([$c[]|select(.exact==true)|.length]|median),
+      cpp_max_endpoint_gap:
+        ([$c[] | select(.exact==true) | . as $p
+          | $asked[$p.id|tostring] as $q
+          | [ ($q.start|to_entries[]) | (.value - $p.path[0][.key]) | length ]
+          + [ ($q.goal |to_entries[]) | (.value - $p.path[-1][.key]) | length ]]
+         | flatten | max // 0),
       port_problems: $s.problems,
       port_solved: $s.solved,
       port_timeouts: $s.timeouts,
@@ -820,6 +837,7 @@ jq --arg mode "$MODE" '
       waypoints_checked: ($rows|map(.waypoints_checked)|add // 0),
       raw_waypoints: ($rows|map(.raw_waypoints)|add // 0),
       max_endpoint_gap: ($rows|map(.max_endpoint_gap // 0)|max // 0),
+      cpp_max_endpoint_gap: ($rows|map(.cpp_max_endpoint_gap // 0)|max // 0),
       slowest_seconds: ($rows|map(.slowest_seconds)|max)
     };
   {
@@ -976,6 +994,13 @@ jq -c --argjson con "${con:-null}" --argjson pins "$PINS_JSON" \
       { name: "\($label)/endpoints",
         detail: "max gap from requested start/goal over solved paths: \($s.max_endpoint_gap)",
         ok: (($s.max_endpoint_gap//1) == 0) },
+      # The same requirement on the baseline. Condition 1`s bar is
+      # `0.9 x cpp_rate` and condition 3`s limit is `1.3 x cpp_median`, so an
+      # oracle whose `exact` paths do not run between the two states asked for
+      # sets both of them from paths that answered a different question.
+      { name: "\($label)/cpp-endpoints",
+        detail: "max gap of the C++ path from the requested start/goal: \($s.cpp_max_endpoint_gap)",
+        ok: (($s.cpp_max_endpoint_gap//1) == 0) },
       # A run containing a timeout is not reproducible -- the same tree on a
       # slower machine gives a different answer -- and condition 1 has enough
       # slack to absorb several without changing its verdict.
