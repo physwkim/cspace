@@ -550,11 +550,20 @@ rejecting a multi-variable active joint at construction time is a local
 API-shape choice already named in the port's own doc comment, not an
 instance of a project-wide policy — this ledger entry is the whole
 record.
-**Cost of not reproducing:** none. Already the shipped behaviour, and this
-port has no fixture with a multi-variable active joint feeding
-`AccelerationLimitedFilter` (its own doc comment: "there is no fixture
-robot in this workspace with a multi-DOF active joint whose correct
-per-variable bound behaviour could be derived independently").
+**Cost of not reproducing:** none. Already the shipped behaviour. The
+absence claim this rests on is narrower than "no multi-variable fixture",
+which this tree would refute: `crates/moveit-trajectory/tests/fixtures/totg_synthetic.urdf:31` declares a 3-variable `planar_joint`, and
+`multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`
+(`acceleration_filter.rs:499-529`) loads exactly that fixture and feeds its
+`planar_group` to `joint_acceleration_bounds` — the same extractor
+`AccelerationLimitedFilter` uses — to prove the rejection fires. What is
+absent is the *reference value*, not the input: the doc comment's claim is
+"there is no fixture robot in this workspace with a multi-DOF active joint
+whose correct per-variable bound behaviour could be derived independently",
+and `totg_synthetic.urdf` is a synthetic chain with no published
+per-variable acceleration limit to check a real per-variable
+implementation against. So the rejection is testable here and is tested;
+the behaviour it declines to implement is what has no ground truth.
 
 ### `do-smoothing-length-check-operand` — `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
 
@@ -754,8 +763,15 @@ run that same case through the live oracle, which rejects it with
 the distance with one of the neighbor points` — the `Not_Feasible` path
 this entry's **Symptom** predicts. The port reaches the same code, and
 correcting the filter (bitten: `filtered.last()` instead of
-`waypoints[last_added_point_indx]`) flips that test to `SUCCESS` and no
-other test in the crate. The read of upstream source at the pinned sha is
+`waypoints[last_added_point_indx]`) takes down a family of two and leaves
+the other 237 green — re-measured this round, `237 passed, 2 failed` of 239
+under `cargo nextest run -p moveit-planners-pilz --no-fail-fast`:
+`polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has` flips
+to `SUCCESS` where the oracle returns `-2`, and
+`filter_waypoints_compares_against_an_input_index_not_the_last_kept_pose`
+drops to 3 kept where it asserts upstream's 4. Both are named two sentences
+above, so the pair is the intended coverage; neither one alone can claim
+it. The read of upstream source at the pinned sha is
 still what identifies the two counters; it is no longer the only evidence.
 **Status:** reproduced-deliberately — the same positive argument as
 `totg-velocity-step-function`, not grandfathering. `POLYLINE`'s only
@@ -1667,7 +1683,7 @@ Both items previously open here are resolved:
 `  RCLCPP_ERROR(getLogger(), "Missing variable %s", ...);` /
 `state.getVariablePositions()[i] = std::stod(cell);`). The `if` has one
 statement and no `return`, and the enclosing function returns `void`.
-**Port:** `crates/moveit-state/src/conversions.rs:190` (`csv_to_robot_state`'s
+**Port:** `crates/moveit-state/src/conversions.rs:192` (`csv_to_robot_state`'s
 `cells.next().ok_or_else(...)`)
 **Symptom:** A line with fewer fields than the model has variables reaches
 the log at 573 and then falls straight into `std::stod(cell)` at 574.
@@ -1701,7 +1717,7 @@ and this port's CSV is checked against itself
 (`const JointModelGroup* jmg = state.getRobotModel()->getJointModelGroup(joint_group_id);`),
 then `:540`/`:542`/`:548`/`:551`/`:553`, all of which dereference `jmg`
 with no intervening test.
-**Port:** `crates/moveit-state/src/conversions.rs:141`
+**Port:** `crates/moveit-state/src/conversions.rs:143`
 (`robot_state_to_csv_by_groups`'s `.joint_model_group(group_name)?`)
 **Symptom:** `RobotModel::getJointModelGroup(const std::string&)` returns
 `nullptr` for an unknown name (`robot_model.cpp:512-521`: an `RCLCPP_ERROR`
@@ -1737,7 +1753,7 @@ absent-caller measurement.
 whose doc comment on that very accessor reads "Use carefully. If you change
 these values externally you need to make sure you trigger a forced update
 for the state by calling `update(true)`."
-**Port:** `crates/moveit-state/src/conversions.rs:204`
+**Port:** `crates/moveit-state/src/conversions.rs:206`
 (`csv_to_robot_state`'s `state.set_variable_positions(&positions)`)
 **Symptom:** `streamToRobotState` replaces every variable of the state and
 sets no dirty flag, because the non-const `getVariablePositions()` is a bare
@@ -1780,7 +1796,7 @@ absent-caller measurement.
 'setprecision|hexfloat|precision\('` over `conversions.cpp` returns nothing —
 and the functions take the `std::ostream` from the caller, so the format is
 whatever the caller last left configured.
-**Port:** `crates/moveit-state/src/conversions.rs:105`
+**Port:** `crates/moveit-state/src/conversions.rs:107`
 (`robot_state_to_csv`'s `.map(f64::to_string)`)
 **Symptom:** `std::basic_ios::init` sets `precision` to `6`, so an
 unconfigured stream writes six *significant* digits and `operator<<(double)`
@@ -2134,9 +2150,23 @@ median contact.
 **Deviation:** none of `D1`..`D14` applies. The port is not routing around the
 defect by policy; it never accumulates a per-triangle contact set at this
 layer, so the selection rule that produces the artifact does not exist here.
-**Cost of not reproducing:** measured for panda, and it is the entirety of
-panda's `distance`-column miss that `PORTING-PLAN.md` §5 Phase 3 records
-(`27,384x`). Reproducing it would mean adopting a quantity that is unbounded
+**Cost of not reproducing:** measured for panda, and it accounts for 6,364 of
+the 10,715 rows behind the `distance: f64` clause `PORTING-PLAN.md` §5
+records `UNMET` (`PORTING-PLAN.md:807`, which carries the verdict and
+delegates the diagnosis to §229.3) — a majority of that miss, not the whole
+of it. §218.4's per-robot table (`PORTING-PLAN.md:17003`) splits panda into
+`self 1,225 / robot 9,490`, and the robot column again into 6,364 same-pair
+value divergence — all of it the single pair `floor/panda_link0` — against
+3,126 pair-flips. Only the 6,364 are this entry. The 3,126 flips are the
+near-tie mechanism §218.4 uses to rule fanuc out three paragraphs below, so
+counting them here would re-make inside panda the over-generalization §229.3
+already corrected across robots; the 1,225 self-side rows are a column this
+world-object defect cannot reach at all. The `27,384x` figure §218.4
+(`PORTING-PLAN.md:16973`) and §229.3 record is panda's worst `|Δ|` against
+the `1e-4` threshold — a magnitude, not a count — so it neither states nor
+bounds this entry's share.
+
+Reproducing it would mean adopting a quantity that is unbounded
 in the size of an unrelated object, and would take
 `crates/moveit-collision/tests/penetration_depth_scale_invariance.rs` —
 `depth_is_invariant_to_floor_width` and
@@ -2160,7 +2190,7 @@ instance of this entry.
 ### `pr2-collision-test-asserts-unwritten-result` — Two `ASSERT_FALSE`s read a `CollisionResult` no call ever wrote — not-reproduced
 
 **Upstream:** `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp:280-282`
-and `:526-528`.
+and `:525-528`.
 **Port:**     `crates/moveit-collision/tests/upstream_pr2_harness.rs:186-193`
 (the `TestChangingShapeSize` half) — the `ContactPositions` half is not
 restated at all, being blocked on `updateStateWithLinkAt`
@@ -2323,15 +2353,28 @@ negative, unset or NaN, so all three of this guard's inputs are
 unconstructible rather than repaired.
 `set-from-ik-zero-timeout-is-not-single-attempt` records the same structural
 answer already applied to the other wall-clock budget in the tree.
-**Cost of not reproducing:** none. No site in `crates/` or `ros/` reads either
-field — `rg -n 'allowed_planning_time|num_planning_attempts' crates ros`
-returns 16 lines, 15 of them doc comments in `.rs` files (`--glob '*.rs'` keeps
-15, and `| rg -v ':\s*//'` on those keeps 0) and the 16th a table row in
-`ros/moveit-ros/doc/message-mapping.md:634`; not one is code — so there is no
-test, oracle comparison or number that moves. The cost is deferred rather than
-zero: the
-crate that eventually honours a planning budget owes the decision in §236 a
-re-read, and the two tripwire tests named under **Port** are what force it.
+**Cost of not reproducing:** none, and the corpus that establishes it is
+named rather than asserted.
+`rg -n 'allowed_planning_time|num_planning_attempts' crates ros`
+returns 28 lines across 9 files; `--glob '*.rs'` keeps
+27, and `| rg -v ':\s*//'` on those keeps 6. All six are in
+`ros/moveit-ros/src/planning.rs`, inside the `#[cfg(test)]` module at `:373`,
+and all six are the two tripwire tests named under **Port** — each *writes*
+the field on a `MotionPlanRequest` message and then asserts the value is not
+observable on the `PlanningRequest` built from it. The remaining 21 `.rs`
+lines are doc comments and the 28th is the table row in
+`ros/moveit-ros/doc/message-mapping.md:634`. So no production code path on
+this side reads either field, which is what §236 rests on, but "no test"
+would now be false: two exist, and they fail if the premise stops holding.
+
+This paragraph previously read `16 / 15 / 0` and concluded "there is no test,
+oracle comparison or number that moves". That measurement was taken at
+`4b51963`, the commit that added this entry; `966e3dd` added the two
+tripwires in the very next commit and updated **Port** but not this
+paragraph, leaving the entry asserting the absence of the tests it names
+eight lines earlier. The cost is deferred rather than zero: the crate that
+eventually honours a planning budget owes the decision in §236 a re-read, and
+those two tests are what force it.
 
 ---
 
