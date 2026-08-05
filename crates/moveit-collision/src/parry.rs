@@ -44,8 +44,8 @@
 //!
 //! 1. **`group_name` restricts a pair to links [`moveit_model::JointModelGroup`] updates,
 //!    OR'd across the pair, not ANDed.** `checkSelfCollisionHelper`/
-//!    `checkRobotCollisionHelper` (`collision_env_fcl.cpp:274-297`/
-//!    `328-359`) both call `cd.enableGroup(getRobotModel())` unconditionally,
+//!    `checkRobotCollisionHelper` (`collision_env_fcl.cpp:274-298`/
+//!    `328-355`) both call `cd.enableGroup(getRobotModel())` unconditionally,
 //!    which resolves `req_->group_name` to
 //!    `JointModelGroup::getUpdatedLinkModelsSet()` (every link a joint in
 //!    that group moves, including fixed-joint descendants —
