@@ -14,7 +14,7 @@
 //! outside, and the wrap point for continuous joints — one case per boundary
 //! rather than one case per narrative.
 //!
-//! # The three clauses, and why each is driven where it is
+//! # The four clauses, and why each is driven where it is
 //!
 //! **Clamping** drives `RobotState::enforce_bounds` against
 //! `RobotState::enforceBounds()`, over a complete variable vector installed
@@ -31,12 +31,16 @@
 //! **Interpolation** drives `JointModel::interpolate` against
 //! `JointModel::interpolate`, per joint. That is where every type-specific
 //! rule lives — the continuous-revolute and planar angle wrap, the floating
-//! slerp and its near-identical shortcut. Upstream's `RobotState::interpolate`
-//! adds an active-joint loop and a mimic pass on top; this port has no public
-//! equivalent of it (`RobotTrajectory::interpolate_into` is a private copy of
-//! the same loop), which is reported as a gap rather than papered over by
-//! reconstructing the loop here — a harness that reimplements the thing under
-//! test is not a comparison.
+//! slerp and its near-identical shortcut.
+//!
+//! **State interpolation** drives all three `RobotState::interpolate`
+//! overloads whole-state, which is what the per-joint clause above cannot
+//! see: the loop's joint set, the mimic pass on top of it, and — for the
+//! group overload — which variables are deliberately *not* written. See
+//! [`run_state_interpolation`] for why each case carries a destination seed.
+//! It is a separate clause rather than an extension of the one above because
+//! a disagreement in the per-joint arithmetic would otherwise show up in
+//! every whole-state case at once and be unattributable.
 //!
 //! # The clamping/mimic interaction
 //!
@@ -77,7 +81,7 @@ use crate::protocol::{JointDetail, ModelInfo, Op, OracleResult};
 
 /// One clause's measured outcome.
 pub(crate) struct ClauseResult {
-    /// `clamping`, `mimic` or `interpolation`.
+    /// `clamping`, `mimic`, `interpolation` or `state_interpolation`.
     pub(crate) name: &'static str,
     /// How many cases ran.
     pub(crate) cases: usize,
@@ -134,7 +138,7 @@ impl ClauseResult {
     }
 }
 
-/// Everything the three clauses measured on one robot.
+/// Everything the four clauses measured on one robot.
 pub(crate) struct Report {
     pub(crate) clauses: Vec<ClauseResult>,
 }
@@ -146,7 +150,7 @@ impl Report {
     }
 }
 
-/// Run all three clauses against `oracle`, comparing with `rust_model`.
+/// Run all four clauses against `oracle`, comparing with `rust_model`.
 ///
 /// `info` is the oracle's own `model_info`, and every case value is built
 /// from it rather than from `rust_model` — the bounds a case is a boundary
@@ -174,6 +178,7 @@ pub(crate) fn run(
             run_clamping(oracle, rust_model, info, &base)?,
             run_mimic(oracle, rust_model, info)?,
             run_interpolation(oracle, rust_model, info, tol_interpolate)?,
+            run_state_interpolation(oracle, rust_model, info, tol_interpolate)?,
         ],
     })
 }
@@ -936,6 +941,281 @@ fn floating_pairs() -> Vec<(&'static str, Vec<f64>, Vec<f64>)> {
             vec![4.0, -5.0, 6.0, 0.0, 0.0, 0.0, 1.0],
         ),
     ]
+}
+
+// ---- Clause 4: whole-state interpolation ----------------------------------
+
+/// One `RobotState::interpolate` case: which overload, and the three complete
+/// variable vectors it runs on.
+struct StateInterpCase {
+    label: String,
+    scope: &'static str,
+    group: Option<String>,
+    joint: Option<String>,
+    seed: BTreeMap<String, f64>,
+    t_grid: &'static [f64],
+}
+
+/// The `t` grid the group and single-joint overloads are evaluated on.
+///
+/// Shorter than [`T_GRID`] because this clause's subject is *which variables
+/// an overload writes*, not the per-type arithmetic — that is clause 3's, on
+/// its own full grid and on enumerated branch boundaries rather than on
+/// random endpoints. `0` and `1` stay because they are where "wrote the
+/// endpoint" and "left the seed alone" are hardest to tell apart, and `0.25`
+/// and `0.5` because a mimic whose master takes a wrap or slerp branch
+/// disagrees with its own interpolation only in the interior.
+const SCOPE_T_GRID: [f64; 4] = [0.0, 0.25, 0.5, 1.0];
+
+/// Compare all three `RobotState::interpolate` overloads
+/// (`robot_state.cpp:1138`, `:1147`, `:1159`) whole-state.
+///
+/// Clause 3 compares `JointModel::interpolate` one joint at a time, which is
+/// every type-specific rule but none of the three things the overloads add on
+/// top, all of which are about *which variables come out changed*:
+///
+/// * the whole-model form loops `active_joint_model_vector_` — mimic joints
+///   excluded — and then derives every mimic in the model from the values the
+///   loop just produced, so a mimic's answer is `factor · interpolated_master
+///   + offset` and not its own interpolation;
+/// * the group form loops the group's active joints and then propagates only
+///   `group->getMimicJointModels()`, so a mimic outside the group keeps
+///   whatever the destination already held — the one input on which the two
+///   forms disagree;
+/// * the single-joint form writes one joint plus its `getMimicRequests()`,
+///   and returns without touching `t` at all for a zero-variable joint.
+///
+/// "Keeps whatever the destination already held" is only observable if the
+/// destination held something first, which is why every case carries a
+/// `seed` vector rather than starting from a default state, and why half the
+/// cases carry a seed whose mimic variables have been moved off their
+/// masters: against a consistent seed, "propagated correctly" and "left a
+/// coincidentally-correct value alone" produce the same numbers.
+fn run_state_interpolation(
+    oracle: &mut Oracle,
+    rust_model: &RobotModel,
+    info: &ModelInfo,
+    tol: f64,
+) -> Result<ClauseResult, String> {
+    let mut result = ClauseResult::new("state_interpolation");
+
+    let states = match oracle.ask(Op::RandomStates {
+        count: 3,
+        seed: 20260806,
+    })? {
+        OracleResult::RandomStates(r) => r.states,
+        other => return Err(format!("expected random_states, got {other:?}")),
+    };
+    let [from, to, seed] = <[BTreeMap<String, f64>; 3]>::try_from(states)
+        .map_err(|s| format!("asked the oracle for 3 random states, got {}", s.len()))?;
+
+    let cases = state_interp_cases(info, &seed, &mut result.skipped);
+    let names: Vec<String> = rust_model.variable_names().to_vec();
+    let ordered = |values: &BTreeMap<String, f64>| -> Result<Vec<f64>, String> {
+        names
+            .iter()
+            .map(|n| {
+                values
+                    .get(n)
+                    .copied()
+                    .ok_or_else(|| format!("the oracle's state has no variable named {n:?}"))
+            })
+            .collect()
+    };
+    let from_values = ordered(&from)?;
+    let to_values = ordered(&to)?;
+
+    for case in cases {
+        let seed_values = ordered(&case.seed)?;
+        for &t in case.t_grid {
+            let label = format!("{}/t={t}", case.label);
+            let expected = match oracle.ask(Op::StateInterpolate {
+                scope: case.scope.to_owned(),
+                group: case.group.clone(),
+                joint: case.joint.clone(),
+                from: from.clone(),
+                to: to.clone(),
+                seed: case.seed.clone(),
+                t,
+            })? {
+                OracleResult::StateInterpolate(r) => r,
+                other => return Err(format!("expected state_interpolate, got {other:?}")),
+            };
+
+            let mut a = RobotState::new(rust_model);
+            a.set_variable_positions(&from_values);
+            let mut b = RobotState::new(rust_model);
+            b.set_variable_positions(&to_values);
+            let mut out = RobotState::new(rust_model);
+            out.set_variable_positions(&seed_values);
+
+            let outcome = match case.scope {
+                "model" => a.interpolate(&b, t, &mut out),
+                "group" => {
+                    let group = case.group.as_deref().expect("a group case names its group");
+                    a.interpolate_group(&b, t, &mut out, group)
+                }
+                "joint" => {
+                    let joint = case.joint.as_deref().expect("a joint case names its joint");
+                    a.interpolate_joint(&b, t, &mut out, joint)
+                }
+                other => return Err(format!("unknown scope {other:?} in case {label}")),
+            };
+            if let Err(error) = outcome {
+                // A refusal where the oracle answered is a disagreement about
+                // the model, not a harness error: the oracle reached the same
+                // group or joint by the same name.
+                result.record(&label, f64::INFINITY, Some(format!("{label}: {error}")));
+                continue;
+            }
+
+            let actual: BTreeMap<String, f64> = names
+                .iter()
+                .cloned()
+                .zip(out.positions().iter().copied())
+                .collect();
+            if actual.len() != expected.state_interpolated.len() {
+                return Err(format!(
+                    "{label}: this port has {} variables, the oracle {}",
+                    actual.len(),
+                    expected.state_interpolated.len()
+                ));
+            }
+            let (deviation, mismatch) = compare_named(&actual, &expected.state_interpolated);
+
+            // Same NaN rule as clause 3: a NaN deviation means one side
+            // produced a NaN, and `deviation > tol` alone reads that as
+            // agreement.
+            let mut failure = None;
+            if deviation.is_nan() || deviation > tol {
+                failure = Some(format!(
+                    "{label}: {}",
+                    mismatch.unwrap_or_else(|| format!("max|Δ| {deviation:.6e}"))
+                ));
+            }
+            result.record(&label, deviation, failure);
+        }
+    }
+    Ok(result)
+}
+
+/// One case per overload boundary, each against both a mimic-consistent seed
+/// and a seed whose mimic variables have been moved off their masters.
+///
+/// The scopes, not the values, are the boundaries here: `from` and `to` are
+/// two random whole states, because what distinguishes these three overloads
+/// is the set of variables each leaves alone, and that set does not depend on
+/// where in a joint's range the endpoints sit.
+fn state_interp_cases(
+    info: &ModelInfo,
+    seed: &BTreeMap<String, f64>,
+    skipped: &mut Vec<String>,
+) -> Vec<StateInterpCase> {
+    // The mimic variable of each mimic joint — `updateMimicJoint` writes the
+    // first variable and only the first, so that is the one to move.
+    let mimic_variables: Vec<String> = info
+        .joint_details
+        .iter()
+        .filter(|d| d.mimic.is_some())
+        .filter_map(|d| d.variable_names.first().cloned())
+        .collect();
+
+    // `+ 0.5` rather than a fixed sentinel: it is not a value propagation can
+    // produce from this state, and it is still finite and of the same
+    // magnitude as the variable it replaces, so a disagreement it exposes is
+    // about propagation and not about a joint's arithmetic on a wild input.
+    let mut broken = seed.clone();
+    for variable in &mimic_variables {
+        if let Some(value) = broken.get_mut(variable) {
+            *value += 0.5;
+        }
+    }
+    let seeds: Vec<(&'static str, &BTreeMap<String, f64>)> = if mimic_variables.is_empty() {
+        skipped.push(
+            "state_interpolate/*/broken-mimic-seed: this model has no mimic joints, so a \
+             seed with its mimics moved off their masters is the consistent seed"
+                .to_owned(),
+        );
+        vec![("seed", seed)]
+    } else {
+        vec![("seed", seed), ("broken-mimic-seed", &broken)]
+    };
+
+    let mut cases = Vec::new();
+    for (seed_name, seed_values) in seeds {
+        cases.push(StateInterpCase {
+            label: format!("state_interpolate/model/{seed_name}"),
+            scope: "model",
+            group: None,
+            joint: None,
+            seed: seed_values.clone(),
+            t_grid: &T_GRID,
+        });
+
+        for (group, joints) in &info.groups {
+            // Named in the label because the three answers are three
+            // different boundaries of the group overload, and which of them a
+            // given SRDF reaches is not something to assume:
+            //
+            //   holds-a-mimic-pair    the group propagates that mimic itself
+            //   master-without-mimic  the master moves and its mimic does not
+            //                         — the input on which the group form and
+            //                         the whole-model form differ
+            //   no-mimic-pair         nothing in the group has a mimic, so
+            //                         `getMimicJointModels()` is empty and
+            //                         every mimic variable in the answer must
+            //                         come out of the destination untouched
+            //
+            // A run whose group labels are all `no-mimic-pair` has measured
+            // only the third, and says so on its own face.
+            let members: BTreeSet<&str> = joints.iter().map(String::as_str).collect();
+            let mimics_of_members = || {
+                info.joint_details.iter().filter(|d| {
+                    d.mimic
+                        .as_ref()
+                        .is_some_and(|m| members.contains(m.joint.as_str()))
+                })
+            };
+            let what = if mimics_of_members().any(|d| !members.contains(d.name.as_str())) {
+                "master-without-mimic"
+            } else if mimics_of_members().next().is_some() {
+                "holds-a-mimic-pair"
+            } else {
+                "no-mimic-pair"
+            };
+            cases.push(StateInterpCase {
+                label: format!("state_interpolate/group/{group}/{what}/{seed_name}"),
+                scope: "group",
+                group: Some(group.clone()),
+                joint: None,
+                seed: seed_values.clone(),
+                t_grid: &SCOPE_T_GRID,
+            });
+        }
+
+        for detail in &info.joint_details {
+            // Every joint, including the fixed ones (where the whole call is
+            // upstream's zero-variable early return) and the mimic ones
+            // (where upstream interpolates the mimic as an ordinary joint and
+            // propagates *its* requests, of which a mimic has none — so the
+            // answer is the mimic's own interpolation, not its master's
+            // propagated value).
+            let kind = match (detail.variable_names.is_empty(), &detail.mimic) {
+                (true, _) => "zero-variable",
+                (false, Some(_)) => "is-a-mimic",
+                (false, None) => "active",
+            };
+            cases.push(StateInterpCase {
+                label: format!("state_interpolate/joint/{}/{kind}/{seed_name}", detail.name),
+                scope: "joint",
+                group: None,
+                joint: Some(detail.name.clone()),
+                seed: seed_values.clone(),
+                t_grid: &SCOPE_T_GRID,
+            });
+        }
+    }
+    cases
 }
 
 // ---- Comparison helpers ---------------------------------------------------

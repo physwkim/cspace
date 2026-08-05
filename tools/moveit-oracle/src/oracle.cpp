@@ -954,6 +954,8 @@ public:
       return mimicPropagateOp(request);
     if (op == "interpolate")
       return interpolateOp(request);
+    if (op == "state_interpolate")
+      return stateInterpolateOp(request);
     if (op == "kinematics_metrics")
       return kinematicsMetrics(request);
     if (op == "acm")
@@ -1682,8 +1684,11 @@ private:
   /// where every type-specific rule lives -- the continuous-revolute and
   /// planar wrap branches, the floating slerp and its near-identical
   /// shortcut, the diff-drive turn/drive/turn split. `RobotState::interpolate`
-  /// adds only the loop over active joints and a mimic pass, both of which
-  /// the two ops above already compare on their own.
+  /// adds the loop over active joints and a mimic pass; those are
+  /// `stateInterpolateOp` below and not this op, because their *composition*
+  /// is not what `mimic_propagate` measures -- there a mimic tracks a value a
+  /// setter wrote, here it tracks a value interpolation produced, and the two
+  /// differ wherever the master's interpolation is not affine in `t`.
   ///
   /// No `RobotState` is touched at all: upstream's `interpolate` is a pure
   /// function of `from`, `to`, `t` and the joint's own configuration, so
@@ -1705,6 +1710,72 @@ private:
     std::vector<double> out(count);
     joint->interpolate(from.data(), to.data(), request.at("t").get<double>(), out.data());
     return json{ { "interpolated", out } };
+  }
+
+  /// `RobotState::interpolate` in all three of its overloads: the whole-model
+  /// loop (`robot_state.cpp:1138` -> `RobotModel::interpolate`,
+  /// `robot_model.cpp:1518`), the group loop (`:1147`) and the single-joint
+  /// form (`:1159`).
+  ///
+  /// `scope` picks the overload. The three are separate measurements, not one
+  /// with a filter, because they disagree on the same inputs:
+  ///
+  /// - the model form propagates **every** mimic in the model;
+  /// - the group form propagates only `group->getMimicJointModels()`, so a
+  ///   mimic outside the group keeps whatever the destination state already
+  ///   held;
+  /// - the joint form propagates only that joint's own followers.
+  ///
+  /// Which is why `seed` exists and is a full vector: the destination's
+  /// prior contents are *part of the answer* for the last two, and a
+  /// destination the caller cannot set is a destination whose untouched
+  /// variables cannot be checked. The three states are local rather than
+  /// `state_` so that `from`, `to` and the destination are three distinct
+  /// position arrays, as upstream's own callers have them.
+  json stateInterpolateOp(const json& request)
+  {
+    const std::vector<double> from = readFullPositions(request, "from");
+    const std::vector<double> to = readFullPositions(request, "to");
+    const std::vector<double> seed = readFullPositions(request, "seed");
+    const double t = request.at("t").get<double>();
+    const std::string scope = request.at("scope").get<std::string>();
+
+    moveit::core::RobotState a(model_), b(model_), out(model_);
+    a.setVariablePositions(from.data());
+    b.setVariablePositions(to.data());
+    out.setVariablePositions(seed.data());
+
+    if (scope == "model")
+    {
+      a.interpolate(b, t, out);
+    }
+    else if (scope == "group")
+    {
+      const std::string group_name = request.at("group").get<std::string>();
+      const moveit::core::JointModelGroup* group = model_->getJointModelGroup(group_name);
+      if (!group)
+        throw std::runtime_error("unknown group: " + group_name);
+      a.interpolate(b, t, out, group);
+    }
+    else if (scope == "joint")
+    {
+      const std::string joint_name = request.at("joint").get<std::string>();
+      const moveit::core::JointModel* joint = model_->getJointModel(joint_name);
+      if (!joint)
+        throw std::runtime_error("unknown joint: " + joint_name);
+      a.interpolate(b, t, out, joint);
+    }
+    else
+    {
+      throw std::runtime_error("scope must be model, group or joint, got: " + scope);
+    }
+
+    const std::vector<std::string>& names = model_->getVariableNames();
+    const double* positions = out.getVariablePositions();
+    json result = json::object();
+    for (std::size_t v = 0; v < names.size(); ++v)
+      result[names[v]] = positions[v];
+    return json{ { "state_interpolated", result } };
   }
 
   json jacobian(const json& request)

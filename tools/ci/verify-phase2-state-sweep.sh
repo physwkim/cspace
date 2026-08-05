@@ -89,7 +89,7 @@ for robot in "${ROBOTS[@]}"; do
 
   # Per-clause counts, the skipped lines (a clause that measured less than it
   # looks like says so rather than reading as a pass), and the verdict.
-  grep -E '^(clamping|mimic|interpolation) |tolerance |SKIPPED |^§5 Phase 2 clause 3' "$OUT" || true
+  grep -E '^(clamping|mimic|interpolation|state_interpolation) |tolerance |SKIPPED |^§5 Phase 2 clause 3' "$OUT" || true
   if [[ $status -ne 0 ]]; then
     echo "--- first 20 disagreements ---" >&2
     grep -E '^  FAIL' "$OUT" | head -20 >&2 || true

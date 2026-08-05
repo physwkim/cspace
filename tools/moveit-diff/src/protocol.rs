@@ -86,9 +86,10 @@ pub enum Op {
     ///
     /// Per joint rather than per state: this is where every type-specific
     /// rule lives (continuous-revolute and planar angle wrap, floating
-    /// slerp and its near-identical shortcut), and `RobotState::interpolate`
-    /// adds only an active-joint loop and a mimic pass that
-    /// [`Op::MimicPropagate`] already covers.
+    /// slerp and its near-identical shortcut). The loop and the mimic pass
+    /// around it are [`Op::StateInterpolate`], which is a separate op
+    /// because interpolate-then-propagate is not what
+    /// [`Op::MimicPropagate`] measures.
     Interpolate {
         /// Joint name. Must have at least one variable.
         joint: String,
@@ -96,6 +97,32 @@ pub enum Op {
         from: Vec<f64>,
         /// End values, same order.
         to: Vec<f64>,
+        /// Interpolation parameter, normally in `[0, 1]`.
+        t: f64,
+    },
+    /// `RobotState::interpolate` — the loop, in one of its three scopes.
+    ///
+    /// `seed` is a full vector and not optional because for the `group` and
+    /// `joint` scopes the destination's prior contents are part of the
+    /// answer: those overloads write only the joints they name, so what the
+    /// rest of the vector holds afterwards is exactly the claim "this
+    /// overload did not touch them".
+    StateInterpolate {
+        /// `model`, `group` or `joint`.
+        scope: String,
+        /// Group name, required when `scope` is `group`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+        /// Joint name, required when `scope` is `joint`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        joint: Option<String>,
+        /// Every variable of the model, by name — the `from` state.
+        from: BTreeMap<String, f64>,
+        /// Every variable of the model, by name — the `to` state.
+        to: BTreeMap<String, f64>,
+        /// Every variable of the model, by name — what the destination state
+        /// holds before the call.
+        seed: BTreeMap<String, f64>,
         /// Interpolation parameter, normally in `[0, 1]`.
         t: f64,
     },
@@ -547,6 +574,8 @@ pub enum OracleResult {
     MimicPropagate(MimicPropagateResult),
     /// Answer to [`Op::Interpolate`].
     Interpolate(InterpolateResult),
+    /// Answer to [`Op::StateInterpolate`].
+    StateInterpolate(StateInterpolateResult),
     /// Answer to [`Op::Jacobian`].
     Jacobian(JacobianResult),
     /// Answer to [`Op::Acm`].
@@ -673,6 +702,14 @@ pub struct MimicPropagateResult {
 pub struct InterpolateResult {
     /// The interpolated values, in the joint's own variable order.
     pub interpolated: Vec<f64>,
+}
+
+/// Answer to [`Op::StateInterpolate`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StateInterpolateResult {
+    /// The destination state's whole variable vector after the call, by
+    /// name -- including the variables the requested scope did not write.
+    pub state_interpolated: BTreeMap<String, f64>,
 }
 
 /// Answer to [`Op::Jacobian`].

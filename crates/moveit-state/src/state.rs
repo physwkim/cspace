@@ -26,6 +26,23 @@ use rand::{Rng, RngExt};
 /// convention [`RobotModel`] itself already uses.
 pub type JointIndex = usize;
 
+/// Variables in the widest joint this port models — a floating joint's
+/// `x y z qx qy qz qw`. Used to stage one joint's interpolation output
+/// without allocating; a wider joint kind would have to grow this.
+const MAX_JOINT_VARIABLES: usize = 7;
+
+/// `checkInterpolationParamBounds`
+/// (`robot_model.hpp:63`): NaN and infinity throw; a `t` outside `[0, 1]`
+/// only warns, and extrapolates. The warning is dropped rather than routed
+/// somewhere — this port has no logger, and turning upstream's warning into
+/// an error would reject the extrapolation upstream performs.
+fn check_interpolation_param_bounds(t: f64) -> Result<()> {
+    if t.is_nan() || t.is_infinite() {
+        return Err(Error::other("Interpolation parameter is NaN or inf."));
+    }
+    Ok(())
+}
+
 /// A robot's variable positions, plus the forward-kinematics cache derived
 /// from them.
 ///
@@ -669,6 +686,124 @@ impl<'m> RobotState<'m> {
         self.dirty = Some(self.root_joint_index);
     }
 
+    // ---- Interpolation --------------------------------------------------
+
+    /// `RobotState::interpolate(to, t, state)`: every **active** joint,
+    /// followed by mimic propagation over the whole model.
+    ///
+    /// Upstream splits this across two files —
+    /// `RobotState::interpolate` (`robot_state.cpp:1138`) forwards to
+    /// `RobotModel::interpolate` (`robot_model.cpp:1518`), which is the loop
+    /// plus `RobotModel::updateMimicJoints`. It is one function here because
+    /// the per-joint variable offsets that loop needs
+    /// (`active_joint_model_start_index_`) are this type's bookkeeping in
+    /// this port, not [`RobotModel`]'s; splitting it would mean publishing
+    /// that offset table from [`RobotModel`] to serve one caller.
+    ///
+    /// The mimic step is why this is not the same as calling
+    /// [`JointModel::interpolate`](moveit_model::joint::JointModel::interpolate)
+    /// per joint: a mimic joint's interpolated value is **not** its own
+    /// interpolation between `from` and `to`, it is
+    /// `factor * interpolated_master + offset`. The two agree only when the
+    /// master's interpolation is affine in `t`, which a continuous revolute
+    /// taking the wrap branch and a floating joint's slerp are not.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Other`] if `t` is NaN or infinite, matching upstream's
+    /// `checkInterpolationParamBounds` throwing `moveit::Exception`. A `t`
+    /// outside `[0, 1]` is *not* an error there — it logs and extrapolates —
+    /// so it is not one here either.
+    pub fn interpolate(&self, to: &Self, t: f64, state: &mut Self) -> Result<()> {
+        check_interpolation_param_bounds(t)?;
+        for &joint_index in self.model.active_joint_indices() {
+            self.interpolate_one(to, t, state, joint_index);
+        }
+        state.propagate_all_mimics();
+        state.dirty = Some(state.root_joint_index);
+        Ok(())
+    }
+
+    /// `RobotState::interpolate(to, t, state, group)`
+    /// (`robot_state.cpp:1147`): the group's active joints, then
+    /// `RobotState::updateMimicJoints(group)` — which walks
+    /// `group->getMimicJointModels()`, **the group's** mimic joints, not the
+    /// model's. A mimic whose group does not contain it keeps whatever value
+    /// `state` already held, which is the one place the whole-model form
+    /// above and this one disagree on the same inputs.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Other`] if `t` is NaN or infinite;
+    /// [`Error::UnknownName`] if no group is named `group`.
+    pub fn interpolate_group(
+        &self,
+        to: &Self,
+        t: f64,
+        state: &mut Self,
+        group: &str,
+    ) -> Result<()> {
+        check_interpolation_param_bounds(t)?;
+        let group = self.model.joint_model_group(group)?;
+        for &joint_index in group.active_joint_indices() {
+            self.interpolate_one(to, t, state, joint_index);
+            state.mark_dirty(joint_index);
+        }
+        for &mimic_index in group.mimic_joint_indices() {
+            state.write_mimic(mimic_index);
+        }
+        Ok(())
+    }
+
+    /// `RobotState::interpolate(to, t, state, joint)`
+    /// (`robot_state.cpp:1159`): one joint, then the joints that mimic it.
+    ///
+    /// This overload alone does **not** call
+    /// `checkInterpolationParamBounds`: the other two open with it, this one
+    /// opens with the zero-variable early return and then goes straight to
+    /// `joint->interpolate`. So a NaN `t` throws through the whole-model and
+    /// group forms and propagates as NaN positions through this one, and the
+    /// asymmetry is upstream's, not a port simplification.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnknownName`] if no joint is named `joint`.
+    pub fn interpolate_joint(
+        &self,
+        to: &Self,
+        t: f64,
+        state: &mut Self,
+        joint: &str,
+    ) -> Result<()> {
+        let joint_index = self.joint_index(joint)?;
+        if self.model.joint_model_at(joint_index).variable_count() == 0 {
+            return Ok(());
+        }
+        self.interpolate_one(to, t, state, joint_index);
+        state.mark_dirty(joint_index);
+        state.update_mimic_joint(joint_index);
+        Ok(())
+    }
+
+    /// One joint's variables, `from` and `to` read out of `self` and the
+    /// argument, written into `state`. `state` may alias neither, so the
+    /// slices are staged through a fixed-capacity buffer rather than
+    /// borrowed — upstream indexes three distinct `position_` arrays and has
+    /// no such constraint.
+    fn interpolate_one(&self, to: &Self, t: f64, state: &mut Self, joint_index: JointIndex) {
+        let joint = self.model.joint_model_at(joint_index);
+        let first = self.first_variable_index[joint_index];
+        let count = joint.variable_count();
+        let mut out = [0.0; MAX_JOINT_VARIABLES];
+        joint.interpolate(
+            &self.positions[first..first + count],
+            &to.positions[first..first + count],
+            t,
+            &mut out[..count],
+        );
+        state.positions[first..first + count].copy_from_slice(&out[..count]);
+    }
+
     // ---- Bounds ---------------------------------------------------------
 
     /// `enforceBounds()`: every active joint's own position bounds, plus
@@ -845,18 +980,44 @@ impl<'m> RobotState<'m> {
     /// `getVariableRandomPositions` rather than from `RobotState` itself.
     fn propagate_all_mimics(&mut self) {
         for joint_index in 0..self.mimic_master_index.len() {
-            let Some(master_index) = self.mimic_master_index[joint_index] else {
-                continue;
-            };
-            let mimic = self
-                .model
-                .joint_model_at(joint_index)
-                .mimic()
-                .expect("mimic_master_index[joint_index] is Some only when the joint mimics");
-            let source = self.positions[self.first_variable_index[master_index]];
-            self.positions[self.first_variable_index[joint_index]] =
-                mimic.factor * source + mimic.offset;
+            if self.mimic_master_index[joint_index].is_some() {
+                self.write_mimic(joint_index);
+            }
         }
+    }
+
+    /// `values[dest] = values[src] * factor + offset`, and the dirty mark
+    /// that goes with it — the one place this port writes a mimic variable.
+    /// Upstream writes the same expression in three places
+    /// (`RobotModel::updateMimicJoints`, `RobotState::updateMimicJoint`,
+    /// `RobotState::updateMimicJoints`), and the port had two of them; a
+    /// third for [`RobotState::interpolate_group`] would have made a wrong
+    /// factor/offset order a thing you can fix in one caller and still ship
+    /// in the others.
+    ///
+    /// Marking is done here rather than by the caller for the same reason:
+    /// two of upstream's three sites mark the follower dirty and the third
+    /// (`RobotModel`'s, which works on a bare `double*`) has no dirty state
+    /// to mark, so a caller-marks design has one site whose omission is
+    /// correct and two whose omission is a stale-transform bug.
+    ///
+    /// # Panics
+    ///
+    /// If `mimic_index` does not name a mimic joint. Every caller reaches
+    /// this through `mimic_master_index`, `mimic_requests` or a group's
+    /// `mimic_joint_indices`, all three of which list only mimic joints.
+    fn write_mimic(&mut self, mimic_index: JointIndex) {
+        let mimic = self
+            .model
+            .joint_model_at(mimic_index)
+            .mimic()
+            .expect("mimic_index names a mimic joint");
+        let master_index = self.mimic_master_index[mimic_index]
+            .expect("a joint with a mimic has a resolved master");
+        let source = self.positions[self.first_variable_index[master_index]];
+        self.positions[self.first_variable_index[mimic_index]] =
+            mimic.factor * source + mimic.offset;
+        self.mark_dirty(mimic_index);
     }
 
     /// `RobotState::updateMimicJoint`: propagate this one joint's *current*
@@ -871,15 +1032,8 @@ impl<'m> RobotState<'m> {
         if joint.variable_count() == 0 {
             return;
         }
-        let source = self.positions[self.first_variable_index[joint_index]];
         for follower_index in self.mimic_requests[joint_index].clone() {
-            let follower = self.model.joint_model_at(follower_index);
-            let mimic = follower
-                .mimic()
-                .expect("mimic_requests only ever lists followers that still mimic");
-            self.positions[self.first_variable_index[follower_index]] =
-                mimic.factor * source + mimic.offset;
-            self.mark_dirty(follower_index);
+            self.write_mimic(follower_index);
         }
     }
 

@@ -762,7 +762,7 @@ fn run_state_ops(cfg: &Config) -> Result<usize, String> {
                 &clause.worst_label
             }
         );
-        if clause.name == "interpolation" {
+        if clause.name == "interpolation" || clause.name == "state_interpolation" {
             println!(
                 "{:<14} tolerance {:.6e}, double-cover disagreements {}",
                 "", cfg.tol_interpolate, clause.double_cover
