@@ -16628,6 +16628,18 @@ cases: 2201  passed: 2201  failed: 0
 셋째("씬 diff 적용 후 충돌 결과가 오라클과 100% 일치")는 계기가 없다 —
 오라클 op 41개 중 씬 diff를 적용해 충돌을 되돌려 주는 op이 없다.
 
+**정정 (병합 시점).** 위 둘째·셋째 서술은 이 절이 측정된 브랜치 시점의
+트리에 대한 것이고, 그 뒤 `p10-phase5`가 병합되며 둘 다 닫혔다. 둘째는
+`tools/ci/verify-sampler-self-validation.sh`가
+`crates/moveit-constraints/tests/sampler_self_validation.rs`를 돌려 샘플러
+일곱 종이 만든 상태를 전부 자기 제약에 되먹인다 — 실측 시도 **10,002** /
+생성 **10,000** / 만족 **10,000**(13.9s). 셋째는 오라클에
+`scene_diff_collision` op이 생겼고
+`crates/moveit-scene/tests/scene_diff_collision_parity.rs`가 조건이 이름
+부르는 diff 다섯 종을 포함한 아홉 케이스를 그 op과 대조한다. 따라서 Phase 5는
+세 항목 모두 MET이고, 아래 요약의 "부분 UNMET 2개"는 Phase 2의 셋째 항목
+하나로 줄어든다.
+
 **Phase 6 — MET.** 조건: "동일 waypoint 입력에 대해 TOTG 산출 시간
 파라미터화가 오라클과 `1e-6` 이내 일치."
 
@@ -16682,3 +16694,10 @@ by this script."
 
 **요약: UNMET 4개(Phase 1, 3, 4, 9), 부분 UNMET 2개(Phase 2의 셋째 항목,
 Phase 5의 둘째·셋째 항목), 미측정 1개(Phase 8의 CHOMP/STOMP 항목).**
+
+**병합 시점 요약 정정.** Phase 5의 두 항목이 위 정정대로 닫혔으므로 이
+트리에서는 **UNMET 4개(Phase 1, 3, 4, 9), 부분 UNMET 1개(Phase 2의 셋째
+항목), 미측정 1개(Phase 8의 CHOMP/STOMP 항목)**이다. 남은 넷 중 Phase 1은
+`prbt` 픽스처가 커밋되면 바로 측정 가능하고(현재 `p10-phase13`의 워크트리에
+untracked 상태로만 있다), Phase 4 (b)의 `1e-6`은 솔버 수렴 epsilon이 `1e-5`인
+한 현재 구조로 성립하지 않는다는 것이 이 절의 측정 결과다.
