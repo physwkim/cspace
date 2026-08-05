@@ -1014,4 +1014,69 @@ listed above with its reason.
 ## UNFIXED
 
 - ~~`tools/moveit-diff/src/main.rs:2534`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
-- `ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196`, no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.
+- ~~`ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196`, no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.~~ **Closed — see Round 5 below.** `chain.rs:193-200` is proven unreachable by enumeration, not merely untested; `ruckig_filter.rs::joint_vel_accel_jerk_bounds` had two of its four guards (`velocity_bounded`, `jerk_bounded`) with zero test coverage, not merely "corroborated by pattern" as this line previously assumed — both are now tested and isolating-mutation-confirmed.
+
+## Round 5: `ChainInfo::build`'s type guard and `joint_vel_accel_jerk_bounds`, re-examined under §3a
+
+Both items above turned on a read, not a bite, and the read was wrong in
+one case and incomplete in the other. This round replaces both reads with
+enumeration plus live bites, `--no-fail-fast`, operands kept live
+(`&& !true`), each mutation reverted and diffed clean before the next.
+
+### `ChainInfo::build`'s type guard (`chain.rs:192-200`) is unreachable, not blind
+
+`chain.rs:186-192` (DOF ≠ 1 → `Err`) and `:193-200` (neither `Revolute`
+nor `Prismatic` → `Err`) are immediate siblings, both `Error::other`, the
+funnel shape §9g asks about. No assertion in this crate exercises
+`:193-200` — confirmed by `rg` for its message text
+(`"unsupported type"`) across `crates/moveit-kinematics/{src,tests}`: the
+only hit is the guard's own `format!` call.
+
+That absence is not corrigible by writing a test, because no input can
+reach the guard's `Err` arm:
+
+1. `JointModel` is constructible only through
+   `new_revolute`/`new_prismatic`/`new_planar`/`new_floating`/`new_fixed`
+   (`moveit-model/src/joint/model.rs`) — no public struct literal, no
+   setter that touches `kind` or `variable_names`' length exists outside
+   that file (`rg` for `variable_names\s*=|\.push\(|\.pop\(|\.remove\(|\.truncate\(`
+   in that file: zero hits outside the five constructors).
+2. `joint_type()` (`model.rs:289-297`) is a pure, exhaustive match on
+   `kind`, fixed 1:1 with whichever constructor built the value.
+3. `variable_count()` is `variable_names.len()`, fixed at construction:
+   `Revolute`→1, `Prismatic`→1, `Planar`→3, `Floating`→7, `Fixed`→0
+   (`model.rs:164-260`, each constructor's own `bounds`/`locals` literal).
+4. `chain.rs:180-201`'s loop only reaches `:192` after `:182-184` skips
+   `Fixed` (`continue`) and `:185-191` returns `Err` for `variable_count()
+   != 1` — eliminating `Planar` (3) and `Floating` (7). Only `Revolute`
+   and `Prismatic` (both 1) survive to `:192`, and both satisfy `:193`'s
+   `matches!` trivially.
+5. `joint/urdf.rs:54-94` (the only URDF→`JointModel` builder in this
+   workspace) routes every `UrdfJointType` variant through exactly those
+   five constructors — no back door from a URDF file either.
+
+So `variable_count() == 1` implies `joint_type() ∈ {Revolute, Prismatic}`
+always, by construction, in this port. `:193-200`'s `Err` arm is dead
+code from an input perspective — not an untested guard, an unreachable
+one. Per this task's own instruction, no test is written for it: a test
+that reaches `:193` cannot exist without breaking the enumeration above,
+and forcing one (e.g. hand-constructing a `JointModel` with mismatched
+`kind`/`variable_names` through no public API) would test a state this
+port cannot produce.
+
+The bite matrix confirms the enumeration rather than substituting for
+it — a green result here is read as "consistent with unreachable," not
+independently as "unreachable," since a behaviour-preserving mutation
+also produces all-green (this session's own recorded trap).
+
+| Guard neutralized | Mechanism | Expected if reachable | Actual | 35-test suite |
+|---|---|---|---|---|
+| `:193-200` (type) alone | `&& !true` appended to the `matches!`-negation | some test fails | **none fail** | 35/35 green |
+| `:186-192` (DOF≠1) alone | `&& !true` appended to `!= 1` | `build_rejects_a_multi_dof_joint` fails | **fails**, all else green | 34/35 (1 expected fail) |
+
+The second row is the control: it proves the harness and the mutation
+technique can and do surface a real regression in this exact function,
+so the first row's all-green is not an artifact of a broken bite — it is
+the predicted result of an unreachable branch. Both mutations reverted;
+`diff` against the pre-bite copy clean before the next step.
+
