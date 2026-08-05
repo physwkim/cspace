@@ -3722,6 +3722,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(gsr.dfce.group_name, "right_arm");
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `generate_distance_field_cache_entry` has exactly one
+        // `distance_field:` construction site (`:667`), a single
+        // `generate_distance_field.map(...).transpose()?` on the `Option`
+        // parameter threaded straight from this call's `false` argument
+        // (`:1270`'s `generate_distance_field.then_some(...)`); there is no
+        // other code path that can leave it `None`. Reachability
+        // bite-checked: forcing that `.then_some` to always build `Some`
+        // made this assertion fail.
         assert!(
             gsr.dfce.distance_field.is_none(),
             "generate_distance_field: false must not build a field"
@@ -3741,6 +3750,10 @@ mod tests {
         let first = cache
             .generate_collision_checking_structures("right_arm", &posed, Some(&acm), &[], false)
             .unwrap();
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch`, same
+        // reasoning as `generate_collision_checking_structures_builds_a_fresh_entry_on_first_call`
+        // above -- this is also a first call with `generate_distance_field:
+        // false`.
         assert!(first.dfce.distance_field.is_none());
 
         let second = cache
