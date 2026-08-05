@@ -776,6 +776,15 @@ mod tests {
 
         let result = df.add_shape_to_field(&shape, &Isometry3::identity());
 
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` -- this
+        // test's `shape` is a concrete `Shape::OcTree`, so `add_shape_to_field`
+        // always takes its `if let Shape::OcTree(oc) = shape` branch, which
+        // always returns from inside that branch (either this `Err` or
+        // `Ok(())`) and never falls through to `posed_body`'s own distinct
+        // error causes. Inside that branch there is exactly one
+        // error-producing statement (`oc.octree.as_deref().ok_or_else(...)`).
+        // Reachability bite-checked: substituting a real, non-`None`
+        // `&OcTree` there made this assertion fail.
         assert!(result.is_err());
     }
 
