@@ -8094,8 +8094,7 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 담당은 `IK_DEGENERATE_EPS`가 "정보용 카운터로 출력될 뿐 `Verdict`로
 들어가지 않는다"고 적었다 — 그때 오라클/러스트 각각에 있던 두 비교
 자리는 지금 공유 헬퍼 하나로 접혀 `is_degenerate_from_seed`를 두 번
-부른다
-(`main.rs:2976`, `main.rs:2987`). `Verdict` 부분은 맞고,
+부른다(`main.rs:2976`, `main.rs:2987`). `Verdict` 부분은 맞고,
 어떤 테스트도 이 상수나 두 필드를 참조하지 않는 것도 `rg`로 확인했다.
 
 다만 `IkStats`는 `#[derive(serde::Serialize)]`이고
@@ -8106,6 +8105,13 @@ M9는 구멍이 **아니다**. 문서가 강조하는 "`update`에 넘기는 `ne
 
 판정은 바뀌지 않는다(게이트하는 것이 없다는 것이 발견이다). 근거만
 넓힌다.
+
+(이 절의 두 사실 주장은 그 뒤에 닫혔다. "어떤 테스트도 이 상수를
+참조하지 않는다"와 "그 정의가 어디에서도 검증되지 않는다"는 지금
+거짓이다 — `exactly_at_the_threshold_is_not_degenerate`가 정확히 경계값
+`let solution = [IK_DEGENERATE_EPS];`를 넣어 strict `<`임을 고정한다
+(`main.rs:3256`). 두 필드 쪽은 여전히 참이다: `stats.rust_degenerate`나
+`stats.oracle_degenerate`를 읽는 테스트는 없고, 판정도 그대로다.)
 
 ### 93.5 오라클 fixture 부재는 사실이다
 
