@@ -86,6 +86,24 @@
 //! Total: 8 ported, 4 distinct, 4 unported-in-scope = 16, matching the
 //! `.msg` field count exactly.
 //!
+//! The *normalization* upstream applies to two of those fields —
+//! `num_planning_attempts` and `allowed_planning_time` — before any solve is
+//! a separate question from the fields themselves, and it is **not ported**.
+//! `PlanningContext::setMotionPlanRequest`
+//! (`moveit_core/planning_interface/src/planning_interface.cpp:92-103`:
+//! `allowed_planning_time <= 0.0` becomes `1.0`, `num_planning_attempts`
+//! becomes `std::max(1, n)`) has no counterpart here, by the decision in
+//! `PORTING-PLAN.md` §236. The short reason: this port's planning budget is
+//! `moveit_planners_sbp::Termination` (`Iterations(usize)` /
+//! `Deadline(Duration)` / `Both`, with no `Default` and no "unset" variant),
+//! so negative, unset and NaN are all unconstructible rather than repaired,
+//! and the upstream guard is NaN-blind in any case — `doc/upstream-bugs.md`'s
+//! `set-motion-plan-request-time-guard-polarity`. That decides the rule, not
+//! the two fields, which stay unported-in-scope above; §236's expiry
+//! tripwires are the two
+//! `*_boundaries_are_not_observable_on_the_core_request` tests in
+//! `ros/moveit-ros/src/planning.rs`.
+//!
 //! # D8 delta audit: `moveit-planners-sbp::registry::PlanningRequest`/`PlanningResponse`
 //!
 //! Read-only (that file is `moveit-planners-sbp`'s, not this crate's — see

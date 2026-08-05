@@ -19,7 +19,13 @@
 //!   are planner-orchestration metadata with no `PlanningRequest` field to
 //!   land in, by the same documented design choice as the tuning fields
 //!   above -- dropped, not rejected (there is no invariant a dropped tuning
-//!   knob could violate).
+//!   knob could violate). For `num_planning_attempts`/`allowed_planning_time`
+//!   the *normalization* upstream applies to them
+//!   (`planning_interface.cpp:92-103`'s `setMotionPlanRequest`) is decided
+//!   separately and declined in `PORTING-PLAN.md` §236; the two
+//!   `*_boundaries_are_not_observable_on_the_core_request` tests in this
+//!   file's test module are that decision's expiry tripwires, and they are
+//!   what makes "dropped" a checked claim here rather than a stated one.
 //! - `start_state`/`reference_trajectories` are genuine *content* (an
 //!   assumed robot state, seed trajectories) that `PlanningRequest` has
 //!   nowhere to put -- msg->core **rejects** a message that sets either of
@@ -506,6 +512,118 @@ mod tests {
         let back = PlanningRequestMsgOut::try_from(req).unwrap().0;
         assert_eq!(back.trajectory_constraints.constraints.len(), 1);
         assert_eq!(back.planner_id, "RRTConnectkConfigDefault");
+    }
+
+    /// Given one `(label, rendering)` per boundary value, returns the first
+    /// row's label and the labels of every later row that differs from it.
+    ///
+    /// Each row is compared against a row built from a *different* input value
+    /// rather than against a baseline built the same way, because the msg
+    /// default is itself one of the boundaries in both callers below (`0.0`,
+    /// `0`) and a baseline comparison would leave that row checking a
+    /// conversion against itself. All differing rows are returned, not the
+    /// first found, so one observable boundary cannot hide the rest.
+    fn labels_differing_from_the_first(
+        rows: &[(&'static str, String)],
+    ) -> (&'static str, Vec<&'static str>) {
+        let (first_label, first) = &rows[0];
+        (
+            first_label,
+            rows[1..]
+                .iter()
+                .filter(|(_, rendering)| rendering != first)
+                .map(|(label, _)| *label)
+                .collect(),
+        )
+    }
+
+    /// Expiry tripwire for `PORTING-PLAN.md` §236, the decision not to port
+    /// `PlanningContext::setMotionPlanRequest`'s normalization
+    /// (`moveit_core/planning_interface/src/planning_interface.cpp:92-96`:
+    /// `allowed_planning_time <= 0.0` becomes `1.0`).
+    ///
+    /// That decision rests on the field having no reader on this side, which
+    /// is a claim about absence: there is no clamp here to call, so the clamp
+    /// cannot be what is tested. The premise can be. Every value the upstream
+    /// rule distinguishes must be indistinguishable *here* — including the two
+    /// the upstream guard itself lets through, `f64::NAN` (which fails
+    /// `<= 0.0`) and a positive budget below the 1 µs its consumer can
+    /// represent; both are `doc/upstream-bugs.md`'s
+    /// `set-motion-plan-request-time-guard-polarity`.
+    ///
+    /// [`PlanningRequest`] derives `Debug`/`Clone`/`Default` and not
+    /// `PartialEq`, so rows are compared on the derived `Debug` rendering,
+    /// which prints every field.
+    #[test]
+    fn allowed_planning_time_boundaries_are_not_observable_on_the_core_request() {
+        let model = one_joint_model();
+        let boundaries: [(&'static str, f64); 5] = [
+            ("-1.0, which upstream logs about and clamps to 1.0", -1.0),
+            ("0.0, the msg default, clamped to 1.0 without a log", 0.0),
+            ("f64::EPSILON, positive so upstream keeps it", f64::EPSILON),
+            ("5.0, a normal budget", 5.0),
+            (
+                "f64::NAN, which fails `<= 0.0` so upstream keeps it",
+                f64::NAN,
+            ),
+        ];
+
+        let rows: Vec<(&'static str, String)> = boundaries
+            .iter()
+            .map(|(label, value)| {
+                let mut msg = valid_request(&model);
+                msg.allowed_planning_time = *value;
+                let req =
+                    PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }).unwrap();
+                (*label, format!("{req:?}"))
+            })
+            .collect();
+
+        let (first, observable) = labels_differing_from_the_first(&rows);
+        assert!(
+            observable.is_empty(),
+            "MotionPlanRequest.allowed_planning_time reached PlanningRequest at {observable:?}, \
+             differing from the row for {first:?}: the field now has a reader here, so §236's \
+             decision not to port planning_interface.cpp:92-96 has expired and the clamp (or a \
+             replacement that also rejects NaN and sub-microsecond budgets) must be re-decided"
+        );
+    }
+
+    /// Sibling of `allowed_planning_time_boundaries_are_not_observable_on_the_core_request`
+    /// for the other half of the same upstream function
+    /// (`planning_interface.cpp:98-103`: `RCLCPP_ERROR` for `< 0`, then
+    /// `num_planning_attempts = std::max(1, num_planning_attempts)` for every
+    /// value). `-1` and `0` are separate rows because upstream treats them
+    /// differently — only the negative one is reported — even though both end
+    /// as `1`.
+    #[test]
+    fn num_planning_attempts_boundaries_are_not_observable_on_the_core_request() {
+        let model = one_joint_model();
+        let boundaries: [(&'static str, i32); 4] = [
+            ("-1, the only value upstream logs an error for", -1),
+            ("0, the msg default, raised to 1 silently", 0),
+            ("1, already the value the clamp produces", 1),
+            ("2, the first value the clamp leaves alone", 2),
+        ];
+
+        let rows: Vec<(&'static str, String)> = boundaries
+            .iter()
+            .map(|(label, value)| {
+                let mut msg = valid_request(&model);
+                msg.num_planning_attempts = *value;
+                let req =
+                    PlanningRequest::try_from(PlanningRequestMsg { model: &model, msg }).unwrap();
+                (*label, format!("{req:?}"))
+            })
+            .collect();
+
+        let (first, observable) = labels_differing_from_the_first(&rows);
+        assert!(
+            observable.is_empty(),
+            "MotionPlanRequest.num_planning_attempts reached PlanningRequest at {observable:?}, \
+             differing from the row for {first:?}: the field now has a reader here, so §236's \
+             decision not to port planning_interface.cpp:98-103 has expired and must be re-decided"
+        );
     }
 
     /// `planning_response.cpp:44-49` writes `group_name` only inside its

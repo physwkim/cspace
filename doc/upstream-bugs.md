@@ -122,6 +122,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `to-string-truncates-to-six-significant-digits` | not-reproduced |
 | `distance-callback-max-contact-depth` | not-reproduced |
 | `pr2-collision-test-asserts-unwritten-result` | not-reproduced |
+| `set-motion-plan-request-time-guard-polarity` | not-reproduced |
 
 ---
 
@@ -2194,3 +2195,138 @@ shape that produced the bug does not exist here.
 these two assertions — they are inside a header
 `doc/port-coverage.md` classifies `decided-non-port`, and the parity suites
 compare against the oracle binary, not against upstream's GoogleTest cases.
+
+---
+
+### `set-motion-plan-request-time-guard-polarity` — the one guard on `allowed_planning_time` says "must be positive" and tests `<= 0.0`, so NaN passes it, and values that do pass can still reach the planner as a zero budget — not-reproduced
+
+**Upstream:** `moveit_core/planning_interface/src/planning_interface.cpp:89-104`
+(verified at the pinned `e017c91e`), the guard itself at `:92-96` and the
+`num_planning_attempts` half at `:98-103`. The sibling that writes the same
+predicate the other way round is
+`moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp:1013-1017`.
+The two consumers of the value it repairs are
+`moveit_planners/ompl/ompl_interface/src/model_based_planning_context.cpp:775`
+(→ `:848`, `:855`, `:553-559`) and
+`moveit_planners/stomp/src/stomp_moveit_planning_context.cpp:247-257`. The
+truncation is in OMPL itself, `src/ompl/util/Time.h:64-69` and
+`src/ompl/base/src/PlannerTerminationCondition.cpp:201-210` — a dependency of
+upstream rather than of this port, so it is named the way
+`kdl-path-circle-nan-scale-rot` names `third_party/`: host checkout
+`/home/stevek/work/ompl` at `eb3baca772ab2c76f5943934b505751e031ff34c`
+(`git describe --tags`: `2.0.1-10-geb3baca7`).
+**Port:** none — neither field exists on this side.
+`moveit_planning::PlanningRequest` carries neither
+(`crates/moveit-planning/src/request.rs:62-68` for the two field rows of its
+own 16-field audit, `:89-105` for the decision) and
+`ros/moveit-ros/src/planning.rs`'s `TryFrom<PlanningRequestMsg>` drops both at
+the wire boundary. `PORTING-PLAN.md` §236 is the decision;
+`allowed_planning_time_boundaries_are_not_observable_on_the_core_request` and
+`num_planning_attempts_boundaries_are_not_observable_on_the_core_request`
+(`ros/moveit-ros/src/planning.rs`'s own test module) are its tripwires.
+**Symptom:** `setMotionPlanRequest` is the only place in the workspace that
+validates `allowed_planning_time`. Of the 26 lines that mention the field
+(`rg -n allowed_planning_time` over the pinned checkout, excluding `.md`,
+`.py`, `.yaml` and tests, in 8 files), exactly two compare it: `:92` here, and
+`model_based_planning_context.cpp:1002`, which is post-hoc log selection after
+a solve, not validation. So `:92` is the whole of the defence, and its own log
+line states the predicate it means — "The timeout for planning must be
+positive (%lf specified)" — while the code tests `<= 0.0`. Under IEEE-754
+`!(x <= 0)` is not `x > 0`; NaN fails both. NaN is therefore the one value for
+which no repair is even arguable and the one value the repair does not reach,
+and it goes to both consumers unaltered. The client-side setter one layer up
+spells the same intent as `if (seconds > 0.0) allowed_planning_time_ =
+seconds;`, which rejects NaN correctly and leaves the 5.0 default in place —
+the two write the same rule in opposite polarity, and the unsafe one is the
+one facing the wire, which is where an arbitrary `float64` actually arrives
+from.
+
+What the consumers do with a value that survives `:92`, measured on this host
+(`g++ 13.3.0`, x86-64, `-O2`; the NaN is parsed from `argv` so that the
+out-of-range conversion is not constant-folded away):
+
+```c++
+// ompl/util/Time.h:64-69 and PlannerTerminationCondition.cpp:206-210,
+// fed the way model_based_planning_context.cpp:558 feeds them.
+const double sec = strtod(argv[1], nullptr);
+const ompl::time::duration d = ompl::time::seconds(sec);
+const ompl::time::point endTime(ompl::time::now() + d);
+printf("%-6s guard(<=0.0)=%-5s time::seconds()=%12lld ns  PTC(now()>endTime)=%s\n",
+       argv[1], (sec <= 0.0) ? "true" : "false", (long long)d.count(),
+       (ompl::time::now() > endTime) ? "true" : "false");
+```
+
+| `allowed_planning_time` | `:92` fires | `ompl::time::seconds` | PTC already true at t=0 |
+|---|---|---|---|
+| `nan`  | no  | `0` ns          | **yes** |
+| `-1`   | yes | `-1000000000` ns | (repaired to `1.0` before it gets here) |
+| `0`    | yes | `0` ns           | (repaired to `1.0` before it gets here) |
+| `1e-9` | no  | `0` ns           | **yes** |
+| `1e-6` | no  | `1000` ns        | no |
+| `5`    | no  | `5000000000` ns  | no |
+
+`ompl::time::seconds` builds its duration from whole seconds plus whole
+microseconds, so it truncates twice over: `(long)NaN` is undefined and yields
+`LONG_MIN` on this host, which the microsecond→nanosecond widening then wraps
+to exactly `0` (`(long)nan = -9223372036854775808 ; us =
+-9223372036854775808 ; sum = -9223372036854775808 us ; as ns = 0`), and any
+positive budget below 1 µs truncates to `0` on its own. Both rows marked above
+leave `constructPlannerTerminationCondition` building `endTime = now() + 0`,
+so the termination condition is already satisfied on its first evaluation and
+the planner gets no time at all — the exact outcome the 1.0-second clamp
+exists to prevent, reached through the values the clamp does not catch.
+`:1002` is NaN-blind for the same reason, so the run is then reported as
+`Solution is approximate` rather than `TIMED_OUT`.
+
+STOMP arrives at the same place by a different route: its watchdog is
+`cv.wait_for(lock, std::chrono::duration<double>(req.allowed_planning_time),
+pred)`, and with NaN that returns immediately, leaving `!finished` true and
+calling `stomp->cancel()` before the optimizer has run — which `:260-266` then
+reports as `TIMED_OUT`. Measured with the same value set:
+
+```
+input=nan    wait_for returned false after 0.000 s
+input=1e-9   wait_for returned false after 0.000 s
+input=0.25   wait_for returned false after 0.250 s
+```
+
+`num_planning_attempts` carries a weaker version of the same asymmetry: the
+`RCLCPP_ERROR` at `:98-102` fires only for `< 0`, while `0` — the field's own
+value on an unset message — is raised to `1` silently by `:103`. That half is
+a logging inconsistency and not a behavioural defect: `max(1, 0)` and
+`max(1, 1)` are the same value, and `solve(double, unsigned int)` treats
+`count <= 1` as one attempt anyway (`model_based_planning_context.cpp:855`).
+It is recorded here because it is the same guard, written to the same
+"positive" intent, disagreeing with itself about which non-positive values
+deserve to be reported.
+**Evidence:** measured for everything in the two tables above (host `g++`
+13.3.0 and the OMPL checkout named under **Upstream**; both programs are
+reproduced in full here bar their `#include`s), and a read of the control flow
+for the four call sites that reach the setter —
+`stomp_moveit_planner_plugin.cpp:102`, `chomp_plugin.cpp:100`,
+`planning_context_manager.cpp:590`, `pilz_industrial_motion_planner.cpp:154`,
+all four of which call `setMotionPlanRequest(req)`, so there is no plugin path
+that bypasses the guard and none that sees an unrepaired negative either. Not
+oracle-confirmed: `tools/moveit-oracle` has no op that constructs a
+`PlanningContext`, and the divergence is in a time budget, so an oracle
+comparison would be timing-dependent rather than a measurement.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14` is what makes us decline. The reason is
+narrower and is stated in `PORTING-PLAN.md` §236: a normalization rule cannot
+be ported ahead of the fields it repairs, and when those fields do land, the
+type this port already uses for a planning budget —
+`moveit_planners_sbp::Termination` (`crates/moveit-planners-sbp/src/rrt_connect.rs:40-58`:
+`Iterations(usize)` / `Deadline(Duration)` / `Both`) — cannot represent
+negative, unset or NaN, so all three of this guard's inputs are
+unconstructible rather than repaired.
+`set-from-ik-zero-timeout-is-not-single-attempt` records the same structural
+answer already applied to the other wall-clock budget in the tree.
+**Cost of not reproducing:** none. No site in `crates/` or `ros/` reads either
+field — `rg -n 'allowed_planning_time|num_planning_attempts' crates ros`
+returns 16 lines, 15 of them doc comments in `.rs` files (`--glob '*.rs'` keeps
+15, and `| rg -v ':\s*//'` on those keeps 0) and the 16th a table row in
+`ros/moveit-ros/doc/message-mapping.md:634`; not one is code — so there is no
+test, oracle comparison or number that moves. The cost is deferred rather than
+zero: the
+crate that eventually honours a planning budget owes the decision in §236 a
+re-read, and the two tripwire tests named under **Port** are what force it.

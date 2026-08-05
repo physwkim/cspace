@@ -20322,3 +20322,178 @@ Phase 단위 집계가 아니다.
   없다.
 - Phase 2 전체를 MET로 표시하지 않았다. 세 하위 절 중 둘이 미측정인 한
   AND 조건은 닫히지 않는다.
+
+## §236 `setMotionPlanRequest`의 요청 정규화는 포팅하지 않는다 — 고칠 피연산자가 없고, 그 규칙 자체가 NaN을 놓친다 (2026-08-06)
+
+`doc/port-coverage.md`의 `moveit_core/planning_interface/src/planning_interface.cpp`
+행에 남아 있던 마지막 항목이다. 그 파일의 멤버 정의 9개 중 8개는
+`moveit-planners-sbp` round-6 심볼 감사가 이미 판정했고, 어떤 문장도
+판정하지 않은 하나가 `PlanningContext::setMotionPlanRequest`(`:89-104`)다.
+이 절이 그 하나를 판정한다.
+
+### §236.1 상류 규칙 — 읽은 그대로
+
+`moveit_core/planning_interface/src/planning_interface.cpp:89-104`
+(고정 커밋 `e017c91e`):
+
+```c++
+request_ = request;
+if (request_.allowed_planning_time <= 0.0)
+{
+  RCLCPP_INFO(getLogger(), "The timeout for planning must be positive (%lf specified). Assuming one second instead.",
+              request_.allowed_planning_time);
+  request_.allowed_planning_time = 1.0;
+}
+if (request_.num_planning_attempts < 0)
+{
+  RCLCPP_ERROR(getLogger(), "The number of desired planning attempts should be positive. "
+                            "Assuming one attempt.");
+}
+request_.num_planning_attempts = std::max(1, request_.num_planning_attempts);
+```
+
+두 절반이 같은 의도를 서로 다르게 쓴다. 시간 쪽은 보고와 수정이 한
+`if` 안에 있고, 시도 횟수 쪽은 보고가 `< 0`에서만 나오는데 수정
+(`max(1, n)`)은 `if` 밖에서 모든 값에 적용된다 — 설정되지 않은 메시지의
+기본값인 `0`은 말없이 `1`이 된다. 그리고 시간 쪽 가드는 자기 로그가
+말하는 술어("must be positive")와 다른 술어(`<= 0.0`)를 검사한다.
+IEEE-754에서 `!(x <= 0)`은 `x > 0`이 아니다: NaN은 둘 다 만족하지
+못하므로, 수정할 여지가 가장 없는 값이 수정되지 않고 통과하는 유일한
+값이다. 이 결함과 측정은 `doc/upstream-bugs.md`의
+`set-motion-plan-request-time-guard-polarity`에 있다.
+
+### §236.2 이 규칙이 실제로 지키는 것 — 측정
+
+상류에서 이 setter를 부르는 곳은 네 군데이고 네 곳 모두 부른다
+(`stomp_moveit_planner_plugin.cpp:102`, `chomp_plugin.cpp:100`,
+`planning_context_manager.cpp:590`,
+`pilz_industrial_motion_planner.cpp:154`) — 우회하는 플러그인 경로는
+없다. 그런데 정규화된 값을 **읽는** 곳은 둘뿐이다:
+
+| 소비자 | `allowed_planning_time` | `num_planning_attempts` |
+|---|---|---|
+| OMPL (`model_based_planning_context.cpp:775`, `:805`) | 읽음 → `solve(timeout, count)` | 읽음 |
+| STOMP (`stomp_moveit_planning_context.cpp:252`) | 읽음 (감시 스레드) | 읽지 않음 |
+| CHOMP (`chomp_plugin.cpp`, `chomp_interface.cpp`) | 읽지 않음 | 읽지 않음 |
+| pilz (`pilz_industrial_motion_planner.cpp`) | 읽지 않음 | 읽지 않음 |
+
+시도 횟수 쪽 수정은 관측 가능한 효과가 사실상 없다:
+`solve(double, unsigned int)`가 `count <= 1`을 한 번 실행으로 처리하므로
+(`model_based_planning_context.cpp:855`) `0`과 `1`은 같은 경로다. 남는
+것은 음수뿐이고 그것은 `int32` → `unsigned int` 변환을 막는 일인데,
+`moveit_ros/planning/moveit_cpp/src/planning_component.cpp:328`은 요청을
+만드는 자리에서 `std::max(1, ...)`를 **이미 한 번 더** 적용한다. 즉 이
+규칙은 컨텍스트의 불변식이 아니라 요청 위생(hygiene)이고, 상류 자신도
+그것을 호출자 쪽에서 중복으로 수행한다.
+
+시간 쪽 수정은 실효가 있다 — 그리고 자기가 통과시킨 값에는 실효가
+없다. 측정(`g++ 13.3.0`, x86-64, `-O2`, OMPL 체크아웃
+`/home/stevek/work/ompl` `eb3baca7` = `2.0.1-10-geb3baca7`; NaN은
+상수 접기를 피하려고 `argv`에서 읽는다):
+
+| `allowed_planning_time` | `:92` 발동 | `ompl::time::seconds` | 시작 시점에 PTC 이미 참 |
+|---|---|---|---|
+| `nan`  | 아니오 | `0` ns          | **예** |
+| `-1`   | 예     | `-1000000000` ns | (여기 오기 전에 `1.0`으로 수정됨) |
+| `0`    | 예     | `0` ns           | (여기 오기 전에 `1.0`으로 수정됨) |
+| `1e-9` | 아니오 | `0` ns           | **예** |
+| `1e-6` | 아니오 | `1000` ns        | 아니오 |
+| `5`    | 아니오 | `5000000000` ns  | 아니오 |
+
+`ompl::time::seconds`(`src/ompl/util/Time.h:64-69`)가 정수 초 + 정수
+마이크로초로 duration을 만들기 때문에 1 µs 미만은 `0`이 되고, NaN은
+`(long)NaN`(미정의 동작, 이 호스트에서 `LONG_MIN`)이 µs→ns 확장에서
+정확히 `0`으로 감싸인다. 두 경우 모두 `endTime = now() + 0`이므로 종료
+조건이 첫 평가에서 이미 참이고 플래너는 시간을 전혀 받지 못한다 —
+1초 클램프가 막으려던 바로 그 결과를, 클램프가 잡지 못하는 값들로
+도달한다.
+
+### §236.3 판정: 포팅하지 않는다
+
+**첫째, 고칠 피연산자가 이 포트에 없다.** 이 규칙은 두 필드의 값을
+고치는 것이고 두 필드는 어느 요청 타입에도 없다:
+`moveit_planning::PlanningRequest`는 8개 필드이며 그중 어느 것도 예산이
+아니고(`crates/moveit-planning/src/request.rs`의 16필드 감사가 두
+필드를 "unported, in scope"로 이미 열거한다),
+`moveit_planners_sbp::registry::PlanningRequest`도 갖고 있지 않다.
+`ros/moveit-ros/src/planning.rs`의 `TryFrom<PlanningRequestMsg>`는 와이어
+경계에서 둘 다 버린다. `rg -n 'allowed_planning_time|num_planning_attempts' crates ros`는
+28줄을 내는데(병합 시 재측정 — 이 절이 잰 16은 다른 네 가지가 들어오기
+전 수치다) 27줄이 `.rs`이고 1줄이
+`ros/moveit-ros/doc/message-mapping.md:634`의 표 한 행이다. 27줄 중 21줄은
+doc 주석이고 나머지 6줄은 §236.4가 세운 만료 tripwire 테스트 두 개 안에
+있다 — 생산 코드에서 두 정규화를 적용하는 자리는 여전히 한 줄도 없다.
+규칙을 피연산자보다 먼저 포팅할 수는 없다.
+
+**둘째, 받는 자리는 이미 있고 그 자리에는 setter가 없다.** 이 포트의
+`PlanningContext` 계층은 포팅되어 있다:
+`moveit_planners_sbp::registry`의 `PlannerManager::get_planning_context`
+(`crates/moveit-planners-sbp/src/registry.rs:584`)가 `request:
+PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
+(`:621`)이 그것을 `RrtConnectContext.request`로 옮긴다. 상류가
+`setMotionPlanRequest`에 정규화를 매단 이유는 그것이 요청이 컨텍스트에
+들어오는 유일한 문이라는 점인데, 이 포트에서 그 문은 생성자 인자다 —
+정규화를 매달 setter가 없고, 필요하지도 않다.
+
+**셋째, 이 포트의 타입에서는 세 입력이 만들어질 수 없다.** 이 포트에서
+탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
+(`crates/moveit-planners-sbp/src/rrt_connect.rs:40-58`,
+`RrtConnectParams::termination`을 통해 요청에 실리고
+`registry.rs:768`에서 소비된다)이다:
+
+| 상류 가드가 고치는 입력 | 이 포트에서 |
+|---|---|
+| 음수 (`allowed_planning_time < 0`, `num_planning_attempts < 0`) | `Iterations(usize)`/`Deadline(Duration)` 모두 부호 없음 — 표현 불가 |
+| 설정되지 않음 (`0.0`/`0`이 "미지정"을 겸함) | `Termination`은 `Default`도 "미지정" variant도 없다(`derive(Debug, Clone, Copy)`뿐, `impl Default` 없음) — 호출자가 variant를 지목해야 하므로 겸용 값이 없다 |
+| NaN | `Duration`은 NaN을 담을 수 없다 |
+
+`Termination`의 doc 주석이 이 설계를 이미 자기 말로 적어두었다: 결정성
+보장이 "by construction"으로 성립하도록 합타입으로 두었다는 것. 세
+입력이 모두 구성 불가이므로 정규화할 상태가 남지 않는다. 이것이 패치가
+아니라 구조적 답이라는 근거이며, 트리의 다른 wall-clock 예산에 대해
+이미 같은 답이 적용되어 있다 —
+`doc/upstream-bugs.md`의 `set-from-ik-zero-timeout-is-not-single-attempt`
+(`SolverParams::max_restarts`가 초 단위 타임아웃을 대체했고, 그래서
+재해석될 센티널 값이 없다).
+
+**넷째, 규칙을 그대로 옮기는 것은 결함을 옮기는 것이다.** §236.1이
+읽은 대로 `<= 0.0`은 NaN을 통과시키고, 통과한 `1e-9`는 소비자에서 0
+예산이 된다. 표현 불가로 닫으면 네 경계(`-1.0`, `0.0`, `+eps`, NaN)가
+한 번에 닫히고, 클램프를 옮기면 그중 둘이 열린 채로 따라온다.
+
+**대조 — 표현 가능하면 이 포트는 같은 수정을 이미 포팅했다.** 상류는
+같은 종류의 "미지정 → 기본값" 수정을 workspace 상자에 대해서는
+요청 어댑터로 구현한다
+(`moveit_ros/planning/planning_request_adapter_plugins/src/validate_workspace_bounds.cpp:72-93`,
+여섯 성분이 모두 `< epsilon`이면 기본 큐브로 채운다). 그 필드는 이
+포트가 실제로 들고 있고(`WorkspaceBounds`, 전부 0 = "미지정"이 타입의
+doc에 적혀 있다), 그래서 수정도 포팅되어 있다 —
+`crates/moveit-planning/src/request_adapters/validate_workspace_bounds.rs:68`.
+판정 기준은 "상류 수정을 포팅하지 않는다"가 아니라 "고칠 상태가
+표현 가능한가"이며, 두 필드는 그 기준의 반대편에 있다.
+
+### §236.4 만료 조건과 규칙이 살 자리
+
+이 판정은 두 필드가 어느 요청 타입에도 없다는 사실에 걸려 있고, 그
+사실이 깨지는 순간 만료한다. 만료 감지는 문장이 아니라 테스트다:
+`ros/moveit-ros/src/planning.rs`의
+`allowed_planning_time_boundaries_are_not_observable_on_the_core_request`
+(경계 `-1.0`, `0.0`, `f64::EPSILON`, `5.0`, `f64::NAN`)와
+`num_planning_attempts_boundaries_are_not_observable_on_the_core_request`
+(경계 `-1`, `0`, `1`, `2`)가, 각 경계값을 실은 와이어 메시지가 코어
+요청에서 **구별되지 않음**을 확인한다. 필드가 코어에 생겨 매핑되는
+순간 두 테스트가 어긋난 경계를 이름으로 보고하며 깨진다. 부재를
+주장하는 판정이므로 클램프를 테스트할 수는 없고 — 부를 클램프가 없다 —
+판정이 서 있는 전제를 테스트한다.
+
+필드가 생길 때 규칙이 살 자리는 setter가 아니라 요청 어댑터다:
+`ValidateWorkspaceBounds` 옆
+(`crates/moveit-planning/src/request_adapters/`), 상류가 형제 수정을
+두는 자리와 같고, `PlanningRequestAdapter` 체인은 이미 요청을 `&mut`로
+받는다. 그때 옮길 것은 `<= 0.0` 클램프가 아니라 D8이 두 요청 타입을
+합칠 때 예산을 `Termination`으로 싣는 결정이다 — 그 형태에서는
+§236.3의 표가 그대로 성립하여 어댑터가 고칠 상태 자체가 생기지 않는다.
+D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 다시 열어야
+하고, 그때 필요한 가드는 `<= 0.0`이 아니라 `> 0.0`이다
+(§236.1, 그리고 상류 자신의 `MoveGroupInterface::setPlanningTime`,
+`move_group_interface.cpp:1013-1017`).
