@@ -42,11 +42,11 @@ and/or isolating mutation run this round, reverted after confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1038` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
-| `time_optimal_trajectory_generation.rs:1043` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1120` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
-| `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1136` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1043` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
+| `time_optimal_trajectory_generation.rs:1048` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
+| `time_optimal_trajectory_generation.rs:1130` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1141` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
 | `robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
 | `robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s index-0 guard | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | bite: neutralized guard → test failed; reverted |
 | `robot_trajectory.rs:550` | `append`'s empty+nonzero-dt guard | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard → test failed; reverted |
@@ -57,7 +57,7 @@ and/or isolating mutation run this round, reverted after confirming).
 | `robot_trajectory.rs:669` | `way_point_mut`'s `.get_mut(index).ok_or_else` | same test | single-branch | bite: forced panic on `None` → test failed at this line; reverted |
 | `robot_trajectory.rs:670` | `remove_way_point`'s explicit `if index >= len` | same test | single-branch | bite: neutralized guard → test failed at this line; reverted |
 | `robot_trajectory.rs:749` | `for_group_name`'s `joint_model_group(group)?` | `unknown_group_name_is_a_typed_error_not_a_silent_whole_robot_fallback` | single-branch | bite: forced panic on the `?`'s `Err` arm → test failed; reverted |
-| `ruckig_smoothing.rs:199` | `trajectory.group().is_none()` — precondition sanity check on `RobotTrajectory::new`, not on `apply_smoothing`'s guard | `no_group_set_is_an_error` | not-this-family | commit `6a6b46a` (the test's substantive assertion, a few lines below this one, already checks `apply_smoothing`'s error message; this line only confirms the fixture itself has no group set) |
+| `ruckig_smoothing.rs:203` | `trajectory.group().is_none()` — precondition sanity check on `RobotTrajectory::new`, not on `apply_smoothing`'s guard | `no_group_set_is_an_error` | not-this-family | commit `6a6b46a` (the test's substantive assertion, a few lines below this one, already checks `apply_smoothing`'s error message; this line only confirms the fixture itself has no group set) |
 
 ## moveit-planners-chomp (14)
 
@@ -627,7 +627,7 @@ independent guard groups.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1081` | `exceeding the` | discriminating at the guard, fixture-pinned at the operand | One **producer** (`:850`), still globally unique — `rg -n 'exceeding the' <file>` gives `:850` plus four `.contains` call sites (`:1081,:1108,:1174,:1564`). Round 17's caveat read the 4th call site as a 4th producer and called the premise broken; it is not. What the needle genuinely cannot do is name which *operand* of the folded guard fired — `!raw_sample_count.is_finite() \|\| raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT` is one `Err` site over two branches. That is pinned by the fixtures instead: a NaN duration cannot satisfy `>`, so `:1564` (`b12b358`) reaches the finiteness operand and the other three reach the bound. Cross-referenced by p9-ros's row for the same four sites. |
+| `time_optimal_trajectory_generation.rs:1086` | `exceeding the` | discriminating at the guard, fixture-pinned at the operand | One **producer** (`:850`), still globally unique — `rg -n 'exceeding the' <file>` gives `:850` plus four `.contains` call sites (`:1081,:1108,:1174,:1564`). Round 17's caveat read the 4th call site as a 4th producer and called the premise broken; it is not. What the needle genuinely cannot do is name which *operand* of the folded guard fired — `!raw_sample_count.is_finite() \|\| raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT` is one `Err` site over two branches. That is pinned by the fixtures instead: a NaN duration cannot satisfy `>`, so `:1564` (`b12b358`) reaches the finiteness operand and the other three reach the bound. Cross-referenced by p9-ros's row for the same four sites. |
 | `:1097` | same | discriminating | same guard, subnormal-`resample_dt` boundary |
 | `:1163` | same | discriminating | same guard, `usize::MAX`-targeting boundary |
 | `:1421` | `4` AND `7`, **fragile** | discriminating | the mimic-dimension-mismatch guard (`:770-780`) is the *only* reachable `Err` once `max_velocity.len() != group.variable_names().len()`, which is unconditional for any group with a mimic joint — no sibling branch is reachable to collide with today, but the needles themselves are bare digits, the weakest form found this round; any future guard added ahead of this one in `do_time_parameterization_calculations` that also renders a floating-point value ending in 4 or 7 would defeat it. Not fixed — not currently blind, and the brief says do not fix speculatively. |
@@ -659,14 +659,14 @@ three `Error::other` sites, in-code noted at `:198-201`.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `ruckig_smoothing.rs:204` | `did not set the group` | discriminating | not in "ruckig calculate failed: {error}" or the third (smoothing-result-failure) message |
+| `ruckig_smoothing.rs:208` | `did not set the group` | discriminating | not in "ruckig calculate failed: {error}" or the third (smoothing-result-failure) message |
 
 ### Result: 0 blind sites, 3 fragile-but-currently-unique needles flagged, not fixed
 
 All 77 in-scope sites verdict `discriminating`. No needle collided with a
 sibling message under this round's reading. Three fragility notes are
 recorded above (`sampler.rs:121`, `boundaries.rs:55`,
-`time_optimal_trajectory_generation.rs:1421`) per the brief's instruction
+`time_optimal_trajectory_generation.rs:1426`) per the brief's instruction
 to flag rather than speculatively fix a needle that is unique today but
 could collide if a sibling message is reworded. No fixes, no commits for
 findings this round — nothing in the 77 met the blind-site bar. One

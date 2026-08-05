@@ -506,14 +506,14 @@ sequence of the function each test actually calls:
 | `moveit-kinematics/src/chain.rs:512` | `"DOF"` | CLEAN | One reachable `Err` site (`chain.rs:187`); the only other tree-wide occurrence of the substring is inside an `.expect()` panic message on an internal invariant, not a `Result` path this test's `unwrap_err()` could observe. |
 | `moveit-state/tests/jacobian.rs:140,159` | `"not a chain"` | CLEAN | `jacobian()`'s only guard is `state.rs:1127`; the crate's other `"not a chain"` message (`dynamics.rs:448`) belongs to `DynamicsSolver::new`, unreachable from `jacobian()`. |
 | `moveit-state/tests/jacobian.rs:192` | `"unsupported type"` | CLEAN | Single tree-wide producer (`state.rs:1203`). |
-| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1081,1108,1174,1564` | `"exceeding the"` | CLEAN | One producer (`:850`), gated by the function's own `raw_sample_count` bounds check. Re-derived after merging main's TOTG timing-loop upstream-bug commits, which shifted every line in this file; `:1564` (`b12b358`, "cover the NaN branch of the resample sample-count guard") is a new fourth call site added by that merge, same producer, same needle — added here rather than left uncited. |
+| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1086,1108,1174,1564` | `"exceeding the"` | CLEAN | One producer (`:850`), gated by the function's own `raw_sample_count` bounds check. Re-derived after merging main's TOTG timing-loop upstream-bug commits, which shifted every line in this file; `:1564` (`b12b358`, "cover the NaN branch of the resample sample-count guard") is a new fourth call site added by that merge, same producer, same needle — added here rather than left uncited. |
 | `moveit-trajectory/src/trajectory.rs:1434,1440,1446` | `DISTINGUISHING_PHRASE` const | CLEAN | Pre-existing bite-check documented in the test's own comment (round-unspecified, prior to this sweep); independently re-confirmed against message #3's text (`Trajectory::create`'s three `Error::construct` sites, `:123/:165/:174`). |
 | `moveit-trajectory/src/trajectory.rs:1473` | `"the time step is <= 0.0"` | CLEAN | Unique among the same three sites. |
-| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1430` | `"4"`/`'7'` | **N/A** | Not a branch-discrimination needle — single reachable typed error for the active-vs-full variable-count mismatch; the numbers are formatted data, not branch-selection text. |
-| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1491` | `DISTINGUISHING_PHRASE` const | CLEAN | Stale citation, corrected: the row's "negative assertion, rules a branch out" description matched an earlier version of this test, per the test's own doc comment ("bite-confirmed... against the old negative check") -- the live assertion is `message.contains(DISTINGUISHING_PHRASE)` (`"after integrateForward and integrateBackward"`), a positive check already bite-confirmed by its own author against the model-bounds-fallback branch's distinct `"invalid max_acceleration"` message. Line re-derived again after merging main's TOTG upstream-bug commits (was `:1482`, this ledger's own prior round; shifted by that merge, not a repeat of the same staleness). |
+| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1435` | `"4"`/`'7'` | **N/A** | Not a branch-discrimination needle — single reachable typed error for the active-vs-full variable-count mismatch; the numbers are formatted data, not branch-selection text. |
+| `moveit-trajectory/src/time_optimal_trajectory_generation.rs:1496` | `DISTINGUISHING_PHRASE` const | CLEAN | Stale citation, corrected: the row's "negative assertion, rules a branch out" description matched an earlier version of this test, per the test's own doc comment ("bite-confirmed... against the old negative check") -- the live assertion is `message.contains(DISTINGUISHING_PHRASE)` (`"after integrateForward and integrateBackward"`), a positive check already bite-confirmed by its own author against the model-bounds-fallback branch's distinct `"invalid max_acceleration"` message. Line re-derived again after merging main's TOTG upstream-bug commits (was `:1482`, this ledger's own prior round; shifted by that merge, not a repeat of the same staleness). |
 | `moveit-trajectory/src/robot_trajectory.rs:876` | `" pos "` | **N/A** | Checks `Display` column-header text, not an error message. |
 | `moveit-trajectory/tests/robot_trajectory.rs:676,708,723,738` | `"dirty: None"` | **N/A** | `Debug`-format checks on a struct field, not error-branch discrimination; unique tree-wide regardless. |
-| `moveit-trajectory/tests/ruckig_smoothing.rs:204` | `"did not set the group"` | CLEAN | `apply_smoothing` -> `validate_group` is the only reachable producer; TOTG's identically-worded message (`time_optimal_trajectory_generation.rs:697`) is a different module's function, unreachable from `apply_smoothing`. |
+| `moveit-trajectory/tests/ruckig_smoothing.rs:208` | `"did not set the group"` | CLEAN | `apply_smoothing` -> `validate_group` is the only reachable producer; TOTG's identically-worded message (`time_optimal_trajectory_generation.rs:702`) is a different module's function, unreachable from `apply_smoothing`. |
 | `moveit-planners-chomp/src/cost.rs:436` | `"singular"` | CLEAN | `ChompCost::new`'s only "singular" message is its own (`cost.rs:177`); `optimizer.rs:1353`'s belongs to an unrelated, unreachable function. |
 | `moveit-planners-chomp/src/optimizer.rs:2380` | `"joint_costs has"` | CLEAN | Pre-existing test doc comment already correct: `calculate_smoothness_increments`'s own guard (`:377`) vs. `ChompCost::derivative`'s guard (`"joint_trajectory has..."`, textually distinct) — confirmed by reading both function bodies. |
 | `moveit-planners-chomp/src/optimizer.rs:2449` | `"columns"` | CLEAN | Pre-existing test doc comment already correct; unique among `calculate_total_increments`'s 3 `Error::other` sites. |
@@ -559,14 +559,14 @@ from an unchecked one:
   `ruckig_filter.rs:388,530` (8) unflagged/unique, not individually
   re-traced.
 - **Zero collisions in `moveit-trajectory`.** 24 sites (23 pre-existing +
-  `time_optimal_trajectory_generation.rs:1564`, added by main's TOTG
+  `time_optimal_trajectory_generation.rs:1569`, added by main's TOTG
   upstream-bug merge); the flagged subset (`robot_trajectory.rs:876`,
-  `time_optimal_trajectory_generation.rs:1081,1108,1174,1430,1491,1564`,
+  `time_optimal_trajectory_generation.rs:1086,1108,1174,1430,1491,1564`,
   `trajectory.rs:1434,1440,1446,1473`,
   `tests/robot_trajectory.rs:676,708,723,738`, `tests/ruckig_smoothing.
   rs:204`) checked above; `path.rs:217,223,236,242,318` (already
   doc-commented as `Path::create`'s 3-guard family, re-confirmed by
-  reading), `time_optimal_trajectory_generation.rs:1591,1597`
+  reading), `time_optimal_trajectory_generation.rs:1596,1597`
   (`"num_waypoints > 1"`, doc-commented, re-confirmed), `tests/
   robot_trajectory.rs:514` (`"duration_from_previous[0] must be 0.0"`,
   doc-commented, re-confirmed) checked; all unflagged remainder unique
