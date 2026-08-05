@@ -4329,16 +4329,23 @@ mod tests {
     }
 
     // Assertion-discrimination sweep (round 2, D6 check per brief section
-    // 3a added): `Body::from_shape` has exactly one `None`-producing arm,
-    // `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None`,
-    // covering all three patterns at once -- verdict `single-branch`, by
-    // direct reading of the whole `match` (lines 3109-3115): there is no
-    // second `None` anywhere in it, and each test below calls the method
-    // on a *known, concrete* `Shape` variant, so there is nothing for an
-    // isolating mutation to separate (same reasoning as
-    // `shapes_with_no_upstream_body_have_no_volume_or_dimensions` in
-    // `shapes.rs`). D6 check, from the actual call sites, not the
-    // signature: every in-tree caller (`moveit-constraints::position::
+    // 3a added; `single-branch` verdict below corrected this round):
+    // `Body::from_shape` has exactly one `None`-producing arm,
+    // `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None`. The
+    // original verdict read Rust's exhaustive `match` on the *input*
+    // variant ("only that arm's pattern can match") as proof there was
+    // "nothing for an isolating mutation to separate" -- but the type
+    // system only fixes which arm's *pattern* matches a given input, not
+    // what that arm's *body* computes. Splitting any one of
+    // Cone/Plane/OcTree out of the combined arm into its own
+    // `Shape::X(_) => Some(Sphere::new(1.0)?.into())` still compiles
+    // (each pattern is independently constructible) and fails exactly
+    // that variant's assertion below while leaving the other two green
+    // -- confirmed live for all three (Cone: line 4356 fails; Plane:
+    // 4364; OcTree: 4374). Verdict `multi-branch`, discriminating: this
+    // is a real, passing test, not an unreachable assertion. D6 check,
+    // from the actual call sites, not the signature, still stands:
+    // every in-tree caller (`moveit-constraints::position::
     // PositionConstraint::new`, `moveit-distance-field::distance_field::
     // posed_body`, `moveit-distance-field::collision_distance_field_types
     // ::BodyDecomposition::from_shapes`) uses `Body::from_shape(shape)?
