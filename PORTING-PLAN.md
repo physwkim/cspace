@@ -6509,12 +6509,12 @@ p3-shapes와 p3-distance-field 양쪽 라운드 13에 넣는다.
 
 ### 73.3 `num_nodes`는 `size()`가 아니다
 
-`tree.rs:300`의 `num_nodes`는 재귀 순회다 — 상류 `calcNumNodes()`
+`tree.rs:938`의 `num_nodes`는 재귀 순회다 — 상류 `calcNumNodes()`
 (`OcTreeBaseImpl.h:269`)에 대응하고, O(1) 카운터 `size()`
 (`OcTreeBaseImpl.h:241`, `return tree_size;`)는 어떤 이름으로도 포팅되지
 않았다. 헤더 두 줄을 컨테이너에서 직접 읽어 확인했다. `tree_size`는
-이 워크스페이스에 없다(`iter.rs:221`의 `size()`는 leaf 한 변 길이라
-무관하다).
+이 워크스페이스에 없다(`iter.rs:220`의 `pub fn size(&self) -> f64`는
+leaf 한 변 길이라 무관하다).
 
 ### 73.4 §68 계열 점검: 네 개 모두 이미 외부에 고정돼 있다
 
