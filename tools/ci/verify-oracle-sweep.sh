@@ -17,9 +17,14 @@
 # a hand-typed pointer in a round brief -- round 17's audit found this
 # file sitting outside both the `check-*.sh` and `verify-*.sh` globs with
 # nothing invoking it at all, the same never-runs shape §196 and
-# `verify-vendored-fixture-tests.sh` both close elsewhere. Measured at
-# ~2m24s for the default 10000 cases x 5 robots against the current tree,
-# which `verify-all.sh`'s per-round cost already absorbs.
+# `verify-vendored-fixture-tests.sh` both close elsewhere. Wall clock for
+# the default 10000 cases is measured in the header comment on
+# `CASES_TO_RUN` below, and `verify-all.sh`'s per-round cost absorbs it.
+#
+# Phase 3's completion condition (`collision: bool` / `distance: f64`) is
+# NOT swept here: it is `verify-phase3-collision-sweep.sh`, opt-in, because
+# it costs over an hour. Two conditions behind one exit code would also
+# make a failure unattributable to either.
 #
 #   tools/ci/verify-oracle-sweep.sh [CASES] [SEED]
 #
@@ -37,8 +42,27 @@ DIFF="$REPO_ROOT/target/release/moveit-diff"
 # pr2 appears twice on purpose: `base` is the only planar-joint group in the
 # fixtures, and the reference-point and mimic handling that a revolute chain
 # exercises says nothing about it.
+#
+# Every entry also runs moveit-diff's §5 Phase 1 clause comparison (link
+# count, joint count, group composition, joint limits, mimic -- see
+# `compare_model_info_clauses`), once per invocation rather than once per
+# case. That is why `prbt` is here even though its `manipulator` chain adds
+# no joint type the other entries lack: Phase 1's completion condition names
+# panda / prbt / fanuc, and a fixture no script invokes has its clauses
+# compared by nothing.
+#
+# MEASURED wall clock for the whole list at the default 10000 cases: 113s
+# (2026-08-05, six entries including the prbt one added with this comment;
+# 96-core host, loadavg 18->26 from sibling panels, moveit-diff single-
+# threaded). Each entry reports `cases: 20006` = 1 model_info + 5 Phase 1
+# clauses + 10000 fk + 10000 jacobian.
+#
+# For scale: `verify-phase3-collision-sweep.sh` over the same 10000 states
+# costs 4815s, ~43x this, which is the measured reason Phase 3 is opt-in and
+# this is not.
 CASES_TO_RUN=(
   "panda           panda_arm"
+  "prbt            manipulator"
   "fanuc           manipulator"
   "dual_arm_panda  left_panda_arm"
   "pr2             right_arm"
@@ -78,7 +102,13 @@ for entry in "${CASES_TO_RUN[@]}"; do
     --tol-jacobian 1e-7 \
     --oracle "$REPO_ROOT/tools/moveit-oracle/run-oracle.sh" \
     > "$OUT" 2>&1 || status=$?
-  grep -E 'worst jacobian deviation|^cases:|^passed:|^failed:' "$OUT" || true
+  # The Phase 1 clause block is echoed as well as the Phase 2 numbers. It is
+  # already counted in `cases:`/`failed:` (a run with --group reports
+  # 1 model_info + 5 clauses + N fk + N jacobian), so the exit code covered
+  # it before -- but only as five anonymous units inside a five-digit total,
+  # which is not a per-category result anyone can read off. §5 Phase 1 names
+  # five categories, so the five verdicts are printed by name.
+  grep -E '^--- Phase 1 clauses|^(link_count|joint_count|group_composition|joint_limits|mimic) |worst jacobian deviation|^cases:|^passed:|^failed:' "$OUT" || true
   if [[ $status -ne 0 ]]; then
     echo "--- first 20 disagreements ---" >&2
     grep '^FAIL' "$OUT" | head -20 >&2 || true
