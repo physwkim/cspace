@@ -148,7 +148,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # makes sharding transparent and an independent check on the binary's own
 # summary arithmetic.
 run_port_sharded() {
-  local request="$1" out="$2" timeout="$3"
+  local request="$1" out="$2" timeout="$3" dense="${4:-}"
   local pids=() i rc=0
   # A fresh directory per call, named after the output file. Fixed shard
   # filenames in one shared $WORKDIR were a real defect the pilot caught: a
@@ -170,7 +170,7 @@ run_port_sharded() {
     if [[ "$(jq '.problems|length' "$dir/shard.$i.json")" == "0" ]]; then
       continue
     fi
-    "$PORT" "$SEED_BASE" "$timeout" \
+    "$PORT" "$SEED_BASE" "$timeout" "" "$dense" \
       <"$dir/shard.$i.json" >"$dir/shard.$i.ndjson" 2>"$dir/shard.$i.err" &
     pids+=("$!")
   done
@@ -217,6 +217,17 @@ port_aggregate() {
       condition2_checked: ([.[]|select(.condition2_valid!=null)]|length),
       condition2_pass: ([.[]|select(.condition2_valid==true)]|length),
       waypoints_checked: ([.[]|select(.waypoints_checked!=null)|.waypoints_checked]|add // 0),
+      # What `densify` was handed, against what it produced. A densification
+      # that collapsed back to the vertices the planner itself produced would
+      # re-check only states `PlanningSceneValidityChecker` already accepted
+      # during the search -- exactly the independent-path cross-check that
+      # condition 2 is supposed to be -- while reporting 100%.
+      raw_waypoints: ([.[]|select(.raw_waypoints!=null)|.raw_waypoints]|add // 0),
+      # Largest distance from the first waypoint of a returned path to the
+      # requested start, or from its last to the requested goal, over every
+      # solved problem. `outcome: "solved"` alone does not say WHICH problem
+      # was solved; see `# Endpoint fidelity` in `plan_benchmark_port.rs`.
+      max_endpoint_gap: ([.[]|select(.outcome=="solved")|(.start_gap//0),(.goal_gap//0)]|max // 0),
       cpu_seconds: ([.[]|.plan_seconds]|add // 0),
       slowest_seconds: ([.[]|.plan_seconds]|max),
       slowest_problem_id: (max_by(.plan_seconds)|.id)
@@ -229,48 +240,179 @@ cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" \
 
 failed=()
 
+# --- condition 2's independent cross-check ---------------------------------
+#
+# `is_path_valid` (what condition 2 reports) and `DiscreteMotionValidator`
+# (what the planner used while searching) are two entry points to one
+# `ParryCollisionEnv`, and `build_injected_state` finds its bad state by
+# asking that same env through a third. So the injection gate below proves
+# the entry points agree with each other -- not that the collision model is
+# right. A backend that misses a contact produces a colliding path AND
+# approves it, and every check that only ever asks this port stays green.
+# Only a different implementation can see that.
+#
+# The oracle's `is_state_valid` op is one: upstream MoveIt's
+# `PlanningScene::isPathValid` over FCL. Its loop is per-waypoint with no
+# interpolation of its own (`moveit_core/planning_scene/src/planning_scene.cpp
+# :2365-2424`, read at the pinned sha), the same shape as this port's
+# `is_path_valid`, so handing it the *same* densified waypoint list the port
+# just checked asks two implementations exactly the same question about
+# exactly the same states -- where a re-plan on the C++ side would be a
+# different path and could only ever be compared statistically. That per-
+# waypoint shape is also why several paths can share one oracle invocation:
+# no waypoint's verdict depends on its neighbours, and `goal_constraints` is
+# left empty so `isPathValid`'s own last-waypoint goal check never fires.
+#
+# $1 label, $2 robot, $3 the request JSON the paths came from (for `objects`),
+# $4 port NDJSON carrying `dense`, $5 expected verdict (`valid`|`invalid`),
+# $6 joint-constraint spec or "".
+oracle_path_check() {
+  local label="$1" robot="$2" request="$3" ndjson="$4" expect="$5" spec="$6"
+  local isv="$WORKDIR/isv.$label.ndjson" out="$WORKDIR/isv.$label.out"
+  local pc='{}'
+  if [[ -n "$spec" ]]; then
+    # `<joint>:<position>:<tolerance>` -- the same string
+    # `parse_joint_constraint` rebuilds the port-side set from, in
+    # `moveit_msgs::Constraints` shape. Symmetric tolerance and weight 1.0
+    # because that is what `JointConstraint::new` was handed there.
+    pc="$(jq -c -n --arg spec "$spec" '($spec|split(":")) as $p |
+      {joint_constraints:[{joint_name:$p[0], position:($p[1]|tonumber),
+        tolerance_above:($p[2]|tonumber), tolerance_below:($p[2]|tonumber),
+        weight:1.0}]}')"
+  fi
+  jq -c --slurpfile req "$request" --argjson pc "$pc" \
+    'select(.dense != null)
+     | {id, op:"is_state_valid", objects: $req[0].objects,
+        path_constraints: $pc, waypoints: .dense}' "$ndjson" >"$isv"
+
+  # An empty comparison is the failure this whole cross-check exists to
+  # prevent, so it is named rather than reported as agreement.
+  local n_paths
+  n_paths="$(wc -l <"$isv")"
+  if [[ "$n_paths" -eq 0 ]]; then
+    echo "  FAIL cross-check $label: no port path carried \`dense\`, nothing was compared" >&2
+    failed+=("cross-check $label (nothing compared)")
+    return 1
+  fi
+  if ! sg docker -c "$ORACLE --urdf $REPO_ROOT/fixtures/$robot.urdf --srdf $REPO_ROOT/fixtures/$robot.srdf" \
+       <"$isv" >"$out" 2>"$WORKDIR/isv.$label.err"; then
+    echo "  FAIL cross-check $label: oracle run failed" >&2
+    tail -5 "$WORKDIR/isv.$label.err" >&2
+    failed+=("cross-check $label (oracle run)")
+    return 1
+  fi
+
+  local report
+  report="$(jq -n --slurpfile o <(jq -s '.' "$out") \
+                  --slurpfile p <(jq -s 'map(select(.dense!=null))' "$ndjson") \
+                  --arg expect "$expect" '
+    ($p[0] | map({key:(.id|tostring), value:.}) | from_entries) as $by |
+    [ $o[0][] | ($by[.id|tostring]) as $pp |
+      { id,
+        ok: (.ok == true),
+        oracle_valid: .result.valid,
+        port_valid: $pp.condition2_valid,
+        # Index sets, not counts: two checkers that reject the same *number*
+        # of different waypoints have not given the same answer.
+        same_indices: ((.result.invalid_waypoints // []) == ($pp.invalid_waypoints // [])),
+        n_oracle: ((.result.invalid_waypoints // [])|length),
+        n_port: (($pp.invalid_waypoints // [])|length) } ] as $rows |
+    { paths: ($rows|length),
+      not_ok: [$rows[]|select(.ok|not)|.id],
+      wrong_verdict: [$rows[]|select(.oracle_valid != ($expect == "valid"))|.id],
+      disagree: [$rows[]|select(.oracle_valid != .port_valid)|.id],
+      index_mismatch: [$rows[]|select(.same_indices|not)|{id, n_oracle, n_port}],
+      waypoints: ([$o[0][]|.result.invalid_waypoints]|length) }')"
+  local paths not_ok wrong disagree mismatch
+  paths="$(jq -r '.paths' <<<"$report")"
+  not_ok="$(jq -r '.not_ok|length' <<<"$report")"
+  wrong="$(jq -r '.wrong_verdict|length' <<<"$report")"
+  disagree="$(jq -r '.disagree|length' <<<"$report")"
+  mismatch="$(jq -r '.index_mismatch|length' <<<"$report")"
+  if [[ "$not_ok" == "0" && "$wrong" == "0" && "$disagree" == "0" && "$mismatch" == "0" ]]; then
+    echo "  PASS cross-check $label: upstream isPathValid agrees on all $paths path(s), expected=$expect, invalid-index sets identical"
+    return 0
+  fi
+  echo "  FAIL cross-check $label: paths=$paths not_ok=$not_ok wrong_verdict=$wrong port/oracle_disagree=$disagree index_mismatch=$mismatch" >&2
+  jq -c '{not_ok, wrong_verdict, disagree, index_mismatch}' <<<"$report" >&2
+  failed+=("cross-check $label")
+  return 1
+}
+
 # --- condition 2's discrimination gate -------------------------------------
 #
 # Runs FIRST, and a failure here invalidates every condition-2 number below.
 # A validator that silently checks nothing reports 100% exactly as a working
-# one does; these two runs splice a state verified bad by direct query into
-# every solved path and require the checker to reject all of them. See
+# one does; these runs splice a state verified bad by direct query into every
+# solved path and require the checker to reject all of them. See
 # `plan_benchmark_port.rs`'s `# Proving the condition-2 check can fail`.
+#
+# Run on EVERY robot/config in SETS, not only panda's `floor_wall`: the state
+# `build_injected_state` splices is found by sampling *this* scene, the
+# geometry differs per config, and fanuc's links and reach-scaled obstacles
+# are a different collision problem entirely. A checker permissive for one
+# scene's geometry passed the single-scene version of this gate.
+#
+# `INJECT_COUNT` is small because the property is per-path ("every solved path
+# is rejected"), not statistical: 4 paths per scene across 4 scenes says
+# strictly more than 6 paths in one scene, and costs less on fanuc, where a
+# single call averages ~9 s.
+INJECT_COUNT=4
 echo
 echo "=== condition 2 discrimination gate (injected bad waypoints must be rejected) ==="
-"$GEN" floor_wall 6 900001 panda >"$WORKDIR/inject_plain.json" 2>/dev/null
-"$GEN" floor_wall 6 900011 panda panda_joint1:0.0:0.5 >"$WORKDIR/inject_con.json" 2>/dev/null
-
-for mode in collision constraint; do
-  src="$WORKDIR/inject_plain.json"
-  [[ "$mode" == "constraint" ]] && src="$WORKDIR/inject_con.json"
-  if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" "$mode" \
-       <"$src" >"$WORKDIR/inject_$mode.ndjson" 2>"$WORKDIR/inject_$mode.err"; then
-    echo "  PASS inject=$mode -- $(tail -1 "$WORKDIR/inject_$mode.err")"
+for entry in "${SETS[@]}"; do
+  read -r robot config count seed <<<"$entry"
+  tag="${robot}_${config}"
+  "$GEN" "$config" "$INJECT_COUNT" "$seed" "$robot" >"$WORKDIR/inject_$tag.json" 2>/dev/null
+  if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" collision dense \
+       <"$WORKDIR/inject_$tag.json" >"$WORKDIR/inject_$tag.ndjson" 2>"$WORKDIR/inject_$tag.err"; then
+    echo "  PASS inject=collision $tag -- $(tail -1 "$WORKDIR/inject_$tag.err")"
   else
-    echo "  FAIL inject=$mode did not reject every injected path:" >&2
-    cat "$WORKDIR/inject_$mode.err" >&2
-    failed+=("inject=$mode")
+    echo "  FAIL inject=collision $tag did not reject every injected path:" >&2
+    cat "$WORKDIR/inject_$tag.err" >&2
+    failed+=("inject=collision $tag")
+  fi
+  # The same injected paths through upstream's checker. This is what turns
+  # the injection gate from "two of this port's entry points agree" into
+  # "the state parry calls a collision, FCL calls a collision too" -- and it
+  # is also the proof that the cross-check on the real paths below can fail,
+  # since a checker that answered `valid` unconditionally would fail here.
+  oracle_path_check "inject_$tag" "$robot" "$WORKDIR/inject_$tag.json" \
+    "$WORKDIR/inject_$tag.ndjson" invalid ""
+
+  # Positive control: same scene, same problems, no injection. Without it the
+  # rejection above proves nothing -- a checker that rejects everything would
+  # also "pass" it.
+  if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" "" dense \
+       <"$WORKDIR/inject_$tag.json" >"$WORKDIR/control_$tag.ndjson" 2>"$WORKDIR/control_$tag.err"; then
+    cp=$(port_aggregate "$WORKDIR/control_$tag.ndjson" \
+          | jq -r '"\(.condition2_pass)/\(.condition2_checked)"')
+    if [[ "$cp" == */* && "${cp%/*}" == "${cp#*/}" && "${cp%/*}" != "0" ]]; then
+      echo "  PASS no-injection control $tag -- condition2 $cp"
+    else
+      echo "  FAIL no-injection control $tag -- condition2 $cp (expected all-pass)" >&2
+      failed+=("control $tag")
+    fi
+  else
+    echo "  FAIL no-injection control $tag did not run" >&2
+    failed+=("control $tag")
   fi
 done
 
-# Positive control: the same harness, same set, no injection. If this does
-# not pass every path, the injection gate above proves nothing (a checker
-# that rejects everything would also "pass" it).
-if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" \
-     <"$WORKDIR/inject_plain.json" >"$WORKDIR/inject_none.ndjson" 2>"$WORKDIR/inject_none.err"; then
-  cp=$(port_aggregate "$WORKDIR/inject_none.ndjson" \
-        | jq -r '"\(.condition2_pass)/\(.condition2_checked)"')
-  if [[ "$cp" == */* && "${cp%/*}" == "${cp#*/}" && "${cp%/*}" != "0" ]]; then
-    echo "  PASS no-injection control -- condition2 $cp"
-  else
-    echo "  FAIL no-injection control -- condition2 $cp (expected all-pass)" >&2
-    failed+=("inject=none control")
-  fi
+# The constraint half of the injection gate needs a request that carries a
+# `joint_constraint`, which only the constrained set does.
+"$GEN" floor_wall "$INJECT_COUNT" 900011 panda panda_joint1:0.0:0.5 \
+  >"$WORKDIR/inject_con.json" 2>/dev/null
+if "$PORT" "$SEED_BASE" "$TIMEOUT_SECONDS" constraint dense \
+     <"$WORKDIR/inject_con.json" >"$WORKDIR/inject_con.ndjson" 2>"$WORKDIR/inject_con.err"; then
+  echo "  PASS inject=constraint -- $(tail -1 "$WORKDIR/inject_con.err")"
 else
-  echo "  FAIL no-injection control did not run" >&2
-  failed+=("inject=none control")
+  echo "  FAIL inject=constraint did not reject every injected path:" >&2
+  cat "$WORKDIR/inject_con.err" >&2
+  failed+=("inject=constraint")
 fi
+oracle_path_check inject_constraint panda "$WORKDIR/inject_con.json" \
+  "$WORKDIR/inject_con.ndjson" invalid panda_joint1:0.0:0.5
 
 # --- the benchmark sets ----------------------------------------------------
 #
@@ -311,6 +453,16 @@ for entry in "${SETS[@]}"; do
     failed+=("oracle $tag")
     continue
   fi
+  # `ok` before anything is read off `result`: the oracle answers a request it
+  # could not serve with `{ok:false, error}` and exit 0 (one process serves a
+  # stream of requests, so one bad request is not fatal to it). Left unchecked,
+  # that lands as a *lower* C++ success rate -- and condition 1's bar is
+  # `0.9 * cpp_rate`, so a broken baseline makes the port easier to pass.
+  if [[ "$(jq -r '.ok' "$WORKDIR/$tag.oracle.json")" != "true" ]]; then
+    echo "FAIL oracle answered not-ok for $tag: $(jq -r '.error' "$WORKDIR/$tag.oracle.json")" >&2
+    failed+=("oracle not-ok $tag")
+    continue
+  fi
   n=$(jq '.result.problems | length' "$WORKDIR/$tag.oracle.json")
   ex=$(jq '[.result.problems[]|select(.exact==true)]|length' "$WORKDIR/$tag.oracle.json")
   echo "  $tag: $ex/$n exact"
@@ -324,16 +476,49 @@ for entry in "${SETS[@]}" "constrained x x x"; do
   tag="${robot}_${config}"
   [[ "$robot" == "constrained" ]] && tag="constrained"
   [[ -s "$WORKDIR/$tag.request.json" ]] || continue
-  if ! run_port_sharded "$WORKDIR/$tag.request.json" "$WORKDIR/$tag.port.ndjson" "$TIMEOUT_SECONDS"; then
+  # `dense`: every solved path carries the waypoint list condition 2 checked,
+  # so `oracle_path_check` can put the same states in front of upstream's own
+  # checker below. Not sampled -- condition 2's wording is "100% of produced
+  # paths", and a sample would answer a narrower question than that.
+  if ! run_port_sharded "$WORKDIR/$tag.request.json" "$WORKDIR/$tag.port.ndjson" \
+       "$TIMEOUT_SECONDS" dense; then
     echo "FAIL port run for $tag" >&2
     failed+=("port $tag")
   fi
-  port_aggregate "$WORKDIR/$tag.port.ndjson" | jq -r --arg tag "$tag" \
-    '"  \($tag): problems=\(.problems) solved=\(.solved) timeouts=\(.timeouts) failures=\(.failures) cond2=\(.condition2_pass)/\(.condition2_checked) cpu=\(.cpu_seconds|floor)s slowest=\((.slowest_seconds*10|round)/10)s (id \(.slowest_problem_id))"'
+  # Every aggregate below reads this projection instead of the run's own file:
+  # with `dense` on, one full set is tens of MB of waypoints, and each of the
+  # six later jq passes would re-parse all of them to reach the same handful
+  # of scalars. Only `oracle_path_check` needs the waypoints themselves.
+  jq -c 'select(.id != null) | del(.dense)' \
+    "$WORKDIR/$tag.port.ndjson" >"$WORKDIR/$tag.slim.ndjson"
+  port_aggregate "$WORKDIR/$tag.slim.ndjson" | jq -r --arg tag "$tag" \
+    '"  \($tag): problems=\(.problems) solved=\(.solved) timeouts=\(.timeouts) failures=\(.failures) cond2=\(.condition2_pass)/\(.condition2_checked) waypoints=\(.waypoints_checked) (raw \(.raw_waypoints)) max_endpoint_gap=\(.max_endpoint_gap) cpu=\(.cpu_seconds|floor)s slowest=\((.slowest_seconds*10|round)/10)s (id \(.slowest_problem_id))"'
 done
 port_end=$(date +%s.%N)
 port_wall=$(echo "$port_end - $port_start" | bc)
 printf "  wall clock for all port runs: %.1fs\n" "$port_wall"
+
+# --- condition 2 against upstream's checker, on every produced path ---------
+#
+# The injection gate above proved this comparison can fail; this is the
+# comparison itself. Nothing here is sampled: every path condition 2 counted
+# is handed to upstream `PlanningScene::isPathValid` and must come back valid,
+# with the same (empty) invalid-index set.
+echo
+echo "=== condition 2 cross-check: every produced path through upstream isPathValid ==="
+for entry in "${SETS[@]}" "constrained x x x"; do
+  read -r robot config count seed <<<"$entry"
+  tag="${robot}_${config}"
+  spec=""
+  if [[ "$robot" == "constrained" ]]; then
+    tag="constrained"
+    robot="$c_robot"
+    spec="$c_spec"
+  fi
+  [[ -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  oracle_path_check "$tag" "$robot" "$WORKDIR/$tag.request.json" \
+    "$WORKDIR/$tag.port.ndjson" valid "$spec"
+done
 
 # --- feasibility accounting ------------------------------------------------
 #
@@ -386,13 +571,13 @@ declare -A UNSOLVED_N
 for entry in "${SETS[@]}"; do
   read -r robot config count seed <<<"$entry"
   tag="${robot}_${config}"
-  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.slim.ndjson" ]] || continue
   jq -s -r '
     (.[0].result.problems | map(select(.exact==true) | .id)) as $c |
     (.[1] | map(select(.outcome=="solved") | .id)) as $p |
     (.[0].result.problems | map(.id)) as $all |
     ($all - ($c + $p)) | .[]
-  ' "$WORKDIR/$tag.oracle.json" <(jq -s '.' "$WORKDIR/$tag.port.ndjson") \
+  ' "$WORKDIR/$tag.oracle.json" <(jq -s '.' "$WORKDIR/$tag.slim.ndjson") \
     >"$WORKDIR/$tag.unsolved.txt" 2>/dev/null
   UNSOLVED_N[$tag]=$(wc -l <"$WORKDIR/$tag.unsolved.txt")
 done
@@ -419,7 +604,7 @@ done
 for entry in "${SETS[@]}"; do
   read -r robot config count seed <<<"$entry"
   tag="${robot}_${config}"
-  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.port.ndjson" ]] || continue
+  [[ -s "$WORKDIR/$tag.oracle.json" && -s "$WORKDIR/$tag.slim.ndjson" ]] || continue
   n_unsolved="${UNSOLVED_N[$tag]:-0}"
   n_total=$(jq '.result.problems|length' "$WORKDIR/$tag.oracle.json")
   witnessed=$((n_total - n_unsolved))
