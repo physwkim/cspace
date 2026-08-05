@@ -519,6 +519,32 @@ mod position {
         );
     }
 
+    /// `PositionConstraint::new`'s first fallible call, `model.link_model(link_name)?`,
+    /// is a sibling of `new_rejects_unresolvable_mobile_frame`'s frame-id
+    /// guard below -- both reach `Error::UnknownName`, one with `kind:
+    /// "link"`, the other `kind: "frame"`. `planning_scene_validity.rs` (in
+    /// `moveit-planners-sbp`) already had to be fixed to discriminate the
+    /// two downstream; this crate had no test at all for the `"link"` side
+    /// before this one.
+    #[test]
+    fn new_rejects_unknown_link() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let region = sphere_region(0.01, Isometry3::identity());
+        assert_err_mentions(
+            PositionConstraint::new(
+                &model,
+                &transforms,
+                "no_such_link",
+                model.model_frame(),
+                Vector3::zeros(),
+                &[region],
+                1.0,
+            ),
+            r#"no link named "no_such_link""#,
+        );
+    }
+
     #[test]
     fn new_rejects_unresolvable_mobile_frame() {
         let model = panda_model();

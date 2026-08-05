@@ -218,7 +218,13 @@ mod oracle_construct_goal_joint_constraints {
         let posed = state.update();
         let err = construct_goal_joint_constraints(&model, &posed, "no_such_group", 0.1, 0.1)
             .unwrap_err();
-        assert!(matches!(err, Error::UnknownName { .. }));
+        assert!(matches!(
+            err,
+            Error::UnknownName {
+                kind: "group",
+                ref name
+            } if name == "no_such_group"
+        ));
     }
 }
 
