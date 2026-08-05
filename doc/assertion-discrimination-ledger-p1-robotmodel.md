@@ -42,9 +42,9 @@ and/or isolating mutation run this round, reverted after confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1030` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) |
+| `time_optimal_trajectory_generation.rs:1038` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
 | `time_optimal_trajectory_generation.rs:1043` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1112` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1120` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
 | `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
 | `time_optimal_trajectory_generation.rs:1136` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
 | `robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
@@ -388,12 +388,12 @@ computation failed: {e}`); `resolve_frame` → `no frame named "X"` (kind
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `decide.rs:372` | `no frame specified for position constraint` | discriminating | none of the other 5 messages contain it |
-| `decide.rs:390` | `needs at least one constraint region` | discriminating | substring only of the shapes-empty message; not in the other 5 |
-| `decide.rs:448` | `has no bodies:: counterpart` | discriminating | substring only of the `Ok(None)` message; not in the other 5 |
-| `decide.rs:518` | `convex mesh body requires at least one vertex` | discriminating | exact text of `bodies.rs:2542-2543`'s guard; not in the other 5, nor in `bodies.rs`'s own sibling `convex hull computation failed: {e}` |
-| `decide.rs:544` | `no link named "no_such_link"` | discriminating | not in the `frame`-kind message (different `kind`) nor the other 4 |
-| `decide.rs:563` | `no frame named "no_such_frame"` | discriminating | not in the `link`-kind message nor the other 4 |
+| `decide.rs:362` | `no frame specified for position constraint` | discriminating | none of the other 5 messages contain it — line corrected round 17 (was `:372`, the message-string argument line inside this multi-line `assert_err_mentions` call, not the call's own opening line the scanner cites) |
+| `decide.rs:380` | `needs at least one constraint region` | discriminating | substring only of the shapes-empty message; not in the other 5 — line corrected round 17, was `:390` |
+| `decide.rs:438` | `has no bodies:: counterpart` | discriminating | substring only of the `Ok(None)` message; not in the other 5 — line corrected round 17, was `:448` |
+| `decide.rs:508` | `convex mesh body requires at least one vertex` | discriminating | exact text of `bodies.rs:2542-2543`'s guard; not in the other 5, nor in `bodies.rs`'s own sibling `convex hull computation failed: {e}` — line corrected round 17, was `:518` |
+| `decide.rs:534` | `no link named "no_such_link"` | discriminating | not in the `frame`-kind message (different `kind`) nor the other 4 — line corrected round 17, was `:544` |
+| `decide.rs:553` | `no frame named "no_such_frame"` | discriminating | not in the `link`-kind message nor the other 4 — line corrected round 17, was `:563` |
 
 `OrientationConstraint::new` (`orientation.rs:195-248`) has only two
 fallible sites: `link_model(link_name)?` → `no link named "X"`;
@@ -405,8 +405,8 @@ says so directly).
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `decide.rs:756` | `no frame named "no_such_frame"` | discriminating | not in the `link`-kind message; the other same-guard instance (`decide.rs:795`) differs by quoted content only |
-| `decide.rs:795` | `no frame named ""` | discriminating | same as above, reversed; deliberately the same guard as `:756`, not a collision — the doc comment says so |
+| `decide.rs:742` | `no frame named "no_such_frame"` | discriminating | not in the `link`-kind message; the other same-guard instance (`decide.rs:781`) differs by quoted content only — line corrected round 17, was `:756` |
+| `decide.rs:781` | `no frame named ""` | discriminating | same as above, reversed; deliberately the same guard as `:742`, not a collision — the doc comment says so — line corrected round 17, was `:795` |
 
 **`moveit-constraints/tests/sampler.rs`** — subject `JointConstraintSampler::new`
 (`sampler.rs:179-259`), three sites: unknown group → `Error::UnknownName`;
@@ -593,7 +593,7 @@ independent guard groups.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1070` | `exceeding the` | discriminating | `"exceeding"` occurs exactly once in the whole file (`rg -n exceeding`); globally unique, not just locally |
+| `time_optimal_trajectory_generation.rs:1078` | `exceeding the` | discriminating | `"exceeding"` occurs exactly once in the whole file (`rg -n exceeding`); globally unique, not just locally — line corrected round 17, was `:1070`. **Caveat added round 17, not re-audited**: a fresh scan now shows a 4th `.contains("exceeding the")` site at `:1561` (`a NaN duration must be rejected`), not present when this row's "globally unique" evidence was written — that premise no longer holds as stated. `moveit-trajectory` is outside this round's fence; flagging rather than re-deriving |
 | `:1097` | same | discriminating | same guard, subnormal-`resample_dt` boundary |
 | `:1163` | same | discriminating | same guard, `usize::MAX`-targeting boundary |
 | `:1421` | `4` AND `7`, **fragile** | discriminating | the mimic-dimension-mismatch guard (`:770-780`) is the *only* reachable `Err` once `max_velocity.len() != group.variable_names().len()`, which is unconditional for any group with a mimic joint — no sibling branch is reachable to collide with today, but the needles themselves are bare digits, the weakest form found this round; any future guard added ahead of this one in `do_time_parameterization_calculations` that also renders a floating-point value ending in 4 or 7 would defeat it. Not fixed — not currently blind, and the brief says do not fix speculatively. |
@@ -809,7 +809,7 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 |---|---|---|---|
 | `mesh_search_paths.rs:108` (`paths.is_empty()`, on `none()`) | **no** | not-this-family | `is_empty()` on `packages.is_empty()`, `none()` on `Self::default()` — both trivial, no decision links them |
 | `mesh_search_paths.rs:109` (`none_resolves_nothing`) | yes | discriminating | empty map — isolates the `self.packages.get(package)?` guard; distinguishable from `:139/140`'s guard (see below) |
-| `mesh_search_paths.rs:130` (`unknown_package_does_not_resolve`) | yes | discriminating | map has one real entry, queried key absent — same guard as `:109` but proves it is the lookup miss, not "map empty," that fires |
+| `mesh_search_paths.rs:141` (`unknown_package_does_not_resolve`) | yes | discriminating | map has one real entry, queried key absent — same guard as `:109` but proves it is the lookup miss, not "map empty," that fires — line corrected round 17, was `:130` |
 | `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) | yes | discriminating | neither input has a `"package://"` prefix — isolates `strip_prefix(...)?`, distinct guard from `:109/130` |
 
 **Not fixed, flagged rather than fabricated**: the `split_once('/')?`
@@ -834,13 +834,13 @@ silently dropping it.
 | `robot_model.rs:2561` (valid stl, diagnostics-empty) | yes | discriminating | positive-case anchor for `:2411/2518/2472/2512/2542`; cross-test siblings show diagnostics populated for every failure shape |
 | `robot_model.rs:2635` | yes | discriminating, breadth caveat | round 11, unchanged |
 | `robot_model.rs:2676` (`visual_mesh_filename()`, `None`) | yes | discriminating | cross-test siblings `:2650` (`Some("visual.dae")`), `:2666` (`Some("collision.stl")`) |
-| `robot_model.rs:2764` (`"other"` group, `attached_end_effector_names().is_empty()`) | yes | discriminating | same test: `"arm"`/`"full_arm"` (`:2755,2762`) are the non-empty siblings; real ancestry-walk decision, not vacuous |
-| `robot_model.rs:2885` (`end_effector_parent()`, `None`) | yes | discriminating | cross-test siblings `:2743,2813,2832,2851,2869` all `Some(EndEffectorParent{..})` |
-| `robot_model.rs:2886` (`attached_end_effector_names().is_empty()`, no end effector declared at all) | yes | discriminating | cross-test sibling `:2755,2762` (`["grasper"]`) |
-| `robot_model.rs:2986` (unknown-group `group_state`, ignored) | yes | discriminating | cross-test sibling `:2936` (`["home"]`); real group-name-lookup guard, distinct decision from `:3021`'s |
-| `robot_model.rs:3021` (every joint value unusable, no state stored) | yes | discriminating | real per-value dimension-mismatch guard (not vacuous — one `<group_state>` element present); cross-test sibling `:2936` |
-| `robot_model.rs:3031` (`variable_default_positions_returns_none_for_unknown_state_name`, empty srdf) | **no** | not-this-family | vacuous — `group_state_test_srdf("")` has zero `<group_state>` elements, nothing for the collection loop to iterate |
-| `robot_model.rs:3376-3379` (fixed-joints-only group: `active_joint_indices`/`joint_roots`/`updated_link_names`/`updated_link_with_geometry_names`, all empty) | yes | single-branch | doc comment (`:3341-3350`) gives the causal chain explicitly; each is a real per-joint/per-root decision (not vacuous — 2 fixed joints present), but only this one fixture shape is exercised in this fence, no direct `.is_empty()`-shaped sibling asserting non-empty for the same getters |
+| `robot_model.rs:2781` (`"other"` group, `attached_end_effector_names().is_empty()`) | yes | discriminating | same test: `"arm"`/`"full_arm"` (`:2755,2762`) are the non-empty siblings; real ancestry-walk decision, not vacuous — line corrected round 17, was `:2764` |
+| `robot_model.rs:2902` (`end_effector_parent()`, `None`) | **no** (corrected round 15) | single-branch, excluded | field default, set only by `set_end_effector_parent`, never called in this fixture — see round 15's "Excluded: single guard" table below; superseded the cross-test-sibling reasoning originally in this row — line corrected round 17, was `:2885` |
+| `robot_model.rs:2903` (`attached_end_effector_names().is_empty()`, no end effector declared at all) | **no** (corrected round 16) | not-this-family | vacuous — this test's SRDF declares zero end effectors at all, so nothing ever populates this field for any group; the original cross-test-sibling reasoning here compared against a *different* test's fixture, not this test's own causal chain — see round 16 — line corrected round 17, was `:2886` |
+| `robot_model.rs:3003` (unknown-group `group_state`, ignored) | yes | discriminating, **bitten round 16** | real group-name-lookup guard, distinct decision from `:3038`'s; round 16 replaced the original reading-only cross-test-sibling evidence with an isolating mutation on `build_group_states` (`:1559` vs `:1588`) — line corrected round 17, was `:2986` |
+| `robot_model.rs:3038` (every joint value unusable, no state stored) | yes | discriminating, **bitten round 16** | real per-value dimension-mismatch guard (not vacuous — one `<group_state>` element present); round 16 isolating mutation, see above — line corrected round 17, was `:3021` |
+| `robot_model.rs:3048` (`variable_default_positions_returns_none_for_unknown_state_name`, empty srdf) | **no** | not-this-family | vacuous — `group_state_test_srdf("")` has zero `<group_state>` elements, nothing for the collection loop to iterate — line corrected round 17, was `:3031` |
+| `robot_model.rs:3393-3396` (fixed-joints-only group: `active_joint_indices`/`joint_roots`/`updated_link_names`/`updated_link_with_geometry_names`, all empty) | yes | single-branch | doc comment gives the causal chain explicitly; each is a real per-joint/per-root decision (not vacuous — 2 fixed joints present), but only this one fixture shape is exercised in this fence, no direct `.is_empty()`-shaped sibling asserting non-empty for the same getters — line corrected round 17, was `:3376-3379`; body confirmed byte-identical by direct read round 16 |
 
 **`crates/moveit-model/tests/robot_model_parity.rs` (4)**
 
@@ -863,9 +863,9 @@ three real causes producing the identical `Err` value.
 
 | file:line | member? | verdict | evidence |
 |---|---|---|---|
-| `check_start_state_bounds.rs:302` (`an_out_of_bounds_velocity_is_rejected`) | yes | discriminating | **isolating mutation, run this round**: `if false && state.has_velocities() && !joint.satisfies_velocity_bounds(...)` → this test fails (`Ok(())` vs expected `Err`), `:328`'s test stays green |
-| `check_start_state_bounds.rs:328` (`a_joint_placed_outside_its_limits_is_rejected_regardless_of_fix_start_state`) | yes | discriminating | **isolating mutation, run this round**: `if false && !joint.satisfies_position_bounds(...)` → this test fails, `:302`'s test stays green |
-| `check_start_state_bounds.rs:377` (`(-PI..=PI).contains(&wrapped)`) | **no** | not-this-family | range check on a directly computed numeric result (the wrap itself), not an absence/failure signal — same exclusion as `sampler.rs`'s bounds checks in round 11 |
+| `check_start_state_bounds.rs:358` (`an_out_of_bounds_velocity_is_rejected`) | yes | discriminating | **isolating mutation, run this round**: `if false && state.has_velocities() && !joint.satisfies_velocity_bounds(...)` → this test fails (`Ok(())` vs expected `Err`), `:384`'s test stays green — line corrected round 17, was `:302` |
+| `check_start_state_bounds.rs:384` (`a_joint_placed_outside_its_limits_is_rejected_regardless_of_fix_start_state`) | yes | discriminating | **isolating mutation, run this round**: `if false && !joint.satisfies_position_bounds(...)` → this test fails, `:358`'s test stays green — line corrected round 17, was `:328` |
+| `check_start_state_bounds.rs:433` (`(-PI..=PI).contains(&wrapped)`) | **no** | not-this-family | range check on a directly computed numeric result (the wrap itself), not an absence/failure signal — same exclusion as `sampler.rs`'s bounds checks in round 11 — line corrected round 17, was `:377` |
 | `check_start_state_collision.rs:161,162` | yes | discriminating | round 11, unchanged |
 
 `:169`'s guard actually folds a *third* operand
@@ -991,7 +991,7 @@ diff --stat` shows only the `#[cfg(test)] mod tests` block changed.
 |---|---|---|---|---|
 | `mesh_search_paths.rs:108` (`paths.is_empty()`, on `none()`) | **no** | not-this-family | not-this-family (unchanged) | trivial getter, no decision |
 | `mesh_search_paths.rs:109` (`none_resolves_nothing`) | yes | discriminating | **single-branch** | empty map has no fallback candidate; guard cannot be further isolated by input |
-| `mesh_search_paths.rs:130` (`unknown_package_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:88` (see table above) — round 13's verdict rested on reading, not mutation, and was wrong until the fixture was rebuilt |
+| `mesh_search_paths.rs:141` (`unknown_package_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:88` (see table above) — round 13's verdict rested on reading, not mutation, and was wrong until the fixture was rebuilt — line corrected round 17, was `:130` |
 | `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:86` (see table above) — same correction |
 | `mesh_search_paths.rs` (`malformed_package_uri_with_no_relative_path_does_not_resolve`, new) | yes | — (did not exist) | discriminating | isolating mutation on `:87` |
 | `mesh_search_paths.rs` (`missing_file_does_not_resolve`, new) | yes | — (did not exist) | discriminating | isolating mutation on `:89` |
@@ -1112,7 +1112,7 @@ moveit-model visual_mesh --no-fail-fast`. Reverted; `git diff` on
 | `model.rs:946` (`local_variable_names().is_empty()`) | `JointModel::new_single_variable` | unconditional `Vec::new()` in one constructor body — every single-variable joint kind (revolute/prismatic/continuous) routes through this one function, not several guards |
 | `model.rs:975,976` (`variable_names`/`variable_bounds().is_empty()`) | `JointModel::new_fixed` | same shape, unconditional `Vec::new()`, one constructor |
 | `decide.rs:1161,1166` (`max_view_angle`/`max_range_angle`, bare `None`) | `normalize_angle_criterion` = `value.filter(\|v\| *v > EPS)` | one guard (`> EPS`); the other way to reach `None` is the input already being `None` (criterion unset), which is `Option` pass-through, not an independent application decision — same shape as `mesh_search_paths.rs:109`'s excluded single-branch case |
-| `robot_model.rs:2885` (`end_effector_parent()`, bare `None`) | field default, set only by `set_end_effector_parent` | reachable *only* by that call never happening (group never named as an `<end_effector>` `component_group`); `build_end_effectors`'s own 3-cause funnel (explicit-parent self-reference, explicit-parent lacking the link, no fallback candidate) produces `Some(EndEffectorParent{group: None, ..})`, a distinguishable payload, not this bare `None` — and is not itself one of the 53 sites (not an `eq_none`-shaped assertion) |
+| `robot_model.rs:2902` (`end_effector_parent()`, bare `None`) | field default, set only by `set_end_effector_parent` | reachable *only* by that call never happening (group never named as an `<end_effector>` `component_group`); `build_end_effectors`'s own 3-cause funnel (explicit-parent self-reference, explicit-parent lacking the link, no fallback candidate) produces `Some(EndEffectorParent{group: None, ..})`, a distinguishable payload, not this bare `None` — and is not itself one of the 53 sites (not an `eq_none`-shaped assertion) — line corrected round 17, was `:2885` |
 
 ### Excluded: distinguishable payload, not undifferentiated
 
@@ -1125,15 +1125,43 @@ moveit-model visual_mesh --no-fail-fast`. Reverted; `git diff` on
 
 ### Excluded: `Vec::is_empty()` class, structurally immune
 
-`robot_model.rs:1972,2260,2369,2411,2518,2561,2764,2886,2986,3021,3376,3377,
-3378,3379` (14 sites; `:2392,3031` already `not-this-family`). An
-`is_empty() == true` assertion cannot be produced by the wrong cause the way
-a bare `None`/`Err` can: *any* push, from *any* cause, flips the result to
-non-empty and would fail the assertion regardless of which cause fired.
-There is no fallthrough chain analogous to `resolve()`'s `?` operators — the
-observable (empty vs non-empty) does not collapse distinguishable causes
-into one value, it merely fails to name *which* absence occurred, which is
-a coverage question, not this defect.
+`robot_model.rs:1972,2260,2369,2411,2518,2561,2781,3376,3377,3378,3379` (11
+sites; current line numbers, corrected round 17 — old `:2764` is now
+`:2781`). `:2392,3048` already `not-this-family`; `:2903` (old `:2886`)
+also reclassified `not-this-family` round 16 — its old cross-test-sibling
+evidence compared a different test's fixture, not this one's own causal
+chain, see the round 13 table above. An `is_empty() == true` assertion
+cannot be produced by the wrong cause the way a bare `None`/`Err` can: *any*
+push, from *any* cause, flips the result to non-empty and would fail the
+assertion regardless of which cause fired. There is no fallthrough chain
+analogous to `resolve()`'s `?` operators — the observable (empty vs
+non-empty) does not collapse distinguishable causes into one value, it
+merely fails to name *which* absence occurred, which is a coverage
+question, not this defect.
+
+**Correction, round 17**: that reasoning has a hole, found while biting
+`:3003`/`:3038` (old `:2986`/`:3021`) this round — both were originally
+placed in this "structurally immune" class. The "any push flips it"
+argument only protects against a *false non-empty* result; it says nothing
+about whether *staying empty* can itself be produced by more than one
+distinct skip guard. `build_group_states` (`robot_model.rs:1557-1595`) has
+exactly two: the unknown-group early `continue` (`:1559`) and the
+empty-after-filtering skip (`:1588`) — neither ever pushes, so the "any
+push" argument never engages, and the two causes genuinely funnel into the
+same `is_empty() == true` outcome. The isolating mutation (neutralizing
+`:1588`) proved they are separable, which only holds because a real, in-fence
+bite happened to be run on this pair — nothing in the class-level argument
+would have caught the gap on its own. `:3003`/`:3038` are excluded from the
+list above for this reason. Not re-audited this round: whether any of the
+remaining 11 sites has the same "more than one skip path funneling into one
+empty result" shape rather than a genuinely single cause. Two of them
+(`:2411`, `:2518`, the mesh-skip tests) looked like candidates on inspection
+but are safe for a *different* reason — each carries its own sibling
+`detail`-string assertion in the same test (`:2472`-class, already
+`distinguishable payload`) that independently proves which of the four mesh
+failure branches fired, so their `is_empty()` is a secondary confirmation,
+not the only evidence. The other 9 were not re-checked against this
+specific failure mode; flagging rather than asserting they are clean.
 
 ### Result
 
