@@ -636,6 +636,7 @@ name = "moveit-ros"
 version = "0.1.0"
 dependencies = [
  "approx",
+ "futures",
  "moveit-collision",
  "moveit-constraints",
  "moveit-error",

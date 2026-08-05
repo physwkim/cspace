@@ -66,15 +66,26 @@ moveit-octomap = { path = "../../crates/moveit-octomap" }
 # API directly.
 nalgebra = "0.35"
 
-[dev-dependencies]
-approx = "0.5"
-# Test-only: building an inline RobotModel from a URDF/SRDF string to
-# exercise model-aware conversions (JointConstraint, RobotState, ...).
-# Version pinned to match the root workspace's own `urdf-rs = "0.9"`
-# (root Cargo.toml's `[workspace.dependencies]`) by hand, since this
-# manifest is its own workspace (see above) and cannot `workspace = true`.
+# `src/bin/plan_kinematic_path_server.rs` (PORTING-PLAN.md §NEW) loads a
+# RobotModel from URDF/SRDF file paths at startup -- promoted out of
+# dev-dependencies below, where they were test-fixture-only until this round.
+# Version pinned to match the root workspace's own `urdf-rs = "0.9"` (root
+# Cargo.toml's `[workspace.dependencies]`) by hand, since this manifest is
+# its own workspace (see above) and cannot `workspace = true`.
 moveit-srdf = { path = "../../crates/moveit-srdf" }
 urdf-rs = "0.9"
+
+# r2r's own service/action API is executor-agnostic (README: "the library
+# purposefully does not chose an async runtime"); its own `examples/service.rs`
+# drives a `create_service` stream with `futures::executor::LocalPool` plus
+# `node.spin_once`, no tokio needed, so `plan_kinematic_path_server.rs` follows
+# the same pattern instead of adding a heavier runtime dependency. Version
+# pinned to match r2r's own `Cargo.toml` dependency (confirmed by reading it
+# at the pinned rev above: `futures = "0.3.25"`).
+futures = "0.3"
+
+[dev-dependencies]
+approx = "0.5"
 
 [lints.rust]
 unsafe_code = "forbid"
