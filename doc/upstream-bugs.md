@@ -107,6 +107,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `ik-cache-map-first-update-dropped` | not-reproduced |
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
+| `count-samples-per-second-returns-a-ratio` | not-reproduced |
 
 ---
 
@@ -1298,3 +1299,47 @@ Both items previously open here are resolved:
   so the gap is recorded rather than silently left for the next reader to
   wonder about. No new `D` number was invented for any of them, per this
   round's instruction.
+
+---
+
+### `count-samples-per-second-returns-a-ratio` — `countSamplesPerSecond` returns a unitless success ratio, not a rate — not-reproduced
+
+**Upstream:** `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp:72-94`
+(the `(sampler, reference_state)` overload; the `(constr, scene, group)`
+sibling at `:65-70` is the same name forwarding to it)
+**Port:** none — `PORTING-PLAN.md` §225.1 decides the function non-port, and
+`crates/moveit-constraints/src/lib.rs`'s declaration audit tags it
+`decided`.
+**Symptom:** the function accumulates `total` (attempts) and `valid`
+(successes) over a loop it runs until one wall-clock second has elapsed
+(`:82` `rclcpp::Clock().now() + rclcpp::Duration::from_seconds(1)`, `:92`
+the `while`), then returns `static_cast<double>(valid) /
+static_cast<double>(total)` (`:93`). That is the fraction of `sample()`
+calls that succeeded — dimensionless, and *invariant* under machine speed:
+a machine twice as fast raises both `valid` and `total` and leaves the
+quotient where it was. A samples-per-second figure is `valid` divided by
+the elapsed seconds; elapsed time is never measured (only compared against
+`end`) and never divides anything. The name is the function's only
+specification — there is no doc comment on either declaration
+(`constraint_sampler_tools.hpp:54,56`) — and the body contradicts it.
+**Evidence:** a read of the function body at the pinned `e017c91ee`
+checkout, plus a read of its one caller. No oracle run: this workspace has
+no ROS 2 toolchain to build `moveit_core` with, so the returned number has
+not been observed. The read is unambiguous, though — `valid`, `total` and
+the returned quotient are the only three quantities in the body, and no
+duration value is ever converted to a number.
+**Status:** `not-reproduced`.
+**Deviation:** none maps. §225.1 declines the whole function on
+determinism and cost grounds (a wall-clock-bounded loop, ≥ 1 s per call,
+whose output nothing in this workspace could assert on), not on any
+`D1`..`D14` policy; the name/return mismatch is an additional reason, not
+the deciding one.
+**Cost of not reproducing:** none. Upstream's only caller anywhere in
+`moveit_core`/`moveit_planners`/`moveit_ros` is its own
+`moveit_msgs`-taking sibling, which forwards the `double` straight out as
+its own return value without inspecting it, so no upstream branch, threshold
+or assertion reads the number either. The quantity itself is measured
+deterministically here by
+`crates/moveit-constraints/tests/sampler_self_validation.rs`'s
+per-configuration `attempted`/`produced` accounting, which fails the sweep
+when a sampler's yield falls short of its quota.
