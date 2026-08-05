@@ -2384,7 +2384,7 @@ those two tests are what force it.
 
 **Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:261-268`
 (the `else if (cdata->req_->verbose)` arm of the `want_contact_count > 0`
-test at `:254`)
+test at `:250`)
 **Port:** none — no crate in this workspace reads
 `CollisionRequest::verbose`, and none can: `rg 'tracing::|log::(debug|info|warn|error)' crates`
 returns nothing, so the workspace has no logging facade for the field to
