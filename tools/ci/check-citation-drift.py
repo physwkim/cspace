@@ -508,17 +508,19 @@ def find_anchors(
     cited functions at once (`move_object`, `decouple_parent`,
     `frame_transform` in one ledger's disposition list).
 
-    Returns `(candidates, tight)`. `tight` says which rule produced them,
-    and the caller quantifies over a multi-site citation accordingly: a
-    tight pairing `` `name` (`f.rs:a,b`) `` claims BOTH a and b are inside
-    `name`, so every cited line must land; a loose rule-2 mention claims
-    only that the sites it discusses are inside the test it names, so at
-    least one must land. That distinction is what a census row needs --
+    Returns the candidate names only. WHICH rule produced them does not
+    change how the caller quantifies over a multi-site citation -- that is
+    a property of the citation's shape, decided at the call site. It used
+    to be returned as a `tight` flag and used as the quantifier, which made
+    one shape mean two things: a partly-contained comma list was
+    bounds-only under rule 1 and anchor-verified under rule 2. What a
+    census row needs is the comma list itself, not the attachment:
     `doc/assertion-discrimination-ledger-p9-ros.md:323` lists eleven sites
     across `collision_object.rs` in its first column and names two tests in
     its prose, which contain two of the eleven; the other nine live in
-    tests the row never mentions, and demanding all eleven land in those
-    two asserted something the row never said.
+    tests the row never mentions, so demanding all eleven land in those two
+    asserts something the row never said -- but calling that row
+    anchor-verified asserts something equally untrue about the nine.
 
     An empty result leaves the citation unverified (bounds-only) rather
     than guessed at -- see the module docstring.
@@ -541,7 +543,7 @@ def find_anchors(
         if name not in candidates:
             candidates.append(name)
     if candidates:
-        return candidates, True
+        return candidates
 
     stripped = line.lstrip()
     if ledger_row and stripped.startswith("|"):
@@ -549,12 +551,10 @@ def find_anchors(
         if len(pipes) >= 2 and pipes[0] < match_start < pipes[1]:
             rest_of_row = line[:match_start] + line[match_end:]
             if not _valid_idents(rest_of_row, spans, require_test=True):
-                return [], False
-            # Loose: the names came from anywhere in the row, so they are the
-            # functions the row *discusses*, not ones paired with this span.
-            return _valid_idents(rest_of_row, spans, require_test=False), False
+                return []
+            return _valid_idents(rest_of_row, spans, require_test=False)
 
-    return [], False
+    return []
 
 
 # Rule 4's floor for a backtick span to count as a quotation of code rather
@@ -681,6 +681,7 @@ def main():
     out_of_bounds = []  # (md, line_no, fname_part, cited_line, resolved_path, file_len)
     anchor_mismatch = []  # (md, line_no, fname_part, cited_line, anchor, resolved_path, spans_for_anchor)
     anchor_verified = 0
+    partly_anchored = 0
     content_verified = 0
     unanchored_by_file = {}
 
@@ -763,7 +764,7 @@ def main():
                         unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                     continue
 
-                anchors, tight = find_anchors(
+                anchors = find_anchors(
                     line,
                     m.start(),
                     m.end(),
@@ -788,14 +789,6 @@ def main():
                 # exactly that shape, discovered by spot-reading this
                 # script's own output against a citation this round's fixes
                 # had just corrected.
-                #
-                # How many must land is set by how the anchor was attached,
-                # not by the citation: see `find_anchors`. Tight pairing =>
-                # every cited line; loose row mention => at least one. For a
-                # single-site citation the two coincide, so the loosening
-                # touches only multi-site lists -- exactly the shape whose
-                # sites can legitimately live in functions the row never
-                # names.
                 landed = [
                     ln
                     for ln in cited_lines
@@ -805,36 +798,52 @@ def main():
                         for (start, end, _is_test) in spans[name]
                     )
                 ]
-                in_span = len(landed) == len(cited_lines) if tight else bool(landed)
-                if in_span:
+                # How many of the cited lines must land is a property of the
+                # CITATION'S SHAPE, not of how its anchor happened to attach.
+                # It used to be both, and the two disagreed about one shape:
+                # a partly-contained comma list dropped to bounds-only when a
+                # tight pairing named the function and counted as
+                # anchor-verified when a rule-2 row did. Same citation, same
+                # evidence, two verdicts -- and the passing one put nine of
+                # `p9-ros.md:323`'s eleven lines under an "anchor-verified
+                # (cited line inside the named function's body)" total that
+                # was false for them.
+                #
+                # A comma list is an ENUMERATION: `p9-ros.md:323` cites all
+                # 11 of `scene/collision_object.rs`'s assertion sites and
+                # names the two whose citation that round corrected, `:326`
+                # cites 3 and names 1. All 14 are exact current
+                # `count-coarse-assertions.py` sites, so demanding every one
+                # sit inside a named test failed citations that were right.
+                # A RANGE is not an enumeration -- `a-b` claims one span, so
+                # `a` inside and `b` outside is the range straddling the
+                # function's end, which is drift and stays a failure.
+                #
+                # ZERO containment is a failure under either shape; that is
+                # what caught `p1-robotmodel.md:825`, whose 2 cited lines were
+                # in neither named test.
+                if len(landed) == len(cited_lines):
                     anchor_verified += 1
                 elif landed and m.group(4) is not None:
-                    # A comma list is an ENUMERATION, and a row that
-                    # enumerates names the tests it discusses, not one per
-                    # cited line: `p9-ros.md:323` cites all 11 of
-                    # `scene/collision_object.rs`'s assertion sites and names
-                    # the two whose citation that round corrected, `:326`
-                    # cites 3 and names 1. Every one of those 14 lines is an
-                    # exact current `count-coarse-assertions.py` site, so
-                    # demanding all 11 sit inside the 2 named tests failed
-                    # citations that were right. Partial containment is the
-                    # census shape and carries no drift signal either way, so
-                    # it drops through to rule 4 rather than passing or
-                    # failing. ZERO containment stays a failure -- that is
-                    # what caught `p1-robotmodel.md:825`, whose 2 cited lines
-                    # were in neither named test.
+                    # Falls through to rule 4 rather than passing or failing:
+                    # partial containment carries no drift signal either way,
+                    # and both of today's two are quoted, so rule 4 has real
+                    # per-line evidence to offer them that this bucket would
+                    # throw away. Counted here so the shape is visible on the
+                    # OK line instead of hiding inside another bucket's total.
+                    partly_anchored += 1
                     if quoted:
                         content_verified += 1
                     else:
                         unanchored_by_file[md] = unanchored_by_file.get(md, 0) + 1
                 else:
                     anchor_mismatch.append(
-                        (md, line_no, fname_part, cited_lines, anchors, resolved_path, spans)
+                        (md, line_no, fname_part, cited_lines, landed, anchors, resolved_path, spans)
                     )
 
     hard_fail = bool(out_of_bounds) or bool(anchor_mismatch) or bool(unresolved)
     counts = (
-        f"{anchor_verified} anchor-verified (cited line inside the named function's body), "
+        f"{anchor_verified} anchor-verified (EVERY cited line inside a named function's body), "
         f"{content_verified} content-verified (the citing text's own quotation of the code is "
         f"at the cited line), "
         f"{sum(unanchored_by_file.values())} unanchored (bounds-checked only -- the citing text "
@@ -842,6 +851,9 @@ def main():
         f"{len(external)} exempt (names a dependency or a build artifact, see above), "
         f"{len(out_of_bounds)} out-of-bounds, {len(anchor_mismatch)} anchor-mismatch, "
         f"{len(unresolved)} unresolvable"
+        f"; {partly_anchored} of those are partly-anchored enumerations (a comma list whose "
+        f"named functions hold some of its cited lines and not others), counted in whichever "
+        f"bucket rule 4 put them"
     )
 
     if total == 0:
@@ -859,13 +871,24 @@ def main():
 
     if anchor_mismatch:
         print(f"--- {len(anchor_mismatch)} anchor-mismatch citation(s) ---", file=sys.stderr)
-        for md, line_no, fname_part, cited_lines, anchors, resolved_path, spans in anchor_mismatch:
+        for md, line_no, fname_part, cited_lines, landed, anchors, resolved_path, spans in anchor_mismatch:
             candidate_desc = "; ".join(
                 f"`{name}` spans {', '.join(f'{s}-{e}' for s, e, _ in spans[name])}" for name in anchors
             )
+            # `landed` is spelled out rather than summarised as "none": a
+            # partly-contained RANGE reaches here (only an enumeration is
+            # allowed to be partial), and telling its author that none of
+            # `723-740` is inside the function that holds 723 sends them
+            # looking for the wrong defect.
+            missed = [ln for ln in cited_lines if ln not in landed]
+            which = (
+                "inside none of"
+                if not landed
+                else f"has {', '.join(map(str, missed))} outside every one of"
+            )
             print(
-                f"FAIL {md}:{line_no}: cites {fname_part}:{'-'.join(map(str, cited_lines))}, "
-                f"inside none of its {len(anchors)} nearby candidate function(s) in {resolved_path}: "
+                f"FAIL {md}:{line_no}: cites {fname_part}:{','.join(map(str, cited_lines))}, "
+                f"{which} its {len(anchors)} nearby candidate function(s) in {resolved_path}: "
                 f"{candidate_desc}",
                 file=sys.stderr,
             )
