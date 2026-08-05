@@ -16368,3 +16368,290 @@ parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그�
 - 씬 diff는 `push_diffs`/`decouple_parent`/`clear_diffs`까지 있는데
   이번 비교는 `diff()` 적용 후의 충돌 결과만 덮는다. 부모로 되밀어
   넣는 경로는 오라클 op으로 열려 있지 않다.
+
+---
+
+## §217 포트 커버리지를 다시 쟀다 — 결정된 미포팅 47, 진짜 갭 42
+
+미포팅 파일 목록이 "결정된 미포팅"과 "진짜 갭"을 섞어 들고 있었다. 섞이면
+남은 일 목록이 **양쪽으로** 틀린다: 이미 결정된 것을 다시 검토하러 가고,
+아무도 결정한 적 없는 것을 결정된 것으로 착각해 지나친다. 이 절은 그 분할을
+실측으로 다시 만들고, 계기와 표를 커밋해 다음 라운드가 산문이 아니라 명령을
+읽게 한다.
+
+**실측 (2026-08-05):**
+
+```console
+$ ./tools/ci/measure-port-coverage.py
+corpus   245
+ported   146
+unported 99
+cited-outside-corpus 20
+```
+
+미포팅 99건의 분류: `decided-non-port` **47** / `gap` **42** /
+`ported-elsewhere` **10**. 한 줄에 한 파일씩, 결정된 것은 근거 문장을
+인용해 [`doc/port-coverage.md`](doc/port-coverage.md)에 적었다. 245는 이
+문서들 사이를 근거 없이 옮겨 다니던 수였고, 이번에 셸 파이프라인과 파이썬
+워커 두 계기로 각각 뽑아 정렬 `diff`가 0줄임을 확인한 뒤에 쓴다.
+
+**왜 표는 `doc/`에 있고 이 절에는 수만 있는가.** 이 파일이 실제로 읽히는
+파일이다 — `rg -l 'PORTING-PLAN\.md' crates/ ros/ tools/ doc/ | wc -l`은
+**181**이고, `doc/` 안에서 가장 많이 참조되는 파일(`doc/upstream-bugs.md`)은
+**5**다. 그래서 판정과 수는 여기 둔다. 99행 표 자체를 링크된 파일에 두는
+이유는 분량이 아니라 기계 검사다: `measure-port-coverage.py --check
+doc/port-coverage.md`가 그 표의 행 집합을 계기가 계산한 미포팅 집합과
+맞춰 보고, 어긋나면 `MISSING ROW`/`STALE ROW`를 찍고 non-zero로 끝난다.
+산문 요약은 그 검사를 받을 수 없다.
+
+**코퍼스 정의가 §1과 어긋나는 지점.** 두 정의가 실제로 다르게 세는 파일은
+`moveit_core/version/version.cpp` **하나**다. §1은 `version`을 한 번도
+언급하지 않으므로 §1을 따르면 코퍼스는 246이 된다. §1이 파일 종류에 넣은
+`*.cc`는 다섯 루트에서 실측 **0**개라 무영향이고, §1의 파일 수(292 등)는
+테스트와 `.h` shim을 포함한 전수라는 점도 함께 적어 둔다.
+
+### §217.1 ikfast — §60.4가 이미 결정해 뒀다, 그러니 갭이 아니다
+
+`ikfast_kinematics_plugin`을 갭으로 세던 목록이 있었다. §60.4를 열어 확인한
+결과 이미 처분이 붙어 있다:
+
+> 형제 플러그인 셋에 처분이 붙었다: `srv_kinematics_plugin` 배제(ROS 서비스
+> 클라이언트), `ikfast_kinematics_plugin` **미포팅(이식할 알고리즘 없음,
+> codegen 템플릿)**, `cached_ik_kinematics_plugin` 미포팅이되 진짜 범위 내
+> 갭 — §4.4가 D4 trait 주석에서 이것을 명시적으로 이름 부른다.
+
+크레이트 쪽 문장도 같은 방향이고 더 구체적이다
+(`crates/moveit-kinematics/src/lib.rs:241-250`): "a 1421-line C++ template
+with placeholder tokens that OpenRave's separate, external IKFast code
+generator fills in with a *robot-specific* closed-form analytic solution ...
+porting this would mean porting OpenRave's symbolic-algebra codegen tool".
+
+따라서 `doc/port-coverage.md`의 해당 두 행은 `decided-non-port`다.
+코퍼스에 드는 ikfast 파일은 두 개뿐이며, 그중 `templates/ikfast.h`는 이
+코퍼스에서 shim이 아닌 **유일한** `.h`다(나머지 141개는 전부 상류 PR #3113의
+자동 생성 포워딩 shim).
+
+| 상류 파일 | 분류 |
+|---|---|
+| `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast.h` | `decided-non-port` |
+| `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast61_moveit_plugin_template.cpp` | `decided-non-port` |
+
+### §217.2 문서가 트리와 어긋나는 곳 세 군데
+
+미포팅 99건을 `doc/`와 이 파일에 대조했다. 어떤 문서도 "포팅됐다"고 적은
+파일이 실제로는 미포팅인 경우는 없었다. 반대 방향으로 셋이 나왔다.
+
+**1. §60.4의 `cached_ik_kinematics_plugin` — "진짜 범위 내 갭"이라 적혀
+있으나 이미 포팅됐다.** §60.4 문장은 위 §217.1에 인용한 그대로다. 트리:
+
+```console
+$ sed -n '5,7p' crates/moveit-kinematics/src/cached_solver.rs
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   .../cached_ik_kinematics_plugin/cached_ik_kinematics_plugin.hpp
+//   .../cached_ik_kinematics_plugin/cached_ik_kinematics_plugin-inl.hpp
+$ rg -n 'pub struct CachedIkSolver|name: "(newton_raphson|lma)_cached"' \
+     crates/moveit-kinematics/src/cached_solver.rs
+114:pub struct CachedIkSolver<S> {
+196:    name: "newton_raphson_cached",
+210:    name: "lma_cached",
+```
+
+`.hpp`/`-inl.hpp` 두 헤더는 포팅됨으로 세어지고, 같은 디렉터리의
+`cached_ik_kinematics_plugin.cpp`(pluginlib 등록 boilerplate, D4)와
+`cached_ur_kinematics_plugin.cpp`(외부 `ur_kinematics` 의존)만 미포팅으로
+남는다. §60.4의 "진짜 범위 내 갭"은 그 뒤 라운드가 닫았고, 문장만 남았다.
+
+**2. §179.1의 pilz 수 세 개가 실측과 다르다.** §179.1은 "상류 `src/` 22개
+중 포트가 가진 것은 12개이고, D1/D2로 명시 제외된 다섯을 빼면 남는 in-scope
+미포팅은 이 하나(`trajectory_blender_transition_window`)"라고 적는다. 실측:
+
+```console
+$ ls /home/stevek/work/moveit2/moveit_planners/pilz_industrial_motion_planner/src/*.cpp | wc -l
+24
+$ ./tools/ci/measure-port-coverage.py --list-ported   | grep -c 'pilz_industrial_motion_planner/src/'
+13
+$ ./tools/ci/measure-port-coverage.py --list-unported | grep -c 'pilz_industrial_motion_planner/src/'
+11
+```
+
+22 → **24**, 12 → **13**, "다섯" → `lib.rs:104-124`가 이름으로 지목하는
+`src/*.cpp`는 **9개**(`move_group_sequence_{action,service}`,
+`planning_context_loader{,_circ,_lin,_polyline,_ptp}`,
+`pilz_industrial_motion_planner`, `command_list_manager`). 그리고 §179.1이
+하나 남았다고 지목한 `trajectory_blender_transition_window.cpp`는 지금
+포팅돼 있다(`crates/moveit-planners-pilz/src/trajectory_blender_transition_window.rs:9`).
+남은 in-scope 미포팅 `src/` 파일은 §179.1이 언급하지 않는 **둘**이다:
+`joint_limits_aggregator.cpp`, `joint_limits_validator.cpp`.
+
+**3. §153.2가 "미상"으로 남긴 둘의 상태를 여기서 확정한다.** §153.2는
+"`occupancy_map.*`와 `collision_plugin_cache.*`는 같은 방식으로
+재확인되지 않았으므로 그 제외는 아직 유효한지 미상"이라고 적었다.
+
+- `collision_plugin_cache.{hpp,cpp}`와 `collision_plugin.hpp` →
+  `decided-non-port`. 근거는 `crates/moveit-collision/src/lib.rs:37-49`가
+  파일과 줄을 짚어 적은 두 가지다: 본문 전체가 pluginlib 런타임 클래스
+  로딩이라 그 ROS 기구와 무관한 알고리즘이 없다는 것
+  (`collision_plugin_cache.cpp:37-38`), 그리고 `CollisionPlugin::initialize`가
+  `planning_scene::PlanningScenePtr`를 받으므로(`collision_plugin.hpp:93`)
+  여기서 받으면 크레이트 순환 의존이 된다는 것.
+- `occupancy_map.hpp` → `gap`. 같은 doc이 "genuinely `RobotState`-free and
+  portable"이라고 적고 `moveit-octomap`으로 보내라고만 한다. 이식하지 않기로
+  한 결정이 아니라 소유 디렉터리를 옮기라는 라우팅이므로 갭이다.
+
+### §217.3 §5 Phase 완료 조건 열 개를 다시 쟀다 — 넷이 미충족
+
+Phase 완료 조건은 "만족하지 못하면 다음 단계로 넘어가지 않는다"고 §5가 적어
+둔 것이므로, 어느 것이 아직 성립하지 않는지가 남은 일 목록의 절반이다.
+아래는 조건을 원문 그대로 옮기고, 그 옆에 그것을 판정한 명령과 출력을
+붙인 것이다. 판정을 내리지 못한 항목은 MET/UNMET이 아니라 **미측정**으로
+적는다.
+
+**Phase 0 — MET.** 조건: "오라클이 panda URDF/SRDF에 대해 임의 관절값
+1,000세트의 FK를 출력하고, `moveit-diff`가 그것을 읽어 '`Rust 구현 없음`'으로
+1,000건 전부 실패 보고한다." §7이 2026-08-03 완료로 기록한다. 문자 그대로의
+증명(전건 실패)은 지금 재현할 수 없다 — Rust 구현이 존재하므로 실패가 나올
+수 없다. 하네스가 도는지는 아래 Phase 2의 `verify-oracle-sweep.sh` EXIT=0이
+대신 보인다.
+
+**Phase 1 — UNMET.** 조건: "panda / prbt / fanuc 3종에 대해 링크 수, 조인트
+수, 그룹 구성, 조인트 한계값, mimic 관계가 오라클과 완전 일치."
+
+```console
+$ ls fixtures/
+dual_arm_panda.srdf  dual_arm_panda.urdf  fanuc.srdf  fanuc.urdf  meshes
+panda.srdf  panda.urdf  pr2.srdf  pr2.urdf
+```
+
+**prbt 픽스처가 없다.** 세 로봇 중 하나에 대해서는 비교 자체가 실행된 적이
+없다. panda/fanuc는 `robot_model_parity.rs`가 오라클 `model_info`와 맞춘다.
+
+**Phase 2 — 앞의 두 항목 MET, 세 번째 UNMET.**
+
+```console
+$ sg docker -c './tools/ci/verify-oracle-sweep.sh 10000 1'   # EXIT=0
+=== panda / panda_arm ===          cases: 20001  passed: 20001  failed: 0
+=== fanuc / manipulator ===        cases: 20001  passed: 20001  failed: 0
+=== dual_arm_panda / left_panda_arm === cases: 20001  passed: 20001  failed: 0
+=== pr2 / right_arm ===            cases: 20001  passed: 20001  failed: 0
+=== pr2 / base ===                 cases: 20001  passed: 20001  failed: 0
+```
+
+FK는 `moveit-diff` 기본 `1e-9`, 야코비안은 `--tol-jacobian 1e-7`. 관측된
+최악 야코비안 편차는 2.887e-15(panda) / 1.665e-15(fanuc) /
+2.665e-15(dual_arm_panda) / 2.331e-15(pr2 right_arm) / 3.331e-16(pr2 base).
+
+세 번째 항목("관절 한계 클램핑, mimic 전파, floating/planar 조인트 보간이
+일치")은 **오라클과 맞춰 본 적이 없다.** 오라클이 구현한 op 41개 중 보간이나
+한계 강제에 해당하는 op이 없고(`rg -n 'op == "' tools/moveit-oracle/src/oracle.cpp`),
+`rg -n -i interpolat crates/moveit-state/tests/ tools/moveit-diff/src/`는 0건이다.
+`invariants.rs`의 경계 테스트는 자기 검증이지 오라클 비교가 아니다. 게다가
+FK 스윕이 쓰는 상태는 오라클의 `random_states`가 mimic 값까지 만들어 준
+것을 포트가 `set_variable_position`으로 그대로 얹는 것이므로, 포트 쪽 mimic
+전파는 그 경로에서 실행되지 않는다.
+
+**Phase 3 — 첫 항목 MET, 둘째 UNMET.** 조건: "10,000 상태 × 3로봇에서
+`collision: bool` 이 오라클과 **100% 일치**", "`distance: f64` 가 `1e-4`
+이내 일치".
+
+```console
+$ moveit-diff --cases 10000 --seed 1 --collision --oracle ...   # 로봇별
+panda:           cases 20001  passed 10458  failed 9543   worst distance 2.738e0
+fanuc:           cases 20001  passed 13888  failed 6113   worst distance 2.897e-1
+dual_arm_panda:  cases 20001  passed 16493  failed 3508   worst distance 1.882e-1
+$ grep -c 'self_collision differs\|robot_collision differs' <각 출력>
+0 / 0 / 0
+```
+
+세 로봇 30,000 상태에서 bool 불일치는 **0건**이다 — 첫 항목 MET. 실패
+19,164건은 전부 거리값이고, 요구치 `1e-4`에 대해 최악 편차가 panda에서
+2.738e0이다 — 둘째 항목 UNMET. (§43/§53/§56/§72가 추적해 온 그 군이다:
+panda `stats-json`의 `robot_same_pair_and_value_diverges` 6364건은 전부
+`floor/panda_link0` 한 쌍이다.)
+
+**Phase 4 — (a) UNMET, (b) UNMET.** 조건: "도달 가능한 목표 자세 5,000개에
+대해 (a) 성공률이 C++ KDL 플러그인 이상, (b) 성공한 해의 FK가 목표 자세와
+`1e-6` 이내 일치."
+
+```console
+$ moveit-diff --cases 5000 --seed 1 --group panda_arm --ik --tol-ik 1e-6 --oracle ...
+oracle success rate: 4921/5000 (98.4%)
+rust   success rate: 4906/5000 (98.1%)
+cases: 15002  passed: 13489  failed: 1513
+```
+
+(a) 4906 < 4921이므로 "이상"이 성립하지 않는다. (b) 1e-6에서 1,513건이
+초과한다(병진 1,112 + 회전 401). 다만 초과분의 최대는 병진 9.923e-6 /
+회전 8.758e-6이고 **`1e-5`를 넘는 것은 0건**이다 — 이는 `SolverParams::
+default().epsilon`이 `1e-5`이고 `CartToJnt`가 twist norm `<= epsilon`인
+스텝을 수렴으로 받아들이기 때문이다(`moveit-diff`의 기본 `tol_ik`가 `2e-5`인
+이유). 즉 (b)의 `1e-6`은 지금 솔버의 수렴 기준보다 엄격해서, 솔버 정확도를
+올리거나 조건의 수를 근거와 함께 바꾸지 않으면 성립할 수 없다.
+
+**Phase 5 — 첫 항목 MET, 둘째·셋째 UNMET.**
+
+```console
+$ moveit-diff --cases 100 --seed 1 --group panda_arm --constraints 2000 --oracle ...
+cases: 2201  passed: 2201  failed: 0
+```
+
+제약 조합 2,000건 `decide()` 100% 일치 — MET. 둘째("제약 샘플러가 생성한
+상태 10,000개가 전부 자기 제약을 만족")는 트리에서 가장 큰 샘플러 자기검증
+루프가 **200**이다(`crates/moveit-constraints/tests/sampler.rs:190`;
+`rg -no 'for [_a-z]+ in 0\.\.[0-9_]+' crates/moveit-constraints/`의 최대값).
+셋째("씬 diff 적용 후 충돌 결과가 오라클과 100% 일치")는 계기가 없다 —
+오라클 op 41개 중 씬 diff를 적용해 충돌을 되돌려 주는 op이 없다.
+
+**Phase 6 — MET.** 조건: "동일 waypoint 입력에 대해 TOTG 산출 시간
+파라미터화가 오라클과 `1e-6` 이내 일치."
+
+`totg_parity.rs`의 상시 허용치는 `DURATION_TOL = 2e-5`라 조건의 `1e-6`을
+그대로 검사하지 않는다. 그래서 상수를 조여 직접 쟀다(측정용, 커밋하지 않음):
+`1e-6`에서 통과, `1e-9`에서 실패하며 그때 찍히는 값이 case 4(0-based, 즉
+doc의 case 5)의 `abs diff=8.893039193935692e-9`이다. 조건의 `1e-6`보다 3자리
+작으므로 MET.
+
+**Phase 7 — 세 항목 모두 MET.** 양쪽을 이번 라운드에 다시 쟀다(C++ 쪽은
+오라클 `plan` op, 포트 쪽은 `plan_benchmark_port`, 문제 집합은 동일한
+`floor_wall 250 900001` + `cage 250 900002`):
+
+| | C++ OMPL RRTConnect | 포트 |
+|---|---|---|
+| exact 해결 | 498/500 (99.6%) | 499/500 (99.8%) |
+| 경로 길이 중앙값 | 2.6598 | 2.7085 |
+
+조건 1: 90% × 99.6% = 89.64% ≤ 99.8% — 충족. 조건 2: 해결한 499개 전부
+`condition2_valid` — 충족. 조건 3: 1.3 × 2.6598 = 3.4577, 포트 2.7085
+(비 1.018배) — 충족.
+
+**Phase 8 — pilz 항목 MET, CHOMP/STOMP 항목 미측정.** 조건: "pilz
+LIN/PTP/CIRC 궤적이 오라클과 `1e-6` 이내 일치. CHOMP/STOMP는 Phase 7과 같은
+속성 기반 검증."
+
+LIN/CIRC의 상시 허용치는 `1e-6`보다 느슨하므로(LIN 5e-5/5e-4/5e-3, CIRC
+2e-5/2e-4/4e-3) 세 파일의 위치/속도/가속 허용치를 `1e-6`으로 조여 직접
+쟀다(측정용, 커밋하지 않음): PTP는 상시 `TOLERANCE = 1e-6` 그대로 통과,
+LIN·CIRC도 `1e-6`에서 통과한다. 더 조이면 LIN은 `1e-12` 통과 / `1e-15`
+실패, CIRC는 `1e-6` 통과 / `1e-9` 실패(가속 편차 약 1.672e-9)다. 즉 조건은
+커밋된 픽스처 위에서 성립한다. **부수 소견:** LIN 허용치의 doc이 근거로
+드는 실측치(위치 1.26e-5, 속도 1.24e-4, 가속 1.26e-3)는 지금 트리에서
+재현되지 않는다 — 같은 픽스처가 `1e-12`에서 통과한다. 허용치가 실측보다
+6~7자리 느슨하다는 뜻이고, 그 크기의 회귀는 이 테스트에 걸리지 않는다.
+
+CHOMP/STOMP의 속성 기반 검증은 **미측정**이다. 두 크레이트에는 Phase 7의
+`plan_benchmark_*`에 해당하는 하네스가 없다(`crates/moveit-planners-chomp/
+{examples,benches}`, `crates/moveit-planners-stomp/{examples,benches}` 넷 다
+존재하지 않는다).
+
+**Phase 9 — UNMET.** 조건: "기존 C++ `MoveGroupInterface` 클라이언트가 코드
+변경 없이 `moveit-ros` 노드에 플래닝 요청을 보내 유효한 궤적을 받는다."
+
+`rg -n 'MoveGroupInterface' crates/ ros/ tools/ doc/ PORTING-PLAN.md`는
+**2건**이고 둘 다 이 파일 안의 조건문 자신이다(§5:727, §183.2:14375). 게이트
+스크립트 자신도 그렇게 적는다 — `ros/verify-ros-interop.sh`의 "What this
+does NOT check": "No live ROS 2 graph: no node is ever spun up, no
+topic/service/action is published or called against a real moveit2 or rclrs
+process ... Wire-format compatibility with a real moveit2 node is unverified
+by this script."
+
+**요약: UNMET 4개(Phase 1, 3, 4, 9), 부분 UNMET 2개(Phase 2의 셋째 항목,
+Phase 5의 둘째·셋째 항목), 미측정 1개(Phase 8의 CHOMP/STOMP 항목).**
