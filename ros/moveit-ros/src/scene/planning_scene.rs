@@ -49,8 +49,10 @@
 //! # Fields with no core representation
 //!
 //! `link_padding`, `link_scale` and `object_colors` are **rejected** when
-//! non-empty rather than dropped, per D6 -- see
-//! [`reject_unrepresentable_fields`] for what each one would need. An empty
+//! non-empty rather than dropped, per D6 -- the private
+//! `reject_unrepresentable_fields` records what each one would need (plain
+//! backticks, not an intra-doc link: this is a public module doc and the
+//! item is private, so a link here fails `cargo doc`). An empty
 //! array is not a rejection: upstream's own `CollisionEnv::setPadding` over
 //! an empty vector is a no-op, so "absent" and "stated as empty" mean the
 //! same thing on the wire and here.
