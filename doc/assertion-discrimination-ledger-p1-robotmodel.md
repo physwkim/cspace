@@ -42,11 +42,11 @@ and/or isolating mutation run this round, reverted after confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `time_optimal_trajectory_generation.rs:1038` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
-| `time_optimal_trajectory_generation.rs:1043` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1120` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
-| `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
-| `time_optimal_trajectory_generation.rs:1136` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1043` | `TotgOptions::with_resample_dt` combined guard | `resample_dt_zero_is_rejected_not_hung` | single-branch | commit `52e38a3` (structural: `resample_dt` made `pub(crate)`, settable only through this one validating builder — no other construction path exists) — line corrected round 17, was `:1030` |
+| `time_optimal_trajectory_generation.rs:1056` | same | `resample_dt_negative_is_rejected_not_silently_truncated` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
+| `time_optimal_trajectory_generation.rs:1138` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
+| `time_optimal_trajectory_generation.rs:1149` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
 | `robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
 | `robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s index-0 guard | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | bite: neutralized guard → test failed; reverted |
 | `robot_trajectory.rs:550` | `append`'s empty+nonzero-dt guard | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard → test failed; reverted |
