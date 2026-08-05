@@ -740,3 +740,148 @@ setup read back before the subject runs). **Corrected total new-site
 count: 43** (30 `moveit-collision` + 13 `moveit-geometry`), **24
 in-family, 19 not-this-family, 0 blind operands** (all three round-12
 bites confirmed existing coverage; none needed a new test).
+
+## 7. Round 13: planner crates (fence expanded)
+
+Four crates added to this panel's fence this round by explicit,
+narrow, on-the-record orchestrator override:
+`moveit-planners-sbp`, `moveit-planners-chomp`, `moveit-planners-stomp`,
+`moveit-stomp-core`. None had been swept under the broadened-grammar
+scanner before.
+
+**Ownership cross-check, done before touching any source.** All four
+crates already carry *old-grammar* (`matches!`/`.is_err()`/`.is_none()`)
+ledger rows from other panels — `moveit-planners-sbp` and (via an
+override) `moveit-planners-stomp` are p1-robotmodel's
+(`doc/assertion-discrimination-ledger-p1-robotmodel.md`, "own fence" /
+"override, was p3-shapes'"), `moveit-planners-chomp` is p6-totg's
+override, all merged and closed per `doc/caucus-handoff-2026-08-05.md`.
+That old-grammar work is a closed, separate body of work from what the
+broadened scanner (`6a14a89`+) finds — nobody had run it against these
+four crates before this round, so the new-grammar sites are genuinely
+unclaimed. The orchestrator's explicit fence expansion satisfies the
+brief's own stated requirement for cross-crate reassignment ("a narrow,
+on-the-record orchestrator override with an offer to decline" —
+`doc/assertion-discrimination-round2-brief.md`).
+
+`python3 tools/ci/count-coarse-assertions.py <crate>` per crate, then the
+old-grammar kinds (`matches`/`is_err`/`is_none`) subtracted by hand
+(verified against the brief's stated 19/12/2/2 rather than assumed):
+**19** `moveit-planners-sbp`, **12** `moveit-planners-chomp`, **2**
+`moveit-planners-stomp`, **2** `moveit-stomp-core` — **35 total**,
+matching the brief's figures exactly on independent re-derivation.
+
+### `moveit-planners-sbp` (19)
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| constrained_sampler.rs:305 | contains | `every_sample_satisfies_the_wrapped_constraint` | no | clause 1: a range-plausibility check on a real sampled value, not a could-not/did-not-produce-X signal — same reasoning as round-11's `collision_parity.rs:681/1213`. |
+| goal_sampler.rs:334 | contains | `constrained_branch_is_load_bearing_not_merely_invoked` | no | same reasoning as constrained_sampler.rs:305. |
+| nn.rs:244 | is_empty | `len_and_is_empty_track_insertions` | no | clause 3: reads `Gnat::new(4)`'s trivial post-construction state before any subject call — same shape as `bodies.rs:3967`. |
+| nn.rs:248 | is_empty | (same test) | yes | redundant confirmation of `insert()`'s effect, already proven by the adjacent `len()==2` assertion — same "lives one level up" shape as round-11's `matrix.rs:727`. |
+| registry.rs:1119 | eq_err | `path_constraints_four_scenario_wired_vs_unwired_sweep` | yes | `assert_eq!` pins the exact `PlanningFailure::IterationsExhausted` variant on a real `rrt_connect` call — already discriminating by construction (exact-variant match, not a bare `.is_err()`). |
+| registry.rs:1152 | contains | (same test) | no | range-plausibility check on a real trajectory waypoint value, not an error signal. |
+| registry.rs:1211 | contains | `goal_constraint_is_resolved_and_the_trajectory_ends_inside_the_goal_region` | no | same reasoning as registry.rs:1152. |
+| rrt_connect.rs:105 | contains | `RrtConnectParams::assert_valid` | no | production-code precondition assert (scope `src`, not `test`) — not a test discriminating error-guard selection at all. |
+| rrt_connect.rs:579 | contains | `narrow_gap_is_crossed` | no | range-plausibility check on a real computed path point, not an error signal. |
+| rrt_connect.rs:584 | contains | (same test) | no | same reasoning as rrt_connect.rs:579. |
+| rrt_connect.rs:612 | eq_err | `closed_passage_fails_within_the_cap` | yes | exact-variant `assert_eq!` (`IterationsExhausted`) on a real `rrt_connect` call; siblings 644/661 pin different variants for different scenarios. |
+| rrt_connect.rs:644 | eq_err | `deadline_exhausted_reports_correctly` | yes | exact-variant `assert_eq!` (`DeadlineExhausted`), sibling of 612/661. |
+| rrt_connect.rs:661 | eq_err | `invalid_start_fails_immediately` | yes | exact-variant `assert_eq!` (`InvalidEndpoint`), sibling of 612/644. |
+| sampling.rs:108 | contains | `ball_radius_fraction_is_within_unit_interval` | no | range-plausibility check on a real sampled value, not an error signal. |
+| sampling.rs:126 | contains | `simplex_fractions_are_nonnegative_and_sum_to_one` | no | same reasoning as sampling.rs:108. |
+| se3.rs:316 | eq_err | `negative_weight_is_rejected` | yes | single-branch: `Se3Space::new` has exactly one `InvalidWeight` guard (combined `!finite() \|\| < 0.0`); bounds validation delegates via `?` to a different error type entirely (`RealVectorSpace::new`'s `SbpError`), so no sibling ambiguity. |
+| space.rs:210 | eq_err | `empty_bounds_is_no_dimensions` | yes | single-branch: distinct `NoDimensions` variant, only one construction site. |
+| space.rs:215 | eq_err | `inverted_bound_is_rejected` | yes | **found a blind operand while auditing this site — see below.** Bite-confirmed: disabling `min > max` alone fails this test and leaves 227 green. |
+| space.rs:227 | eq_err | `non_finite_bound_is_rejected` | yes | bite-confirmed: disabling `!max.is_finite()` alone fails this test and leaves 215 green. |
+
+**In-family: 9. Not-this-family: 10.**
+
+**Blind operand found and fixed:** `RealVectorSpace::new`'s guard
+(`space.rs:105`) is `!min.is_finite() || !max.is_finite() || min > max`
+— three disjuncts, but only two had a targeted test (215 for `min > max`,
+227 for `!max.is_finite()`). Bite: disabling `!min.is_finite()` alone
+left **all 109 then-existing tests green** — a genuine gap, not a
+reclassification. A `min` of `+infinity` would be redundant with
+`min > max`, so the isolating case needs `NEG_INFINITY` (or `NaN`)
+paired with a finite, larger `max`. Fixed with a new test,
+`non_finite_min_bound_is_rejected` (commit `bbbe0f8`), bite-confirmed to
+fail under the same mutation and pass against real source.
+
+### `moveit-planners-chomp` (12)
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| cost.rs:391 | contains | `new_rejects_more_derivative_costs_than_diff_rules_rows` | yes | `ChompCost::new` has 3 `Error::other` sites; doc-commented, message-uniqueness verified by grep (`"DIFF_RULES rows"` appears in exactly one of the three messages). |
+| cost.rs:404 | contains | `new_rejects_too_few_points_for_the_diff_rule_boundary` | yes | sibling of 391, `"DIFF_RULE_LENGTH-1"` unique to this guard's message. |
+| cost.rs:436 | contains | `new_rejects_a_singular_quad_cost` | yes | sibling of 391/404, `"singular"` unique to this guard's message. |
+| optimizer.rs:2380 | contains | `calculate_smoothness_increments_rejects_joint_costs_length_mismatch` | yes | 2 reachable `Error::other` sites (own guard + `ChompCost::derivative`'s, propagated); verified `"joint_costs has"` (this guard) vs. `"joint_trajectory has"` (derivative's) do not collide. |
+| optimizer.rs:2449 | contains | `calculate_total_increments_rejects_column_count_mismatch` | yes | 3 reachable `Error::other` sites in `calculate_total_increments`; verified `"columns"` appears only in the first guard's message (the other two say "rows" and "NxM", respectively). |
+| trajectory.rs:712 | contains | `from_duration_rejects_zero_discretization` | yes | `from_duration` reaches 3 `Error::other` sites; doc-commented, message verified via source read to name this guard specifically. |
+| trajectory.rs:727 | contains | `from_duration_rejects_negative_discretization` | yes | sibling of 712, same guard, negative-side boundary. |
+| trajectory.rs:748 | contains | `from_duration_rejects_negative_discretization_that_divides_positive` | yes | sibling of 712/727 — doc-commented as the case that actually needs the explicit guard (negative/negative divides positive, defeating the downstream `num_points < 2` fallback). |
+| trajectory.rs:766 | contains | `from_duration_rejects_an_unreasonable_point_count` | yes | sibling, targets the point-count-bound guard rather than the discretization guard. |
+| trajectory.rs:925 | contains | `assign_chomp_trajectory_point_rejects_group_column_mismatch` | yes | 2 `Error::other` sites; message-uniqueness verified by grep. |
+| trajectory.rs:968 | contains | `assign_chomp_trajectory_point_rejects_a_multi_dof_active_joint` | yes | sibling of 925, opposite guard, message-uniqueness verified. |
+| trajectory.rs:1004 | contains | `fill_in_from_trajectory_rejects_a_trajectory_with_no_group` | yes | several reachable `Error::other` sites; message-uniqueness verified by grep against all three. |
+
+**In-family: 12. Not-this-family: 0. Blind operands: 0** — every site
+already doc-commented with its discrimination rationale; verified by
+independent message-uniqueness greps rather than trusting the comments,
+no live bite needed since exact-substring collision is directly
+checkable by source read.
+
+### `moveit-planners-stomp` (2)
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| cost_functions.rs:467 | is_some | `kernel_bounds_at_the_dmatrix_allocation_ceiling_does_not_overflow` | no | clause 1 fails: verifies an arithmetic fact about a computed ceiling constant (whether `i64` multiplication overflows), not a could-not/did-not signal from any subject call. |
+| filter_functions.rs:314 | contains | `enforce_position_bounds_rejects_a_multi_variable_joint` | yes | already doc-commented with a reachability bite on record (`require_single_variable`'s guard neutralized → test fails; only one guard in the loop, no sibling branch to discriminate against). |
+
+**In-family: 1. Not-this-family: 1. Blind operands: 0.**
+
+### `moveit-stomp-core` (2)
+
+Both new-grammar sites are call sites (`via:rows_to_string`, per
+`ccac7ea`'s helper-body scoring) of the single `assert!` inside
+`rows_to_string` (`utils.rs:499`), a defensive guard against upstream's
+undefined behavior on empty input.
+
+| Site | Kind | Test fn | In-family | Evidence |
+|---|---|---|---|---|
+| utils.rs:641 | via:rows_to_string | `to_vector_then_rows_to_string_round_trips_through_matrix_to_string` | no | calls with a non-empty (2-row) input — never reaches the guard; tests round-trip correctness against `matrix_to_string`, not an error signal. |
+| utils.rs:654 | via:rows_to_string | `rows_to_string_panics_instead_of_replicating_ub_on_empty_input` | yes | **found a blind operand — see below.** |
+
+**In-family: 1. Not-this-family: 1.**
+
+**Blind operand found and fixed:** the test was a bare `#[should_panic]`
+with no `expected = ...` message match. Bite: neutralizing the guard
+(`!rows.is_empty() || true`) left the test **green** — `rows[0].len()`
+raises its own index-out-of-bounds panic on empty input, which a
+message-less `#[should_panic]` cannot tell apart from the named guard.
+Fixed by adding `expected = "upstream's toString(vector<VectorXd>) calls
+data.front()"` (commit `8fa0e48`), bite-confirmed to fail under the same
+mutation (panics with the wrong message: indexing, not the guard) and
+pass against real source.
+
+### Round 13 summary
+
+- **35 new-grammar sites across 4 crates, matching the brief's
+  19/12/2/2 exactly** on independent re-derivation (`python3
+  tools/ci/count-coarse-assertions.py <crate>` per crate, old-grammar
+  kinds subtracted by hand).
+- **23 in-family** (9 sbp + 12 chomp + 1 stomp + 1 stomp-core),
+  **12 not-this-family** (10 sbp + 0 chomp + 1 stomp + 1 stomp-core).
+- **2 blind operands found and fixed**, both with a new test:
+  `moveit-planners-sbp`'s `space.rs` (`RealVectorSpace::new`'s
+  untested min-finiteness disjunct, commit `bbbe0f8`) and
+  `moveit-stomp-core`'s `utils.rs` (`rows_to_string`'s message-less
+  `#[should_panic]`, commit `8fa0e48`).
+- Gate per crate: `cargo fmt --all`, `cargo clippy -p <crate>
+  --all-targets -- -D warnings` (all four clean), `cargo nextest run -p
+  <crate>` — `moveit-planners-sbp` 110/110 (was 109, +1),
+  `moveit-planners-chomp` 86/86 (no source change; census-only,
+  doc-commented evidence independently verified by message-uniqueness
+  greps rather than a live bite), `moveit-planners-stomp` 62/62
+  (census-only, no source change), `moveit-stomp-core` 22/22 (was 21,
+  +1).
