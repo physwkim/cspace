@@ -586,7 +586,7 @@ pub struct PathValidity {
 ///
 /// **Deviation — which half the padding reaches.** Upstream's two defaults
 /// are asymmetric: `pad_environment_collisions` is `true` and
-/// `pad_self_collisions` is `false` (`collision_common.hpp:154`, `:157`),
+/// `pad_self_collisions` is `false` (`collision_detection/collision_common.hpp:154`, `:157`),
 /// and nothing in the whole `moveit2` tree ever assigns the second. Its
 /// effective rule is thus "robot-vs-world padded, self never padded", while
 /// [`PlanningScene::check_collision`] has one `E` and pads both halves — so

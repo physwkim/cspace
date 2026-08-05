@@ -45,7 +45,7 @@ winning triangle too, the only remaining explanation is that the oracle's
 own FCL narrow-phase evaluated a *different* triangle of the cone mesh
 than the one this backend's own exhaustive search names as deepest.
 
-`CollisionRequest::max_contacts_per_pair` (`collision_common.hpp:176`)
+`CollisionRequest::max_contacts_per_pair` (`collision_detection/collision_common.hpp:176`)
 defaults to `1`, and `oracle.cpp`'s `collision()` op
 (`crates/moveit-collision/examples/visibility_cone_mpr_sweep.rs`'s own
 ground truth) never overrides it — `contactsToJson` (`oracle.cpp:2326-

@@ -17,7 +17,7 @@
 //! ```
 //!
 //! The two defaults are not symmetric -- `pad_environment_collisions = true`,
-//! `pad_self_collisions = false` (`collision_common.hpp:154`, `:157`) -- and
+//! `pad_self_collisions = false` (`collision_detection/collision_common.hpp:154`, `:157`) -- and
 //! nothing in the whole `moveit2` tree ever assigns the second one (the three
 //! sites that assign the first are `planning_scene.cpp`'s own
 //! `checkCollisionUnpadded` overloads, `plan_execution.cpp:285` and

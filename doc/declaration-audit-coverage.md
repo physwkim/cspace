@@ -171,7 +171,7 @@ moveit2 @ ...` 헤더 블록이 하나도 없어서 인용하는 상류 파일�
 포맷하므로 미포팅"이라고 적고 있었다. `collision_matrix.cpp:428-491`을 열어
 보면 로깅이 없다 — 호출자가 준 `std::ostream&`에 ASCII 표를 쓴다.
 `RCLCPP_WARN_STREAM_THROTTLE`은 이 체크아웃 전체에서
-`collision_common.cpp:60` 한 곳에만 있고 `print`와 무관하다. 실제 사유(호출자
+`collision_detection/collision_common.cpp:60` 한 곳에만 있고 `print`와 무관하다. 실제 사유(호출자
 0건인 디버그 프린터)로 교체했다.
 
 ## 6. 표

@@ -82,8 +82,8 @@ Ported from `orocos_kdl/src/path_line.{hpp,cpp}`,
 | File header | 1-13 | 13 | meta | — |
 | Module doc (deviations) + blank | 14-42 | 29 | original | This port's own deviation writeup |
 | Imports + blanks | 43-47 | 5 | original | — |
-| `kdl_normalize()` + blank | 48-63 | 16 | **1** | Same unit-X/norm-`0.0` degenerate-fallback convention as `Vector::Normalize`, `frames.cpp:147-156` — this convention is a specific, non-obvious design choice (not IEEE `NaN`), not elementary-math-derivable |
-| `get_rot_angle()` + blank | 64-113 | 50 | **1** | Same `eps`/`eps2` singularity thresholds, same largest-diagonal 3-way branch for the `angle == PI` case, same `atan2(‖axis‖/2, f)` general-case formula, variable-for-variable, as `Rotation::GetRotAngle`, `frames.cpp:358-428` |
+| `kdl_normalize()` + blank | 48-63 | 16 | **1** | Same unit-X/norm-`0.0` degenerate-fallback convention as `Vector::Normalize`, `orocos_kdl/frames.cpp:147-156` — this convention is a specific, non-obvious design choice (not IEEE `NaN`), not elementary-math-derivable |
+| `get_rot_angle()` + blank | 64-113 | 50 | **1** | Same `eps`/`eps2` singularity thresholds, same largest-diagonal 3-way branch for the `angle == PI` case, same `atan2(‖axis‖/2, f)` general-case formula, variable-for-variable, as `Rotation::GetRotAngle`, `orocos_kdl/frames.cpp:358-428` |
 | `PathLine` struct doc+decl + blank | 114-128 | 15 | **3** | Field names/roles (`v_base_start`,`v_start_end`,`path_length`,`scale_lin`,`scale_rot`) mirror `Path_Line`'s own member list (`V_base_start`,`V_start_end`,`pathlength`,`scalelin`,`scalerot`) plus the folded-in `RotationalInterpolation_SingleAxis` state (`orient_start`,`rot_axis`) — member-layout convention, not expression |
 | `PathLine::new()` + blank | 129-163 | 35 | **1** | `eqradius` threshold branching matches `Path_Line`'s constructor, `path_line.cpp:47-84`, exactly; the `SetStartEnd`+`Angle()` composition matches `RotationalInterpolation_SingleAxis::SetStartEnd`, `rotational_interpolation_sa.cpp:52-57`, exactly |
 | `PathLine::path_length()` + blank | 164-168 | 5 | **3** | Trivial getter |

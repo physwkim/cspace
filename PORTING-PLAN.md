@@ -2586,7 +2586,7 @@ BTreeSet<String>`이 붙고, 두 게이트가 바디 쌍 단위로 동작한다:
 `planning_scene.hpp:546`의 `distanceToCollision`이
 `collision_env.hpp:220`의 편의 `distanceRobot(state, acm)`을 부르고, 그
 편의 오버로드는 기본 생성 `DistanceRequest`를 쓰며
-`collision_common.hpp:222`가 `enable_signed_distance = false`다. 이 포트
+`collision_detection/collision_common.hpp:222`가 `enable_signed_distance = false`다. 이 포트
 쪽도 `common.rs:331`이 기본값 `false`, `parry.rs:701-705`가 그때
 `contact.dist.max(0.0)`으로 클램프한다. 그래서 이 파리티 테스트는
 `distance_to_collision`이 아니라 `enable_signed_distance: true`를 명시한
@@ -2983,21 +2983,21 @@ not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
 
 1. **`update_joint_constraints`의 이름 매칭.** 초안은
    `local_variable_name`을 잘라낸 이름으로 활성 조인트 목록과
-   비교하려 했다. `utils.cpp:172-192`를 다시 읽으니 상류는 잘라내지
+   비교하려 했다. `kinematic_constraints/utils.cpp:172-192`를 다시 읽으니 상류는 잘라내지
    않은 **전체** `joint_name` 문자열(`"joint/local"` 포함)로 비교한다
    — 멀티 DOF 조인트 제약에 대한 진짜 상류 한계이지 버그가 아니다.
    그대로 재현했고(`jc.joint_variable_name()`으로 비교),
    `joint.rs`의 `joint_name()`(스트립 버전) 게터는 필요 없어 삭제했다.
 2. **`update_pose_constraint`의 단락 평가.** 초안은 위치/방향 갱신
    결과를 각각 `let`에 담은 뒤 `&&`로 합치려 했는데 이러면 상류의
-   단락 평가(`utils.cpp:271-272`, 위치 갱신이 실패하면 방향 갱신
+   단락 평가(`kinematic_constraints/utils.cpp:271-272`, 위치 갱신이 실패하면 방향 갱신
    호출 자체를 건너뜀)가 재현되지 않는다. `Ok(update_position_constraint(...)?
    && update_orientation_constraint(...)?)` 한 식으로 고쳐 Rust의
    `&&` 단락 평가에 맡겼고, 전용 테스트
    (`position_not_found_skips_orientation_update`)로 확인했다.
 3. **쿼터니언 전용 `construct_goal_orientation_constraints`의
    파라미터화.** 초안은 포즈 오버로드와 같은 `RotationVector`를
-   가정했다. `utils.cpp:275-290`을 다시 읽으니 이 오버로드는
+   가정했다. `kinematic_constraints/utils.cpp:275-290`을 다시 읽으니 이 오버로드는
    `ocm.parameterization`을 아예 설정하지 않는다 — 메시지 필드
    기본값 `0 = XYZ_EULER_ANGLES`가 그대로 남는다. `XyzEuler`로
    고쳤고, 동일 상태(`SB`)에서 두 파라미터화가 실제로 다른 값을
@@ -3549,10 +3549,10 @@ UNFIXED에 "`PlanningScene::distance_to_collision`이 상류의
 - 그 편의 오버로드가 `DistanceRequest req;`를 **기본 생성**한 뒤
   `req.enableGroup(...)`를 부른다 (`collision_env.hpp:220-232`)
 - `DistanceRequest::group_name`의 기본값은 `""`
-  (`collision_common.hpp:233`)
+  (`collision_detection/collision_common.hpp:233`)
 - `enableGroup`은 `hasJointModelGroup("")`가 거짓이면
   `active_components_only = nullptr`로 둔다
-  (`collision_common.hpp:206-216`), 그리고
+  (`collision_detection/collision_common.hpp:206-216`), 그리고
   `RobotModel::hasJointModelGroup`은 `joint_model_group_map_` 조회일
   뿐이라 (`robot_model.cpp:507-510`) 빈 이름은 결코 맞지 않는다 —
   SRDF 그룹 이름은 빈 문자열이 될 수 없다.
@@ -4181,7 +4181,7 @@ tests/utils_parity.rs`에 `resolve_constraint_frame_boundary` 모듈(6
   독립 검산).
 - 어디에도 해석되지 않는 이름 → `Ok(None)`.
 - `XyzEuler` 톨러런스로 실제 프레임 변경(부착 서브프레임)을 재타겟하려
-  하면 `Error::Other` — 상류의 `utils.cpp:661-664` 거부와 동일.
+  하면 `Error::Other` — 상류의 `kinematic_constraints/utils.cpp:661-664` 거부와 동일.
 
 ### 36.5 남는 것
 
@@ -4570,7 +4570,7 @@ cases: 20001  passed: 10013  failed: 9988
 `parry.rs` 모듈 문서의 편차 7은 "상류 `distanceCallback`은
 `cdata->done = true`로 브로드페이즈를 조기 종료하지만 이 포트는 모든
 쌍을 남김없이 평가한다"이다. 그 조기 종료의 조건을 상류에서 직접 읽었다
-(`collision_common.cpp:732-734`):
+(`collision_detection_fcl/collision_common.cpp:732-734`):
 
 ```cpp
 if (!cdata->req->enable_signed_distance && cdata->res->collision)
@@ -6764,7 +6764,7 @@ FCL 헤더를 오라클 이미지에서 직접 읽었다. 그런 추정치는 FC
 모두 고치고 구현은 p3-acm이 한다.
 
 순서 문제는 남는다: `res_->cost_sources`가 `std::set<CostSource>`이고
-`collision_common.cpp:286`이 `max_cost_sources`를 넘으면 뒤에서 지우므로
+`collision_detection_fcl/collision_common.cpp:286`이 `max_cost_sources`를 넘으면 뒤에서 지우므로
 `CostSource::operator<`(`cost_source-inl.h:93`) 정렬 순서가 관측 가능하다.
 그건 구현할 때 맞춰야 할 대상이지 한계가 아니다.
 
@@ -7369,7 +7369,7 @@ main에 머지. **1036 → 1048**.
 결론냈고 둘 다 틀렸다고 적었다. 이번에 실제로 구현됐다. 상류 대조를
 내가 직접 했다:
 
-`CostSource::operator<`(`collision_common.hpp:128-141`)는
+`CostSource::operator<`(`collision_detection/collision_common.hpp:128-141`)는
 `cost*getVolume()` 내림차순 → `cost` 내림차순 →
 `aabb_min` 사전순이다. Rust 쪽 `Ord`(`common.rs:148`)는
 `c2.total_cmp(&c1)` → `other.cost.total_cmp(&self.cost)` →
@@ -7377,7 +7377,7 @@ main에 머지. **1036 → 1048**.
 
 절단도 맞다. 상류는 삽입할 때마다
 `while (size() > max_cost_sources) erase(--end())`
-(`collision_common.cpp:285-287`, 같은 패턴이 `:351-353`, `:388-390`에
+(`collision_detection_fcl/collision_common.cpp:285-287`, 같은 패턴이 `:351-353`, `:388-390`에
 세 번 반복된다)로 **뒤에서** 지운다. 정렬이 "가장 비싼 것이 앞"이므로
 뒤는 가장 싼 것이고, Rust의 `BTreeSet::pop_last()`가 같은 것을 지운다.
 
@@ -8385,7 +8385,7 @@ ROS 배선이 아니므로 "전부 moveit_ros"라는 근거로는 닫히지 않�
 
 **그러나 판정 자체는 맞고, 담당이 쓰지 않은 더 강한 근거가 있다.**
 헤더의 `constructGoalConstraints` 오버로드 **7개 중 어느 것도
-`PlanningScene`이나 `Transforms`를 받지 않는다**(`utils.hpp:83`, `:99`,
+`PlanningScene`이나 `Transforms`를 받지 않는다**(`kinematic_constraints/utils.hpp:83`, `:99`,
 `:129`, `:148`, `:176`, `:205`, `:222`). 따라서 어느 패키지의 어느
 호출자도 이 함수를 **통해** 씬과 목표 제약 생성을 짝지을 수 없다.
 패키지 위치와 무관한 구조적 근거다. 호출자 위치를 세는 대신 시그니처를
@@ -12172,7 +12172,7 @@ doc에 측정값과 함께 적었다.
 
 부수적으로 `Contact::depth`는 이 경로들에서 항상 `0.0`이다 — upstream이
 `pos`와 두 body 식별자만 쓰고(`:308-327`, `:1600-1616`), 값은
-`collision_common.hpp:84`의 `= 0.0` default member initializer가 준다.
+`collision_detection/collision_common.hpp:84`의 `= 0.0` default member initializer가 준다.
 재현 가능하지만 침투 깊이를 측정한 값이 아니므로 fixture가 그렇게 읽으면
 안 된다. `gradients` 벡터(§ 이전 라운드에서 제외한, 정말 미정의인 값)와
 구분해서 기록한다.
@@ -12525,7 +12525,7 @@ p1-fixtures 라운드 22의 요청(§107.3 경로)을 그대로 구현했다. �
 - 응답은 둘 다 `{"cost_sources": [{"aabb_min":[..],"aabb_max":[..],"cost":f}]}`.
   `std::set` 반복 순서 그대로 내보낸다 — `CostSource::operator<`가
   `cost * getVolume()` 내림차순이라 이미 most-costly-first다
-  (`collision_common.hpp:128-141`). 여기서 다시 정렬하지 않는 이유는, 순서가
+  (`collision_detection/collision_common.hpp:128-141`). 여기서 다시 정렬하지 않는 이유는, 순서가
   다른 Rust 컨테이너를 정규화로 덮지 않고 mismatch로 드러내기 위해서다.
   `getVolume()`은 파생값이라 내보내지 않는다 — 곱은 맞는데 bound가 틀린
   fixture가 통과하는 것을 막는다.
@@ -13007,7 +13007,7 @@ p3-acm이 `e3a4571`로 padding/scale 절반을 반증하면서 다음 후보를 
 
 ### 164.1 upstream이 무엇으로 mesh를 만드는지
 
-`collision_common.cpp:902-920` — `BVHModel<OBBRSSd>`를 **두 배열**로 만든다:
+`collision_detection_fcl/collision_common.cpp:902-920` — `BVHModel<OBBRSSd>`를 **두 배열**로 만든다:
 
 ```cpp
 std::vector<fcl::Triangle> tri_indices(mesh->triangle_count);
@@ -13374,7 +13374,7 @@ ASCII로 `Universitaet Hamburg`라고 적는다
   스탬프 `552427488cc040a2`로 fixture를 재생성해 비교했다. **36/36
   전 인덱스 일치**.
 
-`collision_common.cpp:902-920`이 `BVHModel<OBBRSSd>`를 두 배열로 *함께*
+`collision_detection_fcl/collision_common.cpp:902-920`이 `BVHModel<OBBRSSd>`를 두 배열로 *함께*
 만들기 때문에, 정점 집합만 맞고 순서나 인덱스가 다르면 BVH가 달라지고
 최심 관통점이 달라진다. 그래서 집합 비교만으로는 이 후보를 배제할 수
 없었다. 이제 배제된다 — **이탈 6(b)의 원인은 mesh 구성이 아니다.**
@@ -13644,7 +13644,7 @@ FCL: `CostSource::total_cost = cost_density * (Δx·Δy·Δz)`
 
 moveit_core도 같은 모양을 한 번 더 한다: 자기
 `CostSource::operator<`가 `cost * getVolume()` 내림차순이고
-(`collision_common.hpp:128-141`), `collision_common.cpp:286-287`,
+(`collision_detection/collision_common.hpp:128-141`), `collision_detection_fcl/collision_common.cpp:286-287`,
 `:352-353`, `:389-390`이 `while(size > max_cost_sources) erase(--end())`를
 반복한다. **절단은 두 번 일어나고 두 번 다 같은 규칙이다.**
 
@@ -14937,7 +14937,7 @@ CLAUDE.md의 결함군 규칙은 "구조적 앵커를 식별하라"고 하고 �
 
 상류 주장을 전부 직접 확인했다: `cd.enableGroup(getRobotModel())`는
 `collision_env_fcl.cpp:281`과 `:336`에서 **무조건** 호출되고,
-`enableGroup`(`collision_common.hpp:206-216`)은
+`enableGroup`(`collision_detection/collision_common.hpp:206-216`)은
 `getUpdatedLinkModelsSet()`으로 해석하며, `collisionCallback:92-94`는 **양쪽 다**
 active set 밖일 때만 쌍을 버린다(AND of negations = OR of memberships).
 p3-acm의 `585a79e`가 그대로 재현했다. 되돌리면 id 5가 정확히 기록된 문구로
@@ -19120,7 +19120,7 @@ crates/ ros/ doc/ PORTING-PLAN.md`가 0건이고, 상류 `robot_state.hpp`가
 배율이 너무 커서 수치 잡음일 수 없다는 지시가 맞았다. 비교되고 있던
 것은 **다른 정의의 거리**다.
 
-`distanceCallback`(`collision_common.cpp:646`, `:650-659`, `:662-663` @
+`distanceCallback`(`collision_detection_fcl/collision_common.cpp:646`, `:650-659`, `:662-663` @
 `e017c91ee`)은 `fcl::collide`를 `num_max_contacts = 200`으로 돌린 뒤
 `penetration_depth`가 **최대**인 접촉을 골라 그 부호를 뒤집어
 `dist_result.distance`로 쓴다. 메시 링크에서 `fcl::collide`는 삼각형
@@ -19333,7 +19333,7 @@ world)`를 만들고 `setLinkPadding`을 **호출하지 않는다**. 나머지�
    쪽은 조용히 무시되는 바로 그 모양이기 때문이다.
 2. **쌍 맵 두 개가 정렬이 아니라 순회 순서로 키를 매겼다.** 상류는
    `collisionCallback`과 `distanceCallback` 양쪽에서 사전순으로 작은 이름을
-   앞에 둔다(`collision_common.cpp:240-242`, `:564-567`). 이 백엔드는
+   앞에 둔다(`collision_detection_fcl/collision_common.cpp:240-242`, `:564-567`). 이 백엔드는
    `cross_pairs`가 로봇을 먼저 놓으므로 `distance_robot`의 모든 쌍을
    `(link, object)`로 넣었고, 상류는 이름이 앞서는 쪽을 먼저 넣었다.
    측정으로 확인한 실제 키는 아래와 같다(`distance_single` 실패 시 출력).
@@ -19946,7 +19946,7 @@ ROS 그래프에서 받을 수 있는 곳이 없다.
 |---|---|---|---|
 | 노드 진입점 (`fn main`, `r2r::Node`, `spin`) | 해당 없음 (런타임 부트스트랩, 메시지 타입이 아니다) | 해당 없음 | `moveit_ros/move_group/src/move_group.cpp`의 `main()` — 코퍼스 밖 |
 | `/plan_kinematic_path` 서비스 | `moveit_msgs::srv::GetMotionPlan` (`moveit_msgs`, 코퍼스 밖이지만 이미 r2r 바인딩으로 이 크레이트가 씀) | `PLANNER_SERVICE_NAME = "plan_kinematic_path"`, `moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:43-44` — 코퍼스 밖 | `moveit_ros/move_group/src/default_capabilities/plan_service_capability.{hpp,cpp}` — 코퍼스 밖 |
-| `/move_action` 액션 서버 | `moveit_msgs::action::MoveGroup` (`moveit_msgs`, 코퍼스 밖) | `MOVE_ACTION = "move_action"`, 같은 `capability_names.hpp:52` — 코퍼스 밖 | `moveit_ros/move_group/src/default_capabilities/move_action_capability.{hpp,cpp}` — 코퍼스 밖 |
+| `/move_action` 액션 서버 | `moveit_msgs::action::MoveGroup` (`moveit_msgs`, 코퍼스 밖) | `MOVE_ACTION = "move_action"`, 같은 `move_group/capability_names.hpp:52` — 코퍼스 밖 | `moveit_ros/move_group/src/default_capabilities/move_action_capability.{hpp,cpp}` — 코퍼스 밖 |
 | planning scene 토픽 구독 | `moveit_msgs::msg::PlanningScene` (`moveit_msgs`, 코퍼스 밖) | 토픽 이름은 `PlanningSceneMonitor` 생성자 인자(고정 문자열 아님) | `moveit_ros/planning/planning_scene_monitor/src/planning_scene_monitor.cpp:1205`(`create_subscription<moveit_msgs::msg::PlanningScene>`) — 코퍼스 밖 |
 
 네 근거 파일 전부 이 기계의 `/home/stevek/work/moveit2`에서 직접 읽고
@@ -20548,17 +20548,17 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 
 | 필드 | self | robot | 포트에서 읽는 곳 | 상류에서 읽는 곳 |
 |---|---|---|---|---|
-| `group_name` | 읽음 | 읽음 | `:2490`, `:2517` (`active_group_links`), `:2464` (거리 질의로 전달) | `collision_common.cpp:1012-1022` (`CollisionData::enableGroup`), 술어는 `:80-94` |
+| `group_name` | 읽음 | 읽음 | `:2490`, `:2517` (`active_group_links`), `:2464` (거리 질의로 전달) | `collision_detection_fcl/collision_common.cpp:1012-1022` (`CollisionData::enableGroup`), 술어는 `:80-94` |
 | `pad_environment_collisions` | **포팅 안 함 (§242)** | **포팅 안 함 (§242)** | 필드가 없다 (`b5cced7`) | 백엔드에는 없다. `planning_scene.cpp:442`가 유일한 독자이고, 필드를 백엔드에 넘기는 대신 패딩된/안 된 두 `CollisionEnv` 인스턴스 중 하나를 고른다 |
 | `pad_self_collisions` | **포팅 안 함 (§242)** | **포팅 안 함 (§242)** | 필드가 없다 (`b5cced7`) | 같은 방식, `planning_scene.cpp:453`·`:558`. 상류 트리 전체에 **대입하는 곳이 0**이므로 실효값은 기본 `false` 하나다 |
 | `distance` | 읽음 | 읽음 | `:2460` (`attach_requested_distance`) | `collision_env_fcl.cpp:283-297` (self), `:340-354` (robot) |
 | `detailed_distance` | 읽음 | 읽음 | `:2469` | 같은 두 블록의 `if (req.detailed_distance)` |
-| `cost` | 읽음 | 읽음 | `:2184`, `:2243`, `:2271` | `collision_common.cpp:279-288`, `:341-354`, 그리고 종료 규칙 `:405` |
-| `contacts` | 읽음 | 읽음 | `:2200`, `:2240`, `:2271` | `collision_common.cpp:196`, `:398` |
-| `max_contacts` | 읽음 | 읽음 | `:2200`, `:2271` | `collision_common.cpp:198`, `:214`, `:398` |
-| `max_contacts_per_pair` | 읽음 | 읽음 | `:2202` | `collision_common.cpp:212-214` |
-| `max_cost_sources` | 읽음 | 읽음 | `:2187` | `collision_common.cpp:286-287`, `:352-353` |
-| `is_done` | **읽음 (이 회차에 고침)** | **읽음 (이 회차에 고침)** | `:2274` (`sweep_is_done`) | `collision_common.cpp:411-413`, 그 결과를 보는 곳이 `:70-71`과 `collision_env_fcl.cpp:337` |
+| `cost` | 읽음 | 읽음 | `:2184`, `:2243`, `:2271` | `collision_detection_fcl/collision_common.cpp:279-288`, `:341-354`, 그리고 종료 규칙 `:405` |
+| `contacts` | 읽음 | 읽음 | `:2200`, `:2240`, `:2271` | `collision_detection_fcl/collision_common.cpp:196`, `:398` |
+| `max_contacts` | 읽음 | 읽음 | `:2200`, `:2271` | `collision_detection_fcl/collision_common.cpp:198`, `:214`, `:398` |
+| `max_contacts_per_pair` | 읽음 | 읽음 | `:2202` | `collision_detection_fcl/collision_common.cpp:212-214` |
+| `max_cost_sources` | 읽음 | 읽음 | `:2187` | `collision_detection_fcl/collision_common.cpp:286-287`, `:352-353` |
+| `is_done` | **읽음 (이 회차에 고침)** | **읽음 (이 회차에 고침)** | `:2274` (`sweep_is_done`) | `collision_detection_fcl/collision_common.cpp:411-413`, 그 결과를 보는 곳이 `:70-71`과 `collision_env_fcl.cpp:337` |
 | `verbose` | 무시 | 무시 | 없음 | `collision_common.cpp`에 17군데, **전부 로그 전용** |
 
 `distance`/`detailed_distance` 두 행은 §231.1의 `00e37c1`을 상류에서
@@ -20567,7 +20567,7 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 정확히 그 둘만 넣는다(`:2464`). 빠뜨린 필드는 없다.
 
 `146bc2c`의 정렬 키도 같은 방식으로 확인했고, 이것은 **일탈이 아니다**:
-상류는 `collision_common.cpp:240-242`, `:329-331`(접촉 맵), `:565-567`
+상류는 `collision_detection_fcl/collision_common.cpp:240-242`, `:329-331`(접촉 맵), `:565-567`
 (거리 맵) 세 곳 모두에서 `cd1->getID() < cd2->getID()`로 사전순 작은
 이름을 앞에 둔다. 삽입 순서가 아니다. 반대로 `DistanceResultsData`의
 `link_names`는 상류가 **정렬하지 않고**(`:627-628`이 `res_cd1`/`res_cd2`를
@@ -20590,7 +20590,7 @@ HEAD:crates/moveit-collision/src/common.rs:5
 `Default`, 그리고 그 doc. `distance`와 정확히 같은 모양이다: 호출자는
 설정할 수 있고, 설정해도 아무 일도 일어나지 않는다.
 
-상류의 종료는 **두 갈래**이고 순서가 있다(`collision_common.cpp:395-424`).
+상류의 종료는 **두 갈래**이고 순서가 있다(`collision_detection_fcl/collision_common.cpp:395-424`).
 암묵 갈래가 먼저다 — 충돌이 기록되었고, 접촉 예산이 필요 없거나 이미
 찼고, 비용을 모으고 있지 않으면 `done_`이다. 그다음이
 `if (!cdata->done_ && cdata->req_->is_done)`이다. 즉 `is_done`은 암묵
@@ -20670,7 +20670,7 @@ $
 
 로깅을 도입하는 것은 이 크레이트의 결정이 아니므로 여기서는 무시로
 남기고 사실만 적는다. 이 조사가 그 김에 상류 로그 결함 하나를 찾았고
-(`collision_common.cpp:261-268`의 버리는 갈래가 "Contact was stored."라고
+(`collision_detection_fcl/collision_common.cpp:261-268`의 버리는 갈래가 "Contact was stored."라고
 찍는다) `doc/upstream-bugs.md`의
 `collision-callback-logs-contact-stored-when-dropped`에 있다.
 
@@ -20797,7 +20797,7 @@ D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했으나 아직 없다. 새�
 `collision_matrix.cpp:428-491`에는 로깅이 없다 — 호출자가 준
 `std::ostream&`에 인덱스 헤더 행과 이름별 `01?`/`-` 표를 쓰고 끝난다.
 `RCLCPP_WARN_STREAM_THROTTLE`은 이 체크아웃 전체에서
-`collision_common.cpp:60` 한 곳뿐이고 `print`와 무관하다. 이 체크아웃에
+`collision_detection/collision_common.cpp:60` 한 곳뿐이고 `print`와 무관하다. 이 체크아웃에
 `AllowedCollisionMatrix::print` 호출자는 0건이다(`\.print\(|->print\(`
 전체 6건, 어느 것도 수신자가 ACM이 아님). 사유를 "호출자 0건인 디버그
 프린터, 대응물은 `Display` impl"로 교체했고 재개 조건도 적었다.
@@ -21036,7 +21036,7 @@ $ rg -o --no-heading '\b\w*[Uu]npadded\w*\b' --glob '*.cpp' --glob '*.hpp' --glo
 부르는 코퍼스 파일은 없다. 즉 **코퍼스 안 호출자 0**이다.
 
 그 전수에서 하나가 더 나왔다. **`pad_self_collisions`에 값을 대입하는
-곳은 상류 트리 전체에 0개다.** 히트 셋은 `collision_common.hpp:157`의
+곳은 상류 트리 전체에 0개다.** 히트 셋은 `collision_detection/collision_common.hpp:157`의
 기본값 `false`와 `planning_scene.cpp:453`·`:558`의 삼항 연산자뿐이다.
 따라서 상류의 실효 규칙은 필드 이름이 시사하는 "요청마다 고른다"가
 아니라 **"환경 쪽은 패딩, 자기 충돌은 언제나 패딩 없음"** 이다.

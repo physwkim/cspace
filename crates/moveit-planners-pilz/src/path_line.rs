@@ -72,7 +72,7 @@ use crate::velocity_profile::KDL_EPSILON;
 /// `0.0` (the honest value once the magnitude is indistinguishable from
 /// numerical noise, not a near-zero float or IEEE `NaN`). This is a
 /// genuinely different choice from `Vector::Normalize`'s own degenerate
-/// branch (which returns the unit X axis, `frames.cpp:147-156`), not a
+/// branch (which returns the unit X axis, `orocos_kdl/frames.cpp:147-156`), not a
 /// restatement of it, and it does not change any currently reachable
 /// observable output of this crate's callers:
 ///

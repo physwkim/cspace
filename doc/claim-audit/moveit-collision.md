@@ -108,9 +108,9 @@ never opened `collision_env_fcl.cpp`'s `checkSelfCollisionHelper`/
 | where | claim | verdict | evidence |
 |---|---|---|---|
 | former module doc deviation 1 | `checkSelfCollision`/`checkRobotCollision` never call `enableGroup`/read `active_components_only_` | REFUTED | `collision_env_fcl.cpp:281` and `:336`: `checkSelfCollisionHelper`/`checkRobotCollisionHelper` both call `cd.enableGroup(getRobotModel())` unconditionally, every call |
-| new module doc deviation 1 | `CollisionData::enableGroup` resolves `req_->group_name` to `JointModelGroup::getUpdatedLinkModelsSet()` when the model has that group, else `nullptr` | CONFIRMED | `collision_common.cpp:1012-1022` |
-| new module doc deviation 1 | `collisionCallback` skips a pair only when *neither* side resolves to an active link (world objects never resolve to one, so a robot-vs-world pair is kept iff the robot link is active; a self-pair is kept iff *either* link is) | CONFIRMED | `collision_common.cpp:79-94` |
-| new module doc deviation 1 | `distanceCallback` reads the identical `active_components_only` from `DistanceRequest`, so `distance_self`/`distance_robot` need the same filter even though `distanceSelf`/`distanceRobot` themselves never call `enableGroup` (their caller is expected to have already populated it) | CONFIRMED | `collision_common.cpp:482-500` (callback); `collision_env_fcl.cpp:288-290`/`345-347` (the caller populating it before calling `distanceSelf`/`distanceRobot`) |
+| new module doc deviation 1 | `CollisionData::enableGroup` resolves `req_->group_name` to `JointModelGroup::getUpdatedLinkModelsSet()` when the model has that group, else `nullptr` | CONFIRMED | `collision_detection_fcl/collision_common.cpp:1012-1022` |
+| new module doc deviation 1 | `collisionCallback` skips a pair only when *neither* side resolves to an active link (world objects never resolve to one, so a robot-vs-world pair is kept iff the robot link is active; a self-pair is kept iff *either* link is) | CONFIRMED | `collision_detection_fcl/collision_common.cpp:79-94` |
+| new module doc deviation 1 | `distanceCallback` reads the identical `active_components_only` from `DistanceRequest`, so `distance_self`/`distance_robot` need the same filter even though `distanceSelf`/`distanceRobot` themselves never call `enableGroup` (their caller is expected to have already populated it) | CONFIRMED | `collision_detection_fcl/collision_common.cpp:482-500` (callback); `collision_env_fcl.cpp:288-290`/`345-347` (the caller populating it before calling `distanceSelf`/`distanceRobot`) |
 | new module doc deviation 1 | `JointModelGroup::getUpdatedLinkModelsSet()` is the union of every joint root's descendant links (fixed-joint descendants included), and `moveit-model`'s already-ported `JointModelGroup::updated_link_names` computes the identical set | CONFIRMED | `moveit_core/robot_model/src/joint_model_group.cpp:250-260`; `crates/moveit-model/src/joint_model_group.rs:315-334` (own crate, pre-existing, ported correctly — the bug was only in `moveit-collision` never calling it) |
 
 Measured (this crate's `parry::tests::check_robot_collision_group_name_*`/
@@ -357,7 +357,7 @@ would make this backend disagree with the oracle's own FCL-computed depth
 on nearly every case, not produce a plausible-looking self-consistent
 pair. But it is not a perfect witness for *narrow-phase triangle
 selection* specifically: `CollisionRequest::max_contacts_per_pair`
-defaults to `1` (`collision_common.hpp:176`, confirmed by reading the
+defaults to `1` (`collision_detection/collision_common.hpp:176`, confirmed by reading the
 oracle's own vendored copy) even under `Op::Collision`, so the oracle
 reports whichever single triangle FCL's own narrow-phase traversal found
 first for a mesh-vs-shape pair, not necessarily this reconstruction's own

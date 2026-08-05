@@ -31,7 +31,7 @@
 //! The two "unwritten result" sites are an upstream defect, recorded as
 //! `pr2-collision-test-asserts-unwritten-result` in `doc/upstream-bugs.md`:
 //! both read a default-constructed `CollisionResult`, whose `collision` member
-//! is initialised `false` in-class (`collision_common.hpp:353`), so they hold
+//! is initialised `false` in-class (`collision_detection/collision_common.hpp:353`), so they hold
 //! however the checker behaves. They are the reason the accounting above
 //! cannot be read as "38 assertions this port does not make" -- two of the 41
 //! are assertions upstream does not make either.
