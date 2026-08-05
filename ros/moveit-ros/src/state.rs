@@ -81,7 +81,8 @@ fn set_parallel_array(
         )));
     }
     for (name, &value) in names.iter().zip(values.iter()) {
-        set_by_name(state, name, value)?;
+        set_by_name(state, name, value)
+            .map_err(|e| Error::construct(format!("JointState.{field}: {e}")))?;
     }
     Ok(())
 }
@@ -300,8 +301,61 @@ pub(crate) mod tests {
             attached_collision_objects: vec![],
             is_diff: false,
         };
-        let err = CoreRobotState::try_from(RobotStateMsg { model: &model, msg }).unwrap_err();
-        assert!(matches!(err, Error::UnknownName { .. }), "got: {err:?}");
+        // Not just the variant: `set_parallel_array`'s per-name lookup routes
+        // through `RobotModel::variable_index` for position/velocity/effort
+        // alike, which reports the identical `Error::UnknownName{kind:
+        // "variable", ..}` regardless of which array called it -- only the
+        // field-prefixed message (added by `set_parallel_array` itself) tells
+        // this test apart from its two siblings below.
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "JointState.position: no variable named",
+        );
+    }
+
+    #[test]
+    fn unknown_joint_name_in_velocity_is_rejected() {
+        // Sibling of `unknown_joint_name_is_rejected` -- previously untested
+        // entirely, not merely undiscriminated.
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: sensor_msgs::JointState {
+                header: Default::default(),
+                name: vec!["no_such_joint".to_string()],
+                position: vec![],
+                velocity: vec![0.0],
+                effort: vec![],
+            },
+            multi_dof_joint_state: Default::default(),
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "JointState.velocity: no variable named",
+        );
+    }
+
+    #[test]
+    fn unknown_joint_name_in_effort_is_rejected() {
+        // Third sibling -- also previously untested.
+        let model = one_joint_model();
+        let msg = moveit_msgs::RobotState {
+            joint_state: sensor_msgs::JointState {
+                header: Default::default(),
+                name: vec!["no_such_joint".to_string()],
+                position: vec![],
+                velocity: vec![],
+                effort: vec![0.0],
+            },
+            multi_dof_joint_state: Default::default(),
+            attached_collision_objects: vec![],
+            is_diff: false,
+        };
+        assert_err_mentions(
+            CoreRobotState::try_from(RobotStateMsg { model: &model, msg }),
+            "JointState.effort: no variable named",
+        );
     }
 
     #[test]

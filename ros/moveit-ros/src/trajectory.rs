@@ -85,7 +85,8 @@ fn set_point_array(
         )));
     }
     for (name, &value) in joint_names.iter().zip(values.iter()) {
-        set_by_name(state, name, value)?;
+        set_by_name(state, name, value)
+            .map_err(|e| Error::construct(format!("JointTrajectoryPoint.{field}: {e}")))?;
     }
     Ok(())
 }
@@ -109,7 +110,9 @@ impl<'m> TryFrom<JointTrajectoryMsg<'m>> for RobotTrajectory<'m> {
             }
             let mut state = RobotState::new(model);
             for (name, &pos) in msg.joint_names.iter().zip(point.positions.iter()) {
-                state.set_variable_position(name, pos)?;
+                state.set_variable_position(name, pos).map_err(|e| {
+                    Error::construct(format!("JointTrajectoryPoint[{i}].positions: {e}"))
+                })?;
             }
             set_point_array(
                 &mut state,
@@ -334,6 +337,29 @@ mod tests {
         assert_err_mentions(
             RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
             "velocities has length",
+        );
+    }
+
+    #[test]
+    fn unknown_joint_name_in_positions_is_rejected() {
+        // Previously untested entirely (not merely undiscriminated): the
+        // positions loop's per-name `Error::UnknownName` had no test at all.
+        // Not a sibling of `set_point_array`'s velocities/accelerations/effort
+        // calls: those share this same loop's `msg.joint_names`, and
+        // positions' unconditional (non-`is_empty`-exempt) length check runs
+        // first against every name in that list, via the same
+        // `RobotModel::variable_index` lookup positions itself uses -- so an
+        // unresolvable name always fails here first, before
+        // velocities/accelerations/effort's own per-name loops ever run.
+        let model = one_joint_model();
+        let msg = trajectory_msgs::JointTrajectory {
+            header: Default::default(),
+            joint_names: vec!["no_such_joint".to_string()],
+            points: vec![point(0.0, 0, 0)],
+        };
+        assert_err_mentions(
+            RobotTrajectory::try_from(JointTrajectoryMsg { model: &model, msg }),
+            "JointTrajectoryPoint[0].positions: no variable named",
         );
     }
 
