@@ -102,6 +102,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `get-best-approximate-static-dummy-stale` | not-reproduced |
 | `update-cache-capacity-as-size-limit` | not-reproduced |
 | `save-cache-empty-path-guard-falls-through` | not-reproduced |
+| `cached-ik-accumulate-return-discarded` | not-reproduced |
 
 ---
 
@@ -997,6 +998,47 @@ returning `Result` are local API-shape choices in this crate.
 mangled filename built at `:88-91`, which this port does not have — see
 `crates/moveit-kinematics/src/ik_cache/format.rs`'s module doc for why the
 filename's `max_cache_size`/threshold components are not reproduced.
+
+---
+
+### `cached-ik-accumulate-return-discarded` — Three `std::accumulate` calls that build a cache's name throw the result away, so the name loses every component after the first — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/cached_ik_kinematics_plugin-inl.hpp:81-83`
+and `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:342-349`
+(`IKCacheMap::getKey`), verified at the pinned `e017c91e`.
+**Port:** none. `CachedIkSolver` wraps one solver for one group and takes
+its cache path from the caller, so it has no name to build; `IKCacheMap`
+has no port at all (`D4` replaces pluginlib's plugin-per-group shape with
+the `KINEMATICS_SOLVERS` registry).
+**Symptom:** `std::accumulate(first, last, init)` returns the accumulated
+value and leaves `init` untouched. All three calls discard it. At
+`-inl.hpp:82`, `cache_name` is initialized to `base_frame` and the
+accumulate meant to append the tip frames does nothing, so `cache_name`
+stays the bare base frame; the cache file is then named
+`robot_id + group_name + "_" + cache_name + ...` (`ik_cache.cpp:88-91`), so
+two initializations of one group under different tip frames — which is what
+`CachedMultiTipIKKinematicsPlugin` exists for — resolve to the same file and
+share seeds whose poses are poses of different links. In
+`IKCacheMap::getKey` the same mistake is fatal rather than partial: `key`
+starts empty, both accumulates are discarded, and the only surviving
+statement is `key += '_'`, so the function returns `"_"` for every input.
+Every distinct (fixed, active) joint-name pair therefore maps to one map
+entry and one cache.
+**Evidence:** a read of `std::accumulate`'s contract and of the three call
+sites. Reachability differs sharply between them and is unmeasured for
+both: `-inl.hpp:82` is on the live `initialize` path, while `IKCacheMap` is
+constructed and called nowhere in the upstream tree — a search for the
+identifier finds only its own declaration and definitions — so `getKey` is
+dead code that would become live the moment anything used the class.
+**Status:** `not-reproduced`. Nothing in this port derives a cache identity
+from string concatenation; `CachedIkSolver::from_cache_file` and
+`save_cache` name the file explicitly, and the joint count the file was
+written for is checked against the solver's on load rather than encoded
+into a name.
+**Deviation:** `D4` is what removes the plugin-per-group naming scheme these
+functions serve; the discarded return itself maps to no `D` class.
+**Cost of not reproducing:** none. No parity test and no oracle operation
+constructs a cache name.
 
 ---
 
