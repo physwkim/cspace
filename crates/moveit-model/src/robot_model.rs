@@ -2308,7 +2308,7 @@ mod tests {
     }
 
     /// Distinct from `multiple_root_links_errors` below: both are arms of
-    /// the very same `match root_candidates.as_slice()` (`:198-213`), so a
+    /// the very same `match root_candidates.as_slice()` (`:215-230`), so a
     /// bare `.is_err()` cannot tell whether *this* URDF's cycle actually
     /// took the `[]` ("no root link") arm rather than being silently routed
     /// into the `names` ("N root links") arm instead.
