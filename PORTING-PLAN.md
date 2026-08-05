@@ -19054,3 +19054,140 @@ FCL의 개별 깊이를 분리하면:
   깨진다.
 - 10,000 상태 스윕을 다시 돌리지 않았다. §218이 잰 수치를 그대로 쓰며,
   이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+## §NEW `test_collision_common_{panda,pr2}.hpp` — 코퍼스 규칙은 결함이 아니고, 짝이 없던 단언 하나는 만들었다 (2026-08-06)
+
+`doc/port-coverage.md`가 `gap`으로 들고 있던 6건 중 코드가 아닌 두 건.
+두 물음을 순서대로 물었고, 첫 물음의 답이 "행을 남긴다"였으므로 둘째로
+넘어갔다.
+
+### §NEW.1 코퍼스 규칙 — 규칙은 실제로 존재한다. 그런데 채택하면 후퇴다
+
+물음은 "이 두 파일이 코퍼스에 있는 것이 경로 성분 사고인가"였다. 사고인
+것은 맞다. `corpus_files()`가 거르는 것은 경로에 `test`/`tests` 성분이
+있는 파일이고(`tools/ci/measure-port-coverage.py:90`), 상류가 이 테스트
+본문들을 `collision_detection/include/` 밑에 두었기 때문에 그물을 빠져나온다.
+
+**바꾸기 전에 "다른 코퍼스 멤버 중 상류 테스트 본문이 몇 개인가"를 셋다.**
+서로 독립인 술어 셋을 코퍼스 245개 전부에 돌렸다.
+
+| 술어 | 옮기는 파일 수 |
+|---|---|
+| A. 비-shim 소비자가 1개 이상이고 **전부** `test/` 밑 | 3 |
+| B. 자기 자신이 `#include <gtest/gtest.h>` | 3 (A와 **같은 3개**) |
+| C. basename을 `_`로 쪼갠 토큰에 `test`가 있음 | **5** |
+
+A와 B는 서로 다른 계기인데 같은 3개를 고른다 — `test_collision_common_
+{panda,pr2}.hpp`와 `eigen_test_utils.hpp`. C는 여기에
+`robot_model_test_utils.{hpp,cpp}`를 더한 5개이고, 이 5개가 §228이 이미
+이름 붙인 그 가족이다("테스트 지원 코드인데 `test/` 디렉터리 밖에 산다").
+상류 소스 1,296개 전체에서 C의 오탐은 **0건**이다(`test/` 밖에서 basename에
+`test`가 든 19개는 전부 진짜 테스트 코드이고, 그중 코퍼스 루트 안에 있는
+것이 이 5개다).
+
+즉 **"두 파일짜리 예외 목록"이 아닌 진짜 규칙이 존재한다.** A/B는 가족
+5개 중 3개만 잡으므로 규칙이 아니라 부분 형태다 —
+`robot_model_test_utils.hpp`는 gtest를 안 쓰고(B 탈락), 소비자 하나가
+`moveit_ros/planning/planning_components_tools/src/compare_collision_speed_
+checking_fcl_bullet.cpp`로 `test/` 밖이다(A 탈락). C만 가족을 덮는다.
+
+**그런데 C를 채택하면 안 된다. 이유는 이 트리 안에 적혀 있다.**
+`crates/moveit-test-support/src/lib.rs:8-15`가 그것이다:
+
+> Not a port of any upstream file. This used to add "upstream has no
+> equivalent test-side machinery of its own", **which is false**: upstream
+> ships `robot_model_test_utils.{hpp,cpp}` … and `eigen_test_utils.hpp` ….
+> **Both live outside a `test/` directory, so they are inside this port's
+> measured corpus and carry their own `doc/port-coverage.md` rows.**
+
+이 문장은 앞선 라운드가 **거짓 주장을 고치면서** 쓴 것이고, 고침의 근거가
+바로 "코퍼스 안에 있고 행을 가진다"이다. 다섯 개가 실제로 전부 행을
+가진다(측정: `gap` 2, `decided-non-port` 3). 코퍼스에서 빼면 그 행 다섯
+개가 사라지고, 사라지는 순간 이 포트는 "상류에 테스트 지원 기계가 없다"는
+쪽으로 되돌아갈 근거를 얻는다 — **행이 강제하던 의무, 즉 파일마다 이 포트의
+대응물을 이름으로 대라는 의무가 없어진다.** 규칙이 옳아도 그 규칙이 지우는
+것이 이 문서 체계가 유일하게 붙잡고 있던 것이라면 채택이 후퇴다.
+
+따라서 **코퍼스 규칙은 고치지 않는다. 행을 판정한다.**
+
+### §NEW.2 두 헤더의 판정 — 단언 하나하나에 짝을 댔다
+
+두 헤더는 `TYPED_TEST_P` 본문이고(panda 10건, pr2 11건), 존재 이유는 FCL과
+Bullet 두 백엔드에 같은 스위트를 물리는 것이다. 인스턴스화는
+`collision_detection_{fcl,bullet}/test/` 안에만 있고 §1이 그 두 트리를 각각
+`[parry로 대체]`·`[드롭]`으로 뺐다. 그러나 `decided-non-port`의 근거는
+"테스트 파일이라서"가 아니라 **단언별 대응물**이어야 하므로 21건을 전부
+분류했다.
+
+| 상류 단언 | 이 포트의 짝 |
+|---|---|
+| panda `InitOK`/`DefaultNotInCollision`/`LinksInCollision`/`RobotWorldCollision_{1,2}`/`DistanceSelf`/`DistanceWorld` | `collision_parity.rs:542` — 오라클이 직접 답한 4개 상태에 대해 `check_self_collision`/`check_robot_collision`/`distance_self`/`distance_robot` 전부 |
+| pr2 `InitOK`/`DefaultNotInCollision`/`LinksInCollision` | `collision_parity.rs:554` — 같은 4항목, pr2 4개 상태 |
+| pr2 `AttachedBodyTester`/`ConvertObjectToAttached` | `crates/moveit-scene/tests/attached_collision_parity.rs` (5건) |
+| pr2 `DiffSceneTester` | `crates/moveit-scene/tests/scene_diff_collision_parity.rs` (12건) |
+| pr2 `TestChangingShapeSize` | 같은 파일의 `remove_object` 케이스 + `world_parity.rs:145`의 `set_object_pose` |
+| panda `DistanceSingle`/`DistancePoints`, pr2 `ContactReporting`/`ContactPositions` | 없음 — §4.5가 기록한 **제외**다. `parry.rs` 이탈 4·6(쌍당 접촉 1개 대 FCL 최대 200개)이 어떤 허용오차로도 수렴하지 않게 만든다 |
+| pr2 `MoveMesh` | 짝이 필요 없다. 본문에 `ASSERT_`/`EXPECT_`가 **0개**다 — `checkCollision`을 다섯 번 부르고 결과를 읽지 않는다 |
+| pr2 `TestCollisionMapAdditionSpeed` | 짝이 필요 없다. 이 파일의 `EXPECT_TIME_LT` 9개 중 하나이고, 벽시계는 백엔드가 아니라 기계를 잰다 |
+| panda `PaddingTest` | **이 라운드에 만들었다** (아래) |
+
+**짝이 없던 단언은 하나였고, 없는 이유가 구조적이었다.** 오라클의
+`collision` op은 padding 인자를 받지 않는다(`oracle.cpp:2191`의
+`json collision(const json&)`은 `joint_values`·`attached_bodies`·월드
+객체·`max_contacts_per_pair`만 읽는다). 그래서
+`tests/fixtures/{panda,fanuc,pr2}_collision.json`은 전부 생성자 기본값
+padding `0.0`에서 잡혔고, **차분 픽스처로는 `LinkPaddingScale`을 원리상 못
+건드린다.** 실제로 이 라운드 전까지 워크스페이스에서 0이 아닌 padding이
+충돌 질의 앞에 놓인 적이 없다 — `set_link_padding`/`LinkPaddingScale::
+with_links` 호출처가 전부 `env.rs`의 자기 단위 테스트였고, 그것들은 맵의
+장부(클램핑·변경 보고·미추적 링크 기본값)를 볼 뿐 판정을 보지 않는다.
+
+그래서 세 번째 종류의 ground truth를 썼다 — 오라클의 답도, 손으로 고른
+상수도 아닌, **상류가 공개한 시나리오를 상류의 수 그대로** 재생한 것:
+같은 `0.1` 정육면체를 같은 `(0.43, 0, 0.55)`에, 같은 `panda_hand`를 같은
+`0.08`로, 같은 `setToHome` 자세에서
+(`crates/moveit-collision/tests/link_padding_changes_collision_verdict.rs`).
+
+측정한 스윕(padding → 최소 robot 거리, 괄호는 최근접 쌍):
+
+| padding | 최소 거리 | 쌍 |
+|---|---|---|
+| 0.00 | `+0.029119199` | panda_link7 / box |
+| 0.02 | `+0.021490125` | panda_hand / box |
+| 0.04 | `+0.001589386` | panda_hand / box |
+| 0.06 | `-0.018311353` | panda_hand / box |
+| 0.08 | `-0.038212093` | panda_hand / box |
+
+padding 없는 값 `+0.029119199`는 상류 `DistanceWorld`가
+`EXPECT_NEAR(res.distance, 0.029, 0.01)`로 주장하는 바로 그 양이다. 이
+백엔드는 상류의 공칭값 `0.029`에서 `0.000119` 떨어져 있다 — 상류가 스스로
+허용한 `0.01`보다 **84배** 좁다. 시나리오가 비슷한 것이 아니라 재현된
+것이다. 뒤집힘은 `0.04`와 `0.06` 사이에서 일어나므로(`panda_hand`의 맨
+간극이 `~0.0416`), 상류의 `0.08`은 칼날이 아니라 뒤집힘점의 약 2배다.
+
+**단언이 실제로 변별하는지 다섯 변이로 확인했다**(전부 되돌림). 각 변이가
+서로 다른 줄에서 깨진다 — 하나가 다른 것의 실패를 가리지 않는다:
+
+| 변이 | 깨지는 단언 |
+|---|---|
+| padding을 항상 `0.0`으로 | `:200` "panda_hand padded by 0.08 must reach the box" |
+| padding을 이름과 무관하게 **모든** 링크에 | `:206` 최근접 쌍이 `panda_link7`로 바뀐다 |
+| padding을 2배로 | `:216` 깊이가 padding을 따라가지 않는다 |
+| 모든 링크에 상수 `0.005` 누출 | `:187` 맨 거리 `0.024626` ≠ `0.029119` |
+| `set_link_padding(_, 0.0)`을 no-op으로 | `:230` 되돌려도 깨끗해지지 않는다 |
+
+마지막 변이가 중요하다. 상류의 세 번째 단계(`setLinkPadding("panda_hand",
+0.0)` 후 재검사)가 붙잡는 성질은 **가역성**이다 — padding이 생성 시점에
+링크 기하에 구워지는 것이 아니라 질의마다 `LinkPaddingScale`에서 읽힌다는
+것. 그래서 이 테스트는 판정만이 아니라 거리가 **정확히** 원래 값으로
+돌아오는 것까지 단언한다.
+
+### §NEW.3 이 절이 하지 않은 것
+
+- 코퍼스 술어를 바꾸지 않았다. §NEW.1의 규칙 C는 실측으로 성립하지만
+  채택하지 않았고, 이유를 적었다. 뒤에 이 판단을 뒤집으려는 사람은
+  `crates/moveit-test-support/src/lib.rs:8-15`를 먼저 고쳐야 한다.
+- pr2 헤더에는 새 테스트를 만들지 않았다. 11건 중 짝이 없는 것은 §4.5가
+  이미 기록한 제외 2건과, 아무것도 단언하지 않는 2건뿐이다.
+- `MoveMesh`/`TestCollisionMapAdditionSpeed`가 쓰는 `kinect_dae_resource_`
+  (`.dae` 메시)를 이 포트에 들여오지 않았다. 두 케이스가 각각 무단언·
+  벽시계라 들여올 이유가 없다.

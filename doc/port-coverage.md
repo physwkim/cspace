@@ -97,7 +97,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 87건 (2026-08-06 실측)
 
-`decided-non-port` 67 / `gap` 6 / `ported-elsewhere` 14.
+`decided-non-port` 69 / `gap` 4 / `ported-elsewhere` 14.
 
 이 세 수는 게이트가 **검사하지 않는다** — `measure-port-coverage.py --check`는
 행 집합만 대조한다(§2). 그래서 표에서 직접 센다:
@@ -105,8 +105,8 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 ```console
 $ awk -F'|' '/^\| `moveit_/ {gsub(/^ +| +$/,"",$3); c[$3]++; n++} \
              END {for (k in c) print k, c[k]; print "total", n}' doc/port-coverage.md
-decided-non-port 67
-gap 6
+decided-non-port 69
+gap 4
 ported-elsewhere 14
 total 87
 ```
@@ -125,8 +125,8 @@ total 87
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "its entire body is pluginlib runtime class loading ... plus `rclcpp` logging -- no algorithm exists independent of that ROS mechanism" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | ported-elsewhere | `crates/moveit-collision/src/lib.rs:17` | its `.cpp` is cited as ported; the pure `CostSource` half is `total_cost`/`intersect_cost_sources`/`remove_overlapping` in `moveit-collision`. Residual: the four `visualization_msgs`/`moveit_msgs` marker/message functions (D1) |
 | `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | gap | `crates/moveit-collision/src/lib.rs:51-68` | the text is a routing decision, not a decision not to port: "It is genuinely `RobotState`-free and portable, so 'no portable piece at all' was also false for this header ... request it against `moveit-octomap`" |
-| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | gap | none | upstream's shared test body, but it carries no `test/` path component so the corpus rule keeps it; 0 hits in `crates/ ros/ doc/ PORTING-PLAN.md` |
-| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | gap | none | same |
+| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | decided-non-port | `PORTING-PLAN.md` §NEW.2; `crates/moveit-collision/tests/collision_parity.rs:542` (`panda_collision_matches_the_oracle`), `crates/moveit-collision/tests/link_padding_changes_collision_verdict.rs` | 10 `TYPED_TEST_P` cases, and this port asserts each of them from stronger ground truth than the header itself uses. `InitOK`/`DefaultNotInCollision`/`LinksInCollision`/`RobotWorldCollision_{1,2}`/`DistanceSelf`/`DistanceWorld` are `check_self_collision`/`check_robot_collision`/`distance_self`/`distance_robot` verdicts, and `panda_collision_matches_the_oracle` checks all four against the C++ oracle's own recorded answers on four panda states rather than against the header's hand-written constants. `DistanceSingle`/`DistancePoints` are nearest-point *coordinates*, which §4.5 records as an excluded comparison for a structural reason (`parry.rs` deviations 4 and 6: one contact per pair against FCL's up to 200, non-convergent under any tolerance). `PaddingTest` is the one case a differential fixture cannot reach at all -- the oracle's `collision` op takes no padding argument, so every fixture case is at the constructor default `0.0` -- and it now has its own counterpart replaying upstream's scenario and constants, which reproduces `DistanceWorld`'s `EXPECT_NEAR(res.distance, 0.029, 0.01)` at `0.029119199`. The header's own reason for existing is `TYPED_TEST` parameterization over FCL and Bullet, and this port drops both (`collision_detection_{fcl,bullet}`, §1) |
+| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | decided-non-port | `PORTING-PLAN.md` §NEW.2; `crates/moveit-collision/tests/collision_parity.rs:554` (`pr2_collision_matches_the_oracle`), `crates/moveit-scene/tests/{attached_collision_parity.rs,scene_diff_collision_parity.rs}` | 11 `TYPED_TEST_P` cases, same structure as the panda header and the same FCL/Bullet parameterization purpose. `InitOK`/`DefaultNotInCollision`/`LinksInCollision` are covered by `pr2_collision_matches_the_oracle`, which asserts full `self`/`robot` collision and signed-distance parity on four pr2 states. `AttachedBodyTester`/`ConvertObjectToAttached` are covered by `attached_collision_parity.rs` (5 tests over the oracle's `collision` op with `attached_bodies`); `DiffSceneTester` by `scene_diff_collision_parity.rs` (12 tests, itself §5 Phase 5's third completion condition); `TestChangingShapeSize`'s claim -- a world object removed and re-added is reflected in the next check -- by that file's `remove_object` cases plus `world_parity.rs`'s `set_object_pose`. `ContactReporting`/`ContactPositions` assert contact counts and coordinates, the same §4.5 exclusion the panda header hits. What is left asserts nothing this port could match: `MoveMesh`'s body contains no `ASSERT_`/`EXPECT_` at all (it calls `checkCollision` five times and never reads the result), and `TestCollisionMapAdditionSpeed` is one of 9 `EXPECT_TIME_LT` wall-clock bounds in the file, which measure the machine rather than the backend |
 | `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | same sentence |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | "both `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime plugin registrations. D-decision: D4" |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | same sentence |
