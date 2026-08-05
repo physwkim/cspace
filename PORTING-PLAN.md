@@ -18316,7 +18316,7 @@ pub trait AttachedFrames {
 `0.10000000039269835`였다.
 
 bijection을 만들면서 상류가 함께 하던 "솔버 조인트가 그룹 변수인지"
-검사(`joint_model_group.cpp:626-636`)는 남겼다 —
+검사(`joint_model_group.cpp:627-637`)는 남겼다 —
 `check_solver_joints_are_group_variables`. 순열 자체만 소비자가
 없어진 것이다.
 

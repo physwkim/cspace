@@ -46,8 +46,8 @@
 //!    Upstream hands the raw `RobotState*` to the
 //!    `GroupStateValidityCallbackFn` without applying the candidate first,
 //!    and every real callback applies it itself
-//!    (`kinematics_service_capability.cpp:75`'s `isIKSolutionValid`,
-//!    `trajectory_functions.cpp:581`'s `isStateColliding`, both
+//!    (`kinematics_service_capability.cpp:75-76`'s `isIKSolutionValid`,
+//!    `trajectory_functions.cpp:581-582`'s `isStateColliding`, both
 //!    `state->setJointGroupPositions(jmg, ik_solution); state->update();`).
 //!    When no candidate is ever accepted, `setFromIK` returns `false` with
 //!    the state holding the last *rejected* one. This port makes the
@@ -86,12 +86,12 @@
 //!    the first. That is upstream's own arrangement too: `KDLKinematicsPlugin`
 //!    — the solver this crate ports — fails `supportsGroup` for a multi-tip
 //!    group, which is exactly the branch that sends upstream into
-//!    `setFromIKSubgroups` (`robot_state.cpp:1836-1863`).
+//!    `setFromIKSubgroups` (`robot_state.cpp:1836-1866`).
 //!    [`set_from_ik_subgroups`] is that branch, ported.
 //!
 //! 5. **Consistency limits are one flat slice, not a vector of sets.**
 //!    Upstream takes `vector<vector<double>>` and then rejects any size
-//!    other than 0 or 1 for the single-solver path (`robot_state.cpp:1866`),
+//!    other than 0 or 1 for the single-solver path (`robot_state.cpp:1870-1877`),
 //!    so the outer vector only ever carries what an `Option` carries. In
 //!    [`set_from_ik_subgroups`], where the outer dimension would be real,
 //!    each subgroup's limits ride on its own [`SolveOptions`] instead.
@@ -107,7 +107,7 @@ use crate::registry::{KinematicsSolver, SolveOptions};
 /// One `(pose, frame)` pair: upstream's parallel `poses_in[i]` / `tips_in[i]`.
 ///
 /// Paired rather than parallel because upstream's own first act is to check
-/// that the two vectors have the same length (`robot_state.cpp:1822`) — a
+/// that the two vectors have the same length (`robot_state.cpp:1825-1829`) — a
 /// check that cannot fail once the pair is the unit.
 #[derive(Clone, Copy, Debug)]
 pub struct IkTarget<'a> {
@@ -155,7 +155,7 @@ pub trait AttachedFrames {
     /// Names that are links are *not* this trait's business — this module
     /// asks the [`RobotModel`] first and only falls through to here, matching
     /// `getLinkModelIncludingAttachedBodies`' own order
-    /// (`robot_state.cpp:910-936`).
+    /// (`robot_state.cpp:910-937`).
     fn attached_frame(&self, frame: &str) -> Option<AttachedFrame<'_>>;
 }
 
@@ -301,7 +301,7 @@ fn frame_transform(
 
 /// Every pose `solver` needs, in [`KinematicsSolver::tip_frames`] order and
 /// in the solver's own base frame — upstream's `ik_queries` vector, built by
-/// `setFromIK`'s two loops (`robot_state.cpp:1888-2007`).
+/// `setFromIK`'s two loops (`robot_state.cpp:1889-2007`).
 ///
 /// The first loop matches each of `targets` to a solver tip it can reach:
 /// directly, when the names agree, and otherwise through the rigid
@@ -580,7 +580,7 @@ pub fn set_from_ik<'m>(
 /// one subgroup at a time, with `validity` judging the assembled whole.
 ///
 /// This is the branch upstream reaches when a multi-tip request meets a solver
-/// that cannot take it (`robot_state.cpp:1836-1863`) — which, for the only
+/// that cannot take it (`robot_state.cpp:1836-1866`) — which, for the only
 /// solver family this crate ships, is every multi-tip request. Each entry of
 /// `solvers` names its own subgroup through [`KinematicsSolver::group_name`]
 /// and is paired with `targets[i]`.
@@ -607,7 +607,7 @@ pub fn set_from_ik<'m>(
 /// The same one [`set_from_ik`] states, and for the same reason: on anything
 /// but `Ok(true)`, `state` holds its entry values. Upstream does not — it
 /// writes each subgroup's solution as that subgroup solves
-/// (`robot_state.cpp:2223-2227`) and rewinds neither on the `break` that
+/// (`robot_state.cpp:2229-2239`) and rewinds neither on the `break` that
 /// abandons the sweep nor on the final `return false`. Recorded as
 /// `set-from-ik-leaves-a-rejected-candidate-in-the-state` in
 /// `doc/upstream-bugs.md`.
