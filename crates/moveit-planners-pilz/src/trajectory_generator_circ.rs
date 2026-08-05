@@ -28,12 +28,15 @@
 //!   `NoPrimitivePose`) — three independent ways the same message-shaped
 //!   field could be malformed, all mapped to
 //!   [`MoveItErrorCode::InvalidMotionPlan`]. [`MotionPlanRequest::path_constraints`]
-//!   is `Option<CircPathConstraint>` with exactly one point and a two-variant
-//!   `kind`, so all three malformations are unrepresentable by construction
+//!   is an `Option<PathConstraints>` whose `Circ` variant carries exactly one
+//!   point and a two-variant `kind`, so all three malformations are
+//!   unrepresentable by construction
 //!   (the same "unrepresentable, not merely not-ported" pattern
 //!   [`crate::trajectory_generator`]'s own `# What changed shape, and why`
 //!   documents for [`Goal`]) — [`TrajectoryGeneratorCirc::cmd_specific_request_validation`]
-//!   only has the `None` case left to check.
+//!   only has the `None` case left to check -- plus the one the variant split
+//!   adds, a request carrying another command's path constraint, which
+//!   upstream's single `Constraints` field could not distinguish at all.
 //! - **A joint-space goal's constraint-count check reads the group's active
 //!   joint count from [`moveit_model::JointModelGroup::active_joint_names`],
 //!   not a `size()` comparison against a message list**, since
@@ -73,8 +76,8 @@ use crate::trajectory_functions::{
     generate_joint_trajectory,
 };
 use crate::trajectory_generator::{
-    CircPathConstraintKind, Goal, MotionPlanInfo, MotionPlanRequest, PilzGenerator,
-    TrajectoryGenerator,
+    CircPathConstraint, CircPathConstraintKind, Goal, MotionPlanInfo, MotionPlanRequest,
+    PilzGenerator, TrajectoryGenerator,
 };
 use crate::velocity_profile::KDL_EPSILON;
 use crate::velocity_profile_trap::VelocityProfileTrap;
@@ -112,9 +115,9 @@ where
     /// # Errors
     ///
     /// [`MoveItErrorCode::InvalidMotionPlan`] if `req.path_constraints` is
-    /// `None`.
+    /// `None`, or carries another command's constraint.
     fn cmd_specific_request_validation(&self, req: &MotionPlanRequest) -> Result<()> {
-        if req.path_constraints.is_none() {
+        if circ_path_constraint(req).is_err() {
             return Err(Error::Code(MoveItErrorCode::InvalidMotionPlan));
         }
         Ok(())
@@ -145,10 +148,7 @@ where
 
         // Both branches below need it; extracted once since `Option::take`
         // isn't available on a shared `&MotionPlanRequest`.
-        let path_constraint = req
-            .path_constraints
-            .as_ref()
-            .ok_or(Error::Code(MoveItErrorCode::InvalidMotionPlan))?;
+        let path_constraint = circ_path_constraint(req)?;
 
         match &req.goal {
             Goal::Joint(positions) => {
@@ -350,4 +350,21 @@ impl CartesianPath for CircSegment {
     fn pos(&self, t: f64) -> Isometry3 {
         self.path.pos(self.velocity_profile.pos(t))
     }
+}
+
+/// `req`'s `CIRC` auxiliary point.
+///
+/// Upstream reads `req.path_constraints` directly and only checks that it is
+/// present; [`crate::trajectory_generator::PathConstraints`] can also hold
+/// another command's constraint, so "absent" and "some other command's" are
+/// both rejected here, with the same error upstream gives for "absent".
+///
+/// # Errors
+///
+/// [`MoveItErrorCode::InvalidMotionPlan`] in either case.
+fn circ_path_constraint(req: &MotionPlanRequest) -> Result<&CircPathConstraint> {
+    req.path_constraints
+        .as_ref()
+        .and_then(|pc| pc.as_circ())
+        .ok_or(Error::Code(MoveItErrorCode::InvalidMotionPlan))
 }

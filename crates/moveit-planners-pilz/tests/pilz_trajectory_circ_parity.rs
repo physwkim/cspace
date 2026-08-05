@@ -62,8 +62,8 @@ use moveit_planners_pilz::limits::{
 };
 use moveit_planners_pilz::trajectory_functions::IkContext;
 use moveit_planners_pilz::trajectory_generator::{
-    CircPathConstraint, CircPathConstraintKind, Goal, MotionPlanRequest, PilzGenerator, StartState,
-    TrajectoryGenerator,
+    CircPathConstraint, CircPathConstraintKind, Goal, MotionPlanRequest, PathConstraints,
+    PilzGenerator, StartState, TrajectoryGenerator,
 };
 use moveit_planners_pilz::trajectory_generator_circ::TrajectoryGeneratorCirc;
 use moveit_scene::PlanningScene;
@@ -235,17 +235,17 @@ const ACCELERATION_TOLERANCE: f64 = 4e-3;
 /// module's start/goal pose specifically so this value is inconsequential.
 const CHECK_SELF_COLLISION: bool = true;
 
-fn path_constraint(f: PathConstraintFixture) -> CircPathConstraint {
+fn path_constraint(f: PathConstraintFixture) -> PathConstraints {
     let kind = match f.name.as_str() {
         "center" => CircPathConstraintKind::Center,
         "interim" => CircPathConstraintKind::Interim,
         other => panic!("fixture path constraint kind {other} not handled by this test"),
     };
-    CircPathConstraint {
+    PathConstraints::Circ(CircPathConstraint {
         kind,
         link_name: f.link_name,
         point: Vector3::new(f.position[0], f.position[1], f.position[2]),
-    }
+    })
 }
 
 fn cartesian_goal(f: GoalFixture) -> Goal {

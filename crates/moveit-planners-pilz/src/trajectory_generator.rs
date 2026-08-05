@@ -220,6 +220,60 @@ pub struct CircPathConstraint {
     pub point: Vector3,
 }
 
+/// `POLYLINE`'s via poses, in travel order.
+///
+/// Upstream reads them from `req.path_constraints.position_constraints`, one
+/// pose per entry
+/// (`constraint_region.primitive_poses[0]` composed with `target_point_offset`),
+/// and requires at least two — `TrajectoryGeneratorPOLYLINE::cmdSpecificRequestValidation`
+/// throws `NoWaypointsSpecified` below that.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PolylinePathConstraint {
+    /// The via poses, already resolved into the planning frame.
+    pub waypoints: Vec<Isometry3>,
+    /// Upstream `req.smoothness_level`, scaling the corner radius. Clamped
+    /// into `[0.01, 0.99]` by
+    /// [`crate::path_polyline_generator::compute_blend_radius`], not
+    /// validated here.
+    pub smoothness_level: f64,
+}
+
+/// What a request's `path_constraints` carries, which depends entirely on
+/// which command it is.
+///
+/// Upstream has one `moveit_msgs::Constraints` field that `CIRC` and
+/// `POLYLINE` interpret in unrelated ways — `CIRC` reads a single auxiliary
+/// point out of it, `POLYLINE` reads a whole waypoint list — and `PTP`/`LIN`
+/// never read it at all. Naming the two readings as variants keeps a request
+/// from carrying one command's shape while claiming to be the other, which
+/// the shared `Constraints` field cannot express.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathConstraints {
+    /// `CIRC`'s interim or center point.
+    Circ(CircPathConstraint),
+    /// `POLYLINE`'s via poses.
+    Polyline(PolylinePathConstraint),
+}
+
+impl PathConstraints {
+    /// The `CIRC` constraint, or `None` when this is some other command's.
+    pub fn as_circ(&self) -> Option<&CircPathConstraint> {
+        match self {
+            PathConstraints::Circ(c) => Some(c),
+            PathConstraints::Polyline(_) => None,
+        }
+    }
+
+    /// The `POLYLINE` constraint, or `None` when this is some other
+    /// command's.
+    pub fn as_polyline(&self) -> Option<&PolylinePathConstraint> {
+        match self {
+            PathConstraints::Polyline(p) => Some(p),
+            PathConstraints::Circ(_) => None,
+        }
+    }
+}
+
 /// A request's start state: position (checked against joint limits) and
 /// velocity (checked to be near zero — no derived class allows a moving
 /// start).
@@ -257,10 +311,10 @@ pub struct MotionPlanRequest {
     pub max_velocity_scaling_factor: f64,
     /// Upstream `max_acceleration_scaling_factor`.
     pub max_acceleration_scaling_factor: f64,
-    /// `CIRC`'s auxiliary point. Upstream `req.path_constraints`; `None` for
-    /// `PTP`/`LIN` requests, which never read it — see
-    /// [`CircPathConstraint`].
-    pub path_constraints: Option<CircPathConstraint>,
+    /// The command-specific path constraint. Upstream `req.path_constraints`;
+    /// `None` for `PTP`/`LIN` requests, which never read it — see
+    /// [`PathConstraints`].
+    pub path_constraints: Option<PathConstraints>,
 }
 
 /// Base state every Pilz trajectory generator validates a request against:
