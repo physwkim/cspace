@@ -841,7 +841,14 @@ impl OcTree {
         let scaled_f = (self.resolution_factor * coord).floor();
         let min = -f64::from(Self::TREE_MAX_VAL);
         let max = f64::from(Self::TREE_MAX_VAL);
-        if !(scaled_f.is_finite() && scaled_f >= min && scaled_f < max) {
+        // `scaled_f.is_finite()` is not checked separately: IEEE 754
+        // comparisons with NaN are always false and +-infinity always fall
+        // outside a finite [min, max) range, so `scaled_f >= min && scaled_f
+        // < max` already rejects NaN and both infinities on its own -- an
+        // explicit finite check would be a third guard clause with no input
+        // that could ever make it, not either of the other two, the reason
+        // this returns `None`.
+        if !(scaled_f >= min && scaled_f < max) {
             return None;
         }
         let scaled = scaled_f as i64 + i64::from(Self::TREE_MAX_VAL);
@@ -1761,6 +1768,27 @@ mod tests {
         let p = Point3::new(5.0, 5.0, 5.0);
         assert!(tree.log_odds_at(p).is_none());
         assert!(tree.is_occupied(p).is_none());
+    }
+
+    /// `log_odds_at`'s `None` has two structurally distinct causes --
+    /// `coord_to_key_checked` rejecting an out-of-range coordinate, and
+    /// `search` finding no node at an in-range key -- and neither this test
+    /// nor `unmapped_coordinate_has_no_occupancy` nor the oracle parity
+    /// fixtures (`octomap_parity.rs`, whose query points never leave
+    /// tree bounds) previously exercised the first. Populate the key
+    /// `coord_to_key_checked` would collapse to if that guard were dropped
+    /// (the tree center, [`OcTree::root_key`]) so a version that silently
+    /// clamped an out-of-bounds point instead of rejecting it would find
+    /// this node and return `Some`, not `None`.
+    #[test]
+    fn out_of_bounds_coordinate_has_no_occupancy_even_when_the_tree_center_is_mapped() {
+        let mut tree = OcTree::new(0.1);
+        tree.update_node(Point3::new(0.0, 0.0, 0.0), true, false);
+        assert!(tree.log_odds_at(Point3::new(0.0, 0.0, 0.0)).is_some());
+
+        let out_of_bounds = Point3::new(1e6, 1e6, 1e6);
+        assert!(tree.log_odds_at(out_of_bounds).is_none());
+        assert!(tree.is_occupied(out_of_bounds).is_none());
     }
 
     #[test]
