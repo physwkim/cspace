@@ -26,7 +26,7 @@
 //!   `max_{velocity,acceleration}_scaling_factor`,
 //!   `cartesian_speed_limited_link`, `max_cartesian_speed`,
 //!   `smoothness_level`) are untouched.
-//! - `planning_interface::MotionPlanDetailedResponse` (`planning_response.hpp:75-83`
+//! - `planning_interface::MotionPlanDetailedResponse` (`planning_response.hpp:75-84`
 //!   -- a hand-written struct, **not** the ROS-generated
 //!   `moveit_msgs::msg::MotionPlanDetailedResponse`, which has a different,
 //!   unrelated field set) has 5 fields, all 5 written: `planner_id`,

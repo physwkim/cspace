@@ -597,7 +597,7 @@ pub struct PathValidity {
 /// [`moveit_collision::CollisionEnv::check_robot_collision`] directly,
 /// mirroring upstream's own `test_collision_common_panda.hpp:215-233`), and
 /// upstream's one `move_group`-reachable unpadded caller,
-/// `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-300`), is
+/// `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-353`), is
 /// not ported. Both sides of the boundary are pinned in
 /// `moveit-scene/tests/padding_reaches_the_scenes_self_half.rs`. Re-open when
 /// a caller does need upstream's unpadded self half: the fix is for that

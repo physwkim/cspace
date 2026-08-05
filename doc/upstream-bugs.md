@@ -2415,8 +2415,8 @@ parity test or oracle comparison observes log output.
 
 ### `check-collision-unpadded-discards-its-own-request-copy` — two of the six `checkCollisionUnpadded` overloads build the unpadded request and then forward the padded original — not-reproduced
 
-**Upstream:** `moveit_core/planning_scene/src/planning_scene.cpp:456-463`
-(non-const, two-argument) and `:501-510` (const, four-argument, taking an
+**Upstream:** `moveit_core/planning_scene/src/planning_scene.cpp:457-463`
+(non-const, two-argument) and `:502-510` (const, four-argument, taking an
 `AllowedCollisionMatrix`); the four correct siblings are `:465-471`,
 `:473-480`, `:482-489`, `:491-500`
 **Port:** none — `crates/moveit-scene/src/scene.rs:348-352` decides all six

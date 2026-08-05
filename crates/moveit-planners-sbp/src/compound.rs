@@ -455,7 +455,7 @@ mod tests {
     }
 
     /// `distance`'s weighted-sum structure -- `sum(weight_i * distance_i)`
-    /// -- mirrors upstream `JointModelGroup::distance` (`joint_model_group.cpp:462-471`,
+    /// -- mirrors upstream `JointModelGroup::distance` (`joint_model_group.cpp:462-472`,
     /// `d += factor_i * joint_i->distance(...)`), though the weight values
     /// themselves are this crate's own extent-normalization rule rather than
     /// upstream's `getDistanceFactor()` (an already-documented deviation --

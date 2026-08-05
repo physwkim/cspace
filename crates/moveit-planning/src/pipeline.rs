@@ -176,9 +176,9 @@
 //!   over a topic); no non-ROS content.
 //! - `publish_received_requests` (`generatePlan`'s fourth parameter,
 //!   `planning_pipeline.hpp:187`) — exists only to trigger the above.
-//! - `node_`/the `RCLCPP_INFO`/`RCLCPP_ERROR`/`RCLCPP_WARN` calls throughout
-//!   `generatePlan` (`planning_pipeline.hpp:257`) — no logging facade
-//!   anywhere in this port (see every adapter's own module doc).
+//! - `node_` (`planning_pipeline.hpp:257`) and the `RCLCPP_INFO`/
+//!   `RCLCPP_ERROR`/`RCLCPP_WARN` calls throughout `generatePlan` — no logging
+//!   facade anywhere in this port (see every adapter's own module doc).
 //! - `pipeline_parameters_` (`planning_pipeline.hpp:259`) — the
 //!   ROS-parameter-sourced config bag holding, among other things, the
 //!   plugin-name lists a registry would resolve; see "Decided after registry
