@@ -69,8 +69,8 @@ No crate-row disagreement is an instrument bug; all three are named, dated,
 | geometry.rs:433 | matches! | orientation_norm_just_outside_the_1e_minus_3_tolerance_is_rejected | single-branch | bite run just now — same guard |
 | geometry.rs:449 | matches! | orientation_norm_far_from_one_is_rejected_not_silently_renormalized | single-branch | bite run just now — same guard |
 | geometry.rs:522 | matches! | pose_with_degenerate_orientation_fails | single-branch | bite run just now — position leg (`TryFrom<Point>`) is unconditionally `Ok` ("Total in practice" doc comment), so only the orientation guard can fire |
-| planning.rs:397 | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
-| planning.rs:508 | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
+| planning.rs:421 | bare | converts_minimal_request | fixture-collapse-fixed | `9d829a8` (own earlier commit) |
+| planning.rs:568 | matches! | multi_dof_joint_trajectory_is_rejected_not_silently_dropped | single-branch | bite run just now — only `Error::Other` site in this impl; delegate produces `Error::Construct` |
 | scene/collision_object.rs:1026 | bare | append_without_subframe_data_clears_existing_subframes | discriminating | §9 all three clauses hold — clause 1: `subframe_pose("tip").is_none()` is a genuine absence signal (retained vs. cleared); clause 2: `apply_add`'s unconditional subframe-replace is a written decision an engineer could gate on non-empty (bite: wrapping it in `if !subframes.is_empty()` flips the assertion); clause 3: deleting the second `apply_collision_object` call leaves the first object's subframe in place, changing the outcome. Bite run once, before I knew the ros gate was paid (docker, targeted single test — see cost note in the round report) |
 | scene/mod.rs:94 | matches! | unresolvable_non_empty_frame_id_is_still_rejected | single-branch | bite run just now — `header_frame_transform`'s only Err path is the single `scene.frame_transform` call |
 | scene/planning_scene.rs:519 | matches! | unresolvable_non_empty_header_frame_id_is_still_rejected | single-branch | bite run just now — `Error::UnknownName` reachable only via `header_frame_transform` (see scene/mod.rs:94); the file's other two error sites are `Error::Other`/`Error::Construct`, different variants |
@@ -248,7 +248,7 @@ independent of the baseline issue).
 **The tool's documented blind spot undercounts the real total further, and
 by more than the quoted 25.** `assert_err_mentions(result, needle)` is
 defined separately per file (`state.rs:192`, `trajectory.rs:248`,
-`planning.rs:331`, `scene/attached.rs:323`, `scene/collision_object.rs:533`
+`planning.rs:355`, `scene/attached.rs:323`, `scene/collision_object.rs:533`
 — five independent copies, not a shared import) and renders on one line,
 asserts `rendered.contains(needle)` on the next — invisible to the tool's
 60-byte lookback, exactly as documented. Two things the tool's own output
@@ -286,6 +286,16 @@ having a row here the whole time. Reformatted so column 1 is `file:line,...`
 directly; the per-file site count that used to open column 2 is now stated
 in prose inside the evidence column instead of dropped.
 
+Re-anchored (`group_name` fix, this file's `state.rs`/`planning.rs` rows
+only): filling `MotionPlanResponse.group_name` shifted both files, so all 16
+citations here moved — `state.rs` +24, `planning.rs` +24 above old `:306`
+and +60 above old `:462`. Each new line was confirmed by matching the row's
+own named test function to its current line, never by nearest-line
+proximity: 7 of the 16 stale citations still window-matched a *neighbouring*
+site (old `:283`'s citation landed exactly on what is now old `:259`'s
+assertion), so `--verify` flagged only 9 of them and the other 7 would have
+read as correct while pointing one test off.
+
 | file:line | in-family verdict | collision verdict |
 |---|---|---|
 | `constraints/orientation.rs:194,217,244` | in-family | CLEAN (3 sites) — pre-existing sibling-collision comments confirmed correct by reading |
@@ -297,11 +307,11 @@ in prose inside the evidence column instead of dropped.
 | `scene/planning_scene.rs:234,251,287` | in-family | CLEAN (3 sites) — `:234`'s only reachable emptying branch is `apply_octomap`'s `remove_all`-shaped path for this fixture; `:251/:287` already sibling-documented and grep-confirmed unique |
 | `scene/attached.rs:442,452,513,532,553,554,594,612,649,671` | in-family except `:532` | `:532` **not-this-family** (clause 2/3) — ADD-path `merged_touch_links` is a straight `.collect()` with the merge branch gated `if !is_add`, i.e. never entered; the real "replace not merge" claim rides on the adjacent `shapes().len()==1` assertion instead. Everything else CLEAN (8 direct + 2 hidden `assert_err_mentions` at `:513,594`), including `:553/:554` (`BTreeSet::contains` is exact-element not substring match, and `moveit-scene`'s `attach_new`/`AttachedBody` store touch_links verbatim with no auto-inclusion of `link_name`, ruling out the fixture's own "tip" link name as a spurious source) |
 | `scene/collision_object.rs:635,710,771,880,893,900,948,1016,1050,1108,1143` | in-family (all 11) | CLEAN (9 direct + 2 hidden `assert_err_mentions` at `:900,948`), including the pair this round corrected: `:1108`/`:1143` (`move_object_pose_with_malformed_pose_is_rejected`/`move_shape_repose_with_malformed_pose_is_rejected`) replace the old single `:1089` citation, which this table had flagged as "latent risk, not a live collision" — `4c56148` ("test(ros): reach apply_move's object-pose parse, close the :1089 gap") already fixed exactly that gap by adding the first test, and its own doc comment (`:1064-1087` in the live source) states the bite-check: neutralizing `apply_move`'s object-pose parse (`:478`) alone fails only `move_object_pose_with_malformed_pose_is_rejected`, neutralizing the shape-repose parse (`:515`) alone fails only `move_shape_repose_with_malformed_pose_is_rejected`. §13 (this ledger's own round-12 write-up) checked `4c56148`'s ancestry and wrongly treated the pre-existing `:1089` row as proof this was already ledgered — it was ledgered as *unfixed*, and the fix had already landed; §13 read "a row exists" as "nothing changed" without checking whether the row's own verdict still held. Corrected here, not re-bitten (the source comment's own trail is the bite-check) |
-| `state.rs:259,283,310,333,355,370,389,408,436,454,472` | in-family (all 11) | CLEAN (11 hidden `assert_err_mentions`) — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
+| `state.rs:283,307,334,357,379,394,413,432,460,478,496` | in-family (all 11) | CLEAN (11 hidden `assert_err_mentions`) — `set_parallel_array`'s `{field}`-prefixed length/unknown-name messages keep position/velocity/effort textually distinct; the four `multi_dof_joint_state` sites intentionally share one message, discriminated by guard-clause mutation already bite-checked last round, not by text |
 | `trajectory.rs:297,314,337,360,398,421` | in-family (all 6) | CLEAN (6 hidden `assert_err_mentions`) — length-mismatch messages are `{field}`-interpolated; `:297`/`:421` share one needle by design (same branch, redundant coverage, not a collision) |
-| `planning.rs:427,440,521` | in-family (all 3) | CLEAN (2 hidden `assert_err_mentions` at `:427,440` + `:521`, added this round) — `:427/:440` are `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites, already named as siblings in the function's own doc comment. `:521` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`) is a folded-operand sibling of `:508`'s already-covered `multi_dof_joint_trajectory_is_rejected_not_silently_dropped`: the guard is `!mdjt.joint_names.is_empty() \|\| !mdjt.points.is_empty()` (one guard, two operands), and the test's own comment (`:511-514` in the live source, "round 8, folded-operand audit") already states `joint_names` had a test but `points` did not before this test existed — the accepted `doc/folded-operand-guards.md` shape, matched here rather than re-derived, this is not a new finding |
+| `planning.rs:451,464,581` | in-family (all 3) | CLEAN (2 hidden `assert_err_mentions` at `:451,464` + `:581`, added this round) — `:451/:464` are `TryFrom<PlanningRequestMsg>`'s only two `Error::Other` sites, already named as siblings in the function's own doc comment. `:581` (`multi_dof_joint_trajectory_points_is_rejected_not_silently_dropped`) is a folded-operand sibling of `:568`'s already-covered `multi_dof_joint_trajectory_is_rejected_not_silently_dropped`: the guard is `!mdjt.joint_names.is_empty() \|\| !mdjt.points.is_empty()` (one guard, two operands), and the test's own comment (`:571-574` in the live source, "round 8, folded-operand audit") already states `joint_names` had a test but `points` did not before this test existed — the accepted `doc/folded-operand-guards.md` shape, matched here rather than re-derived, this is not a new finding |
 
-**Totals: 63 sites examined (62 pre-existing + `planning.rs:521`, added this
+**Totals: 63 sites examined (62 pre-existing + `planning.rs:581`, added this
 round), 61 in-family, 2 not-this-family (`constraints/set.rs:148`,
 `scene/attached.rs:532`), 0 collisions, 0 latent risks flagged but not live
 (`scene/collision_object.rs:1089`'s risk was already closed by `4c56148`
@@ -700,9 +710,9 @@ own earlier-round work, already ledgered. Grepping the ledger's existing
 §10 table for the specific lines confirms every one of the ros/ additions
 above already has a CLEAN row there: `position.rs` (`:456,472`,
 "meshes is not supported"), `conversion_coverage.rs` (`:227,232`),
-`planning.rs:508`, `collision_object.rs` (10 sites incl. `:1089`'s flagged
+`planning.rs:568`, `collision_object.rs` (10 sites incl. `:1089`'s flagged
 latent-not-live risk), `state.rs` (11 hidden `assert_err_mentions` incl.
-`:310,333,355,408,436,454,472` — the four `multi_dof_joint_state` sites'
+`:334,357,379,432,460,478,496` — the four `multi_dof_joint_state` sites'
 own comment already states isolating-mutation bite evidence: "neutralize
 one operand's clause to false... each of the four tests below fails only
 when its own operand's clause is neutralized"), `trajectory.rs:383`. Per

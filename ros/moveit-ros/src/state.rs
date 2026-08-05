@@ -199,8 +199,7 @@ pub(crate) mod tests {
         );
     }
 
-    pub(crate) fn one_joint_model() -> RobotModel {
-        let urdf_xml = r#"<?xml version="1.0"?>
+    const ONE_JOINT_URDF: &str = r#"<?xml version="1.0"?>
 <robot name="one_joint">
   <link name="base_link"/>
   <link name="tip"/>
@@ -211,14 +210,39 @@ pub(crate) mod tests {
     <limit lower="-1" upper="1" effort="10" velocity="1"/>
   </joint>
 </robot>"#;
-        let srdf_xml = r#"<?xml version="1.0"?>
+
+    fn one_joint_model_from(srdf_xml: &str) -> RobotModel {
+        let urdf = urdf_rs::read_from_string(ONE_JOINT_URDF).expect("inline URDF must parse");
+        let srdf = SrdfModel::parse_str(srdf_xml).expect("inline SRDF must parse");
+        RobotModel::from_urdf_and_srdf(&urdf, ONE_JOINT_URDF, &srdf, &MeshSearchPaths::none())
+            .expect("valid single-joint urdf")
+    }
+
+    pub(crate) fn one_joint_model() -> RobotModel {
+        one_joint_model_from(
+            r#"<?xml version="1.0"?>
 <robot name="one_joint">
 </robot>
-"#;
-        let urdf = urdf_rs::read_from_string(urdf_xml).expect("inline URDF must parse");
-        let srdf = SrdfModel::parse_str(srdf_xml).expect("inline SRDF must parse");
-        RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
-            .expect("valid single-joint urdf")
+"#,
+        )
+    }
+
+    /// [`one_joint_model`] with one SRDF group, `arm`. Needed by conversions
+    /// that read a group name off a trajectory rather than off a request --
+    /// `MotionPlanResponse::group_name`, whose source is
+    /// `RobotTrajectory::group_name()` and therefore `None` on a model with no
+    /// group at all, which cannot distinguish "not filled in" from "filled in
+    /// from a group-less trajectory".
+    pub(crate) fn one_joint_model_with_arm_group() -> RobotModel {
+        one_joint_model_from(
+            r#"<?xml version="1.0"?>
+<robot name="one_joint">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="tip"/>
+  </group>
+</robot>
+"#,
+        )
     }
 
     #[test]
