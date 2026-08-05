@@ -653,3 +653,92 @@ made here — that script is not this fence's to edit).
 Gate scope: doc-only round, `cargo fmt --all -- --check`. No crate's
 clippy/nextest gate owed — no source file in this fence changed.
 beyond the standing pre-push rule.
+
+## Round 12 — reconciling 77 against the corrected tool's 81, `crates/`
+
+`git merge main` (merge commit `63e043a`) pulled in `ccac7ea`
+("count an assertion helper's call sites, not its body"), which fixed a
+structural gap p9-ros found in `ros/`: an `assert!` inside a helper fn
+that asserts on its own parameter is a mechanism, not a site — its
+sites are the helper's call sites. The fixed tool now emits a helper's
+own body as scope `helper_body` ("exclude it from any count", per the
+script's own header) and each call site as kind `via:<fn>`. Re-run:
+`python3 tools/ci/count-coarse-assertions.py crates | rg -v
+'moveit-planners-pilz'`. Reported for this fence: **81** (`contains_msg`
+plus `via:` line counts summed without excluding overlap).
+
+**81 does not survive a re-derivation.** Kind breakdown of the filtered
+output:
+
+- `contains_msg`, any scope: **65** lines — but one of those 65 is
+  `decide.rs:83`, `assert_err_mentions`'s own body, scope `helper_body`,
+  which the tool's own docstring says to exclude. Non-`helper_body`
+  `contains_msg`: **64**.
+- `via:` lines: **12**, but only **8** are `via:assert_err_mentions`
+  (`decide.rs:362, 380, 438, 508, 534, 553, 742, 781` — exact match
+  against round 11's table, byte for byte). The other 4 are
+  `via:check_scenario` (`crates/moveit-distance-field/tests/oracle_parity.rs:296,304`)
+  and `via:rows_to_string` (`crates/moveit-stomp-core/src/utils.rs:641,654`).
+  Read their helper bodies (`oracle_parity.rs:264,279`,
+  `utils.rs:499`): `check_scenario` asserts `.is_none()`/`.is_some()`
+  on `actual.voxel`, `rows_to_string` asserts `!rows.is_empty()`.
+  Neither renders or checks an error *message* — they are
+  Option-presence and collection-emptiness checks, a different
+  assertion family from this round's ("`assert_err_mentions`-style and
+  bare `.to_string().contains(...)`" — message-substring
+  discrimination only). Their 4 call sites are not this fence's family.
+
+  65 + 12 = 77 with no double count between those two buckets (`kind`
+  is either exactly `contains_msg` or starts with `via:`, never both).
+  The reported 81 is 77 plus the 4 `helper_body` lines (`decide.rs:83`,
+  `oracle_parity.rs:264,279`, `utils.rs:499`) added back on top —
+  i.e., counted once as the kind they carry and a second time as
+  `helper_body`, exactly the double-count the tool's own comment warns
+  against ("exclude it from any count").
+
+**The corrected tool still cannot see the second blind spot this round
+already documented.** Re-checked this round: `robot_model.rs:2472,
+2512, 2542` and `check_start_state_collision.rs:161,162` — all five
+still classify as `contains_member`, not `contains_msg`, in the
+`ccac7ea` output. That heuristic (60 bytes back for a rendering token)
+is untouched by the helper-body/`via:` fix, which addresses a different
+gap (cross-statement helper calls, not closure-bound field reads); the
+two blind spots are orthogonal and neither fix subsumes the other.
+
+**True count for this fence: 64 (direct `contains_msg`, non-`helper_body`)
++ 5 (`detail`-field sites still misclassified as `contains_member`) + 8
+(`via:assert_err_mentions`, the one helper in this family) = 77** — the
+same 77 already swept and verdicted in round 11, not a new population.
+No new call sites, no new blind-spot-adjacent sites, nothing to
+re-verdict.
+
+**Spot-read, four sites from four different crates**, cross-checked
+line-for-line against round 11's own tables (not re-derived from
+scratch — confirming the tool's classification agrees with source
+already read):
+
+| file:line | tool's kind | round 11 verdict | match |
+|---|---|---|---|
+| `moveit-distance-field/src/voxel_grid.rs:454,456,512` | `contains_msg` | discriminating (3/3) | line numbers and needles identical |
+| `moveit-geometry/src/bodies.rs:3953,4055,4066,4125` | `contains_msg` | discriminating (4/4) | line numbers and needles identical |
+| `moveit-planners-chomp/src/{cost.rs,optimizer.rs,trajectory.rs}` (12 sites) | `contains_msg` | discriminating (12/12) | line numbers and needles identical |
+| `moveit-smoothing/src/{acceleration_filter.rs,butterworth.rs,ruckig_filter.rs}` (11 sites) | `contains_msg` | discriminating (11/11) | line numbers and needles identical |
+
+No source changes this round — the population is unchanged from round
+11, so its 0-blind-sites result stands unmodified. This section exists
+to correct the reported 81 with worked arithmetic, not to reopen the
+sweep.
+
+### Commands run (round 12)
+
+- `git merge main` (already run before this session's summary point) — merge commit `63e043a`, pulled in `ccac7ea`, census §9e, `doc/assertion-discrimination-ledger-p9-ros.md`
+- `python3 tools/ci/count-coarse-assertions.py crates 2>/dev/null | rg -v 'moveit-planners-pilz' > tool_out.txt` — 548 total lines, all kinds
+- `rg ':contains_msg:' tool_out.txt | wc -l` → 65; `rg ':contains_msg:' tool_out.txt | rg -v ':helper_body:' | wc -l` → 64
+- `rg ':via:' tool_out.txt | wc -l` → 12; broken down by helper name (`sed -E 's/^.*:via:([A-Za-z_0-9]+):.*$/\1/' | sort | uniq -c`) → `assert_err_mentions` 8, `check_scenario` 2, `rows_to_string` 2
+- `rg ':helper_body:' tool_out.txt` → 4 lines, read each helper body to classify family membership
+- `rg 'robot_model.rs:(2472|2512|2542):' tool_out.txt` and `rg 'check_start_state_collision.rs:(161|162):' tool_out.txt` — confirmed still `contains_member`, blind spot unfixed by `ccac7ea`
+- `cargo fmt --all -- --check` — clean
+
+Gate scope: doc-only round, `cargo fmt --all -- --check`. No source
+file in this fence changed, so no `-p <crate>` clippy/nextest gate is
+owed.
