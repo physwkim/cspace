@@ -880,7 +880,7 @@ fn resolve_collision_point_joint_index(
 ///   this collapse must still reproduce (a resolved-to-non-active joint
 ///   has no ancestors at all, not "walk further to find one").
 /// - **The `Eigen::Isometry3d * Eigen::Vector3d` in `computeJointProperties`'s
-///   `axis = joint_transform * axis;` (`chomp_optimizer.cpp:733`) is ported
+///   `axis = joint_transform * axis;` (`chomp_optimizer.cpp:749`) is ported
 ///   as a point transform, not a vector transform.** Eigen does not
 ///   distinguish "point" from "free vector" for a bare `Vector3d`, so that
 ///   multiplication applies the joint transform's translation *and*
