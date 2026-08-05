@@ -738,16 +738,26 @@ def load_exemptions():
     return {(e["doc"], e["line"], e["upstream"], e["spec"]) for e in data["exemptions"]}
 
 
+# `--deduplicate`, on both, and it is not cosmetic. During an unresolved
+# merge `git ls-files` prints a conflicted path once per stage, so a
+# three-way conflict in PORTING-PLAN.md makes this corpus read every
+# citation in it three times: a run mid-merge reported 2728 citations
+# across 349 files where the resolved tree has 1968 across 347. A corpus
+# count is the only thing this gate publishes, so an inflated one is a
+# wrong answer, not a slow one. On the upstream side a duplicate is worse
+# still now that `source_index` rejects a repeated key -- the gate would
+# die claiming two source roots collide when one root simply has a
+# conflict.
 def tracked_files():
     out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, check=True
+        ["git", "ls-files", "--deduplicate", "-z"], cwd=REPO_ROOT, capture_output=True, check=True
     ).stdout.decode("utf-8")
     return [p for p in out.split("\0") if p]
 
 
 def upstream_tracked(upstream):
     out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=upstream, capture_output=True, check=True
+        ["git", "ls-files", "--deduplicate", "-z"], cwd=upstream, capture_output=True, check=True
     ).stdout.decode("utf-8")
     return [p for p in out.split("\0") if p.endswith((".cpp", ".hpp", ".h", ".cc", ".cxx"))]
 
