@@ -23,6 +23,20 @@
         ["crates/moveit-constraints/tests/decide.rs", 553]
       ],
       "reason": "guard-line-vs-assert-line citation convention, same shape as tools.rs:68 above: the ledger's row cites PositionConstraint::new's `model.link_model(link_name)?` guard (position.rs:165) directly, since that is what this round's isolating mutation actually neutralized, rather than the two decide.rs tests that exercise it. Those two tests are new_rejects_unknown_link (decide.rs:530, assert_err_mentions call at decide.rs:534) and new_rejects_unresolvable_mobile_frame (decide.rs:549, assert_err_mentions call at decide.rs:553) -- confirmed by reading both test bodies and the ledger's own prose at doc/assertion-discrimination-ledger-p1-robotmodel.md:262, which names both test functions and the mutation run against each. Both decide.rs:534 and :553 are already independently matched via this same ledger's Round 13 via:assert_err_mentions row; this entry only resolves the separate guard-line citation, it does not double-count the sites."
+    },
+    {
+      "ledger": "doc/assertion-discrimination-ledger-p1-fixtures.md",
+      "cited_file": "tree.rs",
+      "cited_line": 1781,
+      "resolution": "non_scope",
+      "reason": "Historical row recording a scanner false positive that has since been fixed at source, so the site it names no longer exists to be matched. The line was `assert!(tree.insert_ray(origin, end, None, false))`, which the old eq_none grammar scored as an Option-absence comparison although the `None` is insert_ray's `max_range: Option<f64>` argument. `6792ef1` (tools(ci): score None/Err only as an operand of an equality macro) narrowed the grammar, so the scanner emits nothing there now -- verified by `count-coarse-assertions.py | rg 'tree.rs:18(0[0-9]|1[0-9])'` returning no rows, the line itself having drifted to tree.rs:1809. The citation stays because it is the evidence for the ledger's 72 -> 71 correction; it is not a coverage gap."
+    },
+    {
+      "ledger": "doc/assertion-discrimination-ledger-p9-ros.md",
+      "cited_file": "tests/oracle_parity.rs",
+      "cited_line": 264,
+      "resolution": "non_scope",
+      "reason": "The scanner does emit this site, but tagged `helper_body` (`crates/moveit-distance-field/tests/oracle_parity.rs:264:is_none:helper_body:assert!(actual.voxel.is_none(), ...)`), and this sweep's corpus is the scanner's output *excluding* helper_body -- so it is outside the population by definition, not missing from it. Its two call sites (oracle_parity.rs:296,304) are separately accounted by the same ledger's `via:check_scenario` row, and the helper body carries its own round-2 bite-check comment covering nearest_cell's five `voxel: None` return sites."
     }
   ]
 }
