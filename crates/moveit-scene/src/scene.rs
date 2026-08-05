@@ -566,13 +566,13 @@ pub struct PathValidity {
 /// practice [`moveit_collision::ParryCollisionEnv`]) rather than owning one —
 /// upstream's `PlanningScene` owns *two* (`getCollisionEnv`/
 /// `getCollisionEnvUnpadded`, one per `CollisionDetectorAllocator` plugin),
-/// switched on `CollisionRequest::pad_environment_collisions`/
-/// `pad_self_collisions`. D4's compile-time-registry redesign replaces that
-/// plugin selection with the caller choosing (and owning) a concrete `E`
-/// directly, so there is only ever one backend in play here; every method
-/// below applies whatever padding `E` itself was built with (see
-/// `ParryCollisionEnv`'s own doc) to both the self- and robot-collision
-/// checks alike, rather than switching backends per flag.
+/// switched per check by `CollisionRequest::pad_environment_collisions`/
+/// `pad_self_collisions` — two flags this port does not carry (see
+/// [`moveit_collision::CollisionRequest`]). D4's compile-time-registry
+/// redesign replaces that plugin selection with the caller choosing (and
+/// owning) a concrete `E` directly, so every method below applies whatever
+/// padding `E` itself was built with (see `ParryCollisionEnv`'s own doc) to
+/// both the self- and robot-collision checks alike.
 ///
 /// Every check/distance method also passes `self`'s
 /// [`PlanningScene::attached_bodies`] to `env` as
