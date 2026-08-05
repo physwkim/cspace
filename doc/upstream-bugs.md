@@ -111,6 +111,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `stream-to-robot-state-missing-variable-falls-through` | not-reproduced |
 | `robot-state-to-stream-group-lookup-unchecked` | not-reproduced |
 | `stream-to-robot-state-bypasses-dirty-flags` | not-reproduced |
+| `robot-state-to-stream-default-ostream-precision` | not-reproduced |
 
 ---
 
@@ -1400,6 +1401,54 @@ accident. Confirmed by mutation — making the field `pub(crate)` and writing
 covers these functions; see
 `stream-to-robot-state-missing-variable-falls-through` for the same
 absent-caller measurement.
+
+---
+
+### `robot-state-to-stream-default-ostream-precision` — `robotStateToStream` writes joint values at the stream's default six significant digits, so its own CSV cannot round-trip a state — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/conversions.cpp:517`
+(`out << state.getVariablePositions()[i];`) and `:553`
+(`joints << group_variable_positions[i] << separator;`). Neither sets
+`std::setprecision`, `std::hexfloat` or a locale — `rg -n
+'setprecision|hexfloat|precision\('` over `conversions.cpp` returns nothing —
+and the functions take the `std::ostream` from the caller, so the format is
+whatever the caller last left configured.
+**Port:** `crates/moveit-state/src/conversions.rs:105`
+(`robot_state_to_csv`'s `.map(f64::to_string)`)
+**Symptom:** `std::basic_ios::init` sets `precision` to `6`, so an
+unconfigured stream writes six *significant* digits and `operator<<(double)`
+rounds to them. `streamToRobotState` then reads the text back with
+`std::stod`, which parses exactly what is written — the loss is entirely in
+the writer. A state written and read back is therefore not the state that
+was written, which is the one thing a serialization pair exists to
+guarantee. Values with six or fewer significant digits survive, so the
+defect is invisible on hand-written fixtures and on joint limits like
+panda's `-2.8973`, and appears on the full-precision values a planner or an
+IK solver actually produces.
+**Evidence:** measured, not read. A 12-line C++ program writing into a
+`std::stringstream` exactly as `:517` does, compiled `g++ -O0 -std=c++17`
+against this machine's libstdc++:
+
+```console
+default ostream precision: 6
+0.5123456789012345 -> 0.512346 -> 0.51234599999999997   abs err 3.211e-07
+0.78539816339744828 -> 0.785398 -> 0.78539800000000004   abs err 1.634e-07
+-2.8973 -> -2.8973 -> -2.8973                            abs err 0.000e+00
+```
+
+The third line is the six-significant-digit case that hides it.
+**Status:** `not-reproduced`
+**Deviation:** none of `D1`..`D14` applies. `f64`'s `Display` in Rust emits
+the shortest decimal that parses back to the same bit pattern, so
+`robot_state_to_csv` round-trips exactly with no precision argument to get
+wrong. `a_round_trip_returns_every_position_bit_for_bit` compares
+`positions()` with `assert_eq!` rather than a tolerance, and separately
+asserts the emitted text still carries all 16 digits.
+**Cost of not reproducing:** none for parity — no oracle comparison reads
+these functions' output. Worth stating in the other direction: reproducing
+it would put `3.2e-07` of error into any pipeline that used the CSV, which
+is 320x this crate's own FK parity tolerance
+(`crates/moveit-state/tests/fk_parity.rs:88`, `1e-9`).
 
 ---
 
