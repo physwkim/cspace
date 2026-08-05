@@ -1098,6 +1098,20 @@ mod tests {
         }
     }
 
+    // Unlike the two tests above, this one does not discriminate between
+    // search_intersection_points's two `Error::Code(InvalidMotionPlan)`
+    // sites (the first_trajectory search's ok_or at :402 vs the
+    // second_trajectory search's at :411) -- verified by isolating
+    // mutation: neutralizing either ok_or alone still leaves this test
+    // green, because at this radius/corner neither trajectory has enough
+    // length to cross, so the other search's guard still fires. Only
+    // neutralizing both makes it fail. This is a genuine joint failure,
+    // not a masked single branch: the function's own doc comment records
+    // that both searches deliberately share one error code, matching
+    // upstream (`searchIntersectionPoints` itself returns only a `bool`),
+    // and `blend` (this module's only caller, :234) never distinguishes
+    // the two causes either. The assertion below verifies overall
+    // rejection at this pinned oracle geometry, not which branch fired.
     #[test]
     fn search_intersection_points_rejects_a_radius_that_exceeds_this_corners_reach() {
         let (model, srdf) = load_panda();
