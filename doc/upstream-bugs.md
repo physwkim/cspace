@@ -126,6 +126,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `collision-callback-logs-contact-stored-when-dropped` | not-reproduced |
 | `check-collision-unpadded-discards-its-own-request-copy` | not-reproduced |
 | `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
+| `shape-intersect-tangency-follows-libccd-dispatch` | not-reproduced |
 
 ---
 
@@ -2535,3 +2536,99 @@ this one about which pair is reported at all. On fanuc's self side and pr2's
 they occur together (`PORTING-PLAN.md` §247 classifies each flip); on fanuc's
 robot side this one occurs alone, with the two sides agreeing on the suppressing
 pair to `9.93e-16`.
+
+### `shape-intersect-tangency-follows-libccd-dispatch` — a gap of exactly zero collides or not by which narrowphase the shape pair dispatches to, not by the geometry — not-reproduced
+
+**Upstream:** fcl, a separate project from `moveit2` and a dependency of it, so
+it is named the way `kdl-path-circle-nan-scale-rot` names `third_party/` and
+`set-motion-plan-request-time-guard-polarity` names OMPL: host checkout
+`/home/stevek/work/fcl` at `e5efcc41b57b2d0da3bf183480f1298a6d531f44`
+(`git describe --tags`: `0.7.0-17-ge5efcc4`). The oracle image
+(`moveit-rs/oracle:bf084112fdd5730b`) links `libfcl-dev 0.7.0-3build2`;
+`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h` and
+`include/fcl/narrowphase/collision_request.h` are byte-identical between
+checkout and image (`cmp`), and
+`include/fcl/narrowphase/detail/primitive_shape_algorithm/box_box-inl.h`
+differs by one line added above the cited region, so its numbers below are the
+checkout's and the image's are each one lower.
+`GJKSolver_libccd<S>::shapeIntersect` forwards every pair to
+`ShapeIntersectLibccdImpl<S, Shape1, Shape2>::run`
+(`gjk_solver_libccd-inl.h:174` → the generic template at `:112`), whose body
+calls `detail::GJKCollide` — libccd MPR. The pairs that bypass it are drawn by
+fcl itself, as an ASCII table headed "Shape intersect algorithms not using
+libccd" (`:178-201`), and registered immediately below it (`:245-267`).
+`moveit2` is the caller and never chooses the solver: `rg -n
+'gjk_solver_type|GST_LIBCCD|GST_INDEP'` over the pinned `e017c91ee` checkout
+returns **0 matches in 1,926 files**, so `CollisionRequest`'s default
+`GST_LIBCCD` (`collision_request.h:102`) is what every MoveIt query runs.
+**Port:** `crates/moveit-collision/src/parry.rs:2174`, `accumulate_collision`'s
+`query::contact(a_pose, a_shape, b_pose, b_shape, 0.0)`. Pinned by
+`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`.
+**Symptom:** at a gap of *exactly* zero, `fcl::collide` returns a contact of
+depth 0 for a pair with a registered specialisation and no contact at all for a
+pair without one. The specialised routines separate on strict inequalities —
+`boxBox2`'s six separating-axis rejections are each `if(s2 > 0) {
+*return_code = 0; return 0; }` (`box_box-inl.h:302`, `:314`, `:326`, `:339`,
+`:351`, `:363`), and `s2 == 0` is not `s2 > 0`, so exact touching falls through
+to contact generation — while libccd MPR tests strict interior overlap and finds
+none. The answer therefore tracks the C++ type, not the shape: a unit cube
+carried by `fcl::Boxd` collides with itself at tangency and the *same eight
+vertices* carried by `fcl::Convexd` do not. It is not curvature (`sphere` on
+`box`, one point of contact, collides), not contact dimensionality (`cylinder`
+on `box`, a whole face, does not), and not one broken primitive (`capsule` on
+`sphere` collides, `capsule` on `box` does not). fcl's own table documents the
+split as *which routines skip libccd* — an implementation note. Nothing in fcl
+states a boundary convention, and the two halves of its dispatch disagree about
+one.
+**Evidence:** oracle run plus a direct probe, both measured; no part of this is
+a read. A 7-kind × 7-kind × 3-offset probe compiled and run **inside** the
+pinned image against `fcl::collide`, on shapes sized so every extremity is at
+exactly ±0.5 (so tangency is exact in binary, not approximate), classified
+against the specialised set *parsed out of the header above* rather than
+hand-listed: **49 of 49 cells agree that specialised ⟺ collision at tangency**,
+zero exceptions, over {box, sphere, ellipsoid, capsule, cone, cylinder, convex}.
+Through MoveIt's own `CollisionEnvFCL` on prbt (`tools/moveit-oracle`, 48
+requests, 4 kinds × 4 kinds × 3 offsets), exact tangency gives `false` for
+`box × cylinder`, `cylinder × box` and `cylinder × cylinder` and `true` for the
+other 13 — exactly the generic-libccd cells; `mesh` is `true` against everything
+because `collision_common.cpp:900-923` maps `shapes::MESH` to
+`fcl::BVHModel<BV>`, a third traversal that is neither. At `±1e-9` all 16 cells
+are uniform (`false` at clearance, `true` at overlap), so the split is confined
+to the exact tie.
+**Status:** `not-reproduced`. `parry` has no equivalent registration table, and
+this port asks `query::contact` with a prediction of `0.0` and treats any `Some`
+as a collision, so 24 of the 25 shape pairs it can build collide at exact
+tangency. It is not uniform either: `parry`'s one relevant specialisation,
+`contact_ball_ball`
+(`parry3d-f64-0.30.0/src/query/default_query_dispatcher.rs:316` →
+`parry3d-f64-0.30.0/src/query/contact/contact_ball_ball.rs:16`), admits a pair on a *strict* `<`,
+so `sphere × sphere` at a gap of exactly zero is the one cell that does not
+collide — the mirror image of fcl's split, since `parry`'s generic
+`gjk::closest_points` rejects on `min_bound > max_dist`
+(`parry3d-f64-0.30.0/src/query/gjk/gjk.rs:411`)
+and so *includes* the boundary. Of the 48 (pair, offset) cells both sides can
+build, 6 disagree: `sphere × sphere` at the tie (upstream `true` via
+`sphereSphereIntersect`, this port `false`), and `box × cylinder` /
+`cylinder × box` at both `+1e-9` and the tie plus `cylinder × cylinder` at the
+tie (upstream `false` via generic libccd, this port `true`). Making the port
+uniform is not attempted: it needs either a positive prediction — an epsilon
+with no upstream to size it against, on top of the positive margin
+`exact_tangency_boundary.rs` already measures — or a per-pair branch, which is
+the structure that produced the defect in both libraries. Gating on
+`contact.dist <= 0.0` was tried and reverted (see `exact_tangency_boundary.rs`'s
+module doc: it breaks octree case 4).
+**Deviation:** none of `D1`..`D14` applies. The port is not routing around the
+defect by policy; it never had a per-shape-pair dispatch table to disagree with
+itself through.
+**Cost of not reproducing:** measured, and it is `PORTING-PLAN.md` §5 Phase 3's
+`collision: bool` clause on prbt — 6,854 of 10,000 sampled states. `prbt_base_link`'s
+collision cylinder bottom face is at exactly `z = 0` and `tools/moveit-diff`'s
+floor box top face is at exactly `z = 0`, and no joint value moves the base
+link, so every sampled state presents the same `cylinder × box` tie — a
+generic-libccd cell, where upstream says `false` and this port says `true`.
+No tolerance closes it, because `bool` has none; adopting upstream's answer for
+that one pair would mean adopting the dispatch table, since the neighbouring
+`sphere × box` tie has to stay `true` at the same time. The octree side is the
+same defect seen from the other cell: `octree_world_collision_response.json`
+case 4 is a leaf face on a box face, a *specialised* pair, where upstream says
+`true` — and this port already agrees there.

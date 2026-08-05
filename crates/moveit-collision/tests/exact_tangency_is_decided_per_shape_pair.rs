@@ -15,24 +15,35 @@
 //!
 //! # Upstream: the pair decides, and fcl's own header says which pairs
 //!
+//! Line numbers below are `/home/stevek/work/fcl` at `e5efcc4`
+//! (`git describe --tags`: `0.7.0-17-ge5efcc4`), the readable checkout of
+//! the library the oracle image links. The image itself ships `libfcl-dev
+//! 0.7.0-3build2`; `gjk_solver_libccd-inl.h` and `collision_request.h` are
+//! byte-identical between the two (`cmp`), and `box_box-inl.h` differs by
+//! one line added above the cited region, so its six numbers are each one
+//! lower there.
+//!
 //! `fcl::collide` is reached with `gjk_solver_type` at its default
-//! `GST_LIBCCD` (`fcl/narrowphase/collision_request.h:102`; MoveIt never sets
-//! the field -- `rg -n gjk_solver_type` over the pinned `moveit2` checkout
-//! returns nothing outside comments). `GJKSolver_libccd::shapeIntersect`
-//! forwards to `ShapeIntersectLibccdImpl<S, Shape1, Shape2>::run`
-//! (`fcl/narrowphase/detail/gjk_solver_libccd-inl.h:112-176`), whose generic
-//! body calls `detail::GJKCollide` -- libccd MPR, which tests strict interior
-//! overlap and reports no contact for a zero gap. A *specialisation* is
-//! registered for some pairs and not others, and fcl draws the set itself as
-//! an ASCII table headed "Shape intersect algorithms not using libccd"
-//! (`:178-201`), followed by the registrations that implement it (`:245-267`:
+//! `GST_LIBCCD` (`include/fcl/narrowphase/collision_request.h:102`; MoveIt
+//! never sets the field -- `rg -n gjk_solver_type` over the pinned `moveit2`
+//! checkout returns nothing outside comments).
+//! `GJKSolver_libccd::shapeIntersect` forwards to
+//! `ShapeIntersectLibccdImpl<S, Shape1, Shape2>::run`
+//! (`include/fcl/narrowphase/detail/gjk_solver_libccd-inl.h:174` to the
+//! generic template at `:112`), whose body calls `detail::GJKCollide` --
+//! libccd MPR, which tests strict interior overlap and reports no contact
+//! for a zero gap. A *specialisation* is registered for some pairs and not
+//! others, and fcl draws the set itself as an ASCII table headed "Shape
+//! intersect algorithms not using libccd" (`:178-201`), followed by the
+//! registrations that implement it (`:245-267`:
 //! `FCL_GJK_LIBCCD_SHAPE_INTERSECT(Sphere, …)`, `(Box, …)`, and the
 //! `SHAPE_SHAPE` pairs). The specialised routines separate on a *strict*
 //! inequality, so a zero gap falls through to contact generation --
 //! `boxBox2`'s six separating-axis rejections are each `if(s2 > 0) {
 //! *return_code = 0; return 0; }`
-//! (`fcl/narrowphase/detail/primitive_shape_algorithm/box_box-inl.h:301`,
-//! `:313`, `:325`, `:338`, `:350`, `:362`), and `s2 == 0` is not `s2 > 0`.
+//! (`include/fcl/narrowphase/detail/primitive_shape_algorithm/box_box-inl.h`
+//! `:302`, `:314`, `:326`, `:339`, `:351`, `:363`), and `s2 == 0` is not
+//! `s2 > 0`.
 //!
 //! Measured, not inferred. A 7-kind x 7-kind x 3-offset probe compiled and run
 //! inside the pinned oracle image (`libfcl-dev 0.7.0-3build2`), calling
@@ -70,15 +81,16 @@
 //!
 //! # This backend: the pair decides here too, and one cell disagrees
 //!
-//! `parry3d-f64` has the same structure. `DefaultQueryDispatcher::contact`
-//! routes `Ball`/`Ball` to `contact_ball_ball`
-//! (`query/contact/contact_ball_ball.rs`), which admits a pair on `if
-//! distance_squared < sum_radius_with_error * sum_radius_with_error` -- a
+//! `parry3d-f64` 0.30.0 has the same structure.
+//! `DefaultQueryDispatcher::contact` routes `Ball`/`Ball` to
+//! `contact_ball_ball` (`src/query/default_query_dispatcher.rs:316`), which
+//! admits a pair on `if distance_squared < sum_radius_with_error *
+//! sum_radius_with_error` (`src/query/contact/contact_ball_ball.rs:16`) -- a
 //! *strict* `<`, so two spheres at a gap of exactly zero give `1.0 < 1.0`,
 //! `None`, no collision. Its generic support-map path is the other way round:
 //! `gjk::closest_points` rejects on `if min_bound > max_dist`
-//! (`query/gjk/gjk.rs`), also strict, so a distance of exactly `max_dist`
-//! *is* admitted. One library's specialisation is inclusive at the boundary
+//! (`src/query/gjk/gjk.rs:411`), also strict, so a distance of exactly
+//! `max_dist` *is* admitted. One library's specialisation is inclusive at the boundary
 //! and its generic path exclusive; the other's is exclusive and its generic
 //! path inclusive. Neither states a convention, and the sign of the
 //! disagreement is an accident of which side of the comparison the boundary
