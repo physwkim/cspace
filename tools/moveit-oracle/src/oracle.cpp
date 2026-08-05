@@ -2757,7 +2757,8 @@ private:
     auto parent = std::make_shared<planning_scene::PlanningScene>(model_);
     applyJointValuesTo(parent->getCurrentStateNonConst(), request);
     applyAttachedBodies(parent->getCurrentStateNonConst(), request);
-    addRequestObjects(*parent->getWorldNonConst(), request);
+    for (const auto& object_json : request.value("objects", json::array()))
+      addSceneObject(*parent->getWorldNonConst(), object_json);
 
     json parent_before = sceneCollisionSummary(*parent);
 
@@ -2813,11 +2814,7 @@ private:
       const std::string action = action_json.at("action").get<std::string>();
       if (action == "add_object")
       {
-        const std::string id = action_json.at("id").get<std::string>();
-        const Eigen::Isometry3d pose = fromRowMajor4x4(action_json.at("pose"));
-        const json& shape_json = action_json.at("shape");
-        std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
-        scene.getWorldNonConst()->addToObject(id, pose, { shape }, { Eigen::Isometry3d::Identity() });
+        addSceneObject(*scene.getWorldNonConst(), action_json);
       }
       else if (action == "remove_object")
       {
@@ -2855,6 +2852,31 @@ private:
         throw std::runtime_error("unsupported scene diff action: " + action);
       }
     }
+  }
+
+  /// One `{id, pose, shape}` object into `world`, at `addToObject(id, shape,
+  /// shape_pose)` -- the *three*-argument overload, object pose identity and
+  /// `pose` carried on the shape.
+  ///
+  /// `addRequestObjects` uses the four-argument one instead (object pose
+  /// `pose`, shape pose identity), and for an id the world does not yet have
+  /// the two are the same geometry, which is why four ops share it happily.
+  /// They stop being the same the moment an id is added *twice*: upstream
+  /// discards the `pose` argument entirely when the object already exists
+  /// (`world.cpp`'s `addToObject`, `obj->pose_ = pose` sits inside the
+  /// `if (!obj)` branch), so the second call's shape lands at the object's
+  /// original pose in one spelling and at `pose` relative to it in the other.
+  /// This op's `add_object` diff action does exactly that, and this port's
+  /// `PlanningScene::add_shape` is the three-argument overload -- so both the
+  /// base world and the diff are built that way here rather than reusing the
+  /// shared helper and comparing two different placements.
+  void addSceneObject(collision_detection::World& world, const json& object_json)
+  {
+    const std::string id = object_json.at("id").get<std::string>();
+    const Eigen::Isometry3d pose = fromRowMajor4x4(object_json.at("pose"));
+    const json& shape_json = object_json.at("shape");
+    std::shared_ptr<shapes::Shape> shape = parseShape(shape_json.at("type").get<std::string>(), shape_json);
+    world.addToObject(id, Eigen::Isometry3d::Identity(), { shape }, { pose });
   }
 
   /// One `PlanningScene`'s collision answer plus the two id lists that say
