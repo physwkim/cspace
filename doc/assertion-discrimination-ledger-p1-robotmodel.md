@@ -822,7 +822,7 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 | file:line | member? | verdict | evidence |
 |---|---|---|---|
 | `decide.rs:362,380,438,508,534,553,742,781` (`via:assert_err_mentions`) | yes | discriminating | round 11's sibling-message table, unchanged (same 8 call sites) |
-| `decide.rs:1161,1166` (`assert_eq!(..., None)` on `max_view_angle()`/`max_range_angle()`) | yes | discriminating | isolating mutation run this round: `normalize_angle_criterion`'s `.filter(\|v\| *v > EPS)` gate removed → `negative_target_radius_activates_...` and `zero_valued_criteria_normalize_to_unconstrained` both fail (2/100), no other test moves; `target_radius`'s own gate (`normalize_target_radius`, a different fn) is untouched and its sibling assertion in the same test stays green |
+| `decide.rs:1161,1166` (`assert_eq!(..., None)` on `max_view_angle()`/`max_range_angle()`) | yes | discriminating | isolating mutation run this round: `normalize_angle_criterion`'s `.filter(\|v\| *v > EPS)` gate removed → `negative_target_radius_activates_at_its_magnitude_but_negative_angles_stay_inactive` and `zero_valued_criteria_normalize_to_unconstrained` both fail (2/100), no other test moves; `target_radius`'s own gate (`normalize_target_radius`, a different fn) is untouched and its sibling assertion in the same test stays green |
 | `decide.rs:1257` (`set.is_empty()`) | **no** | not-this-family | `KinematicConstraintSet::new()` is `Self::default()` (`set.rs:54-56`) — trivially empty by construction, clause 2 fails (nothing was decided) |
 
 **`crates/moveit-model/src/joint/model.rs` (3)**
