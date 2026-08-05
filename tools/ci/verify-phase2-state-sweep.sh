@@ -52,7 +52,13 @@ DIFF="$REPO_ROOT/target/release/moveit-diff"
 #   prbt, fanuc     plain revolute chains -- the case where none of the
 #                   special paths applies, which is what says a disagreement
 #                   on the others is about the special path.
-ROBOTS=(panda prbt fanuc dual_arm_panda pr2)
+#   one_robot       the only mimic with `multiplier != 1` or `offset != 0`
+#                   (1.5 and 0.1). Every other fixture's mimic is the identity
+#                   `1 * v + 0`, where dropping the factor, dropping the
+#                   offset, and applying them in the wrong order all produce
+#                   the same numbers -- so the arithmetic was covered at the
+#                   one point in its parameter space where it cannot be wrong.
+ROBOTS=(panda prbt fanuc dual_arm_panda pr2 one_robot)
 
 # Before comparing anything: confirm the fixtures still are the robots they
 # name. Boundary values here are derived from the oracle's own reported

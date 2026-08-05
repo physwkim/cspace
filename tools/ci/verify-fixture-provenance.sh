@@ -101,6 +101,19 @@ beb34073e5abd710351298c93865b62661b92b9e357b313f3e1ff16614a28778
 4fd035b0841737f130206fdfbe82006573f10653a6d568fd800b59827957f69b"
 )
 
+# Fixtures whose source is a raw-string literal inside an upstream C++ test,
+# not a file: `fixture -> <path>::<literal name>`.
+#
+# Checked by *re-running the extraction* and `cmp`-ing, not by a digest of the
+# containing file. A digest over `robot_state_test.cpp` would fail every time
+# any unrelated test in it changed, which trains the reader to re-pin without
+# looking; this fails exactly when the literal itself changes, which is the
+# only event that makes the fixture stop describing the robot it names.
+declare -A EXTRACTED_FROM=(
+  [fixtures/one_robot.urdf]="$MOVEIT2_SRC/moveit_core/robot_state/test/robot_state_test.cpp::MODEL2"
+  [fixtures/one_robot.srdf]="$MOVEIT2_SRC/moveit_core/robot_state/test/robot_state_test.cpp::SMODEL2"
+)
+
 declare -A GENERATED_COMMAND=(
   [fixtures/dual_arm_panda.urdf]="see commit 2bcd7cb's body (colcon-builds dual_arm_panda_moveit_config into a scratch workspace so \$(find ...) resolves, then xacro)"
   [fixtures/prbt.urdf]="sg docker -c 'docker run --rm --user \$(id -u):\$(id -g) -v <out>:<out>:rw --entrypoint bash <oracle image> -lc \"source /opt/ros/\\\$ROS_DISTRO/setup.bash && source /ws/install/setup.bash && xacro \\\$(ros2 pkg prefix moveit_resources_prbt_support)/share/moveit_resources_prbt_support/urdf/prbt.xacro\"' > fixtures/prbt.urdf"
@@ -145,11 +158,56 @@ check_generated() {  # <fixture path>
   echo "generated  $fixture -- xacro expansion, ${#sources[@]} pinned source(s)"
 }
 
+# The literal, lifted back out of the C++ by its own delimiters rather than by
+# a line range: a line range silently starts describing different text as soon
+# as anything above it in the file grows.
+extract_literal() {  # <cpp path> <literal name>
+  awk -v n="$2" '
+    index($0, "std::string " n " = R\"(") { inside = 1; next }
+    inside && /^\)";$/ { exit }
+    inside { print }
+  ' "$1"
+}
+
+check_extracted() {  # <fixture path>
+  local fixture="$1" spec source_path literal
+  spec="${EXTRACTED_FROM[$fixture]}"
+  source_path="${spec%::*}"
+  literal="${spec##*::}"
+
+  if [[ ! -f "$source_path" ]]; then
+    echo "MISSING    $source_path (source of $fixture) is not present" >&2
+    status=1
+    return
+  fi
+
+  local extracted
+  extracted="$(extract_literal "$source_path" "$literal")"
+  if [[ -z "$extracted" ]]; then
+    echo "UNMAPPED   $literal is no longer a raw-string literal in $source_path" >&2
+    status=1
+    return
+  fi
+
+  if diff -q <(printf '%s\n' "$extracted") "$fixture" >/dev/null; then
+    echo "extracted  $fixture -- $literal in ${source_path##*/}"
+  else
+    echo "DRIFTED    $fixture no longer matches $literal in $source_path" >&2
+    diff <(printf '%s\n' "$extracted") "$fixture" | head -10 >&2
+    status=1
+  fi
+}
+
 check_fixture() {  # <fixture path> <vendored source path>
   local fixture="$1" source_path="$2"
 
   if [[ -n "${GENERATED_SOURCES[$fixture]:-}" ]]; then
     check_generated "$fixture"
+    return
+  fi
+
+  if [[ -n "${EXTRACTED_FROM[$fixture]:-}" ]]; then
+    check_extracted "$fixture"
     return
   fi
 
