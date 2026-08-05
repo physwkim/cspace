@@ -53,14 +53,16 @@
 //! inherited from its siblings', which is what keeps a future four-order
 //! regression visible instead of absorbed.
 //!
-//! # What the `polyline-filter-waypoints-stale-index` deviation means here
-//!
-//! This fixture's two waypoints are `0.15 m` apart, far above
+//! `panda_polyline_staleindex_{request,response}.json` is the third fixture,
+//! and the one that closes `doc/upstream-bugs.md`'s
+//! `polyline-filter-waypoints-stale-index` revisit condition — see
+//! [`polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has`]
+//! for its geometry and for why the two filter rules give different *error
+//! codes* on it rather than merely different waypoint lists. The first two
+//! fixtures' waypoints are `0.15 m` apart, far above
 //! `path_polyline_generator::MIN_SEGMENT_LENGTH` (`0.2 mm`), so
-//! `filter_waypoints` drops nothing and the upstream index bug
-//! `doc/upstream-bugs.md` records as `reproduced-deliberately` never fires on
-//! either side. This test therefore neither confirms nor refutes that entry;
-//! it establishes the parity surface that entry says did not exist yet.
+//! `filter_waypoints` drops nothing on them and that bug never fires either
+//! way; the third is built specifically so it does.
 
 use std::collections::HashMap;
 use std::fs;
@@ -74,6 +76,7 @@ use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_pilz::limits::{
     CartesianLimits, JointLimit, JointLimitsContainer, LimitsContainer,
 };
+use moveit_planners_pilz::path_polyline_generator::MIN_SEGMENT_LENGTH;
 use moveit_planners_pilz::trajectory_functions::IkContext;
 use moveit_planners_pilz::trajectory_generator::{
     Goal, MotionPlanRequest, PathConstraints, PilzGenerator, PolylinePathConstraint, StartState,
@@ -436,5 +439,101 @@ fn polyline_panda_arm_rejects_the_same_request_the_oracle_rejects() {
         moveit_error::MoveItErrorCode::Success,
         "restoring the second waypoint must plan, or the rejection above is \
          not attributable to the count"
+    );
+}
+
+/// `doc/upstream-bugs.md`'s `polyline-filter-waypoints-stale-index`,
+/// compared against the oracle rather than argued from a read.
+///
+/// That entry is `reproduced-deliberately` and named its own revisit
+/// condition: *"Revisit if a `POLYLINE` oracle op lands and its fixtures show
+/// the divergence mattering."* This is that fixture. Its four waypoints are
+/// built so `filter_waypoints`' two counters separate and stay separated:
+///
+/// ```text
+///   w1  = start + 0.15 x      kept   (last_added_point_indx -> 0, i.e. w1)
+///   w1' = w1    + 0.0001 x    dropped, 0.1 mm is under MIN_SEGMENT_LENGTH
+///   w2  = w1    + 0.15  y     kept   (indx -> 1, i.e. w1' -- now stale)
+///   w3  = w2    + 0.0001 x    kept, because it is measured against w1'
+/// ```
+///
+/// Under the rule the filter was written to implement, `w3` is `0.1 mm` from
+/// the last *kept* waypoint `w2` and would be dropped, leaving a three-point
+/// polyline that plans. Under upstream's actual rule it survives, and
+/// `PathRoundedComposite::add` then rejects the `0.1 mm` outgoing leg because
+/// the blend radius overruns it.
+///
+/// So the two rules give *different error codes*, not merely different
+/// waypoint lists — which is what makes this a real parity assertion rather
+/// than a restatement of the port's own code. The oracle rejects
+/// (`INVALID_MOTION_PLAN`, `-2`), and its own log for this fixture names the
+/// same cause this port reaches: `rounding circle of a point is bigger than
+/// the distance with one of the neighbor points`. A port that quietly fixed
+/// the filter would return `SUCCESS` here and fail this test.
+#[test]
+fn polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has() {
+    let request: RequestFixture = load_json("panda_polyline_staleindex_request.json");
+    let response: ResponseFixture = load_json::<OracleResponseEnvelope<ResponseFixture>>(
+        "panda_polyline_staleindex_response.json",
+    )
+    .result;
+    assert_eq!(
+        response.error_code, -2,
+        "fixture's own oracle run must have failed with INVALID_MOTION_PLAN"
+    );
+
+    // The near-duplicate is what makes the two counters separate; without it
+    // nothing is dropped and the stale index never forms.
+    assert_eq!(request.path_waypoints.len(), 4);
+    let w: Vec<Isometry3> = request.path_waypoints.iter().map(Isometry3::from).collect();
+    let near_duplicate = (w[1].translation.vector - w[0].translation.vector).norm();
+    let would_be_dropped = (w[3].translation.vector - w[2].translation.vector).norm();
+    assert!(
+        near_duplicate < MIN_SEGMENT_LENGTH && would_be_dropped < MIN_SEGMENT_LENGTH,
+        "both short legs must be under MIN_SEGMENT_LENGTH ({MIN_SEGMENT_LENGTH}), \
+         got {near_duplicate} and {would_be_dropped}"
+    );
+
+    let (model, srdf) = load_panda();
+    let base = TrajectoryGenerator::new(&model, limits_of(&request));
+    let generator = TrajectoryGeneratorPolyline::new(base, &request.group_name);
+
+    let scene = Arc::new(PlanningScene::new(&model, &srdf));
+    let env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+    let ctx = IkContext {
+        scene: &scene,
+        env: &env,
+        check_self_collision: CHECK_SELF_COLLISION,
+    };
+
+    let response = generator.generate(&ctx, &plan_request(&request), request.sampling_time);
+    assert_eq!(
+        response.error_code,
+        moveit_error::MoveItErrorCode::InvalidMotionPlan,
+        "this port must reproduce the oracle's rejection; SUCCESS here would \
+         mean the stale index was silently fixed"
+    );
+
+    // What the corrected filter would have produced, planned directly: the
+    // same request with `w3` removed. It must SUCCEED, or the rejection above
+    // is not attributable to the surviving `w3` and this test proves nothing
+    // about the filter.
+    let mut corrected = plan_request(&request);
+    corrected.path_constraints = Some(PathConstraints::Polyline(PolylinePathConstraint {
+        waypoints: vec![w[0], w[1], w[2]],
+        smoothness_level: request.smoothness_level,
+    }));
+    corrected.goal = Goal::Cartesian {
+        link_name: request.goal.link_name.clone(),
+        position: w[2].translation.vector,
+        orientation: UnitQuaternion::from_rotation_matrix(&w[2].rotation.to_rotation_matrix()),
+        target_point_offset: Vector3::new(0.0, 0.0, 0.0),
+    };
+    let response = generator.generate(&ctx, &corrected, request.sampling_time);
+    assert_eq!(
+        response.error_code,
+        moveit_error::MoveItErrorCode::Success,
+        "dropping w3 -- exactly what the corrected filter would do -- must \
+         plan, or the rejection above has some other cause"
     );
 }

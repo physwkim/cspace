@@ -91,10 +91,15 @@
 //! below, which is a tolerance value rather than an expression and is matched
 //! so this type accepts exactly the corner set upstream accepts.
 //!
-//! Equivalence with upstream is not proven by an oracle fixture here, because
-//! the oracle has no `POLYLINE` op — see
-//! `tests/pilz_trajectory_polyline.rs`'s own module doc for what stands in
-//! for one and what that does not cover.
+//! Equivalence with upstream is exercised end-to-end by
+//! `tests/pilz_trajectory_polyline_parity.rs`, whose `panda_polyline`
+//! fixture runs this type's output through the oracle's `POLYLINE`
+//! generator; what that comparison cannot see — that the sampled joint
+//! values lie on a *rounded* path at all rather than on some other path both
+//! implementations agree about — is covered by
+//! `tests/pilz_trajectory_polyline.rs`'s property tests. Neither compares
+//! this type's own `pos`/`path_length` against upstream's directly, since
+//! the oracle exposes no `Path_RoundedComposite` op.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;

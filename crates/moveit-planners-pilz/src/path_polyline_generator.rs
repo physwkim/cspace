@@ -107,10 +107,13 @@ pub fn polyline_from_waypoints(
 /// implementation is `POLYLINE`'s only available ground truth, and a
 /// corrected filter would keep a different set of waypoints — so every case
 /// containing a drop would diverge from an oracle comparison by
-/// construction, leaving `POLYLINE` with no parity surface at all. No
-/// `POLYLINE` oracle op exists yet; this is the decision made ahead of one,
-/// recorded in `doc/upstream-bugs.md` as
-/// `polyline-filter-waypoints-stale-index`.
+/// construction, leaving `POLYLINE` with no parity surface at all. That was
+/// decided ahead of an oracle op; the op has since landed, and
+/// `pilz_trajectory_polyline_parity.rs`'s
+/// `polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has`
+/// measures the divergence it predicted — the oracle rejects the
+/// drop-containing case that a corrected filter would plan. Recorded in
+/// `doc/upstream-bugs.md` as `polyline-filter-waypoints-stale-index`.
 pub fn filter_waypoints(start_pose: &Isometry3, waypoints: &[Isometry3]) -> Vec<Isometry3> {
     let mut filtered = vec![*start_pose];
     // Upstream's `last_added_point_indx`, `-1` meaning "still the start pose".

@@ -709,12 +709,19 @@ The filter's whole purpose is to guarantee every surviving segment exceeds
 `MIN_SEGMENT_LENGTH` before `Path_RoundedComposite::Add` sees it; past the
 first drop it no longer does, so `Add`'s own `Not_Feasible` codes 2/3 can
 still fire on input the filter was supposed to have cleaned.
-**Evidence:** read of upstream source at the pinned sha, plus
-`filter_waypoints_compares_against_an_input_index_not_the_last_kept_pose`
-in the port, which constructs the four-waypoint case where the two
-behaviours differ (4 kept under upstream's rule, 3 under the intended one)
-and asserts upstream's outcome. Not oracle-confirmed: no `POLYLINE` oracle
-op exists yet.
+**Evidence:** oracle-confirmed. `filter_waypoints_compares_against_an_input_index_not_the_last_kept_pose`
+in the port constructs the four-waypoint case where the two behaviours
+differ (4 kept under upstream's rule, 3 under the intended one) and asserts
+upstream's outcome; `panda_polyline_staleindex_{request,response}.json` and
+`polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has` then
+run that same case through the live oracle, which rejects it with
+`INVALID_MOTION_PLAN` and logs `rounding circle of a point is bigger than
+the distance with one of the neighbor points` — the `Not_Feasible` path
+this entry's **Symptom** predicts. The port reaches the same code, and
+correcting the filter (bitten: `filtered.last()` instead of
+`waypoints[last_added_point_indx]`) flips that test to `SUCCESS` and no
+other test in the crate. The read of upstream source at the pinned sha is
+still what identifies the two counters; it is no longer the only evidence.
 **Status:** reproduced-deliberately — the same positive argument as
 `totg-velocity-step-function`, not grandfathering. `POLYLINE`'s only
 available ground truth is the C++ implementation itself, and this bug
@@ -724,11 +731,22 @@ would leave `POLYLINE` with no comparable parity surface at all, which is a
 worse outcome than carrying a filter that under-filters in a way the
 downstream `Add` still rejects loudly.
 **Cost of reproducing:** a waypoint list with a near-duplicate followed by
-more waypoints can reach `Add` with a segment shorter than
-`MIN_SEGMENT_LENGTH` and be rejected with `Not_Feasible` code 2 or 3
+more waypoints reaches `Add` with a segment shorter than
+`MIN_SEGMENT_LENGTH` and is rejected with `Not_Feasible` code 2 or 3
 instead of being silently cleaned. That is an error return, not a wrong
-trajectory. Revisit if a `POLYLINE` oracle op lands and its fixtures show
-the divergence mattering.
+trajectory — now measured rather than predicted, by the `staleindex`
+fixture above.
+
+The revisit this entry used to name ("if a `POLYLINE` oracle op lands and
+its fixtures show the divergence mattering") has happened, and the answer
+is to keep reproducing. The op landed with
+`tools/moveit-oracle/src/pilz_polyline_factory.cpp`; the divergence does
+matter — it changes the returned error code, not just the waypoint list —
+and that is precisely what makes reproducing it the right call: a
+corrected filter would return `SUCCESS` where the oracle returns `-2`, so
+every drop-containing case would diverge from ground truth by
+construction. The `reproduced-deliberately` status stands, with the
+argument now resting on a measurement instead of a prediction.
 
 ---
 

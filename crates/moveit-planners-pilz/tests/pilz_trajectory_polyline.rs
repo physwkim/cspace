@@ -5,20 +5,21 @@
 //! [`moveit_planners_pilz::trajectory_generator_polyline::TrajectoryGeneratorPolyline`]
 //! on `panda_arm`.
 //!
-//! # This is not a parity test
+//! # This is not the parity test
 //!
-//! Unlike its `PTP`/`LIN`/`CIRC` siblings in this directory, there is no
-//! oracle fixture here: the moveit2 oracle (`tools/moveit-oracle`) has no
-//! `pilz_trajectory` generator named `"polyline"`, so no ground truth exists
-//! to compare against yet. What follows asserts *properties of the produced
+//! Parity against the moveit2 C++ oracle lives in
+//! `pilz_trajectory_polyline_parity.rs`, on the same corner geometry and the
+//! same `panda_lin_request.json` numbers. This file is what it cannot be:
+//! the oracle compares *joint values at 34 sampled instants*, which pins the
+//! two implementations to each other but says nothing about the path either
+//! of them is on. What follows asserts *properties of the produced
 //! trajectory that only a correct rounded-polyline path can satisfy* --
 //! that the tip tracks the very path
 //! [`polyline_from_waypoints`](moveit_planners_pilz::path_polyline_generator::polyline_from_waypoints)
 //! builds, and that it rounds the corner rather than driving through it (the
 //! test a `LIN`-per-segment or a straight-to-goal implementation fails).
-//! Adding a `"polyline"` oracle op and a captured fixture is the follow-up
-//! that turns this into real parity; until then the C++ remains unverified
-//! against by machine.
+//! Both would still pass a joint-value comparison against an oracle that
+//! made the same mistake.
 //!
 //! The request's limits, `sampling_time`, scaling factors and start state
 //! are reused verbatim from `panda_lin_request.json` so this file introduces

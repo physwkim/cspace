@@ -75,6 +75,10 @@
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "panda_polyline_staleindex": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_ptp": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
