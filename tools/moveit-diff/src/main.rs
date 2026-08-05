@@ -573,6 +573,25 @@ fn run(cfg: &Config) -> Result<usize, String> {
         compare_model_info(&rust_model, &model),
     ));
 
+    // §5 Phase 1's five clauses, each reported with the size of the set it
+    // compared. Printed here rather than only folded into `verdicts` so the
+    // per-robot, per-category result is on stdout for every run, not only
+    // for the runs that fail.
+    println!("--- Phase 1 clauses ({}) ---", model.name);
+    for (label, verdict, scope) in compare_model_info_clauses(&rust_model, &model) {
+        println!(
+            "{:<18} {:<52} {}",
+            label,
+            scope,
+            match &verdict {
+                Verdict::Pass => "agrees".to_owned(),
+                Verdict::Underpowered(m) => format!("UNDERPOWERED: {m}"),
+                Verdict::Fail(m) => format!("DISAGREES: {}", m.lines().next().unwrap_or(m)),
+            }
+        );
+        verdicts.push((format!("phase1:{label}"), verdict));
+    }
+
     let states = match oracle.ask(Op::RandomStates {
         count: cfg.cases,
         seed: cfg.seed,
@@ -855,6 +874,156 @@ fn run_constraint_cases(
     Ok(())
 }
 
+/// The five facts §5 Phase 1's completion condition names, in its own order:
+/// "링크 수, 조인트 수, 그룹 구성, 조인트 한계값, mimic 관계".
+///
+/// Each is its own verdict rather than one `model_info` pass/fail, because
+/// the condition is five separate claims per robot and a single aggregate
+/// verdict cannot say which of them holds. It also cannot say that a robot
+/// with no mimic joint at all was *checked* for mimic relations -- and
+/// three of the five fixture robots have none, so "mimic agrees" would
+/// otherwise be a claim about an empty set that reads identically to a
+/// claim about a checked one. Each label below reports the size of the set
+/// it compared, so an empty one is visible as empty.
+const PHASE1_CLAUSES: [&str; 5] = [
+    "link_count",
+    "joint_count",
+    "group_composition",
+    "joint_limits",
+    "mimic",
+];
+
+/// One variable's limit facts, as the `joint_limits` clause compares them.
+/// `min`/`max` are `None` for an unbounded variable (JSON has no infinity --
+/// see [`protocol::JointDetail::bounds`]), which is why `position_bounded` is carried
+/// alongside rather than being inferred from the two being present.
+#[derive(Debug, PartialEq)]
+struct VariableLimit {
+    variable: String,
+    min: Option<f64>,
+    max: Option<f64>,
+    position_bounded: bool,
+}
+
+/// Joint name to its variables' limits, the shape the `joint_limits` clause
+/// compares. A map rather than a flat vector so a disagreement names the
+/// joint it is on.
+type JointLimitView = BTreeMap<String, Vec<VariableLimit>>;
+
+/// Mimicking joint name to `(mimicked joint, multiplier, offset)` -- the
+/// shape the `mimic` clause compares. Joints with no mimic are absent, so
+/// the map's length is the number of relations actually verified.
+type MimicView = BTreeMap<String, (String, f64, f64)>;
+
+/// One [`PHASE1_CLAUSES`] entry's verdict plus the count it compared.
+fn compare_model_info_clauses(
+    rust_model: &RobotModel,
+    expected: &ModelInfo,
+) -> Vec<(&'static str, Verdict, String)> {
+    let actual = rust_impl::model_info(rust_model);
+    let mut out = Vec::with_capacity(PHASE1_CLAUSES.len());
+
+    // Link/joint *count* is what the condition names, but comparing only the
+    // counts would pass a model whose links are all named wrongly, so each
+    // count clause compares the full name list and reports the count.
+    out.push((
+        "link_count",
+        eq_verdict(&actual.links, &expected.links, "link names"),
+        format!("{} links", expected.links.len()),
+    ));
+    out.push((
+        "joint_count",
+        eq_verdict(&actual.joints, &expected.joints, "joint names"),
+        format!("{} joints", expected.joints.len()),
+    ));
+    out.push((
+        "group_composition",
+        eq_verdict(&actual.groups, &expected.groups, "group composition"),
+        format!(
+            "{} groups, {} member joints",
+            expected.groups.len(),
+            expected.groups.values().map(Vec::len).sum::<usize>()
+        ),
+    ));
+
+    // Joint limits: per-variable `(min, max)` plus `position_bounded`, keyed
+    // by joint and variable name so a reordering is reported as a limit
+    // disagreement on the named joint rather than as a whole-vector diff.
+    let limit_view = |m: &ModelInfo| -> JointLimitView {
+        m.joint_details
+            .iter()
+            .map(|j| {
+                let rows = j
+                    .variable_names
+                    .iter()
+                    .zip(&j.bounds)
+                    .zip(&j.position_bounded)
+                    .map(|((name, (lo, hi)), bounded)| VariableLimit {
+                        variable: name.clone(),
+                        min: *lo,
+                        max: *hi,
+                        position_bounded: *bounded,
+                    })
+                    .collect();
+                (j.name.clone(), rows)
+            })
+            .collect()
+    };
+    let actual_limits = limit_view(&actual);
+    let expected_limits = limit_view(expected);
+    let variable_count: usize = expected_limits.values().map(Vec::len).sum();
+    out.push((
+        "joint_limits",
+        eq_verdict(&actual_limits, &expected_limits, "joint limits"),
+        format!(
+            "{variable_count} variable bounds over {} joints",
+            expected_limits.len()
+        ),
+    ));
+
+    // Mimic: multiplier and offset, keyed by the mimicking joint. Only
+    // joints that actually mimic something are in the map, so the reported
+    // count is the size of the set this clause verified -- `0 mimic
+    // relations` is a true statement about a robot with none, and visibly
+    // different from a robot where the relations were checked.
+    let mimic_view = |m: &ModelInfo| -> MimicView {
+        m.joint_details
+            .iter()
+            .filter_map(|j| {
+                j.mimic
+                    .as_ref()
+                    .map(|k| (j.name.clone(), (k.joint.clone(), k.multiplier, k.offset)))
+            })
+            .collect()
+    };
+    let actual_mimic = mimic_view(&actual);
+    let expected_mimic = mimic_view(expected);
+    out.push((
+        "mimic",
+        eq_verdict(&actual_mimic, &expected_mimic, "mimic relations"),
+        format!("{} mimic relations", expected_mimic.len()),
+    ));
+
+    out
+}
+
+/// `Verdict::Pass` on equality, otherwise a message carrying both sides'
+/// debug form -- the disagreeing field is what a Phase 1 status line needs,
+/// and a count-only message ("rust 11 links, oracle 12") names neither.
+fn eq_verdict<T: PartialEq + std::fmt::Debug>(actual: &T, expected: &T, what: &str) -> Verdict {
+    if actual == expected {
+        Verdict::Pass
+    } else {
+        Verdict::Fail(format!(
+            "{what} differ:\n  rust:   {actual:?}\n  oracle: {expected:?}"
+        ))
+    }
+}
+
+/// Whole-`ModelInfo` equality, kept alongside [`compare_model_info_clauses`]
+/// so a field the five clauses do not cover (`name`, `model_frame`,
+/// `root_link`, per-joint `type_name`) still fails the run rather than
+/// being silently outside every clause.
 fn compare_model_info(rust_model: &RobotModel, expected: &ModelInfo) -> Verdict {
     let actual = rust_impl::model_info(rust_model);
     if actual == *expected {
@@ -2650,6 +2819,171 @@ mod visibility_cone_ambiguity_diagnostic {
             "expected case 104's own real scene to touch exactly one link, ruling out an \
              ambiguous multi-candidate scene as the source of its distance mismatch (see this \
              module's doc comment) -- got {pairs:?}"
+        );
+    }
+}
+
+/// One-clause-at-a-time discrimination for [`compare_model_info_clauses`].
+///
+/// A per-clause "agrees" line is only worth reading if a change to that
+/// clause's own field is what turns it red -- and if a change to some
+/// *other* field does not. Both halves matter: a clause that reddens on
+/// everything cannot attribute a Phase 1 failure, and one that reddens on
+/// nothing is a label, not a check.
+///
+/// Perturbing the *expected* side is the only way to test this. Both sides
+/// of a live run read the same URDF/SRDF pair, so editing the fixture moves
+/// the oracle and the port together and every clause keeps agreeing --
+/// which is a measurement of nothing. Here the port-side model is built
+/// from the committed fixture and the oracle-side [`ModelInfo`] is that same
+/// model's own `model_info`, perturbed one field per case.
+///
+/// `prbt` is the fixture because its collision geometry is entirely
+/// primitives (cylinder/sphere/box, no `<mesh>`), so this needs no
+/// `third_party/moveit_resources` checkout and runs under a plain
+/// `cargo nextest run` -- unlike the pr2-based tests above.
+#[cfg(test)]
+mod phase1_clause_discrimination_tests {
+    use super::*;
+    use crate::protocol::Mimic;
+
+    fn prbt_model() -> RobotModel {
+        let urdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/prbt.urdf");
+        let srdf_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/prbt.srdf");
+        let urdf_xml = std::fs::read_to_string(urdf_path).expect("read prbt.urdf");
+        let urdf = urdf_rs::read_file(urdf_path).expect("parse prbt.urdf");
+        let srdf = SrdfModel::parse_file(srdf_path).expect("parse prbt.srdf");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
+            .expect("build prbt RobotModel")
+    }
+
+    /// Clause labels that disagree when `expected` is `perturb`ed.
+    fn failing_clauses(perturb: impl FnOnce(&mut ModelInfo)) -> Vec<&'static str> {
+        let model = prbt_model();
+        let mut expected = rust_impl::model_info(&model);
+        perturb(&mut expected);
+        compare_model_info_clauses(&model, &expected)
+            .into_iter()
+            .filter(|(_, verdict, _)| !matches!(verdict, Verdict::Pass))
+            .map(|(label, _, _)| label)
+            .collect()
+    }
+
+    /// The unperturbed baseline. Without this, every case below could be
+    /// passing because the clause is always red.
+    #[test]
+    fn unperturbed_model_agrees_on_every_clause() {
+        assert_eq!(failing_clauses(|_| {}), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_dropped_link_reddens_only_link_count() {
+        assert_eq!(
+            failing_clauses(|m| {
+                m.links.pop().expect("prbt has links");
+            }),
+            vec!["link_count"]
+        );
+    }
+
+    /// A renamed link is the case a count-only comparison cannot see: the
+    /// count is unchanged, so `link_count` must be comparing names.
+    #[test]
+    fn a_renamed_link_reddens_only_link_count() {
+        assert_eq!(
+            failing_clauses(|m| {
+                m.links[0] = "not_a_prbt_link".to_owned();
+            }),
+            vec!["link_count"]
+        );
+    }
+
+    #[test]
+    fn a_dropped_joint_reddens_only_joint_count() {
+        assert_eq!(
+            failing_clauses(|m| {
+                m.joints.pop().expect("prbt has joints");
+            }),
+            vec!["joint_count"]
+        );
+    }
+
+    #[test]
+    fn a_dropped_group_member_reddens_only_group_composition() {
+        assert_eq!(
+            failing_clauses(|m| {
+                let (_, members) = m
+                    .groups
+                    .iter_mut()
+                    .next()
+                    .expect("prbt has one group, `manipulator`");
+                members.pop().expect("`manipulator` has member joints");
+            }),
+            vec!["group_composition"]
+        );
+    }
+
+    /// The smallest limit change that is still a change: one ULP on one
+    /// bound of one variable. A clause comparing limits at some epsilon
+    /// rather than exactly would let this through.
+    #[test]
+    fn a_one_ulp_limit_change_reddens_only_joint_limits() {
+        assert_eq!(
+            failing_clauses(|m| {
+                let joint = m
+                    .joint_details
+                    .iter_mut()
+                    .find(|j| j.bounds.iter().any(|(lo, _)| lo.is_some()))
+                    .expect("prbt has bounded revolute joints");
+                let bound = joint
+                    .bounds
+                    .iter_mut()
+                    .find(|(lo, _)| lo.is_some())
+                    .expect("selected for having a lower bound");
+                let lo = bound.0.expect("selected for having a lower bound");
+                bound.0 = Some(f64::from_bits(lo.to_bits() + 1));
+            }),
+            vec!["joint_limits"]
+        );
+    }
+
+    /// `position_bounded` is carried alongside the two bounds because JSON
+    /// has no infinity; flipping it alone must still redden the clause.
+    #[test]
+    fn a_flipped_position_bounded_reddens_only_joint_limits() {
+        assert_eq!(
+            failing_clauses(|m| {
+                let joint = m
+                    .joint_details
+                    .iter_mut()
+                    .find(|j| !j.position_bounded.is_empty())
+                    .expect("prbt has joints with variables");
+                joint.position_bounded[0] = !joint.position_bounded[0];
+            }),
+            vec!["joint_limits"]
+        );
+    }
+
+    /// prbt has no mimic joint, so this clause compares an empty set on the
+    /// live run. Adding one relation must still redden it -- otherwise
+    /// "mimic agrees" on prbt would be indistinguishable from "mimic is
+    /// never looked at".
+    #[test]
+    fn an_added_mimic_relation_reddens_only_mimic() {
+        assert_eq!(
+            failing_clauses(|m| {
+                assert!(
+                    m.joint_details.iter().all(|j| j.mimic.is_none()),
+                    "prbt is expected to have no mimic joint; this case asserts the clause \
+                     still discriminates on a robot whose live comparison is over an empty set"
+                );
+                m.joint_details[0].mimic = Some(Mimic {
+                    joint: "prbt_joint_1".to_owned(),
+                    multiplier: 0.5,
+                    offset: 0.25,
+                });
+            }),
+            vec!["mimic"]
         );
     }
 }

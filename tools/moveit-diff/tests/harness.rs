@@ -9,7 +9,7 @@
 //! `"Revolute"`. These tests are what make the stand-in a check rather than a
 //! file.
 //!
-//! Every case here reports failed. `rust_impl` is fully wired to
+//! Nearly every case here reports failed. `rust_impl` is fully wired to
 //! `moveit-model`/`moveit-state` now, but `tests/fixtures/tiny.{urdf,srdf}`
 //! (needed so the runner can build a real `RobotModel` at all) describes a
 //! different robot than `fake-oracle.py`'s hand-rolled "fake" model, so
@@ -17,6 +17,15 @@
 //! property under test: the runner must reach the comparison and report a
 //! disagreement, not die on the way there. Agreement against the real oracle
 //! is `moveit-diff`'s own binary run in CI, not this test.
+//!
+//! "Nearly", not "every", since the Phase 1 clause verdicts were split out:
+//! `phase1:mimic` compares an empty set against an empty set here (neither
+//! `tiny.urdf` nor the fake model has a mimic joint) and so passes. The
+//! counts below name it rather than rounding it into the failures --
+//! a vacuous pass is exactly the thing this repo's fixtures keep being
+//! caught spelling the same way as a checked one, and
+//! `phase1_clause_discrimination_tests` in `src/main.rs` is where that
+//! clause is shown to still discriminate.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -56,10 +65,11 @@ fn the_runner_completes_a_session_against_the_fake_oracle() {
     let out = run("3");
     let stdout = String::from_utf8(out.stdout).expect("stdout is not utf-8");
 
-    // model_info plus one case per random state.
+    // model_info, the five §5 Phase 1 clause verdicts, and one case per
+    // random state: 1 + 5 + 3.
     assert!(
-        stdout.contains("cases:  4"),
-        "expected 4 cases, got:\n{stdout}"
+        stdout.contains("cases:  9"),
+        "expected 9 cases, got:\n{stdout}"
     );
     assert!(
         stdout.contains("oracle model: fake (3 links, 2 joints, 1 groups)"),
@@ -80,9 +90,11 @@ fn a_disagreeing_rust_side_exits_with_failure_not_a_crash() {
         "expected the failure exit, got {:?}:\n{stdout}",
         out.status.code()
     );
+    // 1 (model_info) + 5 (Phase 1 clauses) + 1 (fk) = 7, of which only
+    // `phase1:mimic` agrees -- see this file's module doc.
     assert!(
-        stdout.contains("passed: 0"),
-        "expected every case to fail:\n{stdout}"
+        stdout.contains("passed: 1") && stdout.contains("failed: 6"),
+        "expected 6 of 7 cases to fail:\n{stdout}"
     );
 }
 
@@ -99,8 +111,8 @@ fn stats_json_writes_the_report_as_machine_readable_json() {
     let out = run_with("1", &["--stats-json", path_str]);
     let stdout = String::from_utf8(out.stdout).expect("stdout is not utf-8");
     assert!(
-        stdout.contains("passed: 0"),
-        "expected every case to fail:\n{stdout}"
+        stdout.contains("passed: 1"),
+        "expected only phase1:mimic to agree:\n{stdout}"
     );
 
     let contents = std::fs::read_to_string(&path).expect("--stats-json did not write a file");
@@ -108,17 +120,21 @@ fn stats_json_writes_the_report_as_machine_readable_json() {
     let value: serde_json::Value =
         serde_json::from_str(&contents).expect("--stats-json output is not valid JSON");
 
-    // "1" case plus model_info, matching `run`'s "cases:  4" comment for "3".
-    assert_eq!(value["cases"], 2);
-    assert_eq!(value["passed"], 0);
-    assert_eq!(value["failed"], 2);
+    // "1" case plus model_info plus the five Phase 1 clauses, matching
+    // `run`'s "cases:  9" comment for "3".
+    assert_eq!(value["cases"], 7);
+    assert_eq!(value["passed"], 1);
+    assert_eq!(value["failed"], 6);
     assert_eq!(value["underpowered"], 0);
     // No --group/--collision/--ik on this run, so every optional block is
     // absent rather than a zeroed-out struct that would misread as "ran and
-    // found nothing".
+    // found nothing". `collision_clauses` is on this list for exactly that
+    // reason: an all-zero `CollisionClauseStats` reads as "0 disagreements",
+    // which is the shape of a met condition.
     assert!(value["worst_jacobian_deviation"].is_null());
     assert!(value["worst_distance_deviation"].is_null());
     assert!(value["distance_pairs"].is_null());
+    assert!(value["collision_clauses"].is_null());
     assert!(value["ik"].is_null());
 }
 
