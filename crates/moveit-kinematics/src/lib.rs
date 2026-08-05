@@ -100,6 +100,15 @@
 //! cites the `PORTING-PLAN.md` decision; `not ported` names the concretely
 //! absent caller.
 //!
+//! The other file pair this crate's header cites,
+//! `cartesian_interpolator.{hpp,cpp}`, is audited in
+//! [`CartesianInterpolator`]'s own module docs rather than here — its
+//! "Out of scope" section accounts for all four deprecated
+//! `computeCartesianPath` overloads, the `direction + distance` forwarder
+//! and the two deprecated `JumpThreshold` constructors. It is named here so
+//! that a reader working down this crate's cited-files list does not have to
+//! infer from silence that it went unaudited.
+//!
 //! `kdl_kinematics_plugin.{hpp,cpp}`:
 //!
 //! - `KDLKinematicsPlugin()` (ctor) — trivial member-init only, nothing to
