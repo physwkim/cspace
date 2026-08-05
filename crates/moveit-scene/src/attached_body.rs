@@ -200,8 +200,14 @@ impl AttachedBody {
     ///
     /// [`moveit_geometry::Shape::padd`]'s error, under exactly the sharing,
     /// cloning and partial-application rules documented on
-    /// [`AttachedBody::set_scale`]. A padding more negative than a shape's
-    /// smallest dimension is what reaches it.
+    /// [`AttachedBody::set_scale`]. Two inputs reach it: a padding more
+    /// negative than a shape's smallest dimension, and a
+    /// [`moveit_geometry::Shape::Mesh`] still carrying `vertex_normals: None`,
+    /// which is what a mesh built by `moveit_geometry::Mesh::new` has until
+    /// `compute_vertex_normals` runs. Upstream cannot see the second one --
+    /// every `geometric_shapes` creation entry point computes the normals
+    /// before the mesh escapes -- so it is this port's own reachable path, and
+    /// the error is returned rather than asserted away.
     pub fn set_padding(&mut self, padding: f64) -> Result<()> {
         self.apply_to_shapes(|shape| shape.padd(padding))
     }

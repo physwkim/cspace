@@ -7399,7 +7399,7 @@ emits one CostSource per intersecting triangle pair"라고 쓰고, 문서는
 `AABB(p1,p2,p3).overlap(AABB(q1,q2,q3))`를 인용한다. 그런데 삼각형별
 AABB를 메시 전체 AABB로 바꿔도 168건 전부 통과한다.
 
-원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2621`)은
+원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2639`)은
 **삼각형 하나짜리 메시**라서 전체 AABB와 그 한 삼각형의 AABB가 같다.
 테스트 이름이
 `mesh_shape_cost_sources_is_one_triangle_aabb_overlapped_with_the_whole_shape_aabb`
@@ -13554,7 +13554,7 @@ CI가 GitHub Actions에서 실제로 돌기 시작하면 §170.2의 수동 규�
 p1-fixtures가 `bb212dd`로 `cost_sources`/`path_cost_sources` fixture를 캡처하면서
 "오라클은 콜리전 쌍당 coarse box 1개, 이 포트는 삼각형당 1개(20개)"라는
 불일치를 재서 두 테스트를 `#[ignore]` 처리하고 `moveit-collision`의
-`mesh_shape_cost_sources`(`parry.rs:2011-2023`) 결함으로 귀속시켰다.
+`mesh_shape_cost_sources`(`parry.rs:2029-2023`) 결함으로 귀속시켰다.
 
 **측정은 맞고 귀속도 맞지만 성격 규정이 틀렸다.** 원인을 상류에서 찾았다.
 
@@ -14660,7 +14660,7 @@ $ rg -n 'CollisionEnvFCL' src/collision_env_hybrid.cpp
 하나 `setWorld`가 하는 실제 일은 FCL의 지속 broadphase 캐시
 (`manager_`/`fcl_objs_`)를 월드 교체 시 재구축하는 것인데,
 `ParryCollisionEnv`에는 그 캐시 자체가 없다 — 매 `check_*` 호출마다
-`self.world`에서 바디를 새로 계산한다(`parry.rs:1841`). 나머지 18개는
+`self.world`에서 바디를 새로 계산한다(`parry.rs:1859`). 나머지 18개는
 전부 `cenv_distance_`로의 통과 호출, 즉 이 크레이트가 이미 가진
 `DistanceFieldCollisionCache`다.
 
@@ -17519,7 +17519,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
    맞다 — `0.0`은 이 백엔드가 존재 이유로 삼는 "충돌 없음"의 반대편
    경계다.
 2. **연속(두 상태) 형태는 `Err`가 아니라 답한다.** `ParryCollisionEnv`는
-   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2439`), 상류는 두 개의
+   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2457`), 상류는 두 개의
    `checkRobotCollision(state1, state2, ...)` 오버로드를 **둘 다**
    `res.collision = false`로 재정의한다(`collision_env_allvalid.cpp:89-106`).
    "아무것도 충돌하지 않는다"는 주장은 경로에도 상태와 똑같이 적용된다.
@@ -17527,7 +17527,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
 `CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
 기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
 안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
-`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2177-2150`)은
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2195-2150`)은
 `distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
 호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
 "요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
@@ -19109,7 +19109,7 @@ crates/ ros/ doc/ PORTING-PLAN.md`가 0건이고, 상류 `robot_state.hpp`가
 할 것이기 때문이다.
 
 이 주석 22줄이 `parry.rs`의 아래쪽 줄 번호를 전부 밀었으므로,
-`parry.rs:2142` 아래를 가리키던 인용 15개(ledger p3-acm 13, p10-samplers
+`parry.rs:2160` 아래를 가리키던 인용 15개(ledger p3-acm 13, p10-samplers
 1, upstream-bugs 1)와 산문 속 맨숫자 참조 5개를 `+22`로 다시 매겼다.
 `verify-orphan-enumeration.sh`는 이 변경 전 기준(`7572123`)에서 초록,
 주석만 넣었을 때 고아 10 / 미해결 인용 10으로 빨강, 재번호 후 다시
