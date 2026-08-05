@@ -3049,7 +3049,20 @@ mod tests {
         let touch_links = BTreeSet::new();
         let attached = AttachedBodyGeometry {
             id: "gripped_box",
-            link_name: "r_gripper_palm_link",
+            // Must be a link that itself resolves to non-empty shapes under
+            // this fixture's `MeshSearchPaths::none()` -- see
+            // `generate_distance_field_cache_entry_populates_attached_body_names_when_acm_is_some`'s
+            // comment. `r_gripper_palm_link` (used here previously) has zero
+            // shapes on this fixture, so the `if !link.shapes().is_empty()`
+            // gate (`:566`) already empties `attached_body_names` on its
+            // own; that made this test pass regardless of `acm`, which a
+            // bite-check confirmed by moving the population loop outside the
+            // `if let Some(acm)` gate (`:574`) -- all four
+            // generate_distance_field_cache_entry_* tests stayed green.
+            // Using the one link this fixture gives shapes forces the
+            // `acm == None` branch (`:574`) to be the sole reason
+            // `attached_body_names` stays empty.
+            link_name: "r_gripper_motor_accelerometer_link",
             shapes: &shapes,
             shape_poses: &shape_poses,
             touch_links: &touch_links,
