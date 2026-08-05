@@ -22517,3 +22517,239 @@ PHASE9 verdict=NO_VALID_TRAJECTORY
   오라클 이미지 위에 3개 패키지를 더 빌드해서 만든 임시 이미지에
   기댄다. 이미지를 커밋하거나 게이트에 싣는 것은 `ros/Dockerfile`과
   `tools/moveit-oracle`을 건드리는 일이고 둘 다 펜스 밖이다.
+
+## §NEW 코퍼스 밖 인구를 조건 쪽에서 정의하고 쟀다 — Phase 9를 막는 것은 §235가 센 네 조각이 아니다
+
+§249.7은 "판정을 막는 부재는 코퍼스 밖에 있다"로 끝났다. 그 문장은
+코퍼스 안에서만 잰 것이라 열려 있었다 — 코퍼스에 앵커된 계기는 코퍼스
+밖을 셀 수 없고, 그래서 §249는 자기 결론을 자기가 확인할 수 없었다.
+이 절은 열거의 **기준점을 바꿔** 그 인구를 정의하고 잰다. 상류 트리에서
+출발하지 않는다. §5 완료 조건 현황표의 19개 행에서 출발한다.
+
+### §NEW.1 기준점: 각 조건 행은 무엇에 대고 재는가
+
+행마다 "이 판정의 **기준(reference)**이 무엇인가"를 묻는다. 답은 셋뿐이고,
+셋의 요구 집합이 서로 다르다.
+
+| 기준 | 뜻 | 요구 집합 | 행 수 |
+|---|---|---|---|
+| `R-ORACLE` | 포트를 `tools/moveit-oracle`과 비교한다 | 그 바이너리가 링크해야 하는 전부 | 15 |
+| `R-PORT` | 포트 쪽 작업만 필요하다(하네스, 자기 검증) | 외부 요구 없음 | 3 |
+| `R-CLIENT` | 기존 C++ 클라이언트가 **무변경으로** 붙어야 한다 | 그 클라이언트가 묶는 엔드포인트와 그 메시지 폐포 | 1 |
+
+계기는 `tools/ci/measure-requirement-closure.py`다. 코퍼스 정의는 손대지
+않는다 — `measure-port-coverage.py`의 `corpus_files()`를 그대로 import해서
+쓰므로 §249의 87은 다음 라운드와 계속 비교 가능하다.
+
+`--check`는 표의 행을 다시 읽어 분류가 빠진 행을 실패로 만든다. 검사가
+실패할 수 있음을 먼저 증명한다 — 돌연변이 둘 다 잡힌다:
+
+```
+$ python3 tools/ci/measure-requirement-closure.py --check
+OK: all 19 status rows classified (Counter({'R-ORACLE': 15, 'R-PORT': 3, 'R-CLIENT': 1}))
+
+# 돌연변이 A: 분류 한 줄 삭제
+UNCLASSIFIED ROW  Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과
+FAIL: 1 of 19 status rows have no reference classification in ROW_REFERENCE   (exit 1)
+
+# 돌연변이 B: 표에 분류 없는 행 추가
+UNCLASSIFIED ROW  Phase 6 | 스무딩 필터가 상류 단위 테스트 벡터와 일치
+FAIL: 1 of 20 status rows have no reference classification in ROW_REFERENCE   (exit 1)
+```
+
+### §NEW.2 `R-ORACLE` 요구 폐포 — 69건 중 코퍼스 밖은 3건뿐이다
+
+15개 행이 오라클에 대고 잰다. 그 요구는 "오라클이 링크해야 하는 것"이고,
+그것은 오라클 자기 소스의 `#include` 전이 폐포로 열거된다(상류 체크아웃에
+include 키로 해석, 상대 include는 같은 디렉터리로 폴백):
+
+```
+$ python3 tools/ci/measure-requirement-closure.py
+corpus (measure-port-coverage.py, unchanged)  245
+
+R-ORACLE requirement closure                  69
+  inside the corpus                           66
+  outside the corpus                          3
+      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/collision_common.hpp
+      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/collision_env_fcl.hpp
+      moveit_core/collision_detection_fcl/include/moveit/collision_detection_fcl/fcl_compat.hpp
+```
+
+**이 결과는 코퍼스 정의가 이 15개 행에 대해서는 옳다는 뜻이다.** 69건 중
+66건이 코퍼스 안이고, 밖으로 나간 3건은 `collision_detection_fcl` —
+§1이 "[parry로 대체]"로 **의도적으로** 뺀 디렉터리다. 즉 R-ORACLE 행에
+관한 한 코퍼스에 앵커된 계기가 맞는 도구이고, §249.6이 이 15개 행에 대해
+(b)=0을 낸 것은 우연이 아니다.
+
+그러나 같은 폐포에서 상류로 해석되지 않는 이름이 127개 나오고, 그중
+외부 패키지가 28개다. 이들은 `moveit2` 체크아웃에도, 이 호스트에도 없다:
+
+```
+names not resolvable in the reference checkout 127
+  external packages                            28
+        18  moveit_msgs      12  ompl        8  rclcpp       8  kdl
+         8  geometry_msgs     7  fcl         5  geometric_shapes
+         3  Eigen             2  octomap     2  tf2          2  rcl
+         2  trajectory_msgs   2  eigen3      2  visualization_msgs
+         2  eigen_stl_containers
+         1  ruckig  1  random_numbers  1  srdfdom  1  urdf_parser  1  pluginlib
+         1  nlohmann  1  kdl_parser  1  shape_msgs  1  std_msgs  1  sensor_msgs
+         1  octomap_msgs  1  pilz_industrial_motion_planner  1  third_party
+```
+
+28개 전부에 대해 `/usr/include`, `/usr/local/include`, `/opt/ros`,
+그리고 `/home/stevek/work/moveit2`를 확인했고 **하나도 없다**. 이 호스트에는
+`/opt/ros` 자체가 없다. 이들이 존재하는 곳은 오라클 컨테이너 이미지
+안뿐이다. 끝의 셋은 외부 패키지가 아니라 이 폐포 계산의 한계 표시다 —
+`pilz_industrial_motion_planner/cartesian_limits_parameters.hpp`는
+`generate_parameter_library`가 빌드 트리에 만드는 헤더, `third_party/`는
+오라클이 상류 `kdl_kinematics_plugin` 내부를 벤더링한 자기 디렉터리,
+그리고 `moveit_*_export.h` 셋은 CMake 생성 헤더다.
+
+### §NEW.3 `R-CLIENT` 요구 — 조건이 이름 부른 클라이언트가 실제로 무엇을 묶는가
+
+Phase 9 행은 "기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로"라고
+쓴다. 그러므로 요구는 **그 클라이언트가 묶는 것**이지, §5 Phase 9 본문
+산문이 나열한 것이 아니다. 상류 체크아웃의 그 번역 단위를 직접 읽는다:
+
+```
+R-CLIENT: endpoints move_group_interface.cpp binds (lower bound) 8
+      action client        moveit_msgs::action::ExecuteTrajectory
+      action client        moveit_msgs::action::MoveGroup
+      client               moveit_msgs::srv::GetCartesianPath
+      client               moveit_msgs::srv::GetPlannerParams
+      client               moveit_msgs::srv::QueryPlannerInterfaces
+      client               moveit_msgs::srv::SetPlannerParams
+      publisher            moveit_msgs::msg::AttachedCollisionObject
+      publisher            std_msgs::msg::String
+  endpoint names the port opens               1
+      plan_kinematic_path
+```
+
+**교집합은 0이다.** 그리고 그 사실이 앞 라운드의 계획을 정정한다:
+
+§235.1은 Phase 9를 네 조각으로 나누면서 첫 조각을 `/plan_kinematic_path`
+서비스로 잡았다. 그 조각은 §5 Phase 9 **본문 산문**("`/plan_kinematic_path`
+서비스, `/move_action` 액션 서버, planning scene 토픽 구독")에서 뽑은
+것이다. 그런데 조건 **행**이 이름 부른 클라이언트는 그 서비스를 쓰지
+않는다:
+
+```
+$ rg -c 'PLANNER_SERVICE_NAME|plan_kinematic_path' \
+    moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp
+0
+$ rg -l 'PLANNER_SERVICE_NAME' moveit_ros --glob '*.cpp'
+moveit_ros/move_group/src/default_capabilities/plan_service_capability.cpp   # 서버 쪽뿐
+```
+
+`MoveGroupInterface::plan()`은 서비스가 아니라 액션으로 간다 —
+`move_group_interface.cpp:666-668`이 `moveit_msgs::action::MoveGroup::Goal`을
+만들고 `planning_options.plan_only = true`를 세워 `move_action`으로 보낸다.
+그래서 포트가 이미 만든 `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`
+(`f183801`)는 **다른 클라이언트를 위한 것**이고, 그것만으로는 Phase 9 행이
+닫히지 않는다. 행을 닫는 최소 조각은 `/plan_kinematic_path`가 아니라
+`move_action` 액션 서버다.
+
+메시지 쪽 요구도 같은 방식으로 열거했다. 위 8개 엔드포인트의 인터페이스
+정의를 필드 타입으로 전이 전개하면:
+
+```
+requirement closure from the 8 endpoints MoveGroupInterface binds: 64 interface types
+    34  moveit_msgs    12  geometry_msgs   4  trajectory_msgs   4  shape_msgs
+     3  std_msgs        2  builtin_interfaces  2  sensor_msgs   2  octomap_msgs
+     1  object_recognition_msgs
+```
+
+`moveit_msgs` 34종 중 포트가 `ros/moveit-ros/src` 어디에서든 이름을 부르는
+것은 15종, **19종은 아예 없다**:
+
+| | |
+|---|---|
+| 포트가 이름 부름 (15) | `AttachedCollisionObject`, `BoundingVolume`, `CollisionObject`, `Constraints`, `JointConstraint`, `MotionPlanRequest`, `MoveItErrorCodes`, `OrientationConstraint`, `PlanningSceneWorld`, `PositionConstraint`, `RobotState`, `RobotTrajectory`, `TrajectoryConstraints`, `VisibilityConstraint`, `WorkspaceParameters` |
+| 전혀 없음 (19) | `AllowedCollisionEntry`, `AllowedCollisionMatrix`, `CartesianPoint`, `CartesianTrajectory`, `CartesianTrajectoryPoint`, `ExecuteTrajectory`, `GenericTrajectory`, `GetCartesianPath`, `GetPlannerParams`, `LinkPadding`, `LinkScale`, `MoveGroup`, `ObjectColor`, `PlannerInterfaceDescription`, `PlannerParams`, `PlanningOptions`, `PlanningScene`, `QueryPlannerInterfaces`, `SetPlannerParams` |
+
+19종을 `ros/`가 아니라 추적 트리 전체(`git ls-files`, `third_party/` 제외)로
+다시 확인해도 결론은 같다. `.rs`에서 이름이 나오는 것은 셋뿐이고
+(`AllowedCollisionMatrix` — `crates/moveit-collision/src/matrix.rs:46,85,309`,
+`PlanningScene`·`ObjectColor` — `crates/moveit-scene/src/scene.rs:228,405,419,425,428`),
+**여덟 자리 전부 doc 주석 안에서 상류 C++ 시그니처를 인용한 것**이지
+포트가 다루는 타입이 아니다. `MoveGroup`은 `PORTING-PLAN.md` 산문에만
+나오고 나머지 15종은 트리 어디에도 없다.
+
+**이 34종의 정의는 이 기계의 파일시스템에 없다.** `moveit_msgs`는 상류
+체크아웃의 디렉터리가 아니고 호스트 ROS 설치에도 없다. 오라클 이미지
+안에만 있다:
+
+```
+$ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:bf084112fdd5730b \
+    -lc 'find / -xdev -type d -name moveit_msgs -path \"*/share/*\"'"
+/ws/install/moveit_msgs/share/moveit_msgs
+  msg 48   srv 26   action 8
+```
+
+그래서 위 64종 폐포는 호스트 계기가 아니라 컨테이너 안에서 돌려 얻었다.
+`measure-requirement-closure.py`가 이 절반을 계산하지 **않는** 이유가
+이것이고, 그 사실은 그 파일의 모듈 doc에 적혀 있다.
+
+### §NEW.4 조건에 행이 아예 없는 경우 — Phase 6의 스무딩 절
+
+돌연변이 B가 우연히 드러낸 것을 그대로 확인했다. Phase 6의 완료 조건은
+두 절이다:
+
+```
+$ sed -n '734,735p' PORTING-PLAN.md
+**완료 조건:** 동일 waypoint 입력에 대해 TOTG 산출 시간 파라미터화가
+오라클과 `1e-6` 이내 일치. 스무딩 필터는 상류 단위 테스트 벡터로 검증.
+$ rg -n '^\| Phase 6 \|' PORTING-PLAN.md
+813:| Phase 6 | TOTG 산출 시간 파라미터화가 오라클과 `1e-6` 이내 일치 | MET | §217.3 | 2026-08-05 |
+```
+
+두 절, 한 행. 둘째 절에는 행이 없고, 따라서 판정도 없고, 이것을 세는
+계기도 없다 — `check-phase-status.sh`는 **Phase 제목마다 행이 있는지**를
+보지 조건 절마다 행이 있는지를 보지 않는다("no phase or row is
+missing/duplicated"의 의미가 그것이다).
+
+그 절이 요구하는 산출물의 위치가 이 절의 논점이다. "상류 단위 테스트
+벡터"는 `moveit_core/online_signal_smoothing/test/test_butterworth_filter.cpp`와
+`test_acceleration_filter.cpp`에 있고, 코퍼스는 `test`/`tests` 경로 성분을
+가진 파일을 **규칙으로** 배제한다. CORPUS_ROOTS 안에서만 그렇게 배제되는
+파일이 68개다. 즉 이 조건이 이름 부른 산출물은 코퍼스에 들어올 수 없고,
+`measure-port-coverage.py`는 구조적으로 이것을 보고할 수 없다.
+
+포트 쪽 현황도 같이 적는다: `crates/moveit-smoothing/tests/`에는
+`acceleration_filter_parity.rs`와 `ruckig_filter_parity.rs`가 있고
+**butterworth parity 테스트는 없다**(`rg -li butterworth`가 트리 전체에서
+찾는 `.rs`는 `src/butterworth.rs`, `src/ruckig_filter.rs`, `src/lib.rs`
+셋뿐이고 `tests/` 아래에는 하나도 없다). 이 절은 그 행에 판정을 붙이지
+않는다 — 붙이려면 상류 벡터로 실측해야 하고 그것은 이 라운드가 하지
+않은 일이다.
+
+### §NEW.5 계기별 앵커와 사각 — 무엇을 읽어야 눈이 뜨이는가
+
+| 계기 | 무엇에 앵커되어 있나 | 그래서 못 보는 것 |
+|---|---|---|
+| `measure-port-coverage.py` | 상류 `CORPUS_ROOTS` 트리 | 코퍼스 밖 555건, `test` 성분 68건(규칙상 영구히) |
+| `--check doc/port-coverage.md` | 위 계기의 출력 | 같음 — 출력에 없는 것은 행도 없다 |
+| `ros/moveit-ros/src/conversion_coverage.rs` | **포트 자신의** `impl TryFrom` 블록 | 포트가 아예 만들지 않은 메시지 타입 19종 |
+| `check-phase-status.sh` | 표의 **행** | 행이 없는 조건 절(Phase 6 스무딩) |
+| `verify-phase7-benchmark.sh` 등 실측 게이트 | 구현이 이미 있는 조건 | 아무도 만들지 않은 것 |
+| `measure-requirement-closure.py` (이 절) | **조건 행** + 오라클 소스 + 클라이언트 TU | 메시지 폐포(컨테이너 필요), 매크로/생성 경로로만 도달하는 헤더 |
+
+앞의 다섯 계기가 공유하는 성질 하나가 사각의 원인이다 — **전부 이미
+존재하는 무언가에 앵커되어 있다.** 포트에 있는 것, 코퍼스에 있는 것,
+표에 있는 행. 존재하지 않는 요구는 그 어느 것에도 흔적을 남기지 않는다.
+
+눈이 뜨인 계기가 읽어야 하는 것은 넷이고, 셋은 이미 이 기계에 있다:
+
+1. **조건 문장 자체** — 표의 행 텍스트. `measure-requirement-closure.py --check`가
+   읽고, 분류 없는 행을 실패로 만든다. (있음)
+2. **조건이 이름 부른 기준** — 오라클 소스와 상류 클라이언트 TU. 둘 다
+   이 기계에 있고 이 절이 읽었다. (있음)
+3. **인터페이스 정의** — `moveit_msgs`의 48 msg / 26 srv / 8 action.
+   호스트에 없다. 계기가 이것을 읽으려면 정의를 이 저장소로 벤더링하거나
+   (픽스처가 이미 그렇게 다뤄진다, `tools/ci/verify-fixture-provenance.sh`)
+   오라클 이미지 안에서 돌아야 한다. **이것이 지금 남은 유일한 구조적
+   사각이다.**
+4. **상류 단위 테스트 벡터** — Phase 6 둘째 절이 요구하는 68건. 코퍼스
+   규칙이 배제하므로 코퍼스를 넓히는 것이 아니라 별도 열거가 필요하다
+   (코퍼스를 넓히면 §249의 87이 비교 불가능해진다).
