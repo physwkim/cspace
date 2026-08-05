@@ -16808,3 +16808,67 @@ untracked 상태로만 있다), Phase 4 (b)의 `1e-6`은 솔버 수렴 epsilon�
 따라서 분류는 `ported-elsewhere`(내용이 다른 이름으로 트리 안에 있음),
 증거는 `sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
 모듈 doc이 같은 내용을 그 파일 옆에 적어 둔다.
+
+### §225.3 `collision_env_allvalid.{hpp,cpp}` — 포팅했다, 고르는 경로까지
+
+`AllValidCollisionEnv`를 `crates/moveit-collision/src/all_valid.rs`에
+포팅했다. 상류 클래스 자체는 작다 — 여섯 개 메서드가 `res.collision =
+false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "이걸 어떻게
+고르느냐"다. 아무도 고를 수 없는 널 검출기는 포트가 아니라 죽은 코드이고,
+"충돌 없음"은 **호출하지 않았을 때 나오는 답과 같아서** 테스트가
+`assert!(!collision)` 하나로는 아무것도 증명하지 못한다.
+
+상류의 선택 경로는 `CollisionDetectorAllocatorAllValid`(`NAME`이
+`"ALL_VALID"`)를 `PlanningScene`의 `collision_detector_` 맵에 등록하고
+문자열로 찾는 것이다. 이 포트에는 그 맵도 그 할당자도 없다(§225.4).
+대신 `moveit_scene::PlanningScene`의 모든 충돌 메서드가 호출자가 주는
+`E: CollisionEnv<Posed<'_, 'm>>`에 대해 제네릭이므로, 이 백엔드를 고른다는
+것은 `ParryCollisionEnv`가 갈 자리에 `AllValidCollisionEnv`를 넘긴다는
+뜻이다. 그것이 선택 경로의 **전부**이고, `AllValidCollisionEnv`가 같은
+바운드를 만족한다는 사실 자체가 도달 가능성의 증명이다.
+
+`crates/moveit-scene/tests/all_valid_selection.rs`가 그 경로를 실행한다.
+같은 씬·같은 상태·같은 ACM·같은 요청을 두 번 묻고 호출자가 이름 붙인 타입
+하나만 다르게 한다. pr2를 쓰는 이유는 `base_footprint`가 원점 근처에
+**프리미티브** 상자를 달고 있어 0.1 구 하나로 메시 로딩 없이 충돌이
+나기 때문이다(panda/fanuc는 `<mesh>`뿐이라 "충돌한다" 쪽 절반이 백엔드
+선택이 아니라 메시 해석에 걸린다). 네 케이스 중 하나는 대조군 — 이
+픽스처가 실제로 충돌한다는 것 — 이고, 이것이 깨지면 나머지 셋이 공허해지기
+때문에 따로 이름을 붙였다.
+
+증명의 무게는 `false`가 아니라 두 가지 변이가 진다. 하나는 테스트가 이름
+붙인 타입만 `&parry`로 바꾸면 그 케이스가 깨진다는 것(답이 이름 붙인
+백엔드의 함수라는 뜻), 다른 하나는 `distance_to_collision`이 `f64::MAX`를
+낸다는 것 — 이 값은 이 트리에서 `AllValidCollisionEnv::distance_robot`만
+만들어 내므로, 백엔드를 건너뛰고 기본값을 돌려주는 씬이었다면 이 케이스가
+깨진다. 여덟 개 변이 전부와 각각이 무엇을 죽이고 무엇을 살려 두는지는
+`doc/assertion-discrimination-ledger-p10-samplers.md`에 있다.
+
+두 가지 상류 판정이 코드에 남았다.
+
+1. **`distanceRobot(state)`의 `0.0`은 따라가지 않는다.** 상류가
+   `virtual double distanceRobot(state) const`로 `0.0`을 반환하는데
+   (`collision_env_allvalid.cpp:114-123`), 기반 클래스의 동명 편의
+   오버로드가 **비가상**이라(`collision_env.hpp:202`) 그 선언은 아무것도
+   재정의하지 못하고 가리기만 한다. 할당자가 건네주는 `CollisionEnvPtr`를
+   든 호출자는 기반 쪽, 즉 `std::numeric_limits<double>::max()`를 받는다.
+   한 질문에 두 답이고 고르는 것은 식의 정적 타입이다
+   (`doc/upstream-bugs.md`의 `all-valid-distance-robot-hides-base-overload`).
+   이 포트에는 `distance_robot(state)` 편의 오버로드가 아예 없어서 그 분기를
+   표현할 수 없고, 기반 쪽 값인 `f64::MAX`로 간다. 의미상으로도 그쪽이
+   맞다 — `0.0`은 이 백엔드가 존재 이유로 삼는 "충돌 없음"의 반대편
+   경계다.
+2. **연속(두 상태) 형태는 `Err`가 아니라 답한다.** `ParryCollisionEnv`는
+   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2363`), 상류는 두 개의
+   `checkRobotCollision(state1, state2, ...)` 오버로드를 **둘 다**
+   `res.collision = false`로 재정의한다(`collision_env_allvalid.cpp:89-106`).
+   "아무것도 충돌하지 않는다"는 주장은 경로에도 상태와 똑같이 적용된다.
+
+`CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
+기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
+안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2145-2150`)은
+`distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
+호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
+"요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
+아니어서 고치지 않고 보고만 한다.

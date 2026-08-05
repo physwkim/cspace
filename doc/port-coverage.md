@@ -1,4 +1,4 @@
-# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 95건의 분류
+# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 93건의 분류
 
 `PORTING-PLAN.md` §217이 이 파일을 가리킨다. 여기 있는 모든 수는
 `tools/ci/measure-port-coverage.py`가 뽑은 것이고, 그 스크립트는 이 표를
@@ -49,8 +49,8 @@
 ```console
 $ ./tools/ci/measure-port-coverage.py
 corpus   245
-ported   150
-unported 95
+ported   152
+unported 93
 cited-outside-corpus 20
 ```
 
@@ -94,14 +94,13 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에
 대한 `rg` 결과이고, 비고 칸에 그 명령을 적었다.
 
-## 4. 미포팅 95건 (2026-08-05 실측)
+## 4. 미포팅 93건 (2026-08-06 실측)
 
-`decided-non-port` 47 / `gap` 37 / `ported-elsewhere` 11.
+`decided-non-port` 47 / `gap` 35 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
 | `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | gap | none | `rg -n -i allvalid crates/ ros/ doc/ PORTING-PLAN.md` -> 0 hits naming this file |
-| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_env_allvalid.hpp` | gap | none | same search, 0 hits |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | gap | `crates/moveit-collision/src/env.rs:40-49` | env.rs defers it, with an expiry that has since been met: "a compile-time registry needs at least one registrant to be worth adding. This task ends with a trait and no implementation (no parry backend yet)" -- the parry backend now exists (`ParryCollisionEnv`), so the stated condition no longer holds |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "`CollisionPlugin::initialize` also takes a `planning_scene::PlanningScenePtr` (`collision_plugin.hpp:93`); `PlanningScene` lives in `moveit-scene`, which already depends on `moveit-collision`, so accepting it here would be a circular crate dependency" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "its entire body is pluginlib runtime class loading ... plus `rclcpp` logging -- no algorithm exists independent of that ROS mechanism" |
@@ -109,7 +108,6 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | gap | `crates/moveit-collision/src/lib.rs:51-68` | the text is a routing decision, not a decision not to port: "It is genuinely `RobotState`-free and portable, so 'no portable piece at all' was also false for this header ... request it against `moveit-octomap`" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | gap | none | upstream's shared test body, but it carries no `test/` path component so the corpus rule keeps it; 0 hits in `crates/ ros/ doc/ PORTING-PLAN.md` |
 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | gap | none | same |
-| `moveit_core/collision_detection/src/allvalid/collision_env_allvalid.cpp` | gap | none | same search, 0 hits |
 | `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | same sentence |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | "both `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime plugin registrations. D-decision: D4" |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | same sentence |

@@ -25,7 +25,10 @@
 //! [`intersect_cost_sources`], [`remove_overlapping`],
 //! [`remove_cost_sources`], [`sensor_positioning`]), a concrete
 //! [`ParryCollisionEnv`] backend over `parry3d-f64` (see `parry`'s module
-//! docs for its scope and deviations from upstream's FCL backend), and
+//! docs for its scope and deviations from upstream's FCL backend),
+//! [`AllValidCollisionEnv`], upstream's null backend that reports no
+//! collision ever (see `all_valid`'s module docs for how a caller selects
+//! it, there being no allocator to select it by name), and
 //! [`refine_contact_normals`], the octomap contact-normal/depth refit (see
 //! `octomap_filter`'s module docs).
 //!
@@ -69,6 +72,7 @@
 //! The `bodies::` posed-geometry layer is likewise owned by other workers and
 //! out of scope for [`World`] — see `world`'s module docs.
 
+mod all_valid;
 mod common;
 mod env;
 mod matrix;
@@ -77,6 +81,7 @@ mod parry;
 mod tools;
 mod world;
 
+pub use all_valid::AllValidCollisionEnv;
 pub use common::{
     AttachedBodyGeometry, BodyType, CollisionDistance, CollisionRequest, CollisionResult, Contact,
     ContactData, CostSource, DistanceMap, DistanceRequest, DistanceRequestType, DistanceResult,
