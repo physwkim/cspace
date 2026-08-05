@@ -129,6 +129,22 @@
 //!   its entire job is ROS plugin registration, not planning math.
 //! - `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager`
 //!   plugin itself, i.e. the `move_group` entry point.
+//! - `planning_exceptions.hpp` — the exception taxonomy of that plugin
+//!   registry, and of nothing else. It declares exactly two classes, both
+//!   with an empty body: `PlanningException : std::runtime_error` and
+//!   `ContextLoaderRegistrationException : PlanningException`. Across the
+//!   whole upstream tree `ContextLoaderRegistrationException` has one throw
+//!   site, `pilz_industrial_motion_planner.cpp:216` in
+//!   `CommandPlanner::registerContextLoader` — "the command […] is already
+//!   registered", i.e. two `pluginlib` factories claiming one algorithm
+//!   name — and `PlanningException` has none at all: its only other
+//!   appearance is `std::make_shared<PlanningException>("")` in
+//!   `test/unit_tests/src/unittest_pilz_industrial_motion_planner_direct.cpp:47`,
+//!   which exists to check the class is constructible. That single throw
+//!   site is inside the file on the bullet above, so this taxonomy carries
+//!   no condition this crate can reach; note also that it is a *separate*
+//!   taxonomy from `trajectory_generation_exceptions.hpp`'s — neither class
+//!   here carries a `MoveItErrorCodes` value.
 //!
 //! `plan_components_builder.{hpp,cpp}` was on this list until §153.1
 //! (measured 2026-08-04) refuted its stated reason: the file has **zero**
