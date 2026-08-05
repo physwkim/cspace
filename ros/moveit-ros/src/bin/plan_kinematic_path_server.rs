@@ -64,18 +64,17 @@
 //! the same `TryFrom` impls the wire tests exercise in-process -- and a
 //! genuine, typed failure, never a fabricated trajectory.
 //!
-//! # The two endpoints report that state with different `error_code`s
+//! # Both endpoints report that state as `MoveItErrorCodes::FAILURE`
 //!
-//! `/move_action` reports it as `MoveItErrorCodes::FAILURE` and
-//! `/plan_kinematic_path` as `PLANNING_FAILED`. `FAILURE` is the correct one
-//! for both: upstream reaches "there is no planning pipeline" through
-//! `resolvePlanningPipeline` returning null, and both capabilities encode
-//! *that* as `FAILURE` (`move_action_capability.cpp:207-211`,
+//! Upstream reaches "there is no planning pipeline" through
+//! `resolvePlanningPipeline` returning null, and *both* capabilities encode
+//! that as `FAILURE` (`move_action_capability.cpp:207-211`,
 //! `plan_service_capability.cpp:82-85`), reserving `PLANNING_FAILED` for a
-//! pipeline that ran and did not solve. The service's `PLANNING_FAILED` is a
-//! parity defect carried over from §241; correcting it also means changing
-//! the `grep -q "val=-1"` assertion in `ros/verify-ros-interop.sh`, which is
-//! outside the fence of the round that found it.
+//! pipeline that ran and did not solve. `/plan_kinematic_path` here answered
+//! `PLANNING_FAILED` from §241 until §NEW corrected it -- a code this port
+//! cannot legitimately reach, since nothing here ever runs a pipeline. The
+//! live leg of `ros/verify-ros-interop.sh` is pinned to `val=99999`, so the
+//! two now move together.
 
 use std::env;
 use std::fs;
@@ -139,7 +138,11 @@ fn handle_request(model: &RobotModel, msg: GetMotionPlan::Request) -> GetMotionP
     // to make. `planning_request` is otherwise unused past proving the
     // conversion above actually ran.
     let _ = &planning_request;
-    failure_response(MoveItErrorCodes::PLANNING_FAILED as i32, NO_PLANNER)
+    // `FAILURE`, not `PLANNING_FAILED`: upstream's own service capability
+    // answers a null `resolvePlanningPipeline` with `FAILURE`
+    // (`plan_service_capability.cpp:82-85`), which is the branch this port
+    // stands in. See this binary's module doc.
+    failure_response(MoveItErrorCodes::FAILURE as i32, NO_PLANNER)
 }
 
 /// A `MoveGroup` result carrying no trajectory and the given `val`/`message`.

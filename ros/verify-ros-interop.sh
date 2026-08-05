@@ -180,8 +180,16 @@ run "live" bash -c '
   sleep 3
   out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
   echo "$out"
-  echo "$out" | grep -q "val=-1" || {
-    echo "FAIL live round-trip: response did not carry the expected PLANNING_FAILED (val=-1) error code" >&2
+  # `-E` with a trailing non-digit guard rather than a plain substring: the
+  # `grep -q "val=-1"` this replaced also matched `val=-16`, the other code
+  # this same handler returns (INVALID_GOAL_CONSTRAINTS, when the request
+  # does not convert) -- so it could not tell the two apart, and a handler
+  # that answered the conversion error for every request would have passed it.
+  echo "$out" | grep -qE "val=99999([^0-9]|$)" || {
+    echo "FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code" >&2
+    echo "FAIL upstream answers a null resolvePlanningPipeline with FAILURE in both capabilities" >&2
+    echo "FAIL (plan_service_capability.cpp, move_action_capability.cpp); PLANNING_FAILED is for a" >&2
+    echo "FAIL pipeline that ran and did not solve, which this port never does." >&2
     exit 1
   }
   echo "$out" | grep -q "no moveit_planning::pipeline::Planner to call yet" || {

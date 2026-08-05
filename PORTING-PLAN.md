@@ -23664,3 +23664,51 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
   변하지 않았다.
+
+## §NEW `/plan_kinematic_path`의 오류 코드를 상류에 맞추고, 바이너리 이름을 그것이 하는 일에 맞춘다 (2026-08-06)
+
+§254.6이 닫지 못한 것으로 적은 둘이다. 둘 다 §250이 찾아 §254가 물려준
+것이고, 이 라운드가 `ros/verify-ros-interop.sh`를 펜스 안에 받아 닫는다.
+
+### §NEW.1 `PLANNING_FAILED` → `FAILURE` — 상류가 정하는 대로, 소스와 게이트를 같이
+
+§250.3은 `/plan_kinematic_path`가 내는 `PLANNING_FAILED`를 파리티 결함으로
+적고 `FAILURE`가 옳다고 결론했다. 그 판단을 상류 소스에 대고 다시 검증했다
+(핀된 체크아웃 `e017c91`을 직접 읽었다, §250.3의 문장을 믿지 않고):
+
+- `moveit_ros/move_group/src/default_capabilities/plan_service_capability.cpp`의
+  `MoveGroupPlanService::computePlanService`는 실패 세 갈래 — 파이프라인
+  해석 실패, `generatePlan`이 거짓, 예외 — 전부에 `MoveItErrorCodes::FAILURE`를
+  넣는다. 이 번역 단위에 `PLANNING_FAILED`는 한 번도 나오지 않는다.
+- `move_action_capability.cpp`의 `executeMoveCallbackPlanOnly`와
+  `planUsingPlanningPipeline`도 같은 세 갈래에 같은 `FAILURE`를 넣는다.
+
+즉 상류는 두 capability에서 **같은 상태를 같은 코드로** 보고하고, 그 코드는
+`FAILURE`(99999)다. `PLANNING_FAILED`(-1)는 파이프라인이 **돌고** 못 푼
+경우에만 나오는데, 이 포트에는 돌 파이프라인이 없으므로 이 바이너리가
+합법적으로 도달할 수 없는 코드다. §250.3은 옳았다.
+
+고친 것은 `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`의
+`handle_request` 한 줄과, 그 값을 고정하는 `ros/verify-ros-interop.sh`의
+`run "live"` 단언이다. 둘을 한 커밋에 넣은 것은 어느 쪽만 움직여도 틀리기
+때문이다 — 소스만 고치면 게이트가 붉어지고, 게이트만 고치면 결함이 남는다.
+
+**게이트 자신의 결함도 같이 닫았다.** 옛 단언은 `grep -q "val=-1"`이었고,
+이건 부분 문자열이라 같은 핸들러의 다른 코드인 `val=-16`
+(`INVALID_GOAL_CONSTRAINTS`, 요청이 변환되지 않을 때)에도 맞는다. 즉 모든
+요청에 변환 오류를 답하는 핸들러도 그 단언을 통과했다. 새 단언은
+`grep -qE "val=99999([^0-9]|$)"`로 오른쪽을 막아 그 둘을 가른다.
+
+**판별 뮤테이션(실측).** 소스의 `MoveItErrorCodes::FAILURE`를
+`PLANNING_FAILED`로 되돌리고 게이트를 그대로 둔 채
+`sg docker -c tools/ci/verify-ros-interop.sh`를 돌렸다 — exit 1, 그리고
+게이트가 되돌린 것을 이름 대고 실패했다:
+
+```
+error_code=moveit_msgs.msg.MoveItErrorCodes(val=-1, ...)
+FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code
+FAIL upstream answers a null resolvePlanningPipeline with FAILURE in both capabilities
+```
+
+되돌린 뒤 같은 명령이 `all gates passed`로 끝난다(leg B 포함, 오라클
+이미지가 이 기계에 있어 SKIP 없이 돌았다).
