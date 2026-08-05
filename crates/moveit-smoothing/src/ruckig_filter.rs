@@ -545,4 +545,25 @@ mod tests {
         let err = filter.reset(&[0.0], &[0.0], &[0.0]).unwrap_err();
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
+
+    #[test]
+    fn reset_rejects_a_positions_only_mismatch() {
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let err = filter.reset(&[0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
+
+    #[test]
+    fn reset_rejects_a_velocities_only_mismatch() {
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let err = filter.reset(&[0.0, 0.0], &[0.0], &[0.0, 0.0]).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
+
+    #[test]
+    fn reset_rejects_an_accelerations_only_mismatch() {
+        let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
+        let err = filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0]).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
 }

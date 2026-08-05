@@ -552,6 +552,20 @@ mod tests {
         assert!(matches!(err, Error::Other(_)), "{err:?}");
     }
 
+    #[test]
+    fn reset_rejects_a_positions_only_mismatch() {
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0);
+        let err = filter.reset(&[0.0], &[0.0, 0.0]).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
+
+    #[test]
+    fn reset_rejects_a_velocities_only_mismatch() {
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0, -2.0], &[2.0, 2.0], 1.0);
+        let err = filter.reset(&[0.0, 0.0], &[0.0]).unwrap_err();
+        assert!(matches!(err, Error::Other(_)), "{err:?}");
+    }
+
     // The six cases below are `acceleration_filter_request.json`/
     // `_response.json` (`crates/moveit-smoothing/tests/fixtures/`), captured
     // from `tools/moveit-oracle/src/oracle.cpp`'s `acceleration_filter` op
