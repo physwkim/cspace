@@ -5684,6 +5684,13 @@ python 로그 파서가 같은 케이스에 대해 인라인 `FAIL` 줄과 실�
   갭** — §4.4가 D4 trait 주석에서 이것을 명시적으로 이름 부른다. "요청되지
   않음"이 아니라 근거 있는 처분이다.
 
+**정정 (2026-08-05, §217.2가 실측).** 위 세 번째 항목의 "진짜 범위 내 갭"은
+그 뒤 라운드가 닫았고 문장만 남아 있었다. `.hpp`/`-inl.hpp` 두 헤더는
+`crates/moveit-kinematics/src/cached_solver.rs`가 포팅했다. 같은 디렉터리에서
+미포팅으로 남는 것은 `cached_ik_kinematics_plugin.cpp`(pluginlib 등록
+boilerplate, D4)와 `cached_ur_kinematics_plugin.cpp`(외부 `ur_kinematics`
+의존) 둘뿐이다.
+
 ## 61. 패널이 찾은 첫 알고리즘 버그 — 회전 거리가 참각의 절반이었다 (2026-08-04)
 
 p1-robotmodel 라운드 7(`2aa697b`, `2accae8`, `9b04950`, `f6e654f`,
@@ -14089,6 +14096,19 @@ Not yet in scope, planned for later rounds:
 미포팅은 이 하나다. 선언되어 있었으므로 잃어버린 것은 아니지만, "later
 rounds"에는 만료조건이 없어서 라운드가 30번 도는 동안 아무도 그 문장을
 다시 읽지 않았다. p1-joints에 배정.
+
+**정정 (2026-08-05, §217.2가 실측, 이 병합 시점에 다시 쟀다).** 위 단락의 세
+수와 그 결론이 모두 트리와 다르다. 상류 `src/*.cpp`는 22가 아니라 **24**개,
+포트가 가진 것은 12가 아니라 **14**개, `lib.rs`의 D1/D2 목록이 이름으로
+지목하는 `src/*.cpp`는 "다섯"이 아니라 **8**개
+(`move_group_sequence_{action,service}`,
+`planning_context_loader{,_circ,_lin,_polyline,_ptp}`,
+`pilz_industrial_motion_planner`)다. 그리고 하나 남았다고 지목한
+`trajectory_blender_transition_window.cpp`는 포팅됐다. 남는 in-scope 미포팅
+`src/` 파일은 이 단락이 언급하지 않는 **둘**, `joint_limits_aggregator.cpp`와
+`joint_limits_validator.cpp`다. §217.2는 이 셋을 branch 시점 수(24/13/9)로
+적었는데, 그 뒤 `command_list_manager.{hpp,cpp}`가 D1/D2 제외에서 포팅으로
+옮겨가 13→14, 9→8이 됐다. 결론(남은 둘)은 양쪽 시점에서 같다.
 
 ### 179.2 planning_pipeline_interfaces — 언급조차 없음
 
