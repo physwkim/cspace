@@ -916,12 +916,15 @@ fn resolve_collision_point_joint_index(
 ///   `chomp_optimizer.cpp`: `group_trajectory_backup_` (read only inside
 ///   fully-commented-out HMC-perturbation code), `state_is_in_collision_`
 ///   (written every `performForwardKinematics` call, never read anywhere),
-///   the *stored* `point_is_in_collision_` 2D field (its one read is
-///   inside a `/* */`-commented block -- the *value* computed at
-///   assignment time is still live, since it drives `is_collision_free_`,
-///   so that computation survives as an inline local `bool` in
+///   the *stored* `point_is_in_collision_` 2D field (it has two reads: a
+///   live one immediately after assignment, in the same statement block
+///   that also sets `state_is_in_collision_`/`is_collision_free_`
+///   (`chomp_optimizer.cpp:914`) -- this is the computation that survives
+///   as an inline local `bool` in
 ///   [`ChompOptimizer::perform_forward_kinematics`], just not as a
-///   persisted field), and the entire dead-HMC-path field set already
+///   persisted field -- and a separate, genuinely dead read inside a
+///   `/* */`-commented block (`:615`)), and the entire dead-HMC-path field
+///   set already
 ///   established in round 18's [`crate::optimizer`] work
 ///   (`random_state_`, `joint_state_velocities_`, `momentum_`,
 ///   `random_momentum_`, `random_joint_momentum_`, `multivariate_gaussian_`,
