@@ -123,6 +123,8 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `distance-callback-max-contact-depth` | not-reproduced |
 | `pr2-collision-test-asserts-unwritten-result` | not-reproduced |
 | `set-motion-plan-request-time-guard-polarity` | not-reproduced |
+| `collision-callback-logs-contact-stored-when-dropped` | not-reproduced |
+| `check-collision-unpadded-discards-its-own-request-copy` | not-reproduced |
 
 ---
 
@@ -1257,7 +1259,7 @@ already wrong upstream.
 (`std::size_t contacts = fcl::collide(o1, o2, coll_req, coll_res); if (contacts > 0)`),
 `:663` (`dist_result.distance = -contact.penetration_depth;`). The `if` at
 648 has no `else`.
-**Port:** `crates/moveit-collision/src/parry.rs:2271`
+**Port:** `crates/moveit-collision/src/parry.rs:2344`
 **Symptom:** For a pair FCL reports as touching or penetrating
 (`distance <= 0`) with `enable_signed_distance` set, line 613 has already
 stored `fcl_result.min_distance` — which for an in-collision pair is FCL's
@@ -1314,7 +1316,7 @@ cylinder (`length 0.13`, `origin z 0.065`) puts its bottom face at exactly
 `tools/moveit-diff/src/main.rs`'s scene, so every sampled state hits the
 tangency case regardless of joint values.
 **Status:** `not-reproduced`, and structurally so rather than by choice.
-`parry.rs:2271` takes `contact.dist` from `parry3d_f64::query::contact` and
+`parry.rs:2344` takes `contact.dist` from `parry3d_f64::query::contact` and
 substitutes no sentinel on any path, so `-1.0` is not constructible here.
 **Deviation:** none of `D1`..`D14` applies. This is not a policy the port
 adopted to route around the defect — parry simply has no in-collision
@@ -2330,3 +2332,68 @@ test, oracle comparison or number that moves. The cost is deferred rather than
 zero: the
 crate that eventually honours a planning budget owes the decision in §236 a
 re-read, and the two tripwire tests named under **Port** are what force it.
+
+---
+
+### `collision-callback-logs-contact-stored-when-dropped` — the verbose message on the branch that *discards* a contact says "Contact was stored." — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:261-268`
+(the `else if (cdata->req_->verbose)` arm of the `want_contact_count > 0`
+test at `:254`)
+**Port:** none — no crate in this workspace reads
+`CollisionRequest::verbose`, and none can: `rg 'tracing::|log::(debug|info|warn|error)' crates`
+returns nothing, so the workspace has no logging facade for the field to
+drive (`PORTING-PLAN.md` §239.3).
+**Symptom:** inside `collisionCallback`'s `DecideContactFn` branch, a
+rejected contact is pushed onto `res.contacts[pc]` only while
+`want_contact_count > 0`. The `else` arm is therefore reached exactly when
+the budget — `max_contacts_per_pair - have` or `max_contacts -
+contact_count`, whichever binds (`:212-215`) — is spent and the contact is
+*thrown away*. Its message ends with the same sentence as the storing arm's:
+"Contact was stored." The two differ only in that the discarding one also
+prints the body type strings. An operator running `verbose` to find out
+which contacts survived the budget is told every one of them did.
+**Evidence:** a read of the control flow, confirmed by printing both arms'
+format strings side by side; there is no oracle for log output. The storing
+arm at `:257-258` and the discarding arm at `:263-267` end in the identical
+literal.
+**Status:** `not-reproduced`
+**Cost of not reproducing:** none. `verbose` is control-flow-neutral
+upstream — measured, not assumed: all 17 of its read sites in
+`collision_common.cpp` (`:110`, `:122`, `:138`, `:151`, `:176`, `:188`,
+`:232`, `:255`, `:261`, `:320`, `:368`, `:402`, `:414`, `:514`, `:530`,
+`:544`, `:557`) open an `RCLCPP_DEBUG`/`RCLCPP_INFO` block holding exactly
+one statement, and `collision_env_fcl.cpp` never mentions the field. No
+parity test or oracle comparison observes log output.
+
+---
+
+### `check-collision-unpadded-discards-its-own-request-copy` — two of the six `checkCollisionUnpadded` overloads build the unpadded request and then forward the padded original — not-reproduced
+
+**Upstream:** `moveit_core/planning_scene/src/planning_scene.cpp:456-463`
+(non-const, two-argument) and `:501-508` (const, four-argument, taking an
+`AllowedCollisionMatrix`); the four correct siblings are `:465-471`,
+`:473-480`, `:482-489`, `:491-499`
+**Port:** none — `crates/moveit-scene/src/scene.rs:348-352` decides all six
+overloads distinct under D4, which replaces the dual-`CollisionEnv`-per-plugin
+machinery with one caller-owned `E`, so the port has no
+`check_collision_unpadded` to carry the defect into.
+**Symptom:** each overload copies the caller's request into `new_req`, clears
+`new_req.pad_environment_collisions`, and then calls `checkCollision`. These
+two pass `req` — the untouched original — so `new_req` is written and
+discarded, and both run with `pad_environment_collisions` at its `true`
+default. The two are the padded check under an unpadded name, which is the
+one thing a caller reaching for this function is trying to avoid. Nothing
+warns: `new_req` is used, just not where it matters, so no
+`-Wunused-variable` fires, and the deprecation notice on all six
+("Use new CollisionRequest flags to enable/ disable padding instead.",
+`planning_scene.hpp:379`) points at the very flag these two drop.
+**Evidence:** a read of the six bodies side by side. The four that work name
+`new_req` in the `checkCollision` call; these two name `req`. There is no
+oracle here — the port has no equivalent entry point to compare against.
+**Status:** `not-reproduced`
+**Cost of not reproducing:** none. No parity test or oracle comparison
+reaches `PlanningScene::checkCollisionUnpadded`, and D4 already removed the
+padded/unpadded selection this defect lives in: with one caller-owned `E`,
+padding is a property of the environment the caller built, never of the
+request (`PORTING-PLAN.md` §239.3, `crates/moveit-scene/src/scene.rs:566-576`).

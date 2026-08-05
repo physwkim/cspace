@@ -20497,3 +20497,148 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 하고, 그때 필요한 가드는 `<= 0.0`이 아니라 `> 0.0`이다
 (§236.1, 그리고 상류 자신의 `MoveGroupInterface::setPlanningTime`,
 `move_group_interface.cpp:1013-1017`).
+## §239 `CollisionRequest` 12개 필드를 parry의 두 충돌 진입점에 대해 전수 조사했다 — `is_done`이 조용히 버려지고 있었다 (2026-08-06)
+
+§231.1이 고친 `CollisionRequest::distance`는 "선언되어 있고, 공개로
+설정할 수 있고, 백엔드가 읽지 않는" 필드였다. 그런 필드가 하나뿐이라고
+믿을 근거는 없었으므로 12개 전부를 같은 질문으로 잰다: 이 필드를
+`ParryCollisionEnv::check_self_collision`과
+`CollisionEnv::check_robot_collision`이 각각 **읽는가 / 무시하는가 /
+읽을 수 있는 자리 자체가 없는가**.
+
+세 번째 항목을 두 번째와 분리하는 이유는 판정이 다르기 때문이다.
+"무시한다"는 결함이고 — 그것이 `distance`였다 — "닿을 자리가 없다"는
+상류 자신도 백엔드에서 읽지 않는다는 사실의 결과다. 조사는 그 둘을
+섞지 않으려고 필드마다 상류의 읽는 지점을 먼저 찾고 시작했다.
+
+### §239.1 12개 필드 × 두 진입점
+
+`self`는 `check_self_collision`, `robot`은 `check_robot_collision`이다.
+포트 인용은 `crates/moveit-collision/src/parry.rs`, 상류 인용은
+`moveit_core/` 아래 경로다.
+
+| 필드 | self | robot | 포트에서 읽는 곳 | 상류에서 읽는 곳 |
+|---|---|---|---|---|
+| `group_name` | 읽음 | 읽음 | `:2490`, `:2517` (`active_group_links`), `:2464` (거리 질의로 전달) | `collision_common.cpp:1012-1022` (`CollisionData::enableGroup`), 술어는 `:80-94` |
+| `pad_environment_collisions` | 닿을 자리 없음 | 닿을 자리 없음 | 없음 | 백엔드에는 없다. `planning_scene.cpp:442`가 유일한 독자이고, 필드를 백엔드에 넘기는 대신 패딩된/안 된 두 `CollisionEnv` 인스턴스 중 하나를 고른다 |
+| `pad_self_collisions` | 닿을 자리 없음 | 닿을 자리 없음 | 없음 | 같은 방식, `planning_scene.cpp:453`·`:558` |
+| `distance` | 읽음 | 읽음 | `:2460` (`attach_requested_distance`) | `collision_env_fcl.cpp:283-297` (self), `:340-354` (robot) |
+| `detailed_distance` | 읽음 | 읽음 | `:2469` | 같은 두 블록의 `if (req.detailed_distance)` |
+| `cost` | 읽음 | 읽음 | `:2184`, `:2243`, `:2271` | `collision_common.cpp:279-288`, `:341-354`, 그리고 종료 규칙 `:405` |
+| `contacts` | 읽음 | 읽음 | `:2200`, `:2240`, `:2271` | `collision_common.cpp:196`, `:398` |
+| `max_contacts` | 읽음 | 읽음 | `:2200`, `:2271` | `collision_common.cpp:198`, `:214`, `:398` |
+| `max_contacts_per_pair` | 읽음 | 읽음 | `:2202` | `collision_common.cpp:212-214` |
+| `max_cost_sources` | 읽음 | 읽음 | `:2187` | `collision_common.cpp:286-287`, `:352-353` |
+| `is_done` | **읽음 (이 회차에 고침)** | **읽음 (이 회차에 고침)** | `:2274` (`sweep_is_done`) | `collision_common.cpp:411-413`, 그 결과를 보는 곳이 `:70-71`과 `collision_env_fcl.cpp:337` |
+| `verbose` | 무시 | 무시 | 없음 | `collision_common.cpp`에 17군데, **전부 로그 전용** |
+
+`distance`/`detailed_distance` 두 행은 §231.1의 `00e37c1`을 상류에서
+다시 확인한 것이다. 두 블록은 `DistanceRequest`에 `group_name`과 `acm`
+둘만 넣고 나머지는 기본값으로 두는데, `attach_requested_distance`도
+정확히 그 둘만 넣는다(`:2464`). 빠뜨린 필드는 없다.
+
+`146bc2c`의 정렬 키도 같은 방식으로 확인했고, 이것은 **일탈이 아니다**:
+상류는 `collision_common.cpp:240-242`, `:329-331`(접촉 맵), `:565-567`
+(거리 맵) 세 곳 모두에서 `cd1->getID() < cd2->getID()`로 사전순 작은
+이름을 앞에 둔다. 삽입 순서가 아니다. 반대로 `DistanceResultsData`의
+`link_names`는 상류가 **정렬하지 않고**(`:627-628`이 `res_cd1`/`res_cd2`를
+그 순서 그대로 넣는다) 포트도 정렬하지 않으므로, 정렬을 그쪽까지
+넓히면 그때 일탈이 된다.
+
+### §239.2 `is_done` — 선언되고, 공개로 설정할 수 있고, 아무도 읽지 않았다
+
+`IsDoneFn`은 `crates/moveit-collision/src/common.rs:199`에서 공개
+타입 별칭으로 나가고 `CollisionRequest::is_done`은 공개 필드다. 그런데
+`146bc2c` 시점에 이 필드를 읽는 코드는 워크스페이스 전체에 없었다.
+
+```console
+$ git grep -n 'request\.is_done\|\.is_done(' 146bc2c -- crates ros
+$ git grep -c is_done HEAD -- crates/moveit-collision/src/common.rs
+HEAD:crates/moveit-collision/src/common.rs:5
+```
+
+다섯 히트는 전부 선언 쪽이다 — 타입 별칭, 필드, 손으로 쓴 `Debug`,
+`Default`, 그리고 그 doc. `distance`와 정확히 같은 모양이다: 호출자는
+설정할 수 있고, 설정해도 아무 일도 일어나지 않는다.
+
+상류의 종료는 **두 갈래**이고 순서가 있다(`collision_common.cpp:395-424`).
+암묵 갈래가 먼저다 — 충돌이 기록되었고, 접촉 예산이 필요 없거나 이미
+찼고, 비용을 모으고 있지 않으면 `done_`이다. 그다음이
+`if (!cdata->done_ && cdata->req_->is_done)`이다. 즉 `is_done`은 암묵
+갈래가 이미 멈춘 뒤에는 **불리지 않는다**. `sweep_is_done`이 그 순서
+그대로다.
+
+멈추는 단위는 part 쌍이다. 상류에서 `collisionCallback` 한 번은 충돌
+객체 한 쌍이고, 이 백엔드에서 그것은 body 쌍이 아니라 part 쌍이다
+(`part_pairs`). 그리고 종료 블록은 `fcl::collide`가 아무것도 못 찾은
+쌍에서도 실행된다 — 건너뛰기 규칙(`always_allow_collision`, 접촉 링크)만
+`:184-185`에서 `return false`로 그 앞을 빠져나간다. 고치기 전 포트는
+접촉이 없으면 `continue`로 건너뛰었으므로, 이 두 가지를 같이 옮겼다.
+
+암묵 갈래는 **관측 가능한 출력은 바꾸지 않는다** — 그것이 발동하는
+조건이 곧 "남은 필드가 이미 최종값"이라는 뜻이기 때문이다. 바뀌는 것은
+뒤쪽 쌍의 `AllowedCollision::Conditional` 술어가 더 이상 불리지 않는다는
+것 하나이고, 상류도 같다. 관측 가능한 쪽은 `is_done`이다: 콜백은
+`collision`이 아직 `false`인 채로도, 예산이 남은 채로도 훑기를 끝낼 수
+있다.
+
+`is_done`에 넘기는 인자는 새로 만든 값이 아니라 **그 시점의 결과**여야
+한다(상류는 `*cdata->res_`를 그대로 넘긴다). `sweep_result`가 반환값과
+콜백 인자 양쪽을 만들어서, 표현이 둘로 갈라지지 않게 했다. 복제 비용은
+`max_contacts`와 `max_cost_sources`로 묶여 있고 훑은 쌍 수와 무관하며,
+`is_done`이 `None`이면 복제 자체가 일어나지 않는다.
+
+시험 일곱 개는 경계마다 하나씩이고, 변이 아홉 개로 판별을 확인했다.
+`if done { break; }`를 죽이면 답이 결정하는 시험 1건만, 건너뛴 쌍까지
+종료를 재게 하면 ACM 시험 1건만, 콜백에 빈 스냅숏을 주면 스냅숏 시험
+1건만 깨진다. 암묵 갈래를 `is_done` 뒤로 옮기면 선점 시험 2건이,
+`!cost` 항을 지우면 비용 시험과 기존 `max_cost_sources` 시험 2건이,
+접촉 예산 항을 지우면 스냅숏 시험과 기존 예산 시험 둘, 그리고
+`upstream_panda_harness robot_world_collision_2`까지 3건이 깨진다.
+`collision` 항을 지우면 11건이 깨지는데 여기에는 panda·pr2·fanuc 오라클
+대조 셋이 포함된다 — 이 항은 새 시험보다 기존 대조가 먼저 붙잡는다.
+
+### §239.3 무시되는 채로 남는 셋 — 그리고 그것이 `is_done`과 다른 이유
+
+**`pad_environment_collisions`/`pad_self_collisions`.** 상류에서도 어떤
+`CollisionEnv` 백엔드도 이 둘을 읽지 않는다 —
+`collision_env_fcl.cpp`와 `collision_common.cpp` 어디에도 없다. 읽는
+곳은 `planning_scene.cpp:442`·`:453`·`:558` 셋뿐이고, 셋 다 필드를
+넘기는 대신 `getCollisionEnv()`와 `getCollisionEnvUnpadded()` 중 하나를
+고른다. D4가 그 이중 환경 기계를 없애고 호출자가 소유하는 `E` 하나로
+바꿨으므로(`crates/moveit-scene/src/scene.rs:566-576`,
+`PlanningScene::check_collision`의 서명이 `env: &E` 하나다) 이 포트에는
+고를 대상이 애초에 없다. `parry.rs` 안에서 고칠 수 있는 것이 아니고,
+고치려면 `moveit-scene`이 환경 둘을 받는 API 변경이다 — 이 회차의
+범위 밖이고, 그 판단은 D4를 다시 여는 문제다.
+
+이 행을 확정하는 동안 상류 결함 하나가 나왔다:
+`checkCollisionUnpadded` 여섯 오버로드 중 둘이 `new_req`를 만들어
+`pad_environment_collisions = false`를 넣고는 원본 `req`를 넘긴다
+(`planning_scene.cpp:456-463`, `:501-508`). 이름과 반대로 패딩된 검사다.
+`doc/upstream-bugs.md`의
+`check-collision-unpadded-discards-its-own-request-copy`에 적었다.
+
+**`verbose`.** 이 필드는 상류에서 **제어 흐름을 바꾸지 않는다**. 추측이
+아니라 실측이다: `collision_common.cpp`의 17개 읽는 지점(`:110`, `:122`,
+`:138`, `:151`, `:176`, `:188`, `:232`, `:255`, `:261`, `:320`, `:368`,
+`:402`, `:414`, `:514`, `:530`, `:544`, `:557`) 전부가 `RCLCPP_DEBUG`
+또는 `RCLCPP_INFO` 한 문장만 담은 블록을 연다. `collision_env_fcl.cpp`는
+이 필드를 아예 언급하지 않는다. 따라서 무시해도 잃는 동작이 없다.
+
+존중하려 해도 지금은 할 수 없다 — 이 워크스페이스에는 로깅 파사드가
+없다.
+
+```console
+$ rg -l 'tracing::|log::(debug|info|warn|error)' crates
+$
+```
+
+로깅을 도입하는 것은 이 크레이트의 결정이 아니므로 여기서는 무시로
+남기고 사실만 적는다. 이 조사가 그 김에 상류 로그 결함 하나를 찾았고
+(`collision_common.cpp:261-268`의 버리는 갈래가 "Contact was stored."라고
+찍는다) `doc/upstream-bugs.md`의
+`collision-callback-logs-contact-stored-when-dropped`에 있다.
+
+만료 조건: **워크스페이스에 로깅 파사드가 생기면** `verbose` 행을 다시
+연다. `pad_*` 두 행은 D4가 열려야 다시 열린다.
