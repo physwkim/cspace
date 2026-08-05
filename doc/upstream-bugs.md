@@ -2130,7 +2130,7 @@ test at `:254`)
 **Port:** none — no crate in this workspace reads
 `CollisionRequest::verbose`, and none can: `rg 'tracing::|log::(debug|info|warn|error)' crates`
 returns nothing, so the workspace has no logging facade for the field to
-drive (`PORTING-PLAN.md` §NEW.3).
+drive (`PORTING-PLAN.md` §239.3).
 **Symptom:** inside `collisionCallback`'s `DecideContactFn` branch, a
 rejected contact is pushed onto `res.contacts[pc]` only while
 `want_contact_count > 0`. The `else` arm is therefore reached exactly when
@@ -2183,4 +2183,4 @@ oracle here — the port has no equivalent entry point to compare against.
 reaches `PlanningScene::checkCollisionUnpadded`, and D4 already removed the
 padded/unpadded selection this defect lives in: with one caller-owned `E`,
 padding is a property of the environment the caller built, never of the
-request (`PORTING-PLAN.md` §NEW.3, `crates/moveit-scene/src/scene.rs:566-576`).
+request (`PORTING-PLAN.md` §239.3, `crates/moveit-scene/src/scene.rs:566-576`).
