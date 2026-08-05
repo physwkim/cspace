@@ -446,13 +446,15 @@ fn mesh_search_paths() -> MeshSearchPaths {
 /// lose them (`third_party/` is gitignored, so it reaches a worktree only via
 /// a hand-made symlink; at the time this was written 4 of 20 worktrees had
 /// one). A symmetric loss would be obvious -- both sides would report nothing.
-/// The asymmetric one produces a fully-populated, plausible comparison:
-/// panda answers `bool` 10,000/10,000 disagreements with the Rust distance at
-/// `f64::MAX` and the Rust pair printed as `[none]`, which is a measured-
-/// looking artifact and, worse, is the exact fingerprint PORTING-PLAN.md
-/// §13.4 records for the historical mesh-loading bug. Nothing downstream can
-/// tell the two apart, so the refusal has to happen here, before any case
-/// runs.
+/// The asymmetric one produces a fully-populated, plausible comparison, and
+/// PORTING-PLAN.md already records both halves of its fingerprint from the
+/// historical mesh-loading bug: §13.4 measured panda at `bool` 10,000/10,000
+/// disagreements (self 1,266 + robot 8,734), and §15.2 measured the Rust
+/// distance printing as `f64::MAX` (`1.797...e308`) once a robot has no
+/// collision shape at all. The pair prints as `[none]` there, from
+/// [`format_distance_pair`]'s `None` arm. That is a measured-looking artifact
+/// nothing downstream can tell from a real disagreement, so the refusal has to
+/// happen here, before any case runs.
 ///
 /// Only `kind == "mesh"` is fatal. A dropped `capsule` is symmetric -- it is a
 /// URDF extension upstream's own parser does not recognise either (see
