@@ -1510,6 +1510,62 @@ mod tests {
         assert!(has_mixed_joint_types(&pr2_trajectory, pr2_group));
     }
 
+    /// `!raw_sample_count.is_finite()` is not redundant with `>
+    /// MAX_RESAMPLE_SAMPLE_COUNT`: a moving joint with a custom `0.0`
+    /// velocity limit reproduces upstream's unguarded `0/0` division in the
+    /// timing loop (`time_optimal_trajectory_generation.cpp:405`; see
+    /// `doc/upstream-bugs.md`) as a NaN `duration()` at this path scale —
+    /// not `+inf` (see `trajectory.rs`'s
+    /// `a_max_velocity_component_of_zero_crawls_rather_than_invalidating`
+    /// for the same mechanism; whether it lands on NaN or `+inf` is
+    /// scale-sensitive, both are observed in this crate's tests). `NaN >
+    /// MAX_RESAMPLE_SAMPLE_COUNT` is always `false`, so only
+    /// `!is_finite()` catches this. Bite-confirmed: neutralizing
+    /// `!is_finite()` alone turns this into a silent `Ok(())` with a
+    /// NaN-derived `sample_count` (saturates to `0` under `as usize`)
+    /// instead of the resample-bound error every other case in this
+    /// guard's family gets.
+    #[test]
+    fn resample_dt_over_a_nan_duration_is_rejected() {
+        let model = panda();
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let mut trajectory = RobotTrajectory::for_group(&model, Some(group));
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0.1,
+        );
+        add_panda_arm_waypoint(
+            &mut trajectory,
+            &model,
+            [1e-5, 1e-5, 0.0, 0.0, 0.0, 0.0, 0.0],
+            0.1,
+        );
+
+        let mut velocity_limits = panda_arm_limits([1.0; 7]);
+        velocity_limits.insert("panda_joint1".to_string(), 0.0);
+        let acceleration_limits = panda_arm_limits([1.0; 7]);
+
+        let result = compute_time_stamps_with_limits(
+            &mut trajectory,
+            &velocity_limits,
+            &acceleration_limits,
+            &TotgOptions {
+                min_angle_change: 0.0,
+                ..TotgOptions::default()
+            },
+        );
+        // See `resample_dt_producing_an_unreasonable_sample_count_is_rejected`
+        // for why this checks the message rather than just `.is_err()`.
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("exceeding the")),
+            "a NaN duration must be rejected the same way an over-large one is: {result:?}"
+        );
+    }
+
     /// `totgComputeTimeStamps` (cpp:1137-1160) requires `num_waypoints >
     /// 1` (cpp:1147-1151).
     #[test]
