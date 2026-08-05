@@ -340,13 +340,17 @@ use crate::path::{DEFAULT_PATH_TOLERANCE, Path};
 use crate::robot_trajectory::RobotTrajectory;
 use crate::trajectory::Trajectory;
 
-/// `DEFAULT_TIMESTEP`, cpp:53. Distinct from
-/// `trajectory::VELOCITY_SWITCHING_SCAN_STEP` (round 3's own doc
-/// comment on that constant already flags the coincidence): this one is the
-/// `time_step` `do_time_parameterization_calculations` passes to
-/// `Trajectory::create`, the other is an unrelated scan-step epsilon inside
-/// `Trajectory`'s own switching-point search. They share a value only
-/// because both upstream authors independently picked `1e-3`.
+/// `DEFAULT_TIMESTEP`, cpp:53. This constant and
+/// `trajectory::VELOCITY_SWITCHING_SCAN_STEP` port the *same* upstream
+/// symbol (`DEFAULT_TIMESTEP`, defined once at cpp:53), not two
+/// independently-chosen values: upstream reuses that one symbol both as the
+/// scan step inside `Trajectory::getNextVelocitySwitchingPoint`
+/// (`cpp:522,525,541`) and as the `time_step` argument
+/// `doTimeParameterizationCalculations` passes to `Trajectory::create`
+/// (`cpp:1237`). This module's own `DEFAULT_TIMESTEP` exists as a separate
+/// Rust constant only because the two call sites live in different modules
+/// here (`trajectory.rs` vs. this file) — not because upstream had two
+/// unrelated constants to mirror.
 const DEFAULT_TIMESTEP: f64 = 1e-3;
 
 /// `DEFAULT_SCALING_FACTOR`, cpp:55.
