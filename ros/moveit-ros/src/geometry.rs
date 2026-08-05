@@ -39,6 +39,10 @@ pub struct Quaternion(pub geometry_msgs::Quaternion);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pose(pub geometry_msgs::Pose);
 
+/// Wraps `geometry_msgs::msg::Transform` (see module doc: orphan-rule wrapper).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transform(pub geometry_msgs::Transform);
+
 impl TryFrom<Point> for CoreVector3 {
     type Error = Error;
 
@@ -262,6 +266,32 @@ impl TryFrom<Isometry3> for Pose {
             position,
             orientation,
         }))
+    }
+}
+
+impl TryFrom<Transform> for Isometry3 {
+    type Error = Error;
+
+    /// `geometry_msgs/Transform` is `Pose` with the two fields renamed
+    /// (`translation`/`rotation` instead of `position`/`orientation`) and
+    /// `translation` typed as `Vector3` rather than `Point` -- both of which
+    /// this module already maps onto the same core types (module doc: the
+    /// core crate has no separate `Point`). So this shares
+    /// `TryFrom<Pose>`'s failure mode exactly: exact-zero or non-finite
+    /// orientation norm, nothing else.
+    ///
+    /// Reached from `PlanningScene.fixed_frame_transforms` via
+    /// `crate::scene::planning_scene`, upstream's
+    /// `SceneTransforms::setTransforms` -> `Transforms::setTransforms`,
+    /// which converts each entry with `tf2::fromMsg` -- the same
+    /// `tf2_eigen` path `Pose` takes, not a stricter one.
+    fn try_from(msg: Transform) -> Result<Self, Self::Error> {
+        let translation = CoreVector3::try_from(Vector3(msg.0.translation))?;
+        let rotation = UnitQuaternion::try_from(Quaternion(msg.0.rotation))?;
+        Ok(Isometry3::from_parts(
+            Translation3::from(translation),
+            rotation,
+        ))
     }
 }
 

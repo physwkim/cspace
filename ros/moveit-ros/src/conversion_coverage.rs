@@ -109,6 +109,40 @@ const ONE_DIRECTIONAL: &[OneDirectional] = &[
                  caller ever needs this same stricter rule and a core->msg \
                  direction is added for it.",
     },
+    OneDirectional {
+        from: "Transform",
+        to: "Isometry3",
+        reason: "geometry_msgs/Transform arrives only as \
+                 PlanningScene.fixed_frame_transforms; the core->msg \
+                 direction of that field is upstream's \
+                 Transforms::copyTransforms, which only \
+                 getPlanningSceneMsg calls -- D1-deferred in moveit-scene. \
+                 The reverse core type is shared with Pose, whose own \
+                 `TryFrom<Isometry3> for Pose` is round-trip tested. \
+                 Expires when getPlanningSceneMsg is ported and needs \
+                 `TryFrom<Isometry3> for TransformMsgOut`.",
+    },
+    OneDirectional {
+        from: "AllowedCollisionMatrixMsg",
+        to: "AllowedCollisionMatrix",
+        reason: "the reverse is upstream's \
+                 AllowedCollisionMatrix::getMessage, reached only from \
+                 getPlanningSceneMsg/getPlanningSceneDiffMsg -- both \
+                 D1-deferred in moveit-scene, so nothing in this crate has \
+                 an outgoing AllowedCollisionMatrix to build. Expires when \
+                 either of those is ported.",
+    },
+    OneDirectional {
+        from: "moveit_msgs::PlanningScene",
+        to: "PlanningSceneUpdate",
+        reason: "classification of the wire `is_diff` flag into the two \
+                 wrapper types set_planning_scene_msg/\
+                 set_planning_scene_diff_msg accept (scene/planning_scene.rs \
+                 module doc). The reverse would be getPlanningSceneMsg, \
+                 D1-deferred in moveit-scene; and it is not this enum's \
+                 inverse anyway, since the wrappers hold the message \
+                 verbatim. Expires when getPlanningSceneMsg is ported.",
+    },
 ];
 
 /// A bidirectional pair with no round-trip test of its own, because it is
