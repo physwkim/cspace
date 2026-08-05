@@ -465,3 +465,53 @@ the census has no D6 in any section, and the brief's single use of "D6" is
 a passing adjective, not an exemption. The substance of that row was right
 and its evidence was real; only the pointer was to something that was
 never written. This subsection is what it should have cited.
+
+## 9b. The workspace in-family denominator — not yet quotable
+
+§1's 289 is a syntactic candidate count, not the sweep's real denominator
+— §9 exists because membership in the family is a separate question, and
+§9's own closing paragraph already warns that the in-family ratio is not
+transferable between crates (it depends on how each crate happens to
+phrase its precondition/round-trip checks, not on crate size). Five row
+sets cover the 289 syntactic sites; as of this section, three have had §9
+applied and two have not:
+
+| Ledger | Rows | In-family | Not-this-family | §9 applied? |
+|---|---|---|---|---|
+| `assertion-discrimination-ledger-p1-robotmodel.md` | 55 | 51 | 4 | yes |
+| `assertion-discrimination-ledger-p9-ros.md` | 67 | 58 | 9 | yes |
+| `assertion-discrimination-ledger-pilz.md` | 32 | 30 | 2 (+1 `joint-collapse`, in-family) | yes |
+| `assertion-discrimination-ledger-p1-fixtures.md` | 49 | — | — | **no** |
+| `assertion-discrimination-ledger-p3-acm.md` | 86 | — | — | **no** |
+
+55 + 67 + 32 + 49 + 86 = 289, reconciling exactly against §8's main-tree
+count — the five row sets partition the syntactic population with no gap
+and no double-count.
+
+**154 of 289 syntactic sites classified under §9. 139 of those 154 are
+in-family** (51 + 58 + 30). Both figures independently re-derived from
+each ledger's own summary section while writing this section, not
+transcribed from a prior report: p9-ros's summary states 17
+discriminating + 38 single-branch + 3 fixture-collapse-fixed = 58/67,
+matching what was relayed; p1-fixtures' and p3-acm's crate-section
+headers sum to 49 and 86 respectively, confirming their row counts
+independent of the §9 question.
+
+**Outstanding: `p1-fixtures` (49 rows, moveit-scene/octomap/state/
+constraints/metrics/smoothing/srdf) and `p3-acm` (86 rows,
+moveit-collision/moveit-geometry).** Neither has had census §9 applied —
+`p1-fixtures` used `not-this-family` zero times across its 49 rows, from
+before the category had a written definition; `p3-acm`'s 86 rows have
+never been checked against it at all. Until both land, the true
+workspace-wide in-family count is not computable, only bounded: at least
+139 (the 154 already classified), at most 139 + 135 = 274 (if every
+remaining row happened to be in-family). **139/289 undercounts** the true
+figure by however many of the outstanding 135 turn out in-family — that
+number is unknown, not small-by-assumption.
+
+The 289 figure remains correct as the syntactic pre-filter count (§1,
+§8). It is not the sweep's in-family denominator, and no report from this
+sweep should quote 289 as if it were — the same substitution error §8
+caught in the 288-vs-289 worktree/main-tree mismatch, one layer further
+in: a syntactically-scanned population standing in for a semantically
+verified one.
