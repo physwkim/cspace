@@ -64,7 +64,7 @@ two files below there is no bucket-4 content and no BSD copyright to keep.
 |---|---|---|---|---|
 | File header | 1-6 | 6 | meta | Contains the defect: LGPL copyright (line 1), LGPL-only `Ported from` |
 | Imports + blanks | 7-11 | 5 | original | — |
-| `fold_jacobian` doc + fn | 12-30 | 19 | **1** | Doc explicitly justifies the accumulation as "exactly as upstream's `result = vel1 + multiplier * vel2` accumulation does"; the fn body's loop (iterate `i`, read `map_index[i]`/`multiplier[i]`, accumulate the scaled full-space entry into the reduced column) is the same accumulate-into-column structure as `jacToJacReduced`, `chainiksolver_vel_mimic_svd.cpp:73-83` |
+| `fold_jacobian` doc + fn | 12-30 | 19 | **1** | Doc explicitly justifies the accumulation as "exactly as upstream's `result = vel1 + multiplier * vel2` accumulation does"; the fn body's loop (iterate `i`, read `map_index[i]`/`multiplier[i]`, accumulate the scaled full-space entry into the reduced column) is the same accumulate-into-column structure as `jacToJacReduced`, `chainiksolver_vel_mimic_svd.cpp:73-84` |
 | blank | 31 | 1 | original | — |
 | `expand_to_full` doc + fn | 32-41 | 10 | **1** | Doc explicitly says "matching upstream's own expansion at the end of `ChainIkSolverVelMimicSVD::CartToJnt`"; the fn body's per-index `reduced[map_index[i]] * multiplier[i]` is the same formula as `CartToJnt`'s closing loop, `chainiksolver_vel_mimic_svd.cpp:112-113` |
 | blank | 42 | 1 | original | — |
