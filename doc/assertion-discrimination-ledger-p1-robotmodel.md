@@ -844,7 +844,7 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 | `mesh_search_paths.rs:108` (`paths.is_empty()`, on `none()`) | **no** | not-this-family | `is_empty()` on `packages.is_empty()`, `none()` on `Self::default()` — both trivial, no decision links them |
 | `mesh_search_paths.rs:109` (`none_resolves_nothing`) | yes | discriminating | empty map — isolates the `self.packages.get(package)?` guard; distinguishable from `:139/140`'s guard (see below) |
 | `mesh_search_paths.rs:141` (`unknown_package_does_not_resolve`) | yes | discriminating | map has one real entry, queried key absent — same guard as `:109` but proves it is the lookup miss, not "map empty," that fires — line corrected round 17, was `:130` |
-| `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) | yes | discriminating | neither input has a `"package://"` prefix — isolates `strip_prefix(...)?`, distinct guard from `:109/130` |
+| `mesh_search_paths.rs:162,163` (`non_package_uri_does_not_resolve`) | yes | discriminating | neither input has a `"package://"` prefix — isolates `strip_prefix(...)?`, distinct guard from `:109/130` |
 
 **Not fixed, flagged rather than fabricated**: the `split_once('/')?`
 guard (malformed `package://name` with no `/`) and the
@@ -1026,7 +1026,7 @@ diff --stat` shows only the `#[cfg(test)] mod tests` block changed.
 | `mesh_search_paths.rs:108` (`paths.is_empty()`, on `none()`) | **no** | not-this-family | not-this-family (unchanged) | trivial getter, no decision |
 | `mesh_search_paths.rs:109` (`none_resolves_nothing`) | yes | discriminating | **single-branch** | empty map has no fallback candidate; guard cannot be further isolated by input |
 | `mesh_search_paths.rs:141` (`unknown_package_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:88` (see table above) — round 13's verdict rested on reading, not mutation, and was wrong until the fixture was rebuilt — line corrected round 17, was `:130` |
-| `mesh_search_paths.rs:139,140` (`non_package_uri_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:86` (see table above) — same correction |
+| `mesh_search_paths.rs:162,163` (`non_package_uri_does_not_resolve`) | yes | discriminating | **corrected: was blind, now discriminating** | isolating mutation on `:86` (see table above) — same correction |
 | `mesh_search_paths.rs` (`malformed_package_uri_with_no_relative_path_does_not_resolve`, new) | yes | — (did not exist) | discriminating | isolating mutation on `:87` |
 | `mesh_search_paths.rs` (`missing_file_does_not_resolve`, new) | yes | — (did not exist) | discriminating | isolating mutation on `:89` |
 
