@@ -768,7 +768,13 @@ def source_index(roots):
     index = {}
     for prefix, root in roots:
         for rel in upstream_tracked(root):
-            index[prefix + rel] = Path(root) / rel
+            key = prefix + rel
+            if key in index:
+                raise SystemExit(
+                    f"FAIL two source roots both hold {key} -- one would silently "
+                    f"win and every citation to it would read as resolved"
+                )
+            index[key] = Path(root) / rel
     return index
 
 
