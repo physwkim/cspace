@@ -2063,6 +2063,37 @@ fn attached_pair_allowed(a: &PosedBody, b: &PosedBody) -> bool {
     a.touch_links.contains(&b.name) || b.touch_links.contains(&a.name)
 }
 
+/// The key both of this backend's per-pair maps are filed under
+/// ([`CollisionResult::contacts`]'s `by_pair` and [`DistanceResult::distances`]),
+/// **lexicographically smaller name first**.
+///
+/// Upstream sorts at both sites and does it inline:
+/// `cd1->getID() < cd2->getID() ? make_pair(cd1->getID(), cd2->getID()) :
+/// make_pair(cd2->getID(), cd1->getID())` -- `collision_common.cpp:240-242` in
+/// `collisionCallback` and `:564-567` in `distanceCallback`, at `e017c91ee`.
+/// The ordering is not cosmetic: these are `BTreeMap`s (upstream `std::map`s),
+/// so it decides both what a caller must look a pair up by and what
+/// `contacts.begin()` yields -- upstream's own `ContactReporting` reads that
+/// first element.
+///
+/// A single constructor rather than the sort written at each site: the two
+/// sites are what let this backend file `distance_robot`'s pairs under
+/// `(robot_link, world_object)` -- iteration order, since `cross_pairs` puts
+/// the robot first -- while upstream filed them the other way for every world
+/// object whose name sorts before the link's.
+///
+/// Note the distance-field backend is *not* part of this family and must not
+/// be "fixed" to match: upstream's `collision_env_distance_field.cpp:329`,
+/// `:621` and `:1618` file contacts under `(con.body_name_1, con.body_name_2)`
+/// unsorted, and `crates/moveit-distance-field` reproduces that.
+fn pair_key(a: &str, b: &str) -> (String, String) {
+    if a < b {
+        (a.to_string(), b.to_string())
+    } else {
+        (b.to_string(), a.to_string())
+    }
+}
+
 /// `collisionCallback`'s per-pair algorithm (see the module doc, deviations
 /// 4 and 5, and "Attached-body geometry"), folded over every candidate pair:
 ///
@@ -2157,7 +2188,7 @@ fn accumulate_collision<'a>(
             }
             collision = true;
             if request.contacts && stored_total < request.max_contacts {
-                let bucket = by_pair.entry((a.name.clone(), b.name.clone())).or_default();
+                let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
                 if bucket.len() < request.max_contacts_per_pair {
                     bucket.push(c);
                     stored_total += 1;
@@ -2201,7 +2232,7 @@ fn accumulate_distance<'a>(
         if link_touches_attached(a, b) {
             continue;
         }
-        let key = (a.name.clone(), b.name.clone());
+        let key = pair_key(&a.name, &b.name);
         // Per *part* pair, not per body pair: each of upstream's collision
         // objects reaches `distanceCallback` as its own invocation, which
         // re-reads the running `minimum_distance`/`distances` state to pick
@@ -4287,6 +4318,72 @@ mod tests {
         // representable in binary floating point (it rounds to
         // 0.7000000000000001), so the result carries a 1-ULP residue.
         assert_relative_eq!(volumes[1], 0.3, epsilon = 1e-15, max_relative = 0.0);
+    }
+
+    // `pair_key` -- both per-pair maps file under the lexicographically
+    // smaller name (`collision_common.cpp:240-242`, `:564-567`). Both cases
+    // below are built so iteration order is the *reverse* of sorted order,
+    // since a pair that is already sorted cannot tell the two apart.
+
+    #[test]
+    fn self_collision_contacts_are_keyed_smaller_name_first() {
+        // Two *links* cannot reverse the order: `robot_bodies` walks
+        // `link_models()`, which is built from joints sorted by joint name
+        // (`robot_model.rs:196-197`), and `build_model` derives `joint_<link>`
+        // -- so link order always agrees with name order. An attached body
+        // can, because `robot_bodies` chains links first and attached bodies
+        // after: `a` on link `z` reaches `self_pairs` as `(z, a)`.
+        let model = build_model(&["z"]);
+        let mut state = state_with_links_at(&model, &[("z", Isometry3::identity())]);
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+
+        let shapes = vec![Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap()))];
+        let shape_poses = vec![Isometry3::translation(0.5, 0.0, 0.0)];
+        let touch_links = BTreeSet::new();
+        let attached = AttachedBodyGeometry {
+            id: "a",
+            link_name: "z",
+            shapes: &shapes,
+            shape_poses: &shape_poses,
+            touch_links: &touch_links,
+        };
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 10,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[attached], None);
+
+        assert!(result.collision, "the attached box overlaps its own link");
+        let contacts = result.contacts.expect("contacts requested");
+        let keys: Vec<_> = contacts.by_pair.keys().cloned().collect();
+        assert_eq!(keys, vec![("a".to_string(), "z".to_string())]);
+    }
+
+    #[test]
+    fn robot_world_distances_are_keyed_smaller_name_first() {
+        // `cross_pairs(robot, world)` yields `(z, a)`; upstream files `(a, z)`.
+        let model = build_model(&["z"]);
+        let mut state = state_with_links_at(&model, &[("z", Isometry3::identity())]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "a",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::translation(1.5, 0.0, 0.0),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let request = DistanceRequest {
+            request_type: DistanceRequestType::Single,
+            ..DistanceRequest::default()
+        };
+
+        let result = env.distance_robot(&request, &posed, &[]);
+
+        let keys: Vec<_> = result.distances.keys().cloned().collect();
+        assert_eq!(keys, vec![("a".to_string(), "z".to_string())]);
     }
 
     // `CollisionRequest::distance` -- upstream's trailing `if (req.distance)`
