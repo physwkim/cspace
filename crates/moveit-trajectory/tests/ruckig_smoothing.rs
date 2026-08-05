@@ -6,9 +6,13 @@
 //   moveit_core/trajectory_processing/test/test_ruckig_traj_smoothing.cpp
 //
 // Every upstream `RuckigTests` case is ported. `zeroVelocities()`/
-// `zeroAccelerations()` are not called anywhere: a freshly constructed
-// `RobotState` already starts with all-zero velocity/acceleration storage
-// (see `moveit-state`'s `RobotState::new`), so there is nothing to zero.
+// `zeroAccelerations()` are not called anywhere: upstream's own versions
+// (`robot_state.cpp:222-231`) don't zero storage either — they clear the
+// `has_velocity_`/`has_acceleration_` presence flags, which a freshly
+// constructed `RobotState` already starts with `false`
+// (`robot_state.cpp:68-69`; see `moveit-state`'s `RobotState::new`, which
+// mirrors the same false-by-default flags), so calling them on a fresh
+// state is redundant upstream too, not just here.
 // `single_waypoint`'s lone waypoint is added with duration `0.0`, not
 // upstream's `DEFAULT_TIMESTEP`: this port's `duration_from_previous[0] ==
 // 0.0` invariant (see `robot_trajectory.rs`'s "Deviations from upstream")

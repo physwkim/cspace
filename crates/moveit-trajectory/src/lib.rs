@@ -50,8 +50,10 @@
 //!
 //! `MOVEIT_CLASS_FORWARD(TimeParameterization)`/
 //! `MOVEIT_CLASS_FORWARD(TimeOptimalTrajectoryGeneration)` — both unported:
-//! the macro expands to `*Ptr`/`*ConstPtr` `std::shared_ptr` typedefs: this
-//! port has no shared-ownership handle to name for either type.
+//! the macro expands to six typedefs via `MOVEIT_DECLARE_PTR` — `*Ptr`/
+//! `*ConstPtr` (`std::shared_ptr`), `*WeakPtr`/`*ConstWeakPtr`
+//! (`std::weak_ptr`), `*UniquePtr`/`*ConstUniquePtr` (`std::unique_ptr`):
+//! this port has no ownership handle to name for either type.
 //!
 //! ## `time_parameterization.hpp`
 //!
@@ -104,19 +106,23 @@
 //!     [`Path::length`]/[`Path::config`]/[`Path::tangent`]/[`Path::curvature`].
 //!   - `getNextSwitchingPoint`/`getSwitchingPoints` — ported as
 //!     `Path::next_switching_point`/`Path::switching_points`, both
-//!     `pub(crate)` rather than `pub`: [`crate::trajectory::Trajectory::create`]
+//!     `pub(crate)` rather than `pub`: `Trajectory::next_acceleration_switching_point`
 //!     is the only caller anywhere in this crate, same as upstream (only
-//!     `Trajectory::getNextSwitchingPoint` calls the `Path` equivalent), so
+//!     `Trajectory::getNextAccelerationSwitchingPoint` calls the `Path`
+//!     equivalent, at `time_optimal_trajectory_generation.cpp:476`), so
 //!     nothing needs the wider surface — narrower than upstream's fully
 //!     public method, not a gap.
 //!   - Default constructor (private upstream, "use `create` instead") — no
 //!     Rust equivalent exists either; [`Path::create`] is [`Path`]'s only
 //!     constructor.
 //!   - `getPathSegment` (private) — ported as the private
-//!     `Path::segment_at`-equivalent lookup inlined at each of the four
-//!     public methods' call sites in `path.rs`, rather than kept as one
-//!     separate function; behaviourally identical, no upstream call site
-//!     outside those same four methods to preserve a shared name for.
+//!     `Path::segment_at`-equivalent lookup inlined at each of the three
+//!     public methods' call sites in `path.rs` (`config`/`tangent`/
+//!     `curvature`, matching upstream's `getConfig`/`getTangent`/
+//!     `getCurvature`, `time_optimal_trajectory_generation.cpp:321,327,333`),
+//!     rather than kept as one separate function; behaviourally identical,
+//!     no upstream call site outside those same three methods to preserve a
+//!     shared name for.
 //! - `Trajectory` (class) — ported as [`Trajectory`]:
 //!   - `create` (static, `std::optional<Trajectory>`) — ported as
 //!     [`Trajectory::create`] (`Result<Self>`, same optional-to-Result
@@ -303,7 +309,7 @@
 //!   (missing group, empty/single-waypoint trajectories, duplicate
 //!   waypoints).
 //! - `tests/robot_trajectory.rs` — every `test_robot_trajectory.cpp` case
-//!   except the four named in that file's own header comment
+//!   except the five named in that file's own header comment
 //!   (`RobotTrajectoryShallowCopy`, needing `shared_ptr` waypoint aliasing
 //!   this port deliberately does not have; `ChainEdits`/`DoubleReverse`,
 //!   adapted to drop the `*RobotTrajectoryMsg` steps, D1;
@@ -367,9 +373,11 @@
 //! (`#pragma message(".h header is obsolete...")`, one `#include`) — no
 //! independent content.
 //!
-//! `MOVEIT_CLASS_FORWARD(RobotTrajectory)` — unported: expands to
-//! `RobotTrajectoryPtr`/`ConstPtr`/`WeakPtr` `std::shared_ptr` typedefs; this
-//! port has no shared-ownership handle to name.
+//! `MOVEIT_CLASS_FORWARD(RobotTrajectory)` — unported: expands to six
+//! typedefs via `MOVEIT_DECLARE_PTR` — `RobotTrajectoryPtr`/`ConstPtr`
+//! (`std::shared_ptr`), `WeakPtr`/`ConstWeakPtr` (`std::weak_ptr`),
+//! `UniquePtr`/`ConstUniquePtr` (`std::unique_ptr`); this port has no
+//! ownership handle to name.
 //!
 //! - 3 constructors (`RobotModelConstPtr`; `+ group: const std::string&`;
 //!   `+ group: const JointModelGroup*`) — ported as

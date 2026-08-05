@@ -961,12 +961,12 @@ mod tests {
     ///   [`Trajectory::integrate_forward`], and
     ///   [`Trajectory::integrate_backward`] were read side-by-side against
     ///   `time_optimal_trajectory_generation.cpp` (upstream lines
-    ///   398-410, 564-663, 690-742) term-for-term -- identical operation
+    ///   398-410, 564-688, 690-745) term-for-term -- identical operation
     ///   order throughout, including which pre-mutation value each
     ///   expression captures (e.g. `most_recent`/`trajectory.front()`
     ///   read before the following reassignment on both sides). Every
     ///   `getMinMax*`/`get*MaxPathVelocity*` helper (upstream lines
-    ///   747-828) matches the same way. Ruled out.
+    ///   747-834) matches the same way. Ruled out.
     /// - **FMA/instruction contraction**: `objdump -d` on the oracle
     ///   image's own compiled `libmoveit_trajectory_processing.so`
     ///   (`moveit-rs/oracle:7b8463d6943edaac`) finds zero `vfmadd*`
@@ -1303,7 +1303,7 @@ mod tests {
     // ported as `tests/large_accel.rs`, not here: its fixture data is
     // upstream's own test literals at full `f64` precision, and one of them
     // is (coincidentally — see the fixture's `source` field and that test
-    // file's doc comment) 4550 ULPs from `FRAC_PI_4`, close enough that
+    // file's doc comment) 4038 ULPs from `FRAC_PI_4`, close enough that
     // `clippy::approx_constant` fires on the literal. Loading the data from
     // a committed JSON fixture removes the literal clippy was matching
     // entirely, rather than disguising it from the lint.

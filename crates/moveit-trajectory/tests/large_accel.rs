@@ -20,7 +20,7 @@
 //! float literals also sidesteps a `clippy::approx_constant` false
 //! positive: one of upstream's `max_acceleration` components,
 //! `0.78539816339699997`, is close enough to `FRAC_PI_4` for the lint to
-//! flag it (verified: the two are 4550 ULPs apart, not equal and not one
+//! flag it (verified: the two are 4038 ULPs apart, not equal and not one
 //! ULP apart — this really is a coincidence in upstream's fixture data, not
 //! a near-miss worth aliasing to the constant). A `serde_json`-deserialized
 //! `f64` isn't a float literal in this crate's source at all, so the lint
