@@ -303,9 +303,9 @@ Built and ran a citation-vs-`all_ids` cross-check this round (investigative
 only, not committed) against every tracked `.md`/`.rs` file: 4 raw hits,
 and all 4 are false positives under the naive form of this check --
 
-- `crates/moveit-geometry/src/bodies.rs:557,1065` cite `§4.4.1` of
-  *Ericson, Real-Time Collision Detection*, a textbook, unrelated to this
-  repo's numbering entirely;
+- `crates/moveit-geometry/src/bodies.rs:557,1065` cite
+  *Ericson, Real-Time Collision Detection* §4.4.1 -- a textbook, unrelated
+  to this repo's numbering entirely;
 - `ros/moveit-ros/doc/message-mapping.md:888` cites `§17.5` of that
   document's **own** independent local numbering scheme, not
   `PORTING-PLAN.md`'s;

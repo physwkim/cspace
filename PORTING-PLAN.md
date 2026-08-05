@@ -21152,26 +21152,33 @@ D4를 다시 열지 않는다.
 `PHASE3_SWEEP=1` 포함해 실행. 상세 결과, `verify-upstream-license-provenance.sh`의
 "third_party/ 없음" 정정, `verify-phase3-collision-sweep.sh`가 panda/prbt
 2개 로봇에서 이미 UNMET로 확정되고 나머지 3개는 이 라운드 시간 안에
-끝나지 못한 채 백그라운드에 남겨진 경위는 `doc/claim-audit/tools-ci-gates.md`
-§243.1/§243.3에 전부 적었다 — collision/distance-field는 이 패널의 펜스
+끝나지 못한 채 백그라운드에 남겨진 경위는
+`doc/claim-audit/tools-ci-gates.md` §243.1/§243.3에 전부 적었다 —
+collision/distance-field는 이 패널의 펜스
 (`moveit-scene`, `moveit-metrics`) 밖이라 보고만 하고 고치지 않았다.
 
 **Half two — 커버리지 감사.** 32개 `check-*.sh`/`verify-*.sh` 전부를 각각이
 실제로 무엇을 파싱하고 무엇을 못 보는지, 구체적 실패 사례와 함께
 `doc/claim-audit/tools-ci-gates.md` §243.2 표에 적었다. 가장 값비싼 갭으로
-고른 것을 게이트로 만들어 커밋했다 (§243.4): `crates/*/tests/*.rs`의
+고른 것을 게이트로 만들어 커밋했다
+(`doc/claim-audit/tools-ci-gates.md` §243.4): `crates/*/tests/*.rs`의
 bracket 스타일 doc 링크는 `cargo doc`(테스트 타깃 자체가 없음, `--help`로
 확인), `cargo clippy`(링크 해석은 clippy 린트가 아님), `cargo test`(bracket
 링크는 doctest가 아님) 어느 것에도 닿지 않는다 -- `verify-private-doc-links.sh`가
 이미 문서화한 `#[cfg(test)]` 갭의 절반, `tests/*.rs` 쪽만 닫는
 `tools/ci/check-test-doc-links.sh`를 새로 추가했다. 실제 첫 실행에서 진짜
 실패 하나를 잡았다 (`moveit_error::Error::Code` -- 체커의 정밀도 결함으로
-드러나 소스에서 고쳤다, 뮤테이션 판별 통과) — 전체 경위는 §243.4.
+드러나 소스에서 고쳤다, 뮤테이션 판별 통과) — 전체 경위는
+`doc/claim-audit/tools-ci-gates.md` §243.4.
 
-찾았지만 이번 라운드에 게이트로 만들지 않은 것도 하나 있다 (§243.5):
+찾았지만 이번 라운드에 게이트로 만들지 않은 것도 하나 있다
+(`doc/claim-audit/tools-ci-gates.md` §243.5):
 `check-porting-plan-sections.sh`는 §226 같은 번호 충돌은 막지만, 리넘버
 후에도 살아남는 **참조**(정확히 이 스크립트 자신의 헤더가 적은 그 사고)는
 아무것도 안 본다. 순진하게 "본문의 모든 §NNN이 `all_ids`에 있어야 한다"로
-만들면 지금 트리에서 정당한 인용 4건(외부 문헌 §4.4.1, ros/moveit-ros
-자체 번호 체계 §17.5, PORTING-PLAN.md 자신의 굵은글씨 의사-소절 §177.1
-두 건)을 전부 오탐한다 — 검증까지 마치고 다음 라운드로 넘겼다.
+만들면 지금 트리에서 정당한 인용 4건을 전부 오탐한다: 외부 문헌
+(Ericson, *Real-Time Collision Detection*) §4.4.1,
+`ros/moveit-ros/doc/message-mapping.md` 자체 번호 체계의 §17.5,
+그리고 PORTING-PLAN.md 자신의 굵은글씨 의사-소절 §177.1 두 건.
+검증까지 마치고 다음 라운드로 넘겼다 — 실제로 무엇이 왔는지는
+`doc/claim-audit/tools-ci-gates.md` §243.5의 병합 노트에 적었다.
