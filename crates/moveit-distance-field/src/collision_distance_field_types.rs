@@ -1588,6 +1588,10 @@ mod tests {
 
         let decomposition = PosedBodyPointDecomposition::from_octree(&tree);
 
+        // ASSERTION-DISCRIMINATION AUDIT (round 2): `single-branch` --
+        // `from_octree`'s body has zero branches; `body_decomposition: None`
+        // is an unconditional field literal, not a guard, so there is
+        // exactly one cause of this `None`.
         assert!(
             decomposition.body_decomposition.is_none(),
             "the octree constructor leaves body_decomposition_ null, matching upstream"
