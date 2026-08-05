@@ -810,7 +810,7 @@ fn resolve_collision_point_joint_index(
 ///   per round 20's brief, and the `hy_env_`/`getCollisionGradients`
 ///   evidence backing it -- depend on two crates it has never carried:
 ///   `moveit-scene` (for `PlanningScene::is_path_valid`,
-///   `scene.rs:1695`) and `moveit-collision` (for `ParryCollisionEnv`,
+///   `scene.rs:1725`) and `moveit-collision` (for `ParryCollisionEnv`,
 ///   `parry.rs:1611` -- the only existing implementer of the
 ///   `CollisionEnv<Posed>` bound `is_path_valid` requires;
 ///   `DistanceFieldCollisionCache` does not implement it).

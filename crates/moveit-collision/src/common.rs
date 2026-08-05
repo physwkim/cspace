@@ -207,6 +207,19 @@ pub type IsDoneFn = Arc<dyn Fn(&CollisionResult) -> bool + Send + Sync>;
 /// Trait objects have no [`fmt::Debug`]/[`PartialEq`], so those are
 /// implemented by hand below, printing a placeholder for
 /// [`CollisionRequest::is_done`] instead of deriving.
+///
+/// Upstream's `pad_environment_collisions`/`pad_self_collisions` are not
+/// ported. They are not backend fields: no `CollisionEnv` implementation
+/// upstream reads either one, and the only three readers anywhere
+/// (`planning_scene.cpp:442`, `:453`, `:558`) do not pass them down — each
+/// picks one of `PlanningScene`'s two owned environments, padded or
+/// unpadded, and calls it with the request untouched. This port has no such
+/// pair to pick from: D4 gives the caller one `CollisionEnv` it owns, and
+/// padding is a property of that value ([`crate::LinkPaddingScale`]), so a
+/// caller asking for an unpadded check hands over an unpadded environment.
+/// Carrying the two flags here would leave a settable field that nothing
+/// can read — the same shape as the `distance` and `is_done` defects — so
+/// they are gone instead.
 #[derive(Clone)]
 pub struct CollisionRequest {
     /// Group to check collisions for; `None` means the whole robot
@@ -215,10 +228,6 @@ pub struct CollisionRequest {
     /// Upstream represents "whole robot" as `group_name == ""`; [`Option`]
     /// keeps that distinct from a group literally named `""`.
     pub group_name: Option<String>,
-    /// Use a padded collision environment.
-    pub pad_environment_collisions: bool,
-    /// Do self-collision checks with padded robot links.
-    pub pad_self_collisions: bool,
     /// Compute proximity distance.
     pub distance: bool,
     /// Return detailed distance information. Only meaningful when
@@ -246,11 +255,6 @@ impl fmt::Debug for CollisionRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CollisionRequest")
             .field("group_name", &self.group_name)
-            .field(
-                "pad_environment_collisions",
-                &self.pad_environment_collisions,
-            )
-            .field("pad_self_collisions", &self.pad_self_collisions)
             .field("distance", &self.distance)
             .field("detailed_distance", &self.detailed_distance)
             .field("cost", &self.cost)
@@ -268,8 +272,6 @@ impl Default for CollisionRequest {
     fn default() -> Self {
         Self {
             group_name: None,
-            pad_environment_collisions: true,
-            pad_self_collisions: false,
             distance: false,
             detailed_distance: false,
             cost: false,

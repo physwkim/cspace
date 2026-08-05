@@ -3278,10 +3278,10 @@ mod distance_pair_tests {
 ///    req.max_contacts=1`); `LinkPaddingScale::new()` against
 ///    `CollisionEnvFCL`'s untracked-link default (`env.rs`'s
 ///    `LinkAdjustment::default()`: `padding: 0.0, scale: 1.0`, matching
-///    upstream); `CollisionRequest::default()`'s
-///    `pad_environment_collisions: true` against upstream's own default
-///    (`collision_common.hpp:154`) -- every one of these matches upstream
-///    exactly. **Rejected**: nothing in `tools/moveit-diff` or
+///    upstream) -- every one of these matches upstream exactly. (It also had
+///    `CollisionRequest::default()`'s `pad_environment_collisions: true`;
+///    that field is gone from the port, and `decide`'s own `CollisionEnvFCL`
+///    never read it.) **Rejected**: nothing in `tools/moveit-diff` or
 ///    `moveit-constraints` differs from upstream anywhere in this chain.
 ///
 /// With both cleared, a live sweep (seed 4, `--cases 100 --group right_arm

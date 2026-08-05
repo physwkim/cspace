@@ -75,6 +75,25 @@
 //!   [`LinkPaddingScale`] rather than baked irreversibly into the link
 //!   geometry at construction, which is the property upstream's third step
 //!   (`setLinkPadding("panda_hand", 0.0)` then re-check) exists to pin.
+//!
+//! # The self half
+//!
+//! Upstream's `PaddingTest` pads a link and then checks
+//! `checkRobotCollision` only, so a backend that applied
+//! [`LinkPaddingScale`] to the robot-vs-world query and silently skipped it
+//! on the self query would satisfy every line above. `CollisionEnvFCL` does
+//! not have that freedom -- both queries read the one padded `robot_geoms_`
+//! its constructor built -- and neither does this backend, but nothing
+//! asserted it. The second test below is that boundary's other side, with
+//! the same three-step shape and its own discriminator: padding a
+//! *different* link by the same `0.05` leaves the scene clear, so the
+//! verdict is attributable to the link that was padded rather than to
+//! padding at all.
+//!
+//! (Which environment a *`PlanningScene`* self-check runs against is a
+//! separate question, and this port answers it differently from upstream --
+//! see `PlanningScene`'s type doc in `moveit-scene`. This file is about the
+//! backend, where upstream pads both queries too.)
 
 use std::sync::Arc;
 
@@ -112,6 +131,22 @@ const UNPADDED_DISTANCE: f64 = 0.029_119_199;
 /// in the module doc (`0.02 -> +0.021490125`, so `0.021490125 + 0.02`). Only
 /// used to state what the depth at [`PADDING`] should be.
 const HAND_UNPADDED_CLEARANCE: f64 = 0.041_490_125;
+
+/// The home pose's closest self-pair, `panda_link5` vs. `panda_link7`, with
+/// nothing padded. Upstream's `DistanceSelf`
+/// (`test_collision_common_panda.hpp:236-244`) asserts `EXPECT_NEAR(
+/// res.distance, 0.022, 0.001)` for exactly this quantity; this backend
+/// lands `0.000135` from that nominal, so the self scene is reproduced the
+/// same way [`UNPADDED_DISTANCE`] reproduces the world one.
+const SELF_UNPADDED_DISTANCE: f64 = 0.022_134_891;
+
+/// Padding applied to one link for the self-collision half. Larger than
+/// [`PADDING`] because a self-pair grows on one side only here: padding
+/// `panda_link5` alone shrinks the pair's clearance from `0.0221` to
+/// `-0.0102`, so `0.05` clears the flip point (measured between `0.0223`
+/// and `0.03`) by roughly the same `2x` margin upstream's `0.08` leaves in
+/// the world half.
+const SELF_PADDING: f64 = 0.05;
 
 /// Distances here are separations between rigid bodies at a fixed pose, so
 /// the only spread to absorb is the mesh-padding arithmetic itself: growing a
@@ -236,5 +271,97 @@ fn padding_panda_hand_turns_a_clear_scene_into_a_collision_and_back() {
         restored.minimum_distance.distance, unpadded.minimum_distance.distance,
         "restoring padding to 0.0 must restore the exact unpadded distance, \
          not merely a clear verdict"
+    );
+}
+
+#[test]
+fn padding_panda_link5_turns_a_clear_self_scene_into_a_collision_and_back() {
+    let model = panda();
+    let acm = AllowedCollisionMatrix::from_srdf(
+        &SrdfModel::parse_file(PANDA_SRDF).expect("fixture SRDF must parse"),
+    );
+
+    let mut state = RobotState::new(&model);
+    state.set_to_default_values();
+    for (name, value) in HOME {
+        state
+            .set_variable_position(name, value)
+            .unwrap_or_else(|e| panic!("setting {name}: {e}"));
+    }
+    let posed = state.update();
+
+    // No world at all, so nothing but the self query can produce a verdict.
+    let mut env = ParryCollisionEnv::new(World::new(), LinkPaddingScale::default());
+
+    let distance_request = || DistanceRequest {
+        enable_signed_distance: true,
+        acm: Some(&acm),
+        ..DistanceRequest::default()
+    };
+    let self_collides = |env: &ParryCollisionEnv| {
+        env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(&acm))
+            .collision
+    };
+
+    // Step 1 -- the home pose is self-collision free, at upstream's own
+    // `DistanceSelf` separation.
+    assert!(
+        !self_collides(&env),
+        "the home pose must be self-collision free before anything is padded"
+    );
+    let unpadded = env.distance_self(&distance_request(), &posed, &[]);
+    assert!(
+        (unpadded.minimum_distance.distance - SELF_UNPADDED_DISTANCE).abs() < TOL,
+        "unpadded minimum self distance {} != {SELF_UNPADDED_DISTANCE}",
+        unpadded.minimum_distance.distance
+    );
+
+    // Step 2 -- padding one side of that pair closes it. `check_self_collision`
+    // reading `LinkPaddingScale` at all is what this asserts.
+    assert!(
+        env.padding_scale_mut()
+            .set_link_padding("panda_link5", SELF_PADDING),
+        "setting panda_link5's padding to {SELF_PADDING} must report a change"
+    );
+    assert!(
+        self_collides(&env),
+        "panda_link5 padded by {SELF_PADDING} must reach panda_link7"
+    );
+    let padded = env.distance_self(&distance_request(), &posed, &[]);
+    assert!(
+        padded
+            .minimum_distance
+            .link_names
+            .iter()
+            .any(|name| name == "panda_link5"),
+        "the padded link must be in the pair that now collides, got {:?}",
+        padded.minimum_distance.link_names
+    );
+
+    // Step 3 -- the same magnitude on a link that is not in that pair leaves
+    // the scene clear. Without this the verdict above would also be satisfied
+    // by a backend that collides whenever any padding is non-zero.
+    let mut elsewhere = LinkPaddingScale::default();
+    elsewhere.set_link_padding("panda_hand", SELF_PADDING);
+    let elsewhere = ParryCollisionEnv::new(World::new(), elsewhere);
+    assert!(
+        !self_collides(&elsewhere),
+        "padding panda_hand by {SELF_PADDING} instead must leave the pose clear"
+    );
+
+    // Step 4 -- reversibility, as in the world half: padding is read per
+    // query, not baked into the link geometry.
+    assert!(
+        env.padding_scale_mut().set_link_padding("panda_link5", 0.0),
+        "restoring panda_link5's padding to 0.0 must report a change"
+    );
+    assert!(
+        !self_collides(&env),
+        "restoring padding to 0.0 must restore the clear self verdict"
+    );
+    let restored = env.distance_self(&distance_request(), &posed, &[]);
+    assert_eq!(
+        restored.minimum_distance.distance, unpadded.minimum_distance.distance,
+        "restoring padding to 0.0 must restore the exact unpadded self distance"
     );
 }

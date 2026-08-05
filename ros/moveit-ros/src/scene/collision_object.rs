@@ -245,7 +245,7 @@ pub(super) fn subframes_from_parallel_arrays(
 /// (as opposed to an attached one, which `attach_new` already supports
 /// directly via its own `subframes` parameter). Upstream
 /// `World::setSubframesOfObject`, reached through
-/// [`PlanningScene::set_subframes_of_object`] (`scene.rs:1048`, landed p1-fixtures
+/// [`PlanningScene::set_subframes_of_object`] (`scene.rs:1078`, landed p1-fixtures
 /// round 23, `de8886a`).
 ///
 /// # Closed: no outcome enum needed, no scene-level side effect to reproduce
@@ -274,7 +274,7 @@ fn set_world_object_subframes(
 }
 
 /// `CollisionObject` MOVE's per-shape repose. Upstream `World::moveShapesInObject`,
-/// reached through [`PlanningScene::move_shapes_in_object`] (`scene.rs:1025`,
+/// reached through [`PlanningScene::move_shapes_in_object`] (`scene.rs:1055`,
 /// landed p1-fixtures round 23, `de8886a`) -- same closed-gap reasoning as
 /// [`set_world_object_subframes`]: `world.cpp:262-278` collapses every
 /// failure to one case (unknown id or a shape-count mismatch, both already

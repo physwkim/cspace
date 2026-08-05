@@ -50,7 +50,7 @@ grammar. **The union is the population; either alone is a sample.**
 | `moveit-geometry/src/shapes.rs:905,929` | 3 | `x \| y \| z < 0.0` | fixed, `ab0f1ff` |
 | `moveit-model/src/robot_model.rs:841` | 2 | `child_link != root \|\| parent_frame.is_empty()` (`continue`) | p9-ros |
 | `moveit-planners-pilz/src/trajectory_functions.rs:549` | 2 | `n1 < 2 && n2 < 2` | p1-robotmodel |
-| `moveit-scene/src/scene.rs:1182` | 2 | `shapes.is_empty() \|\| shapes.len() != shape_poses.len()` | p1-fixtures |
+| `moveit-scene/src/scene.rs:1212` | 2 | `shapes.is_empty() \|\| shapes.len() != shape_poses.len()` | p1-fixtures |
 | `moveit-smoothing/src/acceleration_filter.rs:223` | 2 | `l > 0.0 \|\| u < 0.0` | p1-fixtures |
 | `moveit-trajectory/src/robot_trajectory.rs:235,304` | 2 | `index == 0 && value/dt != 0.0` | p1-robotmodel |
 | `moveit-trajectory/src/robot_trajectory.rs:261,349` | 2 | `waypoints.is_empty() && dt != 0.0` | p1-robotmodel |

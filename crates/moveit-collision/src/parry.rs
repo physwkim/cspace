@@ -73,15 +73,15 @@
 //!    the cached `robot_geoms_`). [`LinkPaddingScale`] is consulted only when
 //!    converting a [`moveit_model::LinkModel`]'s shapes, never a
 //!    [`crate::World`] object's.
-//! 3. **`CollisionRequest::pad_environment_collisions`/`pad_self_collisions`
-//!    are not read.** Grepped all of `moveit_core/`: both fields are read
-//!    only by `planning_scene.cpp` (out of this crate's scope), which
-//!    switches between two whole `CollisionEnv` instances — one padded, one
-//!    not — rather than either field ever reaching a `CollisionEnv` backend.
-//!    Neither `collision_env_fcl.cpp` nor `collision_common.cpp` reference
-//!    either field, so this backend always applies whatever
-//!    [`LinkPaddingScale`] it was constructed with, matching the real FCL
-//!    backend.
+//! 3. **This backend always applies the [`LinkPaddingScale`] it was built
+//!    with, to the self check and the robot-vs-world check alike** — as
+//!    `CollisionEnvFCL` does: neither `collision_env_fcl.cpp` nor
+//!    `collision_common.cpp` mentions `pad_environment_collisions`/
+//!    `pad_self_collisions`, and both checks read the one padded
+//!    `robot_geoms_` the constructor built. Those two flags are a
+//!    `PlanningScene`-level choice between two whole environments
+//!    (`planning_scene.cpp:442`, `:453`, `:558`) and are not ported here;
+//!    see [`CollisionRequest`]'s own doc.
 //! 4. **At most one [`Contact`] per *part* pair.**
 //!    `parry3d_f64::query::contact` returns a single closest/deepest point
 //!    per shape pair, where FCL's narrow phase can report several contact

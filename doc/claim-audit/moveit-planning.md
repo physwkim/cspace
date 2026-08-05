@@ -47,7 +47,7 @@ That was wrong; recorded here so the mistake doesn't repeat.
   `5347903` (velocity-bounds behavioral fix), `0d03824`, `2e17cc5`,
   `07da239` (category-a), `770deaa`, `8acd953`, `a7542f2`, `6f8d0b6`,
   `8195829` (category-b)
-- Round §NEW (this round): the 3 aggregate rows above ("13 other
+- Round `33519d7` (this round): the 3 aggregate rows above ("13 other
   citations" in `pipeline.rs`, the 5-citation `response.rs` bucket, and
   `resolve_constraint_frames.rs`'s single un-reopened citation) are
   replaced by 13 individually-opened rows covering every distinct

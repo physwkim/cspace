@@ -566,13 +566,43 @@ pub struct PathValidity {
 /// practice [`moveit_collision::ParryCollisionEnv`]) rather than owning one —
 /// upstream's `PlanningScene` owns *two* (`getCollisionEnv`/
 /// `getCollisionEnvUnpadded`, one per `CollisionDetectorAllocator` plugin),
-/// switched on `CollisionRequest::pad_environment_collisions`/
-/// `pad_self_collisions`. D4's compile-time-registry redesign replaces that
-/// plugin selection with the caller choosing (and owning) a concrete `E`
-/// directly, so there is only ever one backend in play here; every method
-/// below applies whatever padding `E` itself was built with (see
-/// `ParryCollisionEnv`'s own doc) to both the self- and robot-collision
-/// checks alike, rather than switching backends per flag.
+/// switched per check by `CollisionRequest::pad_environment_collisions`/
+/// `pad_self_collisions` — two flags this port does not carry (see
+/// [`moveit_collision::CollisionRequest`]). D4's compile-time-registry
+/// redesign replaces that plugin selection with the caller choosing (and
+/// owning) a concrete `E` directly, so every method below applies whatever
+/// padding `E` itself was built with (see `ParryCollisionEnv`'s own doc) to
+/// both the self- and robot-collision checks alike.
+///
+/// Those two upstream environments differ in nothing but their padding:
+/// `planning_scene.cpp:275-276` builds both from the same `world_` and the
+/// same `getRobotModel()`, and `cenv_unpadded_` is never handed to
+/// `setPadding`/`setScale`/`copyPadding` afterwards (`:249-252`, `:365-366`,
+/// `:1348-1349`, `:1386-1387` all name `cenv_` alone). "Unpadded" therefore
+/// means exactly `LinkPaddingScale::default()`, so a caller needing
+/// upstream's unpadded environment builds `let mut u = env.clone();
+/// *u.padding_scale_mut() = LinkPaddingScale::default();` — a clone that
+/// shares the world's `Arc<Object>` contents and the octree cache.
+///
+/// **Deviation — which half the padding reaches.** Upstream's two defaults
+/// are asymmetric: `pad_environment_collisions` is `true` and
+/// `pad_self_collisions` is `false` (`collision_common.hpp:154`, `:157`),
+/// and nothing in the whole `moveit2` tree ever assigns the second. Its
+/// effective rule is thus "robot-vs-world padded, self never padded", while
+/// [`PlanningScene::check_collision`] has one `E` and pads both halves — so
+/// with a padded `E` its self half can report a collision upstream would
+/// not. This is latent, not live: no caller in this workspace hands a
+/// non-default [`moveit_collision::LinkPaddingScale`] to a [`PlanningScene`]
+/// method (the two that build one call
+/// [`moveit_collision::CollisionEnv::check_robot_collision`] directly,
+/// mirroring upstream's own `test_collision_common_panda.hpp:215-233`), and
+/// upstream's one `move_group`-reachable unpadded caller,
+/// `PlanExecution::isRemainingPathValid` (`plan_execution.cpp:268-300`), is
+/// not ported. Both sides of the boundary are pinned in
+/// `moveit-scene/tests/padding_reaches_the_scenes_self_half.rs`. Re-open when
+/// a caller does need upstream's unpadded self half: the fix is for that
+/// caller to pass the unpadded clone above, not for this type to take a
+/// second `E`.
 ///
 /// Every check/distance method also passes `self`'s
 /// [`PlanningScene::attached_bodies`] to `env` as

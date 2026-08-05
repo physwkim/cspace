@@ -2956,8 +2956,8 @@ not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
 **병합 시점 정정 (같은 라운드에서 해소됨).** `p1-fixtures`가 같은 라운드에
 그 조회를 내놨다 — 다만 `RobotState` 레벨이 아니라 **`PlanningScene` 레벨**로,
 이 포트가 부착체를 상태가 아니라 씬에 두기로 한 결정에 맞춰서다
-(`crates/moveit-scene/src/scene.rs:583` `frame_transform`,
-`:641` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
+(`crates/moveit-scene/src/scene.rs:613` `frame_transform`,
+`:671` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
 월드 객체 id/서브프레임의 3단 사다리). `Posed::frame_transform`의 주석도
 `22bb2a2`에서 "attached bodies are not ported"를 버리고 "씬 한 층 위에서
 해결된다"로 고쳤다. 따라서 §23.1의 차단 사유는 더 이상 성립하지 않는다.
@@ -4088,7 +4088,7 @@ n_min = (3.0 / (5/13))^2 = (39/5)^2 = 60.84  →  61
 
 §23.1이 남겨둔 차단 사유(`RobotState`/`Posed`에 부착체/서브프레임을
 이름으로 찾는 API가 없음)는 같은 병합 라운드에서 `p1-fixtures`가
-`PlanningScene` 레벨(`scene.rs:583`, `:641`)로 해소했다 — `RobotState`
+`PlanningScene` 레벨(`scene.rs:613`, `:671`)로 해소했다 — `RobotState`
 레벨이 아니라. 이번 라운드에서 이 함수를 실제로 이식했다.
 
 ### 36.1 의존 방향 — 클로저를 택했다
@@ -4305,7 +4305,7 @@ planar/floating이 `isSingleDOFJoints()` 게이트에 막혀 이 op에 도달할
 ### 38.4 커밋 제목이 이식하지 않은 심볼을 이름으로 걸었다
 
 `f7b9fc5`의 제목은 `scene: port isStateFeasible/isStateConstrained/
-isStateValid/isPathValid`인데, 본문과 `scene.rs:874`의 문서는
+isStateValid/isPathValid`인데, 본문과 `scene.rs:904`의 문서는
 `StateFeasibilityFn` 술어를 **의도적으로 이식하지 않았다**고 정확히
 적는다. 이식하지 않은 이유(등록하는 호출부가 이 포트 안에 하나도 없어
 상류에서도 무조건 `true` 분기를 타므로, 저장 필드를 두는 것은 가상의
@@ -6104,7 +6104,7 @@ crates/` 한 번이면 나온다.
 성립할 수 있는 경로 자체가 존재하지 않는다. 한정자도 주석도 필요 없다.
 
 tier 순서는 상류 `planning_scene.cpp:2036-2054`와 같다:
-state → attached body → world → extra fixed frame map(`scene.rs:924-936`).
+state → attached body → world → extra fixed frame map(`scene.rs:954-966`).
 
 ### 66.3 경계값으로 테스트됐다
 
@@ -7169,7 +7169,7 @@ p1-fixtures 라운드 11 머지(`bf11a20`, `6e1c8ea`, `08ab3c7`). 베이스
 rg -c '^/// - `' crates/moveit-scene/src/scene.rs      59   (선언과 일치)
 같은 명령을 47-434행으로 제한                          59   (일치)
 rg -n '^fn .*matches_the_oracle' .../tests/*.rs         3   (이름 3건 모두 일치)
-scene.rs:2642 = "// ---- collision checking ----"           (일치)
+scene.rs:2672 = "// ---- collision checking ----"           (일치)
 ```
 
 "zero unported, in scope" 주장도 내가 따로 검증했다.
@@ -7775,8 +7775,8 @@ p1-robotmodel 라운드 11 머지(`8146ecc`, `95041dd`, `0ba77c4`).
 `rg`로 확인한 워크스페이스 전체 상황:
 
 ```
-moveit-scene/src/scene.rs:791       정의
-moveit-scene/src/scene.rs:2507-2637 자기 테스트 8건
+moveit-scene/src/scene.rs:821       정의
+moveit-scene/src/scene.rs:2537-2667 자기 테스트 8건
 moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
                                     #[cfg(test)] 테스트 안
 ```
@@ -8354,12 +8354,12 @@ cargo nextest run -p moveit-constraints --no-fail-fast           → 89   일치
 
 **그 명령은 0건이 아니라 28줄을 낸다.** `--glob '!*/tests/*'`는
 통합 테스트 디렉터리만 제외하고, `#[cfg(test)]` 모듈은 `src/` 안에
-있기 때문이다(`scene.rs:2507-2637`, `planning_scene_validity.rs:374-419`).
+있기 때문이다(`scene.rs:2537-2667`, `planning_scene_validity.rs:374-419`).
 
 내가 `#[cfg(test)]` 시작 줄을 기준으로 다시 분류했다:
 
 ```
-CODE  crates/moveit-scene/src/scene.rs:791: pub fn transforms_with_world_objects(...)
+CODE  crates/moveit-scene/src/scene.rs:821: pub fn transforms_with_world_objects(...)
 ```
 
 **코드 히트는 정의 하나뿐이다. 결론(프로덕션 호출자 0건)은 맞다.**
@@ -9111,7 +9111,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
 ### 105.3 §97.2·§97.3의 세 건이 모두 닫혔다
 
 - `utils.rs`의 `rg` 명령: 0건을 함의하던 것을 **기대 출력 그대로**
-  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:791` 하나).
+  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:821` 하나).
   §97.2가 권한 후자를 골랐다.
 - 호출자 위치 논거를 **시그니처 논거**로 교체했다. 담당이 브리프의
   15파일/43줄을 그대로 쓰지 않고 자기가 다시 세어 13파일/7-5-1로
@@ -12220,7 +12220,7 @@ docker가 필요하고, 그건 레지스트리/remote가 필요하다. 즉 §144
 p9-ros의 UNFIXED 중 하나를 원본에 대고 확인했다. 사실이고, 막는 쪽은 ros/가
 아니라 **우리 crates/**다.
 
-`moveit_scene::PlanningScene::world()`(`scene.rs:951`)는 `&World`만 돌려준다.
+`moveit_scene::PlanningScene::world()`(`scene.rs:981`)는 `&World`만 돌려준다.
 `world_mut`은 없다(`rg`로 확인, 0건). 그런데 필요한 두 연산은 `World`에
 `pub`으로 있다 — `move_shapes_in_object`(`world.rs:707`),
 `set_subframes_of_object`(`world.rs:837`). 즉 크레이트 밖에서 도달 불가다.
@@ -20527,8 +20527,8 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 | 필드 | self | robot | 포트에서 읽는 곳 | 상류에서 읽는 곳 |
 |---|---|---|---|---|
 | `group_name` | 읽음 | 읽음 | `:2490`, `:2517` (`active_group_links`), `:2464` (거리 질의로 전달) | `collision_common.cpp:1012-1022` (`CollisionData::enableGroup`), 술어는 `:80-94` |
-| `pad_environment_collisions` | 닿을 자리 없음 | 닿을 자리 없음 | 없음 | 백엔드에는 없다. `planning_scene.cpp:442`가 유일한 독자이고, 필드를 백엔드에 넘기는 대신 패딩된/안 된 두 `CollisionEnv` 인스턴스 중 하나를 고른다 |
-| `pad_self_collisions` | 닿을 자리 없음 | 닿을 자리 없음 | 없음 | 같은 방식, `planning_scene.cpp:453`·`:558` |
+| `pad_environment_collisions` | **포팅 안 함 (§242)** | **포팅 안 함 (§242)** | 필드가 없다 (`b5cced7`) | 백엔드에는 없다. `planning_scene.cpp:442`가 유일한 독자이고, 필드를 백엔드에 넘기는 대신 패딩된/안 된 두 `CollisionEnv` 인스턴스 중 하나를 고른다 |
+| `pad_self_collisions` | **포팅 안 함 (§242)** | **포팅 안 함 (§242)** | 필드가 없다 (`b5cced7`) | 같은 방식, `planning_scene.cpp:453`·`:558`. 상류 트리 전체에 **대입하는 곳이 0**이므로 실효값은 기본 `false` 하나다 |
 | `distance` | 읽음 | 읽음 | `:2460` (`attach_requested_distance`) | `collision_env_fcl.cpp:283-297` (self), `:340-354` (robot) |
 | `detailed_distance` | 읽음 | 읽음 | `:2469` | 같은 두 블록의 `if (req.detailed_distance)` |
 | `cost` | 읽음 | 읽음 | `:2184`, `:2243`, `:2271` | `collision_common.cpp:279-288`, `:341-354`, 그리고 종료 규칙 `:405` |
@@ -20619,6 +20619,11 @@ HEAD:crates/moveit-collision/src/common.rs:5
 고치려면 `moveit-scene`이 환경 둘을 받는 API 변경이다 — 이 회차의
 범위 밖이고, 그 판단은 D4를 다시 여는 문제다.
 
+**§242가 이 문단을 대체한다.** "환경 둘을 받는 API 변경"이라는 전제가
+틀렸다: 상류의 두 환경은 패딩 말고 다른 것이 없으므로 호출자가
+`env.clone()` 뒤 `padding_scale_mut()`를 비우면 미패딩 환경이 나오고,
+D4는 열리지 않는다. 두 필드는 포팅하지 않기로 판정했다(`b5cced7`).
+
 이 행을 확정하는 동안 상류 결함 하나가 나왔다:
 `checkCollisionUnpadded` 여섯 오버로드 중 둘이 `new_req`를 만들어
 `pad_environment_collisions = false`를 넣고는 원본 `req`를 넘긴다
@@ -20648,7 +20653,7 @@ $
 `collision-callback-logs-contact-stored-when-dropped`에 있다.
 
 만료 조건: **워크스페이스에 로깅 파사드가 생기면** `verbose` 행을 다시
-연다. `pad_*` 두 행은 D4가 열려야 다시 열린다.
+연다. `pad_*` 두 행의 만료 조건은 §242.4가 다시 쓴다.
 
 ## §240 포팅됨 158건 중 선언 단위로 세어 본 것은 69건뿐이었다 — 나머지 89건을 목록으로 만들고 게이트를 붙였다 (2026-08-06)
 
@@ -20956,3 +20961,182 @@ Phase 9의 판정은 UNMET에서 바뀌지 않는다 — §241.4가 측정한 �
 "완료" 기준(무변경 클라이언트가 유효한 궤적을 받음)에 아직 미달이다.
 사용자 지시대로 판정이 바뀔 때만 §5 표 행을 고치므로, 이 라운드는 그
 행(측정한 §: §226.4)을 건드리지 않는다.
+
+## §242 `pad_environment_collisions`/`pad_self_collisions` — 상류의 두 환경 차이는 패딩뿐이고, D4의 `E` 하나가 그것을 낸다 (2026-08-06)
+
+§239.3이 이 두 필드를 "고치려면 `moveit-scene`이 환경 둘을 받는 API
+변경이고 그 판단은 D4를 다시 여는 문제"라며 열어둔 채 끝냈다. 그 문장은
+판정이 아니라 미룸이었다. 여기서 재고 판정한다.
+
+질문은 셋이다 — 상류에서 이 둘을 실제로 쓰는 곳은 어디인가, 그중
+`move_group`의 계획·실행 경로에서 닿는 것은 무엇인가, 그리고 상류가 가진
+두 `CollisionEnv` 인스턴스는 서로 **무엇이** 다른가. 셋째를 먼저 답하지
+않으면 포트의 대안이 "필드를 살린다"로만 보이는데, 실제 대안은 그것이
+아니다.
+
+### §242.1 앵커 넷을 전수하면 코퍼스 안 호출자는 0이다
+
+브리프가 지목한 앵커는 `checkCollisionUnpadded`,
+`checkSelfCollisionUnpadded`, 그리고 두 필드다. 먼저 실측 하나를
+정정한다: **`checkSelfCollisionUnpadded`는 상류에 존재하지 않는다.**
+
+```console
+$ cd /home/stevek/work/moveit2   # e017c91e
+$ rg -o --no-heading '\b\w*[Uu]npadded\w*\b' --glob '*.cpp' --glob '*.hpp' --glob '*.h' . \
+    | sed 's/.*://' | sort | uniq -c | sort -rn
+     17 checkCollisionUnpadded
+     16 getCollisionEnvUnpadded
+      7 distanceToCollisionUnpadded
+      5 cenv_unpadded_
+      4 check_collision_unpadded
+      3 unpadded
+      3 cenv_unpadded_const_
+      2 CollisionRobotUnpadded
+      1 unpadded_param
+```
+
+패딩 안 된 환경으로 가는 문은 셋이고(`checkCollisionUnpadded`,
+`getCollisionEnvUnpadded`, `distanceToCollisionUnpadded`) 자기 충돌
+전용 문은 없다. 넷을 파일별로 펼치면:
+
+| 파일 | 히트 | 코퍼스 | 무엇인가 |
+|---|---|---|---|
+| `moveit_core/planning_scene/src/planning_scene.cpp` | `checkCollisionUnpadded` 정의 6 (`:457`·`:465`·`:473`·`:482`·`:491`·`:502`), `pad_environment_collisions` 7 (`:442`와 그 여섯 정의 안의 `new_req`), `pad_self_collisions` 2 (`:453`·`:558`) | 안 | **정의·유일한 독자** |
+| `moveit_core/planning_scene/include/.../planning_scene.hpp` | `checkCollisionUnpadded` 선언 6 (`:380`~`:412`) | 안 | 선언 |
+| `moveit_core/collision_detection/include/.../collision_common.hpp` | `:154`, `:157` | 안 | 필드 자신 |
+| `moveit_py/.../planning_scene.cpp` | `check_collision_unpadded` 바인딩 3 + 주석 2 | 밖 | 파이썬 바인딩 |
+| `moveit_ros/planning/plan_execution/src/plan_execution.cpp` | `:285` `req.pad_environment_collisions = false;` | 밖 | **실호출자** |
+| `moveit_ros/benchmarks/src/BenchmarkExecutor.cpp` | `:1012` 같은 대입, `:1021` `distanceToCollisionUnpadded` | 밖 | **실호출자** |
+| `moveit_ros/moveit_servo/src/collision_monitor.cpp` | `:124` `getCollisionEnvUnpadded()->checkSelfCollision(...)` | 밖 | **실호출자** |
+| `moveit_core/planning_scene/test/test_planning_scene.cpp` | `getCollisionEnvUnpadded()->getWorld()->size()` 3 (`:181`·`:184`·`:204`) | 밖(`test` 경로) | 월드 크기만 본다 |
+
+코퍼스 안 파일 셋은 전부 **선언·정의·유일한 독자**이고, 넷 중 어느 것도
+부르는 코퍼스 파일은 없다. 즉 **코퍼스 안 호출자 0**이다.
+
+그 전수에서 하나가 더 나왔다. **`pad_self_collisions`에 값을 대입하는
+곳은 상류 트리 전체에 0개다.** 히트 셋은 `collision_common.hpp:157`의
+기본값 `false`와 `planning_scene.cpp:453`·`:558`의 삼항 연산자뿐이다.
+따라서 상류의 실효 규칙은 필드 이름이 시사하는 "요청마다 고른다"가
+아니라 **"환경 쪽은 패딩, 자기 충돌은 언제나 패딩 없음"** 이다.
+`checkCollisionUnpadded` 여섯도 `pad_environment_collisions`만 끄므로
+같은 결론에 든다.
+
+### §242.2 `move_group` 경로에서 닿는 것은 `isRemainingPathValid` 하나다
+
+Phase 9의 조건은 "기존 C++ `MoveGroupInterface` 클라이언트가 유효한 궤적을
+그대로 받는다"이므로, 코퍼스 밖 셋 중 `move_group`이 링크하는 것이 어느
+것인지가 실제 질문이다.
+
+```console
+$ rg -n --no-heading -w 'isRemainingPathValid|planAndExecute|executeAndMonitor' \
+     --glob '*.cpp' --glob '*.hpp' .
+moveit_ros/move_group/src/default_capabilities/move_action_capability.cpp:183:  context_->plan_execution_->planAndExecute(plan, planning_scene_diff, opt);
+moveit_planners/pilz_industrial_motion_planner/src/move_group_sequence_action.cpp:179:  context_->plan_execution_->planAndExecute(plan, planning_scene_diff, opt);
+moveit_ros/planning/plan_execution/src/plan_execution.cpp:219:      plan.error_code = executeAndMonitor(plan, false);
+moveit_ros/planning/plan_execution/src/plan_execution.cpp:501:      if (!isRemainingPathValid(plan, current_index))
+moveit_ros/planning/plan_execution/src/plan_execution.cpp:617:    if (!isRemainingPathValid(plan, next_index))
+```
+
+- **닿는다.** `plan_execution.cpp:285`. `move_action_capability.cpp:183`
+  → `planAndExecute`(`:118`) → `executeAndMonitor`(`:355`) →
+  `isRemainingPathValid`(`:501`, 그리고
+  `successfulTrajectorySegmentExecution`의 `:617`). 진입 조건은
+  `plan.plan_components[i].trajectory_monitoring`이고 기본값이 `true`다
+  (`plan_representation.hpp:51`·`:59`). 두 번째 진입점
+  `move_group_sequence_action.cpp:179`는 코퍼스 **안** 파일이지만
+  `doc/port-coverage.md:199`가 `decided-non-port`로 판정한 액션 서버다.
+- **닿지 않는다.** `moveit_servo`(`collision_monitor.cpp:124`)는
+  `moveit_servo_lib_cpp`(`moveit_ros/moveit_servo/CMakeLists.txt:44`)에,
+  `benchmarks`(`BenchmarkExecutor.cpp:1012`·`:1021`)는
+  `moveit_run_benchmark`가 링크하는 라이브러리(`:31`, `:49`)에 들어간다.
+  둘 다 `move_group`이 링크하지 않는다 — `rg -n 'servo|benchmark'`가
+  `moveit_ros/move_group/CMakeLists.txt`와 `package.xml`에서 히트 0이다.
+
+그러므로 Phase 9가 존중해야 하는 미패딩 호출자는 **정확히 하나**,
+`PlanExecution::isRemainingPathValid`다. 그리고 그것이 사는
+`moveit_ros/planning/plan_execution`은 이 포트에 없다 —
+`ros/moveit-ros/src/`에는 `constraints/`, `scene/`, `geometry.rs`,
+`model.rs`, `planning.rs`, `state.rs`, `trajectory.rs`,
+`conversion_coverage.rs`뿐이다.
+
+### §242.3 두 환경은 패딩 말고 다른 것이 없다 — 그래서 대안은 "필드"가 아니라 "clone"이다
+
+`allocateCollisionDetector`(`planning_scene.cpp:255-286`)를 열면 둘은 같은
+인자로 만들어진다.
+
+```cpp
+collision_detector_->cenv_          = alloc_->allocateEnv(world_, getRobotModel());
+collision_detector_->cenv_unpadded_ = alloc_->allocateEnv(world_, getRobotModel());
+if (prev_coll_detector)
+  collision_detector_->copyPadding(*prev_coll_detector);   // cenv_ 만
+```
+
+그 뒤로 `cenv_unpadded_`에 패딩을 넣는 곳은 없다. 패딩을 쓰는 네 지점이
+전부 `cenv_`를 이름으로 지목한다 — `copyPadding`(`:249-252`),
+`pushDiffs`의 `active_cenv`(`:365-366`, `getCollisionEnvNonConst()`이므로
+`cenv_`), `setPlanningSceneMsg`(`:1348-1349`), `usePlanningSceneMsg`
+(`:1386-1387`). 부모 분기(`:269-272`)는 각자의 짝을 복사 생성하므로
+성질이 귀납적으로 보존된다. 즉 **"unpadded"는 `CollisionEnv` 생성자
+기본값(패딩 `0.0`, 스케일 `1.0`, `collision_env.cpp:83-95`·`:99-115`)
+그대로라는 뜻**이고, 그것은 이 포트의 `LinkPaddingScale::default()`와
+같은 상태다.
+
+따라서 D4의 `E` 하나로 미패딩 검사를 못 낸다는 전제가 틀렸다. 호출자가
+쓰는 것은:
+
+```rust
+let mut unpadded = env.clone();
+*unpadded.padding_scale_mut() = LinkPaddingScale::default();
+```
+
+`ParryCollisionEnv`의 `World`는 `BTreeMap<String, Arc<Object>>`이고
+옥트리 캐시는 `Arc<Mutex<..>>`이므로 이 `clone`은 얕은 참조 증가다
+(`ParryCollisionEnv::new`로 다시 지으면 캐시가 식는다 — `clone` 쪽이
+싸고 옳다). 남는 차이 하나는 상류의 두 환경이 `WorldPtr` 하나를
+공유하는 살아 있는 뷰인 반면 여기 `clone`은 스냅숏이라는 것인데,
+유일한 대상 호출자 `isRemainingPathValid`는 루프 전체를
+`LockedPlanningSceneRO`로 잠그고 돌므로 그 구간에 월드가 바뀌지 않는다.
+
+### §242.4 판정 — 두 필드는 포팅하지 않는다
+
+구조적 선택지는 둘이었다. (a) 필드를 살리고
+`PlanningScene::check_collision`이 `if padded` 런타임 분기로 환경 둘 중
+하나를 고르게 한다. (b) 규칙을 하나로 두고 — 패딩은 `E`의 성질이다 —
+필드를 없앤다.
+
+(b)를 택했다(`b5cced7`). 근거는 취향이 아니라 §242.1~.3이다: 이 둘은
+백엔드 필드가 아니고(어떤 `CollisionEnv`도 읽지 않는다), 코퍼스 안
+호출자가 0이며, 살려두면 **설정할 수 있는데 아무도 읽지 않는 필드**가
+된다 — `distance`(§231.1, `00e37c1`)와 `is_done`(§239.2)이 방금 두 번
+낸 바로 그 결함 모양이다. 없애면 그 상태를 표현할 수 없다.
+
+남는 차이는 필드가 아니라 **어느 쪽 절반에 패딩이 닿는가**이고, 이것은
+`f43daeb`에서 `PlanningScene` 타입 문서의 명시적 일탈로 적고 시험으로
+고정했다. 상류 실효 규칙은 §242.1이 잰 대로 "자기 충돌은 언제나 패딩
+없음"인데 이 포트는 `E` 하나이므로 양쪽에 같은 패딩이 간다. 패딩이 든
+`E`에서만 갈라지고, 이 워크스페이스에는 그런 호출자가 없다 —
+비기본 `LinkPaddingScale`을 만드는 두 곳
+(`crates/moveit-collision/tests/link_padding_changes_collision_verdict.rs`,
+`crates/moveit-collision/tests/upstream_panda_harness.rs`)은 모두
+`CollisionEnv`를 직접 부르고, 이는 상류 자신의
+`test_collision_common_panda.hpp:215-233`이 하는 것과 같다.
+
+경계 양쪽을 시험으로 못박았다.
+`crates/moveit-scene/tests/padding_reaches_the_scenes_self_half.rs`가
+패딩 없는 `E`(상류와 같은 답)와 패딩 든 `E`(갈라지는 답)를 한 쌍으로
+두고, `link_padding_changes_collision_verdict.rs`의 새 시험이 백엔드
+층에서 `check_self_collision`이 `LinkPaddingScale`을 읽는다는 것 자체를
+잡는다. 변이 셋으로 판별을 확인했다 — `check_self_collision`에서 패딩을
+떼면 새 시험 둘만, `check_robot_collision`에서 떼면 월드 쪽 둘만,
+`CollisionEnv::check_collision`이 자기 검사를 건너뛰게 하면 18건(그중
+씬 시험은 패딩 든 쪽 하나)이 깨진다. 미추적 링크의 기본 패딩을
+`0.0`에서 `0.05`로 바꾸면 52건이 깨지고 거기에 패딩 없는 쪽 씬 시험이
+든다 — 음성 대조도 비어 있지 않다.
+
+**만료 조건**(§231.2와 같은 모양, 취향이 아니라 사실로):
+**`PlanningScene::check_collision`에 비기본 `LinkPaddingScale`을 가진
+`E`를 넘기면서 상류의 미패딩 자기 절반을 필요로 하는 호출자가 생기면**
+다시 연다. 실질적으로는 `moveit_ros/planning/plan_execution`을 포팅할
+때다. 그때의 수정은 그 호출자가 §242.3의 미패딩 `clone`을 자기 손으로
+넘기는 것이지, `PlanningScene`이 `E`를 둘 받는 것이 아니다 — 그 형태는
+D4를 다시 열지 않는다.
