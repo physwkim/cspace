@@ -2679,6 +2679,23 @@ mod tests {
         );
     }
 
+    /// Isolating mutation (assertion-discrimination sweep, round 15):
+    /// `visual_mesh_filename() == None` funnels two independent causes --
+    /// no mesh geometry found at all (`no_mesh_in_visual_or_collision_...`
+    /// above) and mesh geometry found but with an empty `filename`
+    /// attribute (`!filename.is_empty()`, this test). Untested until now.
+    #[test]
+    fn mesh_with_an_empty_filename_leaves_visual_mesh_filename_none() {
+        let urdf =
+            link_with_geometry_urdf(r#"<visual><geometry><mesh filename=""/></geometry></visual>"#);
+        let model = build(&urdf, FIXED_BASE_SRDF).expect("builds");
+
+        assert_eq!(
+            model.link_model("base").unwrap().visual_mesh_filename(),
+            None
+        );
+    }
+
     /// A four-joint chain (`j1`..`j4`, the last fixed) plus a branch off
     /// `base` (`j5`), shaped so an end effector's `parent_link` (`link2`)
     /// has exactly two candidate parent groups of different sizes (`arm`:

@@ -1014,3 +1014,149 @@ applied uniformly. 0 blind sites remain in `mesh_search_paths.rs`.
 
 Gate scope: `-p moveit-model`, source-touching round, all three steps
 (`fmt`, `clippy -D warnings`, `nextest`) run and clean as owed.
+
+## Round 15: audit the 53-site fence itself for the funnel shape census §9g named
+
+`mesh_search_paths.rs`'s bug is now census §9g. The user's charge this round
+was not to re-derive membership again but to hunt the *same defect shape*
+across the rest of the fence: every site whose subject routes two or more
+distinguishable guards into one undifferentiated `None`/`Err`, verdicted
+`discriminating` by reading. Re-ran `count-coarse-assertions.py` against the
+same six paths first — 53, not 52 (round 14 added two `eq_none` sites of its
+own, `mesh_search_paths.rs:179,192`; every other line number below is
+current against `HEAD` at merge `3da1308`).
+
+### Method
+
+For every site, read the *subject* function (not the test) for a chain of
+`?`/early-return/boolean-fold guards converging on one bare value with no
+distinguishing payload. Two found; both bitten. Everything else is excluded
+below, by class, with the specific reason it cannot exhibit `resolve()`'s
+defect shape.
+
+### Funnel 1: `CheckStartStateBounds::adapt`'s `should_fix_state`/`is_out_of_bounds` — 5 causes, one bare `Err`, 2 of 5 untested
+
+`check_start_state_bounds.rs:169`'s guard (`is_out_of_bounds ||
+(!fix_start_state && should_fix_state)`) is fed by five independent
+per-joint causes, all folding into the identical
+`Err(RequestAdapterError::StartStateInvalid { adapter })` — no detail field
+to distinguish them:
+
+- `is_out_of_bounds`: position bounds (`:157`), velocity bounds (`:160`)
+- `should_fix_state`: continuous-revolute wrap (`:138`), planar rotation
+  normalize (`:144`), floating quaternion normalize (`:150`) — all three
+  named explicitly in the module doc (steps 1-3) as of this file's own
+  design, not a fact this round discovered
+
+Round 13 bit position and velocity (`:302`, `:328`, both in-fence `eq_err`
+sites) and, incidentally, the continuous-revolute-wrap cause via a test
+outside the 53-site grammar. **Planar and floating rotation-normalize had
+no test anywhere in the file** — not blind assertions, absent ones, exactly
+`mesh_search_paths.rs:87,89`'s shape before round 14.
+
+**Fixed.** Added `planar_robot()`/`floating_robot()` fixtures (neither
+`panda` nor `pr2` has a planar or floating joint) and two new tests,
+mirroring the existing continuous-wrap test's two-phase shape (`fix_start_state
+= false` rejects, `= true` accepts and the representation is normalized).
+Re-verified all five causes by isolating mutation this round, not carried
+forward from round 13's report:
+
+| cause | mutation | result |
+|---|---|---|
+| position (`:157`) | `!joint.satisfies_position_bounds(...) && false` | exactly `a_joint_placed_outside_its_limits_is_rejected_regardless_of_fix_start_state` failed; 7 siblings green |
+| velocity (`:160`) | `... && false` appended to the velocity condition | exactly `an_out_of_bounds_velocity_is_rejected` failed; 7 siblings green |
+| continuous wrap (`:138`) | `joint.enforce_position_bounds(&mut values) && false` | exactly `a_continuous_joint_past_pi_is_wrapped_...` failed; 7 siblings green |
+| planar normalize (`:144`), new | `PlanarJoint::normalize_rotation(planar) && false` | exactly `a_planar_joint_past_pi_is_wrapped_...` (new test) failed; 7 siblings green |
+| floating normalize (`:150`), new | `FloatingJoint::normalize_rotation(floating) && false` | exactly `a_floating_joint_with_a_non_unit_quaternion_...` (new test) failed; 7 siblings green |
+
+All five run one at a time with `cargo nextest run -p moveit-planning
+check_start_state_bounds --no-fail-fast`, each reverted before the next.
+`git diff --stat` after final revert shows only the `#[cfg(test)] mod
+tests` block changed; `adapt()`'s body is byte-identical to pre-round.
+
+### Funnel 2: `visual_mesh_filename()` — 2 causes, one bare `None`, 1 of 2 untested
+
+`RobotModel`'s per-link visual-mesh resolution (`robot_model.rs:1189-1212`)
+has two distinguishable ways to leave `visual_mesh_filename()` at `None`:
+
+- no `<mesh>` geometry found in either `<visual>` or `<collision>` (the
+  `.filter(is_mesh).or_else(...)` chain itself yields `None`) — tested,
+  `no_mesh_in_visual_or_collision_leaves_visual_mesh_filename_none`
+- a `<mesh>` element *is* found, but `filename` is an empty string
+  (`!filename.is_empty()` at `:1202` guards the `set_visual_mesh` call) —
+  **untested**
+
+Unlike `resolve()`'s `?`-chain, these two causes are not sequential
+fallthrough — they sit on disjoint branches of `if let Some(mesh) { if
+!empty { .. } }`, and the outer branch is a refutable enum-variant match
+(`Geometry::Mesh{..}`) that a non-mesh geometry can never satisfy regardless
+of the inner guard's state. So the existing test cannot ride the untested
+guard the way `mesh_search_paths.rs`'s two tests rode each other. Verified,
+not merely reasoned: bypassing the inner guard
+(`!filename.is_empty() || true`) left the existing "no mesh" test green and
+failed only the new one.
+
+**Fixed.** Added `mesh_with_an_empty_filename_leaves_visual_mesh_filename_none`
+(`<visual><geometry><mesh filename=""/></geometry></visual>`). Isolating
+mutation: `!filename.is_empty()` → `!filename.is_empty() || true` — exactly
+the new test failed (`Some("")` vs expected `None`), the existing
+"no mesh found" test stayed green, confirmed via `cargo nextest run -p
+moveit-model visual_mesh --no-fail-fast`. Reverted; `git diff` on
+`robot_model.rs`'s `resolve_...`/mesh-construction code shows only the new
+`#[test]` fn added.
+
+### Excluded: single guard (name and reason)
+
+| site | subject | why not a funnel |
+|---|---|---|
+| `model.rs:946` (`local_variable_names().is_empty()`) | `JointModel::new_single_variable` | unconditional `Vec::new()` in one constructor body — every single-variable joint kind (revolute/prismatic/continuous) routes through this one function, not several guards |
+| `model.rs:975,976` (`variable_names`/`variable_bounds().is_empty()`) | `JointModel::new_fixed` | same shape, unconditional `Vec::new()`, one constructor |
+| `decide.rs:1161,1166` (`max_view_angle`/`max_range_angle`, bare `None`) | `normalize_angle_criterion` = `value.filter(\|v\| *v > EPS)` | one guard (`> EPS`); the other way to reach `None` is the input already being `None` (criterion unset), which is `Option` pass-through, not an independent application decision — same shape as `mesh_search_paths.rs:109`'s excluded single-branch case |
+| `robot_model.rs:2885` (`end_effector_parent()`, bare `None`) | field default, set only by `set_end_effector_parent` | reachable *only* by that call never happening (group never named as an `<end_effector>` `component_group`); `build_end_effectors`'s own 3-cause funnel (explicit-parent self-reference, explicit-parent lacking the link, no fallback candidate) produces `Some(EndEffectorParent{group: None, ..})`, a distinguishable payload, not this bare `None` — and is not itself one of the 53 sites (not an `eq_none`-shaped assertion) |
+
+### Excluded: distinguishable payload, not undifferentiated
+
+| site(s) | reason |
+|---|---|
+| `decide.rs`'s 8 `via:assert_err_mentions` sites | needle-matched by design — the helper's own doc comment states its purpose is exactly to prevent this defect shape for `.is_err()`-style checks |
+| `robot_model.rs:2287,2302,2472,2512,2542,2635` | each `.contains()` checks a distinct message substring unique to its guard |
+| `robot_model_parity.rs:518` | set membership by link *name*, not a bare `Err`/`None` |
+| `check_start_state_collision.rs:161,162` | distinct message substrings (`"contact(s) detected"`, `"engulfing_box"`) |
+
+### Excluded: `Vec::is_empty()` class, structurally immune
+
+`robot_model.rs:1972,2260,2369,2411,2518,2561,2764,2886,2986,3021,3376,3377,
+3378,3379` (14 sites; `:2392,3031` already `not-this-family`). An
+`is_empty() == true` assertion cannot be produced by the wrong cause the way
+a bare `None`/`Err` can: *any* push, from *any* cause, flips the result to
+non-empty and would fail the assertion regardless of which cause fired.
+There is no fallthrough chain analogous to `resolve()`'s `?` operators — the
+observable (empty vs non-empty) does not collapse distinguishable causes
+into one value, it merely fails to name *which* absence occurred, which is
+a coverage question, not this defect.
+
+### Result
+
+2 funnels found in the 53-site fence; both had an untested cause, both
+fixed with a new isolating-mutation-proven test; all previously-bitten
+causes on both funnels re-verified this round rather than carried forward
+from prior reports. 0 additional blind sites found — every already-verdicted
+`discriminating` site outside these two funnels is either single-guard or
+carries a distinguishing payload, named above.
+
+### Commands run (round 15)
+
+- `python3 tools/ci/count-coarse-assertions.py <six paths>` — 53, reconciled against round 14's +1
+- `cargo nextest run -p moveit-planning check_start_state_bounds --no-fail-fast` — 8 isolating-mutation runs (5 causes × new-test-passes-clean check, each reverted)
+- `cargo nextest run -p moveit-model visual_mesh --no-fail-fast` — 1 isolating-mutation run, reverted
+- `git diff --stat` after all reverts — only test modules and the two new tests' bodies changed; both subject functions byte-identical to pre-round
+- `cargo fmt --all`
+- `cargo clippy -p moveit-model --all-targets -- -D warnings` — clean
+- `cargo clippy -p moveit-planning --all-targets -- -D warnings` — clean
+- `cargo nextest run -p moveit-model` — 137 tests run, 137 passed, 0 skipped
+- `cargo nextest run -p moveit-planning` — 43 tests run, 43 passed, 0 skipped
+
+Gate scope: `-p moveit-model -p moveit-planning`, source-touching round, all
+steps run and clean as owed. `moveit-constraints` (`decide.rs`) was audited
+but not touched — its two candidate sites (`:1161,1166`) are single-guard,
+excluded above; no fix owed, no gate owed for that crate this round.

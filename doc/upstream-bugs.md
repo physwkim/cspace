@@ -430,6 +430,62 @@ changing the check to read `positions.len()` directly would not currently
 break any test in this workspace. Confirming that for certain would need a
 new test for the distinguishing case first, not an assumption.
 
+||||||| 1a26595
+### 14. `getMaxPayload` indexes `max_torques_` in the wrong joint-index space — reproduced-grandfathered
+
+**Upstream:** `moveit_core/dynamics_solver/src/dynamics_solver.cpp:126` (`num_joints_ =
+kdl_chain_.getNrOfJoints()`, active-joints-only count — KDL chains omit
+fixed joints structurally) versus `:132-144` (`max_torques_` built by
+iterating `joint_model_group_->getJointModelNames()`, the *full*
+fixed-joint-inclusive space, pushing `0.0` for any name with no URDF
+limits, which every fixed joint has) versus `:246-254` and `:271-284`
+(`getMaxPayload`'s two saturation/payload loops, both `for (i = 0; i <
+num_joints_; ++i)` but reading `max_torques_[i]`).
+**Port:** `crates/moveit-state/src/dynamics.rs:75-93` (module doc,
+"Deviation from upstream: `getMaxPayload`'s indexing bug is replicated")
+and `:518` (`DynamicsSolver::max_payload`).
+**Symptom:** `max_torques_` is indexed in the full joint-model space it
+was built over, but both loops in `getMaxPayload` bound `i` to
+`num_joints_`, the *active*-joint count. For a chain with a fixed joint
+strictly before its last active joint (pr2's `right_arm`:
+`r_upper_arm_joint`, fixed, precedes `r_elbow_flex_joint`, active, in
+joint-model order), a real joint's torque is compared against a
+*different* joint's limit — one that is fixed and therefore always
+`0.0` — which saturates the check immediately and forces `payload =
+0.0` for every input.
+**Evidence:** oracle. `tools/moveit-oracle/src/oracle.cpp:1290-1302`
+(the `dynamics()` endpoint's doc comment) states the same mechanism
+independently, naming the same two upstream sites and the same
+`right_arm`/`r_upper_arm_joint`/`r_elbow_flex_joint` example. The
+captured fixture `crates/moveit-state/tests/fixtures/pr2_dynamics.json`
+confirms it operationally: all 7 `right_arm` cases have
+`max_payload.payload == 0.0`, each saturating on a different
+`joint_saturated` index (3, 1, 1, ...) — consistent with the
+mismatch landing on whichever joint the misaligned index happens to
+hit, not a genuine physical saturation.
+I checked whether this also explains `fanuc_dynamics.json`'s `manipulator`
+group, which shows the identical all-`0.0`-payload pattern across all 7
+cases: `crates/moveit-state/tests/fixtures/fanuc.srdf`'s `manipulator`
+group is `<chain base_link="base_link" tip_link="tool0"/>`, and
+`fanuc.urdf`'s only joints along that chain are six consecutive
+`revolute` joints (`joint_1`..`joint_6`) followed by one trailing fixed
+joint (`joint_6-tool0`) *after* the last active joint, not before — the
+structural precondition this bug needs (a fixed joint preceding the
+last active one) is absent. Fanuc's all-zero pattern is not evidence of
+this bug and its cause is unestablished; do not cite it as a second
+instance without separately investigating fanuc's URDF effort limits.
+**Status:** reproduced-grandfathered. The only ground truth available
+to verify `max_payload` against (`pr2_dynamics.json`, captured from the
+real oracle) reflects the buggy behavior; there is no ground truth to
+verify a "fixed" version against.
+**Cost of not reproducing:** `crates/moveit-state/tests/dynamics_parity.rs::pr2_dynamics_matches_the_oracle`
+(line 217) would fail outright — all 7 `right_arm` cases' expected
+`max_payload.payload`/`joint_saturated` values were captured under the
+buggy behavior and a corrected index would change every one of them,
+and no corrected-oracle fixture exists to re-capture against.
+`fanuc_dynamics_matches_the_oracle` (line 205) is unaffected per the
+structural check above.
+
 ---
 
 ## Decision on the pre-policy entries
