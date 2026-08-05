@@ -1921,11 +1921,28 @@ mod tests {
         assert!((leaves[0].coordinate() - inside).norm() < 1e-9);
     }
 
+    /// Distinct from `leaves_in_bbx_returns_none_for_an_out_of_range_min`
+    /// below: `LeavesInBbx::new` checks `min` then `max`, each with its own
+    /// `?`, so this fixture (`min` in range) exercises only the `max` guard.
     #[test]
-    fn leaves_in_bbx_returns_none_for_an_out_of_range_corner() {
+    fn leaves_in_bbx_returns_none_for_an_out_of_range_max() {
         let tree = OcTree::new(0.1);
         assert!(
             tree.leaves_in_bbx(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0e9, 0.0, 0.0))
+                .is_none()
+        );
+    }
+
+    /// Distinct from `leaves_in_bbx_returns_none_for_an_out_of_range_max`
+    /// above: see that test's doc comment. Isolating mutation confirms
+    /// both bites: neutralizing the `min` guard leaves the whole suite
+    /// green (this test was the only site that could have caught it),
+    /// and neutralizing the `max` guard breaks only the sibling above.
+    #[test]
+    fn leaves_in_bbx_returns_none_for_an_out_of_range_min() {
+        let tree = OcTree::new(0.1);
+        assert!(
+            tree.leaves_in_bbx(Point3::new(1.0e9, 0.0, 0.0), Point3::new(0.0, 0.0, 0.0))
                 .is_none()
         );
     }
