@@ -1160,3 +1160,144 @@ Gate scope: `-p moveit-model -p moveit-planning`, source-touching round, all
 steps run and clean as owed. `moveit-constraints` (`decide.rs`) was audited
 but not touched — its two candidate sites (`:1161,1166`) are single-guard,
 excluded above; no fix owed, no gate owed for that crate this round.
+
+## Round 16 — the orphan audit: re-derived independently, corrected against two user retractions mid-turn
+
+The user's brief assigned 42 (`moveit-model` 39 + `moveit-planning` 3, plus a
+share of `moveit-constraints/tests/decide.rs`), against a stated 694-site
+corpus. Two retractions arrived mid-round, both honored before finishing:
+first, 706 (not 694), then a full withdrawal of 706 itself — the scratchpad
+reconciliation script's first-column regex silently dropped ledger rows with
+trailing annotation text, undercounting every ledger's matched rows and
+inflating every orphan count. The reproducible figure, from `main`'s newly
+committed `tools/ci/reconcile-assertion-ledgers.py`, is **697 = 469 + 228**,
+and this round's corrected assignment is **29**, not 42.
+
+**Did not take any of the four numbers on the user's word.** Ran
+`python3 tools/ci/count-coarse-assertions.py crates/moveit-model
+crates/moveit-planning crates/moveit-constraints/tests/decide.rs` myself —
+84 real sites (excluding one `helper_body` line), splitting 60/10/14 across
+the three paths. That 60/10 split matches the user's independently-derived
+per-crate totals exactly, confirming the fresh scan and my prior round's
+work are not drifting apart. `git merge main` (fast-forward to `919c982`,
+pulling in `tools/ci/reconcile-assertion-ledgers.py`,
+`tools/ci/assertion-ledger-equivalences.json`, and
+`doc/assertion-discrimination-orphans.txt`), then ran the committed
+instrument rather than a hand-rolled diff: `matched + orphans == scanner
+sites` self-check passed (476 + 222... — the tool's live run differs by one
+scanner site from the committed 228/697 snapshot, both measured against a
+moving `main`; not chased further since the committed
+`doc/assertion-discrimination-orphans.txt` is what the user pinned my
+assignment against). Filtered `doc/assertion-discrimination-orphans.txt` to
+my three paths: **29 sites, exact match to the corrected assignment.** No
+adjustment made to reach this number — it is what both independent
+instruments (my fresh scan minus my own ledger's citations, and the
+committed reconciliation tool) agree on.
+
+### The false-orphan trap, found in my own ledger
+
+The reconciliation tool's `unresolved_citations` diagnostic (window ±5
+lines, everything past that reported not guessed) flagged exactly the stale
+citations I had already found independently by direct re-reading:
+`robot_model.rs:2764,2885,2886,2986,3021,3031,3376` and
+`check_start_state_bounds.rs:302,328,377`, plus `mesh_search_paths.rs:130`
+(a comment line, not the assertion it once was). Every one of these is a
+site my ledger already verdicted, at a line number code growth since
+Round 13/14/15 has moved — new tests inserted earlier in `robot_model.rs`
+(the mimic-diagnostic cluster ~1965-2110, the mesh-failure cluster
+~2480-2600, the expanded end-effector cluster ~2740-2905) push everything
+after them forward by 17-25 lines depending on position. Confirmed
+byte-identical content at each new location by direct read before treating
+any of them as a pure rename rather than a real gap.
+
+### 29-site classification
+
+**A — stale citation only, content and verdict unchanged (11 sites, 8 rows in the table below)**
+
+| current file:line | old citation | verdict (unchanged) | correction |
+|---|---|---|---|
+| `mesh_search_paths.rs:162` | `:139,140` | discriminating | line only — Round 14's isolating mutation on `:86` (`strip_prefix`) unchanged |
+| `robot_model.rs:2781` | `:2764` | discriminating | line only — Round 13's cross-test sibling reasoning (`:2755,2762` non-empty) unchanged |
+| `robot_model.rs:2902` | `:2885` | single-branch, excluded | line only — Round 15's field-default reasoning (`set_end_effector_parent` never called in this fixture) unchanged |
+| `robot_model.rs:3048` | `:3031` | not-this-family | line only — Round 13's vacuous reasoning (`group_state_test_srdf("")`, zero elements) unchanged |
+| `robot_model.rs:3393,3394,3395,3396` | `:3376,3377,3378,3379` | single-branch | line only — confirmed byte-identical body by direct read this round |
+| `check_start_state_bounds.rs:358` | `:302` | discriminating | line only — Round 13/15's isolating mutation (position guard) unchanged |
+| `check_start_state_bounds.rs:384` | `:328` | discriminating | line only — Round 13/15's isolating mutation (velocity guard) unchanged |
+| `check_start_state_bounds.rs:433` | `:377` | not-this-family | line only — Round 13's range-check reasoning unchanged |
+
+**A2 — stale citation plus a genuine correction (3 sites)**
+
+| current file:line | old citation | old verdict | corrected verdict | why |
+|---|---|---|---|---|
+| `robot_model.rs:2903` | `:2886` | discriminating (Round 13, cross-test sibling `:2755,2762`) | **not-this-family** | Round 13's own evidence compared this test's result against a *different* test's fixture (one with an `<end_effector>` element), not this test's own causal chain — exactly the reading-vs-mutation gap Round 14 already censured. This test's SRDF (`end_effector_test_srdf("")`) declares zero end effectors at all, so `attached_end_effector_names()` has nothing to ever populate for *any* group, for the identical field-default reason Round 15 already applied one line above at `:2902` (old `:2885`). Reclassified to match, not left standing on a cross-fixture comparison |
+| `robot_model.rs:3003` | `:2986` | discriminating (Round 13, reading: "distinct decision from `:3021`'s") | discriminating, **now bitten** | Round 13's evidence was reading alone. Isolating mutation this round on `build_group_states` (`robot_model.rs:1557-1595`): neutralized the empty-state skip (`:1588`, `if !state.is_empty()` → `if true`) — `robot_model.rs:3038`'s test (all-values-unusable) failed, this site's test (`group_state_naming_an_unknown_group_is_ignored`, the unknown-group skip at `:1559`) stayed green. Confirms the two guards are genuinely separable, not just plausibly so |
+| `robot_model.rs:3038` | `:3021` | discriminating (Round 13, reading) | discriminating, **now bitten** | Sibling of the above — see the same mutation. Neutralizing `:1588` failed exactly this test (`arm.default_state_names().is_empty()` becomes false, an empty state gets inserted). Reverted; `git status --short` clean after |
+
+**B — genuinely new sites, already covered by a prior round's bite but never given a formal `file:line` row (4 sites)**
+
+| file:line | verdict | evidence |
+|---|---|---|
+| `mesh_search_paths.rs:179` | discriminating | Round 14's `malformed_package_uri_with_no_relative_path_does_not_resolve`, isolating mutation on `:87` (`split_once('/')?`), narratively described but never tabled |
+| `mesh_search_paths.rs:192` | discriminating | Round 14's `missing_file_does_not_resolve`, isolating mutation on `:89` (`candidate.is_file()`), same gap |
+| `robot_model.rs:2693` | discriminating | Round 15's Funnel 2 fix, `mesh_with_an_empty_filename_leaves_visual_mesh_filename_none`, isolating mutation on `!filename.is_empty()`, narratively described (Round 15's own text) but never tabled |
+| `check_start_state_bounds.rs:474` | not-this-family | Round 15's new `a_planar_joint_past_pi_is_wrapped_...` test's own `(-PI..=PI).contains(&wrapped)` line — same numeric-range-on-computed-result exclusion as `:433`, never tabled |
+
+**C — genuinely new, triaged fresh this round (11 sites)**
+
+| file:line | verdict | evidence |
+|---|---|---|
+| `robot_model.rs:2052,2053,2054,2055` | discriminating, via same-test sibling payload | `mimic_mutual_cycle_clears_every_mimic_in_the_model`'s four `mimic().is_none()` checks are secondary confirmations; the preceding `:2051` (`assert!(matches!(model.diagnostics(), [Diagnostic::MimicCycle]))`) already names which of the three mimic-clearing causes (`MimicUnknownJoint`, `MimicDofMismatch`, `MimicCycle`) fired via a distinguishable enum-variant payload, the same exclusion class as `robot_model_parity.rs:356`'s classification-tag comparison. Re-read `resolve_mimic` (`robot_model.rs:1314-1382`) this round to confirm the three diagnostics are still pushed at three structurally separate sites (`:1328`, `:1335`, `:1372`), matching the in-source doc comment's round-8 claim |
+| `robot_model.rs:2110` | discriminating, via same-test sibling payload | `mimic_with_mismatched_dof_is_dropped_with_a_diagnostic`'s `mimic().is_none()` is preceded by `assert_eq!(model.diagnostics(), [Diagnostic::MimicDofMismatch{..}])` in the same test — same exclusion as above |
+| `robot_model.rs:2492` | not-this-family | `std::fs::read(&path).is_err()`, message reads "precondition: this test needs {path} to be unreadable" — a check on the test's own fixture setup, not on `RobotModel`, clause 3 |
+| `robot_model.rs:2564` | not-this-family | `matches!(shapes[0].shape, Shape::Mesh(_))` — computed classification tag, same exclusion as `robot_model_parity.rs:356` |
+| `robot_model.rs:2796` | discriminating | **isolating mutation, run this round**: `get_end_effector` (`:634-645`) folds two causes into one `Error::unknown_name` construction site — `self.groups.get(name)` missing entirely vs. present-but-`.filter(is_end_effector)`-rejected. Neutralized the filter (`.filter(\|_group\| true)`) — `end_effector_wires_name_and_falls_back_to_fewest_joints_parent`'s `model.get_end_effector("arm").is_err()` (`:2796`) failed, `get_end_effector_unknown_name_is_an_error`'s test (`:2815`) stayed green. Reverted; `git status --short` clean |
+| `robot_model.rs:2815` | discriminating | mirror of `:2796` — same mutation, this test's assertion (name not a group at all) stayed green because `.get(name)` already returns `None` before the mutated filter ever runs |
+| `robot_model.rs:3039` | discriminating | `group_state_where_every_joint_value_is_unusable_stores_no_state_at_all`'s `variable_default_positions("empty").is_none()` — same test, same bitten cause as `:3038` |
+| `robot_model.rs:3049` | not-this-family | `variable_default_positions_returns_none_for_unknown_state_name`, `group_state_test_srdf("")` — zero `<group_state>` elements at all, vacuous, same class as `:3048` |
+
+### `decide.rs:183/184` — not orphaned, already covered outside this ledger
+
+Not in the 29-site list (confirmed by direct check of
+`doc/assertion-discrimination-orphans.txt`), and I read why: p1-fixtures'
+ledger (`doc/assertion-discrimination-ledger-p1-fixtures.md:344-345`)
+already bit this exact site — `JointConstraint::new`'s tolerance guard
+(`moveit-constraints/src/joint.rs:120`, owned by p1-fixtures per
+`doc/folded-operand-guards.md`) — neutralizing `tolerance_above`'s clause
+alone fails `decide.rs:183`, `tolerance_below`'s alone fails `:184`, each
+leaving the other green. Correctly so: the guard lives in
+`moveit-constraints/src/joint.rs`, which is outside this round's fence even
+though `decide.rs` (the test file) is nominally mine — biting it would have
+required editing a file I do not own. No action taken, none owed.
+
+### Result: 29/29 real orphans closed — 0 blind sites, 1 verdict corrected, 2 sites freshly bitten, 25 by stale-citation or missing-formal-row correction
+
+No fixes to source were left in the tree — both bites this round (`:2796`/
+`:2815`'s `get_end_effector`, `:3003`/`:3038`'s `build_group_states`) were
+reverted immediately after confirming isolation. The only correction that
+changes a verdict is `robot_model.rs:2903` (discriminating →
+not-this-family); everything else is a line-number fix or a formal row for
+evidence that already existed. This ledger's own citations are what
+produced 25 of the 29 "orphans" in the first place — a real instance of the
+false-orphan trap the user warned about, not a hypothetical one.
+
+### Commands run (round 16)
+
+- `git status --short` — clean before starting
+- `git merge main` — fast-forward `7014cd6` → `919c982`, pulled in the committed reconciliation instrument
+- `python3 tools/ci/count-coarse-assertions.py crates/moveit-model crates/moveit-planning crates/moveit-constraints/tests/decide.rs` — 85 raw lines, 84 real sites (1 `helper_body` excluded), 60/10/14 split
+- `python3 tools/ci/reconcile-assertion-ledgers.py` — 698 sites, 476 matched, 222 orphans this round's live `main`, self-check `True`
+- `grep -c` on `doc/assertion-discrimination-orphans.txt` filtered to my three paths — 29
+- Isolating mutation, `get_end_effector`'s filter (`robot_model.rs:643`): `cargo nextest run -p moveit-model end_effector` — 1/7 failed (`:2796`'s test), reverted, re-ran clean (7/7)
+- Isolating mutation, `build_group_states`'s empty-state skip (`robot_model.rs:1588`): `cargo nextest run -p moveit-model group_state` — 1/6 failed (`:3038`'s test), reverted, re-ran clean (6/6)
+- Direct read: `resolve_mimic` (`robot_model.rs:1314-1382`), `robot_model.rs:1960-2130,2660-2920,2960-3060,3380-3397`, `mesh_search_paths.rs` (full file), `check_start_state_bounds.rs` (already read prior round), `robot_model_parity.rs` citations spot-checked against the fresh scan (no drift found)
+- `cargo fmt --all` — clean
+- `cargo clippy -p moveit-model --all-targets -- -D warnings` — clean
+- `cargo clippy -p moveit-planning --all-targets -- -D warnings` — clean
+- `cargo nextest run -p moveit-model` — 137 tests run, 137 passed, 0 skipped
+- `cargo nextest run -p moveit-planning` — 43 tests run, 43 passed, 0 skipped
+- `git diff --stat` — only this ledger file changed; both crates' source is byte-identical to pre-round
+
+Gate scope: `-p moveit-model -p moveit-planning`. Doc-only round (0 source
+fixes — both mutations reverted after use), so clippy/nextest above were
+exercised by the mutation-verification runs, not as a post-fix gate; run
+anyway to confirm the reverts left no residue.
