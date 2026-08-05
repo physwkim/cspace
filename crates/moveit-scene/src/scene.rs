@@ -840,10 +840,13 @@ impl<'m> PlanningScene<'m> {
     /// overrides the base class to also answer `true` for a world object or
     /// object subframe (leading `/` stripped), via
     /// `knowsObjectFrame -> getWorld()->knowsTransform`. That override is
-    /// reachable because `kinematic_constraint.cpp`'s four
-    /// `configure(msg, tf)` sites receive `tf` as a plain `Transforms&` that
-    /// is *actually* a `SceneTransforms&` underneath, so `tf.isFixedFrame(...)`
-    /// dispatches polymorphically to the override.
+    /// reachable because `kinematic_constraint.cpp`'s three
+    /// `configure(msg, tf)` methods (`PositionConstraint`/
+    /// `OrientationConstraint`/`VisibilityConstraint`, four `isFixedFrame`
+    /// call sites total -- see [`PlanningScene::knows_frame_transform`]'s
+    /// doc) receive `tf` as a plain `Transforms&` that is *actually* a
+    /// `SceneTransforms&` underneath, so `tf.isFixedFrame(...)` dispatches
+    /// polymorphically to the override.
     ///
     /// [`moveit_geometry::Transforms`] has no such polymorphism -- it is one
     /// concrete, non-virtual type everywhere in this workspace, and
