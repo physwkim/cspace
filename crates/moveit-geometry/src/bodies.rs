@@ -4328,11 +4328,28 @@ mod tests {
         ));
     }
 
-    // Assertion-discrimination sweep (round 2): `Body::from_shape` has
-    // exactly one `None`-producing arm, `Shape::Cone(_) | Shape::Plane(_)
-    // | Shape::OcTree(_) => None`, covering all three patterns at once
-    // -- verdict `single-branch`, by direct reading of the whole `match`
-    // (lines 3109-3115): there is no second `None` anywhere in it.
+    // Assertion-discrimination sweep (round 2, D6 check per brief section
+    // 3a added): `Body::from_shape` has exactly one `None`-producing arm,
+    // `Shape::Cone(_) | Shape::Plane(_) | Shape::OcTree(_) => None`,
+    // covering all three patterns at once -- verdict `single-branch`, by
+    // direct reading of the whole `match` (lines 3109-3115): there is no
+    // second `None` anywhere in it, and each test below calls the method
+    // on a *known, concrete* `Shape` variant, so there is nothing for an
+    // isolating mutation to separate (same reasoning as
+    // `shapes_with_no_upstream_body_have_no_volume_or_dimensions` in
+    // `shapes.rs`). D6 check, from the actual call sites, not the
+    // signature: every in-tree caller (`moveit-constraints::position::
+    // PositionConstraint::new`, `moveit-distance-field::distance_field::
+    // posed_body`, `moveit-distance-field::collision_distance_field_types
+    // ::BodyDecomposition::from_shapes`) uses `Body::from_shape(shape)?
+    // .ok_or_else(|| Error::construct(format!("... {shape:?}")))` --
+    // they format the *caller's own copy* of `shape` into the error
+    // message, not anything read back out of the `None`, so none of them
+    // needs `from_shape` itself to say which of Cone/Plane/OcTree fired.
+    // `moveit-constraints/tests/decide.rs` independently confirms this
+    // for `PositionConstraint::new`, testing `Cone` and `Plane` as
+    // interchangeable members of one `bodyless` list against the same
+    // `"has no bodies:: counterpart"` message. Not a D6 finding.
     #[test]
     fn from_shape_returns_none_for_cone_plane_octree() {
         assert!(

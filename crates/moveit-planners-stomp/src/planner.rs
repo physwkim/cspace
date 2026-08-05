@@ -1008,33 +1008,40 @@ mod tests {
             .collect()
     }
 
-    // Assertion-discrimination sweep (round 2): `extract_seed_trajectory`
-    // (lines 262-303) has three `Ok(None)` sites -- an empty-input guard
-    // (line 268), a per-waypoint dof-count guard (line 286), and a
-    // per-joint name-mismatch guard (line 292) -- so a bare `.is_none()`
-    // cannot by itself say which one fired. Each of the three tests below
-    // constructs an input that reaches exactly one of these guards, given
-    // the function's early-return control flow: verified per test by
-    // no-opping (`if false && ...`) the guard the test's name claims,
-    // rerunning that single test, and reverting.
+    // Assertion-discrimination sweep (round 2, updated for brief section
+    // 3a): `extract_seed_trajectory` (lines 262-303) has three `Ok(None)`
+    // sites -- an empty-input guard (line 268, "A"), a per-waypoint
+    // dof-count guard (line 286, "B"), and a per-joint name-mismatch guard
+    // (line 292, "C"). `Option::None` carries no payload, so there is no
+    // discrimination-bite mutation (section 3) to run; per 3a, each guard
+    // was isolated in turn (`if false && ...`) with all three tests run
+    // together (`--no-fail-fast`) so the sibling tests' outcome is
+    // observed in the same run, not inferred:
     //
-    // - `..._for_zero_constraints`: empty slice, so the `for` loop at line
-    //   275 never executes -- guards 2 and 3 are structurally unreachable.
-    //   No-opping guard 1 alone: test fails (assertion, `is_none()` false).
-    // - `..._when_dof_mismatches_group`: one waypoint with `dof - 1`
-    //   joint constraints. No-opping guard 2 alone: the inner loop at line
-    //   289 indexes `joint_constraints[i]` up to `dof - 1`, out of bounds
-    //   for a `dof - 1`-length vec -- test fails via panic, not via guard 3
-    //   (which needs guard 2's length check to have already passed).
-    // - `..._when_joint_name_mismatches_group`: one waypoint, full dof
-    //   count, active-joint names reversed -- guard 2's length check
-    //   passes silently (same count, different order), so only guard 3
-    //   can fire. No-opping guard 3 alone: test fails (`Some(..)` built
-    //   from the mismatched mapping).
+    // - Neutralize A only: `..._for_zero_constraints` FAILS (assertion);
+    //   `..._when_dof_mismatches_group` and `..._when_joint_name_
+    //   mismatches_group` stay GREEN, unaffected -- the empty-slice input
+    //   never enters the `for` loop at line 275, so guards B/C were never
+    //   in play for this test regardless of A.
+    // - Neutralize B only: `..._when_dof_mismatches_group` FAILS (via an
+    //   out-of-bounds panic at the line-289 index, not via guard C, which
+    //   needs B's length check to have already passed); the other two
+    //   tests stay GREEN -- the zero-constraints test still never reaches
+    //   the loop, and the name-mismatch test's input already satisfies
+    //   B's condition (same dof count, reordered), so neutering B changes
+    //   nothing for it.
+    // - Neutralize C only: `..._when_joint_name_mismatches_group` FAILS
+    //   (`Some(..)` built from the mismatched mapping instead of `None`);
+    //   the other two stay GREEN -- neither reaches C's line (A's input
+    //   never loops; B's input is rejected by B first).
     //
-    // Each guard's removal was independently observed to fail its own
-    // test and none other; all three verdicts are single-branch per-input,
-    // not per-function.
+    // Each direction isolates cleanly: the named guard's own test fails,
+    // and both siblings are unaffected in the same run. Single-branch per
+    // test, not per-function. D6 check: `extract_seed_trajectory` has no
+    // in-tree caller outside its own test module (`rg` across the
+    // workspace for `extract_seed_trajectory\(` outside this file: zero
+    // hits) -- no caller exists that could need to distinguish the three
+    // `None` reasons, so this is not a D6 finding.
     #[test]
     fn extract_seed_trajectory_returns_none_for_zero_constraints() {
         let model = panda_model();
@@ -1191,20 +1198,40 @@ mod tests {
         }
     }
 
-    // Assertion-discrimination sweep (round 2): `sample_goal_state`
-    // (lines 343-369) has two `Ok(None)` sites -- "no sampler could be
-    // built" (line 361, a `let Some(sampler) = sampler else { .. }`) and
-    // "the sampler never converged" (line 366, `!sampler.sample(..)`).
-    // The two are mutually exclusive by construction, not just by this
-    // test's input: line 366's `sampler.sample(..)` call requires the
-    // `Box<dyn Sampler>` that only the `Some` arm of line 360's
-    // destructure produces, so it is unreachable whenever line 361 fires
-    // -- an illegal-state-unrepresentable guarantee, not a runtime race.
-    // Confirmed empirically with a temporary `eprintln!` in each branch:
-    // `..._when_no_sampler_can_be_built` (empty goal_constraints, no
-    // solver) prints only the branch-1 line; `..._when_the_only_candidate
-    // _sampler_never_converges` (below, using `NoSolutionSolver`) prints
-    // only the branch-2 line. Reverted before this comment was written.
+    // Assertion-discrimination sweep (round 2, updated for brief section
+    // 3a): `sample_goal_state` (lines 343-369) has two `Ok(None)` sites --
+    // "no sampler could be built" (line 361, guard A, a `let Some(sampler)
+    // = sampler else { .. }`) and "the sampler never converged" (line 366,
+    // guard B, `!sampler.sample(..)`). `Option::None` carries no payload,
+    // so section 3's discrimination-bite mutation does not exist; per 3a,
+    // isolated in both directions with both tests run together
+    // (`--no-fail-fast`):
+    //
+    // - Neutralize A only (`sampler.expect(..)` instead of the `let
+    //   Some(..) else { return Ok(None) }`): `..._when_no_sampler_can_be_
+    //   built` FAILS -- panics at the `.expect`, since `select_default_
+    //   sampler` genuinely returns `None` for its empty-constraints/no-
+    //   solver input. `..._when_the_only_candidate_sampler_never_
+    //   converges` stays GREEN, unaffected -- its `NoSolutionSolver` input
+    //   makes `select_default_sampler` return `Some` regardless, so guard
+    //   A's neutralization is never even reached on that path.
+    // - Neutralize B only (drop the `if !sampler.sample(..) { return
+    //   Ok(None) }`, keep the call for its side effect, always fall
+    //   through to `Ok(Some(..))`): `..._when_the_only_candidate_sampler_
+    //   never_converges` FAILS (gets `Some` instead of `None`). `..._
+    //   when_no_sampler_can_be_built` stays GREEN, unaffected -- it never
+    //   reaches guard B at all (guard A already returned).
+    //
+    // Both directions isolate cleanly. This is also a stronger-than-
+    // empirical guarantee: guard B's code requires the `Box<dyn
+    // ConstraintSampler>` that only guard A's `Some` arm produces, so B is
+    // unreachable whenever A fires -- an illegal-state-unrepresentable
+    // invariant, not a runtime coincidence; the isolating mutation above
+    // confirms it rather than merely asserting it. D6 check:
+    // `sample_goal_state` has no in-tree caller outside its own test
+    // module (`rg` across the workspace for `sample_goal_state\(` outside
+    // this file: zero hits) -- no caller exists that could need to
+    // distinguish the two `None` reasons, so this is not a D6 finding.
     #[test]
     fn sample_goal_state_returns_none_when_no_sampler_can_be_built() {
         let model = panda_model();

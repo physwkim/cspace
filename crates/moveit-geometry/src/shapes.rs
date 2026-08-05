@@ -1742,15 +1742,26 @@ mod tests {
         assert_eq!(b.compute_volume(), 24.0);
     }
 
-    // Assertion-discrimination sweep (round 2): `Shape::compute_volume`
-    // and `Shape::get_dimensions` each have exactly one `None`-producing
-    // arm, `Self::Cone(_) | Self::Plane(_) | Self::Mesh(_) |
-    // Self::OcTree(_) => None`, covering all four "no upstream body"
-    // variants at once. Stronger than an `rg`-counted single-branch:
-    // each loop iteration below calls the method on a *known, concrete*
-    // `Shape` variant, so Rust's exhaustive `match` guarantees only that
-    // variant's arm can execute -- there is no other arm reachable for
-    // a given call, by the type system, not by inspection.
+    // Assertion-discrimination sweep (round 2, D6 check per brief section
+    // 3a added): `Shape::compute_volume` and `Shape::get_dimensions` each
+    // have exactly one `None`-producing arm, `Self::Cone(_) |
+    // Self::Plane(_) | Self::Mesh(_) | Self::OcTree(_) => None`, covering
+    // all four "no upstream body" variants at once. Stronger than an
+    // `rg`-counted single-branch: each loop iteration below calls the
+    // method on a *known, concrete* `Shape` variant, so Rust's exhaustive
+    // `match` guarantees only that variant's arm can execute -- there is
+    // no other arm reachable for a given call, by the type system, not by
+    // inspection. Section 3a's isolating mutation is for when a *caller*
+    // cannot tell which of several guards produced a bare `None`; here the
+    // caller (this test) already knows which variant it passed in, so
+    // there is nothing to isolate. D6 check: `rg` for
+    // `\.compute_volume\(\)|\.get_dimensions\(\)` workspace-wide shows no
+    // caller of *this* `Shape`-level method outside its own test module --
+    // `bodies.rs`'s `Body::compute_volume` (called from
+    // `body_query_parity.rs`/`probe_parity.rs`) is a different, non-Option
+    // method reached only through `Body::from_shape`'s already-narrowed
+    // `Sphere`/`Cylinder`/`Cuboid`/`ConvexMesh` variants. No caller needs
+    // to distinguish the four `None` reasons, so this is not a D6 finding.
     #[test]
     fn shapes_with_no_upstream_body_have_no_volume_or_dimensions() {
         for shape in [
