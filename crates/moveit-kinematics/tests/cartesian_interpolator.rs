@@ -601,6 +601,47 @@ fn an_empty_path_is_not_measured_for_jumps() {
 }
 
 #[test]
+fn a_one_waypoint_path_is_not_measured_for_jumps_under_either_rule() {
+    // The other half of `waypoints.len() <= 1`. Weakening the guard to
+    // `is_empty()` leaves the whole suite passing -- measured, not
+    // reasoned -- so this half is not load-bearing: `windows(2)` yields
+    // nothing, `position` on an empty iterator is `None` whatever the
+    // threshold, and the relative rule's `total / 0` NaN never gets
+    // compared against anything. The guard is kept anyway, and kept at
+    // `<= 1` rather than `is_empty()`, because that is what stops the NaN
+    // from being computed at all; the alternative leans on `> NaN` being
+    // false, which is a property of the comparison rather than of the
+    // guard. This test is what makes that choice checkable, and it runs
+    // both rules because only the relative one goes near the division.
+    let fixture = Fixture::new();
+    let group = fixture
+        .model
+        .joint_model_group("panda_arm")
+        .expect("panda_arm");
+
+    for threshold in [
+        JumpThreshold::absolute(0.5, 0.018),
+        JumpThreshold::relative(1.5),
+    ] {
+        let mut one = uniform_path(&fixture.model, 0.0, 1);
+        assert_eq!(one.len(), 1, "the fixture must give exactly one waypoint");
+
+        let kept = check_joint_space_jump(&mut one, group, &threshold);
+
+        assert_eq!(
+            kept.value(),
+            1.0,
+            "a single waypoint has no increment to measure, so {threshold:?} must reject nothing"
+        );
+        assert_eq!(
+            one.len(),
+            1,
+            "and must not truncate the waypoint it was given"
+        );
+    }
+}
+
+#[test]
 fn along_translation_reports_the_distance_actually_travelled() {
     let fixture = Fixture::new();
     let start = fixture.start();
