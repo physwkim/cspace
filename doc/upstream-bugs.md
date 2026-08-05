@@ -2587,6 +2587,10 @@ exactly ±0.5 (so tangency is exact in binary, not approximate), classified
 against the specialised set *parsed out of the header above* rather than
 hand-listed: **49 of 49 cells agree that specialised ⟺ collision at tangency**,
 zero exceptions, over {box, sphere, ellipsoid, capsule, cone, cylinder, convex}.
+The probe is `tools/fcl-tangency-probe/probe.cpp` and
+`tools/ci/verify-fcl-tangency-dispatch.sh` re-derives both halves of that
+sentence on demand (`sg docker -c ./tools/ci/verify-fcl-tangency-dispatch.sh`,
+~3s), so neither the table nor the mechanism rests on a scratch directory.
 Through MoveIt's own `CollisionEnvFCL` on prbt (`tools/moveit-oracle`, 48
 requests, 4 kinds × 4 kinds × 3 offsets), exact tangency gives `false` for
 `box × cylinder`, `cylinder × box` and `cylinder × cylinder` and `true` for the
