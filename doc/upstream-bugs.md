@@ -99,6 +99,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 | `plan-components-builder-const-build-mutates` | not-reproduced |
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
+| `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 
 ---
 
@@ -891,6 +892,60 @@ that this port's waypoint IK is only as persistent as the caller's
 eventually found from a random seed, and this port's `max_restarts = 0`
 caller will not, shortens the achieved fraction. That is the behaviour the
 upstream comment asked for.
+
+---
+
+### `validate-and-improve-interval-percentage-discarded` — the bisection computes a partial-progress fraction into a `double&` that every caller drops, so the returned fraction can understate the trajectory returned with it — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/cartesian_interpolator.cpp:63-109`
+(`validateAndImproveInterval`, `double& percentage` at `:65`), with its only
+caller at `:253-269`.
+**Port:** `crates/moveit-kinematics/src/cartesian_interpolator.rs`,
+`PathRun::validate_and_improve_interval` and `PathRun::achieved`.
+**Symptom:** `percentage` is taken by reference and written on the
+subdivision path — `:100-101` saves `old_percentage` and sets `percentage =
+percentage - half_width` before recursing into the first half, `:106`
+restores it before the second. The value that survives a *failure* is
+therefore the parameter of the deepest sub-interval that was entered, which
+is the partial progress the by-reference parameter exists to report. No
+caller reads it. In `computeCartesianPath`'s loop the call sits inside
+`if (!setFromIK(...) || !validateAndImproveInterval(..., percentage, ...))
+break;` (`:260-264`) and `last_valid_percentage = percentage` is at `:268`,
+*after* the `break` — so on every failing path the mutated value is
+discarded, and on every succeeding path `percentage` has been restored to
+the value it entered with. The parameter is dead output.
+What that costs is not just a dead parameter: `traj` is never rolled back.
+If an interval bisects, its first half validates (pushing the mid state at
+`:86`) and its second half then fails, the returned trajectory holds a
+waypoint at parameter `percentage - half_width` while the returned fraction
+is `(i - 1) / steps` — the trajectory is longer than the fraction claims,
+and the two no longer name the same point on the path.
+**Evidence:** a read of the control flow. The claim rests on three
+statements, each a single line read at the pinned sha: the by-reference
+parameter (`:65`), the `break` (`:264`) preceding the only read of
+`percentage` (`:268`), and the unconditional `traj.push_back` (`:86`) with
+no matching erase anywhere in the file. Not oracle-confirmed: there is no
+oracle op for `computeCartesianPath`, and reaching the divergent case needs
+an interval that bisects once, accepts its first half and fails its second —
+constructible in principle, not something the port can measure against C++
+here.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14` applies; this is a bug the port declines
+under the default policy, not an instance of a project-wide decision. The
+port splits the parameter's two meanings rather than patching the caller:
+`percentage` stays a by-value input (the interval's end parameter) and the
+achieved fraction becomes `PathRun::achieved`, written at the single site
+that appends a waypoint. That makes the invariant hold by construction —
+the returned fraction is the path parameter of the last waypoint in the
+returned trajectory, on success and failure alike — rather than making the
+caller remember to read an out-parameter it currently does not.
+**Cost of not reproducing:** none against upstream numbers; no oracle op and
+no parity test covers this path. The behavioural difference is confined to
+the case described above: where upstream returns `(i - 1) / steps`, this
+port returns the strictly larger parameter of the waypoint it actually
+returned. A caller that trusted upstream's fraction to be a *lower* bound on
+the trajectory keeps that guarantee; one that trusted it to be exact was
+already wrong upstream.
 
 ---
 
