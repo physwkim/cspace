@@ -19399,3 +19399,99 @@ padding 없는 값 `+0.029119199`는 상류 `DistanceWorld`가
 - `MoveMesh`/`TestCollisionMapAdditionSpeed`가 쓰는 `kinect_dae_resource_`
   (`.dae` 메시)를 이 포트에 들여오지 않았다. 두 케이스가 각각 무단언·
   벽시계라 들여올 이유가 없다.
+
+  이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+## §233 `attached_body.cpp`의 마지막 갭 둘 — `setScale`/`setPadding`을 옮겼고, `Arc::make_mut` 등가는 **강한** 공유에서만 성립한다 (2026-08-06)
+
+`doc/port-coverage.md`의 `moveit_core/robot_state/src/attached_body.cpp`
+행은 잔여분 넷 중 둘(`computeTransform`, `getGlobalSubframeTransform`)을
+이미 `decided-non-port`로 정리해 두었고, 나머지 둘은 "막힌 것이 아니라
+안 쓴 것"이라고 적혀 있었다. 그 둘을
+`crates/moveit-scene/src/attached_body.rs:191`(`set_scale`),
+`:205`(`set_padding`)로 옮기면서 행을 `ported-elsewhere`로 닫는다. 이 절이
+기록하는 것은 옮겼다는 사실이 아니라, 옮기는 과정에서 **행이 적어 둔 등가
+주장이 부분적으로 거짓임을 측정으로 확인한 것**이다.
+
+### §233.1 상류가 하는 일 (`attached_body.cpp:86-103`, `:120-137`)
+
+두 함수의 본문은 `shape->scale(scale)` / `shape->padd(padding)` 한 곳만
+빼고 바이트 단위로 같다. 각각 `shapes_`를 돌며 도형마다
+
+    if (shape.use_count() == 1)  const_cast<shapes::Shape*>(shape.get())->scale(scale);
+    else { shapes::Shape* copy = shape->clone(); copy->scale(scale); shape.reset(copy); }
+
+를 한다. 둘 다 `shape_poses_`도, `global_collision_body_transforms_`도
+건드리지 않고 `computeTransform`도 부르지 않는다 — 도형의 치수만 바꾼다.
+
+상류 자신은 이 둘을 **한 번도 부르지 않는다.**
+`rg -o 'setScale|setPadding' /home/stevek/work/moveit2 --glob '*.{cpp,hpp,h,py}'`
+는 16개 파일에서 37회를 내는데, `AttachedBody`에 걸리는 것은
+`attached_body.cpp:86,120`(정의)과 `attached_body.hpp:190,193`(선언)
+넷뿐이고 나머지는 전부 `CollisionEnv`, Ogre 노드, `MeshFilter`의 동명
+메서드다. 이 포트에서 `AttachedBody`를 가변으로 얻는 경로가
+`PlanningScene::detach`가 돌려주는 소유값뿐인 것은, 따라서 상류보다
+좁지 않다.
+
+### §233.2 `Arc::make_mut`는 `use_count() == 1`이 아니다 — 약한 참조에서 갈린다
+
+행이 "정확히 `Arc::make_mut`"라고 적은 부분이 여기서 갈린다.
+`Arc::make_mut`는 강한 수가 1을 넘을 때 **또는 `Weak`가 하나라도 살아
+있을 때** 복제하고, C++ `use_count()`는 `weak_ptr`을 세지 않는다.
+
+이 차이는 이 트리에서 이론이 아니라 **체계적**이다.
+`crates/moveit-distance-field/src/collision_common_distance_field.rs:511`이
+분해한 모든 도형에 대해 `cache.insert(key, (Arc::downgrade(shape), ...))`
+를 하고, 그 캐시는 상류의 미구현 `// TODO - clean cache`를 그대로 물려받아
+**축출하지 않는다**. 부착체의 도형은 같은 파일의
+`attached_body_sphere_decomposition`(`:567`)와
+`attached_body_point_decomposition`(`:590`)을 통해 그 경로에 들어간다.
+그러므로 한 번이라도 거리장 분해를 거친 부착체는, 이 모듈이 유일한 강한
+소유자여도 이후 모든 `set_scale`/`set_padding`에서 복제된다.
+
+방향은 안전한 쪽이다. 남이 아직 관찰할 수 있는 도형을 밑에서 바꾸는 일이
+없고, 복제 덕분에 그 캐시는 **새 키**를 받는다 — 축척 이전 치수로 계산된
+분해가 축척 이후 도형의 주소에 남아 되돌아오지 않는다.
+
+측정으로 확인한 것 하나 더:
+`an_outstanding_weak_forces_a_clone_upstreams_use_count_would_not`에서
+`make_mut` 이후 원래 할당의 `Weak::strong_count()`는 **0**이다. 즉
+`make_mut`는 값을 옛 할당에서 **꺼내 가고**, 남은 `Weak`는 더 이상
+`upgrade`되지 않는다. 위 캐시가 `Weak`를 오직 주소 고정용으로만 쓰고
+`upgrade`하지 않는다고 자기 문서에 적어 둔 것이 여기서 필요조건이 된다.
+
+### §233.3 `void`가 아니라 `Result<()>`이고, 적용은 원자적이지 않다
+
+이 포트의 `moveit_geometry::Shape::scale`/`::padd`
+(`crates/moveit-geometry/src/shapes.rs:1492`, `:1497`)는 치수를 0 미만으로
+끌어내리는 인자를 거부한다. 그래서 상류의 `void`를 그대로 쓸 수 없고
+`Result<()>`를 돌려준다.
+
+`geometric_shapes` 원본이 같은 지점에서 실패할 수 있는지는 이 라운드가
+**확정하지 않았다**. 그 패키지는 고정된 `moveit2` 체크아웃 아래에 없고 이
+변경을 위해 읽지 않았다. 따라서 오류 경로의 규약은 상류 대조가 아니라 이
+포트 자신의 규약으로 적었다:
+
+- `?`는 루프 밖으로 전파되므로 **실패한 도형 앞의 도형들은 이미 바뀐 채로
+  남는다.** 상류 루프가 중간에 빠져나갈 때 남기는 상태와 같은 모양이다.
+- 실패한 도형 자신의 치수는 그대로다. 다만 그 `Arc`는 `make_mut`가 이미
+  공유를 끊어 복제로 바꿔 놓은 뒤다 — 상류의 `else` 가지는
+  `shape.reset(copy)`에 닿지 않으므로 그쪽에서는 원본이 공유된 채 남는다.
+
+이 부분 적용은 시험으로 고정되어 있다
+(`negative_padding_larger_than_a_shape_is_rejected_after_updating_its_predecessors`,
+실패가 **둘째** 도형에 떨어지도록 픽스처를 배열해야만 "실패 지점에서
+멈춤"과 "전부 되돌림"이 구분된다). 되돌리는 판본을 만들어 보면 그 시험
+하나만 깨진다 — `doc/assertion-discrimination-ledger-p10-attached-body.md`의
+M5.
+
+### §233.4 이 절이 하지 않은 것
+
+- `PlanningScene`에 `attached_body_mut` 류의 접근자를 만들지 않았다.
+  과제 범위가 `attached_body.rs`였고, §233.1대로 상류에도 호출자가 없다.
+- `attached_body.rs`의 헤더를 `Ported from`으로 바꾸지 않았다. 이 파일의
+  `AttachedBody`는 여전히 `.hpp`에서 **behaviorally derived**이고,
+  `Ported from`을 달면 이 라운드가 옮기지 않은 `.cpp`의 나머지까지
+  포팅됐다고 주장하게 된다. 그래서 계기는 이 `.cpp`를 여전히 미포팅으로
+  세고, 행은 표에 남는다.
+- `geometric_shapes`의 예외 거동을 확인하지 않았다. §233.3의 오류 규약은
+  이 포트 쪽 사실만으로 적혀 있다.
