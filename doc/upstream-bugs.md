@@ -98,6 +98,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `polyline-filter-waypoints-stale-index` | reproduced-deliberately |
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 | `plan-components-builder-const-build-mutates` | not-reproduced |
+| `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 
 ---
 
@@ -835,6 +836,61 @@ to compare against. The visible cost is on the port's API instead:
 `reset()` is not ported, because a consuming `build` means a new sequence
 is a new builder — which is what `reset()` was emulating for a builder
 held as a long-lived member.
+
+---
+
+### `set-from-ik-zero-timeout-is-not-single-attempt` — `computeCartesianPath` passes `timeout = 0.0` to get one deterministic IK attempt and gets 0.5 s of random re-seeding instead — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/cartesian_interpolator.cpp:453-456`
+(verified at the pinned `e017c91e`), and the same `0.0` at `:260` and `:94`.
+The reinterpretation is
+`moveit_core/robot_state/src/robot_state.cpp:2010-2011`; the value it
+substitutes is `moveit_core/robot_model/include/moveit/robot_model/joint_model_group.hpp:74`;
+what the solver then does with it is
+`moveit_kinematics/kdl_kinematics_plugin/src/kdl_kinematics_plugin.cpp:369-409`.
+**Port:** `crates/moveit-kinematics/src/cartesian_interpolator.rs`,
+`PathRun::solve_link_pose`.
+**Symptom:** `cartesian_interpolator.cpp:453-454` states the intent in a
+comment — "Explicitly use a single IK attempt only (by setting a timeout of
+0.0), using the current state as the seed. Random seeding (of additional
+attempts) would create large joint-space jumps" — and then passes `0.0`.
+`setFromIK` reads that argument as a sentinel, not as a value:
+`if (timeout < std::numeric_limits<double>::epsilon()) timeout =
+jmg->getDefaultIKTimeout()`, and `KinematicsSolver::KinematicsSolver()`
+initialises `default_ik_timeout_(0.5)`. So the request reaching
+`searchPositionIK` is a 0.5-second budget, and that function's body is
+`do { ++attempt; if (attempt > 1) getRandomConfiguration(...); CartToJnt(...);
+... } while (!timedOut(start_time, timeout))` — precisely the random
+re-seeding the comment says it is avoiding, for half a second per waypoint.
+`0.0` is the one value that cannot mean "no time"; every positive value
+smaller than the default would have.
+**Evidence:** a read of the control flow across the four files cited above.
+Not oracle-confirmed — the divergence is wall-clock-dependent by
+construction (it only shows up when the first attempt fails and there is
+time left to retry), so an oracle comparison would be a race, not a
+measurement. The two facts the read rests on are single lines and were each
+read at the pinned sha: the `< epsilon` substitution and the `(0.5)` member
+initializer.
+**Status:** `not-reproduced`.
+**Deviation:** `D1` in the sense that the wall-clock timeout is not ported
+at all — `crate::SolverParams::max_restarts`, a retry *count*, replaced it
+crate-wide before this module existed, and that replacement is documented at
+`SolverParams::max_restarts` and in `moveit-kinematics`'s own crate doc
+("§4.9, no wall-clock timeout"). The consequence for this bug is structural
+rather than a fix applied to it: with no timeout parameter there is no
+sentinel value left to reinterpret, so the port cannot express the input
+that triggers this. A caller wanting the single deterministic attempt the
+upstream comment describes builds its solver with `max_restarts = 0` and
+gets exactly that; a caller leaving the default gets a *bounded, seeded,
+reproducible* retry count rather than an unbounded wall-clock one.
+**Cost of not reproducing:** none measurable. There is no oracle op for
+`computeCartesianPath`, and the reproducing behaviour is not
+deterministic, so there is no number that would move. The visible cost is
+that this port's waypoint IK is only as persistent as the caller's
+`max_restarts`: a target the upstream 0.5-second re-seeding loop would have
+eventually found from a random seed, and this port's `max_restarts = 0`
+caller will not, shortens the achieved fraction. That is the behaviour the
+upstream comment asked for.
 
 ---
 
