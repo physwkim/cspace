@@ -112,6 +112,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `check-position-bounds-multidof-adjacent-members` | not-reproduced |
 | `count-samples-per-second-returns-a-ratio` | not-reproduced |
 | `all-valid-distance-robot-hides-base-overload` | not-reproduced |
+| `to-string-truncates-to-six-significant-digits` | not-reproduced |
 
 ---
 
@@ -1609,3 +1610,69 @@ above. Within this tree the choice is pinned by
 `distance_to_collision_through_the_null_backend_is_maximum_clearance`,
 whose isolating mutation is exactly this bug's `0.0`
 (`doc/assertion-discrimination-ledger-p10-samplers.md`, M5 and M6).
+
+### `to-string-truncates-to-six-significant-digits` — a planner parameter written with `toString` and read back with `toDouble` loses all but 6 significant digits — not-reproduced
+
+**Upstream:** `moveit_core/utils/src/lexical_casts.cpp:45-58` (`toStringImpl`
+and `toString(double)`), as used at
+`moveit_planners/ompl/ompl_interface/src/model_based_planning_context.cpp:300`
+(`toDouble` in) and `:315` (`toString` out)
+**Port:** none — `PORTING-PLAN.md` §226.1 decides `lexical_casts.{hpp,cpp}`
+non-port, because Rust's `f64: Display`/`FromStr` take no locale and, as
+measured below, round-trip.
+**Symptom:** `toStringImpl` builds an `std::ostringstream`, imbues
+`std::locale::classic()`, and writes `oss << t`. It never touches the
+stream's precision, which `std::ios_base` leaves at its default of 6, so a
+`double` is serialized to 6 significant digits and the rest is dropped
+silently. The header's contract is only about the locale ("Convert a double
+to std::string using the classic C locale",
+`lexical_casts.hpp:53-55`) — nothing warns that the conversion is lossy, and
+the inverse `toDouble` is offered right beside it as though the pair were a
+round trip.
+
+It is used as one. `ModelBasedPlanningContext::simplifySolution`'s
+configuration path reads `longest_valid_segment_fraction` out of the config
+map with `toDouble` (`:300`), derives
+`longest_valid_segment_fraction_final`, and writes it back with `toString`
+(`:315`) for OMPL to parse again. A value that survived the first hop as a
+full `double` leaves the second hop with 6 digits.
+
+**Evidence:** a read of `lexical_casts.cpp` at the pinned `e017c91ee`
+checkout plus its call sites, and a measurement, not a claim about what C++
+does. A standalone model reproducing `toStringImpl`/`toRealImpl` line for
+line (`imbue(std::locale::classic())`, then `<<` / `>>` with the same
+`fail() || !eof()` check), built with `g++ -std=c++17`:
+
+```
+toString(0.12345678901230001) = "0.123457"
+toDouble(that)                = 0.123457
+round-trips: NO
+```
+
+MoveIt itself was not built — this workspace has no ROS 2 toolchain — so
+what is established is the behaviour of the two function bodies, not an
+observed OMPL misplan. The same value through this port's replacement
+(`rustc -O`):
+
+```
+format!("{v}") = "0.1234567890123"
+parse back     = 0.12345678901230001
+round-trips: yes
+```
+
+**Status:** `not-reproduced`.
+**Deviation:** none maps. §226.1 declines the whole file because the problem
+it solves — C++ iostreams consulting an imbued locale — does not exist in
+Rust, where `f64: Display` and `f64: FromStr` take no locale at all. The
+precision loss is an additional reason, not the deciding one.
+**Cost of not reproducing:** none. All three upstream files that include
+`lexical_casts.hpp` (`ompl_interface.cpp`,
+`model_based_planning_context.cpp`, `BenchmarkExecutor.cpp`) are outside
+this port's corpus roots (`measure-port-coverage.py:46-52`), and OMPL is
+replaced by a native planner under D3, so no ported code path reads a value
+that went through this pair. No parity test or oracle comparison moves.
+
+Recorded rather than skipped because the defect is in the *pairing* offered
+by the header — a lossy formatter beside its inverse, documented only as a
+locale fix. `toString` read alone does what its own doc comment says, so a
+reviewer looking only at `lexical_casts.cpp` would pass it.
