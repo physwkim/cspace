@@ -19054,3 +19054,213 @@ FCL의 개별 깊이를 분리하면:
   깨진다.
 - 10,000 상태 스윕을 다시 돌리지 않았다. §218이 잰 수치를 그대로 쓰며,
   이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+
+---
+
+## §NEW Phase 2 셋째 항목의 "부분 UNMET"을 세 조각으로 나눠 실측했다 — mimic은 MET, 클램핑·보간은 이 기계에서 오라클 비교가 원천 불가 (2026-08-06)
+
+### §NEW.1 "부분"은 이 항목 자신의 경계였던 적이 없다
+
+Phase 2 완료 조건(§5:656-663), 셋째 항목 원문:
+
+> 관절 한계 클램핑, mimic 전파, floating/planar 조인트 보간이 일치
+
+("일치" 대상과 허용오차는 명시돼 있지 않다 — 앞 두 항목은 각각
+"오라클과 `1e-9` 이내 일치"/"`1e-7` 이내 일치"라고 명시하는데, 셋째는
+병렬 구조로 "오라클과 일치"를 물려받는다고 읽을 수는 있어도 허용오차는
+비어 있다. §NEW.2에서 실측이 정확히 bit-exact로 나와 이 공백이 실제로는
+막히지 않았음을 보인다.)
+
+이 항목을 가장 깊이 잰 §217.3(:16647)은 자기 자신을 이렇게 판정했다:
+"Phase 2 — 앞의 두 항목 MET, 세 번째 **UNMET**." — "부분"이 아니라
+평범한 UNMET이다. "부분 UNMET"이라는 말은 이 항목 판정 문장 어디에도
+없고, 오직 §5 말미의 롤업 요약 세 곳에만 나온다:
+
+- `:16811-16812` "요약: UNMET 4개(Phase 1, 3, 4, 9), **부분 UNMET
+  2개(Phase 2의 셋째 항목, Phase 5의 둘째·셋째 항목)**, 미측정 1개..."
+- `:16814-16816` "이 트리에서는 UNMET 4개(Phase 1, 3, 4, 9), **부분
+  UNMET 1개(Phase 2의 셋째 항목)**, 미측정 1개..." (Phase 5의 두 항목이
+  닫혀 목록에서 빠진 뒤)
+- `:16844-16845` "UNMET 3개(Phase 3, 4, 9), **부분 UNMET 1개(Phase 2의
+  셋째 항목)**, 미측정 1개..." (Phase 1이 §218로 MET가 된 뒤)
+
+세 곳 모두 같은 패턴이다: "부분 UNMET N개"는 **Phase 개수**를 세는
+말이고, 괄호 안은 그 Phase 중 어느 항목이 걸림돌인지 이름 붙인 것이다.
+Phase 5도 함께 "부분 UNMET"으로 묶였던 이유는 Phase 5의 첫 항목은 MET,
+둘째·셋째는 UNMET이었기 때문(§217.3의 Phase 5 절 참조) — 즉 "부분"은
+"이 Phase는 항목이 섞여 있다"는 뜻이지 "이 항목은 부분적으로만
+측정됐다"는 뜻이 아니다. Phase 2는 첫째·둘째 MET, 셋째 UNMET이라 같은
+이유로 "부분"에 묶였을 뿐, 셋째 항목 자신의 측정 범위에 관한 진술이
+아니다.
+
+**이것이 실제 결함이다.** "부분"이라는 단어가 두 가지로 읽히는데
+(Phase 차원의 혼재 vs. 항목 차원의 부분측정), 문서 어디에도 어느
+쪽인지 적혀 있지 않았다. §217.3 자신의 "UNMET" 판정과 나란히 두면
+항목 차원의 "부분측정"이라는 읽기는 §NEW.2 이전까지는 거짓이었다 —
+이 항목은 세 조각 중 무엇 하나도 오라클과 비교된 적이 없다(§217.3:
+16662-16669, 이 세션에서 재확인, 아래).
+
+### §NEW.2 세 조각을 각각 이 트리에서 다시 쟀다
+
+셋째 항목은 콤마로 묶인 세 개의 독립된 하위 절이다. 각각의 모집단과
+실측 모집단을 따로 낸다.
+
+**(a) 관절 한계 클램핑 — 이 기계에서 오라클 비교가 원천 불가.**
+오라클이 노출하는 41개 op 전부를 다시 나열했다(이 트리, `4407a10`):
+
+```
+$ rg -n 'op == "' tools/moveit-oracle/src/oracle.cpp
+```
+
+`model_info, fk, jacobian, random_states, kinematics_metrics, acm,
+collision, world, frame_transform, is_state_valid,
+scene_diff_collision, cost_sources, path_cost_sources, octree_points,
+distance_field, shape_points, mesh, common_root,
+collision_distance_field_types, collision_sphere_free_functions,
+distance_field_cache_entry, group_state_representation, dynamics,
+collision_object_point_decomposition, link_body_decomposition,
+link_models_with_collision_geometry, constraints, octomap, ik,
+octree_in_world, octree_shape_query, ruckig, body_query, totg,
+totg_path, acceleration_filter, plan, ruckig_filter, pilz_trajectory,
+pilz_blend, chomp_quad_cost_inverse` — 41개, clamp/bounds/limit 계열
+op가 없다. 더 결정적으로, 오라클 바이너리 자체가 상류의 클램핑
+함수를 한 번도 호출하지 않는다:
+
+```
+$ rg -n -i 'enforceBounds|satisfiesBounds' tools/moveit-oracle/src/oracle.cpp
+(no output, exit 1)
+```
+
+`fk`/`jacobian`이 공유하는 유일한 관절값 적용 경로
+(`applyJointValuesTo`, `:1430-1443`)는 `state.setVariablePosition`을
+그대로 호출하고 `state.update()`로 끝난다 — `enforceBounds()` 호출이
+없다. 즉 범위를 벗어난 관절값을 오라클에 넣어도 오라클은 클램프하지
+않은 값으로 FK를 계산해 돌려준다. 이 항목을 오라클과 비교하려면
+`oracle.cpp`에 새 op를 추가하고 핀된 오라클 이미지를 재빌드해야
+한다 — C++ 바이너리 변경과 이미지 재빌드는 이 크레이트의 범위 밖이고
+이 세션의 fence 밖이다. **실측 모집단: 0. 이유: 도구 부재, 명령과
+출력 위에 그대로 적음.**
+
+**(b) floating/planar 조인트 보간 — 이 기계에서 오라클 비교가 원천
+불가, (a)와 같은 이유.**
+
+```
+$ rg -n -i interpolat crates/moveit-state/tests/ tools/moveit-diff/src/
+(no output, exit 1)
+$ rg -n -i 'clamp|enforce.?bound' tools/moveit-diff/src/
+(no output, exit 1)
+$ rg -n -i interpolat tools/moveit-oracle/src/oracle.cpp
+5813: ...distance-field 콜백 안에서 "interpolated position"이라는
+      다른 개념(충돌 거리 보간)을 가리키는 주석 3건, RobotState/
+      JointModel::interpolate와 무관
+```
+
+`JointModel::interpolate`는 실제로 포트에 존재한다
+(`moveit-model`의 `revolute.rs:139`/`prismatic.rs:88`/
+`planar.rs:164`/`floating.rs:168`, 디스패처는 `model.rs:873`) — 다만
+`moveit-state/src/lib.rs:45`가 명시적으로 "Deferred, out of scope for
+this task: ... `interpolate`"라고 적어 RobotState 수준의 상위
+API(`RobotState::interpolate`, 두 whole-state 사이 보간)는 포트되지
+않았다고 말한다. 셋째 항목 원문의 "floating/planar **조인트**
+보간"은 낮은 수준(JointModel::interpolate)을 가리키므로 이미 존재는
+한다 — 각 조인트 타입 파일에 자체 단위 시험(예:
+`interpolate_wraps_the_short_way_when_continuous`,
+`interpolate_does_not_panic_on_antipodal_quaternions`)이 있지만
+전부 자기검증(해석적으로 기대값을 계산해 대조)이지 오라클과의 비교가
+아니다. 오라클에는 `from`/`to`/`t` 세 값을 받아 보간된 상태를
+돌려주는 op가 없고, 41개 op 중 이를 대체할 만한 것도 없다(pilz/totg의
+"보간"은 시간-파라미터화 궤적 생성이라는 다른 연산이지 이 API가
+아니다). **실측 모집단: 0. 이유: (a)와 동일, 도구 부재.**
+
+**(c) mimic 전파 — 오라클과 비교 가능했고, 지금 처음 비교했다.**
+
+`randomStates`(oracle.cpp:1537, 이 op의 문서 주석 자신이 이미
+적어 놓았다): "RobotModel::getVariableRandomPositions ... derives
+mimic values." — 즉 `tests/fk_parity.rs`의 네 로봇 픽스처
+(`{panda,dual_arm_panda,pr2,fanuc}_fk.json`, 각 3개의 무작위 case)에
+이미 실려 있는 `joint_values`의 follower 변수 값은 실제 moveit2가
+유도한 값이다. 이 데이터를 새로 오라클을 부르지 않고 재가공하는 것만
+으로 mimic 전파를 오라클과 비교할 수 있다 — 이전까지 아무도 그렇게
+하지 않았을 뿐이다.
+
+새 시험 `crates/moveit-state/tests/mimic_propagation_parity.rs`:
+각 로봇의 mimic (master, follower) 쌍마다, 픽스처 case의 master 값만
+포트에 `set_variable_position`으로 주입해 follower를 내부적으로
+유도시키고, 그 유도값을 같은 case에 실려 있는(오라클이 낸) follower
+값과 `assert_eq!`로 대조한다.
+
+| 로봇 | mimic 관계 수 | case 수 | 비교 건수 | 결과 |
+|---|---|---|---|---|
+| panda | 1 (`panda_finger_joint1`→`panda_finger_joint2`) | 3 | 3 | 전부 일치 |
+| dual_arm_panda | 2 (left/right `_finger_joint1`→`_finger_joint2`) | 3 | 6 | 전부 일치 |
+| pr2 | 6 (l/r `_gripper_l_finger_joint`→각 3개) | 3 | 18 | 전부 일치 |
+| fanuc | 0 (mimic 관절 없음, `fanuc.urdf`에 `<mimic>` 0건) | — | — | 해당 없음 |
+
+```
+$ cargo test -p moveit-state --test mimic_propagation_parity
+running 3 tests
+test dual_arm_panda_mimic_propagation_matches_the_oracle ... ok
+test panda_mimic_propagation_matches_the_oracle ... ok
+test pr2_mimic_propagation_matches_the_oracle ... ok
+test result: ok. 3 passed; 0 failed
+```
+
+**모집단: 4로봇 중 mimic이 있는 3로봇의 모든 mimic 관계(9개) × 픽스처의
+모든 무작위 case(3개) = 27건. 실측: 27/27, 전부 오라클 값과
+bit-exact 일치.** 셋째 항목 자체에는 허용오차가 적혀 있지 않지만
+(§NEW.1) `assert_eq!`가 정확히 통과해 그 공백은 실무에서 막히지
+않았다.
+
+**구별 시험(discrimination check), mutate/observe-failure/revert:**
+`update_mimic_joint`(state.rs:880-881)의
+`mimic.factor * source + mimic.offset`을
+`mimic.factor * source + mimic.offset + 1.0`으로 바꾸고 다시
+돌렸다:
+
+```
+test panda_mimic_propagation_matches_the_oracle ... FAILED
+  left: 1.0036935438215733
+ right: 0.0036935438215732574
+test dual_arm_panda_mimic_propagation_matches_the_oracle ... FAILED
+  left: 1.022772453026846
+ right: 0.02277245302684605
+test pr2_mimic_propagation_matches_the_oracle ... FAILED
+  left: 1.3136513575147837
+ right: 0.3136513575147838
+test result: FAILED. 0 passed; 3 failed
+```
+
+세 시험 모두 즉시 실패, 편차는 주입한 `+1.0`과 정확히 일치. 되돌린
+뒤 `git diff -- crates/moveit-state/src/state.rs`는 비어 있다 —
+`state.rs`는 순수 변경 없이 시험만 남았다.
+
+### §NEW.3 판정
+
+Phase 2 셋째 항목은 **여전히 UNMET**이다 — 세 하위 절이 모두
+"일치"해야 닫히는 AND 조건인데, 그중 하나(mimic)만 이번에 MET로
+바뀌었을 뿐 나머지 둘(클램핑, 보간)은 이 기계의 오라클 바이너리로는
+원천적으로 비교할 방법이 없다. 이것은 "부분 UNMET"이 처음부터 뜻해야
+했던 것과 우연히 지금 일치한다 — 3개 중 1개 MET, 2개는 UNMET이 아니라
+**미측정(도구 부재)** — 하지만 §NEW.1이 보였듯 그 정확한 뜻은 지금까지
+한 번도 문서에 적힌 적이 없었고, §217.3 자신의 판정 문장은 "UNMET"
+이라고만 적어 이 구분을 지우고 있었다.
+
+요약 갱신: `:16844-16845`의 "부분 UNMET 1개(Phase 2의 셋째 항목)"는
+숫자상 그대로 유지된다(Phase 2는 여전히 완전히 MET가 아니다) — 다만
+이제 그 괄호 뒤에 "(mimic MET, 클램핑·보간 미측정)"이라는 세 조각
+분해가 딸려야 정확하다. Phase 개수 집계("부분 UNMET 1개")를 다시
+쓰지는 않는다 — Phase 2가 부분(=항목 혼재) 상태인 것은 §NEW 이전과
+이후 모두 참이므로, 이 절이 바꾸는 것은 그 안의 세 조각짜리 내역이지
+Phase 단위 집계가 아니다.
+
+### §NEW.4 이 절이 하지 않은 것
+
+- 클램핑·보간 절을 닫지 않았다. 닫으려면 `tools/moveit-oracle/src/
+  oracle.cpp`에 새 op를 추가하고 핀된 오라클 이미지를 재빌드해야
+  한다 — 이 절의 fence 밖. **UNFIXED, 사유: 도구 부재(§NEW.2 (a)/(b)).**
+- 셋째 항목의 명시적 허용오차 공백(§NEW.1)을 문서에 채워 넣지
+  않았다 — mimic 하위 절은 실측이 bit-exact라 막히지 않았지만, 클램핑·
+  보간 하위 절은 애초에 비교 자체가 없어 허용오차 공백이 의미가
+  없다.
+- Phase 2 전체를 MET로 표시하지 않았다. 세 하위 절 중 둘이 미측정인 한
+  AND 조건은 닫히지 않는다.
