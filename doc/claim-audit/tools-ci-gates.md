@@ -334,3 +334,35 @@ real `### §177.N` headings rather than taught to the parser. It reports
 `2895 '§N' references across 208 tracked files`. The count in this section's
 title is also stale as of the merge: `tools/ci` now holds 16 `check-*`
 members and 19 `verify-*.sh`, not the 32 total measured here.
+
+### §243.6 A third gate family: `git ls-files` counts an unmerged file once per stage
+
+Found at merge, not by a gate. `check-citation-drift.py` printed
+`3742 .rs citations across 72 tracked .md files` mid-merge and
+`2165 across 62` on the same tree once the merge was committed — every
+still-conflicted path had been read two or three times, and each of its
+citations checked, reported and counted that many times. During an
+unresolved merge `git ls-files` emits one row per index stage (1 = base,
+2 = ours, 3 = theirs), and only `--deduplicate` (git ≥ 2.31; 2.43 here)
+collapses them.
+
+The inflation is not the dangerous part — a FAIL printed three times is
+still a FAIL. What matters is that the totals these gates print are their
+own evidence of coverage, and a run that triple-counts is indistinguishable
+from a corpus that grew. The same file's `OK` line is what a later round
+quotes as "2,160 citations checked".
+
+`f720642` swept this anchor across eight scripts and ten sites earlier in
+the round. `check-citation-drift.py` arrived afterwards, via the p3-acm
+merge, and `check-test-doc-links.sh:78,81` were added by §243.4 in the same
+window — so all three postdate the sweep that would have caught them. Fixed
+here at all three sites. `check-fixture-format.sh` stays classified distinct
+for the reason its own header gives: it globs the filesystem deliberately,
+so that `git archive` exports remain checkable.
+
+| site | classification | disposition |
+|---|---|---|
+| `tools/ci/check-citation-drift.py:74`, `git ls-files -z` | same defect — the corpus is every tracked `.md`, so a conflicted document is parsed once per stage | fixed, this round |
+| `tools/ci/check-test-doc-links.sh:78`, `git ls-files -- 'crates/*/tests/*.rs'` | same defect — a conflicted test file's links are checked and counted per stage | fixed, this round |
+| `tools/ci/check-test-doc-links.sh:81`, `git ls-files -- 'crates/*/*.rs' 'crates/*/**/*.rs'` | same defect — inflates the link-target namespace, which can only mask a dangling link, never create one | fixed, this round |
+| `tools/ci/check-fixture-format.sh` | distinct — filesystem glob by design, so `git archive` exports stay checkable | no action |

@@ -75,10 +75,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
 cd "$REPO_ROOT"
 
-mapfile -t test_files < <(git ls-files -- 'crates/*/tests/*.rs' | sort)
+mapfile -t test_files < <(git ls-files --deduplicate -- 'crates/*/tests/*.rs' | sort)
 require_nonempty "${#test_files[@]}" "crates/*/tests/*.rs file"
 
-mapfile -t all_crate_files < <(git ls-files -- 'crates/*/*.rs' 'crates/*/**/*.rs' | sort)
+mapfile -t all_crate_files < <(git ls-files --deduplicate -- 'crates/*/*.rs' 'crates/*/**/*.rs' | sort)
 require_nonempty "${#all_crate_files[@]}" "crates/*/**/*.rs file"
 
 python3 - "$REPO_ROOT" "${#test_files[@]}" "${test_files[@]}" "${#all_crate_files[@]}" "${all_crate_files[@]}" <<'PY'

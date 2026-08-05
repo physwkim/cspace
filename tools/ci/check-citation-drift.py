@@ -71,7 +71,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def tracked_files():
     out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, check=True
+        ["git", "ls-files", "--deduplicate", "-z"], cwd=REPO_ROOT, capture_output=True, check=True
     ).stdout.decode("utf-8")
     return [p for p in out.split("\0") if p]
 
