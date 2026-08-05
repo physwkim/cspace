@@ -10,5 +10,9 @@
   "panda_path_cost_sources": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
+  },
+  "pr2_scene_diff_collision": {
+    "srdf": "pr2.srdf",
+    "urdf": "pr2.urdf"
   }
 }
