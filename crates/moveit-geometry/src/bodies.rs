@@ -4305,13 +4305,20 @@ mod tests {
     // `assert!(matches!(...))` calls names a different Some(Body::_)-producing
     // arm of `from_shape`'s `match shape { ... }` (lines 3109-3114) --
     // Sphere/Cylinder/Cuboid/Mesh each get their own arm, each building a
-    // different concrete `Body` variant. Verdict `single-branch` per site:
-    // like `from_shape_returns_none_for_cone_plane_octree` right below, each
-    // call passes a *known, concrete* `Shape` variant, so Rust's exhaustive
-    // match on that input already proves only the matching arm executes --
-    // there is no runtime guard for an isolating mutation to separate, and
-    // no way for e.g. the `Shape::Sphere` call to silently take the
-    // `Shape::Cylinder` arm instead.
+    // different concrete `Body` variant.
+    //
+    // Verdict `multi-branch`, discriminating. An earlier revision of this
+    // comment recorded `single-branch`, reasoning that Rust's exhaustive
+    // match on a known, concrete input variant already proves only the
+    // matching arm executes, leaving nothing for an isolating mutation to
+    // separate. That conflates which arm's *pattern* matches -- fixed by the
+    // type system, and indeed unmutatable -- with what that arm's *body*
+    // computes, which is ordinary code fixed by nothing. Bite-checked:
+    // rewriting the `Shape::Sphere` arm to build a `Cylinder` compiles, and
+    // fails both this test and `body_posed_algorithms_match_the_oracle`. The
+    // same correction applies to `from_shape_returns_none_for_cone_plane_octree`
+    // below, where splitting `Cone` out of the combined `None` arm and
+    // returning `Some` is likewise caught.
     #[test]
     fn from_shape_builds_matching_body_variant() {
         assert!(matches!(
