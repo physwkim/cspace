@@ -100,6 +100,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `plan-components-builder-const-build-mutates` | not-reproduced |
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
+| `set-from-ik-leaves-a-rejected-candidate-in-the-state` | not-reproduced |
 
 ---
 
@@ -946,6 +947,57 @@ port returns the strictly larger parameter of the waypoint it actually
 returned. A caller that trusted upstream's fraction to be a *lower* bound on
 the trajectory keeps that guarantee; one that trusted it to be exact was
 already wrong upstream.
+
+---
+
+### `set-from-ik-leaves-a-rejected-candidate-in-the-state` — a failed `setFromIK`/`setFromIKSubgroups` leaves the last rejected IK candidate written into the `RobotState` it was called on — not-reproduced
+
+**Upstream:** `moveit_core/robot_state/src/robot_state.cpp:1746-1762`
+(`ikCallbackFnAdapter`), `:2036-2047` (`setFromIK`'s solve-and-apply tail),
+and `:2226-2254` (`setFromIKSubgroups`' sweep, `break` and final `return
+false`), all verified at the pinned `e017c91e`. The two callbacks that
+demonstrate it are
+`moveit_ros/move_group/src/default_capabilities/kinematics_service_capability.cpp:70-79`
+and
+`moveit_planners/pilz_industrial_motion_planner/src/trajectory_functions.cpp:576-590`.
+**Port:** `crates/moveit-kinematics/src/set_from_ik.rs`, `set_from_ik` and
+`set_from_ik_subgroups`.
+**Symptom:** `GroupStateValidityCallbackFn` takes a `RobotState*` and is
+documented to be allowed to modify it; both callbacks in the tree begin
+`state->setJointGroupPositions(jmg, ik_solution); state->update();`. That
+write happens once per candidate the solver offers, and nothing undoes it.
+When the solver never produces an accepted candidate, `setFromIK` returns
+`false` at `:2046` with the state still holding whichever candidate the
+callback saw last — a configuration the function has just declared it could
+not find. `setFromIKSubgroups` does it without a callback at all: it calls
+`setJointGroupPositions(sub_groups[sg], solution)` at `:2233` as each
+subgroup solves, and on the next subgroup's failure takes `found_solution =
+false; break` at `:2237-2238` and eventually `return false` at `:2254`,
+leaving every earlier subgroup moved. A caller that follows the documented
+`if (!state.setFromIK(...)) { /* keep the old state */ }` shape does not
+keep the old state.
+**Evidence:** a read of the control flow, plus a read of both in-tree
+callbacks to establish that the mutation is real and not merely permitted.
+No oracle op exists for `setFromIK`, so this is a read; it is a strong one
+in that the absence being claimed — any restore of the entry configuration
+— is absent from three separate exit paths, each read at the pinned sha.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14`. This is a local ownership rule scoped to
+these two functions: `set_from_ik` snapshots `state.positions()` on entry
+and restores it unconditionally before deciding what to write, so the only
+configuration that can survive the call is the accepted solution; and
+`set_from_ik_subgroups` snapshots the successful sweep before running the
+group hook, re-applies that snapshot when the hook accepts, and rewinds to
+the entry snapshot on every other path. The invariant is "a call that
+returns `Ok(false)` or `Err` leaves the state byte-identical to entry", and
+it is what makes the validity hook safe to hand a mutable state at all.
+**Cost of not reproducing:** none measurable. There is no oracle op for
+either function, so no comparison moves. The behavioural cost is that a
+caller relying on the upstream leftover — reading the rejected candidate
+back out of the state after a `false` return, which no in-tree upstream
+caller does — would read the entry configuration here instead.
+
+---
 
 ---
 
