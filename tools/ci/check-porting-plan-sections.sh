@@ -38,11 +38,14 @@ if [[ ! -s PORTING-PLAN.md ]]; then
   exit 2
 fi
 
-git ls-files -z | python3 -c '
+python3 - <<'PY'
 import re
+import subprocess
 import sys
 
-tracked = [p for p in sys.stdin.buffer.read().decode("utf-8").split("\0") if p]
+tracked = [p for p in subprocess.run(
+    ["git", "ls-files", "-z"], capture_output=True, check=True
+).stdout.decode("utf-8").split("\0") if p]
 
 with open("PORTING-PLAN.md", encoding="utf-8") as handle:
     lines = handle.read().split("\n")
@@ -108,8 +111,15 @@ for line_no, line in enumerate(lines, 1):
 # A placeholder anywhere in the tree, not just in the plan: the whole point is
 # that the worker writes `§NEW` in its Rust doc comments too, and the merger
 # rewrites all of them together.
+#
+# Prose and Rust only. Sections are cited in documentation and in doc
+# comments, never in build or CI scripts -- and the scripts are where a
+# `§NEW` is a *mention* rather than a citation, this file being the first
+# example: it names the placeholder eight times because it defines it. Scoping
+# by file kind keeps that out by rule instead of by an exception list with
+# this script's own name in it.
 for path in tracked:
-    if path == "PORTING-PLAN.md" or not path.endswith((".md", ".rs", ".sh", ".py", ".toml")):
+    if path == "PORTING-PLAN.md" or not path.endswith((".md", ".rs")):
         continue
     try:
         with open(path, encoding="utf-8") as handle:
@@ -147,4 +157,4 @@ print(
     f"{len(all_ids)} numbered headings, all distinct; no §NEW placeholder in "
     f"{len(tracked)} tracked files"
 )
-'
+PY
