@@ -16586,6 +16586,11 @@ $ moveit-diff --urdf fixtures/panda.urdf --srdf fixtures/panda.srdf \
     --ik-divergence-json <out> --oracle tools/moveit-oracle/run-oracle.sh
 ```
 
+(`--urdf`/`--srdf`는 **절대 경로**여야 한다. `run-oracle.sh`가 레포 루트를
+컨테이너 안 같은 경로에 마운트하고 그 경로로 파일을 열기 때문에, 상대 경로를
+주면 `oracle: startup failed: cannot open fixtures/panda.urdf`로 죽는다.
+아래 모든 실행도 같다.)
+
 | `--ik-rng-seed` | 오라클 성공 | 포트 성공 | b | c |
 |---|---|---|---|---|
 | 0 | 4921/5000 | 4906/5000 | 82 | 67 |
