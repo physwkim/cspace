@@ -19080,6 +19080,14 @@ crates/ ros/ doc/ PORTING-PLAN.md`가 0건이고, 상류 `robot_state.hpp`가
 `crates/moveit-collision/tests/exact_tangency_boundary.rs`에 고정했다
 (오라클·docker 불요, 4건 `0.017s`).
 
+**이 소절의 진단은 뒤에 오는 §NEW 절이 대체한다.** 위 결론("상류에 규약이
+없다")은 두 데이터점에 근거했고, 두 점은 그 불일치가 무엇의 성질인지
+가르지 못한다. 열거해 보니 도형 쌍의 성질이다 — `fcl::collide`가 그 쌍에
+libccd를 우회하는 특수화를 등록해 두었는지가 정하며, 49셀 중 49셀이
+그렇다. prbt가 `false`인 것은 축퇴 규약이 아니라 `cylinder × box`가 그
+표의 빈칸이기 때문이고, octree가 `true`인 것은 그 쌍이 채워진 칸이기
+때문이다. 판정(UNMET)은 그대로다.
+
 ### §229.2 이 백엔드의 충돌 경계는 0이 아니라 양의 간극 안에 있다 (측정, 미수정)
 
 §229.1을 조사하다 별도로 나온 **포트 쪽** 발견이다. `parry.rs`의 모듈
@@ -21975,3 +21983,202 @@ pair-flip 계수만으로는 원인을 지목할 수 없다는 뜻이기도 하�
   옮긴 뒤 `./tools/ci/verify-orphan-enumeration.sh`가 고아 0 / 미해결 인용
   0을 낼 때까지 확인한다. 게이트 자체가 적어둔 대로 고아 스냅샷을
   재생성해 흡수시키면 안 된다.
+
+## §NEW `collision: bool` 절의 접선 답은 도형 쌍의 성질이다 — 원인은 fcl의 협면 등록표이고, 이 포트도 균일하지 않다 (2026-08-06)
+
+§229.1은 이 절을 "상류에 정합할 규약이 없다"로 닫았고, 그 근거는 정확히
+닿는데 서로 반대로 나오는 두 점이었다 — prbt 실린더가 상자 위에서
+`false`/`-1.0`, octree 리프 면이 상자 면에서 `true`/`-0.0`. 결론은 옳았지만
+두 점은 그 불일치가 **무엇의** 성질인지 말하지 못한다. 도형 쌍인지, 접촉
+차원인지, 곡률인지, 아니면 실린더 하나가 망가진 것인지 — 두 점으로는
+분리되지 않는다. 이 절은 그 열거이며, 답은 **도형 쌍**이다: `fcl::collide`가
+그 쌍에 대해 libccd를 우회하는 특수화를 등록해 두었는지 여부가 접선에서의
+답을 정한다.
+
+### §NEW.1 상류: 특수화가 등록된 쌍만 접선에서 충돌한다 (49셀 중 49셀)
+
+`GJKSolver_libccd<S>::shapeIntersect`는 모든 쌍을 일반 템플릿
+`ShapeIntersectLibccdImpl<S, Shape1, Shape2>::run`으로 넘기고
+(`gjk_solver_libccd-inl.h:174` → `:112`), 그 본문은 `detail::GJKCollide` —
+libccd MPR — 을 부른다. MPR은 **내부 겹침**을 엄격 부등호로 보므로 간극이
+정확히 0이면 접촉을 찾지 못한다. libccd를 우회하는 쌍은 fcl 자신이 헤더에
+ASCII 표로 그려 두었고("Shape intersect algorithms not using libccd",
+`:178-201`) 바로 아래에서 등록한다(`:245-267`). 특수화된 경로는 분리축을
+**엄격** 부등호로만 판정한다 — `boxBox2`의 여섯 기각이 모두
+`if(s2 > 0) { *return_code = 0; return 0; }`
+(`box_box-inl.h:302`, `:314`, `:326`, `:339`, `:351`, `:363`) — 이고
+`s2 == 0`은 `s2 > 0`이 아니므로 정확히 닿는 경우는 접촉 생성으로 흘러간다.
+
+MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 전체에
+`rg -n 'gjk_solver_type|GST_LIBCCD|GST_INDEP'`가 **1,926개 파일에서 0건**을
+내므로 `CollisionRequest`의 기본값 `GST_LIBCCD`
+(`collision_request.h:102`)가 모든 질의에 적용된다.
+
+읽기가 아니라 측정이다. 고정 이미지(`moveit-rs/oracle:bf084112fdd5730b`,
+`libfcl-dev 0.7.0-3build2`) **안에서** `fcl::collide`를 직접 부르는 탐침을
+컴파일해 7종 × 7종 × 3오프셋을 재고, 특수화 집합은 손으로 적지 않고 위
+헤더의 등록 매크로를 **파싱해서** 만들었다. 정확 접선(`+0e+00`)의 결과:
+
+| | box | sphere | ellipsoid | capsule | cone | cylinder | convex |
+|---|---|---|---|---|---|---|---|
+| **box**       | T/특수 | T/특수 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 |
+| **sphere**    | T/특수 | T/특수 | F/일반 | T/특수 | F/일반 | T/특수 | F/일반 |
+| **ellipsoid** | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 |
+| **capsule**   | F/일반 | T/특수 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 |
+| **cone**      | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 |
+| **cylinder**  | F/일반 | T/특수 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 |
+| **convex**    | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 | F/일반 |
+
+**49셀 중 49셀이 "특수화 등록됨 ⟺ 접선에서 충돌"과 일치하고, 예외가
+없다.** 두 점 표본이 남겨 두었던 교란 요인은 세 셀이 각각 끊는다.
+
+- `convex × convex`는 단위 정육면체다 — `box`와 **같은 여덟 꼭짓점** — 인데
+  `box × box`가 `true`인 자리에서 `false`다. 기하도, 접촉 차원도, 곡률도
+  같고 C++ 타입만 다르다.
+- `capsule × sphere`는 `true`이고 `capsule × box`는 `false`다. 한 도형이
+  망가진 것이 아니다.
+- `sphere × box`는 접점 하나로 `true`이고 `cylinder × box`는 면 전체로
+  `false`다. 접촉 면적도 아니다.
+
+도형 크기는 모든 극단점이 정확히 `±0.5`에 오도록 잡았으므로 접선은 이진에서
+정확하다(근사 접선이 아니다).
+
+### §NEW.2 MoveIt 래퍼를 통과해도 같은 분할이 남는다 (48요청, `1.397s`)
+
+`tools/moveit-oracle`로 prbt 위에서 4종 × 4종 × 3오프셋을 `collision` op으로
+재측정했다. 위 도형이 `Op::Collision`의 `objects`(월드)와
+`attached_bodies`(로봇) 양쪽에 들어가므로 오라클 소스 변경도 이미지
+재빌드도 없다. `prbt_base_link`의 기본 자세 월드 변환이 정확히 항등이라
+첨부물의 `shape_pose`가 곧 월드 자세다. 정확 접선의 `robot_collision` /
+`robot_distance`:
+
+| upper \ lower | box | sphere | cylinder | mesh |
+|---|---|---|---|---|
+| **box**      | `true` `-0.0` | `true` `-0.0` | **`false` `-1.0`** | `true` `-5.551115123125783e-17` |
+| **sphere**   | `true` `-0.0` | `true` `-0.0` | `true` `-0.0` | `true` `+8.4e-323` |
+| **cylinder** | **`false` `-1.0`** | `true` `-0.0` | **`false` `-1.0`** | `true` `-1.1443916996305594e-16` |
+| **mesh**     | `true` `-0.0` | `true` `+2.5e-323` | `true` `-6.938893903907228e-17` | `true` `-1.0` |
+
+`false`인 세 셀은 정확히 §NEW.1의 일반 libccd 셀이다. `mesh`가 모든 상대에
+`true`인 것은 MoveIt이 `shapes::MESH`를 `fcl::BVHModel<BV>`로 사상하기
+때문이고(`collision_common.cpp:900-923`), 이는 특수화도 libccd MPR도 아닌
+세 번째 순회다. `+1e-9` 간극에서는 16셀 전부 `false`, `-1e-9` 겹침에서는
+16셀 전부 `true`이므로 분할은 정확한 동점에만 갇혀 있다. 첫 측정과 이
+재실행이 48셀 전부에서 `robot_collision`·`robot_distance` 모두 비트 단위로
+같았다(차이 0건).
+
+`mesh × mesh`가 `true`인데 `distance`가 `-1.0`인 것은 `collide` 호출은
+접촉을 찾고 `distance` 호출은 못 찾은 경우로,
+`fcl-distance-sentinel-survives-zero-contacts`의 또 다른 발현이다. 이 절의
+주제는 `bool` 열이므로 여기서 더 파지 않았다.
+
+### §NEW.3 이 포트도 쌍마다 다르다 — 24/25가 충돌하고 `sphere × sphere`만 아니다
+
+`parry3d-f64` 0.30.0도 같은 구조를 가진다. `DefaultQueryDispatcher::contact`는
+`Ball`/`Ball`을 `contact_ball_ball`로 보내고
+(`src/query/default_query_dispatcher.rs:316`), 그 함수는
+`if distance_squared < sum_radius_with_error * sum_radius_with_error`
+(`src/query/contact/contact_ball_ball.rs:16`) — **엄격** `<` — 로 채택한다.
+예측 `0.0`에서 정확 접선은 `1.0 < 1.0`이므로 `None`, 충돌 아님. 반대로 일반
+지지사상 경로 `gjk::closest_points`는 `if min_bound > max_dist`
+(`src/query/gjk/gjk.rs:411`)로 기각하므로 경계를 **포함**한다. 한쪽
+라이브러리는 특수화가 경계를 포함하고 일반 경로가 배제하며, 다른 쪽은 그
+반대다. 어느 쪽도 규약을 명시하지 않았고, 불일치의 부호는 경계가 부등호의
+어느 편에 떨어졌는지의 우연이다.
+
+이 백엔드가 만들 수 있는 5종(`box`, `sphere`, `cylinder`, `cone`, `mesh`)
+25쌍을 같은 배치로 재면:
+
+| delta | 결과 |
+|---|---|
+| `-1e-9` (겹침) | 25/25 `true` |
+| `0` (정확 접선) | **24/25 `true`, `sphere × sphere`만 `false`** |
+| `+1e-9` (간극) | 3/25 `true` — `box × cylinder`, `cylinder × box`, `cone × box` |
+
+`+1e-9`의 세 셀은 §229.2가 잰 양의 여유가 **쌍마다 다르며 순서에도
+비대칭**임을 보인다(`cone × box`는 `true`인데 `box × cone`은 `false`).
+`sphere × sphere`가 이 백엔드의 오늘 답이 규약이 아니라
+`contact_ball_ball`의 `<`가 비쳐 나온 것이라는 증거이고, 이 사실은 이번
+절 전까지 **어디에도 적혀 있지 않았다** — `parry.rs` 모듈 문서와
+`exact_tangency_boundary.rs`는 둘 다 경계의 *반대쪽*(양의 간극에서도 `Some`)
+만 기술한다.
+
+### §NEW.4 겹치는 48셀 중 6건이 어긋난다, 그리고 `collision: bool` 행의 판정
+
+양쪽이 다 만들 수 있는 4종 × 4종 × 3오프셋 48셀을 겹치면 6건이 어긋난다.
+
+| 쌍 | 오프셋 | 오라클 | 이 포트 | 원인 |
+|---|---|---|---|---|
+| `box × cylinder`      | `+1e-9` | `false` | `true`  | 이 백엔드의 양의 여유(§229.2) |
+| `box × cylinder`      | `0`     | `false` | `true`  | 일반 libccd |
+| `cylinder × box`      | `+1e-9` | `false` | `true`  | 이 백엔드의 양의 여유 |
+| `cylinder × box`      | `0`     | `false` | `true`  | 일반 libccd |
+| `cylinder × cylinder` | `0`     | `false` | `true`  | 일반 libccd |
+| `sphere × sphere`     | `0`     | `true`  | `false` | `contact_ball_ball`의 엄격 `<` |
+
+**판정: `collision: bool` 행은 UNMET 그대로다.** 판정은 바뀌지 않고 원인의
+정체가 바뀐다. §229.1의 "상류에 규약이 없다"는 유효하되 불완전했다 — 규약이
+없는 것이 아니라 **협면 등록표가 규약 자리에 있고**, prbt가 하필 그 표의
+빈칸(`cylinder × box`)에 놓여 있다. `prbt_base_link` 실린더 아랫면이 정확히
+`z = 0`이고 `tools/moveit-diff`의 바닥 상판이 정확히 `z = 0`이며 어떤 관절값도
+베이스 링크를 움직이지 않으므로, 표본 10,000상태 전부가 같은
+`cylinder × box` 동점을 낸다. 그 한 셀만 상류에 맞추려면 표 전체를 들여와야
+한다: 바로 옆 `sphere × box` 동점은 동시에 `true`로 남아야 하기 때문이다.
+허용오차로 닫히지도 않는다(`bool`에는 없다).
+
+이 포트를 균일하게 만드는 것도 시도하지 않았고, 그 이유는 대안이 둘뿐이기
+때문이다 — 양의 예측값(상류에 크기를 잴 근거가 없는 엡실론이고, §229.2가
+이미 잰 양의 여유 위에 더 얹는 꼴이다), 아니면 쌍별 분기(두 라이브러리에서
+이 결함을 만들어낸 바로 그 구조다). `contact.dist <= 0.0` 게이트는
+§229.2가 이미 시도하고 되돌렸다(octree case 4가 깨진다).
+
+`doc/upstream-bugs.md`에는 `shape-intersect-tangency-follows-libccd-dispatch`로
+넣었고 상태는 `not-reproduced`다. **결함이 맞다**고 판정한 근거는
+`box`/`convex` 셀이다: 같은 여덟 꼭짓점이 어느 C++ 타입에 담겼는지만으로 답이
+갈리는 것은 "놀랍지만 결함은 아닌" 축에 들지 않는다. 상류 뿌리가 `moveit2`가
+아니라 fcl이므로 `kdl-path-circle-nan-scale-rot`와
+`set-motion-plan-request-time-guard-polarity`의 선례대로 호스트 체크아웃
+(`/home/stevek/work/fcl`, `0.7.0-17-ge5efcc4`)을 이름으로 적었고, 이미지의
+`libfcl-dev 0.7.0-3build2`와 `cmp`로 대조해 인용 파일 두 개가 바이트 동일,
+`box_box-inl.h`만 인용 구간 위에 한 줄 차이임을 함께 적었다.
+
+오늘의 답을 고정한 것은
+`crates/moveit-collision/tests/exact_tangency_is_decided_per_shape_pair.rs`다
+(4건, `0.008s`, 오라클·docker 불요). 25셀 표를 통째로 비교하고 어긋난 셀의
+**이름**을 실패 메시지에 낸다 — `TANGENT`의 `sphere × sphere`를 뒤집는
+격리 변이를 지금 돌려 `sphere x sphere: expected true, got false`로 실패하고
+나머지 두 표는 초록으로 남는 것을 확인했다.
+
+### §NEW.5 이 열거가 찾은 포트 결함 — 첨부물 메쉬가 무조건 패닉했다
+
+25쌍 스윕은 첫 실행에서 `parry.rs`의 `scaled_padded_shape`에서 패닉했다.
+`Mesh::scale_and_padd`는 scale·padding 값과 무관하게 정점 법선 배열을
+읽으므로(`shapes.rs`의 `scale_and_padd_axes`), 공개 `Mesh::new`로 만든
+메쉬를 담은 `AttachedBodyGeometry`는 패딩이 `0.0`이고 스케일이 `1.0`이어도
+**모든** 충돌 검사에서 패닉했다. 상류는 이 상태에 닿을 수 없다 —
+`geometric_shapes`의 메쉬 생성 진입점이 모두 `computeVertexNormals()`로
+끝나므로(`mesh_operations.cpp:124-125`, `:200-201`, `:436-437`,
+`shape_operations.cpp:534-535`) 포팅할 대응 가드가 애초에 없었고, 이 포트는
+그 불변식을 `moveit_geometry::stl::mesh_from_bytes` 한 곳에서만 세워
+`LinkModel::shapes`만 덮고 있었다. 공유 경계 한 곳에서 법선을 계산하도록
+고쳐 `expect`가 두 호출자 모두에게 참이 되게 했다.
+
+이 결함은 회귀 스윕이 볼 수 없었다: 이 워크스페이스의 첨부물 파리티
+픽스처는 프리미티브만 쓴다. 새 경로를 처음 돌리는 것 말고는 드러날 길이
+없었다.
+
+### §NEW.6 이 절이 하지 않은 것
+
+- `sphere × sphere` 셀을 상류에 맞추지 않았다. 위에 적은 두 대안 모두
+  받아들일 수 없어서이고, 고정 테스트가 오늘의 답을 잡고 있다.
+- `Plane`/`Halfspace`(무한)와 `OcTree`(이미 `box`가 덮는 직육면체 합성)는
+  25쌍에서 뺐다. 상류 49셀 쪽에서는 `plane`/`halfspace`/`triangle` 행을
+  빼고 7종만 쟀다 — fcl 표의 나머지 세 행은 전부 특수화가 채워져 있어
+  가설을 가르지 못한다.
+- `distance` 열은 건드리지 않았다. `mesh × mesh` 접선의 `-1.0`을 §NEW.2에
+  적어만 두었다.
+- Phase 3 완료 조건 현황표의 `collision: bool` 행 근거 열은 `§229.1` 그대로
+  두었다. 판정이 바뀌지 않았고, 그 열은 `check-phase-status.sh`가 실재하는
+  heading으로 해석하는 단일 토큰이라 번호 없는 절을 넣으면 게이트가 빨개진다.
+  **번호를 배정하는 병합자에게: 배정할 때 그 행의 근거 열을 이 절 번호로
+  옮기면 §229.1을 거치지 않고 한 홉으로 닿는다.**
