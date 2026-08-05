@@ -17169,6 +17169,14 @@ nalgebra는 한다(측정 1.25e-13).
   이 함수를 오라클과 맞춰 보는 계기가 없어서 고치지 않았다 — 재보지 않고
   바꾸는 것은 측정이 아니라 주장이다.
 
+> **세 줄 모두 §NEW가 처분했다.** 첫째 줄의 픽스처는 상류에 있었고
+> (`one_robot`, `multiplier=1.5`/`offset=0.1`) 이미 커밋돼 있었다. 둘째
+> 줄의 전체 상태 루프는 세 오버로드를 포팅하고 `state_interpolate` op으로
+> 7로봇 1,572 케이스를 허용오차 0.0에서 비교했다. 셋째 줄은 결함이 아니라
+> 이 절 자신의 오독이다 — `nalgebra`의 `lerp`은 `axpy(t, rhs, 1 - t)`로
+> 포워딩하므로 상류의 `percentage * b + (1 - percentage) * a`와 성분별로
+> 같은 식이다. 이 세 줄을 읽는 사람은 §NEW를 같이 읽어야 한다.
+
 ---
 
 ## §224 pilz joint-limits 여섯 파일 — 이 포트의 두 번째 입력은 파라미터 서버가 아니라 오버라이드 컨테이너다
@@ -20497,3 +20505,175 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 하고, 그때 필요한 가드는 `<= 0.0`이 아니라 `> 0.0`이다
 (§236.1, 그리고 상류 자신의 `MoveGroupInterface::setPlanningTime`,
 `move_group_interface.cpp:1013-1017`).
+
+---
+
+## §NEW §238.5가 "덮지 않았다"고 적은 세 항목의 처분 — 둘은 닫았고 하나는 오독이었다 (2026-08-06)
+
+§238은 Phase 2 셋째 조건을 MET으로 올리면서 자기가 덮지 못한 것을 §238.5에
+세 줄로 적어 두었다. MET 행이 측정되지 않은 경계 위에 서 있으면 그 행은
+다시 열린다. 이 절은 그 세 줄을 각각 처분한다 — 두 개는 계기를 만들어
+닫았고, 셋째는 실제로 결함이 아니라 §238 자신의 오독이었다.
+
+### §NEW.1 mimic 산술의 비항등 점 — 상류에 픽스처가 있었고, 이미 커밋돼 있었다
+
+§238.5의 첫 줄은 "커밋된 다섯 픽스처의 mimic이 전부 `multiplier=1,
+offset=0`"이라 `factor * v + offset`이 항등인 한 점에서만 실행됐다고
+적었다. 그 문장이 쓰인 뒤 `one_robot`이 들어왔다(`57b0fb7`).
+
+```console
+$ cd /home/stevek/work/moveit2 && git rev-parse HEAD
+e017c91ee12984393a28ba246075c65f69cde3bf
+$ grep -rn '<mimic' --include='*.urdf' --include='*.xacro' \
+      --include='*.cpp' --include='*.hpp' --include='*.py' . | grep -v /\.git/
+moveit_core/robot_state/test/robot_state_test.cpp:355:    <mimic joint="joint_f" multiplier="1.5" offset="0.1"/>
+moveit_core/robot_trajectory/test/test_robot_trajectory.cpp:268:  "    <mimic joint=\"joint_f\" multiplier=\"1.5\" offset=\"0.1\"/>"
+moveit_planners/test_configs/prbt_pg70_support/urdf/pg70/pg70.urdf.xacro:93:      <mimic joint="${name}_finger_left_joint" multiplier="1" offset="0"/>
+moveit_py/test/unit/fixtures/panda.urdf:222:        <mimic joint="panda_finger_joint1" />
+moveit_ros/robot_interaction/test/locked_robot_state_test.cpp:149:  "    <mimic joint=\"joint_f\" multiplier=\"1.5\" offset=\"0.1\"/>"
+```
+
+상류 전체에 `<mimic` 선언은 다섯 개고, 비항등 계수를 쓰는 것은 하나뿐이다 —
+`joint_f`의 `1.5`/`0.1`, 세 C++ 테스트 파일이 같은 `MODEL2` 문자열을
+공유해서 세 번 나타난다. 그 문자열이 곧
+`fixtures/one_robot.urdf`이고(`verify-fixture-provenance.sh`의
+`EXTRACTED_FROM ... robot_state_test.cpp::MODEL2`), `:105`에
+`<mimic joint="joint_f" multiplier="1.5" offset="0.1"/>`을 그대로 들고
+있다. 따라서 "합성 URDF가 이 자리에 허용되는가"라는 판단은 내릴 필요가
+없었다 — 상류가 가진 유일한 비항등 mimic이 이미 벤더링돼 있고, 이번
+라운드의 스윕은 그 로봇을 포함해 돈다(아래 §NEW.2의 `one_robot` 행).
+
+산술을 세 방향으로 틀리게 만드는 변이 — 계수를 떨어뜨리기, 오프셋을
+떨어뜨리기, `factor * (v + offset)`으로 순서를 바꾸기 — 는 항등 mimic만
+있는 여섯 로봇에서 전부 같은 수를 내고, `one_robot`에서만 갈라진다. 그
+점이 이 픽스처가 스윕에 들어 있어야 하는 이유이며,
+`verify-phase2-state-sweep.sh`의 `ROBOTS` 주석에 그렇게 적혀 있다.
+
+### §NEW.2 `RobotState::interpolate` 세 오버로드를 포팅하고 전체 상태 루프를 오라클과 맞췄다
+
+§238.5의 둘째 줄이 지적한 대로, §238의 비교는 `JointModel::interpolate`를
+조인트별로 본 것이고 상류의 전체 상태 루프는 비교되지 않았다. 이번
+라운드는 "덮이지 않은 간극"으로 적는 쪽이 아니라 루프를 포팅해 재는 쪽을
+택했다. 상류 오버로드는 셋이고 서로 다른 일을 한다
+(`moveit_core/robot_state/src/robot_state.cpp`):
+
+- `:1138` 전체 상태 — `checkInterpolationParamBounds` 뒤
+  `RobotModel::interpolate`(`robot_model.cpp:1518`), 즉
+  `active_joint_model_vector_` 루프 + `updateMimicJoints(state)`.
+- `:1147` 그룹 — 같은 경계 검사 뒤 `group->getActiveJointModels()` 루프 +
+  `state.updateMimicJoints(joint_group)`. 이 `updateMimicJoints`
+  (`robot_state.cpp:210`)가 도는 것은 **그룹의** mimic
+  (`group->getMimicJointModels()`)이지 모델 전체의 mimic이 아니다.
+- `:1159` 단일 조인트 — **경계 검사가 없다**. 함수는
+  `if (joint->getVariableCount() == 0) return;`으로 열고 곧장
+  `joint->interpolate` + `markDirtyJointTransforms` +
+  `updateMimicJoint(joint)`로 간다.
+
+포트는 `RobotState::interpolate` / `interpolate_group` /
+`interpolate_joint`로 셋을 그대로 가른다
+(`crates/moveit-state/src/state.rs`). 세 번째가 경계 검사를 부르지 않는
+비대칭은 상류의 것이므로 포트에서도 그대로 두고, 그 사실을 doc 주석과
+테스트 양쪽에 못 박았다 — 세 오버로드에 검사를 "친절하게" 통일한 포트는
+상류가 실제로 수행하는 호출을 거부하게 된다.
+
+mimic 쓰기는 한 주인으로 접었다. `write_mimic(mimic_index)`가 산술
+(`factor * source + offset`)과 dirty 표시를 **함께** 수행하고,
+`propagate_all_mimics`(전체 폼)와 그룹 폼의 `group.mimic_joint_indices()`
+루프와 `update_mimic_joint`(단일 조인트 폼)가 전부 그것을 부른다. 호출자가
+표시를 맡는 설계는 상류 세 자리 중 하나(`RobotModel`의 것, 맨
+`double*` 위에서 도므로 표시할 dirty 상태 자체가 없다)만 표시를 생략하는
+것이 옳고 나머지 둘은 생략이 곧 stale transform 버그가 되므로, 생략이
+정답인 자리와 버그인 자리가 한 규칙 아래 섞인다.
+
+계기는 `state_interpolate` op이다 — `tools/moveit-oracle/src/oracle.cpp`의
+`stateInterpolateOp`이 `from`/`to`/`seed` 위치 벡터 전부와 `t`, `scope`를
+받아 `setVariablePositions`로 심고 세 오버로드 중 하나를 부른 뒤 결과
+상태의 모든 변수를 돌려준다. `tools/moveit-diff/src/state_ops.rs`의 넷째
+절(`state_interpolation`)이 그것을 열거한다: 오라클이 뽑은 무작위 상태 셋
+(`from`/`to`/`seed`)에 더해, 모든 mimic을 자기 master에서 `+0.5`만큼
+어긋나게 만든 `broken-mimic-seed`를 하나 더 만든다. 이 어긋난 seed가
+필요한 이유는 `setVariablePositions(const double*)`이 `memcpy`이고 mimic을
+전파하지 않기 때문이다(`robot_state.cpp:349`의 주석이 그렇게 말한다) —
+즉 목적지가 들고 있던 모순된 mimic 값이 그대로 살아남고, 어느
+오버로드가 그것을 덮어쓰고 어느 것이 놔두는지가 그때만 보인다.
+
+```console
+$ sg docker -c './tools/ci/verify-phase2-state-sweep.sh'   # EXIT=0
+=== panda ===          clamping 122/0  mimic 10/0  interpolation  371/0  state_interpolation 134/0
+=== prbt ===           clamping  54/0  mimic  0/0  interpolation  168/0  state_interpolation  55/0
+=== fanuc ===          clamping  54/0  mimic  0/0  interpolation  168/0  state_interpolation  47/0
+=== dual_arm_panda === clamping 198/0  mimic 20/0  interpolation  504/0  state_interpolation 230/0
+=== pr2 ===            clamping 568/0  mimic 20/0  interpolation 1967/0  state_interpolation 838/0
+=== one_robot ===      clamping  73/0  mimic 10/0  interpolation  189/0  state_interpolation 110/0
+=== prbt_pg70 ===      clamping  90/0  mimic 10/0  interpolation  224/0  state_interpolation 158/0
+OK: ... agree with the oracle on all 7 committed robots
+```
+
+허용오차 `0.0`, 즉 비트 단위 일치다. 넷째 절만 1,572 케이스이고 네 절
+합계는 6,392다.
+
+### §NEW.3 그룹 폼과 전체 폼이 같은 입력에서 갈라지는 유일한 자리 — `prbt_pg70`
+
+그룹 폼이 도는 것은 그룹의 mimic이다. 그러므로 **mimic의 master는
+그룹에 있는데 mimic 자신은 없는** 그룹에서만 두 오버로드가 같은 입력에
+다른 답을 낸다: 전체 폼은 mimic을 master로부터 다시 쓰고, 그룹 폼은
+목적지가 들고 있던 값을 그대로 둔다.
+
+이 모양은 SRDF 저작만으로 도달한다 —
+`JointModelGroup`의 `mimic_joints_`(`joint_model_group.cpp:155`)는 그룹의
+**멤버인** mimic만 담고, 그룹 확장(`robot_model.cpp:785-830`)은 하위
+그룹의 mimic은 끌어오지만 멤버 자신의 mimic은 끌어오지 않는다. 커밋된
+여섯 로봇의 그룹은 전부 mimic 쌍의 양쪽을 함께 갖거나 둘 다 갖지 않아서,
+이 경계는 어느 케이스도 밟지 않았다.
+
+밟는 로봇은 상류에 있다. Pilz의
+`moveit_planners/test_configs/prbt_pg70_support/config/pg70.srdf.xacro:36-38`이
+`gripper` 그룹에 `${prefix}gripper_finger_left_joint` 하나만 넣는데,
+같은 패키지의 `urdf/pg70/pg70.urdf.xacro:93`이 오른쪽 손가락을 그
+왼쪽 손가락의 mimic으로 선언한다. `fixtures/prbt.urdf`와 같은
+컨테이너·같은 xacro 경로로 `gripper:=pg70`만 덧붙여 뽑은 것이
+`fixtures/prbt_pg70.{urdf,srdf}`이고, 두 파일의 include 폐포(각각 10개,
+3개)를 sha256으로 `verify-fixture-provenance.sh`에 못 박았다.
+
+이 픽스처가 재는 것이 무엇인지는 변이 하나로 확정했다: 그룹 폼의 mimic
+전파를 `group.mimic_joint_indices()` 대신 "그룹의 master들이 거느린
+모든 mimic"으로 바꾸면 `prbt_pg70`에서만 8건이 어긋나고 나머지 여섯
+로봇은 전부 0건이다.
+
+### §NEW.4 §238.5의 셋째 줄은 결함이 아니라 오독이었다 — `nalgebra`의 `lerp`이 곧 upstream의 식이다
+
+§238.5는 `CartesianInterpolator::interpolate_pose`의 병진이
+`from.lerp(to, t)` = `a + (b - a) * t`인데 상류는
+`percentage * b + (1 - percentage) * a`라고 적었다. 이름만 보고 읽은
+것이다. `nalgebra` 0.35.0의 `Vector::lerp`
+(`base/interpolation.rs`)는 `axpy(t, rhs, T::one() - t)`로 포워딩하고,
+그것은 성분별로 `t*rhs + (1-t)*self` — 상류의 식 그대로다. 포트는 처음부터
+갈라져 있지 않았고, 그래서 이번 라운드는 소스를 **바꾸지 않았다**.
+
+바꾸지 않는 대신, 어느 쪽 f64 프로그램인지를 이름이 아니라 테스트가 말하게
+했다(`crates/moveit-kinematics/src/cartesian_interpolator.rs`의 `mod
+tests`). 두 철자는 실수 위에서 같고 f64 위에서 다르다: 미터 스케일
+8,405쌍을 쓸어 재 보면 `a + (b - a) * t`는 `t = 1`에서 2,040쌍에 대해
+`b`를 맞히지 못하고, 내부에서는 최대 `4.44e-16`까지 벌어진다. 테스트의
+`NEAR`/`FAR` 상수는 그 쓸기에서 골라낸, 두 철자가 실제로 갈라지는
+좌표다 — 임의로 고른 좌표에서는 세 테스트가 두 철자 아래 모두 통과해
+아무것도 못 박지 못한다(실측했다). 그래서 내부 케이스는 `differed > 0`을
+스스로 확인한다.
+
+### §NEW.5 이 라운드가 여전히 덮지 못하는 것
+
+- **비유한 `t`는 오라클을 통과할 수 없다.** `serde_json`은 `NaN`과 무한대를
+  둘 다 `null`로 싣기 때문에 넷째 절은 유한한 `t`만 보낼 수 있다. 상류
+  `checkInterpolationParamBounds`(`robot_model.hpp:63`)가 던지는 것은 정확히
+  그 두 값이고, 셋 중 둘만 그것을 부른다. 이 경계는 오라클이 아니라
+  `crates/moveit-state/tests/interpolate_state.rs`가 잡는다.
+- **어느 조인트가 stale로 표시됐는지는 전선에 실리지 않는다.** 오라클 op은
+  변수 위치를 돌려주고, 상류의 dirty 장부는 `RobotState` 내부에 있다.
+  위치는 맞게 쓰고 표시를 빠뜨린 오버로드는 넷째 절의 모든 케이스에
+  동의한 다음 다음 `update()`에서 낡은 transform을 돌려준다. 같은 파일이
+  네 자리를 각각 잡는다.
+- **단일 조인트 폼의 0-변수 조기 반환은 이 포트에서 관측되지 않는다.**
+  그 반환을 지워도 `moveit-state` 스위트는 전부 통과하고 `panda` 넷째 절도
+  0건이다 — `interpolate_one`이 폭이 0인 구간을 복사하면 아무 일도
+  일어나지 않고 `update_mimic_joint`가 같은 가드를 한 단계 아래에 또 들고
+  있기 때문이다. 상류의 것이므로 남기지만, 이 반환을 지키는 계기는 없다.
