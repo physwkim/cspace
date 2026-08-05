@@ -18,6 +18,7 @@
 
 mod protocol;
 mod rust_impl;
+mod state_ops;
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
@@ -159,6 +160,25 @@ struct Config {
     /// (this round's worker, the next round's reviewer, p3-acm) hitting the
     /// same class of mistake independently.
     stats_json: Option<String>,
+    /// Run §5 Phase 2's third completion condition instead of the
+    /// random-state fk/jacobian/collision/ik loop -- see `state_ops`'s own
+    /// module doc. A separate mode rather than another flag folded into
+    /// `run`: every case there is an enumerated boundary rather than a draw
+    /// from `--cases`, so it shares neither the state pool nor the per-case
+    /// verdict shape.
+    state_ops: bool,
+    /// Componentwise tolerance for the interpolation clause of
+    /// `--state-ops`. Defaults to `0.0`, i.e. bitwise agreement.
+    ///
+    /// Zero is the honest default and not an aspiration: every branch of
+    /// `JointModel::interpolate` except the floating slerp is `from + diff *
+    /// t` and a comparison, identical IEEE operations on both sides. The
+    /// slerp is the one place `acos`/`sin` could differ in the last ULP
+    /// between Eigen and nalgebra, so this exists to be raised *from a
+    /// measurement* if it ever has to be -- with the measured worst
+    /// deviation printed next to it on every run, so a raised value can be
+    /// read against what it is covering.
+    tol_interpolate: f64,
     oracle: Vec<String>,
 }
 
@@ -190,6 +210,8 @@ impl Config {
         let mut ik_rng_seed = 0u64;
         let mut ik_divergence_json: Option<String> = None;
         let mut stats_json: Option<String> = None;
+        let mut state_ops = false;
+        let mut tol_interpolate = 0.0;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
         let mut args = std::env::args().skip(1);
@@ -269,6 +291,12 @@ impl Config {
                 }
                 "--ik-divergence-json" => ik_divergence_json = Some(want("--ik-divergence-json")?),
                 "--stats-json" => stats_json = Some(want("--stats-json")?),
+                "--state-ops" => state_ops = true,
+                "--tol-interpolate" => {
+                    tol_interpolate = want("--tol-interpolate")?
+                        .parse()
+                        .map_err(|e| format!("--tol-interpolate: {e}"))?
+                }
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
                     oracle = args.by_ref().collect();
@@ -332,6 +360,8 @@ impl Config {
             ik_rng_seed,
             ik_divergence_json,
             stats_json,
+            state_ops,
+            tol_interpolate,
             oracle,
         })
     }
@@ -450,12 +480,17 @@ fn main() {
             eprintln!("                   [--ik-epsilon EPS]");
             eprintln!("                   [--ik-divergence-json <path>]");
             eprintln!("                   [--stats-json <path>]");
+            eprintln!("                   [--state-ops] [--tol-interpolate EPS]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
         }
     };
 
-    match run(&cfg) {
+    match if cfg.state_ops {
+        run_state_ops(&cfg)
+    } else {
+        run(&cfg)
+    } {
         Ok(failures) => std::process::exit(i32::from(failures > 0)),
         Err(e) => {
             eprintln!("moveit-diff: {e}");
@@ -672,6 +707,87 @@ struct RunStats {
     collision_clauses: Option<CollisionClauseStats>,
     /// `Some` only when `--ik` ran.
     ik: Option<IkStats>,
+}
+
+/// `--state-ops`: PORTING-PLAN.md §5 Phase 2's third completion condition,
+/// clause by clause. See the `state_ops` module doc for what each clause
+/// drives and why.
+///
+/// Returns the number of disagreements, so a clean run exits 0 exactly like
+/// [`run`]. The per-clause counts are printed on every run, not only on
+/// failing ones: a completion condition that is met is a measurement too, and
+/// "0 disagreements over 0 cases" has to be distinguishable from "0 over
+/// 400" by reading the output rather than by trusting it.
+fn run_state_ops(cfg: &Config) -> Result<usize, String> {
+    let mut oracle = Oracle::spawn(cfg)?;
+    let rust_model = build_rust_model(cfg)?;
+    let model = match oracle.ask(Op::ModelInfo)? {
+        OracleResult::ModelInfo(m) => m,
+        other => return Err(format!("expected model_info, got {other:?}")),
+    };
+    println!(
+        "oracle model: {} ({} links, {} joints, {} groups)",
+        model.name,
+        model.links.len(),
+        model.joints.len(),
+        model.groups.len()
+    );
+
+    let report = state_ops::run(&mut oracle, &rust_model, &model, cfg.tol_interpolate)?;
+
+    // The fixture's file stem, not `model.name`: `fixtures/dual_arm_panda.urdf`
+    // declares `<robot name="panda">`, so labelling by model name reports two
+    // different robots under one name and makes a per-robot verdict
+    // unattributable.
+    let label = std::path::Path::new(&cfg.urdf)
+        .file_stem()
+        .map_or_else(|| cfg.urdf.clone(), |s| s.to_string_lossy().into_owned());
+
+    println!(
+        "--- §5 Phase 2 clause 3 ({label}, model name {}) ---",
+        model.name
+    );
+    let mut total = 0usize;
+    for clause in &report.clauses {
+        total += clause.disagreements;
+        println!(
+            "{:<14} cases {:<6} disagreements {:<6} worst |Δ| {:.6e}  at {}",
+            clause.name,
+            clause.cases,
+            clause.disagreements,
+            clause.worst_deviation,
+            if clause.worst_label.is_empty() {
+                "<no case ran>"
+            } else {
+                &clause.worst_label
+            }
+        );
+        if clause.name == "interpolation" {
+            println!(
+                "{:<14} tolerance {:.6e}, double-cover disagreements {}",
+                "", cfg.tol_interpolate, clause.double_cover
+            );
+        }
+        for line in &clause.skipped {
+            println!("{:<14} SKIPPED {line}", "");
+        }
+        for line in &clause.failures {
+            println!("  FAIL {line}");
+        }
+        if clause.disagreements > clause.failures.len() {
+            println!(
+                "  ... {} further disagreements not printed",
+                clause.disagreements - clause.failures.len()
+            );
+        }
+    }
+
+    if report.met() {
+        println!("§5 Phase 2 clause 3 is met on {label}.");
+    } else {
+        eprintln!("§5 Phase 2 clause 3 is NOT met on {label}: {total} disagreements.");
+    }
+    Ok(total)
 }
 
 fn run(cfg: &Config) -> Result<usize, String> {
@@ -2856,6 +2972,8 @@ mod ik_divergence_recording_tests {
             ik_rng_seed: 0,
             ik_divergence_json: None,
             stats_json: None,
+            state_ops: false,
+            tol_interpolate: 0.0,
             oracle: Vec::new(),
         }
     }

@@ -948,6 +948,12 @@ public:
       return jacobian(request);
     if (op == "random_states")
       return randomStates(request);
+    if (op == "enforce_bounds")
+      return enforceBoundsOp(request);
+    if (op == "mimic_propagate")
+      return mimicPropagateOp(request);
+    if (op == "interpolate")
+      return interpolateOp(request);
     if (op == "kinematics_metrics")
       return kinematicsMetrics(request);
     if (op == "acm")
@@ -1551,6 +1557,154 @@ private:
       states.push_back(state);
     }
     return json{ { "states", states } };
+  }
+
+  /// Read `request[key]` as a complete variable vector, in the model's own
+  /// variable order.
+  ///
+  /// Complete, not partial: every other op that takes joint values starts
+  /// from `setToDefaultValues()` and overrides what the request names, which
+  /// is right for FK (an omitted variable is "whatever the model says") and
+  /// wrong for the three ops below, where the whole point of a case is the
+  /// exact vector it starts from. An omitted variable there would silently
+  /// substitute a default and the resulting disagreement would be about the
+  /// substitution, not about the operation. Both directions are rejected:
+  /// a missing name and a name this model does not have.
+  std::vector<double> readFullPositions(const json& request, const char* key) const
+  {
+    const std::vector<std::string>& names = model_->getVariableNames();
+    const json& in = request.at(key);
+    if (in.size() != names.size())
+      throw std::runtime_error(std::string(key) + " has " + std::to_string(in.size()) +
+                               " entries, model has " + std::to_string(names.size()) + " variables");
+    std::vector<double> values(names.size());
+    for (std::size_t i = 0; i < names.size(); ++i)
+    {
+      const auto it = in.find(names[i]);
+      if (it == in.end())
+        throw std::runtime_error(std::string(key) + " is missing variable: " + names[i]);
+      values[i] = it->get<double>();
+    }
+    return values;
+  }
+
+  /// `*state_`'s whole position vector as name -> value.
+  json positionsToJson() const
+  {
+    const std::vector<std::string>& names = model_->getVariableNames();
+    const double* positions = state_->getVariablePositions();
+    json out = json::object();
+    for (std::size_t v = 0; v < names.size(); ++v)
+      out[names[v]] = positions[v];
+    return out;
+  }
+
+  /// Every joint of the model -- active *and* mimic -- whose own
+  /// `satisfiesPositionBounds(margin 0)` is false for `*state_`'s current
+  /// values.
+  ///
+  /// Over `getJointModels()` rather than `getActiveJointModels()`, and that
+  /// difference is the measurement: `RobotState::enforceBounds()` iterates
+  /// the active vector, which excludes mimic joints, so the only thing that
+  /// can ever write a mimic variable is `updateMimicJoint` propagating from
+  /// its master. A mimic whose master is clamped therefore lands at
+  /// `factor * clamped + offset` with its own bounds never consulted. Asking
+  /// only the active joints would report that state as in-bounds.
+  json outOfBoundsJoints() const
+  {
+    json out = json::array();
+    for (const moveit::core::JointModel* joint : model_->getJointModels())
+    {
+      if (joint->getVariableCount() == 0)
+        continue;
+      const double* values = state_->getJointPositions(joint);
+      if (!joint->satisfiesPositionBounds(values, joint->getVariableBounds(), 0.0))
+        out.push_back(joint->getName());
+    }
+    return out;
+  }
+
+  /// `RobotState::enforceBounds()` over a caller-supplied complete variable
+  /// vector: PORTING-PLAN.md §5 Phase 2's "관절 한계 클램핑" clause.
+  ///
+  /// The vector is installed with `setVariablePositions(const double*)`, the
+  /// raw memcpy overload, precisely so that no mimic propagation runs before
+  /// `enforceBounds()` does -- upstream documents that overload as assuming
+  /// "the full state includes mimic joint values". A request can therefore
+  /// hand in a mimic variable that disagrees with its master, which is the
+  /// only way to observe whether `enforceBounds` re-derives it (it does iff
+  /// the master's own `enforcePositionBounds` returned true, which is
+  /// unconditional for revolute and change-gated for prismatic).
+  json enforceBoundsOp(const json& request)
+  {
+    const std::vector<double> values = readFullPositions(request, "positions");
+    state_->setVariablePositions(values.data());
+    state_->enforceBounds();
+    return json{ { "enforced", positionsToJson() }, { "out_of_bounds", outOfBoundsJoints() } };
+  }
+
+  /// `RobotState::setJointPositions(joint, values)` for each entry of
+  /// `joint_positions`, from the model defaults: PORTING-PLAN.md §5 Phase 2's
+  /// "mimic 전파" clause. Every mimic variable in the answer got there through
+  /// `updateMimicJoint` and nothing else.
+  ///
+  /// Naming a mimic joint is an error rather than a write. Two writes to the
+  /// same mimic relationship -- one direct, one propagated -- would make the
+  /// answer depend on the order this loop happens to visit the object's keys,
+  /// and a request cannot express an order at all (nlohmann's json object is
+  /// key-sorted). Rejecting the input is what keeps the op a function of its
+  /// request.
+  json mimicPropagateOp(const json& request)
+  {
+    state_->setToDefaultValues();
+    const json& in = request.at("joint_positions");
+    for (auto it = in.begin(); it != in.end(); ++it)
+    {
+      const moveit::core::JointModel* joint = model_->getJointModel(it.key());
+      if (!joint)
+        throw std::runtime_error("unknown joint: " + it.key());
+      if (joint->getMimic())
+        throw std::runtime_error("joint_positions names the mimic joint " + it.key() +
+                                 "; only the joints it mimics may be written");
+      const std::vector<double> values = it.value().get<std::vector<double>>();
+      if (values.size() != joint->getVariableCount())
+        throw std::runtime_error("joint " + it.key() + " has " + std::to_string(joint->getVariableCount()) +
+                                 " variables, request gave " + std::to_string(values.size()));
+      state_->setJointPositions(joint, values.data());
+    }
+    return json{ { "propagated", positionsToJson() } };
+  }
+
+  /// `JointModel::interpolate(from, to, t, state)` for one joint:
+  /// PORTING-PLAN.md §5 Phase 2's "floating/planar 조인트 보간" clause.
+  ///
+  /// The joint-level call, not `RobotState::interpolate`, because that is
+  /// where every type-specific rule lives -- the continuous-revolute and
+  /// planar wrap branches, the floating slerp and its near-identical
+  /// shortcut, the diff-drive turn/drive/turn split. `RobotState::interpolate`
+  /// adds only the loop over active joints and a mimic pass, both of which
+  /// the two ops above already compare on their own.
+  ///
+  /// No `RobotState` is touched at all: upstream's `interpolate` is a pure
+  /// function of `from`, `to`, `t` and the joint's own configuration, so
+  /// routing it through a state would add a memcpy whose disagreement could
+  /// not be told apart from an interpolation one.
+  json interpolateOp(const json& request)
+  {
+    const std::string joint_name = request.at("joint").get<std::string>();
+    const moveit::core::JointModel* joint = model_->getJointModel(joint_name);
+    if (!joint)
+      throw std::runtime_error("unknown joint: " + joint_name);
+    const std::size_t count = joint->getVariableCount();
+    const std::vector<double> from = request.at("from").get<std::vector<double>>();
+    const std::vector<double> to = request.at("to").get<std::vector<double>>();
+    if (from.size() != count || to.size() != count)
+      throw std::runtime_error("joint " + joint_name + " has " + std::to_string(count) +
+                               " variables, request gave from=" + std::to_string(from.size()) +
+                               " to=" + std::to_string(to.size()));
+    std::vector<double> out(count);
+    joint->interpolate(from.data(), to.data(), request.at("t").get<double>(), out.data());
+    return json{ { "interpolated", out } };
   }
 
   json jacobian(const json& request)

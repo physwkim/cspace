@@ -56,6 +56,49 @@ pub enum Op {
         /// Seed for `random_numbers::RandomNumberGenerator`.
         seed: i32,
     },
+    /// `RobotState::enforceBounds()` over a complete variable vector.
+    ///
+    /// Complete, unlike [`Op::Fk`]'s `joint_values`: an omitted variable
+    /// there means "keep the model default", which is the wrong contract for
+    /// a boundary case whose whole content is the exact vector it starts
+    /// from. The oracle rejects a partial map rather than filling it in.
+    ///
+    /// The vector is installed raw (`setVariablePositions(const double*)`),
+    /// so a mimic variable that disagrees with its master survives until
+    /// `enforceBounds()` decides whether to re-derive it. That is the only
+    /// way to observe the clamping/mimic interaction from outside.
+    EnforceBounds {
+        /// Every variable of the model, by name.
+        positions: BTreeMap<String, f64>,
+    },
+    /// `RobotState::setJointPositions(joint, values)` from the model
+    /// defaults, once per entry, so every mimic variable in the answer got
+    /// there through `updateMimicJoint`.
+    ///
+    /// Naming a mimic joint is an error: two writes to one mimic
+    /// relationship would make the answer depend on map iteration order.
+    MimicPropagate {
+        /// Joint name to that joint's own variable values, in the joint's
+        /// variable order. Only joints that mimic nothing may appear.
+        joint_positions: BTreeMap<String, Vec<f64>>,
+    },
+    /// `JointModel::interpolate(from, to, t, state)` for one joint.
+    ///
+    /// Per joint rather than per state: this is where every type-specific
+    /// rule lives (continuous-revolute and planar angle wrap, floating
+    /// slerp and its near-identical shortcut), and `RobotState::interpolate`
+    /// adds only an active-joint loop and a mimic pass that
+    /// [`Op::MimicPropagate`] already covers.
+    Interpolate {
+        /// Joint name. Must have at least one variable.
+        joint: String,
+        /// Start values, in the joint's own variable order.
+        from: Vec<f64>,
+        /// End values, same order.
+        to: Vec<f64>,
+        /// Interpolation parameter, normally in `[0, 1]`.
+        t: f64,
+    },
     /// Geometric Jacobian of `group` at the given joint values.
     Jacobian {
         /// Joint model group name.
@@ -498,6 +541,12 @@ pub enum OracleResult {
     Fk(FkResult),
     /// Answer to [`Op::RandomStates`].
     RandomStates(RandomStatesResult),
+    /// Answer to [`Op::EnforceBounds`].
+    EnforceBounds(EnforceBoundsResult),
+    /// Answer to [`Op::MimicPropagate`].
+    MimicPropagate(MimicPropagateResult),
+    /// Answer to [`Op::Interpolate`].
+    Interpolate(InterpolateResult),
     /// Answer to [`Op::Jacobian`].
     Jacobian(JacobianResult),
     /// Answer to [`Op::Acm`].
@@ -587,6 +636,43 @@ pub struct FkResult {
 pub struct RandomStatesResult {
     /// One map of variable name to position per state.
     pub states: Vec<BTreeMap<String, f64>>,
+}
+
+/// Answer to [`Op::EnforceBounds`].
+///
+/// Every field name here is unique across [`OracleResult`]'s variants on
+/// purpose: that enum is `#[serde(untagged)]`, so a response is matched to a
+/// variant by which fields it carries, and a variant whose required fields
+/// are a subset of another's would swallow the other's responses depending
+/// only on declaration order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnforceBoundsResult {
+    /// The whole variable vector after `enforceBounds()`, by name.
+    pub enforced: BTreeMap<String, f64>,
+    /// Every joint -- active *and* mimic -- whose own
+    /// `satisfiesPositionBounds(margin 0)` is false afterwards, by name.
+    ///
+    /// Not redundant with `enforced`: reproducing it from the vector needs
+    /// each joint type's own bounds predicate, which is the thing being
+    /// compared. Non-empty is not a defect. `enforceBounds()` iterates the
+    /// *active* joints, which exclude mimics, so a mimic whose master was
+    /// clamped is written by `updateMimicJoint` at `factor * master +
+    /// offset` with its own bounds never consulted.
+    pub out_of_bounds: Vec<String>,
+}
+
+/// Answer to [`Op::MimicPropagate`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MimicPropagateResult {
+    /// The whole variable vector after the requested writes, by name.
+    pub propagated: BTreeMap<String, f64>,
+}
+
+/// Answer to [`Op::Interpolate`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InterpolateResult {
+    /// The interpolated values, in the joint's own variable order.
+    pub interpolated: Vec<f64>,
 }
 
 /// Answer to [`Op::Jacobian`].
