@@ -191,6 +191,139 @@ run "live" bash -c '
 '
 echo "OK live round-trip: /plan_kinematic_path received a real MotionPlanRequest over DDS and returned the expected typed response"
 
+# Leg C -- the planning-scene subscription (PORTING-PLAN.md §NEW). Same shape
+# as the `/move_action` legs: publish on live DDS and assert the node answers
+# *differently* afterwards. A leg that only published would pass against a
+# subscription that dropped every message on the floor, so what is asserted
+# here is not the publish but `/check_state_validity`'s verdict flipping
+# either way across it:
+#
+#   step 1  empty world                 -> valid=True
+#   step 2  FULL scene adding `blocker` -> valid=False, contacting `blocker`
+#   step 3  DIFF adding `bystander`     -> valid=False, still contacting `blocker`
+#   step 4  FULL with `bystander` only  -> valid=True
+#
+# Steps 3 and 4 are the whole full-vs-diff split, in both directions: a diff
+# handled as a full scene clears `blocker` and turns step 3 True, and a full
+# scene handled as a diff keeps `blocker` and turns step 4 False. Neither
+# mutation can pass by fixing the other.
+#
+# Its own ROS_DOMAIN_ID, for the reason ros/verify-move-action-interop.sh
+# records at greater length: seven worktrees share this docker daemon, and
+# this leg's assertions read a scene that any concurrently-running copy could
+# publish into. Derived from `$$` so a failing run is reproducible from the id
+# printed in its own output. The `run` helper above deliberately stays
+# domain-less, so this leg calls docker directly.
+#
+# The robot is written inline rather than added to ros/fixtures/one_joint.urdf
+# because that file has no `<collision>` element at all -- with no robot
+# geometry `/check_state_validity` answers True against any world, and this leg
+# could not discriminate anything. Giving the shared fixture collision geometry
+# is the better home for it (one robot for all three legs, which is what that
+# file's own comment is protecting), but `ros/fixtures/` is outside this
+# round's fence; unlike the `/move_action` legs this one runs in a single
+# container and shares its robot with nobody, so an inline copy costs no
+# cross-container agreement here.
+SCENE_DOMAIN_ID="${ROS_DOMAIN_ID:-$((($$ % 100) + 1))}"
+echo "=== scene-topic (ROS_DOMAIN_ID=$SCENE_DOMAIN_ID) ==="
+docker run --rm -e "ROS_DOMAIN_ID=$SCENE_DOMAIN_ID" \
+  -v "$REPO_ROOT:/repo" -w /repo/ros/moveit-ros "$IMAGE" bash -c '
+  set -e
+  cat >/tmp/boxed.urdf <<\URDF
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <link name="base_link">
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.2 0.2 0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base_link"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>
+URDF
+  cat >/tmp/boxed.srdf <<\SRDF
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <group name="arm"><chain base_link="base_link" tip_link="tip"/></group>
+</robot>
+SRDF
+
+  cargo build --bin plan_kinematic_path_server
+  ./target/debug/plan_kinematic_path_server /tmp/boxed.urdf /tmp/boxed.srdf 2>/tmp/node.stderr &
+  server_pid=$!
+  trap "kill $server_pid 2>/dev/null || true" EXIT
+  sleep 3
+
+  fail() {
+    echo "FAIL scene-topic: $*" >&2
+    echo "--- last /check_state_validity reply ---" >&2
+    cat /tmp/validity >&2 2>/dev/null || true
+    echo "--- node stderr ---" >&2
+    cat /tmp/node.stderr >&2
+    exit 1
+  }
+
+  # Whole line, not a substring: ros2 topic list prints one name per line, and
+  # /planning_scene_2 contains /planning_scene -- the same rename hazard the
+  # assert_line helper in ros/verify-move-action-interop.sh exists for.
+  ros2 topic list >/tmp/topics
+  grep -qxF /planning_scene /tmp/topics || {
+    cat /tmp/topics >&2
+    fail "the node is not subscribed to /planning_scene"
+  }
+
+  validity() {  # <step label>
+    out="$(timeout 20 ros2 service call /check_state_validity \
+      moveit_msgs/srv/GetStateValidity "{}")" ||
+      fail "$1: /check_state_validity did not answer"
+    # The reply only: ros2 service call echoes the request too, and only one
+    # of the two carries valid=.
+    printf %s "$out" | sed -n "/^response:/,\$p" >/tmp/validity
+    echo "PROBE $1: $(grep -o "valid=[A-Za-z]*" /tmp/validity) $(grep -o "contact_body_2=.[a-z]*." /tmp/validity | tr "\n" " ")"
+  }
+
+  publish() {  # <step label> <is_diff> <object id> <x>
+    timeout 25 ros2 topic pub -1 -w 1 /planning_scene moveit_msgs/msg/PlanningScene \
+      "{is_diff: $2, world: {collision_objects: [{header: {frame_id: base_link}, id: $3, operation: 0, pose: {position: {x: $4}, orientation: {w: 1.0}}, primitives: [{type: 1, dimensions: [0.2, 0.2, 0.2]}], primitive_poses: [{orientation: {w: 1.0}}]}]}}" \
+      >/dev/null || fail "$1: publishing on /planning_scene failed"
+    sleep 2
+  }
+
+  validity "step 1 (empty world)"
+  grep -q "valid=True" /tmp/validity ||
+    fail "step 1: an empty world must be valid, or nothing the later steps assert means anything"
+
+  publish "step 2" false blocker 0.0
+  validity "step 2 (full scene, blocker at the robot)"
+  grep -q "valid=False" /tmp/validity ||
+    fail "step 2: the published scene never reached the node -- a box on top of the robot is a collision"
+  grep -q "contact_body_2=.blocker." /tmp/validity ||
+    fail "step 2: a collision was reported, but not against the published object"
+
+  publish "step 3" true bystander 10.0
+  validity "step 3 (diff, bystander far away)"
+  grep -q "valid=False" /tmp/validity ||
+    fail "step 3: a diff must not clear the world, but blocker is gone -- the diff was applied as a full scene"
+  grep -q "contact_body_2=.blocker." /tmp/validity ||
+    fail "step 3: blocker survived the diff but is no longer the contacting body"
+
+  publish "step 4" false bystander 10.0
+  validity "step 4 (full scene, bystander only)"
+  grep -q "valid=True" /tmp/validity ||
+    fail "step 4: a full scene must clear the world, but blocker survived -- the full scene was applied as a diff"
+
+  echo "--- node stderr ---"
+  cat /tmp/node.stderr
+'
+echo "OK scene-topic: /planning_scene reached the node over DDS, and /check_state_validity"
+echo "OK scene-topic: answered True/False/False/True across an empty world, a full scene, a diff, and a full scene"
+
 # `/move_action`, in its own file: it orchestrates three containers and a
 # docker network, and it is the only check here that runs upstream's own C++
 # client. Last, because it is the most expensive and the least likely to be
