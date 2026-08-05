@@ -961,12 +961,12 @@ mod tests {
     ///   [`Trajectory::integrate_forward`], and
     ///   [`Trajectory::integrate_backward`] were read side-by-side against
     ///   `time_optimal_trajectory_generation.cpp` (upstream lines
-    ///   398-410, 564-663, 690-742) term-for-term -- identical operation
+    ///   398-410, 564-688, 690-745) term-for-term -- identical operation
     ///   order throughout, including which pre-mutation value each
     ///   expression captures (e.g. `most_recent`/`trajectory.front()`
     ///   read before the following reassignment on both sides). Every
     ///   `getMinMax*`/`get*MaxPathVelocity*` helper (upstream lines
-    ///   747-828) matches the same way. Ruled out.
+    ///   747-834) matches the same way. Ruled out.
     /// - **FMA/instruction contraction**: `objdump -d` on the oracle
     ///   image's own compiled `libmoveit_trajectory_processing.so`
     ///   (`moveit-rs/oracle:7b8463d6943edaac`) finds zero `vfmadd*`
