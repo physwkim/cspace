@@ -1,0 +1,219 @@
+#!/bin/bash
+# PORTING-PLAN.md §5 Phase 3's completion condition, as a command rather than
+# a number in a report: 10,000 random states per robot, with
+#
+#   - `collision: bool` compared for exact equality (the condition's "100%
+#     일치" clause), and
+#   - `distance: f64` compared within `1e-4` (the condition's second clause),
+#
+# against the C++ oracle. The two clauses are counted and reported
+# separately -- see `CollisionClauseStats` in `tools/moveit-diff/src/main.rs`
+# for why one combined `failed:` total cannot express this condition.
+#
+# Contact-point coordinates are NOT compared. That exclusion is the
+# condition's own third bullet -- "접촉점 좌표는 비교 대상에서 제외 (§4.5,
+# 검증 한계로 기록)" -- recorded in §4.5 as a verification limit of this
+# port, not a convenience taken here to make a number pass. The two sides'
+# contact geometry differs by construction (`crates/moveit-collision/
+# src/parry.rs`, deviations 4 and 6); §4.5 is where that is argued, and this
+# script is not the place it is decided.
+#
+# Sibling of `verify-oracle-sweep.sh`, which is the same shape for Phase 2
+# (FK at `1e-9`, jacobian at `1e-7`) and which this script deliberately does
+# not extend: that one is a per-round regression gate measured at 113s over
+# the same 10000 states, and folding collision into it would take it to
+# ~4928s -- 43x -- while hiding two distinct completion conditions behind
+# one exit code.
+#
+# OPT-IN, and why it is not simply in `verify-all.sh`'s glob like the rest:
+# the full condition run costs 4815s (80m15s) of wall clock on this machine
+# -- see the measured per-robot table at the bottom of this header.
+# `verify-all.sh` runs every `tools/ci/verify-*.sh` by glob on every merge
+# round; an unconditional 80-minute member would dominate the round's cost.
+# So it SKIPs unless `PHASE3_SWEEP=1`, in the loud shape
+# `verify-mpr-vs-epa.sh` already uses for its own expensive precondition: a
+# silent skip is indistinguishable from a pass, which is the failure
+# `verify-vendored-fixture-tests.sh` documents at length.
+#
+# (There is no env-var opt-in convention in this directory to copy: every
+# other environment variable read by a `tools/ci` script -- `MOVEIT2_SRC`,
+# `LIBCCD_SRC`, `OCTOMAP_SRC` -- names the path of an external checkout, not
+# an opt-in. `PHASE3_SWEEP` is a cost gate on the same loud-SKIP mechanism,
+# and sweep *size* stays where `verify-oracle-sweep.sh` already puts it,
+# in positional arguments.)
+#
+#   PHASE3_SWEEP=1 sg docker -c tools/ci/verify-phase3-collision-sweep.sh
+#   PHASE3_SWEEP=1 sg docker -c 'tools/ci/verify-phase3-collision-sweep.sh 200 7'
+#
+#   tools/ci/verify-phase3-collision-sweep.sh [CASES] [SEED]
+#
+# The state sampling is seeded and reproducible: every state comes from the
+# oracle's own `random_states` op at the seed below, so the same (CASES,
+# SEED) pair replays the identical 10,000 states on both sides. The seed is
+# printed in this script's own output, per robot, so a reported number
+# carries the seed that produced it.
+#
+# Exits non-zero if either clause is unmet on any robot -- like
+# `verify-oracle-sweep.sh`, a completion-condition check reports the
+# condition, and reports every robot before it does.
+#
+# MEASURED wall clock, from this script's own per-robot "wall clock" lines on
+# its first full run (2026-08-05, `PHASE3_SWEEP=1 ... 10000 1`):
+#
+#     panda            438s     prbt              18s
+#     fanuc           2829s     dual_arm_panda   454s
+#     pr2             1076s
+#     ------------------------------------------------
+#     total           4815s  (80m15s), plus build + provenance check
+#
+# `fanuc` is 59% of the total on its own and is why this is opt-in: it is not
+# the largest robot (9 links to pr2's 95), so the cost tracks pairs actually
+# reaching narrowphase, not model size. Do not infer a per-robot cost from
+# link count when scheduling this.
+#
+# Measured on a 96-core host at loadavg ~10, with a sibling caucus panel
+# running its own sweep concurrently. `moveit-diff` is single-threaded and
+# held ~98% of one core throughout, and load stayed far below core count, so
+# these are not contention-inflated -- but they are single-core times and do
+# not improve if you give the machine more cores.
+set -uo pipefail
+
+CASES="${1:-10000}"
+SEED="${2:-1}"
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DIFF="$REPO_ROOT/target/release/moveit-diff"
+
+if [[ "${PHASE3_SWEEP:-}" != "1" ]]; then
+  echo "SKIP PHASE3_SWEEP is not 1 -- the ${CASES}-state collision sweep did not run."
+  echo "SKIP this is not a pass; §5 Phase 3's completion condition is unmeasured by this run."
+  echo "SKIP run it with: PHASE3_SWEEP=1 sg docker -c $0"
+  exit 0
+fi
+
+# Every committed robot description, not only the condition's named three
+# (panda / prbt / fanuc): dual_arm_panda and pr2 are committed fixtures whose
+# collision geometry differs in kind from those three (pr2 is the only
+# fixture with primitive *and* mesh collision shapes; dual_arm_panda is the
+# only one with two arms), and a condition met on a subset of the committed
+# fixtures is not a fact about this port's collision layer. The per-robot
+# report below is what the three-robot condition is read off.
+ROBOTS=(panda prbt fanuc dual_arm_panda pr2)
+
+# Before comparing anything: confirm the fixtures still are the robots they
+# name -- same reasoning as `verify-oracle-sweep.sh`'s own call. A sweep that
+# agrees with the oracle on a drifted `fixtures/panda.urdf` proves both sides
+# read the same file, not that either matches upstream panda.
+if ! "$REPO_ROOT/tools/ci/verify-fixture-provenance.sh"; then
+  echo "FAIL fixture provenance check failed -- no sweep result below would mean anything" >&2
+  exit 1
+fi
+
+# Release, not debug: 10k states x 5 robots is ~50k collision checks per
+# side, and the debug build makes the Rust side rather than the oracle the
+# bottleneck.
+if ! cargo build --release --manifest-path "$REPO_ROOT/Cargo.toml" -p moveit-diff; then
+  echo "FAIL could not build moveit-diff" >&2
+  exit 1
+fi
+
+OUT_DIR="$(mktemp -d)"
+trap 'rm -rf "$OUT_DIR"' EXIT
+
+echo
+echo "=== §5 Phase 3 completion condition: $CASES states x ${#ROBOTS[@]} robots, seed $SEED ==="
+echo "    collision: bool -- exact equality"
+echo "    distance:  f64  -- within 1e-4"
+echo "    contact-point coordinates -- excluded per §4.5 (recorded verification limit)"
+echo
+
+status=0
+declare -a SUMMARY=()
+
+for robot in "${ROBOTS[@]}"; do
+  echo "--- $robot ($CASES cases, seed $SEED) ---"
+  out="$OUT_DIR/$robot.out"
+  stats="$OUT_DIR/$robot.json"
+
+  # Redirected to a file rather than piped into a filter: a pipe reports the
+  # filter's status, which turns a disagreement into a silent pass. The
+  # status is captured rather than left to `set -e` (which this script does
+  # not set, for the same reason) so every robot is measured and reported
+  # even after an earlier one disagreed -- a condition check that stops at
+  # the first failure cannot say how far from met the condition is.
+  start="$SECONDS"
+  "$DIFF" \
+    --urdf "$REPO_ROOT/fixtures/$robot.urdf" \
+    --srdf "$REPO_ROOT/fixtures/$robot.srdf" \
+    --cases "$CASES" \
+    --seed "$SEED" \
+    --collision \
+    --tol-distance 1e-4 \
+    --stats-json "$stats" \
+    --oracle "$REPO_ROOT/tools/moveit-oracle/run-oracle.sh" \
+    > "$out" 2>&1
+  rc=$?
+  elapsed=$((SECONDS - start))
+
+  if [[ ! -s "$stats" ]]; then
+    echo "FAIL $robot produced no --stats-json (exit $rc); last 20 lines:" >&2
+    tail -20 "$out" >&2
+    status=1
+    SUMMARY+=("$robot: NO RESULT (exit $rc)")
+    continue
+  fi
+
+  # Read straight out of --stats-json rather than re-grepping stdout: the
+  # numbers reported here are then the same objects moveit-diff counted,
+  # not a second parse of their printed form.
+  #
+  # Captured with `if ! line="$(...)"` rather than `read < <(...)`: a python
+  # that failed would otherwise leave every field empty, and empty is not
+  # "0", so the row below would read UNMET -- reporting a broken run as a
+  # measured failure of the condition. That is the `set -e`-cannot-see-it
+  # shape `gate-lib.sh` documents; here the distinction matters because one
+  # of the two outcomes is a claim about the port.
+  if ! line="$(python3 - "$stats" "$CASES" "$elapsed" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+cases, elapsed = sys.argv[2], sys.argv[3]
+c = s["collision_clauses"]
+print("%s|%s|%s|%s|%s|%s|%.6e|%s" % (
+    c["bool_disagrees"], c["bool_total"],
+    c["distance_disagrees"], c["distance_total"],
+    c["errored"], cases,
+    s["worst_distance_deviation"], elapsed))
+PY
+  )"; then
+    echo "FAIL $robot: --stats-json exists but could not be read for the two clauses" >&2
+    status=1
+    SUMMARY+=("$robot: NO RESULT (stats unreadable)")
+    continue
+  fi
+  IFS='|' read -r bool_bad bool_tot dist_bad dist_tot errored _cases worst secs <<<"$line"
+
+  sed -n '/^worst distance deviation/,/^robot same-pair/p' "$out"
+  echo "wall clock: ${secs}s"
+  echo
+
+  verdict="met"
+  if [[ "$bool_bad" != "0" || "$dist_bad" != "0" || "$errored" != "0" ]]; then
+    verdict="UNMET"
+    status=1
+  fi
+  SUMMARY+=("$(printf '%-15s bool %6s/%-6s  distance %6s/%-6s  max|d| %-11s  %ss  %s' \
+    "$robot" "$bool_bad" "$bool_tot" "$dist_bad" "$dist_tot" "$worst" "$secs" "$verdict")")
+done
+
+echo "=== §5 Phase 3 summary (seed $SEED, $CASES states/robot; disagreements/total) ==="
+printf '%s\n' "${SUMMARY[@]}"
+echo
+
+if [[ $status -ne 0 ]]; then
+  echo "§5 Phase 3's completion condition is NOT met -- see the per-robot rows above." >&2
+  echo "The tolerance is the condition's own 1e-4 and is not to be widened to close this:" >&2
+  echo "a divergence larger than 1e-4 is a finding about the collision backend." >&2
+  exit 1
+fi
+
+echo "§5 Phase 3's completion condition is met on all ${#ROBOTS[@]} robots."
