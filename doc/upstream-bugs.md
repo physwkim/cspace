@@ -325,7 +325,7 @@ matching it by coincidence, and
 `distance_gradient_truncates_inv_twice_resolution_like_upstreams_int_
 field`/`distance_gradient_multiplier_is_one_at_the_zero_boundary`/
 `distance_gradient_multiplier_is_zero_just_past_the_boundary`
-(`distance_field.rs:1190-1260`) pin it, including the `0.5`/`0.51` zero
+(`distance_field.rs:1190-1278`) pin it, including the `0.5`/`0.51` zero
 boundary. Cross-referenced in `PORTING-PLAN.md` §172.1 case 1.
 **Status:** reproduced deliberately — this is genuine parity (upstream's
 own gradient is equally truncated), not a residual bug, and this crate's
