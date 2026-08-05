@@ -58,6 +58,25 @@
 //! upstream answer at exact contact to match -- there is a per-narrowphase
 //! outcome.
 //!
+//! # What this backend does, and why its margin was not simply removed
+//!
+//! This backend answers `collision` from `parry3d_f64::query::contact` with a
+//! prediction of `0.0`, treating any `Some` as a contact. That is *not*
+//! `dist <= 0`: `Some` still comes back across a small positive gap, which
+//! [`the_collision_boundary_sits_in_a_positive_gap`] measures and which
+//! contradicts `parry.rs`'s own module doc ("prediction `0.0`, so only
+//! touching/penetrating pairs yield `Some`"). At `3e-8` of clear air the
+//! oracle says `false` (table above) and this backend says `true`.
+//!
+//! Gating the flag on `contact.dist <= 0.0` was tried and reverted. It does
+//! nothing for the clause under repair -- prbt's tie lands at `-2.775558e-17`,
+//! on the colliding side of any sign test -- and it breaks octree case 4, where
+//! `parry` puts the exactly-touching pair a hair *above* zero while the oracle
+//! reports `true`. So the margin is what currently absorbs upstream's
+//! per-shape-pair inconsistency; removing it trades an oracle-backed parity
+//! case away and closes nothing. That is recorded here rather than in a commit
+//! message because the next reader will have the same idea.
+//!
 //! # Consequence for Phase 3
 //!
 //! No tolerance closes the prbt `bool` clause: `bool` has no tolerance. Nor
@@ -190,6 +209,45 @@ fn a_millimetre_either_side_matches_the_oracle() {
     assert!(
         (overlap_distance + 1.000_000_000_000_001e-3).abs() < 1e-12,
         "a 1mm overlap must match the oracle's -1.000000000000001e-3, got {overlap_distance}"
+    );
+}
+
+/// The `collision` flag flips somewhere inside a *positive* gap, contradicting
+/// `parry.rs`'s "prediction `0.0`, so only touching/penetrating pairs yield
+/// `Some`" -- and diverging from the oracle, which answers `false` at both
+/// offsets below.
+///
+/// Brackets the crossover instead of pinning it. Where exactly `parry`'s
+/// internal margin falls for this shape pair is not a contract; that it lies
+/// strictly between two *clear-air* gaps is the fact, and it is what makes "the
+/// boundary is at zero" false.
+#[test]
+fn the_collision_boundary_sits_in_a_positive_gap() {
+    // Far enough out that no margin reaches it. Oracle: false, +1.000000000028756e-7.
+    let (wide_collides, wide_distance) = measure(-1e-7);
+    assert!(
+        wide_distance > 0.0,
+        "a 1e-7 gap must measure as a positive distance, got {wide_distance}"
+    );
+    assert!(
+        !wide_collides,
+        "a 1e-7 gap must not be reported as a collision"
+    );
+
+    // Also clear air -- this backend's own distance query agrees it is a gap,
+    // and the oracle reports false, +2.999999999808711e-8 -- yet the flag says
+    // otherwise.
+    let (narrow_collides, narrow_distance) = measure(-3e-8);
+    assert!(
+        narrow_distance > 0.0,
+        "a 3e-8 gap must measure as a positive distance, got {narrow_distance}"
+    );
+    assert!(
+        narrow_collides,
+        "a 3e-8 gap is currently reported as a collision, diverging from the oracle's false. If \
+         this backend has gained a sign check on `contact.dist`, re-measure octree case 4 before \
+         accepting the change: that pair is exactly touching, the oracle reports true, and parry \
+         puts it just above zero, so a strict sign test breaks it (module doc)"
     );
 }
 

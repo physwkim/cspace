@@ -89,7 +89,7 @@ question the port had to answer, and the answer is recorded in
 | M7 | `check_robot_collision_continuous` returns `Err(Error::other(..))`, as `ParryCollisionEnv` does | 1 — `continuous_check_answers_rather_than_erroring` | the other 7 | discriminating |
 
 The mutation is `ParryCollisionEnv`'s actual body
-(`crates/moveit-collision/src/parry.rs:2363`), so this row shows the test
+(`crates/moveit-collision/src/parry.rs:2385`), so this row shows the test
 distinguishes this backend's contract from the other backend's rather than
 merely from a panic.
 
