@@ -653,3 +653,52 @@ from the scan output alone. It is not. The test's own doc comment records
 the mutation — the sibling overflow guard's message never contains that
 text, so the shared needle still names one branch. The scan output is the
 question, never the verdict.
+
+### 9d. The denominator closes: 267 in-family of 292
+
+`p3-acm` landed its §9 pass over all 89 rows (`311169b`, merged
+`fd3bada`): **81 in-family**, `moveit-collision` 47/50 and
+`moveit-geometry` 34/39. That was the last unclassified set, so §9b's
+bound collapses to a figure:
+
+| ledger | rows | in-family | not-this-family |
+|---|---:|---:|---:|
+| `p1-robotmodel` | 55 | 51 | 4 |
+| `p9-ros` | 67 | 58 | 9 |
+| `pilz` | 32 | 30 | 2 |
+| `p1-fixtures` | 49 | 47 | 2 |
+| `p3-acm` | 89 | 81 | 8 |
+| **total** | **292** | **267** | **25** |
+
+**267 of 292.** Not 139/289, not 186/203, and not a bound — every row in
+every ledger has now had all three clauses applied by the panel that owns
+it. No verdict (`discriminating` / `single-branch` / `fixture-collapse-
+fixed` / `joint-collapse`) changed in any of the three §9 passes: family
+membership is a prior and separate question, and a row can be correctly
+`discriminating` and still not be this family.
+
+Read 267/292 for exactly what it is. It is the count of assertion sites,
+inside one instrument's grammar, that this sweep judged to be about a
+coarse-fail signal produced by a written decision in the code under test.
+It is **not** a claim that 267 assertions discriminate — that is the
+per-row verdict column, not this ratio — and §9c's 655 shows the grammar
+itself is a floor. The 25 exclusions concentrate in two shapes worth
+naming, since between them they account for 20 of the 25:
+
+- **clause 1, success-path values** (`bodies.rs:4328/4332/4340/4347`,
+  `scene.rs:2150`): the assertion checks *which* thing was built on a path
+  that always succeeds. Computed dispatch, not a failure signal.
+- **clause 2, no decision to be wrong about** (`matrix.rs:517`,
+  `octomap_filter.rs:381`, `shapes.rs:1962`,
+  `constraint_sampler_manager.rs:172`): a fresh map, a field with zero
+  assignment sites, a literal-initialized value, an accumulator no step
+  touched. Nothing in the subject decided anything, so no mutation there
+  could exercise a wrong implementation.
+
+The clause-2 line is finer than it looks, and `matrix.rs` carries both
+sides of it in one file: `:517` reads `default_entry("a")` on a
+freshly-`new()`ed matrix (out — no antecedent setter, nothing decided),
+while `:737` reads the same getter after `clear()` (in — commenting out
+`self.defaults.clear()` fails `:737`'s test alone, 198/199, confirmed at
+the merge). Same method, same assertion shape, opposite membership,
+settled by running a mutation rather than by arguing from the signature.
