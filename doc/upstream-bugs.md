@@ -131,6 +131,9 @@ a vector sized `num_links` — undefined behaviour.
 **Evidence:** read of upstream control flow, cross-checked in round 26
 (an earlier citation of `:534`/`:537-544` was wrong; the bug claim was not).
 **Status:** already not reproduced — safe Rust cannot express it.
+**Deviation:** no `D1`..`D14` policy applies. Out-of-bounds indexing being
+unrepresentable is a Rust-safety fact, not a project decision anyone
+signed off on — this ledger entry is the whole record.
 **Cost of not reproducing:** none. Already the shipped behaviour.
 
 ### `attached-body-count-check` — Attached-body count check upstream's own comment doubts — reproduced-grandfathered
@@ -181,23 +184,93 @@ a version artefact; `git log -L` dates the `Path_Circle` `else` arm to
 `moveit2`'s `pilz_industrial_motion_planner/src/path_circle_generator.cpp`
 is the *caller*; the missing guard is in KDL itself.
 **Port:** `crates/moveit-planners-pilz/src/path_circle.rs:312`
-**Symptom:** `Path_Circle`'s `else` arm runs whenever
-`oalpha*eqradius > dist` is false, including when both are zero, and
-computes `scalerot = oalpha/pathlength` with `pathlength = dist = 0`. That
-is `0.0/0.0` = NaN escaping into the constructed path. `radius` is guarded
-`>= epsilon` at `:66`, so reaching it needs `alpha == 0` (zero-sweep
-circle) together with an identity start/end rotation, which makes
-`oalpha == 0`.
+**Symptom:** `PathCircle::new`'s `else` arm (path_circle.rs:302-312) runs
+whenever `oalpha*eqradius > dist` is false, including when both are zero,
+and computes `scale_rot = oalpha/dist` with `dist = geometry.alpha *
+radius`. `radius` is guarded `>= eps` earlier in the same function, so
+`dist == 0.0` requires `geometry.alpha == 0.0` exactly — a zero-sweep
+circle, i.e. `start`'s and `goal`'s Cartesian *positions* coincide (see
+the reachability finding below). `oalpha == 0.0` is reached far more
+easily than exact rotation equality: `get_rot_angle`
+(`crate::path_line::get_rot_angle`, `path_line.rs:164-169`) snaps any
+rotation angle below its `eps` argument to exactly `0.0`, pinned by
+`get_rot_angle_below_eps_snaps_to_exactly_zero` — so a *near*-identical,
+not only a bit-identical, start/goal orientation reaches this side of the
+condition. When both hold, `scale_rot` is `0.0/0.0` = NaN, escaping into
+the constructed path.
 **Evidence:** verified verbatim in the checkout above, and the asymmetry is
 upstream's own: `orocos_kdl/src/path_line.cpp:67-83` carries the comment
 `// Only modify if non zero (prevent division by zero)` above a three-way
 guard whose third arm is commented `// both were zero`. KDL recognised this
 division and fixed it in `Path_Line`; `Path_Circle` never got the same
-treatment. That makes it an unfixed instance of a known bug rather than a
-deliberate choice.
-**Cost of not reproducing:** unmeasured. A `Path_Line`-shaped guard
-returning an error is the obvious candidate, and no pilz parity test is
-known to depend on the NaN — that needs checking, not assuming.
+treatment upstream.
+
+**Correction (this round, p9-ros):** this entry previously said the port
+"faithfully reproduces" the missing guard, framing it as an inherited,
+unexamined artefact of line-by-line transcription. That framing is wrong.
+`path_circle.rs`'s own module doc (`:66-87`, "Why this file stays
+BSD-3-Clause") and `PORTING-PLAN.md`'s **D9** (`§141`: `Path_Circle`
+derived independently from circular geometry, not transcribed line by
+line — required because KDL is LGPL-2.1-or-later and this workspace is
+BSD-3-Clause) and **D11** (`§152`: extends D9's independent-derivation
+rule to `path_line.rs`/`velocity_profile_trap.rs`/`dynamics.rs`) together
+establish that no line of `orocos_kdl/src/path_circle.cpp` was ever
+copied into this port — `PathCircle` is built from elementary vector
+algebra with no KDL source open at construction time. There is no line
+for a missing guard to survive *from*. Matching upstream's NaN-producing
+lack of a both-zero guard was therefore a **choice made inside that
+independent derivation**, not an artefact of faithful transcription — the
+port's own doc comment (`path_circle.rs:309-311`) already names it as a
+choice: "Upstream has no 'both zero' guard here, unlike `Path_Line` ...
+faithfully reproducing that." The grandfathering decision below is
+unaffected by this correction — the shipped behaviour does not change
+either way — but the record should read "a deliberate parity choice made
+during an independent derivation, later left unexamined for whether it is
+still the right choice," not "an unfixed instance of a known bug."
+
+**Reachability, confirmed by reading `build_path`'s two branches**
+(`crates/moveit-planners-pilz/src/trajectory_generator_circ.rs:314-335`,
+the only production caller of `circle_from_center`/`circle_from_interim`/
+`PathCircle::new`): neither construction kind can reach `PathCircle::new`
+with `dist == 0.0`.
+- `CircPathConstraintKind::Center`: `circle_from_center` hardcodes
+  `CircleGeometry.aux_point = goal` (`path_circle.rs:157`).
+  `PathCircle::new`'s plane guard (`:289-295`) tests `goal - center`
+  against `x_axis = normalize(start - center)`; whenever `start`/`goal`
+  are close enough for `geometry.alpha` (computed by the same `cosines()`
+  law-of-cosines formula from the `start`/`goal`/`center` distances) to
+  round to exactly `0.0`, `goal - center` and `x_axis` are, by the same
+  small-angle geometry, close enough to parallel that the plane guard's
+  `z_norm < eps` (`eps = MAX_COLINEAR_NORM = 1e-5` for this kind) fires
+  first at any physically ordinary Cartesian coordinate magnitude (metres
+  to kilometres) — the angular precision needed for `acos` to round to
+  exactly `1.0` in `f64` (~1e-8 rad) is finer than the guard's `1e-5`
+  threshold.
+- `CircPathConstraintKind::Interim`: `circle_from_interim` computes
+  `w = (interim - start).cross(goal - start)` and rejects
+  `w.norm() < MAX_COLINEAR_NORM` (`path_circle.rs:180-189`) *before*
+  `geometry.alpha` is ever computed. `goal - start == 0` (the exact case,
+  and the only case that can drive `geometry.alpha` all the way to `0.0`
+  here) makes `w` exactly the zero vector regardless of the client-chosen
+  `interim` point, so this guard rejects unconditionally first.
+
+Neither `cmd_specific_request_validation` nor `extract_motion_plan_info`
+(the request-validation steps upstream of `build_path`) rejects a
+coincident start/goal earlier — the guard that actually catches it is
+`circle_from_center`/`circle_from_interim`/`PathCircle::new`'s own
+plane/colinearity check. This is a read, not an oracle run or a new test:
+a pathologically large coordinate magnitude (roughly beyond `1e8`, where
+the two small-angle quantities above could plausibly decouple) is outside
+what this read rules out, and is not exercised by any fixture in this
+workspace.
+**Status:** reproduced-grandfathered. Closed to further measurement per
+the 2026-08-05 decision below.
+**Cost of not reproducing:** none demonstrated. No live caller in this
+workspace reaches the NaN branch (see the reachability finding above,
+superseding this entry's earlier "no known reaching caller in the pilz
+tests" hedge, which had no evidence behind it when it was written). A
+`Path_Line`-shaped guard returning an error remains the obvious candidate
+if this is ever revisited.
 
 ### `inv-twice-resolution-int-truncation` — `inv_twice_resolution_` mistyped as `int`, silently truncating — reproduced-deliberately
 
@@ -274,6 +347,9 @@ collections (OOM), not merely a wrong number.
 **Status:** already not reproduced — `checked_max_distance_sq` rejects
 `max_distance_sq_f > f64::from(i32::MAX)` before ever casting, returning
 `Error::Construct` instead of saturating into the allocation.
+**Deviation:** no `D1`..`D14` policy applies. `PORTING-PLAN.md` §172
+documents the float-to-int narrowing family this belongs to at length but
+was never assigned a `D` number — this ledger entry is the whole record.
 **Cost of not reproducing:** none. Already the shipped behaviour; a
 valid-per-this-guard value like `46340 * 46340` (~2.1 billion) is itself
 far too large to build a field around, so the boundary is tested via the
@@ -303,6 +379,10 @@ empty case rather than a panic or a fabricated element. For non-empty
 input the tie-break matches upstream's comparator exactly (see the
 function's own doc for the strict-improvement-fold reasoning against
 `Iterator::min_by`'s different tie-break contract).
+**Deviation:** no `D1`..`D14` policy applies. Returning `Option` instead of
+dereferencing an out-of-range iterator is a local API-shape choice on this
+one function, not an instance of a project-wide policy — this ledger
+entry is the whole record.
 **Cost of not reproducing:** none. Already the shipped behaviour, and
 "reproducing" this one is not meaningfully possible in safe Rust without
 introducing a panic where upstream has UB — not a like-for-like trade.
@@ -328,6 +408,10 @@ input unconstructable rather than exercisable.
 `nalgebra::Cholesky::new` fails (module doc's "Deviation: construction can
 fail", `multivariate_gaussian.rs:51-61`). No D-number is cited in-source for
 this deviation; the module doc comment is the only existing record.
+**Deviation:** no `D1`..`D14` policy applies. Fallible construction here is
+a local API-shape choice already named in the module's own doc comment,
+not an instance of a project-wide policy — this ledger entry is the whole
+record.
 **Cost of not reproducing:** none. Already the shipped behaviour — every
 caller in this workspace already goes through the fallible constructor.
 
@@ -357,6 +441,10 @@ confirmed discriminating via live bite this round — see this worker's own
 `doc/assertion-discrimination-ledger-p1-fixtures.md`, Round 4). The port's
 own doc comment (`chain.rs:119-130`) already names this as a deviation from
 upstream's silent behaviour, but cites no D-number.
+**Deviation:** no `D1`..`D14` policy applies. `ChainInfo::build` rejecting
+this input is a local construction-time validation choice, not an
+instance of a project-wide policy — this ledger entry is the whole
+record.
 **Cost of not reproducing:** none. Already the shipped behaviour, and no
 fixture in this workspace has a mimic joint on a chain whose master sits
 outside the chain's own group (per the same doc comment).
@@ -385,6 +473,10 @@ reduced-space (one entry per `KinematicsSolver::joint_names`, the same
 space `seed`/the solution already live in) from the start, so the
 mismatched-length read this port's own doc comment describes is
 impossible by construction. No D-number is cited in-source.
+**Deviation:** no `D1`..`D14` policy applies. `SolveOptions::consistency_limits`
+being reduced-space from the start is a local type-shape choice, not an
+instance of a project-wide policy — this ledger entry is the whole
+record.
 **Cost of not reproducing:** none. Already the shipped behaviour.
 
 ### `acceleration-bounds-per-joint-advance` — `initialize`'s acceleration-bound extraction advances its flat write index once per *joint*, not once per *variable*, silently keeping only a multi-variable joint's last variable's bound — not-reproduced
@@ -416,6 +508,11 @@ comment (`acceleration_filter.rs:48-83`) already names this as "upstream's
 per-*joint* (not per-*variable*) index-advance bug," avoided by
 construction under this port's single-DOF-active-joint contract, but cites
 no D-number.
+**Deviation:** no `D1`..`D14` policy applies. `joint_acceleration_bounds`
+rejecting a multi-variable active joint at construction time is a local
+API-shape choice already named in the port's own doc comment, not an
+instance of a project-wide policy — this ledger entry is the whole
+record.
 **Cost of not reproducing:** none. Already the shipped behaviour, and this
 port has no fixture with a multi-variable active joint feeding
 `AccelerationLimitedFilter` (its own doc comment: "there is no fixture
@@ -463,7 +560,6 @@ changing the check to read `positions.len()` directly would not currently
 break any test in this workspace. Confirming that for certain would need a
 new test for the distinguishing case first, not an assumption.
 
-||||||| 1a26595
 ### `get-max-payload-index-space` — `getMaxPayload` indexes `max_torques_` in the wrong joint-index space — reproduced-grandfathered
 
 **Upstream:** `moveit_core/dynamics_solver/src/dynamics_solver.cpp:126` (`num_joints_ =
@@ -582,24 +678,39 @@ The reason for grandfathering rather than fixing is that each is a
 behaviour change against a port whose parity is oracle-verified, and none
 has a demonstrated failure in this workspace: `chomp-iteration-double-increment` is a read of upstream
 control flow with no oracle run behind it, `attached-body-count-check` has no established
-correct comparison to change *to*, `kdl-path-circle-nan-scale-rot`'s NaN has no known reaching
-caller in the pilz tests, and `do-smoothing-length-check-operand`'s misattributed message text is
+correct comparison to change *to*, `kdl-path-circle-nan-scale-rot`'s NaN has
+no reaching caller in this workspace (confirmed by reading `build_path`'s
+two branches — see that entry's own reachability finding), and
+`do-smoothing-length-check-operand`'s misattributed message text is
 pinned by no test that distinguishes the two operands. Deviating on any of
 them would trade a verified behaviour for an unverified one.
 
-## Still open
+## Closed (round p9-ros, 2026-08-05)
 
-No entry cites a `PORTING-PLAN.md` D-number, and the registry is smaller
-than this document first claimed — `D1`..`D14`, not `D1`..`D25`. Two of
-them bear directly on `kdl-path-circle-nan-scale-rot`: **D9** (`§141`) rules that
-`orocos_kdl`'s `Path_Circle` is *not* transcribed line by line but derived
-independently from circular geometry, and **D11** (`§152`) extends that to
-`path_line.rs`, `velocity_profile_trap.rs` and `dynamics.rs`. If the port
-derives rather than transcribes, then reproducing KDL's missing both-zero
-guard was a choice made *inside* an independent derivation, not an artefact
-of faithful porting — which is a different justification from the one that
-entry currently gives, and it should say which it is.
+Both items previously open here are resolved:
 
-Every `not-reproduced` entry describes behaviour this port structurally
-avoids. Whether any of them needs a D class or is fully recorded here is
-unassigned. Raised by `p1-fixtures`.
+- **`kdl-path-circle-nan-scale-rot`'s justification.** **D9** (`§141`)
+  rules that `orocos_kdl`'s `Path_Circle` is *not* transcribed line by
+  line but derived independently from circular geometry, and **D11**
+  (`§152`) extends that to `path_line.rs`, `velocity_profile_trap.rs` and
+  `dynamics.rs`. That entry's "faithfully reproduces"/"unfixed instance"
+  framing has been rewritten in place to say what it actually is: a
+  deliberate parity choice made inside an independent derivation. Its
+  reachability was also checked by reading `build_path`'s two branches —
+  no live caller in this workspace can reach the NaN. The
+  `reproduced-grandfathered` status is unchanged; only the reasoning on
+  the record was wrong, not the decision.
+- **Whether the `not-reproduced` entries need a `D` class.** Checked each
+  of `distance-field-contact-index-oob`, `max-distance-sq-narrowing`,
+  `get-shortest-solution-empty-deref`,
+  `multivariate-gaussian-cholesky-unchecked`,
+  `mimic-master-outside-group-dropped`,
+  `check-consistency-index-space-mismatch` and
+  `acceleration-bounds-per-joint-advance` against `PORTING-PLAN.md`'s full
+  `D1`..`D14` registry. None maps to an existing policy — each is a local
+  API-shape or construction-time-validation choice scoped to its own
+  function, not an instance of a project-wide decision the user signed
+  off on. Each now carries a `**Deviation:**` line saying so explicitly,
+  so the gap is recorded rather than silently left for the next reader to
+  wonder about. No new `D` number was invented for any of them, per this
+  round's instruction.
