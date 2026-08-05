@@ -1221,8 +1221,9 @@ use parry3d_f64::shape::{
 };
 
 use crate::common::{
-    AttachedBodyGeometry, BodyType, CollisionRequest, CollisionResult, Contact, ContactData,
-    CostSource, DistanceRequest, DistanceRequestType, DistanceResult, DistanceResultsData,
+    AttachedBodyGeometry, BodyType, CollisionDistance, CollisionRequest, CollisionResult, Contact,
+    ContactData, CostSource, DistanceRequest, DistanceRequestType, DistanceResult,
+    DistanceResultsData,
 };
 use crate::env::{CollisionEnv, LinkPaddingScale};
 use crate::matrix::{AllowedCollision, AllowedCollisionMatrix};
@@ -2328,6 +2329,46 @@ impl ParryCollisionEnv {
     }
 }
 
+/// The trailing `if (req.distance)` block that both of upstream's collision
+/// helpers carry (`collision_env_fcl.cpp:283-297` for self, `:340-354` for
+/// robot, at `e017c91ee`): a second, separate distance query whose
+/// `minimum_distance` lands in `CollisionResult::distance`, and whose full
+/// result lands there instead when `detailed_distance` is also set.
+///
+/// Factored rather than written twice on purpose. The two helpers upstream
+/// are line-for-line identical here apart from which query they call, and
+/// duplicating it is how one of them ends up implementing `request.distance`
+/// while the other silently ignores it -- which is what this backend did on
+/// both paths until upstream's own `DistanceSelf` / `DistanceWorld` cases
+/// (`test_collision_common_panda.hpp:237-267`) were ported and asked for the
+/// field.
+///
+/// The follow-up request is upstream's, field for field: `group_name` and
+/// `acm` carried over from the collision request, everything else left at
+/// `DistanceRequest`'s defaults -- notably `enable_signed_distance: false`,
+/// so a penetrating pair reports `0.0` here rather than a signed depth.
+fn attach_requested_distance(
+    result: &mut CollisionResult,
+    request: &CollisionRequest,
+    acm: Option<&AllowedCollisionMatrix>,
+    query: impl FnOnce(&DistanceRequest<'_>) -> DistanceResult,
+) {
+    if !request.distance {
+        return;
+    }
+    let distance_request = DistanceRequest {
+        group_name: request.group_name.as_deref(),
+        acm,
+        ..DistanceRequest::default()
+    };
+    let distance_result = query(&distance_request);
+    result.distance = Some(if request.detailed_distance {
+        CollisionDistance::Detailed(distance_result)
+    } else {
+        CollisionDistance::Closest(distance_result.minimum_distance.distance)
+    });
+}
+
 impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
     fn check_self_collision(
         &self,
@@ -2348,7 +2389,11 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
                 .as_ref()
                 .is_none_or(|g| pair_in_active_group(g, a, b))
         });
-        accumulate_collision(pairs, request, acm)
+        let mut result = accumulate_collision(pairs, request, acm);
+        attach_requested_distance(&mut result, request, acm, |distance_request| {
+            self.distance_self(distance_request, state, attached_bodies)
+        });
+        result
     }
 
     fn check_robot_collision(
@@ -2371,7 +2416,11 @@ impl<'s, 'm> CollisionEnv<Posed<'s, 'm>> for ParryCollisionEnv {
                 .as_ref()
                 .is_none_or(|g| pair_in_active_group(g, a, b))
         });
-        accumulate_collision(pairs, request, acm)
+        let mut result = accumulate_collision(pairs, request, acm);
+        attach_requested_distance(&mut result, request, acm, |distance_request| {
+            self.distance_robot(distance_request, state, attached_bodies)
+        });
+        result
     }
 
     fn check_robot_collision_continuous(
@@ -4238,5 +4287,151 @@ mod tests {
         // representable in binary floating point (it rounds to
         // 0.7000000000000001), so the result carries a 1-ULP residue.
         assert_relative_eq!(volumes[1], 0.3, epsilon = 1e-15, max_relative = 0.0);
+    }
+
+    // `CollisionRequest::distance` -- upstream's trailing `if (req.distance)`
+    // block, factored into [`attach_requested_distance`]. Both entry points
+    // carry it upstream (`collision_env_fcl.cpp:283-297` and `:340-354`), and
+    // both are asserted here: this backend previously honoured it on neither,
+    // and a per-entry-point implementation is how one of them regains it while
+    // the other stays silent.
+
+    /// The `distance` field, asserting it is the undetailed variant on the
+    /// way past -- `CollisionDistance::distance()` reads through both, so a
+    /// test using it could not tell `detailed_distance` was ignored.
+    fn closest_distance(result: &CollisionResult) -> f64 {
+        match result.distance {
+            Some(CollisionDistance::Closest(distance)) => distance,
+            ref other => panic!("expected CollisionDistance::Closest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_self_collision_distance_is_none_when_not_requested() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(1.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+
+        let result = env.check_self_collision(&CollisionRequest::default(), &posed, &[], None);
+
+        assert!(result.distance.is_none());
+    }
+
+    #[test]
+    fn check_self_collision_distance_reports_the_closest_separation() {
+        // Two unit cubes centred 1.5 apart along x: faces at x = 0.5 and
+        // x = 1.0, so the gap is exactly 0.5.
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(1.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            distance: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        assert!(!result.collision);
+        assert_eq!(closest_distance(&result), 0.5);
+    }
+
+    #[test]
+    fn check_robot_collision_distance_reports_the_closest_separation() {
+        // The world-side entry point, separately: it is a distinct upstream
+        // block calling `distanceRobot` rather than `distanceSelf`.
+        let model = build_model(&["p"]);
+        let mut state = state_with_links_at(&model, &[("p", Isometry3::identity())]);
+        let posed = state.update();
+        let mut world = World::new();
+        world.add_shape(
+            "obstacle",
+            Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+            Isometry3::translation(1.5, 0.0, 0.0),
+        );
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let request = CollisionRequest {
+            distance: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_robot_collision(&request, &posed, &[], None);
+
+        assert!(!result.collision);
+        assert_eq!(closest_distance(&result), 0.5);
+    }
+
+    #[test]
+    fn check_self_collision_detailed_distance_reports_the_whole_result() {
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(1.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            distance: true,
+            detailed_distance: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        let Some(CollisionDistance::Detailed(detailed)) = result.distance else {
+            panic!(
+                "detailed_distance must select the Detailed variant, got {:?}",
+                result.distance
+            );
+        };
+        assert_eq!(detailed.minimum_distance.distance, 0.5);
+        let mut names = detailed.minimum_distance.link_names.clone();
+        names.sort();
+        assert_eq!(names, ["p".to_string(), "q".to_string()]);
+    }
+
+    #[test]
+    fn check_self_collision_distance_of_a_penetrating_pair_is_unsigned() {
+        // The follow-up request carries `DistanceRequest`'s defaults, which
+        // include `enable_signed_distance: false` -- so a penetrating pair
+        // reports `0.0` here, not a depth. Upstream's block builds the same
+        // default-constructed `DistanceRequest`, so this is its answer too;
+        // a caller wanting the signed depth must call `distance_self`
+        // directly with the flag set, as `distance_robot`'s own tests do.
+        let model = build_model(&["p", "q"]);
+        let mut state = state_with_links_at(
+            &model,
+            &[
+                ("p", Isometry3::identity()),
+                ("q", Isometry3::translation(0.5, 0.0, 0.0)),
+            ],
+        );
+        let posed = state.update();
+        let env = ParryCollisionEnv::default();
+        let request = CollisionRequest {
+            distance: true,
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_self_collision(&request, &posed, &[], None);
+
+        assert!(result.collision, "the cubes overlap by 0.5");
+        assert_eq!(closest_distance(&result), 0.0);
     }
 }
