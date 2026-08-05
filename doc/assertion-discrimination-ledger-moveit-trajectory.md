@@ -75,7 +75,7 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 
 | file:line | anchor | test fn | verdict |
 |---|---|---|---|
-| `crates/moveit-trajectory/src/robot_trajectory.rs:836` | printed column check | `empty_trajectory_prints_the_upstream_placeholder` | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:836` | printed column check | `position_only_waypoints_omit_the_conditional_columns_and_use_the_group_variables` | not-this-family (clause 1) |
 | `crates/moveit-trajectory/src/robot_trajectory.rs:839` | same | same fn | not-this-family (clause 1) |
 | `crates/moveit-trajectory/src/robot_trajectory.rs:840` | same | same fn | not-this-family (clause 1) |
 | `crates/moveit-trajectory/src/robot_trajectory.rs:841` | same | same fn | not-this-family (clause 1) |
@@ -170,7 +170,7 @@ fails under the same mutation.
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
 | `crates/moveit-trajectory/src/trajectory.rs:1434` | `Trajectory::create`'s post-forward-loop `!traj.valid` guard, zero-accel-on-moving-joint fixture | `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory` | discriminating | bite: guard neutralized → `cargo nextest` hung, killed via `timeout 60`/`TaskStop`; treated as load-bearing confirmation, not inconclusive |
-| `crates/moveit-trajectory/src/trajectory.rs:1440` | same guard, mirror fixture | `upstream_test_irrelevant_zero_max_accelerations_dont_invalidate_trajectory` (sibling — stays green at baseline; this row is the paired positive-message-uniqueness check) | discriminating | same |
+| `crates/moveit-trajectory/src/trajectory.rs:1440` | same guard, mirror fixture | `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory` (same fn as `:1434`) | discriminating | same. The sibling `upstream_test_irrelevant_zero_max_accelerations_dont_invalidate_trajectory` stays green at baseline, which is what makes this row the paired positive-message-uniqueness check -- but that sibling is a separate test (1454-1464) and does not contain `:1440`; naming it in the `test fn` column instead of the containing test is the error corrected here |
 | `crates/moveit-trajectory/src/trajectory.rs:1446` | same guard, `DISTINGUISHING_PHRASE` check | same fn as :1434 | discriminating | same |
 | `crates/moveit-trajectory/src/trajectory.rs:1473` | `Trajectory::create`'s `time_step <= 0.0` guard | `upstream_test_time_step_zero_makes_trajectory_invalid` | discriminating | bite: guard neutralized → hung, killed via `timeout 20`, same treatment |
 
