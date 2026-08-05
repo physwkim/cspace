@@ -661,7 +661,7 @@ no test here constructs a `NaN` cost or AABB bound.
 [`f64::total_cmp`] instead of a bare `<`/`>` chain, specifically to give a
 total order for every bit pattern including `NaN`. This was written as a
 "Deviation from upstream" in-code but has no `D`-number in `PORTING-PLAN.md`
-(searched for `CostSource`/`NaN`/`total_cmp`/`operator<` near the `D1`..`D25`
+(searched for `CostSource`/`NaN`/`total_cmp`/`operator<` near the `D1`..`D14`
 list; none matched) — flagging that gap here rather than assigning one
 myself.
 **Cost of not reproducing:** none measured to date — well-formed geometry
