@@ -210,6 +210,62 @@ mod tests {
         (model, srdf)
     }
 
+    /// Single-`planar`-joint fixture, not a vendored robot -- purpose-built
+    /// so `should_fix_state`'s planar-renormalization cause (step 2 of the
+    /// module doc's three, cpp:129) has a model to run against at all;
+    /// neither `panda` nor `pr2` has a planar joint. No group named
+    /// `panda_arm` exists here either, so [`request`] against this model
+    /// exercises the same all-model-joints fallback [`pr2`]'s doc comment
+    /// describes.
+    fn planar_robot() -> (RobotModel, SrdfModel) {
+        let urdf_xml = r#"<robot name="test">
+            <link name="base"/>
+            <link name="tip"/>
+            <joint name="planar_joint" type="planar">
+                <parent link="base"/>
+                <child link="tip"/>
+                <axis xyz="0 0 1"/>
+            </joint>
+        </robot>"#;
+        let urdf = urdf_rs::read_from_string(urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_str(
+            r#"<robot name="test">
+                <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            </robot>"#,
+        )
+        .unwrap();
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("fixture model must build");
+        (model, srdf)
+    }
+
+    /// Single-`floating`-joint fixture, not a vendored robot -- mirrors
+    /// [`planar_robot`] but for `should_fix_state`'s quaternion-
+    /// renormalization cause (step 3 of the module doc's three, cpp:141).
+    /// Neither `panda` nor `pr2` has a floating joint.
+    fn floating_robot() -> (RobotModel, SrdfModel) {
+        let urdf_xml = r#"<robot name="test">
+            <link name="base"/>
+            <link name="tip"/>
+            <joint name="floating_joint" type="floating">
+                <parent link="base"/>
+                <child link="tip"/>
+            </joint>
+        </robot>"#;
+        let urdf = urdf_rs::read_from_string(urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_str(
+            r#"<robot name="test">
+                <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base"/>
+            </robot>"#,
+        )
+        .unwrap();
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, urdf_xml, &srdf, &MeshSearchPaths::none())
+                .expect("fixture model must build");
+        (model, srdf)
+    }
+
     /// `group_name` is `panda`'s own `panda_arm` group. [`pr2`] has no group
     /// by that name, so a test that reuses this request against a [`pr2`]
     /// model deliberately falls back to
@@ -375,5 +431,85 @@ mod tests {
             .joint_position(&continuous_joint)
             .unwrap()[0];
         assert!((-PI..=PI).contains(&wrapped), "wrapped = {wrapped}");
+    }
+
+    /// Isolating mutation (assertion-discrimination sweep, round 15):
+    /// `should_fix_state` funnels three independent causes into one bare
+    /// `Err(StartStateInvalid)` (module doc, steps 1-3) -- continuous-joint
+    /// wrap, planar renormalization, floating quaternion renormalization.
+    /// The wrap cause above had a test; these two did not, at all, so
+    /// there was nothing for a mutation to even confirm.
+    #[test]
+    fn a_planar_joint_past_pi_is_wrapped_and_accepted_only_when_fix_start_state_is_set() {
+        let (model, srdf) = planar_robot();
+        let env = ParryCollisionEnv::default();
+
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_joint_positions("planar_joint", &[0.0, 0.0, PI + 0.1])
+            .unwrap();
+        let rejected = CheckStartStateBounds::new(false)
+            .adapt(&mut scene, &env, &mut request())
+            .unwrap_err();
+        assert_eq!(
+            rejected,
+            RequestAdapterError::StartStateInvalid {
+                adapter: "CheckStartStateBounds"
+            }
+        );
+
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_joint_positions("planar_joint", &[0.0, 0.0, PI + 0.1])
+            .unwrap();
+        CheckStartStateBounds::new(true)
+            .adapt(&mut scene, &env, &mut request())
+            .expect("fix_start_state = true must accept a wrap-only change");
+        let wrapped = scene
+            .current_state()
+            .joint_position("planar_joint")
+            .unwrap()[2];
+        assert!((-PI..=PI).contains(&wrapped), "wrapped = {wrapped}");
+    }
+
+    /// See `a_planar_joint_past_pi_is_wrapped_...`'s doc comment -- same
+    /// funnel, the third of its three causes.
+    #[test]
+    fn a_floating_joint_with_a_non_unit_quaternion_is_normalized_and_accepted_only_when_fix_start_state_is_set()
+     {
+        let (model, srdf) = floating_robot();
+        let env = ParryCollisionEnv::default();
+
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_joint_positions("floating_joint", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0])
+            .unwrap();
+        let rejected = CheckStartStateBounds::new(false)
+            .adapt(&mut scene, &env, &mut request())
+            .unwrap_err();
+        assert_eq!(
+            rejected,
+            RequestAdapterError::StartStateInvalid {
+                adapter: "CheckStartStateBounds"
+            }
+        );
+
+        let mut scene = PlanningScene::new(&model, &srdf);
+        scene
+            .current_state_mut()
+            .set_joint_positions("floating_joint", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0])
+            .unwrap();
+        CheckStartStateBounds::new(true)
+            .adapt(&mut scene, &env, &mut request())
+            .expect("fix_start_state = true must accept a normalize-only change");
+        let quaternion = &scene
+            .current_state()
+            .joint_position("floating_joint")
+            .unwrap()[3..7];
+        let norm_sqr: f64 = quaternion.iter().map(|v| v * v).sum();
+        assert!((norm_sqr - 1.0).abs() <= 1e-9, "norm_sqr = {norm_sqr}");
     }
 }
