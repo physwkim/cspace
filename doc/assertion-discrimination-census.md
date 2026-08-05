@@ -268,3 +268,153 @@ The lesson is the one §2 already states, one level up: a census must name
 the tree it measured, and a reader must check that the tree is the one they
 care about. §4 named its tree honestly; the readers, this orchestrator
 included, did not check what that name resolved to.
+
+## 9. Family membership — the rule three ledgers disagreed about
+
+§1's 289 is a **syntactic** pre-filter: every `assert!(matches!(...))` and
+every `assert!(...)` whose body contains a bare `.is_err()`/`.is_none()`.
+It says nothing about whether a given site is actually an instance of the
+defect this whole sweep hunts. Three ledgers this round used a fourth
+verdict, `not-this-family`, to say "this site matched §1's syntax but isn't
+really one of these" — p1-robotmodel (this document's author) on 4 of 55
+rows, p9-ros on 17, p1-fixtures on 0 of 49 — and nobody had written down
+what the category meant. That gap produced a real error: p9-ros excluded
+`robot_model.rs:2025`, the exact site `7676185` (this session) proved
+fixture-vacuous and fixed. This section is the rule, so the next reader
+gets the same answer independently of who is asking.
+
+**The defect, restated precisely.** Every verdict in this sweep —
+`discriminating`, `single-branch`, `fixture-collapse-fixed` — is an answer
+to one question about one assertion: *can this assertion name what
+produced its result?* `not-this-family` is the answer "that question does
+not apply here" — not "the answer is yes." A site is a **member** of the
+family — eligible for that question, whatever the answer turns out to be
+— only if all three of the following hold. Any one failing means the
+question was never applicable, and the verdict is `not-this-family`.
+
+1. **Mechanism.** The value the assertion inspects is (or is derived
+   without added computation from) a signal the code under test uses to
+   report *"this operation could not, or did not, produce X"* — a
+   `Result::Err`, an `Option::None`, or a boolean/variant standing in for
+   one of these (a coarse "found nothing" or "it failed" tag). It is
+   **not** a plain, informative value returned on a success path — a
+   computed enum tag, a numeric result, a struct field — because such a
+   value, when it equals a specific constant, already names in full which
+   fact about the world produced it; there is no separate "why" being
+   discarded. `assert!(matches!(joint.kind(), JointKind::Fixed))` fails
+   this clause: `kind()` is not reporting an inability to do anything, it
+   is *reporting a computed fact*, and the fact you observe already is the
+   full explanation of itself. This is the same distinction the workspace
+   already drew when it disproved "exhaustive match on an input variant is
+   never blind": whether an arm's *pattern* matched is a dispatch
+   question, and dispatch questions sit outside this family; whether an
+   arm's *body* computed the right value is a numeric/logic-correctness
+   question, also outside this family. This family is specifically about
+   failure/absence signals losing the reason they fired.
+
+2. **Decision.** The signal is produced by an actual, written decision in
+   the code under test — a guard (`if cond { return Err(..)/None }`), an
+   early return, a `?`-propagation, a loop accumulator whose value depends
+   on a comparison the code performs on at least one real element — not an
+   *emergent non-decision*: an accumulator whose initial value is simply
+   never touched because there was nothing to iterate, or any other case
+   where no branch of the subject's logic was actually exercised,
+   regardless of what that logic does. The operational test: could an
+   engineer have implemented *this specific decision* wrong, in a way a
+   mutation at this site could exercise? `shortest_solution_is_none_on_
+   empty_input` fails this clause — for an empty slice, the comparison
+   logic never runs; `best` stays at its declared initial value no matter
+   how that logic is changed, so there is no decision here to get wrong.
+   Contrast `nn.rs:227`'s `empty_index_has_no_nearest`: `Gnat::nearest`'s
+   `self.root.as_ref()?` is a **written** guard an engineer could have
+   omitted or gotten backwards, and the bite (§ledger) confirms removing
+   it changes the outcome — clause 2 holds even though, like the
+   `shortest_solution` case, the fixture is "empty."
+
+3. **Subject.** That decision belongs to the function or method this test
+   exists to verify — not to a step the test performs directly as its own
+   setup (calling a std/library function to probe the environment or the
+   filesystem, constructing a value the test then inspects without ever
+   invoking the subject, or reading back a value the test itself pushed
+   into a container moments earlier with no subject-side decision in
+   between). The operational test: if you deleted the call to the code
+   under test from this test function, would the assertion's outcome be
+   unaffected? If yes, the assertion was never about the subject.
+   `assert!(std::fs::read(&path).is_err())` labelled `"precondition: ..."`
+   fails this clause outright — the test calls `std::fs::read` itself;
+   no crate code runs before this assertion at all. `plan_responses.rs`'s
+   `solutions[1].is_err()` fails it too, differently: `PlanResponsesContainer`
+   is exercised, but the value under test (`Err(failure())`) was supplied
+   by the test two lines above and passed through unchanged — the
+   container has no comparison capable of turning that `Err` into
+   something else, so there is no subject-side decision this assertion
+   could be blind to (this one could also be read as a clause-2 failure —
+   a passthrough is a decision with no branches — the two clauses overlap
+   at the boundary, which is fine: either failing excludes the site).
+
+**Worked resolution of the disputed post-build state check.**
+`assert!(j1.mimic().is_none())`, asserted *after* a build that is supposed
+to clear it, is the case this document's author's position and the
+orchestrator's position converged on, for the same reason: clause 1 holds
+(`Option::None` on a mimic-relationship getter is a genuine absence
+signal — a joint either has a mimic or it structurally does not, and
+`None` collapses "never had one" and "had one, and it was cleared" into
+the identical observable). Clause 2 holds (the model-build/mimic-clearing
+logic contains a written decision — for each joint, whether to null its
+`mimic` field — that an engineer could implement wrong). Clause 3 holds
+(that decision belongs to the build/clear routine this test's own name,
+"clears every mimic in the model," claims to verify). All three clauses
+hold, so the site is **in family**, regardless of the fact that `mimic()`
+itself is a plain getter with no branching of its own — the decision
+clause 2 and clause 3 look for lives one level up, in the code that calls
+the getter's setter, not in the getter. `7676185` is exactly what a
+member of this family with only one reachable cause in its fixture (the
+old fixture never gave j1 a mimic, so only the "never had one" history was
+reachable — a fixture-collapse, not a `not-this-family` exclusion) looks
+like once repaired.
+
+This directly generalizes: **the family is not "assertions about a
+fallible call's return value"** (that would wrongly exclude the mimic
+case, since `mimic()` itself never fails) — **it is "assertions whose
+observed absence/failure signal cannot, by itself, distinguish the
+subject's intended decision from another decision or non-decision that
+produces the identical signal."** A getter reading a field the subject
+mutated is exactly as much a member as a guard the subject evaluates
+directly, provided all three clauses hold.
+
+**Relationship to the existing verdicts.** `discriminating`,
+`single-branch`, and `fixture-collapse-fixed` are all answers to the
+family question for sites that passed all three clauses — they differ
+only in how many real causes the audit found reachable from the test's
+own fixture (one, several-but-distinguished, or several-and-conflated-
+until-fixed). `not-this-family` is not a fourth answer to that question;
+it is "the question does not apply," decided by the three clauses above,
+independently of any bite.
+
+**Applied to this document's own 55 rows** (`doc/assertion-discrimination-
+ledger-p1-robotmodel.md`): re-checked all 55 against the three clauses
+above, not just the 4 already marked `not-this-family`.
+
+- The 4 existing `not-this-family` rows (`ruckig_smoothing.rs:199`,
+  `moveit-planners-chomp/trajectory.rs:997` — both clause-3 failures,
+  identical shape to the `fs::read` precondition case; `plan_responses.rs
+  :208` — clause-3/clause-2 failure, a container passthrough;
+  `plan_responses.rs:214` — clause-2 failure, a vacuous empty-input
+  accumulator) all survive re-examination under the stated clauses. None
+  is moved.
+- None of the remaining 51 rows (`discriminating`, `single-branch`, or
+  the resample_dt/`validate_recovery_time_limit`/`extract_seed_trajectory`
+  combined-condition or multi-continue guards) fails any clause: every one
+  is a genuine `Err`/`None` signal (clause 1), produced by a written guard
+  in the code under test (clause 2), belonging to the function the test
+  names as its subject (clause 3). No corrections were needed.
+
+**In-family denominator for these 7 crates: 51 of 55** (`moveit-trajectory`
+15/16, `moveit-planners-chomp` 12/14, `moveit-planners-sbp` 7/7,
+`moveit-planners-stomp` 7/7, `moveit-planning` 2/4, `moveit-sampling` 4/4,
+`moveit-kinematics` 3/3). Extrapolating this ratio to the other panels'
+crates is not valid — `not-this-family` density depends on how each crate
+happens to phrase its precondition/round-trip checks, not on crate size —
+so the workspace-wide in-family denominator is not computed here; it
+requires each panel to apply this section's three clauses to its own rows,
+the same way p9-ros and p1-fixtures were asked to.
