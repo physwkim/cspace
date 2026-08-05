@@ -557,23 +557,36 @@ verified one.
 
 ## 9c. `ledger_scan.py` was never committed — and the instrument that replaces it
 
-Every quantitative claim in §1, §8, §9b and three of the five ledgers
-attributes its number to a scanner called `ledger_scan.py`. **That file
-exists in no commit, no worktree, and no checkout.** `find` across the
-repository and `git log --all -- '*ledger_scan*'` both come back empty; it
-was written in some panel's scratch space and never landed. p1-joints
-found this when a task asked it to read the script's grammar and it could
-not locate the file.
+`doc/assertion-discrimination-ledger-p9-ros.md:10` and
+`doc/assertion-discrimination-ledger-p3-acm.md` (nine citations) attribute
+their enumeration to a scanner named `ledger_scan.py`. **That file exists
+in no commit, no worktree, and no checkout.** `find` across the repository
+and `git log --all -- '*ledger_scan*'` both come back empty; it was written
+in some panel's scratch space and never landed. p1-joints found this when a
+task asked it to read the script's grammar and it could not locate the
+file.
 
-So the two things four documents assert about that scanner —
-its total (289) and its `kind` grammar (`matches!`, `.is_err()`,
-`.is_none()` only) — cannot be re-run, inspected, or disagreed with by
-anyone. This does not make them false. §8 re-derived 289 against the main
-tree by a separate route and it held, and `tools.rs:68` confirmed the
-grammar gap from the other direction (a `.is_empty()` site that no ledger
-had a row for). But an unreproducible instrument cannot carry a
-denominator, and §9b leaned on one when it said "289 is what
-`ledger_scan.py`'s grammar measures".
+Be exact about what this does and does not reach. **§1 does not name that
+script and does not depend on it** — §1 specifies its instrument in prose,
+step by step (mask comments nesting-aware, find `assert!(`, track paren
+depth over the *unmasked* text, classify `matches!` before `bare` with
+match-start dedup), and §2 cross-validates that specification against two
+`rg` commands, resolving both disagreements by reading source. That is
+reproducible from the description by anyone willing to re-implement it. So
+289 is not in question here, and §8's independent main-tree re-derivation
+stands.
+
+What is in question is narrower and still real: the *grammar* claim. The
+statement that the scanner recognizes `matches!` / `.is_err()` /
+`.is_none()` and nothing else — the claim that makes `tools.rs:68`'s
+`.is_empty()` site invisible, and the claim §9b above leans on when it says
+"289 is what `ledger_scan.py`'s grammar measures" — is sourced to a file
+nobody can open. It is corroborated from the other direction (`tools.rs:68`
+genuinely had no row in either enumeration) but it is not verifiable, and
+§9b should have said so instead of citing the script as if it were in the
+tree. §1's prose grammar, which *is* readable, says the same thing at step
+3: anything that is not `matches!` and contains neither `.is_err()` nor
+`.is_none()` is "not counted". Cite that, not the missing script.
 
 `tools/ci/count-coarse-assertions.py` (`6a14a89`) is committed in its
 place, following the `count-*` convention already in `tools/ci/`: it lists
