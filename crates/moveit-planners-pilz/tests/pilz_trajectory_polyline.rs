@@ -170,7 +170,9 @@ const SMOOTHNESS: f64 = 0.5;
 /// How far a trajectory sample's tip may sit from the reference path. Every
 /// sample is an independent IK solve followed by FK, so this budget covers
 /// the same solver-convergence spread `pilz_trajectory_lin_parity.rs`
-/// measures in joint space (`1.26e-5` there, carried through the Jacobian).
+/// measures in joint space (`2.09e-14` there as re-measured 2026-08-05,
+/// carried through the Jacobian; the `1.26e-5` this line used to cite is not
+/// this tree's value).
 /// Measured maximum over this test's own 34-sample trajectory: `9.35e-6 m`;
 /// set with roughly a 10x margin. It is *not* sized to hide the rounding
 /// itself, which is `1.55e-2 m` at this corner -- three orders larger, and

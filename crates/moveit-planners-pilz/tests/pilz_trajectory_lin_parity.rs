@@ -200,32 +200,42 @@ fn load_panda() -> (RobotModel, SrdfModel) {
 /// fixture: `1e-9`.
 const TIME_TOLERANCE: f64 = 1e-6;
 
-/// Unlike PTP (closed-form joint interpolation, no IK in the loop), every LIN
-/// waypoint is an independent IK solve: this port's `compute_pose_ik`
-/// (`moveit-kinematics`) against the oracle's `kdl_kinematics_plugin`.
-/// `panda_arm` is a 7-DOF, kinematically redundant chain, so two different
-/// solvers converging on the same target pose can land on two different
-/// points of the one-parameter null-space manifold -- confirmed directly for
-/// this fixture: FK(oracle's waypoint-1 joint solution) and FK(this port's
-/// waypoint-1 joint solution) agree to a translation norm of `1.76e-6` and a
-/// rotation angle of `7.1e-8` (i.e. both solutions really do land on the same
-/// Cartesian pose), while the joint-space solutions themselves differ by up
-/// to `5.7e-6` per joint. `POSITION_TOLERANCE` is set from the measured
-/// per-fixture maximum (`1.26e-5`) with a roughly 4x margin, not copied from
-/// PTP's `1e-6` -- see `CLAUDE.md`'s "Size test tolerances from measurement".
-const POSITION_TOLERANCE: f64 = 5e-5;
+/// Every LIN waypoint is an independent IK solve -- this port's
+/// `compute_pose_ik` (`moveit-kinematics`) against the oracle's
+/// `kdl_kinematics_plugin` -- so unlike PTP (closed-form joint interpolation,
+/// no IK in the loop) this comparison is between two solvers, not two
+/// evaluations of one formula.
+///
+/// Measured per-fixture maximum, 2026-08-05, by collecting the maximum of
+/// `(actual - expected).abs()` over every waypoint and joint of this
+/// fixture's comparison loop below: **`2.09e-14`**. Set with a roughly 4x
+/// margin -- see `CLAUDE.md`'s "Size test tolerances from measurement".
+///
+/// This replaces `5e-5`, which was set from a measured `1.26e-5` and the
+/// reasoning that `panda_arm`'s 7-DOF redundancy lets two solvers land on
+/// two different points of the same one-parameter null-space manifold. That
+/// is not this tree's behaviour: the two solvers agree here to within a few
+/// ULP, so the joint-space divergence the old number budgeted for is not
+/// present and a `5e-5` budget left this comparison blind across nine orders
+/// of magnitude. What changed is not established here -- only that the
+/// divergence is absent now, and that `resolve_solver` selects by name
+/// (`DEFAULT_SOLVER_NAME`, `registry.rs:203`) rather than by `linkme` order,
+/// so which solver runs is no longer a function of the dependency graph.
+const POSITION_TOLERANCE: f64 = 1e-13;
 
 /// [`generate_joint_trajectory`]'s backward-difference velocity
 /// (`Δposition / sampling_time`) amplifies [`POSITION_TOLERANCE`] by roughly
-/// `1 / sampling_time` (`0.1` here). Measured per-fixture maximum: `1.24e-4`;
-/// set with a roughly 4x margin.
-const VELOCITY_TOLERANCE: f64 = 5e-4;
+/// `1 / sampling_time` (`0.1` here). Measured per-fixture maximum:
+/// `3.17e-14`; set with a roughly 4x margin. The amplification is the
+/// mechanism, not a prediction of the size: at this magnitude the measured
+/// velocity maximum is ~1.5x the position one, not 10x, so the number below
+/// is the measurement rather than `POSITION_TOLERANCE / sampling_time`.
+const VELOCITY_TOLERANCE: f64 = 1.5e-13;
 
 /// The same backward-difference chain's acceleration term divides by
-/// `sampling_time` again, amplifying [`VELOCITY_TOLERANCE`] by roughly
-/// another `1 / sampling_time`. Measured per-fixture maximum: `1.26e-3`; set
-/// with a roughly 4x margin.
-const ACCELERATION_TOLERANCE: f64 = 5e-3;
+/// `sampling_time` again. Measured per-fixture maximum: `2.66e-13`; set with
+/// a roughly 4x margin.
+const ACCELERATION_TOLERANCE: f64 = 1.2e-12;
 
 /// See this module's `# A known IkContext-level self-collision deviation`
 /// doc section for why this fixture's own choice of pose makes the value

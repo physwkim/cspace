@@ -44,14 +44,15 @@
 //! from it, so `CHECK_SELF_COLLISION`'s value is inconsequential here for the
 //! same reason.
 //!
-//! What is *not* inherited is the size. LIN's fixture measures `1.26e-5 rad`
-//! of joint-space divergence and CIRC's `4.05e-6`; this one measures
-//! `1.60e-9` — four orders tighter, on the same solver pair and the same
-//! start pose. Why the two fixtures separate by that much is not established
-//! here, and this file does not assert a reason for it. The tolerances below
-//! are therefore sized from *this* fixture's own measurement rather than
-//! inherited from its siblings', which is what keeps a future four-order
-//! regression visible instead of absorbed.
+//! What is *not* inherited is the size. Re-measured 2026-08-05 on the same
+//! solver pair and the same start pose: LIN `2.09e-14`, CIRC `1.81e-9`, this
+//! fixture `1.60e-9`. The three separate by five orders and why is not
+//! established here; this file does not assert a reason for it. The
+//! tolerances below are therefore sized from *this* fixture's own
+//! measurement rather than inherited from its siblings', which is what keeps
+//! a future regression visible instead of absorbed — and is what left this
+//! file's numbers correct while LIN's and CIRC's went nine and four orders
+//! stale against the same tree.
 //!
 //! `panda_polyline_staleindex_{request,response}.json` is the third fixture,
 //! and the one that closes `doc/upstream-bugs.md`'s
@@ -238,10 +239,10 @@ const TIME_TOLERANCE: f64 = 1e-8;
 
 /// See this module's `# The same IK-parity debt as LIN, inherited here` doc
 /// section for where the divergence comes from, and its measured size on
-/// this fixture. Measured maximum: `1.60e-9 rad`; set with a roughly 6x
-/// margin. Deliberately *not* copied from CIRC's `2e-5` or LIN's `5e-5`,
-/// which would be four orders too loose here — see `CLAUDE.md`'s "Size test
-/// tolerances from measurement".
+/// this fixture. Measured maximum: `1.60e-9 rad` (re-measured 2026-08-05:
+/// `1.6045e-9`, unchanged); set with a roughly 6x margin. Deliberately *not*
+/// copied from a sibling's constant — see `CLAUDE.md`'s "Size test tolerances
+/// from measurement".
 const POSITION_TOLERANCE: f64 = 1e-8;
 
 /// Backward-difference velocity amplifies [`POSITION_TOLERANCE`] by roughly

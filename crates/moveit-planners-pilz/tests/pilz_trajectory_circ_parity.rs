@@ -42,11 +42,14 @@
 //! start/goal pose is the identical one, chosen there specifically so
 //! `CHECK_SELF_COLLISION`'s value is inconsequential, and that reasoning
 //! carries over unchanged. Any position/velocity/acceleration divergence
-//! measured below has the same "different IK solver, same redundant
-//! manifold" origin as LIN's, not a CIRC-specific trajectory-generation bug
-//! — see that module's own doc for the measured FK cross-check proving the
-//! two solutions land on the same Cartesian pose despite differing in joint
-//! space.
+//! measured below was attributed to the same "different IK solver, same
+//! redundant manifold" origin as LIN's rather than to a CIRC-specific
+//! trajectory-generation bug. That attribution no longer holds as measured:
+//! LIN's residual is now `2.09e-14` (a few ULP), so there is no joint-space
+//! null-space divergence there to inherit, and CIRC's own `1.81e-9` is
+//! whatever this generator's chain produces rather than a shared
+//! solver-choice effect. Both constants below are set from their own
+//! measurement.
 
 use std::collections::HashMap;
 use std::fs;
@@ -215,20 +218,28 @@ fn load_panda() -> (RobotModel, SrdfModel) {
 const TIME_TOLERANCE: f64 = 1e-6;
 
 /// See this module's `# The same IK-parity debt as LIN, inherited here` doc
-/// section. Measured per-fixture maximum: `4.05e-6`; set with a roughly 4x
-/// margin, not copied from LIN's own `5e-5` — see `CLAUDE.md`'s "Size test
+/// section. Measured per-fixture maximum, 2026-08-05, over every waypoint and
+/// joint of the comparison loop below: **`1.81e-9`**; set with a roughly 4x
+/// margin, not copied from LIN's own constant — see `CLAUDE.md`'s "Size test
 /// tolerances from measurement".
-const POSITION_TOLERANCE: f64 = 2e-5;
+///
+/// This replaces `2e-5`, set from a measured `4.05e-6` under the same
+/// null-space reasoning LIN's constant used. LIN now measures `2.09e-14`, so
+/// that reasoning has stopped describing either fixture; CIRC's own residual
+/// is four orders larger than LIN's but still four orders under the old
+/// budget, which is why it gets its own measurement rather than LIN's.
+const POSITION_TOLERANCE: f64 = 8e-9;
 
 /// Backward-difference velocity amplifies [`POSITION_TOLERANCE`] by roughly
 /// `1 / sampling_time` (`0.1` here), same chain as LIN's. Measured
-/// per-fixture maximum: `4.05e-5`; set with a roughly 4x margin.
-const VELOCITY_TOLERANCE: f64 = 2e-4;
+/// per-fixture maximum: `5.52e-9`; set with a roughly 4x margin. As in LIN,
+/// the amplification names the mechanism and not the size — the measured
+/// velocity maximum here is ~3x the position one, not 10x.
+const VELOCITY_TOLERANCE: f64 = 2.5e-8;
 
-/// The acceleration term divides by `sampling_time` again, amplifying
-/// [`VELOCITY_TOLERANCE`] by roughly another `1 / sampling_time`. Measured
-/// per-fixture maximum: `8.02e-4`; set with a roughly 4x margin.
-const ACCELERATION_TOLERANCE: f64 = 4e-3;
+/// The acceleration term divides by `sampling_time` again. Measured
+/// per-fixture maximum: `3.32e-8`; set with a roughly 4x margin.
+const ACCELERATION_TOLERANCE: f64 = 1.4e-7;
 
 /// See `pilz_trajectory_lin_parity.rs`'s own `# A known IkContext-level
 /// self-collision deviation` doc section — this fixture reuses that

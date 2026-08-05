@@ -270,8 +270,9 @@ const TIME_TOLERANCE: f64 = 1e-6;
 /// Measured max divergence across the three succeeding fixture cases:
 /// `5.46e-9`, at case C (`panda_blend_radius08`); cases A/B measure
 /// `2.28e-9`/`1.84e-9`. Unlike `pilz_trajectory_lin_parity.rs`'s
-/// `POSITION_TOLERANCE` (`1.26e-5` measured, budgeting for panda_arm's
-/// redundant-kinematics IK-solver divergence),
+/// `POSITION_TOLERANCE`, which budgeted for panda_arm's redundant-kinematics
+/// IK-solver divergence (a `1.26e-5` that re-measured as `2.09e-14` on
+/// 2026-08-05, so that budget is gone),
 /// `first_trajectory`/`second_trajectory` here are truncated copies of
 /// waypoints a LIN segment already solved (no second independent IK solve
 /// to diverge from), and `blend_trajectory`'s own IK solves converge far
