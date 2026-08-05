@@ -43,6 +43,16 @@ SEED="${2:-7}"
 POOL="${3:-50}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/gate-lib.sh"
+
+# `--constraints 0` is not an error to `moveit-diff` -- it is how every other
+# caller (`verify-oracle-sweep.sh`) says "no constraint sweep", so the tool
+# cannot reject it the way `Config` rejects `--cases 0`. That leaves this gate
+# as the only place that knows a zero-combination run is meaningless: without
+# this guard `verify-constraint-sweep.sh 0` exits 0 having printed an empty
+# composition table and `passed: 2` (the model_info and fk baselines), which
+# is the one outcome a gate must never spell the same way as success.
+require_nonempty "$CASES" "constraint combinations to compare"
 DIFF="$REPO_ROOT/target/release/moveit-diff"
 
 # Every committed robot, not a representative one. The four differ in what
@@ -84,7 +94,8 @@ for robot in "${ROBOTS[@]}"; do
   # says nothing about whether the N cases were N variations of one kind.
   # Printing the breakdown is what makes the completion condition's "all
   # four kinds and their combinations" readable from the gate's own output.
-  sed -n '/^constraint combinations by composition:/,/^constraint satisfied/p' "$OUT"
+  composition="$(sed -n '/^constraint combinations by composition:/,/^constraint satisfied/p' "$OUT")"
+  printf '%s\n' "$composition"
   grep -E '^cases:|^passed:|^failed:' "$OUT" || true
 
   if [[ $status -ne 0 ]]; then
@@ -92,5 +103,21 @@ for robot in "${ROBOTS[@]}"; do
     grep '^FAIL' "$OUT" | head -20 >&2 || true
     echo "$robot disagreed with the oracle (exit $status)" >&2
     exit "$status"
+  fi
+
+  # The table is printed above for a reader; this reads it back for the gate.
+  # `passed: N` counts verdicts, and the constraint sweep is only part of them
+  # (`cases:` is CASES + 1 model_info + POOL fk), so agreement on the total is
+  # not evidence that the combinations ran: a generator that emitted half the
+  # combinations it was asked for would still pass every comparison it made.
+  # Summing the composition rows is the one number in this output that has to
+  # equal what the run asked for.
+  combinations="$(printf '%s\n' "$composition" \
+    | sed -n 's/^  .*: \([0-9][0-9]*\) cases$/\1/p' \
+    | awk '{ s += $1 } END { print s + 0 }')"
+  if [[ "$combinations" -ne "$CASES" ]]; then
+    echo "FAIL $robot: the composition table accounts for $combinations combinations, not the $CASES asked for." >&2
+    echo "FAIL every generated combination must appear in the table, so the two disagreeing means the sweep did not run what it reported." >&2
+    exit 1
   fi
 done
