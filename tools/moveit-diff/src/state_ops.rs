@@ -569,6 +569,22 @@ fn mimic_cases(
         .collect();
 
     let mut cases = Vec::new();
+    if masters.is_empty() {
+        return cases;
+    }
+
+    // Setting nothing at all is a boundary, not a trivial case: upstream has
+    // two separate owners of the same propagation, `RobotModel::updateMimicJoints`
+    // (every mimic at once, called by the whole-model setters) and
+    // `RobotState::updateMimicJoint` (one master's followers, called by the
+    // single-joint setters). Every other case here writes a master and so
+    // ends on the second, which overwrites whatever the first produced. On a
+    // robot with exactly one mimic pair -- panda -- that hides the first
+    // owner completely: a mutation injected into it was caught on pr2, whose
+    // several mimic families leave some follower untouched by any case's
+    // write, and not caught at all on panda until this case existed.
+    cases.push(("mimic/defaults-only".to_owned(), BTreeMap::new()));
+
     let mut all: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     for name in &masters {
         let Some(master) = info.joint_details.iter().find(|d| &d.name == name) else {
