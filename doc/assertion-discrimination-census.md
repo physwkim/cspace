@@ -848,3 +848,57 @@ than one. Both must be zero. When first run it reported four orphans in
 the latter stranded the same way; the table above is the state after those
 were assigned. A kind fence cannot be audited this way at all, which is the
 substantive argument for paths over any repair to the kind vocabulary.
+
+### 9g. A source read produced two false `discriminating` verdicts
+
+`p1-robotmodel` closed its 52-site fence with **0 blind** (§9f's partition,
+merge `1ddb2ac`), the great majority of rows verdicted by reading the
+source. It then flagged a coverage gap as explicitly out of scope: of
+`MeshSearchPaths::resolve`'s four `None`-producing guards
+(`mesh_search_paths.rs:86-89`), two had no test at all.
+
+Sent back to prove the two *tested* guards rather than supplement them, it
+found both were blind:
+
+> `:130` (`unknown_package_does_not_resolve`) and `:139,140`
+> (`non_package_uri_does_not_resolve`) were both blind — each survived
+> neutralization of the guard it was supposed to test, because neither
+> fixture had a real file at the joined path, so the chain fell through to
+> `is_file()` failing for an unrelated reason.
+
+Both had been verdicted `discriminating` one round earlier. The reading was
+not careless — the four guards reject disjoint *inputs*, which is what a
+read can see, and each test does supply an input only its own guard
+rejects. What a read cannot see is that the fixture never reached the guard
+at all: `resolve` is a chain of four `?`s returning one bare `None`, so a
+fixture that fails an *earlier* condition than the one it targets produces
+a passing test for the wrong reason. Rebuilt on a fixture with a real file
+at the joined path (`b64806d`, merged `ded3470`), all four isolate one at a
+time.
+
+Reproduced here at the merge, independently of the panel's own run:
+
+| mutation | tests failing |
+|---|---|
+| `candidate.is_file()` → `(candidate.is_file() \|\| true)` | `missing_file_does_not_resolve` only, 135 green |
+| `self.packages.get(package)` → `.or_else(\|\| self.packages.values().next())` | `unknown_package_does_not_resolve` only, 135 green |
+
+The other three tests staying green under the `is_file()` mutation is the
+half that carries the information: before `b64806d` they rode that guard,
+and now they do not.
+
+One failed attempt is worth recording, because it is the trap on this side
+of the check. Mutating `:87` to `rest.split_once('/').unwrap_or((rest,
+""))` fails no test — and that is correct, not a gap. `dir.join("")` is
+`dir`, which is never a file, so the mutation is behaviour-preserving on
+every input. **A mutation that changes no behaviour proves nothing about
+the test**, and reading a green result from one as evidence of blindness
+is the mirror image of the error this section is about.
+
+The rule this settles, for every remaining fence: a verdict of
+`discriminating` reached by reading is a hypothesis. Across the five
+ledgers, read-justified rows are already the small minority against
+bite-justified ones, which is why this surfaced as two sites rather than
+fifty. Where a function funnels several guards into one undifferentiated
+`None` or `Err`, reading cannot distinguish "this fixture targets guard B"
+from "this fixture reaches guard B", and only a mutation can.
