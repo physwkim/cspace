@@ -16883,3 +16883,30 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
 (b)를 `AggregationError::MultiDofBoundsCheck`로 **오류로 올린다**. 둘 다
 `not-reproduced`이고, 이유는 상류가 그 자리에서 정의된 동작을 갖지 않기
 때문이다 — 조용한 드롭과 인접 멤버 읽기는 재현할 "동작"이 아니다.
+
+### 224.6 실제로 착지한 것과, 가드마다 물린 변형
+
+여섯 파일의 처분은 224.4대로 끝났다. `doc/port-coverage.md`는 네 행이
+사라지고(두 모듈이 `Ported from moveit2 @ …` 헤더로 그 상류 경로를 이름으로
+든다) 두 행이 `gap` → `decided-non-port`로 옮겨, 미포팅 95 → 91,
+`decided-non-port` 45 → 47 / `gap` 40 → 34가 되었다.
+`measure-port-coverage.py --check`가 91행 == 91건으로 통과한다.
+
+테스트는 두 모듈 합쳐 39개다. 이 39개가 "가드를 덮는다"는 주장은 읽기가
+아니라 실측이다 — 가드마다 변형을 하나씩 넣어 돌리고 되돌렸고, 58회의 변형
+실행 결과가 `doc/assertion-discrimination-ledger-p10-jointlimits.md`에
+전부 적혀 있다. 39개 중 **38개**가 자기만 깨뜨리는 변형을 갖는다.
+
+갖지 못한 하나는 `a_differing_max_position_is_a_disagreement`다. 그 픽스처는
+`a_third_joint_disagreeing_with_the_first_two_is_still_a_disagreement`의
+진부분집합(2관절 vs 3관절, 같은 `max_position` 1.0 vs 2.0)이라
+`max_position` 비교를 어떻게 바꾸든 둘이 같이 깨진다. 크기로 가르는 변형도
+없다 — 두 픽스처의 차이가 같은 1.0이다. 반대 방향은 갈라진다(`V2`,
+"첫 쌍만 비교"는 3관절 쪽만 깨뜨린다). 그래서 두 테스트는 중복이 아니고,
+작은 쪽의 커버리지 주장이 2개 가족이라는 사실만 원장에 그대로 적었다.
+
+이 절을 쓰면서 상류 결함 두 건이 `doc/upstream-bugs.md`에 들어갔다
+(`aggregated-limits-drops-rejected-joint-silently`,
+`check-position-bounds-multidof-adjacent-members`). 둘 다 `not-reproduced`,
+둘 다 C++로 돌려본 것이 아니라 읽은 것이며, 대신 포트 쪽에서 대응 테스트와
+그 테스트만 깨뜨리는 변형(`A10`, `A35`/`A34`)을 확보했다.
