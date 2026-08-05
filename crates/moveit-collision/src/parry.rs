@@ -2116,6 +2116,9 @@ fn pair_key(a: &str, b: &str) -> (String, String) {
 /// The `collision` flag is set independent of the storage budget
 /// (`request.max_contacts`, `request.max_contacts_per_pair`) for every pair,
 /// matching upstream's own invariant.
+///
+/// The sweep also stops where upstream's does — see [`sweep_is_done`] for the
+/// rule and for why the stop is observable rather than a pure saving.
 fn accumulate_collision<'a>(
     pairs: impl Iterator<Item = (&'a PosedBody, &'a PosedBody)>,
     request: &CollisionRequest,
@@ -2130,7 +2133,15 @@ fn accumulate_collision<'a>(
     // `cdata->res_->cost_sources.insert(cs); while (... > max_cost_sources)
     // erase(--end());` does in `collision_common.cpp`.
     let mut cost_sources: BTreeSet<CostSource> = BTreeSet::new();
+    let mut done = false;
     for (a, b) in pairs {
+        // Upstream's `if (cdata->done_) return true;`
+        // (`collision_common.cpp:70-71`). One collision-object pair there is
+        // one *part* pair here, so the inner loop carries the same guard; this
+        // one only stops the outer sweep once the inner one has broken out.
+        if done {
+            break;
+        }
         let allowed = acm.and_then(|m| m.allowed_collision(&a.name, &b.name));
         if matches!(allowed, Some(AllowedCollision::Always)) {
             continue;
@@ -2139,68 +2150,130 @@ fn accumulate_collision<'a>(
             continue;
         }
         for (a_pose, a_shape, b_pose, b_shape) in part_pairs(a, b) {
-            let Ok(Some(contact)) = query::contact(a_pose, a_shape, b_pose, b_shape, 0.0) else {
-                continue;
-            };
-            // NOT gated on `contact.dist <= 0.0`, though the wording above
-            // ("prediction `0.0`, so only touching/penetrating pairs yield
-            // `Some`") reads as though it were. `parry` returns a contact
-            // across a small positive gap too: measured on prbt's base
-            // cylinder against a `4x4x0.1` box, a `3e-8 m` gap yields `Some`
-            // and a `1e-7 m` gap yields `None`, so the effective boundary sits
-            // near `5e-8 m` of clear air rather than at zero.
-            //
-            // Adding the sign check was tried and reverted, because upstream
-            // is not uniform at exact contact and the margin is what absorbs
-            // the difference. `fcl::collide` dispatches per shape pair:
-            // `octree_world_collision_response.json` case 4 -- an octree leaf
-            // whose `-x` face lands exactly on the robot box's `+x` face --
-            // comes back `robot_collision: true, robot_distance: -0.0`, while
-            // prbt's cylinder resting exactly on a box comes back `false` with
-            // the `-1.0` sentinel (`doc/upstream-bugs.md`,
-            // `fcl-distance-sentinel-survives-zero-contacts`). `parry` puts
-            // that octree pair a hair *above* zero, so a strict `dist > 0.0`
-            // guard turns case 4 into a parity failure while changing nothing
-            // about prbt, whose tie already lands at `-2.775558e-17`.
-            // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
-            // both ends of this as measurements rather than intentions.
-            // Independent of `is_collision`, below: `collision_common.cpp`
-            // computes cost sources unconditionally once a real contact is
-            // found, whether or not `AllowedCollision::Conditional`'s own
-            // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
-            // own doc).
-            if request.cost {
-                for source in cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape) {
-                    cost_sources.insert(source);
-                    while cost_sources.len() > request.max_cost_sources {
-                        cost_sources.pop_last();
+            if done {
+                break;
+            }
+            if let Ok(Some(contact)) = query::contact(a_pose, a_shape, b_pose, b_shape, 0.0) {
+                // NOT gated on `contact.dist <= 0.0`, though the wording above
+                // ("prediction `0.0`, so only touching/penetrating pairs yield
+                // `Some`") reads as though it were. `parry` returns a contact
+                // across a small positive gap too: measured on prbt's base
+                // cylinder against a `4x4x0.1` box, a `3e-8 m` gap yields `Some`
+                // and a `1e-7 m` gap yields `None`, so the effective boundary sits
+                // near `5e-8 m` of clear air rather than at zero.
+                //
+                // Adding the sign check was tried and reverted, because upstream
+                // is not uniform at exact contact and the margin is what absorbs
+                // the difference. `fcl::collide` dispatches per shape pair:
+                // `octree_world_collision_response.json` case 4 -- an octree leaf
+                // whose `-x` face lands exactly on the robot box's `+x` face --
+                // comes back `robot_collision: true, robot_distance: -0.0`, while
+                // prbt's cylinder resting exactly on a box comes back `false` with
+                // the `-1.0` sentinel (`doc/upstream-bugs.md`,
+                // `fcl-distance-sentinel-survives-zero-contacts`). `parry` puts
+                // that octree pair a hair *above* zero, so a strict `dist > 0.0`
+                // guard turns case 4 into a parity failure while changing nothing
+                // about prbt, whose tie already lands at `-2.775558e-17`.
+                // `crates/moveit-collision/tests/exact_tangency_boundary.rs` pins
+                // both ends of this as measurements rather than intentions.
+                // Independent of `is_collision`, below: `collision_common.cpp`
+                // computes cost sources unconditionally once a real contact is
+                // found, whether or not `AllowedCollision::Conditional`'s own
+                // predicate goes on to accept it (see `cost_sources_for_part_pair`'s
+                // own doc).
+                if request.cost {
+                    for source in cost_sources_for_part_pair(a_pose, a_shape, b_pose, b_shape) {
+                        cost_sources.insert(source);
+                        while cost_sources.len() > request.max_cost_sources {
+                            cost_sources.pop_last();
+                        }
+                    }
+                }
+                let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
+                let is_collision = match allowed {
+                    Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
+                    Some(AllowedCollision::Never) | None => true,
+                    Some(AllowedCollision::Always) => unreachable!("filtered out above"),
+                };
+                if is_collision {
+                    collision = true;
+                    if request.contacts && stored_total < request.max_contacts {
+                        let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
+                        if bucket.len() < request.max_contacts_per_pair {
+                            bucket.push(c);
+                            stored_total += 1;
+                        }
                     }
                 }
             }
-            let mut c = to_contact(&contact, &a.name, a.body_type, &b.name, b.body_type);
-            let is_collision = match allowed {
-                Some(AllowedCollision::Conditional(ref predicate)) => !predicate(&mut c),
-                Some(AllowedCollision::Never) | None => true,
-                Some(AllowedCollision::Always) => unreachable!("filtered out above"),
-            };
-            if !is_collision {
-                continue;
-            }
-            collision = true;
-            if request.contacts && stored_total < request.max_contacts {
-                let bucket = by_pair.entry(pair_key(&a.name, &b.name)).or_default();
-                if bucket.len() < request.max_contacts_per_pair {
-                    bucket.push(c);
-                    stored_total += 1;
-                }
-            }
+            // Reached whether or not the query found anything, exactly as
+            // upstream's termination block is: `fcl::collide` returning zero
+            // contacts still falls through to `collision_common.cpp:395`. Only
+            // the skip rules above bypass it, and upstream's counterparts
+            // `return false` at `:184-185` before ever reaching it.
+            done = sweep_is_done(request, collision, stored_total, &by_pair, &cost_sources);
         }
     }
+    sweep_result(request, collision, &by_pair, &cost_sources)
+}
+
+/// The sweep state of [`accumulate_collision`] in the shape a caller sees it —
+/// used both for the function's own return value and for the argument
+/// [`CollisionRequest::is_done`] is handed mid-sweep, so a callback observes
+/// exactly the result it would have got had the sweep ended there.
+///
+/// `distance` is always `None`: upstream fills `res.distance` only after the
+/// sweep returns (`collision_env_fcl.cpp:283-297` and `:340-354`), so the
+/// result its own `is_done` sees never carries one either.
+///
+/// The clone is bounded by `request.max_contacts` and
+/// `request.max_cost_sources`, not by the number of pairs swept.
+fn sweep_result(
+    request: &CollisionRequest,
+    collision: bool,
+    by_pair: &BTreeMap<(String, String), Vec<Contact>>,
+    cost_sources: &BTreeSet<CostSource>,
+) -> CollisionResult {
     CollisionResult {
         collision,
         distance: None,
-        contacts: request.contacts.then_some(ContactData { by_pair }),
-        cost_sources: request.cost.then(|| cost_sources.into_iter().collect()),
+        contacts: request.contacts.then(|| ContactData {
+            by_pair: by_pair.clone(),
+        }),
+        cost_sources: request.cost.then(|| cost_sources.iter().cloned().collect()),
+    }
+}
+
+/// Upstream's two termination sources, evaluated once per part pair at
+/// `collision_common.cpp:395-424` and answering its `done_`:
+///
+/// - implicit (`:395-407`) — a collision is on record, the contact budget is
+///   either unwanted or already full, and no cost is being accumulated. Every
+///   field is therefore already at its final value, so this one only decides
+///   how much work the sweep still does; the one way it shows is that an
+///   [`AllowedCollision::Conditional`] predicate on a later pair stops being
+///   called, which is upstream's behaviour too.
+/// - explicit (`:411-413`) — [`CollisionRequest::is_done`], consulted only
+///   when the implicit rule did not already fire, and given
+///   [`sweep_result`]'s view of the state. This one *is* observable: a
+///   callback can stop the sweep with `collision` still `false`, or with
+///   fewer contacts stored than `request.max_contacts` allows.
+///
+/// Note `request.cost` suppresses only the implicit source, matching
+/// upstream's nesting — `is_done` is still consulted while costs accumulate.
+fn sweep_is_done(
+    request: &CollisionRequest,
+    collision: bool,
+    stored_total: usize,
+    by_pair: &BTreeMap<(String, String), Vec<Contact>>,
+    cost_sources: &BTreeSet<CostSource>,
+) -> bool {
+    if collision && (!request.contacts || stored_total >= request.max_contacts) && !request.cost {
+        return true;
+    }
+    match &request.is_done {
+        Some(is_done) => is_done(&sweep_result(request, collision, by_pair, cost_sources)),
+        None => false,
     }
 }
 
@@ -2525,6 +2598,7 @@ mod tests {
     use moveit_state::RobotState;
 
     use super::*;
+    use crate::common::IsDoneFn;
 
     // Geometry-level tests: `convert_shape`, `axis_fix`, `to_contact`.
 
@@ -3060,6 +3134,276 @@ mod tests {
             result.contacts.expect("contacts requested").count(),
             0,
             "a spent contact budget must store nothing"
+        );
+    }
+
+    // Termination rule (`sweep_is_done`). All of these drive
+    // `check_robot_collision` with a single robot link, because `cross_pairs`
+    // walks the world in `World`'s `BTreeMap` order: naming the objects fixes
+    // the order in which the sweep meets them, which is what makes "stopped
+    // before the second pair" a statement about the rule and not about
+    // whichever pair happened to come first.
+
+    /// One robot link `p`, a unit box at the origin.
+    fn one_link_at_origin(model: &RobotModel) -> RobotState<'_> {
+        state_with_links_at(model, &[("p", Isometry3::identity())])
+    }
+
+    /// A world of unit boxes at the given ids and poses.
+    fn world_with_boxes(boxes: &[(&str, Isometry3)]) -> World {
+        let mut world = World::new();
+        for (id, pose) in boxes {
+            world.add_shape(
+                id,
+                Arc::new(Shape::Cuboid(Cuboid::new(1.0, 1.0, 1.0).unwrap())),
+                *pose,
+            );
+        }
+        world
+    }
+
+    /// What [`recording_is_done`] noted down: one `(collision, contact
+    /// count)` per call, in call order.
+    type IsDoneLog = Arc<Mutex<Vec<(bool, usize)>>>;
+
+    /// An `is_done` that answers `verdict` and records `(collision, contact
+    /// count)` from every result it is handed, so a test can assert both how
+    /// often the sweep consulted it and what it saw.
+    fn recording_is_done(verdict: bool) -> (IsDoneLog, IsDoneFn) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let callback: IsDoneFn = Arc::new(move |result: &CollisionResult| {
+            sink.lock().unwrap_or_else(PoisonError::into_inner).push((
+                result.collision,
+                result.contacts.as_ref().map_or(0, ContactData::count),
+            ));
+            verdict
+        });
+        (seen, callback)
+    }
+
+    fn recorded(seen: &IsDoneLog) -> Vec<(bool, usize)> {
+        seen.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    #[test]
+    fn is_dones_answer_decides_whether_a_later_colliding_pair_is_reached() {
+        // The whole point of `is_done`: the caller, not the backend, decides
+        // the sweep is over. `a_far` is out of contact, so the implicit rule
+        // cannot have fired at the pair that answers; the sweep goes on to
+        // `b_near`, which overlaps `p`, only if the answer was no. Both
+        // answers run against one scene because the boundary is the answer —
+        // asserting either alone leaves "the answer is read at all" untested.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let scene = || {
+            world_with_boxes(&[
+                ("a_far", Isometry3::translation(10.0, 0.0, 0.0)),
+                ("b_near", Isometry3::translation(0.5, 0.0, 0.0)),
+            ])
+        };
+        let request = |verdict: bool| CollisionRequest {
+            is_done: Some(Arc::new(move |_: &CollisionResult| verdict)),
+            ..CollisionRequest::default()
+        };
+
+        let stopped = ParryCollisionEnv::new(scene(), LinkPaddingScale::default())
+            .check_robot_collision(&request(true), &posed, &[], None);
+        let ran_on = ParryCollisionEnv::new(scene(), LinkPaddingScale::default())
+            .check_robot_collision(&request(false), &posed, &[], None);
+
+        assert!(
+            !stopped.collision,
+            "is_done answering yes must end the sweep at the pair that asked"
+        );
+        assert!(
+            ran_on.collision,
+            "is_done answering no must leave the sweep running"
+        );
+    }
+
+    #[test]
+    fn a_pair_with_no_contact_still_consults_is_done() {
+        // Upstream's termination block sits after the `fcl::collide` call, not
+        // inside its "found something" branch, so a pair that came back empty
+        // still gets to end the sweep. A port that folds the check into the
+        // contact-found arm never offers the callback a clear pair at all.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let world = world_with_boxes(&[("a_far", Isometry3::translation(10.0, 0.0, 0.0))]);
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let (seen, is_done) = recording_is_done(false);
+        let request = CollisionRequest {
+            is_done: Some(is_done),
+            ..CollisionRequest::default()
+        };
+
+        env.check_robot_collision(&request, &posed, &[], None);
+
+        assert_eq!(
+            recorded(&seen),
+            vec![(false, 0)],
+            "the one clear pair must reach is_done exactly once"
+        );
+    }
+
+    #[test]
+    fn a_pair_the_acm_always_allows_never_consults_is_done() {
+        // Upstream's `if (always_allow_collision) return false;`
+        // (`collision_common.cpp:184-185`) returns before the termination
+        // block, so an allowed pair is invisible to the callback however
+        // deeply it overlaps. Both objects here overlap `p`, so the one
+        // recorded call can only be `b_checked`; `cost` is what keeps the
+        // implicit rule from claiming that call first.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let world = world_with_boxes(&[
+            ("a_allowed", Isometry3::translation(0.5, 0.0, 0.0)),
+            ("b_checked", Isometry3::translation(-0.5, 0.0, 0.0)),
+        ]);
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let mut acm = AllowedCollisionMatrix::new();
+        acm.set_entry("p", "a_allowed", true);
+        let (seen, is_done) = recording_is_done(false);
+        let request = CollisionRequest {
+            cost: true,
+            is_done: Some(is_done),
+            ..CollisionRequest::default()
+        };
+
+        env.check_robot_collision(&request, &posed, &[], Some(&acm));
+
+        assert_eq!(
+            recorded(&seen),
+            vec![(true, 0)],
+            "an ACM-allowed pair must not be offered to is_done"
+        );
+    }
+
+    #[test]
+    fn the_implicit_stop_pre_empts_is_done() {
+        // `collision_common.cpp:411` guards the callback with `!cdata->done_`.
+        // With contacts and cost both off, the first collision satisfies the
+        // implicit rule outright, so the callback is never asked — and the
+        // second overlapping object is never looked at either.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let world = world_with_boxes(&[
+            ("a_near", Isometry3::translation(0.5, 0.0, 0.0)),
+            ("b_near", Isometry3::translation(-0.5, 0.0, 0.0)),
+        ]);
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let (seen, is_done) = recording_is_done(false);
+        let request = CollisionRequest {
+            is_done: Some(is_done),
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_robot_collision(&request, &posed, &[], None);
+
+        assert!(result.collision);
+        assert_eq!(
+            recorded(&seen),
+            Vec::new(),
+            "the implicit stop must fire without consulting is_done"
+        );
+    }
+
+    #[test]
+    fn cost_accumulation_suppresses_the_implicit_stop_but_not_is_done() {
+        // Upstream nests `if (!req.cost) done_ = true;` inside the implicit
+        // rule alone: costs keep the sweep alive because a later pair can
+        // still displace a cheaper source, but they say nothing about the
+        // caller's own callback, which is consulted for both pairs.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let world = world_with_boxes(&[
+            ("a_near", Isometry3::translation(0.5, 0.0, 0.0)),
+            ("b_near", Isometry3::translation(-0.5, 0.0, 0.0)),
+        ]);
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let (seen, is_done) = recording_is_done(false);
+        let request = CollisionRequest {
+            cost: true,
+            is_done: Some(is_done),
+            ..CollisionRequest::default()
+        };
+
+        env.check_robot_collision(&request, &posed, &[], None);
+
+        assert_eq!(
+            recorded(&seen),
+            vec![(true, 0), (true, 0)],
+            "with cost on, both pairs must be offered to is_done"
+        );
+    }
+
+    #[test]
+    fn is_done_sees_the_contacts_stored_so_far() {
+        // The callback's argument is the running result, not a fresh one:
+        // upstream hands it `*cdata->res_`. The second call must therefore
+        // see the contact the first pair stored. A budget of 5 keeps the
+        // implicit rule from firing at either pair.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let world = world_with_boxes(&[
+            ("a_near", Isometry3::translation(0.5, 0.0, 0.0)),
+            ("b_near", Isometry3::translation(-0.5, 0.0, 0.0)),
+        ]);
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let (seen, is_done) = recording_is_done(false);
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 5,
+            is_done: Some(is_done),
+            ..CollisionRequest::default()
+        };
+
+        env.check_robot_collision(&request, &posed, &[], None);
+
+        assert_eq!(
+            recorded(&seen),
+            vec![(true, 1), (true, 2)],
+            "is_done must see the sweep's running result, not a fresh one"
+        );
+    }
+
+    #[test]
+    fn a_full_contact_budget_stops_the_sweep_at_the_pair_that_filled_it() {
+        // `res.contact_count >= req.max_contacts` is the other side of the
+        // boundary above: one contact against a budget of one satisfies the
+        // implicit rule, so `b_near` is never reached and the second contact
+        // never stored. Nothing is lost by stopping — the budget could not
+        // have taken it — which is why upstream stops.
+        let model = build_model(&["p"]);
+        let mut state = one_link_at_origin(&model);
+        let posed = state.update();
+        let world = world_with_boxes(&[
+            ("a_near", Isometry3::translation(0.5, 0.0, 0.0)),
+            ("b_near", Isometry3::translation(-0.5, 0.0, 0.0)),
+        ]);
+        let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
+        let (seen, is_done) = recording_is_done(false);
+        let request = CollisionRequest {
+            contacts: true,
+            max_contacts: 1,
+            is_done: Some(is_done),
+            ..CollisionRequest::default()
+        };
+
+        let result = env.check_robot_collision(&request, &posed, &[], None);
+
+        assert_eq!(result.contacts.expect("contacts requested").count(), 1);
+        assert_eq!(
+            recorded(&seen),
+            Vec::new(),
+            "a filled budget must stop the sweep without consulting is_done"
         );
     }
 
