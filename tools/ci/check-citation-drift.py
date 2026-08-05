@@ -39,14 +39,15 @@
 #      that file's current line count. Out-of-bounds is unambiguous drift
 #      and always a hard failure.
 #   3. If the citing text carries a nameable anchor -- a backtick-quoted
-#      identifier that is also a real `fn NAME` in the resolved file, found
-#      in the same table row (up to its 4th `|`, which is where every
-#      ledger sampled puts its test-name column, never its free-text
-#      explanation column) or on the same prose line -- the cited line must
-#      fall within that function's own brace-matched body span. A citation
-#      whose named function exists elsewhere in the file, just not around
-#      the cited line, is exactly the "content-blind window match" failure
-#      mode above, made mechanical.
+#      identifier that is also a real `fn NAME` in the resolved file,
+#      either paired directly with the citation or, for a citation in the
+#      first column of a table that heads that column `file:line`, named
+#      anywhere in the row -- the cited line must fall within that
+#      function's own brace-matched body span. A citation whose named
+#      function exists elsewhere in the file, just not around the cited
+#      line, is exactly the "content-blind window match" failure mode
+#      above, made mechanical. See `find_anchors` for which of those two
+#      shapes a name has to have before it counts as a claim at all.
 #
 # A citation with no such anchor is bounds-checked only and reported as
 # such, not silently counted as verified -- this script does not manufacture
@@ -297,6 +298,40 @@ def function_spans(path):
 
 LOCAL_WINDOW = 60
 
+TABLE_SEP_RE = re.compile(r"^\|[\s:|-]+\|\s*$")
+# The first-column headers under which a table's column-one citation is a
+# source location INSIDE the function the row discusses. That is what makes
+# rule 2 below sound, and it is a convention of the assertion-discrimination
+# ledgers only: 93 tables head that column `file:line`, two `current
+# file:line`. The claim-audit tables head it `where` -- "where in the port
+# this claim is written" -- which is the doc comment that MAKES the claim,
+# not an assertion inside the test the row names. Those two happen to
+# coincide whenever a test states its own rationale in its own doc comment,
+# and diverge as soon as the claim lives in a file header
+# (`doc/claim-audit/moveit-trajectory.md:186` cites `ruckig_smoothing.rs`'s
+# header comment while naming the test 150 lines below it).
+LEDGER_FIRST_COLUMN_HEADERS = {"file:line", "current file:line"}
+
+
+def ledger_row_lines(lines):
+    """Line numbers (1-based) of body rows of tables whose first column is a
+    `file:line` location -- see LEDGER_FIRST_COLUMN_HEADERS."""
+    out = set()
+    for i, line in enumerate(lines):
+        if not TABLE_SEP_RE.match(line) or i == 0:
+            continue
+        header = lines[i - 1]
+        if not header.lstrip().startswith("|"):
+            continue
+        first = header.split("|")[1].strip()
+        if first not in LEDGER_FIRST_COLUMN_HEADERS:
+            continue
+        j = i + 1
+        while j < len(lines) and lines[j].lstrip().startswith("|"):
+            out.add(j + 1)
+            j += 1
+    return out
+
 
 def _valid_idents(text, spans, require_test=False):
     """Every backtick-quoted token in text that is a real `fn` in the target
@@ -314,7 +349,9 @@ def _valid_idents(text, spans, require_test=False):
     return list(found)
 
 
-def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_range=False):
+def find_anchors(
+    line, match_start, match_end, spans, prev_citation_end=0, is_range=False, ledger_row=False
+):
     """Every plausible name anchor for one citation -- a SET of candidates,
     not a single best guess, because this corpus has no one column that
     reliably holds "the" function a citation belongs to.
@@ -394,11 +431,24 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
        test's own single assertion, or a bare fn declaration line);
        a range pairing is trusted regardless, since the range shape
        itself is strong enough evidence of a containment claim.
-    2. Table row, first column, with no tight pairing found: if the row
-       loosely names at least one `#[test]`-attested function in the cited
-       file, every valid identifier anywhere else in the row -- otherwise
-       nothing.
+    2. Table row, first column, with no tight pairing found, IN A TABLE
+       THAT HEADS THAT COLUMN `file:line` (`ledger_row`, see
+       LEDGER_FIRST_COLUMN_HEADERS): if the row loosely names at least one
+       `#[test]`-attested function in the cited file, every valid
+       identifier anywhere else in the row -- otherwise nothing.
 
+       Two independent gates, and both are needed. The table gate is what
+       makes the rule's premise true at all: only a `file:line` column
+       says the cited line is a location inside what the row discusses.
+       The claim-audit tables head that column `where` -- "where in the
+       port this claim is written" -- which is the doc comment that MAKES
+       the claim and need not sit inside the test the row names
+       (`doc/claim-audit/moveit-trajectory.md:186` cites
+       `ruckig_smoothing.rs`'s file header while naming the test 150 lines
+       below it). Firing rule 2 there verified fifteen claim-audit rows on
+       a premise that does not hold for them.
+
+       The row gate decides which names in a qualifying row count.
        `#[test]`-attestation gates the ROW, not each candidate. What it
        establishes is that this row is using the ledger's loose
        test-naming idiom at all; the `do_smoothing` row above names NO
@@ -455,7 +505,7 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
         return candidates, True
 
     stripped = line.lstrip()
-    if stripped.startswith("|"):
+    if ledger_row and stripped.startswith("|"):
         pipes = [i for i, ch in enumerate(line) if ch == "|"]
         if len(pipes) >= 2 and pipes[0] < match_start < pipes[1]:
             rest_of_row = line[:match_start] + line[match_end:]
@@ -503,6 +553,7 @@ def main():
     for md in md_files:
         text = (REPO_ROOT / md).read_text(encoding="utf-8", errors="replace")
         lines = text.split("\n")
+        ledger_rows = ledger_row_lines(lines)
         for line_no, line in enumerate(lines, 1):
             prev_citation_end = 0
             for m in CITATION_RE.finditer(line):
@@ -564,7 +615,13 @@ def main():
                     continue
 
                 anchors, tight = find_anchors(
-                    line, m.start(), m.end(), spans, window_floor, is_range=m.group(3) is not None
+                    line,
+                    m.start(),
+                    m.end(),
+                    spans,
+                    window_floor,
+                    is_range=m.group(3) is not None,
+                    ledger_row=line_no in ledger_rows,
                 )
                 if not anchors:
                     bounds_only += 1
