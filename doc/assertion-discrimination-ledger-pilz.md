@@ -41,20 +41,20 @@ confirming).
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `trajectory_generator.rs:837` | `check_velocity_scaling`'s one `Error::Code(InvalidMotionPlan)` site (`is_scaling_factor_valid` false) | `scaling_factor_boundary_is_exclusive_below_and_inclusive_above` | single-branch | round-report (p1-joints, structural read this round: `check_velocity_scaling`'s body has exactly one `Error::` construction) |
-| `trajectory_generator.rs:840` | same single site, upper-boundary value | same test fn | single-branch | same |
-| `trajectory_generator.rs:842` | `check_acceleration_scaling`'s one `Error::Code(InvalidMotionPlan)` site | same test fn | single-branch | same structural read, `check_acceleration_scaling` |
-| `trajectory_generator.rs:844` | same single site, upper-boundary value | same test fn | single-branch | same |
-| `trajectory_generator.rs:849` | `check_velocity_scaling`'s single site (same as `:837`), zero input | `scaling_factor_rejects_zero_and_negative` | single-branch | same |
-| `trajectory_generator.rs:850` | same single site, negative input | same test fn | single-branch | same |
-| `trajectory_generator.rs:859` | `check_for_valid_group_name`'s one `Error::Code(InvalidGroupName)` site | `valid_group_name_accepted_unknown_group_name_rejected` | single-branch | round-report (p1-joints, structural read: 1 `Error::` construction in the function body) |
-| `trajectory_generator.rs:888` | `check_start_state`'s position-limit-violation site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, position/velocity violation→`InvalidRobotState`) | `start_state_position_within_limit_accepted_beyond_limit_rejected` | discriminating | round-report (in-source doc comment on the test, verified: distinguishes the `InvalidGroupName` sibling; the position-vs-velocity collapse within `InvalidRobotState` is not a defect in its own right — it is still `discriminating` against the sibling that matters, since no caller-visible fact distinguishes position from velocity to begin with) |
-| `trajectory_generator.rs:913` | same function, velocity-tolerance-violation site (mirror of `:888`) | `start_state_velocity_at_tolerance_accepted_beyond_it_rejected` | discriminating | same reasoning, mirror case |
-| `trajectory_generator.rs:928` | same function, unknown-group site | `start_state_rejects_an_unknown_group` | discriminating | same doc comment: distinguishes both `InvalidRobotState` siblings by code |
-| `trajectory_generator.rs:950` | `check_joint_goal`'s joint-outside-group site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, joint-outside-group and joint-beyond-limit→`InvalidGoalConstraints`) | `joint_goal_rejects_a_joint_outside_the_group` | discriminating | round-report (in-source doc comment, verified): distinguishes `InvalidGroupName`; the outside-group-vs-beyond-limit collapse within `InvalidGoalConstraints` is not a defect in its own right — no caller-visible fact distinguishes the two, so there is nothing this test could be blind to beyond the `InvalidGroupName` sibling it already discriminates |
-| `trajectory_generator.rs:968` | same function, beyond-limit site (mirror of `:950`) | `joint_goal_within_limit_accepted_beyond_limit_rejected` | discriminating | same reasoning, mirror case |
-| `trajectory_generator.rs:985` | `check_cartesian_goal`'s empty-link-name site (of 2 sites, 2 distinct codes: empty link→`InvalidGoalConstraints`, no solver→`NoIkSolution`) | `cartesian_goal_rejects_an_empty_link_name` | discriminating | round-report (in-source doc comment, verified): the two codes are genuinely distinct outcomes, both individually tested |
-| `trajectory_generator.rs:1007` | same function, no-solver-for-link site (mirror of `:985`) | `cartesian_goal_rejects_a_non_tip_link` | discriminating | same reasoning, mirror case |
+| `trajectory_generator.rs:853` | `check_velocity_scaling`'s one `Error::Code(InvalidMotionPlan)` site (`is_scaling_factor_valid` false) | `scaling_factor_boundary_is_exclusive_below_and_inclusive_above` | single-branch | round-report (p1-joints, structural read this round: `check_velocity_scaling`'s body has exactly one `Error::` construction) |
+| `trajectory_generator.rs:856` | same single site, upper-boundary value | same test fn | single-branch | same |
+| `trajectory_generator.rs:858` | `check_acceleration_scaling`'s one `Error::Code(InvalidMotionPlan)` site | same test fn | single-branch | same structural read, `check_acceleration_scaling` |
+| `trajectory_generator.rs:860` | same single site, upper-boundary value | same test fn | single-branch | same |
+| `trajectory_generator.rs:865` | `check_velocity_scaling`'s single site (same as `:853`), zero input | `scaling_factor_rejects_zero_and_negative` | single-branch | same |
+| `trajectory_generator.rs:866` | same single site, negative input | same test fn | single-branch | same |
+| `trajectory_generator.rs:875` | `check_for_valid_group_name`'s one `Error::Code(InvalidGroupName)` site | `valid_group_name_accepted_unknown_group_name_rejected` | single-branch | round-report (p1-joints, structural read: 1 `Error::` construction in the function body) |
+| `trajectory_generator.rs:904` | `check_start_state`'s position-limit-violation site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, position/velocity violation→`InvalidRobotState`) | `start_state_position_within_limit_accepted_beyond_limit_rejected` | discriminating | round-report (in-source doc comment on the test, verified: distinguishes the `InvalidGroupName` sibling; the position-vs-velocity collapse within `InvalidRobotState` is not a defect in its own right — it is still `discriminating` against the sibling that matters, since no caller-visible fact distinguishes position from velocity to begin with) |
+| `trajectory_generator.rs:929` | same function, velocity-tolerance-violation site (mirror of `:904`) | `start_state_velocity_at_tolerance_accepted_beyond_it_rejected` | discriminating | same reasoning, mirror case |
+| `trajectory_generator.rs:944` | same function, unknown-group site | `start_state_rejects_an_unknown_group` | discriminating | same doc comment: distinguishes both `InvalidRobotState` siblings by code |
+| `trajectory_generator.rs:966` | `check_joint_goal`'s joint-outside-group site (of 3 sites/2 codes: group-lookup→`InvalidGroupName`, joint-outside-group and joint-beyond-limit→`InvalidGoalConstraints`) | `joint_goal_rejects_a_joint_outside_the_group` | discriminating | round-report (in-source doc comment, verified): distinguishes `InvalidGroupName`; the outside-group-vs-beyond-limit collapse within `InvalidGoalConstraints` is not a defect in its own right — no caller-visible fact distinguishes the two, so there is nothing this test could be blind to beyond the `InvalidGroupName` sibling it already discriminates |
+| `trajectory_generator.rs:984` | same function, beyond-limit site (mirror of `:966`) | `joint_goal_within_limit_accepted_beyond_limit_rejected` | discriminating | same reasoning, mirror case |
+| `trajectory_generator.rs:1001` | `check_cartesian_goal`'s empty-link-name site (of 2 sites, 2 distinct codes: empty link→`InvalidGoalConstraints`, no solver→`NoIkSolution`) | `cartesian_goal_rejects_an_empty_link_name` | discriminating | round-report (in-source doc comment, verified): the two codes are genuinely distinct outcomes, both individually tested |
+| `trajectory_generator.rs:1023` | same function, no-solver-for-link site (mirror of `:1001`) | `cartesian_goal_rejects_a_non_tip_link` | discriminating | same reasoning, mirror case |
 
 ## `trajectory_generator_ptp.rs` (2)
 
@@ -209,6 +209,24 @@ in this round's instructions).
 | `pilz_trajectory_polyline_parity.rs:413` | is_none | `response.trajectory`, from `TrajectoryGeneratorPolyline::cmd_specific_request_validation`'s waypoint-count guard — one of 3 `InvalidMotionPlan` sites reachable on this call path (that guard, and `polyline_path_constraint`'s absent- and wrong-variant returns) | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | discriminating | bite this round: relaxed the guard to `waypoints.len() < 1` — this assertion FAILED (the one-waypoint fixture then planned) together with its property-test sibling `polyline_rejects_a_request_with_fewer_than_two_waypoints`, and no other test in the crate moved (176/178). Reverted. The other two sites are additionally excluded within the test itself: it restores the dropped waypoint as its only edit and asserts `Success`, so neither the absent- nor the wrong-variant return can be this fixture's cause |
 
 ## Summary (12, then 13, now 26)
+
+### The `smoothness_level` doc block's 16-line drift
+
+Commit `1891736` added 16 lines of doc comment to `PolylinePathConstraint::
+smoothness_level`, at `trajectory_generator.rs:231` — above the test module,
+so all 14 of this file's citations moved by exactly +16 and
+`verify-orphan-enumeration.sh` went from clean to 10 orphans / 9 unresolved
+citations. Nothing about the assertions themselves changed; the gate was
+not re-run after that commit, which is the only reason the drift shipped.
+
+All 14 were re-derived the same way the previous drift was — by locating
+the assertion inside the test function each row already names, not by
+adding 16 to the old number and trusting it. The check that the shift was
+uniform is that all 14 re-derived lines land inside the named function:
+four in `scaling_factor_boundary_is_exclusive_below_and_inclusive_above`,
+two in `scaling_factor_rejects_zero_and_negative`, and one each in the
+remaining eight. A doc-only edit above a test module is the cheapest way to
+break every citation in a file, and the ledger has now taken it twice.
 
 ### The POLYLINE-oracle round's 2 additions
 
