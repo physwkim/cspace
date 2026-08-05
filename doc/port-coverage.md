@@ -49,8 +49,8 @@
 ```console
 $ ./tools/ci/measure-port-coverage.py
 corpus   245
-ported   150
-unported 95
+ported   152
+unported 93
 cited-outside-corpus 20
 ```
 
@@ -94,9 +94,15 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에
 대한 `rg` 결과이고, 비고 칸에 그 명령을 적었다.
 
-## 4. 미포팅 95건 (2026-08-05 실측)
+## 4. 미포팅 93건 (2026-08-06 실측)
 
-`decided-non-port` 45 / `gap` 40 / `ported-elsewhere` 10.
+`decided-non-port` 45 / `gap` 38 / `ported-elsewhere` 10.
+
+2026-08-05의 95건에서 두 건이 빠졌다. `robot_state/conversions.{hpp,cpp}`가
+`crates/moveit-state/src/conversions.rs`의 헤더 블록에 인용되면서 계기의
+판정이 포팅됨으로 바뀌었기 때문이다 — 행이 사라진 것이 곧 그 판정이다.
+이 표는 미포팅 집합만 담으므로, 그 두 파일에 남은 심볼별 책임은 여기가
+아니라 §5에 적는다.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -131,9 +137,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/planning_interface/src/planning_interface.cpp` | gap | none | no citation and no exclusion; the stand-in in `registry.rs` is not a port of this file |
 | `moveit_core/planning_interface/src/planning_response.cpp` | gap | `crates/moveit-planning/src/response.rs:100` | the one reference is to `moveit_py`'s same-named file, not this one |
 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | ported-elsewhere | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | `// Behaviorally derived from moveit2 @ ...: .../attached_body.hpp` -- `pub struct AttachedBody`. The instrument counts it unported because `Behaviorally derived from` is not the `Ported from` header form |
-| `moveit_core/robot_state/include/moveit/robot_state/conversions.hpp` | gap | none | `robotStateToStream`/`streamToRobotState`/`jointTrajPointToRobotState` measured absent from the same corpus; the `moveit_msgs` half is D1/D6 and lives in `ros/moveit-ros` |
 | `moveit_core/robot_state/src/attached_body.cpp` | gap | `crates/moveit-scene/src/attached_body.rs` | partially covered by the row above; residual measured absent from `crates/ ros/ tools/ doc/ PORTING-PLAN.md`: `setScale`, `setPadding`, `computeTransform`, `getGlobalSubframeTransform` |
-| `moveit_core/robot_state/src/conversions.cpp` | gap | none | same |
 | `moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_parameterization.hpp` | decided-non-port | `crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs:9-10`, `:121-160` | listed under `// Considered and deliberately not ported:` with a full `# Not ported: `TimeParameterization`` section |
 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | gap | none | `rg -n -F eigen_test_utils crates/ ros/` -> 0 hits |
 | `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | gap | `crates/moveit-error/src/lib.rs:312` | the one reference explains upstream's `toString`, it does not port it; no Rust equivalent is named |
@@ -195,3 +199,27 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | ported-elsewhere | `crates/moveit-planners-stomp/src/planner.rs` | its `.cpp` is cited as ported; `sample_goal_state`/`extract_seed_trajectory` are the round-25 ports named in `lib.rs:93-97` |
 | `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | decided-non-port | `crates/moveit-planners-stomp/src/lib.rs:119-124` | "its own includes are `visualization_msgs::msg::MarkerArray`/`Marker`, `std_msgs::msg::ColorRGBA`, `tf2_eigen/tf2_eigen.hpp` -- ROS message and `tf2` types are the function signatures themselves" |
 | `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | decided-non-port | `crates/moveit-planners-stomp/src/lib.rs:111-118` | "a ROS-hosted plugin entry point, not a computation this crate could port independently of `rclcpp`" |
+
+## 5. `robot_state/conversions.{hpp,cpp}` — 심볼별 귀속
+
+§4의 표는 **미포팅 파일**만 담는다. 이 두 파일은 2026-08-06부터 포팅됨으로
+측정되므로 표에서 빠졌고, 그래서 파일 단위 판정이 심볼 단위 사실을 가린다 —
+한 파일의 13개 함수가 세 크레이트에 흩어져 있다. 아래가 그 대응이고, 각 행의
+Rust 심볼은 실제로 존재하는 것만 적었다. 대응이 없으면 `없음`이라고 쓴다.
+
+`--check`가 읽는 것은 §4의 표뿐이다. 아래 표의 첫 칸은 상류 경로가 아니라
+함수 이름이므로 계기의 행 집합에 들어가지 않는다.
+
+| 상류 함수 (`conversions.hpp`/`.cpp`) | 책임을 지는 Rust 심볼 | 근거 |
+|---|---|---|
+| `robotStateToStream` (hpp:118, cpp:498) | `moveit_state::robot_state_to_csv` | `crates/moveit-state/src/conversions.rs:94` |
+| `robotStateToStream`, 그룹 오버로드 (hpp:130, cpp:526) | `moveit_state::robot_state_to_csv_by_groups` | `crates/moveit-state/src/conversions.rs:129` |
+| `streamToRobotState` (hpp:141, cpp:563) | `moveit_state::csv_to_robot_state` | `crates/moveit-state/src/conversions.rs:183` |
+| `jointStateToRobotState` (hpp:53, cpp:406/62) | `TryFrom<RobotStateMsg> for moveit_state::RobotState` | `ros/moveit-ros/src/state.rs:90`; `sensor_msgs/JointState` 반쪽은 `:123-133`. 맨 `JointState`만 받는 진입점은 없다 — 호출자가 `moveit_msgs::RobotState`로 감싼다 |
+| `robotStateMsgToRobotState` (hpp:73, cpp:413) | 같은 `TryFrom` | `ros/moveit-ros/src/state.rs:90`. D6대로 `From`이 아니라 `TryFrom` |
+| `robotStateMsgToRobotState`, `Transforms` 오버로드 (hpp:63, cpp:421) | 없음 | `tf` 인자는 multi-DOF 프레임 해석 전용이고(`cpp:76-140`), 그 계층 자체가 아래처럼 미포팅이다 |
+| `robotStateToRobotStateMsg` (hpp:82, cpp:429) | `TryFrom<moveit_state::RobotState> for RobotStateMsgOut` | `ros/moveit-ros/src/state.rs:138` |
+| `robotStateToJointStateMsg` (hpp:98, cpp:453) | 같은 `TryFrom`의 `joint_state:` 구성 | `ros/moveit-ros/src/state.rs:155-168` |
+| `attachedBodiesToAttachedCollisionObjectMsgs` (hpp:90, cpp:444), `attachedBodyToMsg` (cpp:201), `msgToAttachedBody` (cpp:244) | `moveit_ros::scene::apply_attached_collision_object` | `ros/moveit-ros/src/scene/attached.rs:53` |
+| `jointTrajPointToRobotState` (hpp:107, cpp:473) | `TryFrom<JointTrajectoryMsg> for moveit_trajectory::RobotTrajectory`의 점별 본문 | `ros/moveit-ros/src/trajectory.rs:94`. positions를 먼저 넣고 velocities/accelerations/effort는 비어 있지 않을 때만 — `cpp:487-493`과 같은 형태 |
+| `multiDofJointsToRobotState` (cpp:76), `robotStateToMultiDofJointState` (cpp:142) | 없음 — **gap** | `ros/moveit-ros/src/state.rs:111-121`은 비어 있지 않은 `multi_dof_joint_state`를 변환하지 않고 **거절**한다. 그 파일의 §9 주석이 만료 조건을 적어 두었다. 파일이 포팅됨으로 측정된다고 해서 이 두 함수가 포팅된 것은 아니다 |
