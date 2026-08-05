@@ -1379,3 +1379,79 @@ Gate scope: `-p moveit-model -p moveit-planning`. Doc-only round (0 source
 fixes — both mutations reverted after use), so clippy/nextest above were
 exercised by the mutation-verification runs, not as a post-fix gate; run
 anyway to confirm the reverts left no residue.
+
+## Round 19 — `matches!`-shaped sites in this fence: completeness and the "name the exception" audit
+
+`assert!(matches!(...))` cannot in general say which of several failure
+causes produced its input the way an `.is_empty()`/bare-`None` check
+sometimes can be shown to (round 18's `robot_model.rs:3427-3430` funnel is
+exactly that other family) — but a `matches!` call has its own, sharper
+failure mode: the pattern itself may only test *one* discriminant while
+several code paths could reach a value that matches it, or the pattern's
+payload may be too coarse (e.g. an ignored `_` field) to say which of two
+similarly-shaped variants actually landed. **Default verdict for any
+`matches!` site in this family is "cannot discriminate"; every
+"discriminating" row below states, specifically, what the pattern names
+that a bare `bool` comparison would not.**
+
+Completeness first, mechanically, per the user's standing instruction that
+`tools/ci/verify-orphan-enumeration.sh` is the authority: run this round,
+`OK ... 0 orphans` at commit `7572123` (740 live scanner sites, up from
+round 16's 698 — `main` has grown, no orphan gap opened by that growth).
+That means every scanner-caught site in this fence — `matches`-kind
+included — already has *some* ledger row covering it; the audit below is
+about whether that row's verdict is *sound*, not about finding gaps
+`verify-orphan-enumeration.sh` missed.
+
+Fresh enumeration, `count-coarse-assertions.py`'s own `matches`-kind
+output restricted to this fence's three paths — 8 sites, not the 5+2=7
+the census's per-crate table alone would suggest, because `decide.rs`
+contributes one the census's crate-level total folds into
+`moveit-constraints`' own row:
+
+| site | owning ledger | verdict | exception named? |
+|---|---|---|---|
+| `moveit-model/src/joint/urdf.rs:366,372,378` | p9-ros | not-this-family | n/a — census §9 clause 1, computed success-path `JointKind` tag after `.unwrap()`, not a failure-branch check at all. Read `doc/assertion-discrimination-ledger-p9-ros.md:135-137`: sound, same shape as this ledger's own `robot_model.rs:2564` below. Textually inside my fence (`moveit-model/src`) but the guard is exercised by a test file p9-ros already owns per its own fence note; not duplicated here. |
+| `moveit-constraints/tests/decide.rs:210` | p1-fixtures | (their verdict, not re-derived here) | n/a — `JointConstraint::new`'s tolerance guard lives in `moveit-constraints/src/joint.rs`, owned by p1-fixtures per `doc/folded-operand-guards.md` (already the precedent this ledger recorded at the `decide.rs:183/184` entry above); `decide.rs` is nominally mine as a test file but the guard is not, so this site is theirs to classify even though it is textually in "my" slice. |
+| `robot_model.rs:2051` | this ledger (line ~861, ~1327 above) + independently, p9-ros (`doc/assertion-discrimination-ledger-p9-ros.md:140`) | **discriminating** | **yes, named twice, independently.** This ledger: the pattern is `[Diagnostic::MimicCycle]`, which requires both slice length exactly 1 *and* the one named variant among three the same function can push (`MimicUnknownJoint`, `MimicDofMismatch`, `MimicCycle`) — a bare `bool` (`!diagnostics.is_empty()`) would not tell these apart, but this pattern's payload does. p9-ros's row states the identical reason independently ("requires both exact length 1 and the named variant"), and ran its own bite. Two independent panels landing on the same exception is stronger than either alone. |
+| `robot_model.rs:2564` | this ledger (line ~1330 above) | not-this-family | n/a — `matches!(shapes[0].shape, Shape::Mesh(_))` is a computed classification tag on an already-successful build (same exclusion as `robot_model_parity.rs:356` and the `urdf.rs` trio above), not a check that could be blind to which of several failure causes fired. |
+| `moveit-planning/src/pipeline.rs:679` | this ledger (line ~120 above) | single-branch | yes — `PipelineError::NoPlanners` is a nullary variant (no payload to lose) with exactly one construction site in the crate (`pipeline.rs:386`, confirmed by `rg` this round: still one hit); `matches!` cannot be blinder than `==` when there is nothing else the value could be and nowhere else it could come from. |
+| `moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs:336` | this ledger (line ~123 above) | single-branch | yes — same shape: `ResponseAdapterError::Failed{..}` has exactly one construction site (`rg` this round: still one hit, line 139), so the ignored `{..}` payload loses nothing there was ever more than one of. |
+
+Re-ran `rg -n 'PipelineError::NoPlanners' crates/moveit-planning/src/pipeline.rs`
+and `rg -n 'ResponseAdapterError::Failed' crates/moveit-planning/src/response_adapters/add_time_optimal_parameterization.rs`
+this round rather than trust the two existing rows' construction-site
+counts unverified — both still exactly one non-test hit each, so
+"single-branch" still holds; no drift since those rows were written.
+
+**Bare-anchor (`is_err`/`is_none`) completeness**, same fence: the census's
+own `rg` grammar gives `moveit-model` 17 (was 15 at the last per-crate
+census measurement — growth, not a gap: `main` added code, not orphans),
+`moveit-planning` 2 (unchanged), `decide.rs` 2. All of these are a subset
+of the same 740-site corpus `verify-orphan-enumeration.sh` just confirmed
+has zero orphans, and rounds 9–16 above already carry per-site verdicts
+(with bites, where a same-test sibling alone would not do) for the
+`is_err`/`is_none`/`is_empty`/`eq_none` sites in this fence — no new bare
+site appeared in this fence's 15→17 growth that isn't already one of the
+698→740 sites the reconciliation tool matched. Not re-walked line by line
+again this round: the mechanical gate is the authority the user named for
+completeness, and it is clean.
+
+### Commands run (round 19)
+
+- `git status --short` — clean before starting; `git log` confirms `HEAD`
+  already at `7572123` (fast-forwarded by the user, no merge needed this
+  round)
+- `bash tools/ci/verify-orphan-enumeration.sh` — `OK`, 0 orphans, 740 live
+  sites, matches committed `doc/assertion-discrimination-orphans.txt`
+- `python3 tools/ci/count-coarse-assertions.py crates/moveit-model crates/moveit-planning crates/moveit-constraints/tests/decide.rs | grep ':matches:'` — 8 sites, cross-checked against every row above
+- `rg -n 'PositionConstraint::new\('` on each of `decide.rs`/`utils_parity.rs`/`constraint_sampler_manager.rs`/`ik_sampler.rs` — 12/2/6/13 = 33 (see round 10's addendum above)
+- `rg -n 'PipelineError::NoPlanners'` and `rg -n 'ResponseAdapterError::Failed'` on their respective files — one non-test construction site each, confirmed still true
+- `cargo fmt --all` — clean (no source touched this round)
+- `cargo nextest run -p moveit-constraints` — 103 tests run, 103 passed, 1 skipped (pre-existing skip, unrelated)
+
+Gate scope: `-p moveit-constraints` (doc-only round touching that crate's
+test-file evidence; `moveit-model`/`moveit-planning` untouched this round,
+their round-16/18 gates stand). No source fixes this round — every site
+audited was already correctly classified; the audit's output is the
+verification itself, not a correction.
