@@ -5,7 +5,7 @@
 //
 // Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
 //   moveit_ros/planning/planning_request_adapter_plugins/src/resolve_constraint_frames.cpp
-//   moveit_core/kinematic_constraints/src/utils.cpp (resolveConstraintFrames, cpp:623-675)
+//   moveit_core/kinematic_constraints/src/utils.cpp (resolveConstraintFrames, cpp:623-676)
 
 //! `default_planning_request_adapters::ResolveConstraintFrames`.
 //!
@@ -27,7 +27,7 @@
 //! # Why this port is a structural no-op, not a shortcut
 //!
 //! Upstream's `resolveConstraintFrames(state, constraints)`
-//! (`kinematic_constraint/src/utils.cpp:623-675`) mutates a raw
+//! (`kinematic_constraints/src/utils.cpp:623-676`) mutates a raw
 //! `moveit_msgs::msg::Constraints`: for each `PositionConstraint`/
 //! `OrientationConstraint`, it looks up `c.link_name` via
 //! `state.getFrameInfo(c.link_name, robot_link, frame_found)` — a lookup

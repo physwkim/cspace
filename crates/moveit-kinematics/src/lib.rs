@@ -489,7 +489,7 @@
 //!   shape that was a gate, not a setter, in the
 //!   `setGroupStateValidityCallback` case. `CachedMultiTipIKKinematicsPlugin`
 //!   is a template (`cached_ik_kinematics_plugin.hpp:346`, bodies in
-//!   `-inl.hpp:73,196`); grepping all of `moveit2/` for the class name
+//!   `cached_ik_kinematics_plugin-inl.hpp:73,196`); grepping all of `moveit2/` for the class name
 //!   finds only that declaration and those two definitions -- no `.cpp`
 //!   anywhere instantiates it as `CachedMultiTipIKKinematicsPlugin<
 //!   SomeConcretePlugin>` (contrast `cached_ik_kinematics_plugin.cpp`,
