@@ -68,10 +68,22 @@
 //! **`planning_interface.hpp`** (this crate's only upstream C++ header —
 //! see "Round 6 symbol audit" immediately below for why the other six
 //! modules have none to audit against):
-//! `sed -n '126,203p' crates/moveit-planners-sbp/src/lib.rs | rg -c '^//! - '`
-//! is **18** — one bullet per upstream declaration, or per matched sibling
-//! overload/accessor pair audited together (e.g. `getGroupName()`/`getName()`
-//! on one line). Those 18 bullets account for all **25** public
+//!
+//! ```text
+//! awk '/^\/\/! ## `PlannerConfigurationSettings`/,0' \
+//!   crates/moveit-planners-sbp/src/lib.rs | rg -c '^//! - '
+//! ```
+//!
+//! is **18**: **17** declaration bullets — one per upstream declaration, or
+//! per matched sibling overload/accessor pair audited together (e.g.
+//! `getGroupName()`/`getName()` on one line) — plus the audit's closing
+//! `Not upstream:` bullet for [`registry::PlannerManager::name`], which no
+//! upstream declaration corresponds to. Anchored on the audit's first `##`
+//! subheading, not on a line range: the range this used to cite
+//! (`sed -n '126,203p'`) counted 18 correctly when written at `e5f0bf7` and
+//! counted **0** by the time later doc sections had pushed the audit down to
+//! `:289`, so the number it vouched for was unreproducible by its own
+//! command. Those 17 bullets account for all **25** public
 //! declarations in
 //! `/home/stevek/work/moveit2/moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp`:
 //! `PlannerConfigurationSettings`/`PlannerConfigurationMap` (2, audited as
@@ -94,9 +106,14 @@
 //! automatically.
 //!
 //! **Tests.** `cargo nextest run -p moveit-planners-sbp --no-fail-fast`:
-//! **94** tests, 94 passed (round 18: was 93 when this section was written,
-//! stale by one test the moment `4f870fe` added `plan_space_parity.rs` a few
-//! commits later the same round — re-verified rather than left wrong).
+//! **110** tests, 110 passed, `0.93s`. Re-measured here rather than carried
+//! forward: this read **94** from round 18 (`e95b1e5`, itself a correction
+//! of a stale 93), and 16 tests landed in the rounds after it —
+//! `git grep -c '#[test]' <rev> -- crates/moveit-planners-sbp/src
+//! crates/moveit-planners-sbp/tests` sums to `94` at `e95b1e5` and `110` at
+//! `7572123`, matching what `nextest` runs today. A count no later round
+//! re-runs ages in place, so the command above is the authority and the
+//! number beside it is only its last reading.
 //! There is no oracle comparison for this crate at
 //! all (see "Why properties, not an oracle" above) — every test is a
 //! property or boundary check instead. The one property common to every
@@ -111,10 +128,14 @@
 //! defined in `test_support.rs`, not six independent reimplementations of
 //! the same check.
 //!
-//! Round 14: `rg -c 'assert_relative_eq!' crates/moveit-planners-sbp/` is
-//! **0** — this crate has no site using that macro at all, so there is
-//! nothing here to bisect for a default-`max_relative`-masking regression
-//! the way other crates in this workspace round needed to.
+//! Round 14: `rg -c 'assert_relative_eq!' crates/moveit-planners-sbp/
+//! --glob '!lib.rs'` is **0** — this crate has no site using that macro at
+//! all, so there is nothing here to bisect for a default-`max_relative`-
+//! masking regression the way other crates in this workspace round needed
+//! to. The glob is the same self-match exclusion the tolerance-floor survey
+//! below already applies, for the same reason: without it the pattern
+//! matches this very sentence and the command answers `1`, refuting the
+//! claim it is quoted to support.
 //!
 //! # Round 18: Phase 7's C++ baseline, not yet a port-side verdict
 //!
@@ -217,8 +238,13 @@
 //! 250 900002` — reproducing the identical 500 problems the C++ baseline
 //! above was measured against; `1000001`/`1000002` are this file's own
 //! `seed_base` figures above, independent of the generator's seeds, per
-//! `plan_benchmark_port.rs`'s own doc comment.) Verified this round: this
-//! exact pipeline reproduces the cached round-19 output bit-for-bit.
+//! `plan_benchmark_port.rs`'s own doc comment.) Verified in round 20: this
+//! exact pipeline reproduced the cached round-19 output bit-for-bit. Phase 7
+//! then extended the generator (`PORTING-PLAN.md` §219.2), so its JSON now
+//! also carries `config`/`joint_constraint`/`robot`/`scale`: §219.3's
+//! measured diff at these same seeds is four keys *added*, none removed, and
+//! every other byte identical — the same problems, no longer the same bytes,
+//! so "bit-for-bit" holds as of round 20 and not against today's generator.
 //!
 //! **Phase 7's three completion conditions, judged against the full 500:**
 //!

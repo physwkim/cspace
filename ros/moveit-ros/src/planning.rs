@@ -249,7 +249,11 @@ impl<'m> TryFrom<PlanningResponseMsg<'m>> for PlanningResponse<'m> {
     /// [`PlanningResponse`] field (see that type's own doc comment:
     /// `error_code` is this crate's `Result` instead) -- dropped, not
     /// rejected, since none of them are trajectory content the conversion
-    /// could silently corrupt. `planning_time` stays unported by
+    /// could silently corrupt. `group_name` is asymmetric for that reason and
+    /// only in this direction: msg->core has nowhere to put it, while core->msg
+    /// derives it from the trajectory the way `planning_response.cpp:48` does
+    /// (see the opposite impl below), so a `group_name` set on the wire is lost
+    /// on the way in and re-derived on the way out rather than preserved. `planning_time` stays unported by
     /// p1-fixtures' own conclusion (`crates/moveit-planning/src/response.rs:39-68`):
     /// every upstream fill site sits inside a `PlanningContext`-equivalent's
     /// `solve()`, never the pipeline this crate ports, and no crate in this
@@ -299,11 +303,31 @@ impl<'m> TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut {
     type Error = Error;
 
     fn try_from(res: PlanningResponse<'m>) -> Result<Self, Self::Error> {
+        // `moveit_core/planning_interface/src/planning_response.cpp:48`:
+        // `msg.group_name = trajectory->getGroupName()`. This side can derive
+        // it -- [`moveit_trajectory::RobotTrajectory::group_name`] is the same
+        // accessor with the same empty-group answer as upstream's
+        // `getGroupName` (`robot_trajectory.cpp:88-94`: the group's name, or
+        // `""` when `group_` is null) -- so leaving the wire field empty was
+        // dropping a field with a source, unlike `planning_time`/`error_code`,
+        // which have no [`PlanningResponse`] field to read at all.
+        //
+        // Read before the move below, and guarded on emptiness because
+        // upstream's is: its three `trajectory_start`/`trajectory`/`group_name`
+        // writes all sit inside `if (trajectory && !trajectory->empty())`, so a
+        // group name on a message carrying no waypoints is a combination
+        // upstream never emits.
+        let group_name = if res.trajectory.is_empty() {
+            String::new()
+        } else {
+            res.trajectory.group_name().to_string()
+        };
         let trajectory = RobotTrajectoryMsgOut::try_from(res.trajectory)?.0;
         let trajectory_start = RobotStateMsgOut::try_from(res.start_state)?.0;
         Ok(PlanningResponseMsgOut(moveit_msgs::MotionPlanResponse {
             trajectory,
             trajectory_start,
+            group_name,
             error_code: moveit_msgs::MoveItErrorCodes {
                 // `r2r`-generated constant, not a literal (PORTING-PLAN.md
                 // §191.2) -- see doc/message-mapping.md §2's note on
@@ -458,6 +482,42 @@ mod tests {
         let back = PlanningRequestMsgOut::try_from(req).unwrap().0;
         assert_eq!(back.trajectory_constraints.constraints.len(), 1);
         assert_eq!(back.planner_id, "RRTConnectkConfigDefault");
+    }
+
+    /// `planning_response.cpp:44-49` writes `group_name` only inside its
+    /// `if (trajectory && !trajectory->empty())` guard, so both sides of that
+    /// guard are checked here: without the empty case a conversion that always
+    /// emitted the group name would pass, and that is a message upstream never
+    /// produces.
+    #[test]
+    fn response_group_name_comes_from_the_trajectory_and_only_when_it_has_waypoints() {
+        let model = crate::state::tests::one_joint_model_with_arm_group();
+
+        let mut traj = RobotTrajectory::for_group_name(&model, "arm").unwrap();
+        let mut state = moveit_state::RobotState::new(&model);
+        state.set_variable_position("j1", 0.4).unwrap();
+        traj.add_suffix_way_point(state, 0.0).unwrap();
+        let filled = PlanningResponseMsgOut::try_from(PlanningResponse {
+            trajectory: traj,
+            planner_id: String::new(),
+            start_state: moveit_state::RobotState::new(&model),
+        })
+        .unwrap()
+        .0;
+        assert_eq!(filled.group_name, "arm");
+
+        let empty = PlanningResponseMsgOut::try_from(PlanningResponse {
+            trajectory: RobotTrajectory::for_group_name(&model, "arm").unwrap(),
+            planner_id: String::new(),
+            start_state: moveit_state::RobotState::new(&model),
+        })
+        .unwrap()
+        .0;
+        assert_eq!(
+            empty.group_name, "",
+            "upstream's guard leaves group_name unset for an empty trajectory, \
+             even one carrying a group"
+        );
     }
 
     #[test]
