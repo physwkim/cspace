@@ -3864,6 +3864,69 @@ mod tests {
         ParryCuboid::new(ParryVector::new(0.5, 0.5, 0.5))
     }
 
+    /// Adversarial check for `doc/upstream-bugs.md`'s
+    /// `distance-callback-max-contact-depth` entry, at the one level
+    /// `penetration_depth_scale_invariance.rs` cannot reach: that reproducer
+    /// runs the whole `panda_link0`-vs-floor pipeline, so an artifact hiding
+    /// in a single triangle's own EPA result could in principle be masked by
+    /// the `min` this backend takes across many triangles
+    /// (`accumulate_distance`'s `data.distance < result.minimum_distance.distance`,
+    /// and, inside `parry3d_f64`'s own `TriMesh` narrow phase, the
+    /// per-triangle `min` this module's own doc describes at
+    /// "keeps the deepest"). This test isolates a *single* degenerate
+    /// (zero-volume) triangle, embedded in a box exactly the way the entry's
+    /// mechanism requires -- "a triangle lying entirely inside a large box
+    /// has no separating axis" -- and calls `parry3d_f64::query::contact`
+    /// directly, bypassing every reduction this crate or `parry3d_f64`'s
+    /// mesh narrow phase performs.
+    ///
+    /// If EPA on a fully-embedded degenerate triangle ever resolves to a
+    /// lateral escape (the mechanism the entry attributes to FCL/libccd),
+    /// `dist` would grow with the box's half-width here. It does not: held
+    /// fixed to nine decimal places across a 50x width sweep, this backend's
+    /// `contact.dist` reports the true (vertical) shortest exit at every
+    /// width. That does not establish FCL/libccd's own libccd/EPA behaves
+    /// differently on the same input -- this crate has no FCL binding to
+    /// query for comparison -- only that the claimed artifact is not a
+    /// property embedded-degenerate-triangle-vs-box queries have in general;
+    /// it is specific to whichever narrow-phase implementation exhibits it.
+    #[test]
+    fn parry_epa_on_a_degenerate_embedded_triangle_does_not_scale_with_box_width() {
+        let triangle = ParryTriangle::new(
+            ParryVector::new(-0.01, -0.01, 0.0),
+            ParryVector::new(0.01, -0.01, 0.0),
+            ParryVector::new(0.0, 0.01, 0.0),
+        );
+        let tri_pose = to_pose(Isometry3::identity());
+        let mut dists = Vec::new();
+        for &width in &[0.4_f64, 1.0, 4.0, 20.0] {
+            let half = width / 2.0;
+            let thickness = 0.1;
+            let cuboid = ParryCuboid::new(ParryVector::new(half, half, thickness / 2.0));
+            // Box top face at z = 0.02, so the z=0 triangle sits 0.02m below
+            // the top and 0.03m above the bottom -- embedded, nearest exit is
+            // vertical regardless of width.
+            let box_pose = to_pose(Isometry3::translation(0.0, 0.0, -0.03));
+            let result = query::contact(&tri_pose, &triangle, &box_pose, &cuboid, 100.0)
+                .expect("contact query must not error")
+                .expect("triangle must be within prediction distance of the box");
+            dists.push((width, result.dist));
+        }
+        let values: Vec<f64> = dists.iter().map(|&(_, d)| d).collect();
+        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            max - min < 1e-9,
+            "a degenerate triangle embedded in a box must report the same escape distance \
+             regardless of the box's width, but it spread by {:.6e}: {dists:?}",
+            max - min
+        );
+        assert!(
+            (values[0] - -0.02).abs() < 1e-9,
+            "expected the vertical exit -0.02, got {dists:?}"
+        );
+    }
+
     /// `approx` has no blanket `RelativeEq` for `[f64; 3]`; this compares
     /// component-wise instead of stringifying both sides into a slice.
     /// Tolerance `1e-12`: most callers hand-compute exact-literal geometry

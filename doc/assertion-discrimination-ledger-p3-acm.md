@@ -181,7 +181,7 @@ read the actual guard behind every `single-branch` citation, not just
 the row's existing comment. Result: **0 misverdicts** — every guard is
 either a bare `?`/single map lookup (`tools.rs:219`, `matrix.rs:515,517,
 737`, `world.rs:1141,1216`), a single boolean flag (`octomap_filter.rs:
-300,355`, `parry.rs:4167`), an unconditional single path
+300,355`, `parry.rs:4230`), an unconditional single path
 (`parry.rs:2718,2645,3494`), a sequential-fallthrough function with only
 one terminal `None` path and no folded clause (`world.rs:1252`), or a
 match arm that is genuinely inseparable by construction — `Never |
@@ -343,7 +343,7 @@ guard-B site above shares one bite pair, not 10 independent ones.
 | parry.rs:2718 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | read: `build()` is stubbed and no cache hit is possible (fresh key each call); bite run now forcing a value regardless of `build()` → test FAILED |
 | parry.rs:2725 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | same bite/run as 2638 (one test function, one mutation covers both assertions) |
 | parry.rs:3574 | bare | check_robot_collision_continuous_returns_an_error_rather_than_approximating | single-branch | yes | read: function body is one unconditional `Err`, no guard at all; bite run now replacing it with `Ok(..)` → test FAILED. §9 clause 2: the decision (reject rather than silently approximate) is real even though it isn't syntactically a guard — the bite proves it is exercised, same standard census §9 applies to the mimic getter |
-| parry.rs:4167 | bare | check_self_collision_cost_sources_is_none_when_not_requested | single-branch | yes | read: one boolean gate (`request.cost`) controls `Some`/`None`, no sibling; bite run now forcing `Some` unconditionally → test FAILED |
+| parry.rs:4230 | bare | check_self_collision_cost_sources_is_none_when_not_requested | single-branch | yes | read: one boolean gate (`request.cost`) controls `Some`/`None`, no sibling; bite run now forcing `Some` unconditionally → test FAILED |
 
 ### `src/world.rs` (15)
 | file:line | anchor | test fn | verdict | in-family | evidence |
@@ -641,10 +641,10 @@ catches the mutation; none needed a new test.
 | bodies.rs:4476 | is_empty | `cylinder_ray_hits_are_symmetric_with_intersects_ray` | cross-method invariant, doc-commented as deliberate (`intersects_ray == !ray_intersections(..).is_empty()` for every body kind); tests whether `Cylinder::intersects_ray`'s own fast path agrees with the full geometric computation — a real, independently-implementable decision. |
 | body_query_parity.rs:256 | is_empty | oracle ray-query loop | oracle parity: `points = body.ray_intersections(..)` is a real subject call; `!points.is_empty()` compared to the oracle's `expected.hit`. |
 | probe_parity.rs:329 | is_empty | `check_body!` macro body | same shape as body_query_parity.rs:256: `hits = body.ray_intersections(..)`, real subject call, compared to the oracle's expected hit count. |
-| parry.rs:3908 | is_empty | `cost_sources_for_part_pair_shape_shape_disjoint_is_empty` | sibling: `cost_sources_for_part_pair_shape_shape_is_the_overlap_of_both_whole_aabbs` (existing test immediately above, non-empty case), same function, opposite outcome. |
-| parry.rs:4102 | is_empty | `mesh_shape_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
-| parry.rs:4149 | is_empty | `mesh_mesh_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
-| parry.rs:4421 | is_none | `check_self_collision_distance_is_none_when_not_requested` | bite run now: deleted `attach_requested_distance`'s `if !request.distance { return; }` so the field is populated unconditionally → this assertion FAILS alone (229/230 green, `--no-fail-fast`). Its four siblings (`..._distance_reports_the_closest_separation` self and robot, `..._detailed_distance_reports_the_whole_result`, `..._distance_of_a_penetrating_pair_is_unsigned`) bite the opposite direction — an immediate `return` in the same function fails those four and leaves this one green — so the guard is on record from both sides. |
+| parry.rs:3971 | is_empty | `cost_sources_for_part_pair_shape_shape_disjoint_is_empty` | sibling: `cost_sources_for_part_pair_shape_shape_is_the_overlap_of_both_whole_aabbs` (existing test immediately above, non-empty case), same function, opposite outcome. |
+| parry.rs:4165 | is_empty | `mesh_shape_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+| parry.rs:4212 | is_empty | `mesh_mesh_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+| parry.rs:4484 | is_none | `check_self_collision_distance_is_none_when_not_requested` | bite run now: deleted `attach_requested_distance`'s `if !request.distance { return; }` so the field is populated unconditionally → this assertion FAILS alone (229/230 green, `--no-fail-fast`). Its four siblings (`..._distance_reports_the_closest_separation` self and robot, `..._detailed_distance_reports_the_whole_result`, `..._distance_of_a_penetrating_pair_is_unsigned`) bite the opposite direction — an immediate `return` in the same function fails those four and leaves this one green — so the guard is on record from both sides. |
 
 ### Not-this-family (19)
 

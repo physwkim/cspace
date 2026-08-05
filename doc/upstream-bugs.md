@@ -2130,13 +2130,25 @@ median contact.
 **Deviation:** none of `D1`..`D14` applies. The port is not routing around the
 defect by policy; it never accumulates a per-triangle contact set at this
 layer, so the selection rule that produces the artifact does not exist here.
-**Cost of not reproducing:** measured, and it is the entirety of the `distance`
-column that `PORTING-PLAN.md` §5 Phase 3 records as missed on panda, fanuc and
-pr2 (`2,897x`-`27,384x`). Reproducing it would mean adopting a quantity that is
-unbounded in the size of an unrelated object, and would take
+**Cost of not reproducing:** measured for panda, and it is the entirety of
+panda's `distance`-column miss that `PORTING-PLAN.md` §5 Phase 3 records
+(`27,384x`). Reproducing it would mean adopting a quantity that is unbounded
+in the size of an unrelated object, and would take
 `crates/moveit-collision/tests/penetration_depth_scale_invariance.rs` —
 `depth_is_invariant_to_floor_width` and
 `depth_never_exceeds_the_links_own_diameter` — with it. Widening the clause's
 `1e-4` tolerance was never available either: at `L = 20` the divergence is
 `9.95 m`, and it grows with `L` without limit, so no fixed tolerance both
 admits it and detects anything.
+
+fanuc's own `distance`-column miss (`2,897x`) is NOT this defect: `PORTING-PLAN.md`
+§218.4 traces fanuc's worst case (`collision[9651]`) to a *different* pair
+winning on each side (oracle `base_link/floor` at essentially zero, this port
+`link_4/floor` at `-2.897e-1`) — a pair-flip between near-tied candidates, and
+§218.4 states this explicitly ("이탈 6이 아니다", not this deviation). All
+2,302 of fanuc's robot-side failures are same-pair-value-agreement (0 of them
+diverge on a shared pair the way panda's 6,364 do); fanuc's `distance` miss
+has no diagnosed cause in this index yet. pr2's mesh-vs-box worst value
+(`3.218e-1`, `PORTING-PLAN.md` §21.4) has never had the same same-pair-vs-
+pair-flip check run against it, so it is unverified, not confirmed, as an
+instance of this entry.
