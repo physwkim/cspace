@@ -52,7 +52,8 @@ use moveit_constraints::utils::{
     update_position_constraint,
 };
 use moveit_constraints::{
-    Constraint, JointConstraint, KinematicConstraintSet, OrientationTolerance, PositionConstraint,
+    Constraint, JointConstraint, KinematicConstraintSet, OrientationConstraint,
+    OrientationTolerance, PositionConstraint,
 };
 
 const TOLERANCE: f64 = 1e-6;
@@ -579,6 +580,50 @@ mod update_orientation_constraint_boundary {
         assert!(!updated);
         assert!(set.is_empty());
     }
+
+    /// `not_found_returns_false` above uses an empty `set`, so its loop over
+    /// `constraints_mut()` never runs at all -- it cannot tell "link name
+    /// compared and didn't match" from "no comparison happened." This test
+    /// puts one non-matching orientation constraint in `set` so the loop
+    /// body actually executes, and checks the constraint survives untouched.
+    #[test]
+    fn mismatched_link_name_leaves_constraint_untouched() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let oc = OrientationConstraint::new(
+            &model,
+            &transforms,
+            "panda_link7",
+            "world",
+            UnitQuaternion::identity(),
+            OrientationTolerance::XyzEuler {
+                x: 0.1,
+                y: 0.1,
+                z: 0.1,
+            },
+            1.0,
+        )
+        .unwrap();
+        let mut set = KinematicConstraintSet::new();
+        set.push(Constraint::Orientation(oc));
+
+        let updated = update_orientation_constraint(
+            &mut set,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            UnitQuaternion::identity(),
+        )
+        .unwrap();
+
+        assert!(!updated);
+        assert_eq!(set.len(), 1);
+        let Constraint::Orientation(oc) = &set.constraints()[0] else {
+            panic!("expected orientation constraint");
+        };
+        assert_eq!(oc.link_name(), "panda_link7");
+    }
 }
 
 mod update_position_constraint_boundary {
@@ -600,6 +645,49 @@ mod update_position_constraint_boundary {
         .unwrap();
         assert!(!updated);
         assert!(set.is_empty());
+    }
+
+    /// `not_found_returns_false` above uses an empty `set`, so its loop over
+    /// `constraints_mut()` never runs at all -- it cannot tell "link name
+    /// compared and didn't match" from "no comparison happened." This test
+    /// puts one non-matching position constraint in `set` so the loop body
+    /// actually executes, and checks the constraint survives untouched.
+    #[test]
+    fn mismatched_link_name_leaves_constraint_untouched() {
+        let model = panda_model();
+        let transforms = tf(&model);
+        let pc = PositionConstraint::new(
+            &model,
+            &transforms,
+            "panda_link7",
+            "world",
+            Vector3::zeros(),
+            &[(
+                Shape::Sphere(Sphere::new(0.05).unwrap()),
+                Isometry3::identity(),
+            )],
+            1.0,
+        )
+        .unwrap();
+        let mut set = KinematicConstraintSet::new();
+        set.push(Constraint::Position(pc));
+
+        let updated = update_position_constraint(
+            &mut set,
+            &model,
+            &transforms,
+            "panda_link8",
+            "world",
+            Vector3::zeros(),
+        )
+        .unwrap();
+
+        assert!(!updated);
+        assert_eq!(set.len(), 1);
+        let Constraint::Position(pc) = &set.constraints()[0] else {
+            panic!("expected position constraint");
+        };
+        assert_eq!(pc.link_name(), "panda_link7");
     }
 
     /// A constraint with more than one region has no single
