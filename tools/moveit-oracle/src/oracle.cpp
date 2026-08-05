@@ -110,13 +110,21 @@
 #include <moveit/robot_model/floating_joint_model.hpp>
 #include <moveit/robot_model/planar_joint_model.hpp>
 
-// The `pilz_trajectory` op's three generators. Unlike every other planner in
+// The `pilz_trajectory` op's four generators. Unlike every other planner in
 // this file these are reached by direct construction, not through pluginlib:
-// `TrajectoryGeneratorPTP`/`LIN`/`CIRC` all export their
+// `TrajectoryGeneratorPTP`/`LIN`/`CIRC`/`Polyline` all export their
 // `(RobotModelConstPtr, LimitsContainer, group_name)` constructor and inherit
-// the one public entry point `TrajectoryGenerator::generate`, all four `T` in
+// the one public entry point `TrajectoryGenerator::generate`, all in
 // the installed shared objects (verified by `nm -DC`, PORTING-PLAN.md §130).
 // So this costs a widened MOVEIT2_PACKAGES but no rclcpp::Node.
+//
+// `Polyline` is the exception on two counts. Upstream puts
+// `trajectory_generator_polyline.cpp` in its own
+// `planning_context_loader_polyline` target, which CMakeLists.txt therefore
+// links separately; and its header cannot be included here at all, because it
+// redeclares three of `trajectory_generator_lin.hpp`'s exception classes. It
+// is reached through `pilz_polyline_factory.hpp` instead -- that file's own
+// header explains the redefinition.
 #include <moveit/kinematic_constraints/utils.hpp>
 #include <moveit/kinematics_base/kinematics_base.hpp>
 #include <moveit/robot_state/conversions.hpp>
@@ -133,6 +141,8 @@
 #include <pilz_industrial_motion_planner/trajectory_generator_circ.hpp>
 #include <pilz_industrial_motion_planner/trajectory_generator_lin.hpp>
 #include <pilz_industrial_motion_planner/trajectory_generator_ptp.hpp>
+
+#include "pilz_polyline_factory.hpp"
 
 // The `pilz_blend` op. Same story as the three generators above: `blend` is
 // the one public entry point and `TrajectoryBlenderTransitionWindow` exports
@@ -5622,10 +5632,48 @@ private:
       req.path_constraints = constraint;
     }
 
+    // POLYLINE reads the same `path_constraints` field, but as a *list* of
+    // via poses rather than CIRC's single interim/centre point -- one
+    // `position_constraints` entry per waypoint, each carrying a full pose
+    // (`TrajectoryGeneratorPolyline::extractMotionPlanInfo` composes
+    // `primitive_poses[0]`'s position and orientation with
+    // `target_point_offset`). `smoothness_level` is a top-level
+    // `MotionPlanRequest` field upstream, not part of the constraint.
+    //
+    // `header.frame_id` is left empty on both the waypoints and the goal, so
+    // upstream falls back to the model frame and its
+    // `scene->getFrameTransform(frame_id)` left-multiplication is the
+    // identity -- which is what makes these waypoints directly comparable to
+    // the port's already-frame-resolved ones.
+    if (request.contains("path_waypoints"))
+    {
+      moveit_msgs::msg::Constraints constraint;
+      for (const json& waypoint : request.at("path_waypoints"))
+      {
+        moveit_msgs::msg::PositionConstraint position_constraint;
+        const auto point = waypoint.at("position").get<std::array<double, 3>>();
+        const auto quat = waypoint.at("orientation").get<std::array<double, 4>>();
+        geometry_msgs::msg::Pose primitive_pose;
+        primitive_pose.position.x = point[0];
+        primitive_pose.position.y = point[1];
+        primitive_pose.position.z = point[2];
+        primitive_pose.orientation.x = quat[0];
+        primitive_pose.orientation.y = quat[1];
+        primitive_pose.orientation.z = quat[2];
+        primitive_pose.orientation.w = quat[3];
+        position_constraint.constraint_region.primitive_poses.push_back(primitive_pose);
+        constraint.position_constraints.push_back(position_constraint);
+      }
+      req.path_constraints = constraint;
+    }
+    if (request.contains("smoothness_level"))
+      req.smoothness_level = request.at("smoothness_level").get<double>();
+
     // PTP is excluded because it never consults a solver, not because
     // attaching one would leak: `ensurePilzModel` gives this op a private
     // model, so nothing outside it can observe the attachment.
-    if ((generator == "lin" || generator == "circ") && !ensureKinematicsSolver(group_name))
+    if ((generator == "lin" || generator == "circ" || generator == "polyline") &&
+        !ensureKinematicsSolver(group_name))
       throw std::runtime_error("no kinematics solver could be attached to group " + group_name +
                                ", which " + generator + " needs for its Cartesian goal");
 
@@ -5636,6 +5684,8 @@ private:
       trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorLIN>(pilz_model, limits, group_name);
     else if (generator == "circ")
       trajectory_generator = std::make_unique<pilz::TrajectoryGeneratorCIRC>(pilz_model, limits, group_name);
+    else if (generator == "polyline")
+      trajectory_generator = moveit_oracle::makePilzPolylineGenerator(pilz_model, limits, group_name);
     else
       throw std::runtime_error("unsupported generator: " + generator);
 

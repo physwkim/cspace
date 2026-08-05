@@ -42,6 +42,7 @@ find_package(chomp_motion_planner REQUIRED)
 
 add_executable(moveit_oracle
   src/oracle.cpp
+  src/pilz_polyline_factory.cpp
   src/third_party/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.cpp
 )
 
@@ -77,8 +78,10 @@ target_link_libraries(moveit_oracle
     rclcpp::rclcpp
     pluginlib::pluginlib
     ${OMPL_LIBRARIES}
-    # `planning_context_loader_{ptp,lin,circ}` carry the three generator
-    # constructors (each ships its own `trajectory_generator_*.cpp`);
+    # `planning_context_loader_{ptp,lin,circ,polyline}` carry the four
+    # generator constructors (each ships its own `trajectory_generator_*.cpp`;
+    # POLYLINE's target also ships `path_polyline_generator.cpp`, which its
+    # `plan` calls);
     # `trajectory_generation_common` carries the inherited
     # `TrajectoryGenerator::generate`; `joint_limits_common` carries
     # `LimitsContainer`/`JointLimitsContainer`;
@@ -89,6 +92,7 @@ target_link_libraries(moveit_oracle
     pilz_industrial_motion_planner::planning_context_loader_ptp
     pilz_industrial_motion_planner::planning_context_loader_lin
     pilz_industrial_motion_planner::planning_context_loader_circ
+    pilz_industrial_motion_planner::planning_context_loader_polyline
     pilz_industrial_motion_planner::trajectory_generation_common
     pilz_industrial_motion_planner::joint_limits_common
     pilz_industrial_motion_planner::cartesian_limits_parameters
