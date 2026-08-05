@@ -13,8 +13,8 @@
 //! separate bullets here, matching `moveit-scene`'s precedent of not
 //! itemizing private/protected data members individually (both
 //! [`Rollout`]'s 10 fields and [`StompConfiguration`]'s 10 fields are
-//! confirmed 1:1 against `utils.h:38-58`/`:88-106` below, just not bulleted
-//! one-by-one). `utils.cpp` adds nothing beyond `utils.h`'s own
+//! confirmed 1:1 against `include/stomp/utils.h:38-58`/`:88-106` below, just
+//! not bulleted one-by-one). `utils.cpp` adds nothing beyond `utils.h`'s own
 //! declarations — confirmed by
 //! `rg -n '^(static |bool |void |double |std::string )' src/utils.cpp`
 //! matching only the 7 already-declared functions' definitions, no
