@@ -123,12 +123,59 @@ this is `0.0 / 0.0` = NaN, which escapes into the constructed path.
 returning an error is the obvious candidate, and no pilz parity test is
 known to depend on the NaN — that needs checking, not assuming.
 
+### 6. Timing-loop division has no zero-relative-velocity guard, so `time_`/`getDuration` can be NaN or +inf — reproduced-pending-decision
+
+**Upstream:** `trajectory_processing/src/time_optimal_trajectory_generation.cpp:405`:
+`it->time_ = previous->time_ + (it->path_pos_ - previous->path_pos_) / ((it->path_vel_ + previous->path_vel_) / 2.0);`
+— no guard against the denominator being `0.0`.
+**Port:** `crates/moveit-trajectory/src/trajectory.rs:182`, the direct
+transcription of the same division in `Trajectory::create`'s timing pass.
+**Symptom:** when `path_vel + previous.path_vel == 0.0` (a `max_velocity`
+component of `0.0` on an axis the path still moves along, or a
+zero-length segment), the division is `0.0/0.0` (NaN) or `x/0.0` (`+inf`)
+depending on whether the position-delta numerator itself rounds to
+exactly `0.0` at the path's absolute scale — both are reachable and the
+NaN escapes into `Trajectory::create`'s `Ok` return via `getDuration`.
+**Evidence:** read of upstream control flow (no guard at `:405`) plus two
+already-passing tests in this port that deliberately construct and
+document both outcomes:
+`trajectory.rs::a_zero_length_path_produces_a_nan_duration_trajectory`
+(NaN, zero-length path) and
+`trajectory.rs::a_max_velocity_component_of_zero_crawls_rather_than_invalidating`
+(NaN or `+inf` depending on path scale, nonzero-length path). Reachable
+through the public `compute_time_stamps_with_limits` API too, not just
+direct `Trajectory::create`/`Path::create` calls — confirmed this round
+by `time_optimal_trajectory_generation.rs::resample_dt_over_a_nan_duration_is_rejected`
+(a custom `0.0` velocity limit on a moving joint, panda_arm, 1e-5-scale
+path). Not oracle-confirmed; no `totg_parity` case is known to exercise
+either branch.
+**Cost of not reproducing:** unmeasured precisely, but bounded: this
+port's own `do_time_parameterization_calculations` already added a
+downstream safety net (`!raw_sample_count.is_finite() ||
+raw_sample_count > MAX_RESAMPLE_SAMPLE_COUNT`, itself not present
+upstream — see this module's "Deviations from upstream" note) that
+catches the NaN/`+inf` one call later and returns `Err` either way, so no
+currently-passing test asserts success past this point for either
+scenario. Fixing `:405` at the source would move where the `Err` fires
+(inside `Trajectory::create` instead of
+`do_time_parameterization_calculations`) and require rewriting
+`trajectory.rs`'s two tests above (they currently assert the NaN/`+inf`
+`Ok` outcome directly) plus re-deriving whether
+`resample_dt_over_a_nan_duration_is_rejected`'s message changes. No
+`totg_parity` oracle comparison is known to depend on the NaN/`+inf`
+value itself (only on `getVelocity`'s step-function behavior, entry 4) —
+that needs checking, not assuming, before deviating.
+
 ---
 
 ## Open question
 
-Entries 1, 3 and 5 are `reproduced-pending-decision`: they were ported
+Entries 1, 3, 5 and 6 are `reproduced-pending-decision`: they were ported
 faithfully under the old brief and have not been revisited. Fixing them is
 a behaviour change against an oracle-verified port, so each needs its
 cost-of-not-reproducing line filled in with a measurement rather than the
-"unmeasured" placeholders above before anything is changed.
+"unmeasured" placeholders above before anything is changed. Entry 6's
+line is partially measured (reachability through the public API is
+confirmed, by a live test, not just by reading) but still lacks the one
+number that would decide it: whether any `totg_parity` oracle case
+depends on the current NaN/`+inf` value.
