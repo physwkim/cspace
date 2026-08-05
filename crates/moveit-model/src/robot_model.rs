@@ -3365,6 +3365,29 @@ mod tests {
     /// `joint_roots_`'s descendants (`:256-260`), its `updated_link_names`
     /// is empty too — not a degenerate accident of a particular fixture,
     /// but what upstream's own algorithm produces for this shape.
+    ///
+    /// The four `is_empty()` checks on `rigid` cannot, by themselves, tell
+    /// "ran and correctly produced nothing" from "never ran" — every one of
+    /// `active_joint_indices`/`joint_roots`/`updated_link_names`/
+    /// `updated_link_with_geometry_names` is `Vec::new()` at
+    /// `make_joint_model_group` construction (`:1513,1527,1529,1531`) and
+    /// stays that value under the real computation too, since `rigid` has no
+    /// active joint for `group_joint_roots`/`group_updated_links` to act on.
+    /// Confirmed a real funnel: adding `&& !true` to
+    /// `compute_variable_layout`-sibling `make_joint_model_group`'s
+    /// `if node.model.mimic().is_none()` guard (so no joint anywhere is ever
+    /// classed active) left this test green while
+    /// `joint_roots_lists_every_root_of_a_multi_rooted_group`,
+    /// `updated_link_names_filters_to_geometry_bearing_links`,
+    /// `is_chain_true_across_an_unlisted_fixed_joint` and all four
+    /// `robot_model_parity` oracle tests failed (`cargo nextest run -p
+    /// moveit-model --no-fail-fast`, reverted). The `arm` group below closes
+    /// that gap: `compute_group_topology`'s per-group closure
+    /// (`:672-689,690-713`) has no group-name conditional in it or in
+    /// `group_joint_roots`/`group_updated_links` (their only filters are
+    /// per-joint/per-link, not per-group), so `arm`'s asserted non-empty
+    /// `joint_roots`/`updated_link_names` prove that same closure executed
+    /// — uniformly, in the same `build()` call — for `rigid` too.
     #[test]
     fn group_of_only_fixed_joints_has_no_joint_roots_or_updated_links() {
         let urdf = r#"<robot name="test">
@@ -3373,11 +3396,19 @@ mod tests {
             <link name="tip">
                 <collision><geometry><box size="1 1 1"/></geometry></collision>
             </link>
+            <link name="arm_tip">
+                <collision><geometry><box size="1 1 1"/></geometry></collision>
+            </link>
             <joint name="j1" type="fixed">
                 <parent link="base"/><child link="mid"/>
             </joint>
             <joint name="j2" type="fixed">
                 <parent link="mid"/><child link="tip"/>
+            </joint>
+            <joint name="j3" type="revolute">
+                <parent link="tip"/><child link="arm_tip"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="-1" upper="1" effort="1" velocity="1"/>
             </joint>
         </robot>"#;
         let srdf = r#"<robot name="test">
@@ -3385,6 +3416,9 @@ mod tests {
             <group name="rigid">
                 <joint name="j1"/>
                 <joint name="j2"/>
+            </group>
+            <group name="arm">
+                <joint name="j3"/>
             </group>
         </robot>"#;
         let model = build(urdf, srdf).expect("builds");
@@ -3394,5 +3428,10 @@ mod tests {
         assert!(group.joint_roots().is_empty());
         assert!(group.updated_link_names().is_empty());
         assert!(group.updated_link_with_geometry_names().is_empty());
+
+        let arm = model.joint_model_group("arm").unwrap();
+        let j3 = arm.joint_indices()[0];
+        assert_eq!(arm.joint_roots(), [j3]);
+        assert_eq!(arm.updated_link_names(), ["arm_tip"]);
     }
 }

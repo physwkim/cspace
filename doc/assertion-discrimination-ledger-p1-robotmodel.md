@@ -840,7 +840,7 @@ silently dropping it.
 | `robot_model.rs:3003` (unknown-group `group_state`, ignored) | yes | discriminating, **bitten round 16** | real group-name-lookup guard, distinct decision from `:3038`'s; round 16 replaced the original reading-only cross-test-sibling evidence with an isolating mutation on `build_group_states` (`:1559` vs `:1588`) — line corrected round 17, was `:2986` |
 | `robot_model.rs:3038` (every joint value unusable, no state stored) | yes | discriminating, **bitten round 16** | real per-value dimension-mismatch guard (not vacuous — one `<group_state>` element present); round 16 isolating mutation, see above — line corrected round 17, was `:3021` |
 | `robot_model.rs:3048` (`variable_default_positions_returns_none_for_unknown_state_name`, empty srdf) | **no** | not-this-family | vacuous — `group_state_test_srdf("")` has zero `<group_state>` elements, nothing for the collection loop to iterate — line corrected round 17, was `:3031` |
-| `robot_model.rs:3393-3396` (fixed-joints-only group: `active_joint_indices`/`joint_roots`/`updated_link_names`/`updated_link_with_geometry_names`, all empty) | yes | single-branch | doc comment gives the causal chain explicitly; each is a real per-joint/per-root decision (not vacuous — 2 fixed joints present), but only this one fixture shape is exercised in this fence, no direct `.is_empty()`-shaped sibling asserting non-empty for the same getters — line corrected round 17, was `:3376-3379`; body confirmed byte-identical by direct read round 16 |
+| `robot_model.rs:3427,3428,3429,3430` (fixed-joints-only group: `active_joint_indices`/`joint_roots`/`updated_link_names`/`updated_link_with_geometry_names`, all empty) | yes | **funnel, closed round 18** | round 18 isolating mutation proved this row's own "single-branch, not vacuous" call wrong — a neutralized producer left this exact test green; closed by adding a same-test `"arm"` sibling group with a real active joint whose non-empty `joint_roots`/`updated_link_names` prove `compute_group_topology`'s per-group closure ran — see the round-18 table above for the full mutation/closure evidence — line corrected round 17 (was `:3376-3379`) then round 18 (was `:3393-3396`, shifted by this round's fixture edit) |
 
 **`crates/moveit-model/tests/robot_model_parity.rs` (4)**
 
@@ -1123,21 +1123,37 @@ moveit-model visual_mesh --no-fail-fast`. Reverted; `git diff` on
 | `robot_model_parity.rs:518` | set membership by link *name*, not a bare `Err`/`None` |
 | `check_start_state_collision.rs:161,162` | distinct message substrings (`"contact(s) detected"`, `"engulfing_box"`) |
 
-### Excluded: `Vec::is_empty()` class, structurally immune
+### Excluded: `Vec::is_empty()` class, `:2411,:2518` cleared round-16-precedent, remaining 9 audited round 18
 
-`robot_model.rs:1972,2260,2369,2411,2518,2561,2781,3376,3377,3378,3379` (11
-sites; current line numbers, corrected round 17 — old `:2764` is now
-`:2781`). `:2392,3048` already `not-this-family`; `:2903` (old `:2886`)
+`robot_model.rs:1972,2260,2369,2411,2518,2561,2781,3427,3428,3429,3430` (11
+sites total, current line numbers — the last four were `:3393-3396` before
+this round's fixture edit, see the `:3427...` row below). `:2392,3048`
+already `not-this-family`; `:2903` (old `:2886`)
 also reclassified `not-this-family` round 16 — its old cross-test-sibling
 evidence compared a different test's fixture, not this one's own causal
-chain, see the round 13 table above. An `is_empty() == true` assertion
-cannot be produced by the wrong cause the way a bare `None`/`Err` can: *any*
-push, from *any* cause, flips the result to non-empty and would fail the
-assertion regardless of which cause fired. There is no fallthrough chain
-analogous to `resolve()`'s `?` operators — the observable (empty vs
-non-empty) does not collapse distinguishable causes into one value, it
-merely fails to name *which* absence occurred, which is a coverage
-question, not this defect.
+chain, see the round 13 table above.
+
+The blanket argument that used to cover all 11 ("*any* push, from *any*
+cause, flips the result to non-empty") is **retired as of round 18** — it
+answers a different question (could a wrong result be produced) than the
+one that matters here (did the subject run at all, or was it skipped
+early). `:2411`/`:2518` (the mesh-skip tests) were already cleared on the
+sharper standard: each carries its own sibling `detail`-string assertion
+in the same test that independently names which failure branch fired,
+making the `is_empty()` a secondary confirmation, not the sole evidence.
+The other 9, re-derived fresh from `count-coarse-assertions.py` (not
+trusted from this ledger's own prior numbers, per round-18 correction) and
+audited one by one below — no site is closed by "any push" alone; each
+verdict is site-specific.
+
+| site | subject | class | reason |
+|---|---|---|---|
+| `robot_model.rs:1972` (`mimic_chain_collapses_transitively`) | `resolve_mimic`'s diagnostic-producing loop | (a) | sibling `assert_eq!(mimic.joint_name, "j1")` (`:1976`), `mimic.factor, 6.0` (`:1977`), `mimic.offset, 1.6` (`:1978`) in the same test. j3's collapsed factor/offset (6.0 = 3.0×2.0, 1.6 = 0.1+3.0×0.5) match no raw URDF literal (j2 mimic: 2.0/0.5; j3 mimic: 3.0/0.1) — they are producible only by `resolve_mimic`'s second (chain-collapse) loop actually running its arithmetic on j3's still-live mimic record, which itself requires the first (diagnostic) loop to have reached and passed j2/j3 without clearing either mimic. "The diagnostic checks never ran" cannot explain these exact values. |
+| `robot_model.rs:2369` (`box_collision_at_identity_produces_a_shape_and_a_centered_bounding_box`) | link-geometry shape parsing | (a) | sibling `assert_eq!(base.shapes(), [LinkShape { shape: Shape::Cuboid(Cuboid::new(2.0, 4.0, 6.0)...` (`:2372-2378`) in the same test. The asserted cuboid dims (2.0, 4.0, 6.0) are the literal `<box size="2 4 6"/>` values from the fixture — reachable only if shape-construction actually parsed this element, ruling out "geometry parsing never ran" as an explanation for empty diagnostics. |
+| `robot_model.rs:2561` (`mesh_collision_resolving_to_a_valid_stl_file_builds_a_mesh_shape`) | mesh-file parsing | (a) | sibling `assert_eq!(shapes.len(), 1)` (`:2563`) and `assert!(matches!(shapes[0].shape, Shape::Mesh(_)))` (`:2564`) in the same test, against an STL actually written to disk by the test (`synthetic_binary_stl()`). A `Shape::Mesh` only exists if the binary STL was read and parsed; "mesh parsing never ran" would leave `shapes` empty, not len 1 with a mesh variant. |
+| `robot_model.rs:2260` (`subgroup_detection_lists_every_strict_subset_alphabetically`) | `compute_subgroups` (`:1684-1716`) | (a) | sibling `assert_eq!(all.subgroup_names(), ["only_j1", "only_j2"])` (`:2259`) in the same test, same function, same `build()` call. Read `compute_subgroups`: the outer `for name in &names` loop is unconditional — every group unconditionally gets a `subgroup_names_by_group.insert(name.clone(), subgroup_names)` (`:1708`), no group-name-gated skip exists. The `:2259` sibling proves this loop executed for this model; since it is un-gated per-group, it executed identically for `"only_j1"`. `"only_j1"`'s empty result is then just subset math: neither `"all"` (superset) nor `"only_j2"` (disjoint {j2}) is a subset of {j1}. |
+| `robot_model.rs:2781` (`end_effector_wires_name_and_falls_back_to_fewest_joints_parent`) | `build_end_effectors`'s inner `for other_name in &group_names` loop (`:1745-1807`) | (a) | sibling `assert_eq!(arm.attached_end_effector_names(), ["grasper"])` (`:2767-2773`) and `assert_eq!(full_arm.attached_end_effector_names(), ["grasper"])` (`:2774-2780`) in the same test. Both pushes happen inside the single un-broken `for other_name in &group_names` loop run for eef `"grasper"` (matched once, at `group_name == "hand"`); that loop has no `break` and visits every `other_name` including `"other"`. The sibling pushes prove this exact loop-instance ran to completion; `"other"`'s empty result follows because its only joint (`j5`) doesn't contain `link2` (`end_effector_test_srdf`, `:2743`), not because the loop skipped it. |
+| `robot_model.rs:3427,3428,3429,3430` (was `:3393-3396` before this round's fixture edit; `group_of_only_fixed_joints_has_no_joint_roots_or_updated_links`) | `make_joint_model_group`'s active/fixed split (`:1486-1501`) feeding `compute_group_topology`/`group_joint_roots`/`group_updated_links` (`:672-746`) | (c) | **genuine funnel, closed this round.** All four fields are `Vec::new()` at construction (`:1513,1527,1529,1531`) and stay that value under real computation too, since `"rigid"` has no active joint — no same-test sibling on `"rigid"` itself can ever discriminate "ran, correctly empty" from "never ran". Proved by isolating mutation: added `&& !true` to `make_joint_model_group`'s `if node.model.mimic().is_none()` guard (so no joint anywhere is ever classed active) — `group_of_only_fixed_joints_has_no_joint_roots_or_updated_links` **stayed green** while `joint_roots_lists_every_root_of_a_multi_rooted_group`, `updated_link_names_filters_to_geometry_bearing_links`, `is_chain_true_across_an_unlisted_fixed_joint`, and all four `robot_model_parity` oracle tests failed (`cargo nextest run -p moveit-model --no-fail-fast`; reverted). Closed by adding a second SRDF group `"arm"` (one active joint, `j3`) to the same fixture and asserting `arm.joint_roots() == [j3]` / `arm.updated_link_names() == ["arm_tip"]` in the same test. `compute_group_topology`'s per-group closure (`:672-689`) and its write-back loop (`:690-713`) have no group-name conditional — confirmed by reading both — nor do `group_joint_roots`/`group_updated_links` (their only filters are per-joint/per-link). `"arm"`'s non-empty result is therefore proof the same, uniformly-applied closure executed for `"rigid"` too in the same `build()` call. Re-ran the identical mutation against the fixed test: it now **fails** at the new `arm.joint_roots()` assertion (`cargo nextest run -p moveit-model --no-fail-fast`; reverted, `git diff --stat` clean, gate `-p moveit-model` green after). |
 
 **Correction, round 17**: that reasoning has a hole, found while biting
 `:3003`/`:3038` (old `:2986`/`:3021`) this round — both were originally
@@ -1248,7 +1264,7 @@ any of them as a pure rename rather than a real gap.
 | `robot_model.rs:2781` | `:2764` | discriminating | line only — Round 13's cross-test sibling reasoning (`:2755,2762` non-empty) unchanged |
 | `robot_model.rs:2902` | `:2885` | single-branch, excluded | line only — Round 15's field-default reasoning (`set_end_effector_parent` never called in this fixture) unchanged |
 | `robot_model.rs:3048` | `:3031` | not-this-family | line only — Round 13's vacuous reasoning (`group_state_test_srdf("")`, zero elements) unchanged |
-| `robot_model.rs:3393,3394,3395,3396` | `:3376,3377,3378,3379` | single-branch | line only — confirmed byte-identical body by direct read this round |
+| `robot_model.rs:3427,3428,3429,3430` | `:3376,3377,3378,3379` | **funnel, closed round 18** (was single-branch) | round 16: line only, confirmed byte-identical body by direct read. Round 17: line renumbered to `:3393-3396` (missed in this table, caught round 18's CORRECTION 2). Round 18: renumbered again to `:3427-3430` by this round's own fixture edit, and the "single-branch" verdict itself overturned — see the round-18 table above for the isolating-mutation evidence and the new-test closure. |
 | `check_start_state_bounds.rs:358` | `:302` | discriminating | line only — Round 13/15's isolating mutation (position guard) unchanged |
 | `check_start_state_bounds.rs:384` | `:328` | discriminating | line only — Round 13/15's isolating mutation (velocity guard) unchanged |
 | `check_start_state_bounds.rs:433` | `:377` | not-this-family | line only — Round 13's range-check reasoning unchanged |
