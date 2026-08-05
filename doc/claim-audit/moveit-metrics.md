@@ -6,13 +6,14 @@ every citation in `crates/moveit-metrics/src/*.rs`. Same round/method as
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| `crates/moveit-metrics/src/lib.rs` (citation `kinematics_metrics.cpp:56-103`) | (not itemized individually by subagent — reported as part of the "fine" bucket for the response.rs/adapters/metrics/attached_body.rs batch) | CONFIRMED | subagent-reported only, not independently re-opened by me | |
+| `crates/moveit-metrics/src/lib.rs:119-175` (`getJointLimitsPenalty` semantics, citation `kinematics_metrics.cpp:56-103`) | every clause of the doc comment: `f64::MIN_POSITIVE`-zero-multiplier early return; continuous-revolute skip; planar unbounded-`x`/`y`-or-`theta`-at-`±PI` skip (port's `f64::INFINITY` sentinel vs. upstream's literal `DBL_MAX`, explicitly *not* the same value); floating-joint skip with upstream's comment quoted verbatim; no explicit `Fixed` arm on either side (fallthrough only); final product term `lower*upper/range²`; final penalty `1.0-exp(-mult*product)` | CONFIRMED | Opened `kinematics_metrics.cpp:56-103` directly (`rg -n` confirms the function's real span is exactly `56` (`double KinematicsMetrics::getJointLimitsPenalty(...`) to `103` (closing brace) — citation is byte-exact, not drifted). Checked clause by clause: `:59-60` `fabs(penalty_multiplier_) <= std::numeric_limits<double>::min()` → `return 1.0`; `:65-70` continuous-revolute `continue`; `:72-80` planar check uses `std::numeric_limits<double>::max()` (=`DBL_MAX`, not `INFINITY`) for `x`/`y` and literal `M_PI` for `theta`, matching the doc's explicit DBL_MAX-vs-infinity distinction; `:82-86` floating joint `continue`, comment `// Joint limits are not well-defined for floating joints` matches the doc's verbatim quote exactly; no `FIXED`-typed branch anywhere in the function (only `REVOLUTE`/`PLANAR`/`FLOATING` are tested), matching the doc's fallthrough claim; `:100` `lower_bound_distance * upper_bound_distance / (range * range)`; `:102` `1.0 - exp(-penalty_multiplier_ * joint_limits_multiplier)`. This was the crate's only bucketed citation and its only prose citation overall — no aggregate remains in this file | (no fix — CONFIRMED, no source change) |
 
 ## Summary
 
 - 1 site total, this crate's only prose citation
-- CONFIRMED (aggregate, not individually itemized): 1
+- CONFIRMED (individually re-verified this round, `rg -n`-anchored): 1
 - No EXPIRED findings in this crate
+- No remaining aggregate/bucket citation in this file
 
 ## §172 narrowing sweep (separate exercise, same round)
 
