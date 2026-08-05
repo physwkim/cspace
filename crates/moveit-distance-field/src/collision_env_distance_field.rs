@@ -2713,6 +2713,22 @@ mod tests {
     }
 
     // --- get_distance_field_cache_entry ---
+    //
+    // ASSERTION-DISCRIMINATION AUDIT (round 2): `get_distance_field_cache_entry`
+    // has four `None`-producing guards (`current?`, group-name mismatch,
+    // state mismatch, acm mismatch), all collapsing to a bare `None` a
+    // matches!/is_none() cannot tell apart on its own. The four tests below
+    // each isolate one guard -- `discriminating`, verified by an isolating
+    // mutation in both directions on the three guards that can be
+    // independently defeated by a compiled substitute (state-check, acm
+    // check, group-name check: neutralizing guard A alone made only test A
+    // fail, leaving the other three green, and vice versa). The `current?`
+    // guard (`returns_none_when_current_is_none`) cannot be isolated the
+    // same way -- there is no `&DistanceFieldCacheEntry` to fabricate while
+    // keeping `current: None` -- so it is justified structurally instead:
+    // the other three guards all dereference `cur` (`current?`'s Ok side),
+    // which cannot execute when `current` is `None`, so this guard's `None`
+    // can never be produced by any of the other three's code paths.
 
     #[test]
     fn get_distance_field_cache_entry_returns_none_when_current_is_none() {
