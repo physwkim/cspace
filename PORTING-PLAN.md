@@ -6266,7 +6266,7 @@ p3-shapes 라운드 11(`11c0c8a`, `6260306`, `bf348ae`). 베이스 `8705eab`.
 담당이 `voxels.rs`의 `pub fn` 18개를 전부 확인해 uniform-`voxel_size`
 제약이 그대로임을 재확인한 뒤, 진짜 발견을 붙였다: **이 워크스페이스에
 `Voxels`를 쓰는 코드가 없다.** 직접 확인했다 — `rg -n "Voxels::(new|from)"
-crates`의 히트는 `shapes.rs:318`의 doc 주석 한 줄뿐이고, 나머지 히트는
+crates`의 히트는 `crates/moveit-geometry/src/shapes.rs:318`의 doc 주석 한 줄뿐이고, 나머지 히트는
 전부 `addNewObstacleVoxels` 같은 부분 문자열이거나 주석이다. 실제로 쓰는
 `compound_from_octree` 경로에는 그 제약이 없고 leaf 0~216에서 오라클
 검증돼 있다.
@@ -7245,7 +7245,7 @@ Rust 쪽도 각각 `existing < candidate`(나중 승)와 `b <= candidate`이면
 ```
 
 링크 간 쪽은 재고 있지 않다. 다만 이건 §79 계열의 구멍이 아니라
-**구조적 도달 불가**다. `ik_sampler.rs:177`이 제약 링크가 솔버의 tip
+**구조적 도달 불가**다. `crates/moveit-constraints/src/ik_sampler.rs:177`이 제약 링크가 솔버의 tip
 프레임과 같지 않으면 생성 자체를 거절하므로(고정 링크 브리징 미이식),
 한 그룹에 솔버 하나·tip 하나면 `used`의 키는 최대 하나다. 담당의 UNFIXED가
 그 사실을 정확히 적었고 내 실측이 그것과 일치한다.
@@ -7577,7 +7577,7 @@ bodies.rs            47     →  41건 assert_eq!,
 ### 88.4 exactness 전환이 실제로 조였다는 증거
 
 전환이 단언을 강화했는지 직접 확인했다. `Sphere::compute_volume`
-(`shapes.rs:491`)에 상대 오차를 곱해 넣었다:
+(`crates/moveit-geometry/src/shapes.rs:491`)에 상대 오차를 곱해 넣었다:
 
 ```
 × 1.0000000000001    (1e-13)  1 fail
@@ -7590,7 +7590,7 @@ bodies.rs            47     →  41건 assert_eq!,
 ### 88.5 §81.2의 두 정정이 반영됐다
 
 `d43fab0`이 `bodies.rs`의 `intersects_ray`(미포팅이 아니라 외부 소비자
-없음)와 `sample_point_inside`(미래형이 아니라 `ik_sampler.rs:254`가 이미
+없음)와 `sample_point_inside`(미래형이 아니라 `crates/moveit-constraints/src/ik_sampler.rs:254`가 이미
 호출) 문구를 고쳤다. 낡은 문서 주장이 §81.2·§82.3·§85.4에 이어 이번
 라운드 세트에서 네 번째로 정정된 사례다.
 
@@ -7782,7 +7782,7 @@ moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
 ```
 
 **프로덕션 호출자는 0건이다.** 그리고 그건 담당의 잘못이 아니다 —
-`construct_goal_pose_constraints`(`utils.rs:245`)를 비롯한 생성 경로가
+`construct_goal_pose_constraints`(`crates/moveit-constraints/src/utils.rs:245`)를 비롯한 생성 경로가
 전부 `tf: &Transforms`를 **호출자에게서 받는** 형태이고, 워크스페이스에
 `PlanningScene`에서 목표 제약을 만드는 프로덕션 경로가 아직 없다.
 배선할 대상 자체가 없다.
@@ -8346,11 +8346,11 @@ cargo nextest run -p moveit-constraints --no-fail-fast           → 89   일치
 맞는다. **이번 라운드 세트에서 완료 조건의 숫자가 명령까지 전부 맞은
 첫 사례다.**
 
-### 97.2 그런데 `utils.rs:64`의 명령은 돌아가지 않는다
+### 97.2 그런데 `crates/moveit-constraints/src/utils.rs:64`의 명령은 돌아가지 않는다
 
 `daee0dd`는 `transforms_with_world_objects`의 프로덕션 호출자가 0건임을
 `rg -n 'transforms_with_world_objects' crates/ --glob '!*/tests/*'`로
-확인했다고 적었고, 그 명령이 `utils.rs:64`에 그대로 들어갔다.
+확인했다고 적었고, 그 명령이 `crates/moveit-constraints/src/utils.rs:64`에 그대로 들어갔다.
 
 **그 명령은 0건이 아니라 28줄을 낸다.** `--glob '!*/tests/*'`는
 통합 테스트 디렉터리만 제외하고, `#[cfg(test)]` 모듈은 `src/` 안에
@@ -8525,14 +8525,14 @@ max(|a|,|b|)`이면 통과한다. 값이 1922이므로 `max_relative = 1e-6`은
 
 - D1 제외(`moveit_msgs`/`trajectory_msgs` 변환)에 결정을 함께 적은 것
   다수.
-- `trajectory.rs:15`는 **자기 정정을 기록한 것**이다 — "이 주석은
+- `crates/moveit-trajectory/src/trajectory.rs:15`는 **자기 정정을 기록한 것**이다 — "이 주석은
   전에 범위 밖이라고 적었는데 그 모듈이 착지하면서 사실이 아니게
   됐다".
-- `ruckig_smoothing.rs:72`의 "out of scope for this crate to add"는
+- `crates/moveit-trajectory/src/ruckig_smoothing.rs:72`의 "out of scope for this crate to add"는
   `moveit-model`에 인덱스 목록 메서드를 추가하는 일을 가리키고,
   그 크레이트는 p3-acm 소유다. 소유권 진술이라 맞다.
 
-`lib.rs:339`와 `robot_trajectory.rs:21` 두 곳은 `RobotTrajectory::print`
+`crates/moveit-trajectory/src/lib.rs:339`와 `crates/moveit-trajectory/src/robot_trajectory.rs:21` 두 곳은 `RobotTrajectory::print`
 /`operator<<`를 **미이식으로 남은 유일한 항목**으로 지목하면서 그
 이유를 "D 결정도 의존성 부재도 아니고, 어떤 라운드도 요구하지 않았기
 때문"이라고 적는다. 이 저장소가 금지한 "not yet" 자리채움이 아니라
@@ -9117,7 +9117,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
   15파일/43줄을 그대로 쓰지 않고 자기가 다시 세어 13파일/7-5-1로
   적은 것도 맞게 한 것이다 — 재현하지 않은 남의 숫자를 인용하는 것이
   이 저장소가 반복해서 잡아 온 결함이다.
-- `lib.rs:78`의 죽은 오라클 태그를 지우고 매 라운드 검사되는
+- `crates/moveit-constraints/src/lib.rs:78`의 죽은 오라클 태그를 지우고 매 라운드 검사되는
   `panda_constraints` fixture 항목을 가리키게 했다.
 
 ### 105.4 `registry.rs`의 처분 절이 낡았다 — 담당의 UNFIXED가 맞다
@@ -9919,7 +9919,7 @@ CI가 자동으로 집는다(도커 불필요).
 원인은 이것이다. `cone_mesh`·`decide_cone`·
 `allow_sensor_or_target_contact`는 상류와 정확히 일치한다. 갈리는
 자리는 **`max_contacts: 1`이 처음 발견된 로봇 링크 하나만 저장한다**는
-것이고(`visibility.rs:453`, 상류 `req.max_contacts = 1`과 같다),
+것이고(`crates/moveit-constraints/src/visibility.rs:453`, 상류 `req.max_contacts = 1`과 같다),
 그 "처음"이 쌍 순회 순서다.
 
 ```
@@ -12084,7 +12084,7 @@ default argument인지 실제 호출부가 넘기는 configured 값인지 먼저
 바뀐다.
 
 비용이 거의 없다. `cone_collision_result`는 이미 `max_contacts` 인자를 받고
-(`visibility.rs:504-508`), `cone_touching_link_count`가 이미 `usize::MAX`로 부른다
+(`crates/moveit-constraints/src/visibility.rs:504-508`), `cone_touching_link_count`가 이미 `usize::MAX`로 부른다
 (`:553-556`) — 세는 대신 깊이를 돌려주는 진단 하나를 같은 자리에 더하면 된다.
 새 기계도, 오라클 확장도 필요 없다.
 
@@ -13112,7 +13112,7 @@ SolidPrimitive::CONE
 upstream이 죽는 입력을 이 포트만 성공시키는 의도적 이탈이 된다. 하지 마라.
 
 `Shape::compute_volume`/`get_dimensions`가 `Cone`에 `None`을 주는 것도 같은
-이유로 이미 맞다(`shapes.rs:72-73`이 "There is no `bodies::Cone`"이라고
+이유로 이미 맞다(`crates/moveit-geometry/src/shapes.rs:72-73`이 "There is no `bodies::Cone`"이라고
 적어둔 것이 정확했다 — 다만 그 문장은 upstream의 널 역참조까지는 몰랐다).
 
 ### 165.3 §153.1 만료 조건
@@ -15293,7 +15293,7 @@ error: redundant explicit link target
 
 `redundant_explicit_links`는 bare 링크가 **이미 올바르게 해석될 때** 발동한다.
 즉 내 지시의 전제("이 자리들에서 bare가 동작한다")가 바로 그 지시를
-불가능하게 만드는 조건이다. `abd7bd5`가 `planner.rs:106`에서 유효했던 이유가
+불가능하게 만드는 조건이다. `abd7bd5`가 `crates/moveit-planners-chomp/src/planner.rs:106`에서 유효했던 이유가
 정확히 뒤집힌 것이다 — 거기서는 bare가 해석에 실패했으므로 명시 대상이
 잉여가 아니었다.
 
@@ -15371,7 +15371,7 @@ visibility.rs:231 ← :871
 상류는 네 자리 전부 경고를 찍고 `constraint_weight_ = 1.0`으로 치환한다.
 4대4로 정확히 대응한다 — 직접 세어 확인했다.
 
-포트의 doc(`joint.rs:85-89`)은 이것을 "silent substitution 대신 에러로
+포트의 doc(`crates/moveit-constraints/src/joint.rs:85-89`)은 이것을 "silent substitution 대신 에러로
 표면화"라는 프로젝트 전역 정책의 의도적 적용으로 적고 D6의 `Transforms`
 deviation 1을 인용한다. p9-ros는 그 doc을 읽고 의도적 결정으로 분류했다.
 읽은 것 자체는 맞지만 분류가 틀렸고, 나도 그 doc을 쓸 때 같은 것을 놓쳤다.
@@ -16157,8 +16157,8 @@ void fromMsg(const geometry_msgs::msg::Pose & msg, Eigen::Isometry3d & out)
 ```
 
 조건 없는 `quat.normalize()`다 -- `planning_scene.cpp`의
-`utilities::poseMsgToEigen`과 **똑같은 규칙**이다. `position.rs:161`/
-`visibility.rs:114,115`가 실제로 여기 닿는다는 것은
+`utilities::poseMsgToEigen`과 **똑같은 규칙**이다. `ros/moveit-ros/src/constraints/position.rs:161`/
+`ros/moveit-ros/src/constraints/visibility.rs:114,115`가 실제로 여기 닿는다는 것은
 `kinematic_constraint.hpp:875,877`의 `Eigen::Isometry3d sensor_pose_,
 target_pose_;` 선언으로 확인된다 (`t`/`target_pose_`/`sensor_pose_`가
 전부 `Isometry3d`이므로 오버로드 해석이 이 함수를 정확히 고른다).
@@ -16172,7 +16172,7 @@ target_pose_;` 선언으로 확인된다 (`t`/`target_pose_`/`sensor_pose_`가
    정규화, 절대 실패하지 않음. `poseMsgToEigen`과 `tf2_eigen::fromMsg`
    둘 다 이 규칙 하나로 수렴한다.
 2. **`OrientationConstraint::configure`의 의심 규칙** (1곳:
-   `orientation.rs:85`만) -- `\|norm-1\|>1e-3`이면 항등원으로 치환.
+   `ros/moveit-ros/src/constraints/orientation.rs:85`만) -- `\|norm-1\|>1e-3`이면 항등원으로 치환.
 
 §211.3이 요구한 "이중 의미 제거"는 그대로 유효하다 -- 다만 이름을 줘야
 할 규칙이 셋이 아니라 둘이었다. p9-ros가 `geometry.rs`에
@@ -16261,8 +16261,8 @@ identical**, drift 0, 다른 출력 라인 0. 그것이 이 라운드에서 스�
 
 | impl | 프로덕션 콜사이트 | 상류 도달 경로 | 판정 |
 |---|---|---|---|
-| `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `position.rs:161`, `visibility.rs:114`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
-| `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `position.rs:160`(BoundingVolume), `collision_object.rs:183`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
+| `TryFrom<Quaternion> for UnitQuaternion` (`TryFrom<Pose> for Isometry3`를 통해) | 9곳 — `ros/moveit-ros/src/constraints/position.rs:161`, `ros/moveit-ros/src/constraints/visibility.rs:114`/`115`, `collision_object.rs`×5, `planning_scene.rs` 옥토맵 원점 | `poseMsgToEigen`/`tf2_eigen::fromMsg` — 무조건 normalize, 한 규칙 | §211/`f2a7847`에서 이미 분리 완료 (10번째 자리는 별도 타입 `OrientationConstraintQuaternion`). 이번 스윕에서 재확인, 편차 없음 |
+| `TryFrom<SolidPrimitiveMsg> for Shape` | 2곳 — `ros/moveit-ros/src/constraints/position.rs:160`(BoundingVolume), `collision_object.rs:183`(shapesAndPosesFromCollisionObjectMessage) | 둘 다 `shapes::constructShapeFromMsg(const shape_msgs::msg::SolidPrimitive&)` (`third_party/geometric_shapes/src/shape_operations.cpp:78-112`) 하나 — 같은 함수, 같은 BOX/SPHERE/CYLINDER/CONE 분기, 실패 시 같은 "shape==nullptr" 귀결 | 균일. 편집 불필요 |
 | `TryFrom<u8> for CollisionObjectOperation` | 2곳 — `collision_object.rs:310`(processCollisionObjectMsg), `attached.rs:62`(processAttachedCollisionObjectMsg) | 두 디스패처(`planning_scene.cpp:1774-1798`, `:1536-1769`) 모두 ADD/APPEND/REMOVE/MOVE를 같은 상수와 비교하고, 그 외 값은 둘 다 동일한 "Unknown collision object operation: %d" 에러로 귀결 (직접 읽고 확인, 다르다고 가정하지 않음) | 균일. 편집 불필요 |
 | `TryFrom<ConstraintsMsg> for KinematicConstraintSet` | 3곳 — `planning.rs`의 `goal_constraints`/`path_constraints`/`trajectory_constraints` | 셋 다 `KinematicConstraintSet::add(const moveit_msgs::msg::Constraints&, const Transforms&)` (`kinematic_constraint.cpp:1294`) 단 하나 — 이 함수는 호출자가 `MotionPlanRequest`의 어느 필드에서 왔는지 알지 못한다 | 균일. 편집 불필요 |
 | `TryFrom<Point>`/`TryFrom<Vector3> for CoreVector3` 및 그 역방향(`Point`/`Vector3`/`Pose`/`Quaternion` 출력) | 여러 곳 (`position.rs`, `planning.rs`×2, `shapes.rs` 등) | 실패 분기 자체가 없음 — `geometry.rs`의 기존 doc comment가 이미 "Total in practice"라고 명시하며, 이번 스윕은 그 주장을 소스가 아니라 impl 본문 자체(항상 `Ok`)로 재확인했다 | 균일 — 구조적으로 갈릴 수 없음 |
@@ -16356,9 +16356,9 @@ end-to-end 테스트를 새로 추가했다: `4ff563d`가 실제로 깨뜨린 �
 ### §215.2 이번 라운드에 추가한 사이트별 실측 테스트
 
 - `constraints/position.rs`: `region_pose_with_norm_2_orientation_succeeds_and_normalizes`
-  (`position.rs:161`)
+  (`ros/moveit-ros/src/constraints/position.rs:161`)
 - `constraints/visibility.rs`: `sensor_and_target_pose_with_norm_2_orientation_succeed_and_normalize`
-  (`visibility.rs:114`/`115`, 필드 두 개를 테스트 하나로)
+  (`ros/moveit-ros/src/constraints/visibility.rs:114`/`115`, 필드 두 개를 테스트 하나로)
 - `scene/collision_object.rs`: `add_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
   (`:142`/`:207`), `add_with_norm_2_orientation_on_subframe_pose_succeeds_and_normalizes`
   (`:239`), `move_with_norm_2_orientation_on_object_and_shape_poses_succeeds_and_normalizes`
@@ -16613,7 +16613,7 @@ $ ./tools/ci/measure-port-coverage.py --list-unported | grep -c 'pilz_industrial
 11
 ```
 
-22 → **24**, 12 → **13**, "다섯" → `lib.rs:104-124`가 이름으로 지목하는
+22 → **24**, 12 → **13**, "다섯" → `crates/moveit-planners-pilz/src/lib.rs:104-124`가 이름으로 지목하는
 `src/*.cpp`는 **9개**(`move_group_sequence_{action,service}`,
 `planning_context_loader{,_circ,_lin,_polyline,_ptp}`,
 `pilz_industrial_motion_planner`, `command_list_manager`). 그리고 §179.1이
@@ -17448,12 +17448,12 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
   되돌리기 위한 것. 이 포트에는 둘 다 구조적으로 없다. 재설정 단계가
   없고(`new()`가 통째로 짓거나 `Err`), `frame_depends`는 그 `new()` 안에서
   한 번 계산된 뒤 다시 쓰이지 않으며, `:121`에 해당하는 실패는
-  `sampler.rs:213-221`의 `return Err(..)`이라 되돌릴 부분 구축물이 애초에
+  `crates/moveit-constraints/src/sampler.rs:213-221`의 `return Err(..)`이라 되돌릴 부분 구축물이 애초에
   존재하지 않는다. 상류가 손으로 되돌려야 하는 이유는 실패한 객체가
   살아남기 때문이고, 포트는 그 객체를 만들지 않는다.
 
 따라서 분류는 `ported-elsewhere`(내용이 다른 이름으로 트리 안에 있음),
-증거는 `sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
+증거는 `crates/moveit-constraints/src/sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
 모듈 doc이 같은 내용을 그 파일 옆에 적어 둔다.
 
 ### §225.3 `collision_env_allvalid.{hpp,cpp}` — 포팅했다, 고르는 경로까지
@@ -18493,7 +18493,7 @@ main'` → 0건, 트리 전체 검색). 크레이트는 순수 라이브러리�
 안에 한 줄도 없다. 즉 "moveit-ros 노드"라 부를 실행 가능한 것 자체가
 지금 존재하지 않는다.
 
-크레이트 자신의 모듈 문서(`lib.rs:14-19`)가 이미 같은 결론을 적어
+크레이트 자신의 모듈 문서(`ros/moveit-ros/src/lib.rs:14-19`)가 이미 같은 결론을 적어
 둔다 — "Round 1 scope ... Type conversion only -- no
 `/plan_kinematic_path` service, no `/move_action` action server, no
 planning-scene subscription (deferred to a later round)." 이 절은 그
@@ -19897,7 +19897,7 @@ ROS 그래프에서 받을 수 있는 곳이 없다.
 ### §234.5 이 절이 하지 않은 것
 
 - `ChompSolution`을 벡터 형태로 넓히지 않았다. 그것은 상류 chomp가 항상
-  길이 1로 resize한다는 `planner.rs:193-203`의 감사와 어긋나며, 이 절은
+  길이 1로 resize한다는 `crates/moveit-planners-chomp/src/planner.rs:193-203`의 감사와 어긋나며, 이 절은
   그 감사를 다시 열지 않는다.
 - `ros/moveit-ros/Cargo.toml`을 건드리지 않았다. 의존 간선은 추가되지
   않았다.
@@ -20222,7 +20222,7 @@ $ rg -n -i interpolat tools/moveit-oracle/src/oracle.cpp
 
 `JointModel::interpolate`는 실제로 포트에 존재한다
 (`moveit-model`의 `revolute.rs:139`/`prismatic.rs:88`/
-`planar.rs:164`/`floating.rs:168`, 디스패처는 `model.rs:873`) — 다만
+`planar.rs:164`/`floating.rs:168`, 디스패처는 `crates/moveit-model/src/joint/model.rs:873`) — 다만
 `moveit-state/src/lib.rs:45`가 명시적으로 "Deferred, out of scope for
 this task: ... `interpolate`"라고 적어 RobotState 수준의 상위
 API(`RobotState::interpolate`, 두 whole-state 사이 보간)는 포트되지
@@ -20446,7 +20446,7 @@ PlanningRequest`를 **값으로** 받고 `RrtConnectManager`의 구현
 탐색 예산에 해당하는 것은 `moveit_planners_sbp::Termination`
 (`crates/moveit-planners-sbp/src/rrt_connect.rs:40-58`,
 `RrtConnectParams::termination`을 통해 요청에 실리고
-`registry.rs:768`에서 소비된다)이다:
+`crates/moveit-planners-sbp/src/registry.rs:768`에서 소비된다)이다:
 
 | 상류 가드가 고치는 입력 | 이 포트에서 |
 |---|---|
@@ -20831,11 +20831,11 @@ crates/`는 `crates/moveit-planning/src/pipeline.rs`의
 crates/moveit-planners-{sbp,chomp,stomp,pilz}/Cargo.toml`도 0건 — 이
 워크스페이스의 플래너 크레이트 넷 중 어느 것도 `moveit-planning`에
 의존하지 않는다. 이 워크스페이스에 존재하는 유일한 구체 플래너,
-`moveit_planners_sbp::registry::RrtConnectManager`(`registry.rs:616`,
+`moveit_planners_sbp::registry::RrtConnectManager`(`crates/moveit-planners-sbp/src/registry.rs:616`,
 `impl PlannerManager for RrtConnectManager`)는 `moveit-planning`의
 `PlanningRequest`/`PlanningResponse`와 이름만 같고 타입이 다른, 자기
 자신의 `PlanningRequest`/`PlanningResponse`를 쓴다
-(`registry.rs:270-340`, 이번 라운드가 다시 읽어 확인).
+(`crates/moveit-planners-sbp/src/registry.rs:270-340`, 이번 라운드가 다시 읽어 확인).
 
 이 둘을 잇는 어댑터를 `ros/moveit-ros` 안에 지금 짜지 않았다 — D8
 (§140)이 이미 이 둘을 하나의 크레이트(`moveit-planner-registry`)로

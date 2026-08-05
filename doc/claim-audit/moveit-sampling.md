@@ -19,7 +19,7 @@ Upstream root for this crate: `/home/stevek/work/moveit2` (pinned
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| Every `Ported from` header in this crate (`lib.rs:5`, `multivariate_gaussian.rs:5`) | Neither cites a bare package/directory line with no filenames indented beneath it -- both list the two `multivariate_gaussian.hpp` files explicitly | CONFIRMED, 0 hits of the shape the parser now closes | Read both headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
+| Every `Ported from` header in this crate (`crates/moveit-sampling/src/lib.rs:5`, `multivariate_gaussian.rs:5`) | Neither cites a bare package/directory line with no filenames indented beneath it -- both list the two `multivariate_gaussian.hpp` files explicitly | CONFIRMED, 0 hits of the shape the parser now closes | Read both headers in full in this tree; `tools/ci/verify-upstream-license-provenance.sh` also run over the whole workspace this round: `checked 334 upstream file(s) cited by 242 tracked source file(s)`, 0 findings | (none) |
 
 ## §194 port-only API sweep (this round): `moveit-sampling`
 
@@ -40,7 +40,7 @@ per this round's ask, the exact method, not just the conclusion:
   sample_with_covariance` (`:102`), `pub fn
   sample_without_covariance` (`:113`); plus the `pub use
   multivariate_gaussian::MultivariateGaussian` re-export in
-  `lib.rs:61`, which is the same type, not a sixth item.
+  `crates/moveit-sampling/src/lib.rs:61`, which is the same type, not a sixth item.
 - **This crate has no single upstream counterpart file** -- it ports
   two independently-maintained classes in two different upstream
   packages (`stomp_moveit::math::MultivariateGaussian` and

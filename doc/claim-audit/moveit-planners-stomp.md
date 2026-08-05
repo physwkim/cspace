@@ -82,7 +82,7 @@ against `moveit2 moveit_planners/stomp/` for an upstream counterpart.
 | `ComposableTask::new(...)` | no -- direct port of upstream `stomp_moveit::ComposableTask`'s constructor (see `composable_task.rs`'s own module doc) | none | no |
 | `UnparameterizedTrajectory` (public `way_point_count`/`into_uniformly_timed`, private wrapped `RobotTrajectory`) | yes -- no upstream type; invented this port's own "Deviation: unparameterized-by-construction" (round 21) | none -- the opposite direction: this type exists specifically to make an upstream footgun (reading the placeholder `dt = 0.1` as if it were real timing) *unreachable*, not to open new state | no -- protective, not permissive |
 | `PlanRequest` (plain public-field struct, no methods) | yes -- a Rust named-argument idiom for `plan`'s parameter list, no upstream counterpart | none -- every field is a reference of a type (`&RobotState`, `&JointModelGroup`, `Option<&RobotTrajectory>`) already public to any caller holding it; bundling grants no new capability | no |
-| `plan(config, cost_fn, request, rng, cancel_handle)` | yes (round 24) -- upstream's equivalent logic is inline inside `StompPlanningContext::solve`, itself unported (D1/D2) | `cancel_handle: CancelHandle` is taken and forwarded unmodified into `Stomp::with_cancel_handle` (`planner.rs:466`) -- this *is* the surface `a682f63` already fixed at its root; `plan` adds no cancellation entry point of its own beyond that one | no -- covered by `moveit-stomp-core`'s fix, not a second instance |
+| `plan(config, cost_fn, request, rng, cancel_handle)` | yes (round 24) -- upstream's equivalent logic is inline inside `StompPlanningContext::solve`, itself unported (D1/D2) | `cancel_handle: CancelHandle` is taken and forwarded unmodified into `Stomp::with_cancel_handle` (`crates/moveit-planners-stomp/src/planner.rs:466`) -- this *is* the surface `a682f63` already fixed at its root; `plan` adds no cancellation entry point of its own beyond that one | no -- covered by `moveit-stomp-core`'s fix, not a second instance |
 
 **Conclusion:** no port-only API in this crate opens new
 upstream-invariant-protected state on its own; `plan`'s
@@ -122,7 +122,7 @@ normalized by its own max-abs entry -- a function of `num_timesteps`
 alone. `stddev` is applied only afterward, as a per-row scale on
 already-sampled noise (`noise_generators.rs:124-126`), never touching
 `covariance`. `normal_distribution_generator`'s only production caller,
-`plan` (`planner.rs:452-453`), always builds `stddev` as
+`plan` (`crates/moveit-planners-stomp/src/planner.rs:452-453`), always builds `stddev` as
 `vec![DEFAULT_NOISE_STDDEV; config.num_dimensions]` -- a hardcoded
 constant, not read from a message field per-dimension -- but that is
 moot given `stddev` cannot reach `covariance` regardless of what a
@@ -432,7 +432,7 @@ All 9 accounted for, all with a stated reason, no gap found:
 | `include/stomp/utils.h`, `src/utils.cpp` | ported (`utils.rs`, 14 symbols; `utils.cpp` adds nothing beyond `utils.h`'s own declarations, per `lib.rs`) |
 | `test/stomp_3dof.cpp` | ported as an acceptance test, not library code -- `stomp.rs`'s own "No upstream reference test with value assertions, closing the gap with `test/stomp_3dof.cpp`" section, re-verified line-by-line round 26 |
 | `test/utest.cpp` | deliberately excluded, reason stated (`stomp.rs:36`, "gtest boilerplate") |
-| `examples/simple_optimization_task.h`, `examples/stomp_example.cpp` | deliberately excluded, reason stated (`lib.rs:113-115`, "outside this audit's scope") |
+| `examples/simple_optimization_task.h`, `examples/stomp_example.cpp` | deliberately excluded, reason stated (`crates/moveit-stomp-core/src/lib.rs:113-115`, "outside this audit's scope") |
 
 ### `/home/stevek/work/moveit2/moveit_planners/stomp` (26 files) -- `moveit-planners-stomp` + `moveit-sampling`
 
@@ -447,8 +447,8 @@ All 9 accounted for, all with a stated reason, no gap found:
 | `conversion_functions.h`, `cost_functions.h`, `filter_functions.h`, `noise_generators.h`, `stomp_moveit_task.h`, `stomp_moveit_planning_context.h` | deprecation stubs (`create_deprecated_headers.py`-generated, `#pragma message` + one `#include` of the `.hpp` twin, confirmed by reading all 6 this round -- **but not previously stated anywhere in this crate's own docs**, unlike `moveit-sampling`'s explicit stub-check of its own two `.h` twins. Documentation gap, not a functional one: the substance (stub, contributes nothing) is now confirmed, just never written down before this round) |
 | `math/multivariate_gaussian.h`, `math/multivariate_gaussian.hpp` | ported, but via `moveit-sampling`, not this crate (already fully audited there) |
 | `src/stomp_moveit_planning_context.cpp` | partially ported -- `extract_seed_trajectory`/`sample_goal_state` extracted as free functions (round 25); `StompPlanningContext::solve`'s own inline logic remains D1/D2-unported (existing `MultivariateGaussian::new` row above, "itself unported (D1/D2)") |
-| `src/stomp_moveit_planner_plugin.cpp` | deliberately excluded, reason stated (`lib.rs:105-115`, ROS-hosted plugin entry point taking `rclcpp::Node::SharedPtr`) |
-| `trajectory_visualization.hpp` | deliberately excluded, reason stated (`lib.rs:116-120`, ROS message/tf2-typed signatures) |
+| `src/stomp_moveit_planner_plugin.cpp` | deliberately excluded, reason stated (`crates/moveit-planners-stomp/src/lib.rs:105-115`, ROS-hosted plugin entry point taking `rclcpp::Node::SharedPtr`) |
+| `trajectory_visualization.hpp` | deliberately excluded, reason stated (`crates/moveit-planners-stomp/src/lib.rs:116-120`, ROS message/tf2-typed signatures) |
 | `stomp_moveit_planning_context.hpp` | deliberately excluded, classified this round -- see below |
 | `test/test_cost_functions.cpp` | ported this round, by value -- see below |
 | `test/test_noise_generator.cpp` | ported this round, by value -- see below |

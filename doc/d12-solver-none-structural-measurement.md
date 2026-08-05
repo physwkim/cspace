@@ -70,7 +70,7 @@ pub(crate) solver: Option<Arc<dyn moveit_kinematics_base::KinematicsSolver>>,
 derives `Clone` (`joint_model_group.rs:51`) and that `Clone` is used in
 production, not just tests —
 `moveit-constraints/src/constraint_sampler_manager.rs:152`,
-`sampler.rs:184`, `sampler.rs:377` all call `.clone()` on a
+`crates/moveit-constraints/src/sampler.rs:184`, `crates/moveit-constraints/src/sampler.rs:377` all call `.clone()` on a
 `JointModelGroup` fetched from the model. `Box<dyn Trait>` has no blanket
 `Clone`; `Arc<dyn Trait>` does (a refcount bump), which is exactly why
 upstream's own `solver_instance_` is a `shared_ptr` and not a
@@ -129,7 +129,7 @@ over (`cargo tree -p moveit-planners-sbp -i moveit-kinematics`:
 via `moveit-scene ← moveit-planners-sbp`). It never names the trait because
 `select_default_sampler`'s `solver: Option<Box<dyn KinematicsSolver>>`
 parameter is always filled with `None` at every one of its 3 call sites
-(`registry.rs:453,479,1035`) and 1 more in `goal_sampler.rs:212` — type
+(`crates/moveit-planners-sbp/src/registry.rs:453,479,1035`) and 1 more in `goal_sampler.rs:212` — type
 inference resolves `None`'s type from the callee's signature, so the caller
 never has to spell `KinematicsSolver` itself. This corrects the brief's
 "moveit-kinematics에 의존하는 것은 5개" framing for one member: sbp is a

@@ -47,17 +47,17 @@ and/or isolating mutation run this round, reverted after confirming).
 | `time_optimal_trajectory_generation.rs:1120` | same | `resample_dt_nan_is_rejected` | single-branch | commit `52e38a3` — line corrected round 17, was `:1112` |
 | `time_optimal_trajectory_generation.rs:1125` | same | `resample_dt_positive_infinity_is_rejected` | single-branch | commit `52e38a3` |
 | `time_optimal_trajectory_generation.rs:1136` | same | `resample_dt_negative_infinity_is_rejected` | single-branch | commit `52e38a3` |
-| `robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
-| `robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s index-0 guard | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | bite: neutralized guard → test failed; reverted |
-| `robot_trajectory.rs:550` | `append`'s empty+nonzero-dt guard | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard → test failed; reverted |
-| `robot_trajectory.rs:568` | `way_point`'s `.get(index).ok_or_else` | `empty_trajectory_accessors_return_typed_errors_not_panics` | single-branch | bite: forced the `None` arm to panic instead of converting → test failed at this line specifically; reverted |
-| `robot_trajectory.rs:569` | `first_way_point`'s `.front().ok_or_else` | same test | single-branch | bite: forced panic on `None`; failed at this line, isolated from `last_way_point`'s sibling; reverted |
-| `robot_trajectory.rs:570` | `last_way_point`'s `.back().ok_or_else` | same test | single-branch | bite: forced panic on `None`; failed at this line, isolated from `first_way_point`'s sibling; reverted |
-| `robot_trajectory.rs:668` | `way_point`'s guard, out-of-range case | `out_of_range_index_access_is_a_typed_error` | single-branch | same anchor/bite as :568 — same guard, non-empty fixture |
-| `robot_trajectory.rs:669` | `way_point_mut`'s `.get_mut(index).ok_or_else` | same test | single-branch | bite: forced panic on `None` → test failed at this line; reverted |
-| `robot_trajectory.rs:670` | `remove_way_point`'s explicit `if index >= len` | same test | single-branch | bite: neutralized guard → test failed at this line; reverted |
-| `robot_trajectory.rs:749` | `for_group_name`'s `joint_model_group(group)?` | `unknown_group_name_is_a_typed_error_not_a_silent_whole_robot_fallback` | single-branch | bite: forced panic on the `?`'s `Err` arm → test failed; reverted |
-| `ruckig_smoothing.rs:199` | `trajectory.group().is_none()` — precondition sanity check on `RobotTrajectory::new`, not on `apply_smoothing`'s guard | `no_group_set_is_an_error` | not-this-family | commit `6a6b46a` (the test's substantive assertion, a few lines below this one, already checks `apply_smoothing`'s error message; this line only confirms the fixture itself has no group set) |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:484` | `add_suffix_way_point`'s empty+nonzero-dt guard | `add_suffix_way_point_on_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard (`if false && ...`) → test failed; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:532` | `set_way_point_duration_from_previous`'s index-0 guard | `set_way_point_duration_from_previous_at_zero_rejects_a_nonzero_value` | single-branch | bite: neutralized guard → test failed; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:550` | `append`'s empty+nonzero-dt guard | `append_onto_an_empty_trajectory_rejects_a_nonzero_dt` | single-branch | bite: neutralized guard → test failed; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:568` | `way_point`'s `.get(index).ok_or_else` | `empty_trajectory_accessors_return_typed_errors_not_panics` | single-branch | bite: forced the `None` arm to panic instead of converting → test failed at this line specifically; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:569` | `first_way_point`'s `.front().ok_or_else` | same test | single-branch | bite: forced panic on `None`; failed at this line, isolated from `last_way_point`'s sibling; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:570` | `last_way_point`'s `.back().ok_or_else` | same test | single-branch | bite: forced panic on `None`; failed at this line, isolated from `first_way_point`'s sibling; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:668` | `way_point`'s guard, out-of-range case | `out_of_range_index_access_is_a_typed_error` | single-branch | same anchor/bite as :568 — same guard, non-empty fixture |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:669` | `way_point_mut`'s `.get_mut(index).ok_or_else` | same test | single-branch | bite: forced panic on `None` → test failed at this line; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:670` | `remove_way_point`'s explicit `if index >= len` | same test | single-branch | bite: neutralized guard → test failed at this line; reverted |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:749` | `for_group_name`'s `joint_model_group(group)?` | `unknown_group_name_is_a_typed_error_not_a_silent_whole_robot_fallback` | single-branch | bite: forced panic on the `?`'s `Err` arm → test failed; reverted |
+| `crates/moveit-trajectory/tests/ruckig_smoothing.rs:199` | `trajectory.group().is_none()` — precondition sanity check on `RobotTrajectory::new`, not on `apply_smoothing`'s guard | `no_group_set_is_an_error` | not-this-family | commit `6a6b46a` (the test's substantive assertion, a few lines below this one, already checks `apply_smoothing`'s error message; this line only confirms the fixture itself has no group set) |
 
 ## moveit-planners-chomp (14)
 
@@ -72,15 +72,15 @@ expression, never the full crate; no bite touched a convergence test.
 | `cost.rs:497` | `derivative()`'s length guard | same test | discriminating | bite (mirror): neutralized `derivative()`'s guard alone (leaving `cost()`'s intact) → test failed via nalgebra panic at the `derivative()` call specifically; reverted |
 | `optimizer.rs:2485` | `add_increments_to_trajectory`'s shape guard | `add_increments_to_trajectory_rejects_shape_mismatch` | single-branch | bite: neutralized guard → test failed (nalgebra dimension panic); reverted |
 | `optimizer.rs:2540` | `handle_joint_limits`'s length guard | `handle_joint_limits_rejects_joint_costs_length_mismatch` | single-branch | bite: neutralized guard → test failed (`unwrap_err()` on `Ok`); reverted |
-| `planner.rs:1063` | `validate_recovery_time_limit`'s combined finite/range guard | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32` | single-branch | bite: forced the guard's condition to `true \|\| ...` → all 4 rejection tests failed, both boundary-accept tests stayed green; reverted |
-| `planner.rs:1087` | same | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32` | single-branch | same bite |
-| `planner.rs:1092` | same | `validate_recovery_time_limit_rejects_nan` | single-branch | same bite |
-| `planner.rs:1097` | same | `validate_recovery_time_limit_rejects_infinity` (+inf) | single-branch | same bite |
-| `planner.rs:1098` | same | same test (-inf) | single-branch | same bite |
-| `trajectory.rs:695` | `from_num_points`'s `num_points < 2` guard (`Error::Other`, distinct variant from the function's other guard, `Error::UnknownName` via `?`) | `from_num_points_rejects_fewer_than_two_points` | discriminating | bite: neutralized the `num_points < 2` guard → test failed (subtract-with-overflow panic downstream); the `matches!(err, Error::Other(_))` shape excludes the sibling `UnknownName` variant by construction; reverted |
-| `trajectory.rs:697` | same guard, `num_points == 0` case | same test | discriminating | same bite/anchor |
-| `trajectory.rs:997` | `source.group().is_none()` — precondition sanity check, not `fill_in_from_trajectory`'s own guard | `fill_in_from_trajectory_rejects_a_trajectory_with_no_group` | not-this-family | commit `77a5d7d` (the test's substantive assertion, a few lines below, already checks the error message to discriminate among `fill_in_from_trajectory`'s several `Error::other` sites; this line only confirms the fixture has no group) |
-| `utils.rs:194` | `robot_state_to_array`'s two `UnknownName` sites (group vs. joint) | `robot_state_to_array_rejects_an_unknown_group_name_as_a_typed_error` | discriminating | commits `67446b2`/`a90b5dd` (checks `kind == "group"`, discriminating from the joint-name sibling) |
+| `crates/moveit-planners-chomp/src/planner.rs:1063` | `validate_recovery_time_limit`'s combined finite/range guard | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_overflows_i32` | single-branch | bite: forced the guard's condition to `true \|\| ...` → all 4 rejection tests failed, both boundary-accept tests stayed green; reverted |
+| `crates/moveit-planners-chomp/src/planner.rs:1087` | same | `validate_recovery_time_limit_rejects_a_value_whose_plus_five_underflows_i32` | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1092` | same | `validate_recovery_time_limit_rejects_nan` | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1097` | same | `validate_recovery_time_limit_rejects_infinity` (+inf) | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/planner.rs:1098` | same | same test (-inf) | single-branch | same bite |
+| `crates/moveit-planners-chomp/src/trajectory.rs:695` | `from_num_points`'s `num_points < 2` guard (`Error::Other`, distinct variant from the function's other guard, `Error::UnknownName` via `?`) | `from_num_points_rejects_fewer_than_two_points` | discriminating | bite: neutralized the `num_points < 2` guard → test failed (subtract-with-overflow panic downstream); the `matches!(err, Error::Other(_))` shape excludes the sibling `UnknownName` variant by construction; reverted |
+| `crates/moveit-planners-chomp/src/trajectory.rs:697` | same guard, `num_points == 0` case | same test | discriminating | same bite/anchor |
+| `crates/moveit-planners-chomp/src/trajectory.rs:997` | `source.group().is_none()` — precondition sanity check, not `fill_in_from_trajectory`'s own guard | `fill_in_from_trajectory_rejects_a_trajectory_with_no_group` | not-this-family | commit `77a5d7d` (the test's substantive assertion, a few lines below, already checks the error message to discriminate among `fill_in_from_trajectory`'s several `Error::other` sites; this line only confirms the fixture has no group) |
+| `crates/moveit-planners-chomp/src/utils.rs:194` | `robot_state_to_array`'s two `UnknownName` sites (group vs. joint) | `robot_state_to_array_rejects_an_unknown_group_name_as_a_typed_error` | discriminating | commits `67446b2`/`a90b5dd` (checks `kind == "group"`, discriminating from the joint-name sibling) |
 
 ## moveit-planners-sbp (7 — own fence)
 
@@ -90,9 +90,9 @@ expression, never the full crate; no bite touched a convergence test.
 | `goal_sampler.rs:298` | same anchor | `path_constraints_end_to_end_wired_vs_unwired` (unwired-half assertion) | single-branch | same bite/anchor as :220 |
 | `nn.rs:227` | `Gnat::nearest`'s `self.root.as_ref()?` empty-index guard | `empty_index_has_no_nearest` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
 | `planning_scene_validity.rs:419` | `PositionConstraint::new`'s two `UnknownName` sites (link_name vs. frame_id) | (world-object-transform test) | discriminating | commit `1397dea` (checks `kind: "frame"`/`name == "table"`; commit message records that swapping the expected kind to the link_name sibling had kept the test passing before the fix) |
-| `registry.rs:858` | `JointModelGroupSpace::new`'s single `UnknownGroup` construction site, reached through `get_planning_context` | `unknown_group_is_rejected_before_any_search_runs` | single-branch | bite: forced panic on the guard's `Err` arm → test failed; reverted. `get_planning_context`'s own doc comment states this is its only failure mode |
-| `registry.rs:1336` | `PlanningContext::solve`'s single `NoGoalSample` construction site (`sample_goal(...).ok_or(...)`) | `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
-| `registry.rs:1493` | `resolve_constraint_sampler`'s `None` passthrough from `moveit_constraints::select_default_sampler` | `path_constraints_solver_wiring_matches_the_call_site` | single-branch | bite: forced panic on the wrapper's `None` arm → test failed; reverted. Caveat: `select_default_sampler`'s own internal branching lives in `moveit-constraints`, outside this round's fence — not independently audited beyond confirming this test's fixture always supplies a valid `group_name`, so the sibling "unknown group" `None` inside that function is not reachable from this fixture |
+| `crates/moveit-planners-sbp/src/registry.rs:858` | `JointModelGroupSpace::new`'s single `UnknownGroup` construction site, reached through `get_planning_context` | `unknown_group_is_rejected_before_any_search_runs` | single-branch | bite: forced panic on the guard's `Err` arm → test failed; reverted. `get_planning_context`'s own doc comment states this is its only failure mode |
+| `crates/moveit-planners-sbp/src/registry.rs:1336` | `PlanningContext::solve`'s single `NoGoalSample` construction site (`sample_goal(...).ok_or(...)`) | `solver_wiring_changes_whether_a_cartesian_pose_goal_is_reachable` | single-branch | bite: forced panic on the `None` arm → test failed; reverted |
+| `crates/moveit-planners-sbp/src/registry.rs:1493` | `resolve_constraint_sampler`'s `None` passthrough from `moveit_constraints::select_default_sampler` | `path_constraints_solver_wiring_matches_the_call_site` | single-branch | bite: forced panic on the wrapper's `None` arm → test failed; reverted. Caveat: `select_default_sampler`'s own internal branching lives in `moveit-constraints`, outside this round's fence — not independently audited beyond confirming this test's fixture always supplies a valid `group_name`, so the sibling "unknown group" `None` inside that function is not reachable from this fixture |
 
 ## moveit-planners-stomp (7 — override, was p3-shapes')
 
@@ -107,11 +107,11 @@ its outcome in both directions.
 |---|---|---|---|---|
 | `conversion_functions.rs:329` | `set_positions`'s one panic-capable construct (`assert_eq!` length check; all other fallible steps use `?`) | `set_positions_panics_on_a_length_mismatch` | single-branch | round-report (in-source comment, round 2): `rg` for `panic!\|assert!\|assert_eq!\|unwrap(\|expect(` over the function body gives one hit — verified by direct read |
 | `cost_functions.rs:582` | `sum`'s single `None` origin (`cost_fn(values)?`) | `sum_propagates_a_failing_constituent_as_none` | single-branch | round-report (in-source comment, round 2): one `?`/`None` site in the closure body — verified by direct read |
-| `planner.rs:1052` | `extract_seed_trajectory`'s guard A (empty-input) of 3 `Ok(None)` sites | `extract_seed_trajectory_returns_none_for_zero_constraints` | discriminating | round-report (in-source comment, round 2/§3a): isolating mutation on A alone fails this test and leaves B's/C's tests green — verified against current source (3 `Ok(None)` sites confirmed at their stated positions) |
-| `planner.rs:1139` | same function, guard C (per-joint name mismatch) | `extract_seed_trajectory_returns_none_when_joint_name_mismatches_group` | discriminating | same round-report; isolating C alone fails only this test |
-| `planner.rs:1164` | same function, guard B (per-waypoint dof-count mismatch) | `extract_seed_trajectory_returns_none_when_dof_mismatches_group` | discriminating | same round-report; isolating B alone fails only this test |
-| `planner.rs:1253` | `sample_goal_state`'s guard A (no sampler could be built) | `sample_goal_state_returns_none_when_no_sampler_can_be_built` | discriminating | round-report (in-source comment, round 2/§3a): isolating A alone fails this test, leaves B's test green; comment also notes B is structurally unreachable when A fires (illegal-state-unrepresentable, not just empirical) — verified against current source |
-| `planner.rs:1337` | same function, guard B (sampler never converged) | `sample_goal_state_returns_none_when_the_only_candidate_sampler_never_converges` | discriminating | same round-report; isolating B alone fails only this test |
+| `crates/moveit-planners-stomp/src/planner.rs:1052` | `extract_seed_trajectory`'s guard A (empty-input) of 3 `Ok(None)` sites | `extract_seed_trajectory_returns_none_for_zero_constraints` | discriminating | round-report (in-source comment, round 2/§3a): isolating mutation on A alone fails this test and leaves B's/C's tests green — verified against current source (3 `Ok(None)` sites confirmed at their stated positions) |
+| `crates/moveit-planners-stomp/src/planner.rs:1139` | same function, guard C (per-joint name mismatch) | `extract_seed_trajectory_returns_none_when_joint_name_mismatches_group` | discriminating | same round-report; isolating C alone fails only this test |
+| `crates/moveit-planners-stomp/src/planner.rs:1164` | same function, guard B (per-waypoint dof-count mismatch) | `extract_seed_trajectory_returns_none_when_dof_mismatches_group` | discriminating | same round-report; isolating B alone fails only this test |
+| `crates/moveit-planners-stomp/src/planner.rs:1253` | `sample_goal_state`'s guard A (no sampler could be built) | `sample_goal_state_returns_none_when_no_sampler_can_be_built` | discriminating | round-report (in-source comment, round 2/§3a): isolating A alone fails this test, leaves B's test green; comment also notes B is structurally unreachable when A fires (illegal-state-unrepresentable, not just empirical) — verified against current source |
+| `crates/moveit-planners-stomp/src/planner.rs:1337` | same function, guard B (sampler never converged) | `sample_goal_state_returns_none_when_the_only_candidate_sampler_never_converges` | discriminating | same round-report; isolating B alone fails only this test |
 
 ## moveit-planning (4 — override, was p3-acm's)
 
@@ -243,8 +243,8 @@ assertion could be blind to — found as a coverage gap rather than an
 existing site's misclassification.
 
 `PositionConstraint::new`'s first fallible call, `model.link_model
-(link_name)?` (`position.rs:165`), is a sibling of `resolve_frame`'s
-frame-id guard (`position.rs:108-109`, called from `:188`): both reach
+(link_name)?` (`crates/moveit-constraints/src/position.rs:165`), is a sibling of `resolve_frame`'s
+frame-id guard (`crates/moveit-constraints/src/position.rs:108-109`, called from `:188`): both reach
 `Error::UnknownName`, differing only in `kind` (`"link"` vs `"frame"`).
 Every one of this crate's own `PositionConstraint::new` test call sites
 used a valid `link_name`; only the frame-id branch had a rejection test
@@ -272,7 +272,7 @@ one more crate (`sampler_self_validation.rs`) has none. Of those 33, one
 other hit. Spot-read two of the remaining 32 rather than trust the count:
 `decide.rs:258` (`satisfied_when_link_origin_is_inside_the_region`)
 passes `"panda_link8"` and `.unwrap()`s the result;
-`ik_sampler.rs:75` (`sampling_volume_sums_sphere_region_bodies`) also
+`crates/moveit-constraints/tests/ik_sampler.rs:75` (`sampling_volume_sums_sphere_region_bodies`) also
 passes `"panda_link8"`. Both are real links on the `panda_model()`
 fixture, both call sites `.unwrap()` (would panic, not silently pass, if
 the link lookup failed) — the "all other 32 use a valid `link_name`" claim
@@ -410,7 +410,7 @@ literally `planning.rs` exists in `crates/`; both names *do* exist at
 p9-ros's fence, not read further here. Within `crates/`, `assert_err_mentions`
 is defined once and not duplicated.
 
-`PositionConstraint::new` (`position.rs:156-197`) siblings: `link_model(link_name)?`
+`PositionConstraint::new` (`crates/moveit-constraints/src/position.rs:156-197`) siblings: `link_model(link_name)?`
 → `no link named "X"`; `frame_id.trim().is_empty()` → `no frame specified
 for position constraint`; `shapes.is_empty()` → `PositionConstraint needs
 at least one constraint region`; `Body::from_shape` → `Ok(None)` →
@@ -429,7 +429,7 @@ computation failed: {e}`); `resolve_frame` → `no frame named "X"` (kind
 | `decide.rs:534` | `no link named "no_such_link"` | discriminating | not in the `frame`-kind message (different `kind`) nor the other 4 — line corrected round 17, was `:544` |
 | `decide.rs:553` | `no frame named "no_such_frame"` | discriminating | not in the `link`-kind message nor the other 4 — line corrected round 17, was `:563` |
 
-`OrientationConstraint::new` (`orientation.rs:195-248`) has only two
+`OrientationConstraint::new` (`crates/moveit-constraints/src/orientation.rs:195-248`) has only two
 fallible sites: `link_model(link_name)?` → `no link named "X"`;
 `!model.has_link_model(frame_id) && frame_id != model.model_frame()` →
 `no frame named "X"` (one guard, reached both by an unresolvable name and
@@ -443,7 +443,7 @@ says so directly).
 | `decide.rs:781` | `no frame named ""` | discriminating | same as above, reversed; deliberately the same guard as `:742`, not a collision — the doc comment says so — line corrected round 17, was `:795` |
 
 **`moveit-constraints/tests/sampler.rs`** — subject `JointConstraintSampler::new`
-(`sampler.rs:179-259`), three sites: unknown group → `Error::UnknownName`;
+(`crates/moveit-constraints/src/sampler.rs:179-259`), three sites: unknown group → `Error::UnknownName`;
 empty intersection → `"JointConstraintSampler: no possible values for
 joint variable '{}': min_bound {} > max_bound {}"`; no applicable
 constraint → `"JointConstraintSampler: no joint constraints apply to
@@ -451,8 +451,8 @@ group '{group_name}'"`.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `sampler.rs:79` | `panda_joint1` | discriminating | not in the group-name message for this call (`group_name = "panda_arm"`) |
-| `sampler.rs:121` | `panda_arm` | discriminating, **fragile** | for this call's inputs, unique; flagged because `panda_arm` is a prefix of `panda_arm_hand`, so if this needle were ever reused against an unknown-group failure for `"panda_arm_hand"` it would spuriously match — not fixed, no such reuse exists today |
+| `crates/moveit-constraints/tests/sampler.rs:79` | `panda_joint1` | discriminating | not in the group-name message for this call (`group_name = "panda_arm"`) |
+| `crates/moveit-constraints/tests/sampler.rs:121` | `panda_arm` | discriminating, **fragile** | for this call's inputs, unique; flagged because `panda_arm` is a prefix of `panda_arm_hand`, so if this needle were ever reused against an unknown-group failure for `"panda_arm_hand"` it would spuriously match — not fixed, no such reuse exists today |
 
 **`moveit-distance-field/src/voxel_grid.rs`** — already bite-checked
 in-code (`:439-449`, `:479-487`, `:494-507`); this round transcribes,
@@ -524,13 +524,13 @@ this round would otherwise derive.
 | `cost.rs:436` | `singular` | discriminating | not in the other 2 |
 | `optimizer.rs:2380` | `joint_costs has` | discriminating | not in `ChompCost::derivative`'s joint_trajectory-length message |
 | `optimizer.rs:2449` | `columns` | discriminating | in-code: "appears only in this one's message" among 3 sites |
-| `trajectory.rs:712` | `discretization must be finite and positive` | discriminating | not in "would require more than" or `from_num_points`'s num_points<2 message |
-| `trajectory.rs:727` | same | discriminating | same guard, negative-discretization boundary |
-| `trajectory.rs:748` | same | discriminating | same guard, negative/negative boundary that divides positive |
-| `trajectory.rs:766` | `would require more than` | discriminating | not in the discretization message |
-| `trajectory.rs:925` | `active joints, but this ChompTrajectory has` | discriminating | not in the multi-DOF-joint message |
-| `trajectory.rs:968` | `variables; ChompTrajectory requires every active joint` | discriminating | not in the column-count message |
-| `trajectory.rs:1004` | `requires trajectory.group() to be Some` | discriminating | not in any of `fill_in_from_trajectory`'s several other reachable messages |
+| `crates/moveit-planners-chomp/src/trajectory.rs:712` | `discretization must be finite and positive` | discriminating | not in "would require more than" or `from_num_points`'s num_points<2 message |
+| `crates/moveit-planners-chomp/src/trajectory.rs:727` | same | discriminating | same guard, negative-discretization boundary |
+| `crates/moveit-planners-chomp/src/trajectory.rs:748` | same | discriminating | same guard, negative/negative boundary that divides positive |
+| `crates/moveit-planners-chomp/src/trajectory.rs:766` | `would require more than` | discriminating | not in the discretization message |
+| `crates/moveit-planners-chomp/src/trajectory.rs:925` | `active joints, but this ChompTrajectory has` | discriminating | not in the multi-DOF-joint message |
+| `crates/moveit-planners-chomp/src/trajectory.rs:968` | `variables; ChompTrajectory requires every active joint` | discriminating | not in the column-count message |
+| `crates/moveit-planners-chomp/src/trajectory.rs:1004` | `requires trajectory.group() to be Some` | discriminating | not in any of `fill_in_from_trajectory`'s several other reachable messages |
 
 **`moveit-planners-stomp/src/filter_functions.rs`** — `enforce_position_bounds`
 has exactly one Err site (`require_single_variable`'s guard, one call per
@@ -543,7 +543,7 @@ within that one message, not two different guards.
 | `filter_functions.rs:314` | `world_joint` AND `3 variables` | discriminating | single reachable guard; compound needle verifies message content, not branch identity — no sibling to collide with |
 
 **`moveit-planning/src/request_adapters/check_start_state_collision.rs`**
-— `RequestAdapterError` has exactly two variants (`error.rs:22-42`):
+— `RequestAdapterError` has exactly two variants (`crates/moveit-planning/src/error.rs:22-42`):
 `StartStateInvalid` (no `detail` field) and `StartStateInCollision {
 detail, .. }`. The test's `match err { StartStateInCollision { detail, ..
 } => ... }` already pins the variant before either `.contains()` call
@@ -594,11 +594,11 @@ closed).
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `boundaries.rs:49` | `opened but never closed` | discriminating | roxmltree's own `UnclosedRootNode` message (verified against the vendored `roxmltree-0.21.1/src/parse.rs:254-255`: `"the root node was opened but never closed"`, generic, names no element) — not in the other guard's message |
-| `boundaries.rs:55` | `robot`, **fragile** | discriminating | not in roxmltree's message (verified: that message never names an element at all) today; flagged because `robot` is the XML root tag's own literal name and a future third `Error::Parse` site that echoes a tag name could collide — not fixed, no such site exists |
+| `crates/moveit-srdf/tests/boundaries.rs:49` | `opened but never closed` | discriminating | roxmltree's own `UnclosedRootNode` message (verified against the vendored `roxmltree-0.21.1/src/parse.rs:254-255`: `"the root node was opened but never closed"`, generic, names no element) — not in the other guard's message |
+| `crates/moveit-srdf/tests/boundaries.rs:55` | `robot`, **fragile** | discriminating | not in roxmltree's message (verified: that message never names an element at all) today; flagged because `robot` is the XML root tag's own literal name and a future third `Error::Parse` site that echoes a tag name could collide — not fixed, no such site exists |
 
 **`moveit-state/tests/jacobian.rs`** — subject `Posed::jacobian`
-(`state.rs:1121-1210`ish), three messages: `is_chain()` false → `the
+(`crates/moveit-state/src/state.rs:1121-1210`ish), three messages: `is_chain()` false → `the
 group '{}' is not a chain; cannot compute Jacobian`; tip-not-descendant →
 `link '{}' does not belong to the chain rooted by group '{}'`; unsupported
 per-joint-kind dispatch → `joint '{}' has unsupported type {} for
@@ -641,7 +641,7 @@ independent guard groups.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `trajectory.rs:1434` | `after integrateForward and integrateBackward` | discriminating | not in "the time step is <= 0.0" or "after the second integrateBackward pass" (the word order differs from this needle) |
+| `crates/moveit-trajectory/src/trajectory.rs:1434` | `after integrateForward and integrateBackward` | discriminating | not in "the time step is <= 0.0" or "after the second integrateBackward pass" (the word order differs from this needle) |
 | `:1440` | same | discriminating | same guard, second velocity-vector case |
 | `:1446` | same | discriminating | same guard, third case |
 | `:1473` | `the time step is <= 0.0` | discriminating | not in the other 2 |
@@ -651,21 +651,21 @@ two `Error::other` sites, in-code bite noted at `:502-504`.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `robot_trajectory.rs:514` | `duration_from_previous[0] must be 0.0` | discriminating | not in `index_error`'s message |
-| `robot_trajectory.rs:676` | `out of bounds` | discriminating | exact substring of `index_error`'s message only; not in `first_duration_error`'s or `empty_error`'s |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:514` | `duration_from_previous[0] must be 0.0` | discriminating | not in `index_error`'s message |
+| `crates/moveit-trajectory/tests/robot_trajectory.rs:676` | `out of bounds` | discriminating | exact substring of `index_error`'s message only; not in `first_duration_error`'s or `empty_error`'s |
 
 **`moveit-trajectory/tests/ruckig_smoothing.rs`** — `apply_smoothing`'s
 three `Error::other` sites, in-code noted at `:198-201`.
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `ruckig_smoothing.rs:204` | `did not set the group` | discriminating | not in "ruckig calculate failed: {error}" or the third (smoothing-result-failure) message |
+| `crates/moveit-trajectory/tests/ruckig_smoothing.rs:204` | `did not set the group` | discriminating | not in "ruckig calculate failed: {error}" or the third (smoothing-result-failure) message |
 
 ### Result: 0 blind sites, 3 fragile-but-currently-unique needles flagged, not fixed
 
 All 77 in-scope sites verdict `discriminating`. No needle collided with a
 sibling message under this round's reading. Three fragility notes are
-recorded above (`sampler.rs:121`, `boundaries.rs:55`,
+recorded above (`crates/moveit-constraints/tests/sampler.rs:121`, `crates/moveit-srdf/tests/boundaries.rs:55`,
 `time_optimal_trajectory_generation.rs:1421`) per the brief's instruction
 to flag rather than speculatively fix a needle that is unique today but
 could collide if a sibling message is reworded. No fixes, no commits for
@@ -714,7 +714,7 @@ output:
   `via:check_scenario` (`crates/moveit-distance-field/tests/oracle_parity.rs:296,304`)
   and `via:rows_to_string` (`crates/moveit-stomp-core/src/utils.rs:641,654`).
   Read their helper bodies (`oracle_parity.rs:264,279`,
-  `utils.rs:499`): `check_scenario` asserts `.is_none()`/`.is_some()`
+  `crates/moveit-stomp-core/src/utils.rs:499`): `check_scenario` asserts `.is_none()`/`.is_some()`
   on `actual.voxel`, `rows_to_string` asserts `!rows.is_empty()`.
   Neither renders or checks an error *message* — they are
   Option-presence and collection-emptiness checks, a different
@@ -725,7 +725,7 @@ output:
   65 + 12 = 77 with no double count between those two buckets (`kind`
   is either exactly `contains_msg` or starts with `via:`, never both).
   The reported 81 is 77 plus the 4 `helper_body` lines (`decide.rs:83`,
-  `oracle_parity.rs:264,279`, `utils.rs:499`) added back on top —
+  `oracle_parity.rs:264,279`, `crates/moveit-stomp-core/src/utils.rs:499`) added back on top —
   i.e., counted once as the kind they carry and a second time as
   `helper_body`, exactly the double-count the tool's own comment warns
   against ("exclude it from any count").
@@ -823,15 +823,15 @@ enumeration. One `helper_body` line excluded (`decide.rs:83`,
 |---|---|---|---|
 | `decide.rs:362,380,438,508,534,553,742,781` (`via:assert_err_mentions`) | yes | discriminating | round 11's sibling-message table, unchanged (same 8 call sites) |
 | `decide.rs:1161,1166` (`assert_eq!(..., None)` on `max_view_angle()`/`max_range_angle()`) | yes | discriminating | isolating mutation run this round: `normalize_angle_criterion`'s `.filter(\|v\| *v > EPS)` gate removed → `negative_target_radius_activates_...` and `zero_valued_criteria_normalize_to_unconstrained` both fail (2/100), no other test moves; `target_radius`'s own gate (`normalize_target_radius`, a different fn) is untouched and its sibling assertion in the same test stays green |
-| `decide.rs:1257` (`set.is_empty()`) | **no** | not-this-family | `KinematicConstraintSet::new()` is `Self::default()` (`set.rs:54-56`) — trivially empty by construction, clause 2 fails (nothing was decided) |
+| `decide.rs:1257` (`set.is_empty()`) | **no** | not-this-family | `KinematicConstraintSet::new()` is `Self::default()` (`crates/moveit-constraints/src/set.rs:54-56`) — trivially empty by construction, clause 2 fails (nothing was decided) |
 
 **`crates/moveit-model/src/joint/model.rs` (3)**
 
 | file:line | member? | verdict | evidence |
 |---|---|---|---|
-| `model.rs:946` (`local_variable_names().is_empty()`, single-variable joint) | yes | discriminating | cross-test sibling `multi_variable_joints_prefix_local_names_with_the_joint_name` shows 7 non-empty names for a floating joint |
-| `model.rs:975` (`variable_names().is_empty()`, fixed joint) | yes | discriminating | cross-test siblings show 1 name (revolute, `:944`) and 7 names (floating, `:948-955`) |
-| `model.rs:976` (`variable_bounds().is_empty()`, fixed joint) | yes | discriminating | cross-test siblings index `variable_bounds()[0]` directly at `:1008,1031,1074,1087,1105` — non-empty for every other joint kind tested |
+| `crates/moveit-model/src/joint/model.rs:946` (`local_variable_names().is_empty()`, single-variable joint) | yes | discriminating | cross-test sibling `multi_variable_joints_prefix_local_names_with_the_joint_name` shows 7 non-empty names for a floating joint |
+| `crates/moveit-model/src/joint/model.rs:975` (`variable_names().is_empty()`, fixed joint) | yes | discriminating | cross-test siblings show 1 name (revolute, `:944`) and 7 names (floating, `:948-955`) |
+| `crates/moveit-model/src/joint/model.rs:976` (`variable_bounds().is_empty()`, fixed joint) | yes | discriminating | cross-test siblings index `variable_bounds()[0]` directly at `:1008,1031,1074,1087,1105` — non-empty for every other joint kind tested |
 
 **`crates/moveit-model/src/mesh_search_paths.rs` (5)**
 
@@ -1143,8 +1143,8 @@ moveit-model visual_mesh --no-fail-fast`. Reverted; `git diff` on
 
 | site | subject | why not a funnel |
 |---|---|---|
-| `model.rs:946` (`local_variable_names().is_empty()`) | `JointModel::new_single_variable` | unconditional `Vec::new()` in one constructor body — every single-variable joint kind (revolute/prismatic/continuous) routes through this one function, not several guards |
-| `model.rs:975,976` (`variable_names`/`variable_bounds().is_empty()`) | `JointModel::new_fixed` | same shape, unconditional `Vec::new()`, one constructor |
+| `crates/moveit-model/src/joint/model.rs:946` (`local_variable_names().is_empty()`) | `JointModel::new_single_variable` | unconditional `Vec::new()` in one constructor body — every single-variable joint kind (revolute/prismatic/continuous) routes through this one function, not several guards |
+| `crates/moveit-model/src/joint/model.rs:975,976` (`variable_names`/`variable_bounds().is_empty()`) | `JointModel::new_fixed` | same shape, unconditional `Vec::new()`, one constructor |
 | `decide.rs:1161,1166` (`max_view_angle`/`max_range_angle`, bare `None`) | `normalize_angle_criterion` = `value.filter(\|v\| *v > EPS)` | one guard (`> EPS`); the other way to reach `None` is the input already being `None` (criterion unset), which is `Option` pass-through, not an independent application decision — same shape as `mesh_search_paths.rs:109`'s excluded single-branch case |
 | `robot_model.rs:2943` (`end_effector_parent()`, bare `None`) | field default, set only by `set_end_effector_parent` | reachable *only* by that call never happening (group never named as an `<end_effector>` `component_group`); `build_end_effectors`'s own 3-cause funnel (explicit-parent self-reference, explicit-parent lacking the link, no fallback candidate) produces `Some(EndEffectorParent{group: None, ..})`, a distinguishable payload, not this bare `None` — and is not itself one of the 53 sites (not an `eq_none`-shaped assertion) — line corrected round 17, was `:2885` |
 

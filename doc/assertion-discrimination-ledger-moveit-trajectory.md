@@ -75,15 +75,15 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 
 | file:line | anchor | test fn | verdict |
 |---|---|---|---|
-| `robot_trajectory.rs:836` | printed column check | `empty_trajectory_prints_the_upstream_placeholder` | not-this-family (clause 1) |
-| `robot_trajectory.rs:839` | same | same fn | not-this-family (clause 1) |
-| `robot_trajectory.rs:840` | same | same fn | not-this-family (clause 1) |
-| `robot_trajectory.rs:841` | same | same fn | not-this-family (clause 1) |
-| `robot_trajectory.rs:846` | same | `position_only_waypoints_omit_the_conditional_columns_and_use_the_group_variables` | not-this-family (clause 1) |
-| `robot_trajectory.rs:876` | same | `velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them` | not-this-family (clause 1) |
-| `robot_trajectory.rs:877` | same | same fn | not-this-family (clause 1) |
-| `robot_trajectory.rs:878` | same | same fn | not-this-family (clause 1) |
-| `robot_trajectory.rs:879` | same | same fn | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:836` | printed column check | `empty_trajectory_prints_the_upstream_placeholder` | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:839` | same | same fn | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:840` | same | same fn | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:841` | same | same fn | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:846` | same | `position_only_waypoints_omit_the_conditional_columns_and_use_the_group_variables` | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:876` | same | `velocity_acceleration_and_effort_columns_appear_when_the_waypoint_carries_them` | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:877` | same | same fn | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:878` | same | same fn | not-this-family (clause 1) |
+| `crates/moveit-trajectory/src/robot_trajectory.rs:879` | same | same fn | not-this-family (clause 1) |
 
 ## `time_optimal_trajectory_generation.rs` (7)
 
@@ -169,10 +169,10 @@ fails under the same mutation.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `trajectory.rs:1434` | `Trajectory::create`'s post-forward-loop `!traj.valid` guard, zero-accel-on-moving-joint fixture | `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory` | discriminating | bite: guard neutralized → `cargo nextest` hung, killed via `timeout 60`/`TaskStop`; treated as load-bearing confirmation, not inconclusive |
-| `trajectory.rs:1440` | same guard, mirror fixture | `upstream_test_irrelevant_zero_max_accelerations_dont_invalidate_trajectory` (sibling — stays green at baseline; this row is the paired positive-message-uniqueness check) | discriminating | same |
-| `trajectory.rs:1446` | same guard, `DISTINGUISHING_PHRASE` check | same fn as :1434 | discriminating | same |
-| `trajectory.rs:1473` | `Trajectory::create`'s `time_step <= 0.0` guard | `upstream_test_time_step_zero_makes_trajectory_invalid` | discriminating | bite: guard neutralized → hung, killed via `timeout 20`, same treatment |
+| `crates/moveit-trajectory/src/trajectory.rs:1434` | `Trajectory::create`'s post-forward-loop `!traj.valid` guard, zero-accel-on-moving-joint fixture | `upstream_test_relevant_zero_max_accelerations_invalidate_trajectory` | discriminating | bite: guard neutralized → `cargo nextest` hung, killed via `timeout 60`/`TaskStop`; treated as load-bearing confirmation, not inconclusive |
+| `crates/moveit-trajectory/src/trajectory.rs:1440` | same guard, mirror fixture | `upstream_test_irrelevant_zero_max_accelerations_dont_invalidate_trajectory` (sibling — stays green at baseline; this row is the paired positive-message-uniqueness check) | discriminating | same |
+| `crates/moveit-trajectory/src/trajectory.rs:1446` | same guard, `DISTINGUISHING_PHRASE` check | same fn as :1434 | discriminating | same |
+| `crates/moveit-trajectory/src/trajectory.rs:1473` | `Trajectory::create`'s `time_step <= 0.0` guard | `upstream_test_time_step_zero_makes_trajectory_invalid` | discriminating | bite: guard neutralized → hung, killed via `timeout 20`, same treatment |
 
 **Uncovered, still no verdict — `trajectory.rs`'s third `Error::construct`
 site** ("trajectory not valid after the second integrateBackward pass",
@@ -217,11 +217,11 @@ targeting this second one either, in a file exercising this algorithm's
 edge cases for years.
 
 Mechanism found: `integrate_backward`'s deceleration-branch
-(`min_max_path_acceleration(pos, vel, false)`, `trajectory.rs:751-766`)
+(`min_max_path_acceleration(pos, vel, false)`, `crates/moveit-trajectory/src/trajectory.rs:751-766`)
 has no velocity-ceiling check, unlike `integrate_forward`, which checks
 `path_vel > acceleration_max_path_velocity(path_pos) ||
 path_vel > velocity_max_path_velocity(path_pos)` on *every* step
-(`trajectory.rs:595-596`, not only at detected switching points) and
+(`crates/moveit-trajectory/src/trajectory.rs:595-596`, not only at detected switching points) and
 bisection-corrects immediately, routing the correction through the
 *first* `integrate_backward` call site instead. For the *second* call
 to hit `path_vel < 0.0` (`:711-714`) or exhaust the loop without an
