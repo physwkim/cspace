@@ -21915,7 +21915,7 @@ pr2 self, 실패 8상태. 여기서는 **포트가 고른 쌍만 남기고 나�
 
 - `:574` — `GLOBAL`에서 `dist_threshold = cdata->res->minimum_distance.distance`.
 - `:594` — `fcl_result.min_distance = dist_threshold`.
-- `:602` — `double distance = fcl::distance(o1, o2, ...)`.
+- `:603` — `double distance = fcl::distance(o1, o2, ...)`.
 - `:608` — `if (distance < dist_threshold)`가 부호 있는 거리 블록 **전체**를
   막는다.
 - `:636`~`:663` — 통과한 경우에만 `fcl::collide`(`num_max_contacts = 200`)를
