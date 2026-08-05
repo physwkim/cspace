@@ -18452,6 +18452,12 @@ end-to-end 시도는 하지 않았다 — 보낼 상대(서비스/액션 서버)
    `MoveGroupInterface` 클라이언트가 유효한 궤적을 받는다"는 원래
    문구 그대로의 종단 시도가 가능해진다.
 
+> **후속.** §235가 이 절의 다음 질문 — 조건이 도달 가능한지, 도달
+> 가능하다면 가장 작은 조각이 무엇인지 — 에 답한다. 결론: 도달
+> 가능하고, 위 5항목 중 무엇도 이 포트가 짓지 않기로 결정한 rclcpp
+> 런타임이 아니다. 전부 D2/D5/D6가 이미 짓기로 결정한 것이고, 아직
+> 안 지었을 뿐이다.
+
 ## §227 pilz의 `PlanningContext` CRTP 계층 다섯 파일 — 계산은 한 문장이고, 그 문장은 이미 트리에 있다
 
 `doc/port-coverage.md`가 `gap`으로 세던 `planning_context_base.hpp`와
@@ -19670,3 +19676,206 @@ ROS 그래프에서 받을 수 있는 곳이 없다.
 - `pilz-detailed-response-pushes-null-trajectory`의 등급을 바꾸지 않았다.
   호출자 0 실측은 그 항목의 도달 가능성 문단을 **더 강하게** 만들 뿐,
   결함 자체를 없애지 않는다.
+
+  이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+
+---
+
+## §235 Phase 9는 도달 가능하다 — 빠진 네 조각은 전부 신규 인프라이고, D2/D5/D6가 이미 짓기로 정한 것이다 (2026-08-06)
+
+§226이 Phase 9를 UNMET으로 확정하고 막힌 지점을 서버 쪽(서비스·액션·
+구독·노드 바이너리 부재)으로 좁혔다. 그 절이 멈춘 자리에서 다시
+시작한다: 조건이 **도달 가능한가**, 그리고 도달 가능하다면 **가장 작은
+조각**은 무엇인가.
+
+### §235.1 네 조각을 "만들 수 있는 것" 단위로 나눈다
+
+| 조각 | 와이어 타입 출처 | 이름/심볼 출처 | 핸들러 알고리즘 출처(상류) |
+|---|---|---|---|
+| 노드 진입점 (`fn main`, `r2r::Node`, `spin`) | 해당 없음 (런타임 부트스트랩, 메시지 타입이 아니다) | 해당 없음 | `moveit_ros/move_group/src/move_group.cpp`의 `main()` — 코퍼스 밖 |
+| `/plan_kinematic_path` 서비스 | `moveit_msgs::srv::GetMotionPlan` (`moveit_msgs`, 코퍼스 밖이지만 이미 r2r 바인딩으로 이 크레이트가 씀) | `PLANNER_SERVICE_NAME = "plan_kinematic_path"`, `moveit_ros/move_group/include/moveit/move_group/capability_names.hpp:43-44` — 코퍼스 밖 | `moveit_ros/move_group/src/default_capabilities/plan_service_capability.{hpp,cpp}` — 코퍼스 밖 |
+| `/move_action` 액션 서버 | `moveit_msgs::action::MoveGroup` (`moveit_msgs`, 코퍼스 밖) | `MOVE_ACTION = "move_action"`, 같은 `capability_names.hpp:52` — 코퍼스 밖 | `moveit_ros/move_group/src/default_capabilities/move_action_capability.{hpp,cpp}` — 코퍼스 밖 |
+| planning scene 토픽 구독 | `moveit_msgs::msg::PlanningScene` (`moveit_msgs`, 코퍼스 밖) | 토픽 이름은 `PlanningSceneMonitor` 생성자 인자(고정 문자열 아님) | `moveit_ros/planning/planning_scene_monitor/src/planning_scene_monitor.cpp:1205`(`create_subscription<moveit_msgs::msg::PlanningScene>`) — 코퍼스 밖 |
+
+네 근거 파일 전부 이 기계의 `/home/stevek/work/moveit2`에서 직접 읽고
+확인했다:
+
+```
+$ grep -n 'PLANNER_SERVICE_NAME\|MOVE_ACTION' \
+    moveit_ros/move_group/include/moveit/move_group/capability_names.hpp
+43:static const std::string PLANNER_SERVICE_NAME =
+44:    "plan_kinematic_path";
+52:static const std::string MOVE_ACTION = "move_action";
+$ grep -n 'create_subscription' \
+    moveit_ros/planning/planning_scene_monitor/src/planning_scene_monitor.cpp | head -1
+1205:    planning_scene_subscriber_ = pnode_->create_subscription<moveit_msgs::msg::PlanningScene>(
+```
+
+핵심 관찰: 네 조각 중 어느 것도 알고리즘을 새로 발명하지 않는다. 서비스와
+액션 핸들러가 실제로 하는 일 — 요청 변환 → 플래닝 파이프라인 호출 → 응답
+변환 — 은 이미 이 포트 안에 있다. `crates/moveit-planning/src/pipeline.rs:377`의
+`generate_plan`이 상류 `generatePlan`을 대신하고,
+`ros/moveit-ros/src/planning.rs:124`의
+`impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest`가 요청의
+msg→core 방향을, `:193`의 `impl TryFrom<PlanningRequest> for
+PlanningRequestMsgOut`이 core→msg 방향을 이미 담당한다. 빠진 것은 이
+셋을 리스너 콜백 하나로 잇는 배선(wiring)뿐이다.
+
+### §235.2 포트인가, 신규 인프라인가 — `doc/port-coverage.md`를 직접 확인했다
+
+가정하지 않고 `tools/ci/measure-port-coverage.py`의 `CORPUS_ROOTS`를
+읽었다:
+
+```
+$ sed -n '46,52p' tools/ci/measure-port-coverage.py
+CORPUS_ROOTS = [
+    "moveit_core",
+    "moveit_kinematics",
+    "moveit_planners/chomp",
+    "moveit_planners/stomp",
+    "moveit_planners/pilz_industrial_motion_planner",
+]
+```
+
+`moveit_ros`는 이 목록에 없다 — 코드로 확인한 사실이지, `doc/port-coverage.md`
+1절의 산문("moveit_ros | 413 | 77,463 | **범위 밖**")을 옮겨 적은 것이
+아니다. §235.1의 네 근거 파일(`move_group.cpp`, `plan_service_capability.*`,
+`move_action_capability.*`, `planning_scene_monitor.cpp`)은 전부
+`moveit_ros/*` 아래에 있다. 즉 **넷 다 코퍼스 밖**이고, `measure-port-coverage.py`가
+이 넷에 대해 `unported`/`gap`/`decided-non-port` 어느 판정도 내지
+않는다 — 판정 대상 집합에 처음부터 들어 있지 않기 때문이다.
+`doc/port-coverage.md`를 `rg`로 직접 확인했다:
+
+```
+$ rg -n 'move_group\.cpp|plan_service_capability|move_action_capability|planning_scene_monitor\.cpp' \
+    doc/port-coverage.md
+(no matches, exit 1)
+```
+
+**넷 다 `doc/port-coverage.md`에 행으로 owed되지 않는다.** 그렇다고
+"이 포트가 짓지 않기로 결정한 인프라"도 아니다 — 그 범주의 실례가 이미
+같은 표에 있고, 그것과 대조하면 차이가 분명해진다. `doc/port-coverage.md`의
+`move_group_sequence_action.hpp`/`move_group_sequence_service.hpp`
+행(pilz의 시퀀스 액션/서비스, `moveit_planners/pilz_industrial_motion_planner`
+아래라 **코퍼스 안**인데도 `decided-non-port`)은 "actionlib/rclcpp
+action and service servers wrapping the planner for move_group; nothing
+here computes a trajectory"라고 적는다 — 즉 이미 포팅된 계산을 감싸는
+rclcpp 래퍼는 **짓지 않기로 결정**했다는 뜻이고, 그 결정은 지금도
+유효하다(pilz 시퀀스 서비스는 Rust 쪽에 없고 필요하지도 않다 — Phase 9의
+완료 조건이 요구하는 것이 아니다).
+
+Phase 9의 네 조각은 형태만 같을 뿐(계산을 감싸는 rclcpp 스타일 래퍼)
+반대 결정을 받았다. 계획서 원본(2026-08-03, D5/D6가 생기기도 전) §5가
+이미 "`/plan_kinematic_path` 서비스, `/move_action` 액션 서버, planning
+scene 토픽 구독"을 Phase 9의 산출물로 이름 붙였고, Phase 9가 실제로
+열린 시점(§129.3, 2026-08-04)의 D6가 다시 확정한다:
+
+> moveit_msgs ↔ 코어 타입 변환, `/plan_kinematic_path` 서비스,
+> `/move_action` 액션 서버, planning scene 구독이 전부 `moveit-ros`
+> 안에 산다. 즉 ROS 없이 쓰는 경로가 기본이고 ROS 호환이 얹히는
+> 것이지, 그 반대가 아니다.
+
+이 문장은 "짓지 않는다"가 아니라 "어디에 짓는가"를 정한다 — pilz
+시퀀스 행이 짓지 않기로 결정한 것과 반대다. **분류: 넷 다 포트가 아니라
+신규 인프라이고, 넷 다 이미 짓기로 결정된 신규 인프라다.** 그래서
+넷 다 `doc/port-coverage.md`에 행으로 들어가지 않는다(코퍼스가 다루는
+"포팅/미포팅"의 대상이 아니다) — 대신 이 계획서(§5, §129.3, 그리고 이
+절)가 "예정된 미완료 작업"으로 계속 추적한다.
+
+### §235.3 부수로 정정한다 — `TryFrom` 개수는 24가 아니라 38이다
+
+§226.3의 anchor `rg -n '^impl TryFrom'`은 라이프타임 제네릭 impl
+(`impl<'m> TryFrom<...> for ...`)을 놓친다 — `impl TryFrom`으로
+시작하지 않고 `impl<'m> TryFrom`으로 시작하기 때문이다. 병합으로
+`ros/moveit-ros/src/state.rs`·`planning.rs`가 바뀌기도 했으므로, anchor를
+고쳐 이 라운드의 실제 상태를 다시 잰다:
+
+```
+$ rg -n '^impl(<[^>]*>)? TryFrom' ros/moveit-ros/src/*.rs ros/moveit-ros/src/**/*.rs | wc -l
+38
+$ rg -c '^impl(<[^>]*>)? TryFrom' ros/moveit-ros/src/*.rs ros/moveit-ros/src/**/*.rs | grep -v ':0'
+ros/moveit-ros/src/constraints/set.rs:2
+ros/moveit-ros/src/geometry.rs:9
+ros/moveit-ros/src/constraints/visibility.rs:4
+ros/moveit-ros/src/model.rs:2
+ros/moveit-ros/src/planning.rs:6
+ros/moveit-ros/src/scene/collision_object.rs:1
+ros/moveit-ros/src/state.rs:2
+ros/moveit-ros/src/scene/shapes.rs:3
+ros/moveit-ros/src/trajectory.rs:2
+ros/moveit-ros/src/constraints/joint.rs:2
+ros/moveit-ros/src/constraints/orientation.rs:2
+ros/moveit-ros/src/constraints/position.rs:3
+```
+
+**38개, §226.3의 24는 anchor 결함으로 인한 저수였다.** `planning.rs` 6개
+중 서비스 배선에 바로 쓰이는 둘: `:124`
+`impl<'m> TryFrom<PlanningRequestMsg<'m>> for PlanningRequest`(요청의
+msg→core 방향)와 `:193` `impl TryFrom<PlanningRequest> for
+PlanningRequestMsgOut`(응답 아님 — 요청의 core→msg 방향;
+응답 변환은 `:239`/`:302`가 따로 담당). 살아있는 통신 프리미티브
+부재는 이번에도 재확인했다 — 병합 전과 결과 동일:
+
+```
+$ rg -n 'create_service|create_action_server|ActionServer|create_subscription|create_client|r2r::Node|Node::create|fn main' \
+    ros/moveit-ros/src/ -t rust
+(no matches, exit 1)
+$ grep -n '\[\[bin\]\]' ros/moveit-ros/Cargo.toml
+(no matches)
+```
+
+### §235.4 결론 — 조건은 이 포트가 짓지 않기로 결정한 rclcpp 런타임을 요구하지 않는다
+
+세 갈래 중 사용자가 제시한 세 번째("rclcpp 런타임을 요구하고 이 포트가
+짓지 않기로 결정했다면 미도달로 §5에 적는다")는 **성립하지 않는다.**
+D5(§129.2)가 격리한 위치에, D6(§129.3)가 명시적으로 네 조각 전부의
+소재를 `moveit-ros`로 정했고, 원본 §5(2026-08-03)도 이미 같은 넷을
+Phase 9의 산출물로 적었다. §235.2가 대조로 보였듯, 이 포트가 "짓지
+않기로 결정한" rclcpp 래퍼의 실례(pilz 시퀀스 액션/서비스)는 따로
+있고 그 결정문은 Phase 9와 다른 조건에 붙는다. Phase 9의 네 조각은
+그 범주가 아니다 — **미도달의 원인은 결정이 아니라 미착수다.**
+
+**조건은 도달 가능하다.** §5의 완료 조건 문구를 정정하거나 "미도달"로
+동결할 근거가 없으므로 그렇게 하지 않는다.
+
+### §235.5 순서와 첫 종단 측정을 여는 가장 작은 조각
+
+§226.4의 5항목을 우선순위로 다시 정렬한다 — 기준은 "무엇이 다음 조각의
+전제조건인가"와 "무엇이 가장 적은 배선으로 첫 실측을 낳는가"다.
+
+1. **노드 진입점.** `ros/moveit-ros`에 `[[bin]]` + `fn main`, `r2r::Node`
+   생성, `spin`. 다른 어떤 조각도 이것 없이는 등록될 자리가 없다 —
+   순서 1은 고정이다.
+2. **`/plan_kinematic_path` 서비스.** `r2r::Node::create_service::<GetMotionPlan::Service>()`로
+   등록하고, 요청을 `planning.rs:124`의 기존 `TryFrom`으로
+   변환 → `pipeline.rs:377`의 기존 `generate_plan` 호출 → 응답을
+   `planning.rs:239`의 기존 `TryFrom`으로 변환 → 회신. **이 조각을
+   1과 함께 지으면 첫 종단 측정이 열린다** — 서비스는 동기 단발
+   RPC라 액션의 goal/feedback/cancel 상태 기계가 필요 없고,
+   요청 자체에 `start_state`를 (diff 아닌 완전 지정으로) 채워 보내는
+   호출자라면 4번(라이브 planning scene 구독)도 아직 없이 유효한
+   응답을 받을 수 있다. 다만 이렇게 얻는 측정은 "코드 변경 없는 기존
+   `MoveGroupInterface` 클라이언트"보다 **좁다** — 원시 서비스 호출
+   (`ros2 service call` 또는 그 타입만 링크한 최소 C++ 클라이언트)이지
+   `MoveGroupInterface` 클래스 자체가 아니다. 그 좁음을 좁다고 표시하고
+   넘어간다: 조건 문구 그대로를 재려면 5번(이미지 작업)까지 필요하다.
+3. **`/move_action` 액션 서버.** r2r의 액션 서버 API(goal/feedback/
+   cancel/result)가 서비스보다 상태 기계가 하나 더 있다. 변환·플래닝
+   호출은 2와 동일한 기존 코드를 재사용한다.
+4. **planning scene 토픽 구독.** `scene/planning_scene.rs`의 기존
+   변환을 살아있는 `/planning_scene` 구독 콜백에 연결한다. 이것 없이도
+   2가 첫 측정을 열지만, `start_state.is_diff = true`로 "현재 상태
+   사용"을 보내는 통상적인 `MoveGroupInterface` 호출은 이 조각 없이는
+   틀린 답을 받거나 거부당한다 — 조건 문구의 "코드 변경 없이"를
+   만족하려면 결국 필요하다.
+5. **이미지 작업.** §226.2가 잰 C++ `MoveGroupInterface` 빌드(3패키지,
+   1분 18초)는 오라클 이미지 계열에서 한 것이고, 게이트가 쓰는
+   `ros-dev` 이미지에는 `moveit2` C++ 스택이 없다. 1~4가 다 갖춰져도
+   실제 `MoveGroupInterface` 클라이언트를 이 기계에서 빌드·실행할
+   이미지가 없으면 조건 문구 그대로의 시도 자체가 불가능하다.
+
+**가장 작은 조각: 1 + 2.** 서비스 하나가 "요청 변환 → 실 플래너 →
+응답 변환 → 와이어"라는 조건의 핵심 사슬을 끝에서 끝까지 처음
+증명하는 지점이고, 액션 상태 기계·라이브 구독·이미지 작업 없이
+도달한다. 이 절은 코드를 쓰지 않았다 — 위 다섯은 순서와 근거이지
+구현이 아니다.
