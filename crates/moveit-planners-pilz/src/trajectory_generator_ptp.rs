@@ -439,6 +439,15 @@ mod tests {
     /// -c 'Error::' trajectory_generator_ptp.rs` restricted to the function
     /// body: 6), so a bare `.is_err()` cannot say which fired. Checked on
     /// the message against its sibling guards below (message-swap bite).
+    ///
+    /// Live bite: neutralizing this guard (`if false && !has_joint_limits`)
+    /// on this fixture (empty `LimitsContainer`) falls through to
+    /// `common_limit_for` on an empty joint-limits container, which fails
+    /// its own way -- the assertion here correctly FAILS with "construction
+    /// failed: failed to compute common limit" while
+    /// `constructor_rejects_unknown_group` and
+    /// `constructor_rejects_a_group_missing_an_acceleration_limit` (whose
+    /// fixtures never reach this guard) stay GREEN. Mutation reverted.
     #[test]
     fn constructor_rejects_missing_joint_limits() {
         let (model, _) = load_panda();
