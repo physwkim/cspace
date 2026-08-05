@@ -742,3 +742,124 @@ fn through_waypoints_accumulates_per_segment_and_drops_the_seam() {
         "the seam state belongs to both segments and must appear once"
     );
 }
+
+/// The path parameter of the first interval on the 0.10 m / 0.01-step
+/// fixture: `floor(0.10 / 0.01) + 1 == 11` steps, so `width == 1/11`. It
+/// is the exact value `max_resolution` is compared against on the first
+/// bisection decision, which is why both tests below straddle it rather
+/// than picking a round number near it.
+const FIRST_INTERVAL_WIDTH: f64 = 1.0 / 11.0;
+
+/// A translational precision the fixture's first interval cannot meet at
+/// full width but does meet at half width. Measured by scanning: at
+/// `1e-4` the full-width interval is already accepted (12 states, no
+/// bisection at all), and at `1e-6` one bisection is not enough either.
+/// `1e-5` is the only decade that separates the two sides of the
+/// `max_resolution` gate on this fixture.
+const ONE_BISECTION_TRANSLATIONAL: f64 = 1e-5;
+
+#[test]
+fn an_interval_at_max_resolution_is_rejected_rather_than_bisected() {
+    // Both sides run the identical path, identical solver and identical
+    // `translational` precision; the *only* difference is whether
+    // `max_resolution` sits above or below `FIRST_INTERVAL_WIDTH`. So
+    // nothing but the `width < max_resolution` gate can explain the
+    // difference in outcome.
+    let fixture = Fixture::new();
+    let start = fixture.start();
+    let target = translated(&tip_pose(&start, &fixture.tip), 0.10);
+
+    let run = |max_resolution: f64| {
+        let mut config =
+            CartesianInterpolator::new("panda_arm", &fixture.tip, MaxEefStep::from_step_size(0.01));
+        config.precision = moveit_kinematics::CartesianPrecision {
+            translational: ONE_BISECTION_TRANSLATIONAL,
+            // Rotation is taken out of the decision: this is a pure
+            // translation, and a rotational bound that can also fail would
+            // make the failing side ambiguous about which check rejected.
+            rotational: 1.0,
+            max_resolution,
+        };
+        let (path, fraction) = config
+            .to_pose(
+                &start,
+                &mut solver(&fixture.model),
+                &target,
+                &mut SolveOptions::default(),
+            )
+            .expect("the walk itself must succeed; only the interval is rejected");
+        (path.len(), fraction.value())
+    };
+
+    // Above the width: the interval fails the deviation check and is not
+    // allowed to bisect, so the walk stops before its first waypoint.
+    assert_eq!(
+        run(FIRST_INTERVAL_WIDTH * 1.0001),
+        (1, 0.0),
+        "a `max_resolution` above the interval width must reject at the first interval, \
+         leaving only the start state and a zero fraction"
+    );
+
+    // Below the width: the same interval bisects once, both halves are
+    // accepted, and every one of the 11 intervals does the same -- 12
+    // waypoints plus their 11 midpoints.
+    assert_eq!(
+        run(FIRST_INTERVAL_WIDTH * 0.9999),
+        (23, 1.0),
+        "a `max_resolution` below the interval width must bisect and reach the target"
+    );
+}
+
+/// The fraction the deep-bisection case stops at: the port halves the
+/// interval twelve times before its leftmost leaf is accepted, and
+/// `1/11 / 4096` is that leaf's path parameter. The equality below is
+/// exact, not approximate: `half_width` is only ever produced by halving,
+/// which is exact in binary, and `percentage - half_width` on the leftmost
+/// branch is a Sterbenz subtraction of a value from twice itself, also
+/// exact. Measured `2.21946022727272733e-5` against a computed
+/// `2.21946022727272733e-5`.
+const DEEPEST_ACCEPTED_LEAF: f64 = FIRST_INTERVAL_WIDTH / 4096.0;
+
+#[test]
+fn a_rejected_path_keeps_the_fraction_its_deepest_accepted_leaf_reached() {
+    // `translational` here is tight enough that no interval survives to
+    // full width, but the recursion still accepts one leaf twelve levels
+    // down before its sibling runs out of resolution. That makes this the
+    // case that separates the two candidate owners of the reported
+    // fraction: the *accepted leaf* (correct) writes `1/11 / 4096`, while
+    // any write made on entry to an interval -- upstream's in/out
+    // `double& percentage` -- would report the enclosing interval's `1/11`
+    // instead, four thousand times larger.
+    let fixture = Fixture::new();
+    let start = fixture.start();
+    let target = translated(&tip_pose(&start, &fixture.tip), 0.10);
+
+    let mut config =
+        CartesianInterpolator::new("panda_arm", &fixture.tip, MaxEefStep::from_step_size(0.01));
+    config.precision = moveit_kinematics::CartesianPrecision {
+        translational: 1e-8,
+        rotational: 1.0,
+        max_resolution: 1e-5,
+    };
+
+    let (path, fraction) = config
+        .to_pose(
+            &start,
+            &mut solver(&fixture.model),
+            &target,
+            &mut SolveOptions::default(),
+        )
+        .expect("the walk itself must succeed; only the interval is rejected");
+
+    assert_eq!(
+        fraction.value(),
+        DEEPEST_ACCEPTED_LEAF,
+        "the reported fraction must be the accepted leaf's path parameter, \
+         not the rejected interval's"
+    );
+    assert_eq!(
+        path.len(),
+        2,
+        "the accepted leaf's state must be kept even though the path as a whole failed"
+    );
+}
