@@ -281,7 +281,7 @@ pub struct PathValidity {
 ///   id-only overload already delegates to the explicit-state one against
 ///   `getCurrentState()` (`planning_scene.cpp:2019`/`:2036`). Its third
 ///   tier, `getTransforms().Transforms::getTransform(frame_id)`
-///   (`:2050`), is now [`PlanningScene::frame_transform`]'s own tier 6 --
+///   (`:2053`), is now [`PlanningScene::frame_transform`]'s own tier 6 --
 ///   see that method's doc for how the non-recursion upstream's explicit
 ///   `Transforms::` qualifier enforces is reproduced structurally here.
 /// - `knowsFrameTransform` (id-only, and explicit-state) — ported as
@@ -1292,7 +1292,7 @@ impl<'m> PlanningScene<'m> {
     ///
     /// Tier 6 closes the "no extra-fixed-frame tier" deviation §59.1/§59.2
     /// found: upstream falls through to `Transforms::getTransform`
-    /// (`planning_scene.cpp:2050`, the base class -- not the
+    /// (`planning_scene.cpp:2053`, the base class -- not the
     /// `SceneTransforms::getTransform` override tiers 3-4 above delegate to)
     /// as a final resort, and [`moveit_geometry::Transforms`] already ported
     /// that exact base class (`crates/moveit-geometry/src/transforms.rs`,
@@ -2910,7 +2910,7 @@ mod tests {
         // strictly before tier 6 (the extra-fixed-frame map) in the ladder,
         // matching upstream's order (`state.getFrameTransform` before
         // `getTransforms().Transforms::getTransform`,
-        // `planning_scene.cpp:2036`/`:2050`).
+        // `planning_scene.cpp:2036`/`:2053`).
         let model = build_model();
         let mut scene = PlanningScene::new(&model, &srdf());
         scene
