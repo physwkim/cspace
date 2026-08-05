@@ -1112,6 +1112,42 @@ mod tests {
         );
     }
 
+    /// `compute_link_fk` has three `None`-producing paths collapsing to the
+    /// identical value: the `knows_frame_transform` guard above,
+    /// `set_variable_positions_by_name`'s `?`, and `frame_transform`'s own
+    /// failure. Isolating mutation: neutralizing the `knows_frame_transform`
+    /// guard alone (`if false && !robot_state.knows_frame_transform(..)`)
+    /// leaves `compute_link_fk_resolves_a_known_link_and_rejects_an_unknown_
+    /// one` green, because `"no_such_link"` independently fails
+    /// `frame_transform` too. `RobotState::knows_frame_transform`
+    /// (`has_link_model` alone) and `RobotState::frame_transform`
+    /// (`has_link_model` OR `frame_id == model_frame`) can only disagree in
+    /// the one case `moveit-state/src/state.rs:825` documents: a model
+    /// whose model frame is not itself a link name. The panda fixture's
+    /// model frame is `panda_link0` (a real link, via the no-virtual-joint
+    /// `ASSUMED_FIXED_ROOT_JOINT` fallback), so it cannot exhibit this --
+    /// this test builds a synthetic floating-virtual-joint SRDF whose model
+    /// frame (`"world"`) is not a link, to force the two paths apart.
+    #[test]
+    fn compute_link_fk_rejects_the_bare_model_frame_when_it_is_not_a_link_name() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
+        let urdf_xml = fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+        let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
+        let srdf = SrdfModel::parse_str(
+            r#"<robot name="panda"><virtual_joint name="v" type="floating" parent_frame="world" child_link="panda_link0"/></robot>"#,
+        )
+        .expect("synthetic SRDF must parse");
+        let model =
+            RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
+                .expect("synthetic model must build");
+        assert_eq!(model.model_frame(), "world");
+
+        let mut state = RobotState::new(&model);
+        state.set_to_default_values();
+        let joint_state = ready_positions();
+        assert_eq!(compute_link_fk(&mut state, "world", &joint_state), None);
+    }
+
     // -- compute_pose_ik: round-trip converges; self-collision rejects the
     // known-colliding all-zero panda configuration --
 
