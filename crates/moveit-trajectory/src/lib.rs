@@ -106,9 +106,10 @@
 //!     [`Path::length`]/[`Path::config`]/[`Path::tangent`]/[`Path::curvature`].
 //!   - `getNextSwitchingPoint`/`getSwitchingPoints` — ported as
 //!     `Path::next_switching_point`/`Path::switching_points`, both
-//!     `pub(crate)` rather than `pub`: [`crate::trajectory::Trajectory::create`]
+//!     `pub(crate)` rather than `pub`: `Trajectory::next_acceleration_switching_point`
 //!     is the only caller anywhere in this crate, same as upstream (only
-//!     `Trajectory::getNextSwitchingPoint` calls the `Path` equivalent), so
+//!     `Trajectory::getNextAccelerationSwitchingPoint` calls the `Path`
+//!     equivalent, at `time_optimal_trajectory_generation.cpp:476`), so
 //!     nothing needs the wider surface — narrower than upstream's fully
 //!     public method, not a gap.
 //!   - Default constructor (private upstream, "use `create` instead") — no
