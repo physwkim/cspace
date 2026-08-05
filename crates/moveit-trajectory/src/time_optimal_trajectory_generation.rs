@@ -1428,8 +1428,17 @@ mod tests {
     /// bounds-checked, unlike a `RobotModel`-derived fallback (cpp:1069-1074/
     /// 1103-1108 vs. cpp:1076-1088/1110-1122; see the module-level
     /// "Deviations from upstream" note). A `0.0` custom acceleration limit
-    /// must not surface the "invalid max_acceleration" error this module
-    /// raises only for the model-bounds-fallback branch.
+    /// must actually reach `Trajectory::create` as `0.0` — not merely avoid
+    /// the model-bounds-fallback branch's own "invalid max_acceleration"
+    /// message, which `panda()`'s URDF-loaded bounds never set
+    /// `acceleration_bounded` for anyway (see `totg_compute_time_stamps_
+    /// silently_collapses_duplicate_waypoints_matching_upstream`'s
+    /// `joint_model_mut` workaround), so that branch's absence proves
+    /// nothing here. Asserting on the `Trajectory::create` failure's own
+    /// distinguishing phrase instead (bite-confirmed: neutralizing the
+    /// custom-limit-applied flag alone changes the error to "no
+    /// acceleration limit was defined" and this assertion still passed
+    /// against the old negative check).
     #[test]
     fn a_zero_custom_limit_skips_bound_validation() {
         let model = panda();
@@ -1462,14 +1471,17 @@ mod tests {
         // waypoints (panda_joint1 does) still fails downstream, inside
         // `Trajectory::create` — matching upstream's own
         // `testRelevantZeroMaxAccelerationsInvalidateTrajectory` (already ported
-        // in round 3). The point of this test is which error it fails *with*:
-        // never the bounds-fallback "invalid max_acceleration" this module raises
-        // itself, since a custom-supplied limit skips that validation entirely.
+        // in round 3). Assert on `Trajectory::create`'s own distinguishing
+        // phrase, not on the absence of the model-bounds-fallback branch's
+        // message: that branch is unreachable for this fixture regardless of
+        // whether the custom limit was actually applied (see the doc comment
+        // above), so its absence cannot prove the custom `0.0` was used.
+        const DISTINGUISHING_PHRASE: &str = "after integrateForward and integrateBackward";
         let err = result.expect_err("a zero acceleration limit on a moving joint is invalid");
         let message = err.to_string();
         assert!(
-            !message.contains("invalid max_acceleration"),
-            "a custom limit must never hit the bounds-fallback validation branch: {message}"
+            message.contains(DISTINGUISHING_PHRASE),
+            "a custom zero acceleration limit must actually reach Trajectory::create: {message}"
         );
     }
 

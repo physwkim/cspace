@@ -648,8 +648,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "upstream's toString(vector<VectorXd>) calls data.front()")]
     fn rows_to_string_panics_instead_of_replicating_ub_on_empty_input() {
+        // A bare `#[should_panic]` cannot tell this named guard's panic
+        // apart from the raw index-out-of-bounds panic `rows[0].len()`
+        // would raise on its own if the guard were deleted (bite-checked:
+        // neutralizing the guard left this test green, panicking on the
+        // indexing instead). The `expected` substring pins the guard's own
+        // message.
         let rows: Vec<DVector<f64>> = Vec::new();
         let _ = rows_to_string(&rows);
     }

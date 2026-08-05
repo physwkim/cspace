@@ -808,20 +808,20 @@ No fix needed for moveit-kinematics.
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
 | `multivariate_gaussian.rs:213` (`positive_definite_covariance_constructs`) | is_some | in-family | the sole `is_some` case in a suite of 5 boundary tests, each a distinct negative (`is_none`) case: mismatched dims, non-square, indefinite, zero/PSD-not-PD |
-| `moveit-test-support/src/lib.rs:76` (`assert_group_has_updated_links`) | is_empty | in-family | single-decision fixture guard, one message, called from other crates' `#[cfg(test)]` fixture builders; no ambiguity to resolve |
+| `moveit-test-support/src/lib.rs:76` (`assert_group_has_updated_links`) | is_empty | **not-this-family** (corrected below) | fixture-precondition helper called before the calling crate's real subject; see the clause-3 re-audit table |
 
 ### tools/moveit-diff (8 sites)
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `main.rs:2446` | is_empty | in-family | precondition guard ("this diagnostic must have something to check"), `#[ignore]`d pr2-mesh integration test |
+| `main.rs:2446` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
 | `main.rs:2534` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
 | `harness.rs:60` | contains | in-family | unique stdout line |
 | `harness.rs:64` | contains | in-family | unique stdout line |
 | `harness.rs:83` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
 | `harness.rs:101` | contains | in-family | same text as 83, different invocation (`--stats-json`) — the test's real check is the JSON body that follows; this is a stdout-not-corrupted sanity check |
-| `harness.rs:138` | contains | in-family | loop over 5 forbidden legacy spellings, static-content guard on `fake-oracle.py` itself |
-| `harness.rs:144` | contains | in-family | positive control paired with 138, preventing a vacuous pass if the type section were deleted |
+| `harness.rs:138` | contains | **not-this-family** (corrected below) | asserts on `fake-oracle.py`'s own file text, read by the test via `std::fs::read_to_string`; no crate code runs before it — see the clause-3 re-audit table |
+| `harness.rs:144` | contains | **not-this-family** (corrected below) | same file read, positive-control sibling of 138 |
 
 No fix needed for tools/moveit-diff.
 
@@ -839,16 +839,110 @@ No fix needed for tools/moveit-diff.
 
 No fix needed for the 7 stranded sites.
 
-### Round 3 summary
+### Round 3 clause-3 re-audit (operational test, all 37)
 
-37 sites reviewed (30 fenced + 7 stranded), all independently
-re-derived and confirmed against the given counts. One genuine blind
-site found and fixed: `ruckig_filter.rs`'s `do_smoothing` folded
-OR-guard (commit `b2b5e86`). One site required a live cross-crate bite
-to resolve rather than in-file structural reading
-(`chain.rs:676`) — confirmed in-family, no fix. All others resolved by
-direct source read (unique substrings, paired positive/negative
-branches, or explicit anti-vacuous-pass guards already in place).
+The original pass above used "explicit anti-vacuous-pass guards already
+present" as a reason to keep sites in-family. That reasoning is inverted:
+an anti-vacuous guard is itself a precondition on the fixture, which is
+exactly the shape census §9 clause 3 excludes. Re-applied clause 3's own
+operational test to all 37 sites, not the four already flagged: *identify
+the function this TEST's own name/doc claims to verify (its subject);
+then ask — if you deleted the call to that specific function, would this
+assertion's outcome be unaffected?* If yes, not-this-family.
+
+Two settled precedents from `doc/assertion-discrimination-census.md` §9
+anchor this pass:
+
+- **The `fs::read`/`trajectory.group()` shape (not-this-family):** the
+  checked value comes from a call the test performs directly (a std
+  function, or a getter on an object built by a *different* function than
+  the one the test's own name names as subject), with no subject-side
+  decision in between.
+- **The `mimic().is_none()` shape (in-family):** a getter reading a field
+  that the subject's *own* call, invoked earlier in this same test,
+  computed or mutated — "a getter reading a field the subject mutated is
+  exactly as much a member as a guard the subject evaluates directly."
+
+| Site | Test's own subject | Delete-the-call test | Verdict |
+|---|---|---|---|
+| `acceleration_filter.rs:466` | `joint_acceleration_bounds` | `err` is `joint_acceleration_bounds(...).unwrap_err()` directly; delete that call and the assertion has nothing to inspect | in-family |
+| `acceleration_filter.rs:525` | `joint_acceleration_bounds` | same shape — `message` comes straight from `joint_acceleration_bounds(...).unwrap_err()` | in-family |
+| `acceleration_filter.rs:542` | `do_smoothing` | `err` is `filter.do_smoothing(...).unwrap_err()` directly | in-family |
+| `butterworth.rs:153` | `ButterworthFilter::new` | `new` is simultaneously the construction *and* the decision (no separate arrange-function to defer to); `err` is its direct return | in-family |
+| `butterworth.rs:162` | `ButterworthFilter::new` | same | in-family |
+| `butterworth.rs:172` | `ButterworthFilter::new` | same | in-family |
+| `butterworth.rs:183` | `ButterworthFilter::new` | same (distinct boundary of the same branch as 172) | in-family |
+| `butterworth.rs:200` | `ButterworthFilter::new` | same | in-family |
+| `ruckig_filter.rs:388` | `joint_vel_accel_jerk_bounds` | `err` is its direct return | in-family |
+| `ruckig_filter.rs:465` | `joint_vel_accel_jerk_bounds` | same | in-family |
+| `ruckig_filter.rs:539,552,565,578` (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family |
+| `cart_to_jnt.rs:550` | `search_position_ik` | `solution` is its direct return; the trivial seed==target fixture still exercises `search_position_ik`'s own written tolerance comparison (unlike the census's `shortest_solution`-on-empty-input clause-2 failure, where the comparison never runs at all) | in-family |
+| `cart_to_jnt.rs:644` | `search_position_ik` | `solution` is its direct return, paired in the same test with an `is_none()` tight-limit case exercising the same guard's other branch | in-family |
+| `cart_to_jnt.rs:707` | `search_position_ik` | `solution` is its direct return, paired with an `is_none()` always-rejecting-callback case and call-count assertions on both | in-family |
+| `chain.rs:469` | `ChainInfo::build` | `err` is its direct return | in-family |
+| `chain.rs:512` | `ChainInfo::build` | `err` is its direct return | in-family |
+| `chain.rs:558` | `ChainInfo::build` | `err` is its direct return | in-family |
+| `chain.rs:676` | `ChainInfo::build` | `chain.root_link_index` is a field `build` itself computes and *also* uses, in the same match expression, to derive `base_frame` — there is no separate "arrange" function here the way `RobotTrajectory::new` is separate from `apply_smoothing`; `build` is both construction and decision in one call. Confirmed further by this round's live cross-crate bite (forcing `root_link_index` to always `None` failed `ik_fk_roundtrip.rs`'s pr2 tests) | in-family |
+| `registry.rs:254` | the crate's own solver registry (`KINEMATICS_SOLVERS`) | no function call to delete — the "subject" is each solver module's own `#[distributed_slice(KINEMATICS_SOLVERS)]` declaration; deleting one (e.g. `lma`'s) directly flips this assertion. Closest call in this population: it is a static aggregate, not a runtime branch, but per this crate's own documented history (`distributed_slice ordering is not a contract` — a dependency-graph change once silently flipped which solver `pilz` resolved), membership here is genuine, non-tautological production behavior a change could break | in-family, argued rather than assumed |
+| `ik_fk_roundtrip.rs:267` | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
+| `multivariate_gaussian.rs:213` | `MultivariateGaussian::new` | checked inline on the constructor's own return, no intermediate object | in-family |
+| `moveit-test-support/src/lib.rs:76` | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `ruckig_smoothing.rs:199`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
+| `main.rs:2446` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2534) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
+| `main.rs:2534` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
+| `harness.rs:60` | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
+| `harness.rs:64` | same | same | in-family |
+| `harness.rs:83` | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
+| `harness.rs:101` | same | same output, different invocation (`--stats-json`); confirms the flag doesn't corrupt the human-readable summary the JSON assertions that follow depend on being unaffected | in-family |
+| `harness.rs:138` | *(no crate subject runs in this test at all)* | `fake` is `std::fs::read_to_string("fake-oracle.py")`, called by the test itself. No `moveit-diff` code runs before this assertion — the exact `fs::read` shape census §9 names verbatim | **not-this-family** (moved) |
+| `harness.rs:144` | same | same — positive-control sibling of 138, same file read | **not-this-family** (moved) |
+| `sampler.rs:78` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
+| `sampler.rs:120` | `JointConstraintSampler::new` | `err` is its direct return | in-family |
+| `sampler.rs:194` | `JointConstraintSampler::sample` | `v` is `state.variable_position(name)`, read back after `sampler.sample(&mut state, &mut rng)` wrote it this same iteration — the `mimic().is_none()` shape exactly: a getter on state the subject just mutated | in-family |
+| `sampler.rs:200` | `JointConstraintSampler::sample` | same shape, same iteration | in-family |
+| `utils_parity.rs:580` | `update_orientation_constraint` | `set` is passed `&mut` into `update_orientation_constraint`; `set.is_empty()` reads back whether that call pushed into it — the subject's own side effect, not a value the test constructed independently | in-family |
+| `utils_parity.rs:602` | `update_position_constraint` | same shape | in-family |
+| `utils_parity.rs:698` | `merge_constraints` | `merged` is its direct return | in-family |
+
+### Round 3 summary (corrected)
+
+37 sites re-derived and re-audited against clause 3's operational test.
+**33 in-family, 4 not-this-family** — a correction from the original
+pass's 37/0, which used "an anti-vacuous guard is present" as a reason to
+keep a site in-family; that reasoning had the clause backwards. The four
+moved:
+
+- `moveit-test-support/src/lib.rs:76` — fixture-precondition helper,
+  same shape as the census's own `ruckig_smoothing.rs:199` precedent.
+- `tools/moveit-diff/src/main.rs:2446` — its own message names it a
+  precondition ("for this diagnostic to mean anything").
+- `tools/moveit-diff/tests/harness.rs:138,144` — assert on
+  `fake-oracle.py`'s file text, read by the test itself; no crate code
+  runs before either assertion, the census's `fs::read` shape verbatim.
+
+The remaining 33 survive because, in this population, the flagged
+assertion's value overwhelmingly comes either directly from unwrapping
+the named subject's own `Result`/`Option` return (the majority shape —
+`X::new(...).unwrap_err()` or `subject_fn(...).unwrap_err()`, where
+construction and decision are the same call, so there is no separate
+arrange-function to defer to), or from a getter reading state the
+subject's own call just mutated in the same test (the `mimic().is_none()`
+precedent — `sampler.rs:194/200`, `utils_parity.rs:580/602`). One site,
+`registry.rs:254`, is argued rather than assumed: it has no function call
+to delete, but its "subject" (each solver's own `#[distributed_slice]`
+registration) is genuine, breakable production behavior, not a
+tautological restatement of source text. `chain.rs:676` is confirmed
+doubly: the operational test alone puts it in-family (`build` is the only
+call, and it's simultaneously construction and decision), and this
+round's live cross-crate bite independently confirmed the `Some(...)`
+branch is discriminated, just not by any single in-file assertion.
+
+No verdict change implies a source fix — the four moved sites were never
+claimed blind, they are removed from the family entirely, so there is
+nothing to isolate. **Corrected in-family count for this round: 33.**
+
+One genuine blind site was found and fixed independently of this
+re-audit: `ruckig_filter.rs`'s `do_smoothing` folded OR-guard (commit
+`b2b5e86`), in-family under both the original and corrected reasoning.
 
 ## UNFIXED
 
