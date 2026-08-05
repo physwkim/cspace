@@ -2516,7 +2516,11 @@ mod tests {
         let urdf = link_with_geometry_urdf(
             r#"<collision><geometry><box size="-1 1 1"/></geometry></collision>"#,
         );
-        assert!(build(&urdf, FIXED_BASE_SRDF).is_err());
+        let err = build(&urdf, FIXED_BASE_SRDF).unwrap_err();
+        assert!(
+            err.to_string().contains("Box dimensions"),
+            "expected the box dimension guard, got: {err}"
+        );
     }
 
     #[test]
