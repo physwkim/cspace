@@ -16786,6 +16786,13 @@ topic/service/action is published or called against a real moveit2 or rclrs
 process ... Wire-format compatibility with a real moveit2 node is unverified
 by this script."
 
+> **후속.** 위는 anchor 한 줄짜리 판정이었다. §220이 같은 결론(UNMET)을
+> 더 깊게 다시 쟀다 — 게이트 스크립트의 실제 범위, C++
+> `MoveGroupInterface` 클라이언트의 빌드 가능성(빌드됨, 오라클 이미지
+> 계열에서 재현), `ros/moveit-ros`가 조건의 네 조각 중 무엇을
+> 구현했는지(`TryFrom` 변환만 존재, 서비스/액션/구독/노드 바이너리
+> 전부 부재)까지.
+
 **요약: UNMET 4개(Phase 1, 3, 4, 9), 부분 UNMET 2개(Phase 2의 셋째 항목,
 Phase 5의 둘째·셋째 항목), 미측정 1개(Phase 8의 CHOMP/STOMP 항목).**
 
@@ -18083,3 +18090,230 @@ bijection을 만들면서 상류가 함께 하던 "솔버 조인트가 그룹 �
 `RobotState::interpolate`와 `RobotState::distance`의 지역 사본은
 그대로 두었다. `setFromIK`은 둘 중 어느 것도 쓰지 않으므로, 진짜
 메서드를 포팅하는 것은 이번 작업을 닫는 일부가 아니다.
+
+---
+
+## §226 Phase 9 완료 조건의 갭을 처음 실측했다 — 조건 자체는 이 기계에서 미도달 (2026-08-06)
+
+§217.3이 Phase 9를 UNMET으로 적었지만, 그 판정은 `MoveGroupInterface`
+문자열이 트리에 없다는 한 줄짜리 anchor 하나였다. Phase 3·Phase 4가
+이번 라운드 각각 §218·§221에서 실행 가능한 명령으로 다시 측정된 것과
+달리, Phase 9는 아무도 재보지 않았다. §5의 조건은 종단 조건이다: "기존
+C++ `MoveGroupInterface` 클라이언트가 코드 변경 없이 `moveit-ros`
+노드에 플래닝 요청을 보내 유효한 궤적을 받는다." 이 절은 그 조건이
+요구하는 세 가지 — 게이트 스크립트의 실제 범위, 클라이언트 쪽 빌드
+가능성, 서버 쪽 구현 현황 — 를 순서대로 측정하고, 처음으로 막히는
+지점에서 멈춘다.
+
+### §226.1 STEP 1 — `verify-ros-interop.sh`가 조건의 어디까지를 덮는가
+
+`tools/ci/verify-ros-interop.sh`는 얇은 caller고(`exec
+"$REPO_ROOT/ros/verify-ros-interop.sh" "$@"`), 실제 게이트는
+`ros/verify-ros-interop.sh`다. 이 스크립트를 처음부터 끝까지 읽은
+결과, 하는 일은 `ros/Dockerfile`이 만든 `moveit-rs/ros-dev:latest`
+이미지 안에서:
+
+- `cargo fmt --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test` (이 이미지엔 nextest가 없다), 통과 건수를
+  `ros/moveit-ros/src`의 `#[test]` 개수와 대조
+- `cargo doc --no-deps`
+
+이름이 "ros-interop"이라고 해서 조건과 같은 범위를 덮는다고 가정하면
+안 된다 — 스크립트 자신의 "What this does NOT check" 절이 정확히
+이렇게 적는다:
+
+> No live ROS 2 graph: no node is ever spun up, no topic/service/action
+> is published or called against a real moveit2 or rclrs process ...
+> Wire-format compatibility with a real moveit2 node is unverified by
+> this script.
+
+즉 이 게이트는 **컴파일 + lint + 단위 테스트 통과**만 보고, 조건이
+요구하는 "클라이언트가 노드에 요청을 보내고 유효한 궤적을 받는다"는
+어떤 실행도 하지 않는다. 살아있는 ROS 2 그래프, 실제 서비스/액션
+호출, `moveit2` 노드와의 와이어 포맷 호환성 — 셋 다 이 스크립트가
+명시적으로 범위 밖이라 적어 둔 것들이고, 이 셋이 바로 조건의 핵심이다.
+이름이 맞아 보인다고 범위가 맞다고 가정하지 않는다는 이 라운드의
+전제가 여기서 바로 맞아떨어진다: 게이트는 초록이어도 조건에 대해
+아무것도 증명하지 않는다.
+
+### §226.2 STEP 2 — C++ `MoveGroupInterface` 클라이언트가 이 기계에서 빌드/실행되는가
+
+오라클 이미지가 있음직한 host다. 그런데 오라클은 `moveit_core
+moveit_resources_fanuc_description pilz_industrial_motion_planner
+moveit_kinematics chomp_motion_planner`만 빌드한다
+(`tools/moveit-oracle/src-digest.sh`). `MoveGroupInterface`는
+`moveit_ros_planning_interface` 패키지(`moveit_ros/planning_interface/
+move_group_interface`)가 제공하는데, 이 패키지는 저 다섯 개 어디의
+의존성도 아니다.
+
+```
+$ sg docker -c "docker run --rm --entrypoint bash \
+    moveit-rs/oracle:7667aaf94fef1a52 -lc \
+    'ls /ws/install | grep planning_interface || echo NOT_PRESENT; \
+     find / -iname libmoveit_move_group_interface* 2>/dev/null || echo NOT_FOUND'"
+NOT_PRESENT
+NOT_FOUND
+```
+
+**빌드된 결과물은 없다.** 다만 오라클 이미지가 전체 `moveit2` 소스
+체크아웃을 빌드 컨텍스트로 복사해 두므로(`/ws/src/moveit2`),
+`move_group_interface`의 소스 자체는 있다 — 컴파일된 적이 없을
+뿐이다. §219.1이 한 것처럼 "이미 있는 것"만 확인하는 대신, 여기서는
+그 소스가 실제로 빌드되는지까지 쟀다(커밋되는 이미지가 아니라 `--rm`
+컨테이너 안에서, 측정 목적으로만):
+
+```
+$ sg docker -c "docker run --rm --entrypoint bash \
+    moveit-rs/oracle:7667aaf94fef1a52 -lc \
+    'source /opt/ros/rolling/setup.bash && source /ws/install/setup.bash && \
+     cd /ws && colcon build --packages-select moveit_ros_planning_interface ...'"
+ERROR: Failed to find the following files:
+- /ws/install/moveit_simple_controller_manager/.../package.sh
+- /ws/install/moveit_ros_warehouse/.../package.sh
+Check that the following packages have been built:
+- moveit_simple_controller_manager
+- moveit_ros_warehouse
+```
+
+의존성 사슬을 `colcon list --packages-up-to moveit_ros_planning_interface
+--topological-order`로 펼치면 16개 패키지고, 그중 13개는 오라클이 이미
+빌드해 뒀다 — 부족한 건 `moveit_simple_controller_manager`,
+`moveit_ros_warehouse`, `moveit_ros_planning_interface` 자신 셋뿐이다.
+`--packages-up-to`로 그 셋을 마저 빌드하니:
+
+```
+Finished <<< moveit_ros_warehouse [37.3s]
+Starting >>> moveit_ros_planning_interface
+...
+[100%] Linking CXX shared library libmoveit_move_group_interface.so
+[100%] Built target moveit_move_group_interface
+...
+Summary: 16 packages finished [1min 18s]
+```
+
+**`libmoveit_move_group_interface.so`가 실제로 빌드된다** — 이
+컨테이너는 `--rm`이라 결과물은 컨테이너와 함께 사라지고, 어떤
+`Dockerfile`도 이 라운드에서 바뀌지 않았다(측정이지 포트가 아니다).
+결론: 오라클 이미지 계열 위에서 C++ `MoveGroupInterface`는 **빌드
+가능**이고, 막힌 건 이미지에 이미 있냐가 아니라 3개 패키지 1분 18초의
+추가 빌드였다.
+
+다만 게이트가 실제로 쓰는 이미지는 오라클이 아니라
+`moveit-rs/ros-dev:latest`(`ros/verify-ros-interop.sh`가 여는 그
+이미지)다. 그 이미지는 `ros/Dockerfile`대로 `moveit_msgs`만 소스
+빌드하고 Rust 툴체인을 얹은 것이라, `moveit2` C++ 스택이 통째로
+없다:
+
+```
+$ sg docker -c "docker run --rm --entrypoint bash \
+    moveit-rs/ros-dev:latest -lc \
+    'ls /ws/install; dpkg -l | grep -i moveit || echo none'"
+... moveit_msgs setup.bash ...   # moveit_msgs 하나뿐
+none
+```
+
+즉 클라이언트를 **빌드**할 수 있는 곳(오라클 계열)과, `moveit-ros`
+Rust 노드를 **빌드/게이트**하는 곳(`ros-dev`)이 서로 다른 이미지고,
+둘을 같이 띄워 서로 통신시키는 구성은 어느 쪽에도 없다. "실행"까지는
+못 갔다 — `MoveGroupInterface` 생성자는 `/robot_description` 파라미터와
+살아있는 `move_group` 상대(서비스/액션 서버)를 필요로 하는데, 그
+상대가 존재하는지가 바로 STEP 3의 질문이라 여기서 멈춘다.
+
+### §226.3 STEP 3 — `ros/moveit-ros`가 조건이 이름 부른 네 조각 중 무엇을 구현했는가
+
+corpus: `ros/moveit-ros/src/`의 `.rs` 18개 파일 전부(`find
+ros/moveit-ros/src -name '*.rs'`), 그리고 조건 문자열 자체는
+`crates/ ros/ tools/ doc/ PORTING-PLAN.md` 전체.
+
+| 조각 | 상태 | 근거 |
+|---|---|---|
+| `/plan_kinematic_path` 서비스 | **부재** | `rg -n 'plan_kinematic_path' crates/ ros/ tools/ doc/ PORTING-PLAN.md` — 히트는 `ros/moveit-ros/src/lib.rs:17`(부재를 스스로 적은 모듈 문서), `Cargo.toml:3`(description), 이 문서의 조건문 자신(§5:788, §217.3:16782) 뿐. 실제 서비스 등록 코드는 0건 |
+| `/move_action` 액션 서버 | **부재** | 같은 corpus, 같은 명령 — 히트는 전부 산문/설명, 실제 액션 서버 등록 0건 |
+| planning scene 토픽 구독 | **부재** | `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건. `scene/planning_scene.rs`는 `usePlanningSceneMsg`/`setPlanningSceneMsg`/`setPlanningSceneDiffMsg`를 이미 손에 든 메시지 값에 대한 순수 `TryFrom` 변환으로 포팅한 것이지, 살아있는 토픽을 구독해 상태를 갱신하는 코드가 아니다 |
+| `moveit_msgs` `TryFrom` 변환 | **존재** | `rg -n '^impl TryFrom' ros/moveit-ros/src/*.rs ros/moveit-ros/src/**/*.rs` — **24개** 블록, `geometry.rs`(9) `scene/shapes.rs`(3) `constraints/visibility.rs`(3) `constraints/position.rs`(2) `model.rs`(2) `constraints/{joint,orientation,set}.rs`·`planning.rs`·`scene/collision_object.rs`(각 1) |
+
+부재 셋의 anchor를 한 번에:
+
+```
+$ rg -n 'create_service|create_action_server|ActionServer|create_subscription|create_client|r2r::Node|Node::create|fn main' \
+    ros/moveit-ros/src/ -t rust
+(no matches, exit 1)
+```
+
+더 근본적으로: `ros/moveit-ros`에는 `[[bin]]` 타깃도 `fn main`도
+어디에도 없다 (`find ros/moveit-ros -name '*.rs' | xargs grep -l 'fn
+main'` → 0건, 트리 전체 검색). 크레이트는 순수 라이브러리이고, r2r는
+오직 생성된 메시지 struct 타입(`r2r::geometry_msgs::msg::*`,
+`r2r::moveit_msgs::msg::*`, `r2r::shape_msgs::msg::*` 등)을 가져오는
+데만 쓰인다 — `r2r::Node`를 만들거나 `spin`을 도는 코드는 이 크레이트
+안에 한 줄도 없다. 즉 "moveit-ros 노드"라 부를 실행 가능한 것 자체가
+지금 존재하지 않는다.
+
+크레이트 자신의 모듈 문서(`lib.rs:14-19`)가 이미 같은 결론을 적어
+둔다 — "Round 1 scope ... Type conversion only -- no
+`/plan_kinematic_path` service, no `/move_action` action server, no
+planning-scene subscription (deferred to a later round)." 이 절은 그
+문서화된 주장을 그대로 믿지 않고 위 rg/find로 독립 재확인했다 — 문서화된
+공백도 확인되지 않은 결함일 수 있다는 이유에서다.
+
+부수로 확인한 것: moveit2 소스에는 이 두 이름의 실제 정의가 있다 —
+`plan_kinematic_path`는 `capability_names.hpp`가 정의하는 서비스
+이름 문자열(타입은 `moveit_msgs/srv/GetMotionPlan`), `/move_action`은
+`moveit_msgs/action/MoveGroup.action`. 둘 다 `moveit_msgs`에 이미
+벤더링돼 있으므로(`ros/Dockerfile`), 타입 자체는 `ros-dev` 이미지에서
+바로 쓸 수 있다 — 없는 건 타입이 아니라 그 타입으로 서비스/액션을
+등록하는 서버 코드와, 그것을 실행할 노드 바이너리다.
+
+### §226.4 결론 — 조건은 이 기계에서 UNMET, 막히는 지점은 서버 쪽이지 클라이언트 쪽이 아니다
+
+**조건 전체는 미도달이다.** 다만 "미도달"의 정확한 위치를 좁혔다는
+것이 이번 실측의 결과다:
+
+- **게이트가 조건을 덮지 않는다는 것(STEP 1)은 이제 스크립트 본문
+  인용으로 확정.**
+- **클라이언트 쪽은 막혀 있지 않다(STEP 2).** C++
+  `MoveGroupInterface`는 오라클 이미지 계열에서 빌드된다 — 이번
+  라운드에 직접 재현했고, 추가로 필요한 건 이미 빌드돼 있는 13개
+  패키지 위에 3개(`moveit_simple_controller_manager`,
+  `moveit_ros_warehouse`, `moveit_ros_planning_interface`), 1분
+  18초뿐이다. 다만 이 재현은 오라클 이미지에서 한 것이고, `ros-dev`
+  이미지(게이트가 실제로 쓰는 이미지)에는 `moveit2` C++ 스택이 아예
+  없다 — 두 이미지를 합치거나 별도 이미지를 만드는 작업은 아직
+  아무도 하지 않았다.
+- **막힌 지점은 서버 쪽이다(STEP 3).** `/plan_kinematic_path` 서비스,
+  `/move_action` 액션 서버, planning scene 구독 셋 다 부재하고, 그걸
+  실행할 노드 바이너리(`fn main`)조차 없다. `moveit_msgs` `TryFrom`
+  변환(24개)만 존재하며, 이것이 조건이 이름 부른 네 조각 중 유일하게
+  이미 있는 것이다.
+
+**조건을 그대로 재는 것과 더 약한 조건으로 바꿔치기하는 것을 구분해서
+적는다:** 이번 실측이 실제로 실행한 것은 (a) 게이트 스크립트를 읽고
+범위를 확정한 것, (b) C++ 클라이언트 라이브러리가 빌드되는지를
+컨테이너 안에서 직접 확인한 것, (c) 서버 쪽 구현 현황을 rg/find로
+전수 확인한 것 — 셋 다 조건보다 **좁은** 측정이고, 이 절은 그것을
+그렇게 표시한다. 클라이언트가 노드에 요청을 보내 궤적을 받는
+end-to-end 시도는 하지 않았다 — 보낼 상대(서비스/액션 서버)가 서버
+쪽에 없으므로 시도해도 조건에 대해 아무것도 증명하지 못했을
+것이다. 대체 조건으로 바꿔 통과를 보고하지 않는다.
+
+**이 조건을 닫으려면 필요한 것(순서대로, 측정 결과에서 직접
+도출):**
+
+1. `ros/moveit-ros`에 `fn main`을 갖는 실행 바이너리(`[[bin]]`)를
+   추가하고 `r2r::Node`를 만들어 `spin`하는 코드 — 지금은 전혀 없다.
+2. 그 노드 위에 `/plan_kinematic_path`(`GetMotionPlan.srv`) 서비스와
+   `/move_action`(`MoveGroup.action`) 액션 서버를 등록하는 코드 —
+   이미 있는 24개 `TryFrom` 변환과 `crates/moveit-planning`의 기존
+   `plan()` 호출을 잇는 배선(wiring)이 대부분일 것으로 보이나, 이
+   절은 그 크기를 재지 않았다.
+3. planning scene 토픽 구독 — `scene/planning_scene.rs`의 기존
+   `TryFrom` 변환을 살아있는 `/planning_scene` 토픽에 실제로 연결하는
+   코드.
+4. `ros-dev` 이미지(또는 별도 이미지)에서 C++ `MoveGroupInterface`
+   클라이언트를 빌드할 수 있게 하는 이미지 작업 — STEP 2가 보인 3개
+   패키지·1분 18초는 오라클 이미지 기준이고, 게이트가 실제로 쓰는
+   이미지에서 그대로 성립한다는 보장은 없다(미확인).
+5. 1~4가 갖춰진 뒤에야 "코드 변경 없는 기존 C++
+   `MoveGroupInterface` 클라이언트가 유효한 궤적을 받는다"는 원래
+   문구 그대로의 종단 시도가 가능해진다.
