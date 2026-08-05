@@ -19054,3 +19054,70 @@ FCL의 개별 깊이를 분리하면:
   깨진다.
 - 10,000 상태 스윕을 다시 돌리지 않았다. §218이 잰 수치를 그대로 쓰며,
   이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+
+---
+
+## §230 `HybridCollisionEnv`의 `env_field`를 증분 유지로 바꿨다 — 문서에 없던 절을 뒤늦게 적는다 (`a3822fb`, 2026-08-05 커밋 / 2026-08-06 기록)
+
+이 절은 새 측정이 아니다. `a3822fb`가 이미 한 일을 계획서에 적는다. 그
+커밋의 러스트 doc 주석 네 곳이 `§231`을 인용하는데 그런 절은 존재한 적이
+없고 — 커밋이 `PORTING-PLAN.md`를 아예 건드리지 않았다 — 오늘 도입한
+`tools/ci/check-porting-plan-sections.sh`의 배경인 "번호를 워커가 고른다"
+문제의 가장 오래된 사례다. 번호는 여기서 `§230`으로 확정하고, 인용 네
+곳을 그쪽으로 돌린다.
+
+### §230.1 전제가 절반 틀렸다
+
+`build_env_distance_field`는 `check_*_distance_field` 호출마다 `World`의
+모든 물체로부터 `PropagationDistanceField`를 새로 지었다. 근거는
+"`World`에는 훅을 걸 옵서버 기구가 없다"였다. 이 전제는 절반만 참이다 —
+`World`에 *콜백 등록*이 없는 것은 맞지만, 모든 mutator가 무엇이 바뀌었는지
+서술하는 `Notification`을 반환하고, `all_objects_as_notifications`가 현재
+내용을 새 소비자에게 재생하는 용도로 이미 있다. 상류의
+`addObserver`/`notifyObjectChange`가 하는 일이 정확히 그것이므로, 없던
+것은 기구가 아니라 그 기구를 쓰는 코드였다.
+
+### §230.2 `world_mut` 대신 `mutate_world` 하나
+
+`world_mut`을 걷어내고 `mutate_world`를 두었다. `World`를 바꾸는 클로저를
+받아 전달하고, 그것이 돌려주는 모든 `Notification`을 이제 영속인
+`env_field`에 `apply_notification`으로 적용한다. 분기 구조는 상류
+`notifyObjectChange`를 그대로 따른다 — `CREATE`/`ADD_SHAPE`는 추가만,
+`MOVE_SHAPE`/`REMOVE_SHAPE`는 제거 후 추가, `DESTROY`는 제거만.
+
+`World` 값이 이 타입 안에 하나뿐이고 그 하나에 드나드는 길이
+`mutate_world` 하나뿐이라는 것이 요점이다. 상류의 `setWorld` 오버라이드가
+막으려는 "두 절반이 서로 다른 세계를 본다"는 상태는 지킴이가 잘 지켜서
+도달 불가능한 것이 아니라, 두 번째 `World` 값 자체가 없어서 표현 불가능
+하다. `self.env_field`는 두 번째 세계가 아니라 그 하나에서 파생된
+구조다.
+
+### §230.3 상류에 없는 실패 경로 하나 — `desynced_objects`
+
+`collision_object_point_decomposition`은 이 포트에서 실패할 수 있고 상류의
+대응물은 그렇지 않다. 그래서 변형 도중의 분해 실패를 조용히 낡은 채로 두는
+대신 `desynced_objects`에 적고, `check_*_distance_field`/
+`get_collision_gradients`/`get_all_collisions` 전부가 `env_field`를 읽기
+전에 그 집합이 비었는지를 먼저 본다.
+
+### §230.4 `OctreeCache`의 패턴이 아닌 이유
+
+`OctreeCache`는 키별 순수 메모이제이션이다. `env_field`는 그렇게 나뉘지
+않는다 — 셀 하나의 값이 그 안의 모든 점에 함께 의존하는 단일 집계
+구조다. 그래서 `apply_notification`은 독립 조각을 메모이즈하지 않고 물체별
+점들을 그 하나의 구조에 누적/회수한다. 물체별 제거-후-추가 방식이 갖는
+"복셀에 참조 계수가 없다"는 한계는 상류 `notifyObjectChange`가 그대로 갖는
+한계이며, 이 포트가 새로 만든 공백이 아니다.
+
+### §230.5 이 절이 하지 않은 것
+
+- `HybridCollisionEnv::new`가 fallible이 됐다(생성 시점에 `env_field`를
+  짓는다). 호출자 쪽 파급은 그 커밋에서 이미 처리했고 여기서 다시 재지
+  않았다.
+- `Clone`은 여전히 derive하지 않는다. 상류의 복사 생성자가 답하는
+  "공유냐 깊은 복사냐" 질문(상류는 깊은 복사)은 이 타입에 아직 적용되지
+  않는다.
+- 이 절은 `a3822fb`의 기록이지 재측정이 아니다. 그 커밋이 추가한
+  `env_field_after_incremental_churn_matches_a_fresh_rebuild_of_the_same_world`
+  — 증분 부기가 깨끗한 재빌드와 일치하는지를 보는 시험 — 를 이 라운드가
+  다시 돌려 통과를 확인한 것 외에 새 수치는 없다.

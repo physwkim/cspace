@@ -273,7 +273,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// what "the world" even is, not just about whether something in it
     /// collides.
     ///
-    /// # §196.3/§231: why this type has no `set_world` at all, not just a safe one
+    /// # §196.3/§230: why this type has no `set_world` at all, not just a safe one
     ///
     /// [`HybridCollisionEnv`] holds exactly *one* `World` value -- inside
     /// `self.parry` (see this type's own field list). `self.distance_field`
@@ -289,7 +289,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// selectively and no invariant to state, because there is nothing left
     /// for two updates to disagree about.
     ///
-    /// # §231: replaces upstream's `addObserver`, matches upstream's incrementality
+    /// # §230: replaces upstream's `addObserver`, matches upstream's incrementality
     ///
     /// A previous round of this doc argued `env_field`'s predecessor
     /// (`build_env_distance_field`) had to rebuild from scratch every call
@@ -312,7 +312,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// therefore maintained incrementally, matching upstream's own design,
     /// not rebuilt per call.
     ///
-    /// # §231: not `OctreeCache`'s pattern, and concretely why not
+    /// # §230: not `OctreeCache`'s pattern, and concretely why not
     ///
     /// [`ParryCollisionEnv::world_mut`] safely returns a raw `&mut World`
     /// because [`ParryCollisionEnv`] keeps no persistent world-derived
@@ -891,7 +891,7 @@ mod tests {
     ///
     /// This test's `res_after.collision` assertion is the discriminator for
     /// the "stale second world" bug upstream's `setWorld` override exists to
-    /// prevent (see [`HybridCollisionEnv::mutate_world`]'s §196.3/§231 doc):
+    /// prevent (see [`HybridCollisionEnv::mutate_world`]'s §196.3/§230 doc):
     /// if [`HybridCollisionEnv::apply_notification`] were never called, or
     /// were called with a stale `Notification`, `env_field` would never see
     /// the `add_shape` below, and `res_after.collision` would stay `false`.
