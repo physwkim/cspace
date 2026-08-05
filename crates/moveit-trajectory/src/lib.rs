@@ -116,10 +116,13 @@
 //!     Rust equivalent exists either; [`Path::create`] is [`Path`]'s only
 //!     constructor.
 //!   - `getPathSegment` (private) — ported as the private
-//!     `Path::segment_at`-equivalent lookup inlined at each of the four
-//!     public methods' call sites in `path.rs`, rather than kept as one
-//!     separate function; behaviourally identical, no upstream call site
-//!     outside those same four methods to preserve a shared name for.
+//!     `Path::segment_at`-equivalent lookup inlined at each of the three
+//!     public methods' call sites in `path.rs` (`config`/`tangent`/
+//!     `curvature`, matching upstream's `getConfig`/`getTangent`/
+//!     `getCurvature`, `time_optimal_trajectory_generation.cpp:321,327,333`),
+//!     rather than kept as one separate function; behaviourally identical,
+//!     no upstream call site outside those same three methods to preserve a
+//!     shared name for.
 //! - `Trajectory` (class) — ported as [`Trajectory`]:
 //!   - `create` (static, `std::optional<Trajectory>`) — ported as
 //!     [`Trajectory::create`] (`Result<Self>`, same optional-to-Result
