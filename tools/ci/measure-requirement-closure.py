@@ -114,11 +114,12 @@ STDLIB = re.compile(r"^[a-z_]+$")
 def load_corpus(upstream: str) -> set[str]:
     """The corpus, straight from measure-port-coverage.py -- never redefined here.
 
-    Bytecode writing is off for this import: `tools/ci/__pycache__` is tracked
-    (three `.pyc` files, added by `10a9c13`), so importing the sibling would
-    otherwise rewrite a committed file and leave the tree dirty every time
-    this measurement runs -- and a `git status` precondition ahead of a long
-    job would then report a dirty tree caused by nothing but measuring.
+    Bytecode writing is off for this import. It was added when `10a9c13` had
+    three `.pyc` files under `tools/ci/__pycache__` in the index, so importing
+    the sibling rewrote a *tracked* file and a `git status` precondition ahead
+    of a long job blamed the measurement. Those are untracked and `.gitignore`d
+    now, so this no longer changes what `git status` reports -- it is kept
+    because a measurement still has no reason to leave bytecode behind.
     """
     prior = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
