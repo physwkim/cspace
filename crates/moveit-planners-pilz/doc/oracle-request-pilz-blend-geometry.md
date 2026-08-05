@@ -1141,3 +1141,73 @@ shared constant of the same kind, loosening direction, any file in the
 crate" -- the wider form found nothing beyond what the narrower form
 had already found, which is the sweep confirming closure, not the
 sweep finding new work.
+
+## Verdict on the case E attribution: refuted, 2026-08-06
+
+Case E's report, and every override constant that grew out of it,
+attributed the growing `blend_trajectory` divergence to *panda_arm's
+redundant-kinematics IK null-space selection diverging more between
+solvers as the corner sharpens*, and explicitly ruled out the
+alternative: "not a slerp-direction or off-by-one bug (which would show
+as one outlier, not a smooth spread across multiple joints and
+waypoints)".
+
+It was the slerp. `blend_trajectory_cartesian` sampled its rotations
+with `nalgebra`'s `UnitQuaternion::slerp`, which is not
+`Eigen::QuaternionBase::slerp`: Eigen lerps wherever `|dot| >= 1 - eps`,
+where nalgebra returns `from` unchanged, and Eigen normalizes neither
+its inputs nor its result where nalgebra normalizes both. Those
+differences are per-sample and sub-ULP-scale individually, so they do
+*not* show as one outlier — a sharper corner simply moves more of the
+blend window's samples across that threshold at once, which is exactly
+the smooth multi-joint multi-waypoint spread the report read as
+evidence *against* a slerp cause. The disjunction "one outlier or IK
+null-space" was false; a third shape existed.
+
+Replacing that call with `moveit_geometry::quaternion::slerp` (a
+transcription of Eigen 3.4's own expression, measured against the C++
+oracle on `panda.urdf`'s floating joint before being adopted here)
+removes every per-case tolerance override this document's Case F and
+Case I sections argued into existence. Measured max divergence per
+case, before and after, same fixtures, same comparison
+(`velocity` / `acceleration`):
+
+| case | before | after |
+| --- | --- | --- |
+| `symmetric` (A, 90°) | 1.9582e-8 / 2.9061e-7 | 4.3628e-9 / 3.7291e-8 |
+| `asymmetric` (B) | 2.9515e-10 / 2.5329e-9 | 2.9515e-10 / 2.5329e-9 |
+| `radius08` (C) | 1.9520e-8 / 1.0072e-7 | 1.9411e-8 / 1.0080e-7 |
+| `corner30` | 4.0972e-8 / 7.7099e-7 | 4.0972e-8 / 7.7099e-7 |
+| `corner60` | 6.4188e-8 / 1.1279e-6 | 3.9444e-8 / 7.5449e-7 |
+| `corner75` | 8.9525e-8 / 1.4818e-6 | 2.1988e-8 / 4.2723e-7 |
+| `corner100` | 1.5487e-8 / 2.9642e-7 | 1.5487e-8 / 2.9642e-7 |
+| `corner105` | 6.6526e-8 / 1.3293e-6 | 2.2169e-8 / 4.2840e-7 |
+| `corner110` | 7.9133e-8 / 1.5797e-6 | 2.8094e-8 / 5.4643e-7 |
+| `corner112` (E) | 8.2760e-8 / 1.6513e-6 | 3.0215e-8 / 5.8897e-7 |
+| `corner112_radius03` | 9.2596e-8 / 9.2747e-7 | 5.5493e-8 / 9.0020e-7 |
+| `corner112_radius08` (I) | 1.1429e-7 / 2.2703e-6 | 1.2212e-8 / 2.2263e-7 |
+
+Every "before" figure reproduces the number the corresponding override
+constant's own doc comment recorded, which is what says the instrument
+measured the same quantity those constants were sized from. All twelve
+cases now fit inside `Tolerances::SHARED`, so
+`crates/moveit-planners-pilz/tests/pilz_blend_parity.rs` carries zero
+per-case overrides and zero `*_needs_its_own_*_tolerance` tests.
+
+**What survives.** Case F's actual finding — that divergence is *not*
+monotone in corner angle — survives intact: the residual acceleration
+divergence still dips at 90-100° (3.7291e-8 / 2.9642e-7) and rises on
+both sides, to 7.7099e-7 at 30° and 5.8897e-7 at 112°. So does Case I's
+runner-up-ratio result, which measures a different quantity (the
+argmax waypoint's near-tie margin) that this change does not touch.
+What is refuted is only the attribution of the divergence *magnitude*
+to redundant-IK null-space selection, and with it the necessity of
+every tolerance override derived from that attribution.
+
+**What is still unexplained.** A residual spread remains, up to
+`9.0020e-7` acceleration at `corner112_radius03`, and it is still
+angle-dependent. Nothing here says that residual is the redundant-IK
+effect; it says only that the effect the overrides were sized for was
+not. `corner112_radius03` is the case the fix moved least and now binds
+both `VELOCITY_TOLERANCE` and `ACCELERATION_TOLERANCE`, so it is where
+a next round should look.

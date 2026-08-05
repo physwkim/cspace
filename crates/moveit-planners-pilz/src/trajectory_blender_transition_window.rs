@@ -151,7 +151,7 @@ use std::collections::HashMap;
 
 use moveit_collision::CollisionEnv;
 use moveit_error::{Error, MoveItErrorCode, Result};
-use moveit_geometry::Isometry3;
+use moveit_geometry::{Isometry3, quaternion};
 use moveit_kinematics::{DEFAULT_SOLVER_NAME, SolverParams, resolve_solver};
 use moveit_state::Posed;
 use moveit_trajectory::RobotTrajectory;
@@ -489,9 +489,21 @@ fn blend_trajectory_cartesian<'m>(
         let translation = blend_sample_pose1.translation.vector
             + alpha
                 * (blend_sample_pose2.translation.vector - blend_sample_pose1.translation.vector);
-        let rotation = blend_sample_pose1
-            .rotation
-            .slerp(&blend_sample_pose2.rotation, alpha);
+        // Upstream is `start_quat.slerp(alpha, end_quat).toRotationMatrix()`
+        // (`trajectory_blender_transition_window.cpp:259`), i.e.
+        // `Eigen::Quaterniond::slerp` — not nalgebra's, which differs from it
+        // in three measured ways and additionally panics at 180 degrees where
+        // Eigen returns `start_quat`.
+        // Upstream is `start_quat.slerp(alpha, end_quat).toRotationMatrix()`
+        // (`trajectory_blender_transition_window.cpp:259`), i.e.
+        // `Eigen::Quaterniond::slerp` — not nalgebra's, which differs from it
+        // in three measured ways and additionally panics at 180 degrees where
+        // Eigen returns `start_quat`.
+        let rotation = quaternion::slerp(
+            &blend_sample_pose1.rotation,
+            &blend_sample_pose2.rotation,
+            alpha,
+        );
 
         points.push(CartesianTrajectoryPoint {
             pose: Isometry3::from_parts(translation.into(), rotation),

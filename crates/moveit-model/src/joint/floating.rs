@@ -10,6 +10,7 @@
 
 use std::f64::consts::PI;
 
+use moveit_geometry::quaternion::slerp_coefficients;
 use moveit_geometry::{Isometry3, UnitQuaternion};
 use nalgebra::Quaternion;
 
@@ -160,11 +161,16 @@ impl FloatingJoint {
     }
 
     /// Upstream slerps `from`/`to` directly, without normalizing first
-    /// (unlike [`FloatingJoint::distance_rotation`]) — reproduced with
-    /// `new_unchecked` rather than `new_normalize`. Skips the slerp
+    /// (unlike [`FloatingJoint::distance_rotation`]). Skips the slerp
     /// entirely (copies `from`'s quaternion) when `from` and `to` agree to
-    /// within `f64::EPSILON` on every component, matching upstream's guard
-    /// against the degenerate near-identical case.
+    /// within `f64::EPSILON` summed over every component, matching
+    /// upstream's guard against the degenerate near-identical case.
+    ///
+    /// The slerp itself is [`moveit_geometry::quaternion::slerp_coefficients`],
+    /// a transcription of `Eigen::QuaternionBase::slerp` rather than a call to
+    /// `nalgebra`'s `try_slerp`; that function's doc comment names the three
+    /// measured divergences that forced the transcription, all of them found
+    /// on this joint.
     pub(super) fn interpolate(from: &[f64; 7], to: &[f64; 7], t: f64) -> [f64; 7] {
         let mut state = [0.0; 7];
         for i in 0..3 {
@@ -173,23 +179,13 @@ impl FloatingJoint {
 
         let quat_diff: f64 = (3..7).map(|i| (from[i] - to[i]).abs()).sum();
         if quat_diff > f64::EPSILON {
-            let q1 = UnitQuaternion::new_unchecked(quaternion_from_xyzw(from));
-            let q2 = UnitQuaternion::new_unchecked(quaternion_from_xyzw(to));
-            // nalgebra's `slerp` panics when q1/q2 are ~180 degrees apart;
-            // Eigen's does not. Falling back to a normalized linear
-            // interpolation there avoids a panic upstream never raises.
-            let q = q1
-                .try_slerp(&q2, t, f64::EPSILON)
-                .unwrap_or_else(|| q1.nlerp(&q2, t));
-            state[3] = q.i;
-            state[4] = q.j;
-            state[5] = q.k;
-            state[6] = q.w;
+            state[3..7].copy_from_slice(&slerp_coefficients(
+                from[3..7].try_into().expect("four rotation variables"),
+                to[3..7].try_into().expect("four rotation variables"),
+                t,
+            ));
         } else {
-            state[3] = from[3];
-            state[4] = from[4];
-            state[5] = from[5];
-            state[6] = from[6];
+            state[3..7].copy_from_slice(&from[3..7]);
         }
         state
     }
@@ -218,8 +214,6 @@ fn quaternion_from_xyzw(values: &[f64; 7]) -> Quaternion<f64> {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
-
     use super::*;
 
     fn infinite_translation_bounds() -> [VariableBounds; 7] {
@@ -320,17 +314,19 @@ mod tests {
     }
 
     #[test]
-    fn interpolate_does_not_panic_on_antipodal_quaternions() {
-        // from = identity, to = 180-degree rotation about x: the two
-        // quaternions are pi apart, nalgebra's plain slerp panics on this
-        // ("ambiguous configuration"); interpolate must fall back instead.
+    fn interpolate_returns_from_for_an_exactly_antipodal_pair() {
+        // `to` is `-from`: the same rotation, the opposite sign. The dot
+        // product is exactly -1, so Eigen lerps with a negated `scale1` and
+        // reconstructs `from` at every `t`. This is the boundary where
+        // `nalgebra`'s `try_slerp` gives up (`None`) and the `nlerp` fallback
+        // that used to catch it divides a zero-norm sum by its own length at
+        // `t = 0.5`.
         let from = IDENTITY;
-        let to = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
-        let state = FloatingJoint::interpolate(&from, &to, 0.5);
-        let norm_sqr: f64 = state[3..7].iter().map(|v| v * v).sum();
-        // The antipodal fallback's normalization carries a 1-ULP residue
-        // (0.9999999999999998 vs 1.0), unlike the exact-norm cases above.
-        assert_relative_eq!(norm_sqr, 1.0, epsilon = 1e-15, max_relative = 0.0);
+        let to = [0.0, 0.0, 0.0, -0.0, -0.0, -0.0, -1.0];
+        for t in [0.0, 0.5, 1.0] {
+            let state = FloatingJoint::interpolate(&from, &to, t);
+            assert_eq!(&state[3..7], &from[3..7], "t = {t}");
+        }
     }
 
     #[test]
