@@ -27,14 +27,19 @@
 #     an unresolved intra-doc link or a link to a private item compiles and
 #     tests clean but fails `cargo doc`, which is exactly how main went red
 #     under the round-32 merge gate before this line existed)
+#   - A live `/plan_kinematic_path` round trip over DDS (`run "live"` below,
+#     PORTING-PLAN.md §241)
 #
 # What this does NOT check (read this list before wiring `ros/` into CI):
-#   - No live ROS 2 graph: no node is ever spun up, no topic/service/action
-#     is published or called against a real moveit2 or rclrs process. Every
-#     test in ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message
-#     structs in-process and converts them -- it never round-trips a message
-#     through the DDS middleware. Wire-format compatibility with a real
-#     moveit2 node is unverified by this script.
+#   - Nothing plans. The live endpoint below is asserted to return a *typed
+#     error*, because this workspace has no `moveit_planning::pipeline::
+#     Planner` to call (D8/§140.3). No trajectory is produced, so no trajectory
+#     is compared against anything.
+#   - No in-process message round trip: every test in
+#     ros/moveit-ros/src/**/*.rs constructs `r2r`-generated message structs
+#     and converts them without ever crossing the middleware. The live leg
+#     covers wire-format compatibility for the one service it calls and for
+#     nothing else -- no topic, and no action, is exercised.
 #   - No cross-workspace check against `crates/`: ros/moveit-ros is its own
 #     `[workspace]` (D5) built with its own `cargo` invocations here; this
 #     script never builds or tests the root workspace, and the root
