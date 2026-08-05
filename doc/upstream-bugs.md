@@ -100,6 +100,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `plan-components-builder-const-build-mutates` | not-reproduced |
 | `ik-cache-read-trusts-file-header` | not-reproduced |
 | `get-best-approximate-static-dummy-stale` | not-reproduced |
+| `update-cache-capacity-as-size-limit` | not-reproduced |
 
 ---
 
@@ -919,6 +920,44 @@ this defect.
 **Cost of not reproducing:** none. The all-zero seed is tried first on a
 cold cache either way — that is upstream's design, recorded as CONFIRMED in
 `doc/claim-audit/moveit-kinematics.md` — and only the staleness is dropped.
+
+---
+
+### `update-cache-capacity-as-size-limit` — `updateCache` bounds the cache by `capacity()`, which a cache file can raise above the configured `max_cache_size_` — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:183`
+and `:197` (both `IKCache::updateCache` overloads), with `:75` and `:119`
+the two `reserve` calls that set the bound, verified at the pinned
+`e017c91e`.
+**Port:** `crates/moveit-kinematics/src/ik_cache.rs`, `IkCache::update`;
+`crates/moveit-kinematics/src/ik_cache/format.rs`, `from_json`.
+**Symptom:** the insert gate is `ik_cache_.size() <
+ik_cache_.capacity()` — the limit enforced is the allocator's, not the
+`max_cache_size` the user configured. `initializeCache` establishes it with
+`ik_cache_.reserve(max_cache_size_)` (`:75`), and `reserve` guarantees only
+`capacity() >= n`, so the two coincide by implementation habit rather than
+by contract. They come apart for a concrete reason, not a hypothetical one:
+`:119` calls `ik_cache_.reserve(last_saved_cache_size_)` with the entry
+count read straight out of the cache file (see
+`ik-cache-read-trusts-file-header`), and `reserve` never shrinks a vector.
+A file declaring more entries than `max_cache_size_` therefore raises the
+effective limit above the configured one permanently, and the cache grows
+past its own maximum for the rest of the process. The save trigger cannot
+catch up either: `ik_cache_.size() == max_cache_size_` (`:189`, `:218`) is
+an equality, so once the size is past that value it never fires again and
+only the every-500-entries clause remains.
+**Evidence:** a read of the control flow, plus `reserve`'s specified
+postcondition (`capacity() >= n`, not `== n`). Not oracle-confirmed.
+**Status:** `not-reproduced`. `IkCache::update` gates on `self.entries.len()
+>= self.options.max_cache_size`, and `from_json` refuses a document holding
+more entries than its own recorded `max_cache_size` — so the loaded state
+cannot start out above the limit either. The `Vec`'s capacity is never
+consulted.
+**Deviation:** none of `D1`..`D14` applies. This is a local choice about
+which of two numbers a bound reads, plus one construction-time check in the
+reader.
+**Cost of not reproducing:** none. No parity test exercises a full cache;
+`max_cache_size` reaches nothing outside this crate.
 
 ---
 
