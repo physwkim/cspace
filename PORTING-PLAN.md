@@ -13554,7 +13554,7 @@ CI가 GitHub Actions에서 실제로 돌기 시작하면 §170.2의 수동 규�
 p1-fixtures가 `bb212dd`로 `cost_sources`/`path_cost_sources` fixture를 캡처하면서
 "오라클은 콜리전 쌍당 coarse box 1개, 이 포트는 삼각형당 1개(20개)"라는
 불일치를 재서 두 테스트를 `#[ignore]` 처리하고 `moveit-collision`의
-`mesh_shape_cost_sources`(`parry.rs:1369-1388`) 결함으로 귀속시켰다.
+`mesh_shape_cost_sources`(`parry.rs:2011-2023`) 결함으로 귀속시켰다.
 
 **측정은 맞고 귀속도 맞지만 성격 규정이 틀렸다.** 원인을 상류에서 찾았다.
 

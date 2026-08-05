@@ -99,7 +99,7 @@ call, so a bare `.is_err()` cannot identify which one fired?
 
 `robot_model.rs`'s `no_root_link_errors`/`multiple_root_links_errors`
 are sibling arms of the same `match root_candidates.as_slice()`
-(`:198-213`, `[]` vs `names`) but both only asserted `.is_err()`.
+(`:215-230`, `[]` vs `names`) but both only asserted `.is_err()`.
 Bite-checked: merged the two arms' messages into one shared string —
 both tests reddened (confirmed the merge, not just one arm, broke both),
 reverted, then applied the fix (each test now checks its own arm's
@@ -111,4 +111,4 @@ reason to conflate — not this defect shape.
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| `robot_model.rs:2162,2171` (`no_root_link_errors`/`multiple_root_links_errors`) | Two sibling tests, each pinning a different arm of the same `match`, asserted only `.is_err()` | CONFIRMED same-defect, fixed | See sweep note above | `fe3bd82` |
+| `robot_model.rs:2329,2344` (`no_root_link_errors`/`multiple_root_links_errors`) | Two sibling tests, each pinning a different arm of the same `match`, asserted only `.is_err()` | CONFIRMED same-defect, fixed | See sweep note above | `fe3bd82` |
