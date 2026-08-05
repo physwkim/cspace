@@ -18004,3 +18004,34 @@ include하는 파일은 셋 — `moveit_planners/ompl/ompl_interface/src/
 "그 디렉터리의 유일한 `toString`은 무관한 float 포매터"라고 적은 자리다.
 파일을 *건드리는* 인용이지 *덮는* 인용이 아니므로, 새 행은 그 사실을 그대로
 적는다.
+
+### §226.2 `rclcpp_utils.{hpp,cpp}` — `decided-non-port`, 다만 표가 적어 둔 이유는 틀렸다
+
+표가 이 두 행에 달고 있던 근거는 "내용상 D1(`rclcpp`)이지만 이 저장소의
+어떤 텍스트도 그렇게 말하지 않는다"였다. **앞부분이 사실이 아니다.** 파일을
+열면 ROS 타입이 하나도 없다: `rclcpp_utils.hpp`가 include하는 것은
+`<string>` 하나뿐이고(`:30`), `.cpp`는 자기 헤더만 include한다(`:28`).
+내용은 `std::string` 두 함수 — `clean(name)`이 `//`를 `/`로 접고 끝의 `/`를
+떼며, `append(left, right)`가 `/`로 이어 붙인 뒤 `clean`을 건다. 이름과
+네임스페이스(`rclcpp::names`)가 ROS를 가리킬 뿐, 코드는 D1이 정의하는
+"ROS 메시지 타입"에 닿지 않는다. 이름으로 분류하면 이렇게 틀린다.
+
+진짜 근거는 **소비자**다. 이 두 함수가 만드는 것은 ROS 노드/토픽/서비스
+이름이고, 상류 호출자는 전부 `moveit_ros/*`다 —
+`moveit_ros/planning_interface/move_group_interface/src/
+move_group_interface.cpp:178-205`가 `move_group_namespace`에 액션·서비스
+이름을 이어 붙이는 자리이고, `moveit_ros/visualization/
+planning_scene_rviz_plugin/src/planning_scene_display.cpp:64`가 또 하나다.
+`moveit_ros`는 `CORPUS_ROOTS` 밖이다.
+
+이 포트 쪽 소비자도 없다. `rg -n -F rclcpp_utils crates/ ros/ tools/ doc/
+PORTING-PLAN.md`는 `doc/port-coverage.md`의 자기 행 둘만 찾는다. 그럴 수밖에
+없는 것이, ROS를 아는 크레이트는 `ros/moveit-ros` 하나인데(D2) 그 크레이트의
+이번 라운드 범위가 **타입 변환뿐**이라 노드도 토픽도 서비스도 만들지
+않는다(`ros/moveit-ros/src/lib.rs:17-19`). 붙일 이름이 없는 곳에 이름
+정규화 함수를 놓으면 호출자 없는 코드가 된다.
+
+**만료 조건:** `moveit-ros`가 토픽/서비스/액션 이름을 구성하기 시작하면 이
+판정을 다시 한다. 그때 결정할 것은 "포팅할까"가 아니라 "r2r이 이미 주는
+이름 처리로 충분한가"이며, 그 답은 그 라운드가 r2r을 열어 보고 정해야 한다
+— 이 절은 그것을 확인하지 않았고, 확인하지 않은 것을 근거로 쓰지 않는다.
