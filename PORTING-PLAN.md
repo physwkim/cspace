@@ -22291,3 +22291,360 @@ pilot 비용도 늘었다: 라운드 전 **274s** → 현재 **312s**(+14%, 같�
 38초가 §248.3–§248.6의 검사를 라운드마다 실제로 실행되게 만드는 값이다.
 `PILOT_COUNT=2`로는 2m07s이며, 그 실행은 `pin-population` 때문에 **통과하지
 않는다**(§248.7) — 축소된 실행이 커버리지로 읽히는 일이 구조적으로 막혀 있다.
+
+## §249 미포팅 87건 전수 분류 — (b)는 코퍼스 안에 0건이고, Phase를 막는 부재는 코퍼스 밖에 있다
+
+이 절은 셋을 한다. (1) 포팅 분할을 오늘 main에서 다시 재고, (2) 미포팅
+전량을 요약표가 아니라 **전수 열거**로 (a)/(b)/(c)에 넣고, (3) 그 분류를
+만든 계기가 무엇을 보고 무엇을 못 보는지를 적는다. 이 절의 수는 전부
+여기 적힌 명령으로 측정한 것이고, 앞 라운드의 진행 노트에서 옮겨온 것이
+하나도 없다 — 옮겨오지 않은 이유는 §249.1이 보인다.
+
+### §249.1 오늘 다시 잰 분할 — 245 / 158 / 87 (브리프의 107은 어느 계기도 낸 적이 없다)
+
+```
+$ git rev-parse --short HEAD
+4a3668e
+$ python3 tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2
+corpus   245
+ported   158
+unported 87
+cited-outside-corpus 20
+```
+
+이 라운드 브리프는 앞 라운드의 진행 노트를 인용해 "138 ported / 107
+unported"를 넘겼다. 그 수는 재현되지 않는다. `doc/port-coverage.md`의
+커밋 이력에서 행 수를 직접 세면 커밋된 열거는 99에서 시작한다:
+
+```
+$ for sha in $(git log --format=%h -- doc/port-coverage.md); do \
+    printf "%s rows=%s\n" $sha \
+      "$(git show $sha:doc/port-coverage.md | rg -c '^\| `moveit_')"; done | tail -3
+5f0850d rows=99     Merge p10-gapaudit: re-derive the port-coverage split ...
+097aca7 rows=99     doc(coverage): enumerate the 99 unported files, one row each
+81d818d rows=0      doc(coverage): re-derive the corpus split with a committed instrument
+```
+
+99에서 87까지 내려오는 동안 107은 어느 지점에도 없다. 진행 노트가 적은
+107은 계기의 출력이 아니라 작업 중의 중간 수였고, 이 절은 그것을 확인만
+하고 쓰지 않는다. 첫 커밋된 열거(99)와 오늘(87)의 차 12건은 전부 실제로
+포팅돼 빠진 것이며, 반대 방향은 0건이다 — 미포팅 집합은 단조 감소한다:
+
+```
+$ comm -23 rows99.txt rows87.txt          # 99에 있고 87에 없다
+moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_env_allvalid.hpp
+moveit_core/collision_detection/src/allvalid/collision_env_allvalid.cpp
+moveit_core/robot_state/include/moveit/robot_state/cartesian_interpolator.hpp
+moveit_core/robot_state/include/moveit/robot_state/conversions.hpp
+moveit_core/robot_state/src/cartesian_interpolator.cpp
+moveit_core/robot_state/src/conversions.cpp
+moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/command_list_manager.hpp
+moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_aggregator.hpp
+moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_validator.hpp
+moveit_planners/pilz_industrial_motion_planner/src/command_list_manager.cpp
+moveit_planners/pilz_industrial_motion_planner/src/joint_limits_aggregator.cpp
+moveit_planners/pilz_industrial_motion_planner/src/joint_limits_validator.cpp
+$ comm -13 rows99.txt rows87.txt          # 87에만 있다
+(출력 없음)
+```
+
+아래 전수 열거가 87건이라는 것은 doc의 행 집합과 **집합으로** 같다는
+뜻이고, 그것은 계기 자신이 검사한다 — `--check`는 양방향 차집합과
+중복행을 다 본다(`tools/ci/measure-port-coverage.py:243-259`, 집합이
+아니라 리스트로 세는 이유가 그 위 주석에 있다):
+
+```
+$ python3 tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2 \
+    --check doc/port-coverage.md
+OK doc/port-coverage.md: 87 rows == 87 unported, all 4-cell
+```
+
+### §249.2 (b)를 (a)·(c)와 가르는 두 번째 계기 — 상류 인클루드 그래프
+
+doc 행의 분류만으로 (b)를 판정하면 문서가 문서를 증명한다. 독립
+판별자로 상류 인클루드 그래프를 썼다: 미포팅 87건 각각에 대해 **포팅된
+158건 중 몇 개가 그 파일을 `#include` 하는지** 센다. 1건이라도 있으면
+우리가 실제로 포팅한 번역 단위가 그 헤더의 선언을 소비한다는 뜻이므로
+"빠졌는데 아무 영향 없다"는 주장이 성립하지 않는다. 0이면 코퍼스 안의
+포팅된 코드는 그 파일을 아예 건드리지 않는다.
+
+```
+$ # 포팅된 158건을 한 번씩 읽어 #include 타깃을 모으고, 미포팅 87건의
+$ # include 키(`/include/` 뒤 경로)가 거기 몇 번 나오는지 센다
+  .cpp (인클루드 키 없음)            30
+  헤더, 포팅된 인클루더 0건          32
+  헤더, 포팅된 인클루더 1건 이상     25
+  합계                               87
+```
+
+세 칸의 합이 87로 닫히고, 양쪽 끝을 표본으로 열어 확인했다. `>=1` 쪽:
+`collision_detector_allocator_allvalid.hpp`는 `collision_env_allvalid.cpp:38`이
+정말로 `#include` 하고, `planning_response.hpp`는 `chomp_planner.hpp:41`이
+그렇다. `0` 쪽: `collision_plugin.hpp`를 인클루드하는 상류 파일은
+`collision_detection_bullet`/`_fcl`의 로더 둘(코퍼스에서 제외된
+디렉터리)과 자기 자신의 `.h` 심(shim), `collision_plugin_cache.hpp`
+(그 자신도 미포팅)뿐이고, `move_group_sequence_service.hpp`는 자기 `.h`
+심과 자기 `.cpp`뿐이다 — 둘 다 포팅된 158건 중에는 인클루더가 없다.
+
+이 판별자는 아래 세 표의 마지막 열(`포팅된 인클루더`)로 각 행에 붙어
+있다. 열거를 읽는 쪽이 doc의 분류를 믿지 않고도 각 행을 다시 잴 수 있게
+하려는 것이 목적이다.
+### §249.3 (a) 의도적 비포팅 중, 결정이 이 파일의 절 번호나 D 결정을 인용하는 36건
+
+브리프의 (a)는 "deliberately out of scope, **with the decision that
+says so cited by §**"다. 그 문구를 문자 그대로 만족하는 것은 아래
+36건뿐이다. `인용된 절/결정` 열은 doc 행의 증거·비고 두 칸에서
+`§<숫자>`와 `D<숫자>` 토큰을 뽑은 것이고, 그중 증거 칸 안에 있는 것은
+26건, 나머지 10건은 비고 칸에만 있다 — 두 계기가
+각각 26과 36을 내므로 둘 다 적는다.
+
+| # | 상류 파일 | 인용된 절/결정 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
+|---|---|---|---|---|
+| 1 | `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | §225.4 | `PORTING-PLAN.md` §225.4; `crates/moveit-collision/src/env.rs:40-83` | 1 |
+| 2 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | §177, §225.4, §4.5 | `PORTING-PLAN.md` §225.4, §4.5; `crates/moveit-collision/src/env.rs:40-83` | 1 |
+| 3 | `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | §217.3, §231.2 | `PORTING-PLAN.md` §231.2; `crates/moveit-collision/src/lib.rs:54-87` | 1 |
+| 4 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | §1, §231.1, §232.2, §4.5 | `PORTING-PLAN.md` §231.1 and §232.2; `crates/moveit-collision/tests/upstream_panda_harness.rs`, `crates/moveit-collision/tests/collision_parity.rs:542` (`panda_collision_matches_the_oracle`), `crates/moveit-collision/tests/link_padding_changes_collision_verdict.rs` | 0 |
+| 5 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | §232.3 | `PORTING-PLAN.md` §232.3; `crates/moveit-collision/tests/upstream_pr2_harness.rs:4-99` | 0 |
+| 6 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | D4 | `crates/moveit-distance-field/src/lib.rs:541-553` | 1 |
+| 7 | `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_allocator.hpp` | D4 | `crates/moveit-constraints/src/lib.rs:553-562` | 1 |
+| 8 | `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_tools.hpp` | §225.1, D1 | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | 0 |
+| 9 | `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | §225.1 | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | —(.cpp) |
+| 10 | `moveit_core/macros/include/moveit/macros/console_colors.hpp` | §228.5 | `PORTING-PLAN.md` §228.5 | 1 |
+| 11 | `moveit_core/online_signal_smoothing/include/moveit/online_signal_smoothing/smoothing_base_class.hpp` | D1, D4 | `crates/moveit-smoothing/src/lib.rs:28-37` | 3 |
+| 12 | `moveit_core/planning_interface/src/planning_interface.cpp` | §236 | `crates/moveit-planners-sbp/src/lib.rs:300-391` (`# Round 6 symbol audit`) -- 8 of the 9 definitions; `PORTING-PLAN.md` §236 + `crates/moveit-planning/src/request.rs:89-105` -- the 9th | —(.cpp) |
+| 13 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | §228.4 | `PORTING-PLAN.md` §228.4; `crates/moveit-test-support/src/lib.rs:8-22` | 0 |
+| 14 | `moveit_core/utils/include/moveit/utils/lexical_casts.hpp` | §228.1, D3 | `PORTING-PLAN.md` §228.1 | 0 |
+| 15 | `moveit_core/utils/include/moveit/utils/logger.hpp` | D1 | `crates/moveit-planners-pilz/src/lib.rs:162` | 50 |
+| 16 | `moveit_core/utils/include/moveit/utils/rclcpp_utils.hpp` | §228.2, D1 | `PORTING-PLAN.md` §228.2 | 0 |
+| 17 | `moveit_core/utils/include/moveit/utils/robot_model_test_utils.hpp` | §228.3, D1, D4 | `PORTING-PLAN.md` §228.3; `crates/moveit-test-support/src/lib.rs:8-22` | 0 |
+| 18 | `moveit_core/utils/src/lexical_casts.cpp` | §228.1 | `PORTING-PLAN.md` §228.1 | —(.cpp) |
+| 19 | `moveit_core/utils/src/logger.cpp` | D1 | `crates/moveit-planners-pilz/src/lib.rs:162` | —(.cpp) |
+| 20 | `moveit_core/utils/src/rclcpp_utils.cpp` | §228.2 | `PORTING-PLAN.md` §228.2 | —(.cpp) |
+| 21 | `moveit_core/utils/src/robot_model_test_utils.cpp` | §228.3 | `PORTING-PLAN.md` §228.3 | —(.cpp) |
+| 22 | `moveit_kinematics/cached_ik_kinematics_plugin/src/cached_ik_kinematics_plugin.cpp` | D4 | `crates/moveit-kinematics/src/lib.rs:306-311` | —(.cpp) |
+| 23 | `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast.h` | §60.4 | `PORTING-PLAN.md` §60.4; `crates/moveit-kinematics/src/lib.rs:241-250` | —(.cpp) |
+| 24 | `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast61_moveit_plugin_template.cpp` | §60.4 | `PORTING-PLAN.md` §60.4; `crates/moveit-kinematics/src/lib.rs:241-250` | —(.cpp) |
+| 25 | `moveit_kinematics/kdl_kinematics_plugin/include/moveit/kdl_kinematics_plugin/chainiksolver_vel_mimic_svd.hpp` | §159.1, §162, D11 | `PORTING-PLAN.md` §159.1, §162; `crates/moveit-kinematics/src/lib.rs:57-76` | 1 |
+| 26 | `moveit_kinematics/kdl_kinematics_plugin/src/chainiksolver_vel_mimic_svd.cpp` | §159.1, §162 | `PORTING-PLAN.md` §159.1, §162; `crates/moveit-kinematics/src/velocity.rs:17` | —(.cpp) |
+| 27 | `moveit_kinematics/srv_kinematics_plugin/include/moveit/srv_kinematics_plugin/srv_kinematics_plugin.hpp` | D1, D2 | `crates/moveit-kinematics/src/lib.rs:232-240` | 0 |
+| 28 | `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_interface.hpp` | D1, D2 | `crates/moveit-planners-chomp/src/lib.rs:20-32` | 0 |
+| 29 | `moveit_planners/pilz_industrial_motion_planner/include/joint_limits_copy/joint_limits_rosparam.hpp` | §224.4, D1 | `PORTING-PLAN.md` §224.4; `crates/moveit-planners-pilz/src/joint_limits_aggregator.rs:35-67` | 0 |
+| 30 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/capability_names.hpp` | D1 | `crates/moveit-planners-pilz/src/lib.rs:118-126` | 0 |
+| 31 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_interface_extension.hpp` | §224.4, D1 | `PORTING-PLAN.md` §224.4; `crates/moveit-planners-pilz/src/joint_limits_aggregator.rs:35-67` | 2 |
+| 32 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_circ.hpp` | §227.2 | `PORTING-PLAN.md` §227.2; `crates/moveit-planners-pilz/src/lib.rs:130-139` | 0 |
+| 33 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_lin.hpp` | §227.2 | `PORTING-PLAN.md` §227.2; `crates/moveit-planners-pilz/src/lib.rs:130-139` | 0 |
+| 34 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_polyline.hpp` | §227.2 | `PORTING-PLAN.md` §227.2; `crates/moveit-planners-pilz/src/lib.rs:130-139` | 0 |
+| 35 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_ptp.hpp` | §227.2 | `PORTING-PLAN.md` §227.2; `crates/moveit-planners-pilz/src/lib.rs:130-139` | 0 |
+| 36 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_exceptions.hpp` | D4 | `crates/moveit-planners-pilz/src/lib.rs:142-157` | 0 |
+
+### §249.4 (a) 의도적 비포팅 중, 결정이 크레이트 doc 문장만 인용하는 35건
+
+아래 35건은 결정이 존재하고 그 결정이 가리키는 소스 사이트도 있지만,
+`PORTING-PLAN.md`의 절 번호가 뒤에 없다. 브리프의 (a) 정의를 문자
+그대로 적용하면 이 35건은 (a)에 들어가지 못한다. 그렇다고 (b)나 (c)도
+아니다 — 결정 자체는 문서화돼 있기 때문이다. 여기서는 (a)로 두되
+**절 번호가 없다는 사실을 열거와 함께 적는다**. 이 35건에 절을 붙이는
+것은 이 라운드가 하지 않은 작업이고, 그래서 이 절이 그 작업 목록이다.
+
+| # | 상류 파일 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
+|---|---|---|---|
+| 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | `crates/moveit-collision/src/lib.rs:37-49` | 0 |
+| 2 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | `crates/moveit-collision/src/lib.rs:37-49` | 0 |
+| 3 | `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | `crates/moveit-collision/src/lib.rs:37-49` | —(.cpp) |
+| 4 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp` | `crates/moveit-distance-field/src/lib.rs:541-553` | 1 |
+| 5 | `moveit_core/macros/include/moveit/macros/class_forward.hpp` | `crates/moveit-trajectory/src/lib.rs:51-52`, `:370` | 17 |
+| 6 | `moveit_core/macros/include/moveit/macros/declare_ptr.hpp` | `crates/moveit-distance-field/src/lib.rs:873-876` | 1 |
+| 7 | `moveit_core/online_signal_smoothing/src/smoothing_base_class.cpp` | `crates/moveit-smoothing/src/lib.rs:28-37` | —(.cpp) |
+| 8 | `moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_parameterization.hpp` | `crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs:9-10`, `:121-160` | 1 |
+| 9 | `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/GreedyKCenters.hpp` | `crates/moveit-kinematics/src/lib.rs:279-287` | 0 |
+| 10 | `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/NearestNeighbors.hpp` | `crates/moveit-kinematics/src/lib.rs:279-287` | 0 |
+| 11 | `moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/detail/NearestNeighborsGNAT.hpp` | `crates/moveit-kinematics/src/lib.rs:279-287` | 1 |
+| 12 | `moveit_kinematics/cached_ik_kinematics_plugin/src/cached_ur_kinematics_plugin.cpp` | `crates/moveit-kinematics/src/lib.rs:294-306` | —(.cpp) |
+| 13 | `moveit_kinematics/srv_kinematics_plugin/src/srv_kinematics_plugin.cpp` | `crates/moveit-kinematics/src/lib.rs:232-240` | —(.cpp) |
+| 14 | `moveit_planners/chomp/chomp_interface/include/chomp_interface/chomp_planning_context.hpp` | `crates/moveit-planners-chomp/src/lib.rs:20-32` | 0 |
+| 15 | `moveit_planners/chomp/chomp_interface/src/chomp_interface.cpp` | `crates/moveit-planners-chomp/src/lib.rs:20-32` | —(.cpp) |
+| 16 | `moveit_planners/chomp/chomp_interface/src/chomp_planning_context.cpp` | `crates/moveit-planners-chomp/src/lib.rs:20-32` | —(.cpp) |
+| 17 | `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp` | `crates/moveit-planners-chomp/src/lib.rs:20-32` | —(.cpp) |
+| 18 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/move_group_sequence_action.hpp` | `crates/moveit-planners-pilz/src/lib.rs:110-115` | 0 |
+| 19 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/move_group_sequence_service.hpp` | `crates/moveit-planners-pilz/src/lib.rs:110-115` | 0 |
+| 20 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/pilz_industrial_motion_planner.hpp` | `crates/moveit-planners-pilz/src/lib.rs:118-119` | 0 |
+| 21 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_loader.hpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | 0 |
+| 22 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_loader_circ.hpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | 0 |
+| 23 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_loader_lin.hpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | 0 |
+| 24 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_loader_polyline.hpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | 0 |
+| 25 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_loader_ptp.hpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | 0 |
+| 26 | `moveit_planners/pilz_industrial_motion_planner/src/move_group_sequence_action.cpp` | `crates/moveit-planners-pilz/src/lib.rs:110-115` | —(.cpp) |
+| 27 | `moveit_planners/pilz_industrial_motion_planner/src/move_group_sequence_service.cpp` | `crates/moveit-planners-pilz/src/lib.rs:110-115` | —(.cpp) |
+| 28 | `moveit_planners/pilz_industrial_motion_planner/src/pilz_industrial_motion_planner.cpp` | `crates/moveit-planners-pilz/src/lib.rs:118-119` | —(.cpp) |
+| 29 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader.cpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | —(.cpp) |
+| 30 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_circ.cpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | —(.cpp) |
+| 31 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_lin.cpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | —(.cpp) |
+| 32 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_polyline.cpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | —(.cpp) |
+| 33 | `moveit_planners/pilz_industrial_motion_planner/src/planning_context_loader_ptp.cpp` | `crates/moveit-planners-pilz/src/lib.rs:116-117` | —(.cpp) |
+| 34 | `moveit_planners/stomp/include/stomp_moveit/trajectory_visualization.hpp` | `crates/moveit-planners-stomp/src/lib.rs:119-124` | 1 |
+| 35 | `moveit_planners/stomp/src/stomp_moveit_planner_plugin.cpp` | `crates/moveit-planners-stomp/src/lib.rs:111-118` | —(.cpp) |
+
+### §249.5 (b)도 (c)도 아닌 16건 — 다른 이름으로 트리 안에 있다
+
+`doc/port-coverage.md` §1이 정의하는 `ported-elsewhere`는 "상류 파일
+이름으로는 인용되지 않지만 그 동작이 다른 이름으로 트리 안에 있다"는
+뜻이다. 계기가 이들을 미포팅으로 세는 이유는 계기의 PORTED 판정이
+`// Ported from moveit2 @ <sha>:` 블록 안의 **경로 문자열**이기
+때문이고, 동작이 없다는 뜻이 아니다. 따라서 이 16건을 (b)(누락이고
+판정을 막음)나 (c)(누락이나 무해)로 밀어 넣으면 둘 다 사실이 아닌
+보고가 된다. 넷째 칸으로 따로 적는다.
+
+| # | 상류 파일 | 증거 (`doc/port-coverage.md` §4의 같은 행) | 포팅된 인클루더 |
+|---|---|---|---|
+| 1 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | `crates/moveit-collision/src/lib.rs:17` | 2 |
+| 2 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | —(.cpp) |
+| 3 | `moveit_core/exceptions/src/exceptions.cpp` | `crates/moveit-error/src/lib.rs:21-28,64-73` | —(.cpp) |
+| 4 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_interface.hpp` | `crates/moveit-planners-sbp/src/registry.rs:4-12` (top-of-file stand-in comment), `crates/moveit-planners-sbp/src/lib.rs:300-391` (`# Round 6 symbol audit`), `crates/moveit-planners-stomp/src/lib.rs:68-106` (completion statement) | 7 |
+| 5 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request.hpp` | `crates/moveit-planning/src/request.rs:4-10` | 1 |
+| 6 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_request_adapter.hpp` | `crates/moveit-planning/src/lib.rs:404` (`PlanningRequestAdapter`) | 0 |
+| 7 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response.hpp` | `crates/moveit-planning/src/response.rs:33` (`PlanningResponse`, cites `:48-70`), `crates/moveit-planners-chomp/src/planner.rs:193` (`ChompSolution`) + `crates/moveit-planners-chomp/src/planner.rs:29-33` (its field audit, cites `:75-83`) | 2 |
+| 8 | `moveit_core/planning_interface/include/moveit/planning_interface/planning_response_adapter.hpp` | `crates/moveit-planning/src/lib.rs:420` (`PlanningResponseAdapter`) | 0 |
+| 9 | `moveit_core/planning_interface/src/planning_response.cpp` | `ros/moveit-ros/src/planning.rs:326` (`TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut`) -- `MotionPlanResponse::getMessage` (`:40-50`); `PORTING-PLAN.md` §234 + `ros/moveit-ros/src/planning.rs:44-66` (`# Not ported here: MotionPlanDetailedResponse::getMessage`) -- the other function | —(.cpp) |
+| 10 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | 2 |
+| 11 | `moveit_core/robot_state/src/attached_body.cpp` | `crates/moveit-scene/src/attached_body.rs:191` (`set_scale`), `:205` (`set_padding`), `:122` (`subframe_pose`), `:67` (`new`); `crates/moveit-scene/src/scene.rs:1129` (`attach`), `:1200` (`attach_new`), `:1352-1355` (`frame_transform`'s on-demand recompute); `crates/moveit-kinematics/src/set_from_ik.rs:150` | —(.cpp) |
+| 12 | `moveit_core/utils/include/moveit/utils/message_checks.hpp` | `ros/moveit-ros/src/scene/collision_object.rs:11` | 3 |
+| 13 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_context_base.hpp` | `PORTING-PLAN.md` §227.1-§227.3; `crates/moveit-planners-pilz/src/trajectory_generator.rs:606-636`, `:352` | 0 |
+| 14 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/tip_frame_getter.hpp` | `crates/moveit-planners-pilz/src/trajectory_functions.rs:795` | 4 |
+| 15 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | `PORTING-PLAN.md` §227.5-§227.6; `crates/moveit-error/src/lib.rs:100-102`, `crates/moveit-planners-pilz/src/trajectory_generator.rs:511-517` | 5 |
+| 16 | `moveit_planners/stomp/include/stomp_moveit/stomp_moveit_planning_context.hpp` | `crates/moveit-planners-stomp/src/planner.rs` | 1 |
+
+### §249.6 (b) 0건 · (c) 0건 — 판정 없이 빠진 파일도, Phase 행을 막는 파일도 코퍼스 안에는 없다
+
+**(c) "빠졌으나 무해" = 0건.** (c)는 "결정도 없고 영향도 없이 그냥 빠진
+파일"을 담는 칸이다. 코퍼스 안에는 그런 파일이 없다 — 87건 전부가
+`doc/port-coverage.md` §4에 자기 행을 갖고, 그 87행이 계기가 낸 미포팅
+87건과 집합으로 같다는 것을 `--check`가 양방향 차집합으로 확인한다
+(§249.1). 결정의 **질**은 균일하지 않지만(§249.4의 35건은 절 번호가
+없다) 결정의 **존재**는 87/87이다. 그래서 (a) 71 + 다른 이름으로 존재
+16 = 87이고 (c)에 남는 것이 없다.
+
+**(b) "빠졌고 Phase 판정을 막는다" = 0건.** 오늘 MET가 아닌 Phase 행은
+넷이다:
+
+```
+$ rg -n '^\| Phase ' PORTING-PLAN.md | rg -v '\| MET \|'
+806:| Phase 3 | `collision: bool` 이 10,000×3로봇에서 100% 일치 | UNMET | §229.1 | 2026-08-06 |
+807:| Phase 3 | `distance: f64` 가 `1e-4` 이내 일치 | UNMET | §229.3 | 2026-08-06 |
+818:| Phase 8 | CHOMP/STOMP가 Phase 7과 같은 속성 기반 검증을 통과 | UNMEASURED | §217.3 | 2026-08-05 |
+819:| Phase 9 | 기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로 유효 궤적 수신 | UNMET | §226.4 | 2026-08-06 |
+```
+
+네 행을 하나씩, 87건 중 무엇이 그 행을 막는지 묻는다. 답은 넷 다 0건이고
+이유가 서로 다르다.
+
+| Phase 행 | 인용 § | 그 행을 실제로 막는 것 | 87건 중 이 행을 막는 파일 |
+|---|---|---|---|
+| Phase 3 `collision: bool` | §229.1 | 상류에 정합할 규약이 자체가 없다 — `z = 0` 정확 접선에서 상류의 답이 한 값으로 정해지지 않는다. 빠진 코드가 아니라 정의되지 않은 의미론이다 | **0**. 이 행이 재는 코드는 `moveit_core/collision_detection_fcl/src/collision_common.cpp`이고, 그 디렉터리는 `CORE_EXCLUDED_SUBDIRS`라 코퍼스 245에 애초에 들어오지 않는다 |
+| Phase 3 `distance: f64` | §229.3 | 상류 `distanceCallback`(`collision_detection_fcl/src/collision_common.cpp:471`)이 다른 양을 잰다 — 최대 침투깊이 접촉의 부호를 뒤집은 값. 배율이 아니라 정의 차이다 | **0**. 위와 같은 파일·같은 이유 |
+| Phase 8 CHOMP/STOMP | §217.3 | 포트 쪽에 속성 기반 하네스가 없다. Phase 7의 대응물은 `crates/moveit-planners-sbp/examples/plan_benchmark_{port,problem_set}.rs`이고 chomp/stomp 크레이트에는 `examples/`·`benches/` 자체가 없다 | **0**. 87건 중 chomp/stomp는 8건이지만 전부 ROS 플러그인 배선(`chomp_interface/*`, `stomp_moveit_planner_plugin.cpp`, `trajectory_visualization.hpp`)이고, Phase 7 하네스는 플러그인을 거치지 않는다 — `plan_benchmark_port.rs:182`는 `moveit_planners_sbp::PlannerManager`를 직접 쓰고, 대응 진입점은 이미 있다(`moveit-planners-chomp/src/planner.rs:382 solve`, `moveit-planners-stomp/src/planner.rs:430 plan`) |
+| Phase 9 `MoveGroupInterface` | §226.4 | 서버 쪽이 없다 — `ros/moveit-ros`에 `fn main`을 갖는 노드 바이너리도, `/plan_kinematic_path` 서비스도, `/move_action` 액션 서버도 없다 | **0**. 이 행을 막는 상류 코드는 `moveit_ros/move_group/**`이고(예: `src/default_capabilities/plan_service_capability.cpp`가 `/plan_kinematic_path`를 연다), 코퍼스에 `moveit_ros/` 파일은 0건이다 |
+
+```
+$ python3 -c "... corpus_files ..." # 두 Phase 3 행이 재는 디렉터리의 코퍼스 소속
+  corpus files under moveit_core/collision_detection_fcl/        : 0
+  corpus files under moveit_core/collision_detection_bullet/     : 0
+  corpus files under moveit_core/collision_detection/            : 24
+  CORE_EXCLUDED_SUBDIRS = ['collision_detection_bullet', 'collision_detection_fcl', 'controller_manager', 'version']
+$ rg -c 'collision_detection_(fcl|bullet)' <87건 목록>
+  0 of the 87
+$ ls -d crates/moveit-planners-{chomp,stomp}/{examples,benches}
+  네 경로 모두 No such file or directory
+$ python3 ... # moveit_ros의 코퍼스 소속
+  corpus members under moveit_ros/: 0
+```
+
+**(b)가 0이라는 것은 "빠진 것이 없다"는 뜻이 아니다.** 이름이 붙은 채
+빠져 있는 동작이 87건 안에 둘 있다. `trajectory_generation_exceptions.hpp`
+행이 §227.6으로 넘긴 `MoreThanOneTipFrameException`과
+`JointNumberMismatch`(LIN의 관절 수 검사)다. 둘을 (b)에 넣지 않는 이유는
+하나뿐이다 — §5의 어느 Phase 조건도 이 둘을 이름 부르지 않고, 따라서 이
+둘이 막는 행이 없다. (b)의 정의가 "load-bearing for a Phase verdict"이므로
+막는 행을 못 대면 (b)가 아니다. 이 둘은 §227.6이 이미 잔여분으로 적고
+있고, 이 절은 그것을 (b)로 승격하지 않은 채 여기에 다시 적는다.
+
+### §249.7 부재를 무엇이 보는가 — 계기의 시야와 사각
+
+브리프의 질문: 아무도 포팅하지 않아 감사 행조차 없는 상류 파일은 어느
+계기에 잡히는가, 그리고 그 계기는 **포트에도 없고 감사 문서에도 없는**
+파일을 볼 수 있는가.
+
+**계기는 `tools/ci/measure-port-coverage.py` 하나다.** 이것이 다른
+계기들과 다른 점은 열거의 출발점이다 — 포트의 `.rs`도, `doc/`의 행도
+아니고 **상류 체크아웃을 `os.walk`로 직접 훑는다**(`corpus_files()`,
+`:82-104`). 포팅 여부는 그 뒤에 `// Ported from moveit2 @ <sha>:` 인용
+블록에서 경로를 모아 빼는 방식이라, 아무도 인용하지 않은 상류 파일은
+**빠지는 게 아니라 미포팅으로 남는다**. 그래서 답은 "볼 수 있다"이고,
+그것이 설계다. 주장 대신 실제로 행 하나를 지우고 돌렸다:
+
+```
+$ rg -v '^\| `moveit_core/utils/src/lexical_casts\.cpp`' doc/port-coverage.md > /tmp/doc_minus1.md
+$ python3 tools/ci/measure-port-coverage.py --upstream /home/stevek/work/moveit2 --check /tmp/doc_minus1.md
+MISSING ROW  moveit_core/utils/src/lexical_casts.cpp
+FAIL /tmp/doc_minus1.md: 1 missing, 0 stale, 0 duplicated, 0 malformed
+exit=1
+```
+
+**사각은 파일 단위가 아니라 디렉터리 단위다.** 계기가 훑는 것은
+`CORPUS_ROOTS` 다섯 뿐이므로(`moveit_core`, `moveit_kinematics`,
+`moveit_planners/{chomp,stomp,pilz_industrial_motion_planner}`), 그 밖의
+상류 파일은 **미포팅으로도 세어지지 않는다**. 코퍼스와 같은 파일 규칙
+(`.cpp/.hpp/.h`, `test`/`tests` 경로 성분 제외, 자동생성 `.h` 심 제외)을
+상류 전체에 적용해 재면:
+
+```
+$ # 상류 전체에 코퍼스와 같은 규칙을 적용
+all .cpp/.hpp/.h anywhere in upstream        : 1296
+  minus test/tests path components           : 1173   (-123)
+  minus autogenerated .h shims               : 800    (-373)
+
+upstream, non-test, non-shim : 800
+  inside CORPUS_ROOTS         : 245
+  outside — 계기가 못 봄       : 555
+    272  moveit_ros
+    125  moveit_setup_assistant
+     75  moveit_planners        (ompl 등, 코퍼스가 세 플래너만 잡으므로)
+     41  moveit_py
+     28  moveit_core            (CORE_EXCLUDED_SUBDIRS)
+     14  moveit_plugins
+```
+
+(1296은 필터 전 원시 파일 수다. 245와 비교해야 하는 수는 같은 규칙을
+적용한 800이며, 앞 라운드 노트가 들고 다니던 798/413은 이 필터 사다리를
+거치지 않은 수여서 이 절은 쓰지 않는다.)
+
+**그 555 중 463건은 이 저장소 어디에도 이름이 나오지 않는다.** 감사
+문서의 산문조차 언급하지 않는다는 뜻이다. 검색 코퍼스는 `git ls-files`
+전량(`third_party/` 제외) 718개 파일, 19,294,018자이고, 파일 이름
+(basename) 일치로 셌다 — basename 일치는 언급을 **과다** 집계하므로
+463은 하한이다:
+
+```
+outside-corpus upstream files                     : 555
+  whose basename appears nowhere in that corpus    : 463
+  mentioned somewhere (prose only, no instrument)  : 92
+
+never-mentioned, by package:
+    226  moveit_ros
+    125  moveit_setup_assistant
+     62  moveit_planners
+     21  moveit_core       (16 bullet / 4 fcl / 1 controller_manager)
+     15  moveit_py
+     14  moveit_plugins
+```
+
+표본 둘을 열어 확인했다:
+`moveit_core/collision_detection_bullet/include/moveit/collision_detection_bullet/bullet_integration/basic_types.hpp`
+와 `moveit_ros/visualization/robot_state_rviz_plugin/src/plugin_init.cpp`
+— 둘 다 상류에 존재하고, 추적 중인 트리 전체에서 basename 히트 0이다.
+
+**이것이 §249.6의 (b) 0건을 읽는 방법을 정한다.** (b)가 0인 것은 코퍼스
+**안**에서의 사실이다. Phase 9를 막는 코드는 226건이 이름조차 안 나오는
+`moveit_ros` 안에 있고, 그것은 이 저장소의 어떤 계기도 세지 않는다 —
+`--check`가 통과한다는 사실은 그 부재에 대해 아무것도 말하지 않는다.
+Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/move_group`
+(37건)을 넣는 결정이 먼저 있어야 하고, 이 라운드는 그 결정을 하지 않았다.
