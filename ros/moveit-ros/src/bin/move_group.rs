@@ -19,10 +19,13 @@
 //!   the goal here. That file mentions `GetMotionPlan`/`plan_kinematic_path`
 //!   nowhere, so the service above is unreachable from that client (§241.4).
 //!
-//! The file name is §241's and now names only half of what this binary hosts.
-//! Renaming it means changing `cargo build --bin plan_kinematic_path_server`
-//! in `ros/verify-ros-interop.sh`, which is outside the fence of the round
-//! that added `/move_action`.
+//! The name is upstream's own for the executable that loads exactly those two
+//! capabilities: `add_executable(move_group src/move_group.cpp)`
+//! (`moveit_ros/move_group/CMakeLists.txt:89`), whose node is
+//! `rclcpp::Node::make_shared("move_group", opt)` (`move_group.cpp:235`).
+//! §241 called this file `plan_kinematic_path_server` when it hosted one
+//! endpoint; §255 renamed it, because a name that tracks which subset of
+//! capabilities happens to be built has to move every time one is added.
 //!
 //! # What this does not do, and why
 //!
@@ -64,18 +67,17 @@
 //! the same `TryFrom` impls the wire tests exercise in-process -- and a
 //! genuine, typed failure, never a fabricated trajectory.
 //!
-//! # The two endpoints report that state with different `error_code`s
+//! # Both endpoints report that state as `MoveItErrorCodes::FAILURE`
 //!
-//! `/move_action` reports it as `MoveItErrorCodes::FAILURE` and
-//! `/plan_kinematic_path` as `PLANNING_FAILED`. `FAILURE` is the correct one
-//! for both: upstream reaches "there is no planning pipeline" through
-//! `resolvePlanningPipeline` returning null, and both capabilities encode
-//! *that* as `FAILURE` (`move_action_capability.cpp:207-211`,
+//! Upstream reaches "there is no planning pipeline" through
+//! `resolvePlanningPipeline` returning null, and *both* capabilities encode
+//! that as `FAILURE` (`move_action_capability.cpp:207-211`,
 //! `plan_service_capability.cpp:82-85`), reserving `PLANNING_FAILED` for a
-//! pipeline that ran and did not solve. The service's `PLANNING_FAILED` is a
-//! parity defect carried over from §241; correcting it also means changing
-//! the `grep -q "val=-1"` assertion in `ros/verify-ros-interop.sh`, which is
-//! outside the fence of the round that found it.
+//! pipeline that ran and did not solve. `/plan_kinematic_path` here answered
+//! `PLANNING_FAILED` from §241 until §255 corrected it -- a code this port
+//! cannot legitimately reach, since nothing here ever runs a pipeline. The
+//! live leg of `ros/verify-ros-interop.sh` is pinned to `val=99999`, so the
+//! two now move together.
 
 use std::env;
 use std::fs;
@@ -111,7 +113,12 @@ fn failure_response(val: i32, message: &str) -> GetMotionPlan::Response {
             error_code: MoveItErrorCodes {
                 val,
                 message: message.to_string(),
-                source: "moveit-ros/plan_kinematic_path_server".to_string(),
+                // The endpoint, not the binary: `move_group_failure` below
+                // already names its own endpoint (`moveit-ros/move_action`),
+                // and a `source` built from the binary name goes stale on the
+                // wire every time the binary is renamed -- which is what §255
+                // just did to this one.
+                source: "moveit-ros/plan_kinematic_path".to_string(),
             },
             ..Default::default()
         },
@@ -139,7 +146,11 @@ fn handle_request(model: &RobotModel, msg: GetMotionPlan::Request) -> GetMotionP
     // to make. `planning_request` is otherwise unused past proving the
     // conversion above actually ran.
     let _ = &planning_request;
-    failure_response(MoveItErrorCodes::PLANNING_FAILED as i32, NO_PLANNER)
+    // `FAILURE`, not `PLANNING_FAILED`: upstream's own service capability
+    // answers a null `resolvePlanningPipeline` with `FAILURE`
+    // (`plan_service_capability.cpp:82-85`), which is the branch this port
+    // stands in. See this binary's module doc.
+    failure_response(MoveItErrorCodes::FAILURE as i32, NO_PLANNER)
 }
 
 /// A `MoveGroup` result carrying no trajectory and the given `val`/`message`.
@@ -201,7 +212,7 @@ fn handle_move_group_goal(model: &RobotModel, goal: MoveGroup::Goal) -> MoveGrou
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
     let [_, urdf_path, srdf_path] = args.as_slice() else {
-        eprintln!("usage: plan_kinematic_path_server <urdf-path> <srdf-path>");
+        eprintln!("usage: move_group <urdf-path> <srdf-path>");
         return ExitCode::FAILURE;
     };
 

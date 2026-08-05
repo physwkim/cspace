@@ -108,8 +108,8 @@ fi
 
 # Every unit-test phase's own summary line, summed -- doctests print a
 # separate, later "test result:" line under its own "   Doc-tests" header,
-# excluded by the `sed` range below. Before PORTING-PLAN.md §241 added
-# `src/bin/plan_kinematic_path_server.rs`, exactly one unit-test binary
+# excluded by the `sed` range below. Before PORTING-PLAN.md §241 added this
+# crate's first `[[bin]]` target, exactly one unit-test binary
 # existed (the lib), so "the last 'test result:' line before Doc-tests" and
 # "the lib's own count" were the same line -- a `tail -1` here was enough.
 # A `[[bin]]` target gives `cargo test` a second unit-test suite (its own
@@ -155,7 +155,7 @@ run "doc" bash -c "cargo doc --no-deps"
 # Live round-trip (PORTING-PLAN.md §241): every check above compiles and
 # unit-tests moveit-ros in-process -- this script's own "what this does NOT
 # check" list at the top says so, and until this round it was true. This
-# step is the one exception: it starts the real `plan_kinematic_path_server`
+# step is the one exception: it starts the real `move_group`
 # binary against a fixture URDF/SRDF, sends it a real
 # `moveit_msgs/srv/GetMotionPlan` request over live DDS with `ros2 service
 # call` (not an in-process struct construction), and asserts the response
@@ -172,20 +172,41 @@ run "doc" bash -c "cargo doc --no-deps"
 # with what is being measured.
 run "live" bash -c '
   set -e
-  cargo build --bin plan_kinematic_path_server
-  ./target/debug/plan_kinematic_path_server \
+  cargo build --bin move_group
+  ./target/debug/move_group \
     /repo/ros/fixtures/one_joint.urdf /repo/ros/fixtures/one_joint.srdf &
   server_pid=$!
   trap "kill $server_pid 2>/dev/null || true" EXIT
   sleep 3
   out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
   echo "$out"
-  echo "$out" | grep -q "val=-1" || {
-    echo "FAIL live round-trip: response did not carry the expected PLANNING_FAILED (val=-1) error code" >&2
+  # `-E` with a trailing non-digit guard rather than a plain substring: the
+  # `grep -q "val=-1"` this replaced also matched `val=-16`, the other code
+  # this same handler returns (INVALID_GOAL_CONSTRAINTS, when the request
+  # does not convert) -- so it could not tell the two apart, and a handler
+  # that answered the conversion error for every request would have passed it.
+  echo "$out" | grep -qE "val=99999([^0-9]|$)" || {
+    echo "FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code" >&2
+    echo "FAIL upstream answers a null resolvePlanningPipeline with FAILURE in both capabilities" >&2
+    echo "FAIL (plan_service_capability.cpp, move_action_capability.cpp); PLANNING_FAILED is for a" >&2
+    echo "FAIL pipeline that ran and did not solve, which this port never does." >&2
     exit 1
   }
   echo "$out" | grep -q "no moveit_planning::pipeline::Planner to call yet" || {
     echo "FAIL live round-trip: response did not carry the expected explanatory message" >&2
+    exit 1
+  }
+  # `source` is what separates an answer built by this node from one built
+  # anywhere else -- the same assertion the move_action legs make about their
+  # own endpoint. It names the endpoint, not the binary: this reply used to
+  # carry the binary name and went stale on the wire the moment the binary was
+  # renamed (PORTING-PLAN.md §255), with nothing looking at it.
+  #
+  # `\b` and not a trailing `.`: without a right-hand word boundary this would
+  # match the `source=...plan_kinematic_path_server` it replaced just as well,
+  # and a check that accepts both spellings cannot tell them apart.
+  echo "$out" | grep -qE "source=.moveit-ros/plan_kinematic_path\b" || {
+    echo "FAIL live round-trip: response did not carry source=moveit-ros/plan_kinematic_path" >&2
     exit 1
   }
 '

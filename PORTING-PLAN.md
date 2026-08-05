@@ -22718,7 +22718,7 @@ Phase 9를 코퍼스 계기로 추적하려면 `CORPUS_ROOTS`에 `moveit_ros/mov
 
 | 조각 | §226.3 | 지금 | 지은 절 |
 |---|---|---|---|
-| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:114,171` | §241 |
+| 노드 바이너리(`fn main`/`r2r::Node`/`spin`) | 부재 | **존재** — `ros/moveit-ros/src/bin/move_group.rs:212,269,359` (§255.2 이전 이름은 `plan_kinematic_path_server.rs`, 줄 번호는 지금 트리에서 다시 유도했다) | §241 |
 | `/plan_kinematic_path` 서비스 | 부재 | **존재** — 같은 파일 `create_service::<GetMotionPlan::Service>` | §241 |
 | `/move_action` 액션 서버 | 부재 | **존재** — 같은 파일 `create_action_server::<MoveGroup::Action>` | 이 절 |
 | planning scene 토픽 구독 | 부재 | **부재** — `rg -n 'create_subscription' ros/moveit-ros/src/ -t rust` 0건 | — |
@@ -23664,3 +23664,100 @@ URDF/SRDF는 `ros/fixtures/`로 옮겼다. 두 다리가 서로 다른 이미지
   닿지만, 그 glob을 도는 러너에 도커가 없다(§129.4). 사람이
   `sg docker -c ./tools/ci/verify-all.sh`를 쳐야 돈다는 점은 §241 이후로
   변하지 않았다.
+
+## §255 `/plan_kinematic_path`의 오류 코드를 상류에 맞추고, 바이너리 이름을 그것이 하는 일에 맞춘다 (2026-08-06)
+
+§254.6이 닫지 못한 것으로 적은 둘이다. 둘 다 §250이 찾아 §254가 물려준
+것이고, 이 라운드가 `ros/verify-ros-interop.sh`를 펜스 안에 받아 닫는다.
+
+### §255.1 `PLANNING_FAILED` → `FAILURE` — 상류가 정하는 대로, 소스와 게이트를 같이
+
+§250.3은 `/plan_kinematic_path`가 내는 `PLANNING_FAILED`를 파리티 결함으로
+적고 `FAILURE`가 옳다고 결론했다. 그 판단을 상류 소스에 대고 다시 검증했다
+(핀된 체크아웃 `e017c91`을 직접 읽었다, §250.3의 문장을 믿지 않고):
+
+- `moveit_ros/move_group/src/default_capabilities/plan_service_capability.cpp`의
+  `MoveGroupPlanService::computePlanService`는 실패 세 갈래 — 파이프라인
+  해석 실패, `generatePlan`이 거짓, 예외 — 전부에 `MoveItErrorCodes::FAILURE`를
+  넣는다. 이 번역 단위에 `PLANNING_FAILED`는 한 번도 나오지 않는다.
+- `move_action_capability.cpp`의 `executeMoveCallbackPlanOnly`와
+  `planUsingPlanningPipeline`도 같은 세 갈래에 같은 `FAILURE`를 넣는다.
+
+즉 상류는 두 capability에서 **같은 상태를 같은 코드로** 보고하고, 그 코드는
+`FAILURE`(99999)다. `PLANNING_FAILED`(-1)는 파이프라인이 **돌고** 못 푼
+경우에만 나오는데, 이 포트에는 돌 파이프라인이 없으므로 이 바이너리가
+합법적으로 도달할 수 없는 코드다. §250.3은 옳았다.
+
+고친 것은 `ros/moveit-ros/src/bin/move_group.rs`(§255.2가 이름을 바꾸기
+전에는 `plan_kinematic_path_server.rs`)의
+`handle_request` 한 줄과, 그 값을 고정하는 `ros/verify-ros-interop.sh`의
+`run "live"` 단언이다. 둘을 한 커밋에 넣은 것은 어느 쪽만 움직여도 틀리기
+때문이다 — 소스만 고치면 게이트가 붉어지고, 게이트만 고치면 결함이 남는다.
+
+**게이트 자신의 결함도 같이 닫았다.** 옛 단언은 `grep -q "val=-1"`이었고,
+이건 부분 문자열이라 같은 핸들러의 다른 코드인 `val=-16`
+(`INVALID_GOAL_CONSTRAINTS`, 요청이 변환되지 않을 때)에도 맞는다. 즉 모든
+요청에 변환 오류를 답하는 핸들러도 그 단언을 통과했다. 새 단언은
+`grep -qE "val=99999([^0-9]|$)"`로 오른쪽을 막아 그 둘을 가른다.
+
+**판별 뮤테이션(실측).** 소스의 `MoveItErrorCodes::FAILURE`를
+`PLANNING_FAILED`로 되돌리고 게이트를 그대로 둔 채
+`sg docker -c tools/ci/verify-ros-interop.sh`를 돌렸다 — exit 1, 그리고
+게이트가 되돌린 것을 이름 대고 실패했다:
+
+```
+error_code=moveit_msgs.msg.MoveItErrorCodes(val=-1, ...)
+FAIL live round-trip: response did not carry the expected FAILURE (val=99999) error code
+FAIL upstream answers a null resolvePlanningPipeline with FAILURE in both capabilities
+```
+
+되돌린 뒤 같은 명령이 `all gates passed`로 끝난다(leg B 포함, 오라클
+이미지가 이 기계에 있어 SKIP 없이 돌았다).
+
+### §255.2 `plan_kinematic_path_server` → `move_group` — 상류가 이 노드에 붙인 이름
+
+§241이 이 바이너리를 지을 때는 엔드포인트가 하나였고 이름이 그것을 그대로
+불렀다. §250이 `/move_action`을 같은 바이너리에 얹은 뒤로 이름은 하는 일의
+절반만 말한다. 새 이름은 상류가 **바로 이 두 capability를 싣는 실행 파일**에
+붙인 이름이다 — `add_executable(move_group src/move_group.cpp)`
+(`moveit_ros/move_group/CMakeLists.txt:89`), 그 노드는
+`rclcpp::Node::make_shared("move_group", opt)` (`move_group.cpp:235`).
+capability가 하나 늘 때마다 따라 움직여야 하는 이름 대신, 상류 대응물의
+이름을 쓴다.
+
+`rg -n plan_kinematic_path_server`가 낸 20곳을 전수 분류했다. 고친 곳:
+`ros/verify-ros-interop.sh` 넷, `ros/verify-move-action-interop.sh` 넷
+(양쪽의 `cargo build --bin`/`./target/debug/` 줄 포함),
+`ros/moveit-ros/Cargo.toml`의 주석 둘, 바이너리 자신의 모듈 문서·`source`
+문자열·usage 줄, 파일 이름(`git mv`), 그리고 PORTING-PLAN.md에서 **현재
+트리를 주장하는** 둘 — §250.1 표의 "지금" 칸(줄 인용이라
+`tools/ci/check-citation-drift.py`가 실제로 푼다, 줄 번호를 지금 트리에서
+다시 유도했다)과 §255.1 자신. `[[bin]]` 테이블은 없다 — Cargo가
+`src/bin/`을 자동 발견하므로 옮길 `[[bin]]`이 애초에 없었다.
+
+건드리지 않은 곳은 **과거 라운드의 기록**이다: §241.1/§241.3/§241.5,
+§250.3, §252.3의 서술과, 그 안에 그대로 붙여 둔 두 transcript(§241.3의
+`ros2 service call` 응답, §252.3의 main 트리 `rg` 출력), §254.6의
+"이 라운드가 닫지 못한 것" 목록. 그것들은 그 이름이었던 트리를 적은
+것이므로 이름을 바꾸면 기록이 거짓이 된다. §254.6의 두 항목은 이 절과
+§255.1이 닫는다.
+
+**이름이 wire에서도 빠졌다.** `/plan_kinematic_path` 응답의 `source`가
+`moveit-ros/plan_kinematic_path_server`, 즉 바이너리 이름이었다 — 이름을
+바꿀 때마다 wire가 낡는 모양이고, 아무 검사도 그 필드를 보지 않았다.
+형제인 `/move_action`이 이미 `moveit-ros/move_action`으로 **엔드포인트**를
+부르므로 이쪽도 `moveit-ros/plan_kinematic_path`로 맞췄고, `run "live"`에
+그 필드 단언을 새로 더했다.
+
+**판별 뮤테이션(실측).** 새 `source` 단언이 실제로 가르는지 재려고 소스의
+`source`를 옛 값 `moveit-ros/plan_kinematic_path_server`로 되돌리고
+게이트를 돌렸다 — exit 1:
+
+```
+FAIL live round-trip: response did not carry source=moveit-ros/plan_kinematic_path
+```
+
+단언을 `grep -qE "source=.moveit-ros/plan_kinematic_path\b"`로 쓴 것이 이
+때문이다. 오른쪽 단어 경계가 없으면 옛 `..._server` 철자도 같이 통과해,
+가르지 못하는 검사가 된다. 되돌린 뒤 같은 명령이 `all gates passed`로
+끝난다.
