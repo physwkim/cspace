@@ -541,7 +541,7 @@ pub struct PathValidity {
 ///   no algorithmic content; everything it prints is already public via
 ///   [`PlanningScene::world`]'s `object_ids` and
 ///   [`PlanningScene::attached_bodies`]. Previously judged from the header
-///   signature alone; its body (`planning_scene.cpp:2512-2531`) is exactly
+///   signature alone; its body (`planning_scene.cpp:2512-2533`) is exactly
 ///   that — two loops over `getWorld()->getObjectIds()` and
 ///   `getCurrentState().getAttachedBodies(...)` writing `<<` to `out`, no
 ///   conditional whose outcome differs from what those two accessors
