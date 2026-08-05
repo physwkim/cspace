@@ -16719,3 +16719,52 @@ Phase 5의 둘째·셋째 항목), 미측정 1개(Phase 8의 CHOMP/STOMP 항목)
 `prbt` 픽스처가 커밋되면 바로 측정 가능하고(현재 `p10-phase13`의 워크트리에
 untracked 상태로만 있다), Phase 4 (b)의 `1e-6`은 솔버 수렴 epsilon이 `1e-5`인
 한 현재 구조로 성립하지 않는다는 것이 이 절의 측정 결과다.
+
+## §225 `constraint_samplers`의 남은 두 파일과 all-valid 충돌 검출기 — 갭 6건을 판정으로 바꿨다
+
+`doc/port-coverage.md`가 `gap`으로 들고 있던 6개 파일을 열어 판정했다.
+`gap`은 "아무도 결정한 적 없다"는 뜻이지 "포팅해야 한다"는 뜻이 아니므로,
+판정 없이 남겨 두면 다음 라운드가 같은 파일을 같은 깊이로 다시 연다. 아래
+네 소절이 각각 근거를 적고, `doc/port-coverage.md`의 해당 행을 옮긴다.
+
+### §225.1 `constraint_sampler_tools.{hpp,cpp}` — `decided-non-port`
+
+네 선언 중 셋은 이미 D1이다(`visualizeDistribution` 둘은
+`visualization_msgs::msg::MarkerArray`를 받고,
+`countSamplesPerSecond(constr, scene, group)`는 `moveit_msgs::Constraints`와
+`PlanningSceneConstPtr`을 직접 받는다). 넷째
+`countSamplesPerSecond(sampler, reference_state)`만 ROS 타입을 받지 않아
+`crates/moveit-constraints/src/lib.rs`의 선언별 감사가 라운드 12부터
+`gap`으로 들고 있었다. 이 절이 그것을 판정한다.
+
+**포팅하지 않는다.** 세 가지 이유이고, 앞의 둘이 결정적이다.
+
+1. **루프의 종료 조건이 벽시계다.** `constraint_sampler_tools.cpp:82,92`가
+   `rclcpp::Clock().now() + rclcpp::Duration::from_seconds(1)`을 잡고
+   `while (rclcpp::Clock().now() < end)`로 돈다. 뽑는 횟수가 기계 성능의
+   함수이므로 반환값의 분해능도 기계의 성질이고, 호출 하나가 구조적으로
+   1초 이상 걸린다. 이 워크스페이스의 어떤 테스트도 그 출력에 단언을 걸 수
+   없다.
+2. **같은 양을 이미 결정적으로 재고 있다.**
+   `crates/moveit-constraints/tests/sampler_self_validation.rs`가 일곱 개
+   샘플러 구성마다 `attempted`/`produced`/`satisfied`를 세고, 시드 고정된
+   10,000 상태 예산에 대해 `produced < quota`면 그 구성을 이름 붙여
+   실패시킨다. `countSamplesPerSecond`가 계산하는 `valid / total`이 바로
+   그 `produced / attempted`인데, 이쪽은 벽시계가 아니라 뽑기 수로 예산이
+   묶여 있고 값을 반환하는 대신 단언한다.
+3. **생산 호출자가 0이다.** `moveit_core`/`moveit_planners`/`moveit_ros`
+   전체에서 유일한 호출자는 자기 자신의 D1 형제
+   (`constraint_sampler_tools.cpp:68`)이고, 그 형제는 받은 `double`을
+   들여다보지 않고 자기 반환값으로 그대로 흘려보낸다(라운드 13/14 근거,
+   `lib.rs`의 해당 항목에 유지). 그 위에 이번 라운드가 하나 더 찾았다 —
+   그 `double`은 이름이 약속하는 rate도 아니다
+   (`doc/upstream-bugs.md`의 `count-samples-per-second-returns-a-ratio`).
+
+`lib.rs`의 66개 선언 감사에서 이 항목의 태그를 `gap`에서 `decided`로
+옮겼다. 태그별 수는 `rg -c '^//! - CS:.*-> TAG'`로 재현되며
+19/23/8/6/1/9 = 66이다.
+
+**부수 정정.** 그 감사의 마지막 합계 줄이 `18 + 23 + 8 + 6 + 11 = 66`이었다.
+합은 맞지만 `ported`와 `gap` 항이 라운드 20 이후 재도출된 적이 없어 둘 다
+1씩 틀려 있었고, 반대 방향이라 총합이 가려 주고 있었다. 항을 `rg -c`
+실측으로 바꿨다.

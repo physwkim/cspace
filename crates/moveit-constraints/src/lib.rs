@@ -577,21 +577,36 @@
 //!   needs `visualization_msgs::msg::MarkerArray`
 //! - CS: `visualizeDistribution(constr, scene, group, link_name, sample_count, markers)` -> D1:
 //!   same, plus `moveit_msgs::Constraints`
-//! - CS: `countSamplesPerSecond(sampler, reference_state)` -> gap: a
+//! - CS: `countSamplesPerSecond(sampler, reference_state)` -> decided: a
 //!   benchmarking helper that takes no ROS type (unlike its sibling below)
-//!   and so is not D1-excluded, just never ported. Round 13 evidence: its
-//!   only caller anywhere in `moveit_core`/`moveit_planners`/`moveit_ros` is
-//!   its own D1-excluded `(constr, scene, group)` sibling
-//!   (`constraint_sampler_tools.cpp:68`) forwarding to it — nothing outside
-//!   this file calls it. Round 14 re-check, specifically not closing this
-//!   with "it's a statistic, so harmless" —
-//!   `constraint_sampler_tools.cpp:65-69` shows the sibling does not
-//!   inspect the returned `double` at all, only forwards it straight back
-//!   out as its own return value, so the number never reaches a threshold
-//!   or an `if`/assert anywhere in this repo's copy of `moveit_core`: (a)
-//!   no branch, confirmed by reading the one caller rather than assuming a
-//!   benchmarking helper is inert; (b) no production caller — the only
-//!   caller is itself D1-excluded
+//!   and so is not D1-excluded. Rounds 12-14 carried it as a `gap`;
+//!   `PORTING-PLAN.md` §225.1 decided it instead — see there, and the
+//!   summary below. Round 13 evidence, retained: its only caller anywhere in
+//!   `moveit_core`/`moveit_planners`/`moveit_ros` is its own D1-excluded
+//!   `(constr, scene, group)` sibling (`constraint_sampler_tools.cpp:68`)
+//!   forwarding to it — nothing outside this file calls it. Round 14
+//!   re-check, specifically not closing this with "it's a statistic, so
+//!   harmless" — `constraint_sampler_tools.cpp:65-69` shows the sibling
+//!   does not inspect the returned `double` at all, only forwards it
+//!   straight back out as its own return value, so the number never reaches
+//!   a threshold or an `if`/assert anywhere in this repo's copy of
+//!   `moveit_core`: (a) no branch, confirmed by reading the one caller
+//!   rather than assuming a benchmarking helper is inert; (b) no production
+//!   caller — the only caller is itself D1-excluded. §225.1 adds the two
+//!   facts that turn "never ported" into "not ported": its loop is bounded
+//!   by wall-clock time, not by a draw count (`rclcpp::Clock().now() +
+//!   Duration::from_seconds(1)`, `constraint_sampler_tools.cpp:82,92`), so
+//!   both its runtime (≥ 1 s per call, by construction) and the precision
+//!   of the ratio it returns are properties of the machine rather than of
+//!   the sampler — nothing in this workspace could assert on its output;
+//!   and the quantity it computes, `valid / total` over repeated
+//!   `sample(ks, 1)` calls, is already measured deterministically here, by
+//!   `tests/sampler_self_validation.rs`'s per-configuration `attempted`/
+//!   `produced` accounting, against a seeded 10,000-state budget and with
+//!   a real assertion (`produced < quota` fails the sweep) instead of a
+//!   bare `double` handed back to a caller that discards it. See
+//!   `doc/upstream-bugs.md`'s `count-samples-per-second-returns-a-ratio`
+//!   for why that `double` is not the rate its name promises either
 //! - CS: `countSamplesPerSecond(constr, scene, group)` -> D1: takes
 //!   `moveit_msgs::Constraints` and `PlanningSceneConstPtr` directly
 //!
@@ -611,19 +626,22 @@
 //!   workspace-wide): 8
 //! - tag `D1` (a ROS message or `visualization_msgs` type this crate cannot
 //!   depend on): 6
-//! - tag `gap` (real, not previously documented anywhere in this crate): 10
+//! - tag `decided` (deliberately not ported, with the decision written down
+//!   and cited): 1 — `countSamplesPerSecond(sampler, reference_state)`,
+//!   decided by `PORTING-PLAN.md` §225.1 after three rounds as a `gap`
+//! - tag `gap` (real, not previously documented anywhere in this crate): 9
 //!   — `isValid`, `getVerbose`/`setVerbose`, `getName` (four separate
-//!   declarations, one per concrete type),
+//!   declarations, one per concrete type), and
 //!   `getPositionConstraint`/`getOrientationConstraint` on
-//!   `IkConstraintSampler`, and `countSamplesPerSecond(sampler,
-//!   reference_state)`. Round 13 re-verified each against upstream's `.cpp`
-//!   (not just the header) rather than relying on round 12's header-only
-//!   read; each bullet above now carries that evidence inline. Round 20
-//!   moved `DEFAULT_MAX_SAMPLING_ATTEMPTS` from this list to `ported` (see
-//!   that bullet above) once a real caller existed for it; the other ten
-//!   are not exercised by `decide()`, this phase's own completion condition
-//!   (see this crate's introducing doc comment) — they are
-//!   debugging/diagnostic accessors or a benchmarking helper, not sampling
+//!   `IkConstraintSampler`. Round 13 re-verified each against upstream's
+//!   `.cpp` (not just the header) rather than relying on round 12's
+//!   header-only read; each bullet above now carries that evidence inline.
+//!   Round 20 moved `DEFAULT_MAX_SAMPLING_ATTEMPTS` from this list to
+//!   `ported` (see that bullet above) once a real caller existed for it,
+//!   and §225.1 moved `countSamplesPerSecond(sampler, reference_state)`
+//!   to `decided`; the remaining nine are not exercised by `decide()`, this
+//!   phase's own completion condition (see this crate's introducing doc
+//!   comment) — they are debugging/diagnostic accessors, not sampling
 //!   correctness — but they are real gaps, not deferred-on-purpose ones,
 //!   and are named here rather than left to be rediscovered.
 //!
@@ -638,7 +656,11 @@
 //! declaration, is tagged `structural` instead of carried forward as a
 //! second `gap`.
 //!
-//! 18 + 23 + 8 + 6 + 11 = 66.
+//! 19 + 23 + 8 + 6 + 1 + 9 = 66. (This line read `18 + 23 + 8 + 6 + 11 =
+//! 66` until §225.1 — a sum that balances but whose `ported` and `gap`
+//! terms had not been re-derived since round 20 moved a declaration between
+//! them. Two wrong terms cancelling is exactly the failure a total cannot
+//! see, so the terms above are the `rg -c` figures, not this line's.)
 //!
 //! # Assert-relative-eq inventory (round 15, this crate's own count)
 //!

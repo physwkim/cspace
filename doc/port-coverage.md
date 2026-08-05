@@ -96,7 +96,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 95건 (2026-08-05 실측)
 
-`decided-non-port` 45 / `gap` 40 / `ported-elsewhere` 10.
+`decided-non-port` 47 / `gap` 38 / `ported-elsewhere` 10.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -114,9 +114,9 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | "both `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime plugin registrations. D-decision: D4" |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | same sentence |
 | `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_allocator.hpp` | decided-non-port | `crates/moveit-constraints/src/lib.rs:553-562` | "D4: the whole plugin-allocator interface is excluded (D4 already excludes runtime plugin-by-string dispatch) -- nothing in this crate implements this interface" |
-| `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_tools.hpp` | gap | `crates/moveit-constraints/src/lib.rs:577-596` | 3 of 4 declarations are D1; the fourth is called a gap by the crate itself: "`countSamplesPerSecond(sampler, reference_state)` -> gap: a benchmarking helper that takes no ROS type ... and so is not D1-excluded, just never ported" |
+| `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_tools.hpp` | decided-non-port | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | 3 of 4 declarations are D1; §225.1 decides the fourth: "루프의 종료 조건이 벽시계다 ... 호출 하나가 구조적으로 1초 이상 걸린다. 이 워크스페이스의 어떤 테스트도 그 출력에 단언을 걸 수 없다", and the same `valid / total` is already measured deterministically by `tests/sampler_self_validation.rs`'s `attempted`/`produced` accounting |
 | `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | gap | `crates/moveit-constraints/src/lib.rs:487,536,551` | the base class is ported as a trait; the per-declaration audit leaves `getName()` unported on three samplers ("CS: `getName()` -> gap: see base") |
-| `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | gap | `crates/moveit-constraints/src/lib.rs:577-596` | same residual declaration |
+| `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | decided-non-port | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | same four declarations, same decision; this is the file §225.1 quotes line numbers from (`:82,92` for the wall-clock loop bound, `:68` for the one caller) |
 | `moveit_core/exceptions/src/exceptions.cpp` | ported-elsewhere | `crates/moveit-error/src/lib.rs:21-28,64-73` | "An unrecoverable error, replacing upstream's `moveit::Exception` hierarchy" -- `moveit_error::Error`, with `Error::Construct` for `ConstructException` |
 | `moveit_core/macros/include/moveit/macros/class_forward.hpp` | decided-non-port | `crates/moveit-trajectory/src/lib.rs:51-52`, `:370` | "`MOVEIT_CLASS_FORWARD(TimeParameterization)`/`MOVEIT_CLASS_FORWARD(TimeOptimalTrajectoryGeneration)` -- both unported"; the header's whole content is `MOVEIT_CLASS_FORWARD`/`MOVEIT_STRUCT_FORWARD` (2 `#define`s, verified upstream) |
 | `moveit_core/macros/include/moveit/macros/console_colors.hpp` | gap | none | `rg -n -F console_colors crates/ ros/` -> 0 hits; 9 ANSI-escape `#define`s upstream |
