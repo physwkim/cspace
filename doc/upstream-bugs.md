@@ -98,6 +98,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `polyline-filter-waypoints-stale-index` | reproduced-deliberately |
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 | `plan-components-builder-const-build-mutates` | not-reproduced |
+| `ik-cache-read-trusts-file-header` | not-reproduced |
 
 ---
 
@@ -835,6 +836,49 @@ to compare against. The visible cost is on the port's API instead:
 `reset()` is not ported, because a consuming `build` means a new sequence
 is a new builder — which is what `reset()` was emulating for a builder
 held as a long-lived member.
+
+---
+
+### `ik-cache-read-trusts-file-header` — `initializeCache` sizes every buffer from unchecked file-supplied counts and never compares the file's DOF count with the solver's — not-reproduced
+
+**Upstream:** `moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp:96-141`
+(verified at the pinned `e017c91e`).
+**Port:** `crates/moveit-kinematics/src/ik_cache/format.rs`, `from_json`.
+**Symptom:** four separate ways a cache file's own header is believed.
+`last_saved_cache_size_`, `num_dofs` and `num_tips` are read with three
+unchecked `cache_file.read` calls; the latter two are uninitialized locals
+(`:101`, `:103`), so a header shorter than twelve bytes leaves them
+indeterminate and every size below is computed from whatever was on the
+stack. `bufsize` is then `num_tips * 7 * sizeof(tf2Scalar) + num_dofs *
+sizeof(double)` in `unsigned int` arithmetic and reaches `new
+char[bufsize]` (`:115`) — the products wrap rather than fail. `num_dofs` is
+never compared against the `num_joints` argument, which is not stored until
+`:143`, *after* the entries are loaded: a cache written for a different arm
+loads silently, and its configs are handed to the solver as seeds of the
+wrong length. Finally the per-entry `cache_file.read(buffer, bufsize)`
+(`:124`) is unchecked and `entry` is reused across iterations, so a
+truncated file leaves the previous entry's bytes in `buffer` and
+`push_back`s that entry once per remaining iteration, up to the count the
+file itself declared. `entry.second.resize(num_dofs)` followed by
+`memcpy(&entry.second[0], ...)` (`:118`, `:131`) also subscripts an empty
+vector when `num_dofs` is zero.
+**Evidence:** a read of the control flow. Not oracle-confirmed: no oracle
+operation reads a cache file, and this port's format is not upstream's, so
+there is nothing byte-level to compare against.
+**Status:** `not-reproduced`. `from_json` deserializes into typed documents
+— lengths come from the JSON arrays themselves, not from a declared count —
+and then rejects a document whose `num_joints` is not the solver's, an
+entry whose config is not that long, more entries than the document's own
+`max_cache_size` admits, and an orientation that is not a unit quaternion.
+A truncated file is a parse error, not a duplicated tail.
+**Deviation:** none of `D1`..`D14` applies. `PORTING-PLAN.md` §80.2 already
+rules the on-disk format a local choice rather than a port target, which
+removes the byte-layout failure modes as a side effect; the four content
+checks are a separate decision, local to this one function.
+**Cost of not reproducing:** none. No parity test and no oracle operation
+touches the cache file. The cost lands on the API instead: reading a cache
+is fallible here, so `IkCache::load` and `CachedIkSolver::from_cache_file`
+return `Result` where upstream's `initializeCache` returns `void`.
 
 ---
 
