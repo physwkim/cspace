@@ -16251,3 +16251,146 @@ end-to-end 테스트를 새로 추가했다: `4ff563d`가 실제로 깨뜨린 �
 하나라도 와이어 필드와 호출 사이에 분기(사이트별 기본값 대체나
 clamp 등)가 생기면 그 행의 추론 셀은 더 이상 유효하지 않고 실제
 사이트별 테스트로 다시 실행해야 한다.
+
+## §220 `setFromIK`을 `moveit-state`가 아닌 `moveit-kinematics`에 두고, 첨부 바디는 의존성 대신 주입한 이유
+
+### §220.1 배치 — 사이클 두 개를 피하면서 새 엣지는 만들지 않았다
+
+`RobotState::setFromIK`은 `RobotState`의 메서드지만, 하는 일은
+`KinematicsSolver`를 호출하는 것이다. `moveit-state`에서
+`moveit-kinematics`를 부르면 Cargo 사이클이므로 `RobotState` 옆에
+둘 수 없다. `moveit-scene`도 답이 아니다 —
+`moveit-scene -> moveit-constraints -> moveit-kinematics`가 이미
+있어서 `moveit-kinematics -> moveit-scene`은 두 번째 사이클이다.
+
+그래서 `moveit-kinematics`의 새 모듈 `src/set_from_ik.rs`에 두었다.
+근거가 되는 엣지는 둘 다 이미 있던 것이다:
+`moveit-kinematics -> moveit-state`(`Cargo.toml:15`),
+`moveit-kinematics -> moveit-model`(`:14`). **새 크레이트 엣지는
+추가하지 않았다.** `tools/ci/check-dep-direction.sh`가 금지하는 것은
+ROS 클라이언트 라이브러리(`r2r`/`rclrs`/`ros2-client`/`rustdds`/
+`rosidl_*`)뿐이고, 여기에 해당하는 것은 없다.
+
+호출 방향이 뒤집힌 대가는 시그니처에 드러난다. 상류가
+`state.setFromIK(...)`인 것이 여기서는
+`set_from_ik(&mut state, solver, targets, ik)`인 자유 함수다.
+`RobotState`가 자기 자신을 IK로 채우는 능력을 잃은 것이 아니라,
+그 능력이 어느 크레이트에 사는지가 바뀐 것이다.
+
+### §220.2 첨부 바디 — 세 번째 사이클 대신 주입한 트레이트
+
+상류 `getLinkModelIncludingAttachedBodies`는 프레임 이름을 링크
+또는 첨부 바디(그리고 그 서브프레임)로 해석한다. 첨부 바디는
+`moveit-scene`에 산다. 즉 이 기능을 그대로 옮기면
+`moveit-kinematics -> moveit-scene` 사이클이 다시 필요해진다.
+
+엣지를 만드는 대신 호출자가 주입하는 트레이트로 뒤집었다:
+
+```rust
+pub trait AttachedFrames {
+    fn attached_frame(&self, frame: &str) -> Option<AttachedFrame<'_>>;
+}
+```
+
+메서드가 하나인 것이 요점이다. `link_name`과 `link_pose_frame`을
+따로 묻는 두 메서드였다면 둘이 서로 다른 바디를 가리키는 상태를
+만들 수 있다. 하나의 `AttachedFrame`으로 함께 돌려주면 그 조합이
+타입상 불가능하다. 첨부 바디가 없는 호출자를 위해
+`NoAttachedFrames` 유닛 구조체를 두었고, `impl AttachedFrames for ()`는
+쓰지 않았다 — 편의 impl이 by-construction 불변식을 새게 하는
+모양이라 이 저장소에서 이미 한 번 문제가 된 적이 있다.
+
+`AttachedFrames`는 바디 자체의 프레임과 서브프레임을 구분하지
+않는다. 상류도 둘 다 첨부된 링크로 답하고 둘 다 강체이므로,
+구분할 것이 없다.
+
+### §220.3 다중 팁 — `tip_frames`를 provided 메서드로 넣고, 위임 래퍼 두 곳은 forward 했다
+
+`setFromIK`의 팁 매칭과 "호출자가 이름 대지 않은 팁 채우기"는
+상류에서 복수형(`getTipFrames`)에 대해 쓰여 있다. 이 포트의
+`KinematicsSolver`에는 단수 `tip_frame`밖에 없었다.
+
+`tip_frames()`를 **provided** 메서드로 추가했다 — 기본값은
+`[tip_frame()]`이라 기존 구현체 아홉 개가 하나도 깨지지 않는다.
+다만 위임 래퍼는 기본값을 상속하면 안 된다: 팁이 여럿인 솔버를
+감싼 래퍼가 자기 `tip_frame()` 하나만 보고하게 되기 때문이다.
+`CachedIkSolver`와 `moveit-planners-sbp`의 `SharedKinematicsSolver`
+두 곳 모두 forward 하도록 했다. 결함군을 인용 한 곳이 아니라
+군 전체로 닫은 것이고, `tip_frames`가 도입되는 커밋과 같은 커밋에
+들어갔으므로 어떤 커밋 트리에서도 좁혀진 상태가 존재한 적은 없다.
+
+`set_from_ik` 자체는 팁이 둘 이상인 요청을 거부하고
+`set_from_ik_subgroups`를 가리킨다. `solve_with_options`가 포즈
+하나를 받기 때문이다. 상류가 `supportsGroup`으로 내리는 그 결정을
+이 포트는 `tip_frames().len()`으로 직접 내린다.
+
+### §220.4 상태 되감기 — 상류가 열어 둔 결함군을 구조로 닫았다
+
+상류 `setFromIK`은 실패해도 상태를 되돌리지 않는다.
+`GroupStateValidityCallbackFn`은 상태를 고칠 수 있고, 트리 안의 두
+콜백이 실제로 `setJointGroupPositions`으로 시작한다. 그래서
+`false`를 반환한 뒤에도 마지막으로 거절된 후보가 상태에 남는다.
+`setFromIKSubgroups`는 콜백 없이도 같은 일을 한다 — 서브그룹마다
+바로 쓰고, 다음 서브그룹이 실패하면 `break`할 뿐이다.
+
+이 포트는 재현하지 않는다
+(`doc/upstream-bugs.md`,
+`set-from-ik-leaves-a-rejected-candidate-in-the-state`). 불변식은
+하나다: **`Ok(false)` 또는 `Err`로 끝나는 호출은 상태를 진입
+시점과 바이트 단위로 같게 남긴다.** `set_from_ik`은 진입 시
+`state.positions()`를 스냅샷하고 무조건 복원한 뒤에야 채택된 해를
+쓴다. `set_from_ik_subgroups`는 성공한 sweep을 스냅샷하고, 그룹
+훅이 승낙하면 그 스냅샷을 다시 적용하며(훅이 도중에 쓴 것은 남지
+않는다), 그 밖의 모든 경로에서는 진입 스냅샷으로 되감는다.
+
+이것이 훅에게 `&mut RobotState`를 안전하게 건넬 수 있게 하는
+근거이기도 하다. 훅은 후보가 이미 적용된 상태를 받는다 — 상류처럼
+후보를 배열로만 건네고 훅이 알아서 쓰게 하는 대신 — 그래야 훅
+안에서 FK를 볼 수 있고, mimic 조인트도 값이 들어가 있다.
+
+### §220.5 bijection이 사라진 자리
+
+상류는 `getKinematicsSolverJointBijection()`으로 솔버 순서와 그룹
+순서를 오간다. 이 포트의 `KinematicsSolver::joint_names()`는 활성
+조인트만 담으므로, 그 산술적 재배치로는 mimic 값을 만들어 낼 수
+없다. 대신 이름으로 상태에 쓰고 그룹의 변수 목록을 상태에서 다시
+읽는다 — mimic에 값을 주는 것은 `set_variable_position`의 전파이지
+재배치가 아니다. 여기서 mimic 규칙을 다시 구현하면 두 번째 구현이
+된다.
+
+측정으로 확인했다: PR2 `l_gripper_finger_chain`의 솔버는 조인트
+하나를 보고하고 그룹은 변수 둘을 가진다. 훅이 받은 슬라이스는
+길이 2였고, 두 번째 항목은 진입값 `0.3`이 아니라 쓰기가 전파한
+`0.10000000039269835`였다.
+
+bijection을 만들면서 상류가 함께 하던 "솔버 조인트가 그룹 변수인지"
+검사(`joint_model_group.cpp:626-636`)는 남겼다 —
+`check_solver_joints_are_group_variables`. 순열 자체만 소비자가
+없어진 것이다.
+
+### §220.6 게이트가 조용히 통과한 자리 — TIMEOUT은 FAIL이 아니다
+
+각 가드마다 격리 변형을 돌리는 하니스를 썼다. 첫 판은 `FAIL`이
+들어간 줄만 셌는데, 이 저장소의 `.config/nextest.toml`은
+`terminate-after = 5`라서 멈춘 테스트를 **TIMEOUT**으로 보고한다.
+그 결과 `rigidly_connected_parent_link`의 루프 종료 조건을 없앤
+변형(B21)이 "실패한 테스트 없음"으로 돌아왔다 — 실제로는 테스트
+셋이 300초씩 매달려 있었다. 하니스가 `TIMEOUT`/`SIGSEGV`/`ABORT`/
+`LEAK`/`SIGABRT`/`CANCEL`까지 세도록 고친 뒤에야 B21이 무엇을
+물었는지 보였다. 가드의 회귀 신호를 실패가 아니라 정지로 바꾸는
+변형도 물린 것이고, 그 차이를 못 보는 하니스는 증거가 아니다.
+
+같은 판에서 물지 않은 가드도 하나 나왔다:
+`resolve_ik_queries`의 exact-name 빠른 경로를 지워도 76개 테스트가
+전부 통과한다. 커버리지 구멍이 아니라 동작상 중복이다 — 팁 이름을
+정확히 댄 타깃은 아래의 강체 연결 분기에서 같은 문자열끼리 비교해
+참이 되고, 곱해지는 변환도 같은 것 둘이라 항등이다. 상류가 같은
+자리에 두고 있고 팁마다 변환 조회 두 번을 아끼므로 남겼지만,
+여기에 의존하는 것은 없다. 이 판정도 원장에 그대로 적었다
+(`doc/assertion-discrimination-ledger-p10-setfromik.md` §5).
+
+### §220.7 아직 포팅하지 않은 것
+
+`RobotState::interpolate`와 `RobotState::distance`의 지역 사본은
+그대로 두었다. `setFromIK`은 둘 중 어느 것도 쓰지 않으므로, 진짜
+메서드를 포팅하는 것은 이번 작업을 닫는 일부가 아니다.
