@@ -2305,6 +2305,53 @@ mod tests {
         );
     }
 
+    // Assertion-discrimination sweep (round 8, folded-operand audit):
+    // `root_virtual_joint`'s skip guard (`:841`) is `child_link !=
+    // root_link_name || parent_frame.is_empty()`, body `continue` in the
+    // `<virtual_joint>` search loop -- private, reached only through
+    // `build`. No fixture in this file's test suite ever gave it a
+    // non-matching virtual joint before this round; every SRDF here has
+    // exactly one `<virtual_joint>` whose `child_link`/`parent_frame` both
+    // match on the first iteration, so the `continue` body itself, and
+    // both its operands, were never exercised.
+    //
+    // `type="planar"`, not `"fixed"`: the `Fixed` arm's `model_frame`
+    // return is `root_link_name.to_string()`, the *same* value the
+    // fallback below also returns -- a fixed virtual joint's `model_frame`
+    // is identical whether it matched or fell through to
+    // `ASSUMED_FIXED_ROOT_JOINT`, so it cannot discriminate this guard at
+    // all (confirmed: with `type="fixed"` both isolating mutations below
+    // left `model_frame()` at "base" and neither test failed). `Planar`'s
+    // arm returns `virtual_joint.parent_frame.clone()` instead, which
+    // makes "matched" ("world") and "fell through" ("base") observably
+    // different.
+    //
+    // Bite-checked by dropping one clause from the `||` and confirming
+    // only the test for the *other* operand's claim moves off "base".
+    #[test]
+    fn root_virtual_joint_skips_a_non_matching_child_link() {
+        let urdf = r#"<robot name="test">
+            <link name="base"/>
+        </robot>"#;
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="not_base" type="planar" parent_frame="world" child_link="wrong"/>
+        </robot>"#;
+        let model = build(urdf, srdf).expect("builds");
+        assert_eq!(model.model_frame(), "base");
+    }
+
+    #[test]
+    fn root_virtual_joint_skips_an_empty_parent_frame() {
+        let urdf = r#"<robot name="test">
+            <link name="base"/>
+        </robot>"#;
+        let srdf = r#"<robot name="test">
+            <virtual_joint name="no_frame" type="planar" parent_frame="" child_link="base"/>
+        </robot>"#;
+        let model = build(urdf, srdf).expect("builds");
+        assert_eq!(model.model_frame(), "base");
+    }
+
     fn link_with_geometry_urdf(link_extra: &str) -> String {
         format!(
             r#"<robot name="test">
