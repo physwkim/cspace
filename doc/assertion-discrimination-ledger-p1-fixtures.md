@@ -944,6 +944,74 @@ One genuine blind site was found and fixed independently of this
 re-audit: `ruckig_filter.rs`'s `do_smoothing` folded OR-guard (commit
 `b2b5e86`), in-family under both the original and corrected reasoning.
 
+## Round 4: funnel-bite audit (census §9g)
+
+§9g's finding on `MeshSearchPaths::resolve` is distinct from clause 3: a
+test can be in-family (its assertion's value really does depend on the
+subject call) and still be *blind*, if the subject routes two or more
+guards into one undifferentiated `None`/`Err` and the test's fixture
+trips an earlier guard than the one its assertion claims to target.
+Reading the source cannot catch this — only biting each guard (neutralize
+it, confirm its own test fails while every sibling test on the same
+subject stays green, `--no-fail-fast`) can. Two traps this round's bites
+were checked against: (1) a mutation that cannot change any observable
+outcome proves nothing regardless of the result (the user's own
+`split_once('/')?` → `.unwrap_or((rest, ""))` example); (2) `is_some`
+checks are structurally exempt — a positive result requires *every* guard
+to pass, so there is no "which guard produced this same positive signal"
+ambiguity the way multiple guards can share one negative signal.
+
+### Candidates identified and their guard counts
+
+| Subject | Guard/Err sites | In this audit? |
+|---|---|---|
+| `JointConstraintSampler::new` | 2 (`Err::other` × 2) | bit, §Bites below |
+| `ChainInfo::build` | 5 (`?` group lookup, not-a-chain, DOF≠1, unsupported type — untested, mimic-master-outside-group) | 3 tested guards bit |
+| `update_orientation_constraint` / `update_position_constraint` | 1 guard each (link-name match), but funnel through an **empty-loop vacuity**, not a message collision | bit — **blind, fixed** |
+| `merge_constraints` | 1 drop path for this fixture shape | excluded, see below |
+| `joint_acceleration_bounds` | 2 (`Err::other` × 2) | bit |
+| `AccelerationLimitedFilter::do_smoothing` (2-arg) | 2 (`Err::other` × 2) | 1 bit directly, 1 already message-swap bite-checked (spot-confirmed by the sibling bite) |
+| `ButterworthFilter::new` | 4 (`Err::construct` × 4) | 1 bit directly (spot-check per instruction) |
+| `JointConstraintSampler::sample` (`sampler.rs:194,200`) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
+| `cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213` | `is_some` positive checks | excluded (structural exemption above) |
+| `registry.rs:254` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
+| `harness.rs:60,64,83,101` | integration tests already execute the real `moveit-diff` binary end-to-end — no separate read-vs-run gap | excluded |
+| `ruckig_filter.rs::joint_vel_accel_jerk_bounds` | 2 (`Err::other` × 2) | not independently re-bit this round — same file, same annotated-and-confirmed pattern as the sibling `joint_acceleration_bounds` bites, itself spot-checked |
+
+### Bites performed and results
+
+All bites used `&& !true` on the guard condition (or, for the one
+`let...else` guard, `.or(Some(&0))` on the lookup) to keep both operands
+referenced under `-D warnings`, confirmed via
+`cargo nextest run -p <crate> --no-fail-fast`, then reverted via a
+pre-bite backup + `diff` before moving to the next site.
+
+- **`JointConstraintSampler::new`** (`crates/moveit-constraints/src/sampler.rs:213`,`:224`): bit each of the two `Err::other` guards (empty-intersection, no-valid-constraint-for-group) independently. Each bite failed exactly the test targeting it (`configure_fails_on_empty_intersection_between_two_constraints`, `configure_fails_when_the_only_constraint_is_on_a_joint_outside_the_group`) while the other stayed green. **Discriminating, not blind.**
+- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147`,`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267`'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196`) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed.
+- **`update_orientation_constraint` / `update_position_constraint`** (`crates/moveit-constraints/src/utils.rs:516`,`:597`): bit each link-name-comparison guard completely. Both `not_found_returns_false` tests (`utils_parity.rs:580`,`:602`) **stayed green** — confirmed blind. Root cause: both fixtures construct an *empty* `KinematicConstraintSet`, so `for c in constraints.constraints_mut()` never iterates and `set.is_empty()` holds regardless of what the guard decides — the census's own `shortest_solution_is_none_on_empty_input` vacuous-fixture shape. **Fixed** (commit `9b2bff6`): added `mismatched_link_name_leaves_constraint_untouched` to each boundary module, constructing one non-matching constraint so the loop body actually runs; re-biting the same guards against the new tests now fails only the new test in each module, with `not_found_returns_false` (and, for position, `multi_region_constraint_is_error`) staying green — confirmed the new tests could not have passed as a behaviour-preserving no-op, since the bite visibly flips `updated` from `false` to `true` and reconstructs the surviving constraint.
+- **`joint_acceleration_bounds`** (`crates/moveit-smoothing/src/acceleration_filter.rs:153`,`:162`): bit the single-DOF-active-joint guard directly — only `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` failed, `joint_acceleration_bounds_fails_without_acceleration_limits` (its claimed message-swap sibling) stayed green, confirming the existing "message-swap bite-checked" comment.
+- **`AccelerationLimitedFilter::do_smoothing`** (`acceleration_filter.rs:335`, the reset-before-check guard): bit directly — only `do_smoothing_before_reset_is_an_error` failed (via an index-out-of-bounds panic once the length check no longer short-circuits, still a discriminating failure), all 38 other smoothing tests stayed green.
+- **`ButterworthFilter::new`** (`crates/moveit-smoothing/src/butterworth.rs:80`, the `coeff < 1.0` guard): bit directly — only `coefficient_below_one_is_rejected` failed; its three sibling tests (`coefficient_of_negative_one_makes_scale_term_infinite`, `coefficient_of_exactly_one_makes_feedback_term_zero`, `coefficient_of_infinity_makes_feedback_term_infinite`) all stayed green, confirming the existing "message-swap bite-checked against each of them" comment.
+
+### Exclusions, with reasons on the record
+
+- **`merge_constraints`** (`crates/moveit-constraints/src/utils.rs:147`, tested at `utils_parity.rs:698`): not a `None`/`Err`-funnel shape at all — the function has no fallible return. Its one `is_empty()` boundary test (`non_overlapping_windows_are_dropped`) uses a fixture with exactly one joint constraint per side on the same variable name, so `merged` ends up empty via exactly one internal drop path (`a.merged(b)` returning `None`) — there is no second guard that could produce the same empty result for this fixture shape, so there is nothing to disambiguate. Excluded as "single drop path," not bit.
+- **`sampler.rs:194,200`**: `JointConstraintSampler::sample`'s two assertions read `state.variable_position(name)` back after `sampler.sample` wrote it in the same iteration — a getter on subject-mutated state (the `mimic().is_none()` shape from Round 3), not a guard-funnel. `sample` itself has no `None`/`Err` branch (its doc comment: "always succeeds"). Excluded, not bit.
+- **`cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213`**: all `is_some()`/positive-result checks. Structurally exempt — see this section's opening paragraph. Excluded, not bit.
+- **`registry.rs:254`**: static `#[distributed_slice]` aggregate with no `?`-chain or sequential-guard structure to fold into a single signal. Excluded, not bit (also already argued-and-kept in-family for clause 3 in Round 3, a separate question).
+- **`harness.rs:60,64,83,101`**: these integration tests spawn and run the real `moveit-diff` binary end-to-end and assert on its actual stdout — there is no separate "read the source vs. run the code" gap the way a static-source-read test has, so a funnel inside the binary's own internals would show up as a wrong assertion outcome, not a silently-passing one. Not independently bit this round (out of fence to modify `tools/moveit-diff/src/main.rs`'s internals beyond the two `main.rs` sites already in the ledger); reasoning recorded rather than assumed.
+- **`ruckig_filter.rs::joint_vel_accel_jerk_bounds`**: same `Err::other` × 2 shape as `joint_acceleration_bounds`, in the same crate, carrying the same "message-swap bite-checked" comment convention. Given `joint_acceleration_bounds`'s identical-shaped bites (above) and `ButterworthFilter::new`'s bite both independently confirmed their own "message-swap bite-checked" claims this round, this site's claim is corroborated by pattern rather than independently re-bit — flagged here rather than silently trusted.
+
+### Result
+
+One new blind site found and fixed this round:
+`update_orientation_constraint`/`update_position_constraint`'s
+`not_found_returns_false` tests (`utils_parity.rs:580`,`:602`), commit
+`9b2bff6`. Every other candidate subject with 2+ guards funneling into
+one signal was bit and confirmed discriminating; every exclusion is
+listed above with its reason.
+
 ## UNFIXED
 
-None.
+- ~~`tools/moveit-diff/src/main.rs:2534`'s `near_placement_never_touches_more_than_one_link_at_once` is `#[ignore]`d and needs `third_party/moveit_resources`; that directory does not exist in this worktree...~~ **Closed by the merger.** The premise was wrong: `third_party/moveit_resources` exists and is populated in the primary checkout. It is untracked, so `git worktree` never materialises it — the absence is a property of every `caucus` worktree, not of this machine, and the `find /` that reported nothing was run from inside one. Run from `/home/stevek/work/moveit-rs`, `cargo nextest run -p moveit-diff --run-ignored all -E 'test(near_placement_never_touches_more_than_one_link_at_once)'` **passes**: 17 links checked, 17 with a near-placement touching ≥1 other link, 0 ambiguous. The diagnostic's conclusion therefore stands — `decide_cone`'s `max_contacts: 1` tie-break is ruled out as the source of the 115-case distance mismatch.
+- `ruckig_filter.rs::joint_vel_accel_jerk_bounds` and `ChainInfo::build`'s untested unsupported-joint-type guard (`chain.rs:196`, no assertion exists) are not independently re-verified/covered — see the Exclusions and Bites sections above for why each was left as-is rather than bit or newly tested.
