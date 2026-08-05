@@ -482,6 +482,27 @@ def main():
                     continue
 
                 spans = spans_for(resolved_path)
+
+                # A citation landing entirely above the file's first function
+                # is to file-level content -- the header comment, the module
+                # doc, the `use` block -- and no function span can contain it,
+                # so asking whether one does is a category error rather than a
+                # drift check. `doc/claim-audit/moveit-trajectory.md:186`
+                # cites `tests/ruckig_smoothing.rs:16-19`, the paragraph of
+                # that file's header stating the `single_waypoint` deviation,
+                # in a row whose evidence prose happens to name the test that
+                # deviation belongs to; its sibling rows citing the same kind
+                # of header (`:13`, `:30`) pass only because no name in them
+                # resolves. Left unverified rather than guessed at, the same
+                # disposition an absent anchor gets.
+                first_fn = min(
+                    (start for occ in spans.values() for (start, _e, _t) in occ),
+                    default=None,
+                )
+                if first_fn is not None and all(ln < first_fn for ln in cited_lines):
+                    bounds_only += 1
+                    continue
+
                 anchors = find_anchors(
                     line, m.start(), m.end(), spans, window_floor, is_range=m.group(3) is not None
                 )
