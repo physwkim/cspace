@@ -237,6 +237,27 @@ fn check_scenario(request_name: &str, response_name: &str) {
                         expected.voxel_present,
                         "{response_name}: fixture must show upstream reporting the sentinel neighbor as present for {query:?}"
                     );
+                    // ASSERTION-DISCRIMINATION AUDIT (round 2): a bare
+                    // `.is_none()` here is structurally blind, and this is a
+                    // case a fix cannot close without an API change.
+                    // `nearest_cell` (propagation.rs) has five distinct
+                    // `voxel: None`-producing return sites, not one --
+                    // `:351`/`:368`/`:381` return `None` explicitly, and
+                    // `:358`/`:375`'s `(pos != queried).then_some(neighbor)`
+                    // is also `None` whenever the nearest cell is the queried
+                    // cell itself -- and all five build a field-identical
+                    // `NearestCell { voxel: None, position: queried, .. }`,
+                    // so no test-side mutation can ever tell them apart; only
+                    // a discriminating field added to `NearestCell` could,
+                    // which is an API change outside this round's scope.
+                    // Bite-checked empirically: a reachability mutation that
+                    // redirects `:351` (`positive-invalid-pos`, the only
+                    // cause instrumentation showed either fixture's three
+                    // sentinel queries actually reaching) to `Some` fails
+                    // this assertion in both fixtures, but no mutation can
+                    // demonstrate a *discrimination* bite, since a swap to
+                    // any of the other four causes is observationally
+                    // identical, not merely untested.
                     assert!(
                         actual.voxel.is_none(),
                         "{response_name}: this port must report no voxel at the sentinel position for {query:?}"
