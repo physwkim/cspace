@@ -971,6 +971,14 @@ fn interpolate_pose(from: &Isometry3, to: &Isometry3, t: f64) -> Isometry3 {
     // is gone with the call that could panic; Eigen has no degenerate case
     // there and neither does the transcription.
     let rotation = quaternion::slerp(&from.rotation, &to.rotation, t);
+    // nalgebra's `lerp` *is* upstream's `percentage * b + (1 - percentage) *
+    // a`, not the `a + (b - a) * t` the name suggests: it forwards to
+    // `axpy(t, rhs, 1 - t)`, which is `t*rhs + (1-t)*self` termwise. The two
+    // spellings are the same function over the reals and different f64
+    // programs — `a + (b - a)` misses `b` at `t == 1` in 2040 of 8405
+    // measured metre-scale pairs, and departs by up to 4.44e-16 in the
+    // interior — so which one this is cannot be left to a library name. The
+    // tests at the bottom of this file pin it; see PORTING-PLAN.md §239.3.
     let translation = from.translation.vector.lerp(&to.translation.vector, t);
     Isometry3::from_parts(translation.into(), rotation)
 }
@@ -1029,5 +1037,98 @@ fn saturating_floor(value: f64) -> usize {
         0
     } else {
         floored as usize
+    }
+}
+
+#[cfg(test)]
+/// [`interpolate_pose`]'s translation blend, pinned as an f64 program
+/// rather than as a library call.
+///
+/// `PORTING-PLAN.md` §238.5 read this as a divergence — the port calling
+/// `a + (b - a) * t` where upstream computes `percentage * b + (1 -
+/// percentage) * a`. It is not: nalgebra's `Vector::lerp` forwards to
+/// `axpy(t, rhs, 1 - t)` and is upstream's expression termwise. But the
+/// name says otherwise, the two spellings *are* different f64 programs, and
+/// nothing in the tree checked which one this was — so the three cases
+/// below assert the arithmetic directly and refuse the other spelling.
+mod tests {
+    use super::*;
+    use moveit_geometry::UnitQuaternion;
+
+    fn pose(x: f64, y: f64, z: f64) -> Isometry3 {
+        Isometry3::from_parts(Vector3::new(x, y, z).into(), UnitQuaternion::identity())
+    }
+
+    /// One `(from, to)` pair on each axis for which `from + (to - from)`
+    /// does **not** round back to `to`, found by sweeping 401×401 pairs at
+    /// metre-scale magnitudes. Every coordinate has to be one of those:
+    /// against a pair where the two forms agree, the assertions below hold
+    /// under either expression and pin nothing (measured — with an
+    /// arbitrarily chosen pair they did exactly that).
+    const NEAR: [f64; 3] = [-27.400000000000002, -27.400000000000002, -2.74];
+    const FAR: [f64; 3] = [-11.348999999999998, -9.894, 5.819999999999999];
+
+    /// `t == 1` is the last waypoint of every path
+    /// [`CartesianInterpolator`] generates, and upstream's `1*to + 0*from`
+    /// is exactly `to` there. `from + (to - from)*1` is not: the subtraction
+    /// and the addition round separately, so `x` comes back `-11.349`
+    /// against a target of `-11.348999999999998`.
+    ///
+    /// Not a tolerance question — an interpolator whose final waypoint is
+    /// not the pose it was asked for has a different contract, whatever the
+    /// size of the miss.
+    #[test]
+    fn the_last_waypoint_is_exactly_the_target_pose() {
+        let (from, to) = (
+            pose(NEAR[0], NEAR[1], NEAR[2]),
+            pose(FAR[0], FAR[1], FAR[2]),
+        );
+        let end = interpolate_pose(&from, &to, 1.0);
+        assert_eq!(end.translation.vector, to.translation.vector);
+    }
+
+    /// The other endpoint, which `lerp` gets exactly right and the two-term
+    /// form has to be checked for: `0*to + 1*from` must not round `from`.
+    #[test]
+    fn the_first_waypoint_is_exactly_the_start_pose() {
+        let (from, to) = (
+            pose(NEAR[0], NEAR[1], NEAR[2]),
+            pose(FAR[0], FAR[1], FAR[2]),
+        );
+        let start = interpolate_pose(&from, &to, 0.0);
+        assert_eq!(start.translation.vector, from.translation.vector);
+    }
+
+    /// The interior, bit-for-bit against the C++ expression rather than
+    /// within a tolerance — a tolerance here would accept exactly the `lerp`
+    /// this test exists to exclude, whose largest measured departure over
+    /// this grid is 4.44e-16.
+    ///
+    /// The `differed` count is asserted, not just the agreement: it is what
+    /// says the chosen coordinates reach a `t` where the two expressions are
+    /// different f64 programs at all.
+    #[test]
+    fn the_interior_matches_upstreams_two_term_blend_bitwise() {
+        let (from, to) = (
+            pose(NEAR[0], NEAR[1], NEAR[2]),
+            pose(FAR[0], FAR[1], FAR[2]),
+        );
+        let mut differed = 0usize;
+        for i in 1..100u32 {
+            let t = f64::from(i) / 100.0;
+            let got = interpolate_pose(&from, &to, t).translation.vector;
+            for axis in 0..3 {
+                let (a, b) = (from.translation.vector[axis], to.translation.vector[axis]);
+                assert_eq!(got[axis], t * b + (1.0 - t) * a, "axis {axis} at t={t}");
+                if t * b + (1.0 - t) * a != a + (b - a) * t {
+                    differed += 1;
+                }
+            }
+        }
+        assert!(
+            differed > 0,
+            "these coordinates never separate the two blends, so the assertion above \
+             would hold under either"
+        );
     }
 }
