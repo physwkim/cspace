@@ -15,13 +15,19 @@
 # job is to run the real script.
 #
 # What this wiring does NOT close -- unchanged from ros/verify-ros-interop.sh's
-# own "what this does NOT check" section: no live ROS 2 graph, no
-# cross-workspace check against crates/ (a breaking crates/moveit-* API
-# change is only caught here if ros/moveit-ros happens to use the changed
-# symbol), no moveit_msgs schema-drift check, no oracle/fixture
-# comparison. Root-workspace CI (ci.yml's check-*.sh glob) still never
-# builds or tests ros/moveit-ros -- D5's workspace separation is
-# unaffected, only the never-runs gap is.
+# own "what this does NOT check" section: nothing plans (every live leg
+# asserts a typed error, not a trajectory), no cross-workspace check against
+# crates/ (a breaking crates/moveit-* API change is only caught here if
+# ros/moveit-ros happens to use the changed symbol), no moveit_msgs
+# schema-drift check, no oracle/fixture comparison. Root-workspace CI
+# (ci.yml's check-*.sh glob) still never builds or tests ros/moveit-ros --
+# D5's workspace separation is unaffected, only the never-runs gap is.
+#
+# "No live ROS 2 graph" used to head that list here and in the script itself.
+# It stopped being true when §241 added the `/plan_kinematic_path` round trip
+# and stayed wrong through §250's `/move_action` server; both copies are
+# corrected now. A gate's own account of its coverage is the thing readers
+# trust instead of re-deriving, so a stale one is worse than none.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
