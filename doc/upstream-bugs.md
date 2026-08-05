@@ -545,7 +545,7 @@ per-variable bound behaviour could be derived independently").
 
 ### `do-smoothing-length-check-operand` — `doSmoothing`'s length-check variable is misnamed and reads the wrong argument — reproduced-grandfathered
 
-**Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:311-312`
+**Upstream:** `moveit_core/online_signal_smoothing/src/acceleration_filter.cpp:312-313`
 (`const size_t num_positions = velocities.size(); if (num_positions != num_joints_)`),
 with the mismatch surfaced in an error message that names "the positions
 parameter" (`:314-319`) while the value actually checked is
@@ -562,7 +562,7 @@ A caller passing a wrong-length `velocities` with a correctly-sized
 misattribution verbatim (`acceleration_filter.rs:84-94`'s doc comment
 already flags it as "transcribed... rather than 'fixed'").
 **Evidence:** read of upstream source, cross-checked against the
-checked-out `moveit2` source this round (`:312-313`). Not oracle-confirmed
+checked-out `moveit2` source this round. Not oracle-confirmed
 — `tests/fixtures/acceleration_filter_{request,response}.json`'s oracle
 comparison only ever calls `do_smoothing` with correctly-matched-length
 arrays, so it does not exercise either length-check branch, let alone
