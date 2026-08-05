@@ -17940,3 +17940,102 @@ C++ 쪽도 셋 다 250/248/206/200, pooled median도 셋 다 동일한 자릿수
 - PRM / RRT* / KPIECE. §5 Phase 7의 항목이지만 완료 조건은 성공률·경로
   길이를 RRTConnect 대비로만 말한다. 이 하네스는 `RrtConnectManager`만
   구동한다.
+
+## §226 pilz의 `PlanningContext` CRTP 계층 다섯 파일 — 계산은 한 문장이고, 그 문장은 이미 트리에 있다
+
+`doc/port-coverage.md`가 `gap`으로 세던 `planning_context_base.hpp`와
+파생 넷(`planning_context_{ptp,lin,circ,polyline}.hpp`)을 처분한다.
+질문은 "CRTP 계층 안의 생성기 로직이 ROS를 향한 기반 클래스에서 분리
+가능한가"이고, 답은 상류를 열어 문장을 세는 것으로 나온다.
+
+### §226.1 기반 클래스 안의 문장을 전부 센다
+
+`planning_context_base.hpp:87-171`(상류 `e017c91`). 멤버 함수는 넷이고,
+본문의 문장은 전부 합쳐 아래가 전부다.
+
+```cpp
+void PlanningContextBase<GeneratorT>::solve(planning_interface::MotionPlanResponse& res)
+{
+  if (terminated_) { RCLCPP_ERROR(...); res.error_code.val = PLANNING_FAILED; return; }
+  generator_.generate(getPlanningScene(), request_, res);   // <-- 계산은 이 한 줄
+}
+void PlanningContextBase<GeneratorT>::solve(planning_interface::MotionPlanDetailedResponse& res)
+{ /* 위를 부른 뒤 같은 궤적을 "plan"/"simplify"/"interpolate" 이름으로 3회 push */ }
+bool PlanningContextBase<GeneratorT>::terminate() { RCLCPP_DEBUG_STREAM(...); terminated_ = true; return true; }
+void PlanningContextBase<GeneratorT>::clear() { /* No structures that need cleaning */ return; }
+```
+
+생성자는 `planning_interface::PlanningContext(name, group)`에 이름과 그룹을
+넘기고 `generator_(model, limits_, group)`를 짓는다. 즉 이 파일이 계산에
+기여하는 것은 **생성기 하나를 `(model, limits, group)`로 짓고, 그것의
+`generate`를 부르는 것**이 전부다.
+
+두 대응물이 이미 트리에 있다.
+
+- `generator_(model, limits_, group)` →
+  `crates/moveit-planners-pilz/src/trajectory_generator.rs:352`
+  (`TrajectoryGenerator::new(robot_model, planner_limits)`)와 각 명령별
+  생성기의 `new(base, group_name)` — 예: `trajectory_generator_ptp.rs:78`.
+  상류가 CRTP 매개변수로 고정하는 `(model, limits, group)` 삼중항이 여기서는
+  같은 생성자의 인자다.
+- `generator_.generate(scene, request_, res)` →
+  `crates/moveit-planners-pilz/src/trajectory_generator.rs:606-636`
+  (`PilzGenerator::generate`), 반환값이 같은 파일 `:494-530`의
+  `MotionPlanResponse`다.
+
+### §226.2 파생 네 파일에는 문장이 0개다
+
+`planning_context_{ptp,lin,circ,polyline}.hpp`는 각각 67~69줄이고, 내용은
+`MOVEIT_CLASS_FORWARD` 한 줄과 전달 생성자 하나뿐이다. PTP를 예로:
+
+```cpp
+class PlanningContextPTP : public PlanningContextBase<TrajectoryGeneratorPTP>
+{
+public:
+  PlanningContextPTP(const std::string& name, const std::string& group,
+                     const moveit::core::RobotModelConstPtr& model, const LimitsContainer& limits)
+    : PlanningContextBase<TrajectoryGeneratorPTP>(name, group, model, limits) {}
+};
+```
+
+본문 문장 0개, 멤버 0개, 재정의 0개. 네 파일이 하는 일은 **명령 종류 하나를
+생성기 타입 하나에 묶는 것**이며, 이 포트에서 그 결합은 타입 매개변수가
+아니라 `impl PilzGenerator for TrajectoryGeneratorPTP`(및 LIN/CIRC/Polyline)
+그 자체다. 별도의 컨텍스트 타입이 존재할 자리가 없다.
+
+### §226.3 잔여분 셋을 각각 처분한다
+
+기반 클래스에서 위 두 대응물이 가져가지 않은 것은 셋이고, 셋 다 결정한다.
+
+1. **`terminated_` / `terminate()`** — D1/D4로 버린다. 상류 자신의 주석이
+   무엇인지 말한다: *"Currently will not stop a running solve but not start
+   future solves."* 즉 취소가 아니라 컨텍스트를 재사용 불가로 표시하는
+   플래그이고(`clear()`도 이것을 되돌리지 않는다), 이것을 세우는 유일한
+   호출자는 `move_group`의 액션 취소 경로다. 이 포트의 `PlanningContext`
+   대응물인 `crates/moveit-planners-sbp/src/registry.rs:542-582`가 이미 같은
+   이유로 `terminate`를 두지 않는다 — "this crate's planners are
+   synchronous"; 동기 `solve`는 상류에서도 실행 중 `terminated_`를 관측할 수
+   없다.
+2. **`solve(MotionPlanDetailedResponse&)`** — D6으로 버린다. 이 함수는
+   `undetailed_response`를 만들어 위의 `solve`에 넘긴 뒤, **같은 궤적
+   포인터를** `"plan"`/`"simplify"`/`"interpolate"` 세 이름으로 밀어 넣는다.
+   pilz에는 simplify·interpolate 단계가 없으므로 세 항목은 동일한 값이고,
+   함수 전체가 `moveit_msgs`의 `MotionPlanDetailedResponse` 모양을 채우는
+   어댑터다. 이 어댑터가 실패 경로에서 널 포인터 세 개를 밀어 넣는 점은
+   결함이며 `doc/upstream-bugs.md`의
+   `pilz-detailed-response-pushes-null-trajectory`에 적었다.
+3. **`clear()`** — 본문이 주석 한 줄과 `return;`이다. 가져올 것이 없다.
+
+따라서 다섯 파일 모두 `gap`이 아니다. 기반은 계산 한 문장이 트리에 있으므로
+`ported-elsewhere`, 파생 넷은 문장이 0개이고 그 결합을 포트가 다른 축으로
+표현하므로 `decided-non-port`다.
+
+### §226.4 이 판정이 하지 않은 것
+
+- `planning_interface::PlanningContext` 자체를 pilz로 들여오지 않았다.
+  `moveit-planners-pilz`는 `moveit-planning`에도 `moveit-planners-sbp`에도
+  의존하지 않으며, 이 라운드는 그 의존 간선을 만들지 않는다(`Cargo.toml`
+  변경은 `linkme` distributed_slice 순서를 바꾼다).
+- 따라서 이 크레이트에는 `PlanningContext`를 구현하는 타입이 없다. pilz
+  생성기를 `moveit-planners-sbp`의 레지스트리에 등록하는 것은 별개의
+  결정이고, 이 절은 그것을 하지 않는다.

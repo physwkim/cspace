@@ -127,6 +127,16 @@
 //! - `planning_context_loader*.{hpp,cpp}` — a `pluginlib`-loaded factory that
 //!   builds a `planning_interface::PlanningContext` per motion command type;
 //!   its entire job is ROS plugin registration, not planning math.
+//! - `planning_context_{ptp,lin,circ,polyline}.hpp` — the four leaves of the
+//!   CRTP hierarchy those loaders build. Each is 67–69 lines holding one
+//!   `MOVEIT_CLASS_FORWARD` and one forwarding constructor: zero statements,
+//!   zero members, zero overrides. All four do is bind one command type to
+//!   one generator type, and here that binding is `impl PilzGenerator for
+//!   TrajectoryGenerator{PTP,LIN,CIRC,Polyline}` itself, so there is no
+//!   separate context type left to write. See PORTING-PLAN.md §226.2.
+//!   `planning_context_base.hpp` is *not* on this list: its one computational
+//!   statement is realized here — see §226.1 and
+//!   [`trajectory_generator::PilzGenerator::generate`].
 //! - `pilz_industrial_motion_planner.cpp` — the `planning_interface::PlannerManager`
 //!   plugin itself, i.e. the `move_group` entry point.
 //! - `planning_exceptions.hpp` — the exception taxonomy of that plugin
