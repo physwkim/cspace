@@ -45,8 +45,8 @@
 //! only thing that writes a mimic variable is `updateMimicJoint`, and
 //! `enforcePositionBounds(joint)` calls it *only when* the master's own
 //! `enforcePositionBounds` returned true. That return is unconditional for
-//! revolute (`revolute_joint_model.cpp:218`, `return true` on every path)
-//! and change-gated for prismatic (`prismatic_joint_model.cpp:99`, `return
+//! revolute (`revolute_joint_model.cpp:247`, the one `return true`)
+//! and change-gated for prismatic (`prismatic_joint_model.cpp:111`, `return
 //! false` when already inside). So the same case has opposite outcomes on
 //! panda (prismatic master) and pr2 (revolute masters), and a mimic joint can
 //! be left outside its own limits by a call named "enforce bounds". Both are
@@ -293,8 +293,8 @@ fn clamp_cases(
 /// - **A wrap** (`!position_bounded`, limits `±π`): a continuous revolute, or
 ///   a planar joint's `theta`. Both wrap, and they disagree about the
 ///   endpoints: revolute wraps at `v <= -π || v > π`
-///   (`revolute_joint_model.cpp:220`), planar at `!(v >= -π && v <= π)`
-///   (`planar_joint_model.cpp:310`) — so `-π` is rewritten to `+π` by one and
+///   (`revolute_joint_model.cpp:223`), planar at `!(v >= -π && v <= π)`
+///   (`planar_joint_model.cpp:312`) — so `-π` is rewritten to `+π` by one and
 ///   left alone by the other. That asymmetry is why `at-minus-pi` and
 ///   `at-plus-pi` are separate cases rather than one "at the wrap point".
 /// - **An infinite bound** (`position_bounded` with a non-finite limit): a
@@ -735,7 +735,7 @@ fn interpolation_cases(info: &ModelInfo, skipped: &mut Vec<String>) -> Vec<Inter
                     }
                     // A continuous revolute. Every pair is chosen by where
                     // `to - from` falls relative to `±π`, because that is the
-                    // branch `revolute_joint_model.cpp:139` keys on.
+                    // branch `revolute_joint_model.cpp:143` keys on.
                     _ => vec![
                         ("diff-eq-pi", vec![-PI / 2.0], vec![PI / 2.0]),
                         (

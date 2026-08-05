@@ -662,6 +662,16 @@ p≈0.19)로 역시 노이즈다. 즉 **횟수 기반 재시도 자체는 상류
 - 야코비안(6×N)이 `1e-7` 이내 일치 (열 순서 규약 포함)
 - 관절 한계 클램핑, mimic 전파, floating/planar 조인트 보간이 일치
 
+> **상태: 세 항목 전부 충족 (2026-08-06, §238).** 앞의 두 항목은 §218이
+> `tools/ci/verify-oracle-sweep.sh`로 닫았다. 세 번째 항목은 §218이
+> "오라클과 맞춰 본 적이 없다"고 적은 그대로였고, 이번 라운드에
+> `tools/ci/verify-phase2-state-sweep.sh`를 만들어 실측했다 — 5로봇
+> 4,224 케이스(클램핑 996, mimic 50, 보간 3,178), **허용오차 0.0(비트
+> 일치)에서 불일치 0건**. 케이스는 무작위 상태가 아니라 오라클이 보고한
+> 한계값에서 열거한 경계값이고, 측정이 덜 덮은 두 곳(모든 픽스처의 mimic
+> 이 `multiplier=1, offset=0`이라는 점, 포트에 `RobotState::interpolate`
+> 전체 루프가 없어 조인트별로 비교한다는 점)은 §238에 적었다.
+
 ### Phase 3 — 충돌 검사 (7주, ~14,000 LOC)
 
 `moveit-collision` (parry 백엔드), `moveit-distance-field`
@@ -792,7 +802,7 @@ Phase 완료 조건 판정이 사는 유일한 곳. 위 각 Phase의 "상태" �
 | Phase 1 | panda/prbt/fanuc 링크 수·조인트 수·그룹 구성·조인트 한계값·mimic 관계 완전 일치 | MET | §218.2 | 2026-08-05 |
 | Phase 2 | FK 10,000×3로봇이 `1e-9` 이내 일치 | MET | §217.3 | 2026-08-05 |
 | Phase 2 | 야코비안이 `1e-7` 이내 일치 (열 순서 규약 포함) | MET | §217.3 | 2026-08-05 |
-| Phase 2 | 관절 한계 클램핑·mimic 전파·floating/planar 조인트 보간 일치 | PARTIAL | §217.3 | 2026-08-05 |
+| Phase 2 | 관절 한계 클램핑·mimic 전파·floating/planar 조인트 보간 일치 | MET | §238 | 2026-08-06 |
 | Phase 3 | `collision: bool` 이 10,000×3로봇에서 100% 일치 | UNMET | §229.1 | 2026-08-06 |
 | Phase 3 | `distance: f64` 가 `1e-4` 이내 일치 | UNMET | §229.3 | 2026-08-06 |
 | Phase 4 | (a) 성공률이 C++ KDL 플러그인 이상 | UNMET | §221.1 | 2026-08-06 |
@@ -16647,7 +16657,11 @@ panda.srdf  panda.urdf  pr2.srdf  pr2.urdf
 **prbt 픽스처가 없다.** 세 로봇 중 하나에 대해서는 비교 자체가 실행된 적이
 없다. panda/fanuc는 `robot_model_parity.rs`가 오라클 `model_info`와 맞춘다.
 
-**Phase 2 — 앞의 두 항목 MET, 세 번째 UNMET.**
+**Phase 2 — 앞의 두 항목 MET, 세 번째 UNMET.** (세 번째는 §238이
+2026-08-06에 닫았다. 아래 진단 — 오라클에 해당 op이 없고 포트 쪽 mimic
+전파가 FK 스윕 경로에서 실행되지 않는다 — 은 그 라운드가 오라클에
+`enforce_bounds`/`mimic_propagate`/`interpolate` 세 op을 추가한 근거가
+됐다.)
 
 ```console
 $ sg docker -c './tools/ci/verify-oracle-sweep.sh 10000 1'   # EXIT=0
@@ -17037,6 +17051,123 @@ pr2는 95) — 비용은 모델 크기가 아니라 실제로 narrowphase까지 
 이전에는 `cases: 20006`이라는 다섯 자리 총계 안에 익명으로 다섯 개가
 섞여 있어서 exit code는 덮고 있었지만 사람이 읽을 수 있는 항목별
 결과는 아니었다.
+
+---
+
+## §238 Phase 2 세 번째 완료 조건 — 계기를 만들어 재고, `slerp`이 틀렸다는 것을 찾았다 (2026-08-06)
+
+§5 Phase 2의 셋째 조건("관절 한계 클램핑, mimic 전파, floating/planar
+조인트 보간이 일치")은 §218이 진단한 대로 **계기 자체가 없던** 항목이다.
+오라클에는 클램핑·전파·보간에 해당하는 op이 없었고, FK 스윕이 쓰는 경로는
+오라클이 만든 상태를 포트가 변수별로 그대로 얹기 때문에 포트 쪽 mimic
+전파를 아예 실행하지 않는다. 그래서 이번 라운드는 먼저 계기를 만들었다:
+오라클에 `enforce_bounds`/`mimic_propagate`/`interpolate` 세 op을 붙이고
+(`tools/moveit-oracle/src/oracle.cpp`), `moveit-diff`에 `--state-ops`와
+열거기(`tools/moveit-diff/src/state_ops.rs`)를 붙이고,
+`tools/ci/verify-phase2-state-sweep.sh`로 5로봇을 한 줄로 돌게 했다.
+
+```console
+$ sg docker -c './tools/ci/verify-phase2-state-sweep.sh'   # EXIT=0
+=== panda ===   clamping 122/0   mimic 10/0   interpolation 371/0
+=== prbt ===    clamping  54/0   mimic  0/0   interpolation 168/0
+=== fanuc ===   clamping  54/0   mimic  0/0   interpolation 168/0
+=== dual_arm_panda === clamping 198/0  mimic 20/0  interpolation 504/0
+=== pr2 ===     clamping 568/0   mimic 20/0   interpolation 1967/0
+```
+
+케이스 4,224건(클램핑 996, mimic 50, 보간 3,178), **허용오차 0.0 — 비트
+일치 — 에서 불일치 0건, double-cover 0건**. 클램핑과 mimic 전파는 인자로
+허용오차를 받지 않는다: 한계 복사·`fmod`·`factor * v + offset`은 양쪽이
+같은 IEEE 연산을 하므로 차이가 났다면 그것은 반올림이 아니라 계산 대상이
+다르다는 뜻이다. 보간만 인자를 받고, 기본값은 0.0이다.
+
+### §238.1 케이스는 무작위가 아니라 경계값이고, 값은 오라클이 준다
+
+케이스 값은 전부 오라클의 `model_info`가 보고한 한계에서 파생한다.
+포트가 한계를 잘못 읽고 있으면 케이스 값과 기대값이 함께 움직여
+자기 자신과 일치해버리기 때문이다. 경계는 한계의 *종류*로 고르지 조인트
+타입 이름으로 고르지 않는다 — 유한 클램프는
+`at-min`/`min-1ulp-below`/`min-1ulp-above`/`below-min`과 최대 쪽 넷 +
+`midpoint`, 랩(연속 revolute와 planar의 `theta`)은
+`at-minus-pi`/`at-plus-pi`와 각각의 1ulp 이웃 + `±2π`/`±3π`/`zero`.
+`-π`를 둘로 나눈 이유는 upstream 자신이 둘로 갈리기 때문이다: revolute는
+`v <= -π || v > π`에서 랩하고(`revolute_joint_model.cpp:223`) planar는
+`!(v >= -π && v <= π)`에서 랩한다(`planar_joint_model.cpp:312`) — 같은
+`-π`를 하나는 `+π`로 고치고 하나는 그대로 둔다. 무한 한계(planar의
+`x`/`y`, floating의 병진)는 열거할 경계가 없으므로 크기 케이스만 돌고
+그 사실을 `SKIPPED` 줄로 **출력한다**. 조용한 스킵은 통과와 구분되지
+않는다.
+
+### §238.2 클램핑 × mimic 교호 — 따로 재면 보이지 않는다
+
+`enforceBounds`가 도는 것은 `getActiveJointModels()`이고 거기에 mimic
+조인트는 없다. 그래서 마스터가 클램프되면 follower는 자기 한계 밖에
+남을 수 있다. 이건 두 절을 따로 재서는 나오지 않으므로 `clamp_mimic_cases`가
+마스터 경계값 × follower 상태 3종(`mimic-consistent`,
+`mimic-inconsistent-in-bounds`, `mimic-outside-own-bounds`) 격자로 덮는다.
+panda의 mimic 마스터는 prismatic이고 pr2의 것들은 revolute인데, upstream의
+`enforcePositionBounds` 반환값이 revolute는 무조건 `true`,
+prismatic은 변경이 있을 때만 `true`라서(`revolute_joint_model.cpp:247`,
+`prismatic_joint_model.cpp:111`) 이 둘은 같은 케이스에서 서로 다른 가지를
+탄다 — 두 픽스처가 모두 필요한 이유다.
+
+mimic 전파에는 소유자가 둘이다. `RobotModel::updateMimicJoints`(전체 모델
+세터)와 `RobotState::updateMimicJoint`(단일 조인트 세터). 마스터를 쓰는
+케이스는 전부 두 번째에서 끝나므로 첫 번째를 덮지 못한다 — 그래서 아무
+것도 쓰지 않는 `mimic/defaults-only`가 따로 있다.
+
+### §238.3 double cover — 부호로 숨는 차이
+
+쿼터니언 `q`와 `-q`는 같은 회전이므로, 성분 비교만 하면 부호 규약 차이가
+"차이 2.0"으로 나오고 회전 비교만 하면 아예 안 보인다. 그래서 둘 다 한다:
+판정은 성분별 편차로 하되, 회전 블록이 정확히 서로의 부호 반전인 케이스는
+`double_cover`로 **따로 세고** `[DOUBLE COVER: rotation blocks are exact
+negatives]`로 부호 무관 회전각과 함께 출력한다. 이번 측정에서 그 수는
+0이다 — 즉 규약이 같다는 것이 측정된 것이지 가정된 것이 아니다.
+
+### §238.4 찾은 결함: `nalgebra`의 `try_slerp`은 Eigen의 `slerp`이 아니다
+
+계기를 처음 돌렸을 때 panda 보간에서 18건이 틀렸다. 원인은 하나였다 —
+`FloatingJointModel::interpolate`가 Eigen의
+`QuaternionBase::slerp`(Eigen 3.4, `Eigen/src/Geometry/Quaternion.h:782`)를
+부르는데 포트는 `UnitQuaternion::try_slerp`으로 갈음하고 있었고, 이 둘은
+다른 함수다. 세 가지가 다르다: (1) 준평행 가지를 Eigen은 `|d| >= 1 - ε`
+에서 **lerp**로 들어가고 nalgebra는 `|d| >= 1`에서 `from`을 그대로
+돌려준다(측정 8.9e-16), (2) `d`가 정규화되지 않은 생 내적이라 노름이 1을
+넘는 쌍은 Eigen에서 lerp되지만 nalgebra는 모든 `t`에서 `from`을 돌려줘
+아예 움직이지 않는다(측정 1.414), (3) Eigen은 결과를 정규화하지 않고
+nalgebra는 한다(측정 1.25e-13).
+
+패치가 아니라 구조로 닫았다. 앵커 `rg -n 'slerp' crates/`로 같은 Eigen
+호출을 포팅한 자리를 전부 세었더니 셋이었다 —
+`moveit-model`의 `joint/floating.rs`, `moveit-kinematics`의
+`cartesian_interpolator.rs`, `moveit-planners-pilz`의
+`trajectory_blender_transition_window.rs`. 넷째인 `moveit-planners-sbp`의
+`se3.rs`는 OMPL의 `SO3StateSpace::interpolate`를 옮긴 것이라 같은 결함이
+아니다. 그래서 `moveit-geometry`에 `quaternion::slerp{,_coefficients}`
+하나를 두고 앞의 셋을 그리로 보냈다.
+
+부수 효과가 하나 있었고 그것도 측정으로 확인했다: pilz 블렌드 패리티
+테스트가 들고 있던 케이스별 허용오차 오버라이드 10개가 이 수정 뒤에
+전부 불필요해졌다. `crates/moveit-planners-pilz/doc/oracle-request-pilz-blend-geometry.md`에
+수정 전/후 12행 표로 적었고, 같은 문서가 "slerp 방향이나 off-by-one은
+아니다"라고 적어두었던 인과 주장은 **반증됐다**고 명시했다.
+
+### §238.5 이 측정이 덮지 않은 것
+
+- 커밋된 다섯 픽스처의 mimic은 전부 `multiplier=1, offset=0`이다. 그래서
+  `factor * v + offset`의 산술은 그 한 점에서만 실행됐다. 배수/오프셋이
+  다른 픽스처를 벤더링하기 전에는 이 절의 산술은 그 점에서만 검증된
+  것이다.
+- 포트에는 공개 `RobotState::interpolate`가 없다. 보간은
+  `JointModel::interpolate`에 대해 조인트별로 비교했고, 전체 상태를 도는
+  upstream의 루프 자체는 비교되지 않았다.
+- `CartesianInterpolator::interpolate_pose`의 병진은 `from.lerp(to, t)`
+  = `a + (b - a) * t`인데 upstream은
+  `percentage * b + (1 - percentage) * a`다(`cartesian_interpolator.cpp:258`,
+  `:451`). ULP 수준에서 다르고 `t = 1`에서 upstream은 정확히 `b`다.
+  이 함수를 오라클과 맞춰 보는 계기가 없어서 고치지 않았다 — 재보지 않고
+  바꾸는 것은 측정이 아니라 주장이다.
 
 ---
 
@@ -19871,6 +20002,15 @@ Phase 9의 산출물로 적었다. §235.2가 대조로 보였듯, 이 포트가
 ---
 
 ## §237 Phase 2 셋째 항목의 "부분 UNMET"을 세 조각으로 나눠 실측했다 — mimic은 MET, 클램핑·보간은 이 기계에서 오라클 비교가 원천 불가 (2026-08-06)
+
+> **이 절의 (a)·(c) 판정은 §238이 뒤집었다 (병합 시 기록).** "이 기계에서
+> 오라클 비교가 원천 불가"는 이 절이 41개 op을 센 시점(`4407a10`)에는
+> 참이었다. 같은 날 다른 가지가 오라클에 `enforce_bounds`/`mimic_propagate`/
+> `interpolate` 세 op을 붙였고(`9e60f3a`, 03:07 — 이 절의 커밋 `338c7c6`,
+> 03:18보다 11분 앞서지만 조상이 아니라 이 절의 작업 트리에서 보이지
+> 않았다), §238이 그 계기로 5로봇 4,224 케이스를 허용오차 0.0에서 재
+> 불일치 0건을 얻었다. §5 현황표의 이 항목 행은 §238을 인용한다. 아래
+> §237.1의 "부분"이라는 낱말에 대한 판독은 §238과 무관하게 그대로다.
 
 ### §237.1 "부분"은 이 항목 자신의 경계였던 적이 없다
 
