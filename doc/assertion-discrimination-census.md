@@ -123,7 +123,8 @@ against this instrument's output:
   `harness.rs`, all domain comparisons or `.is_null()` — a serde-JSON
   method, not `Option::is_none` — or already-destructured `matches!` used
   as a plain boolean expression outside any `assert!`, e.g.
-  `main.rs:1057`).
+  `!matches!(shape, Shape::Mesh(_) | Shape::OcTree(_))` at
+  `main.rs:1674`).
 
 ## 3. Spot-reads
 
