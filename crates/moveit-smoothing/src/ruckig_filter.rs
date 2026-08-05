@@ -591,8 +591,17 @@ mod tests {
     #[test]
     fn do_smoothing_rejects_a_mismatched_length() {
         // `matches!` alone cannot tell this apart from do_smoothing's
-        // sibling ruckig-update-failure site, also an Error::Other;
-        // message-swap bite-checked against it.
+        // sibling ruckig-update-failure site (`:289`), also an
+        // Error::Other -- but that site is unreachable, not merely
+        // untested: `RuckigFilter` fixes `Ruckig<0, IgnoreErrorHandler>`,
+        // and every `Err(RuckigError)` construction in the `rsruckig`
+        // crate is gated behind the error-handler type parameter's
+        // `handle_calculator_error`/`handle_validation_error`, both
+        // no-ops under `IgnoreErrorHandler` (return `Ok(())`
+        // unconditionally). `self.ruckig.update(...)` can never return
+        // `Err` in this configuration, so no message-swap bite against
+        // it was ever possible, despite what an earlier version of this
+        // comment claimed.
         let mut filter = RuckigFilter::new(&[1.0, 1.0], &[2.0, 2.0], &[20.0, 20.0], 0.01);
         filter.reset(&[0.0, 0.0], &[0.0, 0.0], &[0.0, 0.0]).unwrap();
         let mut positions = [0.5];
