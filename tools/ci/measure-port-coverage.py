@@ -234,20 +234,31 @@ def main() -> int:
     if args.check:
         with open(args.check, encoding="utf-8") as fh:
             doc = fh.read()
-        rows = set(re.findall(r"^\| `(moveit_[^`]+)` \|", doc, re.M))
+        # A list, not a set: comparing sets makes a duplicated row invisible
+        # -- both differences below stay empty and `len(rows)` reports the
+        # deduplicated count, so a 96-row file printed "95 rows == 95
+        # unported" and exited 0.  The row count in the closing line is the
+        # file's own, which is what makes that line an assertion about the
+        # document rather than a restatement of the set it was derived from.
+        listed = re.findall(r"^\| `(moveit_[^`]+)` \|", doc, re.M)
+        rows = set(listed)
+        duplicated = sorted({f for f in rows if listed.count(f) > 1})
         missing = sorted(set(unported) - rows)
         extra = sorted(rows - set(unported))
         for f in missing:
             print(f"MISSING ROW  {f}", file=sys.stderr)
         for f in extra:
             print(f"STALE ROW    {f}", file=sys.stderr)
-        if missing or extra:
+        for f in duplicated:
+            print(f"DUPLICATE ROW  {f} ({listed.count(f)} rows)", file=sys.stderr)
+        if missing or extra or duplicated:
             print(
-                f"FAIL {args.check}: {len(missing)} missing, {len(extra)} stale",
+                f"FAIL {args.check}: {len(missing)} missing, {len(extra)} stale, "
+                f"{len(duplicated)} duplicated",
                 file=sys.stderr,
             )
             return 1
-        print(f"OK {args.check}: {len(rows)} rows == {len(unported)} unported")
+        print(f"OK {args.check}: {len(listed)} rows == {len(unported)} unported")
 
     return 0
 
