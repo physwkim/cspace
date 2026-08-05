@@ -194,89 +194,180 @@ for both variants, so no isolating mutation can even be constructed
 pre-existing misverdict; its one fold defect (`tools.rs:68`) was an
 uncounted site, not a mislabeled one.
 
+### 1c. Census §9 applied to this document's own 89 rows
+
+`doc/assertion-discrimination-census.md` §9 defines family membership as
+three clauses, all of which must hold or the site is `not-this-family`:
+(1) **mechanism** — the value is a could-not/did-not-produce-X signal
+(`Err`/`None`/a coarse variant standing in for one), not a plain
+success-path computed fact; (2) **decision** — the signal comes from an
+actual written decision in the code under test (guard/early-return/
+`?`-propagation/loop-comparison), not an emergent non-decision where no
+branch ever ran regardless of what the logic does; (3) **subject** — the
+decision belongs to the function the test names as its subject, not to
+the test's own setup. §9b already lists this document's 86-row (now
+89-row) partition as **not yet applied** — this section is that
+application, re-checked against all 89 rows, not copied from any other
+ledger's answers.
+
+**§9's own worked precedent for clause 2** (`nn.rs:227`,
+`empty_index_has_no_nearest`) settles exactly the shape this crate's
+bare-`?`/single-lookup rows raise: a `?` on an empty/fresh fixture is
+still in-family if a live bite confirms it is exercised (contrast
+`shortest_solution_is_none_on_empty_input`, where a loop body never runs
+regardless of input). Re-bit two rows live to settle this rather than
+argue from shape alone:
+
+- **`tools.rs:219`** (`sensor_positioning_of_empty_set_is_none`):
+  replaced `cost_sources.iter().nth(index)?` with `.expect(..)` — test
+  FAILS. In-family, matching `nn.rs:227` exactly: the `?` is reached and
+  exercised for this fixture, unlike a comparison inside a zero-iteration
+  loop.
+- **`matrix.rs:737`** (`clear_removes_entries_and_defaults`): commented
+  out `self.defaults.clear();` in `AllowedCollisionMatrix::clear` — test
+  FAILS (198/199, `matrix::tests::clear_removes_entries_and_defaults`
+  only). In-family: the decision lives in `clear()`, one level up from
+  the `default_entry` getter the row's evidence names, same as census
+  §9's mimic worked example.
+
+**One row moved out on clause 2** — `matrix.rs:517`
+(`neither_explicit_nor_default_is_not_found`, the third assertion in a
+test that never calls a `defaults` setter at all): `default_entry` is
+`self.defaults.get(name)`, a bare tail-expression with no `if`/`?`/
+comparison — none of clause 2's four listed shapes — and unlike 737,
+there is no antecedent setter call in this fixture to attribute a
+"decision one level up" to. Nothing an engineer could plausibly have
+implemented differently here would be caught by this assertion short of
+deleting the lookup outright, which is not a decision in the domain
+sense clause 2 asks about.
+
+**Four rows moved out on clause 1** — `bodies.rs:4328`, `:4332`,
+`:4340`, `:4347` (all four assertions in
+`from_shape_builds_matching_body_variant`): each is
+`matches!(Body::from_shape(&shape).unwrap(), Some(Body::Sphere(_)))` (or
+the Cylinder/Cuboid/Mesh equivalent). For all four fixtures,
+`from_shape` unconditionally succeeds — the assertion checks *which*
+concrete `Body` variant was built, a computed dispatch fact on the
+success path, structurally identical to census §9 clause 1's own
+disqualifying example, `assert!(matches!(joint.kind(), JointKind::Fixed))`.
+This is a genuinely different question from the three `matches!` rows
+that stay in-family:
+
+- `world.rs:1003`/`:1013` (`MoveObjectOutcome::NotFound`/`NoChange`) —
+  these report an *operation's* outcome ("could not"/"did not produce a
+  move"), not a static descriptive property; clause 1 holds.
+- `shapes.rs:1863` (`Error::Construct(_)`) — inspected on the `Err`
+  path, not the success path; clause 1 holds.
+- `bodies.rs:4384`/`:4392`/`:4402` (`from_shape_returns_none_for_cone_
+  plane_octree`) — these test the `None` arm specifically (`Body`
+  *could not* be built for Cone/Plane/OcTree), not which variant was
+  built; clause 1 holds, already discriminating via isolating mutation.
+
+**Every other row re-checked and confirmed in-family** — every
+`discriminating` row already carries live-mutation evidence, which is
+itself the strongest form of clause-2 proof (matching the standard
+`nn.rs:227` sets). Every remaining `single-branch`/`bare` row was traced
+to a real guard, `?`-propagation, or multi-arm match in the code under
+test (`predicate()`'s `Never | Always` arm, `CollisionResult::merge`'s
+3-arm match, `compound_from_octree`'s documented panic-avoidance guard,
+`Mesh::new`/`scale_and_padd_axes`'s real `Err` sites, `Transforms::new`/
+`set_transform`/`transform`'s real guards) — none is a bare non-decision
+lookup of the kind that sank `matrix.rs:517`.
+
+**In-family denominator for this document's 89 rows: 81 of 89.**
+8 `not-this-family`, by crate:
+
+- `moveit-collision` (50 rows): excluded = `matrix.rs:517` (clause 2),
+  `octomap_filter.rs:381` (clause 2, pre-existing), `world_parity.rs:226`
+  (clause 3, pre-existing) — **3 excluded, 47 in-family**.
+- `moveit-geometry` (39 rows): excluded = `shapes.rs:1962` (clause 2,
+  pre-existing), `bodies.rs:4328,4332,4340,4347` (clause 1, all four
+  newly excluded) — **5 excluded, 34 in-family**.
+- 47 + 34 = 81 of 89.
+
 ## 2. `crates/moveit-collision` — 50 sites
 
 ### `src/tools.rs` (4)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| tools.rs:68 (x) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_do_not_intersect | discriminating | bite run now: neutralize `min[0]>=max[0]` → this test FAILS (196/197), both `_on_y`/`_on_z` siblings stay GREEN |
-| tools.rs:68 (y) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_on_y_do_not_intersect | discriminating (blind operand, test added) | pre-fix: neutralize `min[1]>=max[1]` → 197/197 pass, no failure (blind); post-fix (test added, commit `d24494d`): same mutation → this test FAILS, x/z siblings GREEN |
-| tools.rs:68 (z) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_on_z_do_not_intersect | discriminating (blind operand, test added) | pre-fix: neutralize `min[2]>=max[2]` → 197/197 pass, no failure (blind); post-fix (test added, commit `d24494d`): same mutation → this test FAILS, x/y siblings GREEN |
-| tools.rs:219 | bare | sensor_positioning_of_empty_set_is_none | single-branch | read full 4-line `sensor_positioning` body: exactly one `?` on `iter().nth(index)`, no other `None`-producing path |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| tools.rs:68 (x) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_do_not_intersect | discriminating | yes | bite run now: neutralize `min[0]>=max[0]` → this test FAILS (196/197), both `_on_y`/`_on_z` siblings stay GREEN |
+| tools.rs:68 (y) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_on_y_do_not_intersect | discriminating (blind operand, test added) | yes | pre-fix: neutralize `min[1]>=max[1]` → 197/197 pass, no failure (blind); post-fix (test added, commit `d24494d`): same mutation → this test FAILS, x/z siblings GREEN |
+| tools.rs:68 (z) | bare (`.is_empty()`, outside `ledger_scan.py`'s grammar) | boxes_that_only_touch_on_z_do_not_intersect | discriminating (blind operand, test added) | yes | pre-fix: neutralize `min[2]>=max[2]` → 197/197 pass, no failure (blind); post-fix (test added, commit `d24494d`): same mutation → this test FAILS, x/y siblings GREEN |
+| tools.rs:219 | bare | sensor_positioning_of_empty_set_is_none | single-branch | yes | §9 clause 2, re-bit now: `.nth(index)?` is a real `?`-propagation, not a bare lookup — replaced `?` with `.expect(..)` live, test FAILS (matches census's `nn.rs:227` precedent: the guard is exercised and its removal is bite-detectable, unlike a loop body that never runs on empty input); reverted, clean |
 
 ### `src/env.rs` (1)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| env.rs:674 | bare | merge_of_two_none_distances_is_none | single-branch | traced match-arm reachability in `CollisionResult::merge`'s distance match (common.rs:585-589): arm 2's `b` is provably `Some` whenever reached (arm 1 already absorbs all `other==None` cases), so only arm 1 (both `None`) can yield `None` |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| env.rs:674 | bare | merge_of_two_none_distances_is_none | single-branch | yes | traced match-arm reachability in `CollisionResult::merge`'s distance match (common.rs:585-589): arm 2's `b` is provably `Some` whenever reached (arm 1 already absorbs all `other==None` cases), so only arm 1 (both `None`) can yield `None`. §9 clause 2: a real 3-arm match (`combine_closest` on the `Some,Some` arm), not a bare lookup |
 
 ### `src/matrix.rs` (17)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| matrix.rs:515 | bare | neither_explicit_nor_default_is_not_found | single-branch | read: only `self.default_for_pair(..)` returns `None` from `allowed_collision`; only the `(None,None)` arm of `default_for_pair`'s 4-arm match yields `None` |
-| matrix.rs:516 | bare | neither_explicit_nor_default_is_not_found | discriminating | bite run now on `entry()` guard A (row missing): neutralized A → test FAILED; neutralized guard B only → test PASSED |
-| matrix.rs:517 | bare | neither_explicit_nor_default_is_not_found | single-branch | read: `default_entry` is one map lookup, one `None`-producing site |
-| matrix.rs:548 | bare | never_and_always_carry_no_predicate | single-branch | read: `Never`/`Always` share one match arm in `predicate()`; no independent path to diverge |
-| matrix.rs:549 | bare | never_and_always_carry_no_predicate | single-branch | same shared arm as 548 |
-| matrix.rs:559 | bare | overwriting_a_conditional_entry_with_bool_drops_the_predicate | single-branch | same shared arm as 548/549 |
-| matrix.rs:592 | bare | remove_entry_then_lookup_falls_back_to_default | discriminating | bite run now on `entry()` guard B (row present, key missing): guard-B-neutralize → FAILED; guard-A-neutralize → PASSED |
-| matrix.rs:604 | bare | remove_entry_is_symmetric | discriminating | bite run now, same guard-B pattern as 592 |
-| matrix.rs:605 | bare | remove_entry_is_symmetric | discriminating | bite run now, mirror direction, same test |
-| matrix.rs:616 | bare | remove_entries_for_name_clears_its_row_and_every_cell_naming_it | discriminating | bite run now, same guard-B pattern |
-| matrix.rs:617 | bare | remove_entries_for_name_clears_its_row_and_every_cell_naming_it | discriminating | bite run now, same guard-B pattern |
-| matrix.rs:648 | bare | set_entry_between_pairs_every_combination | discriminating | bite run now, same guard-B pattern |
-| matrix.rs:649 | bare | set_entry_between_pairs_every_combination | discriminating | bite run now, same guard-B pattern |
-| matrix.rs:666 | bare | set_all_entries_overwrites_every_existing_pair_but_adds_none | discriminating | bite run now, same guard-B pattern |
-| matrix.rs:678 | bare | set_entry_for_known_pairs_name_with_every_other_existing_row_but_not_itself | discriminating | `entry()` guard B verified by bite run now; the `set_entry_for_known` `!= name` filter itself is vacuous here — confirmed live (removing the filter left this test green) and by commit `035d4b1`'s message, which is why sibling 692 was added |
-| matrix.rs:692 | bare | set_entry_for_known_excludes_the_name_even_when_it_is_already_a_known_row | discriminating | commit `035d4b1`, isolating-mutation pair with 678: re-verified live, filter-removed bite makes this test FAIL while 678 stays GREEN |
-| matrix.rs:737 | bare | clear_removes_entries_and_defaults | single-branch | same as 517 (`default_entry`) |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| matrix.rs:515 | bare | neither_explicit_nor_default_is_not_found | single-branch | yes | read: only `self.default_for_pair(..)` returns `None` from `allowed_collision`; only the `(None,None)` arm of `default_for_pair`'s 4-arm match yields `None`. §9 clause 2: composes two real decisions — `entry()`'s `?`-chain (bite-proven at 516) and `default_for_pair`'s 4-arm match — not a bare lookup |
+| matrix.rs:516 | bare | neither_explicit_nor_default_is_not_found | discriminating | yes | bite run now on `entry()` guard A (row missing): neutralized A → test FAILED; neutralized guard B only → test PASSED |
+| matrix.rs:517 | bare | neither_explicit_nor_default_is_not_found | single-branch | **no** | §9 clause 2 fails: `default_entry` is `self.defaults.get(name)` — a bare tail-expression with no `if`/`?`/comparison, none of clause 2's four listed shapes. The fixture (`AllowedCollisionMatrix::new()`, nothing ever set) has no antecedent setter call either, so there is no decision "one level up" to attribute this to (contrast 737, below). An engineer cannot get this specific line wrong in any way this test could catch short of deleting the lookup outright |
+| matrix.rs:548 | bare | never_and_always_carry_no_predicate | single-branch | yes | read: `Never`/`Always` share one match arm in `predicate()`; no independent path to diverge. §9 clause 2: `predicate()`'s 2-arm match (`Conditional(f) => Some(f)`, `Never \| Always => None`) is a real, written decision an engineer could get wrong (e.g. drop the `\|` and give `Always` a predicate) |
+| matrix.rs:549 | bare | never_and_always_carry_no_predicate | single-branch | yes | same shared arm as 548 |
+| matrix.rs:559 | bare | overwriting_a_conditional_entry_with_bool_drops_the_predicate | single-branch | yes | same shared arm as 548/549. §9 clause 2: the decision actually being exercised here lives one level up, in `set_entry`'s overwrite of the map cell (does setting a bool entry actually replace a prior `Conditional`, or does it merge/leak the old predicate) — same "lives one level up" reasoning as census §9's mimic worked example |
+| matrix.rs:592 | bare | remove_entry_then_lookup_falls_back_to_default | discriminating | yes | bite run now on `entry()` guard B (row present, key missing): guard-B-neutralize → FAILED; guard-A-neutralize → PASSED |
+| matrix.rs:604 | bare | remove_entry_is_symmetric | discriminating | yes | bite run now, same guard-B pattern as 592 |
+| matrix.rs:605 | bare | remove_entry_is_symmetric | discriminating | yes | bite run now, mirror direction, same test |
+| matrix.rs:616 | bare | remove_entries_for_name_clears_its_row_and_every_cell_naming_it | discriminating | yes | bite run now, same guard-B pattern |
+| matrix.rs:617 | bare | remove_entries_for_name_clears_its_row_and_every_cell_naming_it | discriminating | yes | bite run now, same guard-B pattern |
+| matrix.rs:648 | bare | set_entry_between_pairs_every_combination | discriminating | yes | bite run now, same guard-B pattern |
+| matrix.rs:649 | bare | set_entry_between_pairs_every_combination | discriminating | yes | bite run now, same guard-B pattern |
+| matrix.rs:666 | bare | set_all_entries_overwrites_every_existing_pair_but_adds_none | discriminating | yes | bite run now, same guard-B pattern |
+| matrix.rs:678 | bare | set_entry_for_known_pairs_name_with_every_other_existing_row_but_not_itself | discriminating | yes | `entry()` guard B verified by bite run now; the `set_entry_for_known` `!= name` filter itself is vacuous here — confirmed live (removing the filter left this test green) and by commit `035d4b1`'s message, which is why sibling 692 was added |
+| matrix.rs:692 | bare | set_entry_for_known_excludes_the_name_even_when_it_is_already_a_known_row | discriminating | yes | commit `035d4b1`, isolating-mutation pair with 678: re-verified live, filter-removed bite makes this test FAIL while 678 stays GREEN |
+| matrix.rs:737 | bare | clear_removes_entries_and_defaults | single-branch | yes | §9 re-bite, live: `default_entry` itself is the same bare lookup as 517, but here it follows a real prior `set_default_entry`+`clear()` sequence. Commented out `self.defaults.clear();` in `clear()` → this test FAILS (198/199); reverted, clean. The decision lives in `clear()` (does it also empty `self.defaults`), one level up from the getter — same reasoning as census §9's mimic worked example, and the opposite of 517 where no such antecedent decision exists |
 
 Note: the `entry()` two-guard family (516 vs 592-678) is the brief's own
 cited model ("p3-acm's `matrix.rs` `entry()` work is the model"); every
 guard-B site above shares one bite pair, not 10 independent ones.
 
 ### `src/octomap_filter.rs` (5)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| octomap_filter.rs:300 | bare | sample_cloud_empty_returns_none | single-branch | bite run now: no-op'd the sole guard → test FAILED; no sibling to swap in |
-| octomap_filter.rs:355 | bare | metaball_surface_properties_without_depth_returns_unit_normal_only | single-branch | bite run now: `None`→`Some(NaN)` on the depth else-branch → test FAILED; the if-branch can only ever produce `Some`, never `None` |
-| octomap_filter.rs:369 | bare | metaball_surface_properties_empty_cloud_is_none_in_both_modes | discriminating (isolating mutation, direction A) | bite run now: neutralized guard A (`sample_cloud` path) → test FAILED naming A; sibling assertion (guard B) stayed GREEN when isolated |
-| octomap_filter.rs:370 | bare | metaball_surface_properties_empty_cloud_is_none_in_both_modes | discriminating (isolating mutation, direction B) | mirror bite run now: neutralized guard B (`find_surface` path) → test FAILED naming B; guard-A assertion stayed GREEN when isolated |
-| octomap_filter.rs:381 | bare | refine_contact_normals_no_contacts_requested_is_a_noop | not-this-family | `rg -n 'contacts\s*='` over the file: zero assignment sites inside `refine_contact_normals` — `result.contacts` starts `None` and cannot become `Some` by any path through this function; the assertion is tautological |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| octomap_filter.rs:300 | bare | sample_cloud_empty_returns_none | single-branch | yes | bite run now: no-op'd the sole guard → test FAILED; no sibling to swap in |
+| octomap_filter.rs:355 | bare | metaball_surface_properties_without_depth_returns_unit_normal_only | single-branch | yes | bite run now: `None`→`Some(NaN)` on the depth else-branch → test FAILED; the if-branch can only ever produce `Some`, never `None` |
+| octomap_filter.rs:369 | bare | metaball_surface_properties_empty_cloud_is_none_in_both_modes | discriminating (isolating mutation, direction A) | yes | bite run now: neutralized guard A (`sample_cloud` path) → test FAILED naming A; sibling assertion (guard B) stayed GREEN when isolated |
+| octomap_filter.rs:370 | bare | metaball_surface_properties_empty_cloud_is_none_in_both_modes | discriminating (isolating mutation, direction B) | yes | mirror bite run now: neutralized guard B (`find_surface` path) → test FAILED naming B; guard-A assertion stayed GREEN when isolated |
+| octomap_filter.rs:381 | bare | refine_contact_normals_no_contacts_requested_is_a_noop | not-this-family | **no** | `rg -n 'contacts\s*='` over the file: zero assignment sites inside `refine_contact_normals` — `result.contacts` starts `None` and cannot become `Some` by any path through this function. §9 clause 2: no branch of the subject's logic is ever exercised, regardless of what that logic does — the exact `shortest_solution` shape |
 
 ### `src/parry.rs` (7)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| parry.rs:2442 | bare | convert_shape_degenerate_plane_is_excluded | discriminating | isolating mutation run now: neutralized Plane-magnitude guard → Plane test FAILED, both OcTree tests (2465, 2475) stayed GREEN |
-| parry.rs:2465 | bare | convert_shape_octree_with_no_tree_attached_is_excluded | discriminating | isolating mutation run now: neutralized no-tree guard → this test FAILED, Plane + no-occupied-leaves tests stayed GREEN |
-| parry.rs:2475 | bare | convert_shape_octree_with_a_tree_but_no_occupied_leaves_is_also_excluded | discriminating | isolating mutation run now: neutralized empty-tree path → this test FAILED, Plane + no-tree tests stayed GREEN |
-| parry.rs:2616 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | read: `build()` is stubbed and no cache hit is possible (fresh key each call); bite run now forcing a value regardless of `build()` → test FAILED |
-| parry.rs:2623 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | same bite/run as 2616 (one test function, one mutation covers both assertions) |
-| parry.rs:3472 | bare | check_robot_collision_continuous_returns_an_error_rather_than_approximating | single-branch | read: function body is one unconditional `Err`, no guard at all; bite run now replacing it with `Ok(..)` → test FAILED |
-| parry.rs:4065 | bare | check_self_collision_cost_sources_is_none_when_not_requested | single-branch | read: one boolean gate (`request.cost`) controls `Some`/`None`, no sibling; bite run now forcing `Some` unconditionally → test FAILED |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| parry.rs:2442 | bare | convert_shape_degenerate_plane_is_excluded | discriminating | yes | isolating mutation run now: neutralized Plane-magnitude guard → Plane test FAILED, both OcTree tests (2465, 2475) stayed GREEN |
+| parry.rs:2465 | bare | convert_shape_octree_with_no_tree_attached_is_excluded | discriminating | yes | isolating mutation run now: neutralized no-tree guard → this test FAILED, Plane + no-occupied-leaves tests stayed GREEN |
+| parry.rs:2475 | bare | convert_shape_octree_with_a_tree_but_no_occupied_leaves_is_also_excluded | discriminating | yes | isolating mutation run now: neutralized empty-tree path → this test FAILED, Plane + no-tree tests stayed GREEN |
+| parry.rs:2616 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | read: `build()` is stubbed and no cache hit is possible (fresh key each call); bite run now forcing a value regardless of `build()` → test FAILED |
+| parry.rs:2623 | bare | octree_cache_prunes_an_entry_once_nothing_holds_its_tree | single-branch | yes | same bite/run as 2616 (one test function, one mutation covers both assertions) |
+| parry.rs:3472 | bare | check_robot_collision_continuous_returns_an_error_rather_than_approximating | single-branch | yes | read: function body is one unconditional `Err`, no guard at all; bite run now replacing it with `Ok(..)` → test FAILED. §9 clause 2: the decision (reject rather than silently approximate) is real even though it isn't syntactically a guard — the bite proves it is exercised, same standard census §9 applies to the mimic getter |
+| parry.rs:4065 | bare | check_self_collision_cost_sources_is_none_when_not_requested | single-branch | yes | read: one boolean gate (`request.cost`) controls `Some`/`None`, no sibling; bite run now forcing `Some` unconditionally → test FAILED |
 
 ### `src/world.rs` (15)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| world.rs:891 | bare | add_to_object_mismatched_lengths_is_a_no_op | discriminating | isolating bite run now on the OR-guard's length clause: neutralize → 891 FAILS, 899 stays GREEN |
-| world.rs:899 | bare | add_to_object_empty_shapes_is_a_no_op | discriminating | isolating bite run now on the OR-guard's empty clause: neutralize → 899 FAILS, 891 stays GREEN |
-| world.rs:952 | bare | move_shape_in_object_unknown_shape_is_none | discriminating | isolating bite run now: neutralize position-lookup → 952 FAILS/962 GREEN |
-| world.rs:962 | bare | move_shape_in_object_unknown_object_is_none | discriminating | isolating bite run now: neutralize `object_mut` guard → 962 FAILS/952 GREEN |
-| world.rs:981 | bare | move_shapes_in_object_count_mismatch_is_a_no_op | discriminating | isolating bite run now: drop count check → 981 FAILS/995 GREEN, confirming the test's own doc-comment claim |
-| world.rs:995 | bare | move_shapes_in_object_unknown_object_is_none | discriminating | isolating bite run now: bypass `object_mut` guard → 995 FAILS/981 GREEN — doc-comment's isolation claim verified true, not just asserted |
-| world.rs:1003 | matches | move_object_not_found | discriminating | bite run now: fallback-to-identity → FAILS; variant-swap to `NoChange` → still FAILS |
-| world.rs:1013 | matches | move_object_identity_transform_is_no_change | discriminating | stayed GREEN through both 1003 mutations above, confirming isolation |
-| world.rs:1108 | bare | remove_shape_from_object_unknown_is_none | discriminating | isolating bite run now: neutralize `object_mut` guard → 1108 FAILS/1129 GREEN |
-| world.rs:1129 | bare | remove_shape_from_object_unknown_shape_is_none | discriminating | isolating bite run now: neutralize position-lookup (Arc-identity match) → 1129 FAILS/1108 GREEN; the Arc-identity doc-comment is accurate context but the bite is the evidence |
-| world.rs:1141 | bare | remove_object_missing_is_none | single-branch | read: one guard in `remove_object`'s body; bite run now (fallback dummy object) → FAILED |
-| world.rs:1196 | bare | global_shape_transform_unknown_object_is_none | discriminating | isolating bite run now: unknown-object fallback → 1196 FAILS/1210 GREEN |
-| world.rs:1210 | bare | global_shape_transform_out_of_range_index_is_none | discriminating | isolating bite run now: out-of-range fallback → 1210 FAILS/1196 GREEN |
-| world.rs:1216 | bare | global_shape_transforms_unknown_object_is_none | single-branch | read: one guard, only cause in `global_shape_transforms`; bite run now (empty-slice fallback) → FAILED |
-| world.rs:1252 | bare | transform_lookup_unknown_name_errors | single-branch | read: no sibling guard, one fallthrough per function (`knows_transform`/`try_get_transform`/`get_transform`); bite run now (flipped final `false`→`true` in `knows_transform`) → FAILED |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| world.rs:891 | bare | add_to_object_mismatched_lengths_is_a_no_op | discriminating | yes | isolating bite run now on the OR-guard's length clause: neutralize → 891 FAILS, 899 stays GREEN |
+| world.rs:899 | bare | add_to_object_empty_shapes_is_a_no_op | discriminating | yes | isolating bite run now on the OR-guard's empty clause: neutralize → 899 FAILS, 891 stays GREEN |
+| world.rs:952 | bare | move_shape_in_object_unknown_shape_is_none | discriminating | yes | isolating bite run now: neutralize position-lookup → 952 FAILS/962 GREEN |
+| world.rs:962 | bare | move_shape_in_object_unknown_object_is_none | discriminating | yes | isolating bite run now: neutralize `object_mut` guard → 962 FAILS/952 GREEN |
+| world.rs:981 | bare | move_shapes_in_object_count_mismatch_is_a_no_op | discriminating | yes | isolating bite run now: drop count check → 981 FAILS/995 GREEN, confirming the test's own doc-comment claim |
+| world.rs:995 | bare | move_shapes_in_object_unknown_object_is_none | discriminating | yes | isolating bite run now: bypass `object_mut` guard → 995 FAILS/981 GREEN — doc-comment's isolation claim verified true, not just asserted |
+| world.rs:1003 | matches | move_object_not_found | discriminating | yes | bite run now: fallback-to-identity → FAILS; variant-swap to `NoChange` → still FAILS. §9 clause 1: `MoveObjectOutcome::NotFound` is a coarse "could not produce a move" tag standing in for `None` (see the enum def, world.rs:368-377) — unlike `JointKind::Fixed`, it reports an operation's outcome, not a descriptive property |
+| world.rs:1013 | matches | move_object_identity_transform_is_no_change | discriminating | yes | stayed GREEN through both 1003 mutations above, confirming isolation. §9 clause 1: `NoChange` is "did not produce a change" — the same operation-outcome reading as `NotFound`, not a computed fact |
+| world.rs:1108 | bare | remove_shape_from_object_unknown_is_none | discriminating | yes | isolating bite run now: neutralize `object_mut` guard → 1108 FAILS/1129 GREEN |
+| world.rs:1129 | bare | remove_shape_from_object_unknown_shape_is_none | discriminating | yes | isolating bite run now: neutralize position-lookup (Arc-identity match) → 1129 FAILS/1108 GREEN; the Arc-identity doc-comment is accurate context but the bite is the evidence |
+| world.rs:1141 | bare | remove_object_missing_is_none | single-branch | yes | read: one guard in `remove_object`'s body; bite run now (fallback dummy object) → FAILED. §9 clause 2: `self.objects.remove(id)?` is a real `?`-propagation (bite-proven), not a bare non-decision lookup |
+| world.rs:1196 | bare | global_shape_transform_unknown_object_is_none | discriminating | yes | isolating bite run now: unknown-object fallback → 1196 FAILS/1210 GREEN |
+| world.rs:1210 | bare | global_shape_transform_out_of_range_index_is_none | discriminating | yes | isolating bite run now: out-of-range fallback → 1210 FAILS/1196 GREEN |
+| world.rs:1216 | bare | global_shape_transforms_unknown_object_is_none | single-branch | yes | read: one guard, only cause in `global_shape_transforms`; bite run now (empty-slice fallback) → FAILED. §9 clause 2: `self.objects.get(object_id)?` is a real `?`-propagation, bite-proven |
+| world.rs:1252 | bare | transform_lookup_unknown_name_errors | single-branch | yes | read: no sibling guard, one fallthrough per function (`knows_transform`/`try_get_transform`/`get_transform`); bite run now (flipped final `false`→`true` in `knows_transform`) → FAILED. §9 clause 2: `try_get_transform` has real sequential decision logic (exact-match check, then a subframe-matching loop), not a bare lookup |
 
 ### `tests/world_parity.rs` (1)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| world_parity.rs:226 | bare | world_matches_oracle | not-this-family | module doc (lines 4-33) + committed oracle fixture (`world_request.json`/`world_response.json`): `query.transform is None` per the oracle's own JSON dump for a specific query name — a per-query oracle-value comparison, not branch discrimination inside one function; there is no sibling branch to isolate |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| world_parity.rs:226 | bare | world_matches_oracle | not-this-family | **no** | module doc (lines 4-33) + committed oracle fixture (`world_request.json`/`world_response.json`): `query.transform is None` per the oracle's own JSON dump for a specific query name — a per-query oracle-value comparison, not branch discrimination inside one function; there is no sibling branch to isolate. §9 clause 3: whatever decision produced this `None` belongs to the oracle-generating process, not to code under test this assertion exercises |
 
 ## 3. `crates/moveit-geometry` — 39 sites
 
@@ -289,29 +380,29 @@ defined at bodies.rs:2138, own `recompute` at bodies.rs:2197) but shares
 the identical combined `half_length<0 || half_width<0 || half_height<0`
 guard shape, and the same "one token, one cause" misclassification.
 
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| bodies.rs:4037 | bare | sphere_negative_radius_is_an_error | single-branch | bite run now: no-op'd `Sphere::new`'s one guard → test FAILED; exactly one `Error::construct` call in the function |
-| bodies.rs:4087 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now: neutralize `half_length` clause in `bodies::Cuboid::recompute` → 4087 (length) FAILS, 4089 (height) stays GREEN |
-| bodies.rs:4088 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now: neutralize `half_width` clause in `bodies::Cuboid::recompute` (2209) → panic lands exactly at 4088, proving 4087 (length) passed first and 4089 (height) was never reached; reverted, gate re-run clean |
-| bodies.rs:4089 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | mirror half of the 4087 bite pair — stayed GREEN when `half_length` was neutralized |
-| bodies.rs:4102 | bare | sphere_padding_inversion_is_rejected_and_state_preserved | single-branch | doc-comment re-read and confirmed: `Sphere::set_padding` has exactly one `Error::construct` call, one operand |
-| bodies.rs:4140 | bare | cuboid_padding_inversion_is_rejected_and_state_preserved | single-branch (as tested) | this test has exactly one assertion (no sibling axis case in this specific test), so there is nothing in *this* test to isolate against even though the underlying `recompute` guard is the same combined shape corrected at 4087-4089; not re-classified — a coverage-gap question (whether a second case should exist), not a misclassification of what is actually asserted here |
-| bodies.rs:4328 | matches | from_shape_builds_matching_body_variant | discriminating | bite run now: rewrote the `Shape::Sphere` arm of `Body::from_shape` to build a `Cylinder` instead → the Sphere assert FAILED |
-| bodies.rs:4332 | matches | from_shape_builds_matching_body_variant | discriminating | doc-comment re-read: each `Body::from_shape` arm builds a distinct concrete variant, mirror of the 4328 bite |
-| bodies.rs:4340 | matches | from_shape_builds_matching_body_variant | discriminating | same reasoning, distinct match arm (`Shape::Cuboid`) |
-| bodies.rs:4347 | matches | from_shape_builds_matching_body_variant | discriminating | same reasoning, distinct match arm (`Shape::Mesh`) |
-| bodies.rs:4384 | bare | from_shape_returns_none_for_cone_plane_octree | discriminating (isolating mutation) | bite run now: split the Cone pattern out of the combined `None` arm in `Body::from_shape` → the Cone assert FAILED |
-| bodies.rs:4392 | bare | from_shape_returns_none_for_cone_plane_octree | discriminating (isolating mutation) | bite run now: split the Plane pattern out → the Plane assert FAILED while the Cone assert stayed GREEN |
-| bodies.rs:4402 | bare | from_shape_returns_none_for_cone_plane_octree | discriminating (isolating mutation) | doc-comment re-read: symmetric with the Cone/Plane bites just run, each pattern an independent match arm; the doc-comment's own D6 call-site check confirms no caller needs `from_shape` to discriminate Cone/Plane/OcTree |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| bodies.rs:4037 | bare | sphere_negative_radius_is_an_error | single-branch | yes | bite run now: no-op'd `Sphere::new`'s one guard → test FAILED; exactly one `Error::construct` call in the function |
+| bodies.rs:4087 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | yes | bite run now: neutralize `half_length` clause in `bodies::Cuboid::recompute` → 4087 (length) FAILS, 4089 (height) stays GREEN |
+| bodies.rs:4088 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | yes | bite run now: neutralize `half_width` clause in `bodies::Cuboid::recompute` (2209) → panic lands exactly at 4088, proving 4087 (length) passed first and 4089 (height) was never reached; reverted, gate re-run clean |
+| bodies.rs:4089 | bare | cuboid_negative_dimension_is_an_error_per_axis | discriminating (multi-branch, corrected) | yes | mirror half of the 4087 bite pair — stayed GREEN when `half_length` was neutralized |
+| bodies.rs:4102 | bare | sphere_padding_inversion_is_rejected_and_state_preserved | single-branch | yes | doc-comment re-read and confirmed: `Sphere::set_padding` has exactly one `Error::construct` call, one operand (`if radius_scaled < 0.0`, a real comparison) |
+| bodies.rs:4140 | bare | cuboid_padding_inversion_is_rejected_and_state_preserved | single-branch (as tested) | yes | this test has exactly one assertion (no sibling axis case in this specific test), so there is nothing in *this* test to isolate against even though the underlying `recompute` guard is the same combined shape corrected at 4087-4089; not re-classified — a coverage-gap question (whether a second case should exist), not a misclassification of what is actually asserted here |
+| bodies.rs:4328 | matches | from_shape_builds_matching_body_variant | discriminating | **no** | bite run now: rewrote the `Shape::Sphere` arm of `Body::from_shape` to build a `Cylinder` instead → the Sphere assert FAILED. §9 clause 1: for all four inputs in this test, `from_shape` unconditionally succeeds (`Ok(Some(_))`); the assertion checks *which concrete `Body` variant* was built, not a could-not/did-not-produce-X signal — a computed dispatch fact, structurally identical to census §9's own disqualifying `matches!(joint.kind(), JointKind::Fixed)` example |
+| bodies.rs:4332 | matches | from_shape_builds_matching_body_variant | discriminating | **no** | doc-comment re-read: each `Body::from_shape` arm builds a distinct concrete variant, mirror of the 4328 bite. §9 clause 1: same dispatch-fact reasoning as 4328 |
+| bodies.rs:4340 | matches | from_shape_builds_matching_body_variant | discriminating | **no** | same reasoning, distinct match arm (`Shape::Cuboid`). §9 clause 1: same as 4328 |
+| bodies.rs:4347 | matches | from_shape_builds_matching_body_variant | discriminating | **no** | same reasoning, distinct match arm (`Shape::Mesh`). §9 clause 1: same as 4328 |
+| bodies.rs:4384 | bare | from_shape_returns_none_for_cone_plane_octree | discriminating (isolating mutation) | yes | bite run now: split the Cone pattern out of the combined `None` arm in `Body::from_shape` → the Cone assert FAILED. §9 clause 1: unlike 4328-4347, this *is* a could-not-produce-a-`Body` signal (`Option::None`), not a variant-dispatch fact |
+| bodies.rs:4392 | bare | from_shape_returns_none_for_cone_plane_octree | discriminating (isolating mutation) | yes | bite run now: split the Plane pattern out → the Plane assert FAILED while the Cone assert stayed GREEN |
+| bodies.rs:4402 | bare | from_shape_returns_none_for_cone_plane_octree | discriminating (isolating mutation) | yes | doc-comment re-read: symmetric with the Cone/Plane bites just run, each pattern an independent match arm; the doc-comment's own D6 call-site check confirms no caller needs `from_shape` to discriminate Cone/Plane/OcTree |
 
 Note: the doc-comment at bodies.rs:4045-4048 (which contrasts `sphere_negative_radius_is_an_error` with a *sibling* `cylinder_negative_length_is_an_error` test elsewhere in the file) is evidence for that cylinder test, not for line 4037 — flagged explicitly to avoid misattribution, and not used as 4037's evidence above.
 
 ### `src/octree_collision.rs` (2)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| octree_collision.rs:120 | bare | empty_tree_has_no_occupied_leaves | single-branch | bite run now: no-op'd the sole `is_empty()` guard → both this test and its sibling failed identically (only one `None`-producing site in the whole function) |
-| octree_collision.rs:127 | bare | all_free_tree_has_no_occupied_leaves | single-branch | same bite as 120 — "empty tree" and "all free" both collapse to the same `is_empty()` check before `Some`/`Compound::new`, not two distinct guards, so the §3a isolating-mutation case does not apply here |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| octree_collision.rs:120 | bare | empty_tree_has_no_occupied_leaves | single-branch | yes | bite run now: no-op'd the sole `is_empty()` guard → both this test and its sibling failed identically (only one `None`-producing site in the whole function). §9 clause 2: `if leaf_shapes.is_empty() { return None }` is a real, deliberate panic-avoidance guard (the doc comment names it explicitly: `Compound::new` panics on an empty list) |
+| octree_collision.rs:127 | bare | all_free_tree_has_no_occupied_leaves | single-branch | yes | same bite as 120 — "empty tree" and "all free" both collapse to the same `is_empty()` check before `Some`/`Compound::new`, not two distinct guards, so the §3a isolating-mutation case does not apply here |
 
 ### `src/shapes.rs` (17)
 
@@ -326,25 +417,25 @@ per-axis assertion is independently discriminating. Comments at
 shapes.rs (and the mirrored one in bodies.rs) corrected in the same
 commit as this ledger update; see §1a.
 
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| shapes.rs:1619 | bare | sphere_negative_radius_is_an_error | single-branch | `Sphere::new` has one operand, one guard — nothing to isolate |
-| shapes.rs:1624 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now, both directions: neutralize radius clause → 1624 FAILS, 1625 stays GREEN; neutralize length clause → 1625 FAILS, 1624 stays GREEN (comment out sibling per §3a protocol, since `assert!` short-circuits within the one test fn) |
-| shapes.rs:1625 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same bite pair as 1624 |
-| shapes.rs:1631 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize radius clause → 1631 FAILS, 1632 stays GREEN (identical combined-guard shape to Cylinder::new, confirmed live rather than assumed by analogy) |
-| shapes.rs:1632 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | same bite as 1631 |
-| shapes.rs:1637 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize x clause → 1637 FAILS, 1639 (z) stays GREEN |
-| shapes.rs:1638 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | bite run now: neutralize `y` clause in `shapes::Cuboid::new` (905) → panic lands exactly at 1638, proving 1637 (x) passed first; reverted, gate re-run clean |
-| shapes.rs:1639 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | mirror half of the 1637 bite pair — stayed GREEN when x was neutralized |
-| shapes.rs:1657 | bare | sphere_padding_past_negative_is_an_error | single-branch | read: `Sphere::scale_and_padd` has exactly one `Err` site, one operand |
-| shapes.rs:1677 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | bite run now, both directions: neutralize radius clause → 1677 (`radius_case`) FAILS, 1686 (`length_case`) stays GREEN; neutralize length clause → mirrors |
-| shapes.rs:1686 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | same bite pair as 1677 |
-| shapes.rs:1798 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | bite run now: split `Shape::Cone(_)` out of `compute_volume`'s combined `None` arm (`Cone\|Plane\|Mesh\|OcTree`) → FAILED exactly at the Cone iteration; matches commit `871bb9e`'s recorded correction |
-| shapes.rs:1799 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | doc-comment re-read: records the same isolating mutation for `get_dimensions`, identical combined-arm structure |
-| shapes.rs:1863 | matches | mesh_rejects_out_of_range_triangle_index | single-branch | read: `Mesh::new` has exactly one `Error::construct` call, inside the vertex-index loop |
-| shapes.rs:1899 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | read: `Mesh::scale_and_padd_axes` has one `Err` site (`vertex_normals.as_ref().ok_or_else`); the empty-vertices branch returns `Ok(())`, not an error |
-| shapes.rs:1900 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | same guard as 1899, `scale_axes`/`padd_axes` both funnel through it |
-| shapes.rs:1962 | bare | compute_vertex_normals_calls_triangle_normals_when_needed | not-this-family | doc-comment re-read and confirmed: `mesh.triangle_normals.is_none()` reads a struct field literal-initialized to `None` in `Mesh::new`, not a computed branch |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| shapes.rs:1619 | bare | sphere_negative_radius_is_an_error | single-branch | yes | `Sphere::new` has one operand, one guard — nothing to isolate |
+| shapes.rs:1624 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | bite run now, both directions: neutralize radius clause → 1624 FAILS, 1625 stays GREEN; neutralize length clause → 1625 FAILS, 1624 stays GREEN (comment out sibling per §3a protocol, since `assert!` short-circuits within the one test fn) |
+| shapes.rs:1625 | bare | cylinder_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | same bite pair as 1624 |
+| shapes.rs:1631 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | bite run now: neutralize radius clause → 1631 FAILS, 1632 stays GREEN (identical combined-guard shape to Cylinder::new, confirmed live rather than assumed by analogy) |
+| shapes.rs:1632 | bare | cone_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | same bite as 1631 |
+| shapes.rs:1637 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | bite run now: neutralize x clause → 1637 FAILS, 1639 (z) stays GREEN |
+| shapes.rs:1638 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | bite run now: neutralize `y` clause in `shapes::Cuboid::new` (905) → panic lands exactly at 1638, proving 1637 (x) passed first; reverted, gate re-run clean |
+| shapes.rs:1639 | bare | cuboid_negative_dimension_is_an_error | discriminating (multi-branch, corrected) | yes | mirror half of the 1637 bite pair — stayed GREEN when x was neutralized |
+| shapes.rs:1657 | bare | sphere_padding_past_negative_is_an_error | single-branch | yes | read: `Sphere::scale_and_padd` has exactly one `Err` site, one operand |
+| shapes.rs:1677 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | yes | bite run now, both directions: neutralize radius clause → 1677 (`radius_case`) FAILS, 1686 (`length_case`) stays GREEN; neutralize length clause → mirrors |
+| shapes.rs:1686 | bare | cylinder_padding_past_negative_is_an_error_per_axis | discriminating (multi-branch, corrected) | yes | same bite pair as 1677 |
+| shapes.rs:1798 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | yes | bite run now: split `Shape::Cone(_)` out of `compute_volume`'s combined `None` arm (`Cone\|Plane\|Mesh\|OcTree`) → FAILED exactly at the Cone iteration; matches commit `871bb9e`'s recorded correction |
+| shapes.rs:1799 | bare | shapes_with_no_upstream_body_have_no_volume_or_dimensions | discriminating (isolating mutation, multi-branch) | yes | doc-comment re-read: records the same isolating mutation for `get_dimensions`, identical combined-arm structure |
+| shapes.rs:1863 | matches | mesh_rejects_out_of_range_triangle_index | single-branch | yes | read: `Mesh::new` has exactly one `Error::construct` call, inside the vertex-index loop. §9 clause 1: `Error::Construct(_)` is inspected on the failure (`Err`) path, unlike bodies.rs:4328's success-path variant check |
+| shapes.rs:1899 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | yes | read: `Mesh::scale_and_padd_axes` has one `Err` site (`vertex_normals.as_ref().ok_or_else`); the empty-vertices branch returns `Ok(())`, not an error |
+| shapes.rs:1900 | bare | mesh_padding_without_vertex_normals_is_an_error | single-branch | yes | same guard as 1899, `scale_axes`/`padd_axes` both funnel through it |
+| shapes.rs:1962 | bare | compute_vertex_normals_calls_triangle_normals_when_needed | not-this-family | **no** | doc-comment re-read and confirmed: `mesh.triangle_normals.is_none()` reads a struct field literal-initialized to `None` in `Mesh::new`, not a computed branch. §9 clause 2: the initial value is read before any subject logic touches it — the exact `shortest_solution` shape |
 
 The brief's own model example (`a74a310`, `Cylinder::recompute`'s two
 sequential radius/length guards with distinct messages) is in `bodies.rs`,
@@ -354,19 +445,19 @@ that exact contrast while now also correcting its own verdict for the
 combined-guard side of it.
 
 ### `src/stl.rs` (1)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| stl.rs:456 | bare | empty_input_is_rejected | single-branch | bite run now: neutralized `parse_ascii_triangles`'s `flat_vertices.is_empty()` guard → test flipped from pass to FAIL; for the `&[]` fixture, `parse_binary_triangles` bails immediately and `Mesh::new` is never reached, so exactly one guard fires for this input (other inputs can reach `mesh_from_bytes`'s other `Err` sites, but not this fixture) |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| stl.rs:456 | bare | empty_input_is_rejected | single-branch | yes | bite run now: neutralized `parse_ascii_triangles`'s `flat_vertices.is_empty()` guard → test flipped from pass to FAIL; for the `&[]` fixture, `parse_binary_triangles` bails immediately and `Mesh::new` is never reached, so exactly one guard fires for this input (other inputs can reach `mesh_from_bytes`'s other `Err` sites, but not this fixture) |
 
 ### `src/transforms.rs` (6)
-| file:line | anchor | test fn | verdict | evidence |
-|---|---|---|---|---|
-| transforms.rs:233 | bare | new_rejects_empty_target_frame | single-branch | bite run now: no-op'd `new`'s one `is_empty()` guard → test FAILED; only one `Err` site in the function |
-| transforms.rs:234 | bare | new_rejects_empty_target_frame | single-branch (redundant with 233) | read: `trim()` runs before the single `is_empty()` check, so `""` and `"   "` hit the identical branch — no second guard exists to isolate 234 from 233 |
-| transforms.rs:253 | bare | set_transform_rejects_empty_name | single-branch | bite run now: no-op'd `set_transform`'s one `is_empty()` guard → test FAILED |
-| transforms.rs:275 | bare | unknown_frame_is_an_error_not_identity | single-branch | bite run now: replaced `transform`'s one `ok_or_else` with a fallback `Ok` → test FAILED (input `"nope"`, map-miss path) |
-| transforms.rs:276 | bare | unknown_frame_is_an_error_not_identity | single-branch | bite run now, isolated: patched the map-miss fallback with the 275 assertion removed → failure confirms this assertion's only reachable source is the map-miss branch (the empty-string early return is unreachable for this non-empty literal) |
-| transforms.rs:277 | bare | unknown_frame_is_an_error_not_identity | single-branch | same `ok_or_else` bite as 275 — both 275 and 277 funnel through `transform`'s one `Err` site, differing only in which upstream `try_transform` path produced the `None` |
+| file:line | anchor | test fn | verdict | in-family | evidence |
+|---|---|---|---|---|---|
+| transforms.rs:233 | bare | new_rejects_empty_target_frame | single-branch | yes | bite run now: no-op'd `new`'s one `is_empty()` guard → test FAILED; only one `Err` site in the function |
+| transforms.rs:234 | bare | new_rejects_empty_target_frame | single-branch (redundant with 233) | yes | read: `trim()` runs before the single `is_empty()` check, so `""` and `"   "` hit the identical branch — no second guard exists to isolate 234 from 233 |
+| transforms.rs:253 | bare | set_transform_rejects_empty_name | single-branch | yes | bite run now: no-op'd `set_transform`'s one `is_empty()` guard → test FAILED |
+| transforms.rs:275 | bare | unknown_frame_is_an_error_not_identity | single-branch | yes | bite run now: replaced `transform`'s one `ok_or_else` with a fallback `Ok` → test FAILED (input `"nope"`, map-miss path) |
+| transforms.rs:276 | bare | unknown_frame_is_an_error_not_identity | single-branch | yes | bite run now, isolated: patched the map-miss fallback with the 275 assertion removed → failure confirms this assertion's only reachable source is the map-miss branch (the empty-string early return is unreachable for this non-empty literal) |
+| transforms.rs:277 | bare | unknown_frame_is_an_error_not_identity | single-branch | yes | same `ok_or_else` bite as 275 — both 275 and 277 funnel through `transform`'s one `Err` site, differing only in which upstream `try_transform` path produced the `None` |
 
 ## 4. Summary
 
@@ -394,6 +485,23 @@ of this revision, but two distinct defects fixed across the two rounds:
   misverdicts** — every one read back to a genuinely single cause.
 
 No `fixture-collapse-fixed` verdicts — none of the 89 sites needed one.
+
+- **Round 10 (this pass, §1c)**: census §9's three-clause family test
+  applied to all 89 rows, fresh (not copied from any other panel's
+  ledger). **81 of 89 in-family.** 8 moved to `not-this-family`: 3
+  pre-existing (`octomap_filter.rs:381`, `world_parity.rs:226`,
+  `shapes.rs:1962`) plus 5 newly excluded this pass —
+  `matrix.rs:517` (clause 2: a bare `.get()` with no `?`/guard/comparison,
+  on a fixture with no antecedent setter call, unlike the structurally
+  similar `matrix.rs:737` where the decision lives in `clear()`) and
+  `bodies.rs:4328,4332,4340,4347` (clause 1: each checks *which* `Body`
+  variant a `matches!` produced on an always-succeeding path — a computed
+  dispatch fact, not a could-not/did-not-produce-X signal). No verdict
+  (`discriminating`/`single-branch`) changed — this is a family-membership
+  question, separate from and prior to the verdict question §1a/§1b
+  answer. Two ambiguous bare-`?` rows (`tools.rs:219`, `matrix.rs:737`)
+  were settled by live bite rather than argument, per census §9's own
+  `nn.rs:227` precedent.
 
 ## 5. Gate
 
@@ -424,9 +532,19 @@ after the fix) used `cargo nextest run -p moveit-collision
 --no-fail-fast`, each reverted via `git diff`/`git status --short`
 confirmed empty before the next mutation.
 
+**Round 10** (this pass, §1c): report only, no source changes. The two
+settling bites (`tools.rs:219`'s `?`→`.expect(..)`, `matrix.rs:737`'s
+`clear()` mutation) were run live via `cargo nextest run -p
+moveit-collision --no-fail-fast` and reverted; both confirmed via
+`git status --short` empty before and after. No gate owed beyond that —
+this pass only reclassifies family membership in the doc, per instruction
+("doc-only unless a re-read turns up a wrong verdict" — none did).
+
 **UNFIXED:** none. **Fixed:** round 8's 12 sites' verdicts (3
 doc-comment edits, comment-only, `moveit-geometry`); round 9's 2 blind
 operands at `tools.rs:68` (2 new tests, `moveit-collision`, commit
-`d24494d`). **Tested:** all 89 sites, one row each, above; `cargo
-nextest run -p moveit-geometry` 141/141 and `cargo nextest run -p
-moveit-collision` 199/199, both post-fix.
+`d24494d`); round 10 fixed no source, only classified family membership
+(§1c). **Tested:** all 89 sites, one row each, above; `cargo nextest run
+-p moveit-geometry` 141/141 and `cargo nextest run -p moveit-collision`
+199/199, both post-fix; the two round-10 settling bites (`tools.rs:219`,
+`matrix.rs:737`) each confirmed FAIL-then-clean-revert live.
