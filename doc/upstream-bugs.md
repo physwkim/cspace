@@ -761,8 +761,15 @@ run that same case through the live oracle, which rejects it with
 the distance with one of the neighbor points` — the `Not_Feasible` path
 this entry's **Symptom** predicts. The port reaches the same code, and
 correcting the filter (bitten: `filtered.last()` instead of
-`waypoints[last_added_point_indx]`) flips that test to `SUCCESS` and no
-other test in the crate. The read of upstream source at the pinned sha is
+`waypoints[last_added_point_indx]`) takes down a family of two and leaves
+the other 237 green — re-measured this round, `237 passed, 2 failed` of 239
+under `cargo nextest run -p moveit-planners-pilz --no-fail-fast`:
+`polyline_panda_arm_reproduces_the_stale_filter_index_the_oracle_has` flips
+to `SUCCESS` where the oracle returns `-2`, and
+`filter_waypoints_compares_against_an_input_index_not_the_last_kept_pose`
+drops to 3 kept where it asserts upstream's 4. Both are named two sentences
+above, so the pair is the intended coverage; neither one alone can claim
+it. The read of upstream source at the pinned sha is
 still what identifies the two counters; it is no longer the only evidence.
 **Status:** reproduced-deliberately — the same positive argument as
 `totg-velocity-step-function`, not grandfathering. `POLYLINE`'s only
