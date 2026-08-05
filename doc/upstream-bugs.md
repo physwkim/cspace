@@ -1263,10 +1263,38 @@ reported minimum becomes the sentinel. `enable_signed_distance` is the flag
 whose whole purpose is to replace the sentinel with a signed depth; on this
 path it performs the zeroing half and not the replacing half.
 **Evidence:** both a read of the control flow above and an oracle run — the
-strongest pairing in this file. 10,000 seeded prbt states
+strongest pairing in this file. Sweeping the floor's top face through the
+tangency point isolates the discontinuity, `e017c91ee`, seed-free:
+
+| floor top `z` | true gap | `robot_collision` | `robot_distance` |
+|---|---|---|---|
+| `-1e-3`  | `+1e-3`  | `false` | `+1.000000000000001e-3` |
+| `-1e-7`  | `+1e-7`  | `false` | `+1.000000000028756e-7` |
+| `-1e-9`  | `+1e-9`  | `false` | `+9.999999994736568e-10` |
+| `-1e-15` | `+1e-15` | `false` | `+1.038912551220369e-15` |
+| `0`      | `0`      | `false` | **`-1.000000000000000e0`** |
+| `+1e-15` | `-1e-15` | `true`  | `-1.129411566063279e-15` |
+| `+1e-9`  | `-1e-9`  | `true`  | `-9.999999994737827e-10` |
+| `+1e-3`  | `-1e-3`  | `true`  | `-1.000000000000001e-3` |
+
+The function is continuous to `~1e-15` on both sides and jumps by `1e15` at
+the single point between them. That the jump is the sentinel and not geometry
+is confirmed by the `collision` column: at the tie upstream also reports
+`false`, which is what "zero contacts were found" means, and it is exactly the
+branch at line 648 that the zero-contact case skips.
+
+That column is *not* itself a convention the port could adopt. `fcl::collide`
+dispatches per shape pair, and the other exactly-touching pair in this
+workspace answers the other way: `octree_world_collision_response.json` case 4
+— an octree leaf whose `-x` face lands exactly on a robot box's `+x` face —
+returns `robot_collision: true` with `robot_distance: -0.0`, having found a
+contact. Same zero gap, opposite answers, and only the pair that found no
+contact leaks the sentinel.
+
+The rate is prbt-specific, not general. 10,000 seeded prbt states
 (`tools/ci/verify-phase3-collision-sweep.sh`, seed 1): the oracle's reported
 minimum robot distance is `-1.0` on `floor/prbt_base_link` in **10,000 /
-10,000** states. It is prbt-specific, not general: across the other four
+10,000** states. Across the other four
 fixtures' 29,152 disagreeing states (panda 9,543, fanuc 6,113,
 dual_arm_panda 3,508, pr2 9,988) the sentinel appears **0** times. That is
 geometry, not luck — `fixtures/prbt.urdf`'s `prbt_base_link` collision
@@ -1290,6 +1318,11 @@ has zero contacts, and `query::contact` returns a contact at
 `dist = -2.775558e-17` for it. The number obtained would still be a sentinel
 rather than a distance, so §218.3 records this as a Phase 3 finding instead
 of moving the fixture or the floor to make it disappear.
+The reproducer above is pinned as tests in
+`crates/moveit-collision/tests/exact_tangency_boundary.rs`:
+`no_sentinel_escapes_at_the_tie` fails if this backend ever acquires the
+sentinel, and `the_tie_is_decided_below_one_ulp` measures the `-2.775558e-17`
+that the `bool` half of the disagreement turns on.
 
 ---
 
