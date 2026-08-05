@@ -18116,3 +18116,77 @@ FCL의 개별 깊이를 분리하면:
   깨진다.
 - 10,000 상태 스윕을 다시 돌리지 않았다. §218이 잰 수치를 그대로 쓰며,
   이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+
+## §227 `collision_detection`에 남은 갭 세 건을 판정으로 바꿨다 — 그리고 판정하는 동안 포트 결함 두 개가 나왔다 (2026-08-06)
+
+`doc/port-coverage.md`가 `gap`으로 남겨 둔 `collision_detection` 파일 셋
+(`occupancy_map.hpp` 120줄, `test_collision_common_pr2.hpp` 571줄,
+`test_collision_common_panda.hpp` 383줄)을 각각 증거로 판정한다. §217.3이
+셋 중 `occupancy_map.hpp`에 대해 "이식하지 않기로 한 결정이 아니라 소유
+디렉터리를 옮기라는 라우팅이므로 갭"이라고 적었고, 그 라우팅을 판정으로
+바꾸는 것이 여기 할 일이다.
+
+두 테스트 헤더에 대해서는 **기구와 단언을 분리**한다. 둘 다 GoogleTest
+`TYPED_TEST_P` 픽스처이고, 공유 헤더인 유일한 이유가
+`CollisionAllocatorType` 타입 파라미터이며, 이 포트에는 그 파라미터가
+훑을 백엔드가 하나뿐이다. 그러나 헤더가 **무엇을 단언하는가**는 그것을
+단언하는 기구와 다른 물건이고, 판정의 근거가 되는 쪽은 단언이다.
+
+### §227.1 `test_collision_common_panda.hpp` — `decided-non-port`, 단언 10건 중 9건은 옮겼다
+
+`REGISTER_TYPED_TEST_SUITE_P` 셋(`:378-383`)이 등록하는 테스트는 10개다.
+9개를 `crates/moveit-collision/tests/upstream_panda_harness.rs`에 상류의
+관절값·상자 치수·패딩값·기대 크기와 **상류 자신의 허용오차** 그대로
+옮겼다(케이스별 대응표는 그 파일의 모듈 doc에 있다). 남은 하나 `InitOK`는
+픽스처의 `robot_model_ok_`를 단언하는 것이고, 이 포트에서 그것은
+`build_panda()`의 `.expect`다.
+
+```console
+$ cargo nextest run -p moveit-collision --test upstream_panda_harness
+    Starting 9 tests across 1 binary
+     Summary [   0.056s] 9 tests run: 9 passed, 0 skipped
+```
+
+오라클로 재도출하지 않은 이유는 두 가지다. `PaddingTest`는 애초에 오라클에
+줄 수 없다 — `tools/moveit-oracle`의 `collision` op은 `CollisionEnvFCL(model,
+world)`를 만들고 `setLinkPadding`을 **호출하지 않는다**. 나머지는 줄 수
+있지만, 여기서 기대값은 상류가 손으로 적은 상수 그 자체이므로 오라클로
+바꾸면 고정 표적이 움직이는 표적으로 바뀐다. 오라클 일치는
+`collision_parity.rs`가 재는 것이고, 이 파일이 재는 것은 상류의 손으로 적은
+기대값이다.
+
+**이 이식이 찾아낸 포트 결함 둘.** 둘 다 이 워크스페이스가 이미 가진
+시험 어느 것으로도 닿지 않았고, 그것이 "이미 덮여 있을 것"이라고 추론하는
+대신 헤더의 단언을 실제로 옮겨 본 이유다.
+
+1. **`CollisionRequest::distance`가 아무것도 채우지 않았다.** 상류의 두
+   충돌 헬퍼는 각각 끝에 `if (req.distance)` 블록을 달고 있고
+   (`collision_env_fcl.cpp:283-297`가 self, `:340-354`가 robot) 그 블록이
+   두 번째 거리 질의를 돌려 `CollisionResult::distance`에 넣는다. parry
+   백엔드는 **양쪽 다** 돌리지 않았으므로 `distance: true`가 `None`을
+   냈다. `parry.rs`의 `attach_requested_distance` 하나로 두 진입점이
+   지나가게 고쳤다 — 진입점마다 따로 쓰는 것이 한쪽만 구현되고 다른
+   쪽은 조용히 무시되는 바로 그 모양이기 때문이다.
+2. **쌍 맵 두 개가 정렬이 아니라 순회 순서로 키를 매겼다.** 상류는
+   `collisionCallback`과 `distanceCallback` 양쪽에서 사전순으로 작은 이름을
+   앞에 둔다(`collision_common.cpp:240-242`, `:564-567`). 이 백엔드는
+   `cross_pairs`가 로봇을 먼저 놓으므로 `distance_robot`의 모든 쌍을
+   `(link, object)`로 넣었고, 상류는 이름이 앞서는 쪽을 먼저 넣었다.
+   측정으로 확인한 실제 키는 아래와 같다(`distance_single` 실패 시 출력).
+
+   ```console
+   keys are [("panda_hand", "collection"), ("panda_hand", "object"),
+             ("panda_leftfinger", "collection"), ... ]   # 22개 전부 역순
+   ```
+
+   `BTreeMap`이므로 이것은 조회 키뿐 아니라 `contacts.begin()`이 무엇을
+   내는지까지 결정한다 — 상류 자신의 `ContactReporting`이 그 첫 원소를
+   읽는다. `parry.rs`의 `pair_key` 하나로 두 site가 지나가게 고쳤다.
+   `moveit-distance-field`는 이 계열이 **아니다**: 그 상류
+   (`collision_env_distance_field.cpp:329`, `:621`, `:1618`)는 정렬하지
+   않고 포트도 정렬하지 않는다.
+
+세 시험이 이 두 픽스를 판별한다는 것은 변이로 확인했다.
+`attach_requested_distance`를 즉시 return으로 바꾸면 4건이 깨지고
+`is_none_when_not_requested`만 통과하며, robot 쪽 호출만 지우면 robot 쪽
+1건만 깨진다. `pair_key`의 정렬을 없애면 3건 전부 깨진다.
