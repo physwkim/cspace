@@ -19495,3 +19495,178 @@ M5.
   세고, 행은 표에 남는다.
 - `geometric_shapes`의 예외 거동을 확인하지 않았다. §233.3의 오류 규약은
   이 포트 쪽 사실만으로 적혀 있다.
+
+  이 절이 더한 것은 그 수치의 **원인**이지 새 스윕이 아니다.
+
+## §234 `planning_response.cpp`의 남은 28줄 — `MotionPlanDetailedResponse::getMessage`를 포팅하지 않기로 판정했다
+
+`doc/port-coverage.md`가 이 파일을 `gap`으로 들고 있던 근거는 한 문장이었다.
+파일의 두 함수 중 하나는 트리에 대응이 있고, 다른 하나는 대응도 결정도
+없다는 것. 실측하면 79줄 파일에서 함수가 차지하는 것은 39줄이고
+(`MotionPlanResponse::getMessage` `:40-50` 11줄 —
+`ros/moveit-ros/src/planning.rs`의 `TryFrom<PlanningResponse<'m>> for
+PlanningResponseMsgOut`이 이것이다 —,
+`MotionPlanDetailedResponse::getMessage` `:52-79` 28줄), 대응이 없는 쪽이
+28줄로 더 크다. §3의 규칙은 잔여분이 **미결정**이고 파일의 대부분이 트리에
+없을 때만 `gap`이라고 적으므로, 이 절은 그 연언의 앞항을 없앤다 —
+**28줄을 포팅하지 않기로 판정한다.**
+
+### §234.1 무엇을 포팅하지 않는지부터 적는다 — 이름이 아니라 규칙
+
+판정의 대상은 함수 이름이 아니라 그 함수가 가진 규칙이다. 상류 전문:
+
+```cpp
+// moveit_core/planning_interface/src/planning_response.cpp:52-79
+void planning_interface::MotionPlanDetailedResponse::getMessage(
+    moveit_msgs::msg::MotionPlanDetailedResponse& msg) const
+{
+  msg.error_code = error_code;
+  msg.trajectory.clear();
+  msg.description.clear();
+  msg.processing_time.clear();
+  bool first = true;
+  for (std::size_t i = 0; i < trajectory.size(); ++i)
+  {
+    if (trajectory[i]->empty())
+      continue;
+    if (first)
+    {
+      first = false;
+      moveit::core::robotStateToRobotStateMsg(trajectory[i]->getFirstWayPoint(), msg.trajectory_start);
+      msg.group_name = trajectory[i]->getGroupName();
+    }
+    msg.trajectory.resize(msg.trajectory.size() + 1);
+    trajectory[i]->getRobotTrajectoryMsg(msg.trajectory.back());
+    if (description.size() > i)
+      msg.description.push_back(description[i]);
+    if (processing_time.size() > i)
+      msg.processing_time.push_back(processing_time[i]);
+  }
+}
+```
+
+규칙은 네 개의 경계를 가진다. 판정이 이 경계들을 없애는 것이지, 못 본 것이
+아님을 남기려고 열거한다.
+
+1. **빈 벡터** — `trajectory.size() == 0`이면 루프가 한 번도 안 돌고,
+   `msg.trajectory_start`와 `msg.group_name`은 **지워지지도 쓰이지도
+   않는다**(`clear()` 셋에 이 둘은 없다). 즉 호출자가 넘긴 `msg`에 남아
+   있던 값이 그대로 나간다. 세 벡터만 비워진다.
+2. **전부 빈 궤적** — 모든 `trajectory[i]->empty()`가 참이면 결과는 1번과
+   같다. `first`는 끝까지 `true`로 남는다.
+3. **첫 비어있지 않은 것이 `i == 0`이 아닐 때** — `trajectory_start`와
+   `group_name`은 **인덱스 0이 아니라 처음으로 비어있지 않은 궤적**에서
+   나온다. 앞쪽의 빈 궤적들은 출력에 아무 흔적을 안 남긴다.
+4. **길이 불일치** — `description`/`processing_time`의 push는 **원본
+   인덱스 `i`**로 가드된다(`description.size() > i`). 출력 인덱스가 아니다.
+   그래서 빈 궤적이 앞에 있으면 세 출력 벡터의 길이가 서로 달라질 수 있다:
+   `trajectory`는 비어있지 않은 것만 세고, `description`은 `i`가 그 벡터의
+   길이 안에 드는 것만 센다.
+
+`planner_id`는 구조체에 있지만(`planning_response.hpp:83`) 이 함수가 읽지
+않고, 와이어 타입에도 그런 필드가 없다
+(`third_party/moveit_msgs/msg/MotionPlanDetailedResponse.msg`는
+`trajectory_start`/`group_name`/`trajectory[]`/`description[]`/
+`processing_time[]`/`error_code` 여섯 필드다). 상류가 버리는 필드다.
+
+### §234.2 D6은 이 함수를 `moveit-ros`로 보내지만, 변환할 코어 쪽 원본이 없다
+
+D6은 "모든 `moveit_msgs` 변환은 `moveit-ros`의 `TryFrom`"이다. 이 함수가
+`moveit-ros`에 속한다는 것까지는 D6이 정한다. 문제는 그다음이다 —
+`TryFrom<코어 타입>`의 **코어 타입이 이 워크스페이스에 없다.**
+
+트리에서 상류 `planning_interface::MotionPlanDetailedResponse`의 대응물은
+하나뿐이고, `doc/port-coverage.md:146`이 이미 그렇게 판정해 두었다:
+`crates/moveit-planners-chomp/src/planner.rs:205`의 `ChompSolution`. 그
+타입의 필드는 셋이다 — `trajectory: RobotTrajectory<'m>`(벡터가 아니라
+**하나**), `planner_id: String`, `description: String`(벡터가 아니라
+**하나**). `processing_time`도 `error_code`도 없다(전자는 §138.3, 후자는
+`Result::Err`).
+
+그래서 `TryFrom<ChompSolution> for MotionPlanDetailedResponseMsgOut`을 쓰면
+§234.1의 **네 경계가 전부 표현 불가능해진다.** 벡터가 없으니 빈 벡터가
+없고(1), 전부 빈 경우가 없고(2), `first`가 `false`가 될 인덱스가 없고(3),
+길이를 어긋나게 할 두 번째 벡터가 없다(4). 남는 것은 궤적 하나와 문자열
+하나를 옮기는 세 줄이며, 그 세 줄은 `planning_response.cpp` 행이 말하는
+규칙을 **하나도 담지 않는다.** 행을 그런 함수로 닫는 것은 포팅이 아니라
+행의 주어를 바꾸는 것이다.
+
+의존 간선도 없다. `ros/moveit-ros/Cargo.toml`에
+`moveit-planners-*` 의존이 하나도 없다(`rg -n 'chomp|moveit-planners'`가
+0줄). 간선을 새로 만드는 것은 §177의 `linkme` distributed_slice 순서
+위험을 건드리는 별개의 결정이고, 만들어도 위 문단의 결론은 안 바뀐다.
+
+**대안으로 `moveit-planning`에 일반 `DetailedPlanningResponse`를 새로 만드는
+길도 재 봤고, 거절한다.** 그것은 `doc/port-coverage.md:146`이 이미
+`ChompSolution`으로 귀속한 구조체의 **두 번째** 포트 표현이 되며, 이
+워크스페이스에서 생산자도 소비자도 0이다. 생산자 쪽은 이미 판정이 끝나
+있다: pilz의 `solve(MotionPlanDetailedResponse&)`는 §227.3(2)가 D6으로
+버렸고, chomp의 `solve`는 `ChompSolution`으로 좁혔다. 소비자 쪽은
+§234.3이다.
+
+### §234.3 상류에서 이 함수의 호출자는 0이고, 와이어 타입은 어떤 srv/action/msg에도 실리지 않는다
+
+두 실측 모두 상류 `e017c91ee` 체크아웃 전체에 대한 것이다.
+
+**호출자 0.** `rg -n 'getMessage' --glob '!*CHANGELOG*'`는
+`AllowedCollisionMatrix::getMessage`를 걸러내면 13줄이고, 그중 선언 둘
+(`planning_response.hpp:56`, `:77`), 정의 둘(`planning_response.cpp:40`,
+`:52`), **호출 아홉**이다. 아홉을 하나씩 열어 인자 타입을 확인했다:
+
+| 호출 지점 | 인자 |
+|---|---|
+| `moveit_ros/move_group/src/default_capabilities/plan_service_capability.cpp:97` | `res->motion_plan_response` (`GetMotionPlan.srv:8` = `MotionPlanResponse`) |
+| `moveit_ros/planning/planning_pipeline/src/planning_pipeline.cpp:245` | `progress.response` (`PipelineState.msg:5` = `MotionPlanResponse`) |
+| pilz `unittest_trajectory_generator_ptp.cpp:382,488,560,687,829` | `moveit_msgs::msg::MotionPlanResponse res_msg` (각 호출 직전 줄) |
+| pilz `unittest_trajectory_generator_lin.cpp:145` | 같음 |
+| pilz `unittest_trajectory_generator_circ.cpp:130` | 같음 |
+
+인자 타입이 판별자다. 두 `getMessage`는 서로 다른 클래스의 멤버이므로
+오버로드는 수신자가 고르지만, 인자가 `moveit_msgs::msg::MotionPlanResponse&`
+인 호출은 `MotionPlanDetailedResponse&`를 받는 서명에 **컴파일되지
+않는다.** 아홉 중 아홉이 그 인자를 넘긴다. 따라서
+`MotionPlanDetailedResponse::getMessage`의 호출자는 **테스트를 포함해
+상류 전체에서 0이다.**
+
+**와이어 타입은 어디에도 실리지 않는다.**
+`rg -n 'moveit_msgs::msg::MotionPlanDetailedResponse'`는 상류 전체에서 정확히
+두 줄 — 위의 선언(`:77`)과 정의(`:52`) — 이다. 메시지 정의 쪽도 같다:
+`rg -n 'MotionPlanDetailedResponse' third_party/moveit_msgs/`는
+`CMakeLists.txt:53`(빌드 목록) 한 줄뿐이고, 어떤 `.srv`/`.action`/`.msg`도
+이 타입을 담지 않는다. 대조군이 그 차이를 보여준다 — `MotionPlanResponse`는
+`srv/GetMotionPlan.srv:8`, `msg/PipelineState.msg:5`,
+`action/GlobalPlanner.action:6` 셋에 실린다. 즉 이 함수가 채우는 메시지는
+ROS 그래프에서 받을 수 있는 곳이 없다.
+
+이것은 판정의 **이유가 아니라 비용 측정**이다. 호출자가 0이라는 사실이
+함수를 안 옮겨도 된다고 말해주지는 않는다(그 논리라면 상류의 죽은 코드가
+전부 면제된다). 말해주는 것은 이 함수를 안 옮겨서 이 포트가 못 하게 되는
+일이 무엇인가이고, 답은 "상류가 오늘 그것으로 하는 일도 없다"이다.
+
+### §234.4 만료 조건 — 무엇이 이 판정을 되돌리는가
+
+셋 중 **아무거나 하나**가 성립하면 이 절은 무효이고 행은 다시 열린다.
+
+1. 이 워크스페이스의 어떤 크레이트가 궤적 **벡터**를 담은 응답 타입을
+   만든다(예: 다단계 플래너가 `plan`/`simplify`/`interpolate`를 따로
+   내놓는다). 그 순간 §234.1의 네 경계가 표현 가능해지고, D6에 따라
+   변환은 `moveit-ros`의 `TryFrom`이어야 한다.
+2. `moveit-ros`가 `MotionPlanDetailedResponse`를 담은 서비스나 액션을
+   내보내야 한다 — 즉 §234.3의 두 번째 실측이 뒤집힌다.
+3. 상류가 이 함수에 호출자를 추가한다. 그러면 §234.3의 첫 번째 실측이
+   뒤집히고, `pilz-detailed-response-pushes-null-trajectory`의
+   도달 가능성 문단도 함께 다시 재야 한다.
+
+### §234.5 이 절이 하지 않은 것
+
+- `ChompSolution`을 벡터 형태로 넓히지 않았다. 그것은 상류 chomp가 항상
+  길이 1로 resize한다는 `planner.rs:193-203`의 감사와 어긋나며, 이 절은
+  그 감사를 다시 열지 않는다.
+- `ros/moveit-ros/Cargo.toml`을 건드리지 않았다. 의존 간선은 추가되지
+  않았다.
+- `MotionPlanResponse::getMessage` 쪽 잔여분(`planning_time`)을 닫지
+  않았다. 그것은 `crates/moveit-planning/src/response.rs`의 D8 감사가
+  "unported, in scope"로 들고 있고 만료 조건도 거기 있다.
+- `pilz-detailed-response-pushes-null-trajectory`의 등급을 바꾸지 않았다.
+  호출자 0 실측은 그 항목의 도달 가능성 문단을 **더 강하게** 만들 뿐,
+  결함 자체를 없애지 않는다.

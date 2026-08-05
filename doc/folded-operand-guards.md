@@ -57,7 +57,7 @@ grammar. **The union is the population; either alone is a sample.**
 | `moveit-trajectory/src/robot_trajectory.rs:535` | 2 | `duration < 0.0 \|\| waypoints.is_empty()` (tuple return) | p1-robotmodel |
 | `ros/moveit-ros/src/constraints/position.rs:151` | 2 | `!meshes.is_empty() \|\| !mesh_poses.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/conversion_coverage.rs:209` | 2 | `from_base.is_empty() \|\| to_base.is_empty()` | p9-ros |
-| `ros/moveit-ros/src/planning.rs:88` | 2 | `!joint_names.is_empty() \|\| !points.is_empty()` | p9-ros |
+| `ros/moveit-ros/src/planning.rs:112` | 2 | `!joint_names.is_empty() \|\| !points.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/scene/collision_object.rs:345` | 3 | `primitives/meshes/planes.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/state.rs:112` | 4 | `!joint_names/transforms/twist/wrench.is_empty()` | p9-ros |
 | `ros/moveit-ros/src/trajectory.rs:165` | 2 | `i == 0 && t != 0.0` | p9-ros |

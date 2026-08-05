@@ -1956,26 +1956,49 @@ MoveIt was not built — this workspace has no ROS 2 toolchain — so no
 segfault was observed.
 
 Reachability was checked rather than assumed, and it is why the status is
-`not-reproduced` rather than something stronger. Every
-`MotionPlanDetailedResponse` site in the tree was read:
-`planning_pipeline.cpp:319` and `plan_service_capability.cpp:97` both use
-the **undetailed** overload, so the production path from `move_group` never
-builds one; `BenchmarkExecutor.cpp` builds its detailed responses by hand
-and pushes only `if (response.trajectory)` (`:844`, `:946`), then walks them
-at `:1000-1005` under `if (solved)`. The only callers of pilz's detailed
-`solve` are two upstream tests, `unittest_planning_context.cpp:232` and
-`:244`, and both use `getValidRequest(...)`, so neither reaches the failure
-path. The null pointers are therefore constructed today and dereferenced by
-nothing today; a third-party planning pipeline calling the detailed
-`solve` and then `getMessage` on a failed plan is what turns it into a
-crash.
+`not-reproduced` rather than something stronger. **The consumer quoted
+above is called from nowhere.** `rg -n 'getMessage'` over the pinned tree,
+less `AllowedCollisionMatrix::getMessage`, is 13 hits: two declarations
+(`planning_response.hpp:56`, `:77`), two definitions
+(`planning_response.cpp:40`, `:52`), and nine calls. Each of the nine
+passes a `moveit_msgs::msg::MotionPlanResponse&` — `plan_service_capability.cpp:97`
+(`res->motion_plan_response`, `GetMotionPlan.srv:8`),
+`planning_pipeline.cpp:245` (`progress.response`, `PipelineState.msg:5`),
+and seven pilz unit-test sites
+(`unittest_trajectory_generator_ptp.cpp:382,488,560,687,829`,
+`_lin.cpp:145`, `_circ.cpp:130`, each declaring
+`moveit_msgs::msg::MotionPlanResponse res_msg` on the preceding line) — and
+that argument does not compile against the detailed signature. So
+`MotionPlanDetailedResponse::getMessage` has **zero callers upstream, tests
+included**, and the wire type it fills is embedded in no `.srv`/`.action`/
+`.msg` (`rg -n 'MotionPlanDetailedResponse' third_party/moveit_msgs/` is one
+hit, `CMakeLists.txt:53`, the build list).
+
+An earlier version of this paragraph said "every `MotionPlanDetailedResponse`
+site in the tree was read" and then cited `planning_pipeline.cpp:319` and
+`plan_service_capability.cpp:97`. Neither file mentions
+`MotionPlanDetailedResponse` anywhere; both are sites on the **undetailed**
+overload. The conclusion they were offered for still holds — the
+`move_group` production path never builds a detailed response — but they
+were not the sites the sentence claimed to have enumerated.
+
+The producers are as narrow. `BenchmarkExecutor.cpp` builds its detailed
+responses by hand and pushes only `if (response.trajectory)` (`:844`,
+`:946`), then walks them at `:1000-1005` under `if (solved)` — directly,
+never through `getMessage`. The only callers of pilz's detailed `solve` are
+two upstream tests, `unittest_planning_context.cpp:232` and `:244`, and
+both use `getValidRequest(...)`, so neither reaches the failure path. The
+null pointers are therefore constructed today and dereferenced by nothing
+today; a third-party planning pipeline calling the detailed `solve` and
+then `getMessage` on a failed plan is what turns it into a crash.
 
 **Status:** `not-reproduced`.
 **Cost of not reproducing:** none. No test or oracle comparison in this tree
 reaches it: the port has no `MotionPlanDetailedResponse` counterpart to
-diverge from, because §227.3 declines the whole adapter under D6, and the
-one field it would have carried across — the error code — is already
-`MotionPlanResponse::error_code` in
+diverge from, because §227.3 declines the whole adapter under D6 and §234
+declines the consumer quoted above — `MotionPlanDetailedResponse::getMessage`
+itself — on the same grounds, and the one field it would have carried
+across — the error code — is already `MotionPlanResponse::error_code` in
 `crates/moveit-planners-pilz/src/trajectory_generator.rs:496`.
 
 ### `to-string-truncates-to-six-significant-digits` — a planner parameter written with `toString` and read back with `toDouble` loses all but 6 significant digits — not-reproduced

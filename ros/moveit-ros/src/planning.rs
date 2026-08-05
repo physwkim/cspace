@@ -40,6 +40,30 @@
 //! `WorkspaceParameters.header` (frame_id/stamp) has no [`WorkspaceBounds`]
 //! field either -- dropped as metadata, not content, matching this round's
 //! `RobotTrajectory`/`RobotState`'s own treatment of `header`.
+//!
+//! # Not ported here: `MotionPlanDetailedResponse::getMessage`
+//!
+//! `moveit_core/planning_interface/src/planning_response.cpp` holds two
+//! conversions. `MotionPlanResponse::getMessage` (`:40-50`) is the
+//! `TryFrom<PlanningResponse<'m>> for PlanningResponseMsgOut` impl below.
+//! `MotionPlanDetailedResponse::getMessage` (`:52-79`, the file's larger
+//! half) **is deliberately not ported, here or anywhere**, and this crate is
+//! where it would have to live: D6 puts every `moveit_msgs` conversion in
+//! `moveit-ros`.
+//!
+//! D6 also names what is missing. A `TryFrom` needs a core-side source type,
+//! and this workspace's only counterpart to
+//! `planning_interface::MotionPlanDetailedResponse` is
+//! `moveit_planners_chomp::ChompSolution`, which holds one `RobotTrajectory`
+//! and one `description` string rather than the parallel vectors upstream
+//! iterates. Every rule the upstream function has -- the first-non-empty
+//! trajectory supplying `trajectory_start`/`group_name`, the `continue` over
+//! empty ones, the source-indexed `description`/`processing_time` guards --
+//! needs those vectors to exist, so a conversion written against
+//! `ChompSolution` would carry none of them. `PORTING-PLAN.md` §234 records
+//! the measurements (upstream calls this function from nowhere; no
+//! `.srv`/`.action`/`.msg` embeds the `MotionPlanDetailedResponse` wire type)
+//! and the three conditions that re-open the decision.
 
 use moveit_constraints::KinematicConstraintSet;
 use moveit_error::Error;
