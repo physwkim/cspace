@@ -12,6 +12,17 @@
         ["crates/moveit-collision/src/tools.rs", 283]
       ],
       "reason": "guard-line-vs-assert-line citation convention (§1b): the ledger's first column cites the shared aabb_intersection guard's own production line (tools.rs:68, `if min[0] >= max[0] || min[1] >= max[1] || min[2] >= max[2]`) once per axis-isolating test (rows suffixed (x)/(y)/(z)), rather than each test's own assert!(...).is_empty()) line. The three real scanner sites those tests exercise are tools.rs:259 (boxes_that_only_touch_do_not_intersect), tools.rs:271 (boxes_that_only_touch_on_y_do_not_intersect), tools.rs:283 (boxes_that_only_touch_on_z_do_not_intersect) -- confirmed by reading the ledger's own §1b prose (which states this explicitly: 'tools.rs:259,271,283 are the same physical lines as existing rows tools.rs:68 (x)/(y)/(z), not new sites') and by reading tools.rs itself to verify each test's body and its one assert! line. Naive file:line matching manufactures three false orphans here; this is the one instance of the guard-line-citation trap this instrument was asked to encode."
+    },
+    {
+      "ledger": "doc/assertion-discrimination-ledger-p1-robotmodel.md",
+      "cited_file": "moveit-constraints/src/position.rs",
+      "cited_line": 165,
+      "resolution": "matches",
+      "scanner_sites": [
+        ["crates/moveit-constraints/tests/decide.rs", 534],
+        ["crates/moveit-constraints/tests/decide.rs", 553]
+      ],
+      "reason": "guard-line-vs-assert-line citation convention, same shape as tools.rs:68 above: the ledger's row cites PositionConstraint::new's `model.link_model(link_name)?` guard (position.rs:165) directly, since that is what this round's isolating mutation actually neutralized, rather than the two decide.rs tests that exercise it. Those two tests are new_rejects_unknown_link (decide.rs:530, assert_err_mentions call at decide.rs:534) and new_rejects_unresolvable_mobile_frame (decide.rs:549, assert_err_mentions call at decide.rs:553) -- confirmed by reading both test bodies and the ledger's own prose at doc/assertion-discrimination-ledger-p1-robotmodel.md:262, which names both test functions and the mutation run against each. Both decide.rs:534 and :553 are already independently matched via this same ledger's Round 13 via:assert_err_mentions row; this entry only resolves the separate guard-line citation, it does not double-count the sites."
     }
   ]
 }

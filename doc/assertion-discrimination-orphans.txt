@@ -7,66 +7,21 @@ ledgers discovered (doc/assertion-discrimination-ledger-*.md): 6
   doc/assertion-discrimination-ledger-pilz.md
 
 scanner sites (excl. helper_body): 700
-matched (some ledger row accounts for the site): 682
-orphans (no ledger row accounts for the site):    18
+matched (some ledger row accounts for the site): 700
+orphans (no ledger row accounts for the site):    0
 check: matched + orphans == scanner sites -> True
 
-ledger citations resolved via vetted equivalence: 9
+ledger citations resolved via vetted equivalence: 11
 ledger citations explained as non-scanner-scope (not gaps): 0
-ledger citations still unresolved (reported, not guessed): 31
+ledger citations still unresolved (reported, not guessed): 6
   by cause:
-    no-scanner-site-nearby: 23
-    comment-line: 4
-    test-attribute-or-signature-line: 3
-    guard-propagation-line: 1
+    no-scanner-site-nearby: 5
+    comment-line: 1
   [assertion-discrimination-ledger-p1-fixtures] tree.rs:1781 -- none; cites a comment line, not an assertion
-  [assertion-discrimination-ledger-p1-robotmodel] time_optimal_trajectory_generation.rs:1030 -- none; cites a comment line, not an assertion
-  [assertion-discrimination-ledger-p1-robotmodel] time_optimal_trajectory_generation.rs:1112 -- none; no scanner match; source there reads: ''
-  [assertion-discrimination-ledger-p1-robotmodel] moveit-constraints/src/position.rs:165 -- none; cites a `?`-propagation guard line, not an assertion -- outside the scanner's grammar by design
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:372 -- none; no scanner match; source there reads: '"no frame specified for position constraint",'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:390 -- none; no scanner match; source there reads: '"needs at least one constraint region",'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:448 -- none; no scanner match; source there reads: '"has no bodies:: counterpart",'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:518 -- none; no scanner match; source there reads: '"convex mesh body requires at least one vertex",'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:544 -- none; no scanner match; source there reads: 'r#"no link named "no_such_link""#,'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:563 -- none; no scanner match; source there reads: 'r#"no frame named "no_such_frame""#,'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:756 -- none; no scanner match; source there reads: 'r#"no frame named "no_such_frame""#,'
-  [assertion-discrimination-ledger-p1-robotmodel] decide.rs:795 -- none; no scanner match; source there reads: 'r#"no frame named """#,'
   [assertion-discrimination-ledger-p1-robotmodel] ruckig_filter.rs:465 -- none; no scanner match; source there reads: 'assert!('
   [assertion-discrimination-ledger-p1-robotmodel] ruckig_filter.rs:539 -- none; no scanner match; source there reads: 'assert!(err.to_string().contains("must each have length"), "{err}");'
-  [assertion-discrimination-ledger-p1-robotmodel] time_optimal_trajectory_generation.rs:1070 -- none; cites a `#[test]`/`fn`/brace/`let` line, not an assertion: 'let options = TotgOptions::default().with_resample_dt(1e-300).unwrap();'
-  [assertion-discrimination-ledger-p1-robotmodel] mesh_search_paths.rs:130 -- none; cites a comment line, not an assertion
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:2764 -- none; no scanner match; source there reads: '})'
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:2885 -- none; no scanner match; source there reads: '.unwrap()'
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:2886 -- none; no scanner match; source there reads: '.end_effector_parent(),'
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:2986 -- none; cites a `#[test]`/`fn`/brace/`let` line, not an assertion: 'let model = build(group_state_test_urdf(), &srdf).expect("builds");'
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:3021 -- none; no scanner match; source there reads: ''
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:3031 -- none; no scanner match; source there reads: 'r#"<group_state name="empty" group="arm">'
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:3376 -- none; no scanner match; source there reads: '<joint name="j1" type="fixed">'
-  [assertion-discrimination-ledger-p1-robotmodel] check_start_state_bounds.rs:302 -- none; cites a `#[test]`/`fn`/brace/`let` line, not an assertion: '#[test]'
-  [assertion-discrimination-ledger-p1-robotmodel] check_start_state_bounds.rs:328 -- none; no scanner match; source there reads: '.current_state_mut()'
-  [assertion-discrimination-ledger-p1-robotmodel] check_start_state_bounds.rs:377 -- none; no scanner match; source there reads: 'for fix_start_state in [false, true] {'
-  [assertion-discrimination-ledger-p1-robotmodel] mesh_search_paths.rs:130 -- none; cites a comment line, not an assertion
-  [assertion-discrimination-ledger-p1-robotmodel] robot_model.rs:2885 -- none; no scanner match; source there reads: '.unwrap()'
   [assertion-discrimination-ledger-p3-acm] crates/moveit-smoothing/src/ruckig_filter.rs:465 -- none; no scanner match; source there reads: 'assert!('
   [assertion-discrimination-ledger-p9-ros] tests/oracle_parity.rs:264 -- none; no scanner match; source there reads: 'assert!('
   [assertion-discrimination-ledger-p9-ros] moveit-smoothing/src/ruckig_filter.rs:539 -- none; no scanner match; source there reads: 'assert!(err.to_string().contains("must each have length"), "{err}");'
 
---- 18 orphans (file:line:kind) ---
-crates/moveit-model/src/mesh_search_paths.rs:162:eq_none
-crates/moveit-model/src/mesh_search_paths.rs:179:eq_none
-crates/moveit-model/src/mesh_search_paths.rs:192:eq_none
-crates/moveit-model/src/robot_model.rs:2693:eq_none
-crates/moveit-model/src/robot_model.rs:2781:is_empty
-crates/moveit-model/src/robot_model.rs:2902:eq_none
-crates/moveit-model/src/robot_model.rs:2903:is_empty
-crates/moveit-model/src/robot_model.rs:3003:is_empty
-crates/moveit-model/src/robot_model.rs:3038:is_empty
-crates/moveit-model/src/robot_model.rs:3048:is_empty
-crates/moveit-model/src/robot_model.rs:3393:is_empty
-crates/moveit-model/src/robot_model.rs:3394:is_empty
-crates/moveit-model/src/robot_model.rs:3395:is_empty
-crates/moveit-model/src/robot_model.rs:3396:is_empty
-crates/moveit-planning/src/request_adapters/check_start_state_bounds.rs:358:eq_err
-crates/moveit-planning/src/request_adapters/check_start_state_bounds.rs:384:eq_err
-crates/moveit-planning/src/request_adapters/check_start_state_bounds.rs:433:contains
-crates/moveit-planning/src/request_adapters/check_start_state_bounds.rs:474:contains
+--- 0 orphans (file:line:kind) ---
