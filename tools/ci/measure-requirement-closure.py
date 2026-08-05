@@ -40,12 +40,22 @@ What this proves and what it does not:
   * The message closure of those endpoints is NOT computed here, because it
     cannot be: `moveit_msgs` is in neither the reference checkout nor any host
     ROS install.  The definitions exist only inside the oracle container image
-    (`/ws/src/moveit_msgs`), so that half of the enumeration is run there --
-    the command and its result are recorded in PORTING-PLAN.md.
+    (`/ws/install/moveit_msgs/share/moveit_msgs`), so that half runs there --
+    `requirement-message-closure.py`, whose moveit_msgs result is checked in
+    as `requirement-closure-moveit-msgs.txt`.  `--client-messages` reads that
+    file and measures the port side against it, so the split is reproducible
+    from the tree without a container.
+  * `--client-messages` anchors on the `moveit_msgs::` binding path and skips
+    `//` lines, NOT on the bare type name.  Three of these names are also
+    native port types (`PlanningScene` is `moveit_scene::PlanningScene`,
+    `AllowedCollisionMatrix` is `moveit_collision`'s) with hundreds of
+    unrelated sites, and a doc comment quoting an upstream C++ signature is
+    not a binding.  A bare-name count says 17/17 where this says 16/18.
 
 Usage:
     tools/ci/measure-requirement-closure.py [--upstream DIR] [--repo DIR]
                                             [--list-external] [--check]
+                                            [--client-messages] [--port-tree DIR]
 """
 
 from __future__ import annotations
@@ -188,6 +198,71 @@ def port_endpoints(repo: str) -> set[str]:
     return out
 
 
+CLOSURE_LIST = os.path.join(HERE, "requirement-closure-moveit-msgs.txt")
+
+# `moveit_msgs::msg::X`, `moveit_msgs::X`, `use r2r::moveit_msgs::action::{A, B}`.
+# The `/` separator is accepted too because doc comments quote the interface
+# in its ROS spelling (`moveit_msgs/msg::{PlanningScene, ...}`,
+# `ros/moveit-ros/src/scene/planning_scene.rs:10`); a `::`-only pattern
+# undercounts the quoted set by exactly that line.
+MSG_BIND = re.compile(
+    r"moveit_msgs[:/]+(?:msg[:/]+|srv[:/]+|action[:/]+)?\{?([A-Za-z0-9_,\s]+)"
+)
+
+
+def closure_types() -> list[str]:
+    with open(CLOSURE_LIST, encoding="utf-8") as fh:
+        return [
+            ln.strip()
+            for ln in fh
+            if ln.strip() and not ln.lstrip().startswith("#")
+        ]
+
+
+def client_messages(port_tree: str) -> int:
+    """Which closure types does the port bind, and where."""
+    want = set(closure_types())
+    bound: dict[str, str] = {}
+    # keyed by file:line -- a line can match the pattern twice
+    # (`scene.rs:228` names `moveit_msgs::msg::PlanningScene` in prose and
+    # again in the trailing citation), and counting matches instead of lines
+    # inflates the quoted set.
+    quoted: dict[str, set[str]] = {}
+    for dirpath, dirnames, filenames in os.walk(port_tree):
+        dirnames[:] = [d for d in dirnames if d not in ("target", ".git", "third_party")]
+        for fn in filenames:
+            if not fn.endswith(".rs"):
+                continue
+            path = os.path.join(dirpath, fn)
+            rel = os.path.relpath(path, port_tree)
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    # a doc comment quoting an upstream C++ signature is not a binding
+                    is_comment = line.lstrip().startswith("//")
+                    for grp in MSG_BIND.findall(line):
+                        for name in re.split(r"[,\s]+", grp):
+                            if name not in want:
+                                continue
+                            if is_comment:
+                                quoted.setdefault(name, set()).add(f"{rel}:{lineno}")
+                            else:
+                                bound.setdefault(name, f"{rel}:{lineno}")
+    absent = [t for t in closure_types() if t not in bound]
+    print(f"R-CLIENT message closure (moveit_msgs half)  {len(want)}")
+    print(f"  bound on a code line                       {len(bound)}")
+    for t in sorted(bound):
+        print(f"      {t:32s} {bound[t]}")
+    print(f"  absent                                     {len(absent)}")
+    lines = set()
+    for t in absent:
+        sites = sorted(quoted.get(t, ()))
+        lines |= set(sites)
+        print(f"      {t}{'  [comment-only: ' + ', '.join(sites) + ']' if sites else ''}")
+    print(f"  of the absent, quoted in comments only     "
+          f"{len([t for t in absent if t in quoted])} types / {len(lines)} lines")
+    return 0
+
+
 def check_rows(repo: str) -> int:
     """Fail if 5's table has a row this script has not classified."""
     with open(os.path.join(repo, "PORTING-PLAN.md"), encoding="utf-8") as fh:
@@ -217,10 +292,17 @@ def main() -> int:
     ap.add_argument("--repo", default=os.path.dirname(os.path.dirname(HERE)))
     ap.add_argument("--list-external", action="store_true")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--client-messages", action="store_true")
+    ap.add_argument(
+        "--port-tree",
+        help="tree to measure the port side against; defaults to --repo",
+    )
     args = ap.parse_args()
 
     if args.check:
         return check_rows(args.repo)
+    if args.client_messages:
+        return client_messages(args.port_tree or args.repo)
 
     corpus = load_corpus(args.upstream)
     resolved, external = oracle_closure(args.upstream, args.repo)

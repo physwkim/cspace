@@ -1,0 +1,49 @@
+# The moveit_msgs half of the R-CLIENT requirement closure: every moveit_msgs
+# interface type transitively reachable from the eight endpoints the upstream
+# C++ MoveGroupInterface constructor binds.
+#
+# Produced by, and re-derivable with:
+#   tag=$(source tools/moveit-oracle/src-digest.sh
+#         oracle_image_tag "$(oracle_stamp "$PWD/tools/moveit-oracle")")
+#   sg docker -c "docker run --rm --entrypoint bash \
+#       -v $PWD/tools/ci/requirement-message-closure.py:/tmp/rmc.py:ro \
+#       $tag -lc 'python3 /tmp/rmc.py'"
+# Checked in because the definitions live only in the oracle image
+# (moveit-rs/oracle:bf084112fdd5730b, /ws/install/moveit_msgs/share/moveit_msgs):
+# moveit_msgs is not a directory of the moveit2 reference checkout and this
+# host has no /opt/ros.  Full closure at time of writing: 64 types over 9
+# packages, 34 of them moveit_msgs -- the 34 are below.
+AllowedCollisionEntry
+AllowedCollisionMatrix
+AttachedCollisionObject
+BoundingVolume
+CartesianPoint
+CartesianTrajectory
+CartesianTrajectoryPoint
+CollisionObject
+Constraints
+ExecuteTrajectory
+GenericTrajectory
+GetCartesianPath
+GetPlannerParams
+JointConstraint
+LinkPadding
+LinkScale
+MotionPlanRequest
+MoveGroup
+MoveItErrorCodes
+ObjectColor
+OrientationConstraint
+PlannerInterfaceDescription
+PlannerParams
+PlanningOptions
+PlanningScene
+PlanningSceneWorld
+PositionConstraint
+QueryPlannerInterfaces
+RobotState
+RobotTrajectory
+SetPlannerParams
+TrajectoryConstraints
+VisibilityConstraint
+WorkspaceParameters
