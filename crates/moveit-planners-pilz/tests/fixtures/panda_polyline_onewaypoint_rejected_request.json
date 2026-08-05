@@ -1,0 +1,134 @@
+{
+  "cartesian_limits": {
+    "max_rot_vel": 1.57,
+    "max_trans_acc": 2.25,
+    "max_trans_dec": -5.0,
+    "max_trans_vel": 1.0
+  },
+  "generator": "polyline",
+  "goal": {
+    "kind": "cartesian",
+    "link_name": "panda_link8",
+    "orientation": [
+      0.9239556994689482,
+      -0.38249949727920746,
+      1.3250985201933432e-12,
+      3.200359941022539e-12
+    ],
+    "position": [
+      0.4570195700516103,
+      -5.221190235955958e-12,
+      0.5902695582766445
+    ]
+  },
+  "group_name": "panda_arm",
+  "id": 0,
+  "joint_limits": {
+    "panda_joint1": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 3.75,
+      "max_deceleration": -3.75,
+      "max_position": 2.9671,
+      "max_velocity": 2.175,
+      "min_position": -2.9671
+    },
+    "panda_joint2": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 1.875,
+      "max_deceleration": -1.875,
+      "max_position": 1.8326,
+      "max_velocity": 2.175,
+      "min_position": -1.8326
+    },
+    "panda_joint3": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 2.5,
+      "max_deceleration": -2.5,
+      "max_position": 2.9671,
+      "max_velocity": 2.175,
+      "min_position": -2.9671
+    },
+    "panda_joint4": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 3.125,
+      "max_deceleration": -3.125,
+      "max_position": 0.0873,
+      "max_velocity": 2.175,
+      "min_position": -3.1416
+    },
+    "panda_joint5": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 3.75,
+      "max_deceleration": -3.75,
+      "max_position": 2.9671,
+      "max_velocity": 2.61,
+      "min_position": -2.9671
+    },
+    "panda_joint6": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 5.0,
+      "max_deceleration": -5.0,
+      "max_position": 3.8223,
+      "max_velocity": 2.61,
+      "min_position": -0.0873
+    },
+    "panda_joint7": {
+      "has_acceleration_limits": true,
+      "has_deceleration_limits": true,
+      "has_position_limits": true,
+      "has_velocity_limits": true,
+      "max_acceleration": 5.0,
+      "max_deceleration": -5.0,
+      "max_position": 2.9671,
+      "max_velocity": 2.61,
+      "min_position": -2.9671
+    }
+  },
+  "max_acceleration_scaling_factor": 0.1,
+  "max_velocity_scaling_factor": 0.1,
+  "op": "pilz_trajectory",
+  "path_waypoints": [
+    {
+      "orientation": [
+        0.9239556994689482,
+        -0.38249949727920746,
+        1.3250985201933432e-12,
+        3.200359941022539e-12
+      ],
+      "position": [
+        0.4570195700516103,
+        -5.221190235955958e-12,
+        0.5902695582766445
+      ]
+    }
+  ],
+  "sampling_time": 0.1,
+  "smoothness_level": 0.5,
+  "start_state": {
+    "panda_joint1": 0.0,
+    "panda_joint2": -0.785,
+    "panda_joint3": 0.0,
+    "panda_joint4": -2.356,
+    "panda_joint5": 0.0,
+    "panda_joint6": 1.571,
+    "panda_joint7": 0.785
+  }
+}

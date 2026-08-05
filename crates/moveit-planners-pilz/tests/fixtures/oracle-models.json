@@ -67,6 +67,14 @@
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"
   },
+  "panda_polyline": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
+  "panda_polyline_onewaypoint_rejected": {
+    "srdf": "panda.srdf",
+    "urdf": "panda.urdf"
+  },
   "panda_ptp": {
     "srdf": "panda.srdf",
     "urdf": "panda.urdf"

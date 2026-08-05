@@ -205,8 +205,26 @@ in this round's instructions).
 | `pilz_trajectory_polyline.rs:467` | is_none | `response.trajectory`, paired with the `assert_eq!(error_code, InvalidMotionPlan)` on the line above | `polyline_rejects_a_request_with_fewer_than_two_waypoints` | not-this-family | census §9 clause 1 (mechanism): the branch is already named by the `error_code` equality one line up; this is the companion check that a rejected response carries no trajectory, not the fail signal itself |
 | `pilz_trajectory_polyline.rs:522` | is_none | same shape, on the variant-swap rejection | `polyline_plans_a_polyline_constraint_and_rejects_the_same_request_carrying_a_circ_one` | not-this-family | census §9 clause 1 (mechanism): same as `:467`. That test's own discrimination limit — `InvalidMotionPlan` cannot distinguish "constraint is CIRC" from "no POLYLINE waypoints" — is stated in its doc comment, and it pins the variant swap by asserting the un-swapped request reaches `Success` first |
 | `trajectory_blender_transition_window.rs:1345` | is_empty | `response.blend_trajectory`, already known `Ok` via `.expect(..)` one line above | (blend test) | not-this-family | census §9 clause 1 (mechanism): same shape as `:1259` — a size check on a success-path collection, not a fail/absent signal |
+| `pilz_trajectory_polyline_parity.rs:388` | is_none | `response.waypoints` — `response` is the oracle's own recorded JSON fixture, deserialized, not a value the port produced | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | not-this-family | census §9 clause 3 (subject): identical shape and identical argument to `pilz_trajectory_lin_parity.rs:371` and `pilz_trajectory_circ_parity.rs:378` — deleting the port call from this test would not change this assertion's outcome |
+| `pilz_trajectory_polyline_parity.rs:413` | is_none | `response.trajectory`, from `TrajectoryGeneratorPolyline::cmd_specific_request_validation`'s waypoint-count guard — one of 3 `InvalidMotionPlan` sites reachable on this call path (that guard, and `polyline_path_constraint`'s absent- and wrong-variant returns) | `polyline_panda_arm_rejects_the_same_request_the_oracle_rejects` | discriminating | bite this round: relaxed the guard to `waypoints.len() < 1` — this assertion FAILED (the one-waypoint fixture then planned) together with its property-test sibling `polyline_rejects_a_request_with_fewer_than_two_waypoints`, and no other test in the crate moved (176/178). Reverted. The other two sites are additionally excluded within the test itself: it restores the dropped waypoint as its only edit and asserts `Success`, so neither the absent- nor the wrong-variant return can be this fixture's cause |
 
-## Summary (12, then 13, now 24)
+## Summary (12, then 13, now 26)
+
+### The POLYLINE-oracle round's 2 additions
+
+`pilz_trajectory_polyline_parity.rs` arrived with the POLYLINE oracle op
+(`tools/moveit-oracle/src/pilz_polyline_factory.cpp` and the
+`panda_polyline_*` fixtures) and had no ledger row;
+`verify-orphan-enumeration.sh` reported both of its `is_none` sites as
+orphans. One is the oracle-fixture-precondition shape already resolved
+twice in this file (LIN's `:371`, CIRC's `:378`); the other is bitten
+above.
+
+Table total re-derived after the additions, by parsing the table rather
+than adding two to the previous figure: **26 rows — 14 `contains_msg`,
+5 `eq_none`, 4 `is_none`, 2 `is_empty`, 1 `contains_member`**; by verdict,
+**16 discriminating, 2 discriminating but blind and since fixed, 6
+not-this-family, 2 single-branch**.
 
 ### The POLYLINE round's 11 additions
 
@@ -214,10 +232,12 @@ in this round's instructions).
 `pilz_trajectory_polyline` arrived with the `POLYLINE` port and had no
 ledger row; `verify-orphan-enumeration.sh` reported them as 11 orphans
 against a baseline (`f5992d6`) that was clean, so all 11 are this round's.
-Counts re-derived from the table above rather than carried forward:
-**24 rows — 14 `contains_msg`, 5 `eq_none`, 2 `is_none`, 2 `is_empty`,
-1 `contains_member`**; by verdict, **15 discriminating, 2 discriminating
-but blind and since fixed, 5 not-this-family, 2 single-branch**.
+Counts re-derived from the table above rather than carried forward, *as
+the table stood at the end of that round*: **24 rows — 14 `contains_msg`,
+5 `eq_none`, 2 `is_none`, 2 `is_empty`, 1 `contains_member`**; by verdict,
+**15 discriminating, 2 discriminating but blind and since fixed, 5
+not-this-family, 2 single-branch**. The current total is two rows higher —
+see "The POLYLINE-oracle round's 2 additions" above.
 
 Of the 11 new rows: 7 discriminating by live bite (the six
 `path_rounded_composite` guards, each neutralized in turn in one sweep and
