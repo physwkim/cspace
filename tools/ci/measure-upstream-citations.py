@@ -101,6 +101,7 @@
 # citations in module and item doc comments in the same grammar the `.md`
 # files use, and nothing else reads them.
 import argparse
+import collections
 import json
 import re
 import subprocess
@@ -493,6 +494,40 @@ def shim_target(shim_lines, upstream_set):
     return None
 
 
+def why_bounds_only(line, start, end, spans, window_floor, parts, anchors):
+    """Which of `find_anchors`' gates this citation fell through.
+
+    A single "N bounds-checked only" figure says how much of the corpus is
+    unverified but not what it would take to verify it, and those are
+    different questions with very different answers. Measured here rather
+    than guessed at, and printed on every run rather than behind a flag: the
+    composition is the part that decides whether the number can move, and a
+    breakdown nobody asks for is a breakdown nobody reads."""
+    if len(parts) > 1:
+        return "multi-part spec: enumerates sites, makes no containment claim"
+    if anchors:
+        return "anchored, but the range is not exactly a definition span"
+    window = line[max(window_floor, start - LOCAL_WINDOW) : start]
+    for sep in "|)":
+        cut = window.rfind(sep)
+        if cut != -1:
+            window = window[cut + 1 :]
+    names = [m.group(1) for m in IDENT_IN_BACKTICKS_RE.finditer(window)]
+    if not names:
+        return "no backticked name within 60 characters before the citation"
+    tight = [
+        m.group(1)
+        for m in IDENT_IN_BACKTICKS_RE.finditer(window)
+        if TIGHT_GAP_RE.match(window[m.end() :])
+    ]
+    if not tight:
+        return "name is there but words separate it: prose about it, not a pointer at it"
+    bare = [n.split("::")[-1] for n in tight]
+    if any(n not in NOT_A_SYMBOL and not HEX_SHA_RE.match(n) and n not in spans for n in bare):
+        return "tightly paired name has no definition span in the file (field, macro, alias, namespace)"
+    return "tightly paired name is a stopword in NOT_A_SYMBOL"
+
+
 def find_anchors(line, start, end, spans, window_floor):
     """Names tightly paired with this citation that have a definition span in
     the resolved file. Tight only, for `check-citation-drift.py`'s reason: a
@@ -865,6 +900,7 @@ def main():
     total = 0
     anchor_verified = 0
     bounds_only = 0
+    bounds_only_why = collections.Counter()
     inherited_checked = 0
     out_of_bounds = []
     obsolete_header = []
@@ -990,6 +1026,9 @@ def main():
                         continue
                 if not anchors or len(parts) > 1:
                     bounds_only += 1
+                    bounds_only_why[
+                        why_bounds_only(line, start, end, spans, window_floor, parts, anchors)
+                    ] += 1
                     continue
                 span_list = all_spans(spans, anchors)
                 every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
@@ -1051,6 +1090,26 @@ def main():
     declared = load_unresolvable_declarations()
     undeclared = sorted(set(unresolved) - set(declared))
     stale = sorted(set(declared) - set(unresolved))
+
+    if sum(bounds_only_why.values()) != bounds_only:
+        # A classifier that silently drops a case reports a smaller blind spot
+        # than the one that exists, which is the direction that reads as
+        # progress. The buckets are exhaustive by construction or this fails.
+        print(
+            f"FAIL bounds-only breakdown sums to {sum(bounds_only_why.values())}, "
+            f"not {bounds_only} -- `why_bounds_only` grew a case it does not name",
+            file=sys.stderr,
+        )
+        return 1
+
+    if bounds_only_why:
+        print(
+            f"--- the {bounds_only} bounds-checked-only citation(s), by what "
+            f"would be needed to verify them ---",
+            file=sys.stderr,
+        )
+        for reason, n in bounds_only_why.most_common():
+            print(f"  {n:5d}  {reason}", file=sys.stderr)
 
     if unresolved:
         by_project = {}
