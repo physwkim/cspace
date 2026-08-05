@@ -702,3 +702,61 @@ while `:737` reads the same getter after `clear()` (in — commenting out
 `self.defaults.clear()` fails `:737`'s test alone, 198/199, confirmed at
 the merge). Same method, same assertion shape, opposite membership,
 settled by running a mutation rather than by arguing from the signature.
+
+### 9e. The instrument undercounts wherever a helper renders the error
+
+`p9-ros` ran the first wide-grammar pass (`207a297`, merged `2dd3169`) and
+its deliverable is the count, not the findings: **62 sites in `ros/`, where
+this document's brief had quoted 41. Zero colliding needles.**
+
+The arithmetic, reproduced at the merge:
+
+| | |
+|---|---:|
+| `count-coarse-assertions.py ros` | 72 |
+| of those, outside the `matches!`/`.is_err()`/`.is_none()` grammar | 44 |
+| minus `assert_err_mentions` helper *bodies* (5 copies, one per file) | 39 |
+| plus `assert_err_mentions` *call sites*, invisible to the tool | 23 |
+| **real total** | **62** |
+
+Both corrections are structural, not clerical, and they cut in opposite
+directions. The tool counts the helper's own `assert!(rendered.contains(
+needle), ...)` line once per file — five hits that are one assertion
+*mechanism*, not five assertion sites. And the 23 call sites it cannot see
+at all: `assert_err_mentions` renders on one line and asserts on the next,
+so the 60-byte lookback that separates `contains_msg` from
+`contains_member` finds no rendering call and files the site as neither.
+The instrument's own header states this limit; the brief quoting 41 did
+not apply it.
+
+The quoted 41 was also measured before `f0855c5` merged, which added five
+sites of `p9-ros`'s own already-bite-checked tests. **Two independent
+errors in one number, and the panel found both by re-measuring rather than
+reconciling** — the same lesson §8 recorded when 288 turned out never to
+have been `main`'s figure.
+
+Counting call sites of a helper by hand is its own trap: `rg -c` merges
+same-line hits, and of the 24 non-definition occurrences of
+`assert_err_mentions` in `ros/`, one (`scene/attached.rs:441`) is inside a
+comment. 23 is right; the naive occurrences-minus-definitions arithmetic
+gives 24.
+
+**Zero collisions** means no needle in `ros/` is also a substring of a
+sibling branch's message. Spot-verified at the merge on `state.rs`, which
+holds 11 of the 23 call sites: `"JointState.position has length"` comes
+only from `set_parallel_array`'s length guard (`:74`), and the wrapper at
+`:85` renders `"JointState.{field}: {e}"` — a colon where the other has
+` has`, so neither is a prefix of the other; the three
+`"JointState.{field}: no variable named"` needles separate by field name.
+The four sites sharing `"multi_dof_joint_state has no core
+representation"` are one guard with four operands, not four branches —
+they are separated by the four isolating mutations in `0148392`, not by
+the needle, which is the correct division of labour between a needle and a
+mutation.
+
+One latent risk is recorded unfixed and should stay that way:
+`scene/collision_object.rs:1089` has two physical call sites inside
+`apply_move` sharing one message, and only one is reachable by the current
+fixture — so there is nothing live to bite-check today, and a fix would be
+a guess. A future edit touching `mv.pose` in that test would misattribute
+the failure.
