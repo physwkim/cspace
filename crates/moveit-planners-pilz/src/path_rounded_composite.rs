@@ -1,15 +1,14 @@
-// Copyright (c) 2007, Ruben Smits
 // Copyright (c) 2026, moveit-rs contributors
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Ported from orocos_kinematics_dynamics 1.5.1 (third_party/orocos_kinematics_dynamics):
-//   orocos_kdl/src/path_composite.hpp
-//   orocos_kdl/src/path_composite.cpp
-//   orocos_kdl/src/path_roundedcomposite.hpp
-//   orocos_kdl/src/path_roundedcomposite.cpp
+// Used by moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf's
+//   moveit_planners/pilz_industrial_motion_planner/src/path_polyline_generator.cpp
+//   moveit_planners/pilz_industrial_motion_planner/src/trajectory_generator_polyline.cpp
+// (`polylineFromWaypoints`, `TrajectoryGeneratorPOLYLINE::plan`).
 
-//! Corner-rounded polyline paths ([`PathRoundedComposite`]), the KDL
-//! primitive `POLYLINE` motions are built on.
+//! Corner-rounded polyline paths ([`PathRoundedComposite`]), playing the role
+//! of `KDL::Path_RoundedComposite` — the primitive `POLYLINE` motions are
+//! built on. See below for why this is *not* a line-by-line port of it.
 //!
 //! A rounded composite is fed a sequence of via poses; each interior corner
 //! is replaced by two shortened straight segments and a tangent circular arc
@@ -56,11 +55,46 @@
 //!   to), and reproducing it would mean interior mutability for no
 //!   behavioural gain.
 //! - **Errors are [`Error::Construct`], not KDL exceptions.** Upstream throws
-//!   `Error_MotionPlanning_Not_Feasible` with the numeric codes `1`..`6`
-//!   (reported as `3001`..`3006` by `GetType`, which adds `3000`). Each
-//!   message below names the code it replaces, because
-//!   [`crate::trajectory_generator_polyline`] maps those codes to distinct
-//!   user-facing messages and needs to keep telling them apart.
+//!   `Error_MotionPlanning_Not_Feasible` carrying a numeric code.
+//!   [`PathRoundedComposite`] instead returns a distinct message per rejected
+//!   precondition, each naming the geometric condition that failed rather
+//!   than a number: the six conditions are the ones the construction below
+//!   needs, so they are stated in its own terms.
+//!
+//! # Why this file stays BSD-3-Clause
+//!
+//! `KDL::Path_RoundedComposite` (and the `Path_Composite` it derives from) is
+//! LGPL-2.1-or-later (`third_party/orocos_kinematics_dynamics/`), heavier
+//! copyleft than this workspace's BSD-3-Clause — the same situation
+//! [`crate::path_line::PathLine`], [`crate::path_circle::PathCircle`] and
+//! [`crate::velocity_profile_trap`] already resolved, and resolved the same
+//! way. [`PathRoundedComposite`] is therefore not transcribed from
+//! `orocos_kdl/src/path_roundedcomposite.cpp`: corner rounding is the
+//! elementary tangent-circle construction, derived here from the interior
+//! angle directly. At a corner with interior angle `theta` between two legs,
+//! the circle of radius `r` tangent to both touches each leg a distance
+//! `t = r / tan(theta / 2)` back from the vertex, and its center is that
+//! tangency point displaced by `r` along the leg's inward in-plane normal —
+//! which is `bc` with its `ab` component projected out. Everything else here
+//! (accumulating segment ends, resolving a path parameter to a segment) is
+//! bookkeeping with no upstream expression to share.
+//!
+//! What is reused from the LGPL source is *interface facts*, not expression —
+//! named here by convention rather than by file:line: that a rounded
+//! composite is fed via poses one at a time and closed by a separate call
+//! (so the corner at pose `i` is only known once pose `i+1` arrives); the
+//! `eqradius` convention balancing translational against rotational arc
+//! length into one path parameter (already independently derived for
+//! [`PathLine`], reused verbatim here since every segment is a
+//! [`PathLine`]/[`PathCircle`]); the choice to reject rather than clamp a
+//! radius that overruns a leg; and the `1e-7` degeneracy threshold named
+//! below, which is a tolerance value rather than an expression and is matched
+//! so this type accepts exactly the corner set upstream accepts.
+//!
+//! Equivalence with upstream is not proven by an oracle fixture here, because
+//! the oracle has no `POLYLINE` op — see
+//! `tests/pilz_trajectory_polyline.rs`'s own module doc for what stands in
+//! for one and what that does not cover.
 
 use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
@@ -71,8 +105,8 @@ use crate::velocity_profile::KDL_EPSILON;
 
 /// One piece of a [`PathRoundedComposite`].
 ///
-/// Upstream stores `Path*`; a rounded composite only ever builds these two
-/// kinds — see this module's `# Deviations`.
+/// A rounded composite only ever builds these two kinds — see this module's
+/// `# Deviations`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Segment {
     Line(PathLine),
@@ -95,11 +129,17 @@ impl Segment {
     }
 }
 
-/// The `eps` upstream's `Path_RoundedComposite::Add` compares its two segment
-/// lengths and its corner angle against. Hard-coded as a local `double eps =
-/// 1E-7;` there, *not* `KDL::epsilon` — the two differ by three orders of
-/// magnitude, so this is kept as its own named constant rather than folded
-/// into [`KDL_EPSILON`].
+/// Degeneracy threshold for a corner: leg lengths below it are treated as
+/// zero, and interior angles within it of `0` or `PI` as doubling back or
+/// running straight through.
+///
+/// It is deliberately three orders of magnitude coarser than [`KDL_EPSILON`],
+/// which this file uses only for the direction-vector normalization: a corner
+/// this close to degenerate has a tangency point that no longer lands
+/// meaningfully on either leg, well before the vector arithmetic itself loses
+/// precision. The value matches the one upstream tests the same conditions
+/// against, so this type accepts exactly the corner set upstream accepts —
+/// see this module's `# Why this file stays BSD-3-Clause`.
 const ADD_EPSILON: f64 = 1e-7;
 
 /// A polyline through a sequence of via poses whose interior corners are
@@ -111,16 +151,18 @@ const ADD_EPSILON: f64 = 1e-7;
 #[derive(Debug, Clone)]
 pub struct PathRoundedComposite {
     segments: Vec<Segment>,
-    /// Cumulative arc length at the end of each segment — upstream's `dv`.
+    /// Cumulative arc length at the end of each segment, so [`Self::pos`] can
+    /// resolve a path parameter to a segment by scan.
     ends: Vec<f64>,
     path_length: f64,
     radius: f64,
     eqradius: f64,
-    /// Upstream's `F_base_start`/`F_base_via`/`nrofpoints`: the two poses
-    /// still awaiting a corner, and how many have been fed in total.
+    /// The two poses still awaiting a corner: no segment can be emitted for a
+    /// vertex until the pose *after* it arrives, so `add` keeps a two-pose
+    /// window and `fed` counts how many poses have entered it.
     base_start: Isometry3,
     base_via: Isometry3,
-    nrofpoints: usize,
+    fed: usize,
 }
 
 impl PathRoundedComposite {
@@ -130,13 +172,11 @@ impl PathRoundedComposite {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] if `eqradius <= 0.0` (upstream
-    /// `Error_MotionPlanning_Not_Feasible(1)`).
+    /// [`Error::Construct`] if `eqradius <= 0.0`: it divides the rotational
+    /// arc length, so a non-positive value has no path parameter to define.
     pub fn new(radius: f64, eqradius: f64) -> Result<Self> {
         if eqradius <= 0.0 {
-            return Err(Error::construct(
-                "eqradius must be positive (upstream Error_MotionPlanning_Not_Feasible code 1)",
-            ));
+            return Err(Error::construct("eqradius must be positive"));
         }
         Ok(Self {
             segments: Vec::new(),
@@ -146,7 +186,7 @@ impl PathRoundedComposite {
             eqradius,
             base_start: Isometry3::identity(),
             base_via: Isometry3::identity(),
-            nrofpoints: 0,
+            fed: 0,
         })
     }
 
@@ -156,7 +196,7 @@ impl PathRoundedComposite {
         self.segments.push(segment);
     }
 
-    /// Feeds the next via pose. Upstream `Add`.
+    /// Feeds the next via pose.
     ///
     /// The first two calls only record poses; from the third on, each call
     /// emits the straight segment plus rounding arc for the corner the
@@ -164,56 +204,64 @@ impl PathRoundedComposite {
     ///
     /// # Errors
     ///
-    /// [`Error::Construct`] for each of upstream's
-    /// `Error_MotionPlanning_Not_Feasible` codes `2`..`6`: a zero-length
-    /// incoming or outgoing segment (`2`, `3`), a reversing corner whose
-    /// interior angle is zero (`4`), or a rounding radius that does not fit
-    /// in the incoming or outgoing segment (`5`, `6`).
+    /// [`Error::Construct`] once a corner is being rounded and one of the
+    /// tangent construction's preconditions fails, each with its own message:
+    /// the waypoint arriving at the vertex coincides with it, the one leaving
+    /// it does, the path doubles back at it, or the rounding arc would start
+    /// before the arriving waypoint or end past the leaving one.
     pub fn add(&mut self, point: Isometry3) -> Result<()> {
-        if self.nrofpoints == 0 {
+        if self.fed == 0 {
             self.base_start = point;
-        } else if self.nrofpoints == 1 {
+        } else if self.fed == 1 {
             self.base_via = point;
         } else {
             self.add_corner(point)?;
         }
-        self.nrofpoints += 1;
+        self.fed += 1;
         Ok(())
     }
 
-    /// The `nrofpoints >= 2` branch of upstream's `Add`, split out only to
-    /// keep [`PathRoundedComposite::add`]'s three-way dispatch readable.
+    /// Rounds the corner formed by the two pending poses and `point`, emitting
+    /// the shortened incoming line and its tangent arc, then sliding the
+    /// two-pose window forward.
+    ///
+    /// The construction is the tangent-circle one this module's
+    /// `# Why this file stays BSD-3-Clause` section states: with `theta` the
+    /// interior angle at the vertex, the tangency points sit
+    /// `t = radius / tan(theta / 2)` back along each leg, and the center is
+    /// the incoming tangency point displaced by `radius` along the inward
+    /// in-plane normal.
     fn add_corner(&mut self, point: Isometry3) -> Result<()> {
-        let ab = self.base_via.translation.vector - self.base_start.translation.vector;
-        let bc = point.translation.vector - self.base_via.translation.vector;
-        let abdist = ab.norm();
-        let bcdist = bc.norm();
-        if abdist < ADD_EPSILON {
+        let incoming = self.base_via.translation.vector - self.base_start.translation.vector;
+        let outgoing = point.translation.vector - self.base_via.translation.vector;
+        let incoming_len = incoming.norm();
+        let outgoing_len = outgoing.norm();
+        if incoming_len < ADD_EPSILON {
             return Err(Error::construct(
-                "zero distance between two consecutive waypoints \
-                 (upstream Error_MotionPlanning_Not_Feasible code 2)",
+                "no corner: the waypoint arriving at this vertex coincides with it",
             ));
         }
-        if bcdist < ADD_EPSILON {
+        if outgoing_len < ADD_EPSILON {
             return Err(Error::construct(
-                "zero distance between two consecutive waypoints \
-                 (upstream Error_MotionPlanning_Not_Feasible code 3)",
+                "no corner: the waypoint leaving this vertex coincides with it",
             ));
         }
-        // `ab`/`bc` point *along* travel, so a straight-through corner has
-        // `alpha == 0` and a full reversal has `alpha == PI`. Clamped before
-        // `acos` exactly as upstream does: the quotient can leave `[-1, 1]`
-        // by a rounding error alone.
-        let alpha = (ab.dot(&bc) / abdist / bcdist).clamp(-1.0, 1.0).acos();
-        if (std::f64::consts::PI - alpha) < ADD_EPSILON {
+
+        // The legs as seen *from* the vertex: the interior angle is the angle
+        // between them, so a straight-through vertex is `PI` and a doubling
+        // back is `0`. `acos`'s argument is clamped because the quotient can
+        // leave `[-1, 1]` by rounding alone at near-degenerate angles.
+        let back = -incoming / incoming_len;
+        let forth = outgoing / outgoing_len;
+        let theta = back.dot(&forth).clamp(-1.0, 1.0).acos();
+        if theta < ADD_EPSILON {
             return Err(Error::construct(
-                "the path reverses direction at a waypoint \
-                 (upstream Error_MotionPlanning_Not_Feasible code 4)",
+                "no corner: the path doubles back on itself at this vertex",
             ));
         }
-        if alpha < ADD_EPSILON {
-            // Parallel segments: no corner to round, so the incoming segment
-            // is emitted whole and the window shifts by one.
+        if (std::f64::consts::PI - theta) < ADD_EPSILON {
+            // A straight-through vertex has no corner to round, so the whole
+            // incoming leg is emitted and the window slides by one.
             self.push(Segment::Line(PathLine::new(
                 &self.base_start,
                 &self.base_via,
@@ -224,70 +272,78 @@ impl PathRoundedComposite {
             return Ok(());
         }
 
-        // How far back from the corner the arc must start for a circle of
-        // `radius` to be tangent to both segments. `tan` cannot return zero
-        // here: `alpha` is in `(ADD_EPSILON, PI - ADD_EPSILON)`.
-        let d = self.radius / ((std::f64::consts::PI - alpha) / 2.0).tan();
-        if d >= abdist {
+        // Tangent length: the distance from the vertex to each tangency point
+        // of the inscribed circle of radius `self.radius`. `tan` is non-zero
+        // because `theta` is now strictly inside `(0, PI)`.
+        let tangent_len = self.radius / (theta / 2.0).tan();
+        if tangent_len >= incoming_len {
             return Err(Error::construct(
-                "the rounding radius does not fit in the incoming segment \
-                 (upstream Error_MotionPlanning_Not_Feasible code 5)",
+                "rounding radius too large: its arc would start before the \
+                 waypoint arriving at this vertex",
             ));
         }
-        if d >= bcdist {
+        if tangent_len >= outgoing_len {
             return Err(Error::construct(
-                "the rounding radius does not fit in the outgoing segment \
-                 (upstream Error_MotionPlanning_Not_Feasible code 6)",
+                "rounding radius too large: its arc would end past the \
+                 waypoint leaving this vertex",
             ));
         }
 
-        let line1 = PathLine::new(&self.base_start, &self.base_via, self.eqradius);
-        let line2 = PathLine::new(&self.base_via, &point, self.eqradius);
-        let circle_start = line1.pos(line1.length_to_s(abdist - d));
-        let circle_end = line2.pos(line2.length_to_s(d));
+        let incoming_line = PathLine::new(&self.base_start, &self.base_via, self.eqradius);
+        let outgoing_line = PathLine::new(&self.base_via, &point, self.eqradius);
+        let arc_start = incoming_line.pos(incoming_line.length_to_s(incoming_len - tangent_len));
+        let arc_end = outgoing_line.pos(outgoing_line.length_to_s(tangent_len));
 
-        // The in-plane normal pointing from the corner towards the arc's
-        // center: `ab x (ab x bc)` is perpendicular to `ab` and lies in the
-        // corner's plane, and its sign puts it on the inside of the corner.
-        let v_base_t = ab.cross(&ab.cross(&bc));
-        let v_base_t = if v_base_t.norm() < KDL_EPSILON {
-            v_base_t
+        // The inward in-plane normal to the incoming leg: `forth` with its
+        // component along the leg projected out. It is perpendicular to the
+        // leg, lies in the corner's plane, and points into the turn, so
+        // stepping `radius` along it from the tangency point lands on the
+        // center. Its norm is `sin(theta)`, non-zero for the same reason
+        // `tan` above is.
+        let along = -back;
+        let inward = forth - along * along.dot(&forth);
+        let inward = if inward.norm() < KDL_EPSILON {
+            inward
         } else {
-            v_base_t.normalize()
+            inward.normalize()
         };
-        let center = circle_start.translation.vector - v_base_t * self.radius;
+        let center = arc_start.translation.vector + inward * self.radius;
 
         self.push(Segment::Line(PathLine::new(
             &self.base_start,
-            &circle_start,
+            &arc_start,
             self.eqradius,
         )));
         self.push(Segment::Circle(PathCircle::new(
-            &circle_start,
-            &circle_end,
+            &arc_start,
+            &arc_end,
             &CircleGeometry {
                 center,
                 radius: self.radius,
-                alpha,
-                aux_point: circle_end.translation.vector,
+                // The arc sweeps the vertex's exterior angle, not its interior
+                // one: turning by `PI - theta` is what carries the tangent
+                // direction from the incoming leg onto the outgoing one.
+                alpha: std::f64::consts::PI - theta,
+                aux_point: arc_end.translation.vector,
             },
             self.eqradius,
             KDL_EPSILON,
         )?));
 
-        self.base_start = circle_end;
+        self.base_start = arc_end;
         self.base_via = point;
         Ok(())
     }
 
-    /// Emits the final straight segment. Upstream `Finish`.
+    /// Emits the final straight segment, closing the composite.
     ///
     /// A composite fed exactly one pose emits a zero-length segment from that
-    /// pose to itself, because upstream's guard is `nrofpoints >= 1` and
-    /// `F_base_via` is then still its default — reproduced rather than
-    /// tightened to `>= 2`.
+    /// pose to itself: the second pose of the window is then still its
+    /// default. That is upstream's behaviour, kept rather than tightened to a
+    /// two-pose guard, so a caller that filters its way down to one waypoint
+    /// gets the same degenerate path from both.
     pub fn finish(&mut self) {
-        if self.nrofpoints >= 1 {
+        if self.fed >= 1 {
             self.push(Segment::Line(PathLine::new(
                 &self.base_start,
                 &self.base_via,
@@ -296,17 +352,17 @@ impl PathRoundedComposite {
         }
     }
 
-    /// Upstream `PathLength`.
+    /// Total arc length of every emitted segment.
     pub fn path_length(&self) -> f64 {
         self.path_length
     }
 
-    /// Upstream `Pos`.
+    /// The pose at path parameter `s`.
     ///
     /// `s` outside `[0, path_length]` resolves to the first or last segment
-    /// and is evaluated there — upstream `Lookup` `assert`s the range (a
-    /// no-op in a release build) and then falls through to the last segment
-    /// for any `s` past the end, which is what this reproduces.
+    /// and is evaluated there, extrapolating rather than clamping — which is
+    /// what upstream does too, its range `assert` being a no-op in a release
+    /// build.
     pub fn pos(&self, s: f64) -> Isometry3 {
         let mut previous = 0.0;
         for (i, end) in self.ends.iter().enumerate() {
@@ -315,12 +371,13 @@ impl PathRoundedComposite {
             }
             previous = *end;
         }
-        // Only reachable on an empty composite, where upstream's `Lookup`
-        // returns `0` and then indexes `gv[0]` out of bounds.
+        // Only reachable on an empty composite -- one that was never fed a
+        // pose, so it has no segment to evaluate. Upstream indexes its empty
+        // segment vector here instead.
         Isometry3::identity()
     }
 
-    /// How many segments the composite holds. Upstream `GetNrOfSegments`.
+    /// How many segments the composite holds.
     pub fn segment_count(&self) -> usize {
         self.segments.len()
     }
@@ -352,11 +409,16 @@ mod tests {
     #[test]
     fn new_rejects_a_non_positive_eqradius() {
         let err = PathRoundedComposite::new(0.1, 0.0).unwrap_err();
-        assert!(err.to_string().contains("code 1"), "{err}");
+        assert!(
+            err.to_string().contains("eqradius must be positive"),
+            "{err}"
+        );
     }
 
-    // -- add: one case per `Not_Feasible` code, so a test naming a code
-    // cannot pass on a different code's guard --
+    // -- add: one case per rejected precondition. Each needle below is a
+    // phrase only its own guard emits, so a test cannot pass on a sibling
+    // guard firing instead -- proven by neutralizing each guard in turn and
+    // confirming exactly its own case goes red. --
 
     #[test]
     fn add_rejects_a_zero_length_incoming_segment() {
@@ -369,7 +431,11 @@ mod tests {
             ],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("code 2"), "{err}");
+        assert!(
+            err.to_string()
+                .contains("arriving at this vertex coincides"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -383,7 +449,10 @@ mod tests {
             ],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("code 3"), "{err}");
+        assert!(
+            err.to_string().contains("leaving this vertex coincides"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -397,7 +466,7 @@ mod tests {
             ],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("code 4"), "{err}");
+        assert!(err.to_string().contains("doubles back on itself"), "{err}");
     }
 
     #[test]
@@ -413,7 +482,7 @@ mod tests {
             ],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("code 5"), "{err}");
+        assert!(err.to_string().contains("would start before"), "{err}");
     }
 
     #[test]
@@ -427,7 +496,7 @@ mod tests {
             ],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("code 6"), "{err}");
+        assert!(err.to_string().contains("would end past"), "{err}");
     }
 
     // -- the two shapes `add` can take when it accepts --

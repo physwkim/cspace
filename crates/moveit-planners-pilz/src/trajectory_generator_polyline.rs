@@ -44,17 +44,17 @@
 //!   Cartesian goal to be reachable, the same `computePoseIK` check upstream
 //!   runs on it — see [`TrajectoryGeneratorPolyline::extract_motion_plan_info`].
 //! - **Upstream's KDL-error-code-to-message mapping is not reproduced.**
-//!   `plan` catches `KDL::Error_MotionPlanning` and rewrites codes
-//!   `3102`/`3103`/`3104`/`3105`/`3106`/`3001`/`3002` into six English
-//!   sentences, all thrown as the same `ConsicutiveColinearWaypoints`
-//!   exception carrying [`MoveItErrorCode::InvalidMotionPlan`]. This port's
+//!   `plan` catches `KDL::Error_MotionPlanning` and rewrites the numeric
+//!   codes its path construction can throw into six English sentences, all
+//!   raised as the same `ConsicutiveColinearWaypoints` exception carrying
+//!   [`MoveItErrorCode::InvalidMotionPlan`]. This port's
 //!   [`crate::path_rounded_composite`]/[`crate::path_polyline_generator`]
-//!   already produce a message naming the same code, so `plan` narrows them
-//!   to [`MoveItErrorCode::InvalidMotionPlan`] without rewriting the text.
-//!   The one behavioural difference is that upstream's `catch` also swallows
-//!   code `3001`/`3002` from a `Path_RoundedComposite` constructed with a
-//!   non-positive `eqradius`; that is unreachable here, since `eqradius` is
-//!   computed from the Cartesian limits, which
+//!   already return a message naming the geometric condition that failed, so
+//!   `plan` narrows them all to [`MoveItErrorCode::InvalidMotionPlan`]
+//!   without rewriting the text. The one behavioural difference is that
+//!   upstream's `catch` also swallows the non-positive-`eqradius` rejection
+//!   from the composite's constructor; that is unreachable here, since
+//!   `eqradius` is computed from the Cartesian limits, which
 //!   [`crate::limits::CartesianLimits`] already requires to be positive.
 
 use moveit_collision::CollisionEnv;

@@ -37,10 +37,10 @@
 //     trajectory_blender_transition_window.cpp
 //
 // This crate-level citation is the union of what every module below cites in
-// its own header; the two vendored orocos_kdl stems (path_line,
-// velocity_profile_trap) are independently derived, not ported, and cite
-// their upstream call sites with `Used by` in their own file headers instead
-// — see those modules' own doc comments for why.
+// its own header; the orocos_kdl stems (path_line, path_circle's PathCircle,
+// path_rounded_composite, velocity_profile_trap) are independently derived,
+// not ported, and cite their upstream call sites with `Used by` in their own
+// file headers instead — see those modules' own doc comments for why.
 
 //! The Pilz industrial motion planner: analytical, deterministic LIN/PTP/CIRC
 //! trajectory generation, ported from `pilz_industrial_motion_planner`.
