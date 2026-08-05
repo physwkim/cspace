@@ -2956,8 +2956,8 @@ not ported"라고 명시한다. §18(`p1-fixtures` 3라운드)이 부착체를
 **병합 시점 정정 (같은 라운드에서 해소됨).** `p1-fixtures`가 같은 라운드에
 그 조회를 내놨다 — 다만 `RobotState` 레벨이 아니라 **`PlanningScene` 레벨**로,
 이 포트가 부착체를 상태가 아니라 씬에 두기로 한 결정에 맞춰서다
-(`crates/moveit-scene/src/scene.rs:583` `frame_transform`,
-`:641` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
+(`crates/moveit-scene/src/scene.rs:613` `frame_transform`,
+`:671` `knows_frame_transform` — 모델 프레임/링크 → 부착체 id/서브프레임 →
 월드 객체 id/서브프레임의 3단 사다리). `Posed::frame_transform`의 주석도
 `22bb2a2`에서 "attached bodies are not ported"를 버리고 "씬 한 층 위에서
 해결된다"로 고쳤다. 따라서 §23.1의 차단 사유는 더 이상 성립하지 않는다.
@@ -4088,7 +4088,7 @@ n_min = (3.0 / (5/13))^2 = (39/5)^2 = 60.84  →  61
 
 §23.1이 남겨둔 차단 사유(`RobotState`/`Posed`에 부착체/서브프레임을
 이름으로 찾는 API가 없음)는 같은 병합 라운드에서 `p1-fixtures`가
-`PlanningScene` 레벨(`scene.rs:583`, `:641`)로 해소했다 — `RobotState`
+`PlanningScene` 레벨(`scene.rs:613`, `:671`)로 해소했다 — `RobotState`
 레벨이 아니라. 이번 라운드에서 이 함수를 실제로 이식했다.
 
 ### 36.1 의존 방향 — 클로저를 택했다
@@ -4305,7 +4305,7 @@ planar/floating이 `isSingleDOFJoints()` 게이트에 막혀 이 op에 도달할
 ### 38.4 커밋 제목이 이식하지 않은 심볼을 이름으로 걸었다
 
 `f7b9fc5`의 제목은 `scene: port isStateFeasible/isStateConstrained/
-isStateValid/isPathValid`인데, 본문과 `scene.rs:874`의 문서는
+isStateValid/isPathValid`인데, 본문과 `scene.rs:904`의 문서는
 `StateFeasibilityFn` 술어를 **의도적으로 이식하지 않았다**고 정확히
 적는다. 이식하지 않은 이유(등록하는 호출부가 이 포트 안에 하나도 없어
 상류에서도 무조건 `true` 분기를 타므로, 저장 필드를 두는 것은 가상의
@@ -6104,7 +6104,7 @@ crates/` 한 번이면 나온다.
 성립할 수 있는 경로 자체가 존재하지 않는다. 한정자도 주석도 필요 없다.
 
 tier 순서는 상류 `planning_scene.cpp:2036-2054`와 같다:
-state → attached body → world → extra fixed frame map(`scene.rs:924-936`).
+state → attached body → world → extra fixed frame map(`scene.rs:954-966`).
 
 ### 66.3 경계값으로 테스트됐다
 
@@ -7169,7 +7169,7 @@ p1-fixtures 라운드 11 머지(`bf11a20`, `6e1c8ea`, `08ab3c7`). 베이스
 rg -c '^/// - `' crates/moveit-scene/src/scene.rs      59   (선언과 일치)
 같은 명령을 47-434행으로 제한                          59   (일치)
 rg -n '^fn .*matches_the_oracle' .../tests/*.rs         3   (이름 3건 모두 일치)
-scene.rs:2642 = "// ---- collision checking ----"           (일치)
+scene.rs:2672 = "// ---- collision checking ----"           (일치)
 ```
 
 "zero unported, in scope" 주장도 내가 따로 검증했다.
@@ -7775,8 +7775,8 @@ p1-robotmodel 라운드 11 머지(`8146ecc`, `95041dd`, `0ba77c4`).
 `rg`로 확인한 워크스페이스 전체 상황:
 
 ```
-moveit-scene/src/scene.rs:791       정의
-moveit-scene/src/scene.rs:2507-2637 자기 테스트 8건
+moveit-scene/src/scene.rs:821       정의
+moveit-scene/src/scene.rs:2537-2667 자기 테스트 8건
 moveit-planners-sbp/src/planning_scene_validity.rs:398, :411
                                     #[cfg(test)] 테스트 안
 ```
@@ -8354,12 +8354,12 @@ cargo nextest run -p moveit-constraints --no-fail-fast           → 89   일치
 
 **그 명령은 0건이 아니라 28줄을 낸다.** `--glob '!*/tests/*'`는
 통합 테스트 디렉터리만 제외하고, `#[cfg(test)]` 모듈은 `src/` 안에
-있기 때문이다(`scene.rs:2507-2637`, `planning_scene_validity.rs:374-419`).
+있기 때문이다(`scene.rs:2537-2667`, `planning_scene_validity.rs:374-419`).
 
 내가 `#[cfg(test)]` 시작 줄을 기준으로 다시 분류했다:
 
 ```
-CODE  crates/moveit-scene/src/scene.rs:791: pub fn transforms_with_world_objects(...)
+CODE  crates/moveit-scene/src/scene.rs:821: pub fn transforms_with_world_objects(...)
 ```
 
 **코드 히트는 정의 하나뿐이다. 결론(프로덕션 호출자 0건)은 맞다.**
@@ -9111,7 +9111,7 @@ rg -c '^//! - CS:' crates/moveit-constraints/src/lib.rs   →  66
 ### 105.3 §97.2·§97.3의 세 건이 모두 닫혔다
 
 - `utils.rs`의 `rg` 명령: 0건을 함의하던 것을 **기대 출력 그대로**
-  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:791` 하나).
+  적는 형태로 바꿨다(28줄, 실제 코드 히트는 `scene.rs:821` 하나).
   §97.2가 권한 후자를 골랐다.
 - 호출자 위치 논거를 **시그니처 논거**로 교체했다. 담당이 브리프의
   15파일/43줄을 그대로 쓰지 않고 자기가 다시 세어 13파일/7-5-1로
@@ -12220,7 +12220,7 @@ docker가 필요하고, 그건 레지스트리/remote가 필요하다. 즉 §144
 p9-ros의 UNFIXED 중 하나를 원본에 대고 확인했다. 사실이고, 막는 쪽은 ros/가
 아니라 **우리 crates/**다.
 
-`moveit_scene::PlanningScene::world()`(`scene.rs:951`)는 `&World`만 돌려준다.
+`moveit_scene::PlanningScene::world()`(`scene.rs:981`)는 `&World`만 돌려준다.
 `world_mut`은 없다(`rg`로 확인, 0건). 그런데 필요한 두 연산은 `World`에
 `pub`으로 있다 — `move_shapes_in_object`(`world.rs:560`),
 `set_subframes_of_object`(`world.rs:690`). 즉 크레이트 밖에서 도달 불가다.

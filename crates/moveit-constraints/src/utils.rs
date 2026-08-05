@@ -20,7 +20,7 @@
 //! [`resolve_position_constraint_frame`]/[`resolve_orientation_constraint_frame`],
 //! following `PORTING-PLAN.md` §23.1's merge-time correction that the
 //! attached-body/subframe lookup it needs now lives on `PlanningScene`
-//! (`crates/moveit-scene/src/scene.rs:583`,`:641`), not on `RobotState`/
+//! (`crates/moveit-scene/src/scene.rs:613`,`:671`), not on `RobotState`/
 //! `Posed`. Two deviations from a literal port, both explained on
 //! [`resolve_position_constraint_frame`]'s doc comment: it is split in two
 //! (one function per constraint kind, not one over a whole message) and it
@@ -66,13 +66,13 @@
 //! `tests/` integration-test directories, and every one of these three
 //! files' `#[cfg(test)]` unit-test modules lives inside `src/`. Sorted by
 //! whether each hit falls before or after its own file's `#[cfg(test)]`
-//! line (`moveit-scene/src/scene.rs:1769`,
+//! line (`moveit-scene/src/scene.rs:1799`,
 //! `moveit-planners-sbp/src/planning_scene_validity.rs:144`), the 28 are:
 //! 16 inside `scene.rs`'s own unit tests, 5 inside
 //! `planning_scene_validity.rs`'s, 3 in this module's own doc-comment prose
 //! (the sentence you are reading now, self-matching), and 4 in `scene.rs`
 //! outside any test module — of which 3 are `///` doc comments naming the
-//! function and only one, `scene.rs:791`, is the function's own `pub fn`
+//! function and only one, `scene.rs:821`, is the function's own `pub fn`
 //! definition. That definition is the sole non-test, non-doc-comment code
 //! hit; it is not a gap this crate's construction functions leave open —
 //! upstream never pairs the two either, in any code this port's scope

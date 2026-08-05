@@ -556,7 +556,7 @@ two reclassifications are worth reading as worked §9 examples, because
 neither is a wrong verdict being corrected — both are right answers to the
 pre-§9 question:
 
-- `moveit-scene/src/scene.rs:2150` fails **clause 1 (mechanism)**.
+- `moveit-scene/src/scene.rs:2180` fails **clause 1 (mechanism)**.
   `matches!(outcome, MoveObjectOutcome::Moved(_))` targets the
   success-with-effect arm of a three-variant outcome
   (`world.rs:586-595`: `NotFound`, `NoChange`, `Moved`). The sibling two
@@ -717,7 +717,7 @@ itself is a floor. The 25 exclusions concentrate in two shapes worth
 naming, since between them they account for 20 of the 25:
 
 - **clause 1, success-path values** (`bodies.rs:4328/4332/4340/4347`,
-  `scene.rs:2150`): the assertion checks *which* thing was built on a path
+  `scene.rs:2180`): the assertion checks *which* thing was built on a path
   that always succeeds. Computed dispatch, not a failure signal.
 - **clause 2, no decision to be wrong about** (`matrix.rs:517`,
   `octomap_filter.rs:381`, `shapes.rs:1962`,

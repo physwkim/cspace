@@ -108,7 +108,7 @@
 //! unit tests cover instead is the wiring around that delegation — that a
 //! scene's ACM, attached bodies, and world are correctly folded into the
 //! `E` a caller builds (`scene.rs`'s `mod tests`, the `// ---- collision
-//! checking ----` section starting at `scene.rs:2642`).
+//! checking ----` section starting at `scene.rs:2672`).
 
 mod attached_body;
 mod layered;

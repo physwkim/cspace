@@ -1197,7 +1197,7 @@ pub use voxel_grid::{Dimension, GridGeometry, VoxelGrid};
 ///   not a member of the fixture's `"arm"` group at all (`"arm"` is
 ///   `[j1, j2]`, both revolute); measured non-empty as a control. Not at
 ///   risk.
-/// - `moveit-scene/src/scene.rs:2077` (`hand_joint`, the `attach`/`detach`
+/// - `moveit-scene/src/scene.rs:2107` (`hand_joint`, the `attach`/`detach`
 ///   fixture) -- **run**: building this exact SRDF and reading
 ///   `RobotModel::joint_model_group_names()` back gives `[]`; the fixture
 ///   defines no `<group>` element whatsoever, so there is no group to be

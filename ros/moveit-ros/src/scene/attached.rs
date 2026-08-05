@@ -188,7 +188,7 @@ type LinkRelativeGeometry = (Vec<Arc<Shape>>, Vec<Isometry3>, BTreeMap<String, I
 /// re-expresses every pose relative to `link_name` instead of the world --
 /// composing `header_frame -> world -> link` in one step, mirroring
 /// `PlanningScene::attach`'s own `link_transform.inverse() * object_pose *
-/// s.pose()` (`scene.rs:1150`).
+/// s.pose()` (`scene.rs:1180`).
 ///
 /// `header_frame_id` is resolved via [`super::header_frame_transform`], not
 /// [`moveit_scene::PlanningScene::frame_transform`] directly: upstream's
