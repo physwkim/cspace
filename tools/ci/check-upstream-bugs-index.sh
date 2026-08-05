@@ -91,6 +91,18 @@ for i, line in enumerate(lines, 1):
         continue
 
     if line.startswith("### "):
+        # The Index table ends at the first entry heading, not at the next
+        # `## `. Closing it on `## ` alone left `in_index` true across the
+        # whole 1,300-line entries region, so every `| \`...\`` line in an
+        # entry *body* was read as a malformed Index row -- and an entry body
+        # is exactly where a measured table lives, this file requiring numbers
+        # to be measured rather than asserted. The first such table (an
+        # `fcl::distance` sentinel sweep, tangency offsets in column one) made
+        # the gate fail on a file whose Index was correct. `###` is the real
+        # boundary: the Index table cannot contain one, and every entry
+        # follows it. A stray row appended below an entry is still caught --
+        # it is no longer parsed, so its entry reports "has no Index row".
+        in_index = False
         match = ENTRY_RE.match(line)
         if match is None:
             fail(
