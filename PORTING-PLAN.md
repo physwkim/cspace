@@ -6193,12 +6193,12 @@ p1-robotmodel 라운드 8(`c2ff170`, `4cc14e1`). 베이스 `1b58458`.
 `RealVectorAdapter`/`So2Adapter`/`Se3Adapter`). 다섯 개 각각에 대해 어떤
 상류 심볼로 못박았는지가 파일:행과 함께 적혀 있다:
 
-- `RealVectorSpace::distance` — `prismatic_joint_model.cpp:114-116`,
+- `RealVectorSpace::distance` — `prismatic_joint_model.cpp:114-117`,
   `revolute_joint_model.cpp:180-181`
-- `So2Space::distance` — `revolute_joint_model.cpp:173-179`의 continuous 분기
+- `So2Space::distance` — `revolute_joint_model.cpp:173-182`의 continuous 분기
 - `Se3Space::distance` — `floating_joint_model.cpp:120-126`(병진),
   `:115-118`(가중합). 회전은 `9b04950`에서 이미
-- `CompoundSpace::distance` — `joint_model_group.cpp:462-471`
+- `CompoundSpace::distance` — `joint_model_group.cpp:462-472`
 - `JointModelGroupSpace::distance` — `fixtures/panda.urdf`의 실제 한계값
 
 보고에 안 적으면 없는 것과 같다. 다음 라운드 브리프에 그렇게 적었다.
@@ -14230,8 +14230,9 @@ crates/moveit-planning/src/response.rs:29:  ... a parallel `Vec<f64>` of duratio
 ```
 
 한 건, 그리고 무관한 주석이다. `lib.rs`는 같은 상위 디렉터리의
-`planning_pipeline.cpp`는 `:186`/`:437`에서 인용하고
-`display_motion_path.cpp`는 `:154`에서 D1로 제외한다. 즉 이 크레이트는
+`planning_pipeline.cpp`는 `moveit-planning/src/lib.rs:186`/`:441`에서 인용하고
+`display_motion_path.cpp`는 `moveit-planning/src/lib.rs:154`에서 D1로
+제외한다. 즉 이 크레이트는
 이웃 파일들에 대해서는 판정을 내렸고 이 네 개에 대해서만 침묵한다.
 **침묵은 제외가 아니다.** p1-fixtures에 배정하며, 네 파일을 하나로
 묶어 판정하지 말 것을 조건으로 달았다 — `planWithParallelPipelines`가
@@ -18708,9 +18709,9 @@ found" 절)이 그대로 적용된다. 비-로깅 잔여분은 0이다.
 | # | 상류 클래스 | 상류 코드 | 상류 throw | 이 포트 | 포트 코드 |
 |---|---|---|---|---|---|
 | 1 | `NegativeBlendRadiusException` | INVALID_MOTION_PLAN | `command_list_manager.cpp:273` | `SequenceError::NegativeBlendRadius` (`command_list_manager.rs:111`, 발생 `:438`) | InvalidMotionPlan (`:174`) |
-| 2 | `LastBlendRadiusNotZeroException` | INVALID_MOTION_PLAN | `command_list_manager.hpp:232` | `SequenceError::LastBlendRadiusNotZero` (`:120`, 발생 `:454`) | InvalidMotionPlan |
-| 3 | `StartStateSetException` | INVALID_ROBOT_STATE | `command_list_manager.cpp:300` | `SequenceError::StartStateSet` (`:127`, 발생 `:480`) | InvalidRobotState (`:177`) |
-| 4 | `OverlappingBlendRadiiException` | INVALID_MOTION_PLAN | `command_list_manager.cpp:160` | `SequenceError::OverlappingBlendRadii` (`:138`, 발생 `:391`) | InvalidMotionPlan |
+| 2 | `LastBlendRadiusNotZeroException` | INVALID_MOTION_PLAN | `command_list_manager.hpp:232` | `SequenceError::LastBlendRadiusNotZero` (`command_list_manager.rs:120`, 발생 `:454`) | InvalidMotionPlan |
+| 3 | `StartStateSetException` | INVALID_ROBOT_STATE | `command_list_manager.cpp:300` | `SequenceError::StartStateSet` (`command_list_manager.rs:127`, 발생 `:480`) | InvalidRobotState (`:177`) |
+| 4 | `OverlappingBlendRadiiException` | INVALID_MOTION_PLAN | `command_list_manager.cpp:160` | `SequenceError::OverlappingBlendRadii` (`command_list_manager.rs:138`, 발생 `:391`) | InvalidMotionPlan |
 | 5 | `PlanningPipelineException` | FAILURE | `command_list_manager.cpp:260` | `SequenceError::Planning` (`:147`, 발생 `:276`,`:281`) | 실패 아이템 자신의 코드 (`:178`) — 상류도 클래스 기본 `FAILURE`가 아니라 실패 응답의 코드를 두 번째 인자로 넘긴다 |
 | 6 | `NoBlenderSetException` | FAILURE | `plan_components_builder.cpp:80` | 표현 불가 — `PlanComponentsBuilder::new`가 블렌더가 필요한 한계를 받는다 (`plan_components_builder.rs:28-33`) | — |
 | 7 | `NoTipFrameFunctionSetException` | FAILURE | 없음 | 죽은 선언 — 패키지 어디서도 throw되지 않는다 (`plan_components_builder.rs:34-36`) | — |
