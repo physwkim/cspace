@@ -1023,7 +1023,7 @@ ambiguity the way multiple guards can share one negative signal.
 | `merge_constraints` | 1 drop path for this fixture shape | excluded, see below |
 | `joint_acceleration_bounds` | 2 (`Err::other` × 2) | bit |
 | `AccelerationLimitedFilter::do_smoothing` (2-arg) | 2 (`Err::other` × 2) | 1 bit directly, 1 already message-swap bite-checked (spot-confirmed by the sibling bite) |
-| `ButterworthFilter::new` | 4 (`Err::construct` × 4) | 1 bit directly (spot-check per instruction) |
+| `ButterworthFilter::new` | 4 (`Err::construct` × 4) | ~~1 bit directly (spot-check per instruction)~~ **all 4 bit — see Round 6** |
 | `JointConstraintSampler::sample` (`sampler.rs:194,200`) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
 | `cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213` | `is_some` positive checks | excluded (structural exemption above) |
 | `registry.rs:254` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
@@ -1202,3 +1202,44 @@ rows, citing the assert lines directly:
 (`ruckig_filter.rs:388` and `:465`, the acceleration guard and the
 pre-existing message-swap-bite-checked assertion, already have rows in
 the `moveit-smoothing (11 sites)` table above.)
+
+## Round 6: `ButterworthFilter::new`'s remaining 3 guards, bit
+
+Round 4 bit only guard 3 (`coeff < 1.0`, `butterworth.rs:80`,
+tested at `:153`); guards 1, 2, and 4 rested on the comments'
+message-uniqueness argument alone, self-flagged in Round 4's table as
+"spot-check per instruction." Each of the four guards' messages
+(`butterworth.rs:70,75,80,85`) contains a needle unique to that guard —
+`feedback_term_` only in guard 1's text, `scale_term_` only in guard
+2's, `unstable` only in guard 3's, `resulted in feedback term of 0`
+only in guard 4's — so message-uniqueness already discriminates all
+four: an assertion passing proves the returned message carried that
+guard's unique substring, and no sibling guard's message contains it.
+**That discrimination claim does not need a bite and this round does
+not upgrade it to one.** What a bite adds, and what was still missing,
+is proof each guard is individually load-bearing — that neutralizing
+it changes the outcome, rather than being dead code a sibling guard
+already masks.
+
+Three-way isolating-mutation bite, each guard neutralized alone
+(`&& !true`), `--no-fail-fast`, reverted and `diff`-confirmed clean
+against a pre-bite backup before the next:
+
+| Guard neutralized | Test run | Fails how | Sibling tests |
+|---|---|---|---|
+| `:70` `feedback_term.is_infinite()` | `coefficient_of_infinity_makes_feedback_term_infinite` (coeff=inf) | `unwrap_err()` panics on an `Ok` value (`scale_term: 0.0, feedback_term: -inf`) — guard 2 can't fire (`scale_term` finite at exactly 0), coeff not `< 1.0`, `|feedback_term|` not `< EPSILON` | all 40 others green |
+| `:75` `scale_term.is_infinite()` | `coefficient_of_negative_one_makes_scale_term_infinite` (coeff=-1) | the `.contains("scale_term_")` assertion itself panics, **not** `unwrap_err()` — `feedback_term` (2.0) is finite so guard 1 stays quiet, but coeff `-1 < 1.0` so guard 3 fires and the returned message is `"...unstable"`, which does not contain `scale_term_` | all 40 others green |
+| `:85` `feedback_term.abs() < EPSILON` | `coefficient_of_exactly_one_makes_feedback_term_zero` (coeff=1.0) **and** `coefficient_just_above_one_is_still_within_the_feedback_term_epsilon_band` (coeff=1+1e-10) | both `unwrap_err()` panic on `Ok` values — no other guard's condition holds at either coefficient | all 39 others green |
+
+All three outcomes were predicted in full (including which of the two
+failure shapes — `unwrap_err()` panic vs. assertion-text panic — each
+guard would produce) before running, and every run matched the
+prediction exactly; no contradiction to report. Combined with Round
+4's direct bite of guard 3, all four `ButterworthFilter::new` guards
+are now confirmed individually load-bearing, on top of the
+message-uniqueness discrimination that already held for all four.
+**Verdict: discriminating (by message uniqueness, unchanged from
+Round 4) and, as of this round, load-bearing (by bite, all 4 of 4).**
+Gate: `cargo fmt --all`; `cargo clippy -p moveit-smoothing --all-targets
+-- -D warnings` clean; `cargo nextest run -p moveit-smoothing` (41/41)
+green.
