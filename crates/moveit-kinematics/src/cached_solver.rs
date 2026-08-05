@@ -6,6 +6,8 @@
 //   moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/cached_ik_kinematics_plugin.hpp
 //   moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/cached_ik_kinematics_plugin-inl.hpp
 
+use std::path::Path;
+
 use moveit_error::Result;
 use moveit_geometry::Isometry3;
 use moveit_model::RobotModel;
@@ -132,6 +134,47 @@ impl<S: KinematicsSolver> CachedIkSolver<S> {
             inner,
             cache: IkCache::new(&options, num_joints),
         }
+    }
+
+    /// Wrap `inner` with the cache [`CachedIkSolver::save_cache`] wrote to
+    /// `path`, resuming from the seeds it holds.
+    ///
+    /// There is no `options` argument: the file carries the
+    /// [`IkCacheOptions`] its entries were accumulated under, so a resumed
+    /// cache gates insertions exactly as it did before. Upstream gets the
+    /// same property by mangling all three option values into the file
+    /// *name* and reading whichever file that name lands on; keeping them
+    /// in the document means a caller cannot pair a file with options it
+    /// was not built under, rather than merely being unlikely to.
+    ///
+    /// # Errors
+    ///
+    /// [`moveit_error::Error::Other`] if `path` cannot be read, is not a
+    /// cache document, or is one written for a solver with a different
+    /// joint count than `inner`'s. Upstream instead starts with an empty
+    /// cache whenever `std::filesystem::exists` says no -- an absent file
+    /// and an unreadable one are the same fact there, and neither is
+    /// reported.
+    pub fn from_cache_file(inner: S, path: &Path) -> Result<Self> {
+        let cache = IkCache::load(path, inner.joint_names().len())?;
+        Ok(Self { inner, cache })
+    }
+
+    /// Write this solver's accumulated cache to `path`, replacing whatever
+    /// is there.
+    ///
+    /// Upstream saves from two places a caller never asks: inside
+    /// `updateCache` once the cache has grown 500 entries past its last
+    /// save, and again from `~IKCache`. Neither is ported -- see
+    /// `ik_cache::format`'s module doc.
+    ///
+    /// # Errors
+    ///
+    /// [`moveit_error::Error::Other`] if `path` cannot be written, or if
+    /// any cached value is one JSON cannot represent (see
+    /// `ik_cache::format`'s `to_json`).
+    pub fn save_cache(&self, path: &Path) -> Result<()> {
+        self.cache.save(path)
     }
 }
 
@@ -345,6 +388,127 @@ mod tests {
             *calls.borrow(),
             vec![vec![7.0]],
             "a cache hit must not fall back to the caller's own seed"
+        );
+    }
+
+    /// The other side of `if let Some(ref solved) = solution`: when both
+    /// attempts fail there is nothing to cache, and caching anyway would
+    /// poison every later query with a seed that is not a solution to
+    /// anything. `zero_gate_options` opens both novelty gates, so the only
+    /// thing that can keep this cache empty is the solve having failed.
+    #[test]
+    fn a_solve_that_fails_leaves_the_cache_empty() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let inner = FakeSolver {
+            joint_names: vec!["j1".to_string()],
+            accepts_seed: vec![f64::MAX],
+            calls: Rc::clone(&calls),
+        };
+        let mut solver = CachedIkSolver::new(inner, zero_gate_options());
+        let target = Isometry3::identity();
+
+        let result = solver.solve_with_options(&[3.0], &target, &mut SolveOptions::default());
+
+        assert_eq!(result, None);
+        assert_eq!(
+            *calls.borrow(),
+            vec![vec![0.0], vec![3.0]],
+            "both seeds must have been tried before giving up"
+        );
+        // Nothing was cached, so the next solve still starts from the
+        // empty-cache dummy rather than from a remembered failure.
+        calls.borrow_mut().clear();
+        solver.solve_with_options(&[8.0], &target, &mut SolveOptions::default());
+        assert_eq!(*calls.borrow(), vec![vec![0.0], vec![8.0]]);
+    }
+
+    /// [`CachedIkSolver::save_cache`] and
+    /// [`CachedIkSolver::from_cache_file`] as a caller uses them: warm a
+    /// cache through real solves, write it, and have a *new* wrapper around
+    /// a fresh solver start from the seed the first one learned.
+    #[test]
+    fn a_saved_cache_seeds_the_next_solver_built_from_it() {
+        let target = Isometry3::identity();
+        let mut warm = CachedIkSolver::new(
+            FakeSolver {
+                joint_names: vec!["j1".to_string()],
+                accepts_seed: vec![7.0],
+                calls: Rc::new(RefCell::new(Vec::new())),
+            },
+            zero_gate_options(),
+        );
+        assert_eq!(
+            warm.solve_with_options(&[7.0], &target, &mut SolveOptions::default()),
+            Some(vec![7.0])
+        );
+
+        let path = std::env::temp_dir().join(format!(
+            "moveit-kinematics-cached-solver-test-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        warm.save_cache(&path).unwrap();
+
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut resumed = CachedIkSolver::from_cache_file(
+            FakeSolver {
+                joint_names: vec!["j1".to_string()],
+                accepts_seed: vec![7.0],
+                calls: Rc::clone(&calls),
+            },
+            &path,
+        )
+        .unwrap();
+
+        // A cold wrapper would try the all-zero dummy first (see
+        // `cache_miss_falls_back_to_the_callers_own_seed`); this one has
+        // `[7.0]` from the file, so that is the only seed tried.
+        let hit = resumed.solve_with_options(&[99.0], &target, &mut SolveOptions::default());
+        assert_eq!(hit, Some(vec![7.0]));
+        assert_eq!(*calls.borrow(), vec![vec![7.0]]);
+    }
+
+    /// A cache file names the joint count it was built for, and
+    /// [`CachedIkSolver::from_cache_file`] refuses one that disagrees with
+    /// the solver it is wrapping -- the check upstream's `initializeCache`
+    /// does not make (`doc/upstream-bugs.md`,
+    /// `ik-cache-read-trusts-file-header`).
+    #[test]
+    fn a_cache_file_for_a_different_arm_is_refused() {
+        let mut warm = CachedIkSolver::new(
+            FakeSolver {
+                joint_names: vec!["j1".to_string()],
+                accepts_seed: vec![7.0],
+                calls: Rc::new(RefCell::new(Vec::new())),
+            },
+            zero_gate_options(),
+        );
+        warm.solve_with_options(&[7.0], &Isometry3::identity(), &mut SolveOptions::default());
+
+        let path = std::env::temp_dir().join(format!(
+            "moveit-kinematics-cached-solver-mismatch-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        warm.save_cache(&path).unwrap();
+
+        let two_joints = FakeSolver {
+            joint_names: vec!["j1".to_string(), "j2".to_string()],
+            accepts_seed: vec![7.0, 0.0],
+            calls: Rc::new(RefCell::new(Vec::new())),
+        };
+        let Err(error) = CachedIkSolver::from_cache_file(two_joints, &path) else {
+            panic!("a 1-joint cache file must not load into a 2-joint solver");
+        };
+        assert_eq!(
+            error.to_string(),
+            "ik cache holds 1-joint configs, but this solver has 2 joints"
         );
     }
 }

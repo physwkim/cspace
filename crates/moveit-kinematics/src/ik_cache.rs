@@ -6,7 +6,12 @@
 //   moveit_kinematics/cached_ik_kinematics_plugin/include/moveit/cached_ik_kinematics_plugin/cached_ik_kinematics_plugin.hpp
 //   moveit_kinematics/cached_ik_kinematics_plugin/src/ik_cache.cpp
 
+use std::path::Path;
+
+use moveit_error::{Error, Result};
 use moveit_geometry::Isometry3;
+
+mod format;
 
 /// `IKCache::Options`, minus `cached_ik_path`. See this module's `#
 /// Deviation` for why on-disk persistence has no field here.
@@ -18,9 +23,17 @@ pub struct IkCacheOptions {
     /// `min_pose_distance`: half of `IkCache::update`'s OR-gated novelty
     /// test — see that method's doc comment.
     pub min_pose_distance: f64,
-    /// `min_joint_config_distance`: the other half of the same test. Stored
-    /// un-squared, like upstream's `Options` field; squared once in
-    /// `IkCache::new` to match `min_config_distance2_`.
+    /// `min_joint_config_distance`: the other half of the same test.
+    ///
+    /// Held un-squared, as upstream's `Options` field is, and squared at
+    /// each comparison rather than once into a `min_config_distance2_`
+    /// member as upstream's `initializeCache` does. The squaring has no
+    /// exact inverse, so a stored square would have to be square-rooted
+    /// back to write `format`'s `min_config_distance` field, and
+    /// `sqrt(x * x)` is not `x` for every `x` — the cache would then load
+    /// under a threshold a hair from the one it was saved under. One
+    /// multiply per `IkCache::update` call buys the property that what
+    /// the caller configured is exactly what a round trip returns.
     pub min_config_distance: f64,
 }
 
@@ -82,20 +95,19 @@ fn config_distance2(a: &[f64], b: &[f64]) -> f64 {
 }
 
 /// A cache of inverse-kinematics solutions, keyed by end-effector pose --
-/// `IKCache`, minus on-disk persistence and the GNAT nearest-neighbor
-/// index.
+/// `IKCache`, minus the GNAT nearest-neighbor index.
 ///
 /// # Deviations from upstream
 ///
-/// 1. **No disk persistence.** `ik_cache.cpp`'s `saveCache`/
-///    `initializeCache` read and write a raw, unversioned `memcpy` of
-///    `double` fields with no endianness handling, keyed into a filename
-///    by robot/group/cache name plus the size and distance thresholds.
-///    Nothing outside that one C++ class ever reads that file, so a Rust
-///    port owes it no byte-layout compatibility; this type simply does
-///    not persist, and a caller who wants that can `serde`-serialize
-///    [`IkCache`]'s entries independently. See `lib.rs`'s module doc,
-///    point 3, for the fuller reasoning this decision was made from.
+/// 1. **A different on-disk format, and saving only when asked.**
+///    `ik_cache.cpp`'s `saveCache`/`initializeCache` read and write a raw,
+///    unversioned `memcpy` of host-endian `double` fields. Nothing outside
+///    that one C++ class ever reads it, so this port owes it no
+///    byte-layout compatibility and does not claim any: [`IkCache::save`]
+///    and [`IkCache::load`] go through `format`, whose module doc states
+///    what the format is, why it is `serde_json`, and which parts of
+///    upstream's save *policy* (the every-500-entries write inside
+///    `updateCache`, the write from `~IKCache`) are not ported.
 /// 2. **Linear scan, not a GNAT tree.** [`IkCache::nearest`] scans every
 ///    entry rather than porting `detail/NearestNeighborsGNAT.hpp` (755
 ///    lines implementing a general-purpose metric tree). Upstream's own
@@ -111,12 +123,11 @@ fn config_distance2(a: &[f64], b: &[f64]) -> f64 {
 ///    (strict `<`, not `<=`, when replacing the running best) -- a
 ///    concrete, deterministic rule rather than upstream's unspecified
 ///    one, not a claim of matching it bit-for-bit.
+#[derive(Debug)]
 pub(crate) struct IkCache {
     entries: Vec<CacheEntry>,
     num_joints: usize,
-    max_cache_size: usize,
-    min_pose_distance: f64,
-    min_config_distance2: f64,
+    options: IkCacheOptions,
 }
 
 impl IkCache {
@@ -134,10 +145,34 @@ impl IkCache {
         Self {
             entries: Vec::with_capacity(options.max_cache_size),
             num_joints,
-            max_cache_size: options.max_cache_size,
-            min_pose_distance: options.min_pose_distance,
-            min_config_distance2: options.min_config_distance * options.min_config_distance,
+            options: options.clone(),
         }
+    }
+
+    /// Write this cache to `path`, replacing whatever is there.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `format::to_json` reports, or [`Error::Other`] naming
+    /// `path` if the write itself fails.
+    pub(crate) fn save(&self, path: &Path) -> Result<()> {
+        let text = format::to_json(self)?;
+        std::fs::write(path, text)
+            .map_err(|error| Error::other(format!("writing {}: {error}", path.display())))
+    }
+
+    /// Read back a cache [`IkCache::save`] wrote, for a solver with
+    /// `num_joints` joints.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `format::from_json` reports -- including every way the
+    /// file can fail to describe a cache for a `num_joints`-joint solver
+    /// -- or [`Error::Other`] naming `path` if the read itself fails.
+    pub(crate) fn load(path: &Path, num_joints: usize) -> Result<Self> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|error| Error::other(format!("reading {}: {error}", path.display())))?;
+        format::from_json(&text, num_joints)
     }
 
     /// `IKCache::getBestApproximateIKSolution(const Pose&)`. An empty
@@ -202,11 +237,13 @@ impl IkCache {
             self.num_joints,
             config.len()
         );
-        if self.entries.len() >= self.max_cache_size {
+        if self.entries.len() >= self.options.max_cache_size {
             return;
         }
-        let novel_pose = pose_distance(&nearest.pose, pose) > self.min_pose_distance;
-        let novel_config = config_distance2(&nearest.config, config) > self.min_config_distance2;
+        let min_config_distance2 =
+            self.options.min_config_distance * self.options.min_config_distance;
+        let novel_pose = pose_distance(&nearest.pose, pose) > self.options.min_pose_distance;
+        let novel_config = config_distance2(&nearest.config, config) > min_config_distance2;
         if novel_pose || novel_config {
             self.entries.push(CacheEntry {
                 pose: *pose,
@@ -232,6 +269,27 @@ mod tests {
         let nearest = cache.nearest(&query);
         assert_eq!(nearest.pose, query);
         assert_eq!(nearest.config(), [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    /// The boundary between "no entries" and "entries": with exactly one,
+    /// `nearest` must return it whatever the query pose is, since the
+    /// `min_by` has nothing to compare against and the empty-cache dummy
+    /// must no longer be reachable.
+    #[test]
+    fn a_single_entry_is_returned_however_far_the_query_pose_is() {
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at(0.0));
+        cache.update(&seed, &pose_at(1.0), &[42.0]);
+
+        assert_eq!(cache.nearest(&pose_at(1.0)).config(), [42.0]);
+        assert_eq!(cache.nearest(&pose_at(-900.0)).config(), [42.0]);
     }
 
     #[test]
@@ -281,6 +339,41 @@ mod tests {
         cache.update(&near_seed, &pose_with_yaw(0.2), &[2.0]);
 
         let nearest = cache.nearest(&pose_with_yaw(0.1));
+        assert_eq!(nearest.config(), [2.0]);
+    }
+
+    fn pose_at_with_yaw(x: f64, yaw: f64) -> Isometry3 {
+        Isometry3::from_parts(
+            Vector3::new(x, 0.0, 0.0).into(),
+            UnitQuaternion::from_axis_angle(&Vector3::z_axis(), yaw),
+        )
+    }
+
+    /// The two tests above each hold one term of [`pose_distance`] at zero,
+    /// so either one alone would still pass against a metric that used
+    /// `max` instead of `+`, or that scaled one term against the other.
+    /// Here the two terms disagree about the winner and the *sum* decides:
+    /// the query sits at the origin with yaw 0, so the near entry is
+    /// `0.8 + 0.2 = 1.0` away and the far one `0.5 + 0.6 = 1.1`. Reading
+    /// position alone picks the other entry (`0.5 < 0.8`), and so does
+    /// `max(0.5, 0.6) < max(0.8, 0.2)`, and so does any weighting that
+    /// scales the position term up.
+    #[test]
+    fn nearest_adds_the_two_terms_rather_than_ranking_on_either_one() {
+        let mut cache = IkCache::new(
+            &IkCacheOptions {
+                min_pose_distance: 0.0,
+                min_config_distance: 0.0,
+                ..IkCacheOptions::default()
+            },
+            1,
+        );
+        let seed = cache.nearest(&pose_at_with_yaw(0.0, 0.0));
+        cache.update(&seed, &pose_at_with_yaw(0.5, 0.6), &[1.0]);
+        let seed = cache.nearest(&pose_at_with_yaw(0.5, 0.6));
+        cache.update(&seed, &pose_at_with_yaw(0.8, 0.2), &[2.0]);
+
+        let nearest = cache.nearest(&pose_at_with_yaw(0.0, 0.0));
         assert_eq!(nearest.config(), [2.0]);
     }
 
@@ -440,7 +533,9 @@ mod tests {
     /// `update`'s config gate is strict `>` in the *squared* space:
     /// `configDistance2(...) > min_config_distance2_`, and
     /// `min_config_distance2_` is `min_config_distance * min_config_distance`
-    /// (`IkCache::new`). With `min_config_distance = 1.0`, the threshold is
+    /// (formed inside [`IkCache::update`] here, rather than stored squared
+    /// -- see [`IkCacheOptions::min_config_distance`] for why). With
+    /// `min_config_distance = 1.0`, the threshold is
     /// exactly `1.0` (`1.0 * 1.0` has no rounding). Unlike the pose gate,
     /// `config_distance2` never takes a square root, so nudging the input
     /// by a chosen amount *can* move its output by exactly one ULP:
@@ -475,5 +570,52 @@ mod tests {
             1,
             "config_distance2 one ULP past min_config_distance2 must clear the gate"
         );
+    }
+
+    /// A fresh, unique scratch directory per test, left for the OS to
+    /// reclaim -- the same shape `moveit-model`'s `mesh_search_paths`
+    /// tests use, for the same reason.
+    fn scratch_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "moveit-kinematics-ik-cache-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The round trip end to end: write a cache to a real file, read it
+    /// back, and query the result for the same seeds. `format`'s own tests
+    /// pin the document; this one pins the two `std::fs` calls between the
+    /// document and the disk, and that a *loaded* cache answers `nearest`
+    /// the way the saved one did rather than merely holding the right
+    /// bytes.
+    #[test]
+    fn seeds_survive_a_round_trip_through_a_file() {
+        let mut saved = IkCache::new(
+            &IkCacheOptions {
+                max_cache_size: 32,
+                min_pose_distance: 0.25,
+                min_config_distance: 0.25,
+            },
+            2,
+        );
+        for (x, config) in [(1.0, [0.5, -0.5]), (5.0, [1.5, -2.5])] {
+            let seed = saved.nearest(&pose_at(x));
+            saved.update(&seed, &pose_at(x), &config);
+        }
+        assert_eq!(saved.entries.len(), 2);
+
+        let path = scratch_dir().join("panda_arm.ikcache.json");
+        saved.save(&path).unwrap();
+        let loaded = IkCache::load(&path, 2).unwrap();
+
+        assert_eq!(loaded.nearest(&pose_at(1.1)).config(), [0.5, -0.5]);
+        assert_eq!(loaded.nearest(&pose_at(4.9)).config(), [1.5, -2.5]);
+        assert_eq!(loaded.options, saved.options);
     }
 }

@@ -282,13 +282,23 @@
 //!      distance metric (`ik_cache`'s `pose_distance`) is microseconds,
 //!      not a bottleneck worth porting `detail/NearestNeighborsGNAT.hpp`
 //!      (755 lines implementing a general-purpose metric tree) to avoid.
-//!   2. *On-disk cache persistence is a local choice, not a port target.*
+//!   2. *The on-disk cache format is a local choice, not a port target.*
 //!      `ik_cache.cpp`'s `saveCache`/`initializeCache` read and write a
 //!      raw, unversioned `memcpy` of `double` fields with no endianness
 //!      handling, keyed into the filename by robot/group/frame name plus
 //!      the cache size and distance thresholds. Nothing outside this one
-//!      C++ class ever reads that file, so `ik_cache`'s `IkCache` simply
-//!      does not persist — see that type's `# Deviations`, item 1.
+//!      C++ class ever reads that file, so this port keeps the *feature*
+//!      — a cache that survives the process — and drops the byte layout:
+//!      `ik_cache::format` serializes through `serde_json`, the crate this
+//!      workspace already pins with `float_roundtrip` so every `f64`
+//!      returns bit-for-bit. That module's doc is the single place the
+//!      format is defined and the single place to change it; it also lists
+//!      which parts of upstream's save *policy* (the write inside
+//!      `updateCache` every 500 entries, the write from `~IKCache`, the
+//!      filename mangling) are deliberately not ported, and why the
+//!      threshold-in-the-filename trick is replaced by carrying the
+//!      options inside the document. [`CachedIkSolver::save_cache`] and
+//!      [`CachedIkSolver::from_cache_file`] are the caller-facing ends.
 //!   3. *`cached_ur_kinematics_plugin.cpp` — out of D1/D2 scope, not
 //!      ported.* Read in full: the entire file is a
 //!      `PLUGINLIB_EXPORT_CLASS` registration of
@@ -348,11 +358,11 @@
 //!
 //!   | class | members | ported | not ported |
 //!   |---|---|---|---|
-//!   | `IKCache` | 20 | 8 | 12 |
+//!   | `IKCache` | 20 | 9 | 11 |
 //!   | `IKCacheMap` | 6 | 0 | 6 |
 //!   | `CachedIKKinematicsPlugin` | 12 | 6 | 6 |
 //!   | `CachedMultiTipIKKinematicsPlugin` | 6 | 0 | 6 |
-//!   | **total** | **44** | **14** | **30** |
+//!   | **total** | **44** | **15** | **29** |
 //!
 //!   `IKCache`'s 20, by name:
 //!
@@ -361,7 +371,10 @@
 //!   - `Options::min_pose_distance` — ported, same name
 //!   - `Options::min_joint_config_distance` — ported, renamed
 //!     [`IkCacheOptions::min_config_distance`]
-//!   - `Options::cached_ik_path` — not ported (disk persistence, item 2
+//!   - `Options::cached_ik_path` — not ported. It is the *directory* the
+//!     mangled cache filename is placed in, and there is no mangled
+//!     filename here to place: [`CachedIkSolver::save_cache`] and
+//!     [`CachedIkSolver::from_cache_file`] take the whole path (item 2
 //!     above)
 //!   - `Pose::Pose() = default` — not ported; no public `Pose` type exists
 //!     here (position/orientation go through [`moveit_geometry::Isometry3`]
@@ -377,8 +390,11 @@
 //!   - `IKCache::IKEntry` (the multi-tip `pair<vector<Pose>, vector<double>>`
 //!     alias) — not ported (multi-tip, out of scope)
 //!   - `IKCache::IKCache()` — ported, as `IkCache::new`
-//!   - `IKCache::~IKCache()` — not ported; Rust `Drop` needs no user
-//!     declaration
+//!   - `IKCache::~IKCache()` — not ported. Beyond Rust `Drop` needing no
+//!     user declaration, upstream's body is a `saveCache()` call whose
+//!     failure it cannot report; saving here is
+//!     [`CachedIkSolver::save_cache`], which returns a
+//!     [`moveit_error::Result`]
 //!   - `IKCache::IKCache(const IKCache&) = delete` — not ported; Rust types
 //!     are non-`Copy` by default, so there is no equivalent declaration to
 //!     make
@@ -386,7 +402,11 @@
 //!     `IkCache::nearest`
 //!   - `getBestApproximateIKSolution(const vector<Pose>&) const` — not
 //!     ported (multi-tip)
-//!   - `initializeCache(...)` — not ported (disk persistence)
+//!   - `initializeCache(...)` — ported, split by what each half does: the
+//!     option assignment is `IkCache::new`'s body, the file read is
+//!     `IkCache::load` (through `ik_cache::format`'s `from_json`), and the
+//!     filename mangling is the one part with no counterpart — see item 2
+//!     above
 //!   - `updateCache(const IKEntry&, const Pose&, const vector<double>&)
 //!     const` — ported, as `IkCache::update`
 //!   - `updateCache(const IKEntry&, const vector<Pose>&, const
@@ -465,7 +485,9 @@
 //!   - `CachedIKKinematicsPlugin()` — ported, as `CachedIkSolver::new`
 //!   - `~CachedIKKinematicsPlugin()` — not ported; moot, as above
 //!   - `initialize(...)` — not ported; no Rust-side counterpart, explained
-//!     above
+//!     above. Its private `initCache` tail — which is where upstream reads
+//!     an existing cache file — is [`CachedIkSolver::from_cache_file`],
+//!     a second constructor rather than a step inside the only one
 //!   - `getPositionIK(...)` and all four `searchPositionIK(...)` overloads
 //!     (5 total) — ported, folded into
 //!     [`KinematicsSolver::solve_with_options`] via [`CachedIkSolver`], the
