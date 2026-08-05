@@ -767,7 +767,15 @@ fn do_time_parameterization_calculations(
     let variable_names = group.variable_names().to_vec();
     let num_joints = variable_names.len();
 
-    if max_velocity.len() != num_joints || max_acceleration.len() != num_joints {
+    // `max_acceleration.len() != num_joints` used to be a second `||`
+    // operand here. `do_time_parameterization_calculations` is a private
+    // fn with exactly two call sites in this file (`compute_time_stamps`,
+    // `compute_time_stamps_with_limits`), and both construct
+    // `max_velocity`/`max_acceleration` as `DVector::zeros(num_active)`
+    // from the same `num_active` binding for both vectors — so the two
+    // lengths can never independently differ; that operand was dead
+    // (bite-confirmed: neutralizing it alone left every test green).
+    if max_velocity.len() != num_joints {
         return Err(Error::other(format!(
             "max_velocity/max_acceleration have {}/{} entries but the group '{}' has {num_joints} \
              variables (including any mimic joints); computeTimeStamps only builds limits for \
