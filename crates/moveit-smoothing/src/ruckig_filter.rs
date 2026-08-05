@@ -391,6 +391,71 @@ mod tests {
         );
     }
 
+    fn clear_velocity_bounds(model: &mut RobotModel) {
+        for name in [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ] {
+            let joint = model.joint_model_mut(name).expect("panda_arm joint exists");
+            let mut limits = joint.variable_bounds_msg();
+            for limit in &mut limits {
+                limit.has_velocity_limits = false;
+            }
+            joint.set_variable_bounds_from_limits(&limits);
+        }
+    }
+
+    /// Clearing `panda_arm`'s velocity limits (present by default, see
+    /// [`joint_vel_accel_jerk_bounds_fails_without_acceleration_limits`])
+    /// exercises the guard ahead of the acceleration one — `matches!` alone
+    /// cannot tell this apart from its `Error::Other` siblings either.
+    #[test]
+    fn joint_vel_accel_jerk_bounds_fails_without_velocity_limits() {
+        let mut model = panda();
+        clear_velocity_bounds(&mut model);
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let err = joint_vel_accel_jerk_bounds(&model, group).unwrap_err();
+        assert!(err.to_string().contains("velocity limit defined"), "{err}");
+    }
+
+    fn set_uniform_acceleration_bounds(model: &mut RobotModel, max_acceleration: f64) {
+        for name in [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+        ] {
+            let joint = model.joint_model_mut(name).expect("panda_arm joint exists");
+            let mut limits = joint.variable_bounds_msg();
+            for limit in &mut limits {
+                limit.has_acceleration_limits = true;
+                limit.max_acceleration = max_acceleration;
+            }
+            joint.set_variable_bounds_from_limits(&limits);
+        }
+    }
+
+    /// `panda_arm` has velocity limits by default and this sets acceleration
+    /// ones without touching jerk, so this exercises the last of the three
+    /// bound guards on its own — `matches!` alone cannot tell it apart from
+    /// its `Error::Other` siblings either.
+    #[test]
+    fn joint_vel_accel_jerk_bounds_fails_without_jerk_limits() {
+        let mut model = panda();
+        set_uniform_acceleration_bounds(&mut model, 3.0);
+        let group = model.joint_model_group("panda_arm").unwrap();
+        let err = joint_vel_accel_jerk_bounds(&model, group).unwrap_err();
+        assert!(err.to_string().contains("jerk limit defined"), "{err}");
+    }
+
     fn set_uniform_accel_jerk_bounds(model: &mut RobotModel, max_acceleration: f64, max_jerk: f64) {
         for name in [
             "panda_joint1",
