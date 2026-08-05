@@ -97,7 +97,7 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 
 ## 4. 미포팅 87건 (2026-08-06 실측)
 
-`decided-non-port` 67 / `gap` 6 / `ported-elsewhere` 14.
+`decided-non-port` 69 / `gap` 4 / `ported-elsewhere` 14.
 
 이 세 수는 게이트가 **검사하지 않는다** — `measure-port-coverage.py --check`는
 행 집합만 대조한다(§2). 그래서 표에서 직접 센다:
@@ -105,8 +105,8 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 ```console
 $ awk -F'|' '/^\| `moveit_/ {gsub(/^ +| +$/,"",$3); c[$3]++; n++} \
              END {for (k in c) print k, c[k]; print "total", n}' doc/port-coverage.md
-decided-non-port 67
-gap 6
+decided-non-port 69
+gap 4
 ported-elsewhere 14
 total 87
 ```
@@ -124,8 +124,8 @@ total 87
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "`CollisionPlugin::initialize` also takes a `planning_scene::PlanningScenePtr` (`collision_plugin.hpp:93`); `PlanningScene` lives in `moveit-scene`, which already depends on `moveit-collision`, so accepting it here would be a circular crate dependency" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "its entire body is pluginlib runtime class loading ... plus `rclcpp` logging -- no algorithm exists independent of that ROS mechanism" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | ported-elsewhere | `crates/moveit-collision/src/lib.rs:17` | its `.cpp` is cited as ported; the pure `CostSource` half is `total_cost`/`intersect_cost_sources`/`remove_overlapping` in `moveit-collision`. Residual: the four `visualization_msgs`/`moveit_msgs` marker/message functions (D1) |
-| `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | gap | `crates/moveit-collision/src/lib.rs:51-68` | the text is a routing decision, not a decision not to port: "It is genuinely `RobotState`-free and portable, so 'no portable piece at all' was also false for this header ... request it against `moveit-octomap`" |
-| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | gap | none | upstream's shared test body, but it carries no `test/` path component so the corpus rule keeps it; 0 hits in `crates/ ros/ doc/ PORTING-PLAN.md` |
+| `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | decided-non-port | `PORTING-PLAN.md` §231.2; `crates/moveit-collision/src/lib.rs:54-87` | "**no file in this port's upstream corpus uses any of it**" — `OccMapTree`'s whole delta over `octomap::OcTree` is two forwarding constructors, six `shared_mutex` lock methods and `set/triggerUpdateCallback`, and every caller of that API is under `moveit_ros/*`. The single in-corpus includer (`planning_scene.cpp:39`) uses `OccMapTree(resolution)` + `readTree`/`readData` only, which `ros/moveit-ros/src/scene/planning_scene.rs:137-143` already does. Supersedes the routing text §217.3 correctly called a gap |
+| `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | decided-non-port | `PORTING-PLAN.md` §231.1; `crates/moveit-collision/tests/upstream_panda_harness.rs:4-73` | the file is a GoogleTest `TYPED_TEST_P` fixture whose only reason to be a shared header is the `CollisionAllocatorType` parameter, and this port has one backend for it to range over; the *machinery* is what is declined, not the assertions. Nine of its ten registered cases are restated in `upstream_panda_harness.rs` under upstream's own constants and tolerances, named case by case in that file's table; the tenth (`InitOK`) asserts the fixture's own `robot_model_ok_`. Doing so found two port defects nothing else reached (`CollisionRequest::distance` populated nothing; both per-pair maps keyed in iteration order, not by sorted name), both fixed at source |
 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | gap | none | same |
 | `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | same sentence |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | "both `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime plugin registrations. D-decision: D4" |

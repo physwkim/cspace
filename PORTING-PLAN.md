@@ -7387,7 +7387,7 @@ emits one CostSource per intersecting triangle pair"라고 쓰고, 문서는
 `AABB(p1,p2,p3).overlap(AABB(q1,q2,q3))`를 인용한다. 그런데 삼각형별
 AABB를 메시 전체 AABB로 바꿔도 168건 전부 통과한다.
 
-원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2541`)은
+원인은 테스트 픽스처다. `big_flat_triangle()`(`parry.rs:2621`)은
 **삼각형 하나짜리 메시**라서 전체 AABB와 그 한 삼각형의 AABB가 같다.
 테스트 이름이
 `mesh_shape_cost_sources_is_one_triangle_aabb_overlapped_with_the_whole_shape_aabb`
@@ -13542,7 +13542,7 @@ CI가 GitHub Actions에서 실제로 돌기 시작하면 §170.2의 수동 규�
 p1-fixtures가 `bb212dd`로 `cost_sources`/`path_cost_sources` fixture를 캡처하면서
 "오라클은 콜리전 쌍당 coarse box 1개, 이 포트는 삼각형당 1개(20개)"라는
 불일치를 재서 두 테스트를 `#[ignore]` 처리하고 `moveit-collision`의
-`mesh_shape_cost_sources`(`parry.rs:1368-1388`) 결함으로 귀속시켰다.
+`mesh_shape_cost_sources`(`parry.rs:1369-1388`) 결함으로 귀속시켰다.
 
 **측정은 맞고 귀속도 맞지만 성격 규정이 틀렸다.** 원인을 상류에서 찾았다.
 
@@ -14640,7 +14640,7 @@ $ rg -n 'CollisionEnvFCL' src/collision_env_hybrid.cpp
 하나 `setWorld`가 하는 실제 일은 FCL의 지속 broadphase 캐시
 (`manager_`/`fcl_objs_`)를 월드 교체 시 재구축하는 것인데,
 `ParryCollisionEnv`에는 그 캐시 자체가 없다 — 매 `check_*` 호출마다
-`self.world`에서 바디를 새로 계산한다(`parry.rs:1840`). 나머지 18개는
+`self.world`에서 바디를 새로 계산한다(`parry.rs:1841`). 나머지 18개는
 전부 `cenv_distance_`로의 통과 호출, 즉 이 크레이트가 이미 가진
 `DistanceFieldCollisionCache`다.
 
@@ -15447,7 +15447,7 @@ MPR과 EPA를 둘 다 돌려 두 숫자와 그 비를 검증한다. 없으면 �
 `visibility.rs`에 `group_name`이 한 번도 나오지 않고
 (`rg` 결과 0건), `CollisionRequest::default().group_name == None`이며
 (`common.rs:270`), `active_group_links`는 `group_name?`에서 즉시 `None`을
-돌려준다(`parry.rs:1326`). 필터가 no-op이므로 깊이를 바꿀 수 없다.
+돌려준다(`parry.rs:1327`). 필터가 no-op이므로 깊이를 바꿀 수 없다.
 
 내가 앞선 라운드에 다른 논거로 같은 결론에 도달했었다 — group 필터링은
 쌍을 남기거나 버릴 뿐 깊이 크기를 바꿀 수 없다. 서로 독립적인 두 반증이
@@ -15627,7 +15627,7 @@ p6-totg가 §196 가드를 자기 두 fixture에 넣었다(`d49461e`). 넣은 �
 
 chomp에도 해당한다. `optimizer.rs:1009`가 `group_name`을 `CollisionRequest`에
 실어 보내고, 그것을 받는 `ParryCollisionEnv`의 `active_group_links`
-(`parry.rs:1329`)가 `updated_link_names()`를 읽는다. 즉 chomp의 충돌 단언이
+(`parry.rs:1330`)가 `updated_link_names()`를 읽는다. 즉 chomp의 충돌 단언이
 공허해지는지를 결정하는 집합도 `updated_link_names()`이지 `link_names()`가
 아니다.
 
@@ -17397,7 +17397,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
    맞다 — `0.0`은 이 백엔드가 존재 이유로 삼는 "충돌 없음"의 반대편
    경계다.
 2. **연속(두 상태) 형태는 `Err`가 아니라 답한다.** `ParryCollisionEnv`는
-   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2363`), 상류는 두 개의
+   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2439`), 상류는 두 개의
    `checkRobotCollision(state1, state2, ...)` 오버로드를 **둘 다**
    `res.collision = false`로 재정의한다(`collision_env_allvalid.cpp:89-106`).
    "아무것도 충돌하지 않는다"는 주장은 경로에도 상태와 똑같이 적용된다.
@@ -17405,7 +17405,7 @@ false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "
 `CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
 기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
 안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
-`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2145-2150`)은
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2177-2150`)은
 `distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
 호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
 "요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
@@ -18981,7 +18981,7 @@ crates/ ros/ doc/ PORTING-PLAN.md`가 0건이고, 상류 `robot_state.hpp`가
 할 것이기 때문이다.
 
 이 주석 22줄이 `parry.rs`의 아래쪽 줄 번호를 전부 밀었으므로,
-`parry.rs:2110` 아래를 가리키던 인용 15개(ledger p3-acm 13, p10-samplers
+`parry.rs:2142` 아래를 가리키던 인용 15개(ledger p3-acm 13, p10-samplers
 1, upstream-bugs 1)와 산문 속 맨숫자 참조 5개를 `+22`로 다시 매겼다.
 `verify-orphan-enumeration.sh`는 이 변경 전 기준(`7572123`)에서 초록,
 주석만 넣었을 때 고아 10 / 미해결 인용 10으로 빨강, 재번호 후 다시
@@ -19122,3 +19122,141 @@ FCL의 개별 깊이를 분리하면:
   `env_field_after_incremental_churn_matches_a_fresh_rebuild_of_the_same_world`
   — 증분 부기가 깨끗한 재빌드와 일치하는지를 보는 시험 — 를 이 라운드가
   다시 돌려 통과를 확인한 것 외에 새 수치는 없다.
+
+
+## §231 `collision_detection`에 남은 갭 세 건을 판정으로 바꿨다 — 그리고 판정하는 동안 포트 결함 두 개가 나왔다 (2026-08-06)
+
+`doc/port-coverage.md`가 `gap`으로 남겨 둔 `collision_detection` 파일 셋
+(`occupancy_map.hpp` 120줄, `test_collision_common_pr2.hpp` 571줄,
+`test_collision_common_panda.hpp` 383줄)을 각각 증거로 판정한다. §217.3이
+셋 중 `occupancy_map.hpp`에 대해 "이식하지 않기로 한 결정이 아니라 소유
+디렉터리를 옮기라는 라우팅이므로 갭"이라고 적었고, 그 라우팅을 판정으로
+바꾸는 것이 여기 할 일이다.
+
+두 테스트 헤더에 대해서는 **기구와 단언을 분리**한다. 둘 다 GoogleTest
+`TYPED_TEST_P` 픽스처이고, 공유 헤더인 유일한 이유가
+`CollisionAllocatorType` 타입 파라미터이며, 이 포트에는 그 파라미터가
+훑을 백엔드가 하나뿐이다. 그러나 헤더가 **무엇을 단언하는가**는 그것을
+단언하는 기구와 다른 물건이고, 판정의 근거가 되는 쪽은 단언이다.
+
+### §231.1 `test_collision_common_panda.hpp` — `decided-non-port`, 단언 10건 중 9건은 옮겼다
+
+`REGISTER_TYPED_TEST_SUITE_P` 셋(`:378-383`)이 등록하는 테스트는 10개다.
+9개를 `crates/moveit-collision/tests/upstream_panda_harness.rs`에 상류의
+관절값·상자 치수·패딩값·기대 크기와 **상류 자신의 허용오차** 그대로
+옮겼다(케이스별 대응표는 그 파일의 모듈 doc에 있다). 남은 하나 `InitOK`는
+픽스처의 `robot_model_ok_`를 단언하는 것이고, 이 포트에서 그것은
+`build_panda()`의 `.expect`다.
+
+```console
+$ cargo nextest run -p moveit-collision --test upstream_panda_harness
+    Starting 9 tests across 1 binary
+     Summary [   0.056s] 9 tests run: 9 passed, 0 skipped
+```
+
+오라클로 재도출하지 않은 이유는 두 가지다. `PaddingTest`는 애초에 오라클에
+줄 수 없다 — `tools/moveit-oracle`의 `collision` op은 `CollisionEnvFCL(model,
+world)`를 만들고 `setLinkPadding`을 **호출하지 않는다**. 나머지는 줄 수
+있지만, 여기서 기대값은 상류가 손으로 적은 상수 그 자체이므로 오라클로
+바꾸면 고정 표적이 움직이는 표적으로 바뀐다. 오라클 일치는
+`collision_parity.rs`가 재는 것이고, 이 파일이 재는 것은 상류의 손으로 적은
+기대값이다.
+
+**이 이식이 찾아낸 포트 결함 둘.** 둘 다 이 워크스페이스가 이미 가진
+시험 어느 것으로도 닿지 않았고, 그것이 "이미 덮여 있을 것"이라고 추론하는
+대신 헤더의 단언을 실제로 옮겨 본 이유다.
+
+1. **`CollisionRequest::distance`가 아무것도 채우지 않았다.** 상류의 두
+   충돌 헬퍼는 각각 끝에 `if (req.distance)` 블록을 달고 있고
+   (`collision_env_fcl.cpp:283-297`가 self, `:340-354`가 robot) 그 블록이
+   두 번째 거리 질의를 돌려 `CollisionResult::distance`에 넣는다. parry
+   백엔드는 **양쪽 다** 돌리지 않았으므로 `distance: true`가 `None`을
+   냈다. `parry.rs`의 `attach_requested_distance` 하나로 두 진입점이
+   지나가게 고쳤다 — 진입점마다 따로 쓰는 것이 한쪽만 구현되고 다른
+   쪽은 조용히 무시되는 바로 그 모양이기 때문이다.
+2. **쌍 맵 두 개가 정렬이 아니라 순회 순서로 키를 매겼다.** 상류는
+   `collisionCallback`과 `distanceCallback` 양쪽에서 사전순으로 작은 이름을
+   앞에 둔다(`collision_common.cpp:240-242`, `:564-567`). 이 백엔드는
+   `cross_pairs`가 로봇을 먼저 놓으므로 `distance_robot`의 모든 쌍을
+   `(link, object)`로 넣었고, 상류는 이름이 앞서는 쪽을 먼저 넣었다.
+   측정으로 확인한 실제 키는 아래와 같다(`distance_single` 실패 시 출력).
+
+   ```console
+   keys are [("panda_hand", "collection"), ("panda_hand", "object"),
+             ("panda_leftfinger", "collection"), ... ]   # 22개 전부 역순
+   ```
+
+   `BTreeMap`이므로 이것은 조회 키뿐 아니라 `contacts.begin()`이 무엇을
+   내는지까지 결정한다 — 상류 자신의 `ContactReporting`이 그 첫 원소를
+   읽는다. `parry.rs`의 `pair_key` 하나로 두 site가 지나가게 고쳤다.
+   `moveit-distance-field`는 이 계열이 **아니다**: 그 상류
+   (`collision_env_distance_field.cpp:329`, `:621`, `:1618`)는 정렬하지
+   않고 포트도 정렬하지 않는다.
+
+세 시험이 이 두 픽스를 판별한다는 것은 변이로 확인했다.
+`attach_requested_distance`를 즉시 return으로 바꾸면 4건이 깨지고
+`is_none_when_not_requested`만 통과하며, robot 쪽 호출만 지우면 robot 쪽
+1건만 깨진다. `pair_key`의 정렬을 없애면 3건 전부 깨진다.
+
+### §231.2 `occupancy_map.hpp` — `decided-non-port`, 상류 코퍼스 안에 쓰는 곳이 0이다
+
+§217.3이 이 파일을 `gap`으로 둔 이유는 정확했다: 그때 근거로 인용된
+문장은 "`moveit-octomap`으로 보내라"는 라우팅이지 이식하지 않기로 한
+결정이 아니었다. 여기서 판정으로 바꾼다.
+
+헤더 전체는 120줄이고, `octomap::OcTree`에 대해 더하는 것은 정확히
+이것뿐이다(`:52-116` 실측):
+
+- 전달 생성자 둘 — `OccMapTree(double resolution)`, `OccMapTree(const
+  std::string& filename)`
+- `std::shared_mutex` 잠금 여섯 — `lockRead`/`unlockRead`/`lockWrite`/
+  `unlockWrite`/`reading`/`writing`
+- 갱신 콜백 둘 — `setUpdateCallback`/`triggerUpdateCallback`
+- 별칭 셋 — `OccMapNode`, `OccMapTreePtr`, `OccMapTreeConstPtr`
+
+**더해진 API를 쓰는 코퍼스 파일은 헤더 자신 말고 0이다.** 두 질문을 따로
+쟀다 — 타입 이름을 쓰는 곳과, 잠금·콜백 API를 부르는 곳.
+
+```console
+$ cd /home/stevek/work/moveit2
+$ rg -l --no-heading 'OccMapTree' --glob '*.cpp' --glob '*.hpp' --glob '*.h' . | sort
+./moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp
+./moveit_core/planning_scene/src/planning_scene.cpp
+./moveit_ros/occupancy_map_monitor/include/moveit/occupancy_map_monitor/occupancy_map_monitor.hpp
+./moveit_ros/occupancy_map_monitor/include/moveit/occupancy_map_monitor/occupancy_map_updater.hpp
+./moveit_ros/occupancy_map_monitor/src/occupancy_map_monitor.cpp
+./moveit_ros/perception/lazy_free_space_updater/include/moveit/lazy_free_space_updater/lazy_free_space_updater.hpp
+./moveit_ros/perception/lazy_free_space_updater/src/lazy_free_space_updater.cpp
+./moveit_ros/planning/planning_scene_monitor/src/planning_scene_monitor.cpp
+```
+
+8개 중 코퍼스 안은 헤더 자신과 `planning_scene.cpp` **둘**이고, 나머지 6개는
+전부 `moveit_ros/*`다. 잠금·콜백 쪽은 12개인데 코퍼스 안은 **헤더 자신
+하나뿐**이다.
+
+```console
+$ rg -l --no-heading 'lockRead|unlockRead|lockWrite|unlockWrite|->reading\(\)|->writing\(\)|triggerUpdateCallback|setUpdateCallback' \
+       --glob '*.cpp' --glob '*.hpp' --glob '*.h' . | rg -v '^\./moveit_ros/'
+./moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp
+```
+
+그 하나뿐인 코퍼스 사용처가 무엇을 쓰는지도 실측했다. 다섯 히트는
+`#include`(`:39`)와 `createOctomap`(`:1417-1420`, `:1451`, `:1492`)이고,
+`createOctomap` 본문은 `OccMapTree(map.resolution)` 생성 뒤
+`octomap_msgs::readTree` 또는 `om->readData(datastream)`만 부른다 —
+잠금도 콜백도 건드리지 않는, 순수한 `octomap::OcTree`다. 이 포트는 그것을
+이미 한다: `ros/moveit-ros/src/scene/planning_scene.rs:137-143`의
+`apply_octomap`이 `moveit_octomap::OcTree::new(resolution)` 뒤
+`read_binary_data`/`read_data`를 부른다.
+
+더하는 두 기구는 이 포트가 **구조적으로 다르게 표현하는** 바로 그 둘이다.
+공유 가변성은 타입 안이 아니라 사용처에 둔다 — 이 트리의 옥트리는 전부
+`Arc<OcTree>`로 불변 공유된다(`ros/moveit-ros/src/scene/planning_scene.rs:148`,
+`crates/moveit-distance-field/src/distance_field.rs:752`, `:807`,
+`crates/moveit-collision/src/parry.rs` 등). 갱신 콜백은 트리의 것이 아니라
+모니터의 것이고, 모니터(`moveit_ros/occupancy_map_monitor`)는 코퍼스 밖이다.
+
+만료 조건은 취향이 아니라 사실로 적는다: **코퍼스 안에서 잠금 API나 콜백
+API를 부르는 호출자가 생기면** 다시 연다. `moveit-octomap`으로 라우팅하라는
+요청은 이 판정으로 철회한다 — 보낼 내용이 `octomap::OcTree` 자체 말고는
+없기 때문이다.
