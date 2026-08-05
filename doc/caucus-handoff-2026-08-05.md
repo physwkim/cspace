@@ -206,7 +206,7 @@ Three prompts went out and no report came back. Re-issue them.
 
 1. A coverage gap in `moveit-collision` found from outside by p1-joints,
    passed on as a claim to re-derive, not as fact. Their claim:
-   `World::remove_shape_from_object` (`crates/moveit-collision/src/world.rs:629-656`)
+   `World::remove_shape_from_object` (`crates/moveit-collision/src/world.rs:776-803`)
    has two `?`-early-return `None` sites — `object_mut(id)?` at `:634`
    and `.position(...)?` at `:638` — but only one test,
    `remove_shape_from_object_unknown_is_none`, whose fixture is a bare

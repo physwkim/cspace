@@ -193,7 +193,7 @@ fn links_in_collision() {
 /// `0.3, 0.25, 0.05, 0.25` put the box at `0.3, 0.55, 0.60, 0.85`, not at the
 /// literals. That is transcribed here as the same *relative* moves rather
 /// than as the absolute heights, so the composing semantics
-/// ([`moveit_collision::World::move_object`], `world.rs:593`) is part of what
+/// ([`moveit_collision::World::move_object`], `world.rs:740`) is part of what
 /// this case checks rather than something the test quietly assumes.
 #[test]
 fn robot_world_collision_1() {

@@ -559,7 +559,7 @@ pre-§9 question:
 - `moveit-scene/src/scene.rs:2150` fails **clause 1 (mechanism)**.
   `matches!(outcome, MoveObjectOutcome::Moved(_))` targets the
   success-with-effect arm of a three-variant outcome
-  (`world.rs:586-595`: `NotFound`, `NoChange`, `Moved`). The sibling two
+  (`world.rs:733-742`: `NotFound`, `NoChange`, `Moved`). The sibling two
   variants *would* satisfy clause 1; `Moved` is a success-path value, so
   the assertion is not this family even though it does discriminate.
 - `moveit-constraints/tests/constraint_sampler_manager.rs:172` fails
@@ -719,7 +719,7 @@ naming, since between them they account for 20 of the 25:
 - **clause 1, success-path values** (`bodies.rs:4328/4332/4340/4347`,
   `scene.rs:2150`): the assertion checks *which* thing was built on a path
   that always succeeds. Computed dispatch, not a failure signal.
-- **clause 2, no decision to be wrong about** (`matrix.rs:524`,
+- **clause 2, no decision to be wrong about** (`matrix.rs:660`,
   `octomap_filter.rs:381`, `shapes.rs:1962`,
   `constraint_sampler_manager.rs:172`): a fresh map, a field with zero
   assignment sites, a literal-initialized value, an accumulator no step
@@ -727,10 +727,10 @@ naming, since between them they account for 20 of the 25:
   could exercise a wrong implementation.
 
 The clause-2 line is finer than it looks, and `matrix.rs` carries both
-sides of it in one file: `:524` reads `default_entry("a")` on a
+sides of it in one file: `:660` reads `default_entry("a")` on a
 freshly-`new()`ed matrix (out — no antecedent setter, nothing decided),
-while `:744` reads the same getter after `clear()` (in — commenting out
-`self.defaults.clear()` fails `:744`'s test alone, 198/199, confirmed at
+while `:880` reads the same getter after `clear()` (in — commenting out
+`self.defaults.clear()` fails `:880`'s test alone, 198/199, confirmed at
 the merge). Same method, same assertion shape, opposite membership,
 settled by running a mutation rather than by arguing from the signature.
 

@@ -12222,8 +12222,8 @@ p9-ros의 UNFIXED 중 하나를 원본에 대고 확인했다. 사실이고, 막
 
 `moveit_scene::PlanningScene::world()`(`scene.rs:951`)는 `&World`만 돌려준다.
 `world_mut`은 없다(`rg`로 확인, 0건). 그런데 필요한 두 연산은 `World`에
-`pub`으로 있다 — `move_shapes_in_object`(`world.rs:560`),
-`set_subframes_of_object`(`world.rs:690`). 즉 크레이트 밖에서 도달 불가다.
+`pub`으로 있다 — `move_shapes_in_object`(`world.rs:707`),
+`set_subframes_of_object`(`world.rs:837`). 즉 크레이트 밖에서 도달 불가다.
 
 `world_mut()`을 추가하는 것이 답이 **아니다**. 이 씬은 의도적으로 raw
 `&mut World`가 아니라 연산별 래퍼를 노출한다 — `add_shape`(`:974`),
@@ -20497,3 +20497,134 @@ D8이 예산을 `f64` 초 단위로 싣는 쪽으로 결정된다면 이 절을 
 하고, 그때 필요한 가드는 `<= 0.0`이 아니라 `> 0.0`이다
 (§236.1, 그리고 상류 자신의 `MoveGroupInterface::setPlanningTime`,
 `move_group_interface.cpp:1013-1017`).
+
+## §NEW 포팅됨 158건 중 선언 단위로 세어 본 것은 69건뿐이었다 — 나머지 89건을 목록으로 만들고 게이트를 붙였다 (2026-08-06)
+
+### §NEW.1 재는 것이 다른 두 문서
+
+`doc/port-coverage.md`는 코퍼스 245건 중 **미포팅 87건**을 분류한다. 그
+반대쪽 158건은 어느 계기도 보지 않는다. §1이 그 판정을 그대로 적어 두었기
+때문에 숨은 사실이 아니다: "포팅됨"은 어떤 `.rs` 파일의
+`// Ported from moveit2 @ <sha>:` 헤더 블록 안에 그 상류 경로가 나온다는
+뜻이고, 그게 전부다. **파일 단위 주장이다.**
+
+그러므로 1,764줄짜리 헤더를 인용하면서 그 안의 228개 public 선언 중 몇
+개를 옮겼든 `verify-port-coverage.sh`는 초록이다. 그 헤더가
+`robot_state.hpp`이고, 이 라운드 전까지 몇 개인지 세어 본 기록은 트리
+어디에도 없었다.
+
+새 문서 `doc/declaration-audit-coverage.md`가 그 158건을 한 줄씩 적는다.
+코퍼스 정의를 다시 쓰지 않고 `port-coverage.md` §1·§2를 가리키며, 계기
+`tools/ci/measure-declaration-audits.py`도 `measure-port-coverage.py`의
+`corpus_files()`/`cited_paths()`를 **import**한다 — 인용 블록 문법(중괄호
+전개, 디렉터리 통째 인용, 들여쓴 멤버)의 두 번째 사본을 만들지 않기 위해서다
+(`check-audit-scripts-not-copied.sh`가 적은 그 이유 그대로).
+
+### §NEW.2 판정 규칙과 그 대가
+
+`audited` = 트리 어딘가의 문장이 그 상류 파일(또는 그것이 선언하는 클래스)의
+**모든** public 선언을 열거했다고 *주장하고* 선언마다 처분을 붙인 경우.
+`none` = 그런 완전성 주장이 없는 경우.
+
+엄격한 쪽이다. `moveit-error`의 산문은 `exceptions.hpp`가 선언하는 두 클래스
+(`moveit::Exception`, `moveit::ConstructException`, 각각 public 선언 1개)를
+모두 이름으로 대응시키지만 전수라고 주장하지 않으므로 `none`이다. 이 대가는
+문서 §2에 명시했다.
+
+측정 도중 후보 정규식 두 개가 자기 히트를 열어 보는 것만으로 반증됐다.
+`crates/moveit-planning/src/request_adapters/check_start_state_bounds.rs:10`의
+"Symbol audit"은 선언 감사가 아니라 `rclcpp`/`moveit_msgs` **출현** 감사이고
+대상 파일도 코퍼스 밖(`moveit_ros/*`)이다.
+`crates/moveit-octomap/src/tree.rs:87`의 "Symbol-by-symbol audit"은 octomap
+상류 헤더에 대한 것이지 코퍼스 파일에 대한 것이 아니다. 반대 방향의 오차도
+있었다: `crates/moveit-scene/src/scene.rs:50`의 진짜 `planning_scene.hpp`
+감사(60개 항목)는 제목이 `# Scope`라서 제목 기반 스캔에 잡히지 않았다.
+그래서 최종 목록은 정규식의 산출물이 아니라 **감사문마다 그 감사문이 스스로
+적은 적용 범위를 읽어 파일에 배정한** 결과이고, 문서의 근거는 행마다 붙은
+`파일:줄` 포인터 — 독자가 직접 여는 것 — 이지 어떤 스캐너의 출력이 아니다.
+
+### §NEW.3 실측: 69 / 89, 그리고 그 89가 몰려 있는 곳
+
+라운드 시작 시점 **69 audited / 89 none**. §NEW.5의 감사로 4건이 넘어가
+지금은 73 / 85다.
+
+미감사가 세 크레이트에 몰려 있다: `moveit-planners-pilz` 39,
+`moveit-model` 20, `moveit-collision` 13 — 합쳐 85건 중 68건이고, 셋 다
+라운드 시작 시점 선언 단위 감사가 0이었다. 단일 파일로 가장 큰 것은
+`robot_state.hpp`로, `RobotState` 자체만 public 선언 **228**개
+(`count-public-declarations.sh` 실측, 파일 1,764줄)이며 두 크레이트가
+인용한다.
+
+`moveit-test-support`는 `doc/claim-audit/`에 대응 파일이 없는 유일한
+크레이트지만 이 표에는 아무 행도 기여하지 않는다 — 그 크레이트의 `.rs`에는
+헤더 블록 인용이 0건이다. 별개의 구멍이므로 사실만 적고 판정하지 않았다.
+
+### §NEW.4 이 세 수에는 게이트가 있다
+
+`port-coverage.md` §4의 3분할이 아무 계기 없이 여러 문서에 인용되는 값인
+것과 달리, `verify-declaration-audits.sh`가 행 집합·판정 어휘·증거를 전부
+대조한다. 새로 포팅된 파일이 생기면 `MISSING ROW`로 실패하고, 판정이 두
+단어 밖이면 실패하고, `audited`인데 증거가 없거나 `파일:줄` 형태가 아니거나
+그 파일이 없거나 그 줄이 파일 끝을 넘으면 실패한다. 행 0개 파싱도 실패다.
+검사하지 **않는** 것은 그 줄이 여전히 감사문의 시작인지이며, 문서에 그렇게
+적었다.
+
+`--check`를 아홉 가지로 변이시켜 각각이 서로 다른 메시지로 무는 것을
+확인했다: 행 삭제(`MISSING ROW`), 가짜 행 추가(`STALE ROW`), 행 중복
+(`DUPLICATE ROW`), 판정 어휘 위반, `audited`에서 증거 제거, `none`에 증거
+추가, 없는 파일 지목, 파일 끝 초과 줄 지목, 표 문법 파괴(행 0개). 변이하지
+않은 사본은 OK다.
+
+### §NEW.5 실제로 감사한 4건 — `World`(37)와 `AllowedCollisionMatrix`(29)
+
+`moveit-collision` 13건 중 중심 두 클래스와 그 짝 `.cpp`.
+`crates/moveit-collision/src/world.rs:119`와
+`crates/moveit-collision/src/matrix.rs:13`에 선언마다 처분을 적었다. 두
+헤더 모두 스크립트 계수와 손 열거가 정확히 일치했다(37, 29). `World`의 중첩
+`struct Object` 8건은 스크립트가 셀 수 없어(`class`만 매칭, 깊이 1만 계수)
+`world.hpp:78-117`에서 손으로 열거했다고 감사문에 적었다.
+
+`robot_state.hpp`(228)를 고르지 않은 이유는 한 라운드에 끝나지 않기
+때문이다. 절반만 한 감사는 완전성을 주장할 수 없어 §NEW.2의 규칙상 `none`과
+구별되지 않으므로, 시작해 두는 것에 값이 없다.
+
+처분이 `ported`가 아닌 것은 decided-non-port 8건(`~World()`,
+`using const_iterator`, `ObserverHandle`/`ObserverCallbackFn`/`addObserver`/
+`removeObserver` — deviation 4, 만료 조건 명시 —,
+`MOVEIT_CLASS_FORWARD(AllowedCollisionMatrix)`, `print`)과 unported-in-scope
+2건이다. 후자는 `AllowedCollisionMatrix`의 메시지 생성자와 `getMessage()`로,
+D6/§4.3이 `moveit-ros`의 `TryFrom` 층에 배정했으나 아직 없다. 새로 발견한
+미처리가 아니라 이미 이름이 적힌 구멍이다 —
+`ros/moveit-ros/src/scene/planning_scene.rs:19-24`가
+`allowed_collision_matrix`를 미변환 `PlanningScene` 필드로 열거해 두었고 그
+파일을 열어 확인했다.
+
+`doc/port-coverage.md`에 새 `gap` 행은 생기지 않았고 생길 수 없다: 그 표는
+미포팅 **파일**을 분류하는데 이 4건은 전부 포팅된 파일이고, 위 2건은 파일이
+아니라 파일 안의 선언이다. 선언 단위 미처리를 적을 자리가 그 표에 없다는 것
+자체가 새 문서가 생긴 이유다.
+
+### §NEW.6 감사가 고친 상류 서술 오류 하나
+
+`matrix.rs`가 `AllowedCollisionMatrix::print`를 "`rclcpp` 로거
+(`RCLCPP_WARN_STREAM_THROTTLE`)로 포맷하므로 미포팅"이라고 적고 있었다.
+`collision_matrix.cpp:428-491`에는 로깅이 없다 — 호출자가 준
+`std::ostream&`에 인덱스 헤더 행과 이름별 `01?`/`-` 표를 쓰고 끝난다.
+`RCLCPP_WARN_STREAM_THROTTLE`은 이 체크아웃 전체에서
+`collision_common.cpp:60` 한 곳뿐이고 `print`와 무관하다. 이 체크아웃에
+`AllowedCollisionMatrix::print` 호출자는 0건이다(`\.print\(|->print\(`
+전체 6건, 어느 것도 수신자가 ACM이 아님). 사유를 "호출자 0건인 디버그
+프린터, 대응물은 `Display` impl"로 교체했고 재개 조건도 적었다.
+
+파일 단위 인용이 초록인 채로 선언 하나의 미포팅 **사유**가 틀려 있었다는
+것이 §NEW.1의 구멍을 보여 주는 가장 짧은 예다.
+
+### §NEW.7 이 절이 하지 않은 것
+
+미감사 85건 중 81건은 그대로다. `moveit-planners-pilz` 39,
+`moveit-model` 20, `robot_state.hpp`/`.cpp` 2를 포함한다. 감사 결과 발견될
+미처리 선언은 이 문서의 행이거나 판정이지 `port-coverage.md`의 행이 아니다
+(§NEW.5).
+
+`moveit-test-support`의 `doc/claim-audit/` 부재도 그대로다 — 이 문서가 재는
+구멍이 아니어서 판정하지 않았다.

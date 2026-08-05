@@ -265,7 +265,7 @@ blind site (a bite exposed unexercised operands, since fixed).
 | frame_transform_parity.rs:254 | bare `.is_err()` | `panda_frame_transform_matches_the_oracle` | single-branch | structural — same `frame_transform` fallthrough-only reasoning as 2729/2814/2873/2882; `query.name == "nothing"` is not an attached-body name in this fixture (`build_scene`'s attach loop only populates from `request.attached_bodies`). Corrected from `discriminating`, same reason | yes |
 
 **`scene.rs:2150` moved to `not-this-family` (clause 1, mechanism).**
-Re-read `World::move_object` (`crates/moveit-collision/src/world.rs:586-595`):
+Re-read `World::move_object` (`crates/moveit-collision/src/world.rs:733-742`):
 `self.objects.get(id)` miss → `NotFound`; `eigen_is_approx(transform,
 identity)` → `NoChange`; otherwise → `Moved(notification)`.
 `MoveObjectOutcome::NotFound`/`NoChange` are genuine "could not/did not
@@ -627,7 +627,7 @@ Prior to this round's folded-condition audit, every site in this
 round's 7 crates was already discriminating, provably single-branch by
 direct source read, or previously fixed — no blind/never-covered site
 was found by the earlier verdict/evidence review (in contrast to round
-8's `matrix.rs:685`/`set_entry_for_known` fixture collapse). That
+8's `matrix.rs:821`/`set_entry_for_known` fixture collapse). That
 review found evidence-shape defects (a single-producer argument
 mislabeled `discriminating`, two citations I could not locate) but no
 site whose *behavior* was wrong. This round's folded-condition

@@ -6,6 +6,142 @@
 //   moveit_core/collision_detection/include/moveit/collision_detection/collision_matrix.hpp
 //   moveit_core/collision_detection/src/collision_matrix.cpp
 
+//! Which pairs of named bodies may touch: upstream
+//! `collision_detection::AllowedCollisionMatrix` and the
+//! `AllowedCollision::Type`/`DecideContactFn` vocabulary around it.
+//!
+//! # Declaration audit — `collision_matrix.hpp` / `collision_matrix.cpp`
+//!
+//! Every public declaration in `collision_matrix.hpp`, each with a
+//! disposition. Written for the reason `world`'s equivalent section states:
+//! "ported" is otherwise a file-level claim, and
+//! `doc/declaration-audit-coverage.md` measures how far that claim reaches
+//! across the tree.
+//!
+//! `tools/ci/count-public-declarations.sh collision_matrix.hpp
+//! AllowedCollisionMatrix` prints **29**. The 29 bullets below were
+//! enumerated by hand from `collision_matrix.hpp:82-247` and then checked
+//! against that count.
+//!
+//! ## The collapse this audit is easiest to read against
+//!
+//! Upstream stores an entry's *type* and its *predicate* in two parallel
+//! maps (`entries_`/`allowed_contacts_`, and `default_entries_`/
+//! `default_allowed_contacts_` for defaults), so nearly every accessor comes
+//! in two overloads: one filling an `AllowedCollision::Type&`, one filling a
+//! `DecideContactFn&`. [`AllowedCollision`] is one sum type carrying the
+//! predicate only in the variant that has one, so each upstream *pair* of
+//! overloads is one method here plus [`AllowedCollision::kind`] or
+//! [`AllowedCollision::predicate`] at the call site. That is why the 29
+//! below map onto fewer Rust methods without anything being dropped.
+//!
+//! ## `class AllowedCollisionMatrix`, 29 declarations
+//!
+//! 1. `AllowedCollisionMatrix()` → [`AllowedCollisionMatrix::new`].
+//! 2. `AllowedCollisionMatrix(names, allowed = false)` →
+//!    [`AllowedCollisionMatrix::from_names`]; the C++ default argument
+//!    becomes a required parameter, Rust having no default arguments.
+//! 3. `AllowedCollisionMatrix(const srdf::Model&)` →
+//!    [`AllowedCollisionMatrix::from_srdf`].
+//! 4. `AllowedCollisionMatrix(const moveit_msgs::msg::AllowedCollisionMatrix&)`
+//!    → **unported, in scope, assigned elsewhere.** D6/§4.3 put every
+//!    `moveit_msgs` conversion in `moveit-ros` as a `TryFrom`, and it is not
+//!    written yet: `ros/moveit-ros/src/scene/planning_scene.rs:19-24` names
+//!    `allowed_collision_matrix` in its own list of `PlanningScene` message
+//!    fields still unconverted. Expires when that conversion lands.
+//! 5. `AllowedCollisionMatrix(const AllowedCollisionMatrix&) = default` →
+//!    `#[derive(Clone)]`.
+//! 6. `operator=(const AllowedCollisionMatrix&) = default` → `Clone` plus
+//!    ordinary assignment; Rust has no separate copy-assignment operator to
+//!    port.
+//! 7. `getEntry(name1, name2, AllowedCollision::Type&)` →
+//!    [`AllowedCollisionMatrix::entry`] + [`AllowedCollision::kind`].
+//! 8. `getEntry(name1, name2, DecideContactFn&)` →
+//!    [`AllowedCollisionMatrix::entry`] + [`AllowedCollision::predicate`].
+//! 9. `hasEntry(name)` → [`AllowedCollisionMatrix::has_entry`].
+//! 10. `hasEntry(name1, name2)` →
+//!     [`AllowedCollisionMatrix::has_pair_entry`].
+//! 11. `removeEntry(name1, name2)` →
+//!     [`AllowedCollisionMatrix::remove_entry`].
+//! 12. `removeEntry(name)` →
+//!     [`AllowedCollisionMatrix::remove_entries_for`].
+//! 13. `setEntry(name1, name2, bool)` →
+//!     [`AllowedCollisionMatrix::set_entry`].
+//! 14. `setEntry(name1, name2, DecideContactFn&)` →
+//!     [`AllowedCollisionMatrix::set_conditional_entry`].
+//! 15. `setEntry(name, bool)` →
+//!     [`AllowedCollisionMatrix::set_entry_for_known`]. Named for what it
+//!     does — pair `name` with the names the matrix already knows — because
+//!     upstream's own doc comment warns that the known set changes under the
+//!     caller and recommends `setDefaultEntry` instead.
+//! 16. `setEntry(name, other_names, bool)` →
+//!     [`AllowedCollisionMatrix::set_entry_with`].
+//! 17. `setEntry(names1, names2, bool)` →
+//!     [`AllowedCollisionMatrix::set_entry_between`].
+//! 18. `setEntry(bool)` → [`AllowedCollisionMatrix::set_all_entries`].
+//! 19. `getAllEntryNames(std::vector<std::string>&)` →
+//!     [`AllowedCollisionMatrix::all_entry_names`], returning the vector
+//!     instead of filling an out-parameter.
+//! 20. `getMessage(moveit_msgs::msg::AllowedCollisionMatrix&)` →
+//!     **unported, in scope, assigned elsewhere** — the same D6/§4.3 routing
+//!     and the same expiry as 4.
+//! 21. `clear()` → [`AllowedCollisionMatrix::clear`].
+//! 22. `getSize()` → [`AllowedCollisionMatrix::len`], plus
+//!     [`AllowedCollisionMatrix::is_empty`] which Rust convention requires
+//!     alongside `len` and upstream has no counterpart for.
+//! 23. `setDefaultEntry(name, bool)` →
+//!     [`AllowedCollisionMatrix::set_default_entry`].
+//! 24. `setDefaultEntry(name, DecideContactFn&)` →
+//!     [`AllowedCollisionMatrix::set_default_conditional_entry`].
+//! 25. `getDefaultEntry(name, AllowedCollision::Type&)` →
+//!     [`AllowedCollisionMatrix::default_entry`] +
+//!     [`AllowedCollision::kind`].
+//! 26. `getDefaultEntry(name, DecideContactFn&)` →
+//!     [`AllowedCollisionMatrix::default_entry`] +
+//!     [`AllowedCollision::predicate`].
+//! 27. `getAllowedCollision(name1, name2, DecideContactFn&)` →
+//!     [`AllowedCollisionMatrix::allowed_collision`] +
+//!     [`AllowedCollision::predicate`].
+//! 28. `getAllowedCollision(name1, name2, AllowedCollision::Type&)` →
+//!     [`AllowedCollisionMatrix::allowed_collision`] +
+//!     [`AllowedCollision::kind`]. Upstream's two `getAllowedCollision`
+//!     overloads can disagree with each other; see
+//!     [`AllowedCollision::combine_defaults`]'s doc comment for the case and
+//!     why collapsing them makes it unrepresentable.
+//! 29. `print(std::ostream&)` → **decided-non-port**; see
+//!     [`AllowedCollisionMatrix`]'s own doc comment for the measurement
+//!     behind that and the condition that re-opens it.
+//!
+//! ## File-level declarations outside the class, 3
+//!
+//! 1. `namespace AllowedCollision { enum Type }` →
+//!    [`AllowedCollisionType`]. The namespace-wrapped enum is a pre-`enum
+//!    class` idiom for scoping the three names; a Rust enum scopes its
+//!    variants already.
+//! 2. `using DecideContactFn` → [`DecideContactFn`], `Arc<dyn Fn>` where
+//!    upstream has `std::function`. `Send + Sync` are required because an
+//!    [`AllowedCollisionMatrix`] travels between threads in this port;
+//!    `std::function` carries no such bound and upstream relies on
+//!    convention.
+//! 3. `MOVEIT_CLASS_FORWARD(AllowedCollisionMatrix)` → **decided-non-port.**
+//!    The macro's `Ptr`/`ConstPtr`/`WeakPtr` aliases exist so callers can
+//!    share one matrix; a caller here owns the value or wraps it at the use
+//!    site, and a fixed alias in this module would decide that for them.
+//!
+//! ## Private declarations and `collision_matrix.cpp`
+//!
+//! One private declaration, `getDefaultEntry(name1, name2,
+//! AllowedCollision::Type&)`, is
+//! [`AllowedCollision::combine_defaults`] here.
+//!
+//! `collision_matrix.cpp` adds two file-local declarations to the header's
+//! list: an anonymous-namespace `getLogger()` returning an `rclcpp::Logger`
+//! (`:46-52`), excluded by D1; and `static bool andDecideContact(f1, f2,
+//! contact)` (`:296`), which is not excluded — it is the AND of two
+//! predicates, ported inside [`AllowedCollision::combine_defaults`] as the
+//! closure over both `Arc`s. Every other definition in the file implements a
+//! declaration listed above.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;

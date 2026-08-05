@@ -115,6 +115,153 @@
 //! 11. **`removeObject`, not `removeObjectFromWorld`.** The upstream symbol
 //!     is `bool World::removeObject(const std::string&)`; this port's
 //!     [`World::remove_object`] names the method upstream actually has.
+//!
+//! # Declaration audit — `world.hpp` / `world.cpp`
+//!
+//! Every public declaration in `world.hpp`, each with a disposition. The
+//! deviations above say *how* pieces differ; this says *whether each one is
+//! here at all*, which is a different question and the one the crate-doc
+//! prose above could not answer. It exists because "ported" is otherwise a
+//! file-level claim — `doc/declaration-audit-coverage.md` is the tree-wide
+//! measurement of how far that claim reaches.
+//!
+//! `tools/ci/count-public-declarations.sh world.hpp World` prints **37**, the
+//! `public:` declarations at brace depth 1 of `class World`. The 37 bullets
+//! below are that list, enumerated independently and then checked against the
+//! script's count rather than assumed from it.
+//!
+//! ## `class World`, 37 declarations
+//!
+//! 1. `World()` → [`World::new`].
+//! 2. `World(const World& other)` → `#[derive(Clone)]`; the copy-constructor
+//!    body is `objects_ = other.objects_;` and nothing else, which is what
+//!    deriving gives (see [`World`]'s own doc comment).
+//! 3. `virtual ~World()` → **decided-non-port.** Its body drains
+//!    `observers_` (`while (!observers_.empty()) removeObserver(...)`), and
+//!    deviation 4 removed observers entirely, so there is nothing left to
+//!    release; `BTreeMap`/`Arc` free themselves. `virtual` exists so a
+//!    subclass destructor runs — this port has no subclass, `World` being
+//!    concrete with no trait to implement.
+//! 4. `MOVEIT_STRUCT_FORWARD(Object)` → `Arc<`[`Object`]`>`. The macro's
+//!    `ObjectPtr`/`ObjectConstPtr` pair collapses to one type: `Arc<T>` hands
+//!    out `&T`, so the const/non-const distinction upstream needs two aliases
+//!    for is the default here. `ObjectWeakPtr` is unused upstream — nothing
+//!    in `world.{hpp,cpp}` names it.
+//! 5. `struct Object` → [`Object`], audited member-by-member below.
+//! 6. `getObjectIds()` → [`World::object_ids`].
+//! 7. `getObject()` → [`World::get_object`].
+//! 8. `using const_iterator` → **decided-non-port.** It names
+//!    `std::map<std::string, ObjectPtr>::const_iterator`, i.e. the container
+//!    upstream happens to use; [`World::iter`] returns `impl Iterator`, which
+//!    is the same access without publishing the representation.
+//! 9. `begin()` → [`World::iter`].
+//! 10. `end()` → [`World::iter`]. Upstream's begin/end pair is one Rust
+//!     iterator; there is no separate end sentinel to expose.
+//! 11. `size()` → [`World::len`] (and [`World::is_empty`], which Rust
+//!     convention requires alongside `len` and upstream has no counterpart
+//!     for).
+//! 12. `find(object_id)` → [`World::get_object`]. Upstream returns an
+//!     iterator the caller compares against `end()`; the `Option` return
+//!     covers both the found and not-found halves of that, so `find` and
+//!     `getObject` are one method here.
+//! 13. `hasObject()` → [`World::has_object`].
+//! 14. `knowsTransform()` → [`World::knows_transform`] (deviation 8).
+//! 15. `getTransform(name)` → [`World::get_transform`] (deviation 6).
+//! 16. `getTransform(name, bool& frame_found)` → [`World::try_get_transform`].
+//! 17. `getGlobalShapeTransform()` → [`World::global_shape_transform`]
+//!     (deviation 7).
+//! 18. `getGlobalShapeTransforms()` → [`World::global_shape_transforms`].
+//! 19. `addToObject(id, pose, shapes, shape_poses)` → [`World::add_to_object`]
+//!     (deviation 9).
+//! 20. `addToObject(id, shapes, shape_poses)` →
+//!     [`World::add_shapes_to_object`].
+//! 21. `addToObject(id, pose, shape, shape_pose)` →
+//!     [`World::add_shape_to_object`].
+//! 22. `addToObject(id, shape, shape_pose)` → [`World::add_shape`]. Upstream's
+//!     four overloads are four names here because Rust has no overloading;
+//!     the three convenience forms forward to the first exactly as upstream's
+//!     inline bodies do.
+//! 23. `moveShapeInObject()` → [`World::move_shape_in_object`].
+//! 24. `moveShapesInObject()` → [`World::move_shapes_in_object`].
+//! 25. `moveObject()` → [`World::move_object`] (deviation 10).
+//! 26. `setObjectPose()` → [`World::set_object_pose`].
+//! 27. `removeShapeFromObject()` → [`World::remove_shape_from_object`].
+//! 28. `removeObject()` → [`World::remove_object`] (deviation 11).
+//! 29. `setSubframesOfObject()` → [`World::set_subframes_of_object`].
+//! 30. `clearObjects()` → [`World::clear_objects`].
+//! 31. `enum ActionBits` → [`Action`]'s associated constants
+//!     ([`Action::UNINITIALIZED`] … [`Action::REMOVE_SHAPE`]), same values.
+//! 32. `class Action` → [`Action`]. Upstream's `Action` is a one-`int`
+//!     wrapper whose only members are two constructors and
+//!     `operator ActionBits()`; here the wrapper and the bits are one type,
+//!     so the implicit conversion has nothing to convert between.
+//! 33. `class ObserverHandle` → **decided-non-port** (deviation 4). It is the
+//!     identity token for a registered callback, and there are no registered
+//!     callbacks.
+//! 34. `using ObserverCallbackFn` → **decided-non-port** (deviation 4). Its
+//!     `(const ObjectConstPtr&, Action)` payload is exactly
+//!     [`Notification`]'s two fields, which is where that signature went.
+//! 35. `addObserver()` → **decided-non-port** (deviation 4). Every mutator
+//!     returns the [`Notification`] the callback would have received.
+//! 36. `removeObserver()` → **decided-non-port** (deviation 4). Nothing is
+//!     registered, so nothing is unregistered.
+//! 37. `notifyObserverAllObjects()` → [`World::all_objects_as_notifications`].
+//!     The one observer operation with no return-value equivalent — replaying
+//!     the current world to a newly attached observer — so it is the one that
+//!     survives deviation 4.
+//!
+//! Expiry for 33–36 as a group: an in-tree caller that must be notified
+//! *without* holding the `&mut World` that produced the change. Every caller
+//! in this tree today has the return value in hand at the point of the
+//! change, so the callback registry has nothing to do that a returned
+//! [`Notification`] does not already do.
+//!
+//! ## `struct Object`, 8 declarations
+//!
+//! `count-public-declarations.sh` cannot count these: it matches
+//! `class <name>` and `Object` is a `struct`, and it excludes members nested
+//! below depth 1 by design. Enumerated by hand from `world.hpp:78-117`
+//! instead — a `struct` has no access specifiers to track, so the whole body
+//! is public.
+//!
+//! 1. `Object(const std::string& object_id)` → `Object::new(id, pose)`,
+//!    **private on purpose** (deviation 3): an `Object` outside a [`World`]
+//!    has no way to keep its global poses current, so the only constructor is
+//!    the one [`World`] calls.
+//! 2. `id_` → [`Object::id`].
+//! 3. `pose_` → [`Object::pose`].
+//! 4. `shapes_` → [`ShapeEntry::shape`], through [`Object::shapes`].
+//! 5. `shape_poses_` → [`ShapeEntry::pose`] (deviation 1).
+//! 6. `global_shape_poses_` → [`ShapeEntry::global_pose`].
+//! 7. `subframe_poses_` → [`Object::subframe_pose`], plus
+//!    [`Object::subframe_names`] for the key set `std::map` exposed directly
+//!    (deviation 2).
+//! 8. `global_subframe_poses_` → [`Object::global_subframe_pose`].
+//!
+//! All eight are read-only accessors here where upstream has public fields.
+//! That is deliberate and is what deviations 1 and 2 buy: a writable
+//! `shape_poses_` is precisely how the three vectors drift apart upstream.
+//!
+//! `EIGEN_MAKE_ALIGNED_OPERATOR_NEW` (`world.hpp:84`) is not counted as a
+//! declaration — it is an allocator override for over-aligned Eigen members,
+//! the same case `count-public-declarations.sh` documents skipping. No Rust
+//! counterpart exists or is needed.
+//!
+//! ## Private declarations and `world.cpp`
+//!
+//! Not owed by a *public* declaration audit, recorded because the
+//! substitutions are not one-to-one: `ensureUnique` → [`Arc::make_mut`] via
+//! this module's `ensure_unique`; `addToObjectInternal` → `Object::push_shape`
+//! (not `virtual` here — nothing subclasses `World`);
+//! `updateGlobalPosesInternal` → `Object::recompute_global_poses`, which has
+//! no `update_shape_poses`/`update_subframe_poses` flags because it always
+//! does both; `notify`/`notifyAll` → gone with deviation 4; `objects_` →
+//! `World::objects`; `observers_` → gone.
+//!
+//! `world.cpp` adds one file-local declaration to the header's list: an
+//! anonymous-namespace `getLogger()` returning an `rclcpp::Logger`
+//! (`world.cpp:47-50`), excluded by D1 — this crate references no ROS type.
+//! Every other definition in the file implements a declaration listed above.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
