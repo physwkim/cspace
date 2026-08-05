@@ -814,7 +814,7 @@ fn resolve_collision_point_joint_index(
 ///   evidence backing it -- depend on two crates it has never carried:
 ///   `moveit-scene` (for `PlanningScene::is_path_valid`,
 ///   `scene.rs:1725`) and `moveit-collision` (for `ParryCollisionEnv`,
-///   `parry.rs:1611` -- the only existing implementer of the
+///   `parry.rs:1629` -- the only existing implementer of the
 ///   `CollisionEnv<Posed>` bound `is_path_valid` requires;
 ///   `DistanceFieldCollisionCache` does not implement it).
 ///   [`ChompOptimizer::optimize`] instead takes a

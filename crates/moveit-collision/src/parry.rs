@@ -1471,26 +1471,44 @@ fn convert_shape(shape: &Shape, octree_cache: &OctreeCache) -> Option<(SharedSha
 }
 
 /// [`Shape::scale_and_padd`] on a clone, for a robot link's own collision
-/// shape (never a world object's — see the module doc, deviation 2).
+/// shape or an attached body's (never a world object's — see the module doc,
+/// deviation 2).
+///
+/// A [`Shape::Mesh`] still carrying `vertex_normals: None` has them computed
+/// on the clone first, because [`Shape::scale_and_padd`] needs them for the
+/// per-vertex padding direction and errors without them. Upstream never
+/// reaches `Mesh::scaleAndPadd` without them either, but it establishes that
+/// differently: every `geometric_shapes` mesh-creation entry point ends with
+/// `computeTriangleNormals(); computeVertexNormals();`
+/// (`third_party/geometric_shapes/src/mesh_operations.cpp:124-125`, `:200-201`,
+/// `:436-437`, and `shape_operations.cpp:534-535`), so a mesh that came from a
+/// `shape_msgs::Mesh` — which is how an attached body's geometry arrives —
+/// already has them. This port computes them in
+/// `moveit_geometry::stl::mesh_from_bytes` alone, which covers
+/// [`LinkModel::shapes`] and nothing else; an [`AttachedBodyGeometry`] carrying
+/// a mesh the caller built with `moveit_geometry::Mesh::new` is a supported
+/// public input that arrives here with `None`. Computing them here is what
+/// makes the `expect` below true for *both* callers rather than only the link
+/// one.
 ///
 /// # Panics
 ///
-/// Never, in practice: every non-mesh shape variant's dimensions are already
-/// validated non-negative at construction, so scaling by a
-/// validated-positive [`LinkPaddingScale::link_scale`] and adding a
-/// validated-non-negative [`LinkPaddingScale::link_padding`] can never make
-/// them negative. [`Shape::Mesh`] can appear in [`LinkModel::shapes`] — the
-/// URDF loader does resolve `<mesh>` collision geometry, through
-/// `moveit_model::MeshSearchPaths` — but `moveit_geometry::stl::mesh_from_bytes`
-/// calls `compute_vertex_normals` unconditionally at load time, so
+/// Never: every non-mesh shape variant's dimensions are already validated
+/// non-negative at construction, so scaling by a validated-positive
+/// [`LinkPaddingScale::link_scale`] and adding a validated-non-negative
+/// [`LinkPaddingScale::link_padding`] can never make them negative, and
 /// [`Shape::scale_and_padd`]'s one documented mesh failure mode
-/// (`vertex_normals: None`) is unreachable for any mesh that reached
-/// `LinkModel::shapes` through that loader.
+/// (`vertex_normals: None`) has just been removed above.
 fn scaled_padded_shape(shape: &Shape, scale: f64, padding: f64) -> Shape {
     let mut shape = shape.clone();
+    if let Shape::Mesh(mesh) = &mut shape {
+        if mesh.vertex_normals.is_none() {
+            mesh.compute_vertex_normals();
+        }
+    }
     shape.scale_and_padd(scale, padding).expect(
-        "every robot link collision shape is either non-negative by construction or a mesh \
-         with vertex normals already computed at load time, so scale_and_padd cannot fail here",
+        "every dimension is non-negative by construction and any mesh has had its vertex \
+         normals computed just above, so scale_and_padd cannot fail here",
     );
     shape
 }
@@ -2592,7 +2610,7 @@ mod tests {
     use std::sync::Arc;
 
     use approx::assert_relative_eq;
-    use moveit_geometry::{Cuboid, OcTree, Plane, Shape, Sphere};
+    use moveit_geometry::{Cuboid, Mesh, OcTree, Plane, Shape, Sphere};
     use moveit_model::{MeshSearchPaths, RobotModel};
     use moveit_srdf::SrdfModel;
     use moveit_state::RobotState;
@@ -2853,6 +2871,37 @@ mod tests {
             // 754, not a value measured for this input alone.
             Shape::Cuboid(c) => assert_eq!(c.size[0], 5.0),
             other => panic!("expected Cuboid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scaled_padded_shape_pads_a_mesh_that_arrived_without_vertex_normals() {
+        // `Mesh::new` is public and leaves `vertex_normals: None`, and it is
+        // how an `AttachedBodyGeometry`'s mesh is built on this side; only
+        // `moveit_geometry::stl::mesh_from_bytes` computes them. Upstream
+        // cannot reach this state at all -- every `geometric_shapes`
+        // creation entry point ends with `computeVertexNormals()` -- so it
+        // has no equivalent guard to port. `Mesh::scale_and_padd` reads the
+        // normal array for *any* scale and padding, including this
+        // identity pair, so the whole call panicked before, not just a
+        // padded one.
+        let mesh = Mesh::new(
+            vec![
+                Vector3::new(0.0, 0.0, 0.0),
+                Vector3::new(1.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2]],
+        )
+        .unwrap();
+        assert!(
+            mesh.vertex_normals.is_none(),
+            "Mesh::new must still leave the normals uncomputed, or this pins nothing"
+        );
+        let padded = scaled_padded_shape(&Shape::Mesh(mesh), 1.0, 0.0);
+        match padded {
+            Shape::Mesh(m) => assert_eq!(m.vertices.len(), 3),
+            other => panic!("expected Mesh, got {other:?}"),
         }
     }
 

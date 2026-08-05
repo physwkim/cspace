@@ -317,7 +317,7 @@ impl<'m> HybridCollisionEnv<'m> {
     /// [`ParryCollisionEnv::world_mut`] safely returns a raw `&mut World`
     /// because [`ParryCollisionEnv`] keeps no persistent world-derived
     /// structure to invalidate -- every `check_*` call rebuilds its
-    /// collision bodies fresh (`parry.rs:1884`,
+    /// collision bodies fresh (`parry.rs:1902`,
     /// `world_bodies(&self.world, ...)`). Its `OctreeCache`
     /// (`parry.rs:1125-1236`) is a pure per-key memoization table -- one
     /// independent shape conversion (octree leaves -> parry `Compound`) per
