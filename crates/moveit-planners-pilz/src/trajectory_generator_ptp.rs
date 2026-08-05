@@ -493,6 +493,14 @@ mod tests {
     /// Boundary: the group's fused limit has a velocity limit but no
     /// acceleration limit. Same six-site function; see
     /// `constructor_rejects_missing_joint_limits`'s doc comment.
+    ///
+    /// Live bite: neutralizing this guard (`if false &&
+    /// !has_acceleration_limits`) on this fixture (velocity set,
+    /// acceleration/deceleration both default-`false`) falls through to the
+    /// deceleration guard -- the assertion here correctly FAILS with
+    /// "construction failed: deceleration limit not set for group
+    /// panda_arm" while the other two tests (whose fixtures fail earlier
+    /// guards) stay GREEN. Mutation reverted.
     #[test]
     fn constructor_rejects_a_group_missing_an_acceleration_limit() {
         let (model, _) = load_panda();
