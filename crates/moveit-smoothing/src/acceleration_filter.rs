@@ -529,10 +529,33 @@ mod tests {
     }
 
     #[test]
+    fn do_smoothing_rejects_a_length_mismatch() {
+        // `:329`'s guard, previously untested anywhere in the workspace
+        // (see `do_smoothing_before_reset_is_an_error`'s comment below);
+        // bite-checked against that guard's sibling.
+        let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0);
+        let mut positions = [0.5];
+        let mut velocities = [0.5, 0.5];
+        let err = filter
+            .do_smoothing(&mut positions, &mut velocities)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("the length of the joint positions parameter"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn do_smoothing_before_reset_is_an_error() {
         // `matches!` alone cannot tell this apart from do_smoothing's
-        // sibling velocities-length guard, also an Error::Other;
-        // message-swap bite-checked against it.
+        // sibling velocities-length guard (`:329`), also an Error::Other.
+        // That guard has no test of its own in this file or anywhere in
+        // the workspace (its message has exactly one hit: its own
+        // `format!` call) -- it was never message-swap bite-checked
+        // against this one, despite what an earlier version of this
+        // comment claimed. See `do_smoothing_rejects_a_length_mismatch`
+        // above for the guard's own coverage and bite.
         let mut filter = AccelerationLimitedFilter::new(&[-2.0], &[2.0], 1.0);
         let mut positions = [0.5];
         let mut velocities = [0.5];

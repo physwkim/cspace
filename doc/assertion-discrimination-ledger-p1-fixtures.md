@@ -389,13 +389,13 @@ argument), so clause 2 holds on real data, not a skipped comparison.
 
 | file:line | anchor | test fn | verdict | evidence | in-family |
 |---|---|---|---|---|---|
-| acceleration_filter.rs:552 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `reset`'s guard (`acceleration_filter.rs:302`, `positions.len() != num_joints \|\| velocities.len() != num_joints`) is one `Error::Other` site folding two named operands. This test's fixture mismatches both `positions` and `velocities` at once, so neither existing test isolated either clause — bit both directions (`false && positions...`, then `positions... \|\| false && velocities...`), both left this test PASSING: a genuine blind site, not just an undercounted branch. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch` (each mismatching exactly one array), bite-verified to fail when their own clause is disabled. Commit `3c2d72f`, gated `-p moveit-smoothing` | yes |
-| acceleration_filter.rs:559 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round — this exact site had only ever been referenced by name, never cited | yes |
-| acceleration_filter.rs:566 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
-| ruckig_filter.rs:650 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329`) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing`. Line renumbered from a stale `ruckig_filter.rs:546`, which in the current file lands on an unrelated test (`do_smoothing_respects_velocity_and_acceleration_bounds_throughout`) | yes |
-| ruckig_filter.rs:657 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
-| ruckig_filter.rs:664 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
-| ruckig_filter.rs:671 | matches! | `reset_rejects_an_accelerations_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round | yes |
+| acceleration_filter.rs:575 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: `reset`'s guard (`acceleration_filter.rs:302`, `positions.len() != num_joints \|\| velocities.len() != num_joints`) is one `Error::Other` site folding two named operands. This test's fixture mismatches both `positions` and `velocities` at once, so neither existing test isolated either clause — bit both directions (`false && positions...`, then `positions... \|\| false && velocities...`), both left this test PASSING: a genuine blind site, not just an undercounted branch. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch` (each mismatching exactly one array), bite-verified to fail when their own clause is disabled. Commit `3c2d72f`, gated `-p moveit-smoothing`. Line renumbered from a stale `:552`, shifted +23 by Round 6's `do_smoothing_rejects_a_length_mismatch` insertion | yes |
+| acceleration_filter.rs:582 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round — this exact site had only ever been referenced by name, never cited. Line renumbered from a stale `:559`, same +23 shift | yes |
+| acceleration_filter.rs:589 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Line renumbered from a stale `:566`, same +23 shift | yes |
+| ruckig_filter.rs:659 | matches! | `reset_rejects_a_mismatched_length` | discriminating | bite (this round) — corrected from `single-branch`/`structural`: same shape as acceleration_filter.rs:552, 3-clause OR (`ruckig_filter.rs:326-329`) folding `positions`/`velocities`/`accelerations`. This test's fixture mismatches all three at once. Bit all three directions individually — each left this test PASSING, the same blind site three ways. Fixed by adding `reset_rejects_a_positions_only_mismatch`/`reset_rejects_a_velocities_only_mismatch`/`reset_rejects_an_accelerations_only_mismatch`, bite-verified each fails when its own clause is disabled. Commit `2829ca2`, gated `-p moveit-smoothing`. Line renumbered from a stale `ruckig_filter.rs:546`, then again from `:650` (+9, Round 6's `ruckig_filter.rs:289` comment fix) | yes |
+| ruckig_filter.rs:666 | matches! | `reset_rejects_a_positions_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Renumbered from a stale `:657`, same +9 shift | yes |
+| ruckig_filter.rs:673 | matches! | `reset_rejects_a_velocities_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Renumbered from a stale `:664`, same +9 shift | yes |
+| ruckig_filter.rs:680 | matches! | `reset_rejects_an_accelerations_only_mismatch` | discriminating | bite-verified fix for the row above; own row added this round. Renumbered from a stale `:671`, same +9 shift | yes |
 
 Both bite-confirmed against real mismatched-length data (never an
 empty-input skip), so clause 2 holds on real operands.
@@ -793,7 +793,8 @@ no correction owed this round.
 |---|---|---|---|
 | `acceleration_filter.rs:466` | contains | in-family | unique substring vs. sibling single-DOF guard; test's own comment records a prior message-swap bite |
 | `acceleration_filter.rs:525` | contains | in-family | `contains("planar_joint") && contains('3')` — only the single-DOF guard emits a bare digit; structurally unique |
-| `acceleration_filter.rs:542` | contains | in-family | unique substring vs. `do_smoothing`'s other (non-folded) guard |
+| `acceleration_filter.rs:542` | contains | in-family, discriminating | `do_smoothing_rejects_a_length_mismatch`, added Round 6 — the guard this site tests (`:329`) had zero coverage anywhere in the workspace before this round; bite-verified (neutralizing `:329` alone fails only this test, falling through to the sibling `:335` guard's distinct message) |
+| `acceleration_filter.rs:565` | contains | in-family | unique substring vs. `do_smoothing`'s other (non-folded) guard. Line renumbered from a stale `:542`, shifted +23 by Round 6's insertion above it |
 | `butterworth.rs:153` | contains | in-family | unique substring ("unstable") vs. 3 sibling `Error::construct` sites; comment records a prior message-swap bite against each |
 | `butterworth.rs:162` | contains | in-family | "scale_term_" unique vs. "infinite feedback_term_"/"...unstable"/"...feedback term of 0" |
 | `butterworth.rs:172` | contains | in-family | boundary case `coeff == 1.0` exactly on the EPSILON guard |
@@ -801,10 +802,10 @@ no correction owed this round.
 | `butterworth.rs:200` | contains | in-family | "feedback_term_" (underscored) is textually disjoint from site 4's "feedback term" (spaced) |
 | `ruckig_filter.rs:388` | contains | in-family | unique substring vs. 3 sibling guards; comment records a prior message-swap bite |
 | `ruckig_filter.rs:530` | contains | in-family | same name+digit pattern as `acceleration_filter.rs:525`, same reasoning — renumbered from a stale `ruckig_filter.rs:465`; this is `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins`, given a full discriminating-verdict row under Round 5 below |
-| `ruckig_filter.rs:604` (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below. Line renumbered from a stale `ruckig_filter.rs:539`, which in the current file is a doc-comment line, not an assertion |
-| `ruckig_filter.rs:617` | contains | in-family, discriminating | bite-verified fix for the row above (`do_smoothing_rejects_a_positions_only_mismatch`); own row added this round |
-| `ruckig_filter.rs:630` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_a_velocities_only_mismatch`); own row added this round |
-| `ruckig_filter.rs:643` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_an_accelerations_only_mismatch`); own row added this round |
+| `ruckig_filter.rs:613` (`do_smoothing`'s length guard) | contains | **BLIND — fixed** | folded 3-clause OR guard, structurally identical to `reset`'s (fixed in Task 1, `2829ca2`) but never itself isolated — see below. Line renumbered from a stale `ruckig_filter.rs:539`, then `:604` (+9, Round 6's `ruckig_filter.rs:289` comment fix) |
+| `ruckig_filter.rs:626` | contains | in-family, discriminating | bite-verified fix for the row above (`do_smoothing_rejects_a_positions_only_mismatch`); own row added this round. Renumbered from a stale `:617`, same +9 shift |
+| `ruckig_filter.rs:639` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_a_velocities_only_mismatch`); own row added this round. Renumbered from a stale `:630`, same +9 shift |
+| `ruckig_filter.rs:652` | contains | in-family, discriminating | bite-verified fix (`do_smoothing_rejects_an_accelerations_only_mismatch`); own row added this round. Renumbered from a stale `:643`, same +9 shift |
 
 **Fix**: `do_smoothing`'s guard (`positions.len() != num_joints ||
 velocities.len() != num_joints || accelerations.len() != num_joints`)
@@ -919,7 +920,8 @@ anchor this pass:
 |---|---|---|---|
 | `acceleration_filter.rs:466` | `joint_acceleration_bounds` | `err` is `joint_acceleration_bounds(...).unwrap_err()` directly; delete that call and the assertion has nothing to inspect | in-family |
 | `acceleration_filter.rs:525` | `joint_acceleration_bounds` | same shape — `message` comes straight from `joint_acceleration_bounds(...).unwrap_err()` | in-family |
-| `acceleration_filter.rs:542` | `do_smoothing` | `err` is `filter.do_smoothing(...).unwrap_err()` directly | in-family |
+| `acceleration_filter.rs:542` | `do_smoothing` | `err` is `filter.do_smoothing(...).unwrap_err()` directly; added Round 6, previously uncovered | in-family |
+| `acceleration_filter.rs:565` | `do_smoothing` | same shape, renumbered from a stale `:542` (shifted +23 by Round 6's insertion above it) | in-family |
 | `butterworth.rs:153` | `ButterworthFilter::new` | `new` is simultaneously the construction *and* the decision (no separate arrange-function to defer to); `err` is its direct return | in-family |
 | `butterworth.rs:162` | `ButterworthFilter::new` | same | in-family |
 | `butterworth.rs:172` | `ButterworthFilter::new` | same | in-family |
@@ -927,7 +929,7 @@ anchor this pass:
 | `butterworth.rs:200` | `ButterworthFilter::new` | same | in-family |
 | `ruckig_filter.rs:388` | `joint_vel_accel_jerk_bounds` | `err` is its direct return | in-family |
 | `ruckig_filter.rs:530` | `joint_vel_accel_jerk_bounds` | same | in-family (renumbered from a stale `ruckig_filter.rs:465`) |
-| `ruckig_filter.rs:604,617,630,643` (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family (renumbered from a stale `ruckig_filter.rs:539,552,565,578`) |
+| `ruckig_filter.rs:613,626,639,652` (`do_smoothing`'s guard, incl. this round's 3 new tests) | `do_smoothing` | `err` is its direct return | in-family (renumbered from a stale `ruckig_filter.rs:539,552,565,578`, then `:604,617,630,643`, +9, Round 6's `ruckig_filter.rs:289` comment fix) |
 | `cart_to_jnt.rs:550` | `search_position_ik` | `solution` is its direct return; the trivial seed==target fixture still exercises `search_position_ik`'s own written tolerance comparison (unlike the census's `shortest_solution`-on-empty-input clause-2 failure, where the comparison never runs at all) | in-family |
 | `cart_to_jnt.rs:644` | `search_position_ik` | `solution` is its direct return, paired in the same test with an `is_none()` tight-limit case exercising the same guard's other branch | in-family |
 | `cart_to_jnt.rs:707` | `search_position_ik` | `solution` is its direct return, paired with an `is_none()` always-rejecting-callback case and call-count assertions on both | in-family |
@@ -1018,12 +1020,12 @@ ambiguity the way multiple guards can share one negative signal.
 | Subject | Guard/Err sites | In this audit? |
 |---|---|---|
 | `JointConstraintSampler::new` | 2 (`Err::other` × 2) | bit, §Bites below |
-| `ChainInfo::build` | 5 (`?` group lookup, not-a-chain, DOF≠1, unsupported type — untested, mimic-master-outside-group) | 3 tested guards bit |
+| `ChainInfo::build` | 5 (`?` group lookup, not-a-chain, DOF≠1, unsupported type — untested, mimic-master-outside-group) | ~~3 tested guards bit~~ **all 5 accounted for — see Round 6's `Error::UnknownName` note below** |
 | `update_orientation_constraint` / `update_position_constraint` | 1 guard each (link-name match), but funnel through an **empty-loop vacuity**, not a message collision | bit — **blind, fixed** |
 | `merge_constraints` | 1 drop path for this fixture shape | excluded, see below |
 | `joint_acceleration_bounds` | 2 (`Err::other` × 2) | bit |
 | `AccelerationLimitedFilter::do_smoothing` (2-arg) | 2 (`Err::other` × 2) | 1 bit directly, 1 already message-swap bite-checked (spot-confirmed by the sibling bite) |
-| `ButterworthFilter::new` | 4 (`Err::construct` × 4) | 1 bit directly (spot-check per instruction) |
+| `ButterworthFilter::new` | 4 (`Err::construct` × 4) | ~~1 bit directly (spot-check per instruction)~~ **all 4 bit — see Round 6** |
 | `JointConstraintSampler::sample` (`sampler.rs:194,200`) | not a `None`/`Err` funnel — numeric range check on subject-mutated state (`mimic().is_none()` shape) | excluded |
 | `cart_to_jnt.rs:550,644,707`, `multivariate_gaussian.rs:213` | `is_some` positive checks | excluded (structural exemption above) |
 | `registry.rs:254` | static `#[distributed_slice]` aggregate, no `?`-chain | excluded |
@@ -1039,7 +1041,7 @@ referenced under `-D warnings`, confirmed via
 pre-bite backup + `diff` before moving to the next site.
 
 - **`JointConstraintSampler::new`** (`crates/moveit-constraints/src/sampler.rs:213`,`:224`): bit each of the two `Err::other` guards (empty-intersection, no-valid-constraint-for-group) independently. Each bite failed exactly the test targeting it (`configure_fails_on_empty_intersection_between_two_constraints`, `configure_fails_when_the_only_constraint_is_on_a_joint_outside_the_group`) while the other stayed green. **Discriminating, not blind.**
-- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147`,`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267`'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196`) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed.
+- **`ChainInfo::build`** (`crates/moveit-kinematics/src/chain.rs:147`,`:185`,`:259`): bit the not-a-chain, DOF≠1, and mimic-master-outside-group guards independently. Each bite failed exactly its own unit test (`build_rejects_a_non_chain_group`, `build_rejects_a_multi_dof_joint`, `build_rejects_an_in_chain_mimic_whose_master_is_outside_the_group`) while the others stayed green; the DOF bite additionally showed the fixture falls through to the *next* guard (unsupported-type) under a still-different message, so `contains("DOF")` remains a real discriminator rather than an accidental pass. Also re-bit the not-a-chain guard through the cross-crate integration test `crates/moveit-kinematics/tests/ik_fk_roundtrip.rs:267`'s `constructing_a_solver_on_a_non_chain_group_is_an_error` (via `NewtonRaphsonSolver::new` → `ChainInfo::build`, its only fallible call) — only that test and its unit-test sibling failed, all 33 other kinematics tests stayed green. **Discriminating, not blind.** The untested unsupported-type guard (`chain.rs:196`) has no assertion at all, so it is not a census site and is out of this audit's scope — noted, not fixed. The fifth guard, the `?` group lookup (`chain.rs:146`), is exempt from needing a bite at all — see Round 6, below.
 - **`update_orientation_constraint` / `update_position_constraint`** (`crates/moveit-constraints/src/utils.rs:516`,`:597`): bit each link-name-comparison guard completely. Both `not_found_returns_false` tests (`utils_parity.rs:580`,`:602`) **stayed green** — confirmed blind. Root cause: both fixtures construct an *empty* `KinematicConstraintSet`, so `for c in constraints.constraints_mut()` never iterates and `set.is_empty()` holds regardless of what the guard decides — the census's own `shortest_solution_is_none_on_empty_input` vacuous-fixture shape. **Fixed** (commit `9b2bff6`): added `mismatched_link_name_leaves_constraint_untouched` to each boundary module, constructing one non-matching constraint so the loop body actually runs; re-biting the same guards against the new tests now fails only the new test in each module, with `not_found_returns_false` (and, for position, `multi_region_constraint_is_error`) staying green — confirmed the new tests could not have passed as a behaviour-preserving no-op, since the bite visibly flips `updated` from `false` to `true` and reconstructs the surviving constraint.
 - **`joint_acceleration_bounds`** (`crates/moveit-smoothing/src/acceleration_filter.rs:153`,`:162`): bit the single-DOF-active-joint guard directly — only `multi_dof_active_joint_is_a_typed_error_not_a_silent_last_variable_wins` failed, `joint_acceleration_bounds_fails_without_acceleration_limits` (its claimed message-swap sibling) stayed green, confirming the existing "message-swap bite-checked" comment.
 - **`AccelerationLimitedFilter::do_smoothing`** (`acceleration_filter.rs:335`, the reset-before-check guard): bit directly — only `do_smoothing_before_reset_is_an_error` failed (via an index-out-of-bounds panic once the length check no longer short-circuits, still a discriminating failure), all 38 other smoothing tests stayed green.
@@ -1202,3 +1204,162 @@ rows, citing the assert lines directly:
 (`ruckig_filter.rs:388` and `:465`, the acceleration guard and the
 pre-existing message-swap-bite-checked assertion, already have rows in
 the `moveit-smoothing (11 sites)` table above.)
+
+## Round 6: `ButterworthFilter::new`'s remaining 3 guards, bit
+
+Round 4 bit only guard 3 (`coeff < 1.0`, `butterworth.rs:80`,
+tested at `:153`); guards 1, 2, and 4 rested on the comments'
+message-uniqueness argument alone, self-flagged in Round 4's table as
+"spot-check per instruction." Each of the four guards' messages
+(`butterworth.rs:70,75,80,85`) contains a needle unique to that guard —
+`feedback_term_` only in guard 1's text, `scale_term_` only in guard
+2's, `unstable` only in guard 3's, `resulted in feedback term of 0`
+only in guard 4's — so message-uniqueness already discriminates all
+four: an assertion passing proves the returned message carried that
+guard's unique substring, and no sibling guard's message contains it.
+**That discrimination claim does not need a bite and this round does
+not upgrade it to one.** What a bite adds, and what was still missing,
+is proof each guard is individually load-bearing — that neutralizing
+it changes the outcome, rather than being dead code a sibling guard
+already masks.
+
+Three-way isolating-mutation bite, each guard neutralized alone
+(`&& !true`), `--no-fail-fast`, reverted and `diff`-confirmed clean
+against a pre-bite backup before the next:
+
+| Guard neutralized | Test run | Fails how | Sibling tests |
+|---|---|---|---|
+| `:70` `feedback_term.is_infinite()` | `coefficient_of_infinity_makes_feedback_term_infinite` (coeff=inf) | `unwrap_err()` panics on an `Ok` value (`scale_term: 0.0, feedback_term: -inf`) — guard 2 can't fire (`scale_term` finite at exactly 0), coeff not `< 1.0`, `|feedback_term|` not `< EPSILON` | all 40 others green |
+| `:75` `scale_term.is_infinite()` | `coefficient_of_negative_one_makes_scale_term_infinite` (coeff=-1) | the `.contains("scale_term_")` assertion itself panics, **not** `unwrap_err()` — `feedback_term` (2.0) is finite so guard 1 stays quiet, but coeff `-1 < 1.0` so guard 3 fires and the returned message is `"...unstable"`, which does not contain `scale_term_` | all 40 others green |
+| `:85` `feedback_term.abs() < EPSILON` | `coefficient_of_exactly_one_makes_feedback_term_zero` (coeff=1.0) **and** `coefficient_just_above_one_is_still_within_the_feedback_term_epsilon_band` (coeff=1+1e-10) | both `unwrap_err()` panic on `Ok` values — no other guard's condition holds at either coefficient | all 39 others green |
+
+All three outcomes were predicted in full (including which of the two
+failure shapes — `unwrap_err()` panic vs. assertion-text panic — each
+guard would produce) before running, and every run matched the
+prediction exactly; no contradiction to report. Combined with Round
+4's direct bite of guard 3, all four `ButterworthFilter::new` guards
+are now confirmed individually load-bearing, on top of the
+message-uniqueness discrimination that already held for all four.
+**Verdict: discriminating (by message uniqueness, unchanged from
+Round 4) and, as of this round, load-bearing (by bite, all 4 of 4).**
+Gate: `cargo fmt --all`; `cargo clippy -p moveit-smoothing --all-targets
+-- -D warnings` clean; `cargo nextest run -p moveit-smoothing` (41/41)
+green.
+
+### `chain.rs:146`'s group-lookup guard is exempt, not untested — variant uniqueness, not just message uniqueness
+
+`ChainInfo::build`'s fifth guard, `model.joint_model_group(group_name)?`
+(`chain.rs:146`), tested at `chain.rs:488` via
+`assert!(matches!(err, Error::UnknownName { .. }))`
+(`build_reports_an_unknown_group_as_unknown_name`). `ChainInfo::build`
+contains exactly one `?` and every other exit is `Error::other(...)` —
+confirmed by reading the whole function body, not just grepping for
+`return Err`, since a missed `?` would not show up as a `return`. No
+sibling guard can construct an `Error::UnknownName`, so there is no
+guard in this function whose neutralization could make
+`chain.rs:488`'s assertion pass by accident: it is not merely that the
+guards' *messages* happen to differ (the property `is_some` and the
+message-uniqueness argument above both rest on), it is that the guards
+return different *enum variants*, and the assertion checks the variant,
+not the message. Variant uniqueness is a strictly stronger guarantee
+than message uniqueness — a future edit could accidentally duplicate a
+message string across two `Error::other(format!(...))` call sites and
+still compile, but could not accidentally return the wrong variant from
+a different `return Err(Error::other(...))` statement without changing
+that statement itself. Same class of exemption as the `is_some`
+structural exemption from Round 4's opening paragraph (a signal only
+one code path can produce needs no bite), applied here to a second,
+independent case rather than being a new rule. Not bit; no bite is
+needed for this reason to hold, and none would strengthen it further.
+
+`ChainInfo::build`'s five guards are therefore now fully accounted for:
+3 bit directly this round (`chain.rs:469,512,558`), 1 proven unreachable
+by construction (`chain.rs:193-200`, Round 5), 1 exempt by variant
+uniqueness (`chain.rs:146`/`:488`, this section).
+
+### `do_smoothing`'s velocities-length guard (`acceleration_filter.rs:329`) — the one blind spot this whole sweep could not see
+
+`do_smoothing_before_reset_is_an_error`'s comment claimed its sibling
+guard (`:329`, `num_positions != num_joints`, reading `velocities.len()`
+per the upstream quirk documented in this module's doc comment) was
+"message-swap bite-checked against it." That bite could not have
+happened: `rg` for the guard's message text
+(`"the length of the joint positions parameter"`) across the whole
+workspace found exactly one hit, the guard's own `format!` call —
+there was no test to bite. Fixed in two commits: the comment corrected
+to state that plainly (`40f0ba5`), and
+`do_smoothing_rejects_a_length_mismatch` added and bite-verified
+(`e3794b5`) — neutralizing `:329` alone fails only the new test,
+falling through to `:335`'s distinct "Make sure the reset was called"
+message, all 41 other tests staying green.
+
+This is the structural point, not just a fixed instance: a guard with
+no test produces no assertion, and `count-coarse-assertions.py` (like
+every funnel-bite audit built on top of it, including this whole
+sweep) can only see assertions. A blind-by-omission guard — as opposed
+to a blind-by-ambiguity one, where a test exists but targets the wrong
+guard — is invisible to the corpus by construction, not by a gap in
+this audit's method. The only way to find one is what surfaced this
+one: reading a "bite-checked" comment's claim and checking whether the
+test it names to have bit against actually exists, rather than trusting
+the claim. Checked by `rg` for every `message-swap bite-checked`
+comment in this fence's crates and confirming each one's *named
+sibling test* actually exists and asserts the claimed message: 3 of
+the remaining 4 (`joint_acceleration_bounds`, `ButterworthFilter::new`,
+`ruckig_filter.rs::joint_vel_accel_jerk_bounds`) do. The 4th did not —
+see below.
+
+Fixing the resulting three-site citation drift in `acceleration_filter.rs`
+(`:552→:575`, `:559→:582`, `:566→:589`, plus `:542` itself now pointing
+at the new test rather than the guard it used to cite) is its own commit
+(`3fb5c65`) — the false-orphan trap this sweep has already found four
+other ways, a fifth: a source edit shifting line numbers underneath a
+table citation this task's own change caused, not an artifact of
+someone else's edit.
+
+### `ruckig_filter.rs`'s "ruckig update failed" site (`:289`) — unreachable, not blind, a second `chain.rs:193-200`
+
+The 4th `message-swap bite-checked` comment that named a sibling with
+no test of its own: `do_smoothing_rejects_a_mismatched_length`
+(`ruckig_filter.rs:592`) claimed a bite against `:289`'s
+`.map_err(|error| Error::other(format!("ruckig update failed:
+{error}")))?`. `rg` for `"ruckig update failed"` across the whole
+workspace found exactly one hit, the guard's own `format!` call —
+same missing-bite shape as `acceleration_filter.rs:329` above. But
+unlike that guard, this one cannot be fixed by adding a test: it is
+unreachable.
+
+`RuckigFilter` fixes `ruckig: Ruckig<0, IgnoreErrorHandler>`
+(`ruckig_filter.rs:176`). Reading the `rsruckig` 3.0.0 crate source
+(`~/.cargo/registry/src/.../rsruckig-3.0.0/src/rsruckig/`): every
+`Err(RuckigError::...)` construction in the whole crate
+(`error.rs:103,107`) is reached only through the error-handler type
+parameter's `handle_calculator_error`/`handle_validation_error`
+methods (`ruckig.rs:409`, six sites in `calculator_target.rs`, one in
+`calculator_waypoints.rs` — all gated the same way, `rg` for
+`handle_calculator_error|handle_validation_error` across that crate's
+`src/rsruckig/` confirms no bare `Err(RuckigError` construction exists
+outside those two methods). `IgnoreErrorHandler`'s implementation of
+both (`error.rs:115-121`) unconditionally returns `Ok(())` — its own
+doc comment on the trait (`error.rs:82,94`) says `Err` propagates only
+"when using `ThrowErrorHandler`". `RuckigFilter::new` never
+constructs a `ThrowErrorHandler` variant; `Ruckig<0, IgnoreErrorHandler>`
+is the only configuration this port uses. So `self.ruckig.update(...)`
+at `ruckig_filter.rs:288` can never return `Err` in this binary,
+making `:289`'s `map_err`/`?` dead code from an input perspective —
+the same enumeration-not-read standard Round 5 applied to
+`chain.rs:193-200`, this time over a dependency's source rather than
+this workspace's own. No bite matrix is offered for the same reason
+Round 5 didn't write a test for the unreachable `chain.rs` guard: a
+green bite result here would be indistinguishable from a
+behaviour-preserving no-op, and the read above is exhaustive over
+every `Err` construction site in the dependency, not a sample.
+
+Fixed: comment corrected (`2063576`) to state the guard is
+unreachable, not "bite-checked," and why. No test added — none is
+possible without changing `RuckigFilter`'s error-handler choice, which
+this task does not authorize. **Verdict: unreachable, not blind** —
+the fourth site the `message-swap bite-checked` anchor sweep found,
+and the second guard in this ledger's population (after
+`chain.rs:193-200`) that a false "untested"/"unbit" framing concealed
+was actually structurally dead code.
