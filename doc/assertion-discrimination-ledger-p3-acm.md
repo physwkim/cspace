@@ -1004,7 +1004,7 @@ actually at `:500`).
 | p1-fixtures | `tree.rs:1805` | `crates/moveit-octomap/src/tree.rs:1833` | same insertion, +28 |
 | p1-fixtures | `tree.rs:1806` | `crates/moveit-octomap/src/tree.rs:1834` | same insertion, +28 |
 | p1-fixtures | `tree.rs:1807` | `crates/moveit-octomap/src/tree.rs:1835` | same insertion, +28 |
-| p9-ros | `robot_model.rs:2024` | `crates/moveit-model/src/robot_model.rs:2051` | fixture widened 3→4 joints (`7676185`, adds a joint block above), +27 |
+| p9-ros | `robot_model.rs:2024` | `crates/moveit-model/src/robot_model.rs:2092` | fixture widened 3→4 joints (`7676185`, adds a joint block above), +27 |
 | p9-ros | `robot_model.rs:2025` | `crates/moveit-model/src/robot_model.rs:2052` | same cause, +27 |
 | p9-ros | `robot_model.rs:2026` | `crates/moveit-model/src/robot_model.rs:2053` | same cause, +27 |
 | p9-ros | `trajectory.rs:444` (ros) | `ros/moveit-ros/src/trajectory.rs:482` | insertion above, +38 |
