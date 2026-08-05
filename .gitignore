@@ -5,3 +5,4 @@
 .claude
 *.log
 /.oracle-ctx.*
+/.ros-ctx.*
