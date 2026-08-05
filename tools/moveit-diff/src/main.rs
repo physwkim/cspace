@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale, ParryCollisionEnv, World};
 use moveit_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
-use moveit_model::{MeshSearchPaths, RobotModel};
+use moveit_model::{Diagnostic, MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
@@ -407,11 +407,15 @@ fn main() {
 /// fixture-provenance check, and is never run in CI (see that script's own
 /// module doc), so pointing directly at the full vendored tree costs nothing
 /// extra here and additionally covers pr2, which `fixtures/meshes/` does not.
+/// The directory [`mesh_search_paths`] resolves `package://` mesh URIs
+/// against. Named separately so a refusal can say where it looked.
+const MESH_RESOURCES_ROOT: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../third_party/moveit_resources"
+);
+
 fn mesh_search_paths() -> MeshSearchPaths {
-    let resources_root = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../third_party/moveit_resources"
-    );
+    let resources_root = MESH_RESOURCES_ROOT;
     MeshSearchPaths::new([
         (
             "moveit_resources_panda_description",
@@ -428,6 +432,55 @@ fn mesh_search_paths() -> MeshSearchPaths {
     ])
 }
 
+/// Refuse a model that silently lost `<collision>` mesh geometry.
+///
+/// `RobotModel::from_urdf_and_srdf` reports a dropped `<mesh>` as a
+/// [`Diagnostic::UnsupportedLinkGeometry`] and still returns a model, which is
+/// the right call for a library -- a caller that only wants kinematics does
+/// not need collision shapes. It is the wrong call for *this* tool, and the
+/// asymmetry is the reason:
+///
+/// `tools/moveit-oracle/run-oracle.sh` mounts `third_party/` by the **primary
+/// checkout's** absolute path, unconditionally, so the C++ side keeps every
+/// mesh no matter which worktree the run started from. Only the Rust side can
+/// lose them (`third_party/` is gitignored, so it reaches a worktree only via
+/// a hand-made symlink; at the time this was written 4 of 20 worktrees had
+/// one). A symmetric loss would be obvious -- both sides would report nothing.
+/// The asymmetric one produces a fully-populated, plausible comparison:
+/// panda answers `bool` 10,000/10,000 disagreements with the Rust distance at
+/// `f64::MAX` and the Rust pair printed as `[none]`, which is a measured-
+/// looking artifact and, worse, is the exact fingerprint PORTING-PLAN.md
+/// §13.4 records for the historical mesh-loading bug. Nothing downstream can
+/// tell the two apart, so the refusal has to happen here, before any case
+/// runs.
+///
+/// Only `kind == "mesh"` is fatal. A dropped `capsule` is symmetric -- it is a
+/// URDF extension upstream's own parser does not recognise either (see
+/// [`Diagnostic::UnsupportedLinkGeometry`]'s own doc), so both sides lose it
+/// and the comparison stays honest. A robot with no `<mesh>` collision element
+/// at all (`fixtures/prbt.urdf`) produces no such diagnostic and is unaffected.
+fn reject_dropped_collision_meshes(model: &RobotModel, resources_root: &str) -> Result<(), String> {
+    let dropped: Vec<&Diagnostic> = model
+        .diagnostics()
+        .iter()
+        .filter(|d| matches!(d, Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. }))
+        .collect();
+    if dropped.is_empty() {
+        return Ok(());
+    }
+    let mut msg = format!(
+        "{} <collision> mesh element(s) did not load, so the Rust side would be \
+         compared with collision geometry the oracle still has.\n\
+         Mesh URIs were resolved against: {resources_root}\n\
+         (that path is gitignored; a git worktree reaches it only through a symlink)\n",
+        dropped.len()
+    );
+    for d in &dropped {
+        msg.push_str(&format!("  {d}\n"));
+    }
+    Err(msg)
+}
+
 /// Parse the same URDF/SRDF pair the oracle was launched with, so both sides
 /// answer questions about the same robot.
 fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
@@ -437,8 +490,18 @@ fn build_rust_model(cfg: &Config) -> Result<RobotModel, String> {
         urdf_rs::read_file(&cfg.urdf).map_err(|e| format!("parsing URDF {}: {e}", cfg.urdf))?;
     let srdf =
         SrdfModel::parse_file(&cfg.srdf).map_err(|e| format!("parsing SRDF {}: {e}", cfg.srdf))?;
-    RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
-        .map_err(|e| format!("building RobotModel: {e}"))
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &mesh_search_paths())
+        .map_err(|e| format!("building RobotModel: {e}"))?;
+    reject_dropped_collision_meshes(&model, MESH_RESOURCES_ROOT)?;
+    // Everything else the build dropped or repaired is printed rather than
+    // discarded. These are not fatal -- a bad mimic or an empty group shows up
+    // as a §5 Phase 1 clause disagreement, which is a comparison result and
+    // not a silent loss -- but they were previously invisible, which is how
+    // the mesh case above went unnoticed for as long as it did.
+    for d in model.diagnostics() {
+        println!("model diagnostic: {d}");
+    }
+    Ok(model)
 }
 
 /// The fixed collision scene both sides check the robot against: a single
@@ -3087,6 +3150,96 @@ mod phase1_clause_discrimination_tests {
                 });
             }),
             vec!["mimic"]
+        );
+    }
+}
+
+/// The boundary between "this tool may compare collision" and "it must
+/// refuse", exercised per boundary rather than per story.
+///
+/// The failure this guards is silent: `third_party/moveit_resources` is
+/// gitignored, so a worktree without the hand-made symlink resolves no
+/// `package://` mesh URI, while `run-oracle.sh` mounts that directory by the
+/// primary checkout's absolute path and the C++ side keeps every mesh. These
+/// tests reproduce that asymmetry with `MeshSearchPaths::none()`, which is
+/// what an absent `third_party/` amounts to -- so they need no vendored
+/// checkout and run under a plain `cargo nextest run`.
+#[cfg(test)]
+mod dropped_mesh_refusal_tests {
+    use super::*;
+
+    fn build(fixture: &str, paths: &MeshSearchPaths) -> RobotModel {
+        let urdf_path = format!(
+            "{}/../../fixtures/{fixture}.urdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let srdf_path = format!(
+            "{}/../../fixtures/{fixture}.srdf",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let urdf_xml = std::fs::read_to_string(&urdf_path).expect("read urdf");
+        let urdf = urdf_rs::read_file(&urdf_path).expect("parse urdf");
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("parse srdf");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, paths).expect("build RobotModel")
+    }
+
+    /// Boundary (a): a `<mesh>` URI that does not resolve. This is the state
+    /// that produced a full 10,000-row panda comparison with the Rust
+    /// distance at `f64::MAX`.
+    #[test]
+    fn an_unresolved_collision_mesh_is_refused() {
+        let model = build("fanuc", &MeshSearchPaths::none());
+        let err = reject_dropped_collision_meshes(&model, "/nonexistent/moveit_resources")
+            .expect_err("fanuc's 7 collision meshes cannot resolve against no search path");
+        // Naming the link and the directory searched is the whole point: the
+        // previous behaviour was a plausible number with no cause attached.
+        assert!(err.contains("base_link"), "must name a link:\n{err}");
+        assert!(
+            err.contains("/nonexistent/moveit_resources"),
+            "must say where it looked:\n{err}"
+        );
+        assert!(err.contains('7'), "must count the dropped elements:\n{err}");
+    }
+
+    /// Boundary (b): the same robot with its meshes resolvable is unchanged.
+    /// Uses the committed `fixtures/meshes/` subset, not `third_party/`, so
+    /// this boundary is checked even where the vendored tree is absent --
+    /// otherwise the only always-runnable case would be the failing one.
+    #[test]
+    fn a_resolved_collision_mesh_is_accepted() {
+        let paths = MeshSearchPaths::new([(
+            "moveit_resources_fanuc_description",
+            format!(
+                "{}/../../fixtures/meshes/fanuc_description",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+        )]);
+        let model = build("fanuc", &paths);
+        assert_eq!(
+            reject_dropped_collision_meshes(&model, MESH_RESOURCES_ROOT),
+            Ok(())
+        );
+    }
+
+    /// Boundary (c): a robot with no `<mesh>` collision element at all must
+    /// still run. prbt is primitives-only, and a naive "third_party missing
+    /// -> die" guard would wrongly kill it -- it is also the only sweep entry
+    /// cheap enough (18s) to iterate on.
+    #[test]
+    fn a_robot_with_no_collision_mesh_still_runs_without_any_search_path() {
+        let model = build("prbt", &MeshSearchPaths::none());
+        assert!(
+            !model
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d, Diagnostic::UnsupportedLinkGeometry { kind: "mesh", .. })),
+            "prbt is expected to have no <mesh> collision element; \
+             this case is what stops the refusal from being a blanket \
+             third_party requirement"
+        );
+        assert_eq!(
+            reject_dropped_collision_meshes(&model, MESH_RESOURCES_ROOT),
+            Ok(())
         );
     }
 }
