@@ -667,7 +667,43 @@ mod tests {
             vec![Box::new(RejectingResponseAdapter)];
         let err = generate_plan(&mut scene, &env, &[], &planners, &response_chain, request())
             .expect_err("a failing planner must abort before response adapters run");
-        assert!(matches!(err, PipelineError::Planner { .. }));
+        // `PipelineError::Planner` is constructed at two sites (`:395` for the
+        // first planner, `:404` inside the `later_planners` loop); `{ .. }`
+        // alone cannot say which fired. Checking `planner` pins this to the
+        // first-planner site specifically — see
+        // `second_planner_failure_is_attributed_to_the_second_planner` for the
+        // loop-body site.
+        match err {
+            PipelineError::Planner { planner, .. } => assert_eq!(planner, "FailingPlanner"),
+            other => panic!("expected PipelineError::Planner, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn second_planner_failure_is_attributed_to_the_second_planner() {
+        let (model, srdf) = panda();
+        let mut scene = PlanningScene::new(&model, &srdf);
+        let env = ParryCollisionEnv::default();
+
+        // First planner succeeds (exercising the `:395` construction site's
+        // sibling success path), second planner fails inside the
+        // `later_planners` loop (`:404`) — the only site this test targets.
+        let planners: Vec<Box<dyn Planner>> = vec![
+            Box::new(FixedGoalPlanner {
+                description: "FixedGoalPlanner",
+                planner_id: "fixed",
+            }),
+            Box::new(FailingPlanner),
+        ];
+        let err = generate_plan(&mut scene, &env, &[], &planners, &[], request())
+            .expect_err("the second planner's failure must abort the pipeline");
+        match err {
+            PipelineError::Planner { planner, .. } => assert_eq!(
+                planner, "FailingPlanner",
+                "the failure must be attributed to the planner that actually failed, not the first"
+            ),
+            other => panic!("expected PipelineError::Planner, got {other:?}"),
+        }
     }
 
     #[test]
