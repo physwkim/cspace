@@ -3,8 +3,8 @@
 Upstream is `moveit2` at `e017c91ee12984393a28ba246075c65f69cde3bf`,
 checked out at `/home/stevek/work/moveit2` (`PORTING-PLAN.md:3`). Every
 `file:line` below is repository-relative to that checkout and was read
-there. Entry 5 is the exception: its upstream is orocos KDL, a system
-dependency rather than part of `moveit2`, and it names its own checkout.
+there. Entry 5 is the exception: its upstream is orocos KDL, a separate
+project, and it names the in-tree `third_party/` checkout instead.
 
 A defect that exists in the C++ MoveIt sources this workspace ports from.
 Its entry belongs here, not in a code comment alone, and **the default is
@@ -136,13 +136,14 @@ means abandoning totg parity, which is a much larger decision than a bug fix.
 
 ### 5. `Path_Circle` has no both-zero guard, so `scale_rot` can be NaN — reproduced-grandfathered
 
-**Upstream:** `orocos_kdl/src/path_circle.cpp:91-96` in
-`orocos/orocos_kinematics_dynamics`, checked out at
-`/home/stevek/work/orocos_kinematics_dynamics` (master `c73370f0`). This is
-not the pinned reference `moveit2` builds against — KDL is a system
-dependency there — but `git log -L` dates the `Path_Circle` `else` arm to
-`d545368` (2020) and the `Path_Line` guard to at least `c6f0842` (2008), so
-both sides of the asymmetry predate any version this port could target.
+**Upstream:** `third_party/orocos_kinematics_dynamics/orocos_kdl/src/path_circle.cpp:91-96`
+— KDL is a separate project from `moveit2`, and this workspace already
+carries it at tag `1.5.1` (`db25b7e`). `third_party/` is untracked, so it
+is present in the primary checkout and absent from `caucus` worktrees.
+Both `path_circle.cpp` and `path_line.cpp` are byte-identical between
+`1.5.1` and current KDL master (`c73370f0`), so the asymmetry below is not
+a version artefact; `git log -L` dates the `Path_Circle` `else` arm to
+`d545368` (2020) and the `Path_Line` guard to at least `c6f0842` (2008).
 `moveit2`'s `pilz_industrial_motion_planner/src/path_circle_generator.cpp`
 is the *caller*; the missing guard is in KDL itself.
 **Port:** `crates/moveit-planners-pilz/src/path_circle.rs:312`
