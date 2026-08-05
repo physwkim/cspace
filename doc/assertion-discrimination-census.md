@@ -89,15 +89,16 @@ against this instrument's output:
     window swallows a *later, unrelated* comment. Confirmed by reading
     `bodies.rs:4037-4048`; real count is 34.
   - **`moveit-constraints`**: `rg` reports 4, this instrument reports 5.
-    `utils_parity.rs:879` (`assert!(resolve_position_constraint_frame(...)
-    .unwrap().is_none())`) spans lines 879-889 with heavy indentation and
-    a 6-argument call; its own `.is_none()` sits past the 300-char cap, so
-    the anchor2 regex fails to match starting there at all and instead
-    matches only the *next* assert at `:890`
-    (`resolve_orientation_constraint_frame`, same shape). This is exactly
-    the under-count mode the brief's own corrections already named ("misses
-    ... anything whose assert body ... exceeds the `{0,300}` cap") —
-    reproduced here on a currently-live file. Confirmed by reading
+    The two asserts are `utils_parity.rs:879`
+    (`assert!(resolve_position_constraint_frame(...).unwrap().is_none())`,
+    body 260 chars) and `:890`
+    (`resolve_orientation_constraint_frame`, same shape but carrying an
+    inline `OrientationTolerance::RotationVector { .. }` literal, body
+    **430** chars). The capped regex matches `:879`, whose `.is_none()`
+    falls inside the window, and misses `:890`, whose does not. This is
+    exactly the under-count mode the brief's own corrections already named
+    ("misses ... anything whose assert body ... exceeds the `{0,300}`
+    cap") — reproduced here on a currently-live file. Confirmed by reading
     `utils_parity.rs:879-904`: both are genuine, distinct sites; real
     count is 5.
 
