@@ -183,13 +183,13 @@ fn default_not_in_collision() {
     );
 }
 
-/// `TestChangingShapeSize`'s box half (`:530-546`): five times, drop the world
+/// `TestChangingShapeSize`'s box half (`:530-544`): five times, drop the world
 /// object and re-add it one notch larger, and check it still collides.
 ///
 /// Upstream's `res1` assertion (`:528`) is on a default-constructed
 /// `CollisionResult` that no call ever writes to, so it asserts nothing and is
 /// not restated -- `doc/upstream-bugs.md`,
-/// `pr2-collision-test-asserts-unwritten-result`. The kinect half (`:548-566`)
+/// `pr2-collision-test-asserts-unwritten-result`. The kinect half (`:546-566`)
 /// needs a mesh fixture this repository does not carry -- see the module doc.
 #[test]
 fn changing_shape_size_keeps_the_collision() {
