@@ -23101,7 +23101,7 @@ MoveIt은 이 분기를 고르지 않는다: 고정된 `e017c91ee` 체크아웃 
 
 ---
 
-## §252 코퍼스 밖 인구를 조건 쪽에서 정의하고 쟀다 — Phase 9를 막는 것은 §235가 센 네 조각이 아니다
+## §252 코퍼스 밖 인구를 조건 쪽에서 정의하고 쟀다 — 요구는 8개 엔드포인트·64개 인터페이스이고 그중 하나가 닫혔다
 
 §249.7은 "판정을 막는 부재는 코퍼스 밖에 있다"로 끝났다. 그 문장은
 코퍼스 안에서만 잰 것이라 열려 있었다 — 코퍼스에 앵커된 계기는 코퍼스
@@ -23189,11 +23189,25 @@ names not resolvable in the reference checkout 127
 오라클이 상류 `kdl_kinematics_plugin` 내부를 벤더링한 자기 디렉터리,
 그리고 `moveit_*_export.h` 셋은 CMake 생성 헤더다.
 
-### §252.3 `R-CLIENT` 요구 — 조건이 이름 부른 클라이언트가 실제로 무엇을 묶는가
+### §252.3 `R-CLIENT` 요구 — 클라이언트가 묶는 것은 여덟이고, 그중 하나가 닫혔다
+
+**먼저 이 절이 발견하지 않은 것을 적는다.** 무변경
+`MoveGroupInterface::plan()`이 `/plan_kinematic_path`를 아예 부르지 않는다는
+사실은 §241이 이미 찾았고(§241.4가 결정적 실측), 그에 따라 main이
+`/move_action`을 지어 무변경 C++ 클라이언트를 이 노드에 실제로 붙였다
+(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`의
+`create_action_server::<MoveGroup::Action>("move_action")`). 줄 번호를 달지
+않은 것은 이 절의 포트 쪽 측정이 전부 main(`c3c7a90`)의 트리에 대한 것이고
+이 브랜치의 같은 파일은 그보다 짧아서, 줄 고정 인용이 이 파일 안에서
+거짓이 되기 때문이다.
+이 절은 그것을 다시 주장하지 않는다. 이 절이 더하는 것은 **요구 집합의
+크기**다 — 그 클라이언트가 묶는 것이 하나가 아니라 여덟이라는 것, 그리고
+그 여덟이 끌고 오는 인터페이스 폐포가 64종이라는 것.
 
 Phase 9 행은 "기존 C++ `MoveGroupInterface` 클라이언트가 무변경으로"라고
-쓴다. 그러므로 요구는 **그 클라이언트가 묶는 것**이지, §5 Phase 9 본문
-산문이 나열한 것이 아니다. 상류 체크아웃의 그 번역 단위를 직접 읽는다:
+쓴다. 그러므로 요구는 **그 클라이언트가 묶는 것**이고, §5 Phase 9 본문
+산문이 나열한 셋(서비스·액션·씬 토픽)이 아니다. 상류 체크아웃의 그
+번역 단위를 직접 읽으면:
 
 ```
 R-CLIENT: endpoints move_group_interface.cpp binds (lower bound) 8
@@ -23205,45 +23219,27 @@ R-CLIENT: endpoints move_group_interface.cpp binds (lower bound) 8
       client               moveit_msgs::srv::SetPlannerParams
       publisher            moveit_msgs::msg::AttachedCollisionObject
       publisher            std_msgs::msg::String
-  endpoint names the port opens               1
-      plan_kinematic_path
 ```
 
-**교집합은 0이다.** 그리고 그 사실이 앞 라운드의 계획을 정정한다:
-
-§235.1은 Phase 9를 네 조각으로 나누면서 첫 조각을 `/plan_kinematic_path`
-서비스로 잡았다. 그 조각은 §5 Phase 9 **본문 산문**("`/plan_kinematic_path`
-서비스, `/move_action` 액션 서버, planning scene 토픽 구독")에서 뽑은
-것이다. 그런데 조건 **행**이 이름 부른 클라이언트는 그 서비스를 쓰지
-않는다:
+생성자가 묶는 것만 센 하한이다. 이 여덟에 대해 포트 쪽을 **main
+(`c3c7a90`)의 트리에서** 쟀다 — 이 브랜치는 그 작업보다 뒤에 있어서 자기
+worktree에서 재면 하나만 보이기 때문이다:
 
 ```
-$ rg -c 'PLANNER_SERVICE_NAME|plan_kinematic_path' \
-    moveit_ros/planning_interface/move_group_interface/src/move_group_interface.cpp
-0
-$ rg -l 'PLANNER_SERVICE_NAME' moveit_ros --glob '*.cpp'
-moveit_ros/move_group/src/default_capabilities/plan_service_capability.cpp   # 서버 쪽뿐
+$ git archive main | tar -x -C $T          # T=/tmp/claude-1000/maintree, 읽기 전용 추출
+$ rg -n -o 'create_(?:service|action_server)::<[^>]+>\("[^"]+"' $T/ros --glob '*.rs'
+.../ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:266:create_service::<GetMotionPlan::Service>("plan_kinematic_path"
+.../ros/moveit-ros/src/bin/plan_kinematic_path_server.rs:281:create_action_server::<MoveGroup::Action>("move_action"
 ```
 
-`MoveGroupInterface::plan()`은 서비스가 아니라 액션으로 간다 —
-`move_group_interface.cpp:666-668`이 `moveit_msgs::action::MoveGroup::Goal`을
-만들고 `planning_options.plan_only = true`를 세워 `move_action`으로 보낸다.
-그래서 포트가 이미 만든 `ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`
-(`f183801`)는 **다른 클라이언트를 위한 것**이고, 그것만으로는 Phase 9 행이
-닫히지 않는다. 행을 닫는 최소 조각은 `/plan_kinematic_path`가 아니라
-`move_action` 액션 서버다.
+여덟 중 **하나**(`move_action`)가 열려 있다. `plan_kinematic_path`는 이
+여덟에 속하지 않는다 — §241이 잰 그대로다. 남은 일곱은
+`execute_trajectory` 액션, 서비스 넷(`compute_cartesian_path`,
+`query_planner_interface`, `get_planner_params`, `set_planner_params`),
+그리고 퍼블리셔 둘이다. 조건이 "무변경으로 붙는다"를 요구하는 한 이
+일곱도 요구 집합 안이고, 어느 계기도 이들을 세지 않는다.
 
-**병합 시점 정정(§250).** 이 절이 쓰인 브랜치에는 §250이 없었다. 같은
-병합 창에서 §250이 바로 그 `move_action` 액션 서버를 지었고
-(`ros/moveit-ros/src/bin/plan_kinematic_path_server.rs`가 서비스와 액션
-서버를 함께 연다), 무변경 `MoveGroupInterface::plan()`이 DDS로 그 노드에
-닿는 것까지 실측했다. 그러므로 위 문단의 "최소 조각"은 지어졌고, 지금
-남은 첫 거부는 §250.4가 `MotionPlanRequest.start_state`에서 측정한
-`crates/moveit-planning` 쪽 부재다. 아래 열거는 그 사실과 무관하게
-성립한다 — 엔드포인트와 메시지 요구를 조건 행에서 뽑은 것이지 무엇이
-지어졌는지에서 뽑은 것이 아니다.
-
-메시지 쪽 요구도 같은 방식으로 열거했다. 위 8개 엔드포인트의 인터페이스
+메시지 쪽도 같은 방식으로 열거했다. 위 여덟 엔드포인트의 인터페이스
 정의를 필드 타입으로 전이 전개하면:
 
 ```
@@ -23253,32 +23249,83 @@ requirement closure from the 8 endpoints MoveGroupInterface binds: 64 interface 
      1  object_recognition_msgs
 ```
 
-`moveit_msgs` 34종 중 포트가 `ros/moveit-ros/src` 어디에서든 이름을 부르는
-것은 15종, **19종은 아예 없다**:
+이 34종은 `tools/ci/requirement-closure-moveit-msgs.txt`에 체크인했다.
+정의가 이 기계의 파일시스템에 없어서(아래) 컨테이너 밖에서는 재유도할 수
+없기 때문이고, 그래야 포트 쪽 절반이 컨테이너 없이 재현된다.
+
+그 포트 쪽 절반을 재는 계기는 **`moveit_msgs` 바인딩 경로에 앵커해야
+한다.** 맨 이름으로 재면 안 된다는 것을 두 계기가 어긋나면서 드러났다:
+
+```
+$ for t in $TYPES; do rg -qw "$t" $T/ros/moveit-ros --glob '*.rs' && ...; done
+total 34  named-in-main-ros/moveit-ros 17  absent 17
+$ tools/ci/measure-requirement-closure.py --client-messages --port-tree $T
+R-CLIENT message closure (moveit_msgs half)  34
+  bound on a code line                       16
+  absent                                     18
+  of the absent, quoted in comments only     3 types / 10 lines
+```
+
+어긋난 한 종은 `PlanningScene`이다. 맨 이름 검색이 세는 60여 자리는 전부
+포트 자신의 네이티브 타입 `moveit_scene::PlanningScene`이고
+(`ros/moveit-ros/src/scene/planning_scene.rs:36` `use moveit_scene::PlanningScene;`),
+메시지 쪽 `moveit_msgs::msg::PlanningScene`은 main의 어느 `.rs` **코드
+줄**에도 없다. `AllowedCollisionMatrix`도 같은 동명이인이다 —
+맨 이름으로는 257자리지만 그 대부분은 `moveit-collision`의 네이티브
+타입이다. 애초에 main 전체에서 `Cargo.toml`이 `r2r`를 적은 멤버는
+`ros/moveit-ros` 하나뿐이므로, 다른 크레이트에 나오는 이 이름들은
+메시지일 수가 없다. 아래 표는 바인딩에 앵커한 쪽(16/18)을 쓴다.
+
+`moveit_msgs` 34종 중 main이 **바인딩으로** 부르는 것은 16종,
+**18종은 없다**:
 
 | | |
 |---|---|
-| 포트가 이름 부름 (15) | `AttachedCollisionObject`, `BoundingVolume`, `CollisionObject`, `Constraints`, `JointConstraint`, `MotionPlanRequest`, `MoveItErrorCodes`, `OrientationConstraint`, `PlanningSceneWorld`, `PositionConstraint`, `RobotState`, `RobotTrajectory`, `TrajectoryConstraints`, `VisibilityConstraint`, `WorkspaceParameters` |
-| 전혀 없음 (19) | `AllowedCollisionEntry`, `AllowedCollisionMatrix`, `CartesianPoint`, `CartesianTrajectory`, `CartesianTrajectoryPoint`, `ExecuteTrajectory`, `GenericTrajectory`, `GetCartesianPath`, `GetPlannerParams`, `LinkPadding`, `LinkScale`, `MoveGroup`, `ObjectColor`, `PlannerInterfaceDescription`, `PlannerParams`, `PlanningOptions`, `PlanningScene`, `QueryPlannerInterfaces`, `SetPlannerParams` |
+| 바인딩 (16) | `AttachedCollisionObject`, `BoundingVolume`, `CollisionObject`, `Constraints`, `JointConstraint`, `MotionPlanRequest`, `MoveGroup`, `MoveItErrorCodes`, `OrientationConstraint`, `PlanningSceneWorld`, `PositionConstraint`, `RobotState`, `RobotTrajectory`, `TrajectoryConstraints`, `VisibilityConstraint`, `WorkspaceParameters` |
+| 없음 (18) | `AllowedCollisionEntry`, `AllowedCollisionMatrix`, `CartesianPoint`, `CartesianTrajectory`, `CartesianTrajectoryPoint`, `ExecuteTrajectory`, `GenericTrajectory`, `GetCartesianPath`, `GetPlannerParams`, `LinkPadding`, `LinkScale`, `ObjectColor`, `PlannerInterfaceDescription`, `PlannerParams`, `PlanningOptions`, `PlanningScene`, `QueryPlannerInterfaces`, `SetPlannerParams` |
 
-19종을 `ros/`가 아니라 추적 트리 전체(`git ls-files`, `third_party/` 제외)로
-다시 확인해도 결론은 같다. `.rs`에서 이름이 나오는 것은 셋뿐이고
-(`AllowedCollisionMatrix` — `crates/moveit-collision/src/matrix.rs:46,85,309`,
-`PlanningScene`·`ObjectColor` — `crates/moveit-scene/src/scene.rs:228,405,419,425,428`),
-**여덟 자리 전부 doc 주석 안에서 상류 C++ 시그니처를 인용한 것**이지
-포트가 다루는 타입이 아니다. `MoveGroup`은 `PORTING-PLAN.md` 산문에만
-나오고 나머지 15종은 트리 어디에도 없다.
-
-**이 34종의 정의는 이 기계의 파일시스템에 없다.** `moveit_msgs`는 상류
-체크아웃의 디렉터리가 아니고 호스트 ROS 설치에도 없다. 오라클 이미지
-안에만 있다:
+`MoveGroup`이 16 쪽에 있는 것이 그 `/move_action` 라운드의 결과다.
+그리고 계기가 `--port-tree`를 트리 전체로 잡고 있으므로 이 "없다"는
+`ros/moveit-ros` 안이 아니라 **main의 추적 `.rs` 전부**(`third_party/`·
+`target/` 제외)를 뒤진 결과다. 18종 중 셋만 그 안에 나타나고, 나타나는
+자리는 10개 줄 전부 주석이다:
 
 ```
-$ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:bf084112fdd5730b \
-    -lc 'find / -xdev -type d -name moveit_msgs -path \"*/share/*\"'"
+      AllowedCollisionMatrix  [comment-only: crates/moveit-collision/src/matrix.rs:46,85,309]
+      ObjectColor             [comment-only: crates/moveit-scene/src/scene.rs:425]
+      PlanningScene           [comment-only: crates/moveit-scene/src/scene.rs:228,405,419,428,
+                               ros/moveit-ros/src/scene/mod.rs:4,
+                               ros/moveit-ros/src/scene/planning_scene.rs:10]
+```
+
+열 줄 전부 `///`·`//!`가 상류 C++ 시그니처를 인용한 것이고, 나머지 15종은
+한정 이름으로 main 어디에도 없다.
+
+**이 34종의 정의는 이 기계의 파일시스템에 없다.** `moveit_msgs`는 상류
+체크아웃의 디렉터리가 아니고 호스트 ROS 설치에도 없다(이 호스트에는
+`/opt/ros` 자체가 없다). 오라클 이미지 안에만 있다:
+
+```
+$ sg docker -c "docker run --rm --entrypoint bash moveit-rs/oracle:bf084112fdd5730b -lc '
+    find / -xdev -type d -name moveit_msgs -path \"*/share/*\"
+    for k in msg srv action; do
+      echo \"  \$k \$(ls /ws/install/moveit_msgs/share/moveit_msgs/\$k/*.\$k | wc -l)\"
+    done'"
 /ws/install/moveit_msgs/share/moveit_msgs
   msg 48   srv 26   action 8
 ```
+
+세는 단위는 **인터페이스**이지 파일이 아니다. 같은 디렉터리를 `ls | wc -l`로
+세면 144/78/24가 나오는데, 인터페이스 하나가 `.msg`·`.idl`·`.json` 셋으로
+설치되기 때문이다(`AllowedCollisionEntry.{idl,json,msg}`). 그래서 위 명령은
+확장자를 고정해서 센다. `moveit_msgs` 전체 82종 중 이 조건이 요구하는 것이
+34종이다.
+
+그러므로 이 절반의 열거는 컨테이너 안에서만 돌 수 있고, 그 스크립트가
+`tools/ci/requirement-message-closure.py`다(위 이미지에 마운트해 실행;
+파일 상단이 정확한 명령을 적는다). 그 출력의 `moveit_msgs` 절반을
+`tools/ci/requirement-closure-moveit-msgs.txt`로 체크인해 두었기 때문에
+포트 쪽 16/18은 컨테이너 없이 재현된다.
 
 그래서 위 64종 폐포는 호스트 계기가 아니라 컨테이너 안에서 돌려 얻었다.
 `measure-requirement-closure.py`가 이 절반을 계산하지 **않는** 이유가
@@ -23323,7 +23370,7 @@ missing/duplicated"의 의미가 그것이다).
 |---|---|---|
 | `measure-port-coverage.py` | 상류 `CORPUS_ROOTS` 트리 | 코퍼스 밖 555건, `test` 성분 68건(규칙상 영구히) |
 | `--check doc/port-coverage.md` | 위 계기의 출력 | 같음 — 출력에 없는 것은 행도 없다 |
-| `ros/moveit-ros/src/conversion_coverage.rs` | **포트 자신의** `impl TryFrom` 블록 | 포트가 아예 만들지 않은 메시지 타입 19종 |
+| `ros/moveit-ros/src/conversion_coverage.rs` | **포트 자신의** `impl TryFrom` 블록 | 포트가 아예 만들지 않은 메시지 타입 18종 |
 | `check-phase-status.sh` | 표의 **행** | 행이 없는 조건 절(Phase 6 스무딩) |
 | `verify-phase7-benchmark.sh` 등 실측 게이트 | 구현이 이미 있는 조건 | 아무도 만들지 않은 것 |
 | `measure-requirement-closure.py` (이 절) | **조건 행** + 오라클 소스 + 클라이언트 TU | 메시지 폐포(컨테이너 필요), 매크로/생성 경로로만 도달하는 헤더 |
@@ -23346,6 +23393,7 @@ missing/duplicated"의 의미가 그것이다).
 4. **상류 단위 테스트 벡터** — Phase 6 둘째 절이 요구하는 68건. 코퍼스
    규칙이 배제하므로 코퍼스를 넓히는 것이 아니라 별도 열거가 필요하다
    (코퍼스를 넓히면 §249의 87이 비교 불가능해진다).
+
 
 ## §253 `oracle.cpp` 인용 47건 — 아무 게이트도 본 적이 없고, 재도출하니 47건 전부 옮겨져 있다 (2026-08-06)
 
