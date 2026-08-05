@@ -16990,3 +16990,194 @@ pr2는 95) — 비용은 모델 크기가 아니라 실제로 narrowphase까지 
 이전에는 `cases: 20006`이라는 다섯 자리 총계 안에 익명으로 다섯 개가
 섞여 있어서 exit code는 덮고 있었지만 사람이 읽을 수 있는 항목별
 결과는 아니었다.
+
+---
+
+## §224 pilz joint-limits 여섯 파일 — 이 포트의 두 번째 입력은 파라미터 서버가 아니라 오버라이드 컨테이너다
+
+`doc/port-coverage.md`가 `gap`으로 세던 pilz joint-limits 여섯 파일을 처분한다.
+편집을 시작하기 전에 막힌 지점을 먼저 적는다: 여섯 중 둘은 내용의 전부가
+`rclcpp` 파라미터 서버 접근이고, 하나는 그 파라미터 서버를 함수 인자로 받는다.
+"파라미터 계층을 흉내 낸 껍데기를 만들어 포트가 완성돼 보이게 한다"는 선택지는
+이 절에서 명시적으로 버린다.
+
+### 224.1 이미 있는 표현 위에 얹는다 — 두 번째 한계 표현을 만들지 않는다
+
+`crates/moveit-planners-pilz/src/limits.rs`가 이미
+`JointLimit`/`JointLimitsContainer`/`CartesianLimits`/`LimitsContainer`를 들고
+있고(상류 `joint_limits_container.{hpp,cpp}` +
+`joint_limits_extension.hpp` + `joint_limits_copy/joint_limits.hpp` +
+`limits_container.{hpp,cpp}`의 포트), 이 크레이트의 소비자가 이미 그것을 쓴다 —
+`trajectory_functions::verify_sample_joint_limits`,
+`trajectory_generator`, `command_list_manager::new(model, LimitsContainer)`.
+이번 라운드의 두 모듈은 **그 타입을 인자와 반환값으로 쓴다**. 새 구조체는
+`AggregationError` 하나뿐이고, 그것은 한계 표현이 아니라 상류 예외 클래스의
+대응물이다.
+
+`limits.rs`의 `JointLimit`이 상류 `joint_limits::JointLimits`(18필드 중
+14개)와 `joint_limits_interface::JointLimits`의 확장 2필드
+(`max_deceleration`/`has_deceleration_limits`)를 이미 한 타입으로 접어 두었다는
+점이 아래 224.2의 환원을 가능하게 한다.
+
+### 224.2 막힌 지점: `getAggregatedLimits`의 두 번째 입력이 무엇인가
+
+상류 서명 (`joint_limits_aggregator.hpp:80-82`):
+
+```cpp
+static JointLimitsContainer getAggregatedLimits(
+    const rclcpp::Node::SharedPtr& node, const std::string& param_namespace,
+    const std::vector<const moveit::core::JointModel*>& joint_models);
+```
+
+`(node, param_namespace)` 쌍이 하는 일을 두 파일을 열어 확인했다.
+
+- `joint_limits_interface_extension.hpp:49-98` — 함수 둘. 첫째는
+  `joint_limits::declareParameters`로 그대로 넘기는 1줄 포워더. 둘째는
+  `joint_limits::getJointLimits`를 부른 뒤 `<ns>.joint_limits.<joint>.
+  has_deceleration_limits`와 `.max_deceleration` 둘을 더 읽어
+  `limits`에 써 넣는다.
+- `joint_limits_copy/joint_limits_rosparam.hpp:44-239` —
+  `declareParameters`가 관절당 파라미터 **18개**를 선언하고,
+  `getJointLimits`가 그 18개를 읽어 `JointLimits`의 필드에 써 넣는다.
+
+두 파일이 `node`로 하는 일은 **`declare_parameter`/`has_parameter`/
+`get_parameter` 뿐**이다(`node->` 출현: 각각 7회, 53회 — 다른 멤버 호출은
+로거를 얻는 `node->get_logger()`/`node->get_name()`뿐이다). 계산은 한 줄도
+없다. 즉 파라미터 서버가 `getAggregatedLimits`에 기여하는 것은
+**관절 이름 → 부분적으로 채워진 `JointLimit` 하나**가 전부다.
+
+**이 포트의 등가 입력을 그렇게 정한다:**
+
+```rust
+pub fn aggregate_limits<'a>(
+    joint_models: impl IntoIterator<Item = &'a JointModel>,
+    overrides: &JointLimitsContainer,
+) -> Result<JointLimitsContainer, AggregationError>
+```
+
+`(node, param_namespace)` → `overrides: &JointLimitsContainer`.
+YAML 파일이 진짜 입력이었고 파라미터 서버는 그 운반 수단이었다.
+`overrides.has_limit(name)`가 상류 `getJointLimits`의 `true`/`false` 반환에,
+`overrides.limit(name)`가 그 out-parameter에 대응한다.
+
+**오버라이드 타입을 새로 만들지 않고 `JointLimitsContainer`를 쓰는 이유**는
+224.1의 규칙만이 아니다. `JointLimitsContainer::add_limit`이
+`has_deceleration_limits && max_deceleration >= 0`을 거부하므로, 오버라이드가
+그 불변식을 **구성 시점에** 만족한다. 상류의 YAML 경로에는 그 게이트가 없고,
+그것이 224.5(a)의 결함이 존재할 수 있는 이유다.
+
+### 224.3 상류의 두 분기가 같은 일을 한다 — 읽어서 확인했다
+
+`joint_limits_aggregator.cpp:70-99`의 if/else에서, `else` 팔(파라미터에 이
+관절에 대한 것이 아무것도 없을 때)의 본문은
+
+```cpp
+updatePositionLimitFromJointModel(joint_model, joint_limit);
+updateVelocityLimitFromJointModel(joint_model, joint_limit);
+```
+
+이고, `if` 팔은 `has_position_limits`/`has_velocity_limits`가 둘 다 `false`일 때
+같은 두 호출을 한다(`:77-80`, `:86-89`). `joint_limit`은 그 지점에서
+기본 생성 상태다. 따라서
+
+```rust
+let mut joint_limit = overrides.limit(name).unwrap_or_default();
+```
+
+는 근사가 아니라 **정확한** 등가다 — 부재한 관절은 모든 `has_*`가 `false`인
+기본값을 얻고, 그 값으로 아래 두 if/else가 상류 `else` 팔과 같은 경로를 탄다.
+이것이 이 절이 "이중 의미를 제거한다"고 말할 수 있는 지점이다: 상류에 있던
+"파라미터가 없음" vs "파라미터가 있으나 플래그가 전부 false" 두 상태가 포트에서
+하나의 규칙으로 접힌다.
+
+### 224.4 파일별 처분
+
+| 상류 파일 | 처분 | 근거 |
+|---|---|---|
+| `include/pilz_industrial_motion_planner/joint_limits_aggregator.hpp` | 포팅 | `crates/moveit-planners-pilz/src/joint_limits_aggregator.rs` |
+| `src/joint_limits_aggregator.cpp` | 포팅 | 같음 — 224.2의 입력 치환 외에 계산은 전부 옮긴다 |
+| `include/pilz_industrial_motion_planner/joint_limits_validator.hpp` | 포팅 | `crates/moveit-planners-pilz/src/joint_limits_validator.rs` |
+| `src/joint_limits_validator.cpp` | 포팅 | 같음 — ROS 의존 0 |
+| `include/pilz_industrial_motion_planner/joint_limits_interface_extension.hpp` | `decided-non-port` (D1) | 아래 |
+| `include/joint_limits_copy/joint_limits_rosparam.hpp` | `decided-non-port` (D1) | 아래 |
+
+**`joint_limits_interface_extension.hpp` — 남는 비-ROS 잔여분 0.**
+파일 전체가 100줄, 내용은 인라인 함수 둘뿐이고 둘 다
+`const rclcpp::Node::SharedPtr&`를 받는다. 이 파일이 헤더 주석으로
+광고하는 "`JointLimits`에 deceleration 파라미터를 더한 확장"은 실제로는
+**다른 파일**(`joint_limits_extension.hpp`)에 있고, 그 파일은 이미
+`limits.rs`가 인용해 포팅돼 있다. 그러므로 이 파일에서 파라미터 서버 접근을
+빼면 남는 것이 없다 — 부분 포팅할 대상이 없어서 `decided-non-port`이지,
+어려워서가 아니다.
+
+**`joint_limits_rosparam.hpp` — 남는 비-ROS 잔여분 0.**
+302줄, 함수 다섯(`declareParameterTemplate`, `declareParameters`,
+`getJointLimits(JointLimits&)`, `getJointLimits(SoftJointLimits&)`).
+`node->` 출현 53회. 파일 머리의 상류 자신의 주석이 출처를 말한다: ros2_control
+DRAFT PR #462에서 복사해 온 것이고 "Remove when ros2_control has an upstream
+version of this". 즉 상류에서도 이 파일은 파라미터 서버 어댑터이지 pilz의
+계산이 아니다. `SoftJointLimits` 오버로드는 pilz 패키지 전체에서 호출자가
+**0**이다(`rg -n SoftJointLimits moveit_planners/` — `joint_limits_copy/`
+바깥 히트 0).
+
+두 파일 모두 D1(코어 크레이트는 ROS 타입을 일절 참조하지 않는다)에 정면으로
+해당한다. `doc/port-coverage.md`의 두 행을 `gap` → `decided-non-port`로 옮기고
+증거 칸이 이 절을 가리킨다.
+
+### 224.5 상류가 정의하지 않은 두 지점 — 포트는 따라가지 않는다
+
+**(a) `getAggregatedLimits`가 `addLimit`의 반환값을 버린다.**
+`joint_limits_aggregator.cpp:109`는 `container.addLimit(name, joint_limit);`
+이고 `bool` 반환을 읽지 않는다. `addLimit`은
+`has_deceleration_limits && max_deceleration >= 0`이면 삽입하지 않고 `false`를
+낸다(`joint_limits_container.cpp`). `:102-106`이 `max_deceleration =
+-max_acceleration`을 설정하므로, 파라미터가 `has_acceleration_limits: true,
+max_acceleration: 0.0`을 주면 `max_deceleration = -0.0`이 되고 `-0.0 >= 0.0`은
+참이라 그 관절이 **조용히 컨테이너에서 빠진다**. 상류 자신의 테스트
+`ExpectedMapSize`(`container.getCount() == joint_models.size()`)가 그 상황에서
+깨진다. `doc/upstream-bugs.md`의
+`aggregated-limits-drops-rejected-joint-silently`.
+
+**(b) 다중 DOF 관절에 대한 경계 검사가 인접 멤버를 읽는다.**
+`checkPositionBoundsThrowing`은 `joint_model->satisfiesPositionBounds(
+&joint_limit.min_position)`을 부른다. `PlanarJointModel`/`FloatingJointModel`의
+오버라이드는 `values[0..2]`/`values[0..6]`을 읽는데, 넘긴 포인터는 단일
+`double` 멤버 하나를 가리킨다 — 가리킨 객체의 끝을 넘어 읽는 것이므로
+동작이 정의되지 않는다. planar(3원소)에서는 상류 구조체가 `min_position`,
+`max_position`, `max_velocity`를 그 순서로 선언하므로 읽히는 바이트가 그
+셋에 해당하지만, floating(7원소)은 선언된 `double` 여섯 개를 넘어간다.
+어느 쪽이든 그 관절의 위치·속도가 아니다. 클래스 doc이 "Does not support
+MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
+`doc/upstream-bugs.md`의 `check-position-bounds-multidof-adjacent-members`.
+
+포트는 (a)를 `AggregationError::DuplicateJoint`/`NonNegativeDeceleration`으로,
+(b)를 `AggregationError::MultiDofBoundsCheck`로 **오류로 올린다**. 둘 다
+`not-reproduced`이고, 이유는 상류가 그 자리에서 정의된 동작을 갖지 않기
+때문이다 — 조용한 드롭과 인접 멤버 읽기는 재현할 "동작"이 아니다.
+
+### 224.6 실제로 착지한 것과, 가드마다 물린 변형
+
+여섯 파일의 처분은 224.4대로 끝났다. `doc/port-coverage.md`는 네 행이
+사라지고(두 모듈이 `Ported from moveit2 @ …` 헤더로 그 상류 경로를 이름으로
+든다) 두 행이 `gap` → `decided-non-port`로 옮겨, 미포팅 95 → 91,
+`decided-non-port` 45 → 47 / `gap` 40 → 34가 되었다.
+`measure-port-coverage.py --check`가 91행 == 91건으로 통과한다.
+
+테스트는 두 모듈 합쳐 39개다. 이 39개가 "가드를 덮는다"는 주장은 읽기가
+아니라 실측이다 — 가드마다 변형을 하나씩 넣어 돌리고 되돌렸고, 58회의 변형
+실행 결과가 `doc/assertion-discrimination-ledger-p10-jointlimits.md`에
+전부 적혀 있다. 39개 중 **38개**가 자기만 깨뜨리는 변형을 갖는다.
+
+갖지 못한 하나는 `a_differing_max_position_is_a_disagreement`다. 그 픽스처는
+`a_third_joint_disagreeing_with_the_first_two_is_still_a_disagreement`의
+진부분집합(2관절 vs 3관절, 같은 `max_position` 1.0 vs 2.0)이라
+`max_position` 비교를 어떻게 바꾸든 둘이 같이 깨진다. 크기로 가르는 변형도
+없다 — 두 픽스처의 차이가 같은 1.0이다. 반대 방향은 갈라진다(`V2`,
+"첫 쌍만 비교"는 3관절 쪽만 깨뜨린다). 그래서 두 테스트는 중복이 아니고,
+작은 쪽의 커버리지 주장이 2개 가족이라는 사실만 원장에 그대로 적었다.
+
+이 절을 쓰면서 상류 결함 두 건이 `doc/upstream-bugs.md`에 들어갔다
+(`aggregated-limits-drops-rejected-joint-silently`,
+`check-position-bounds-multidof-adjacent-members`). 둘 다 `not-reproduced`,
+둘 다 C++로 돌려본 것이 아니라 읽은 것이며, 대신 포트 쪽에서 대응 테스트와
+그 테스트만 깨뜨리는 변형(`A10`, `A35`/`A34`)을 확보했다.

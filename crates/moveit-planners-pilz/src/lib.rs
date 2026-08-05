@@ -207,6 +207,8 @@
 
 pub mod cartesian_trajectory;
 pub mod command_list_manager;
+pub mod joint_limits_aggregator;
+pub mod joint_limits_validator;
 pub mod limits;
 pub mod path_circle;
 pub mod path_line;
