@@ -144,7 +144,6 @@ this is `0.0 / 0.0` = NaN, which escapes into the constructed path.
 returning an error is the obvious candidate, and no pilz parity test is
 known to depend on the NaN — that needs checking, not assuming.
 
-
 ### 6. `MultivariateGaussian`'s Cholesky factor is computed unconditionally, so a non-positive-definite covariance produces `NaN` samples with no signal — not-reproduced
 
 **Upstream:** `moveit_planners/stomp/include/stomp_moveit/math/multivariate_gaussian.hpp:86`
