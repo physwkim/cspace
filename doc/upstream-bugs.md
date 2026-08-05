@@ -2155,17 +2155,18 @@ layer, so the selection rule that produces the artifact does not exist here.
 the 10,715 rows behind the `distance: f64` clause `PORTING-PLAN.md` §5
 records `UNMET` (`PORTING-PLAN.md:807`, which carries the verdict and
 delegates the diagnosis to §229.3) — a majority of that miss, not the whole
-of it. §218.4's per-robot table (`PORTING-PLAN.md:17003`) splits panda into
-`self 1,225 / robot 9,490`, and the robot column again into 6,364 same-pair
-value divergence — all of it the single pair `floor/panda_link0` — against
-3,126 pair-flips. Only the 6,364 are this entry. The 3,126 flips are the
-near-tie mechanism §218.4 uses to rule fanuc out three paragraphs below, so
-counting them here would re-make inside panda the over-generalization §229.3
-already corrected across robots; the 1,225 self-side rows are a column this
-world-object defect cannot reach at all. The `27,384x` figure §218.4
-(`PORTING-PLAN.md:16973`) and §229.3 record is panda's worst `|Δ|` against
-the `1e-4` threshold — a magnitude, not a count — so it neither states nor
-bounds this entry's share.
+of it. §218.4's per-robot table (`PORTING-PLAN.md:17008-17012`) splits panda
+into `self 1,225 / robot 9,490`, and the robot column again into 6,364
+same-pair value divergence — all of it the single pair `floor/panda_link0`
+— against 3,126 pair-flips (row at `:17010`). Only the 6,364 are this
+entry. The 3,126 flips are the near-tie mechanism §218.4's own "다른 쌍
+(pair-flip)" bullet (`PORTING-PLAN.md:17003-17004`) uses to rule fanuc out
+three paragraphs below, so counting them here would re-make inside panda
+the over-generalization §229.3 already corrected across robots; the 1,225
+self-side rows are a column this world-object defect cannot reach at all.
+The `27,384x` figure §218.4 (`PORTING-PLAN.md:16979-16980`) and §229.3
+record is panda's worst `|Δ|` against the `1e-4` threshold — a magnitude,
+not a count — so it neither states nor bounds this entry's share.
 
 Reproducing it would mean adopting a quantity that is unbounded
 in the size of an unrelated object, and would take
