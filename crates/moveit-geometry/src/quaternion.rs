@@ -133,6 +133,29 @@ mod tests {
         assert_eq!(got[3], 1.0 + 8.0 * f64::EPSILON);
     }
 
+    /// The threshold itself, `d == 1 - EPSILON`, which is the only `d` at
+    /// which Eigen's `1 - EPSILON` and nalgebra's `1` disagree: measured over
+    /// `t` in 100 steps, the two branches are bit-identical at `1 - 2^-53`
+    /// and `1 - 3*2^-53` and differ by `2.22e-16` here. Without this case the
+    /// constant is unpinned -- `near_parallel_branch_*` above sits at `d > 1`,
+    /// where both thresholds lerp.
+    ///
+    /// `t` must be interior. Both branches land on `from` at `t = 0` and on
+    /// `to` at `t = 1` (`sin(theta)/sin(theta)` is exactly `1.0`), so an
+    /// endpoint case cannot see which one ran.
+    #[test]
+    fn the_threshold_value_itself_takes_the_lerp_branch() {
+        let w = 1.0 - f64::EPSILON;
+        let from = [0.0, 0.0, 0.0, 1.0];
+        let to = [(1.0f64 - w * w).sqrt(), 0.0, 0.0, w];
+        let t = 1e-9;
+        let mut lerped = [0.0; 4];
+        for i in 0..4 {
+            lerped[i] = (1.0 - t) * from[i] + t * to[i];
+        }
+        assert_eq!(slerp_coefficients(&from, &to, t), lerped);
+    }
+
     /// `d.abs() >= one` with `d < 0`: `scale1` is negated, and for an exactly
     /// antipodal pair that reconstructs `from` at every `t`. The value this
     /// pins is the *absence* of a `0/0`: `nlerp` on the same input divides by

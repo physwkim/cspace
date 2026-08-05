@@ -49,11 +49,11 @@
 //! **Tests, and what each checks against the real oracle.**
 //!
 //! ```text
-//! cargo nextest run -p moveit-geometry --no-fail-fast   # 147 tests run: 147 passed, 0 skipped
+//! cargo nextest run -p moveit-geometry --no-fail-fast   # 148 tests run: 148 passed, 0 skipped
 //! rg -c '#\[test\]' crates/moveit-geometry/tests/*.rs
 //! ```
 //!
-//! 147 total; **18** of those are oracle- or shipped-`.so`-backed integration
+//! 148 total; **18** of those are oracle- or shipped-`.so`-backed integration
 //! tests, not self-referential unit tests: `mesh_parity.rs` (1, every Panda/
 //! Fanuc/PR2 collision STL against the real oracle), `body_query_parity.rs`
 //! (1, posed-body algorithms), `octree_in_world_parity.rs` (1, `Shape::OcTree`
@@ -64,7 +64,7 @@
 //! documented-upstream-defect tests, `convex_mesh_sign_bug_upstream_defect`
 //! and `convex_mesh_ray1_anchor_choice_deviation`, which assert this port's
 //! *documented deviation* from upstream, not agreement with it). The
-//! remaining 129 are `#[cfg(test)]` unit tests inside `src/`, most of them
+//! remaining 130 are `#[cfg(test)]` unit tests inside `src/`, most of them
 //! per-invariant-boundary (zero/negative dimensions, degenerate shapes,
 //! masking-proof bisected tolerances -- see `shapes.rs`'s and `bodies.rs`'s
 //! own provenance comments for that history) rather than one test per
