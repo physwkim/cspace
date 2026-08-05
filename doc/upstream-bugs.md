@@ -2456,7 +2456,7 @@ dist_threshold)`), `:663` (`dist_result.distance =
 -contact.penetration_depth;`) and `:694` (`if (dist_result.distance <
 cdata->res->minimum_distance.distance)`).
 **Port:** `crates/moveit-collision/src/parry.rs`, `accumulate_distance`
-(`:2242`, `:2268`, `:2294`).
+(`:2333`, `:2359`, `:2385`).
 **Symptom:** `:694` folds a **penetration depth** into
 `res->minimum_distance`, `:574` reads that back as the next pair's
 `dist_threshold`, and `:608` tests it against the **raw `fcl::distance`
@@ -2510,8 +2510,8 @@ away — the same masked-ACM probe, run on the oracle instead of on the port:
 Every published value is between `7.79x` and `21.18x` shallower than the value
 upstream itself produces for a pair that was in the same query.
 **Status:** `not-reproduced`. `accumulate_distance` mirrors the `GLOBAL`
-running threshold (`parry.rs:2242`) and the discard (`:2268`), but the
-`contact.dist` it tests is the *same* signed quantity `:2294` folds into
+running threshold (`parry.rs:2333`) and the discard (`:2359`), but the
+`contact.dist` it tests is the *same* signed quantity `:2385` folds into
 `minimum_distance` — a penetration depth on both sides of the comparison — so a
 deeper pair cannot fail the gate. The invariant is pinned by
 `crates/moveit-collision/tests/minimum_distance_is_the_minimum.rs`, 3 cases,
