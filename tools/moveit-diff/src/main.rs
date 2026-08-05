@@ -25,10 +25,14 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 
-use moveit_collision::{AllowedCollisionMatrix, LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_collision::{
+    AllowedCollisionMatrix, CollisionEnv, DistanceRequest, LinkPaddingScale, ParryCollisionEnv,
+    World,
+};
 use moveit_geometry::{Cuboid, Isometry3, Rotation3, Shape, UnitQuaternion, Vector3};
 use moveit_model::{Diagnostic, MeshSearchPaths, RobotModel};
 use moveit_srdf::SrdfModel;
+use moveit_state::Posed;
 use protocol::{
     CollisionCheckResult, CollisionObjectSpec, ConstraintRegionSpec, ConstraintsResult,
     ConstraintsSpec, DistancePair, FkResult, IkResult, JacobianResult, JointConstraintSpec,
@@ -236,6 +240,13 @@ struct Config {
     /// (this round's worker, the next round's reviewer, p3-acm) hitting the
     /// same class of mistake independently.
     stats_json: Option<String>,
+    /// Opt-in: write one [`PairProbeRow`] per distance-clause failure whose
+    /// two sides named different pairs, to this path.
+    ///
+    /// Off by default because it costs one extra `Global` distance query per
+    /// such failure, and because the run it exists for is the 80-minute
+    /// opt-in sweep, not the per-round gate.
+    pair_probe_json: Option<String>,
     /// Run §5 Phase 2's third completion condition instead of the
     /// random-state fk/jacobian/collision/ik loop -- see `state_ops`'s own
     /// module doc. A separate mode rather than another flag folded into
@@ -287,6 +298,7 @@ impl Config {
         let mut oracle_ik_rng_seed = DEFAULT_ORACLE_IK_RNG_SEED;
         let mut ik_divergence_json: Option<String> = None;
         let mut stats_json: Option<String> = None;
+        let mut pair_probe_json: Option<String> = None;
         let mut state_ops = false;
         let mut tol_interpolate = 0.0;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
@@ -373,6 +385,7 @@ impl Config {
                 }
                 "--ik-divergence-json" => ik_divergence_json = Some(want("--ik-divergence-json")?),
                 "--stats-json" => stats_json = Some(want("--stats-json")?),
+                "--pair-probe-json" => pair_probe_json = Some(want("--pair-probe-json")?),
                 "--state-ops" => state_ops = true,
                 "--tol-interpolate" => {
                     tol_interpolate = want("--tol-interpolate")?
@@ -445,6 +458,7 @@ impl Config {
             oracle_ik_rng_seed,
             ik_divergence_json,
             stats_json,
+            pair_probe_json,
             state_ops,
             tol_interpolate,
             oracle,
@@ -755,6 +769,9 @@ struct CollisionFixture {
     env: ParryCollisionEnv,
     acm: AllowedCollisionMatrix,
     wire_objects: Vec<CollisionObjectSpec>,
+    /// Every world object's id, for [`PairProbe`]'s mask — the link names it
+    /// also needs come from the model, which this struct does not hold.
+    object_ids: Vec<String>,
 }
 
 fn build_collision_fixture(cfg: &Config) -> Result<CollisionFixture, String> {
@@ -774,10 +791,13 @@ fn build_collision_fixture(cfg: &Config) -> Result<CollisionFixture, String> {
         });
     }
 
+    let object_ids = scene.iter().map(|(id, _, _)| id.clone()).collect();
+
     Ok(CollisionFixture {
         env: ParryCollisionEnv::new(world, LinkPaddingScale::default()),
         acm,
         wire_objects,
+        object_ids,
     })
 }
 
@@ -911,6 +931,12 @@ fn run(cfg: &Config) -> Result<usize, String> {
     } else {
         None
     };
+    // Built only when asked for: it allocates an all-allowed ACM over every
+    // link and world object, which is ~9,000 entries on pr2.
+    let mut pair_probe = match (&cfg.pair_probe_json, &collision_fixture) {
+        (Some(_), Some(fixture)) => Some(PairProbe::new(&rust_model, fixture)),
+        _ => None,
+    };
 
     let mut verdicts: Vec<(String, Verdict)> = Vec::new();
 
@@ -1042,8 +1068,12 @@ fn run(cfg: &Config) -> Result<usize, String> {
                 fixture,
                 joint_values,
                 &expected,
-                &mut pair_stats,
-                &mut clause_stats,
+                case,
+                &mut CollisionAccumulators {
+                    pair_stats: &mut pair_stats,
+                    clause_stats: &mut clause_stats,
+                    pair_probe: pair_probe.as_mut(),
+                },
             );
             if dev.is_finite() {
                 max_distance_dev = max_distance_dev.max(dev);
@@ -1180,6 +1210,13 @@ fn run(cfg: &Config) -> Result<usize, String> {
     }
 
     let (failures, underpowered) = report(&verdicts)?;
+
+    if let (Some(path), Some(probe)) = (&cfg.pair_probe_json, &pair_probe) {
+        let json = serde_json::to_string_pretty(&probe.rows)
+            .map_err(|e| format!("serializing --pair-probe-json: {e}"))?;
+        std::fs::write(path, json).map_err(|e| format!("writing {path}: {e}"))?;
+        println!("pair probe: {} rows -> {path}", probe.rows.len());
+    }
 
     if let Some(path) = &cfg.stats_json {
         let stats = RunStats {
@@ -2127,6 +2164,178 @@ fn quat_from_row_major(m: &[f64; 16]) -> UnitQuaternion {
 /// which side named `body_name_1` first.
 type PairHistogram = BTreeMap<String, usize>;
 
+/// One distance-clause failure where the two sides named *different* pairs,
+/// measured rather than labelled.
+///
+/// `DistancePairStats` can say only "the winning pairs differ", which was
+/// read for several rounds as "the minimum flipped between two near-tied
+/// candidates". That reading is a hypothesis about the *values* of the two
+/// candidates, and nothing measured them: the oracle reports one pair, this
+/// port reports another, and neither side reports its value for the other's
+/// pair. This row supplies the missing quantity — this port's own distance
+/// for the oracle's pair — so the gap between the two candidates is a number
+/// instead of an assumption.
+///
+/// Both candidate values are in *this port's* metric, on purpose. Comparing
+/// the port's pick against the oracle's reported value would mix two
+/// definitions of penetration depth (`distance-callback-max-contact-depth`),
+/// and a "tie" is only meaningful within one metric.
+#[derive(Debug, serde::Serialize)]
+struct PairProbeRow {
+    /// Index into the run's own `random_states` pool — the `case` in this
+    /// tool's `collision[case]` verdict label.
+    case: usize,
+    /// `"self"` or `"robot"`.
+    side: &'static str,
+    /// The pair the oracle's `minimum_distance` named, and its value.
+    oracle_pair: String,
+    oracle_distance: f64,
+    /// The pair this port's `minimum_distance` named, and its value.
+    rust_pair: String,
+    rust_distance: f64,
+    /// This port's distance for `oracle_pair`, from [`PairProbe::probe`].
+    /// `None` when this side does not consider that pair at all.
+    rust_distance_at_oracle_pair: Option<f64>,
+    /// `rust_distance_at_oracle_pair - rust_distance`: how far the oracle's
+    /// choice sits above this port's, in one metric. This is the "epsilon" a
+    /// tie-break hypothesis needs to be small. It is `>= 0` by construction
+    /// when both are present — the port picked its own pair *because* it was
+    /// the smaller — so the question is only its magnitude.
+    candidate_gap: Option<f64>,
+}
+
+/// Accumulates [`PairProbeRow`]s, owning the scratch ACM the probe flips.
+///
+/// The mask is built once and mutated in place rather than cloned per probe:
+/// pr2 has 95 links, so a clone is ~9,000 entries and there are ~9,800
+/// failing cases.
+struct PairProbe {
+    mask: AllowedCollisionMatrix,
+    rows: Vec<PairProbeRow>,
+}
+
+impl PairProbe {
+    fn new(model: &RobotModel, fixture: &CollisionFixture) -> Self {
+        let mut names: Vec<String> = model
+            .link_models()
+            .iter()
+            .map(|link| link.name().to_owned())
+            .collect();
+        names.extend(fixture.object_ids.iter().cloned());
+        Self {
+            mask: AllowedCollisionMatrix::from_names(&names, true),
+            rows: Vec::new(),
+        }
+    }
+
+    /// This port's signed distance for exactly one pair, every other pair
+    /// masked out.
+    ///
+    /// It is the *same* `distance_self`/`distance_robot` entry point the
+    /// comparison itself calls — only the ACM differs — so the number is
+    /// comparable to the run's own minimum rather than being a second
+    /// implementation of distance. `DistanceRequestType::Single` would return
+    /// the whole map in one call, but is `O(pairs)` with no shrinking search
+    /// bound (see its own doc comment: ~340s per call on pr2's self-check
+    /// against ~0.11s for `Global`), so a per-case probe built on it could not
+    /// run over a 10,000-state sweep at all. Checked against the `Single` map
+    /// on fanuc's seven robot-side pairs before being used.
+    ///
+    /// `None` when the query names no pair, i.e. this side does not consider
+    /// the named pair (a body with no collision geometry, or one the model
+    /// does not have).
+    fn probe(
+        &mut self,
+        fixture: &CollisionFixture,
+        posed: Posed<'_, '_>,
+        name_a: &str,
+        name_b: &str,
+        robot_side: bool,
+    ) -> Option<f64> {
+        self.mask.set_entry(name_a, name_b, false);
+        let request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(&self.mask),
+            ..DistanceRequest::default()
+        };
+        let result = if robot_side {
+            fixture.env.distance_robot(&request, &posed, &[])
+        } else {
+            fixture.env.distance_self(&request, &posed, &[])
+        };
+        self.mask.set_entry(name_a, name_b, true);
+        if result.minimum_distance.link_names[0].is_empty() {
+            return None;
+        }
+        Some(result.minimum_distance.distance)
+    }
+
+    /// Records one [`PairProbeRow`] for a distance-clause failure that also
+    /// disagreed on the pair.
+    ///
+    /// Re-poses the state through [`rust_impl::with_posed_state`], the same
+    /// function [`rust_impl::collision`] used a few lines earlier: the probe's
+    /// number is only comparable to the run's own minimum if both came from
+    /// one state.
+    fn record(
+        &mut self,
+        fixture: &CollisionFixture,
+        rust_model: &RobotModel,
+        joint_values: &BTreeMap<String, f64>,
+        case: usize,
+        outcome: &SideOutcome<'_>,
+    ) {
+        let probed = rust_impl::with_posed_state(rust_model, joint_values, |posed| {
+            outcome.oracle_pair.as_ref().and_then(|pair| {
+                self.probe(
+                    fixture,
+                    posed,
+                    &pair.body_name_1,
+                    &pair.body_name_2,
+                    outcome.robot_side,
+                )
+            })
+        });
+        let Ok(at_oracle_pair) = probed else { return };
+        self.rows.push(PairProbeRow {
+            case,
+            side: outcome.side,
+            oracle_pair: format_distance_pair(outcome.oracle_pair),
+            oracle_distance: outcome.oracle_distance,
+            rust_pair: format_distance_pair(outcome.rust_pair),
+            rust_distance: outcome.rust_distance,
+            rust_distance_at_oracle_pair: at_oracle_pair,
+            candidate_gap: at_oracle_pair.map(|value| value - outcome.rust_distance),
+        });
+    }
+}
+
+/// One side of one case as [`PairProbe::record`] needs it: which side, and
+/// each implementation's winning pair and value.
+///
+/// A struct rather than six positional arguments because `self`/`robot` differ
+/// only in which four fields are read, and the two call sites sit forty lines
+/// apart -- a transposed pair of `f64`s there would produce a plausible,
+/// silently wrong `candidate_gap`.
+struct SideOutcome<'a> {
+    /// `"self"` or `"robot"`, as it appears in [`PairProbeRow::side`].
+    side: &'static str,
+    /// Which of [`CollisionEnv`]'s two entry points this side queries.
+    robot_side: bool,
+    oracle_distance: f64,
+    oracle_pair: &'a Option<DistancePair>,
+    rust_distance: f64,
+    rust_pair: &'a Option<DistancePair>,
+}
+
+/// The run-level accumulators [`compare_collision`] writes into: the two stat
+/// blocks `--stats-json` prints and the opt-in [`PairProbe`].
+struct CollisionAccumulators<'a> {
+    pair_stats: &'a mut DistancePairStats,
+    clause_stats: &'a mut CollisionClauseStats,
+    pair_probe: Option<&'a mut PairProbe>,
+}
+
 #[derive(Debug, Default, Clone, serde::Serialize)]
 struct DistancePairStats {
     self_total: usize,
@@ -2247,9 +2456,14 @@ fn compare_collision(
     fixture: &CollisionFixture,
     joint_values: &BTreeMap<String, f64>,
     expected: &CollisionCheckResult,
-    pair_stats: &mut DistancePairStats,
-    clause_stats: &mut CollisionClauseStats,
+    case: usize,
+    acc: &mut CollisionAccumulators<'_>,
 ) -> (Verdict, f64) {
+    let CollisionAccumulators {
+        pair_stats,
+        clause_stats,
+        pair_probe,
+    } = acc;
     let actual = match rust_impl::collision(rust_model, &fixture.env, &fixture.acm, joint_values) {
         Ok(a) => a,
         Err(e) => {
@@ -2316,6 +2530,22 @@ fn compare_collision(
         pair_stats.self_pair_disagrees += 1;
         if self_dev.is_nan() || self_dev > cfg.tol_distance {
             pair_stats.self_pair_flip_and_value_diverges += 1;
+            if let Some(probe) = pair_probe.as_mut() {
+                probe.record(
+                    fixture,
+                    rust_model,
+                    joint_values,
+                    case,
+                    &SideOutcome {
+                        side: "self",
+                        robot_side: false,
+                        oracle_distance: expected.self_distance,
+                        oracle_pair: &expected.self_distance_pair,
+                        rust_distance: actual.self_distance,
+                        rust_pair: &actual.self_distance_pair,
+                    },
+                );
+            }
         }
     }
     pair_stats.robot_total += 1;
@@ -2333,6 +2563,22 @@ fn compare_collision(
         pair_stats.robot_pair_disagrees += 1;
         if robot_dev.is_nan() || robot_dev > cfg.tol_distance {
             pair_stats.robot_pair_flip_and_value_diverges += 1;
+            if let Some(probe) = pair_probe.as_mut() {
+                probe.record(
+                    fixture,
+                    rust_model,
+                    joint_values,
+                    case,
+                    &SideOutcome {
+                        side: "robot",
+                        robot_side: true,
+                        oracle_distance: expected.robot_distance,
+                        oracle_pair: &expected.robot_distance_pair,
+                        rust_distance: actual.robot_distance,
+                        rust_pair: &actual.robot_distance_pair,
+                    },
+                );
+            }
         }
     }
 
@@ -3133,6 +3379,7 @@ mod ik_divergence_recording_tests {
             oracle_ik_rng_seed: DEFAULT_ORACLE_IK_RNG_SEED,
             ik_divergence_json: None,
             stats_json: None,
+            pair_probe_json: None,
             state_ops: false,
             tol_interpolate: 0.0,
             oracle: Vec::new(),

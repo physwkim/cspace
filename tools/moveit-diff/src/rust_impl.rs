@@ -340,6 +340,31 @@ pub fn constraints(
     Ok(ConstraintsResult { results })
 }
 
+/// Runs `f` on `joint_values` layered over the model's default positions.
+///
+/// A scoped callback rather than a `-> Posed` factory because `Posed<'s, 'm>`
+/// borrows the `RobotState` it came from, so the state has to outlive the use
+/// and cannot be returned. Factored out of [`collision`] so `main.rs`'s pair
+/// probe re-poses the state exactly as the comparison did instead of growing
+/// a second copy of these four lines that could drift from it — the probe's
+/// number is only meaningful against the run's own minimum if both came from
+/// one state.
+pub fn with_posed_state<T>(
+    model: &RobotModel,
+    joint_values: &BTreeMap<String, f64>,
+    f: impl FnOnce(Posed<'_, '_>) -> T,
+) -> Result<T, String> {
+    let mut state = RobotState::new(model);
+    state.set_to_default_values();
+    for (name, &value) in joint_values {
+        state
+            .set_variable_position(name, value)
+            .map_err(|e| format!("setting {name}: {e}"))?;
+    }
+    let posed = state.update();
+    Ok(f(posed))
+}
+
 /// Self- and robot-collision, plus signed self/robot distance, at
 /// `joint_values` layered on top of the model's default positions,
 /// reset-then-apply the same way [`fk`] does. Matches the oracle's own
@@ -353,35 +378,28 @@ pub fn collision(
     acm: &AllowedCollisionMatrix,
     joint_values: &BTreeMap<String, f64>,
 ) -> Result<CollisionCheckResult, String> {
-    let mut state = RobotState::new(model);
-    state.set_to_default_values();
-    for (name, &value) in joint_values {
-        state
-            .set_variable_position(name, value)
-            .map_err(|e| format!("setting {name}: {e}"))?;
-    }
-    let posed = state.update();
+    with_posed_state(model, joint_values, |posed| {
+        let self_result =
+            env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(acm));
+        let robot_result =
+            env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(acm));
 
-    let self_result =
-        env.check_self_collision(&CollisionRequest::default(), &posed, &[], Some(acm));
-    let robot_result =
-        env.check_robot_collision(&CollisionRequest::default(), &posed, &[], Some(acm));
+        let distance_request = DistanceRequest {
+            enable_signed_distance: true,
+            acm: Some(acm),
+            ..DistanceRequest::default()
+        };
+        let self_distance = env.distance_self(&distance_request, &posed, &[]);
+        let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
 
-    let distance_request = DistanceRequest {
-        enable_signed_distance: true,
-        acm: Some(acm),
-        ..DistanceRequest::default()
-    };
-    let self_distance = env.distance_self(&distance_request, &posed, &[]);
-    let robot_distance = env.distance_robot(&distance_request, &posed, &[]);
-
-    Ok(CollisionCheckResult {
-        self_collision: self_result.collision,
-        self_distance: self_distance.minimum_distance.distance,
-        self_distance_pair: distance_pair(&self_distance.minimum_distance),
-        robot_collision: robot_result.collision,
-        robot_distance: robot_distance.minimum_distance.distance,
-        robot_distance_pair: distance_pair(&robot_distance.minimum_distance),
+        CollisionCheckResult {
+            self_collision: self_result.collision,
+            self_distance: self_distance.minimum_distance.distance,
+            self_distance_pair: distance_pair(&self_distance.minimum_distance),
+            robot_collision: robot_result.collision,
+            robot_distance: robot_distance.minimum_distance.distance,
+            robot_distance_pair: distance_pair(&robot_distance.minimum_distance),
+        }
     })
 }
 

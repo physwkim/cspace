@@ -125,6 +125,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `set-motion-plan-request-time-guard-polarity` | not-reproduced |
 | `collision-callback-logs-contact-stored-when-dropped` | not-reproduced |
 | `check-collision-unpadded-discards-its-own-request-copy` | not-reproduced |
+| `distance-callback-threshold-suppresses-deeper-pairs` | not-reproduced |
 
 ---
 
@@ -2177,17 +2178,19 @@ in the size of an unrelated object, and would take
 `9.95 m`, and it grows with `L` without limit, so no fixed tolerance both
 admits it and detects anything.
 
-fanuc's own `distance`-column miss (`2,897x`) is NOT this defect: `PORTING-PLAN.md`
-§218.4 traces fanuc's worst case (`collision[9651]`) to a *different* pair
-winning on each side (oracle `base_link/floor` at essentially zero, this port
-`link_4/floor` at `-2.897e-1`) — a pair-flip between near-tied candidates, and
-§218.4 states this explicitly ("이탈 6이 아니다", not this deviation). All
-2,302 of fanuc's robot-side failures are same-pair-value-agreement (0 of them
-diverge on a shared pair the way panda's 6,364 do); fanuc's `distance` miss
-has no diagnosed cause in this index yet. pr2's mesh-vs-box worst value
-(`3.218e-1`, `PORTING-PLAN.md` §21.4) has never had the same same-pair-vs-
-pair-flip check run against it, so it is unverified, not confirmed, as an
-instance of this entry.
+fanuc's robot-side miss is NOT this defect, and the reason is now measured
+rather than assumed. `PORTING-PLAN.md` §218.4 traced fanuc's worst case
+(`collision[9651]`) to a *different* pair winning on each side (oracle
+`base_link/floor` at essentially zero, this port `link_4/floor` at `-2.897e-1`)
+and read that as a flip between near-tied candidates. It is not a tie: over all
+2,302 of fanuc's robot-side failures the oracle's pair sits `2.264e-4` to
+`2.897e-1` *above* this port's minimum in this port's own metric, none of them
+inside the clause's `1e-4`, while the two sides agree on the oracle's pair to
+`9.93e-16`. That is
+`distance-callback-threshold-suppresses-deeper-pairs`, not this entry. fanuc's
+self side and pr2's self side carry both defects at once — 1,542 of fanuc's
+1,586 self-side flips and 275 of pr2's 293 exceed `1e-4` on *both* the pair
+choice and the same-pair value.
 
 ### `pr2-collision-test-asserts-unwritten-result` — Two `ASSERT_FALSE`s read a `CollisionResult` no call ever wrote — not-reproduced
 
@@ -2442,3 +2445,93 @@ reaches `PlanningScene::checkCollisionUnpadded`, and D4 already removed the
 padded/unpadded selection this defect lives in: with one caller-owned `E`,
 padding is a property of the environment the caller built, never of the
 request (`PORTING-PLAN.md` §239.3, `crates/moveit-scene/src/scene.rs:566-576`).
+
+### `distance-callback-threshold-suppresses-deeper-pairs` — a `GLOBAL` distance query tests each pair's raw `fcl::distance` against a running threshold holding a *penetration depth*, so the first penetrating pair discards every deeper one and the published "minimum distance" is not the minimum — not-reproduced
+
+**Upstream:** `moveit_core/collision_detection_fcl/src/collision_common.cpp:574`
+(`dist_threshold = cdata->res->minimum_distance.distance;` — the `GLOBAL`
+branch), `:594` (`fcl_result.min_distance = dist_threshold;`), `:602`
+(`double distance = fcl::distance(o1, o2, ...)`), `:608` (`if (distance <
+dist_threshold)`), `:663` (`dist_result.distance =
+-contact.penetration_depth;`) and `:694` (`if (dist_result.distance <
+cdata->res->minimum_distance.distance)`).
+**Port:** `crates/moveit-collision/src/parry.rs`, `accumulate_distance`
+(`:2242`, `:2268`, `:2294`).
+**Symptom:** `:694` folds a **penetration depth** into
+`res->minimum_distance`, `:574` reads that back as the next pair's
+`dist_threshold`, and `:608` tests it against the **raw `fcl::distance`
+return** for the new pair. Those are two different quantities: a separation
+distance does not come back below a recorded penetration depth. So from the
+moment any pair makes the running minimum negative, every later penetrating
+pair fails `:608` and is dropped before `:636`'s `fcl::collide` block ever
+computes its depth. What survives is not the deepest pair but the first
+penetrating one the broadphase visited; the published `minimum_distance` is an
+arbitrary member of the penetrating set rather than its minimum. There is no
+tie-break rule here to port — `:694` is a plain strict `<` — and the candidates
+are nowhere near tied (`PORTING-PLAN.md` §247 carries the distributions).
+**Evidence:** oracle at `e017c91ee`, `tools/moveit-oracle/run-oracle.sh`, one
+`scene_diff_collision` request per row. The only thing that differs between
+rows is `set_acm_entry`, so no geometry moves and no pair is added or removed
+from the scene.
+
+fanuc, state `collision[9651]` of the seed-1 sweep (`PORTING-PLAN.md` §218.4's
+worst fanuc `distance` deviation), against the sweep's `4 x 4 x 0.1` floor:
+
+| pairs allowed away | oracle `robot_collision` | oracle `robot_distance` |
+|---|---|---|
+| (none)            | `true`  | `-9.93013661298909247e-16` |
+| `base_link/floor` | `true`  | `-1.39489505627222377e0` |
+| `+ link_4/floor`  | `false` | `+1.12707096491874714e-1` |
+
+Upstream publishes `-9.9e-16` for a state where its own query, with one
+tangent pair taken out of consideration, answers `-1.39` — `1.39` below what
+it called the minimum. Row 3 shows `link_4/floor` was the real minimum: with
+both allowed away nothing else is in contact at all. Upstream's own
+`robot_contacts` for the unmasked request already names both pairs
+(`base_link/floor` depth `4.440892098500626e-16`, `link_4/floor` depth
+`0.018272381609339305`), so the discarded pair is not merely reachable — the
+collision call on the same state reports it.
+
+pr2 self side, eight failing states of the seed-1 sweep. Here the oracle is
+asked for the pair *this port* chose, with all 1,430 other link pairs allowed
+away — the same masked-ACM probe, run on the oracle instead of on the port:
+
+| case | oracle published | oracle for that pair alone | pair |
+|---|---|---|---|
+| 59  | `-8.88115590289554474e-3` | `-8.60940019969094611e-2` | `base_link/br_caster_r_wheel_link` |
+| 153 | `-8.90971394942969772e-3` | `-1.88666033016534312e-1` | `base_link/fl_caster_r_wheel_link` |
+| 267 | `-8.91211604100318466e-3` | `-6.94024489476091633e-2` | `base_bellow_link/torso_lift_link` |
+| 41  | `-8.92348274774737438e-3` | `-1.04354206351028628e-1` | `base_link/bl_caster_r_wheel_link` |
+| 121 | `-8.97263769250959513e-3` | `-1.29640047515033330e-1` | `base_link/bl_caster_l_wheel_link` |
+| 193 | `-9.07595310067283063e-3` | `-1.18618875419790770e-1` | `base_bellow_link/torso_lift_link` |
+| 235 | `-9.12639415768495485e-3` | `-8.69379602472517554e-2` | `base_bellow_link/torso_lift_link` |
+| 110 | `-9.78528577850359439e-3` | `-1.28475512231686101e-1` | `base_bellow_link/torso_lift_link` |
+
+Every published value is between `7.79x` and `21.18x` shallower than the value
+upstream itself produces for a pair that was in the same query.
+**Status:** `not-reproduced`. `accumulate_distance` mirrors the `GLOBAL`
+running threshold (`parry.rs:2242`) and the discard (`:2268`), but the
+`contact.dist` it tests is the *same* signed quantity `:2294` folds into
+`minimum_distance` — a penetration depth on both sides of the comparison — so a
+deeper pair cannot fail the gate. The invariant is pinned by
+`crates/moveit-collision/tests/minimum_distance_is_the_minimum.rs`, 3 cases,
+`0.031s`, no oracle and no docker; its
+`masking_the_tangent_pair_does_not_move_the_answer` is the fanuc table's first
+two rows run against this port, where the answer does not move.
+**Deviation:** none of `D1`..`D14` applies. The port is not routing around the
+defect by policy; both operands of its own gate are in one metric, so there is
+no suppression to route around.
+**Cost of not reproducing:** measured, and it is what `PORTING-PLAN.md` §5
+Phase 3's `distance: f64` clause records as fanuc's and pr2's miss. No
+tolerance closes it: the divergence is the depth of whichever pair got
+suppressed, a property of the state rather than a constant — `2.897e-1` on
+fanuc `collision[9651]`, `3.77e-2` on pr2 `collision[153]` — so a tolerance
+wide enough to admit it detects nothing narrower. Reproducing it would mean
+publishing a value that is not the minimum over the pairs the query
+considered, which is the one thing the clause's own name asserts.
+`distance-callback-max-contact-depth` is the *other* half of the same
+`distanceCallback`: that entry is about which contact of one pair is reported,
+this one about which pair is reported at all. On fanuc's self side and pr2's
+they occur together (`PORTING-PLAN.md` §247 classifies each flip); on fanuc's
+robot side this one occurs alone, with the two sides agreeing on the suppressing
+pair to `9.93e-16`.
