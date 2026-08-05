@@ -1104,6 +1104,29 @@ mod tests {
     }
 
     #[test]
+    fn remove_shape_from_object_unknown_shape_is_none() {
+        let mut world = World::new();
+        world
+            .add_to_object(
+                "box",
+                Isometry3::identity(),
+                &[sphere(1.0)],
+                &[Isometry3::identity()],
+            )
+            .unwrap();
+        // Value-equal but a distinct `Arc`: `remove_shape_from_object` matches
+        // by `Arc` identity, so this must miss even though it looks the same.
+        let other_shape = sphere(1.0);
+        assert!(
+            world
+                .remove_shape_from_object("box", &other_shape)
+                .is_none()
+        );
+        assert!(world.has_object("box"));
+        assert_eq!(world.get_object("box").unwrap().shapes().len(), 1);
+    }
+
+    #[test]
     fn remove_object_missing_is_none() {
         let mut world = World::new();
         assert!(world.remove_object("box").is_none());
