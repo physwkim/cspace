@@ -1544,8 +1544,9 @@ the static type of the expression:
   all-valid override sets only `res.collision = false`,
   `collision_env_allvalid.cpp:108-112`), and returns
   `res.minimum_distance.distance`, still at `DistanceResultsData::clear()`'s
-  `std::numeric_limits<double>::max()` (`collision_common.hpp:263`, reset at
-  `:286`).
+  `std::numeric_limits<double>::max()` (`collision_common.hpp:286`; the
+  `distance` field itself, with its own "`<= 0` means in collision" doc
+  comment, is declared two lines above at `:263`).
 
 `0.0` and `max()` are not two spellings of one answer — for a backend whose
 entire contract is "nothing is ever in collision", `0.0` is the collision
