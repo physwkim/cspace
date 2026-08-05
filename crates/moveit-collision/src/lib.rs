@@ -65,9 +65,25 @@
 //! A thread-safe octree wrapper with no collision-detection-specific logic
 //! belongs with `moveit-octomap` (owned by p3-shapes) or `moveit-planning-
 //! scene`, not here; it is out of this crate's scope by directory ownership,
-//! not by portability. This expires if this crate itself grows a
-//! live-updating collision world that needs a locked octree — until then,
-//! request it against `moveit-octomap`.
+//! not by portability.
+//!
+//! That was a routing decision, not a decision, and §227.2 settles it as
+//! **not ported anywhere**: `OccMapTree` adds exactly two forwarding
+//! constructors, six `std::shared_mutex` lock methods
+//! (`lockRead`/`unlockRead`/`lockWrite`/`unlockWrite`/`reading`/`writing`),
+//! and `setUpdateCallback`/`triggerUpdateCallback`, and **no file in this
+//! port's upstream corpus uses any of it**. The one in-corpus includer,
+//! `moveit_core/planning_scene/src/planning_scene.cpp:39`, constructs it
+//! with `OccMapTree(map.resolution)` and then calls only `readTree`/
+//! `readData` (`createOctomap`, `:1417-1435`) — plain `octomap::OcTree`,
+//! which `ros/moveit-ros/src/scene/planning_scene.rs:137-143` already does
+//! with `moveit_octomap::OcTree::new` plus `read_binary_data`/`read_data`.
+//! Every user of the added API is under `moveit_ros/*`, outside the corpus.
+//! The two mechanisms it adds are also the two this port expresses
+//! differently by construction: shared mutability lives at the use site
+//! (every octree in this tree is an immutable `Arc<OcTree>`), and an update
+//! callback is the monitor's, not the tree's. Re-opening this needs an
+//! in-corpus caller of the lock or callback API, not a routing preference.
 //!
 //! The `bodies::` posed-geometry layer is likewise owned by other workers and
 //! out of scope for [`World`] — see `world`'s module docs.

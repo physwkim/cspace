@@ -18190,3 +18190,66 @@ world)`를 만들고 `setLinkPadding`을 **호출하지 않는다**. 나머지�
 `attach_requested_distance`를 즉시 return으로 바꾸면 4건이 깨지고
 `is_none_when_not_requested`만 통과하며, robot 쪽 호출만 지우면 robot 쪽
 1건만 깨진다. `pair_key`의 정렬을 없애면 3건 전부 깨진다.
+
+### §227.2 `occupancy_map.hpp` — `decided-non-port`, 상류 코퍼스 안에 쓰는 곳이 0이다
+
+§217.3이 이 파일을 `gap`으로 둔 이유는 정확했다: 그때 근거로 인용된
+문장은 "`moveit-octomap`으로 보내라"는 라우팅이지 이식하지 않기로 한
+결정이 아니었다. 여기서 판정으로 바꾼다.
+
+헤더 전체는 120줄이고, `octomap::OcTree`에 대해 더하는 것은 정확히
+이것뿐이다(`:52-116` 실측):
+
+- 전달 생성자 둘 — `OccMapTree(double resolution)`, `OccMapTree(const
+  std::string& filename)`
+- `std::shared_mutex` 잠금 여섯 — `lockRead`/`unlockRead`/`lockWrite`/
+  `unlockWrite`/`reading`/`writing`
+- 갱신 콜백 둘 — `setUpdateCallback`/`triggerUpdateCallback`
+- 별칭 셋 — `OccMapNode`, `OccMapTreePtr`, `OccMapTreeConstPtr`
+
+**더해진 API를 쓰는 코퍼스 파일은 헤더 자신 말고 0이다.** 두 질문을 따로
+쟀다 — 타입 이름을 쓰는 곳과, 잠금·콜백 API를 부르는 곳.
+
+```console
+$ cd /home/stevek/work/moveit2
+$ rg -l --no-heading 'OccMapTree' --glob '*.cpp' --glob '*.hpp' --glob '*.h' . | sort
+./moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp
+./moveit_core/planning_scene/src/planning_scene.cpp
+./moveit_ros/occupancy_map_monitor/include/moveit/occupancy_map_monitor/occupancy_map_monitor.hpp
+./moveit_ros/occupancy_map_monitor/include/moveit/occupancy_map_monitor/occupancy_map_updater.hpp
+./moveit_ros/occupancy_map_monitor/src/occupancy_map_monitor.cpp
+./moveit_ros/perception/lazy_free_space_updater/include/moveit/lazy_free_space_updater/lazy_free_space_updater.hpp
+./moveit_ros/perception/lazy_free_space_updater/src/lazy_free_space_updater.cpp
+./moveit_ros/planning/planning_scene_monitor/src/planning_scene_monitor.cpp
+```
+
+8개 중 코퍼스 안은 헤더 자신과 `planning_scene.cpp` **둘**이고, 나머지 6개는
+전부 `moveit_ros/*`다. 잠금·콜백 쪽은 12개인데 코퍼스 안은 **헤더 자신
+하나뿐**이다.
+
+```console
+$ rg -l --no-heading 'lockRead|unlockRead|lockWrite|unlockWrite|->reading\(\)|->writing\(\)|triggerUpdateCallback|setUpdateCallback' \
+       --glob '*.cpp' --glob '*.hpp' --glob '*.h' . | rg -v '^\./moveit_ros/'
+./moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp
+```
+
+그 하나뿐인 코퍼스 사용처가 무엇을 쓰는지도 실측했다. 다섯 히트는
+`#include`(`:39`)와 `createOctomap`(`:1417-1420`, `:1451`, `:1492`)이고,
+`createOctomap` 본문은 `OccMapTree(map.resolution)` 생성 뒤
+`octomap_msgs::readTree` 또는 `om->readData(datastream)`만 부른다 —
+잠금도 콜백도 건드리지 않는, 순수한 `octomap::OcTree`다. 이 포트는 그것을
+이미 한다: `ros/moveit-ros/src/scene/planning_scene.rs:137-143`의
+`apply_octomap`이 `moveit_octomap::OcTree::new(resolution)` 뒤
+`read_binary_data`/`read_data`를 부른다.
+
+더하는 두 기구는 이 포트가 **구조적으로 다르게 표현하는** 바로 그 둘이다.
+공유 가변성은 타입 안이 아니라 사용처에 둔다 — 이 트리의 옥트리는 전부
+`Arc<OcTree>`로 불변 공유된다(`ros/moveit-ros/src/scene/planning_scene.rs:148`,
+`crates/moveit-distance-field/src/distance_field.rs:752`, `:807`,
+`crates/moveit-collision/src/parry.rs` 등). 갱신 콜백은 트리의 것이 아니라
+모니터의 것이고, 모니터(`moveit_ros/occupancy_map_monitor`)는 코퍼스 밖이다.
+
+만료 조건은 취향이 아니라 사실로 적는다: **코퍼스 안에서 잠금 API나 콜백
+API를 부르는 호출자가 생기면** 다시 연다. `moveit-octomap`으로 라우팅하라는
+요청은 이 판정으로 철회한다 — 보낼 내용이 `octomap::OcTree` 자체 말고는
+없기 때문이다.
