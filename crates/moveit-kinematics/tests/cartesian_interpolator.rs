@@ -822,11 +822,23 @@ const DEEPEST_ACCEPTED_LEAF: f64 = FIRST_INTERVAL_WIDTH / 4096.0;
 
 #[test]
 fn a_rejected_path_keeps_the_fraction_its_deepest_accepted_leaf_reached() {
+    // This number is NOT a parity value: upstream reports `0.0` here.
+    // Its `last_valid_percentage = percentage` sits after the `break`
+    // (`cartesian_interpolator.cpp:268`, read at the pinned `e017c91e`), so
+    // a walk that fails on its first interval reports zero while still
+    // returning the waypoints its accepted sub-intervals pushed. Declining
+    // that is `validate-and-improve-interval-percentage-discarded` in
+    // `doc/upstream-bugs.md`, whose stated invariant is what this test
+    // pins: the returned fraction is the path parameter of the last
+    // waypoint in the returned trajectory, on success and failure alike.
+    // That entry called this case constructible but unconstructed; this is
+    // the construction.
+    //
     // `translational` here is tight enough that no interval survives to
     // full width, but the recursion still accepts one leaf twelve levels
     // down before its sibling runs out of resolution. That makes this the
     // case that separates the two candidate owners of the reported
-    // fraction: the *accepted leaf* (correct) writes `1/11 / 4096`, while
+    // fraction: the *accepted leaf* writes `1/11 / 4096`, while
     // any write made on entry to an interval -- upstream's in/out
     // `double& percentage` -- would report the enclosing interval's `1/11`
     // instead, four thousand times larger.

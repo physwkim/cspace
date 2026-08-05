@@ -1197,7 +1197,15 @@ no matching erase anywhere in the file. Not oracle-confirmed: there is no
 oracle op for `computeCartesianPath`, and reaching the divergent case needs
 an interval that bisects once, accepts its first half and fails its second —
 constructible in principle, not something the port can measure against C++
-here.
+here. It has since been constructed on the port side:
+`crates/moveit-kinematics/tests/cartesian_interpolator.rs`'s
+`a_rejected_path_keeps_the_fraction_its_deepest_accepted_leaf_reached`
+drives `translational: 1e-8, max_resolution: 1e-5` on the 0.10 m fixture,
+where the recursion accepts its leftmost leaf twelve levels down and then
+fails, and pins the divergence exactly: the port returns `1/11 / 4096`
+(`2.21946022727272733e-5`, the accepted leaf's parameter) where upstream's
+`last_valid_percentage` would still be `0.0`. Still not oracle-confirmed —
+the construction fixes what each side reports, not a measurement of C++.
 **Status:** `not-reproduced`.
 **Deviation:** none of `D1`..`D14` applies; this is a bug the port declines
 under the default policy, not an instance of a project-wide decision. The
