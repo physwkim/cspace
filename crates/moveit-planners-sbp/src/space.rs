@@ -235,6 +235,26 @@ mod tests {
     }
 
     #[test]
+    fn non_finite_min_bound_is_rejected() {
+        // `new`'s combined guard is `!min.is_finite() || !max.is_finite() ||
+        // min > max`; the case above only exercises the max-side disjunct.
+        // A min of +infinity would also trigger `min > max` (redundant with
+        // that disjunct, not a fresh case); NEG_INFINITY with a finite,
+        // larger max makes `min > max` false and `!max.is_finite()` false,
+        // so only `!min.is_finite()` can catch it (bite-checked: disabling
+        // that disjunct alone left this exact case unrejected while every
+        // other test in the crate stayed green).
+        assert_eq!(
+            RealVectorSpace::new(vec![(f64::NEG_INFINITY, 5.0)]),
+            Err(SbpError::InvalidBound {
+                index: 0,
+                min: f64::NEG_INFINITY,
+                max: 5.0
+            })
+        );
+    }
+
+    #[test]
     fn distance_is_euclidean() {
         let s = space();
         assert_eq!(s.distance(&vec![0.0, 0.0], &vec![3.0, 4.0]), 5.0);
