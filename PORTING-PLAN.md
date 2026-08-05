@@ -16371,7 +16371,7 @@ parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그�
 
 ---
 
-## §217 포트 커버리지를 다시 쟀다 — 결정된 미포팅 47, 진짜 갭 42
+## §217 포트 커버리지를 다시 쟀다 — 결정된 미포팅 45, 진짜 갭 40
 
 미포팅 파일 목록이 "결정된 미포팅"과 "진짜 갭"을 섞어 들고 있었다. 섞이면
 남은 일 목록이 **양쪽으로** 틀린다: 이미 결정된 것을 다시 검토하러 가고,
@@ -16384,21 +16384,28 @@ parent_before`는 진짜 살아 있는 검사이고 커밋된 픽스처가 그�
 ```console
 $ ./tools/ci/measure-port-coverage.py
 corpus   245
-ported   146
-unported 99
+ported   150
+unported 95
 cited-outside-corpus 20
 ```
 
-미포팅 99건의 분류: `decided-non-port` **47** / `gap` **42** /
+미포팅 95건의 분류: `decided-non-port` **45** / `gap` **40** /
 `ported-elsewhere` **10**. 한 줄에 한 파일씩, 결정된 것은 근거 문장을
 인용해 [`doc/port-coverage.md`](doc/port-coverage.md)에 적었다. 245는 이
 문서들 사이를 근거 없이 옮겨 다니던 수였고, 이번에 셸 파이프라인과 파이썬
 워커 두 계기로 각각 뽑아 정렬 `diff`가 0줄임을 확인한 뒤에 쓴다.
 
+**수가 이 절이 처음 쓰인 시점과 다른 이유.** 측정은 이 절의 브랜치 시점에서
+했고, 그 뒤 `cartesian_interpolator.{hpp,cpp}`(표가 `gap`으로 세던 둘)와
+`command_list_manager.{hpp,cpp}`가 각각 포팅·결정 인용을 얻어 머지됐다.
+계기가 `STALE ROW` 넷을 찍었고, 그 넷을 표에서 지운 뒤의 수가 위의 150/95다
+— 계기가 흔들린 것이 아니라 트리가 움직인 것이고, 그 구분을 사람이 아니라
+`--check`가 했다는 것이 이 표를 산문 대신 계기의 입력으로 둔 이유다.
+
 **왜 표는 `doc/`에 있고 이 절에는 수만 있는가.** 이 파일이 실제로 읽히는
 파일이다 — `rg -l 'PORTING-PLAN\.md' crates/ ros/ tools/ doc/ | wc -l`은
 **181**이고, `doc/` 안에서 가장 많이 참조되는 파일(`doc/upstream-bugs.md`)은
-**5**다. 그래서 판정과 수는 여기 둔다. 99행 표 자체를 링크된 파일에 두는
+**5**다. 그래서 판정과 수는 여기 둔다. 95행 표 자체를 링크된 파일에 두는
 이유는 분량이 아니라 기계 검사다: `measure-port-coverage.py --check
 doc/port-coverage.md`가 그 표의 행 집합을 계기가 계산한 미포팅 집합과
 맞춰 보고, 어긋나면 `MISSING ROW`/`STALE ROW`를 찍고 non-zero로 끝난다.
@@ -16438,7 +16445,7 @@ porting this would mean porting OpenRave's symbolic-algebra codegen tool".
 
 ### §217.2 문서가 트리와 어긋나는 곳 세 군데
 
-미포팅 99건을 `doc/`와 이 파일에 대조했다. 어떤 문서도 "포팅됐다"고 적은
+미포팅 95건을 `doc/`와 이 파일에 대조했다. 어떤 문서도 "포팅됐다"고 적은
 파일이 실제로는 미포팅인 경우는 없었다. 반대 방향으로 셋이 나왔다.
 
 **1. §60.4의 `cached_ik_kinematics_plugin` — "진짜 범위 내 갭"이라 적혀

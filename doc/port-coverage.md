@@ -1,4 +1,4 @@
-# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 99건의 분류
+# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 95건의 분류
 
 `PORTING-PLAN.md` §217이 이 파일을 가리킨다. 여기 있는 모든 수는
 `tools/ci/measure-port-coverage.py`가 뽑은 것이고, 그 스크립트는 이 표를
@@ -49,8 +49,8 @@
 ```console
 $ ./tools/ci/measure-port-coverage.py
 corpus   245
-ported   146
-unported 99
+ported   150
+unported 95
 cited-outside-corpus 20
 ```
 
@@ -94,9 +94,9 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에
 대한 `rg` 결과이고, 비고 칸에 그 명령을 적었다.
 
-## 4. 미포팅 99건 (2026-08-05 실측)
+## 4. 미포팅 95건 (2026-08-05 실측)
 
-`decided-non-port` 47 / `gap` 42 / `ported-elsewhere` 10.
+`decided-non-port` 45 / `gap` 40 / `ported-elsewhere` 10.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
@@ -131,10 +131,8 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_core/planning_interface/src/planning_interface.cpp` | gap | none | no citation and no exclusion; the stand-in in `registry.rs` is not a port of this file |
 | `moveit_core/planning_interface/src/planning_response.cpp` | gap | `crates/moveit-planning/src/response.rs:100` | the one reference is to `moveit_py`'s same-named file, not this one |
 | `moveit_core/robot_state/include/moveit/robot_state/attached_body.hpp` | ported-elsewhere | `crates/moveit-scene/src/attached_body.rs:1-7`, `:56` | `// Behaviorally derived from moveit2 @ ...: .../attached_body.hpp` -- `pub struct AttachedBody`. The instrument counts it unported because `Behaviorally derived from` is not the `Ported from` header form |
-| `moveit_core/robot_state/include/moveit/robot_state/cartesian_interpolator.hpp` | gap | none | `rg -n -i 'computeCartesianPath|MaxEEFStep|JumpThreshold|cartesian_interpolator' crates/ ros/ tools/ doc/ PORTING-PLAN.md` -> 0 hits. 887 lines upstream, nothing anywhere in this repo |
 | `moveit_core/robot_state/include/moveit/robot_state/conversions.hpp` | gap | none | `robotStateToStream`/`streamToRobotState`/`jointTrajPointToRobotState` measured absent from the same corpus; the `moveit_msgs` half is D1/D6 and lives in `ros/moveit-ros` |
 | `moveit_core/robot_state/src/attached_body.cpp` | gap | `crates/moveit-scene/src/attached_body.rs` | partially covered by the row above; residual measured absent from `crates/ ros/ tools/ doc/ PORTING-PLAN.md`: `setScale`, `setPadding`, `computeTransform`, `getGlobalSubframeTransform` |
-| `moveit_core/robot_state/src/cartesian_interpolator.cpp` | gap | none | same search, 0 hits |
 | `moveit_core/robot_state/src/conversions.cpp` | gap | none | same |
 | `moveit_core/trajectory_processing/include/moveit/trajectory_processing/time_parameterization.hpp` | decided-non-port | `crates/moveit-trajectory/src/time_optimal_trajectory_generation.rs:9-10`, `:121-160` | listed under `// Considered and deliberately not ported:` with a full `# Not ported: `TimeParameterization`` section |
 | `moveit_core/utils/include/moveit/utils/eigen_test_utils.hpp` | gap | none | `rg -n -F eigen_test_utils crates/ ros/` -> 0 hits |
@@ -165,7 +163,6 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_planners/chomp/chomp_interface/src/chomp_plugin.cpp` | decided-non-port | `crates/moveit-planners-chomp/src/lib.rs:20-32` | same sentence |
 | `moveit_planners/pilz_industrial_motion_planner/include/joint_limits_copy/joint_limits_rosparam.hpp` | gap | none | `rg -n -F joint_limits_rosparam crates/moveit-planners-pilz/` -> 0 hits |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/capability_names.hpp` | gap | none | `rg -n -F capability_names crates/moveit-planners-pilz/` -> 0 hits |
-| `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/command_list_manager.hpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:120-124` | "`command_list_manager.{hpp,cpp}` -- sequences multiple motion commands ... this is orchestration over the trajectory generators, not trajectory generation" |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_aggregator.hpp` | gap | none | `rg -n -F JointLimitsAggregator crates/moveit-planners-pilz/` -> 1 hit, in a test doc comment, not a disposition |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_interface_extension.hpp` | gap | none | `rg -n -F joint_limits_interface_extension crates/moveit-planners-pilz/` -> 0 hits |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/joint_limits_validator.hpp` | gap | none | `rg -n -F JointLimitsValidator crates/moveit-planners-pilz/` -> 0 hits |
@@ -185,7 +182,6 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/planning_exceptions.hpp` | gap | none | `rg -n -F planning_exceptions crates/moveit-planners-pilz/` -> 0 hits |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/tip_frame_getter.hpp` | ported-elsewhere | `crates/moveit-planners-pilz/src/trajectory_functions.rs:795` | "(`tip_frame_getter.hpp`), minus the 'more than one tip frame' case" -- the residual is the multi-tip branch |
 | `moveit_planners/pilz_industrial_motion_planner/include/pilz_industrial_motion_planner/trajectory_generation_exceptions.hpp` | gap | none | `rg -n -F trajectory_generation_exceptions crates/moveit-planners-pilz/` -> 0 hits |
-| `moveit_planners/pilz_industrial_motion_planner/src/command_list_manager.cpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:120-124` | same sentence |
 | `moveit_planners/pilz_industrial_motion_planner/src/joint_limits_aggregator.cpp` | gap | none | same; this is one of the two in-scope pilz `src/` gaps §179.1 does not mention |
 | `moveit_planners/pilz_industrial_motion_planner/src/joint_limits_validator.cpp` | gap | none | same; the second in-scope pilz `src/` gap §179.1 does not mention |
 | `moveit_planners/pilz_industrial_motion_planner/src/move_group_sequence_action.cpp` | decided-non-port | `crates/moveit-planners-pilz/src/lib.rs:110-115` | same sentence |
