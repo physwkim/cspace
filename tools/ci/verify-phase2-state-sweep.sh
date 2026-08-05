@@ -52,7 +52,22 @@ DIFF="$REPO_ROOT/target/release/moveit-diff"
 #   prbt, fanuc     plain revolute chains -- the case where none of the
 #                   special paths applies, which is what says a disagreement
 #                   on the others is about the special path.
-ROBOTS=(panda prbt fanuc dual_arm_panda pr2)
+#   one_robot       the only mimic with `multiplier != 1` or `offset != 0`
+#                   (1.5 and 0.1). Every other fixture's mimic is the identity
+#                   `1 * v + 0`, where dropping the factor, dropping the
+#                   offset, and applying them in the wrong order all produce
+#                   the same numbers -- so the arithmetic was covered at the
+#                   one point in its parameter space where it cannot be wrong.
+#   prbt_pg70       the only SRDF group that names a mimic's *master* without
+#                   naming the mimic (Pilz's `gripper` group lists
+#                   `prbt_gripper_finger_left_joint` alone). That is the sole
+#                   input on which `RobotState::interpolate`'s group overload
+#                   and its whole-model overload disagree -- the group form
+#                   propagates `group->getMimicJointModels()`, which is empty
+#                   here, so the mimic must come out of the *destination*
+#                   untouched while its master moves. Every other committed
+#                   group either holds both halves of a mimic pair or neither.
+ROBOTS=(panda prbt fanuc dual_arm_panda pr2 one_robot prbt_pg70)
 
 # Before comparing anything: confirm the fixtures still are the robots they
 # name. Boundary values here are derived from the oracle's own reported
@@ -83,7 +98,7 @@ for robot in "${ROBOTS[@]}"; do
 
   # Per-clause counts, the skipped lines (a clause that measured less than it
   # looks like says so rather than reading as a pass), and the verdict.
-  grep -E '^(clamping|mimic|interpolation) |tolerance |SKIPPED |^§5 Phase 2 clause 3' "$OUT" || true
+  grep -E '^(clamping|mimic|interpolation|state_interpolation) |tolerance |SKIPPED |^§5 Phase 2 clause 3' "$OUT" || true
   if [[ $status -ne 0 ]]; then
     echo "--- first 20 disagreements ---" >&2
     grep -E '^  FAIL' "$OUT" | head -20 >&2 || true
