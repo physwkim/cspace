@@ -18665,3 +18665,215 @@ INVALID_GROUP_NAME, INVALID_LINK_NAME, NO_IK_SOLUTION, 그리고 명시 인자�
   throw하지 않는다(`trajectory_generator_{circ,lin,polyline}.cpp:62-76`). PTP만
   실제로 던진다. 문서 결함이고 동작 결함이 아니므로
   `doc/upstream-bugs.md`에 넣지 않는다.
+
+## §228 `moveit_core/utils`의 테스트/문자열 유틸 일곱 파일과 `console_colors.hpp` — 갭 8건을 판정으로 바꿨다
+
+`doc/port-coverage.md`가 `gap`으로 들고 있던 8개 파일을 열어 판정했다.
+여덟 개가 전부 `decided-non-port`로 끝났는데, 이유는 파일마다 다르고 그
+차이가 중요하다 — "언어가 그 문제를 안 가진다"(§228.1), "이 포트가 같은
+일을 다른 계기로 이미 한다"(§228.3, §228.4), "소비자가 코퍼스 밖에만
+있다"(§228.2, §228.5). 근거를 뭉뚱그리면 만료 조건도 뭉뚱그려지므로 절을
+나눈다.
+
+부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에 대한
+`rg` 결과이고, 각 절이 그 명령을 적는다.
+
+한 가지 공통점은 적어 둘 값어치가 있다. `robot_model_test_utils.*`와
+`eigen_test_utils.hpp`는 **테스트 지원 코드인데 `test/` 디렉터리 밖에
+산다**(`utils/src/`, `utils/include/`). 코퍼스 계기가 걸러내는 것은 경로에
+`test`/`tests` 성분이 있는 파일이므로(`measure-port-coverage.py:90`) 이
+둘은 코퍼스 안으로 쓸려 들어왔다. 상류의 `test/` 아래 테스트들은 애초에
+코퍼스 밖이라 이런 행이 없다.
+
+### §228.1 `lexical_casts.{hpp,cpp}` — `decided-non-port`, 언어가 이 문제를 안 가진다
+
+파일의 존재 이유가 자기 헤더 doc에 적혀 있다: 시스템 로케일에 따라 소수점
+구분자가 달라지는데 "이는 내부(비사용자 대면) 목적에는 흔히 원치 않는
+것"이라, `toString`/`toDouble`/`toFloat`가 스트림에
+`std::locale::classic()`을 imbue한 뒤 `<<`/`>>`를 쓴다
+(`lexical_casts.cpp:49-52,69-72`).
+
+**그 문제는 C++ iostream의 성질이지 부동소수 변환의 성질이 아니다.**
+Rust의 `f64: Display`와 `f64: FromStr`은 로케일을 입력으로 받지 않는다 —
+`format!("{x}")`와 `"1.5".parse::<f64>()`는 언어가 정의하는 대로 항상 `.`을
+쓴다. 즉 `toStringImpl`의 본체에서 의미를 지는 유일한 줄인
+`oss.imbue(std::locale::classic())`이 이 포트에서는 기본값이다. 옮길
+알고리즘이 남지 않는다.
+
+한 걸음 더 재 봤고, 결과가 판정을 굳혔다. 두 구현을 같은 값으로 돌린
+실측(`g++ -std=c++17`로 컴파일한 상류 두 함수의 동형 모델과 `rustc -O`):
+
+```
+toString(0.12345678901230001) = "0.123457"     round-trips: NO
+format!("{v}")                = "0.1234567890123"  round-trips: yes
+```
+
+`std::ostringstream`의 기본 정밀도가 6 유효숫자이고 `toString`이 그것을
+바꾸지 않기 때문이다. Rust의 `Display`는 왕복하는 최단 표현을 낸다. 그래서
+이 포트의 기본값은 상류 함수의 대체물일 뿐 아니라, 상류가 실제로 그 함수를
+쓰는 방식(설정값을 문자열로 썼다가 도로 읽는 것)에서 더 낫다. 그 왕복
+자리는 `doc/upstream-bugs.md`의
+`to-string-truncates-to-six-significant-digits`에 따로 적었다.
+
+**호출자는 전부 코퍼스 밖이다.** 상류 전체에서 `lexical_casts.hpp`를
+include하는 파일은 셋 — `moveit_planners/ompl/ompl_interface/src/
+{ompl_interface.cpp:200, model_based_planning_context.cpp:300,315,597}`와
+`moveit_ros/benchmarks/src/BenchmarkExecutor.cpp:989,1034` — 이고,
+`CORPUS_ROOTS`(`moveit_core`, `moveit_kinematics`, chomp/stomp/pilz)는 셋 중
+어느 것도 포함하지 않는다. ompl은 D3으로 네이티브 플래너가 대체한다.
+
+**기존 인용을 바로잡는다.** 표가 이 두 행에 달고 있던 증거는
+`crates/moveit-error/src/lib.rs:312`였는데, 그 자리는 이 파일을 *포팅한다고*
+말하지 않는다 — 정반대로, `MoveItErrorCode`의 `Display`가 포팅하는 것이
+`errorCodeToString`이지 `lexical_casts.cpp`의 `toString`이 아님을 밝히려고
+"그 디렉터리의 유일한 `toString`은 무관한 float 포매터"라고 적은 자리다.
+파일을 *건드리는* 인용이지 *덮는* 인용이 아니므로, 새 행은 그 사실을 그대로
+적는다.
+
+### §228.2 `rclcpp_utils.{hpp,cpp}` — `decided-non-port`, 다만 표가 적어 둔 이유는 틀렸다
+
+표가 이 두 행에 달고 있던 근거는 "내용상 D1(`rclcpp`)이지만 이 저장소의
+어떤 텍스트도 그렇게 말하지 않는다"였다. **앞부분이 사실이 아니다.** 파일을
+열면 ROS 타입이 하나도 없다: `rclcpp_utils.hpp`가 include하는 것은
+`<string>` 하나뿐이고(`:30`), `.cpp`는 자기 헤더만 include한다(`:28`).
+내용은 `std::string` 두 함수 — `clean(name)`이 `//`를 `/`로 접고 끝의 `/`를
+떼며, `append(left, right)`가 `/`로 이어 붙인 뒤 `clean`을 건다. 이름과
+네임스페이스(`rclcpp::names`)가 ROS를 가리킬 뿐, 코드는 D1이 정의하는
+"ROS 메시지 타입"에 닿지 않는다. 이름으로 분류하면 이렇게 틀린다.
+
+진짜 근거는 **소비자**다. 이 두 함수가 만드는 것은 ROS 노드/토픽/서비스
+이름이고, 상류 호출자는 전부 `moveit_ros/*`다 —
+`moveit_ros/planning_interface/move_group_interface/src/
+move_group_interface.cpp:178-205`가 `move_group_namespace`에 액션·서비스
+이름을 이어 붙이는 자리이고, `moveit_ros/visualization/
+planning_scene_rviz_plugin/src/planning_scene_display.cpp:64`가 또 하나다.
+`moveit_ros`는 `CORPUS_ROOTS` 밖이다.
+
+이 포트 쪽 소비자도 없다. `rg -n -F rclcpp_utils crates/ ros/ tools/ doc/
+PORTING-PLAN.md`는 `doc/port-coverage.md`의 자기 행 둘만 찾는다. 그럴 수밖에
+없는 것이, ROS를 아는 크레이트는 `ros/moveit-ros` 하나인데(D2) 그 크레이트의
+이번 라운드 범위가 **타입 변환뿐**이라 노드도 토픽도 서비스도 만들지
+않는다(`ros/moveit-ros/src/lib.rs:17-19`). 붙일 이름이 없는 곳에 이름
+정규화 함수를 놓으면 호출자 없는 코드가 된다.
+
+**만료 조건:** `moveit-ros`가 토픽/서비스/액션 이름을 구성하기 시작하면 이
+판정을 다시 한다. 그때 결정할 것은 "포팅할까"가 아니라 "r2r이 이미 주는
+이름 처리로 충분한가"이며, 그 답은 그 라운드가 r2r을 열어 보고 정해야 한다
+— 이 절은 그것을 확인하지 않았고, 확인하지 않은 것을 근거로 쓰지 않는다.
+
+### §228.3 `robot_model_test_utils.{hpp,cpp}` — `decided-non-port`, 이 포트의 대응물은 픽스처 출처 표다
+
+파일은 두 덩어리이고 각각 다른 이유로 안 옮긴다.
+
+**(a) 로더 셋 — 이 포트에는 이미 대응물이 있고, 경로 규칙까지 같다.**
+`loadModelInterface(robot_name)`는 `moveit_resources_<name>_description`
+패키지를 런타임에 ament로 찾아 `urdf/<name>.urdf`를 읽는데, `pr2`만
+`urdf/robot.xml`로 특수 분기한다(`robot_model_test_utils.cpp:136-143`).
+`loadSRDFModel`도 같은 모양으로 `pr2`는 `srdf/robot.xml`,
+나머지는 `moveit_resources_<name>_moveit_config`의
+`config/<name>.srdf`다(`:158-185`).
+
+이 포트는 같은 파일들을 빌드타임에 복사해 `fixtures/`에 커밋하고
+`RobotModel::from_urdf_and_srdf`로 읽는다 — 호출 지점 127개
+(`rg -o -F '::from_urdf_and_srdf(' crates/ ros/ --glob '*.rs' | wc -l`;
+이름 전체를 세면 140이지만 그중 1개는 정의 줄, 16개는 주석 줄이다).
+그리고 그 복사의 출처가
+`tools/ci/verify-fixture-provenance.sh`의 `SOURCE_OF` 표인데, 그 표가
+상류 로더의 분기와 **같은 매핑을 그대로 적고 있다**:
+
+```
+[fixtures/pr2.urdf]="$VENDOR/pr2_description/urdf/robot.xml"
+[fixtures/pr2.srdf]="$VENDOR/pr2_description/srdf/robot.xml"
+[fixtures/panda.urdf]="$VENDOR/panda_description/urdf/panda.urdf"
+[fixtures/panda.srdf]="$VENDOR/panda_moveit_config/config/panda.srdf"
+```
+
+pr2의 두 파일만 `robot.xml`이라는 상류의 특수 케이스가 그 스크립트 주석에도
+따로 적혀 있다("pr2's two files are both named `robot.xml` upstream, which is
+why the mapping is explicit"). 즉 상류가 런타임 패키지 조회로 하는 일을 이
+포트는 커밋된 복사본과 다이제스트로 고정된 출처 표로 하고, xacro 확장이
+필요한 둘(`dual_arm_panda.urdf`, `prbt.urdf`)은 입력 집합과 재생성 명령까지
+그 표에 적혀 있다. 옮길 것이 남지 않았다.
+
+**(b) `RobotModelBuilder`와 `loadIKPluginForGroup` — D1/D4.**
+`RobotModelBuilder`의 공개 시그니처 여섯 개
+(`addChain`, `addCollisionMesh`, `addCollisionBox`, `addVisualBox`,
+`addInertial`, `addLinkCollision`/`addLinkVisual`)가 전부
+`geometry_msgs::msg::Pose`를 받는다(`robot_model_test_utils.hpp:133-165,
+217-221`) — D1이다. 알고리즘 쪽은 더 얇다: `build()`의 본체는
+`urdf_model_->initTree`, `initRoot`, `srdf_writer_->updateSRDFModel` 세
+호출이고(`:503-531`), 셋 다 `urdfdom`/`srdfdom`의 함수라 MoveIt 알고리즘이
+아니다. `loadIKPluginForGroup`은 `rclcpp::Node::SharedPtr`와
+`pluginlib::ClassLoader<kinematics::KinematicsBase>`를 직접 쓴다(`:189-213`)
+— D1 + D4.
+
+이 포트에서 합성 모델이 필요한 자리는 테스트 안에 URDF/SRDF 문자열을 직접
+써서 채운다(`rg -l '<robot name=' crates/ ros/ tools/ --glob '*.rs'` → 24개
+파일). 빌더 없이 이미 돌아가는 방식이므로, 호출자가 생기지 않을 300줄짜리
+빌더를 옮기는 것은 죽은 코드를 만드는 일이다.
+
+`crates/moveit-test-support/src/lib.rs`의 모듈 doc이 이 판정과 짝을 이룬다 —
+이번 라운드 전까지 그 doc은 "상류에는 이에 상응하는 테스트 측 기계장치가
+없다"고 적고 있었는데, 그 문장이 부정하던 파일이 정확히 이 두 개였다.
+
+### §228.4 `eigen_test_utils.hpp` — `decided-non-port`, 이 포트는 같은 단언을 `approx`로 한다
+
+파일은 gtest 술어 하나와 그것을 감싸는 매크로 둘이다:
+`Eigen::Transform`용 `operator<<`, `val1.isApprox(val2, prec_)`를 도는
+`IsApprox` 술어, 그리고 `EXPECT_EIGEN_EQ`/`EXPECT_EIGEN_NEAR`
+(`eigen_test_utils.hpp:72-79`). `::testing::AssertionResult`과
+`EXPECT_PRED_FORMAT2`에 기대어 있으므로 옮기려면 gtest를 옮겨야 하는데, 이
+포트는 `#[test]`와 `assert*!`를 쓴다.
+
+**이 포트의 대응물은 이름이 있다.** `approx` 크레이트(`Cargo.toml:72`,
+워크스페이스 dep, 15개 크레이트가 상속)의 `assert_relative_eq!`이고,
+`crates/ ros/ tools/`에 **호출 268건, 41개 파일**이다. 이름 전체를 세면
+329건이지만 그중 61건은 주석/모듈 doc 안에서 이 매크로를 *언급하는*
+줄이므로 호출이 아니다
+(`rg -n -F 'assert_relative_eq!' crates/ ros/ tools/ --glob '*.rs' |
+rg -v '^[^:]+:[0-9]+:\s*//' | wc -l`). 처음 이 절에 적었던 328/61-파일은
+그 구분을 하지 않은 수였고, 게다가 이번 라운드가
+`crates/moveit-test-support/src/lib.rs`의 doc에 이 이름을 한 번 더 쓰면서
+스스로 328을 329로 만들었다 — 언급을 세는 계기는 자기 문서에도 반응한다.
+호출 줄에 이 매크로가 두 번 나오는 줄은 없다(0건 확인).
+`Eigen::Transform` 통째 비교에 해당하는 자리는 이름 붙은 헬퍼로 한 번 더
+감싸 두었다 — `assert_isometry_eq`가
+`actual.to_homogeneous()`와 `expected.to_homogeneous()`를
+`assert_relative_eq!(.., epsilon = 1e-9, max_relative = 1e-9)`로 비교한다
+(`crates/moveit-collision/tests/world_parity.rs:121-129`,
+`crates/moveit-scene/tests/frame_transform_parity.rs:146`).
+
+**옮기지 않는 편이 나은 이유가 하나 더 있다.** `EXPECT_EIGEN_EQ`는 허용오차를
+비교 대상이 아니라 **스칼라 타입**에서 끌어온다 —
+`Eigen::NumTraits<Scalar>::dummy_precision()`, 즉 라이브러리가 주는 기본값이고
+매크로 본문에 그렇게 적혀 있다. 이 저장소의 규칙은 허용오차를 이웃에서
+베끼지 않고 실측해서 정하는 것이므로, 이 매크로를 옮기면 측정된 적 없는
+기본값을 328개 자리의 기본형으로 들이게 된다. (그 기본값의 실제 수치는 이
+기계에 MoveIt이 빌드하는 Eigen 체크아웃이 없어 확인하지 않았고, 확인하지
+않은 것을 근거로 쓰지 않는다 — 근거는 "비교 대상이 아니라 타입에서
+나온다"는 매크로 본문 자체다.)
+
+`rg -n -F eigen_test_utils crates/ ros/ tools/ doc/ PORTING-PLAN.md`와
+`rg -n -F EXPECT_EIGEN crates/ ros/ tools/`는 각각 자기 행 하나와 0건이다.
+
+### §228.5 `console_colors.hpp` — `decided-non-port`, 코퍼스 안 소비자가 하나뿐이고 그것이 없다
+
+ANSI 이스케이프 `#define` 9개가 전부다(`console_colors.hpp:39-47`). 상류에서
+이 헤더를 쓰는 곳은 셋인데, `moveit_ros/move_group/src/move_group.cpp:122-198`과
+`moveit_ros/planning_interface/test/move_group_ompl_constraints_test.cpp`은
+코퍼스 밖이고, 코퍼스 안은 하나 —
+`moveit_core/robot_state/src/robot_state.cpp:2321,2347`, 즉
+`RobotState::printStatePositionsWithJointLimits`가 관절이 한계를 벗어났을 때
+줄을 빨갛게 칠하는 자리다.
+
+그 함수가 이 포트에 없다. `rg -n -i
+'printStatePositionsWithJointLimits|print_state_positions_with_joint_limits'
+crates/ ros/ doc/ PORTING-PLAN.md`가 0건이고, 상류 `robot_state.hpp`가
+선언하는 `print*` 여섯 개(`:1643-1654`) 중 어느 것도 `crates/moveit-state`에
+없다 — 그 크레이트의 크레이트 doc이 적어 둔 범위에도 들어 있지 않다
+(`crates/moveit-state/src/lib.rs:15-31`). `std::ostream`에 사람이 읽을
+디버그 그림을 그리는 함수가 없으니, 그 그림을 칠할 색도 필요 없다.
+
+**만료 조건:** 이 포트가 사람이 읽는 상태 덤프를 갖게 되면 다시 본다. 그때도
+9개 `#define`을 옮기는 것이 답일지는 별개다 — Rust 쪽에는 같은 일을 하는
+크레이트가 있고, 이 절은 그것을 조사하지 않았다.
