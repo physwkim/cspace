@@ -95,10 +95,20 @@ if [[ $test_status -ne 0 ]]; then
   exit 1
 fi
 
-# Only the unit-test phase's own summary line: doctests print a second,
-# separate "test result:" line, and a unit-test run filtered down to
-# nothing must not hide behind an unrelated doctest count that happens to
-# be nonzero.
+# Every unit-test phase's own summary line, summed -- doctests print a
+# separate, later "test result:" line under its own "   Doc-tests" header,
+# excluded by the `sed` range below. Before PORTING-PLAN.md §NEW added
+# `src/bin/plan_kinematic_path_server.rs`, exactly one unit-test binary
+# existed (the lib), so "the last 'test result:' line before Doc-tests" and
+# "the lib's own count" were the same line -- a `tail -1` here was enough.
+# A `[[bin]]` target gives `cargo test` a second unit-test suite (its own
+# "Running unittests src/bin/...", its own "test result:" line, 0 tests by
+# this binary's own design) sandwiched between the lib's line and
+# "   Doc-tests" -- `tail -1` silently started reading the bin's empty
+# result instead of the lib's 174 (caught by this script itself, run
+# against its own §NEW change, before this fix landed). Summing every
+# unit-test line in range is the general rule for however many `[[bin]]`
+# targets this crate ends up with, not just the one that broke `tail -1`.
 #
 # `|| true` on both assignments below: under this script's own `set -e` and
 # `pipefail`, `grep`'s legitimate "no match" exit (1) propagates to the whole
@@ -108,23 +118,80 @@ fi
 # filtered down to nothing produced no diagnostic at all, not even this
 # file's own "could not find..." message below, because the script had
 # already died one line above it.
-unit_summary="$(sed -n '1,/^   Doc-tests/p' <<<"$test_output" | grep -E '^test result: ' | tail -1 || true)"
-if [[ -z "$unit_summary" ]]; then
-  echo "FAIL could not find the unit-test 'test result:' line in cargo test's output -- nothing was checked." >&2
+unit_lines="$(sed -n '1,/^   Doc-tests/p' <<<"$test_output" | grep -E '^test result: ' || true)"
+if [[ -z "$unit_lines" ]]; then
+  echo "FAIL could not find any unit-test 'test result:' line in cargo test's output -- nothing was checked." >&2
   exit 1
 fi
-actual_tests="$(grep -oE '[0-9]+ passed' <<<"$unit_summary" | grep -oE '^[0-9]+' || true)"
-if [[ -z "$actual_tests" ]]; then
-  echo "FAIL could not parse a passing-test count out of: $unit_summary" >&2
-  exit 1
-fi
+actual_tests=0
+while IFS= read -r unit_line; do
+  n="$(grep -oE '[0-9]+ passed' <<<"$unit_line" | grep -oE '^[0-9]+' || true)"
+  if [[ -z "$n" ]]; then
+    echo "FAIL could not parse a passing-test count out of: $unit_line" >&2
+    exit 1
+  fi
+  actual_tests=$((actual_tests + n))
+done <<<"$unit_lines"
 if [[ "$actual_tests" -ne "$expected_tests" ]]; then
-  echo "FAIL cargo test reported $actual_tests passing unit test(s) but ros/moveit-ros/src has $expected_tests '#[test]' function(s)." >&2
+  echo "FAIL cargo test reported $actual_tests passing unit test(s) across all unit-test binaries but ros/moveit-ros/src has $expected_tests '#[test]' function(s)." >&2
   echo "FAIL a stray #[cfg], a filter, or a renamed module silently dropped $((expected_tests - actual_tests)) of them from the run." >&2
   exit 1
 fi
 echo "OK $actual_tests/$expected_tests source-declared unit tests actually ran"
 
 run "doc" bash -c "cargo doc --no-deps"
+
+# Live round-trip (PORTING-PLAN.md §NEW): every check above compiles and
+# unit-tests moveit-ros in-process -- this script's own "what this does NOT
+# check" list at the top says so, and until this round it was true. This
+# step is the one exception: it starts the real `plan_kinematic_path_server`
+# binary against a fixture URDF/SRDF, sends it a real
+# `moveit_msgs/srv/GetMotionPlan` request over live DDS with `ros2 service
+# call` (not an in-process struct construction), and asserts the response
+# carries the exact typed error this round's handler returns -- not "service
+# not found", not a hang, not a wrong error code. `set -e` inside the
+# `bash -c` string means any of the three checks failing propagates as this
+# `docker run`'s own exit status, which this script's own `set -e` then
+# aborts on -- no pipe sits between here and that exit code.
+run "live" bash -c '
+  set -e
+  cat > /tmp/one_joint.urdf <<"URDF"
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <link name="base_link"/>
+  <link name="tip"/>
+  <joint name="j1" type="revolute">
+    <parent link="base_link"/>
+    <child link="tip"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>
+URDF
+  cat > /tmp/one_joint.srdf <<"SRDF"
+<?xml version="1.0"?>
+<robot name="one_joint">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="tip"/>
+  </group>
+</robot>
+SRDF
+  cargo build --bin plan_kinematic_path_server
+  ./target/debug/plan_kinematic_path_server /tmp/one_joint.urdf /tmp/one_joint.srdf &
+  server_pid=$!
+  trap "kill $server_pid 2>/dev/null || true" EXIT
+  sleep 3
+  out="$(timeout 15 ros2 service call /plan_kinematic_path moveit_msgs/srv/GetMotionPlan "{}")"
+  echo "$out"
+  echo "$out" | grep -q "val=-1" || {
+    echo "FAIL live round-trip: response did not carry the expected PLANNING_FAILED (val=-1) error code" >&2
+    exit 1
+  }
+  echo "$out" | grep -q "no moveit_planning::pipeline::Planner to call yet" || {
+    echo "FAIL live round-trip: response did not carry the expected explanatory message" >&2
+    exit 1
+  }
+'
+echo "OK live round-trip: /plan_kinematic_path received a real MotionPlanRequest over DDS and returned the expected typed response"
 
 echo "all gates passed"
