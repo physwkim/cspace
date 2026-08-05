@@ -108,6 +108,42 @@ struct Config {
     /// another. See `Op::Ik::consistency_limits`'s doc comment for why this
     /// is oracle-comparable at all.
     ik_consistency_fraction: Option<f64>,
+    /// `SolverParams::epsilon` on this side only. Defaults to `1e-5`, the
+    /// value `kdl_kinematics_parameters.yaml` declares
+    /// (`default_value: 0.00001`, "Epsilon. Default is 1e-5") and the value
+    /// the oracle hard-codes as `kEpsilon` -- so the default is the one
+    /// setting under which `--ik` measures parity at all.
+    ///
+    /// Any other value deliberately breaks that parity, and the resulting
+    /// success rates are not comparable across the two sides: `CartToJnt`
+    /// accepts a step once `max(position_error, orientation_error) <=
+    /// epsilon`, so the two sides would be answering "converged?" against
+    /// different questions. The flag exists for one job -- pricing the
+    /// alternative in PORTING-PLAN.md §221.2, where the choice was between
+    /// tightening this port's epsilon and correcting a completion condition
+    /// written below it -- and a run that sets it is measuring this side's
+    /// cost curve, not agreement.
+    ik_epsilon: f64,
+    /// Seed for the `ChaCha8Rng` this side's restart reseeds draw from
+    /// (`NewtonRaphsonSolver::new_with_seed`). Defaults to `0`, which is
+    /// `moveit_kinematics`'s own `DEFAULT_SEED`, so an unqualified `--ik`
+    /// invocation reproduces every earlier run bit for bit.
+    ///
+    /// It is a knob at all because of what a paired `b`/`c` disagreement
+    /// cannot tell you on its own. The two sides draw their reseeds from
+    /// unrelated streams (boost `mt19937` in the oracle, `ChaCha8Rng`
+    /// here), so at `--ik-max-restarts > 0` some disagreement is
+    /// guaranteed even between two identical algorithms. Re-running the
+    /// *same* cases against a *different* stream on this side and
+    /// intersecting the two `--ik-divergence-json` case sets separates the
+    /// two readings that `b > c` alone leaves open: a case that diverges
+    /// under every stream is a property of the pose, while a case that
+    /// diverges under one stream and solves under the next is a property of
+    /// the draw.
+    ik_rng_seed: u64,
+    /// Where to write the per-case list behind `b`/`c` as JSON. `None` (the
+    /// default) writes nothing. See [`IkDivergenceReport`].
+    ik_divergence_json: Option<String>,
     /// Where to write the run's counts as JSON, alongside the existing
     /// human-readable stdout report. `None` (the default) writes nothing,
     /// keeping every existing invocation's behaviour unchanged.
@@ -147,6 +183,12 @@ impl Config {
         let mut ik_position_only = false;
         let mut ik_max_restarts = 20u32;
         let mut ik_consistency_fraction: Option<f64> = None;
+        // `SolverParams::default().epsilon`, restated here rather than read
+        // from `SolverParams` so the default this tool documents and the
+        // default it applies cannot drift apart silently.
+        let mut ik_epsilon = 1e-5;
+        let mut ik_rng_seed = 0u64;
+        let mut ik_divergence_json: Option<String> = None;
         let mut stats_json: Option<String> = None;
         let mut oracle: Vec<String> = vec!["tools/moveit-oracle/run-oracle.sh".to_owned()];
 
@@ -215,6 +257,17 @@ impl Config {
                             .map_err(|e| format!("--ik-consistency-limit: {e}"))?,
                     )
                 }
+                "--ik-epsilon" => {
+                    ik_epsilon = want("--ik-epsilon")?
+                        .parse()
+                        .map_err(|e| format!("--ik-epsilon: {e}"))?
+                }
+                "--ik-rng-seed" => {
+                    ik_rng_seed = want("--ik-rng-seed")?
+                        .parse()
+                        .map_err(|e| format!("--ik-rng-seed: {e}"))?
+                }
+                "--ik-divergence-json" => ik_divergence_json = Some(want("--ik-divergence-json")?),
                 "--stats-json" => stats_json = Some(want("--stats-json")?),
                 // Everything after --oracle is the command line to run.
                 "--oracle" => {
@@ -275,6 +328,9 @@ impl Config {
             ik_position_only,
             ik_max_restarts,
             ik_consistency_fraction,
+            ik_epsilon,
+            ik_rng_seed,
+            ik_divergence_json,
             stats_json,
             oracle,
         })
@@ -390,7 +446,9 @@ fn main() {
             eprintln!(
                 "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
             );
-            eprintln!("                   [--ik-consistency-limit FRACTION]");
+            eprintln!("                   [--ik-consistency-limit FRACTION] [--ik-rng-seed N]");
+            eprintln!("                   [--ik-epsilon EPS]");
+            eprintln!("                   [--ik-divergence-json <path>]");
             eprintln!("                   [--stats-json <path>]");
             eprintln!("                   [--oracle <cmd> [args...]]");
             std::process::exit(2);
@@ -702,6 +760,8 @@ fn run(cfg: &Config) -> Result<usize, String> {
             group,
             cfg.ik_position_only,
             cfg.ik_max_restarts,
+            cfg.ik_rng_seed,
+            cfg.ik_epsilon,
         )?),
         _ => None,
     };
@@ -795,6 +855,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
             };
             let verdict = compare_ik(
                 cfg,
+                case,
                 ik_solver
                     .as_mut()
                     .expect("--ik built the solver before the loop"),
@@ -845,6 +906,12 @@ fn run(cfg: &Config) -> Result<usize, String> {
             100.0 * ik_stats.rust_success as f64 / ik_stats.total.max(1) as f64
         );
         println!(
+            "rust   solve time: {:.3}s total, {:.3}ms per case (epsilon {:e})",
+            ik_stats.rust_solve_seconds,
+            1000.0 * ik_stats.rust_solve_seconds / ik_stats.total.max(1) as f64,
+            cfg.ik_epsilon
+        );
+        println!(
             "rust   degenerate (solution == seed): {}/{}",
             ik_stats.rust_degenerate, ik_stats.rust_success
         );
@@ -878,6 +945,27 @@ fn run(cfg: &Config) -> Result<usize, String> {
             Verdict::Pass
         };
         verdicts.push(("ik_paired_divergence".to_string(), verdict));
+
+        if let Some(path) = &cfg.ik_divergence_json {
+            let report = IkDivergenceReport {
+                group: cfg.group.as_deref().unwrap_or(""),
+                cases: cfg.cases,
+                seed: cfg.seed,
+                max_restarts: cfg.ik_max_restarts,
+                ik_rng_seed: cfg.ik_rng_seed,
+                oracle_only: ik_stats.oracle_only,
+                rust_only: ik_stats.rust_only,
+                divergent: &ik_stats.divergent,
+            };
+            let json = serde_json::to_string_pretty(&report)
+                .map_err(|e| format!("serializing --ik-divergence-json: {e}"))?;
+            std::fs::write(path, json)
+                .map_err(|e| format!("writing --ik-divergence-json {path}: {e}"))?;
+            println!(
+                "wrote {} divergent cases to {path}",
+                ik_stats.divergent.len()
+            );
+        }
     }
 
     let (failures, underpowered) = report(&verdicts)?;
@@ -2194,6 +2282,67 @@ struct IkStats {
     oracle_only: usize,
     /// McNemar's `c`: rust solved this case, oracle did not.
     rust_only: usize,
+    /// Wall-clock seconds spent inside `IkSolver::solve_case` alone,
+    /// summed over every case.
+    ///
+    /// The run's own wall clock cannot stand in for this: every case also
+    /// pays a JSON round trip to a separate oracle process, which on the
+    /// 5,000-case `panda_arm` sweep dominates. Isolating this side's solve
+    /// is what makes a cost comparison across `--ik-epsilon` values mean
+    /// anything -- the question there is what a tighter convergence bound
+    /// costs *this* solver, and an oracle round trip is a constant added to
+    /// both sides of that comparison.
+    rust_solve_seconds: f64,
+    /// Which cases those `b`/`c` counts came from, in case order.
+    ///
+    /// `#[serde(skip)]` on purpose: this is a per-case list whose length is
+    /// `b + c` (149 entries on the 5,000-case `panda_arm` sweep), and
+    /// `--stats-json` is read by gate scripts and by hand as a fixed-shape
+    /// summary. It travels in `--ik-divergence-json`'s own file instead --
+    /// see [`Config::ik_divergence_json`].
+    #[serde(skip)]
+    divergent: Vec<IkDivergentCase>,
+}
+
+/// One case where exactly one of the two sides converged.
+///
+/// `b`/`c` ([`IkStats::oracle_only`]/[`IkStats::rust_only`]) are counts, and
+/// a count cannot answer the question that follows the McNemar verdict:
+/// *which* cases, and are they the same cases when the run's restart draws
+/// change? Two runs whose `b`/`c` agree can still disagree on every single
+/// case behind them -- that difference is exactly what separates "these
+/// poses are hard for this port" from "these draws missed". Recording the
+/// case index makes the two set-comparable across runs.
+#[derive(Debug, serde::Serialize)]
+struct IkDivergentCase {
+    /// Index into the run's own `random_states` pool -- the `case` in this
+    /// tool's own `ik[case]` verdict label, so a line of stdout and a row
+    /// here name the same target.
+    case: usize,
+    /// `"oracle"` when only the oracle converged (McNemar's `b`), `"rust"`
+    /// when only this port did (`c`).
+    solved_by: &'static str,
+    /// The full-space joint values the target pose was built from, so one
+    /// case can be re-run on its own without regenerating the pool.
+    joint_values: BTreeMap<String, f64>,
+}
+
+/// Everything `--ik-divergence-json` writes: the run's own identifying
+/// knobs, then one row per disagreeing case. The knobs are in the file
+/// rather than left to the caller's shell history because the whole point
+/// of the file is to be compared against *another* run's, and a comparison
+/// of two case sets is meaningless without knowing which two runs produced
+/// them.
+#[derive(Debug, serde::Serialize)]
+struct IkDivergenceReport<'a> {
+    group: &'a str,
+    cases: usize,
+    seed: i32,
+    max_restarts: u32,
+    ik_rng_seed: u64,
+    oracle_only: usize,
+    rust_only: usize,
+    divergent: &'a [IkDivergentCase],
 }
 
 /// McNemar's normal-approximation test statistic for the paired counts
@@ -2317,6 +2466,7 @@ fn is_degenerate_from_seed(solution: &[f64], seed: &[f64]) -> bool {
 /// verdict (see `Op::Ik`'s doc comment).
 fn compare_ik(
     cfg: &Config,
+    case: usize,
     solver: &mut rust_impl::IkSolver<'_>,
     joint_values: &BTreeMap<String, f64>,
     consistency_limits: &BTreeMap<String, f64>,
@@ -2325,15 +2475,31 @@ fn compare_ik(
 ) -> Verdict {
     stats.total += 1;
 
-    let outcome = match solver.solve_case(joint_values, consistency_limits) {
+    let started = std::time::Instant::now();
+    let solved = solver.solve_case(joint_values, consistency_limits);
+    stats.rust_solve_seconds += started.elapsed().as_secs_f64();
+    let outcome = match solved {
         Ok(o) => o,
         Err(e) => return Verdict::Fail(e),
     };
 
-    match (expected.success, outcome.solution.is_some()) {
-        (true, false) => stats.oracle_only += 1,
-        (false, true) => stats.rust_only += 1,
-        (true, true) | (false, false) => {}
+    let solved_by = match (expected.success, outcome.solution.is_some()) {
+        (true, false) => {
+            stats.oracle_only += 1;
+            Some("oracle")
+        }
+        (false, true) => {
+            stats.rust_only += 1;
+            Some("rust")
+        }
+        (true, true) | (false, false) => None,
+    };
+    if let Some(solved_by) = solved_by {
+        stats.divergent.push(IkDivergentCase {
+            case,
+            solved_by,
+            joint_values: joint_values.clone(),
+        });
     }
 
     if expected.success {
@@ -2618,8 +2784,8 @@ mod degenerate_counter_reachability_tests {
             RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("build panda RobotModel");
 
-        let mut solver =
-            rust_impl::IkSolver::new(&model, "panda_arm", false, 0).expect("construct IkSolver");
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
 
         let joint_values: BTreeMap<String, f64> = solver
             .chain_joint_names()
@@ -2642,6 +2808,203 @@ mod degenerate_counter_reachability_tests {
 
         assert_eq!(solution, outcome.seed);
         assert!(is_degenerate_from_seed(&solution, &outcome.seed));
+    }
+}
+
+/// [`IkStats::divergent`] must stay in lockstep with the `b`/`c` counters it
+/// itemizes. The failure this guards is silent by construction: a `b`/`c`
+/// increment that forgets its `divergent.push` still prints the same
+/// summary, still writes the same `--stats-json`, and still passes the
+/// McNemar gate -- only `--ik-divergence-json` goes quietly short, and the
+/// whole use of that file is to be intersected with another run's, where a
+/// missing row reads as "this case agreed in that run" rather than "this
+/// case was dropped".
+///
+/// Both directions are driven through the real `IkSolver`, not a stub (see
+/// `degenerate_counter_reachability_tests`' own note on why no stub seam
+/// exists): the `c` direction from a target that already sits at
+/// `FK(seed)`, and the `b` direction from a zero-width consistency limit,
+/// which rejects any solution that moved off the seed at all and so makes
+/// this side fail a target it would otherwise solve.
+#[cfg(test)]
+mod ik_divergence_recording_tests {
+    use super::*;
+
+    /// Only `tol_ik` is read by `compare_ik`; every other field is set to
+    /// the value `Config::from_args` would have defaulted it to, so this
+    /// helper cannot silently diverge from a real run's configuration in
+    /// some field a later revision of `compare_ik` starts reading.
+    fn test_config() -> Config {
+        Config {
+            urdf: String::new(),
+            srdf: String::new(),
+            cases: 1,
+            seed: 0,
+            tol_fk: 1e-9,
+            group: Some("panda_arm".to_owned()),
+            tol_jacobian: 1e-7,
+            constraints: 0,
+            tol_constraints: 1e-9,
+            collision: false,
+            tol_distance: 1e-4,
+            ik: true,
+            tol_ik: 2e-5,
+            ik_position_only: false,
+            ik_max_restarts: 0,
+            ik_consistency_fraction: None,
+            ik_epsilon: 1e-5,
+            ik_rng_seed: 0,
+            ik_divergence_json: None,
+            stats_json: None,
+            oracle: Vec::new(),
+        }
+    }
+
+    fn panda_model() -> RobotModel {
+        let fixtures_dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../crates/moveit-kinematics/tests/fixtures"
+        );
+        let urdf_path = format!("{fixtures_dir}/panda.urdf");
+        let srdf_path = format!("{fixtures_dir}/panda.srdf");
+        let urdf_xml =
+            std::fs::read_to_string(&urdf_path).unwrap_or_else(|e| panic!("read panda.urdf: {e}"));
+        let urdf =
+            urdf_rs::read_file(&urdf_path).unwrap_or_else(|e| panic!("parse panda.urdf: {e}"));
+        let srdf = SrdfModel::parse_file(&srdf_path).expect("parse panda.srdf");
+        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
+            .expect("build panda RobotModel")
+    }
+
+    /// `offset` in units of each joint's own `(max - min)` range, added to
+    /// the bounds midpoint -- a fraction rather than a fixed radian value so
+    /// the result is in bounds for every joint whatever its range.
+    fn midpoint_config(
+        model: &RobotModel,
+        solver: &rust_impl::IkSolver<'_>,
+        offset: f64,
+    ) -> BTreeMap<String, f64> {
+        solver
+            .chain_joint_names()
+            .into_iter()
+            .map(|name| {
+                let bounds = &model
+                    .joint_model(&name)
+                    .expect("chain_joint_names names a real model joint")
+                    .variable_bounds()[0];
+                let midpoint = (bounds.min_position + bounds.max_position) / 2.0;
+                let range = bounds.max_position - bounds.min_position;
+                (name, midpoint + offset * range)
+            })
+            .collect()
+    }
+
+    /// `Verdict` carries no `Debug`, so a failing verdict is unwrapped by
+    /// hand rather than printed through `{:?}` -- the message a `Fail`
+    /// carries is the whole diagnostic value here.
+    fn expect_pass(verdict: Verdict) {
+        match verdict {
+            Verdict::Pass => {}
+            Verdict::Fail(msg) => panic!("expected Pass, got Fail: {msg}"),
+            Verdict::Underpowered(msg) => panic!("expected Pass, got Underpowered: {msg}"),
+        }
+    }
+
+    #[test]
+    fn a_case_only_this_side_solves_is_recorded_as_rust_only() {
+        let model = panda_model();
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
+        // Target already at `FK(seed)`, so this side converges on attempt 0.
+        let joint_values = midpoint_config(&model, &solver, 0.0);
+
+        let mut stats = IkStats::default();
+        let verdict = compare_ik(
+            &test_config(),
+            7,
+            &mut solver,
+            &joint_values,
+            &BTreeMap::new(),
+            &IkResult {
+                success: false,
+                solution: None,
+            },
+            &mut stats,
+        );
+
+        expect_pass(verdict);
+        assert_eq!((stats.oracle_only, stats.rust_only), (0, 1));
+        assert_eq!(stats.divergent.len(), 1);
+        assert_eq!(stats.divergent[0].case, 7);
+        assert_eq!(stats.divergent[0].solved_by, "rust");
+        assert_eq!(stats.divergent[0].joint_values, joint_values);
+    }
+
+    #[test]
+    fn a_case_only_the_oracle_solves_is_recorded_as_oracle_only() {
+        let model = panda_model();
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
+        // Off the seed, so any solution has to move -- and a zero-width
+        // consistency limit then rejects every one of them.
+        let joint_values = midpoint_config(&model, &solver, 0.05);
+        let consistency_limits: BTreeMap<String, f64> = solver
+            .chain_joint_names()
+            .into_iter()
+            .map(|name| (name, 0.0))
+            .collect();
+        // Distinct from the seed so this case does not also trip
+        // `oracle_degenerate`, which is a different counter's business.
+        let oracle_solution = midpoint_config(&model, &solver, 0.05);
+
+        let mut stats = IkStats::default();
+        let verdict = compare_ik(
+            &test_config(),
+            11,
+            &mut solver,
+            &joint_values,
+            &consistency_limits,
+            &IkResult {
+                success: true,
+                solution: Some(oracle_solution),
+            },
+            &mut stats,
+        );
+
+        expect_pass(verdict);
+        assert_eq!((stats.oracle_only, stats.rust_only), (1, 0));
+        assert_eq!(stats.divergent.len(), 1);
+        assert_eq!(stats.divergent[0].case, 11);
+        assert_eq!(stats.divergent[0].solved_by, "oracle");
+    }
+
+    /// The agreeing directions -- both solved, neither solved -- must leave
+    /// `divergent` empty, or an intersection across two runs would count
+    /// agreement as divergence.
+    #[test]
+    fn a_case_both_sides_solve_is_not_recorded_at_all() {
+        let model = panda_model();
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
+        let joint_values = midpoint_config(&model, &solver, 0.0);
+        let oracle_solution = midpoint_config(&model, &solver, 0.05);
+
+        let mut stats = IkStats::default();
+        compare_ik(
+            &test_config(),
+            3,
+            &mut solver,
+            &joint_values,
+            &BTreeMap::new(),
+            &IkResult {
+                success: true,
+                solution: Some(oracle_solution),
+            },
+            &mut stats,
+        );
+
+        assert_eq!((stats.oracle_only, stats.rust_only), (0, 0));
+        assert!(stats.divergent.is_empty());
     }
 }
 

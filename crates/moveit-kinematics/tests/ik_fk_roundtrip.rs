@@ -9,7 +9,21 @@
 //! self-contained and belongs here is the half that does not need the
 //! oracle: for a target pose built by running forward kinematics on a
 //! known-reachable joint configuration, solving IK back and re-running FK
-//! on the solution must land within `1e-6` of that target. Each test below
+//! on the solution lands within `1e-6` of that target *on each of the
+//! targets below*.
+//!
+//! That `1e-6` is a measured property of these five targets, not a bound
+//! the solver guarantees. What `cart_to_jnt` guarantees is
+//! `SolverParams::epsilon` (`1e-5`): it returns the configuration whose own
+//! `max(position_error, orientation_error)` it just measured at or under
+//! that, so a converged solve is free to be anywhere in `(0, epsilon]` and
+//! frequently is -- on 5,000 random `panda_arm` targets, 1,513 successful
+//! solutions land in `(1e-6, 1e-5]` (PORTING-PLAN.md §221.2, which is why
+//! §5's Phase 4 condition now names `epsilon` rather than `1e-6`). These
+//! five clear `1e-6` with between 3x and 183x of room (measured: `1.2e-8`,
+//! `1.86e-7`, `3.29e-7`, `5.46e-9`, `7.22e-9` in translation), so the
+//! constant discriminates here without asserting a guarantee that does not
+//! exist. Each test below
 //! targets one boundary this crate's own doc comments call out as
 //! consequential rather than a narrative "solve some pose" scenario:
 //! bounded vs. continuous/unbounded joints, an independent chain vs. one
