@@ -100,8 +100,8 @@ value, not a failure/absence signal. Fails census §9 clause 1.
 | `time_optimal_trajectory_generation.rs:1429` | `do_time_parameterization_calculations`'s `max_velocity.len() != num_joints \|\| max_acceleration.len() != num_joints` fold (line 770), mimic-joint-group fixture (4 active vs 7 full variables); cited `:1421` before drift | `mimic_joint_group_is_a_typed_error_not_a_panic` | discriminating; `max_acceleration.len() != num_joints` operand deleted, dead by construction | **fixed this round** (`612a9b3`) — see "Correction" below |
 | `time_optimal_trajectory_generation.rs:1490` | `compute_time_stamps_with_limits`'s custom-limit-vs-bounds-fallback branch (the `acceleration_set` flag at line 590); cited `:1470` before drift | `a_zero_custom_limit_skips_bound_validation` | **fixed this round** (was blind) | see below |
 | `time_optimal_trajectory_generation.rs:1561` | `do_time_parameterization_calculations`'s sample-count guard, `!is_finite()` operand isolated, custom-`0.0`-velocity-limit fixture | `resample_dt_over_a_nan_duration_is_rejected` | discriminating (new this round) | bite: `!is_finite()` alone neutralized → silent `Ok(())` with NaN `sample_count` saturating to `0`; see "Correction" above. Commit `b12b358` |
-| `time_optimal_trajectory_generation.rs:1587` | `totg_compute_time_stamps`'s `num_waypoints < 2` guard, `num_waypoints = 1` fixture; cited `:1511` before drift | `totg_compute_time_stamps_rejects_fewer_than_two_waypoints` | discriminating | bite (`&& !true`; both assertions in the fn fail cleanly, single guard in the function) |
-| `time_optimal_trajectory_generation.rs:1593` | same guard, `num_waypoints = 0` fixture; cited `:1517` before drift | same fn | discriminating | same bite |
+| `time_optimal_trajectory_generation.rs:1592` | `totg_compute_time_stamps`'s `num_waypoints < 2` guard, `num_waypoints = 1` fixture; cited `:1511` before drift, `:1587` before a second drift | `totg_compute_time_stamps_rejects_fewer_than_two_waypoints` | discriminating | bite (`&& !true`; both assertions in the fn fail cleanly, single guard in the function) |
+| `time_optimal_trajectory_generation.rs:1598` | same guard, `num_waypoints = 0` fixture; cited `:1517` before drift, `:1593` before a second drift | same fn | discriminating | same bite |
 
 **Correction — `:1070`/`:1097`/`:1163` and `:1421` (this round).** The
 prior round's verdicts above ("structurally-redundant") were reached by
@@ -303,10 +303,10 @@ crate, UNFIXED.
 
 | file:line | anchor | test fn | verdict | evidence |
 |---|---|---|---|---|
-| `tests/ruckig_smoothing.rs:199` | `trajectory.group().is_none()` — fixture precondition check (confirms no group was set), not the guard under test | `no_group_set_is_an_error` | not-this-family (clause 1 — plain success-path state, not a failure/absence signal from a decision under test) | — |
-| `tests/ruckig_smoothing.rs:204` | `validate_group`'s single `.ok_or_else` guard (src `:245-249`) | `no_group_set_is_an_error` | discriminating | bite: message text mutated (`Error::other("mutated")`) → target fails, sibling `empty_trajectory_with_a_group_is_a_no_op` (never reaches this guard) stays green |
-| `tests/ruckig_smoothing.rs:216` | `is_empty()` on a no-op-smoothed empty trajectory | `empty_trajectory_with_a_group_is_a_no_op` | not-this-family (clause 1) | — |
-| `tests/ruckig_smoothing.rs:219` | same | same fn | not-this-family (clause 1) | — |
+| `tests/ruckig_smoothing.rs:203` | `trajectory.group().is_none()` — fixture precondition check (confirms no group was set), not the guard under test; cited `:199` before drift | `no_group_set_is_an_error` | not-this-family (clause 1 — plain success-path state, not a failure/absence signal from a decision under test) | — |
+| `tests/ruckig_smoothing.rs:208` | `validate_group`'s single `.ok_or_else` guard (src `:245-249`); cited `:204` before drift, which is now the preceding comment | `no_group_set_is_an_error` | discriminating | bite: message text mutated (`Error::other("mutated")`) → target fails, sibling `empty_trajectory_with_a_group_is_a_no_op` (never reaches this guard) stays green |
+| `tests/ruckig_smoothing.rs:220` | `is_empty()` on a no-op-smoothed empty trajectory; cited `:216` before drift | `empty_trajectory_with_a_group_is_a_no_op` | not-this-family (clause 1) | — |
+| `tests/ruckig_smoothing.rs:223` | same; cited `:219` before drift | same fn | not-this-family (clause 1) | — |
 
 ## Summary
 

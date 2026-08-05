@@ -655,11 +655,12 @@ two `Error::other` sites, in-code bite noted at `:502-504`.
 | `robot_trajectory.rs:676` | `out of bounds` | discriminating | exact substring of `index_error`'s message only; not in `first_duration_error`'s or `empty_error`'s |
 
 **`moveit-trajectory/tests/ruckig_smoothing.rs`** — `apply_smoothing`'s
-three `Error::other` sites, in-code noted at `:198-201`.
+three `Error::other` sites, in-code noted at `:204-207` (cited `:198-201`
+before drift).
 
 | file:line | needle | verdict | siblings checked |
 |---|---|---|---|
-| `ruckig_smoothing.rs:204` | `did not set the group` | discriminating | not in "ruckig calculate failed: {error}" or the third (smoothing-result-failure) message |
+| `ruckig_smoothing.rs:208` | `did not set the group` | discriminating | not in "ruckig calculate failed: {error}" or the third (smoothing-result-failure) message |
 
 ### Result: 0 blind sites, 3 fragile-but-currently-unique needles flagged, not fixed
 
