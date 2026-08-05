@@ -95,6 +95,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `get-max-payload-index-space` | reproduced-grandfathered |
 | `cost-source-nan-blind-compare` | not-reproduced |
 | `totg-timing-zero-velocity-division` | reproduced-grandfathered |
+| `polyline-filter-waypoints-stale-index` | reproduced-deliberately |
 | `polyline-header-redeclares-lin-exceptions` | not-reproduced |
 
 ---
