@@ -112,12 +112,24 @@ STDLIB = re.compile(r"^[a-z_]+$")
 
 
 def load_corpus(upstream: str) -> set[str]:
-    """The corpus, straight from measure-port-coverage.py -- never redefined here."""
-    spec = importlib.util.spec_from_file_location(
-        "measure_port_coverage", os.path.join(HERE, "measure-port-coverage.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    """The corpus, straight from measure-port-coverage.py -- never redefined here.
+
+    Bytecode writing is off for this import: `tools/ci/__pycache__` is tracked
+    (three `.pyc` files, added by `10a9c13`), so importing the sibling would
+    otherwise rewrite a committed file and leave the tree dirty every time
+    this measurement runs -- and a `git status` precondition ahead of a long
+    job would then report a dirty tree caused by nothing but measuring.
+    """
+    prior = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "measure_port_coverage", os.path.join(HERE, "measure-port-coverage.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    finally:
+        sys.dont_write_bytecode = prior
     return set(mod.corpus_files(upstream))
 
 
