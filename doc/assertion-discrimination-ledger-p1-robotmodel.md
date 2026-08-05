@@ -199,3 +199,36 @@ fix.
   since nothing changed.
 - Full-workspace `--workspace` variants owed before `git push` per the
   standing rule; not run this round (no commits made).
+
+## Round 9 — family-membership rule applied (`doc/assertion-discrimination-census.md` §9)
+
+Re-checked all 55 rows above against §9's three clauses (mechanism /
+decision / subject), not just the 4 already marked `not-this-family`.
+
+- The 4 existing `not-this-family` rows all survive: `ruckig_smoothing.rs
+  :199` and `moveit-planners-chomp/trajectory.rs:997` fail clause 3 (the
+  test's own `RobotTrajectory::new`/fixture-construction precondition,
+  not the subject function's decision); `plan_responses.rs:208` fails
+  clauses 2 and 3 together (a container passthrough of a value the test
+  pushed itself two lines above); `plan_responses.rs:214` fails clause 2
+  (the comparison loop never runs on empty input — no decision to get
+  wrong, unlike `nn.rs:227`'s written `self.root.as_ref()?` guard, which
+  §9 cites as the contrasting in-family case). None is reclassified.
+- The remaining 51 rows (`discriminating` and `single-branch`) each pass
+  all three clauses: every one inspects a genuine `Err`/`None`
+  fail-or-absence signal (clause 1), produced by a written guard in the
+  function the test names as its subject (clauses 2 and 3). No
+  corrections needed.
+
+**In-family denominator for these 7 crates: 51 of 55** — unchanged from
+this ledger's original verdict counts, because the 4 sites already
+carrying `not-this-family` were the only 4 that could fail §9 in this
+set, and they fail it for the same reasons their original evidence
+column already gave. By crate: `moveit-trajectory` 15/16,
+`moveit-planners-chomp` 12/14, `moveit-planners-sbp` 7/7,
+`moveit-planners-stomp` 7/7, `moveit-planning` 2/4, `moveit-sampling`
+4/4, `moveit-kinematics` 3/3.
+
+No source or verdict cells changed this round. This section is the only
+diff — gate is `cargo fmt --all -- --check` per this round's brief
+(doc-only; no clippy/nextest owed).
