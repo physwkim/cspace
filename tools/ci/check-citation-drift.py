@@ -369,11 +369,25 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
        test's own single assertion, or a bare fn declaration line);
        a range pairing is trusted regardless, since the range shape
        itself is strong enough evidence of a containment claim.
-    2. Table row, first column, with no tight pairing found: every valid
-       identifier anywhere else in the row THAT IS `#[test]`-attested.
-       Production-function names loosely mentioned in the same row are
-       excluded here precisely because they are not reliably containment
-       claims (`do_smoothing` above).
+    2. Table row, first column, with no tight pairing found: if the row
+       loosely names at least one `#[test]`-attested function in the cited
+       file, every valid identifier anywhere else in the row -- otherwise
+       nothing.
+
+       `#[test]`-attestation gates the ROW, not each candidate. What it
+       establishes is that this row is using the ledger's loose
+       test-naming idiom at all; the `do_smoothing` row above names NO
+       test in `acceleration_filter.rs`, which is exactly why its lone
+       production-function mention must not be trusted. Once a row is in
+       the idiom, the function containing the cited line is sometimes a
+       plain helper rather than a test -- a row citing a `mod tests`
+       fixture builder and naming the tests that cover it is the shape --
+       and rejecting it for want of a `#[test]` attribute rejects a
+       correct citation over a fact about the containing function that
+       the check never claimed to be about. Attesting each candidate
+       separately instead was measured over this corpus at 75 new
+       failures, `do_smoothing`'s own citation
+       (`p1-fixtures.md:938`, `acceleration_filter.rs:565`) among them.
 
     Accept the citation if it falls inside ANY candidate's span -- not
     exactly one -- for the same reason a row can mention several correctly-
@@ -408,7 +422,9 @@ def find_anchors(line, match_start, match_end, spans, prev_citation_end=0, is_ra
         pipes = [i for i, ch in enumerate(line) if ch == "|"]
         if len(pipes) >= 2 and pipes[0] < match_start < pipes[1]:
             rest_of_row = line[:match_start] + line[match_end:]
-            return _valid_idents(rest_of_row, spans, require_test=True)
+            if not _valid_idents(rest_of_row, spans, require_test=True):
+                return []
+            return _valid_idents(rest_of_row, spans, require_test=False)
 
     return []
 
