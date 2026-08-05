@@ -370,8 +370,19 @@ fn find_way_point_indices_at_last_of_many_waypoints() {
     assert_eq!(before, 3);
     assert_eq!(after, 4);
     // `blend`'s subtraction (`running_duration - duration_from_previous[index]`)
-    // is not exact here: upstream's own `EXPECT_DOUBLE_EQ` tolerates the same
-    // few-ULP rounding this assertion allows for.
+    // is not exact here: measured at exactly 2 ULP off 1.0
+    // (`blend - 1.0 == -2.220446049250313e-16`) -- reproducing this same
+    // algorithm against upstream's own uniform `[0.1, 0.1, 0.1, 0.1, 0.1]`
+    // fixture (rather than this port's `[0.0, 0.1, 0.1, 0.1, 0.1]`) gives the
+    // identical figure, both fixtures accumulating the same repeated `0.1`
+    // subtraction pattern. Upstream's own `EXPECT_DOUBLE_EQ(blend, 1.0)`
+    // (`test_robot_trajectory.cpp:637`,
+    // `RobotTrajectoryFindWayPointIndicesAtLastOfManyWaypoints`) tolerates up
+    // to `kMaxUlps = 4`, so upstream's own fixture passes its own
+    // bit-exact-looking assertion by a comfortable margin. This assertion's
+    // `1e-9` tolerance is roughly 7 orders of magnitude looser than the
+    // actual ~2e-16 error -- headroom, not a match to what upstream
+    // tolerates.
     assert!((blend - 1.0).abs() < 1e-9, "blend = {blend}");
 }
 
