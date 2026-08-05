@@ -22,33 +22,55 @@
 //! # Usage
 //!
 //! `cargo run --release --example plan_benchmark_port -p moveit-planners-sbp
-//! -- <seed_base>`, with a `plan`-op request JSON on stdin (see
-//! `examples/plan_benchmark_problem_set.rs`'s own doc comment for the exact
-//! shape -- the same file `benches/sweep_baseline.sh` writes to
+//! -- <seed_base> [timeout_seconds] [inject]`, with a `plan`-op request JSON
+//! on stdin (see `examples/plan_benchmark_problem_set.rs`'s own doc comment
+//! for the exact shape -- the same file `benches/sweep_baseline.sh` writes to
 //! `$WORKDIR/$config.json` before piping it to the oracle is valid input
 //! here too). `seed_base` is this run's own RNG seed -- independent of the
 //! request's own `seed` field, which is the *oracle's* OMPL seed and has no
 //! meaning to this crate's `ChaCha8Rng`-driven planner. Each problem's own
 //! seed is `seed_base.wrapping_add(problem.id)`, so two runs over the same
-//! request file with the same `seed_base` are reproducibly identical (this
-//! binary always uses [`Termination::Iterations`], which is what makes
-//! [`rrt_connect`](moveit_planners_sbp::rrt_connect)'s own determinism
-//! guarantee apply).
+//! request file with the same `seed_base` are reproducibly identical, subject
+//! to the timeout caveat in `# The timeout` below.
 //!
-//! Prints one NDJSON line per problem to stdout:
-//! `{"id", "solved", "length"?, "condition2_valid"?, "invalid_waypoint_count"?, "failure"?}`.
-//! `length` is this crate's own [`StateSpace::distance`] summed along the
-//! returned path -- directly comparable to the oracle response's own
+//! Prints one NDJSON line per problem to stdout, then one `{"summary": ...}`
+//! line. `length` is this crate's own [`StateSpace::distance`] summed along
+//! the returned path -- directly comparable to the oracle response's own
 //! `length` field, since `tests/plan_space_parity.rs` already establishes
 //! bit-exact parity between this crate's `JointModelGroupSpace` and the
-//! oracle's OMPL space. `condition2_valid`/`invalid_waypoint_count` are
-//! Phase 7 condition 2's per-problem verdict -- see `# Condition 2's
-//! collision-check resolution` below.
+//! oracle's OMPL space.
+//!
+//! # The timeout
+//!
+//! Every planner call is bounded by an explicit wall-clock deadline
+//! ([`Termination::Both`]), defaulting to [`DEFAULT_TIMEOUT_SECONDS`]. A
+//! call that hits it is reported as `outcome: "timeout"` and counted as a
+//! **failure**, never as a skip and never left to hang -- an unbounded
+//! planner call that never returns is a failed benchmark, not a passing one.
+//!
+//! Two properties of this bound are stated rather than assumed:
+//!
+//! 1. **It is checked at iteration granularity.** `rrt_connect` tests the
+//!    deadline once at the top of each grow-and-connect iteration
+//!    (`rrt_connect.rs`'s own loop), so a call can overshoot by at most the
+//!    duration of one in-flight iteration. This binary therefore measures
+//!    and reports each problem's *actual* elapsed wall clock and the summary
+//!    reports `slowest_seconds`; the bound is verified by that measurement,
+//!    not by the deadline's existence.
+//! 2. **It costs determinism only if it fires.** [`Termination::Both`]
+//!    carries a `Duration`, so unlike [`Termination::Iterations`] it has no
+//!    machine-speed-independence guarantee. But the deadline changes the
+//!    search only on a call that actually reaches it: on every problem that
+//!    finishes inside the budget, the iteration sequence is identical to the
+//!    one `Termination::Iterations(max_iterations)` alone would have
+//!    produced. The summary's `timeouts` count is therefore also the count
+//!    of problems whose result is not reproducible; `timeouts: 0` means the
+//!    whole run was.
 //!
 //! # Condition 2's collision-check resolution
 //!
 //! Phase 7 condition 2 requires "100% of produced port paths pass
-//! `moveit-scene`'s collision/constraint checks".
+//! `moveit-scene`'s collision check and constraints".
 //! [`PlanningScene::is_path_valid`] checks exactly the waypoints it is
 //! given -- it does not itself interpolate between them -- and this crate's
 //! own `rrt_connect` only *returns* the RRT tree's vertices (roughly
@@ -63,59 +85,138 @@
 //! This binary instead re-interpolates every consecutive waypoint pair via
 //! [`StateSpace::interpolate`] at the *same* resolution
 //! (`request.motion_resolution`) `DiscreteMotionValidator` used during
-//! planning, then calls `is_path_valid` on that dense list. This is a
-//! deliberate choice, not a default: it re-derives no new information
-//! `DiscreteMotionValidator`'s own bisection did not already establish by
-//! construction (that type checks every sample index down to `resolution`
-//! spacing, not a subsample of them -- see its own doc comment), so what
-//! condition 2 actually verifies here is that `is_path_valid`'s independent
-//! code path (`PlanningScene::is_state_valid` on each dense waypoint)
-//! agrees with `DiscreteMotionValidator`'s
-//! (`PlanningSceneValidityChecker::is_valid` during planning) -- an
-//! independent-implementation-path cross-check against a planner-side
-//! plumbing bug, not a search for finer-than-planning collision gaps. A
-//! resolution finer than `motion_resolution` would also find genuine
-//! sub-resolution collision gaps neither the planner nor this check has any
-//! way to see at their shared resolution -- a real limitation of
-//! resolution-discretized collision checking in general (shared with
-//! upstream's own analogous discrete motion validators), not something this
-//! binary's choice of resolution introduces.
+//! planning, then calls `is_path_valid` on that dense list -- **every**
+//! waypoint, not only the endpoints. This is a deliberate choice, not a
+//! default: it re-derives no new information `DiscreteMotionValidator`'s own
+//! bisection did not already establish by construction (that type checks
+//! every sample index down to `resolution` spacing, not a subsample of them
+//! -- see its own doc comment), so what condition 2 actually verifies here
+//! is that `is_path_valid`'s independent code path
+//! (`PlanningScene::is_state_valid` on each dense waypoint) agrees with
+//! `DiscreteMotionValidator`'s (`PlanningSceneValidityChecker::is_valid`
+//! during planning) -- an independent-implementation-path cross-check
+//! against a planner-side plumbing bug, not a search for
+//! finer-than-planning collision gaps. A resolution finer than
+//! `motion_resolution` would also find genuine sub-resolution collision gaps
+//! neither the planner nor this check has any way to see at their shared
+//! resolution -- a real limitation of resolution-discretized collision
+//! checking in general (shared with upstream's own analogous discrete motion
+//! validators), not something this binary's choice of resolution introduces.
+//!
+//! # Proving the condition-2 check can fail
+//!
+//! A validator that passes because it silently checks nothing reports 100%
+//! exactly as a working one does. The `inject` argument exists to tell those
+//! two apart, and `tools/ci/verify-phase7-benchmark.sh` runs it as a gate
+//! rather than as a one-off spot check:
+//!
+//! - `inject=collision` searches (uniformly, from this run's RNG) for a
+//!   state the scene's collision check actually rejects, then splices that
+//!   state into the middle of every solved path before `is_path_valid` runs.
+//! - `inject=constraint` takes a valid waypoint and drives the constrained
+//!   joint outside its tolerance band, then splices that in the same way.
+//!   Requires the request to carry a `joint_constraint`.
+//!
+//! Under either mode the summary's `condition2_pass` must come back **0**;
+//! this binary exits non-zero if it does not, so "the checker rejects an
+//! injected bad waypoint" is a build failure when untrue rather than a
+//! sentence in a report. The injected state is verified to be genuinely bad
+//! by direct query before it is spliced, so the mode cannot silently degrade
+//! into injecting a *valid* state and concluding the checker is broken.
 
 use std::collections::BTreeMap;
 use std::env;
 use std::io::{self, Read};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use moveit_collision::{CollisionRequest, LinkPaddingScale, ParryCollisionEnv, World};
+use moveit_constraints::{Constraint, JointConstraint, KinematicConstraintSet};
 use moveit_geometry::{Cuboid, Isometry3, Shape};
 use moveit_model::{MeshSearchPaths, RobotModel};
 use moveit_planners_sbp::{
-    CompoundValue, Goal, JointModelGroupSpace, PlannerManager, PlanningRequest, RrtConnectManager,
-    RrtConnectParams, StateSpace, Termination,
+    CompoundValue, Goal, JointModelGroupSpace, PlanError, PlannerManager, PlanningFailure,
+    PlanningRequest, RrtConnectManager, RrtConnectParams, StateSpace, Termination,
 };
 use moveit_scene::PlanningScene;
 use moveit_srdf::SrdfModel;
 use moveit_state::RobotState;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 
-/// The `moveit_resources_panda_description` package committed under
-/// `fixtures/meshes/` -- same pattern as `plan_benchmark_problem_set.rs`.
-fn fixture_mesh_search_paths() -> MeshSearchPaths {
-    let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
-    MeshSearchPaths::new([(
-        "moveit_resources_panda_description",
-        format!("{meshes_root}/panda_description"),
-    )])
+/// Wall-clock bound on a single planner call, in seconds, when the caller
+/// does not pass one.
+///
+/// Sized from a measured pilot rather than picked as a round number. On
+/// `floor_wall`/`cage` pilots of 10-20 problems per robot, mean `solve()`
+/// time was 2.4 s on panda and 8.7-9.1 s on fanuc, with the slowest single
+/// call 9.6 s on panda and 40.4 s on fanuc -- the 6-DoF robot's larger
+/// scaled workspace, not a pathology. 120 s is ~3x that observed worst case.
+///
+/// The direction of the error matters, which is why the multiple is 3x and
+/// not 1.5x: a deadline that fires on a problem the planner *would* have
+/// solved converts a success into a recorded failure and understates the
+/// port against its own completion condition. The bound exists to stop an
+/// unbounded call from hanging the benchmark, not to shape the result, so it
+/// is set well clear of the legitimate hard tail. `timeouts` is reported
+/// separately from `failures` in the summary precisely so a run where this
+/// choice started to bite is visible rather than folded into the failure
+/// count.
+const DEFAULT_TIMEOUT_SECONDS: f64 = 120.0;
+
+/// Attempts allowed when searching for a genuinely colliding state for
+/// `inject=collision`. Finite so a scene with no reachable colliding state
+/// fails loudly rather than spinning.
+const MAX_INJECT_SEARCH_ATTEMPTS: usize = 100_000;
+
+/// One benchmark robot's fixture wiring. Mirrors
+/// `plan_benchmark_problem_set.rs`'s own `ROBOTS` table -- the request JSON's
+/// `robot` field is what ties the two together, so this side rebuilds the
+/// robot the problems were actually sampled against rather than assuming
+/// panda.
+fn mesh_package_for(robot: &str) -> (&'static str, &'static str) {
+    match robot {
+        "panda" => ("moveit_resources_panda_description", "panda_description"),
+        "fanuc" => ("moveit_resources_fanuc_description", "fanuc_description"),
+        other => panic!("unknown robot {other:?} in request.robot"),
+    }
 }
 
-fn load_panda() -> (RobotModel, SrdfModel) {
+fn load_robot(robot: &str) -> (RobotModel, SrdfModel) {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures");
-    let urdf_xml = std::fs::read_to_string(format!("{root}/panda.urdf")).unwrap();
+    let meshes_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/meshes");
+    let (package, dir) = mesh_package_for(robot);
+    let paths = MeshSearchPaths::new([(package, format!("{meshes_root}/{dir}"))]);
+    let urdf_xml = std::fs::read_to_string(format!("{root}/{robot}.urdf")).unwrap();
     let urdf = urdf_rs::read_from_string(&urdf_xml).expect("fixture URDF must parse");
-    let srdf = SrdfModel::parse_file(format!("{root}/panda.srdf")).unwrap();
-    let model =
-        RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &fixture_mesh_search_paths())
-            .expect("fixture model must build");
+    let srdf = SrdfModel::parse_file(format!("{root}/{robot}.srdf")).unwrap();
+    let model = RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &paths)
+        .expect("fixture model must build");
     (model, srdf)
+}
+
+/// Rebuilds the request's `joint_constraint` (the
+/// `<joint>:<position>:<tolerance>` string `plan_benchmark_problem_set`
+/// emitted) into the same one-member set that generator filtered endpoints
+/// with. Returns the set and the parsed parts, the latter for
+/// `inject=constraint`.
+fn parse_joint_constraint(
+    model: &RobotModel,
+    spec: &str,
+) -> (KinematicConstraintSet, String, f64, f64) {
+    let parts: Vec<&str> = spec.split(':').collect();
+    assert_eq!(
+        parts.len(),
+        3,
+        "joint_constraint must be <joint_name>:<position>:<tolerance>, got {spec:?}"
+    );
+    let position: f64 = parts[1].parse().expect("joint_constraint position");
+    let tolerance: f64 = parts[2].parse().expect("joint_constraint tolerance");
+    let constraint = JointConstraint::new(model, parts[0], position, tolerance, tolerance, 1.0)
+        .unwrap_or_else(|e| panic!("JointConstraint::new({:?}): {e}", parts[0]));
+    let mut set = KinematicConstraintSet::new();
+    set.push(Constraint::Joint(constraint));
+    (set, parts[0].to_string(), position, tolerance)
 }
 
 /// The translation column of a row-major 4x4 (`fromRowMajor4x4`'s own
@@ -180,13 +281,158 @@ fn densify<'m>(
     out
 }
 
+/// Which kind of deliberately-bad waypoint an injection run splices into
+/// every solved path, to prove condition 2's check can fail.
+///
+/// A typed mode rather than the argument string carried around: with a
+/// `&str` the set of valid modes was decided twice -- once by an
+/// `assert!(matches!(..))` on the command line and again by
+/// `build_injected_state`'s own `match`, whose final arm was unreachable
+/// only as long as those two agreed. Parsing once here makes the two
+/// consistent by construction and leaves `build_injected_state`'s `match`
+/// exhaustive with no catch-all to keep in sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InjectMode {
+    /// Splice a state the collision check rejects.
+    Collision,
+    /// Splice a state that violates the request's `joint_constraint`.
+    Constraint,
+}
+
+impl InjectMode {
+    fn parse(raw: &str) -> Self {
+        match raw {
+            "collision" => Self::Collision,
+            "constraint" => Self::Constraint,
+            other => panic!("inject must be 'collision' or 'constraint', got {other:?}"),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Collision => "collision",
+            Self::Constraint => "constraint",
+        }
+    }
+}
+
+/// Builds the deliberately-bad waypoint `inject` splices into every solved
+/// path, and **verifies it is bad by direct query before returning it**.
+///
+/// The verification is the point. Constructing a state that "should" collide
+/// and trusting that it does would make an injection run that reports
+/// `condition2_pass == 0` ambiguous between "the checker works" and "the
+/// checker rejects everything, including valid states". Both modes here
+/// therefore assert the state's badness through the same
+/// `PlanningScene::is_state_valid` surface, and additionally assert that a
+/// state which is *not* bad in the injected way passes -- so the returned
+/// state is known to be rejected for the injected reason specifically.
+fn build_injected_state(
+    mode: InjectMode,
+    space: &JointModelGroupSpace,
+    model: &RobotModel,
+    srdf: &SrdfModel,
+    env: &ParryCollisionEnv,
+    parsed_constraint: Option<&(KinematicConstraintSet, String, f64, f64)>,
+    rng: &mut ChaCha8Rng,
+) -> Vec<CompoundValue> {
+    let mut scene = PlanningScene::new(model, srdf);
+    let request = CollisionRequest::default();
+
+    let install = |state: &Vec<CompoundValue>, scene: &mut PlanningScene<'_>| {
+        let mut rs = scene.current_state().clone();
+        space.write_robot_state(state, &mut rs);
+        scene.set_current_state(rs);
+    };
+
+    match mode {
+        InjectMode::Collision => {
+            for _ in 0..MAX_INJECT_SEARCH_ATTEMPTS {
+                let candidate = space.sample_uniform(rng);
+                install(&candidate, &mut scene);
+                // Constraints deliberately `None`: this mode must produce a
+                // state rejected for *collision*, not one that merely
+                // violates a constraint.
+                if !scene.is_state_valid(env, &request, None) {
+                    return candidate;
+                }
+            }
+            panic!(
+                "inject=collision: no colliding state found in {MAX_INJECT_SEARCH_ATTEMPTS} \
+                 uniform samples -- this scene may have no reachable collision"
+            );
+        }
+        InjectMode::Constraint => {
+            let (set, joint, position, tolerance) = parsed_constraint
+                .expect("inject=constraint requires the request to carry a joint_constraint");
+            for _ in 0..MAX_INJECT_SEARCH_ATTEMPTS {
+                let candidate = space.sample_uniform(rng);
+                install(&candidate, &mut scene);
+                // Only a collision-free, constraint-satisfying state is a
+                // usable base: starting from a colliding one would make the
+                // injected rejection attributable to collision instead.
+                if !scene.is_state_valid(env, &request, Some(set)) {
+                    continue;
+                }
+                // Drive the constrained joint well outside its band. 4x the
+                // tolerance, not 1.01x, so the violation cannot be mistaken
+                // for a boundary rounding effect.
+                let mut rs = scene.current_state().clone();
+                let outside = position + 4.0 * tolerance;
+                if rs.set_variable_position(joint, outside).is_err() {
+                    continue;
+                }
+                let violating = space.read_robot_state(&rs);
+                install(&violating, &mut scene);
+                // Bad *for the constraint*, and clean on collision -- so the
+                // rejection this produces is attributable to the constraint.
+                if !scene.is_state_valid(env, &request, Some(set))
+                    && scene.is_state_valid(env, &request, None)
+                {
+                    return violating;
+                }
+            }
+            panic!(
+                "inject=constraint: no constraint-violating, collision-free state found in \
+                 {MAX_INJECT_SEARCH_ATTEMPTS} attempts"
+            );
+        }
+    }
+}
+
+/// How one problem ended. `Solved` is the only success; every other variant
+/// counts against Phase 7 condition 1's success rate, `Timeout` included.
+fn outcome_name(result: &Result<(), &PlanError>) -> &'static str {
+    match result {
+        Ok(()) => "solved",
+        Err(PlanError::Failed(PlanningFailure::DeadlineExhausted)) => "timeout",
+        Err(PlanError::Failed(PlanningFailure::IterationsExhausted)) => "iterations_exhausted",
+        Err(PlanError::Failed(PlanningFailure::InvalidEndpoint)) => "invalid_endpoint",
+        Err(PlanError::NoGoalSample) => "no_goal_sample",
+        Err(PlanError::Sbp(_)) => "error",
+        Err(_) => "error",
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let usage = "usage: <seed_base> [timeout_seconds] [inject]";
     let seed_base: u64 = args
         .get(1)
-        .unwrap_or_else(|| panic!("usage: <seed_base>; got {args:?}"))
+        .unwrap_or_else(|| panic!("{usage}; got {args:?}"))
         .parse()
         .expect("seed_base must be a u64");
+    let timeout_seconds: f64 = args
+        .get(2)
+        .filter(|s| !s.is_empty())
+        .map_or(DEFAULT_TIMEOUT_SECONDS, |s| {
+            s.parse().expect("timeout_seconds must be a number")
+        });
+    let inject = args
+        .get(3)
+        .filter(|s| !s.is_empty())
+        .map(|s| InjectMode::parse(s));
+    let timeout = Duration::from_secs_f64(timeout_seconds);
 
     let mut input = String::new();
     io::stdin()
@@ -195,6 +441,7 @@ fn main() {
     let request: serde_json::Value =
         serde_json::from_str(&input).expect("stdin must be valid JSON");
 
+    let robot = request["robot"].as_str().unwrap_or("panda").to_string();
     let group_name = request["group"]
         .as_str()
         .expect("request.group must be a string")
@@ -209,9 +456,15 @@ fn main() {
         .as_u64()
         .expect("request.max_iterations must be a number") as usize;
 
-    let (model, srdf) = load_panda();
+    let (model, srdf) = load_robot(&robot);
     let space = JointModelGroupSpace::new(&model, &group_name)
         .unwrap_or_else(|e| panic!("JointModelGroupSpace::new({group_name}): {e}"));
+
+    let constraint_spec = request["joint_constraint"].as_str().map(str::to_string);
+    let parsed_constraint = constraint_spec
+        .as_deref()
+        .map(|spec| parse_joint_constraint(&model, spec));
+    let constraints = parsed_constraint.as_ref().map(|(set, ..)| set.clone());
 
     let mut world = World::new();
     for object in request["objects"]
@@ -244,9 +497,36 @@ fn main() {
     }
     let env = ParryCollisionEnv::new(world, LinkPaddingScale::default());
 
+    // Built once, before any planning: `inject` splices this state into every
+    // solved path, and it is *verified bad by direct query here* rather than
+    // assumed bad from how it was constructed -- see this file's `# Proving
+    // the condition-2 check can fail`.
+    let injected: Option<Vec<CompoundValue>> = inject.map(|mode| {
+        // A distinct stream from any problem's planner seed, so the search
+        // for a bad state cannot alias a planning RNG.
+        let mut rng = ChaCha8Rng::seed_from_u64(seed_base ^ 0xBAD_5EED);
+        build_injected_state(
+            mode,
+            &space,
+            &model,
+            &srdf,
+            &env,
+            parsed_constraint.as_ref(),
+            &mut rng,
+        )
+    });
+
     let manager = RrtConnectManager;
     let mut solved_count = 0usize;
+    let mut timeout_count = 0usize;
+    let mut failure_count = 0usize;
     let mut total = 0usize;
+    let mut condition2_checked = 0usize;
+    let mut condition2_pass = 0usize;
+    let mut waypoints_checked = 0usize;
+    let mut lengths: Vec<f64> = Vec::new();
+    let mut slowest = (0f64, u64::MAX);
+    let run_start = Instant::now();
 
     for problem in request["problems"]
         .as_array()
@@ -269,13 +549,17 @@ fn main() {
         let planning_request = PlanningRequest {
             group_name: group_name.clone(),
             goal: Goal::State(goal_state),
-            path_constraints: None,
+            path_constraints: constraints.clone(),
             resolution,
             seed: seed_base.wrapping_add(id),
             params: RrtConnectParams {
                 step_size,
                 goal_bias: 0.05,
-                termination: Termination::Iterations(max_iterations),
+                // The explicit timeout. See `# The timeout`.
+                termination: Termination::Both {
+                    max_iterations,
+                    deadline: timeout,
+                },
                 nn_degree: 8,
             },
             solver: None,
@@ -284,13 +568,18 @@ fn main() {
         let mut context = manager
             .get_planning_context(&mut scene, &env, planning_request)
             .unwrap_or_else(|e| panic!("get_planning_context: {e}"));
+        let t0 = Instant::now();
         let result = context.solve();
+        let elapsed = t0.elapsed().as_secs_f64();
+        if elapsed > slowest.0 {
+            slowest = (elapsed, id);
+        }
 
         match result {
             Ok(response) => {
                 drop(context);
                 solved_count += 1;
-                let path: Vec<Vec<CompoundValue>> = response
+                let mut path: Vec<Vec<CompoundValue>> = response
                     .trajectory
                     .iter()
                     .map(|rs| space.read_robot_state(rs))
@@ -299,29 +588,59 @@ fn main() {
                     .windows(2)
                     .map(|pair| space.distance(&pair[0], &pair[1]))
                     .sum();
+                lengths.push(length);
+
+                // Splice the known-bad state into the middle of the path, if
+                // this is an injection run. Done *after* `length` so the
+                // reported length still describes the planner's real output.
+                if let Some(bad) = &injected {
+                    let mid = path.len() / 2;
+                    path.insert(mid, bad.clone());
+                }
 
                 let dense = densify(&space, &model, &path, resolution);
-                let validity =
-                    scene.is_path_valid(&env, &CollisionRequest::default(), &dense, None, &[]);
+                let validity = scene.is_path_valid(
+                    &env,
+                    &CollisionRequest::default(),
+                    &dense,
+                    constraints.as_ref(),
+                    &[],
+                );
+                condition2_checked += 1;
+                waypoints_checked += dense.len();
+                if validity.valid {
+                    condition2_pass += 1;
+                }
 
                 println!(
                     "{}",
                     serde_json::json!({
                         "id": id,
                         "solved": true,
+                        "outcome": "solved",
                         "length": length,
+                        "plan_seconds": elapsed,
                         "condition2_valid": validity.valid,
+                        "waypoints_checked": dense.len(),
                         "invalid_waypoint_count": validity.invalid_waypoints.len(),
                     })
                 );
             }
             Err(e) => {
+                let outcome = outcome_name(&Err(&e));
+                if outcome == "timeout" {
+                    timeout_count += 1;
+                } else {
+                    failure_count += 1;
+                }
                 drop(context);
                 println!(
                     "{}",
                     serde_json::json!({
                         "id": id,
                         "solved": false,
+                        "outcome": outcome,
+                        "plan_seconds": elapsed,
                         "failure": e.to_string(),
                     })
                 );
@@ -329,5 +648,62 @@ fn main() {
         }
     }
 
-    eprintln!("solved={solved_count}/{total}");
+    let wall_clock = run_start.elapsed().as_secs_f64();
+    lengths.sort_by(f64::total_cmp);
+    let median_length = if lengths.is_empty() {
+        None
+    } else if lengths.len() % 2 == 1 {
+        Some(lengths[lengths.len() / 2])
+    } else {
+        Some((lengths[lengths.len() / 2 - 1] + lengths[lengths.len() / 2]) / 2.0)
+    };
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "summary": {
+                "robot": robot,
+                "group": group_name,
+                "config": request["config"],
+                "seed_base": seed_base,
+                "request_seed": request["seed"],
+                "timeout_seconds": timeout_seconds,
+                "joint_constraint": constraint_spec,
+                "inject": inject.map(InjectMode::as_str),
+                "problems": total,
+                "solved": solved_count,
+                "timeouts": timeout_count,
+                "failures": failure_count,
+                "median_length": median_length,
+                "condition2_checked": condition2_checked,
+                "condition2_pass": condition2_pass,
+                "waypoints_checked": waypoints_checked,
+                "wall_clock_seconds": wall_clock,
+                "slowest_seconds": slowest.0,
+                "slowest_problem_id": if slowest.1 == u64::MAX { None } else { Some(slowest.1) },
+            }
+        })
+    );
+
+    eprintln!(
+        "robot={robot} problems={total} solved={solved_count} timeouts={timeout_count} \
+         failures={failure_count} cond2={condition2_pass}/{condition2_checked} \
+         wall_clock={wall_clock:.1}s slowest={:.1}s",
+        slowest.0
+    );
+
+    // An injection run that still reports every path valid means the
+    // condition-2 checker did not actually check -- the exact failure mode
+    // `# Proving the condition-2 check can fail` exists to rule out. Exit
+    // non-zero so the verify script gates on it.
+    if let Some(mode) = inject {
+        let mode = mode.as_str();
+        assert_eq!(
+            condition2_pass, 0,
+            "inject={mode} spliced a state verified invalid by direct query into every \
+             solved path, but is_path_valid still passed {condition2_pass}/{condition2_checked} \
+             of them -- the condition-2 check is not checking what it reports on"
+        );
+        eprintln!("inject={mode} rejected all {condition2_checked} paths, as required");
+    }
 }
