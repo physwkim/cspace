@@ -679,6 +679,20 @@ mod tests {
     }
 
     #[test]
+    fn set_entry_for_known_excludes_the_name_even_when_it_is_already_a_known_row() {
+        let mut acm = AllowedCollisionMatrix::new();
+        acm.set_entry("b", "c", true);
+        // Give "a" its own row before the call, unlike the sibling test above:
+        // the snapshot `set_entry_for_known` takes of existing rows now
+        // contains "a" itself, so this exercises the `!= name` exclusion
+        // rather than vacuously passing because "a" was never in the
+        // snapshot to begin with.
+        acm.set_entry("a", "z", true);
+        acm.set_entry_for_known("a", true);
+        assert!(acm.entry("a", "a").is_none());
+    }
+
+    #[test]
     fn from_names_pairs_every_name_with_itself_and_every_other_name() {
         let names = vec!["a".to_owned(), "b".to_owned()];
         let acm = AllowedCollisionMatrix::from_names(&names, true);
