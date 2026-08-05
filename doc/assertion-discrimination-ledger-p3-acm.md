@@ -540,11 +540,131 @@ moveit-collision --no-fail-fast` and reverted; both confirmed via
 this pass only reclassifies family membership in the doc, per instruction
 ("doc-only unless a re-read turns up a wrong verdict" — none did).
 
+**Round 11** (§6): report only, no source changes — 0 blind operands
+found, so no test was added. Every settling bite (`matrix.rs:727/736`,
+`octomap_filter.rs:364`, `shapes.rs:1964`, `world.rs:1153,1179,1251`,
+`tools.rs:369/370`) was run live via `cargo nextest run -p
+moveit-collision --no-fail-fast` / `-p moveit-geometry --no-fail-fast`,
+each confirmed via `git status --short` empty and `cargo fmt --all --
+--check` clean before the next mutation.
+
 **UNFIXED:** none. **Fixed:** round 8's 12 sites' verdicts (3
 doc-comment edits, comment-only, `moveit-geometry`); round 9's 2 blind
 operands at `tools.rs:68` (2 new tests, `moveit-collision`, commit
 `d24494d`); round 10 fixed no source, only classified family membership
-(§1c). **Tested:** all 89 sites, one row each, above; `cargo nextest run
+(§1c); round 11 (§6) fixed no source — 0 blind operands found among the
+39 new sites, only classified family membership (20 in-family / 19 not,
+one doc-only evidence correction to `world.rs:1252`). **Tested:** all 89
+sites, one row each, above, plus 39 new sites in §6; `cargo nextest run
 -p moveit-geometry` 141/141 and `cargo nextest run -p moveit-collision`
 199/199, both post-fix; the two round-10 settling bites (`tools.rs:219`,
-`matrix.rs:737`) each confirmed FAIL-then-clean-revert live.
+`matrix.rs:737`) and the eight round-11 settling bites (`matrix.rs:727`
+read-only via len(), `matrix.rs:736`, `octomap_filter.rs:364`,
+`shapes.rs:1964`, `world.rs:1153`, `world.rs:1179`, `world.rs:1251`,
+`tools.rs:369/370`) each confirmed FAIL-then-clean-revert live.
+
+## 6. Round 11: broadened grammar (`tools/ci/count-coarse-assertions.py`)
+
+`count-coarse-assertions.py` (`6a14a89`) scans `is_empty`/`contains_member`/
+`is_some`/`eq_none`/`contains_msg` shapes in addition to the original
+`matches!`/`.is_err()`/`.is_none()` grammar the 89 rows above came from.
+Run against both fenced crates:
+
+```
+python3 tools/ci/count-coarse-assertions.py crates/moveit-collision crates/moveit-geometry
+```
+
+132 total sites; excluding `contains_msg` (4, `bodies.rs:3953,4055,4066,4125`
+— p1-robotmodel's this round, not touched) and the three kinds already in
+the 89-row grammar (`is_none` 52, `is_err` 27, `matches` 7), the candidate
+set outside the original grammar is **42**: 18 `is_empty` + 15
+`contains_member` + 7 `is_some` + 2 `eq_none`, split moveit-collision 33 /
+moveit-geometry 9.
+
+**Correction: 42 is not the new-site count.** Three of the 33
+moveit-collision candidates — `tools.rs:259,271,283` — are not new sites at
+all: they are the exact same three assertions already carried in this
+ledger as `tools.rs:68 (x)/(y)/(z)` (§1b), just also matched by this
+scanner's `is_empty` pattern (`intersect_cost_sources(...).is_empty()`),
+which the original `ledger_scan.py` grammar could not see at all. Verified
+by line number, not by kind label: all three physical lines already have a
+row. **The genuinely new, previously-unrowed count is 39** (30
+moveit-collision + 9 moveit-geometry), not 42; the kind mix corrects to 15
+`is_empty` + 15 `contains_member` + 7 `is_some` + 2 `eq_none`.
+
+Census §9 applied to all 39, the same three clauses (mechanism / decision /
+subject) as §1c, live-bit wherever the reading was ambiguous rather than
+argued from shape alone: **20 of 39 in-family**, 19 not-this-family. 0
+blind operands found — every in-family site already has either a sibling
+assertion (an existing or a co-listed row testing the opposite branch of
+the same decision) or a live bite proving the current test set already
+catches the mutation; none needed a new test.
+
+### In-family (20)
+
+| Site | Kind | Test fn | Evidence |
+|---|---|---|---|
+| matrix.rs:727 | is_empty | `len_counts_rows_not_pairs` | `!acm.is_empty()` wraps `self.entries.is_empty()`; same `set_entry`-insertion decision the test's own `len()==3` assertion (3 lines above) already exercises. §9 "lives one level up" (the branch is in `set_entry`/`set_pair`, not in `is_empty()`); redundant confirmation, not independently bitten. |
+| matrix.rs:736 | is_empty | `clear_removes_entries_and_defaults` | bite run now: commented out `self.entries.clear()` in `clear()` (kept `self.defaults.clear()`) → this assertion FAILS alone (198/199), sibling `matrix.rs:737` (`default_entry("a").is_none()`) stays GREEN — mirror-direction bite to the one already on record for 737. |
+| octomap_filter.rs:364 | is_some | `metaball_surface_properties_with_depth_reports_signed_depth` | bite run now: forced the `estimate_depth==true` arm of `metaball_surface_properties` to also return `None` → this test FAILS alone, sibling `octomap_filter.rs:355` (`without_depth`, existing row) stays GREEN. Correction: 355's existing `single-branch` verdict had no on-record discriminating partner; this row is it. |
+| parry.rs:2507 | is_some | `octree_cache_survives_shape_churn` | read + doc comment (named regression test for an `OctreeCache` pointer-identity bug): `assert_eq!(got.is_some(), occupied, ..)` alternates occupied/empty across 200 iterations, the same occupied-leaves decision already bite-proven for `parry.rs:2465`/`:2475` (existing, `None` side) plus the `.expect()`-based occupied-side test (not is_some-shaped, invisible to any grammar until now). |
+| shapes.rs:1964 | is_some | `compute_vertex_normals_calls_triangle_normals_when_needed` | bite run now: gated `compute_triangle_normals()`'s call behind `if false` inside `compute_vertex_normals` → this test FAILS (panics two lines later at the `.expect()`, before reaching this literal line, but the whole test — and this assertion's own precondition — depends on the guard). §9 "lives one level up": the decision belongs to `compute_vertex_normals`, not the field read (contrast the sibling `shapes.rs:1962`, not-this-family, §1c). |
+| octree_in_world_parity.rs:220 | is_some | oracle-query loop | oracle parity: `assert_eq!(mapped, actual_log_odds.is_some(), ..)` compares `moveit_octomap::OcTree::log_odds_at` against a committed oracle fixture's `mapped` field — a real per-query decision. **Fence note:** `log_odds_at` itself is implemented in `moveit-octomap`, outside this panel's fence; a blind finding here would need an out-of-fence fix. |
+| world.rs:1179 | eq_none | `set_subframes_of_object_computes_global_pose_and_replaces_old_ones` | bite run now: changed `set_subframes_of_object`'s replace (`obj.subframes = ..collect()`) to a merge (`obj.subframes.extend(..)`) → this assertion FAILS alone (198/199). Confirms the doc-commented "replaced, not merged" claim is actually tested. |
+| world.rs:1251 | eq_none | `transform_lookup_unknown_name_errors` | bite run now: changed `try_get_transform`'s final `None` to `Some(Isometry3::identity())` → this assertion FAILS alone (`world_parity`'s oracle test regresses too, as a downstream consequence). **Corrects existing row `world.rs:1252`**: that row's evidence cites a `knows_transform` bite as proof, but `knows_transform` is a separate function (proves only `world.rs:1250`'s sensitivity) — `try_get_transform`/`get_transform`'s own fallthrough (which both 1251 and 1252 exercise) was never directly bitten before this row. Doc-only correction; 1252's verdict (in-family, single-branch) is unchanged. |
+| tools.rs:292 | is_empty | `disjoint_boxes_do_not_intersect` | same `aabb_intersection` guard already fully bitten per-axis at `tools.rs:68` (§1b, commit `d24494d`); this case sets all three axis operands at once (fully disjoint box) — a redundant but genuine exercise, not a new operand. |
+| tools.rs:354 | is_empty | `remove_cost_sources_drops_a_fully_overlapped_box` | tests the `aabb_volume(min,max) >= source.volume()*overlap_fraction` → `remove.push` branch of `remove_cost_sources`; discriminating pair with 369/370 below (opposite branch, below-threshold case) — the unconditional-remove bite run for 369/370 proves this conditional is real and controllable in both directions. |
+| tools.rs:369 | contains_member | `remove_cost_sources_below_threshold_adds_the_remainder_but_keeps_the_original` | bite run now: forced `remove.push`/`continue` unconditionally (ignored the threshold) → this assertion FAILS alone (198/199). Clause-1 exception: `.contains(&source)` here is a coarse stand-in for "was NOT removed" — a real did-not-happen signal, unlike the Action-bit and range/identity `contains_member` sites below. |
+| tools.rs:370 | contains_member | (same test) | same bite/guard as 369 — one mutation, one test function, both assertions exercise the same branch. |
+| world.rs:1153 | is_empty | `clear_objects_notifies_every_object_in_id_order_and_empties_world` | bite run now: removed `self.objects.clear()` from `clear_objects` (kept notification-building) → this assertion FAILS alone (198/199). Same "lives one level up" shape as `matrix.rs:736/737`. |
+| bodies.rs:3572 | is_empty | `sphere_ray_just_misses_surface_is_no_intersection` | sibling: `sphere_ray_tangent_hits_surface_once` (existing test, `hits.len()==1`) exercises the same `Sphere::ray_intersections` discriminant branch from the opposite (hit) side; adjacent boundary pair. |
+| bodies.rs:4476 | is_empty | `cylinder_ray_hits_are_symmetric_with_intersects_ray` | cross-method invariant, doc-commented as deliberate (`intersects_ray == !ray_intersections(..).is_empty()` for every body kind); tests whether `Cylinder::intersects_ray`'s own fast path agrees with the full geometric computation — a real, independently-implementable decision. |
+| body_query_parity.rs:256 | is_empty | oracle ray-query loop | oracle parity: `points = body.ray_intersections(..)` is a real subject call; `!points.is_empty()` compared to the oracle's `expected.hit`. |
+| probe_parity.rs:329 | is_empty | `check_body!` macro body | same shape as body_query_parity.rs:256: `hits = body.ray_intersections(..)`, real subject call, compared to the oracle's expected hit count. |
+| parry.rs:3806 | is_empty | `cost_sources_for_part_pair_shape_shape_disjoint_is_empty` | sibling: `cost_sources_for_part_pair_shape_shape_is_the_overlap_of_both_whole_aabbs` (existing test immediately above, non-empty case), same function, opposite outcome. |
+| parry.rs:4000 | is_empty | `mesh_shape_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+| parry.rs:4047 | is_empty | `mesh_mesh_cost_sources_no_intersection_is_empty` | sibling: the positive-overlap test immediately above it, same function, opposite outcome. |
+
+### Not-this-family (19)
+
+| Site | Kind | Test fn | Reason |
+|---|---|---|---|
+| world.rs:846 | contains_member | `add_to_object_creates_with_given_pose_and_shape_global_pose` | §9 clause 1: `Action::CREATE`/`ADD_SHAPE` report *which* action occurred on an always-succeeding call (`add_to_object` returns `Some` whenever `shapes` is non-empty and lengths match) — a computed mode/dispatch fact, not a could-not/did-not-produce-X signal. Same reasoning as `bodies.rs:4328` (§1c). |
+| world.rs:847 | contains_member | (same test) | same reasoning as 846. |
+| world.rs:875 | contains_member | `add_to_object_on_existing_object_ignores_pose_argument` | same reasoning, negative side (`!contains(CREATE)`) — still a mode fact (existing-object case), not an inability signal. |
+| world.rs:876 | contains_member | (same test) | same reasoning as 875. |
+| world.rs:1038 | contains_member | `set_object_pose_on_new_id_is_create` | same `Action::CREATE`-bit reasoning as 846. |
+| world.rs:1341 | contains_member | `action_bits_combine` | tests `Action::BitOr`/`contains` directly on a hand-constructed value, not via any `World` method; a computed bitmask fact, not a fail signal — the operator logic's own breakability is a clause-2 property, but clause 1 fails regardless. |
+| world.rs:1342 | contains_member | (same test) | same as 1341. |
+| world.rs:1343 | contains_member | (same test) | same as 1341, negation form. |
+| collision_parity.rs:681 | contains_member | (panda_link0 bounding-radius check) | `(0.0..1.0).contains(&bounding_radius)` is a plausibility guard on a computed geometric value, not a could-not/did-not signal. |
+| collision_parity.rs:1213 | contains_member | (predicted-crossover bracket check) | same reasoning: numeric-range sanity check on a computed/fitted value. |
+| collision_parity.rs:1450 | contains_member | `pr2_world_object_same_pair_deeper_depth_is_a_real_vertex_not_a_spurious_direction` | `link_names.contains(&point.link_name)` checks *which* links a computed closest-pair names, against an oracle's identification — a computed-identity fact, not an inability signal. |
+| collision_parity.rs:1622 | contains_member | `pr2_self_wheel_same_pair_oracle_magnitude_is_implausible` | same reasoning as 1450. |
+| collision_parity.rs:1803 | contains_member | (Global-vs-Single distance-request comparison) | same reasoning as 1450/1622. |
+| parry.rs:2593 | is_some | `octree_cache_get_or_compute_invokes_build_only_once_per_key` | §9 clause 2 fails: the test's own `build` closure unconditionally returns `Some(..)`; `get_or_compute` cannot return anything but `Some` on either the cache-hit or cache-miss path here, so no engineer-implementable-wrong decision is exercised by this specific assertion (the test's real point, `calls.get()==1`, is a separate assertion outside this grammar). |
+| parry.rs:2594 | is_some | (same test) | same reasoning as 2593. |
+| world_parity.rs:241 | is_some | `world_matches_oracle` | §9 clause 3 fails: `ambiguous.transform.is_some()` reads a field straight off the deserialized oracle fixture (`QueryDump.transform: Option<[f64; 16]>`), not a value produced by calling `World`. Deleting every `world.*` call above it would not change this assertion's outcome. |
+| bodies.rs:3967 | is_empty | `mesh_with_zero_triangles_is_constructible` | §9 clause 3 fails: `mesh.triangles.is_empty()` reads back the test's own `box_mesh(2.0, 2.0, 2.0)` fixture before `ConvexMesh::new` (the actual subject) is ever called — the exact `shortest_solution`/mimic-init-value shape (§1c). |
+| shapes.rs:1848 | is_empty | `mesh_with_zero_triangles_is_constructible` | same reasoning as bodies.rs:3967: `Mesh::new(vertices, vec![])` constructed with an explicitly empty triangle list; the assertion reads that same literal input back before any subject logic runs. |
+| mesh_parity.rs:154 | is_empty | (oracle fixture load) | §9 clause 3 fails: `!cases.is_empty()` is a fixture-sanity precondition on the loaded `mesh_parity.json`, not a value produced by calling the subject. |
+
+### Round 11 summary
+
+- 132 sites total in the two fenced crates; 4 `contains_msg` excluded
+  (p1-robotmodel's); 89 already in this ledger's grammar
+  (`is_none`/`is_err`/`matches`).
+- Remaining candidate count from the scanner's kind filter: 42. **Actual
+  new-site count: 39** — `tools.rs:259,271,283` are the same physical
+  lines as existing rows `tools.rs:68 (x)/(y)/(z)`, not new sites.
+- Of the 39: **20 in-family, 19 not-this-family.** Per crate:
+  moveit-collision 30 candidates (14 in-family / 16 not);
+  moveit-geometry 9 candidates (6 in-family / 3 not).
+- **0 blind operands.** Every in-family site already has a sibling
+  assertion or a live bite proving current coverage catches the relevant
+  mutation; none required a new test.
+- One doc-only correction to an existing row: `world.rs:1252`'s recorded
+  evidence attributed its sensitivity to a `knows_transform` bite that
+  actually proves a different assertion (`world.rs:1250`) sensitive; its
+  own fallthrough (shared with the new row 1251) had not been directly
+  bitten until this round. Verdict unchanged.
