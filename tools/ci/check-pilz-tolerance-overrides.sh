@@ -66,6 +66,10 @@ fi
 
 # Every `*_TOLERANCE` constant declared in the file.
 mapfile -t all_names < <(grep -oE '^const [A-Z0-9_]+_TOLERANCE' "$file" | awk '{print $2}' | sort -u)
+if [[ ${#all_names[@]} -eq 0 ]]; then
+  echo "FAIL: found zero \`const *_TOLERANCE\` declarations in $file -- did the naming convention change?" >&2
+  exit 1
+fi
 
 # Override constants = all constants minus the shared four.
 override_names=()
@@ -77,9 +81,16 @@ for name in "${all_names[@]}"; do
   [[ "$is_shared" -eq 0 ]] && override_names+=("$name")
 done
 
+# Zero overrides is a legitimate state, not a parse failure: it means no
+# case's own divergence exceeds a shared constant, so no case needs a hole.
+# It was reached once already, when the port's blend samples started being
+# rotated by `Eigen::Quaterniond::slerp` instead of nalgebra's and all ten
+# overrides became unnecessary at once. The "did the naming convention
+# change?" question this used to fail on is answered by the `all_names`
+# check above instead, which cannot be satisfied by an empty file.
 if [[ ${#override_names[@]} -eq 0 ]]; then
-  echo "FAIL: found zero per-case override constants in $file -- did the naming convention change?" >&2
-  exit 1
+  echo "OK: $file declares no per-case tolerance override, so there is none to justify"
+  exit 0
 fi
 
 missing=()

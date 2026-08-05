@@ -28,8 +28,9 @@
 //! §207; `panda_blend_corner112` (case E) turns the corner through 112
 //! degrees, the sharpest angle short of case D's rejection boundary at
 //! which the full pipeline still succeeds -- see its own test's doc comment
-//! and `CORNER112_VELOCITY_TOLERANCE` for a genuine growing-divergence
-//! finding this case surfaces that cases A-D do not.
+//! for the growing-divergence finding this case surfaced that cases A-D did
+//! not, and the comment above the shared tolerance constants for what that
+//! growth turned out to be.
 //!
 //! Case E's report attributed that growth to "corner sharpness driving
 //! redundant-kinematics IK divergence" -- plausible, and a one-data-point
@@ -267,9 +268,10 @@ fn load_panda() -> (RobotModel, SrdfModel) {
 /// tolerances from measurement".
 const TIME_TOLERANCE: f64 = 1e-6;
 
-/// Measured max divergence across the three succeeding fixture cases:
-/// `5.46e-9`, at case C (`panda_blend_radius08`); cases A/B measure
-/// `2.28e-9`/`1.84e-9`. Unlike `pilz_trajectory_lin_parity.rs`'s
+/// Measured max divergence across every succeeding fixture case:
+/// `5.7364e-9`, at `panda_blend_corner30`; case C (`panda_blend_radius08`)
+/// is next at `5.4189e-9`, cases A/B measure `9.0717e-10`/`1.8400e-9`.
+/// Unlike `pilz_trajectory_lin_parity.rs`'s
 /// `POSITION_TOLERANCE`, which budgeted for panda_arm's redundant-kinematics
 /// IK-solver divergence (a `1.26e-5` that re-measured as `2.09e-14` on
 /// 2026-08-05, so that budget is gone),
@@ -279,134 +281,83 @@ const TIME_TOLERANCE: f64 = 1e-6;
 /// more tightly on this fixture's geometry.
 ///
 /// The value is **not** raised to restore the roughly-4x margin it carried
-/// when only cases A/B existed; case C leaves it at about `1.8x`. Both
+/// when only cases A/B existed; today's maximum leaves it at `1.74x`. Both
 /// sides are deterministic here (no sampling, no seeded search), so the
 /// margin buys nothing but blindness: widening to `2.5e-8` to keep a round
 /// multiple would make the test unable to see a real `1e-8`-scale
-/// regression that case C has just shown is within reach of this geometry.
-/// PORTING-PLAN.md §207.
+/// regression that `panda_blend_corner30` shows is within reach of this
+/// geometry. It is not *lowered* either, even though the slerp fix below
+/// dropped several cases by nearly an order of magnitude: the case that
+/// binds it, `corner30`, did not move at all, so there is no new floor to
+/// bisect against. PORTING-PLAN.md §207.
 const POSITION_TOLERANCE: f64 = 1e-8;
 
 /// Backward-difference velocity amplifies [`POSITION_TOLERANCE`] by roughly
 /// `1 / sampling_time` (`0.1` here), the same chain LIN's own
-/// `VELOCITY_TOLERANCE` documents. Measured max divergence across the three
-/// succeeding fixture cases: `1.96e-8` (case A; case C measures `1.95e-8`,
-/// case B `2.95e-10`). Set with a roughly 4x margin.
+/// `VELOCITY_TOLERANCE` documents. Measured max divergence across every
+/// succeeding fixture case: `5.5493e-8`, at `panda_blend_corner112_radius03`
+/// -- a `1.44x` margin, and the binding case for this constant.
 ///
-/// Before tightening this: `panda_blend_corner110` runs its velocity
-/// channel directly on this constant (no override) at `7.9133e-8`
-/// measured, a margin of only `1.011x` -- the thinnest of any case that
-/// does not carry its own `*_VELOCITY_TOLERANCE`. It breaks first. See
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Tolerance audit"
-/// subsection (under "Case F") for the full table this margin comes from.
+/// Before tightening this: `corner112_radius03` breaks first, and it is the
+/// case the slerp fix moved least (`9.2596e-8` to `5.5493e-8`, where
+/// `corner112_radius08` moved `1.1429e-7` to `1.2212e-8`). Until that fix
+/// the binding case was `panda_blend_corner110` at `7.9133e-8`, a margin of
+/// `1.011x`. See `doc/oracle-request-pilz-blend-geometry.md`'s "Tolerance
+/// audit" subsection (under "Case F") for the sweep those numbers come
+/// from.
 const VELOCITY_TOLERANCE: f64 = 8e-8;
 
 /// The same backward-difference chain's acceleration term divides by
-/// `sampling_time` again. Measured max divergence across the three
-/// succeeding fixture cases: `2.91e-7` (case A; case C measures `1.01e-7`,
-/// case B `2.53e-9`). Set with a roughly 4x margin.
+/// `sampling_time` again. Measured max divergence across every succeeding
+/// fixture case: `9.0020e-7`, at `panda_blend_corner112_radius03` -- a
+/// `1.33x` margin, and the binding case for this constant, the same one
+/// that binds [`VELOCITY_TOLERANCE`].
 ///
-/// Before tightening this: `panda_blend_corner60` runs its acceleration
-/// channel directly on this constant (no override) at `1.1279e-6`
-/// measured, a margin of only `1.064x` -- the thinnest of any case that
-/// does not carry its own `*_ACCELERATION_TOLERANCE`. It breaks first. See
+/// Before tightening this: `corner112_radius03` breaks first. Until the
+/// slerp fix the binding case was `panda_blend_corner60` at `1.1279e-6`, a
+/// margin of `1.064x`; it now measures `7.5449e-7`. See
 /// `doc/oracle-request-pilz-blend-geometry.md`'s "Tolerance audit"
-/// subsection (under "Case F") for the full table this margin comes from.
+/// subsection (under "Case F") for the sweep those numbers come from.
 const ACCELERATION_TOLERANCE: f64 = 1.2e-6;
 
-/// Case E (`panda_blend_corner112`, 112° corner) measures `8.276e-8` at
-/// `blend_trajectory` waypoint 5, `panda_joint5` -- **above**
-/// [`VELOCITY_TOLERANCE`]. This is a real finding, not noise from the same
-/// source cases A-D measure: `first_trajectory`/`second_trajectory` stay
-/// far tighter on this same case (max `2.44e-14` velocity, `2.66e-13`
-/// acceleration -- both confined to `first_trajectory`, no new IK solve, as
-/// documented above), so the growth is entirely inside `blend_trajectory`'s
-/// own interior waypoints (indices 1, 2, 5, 6 all show growing divergence
-/// across `panda_joint1`/`3`/`5`/`6`, not one isolated joint or sample) --
-/// consistent with panda_arm's redundant-kinematics IK null-space selection
-/// diverging more between solvers as the corner sharpens, the same
-/// phenomenon `lin_panda_arm_matches_the_oracle`'s module doc already
-/// documents at 90°, not a slerp-direction or off-by-one bug (which would
-/// show as one outlier, not a smooth spread across multiple joints and
-/// waypoints).
-/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] are deliberately left
-/// unchanged for cases A-D rather than widened to also cover case E --
-/// doing that would hide A/B/C's own tighter true precision behind a
-/// number sized for a geometry they never exercise. Set from case E's own
-/// measured max (`8.276e-8`) with the same ~1.2x margin case C's
-/// [`POSITION_TOLERANCE`] uses, not case A/B's ~4x -- both sides are
-/// deterministic, so slack here only hides a future regression of this
-/// size. Reported to the human orchestrator as a growing-divergence
-/// finding, not resolved by loosening a shared constant.
-const CORNER112_VELOCITY_TOLERANCE: f64 = 1e-7;
-
-/// See [`CORNER112_VELOCITY_TOLERANCE`]. Measured max `1.6513e-6` at
-/// `blend_trajectory` waypoint 6, `panda_joint5` -- above
-/// [`ACCELERATION_TOLERANCE`] by about 38%. Set with the same ~1.2x margin.
-const CORNER112_ACCELERATION_TOLERANCE: f64 = 2e-6;
-
-/// Case F's sweep point at 75 degrees measures `8.9525e-8` velocity /
-/// `1.4818e-6` acceleration, both above [`VELOCITY_TOLERANCE`] /
-/// [`ACCELERATION_TOLERANCE`]. Set from this case's own measured max with a
-/// ~1.2x margin, same as [`CORNER112_VELOCITY_TOLERANCE`]. This is the sweep
-/// point the case-F prediction did not anticipate needing an override at all
-/// -- 75 degrees is shallower than case A's 90, where the "sharper corner"
-/// story predicts *less* divergence than case A, not more. See
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for the
-/// full sweep table and refutation verdict.
-const CORNER75_VELOCITY_TOLERANCE: f64 = 1.1e-7;
-/// See [`CORNER75_VELOCITY_TOLERANCE`].
-const CORNER75_ACCELERATION_TOLERANCE: f64 = 1.8e-6;
-
-/// Case F's sweep point at 105 degrees measures `1.3293e-6` acceleration,
-/// above [`ACCELERATION_TOLERANCE`]; its velocity (`6.6526e-8`) stays inside
-/// [`VELOCITY_TOLERANCE`] with a comfortable ~20% margin. Set from this
-/// case's own measured max with a ~1.2x margin. See
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
-const CORNER105_ACCELERATION_TOLERANCE: f64 = 1.6e-6;
-
-/// Case F's sweep point at 110 degrees measures `1.5797e-6` acceleration,
-/// above [`ACCELERATION_TOLERANCE`] outright; its velocity (`7.9133e-8`)
-/// stays inside [`VELOCITY_TOLERANCE`] (`8e-8`), by only about 1% -- thin,
-/// but real and fully reproducible on this deterministic pipeline, so it is
-/// left on [`VELOCITY_TOLERANCE`] rather than given a wider case-specific
-/// constant that this case does not need (see the "Tolerance audit" section
-/// of `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for why
-/// two earlier overrides here and at 60 degrees were removed on that
-/// reasoning). Acceleration set from this case's own measured max with a
-/// ~1.2x margin.
-const CORNER110_ACCELERATION_TOLERANCE: f64 = 1.9e-6;
-
-/// Case F's radius control: case E's own 112 degree corner with
-/// `blend_radius` lowered from `0.05` to `0.03`, angle and per-segment speed
-/// held fixed. Measures `9.2596e-8` velocity, above [`VELOCITY_TOLERANCE`];
-/// its acceleration (`9.2747e-7`) stays inside [`ACCELERATION_TOLERANCE`]
-/// with a ~29% margin. That radius alone -- with angle fixed at case E's own
-/// 112 degrees -- moves acceleration divergence from case E's `1.6513e-6`
-/// down to `9.2747e-7` (a ~1.8x drop) is the control result
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section reports
-/// against the redundant-IK/angle-only attribution.
-const CORNER112_RADIUS03_VELOCITY_TOLERANCE: f64 = 1.11e-7;
-
-/// Case I's discriminator: case E's exact 112 degree corner with
-/// `blend_radius` raised from `0.05` to `0.08` -- case C's own radius value,
-/// angle and per-segment speed held fixed. `doc/oracle-request-pilz-blend-geometry.md`'s
-/// "Case I" section files the two-hypothesis prediction this fixture
-/// discriminates before this fixture's numbers existed: H-angle predicted a
-/// clean read (runner-up ratio well under the ~90% near-tie band); H-radius
-/// predicted a near-tie matching case C's `99.7%`. Measured runner-up ratio
-/// `49.85%` -- a clean read, refuting H-radius. All three channels also
-/// exceed case E's own `CORNER112_VELOCITY_TOLERANCE`/`CORNER112_ACCELERATION_TOLERANCE`
-/// (position had no case-specific override before this fixture -- the first
-/// case to need one, at more than double [`POSITION_TOLERANCE`]'s own
-/// deliberately tight `1.8x` margin), so this case gets its own trio with
-/// the same ~1.2x margin rather than reusing case E's or widening the
-/// shared constants.
-const CORNER112_RADIUS08_POSITION_TOLERANCE: f64 = 1.5e-8;
-/// See [`CORNER112_RADIUS08_POSITION_TOLERANCE`]. Measured max `1.1429e-7`.
-const CORNER112_RADIUS08_VELOCITY_TOLERANCE: f64 = 1.4e-7;
-/// See [`CORNER112_RADIUS08_POSITION_TOLERANCE`]. Measured max `2.2703e-6`.
-const CORNER112_RADIUS08_ACCELERATION_TOLERANCE: f64 = 2.8e-6;
+// No per-case `*_TOLERANCE` override exists any more, and that is a
+// measured state, not an omission. Ten of them did until
+// `moveit_geometry::quaternion::slerp` replaced nalgebra's inside
+// `blend_trajectory_cartesian`: every case whose divergence exceeded a
+// shared constant did so because the port's blend samples were rotated by a
+// different function than upstream's `Eigen::Quaterniond::slerp`. Measured
+// max per case, before that change and after, on the same fixtures
+// (`velocity` / `acceleration`, the two channels that carried overrides):
+//
+//   corner75            8.9525e-8 / 1.4818e-6  ->  2.1988e-8 / 4.2723e-7
+//   corner105           6.6526e-8 / 1.3293e-6  ->  2.2169e-8 / 4.2840e-7
+//   corner110           7.9133e-8 / 1.5797e-6  ->  2.8094e-8 / 5.4643e-7
+//   corner112           8.2760e-8 / 1.6513e-6  ->  3.0215e-8 / 5.8897e-7
+//   corner112_radius03  9.2596e-8 / 9.2747e-7  ->  5.5493e-8 / 9.0020e-7
+//   corner112_radius08  1.1429e-7 / 2.2703e-6  ->  1.2212e-8 / 2.2263e-7
+//   corner60            6.4188e-8 / 1.1279e-6  ->  3.9444e-8 / 7.5449e-7
+//   corner30            4.0972e-8 / 7.7099e-7  ->  4.0972e-8 / 7.7099e-7
+//   corner100           1.5487e-8 / 2.9642e-7  ->  1.5487e-8 / 2.9642e-7
+//   symmetric           1.9582e-8 / 2.9061e-7  ->  4.3628e-9 / 3.7291e-8
+//
+// The "before" column reproduces every number the deleted override
+// constants' own doc comments recorded, which is what says the measurement
+// is of the same quantity they were sized from. Cases whose blend samples
+// never cross nalgebra's near-parallel threshold (`corner30`, `corner100`)
+// do not move at all -- the change is not a blanket shift.
+//
+// This also refutes the attribution those doc comments carried. They read
+// the growth as "panda_arm's redundant-kinematics IK null-space selection
+// diverging more between solvers as the corner sharpens ... not a
+// slerp-direction or off-by-one bug (which would show as one outlier, not a
+// smooth spread across multiple joints and waypoints)". The spread was
+// smooth *and* it was the slerp: `Eigen::QuaternionBase::slerp` lerps
+// wherever `|dot| >= 1 - eps` while nalgebra returns `from` unchanged there,
+// so a sharper corner moves more of the blend's samples across that
+// threshold at once -- a whole-window bias, not an outlier. See
+// `moveit_geometry::quaternion::slerp_coefficients` for the three
+// differences and `doc/oracle-request-pilz-blend-geometry.md`'s "Case F"
+// section for the sweep table the old attribution was built on.
 
 /// See `pilz_trajectory_lin_parity.rs`'s own `CHECK_SELF_COLLISION` doc
 /// comment -- this fixture's poses are the identical "ready, +x, +y corner"
@@ -416,13 +367,12 @@ const CHECK_SELF_COLLISION: bool = true;
 /// The four tolerances a case is compared under, as one value.
 ///
 /// They travel together because a case's precision is one property of that
-/// case, not four independent knobs: case E (`panda_blend_corner112`)
-/// measures a genuinely larger divergence at `blend_trajectory`'s interior
-/// waypoints than cases A/B/C/D's shared budget covers, and carrying its own
-/// set keeps that a separately-documented, separately-measured number rather
-/// than a silent widening of [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`]
-/// that would loosen A/B/C's own tighter measured precision to match it (see
-/// [`CORNER112_VELOCITY_TOLERANCE`]).
+/// case, not four independent knobs. No case carries its own set today (see
+/// the comment above the shared constants for the fix that removed the ten
+/// that did), but the mechanism stays: the alternative to a per-case
+/// `Tolerances` is a silent widening of
+/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`], which would loosen
+/// every other case's own tighter measured precision to cover one case's.
 ///
 /// All four live here, including the two no case has yet needed to vary.
 /// Threading only the two that differ, and reading the other two from the
@@ -818,20 +768,14 @@ fn blend_panda_arm_corner150_is_rejected_like_the_oracle() {
 /// identical to case A -- a third independent confirmation that
 /// `search_intersection_points`'s walk is angle-invariant when radius and
 /// per-segment speed are held fixed. The waypoint arrays are *not* fully
-/// identical, though: see [`CORNER112_VELOCITY_TOLERANCE`] for the growing-
-/// divergence finding this case surfaces at `blend_trajectory`'s interior
-/// waypoints, which the shared `VELOCITY_TOLERANCE`/`ACCELERATION_TOLERANCE`
-/// budget (sized from cases A-D at up to 90°) does not cover.
+/// identical, though: this case is where the growing-divergence finding at
+/// `blend_trajectory`'s interior waypoints first exceeded the shared
+/// `VELOCITY_TOLERANCE`/`ACCELERATION_TOLERANCE` budget (sized from cases
+/// A-D at up to 90°). It no longer does -- `3.0215e-8`/`5.8897e-7` against
+/// `8e-8`/`1.2e-6` -- see the comment above those constants.
 #[test]
 fn blend_panda_arm_corner112_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner112",
-        Tolerances {
-            velocity: CORNER112_VELOCITY_TOLERANCE,
-            acceleration: CORNER112_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner112");
 }
 
 /// Case F: an 8-point corner-angle sweep (30/60/75/90(A)/100/105/110/112(E)
@@ -851,10 +795,12 @@ fn blend_panda_arm_corner30_matches_the_oracle() {
     run_case("panda_blend_corner30");
 }
 
-/// Case F's 60 degree sweep point: measures `6.4188e-8` velocity /
-/// `1.1279e-6` acceleration, both inside
-/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`] (~25%/~6% margin) -- no
-/// override needed. The acceleration margin is thin but real and fully
+/// Case F's 60 degree sweep point: measures `3.9444e-8` velocity /
+/// `7.5449e-7` acceleration, both inside
+/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`]. Before the slerp fix
+/// it measured `6.4188e-8`/`1.1279e-6`, the second of those a ~6% margin
+/// and the binding case for [`ACCELERATION_TOLERANCE`]. That margin was
+/// thin but real and fully
 /// reproducible on this deterministic pipeline; a prior round gave this case
 /// its own wider `CORNER60_ACCELERATION_TOLERANCE` anyway, which was a hole
 /// (a channel this case did not need widened, widened past the shared
@@ -872,19 +818,13 @@ fn blend_panda_arm_corner60_matches_the_oracle() {
 /// in both channels (`1.9582e-8`/`2.9061e-7`). It is *not* the acceleration
 /// maximum -- its `1.4818e-6` sits below 110°'s `1.5797e-6` and case E's
 /// `1.6513e-6`, so the two channels do not peak at the same angle, and a
-/// claim about "the sweep's maximum" has to say which one it means. See
-/// [`CORNER75_VELOCITY_TOLERANCE`]/[`CORNER75_ACCELERATION_TOLERANCE`] and
+/// claim about "the sweep's maximum" has to say which one it means. Those
+/// are the pre-fix numbers the sweep was read from; post-fix this case
+/// measures `2.1988e-8`/`4.2723e-7` and needs no override. See
 /// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section.
 #[test]
 fn blend_panda_arm_corner75_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner75",
-        Tolerances {
-            velocity: CORNER75_VELOCITY_TOLERANCE,
-            acceleration: CORNER75_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner75");
 }
 
 /// Case F's 100 degree sweep point: measures `1.5487e-8` velocity /
@@ -900,224 +840,71 @@ fn blend_panda_arm_corner100_matches_the_oracle() {
     run_case("panda_blend_corner100");
 }
 
-/// Case F's 105 degree sweep point. See
-/// [`CORNER105_ACCELERATION_TOLERANCE`]; velocity (`6.6526e-8`) stays inside
-/// [`VELOCITY_TOLERANCE`] with a comfortable ~20% margin, no override
-/// needed.
+/// Case F's 105 degree sweep point: `2.2169e-8` velocity / `4.2840e-7`
+/// acceleration, both inside
+/// [`VELOCITY_TOLERANCE`]/[`ACCELERATION_TOLERANCE`]. Its acceleration
+/// carried an override at `1.3293e-6` before the slerp fix.
 #[test]
 fn blend_panda_arm_corner105_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner105",
-        Tolerances {
-            acceleration: CORNER105_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner105");
 }
 
-/// Case F's 110 degree sweep point. See
-/// [`CORNER110_ACCELERATION_TOLERANCE`]; velocity (`7.9133e-8`) stays inside
-/// [`VELOCITY_TOLERANCE`] (`8e-8`) by only about 1% but is left there rather
-/// than given its own wider constant -- see
-/// [`CORNER110_ACCELERATION_TOLERANCE`]'s own doc comment and
+/// Case F's 110 degree sweep point: `2.8094e-8` velocity / `5.4643e-7`
+/// acceleration. This is the case whose velocity used to sit inside
+/// [`VELOCITY_TOLERANCE`] (`8e-8`) by only about 1% -- the thinnest margin
+/// in the file, and the reason that constant's doc comment named it as the
+/// one that breaks first under any tightening. See
 /// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section,
 /// "Tolerance audit".
 #[test]
 fn blend_panda_arm_corner110_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner110",
-        Tolerances {
-            acceleration: CORNER110_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner110");
 }
 
 /// Case F's radius control: case E's exact 112 degree corner with
 /// `blend_radius` lowered from `0.05` to `0.03`, angle and per-segment speed
 /// held fixed -- the discriminating case the round asked for, isolating
-/// radius from angle. See [`CORNER112_RADIUS03_VELOCITY_TOLERANCE`] and
-/// `doc/oracle-request-pilz-blend-geometry.md`'s "Case F" section for what
-/// this control measures against the angle-only attribution. Acceleration
-/// (`9.2747e-7`) stays inside [`ACCELERATION_TOLERANCE`] with a ~29% margin,
-/// no override needed there.
+/// radius from angle. See `doc/oracle-request-pilz-blend-geometry.md`'s
+/// "Case F" section for what this control measures against the angle-only
+/// attribution. It is the case that moves *least* under the slerp fix
+/// (`9.2596e-8`/`9.2747e-7` to `5.5493e-8`/`9.0020e-7`) and so now holds
+/// both the velocity and the acceleration maximum of the whole file, at
+/// `1.44x`/`1.33x` margin.
 #[test]
 fn blend_panda_arm_corner112_radius03_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner112_radius03",
-        Tolerances {
-            velocity: CORNER112_RADIUS03_VELOCITY_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner112_radius03");
 }
 
 /// Case I's discriminator: case E's exact 112 degree corner with
-/// `blend_radius` raised from `0.05` to `0.08`. See
-/// [`CORNER112_RADIUS08_POSITION_TOLERANCE`] and
+/// `blend_radius` raised from `0.05` to `0.08`. It was the only case ever to
+/// need its own `POSITION_TOLERANCE`, at more than double the shared
+/// constant; post-fix it measures `2.7761e-9`, the fix's largest single
+/// improvement in every channel. See
 /// `doc/oracle-request-pilz-blend-geometry.md`'s "Case I" section: a clean
 /// `49.85%` runner-up ratio at the argmax waypoint, refuting H-radius in
 /// favor of H-angle -- radius alone did not reproduce case C's near-tie at
 /// this angle.
 #[test]
 fn blend_panda_arm_corner112_radius08_matches_the_oracle() {
-    run_case_with_tolerances(
-        "panda_blend_corner112_radius08",
-        Tolerances {
-            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
-            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
-            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
+    run_case("panda_blend_corner112_radius08");
 }
 
-// Every override constant above exists because a case's own measured max
-// exceeds the shared constant it would otherwise use -- that is the "no
-// hole" invariant the round's tolerance audit checked by reading doc prose
-// and a measured-max number recorded there. The tests below check the same
-// invariant by execution instead: each drops exactly one case's one channel
-// from its override back to the shared constant, holding every other
-// tolerance the case actually needs, and asserts the comparison then FAILS.
-// A passing run here is proof the case's own real divergence exceeds
-// `Tolerances::SHARED` in that channel -- the override is necessary, not a
-// hole -- without trusting a doc comment to still be accurate.
+// There is no `*_needs_its_own_*_tolerance` test below any more because
+// there is no override constant left for one to justify. The apparatus
+// stays documented rather than deleted, because the next override to be
+// proposed has to come with one:
 //
-// `tools/ci/check-pilz-tolerance-overrides.sh` enforces the companion side
-// of this: every `const *_TOLERANCE` above that is not one of the four
-// `Tolerances::SHARED` fields must be referenced by at least one
-// `#[should_panic]` test in this file. That check is purely structural (a
-// constant name must appear inside a `#[should_panic]` test body) -- it
-// does not parse or trust any measured-max number, so it cannot go stale
-// the way a prose audit can; adding a new override without its necessity
-// test is what it catches.
-
-#[test]
-#[should_panic(expected = "velocity[")]
-fn blend_panda_arm_corner112_needs_its_own_velocity_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner112",
-        Tolerances {
-            velocity: VELOCITY_TOLERANCE,
-            acceleration: CORNER112_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "acceleration[")]
-fn blend_panda_arm_corner112_needs_its_own_acceleration_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner112",
-        Tolerances {
-            velocity: CORNER112_VELOCITY_TOLERANCE,
-            acceleration: ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "velocity[")]
-fn blend_panda_arm_corner75_needs_its_own_velocity_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner75",
-        Tolerances {
-            velocity: VELOCITY_TOLERANCE,
-            acceleration: CORNER75_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "acceleration[")]
-fn blend_panda_arm_corner75_needs_its_own_acceleration_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner75",
-        Tolerances {
-            velocity: CORNER75_VELOCITY_TOLERANCE,
-            acceleration: ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "acceleration[")]
-fn blend_panda_arm_corner105_needs_its_own_acceleration_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner105",
-        Tolerances {
-            acceleration: ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "acceleration[")]
-fn blend_panda_arm_corner110_needs_its_own_acceleration_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner110",
-        Tolerances {
-            acceleration: ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "velocity[")]
-fn blend_panda_arm_corner112_radius03_needs_its_own_velocity_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner112_radius03",
-        Tolerances {
-            velocity: VELOCITY_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "position[")]
-fn blend_panda_arm_corner112_radius08_needs_its_own_position_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner112_radius08",
-        Tolerances {
-            position: POSITION_TOLERANCE,
-            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
-            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "velocity[")]
-fn blend_panda_arm_corner112_radius08_needs_its_own_velocity_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner112_radius08",
-        Tolerances {
-            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
-            velocity: VELOCITY_TOLERANCE,
-            acceleration: CORNER112_RADIUS08_ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
-
-#[test]
-#[should_panic(expected = "acceleration[")]
-fn blend_panda_arm_corner112_radius08_needs_its_own_acceleration_tolerance() {
-    run_case_with_tolerances(
-        "panda_blend_corner112_radius08",
-        Tolerances {
-            position: CORNER112_RADIUS08_POSITION_TOLERANCE,
-            velocity: CORNER112_RADIUS08_VELOCITY_TOLERANCE,
-            acceleration: ACCELERATION_TOLERANCE,
-            ..Tolerances::SHARED
-        },
-    );
-}
+// Each such test drops exactly one case's one channel from its override
+// back to the shared constant, holds every other tolerance that case
+// actually needs, and is `#[should_panic]` -- so a green run is proof the
+// case's own real divergence exceeds `Tolerances::SHARED` in that channel,
+// making the override necessary rather than a hole, without trusting a doc
+// comment to still be accurate. `tools/ci/check-pilz-tolerance-overrides.sh`
+// enforces the companion structural side: every `const *_TOLERANCE` that is
+// not one of `Tolerances::SHARED`'s four fields must have a companion
+// `#[should_panic]` test named for it. That gate accepts today's zero
+// overrides explicitly; it fails only if the constants stop parsing.
+//
+// The ten overrides that used to live here were all removed at once, by a
+// fix rather than by an audit -- see the measured before/after table above
+// the shared constants.

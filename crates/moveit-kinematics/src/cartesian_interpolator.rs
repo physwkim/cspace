@@ -227,7 +227,7 @@
 //!   single unchecked leap, which is what there was to reject.
 
 use moveit_error::{Error, Result};
-use moveit_geometry::{Isometry3, Vector3};
+use moveit_geometry::{Isometry3, Vector3, quaternion};
 use moveit_model::joint::{JointModel, JointType};
 use moveit_model::{JointModelGroup, RobotModel};
 use moveit_state::RobotState;
@@ -1023,14 +1023,12 @@ fn interpolate_states<'m>(from: &RobotState<'m>, to: &RobotState<'m>, t: f64) ->
 /// (`cartesian_interpolator.cpp:257-258`) and once for the bisection's
 /// midpoint (`:78-79`).
 fn interpolate_pose(from: &Isometry3, to: &Isometry3, t: f64) -> Isometry3 {
-    // nalgebra's `slerp` panics when the two rotations are ~180 degrees
-    // apart; Eigen's does not. The `nlerp` fallback is the same one
-    // `moveit_model::joint::FloatingJoint::interpolate` already uses for
-    // this exact difference.
-    let rotation = from
-        .rotation
-        .try_slerp(&to.rotation, t, f64::EPSILON)
-        .unwrap_or_else(|| from.rotation.nlerp(&to.rotation, t));
+    // `moveit_geometry::quaternion::slerp` rather than nalgebra's, which is a
+    // different function in three measured ways — see its doc comment. The
+    // `nlerp` fallback that used to stand in for nalgebra's ~180-degree panic
+    // is gone with the call that could panic; Eigen has no degenerate case
+    // there and neither does the transcription.
+    let rotation = quaternion::slerp(&from.rotation, &to.rotation, t);
     let translation = from.translation.vector.lerp(&to.translation.vector, t);
     Isometry3::from_parts(translation.into(), rotation)
 }
