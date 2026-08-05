@@ -178,7 +178,7 @@ workspace-wide absence checks:
 
 `get_collision_cost` weights every point's collision potential by that
 point's velocity along the trajectory (`optimizer.rs`, ported from
-`getCollisionCost`, `chomp_optimizer.cpp:942-963`): a perfectly
+`getCollisionCost`, `chomp_optimizer.cpp:691-715`): a perfectly
 stationary trajectory (identical start and goal, as CHOMP's own
 "stuck at the start" recovery-loop retries can produce) scores exactly
 `0.0` here regardless of penetration depth, so
@@ -229,7 +229,7 @@ it belongs in a future planner-dispatcher crate wiring
 
 | where | claim | verdict | evidence | commit |
 |---|---|---|---|---|
-| `src/optimizer.rs`, `get_collision_cost`'s velocity-weighted cost has no separate upstream start-state-collision guard | `chomp_planner.cpp:80` checks only `start_state.satisfiesBounds()`; upstream's real guard against a stationary in-collision (or otherwise silently-wrong) response is `default_planning_response_adapters::ValidateSolution`, a `move_group` planning-pipeline response adapter, not anything inside `chomp_planner.cpp`/`chomp_optimizer.cpp` | CONFIRMED | `chomp_planner.cpp:75-91` (start-state handling, only `satisfiesBounds()`) and `moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp:79-104` (`ValidateSolution::adapt`, `isPathValid` over the full trajectory) read directly | (this round, doc-only) |
+| `src/optimizer.rs`, `get_collision_cost`'s velocity-weighted cost has no separate upstream start-state-collision guard | `chomp_planner.cpp:80` checks only `start_state.satisfiesBounds()`; upstream's real guard against a stationary in-collision (or otherwise silently-wrong) response is `default_planning_response_adapters::ValidateSolution`, a `move_group` planning-pipeline response adapter, not anything inside `chomp_planner.cpp`/`chomp_optimizer.cpp` | CONFIRMED | `chomp_planner.cpp:75-91` (start-state handling, only `satisfiesBounds()`) and `moveit_ros/planning/planning_response_adapter_plugins/src/validate_path.cpp:81-148` (`ValidateSolution::adapt`, `isPathValid` over the full trajectory) read directly | (this round, doc-only) |
 
 ## Background-agent audit — see `moveit-trajectory.md`
 
