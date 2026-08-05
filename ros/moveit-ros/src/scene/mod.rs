@@ -26,7 +26,7 @@ use moveit_scene::PlanningScene;
 ///
 /// An empty `frame_id` is not an unresolved name -- it is the wire's stated
 /// default of "already in world coordinates", and upstream's own fallback
-/// (`Transforms::getTransform`, `transforms.cpp:110-115`: `if
+/// (`Transforms::getTransform`, `transforms.cpp:110-126`: `if
 /// (!from_frame.empty()) { ...lookup... }` then log-and-return identity)
 /// resolves it to identity *without* going through the unresolved-name path
 /// at all. `frame_transform`'s `Err` on an unresolved name is a deliberate,
