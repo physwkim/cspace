@@ -523,6 +523,63 @@ def find_anchors(line, start, end, spans, window_floor):
     return found
 
 
+# Nouns with which the citing text asserts, in prose, that a range IS a whole
+# definition. This is the second half of the span-exactness check and the half
+# that catches the motivating defect in the form it actually shipped:
+# `getCostSources`'s `:2451-2490` is written as "(the `trajectory`-taking pair,
+# `planning_scene.cpp:2451-2490`)" and as "`planning_scene.cpp:2451-2490`
+# (pair)", and neither carries a C++ symbol whose span this script can look up
+# -- `trajectory` is a parameter name and `path_cost_sources` is the port's own
+# name for the thing. The claim is in the noun, so the noun is what fires.
+#
+# Every word here was kept or dropped by running the rule over the corpus and
+# reading each hit, not by judging the word in the abstract. Dropped, and why:
+#
+#   `span`/`spans` -- this corpus's most common word for an arbitrary line
+#   range, not for a definition ("output-trajectory fill-in span
+#   `chomp_planner.cpp:255-268`" is a `for` loop; "spans exactly `:263-270`" is
+#   an if/else). It fired on five ranges that are correctly cited sub-regions.
+#
+#   `body`/`bodies`/`본체` -- ambiguous between a function body and a loop or
+#   `if` body ("upstream's own loop body (`planning_scene.cpp:2376-2422`)"),
+#   and in `moveit-geometry` it is a geometric body. The cost of dropping it
+#   is real and is stated in the report: `setSubframesOfObject`'s bodies at
+#   `world.cpp:262-278` had to be found by hand.
+#
+#   `정확히`/`is exactly` -- attaches to a sameness claim about the PORT
+#   ("상류와 정확히 같다"), not to the extent of the range.
+SPAN_ASSERTION_RE = re.compile(
+    r"(?<![\w-])(?:pairs?|overloads?|entire|whole)(?![\w-])|전체|오버로드|쌍",
+    re.IGNORECASE,
+)
+# The noun must be ADJACENT to the citation, by the same reasoning
+# `find_anchors` uses for symbol names and enforced by the same `TIGHT_GAP_RE`:
+# a noun elsewhere in the sentence describes the subject, not the extent. It
+# fires on "...pair, `planning_scene.cpp:2451-2490`" and on
+# "`planning_scene.hpp:553-609` (4 overloads:", and not on
+# "`:1452-1460` -- 평범한 `Octomap` 오버로드에는" or "(`...:151-164`) -- upstream
+# overloads the *output*", where the noun is what the citation is ABOUT.
+TRAILING_ASSERTION_RE = re.compile(
+    r"^[\s(]*(?:\d+\s+)?(?:pairs?|overloads?|entire|whole|전체|오버로드|쌍)", re.IGNORECASE
+)
+
+
+def span_assertion(line, start, end, window_floor):
+    """Whether the text immediately around this citation calls the range a
+    whole definition."""
+    if TRAILING_ASSERTION_RE.match(line[end:]):
+        return True
+    window = line[max(window_floor, start - LOCAL_WINDOW) : start]
+    for sep in "|)":
+        cut = window.rfind(sep)
+        if cut != -1:
+            window = window[cut + 1 :]
+    for m in SPAN_ASSERTION_RE.finditer(window):
+        if TIGHT_GAP_RE.match(window[m.end() :]):
+            return True
+    return False
+
+
 def contiguous_run_end(span_list, first, file_lines, all_spans_sorted):
     """Every legal last line for a range starting at `first`: the span that
     starts there, then each further definition reachable across nothing but
@@ -802,6 +859,44 @@ def main():
                 # There is no containment claim to check, so these are
                 # bounds-checked only -- which is what caught
                 # `world.cpp:220,326,650,655` anyway.
+                if not anchors and len(parts) == 1 and parts[0][0] != parts[0][1]:
+                    # No symbol anchor, but the SENTENCE asserts the range is a
+                    # whole definition. That is a containment claim stated in
+                    # words instead of in a name, and it needs no anchor to be
+                    # checkable: the range must equal a real span.
+                    lo, hi = parts[0]
+                    if span_assertion(line, start, end, window_floor):
+                        every_span = {(s, e) for v in spans.values() for (s, e, _k) in v}
+                        legal = contiguous_run_end(
+                            [(s, e, "") for (s, e) in every_span if s == lo],
+                            lo,
+                            file_lines,
+                            sorted(every_span),
+                        )
+                        if (lo, hi) not in every_span and hi not in (legal or []):
+                            span_mismatch.append(
+                                (
+                                    doc,
+                                    line_no,
+                                    resolved,
+                                    spec,
+                                    ["<text asserts a whole definition>"],
+                                    [
+                                        f"{lo}-{hi}: the text calls this range a whole "
+                                        f"definition, but no definition in the file spans "
+                                        + (
+                                            f"{lo}-{hi} (one starting at {lo} ends at "
+                                            f"{'/'.join(map(str, legal[:3]))})"
+                                            if legal
+                                            else f"{lo}-{hi}, and none starts at {lo}"
+                                        )
+                                    ],
+                                    [(lo, e, "") for e in (legal or [])],
+                                )
+                            )
+                            continue
+                        anchor_verified += 1
+                        continue
                 if not anchors or len(parts) > 1:
                     bounds_only += 1
                     continue
