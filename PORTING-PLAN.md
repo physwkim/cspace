@@ -16318,3 +16318,65 @@ porting this would mean porting OpenRave's symbolic-algebra codegen tool".
 |---|---|
 | `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast.h` | `decided-non-port` |
 | `moveit_kinematics/ikfast_kinematics_plugin/templates/ikfast61_moveit_plugin_template.cpp` | `decided-non-port` |
+
+### §216.2 문서가 트리와 어긋나는 곳 세 군데
+
+미포팅 99건을 `doc/`와 이 파일에 대조했다. 어떤 문서도 "포팅됐다"고 적은
+파일이 실제로는 미포팅인 경우는 없었다. 반대 방향으로 셋이 나왔다.
+
+**1. §60.4의 `cached_ik_kinematics_plugin` — "진짜 범위 내 갭"이라 적혀
+있으나 이미 포팅됐다.** §60.4 문장은 위 §216.1에 인용한 그대로다. 트리:
+
+```console
+$ sed -n '5,7p' crates/moveit-kinematics/src/cached_solver.rs
+// Ported from moveit2 @ e017c91ee12984393a28ba246075c65f69cde3bf:
+//   .../cached_ik_kinematics_plugin/cached_ik_kinematics_plugin.hpp
+//   .../cached_ik_kinematics_plugin/cached_ik_kinematics_plugin-inl.hpp
+$ rg -n 'pub struct CachedIkSolver|name: "(newton_raphson|lma)_cached"' \
+     crates/moveit-kinematics/src/cached_solver.rs
+114:pub struct CachedIkSolver<S> {
+196:    name: "newton_raphson_cached",
+210:    name: "lma_cached",
+```
+
+`.hpp`/`-inl.hpp` 두 헤더는 포팅됨으로 세어지고, 같은 디렉터리의
+`cached_ik_kinematics_plugin.cpp`(pluginlib 등록 boilerplate, D4)와
+`cached_ur_kinematics_plugin.cpp`(외부 `ur_kinematics` 의존)만 미포팅으로
+남는다. §60.4의 "진짜 범위 내 갭"은 그 뒤 라운드가 닫았고, 문장만 남았다.
+
+**2. §179.1의 pilz 수 세 개가 실측과 다르다.** §179.1은 "상류 `src/` 22개
+중 포트가 가진 것은 12개이고, D1/D2로 명시 제외된 다섯을 빼면 남는 in-scope
+미포팅은 이 하나(`trajectory_blender_transition_window`)"라고 적는다. 실측:
+
+```console
+$ ls /home/stevek/work/moveit2/moveit_planners/pilz_industrial_motion_planner/src/*.cpp | wc -l
+24
+$ ./tools/ci/measure-port-coverage.py --list-ported   | grep -c 'pilz_industrial_motion_planner/src/'
+13
+$ ./tools/ci/measure-port-coverage.py --list-unported | grep -c 'pilz_industrial_motion_planner/src/'
+11
+```
+
+22 → **24**, 12 → **13**, "다섯" → `lib.rs:104-124`가 이름으로 지목하는
+`src/*.cpp`는 **9개**(`move_group_sequence_{action,service}`,
+`planning_context_loader{,_circ,_lin,_polyline,_ptp}`,
+`pilz_industrial_motion_planner`, `command_list_manager`). 그리고 §179.1이
+하나 남았다고 지목한 `trajectory_blender_transition_window.cpp`는 지금
+포팅돼 있다(`crates/moveit-planners-pilz/src/trajectory_blender_transition_window.rs:9`).
+남은 in-scope 미포팅 `src/` 파일은 §179.1이 언급하지 않는 **둘**이다:
+`joint_limits_aggregator.cpp`, `joint_limits_validator.cpp`.
+
+**3. §153.2가 "미상"으로 남긴 둘의 상태를 여기서 확정한다.** §153.2는
+"`occupancy_map.*`와 `collision_plugin_cache.*`는 같은 방식으로
+재확인되지 않았으므로 그 제외는 아직 유효한지 미상"이라고 적었다.
+
+- `collision_plugin_cache.{hpp,cpp}`와 `collision_plugin.hpp` →
+  `decided-non-port`. 근거는 `crates/moveit-collision/src/lib.rs:37-49`가
+  파일과 줄을 짚어 적은 두 가지다: 본문 전체가 pluginlib 런타임 클래스
+  로딩이라 그 ROS 기구와 무관한 알고리즘이 없다는 것
+  (`collision_plugin_cache.cpp:37-38`), 그리고 `CollisionPlugin::initialize`가
+  `planning_scene::PlanningScenePtr`를 받으므로(`collision_plugin.hpp:93`)
+  여기서 받으면 크레이트 순환 의존이 된다는 것.
+- `occupancy_map.hpp` → `gap`. 같은 doc이 "genuinely `RobotState`-free and
+  portable"이라고 적고 `moveit-octomap`으로 보내라고만 한다. 이식하지 않기로
+  한 결정이 아니라 소유 디렉터리를 옮기라는 라우팅이므로 갭이다.
