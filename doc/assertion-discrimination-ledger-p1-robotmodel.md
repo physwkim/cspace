@@ -454,7 +454,7 @@ verified by reading the function, no extra branch.
 | `chain.rs:469` | `not a chain` | discriminating | not in the DOF, unsupported-type, or mimic-master messages |
 | `chain.rs:512` | `DOF` | discriminating | not in the other 3 |
 | `chain.rs:558` | `not itself in the group` | discriminating | not in the other 3 |
-| `ik_fk_roundtrip.rs:267` | `not a chain` | discriminating | `NewtonRaphsonSolver::new` forwards the identical 4-message surface; same check as `chain.rs:469` |
+| `ik_fk_roundtrip.rs:281` | `not a chain` | discriminating | `NewtonRaphsonSolver::new` forwards the identical 4-message surface; same check as `chain.rs:469` |
 
 **`moveit-model/src/robot_model.rs`** — two independent guard groups.
 `RobotModel::from_urdf_and_srdf`'s root-link resolution (`:215-230`): `[]`
