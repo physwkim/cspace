@@ -108,6 +108,7 @@ below. A bug found from now on is `not-reproduced` unless someone argues
 | `set-from-ik-zero-timeout-is-not-single-attempt` | not-reproduced |
 | `validate-and-improve-interval-percentage-discarded` | not-reproduced |
 | `aggregated-limits-drops-rejected-joint-silently` | not-reproduced |
+| `check-position-bounds-multidof-adjacent-members` | not-reproduced |
 
 ---
 
@@ -1283,6 +1284,68 @@ difference is confined to inputs upstream drops silently: where upstream
 returns a container short one joint, this port returns `Err`. A caller that
 checked the container's size — as upstream's own test does — was already
 looking for this failure.
+
+---
+
+### `check-position-bounds-multidof-adjacent-members` — the bounds checks pass the address of one `double` member to an interface that reads three or seven, so a multi-DOF joint is checked against whatever follows it in the struct — not-reproduced
+
+**Upstream:** `moveit_planners/pilz_industrial_motion_planner/src/joint_limits_aggregator.cpp:172`
+and `:179` (`joint_model->satisfiesPositionBounds(&joint_limit.min_position)`,
+`…(&joint_limit.max_position)`) and `:190`
+(`joint_model->satisfiesVelocityBounds(&joint_limit.max_velocity)`).
+The readers: `moveit_core/robot_model/src/planar_joint_model.cpp:299-307`
+(`for (unsigned int i = 0; i < 3; ++i)`),
+`moveit_core/robot_model/src/floating_joint_model.cpp:167-177`
+(`values[0]`..`values[6]`), and the default
+`moveit_core/robot_model/src/joint_model.cpp:117-131`
+(`for (i = 0; i < other_bounds.size(); ++i)`).
+**Port:** `crates/moveit-planners-pilz/src/joint_limits_aggregator.rs`,
+`check_bounds_check_is_supported` and
+`AggregationError::MultiDofBoundsCheck`.
+**Symptom:** `JointModel::satisfiesPositionBounds(const double*)`
+(`moveit_core/robot_model/include/moveit/robot_model/joint_model.hpp:280`)
+takes a pointer to a *variable vector*, and each override reads one element
+per variable. The aggregator hands it the address of a single `double` data
+member. For a one-variable joint that is correct by accident — one
+variable, one element read. For a planar joint the planar override reads
+`values[0..2]`; for a floating joint the floating override reads
+`values[0..6]`; and the same holds for `satisfiesVelocityBounds`, whose
+default implementation iterates `other_bounds.size()`. Reading past the end
+of the `double` that was pointed at is undefined behaviour, and whatever
+bytes it lands on are not positions or velocities of that joint, so the
+check answers on data unrelated to the question. The two
+`update*FromJointModel` helpers show upstream knew multi-DOF joints reach
+this code — each has a `default:` arm warning "Multi-DOF-Joint '…' not
+supported" that pins the limit to zero (`joint_limits_aggregator.cpp:131-136`,
+`:159-162`) — but those arms are on the branch taken when the joint has
+*no* override. The branch that has one goes to the bounds check instead,
+where no such arm exists.
+**Evidence:** a read of the three call sites and the three readers at the
+pinned sha. Not run against C++, and not reachable from upstream's own
+fixture: it needs an active planar or floating joint *and* a parameter
+entry setting `has_position_limits` or `has_velocity_limits` for that
+joint. The `LCOV_EXCL` markers around the multi-DOF arms say upstream's
+coverage does not reach this shape either. The port side is measured:
+`a_position_override_on_a_multi_variable_joint_is_rejected` and
+`a_velocity_override_on_a_multi_variable_joint_is_rejected` in
+`joint_limits_aggregator.rs` drive a planar and a floating joint, and
+mutations `A35`/`A34` in
+`doc/assertion-discrimination-ledger-p10-jointlimits.md` fail one each.
+**Status:** `not-reproduced`.
+**Deviation:** none of `D1`..`D14` applies. The port answers
+`MultiDofBoundsCheck { joint, variable_count }` from one guard covering
+both dimensions rather than a per-dimension patch: position and velocity
+are broken by the same cause, and a uniform rule at the one place a bounds
+check is about to happen leaves no second boundary to special-case later.
+Joints with *zero* variables are deliberately not guarded —
+`satisfies_position_bounds` and `satisfies_velocity_bounds` both answer
+`true` for them without reading the slice, which is upstream's
+`FixedJointModel` behaviour and not a defect.
+**Cost of not reproducing:** none against upstream numbers. No oracle op
+and no parity test covers `getAggregatedLimits`, and the divergence is
+confined to inputs on which upstream's answer is undefined: where upstream
+would accept or reject a multi-DOF joint's override on unrelated bytes,
+this port returns `Err`.
 
 ---
 
