@@ -189,7 +189,7 @@ Always => None` at `matrix.rs:548,549,559` shares the exact same code
 for both variants, so no isolating mutation can even be constructed
 (unlike `tools.rs:68`'s three independently-computed comparisons) — or a
 3-arm match where only one arm can produce `None`, traced by reachability
-(`env.rs:674`, re-confirmed by reading `common.rs:583-597`'s current
+(`env.rs:707`, re-confirmed by reading `common.rs:583-597`'s current
 `merge` body live). Unlike `moveit-geometry`, `moveit-collision` had no
 pre-existing misverdict; its one fold defect (`tools.rs:68`) was an
 uncounted site, not a mislabeled one.
@@ -298,7 +298,7 @@ lookup of the kind that sank `matrix.rs:517`.
 ### `src/env.rs` (1)
 | file:line | anchor | test fn | verdict | in-family | evidence |
 |---|---|---|---|---|---|
-| env.rs:674 | bare | merge_of_two_none_distances_is_none | single-branch | yes | traced match-arm reachability in `CollisionResult::merge`'s distance match (common.rs:585-589): arm 2's `b` is provably `Some` whenever reached (arm 1 already absorbs all `other==None` cases), so only arm 1 (both `None`) can yield `None`. §9 clause 2: a real 3-arm match (`combine_closest` on the `Some,Some` arm), not a bare lookup |
+| env.rs:707 | bare | merge_of_two_none_distances_is_none | single-branch | yes | traced match-arm reachability in `CollisionResult::merge`'s distance match (common.rs:585-589): arm 2's `b` is provably `Some` whenever reached (arm 1 already absorbs all `other==None` cases), so only arm 1 (both `None`) can yield `None`. §9 clause 2: a real 3-arm match (`combine_closest` on the `Some,Some` arm), not a bare lookup |
 
 ### `src/matrix.rs` (17)
 | file:line | anchor | test fn | verdict | in-family | evidence |

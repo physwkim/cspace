@@ -1,4 +1,4 @@
-# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 91건의 분류
+# 포트 커버리지 — 상류 코퍼스의 포팅/미포팅 분할과 미포팅 89건의 분류
 
 `PORTING-PLAN.md` §217이 이 파일을 가리킨다. 여기 있는 모든 수는
 `tools/ci/measure-port-coverage.py`가 뽑은 것이고, 그 스크립트는 이 표를
@@ -49,8 +49,8 @@
 ```console
 $ ./tools/ci/measure-port-coverage.py
 corpus   245
-ported   154
-unported 91
+ported   156
+unported 89
 cited-outside-corpus 20
 ```
 
@@ -85,8 +85,9 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
   선언하는 클래스)을 이름으로 지목해** 포팅하지 않기로 정한 경우. 표의
   증거 칸에 파일:줄을, 비고 칸에 그 문장을 인용한다.
 - **`gap`** — 그런 문장을 찾지 못한 경우. **근거를 지어내지 않는다.**
-  만료 조건이 이미 충족된 배제(예: `collision_detector_allocator.hpp`)도
-  여기 들어간다.
+  만료 조건이 이미 충족된 배제도 여기 들어간다 — 유예는 판정이 아니다.
+  `collision_detector_allocator.hpp`가 그런 경우였고, §225.4가 유예를
+  판정으로 바꾸면서 `decided-non-port`로 옮겼다.
 - **`ported-elsewhere`** — 내용이 다른 이름으로 트리 안에 있는 경우.
   증거 칸에 `.rs` 파일과 심볼을 적는다. 잔여분이 있으면 비고에 남긴다 —
   잔여분이 결정되지 않았고 파일의 대부분이 트리에 없으면 `gap`이다.
@@ -94,29 +95,27 @@ $ ... | 내용이 shim인 .h 141개 제외 | wc -l
 부재 주장은 전부 `crates/ ros/ tools/ doc/ PORTING-PLAN.md` 코퍼스에
 대한 `rg` 결과이고, 비고 칸에 그 명령을 적었다.
 
-## 4. 미포팅 91건 (2026-08-06 실측)
+## 4. 미포팅 89건 (2026-08-06 실측)
 
-`decided-non-port` 47 / `gap` 34 / `ported-elsewhere` 10.
+`decided-non-port` 51 / `gap` 27 / `ported-elsewhere` 11.
 
 | 상류 파일 | 분류 | 증거 | 비고 |
 |---|---|---|---|
-| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | gap | none | `rg -n -i allvalid crates/ ros/ doc/ PORTING-PLAN.md` -> 0 hits naming this file |
-| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_env_allvalid.hpp` | gap | none | same search, 0 hits |
-| `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | gap | `crates/moveit-collision/src/env.rs:40-49` | env.rs defers it, with an expiry that has since been met: "a compile-time registry needs at least one registrant to be worth adding. This task ends with a trait and no implementation (no parry backend yet)" -- the parry backend now exists (`ParryCollisionEnv`), so the stated condition no longer holds |
+| `moveit_core/collision_detection/include/moveit/collision_detection/allvalid/collision_detector_allocator_allvalid.hpp` | decided-non-port | `PORTING-PLAN.md` §225.4; `crates/moveit-collision/src/env.rs:40-83` | the class body is one `CollisionDetectorAllocatorTemplate<CollisionEnvAllValid, CollisionDetectorAllocatorAllValid>` instantiation plus `static const std::string NAME` (verified upstream), so it follows its template's decision. §225.4 declines the allocator indirection itself: it exists to defer the backend *type* to a runtime string, and this port names the type at the call site (`E: CollisionEnv<..>`), so a registry would have registrants and no consumer |
+| `moveit_core/collision_detection/include/moveit/collision_detection/collision_detector_allocator.hpp` | decided-non-port | `PORTING-PLAN.md` §225.4, §4.5; `crates/moveit-collision/src/env.rs:40-83` | env.rs used to *defer* this ("a compile-time registry needs at least one registrant to be worth adding"); that expiry was met -- three backends now implement `CollisionEnv` -- and §225.4 decided it rather than deferring again. Three grounds: `rg -n -i 'collision_detector|detector_name' crates/ ros/ tools/ --glob '*.rs'` finds 12 hits, all doc comments and no selection site; §177's `linkme` linker-order hazard; and no single `allocateEnv` signature serves `ParryCollisionEnv::new(world, padding_scale)`, `HybridCollisionEnv::new(.., link_body_decompositions, distance_field_config, collision_tolerance)` and the argument-less `AllValidCollisionEnv`. Narrows §4.5, which kept the trait for FCL-FFI extensibility -- that purpose is carried by `CollisionEnv` itself |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "`CollisionPlugin::initialize` also takes a `planning_scene::PlanningScenePtr` (`collision_plugin.hpp:93`); `PlanningScene` lives in `moveit-scene`, which already depends on `moveit-collision`, so accepting it here would be a circular crate dependency" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_plugin_cache.hpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | "its entire body is pluginlib runtime class loading ... plus `rclcpp` logging -- no algorithm exists independent of that ROS mechanism" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/collision_tools.hpp` | ported-elsewhere | `crates/moveit-collision/src/lib.rs:17` | its `.cpp` is cited as ported; the pure `CostSource` half is `total_cost`/`intersect_cost_sources`/`remove_overlapping` in `moveit-collision`. Residual: the four `visualization_msgs`/`moveit_msgs` marker/message functions (D1) |
 | `moveit_core/collision_detection/include/moveit/collision_detection/occupancy_map.hpp` | gap | `crates/moveit-collision/src/lib.rs:51-68` | the text is a routing decision, not a decision not to port: "It is genuinely `RobotState`-free and portable, so 'no portable piece at all' was also false for this header ... request it against `moveit-octomap`" |
 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_panda.hpp` | gap | none | upstream's shared test body, but it carries no `test/` path component so the corpus rule keeps it; 0 hits in `crates/ ros/ doc/ PORTING-PLAN.md` |
 | `moveit_core/collision_detection/include/moveit/collision_detection/test_collision_common_pr2.hpp` | gap | none | same |
-| `moveit_core/collision_detection/src/allvalid/collision_env_allvalid.cpp` | gap | none | same search, 0 hits |
 | `moveit_core/collision_detection/src/collision_plugin_cache.cpp` | decided-non-port | `crates/moveit-collision/src/lib.rs:37-49` | same sentence |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_distance_field.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | "both `CollisionDetectorAllocatorTemplate<...>` ROS-pluginlib-style runtime plugin registrations. D-decision: D4" |
 | `moveit_core/collision_distance_field/include/moveit/collision_distance_field/collision_detector_allocator_hybrid.hpp` | decided-non-port | `crates/moveit-distance-field/src/lib.rs:541-553` | same sentence |
 | `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_allocator.hpp` | decided-non-port | `crates/moveit-constraints/src/lib.rs:553-562` | "D4: the whole plugin-allocator interface is excluded (D4 already excludes runtime plugin-by-string dispatch) -- nothing in this crate implements this interface" |
-| `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_tools.hpp` | gap | `crates/moveit-constraints/src/lib.rs:577-596` | 3 of 4 declarations are D1; the fourth is called a gap by the crate itself: "`countSamplesPerSecond(sampler, reference_state)` -> gap: a benchmarking helper that takes no ROS type ... and so is not D1-excluded, just never ported" |
-| `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | gap | `crates/moveit-constraints/src/lib.rs:487,536,551` | the base class is ported as a trait; the per-declaration audit leaves `getName()` unported on three samplers ("CS: `getName()` -> gap: see base") |
-| `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | gap | `crates/moveit-constraints/src/lib.rs:577-596` | same residual declaration |
+| `moveit_core/constraint_samplers/include/moveit/constraint_samplers/constraint_sampler_tools.hpp` | decided-non-port | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | 3 of 4 declarations are D1; §225.1 decides the fourth: "루프의 종료 조건이 벽시계다 ... 호출 하나가 구조적으로 1초 이상 걸린다. 이 워크스페이스의 어떤 테스트도 그 출력에 단언을 걸 수 없다", and the same `valid / total` is already measured deterministically by `tests/sampler_self_validation.rs`'s `attempted`/`produced` accounting |
+| `moveit_core/constraint_samplers/src/constraint_sampler.cpp` | ported-elsewhere | `crates/moveit-constraints/src/sampler.rs:184,377`, module doc "`constraint_sampler.cpp`: where its two function bodies went" | the file holds two bodies. The ctor's one substantive line, `jmg_ = scene->getRobotModel()->getJointModelGroup(group_name)`, is `JointConstraintSampler::new`/`UnionConstraintSampler::new`'s `model.joint_model_group(group_name)?`. Residual `clear()` decided non-port by `PORTING-PLAN.md` §225.2 (it exists for upstream's reconfigure and partial-configure-rollback paths, neither of which a fallible `new()` can reach). The previous `gap` reason cited `getName()`, which is not declared in this file at all |
+| `moveit_core/constraint_samplers/src/constraint_sampler_tools.cpp` | decided-non-port | `PORTING-PLAN.md` §225.1, `crates/moveit-constraints/src/lib.rs:574-611` | same four declarations, same decision; this is the file §225.1 quotes line numbers from (`:82,92` for the wall-clock loop bound, `:68` for the one caller) |
 | `moveit_core/exceptions/src/exceptions.cpp` | ported-elsewhere | `crates/moveit-error/src/lib.rs:21-28,64-73` | "An unrecoverable error, replacing upstream's `moveit::Exception` hierarchy" -- `moveit_error::Error`, with `Error::Construct` for `ConstructException` |
 | `moveit_core/macros/include/moveit/macros/class_forward.hpp` | decided-non-port | `crates/moveit-trajectory/src/lib.rs:51-52`, `:370` | "`MOVEIT_CLASS_FORWARD(TimeParameterization)`/`MOVEIT_CLASS_FORWARD(TimeOptimalTrajectoryGeneration)` -- both unported"; the header's whole content is `MOVEIT_CLASS_FORWARD`/`MOVEIT_STRUCT_FORWARD` (2 `#define`s, verified upstream) |
 | `moveit_core/macros/include/moveit/macros/console_colors.hpp` | gap | none | `rg -n -F console_colors crates/ ros/` -> 0 hits; 9 ANSI-escape `#define`s upstream |

@@ -233,6 +233,12 @@ FCL과 Bullet 백엔드 2개(3,037 + 4,278 LOC)를 `parry3d-f64` 백엔드 1개�
 대체한다. `CollisionDetectorAllocator` trait은 유지하므로 나중에 FCL FFI
 백엔드를 추가할 수 있다.
 
+**§225.4가 이 문장을 좁혔다:** 유지되는 것은 "나중에 백엔드를 추가할 수
+있다"는 목적이고, 그것은 `CollisionEnv` trait이 이미 지고 있다.
+`CollisionDetectorAllocator` 자체는 백엔드 타입을 런타임 문자열로 미루기
+위한 간접층인데 이 포트는 호출자가 타입으로 지목하므로 소비자가 없다 —
+`decided-non-port`.
+
 **알려진 차이:** parry와 FCL은 접촉점/법선 산출 알고리즘이 다르다. 차등
 테스트는 `(collision: bool)`과 `(distance: f64, 허용오차)`를 비교하고,
 접촉점 좌표의 정확한 일치는 검증 항목에서 제외한다. 이 완화는 §6.2에
@@ -17181,3 +17187,207 @@ MultiDOF joints"라고 적으면서도 이 경로에는 그 가드가 없다.
 `check-position-bounds-multidof-adjacent-members`). 둘 다 `not-reproduced`,
 둘 다 C++로 돌려본 것이 아니라 읽은 것이며, 대신 포트 쪽에서 대응 테스트와
 그 테스트만 깨뜨리는 변형(`A10`, `A35`/`A34`)을 확보했다.
+
+## §225 `constraint_samplers`의 남은 두 파일과 all-valid 충돌 검출기 — 갭 6건을 판정으로 바꿨다
+
+`doc/port-coverage.md`가 `gap`으로 들고 있던 6개 파일을 열어 판정했다.
+`gap`은 "아무도 결정한 적 없다"는 뜻이지 "포팅해야 한다"는 뜻이 아니므로,
+판정 없이 남겨 두면 다음 라운드가 같은 파일을 같은 깊이로 다시 연다. 아래
+네 소절이 각각 근거를 적고, `doc/port-coverage.md`의 해당 행을 옮긴다.
+
+### §225.1 `constraint_sampler_tools.{hpp,cpp}` — `decided-non-port`
+
+네 선언 중 셋은 이미 D1이다(`visualizeDistribution` 둘은
+`visualization_msgs::msg::MarkerArray`를 받고,
+`countSamplesPerSecond(constr, scene, group)`는 `moveit_msgs::Constraints`와
+`PlanningSceneConstPtr`을 직접 받는다). 넷째
+`countSamplesPerSecond(sampler, reference_state)`만 ROS 타입을 받지 않아
+`crates/moveit-constraints/src/lib.rs`의 선언별 감사가 라운드 12부터
+`gap`으로 들고 있었다. 이 절이 그것을 판정한다.
+
+**포팅하지 않는다.** 세 가지 이유이고, 앞의 둘이 결정적이다.
+
+1. **루프의 종료 조건이 벽시계다.** `constraint_sampler_tools.cpp:82,92`가
+   `rclcpp::Clock().now() + rclcpp::Duration::from_seconds(1)`을 잡고
+   `while (rclcpp::Clock().now() < end)`로 돈다. 뽑는 횟수가 기계 성능의
+   함수이므로 반환값의 분해능도 기계의 성질이고, 호출 하나가 구조적으로
+   1초 이상 걸린다. 이 워크스페이스의 어떤 테스트도 그 출력에 단언을 걸 수
+   없다.
+2. **같은 양을 이미 결정적으로 재고 있다.**
+   `crates/moveit-constraints/tests/sampler_self_validation.rs`가 일곱 개
+   샘플러 구성마다 `attempted`/`produced`/`satisfied`를 세고, 시드 고정된
+   10,000 상태 예산에 대해 `produced < quota`면 그 구성을 이름 붙여
+   실패시킨다. `countSamplesPerSecond`가 계산하는 `valid / total`이 바로
+   그 `produced / attempted`인데, 이쪽은 벽시계가 아니라 뽑기 수로 예산이
+   묶여 있고 값을 반환하는 대신 단언한다.
+3. **생산 호출자가 0이다.** `moveit_core`/`moveit_planners`/`moveit_ros`
+   전체에서 유일한 호출자는 자기 자신의 D1 형제
+   (`constraint_sampler_tools.cpp:68`)이고, 그 형제는 받은 `double`을
+   들여다보지 않고 자기 반환값으로 그대로 흘려보낸다(라운드 13/14 근거,
+   `lib.rs`의 해당 항목에 유지). 그 위에 이번 라운드가 하나 더 찾았다 —
+   그 `double`은 이름이 약속하는 rate도 아니다
+   (`doc/upstream-bugs.md`의 `count-samples-per-second-returns-a-ratio`).
+
+`lib.rs`의 66개 선언 감사에서 이 항목의 태그를 `gap`에서 `decided`로
+옮겼다. 태그별 수는 `rg -c '^//! - CS:.*-> TAG'`로 재현되며
+19/23/8/6/1/9 = 66이다.
+
+**부수 정정.** 그 감사의 마지막 합계 줄이 `18 + 23 + 8 + 6 + 11 = 66`이었다.
+합은 맞지만 `ported`와 `gap` 항이 라운드 20 이후 재도출된 적이 없어 둘 다
+1씩 틀려 있었고, 반대 방향이라 총합이 가려 주고 있었다. 항을 `rg -c`
+실측으로 바꿨다.
+
+### §225.2 `constraint_sampler.cpp` — `ported-elsewhere`, 잔여분 `clear()`는 판정
+
+이 파일은 67줄이고 함수 본문이 정확히 둘이다. 표가 이 행을 `gap`으로 들고
+있던 근거는 "선언별 감사가 `getName()`을 세 샘플러에서 미포팅으로 남긴다"
+였는데, `getName()`은 이 `.cpp`에 없다 — 헤더의 순수 가상이고 구체
+오버라이드는 `default_constraint_samplers.hpp`/`union_constraint_sampler.hpp`
+안에 인라인으로 있다. 즉 이 행의 근거는 다른 파일의 잔여분을 가리키고
+있었다. 이 절이 이 파일 자체의 두 본문을 판정한다.
+
+- **생성자 (`:52-60`).** 실질은 한 줄
+  `jmg_ = scene->getRobotModel()->getJointModelGroup(group_name)`이고,
+  실패하면 `RCLCPP_ERROR`를 찍은 뒤 **널 `jmg_`인 채로 생성이 계속된다**
+  (그래서 모든 `configure()`가 `if (!jmg_)`를 다시 본다,
+  `default_constraint_samplers.cpp:72`). 포트에서는
+  `JointConstraintSampler::new`/`UnionConstraintSampler::new`의 첫 줄
+  `model.joint_model_group(group_name)?`가 그 조회이고, `?`가 그 "로그 찍고
+  계속"을 생성 시점의 `Error::UnknownName`으로 바꾼다
+  (`crates/moveit-constraints/src/sampler.rs:184,377`).
+  `IkConstraintSamplerAdapter::new`는 이미 해결된 `&JointModelGroup`을 받아
+  조회 자체가 없다. 나머지 초기화 셋(`is_valid_`, `verbose_`, `scene_`)은
+  포트에 대응 필드가 없는 것들이고, 각각 이미
+  `crates/moveit-constraints/src/lib.rs`의 선언별 감사에 이름으로 처분이
+  붙어 있다.
+- **`clear()` (`:62-66`) — 포팅하지 않는다.** 호출 지점은 둘 다
+  `configure()` 안이다: 두 타입의 `configure()` 첫 줄
+  (`default_constraint_samplers.cpp:70,255`, 각자의 `clear()` 오버라이드
+  경유) — 살아 있는 샘플러에 `configure()`를 **두 번째로** 걸 때 백지에서
+  시작하기 위한 것 — 과 `:121`의 "no possible values for the joint" 실패
+  경로 — 실패를 넘어 살아남는 객체에 이미 써 넣은 부분 설정을 손으로
+  되돌리기 위한 것. 이 포트에는 둘 다 구조적으로 없다. 재설정 단계가
+  없고(`new()`가 통째로 짓거나 `Err`), `frame_depends`는 그 `new()` 안에서
+  한 번 계산된 뒤 다시 쓰이지 않으며, `:121`에 해당하는 실패는
+  `sampler.rs:213-221`의 `return Err(..)`이라 되돌릴 부분 구축물이 애초에
+  존재하지 않는다. 상류가 손으로 되돌려야 하는 이유는 실패한 객체가
+  살아남기 때문이고, 포트는 그 객체를 만들지 않는다.
+
+따라서 분류는 `ported-elsewhere`(내용이 다른 이름으로 트리 안에 있음),
+증거는 `sampler.rs:184,377`, 잔여분 `clear()`는 위에서 판정. `sampler.rs`
+모듈 doc이 같은 내용을 그 파일 옆에 적어 둔다.
+
+### §225.3 `collision_env_allvalid.{hpp,cpp}` — 포팅했다, 고르는 경로까지
+
+`AllValidCollisionEnv`를 `crates/moveit-collision/src/all_valid.rs`에
+포팅했다. 상류 클래스 자체는 작다 — 여섯 개 메서드가 `res.collision =
+false`만 쓰고 받은 입력을 하나도 읽지 않는다. 어려운 쪽은 "이걸 어떻게
+고르느냐"다. 아무도 고를 수 없는 널 검출기는 포트가 아니라 죽은 코드이고,
+"충돌 없음"은 **호출하지 않았을 때 나오는 답과 같아서** 테스트가
+`assert!(!collision)` 하나로는 아무것도 증명하지 못한다.
+
+상류의 선택 경로는 `CollisionDetectorAllocatorAllValid`(`NAME`이
+`"ALL_VALID"`)를 `PlanningScene`의 `collision_detector_` 맵에 등록하고
+문자열로 찾는 것이다. 이 포트에는 그 맵도 그 할당자도 없다(§225.4).
+대신 `moveit_scene::PlanningScene`의 모든 충돌 메서드가 호출자가 주는
+`E: CollisionEnv<Posed<'_, 'm>>`에 대해 제네릭이므로, 이 백엔드를 고른다는
+것은 `ParryCollisionEnv`가 갈 자리에 `AllValidCollisionEnv`를 넘긴다는
+뜻이다. 그것이 선택 경로의 **전부**이고, `AllValidCollisionEnv`가 같은
+바운드를 만족한다는 사실 자체가 도달 가능성의 증명이다.
+
+`crates/moveit-scene/tests/all_valid_selection.rs`가 그 경로를 실행한다.
+같은 씬·같은 상태·같은 ACM·같은 요청을 두 번 묻고 호출자가 이름 붙인 타입
+하나만 다르게 한다. pr2를 쓰는 이유는 `base_footprint`가 원점 근처에
+**프리미티브** 상자를 달고 있어 0.1 구 하나로 메시 로딩 없이 충돌이
+나기 때문이다(panda/fanuc는 `<mesh>`뿐이라 "충돌한다" 쪽 절반이 백엔드
+선택이 아니라 메시 해석에 걸린다). 네 케이스 중 하나는 대조군 — 이
+픽스처가 실제로 충돌한다는 것 — 이고, 이것이 깨지면 나머지 셋이 공허해지기
+때문에 따로 이름을 붙였다.
+
+증명의 무게는 `false`가 아니라 두 가지 변이가 진다. 하나는 테스트가 이름
+붙인 타입만 `&parry`로 바꾸면 그 케이스가 깨진다는 것(답이 이름 붙인
+백엔드의 함수라는 뜻), 다른 하나는 `distance_to_collision`이 `f64::MAX`를
+낸다는 것 — 이 값은 이 트리에서 `AllValidCollisionEnv::distance_robot`만
+만들어 내므로, 백엔드를 건너뛰고 기본값을 돌려주는 씬이었다면 이 케이스가
+깨진다. 여덟 개 변이 전부와 각각이 무엇을 죽이고 무엇을 살려 두는지는
+`doc/assertion-discrimination-ledger-p10-samplers.md`에 있다.
+
+두 가지 상류 판정이 코드에 남았다.
+
+1. **`distanceRobot(state)`의 `0.0`은 따라가지 않는다.** 상류가
+   `virtual double distanceRobot(state) const`로 `0.0`을 반환하는데
+   (`collision_env_allvalid.cpp:114-123`), 기반 클래스의 동명 편의
+   오버로드가 **비가상**이라(`collision_env.hpp:202`) 그 선언은 아무것도
+   재정의하지 못하고 가리기만 한다. 할당자가 건네주는 `CollisionEnvPtr`를
+   든 호출자는 기반 쪽, 즉 `std::numeric_limits<double>::max()`를 받는다.
+   한 질문에 두 답이고 고르는 것은 식의 정적 타입이다
+   (`doc/upstream-bugs.md`의 `all-valid-distance-robot-hides-base-overload`).
+   이 포트에는 `distance_robot(state)` 편의 오버로드가 아예 없어서 그 분기를
+   표현할 수 없고, 기반 쪽 값인 `f64::MAX`로 간다. 의미상으로도 그쪽이
+   맞다 — `0.0`은 이 백엔드가 존재 이유로 삼는 "충돌 없음"의 반대편
+   경계다.
+2. **연속(두 상태) 형태는 `Err`가 아니라 답한다.** `ParryCollisionEnv`는
+   스윕 질의가 없어 `Err`를 내지만(`parry.rs:2363`), 상류는 두 개의
+   `checkRobotCollision(state1, state2, ...)` 오버로드를 **둘 다**
+   `res.collision = false`로 재정의한다(`collision_env_allvalid.cpp:89-106`).
+   "아무것도 충돌하지 않는다"는 주장은 경로에도 상태와 똑같이 적용된다.
+
+`CollisionResult`의 세 `Option` 필드는 요청을 따라간다 — 상류가
+기본 생성된 결과를 그대로 두는 것이 이 포트에서는 "물어봤으니 `Some`,
+안 물어봤으니 `None`"이다. 여기서 인접 결함 하나가 드러났다:
+`ParryCollisionEnv`의 `accumulate_collision`(`parry.rs:2145-2150`)은
+`distance: None`을 무조건 쓰므로 `CollisionRequest::distance`를 켠
+호출자에게도 `None`을 준다. `CollisionResult::distance`의 doc이 적어 둔
+"요청했을 때 정확히 존재한다"를 어기는 쪽은 그쪽이다. 이번 라운드 범위가
+아니어서 고치지 않고 보고만 한다.
+
+### §225.4 `collision_detector_allocator{,_allvalid}.hpp` — `decided-non-port`, 그리고 §4.5의 좁힘
+
+두 할당자 헤더를 포팅하지 않는다. §4.5가 "`CollisionDetectorAllocator`
+trait은 유지하므로 나중에 FCL FFI 백엔드를 추가할 수 있다"고 적어 둔 것을
+이 절이 **좁힌다** — 유지되어야 할 것은 그 목적이지 그 간접층이 아니고,
+목적은 `CollisionEnv` trait 자체가 이미 지고 있다. `moveit-collision`의
+`env` 모듈 doc이 같은 판정을 그 trait 옆에 적는다.
+
+`env.rs`가 지금까지 들고 있던 것은 판정이 아니라 **유예**였다: "컴파일타임
+레지스트리는 등록자가 최소 하나는 있어야 값어치가 있는데 이 태스크는 trait만
+남기고 끝난다(parry 백엔드 아직 없음)". 그 조건은 만료했다 —
+`ParryCollisionEnv`, `AllValidCollisionEnv`,
+`moveit_distance_field::HybridCollisionEnv` 셋이 `CollisionEnv`를 구현한다.
+그래서 유예를 한 번 더 미루는 대신 여기서 결정한다.
+
+**상류 할당자가 하는 일은 백엔드의 타입을 런타임 문자열로 미루는 것이다.**
+`allocateEnv`가 `CollisionEnvPtr`을 돌려주고 `getName()`이 그 쌍에 이름을
+붙이므로, `PlanningScene::allocateCollisionDetector`가 `collision_detector_`
+맵을 그 이름으로 키잉하고 `getCollisionEnv(name)`이 찾아 쓴다
+(`planning_scene.cpp:255-311`). 이 포트는 그 결정을 반대 방향으로 한 번,
+영구히 했다: `moveit_scene::PlanningScene`의 충돌 메서드가 호출자가 주는
+`E: CollisionEnv<Posed<'_, 'm>>`에 대해 제네릭이라 백엔드는 호출 지점에서
+**타입으로** 지목된다(`scene.rs:549-557`의 `allocateCollisionDetector`
+처분). 찾을 이름도, 그 이름을 키로 쓸 맵도 없다.
+
+세 가지가 근거다.
+
+1. **소비자가 없다.** `rg -n -i 'collision_detector|detector_name' crates/
+   ros/ tools/ --glob '*.rs'`의 결과 12건이 전부 상류 심볼을 이름으로
+   부르는 doc 주석이고, 선택 지점은 하나도 없다. 레지스트리를 놓으면
+   등록자만 있고 소비자가 없다.
+2. **`linkme` 순서 위험을 이미 한 번 치렀다.** §177 — `linkme` 슬라이스
+   순서는 링커 섹션 순서이고, 워크스페이스 어딘가에 의존성 하나를 더한 것이
+   `KINEMATICS_SOLVERS` 순서를 조용히 뒤집어 pilz 패리티 테스트를 깨뜨렸다.
+   아무도 읽지 않는 슬라이스를 위해 그 위험을 다시 들일 이유가 없다.
+3. **균일한 생성 프로토콜이 세 백엔드 중 어디에도 맞지 않는다.**
+   `ParryCollisionEnv::new(world, padding_scale)`,
+   `HybridCollisionEnv::new(world, padding_scale, link_body_decompositions,
+   distance_field_config, collision_tolerance) -> Result<Self>`,
+   그리고 인자가 없는 유닛 구조체 `AllValidCollisionEnv`. 상류의
+   `allocateEnv(world, robot_model)` 세 오버로드로 이 셋을 다 부를 수 없다.
+
+`collision_detector_allocator_allvalid.hpp`는 그 템플릿의 인스턴스화 한 줄
+(`CollisionDetectorAllocatorTemplate<CollisionEnvAllValid,
+CollisionDetectorAllocatorAllValid>`)에 `NAME = "ALL_VALID"`를 붙인 것이
+전부이므로 상위 판정을 그대로 따른다. 같은 형태의
+`collision_detector_allocator_{distance_field,hybrid}.hpp` 둘은 이미 D4로
+`decided-non-port`였다(`crates/moveit-distance-field/src/lib.rs:541-553`) —
+이 절은 그 판정을 남은 두 건으로 넓히고, 그 근거를 D4의 "pluginlib 런타임
+플러그인"보다 한 단계 아래에서 다시 적는다.

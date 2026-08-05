@@ -37,23 +37,56 @@
 //! backend implements `CollisionEnv<moveit_model::RobotState>`; this trait's
 //! shape does not need to change for that to happen.
 //!
-//! # Why `linkme` is not wired up in this task
+//! # No `CollisionDetectorAllocator`, and no `linkme` registry
 //!
-//! D4 registers plugin families as compile-time `trait` + `linkme` slices,
-//! replacing pluginlib. The registrant for a `CollisionEnv`-shaped plugin
-//! family is `CollisionDetectorAllocator` (an allocator trait that produces
-//! `CollisionEnv` instances, mirroring upstream's `collision_plugin_cache`),
-//! not `CollisionEnv` itself — and a compile-time registry needs at least one
-//! registrant to be worth adding. This task ends with a trait and no
-//! implementation (no parry backend yet), so wiring `linkme` in now would
-//! register nothing; it belongs with the first concrete backend.
+//! This section used to defer the question ("a compile-time registry needs
+//! at least one registrant to be worth adding. This task ends with a trait
+//! and no implementation (no parry backend yet)"). That condition expired:
+//! three concrete backends now implement [`CollisionEnv`] —
+//! [`crate::ParryCollisionEnv`], [`crate::AllValidCollisionEnv`] and
+//! `moveit_distance_field::HybridCollisionEnv`. `PORTING-PLAN.md` §225.4
+//! re-decided it rather than carrying the deferral forward: upstream's
+//! `collision_detector_allocator.hpp` is **not ported**, and no `linkme`
+//! slice replaces it.
+//!
+//! Upstream's allocator exists to defer the *type* of the backend to a
+//! runtime string: `CollisionDetectorAllocator::allocateEnv` hands back a
+//! `CollisionEnvPtr` and `getName()` labels the pairing, so
+//! `PlanningScene::allocateCollisionDetector` can key a `collision_detector_`
+//! map by that name and `getCollisionEnv(name)` can look one up
+//! (`planning_scene.cpp:255-311`). This port made that decision once and
+//! permanently, in the other direction: `moveit_scene::PlanningScene`'s
+//! collision methods are generic over a caller-supplied
+//! `E: CollisionEnv<Posed<'_, 'm>>`, so the backend is named as a *type* at
+//! the call site (see `scene.rs`'s own "Collision checking" section and its
+//! `allocateCollisionDetector` disposition). There is no name to look up
+//! and no map to key it in — `rg -n -i 'collision_detector|detector_name'
+//! crates/ ros/ tools/ --glob '*.rs'` finds no selection site at all, only
+//! doc comments naming the upstream symbol.
+//!
+//! So a registry here would have registrants and no consumer, and would
+//! import a hazard this workspace has already paid for once
+//! (`PORTING-PLAN.md` §177: `linkme` order is linker-section order, and
+//! adding one dependency anywhere in the workspace silently reordered
+//! `KINEMATICS_SOLVERS`). The other thing the allocator supplies, a uniform
+//! three-overload construction protocol, does not fit the backends that
+//! exist either: [`crate::ParryCollisionEnv::new`] takes a [`crate::World`] and
+//! a [`LinkPaddingScale`], `HybridCollisionEnv::new` additionally takes a
+//! distance-field config, link body decompositions and a collision
+//! tolerance, and [`crate::AllValidCollisionEnv`] takes nothing — no
+//! `allocateEnv(world, robot_model)` signature can serve all three.
+//!
+//! What keeps a future FCL-FFI backend addable — §4.5's stated reason for
+//! keeping the allocator trait — is [`CollisionEnv`] itself, which such a
+//! backend would implement exactly as the three above do. §225.4 narrows
+//! §4.5's wording accordingly.
 //!
 //! # Out of scope
 //!
 //! `collision_plugin_cache.*` (pluginlib-based FCL/Bullet/distance-field
-//! selection — replaced by the compile-time registry above, once a backend
-//! exists to register), `collision_octomap_filter.*` and `occupancy_map.*`
-//! (both need an octomap dependency and a `RobotState`) are not touched here.
+//! selection by runtime string — the mechanism the section above declines),
+//! `collision_octomap_filter.*` and `occupancy_map.*` (both need an octomap
+//! dependency and a `RobotState`) are not touched here.
 
 use std::collections::BTreeMap;
 
