@@ -867,9 +867,9 @@ No fix needed for moveit-kinematics.
 
 | Site | Kind | Verdict | Evidence |
 |---|---|---|---|
-| `main.rs:2760` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
-| `main.rs:2848` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
-| `main.rs:2459` | is_empty | in-family | subject is `compare_ik`: `stats` goes in `&mut` and is read back immediately, and `divergent` is a field only that call pushes to. Emptiness alone would be vacuous (deleting the call leaves `IkStats::default()`, also empty), so the row rests on the mutation instead — forcing `solved_by` to `Some("rust")` on the `(true, true) | (false, false)` arm fails this line and no other, while the two sibling tests pin the same field's opposite outcome from the same call shape |
+| `main.rs:2809` | is_empty | **not-this-family** (corrected below) | its own message says "for this diagnostic to mean anything" — a precondition on `parry_representable_link_names`, not on the collision decision this test pins; see the clause-3 re-audit table |
+| `main.rs:2897` | is_empty | in-family | the pinned regression itself; paired one line above with an explicit `touched > 0` per-link guard against exactly the vacuous-pass failure mode the doc comment names |
+| `main.rs:2508` | is_empty | in-family | subject is `compare_ik`: `stats` goes in `&mut` and is read back immediately, and `divergent` is a field only that call pushes to. Emptiness alone would be vacuous (deleting the call leaves `IkStats::default()`, also empty), so the row rests on the mutation instead — forcing `solved_by` to `Some("rust")` on the `(true, true) | (false, false)` arm fails this line and no other, while the two sibling tests pin the same field's opposite outcome from the same call shape |
 | `harness.rs:60` | contains | in-family | unique stdout line |
 | `harness.rs:64` | contains | in-family | unique stdout line |
 | `harness.rs:83` | contains | in-family | secondary corroboration; primary discriminator is the paired `assert_eq!(status.code(), Some(1))` in the same test |
@@ -942,8 +942,8 @@ anchor this pass:
 | `ik_fk_roundtrip.rs:267` | `NewtonRaphsonSolver::new` (which itself calls `ChainInfo::build`) | `err` is its direct return, one layer up | in-family |
 | `multivariate_gaussian.rs:213` | `MultivariateGaussian::new` | checked inline on the constructor's own return, no intermediate object | in-family |
 | `moveit-test-support/src/lib.rs:76` | *(the calling crate's actual subject — this function is a shared fixture-precondition helper, not itself a decision under test)* | `assert_group_has_updated_links` is called by *other* crates' fixture builders, before those crates' own subject call. Deleting the call to whatever the calling test's real subject is (e.g. `generate_distance_field_cache_entry`) leaves this assertion's outcome completely unaffected — it depends only on the URDF/SRDF fixture's static joint configuration. Same shape as `ruckig_smoothing.rs:199`'s `trajectory.group().is_none()`, just packaged as a shared helper instead of an inline check | **not-this-family** (moved) |
-| `main.rs:2760` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2848) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
-| `main.rs:2848` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
+| `main.rs:2809` | the collision/near-placement decision this test pins (`decide_cone`'s tie-break, checked at line 2897) | `eligible.is_empty()`'s own message says it outright: "for this diagnostic to mean anything." `eligible` comes from `parry_representable_link_names(&model)`, not from the collision-checking loop below. Deleting the call to the actual subject (`env.check_robot_collision`, the loop that produces `ambiguous`) leaves this assertion completely unaffected | **not-this-family** (moved) |
+| `main.rs:2897` | `env.check_robot_collision` / `decide_cone`'s tie-break | `ambiguous` is built from `touched_link_counts`, populated once per link by calling `env.check_robot_collision(...)` inside the loop — a genuine per-call subject decision, not a value the test constructed itself. Deleting that call empties `touched_link_counts` and changes this assertion | in-family |
 | `harness.rs:60` | the `moveit-diff` runner binary itself (this whole test file's subject) | `stdout` is the captured output of actually executing `CARGO_BIN_EXE_moveit-diff`; deleting that `Command::output()` call removes `stdout` entirely | in-family |
 | `harness.rs:64` | same | same | in-family |
 | `harness.rs:83` | same | `stdout`/exit code both come from running the binary; this line is a secondary corroboration of the paired `assert_eq!(status.code(), Some(1))` in the same test, not a precondition for it | in-family |
@@ -968,7 +968,7 @@ moved:
 
 - `moveit-test-support/src/lib.rs:76` — fixture-precondition helper,
   same shape as the census's own `ruckig_smoothing.rs:199` precedent.
-- `tools/moveit-diff/src/main.rs:2760` — its own message names it a
+- `tools/moveit-diff/src/main.rs:2809` — its own message names it a
   precondition ("for this diagnostic to mean anything").
 - `tools/moveit-diff/tests/harness.rs:138,144` — assert on
   `fake-oracle.py`'s file text, read by the test itself; no crate code

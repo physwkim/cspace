@@ -498,17 +498,21 @@ impl<'m> IkSolver<'m> {
     /// `rng_seed` seeds the `ChaCha8Rng` the restart reseeds draw from;
     /// `0` is `moveit_kinematics`'s own `DEFAULT_SEED`, i.e. what
     /// `NewtonRaphsonSolver::new` would have used. See
-    /// `Config::ik_rng_seed` for why the caller gets to choose it.
+    /// `Config::ik_rng_seed` for why the caller gets to choose it, and
+    /// `Config::ik_epsilon` for why `epsilon` is a parameter at all when
+    /// only its default measures parity.
     pub fn new(
         model: &'m RobotModel,
         group: &str,
         position_only: bool,
         max_restarts: u32,
         rng_seed: u64,
+        epsilon: f64,
     ) -> Result<Self, String> {
         let params = SolverParams {
             position_only,
             max_restarts: max_restarts as usize,
+            epsilon,
             ..Default::default()
         };
         let solver = NewtonRaphsonSolver::new_with_seed(model, group, &params, rng_seed)

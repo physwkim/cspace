@@ -99,6 +99,22 @@ struct Config {
     /// another. See `Op::Ik::consistency_limits`'s doc comment for why this
     /// is oracle-comparable at all.
     ik_consistency_fraction: Option<f64>,
+    /// `SolverParams::epsilon` on this side only. Defaults to `1e-5`, the
+    /// value `kdl_kinematics_parameters.yaml` declares
+    /// (`default_value: 0.00001`, "Epsilon. Default is 1e-5") and the value
+    /// the oracle hard-codes as `kEpsilon` -- so the default is the one
+    /// setting under which `--ik` measures parity at all.
+    ///
+    /// Any other value deliberately breaks that parity, and the resulting
+    /// success rates are not comparable across the two sides: `CartToJnt`
+    /// accepts a step once `max(position_error, orientation_error) <=
+    /// epsilon`, so the two sides would be answering "converged?" against
+    /// different questions. The flag exists for one job -- pricing the
+    /// alternative in PORTING-PLAN.md §221.2, where the choice was between
+    /// tightening this port's epsilon and correcting a completion condition
+    /// written below it -- and a run that sets it is measuring this side's
+    /// cost curve, not agreement.
+    ik_epsilon: f64,
     /// Seed for the `ChaCha8Rng` this side's restart reseeds draw from
     /// (`NewtonRaphsonSolver::new_with_seed`). Defaults to `0`, which is
     /// `moveit_kinematics`'s own `DEFAULT_SEED`, so an unqualified `--ik`
@@ -158,6 +174,10 @@ impl Config {
         let mut ik_position_only = false;
         let mut ik_max_restarts = 20u32;
         let mut ik_consistency_fraction: Option<f64> = None;
+        // `SolverParams::default().epsilon`, restated here rather than read
+        // from `SolverParams` so the default this tool documents and the
+        // default it applies cannot drift apart silently.
+        let mut ik_epsilon = 1e-5;
         let mut ik_rng_seed = 0u64;
         let mut ik_divergence_json: Option<String> = None;
         let mut stats_json: Option<String> = None;
@@ -228,6 +248,11 @@ impl Config {
                             .map_err(|e| format!("--ik-consistency-limit: {e}"))?,
                     )
                 }
+                "--ik-epsilon" => {
+                    ik_epsilon = want("--ik-epsilon")?
+                        .parse()
+                        .map_err(|e| format!("--ik-epsilon: {e}"))?
+                }
                 "--ik-rng-seed" => {
                     ik_rng_seed = want("--ik-rng-seed")?
                         .parse()
@@ -294,6 +319,7 @@ impl Config {
             ik_position_only,
             ik_max_restarts,
             ik_consistency_fraction,
+            ik_epsilon,
             ik_rng_seed,
             ik_divergence_json,
             stats_json,
@@ -412,6 +438,7 @@ fn main() {
                 "                   [--ik] [--tol-ik EPS] [--ik-position-only] [--ik-max-restarts N]"
             );
             eprintln!("                   [--ik-consistency-limit FRACTION] [--ik-rng-seed N]");
+            eprintln!("                   [--ik-epsilon EPS]");
             eprintln!("                   [--ik-divergence-json <path>]");
             eprintln!("                   [--stats-json <path>]");
             eprintln!("                   [--oracle <cmd> [args...]]");
@@ -637,6 +664,7 @@ fn run(cfg: &Config) -> Result<usize, String> {
             cfg.ik_position_only,
             cfg.ik_max_restarts,
             cfg.ik_rng_seed,
+            cfg.ik_epsilon,
         )?),
         _ => None,
     };
@@ -777,6 +805,12 @@ fn run(cfg: &Config) -> Result<usize, String> {
             ik_stats.rust_success,
             ik_stats.total,
             100.0 * ik_stats.rust_success as f64 / ik_stats.total.max(1) as f64
+        );
+        println!(
+            "rust   solve time: {:.3}s total, {:.3}ms per case (epsilon {:e})",
+            ik_stats.rust_solve_seconds,
+            1000.0 * ik_stats.rust_solve_seconds / ik_stats.total.max(1) as f64,
+            cfg.ik_epsilon
         );
         println!(
             "rust   degenerate (solution == seed): {}/{}",
@@ -1749,6 +1783,17 @@ struct IkStats {
     oracle_only: usize,
     /// McNemar's `c`: rust solved this case, oracle did not.
     rust_only: usize,
+    /// Wall-clock seconds spent inside `IkSolver::solve_case` alone,
+    /// summed over every case.
+    ///
+    /// The run's own wall clock cannot stand in for this: every case also
+    /// pays a JSON round trip to a separate oracle process, which on the
+    /// 5,000-case `panda_arm` sweep dominates. Isolating this side's solve
+    /// is what makes a cost comparison across `--ik-epsilon` values mean
+    /// anything -- the question there is what a tighter convergence bound
+    /// costs *this* solver, and an oracle round trip is a constant added to
+    /// both sides of that comparison.
+    rust_solve_seconds: f64,
     /// Which cases those `b`/`c` counts came from, in case order.
     ///
     /// `#[serde(skip)]` on purpose: this is a per-case list whose length is
@@ -1931,7 +1976,10 @@ fn compare_ik(
 ) -> Verdict {
     stats.total += 1;
 
-    let outcome = match solver.solve_case(joint_values, consistency_limits) {
+    let started = std::time::Instant::now();
+    let solved = solver.solve_case(joint_values, consistency_limits);
+    stats.rust_solve_seconds += started.elapsed().as_secs_f64();
+    let outcome = match solved {
         Ok(o) => o,
         Err(e) => return Verdict::Fail(e),
     };
@@ -2237,8 +2285,8 @@ mod degenerate_counter_reachability_tests {
             RobotModel::from_urdf_and_srdf(&urdf, &urdf_xml, &srdf, &MeshSearchPaths::none())
                 .expect("build panda RobotModel");
 
-        let mut solver =
-            rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0).expect("construct IkSolver");
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
 
         let joint_values: BTreeMap<String, f64> = solver
             .chain_joint_names()
@@ -2305,6 +2353,7 @@ mod ik_divergence_recording_tests {
             ik_position_only: false,
             ik_max_restarts: 0,
             ik_consistency_fraction: None,
+            ik_epsilon: 1e-5,
             ik_rng_seed: 0,
             ik_divergence_json: None,
             stats_json: None,
@@ -2365,8 +2414,8 @@ mod ik_divergence_recording_tests {
     #[test]
     fn a_case_only_this_side_solves_is_recorded_as_rust_only() {
         let model = panda_model();
-        let mut solver =
-            rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0).expect("construct IkSolver");
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
         // Target already at `FK(seed)`, so this side converges on attempt 0.
         let joint_values = midpoint_config(&model, &solver, 0.0);
 
@@ -2395,8 +2444,8 @@ mod ik_divergence_recording_tests {
     #[test]
     fn a_case_only_the_oracle_solves_is_recorded_as_oracle_only() {
         let model = panda_model();
-        let mut solver =
-            rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0).expect("construct IkSolver");
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
         // Off the seed, so any solution has to move -- and a zero-width
         // consistency limit then rejects every one of them.
         let joint_values = midpoint_config(&model, &solver, 0.05);
@@ -2436,8 +2485,8 @@ mod ik_divergence_recording_tests {
     #[test]
     fn a_case_both_sides_solve_is_not_recorded_at_all() {
         let model = panda_model();
-        let mut solver =
-            rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0).expect("construct IkSolver");
+        let mut solver = rust_impl::IkSolver::new(&model, "panda_arm", false, 0, 0, 1e-5)
+            .expect("construct IkSolver");
         let joint_values = midpoint_config(&model, &solver, 0.0);
         let oracle_solution = midpoint_config(&model, &solver, 0.05);
 
