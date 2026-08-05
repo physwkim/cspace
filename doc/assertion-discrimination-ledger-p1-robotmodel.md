@@ -261,6 +261,40 @@ re-run this round, not relayed:
 |---|---|---|---|---|
 | `moveit-constraints/src/position.rs:165` | `PositionConstraint::new`'s `link_model(link_name)?` guard, sibling of `resolve_frame`'s frame-id guard at `:108-109` | `new_rejects_unknown_link` | discriminating | bite (this round): `model.link_model(link_name)?` replaced with `.unwrap_or(&model.link_models()[0])` — `new_rejects_unknown_link` FAILED, `new_rejects_unresolvable_mobile_frame` stayed GREEN; reverted. Mirror: `resolve_frame`'s `if !model.has_link_model(..) && ..` gated `if false && ...` — `new_rejects_unresolvable_mobile_frame` FAILED, `new_rejects_unknown_link` stayed GREEN; reverted. `git status --short` clean before and after. |
 
+**Call-site count, re-derived fresh (not relayed from `2201d35`'s own
+message):** the commit's "23" is already stale — `main` has moved since
+`2201d35` landed. Live count via `rg -n 'PositionConstraint::new\(' <file>`
+across the same four test files: `decide.rs` 12, `utils_parity.rs` 2,
+`constraint_sampler_manager.rs` 6, `ik_sampler.rs` 13 = **33 call sites**,
+one more crate (`sampler_self_validation.rs`) has none. Of those 33, one
+(`decide.rs:535`, the body of `new_rejects_unknown_link` itself) is the
+*deliberately* invalid case; `rg -n '"no_such_link"|no_such_link'` finds no
+other hit. Spot-read two of the remaining 32 rather than trust the count:
+`decide.rs:258` (`satisfied_when_link_origin_is_inside_the_region`)
+passes `"panda_link8"` and `.unwrap()`s the result;
+`ik_sampler.rs:75` (`sampling_volume_sums_sphere_region_bodies`) also
+passes `"panda_link8"`. Both are real links on the `panda_model()`
+fixture, both call sites `.unwrap()` (would panic, not silently pass, if
+the link lookup failed) — the "all other 32 use a valid `link_name`" claim
+holds on direct read, not just by the string-search's own count.
+
+**Message-text-fragility caveat.** `new_rejects_unknown_link` and
+`new_rejects_unresolvable_mobile_frame` both go through
+`assert_err_mentions`, a substring match on the rendered `Display` text —
+by itself, a test that distinguishes two sibling branches only by message
+wording is only as strong as that wording staying put. That is not the
+only evidence here, though: the bite tabled above mutates the *guard
+code*, not the message, and it discriminates at that level — neutralizing
+`link_model(link_name)?` fails `new_rejects_unknown_link` regardless of
+what `Error::UnknownName`'s `Display` impl renders, because the mutation
+changes which branch runs, not what it prints. If someone changed `"no
+link named {name}"` to different wording without touching either guard,
+the two tests would not silently lose their power to discriminate; they
+would fail loudly (the needle no longer matches), which is the safe
+failure mode — caught by CI, not a silent pass-through. The message check
+is a second, stricter layer on top of a discrimination proof that does
+not itself depend on the message text.
+
 No source changes this round — the test already existed on `main`. One
 commit this round: this ledger row.
 
